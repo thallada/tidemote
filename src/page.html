@@ -1,0 +1,428 @@
+<title>Tidemote</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@300;400;500&family=Syne:wght@600;700;800&display=swap">
+<style>
+/* Layout: full-bleed GPU stage; small glass instrument plates in the corners; an inspector plate on the right. */
+:root {
+  --void: #07060c;
+  --ink: #ece6f5;
+  --ink-dim: rgba(236, 230, 245, 0.42);
+  --dim: rgba(236, 230, 245, 0.62);
+  --faint: rgba(236, 230, 245, 0.14);
+  --warm: #ffb45e;
+  --cool: #6e96ff;
+  --glass: rgba(9, 7, 16, 0.8);
+  --display: 'Syne', 'Avenir Next', 'Segoe UI', system-ui, sans-serif;
+  --mono: 'Martian Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --gut: 8px;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  background: var(--void);
+  color: var(--ink);
+  font: 300 11px/1.5 var(--mono);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#stage, #overlay { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+#stage { touch-action: none; cursor: crosshair; }
+#stage.lens { cursor: none; }
+#stage.grabbing { cursor: grabbing; }
+#overlay { pointer-events: none; }
+
+.hud { position: fixed; inset: 0; pointer-events: none; transition: opacity .4s ease; }
+.hud.off { opacity: 0; }
+.corner { position: absolute; display: flex; flex-direction: column; gap: 5px; }
+.tl { top: calc(env(safe-area-inset-top, 0px) + var(--gut)); left: calc(env(safe-area-inset-left, 0px) + var(--gut)); }
+.tr { top: calc(env(safe-area-inset-top, 0px) + var(--gut)); right: calc(env(safe-area-inset-right, 0px) + var(--gut)); align-items: flex-end; text-align: right; }
+.bl { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--gut)); left: calc(env(safe-area-inset-left, 0px) + var(--gut)); }
+.br { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--gut)); right: calc(env(safe-area-inset-right, 0px) + var(--gut)); align-items: flex-end; }
+
+.plate {
+  background: var(--glass);
+  border: 1px solid var(--faint);
+  padding: 6px 9px;
+}
+.panel { pointer-events: auto; }
+.hud .term { pointer-events: auto; }
+
+.greek { text-transform: none; letter-spacing: 0; font-size: 1.15em; }
+.eyebrow { font: 400 9px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); }
+.name { font: 800 12px/1.3 var(--display); letter-spacing: .06em; text-transform: uppercase; }
+.name span { color: var(--warm); }
+.epoch-row { display: flex; align-items: baseline; gap: 10px; margin-top: 5px; }
+.epoch { font: 700 21px/1.2 var(--display); letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.era { font: 600 12px/1.35 var(--display); color: var(--warm); margin-top: 3px; }
+.tide-line { color: var(--dim); margin-top: 2px; }
+
+.count { font: 400 16px/1 var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -.03em; margin-top: 4px; }
+.perf { color: var(--dim); font-variant-numeric: tabular-nums; margin-top: 3px; }
+
+.census { width: min(290px, calc(100vw - 2 * var(--gut))); pointer-events: auto; display: flex; flex-direction: column; gap: 6px; }
+.census-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.census-head button { border: 0; padding: 2px 0; display: flex; align-items: center; gap: 8px; }
+.census-head button::after { content: '▾'; font-size: 10px; transition: transform .2s; }
+.census.closed .census-head button::after { transform: rotate(-90deg); }
+.census-sum { color: var(--dim); font-variant-numeric: tabular-nums; text-align: right; display: flex; flex-direction: column; line-height: 1.35; }
+.census-sum span { white-space: nowrap; }
+.census.closed .census-body { display: none; }
+.census:not(.closed) .census-sum { display: none; }
+.census-body { display: flex; flex-direction: column; gap: 8px; }
+.classes { display: flex; flex-direction: column; gap: 2px; font-variant-numeric: tabular-nums; }
+.crow { display: grid; grid-template-columns: 8px 1fr auto 6.5ch; gap: 8px; align-items: center; }
+.crow i { width: 7px; height: 7px; }
+.crow span { color: var(--dim); }
+.crow b { font-weight: 500; text-align: right; }
+.crow em { font-style: normal; color: var(--dim); text-align: right; }
+.lifestats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; border-top: 1px solid var(--faint); padding-top: 8px; }
+.lifestats div { display: flex; flex-direction: column; gap: 3px; }
+.lifestats b { font-weight: 500; font-size: 12px; font-variant-numeric: tabular-nums; }
+.lifestats span { color: var(--dim); font-size: 8.5px; letter-spacing: .08em; text-transform: uppercase; }
+#chart { width: 100%; height: 56px; display: block; border-bottom: 1px solid var(--faint); }
+.chart-cap { display: flex; justify-content: space-between; color: var(--dim); font-size: 9px; margin-top: -4px; }
+.events { list-style: none; margin: 0; padding: 0 4px 0 0; display: flex; flex-direction: column; gap: 4px; max-height: 128px; overflow-y: auto; scrollbar-width: thin; }
+.events-head { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--faint); padding-top: 6px; }
+.events-head button { padding: 4px 6px; }
+.events a.sp, #ins-body a.sp, .lab a.sp, #ins-name a.sp { color: var(--ink); text-decoration: none; border-bottom: 1px dotted var(--dim); font-weight: 500; }
+.events a.sp:hover, #ins-body a.sp:hover, .lab a.sp:hover { color: var(--warm); border-color: var(--warm); }
+#ins-name a.sp { border: 0; font-weight: inherit; }
+#ins-name a.sp:hover { color: var(--warm); }
+.term { border-bottom: 1px dotted rgba(236,230,245,0.35); cursor: help; }
+.crow { background: none; border: 0; padding: 1px 2px; margin: 0 -2px; text-transform: none; letter-spacing: 0; font: inherit; color: inherit; text-align: left; }
+.crow:hover { background: rgba(255,255,255,0.05); }
+.crow.on { background: rgba(255,180,94,0.16); }
+.top-actions { display: flex; gap: 5px; margin-top: 6px; pointer-events: auto; }
+.top-actions button { padding: 5px 7px; }
+.tip { position: fixed; z-index: 20; pointer-events: none; background: #120f1c; border: 1px solid rgba(236,230,245,0.3); color: var(--ink); padding: 7px 9px; font-size: 10.5px; line-height: 1.5; box-shadow: 0 6px 24px rgba(0,0,0,.5); user-select: none; }
+.focus-chip { position: fixed; top: calc(env(safe-area-inset-top, 0px) + var(--gut)); left: 50%; transform: translateX(-50%); z-index: 4; display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 10px; background: var(--glass); border: 1px solid var(--warm); pointer-events: auto; max-width: calc(100vw - 2 * var(--gut)); }
+.focus-chip .eyebrow { color: var(--warm); }
+.focus-chip b { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.focus-chip button { padding: 4px 7px; letter-spacing: 0; font-size: 12px; }
+.spec-wrap { position: relative; margin-top: 10px; flex: none; }
+#spec-ui { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.inspector.species-mode .spec-wrap, .inspector.species-mode .spec-cap, .inspector.species-mode .ins-actions { display: none; }
+.ins-row { display: flex; gap: 6px; margin-top: 10px; }
+.ins-row button { color: var(--ink); }
+.popchart { width: 100%; height: 48px; display: block; border-bottom: 1px solid var(--faint); }
+.popchart path { fill: none; stroke: var(--warm); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.muted { color: var(--dim); margin: 6px 0; line-height: 1.55; }
+
+/* Lab drawer */
+.lab { position: fixed; z-index: 2; top: calc(env(safe-area-inset-top, 0px) + var(--gut)); bottom: calc(env(safe-area-inset-bottom, 0px) + var(--gut)); left: calc(env(safe-area-inset-left, 0px) + var(--gut)); width: min(460px, calc(100vw - 2 * var(--gut))); display: flex; flex-direction: column; padding: 12px 12px 0; user-select: text; -webkit-user-select: text; }
+.lab-head { display: flex; align-items: baseline; gap: 10px; padding-right: 38px; }
+.lab-head h2 { margin: 0; font: 800 15px/1.3 var(--display); letter-spacing: .06em; text-transform: uppercase; }
+.lab-head h2 span { color: var(--warm); }
+.lab-tabs { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 10px; border-bottom: 1px solid var(--faint); padding-bottom: 8px; }
+.lab-tabs button { padding: 6px 7px; letter-spacing: .1em; font-size: 9px; }
+.lab-tabs button[aria-selected="true"] { color: var(--void); background: var(--ink); border-color: var(--ink); }
+#lab-body { overflow-y: auto; flex: 1; min-height: 0; padding: 4px 4px 16px 0; scrollbar-width: thin; }
+body.lab-open .hud .tl, body.lab-open .hud .census { display: none; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 10px; align-items: end; }
+.filters input { flex: 1 1 100%; background: rgba(255,255,255,0.04); border: 1px solid var(--faint); color: var(--ink); font: 400 11px/1 var(--mono); padding: 7px 8px; }
+.filters label { display: flex; flex-direction: column; gap: 3px; color: var(--dim); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; }
+.filters select { background: #120f1c; color: var(--ink); border: 1px solid var(--faint); font: 400 10.5px/1 var(--mono); padding: 5px 4px; }
+.lab-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 8px 0 4px; }
+.lab-actions .muted { margin: 0; }
+.lab-actions button { color: var(--ink); }
+.splist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.splist li { display: grid; grid-template-columns: 8px minmax(0, 1fr) 70px 6em; gap: 9px; align-items: center; padding: 6px 4px; border-bottom: 1px solid rgba(236,230,245,0.06); cursor: pointer; }
+.splist li:hover { background: rgba(255,255,255,0.05); }
+.splist li > i { width: 8px; height: 8px; border-radius: 50%; }
+.splist li.gone { opacity: .55; }
+.splist li.more { display: block; color: var(--dim); cursor: default; }
+.spmain { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.spmain a.sp { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chips { display: flex; flex-wrap: wrap; gap: 3px; }
+.chips em { font-style: normal; font-size: 8.5px; color: var(--dim); border: 1px solid var(--faint); padding: 1px 4px; }
+.spark { width: 70px; height: 20px; }
+.spark path { fill: none; stroke-width: 1.3; vector-effect: non-scaling-stroke; }
+.spnum { text-align: right; display: flex; flex-direction: column; font-variant-numeric: tabular-nums; }
+.spnum b { font-weight: 500; }
+.spnum span { color: var(--dim); font-size: 9.5px; }
+.bars { display: flex; flex-direction: column; gap: 1px; }
+.barrow { display: grid; grid-template-columns: 8.5em minmax(30px, 1fr) 9.5ch 6.5ch; gap: 8px; align-items: center; text-transform: none; letter-spacing: 0; font: 300 10.5px/1.4 var(--mono); color: var(--ink); border: 0; padding: 3px 4px; text-align: left; }
+.barrow:hover { background: rgba(255,255,255,0.05); }
+.barrow.on { background: rgba(255,180,94,0.16); }
+.barrow .bl { color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.barrow .bt { height: 6px; background: var(--faint); position: relative; }
+.barrow .bt i { position: absolute; left: 0; top: 0; bottom: 0; }
+.barrow .bn, .barrow .bp { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.barrow .bp { color: var(--dim); }
+.chiprow { display: flex; flex-wrap: wrap; gap: 4px; }
+.chiprow button.on { color: var(--void); background: var(--warm); border-color: var(--warm); }
+canvas.dyn { width: 100%; height: 104px; display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--dim); font-size: 9.5px; }
+.legend i { display: inline-block; width: 8px; height: 2px; margin-right: 5px; vertical-align: 3px; }
+.treewrap { margin-top: 8px; }
+#tree { width: 100%; display: block; cursor: pointer; }
+.events.chron { max-height: none; overflow: visible; margin-top: 4px; }
+.ramp { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--dim); font-size: 9px; }
+.ramp i { flex: 1; height: 6px; background: linear-gradient(90deg, #0b0a1a, #1e2a6e, #1f7a8c, #6cc070, #e8e26a, #fff6d8); }
+.eras { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.eras li { display: grid; grid-template-columns: 4.6em auto 1fr; gap: 8px; align-items: baseline; }
+.eras time, .eras span { color: var(--dim); }
+.eras span { text-align: right; }
+.eras b { font-weight: 500; color: var(--warm); }
+.toc { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--faint); }
+.toc a { color: var(--dim); text-decoration: none; font-size: 10px; }
+.toc a:hover, .toc a.on { color: var(--warm); }
+.guide section { margin-top: 16px; }
+.guide h3 { margin: 0 0 6px; font: 700 15px/1.35 var(--display); }
+.guide p, .guide li { color: rgba(236,230,245,0.8); line-height: 1.65; font-size: 11px; }
+.guide p { margin: 0 0 8px; }
+.guide b { color: var(--ink); font-weight: 500; }
+.guide ul, .guide ol { margin: 0 0 8px; padding-left: 18px; }
+.steps { counter-reset: s; }
+.events li { display: grid; grid-template-columns: 7px auto 1fr; gap: 8px; align-items: baseline; line-height: 1.4; }
+.events li i { width: 6px; height: 6px; border-radius: 50%; transform: translateY(-1px); }
+.events time { color: var(--dim); font-variant-numeric: tabular-nums; }
+.events span { min-width: 0; color: var(--dim); }
+.events b { color: var(--ink); font-weight: 500; }
+.events .quiet { display: block; color: var(--dim); }
+
+.keys { display: grid; grid-template-columns: auto auto; column-gap: 14px; row-gap: 3px; max-width: min(390px, calc(100vw - 2 * var(--gut))); padding: 9px 11px; }
+.keys h2 { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; margin: 0 0 6px; }
+.keys kbd { font: 500 10px/1.5 var(--mono); color: var(--ink); white-space: nowrap; }
+.keys span { color: var(--dim); }
+.keys p { grid-column: 1 / -1; margin: 8px 0 0; color: var(--dim); line-height: 1.55; border-top: 1px solid var(--faint); padding-top: 8px; }
+.keys p b { color: var(--ink); font-weight: 500; }
+button {
+  pointer-events: auto; font: 400 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase;
+  color: var(--dim); background: none; border: 1px solid var(--faint); padding: 7px 9px; cursor: pointer;
+}
+button:hover { color: var(--ink); border-color: var(--dim); }
+button:focus-visible { outline: 1px solid var(--warm); outline-offset: 2px; }
+button[aria-pressed="true"] { color: var(--void); background: var(--warm); border-color: var(--warm); }
+.hint { background: var(--glass); }
+.keys h2 button { border: 0; padding: 2px 0 2px 8px; }
+button.x {
+  position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; padding: 0;
+  display: grid; place-items: center; font: 300 20px/1 var(--mono); letter-spacing: 0;
+  color: var(--ink); border-color: var(--faint); background: rgba(255, 255, 255, 0.04);
+}
+button.x:hover { background: rgba(255, 255, 255, 0.12); border-color: var(--ink); }
+button.wide { width: 100%; margin-top: 10px; padding: 9px; color: var(--ink); }
+
+.inspector {
+  position: fixed;
+  right: calc(env(safe-area-inset-right, 0px) + var(--gut));
+  top: calc(env(safe-area-inset-top, 0px) + var(--gut) + 80px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--gut) + 38px);
+  width: 340px;
+  display: flex; flex-direction: column;
+  padding: 14px 14px 0;
+  z-index: 3;
+}
+.ins-head { display: grid; grid-template-columns: 44px 1fr; gap: 12px; align-items: center; padding-right: 34px; }
+.ins-head h2 { margin: 3px 0 2px; font: 700 20px/1.28 var(--display); text-wrap: balance; }
+.ins-head .sub { color: var(--dim); }
+.ins-actions { display: flex; gap: 6px; margin-top: 12px; }
+#specimen { width: 100%; height: 150px; display: block; background: #000; border: 1px solid var(--faint); cursor: ns-resize; }
+.spec-cap { color: var(--dim); font-size: 9px; letter-spacing: .08em; margin-top: 4px; }
+#ins-body { overflow-y: auto; min-height: 0; flex: 1; padding-bottom: 14px; margin-top: 4px; scrollbar-width: thin; }
+.tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+.tags span { border: 1px solid var(--faint); padding: 3px 6px; color: var(--ink); font-size: 9.5px; letter-spacing: .06em; }
+.sect { margin-top: 14px; display: flex; flex-direction: column; gap: 5px; }
+.sect .eyebrow { margin-bottom: 2px; }
+.story { list-style: none; margin: 0; padding: 0 0 0 10px; border-left: 1px solid var(--faint); display: flex; flex-direction: column; gap: 5px; }
+.story li { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px; line-height: 1.45; }
+.story time { min-width: 4.6em; }
+.past { margin-top: 16px; padding-top: 4px; border-top: 1px dashed var(--faint); }
+.past .tags span { color: var(--dim); }
+.story li:first-child span { color: var(--ink); }
+.story time { color: var(--dim); font-variant-numeric: tabular-nums; }
+.story span { color: var(--dim); }
+.kv { display: grid; grid-template-columns: 8.5em 1fr; gap: 10px; align-items: baseline; }
+.kv span { color: var(--dim); }
+.kv b { font-weight: 400; min-width: 0; }
+.kv .bar { margin-top: 4px; }
+.bar { display: block; height: 3px; background: var(--faint); position: relative; overflow: hidden; }
+.bar i { position: absolute; left: 0; top: 0; bottom: 0; }
+.trait, .diet div { display: grid; grid-template-columns: 8.5em 1fr 8em; gap: 10px; align-items: center; }
+.trait span, .diet span { color: var(--dim); }
+.trait b, .diet b { font-weight: 400; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trait.two { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.trait.two .tl { display: flex; justify-content: space-between; gap: 10px; }
+.trait.two b { text-align: right; }
+.trait.two .compbar { height: 7px; }
+em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
+.diet { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+.dbar { display: block; height: 5px; background: var(--faint); position: relative; }
+.dbar::after { content: ''; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--dim); }
+.dbar i { position: absolute; top: 0; bottom: 0; }
+.aff { display: flex; flex-direction: column; gap: 4px; }
+.aff div { display: grid; grid-template-columns: 7px 1fr 70px 3.6em; gap: 8px; align-items: center; }
+.aff i { width: 7px; height: 7px; border-radius: 50%; }
+.aff span { color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aff b { font-weight: 400; text-align: right; font-variant-numeric: tabular-nums; }
+.compbar { display: flex; height: 6px; gap: 1px; }
+.trait .compbar { height: 5px; }
+.complist { display: flex; flex-direction: column; gap: 2px; }
+.complist div { display: grid; grid-template-columns: 7px 1fr auto; gap: 8px; align-items: center; color: var(--dim); }
+.complist i { width: 7px; height: 7px; }
+.complist b { color: var(--ink); font-weight: 400; }
+.note, .blurb { margin: 2px 0 0; color: var(--dim); line-height: 1.55; }
+.blurb { margin-top: 12px; color: var(--ink); }
+
+.flash {
+  position: fixed; left: 50%; top: 22%; transform: translate(-50%, -50%) scale(.98);
+  font: 700 clamp(16px, 2vw, 24px)/1.3 var(--display); letter-spacing: .02em;
+  opacity: 0; transition: opacity .25s ease, transform .25s ease; pointer-events: none;
+  text-align: center; padding: 10px 16px; background: var(--glass); border: 1px solid var(--faint);
+}
+.flash.on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+.intro {
+  position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none;
+  padding-inline: 16px; text-align: center; transition: opacity 1.4s ease;
+  background: radial-gradient(ellipse at center, rgba(7, 6, 12, 0.8), rgba(7, 6, 12, 0.2) 70%);
+}
+.intro.gone { opacity: 0; }
+.intro > div { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.intro h1 span { color: var(--warm); }
+.intro h1 { margin: 0; font: 800 clamp(40px, 8.5vw, 124px)/1.02 var(--display); letter-spacing: -.02em; text-transform: uppercase; text-wrap: balance; }
+.intro p { margin: 0; max-width: 54ch; color: var(--dim); font-size: 11.5px; }
+.intro .calib { color: var(--warm); letter-spacing: .12em; text-transform: uppercase; font-size: 10px; }
+.intro .calib::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--warm); margin-right: 8px; vertical-align: 1px; animation: blink 1s ease-in-out infinite; }
+.intro.ready .calib::before { animation: none; }
+@keyframes blink { 50% { opacity: .2; } }
+
+.nogpu { position: fixed; inset: 0; display: grid; place-items: center; padding-inline: 16px; }
+.nogpu div { max-width: 52ch; display: flex; flex-direction: column; gap: 12px; }
+.nogpu h1 { margin: 0; font: 700 28px/1.3 var(--display); text-wrap: balance; }
+.nogpu p { margin: 0; color: var(--dim); font-size: 12px; white-space: pre-wrap; }
+
+@media (max-width: 720px) {
+  .tide-line, .era { display: none; }
+  .census { width: auto; }
+  .lab { top: auto; height: 62%; }
+  .inspector { left: var(--gut); right: var(--gut); width: auto; top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + var(--gut) + 44px); max-height: 58%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .intro, .flash, .hud { transition: none; }
+  .intro .calib::before { animation: none; }
+}
+</style>
+
+<canvas id="stage" aria-label="Biosphere simulation. Click a particle to inspect it."></canvas>
+<canvas id="overlay" aria-hidden="true"></canvas>
+
+<div class="hud" id="hud">
+  <section class="corner tl plate">
+    <div class="name">Tide<span>mote</span></div>
+    <div class="epoch-row"><span class="eyebrow">Epoch</span><span class="epoch" id="epoch">0:00</span></div>
+    <div class="era" id="era">The First Tides</div>
+    <div class="tide-line" id="tideline"><span class="term" data-tip="light" id="hud-light">Light –</span> · <span class="term" data-tip="season" id="hud-tide">tide –</span></div>
+    <div class="top-actions"><button id="lab-open" type="button" title="Research tools (K)">Lab · K</button></div>
+  </section>
+
+  <section class="corner tr plate">
+    <div class="eyebrow"><span class="term" data-tip="epoch">Particles</span></div>
+    <div class="count" id="count">–</div>
+    <div class="perf" id="perf">–</div>
+  </section>
+
+  <section class="corner bl plate census" id="census">
+    <div class="census-head">
+      <button id="census-toggle" type="button" aria-expanded="true" aria-controls="census-body">Census</button>
+      <span class="census-sum" id="census-sum"><span id="sum-living"></span><span id="sum-thriving"></span></span>
+    </div>
+    <div class="census-body" id="census-body">
+      <div class="classes" id="classes"></div>
+      <div class="lifestats">
+        <div><b id="species">–</b><span class="term" data-tip="alive">alive</span></div>
+        <div><b id="established">–</b><span class="term" data-tip="thriving">thriving</span></div>
+        <div><b id="arisen">–</b><span class="term" data-tip="ever">ever</span></div>
+        <div><b id="depth">–</b><span class="term" data-tip="deepest">deepest</span></div>
+      </div>
+      <canvas id="chart" aria-label="Population history"></canvas>
+      <div class="chart-cap"><span>history</span><span id="histspan"></span></div>
+      <div class="events-head"><span class="eyebrow">Chronicle</span><button id="events-expand" type="button" title="Open the full chronicle in the Lab">Expand</button></div>
+      <ol class="events" id="events"></ol>
+    </div>
+  </section>
+
+  <section class="corner br">
+    <button id="keys-hint" class="hint" type="button">Controls</button>
+    <div class="keys plate panel" id="keys" hidden>
+      <h2 class="eyebrow">Controls <button id="keys-close" type="button" aria-label="Hide controls">hide</button></h2>
+      <kbd>click</kbd><span>inspect a cell or grain</span>
+      <kbd>drag · wheel</kbd><span>pan · zoom the torus</span>
+      <kbd>M</kbd><span>loupe on or off (zoomed out)</span>
+      <kbd>⇧ wheel · [ ]</kbd><span>loupe magnification</span>
+      <kbd>C · Esc</kbd><span>follow · close the inspector, then clear highlight</span>
+      <kbd>T</kbd><span>trails: off, short, long, long exposure</span>
+      <kbd>K</kbd><span>open the Lab: species, charts, lineage, guide</span>
+      <kbd>G · V</kbd><span>tide overlay (faint, light map) · currents</span>
+      <kbd>L N B</kbd><span>bonds · particles · bloom</span>
+      <kbd>, .</kbd><span>slow / speed time</span>
+      <kbd>space</kbd><span>pause</span>
+      <kbd>0 · F · I</kbd><span>reset zoom · fullscreen · hide readouts</span>
+      <kbd>⇧R ⇧R</kbd><span>discard this epoch and begin again</span>
+      <p>Light and <b>tides</b> feed the world. Tides charge <b>silt</b> into <b>glint</b>; photosynthesising cells drink light directly. Others eat glint, husks or each other, and every cell builds its children out of silt. The dead fall into <b>husks</b> that crumble back into silt. Any kind that spreads over too much of the world sickens with blight. Children sometimes mutate, and every so often the climate turns.</p>
+    </div>
+  </section>
+</div>
+
+<aside class="inspector plate panel" id="inspector" hidden aria-live="polite">
+  <button id="ins-close" class="x" type="button" aria-label="Close inspector" title="Close (Esc)">×</button>
+  <div class="ins-head">
+    <canvas id="glyph" width="44" height="44" aria-hidden="true"></canvas>
+    <div>
+      <div class="eyebrow" id="ins-kind">Organism</div>
+      <h2 id="ins-name">–</h2>
+      <div class="sub" id="ins-sub"></div>
+    </div>
+  </div>
+  <div class="ins-actions">
+    <button id="ins-follow" type="button" aria-pressed="false">Follow · C</button>
+  </div>
+  <div class="spec-wrap"><canvas id="specimen" aria-label="Live close-up of the selected cell"></canvas><canvas id="spec-ui" aria-hidden="true"></canvas></div>
+  <div class="spec-cap" id="spec-cap"></div>
+  <div id="ins-body"></div>
+</aside>
+
+<aside class="lab plate panel" id="lab" hidden aria-label="Lab">
+  <button id="lab-close" class="x" type="button" aria-label="Close the Lab" title="Close (K)">×</button>
+  <div class="lab-head"><h2>Field <span>Lab</span></h2><span class="eyebrow">Epoch <span id="lab-epoch">0:00</span></span></div>
+  <nav class="lab-tabs">
+    <button type="button" data-tab="species">Species</button>
+    <button type="button" data-tab="composition">Composition</button>
+    <button type="button" data-tab="dynamics">Dynamics</button>
+    <button type="button" data-tab="lineage">Lineage</button>
+    <button type="button" data-tab="chronicle">Chronicle</button>
+    <button type="button" data-tab="environment">Environment</button>
+    <button type="button" data-tab="guide">Field guide</button>
+  </nav>
+  <div id="lab-body"></div>
+</aside>
+
+<div class="focus-chip" id="focus-chip" hidden><span class="eyebrow">Highlight</span><b id="focus-label"></b><button id="focus-clear" type="button" aria-label="Clear highlight" title="Clear (Esc)">✕</button></div>
+<div class="tip" id="tip" hidden role="tooltip"></div>
+
+<div class="flash" id="flash" aria-live="polite"></div>
+
+<div class="intro" id="intro">
+  <div>
+    <h1>Tide<span>mote</span></h1>
+    <p>A sealed world of silt, light and hunger. Reefs drink the light, swimmers graze and hunt, and every child might be something new. Leave it running and come back.</p>
+    <div class="calib" id="calib">Waking the GPU</div>
+  </div>
+</div>
+
+<div class="nogpu" id="nogpu" hidden>
+  <div>
+    <div class="eyebrow">Tidemote</div>
+    <h1 id="nogpu-title">WebGPU unavailable</h1>
+    <p id="nogpu-detail"></p>
+  </div>
+</div>
+
+<script type="module">
+/*__SCRIPT__*/
+</script>
