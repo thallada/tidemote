@@ -252,7 +252,7 @@ export function createLab(api) {
   }
 
   // ---------------------------------------------------------- chronicle
-  const TYPES = { all: 'Everything', era: 'Eras', est: 'Established', genus: 'New genera', ext: 'Extinctions', top: 'Dominance', immig: 'Immigration', crisis: 'Crises' };
+  const TYPES = { all: 'Everything', era: 'Eras', est: 'Established', genus: 'New genera', ext: 'Extinctions', top: 'Dominance' };
   function renderChronicle() {
     const ev = api.life().chronicle.filter((e) => (st.chronType === 'all' || e.type === st.chronType)
       && (!st.chronQ || e.text.toLowerCase().includes(st.chronQ.toLowerCase())));

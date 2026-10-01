@@ -32,7 +32,7 @@ esbuild preserves module scope, so top-level names can be reused across files.
 | Path | What it holds |
 | --- | --- |
 | `src/shaders.js` | All WGSL: the simulation passes (binning, counting sort, matter, life), picking, point and bond rendering, post-processing. `DEFAULT_K` holds every tunable constant. |
-| `src/engine.js` | The WebGPU engine: buffers, pipelines, the per-frame pass sequence, census and pick readbacks, the focus/highlight filter, and the CPU-side regulators (plant-cover turbidity, guild blight, immigration). |
+| `src/engine.js` | The WebGPU engine: buffers, pipelines, the per-frame pass sequence, census and pick readbacks, and the focus/highlight filter. |
 | `src/genome.js` | CPU genome helpers: founding archetypes, packing and decoding, colours, affinities, role shares, and diet/mobility guilds. |
 | `src/climate.js` | Shared seasons, climate eras and abiogenesis rules. |
 | `src/main.js` | The page: calibration, camera, inspector, organism tracing, species registry and naming, census panel, input. |
@@ -50,28 +50,29 @@ Each frame runs entirely on the GPU:
 3. **Matter**: silt, glint and husks drift on divergence-free currents. The tide charges silt into glint, glint fades, and husks decay.
 4. **Life**: only the living are dispatched, indirectly. Each cell sums particle-life forces from 8-dimensional surface/receptor signatures, bonds to its two nearest same-species neighbours if it is adhesive, photosynthesises, pays upkeep, and claims food or a silt grain to divide into.
 
-Every 20 frames a census is read back: per-species counts and genomes. The CPU uses it to name species, track lineages, and nudge the few global regulators that keep the ecosystem diverse:
+Every 20 frames a census is read back: per-species counts and genomes. The CPU uses it to name species, and track lineages; it does not steer the ecology. The ecology is shaped only by local rules:
 
-- species blight
-- guild blight
-- plant-cover turbidity
-- immigration of rare ways of life
+- **Local crowding and shade**: nearby same-species cells raise upkeep for free-living cells; living neighbours shade photosynthesis.
+- **Local minerals and food**: photosynthesis needs nearby silt, feeding needs nearby prey, glint or husks, and division needs a nearby silt grain.
+- **Bonds**: bodies share upkeep, shade each other less, and resist attack through armor.
+
+Glint sparks into a random new lineage about once every 30 simulated seconds on average, independent of climate eras and population.
 
 The field guide inside the page explains the ecology in full.
 
 ## Tuning the ecology headlessly
 
-Install dependencies at the repo root with `npm install`. `tools/sim.mjs` runs the page's ecology, including climate eras, crisis recovery and immigration, without rendering or real-time pacing. Defaults: 8192 particles, 10 simulated minutes, samples every 5 simulated seconds and stdout every 30 seconds.
+Install dependencies at the repo root with `npm install`. `tools/sim.mjs` runs the page's ecology, including climate eras and steady abiogenesis, without rendering or real-time pacing. Defaults: 8192 particles, 10 simulated minutes, samples every 5 simulated seconds and stdout every 30 seconds.
 
 Use `--chrome` on machines without a GPU: headless Chromium runs WebGPU through SwiftShader, with `PLAYWRIGHT_CHROMIUM` available to override the executable (the cached Chromium build is tried before Playwright's default). On real GPUs, omit `--chrome` to use Dawn (`webgpu`); `--cpu` selects Mesa lavapipe for Dawn, whose async readbacks can corrupt memory and abort longer runs on GPU-less machines.
 
 ```sh
 node tools/sim.mjs --chrome --n 4096 --minutes 10 --seed 11 --out run.json
-node tools/sim.mjs --k '{"guildCap":0.4,"bite":0.08}' --out run.json
+node tools/sim.mjs --k '{"bite":0.08}' --out run.json
 node tools/sim.mjs --minutes 1 --png world.png
-node tools/compare.mjs --chrome --seeds 4 --minutes 10 --n 8192 --jobs 2 --out runs/ base '{}' noimm '{"immigration":false}'
+node tools/compare.mjs --chrome --seeds 4 --minutes 10 --n 8192 --jobs 2 --out runs/ base '{}' steady '{"eras":false}'
 ```
 
-`--no-eras` and `--no-immigration` disable those rules; `--sample` and `--print` set simulated-second intervals. JSON contains config, samples (composition, diversity, ledger rates per simulated minute and climate), eras, immigrants and summary metrics. Metrics requiring observations after 60 seconds are `null` in shorter runs. Shares are fractions of living cells. `--png` renders the final frame with Dawn only; optional `ZOOM=1,4` writes separate zoom images. `--help` lists the CLI options.
+`--no-eras` disables climate eras; `--sample` and `--print` set simulated-second intervals. JSON contains config, samples (composition, diversity, ledger rates per simulated minute and climate), eras and summary metrics. Metrics requiring observations after 60 seconds are `null` in shorter runs. Shares are fractions of living cells. `--png` renders the final frame with Dawn only; optional `ZOOM=1,4` writes separate zoom images. `--help` lists the CLI options.
 
-Comparison configs accept `k` overrides, `eras` and `immigration` booleans. Runs use seeds 1 through `--seeds`, run up to `--jobs` children, save each JSON, and print means ± sample standard deviations plus per-seed results. Dawn runs limit lavapipe threads per child; Chromium's SwiftShader manages its own threads. Run the smoke test and unit tests with `npm test`; the smoke test uses Chromium when an executable is available and otherwise falls back to Dawn with `--cpu`.
+Comparison configs accept `k` overrides and an `eras` boolean. Runs use seeds 1 through `--seeds`, run up to `--jobs` children, save each JSON, and print means ± sample standard deviations plus per-seed results. Dawn runs limit lavapipe threads per child; Chromium's SwiftShader manages its own threads. Run the smoke test and unit tests with `npm test`; the smoke test uses Chromium when an executable is available and falls back to Dawn with `--cpu` if it is missing or cannot launch.

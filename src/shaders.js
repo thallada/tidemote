@@ -43,11 +43,6 @@ export const DEFAULT_K = {
   armor: 2.5,       // bonded bodies resist being killed or bitten
   nutrHalf: 8.0,    // silt grains nearby at which photosynthesis runs at half speed
   swimCost: 0.018,
-  turbid: 20.0,     // how fast plant cover dims the water once it passes turbidAt
-  immigEvery: 50,   // seconds between checks for a rare way of life that needs immigrants
-  guildCap: 0.36,   // share of all life a diet guild or way of moving can hold before guild blight
-  guildBlight: 8.0, // how fast guild blight rises past the cap
-  turbidAt: 0.1,    // share of all particles that can photosynthesise before the water clouds
   preyBase: 0.35,
   preyFrac: 0.7,
   kin: 0.8,
@@ -64,10 +59,9 @@ export const DEFAULT_K = {
   align: 3.0,
   bond: 8.0,        // spring strength of bonds between cells of one body
   adhMin: 0.15,     // adhesion needed before a species forms bonds
-  blight: 6.0,     // upkeep penalty per unit of living share above blightAt
-  blightAt: 0.12,
   bite: 0.06,       // energy taken per bite from a photosynthesising cell
   eatEvery: 6,      // frames between meals
+  dietMin: 0.02,    // share of the diet a food must have before a cell bothers to eat it
 };
 
 const f = (x) => {
@@ -134,12 +128,9 @@ struct Sim {
   count: u32, frame: u32, dt: f32, time: f32,
   season: f32, abio: f32, seed: u32, maxSpeed: f32,
   seedKinds: u32, pSilt: f32, pGlint: f32, pHusk: f32,
-  ambient: f32, chargeMul: f32, turbid: f32, immigSlot: u32,
+  ambient: f32, chargeMul: f32,
   waves: array<vec4f, 4>,
   tide: array<vec4f, 4>,
-  immig: vec4f,
-  dietCost: vec4f,  // upkeep multiplier per diet guild: producer, grazer, predator, scavenger
-  mobCost: vec4f,   // ...and per way of moving: sessile, crawler, swimmer, drifter
 };
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, pad: u32 };
 
@@ -164,6 +155,7 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, pad: u32 };
 const EAT_R = ${f(K.eatR)};
 const LINK_R = ${f(K.linkR)};
 const MAX_SCAN = ${K.maxScan | 0}u;
+const DIET_MIN = ${f(K.dietMin)};
 
 fn pcg(v: u32) -> u32 {
   let s = v * 747796405u + 2891336453u;
@@ -501,12 +493,7 @@ fn censusMain(@builtin(global_invocation_id) gid: vec3u) {
   let s = gid.x;
   let n = atomicLoad(&frameCtr[0]);
   if (s >= FIRST_LIFE && s < MAXK) {
-    if (s == sim.immigSlot && genomes[s].serial == 0u) {
-      // an immigrant species written by the CPU: give it a serial number and birth time
-      genomes[s].serial = atomicAdd(&ledger[1], 1u) + 1u;
-      genomes[s].born = sim.time;
-    }
-    if (s != sim.immigSlot && atomicLoad(&ledger[META_SLOT + s]) == 1u && atomicLoad(&ledger[META_POP + s]) == 0u) {
+    if (atomicLoad(&ledger[META_SLOT + s]) == 1u && atomicLoad(&ledger[META_POP + s]) == 0u) {
       atomicStore(&ledger[META_SLOT + s], 0u);
       atomicAdd(&ledger[8], 1u);
     }
@@ -537,22 +524,6 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u) {
   var vel = flowAt(p.pos) + jit;
   let pos = wrapPos(p.pos + vel * sim.dt);
   p.age += sim.dt;
-  if (sim.immigSlot != NONE && p.kind <= GLINT) {
-    // immigrants: a colony arriving from elsewhere settles out of the water in a small disc
-    var di = pos - sim.immig.xy;
-    di -= sim.world * round(di / sim.world);
-    if (dot(di, di) < sim.immig.z * sim.immig.z && rnd(&s) < sim.immig.w) {
-      let k = sim.immigSlot;
-      p.kind = k; p.energy = genomes[k].reproE * 0.7; p.age = 0.0;
-      p.id = atomicAdd(&ledger[0], 1u);
-      let r = sampleRole(genomes[k], 0u, &s);
-      p.col = pack4x8unorm(vec4f(roleColor(genomes[k], r), 1.0));
-      p.info = (r << 4u) | 10u;
-      p.pos = pos; p.vel = vec2f(0.0);
-      parts[i] = p;
-      return;
-    }
-  }
   if (p.kind == SILT) {
     let T = tideAt(pos, sim.world, sim.time, sim.tide) * sim.season + 0.2 * sim.ambient;
     if (rnd(&s) < T * ${f(K.charge)} * sim.chargeMul * sim.dt) {
@@ -625,7 +596,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
   // photosynthesis and eating don't mix well: a cell that does both does neither efficiently
   let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
   let hungry = p.energy < g.reproE * ${f(K.sated)} && eatEff > 0.1;
-  let canHunt = (g.dFlesh > 0.02 || g.dGlint > 0.02) && hungry;
+  let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
   let bonding = g.adhesion > ${f(K.adhMin)};
   var dn1 = vec2f(0.0);
   var dn2 = vec2f(0.0);
@@ -712,7 +683,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
               let plant = kphoto[qk] > 0.4;
               let pref = select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, plant);
               let sc = pref - r;
-              if (pref > 0.02 && sc > foodScore) { foodScore = sc; food = j; }
+              if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
             }
           }
         } else {
@@ -727,7 +698,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
             } else if (hungry) {
               let dv = select(g.dHusk, g.dGlint, qk == GLINT);
               let sc = dv - r;
-              if (dv > 0.02 && sc > foodScore) { foodScore = sc; food = j; }
+              if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
             }
           }
         }
@@ -769,22 +740,12 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
   // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
   // water; anchored cells have fresh silt carried past them by the currents.
   let photoGain = g.photo * light * ${f(K.photo)} / (1.0 + crowd * ${f(K.shade)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
-    * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0)) * sim.turbid;
-  let share = f32(atomicLoad(&ledger[META_POP + p.kind])) / max(1.0, f32(atomicLoad(&ledger[15])));
-  let blight = 1.0 + ${f(K.blight)} * max(0.0, share - ${f(K.blightAt)});
+    * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0));
   // free-living cells packed among their own kind sicken (species-specific disease, Janzen-Connell)
   let kinCost = select(1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - ${f(K.kinFree)}), 1.0, bonding);
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
   let thrift = 1.0 - ${f(K.bodyThrift)} * 0.5 * bonds;
-  // guild blight: a whole way of life that crowds out the rest sickens
-  // dg/mg must match genome.js dietGuild/mobilityGuild (omnivores share grazer dg = 1).
-  var dg = 1u;
-  if (g.photo > 0.55) { dg = 0u; } else if (g.dFlesh > 0.55) { dg = 2u; } else if (g.dHusk > 0.55) { dg = 3u; }
-  let effSwim = g.swim * (1.0 - g.photo);
-  var mg = 1u;
-  if (g.advect < 0.2 && effSwim < 0.2) { mg = 0u; } else if (effSwim >= 0.8) { mg = 2u; } else if (g.advect > 0.7 && effSwim < 0.4) { mg = 3u; }
-  let guildCost = sim.dietCost[dg] * sim.mobCost[mg];
-  let upkeep = g.metab * blight * kinCost * thrift * guildCost * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0));
+  let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0));
   var E = p.energy + (photoGain - upkeep) * sim.dt;
   var age = p.age + sim.dt;
   var act = 0u;

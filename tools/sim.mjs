@@ -9,7 +9,7 @@ import { runHeadless } from '../src/headless.js';
 const { values: v } = parseArgs({ options: {
   n: { type: 'string', default: '8192' }, minutes: { type: 'string', default: '10' },
   seed: { type: 'string', default: '23' }, k: { type: 'string', default: '{}' },
-  'no-eras': { type: 'boolean' }, 'no-immigration': { type: 'boolean' },
+  'no-eras': { type: 'boolean' },
   sample: { type: 'string', default: '5' }, print: { type: 'string', default: '30' },
   out: { type: 'string' }, png: { type: 'string' }, cpu: { type: 'boolean' },
   chrome: { type: 'boolean' }, help: { type: 'boolean' },
@@ -18,7 +18,7 @@ if (v.help) {
   console.log(`Usage: node tools/sim.mjs [options]
   --n 8192 --minutes 10 --seed 23 --k '{}'
   --sample 5 --print 30 --out run.json
-  --no-eras --no-immigration
+  --no-eras
   --chrome       Run in headless Chromium (recommended without a GPU)
                  Override the executable with PLAYWRIGHT_CHROMIUM
   --cpu          Select Mesa lavapipe for Dawn only
@@ -28,7 +28,7 @@ if (v.help) {
 }
 if (v.chrome && v.png) throw new Error('--png is supported only with Dawn; omit --chrome');
 const config = { n: +v.n, minutes: +v.minutes, seed: +v.seed, k: JSON.parse(v.k),
-  eras: !v['no-eras'], immigration: !v['no-immigration'], sample: +v.sample, print: +v.print, cpu: !!v.cpu };
+  eras: !v['no-eras'], sample: +v.sample, print: +v.print, cpu: !!v.cpu };
 for (const key of ['n', 'minutes', 'sample', 'print']) {
   if (!Number.isFinite(config[key]) || config[key] <= 0) throw new Error(`--${key} must be positive`);
 }

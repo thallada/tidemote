@@ -3,8 +3,8 @@ import {
   MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_CLAIM, P_BYTES, G_BYTES, G_WORDS, LITE_BYTES,
 } from './shaders.js';
 import {
-  archetypeGenome, finalizeGenome, writeGenome, readGenome, parseParticle,
-  packUnorm, FOUNDING_PLAN, dietGuild, mobilityGuild,
+  archetypeGenome, writeGenome, parseParticle,
+  packUnorm, FOUNDING_PLAN,
 } from './genome.js';
 
 const HDR = 'rgba16float';
@@ -40,21 +40,13 @@ class Engine {
     this.worldGeneration = 0;
     this.season = 1;
     this.abio = 0;
-    this.turbid = 1; // light reaching plants after the shade of all plant cover (set from the census)
-    this.immig = null;
-    this.dietCost = new Float32Array([1, 1, 1, 1]);
-    this.mobCost = new Float32Array([1, 1, 1, 1]);
-    this.guildShare = null;
-    this.immigration = true;
-    this.nextImmig = 40;
-    this.onImmigrate = null;
     this.ambient = 0.17;
     this.chargeMul = 1;
     this.tide = new Float32Array([1, 1, 0.021, 1, 2, -1, -0.017, 1, -1, 3, 0.013, 0.7, 1, -2, 0.011, 0]);
     this.seedValue = 1;
     this.censusEvery = 20;
     this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 1 };
-    this.simData = new ArrayBuffer(256);
+    this.simData = new ArrayBuffer(208);
     this.simF = new Float32Array(this.simData);
     this.simU = new Uint32Array(this.simData);
     this.waves = new Float32Array(16);
@@ -76,7 +68,7 @@ class Engine {
 
     const d = device;
     const b = this.b;
-    b.sim = d.createBuffer({ size: 256, usage: U.UNIFORM | U.COPY_DST });
+    b.sim = d.createBuffer({ size: 208, usage: U.UNIFORM | U.COPY_DST });
     b.view = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
     b.viewL = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
     b.viewS = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
@@ -104,7 +96,7 @@ class Engine {
       scanSums: [6, 7],
       scanAdd: [6, 7],
       scatterMain: [0, 1, 2, 3, 6, 8, 12, 13],
-      censusMain: [0, 10, 11, 12, 13],
+      censusMain: [11, 12, 13],
       matterMain: [0, 1, 2, 10, 11],
       lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12],
     };
@@ -281,16 +273,6 @@ class Engine {
   seed(n, { aspect = 16 / 9, silt = 0.5, glint = 0.12, husk = 0.04, rng = Math.random } = {}) {
     const d = this.device;
     this.worldGeneration++;
-    this.immig = null;
-    this.nextImmig = 40;
-    this.lastSlots = null;
-    this.lastPop = null;
-    this.turbid = 1;
-    this.plantFrac = 0;
-    this.dietCost.fill(1);
-    this.mobCost.fill(1);
-    this.guildShare = null;
-    this.lastImmigGuild = null;
     this.abio = 0;
     this.season = 1;
     n = Math.min(n, this.capacity);
@@ -345,92 +327,6 @@ class Engine {
   }
 
   /** Divergence-free, torus-periodic currents. Returns the new wave table. */
-  /**
-   * Immigration keeps every way of life represented: when a guild becomes rare, a small founding
-   * colony of that type settles out of the water somewhere. Checked from the census.
-   */
-  _guildTick(u, gf) {
-    const gu = new Uint32Array(gf.buffer, gf.byteOffset, gf.length);
-    const diet = [0, 0, 0, 0], mob = [0, 0, 0, 0];
-    let living = 0;
-    for (let s = FIRST_LIFE; s < MAXK; s++) {
-      const n = u[META_POP + s];
-      if (!n) continue;
-      living += n;
-      const g = readGenome(gu, gf, s);
-      // Omnivores share the grazer blight cost, matching WGSL's default dg = 1.
-      diet[{ producer: 0, grazer: 1, omnivore: 1, predator: 2, scavenger: 3 }[dietGuild(g)]] += n;
-      mob[{ sessile: 0, crawler: 1, swimmer: 2, drifter: 3 }[mobilityGuild(g)]] += n;
-    }
-    const K = this.K;
-    const cost = (n) => 1 + K.guildBlight * Math.max(0, n / Math.max(1, living) - K.guildCap);
-    for (let i = 0; i < 4; i++) {
-      this.dietCost[i] += (cost(diet[i]) - this.dietCost[i]) * 0.5;
-      this.mobCost[i] += (cost(mob[i]) - this.mobCost[i]) * 0.5;
-    }
-    this.guildShare = { diet: diet.map((n) => n / Math.max(1, living)), mob: mob.map((n) => n / Math.max(1, living)) };
-  }
-
-  _immigrationTick(u, gf, t) {
-    if (this.immig || t < this.nextImmig) return;
-    this.nextImmig = t + this.K.immigEvery * (0.7 + 0.6 * Math.random());
-    const gu = new Uint32Array(gf.buffer, gf.byteOffset, gf.length);
-    let living = 0;
-    const share = { predator: 0, scavenger: 0, grazer: 0, producer: 0, sessile: 0, bodies: 0, swimmer: 0 };
-    for (let s = FIRST_LIFE; s < MAXK; s++) {
-      const n = u[META_POP + s];
-      if (!n) continue;
-      living += n;
-      const g = readGenome(gu, gf, s);
-      const diet = dietGuild(g), mobility = mobilityGuild(g);
-      if (diet !== 'omnivore') share[diet] += n;
-      if (mobility === 'sessile') share.sessile += n;
-      if (mobility === 'swimmer') share.swimmer += n;
-      if (g.adhesion > this.K.adhMin) share.bodies += n;
-    }
-    if (living < this.count * 0.01) return;
-    const want = { predator: 0.08, scavenger: 0.05, grazer: 0.12, producer: 0.2, sessile: 0.08, bodies: 0.25, swimmer: 0.06 };
-    // choose among the rare guilds, weighted by how rare, and rotate rather than retrying one guild forever
-    const cands = [];
-    let total = 0;
-    for (const k in want) {
-      const r = share[k] / living / want[k];
-      if (r >= 1) continue;
-      const w = (1 - r) * (k === this.lastImmigGuild ? 0.25 : 1);
-      cands.push([k, w]); total += w;
-    }
-    if (!cands.length) return;
-    let pickW = Math.random() * total, worst = cands[0][0];
-    for (const [k, w] of cands) { pickW -= w; if (pickW <= 0) { worst = k; break; } }
-    this.lastImmigGuild = worst;
-    const pickOne = (a) => a[Math.floor(Math.random() * a.length)];
-    const type = { predator: pickOne(['hunter', 'crawler']), scavenger: 'scavenger', grazer: 'grazer', producer: pickOne(['reef', 'plankton', 'filament']),
-      sessile: 'reef', bodies: pickOne(['reef', 'crawler', 'filament', 'hunter']), swimmer: pickOne(['hunter', 'grazer']) }[worst];
-    const g = archetypeGenome(type);
-    const big = worst === 'sessile' || worst === 'bodies' || type === 'reef';
-    this.immigrate(g, { cells: Math.round((big ? 60 : 30) + 40 * Math.random()) });
-    if (this.immig && this.onImmigrate) this.onImmigrate({ type, guild: worst, slot: this.immig.slot, x: this.immig.x, y: this.immig.y, t });
-  }
-
-  immigrate(g, { x, y, r = 2.2, cells = 50, frames = 90 } = {}) {
-    if (!this.lastSlots) return false;
-    const free = [];
-    for (let k = FIRST_LIFE; k < MAXK; k++) if (!this.lastSlots[k] && !this.lastPop[k]) free.push(k);
-    if (free.length < 8) return false;
-    const slot = free[Math.floor(free.length * (0.5 + 0.5 * Math.random()))];
-    g.parent = 0; g.serial = 0; g.born = 0; g.depth = 0;
-    finalizeGenome(g, this.K);
-    const buf = new ArrayBuffer(G_BYTES);
-    writeGenome(new Uint32Array(buf), new Float32Array(buf), 0, g);
-    this.device.queue.writeBuffer(this.b.genomes, slot * G_BYTES, buf);
-    this.device.queue.writeBuffer(this.b.ledger, (META_SLOT + slot) * 4, new Uint32Array([1]));
-    const [W, H] = this.grid;
-    const matter = this.lastPop ? (this.lastPop[0] + this.lastPop[1]) / Math.max(1, this.count) : 0.5;
-    const pool = Math.PI * r * r * this.K.density * Math.max(0.05, matter);
-    this.immig = { slot, x: x ?? Math.random() * W, y: y ?? Math.random() * H, r, p: Math.min(0.5, cells / (frames * pool)), frames };
-    return true;
-  }
-
   randomizeCurrents(rng = Math.random, into = this.waves) {
     const [W, H] = this.grid;
     for (let k = 0; k < 4; k++) {
@@ -456,12 +352,8 @@ class Engine {
     f[8] = this.season; f[9] = this.abio;
     u[10] = (this.seedValue + this.frameNo * 7919) >>> 0; f[11] = this.K.maxSpeed;
     u[12] = extra.seedKinds || 1; f[13] = extra.pSilt || 0; f[14] = extra.pGlint || 0; f[15] = extra.pHusk || 0;
-    f[16] = this.ambient; f[17] = this.chargeMul; f[18] = this.turbid;
-    const im = this.immig;
-    u[19] = im ? im.slot : 0xffffffff;
-    if (im) { f[52] = im.x; f[53] = im.y; f[54] = im.r; f[55] = im.p; }
-    f.set(this.dietCost, 56);
-    f.set(this.mobCost, 60);
+    f[16] = this.ambient; f[17] = this.chargeMul;
+    // The vec4 wave tables start at byte 80 after alignment padding.
     f.set(this.waves, 20);
     f.set(this.tide, 36);
     this.device.queue.writeBuffer(this.b.sim, 0, this.simData);
@@ -499,7 +391,6 @@ class Engine {
       this.simTime += simDt;
       this.frameNo++;
       this._writeSim();
-      if (this.immig && --this.immig.frames <= 0) this.immig = null;
       const cells = this.grid[0] * this.grid[1];
       enc.clearBuffer(b.counts, 0, cells * 4);
       enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
@@ -650,20 +541,6 @@ class Engine {
         st.buf.unmap();
         st.busy = false;
         if (generation !== this.worldGeneration) return;
-        {
-          // Plant cover clouds the water: the more of the world is photosynthesising cells, the less light each gets.
-          const u = new Uint32Array(copy), gf = new Float32Array(copy, LEDGER_HEAD);
-          let plant = 0;
-          for (let s = 4; s < MAXK; s++) { const n = u[META_POP + s]; if (n) plant += n * gf[s * G_WORDS + 38]; }
-          const frac = plant / Math.max(1, this.count);
-          const target = 1 / (1 + this.K.turbid * Math.max(0, frac - this.K.turbidAt));
-          this.plantFrac = frac;
-          this.turbid += (target - this.turbid) * 0.5;
-          this._guildTick(u, gf);
-          this.lastSlots = u.slice(META_SLOT, META_SLOT + MAXK);
-          this.lastPop = u.slice(META_POP, META_POP + MAXK);
-          if (this.immigration) this._immigrationTick(u, gf, censusJob.simTime);
-        }
         if (this.onCensus) {
           const u = new Uint32Array(copy);
           this.onCensus({

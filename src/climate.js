@@ -11,7 +11,7 @@ export function createClimate(eng, rng = Math.random) {
     Object.assign(climate, {
       name: 'The First Tides', started: 0, next: climateMix(600, 900, rng()),
       ambientTo: eng.ambient, chargeTo: eng.chargeMul, tideTo: Array.from(eng.tide.filter((_, i) => i % 4 === 3)),
-      flow: null, seedUntil: 0, index: 1,
+      flow: null, index: 1,
       history: [{ t: 0, name: 'The First Tides', ambient: eng.ambient, charge: eng.chargeMul }],
     });
   }
@@ -37,7 +37,6 @@ export function createClimate(eng, rng = Math.random) {
     climate.name = `The ${climatePick(r, ERA_ADJ)} ${climatePick(r, ERA_NOUN)}`;
     climate.started = t;
     climate.next = t + climateMix(600, 1080, r());
-    climate.seedUntil = t + 25;
     climate.history.push({ t, name: climate.name, ambient: climate.ambientTo, charge: climate.chargeTo });
     climate.onEra?.(climate.history.at(-1), prevAmb);
   }
@@ -65,13 +64,6 @@ export function createClimate(eng, rng = Math.random) {
   return climate;
 }
 
-export function crisisAt(crisis, fraction, t) {
-  if (!crisis && fraction < 0.02 && t > 10) return true;
-  if (crisis && fraction > 0.06) return false;
-  return crisis;
-}
-
-export function abioRate(t, glint, seedUntil, crisis) {
-  const perSec = crisis ? 3 : t < seedUntil ? 1.2 : 1 / 30;
-  return perSec / (Math.max(1, glint) * 60);
+export function abioRate(glint) {
+  return (1 / 30) / (Math.max(1, glint) * 60);
 }

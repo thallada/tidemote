@@ -1,6 +1,6 @@
 import { createEngine, MAXK, FIRST_LIFE } from './engine.js';
 import { readGenome, parseParticle, affinity, roleShares, roleColor, unpackUnorm } from './genome.js';
-import { seasonAt, createClimate, crisisAt, abioRate } from './climate.js';
+import { seasonAt, createClimate, abioRate } from './climate.js';
 import { GLOSSARY } from './guide.js';
 import { createLab } from './lab.js';
 import { genusName, speciesEpithet } from './names.js';
@@ -33,7 +33,7 @@ const MATTER = [
   { name: 'Glint', css: '#b9e6ff', blurb: 'Silt charged by the Tide: free-floating food. Its charge fades back to silt if nothing eats it.' },
   { name: 'Husk', css: '#8a6247', blurb: 'The remains of a dead cell. Scavengers feed on what energy is left; the rest crumbles back into silt.' },
 ];
-const CAUSE = { 0: '', 1: 'starved', 2: 'died of old age', 3: 'was consumed', 4: 'crumbled from a husk', 5: 'charged by the Tide', 6: 'faded back to silt', 8: 'sparked into life from glint', 9: 'built from silt by its parent', 10: 'arrived with a colony of immigrants' };
+const CAUSE = { 0: '', 1: 'starved', 2: 'died of old age', 3: 'was consumed', 4: 'crumbled from a husk', 5: 'charged by the Tide', 6: 'faded back to silt', 8: 'sparked into life from glint', 9: 'built from silt by its parent' };
 const SHAPES = ['disc', 'ring', 'star', 'nucleus', 'diamond'];
 const ROLE = ['α', 'β', 'γ'];
 
@@ -188,8 +188,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let life;
   function resetLife() {
     life = {
-      reg: new Map(), genera: new Map(), orphan: new Map(), immigSlots: new Map(), chronicle: [], history: [], histEvery: 3, lastHist: -1e9,
-      counts: [0, 0, 0, 0], roles: [0, 0, 0], alive: 0, thriving: 0, arisen: 0, maxDepth: 0, top: 0, lastCensus: null, crisis: false, matter: [],
+      reg: new Map(), genera: new Map(), orphan: new Map(), chronicle: [], history: [], histEvery: 3, lastHist: -1e9,
+      counts: [0, 0, 0, 0], roles: [0, 0, 0], alive: 0, thriving: 0, arisen: 0, maxDepth: 0, top: 0, lastCensus: null, matter: [],
       estThreshold: 30, births: 0, prevG: null, prevT: 0,
     };
     renderEvents();
@@ -360,24 +360,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
       serial: g.serial, slot: g.slot, genome: g, genus, name: `${genus} ${epithet}`,
       parent: g.parent, parentName: parent ? parent.name : null, born: g.born,
       ancestor: parent ? (parent.established ? parent.serial : parent.ancestor) : null,
-      pop: 0, peak: 0, alive: true, established: false, extinct: null, founder: g.parent === 0, immigrant: null,
+      pop: 0, peak: 0, alive: true, established: false, extinct: null, founder: g.parent === 0,
     };
-    const im = g.parent === 0 && life.immigSlots.get(g.slot);
-    if (im) { sp.immigrant = im.type; life.immigSlots.delete(g.slot); }
     life.reg.set(g.serial, sp);
     return sp;
   }
-  const ARCH_WORD = { reef: 'reef-builders', plankton: 'plankton', grazer: 'grazers', crawler: 'crawling hunters', hunter: 'swimming hunters', scavenger: 'scavengers', filament: 'filament weavers' };
-  const GUILD_WORD = { predator: 'predators', scavenger: 'scavengers', grazer: 'grazers', producer: 'producers', sessile: 'anchored life', bodies: 'multicellular life', swimmer: 'swimmers' };
   function originWord(sp) {
-    if (sp.immigrant) return `immigrant ${ARCH_WORD[sp.immigrant] || sp.immigrant}`;
     return sp.serial > eng.founders ? 'sparked from glint' : 'a founding lineage';
   }
-  eng.onImmigrate = (e) => {
-    if (state.phase !== 'running') return;
-    life.immigSlots.set(e.slot, e);
-    pushEvent(`Immigrants arrive: a colony of ${ARCH_WORD[e.type] || e.type} settles, as ${GUILD_WORD[e.guild]} have grown rare`, 0xffb4e0ff, 'immig');
-  };
   function pushEvent(html, col, type = 'misc') {
     const text = html.replace(/<[^>]+>/g, '');
     life.chronicle.unshift({ t: eng.simTime, html, text, col, type });
@@ -460,11 +450,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         life.top = best.serial;
       }
     }
-    const frac = living / Math.max(1, eng.count);
-    const wasCrisis = life.crisis;
-    life.crisis = crisisAt(life.crisis, frac, t);
-    if (!wasCrisis && life.crisis) pushEvent('Life has nearly vanished · new lineages begin to spark', 0xffffffff, 'crisis');
-    eng.abio = abioRate(t, pop[1], climate.seedUntil, life.crisis);
+    eng.abio = abioRate(pop[1]);
 
     if (t - life.lastHist >= life.histEvery) {
       const G = Array.from(c.globals);
@@ -658,7 +644,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   function speciesSnapshot(g) {
     const sp = g ? life.reg.get(g.serial) : null;
-    return sp ? { name: sp.name, genus: sp.genus, parentName: sp.parentName, founder: sp.founder, immigrant: sp.immigrant, born: sp.born, serial: sp.serial, ancestor: sp.ancestor } : null;
+    return sp ? { name: sp.name, genus: sp.genus, parentName: sp.parentName, founder: sp.founder, born: sp.born, serial: sp.serial, ancestor: sp.ancestor } : null;
   }
   function remember() {
     if (!sel || !sel.particle || sel.particle.kind < FIRST_LIFE) return;
@@ -881,10 +867,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (sp && sp.alive) {
       const share = sp.pop / Math.max(1, life.counts[3]);
       html += row('Population', `${fmt(sp.pop)} · peak ${fmt(sp.peak)}`);
-      html += row('Share of life', `${(share * 100).toFixed(1)}% · ${share > K.blightAt ? `blight, upkeep ×${(1 + K.blight * (share - K.blightAt)).toFixed(1)}` : 'no blight'}`, 'blight');
+      html += row('Share of life', `${(share * 100).toFixed(1)}%`, 'share');
     } else {
       html += row('Population', sp ? `extinct · peak ${fmt(sp.peak)}` : 'never established');
-      html += row('Share of life', '–', 'blight');
+      html += row('Share of life', '–', 'share');
     }
     const src = sp || spSnap;
     if (src) {

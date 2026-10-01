@@ -8,9 +8,9 @@ export const GLOSSARY = {
   tide: 'Four slow waves summed across the wrap-around world. Where they add up, bright bands form and drift. The Tide charges silt into glint and adds to the light.',
   light: 'What photosynthesising cells feed on: a dim baseline everywhere (set by the era) plus the Tide on top, scaled by the season.',
   season: 'A 5-minute cycle that swings tide strength between 10% and 100%. Glint production and peak light follow it, which drives booms and busts.',
-  era: 'Every 10–18 minutes the climate turns: the baseline light and glint production change, one tide wave is replaced, the currents shift, and new lineages spark from glint. The names are random labels.',
+  era: 'Every 10–18 minutes the climate turns: the baseline light and glint production change, one tide wave is replaced, and the currents shift. The names are random labels.',
   epoch: 'Simulated time since this universe began.',
-  abiogenesis: 'Life sparking from glint: a completely random new species, about once every 30 s, in bursts at each new era and whenever life nearly vanishes.',
+  abiogenesis: 'Life sparking from glint: a completely random new species, about once every 30 simulated seconds on average.',
   flesh: 'Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Animal prey is killed outright and leaves a husk; this takes time, so a hunter manages at most one kill every few seconds. Plant cells are cropped a 0.1-energy bite at a time. Bonded bodies are armoured and shrug off many attacks.',
   diet: 'The share of energy a species takes from each food. Food is worth its energy × share × 1.5, less for partly photosynthetic species.',
   photosynth: 'Takes energy directly from light: 0.4 × photosynthesis × local light per second. It is reduced by shade from neighbouring cells (a bonded body barely shades itself), needs minerals (silt nearby), runs faster for anchored cells with current flowing past them, and dims for everyone when plant cover grows past about a tenth of the world (the water clouds). Photosynthesis makes a cell heavy: less thrust, no swimming, worse at eating.',
@@ -32,10 +32,9 @@ export const GLOSSARY = {
   lifespan: 'Age at which a cell dies of old age.',
   dividesat: 'Energy a cell needs before it can divide. It also needs a grain of silt within reach to build the child from.',
   childshare: 'Fraction of the parent’s energy handed to each child.',
-  upkeep: 'Energy burned per second. Grows with thrust, reach, swimming, schooling, adhesion, lifespan, size and anchoring. Starving cells burn slower. Blight raises it, and so does crowding: a free-living cell packed among more than four of its own kind pays extra.',
+  upkeep: 'Energy burned per second. Grows with thrust, reach, swimming, schooling, adhesion, lifespan, size and anchoring. Starving cells burn slower. Crowding raises it: a free-living cell packed among more than four of its own kind pays extra.',
   mutation: 'Chance per division that the child founds a new species with a nudged genome. Rarely, a whole cell type is reinvented or copied.',
   size: 'Drawn size and shape. Purely visual apart from a small upkeep cost; physics uses reach and personal space.',
-  blight: 'Any species above 12% of all living cells pays rising upkeep. It stops a single species from taking over.',
   share: 'This species’ fraction of all living cells.',
   genus: 'A family of species within a set genetic distance of the genus founder. A lineage that drifts far enough founds a new genus.',
   species: 'Every mutant founds a new species. Most die out unseen; a species counts as thriving once it reaches a population threshold.',
@@ -84,7 +83,7 @@ export const GUIDE = [
   {
     id: 'climate', title: 'Tides, light, seasons and eras',
     html: `<p>The ${t('tide', 'Tide')} is four slow waves summed over the torus; where they add up, bright bands form and drift. ${t('light', 'Light')} is a dim baseline everywhere plus the Tide on top. So tide bands are rich in both glint and light, while baseline light lets plants live anywhere.</p>
-<p>The ${t('season', 'season')} is a 5-minute cycle that swings tide strength between 10% and 100%; it drives the regular booms and busts. Every 10–18 minutes an ${t('era', 'era')} begins: the baseline light and glint production change, one tide wave is replaced so the bright zones form and move differently, two current patterns are swapped, and new lineages spark. Era names are random labels; the event log says what actually changed.</p>
+<p>The ${t('season', 'season')} is a 5-minute cycle that swings tide strength between 10% and 100%; it drives the regular booms and busts. Every 10–18 minutes an ${t('era', 'era')} begins: the baseline light and glint production change, one tide wave is replaced so the bright zones form and move differently, and two current patterns are swapped. Era names are random labels; the event log says what actually changed.</p>
 <p>Use <b>Lab → Environment</b> to show a light map with contour lines and the current field.</p>`,
   },
   {
@@ -108,9 +107,8 @@ export const GUIDE = [
   },
   {
     id: 'ecology', title: 'Ecology',
-    html: `<p>Producers are photosynthesising reefs, mats and plankton, plus glint grazers. Consumers are grazers of plants, scavengers of husks, and predators. Several pressures keep any one form from winning:</p>
+    html: `<p>Producers are photosynthesising reefs, mats and plankton, plus glint grazers. Consumers are grazers of plants, scavengers of husks, and predators. Several pressures shape which forms thrive:</p>
 <ul>
-<li>${t('blight', 'Blight')}: any species above 12% of all life pays rising upkeep.</li>
 <li>Crowding: free-living cells packed among their own kind sicken, so clonal blobs break up and species mix.</li>
 <li>Grazers crop the plants, predators thin out the grazers, and scavengers live off the husks both leave behind.</li>
 <li>Anchored plants thrive where currents run strong; drifting plankton where they are calm. Bonded bodies live cheaply and resist attack but disperse poorly.</li>

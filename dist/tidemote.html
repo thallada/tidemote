@@ -364,7 +364,7 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
       <kbd>space</kbd><span>pause</span>
       <kbd>0 · F · I</kbd><span>reset zoom · fullscreen · hide readouts</span>
       <kbd>⇧R ⇧R</kbd><span>discard this epoch and begin again</span>
-      <p>Light and <b>tides</b> feed the world. Tides charge <b>silt</b> into <b>glint</b>; photosynthesising cells drink light directly. Others eat glint, husks or each other, and every cell builds its children out of silt. The dead fall into <b>husks</b> that crumble back into silt. Any kind that spreads over too much of the world sickens with blight. Children sometimes mutate, and every so often the climate turns.</p>
+      <p>Light and <b>tides</b> feed the world. Tides charge <b>silt</b> into <b>glint</b>; photosynthesising cells drink light directly. Others eat glint, husks or each other, and every cell builds its children out of silt. The dead fall into <b>husks</b> that crumble back into silt. Children sometimes mutate, and every so often the climate turns.</p>
     </div>
   </section>
 </div>
@@ -482,16 +482,6 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
     nutrHalf: 8,
     // silt grains nearby at which photosynthesis runs at half speed
     swimCost: 0.018,
-    turbid: 20,
-    // how fast plant cover dims the water once it passes turbidAt
-    immigEvery: 50,
-    // seconds between checks for a rare way of life that needs immigrants
-    guildCap: 0.36,
-    // share of all life a diet guild or way of moving can hold before guild blight
-    guildBlight: 8,
-    // how fast guild blight rises past the cap
-    turbidAt: 0.1,
-    // share of all particles that can photosynthesise before the water clouds
     preyBase: 0.35,
     preyFrac: 0.7,
     kin: 0.8,
@@ -512,13 +502,12 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
     // spring strength of bonds between cells of one body
     adhMin: 0.15,
     // adhesion needed before a species forms bonds
-    blight: 6,
-    // upkeep penalty per unit of living share above blightAt
-    blightAt: 0.12,
     bite: 0.06,
     // energy taken per bite from a photosynthesising cell
-    eatEvery: 6
+    eatEvery: 6,
     // frames between meals
+    dietMin: 0.02
+    // share of the diet a food must have before a cell bothers to eat it
   };
   var f = (x) => {
     const s = String(x);
@@ -586,12 +575,9 @@ struct Sim {
   count: u32, frame: u32, dt: f32, time: f32,
   season: f32, abio: f32, seed: u32, maxSpeed: f32,
   seedKinds: u32, pSilt: f32, pGlint: f32, pHusk: f32,
-  ambient: f32, chargeMul: f32, turbid: f32, immigSlot: u32,
+  ambient: f32, chargeMul: f32,
   waves: array<vec4f, 4>,
   tide: array<vec4f, 4>,
-  immig: vec4f,
-  dietCost: vec4f,  // upkeep multiplier per diet guild: producer, grazer, predator, scavenger
-  mobCost: vec4f,   // ...and per way of moving: sessile, crawler, swimmer, drifter
 };
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, pad: u32 };
 
@@ -616,6 +602,7 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, pad: u32 };
 const EAT_R = ${f(K.eatR)};
 const LINK_R = ${f(K.linkR)};
 const MAX_SCAN = ${K.maxScan | 0}u;
+const DIET_MIN = ${f(K.dietMin)};
 
 fn pcg(v: u32) -> u32 {
   let s = v * 747796405u + 2891336453u;
@@ -953,12 +940,7 @@ fn censusMain(@builtin(global_invocation_id) gid: vec3u) {
   let s = gid.x;
   let n = atomicLoad(&frameCtr[0]);
   if (s >= FIRST_LIFE && s < MAXK) {
-    if (s == sim.immigSlot && genomes[s].serial == 0u) {
-      // an immigrant species written by the CPU: give it a serial number and birth time
-      genomes[s].serial = atomicAdd(&ledger[1], 1u) + 1u;
-      genomes[s].born = sim.time;
-    }
-    if (s != sim.immigSlot && atomicLoad(&ledger[META_SLOT + s]) == 1u && atomicLoad(&ledger[META_POP + s]) == 0u) {
+    if (atomicLoad(&ledger[META_SLOT + s]) == 1u && atomicLoad(&ledger[META_POP + s]) == 0u) {
       atomicStore(&ledger[META_SLOT + s], 0u);
       atomicAdd(&ledger[8], 1u);
     }
@@ -989,22 +971,6 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u) {
   var vel = flowAt(p.pos) + jit;
   let pos = wrapPos(p.pos + vel * sim.dt);
   p.age += sim.dt;
-  if (sim.immigSlot != NONE && p.kind <= GLINT) {
-    // immigrants: a colony arriving from elsewhere settles out of the water in a small disc
-    var di = pos - sim.immig.xy;
-    di -= sim.world * round(di / sim.world);
-    if (dot(di, di) < sim.immig.z * sim.immig.z && rnd(&s) < sim.immig.w) {
-      let k = sim.immigSlot;
-      p.kind = k; p.energy = genomes[k].reproE * 0.7; p.age = 0.0;
-      p.id = atomicAdd(&ledger[0], 1u);
-      let r = sampleRole(genomes[k], 0u, &s);
-      p.col = pack4x8unorm(vec4f(roleColor(genomes[k], r), 1.0));
-      p.info = (r << 4u) | 10u;
-      p.pos = pos; p.vel = vec2f(0.0);
-      parts[i] = p;
-      return;
-    }
-  }
   if (p.kind == SILT) {
     let T = tideAt(pos, sim.world, sim.time, sim.tide) * sim.season + 0.2 * sim.ambient;
     if (rnd(&s) < T * ${f(K.charge)} * sim.chargeMul * sim.dt) {
@@ -1077,7 +1043,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
   // photosynthesis and eating don't mix well: a cell that does both does neither efficiently
   let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
   let hungry = p.energy < g.reproE * ${f(K.sated)} && eatEff > 0.1;
-  let canHunt = (g.dFlesh > 0.02 || g.dGlint > 0.02) && hungry;
+  let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
   let bonding = g.adhesion > ${f(K.adhMin)};
   var dn1 = vec2f(0.0);
   var dn2 = vec2f(0.0);
@@ -1164,7 +1130,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
               let plant = kphoto[qk] > 0.4;
               let pref = select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, plant);
               let sc = pref - r;
-              if (pref > 0.02 && sc > foodScore) { foodScore = sc; food = j; }
+              if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
             }
           }
         } else {
@@ -1179,7 +1145,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
             } else if (hungry) {
               let dv = select(g.dHusk, g.dGlint, qk == GLINT);
               let sc = dv - r;
-              if (dv > 0.02 && sc > foodScore) { foodScore = sc; food = j; }
+              if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
             }
           }
         }
@@ -1221,22 +1187,12 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
   // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
   // water; anchored cells have fresh silt carried past them by the currents.
   let photoGain = g.photo * light * ${f(K.photo)} / (1.0 + crowd * ${f(K.shade)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
-    * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0)) * sim.turbid;
-  let share = f32(atomicLoad(&ledger[META_POP + p.kind])) / max(1.0, f32(atomicLoad(&ledger[15])));
-  let blight = 1.0 + ${f(K.blight)} * max(0.0, share - ${f(K.blightAt)});
+    * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0));
   // free-living cells packed among their own kind sicken (species-specific disease, Janzen-Connell)
   let kinCost = select(1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - ${f(K.kinFree)}), 1.0, bonding);
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
   let thrift = 1.0 - ${f(K.bodyThrift)} * 0.5 * bonds;
-  // guild blight: a whole way of life that crowds out the rest sickens
-  // dg/mg must match genome.js dietGuild/mobilityGuild (omnivores share grazer dg = 1).
-  var dg = 1u;
-  if (g.photo > 0.55) { dg = 0u; } else if (g.dFlesh > 0.55) { dg = 2u; } else if (g.dHusk > 0.55) { dg = 3u; }
-  let effSwim = g.swim * (1.0 - g.photo);
-  var mg = 1u;
-  if (g.advect < 0.2 && effSwim < 0.2) { mg = 0u; } else if (effSwim >= 0.8) { mg = 2u; } else if (g.advect > 0.7 && effSwim < 0.4) { mg = 3u; }
-  let guildCost = sim.dietCost[dg] * sim.mobCost[mg];
-  let upkeep = g.metab * blight * kinCost * thrift * guildCost * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0));
+  let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0));
   var E = p.energy + (photoGain - upkeep) * sim.dt;
   var age = p.age + sim.dt;
   var act = 0u;
@@ -2031,21 +1987,13 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       this.worldGeneration = 0;
       this.season = 1;
       this.abio = 0;
-      this.turbid = 1;
-      this.immig = null;
-      this.dietCost = new Float32Array([1, 1, 1, 1]);
-      this.mobCost = new Float32Array([1, 1, 1, 1]);
-      this.guildShare = null;
-      this.immigration = true;
-      this.nextImmig = 40;
-      this.onImmigrate = null;
       this.ambient = 0.17;
       this.chargeMul = 1;
       this.tide = new Float32Array([1, 1, 0.021, 1, 2, -1, -0.017, 1, -1, 3, 0.013, 0.7, 1, -2, 0.011, 0]);
       this.seedValue = 1;
       this.censusEvery = 20;
       this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1, tide: 1 };
-      this.simData = new ArrayBuffer(256);
+      this.simData = new ArrayBuffer(208);
       this.simF = new Float32Array(this.simData);
       this.simU = new Uint32Array(this.simData);
       this.waves = new Float32Array(16);
@@ -2066,7 +2014,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       this.b = {};
       const d = device;
       const b = this.b;
-      b.sim = d.createBuffer({ size: 256, usage: U.UNIFORM | U.COPY_DST });
+      b.sim = d.createBuffer({ size: 208, usage: U.UNIFORM | U.COPY_DST });
       b.view = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
       b.viewL = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
       b.viewS = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
@@ -2092,7 +2040,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         scanSums: [6, 7],
         scanAdd: [6, 7],
         scatterMain: [0, 1, 2, 3, 6, 8, 12, 13],
-        censusMain: [0, 10, 11, 12, 13],
+        censusMain: [11, 12, 13],
         matterMain: [0, 1, 2, 10, 11],
         lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12]
       };
@@ -2306,16 +2254,6 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     seed(n, { aspect = 16 / 9, silt = 0.5, glint = 0.12, husk = 0.04, rng = Math.random } = {}) {
       const d = this.device;
       this.worldGeneration++;
-      this.immig = null;
-      this.nextImmig = 40;
-      this.lastSlots = null;
-      this.lastPop = null;
-      this.turbid = 1;
-      this.plantFrac = 0;
-      this.dietCost.fill(1);
-      this.mobCost.fill(1);
-      this.guildShare = null;
-      this.lastImmigGuild = null;
       this.abio = 0;
       this.season = 1;
       n = Math.min(n, this.capacity);
@@ -2367,104 +2305,6 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       this.clearAccum = true;
     }
     /** Divergence-free, torus-periodic currents. Returns the new wave table. */
-    /**
-     * Immigration keeps every way of life represented: when a guild becomes rare, a small founding
-     * colony of that type settles out of the water somewhere. Checked from the census.
-     */
-    _guildTick(u, gf) {
-      const gu = new Uint32Array(gf.buffer, gf.byteOffset, gf.length);
-      const diet = [0, 0, 0, 0], mob = [0, 0, 0, 0];
-      let living = 0;
-      for (let s = FIRST_LIFE; s < MAXK; s++) {
-        const n = u[META_POP + s];
-        if (!n) continue;
-        living += n;
-        const g = readGenome(gu, gf, s);
-        diet[{ producer: 0, grazer: 1, omnivore: 1, predator: 2, scavenger: 3 }[dietGuild(g)]] += n;
-        mob[{ sessile: 0, crawler: 1, swimmer: 2, drifter: 3 }[mobilityGuild(g)]] += n;
-      }
-      const K = this.K;
-      const cost = (n) => 1 + K.guildBlight * Math.max(0, n / Math.max(1, living) - K.guildCap);
-      for (let i = 0; i < 4; i++) {
-        this.dietCost[i] += (cost(diet[i]) - this.dietCost[i]) * 0.5;
-        this.mobCost[i] += (cost(mob[i]) - this.mobCost[i]) * 0.5;
-      }
-      this.guildShare = { diet: diet.map((n) => n / Math.max(1, living)), mob: mob.map((n) => n / Math.max(1, living)) };
-    }
-    _immigrationTick(u, gf, t2) {
-      if (this.immig || t2 < this.nextImmig) return;
-      this.nextImmig = t2 + this.K.immigEvery * (0.7 + 0.6 * Math.random());
-      const gu = new Uint32Array(gf.buffer, gf.byteOffset, gf.length);
-      let living = 0;
-      const share = { predator: 0, scavenger: 0, grazer: 0, producer: 0, sessile: 0, bodies: 0, swimmer: 0 };
-      for (let s = FIRST_LIFE; s < MAXK; s++) {
-        const n = u[META_POP + s];
-        if (!n) continue;
-        living += n;
-        const g2 = readGenome(gu, gf, s);
-        const diet = dietGuild(g2), mobility = mobilityGuild(g2);
-        if (diet !== "omnivore") share[diet] += n;
-        if (mobility === "sessile") share.sessile += n;
-        if (mobility === "swimmer") share.swimmer += n;
-        if (g2.adhesion > this.K.adhMin) share.bodies += n;
-      }
-      if (living < this.count * 0.01) return;
-      const want = { predator: 0.08, scavenger: 0.05, grazer: 0.12, producer: 0.2, sessile: 0.08, bodies: 0.25, swimmer: 0.06 };
-      const cands = [];
-      let total = 0;
-      for (const k in want) {
-        const r = share[k] / living / want[k];
-        if (r >= 1) continue;
-        const w = (1 - r) * (k === this.lastImmigGuild ? 0.25 : 1);
-        cands.push([k, w]);
-        total += w;
-      }
-      if (!cands.length) return;
-      let pickW = Math.random() * total, worst = cands[0][0];
-      for (const [k, w] of cands) {
-        pickW -= w;
-        if (pickW <= 0) {
-          worst = k;
-          break;
-        }
-      }
-      this.lastImmigGuild = worst;
-      const pickOne = (a) => a[Math.floor(Math.random() * a.length)];
-      const type = {
-        predator: pickOne(["hunter", "crawler"]),
-        scavenger: "scavenger",
-        grazer: "grazer",
-        producer: pickOne(["reef", "plankton", "filament"]),
-        sessile: "reef",
-        bodies: pickOne(["reef", "crawler", "filament", "hunter"]),
-        swimmer: pickOne(["hunter", "grazer"])
-      }[worst];
-      const g = archetypeGenome(type);
-      const big = worst === "sessile" || worst === "bodies" || type === "reef";
-      this.immigrate(g, { cells: Math.round((big ? 60 : 30) + 40 * Math.random()) });
-      if (this.immig && this.onImmigrate) this.onImmigrate({ type, guild: worst, slot: this.immig.slot, x: this.immig.x, y: this.immig.y, t: t2 });
-    }
-    immigrate(g, { x, y, r = 2.2, cells = 50, frames = 90 } = {}) {
-      if (!this.lastSlots) return false;
-      const free = [];
-      for (let k = FIRST_LIFE; k < MAXK; k++) if (!this.lastSlots[k] && !this.lastPop[k]) free.push(k);
-      if (free.length < 8) return false;
-      const slot = free[Math.floor(free.length * (0.5 + 0.5 * Math.random()))];
-      g.parent = 0;
-      g.serial = 0;
-      g.born = 0;
-      g.depth = 0;
-      finalizeGenome(g, this.K);
-      const buf = new ArrayBuffer(G_BYTES);
-      writeGenome(new Uint32Array(buf), new Float32Array(buf), 0, g);
-      this.device.queue.writeBuffer(this.b.genomes, slot * G_BYTES, buf);
-      this.device.queue.writeBuffer(this.b.ledger, (META_SLOT + slot) * 4, new Uint32Array([1]));
-      const [W, H] = this.grid;
-      const matter = this.lastPop ? (this.lastPop[0] + this.lastPop[1]) / Math.max(1, this.count) : 0.5;
-      const pool = Math.PI * r * r * this.K.density * Math.max(0.05, matter);
-      this.immig = { slot, x: x ?? Math.random() * W, y: y ?? Math.random() * H, r, p: Math.min(0.5, cells / (frames * pool)), frames };
-      return true;
-    }
     randomizeCurrents(rng = Math.random, into = this.waves) {
       const [W, H] = this.grid;
       for (let k = 0; k < 4; k++) {
@@ -2500,17 +2340,6 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       f2[15] = extra.pHusk || 0;
       f2[16] = this.ambient;
       f2[17] = this.chargeMul;
-      f2[18] = this.turbid;
-      const im = this.immig;
-      u[19] = im ? im.slot : 4294967295;
-      if (im) {
-        f2[52] = im.x;
-        f2[53] = im.y;
-        f2[54] = im.r;
-        f2[55] = im.p;
-      }
-      f2.set(this.dietCost, 56);
-      f2.set(this.mobCost, 60);
       f2.set(this.waves, 20);
       f2.set(this.tide, 36);
       this.device.queue.writeBuffer(this.b.sim, 0, this.simData);
@@ -2545,7 +2374,6 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         this.simTime += simDt;
         this.frameNo++;
         this._writeSim();
-        if (this.immig && --this.immig.frames <= 0) this.immig = null;
         const cells = this.grid[0] * this.grid[1];
         enc.clearBuffer(b.counts, 0, cells * 4);
         enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
@@ -2710,22 +2538,6 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
           st.buf.unmap();
           st.busy = false;
           if (generation !== this.worldGeneration) return;
-          {
-            const u = new Uint32Array(copy), gf = new Float32Array(copy, LEDGER_HEAD);
-            let plant = 0;
-            for (let s = 4; s < MAXK; s++) {
-              const n = u[META_POP + s];
-              if (n) plant += n * gf[s * G_WORDS + 38];
-            }
-            const frac = plant / Math.max(1, this.count);
-            const target2 = 1 / (1 + this.K.turbid * Math.max(0, frac - this.K.turbidAt));
-            this.plantFrac = frac;
-            this.turbid += (target2 - this.turbid) * 0.5;
-            this._guildTick(u, gf);
-            this.lastSlots = u.slice(META_SLOT, META_SLOT + MAXK);
-            this.lastPop = u.slice(META_POP, META_POP + MAXK);
-            if (this.immigration) this._immigrationTick(u, gf, censusJob.simTime);
-          }
           if (this.onCensus) {
             const u = new Uint32Array(copy);
             this.onCensus({
@@ -2908,7 +2720,6 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         chargeTo: eng.chargeMul,
         tideTo: Array.from(eng.tide.filter((_, i) => i % 4 === 3)),
         flow: null,
-        seedUntil: 0,
         index: 1,
         history: [{ t: 0, name: "The First Tides", ambient: eng.ambient, charge: eng.chargeMul }]
       });
@@ -2939,7 +2750,6 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       climate.name = `The ${climatePick(r, ERA_ADJ)} ${climatePick(r, ERA_NOUN)}`;
       climate.started = t2;
       climate.next = t2 + climateMix(600, 1080, r());
-      climate.seedUntil = t2 + 25;
       climate.history.push({ t: t2, name: climate.name, ambient: climate.ambientTo, charge: climate.chargeTo });
       climate.onEra?.(climate.history.at(-1), prevAmb);
     }
@@ -2967,14 +2777,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     reset();
     return climate;
   }
-  function crisisAt(crisis, fraction, t2) {
-    if (!crisis && fraction < 0.02 && t2 > 10) return true;
-    if (crisis && fraction > 0.06) return false;
-    return crisis;
-  }
-  function abioRate(t2, glint, seedUntil, crisis) {
-    const perSec = crisis ? 3 : t2 < seedUntil ? 1.2 : 1 / 30;
-    return perSec / (Math.max(1, glint) * 60);
+  function abioRate(glint) {
+    return 1 / 30 / (Math.max(1, glint) * 60);
   }
 
   // src/guide.js
@@ -2986,9 +2790,9 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     tide: "Four slow waves summed across the wrap-around world. Where they add up, bright bands form and drift. The Tide charges silt into glint and adds to the light.",
     light: "What photosynthesising cells feed on: a dim baseline everywhere (set by the era) plus the Tide on top, scaled by the season.",
     season: "A 5-minute cycle that swings tide strength between 10% and 100%. Glint production and peak light follow it, which drives booms and busts.",
-    era: "Every 10–18 minutes the climate turns: the baseline light and glint production change, one tide wave is replaced, the currents shift, and new lineages spark from glint. The names are random labels.",
+    era: "Every 10–18 minutes the climate turns: the baseline light and glint production change, one tide wave is replaced, and the currents shift. The names are random labels.",
     epoch: "Simulated time since this universe began.",
-    abiogenesis: "Life sparking from glint: a completely random new species, about once every 30 s, in bursts at each new era and whenever life nearly vanishes.",
+    abiogenesis: "Life sparking from glint: a completely random new species, about once every 30 simulated seconds on average.",
     flesh: "Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Animal prey is killed outright and leaves a husk; this takes time, so a hunter manages at most one kill every few seconds. Plant cells are cropped a 0.1-energy bite at a time. Bonded bodies are armoured and shrug off many attacks.",
     diet: "The share of energy a species takes from each food. Food is worth its energy × share × 1.5, less for partly photosynthetic species.",
     photosynth: "Takes energy directly from light: 0.4 × photosynthesis × local light per second. It is reduced by shade from neighbouring cells (a bonded body barely shades itself), needs minerals (silt nearby), runs faster for anchored cells with current flowing past them, and dims for everyone when plant cover grows past about a tenth of the world (the water clouds). Photosynthesis makes a cell heavy: less thrust, no swimming, worse at eating.",
@@ -3010,10 +2814,9 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     lifespan: "Age at which a cell dies of old age.",
     dividesat: "Energy a cell needs before it can divide. It also needs a grain of silt within reach to build the child from.",
     childshare: "Fraction of the parent’s energy handed to each child.",
-    upkeep: "Energy burned per second. Grows with thrust, reach, swimming, schooling, adhesion, lifespan, size and anchoring. Starving cells burn slower. Blight raises it, and so does crowding: a free-living cell packed among more than four of its own kind pays extra.",
+    upkeep: "Energy burned per second. Grows with thrust, reach, swimming, schooling, adhesion, lifespan, size and anchoring. Starving cells burn slower. Crowding raises it: a free-living cell packed among more than four of its own kind pays extra.",
     mutation: "Chance per division that the child founds a new species with a nudged genome. Rarely, a whole cell type is reinvented or copied.",
     size: "Drawn size and shape. Purely visual apart from a small upkeep cost; physics uses reach and personal space.",
-    blight: "Any species above 12% of all living cells pays rising upkeep. It stops a single species from taking over.",
     share: "This species’ fraction of all living cells.",
     genus: "A family of species within a set genetic distance of the genus founder. A lineage that drifts far enough founds a new genus.",
     species: "Every mutant founds a new species. Most die out unseen; a species counts as thriving once it reaches a population threshold.",
@@ -3063,7 +2866,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       id: "climate",
       title: "Tides, light, seasons and eras",
       html: `<p>The ${t("tide", "Tide")} is four slow waves summed over the torus; where they add up, bright bands form and drift. ${t("light", "Light")} is a dim baseline everywhere plus the Tide on top. So tide bands are rich in both glint and light, while baseline light lets plants live anywhere.</p>
-<p>The ${t("season", "season")} is a 5-minute cycle that swings tide strength between 10% and 100%; it drives the regular booms and busts. Every 10–18 minutes an ${t("era", "era")} begins: the baseline light and glint production change, one tide wave is replaced so the bright zones form and move differently, two current patterns are swapped, and new lineages spark. Era names are random labels; the event log says what actually changed.</p>
+<p>The ${t("season", "season")} is a 5-minute cycle that swings tide strength between 10% and 100%; it drives the regular booms and busts. Every 10–18 minutes an ${t("era", "era")} begins: the baseline light and glint production change, one tide wave is replaced so the bright zones form and move differently, and two current patterns are swapped. Era names are random labels; the event log says what actually changed.</p>
 <p>Use <b>Lab → Environment</b> to show a light map with contour lines and the current field.</p>`
     },
     {
@@ -3090,9 +2893,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     {
       id: "ecology",
       title: "Ecology",
-      html: `<p>Producers are photosynthesising reefs, mats and plankton, plus glint grazers. Consumers are grazers of plants, scavengers of husks, and predators. Several pressures keep any one form from winning:</p>
+      html: `<p>Producers are photosynthesising reefs, mats and plankton, plus glint grazers. Consumers are grazers of plants, scavengers of husks, and predators. Several pressures shape which forms thrive:</p>
 <ul>
-<li>${t("blight", "Blight")}: any species above 12% of all life pays rising upkeep.</li>
 <li>Crowding: free-living cells packed among their own kind sicken, so clonal blobs break up and species mix.</li>
 <li>Grazers crop the plants, predators thin out the grazers, and scavengers live off the husks both leave behind.</li>
 <li>Anchored plants thrive where currents run strong; drifting plankton where they are calm. Bonded bodies live cheaply and resist attack but disperse poorly.</li>
@@ -3416,7 +3218,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         cv.title = row ? `${row.s.name} · ${row.s.alive ? `${fmt2(row.s.pop)} alive` : "extinct"} · arose ${fmtClock2(row.s.born)}` : "";
       };
     }
-    const TYPES = { all: "Everything", era: "Eras", est: "Established", genus: "New genera", ext: "Extinctions", top: "Dominance", immig: "Immigration", crisis: "Crises" };
+    const TYPES = { all: "Everything", era: "Eras", est: "Established", genus: "New genera", ext: "Extinctions", top: "Dominance" };
     function renderChronicle() {
       const ev = api.life().chronicle.filter((e) => (st.chronType === "all" || e.type === st.chronType) && (!st.chronQ || e.text.toLowerCase().includes(st.chronQ.toLowerCase())));
       return `<div class="filters">
@@ -3775,7 +3577,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     { name: "Glint", css: "#b9e6ff", blurb: "Silt charged by the Tide: free-floating food. Its charge fades back to silt if nothing eats it." },
     { name: "Husk", css: "#8a6247", blurb: "The remains of a dead cell. Scavengers feed on what energy is left; the rest crumbles back into silt." }
   ];
-  var CAUSE = { 0: "", 1: "starved", 2: "died of old age", 3: "was consumed", 4: "crumbled from a husk", 5: "charged by the Tide", 6: "faded back to silt", 8: "sparked into life from glint", 9: "built from silt by its parent", 10: "arrived with a colony of immigrants" };
+  var CAUSE = { 0: "", 1: "starved", 2: "died of old age", 3: "was consumed", 4: "crumbled from a husk", 5: "charged by the Tide", 6: "faded back to silt", 8: "sparked into life from glint", 9: "built from silt by its parent" };
   var SHAPES = ["disc", "ring", "star", "nucleus", "diamond"];
   var ROLE = ["α", "β", "γ"];
   function fail(title, detail) {
@@ -3947,7 +3749,6 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         reg: /* @__PURE__ */ new Map(),
         genera: /* @__PURE__ */ new Map(),
         orphan: /* @__PURE__ */ new Map(),
-        immigSlots: /* @__PURE__ */ new Map(),
         chronicle: [],
         history: [],
         histEvery: 3,
@@ -3960,7 +3761,6 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         maxDepth: 0,
         top: 0,
         lastCensus: null,
-        crisis: false,
         matter: [],
         estThreshold: 30,
         births: 0,
@@ -4145,28 +3945,14 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         alive: true,
         established: false,
         extinct: null,
-        founder: g.parent === 0,
-        immigrant: null
+        founder: g.parent === 0
       };
-      const im = g.parent === 0 && life.immigSlots.get(g.slot);
-      if (im) {
-        sp.immigrant = im.type;
-        life.immigSlots.delete(g.slot);
-      }
       life.reg.set(g.serial, sp);
       return sp;
     }
-    const ARCH_WORD = { reef: "reef-builders", plankton: "plankton", grazer: "grazers", crawler: "crawling hunters", hunter: "swimming hunters", scavenger: "scavengers", filament: "filament weavers" };
-    const GUILD_WORD = { predator: "predators", scavenger: "scavengers", grazer: "grazers", producer: "producers", sessile: "anchored life", bodies: "multicellular life", swimmer: "swimmers" };
     function originWord(sp) {
-      if (sp.immigrant) return `immigrant ${ARCH_WORD[sp.immigrant] || sp.immigrant}`;
       return sp.serial > eng.founders ? "sparked from glint" : "a founding lineage";
     }
-    eng.onImmigrate = (e) => {
-      if (state.phase !== "running") return;
-      life.immigSlots.set(e.slot, e);
-      pushEvent(`Immigrants arrive: a colony of ${ARCH_WORD[e.type] || e.type} settles, as ${GUILD_WORD[e.guild]} have grown rare`, 4290044159, "immig");
-    };
     function pushEvent(html, col, type = "misc") {
       const text = html.replace(/<[^>]+>/g, "");
       life.chronicle.unshift({ t: eng.simTime, html, text, col, type });
@@ -4248,11 +4034,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
           life.top = best.serial;
         }
       }
-      const frac = living / Math.max(1, eng.count);
-      const wasCrisis = life.crisis;
-      life.crisis = crisisAt(life.crisis, frac, t2);
-      if (!wasCrisis && life.crisis) pushEvent("Life has nearly vanished · new lineages begin to spark", 4294967295, "crisis");
-      eng.abio = abioRate(t2, pop[1], climate.seedUntil, life.crisis);
+      eng.abio = abioRate(pop[1]);
       if (t2 - life.lastHist >= life.histEvery) {
         const G = Array.from(c.globals);
         const rate = (i) => life.prevG && t2 > life.prevT ? (G[i] - life.prevG[i]) / (t2 - life.prevT) * 60 : 0;
@@ -4488,7 +4270,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     }
     function speciesSnapshot(g) {
       const sp = g ? life.reg.get(g.serial) : null;
-      return sp ? { name: sp.name, genus: sp.genus, parentName: sp.parentName, founder: sp.founder, immigrant: sp.immigrant, born: sp.born, serial: sp.serial, ancestor: sp.ancestor } : null;
+      return sp ? { name: sp.name, genus: sp.genus, parentName: sp.parentName, founder: sp.founder, born: sp.born, serial: sp.serial, ancestor: sp.ancestor } : null;
     }
     function remember() {
       if (!sel || !sel.particle || sel.particle.kind < FIRST_LIFE) return;
@@ -4715,10 +4497,10 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       if (sp && sp.alive) {
         const share = sp.pop / Math.max(1, life.counts[3]);
         html += row("Population", `${fmt(sp.pop)} · peak ${fmt(sp.peak)}`);
-        html += row("Share of life", `${(share * 100).toFixed(1)}% · ${share > K.blightAt ? `blight, upkeep ×${(1 + K.blight * (share - K.blightAt)).toFixed(1)}` : "no blight"}`, "blight");
+        html += row("Share of life", `${(share * 100).toFixed(1)}%`, "share");
       } else {
         html += row("Population", sp ? `extinct · peak ${fmt(sp.peak)}` : "never established");
-        html += row("Share of life", "–", "blight");
+        html += row("Share of life", "–", "share");
       }
       const src = sp || spSnap;
       if (src) {

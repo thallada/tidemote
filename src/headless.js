@@ -1,5 +1,5 @@
 // Browser-compatible ecology runner; the caller owns the WebGPU device.
-import { createClimate, seasonAt, crisisAt, abioRate } from './climate.js';
+import { createClimate, seasonAt, abioRate } from './climate.js';
 
 export async function runHeadless(device, config, { print, width = 640, height = 360, snapshot } = {}) {
   const originalRandom = Math.random;
@@ -12,7 +12,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
   try {
     let seed = config.seed >>> 0;
     const rng = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
-    Math.random = rng; // Archetype initialization and immigration also use Math.random.
+    Math.random = rng; // Archetype initialization also uses Math.random.
     const E = await import('./engine.js');
     const { readGenome, dietGuild, mobilityGuild } = await import('./genome.js');
     const eng = await E.createEngine(device, 'rgba8unorm', { K: config.k });
@@ -22,12 +22,10 @@ export async function runHeadless(device, config, { print, width = 640, height =
 
     eng.seed(config.n, { aspect: W / H, rng });
     eng.censusEvery = 20;
-    eng.immigration = config.immigration;
     const climate = createClimate(eng, rng);
-    const samples = [], immigrants = [];
-    eng.onImmigrate = (e) => immigrants.push(e);
+    const samples = [];
     const ledger = { births: 2, mutants: 3, starved: 5, oldAge: 6, kills: 7, extinctions: 8, grazes: 9, scavenges: 10, bites: 11 };
-    let crisis = false, lastSample = -Infinity, lastPrint = -Infinity, prevG, prevT, latest;
+    let lastSample = -Infinity, lastPrint = -Infinity, prevG, prevT, latest;
     let minLivingFrac = null, collapses = 0, collapsed = false;
     const established = new Set(), lost = new Set();
     eng.onCensus = (c) => {
@@ -45,8 +43,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
       for (let s = E.FIRST_LIFE; s < E.MAXK; s++) if (pop[s]) { const p = pop[s] / living; entropy -= p * Math.log(p); }
       for (const shares of [diet, movement]) for (const key in shares) shares[key] /= Math.max(1, living);
       const fraction = living / eng.count;
-      crisis = crisisAt(crisis, fraction, t);
-      eng.abio = abioRate(t, pop[1], climate.seedUntil, crisis);
+      eng.abio = abioRate(pop[1]);
       if (t > 60) {
         minLivingFrac = Math.min(minLivingFrac ?? 1, fraction);
         if (fraction < 0.02 && !collapsed) collapses++;
@@ -58,8 +55,8 @@ export async function runHeadless(device, config, { print, width = 640, height =
       }
       latest = { t, living, silt: pop[0], glint: pop[1], husk: pop[2], species,
         effSpecies: living ? Math.exp(entropy) : 0, diet, movement, bodies: bodies / Math.max(1, living),
-        ambient: eng.ambient, chargeMul: eng.chargeMul, season: eng.season, turbid: eng.turbid,
-        dietCost: Array.from(eng.dietCost), mobCost: Array.from(eng.mobCost), era: climate.name };
+        ambient: eng.ambient, chargeMul: eng.chargeMul, season: eng.season,
+        era: climate.name };
       if (t - lastSample >= config.sample - 1e-6 || c.frameNo === frames) record(c);
       if (t - lastPrint >= config.print - 1e-6) {
         print?.(`t=${t.toFixed(0)}s living=${living}/${eng.count} species=${species} effective=${latest.effSpecies.toFixed(2)} era="${climate.name}"`);
@@ -96,7 +93,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
       frames, msPerFrame: wallSeconds * 1000 / frames, wallSeconds };
     if (snapshot) await snapshot(eng, frames);
     checkErrors();
-    return { config, samples, eras: climate.history, immigrants, summary };
+    return { config, samples, eras: climate.history, summary };
   } finally {
     Math.random = originalRandom;
     device.removeEventListener('uncapturederror', onError);
