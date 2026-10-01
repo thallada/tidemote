@@ -1,0 +1,20 @@
+{
+  "name": "tidemote",
+  "private": true,
+  "type": "module",
+  "description": "A sealed GPU biosphere: particle life, evolution and ecology on WebGPU",
+  "scripts": {
+    "build": "node build.mjs",
+    "sim": "node tools/sim.mjs",
+    "compare": "node tools/compare.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "pngjs": "^7.0.0",
+    "webgpu": "^0.6.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "playwright-core": "^1.63.0"
+  }
+}
