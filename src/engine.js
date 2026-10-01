@@ -2,6 +2,10 @@ import {
   simWGSL, PICK_WGSL, DRAW_WGSL, POST_WGSL, DEFAULT_K,
   MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_CLAIM, P_BYTES, G_BYTES, G_WORDS, LITE_BYTES,
 } from './shaders.js';
+import {
+  archetypeGenome, finalizeGenome, writeGenome, readGenome, parseParticle,
+  packUnorm, FOUNDING_PLAN, dietGuild, mobilityGuild,
+} from './genome.js';
 
 const HDR = 'rgba16float';
 const BLOOM_LEVELS = 6;
@@ -11,161 +15,9 @@ export const FOCUS_MAX = 65536;
 const PICK_BYTES = 56 + PICK_MAX * P_BYTES;
 const LEDGER_HEAD = META_CLAIM * 4;
 const CENSUS_BYTES = LEDGER_HEAD + MAXK * G_BYTES;
-export const KIND = { SILT: 0, GLINT: 1, HUSK: 2 };
 export { MAXK, FIRST_LIFE, DEFAULT_K };
 
-// ------------------------------------------------------------ genome helpers
-export function hsl2rgb(h, s, l) {
-  const k = [0, 8, 4].map((o) => (o + h * 12) % 12);
-  const a = s * Math.min(l, 1 - l);
-  return k.map((v) => l - a * Math.max(-1, Math.min(1, Math.min(v - 3, 9 - v))));
-}
-const fract = (x) => x - Math.floor(x);
-const eclamp = (x, a, b) => Math.max(a, Math.min(b, x));
-const packUnorm = (r, g, b, a = 1) => ((Math.round(eclamp(r, 0, 1) * 255))
-  | (Math.round(eclamp(g, 0, 1) * 255) << 8)
-  | (Math.round(eclamp(b, 0, 1) * 255) << 16) | (Math.round(eclamp(a, 0, 1) * 255) << 24)) >>> 0;
-export const unpackUnorm = (u) => [(u & 255) / 255, ((u >>> 8) & 255) / 255, ((u >>> 16) & 255) / 255, ((u >>> 24) & 255) / 255];
-const packSnorm = (a) => a.reduce((acc, v, i) => acc | ((Math.round(eclamp(v, -1, 1) * 127) & 255) << (i * 8)), 0) >>> 0;
-const unpackSnorm = (u) => [0, 1, 2, 3].map((i) => Math.max(-1, (((u >>> (i * 8)) & 255) << 24 >> 24) / 127));
-const emix = (a, b, t) => a + (b - a) * t;
-
-export function roleColor(g, r) {
-  return hsl2rgb(fract(g.hue + r * g.roleHue + 1), g.sat, g.lum * (1 - 0.08 * r));
-}
-
-export function affinity(a, ra, b, rb, K = DEFAULT_K) {
-  const rec = a.roles[ra].rec, surf = b.roles[rb].surf;
-  let s = 0;
-  for (let i = 0; i < 8; i++) s += rec[i] * surf[i];
-  return eclamp(s * K.affScale, -1, 1);
-}
-
-// Stationary share of each role implied by the developmental matrix.
-export function roleShares(g) {
-  let v = [1, 0, 0];
-  for (let it = 0; it < 40; it++) {
-    const n = [0, 0, 0];
-    for (let r = 0; r < 3; r++) {
-      const row = g.dev[r];
-      const s = row[0] + row[1] + row[2] || 1;
-      for (let k = 0; k < 3; k++) n[k] += v[r] * (row[k] / s);
-    }
-    v = n;
-  }
-  return v;
-}
-
-const randSig = (r) => Array.from({ length: 8 }, () => r() * 2 - 1);
-
-/**
- * Founding body plans. W[r][s] is how strongly role r is drawn to role s of its own kind.
- */
-const ARCHETYPES = {
-  reef: { W: [[1.0, 0.8, 0.2], [0.8, 0.55, 0.3], [0.5, 0.5, -0.2]], dev: [[0.65, 0.3, 0.05], [0.4, 0.55, 0.05], [0.6, 0.4, 0]],
-    t: (r) => ({ photo: emix(0.8, 1, r()), swim: 0, align: 0, force: emix(4, 7, r()), advect: emix(0.02, 0.08, r()), drag: emix(0.15, 0.3, r()),
-      lifespan: emix(260, 460, r()), reproE: emix(0.9, 1.3, r()), share: emix(0.3, 0.4, r()), diet: [0.8, 0.2, 0], size: emix(0.8, 1.3, r()), radius: emix(0.85, 1, r()), beta: emix(0.14, 0.22, r()) }) },
-  plankton: { W: [[-0.35, 0, 0], [0, 0, 0], [0, 0, 0]], dev: [[1, 0, 0], [1, 0, 0], [1, 0, 0]],
-    t: (r) => ({ photo: emix(0.6, 0.9, r()), swim: emix(0, 0.2, r()), align: 0, force: emix(2, 5, r()), advect: emix(0.8, 1, r()), drag: emix(0.05, 0.12, r()),
-      lifespan: emix(60, 140, r()), reproE: emix(0.8, 1.2, r()), share: emix(0.4, 0.5, r()), diet: [1, 0, 0], size: emix(0.45, 0.75, r()), radius: emix(0.45, 0.7, r()) }) },
-  grazer: { W: [[emix(-0.2, 0.2, Math.random()), 0, 0], [0, 0, 0], [0, 0, 0]], dev: [[1, 0, 0], [1, 0, 0], [1, 0, 0]],
-    t: (r) => ({ photo: 0, swim: emix(0.6, 1.3, r()), align: emix(0, 0.3, r()), force: emix(4, 9, r()), advect: emix(0.3, 0.7, r()), drag: emix(0.06, 0.15, r()),
-      lifespan: emix(90, 180, r()), reproE: emix(1.1, 1.8, r()), share: emix(0.4, 0.5, r()), diet: [0.75, 0.1, 0.22], size: emix(0.7, 1.1, r()), radius: emix(0.6, 0.9, r()) }) },
-  crawler: { W: [[0.85, 0.6, 0], [1.0, -0.3, 0], [0, 0, 0]], dev: [[0.55, 0.45, 0], [0.5, 0.5, 0], [1, 0, 0]],
-    t: (r) => ({ photo: 0, swim: emix(0.4, 0.9, r()), align: emix(0.6, 0.95, r()), force: emix(7, 12, r()), advect: emix(0.15, 0.4, r()), drag: emix(0.1, 0.2, r()),
-      lifespan: emix(140, 260, r()), reproE: emix(1.3, 2.0, r()), share: emix(0.4, 0.5, r()), diet: [0.3, 0.1, 0.8], size: emix(0.9, 1.5, r()), radius: emix(0.8, 1, r()) }) },
-  hunter: { W: [[0.55, 0.5, 0.3], [0.5, 0.4, 0.2], [0.8, 0.3, -0.3]], dev: [[0.5, 0.35, 0.15], [0.5, 0.4, 0.1], [0.6, 0.3, 0.1]],
-    t: (r) => ({ photo: 0, swim: emix(1.2, 2.2, r()), align: emix(0.7, 1, r()), force: emix(8, 13, r()), advect: emix(0.1, 0.3, r()), drag: emix(0.1, 0.2, r()),
-      lifespan: emix(150, 280, r()), reproE: emix(1.8, 2.8, r()), share: emix(0.45, 0.55, r()), diet: [0.05, 0.1, 1], size: emix(1.1, 1.7, r()), radius: emix(0.8, 1, r()) }) },
-  scavenger: { W: [[0.35, 0, 0], [0, 0, 0], [0, 0, 0]], dev: [[1, 0, 0], [1, 0, 0], [1, 0, 0]],
-    t: (r) => ({ photo: 0, swim: emix(0.2, 0.6, r()), align: emix(0, 0.4, r()), force: emix(3, 7, r()), advect: emix(0.4, 0.8, r()), drag: emix(0.06, 0.14, r()),
-      lifespan: emix(100, 200, r()), reproE: emix(1.0, 1.6, r()), share: emix(0.4, 0.5, r()), diet: [0.15, 0.85, 0.05], size: emix(0.6, 1.0, r()), radius: emix(0.6, 0.85, r()) }) },
-  filament: { W: [[-0.4, 0.85, 0], [0.85, -0.4, 0], [0, 0, 0]], dev: [[0, 1, 0], [1, 0, 0], [1, 0, 0]],
-    t: (r) => ({ photo: emix(0.3, 0.6, r()), swim: emix(0.1, 0.4, r()), align: emix(0.2, 0.5, r()), force: emix(4, 8, r()), advect: emix(0.2, 0.5, r()), drag: emix(0.08, 0.16, r()),
-      lifespan: emix(150, 300, r()), reproE: emix(1.1, 1.7, r()), share: emix(0.35, 0.45, r()), diet: [0.7, 0.3, 0], size: emix(0.8, 1.2, r()), radius: emix(0.6, 0.85, r()) }) },
-};
-const ADHESION = { reef: 0.85, plankton: 0, grazer: 0, crawler: 0.75, hunter: 0.6, scavenger: 0.25, filament: 0.9 };
-export const FOUNDING_PLAN = ['reef', 'reef', 'reef', 'reef', 'plankton', 'plankton', 'plankton', 'plankton',
-  'grazer', 'grazer', 'grazer', 'grazer', 'crawler', 'crawler', 'crawler', 'crawler',
-  'hunter', 'hunter', 'hunter', 'scavenger', 'scavenger', 'filament', 'filament', 'filament'];
-
-export function archetypeGenome(type, r = Math.random) {
-  const A = ARCHETYPES[type];
-  const surfs = [randSig(r), randSig(r), randSig(r)];
-  const roles = surfs.map((surf, i) => {
-    const rec = Array.from({ length: 8 }, (_, d) => {
-      let v = (r() * 2 - 1) * 0.22;
-      for (let s = 0; s < 3; s++) v += A.W[i][s] * surfs[s][d] * 0.85;
-      return eclamp(v, -1, 1);
-    });
-    return { surf, rec };
-  });
-  const t = A.t(r);
-  const g = {
-    roles, dev: A.dev.map((row) => row.map((v) => eclamp(v + (r() - 0.5) * 0.1, 0, 1))),
-    radius: t.radius, beta: t.beta ?? emix(0.2, 0.35, r()), force: t.force, drag: t.drag,
-    lifespan: t.lifespan, reproE: t.reproE, share: t.share,
-    dGlint: t.diet[0], dHusk: t.diet[1], dFlesh: t.diet[2],
-    mutRate: emix(0.008, 0.025, r()), hue: r(), sat: emix(0.6, 1, r()), lum: emix(0.52, 0.72, r()),
-    size: t.size, shape: Math.floor(r() * 5), pulse: r() < 0.3 ? emix(0.4, 0.9, r()) : r() * 0.2,
-    roleHue: (r() - 0.5) * 0.35, advect: t.advect, swim: t.swim, align: t.align, photo: t.photo,
-    parent: 0, serial: 0, born: 0, depth: 0, archetype: type,
-    adhesion: ADHESION[type] ?? 0,
-  };
-  return finalizeGenome(g);
-}
-
-export function finalizeGenome(g, K = DEFAULT_K) {
-  const s = Math.max(g.dGlint + g.dHusk + g.dFlesh, 1e-3);
-  g.dGlint /= s; g.dHusk /= s; g.dFlesh /= s;
-  g.metab = (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
-    + (K.anchorCost ?? 0) * (1 - g.advect) + 0.004 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 0.006 * g.align + 0.004 * (g.adhesion || 0)) * K.metab;
-  g.col = packUnorm(...roleColor(g, 0));
-  return g;
-}
-
-export function writeGenome(u32, f32, slot, g) {
-  const o = slot * G_WORDS;
-  for (let r = 0; r < 3; r++) {
-    const R = g.roles[r];
-    u32[o + r * 4] = packSnorm(R.surf.slice(0, 4)); u32[o + r * 4 + 1] = packSnorm(R.surf.slice(4, 8));
-    u32[o + r * 4 + 2] = packSnorm(R.rec.slice(0, 4)); u32[o + r * 4 + 3] = packSnorm(R.rec.slice(4, 8));
-    u32[o + 12 + r] = packUnorm(g.dev[r][0], g.dev[r][1], g.dev[r][2], 0);
-  }
-  const fl = ['radius', 'beta', 'force', 'drag', 'metab', 'lifespan', 'reproE', 'share',
-    'dGlint', 'dHusk', 'dFlesh', 'mutRate', 'hue', 'sat', 'lum', 'size', 'shape', 'pulse', 'roleHue', 'advect', 'swim', 'align', 'photo'];
-  fl.forEach((k, i) => { f32[o + 16 + i] = g[k] ?? 0; });
-  u32[o + 39] = g.col >>> 0;
-  u32[o + 40] = g.parent >>> 0; u32[o + 41] = g.serial >>> 0; f32[o + 42] = g.born || 0; u32[o + 43] = g.depth >>> 0;
-  f32[o + 44] = g.adhesion || 0;
-}
-
-export function readGenome(u32, f32, slot) {
-  const o = slot * G_WORDS;
-  const roles = [0, 1, 2].map((r) => ({
-    surf: [...unpackSnorm(u32[o + r * 4]), ...unpackSnorm(u32[o + r * 4 + 1])],
-    rec: [...unpackSnorm(u32[o + r * 4 + 2]), ...unpackSnorm(u32[o + r * 4 + 3])],
-  }));
-  const dev = [0, 1, 2].map((r) => unpackUnorm(u32[o + 12 + r]).slice(0, 3));
-  const F = (i) => f32[o + 16 + i];
-  return {
-    slot, roles, dev,
-    radius: F(0), beta: F(1), force: F(2), drag: F(3), metab: F(4), lifespan: F(5), reproE: F(6), share: F(7),
-    dGlint: F(8), dHusk: F(9), dFlesh: F(10), mutRate: F(11), hue: F(12), sat: F(13), lum: F(14), size: F(15),
-    shape: F(16), pulse: F(17), roleHue: F(18), advect: F(19), swim: F(20), align: F(21), photo: F(22),
-    col: u32[o + 39], parent: u32[o + 40], serial: u32[o + 41], born: f32[o + 42], depth: u32[o + 43],
-    adhesion: f32[o + 44],
-  };
-}
-
-export function parseParticle(u32, f32, o) {
-  const info = u32[o + 9];
-  return {
-    x: f32[o], y: f32[o + 1], vx: f32[o + 2], vy: f32[o + 3], kind: u32[o + 4],
-    energy: f32[o + 5], age: f32[o + 6], id: u32[o + 7], col: u32[o + 8], info,
-    cause: info & 15, role: (info >>> 4) & 3, gen: info >>> 6,
-  };
-}
+const mix = (a, b, t) => a + (b - a) * t;
 
 // --------------------------------------------------------------------- engine
 export async function createEngine(device, format, { hasTimestamps = false, K = {} } = {}) {
@@ -185,6 +37,7 @@ class Engine {
     this.grid = [3, 3];
     this.simTime = 0;
     this.frameNo = 0;
+    this.worldGeneration = 0;
     this.season = 1;
     this.abio = 0;
     this.turbid = 1; // light reaching plants after the shade of all plant cover (set from the census)
@@ -310,6 +163,7 @@ class Engine {
     const names = ['parts', 'sortedFull', 'sortedLite', 'aux', 'intent', 'ledger', 'livingList'];
     for (const k of names) { b[k]?.destroy(); b[k] = null; }
     this.capacity = 0;
+    this.count = 0;
     d.pushErrorScope('out-of-memory');
     d.pushErrorScope('validation');
     b.parts = d.createBuffer({ size: n * P_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
@@ -319,14 +173,6 @@ class Engine {
     b.intent = d.createBuffer({ size: n * 16, usage: U.STORAGE | U.COPY_DST });
     b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
-    const verr = await d.popErrorScope();
-    const oerr = await d.popErrorScope();
-    if (verr || oerr) {
-      for (const k of names) { b[k]?.destroy(); b[k] = null; }
-      return false;
-    }
-    this.capacity = n;
-    this.count = 0;
     const res = {
       0: { buffer: b.sim }, 1: { buffer: b.parts }, 2: { buffer: b.sortedFull }, 3: { buffer: b.sortedLite },
       4: { buffer: b.counts }, 5: { buffer: b.counts }, 6: { buffer: b.cellStart }, 7: { buffer: b.blockSums },
@@ -351,6 +197,13 @@ class Engine {
     this.bgLineL = lineBG(b.viewL);
     this.bgPointS = pointBG(b.viewS);
     this.bgLineS = lineBG(b.viewS);
+    const verr = await d.popErrorScope();
+    const oerr = await d.popErrorScope();
+    if (verr || oerr) {
+      for (const k of names) { b[k]?.destroy(); b[k] = null; }
+      return false;
+    }
+    this.capacity = n;
     return true;
   }
 
@@ -427,6 +280,19 @@ class Engine {
   /** Create a new universe of n particles (n <= capacity). */
   seed(n, { aspect = 16 / 9, silt = 0.5, glint = 0.12, husk = 0.04, rng = Math.random } = {}) {
     const d = this.device;
+    this.worldGeneration++;
+    this.immig = null;
+    this.nextImmig = 40;
+    this.lastSlots = null;
+    this.lastPop = null;
+    this.turbid = 1;
+    this.plantFrac = 0;
+    this.dietCost.fill(1);
+    this.mobCost.fill(1);
+    this.guildShare = null;
+    this.lastImmigGuild = null;
+    this.abio = 0;
+    this.season = 1;
     n = Math.min(n, this.capacity);
     this.count = n;
     this.grid = this.gridFor(n, aspect);
@@ -484,16 +350,17 @@ class Engine {
    * colony of that type settles out of the water somewhere. Checked from the census.
    */
   _guildTick(u, gf) {
-    const G = (s, i) => gf[s * G_WORDS + 16 + i];
+    const gu = new Uint32Array(gf.buffer, gf.byteOffset, gf.length);
     const diet = [0, 0, 0, 0], mob = [0, 0, 0, 0];
     let living = 0;
     for (let s = FIRST_LIFE; s < MAXK; s++) {
       const n = u[META_POP + s];
       if (!n) continue;
       living += n;
-      const photo = G(s, 22), dF = G(s, 10), dH = G(s, 9), adv = G(s, 19), swim = G(s, 20) * (1 - photo);
-      diet[photo > 0.55 ? 0 : dF > 0.55 ? 2 : dH > 0.55 ? 3 : 1] += n;
-      mob[adv < 0.2 && swim < 0.2 ? 0 : swim >= 0.8 ? 2 : adv > 0.7 && swim < 0.4 ? 3 : 1] += n;
+      const g = readGenome(gu, gf, s);
+      // Omnivores share the grazer blight cost, matching WGSL's default dg = 1.
+      diet[{ producer: 0, grazer: 1, omnivore: 1, predator: 2, scavenger: 3 }[dietGuild(g)]] += n;
+      mob[{ sessile: 0, crawler: 1, swimmer: 2, drifter: 3 }[mobilityGuild(g)]] += n;
     }
     const K = this.K;
     const cost = (n) => 1 + K.guildBlight * Math.max(0, n / Math.max(1, living) - K.guildCap);
@@ -507,21 +374,19 @@ class Engine {
   _immigrationTick(u, gf, t) {
     if (this.immig || t < this.nextImmig) return;
     this.nextImmig = t + this.K.immigEvery * (0.7 + 0.6 * Math.random());
-    const G = (s, i) => gf[s * G_WORDS + 16 + i];
+    const gu = new Uint32Array(gf.buffer, gf.byteOffset, gf.length);
     let living = 0;
     const share = { predator: 0, scavenger: 0, grazer: 0, producer: 0, sessile: 0, bodies: 0, swimmer: 0 };
     for (let s = FIRST_LIFE; s < MAXK; s++) {
       const n = u[META_POP + s];
       if (!n) continue;
       living += n;
-      const photo = G(s, 22), dG = G(s, 8), dH = G(s, 9), dF = G(s, 10), adv = G(s, 19), swim = G(s, 20) * (1 - photo), adh = gf[s * G_WORDS + 44];
-      if (photo > 0.55) share.producer += n;
-      else if (dF > 0.55) share.predator += n;
-      else if (dH > 0.55) share.scavenger += n;
-      else if (dG > 0.55) share.grazer += n;
-      if (adv < 0.2 && swim < 0.2) share.sessile += n;
-      if (swim >= 0.8) share.swimmer += n;
-      if (adh > this.K.adhMin) share.bodies += n;
+      const g = readGenome(gu, gf, s);
+      const diet = dietGuild(g), mobility = mobilityGuild(g);
+      if (diet !== 'omnivore') share[diet] += n;
+      if (mobility === 'sessile') share.sessile += n;
+      if (mobility === 'swimmer') share.swimmer += n;
+      if (g.adhesion > this.K.adhMin) share.bodies += n;
     }
     if (living < this.count * 0.01) return;
     const want = { predator: 0.08, scavenger: 0.05, grazer: 0.12, producer: 0.2, sessile: 0.08, bodies: 0.25, swimmer: 0.06 };
@@ -569,15 +434,15 @@ class Engine {
   randomizeCurrents(rng = Math.random, into = this.waves) {
     const [W, H] = this.grid;
     for (let k = 0; k < 4; k++) {
-      const L = emix(14, 34, rng());
+      const L = mix(14, 34, rng());
       const th = rng() * Math.PI * 2;
       let kx = Math.round((W / L) * Math.cos(th));
       const ky = Math.round((H / L) * Math.sin(th));
       if (kx === 0 && ky === 0) kx = 1;
       into[k * 4] = (Math.PI * 2 * kx) / W;
       into[k * 4 + 1] = (Math.PI * 2 * ky) / H;
-      into[k * 4 + 2] = (rng() < 0.5 ? -1 : 1) * emix(0.04, 0.12, rng());
-      into[k * 4 + 3] = emix(0.08, 0.16, rng());
+      into[k * 4 + 2] = (rng() < 0.5 ? -1 : 1) * mix(0.04, 0.12, rng());
+      into[k * 4 + 3] = mix(0.08, 0.16, rng());
     }
     return into;
   }
@@ -615,6 +480,7 @@ class Engine {
    */
   frame({ target = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, time = 0, dpr = 1, selId = 0xffffffff, loupe = null, specimen = null }) {
     const d = this.device;
+    const generation = this.worldGeneration;
     const b = this.b;
     const N = this.count;
     const enc = d.createCommandEncoder();
@@ -645,9 +511,12 @@ class Engine {
       const run = (name, n) => { const c = this.cp[name]; pass.setPipeline(c.pipe); pass.setBindGroup(0, c.bg); pass.dispatchWorkgroups(n); };
       const wg = Math.ceil(N / 256);
       run('resolveCount', wg);
-      run('scanBlocks', MAX_CELLS / 256);
+      // Scan only the cells in use (+1 for the one-past-the-end start of the last cell; when the grid
+      // fills MAX_CELLS exactly, scanSums writes that final entry itself).
+      const scanWG = Math.min(MAX_CELLS / 256, Math.ceil((cells + 1) / 256));
+      run('scanBlocks', scanWG);
       run('scanSums', 1);
-      run('scanAdd', MAX_CELLS / 256);
+      run('scanAdd', scanWG);
       run('scatterMain', wg);
       run('censusMain', Math.ceil(MAXK / 256));
       run('matterMain', wg);
@@ -723,17 +592,25 @@ class Engine {
         const ms = Number(t[1] - t[0]) / 1e6;
         slot.buf.unmap();
         slot.busy = false;
-        if (ms > 0 && ms < 5000 && this.onGpuTime) this.onGpuTime(ms, N);
+        if (generation === this.worldGeneration && ms > 0 && ms < 5000 && this.onGpuTime) this.onGpuTime(ms, N);
       }).catch(() => { slot.busy = false; });
     } else if (!tm && this.onGpuTime && (stepping || target)) {
       const t0 = performance.now();
-      d.queue.onSubmittedWorkDone().then(() => this.onGpuTime(performance.now() - t0, N));
+      d.queue.onSubmittedWorkDone().then(() => {
+        if (generation === this.worldGeneration && this.onGpuTime) this.onGpuTime(performance.now() - t0, N);
+      });
     }
 
     if (pickJob) {
       const { st, req } = pickJob;
       st.busy = true;
       st.buf.mapAsync(GPUMapMode.READ).then(() => {
+        if (generation !== this.worldGeneration) {
+          st.buf.unmap();
+          st.busy = false;
+          req.resolve(null);
+          return;
+        }
         const buf = st.buf.getMappedRange();
         const u32 = new Uint32Array(buf), f32 = new Float32Array(buf);
         const count = Math.min(u32[0], req.maxOut);
@@ -761,7 +638,7 @@ class Engine {
         const tracked = found ? parseParticle(u32, f32, 4) : null;
         st.buf.unmap();
         st.busy = false;
-        if (this.onTrack) this.onTrack({ id: trackJob.id, found, tracked, simTime: trackJob.simTime });
+        if (generation === this.worldGeneration && this.onTrack) this.onTrack({ id: trackJob.id, found, tracked, simTime: trackJob.simTime });
       }).catch(() => { st.busy = false; });
     }
 
@@ -772,6 +649,7 @@ class Engine {
         const copy = st.buf.getMappedRange().slice(0);
         st.buf.unmap();
         st.busy = false;
+        if (generation !== this.worldGeneration) return;
         {
           // Plant cover clouds the water: the more of the world is photosynthesising cells, the less light each gets.
           const u = new Uint32Array(copy), gf = new Float32Array(copy, LEDGER_HEAD);

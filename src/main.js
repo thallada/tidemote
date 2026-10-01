@@ -1,6 +1,12 @@
-import { createEngine, readGenome, parseParticle, affinity, roleShares, roleColor, unpackUnorm, MAXK, FIRST_LIFE } from './engine.js';
+import { createEngine, MAXK, FIRST_LIFE } from './engine.js';
+import { readGenome, parseParticle, affinity, roleShares, roleColor, unpackUnorm } from './genome.js';
+import { seasonAt, createClimate, crisisAt, abioRate } from './climate.js';
 import { GLOSSARY } from './guide.js';
 import { createLab } from './lab.js';
+import { genusName, speciesEpithet } from './names.js';
+import { facets, describe, tagsOf, DIET_COL, MOB_COL } from './facets.js';
+import { traceBody } from './trace.js';
+import { tideAt, flowAt } from './flow.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('stage');
@@ -13,7 +19,6 @@ const nf = new Intl.NumberFormat('en-US');
 const fmt = (n) => nf.format(n);
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const mix = (a, b, t) => a + (b - a) * t;
-const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 const pad = (n) => String(n).padStart(2, '0');
 const fmtClock = (s) => { s = Math.floor(s); const h = Math.floor(s / 3600); const m = Math.floor(s / 60) % 60; return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`; };
 const fmtDur = (s) => (s < 60 ? `${Math.round(s)} s` : s < 3600 ? `${Math.floor(s / 60)}m ${pad(Math.floor(s % 60))}s` : `${Math.floor(s / 3600)}h ${pad(Math.floor(s / 60) % 60)}m`);
@@ -31,8 +36,6 @@ const MATTER = [
 const CAUSE = { 0: '', 1: 'starved', 2: 'died of old age', 3: 'was consumed', 4: 'crumbled from a husk', 5: 'charged by the Tide', 6: 'faded back to silt', 8: 'sparked into life from glint', 9: 'built from silt by its parent', 10: 'arrived with a colony of immigrants' };
 const SHAPES = ['disc', 'ring', 'star', 'nucleus', 'diamond'];
 const ROLE = ['α', 'β', 'γ'];
-const DIET_COL = { photosynth: '#d9f27a', grazer: '#b9e6ff', scavenger: '#a87b5c', predator: '#ff5e7a', omnivore: '#c9b8ff' };
-const MOB_COL = { sessile: '#7fe0b0', crawler: '#ffb45e', swimmer: '#6e96ff', drifter: '#9aa3b8' };
 
 function fail(title, detail) {
   $('nogpu-title').textContent = title;
@@ -43,119 +46,6 @@ function fail(title, detail) {
   $('inspector').hidden = true;
 }
 
-function tideAt(x, y, W, H, t, w) {
-  const ux = (x / W) * TAU, uy = (y / H) * TAU;
-  let s = 0, n = 0;
-  for (let k = 0; k < 4; k++) {
-    s += w[k * 4 + 3] * Math.sin(w[k * 4] * ux + w[k * 4 + 1] * uy + w[k * 4 + 2] * t + k * 1.7);
-    n += w[k * 4 + 3];
-  }
-  return smoothstep(0.35, 1.9, (s * 2.7) / Math.max(n, 1e-3));
-}
-const seasonAt = (t) => 0.55 + 0.45 * Math.sin((t / 300) * TAU);
-
-// ---------------------------------------------------------------- naming
-function prng(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-const ONSET = ['v', 'th', 'k', 'z', 'qu', 'r', 'm', 's', 'n', 'x', 'ph', 'dr', 'gh', 'l', 'y', 'sk', 'tr', 'h', 'b', 'c', 'vr', 'ch'];
-const NUC = ['a', 'o', 'e', 'i', 'u', 'ae', 'ou', 'y', 'ia', 'eo', 'a', 'o'];
-const CODA = ['', '', 'n', 'r', 'th', 'x', 's', 'l', 'm', 'k', 'sh', 'rn'];
-const SUFFIX = ['a', 'is', 'ae', 'um', 'ex', 'ine', 'oth', 'ula', 'ix', 'ora', 'yx', 'ens'];
-const pick = (r, a) => a[Math.floor(r() * a.length)];
-function word(r, n) { let w = ''; for (let i = 0; i < n; i++) w += pick(r, ONSET) + pick(r, NUC) + (i === n - 1 ? pick(r, CODA) : ''); return w; }
-const cap = (s) => s[0].toUpperCase() + s.slice(1);
-const ERA_ADJ = ['Restless', 'Dim', 'Bright', 'Still', 'Pale', 'Warm', 'Hollow', 'Rising', 'Long', 'Bitter', 'Green', 'Silver'];
-const ERA_NOUN = ['Glare', 'Tides', 'Drift', 'Calm', 'Surge', 'Murk', 'Bloom', 'Shallows', 'Gyre', 'Hush'];
-
-// Walk the bond graph of one species outward from one cell. u32/f32 hold n packed particles
-// (10 words each). Bonds join each cell to its two nearest same-species cells within LR.
-const TB = { bins: null, nb: 0 };
-function traceBody(u32, f32, n, startId, W, H, LR) {
-    const LR2 = LR * LR;
-    // bin every cell into a torus grid of link-radius squares (counting sort)
-    const bx = Math.max(3, Math.floor(W / LR)), by = Math.max(3, Math.floor(H / LR));
-    const sx = bx / W, sy = by / H;
-    const nb = bx * by;
-    if (!TB.bins || TB.nb !== nb) { TB.bins = new Int32Array(nb + 1); TB.nb = nb; }
-    const start = TB.bins;
-    start.fill(0);
-    const binOf = new Int32Array(n);
-    const X = new Float32Array(n), Y = new Float32Array(n);
-    let startIdx = -1;
-    for (let i = 0; i < n; i++) {
-      const x = f32[i * 10], y = f32[i * 10 + 1];
-      X[i] = x; Y[i] = y;
-      const b = Math.min(by - 1, Math.floor(y * sy)) * bx + Math.min(bx - 1, Math.floor(x * sx));
-      binOf[i] = b;
-      start[b + 1]++;
-      if (u32[i * 10 + 7] === startId) startIdx = i;
-    }
-    for (let b = 0; b < nb; b++) start[b + 1] += start[b];
-    const fill = start.slice(0, nb);
-    const order = new Int32Array(n);
-    for (let i = 0; i < n; i++) order[fill[binOf[i]]++] = i;
-    if (startIdx < 0) return null;
-
-    const nn1 = new Int32Array(n).fill(-2), nn2 = new Int32Array(n).fill(-2);
-    const top2 = (i) => {
-      if (nn1[i] !== -2) return;
-      const x = X[i], y = Y[i];
-      const b = binOf[i], cx = b % bx, cy = (b / bx) | 0;
-      let a1 = -1, a2 = -1, d1 = LR2, d2 = LR2;
-      for (let oy = -1; oy <= 1; oy++) {
-        const row = ((cy + oy + by) % by) * bx;
-        for (let ox = -1; ox <= 1; ox++) {
-          const c = row + ((cx + ox + bx) % bx);
-          for (let k = start[c], e = start[c + 1]; k < e; k++) {
-            const j = order[k];
-            if (j === i) continue;
-            let dx = X[j] - x, dy = Y[j] - y;
-            dx -= W * Math.round(dx / W); dy -= H * Math.round(dy / H);
-            const d = dx * dx + dy * dy;
-            if (d < d1) { d2 = d1; a2 = a1; d1 = d; a1 = j; } else if (d < d2) { d2 = d; a2 = j; }
-          }
-        }
-      }
-      nn1[i] = a1; nn2[i] = a2;
-    };
-    const seen = new Uint8Array(n);
-    const stack = [startIdx];
-    seen[startIdx] = 1;
-    const body = [];
-    const visit = (j) => { if (j >= 0 && !seen[j]) { seen[j] = 1; stack.push(j); } };
-    while (stack.length) {
-      const i = stack.pop();
-      body.push(i);
-      top2(i);
-      visit(nn1[i]); visit(nn2[i]);
-      // reverse bonds: neighbours whose own two nearest include i
-      const x = X[i], y = Y[i];
-      const b = binOf[i], cx = b % bx, cy = (b / bx) | 0;
-      for (let oy = -1; oy <= 1; oy++) {
-        const row = ((cy + oy + by) % by) * bx;
-        for (let ox = -1; ox <= 1; ox++) {
-          const c = row + ((cx + ox + bx) % bx);
-          for (let k = start[c], e = start[c + 1]; k < e; k++) {
-            const j = order[k];
-            if (seen[j]) continue;
-            let dx = X[j] - x, dy = Y[j] - y;
-            dx -= W * Math.round(dx / W); dy -= H * Math.round(dy / H);
-            if (dx * dx + dy * dy >= LR2) continue;
-            top2(j);
-            if (nn1[j] === i || nn2[j] === i) visit(j);
-          }
-        }
-      }
-    }
-    return { body, X, Y };
-}
 
 async function boot() {
   if (!navigator.gpu) {
@@ -286,59 +176,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // ------------------------------------------------------------ climate eras
   let climate;
   function resetClimate() {
-    climate = {
-      name: 'The First Tides', started: 0, next: mix(600, 900, Math.random()),
-      ambientTo: eng.ambient, chargeTo: eng.chargeMul, tideTo: Array.from(eng.tide.filter((_, i) => i % 4 === 3)),
-      flow: null, seedUntil: 0, index: 1,
-      history: [{ t: 0, name: 'The First Tides', ambient: eng.ambient, charge: eng.chargeMul }],
+    climate = createClimate(eng);
+    climate.onEra = (era, prevAmb) => {
+      const lightWord = era.ambient > prevAmb + 0.05 ? 'light rises' : era.ambient < prevAmb - 0.05 ? 'light dims' : 'light holds';
+      pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}% · glint ×${era.charge.toFixed(1)} · currents shift`, 0xffd6c7ff, 'era');
+      flash(climate.name);
     };
-  }
-  function startEra() {
-    const t = eng.simTime;
-    const r = Math.random;
-    const amps = [0, 1, 2, 3].map((k) => eng.tide[k * 4 + 3]);
-    const idle = amps.indexOf(Math.min(...amps));
-    const active = [0, 1, 2, 3].filter((k) => k !== idle);
-    const retire = active[Math.floor(r() * active.length)];
-    let a = 0, b = 0;
-    while (a === 0 && b === 0) { a = Math.round(mix(-3, 3, r())); b = Math.round(mix(-3, 3, r())); }
-    eng.tide[idle * 4] = a; eng.tide[idle * 4 + 1] = b;
-    eng.tide[idle * 4 + 2] = (r() < 0.5 ? -1 : 1) * mix(0.008, 0.035, r());
-    climate.tideTo[idle] = mix(0.6, 1.1, r());
-    climate.tideTo[retire] = 0;
-    const prevAmb = climate.ambientTo;
-    climate.ambientTo = mix(0.1, 0.34, r());
-    climate.chargeTo = mix(0.6, 1.5, r());
-    const newWaves = eng.randomizeCurrents(r, new Float32Array(16));
-    climate.flow = { from: Float32Array.from(eng.waves), to: newWaves, t0: t, k: [Math.floor(r() * 4), Math.floor(r() * 4)] };
-    climate.index++;
-    climate.name = `The ${pick(r, ERA_ADJ)} ${pick(r, ERA_NOUN)}`;
-    climate.started = t;
-    climate.next = t + mix(600, 1080, r());
-    climate.seedUntil = t + 25;
-    climate.history.push({ t, name: climate.name, ambient: climate.ambientTo, charge: climate.chargeTo });
-    const lightWord = climate.ambientTo > prevAmb + 0.05 ? 'light rises' : climate.ambientTo < prevAmb - 0.05 ? 'light dims' : 'light holds';
-    pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(climate.ambientTo * 100)}% · glint ×${climate.chargeTo.toFixed(1)} · currents shift`, 0xffd6c7ff, 'era');
-    flash(climate.name);
-  }
-  function climateTick(dt) {
-    if (eng.simTime > climate.next) startEra();
-    const k = Math.min(1, dt / 60);
-    eng.ambient += (climate.ambientTo - eng.ambient) * k;
-    eng.chargeMul += (climate.chargeTo - eng.chargeMul) * k;
-    for (let i = 0; i < 4; i++) eng.tide[i * 4 + 3] += (climate.tideTo[i] - eng.tide[i * 4 + 3]) * k;
-    const f = climate.flow;
-    if (f) {
-      const u = (eng.simTime - f.t0) / 45;
-      for (const w of new Set(f.k)) {
-        if (u < 1) eng.waves[w * 4 + 3] = f.from[w * 4 + 3] * (1 - u);
-        else if (u < 2) {
-          for (let c = 0; c < 3; c++) eng.waves[w * 4 + c] = f.to[w * 4 + c];
-          eng.waves[w * 4 + 3] = f.to[w * 4 + 3] * (u - 1);
-        } else { eng.waves[w * 4 + 3] = f.to[w * 4 + 3]; }
-      }
-      if (u >= 2) climate.flow = null;
-    }
   }
 
   // ------------------------------------------------------------ world + life bookkeeping
@@ -406,50 +249,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     return final;
   }
 
-  // ------------------------------------------------------------ species facets
-  function facets(g) {
-    const swim = g.swim * (1 - g.photo);
-    let diet;
-    if (g.photo > 0.55) diet = 'photosynth';
-    else {
-      const d = [['grazer', g.dGlint], ['scavenger', g.dHusk], ['predator', g.dFlesh]].sort((a, b) => b[1] - a[1]);
-      diet = d[0][1] > 0.55 ? d[0][0] : 'omnivore';
-    }
-    const mobility = g.advect < 0.2 && swim < 0.2 ? 'sessile' : swim >= 0.8 ? 'swimmer' : g.advect > 0.7 && swim < 0.4 ? 'drifter' : 'crawler';
-    const multi = (g.adhesion || 0) > K.adhMin;
-    const types = roleShares(g).filter((v) => v > 0.1).length;
-    return { diet, mobility, body: multi ? 'multicellular' : 'single-celled', types, schooling: g.align > 0.5 && swim > 0.3 };
-  }
-  function describe(g) {
-    const f = facets(g);
-    const parts = [f.diet];
-    parts.push(f.body === 'multicellular' ? `${f.types > 1 ? `${f.types}-type ` : ''}bodies` : `free cells${f.types > 1 ? ` in ${f.types} morphs` : ''}`);
-    parts.push(f.schooling ? `schooling ${f.mobility}` : f.mobility);
-    return parts.join(' · ');
-  }
-  function tagsOf(g) {
-    const f = facets(g);
-    const tags = [[f.diet, f.diet === 'omnivore' ? 'diet' : f.diet]];
-    const multi = f.body === 'multicellular';
-    tags.push([multi ? 'multicellular' : 'free-living cells', multi ? 'adhesion' : 'organism']);
-    if (f.types > 1) tags.push(multi ? [`${f.types} cell types`, 'bodyplan'] : [`${f.types} morphs`, 'morphs']);
-    const sh = roleShares(g);
-    let self = 0;
-    for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) self += sh[a] * sh[b] * affinity(g, a, g, b, K);
-    if (multi) tags.push(self > 0.3 ? ['compact body', 'colonial'] : self < -0.1 ? ['strung-out body', 'solitary'] : ['loose body', 'looseknit']);
-    else tags.push(self > 0.3 ? ['swarming', 'colonial'] : self < -0.1 ? ['solitary', 'solitary'] : ['loosely social', 'looseknit']);
-    tags.push([f.mobility, { sessile: 'sessile', drifter: 'drifting', swimmer: 'swimming', crawler: 'thrust' }[f.mobility]]);
-    if (f.schooling) tags.push(['schooling', 'schooling']);
-    if (g.photo > 0.25 && g.photo <= 0.55) tags.push(['part photosynth', 'photosynth']);
-    if (g.lifespan > 300) tags.push(['long-lived', 'lifespan']);
-    if (g.mutRate > 0.035) tags.push(['volatile genome', 'mutation']);
-    return tags;
-  }
   function groups() {
     const out = { diet: {}, mobility: {}, body: {}, types: {} };
     for (const sp of life.reg.values()) {
       if (!sp.alive) continue;
-      const f = facets(sp.genome);
+      const f = facets(sp.genome, K);
       out.diet[f.diet] = (out.diet[f.diet] || 0) + sp.pop;
       out.mobility[f.mobility] = (out.mobility[f.mobility] || 0) + sp.pop;
       out.body[f.body] = (out.body[f.body] || 0) + sp.pop;
@@ -507,10 +311,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else setFocus(key, MATTER[{ silt: 0, glint: 1, husk: 2 }[val]].name, { matter: [val === 'silt', val === 'glint', val === 'husk'] });
     } else if (kind === 'role') setFocus(key, `${ROLE[+val]}-cells`, { pred: allLiving, roleMask: 1 << +val });
     else if (kind === 'state') setFocus(key, ['', 'Hungry cells', 'Cells ready to divide', 'Elderly cells'][+val], { pred: allLiving, stateMode: +val });
-    else if (kind === 'diet') setFocus(key, `Diet: ${val}`, { pred: (g) => facets(g).diet === val });
-    else if (kind === 'mobility') setFocus(key, `Mobility: ${val}`, { pred: (g) => facets(g).mobility === val });
-    else if (kind === 'body') setFocus(key, val === 'multicellular' ? 'Multicellular species' : 'Single-celled species', { pred: (g) => facets(g).body === val });
-    else if (kind === 'types') setFocus(key, `${val} cell type${val === '1' ? '' : 's'}`, { pred: (g) => String(facets(g).types) === val });
+    else if (kind === 'diet') setFocus(key, `Diet: ${val}`, { pred: (g) => facets(g, K).diet === val });
+    else if (kind === 'mobility') setFocus(key, `Mobility: ${val}`, { pred: (g) => facets(g, K).mobility === val });
+    else if (kind === 'body') setFocus(key, val === 'multicellular' ? 'Multicellular species' : 'Single-celled species', { pred: (g) => facets(g, K).body === val });
+    else if (kind === 'types') setFocus(key, `${val} cell type${val === '1' ? '' : 's'}`, { pred: (g) => String(facets(g, K).types) === val });
   }
   function focusSpecies(sp) {
     const key = `sp:${sp.serial}`;
@@ -533,9 +337,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     return d + Math.min(dh, 1 - dh);
   }
   function newGenus(g, from) {
-    const r = prng(Math.imul(g.serial, 2654435761) ^ 0x51ed);
-    let name;
-    for (let tries = 0; tries < 8; tries++) { name = cap(word(r, r() < 0.6 ? 2 : 3)); if (!life.genera.has(name)) break; }
+    const name = genusName(g.serial, life.genera);
     life.genera.set(name, { name, founder: g, from, born: g.born, announced: false });
     return name;
   }
@@ -553,8 +355,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (!life.orphan.has(key)) life.orphan.set(key, newGenus(g, null));
       genus = life.orphan.get(key);
     }
-    const r = prng(Math.imul(g.serial ^ 0x9e3779b9, 40503));
-    const epithet = word(r, 1 + (r() < 0.5 ? 1 : 0)) + pick(r, SUFFIX);
+    const epithet = speciesEpithet(g.serial);
     const sp = {
       serial: g.serial, slot: g.slot, genome: g, genus, name: `${genus} ${epithet}`,
       parent: g.parent, parentName: parent ? parent.name : null, born: g.born,
@@ -618,11 +419,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
         if (t > 20) {
           if (gen && gen.from && !gen.announced) {
             gen.announced = true;
-            pushEvent(`New genus <b>${esc(gen.name)}</b> splits from ${esc(gen.from)}: ${spLink(sp.serial, sp.name)} · ${describe(g)}`, g.col, 'genus');
+            pushEvent(`New genus <b>${esc(gen.name)}</b> splits from ${esc(gen.from)}: ${spLink(sp.serial, sp.name)} · ${describe(g, K)}`, g.col, 'genus');
           } else {
             const anc = sp.ancestor && life.reg.get(sp.ancestor);
             const origin = sp.founder ? originWord(sp) : anc ? `from ${spLink(anc.serial, anc.name)}` : 'from an unrecorded ancestor';
-            pushEvent(`${spLink(sp.serial, sp.name)} established · ${describe(g)} · ${origin}`, g.col, 'est');
+            pushEvent(`${spLink(sp.serial, sp.name)} established · ${describe(g, K)} · ${origin}`, g.col, 'est');
           }
         }
         if (gen) gen.announced = true;
@@ -660,11 +461,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       }
     }
     const frac = living / Math.max(1, eng.count);
-    if (!life.crisis && frac < 0.02 && t > 10) { life.crisis = true; pushEvent('Life has nearly vanished · new lineages begin to spark', 0xffffffff, 'crisis'); }
-    else if (life.crisis && frac > 0.06) life.crisis = false;
-    const glint = Math.max(1, pop[1]);
-    const perSec = life.crisis ? 3 : t < climate.seedUntil ? 1.2 : 1 / 30;
-    eng.abio = perSec / (glint * 60);
+    const wasCrisis = life.crisis;
+    life.crisis = crisisAt(life.crisis, frac, t);
+    if (!wasCrisis && life.crisis) pushEvent('Life has nearly vanished · new lineages begin to spark', 0xffffffff, 'crisis');
+    eng.abio = abioRate(t, pop[1], climate.seedUntil, life.crisis);
 
     if (t - life.lastHist >= life.histEvery) {
       const G = Array.from(c.globals);
@@ -804,18 +604,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
     sel.story.unshift({ t: eng.simTime, text });
     if (sel.story.length > 14) sel.story.length = 14;
     dirty = true;
-  }
-
-  // The same divergence-free currents the GPU uses.
-  function flowAt(x, y, t) {
-    const w = eng.waves;
-    let vx = 0, vy = 0;
-    for (let k = 0; k < 4; k++) {
-      const kx = w[k * 4], ky = w[k * 4 + 1];
-      const c = (Math.cos(kx * x + ky * y + w[k * 4 + 2] * t + k * 1.7) * w[k * 4 + 3]) / Math.max(Math.hypot(kx, ky), 1e-4);
-      vx += ky * c; vy -= kx * c;
-    }
-    return [vx, vy];
   }
 
   function genomeFor(kind) {
@@ -1041,7 +829,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const traitRow = (label, v, lo, hi, text, tip) => `<div class="trait"><span>${tip ? term(tip, label) : label}</span>${bar((v - lo) / (hi - lo), 'var(--ink-dim)')}<b>${text}</b></div>`;
   // A two-line row: label and figures above, a full-width proportion bar below.
   const compRow = (label, tip, shares, g, text) => `<div class="trait two"><div class="tl"><span>${term(tip, label)}</span><b>${shares.map((v, r) => (v > 0.02 ? text(v, r) : '')).filter(Boolean).join(' · ')}</b></div><span class="compbar">${shares.map((v, r) => (v > 0.02 ? `<i style="flex:${v};background:${cssRgb(roleColor(g, r))}"></i>` : '')).join('')}</span></div>`;
-  const tagHTML = (g) => `<div class="tags">${tagsOf(g).map(([t, k]) => `<span class="term" data-tip="${k}">${t}</span>`).join('')}</div>`;
+  const tagHTML = (g) => `<div class="tags">${tagsOf(g, K).map(([t, k]) => `<span class="term" data-tip="${k}">${t}</span>`).join('')}</div>`;
 
   function storyHTML() {
     if (!sel || !sel.story.length) return '';
@@ -1391,7 +1179,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // ------------------------------------------------------------ lab
   const lab = createLab({
     $, fmt, fmtClock, fmtDur, esc, cssCol, ROLE, MATTER, eng, state,
-    life: () => life, facets, groups, climate: () => climate, held: uiHeld,
+    life: () => life, facets: (g) => facets(g, K), groups, climate: () => climate, held: uiHeld,
     openSpecies, focusFacet,
     focusKey: () => focus.key,
     focusPredicate: (label, pred) => setFocus(`pred:${label}`, label, { pred }),
@@ -1558,7 +1346,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const dtS = state.paused ? 0 : Math.max(0, Math.min(0.25, eng.simTime - sel.sampleT));
     let adv = 1;
     if (p.kind >= FIRST_LIFE) { const g = genomeFor(p.kind); adv = g ? g.advect : 0.5; }
-    const [fx, fy] = flowAt(p.x, p.y, eng.simTime);
+    const [fx, fy] = flowAt(p.x, p.y, eng.simTime, eng.waves);
     return [p.x + (p.vx + fx * adv) * dtS, p.y + (p.vy + fy * adv) * dtS];
   }
 
@@ -1570,7 +1358,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     for (let sy = step / 2; sy < innerHeight; sy += step) {
       for (let sx = step / 2; sx < innerWidth; sx += step) {
         const [wx, wy] = toWorld(sx, sy);
-        const [vx, vy] = flowAt(wx, wy, eng.simTime);
+        const [vx, vy] = flowAt(wx, wy, eng.simTime, eng.waves);
         const m = Math.hypot(vx, vy);
         if (m > maxV) maxV = m;
         pts.push([sx, sy, vx, vy, m]);
@@ -1652,7 +1440,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (!state.busy && inflight < 3) {
       perf.frames++;
       eng.season = seasonAt(eng.simTime);
-      if (state.phase === 'running' && !state.paused) climateTick((dt / 1000) * state.timeScale);
+      if (state.phase === 'running' && !state.paused) climate.tick((dt / 1000) * state.timeScale);
       if (state.follow && sel) {
         const [px, py] = predicted();
         const k = Math.min(1, dt / 70);

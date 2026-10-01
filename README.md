@@ -18,25 +18,28 @@ Press **H** in the page for controls and **K** for the Field Lab (species list, 
 
 ## Building
 
-The source is a handful of ES modules in `src/`. `build.py` concatenates them into `src/page.html` and writes `dist/tidemote.html`:
+The source is a handful of ES modules in `src/`. `build.mjs` uses esbuild to bundle `src/main.js` into a readable IIFE, inserts it into `src/page.html`, and writes `dist/tidemote.html`:
 
 ```sh
-python3 build.py
+npm install
+npm run build
 ```
 
-The modules end up sharing one top-level scope, so top-level names must be unique across files. That's why `engine.js` uses `eclamp` and `emix` rather than `clamp` and `mix`.
+esbuild preserves module scope, so top-level names can be reused across files.
 
 ## Layout
 
 | Path | What it holds |
 | --- | --- |
 | `src/shaders.js` | All WGSL: the simulation passes (binning, counting sort, matter, life), picking, point and bond rendering, post-processing. `DEFAULT_K` holds every tunable constant. |
-| `src/engine.js` | The WebGPU engine: buffers, pipelines, the per-frame pass sequence, census and pick readbacks, the focus/highlight filter, and the CPU-side regulators (plant-cover turbidity, guild blight, immigration). Also the founding archetypes. |
-| `src/main.js` | The page: calibration, camera, inspector, organism tracing, climate eras, species registry and naming, census panel, input. |
+| `src/engine.js` | The WebGPU engine: buffers, pipelines, the per-frame pass sequence, census and pick readbacks, the focus/highlight filter, and the CPU-side regulators (plant-cover turbidity, guild blight, immigration). |
+| `src/genome.js` | CPU genome helpers: founding archetypes, packing and decoding, colours, affinities, role shares, and diet/mobility guilds. |
+| `src/climate.js` | Shared seasons, climate eras and abiogenesis rules. |
+| `src/main.js` | The page: calibration, camera, inspector, organism tracing, species registry and naming, census panel, input. |
 | `src/lab.js` | The Field Lab drawer. |
 | `src/guide.js` | Glossary (hover hints) and field-guide text. |
 | `src/page.html` | Markup and styles. The bundled script is inserted at `/*__SCRIPT__*/`. |
-| `tools/ecology.mjs` | Headless ecology runs for tuning (see below). |
+| `tools/sim.mjs`, `tools/compare.mjs` | Headless ecology runs and comparisons across seeds (see below). |
 
 ## How the simulation works
 
@@ -58,18 +61,17 @@ The field guide inside the page explains the ecology in full.
 
 ## Tuning the ecology headlessly
 
-`tools/ecology.mjs` runs the simulation through Dawn (the `webgpu` npm package) and prints the composition of the biosphere every 30 simulated seconds:
+Install dependencies at the repo root with `npm install`. `tools/sim.mjs` runs the page's ecology, including climate eras, crisis recovery and immigration, without rendering or real-time pacing. Defaults: 8192 particles, 10 simulated minutes, samples every 5 simulated seconds and stdout every 30 seconds.
+
+Use `--chrome` on machines without a GPU: headless Chromium runs WebGPU through SwiftShader, with `PLAYWRIGHT_CHROMIUM` available to override the executable (the cached Chromium build is tried before Playwright's default). On real GPUs, omit `--chrome` to use Dawn (`webgpu`); `--cpu` selects Mesa lavapipe for Dawn, whose async readbacks can corrupt memory and abort longer runs on GPU-less machines.
 
 ```sh
-cd tools && npm install
-node ecology.mjs                                  # 16k particles, 10 simulated minutes
-N=32768 MINUTES=5 SEED=11 node ecology.mjs
-K='{"guildCap":0.4,"bite":0.08}' node ecology.mjs  # override constants from DEFAULT_K
-OUT=world.png ZOOM=1,4 node ecology.mjs            # also render the last frame
+node tools/sim.mjs --chrome --n 4096 --minutes 10 --seed 11 --out run.json
+node tools/sim.mjs --k '{"guildCap":0.4,"bite":0.08}' --out run.json
+node tools/sim.mjs --minutes 1 --png world.png
+node tools/compare.mjs --chrome --seeds 4 --minutes 10 --n 8192 --jobs 2 --out runs/ base '{}' noimm '{"immigration":false}'
 ```
 
-Without a hardware GPU, Mesa's software Vulkan driver works, several times slower than real time:
+`--no-eras` and `--no-immigration` disable those rules; `--sample` and `--print` set simulated-second intervals. JSON contains config, samples (composition, diversity, ledger rates per simulated minute and climate), eras, immigrants and summary metrics. Metrics requiring observations after 60 seconds are `null` in shorter runs. Shares are fractions of living cells. `--png` renders the final frame with Dawn only; optional `ZOOM=1,4` writes separate zoom images. `--help` lists the CLI options.
 
-```sh
-VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json node ecology.mjs
-```
+Comparison configs accept `k` overrides, `eras` and `immigration` booleans. Runs use seeds 1 through `--seeds`, run up to `--jobs` children, save each JSON, and print means ± sample standard deviations plus per-seed results. Dawn runs limit lavapipe threads per child; Chromium's SwiftShader manages its own threads. Run the smoke test and unit tests with `npm test`; the smoke test uses Chromium when an executable is available and otherwise falls back to Dawn with `--cpu`.

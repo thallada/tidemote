@@ -152,6 +152,9 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, pad: u32 };
 @group(0) @binding(6) var<storage, read_write> cellStart: array<u32>;
 @group(0) @binding(7) var<storage, read_write> blockSums: array<u32>;
 @group(0) @binding(8) var<storage, read_write> aux: array<vec2u>;
+// Intent: x bits 0..1 action (0 none, 1 eat, 2 birth, 3 bite),
+// 2..11 child kind (birth) or observed target kind (eat/bite),
+// 12..13 child role, 14..31 child generation; y child energy, z/w bond neighbours.
 @group(0) @binding(9) var<storage, read_write> intent: array<vec4u>;
 @group(0) @binding(10) var<storage, read_write> genomes: array<Genome>;
 @group(0) @binding(11) var<storage, read_write> ledger: array<atomic<u32>>;
@@ -368,7 +371,8 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
       atomicStore(&ledger[META_CLAIM + i], 0u);
       let it = intent[c - 1u];
       let act = it.x & 3u;
-      if (act == 1u) {
+      let ck = (it.x >> 2u) & 1023u;
+      if (act == 1u && p.kind == ck) {
         if (p.kind >= FIRST_LIFE) {
           // a kill leaves a carcass for the scavengers
           p.kind = HUSK; p.energy = ${f(K.carcass)}; p.age = 0.0; p.vel *= 0.2;
@@ -377,7 +381,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
           p.kind = SILT; p.energy = 0.0; p.vel = vec2f(0.0); p.age = 0.0;
           p.info = (p.info & 0xffffffc0u) | 3u;
         }
-      } else if (act == 3u) {
+      } else if (act == 3u && p.kind == ck) {
         if (p.kind >= FIRST_LIFE) {
           p.energy -= ${f(K.bite)};
           if (p.energy <= 0.0) {
@@ -385,8 +389,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
             p.info = (p.info & 0xfffffff0u) | 3u;
           }
         }
-      } else if (act == 2u) {
-        let ck = (it.x >> 2u) & 1023u;
+      } else if (act == 2u && (p.kind == SILT || p.kind == GLINT)) {
         let cr = (it.x >> 12u) & 3u;
         let gen = it.x >> 14u;
         p.kind = ck;
@@ -593,6 +596,8 @@ var<workgroup> kphoto: array<f32, 512>;
 
 @compute @workgroup_size(128)
 fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
+  // Other workgroups may write newly allocated genomes, but those slots have no living
+  // cells in this frame's snapshot, so their staged values are never used this frame.
   for (var k = l; k < MAXK * 3u; k += 128u) { surf[k] = genomes[k / 3u].sig[k % 3u].xy; }
   for (var k = l; k < MAXK; k += 128u) { kphoto[k] = select(genomes[k].photo, 0.0, k < FIRST_LIFE); }
   workgroupBarrier();
@@ -772,6 +777,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
   let thrift = 1.0 - ${f(K.bodyThrift)} * 0.5 * bonds;
   // guild blight: a whole way of life that crowds out the rest sickens
+  // dg/mg must match genome.js dietGuild/mobilityGuild (omnivores share grazer dg = 1).
   var dg = 1u;
   if (g.photo > 0.55) { dg = 0u; } else if (g.dFlesh > 0.55) { dg = 2u; } else if (g.dHusk > 0.55) { dg = 3u; }
   let effSwim = g.swim * (1.0 - g.photo);
@@ -808,6 +814,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
     let armored = fk >= FIRST_LIFE && rnd(&s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
     if (!armored && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
       let fp = sortedFull[food];
+      ck = fp.kind;
       var gain = 0.0;
       act = 1u;
       if (fp.kind == GLINT) {
