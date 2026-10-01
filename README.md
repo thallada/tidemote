@@ -50,7 +50,7 @@ Each frame runs entirely on the GPU:
 3. **Matter**: silt, glint and husks drift on divergence-free currents. The tide charges silt into glint, glint fades, and husks decay.
 4. **Life**: only the living are dispatched, indirectly. Each cell sums particle-life forces from 8-dimensional surface/receptor signatures, bonds to its two nearest same-species neighbours if it is adhesive, photosynthesises, pays upkeep, and claims food or a silt grain to divide into.
 
-Every 20 frames a census is read back: per-species counts and genomes. The CPU uses it to name species, and track lineages; it does not steer the ecology. The ecology is shaped only by local rules:
+Every 20 frames a census is read back: per-species counts and genomes. The CPU uses it to name species and track lineages; it does not steer the ecology. The ecology is shaped only by local rules:
 
 - **Local crowding and shade**: nearby same-species cells raise upkeep for free-living cells; living neighbours shade photosynthesis.
 - **Local minerals and food**: photosynthesis needs nearby silt, feeding needs nearby prey, glint or husks, and division needs a nearby silt grain.
@@ -68,7 +68,7 @@ Use `--chrome` on machines without a GPU: headless Chromium runs WebGPU through 
 
 ```sh
 node tools/sim.mjs --chrome --n 4096 --minutes 10 --seed 11 --out run.json
-node tools/sim.mjs --k '{"bite":0.08}' --out run.json
+node tools/sim.mjs --k '{"bite":0.08}' --out run.json      # unknown keys are rejected; see DEFAULT_K
 node tools/sim.mjs --minutes 1 --png world.png
 node tools/compare.mjs --chrome --seeds 4 --minutes 10 --n 8192 --jobs 2 --out runs/ base '{}' steady '{"eras":false}'
 ```

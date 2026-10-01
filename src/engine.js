@@ -1,6 +1,6 @@
 import {
   simWGSL, PICK_WGSL, DRAW_WGSL, POST_WGSL, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_CLAIM, P_BYTES, G_BYTES, G_WORDS, LITE_BYTES,
+  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_CLAIM, P_BYTES, G_BYTES, LITE_BYTES,
 } from './shaders.js';
 import {
   archetypeGenome, writeGenome, parseParticle,
@@ -21,6 +21,8 @@ const mix = (a, b, t) => a + (b - a) * t;
 
 // --------------------------------------------------------------------- engine
 export async function createEngine(device, format, { hasTimestamps = false, K = {} } = {}) {
+  const unknown = Object.keys(K).filter((k) => !(k in DEFAULT_K));
+  if (unknown.length) throw new Error(`unknown tunables: ${unknown.join(', ')} (see DEFAULT_K in shaders.js)`);
   const e = new Engine(device, format, hasTimestamps, { ...DEFAULT_K, ...K });
   const errs = await e.compileErrors();
   if (errs.length) throw new Error('Shader compile failed:\n' + errs.join('\n'));
@@ -291,7 +293,7 @@ class Engine {
     const gf = new Float32Array(gbuf);
     const matterCols = [[0.3, 0.34, 0.46], [0.7, 0.93, 1.0], [0.5, 0.35, 0.25]];
     for (let m = 0; m < 3; m++) {
-      const g = archetypeGenome('plankton', rng);
+      const g = archetypeGenome('plankton', rng, this.K);
       g.col = packUnorm(...matterCols[m]);
       writeGenome(gu, gf, m, g);
     }
@@ -299,13 +301,11 @@ class Engine {
     const plan = FOUNDING_PLAN;
     head[0] = n;
     head[1] = plan.length;
-    this.founderTypes = {};
     plan.forEach((type, s) => {
-      const g = archetypeGenome(type, rng);
+      const g = archetypeGenome(type, rng, this.K);
       g.serial = s + 1;
       writeGenome(gu, gf, FIRST_LIFE + s, g);
       head[META_SLOT + FIRST_LIFE + s] = 1;
-      this.founderTypes[s + 1] = type;
     });
     d.queue.writeBuffer(this.b.genomes, 0, gbuf);
     d.queue.writeBuffer(this.b.ledger, 0, head);

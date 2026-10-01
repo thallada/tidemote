@@ -13,7 +13,7 @@ export const GLOSSARY = {
   abiogenesis: 'Life sparking from glint: a completely random new species, about once every 30 simulated seconds on average.',
   flesh: 'Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Animal prey is killed outright and leaves a husk; this takes time, so a hunter manages at most one kill every few seconds. Plant cells are cropped a 0.1-energy bite at a time. Bonded bodies are armoured and shrug off many attacks.',
   diet: 'The share of energy a species takes from each food. Food is worth its energy × share × 1.5, less for partly photosynthetic species.',
-  photosynth: 'Takes energy directly from light: 0.4 × photosynthesis × local light per second. It is reduced by shade from neighbouring cells (a bonded body barely shades itself), needs minerals (silt nearby), runs faster for anchored cells with current flowing past them, and dims for everyone when plant cover grows past about a tenth of the world (the water clouds). Photosynthesis makes a cell heavy: less thrust, no swimming, worse at eating.',
+  photosynth: 'Takes energy directly from light: 0.4 × photosynthesis × local light per second. It is reduced by shade from neighbouring cells (a bonded body barely shades itself), needs minerals (silt nearby), and runs faster for anchored cells with current flowing past them. Photosynthesis makes a cell heavy: less thrust, no swimming, worse at eating.',
   grazer: 'Mostly eats glint, and crops photosynthesising cells: the herbivores of this world.',
   scavenger: 'Mostly eats husks.',
   predator: 'Mostly eats flesh: hunts animal cells, and crops plants only reluctantly.',
@@ -112,7 +112,6 @@ export const GUIDE = [
 <li>Crowding: free-living cells packed among their own kind sicken, so clonal blobs break up and species mix.</li>
 <li>Grazers crop the plants, predators thin out the grazers, and scavengers live off the husks both leave behind.</li>
 <li>Anchored plants thrive where currents run strong; drifting plankton where they are calm. Bonded bodies live cheaply and resist attack but disperse poorly.</li>
-<li>Clouding: once photosynthesising cells cover more than about a tenth of the world, the water dims for every plant, leaving room and silt for everything else.</li>
 <li>The climate keeps changing which strategy pays.</li>
 </ul>
 <p>Mass is conserved, so every birth needs silt freed by some earlier death or meal. Life is limited by matter as well as energy.</p>`,

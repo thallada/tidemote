@@ -56,7 +56,7 @@ const ARCHETYPES = {
   plankton: { W: [[-0.35, 0, 0], [0, 0, 0], [0, 0, 0]], dev: [[1, 0, 0], [1, 0, 0], [1, 0, 0]],
     t: (r) => ({ photo: mix(0.6, 0.9, r()), swim: mix(0, 0.2, r()), align: 0, force: mix(2, 5, r()), advect: mix(0.8, 1, r()), drag: mix(0.05, 0.12, r()),
       lifespan: mix(60, 140, r()), reproE: mix(0.8, 1.2, r()), share: mix(0.4, 0.5, r()), diet: [1, 0, 0], size: mix(0.45, 0.75, r()), radius: mix(0.45, 0.7, r()) }) },
-  grazer: { W: [[mix(-0.2, 0.2, Math.random()), 0, 0], [0, 0, 0], [0, 0, 0]], dev: [[1, 0, 0], [1, 0, 0], [1, 0, 0]],
+  grazer: { W: [[0, 0, 0], [0, 0, 0], [0, 0, 0]], dev: [[1, 0, 0], [1, 0, 0], [1, 0, 0]], selfW: [-0.2, 0.2],
     t: (r) => ({ photo: 0, swim: mix(0.6, 1.3, r()), align: mix(0, 0.3, r()), force: mix(4, 9, r()), advect: mix(0.3, 0.7, r()), drag: mix(0.06, 0.15, r()),
       lifespan: mix(90, 180, r()), reproE: mix(1.1, 1.8, r()), share: mix(0.4, 0.5, r()), diet: [0.75, 0.1, 0.22], size: mix(0.7, 1.1, r()), radius: mix(0.6, 0.9, r()) }) },
   crawler: { W: [[0.85, 0.6, 0], [1.0, -0.3, 0], [0, 0, 0]], dev: [[0.55, 0.45, 0], [0.5, 0.5, 0], [1, 0, 0]],
@@ -77,13 +77,14 @@ export const FOUNDING_PLAN = ['reef', 'reef', 'reef', 'reef', 'plankton', 'plank
   'grazer', 'grazer', 'grazer', 'grazer', 'crawler', 'crawler', 'crawler', 'crawler',
   'hunter', 'hunter', 'hunter', 'scavenger', 'scavenger', 'filament', 'filament', 'filament'];
 
-export function archetypeGenome(type, r = Math.random) {
+export function archetypeGenome(type, r = Math.random, K = DEFAULT_K) {
   const A = ARCHETYPES[type];
+  const W = A.selfW ? A.W.map((row, i) => (i === 0 ? [mix(A.selfW[0], A.selfW[1], r()), row[1], row[2]] : row)) : A.W;
   const surfs = [randSig(r), randSig(r), randSig(r)];
   const roles = surfs.map((surf, i) => {
     const rec = Array.from({ length: 8 }, (_, d) => {
       let v = (r() * 2 - 1) * 0.22;
-      for (let s = 0; s < 3; s++) v += A.W[i][s] * surfs[s][d] * 0.85;
+      for (let s = 0; s < 3; s++) v += W[i][s] * surfs[s][d] * 0.85;
       return clamp(v, -1, 1);
     });
     return { surf, rec };
@@ -100,7 +101,7 @@ export function archetypeGenome(type, r = Math.random) {
     parent: 0, serial: 0, born: 0, depth: 0, archetype: type,
     adhesion: ADHESION[type] ?? 0,
   };
-  return finalizeGenome(g);
+  return finalizeGenome(g, K);
 }
 
 export function finalizeGenome(g, K = DEFAULT_K) {

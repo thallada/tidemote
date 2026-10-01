@@ -1426,7 +1426,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (!state.busy && inflight < 3) {
       perf.frames++;
       eng.season = seasonAt(eng.simTime);
-      if (state.phase === 'running' && !state.paused) climate.tick((dt / 1000) * state.timeScale);
+      if (state.phase === 'running' && !state.paused) climate.tick((1 / 60) * state.timeScale);
       if (state.follow && sel) {
         const [px, py] = predicted();
         const k = Math.min(1, dt / 70);

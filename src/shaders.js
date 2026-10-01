@@ -501,7 +501,6 @@ fn censusMain(@builtin(global_invocation_id) gid: vec3u) {
   let padded = (n + 127u) / 128u * 128u;
   if (s < 128u && n + s < padded) { livingList[n + s] = NONE; }
   if (s == 0u) {
-    atomicStore(&ledger[15], n);
     atomicStore(&frameCtr[1], (n + 127u) / 128u);
     atomicStore(&frameCtr[2], 1u);
     atomicStore(&frameCtr[3], 1u);

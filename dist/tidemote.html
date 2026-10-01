@@ -948,7 +948,6 @@ fn censusMain(@builtin(global_invocation_id) gid: vec3u) {
   let padded = (n + 127u) / 128u * 128u;
   if (s < 128u && n + s < padded) { livingList[n + s] = NONE; }
   if (s == 0u) {
-    atomicStore(&ledger[15], n);
     atomicStore(&frameCtr[1], (n + 127u) / 128u);
     atomicStore(&frameCtr[2], 1u);
     atomicStore(&frameCtr[3], 1u);
@@ -1672,8 +1671,9 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       })
     },
     grazer: {
-      W: [[mix(-0.2, 0.2, Math.random()), 0, 0], [0, 0, 0], [0, 0, 0]],
+      W: [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
       dev: [[1, 0, 0], [1, 0, 0], [1, 0, 0]],
+      selfW: [-0.2, 0.2],
       t: (r) => ({
         photo: 0,
         swim: mix(0.6, 1.3, r()),
@@ -1789,13 +1789,14 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     "filament",
     "filament"
   ];
-  function archetypeGenome(type, r = Math.random) {
+  function archetypeGenome(type, r = Math.random, K = DEFAULT_K) {
     const A = ARCHETYPES[type];
+    const W = A.selfW ? A.W.map((row, i) => i === 0 ? [mix(A.selfW[0], A.selfW[1], r()), row[1], row[2]] : row) : A.W;
     const surfs = [randSig(r), randSig(r), randSig(r)];
     const roles = surfs.map((surf, i) => {
       const rec = Array.from({ length: 8 }, (_, d) => {
         let v = (r() * 2 - 1) * 0.22;
-        for (let s = 0; s < 3; s++) v += A.W[i][s] * surfs[s][d] * 0.85;
+        for (let s = 0; s < 3; s++) v += W[i][s] * surfs[s][d] * 0.85;
         return clamp(v, -1, 1);
       });
       return { surf, rec };
@@ -1833,7 +1834,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       archetype: type,
       adhesion: ADHESION[type] ?? 0
     };
-    return finalizeGenome(g);
+    return finalizeGenome(g, K);
   }
   function finalizeGenome(g, K = DEFAULT_K) {
     const s = Math.max(g.dGlint + g.dHusk + g.dFlesh, 1e-3);
@@ -1969,6 +1970,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   var CENSUS_BYTES = LEDGER_HEAD + MAXK * G_BYTES;
   var mix2 = (a, b, t2) => a + (b - a) * t2;
   async function createEngine(device, format, { hasTimestamps = false, K = {} } = {}) {
+    const unknown = Object.keys(K).filter((k) => !(k in DEFAULT_K));
+    if (unknown.length) throw new Error(`unknown tunables: ${unknown.join(", ")} (see DEFAULT_K in shaders.js)`);
     const e = new Engine(device, format, hasTimestamps, { ...DEFAULT_K, ...K });
     const errs = await e.compileErrors();
     if (errs.length) throw new Error("Shader compile failed:\n" + errs.join("\n"));
@@ -2271,7 +2274,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       const gf = new Float32Array(gbuf);
       const matterCols = [[0.3, 0.34, 0.46], [0.7, 0.93, 1], [0.5, 0.35, 0.25]];
       for (let m = 0; m < 3; m++) {
-        const g = archetypeGenome("plankton", rng);
+        const g = archetypeGenome("plankton", rng, this.K);
         g.col = packUnorm(...matterCols[m]);
         writeGenome(gu, gf, m, g);
       }
@@ -2279,13 +2282,11 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       const plan = FOUNDING_PLAN;
       head[0] = n;
       head[1] = plan.length;
-      this.founderTypes = {};
       plan.forEach((type, s) => {
-        const g = archetypeGenome(type, rng);
+        const g = archetypeGenome(type, rng, this.K);
         g.serial = s + 1;
         writeGenome(gu, gf, FIRST_LIFE + s, g);
         head[META_SLOT + FIRST_LIFE + s] = 1;
-        this.founderTypes[s + 1] = type;
       });
       d.queue.writeBuffer(this.b.genomes, 0, gbuf);
       d.queue.writeBuffer(this.b.ledger, 0, head);
@@ -2795,7 +2796,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     abiogenesis: "Life sparking from glint: a completely random new species, about once every 30 simulated seconds on average.",
     flesh: "Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Animal prey is killed outright and leaves a husk; this takes time, so a hunter manages at most one kill every few seconds. Plant cells are cropped a 0.1-energy bite at a time. Bonded bodies are armoured and shrug off many attacks.",
     diet: "The share of energy a species takes from each food. Food is worth its energy × share × 1.5, less for partly photosynthetic species.",
-    photosynth: "Takes energy directly from light: 0.4 × photosynthesis × local light per second. It is reduced by shade from neighbouring cells (a bonded body barely shades itself), needs minerals (silt nearby), runs faster for anchored cells with current flowing past them, and dims for everyone when plant cover grows past about a tenth of the world (the water clouds). Photosynthesis makes a cell heavy: less thrust, no swimming, worse at eating.",
+    photosynth: "Takes energy directly from light: 0.4 × photosynthesis × local light per second. It is reduced by shade from neighbouring cells (a bonded body barely shades itself), needs minerals (silt nearby), and runs faster for anchored cells with current flowing past them. Photosynthesis makes a cell heavy: less thrust, no swimming, worse at eating.",
     grazer: "Mostly eats glint, and crops photosynthesising cells: the herbivores of this world.",
     scavenger: "Mostly eats husks.",
     predator: "Mostly eats flesh: hunts animal cells, and crops plants only reluctantly.",
@@ -2898,7 +2899,6 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 <li>Crowding: free-living cells packed among their own kind sicken, so clonal blobs break up and species mix.</li>
 <li>Grazers crop the plants, predators thin out the grazers, and scavengers live off the husks both leave behind.</li>
 <li>Anchored plants thrive where currents run strong; drifting plankton where they are calm. Bonded bodies live cheaply and resist attack but disperse poorly.</li>
-<li>Clouding: once photosynthesising cells cover more than about a tenth of the world, the water dims for every plant, leaving room and silt for everything else.</li>
 <li>The climate keeps changing which strategy pays.</li>
 </ul>
 <p>Mass is conserved, so every birth needs silt freed by some earlier death or meal. Life is limited by matter as well as energy.</p>`
@@ -5230,7 +5230,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       if (!state.busy && inflight < 3) {
         perf.frames++;
         eng.season = seasonAt(eng.simTime);
-        if (state.phase === "running" && !state.paused) climate.tick(dt / 1e3 * state.timeScale);
+        if (state.phase === "running" && !state.paused) climate.tick(1 / 60 * state.timeScale);
         if (state.follow && sel) {
           const [px, py] = predicted();
           const k = Math.min(1, dt / 70);
