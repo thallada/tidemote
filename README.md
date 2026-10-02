@@ -78,7 +78,7 @@ node tools/compare.mjs --chrome --seeds 4 --minutes 10 --n 8192 --jobs 2 --out r
 On a GPU, `tools/ensemble.mjs` runs one configuration across many seeds and checks it statistically against a saved baseline; it is the regression gate for ecology changes. Under WSL, prefix headless tools with `tools/gpu-node.sh` to reach the GPU through Windows. See [docs/headless-gpu.md](docs/headless-gpu.md):
 
 ```sh
-tools/gpu-node.sh tools/ensemble.mjs --runs 32 --minutes 30 --n 32768 --k '{"armor":1}' --out runs/armor1 \
+tools/gpu-node.sh tools/ensemble.mjs --runs 32 --minutes 30 --n 32768 --k '{"armor":0.5}' --out runs/armor05 \
   --baseline balance/baseline-32k-30m.json --targets balance/targets.json
 ```
 

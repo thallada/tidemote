@@ -39,9 +39,9 @@ export const DEFAULT_K = {
   kinFree: 4,       // same-species neighbours tolerated before crowding costs
   anchorCost: 0.003, // upkeep for resisting the currents
   flowFeed: 0.8,    // anchored photosynthesisers gain this much per 0.2 cells/s of current flowing past
-  bodyThrift: 0.3,  // upkeep saved by a cell with two bonds: bodies share the cost of living
+  bodyThrift: 0.15, // upkeep saved by a cell with two bonds: bodies share the cost of living
   kinShade: 0.25,   // how much a bonded body shades itself, relative to strangers
-  armor: 2.5,       // bonded bodies resist being killed or bitten
+  armor: 1,         // bonded bodies resist being killed or bitten
   searchImage: 0.7, // chance a hunter or grazer misses living prey unlike its last catch
   catchSkill: 0.3,  // catch chance scales with eating skill (eatEff × preference), reaching certainty here
   nutrHalf: 8.0,    // silt grains nearby at which photosynthesis runs at half speed
