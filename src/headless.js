@@ -14,7 +14,8 @@ export async function runHeadless(device, config, { print, width = 640, height =
     const rng = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
     Math.random = rng; // Archetype initialization also uses Math.random.
     const E = await import('./engine.js');
-    const { readGenome, dietGuild, mobilityGuild } = await import('./genome.js');
+    const { readGenome } = await import('./genome.js');
+    const { communitySample, summarizeRun } = await import('./ecostats.js');
     const eng = await E.createEngine(device, 'rgba8unorm', { K: config.k });
     if (!(await eng.allocate(config.n))) throw new Error(`could not allocate ${config.n} particles`);
     const W = width, H = height;
@@ -30,18 +31,10 @@ export async function runHeadless(device, config, { print, width = 640, height =
     const established = new Set(), lost = new Set();
     eng.onCensus = (c) => {
       const pop = c.pop, t = c.simTime;
-      let living = 0, species = 0, entropy = 0, bodies = 0;
-      const diet = { producer: 0, grazer: 0, predator: 0, scavenger: 0, omnivore: 0 };
-      const movement = { sessile: 0, crawler: 0, swimmer: 0, drifter: 0 };
-      for (let s = E.FIRST_LIFE; s < E.MAXK; s++) {
-        if (!pop[s]) continue;
-        living += pop[s]; species++;
-        const g = readGenome(c.genomeU32, c.genomeF32, s);
-        diet[dietGuild(g)] += pop[s]; movement[mobilityGuild(g)] += pop[s];
-        if ((g.adhesion || 0) > eng.K.adhMin) bodies += pop[s];
-      }
-      for (let s = E.FIRST_LIFE; s < E.MAXK; s++) if (pop[s]) { const p = pop[s] / living; entropy -= p * Math.log(p); }
-      for (const shares of [diet, movement]) for (const key in shares) shares[key] /= Math.max(1, living);
+      const species = [];
+      for (let s = E.FIRST_LIFE; s < E.MAXK; s++) if (pop[s]) species.push({ pop: pop[s], genome: readGenome(c.genomeU32, c.genomeF32, s) });
+      const community = communitySample(species, eng.K.adhMin);
+      const { living, diet } = community;
       const fraction = living / eng.count;
       eng.abio = abioRate(pop[1]);
       if (t > 60) {
@@ -53,13 +46,12 @@ export async function runHeadless(device, config, { print, width = 640, height =
         if (diet[key] > 0.05) established.add(key);
         if (diet[key] === 0 && established.has(key)) lost.add(key);
       }
-      latest = { t, living, silt: pop[0], glint: pop[1], husk: pop[2], species,
-        effSpecies: living ? Math.exp(entropy) : 0, diet, movement, bodies: bodies / Math.max(1, living),
+      latest = { t, silt: pop[0], glint: pop[1], husk: pop[2], ...community,
         ambient: eng.ambient, chargeMul: eng.chargeMul, season: eng.season,
         era: climate.name };
       if (t - lastSample >= config.sample - 1e-6 || c.frameNo === frames) record(c);
       if (t - lastPrint >= config.print - 1e-6) {
-        print?.(`t=${t.toFixed(0)}s living=${living}/${eng.count} species=${species} effective=${latest.effSpecies.toFixed(2)} era="${climate.name}"`);
+        print?.(`t=${t.toFixed(0)}s living=${living}/${eng.count} species=${community.species} effective=${latest.effSpecies.toFixed(2)} era="${climate.name}"`);
         lastPrint = t;
       }
     };
@@ -74,15 +66,22 @@ export async function runHeadless(device, config, { print, width = 640, height =
       eng.season = seasonAt(eng.simTime);
       if (config.eras) climate.tick(1 / 60);
       if (f === frames - 1) eng.censusEvery = 1;
-      eng.frame({ target: null, simDt: 1 / 60, time: f / 60 });
-      // Pace the loop on the census readback: wait for it to land before continuing, so the CPU-side rules
-      // never lag and the queue never runs ahead. (Never call queue.onSubmittedWorkDone() here: in the
-      // webgpu npm package on lavapipe async callbacks can corrupt memory and abort the process.)
-      while (eng.censusStage.some((s) => s.busy)) {
+      // Before a census frame, wait until a staging buffer is free so no census is skipped. The other
+      // buffer may still be in flight, so the GPU keeps working while the CPU reads the previous census,
+      // which lags by at most one census (20 frames), as on the page. On the last frame wait for all.
+      // (Never call queue.onSubmittedWorkDone() here: in the webgpu npm package on lavapipe async
+      // callbacks can corrupt memory and abort the process.)
+      const censusNext = f === frames - 1 || (eng.frameNo + 1) % eng.censusEvery === 0;
+      while (censusNext && (f === frames - 1 ? eng.censusStage.some((s) => s.busy) : eng.censusStage.every((s) => s.busy))) {
         checkErrors();
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
+      eng.frame({ target: null, simDt: 1 / 60, time: f / 60 });
       checkErrors();
+    }
+    while (eng.censusStage.some((s) => s.busy)) {
+      checkErrors();
+      await new Promise((resolve) => setTimeout(resolve, 0));
     }
     if (!latest) throw new Error('No census received');
     const wallSeconds = (Date.now() - t0) / 1000;
@@ -93,7 +92,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
       frames, msPerFrame: wallSeconds * 1000 / frames, wallSeconds };
     if (snapshot) await snapshot(eng, frames);
     checkErrors();
-    return { config, samples, eras: climate.history, summary };
+    return { config, samples, eras: climate.history, summary, outcome: summarizeRun(samples, { count: eng.count }) };
   } finally {
     Math.random = originalRandom;
     device.removeEventListener('uncapturederror', onError);

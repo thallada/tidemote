@@ -8,6 +8,7 @@ GPU biosphere simulation (WebGPU, WGSL) with a browser page and headless tools. 
 - `npm test` runs unit tests (`test/*.test.js`) and a short headless smoke sim.
 - `node tools/sim.mjs --chrome --n 4096 --minutes 5 --out run.json` runs the page's ecology headlessly and writes JSON metrics.
 - `node tools/compare.mjs --chrome --seeds 3 --minutes 5 --n 4096 --jobs 3 --out runs base '{}' variant '{"k":{"shade":0.1}}'` compares configurations across seeds.
+- `npm run gate -- --out runs/NAME --k '{...}'` (32 seeds × 30 min at 32k against `balance/baseline-32k-30m.json`, ~16 min) is the balance regression gate (see docs/headless-gpu.md). Run it before and after any ecology change.
 
 ## Layout
 
@@ -15,11 +16,13 @@ GPU biosphere simulation (WebGPU, WGSL) with a browser page and headless tools. 
 - `src/engine.js` the WebGPU engine (buffers, passes, readbacks). The census only feeds naming and lineage tracking; nothing steers the ecology globally.
 - `src/genome.js` CPU genome packing, archetypes, guild classification (`dietGuild`, `mobilityGuild`).
 - `src/climate.js` seasons, climate eras, abiogenesis rate: shared by the page and headless runs.
-- `src/headless.js` the headless frame loop and metrics, run under Dawn or inside Chromium.
+- `src/headless.js` the headless frame loop, run under Dawn or inside Chromium; `src/ecostats.js` run and ensemble metrics and the statistical comparison.
 - `src/main.js` the page; `names.js`, `facets.js`, `trace.js`, `flow.js` are its pure helpers; `lab.js` the Field Lab.
 
 ## Headless caveats
 
+- Under WSL, prefix headless tools with `tools/gpu-node.sh` (Windows Node, Dawn on D3D12, the real GPU). Plain `node` in WSL only finds llvmpipe and `sim.mjs` refuses it unless `--cpu` is passed.
+- GPU runs are not bit-reproducible per seed; compare ensembles, never single runs.
 - On machines without a GPU use `--chrome` (Playwright Chromium with SwiftShader). It is slow (about 76 ms/frame at 4k particles) but stable.
 - The Dawn path (`webgpu` npm, `--cpu` for lavapipe) is for real GPUs. On Mesa lavapipe it aborts after a few thousand frames whenever async readbacks are used; do not try to work around it with pacing tricks.
 - Every ecological rule is local (see README "How the simulation works"); do not add census-driven regulators back.

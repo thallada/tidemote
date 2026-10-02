@@ -38,7 +38,7 @@ test('headless ecology produces living cells and samples', { timeout: 120_000 },
   if (result.code !== 0) console.error(result.output);
   assert.equal(result.code, 0, result.output);
   const run = JSON.parse(await readFile(out, 'utf8'));
-  assert.deepEqual(Object.keys(run), ['config', 'samples', 'eras', 'summary']);
+  assert.deepEqual(Object.keys(run), ['config', 'samples', 'eras', 'summary', 'outcome']);
   assert.ok(run.summary.finalLiving > 0);
   assert.ok(run.samples.length > 0);
   assert.ok(Number.isInteger(run.summary.guildLosses) && run.summary.guildLosses >= 0);

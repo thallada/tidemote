@@ -81,8 +81,15 @@ async function runDawn() {
   const { create, globals } = await import('webgpu');
   Object.assign(globalThis, globals);
   const gpu = create([]); // The instance must outlive the device.
-  const adapter = await gpu.requestAdapter();
+  const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
   if (!adapter) { console.error('No WebGPU adapter available'); process.exit(2); }
+  const info = adapter.info;
+  config.adapter = [info.vendor, info.architecture, info.device, info.description].filter(Boolean).join(' / ');
+  if (!v.cpu && info.architecture === 'software') {
+    console.error(`Dawn found only a software adapter (${config.adapter}). Pass --cpu to use it anyway;` +
+      ' under WSL run through tools/gpu-node.sh to reach the GPU via Windows D3D12 (see docs/headless-gpu.md).');
+    process.exit(2);
+  }
   const device = await adapter.requestDevice();
   try {
     return await runHeadless(device, config, {

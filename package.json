@@ -7,7 +7,8 @@
     "build": "node build.mjs",
     "sim": "node tools/sim.mjs",
     "compare": "node tools/compare.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "gate": "tools/gpu-node.sh tools/ensemble.mjs --runs 32 --minutes 30 --n 32768 --jobs 4 --baseline balance/baseline-32k-30m.json"
   },
   "dependencies": {
     "pngjs": "^7.0.0",
