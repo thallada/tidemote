@@ -62,6 +62,7 @@ export const DEFAULT_K = {
   bond: 8.0,        // spring strength of bonds between cells of one body
   adhMin: 0.15,     // adhesion needed before a species forms bonds
   bite: 0.06,       // energy taken per bite from a photosynthesising cell
+  biteFloor: 0,     // grazing never takes a plant cell below this energy; 0 lets bites kill
   eatEvery: 6,      // frames between meals
   dietMin: 0.02,    // share of the diet a food must have before a cell bothers to eat it
 };
@@ -377,7 +378,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         }
       } else if (act == 3u && p.kind == ck) {
         if (p.kind >= FIRST_LIFE) {
-          p.energy -= ${f(K.bite)};
+          p.energy = max(p.energy - ${f(K.bite)}, min(p.energy, ${f(K.biteFloor)}));
           if (p.energy <= 0.0) {
             p.kind = HUSK; p.energy = ${f(K.huskBase)}; p.age = 0.0;
             p.info = (p.info & 0xfffffff0u) | 3u;
@@ -792,7 +793,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
       } else if (fp.kind == HUSK) {
         gain = fp.energy * spec(g.dHusk); atomicAdd(&ledger[10], 1u);
       } else if (genomes[fp.kind].photo > 0.4) {
-        gain = min(max(fp.energy, 0.0), ${f(K.bite)}) * spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh); act = 3u; atomicAdd(&ledger[11], 1u);
+        gain = min(max(fp.energy - ${f(K.biteFloor)}, 0.0), ${f(K.bite)}) * spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh); act = 3u; atomicAdd(&ledger[11], 1u);
       } else {
         gain = (${f(K.preyBase)} + ${f(K.preyFrac)} * max(fp.energy, 0.0)) * spec(g.dFlesh); atomicAdd(&ledger[7], 1u);
       }
