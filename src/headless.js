@@ -14,7 +14,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     const rng = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
     Math.random = rng; // Archetype initialization also uses Math.random.
     const E = await import('./engine.js');
-    const { readGenome } = await import('./genome.js');
+    const { genomeSerial, readGenome } = await import('./genome.js');
     const { communitySample, summarizeRun } = await import('./ecostats.js');
     const eng = await E.createEngine(device, 'rgba8unorm', { K: config.k });
     if (!(await eng.allocate(config.n))) throw new Error(`could not allocate ${config.n} particles`);
@@ -29,10 +29,16 @@ export async function runHeadless(device, config, { print, width = 640, height =
     let lastSample = -Infinity, lastPrint = -Infinity, prevG, prevD, prevT, latest;
     let minLivingFrac = null, collapses = 0, collapsed = false;
     const established = new Set(), lost = new Set();
+    const genomes = new Array(E.MAXK);
     eng.onCensus = (c) => {
       const pop = c.pop, t = c.simTime;
       const species = [];
-      for (let s = E.FIRST_LIFE; s < E.MAXK; s++) if (pop[s]) species.push({ pop: pop[s], genome: readGenome(c.genomeU32, c.genomeF32, s) });
+      for (let s = E.FIRST_LIFE; s < E.MAXK; s++) if (pop[s]) {
+        const serial = genomeSerial(c.genomeU32, s);
+        let cached = genomes[s];
+        if (!cached || cached.serial !== serial) genomes[s] = cached = { serial, genome: readGenome(c.genomeU32, c.genomeF32, s) };
+        species.push({ pop: pop[s], genome: cached.genome });
+      }
       const community = communitySample(species, eng.K.adhMin);
       const { living, diet } = community;
       const fraction = living / eng.count;

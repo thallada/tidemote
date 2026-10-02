@@ -129,6 +129,8 @@ export function writeGenome(u32, f32, slot, g) {
   f32[o + 44] = g.adhesion || 0;
 }
 
+export const genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
+
 export function readGenome(u32, f32, slot) {
   const o = slot * G_WORDS;
   const roles = [0, 1, 2].map((r) => ({

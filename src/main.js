@@ -1,5 +1,5 @@
 import { createEngine, MAXK, FIRST_LIFE } from './engine.js';
-import { readGenome, parseParticle, affinity, roleShares, roleColor, unpackUnorm } from './genome.js';
+import { genomeSerial, readGenome, parseParticle, affinity, roleShares, roleColor, unpackUnorm } from './genome.js';
 import { seasonAt, createClimate, abioRate } from './climate.js';
 import { GLOSSARY } from './guide.js';
 import { createLab } from './lab.js';
@@ -281,8 +281,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (c && focus.pred) {
         for (let s = FIRST_LIFE; s < MAXK; s++) {
           if (!c.pop[s]) continue;
-          const g = readGenome(c.genomeU32, c.genomeF32, s);
-          if (g.serial && focus.pred(g, life.reg.get(g.serial))) kinds[s >> 5] |= (1 << (s & 31)) >>> 0;
+          const sp = life.reg.get(genomeSerial(c.genomeU32, s));
+          const g = sp ? sp.genome : readGenome(c.genomeU32, c.genomeF32, s);
+          if (g.serial && focus.pred(g, sp)) kinds[s >> 5] |= (1 << (s & 31)) >>> 0;
         }
       }
     }
@@ -392,8 +393,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (!p) continue;
       living += p;
       alive++;
-      const g = readGenome(c.genomeU32, c.genomeF32, s);
-      let sp = life.reg.get(g.serial);
+      let sp = life.reg.get(genomeSerial(c.genomeU32, s));
+      const g = sp ? sp.genome : readGenome(c.genomeU32, c.genomeF32, s);
       if (!sp) sp = register(g);
       sp.slot = s;
       sp.genome = g;
@@ -596,7 +597,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const c = life.lastCensus;
     if (!c) return null;
     if (kind < FIRST_LIFE) return life.matter[kind] || null;
-    const g = readGenome(c.genomeU32, c.genomeF32, kind);
+    const sp = life.reg.get(genomeSerial(c.genomeU32, kind));
+    const g = sp ? sp.genome : readGenome(c.genomeU32, c.genomeF32, kind);
     return g.serial ? g : null;
   }
 

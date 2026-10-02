@@ -1,6 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dietGuild, mobilityGuild } from '../src/genome.js';
+import { archetypeGenome, genomeSerial, readGenome, writeGenome, dietGuild, mobilityGuild } from '../src/genome.js';
+import { G_WORDS } from '../src/shaders.js';
+
+test('genomeSerial reads the unsigned serial of a slot and its replacement', () => {
+  const u32 = new Uint32Array(3 * G_WORDS), f32 = new Float32Array(u32.buffer);
+  const g = archetypeGenome('reef', () => 0.5);
+  for (const [slot, serial] of [[1, 7], [2, 0xffffffff], [1, 8]]) {
+    writeGenome(u32, f32, slot, { ...g, serial });
+    assert.equal(genomeSerial(u32, slot), serial);
+    assert.equal(genomeSerial(u32, slot), readGenome(u32, f32, slot).serial);
+  }
+  assert.equal(genomeSerial(u32, 0), 0);
+  assert.equal(genomeSerial(u32, 2), 0xffffffff);
+});
 
 test('dietGuild preserves guild order and strict diet thresholds', () => {
   const base = { photo: 0, dGlint: 0.4, dHusk: 0.3, dFlesh: 0.3 };
