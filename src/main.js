@@ -78,10 +78,16 @@ async function boot() {
   run(eng, device, ctx, specCtx, hasTS);
 }
 
+// Time multipliers. Above 1× the page runs several whole 1/60 s steps per rendered frame, exactly as the
+// headless runs do; below 1× it shortens the step instead. Infinity is "Max": as many steps as fit.
+const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8, 16, 32, 64, Infinity];
+const MAX_FRAME_MS = 30; // GPU time a frame may take when running fast (about 30 fps)
+const fmtSpeed = (s) => (s === Infinity ? 'Max' : `×${s}`);
+
 function run(eng, device, ctx, specCtx, hasTS) {
   const K = eng.K;
   const state = {
-    phase: 'calibrating', busy: true, paused: false, timeScale: 1,
+    phase: 'calibrating', busy: true, paused: false, speedIdx: SPEEDS.indexOf(1),
     hud: true, keys: false, follow: false, confirmReset: 0,
     loupe: !isCoarse, loupeMag: 3.5, census: innerWidth > 900, currents: false, specCells: 3,
   };
@@ -148,10 +154,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
 
   // ------------------------------------------------------------ perf
-  const perf = { samples: [], gpu: 0, fps: 0, frames: 0, fpsT: performance.now(), rafDt: [], goodWindows: 0, lastAdjust: performance.now() };
+  const perf = { samples: [], gpu: 0, fps: 0, frames: 0, fpsT: performance.now(), rafDt: [], goodWindows: 0, lastAdjust: performance.now(),
+    stepMs: 0, rate: 1, rateT: performance.now(), rateSim: 0 };
   let calibWait = null;
   const frameWaiters = [];
-  eng.onGpuTime = (ms) => {
+  eng.onGpuTime = (ms, n, steps) => {
+    // Per-step cost, render included (an overestimate that shrinks as more steps share one render).
+    if (steps > 0) perf.stepMs = perf.stepMs ? perf.stepMs * 0.85 + (ms / steps) * 0.15 : ms / steps;
     perf.gpu = perf.gpu ? perf.gpu * 0.9 + ms * 0.1 : ms;
     perf.samples.push(ms);
     if (perf.samples.length > 240) perf.samples.shift();
@@ -836,7 +845,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     html += row('Lineage', `generation ${fmt(p.gen)} · id ${fmt(p.id)}`, 'generation');
     html += row('Speed', `${Math.hypot(p.vx, p.vy).toFixed(2)} cells/s`, 'speed');
     if (!past) {
-      const lightHere = Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H, eng.simTime, eng.tide) * eng.season) * 100);
+      const lightHere = Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H, eng.simTime, eng.tide, eng.tidePh) * eng.season) * 100);
       html += row('Light here', `${lightHere}%`, 'lighthere');
     }
     return html + '</div>';
@@ -961,7 +970,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const mem = sel.memory;
       if (kind < FIRST_LIFE) {
         const m = MATTER[kind];
-        const lightHere = Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H, eng.simTime, eng.tide) * eng.season) * 100);
+        const lightHere = Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H, eng.simTime, eng.tide, eng.tidePh) * eng.season) * 100);
         $('ins-kind').textContent = mem ? `Now ${m.name.toLowerCase()} · once a cell of` : kind === 2 ? 'Remains' : 'Matter';
         $('ins-name').textContent = mem && mem.sp ? mem.sp.name : m.name;
         $('ins-sub').textContent = sel.lost ? 'Lost track of this particle.' : mem && sel.diedAt != null ? `died ${fmtDur(eng.simTime - sel.diedAt)} ago · particle ${fmt(p.id)}` : `particle ${fmt(p.id)}${CAUSE[p.cause] ? ` · ${CAUSE[p.cause]}` : ''}`;
@@ -1272,9 +1281,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (lab.isOpen()) lab.close();
       else if (state.keys) { state.keys = false; renderKeys(); }
     }
-    else if (k === ' ') { state.paused = !state.paused; flash(state.paused ? 'Paused' : 'Running'); }
-    else if (k === ',' || k === '<') { state.timeScale = Math.max(0.25, state.timeScale / 1.25); flash(`Time ×${state.timeScale.toFixed(2)}`); }
-    else if (k === '.' || k === '>') { state.timeScale = Math.min(1.6, state.timeScale * 1.25); flash(`Time ×${state.timeScale.toFixed(2)}`); }
+    else if (k === ' ') togglePause();
+    else if (k === ',') setSpeed(state.speedIdx - 1);
+    else if (k === '.') setSpeed(state.speedIdx + 1);
+    else if (k === '/' || k === '<') setSpeed(SPEEDS.indexOf(1));
+    else if (k === '>') setSpeed(SPEEDS.length - 1);
     else if (k === 'h' || k === 'H' || k === '?') { state.keys = !state.keys; renderKeys(); }
     else if (k === 'i' || k === 'I') { state.hud = !state.hud; $('hud').classList.toggle('off', !state.hud); }
     else if (k === 'f' || k === 'F') { if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {}); else document.exitFullscreen?.(); }
@@ -1292,8 +1303,38 @@ function run(eng, device, ctx, specCtx, hasTS) {
     clearTimeout(flashTimer);
     flashTimer = setTimeout(() => flashEl.classList.remove('on'), 1400);
   }
+  function renderTime() {
+    const s = SPEEDS[state.speedIdx];
+    $('time-play').textContent = state.paused ? '▶' : '❚❚';
+    $('time-play').setAttribute('aria-label', state.paused ? 'Resume' : 'Pause');
+    $('time-speed').textContent = fmtSpeed(s);
+    $('time-slower').disabled = state.speedIdx === 0;
+    $('time-faster').disabled = state.speedIdx === SPEEDS.length - 1;
+    $('time-max').setAttribute('aria-pressed', String(s === Infinity));
+    $('time').classList.toggle('fast', s > 1);
+  }
+  function setSpeed(i) {
+    state.speedIdx = clamp(i, 0, SPEEDS.length - 1);
+    stepAcc = 0;
+    perf.rafDt.length = 0;
+    perf.lastAdjust = performance.now();
+    flash(`Time ${fmtSpeed(SPEEDS[state.speedIdx])}`);
+    renderTime();
+  }
+  function togglePause() {
+    state.paused = !state.paused;
+    flash(state.paused ? 'Paused' : 'Running');
+    renderTime();
+  }
+  $('time-play').addEventListener('click', togglePause);
+  $('time-slower').addEventListener('click', () => setSpeed(state.speedIdx - 1));
+  $('time-faster').addEventListener('click', () => setSpeed(state.speedIdx + 1));
+  $('time-speed').addEventListener('click', () => setSpeed(SPEEDS.indexOf(1)));
+  $('time-max').addEventListener('click', () => setSpeed(SPEEDS[state.speedIdx] === Infinity ? SPEEDS.indexOf(1) : SPEEDS.length - 1));
+
   function renderKeys() { $('keys').hidden = !state.keys; $('keys-hint').hidden = state.keys; }
   renderKeys();
+  renderTime();
   $('keys-hint').addEventListener('click', () => { state.keys = true; renderKeys(); });
   $('keys-close').addEventListener('click', () => { state.keys = false; renderKeys(); });
 
@@ -1313,11 +1354,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if ($('hud-tide').textContent !== tt) $('hud-tide').textContent = tt;
     if (tipFor && !tipFor.isConnected) { tipFor = null; tip.hidden = true; }
     $('count').textContent = fmt(eng.count);
+    const want = SPEEDS[state.speedIdx];
+    const actual = state.paused ? '' : want === Infinity || perf.rate < want * 0.9 ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : '';
+    if ($('time-actual').textContent !== actual) $('time-actual').textContent = actual;
     $('perf').textContent = `${perf.fps ? perf.fps.toFixed(0) : '–'} fps · ${perf.gpu ? perf.gpu.toFixed(1) : '–'} ms${renderScale < 1 ? ` · render ${Math.round(renderScale * 100)}%` : ''}`;
   }
 
   function adaptResolution(now) {
-    if (state.phase !== 'running' || state.paused || now - perf.lastAdjust < 2000 || perf.rafDt.length < 60) return;
+    // Running fast spends the frame on simulation on purpose; only adapt at real time or slower.
+    if (state.phase !== 'running' || state.paused || SPEEDS[state.speedIdx] > 1 || now - perf.lastAdjust < 2000 || perf.rafDt.length < 60) return;
     const m = median(perf.rafDt);
     perf.rafDt.length = 0;
     perf.lastAdjust = now;
@@ -1417,18 +1462,38 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let last = performance.now();
   let frameCount = 0;
   let inflight = 0;
+  let stepAcc = 0;
+  // Steps this frame and their length: whole steps above 1× (fractions carried over), capped so a
+  // frame's GPU time stays near MAX_FRAME_MS; one shortened step below 1×.
+  function plan() {
+    const s = SPEEDS[state.speedIdx];
+    if (state.paused || state.phase !== 'running') return { steps: 1, dt: 1 / 60 };
+    if (s <= 1) return { steps: 1, dt: s / 60 };
+    const cap = perf.stepMs ? clamp(Math.floor(MAX_FRAME_MS / perf.stepMs), 1, 512) : 1;
+    if (s === Infinity) return { steps: cap, dt: 1 / 60 };
+    stepAcc += s;
+    const steps = Math.min(Math.floor(stepAcc), cap);
+    stepAcc = Math.min(stepAcc - steps, 1);
+    return { steps: Math.max(1, steps), dt: 1 / 60 };
+  }
   function frame(now) {
     const dt = Math.min(100, now - last);
     last = now;
     frameCount++;
     if (!state.paused) perf.rafDt.push(dt);
     if (now - perf.fpsT > 500) { perf.fps = (perf.frames * 1000) / (now - perf.fpsT); perf.frames = 0; perf.fpsT = now; }
+    if (now - perf.rateT > 1000) {
+      const r = (eng.simTime - perf.rateSim) / ((now - perf.rateT) / 1000);
+      perf.rate = r >= 0 ? r : perf.rate;
+      perf.rateSim = eng.simTime; perf.rateT = now;
+    }
     for (let i = frameWaiters.length - 1; i >= 0; i--) if (--frameWaiters[i].n <= 0) { frameWaiters[i].res(); frameWaiters.splice(i, 1); }
 
     if (!state.busy && inflight < 3) {
       perf.frames++;
       eng.season = seasonAt(eng.simTime);
-      if (state.phase === 'running' && !state.paused) climate.tick((1 / 60) * state.timeScale);
+      const step = plan();
+      if (state.phase === 'running' && !state.paused) climate.tick(step.steps * step.dt);
       if (state.follow && sel) {
         const [px, py] = predicted();
         const k = Math.min(1, dt / 70);
@@ -1451,7 +1516,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         target: ctx.getCurrentTexture().createView(),
         cam: { x: cam.x, y: cam.y, ppu: ppu() },
         paused: state.paused,
-        simDt: (1 / 60) * state.timeScale,
+        simDt: step.dt,
+        steps: step.steps,
         time: now / 1000,
         dpr,
         selId: sel ? sel.id : NONE,

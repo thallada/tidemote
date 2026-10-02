@@ -59,6 +59,15 @@ body {
 .epoch { font: 700 21px/1.2 var(--display); letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
 .era { font: 600 12px/1.35 var(--display); color: var(--warm); margin-top: 3px; }
 .tide-line { color: var(--dim); margin-top: 2px; }
+.time { display: flex; align-items: center; gap: 3px; margin-top: 6px; pointer-events: auto; }
+.time button { padding: 4px 0; min-width: 26px; font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.time button:disabled { opacity: .35; cursor: default; }
+.time .time-speed { min-width: 46px; color: var(--ink); }
+.time.fast .time-speed { color: var(--warm); border-color: var(--warm); }
+.time #time-max { padding-inline: 7px; }
+.time #time-max[aria-pressed="true"] { color: var(--void); background: var(--warm); border-color: var(--warm); }
+.time-actual { color: var(--dim); margin-left: 4px; font-variant-numeric: tabular-nums; }
+.time-actual:empty { display: none; }
 
 .count { font: 400 16px/1 var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -.03em; margin-top: 4px; }
 .perf { color: var(--dim); font-variant-numeric: tabular-nums; margin-top: 3px; }
@@ -316,6 +325,14 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
   <section class="corner tl plate">
     <div class="name">Tide<span>mote</span></div>
     <div class="epoch-row"><span class="eyebrow">Epoch</span><span class="epoch" id="epoch">0:00</span></div>
+    <div class="time" id="time" role="group" aria-label="Time">
+      <button id="time-play" type="button" title="Pause or resume (space)" aria-label="Pause">❚❚</button>
+      <button id="time-slower" type="button" title="Slower (,)" aria-label="Slower">−</button>
+      <button id="time-speed" class="time-speed" type="button" title="Back to real time (/)" aria-label="Back to real time">×1</button>
+      <button id="time-faster" type="button" title="Faster (.)" aria-label="Faster">+</button>
+      <button id="time-max" type="button" title="As fast as the GPU allows (&gt;)" aria-pressed="false">Max</button>
+      <span class="time-actual term" id="time-actual" data-tip="simrate"></span>
+    </div>
     <div class="era" id="era">The First Tides</div>
     <div class="tide-line" id="tideline"><span class="term" data-tip="light" id="hud-light">Light –</span> · <span class="term" data-tip="season" id="hud-tide">tide –</span></div>
     <div class="top-actions"><button id="lab-open" type="button" title="Research tools (K)">Lab · K</button></div>
@@ -360,7 +377,8 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
       <kbd>K</kbd><span>open the Lab: species, charts, lineage, guide</span>
       <kbd>G · V</kbd><span>tide overlay (faint, light map) · currents</span>
       <kbd>L N B</kbd><span>bonds · particles · bloom</span>
-      <kbd>, .</kbd><span>slow / speed time</span>
+      <kbd>, .</kbd><span>slower · faster (×¼ to ×64)</span>
+      <kbd>/ · &gt;</kbd><span>real time · as fast as the GPU allows</span>
       <kbd>space</kbd><span>pause</span>
       <kbd>0 · F · I</kbd><span>reset zoom · fullscreen · hide readouts</span>
       <kbd>⇧R ⇧R</kbd><span>discard this epoch and begin again</span>

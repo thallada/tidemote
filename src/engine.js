@@ -6,6 +6,7 @@ import {
   archetypeGenome, writeGenome, parseParticle,
   packUnorm, ARCHETYPE_TYPES,
 } from './genome.js';
+import { TIDE_PHASE } from './flow.js';
 
 const HDR = 'rgba16float';
 const BLOOM_LEVELS = 6;
@@ -18,6 +19,8 @@ const CENSUS_BYTES = LEDGER_HEAD + MAXK * G_BYTES;
 export { MAXK, FIRST_LIFE, DEFAULT_K };
 
 const mix = (a, b, t) => a + (b - a) * t;
+const SIM_STRIDE = 256;
+export const MAX_STEPS = 512;
 
 // --------------------------------------------------------------------- engine
 export async function createEngine(device, format, { hasTimestamps = false, K = {} } = {}) {
@@ -45,16 +48,17 @@ class Engine {
     this.ambient = 0.17;
     this.chargeMul = 1;
     this.tide = new Float32Array([1, 1, 0.021, 1, 2, -1, -0.017, 1, -1, 3, 0.013, 0.7, 1, -2, 0.011, 0]);
+    this.tidePh = Float32Array.from(TIDE_PHASE);
     this.seedValue = 1;
     this.censusEvery = 20;
     this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 1 };
-    this.simData = new ArrayBuffer(208);
+    this.simData = new ArrayBuffer(224);
     this.simF = new Float32Array(this.simData);
     this.simU = new Uint32Array(this.simData);
     this.waves = new Float32Array(16);
     this.viewData = new ArrayBuffer(80);
     this.viewDataL = new ArrayBuffer(80);
-    this.postData = new Float32Array(32);
+    this.postData = new Float32Array(36);
     this.loupe = null;
     this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 0xffffffff, memberN: 0 };
     this.viewDataS = new ArrayBuffer(80);
@@ -70,12 +74,14 @@ class Engine {
 
     const d = device;
     const b = this.b;
-    b.sim = d.createBuffer({ size: 208, usage: U.UNIFORM | U.COPY_DST });
+    b.sim = d.createBuffer({ size: 224, usage: U.UNIFORM | U.COPY_DST });
+    b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
+    this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
     b.view = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
     b.viewL = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
     b.viewS = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
     b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
-    b.post = d.createBuffer({ size: 128, usage: U.UNIFORM | U.COPY_DST });
+    b.post = d.createBuffer({ size: 144, usage: U.UNIFORM | U.COPY_DST });
     b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     b.pickU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
     b.counts = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST });
@@ -271,8 +277,11 @@ class Engine {
     return [gw, gh];
   }
 
-  /** Create a new universe of n particles (n <= capacity). */
-  seed(n, { aspect = 16 / 9, silt = 0.5, glint = 0.12, husk = 0.04, rng = Math.random } = {}) {
+  /**
+   * Create a new universe of n particles (n <= capacity). Each world draws its own tide pattern,
+   * opening light and glint charge, matter mix, and how clumped its founders start.
+   */
+  seed(n, { aspect = 16 / 9, rng = Math.random } = {}) {
     const d = this.device;
     this.worldGeneration++;
     this.abio = 0;
@@ -283,10 +292,16 @@ class Engine {
     this.simTime = 0;
     this.frameNo = 0;
     this.seedValue = (rng() * 0xffffffff) >>> 0;
-    this.ambient = 0.17;
-    this.chargeMul = 1;
-    this.tide.set([1, 1, 0.021, 1, 2, -1, -0.017, 1, -1, 3, 0.013, 0.7, 1, -2, 0.011, 0]);
+    this.ambient = mix(0.12, 0.3, rng());
+    this.chargeMul = mix(0.8, 1.25, rng());
+    this.randomizeTide(rng);
     this.randomizeCurrents(rng);
+    const silt = mix(0.42, 0.58, rng()), glint = mix(0.06, 0.18, rng()), husk = mix(0.02, 0.06, rng());
+    // Founders: a share of each species starts in a few colonies, the rest scattered. Colony size
+    // follows the world so a colony is `conc` times denser in its species than an even spread.
+    const clump = rng();
+    const conc = mix(3, 10, rng());
+    const spread = Math.sqrt((this.grid[0] * this.grid[1]) / (conc * 2.5 * 2 * Math.PI));
 
     const gbuf = new ArrayBuffer(MAXK * G_BYTES);
     const gu = new Uint32Array(gbuf);
@@ -318,7 +333,7 @@ class Engine {
     d.queue.writeBuffer(this.b.ledger, 0, head);
     this.founders = plan.length;
 
-    this._writeSim({ seedKinds: plan.length, pSilt: silt, pGlint: glint, pHusk: husk });
+    this._writeSim({ seedKinds: plan.length, pSilt: silt, pGlint: glint, pHusk: husk, clump, spread });
     const enc = d.createCommandEncoder();
     enc.clearBuffer(this.b.counts);
     enc.clearBuffer(this.b.ledger, LEDGER_HEAD, n * 4);
@@ -331,6 +346,24 @@ class Engine {
     pass.end();
     d.queue.submit([enc.finish()]);
     this.clearAccum = true;
+  }
+
+  /** Three active tide waves (the fourth is left idle for the first climate era to raise) with random phases. */
+  randomizeTide(rng = Math.random) {
+    for (let k = 0; k < 4; k++) {
+      this.newTideWave(k, rng);
+      this.tide[k * 4 + 3] = k < 3 ? mix(0.6, 1.1, rng()) : 0;
+    }
+  }
+
+  /** A torus-periodic tide wave in slot k (amplitude untouched): integer wave numbers, a slow drift, a phase. */
+  newTideWave(k, rng = Math.random) {
+    let a = 0, b = 0;
+    while (a === 0 && b === 0) { a = Math.round(mix(-3, 3, rng())); b = Math.round(mix(-3, 3, rng())); }
+    this.tide[k * 4] = a;
+    this.tide[k * 4 + 1] = b;
+    this.tide[k * 4 + 2] = (rng() < 0.5 ? -1 : 1) * mix(0.008, 0.03, rng());
+    this.tidePh[k] = rng() * Math.PI * 2;
   }
 
   /** Divergence-free, torus-periodic currents. Returns the new wave table. */
@@ -351,6 +384,11 @@ class Engine {
   }
 
   _writeSim(extra = {}) {
+    this._fillSim(extra);
+    this.device.queue.writeBuffer(this.b.sim, 0, this.simData);
+  }
+
+  _fillSim(extra = {}) {
     const f = this.simF, u = this.simU;
     f[0] = this.grid[0]; f[1] = this.grid[1];
     u[2] = this.grid[0]; u[3] = this.grid[1];
@@ -359,11 +397,10 @@ class Engine {
     f[8] = this.season; f[9] = this.abio;
     u[10] = (this.seedValue + this.frameNo * 7919) >>> 0; f[11] = this.K.maxSpeed;
     u[12] = extra.seedKinds || 1; f[13] = extra.pSilt || 0; f[14] = extra.pGlint || 0; f[15] = extra.pHusk || 0;
-    f[16] = this.ambient; f[17] = this.chargeMul;
-    // The vec4 wave tables start at byte 80 after alignment padding.
+    f[16] = this.ambient; f[17] = this.chargeMul; f[18] = extra.clump || 0; f[19] = extra.spread || 0;
     f.set(this.waves, 20);
     f.set(this.tide, 36);
-    this.device.queue.writeBuffer(this.b.sim, 0, this.simData);
+    f.set(this.tidePh, 52);
   }
 
   requestPick(center, radius, selId, { kind = 0xffffffff, maxOut = 4096, raw = false } = {}) {
@@ -373,17 +410,87 @@ class Engine {
     });
   }
 
+  /** Encode one simulation step whose uniforms are at `ring` (a slot of b.simRing), or written directly. */
+  _step(enc, simDt, timestampWrites, ring = -1) {
+    const b = this.b;
+    const N = this.count;
+    this.dt = simDt;
+    this.simTime += simDt;
+    this.frameNo++;
+    if (ring < 0) this._writeSim();
+    else {
+      this._fillSim();
+      new Uint8Array(this.ringData, ring * SIM_STRIDE, this.simData.byteLength).set(new Uint8Array(this.simData));
+      enc.copyBufferToBuffer(b.simRing, ring * SIM_STRIDE, b.sim, 0, this.simData.byteLength);
+    }
+    const cells = this.grid[0] * this.grid[1];
+    enc.clearBuffer(b.counts, 0, cells * 4);
+    enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
+    enc.clearBuffer(b.frameCtr, 0, 4);
+    enc.clearBuffer(b.ledger, 48, 12);
+    const pass = enc.beginComputePass({ timestampWrites });
+    const run = (name, n) => { const c = this.cp[name]; pass.setPipeline(c.pipe); pass.setBindGroup(0, c.bg); pass.dispatchWorkgroups(n); };
+    const wg = Math.ceil(N / 256);
+    run('resolveCount', wg);
+    // Scan only the cells in use (+1 for the one-past-the-end start of the last cell; when the grid
+    // fills MAX_CELLS exactly, scanSums writes that final entry itself).
+    const scanWG = Math.min(MAX_CELLS / 256, Math.ceil((cells + 1) / 256));
+    run('scanBlocks', scanWG);
+    run('scanSums', 1);
+    run('scanAdd', scanWG);
+    run('scatterMain', wg);
+    run('censusMain', Math.ceil(MAXK / 256));
+    run('matterMain', wg);
+    pass.setPipeline(this.cp.lifeMain.pipe);
+    pass.setBindGroup(0, this.cp.lifeMain.bg);
+    pass.dispatchWorkgroupsIndirect(b.frameCtr, 4);
+    pass.end();
+  }
+
+  /** On a census step, copy the ledger and genomes into a free staging buffer. */
+  _censusCopy(enc) {
+    if (this.frameNo % this.censusEvery !== 0) return null;
+    const st = this.censusStage.find((s) => !s.busy);
+    if (!st) return null;
+    st.busy = true;
+    enc.copyBufferToBuffer(this.b.ledger, 0, st.buf, 0, LEDGER_HEAD);
+    enc.copyBufferToBuffer(this.b.genomes, 0, st.buf, LEDGER_HEAD, MAXK * G_BYTES);
+    return { st, simTime: this.simTime, frameNo: this.frameNo };
+  }
+
+  /** Read a census back after its submit. */
+  _censusRead(job, generation) {
+    if (!job) return;
+    const { st } = job;
+    st.buf.mapAsync(GPUMapMode.READ).then(() => {
+      const copy = st.buf.getMappedRange().slice(0);
+      st.buf.unmap();
+      st.busy = false;
+      if (generation !== this.worldGeneration) return;
+      if (this.onCensus) {
+        const u = new Uint32Array(copy);
+        this.onCensus({
+          simTime: job.simTime, frameNo: job.frameNo,
+          globals: u.subarray(0, 16), slots: u.subarray(META_SLOT, META_SLOT + MAXK), pop: u.subarray(META_POP, META_POP + MAXK),
+          demography: u.subarray(META_DEATH, META_DEATH + 57),
+          genomeU32: new Uint32Array(copy, LEDGER_HEAD), genomeF32: new Float32Array(copy, LEDGER_HEAD),
+        });
+      }
+    }).catch(() => { st.busy = false; });
+  }
+
   /**
-   * One frame. target: GPUTextureView or null (simulate only).
+   * One rendered frame after `steps` simulation steps. target: GPUTextureView or null (simulate only).
    * cam: {x,y,ppu}; loupe: {x,y,r (canvas px), ppu, cx, cy (world)} or null.
    */
-  frame({ target = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, time = 0, dpr = 1, selId = 0xffffffff, loupe = null, specimen = null }) {
+  frame({ target = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, steps = 1, time = 0, dpr = 1, selId = 0xffffffff, loupe = null, specimen = null }) {
     const d = this.device;
     const generation = this.worldGeneration;
     const b = this.b;
     const N = this.count;
-    const enc = d.createCommandEncoder();
+    const t0 = performance.now();
     const stepping = !paused && N > 0;
+    const nSteps = stepping ? Math.min(MAX_STEPS, Math.max(1, steps | 0)) : 0;
     const tm = this.timing;
     const slot = tm ? tm.reads.find((r) => !r.busy) : null;
     let tsFirst = !!slot;
@@ -393,36 +500,20 @@ class Engine {
       return { querySet: tm.qs, beginningOfPassWriteIndex: 0 };
     };
 
-    if (stepping) {
-      this.dt = simDt;
-      this.simTime += simDt;
-      this.frameNo++;
-      this._writeSim();
-      const cells = this.grid[0] * this.grid[1];
-      enc.clearBuffer(b.counts, 0, cells * 4);
-      enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
-      enc.clearBuffer(b.frameCtr, 0, 4);
-      enc.clearBuffer(b.ledger, 48, 12);
-      const endTs = slot && !target ? { querySet: tm.qs, endOfPassWriteIndex: 1 } : undefined;
+    // All steps go into one submit. Each step's uniforms (frame number, time, RNG seed) are staged in
+    // b.simRing and copied into b.sim between passes: a queue.writeBuffer would land before the whole
+    // submit.
+    const enc = d.createCommandEncoder();
+    const censusJobs = [];
+    for (let s = 0; s < nSteps; s++) {
+      const last = s === nSteps - 1;
+      const endTs = last && slot && !target ? { querySet: tm.qs, endOfPassWriteIndex: 1 } : undefined;
       const begin = tsBegin();
-      const pass = enc.beginComputePass({ timestampWrites: begin || endTs ? { ...(begin || {}), ...(endTs || {}) } : undefined });
-      const run = (name, n) => { const c = this.cp[name]; pass.setPipeline(c.pipe); pass.setBindGroup(0, c.bg); pass.dispatchWorkgroups(n); };
-      const wg = Math.ceil(N / 256);
-      run('resolveCount', wg);
-      // Scan only the cells in use (+1 for the one-past-the-end start of the last cell; when the grid
-      // fills MAX_CELLS exactly, scanSums writes that final entry itself).
-      const scanWG = Math.min(MAX_CELLS / 256, Math.ceil((cells + 1) / 256));
-      run('scanBlocks', scanWG);
-      run('scanSums', 1);
-      run('scanAdd', scanWG);
-      run('scatterMain', wg);
-      run('censusMain', Math.ceil(MAXK / 256));
-      run('matterMain', wg);
-      pass.setPipeline(this.cp.lifeMain.pipe);
-      pass.setBindGroup(0, this.cp.lifeMain.bg);
-      pass.dispatchWorkgroupsIndirect(b.frameCtr, 4);
-      pass.end();
+      this._step(enc, simDt, begin || endTs ? { ...(begin || {}), ...(endTs || {}) } : undefined, nSteps > 1 ? s : -1);
+      const job = this._censusCopy(enc);
+      if (job) censusJobs.push(job);
     }
+    if (nSteps > 1) d.queue.writeBuffer(b.simRing, 0, this.ringData, 0, nSteps * SIM_STRIDE);
 
     // ---- picking
     let pickJob = null;
@@ -466,16 +557,6 @@ class Engine {
 
     if (target) this._render(enc, { target, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd: slot ? { querySet: tm.qs, endOfPassWriteIndex: 1 } : undefined });
 
-    let censusJob = null;
-    if (stepping && this.frameNo % this.censusEvery === 0) {
-      const st = this.censusStage.find((s) => !s.busy);
-      if (st) {
-        censusJob = { st, simTime: this.simTime, frameNo: this.frameNo };
-        enc.copyBufferToBuffer(b.ledger, 0, st.buf, 0, LEDGER_HEAD);
-        enc.copyBufferToBuffer(b.genomes, 0, st.buf, LEDGER_HEAD, MAXK * G_BYTES);
-      }
-    }
-
     const timed = slot && (stepping || target);
     if (timed) {
       enc.resolveQuerySet(tm.qs, 0, 2, tm.resolve, 0);
@@ -490,12 +571,11 @@ class Engine {
         const ms = Number(t[1] - t[0]) / 1e6;
         slot.buf.unmap();
         slot.busy = false;
-        if (generation === this.worldGeneration && ms > 0 && ms < 5000 && this.onGpuTime) this.onGpuTime(ms, N);
+        if (generation === this.worldGeneration && ms > 0 && ms < 5000 && this.onGpuTime) this.onGpuTime(ms, N, nSteps);
       }).catch(() => { slot.busy = false; });
     } else if (!tm && this.onGpuTime && (stepping || target)) {
-      const t0 = performance.now();
       d.queue.onSubmittedWorkDone().then(() => {
-        if (generation === this.worldGeneration && this.onGpuTime) this.onGpuTime(performance.now() - t0, N);
+        if (generation === this.worldGeneration && this.onGpuTime) this.onGpuTime(performance.now() - t0, N, nSteps);
       });
     }
 
@@ -540,25 +620,7 @@ class Engine {
       }).catch(() => { st.busy = false; });
     }
 
-    if (censusJob) {
-      const { st } = censusJob;
-      st.busy = true;
-      st.buf.mapAsync(GPUMapMode.READ).then(() => {
-        const copy = st.buf.getMappedRange().slice(0);
-        st.buf.unmap();
-        st.busy = false;
-        if (generation !== this.worldGeneration) return;
-        if (this.onCensus) {
-          const u = new Uint32Array(copy);
-          this.onCensus({
-            simTime: censusJob.simTime, frameNo: censusJob.frameNo,
-            globals: u.subarray(0, 16), slots: u.subarray(META_SLOT, META_SLOT + MAXK), pop: u.subarray(META_POP, META_POP + MAXK),
-            demography: u.subarray(META_DEATH, META_DEATH + 57),
-            genomeU32: new Uint32Array(copy, LEDGER_HEAD), genomeF32: new Float32Array(copy, LEDGER_HEAD),
-          });
-        }
-      }).catch(() => { st.busy = false; });
-    }
+    for (const job of censusJobs) this._censusRead(job, generation);
   }
 
   _writeView(buf, data, cam, W, H, dpr, time, selId) {
@@ -606,6 +668,7 @@ class Engine {
     pd[8] = cam.x; pd[9] = cam.y; pd[10] = this.grid[0]; pd[11] = this.grid[1];
     pd[12] = this.simTime; pd[13] = this.ambient;
     pd.set(this.tide, 16);
+    pd.set(this.tidePh, 32);
     d.queue.writeBuffer(this.b.post, 0, pd);
 
     {

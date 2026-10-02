@@ -59,6 +59,15 @@ body {
 .epoch { font: 700 21px/1.2 var(--display); letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
 .era { font: 600 12px/1.35 var(--display); color: var(--warm); margin-top: 3px; }
 .tide-line { color: var(--dim); margin-top: 2px; }
+.time { display: flex; align-items: center; gap: 3px; margin-top: 6px; pointer-events: auto; }
+.time button { padding: 4px 0; min-width: 26px; font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.time button:disabled { opacity: .35; cursor: default; }
+.time .time-speed { min-width: 46px; color: var(--ink); }
+.time.fast .time-speed { color: var(--warm); border-color: var(--warm); }
+.time #time-max { padding-inline: 7px; }
+.time #time-max[aria-pressed="true"] { color: var(--void); background: var(--warm); border-color: var(--warm); }
+.time-actual { color: var(--dim); margin-left: 4px; font-variant-numeric: tabular-nums; }
+.time-actual:empty { display: none; }
 
 .count { font: 400 16px/1 var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -.03em; margin-top: 4px; }
 .perf { color: var(--dim); font-variant-numeric: tabular-nums; margin-top: 3px; }
@@ -316,6 +325,14 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
   <section class="corner tl plate">
     <div class="name">Tide<span>mote</span></div>
     <div class="epoch-row"><span class="eyebrow">Epoch</span><span class="epoch" id="epoch">0:00</span></div>
+    <div class="time" id="time" role="group" aria-label="Time">
+      <button id="time-play" type="button" title="Pause or resume (space)" aria-label="Pause">❚❚</button>
+      <button id="time-slower" type="button" title="Slower (,)" aria-label="Slower">−</button>
+      <button id="time-speed" class="time-speed" type="button" title="Back to real time (/)" aria-label="Back to real time">×1</button>
+      <button id="time-faster" type="button" title="Faster (.)" aria-label="Faster">+</button>
+      <button id="time-max" type="button" title="As fast as the GPU allows (&gt;)" aria-pressed="false">Max</button>
+      <span class="time-actual term" id="time-actual" data-tip="simrate"></span>
+    </div>
     <div class="era" id="era">The First Tides</div>
     <div class="tide-line" id="tideline"><span class="term" data-tip="light" id="hud-light">Light –</span> · <span class="term" data-tip="season" id="hud-tide">tide –</span></div>
     <div class="top-actions"><button id="lab-open" type="button" title="Research tools (K)">Lab · K</button></div>
@@ -360,7 +377,8 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
       <kbd>K</kbd><span>open the Lab: species, charts, lineage, guide</span>
       <kbd>G · V</kbd><span>tide overlay (faint, light map) · currents</span>
       <kbd>L N B</kbd><span>bonds · particles · bloom</span>
-      <kbd>, .</kbd><span>slow / speed time</span>
+      <kbd>, .</kbd><span>slower · faster (×¼ to ×64)</span>
+      <kbd>/ · &gt;</kbd><span>real time · as fast as the GPU allows</span>
       <kbd>space</kbd><span>pause</span>
       <kbd>0 · F · I</kbd><span>reset zoom · fullscreen · hide readouts</span>
       <kbd>⇧R ⇧R</kbd><span>discard this epoch and begin again</span>
@@ -553,12 +571,12 @@ struct Genome {
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
 fn genOf(info: u32) -> u32 { return info >> 16u; }
 
-fn tideAt(p: vec2f, world: vec2f, t: f32, w: array<vec4f, 4>) -> f32 {
+fn tideAt(p: vec2f, world: vec2f, t: f32, w: array<vec4f, 4>, ph: vec4f) -> f32 {
   let u = p / world * TAU;
   var s = 0.0;
   var n = 0.0;
   for (var k = 0u; k < 4u; k++) {
-    s += w[k].w * sin(w[k].x * u.x + w[k].y * u.y + w[k].z * t + f32(k) * 1.7);
+    s += w[k].w * sin(w[k].x * u.x + w[k].y * u.y + w[k].z * t + ph[k]);
     n += w[k].w;
   }
   return smoothstep(0.35, 1.9, s * 2.7 / max(n, 1e-3));
@@ -583,9 +601,10 @@ struct Sim {
   count: u32, frame: u32, dt: f32, time: f32,
   season: f32, abio: f32, seed: u32, maxSpeed: f32,
   seedKinds: u32, pSilt: f32, pGlint: f32, pHusk: f32,
-  ambient: f32, chargeMul: f32,
+  ambient: f32, chargeMul: f32, clump: f32, spread: f32,
   waves: array<vec4f, 4>,
   tide: array<vec4f, 4>,
+  tidePh: vec4f,
 };
 // kr: 0..9 kind, 10..11 role, 12 plant.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
@@ -787,7 +806,7 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = gid.x;
   if (i >= sim.count) { return; }
   var s = pcg(i ^ pcg(sim.seed));
-  let pos = vec2f(rnd(&s), rnd(&s)) * sim.world;
+  var pos = vec2f(rnd(&s), rnd(&s)) * sim.world;
   let u = rnd(&s);
   var kind = SILT;
   var e = 0.0;
@@ -801,6 +820,13 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
     kind = HUSK; e = 0.2 + 0.3 * rnd(&s); col = pack4x8unorm(vec4f(0.5, 0.35, 0.25, 1.0));
   } else {
     kind = FIRST_LIFE + min(u32(rnd(&s) * f32(sim.seedKinds)), sim.seedKinds - 1u);
+    if (rnd(&s) < sim.clump) {
+      // one of the species' one to four colonies
+      let nc = 1u + pcg(kind ^ sim.seed) % 4u;
+      let h = pcg(sim.seed ^ pcg(kind * 977u + min(u32(rnd(&s) * f32(nc)), nc - 1u) * 7919u + 1u));
+      let center = vec2f(f32(h & 0xffffu), f32(h >> 16u)) / 65536.0 * sim.world;
+      pos = wrapPos(center + vec2f(gauss(&s), gauss(&s)) * sim.spread);
+    }
     let g = genomes[kind];
     e = 0.4 + 0.6 * rnd(&s);
     let r = sampleRole(g, sampleRole(g, 0u, &s), &s);
@@ -995,7 +1021,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u) {
   let pos = wrapPos(p.pos + vel * sim.dt);
   p.age += sim.dt;
   if (p.kind == SILT) {
-    let T = tideAt(pos, sim.world, sim.time, sim.tide) * sim.season + 0.2 * sim.ambient;
+    let T = tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient;
     if (rnd(&s) < T * ${f(K.charge)} * sim.chargeMul * sim.dt) {
       p.kind = GLINT; p.energy = 1.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 5u;
@@ -1074,101 +1100,111 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   var n1 = NONE; var n2 = NONE;
   var food = NONE; var foodScore = -1e9;
   var silt = NONE; var siltD = 1e9;
-  var budget = MAX_SCAN;
+  var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
 
+  // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam).
+  var rs: array<u32, 9>;
+  var re: array<u32, 9>;
+  var nr = 0u;
+  var total = 0u;
   for (var dy = -1; dy <= 1; dy++) {
     let y = (cc.y + dy + gh) % gh;
     let rowBase = y * gw;
-    var rs: array<u32, 3>;
-    var re: array<u32, 3>;
-    var nr = 0u;
     if (cc.x > 0 && cc.x < gw - 1) {
-      rs[0] = cellStart[u32(rowBase + cc.x - 1)];
-      re[0] = cellStart[u32(rowBase + cc.x + 2)];
-      nr = 1u;
+      rs[nr] = cellStart[u32(rowBase + cc.x - 1)];
+      re[nr] = cellStart[u32(rowBase + cc.x + 2)];
+      total += re[nr] - rs[nr];
+      nr++;
     } else {
       for (var dx = -1; dx <= 1; dx++) {
         let x = (cc.x + dx + gw) % gw;
         let c = u32(rowBase + x);
         rs[nr] = cellStart[c];
         re[nr] = cellStart[c + 1u];
+        total += re[nr] - rs[nr];
         nr++;
       }
     }
-    for (var k = 0u; k < nr; k++) {
-      let e = min(re[k], rs[k] + budget);
-      budget -= e - rs[k];
-      for (var j = rs[k]; j < e; j++) {
-        let q = sortedLite[j];
-        var d = q.pos - p.pos;
-        d -= world * round(d * invWorld);
-        let r2 = dot(d, d);
-        if (r2 >= R2 || r2 < 1e-12) { continue; }
-        let r = sqrt(r2);
-        let x = r * invR;
-        let qk = q.kr & 1023u;
-        let s0 = unpack4x8snorm(q.s0);
-        let s1 = unpack4x8snorm(q.s1);
-        let a = clamp((dot(rec0, s0) + dot(rec1, s1)) * ${f(K.affScale)}, -1.0, 1.0);
-        let shape = 1.0 - abs(2.0 * x - 1.0 - beta) * invOM;
-        var fr: f32;
-        if (qk >= FIRST_LIFE) {
-          // a hungry forager lets other species inside its personal space so it can reach them
-          if (x < beta) { fr = (x * invBeta - 1.0) * select(1.0, 0.15, canHunt && qk != p.kind); } else { fr = a * shape; }
-          // hungry foragers are drawn toward the cells their diet favours
-          if (canHunt && qk != p.kind && x >= beta) {
-            fr += select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)} * shape;
-          }
-          crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
+  }
+  // Crowded neighbourhoods are sampled evenly with a random offset, each sample standing for
+  // \`stride\` particles, so no direction or grid cell is favoured (scanning in order and stopping
+  // at the budget left out the last row and drew dense species into grid-aligned bands).
+  let stride = max(1.0, f32(total) / f32(MAX_SCAN));
+  var at = select(0.0, rnd(&s) * stride, stride > 1.0);
+  for (var k = 0u; k < nr; k++) {
+    let len = f32(re[k] - rs[k]);
+    for (; at < len; at += stride) {
+      let j = rs[k] + u32(at);
+      let q = sortedLite[j];
+      var d = q.pos - p.pos;
+      d -= world * round(d * invWorld);
+      let r2 = dot(d, d);
+      if (r2 >= R2 || r2 < 1e-12) { continue; }
+      let r = sqrt(r2);
+      let x = r * invR;
+      let qk = q.kr & 1023u;
+      let s0 = unpack4x8snorm(q.s0);
+      let s1 = unpack4x8snorm(q.s1);
+      let a = clamp((dot(rec0, s0) + dot(rec1, s1)) * ${f(K.affScale)}, -1.0, 1.0);
+      let shape = 1.0 - abs(2.0 * x - 1.0 - beta) * invOM;
+      var fr: f32;
+      if (qk >= FIRST_LIFE) {
+        // a hungry forager lets other species inside its personal space so it can reach them
+        if (x < beta) { fr = (x * invBeta - 1.0) * select(1.0, 0.15, canHunt && qk != p.kind); } else { fr = a * shape; }
+        // hungry foragers are drawn toward the cells their diet favours
+        if (canHunt && qk != p.kind && x >= beta) {
+          fr += select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)} * shape;
+        }
+        crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
+        if (qk == p.kind) {
+          kinVel += unpack2x16float(q.vel);
+          kinN += 1.0;
+        }
+        if (r < LINK_R) {
+          // colour only blends within a species, so mixed neighbourhoods stay visibly mixed
           if (qk == p.kind) {
-            kinVel += unpack2x16float(q.vel);
-            kinN += 1.0;
+            let w = 1.0 - r / LINK_R;
+            csum += unpack4x8unorm(q.col).rgb * w;
+            wsum += w;
           }
-          if (r < LINK_R) {
-            // colour only blends within a species, so mixed neighbourhoods stay visibly mixed
-            if (qk == p.kind) {
-              let w = 1.0 - r / LINK_R;
-              csum += unpack4x8unorm(q.col).rgb * w;
-              wsum += w;
-            }
-            if (bonding && qk == p.kind) {
-              if (r < d1) { d2 = d1; n2 = n1; dn2 = dn1; d1 = r; n1 = j; dn1 = d; }
-              else if (r < d2) { d2 = r; n2 = j; dn2 = d; }
-            }
-          }
-          if (canHunt && r < EAT_R && qk != p.kind) {
-            let da = s0 - my0;
-            let db = s1 - my1;
-            if (dot(da, da) + dot(db, db) > ${f(K.kin)}) {
-              // grazers crop plant cells; flesh-eaters hunt animals (and crop plants reluctantly)
-              let plant = (q.kr & (1u << 12u)) != 0u;
-              let pref = select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, plant);
-              let sc = pref - r;
-              if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
-            }
-          }
-        } else {
-          fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);
-          if (hungry && qk != SILT && x >= beta) {
-            fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)} * shape;
-          }
-          if (qk == SILT) { nutr += 1.0; }
-          if (r < EAT_R) {
-            if (qk == SILT) {
-              if (r < siltD) { siltD = r; silt = j; }
-            } else if (hungry) {
-              let dv = select(g.dHusk, g.dGlint, qk == GLINT);
-              let sc = dv - r;
-              if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
-            }
+          if (bonding && qk == p.kind) {
+            if (r < d1) { d2 = d1; n2 = n1; dn2 = dn1; d1 = r; n1 = j; dn1 = d; }
+            else if (r < d2) { d2 = r; n2 = j; dn2 = d; }
           }
         }
-        force += d * (fr / r);
+        if (canHunt && r < EAT_R && qk != p.kind) {
+          let da = s0 - my0;
+          let db = s1 - my1;
+          if (dot(da, da) + dot(db, db) > ${f(K.kin)}) {
+            // grazers crop plant cells; flesh-eaters hunt animals (and crop plants reluctantly)
+            let plant = (q.kr & (1u << 12u)) != 0u;
+            let pref = select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, plant);
+            let sc = pref - r;
+            if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+          }
+        }
+      } else {
+        fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);
+        if (hungry && qk != SILT && x >= beta) {
+          fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)} * shape;
+        }
+        if (qk == SILT) { nutr += 1.0; }
+        if (r < EAT_R) {
+          if (qk == SILT) {
+            if (r < siltD) { siltD = r; silt = j; }
+          } else if (hungry) {
+            let dv = select(g.dHusk, g.dGlint, qk == GLINT);
+            let sc = dv - r;
+            if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+          }
+        }
       }
+      force += d * (fr / r);
     }
+    at -= len;
   }
+  force *= stride; crowd *= stride; nutr *= stride; kinVel *= stride; kinN *= stride;
 
-  var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
   let heavy = 1.0 - 0.7 * g.photo;
   let fr0 = pow(0.5, sim.dt / g.drag);
   var vel = p.vel * fr0 + force * (g.force * heavy * sim.dt);
@@ -1197,7 +1233,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }
   col = mix(col, roleColor(g, role), ${f(K.baseMix)});
 
-  let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide) * sim.season;
+  let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
   // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
   // water; anchored cells have fresh silt carried past them by the currents.
   let photoGain = g.photo * light * ${f(K.photo)} / (1.0 + crowd * ${f(K.shade)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
@@ -1489,6 +1525,7 @@ struct Post {
   cam: vec2f, world: vec2f,
   simTime: f32, ambient: f32, p1: f32, p2: f32,
   tide: array<vec4f, 4>,
+  tidePh: vec4f,
 };
 struct Loupe { center: vec2f, radius: f32, strength: f32, res: vec2f, p0: f32, p1: f32 };
 struct Reproj { scale: vec2f, shift: vec2f, k: f32, p0: f32, p1: f32, p2: f32 };
@@ -1556,7 +1593,7 @@ fn tonemap(hdrIn: vec3f) -> vec3f {
   var T = 0.0;
   if (post.tideVis > 0.0) {
     let wp = post.cam + (i.pos.xy - post.res * 0.5) / post.ppu;
-    T = tideAt(wp, post.world, post.simTime, post.tide) * post.season;
+    T = tideAt(wp, post.world, post.simTime, post.tide, post.tidePh) * post.season;
     if (post.tideVis < 1.5) { hdr += vec3f(0.003, 0.010, 0.014) * T; }
   }
   var c = tonemap(hdr);
@@ -1959,6 +1996,34 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     return g.advect < 0.2 && swim < 0.2 ? "sessile" : swim >= 0.8 ? "swimmer" : g.advect > 0.7 && swim < 0.4 ? "drifter" : "crawler";
   }
 
+  // src/flow.js
+  var TAU = Math.PI * 2;
+  var clamp2 = (x, a, b) => Math.max(a, Math.min(b, x));
+  var smoothstep = (a, b, x) => {
+    const t2 = clamp2((x - a) / (b - a), 0, 1);
+    return t2 * t2 * (3 - 2 * t2);
+  };
+  var TIDE_PHASE = [0, 1.7, 3.4, 5.1];
+  function tideAt(x, y, W, H, t2, w, ph = TIDE_PHASE) {
+    const ux = x / W * TAU, uy = y / H * TAU;
+    let s = 0, n = 0;
+    for (let k = 0; k < 4; k++) {
+      s += w[k * 4 + 3] * Math.sin(w[k * 4] * ux + w[k * 4 + 1] * uy + w[k * 4 + 2] * t2 + ph[k]);
+      n += w[k * 4 + 3];
+    }
+    return smoothstep(0.35, 1.9, s * 2.7 / Math.max(n, 1e-3));
+  }
+  function flowAt(x, y, t2, w) {
+    let vx = 0, vy = 0;
+    for (let k = 0; k < 4; k++) {
+      const kx = w[k * 4], ky = w[k * 4 + 1];
+      const c = Math.cos(kx * x + ky * y + w[k * 4 + 2] * t2 + k * 1.7) * w[k * 4 + 3] / Math.max(Math.hypot(kx, ky), 1e-4);
+      vx += ky * c;
+      vy -= kx * c;
+    }
+    return [vx, vy];
+  }
+
   // src/engine.js
   var HDR = "rgba16float";
   var BLOOM_LEVELS = 6;
@@ -1969,6 +2034,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   var LEDGER_HEAD = META_CLAIM * 4;
   var CENSUS_BYTES = LEDGER_HEAD + MAXK * G_BYTES;
   var mix2 = (a, b, t2) => a + (b - a) * t2;
+  var SIM_STRIDE = 256;
+  var MAX_STEPS = 512;
   async function createEngine(device, format, { hasTimestamps = false, K = {} } = {}) {
     const unknown = Object.keys(K).filter((k) => !(k in DEFAULT_K));
     if (unknown.length) throw new Error(`unknown tunables: ${unknown.join(", ")} (see DEFAULT_K in shaders.js)`);
@@ -1993,16 +2060,17 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       this.ambient = 0.17;
       this.chargeMul = 1;
       this.tide = new Float32Array([1, 1, 0.021, 1, 2, -1, -0.017, 1, -1, 3, 0.013, 0.7, 1, -2, 0.011, 0]);
+      this.tidePh = Float32Array.from(TIDE_PHASE);
       this.seedValue = 1;
       this.censusEvery = 20;
       this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1, tide: 1 };
-      this.simData = new ArrayBuffer(208);
+      this.simData = new ArrayBuffer(224);
       this.simF = new Float32Array(this.simData);
       this.simU = new Uint32Array(this.simData);
       this.waves = new Float32Array(16);
       this.viewData = new ArrayBuffer(80);
       this.viewDataL = new ArrayBuffer(80);
-      this.postData = new Float32Array(32);
+      this.postData = new Float32Array(36);
       this.loupe = null;
       this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 4294967295, memberN: 0 };
       this.viewDataS = new ArrayBuffer(80);
@@ -2017,12 +2085,14 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       this.b = {};
       const d = device;
       const b = this.b;
-      b.sim = d.createBuffer({ size: 208, usage: U.UNIFORM | U.COPY_DST });
+      b.sim = d.createBuffer({ size: 224, usage: U.UNIFORM | U.COPY_DST });
+      b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
+      this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
       b.view = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
       b.viewL = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
       b.viewS = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
       b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
-      b.post = d.createBuffer({ size: 128, usage: U.UNIFORM | U.COPY_DST });
+      b.post = d.createBuffer({ size: 144, usage: U.UNIFORM | U.COPY_DST });
       b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
       b.pickU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
       b.counts = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST });
@@ -2253,8 +2323,11 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       if (gw * gh > MAX_CELLS) gh = Math.floor(MAX_CELLS / gw);
       return [gw, gh];
     }
-    /** Create a new universe of n particles (n <= capacity). */
-    seed(n, { aspect = 16 / 9, silt = 0.5, glint = 0.12, husk = 0.04, rng = Math.random } = {}) {
+    /**
+     * Create a new universe of n particles (n <= capacity). Each world draws its own tide pattern,
+     * opening light and glint charge, matter mix, and how clumped its founders start.
+     */
+    seed(n, { aspect = 16 / 9, rng = Math.random } = {}) {
       const d = this.device;
       this.worldGeneration++;
       this.abio = 0;
@@ -2265,10 +2338,14 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       this.simTime = 0;
       this.frameNo = 0;
       this.seedValue = rng() * 4294967295 >>> 0;
-      this.ambient = 0.17;
-      this.chargeMul = 1;
-      this.tide.set([1, 1, 0.021, 1, 2, -1, -0.017, 1, -1, 3, 0.013, 0.7, 1, -2, 0.011, 0]);
+      this.ambient = mix2(0.12, 0.3, rng());
+      this.chargeMul = mix2(0.8, 1.25, rng());
+      this.randomizeTide(rng);
       this.randomizeCurrents(rng);
+      const silt = mix2(0.42, 0.58, rng()), glint = mix2(0.06, 0.18, rng()), husk = mix2(0.02, 0.06, rng());
+      const clump = rng();
+      const conc = mix2(3, 10, rng());
+      const spread = Math.sqrt(this.grid[0] * this.grid[1] / (conc * 2.5 * 2 * Math.PI));
       const gbuf = new ArrayBuffer(MAXK * G_BYTES);
       const gu = new Uint32Array(gbuf);
       const gf = new Float32Array(gbuf);
@@ -2297,7 +2374,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       d.queue.writeBuffer(this.b.genomes, 0, gbuf);
       d.queue.writeBuffer(this.b.ledger, 0, head);
       this.founders = plan.length;
-      this._writeSim({ seedKinds: plan.length, pSilt: silt, pGlint: glint, pHusk: husk });
+      this._writeSim({ seedKinds: plan.length, pSilt: silt, pGlint: glint, pHusk: husk, clump, spread });
       const enc = d.createCommandEncoder();
       enc.clearBuffer(this.b.counts);
       enc.clearBuffer(this.b.ledger, LEDGER_HEAD, n * 4);
@@ -2310,6 +2387,25 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       pass.end();
       d.queue.submit([enc.finish()]);
       this.clearAccum = true;
+    }
+    /** Three active tide waves (the fourth is left idle for the first climate era to raise) with random phases. */
+    randomizeTide(rng = Math.random) {
+      for (let k = 0; k < 4; k++) {
+        this.newTideWave(k, rng);
+        this.tide[k * 4 + 3] = k < 3 ? mix2(0.6, 1.1, rng()) : 0;
+      }
+    }
+    /** A torus-periodic tide wave in slot k (amplitude untouched): integer wave numbers, a slow drift, a phase. */
+    newTideWave(k, rng = Math.random) {
+      let a = 0, b = 0;
+      while (a === 0 && b === 0) {
+        a = Math.round(mix2(-3, 3, rng()));
+        b = Math.round(mix2(-3, 3, rng()));
+      }
+      this.tide[k * 4] = a;
+      this.tide[k * 4 + 1] = b;
+      this.tide[k * 4 + 2] = (rng() < 0.5 ? -1 : 1) * mix2(8e-3, 0.03, rng());
+      this.tidePh[k] = rng() * Math.PI * 2;
     }
     /** Divergence-free, torus-periodic currents. Returns the new wave table. */
     randomizeCurrents(rng = Math.random, into = this.waves) {
@@ -2328,6 +2424,10 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       return into;
     }
     _writeSim(extra = {}) {
+      this._fillSim(extra);
+      this.device.queue.writeBuffer(this.b.sim, 0, this.simData);
+    }
+    _fillSim(extra = {}) {
       const f2 = this.simF, u = this.simU;
       f2[0] = this.grid[0];
       f2[1] = this.grid[1];
@@ -2347,9 +2447,11 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       f2[15] = extra.pHusk || 0;
       f2[16] = this.ambient;
       f2[17] = this.chargeMul;
+      f2[18] = extra.clump || 0;
+      f2[19] = extra.spread || 0;
       f2.set(this.waves, 20);
       f2.set(this.tide, 36);
-      this.device.queue.writeBuffer(this.b.sim, 0, this.simData);
+      f2.set(this.tidePh, 52);
     }
     requestPick(center, radius, selId, { kind = 4294967295, maxOut = 4096, raw = false } = {}) {
       return new Promise((resolve) => {
@@ -2357,17 +2459,93 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         this.pickReq = { center, radius, selId: selId >>> 0, kind, maxOut: Math.max(1, Math.min(Math.ceil(maxOut), PICK_MAX)), raw, resolve };
       });
     }
+    /** Encode one simulation step whose uniforms are at `ring` (a slot of b.simRing), or written directly. */
+    _step(enc, simDt, timestampWrites, ring = -1) {
+      const b = this.b;
+      const N = this.count;
+      this.dt = simDt;
+      this.simTime += simDt;
+      this.frameNo++;
+      if (ring < 0) this._writeSim();
+      else {
+        this._fillSim();
+        new Uint8Array(this.ringData, ring * SIM_STRIDE, this.simData.byteLength).set(new Uint8Array(this.simData));
+        enc.copyBufferToBuffer(b.simRing, ring * SIM_STRIDE, b.sim, 0, this.simData.byteLength);
+      }
+      const cells = this.grid[0] * this.grid[1];
+      enc.clearBuffer(b.counts, 0, cells * 4);
+      enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
+      enc.clearBuffer(b.frameCtr, 0, 4);
+      enc.clearBuffer(b.ledger, 48, 12);
+      const pass = enc.beginComputePass({ timestampWrites });
+      const run2 = (name, n) => {
+        const c = this.cp[name];
+        pass.setPipeline(c.pipe);
+        pass.setBindGroup(0, c.bg);
+        pass.dispatchWorkgroups(n);
+      };
+      const wg = Math.ceil(N / 256);
+      run2("resolveCount", wg);
+      const scanWG = Math.min(MAX_CELLS / 256, Math.ceil((cells + 1) / 256));
+      run2("scanBlocks", scanWG);
+      run2("scanSums", 1);
+      run2("scanAdd", scanWG);
+      run2("scatterMain", wg);
+      run2("censusMain", Math.ceil(MAXK / 256));
+      run2("matterMain", wg);
+      pass.setPipeline(this.cp.lifeMain.pipe);
+      pass.setBindGroup(0, this.cp.lifeMain.bg);
+      pass.dispatchWorkgroupsIndirect(b.frameCtr, 4);
+      pass.end();
+    }
+    /** On a census step, copy the ledger and genomes into a free staging buffer. */
+    _censusCopy(enc) {
+      if (this.frameNo % this.censusEvery !== 0) return null;
+      const st = this.censusStage.find((s) => !s.busy);
+      if (!st) return null;
+      st.busy = true;
+      enc.copyBufferToBuffer(this.b.ledger, 0, st.buf, 0, LEDGER_HEAD);
+      enc.copyBufferToBuffer(this.b.genomes, 0, st.buf, LEDGER_HEAD, MAXK * G_BYTES);
+      return { st, simTime: this.simTime, frameNo: this.frameNo };
+    }
+    /** Read a census back after its submit. */
+    _censusRead(job, generation) {
+      if (!job) return;
+      const { st } = job;
+      st.buf.mapAsync(GPUMapMode.READ).then(() => {
+        const copy = st.buf.getMappedRange().slice(0);
+        st.buf.unmap();
+        st.busy = false;
+        if (generation !== this.worldGeneration) return;
+        if (this.onCensus) {
+          const u = new Uint32Array(copy);
+          this.onCensus({
+            simTime: job.simTime,
+            frameNo: job.frameNo,
+            globals: u.subarray(0, 16),
+            slots: u.subarray(META_SLOT, META_SLOT + MAXK),
+            pop: u.subarray(META_POP, META_POP + MAXK),
+            demography: u.subarray(META_DEATH, META_DEATH + 57),
+            genomeU32: new Uint32Array(copy, LEDGER_HEAD),
+            genomeF32: new Float32Array(copy, LEDGER_HEAD)
+          });
+        }
+      }).catch(() => {
+        st.busy = false;
+      });
+    }
     /**
-     * One frame. target: GPUTextureView or null (simulate only).
+     * One rendered frame after `steps` simulation steps. target: GPUTextureView or null (simulate only).
      * cam: {x,y,ppu}; loupe: {x,y,r (canvas px), ppu, cx, cy (world)} or null.
      */
-    frame({ target = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, time = 0, dpr = 1, selId = 4294967295, loupe = null, specimen = null }) {
+    frame({ target = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, steps = 1, time = 0, dpr = 1, selId = 4294967295, loupe = null, specimen = null }) {
       const d = this.device;
       const generation = this.worldGeneration;
       const b = this.b;
       const N = this.count;
-      const enc = d.createCommandEncoder();
+      const t0 = performance.now();
       const stepping = !paused && N > 0;
+      const nSteps = stepping ? Math.min(MAX_STEPS, Math.max(1, steps | 0)) : 0;
       const tm = this.timing;
       const slot = tm ? tm.reads.find((r) => !r.busy) : null;
       let tsFirst = !!slot;
@@ -2376,39 +2554,17 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         tsFirst = false;
         return { querySet: tm.qs, beginningOfPassWriteIndex: 0 };
       };
-      if (stepping) {
-        this.dt = simDt;
-        this.simTime += simDt;
-        this.frameNo++;
-        this._writeSim();
-        const cells = this.grid[0] * this.grid[1];
-        enc.clearBuffer(b.counts, 0, cells * 4);
-        enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
-        enc.clearBuffer(b.frameCtr, 0, 4);
-        enc.clearBuffer(b.ledger, 48, 12);
-        const endTs = slot && !target ? { querySet: tm.qs, endOfPassWriteIndex: 1 } : void 0;
+      const enc = d.createCommandEncoder();
+      const censusJobs = [];
+      for (let s = 0; s < nSteps; s++) {
+        const last = s === nSteps - 1;
+        const endTs = last && slot && !target ? { querySet: tm.qs, endOfPassWriteIndex: 1 } : void 0;
         const begin = tsBegin();
-        const pass = enc.beginComputePass({ timestampWrites: begin || endTs ? { ...begin || {}, ...endTs || {} } : void 0 });
-        const run2 = (name, n) => {
-          const c = this.cp[name];
-          pass.setPipeline(c.pipe);
-          pass.setBindGroup(0, c.bg);
-          pass.dispatchWorkgroups(n);
-        };
-        const wg = Math.ceil(N / 256);
-        run2("resolveCount", wg);
-        const scanWG = Math.min(MAX_CELLS / 256, Math.ceil((cells + 1) / 256));
-        run2("scanBlocks", scanWG);
-        run2("scanSums", 1);
-        run2("scanAdd", scanWG);
-        run2("scatterMain", wg);
-        run2("censusMain", Math.ceil(MAXK / 256));
-        run2("matterMain", wg);
-        pass.setPipeline(this.cp.lifeMain.pipe);
-        pass.setBindGroup(0, this.cp.lifeMain.bg);
-        pass.dispatchWorkgroupsIndirect(b.frameCtr, 4);
-        pass.end();
+        this._step(enc, simDt, begin || endTs ? { ...begin || {}, ...endTs || {} } : void 0, nSteps > 1 ? s : -1);
+        const job = this._censusCopy(enc);
+        if (job) censusJobs.push(job);
       }
+      if (nSteps > 1) d.queue.writeBuffer(b.simRing, 0, this.ringData, 0, nSteps * SIM_STRIDE);
       let pickJob = null;
       let trackJob = null;
       if (!this.pickReq && this.trackId !== 4294967295 && N > 0) {
@@ -2461,15 +2617,6 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         }
       }
       if (target) this._render(enc, { target, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd: slot ? { querySet: tm.qs, endOfPassWriteIndex: 1 } : void 0 });
-      let censusJob = null;
-      if (stepping && this.frameNo % this.censusEvery === 0) {
-        const st = this.censusStage.find((s) => !s.busy);
-        if (st) {
-          censusJob = { st, simTime: this.simTime, frameNo: this.frameNo };
-          enc.copyBufferToBuffer(b.ledger, 0, st.buf, 0, LEDGER_HEAD);
-          enc.copyBufferToBuffer(b.genomes, 0, st.buf, LEDGER_HEAD, MAXK * G_BYTES);
-        }
-      }
       const timed = slot && (stepping || target);
       if (timed) {
         enc.resolveQuerySet(tm.qs, 0, 2, tm.resolve, 0);
@@ -2483,14 +2630,13 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
           const ms = Number(t2[1] - t2[0]) / 1e6;
           slot.buf.unmap();
           slot.busy = false;
-          if (generation === this.worldGeneration && ms > 0 && ms < 5e3 && this.onGpuTime) this.onGpuTime(ms, N);
+          if (generation === this.worldGeneration && ms > 0 && ms < 5e3 && this.onGpuTime) this.onGpuTime(ms, N, nSteps);
         }).catch(() => {
           slot.busy = false;
         });
       } else if (!tm && this.onGpuTime && (stepping || target)) {
-        const t0 = performance.now();
         d.queue.onSubmittedWorkDone().then(() => {
-          if (generation === this.worldGeneration && this.onGpuTime) this.onGpuTime(performance.now() - t0, N);
+          if (generation === this.worldGeneration && this.onGpuTime) this.onGpuTime(performance.now() - t0, N, nSteps);
         });
       }
       if (pickJob) {
@@ -2537,31 +2683,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
           st.busy = false;
         });
       }
-      if (censusJob) {
-        const { st } = censusJob;
-        st.busy = true;
-        st.buf.mapAsync(GPUMapMode.READ).then(() => {
-          const copy = st.buf.getMappedRange().slice(0);
-          st.buf.unmap();
-          st.busy = false;
-          if (generation !== this.worldGeneration) return;
-          if (this.onCensus) {
-            const u = new Uint32Array(copy);
-            this.onCensus({
-              simTime: censusJob.simTime,
-              frameNo: censusJob.frameNo,
-              globals: u.subarray(0, 16),
-              slots: u.subarray(META_SLOT, META_SLOT + MAXK),
-              pop: u.subarray(META_POP, META_POP + MAXK),
-              demography: u.subarray(META_DEATH, META_DEATH + 57),
-              genomeU32: new Uint32Array(copy, LEDGER_HEAD),
-              genomeF32: new Float32Array(copy, LEDGER_HEAD)
-            });
-          }
-        }).catch(() => {
-          st.busy = false;
-        });
-      }
+      for (const job of censusJobs) this._censusRead(job, generation);
     }
     _writeView(buf, data, cam, W, H, dpr, time, selId) {
       const K = this.K;
@@ -2628,6 +2750,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       pd[12] = this.simTime;
       pd[13] = this.ambient;
       pd.set(this.tide, 16);
+      pd.set(this.tidePh, 32);
       d.queue.writeBuffer(this.b.post, 0, pd);
       {
         const clear = this.clearAccum || this.settings.trails <= 0 || !this.lastCam;
@@ -2739,14 +2862,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       const idle = amps.indexOf(Math.min(...amps));
       const active = [0, 1, 2, 3].filter((k) => k !== idle);
       const retire = active[Math.floor(r() * active.length)];
-      let a = 0, b = 0;
-      while (a === 0 && b === 0) {
-        a = Math.round(climateMix(-3, 3, r()));
-        b = Math.round(climateMix(-3, 3, r()));
-      }
-      eng.tide[idle * 4] = a;
-      eng.tide[idle * 4 + 1] = b;
-      eng.tide[idle * 4 + 2] = (r() < 0.5 ? -1 : 1) * climateMix(8e-3, 0.035, r());
+      eng.newTideWave(idle, r);
       climate.tideTo[idle] = climateMix(0.6, 1.1, r());
       climate.tideTo[retire] = 0;
       const prevAmb = climate.ambientTo;
@@ -2800,6 +2916,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     season: "A 5-minute cycle that swings tide strength between 10% and 100%. Glint production and peak light follow it, which drives booms and busts.",
     era: "Every 10–18 minutes the climate turns: the baseline light and glint production change, one tide wave is replaced, and the currents shift. The names are random labels.",
     epoch: "Simulated time since this universe began.",
+    simrate: "Simulated seconds per real second actually achieved. Shown when running at Max, or when the GPU cannot keep up with the chosen speed. Above ×1 the page runs more simulation steps between drawn frames, so the ecology is exactly the one at ×1, only sooner.",
     abiogenesis: "Life sparking from glint: a completely random new species, about once every 30 simulated seconds on average.",
     flesh: "Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Caught animal prey is killed outright and leaves a husk; this takes time, so a hunter manages at most one kill every few seconds. Plant cells are cropped a 0.06-energy bite at a time. Bonded bodies are armoured and shrug off some attacks.",
     diet: "The share of energy a species takes from each food. Food is worth its energy × share × 1.5, less for partly photosynthetic species.",
@@ -3524,33 +3641,6 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     return { body, X, Y };
   }
 
-  // src/flow.js
-  var TAU = Math.PI * 2;
-  var clamp2 = (x, a, b) => Math.max(a, Math.min(b, x));
-  var smoothstep = (a, b, x) => {
-    const t2 = clamp2((x - a) / (b - a), 0, 1);
-    return t2 * t2 * (3 - 2 * t2);
-  };
-  function tideAt(x, y, W, H, t2, w) {
-    const ux = x / W * TAU, uy = y / H * TAU;
-    let s = 0, n = 0;
-    for (let k = 0; k < 4; k++) {
-      s += w[k * 4 + 3] * Math.sin(w[k * 4] * ux + w[k * 4 + 1] * uy + w[k * 4 + 2] * t2 + k * 1.7);
-      n += w[k * 4 + 3];
-    }
-    return smoothstep(0.35, 1.9, s * 2.7 / Math.max(n, 1e-3));
-  }
-  function flowAt(x, y, t2, w) {
-    let vx = 0, vy = 0;
-    for (let k = 0; k < 4; k++) {
-      const kx = w[k * 4], ky = w[k * 4 + 1];
-      const c = Math.cos(kx * x + ky * y + w[k * 4 + 2] * t2 + k * 1.7) * w[k * 4 + 3] / Math.max(Math.hypot(kx, ky), 1e-4);
-      vx += ky * c;
-      vy -= kx * c;
-    }
-    return [vx, vy];
-  }
-
   // src/main.js
   var $ = (id) => document.getElementById(id);
   var canvas = $("stage");
@@ -3635,13 +3725,16 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     }
     run(eng, device, ctx, specCtx, hasTS);
   }
+  var SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8, 16, 32, 64, Infinity];
+  var MAX_FRAME_MS = 30;
+  var fmtSpeed = (s) => s === Infinity ? "Max" : `×${s}`;
   function run(eng, device, ctx, specCtx, hasTS) {
     const K = eng.K;
     const state = {
       phase: "calibrating",
       busy: true,
       paused: false,
-      timeScale: 1,
+      speedIdx: SPEEDS.indexOf(1),
       hud: true,
       keys: false,
       follow: false,
@@ -3715,10 +3808,24 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       const [cx, cy] = toWorld(hover.x, hover.y);
       return { sx: hover.x, sy: hover.y, R, cssPPU: lp, cx, cy };
     }
-    const perf = { samples: [], gpu: 0, fps: 0, frames: 0, fpsT: performance.now(), rafDt: [], goodWindows: 0, lastAdjust: performance.now() };
+    const perf = {
+      samples: [],
+      gpu: 0,
+      fps: 0,
+      frames: 0,
+      fpsT: performance.now(),
+      rafDt: [],
+      goodWindows: 0,
+      lastAdjust: performance.now(),
+      stepMs: 0,
+      rate: 1,
+      rateT: performance.now(),
+      rateSim: 0
+    };
     let calibWait = null;
     const frameWaiters = [];
-    eng.onGpuTime = (ms) => {
+    eng.onGpuTime = (ms, n, steps) => {
+      if (steps > 0) perf.stepMs = perf.stepMs ? perf.stepMs * 0.85 + ms / steps * 0.15 : ms / steps;
       perf.gpu = perf.gpu ? perf.gpu * 0.9 + ms * 0.1 : ms;
       perf.samples.push(ms);
       if (perf.samples.length > 240) perf.samples.shift();
@@ -4477,7 +4584,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       html += row("Lineage", `generation ${fmt(p.gen)} · id ${fmt(p.id)}`, "generation");
       html += row("Speed", `${Math.hypot(p.vx, p.vy).toFixed(2)} cells/s`, "speed");
       if (!past) {
-        const lightHere = Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H, eng.simTime, eng.tide) * eng.season) * 100);
+        const lightHere = Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H, eng.simTime, eng.tide, eng.tidePh) * eng.season) * 100);
         html += row("Light here", `${lightHere}%`, "lighthere");
       }
       return html + "</div>";
@@ -4607,7 +4714,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         const mem = sel.memory;
         if (kind < FIRST_LIFE) {
           const m = MATTER[kind];
-          const lightHere = Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H, eng.simTime, eng.tide) * eng.season) * 100);
+          const lightHere = Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H, eng.simTime, eng.tide, eng.tidePh) * eng.season) * 100);
           $("ins-kind").textContent = mem ? `Now ${m.name.toLowerCase()} · once a cell of` : kind === 2 ? "Remains" : "Matter";
           $("ins-name").textContent = mem && mem.sp ? mem.sp.name : m.name;
           $("ins-sub").textContent = sel.lost ? "Lost track of this particle." : mem && sel.diedAt != null ? `died ${fmtDur(eng.simTime - sel.diedAt)} ago · particle ${fmt(p.id)}` : `particle ${fmt(p.id)}${CAUSE[p.cause] ? ` · ${CAUSE[p.cause]}` : ""}`;
@@ -5034,16 +5141,12 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
           state.keys = false;
           renderKeys();
         }
-      } else if (k === " ") {
-        state.paused = !state.paused;
-        flash(state.paused ? "Paused" : "Running");
-      } else if (k === "," || k === "<") {
-        state.timeScale = Math.max(0.25, state.timeScale / 1.25);
-        flash(`Time ×${state.timeScale.toFixed(2)}`);
-      } else if (k === "." || k === ">") {
-        state.timeScale = Math.min(1.6, state.timeScale * 1.25);
-        flash(`Time ×${state.timeScale.toFixed(2)}`);
-      } else if (k === "h" || k === "H" || k === "?") {
+      } else if (k === " ") togglePause();
+      else if (k === ",") setSpeed(state.speedIdx - 1);
+      else if (k === ".") setSpeed(state.speedIdx + 1);
+      else if (k === "/" || k === "<") setSpeed(SPEEDS.indexOf(1));
+      else if (k === ">") setSpeed(SPEEDS.length - 1);
+      else if (k === "h" || k === "H" || k === "?") {
         state.keys = !state.keys;
         renderKeys();
       } else if (k === "i" || k === "I") {
@@ -5070,11 +5173,40 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       clearTimeout(flashTimer);
       flashTimer = setTimeout(() => flashEl.classList.remove("on"), 1400);
     }
+    function renderTime() {
+      const s = SPEEDS[state.speedIdx];
+      $("time-play").textContent = state.paused ? "▶" : "❚❚";
+      $("time-play").setAttribute("aria-label", state.paused ? "Resume" : "Pause");
+      $("time-speed").textContent = fmtSpeed(s);
+      $("time-slower").disabled = state.speedIdx === 0;
+      $("time-faster").disabled = state.speedIdx === SPEEDS.length - 1;
+      $("time-max").setAttribute("aria-pressed", String(s === Infinity));
+      $("time").classList.toggle("fast", s > 1);
+    }
+    function setSpeed(i) {
+      state.speedIdx = clamp3(i, 0, SPEEDS.length - 1);
+      stepAcc = 0;
+      perf.rafDt.length = 0;
+      perf.lastAdjust = performance.now();
+      flash(`Time ${fmtSpeed(SPEEDS[state.speedIdx])}`);
+      renderTime();
+    }
+    function togglePause() {
+      state.paused = !state.paused;
+      flash(state.paused ? "Paused" : "Running");
+      renderTime();
+    }
+    $("time-play").addEventListener("click", togglePause);
+    $("time-slower").addEventListener("click", () => setSpeed(state.speedIdx - 1));
+    $("time-faster").addEventListener("click", () => setSpeed(state.speedIdx + 1));
+    $("time-speed").addEventListener("click", () => setSpeed(SPEEDS.indexOf(1)));
+    $("time-max").addEventListener("click", () => setSpeed(SPEEDS[state.speedIdx] === Infinity ? SPEEDS.indexOf(1) : SPEEDS.length - 1));
     function renderKeys() {
       $("keys").hidden = !state.keys;
       $("keys-hint").hidden = state.keys;
     }
     renderKeys();
+    renderTime();
     $("keys-hint").addEventListener("click", () => {
       state.keys = true;
       renderKeys();
@@ -5105,10 +5237,13 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         tip.hidden = true;
       }
       $("count").textContent = fmt(eng.count);
+      const want = SPEEDS[state.speedIdx];
+      const actual = state.paused ? "" : want === Infinity || perf.rate < want * 0.9 ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : "";
+      if ($("time-actual").textContent !== actual) $("time-actual").textContent = actual;
       $("perf").textContent = `${perf.fps ? perf.fps.toFixed(0) : "–"} fps · ${perf.gpu ? perf.gpu.toFixed(1) : "–"} ms${renderScale < 1 ? ` · render ${Math.round(renderScale * 100)}%` : ""}`;
     }
     function adaptResolution(now) {
-      if (state.phase !== "running" || state.paused || now - perf.lastAdjust < 2e3 || perf.rafDt.length < 60) return;
+      if (state.phase !== "running" || state.paused || SPEEDS[state.speedIdx] > 1 || now - perf.lastAdjust < 2e3 || perf.rafDt.length < 60) return;
       const m = median(perf.rafDt);
       perf.rafDt.length = 0;
       perf.lastAdjust = now;
@@ -5224,6 +5359,18 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     let last = performance.now();
     let frameCount = 0;
     let inflight = 0;
+    let stepAcc = 0;
+    function plan() {
+      const s = SPEEDS[state.speedIdx];
+      if (state.paused || state.phase !== "running") return { steps: 1, dt: 1 / 60 };
+      if (s <= 1) return { steps: 1, dt: s / 60 };
+      const cap2 = perf.stepMs ? clamp3(Math.floor(MAX_FRAME_MS / perf.stepMs), 1, 512) : 1;
+      if (s === Infinity) return { steps: cap2, dt: 1 / 60 };
+      stepAcc += s;
+      const steps = Math.min(Math.floor(stepAcc), cap2);
+      stepAcc = Math.min(stepAcc - steps, 1);
+      return { steps: Math.max(1, steps), dt: 1 / 60 };
+    }
     function frame(now) {
       const dt = Math.min(100, now - last);
       last = now;
@@ -5234,6 +5381,12 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         perf.frames = 0;
         perf.fpsT = now;
       }
+      if (now - perf.rateT > 1e3) {
+        const r = (eng.simTime - perf.rateSim) / ((now - perf.rateT) / 1e3);
+        perf.rate = r >= 0 ? r : perf.rate;
+        perf.rateSim = eng.simTime;
+        perf.rateT = now;
+      }
       for (let i = frameWaiters.length - 1; i >= 0; i--) if (--frameWaiters[i].n <= 0) {
         frameWaiters[i].res();
         frameWaiters.splice(i, 1);
@@ -5241,7 +5394,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       if (!state.busy && inflight < 3) {
         perf.frames++;
         eng.season = seasonAt(eng.simTime);
-        if (state.phase === "running" && !state.paused) climate.tick(1 / 60 * state.timeScale);
+        const step = plan();
+        if (state.phase === "running" && !state.paused) climate.tick(step.steps * step.dt);
         if (state.follow && sel) {
           const [px, py] = predicted();
           const k = Math.min(1, dt / 70);
@@ -5267,7 +5421,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
           target: ctx.getCurrentTexture().createView(),
           cam: { x: cam.x, y: cam.y, ppu: ppu() },
           paused: state.paused,
-          simDt: 1 / 60 * state.timeScale,
+          simDt: step.dt,
+          steps: step.steps,
           time: now / 1e3,
           dpr,
           selId: sel ? sel.id : NONE,

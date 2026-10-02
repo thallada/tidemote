@@ -104,12 +104,12 @@ struct Genome {
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
 fn genOf(info: u32) -> u32 { return info >> 16u; }
 
-fn tideAt(p: vec2f, world: vec2f, t: f32, w: array<vec4f, 4>) -> f32 {
+fn tideAt(p: vec2f, world: vec2f, t: f32, w: array<vec4f, 4>, ph: vec4f) -> f32 {
   let u = p / world * TAU;
   var s = 0.0;
   var n = 0.0;
   for (var k = 0u; k < 4u; k++) {
-    s += w[k].w * sin(w[k].x * u.x + w[k].y * u.y + w[k].z * t + f32(k) * 1.7);
+    s += w[k].w * sin(w[k].x * u.x + w[k].y * u.y + w[k].z * t + ph[k]);
     n += w[k].w;
   }
   return smoothstep(0.35, 1.9, s * 2.7 / max(n, 1e-3));
@@ -133,9 +133,10 @@ struct Sim {
   count: u32, frame: u32, dt: f32, time: f32,
   season: f32, abio: f32, seed: u32, maxSpeed: f32,
   seedKinds: u32, pSilt: f32, pGlint: f32, pHusk: f32,
-  ambient: f32, chargeMul: f32,
+  ambient: f32, chargeMul: f32, clump: f32, spread: f32,
   waves: array<vec4f, 4>,
   tide: array<vec4f, 4>,
+  tidePh: vec4f,
 };
 // kr: 0..9 kind, 10..11 role, 12 plant.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
@@ -337,7 +338,7 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = gid.x;
   if (i >= sim.count) { return; }
   var s = pcg(i ^ pcg(sim.seed));
-  let pos = vec2f(rnd(&s), rnd(&s)) * sim.world;
+  var pos = vec2f(rnd(&s), rnd(&s)) * sim.world;
   let u = rnd(&s);
   var kind = SILT;
   var e = 0.0;
@@ -351,6 +352,13 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
     kind = HUSK; e = 0.2 + 0.3 * rnd(&s); col = pack4x8unorm(vec4f(0.5, 0.35, 0.25, 1.0));
   } else {
     kind = FIRST_LIFE + min(u32(rnd(&s) * f32(sim.seedKinds)), sim.seedKinds - 1u);
+    if (rnd(&s) < sim.clump) {
+      // one of the species' one to four colonies
+      let nc = 1u + pcg(kind ^ sim.seed) % 4u;
+      let h = pcg(sim.seed ^ pcg(kind * 977u + min(u32(rnd(&s) * f32(nc)), nc - 1u) * 7919u + 1u));
+      let center = vec2f(f32(h & 0xffffu), f32(h >> 16u)) / 65536.0 * sim.world;
+      pos = wrapPos(center + vec2f(gauss(&s), gauss(&s)) * sim.spread);
+    }
     let g = genomes[kind];
     e = 0.4 + 0.6 * rnd(&s);
     let r = sampleRole(g, sampleRole(g, 0u, &s), &s);
@@ -545,7 +553,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u) {
   let pos = wrapPos(p.pos + vel * sim.dt);
   p.age += sim.dt;
   if (p.kind == SILT) {
-    let T = tideAt(pos, sim.world, sim.time, sim.tide) * sim.season + 0.2 * sim.ambient;
+    let T = tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient;
     if (rnd(&s) < T * ${f(K.charge)} * sim.chargeMul * sim.dt) {
       p.kind = GLINT; p.energy = 1.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 5u;
@@ -624,101 +632,111 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   var n1 = NONE; var n2 = NONE;
   var food = NONE; var foodScore = -1e9;
   var silt = NONE; var siltD = 1e9;
-  var budget = MAX_SCAN;
+  var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
 
+  // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam).
+  var rs: array<u32, 9>;
+  var re: array<u32, 9>;
+  var nr = 0u;
+  var total = 0u;
   for (var dy = -1; dy <= 1; dy++) {
     let y = (cc.y + dy + gh) % gh;
     let rowBase = y * gw;
-    var rs: array<u32, 3>;
-    var re: array<u32, 3>;
-    var nr = 0u;
     if (cc.x > 0 && cc.x < gw - 1) {
-      rs[0] = cellStart[u32(rowBase + cc.x - 1)];
-      re[0] = cellStart[u32(rowBase + cc.x + 2)];
-      nr = 1u;
+      rs[nr] = cellStart[u32(rowBase + cc.x - 1)];
+      re[nr] = cellStart[u32(rowBase + cc.x + 2)];
+      total += re[nr] - rs[nr];
+      nr++;
     } else {
       for (var dx = -1; dx <= 1; dx++) {
         let x = (cc.x + dx + gw) % gw;
         let c = u32(rowBase + x);
         rs[nr] = cellStart[c];
         re[nr] = cellStart[c + 1u];
+        total += re[nr] - rs[nr];
         nr++;
       }
     }
-    for (var k = 0u; k < nr; k++) {
-      let e = min(re[k], rs[k] + budget);
-      budget -= e - rs[k];
-      for (var j = rs[k]; j < e; j++) {
-        let q = sortedLite[j];
-        var d = q.pos - p.pos;
-        d -= world * round(d * invWorld);
-        let r2 = dot(d, d);
-        if (r2 >= R2 || r2 < 1e-12) { continue; }
-        let r = sqrt(r2);
-        let x = r * invR;
-        let qk = q.kr & 1023u;
-        let s0 = unpack4x8snorm(q.s0);
-        let s1 = unpack4x8snorm(q.s1);
-        let a = clamp((dot(rec0, s0) + dot(rec1, s1)) * ${f(K.affScale)}, -1.0, 1.0);
-        let shape = 1.0 - abs(2.0 * x - 1.0 - beta) * invOM;
-        var fr: f32;
-        if (qk >= FIRST_LIFE) {
-          // a hungry forager lets other species inside its personal space so it can reach them
-          if (x < beta) { fr = (x * invBeta - 1.0) * select(1.0, 0.15, canHunt && qk != p.kind); } else { fr = a * shape; }
-          // hungry foragers are drawn toward the cells their diet favours
-          if (canHunt && qk != p.kind && x >= beta) {
-            fr += select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)} * shape;
-          }
-          crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
+  }
+  // Crowded neighbourhoods are sampled evenly with a random offset, each sample standing for
+  // \`stride\` particles, so no direction or grid cell is favoured (scanning in order and stopping
+  // at the budget left out the last row and drew dense species into grid-aligned bands).
+  let stride = max(1.0, f32(total) / f32(MAX_SCAN));
+  var at = select(0.0, rnd(&s) * stride, stride > 1.0);
+  for (var k = 0u; k < nr; k++) {
+    let len = f32(re[k] - rs[k]);
+    for (; at < len; at += stride) {
+      let j = rs[k] + u32(at);
+      let q = sortedLite[j];
+      var d = q.pos - p.pos;
+      d -= world * round(d * invWorld);
+      let r2 = dot(d, d);
+      if (r2 >= R2 || r2 < 1e-12) { continue; }
+      let r = sqrt(r2);
+      let x = r * invR;
+      let qk = q.kr & 1023u;
+      let s0 = unpack4x8snorm(q.s0);
+      let s1 = unpack4x8snorm(q.s1);
+      let a = clamp((dot(rec0, s0) + dot(rec1, s1)) * ${f(K.affScale)}, -1.0, 1.0);
+      let shape = 1.0 - abs(2.0 * x - 1.0 - beta) * invOM;
+      var fr: f32;
+      if (qk >= FIRST_LIFE) {
+        // a hungry forager lets other species inside its personal space so it can reach them
+        if (x < beta) { fr = (x * invBeta - 1.0) * select(1.0, 0.15, canHunt && qk != p.kind); } else { fr = a * shape; }
+        // hungry foragers are drawn toward the cells their diet favours
+        if (canHunt && qk != p.kind && x >= beta) {
+          fr += select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)} * shape;
+        }
+        crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
+        if (qk == p.kind) {
+          kinVel += unpack2x16float(q.vel);
+          kinN += 1.0;
+        }
+        if (r < LINK_R) {
+          // colour only blends within a species, so mixed neighbourhoods stay visibly mixed
           if (qk == p.kind) {
-            kinVel += unpack2x16float(q.vel);
-            kinN += 1.0;
+            let w = 1.0 - r / LINK_R;
+            csum += unpack4x8unorm(q.col).rgb * w;
+            wsum += w;
           }
-          if (r < LINK_R) {
-            // colour only blends within a species, so mixed neighbourhoods stay visibly mixed
-            if (qk == p.kind) {
-              let w = 1.0 - r / LINK_R;
-              csum += unpack4x8unorm(q.col).rgb * w;
-              wsum += w;
-            }
-            if (bonding && qk == p.kind) {
-              if (r < d1) { d2 = d1; n2 = n1; dn2 = dn1; d1 = r; n1 = j; dn1 = d; }
-              else if (r < d2) { d2 = r; n2 = j; dn2 = d; }
-            }
-          }
-          if (canHunt && r < EAT_R && qk != p.kind) {
-            let da = s0 - my0;
-            let db = s1 - my1;
-            if (dot(da, da) + dot(db, db) > ${f(K.kin)}) {
-              // grazers crop plant cells; flesh-eaters hunt animals (and crop plants reluctantly)
-              let plant = (q.kr & (1u << 12u)) != 0u;
-              let pref = select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, plant);
-              let sc = pref - r;
-              if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
-            }
-          }
-        } else {
-          fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);
-          if (hungry && qk != SILT && x >= beta) {
-            fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)} * shape;
-          }
-          if (qk == SILT) { nutr += 1.0; }
-          if (r < EAT_R) {
-            if (qk == SILT) {
-              if (r < siltD) { siltD = r; silt = j; }
-            } else if (hungry) {
-              let dv = select(g.dHusk, g.dGlint, qk == GLINT);
-              let sc = dv - r;
-              if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
-            }
+          if (bonding && qk == p.kind) {
+            if (r < d1) { d2 = d1; n2 = n1; dn2 = dn1; d1 = r; n1 = j; dn1 = d; }
+            else if (r < d2) { d2 = r; n2 = j; dn2 = d; }
           }
         }
-        force += d * (fr / r);
+        if (canHunt && r < EAT_R && qk != p.kind) {
+          let da = s0 - my0;
+          let db = s1 - my1;
+          if (dot(da, da) + dot(db, db) > ${f(K.kin)}) {
+            // grazers crop plant cells; flesh-eaters hunt animals (and crop plants reluctantly)
+            let plant = (q.kr & (1u << 12u)) != 0u;
+            let pref = select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, plant);
+            let sc = pref - r;
+            if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+          }
+        }
+      } else {
+        fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);
+        if (hungry && qk != SILT && x >= beta) {
+          fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)} * shape;
+        }
+        if (qk == SILT) { nutr += 1.0; }
+        if (r < EAT_R) {
+          if (qk == SILT) {
+            if (r < siltD) { siltD = r; silt = j; }
+          } else if (hungry) {
+            let dv = select(g.dHusk, g.dGlint, qk == GLINT);
+            let sc = dv - r;
+            if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+          }
+        }
       }
+      force += d * (fr / r);
     }
+    at -= len;
   }
+  force *= stride; crowd *= stride; nutr *= stride; kinVel *= stride; kinN *= stride;
 
-  var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
   let heavy = 1.0 - 0.7 * g.photo;
   let fr0 = pow(0.5, sim.dt / g.drag);
   var vel = p.vel * fr0 + force * (g.force * heavy * sim.dt);
@@ -747,7 +765,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }
   col = mix(col, roleColor(g, role), ${f(K.baseMix)});
 
-  let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide) * sim.season;
+  let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
   // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
   // water; anchored cells have fresh silt carried past them by the currents.
   let photoGain = g.photo * light * ${f(K.photo)} / (1.0 + crowd * ${f(K.shade)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
@@ -1039,6 +1057,7 @@ struct Post {
   cam: vec2f, world: vec2f,
   simTime: f32, ambient: f32, p1: f32, p2: f32,
   tide: array<vec4f, 4>,
+  tidePh: vec4f,
 };
 struct Loupe { center: vec2f, radius: f32, strength: f32, res: vec2f, p0: f32, p1: f32 };
 struct Reproj { scale: vec2f, shift: vec2f, k: f32, p0: f32, p1: f32, p2: f32 };
@@ -1106,7 +1125,7 @@ fn tonemap(hdrIn: vec3f) -> vec3f {
   var T = 0.0;
   if (post.tideVis > 0.0) {
     let wp = post.cam + (i.pos.xy - post.res * 0.5) / post.ppu;
-    T = tideAt(wp, post.world, post.simTime, post.tide) * post.season;
+    T = tideAt(wp, post.world, post.simTime, post.tide, post.tidePh) * post.season;
     if (post.tideVis < 1.5) { hdr += vec3f(0.003, 0.010, 0.014) * T; }
   }
   var c = tonemap(hdr);

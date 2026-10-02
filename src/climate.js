@@ -22,10 +22,7 @@ export function createClimate(eng, rng = Math.random) {
     const idle = amps.indexOf(Math.min(...amps));
     const active = [0, 1, 2, 3].filter((k) => k !== idle);
     const retire = active[Math.floor(r() * active.length)];
-    let a = 0, b = 0;
-    while (a === 0 && b === 0) { a = Math.round(climateMix(-3, 3, r())); b = Math.round(climateMix(-3, 3, r())); }
-    eng.tide[idle * 4] = a; eng.tide[idle * 4 + 1] = b;
-    eng.tide[idle * 4 + 2] = (r() < 0.5 ? -1 : 1) * climateMix(0.008, 0.035, r());
+    eng.newTideWave(idle, r);
     climate.tideTo[idle] = climateMix(0.6, 1.1, r());
     climate.tideTo[retire] = 0;
     const prevAmb = climate.ambientTo;

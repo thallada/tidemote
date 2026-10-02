@@ -14,6 +14,10 @@ python3 -m http.server -d dist 8000   # then open http://localhost:8000/tidemote
 
 On start it sizes the universe to your GPU: it times a few frames and fixes the particle count so the simulation fits in about 7.5 ms a frame. If the frame rate later drops, it lowers the render resolution instead of the particle count.
 
+The time control under the epoch clock pauses, steps the speed along ×¼ … ×1, ×1.25, ×1.5, ×2, ×4 … ×64 (`,` and `.`), returns to real time (`/`) or runs as fast as the GPU allows (**Max**, `>`). Above ×1 the page runs several whole simulation steps per drawn frame, as the headless runs do, so the ecology is the same at every speed; it keeps a frame under about 30 ms of GPU time and shows the speed actually reached when that is less than asked. Below ×1 the steps are shortened instead.
+
+Every world draws its own tide pattern (wave directions, drift and phases), opening light and glint charge, matter mix, founding community, and how clumped the founders start.
+
 Press **H** in the page for controls and **K** for the Field Lab (species list, composition, population charts, lineage tree, chronicle, environment overlays and a field guide). Click any cell to follow it.
 
 ## Building
@@ -46,7 +50,7 @@ esbuild preserves module scope, so top-level names can be reused across files.
 Each frame runs entirely on the GPU:
 
 1. **Resolve** last frame's claims (meals, births, bites) and count each species.
-2. **Bin** every particle into a grid with a counting sort and prefix scan, so neighbours can be found in the surrounding 3×3 cells.
+2. **Bin** every particle into a grid with a counting sort and prefix scan, so neighbours can be found in the surrounding 3×3 cells. A cell reads at most 288 neighbours; in denser places it samples them evenly from a random offset and weights each sample accordingly, so no direction or grid line is favoured.
 3. **Matter**: silt, glint and husks drift on divergence-free currents. The tide charges silt into glint, glint fades, and husks decay.
 4. **Life**: only the living are dispatched, indirectly. Each cell sums particle-life forces from 8-dimensional surface/receptor signatures, bonds to its two nearest same-species neighbours if it is adhesive, photosynthesises, pays upkeep, and claims food or a silt grain to divide into.
 
