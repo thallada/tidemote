@@ -431,7 +431,8 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
   var MAX_CELLS = 1 << 18;
   var META_SLOT = 16;
   var META_POP = 16 + 512;
-  var META_CLAIM = 16 + 1024;
+  var META_DEATH = 16 + 1024;
+  var META_CLAIM = 16 + 1024 + 32;
   var P_BYTES = 40;
   var G_BYTES = 192;
   var G_WORDS = 48;
@@ -466,7 +467,7 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
     hunt: 0.12,
     // pull of living prey on a hungry forager  // how much a flesh-eater values plant cells relative to a grazer
     kinCrowd: 0.06,
-    // upkeep added per crowding same-species neighbour (free-living species)
+    // upkeep added per crowding same-species neighbour, excluding bond partners
     kinFree: 4,
     // same-species neighbours tolerated before crowding costs
     anchorCost: 3e-3,
@@ -479,6 +480,8 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
     // how much a bonded body shades itself, relative to strangers
     armor: 2.5,
     // bonded bodies resist being killed or bitten
+    searchImage: 0.7,
+    // chance a hunter or grazer misses living prey unlike its last catch
     nutrHalf: 8,
     // silt grains nearby at which photosynthesis runs at half speed
     swimCost: 0.018,
@@ -506,7 +509,7 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
     // energy taken per bite from a photosynthesising cell
     eatEvery: 6,
     // frames between meals
-    dietMin: 0.02
+    dietMin: 0.15
     // share of the diet a food must have before a cell bothers to eat it
   };
   var f = (x) => {
@@ -525,9 +528,11 @@ const NONE = 0xffffffffu;
 const MAX_CELLS = 262144u;
 const META_SLOT = 16u;
 const META_POP = 528u;
-const META_CLAIM = 1040u;
+const META_DEATH = 16u + 1024u;
+const META_CLAIM = 16u + 1024u + 32u;
 const TAU = 6.28318530718;
 
+// Info: 0..3 cause, 4..5 role, 6..14 search image, 15..31 generation.
 struct Particle { pos: vec2f, vel: vec2f, kind: u32, energy: f32, age: f32, id: u32, col: u32, info: u32 };
 struct Genome {
   sig: array<vec4u, 3>,
@@ -543,7 +548,7 @@ struct Genome {
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
-fn genOf(info: u32) -> u32 { return info >> 6u; }
+fn genOf(info: u32) -> u32 { return info >> 15u; }
 
 fn tideAt(p: vec2f, world: vec2f, t: f32, w: array<vec4f, 4>) -> f32 {
   let u = p / world * TAU;
@@ -592,7 +597,7 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, pad: u32 };
 @group(0) @binding(8) var<storage, read_write> aux: array<vec2u>;
 // Intent: x bits 0..1 action (0 none, 1 eat, 2 birth, 3 bite),
 // 2..11 child kind (birth) or observed target kind (eat/bite),
-// 12..13 child role, 14..31 child generation; y child energy, z/w bond neighbours.
+// 12..13 child role, 14..30 child generation; y child energy, z/w bond neighbours.
 @group(0) @binding(9) var<storage, read_write> intent: array<vec4u>;
 @group(0) @binding(10) var<storage, read_write> genomes: array<Genome>;
 @group(0) @binding(11) var<storage, read_write> ledger: array<atomic<u32>>;
@@ -634,6 +639,15 @@ fn wrapPos(p: vec2f) -> vec2f { return p - sim.world * floor(p / sim.world); }
 
 // Specialists digest their food better than generalists: value of a food given the share of the diet devoted to it.
 fn spec(d: f32) -> f32 { let c = min(d, 1.0); return c * (${f(1 - 0.6)} + ${f(0.6)} * c); }
+
+// Ledger guild order: producer, grazer, predator, scavenger, omnivore.
+fn dietGuild(g: Genome) -> u32 {
+  if (g.photo > 0.55) { return 0u; }
+  if (g.dFlesh > 0.55) { return 2u; }
+  if (g.dHusk > 0.55) { return 3u; }
+  if (g.dGlint > 0.55) { return 1u; }
+  return 4u;
+}
 
 fn deriveMetab(g: Genome) -> f32 {
   return (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
@@ -814,6 +828,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
       if (act == 1u && p.kind == ck) {
         if (p.kind >= FIRST_LIFE) {
           // a kill leaves a carcass for the scavengers
+          atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
           p.kind = HUSK; p.energy = ${f(K.carcass)}; p.age = 0.0; p.vel *= 0.2;
           p.info = (p.info & 0xfffffff0u) | 3u;
         } else {
@@ -824,21 +839,23 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         if (p.kind >= FIRST_LIFE) {
           p.energy -= ${f(K.bite)};
           if (p.energy <= 0.0) {
+            atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
             p.kind = HUSK; p.energy = ${f(K.huskBase)}; p.age = 0.0;
             p.info = (p.info & 0xfffffff0u) | 3u;
           }
         }
       } else if (act == 2u && (p.kind == SILT || p.kind == GLINT)) {
         let cr = (it.x >> 12u) & 3u;
-        let gen = it.x >> 14u;
+        let gen = (it.x >> 14u) & 0x1ffffu;
         p.kind = ck;
         p.energy = bitcast<f32>(it.y);
         p.age = 0.0;
         p.vel = vec2f(0.0);
         p.id = atomicAdd(&ledger[0], 1u);
         p.col = pack4x8unorm(vec4f(roleColor(genomes[ck], cr), 1.0));
-        p.info = (gen << 6u) | (cr << 4u) | 9u;
+        p.info = (gen << 15u) | (cr << 4u) | 9u;
         atomicAdd(&ledger[2], 1u);
+        atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[ck])], 1u);
       }
       parts[i] = p;
     }
@@ -1187,9 +1204,9 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
   // water; anchored cells have fresh silt carried past them by the currents.
   let photoGain = g.photo * light * ${f(K.photo)} / (1.0 + crowd * ${f(K.shade)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
     * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0));
-  // free-living cells packed among their own kind sicken (species-specific disease, Janzen-Connell)
-  let kinCost = select(1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - ${f(K.kinFree)}), 1.0, bonding);
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
+  // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); a body's bond partners do not count
+  let kinCost = 1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - bonds - ${f(K.kinFree)});
   let thrift = 1.0 - ${f(K.bodyThrift)} * 0.5 * bonds;
   let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0));
   var E = p.energy + (photoGain - upkeep) * sim.dt;
@@ -1198,6 +1215,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
   var ck = 0u;
   var cr = 0u;
   var ce = 0.0;
+  var info = p.info;
   if (E > g.reproE && silt != NONE) {
     if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
       ck = p.kind;
@@ -1219,7 +1237,9 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
                  || ((sim.frame + p.id) / ${K.eatEvery | 0}u) % select(${K.killEvery | 0}u, ${K.biteEvery | 0}u, genomes[sortedFull[food].kind].photo > 0.4) == 0u)) {
     let fk = sortedFull[food].kind;
     let armored = fk >= FIRST_LIFE && rnd(&s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
-    if (!armored && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
+    let image = (info >> 6u) & 511u;
+    let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(&s) < ${f(K.searchImage)};
+    if (!armored && !unfamiliar && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
       let fp = sortedFull[food];
       ck = fp.kind;
       var gain = 0.0;
@@ -1233,22 +1253,24 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
       } else {
         gain = (${f(K.preyBase)} + ${f(K.preyFrac)} * max(fp.energy, 0.0)) * spec(g.dFlesh); atomicAdd(&ledger[7], 1u);
       }
+      if (fk >= FIRST_LIFE) { info = (info & 0xffff803fu) | (fk << 6u); }
       E += gain * ${f(K.gain)} * eatEff;
     }
   }
 
   var kind = p.kind;
-  var info = p.info;
   if (E <= 0.0) {
     kind = HUSK; E = ${f(K.huskBase)}; age = 0.0; vel *= 0.3;
     info = (info & 0xffffffc0u) | 1u;
     atomicAdd(&ledger[5], 1u);
+    atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 1u], 1u);
   } else if (age > g.lifespan) {
     kind = HUSK; E = ${f(K.huskBase)} + ${f(K.huskFrac)} * E; age = 0.0; vel *= 0.3;
     info = (info & 0xffffffc0u) | 2u;
     atomicAdd(&ledger[6], 1u);
+    atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 2u], 1u);
   }
-  let childGen = ((genOf(p.info) + 1u) & 0x3ffffu) << 14u;
+  let childGen = ((genOf(p.info) + 1u) & 0x1ffffu) << 14u;
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(ce), n1, n2);
   parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0)), info);
 }
@@ -1948,7 +1970,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       info,
       cause: info & 15,
       role: info >>> 4 & 3,
-      gen: info >>> 6
+      gen: info >>> 15
     };
   }
   function dietGuild(g) {
@@ -2547,6 +2569,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
               globals: u.subarray(0, 16),
               slots: u.subarray(META_SLOT, META_SLOT + MAXK),
               pop: u.subarray(META_POP, META_POP + MAXK),
+              demography: u.subarray(META_DEATH, META_DEATH + 20),
               genomeU32: new Uint32Array(copy, LEDGER_HEAD),
               genomeF32: new Float32Array(copy, LEDGER_HEAD)
             });
@@ -2802,7 +2825,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     predator: "Mostly eats flesh: hunts animal cells, and crops plants only reluctantly.",
     celltype: "α, β and γ cells of one species share a genome but each has its own surface and receptor signature, so each type is pulled toward and away from things differently. Types also differ in colour tint, size and shape.",
     bodyplan: "The long-run mix of cell types a species produces. Each child’s type is chosen by a developmental rule from its parent’s type; this is where that rule settles.",
-    adhesion: "How strongly cells of one species bond. Above 15%, each cell bonds to its two nearest same-species neighbours with a spring. Bonds are the links you see and they hold bodies together. Bonded cells share the cost of living (up to 30% less upkeep), shade each other less and are armoured against attack, but they disperse poorly and their inner cells struggle to reach silt to divide. Species without adhesion are free-living.",
+    adhesion: "How strongly cells of one species bond. Above 15%, each cell bonds to its two nearest same-species neighbours with a spring. Bonds are the links you see and they hold bodies together. Bonded cells share the cost of living (up to 30% less upkeep), shade each other less and are armoured against attack. They still pay crowding beyond their bond partners, disperse poorly and their inner cells struggle to reach silt to divide. Species without adhesion are free-living.",
     bond: "A spring between two cells of the same species. Drawn as a link. A connected web of bonds is one organism.",
     organism: "A body: all same-species cells connected through bonds. A species only forms bodies if its adhesion is above 15%; otherwise every cell is its own organism, even when the species has several cell types (morphs) or gathers into swarms.",
     swimming: "Self-propulsion: a steady push in the direction the cell is already moving. Reduced by photosynthesis.",
@@ -2815,7 +2838,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     lifespan: "Age at which a cell dies of old age.",
     dividesat: "Energy a cell needs before it can divide. It also needs a grain of silt within reach to build the child from.",
     childshare: "Fraction of the parent’s energy handed to each child.",
-    upkeep: "Energy burned per second. Grows with thrust, reach, swimming, schooling, adhesion, lifespan, size and anchoring. Starving cells burn slower. Crowding raises it: a free-living cell packed among more than four of its own kind pays extra.",
+    upkeep: "Energy burned per second. Grows with thrust, reach, swimming, schooling, adhesion, lifespan, size and anchoring. Starving cells burn slower. Crowding raises it: a cell packed among more than four of its own kind (not counting its bond partners) pays extra.",
     mutation: "Chance per division that the child founds a new species with a nudged genome. Rarely, a whole cell type is reinvented or copied.",
     size: "Drawn size and shape. Purely visual apart from a small upkeep cost; physics uses reach and personal space.",
     share: "This species’ fraction of all living cells.",
@@ -2896,8 +2919,9 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       title: "Ecology",
       html: `<p>Producers are photosynthesising reefs, mats and plankton, plus glint grazers. Consumers are grazers of plants, scavengers of husks, and predators. Several pressures shape which forms thrive:</p>
 <ul>
-<li>Crowding: free-living cells packed among their own kind sicken, so clonal blobs break up and species mix.</li>
+<li>Crowding: cells packed among their own kind sicken (a body’s bond partners do not count), so clonal blobs and sprawling bodies break up and species mix.</li>
 <li>Grazers crop the plants, predators thin out the grazers, and scavengers live off the husks both leave behind.</li>
+<li>Hunters and grazers get good at catching what they caught last and often miss unfamiliar prey, so booming species feed their predators and rare ones are spared.</li>
 <li>Anchored plants thrive where currents run strong; drifting plankton where they are calm. Bonded bodies live cheaply and resist attack but disperse poorly.</li>
 <li>The climate keeps changing which strategy pays.</li>
 </ul>
