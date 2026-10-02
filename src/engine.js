@@ -1,6 +1,6 @@
 import {
   simWGSL, PICK_WGSL, DRAW_WGSL, POST_WGSL, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_CLAIM, P_BYTES, G_BYTES, LITE_BYTES,
+  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_CLAIM, P_BYTES, G_BYTES, LITE_BYTES,
 } from './shaders.js';
 import {
   archetypeGenome, writeGenome, parseParticle,
@@ -546,6 +546,7 @@ class Engine {
           this.onCensus({
             simTime: censusJob.simTime, frameNo: censusJob.frameNo,
             globals: u.subarray(0, 16), slots: u.subarray(META_SLOT, META_SLOT + MAXK), pop: u.subarray(META_POP, META_POP + MAXK),
+            demography: u.subarray(META_DEATH, META_DEATH + 20),
             genomeU32: new Uint32Array(copy, LEDGER_HEAD), genomeF32: new Float32Array(copy, LEDGER_HEAD),
           });
         }

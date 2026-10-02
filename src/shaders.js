@@ -7,7 +7,8 @@ export const FIRST_LIFE = 4;
 export const MAX_CELLS = 1 << 18;
 export const META_SLOT = 16;
 export const META_POP = 16 + 512;
-export const META_CLAIM = 16 + 1024;
+export const META_DEATH = 16 + 1024;
+export const META_CLAIM = 16 + 1024 + 32;
 export const P_BYTES = 40;
 export const G_BYTES = 192;
 export const G_WORDS = 48;
@@ -79,7 +80,8 @@ const NONE = 0xffffffffu;
 const MAX_CELLS = 262144u;
 const META_SLOT = 16u;
 const META_POP = 528u;
-const META_CLAIM = 1040u;
+const META_DEATH = 16u + 1024u;
+const META_CLAIM = 16u + 1024u + 32u;
 const TAU = 6.28318530718;
 
 struct Particle { pos: vec2f, vel: vec2f, kind: u32, energy: f32, age: f32, id: u32, col: u32, info: u32 };
@@ -187,6 +189,15 @@ fn wrapPos(p: vec2f) -> vec2f { return p - sim.world * floor(p / sim.world); }
 
 // Specialists digest their food better than generalists: value of a food given the share of the diet devoted to it.
 fn spec(d: f32) -> f32 { let c = min(d, 1.0); return c * (${f(1 - 0.6)} + ${f(0.6)} * c); }
+
+// Ledger guild order: producer, grazer, predator, scavenger, omnivore.
+fn dietGuild(g: Genome) -> u32 {
+  if (g.photo > 0.55) { return 0u; }
+  if (g.dFlesh > 0.55) { return 2u; }
+  if (g.dHusk > 0.55) { return 3u; }
+  if (g.dGlint > 0.55) { return 1u; }
+  return 4u;
+}
 
 fn deriveMetab(g: Genome) -> f32 {
   return (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
@@ -367,6 +378,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
       if (act == 1u && p.kind == ck) {
         if (p.kind >= FIRST_LIFE) {
           // a kill leaves a carcass for the scavengers
+          atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
           p.kind = HUSK; p.energy = ${f(K.carcass)}; p.age = 0.0; p.vel *= 0.2;
           p.info = (p.info & 0xfffffff0u) | 3u;
         } else {
@@ -377,6 +389,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         if (p.kind >= FIRST_LIFE) {
           p.energy -= ${f(K.bite)};
           if (p.energy <= 0.0) {
+            atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
             p.kind = HUSK; p.energy = ${f(K.huskBase)}; p.age = 0.0;
             p.info = (p.info & 0xfffffff0u) | 3u;
           }
@@ -392,6 +405,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         p.col = pack4x8unorm(vec4f(roleColor(genomes[ck], cr), 1.0));
         p.info = (gen << 6u) | (cr << 4u) | 9u;
         atomicAdd(&ledger[2], 1u);
+        atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[ck])], 1u);
       }
       parts[i] = p;
     }
@@ -796,10 +810,12 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
     kind = HUSK; E = ${f(K.huskBase)}; age = 0.0; vel *= 0.3;
     info = (info & 0xffffffc0u) | 1u;
     atomicAdd(&ledger[5], 1u);
+    atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 1u], 1u);
   } else if (age > g.lifespan) {
     kind = HUSK; E = ${f(K.huskBase)} + ${f(K.huskFrac)} * E; age = 0.0; vel *= 0.3;
     info = (info & 0xffffffc0u) | 2u;
     atomicAdd(&ledger[6], 1u);
+    atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 2u], 1u);
   }
   let childGen = ((genOf(p.info) + 1u) & 0x3ffffu) << 14u;
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(ce), n1, n2);
