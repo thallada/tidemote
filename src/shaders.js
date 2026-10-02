@@ -41,6 +41,7 @@ export const DEFAULT_K = {
   bodyThrift: 0.3,  // upkeep saved by a cell with two bonds: bodies share the cost of living
   kinShade: 0.25,   // how much a bonded body shades itself, relative to strangers
   armor: 2.5,       // bonded bodies resist being killed or bitten
+  searchImage: 0,   // chance a hunter misses living prey unlike its last catch (search image); 0 never
   nutrHalf: 8.0,    // silt grains nearby at which photosynthesis runs at half speed
   swimCost: 0.018,
   preyBase: 0.35,
@@ -82,6 +83,7 @@ const META_POP = 528u;
 const META_CLAIM = 1040u;
 const TAU = 6.28318530718;
 
+// Info: 0..3 cause, 4..5 role, 6..14 search image, 15..31 generation.
 struct Particle { pos: vec2f, vel: vec2f, kind: u32, energy: f32, age: f32, id: u32, col: u32, info: u32 };
 struct Genome {
   sig: array<vec4u, 3>,
@@ -97,7 +99,7 @@ struct Genome {
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
-fn genOf(info: u32) -> u32 { return info >> 6u; }
+fn genOf(info: u32) -> u32 { return info >> 15u; }
 
 fn tideAt(p: vec2f, world: vec2f, t: f32, w: array<vec4f, 4>) -> f32 {
   let u = p / world * TAU;
@@ -145,7 +147,7 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, pad: u32 };
 @group(0) @binding(8) var<storage, read_write> aux: array<vec2u>;
 // Intent: x bits 0..1 action (0 none, 1 eat, 2 birth, 3 bite),
 // 2..11 child kind (birth) or observed target kind (eat/bite),
-// 12..13 child role, 14..31 child generation; y child energy, z/w bond neighbours.
+// 12..13 child role, 14..30 child generation; y child energy, z/w bond neighbours.
 @group(0) @binding(9) var<storage, read_write> intent: array<vec4u>;
 @group(0) @binding(10) var<storage, read_write> genomes: array<Genome>;
 @group(0) @binding(11) var<storage, read_write> ledger: array<atomic<u32>>;
@@ -383,14 +385,14 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         }
       } else if (act == 2u && (p.kind == SILT || p.kind == GLINT)) {
         let cr = (it.x >> 12u) & 3u;
-        let gen = it.x >> 14u;
+        let gen = (it.x >> 14u) & 0x1ffffu;
         p.kind = ck;
         p.energy = bitcast<f32>(it.y);
         p.age = 0.0;
         p.vel = vec2f(0.0);
         p.id = atomicAdd(&ledger[0], 1u);
         p.col = pack4x8unorm(vec4f(roleColor(genomes[ck], cr), 1.0));
-        p.info = (gen << 6u) | (cr << 4u) | 9u;
+        p.info = (gen << 15u) | (cr << 4u) | 9u;
         atomicAdd(&ledger[2], 1u);
       }
       parts[i] = p;
@@ -751,6 +753,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
   var ck = 0u;
   var cr = 0u;
   var ce = 0.0;
+  var info = p.info;
   if (E > g.reproE && silt != NONE) {
     if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
       ck = p.kind;
@@ -772,7 +775,9 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
                  || ((sim.frame + p.id) / ${K.eatEvery | 0}u) % select(${K.killEvery | 0}u, ${K.biteEvery | 0}u, genomes[sortedFull[food].kind].photo > 0.4) == 0u)) {
     let fk = sortedFull[food].kind;
     let armored = fk >= FIRST_LIFE && rnd(&s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
-    if (!armored && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
+    let image = (info >> 6u) & 511u;
+    let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(&s) < ${f(K.searchImage)};
+    if (!armored && !unfamiliar && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
       let fp = sortedFull[food];
       ck = fp.kind;
       var gain = 0.0;
@@ -786,12 +791,12 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
       } else {
         gain = (${f(K.preyBase)} + ${f(K.preyFrac)} * max(fp.energy, 0.0)) * spec(g.dFlesh); atomicAdd(&ledger[7], 1u);
       }
+      if (fk >= FIRST_LIFE) { info = (info & 0xffff803fu) | (fk << 6u); }
       E += gain * ${f(K.gain)} * eatEff;
     }
   }
 
   var kind = p.kind;
-  var info = p.info;
   if (E <= 0.0) {
     kind = HUSK; E = ${f(K.huskBase)}; age = 0.0; vel *= 0.3;
     info = (info & 0xffffffc0u) | 1u;
@@ -801,7 +806,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
     info = (info & 0xffffffc0u) | 2u;
     atomicAdd(&ledger[6], 1u);
   }
-  let childGen = ((genOf(p.info) + 1u) & 0x3ffffu) << 14u;
+  let childGen = ((genOf(p.info) + 1u) & 0x1ffffu) << 14u;
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(ce), n1, n2);
   parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0)), info);
 }
