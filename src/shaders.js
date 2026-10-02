@@ -8,7 +8,7 @@ export const MAX_CELLS = 1 << 18;
 export const META_SLOT = 16;
 export const META_POP = 16 + 512;
 export const META_DEATH = 16 + 1024;
-export const META_CLAIM = 16 + 1024 + 32;
+export const META_CLAIM = 16 + 1024 + 64;
 export const P_BYTES = 40;
 export const G_BYTES = 192;
 export const G_WORDS = 48;
@@ -82,7 +82,7 @@ const MAX_CELLS = 262144u;
 const META_SLOT = 16u;
 const META_POP = 528u;
 const META_DEATH = 16u + 1024u;
-const META_CLAIM = 16u + 1024u + 32u;
+const META_CLAIM = 16u + 1024u + 64u;
 const TAU = 6.28318530718;
 
 // Info: 0..3 cause, 4..5 role, 6..14 search image, 15..31 generation.
@@ -793,6 +793,9 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
     let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(&s) < ${f(K.searchImage)};
     if (!armored && !unfamiliar && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
       let fp = sortedFull[food];
+      if (fp.kind >= FIRST_LIFE) {
+        atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
+      }
       ck = fp.kind;
       var gain = 0.0;
       act = 1u;

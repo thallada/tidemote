@@ -546,7 +546,7 @@ class Engine {
           this.onCensus({
             simTime: censusJob.simTime, frameNo: censusJob.frameNo,
             globals: u.subarray(0, 16), slots: u.subarray(META_SLOT, META_SLOT + MAXK), pop: u.subarray(META_POP, META_POP + MAXK),
-            demography: u.subarray(META_DEATH, META_DEATH + 20),
+            demography: u.subarray(META_DEATH, META_DEATH + 57),
             genomeU32: new Uint32Array(copy, LEDGER_HEAD), genomeF32: new Float32Array(copy, LEDGER_HEAD),
           });
         }

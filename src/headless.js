@@ -58,15 +58,21 @@ export async function runHeadless(device, config, { print, width = 640, height =
     function record(c) {
       const rates = {};
       for (const [key, i] of Object.entries(ledger)) rates[key] = prevG && c.simTime > prevT ? ((c.globals[i] - prevG[i]) >>> 0) * 60 / (c.simTime - prevT) : 0;
-      const demography = {};
-      for (const [g, guild] of ['producer', 'grazer', 'predator', 'scavenger', 'omnivore'].entries()) {
+      const demography = {}, meals = {};
+      const guilds = ['producer', 'grazer', 'predator', 'scavenger', 'omnivore'];
+      for (const [g, guild] of guilds.entries()) {
         demography[guild] = {};
         for (const [e, event] of ['births', 'starved', 'oldAge', 'eaten'].entries()) {
           const i = g * 4 + e;
           demography[guild][event] = prevD && c.simTime > prevT ? ((c.demography[i] - prevD[i]) >>> 0) * 60 / (c.simTime - prevT) : 0;
         }
+        meals[guild] = {};
+        for (const [v, victim] of guilds.entries()) {
+          const i = 32 + g * 5 + v;
+          meals[guild][victim] = prevD && c.simTime > prevT ? ((c.demography[i] - prevD[i]) >>> 0) * 60 / (c.simTime - prevT) : 0;
+        }
       }
-      samples.push({ ...latest, rates, demography });
+      samples.push({ ...latest, rates, demography, meals });
       prevG = Array.from(c.globals); prevD = Array.from(c.demography); prevT = lastSample = c.simTime;
     }
     const frames = Math.max(1, Math.round(config.minutes * 3600)), t0 = Date.now();
