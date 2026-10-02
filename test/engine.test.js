@@ -108,14 +108,16 @@ test('parseParticle decodes cause, role and unsigned generation bits', () => {
   u32[offset + 8] = 0xff123456;
   for (const cause of [0, 9, 15]) {
     for (const role of [0, 1, 2, 3]) {
-      for (const gen of [0, 12345, 0x3ffffff]) {
-        const info = ((gen << 6) | (role << 4) | cause) >>> 0;
-        u32[offset + 9] = info;
-        assert.deepEqual(parseParticle(u32, f32, offset), {
-          x: 1.25, y: -2.5, vx: 0.5, vy: -0.75, kind: 7,
-          energy: 3.5, age: 12, id: 123, col: 0xff123456,
-          info, cause, role, gen,
-        });
+      for (const gen of [0, 12345, 0x1ffff]) {
+        for (const image of [0, 4, 511]) {
+          const info = ((gen << 15) | (image << 6) | (role << 4) | cause) >>> 0;
+          u32[offset + 9] = info;
+          assert.deepEqual(parseParticle(u32, f32, offset), {
+            x: 1.25, y: -2.5, vx: 0.5, vy: -0.75, kind: 7,
+            energy: 3.5, age: 12, id: 123, col: 0xff123456,
+            info, cause, role, gen,
+          });
+        }
       }
     }
   }

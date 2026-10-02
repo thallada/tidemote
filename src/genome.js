@@ -152,7 +152,7 @@ export function parseParticle(u32, f32, o) {
   return {
     x: f32[o], y: f32[o + 1], vx: f32[o + 2], vy: f32[o + 3], kind: u32[o + 4],
     energy: f32[o + 5], age: f32[o + 6], id: u32[o + 7], col: u32[o + 8], info,
-    cause: info & 15, role: (info >>> 4) & 3, gen: info >>> 6,
+    cause: info & 15, role: (info >>> 4) & 3, gen: info >>> 15,
   };
 }
 
