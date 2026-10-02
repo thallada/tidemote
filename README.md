@@ -54,6 +54,7 @@ Every 20 frames a census is read back: per-species counts and genomes. The CPU u
 
 - **Local crowding and shade**: nearby same-species cells raise upkeep (a body's bond partners excepted); living neighbours shade photosynthesis.
 - **Local minerals and food**: photosynthesis needs nearby silt, feeding needs nearby prey, glint or husks, and division needs a nearby silt grain.
+- **Search images**: hunters and grazers catch the species they caught last more readily and often miss unfamiliar prey, so booming species feed their predators while rare ones are spared.
 - **Bonds**: bodies share upkeep, shade each other less, and resist attack through armor.
 
 Glint sparks into a random new lineage about once every 30 simulated seconds on average, independent of climate eras and population.

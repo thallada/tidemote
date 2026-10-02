@@ -42,7 +42,7 @@ export const DEFAULT_K = {
   bodyThrift: 0.3,  // upkeep saved by a cell with two bonds: bodies share the cost of living
   kinShade: 0.25,   // how much a bonded body shades itself, relative to strangers
   armor: 2.5,       // bonded bodies resist being killed or bitten
-  searchImage: 0,   // chance a hunter misses living prey unlike its last catch (search image); 0 never
+  searchImage: 0.7, // chance a hunter or grazer misses living prey unlike its last catch
   nutrHalf: 8.0,    // silt grains nearby at which photosynthesis runs at half speed
   swimCost: 0.018,
   preyBase: 0.35,
@@ -62,7 +62,6 @@ export const DEFAULT_K = {
   bond: 8.0,        // spring strength of bonds between cells of one body
   adhMin: 0.15,     // adhesion needed before a species forms bonds
   bite: 0.06,       // energy taken per bite from a photosynthesising cell
-  biteFloor: 0,     // grazing never takes a plant cell below this energy; 0 lets bites kill
   eatEvery: 6,      // frames between meals
   dietMin: 0.02,    // share of the diet a food must have before a cell bothers to eat it
 };
@@ -390,7 +389,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         }
       } else if (act == 3u && p.kind == ck) {
         if (p.kind >= FIRST_LIFE) {
-          p.energy = max(p.energy - ${f(K.bite)}, min(p.energy, ${f(K.biteFloor)}));
+          p.energy -= ${f(K.bite)};
           if (p.energy <= 0.0) {
             atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
             p.kind = HUSK; p.energy = ${f(K.huskBase)}; p.age = 0.0;
@@ -802,7 +801,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
       } else if (fp.kind == HUSK) {
         gain = fp.energy * spec(g.dHusk); atomicAdd(&ledger[10], 1u);
       } else if (genomes[fp.kind].photo > 0.4) {
-        gain = min(max(fp.energy - ${f(K.biteFloor)}, 0.0), ${f(K.bite)}) * spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh); act = 3u; atomicAdd(&ledger[11], 1u);
+        gain = min(max(fp.energy, 0.0), ${f(K.bite)}) * spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh); act = 3u; atomicAdd(&ledger[11], 1u);
       } else {
         gain = (${f(K.preyBase)} + ${f(K.preyFrac)} * max(fp.energy, 0.0)) * spec(g.dFlesh); atomicAdd(&ledger[7], 1u);
       }
