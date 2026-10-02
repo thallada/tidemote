@@ -164,3 +164,56 @@ with nothing eating it. The gate flags it, rightly: by species counts it looks l
 trophic structure it is worse. It supports the plan's order. The dominant trait was real, but the
 consumer side needs stabilising mechanisms of its own (prey switching, non-lethal herbivory,
 handling time) before the food web can persist.
+
+## 7. First round of rule changes, 2026-10-02
+
+Four local mechanisms were added behind knobs that defaulted to the old behaviour, then tested alone
+and in combinations, each 32 seeds × 30 min at 32k. Per-guild births and deaths (starved, old age,
+eaten) are now recorded in every sample (`sample.demography`), which answered the previous study's
+open question: consumers die mostly by **being eaten**, not by starving (scavengers: eaten 5.2, starved
+1.5 per cell per minute with crowding for bodies).
+
+| ensemble | food web | mono | guilds | eff. species | leader changes | spread | outcomes | modal | guilds lost |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| original rules | 19% | 84% | 1.8 | 4.4 | 5.1 | 1.36 | 3.9 | 56% | 1.03 |
+| bodies pay crowding (`bodyCrowd`) | 31% | 16% | 2.1 | 19.2 | 7.5 | 1.27 | 4.9 | 44% | 0.84 |
+| look-alike crowding (`crowdSig`) | 9% | 84% | 1.6 | 2.8 | 5.8 | 1.50 | 4.4 | 50% | 1.09 |
+| non-lethal grazing (`biteFloor` 0.3) | 31% | 66% | 2.2 | 4.3 | 5.0 | 1.20 | 4.1 | 56% | 0.59 |
+| search image (`searchImage` 0.7) | 25% | 72% | 2.0 | 4.6 | 5.2 | 1.34 | 3.8 | 63% | 1.13 |
+| **crowding + search image (adopted)** | 28% | 13% | 2.1 | **28.8** | 7.4 | 1.28 | **6.0** | **31%** | 1.00 |
+| crowding + look-alike crowding | 28% | 44% | 2.1 | 7.5 | 5.8 | 1.31 | 5.9 | 31% | 0.78 |
+| crowding + grazing floor | 50% | 13% | 2.5 | 22.3 | 5.0 | 1.10 | 3.9 | 59% | 0.38 |
+| crowding + floor + search image | 66% | 3% | 2.7 | 29.4 | 5.1 | **0.87** | 3.1 | 56% | 0.63 |
+| crowding + weaker body perks | 13% | 13% | 1.6 | 25.1 | 5.8 | 1.42 | 4.9 | 50% | 1.09 |
+| crowding + weaker perks + floor | 47% | 0% | 2.5 | 33.3 | 4.9 | 1.14 | 3.7 | 50% | 0.34 |
+| crowding + weaker perks + search image | 6% | 16% | 1.6 | 37.2 | 5.1 | 1.41 | 4.1 | 56% | 1.19 |
+| ... + grazing floor 0.15 | 50% | 0% | 2.4 | 42.2 | 5.7 | 1.13 | 3.0 | 63% | 0.59 |
+
+("Weaker body perks": `armor` 2.5 → 1, `bodyThrift` 0.3 → 0.15. The rows below the adopted one were
+compared with "bodies pay crowding".)
+
+What it shows:
+
+- **Crowding for bodies** was the big lever: it ended the monocultures (84% → 16%) and quadrupled
+  diversity. Adopted as the plain rule: every cell pays kin crowding, a body's two bond partners
+  excepted. No knob remains; free-living cells were already covered by the same formula.
+- **Search images** (a hunter or grazer that fails 70% of attempts on prey unlike its last catch) do
+  nothing while bodies dominate, but on top of crowding they add diversity (19 → 29 effective species)
+  and the most varied set of outcomes seen (6.0 distinct, the commonest only 31%), with no loss on any
+  metric. Adopted at 0.7.
+- **Look-alike crowding** made things worse and was deleted.
+- **A grazing floor** is the strongest stabiliser of the food web (up to 66%) but every variant that
+  includes it makes runs converge (lower spread, fewer distinct outcomes, fewer leader changes): the
+  stability-versus-uniqueness tension, measured. Rejected for now and deleted; it is in git history
+  (commit fc048b5) should a later change need it.
+- **Weaker body perks** bring free-living cells back (bodies below 80% of life in a third of runs) but
+  cost the food web. Not adopted.
+- Crowding for bodies and search images cost nothing in frame time (131k particles: 0.39 ms/frame
+  against 0.43 before, with fewer living cells).
+
+Still unsolved: **consumers**. Food webs persist in about 30% of runs; the commonest late world is a
+diverse producer community with grazers. Consumers are eaten faster than they starve, and predators
+fall from present in 31/32 runs at minute 1 to 7-9/32 after minute 10. Genome slots (508) also fill in
+some runs now (up to 483 in use), which starts to cap mutation.
+
+`balance/baseline-32k-30m.json` now holds the adopted rules (the "crowding + search image" ensemble).
