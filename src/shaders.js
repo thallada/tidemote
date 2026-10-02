@@ -36,6 +36,8 @@ export const DEFAULT_K = {
   hunt: 0.12,       // pull of living prey on a hungry forager  // how much a flesh-eater values plant cells relative to a grazer
   kinCrowd: 0.06,   // upkeep added per crowding same-species neighbour (free-living species)
   kinFree: 4,       // same-species neighbours tolerated before crowding costs
+  bodyCrowd: 0,     // share of kin crowding bonded bodies pay (bond partners excluded); 0 exempts them
+  crowdSig: 0,      // 1: look-alike genomes of other slots count as kin for crowding; 0 counts the exact slot only
   anchorCost: 0.003, // upkeep for resisting the currents
   flowFeed: 0.8,    // anchored photosynthesisers gain this much per 0.2 cells/s of current flowing past
   bodyThrift: 0.3,  // upkeep saved by a cell with two bonds: bodies share the cost of living
@@ -605,6 +607,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
   var wsum = 0.0;
   var kinVel = vec2f(0.0);
   var kinN = 0.0;
+  var crowdN = 0.0;
   var crowd = 0.0;
   var nutr = 0.0;
   var d1 = 1e9; var d2 = 1e9;
@@ -661,7 +664,13 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
           if (qk == p.kind) {
             kinVel += unpack2x16float(q.vel);
             kinN += 1.0;
-          }
+            crowdN += 1.0;
+          }${K.crowdSig ? ` else {
+            let qs = g.sig[(q.kr >> 10u) & 3u].xy;
+            let da = s0 - unpack4x8snorm(qs.x);
+            let db = s1 - unpack4x8snorm(qs.y);
+            if (dot(da, da) + dot(db, db) < ${f(K.kin)}) { crowdN += 1.0; }
+          }` : ''}
           if (r < LINK_R) {
             // colour only blends within a species, so mixed neighbourhoods stay visibly mixed
             if (qk == p.kind) {
@@ -740,9 +749,10 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
   // water; anchored cells have fresh silt carried past them by the currents.
   let photoGain = g.photo * light * ${f(K.photo)} / (1.0 + crowd * ${f(K.shade)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
     * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0));
-  // free-living cells packed among their own kind sicken (species-specific disease, Janzen-Connell)
-  let kinCost = select(1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - ${f(K.kinFree)}), 1.0, bonding);
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
+  // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); bond partners do not count
+  let kinCost = select(1.0 + ${f(K.kinCrowd)} * max(0.0, crowdN - ${f(K.kinFree)}),
+    1.0 + ${f(K.bodyCrowd)} * ${f(K.kinCrowd)} * max(0.0, crowdN - bonds - ${f(K.kinFree)}), bonding);
   let thrift = 1.0 - ${f(K.bodyThrift)} * 0.5 * bonds;
   let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0));
   var E = p.energy + (photoGain - upkeep) * sim.dt;
