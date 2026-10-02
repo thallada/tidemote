@@ -275,7 +275,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function pushFocus() {
     let kinds = null;
     if (focus.key) {
-      kinds = new Uint32Array(16);
+      kinds = new Uint32Array(MAXK / 32);
       for (let m = 0; m < 3; m++) if (focus.matter[m]) kinds[0] |= 1 << m;
       const c = life.lastCensus;
       if (c && focus.pred) {

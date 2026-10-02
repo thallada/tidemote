@@ -74,7 +74,7 @@ class Engine {
     b.view = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
     b.viewL = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
     b.viewS = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
-    b.focus = d.createBuffer({ size: (16 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
+    b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
     b.post = d.createBuffer({ size: 128, usage: U.UNIFORM | U.COPY_DST });
     b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     b.pickU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
@@ -240,7 +240,7 @@ class Engine {
   }
 
   /**
-   * Focus: kinds = Uint32Array(16) bitmask over genome slots (null = no filter),
+   * Focus: kinds = Uint32Array(MAXK / 32) bitmask over genome slots (null = no filter),
    * members = sorted Uint32Array of particle ids to highlight (null = none).
    */
   setFocus({ kinds = null, roleMask = 7, stateMode = 0, mute = 0.16, members = null, memberKind = 0xffffffff } = {}) {
@@ -249,8 +249,8 @@ class Engine {
     f.roleMask = roleMask; f.stateMode = stateMode; f.mute = mute;
     f.memberKind = memberKind;
     f.memberN = members ? Math.min(members.length, FOCUS_MAX) : 0;
-    if (kinds) this.device.queue.writeBuffer(this.b.focus, 0, kinds, 0, 16);
-    if (f.memberN) this.device.queue.writeBuffer(this.b.focus, 64, members, 0, f.memberN);
+    if (kinds) this.device.queue.writeBuffer(this.b.focus, 0, kinds, 0, MAXK / 32);
+    if (f.memberN) this.device.queue.writeBuffer(this.b.focus, MAXK / 32 * 4, members, 0, f.memberN);
   }
 
   _ensureSpecTex(w, h) {

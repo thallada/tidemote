@@ -1,14 +1,14 @@
 // WGSL for the Tidemote biosphere.
-// Kinds: 0 silt, 1 glint, 2 husk, 3 unused, 4..511 living genomes.
+// Kinds: 0 silt, 1 glint, 2 husk, 3 unused, 4..1023 living genomes.
 // Each living genome has up to three cell roles with their own signatures.
 
-export const MAXK = 512;
+export const MAXK = 1024;
 export const FIRST_LIFE = 4;
 export const MAX_CELLS = 1 << 18;
 export const META_SLOT = 16;
-export const META_POP = 16 + 512;
-export const META_DEATH = 16 + 1024;
-export const META_CLAIM = 16 + 1024 + 64;
+export const META_POP = META_SLOT + MAXK;
+export const META_DEATH = META_POP + MAXK;
+export const META_CLAIM = META_DEATH + 64;
 export const P_BYTES = 40;
 export const G_BYTES = 192;
 export const G_WORDS = 48;
@@ -73,20 +73,20 @@ const f = (x) => {
 };
 
 const COMMON = /* wgsl */ `
-const MAXK = 512u;
+const MAXK = ${MAXK}u;
 const FIRST_LIFE = 4u;
 const SILT = 0u;
 const GLINT = 1u;
 const HUSK = 2u;
 const NONE = 0xffffffffu;
 const MAX_CELLS = 262144u;
-const META_SLOT = 16u;
-const META_POP = 528u;
-const META_DEATH = 16u + 1024u;
-const META_CLAIM = 16u + 1024u + 64u;
+const META_SLOT = ${META_SLOT}u;
+const META_POP = ${META_POP}u;
+const META_DEATH = ${META_DEATH}u;
+const META_CLAIM = ${META_CLAIM}u;
 const TAU = 6.28318530718;
 
-// Info: 0..3 cause, 4..5 role, 6..14 search image, 15..31 generation.
+// Info: 0..3 cause, 4..5 role, 6..15 search image, 16..31 generation.
 struct Particle { pos: vec2f, vel: vec2f, kind: u32, energy: f32, age: f32, id: u32, col: u32, info: u32 };
 struct Genome {
   sig: array<vec4u, 3>,
@@ -102,7 +102,7 @@ struct Genome {
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
-fn genOf(info: u32) -> u32 { return info >> 15u; }
+fn genOf(info: u32) -> u32 { return info >> 16u; }
 
 fn tideAt(p: vec2f, world: vec2f, t: f32, w: array<vec4f, 4>) -> f32 {
   let u = p / world * TAU;
@@ -362,7 +362,7 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
 }
 
 // ------------------------------------------------- resolve claims + count
-var<workgroup> hist: array<atomic<u32>, 512>;
+var<workgroup> hist: array<atomic<u32>, MAXK>;
 var<workgroup> roleHist: array<atomic<u32>, 3>;
 
 @compute @workgroup_size(256)
@@ -400,14 +400,14 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         }
       } else if (act == 2u && (p.kind == SILT || p.kind == GLINT)) {
         let cr = (it.x >> 12u) & 3u;
-        let gen = (it.x >> 14u) & 0x1ffffu;
+        let gen = (it.x >> 14u) & 0xffffu;
         p.kind = ck;
         p.energy = bitcast<f32>(it.y);
         p.age = 0.0;
         p.vel = vec2f(0.0);
         p.id = atomicAdd(&ledger[0], 1u);
         p.col = pack4x8unorm(vec4f(roleColor(genomes[ck], cr), 1.0));
-        p.info = (gen << 15u) | (cr << 4u) | 9u;
+        p.info = (gen << 16u) | (cr << 4u) | 9u;
         atomicAdd(&ledger[2], 1u);
         atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[ck])], 1u);
       }
@@ -785,7 +785,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
                  || ((sim.frame + p.id) / ${K.eatEvery | 0}u) % select(${K.killEvery | 0}u, ${K.biteEvery | 0}u, genomes[sortedFull[food].kind].photo > 0.4) == 0u)) {
     let fk = sortedFull[food].kind;
     let armored = fk >= FIRST_LIFE && rnd(&s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
-    let image = (info >> 6u) & 511u;
+    let image = (info >> 6u) & 1023u;
     let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(&s) < ${f(K.searchImage)};
     let unskilled = ${f(K.catchSkill)} > 0.0 && fk >= FIRST_LIFE && rnd(&s) >= min(1.0, eatEff * select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, genomes[fk].photo > 0.4) / ${f(K.catchSkill)});
     if (!armored && !unfamiliar && !unskilled && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
@@ -805,7 +805,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
       } else {
         gain = (${f(K.preyBase)} + ${f(K.preyFrac)} * max(fp.energy, 0.0)) * spec(g.dFlesh); atomicAdd(&ledger[7], 1u);
       }
-      if (fk >= FIRST_LIFE) { info = (info & 0xffff803fu) | (fk << 6u); }
+      if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
       E += gain * ${f(K.gain)} * eatEff;
     }
   }
@@ -822,7 +822,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
     atomicAdd(&ledger[6], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 2u], 1u);
   }
-  let childGen = ((genOf(p.info) + 1u) & 0x1ffffu) << 14u;
+  let childGen = ((genOf(p.info) + 1u) & 0xffffu) << 14u;
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(ce), n1, n2);
   parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0)), info);
 }
@@ -866,14 +866,14 @@ struct View {
 @group(0) @binding(4) var<storage, read> livingList: array<u32>;
 @group(0) @binding(5) var<storage, read> focus: array<u32>;
 
-fn kindOn(k: u32) -> bool { return ((focus[(k >> 5u) & 15u] >> (k & 31u)) & 1u) == 1u; }
+fn kindOn(k: u32) -> bool { return ((focus[k >> 5u] >> (k & 31u)) & 1u) == 1u; }
 fn isMember(id: u32) -> bool {
   var lo = 0u;
   var hi = view.memberN;
   for (var it = 0u; it < 20u; it++) {
     if (lo >= hi) { break; }
     let mid = (lo + hi) / 2u;
-    let v = focus[16u + mid];
+    let v = focus[MAXK / 32u + mid];
     if (v == id) { return true; }
     if (v < id) { lo = mid + 1u; } else { hi = mid; }
   }
