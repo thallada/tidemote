@@ -344,3 +344,92 @@ new each run), but they now converge on a similar *shape* of food web.
 20 frames) cost 4.8 ms per census in the headless runner (1.7 ms at 327 species), which slowed 60-minute
 runs from 272 to 346 s of wall time. The page did the same work. Genomes never change while a slot keeps
 its serial, so both now decode a genome once per serial: 960 species, 5.3 → 1.3 ms per census.
+
+## 10. Round four: variety between runs
+
+Section 9 left worlds richer but more alike from run to run. Two changes addressed that.
+
+**Random founding communities.** Every world used to start from the same 24 founders (4 reef, 4
+plankton, 4 grazer, 4 crawler, 3 hunter, 2 scavenger, 3 filament). Now each world draws a weight per
+archetype (`rng()²`) and samples 24 founders from it, so some start plant-heavy, some hunter-heavy, some
+without an archetype at all. Late in a run this changed nothing (spread 1.11 against 1.09: the rules,
+not the start, decide where a world ends up), but the opening minutes became far more varied (spread
+0.65 → 1.00 in minutes 1-3, 0.88 → 1.05 in minutes 3-6), at no cost. Adopted; the fixed plan is gone.
+
+**Bonding as a trade-off.** Bodies were still ~100% of life: bonding cost almost nothing and bought
+30% cheaper upkeep and strong armour. `armor` 2.5 → 1 and `bodyThrift` 0.3 → 0.15, over 64 runs against
+section 9's rules: free-living species hold 20%+ of life in 17 of 64 runs (0 before), spread 1.09 →
+1.32, food web and guilds unchanged, standing life 0.74 → 0.63 of all matter. A stronger cut (`armor`
+0.5, `bodyThrift` 0) collapsed one world in 32 and was rejected.
+
+**The adopted rules against the original ones.**
+
+32k particles, 30 minutes, 64 runs each:
+
+| metric | original | final |
+| --- | --- | --- |
+| monoculture | 83% | 2% |
+| food web survives | 20% | 47% |
+| producers persist | 80% | 86% |
+| guilds at ≥ 5%, late | 1.8 | 2.4 |
+| guilds lost per run | 1.03 | 0.55 |
+| effective species, late | 3.8 | 59 |
+| notable species per run | 18 | 30 |
+| leader changes | 5.0 | 7.7 |
+| distinct outcomes | 4.1 | 5.9 |
+| commonest outcome | 53% | 36% |
+| spread between runs | 1.34 | 1.29 |
+| free-living ≥ 20% of life | rare | 18 of 64 runs |
+
+131k particles, 60 minutes, 16 runs each (closest to the page):
+
+| metric | original | section 9 | final |
+| --- | --- | --- | --- |
+| food web survives | 13% | 63% | 81% |
+| producers persist | 81% | 81% | 88% |
+| monoculture | 75% | 0% | 0% |
+| guilds at ≥ 5%, late | 1.6 | 3.25 | 3.0 |
+| guilds lost per run | 1.00 | 0.19 | 0.56 |
+| effective species, late | 3.3 | 63.5 | 80.1 |
+| notable species per run | 20.5 | 45.6 | 37.9 |
+| leader changes | 6.1 | 13.8 | 9.1 |
+| distinct outcomes | 3.5 | 3.7 | 5.6 |
+| commonest outcome | 56% | 50% | 38% |
+| spread between runs | 1.41 | 0.84 | 0.99 |
+
+Six of the seven targets pass at page scale (guilds lost is 0.56 against ≤ 0.5). Spread is still below
+the original rules' at page scale (Holm p = 0.04), but the original's spread came from different
+monocultures. Free-living species came back in large worlds only once in 16.
+
+Frame time (single process, RTX 4070 Ti): 131k particles 0.560 → 0.436 ms, 524k 1.721 → 1.397 ms, the
+final rules against the original code. The `sortedLite` change and fewer standing cells more than pay
+for 1024 genome slots and the new rules.
+
+## 11. What the rules are now
+
+Every rule is local. Against the original rules of section 4:
+
+- Every cell pays kin crowding (Janzen-Connell), a body's two bond partners excepted.
+- A cell catches living prey with probability `min(1, eatEff × preference / 0.3)`.
+- A hunter or grazer misses 70% of attempts on living prey unlike its last catch (search image).
+- Flesh-eaters value plant cells at 0.1 of a grazer's interest (`plantPref`, was 0.35).
+- Bonded bodies get 15% upkeep thrift (was 30%) and armour 1 (was 2.5).
+- Each world draws its own founding community.
+- 1024 genome slots (was 512).
+
+Rejected, deleted, in git history: look-alike crowding (`crowdSig`), a grazing floor (`biteFloor`,
+stabilises food webs but makes runs converge), a hard diet threshold (`dietMin` 0.15, starved producers in
+big worlds; superseded by the catch rule).
+
+## 12. Open issues
+
+- **Run-to-run variety at page scale** is still below the original rules' (spread 0.99 against 1.41),
+  and leader changes fell in the last round (13.8 → 9.1). Candidates: climate eras that bite harder
+  (they currently shift light and charge gently), or trade-offs that create cycles (rock-paper-scissors)
+  rather than one stable web.
+- **Free-living cells in big worlds** are back in a quarter of 32k runs but 1 in 16 at 131k.
+- **The genome slot cap** binds again at page scale (1024 fill), because every mutant founds a species.
+- **The outcome labels are coarse**: rich mixed worlds collapse into "producer" or "producer+scavenger".
+  A finer label (e.g. the dominant body plans) would measure variety better.
+- **Nobody has looked at the page yet** with the new rules. The metrics cannot tell whether it is
+  beautiful.

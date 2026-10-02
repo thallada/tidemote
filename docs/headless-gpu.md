@@ -56,6 +56,11 @@ third, never before 60 s):
 | `outcome` | a label: `collapsed`, `mono:<guild>`, or the guilds above 20% (e.g. `producer+grazer`) |
 | `fingerprint` | guild shares, movement shares, bodies and trait means: what kind of world it became |
 
+Each sample also holds per-guild demography (`demography`: births, starved, old age and eaten per
+simulated minute, per diet guild) and a who-eats-whom count (`meals`: meals on living cells per minute,
+by eater guild and victim guild), from cumulative counters in the ledger. They explain *why* a guild
+declines, which the outcome metrics cannot.
+
 `summarizeEnsemble` adds whole-ensemble statistics: `spread`, the mean distance between run
 fingerprints (low when every run turns into the same world); `outcomes`, the effective number of
 distinct outcome labels; and `modalOutcome`, how often the commonest one happens.
@@ -88,6 +93,11 @@ monocultures can still look varied by labels.
 
 `balance/targets.json` holds what the ecology should achieve, separately from what it achieves today.
 `--targets` reports each bound and exits 1 if one fails.
+
+Run long queues from a separate git worktree pinned to a commit (`git worktree add --detach
+../tidemote-wt/run <commit>`, then copy `node_modules` into it: Windows Node cannot follow a WSL
+symlink). Every seed starts a fresh `sim.mjs` that reads `src/` from disk, so editing the tree a queue
+runs from changes the remaining seeds mid-ensemble.
 
 Use the same `--n`, `--minutes` and eras setting as the baseline; the tool warns when they differ.
 Candidate seeds can be the same as the baseline's (they share initial worlds, not trajectories).

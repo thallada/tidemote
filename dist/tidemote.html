@@ -475,11 +475,11 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
     // upkeep for resisting the currents
     flowFeed: 0.8,
     // anchored photosynthesisers gain this much per 0.2 cells/s of current flowing past
-    bodyThrift: 0.3,
+    bodyThrift: 0.15,
     // upkeep saved by a cell with two bonds: bodies share the cost of living
     kinShade: 0.25,
     // how much a bonded body shades itself, relative to strangers
-    armor: 2.5,
+    armor: 1,
     // bonded bodies resist being killed or bitten
     searchImage: 0.7,
     // chance a hunter or grazer misses living prey unlike its last catch
@@ -1787,32 +1787,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     }
   };
   var ADHESION = { reef: 0.85, plankton: 0, grazer: 0, crawler: 0.75, hunter: 0.6, scavenger: 0.25, filament: 0.9 };
-  var FOUNDING_PLAN = [
-    "reef",
-    "reef",
-    "reef",
-    "reef",
-    "plankton",
-    "plankton",
-    "plankton",
-    "plankton",
-    "grazer",
-    "grazer",
-    "grazer",
-    "grazer",
-    "crawler",
-    "crawler",
-    "crawler",
-    "crawler",
-    "hunter",
-    "hunter",
-    "hunter",
-    "scavenger",
-    "scavenger",
-    "filament",
-    "filament",
-    "filament"
-  ];
+  var ARCHETYPE_TYPES = Object.keys(ARCHETYPES);
   function archetypeGenome(type, r = Math.random, K = DEFAULT_K) {
     const A = ARCHETYPES[type];
     const W = A.selfW ? A.W.map((row, i) => i === 0 ? [mix(A.selfW[0], A.selfW[1], r()), row[1], row[2]] : row) : A.W;
@@ -2304,7 +2279,13 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         writeGenome(gu, gf, m, g);
       }
       const head = new Uint32Array(META_CLAIM);
-      const plan = FOUNDING_PLAN;
+      const weights = ARCHETYPE_TYPES.map(() => rng() ** 2);
+      const total = weights.reduce((a, b) => a + b, 0);
+      const plan = Array.from({ length: 24 }, () => {
+        let pick2 = rng() * total, i = 0;
+        while (i < weights.length - 1 && pick2 >= weights[i]) pick2 -= weights[i++];
+        return ARCHETYPE_TYPES[i];
+      });
       head[0] = n;
       head[1] = plan.length;
       plan.forEach((type, s) => {
@@ -2820,7 +2801,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     era: "Every 10–18 minutes the climate turns: the baseline light and glint production change, one tide wave is replaced, and the currents shift. The names are random labels.",
     epoch: "Simulated time since this universe began.",
     abiogenesis: "Life sparking from glint: a completely random new species, about once every 30 simulated seconds on average.",
-    flesh: "Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Caught animal prey is killed outright and leaves a husk; this takes time, so a hunter manages at most one kill every few seconds. Plant cells are cropped a 0.06-energy bite at a time. Bonded bodies are armoured and shrug off many attacks.",
+    flesh: "Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Caught animal prey is killed outright and leaves a husk; this takes time, so a hunter manages at most one kill every few seconds. Plant cells are cropped a 0.06-energy bite at a time. Bonded bodies are armoured and shrug off some attacks.",
     diet: "The share of energy a species takes from each food. Food is worth its energy × share × 1.5, less for partly photosynthetic species.",
     photosynth: "Takes energy directly from light: 0.4 × photosynthesis × local light per second. It is reduced by shade from neighbouring cells (a bonded body barely shades itself), needs minerals (silt nearby), and runs faster for anchored cells with current flowing past them. Photosynthesis makes a cell heavy: less thrust, no swimming, worse at eating.",
     grazer: "Mostly eats glint, and crops photosynthesising cells: the herbivores of this world.",
@@ -2828,7 +2809,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     predator: "Mostly eats flesh: hunts animal cells, and crops plants only reluctantly.",
     celltype: "α, β and γ cells of one species share a genome but each has its own surface and receptor signature, so each type is pulled toward and away from things differently. Types also differ in colour tint, size and shape.",
     bodyplan: "The long-run mix of cell types a species produces. Each child’s type is chosen by a developmental rule from its parent’s type; this is where that rule settles.",
-    adhesion: "How strongly cells of one species bond. Above 15%, each cell bonds to its two nearest same-species neighbours with a spring. Bonds are the links you see and they hold bodies together. Bonded cells share the cost of living (up to 30% less upkeep), shade each other less and are armoured against attack. They still pay crowding beyond their bond partners, disperse poorly and their inner cells struggle to reach silt to divide. Species without adhesion are free-living.",
+    adhesion: "How strongly cells of one species bond. Above 15%, each cell bonds to its two nearest same-species neighbours with a spring. Bonds are the links you see and they hold bodies together. Bonded cells share the cost of living (up to 15% less upkeep), shade each other less and are armoured against attack. They still pay crowding beyond their bond partners, disperse poorly and their inner cells struggle to reach silt to divide. Species without adhesion are free-living.",
     bond: "A spring between two cells of the same species. Drawn as a link. A connected web of bonds is one organism.",
     organism: "A body: all same-species cells connected through bonds. A species only forms bodies if its adhesion is above 15%; otherwise every cell is its own organism, even when the species has several cell types (morphs) or gathers into swarms.",
     swimming: "Self-propulsion: a steady push in the direction the cell is already moving. Reduced by photosynthesis.",
