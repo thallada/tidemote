@@ -4,7 +4,7 @@ import {
 } from './shaders.js';
 import {
   archetypeGenome, writeGenome, parseParticle,
-  packUnorm, FOUNDING_PLAN,
+  packUnorm, ARCHETYPE_TYPES,
 } from './genome.js';
 
 const HDR = 'rgba16float';
@@ -298,7 +298,14 @@ class Engine {
       writeGenome(gu, gf, m, g);
     }
     const head = new Uint32Array(META_CLAIM);
-    const plan = FOUNDING_PLAN;
+    // Each world draws its own founding mix.
+    const weights = ARCHETYPE_TYPES.map(() => rng() ** 2);
+    const total = weights.reduce((a, b) => a + b, 0);
+    const plan = Array.from({ length: 24 }, () => {
+      let pick = rng() * total, i = 0;
+      while (i < weights.length - 1 && pick >= weights[i]) pick -= weights[i++];
+      return ARCHETYPE_TYPES[i];
+    });
     head[0] = n;
     head[1] = plan.length;
     plan.forEach((type, s) => {

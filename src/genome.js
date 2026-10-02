@@ -73,9 +73,7 @@ const ARCHETYPES = {
       lifespan: mix(150, 300, r()), reproE: mix(1.1, 1.7, r()), share: mix(0.35, 0.45, r()), diet: [0.7, 0.3, 0], size: mix(0.8, 1.2, r()), radius: mix(0.6, 0.85, r()) }) },
 };
 const ADHESION = { reef: 0.85, plankton: 0, grazer: 0, crawler: 0.75, hunter: 0.6, scavenger: 0.25, filament: 0.9 };
-export const FOUNDING_PLAN = ['reef', 'reef', 'reef', 'reef', 'plankton', 'plankton', 'plankton', 'plankton',
-  'grazer', 'grazer', 'grazer', 'grazer', 'crawler', 'crawler', 'crawler', 'crawler',
-  'hunter', 'hunter', 'hunter', 'scavenger', 'scavenger', 'filament', 'filament', 'filament'];
+export const ARCHETYPE_TYPES = Object.keys(ARCHETYPES);
 
 export function archetypeGenome(type, r = Math.random, K = DEFAULT_K) {
   const A = ARCHETYPES[type];

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { G_WORDS } from '../src/shaders.js';
 import {
-  FOUNDING_PLAN, archetypeGenome, writeGenome, readGenome, finalizeGenome,
+  ARCHETYPE_TYPES, archetypeGenome, writeGenome, readGenome, finalizeGenome,
   roleShares, hsl2rgb, packUnorm, unpackUnorm, affinity, parseParticle,
 } from '../src/genome.js';
 
@@ -11,7 +11,7 @@ function near(actual, expected, tolerance = 1e-12, label = '') {
     `${label}: expected ${expected}, got ${actual} (tolerance ${tolerance})`);
 }
 
-for (const type of new Set(FOUNDING_PLAN)) {
+for (const type of ARCHETYPE_TYPES) {
   test(`${type} genome round trip`, () => {
     let seed = 123;
     const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32);
