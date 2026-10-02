@@ -26,7 +26,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     const climate = createClimate(eng, rng);
     const samples = [];
     const ledger = { births: 2, mutants: 3, starved: 5, oldAge: 6, kills: 7, extinctions: 8, grazes: 9, scavenges: 10, bites: 11 };
-    let lastSample = -Infinity, lastPrint = -Infinity, prevG, prevT, latest;
+    let lastSample = -Infinity, lastPrint = -Infinity, prevG, prevD, prevT, latest;
     let minLivingFrac = null, collapses = 0, collapsed = false;
     const established = new Set(), lost = new Set();
     eng.onCensus = (c) => {
@@ -58,8 +58,16 @@ export async function runHeadless(device, config, { print, width = 640, height =
     function record(c) {
       const rates = {};
       for (const [key, i] of Object.entries(ledger)) rates[key] = prevG && c.simTime > prevT ? ((c.globals[i] - prevG[i]) >>> 0) * 60 / (c.simTime - prevT) : 0;
-      samples.push({ ...latest, rates });
-      prevG = Array.from(c.globals); prevT = lastSample = c.simTime;
+      const demography = {};
+      for (const [g, guild] of ['producer', 'grazer', 'predator', 'scavenger', 'omnivore'].entries()) {
+        demography[guild] = {};
+        for (const [e, event] of ['births', 'starved', 'oldAge', 'eaten'].entries()) {
+          const i = g * 4 + e;
+          demography[guild][event] = prevD && c.simTime > prevT ? ((c.demography[i] - prevD[i]) >>> 0) * 60 / (c.simTime - prevT) : 0;
+        }
+      }
+      samples.push({ ...latest, rates, demography });
+      prevG = Array.from(c.globals); prevD = Array.from(c.demography); prevT = lastSample = c.simTime;
     }
     const frames = Math.max(1, Math.round(config.minutes * 3600)), t0 = Date.now();
     for (let f = 0; f < frames; f++) {
