@@ -232,3 +232,26 @@ wall time per run):
 The improvement holds, and is larger, in bigger, longer worlds. Nothing regressed.
 
 `balance/baseline-32k-30m.json` now holds the adopted rules (the "crowding + search image" ensemble).
+
+## 8. Round two: who may eat what (`dietMin`)
+
+With crowding and search images in place, the demography showed consumers dying mostly by being eaten.
+Every cell whose diet held even 2% flesh hunted animals (`dietMin` 0.02), so the abundant grazers
+(about 20% flesh) preyed on scavengers and predators. Raising `dietMin` makes cells eat only the
+foods their diet is substantially devoted to. Knob only, no code. Against crowding + search image:
+
+| `dietMin` | food web | mono | producers persist | guilds | eff. species | leader changes | outcomes | modal |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0.02 (previous) | 28% | 13% | 88% | 2.1 | 28.8 | 7.4 | 6.0 | 31% |
+| 0.10 | 53% | 6% | 91% | 2.5 | 28.1 | 6.1 | 7.2 | 34% |
+| 0.15 | 59% | 6% | 84% | 2.8 | 34.1 | 6.8 | 7.1 | 31% |
+| 0.15, seeds 1001-1032 | 38% | 3% | 75% | 2.5 | 37.1 | 7.9 | 7.2 | 25% |
+| 0.20 | 41% | 0% | 63% | 2.5 | 38.7 | 8.8 | 6.4 | 38% |
+| 0.25 | 28% | 0% | 50% | 2.6 | 39.9 | 8.2 | 6.3 | 34% |
+
+The replication matters: 0.15 gave a 59% food web on seeds 1-32 and 38% on fresh seeds. Pooled (64
+runs) against the previous rules: guilds 2.1 → 2.6 (significant after Holm correction across all 15
+metrics), food web 28% → 48%, monoculture 13% → 5%, effective species 29 → 36, no regression. Every
+value from 0.10 to 0.20 improved the web; above that producers start to vanish (worlds of glint
+grazers, predators and scavengers). **Adopted: `dietMin` 0.15**, the middle of the range that helps.
+The baseline now holds those 64 runs.

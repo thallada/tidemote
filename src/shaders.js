@@ -63,7 +63,7 @@ export const DEFAULT_K = {
   adhMin: 0.15,     // adhesion needed before a species forms bonds
   bite: 0.06,       // energy taken per bite from a photosynthesising cell
   eatEvery: 6,      // frames between meals
-  dietMin: 0.02,    // share of the diet a food must have before a cell bothers to eat it
+  dietMin: 0.15,    // share of the diet a food must have before a cell bothers to eat it
 };
 
 const f = (x) => {
