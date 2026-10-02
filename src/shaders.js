@@ -31,10 +31,10 @@ export const DEFAULT_K = {
   carcass: 0.45,    // energy left in the husk of a cell that was killed
   killEvery: 8,     // handling time: kills only on every Nth meal opportunity
   biteEvery: 6,     // ...and bites of plant cells on every Nth
-  plantPref: 0.35,
+  plantPref: 0.1,   // how much a flesh-eater values plant cells relative to a grazer
   grazePref: 0.6,   // how much a grazer values a plant cell relative to glint
   forage: 0.35,     // pull of glint and husks on a hungry forager, relative to signature forces
-  hunt: 0.12,       // pull of living prey on a hungry forager  // how much a flesh-eater values plant cells relative to a grazer
+  hunt: 0.12,       // pull of living prey on a hungry forager
   kinCrowd: 0.06,   // upkeep added per crowding same-species neighbour, excluding bond partners
   kinFree: 4,       // same-species neighbours tolerated before crowding costs
   anchorCost: 0.003, // upkeep for resisting the currents
@@ -43,7 +43,7 @@ export const DEFAULT_K = {
   kinShade: 0.25,   // how much a bonded body shades itself, relative to strangers
   armor: 2.5,       // bonded bodies resist being killed or bitten
   searchImage: 0.7, // chance a hunter or grazer misses living prey unlike its last catch
-  catchSkill: 0,    // eating skill (eatEff × preference) needed to always catch living prey; 0 always catches
+  catchSkill: 0.3,  // catch chance scales with eating skill (eatEff × preference), reaching certainty here
   nutrHalf: 8.0,    // silt grains nearby at which photosynthesis runs at half speed
   swimCost: 0.018,
   preyBase: 0.35,
@@ -64,7 +64,7 @@ export const DEFAULT_K = {
   adhMin: 0.15,     // adhesion needed before a species forms bonds
   bite: 0.06,       // energy taken per bite from a photosynthesising cell
   eatEvery: 6,      // frames between meals
-  dietMin: 0.15,    // share of the diet a food must have before a cell bothers to eat it
+  dietMin: 0.02,    // share of the diet a food must have before a cell bothers to eat it
 };
 
 const f = (x) => {

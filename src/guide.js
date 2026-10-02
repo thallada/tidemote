@@ -11,7 +11,7 @@ export const GLOSSARY = {
   era: 'Every 10–18 minutes the climate turns: the baseline light and glint production change, one tide wave is replaced, and the currents shift. The names are random labels.',
   epoch: 'Simulated time since this universe began.',
   abiogenesis: 'Life sparking from glint: a completely random new species, about once every 30 simulated seconds on average.',
-  flesh: 'Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Animal prey is killed outright and leaves a husk; this takes time, so a hunter manages at most one kill every few seconds. Plant cells are cropped a 0.1-energy bite at a time. Bonded bodies are armoured and shrug off many attacks.',
+  flesh: 'Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Caught animal prey is killed outright and leaves a husk; this takes time, so a hunter manages at most one kill every few seconds. Plant cells are cropped a 0.06-energy bite at a time. Bonded bodies are armoured and shrug off many attacks.',
   diet: 'The share of energy a species takes from each food. Food is worth its energy × share × 1.5, less for partly photosynthetic species.',
   photosynth: 'Takes energy directly from light: 0.4 × photosynthesis × local light per second. It is reduced by shade from neighbouring cells (a bonded body barely shades itself), needs minerals (silt nearby), and runs faster for anchored cells with current flowing past them. Photosynthesis makes a cell heavy: less thrust, no swimming, worse at eating.',
   grazer: 'Mostly eats glint, and crops photosynthesising cells: the herbivores of this world.',
@@ -111,6 +111,7 @@ export const GUIDE = [
 <ul>
 <li>Crowding: cells packed among their own kind sicken (a body’s bond partners do not count), so clonal blobs and sprawling bodies break up and species mix.</li>
 <li>Grazers crop the plants, predators thin out the grazers, and scavengers live off the husks both leave behind.</li>
+<li>Catching takes skill: cells catch living prey in proportion to how well they are built to eat it, so photosynthesisers and husk eaters rarely kill.</li>
 <li>Hunters and grazers get good at catching what they caught last and often miss unfamiliar prey, so booming species feed their predators and rare ones are spared.</li>
 <li>Anchored plants thrive where currents run strong; drifting plankton where they are calm. Bonded bodies live cheaply and resist attack but disperse poorly.</li>
 <li>The climate keeps changing which strategy pays.</li>
