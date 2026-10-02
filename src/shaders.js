@@ -43,6 +43,7 @@ export const DEFAULT_K = {
   kinShade: 0.25,   // how much a bonded body shades itself, relative to strangers
   armor: 2.5,       // bonded bodies resist being killed or bitten
   searchImage: 0.7, // chance a hunter or grazer misses living prey unlike its last catch
+  catchSkill: 0,    // eating skill (eatEff × preference) needed to always catch living prey; 0 always catches
   nutrHalf: 8.0,    // silt grains nearby at which photosynthesis runs at half speed
   swimCost: 0.018,
   preyBase: 0.35,
@@ -786,7 +787,8 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
     let armored = fk >= FIRST_LIFE && rnd(&s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
     let image = (info >> 6u) & 511u;
     let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(&s) < ${f(K.searchImage)};
-    if (!armored && !unfamiliar && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
+    let unskilled = ${f(K.catchSkill)} > 0.0 && fk >= FIRST_LIFE && rnd(&s) >= min(1.0, eatEff * select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, genomes[fk].photo > 0.4) / ${f(K.catchSkill)});
+    if (!armored && !unfamiliar && !unskilled && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
       let fp = sortedFull[food];
       if (fp.kind >= FIRST_LIFE) {
         atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
