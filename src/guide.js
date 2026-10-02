@@ -19,7 +19,7 @@ export const GLOSSARY = {
   predator: 'Mostly eats flesh: hunts animal cells, and crops plants only reluctantly.',
   celltype: 'α, β and γ cells of one species share a genome but each has its own surface and receptor signature, so each type is pulled toward and away from things differently. Types also differ in colour tint, size and shape.',
   bodyplan: 'The long-run mix of cell types a species produces. Each child’s type is chosen by a developmental rule from its parent’s type; this is where that rule settles.',
-  adhesion: 'How strongly cells of one species bond. Above 15%, each cell bonds to its two nearest same-species neighbours with a spring. Bonds are the links you see and they hold bodies together. Bonded cells share the cost of living (up to 30% less upkeep), shade each other less and are armoured against attack, but they disperse poorly and their inner cells struggle to reach silt to divide. Species without adhesion are free-living.',
+  adhesion: 'How strongly cells of one species bond. Above 15%, each cell bonds to its two nearest same-species neighbours with a spring. Bonds are the links you see and they hold bodies together. Bonded cells share the cost of living (up to 30% less upkeep), shade each other less and are armoured against attack. They still pay crowding beyond their bond partners, disperse poorly and their inner cells struggle to reach silt to divide. Species without adhesion are free-living.',
   bond: 'A spring between two cells of the same species. Drawn as a link. A connected web of bonds is one organism.',
   organism: 'A body: all same-species cells connected through bonds. A species only forms bodies if its adhesion is above 15%; otherwise every cell is its own organism, even when the species has several cell types (morphs) or gathers into swarms.',
   swimming: 'Self-propulsion: a steady push in the direction the cell is already moving. Reduced by photosynthesis.',
@@ -32,7 +32,7 @@ export const GLOSSARY = {
   lifespan: 'Age at which a cell dies of old age.',
   dividesat: 'Energy a cell needs before it can divide. It also needs a grain of silt within reach to build the child from.',
   childshare: 'Fraction of the parent’s energy handed to each child.',
-  upkeep: 'Energy burned per second. Grows with thrust, reach, swimming, schooling, adhesion, lifespan, size and anchoring. Starving cells burn slower. Crowding raises it: a free-living cell packed among more than four of its own kind pays extra.',
+  upkeep: 'Energy burned per second. Grows with thrust, reach, swimming, schooling, adhesion, lifespan, size and anchoring. Starving cells burn slower. Crowding raises it: a cell packed among more than four of its own kind (not counting its bond partners) pays extra.',
   mutation: 'Chance per division that the child founds a new species with a nudged genome. Rarely, a whole cell type is reinvented or copied.',
   size: 'Drawn size and shape. Purely visual apart from a small upkeep cost; physics uses reach and personal space.',
   share: 'This species’ fraction of all living cells.',
@@ -109,7 +109,7 @@ export const GUIDE = [
     id: 'ecology', title: 'Ecology',
     html: `<p>Producers are photosynthesising reefs, mats and plankton, plus glint grazers. Consumers are grazers of plants, scavengers of husks, and predators. Several pressures shape which forms thrive:</p>
 <ul>
-<li>Crowding: free-living cells packed among their own kind sicken, so clonal blobs break up and species mix.</li>
+<li>Crowding: cells packed among their own kind sicken (a body’s bond partners do not count), so clonal blobs and sprawling bodies break up and species mix.</li>
 <li>Grazers crop the plants, predators thin out the grazers, and scavengers live off the husks both leave behind.</li>
 <li>Anchored plants thrive where currents run strong; drifting plankton where they are calm. Bonded bodies live cheaply and resist attack but disperse poorly.</li>
 <li>The climate keeps changing which strategy pays.</li>

@@ -52,7 +52,7 @@ Each frame runs entirely on the GPU:
 
 Every 20 frames a census is read back: per-species counts and genomes. The CPU uses it to name species and track lineages; it does not steer the ecology. The ecology is shaped only by local rules:
 
-- **Local crowding and shade**: nearby same-species cells raise upkeep for free-living cells; living neighbours shade photosynthesis.
+- **Local crowding and shade**: nearby same-species cells raise upkeep (a body's bond partners excepted); living neighbours shade photosynthesis.
 - **Local minerals and food**: photosynthesis needs nearby silt, feeding needs nearby prey, glint or husks, and division needs a nearby silt grain.
 - **Bonds**: bodies share upkeep, shade each other less, and resist attack through armor.
 
