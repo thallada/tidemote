@@ -216,4 +216,19 @@ diverse producer community with grazers. Consumers are eaten faster than they st
 fall from present in 31/32 runs at minute 1 to 7-9/32 after minute 10. Genome slots (508) also fill in
 some runs now (up to 483 in use), which starts to cap mutation.
 
+**Long check at page scale.** 16 seeds × 60 simulated minutes at 131,072 particles (several climate
+eras per run), old rules against adopted rules (`runs/long-old`, `runs/long-new`, about 4.5 minutes of
+wall time per run):
+
+| metric | old rules | adopted rules |
+| --- | --- | --- |
+| monoculture | 75% | 0% |
+| effective species, late | 3.3 | 38.6 |
+| notable species per run | 20.5 | 29.8 |
+| leader changes | 6.1 | 8.8 |
+| food web | 13% | 25% |
+| commonest outcome | mono:producer (56%) | producer (44%) |
+
+The improvement holds, and is larger, in bigger, longer worlds. Nothing regressed.
+
 `balance/baseline-32k-30m.json` now holds the adopted rules (the "crowding + search image" ensemble).
