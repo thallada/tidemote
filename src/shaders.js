@@ -12,7 +12,7 @@ export const META_CLAIM = 16 + 1024 + 64;
 export const P_BYTES = 40;
 export const G_BYTES = 192;
 export const G_WORDS = 48;
-export const LITE_BYTES = 24;
+export const LITE_BYTES = 32;
 
 export const DEFAULT_K = {
   density: 22,
@@ -136,7 +136,8 @@ struct Sim {
   waves: array<vec4f, 4>,
   tide: array<vec4f, 4>,
 };
-struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, pad: u32 };
+// kr: 0..9 kind, 10..11 role, 12 plant.
+struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
 
 @group(0) @binding(0) var<uniform> sim: Sim;
 @group(0) @binding(1) var<storage, read_write> parts: array<Particle>;
@@ -494,7 +495,10 @@ fn scatterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocat
     dst = cellStart[a.x] + a.y;
     let p = parts[i];
     sortedFull[dst] = p;
-    sortedLite[dst] = Lite(p.pos, p.kind | (roleOf(p.info) << 10u), p.col, pack2x16float(p.vel), 0u);
+    let role = roleOf(p.info);
+    let sig = genomes[p.kind].sig[role].xy;
+    let plant = select(0u, 1u << 12u, p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4);
+    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant, p.col, pack2x16float(p.vel), sig.x, sig.y, 0u);
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
   }
   workgroupBarrier();
@@ -577,16 +581,8 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u) {
 }
 
 // --------------------------------------------------------------------- life
-var<workgroup> surf: array<vec2u, 1536>;
-var<workgroup> kphoto: array<f32, 512>;
-
 @compute @workgroup_size(128)
-fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
-  // Other workgroups may write newly allocated genomes, but those slots have no living
-  // cells in this frame's snapshot, so their staged values are never used this frame.
-  for (var k = l; k < MAXK * 3u; k += 128u) { surf[k] = genomes[k / 3u].sig[k % 3u].xy; }
-  for (var k = l; k < MAXK; k += 128u) { kphoto[k] = select(genomes[k].photo, 0.0, k < FIRST_LIFE); }
-  workgroupBarrier();
+fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
   if (i == NONE) { return; }
   let p = sortedFull[i];
@@ -660,9 +656,8 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
         let r = sqrt(r2);
         let x = r * invR;
         let qk = q.kr & 1023u;
-        let sq = surf[qk * 3u + ((q.kr >> 10u) & 3u)];
-        let s0 = unpack4x8snorm(sq.x);
-        let s1 = unpack4x8snorm(sq.y);
+        let s0 = unpack4x8snorm(q.s0);
+        let s1 = unpack4x8snorm(q.s1);
         let a = clamp((dot(rec0, s0) + dot(rec1, s1)) * ${f(K.affScale)}, -1.0, 1.0);
         let shape = 1.0 - abs(2.0 * x - 1.0 - beta) * invOM;
         var fr: f32;
@@ -671,7 +666,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
           if (x < beta) { fr = (x * invBeta - 1.0) * select(1.0, 0.15, canHunt && qk != p.kind); } else { fr = a * shape; }
           // hungry foragers are drawn toward the cells their diet favours
           if (canHunt && qk != p.kind && x >= beta) {
-            fr += select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, kphoto[qk] > 0.4) * eatEff * ${f(K.hunt)} * shape;
+            fr += select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)} * shape;
           }
           crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
           if (qk == p.kind) {
@@ -695,7 +690,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
             let db = s1 - my1;
             if (dot(da, da) + dot(db, db) > ${f(K.kin)}) {
               // grazers crop plant cells; flesh-eaters hunt animals (and crop plants reluctantly)
-              let plant = kphoto[qk] > 0.4;
+              let plant = (q.kr & (1u << 12u)) != 0u;
               let pref = select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, plant);
               let sc = pref - r;
               if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
