@@ -255,3 +255,92 @@ metrics), food web 28% → 48%, monoculture 13% → 5%, effective species 29 →
 value from 0.10 to 0.20 improved the web; above that producers start to vanish (worlds of glint
 grazers, predators and scavengers). **Adopted: `dietMin` 0.15**, the middle of the range that helps.
 The baseline now holds those 64 runs.
+
+## 9. Round three: consumers, and the genome slot cap
+
+**Who eats whom.** A 5 × 5 count of meals on living cells by eater and victim guild (`sample.meals`)
+overturned the assumption that predators were the killers. Late in a run (minutes 10-30, meals per
+minute in a 32k world, rules of section 8): producers ate producers 13,400 times a minute, scavengers ate
+scavengers 5,900 times, while predators were barely present. Mixotrophic plants (photo 0.55-0.68, eating
+efficiency (1 − photo)² ≈ 0.15) and husk eaters with a small flesh share killed living cells they gained
+almost nothing from. An inefficient eater still killed its victim outright.
+
+**Catching takes skill** (`catchSkill`). An attempt on a living cell succeeds with probability
+`min(1, eatEff × preference / catchSkill)`, where preference is the same diet weight the neighbour scan
+uses. A pure predator or grazer catches as before; a photosynthesiser or a side-line hunter mostly
+fails. One line next to the armour and search-image tests. Predators went from 2-8% of late life to
+20-30%; notable species and leader changes rose significantly. The cost: producers lost ground (with
+`catchSkill` 0.5 they persisted in 56% of runs), because the "producer" guild had partly lived off its
+neighbours. Lowering `plantPref` (how much a flesh-eater values a plant cell) from 0.35 to 0.1 gave
+plants back to the grazers:
+
+| `catchSkill`, `plantPref`, `dietMin` | food web | producers | mono | guilds | eff. species | notable | leaders | spread | modal |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0, 0.35, 0.15 (section 8) | 48% | 80% | 5% | 2.6 | 35.6 | 27.7 | 7.3 | 1.20 | 28% |
+| 0.5, 0.35, 0.15 | 38% | 56% | 0% | 2.7 | 40.4 | 39.5 | 10.8 | 1.29 | 41% |
+| 0.3, 0.35, 0.15 | 56% | 69% | 0% | 2.7 | 46.9 | 38.2 | 9.3 | 1.12 | 31% |
+| 0.5, 0.35, 0.02 | 50% | 69% | 0% | 2.8 | 38.5 | 37.8 | 10.1 | 1.17 | 31% |
+| 0.3, 0.1, 0.15 | 78% | 97% | 0% | 3.0 | 32.6 | 33.1 | 8.7 | **0.93** | 38% |
+| **0.3, 0.1, 0.02 (adopted)** | 56% | 88% | 0% | 2.8 | 38.9 | 33.3 | 8.6 | 1.11 | 41% |
+
+The most stable combination (78% food webs, 97% producers, three guilds on average) regressed on
+spread (Holm p = 0.024): runs converge, in both guild mix and traits. Adopted instead: `catchSkill` 0.3,
+`plantPref` 0.1, and `dietMin` back to its original 0.02, since the smooth catch rule does the hard
+threshold's job for living prey without starving producers.
+
+**Genome slots.** At 131k particles every run filled all 508 slots and mutations per birth halved over
+an hour (0.0076 → 0.0038): a hidden global brake on evolution, worse at the page's 200k-1M particles.
+What held `MAXK` at 512 was a per-workgroup cache of every species' signature in 14 KB of the 16 KB
+workgroup memory WebGPU guarantees. That cache is gone: each particle's surface signature and a plant
+flag now travel in `sortedLite` (24 → 32 bytes per particle), written once in the scatter pass. This
+turned out *faster*: 131k 0.391 → 0.382 ms/frame, 524k 1.237 → 1.069 (−14%). `MAXK` is now 1024 and
+the single source of every slot-dependent size (ledger layout, kind histogram, focus mask, search-image
+bits). Cost about 2% (131k 0.372 → 0.381 ms). Late mutations per birth at 32k rose 0.0164 → 0.0218. The
+cap still exists: some 32k runs reach 1,009 slots, and page-scale worlds will fill 1024 too, because
+every mutant founds a species. It is now half as tight.
+
+**The adopted rules against the original ones** (64 runs each, 32k, 30 min):
+
+| metric | original rules | adopted rules |
+| --- | --- | --- |
+| monoculture | 83% | 0% |
+| food web survives | 20% | 56% |
+| producers persist | 80% | 91% |
+| guilds at ≥ 5%, late | 1.8 | 2.7 |
+| guilds lost per run | 1.03 | 0.59 |
+| effective species, late | 3.8 | 50.7 |
+| notable species per run | 18.2 | 31.4 |
+| leader changes | 5.0 | 8.3 |
+| commonest outcome | 53% | 41% |
+| spread between runs | 1.34 | 1.09 |
+
+Spread is lower than with the original rules, whose variety came mostly from *different monocultures*
+(mono:producer against mono:grazer). Against section 8's rules the number of distinct outcome labels
+fell (8.1 → 4.6); the coarse labels lump the now-common rich mixed worlds into "producer" or
+"producer+scavenger". The baseline holds these 64 runs.
+
+**At page scale** (16 seeds × 60 min × 131k particles, several climate eras per run):
+
+| metric | original rules | round one | + `dietMin` 0.15 | adopted rules |
+| --- | --- | --- | --- | --- |
+| food web survives | 13% | 25% | 38% | 63% |
+| producers persist | 81% | 94% | 56% | 81% |
+| monoculture | 75% | 0% | 0% | 0% |
+| guilds at ≥ 5%, late | 1.6 | 2.3 | 2.6 | 3.25 |
+| guilds lost per run | 1.00 | 0.94 | 0.31 | 0.19 |
+| effective species, late | 3.3 | 38.6 | 39.1 | 63.5 |
+| notable species per run | 20.5 | 29.8 | 41.9 | 45.6 |
+| leader changes | 6.1 | 8.8 | 12.8 | 13.8 |
+| spread between runs | 1.41 | 1.23 | 1.10 | 0.84 |
+| commonest outcome | 56% | 44% | 44% | 50% |
+
+Six of the seven targets in `balance/targets.json` now pass (all but a food web in 80% of runs). The
+trade-off is plain in the last rows: each round made worlds richer and livelier inside, and more alike
+in their guild and trait mix from run to run (spread 1.41 → 0.84, a significant regression against the
+original rules). Runs still differ in which species, body plans and leaders appear (every species is
+new each run), but they now converge on a similar *shape* of food web.
+
+**CPU cost of more species.** With ~1000 species, decoding every living genome at every census (every
+20 frames) cost 4.8 ms per census in the headless runner (1.7 ms at 327 species), which slowed 60-minute
+runs from 272 to 346 s of wall time. The page did the same work. Genomes never change while a slot keeps
+its serial, so both now decode a genome once per serial: 960 species, 5.3 → 1.3 ms per census.

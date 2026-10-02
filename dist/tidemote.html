@@ -426,17 +426,17 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
 <script type="module">
 (() => {
   // src/shaders.js
-  var MAXK = 512;
+  var MAXK = 1024;
   var FIRST_LIFE = 4;
   var MAX_CELLS = 1 << 18;
   var META_SLOT = 16;
-  var META_POP = 16 + 512;
-  var META_DEATH = 16 + 1024;
-  var META_CLAIM = 16 + 1024 + 32;
+  var META_POP = META_SLOT + MAXK;
+  var META_DEATH = META_POP + MAXK;
+  var META_CLAIM = META_DEATH + 64;
   var P_BYTES = 40;
   var G_BYTES = 192;
   var G_WORDS = 48;
-  var LITE_BYTES = 24;
+  var LITE_BYTES = 32;
   var DEFAULT_K = {
     density: 22,
     charge: 0.28,
@@ -459,13 +459,14 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
     // handling time: kills only on every Nth meal opportunity
     biteEvery: 6,
     // ...and bites of plant cells on every Nth
-    plantPref: 0.35,
+    plantPref: 0.1,
+    // how much a flesh-eater values plant cells relative to a grazer
     grazePref: 0.6,
     // how much a grazer values a plant cell relative to glint
     forage: 0.35,
     // pull of glint and husks on a hungry forager, relative to signature forces
     hunt: 0.12,
-    // pull of living prey on a hungry forager  // how much a flesh-eater values plant cells relative to a grazer
+    // pull of living prey on a hungry forager
     kinCrowd: 0.06,
     // upkeep added per crowding same-species neighbour, excluding bond partners
     kinFree: 4,
@@ -482,6 +483,8 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
     // bonded bodies resist being killed or bitten
     searchImage: 0.7,
     // chance a hunter or grazer misses living prey unlike its last catch
+    catchSkill: 0.3,
+    // catch chance scales with eating skill (eatEff × preference), reaching certainty here
     nutrHalf: 8,
     // silt grains nearby at which photosynthesis runs at half speed
     swimCost: 0.018,
@@ -509,7 +512,7 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
     // energy taken per bite from a photosynthesising cell
     eatEvery: 6,
     // frames between meals
-    dietMin: 0.15
+    dietMin: 0.02
     // share of the diet a food must have before a cell bothers to eat it
   };
   var f = (x) => {
@@ -519,20 +522,20 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
   var COMMON = (
     /* wgsl */
     `
-const MAXK = 512u;
+const MAXK = ${MAXK}u;
 const FIRST_LIFE = 4u;
 const SILT = 0u;
 const GLINT = 1u;
 const HUSK = 2u;
 const NONE = 0xffffffffu;
 const MAX_CELLS = 262144u;
-const META_SLOT = 16u;
-const META_POP = 528u;
-const META_DEATH = 16u + 1024u;
-const META_CLAIM = 16u + 1024u + 32u;
+const META_SLOT = ${META_SLOT}u;
+const META_POP = ${META_POP}u;
+const META_DEATH = ${META_DEATH}u;
+const META_CLAIM = ${META_CLAIM}u;
 const TAU = 6.28318530718;
 
-// Info: 0..3 cause, 4..5 role, 6..14 search image, 15..31 generation.
+// Info: 0..3 cause, 4..5 role, 6..15 search image, 16..31 generation.
 struct Particle { pos: vec2f, vel: vec2f, kind: u32, energy: f32, age: f32, id: u32, col: u32, info: u32 };
 struct Genome {
   sig: array<vec4u, 3>,
@@ -548,7 +551,7 @@ struct Genome {
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
-fn genOf(info: u32) -> u32 { return info >> 15u; }
+fn genOf(info: u32) -> u32 { return info >> 16u; }
 
 fn tideAt(p: vec2f, world: vec2f, t: f32, w: array<vec4f, 4>) -> f32 {
   let u = p / world * TAU;
@@ -584,7 +587,8 @@ struct Sim {
   waves: array<vec4f, 4>,
   tide: array<vec4f, 4>,
 };
-struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, pad: u32 };
+// kr: 0..9 kind, 10..11 role, 12 plant.
+struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
 
 @group(0) @binding(0) var<uniform> sim: Sim;
 @group(0) @binding(1) var<storage, read_write> parts: array<Particle>;
@@ -808,7 +812,7 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
 }
 
 // ------------------------------------------------- resolve claims + count
-var<workgroup> hist: array<atomic<u32>, 512>;
+var<workgroup> hist: array<atomic<u32>, MAXK>;
 var<workgroup> roleHist: array<atomic<u32>, 3>;
 
 @compute @workgroup_size(256)
@@ -846,14 +850,14 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         }
       } else if (act == 2u && (p.kind == SILT || p.kind == GLINT)) {
         let cr = (it.x >> 12u) & 3u;
-        let gen = (it.x >> 14u) & 0x1ffffu;
+        let gen = (it.x >> 14u) & 0xffffu;
         p.kind = ck;
         p.energy = bitcast<f32>(it.y);
         p.age = 0.0;
         p.vel = vec2f(0.0);
         p.id = atomicAdd(&ledger[0], 1u);
         p.col = pack4x8unorm(vec4f(roleColor(genomes[ck], cr), 1.0));
-        p.info = (gen << 15u) | (cr << 4u) | 9u;
+        p.info = (gen << 16u) | (cr << 4u) | 9u;
         atomicAdd(&ledger[2], 1u);
         atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[ck])], 1u);
       }
@@ -942,7 +946,10 @@ fn scatterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocat
     dst = cellStart[a.x] + a.y;
     let p = parts[i];
     sortedFull[dst] = p;
-    sortedLite[dst] = Lite(p.pos, p.kind | (roleOf(p.info) << 10u), p.col, pack2x16float(p.vel), 0u);
+    let role = roleOf(p.info);
+    let sig = genomes[p.kind].sig[role].xy;
+    let plant = select(0u, 1u << 12u, p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4);
+    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant, p.col, pack2x16float(p.vel), sig.x, sig.y, 0u);
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
   }
   workgroupBarrier();
@@ -1025,16 +1032,8 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u) {
 }
 
 // --------------------------------------------------------------------- life
-var<workgroup> surf: array<vec2u, 1536>;
-var<workgroup> kphoto: array<f32, 512>;
-
 @compute @workgroup_size(128)
-fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
-  // Other workgroups may write newly allocated genomes, but those slots have no living
-  // cells in this frame's snapshot, so their staged values are never used this frame.
-  for (var k = l; k < MAXK * 3u; k += 128u) { surf[k] = genomes[k / 3u].sig[k % 3u].xy; }
-  for (var k = l; k < MAXK; k += 128u) { kphoto[k] = select(genomes[k].photo, 0.0, k < FIRST_LIFE); }
-  workgroupBarrier();
+fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
   if (i == NONE) { return; }
   let p = sortedFull[i];
@@ -1108,9 +1107,8 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
         let r = sqrt(r2);
         let x = r * invR;
         let qk = q.kr & 1023u;
-        let sq = surf[qk * 3u + ((q.kr >> 10u) & 3u)];
-        let s0 = unpack4x8snorm(sq.x);
-        let s1 = unpack4x8snorm(sq.y);
+        let s0 = unpack4x8snorm(q.s0);
+        let s1 = unpack4x8snorm(q.s1);
         let a = clamp((dot(rec0, s0) + dot(rec1, s1)) * ${f(K.affScale)}, -1.0, 1.0);
         let shape = 1.0 - abs(2.0 * x - 1.0 - beta) * invOM;
         var fr: f32;
@@ -1119,7 +1117,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
           if (x < beta) { fr = (x * invBeta - 1.0) * select(1.0, 0.15, canHunt && qk != p.kind); } else { fr = a * shape; }
           // hungry foragers are drawn toward the cells their diet favours
           if (canHunt && qk != p.kind && x >= beta) {
-            fr += select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, kphoto[qk] > 0.4) * eatEff * ${f(K.hunt)} * shape;
+            fr += select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)} * shape;
           }
           crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
           if (qk == p.kind) {
@@ -1143,7 +1141,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
             let db = s1 - my1;
             if (dot(da, da) + dot(db, db) > ${f(K.kin)}) {
               // grazers crop plant cells; flesh-eaters hunt animals (and crop plants reluctantly)
-              let plant = kphoto[qk] > 0.4;
+              let plant = (q.kr & (1u << 12u)) != 0u;
               let pref = select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, plant);
               let sc = pref - r;
               if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
@@ -1237,10 +1235,14 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
                  || ((sim.frame + p.id) / ${K.eatEvery | 0}u) % select(${K.killEvery | 0}u, ${K.biteEvery | 0}u, genomes[sortedFull[food].kind].photo > 0.4) == 0u)) {
     let fk = sortedFull[food].kind;
     let armored = fk >= FIRST_LIFE && rnd(&s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
-    let image = (info >> 6u) & 511u;
+    let image = (info >> 6u) & 1023u;
     let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(&s) < ${f(K.searchImage)};
-    if (!armored && !unfamiliar && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
+    let unskilled = ${f(K.catchSkill)} > 0.0 && fk >= FIRST_LIFE && rnd(&s) >= min(1.0, eatEff * select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, genomes[fk].photo > 0.4) / ${f(K.catchSkill)});
+    if (!armored && !unfamiliar && !unskilled && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
       let fp = sortedFull[food];
+      if (fp.kind >= FIRST_LIFE) {
+        atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
+      }
       ck = fp.kind;
       var gain = 0.0;
       act = 1u;
@@ -1253,7 +1255,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
       } else {
         gain = (${f(K.preyBase)} + ${f(K.preyFrac)} * max(fp.energy, 0.0)) * spec(g.dFlesh); atomicAdd(&ledger[7], 1u);
       }
-      if (fk >= FIRST_LIFE) { info = (info & 0xffff803fu) | (fk << 6u); }
+      if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
       E += gain * ${f(K.gain)} * eatEff;
     }
   }
@@ -1270,7 +1272,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
     atomicAdd(&ledger[6], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 2u], 1u);
   }
-  let childGen = ((genOf(p.info) + 1u) & 0x1ffffu) << 14u;
+  let childGen = ((genOf(p.info) + 1u) & 0xffffu) << 14u;
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(ce), n1, n2);
   parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0)), info);
 }
@@ -1314,14 +1316,14 @@ struct View {
 @group(0) @binding(4) var<storage, read> livingList: array<u32>;
 @group(0) @binding(5) var<storage, read> focus: array<u32>;
 
-fn kindOn(k: u32) -> bool { return ((focus[(k >> 5u) & 15u] >> (k & 31u)) & 1u) == 1u; }
+fn kindOn(k: u32) -> bool { return ((focus[k >> 5u] >> (k & 31u)) & 1u) == 1u; }
 fn isMember(id: u32) -> bool {
   var lo = 0u;
   var hi = view.memberN;
   for (var it = 0u; it < 20u; it++) {
     if (lo >= hi) { break; }
     let mid = (lo + hi) / 2u;
-    let v = focus[16u + mid];
+    let v = focus[MAXK / 32u + mid];
     if (v == id) { return true; }
     if (v < id) { lo = mid + 1u; } else { hi = mid; }
   }
@@ -1912,6 +1914,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     u32[o + 43] = g.depth >>> 0;
     f32[o + 44] = g.adhesion || 0;
   }
+  var genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
   function readGenome(u32, f32, slot) {
     const o = slot * G_WORDS;
     const roles = [0, 1, 2].map((r) => ({
@@ -1970,7 +1973,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       info,
       cause: info & 15,
       role: info >>> 4 & 3,
-      gen: info >>> 15
+      gen: info >>> 16
     };
   }
   function dietGuild(g) {
@@ -2043,7 +2046,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       b.view = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
       b.viewL = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
       b.viewS = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
-      b.focus = d.createBuffer({ size: (16 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
+      b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
       b.post = d.createBuffer({ size: 128, usage: U.UNIFORM | U.COPY_DST });
       b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
       b.pickU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
@@ -2064,7 +2067,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         scanBlocks: [5, 6, 7],
         scanSums: [6, 7],
         scanAdd: [6, 7],
-        scatterMain: [0, 1, 2, 3, 6, 8, 12, 13],
+        scatterMain: [0, 1, 2, 3, 6, 8, 10, 12, 13],
         censusMain: [11, 12, 13],
         matterMain: [0, 1, 2, 10, 11],
         lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12]
@@ -2242,7 +2245,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       ] });
     }
     /**
-     * Focus: kinds = Uint32Array(16) bitmask over genome slots (null = no filter),
+     * Focus: kinds = Uint32Array(MAXK / 32) bitmask over genome slots (null = no filter),
      * members = sorted Uint32Array of particle ids to highlight (null = none).
      */
     setFocus({ kinds = null, roleMask = 7, stateMode = 0, mute = 0.16, members = null, memberKind = 4294967295 } = {}) {
@@ -2253,8 +2256,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       f2.mute = mute;
       f2.memberKind = memberKind;
       f2.memberN = members ? Math.min(members.length, FOCUS_MAX) : 0;
-      if (kinds) this.device.queue.writeBuffer(this.b.focus, 0, kinds, 0, 16);
-      if (f2.memberN) this.device.queue.writeBuffer(this.b.focus, 64, members, 0, f2.memberN);
+      if (kinds) this.device.queue.writeBuffer(this.b.focus, 0, kinds, 0, MAXK / 32);
+      if (f2.memberN) this.device.queue.writeBuffer(this.b.focus, MAXK / 32 * 4, members, 0, f2.memberN);
     }
     _ensureSpecTex(w, h) {
       if (this.specTex && this.specSize[0] === w && this.specSize[1] === h) return;
@@ -2569,7 +2572,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
               globals: u.subarray(0, 16),
               slots: u.subarray(META_SLOT, META_SLOT + MAXK),
               pop: u.subarray(META_POP, META_POP + MAXK),
-              demography: u.subarray(META_DEATH, META_DEATH + 20),
+              demography: u.subarray(META_DEATH, META_DEATH + 57),
               genomeU32: new Uint32Array(copy, LEDGER_HEAD),
               genomeF32: new Float32Array(copy, LEDGER_HEAD)
             });
@@ -2817,7 +2820,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     era: "Every 10–18 minutes the climate turns: the baseline light and glint production change, one tide wave is replaced, and the currents shift. The names are random labels.",
     epoch: "Simulated time since this universe began.",
     abiogenesis: "Life sparking from glint: a completely random new species, about once every 30 simulated seconds on average.",
-    flesh: "Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Animal prey is killed outright and leaves a husk; this takes time, so a hunter manages at most one kill every few seconds. Plant cells are cropped a 0.1-energy bite at a time. Bonded bodies are armoured and shrug off many attacks.",
+    flesh: "Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Caught animal prey is killed outright and leaves a husk; this takes time, so a hunter manages at most one kill every few seconds. Plant cells are cropped a 0.06-energy bite at a time. Bonded bodies are armoured and shrug off many attacks.",
     diet: "The share of energy a species takes from each food. Food is worth its energy × share × 1.5, less for partly photosynthetic species.",
     photosynth: "Takes energy directly from light: 0.4 × photosynthesis × local light per second. It is reduced by shade from neighbouring cells (a bonded body barely shades itself), needs minerals (silt nearby), and runs faster for anchored cells with current flowing past them. Photosynthesis makes a cell heavy: less thrust, no swimming, worse at eating.",
     grazer: "Mostly eats glint, and crops photosynthesising cells: the herbivores of this world.",
@@ -2921,6 +2924,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 <ul>
 <li>Crowding: cells packed among their own kind sicken (a body’s bond partners do not count), so clonal blobs and sprawling bodies break up and species mix.</li>
 <li>Grazers crop the plants, predators thin out the grazers, and scavengers live off the husks both leave behind.</li>
+<li>Catching takes skill: cells catch living prey in proportion to how well they are built to eat it, so photosynthesisers and husk eaters rarely kill.</li>
 <li>Hunters and grazers get good at catching what they caught last and often miss unfamiliar prey, so booming species feed their predators and rare ones are spared.</li>
 <li>Anchored plants thrive where currents run strong; drifting plankton where they are calm. Bonded bodies live cheaply and resist attack but disperse poorly.</li>
 <li>The climate keeps changing which strategy pays.</li>
@@ -3871,14 +3875,15 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     function pushFocus() {
       let kinds = null;
       if (focus.key) {
-        kinds = new Uint32Array(16);
+        kinds = new Uint32Array(MAXK / 32);
         for (let m = 0; m < 3; m++) if (focus.matter[m]) kinds[0] |= 1 << m;
         const c = life.lastCensus;
         if (c && focus.pred) {
           for (let s = FIRST_LIFE; s < MAXK; s++) {
             if (!c.pop[s]) continue;
-            const g = readGenome(c.genomeU32, c.genomeF32, s);
-            if (g.serial && focus.pred(g, life.reg.get(g.serial))) kinds[s >> 5] |= 1 << (s & 31) >>> 0;
+            const sp = life.reg.get(genomeSerial(c.genomeU32, s));
+            const g = sp ? sp.genome : readGenome(c.genomeU32, c.genomeF32, s);
+            if (g.serial && focus.pred(g, sp)) kinds[s >> 5] |= 1 << (s & 31) >>> 0;
           }
         }
       }
@@ -4000,8 +4005,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         if (!p) continue;
         living += p;
         alive++;
-        const g = readGenome(c.genomeU32, c.genomeF32, s);
-        let sp = life.reg.get(g.serial);
+        let sp = life.reg.get(genomeSerial(c.genomeU32, s));
+        const g = sp ? sp.genome : readGenome(c.genomeU32, c.genomeF32, s);
         if (!sp) sp = register(g);
         sp.slot = s;
         sp.genome = g;
@@ -4237,7 +4242,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       const c = life.lastCensus;
       if (!c) return null;
       if (kind < FIRST_LIFE) return life.matter[kind] || null;
-      const g = readGenome(c.genomeU32, c.genomeF32, kind);
+      const sp = life.reg.get(genomeSerial(c.genomeU32, kind));
+      const g = sp ? sp.genome : readGenome(c.genomeU32, c.genomeF32, kind);
       return g.serial ? g : null;
     }
     async function selectAt(sx, sy, pxPerWorld, world) {
