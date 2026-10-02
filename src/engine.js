@@ -97,7 +97,7 @@ class Engine {
       scanBlocks: [5, 6, 7],
       scanSums: [6, 7],
       scanAdd: [6, 7],
-      scatterMain: [0, 1, 2, 3, 6, 8, 12, 13],
+      scatterMain: [0, 1, 2, 3, 6, 8, 10, 12, 13],
       censusMain: [11, 12, 13],
       matterMain: [0, 1, 2, 10, 11],
       lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12],
