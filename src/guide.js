@@ -20,6 +20,8 @@ export const GLOSSARY = {
   predator: 'Mostly eats flesh: hunts animal cells, and crops plants only reluctantly.',
   celltype: 'α, β and γ cells of one species share a genome but each has its own surface and receptor signature, so each type is pulled toward and away from things differently. Types also differ in colour tint, size and shape.',
   bodyplan: 'The long-run mix of cell types a species produces. Each child’s type is chosen by a developmental rule from its parent’s type; this is where that rule settles.',
+  stone: 'Bedrock, and the skeletons of calcifying cells. Stone never drifts and the living cannot pass through it. Attacks made from among stone often miss, so prey shelters in reefs; adhesive cells grip nearby stone against the currents. Bedrock lasts nearly an hour, a reef grain a few minutes, so a reef persists only while it is being built.',
+  calcify: 'How much of a skeleton a cell lays down. Calcifying costs upkeep. When a settled calcifying cell dies of hunger or old age it may leave stone instead of a husk, far more often beside stone already there, so reefs grow outward from rock and from the rare place one starts. Drifting cells seldom leave stone.',
   adhesion: 'How strongly cells of one species bond. Above 15%, each cell bonds to its two nearest same-species neighbours with a spring. Bonds are the links you see and they hold bodies together. Bonded cells share the cost of living (up to 15% less upkeep), shade each other less and are armoured against attack. They still pay crowding beyond their bond partners, disperse poorly and their inner cells struggle to reach silt to divide. Species without adhesion are free-living.',
   bond: 'A spring between two cells of the same species. Drawn as a link. A connected web of bonds is one organism.',
   organism: 'A body: all same-species cells connected through bonds. A species only forms bodies if its adhesion is above 15%; otherwise every cell is its own organism, even when the species has several cell types (morphs) or gathers into swarms.',
@@ -67,7 +69,7 @@ const t = (term, label) => `<span class="term" data-tip="${term}">${label}</span
 export const GUIDE = [
   {
     id: 'overview', title: 'What you are looking at',
-    html: `<p>Tidemote is a sealed world on the surface of a torus: what leaves one edge enters the opposite one. Every point is one particle, and the total number never changes. Particles only change form: inert ${t('silt', 'silt')}, charged ${t('glint', 'glint')}, living cells, and dead ${t('husk', 'husks')}.</p>
+    html: `<p>Tidemote is a sealed world on the surface of a torus: what leaves one edge enters the opposite one. Every point is one particle, and the total number never changes. Particles only change form: inert ${t('silt', 'silt')}, charged ${t('glint', 'glint')}, living cells, dead ${t('husk', 'husks')}, and ${t('stone', 'stone')}: the world's bedrock and the reefs that calcifying cells leave behind.</p>
 <p>Energy is the only thing that enters and leaves. It arrives as ${t('light', 'light')} and as glint charged by the ${t('tide', 'Tide')}, and it is lost as cells pay ${t('upkeep', 'upkeep')}, as glint fades and as husks decay. Everything you see grows out of a handful of local rules applied to every particle 60 times a second.</p>`,
   },
   {
@@ -77,7 +79,7 @@ export const GUIDE = [
 <li><b>Feeding.</b> Cells eat glint, husks, or other cells (${t('flesh', 'flesh')}), according to their ${t('diet', 'diet')}. Eaten glint and husks turn into silt; a killed cell becomes a husk. Photosynthetic cells drink ${t('light', 'light')} instead, and are only cropped a bite at a time. Cells stop feeding once they have enough energy to divide.</li>
 <li><b>Division.</b> Once its energy passes its ${t('dividesat', 'division threshold')} and a grain of silt lies within 0.25 cells, a cell turns that grain into its child and hands over a ${t('childshare', 'share')} of its energy. Every child is built out of silt.</li>
 <li><b>Mutation.</b> Each division has a small chance of founding a new species with a nudged genome.</li>
-<li><b>Death.</b> At zero energy (starvation) or at its ${t('lifespan', 'lifespan')} a cell becomes a husk carrying leftover energy. Husks decay and crumble into silt.</li>
+<li><b>Death.</b> At zero energy (starvation) or at its ${t('lifespan', 'lifespan')} a cell becomes a husk carrying leftover energy. Husks decay and crumble into silt. A settled ${t('calcify', 'calcifying')} cell may leave ${t('stone', 'stone')} instead, mostly beside stone already there; stone wears back into silt over minutes.</li>
 <li><b>Sparks.</b> Occasionally glint sparks into a completely random new species (${t('abiogenesis', 'abiogenesis')}), so life can always restart.</li>
 </ol>`,
   },

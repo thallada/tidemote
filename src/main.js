@@ -34,8 +34,9 @@ const MATTER = [
   { name: 'Silt', css: '#566079', blurb: 'Inert mineral grit carried on the currents. The Tide charges it into glint, and cells build their offspring out of it.' },
   { name: 'Glint', css: '#b9e6ff', blurb: 'Silt charged by the Tide: free-floating food. Its charge fades back to silt if nothing eats it.' },
   { name: 'Husk', css: '#8a6247', blurb: 'The remains of a dead cell. Scavengers feed on what energy is left; the rest crumbles back into silt.' },
+  { name: 'Stone', css: '#b8ae9f', blurb: 'Bedrock, or the skeleton a calcifying cell left where it settled. Stone never drifts and the living cannot pass through it. Prey shelters in its crevices, clinging cells grip it against the currents, and it slowly wears back into silt.' },
 ];
-const CAUSE = { 0: '', 1: 'starved', 2: 'died of old age', 3: 'was consumed', 4: 'crumbled from a husk', 5: 'charged by the Tide', 6: 'faded back to silt', 8: 'sparked into life from glint', 9: 'built from silt by its parent' };
+const CAUSE = { 0: '', 1: 'starved', 2: 'died of old age', 3: 'was consumed', 4: 'crumbled from a husk', 5: 'charged by the Tide', 6: 'faded back to silt', 7: 'wore away from stone', 8: 'sparked into life from glint', 9: 'built from silt by its parent' };
 const SHAPES = ['disc', 'ring', 'star', 'nucleus', 'diamond'];
 const ROLE = ['α', 'β', 'γ'];
 
@@ -201,7 +202,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function resetLife() {
     life = {
       reg: new Map(), genera: new Map(), orphan: new Map(), chronicle: [], history: [], histEvery: 3, lastHist: -1e9,
-      counts: [0, 0, 0, 0], roles: [0, 0, 0], alive: 0, thriving: 0, arisen: 0, maxDepth: 0, top: 0, lastCensus: null, matter: [],
+      counts: [0, 0, 0, 0, 0], roles: [0, 0, 0], alive: 0, thriving: 0, arisen: 0, maxDepth: 0, top: 0, lastCensus: null, matter: [],
       estThreshold: 30, births: 0, prevG: null, prevT: 0,
     };
     renderEvents();
@@ -282,14 +283,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const spLink = (serial, name) => `<a href="#" class="sp" data-serial="${serial}">${esc(name)}</a>`;
 
   // ------------------------------------------------------------ focus (dim everything outside a filter)
-  const focus = { key: null, label: '', pred: null, roleMask: 7, stateMode: 0, matter: [false, false, false] };
+  const focus = { key: null, label: '', pred: null, roleMask: 7, stateMode: 0, matter: [false, false, false, false] };
   let members = null;
   let memberKind = NONE;
   function pushFocus() {
     let kinds = null;
     if (focus.key) {
       kinds = new Uint32Array(MAXK / 32);
-      for (let m = 0; m < 3; m++) if (focus.matter[m]) kinds[0] |= 1 << m;
+      for (let m = 0; m < 4; m++) if (focus.matter[m]) kinds[0] |= 1 << m;
       const c = life.lastCensus;
       if (c && focus.pred) {
         for (let s = FIRST_LIFE; s < MAXK; s++) {
@@ -322,7 +323,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const [kind, val] = key.split(':');
     if (kind === 'class') {
       if (val === 'living') setFocus(key, 'All living cells', { pred: allLiving });
-      else setFocus(key, MATTER[{ silt: 0, glint: 1, husk: 2 }[val]].name, { matter: [val === 'silt', val === 'glint', val === 'husk'] });
+      else setFocus(key, MATTER[{ silt: 0, glint: 1, husk: 2, stone: 3 }[val]].name, { matter: [val === 'silt', val === 'glint', val === 'husk', val === 'stone'] });
     } else if (kind === 'role') setFocus(key, `${ROLE[+val]}-cells`, { pred: allLiving, roleMask: 1 << +val });
     else if (kind === 'state') setFocus(key, ['', 'Hungry cells', 'Cells ready to divide', 'Elderly cells'][+val], { pred: allLiving, stateMode: +val });
     else if (kind === 'diet') setFocus(key, `Diet: ${val}`, { pred: (g) => facets(g, K).diet === val });
@@ -432,9 +433,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     life.lastCensus = c;
     const pop = c.pop;
     const t = c.simTime;
-    life.counts = [pop[0], pop[1], pop[2], 0];
+    life.counts = [pop[0], pop[1], pop[2], 0, pop[3]];
     life.roles = [c.globals[12], c.globals[13], c.globals[14]];
-    life.matter = [0, 1, 2].map((s) => readGenome(c.genomeU32, c.genomeF32, s));
+    life.matter = [0, 1, 2, 3].map((s) => readGenome(c.genomeU32, c.genomeF32, s));
     life.arisen = c.globals[1];
     life.births = c.globals[2];
     const seen = new Set();
@@ -534,11 +535,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const classRows = $('classes');
   function renderCensus() {
     const N = Math.max(1, eng.count);
-    const [silt, glint, husk, living] = life.counts;
+    const [silt, glint, husk, living, stone] = life.counts;
     const rows = [
       ['Living', living, 'var(--warm)', 'living', 'class:living'],
       ['Glint', glint, MATTER[1].css, 'glint', 'class:glint'],
       ['Husk', husk, MATTER[2].css, 'husk', 'class:husk'],
+      ['Stone', stone, MATTER[3].css, 'stone', 'class:stone'],
       ['Silt', silt, MATTER[0].css, 'silt', 'class:silt'],
     ];
     if (!classRows.firstChild) {
@@ -733,6 +735,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (a.kind >= FIRST_LIFE && b.kind === 2) return `Died: ${b.cause === 2 ? 'old age' : b.cause === 3 ? 'killed by a hunter or grazed away' : 'starved'} at age ${fmtDur(a.age)}. Its body is now a husk.`;
     if (a.kind >= FIRST_LIFE && b.kind === 0) return 'Was eaten. What remained is silt.';
     if (a.kind >= FIRST_LIFE && b.kind >= FIRST_LIFE) return 'Changed species.';
+    if (a.kind >= FIRST_LIFE && b.kind === 3) return `Died: ${b.cause === 2 ? 'old age' : 'starved'} at age ${fmtDur(a.age)}. Its skeleton is now stone.`;
+    if (a.kind === 3 && b.kind === 0) return 'The stone wore away into silt.';
     if (a.kind === 2 && b.kind === 0) return b.cause === 3 ? 'The husk was eaten by a scavenger.' : 'The husk crumbled into silt.';
     if (a.kind === 0 && b.kind === 1) return 'Charged into glint by the Tide.';
     if (a.kind === 1 && b.kind === 0) return b.cause === 3 ? 'The glint was eaten by a cell.' : 'The glint faded back into silt.';
@@ -957,6 +961,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const sh = roleShares(g);
     html += compRow('Body plan', 'bodyplan', sh, g, (v, r) => `${ROLE[r]} ${Math.round(v * 100)}%`);
     html += traitRow('Adhesion', g.adhesion || 0, 0, 1, `${Math.round((g.adhesion || 0) * 100)}%${(g.adhesion || 0) > K.adhMin ? ' · bonds' : ' · no bonds'}`, 'adhesion');
+    if (g.calcify > 0.005) html += traitRow('Calcifying', g.calcify, 0, 1, `${Math.round(g.calcify * 100)}%`, 'calcify');
     html += traitRow('Swimming', g.swim * (1 - g.photo), 0, 3, (g.swim * (1 - g.photo)).toFixed(2), 'swimming');
     html += traitRow('Schooling', g.align, 0, 1, `${Math.round(g.align * 100)}%`, 'schooling');
     html += traitRow('Reach', g.radius, 0.4, 1, g.radius.toFixed(2), 'reach');
@@ -978,7 +983,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const list = [];
     for (let r = 0; r < 3; r++) if (sh[r] > 0.05) list.push({ name: `Own ${ROLE[r]}-cells`, v: affinity(g, role, g, r, K), css: cssRgb(roleColor(g, r)) });
     for (const s2 of others.slice(0, 4)) list.push({ name: spLink(s2.serial, s2.name), raw: true, v: affinity(g, role, s2.genome, 0, K), css: cssCol(s2.genome.col) });
-    for (let m = 0; m < 3; m++) if (life.matter[m]) list.push({ name: MATTER[m].name, v: affinity(g, role, life.matter[m], 0, K) * K.matterPull, css: MATTER[m].css });
+    for (let m = 0; m < 4; m++) if (life.matter[m]) list.push({ name: MATTER[m].name, v: affinity(g, role, life.matter[m], 0, K) * K.matterPull, css: MATTER[m].css });
     html += `<div class="sect"><div class="eyebrow">${ROLE[role]}-cells pull toward · flee</div><div class="aff">`;
     for (const it of list) html += `<div><i style="background:${it.css}"></i><span>${it.raw ? it.name : esc(it.name)}</span>${dbar(it.v)}<b>${it.v >= 0 ? '+' : ''}${it.v.toFixed(2)}</b></div>`;
     return html + '</div></div>';
@@ -1022,10 +1027,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (kind < FIRST_LIFE) {
         const m = MATTER[kind];
         const lightHere = Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H, eng.simTime, eng.tide, eng.tidePh) * eng.season) * 100);
-        $('ins-kind').textContent = mem ? `Now ${m.name.toLowerCase()} · once a cell of` : kind === 2 ? 'Remains' : 'Matter';
+        $('ins-kind').textContent = mem ? `Now ${m.name.toLowerCase()} · once a cell of` : kind === 2 ? 'Remains' : kind === 3 ? 'Structure' : 'Matter';
         $('ins-name').textContent = mem && mem.sp ? mem.sp.name : m.name;
         $('ins-sub').textContent = sel.lost ? 'Lost track of this particle.' : mem && sel.diedAt != null ? `died ${fmtDur(eng.simTime - sel.diedAt)} ago · particle ${fmt(p.id)}` : `particle ${fmt(p.id)}${CAUSE[p.cause] ? ` · ${CAUSE[p.cause]}` : ''}`;
-        drawGlyph(kind === 1 ? 2 : kind === 2 ? 1 : 0, kind === 0 ? 0xff796056 : kind === 1 ? 0xffffe6b9 : 0xff47628a);
+        drawGlyph(kind === 1 ? 2 : kind === 2 ? 1 : 0, kind === 0 ? 0xff796056 : kind === 1 ? 0xffffe6b9 : kind === 3 ? 0xff9faeb8 : 0xff47628a);
         html += storyHTML();
         if (mem) html += '<button type="button" class="wide" data-act="relative">Watch a surviving relative</button>';
         html += `<div class="sect"><div class="eyebrow">Now: ${term(m.name.toLowerCase(), m.name.toLowerCase())}</div><p class="note">${m.blurb}</p>`;
@@ -1037,7 +1042,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
           html += row('Crumbles in', `~${fmtDur(Math.max(0, (p.energy - K.huskMin) / K.decay))}`);
           html += row('Cause of death', CAUSE[p.cause] || 'unknown');
         }
-        html += row(kind === 2 ? 'Dead for' : 'In this state', fmtDur(p.age));
+        if (kind === 3) html += row('Wears away in', `~${fmtDur(Math.max(0, p.energy))}`, 'stone');
+        html += row(kind === 2 ? 'Dead for' : kind === 3 ? 'Stone for' : 'In this state', fmtDur(p.age));
         html += row('Light here', `${lightHere}%`, 'lighthere');
         html += '</div>';
         if (mem) {

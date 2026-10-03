@@ -119,7 +119,7 @@ export function createLab(api) {
 
   function renderComposition() {
     const life = api.life();
-    const [silt, glint, husk, living] = life.counts;
+    const [silt, glint, husk, living, stone] = life.counts;
     const roles = life.roles || [0, 0, 0];
     const groups = api.groups();
     let html = '<p class="muted">Click any bar to highlight it in the simulation. Everything else is dimmed until you clear the highlight.</p>';
@@ -127,6 +127,7 @@ export function createLab(api) {
       { key: 'class:living', label: 'Living cells', n: living, col: 'var(--warm)', tip: 'living' },
       { key: 'class:glint', label: 'Glint', n: glint, col: MATTER[1].css, tip: 'glint' },
       { key: 'class:husk', label: 'Husk', n: husk, col: MATTER[2].css, tip: 'husk' },
+      { key: 'class:stone', label: 'Stone', n: stone, col: MATTER[3].css, tip: 'stone' },
       { key: 'class:silt', label: 'Silt', n: silt, col: MATTER[0].css, tip: 'silt' },
     ]);
     html += bars('Cell types', ROLE.map((r, i) => ({ key: `role:${i}`, label: `${r}-cells`, n: roles[i], col: ['#ffb45e', '#b38cff', '#5fd4c4'][i] })), 'celltype');

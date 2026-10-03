@@ -538,8 +538,29 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
     // energy taken per bite from a photosynthesising cell
     eatEvery: 6,
     // frames between meals
-    dietMin: 0.02
+    dietMin: 0.02,
     // share of the diet a food must have before a cell bothers to eat it
+    // Stone: calcified remains and bedrock. Immobile, solid to the living, slowly eroding back to silt.
+    calcCost: 0.012,
+    // upkeep of a fully calcifying cell (× metab)
+    stoneLife: 200,
+    // seconds a reef stone lasts on average before it crumbles to silt
+    nucleate: 0.1,
+    // chance of leaving stone away from other stone, relative to beside it: reefs accrete
+    rockLife: 3e3,
+    // ...and a grain of bedrock
+    rocks: 1,
+    // scales each world's bedrock outcrops (0: none)
+    stoneR: 0.32,
+    // distance within which stone pushes cells away
+    stoneWall: 5,
+    // how hard stone pushes
+    refuge: 0.12,
+    // chance per nearby grain of stone that an attack made from among stone misses...
+    refugeMax: 0.6,
+    // ...up to this
+    holdfast: 0.85
+    // how much nearby stone shelters an adhesive cell from the currents
   };
   var f = (x) => {
     const s = String(x);
@@ -553,6 +574,7 @@ const FIRST_LIFE = 4u;
 const SILT = 0u;
 const GLINT = 1u;
 const HUSK = 2u;
+const STONE = 3u;
 const NONE = 0xffffffffu;
 const MAX_CELLS = 262144u;
 const META_SLOT = ${META_SLOT}u;
@@ -574,7 +596,7 @@ struct Genome {
   shape: f32, pulse: f32, roleHue: f32, advect: f32,
   swim: f32, align: f32, photo: f32, col: u32,
   parent: u32, serial: u32, born: f32, depth: u32,
-  adhesion: f32, gp0: f32, gp1: f32, gp2: f32,
+  adhesion: f32, calcify: f32, gp1: f32, gp2: f32,
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
@@ -614,6 +636,7 @@ struct Sim {
   waves: array<vec4f, 4>,
   tide: array<vec4f, 4>,
   tidePh: vec4f,
+  rock: vec4f,
 };
 // kr: 0..9 kind, 10..11 role, 12 plant.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
@@ -687,7 +710,7 @@ fn addEnergy(guild: u32, slot: u32, e: f32) {
 
 fn deriveMetab(g: Genome) -> f32 {
   return (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
-        + ${f(K.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K.swimCost)} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion) * ${f(K.metab)};
+        + ${f(K.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K.swimCost)} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion + ${f(K.calcCost)} * g.calcify) * ${f(K.metab)};
 }
 
 fn finalize(g: ptr<function, Genome>) {
@@ -762,6 +785,8 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   g.align = clamp(g.align + gauss(s) * m * 0.3, 0.0, 1.0);
   g.photo = clamp(g.photo + gauss(s) * m * 0.25, 0.0, 1.0);
   g.adhesion = clamp(g.adhesion + gauss(s) * m * 0.25, 0.0, 1.0);
+  g.calcify = clamp(g.calcify + gauss(s) * m * 0.2, 0.0, 1.0);
+  if (rnd(s) < m * 0.1) { g.calcify = select(0.0, mix(0.2, 0.8, rnd(s)), g.calcify < 0.05); }
   if (rnd(s) < m * 0.15) { g.adhesion = select(0.0, mix(0.3, 1.0, rnd(s)), g.adhesion < 0.15); }
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
@@ -805,12 +830,33 @@ fn randomInto(slot: u32, s: ptr<function, u32>) {
   g.photo = select(0.0, ph, ph > 0.5);
   let ad = rnd(s);
   g.adhesion = select(0.0, ad, ad > 0.5);
+  let ca = rnd(s);
+  g.calcify = select(0.0, ca, ca > 0.7);
   g.parent = 0u;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
   g.depth = 0u;
   finalize(&g);
   genomes[slot] = g;
+}
+
+// Bedrock: sim.rock.x outcrops, each a wandering chain of five discs of radius about sim.rock.y.
+fn inRock(p: vec2f) -> bool {
+  for (var b = 0u; b < u32(sim.rock.x); b++) {
+    var s = pcg(sim.seed ^ pcg(b * 7919u + 17u));
+    var c = vec2f(rnd(&s), rnd(&s)) * sim.world;
+    var a = rnd(&s) * TAU;
+    let r0 = sim.rock.y * (0.5 + rnd(&s));
+    for (var k = 0u; k < 5u; k++) {
+      let r = r0 * (0.6 + 0.6 * rnd(&s));
+      var d = p - c;
+      d -= sim.world * round(d / sim.world);
+      if (dot(d, d) < r * r) { return true; }
+      a += (rnd(&s) - 0.5) * 1.6;
+      c += vec2f(cos(a), sin(a)) * r * 1.3;
+    }
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------- seeding
@@ -846,6 +892,9 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
     col = pack4x8unorm(vec4f(roleColor(g, r), 1.0));
     age = rnd(&s) * g.lifespan * 0.6;
     info = r << 4u;
+  }
+  if (kind == SILT && sim.rock.x > 0.0 && inRock(pos)) {
+    kind = STONE; e = ${f(K.rockLife)} * (0.5 + rnd(&s)); col = pack4x8unorm(vec4f(0.46, 0.42, 0.38, 1.0));
   }
   parts[i] = Particle(pos, vec2f(0.0), kind, e, age, i, col, info);
 }
@@ -1028,6 +1077,18 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u) {
   if (i >= sim.count) { return; }
   var p = sortedFull[i];
   if (p.kind >= FIRST_LIFE) { return; }
+  if (p.kind == STONE) {
+    // stone stays put and wears away; its energy is the time it has left
+    p.energy -= sim.dt;
+    p.age += sim.dt;
+    p.vel = vec2f(0.0);
+    if (p.energy <= 0.0) {
+      p.kind = SILT; p.energy = 0.0; p.age = 0.0;
+      p.info = (p.info & 0xffffffc0u) | 7u;
+    }
+    parts[i] = p;
+    return;
+  }
   var s = pcg((p.id * 1664525u) ^ pcg(sim.frame * 2654435761u + sim.seed));
   let jit = vec2f(rnd(&s) - 0.5, rnd(&s) - 0.5) * ${f(K.jitter)};
   var vel = flowAt(p.pos) + jit;
@@ -1113,6 +1174,8 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   var n1 = NONE; var n2 = NONE;
   var food = NONE; var foodScore = -1e9;
   var silt = NONE; var siltD = 1e9;
+  var stoneF = vec2f(0.0);
+  var stoneN = 0.0;
   var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
 
   // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam).
@@ -1198,17 +1261,23 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
         }
       } else {
         fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);
-        if (hungry && qk != SILT && x >= beta) {
-          fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)} * shape;
-        }
-        if (qk == SILT) { nutr += 1.0; }
-        if (r < EAT_R) {
-          if (qk == SILT) {
-            if (r < siltD) { siltD = r; silt = j; }
-          } else if (hungry) {
-            let dv = select(g.dHusk, g.dGlint, qk == GLINT);
-            let sc = dv - r;
-            if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+        if (qk == STONE) {
+          // stone is solid: it pushes cells out however hard they swim, and shelters those among it
+          if (r < ${f(K.stoneR)}) { stoneF += d * ((r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r)); }
+          if (r < 0.5) { stoneN += 1.0; }
+        } else {
+          if (hungry && qk != SILT && x >= beta) {
+            fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)} * shape;
+          }
+          if (qk == SILT) { nutr += 1.0; }
+          if (r < EAT_R) {
+            if (qk == SILT) {
+              if (r < siltD) { siltD = r; silt = j; }
+            } else if (hungry) {
+              let dv = select(g.dHusk, g.dGlint, qk == GLINT);
+              let sc = dv - r;
+              if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+            }
           }
         }
       }
@@ -1216,7 +1285,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
     }
     at -= len;
   }
-  force *= stride; crowd *= stride; nutr *= stride; kinVel *= stride; kinN *= stride;
+  force *= stride; crowd *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride;
 
   let heavy = 1.0 - 0.7 * g.photo;
   let fr0 = pow(0.5, sim.dt / g.drag);
@@ -1229,6 +1298,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   if (n1 != NONE) { bondF += dn1 * ((d1 - LINK_R * 0.55) / max(d1, 1e-4)); }
   if (n2 != NONE) { bondF += dn2 * ((d2 - LINK_R * 0.55) / max(d2, 1e-4)); }
   vel += bondF * (g.adhesion * ${f(K.bond)} * sim.dt);
+  vel += stoneF * (${f(K.stoneWall)} * sim.dt);
   let swim = g.swim * (1.0 - g.photo);
   if (swim > 0.0) {
     var dir = vel;
@@ -1240,7 +1310,9 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   }
   let sp = length(vel);
   if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
-  let pos = wrapPos(p.pos + (vel + flowAt(p.pos) * g.advect) * sim.dt);
+  // adhesive cells grip nearby stone against the currents
+  let hold = clamp(stoneN * 0.25, 0.0, 1.0) * g.adhesion * ${f(K.holdfast)};
+  let pos = wrapPos(p.pos + (vel + flowAt(p.pos) * g.advect * (1.0 - hold)) * sim.dt);
 
   var col = unpack4x8unorm(p.col).rgb;
   if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }
@@ -1294,7 +1366,9 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
     let image = (info >> 6u) & 1023u;
     let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(&s) < ${f(K.searchImage)};
     let unskilled = ${f(K.catchSkill)} > 0.0 && fk >= FIRST_LIFE && rnd(&s) >= min(1.0, eatEff * select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, genomes[fk].photo > 0.4) / ${f(K.catchSkill)});
-    if (!armored && !unfamiliar && !unskilled && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
+    // an attack made from among stone often misses: prey hides in the crevices
+    let sheltered = fk >= FIRST_LIFE && rnd(&s) < min(${f(K.refugeMax)}, stoneN * ${f(K.refuge)});
+    if (!armored && !unfamiliar && !unskilled && !sheltered && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
       let fp = sortedFull[food];
       if (fp.kind >= FIRST_LIFE) {
         atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
@@ -1328,6 +1402,11 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
     info = (info & 0xffffffc0u) | 2u;
     atomicAdd(&ledger[6], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 2u], 1u);
+  }
+  // calcifying cells that settled leave their skeleton as stone, in their own colour, mostly where
+  // stone already is, so reefs grow outward from rock and from the rare place one starts
+  if (kind == HUSK && g.calcify > 0.0 && rnd(&s) < g.calcify * (1.0 - g.advect) * select(${f(K.nucleate)}, 1.0, stoneN >= 1.0)) {
+    kind = STONE; E = ${f(K.stoneLife)} * (0.5 + rnd(&s)); vel = vec2f(0.0);
   }
   let childGen = ((genOf(p.info) + 1u) & 0xffffu) << 14u;
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(ce), n1, n2);
@@ -1526,6 +1605,11 @@ struct PO {
     shape = 5u;
     let tw = 0.6 + 0.4 * sin(view.time * 6.0 + f32(p.id % 977u));
     col = vec3f(0.7, 0.93, 1.0) * (0.4 + p.energy) * tw * view.matterGain * 2.0;
+  } else if (k == STONE) {
+    // stone: chalky and matte, tinted by the species that built it
+    size = 3.2;
+    shape = 6u;
+    col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 0.9;
   } else {
     size = 0.62;
     shape = 1u;
@@ -1579,6 +1663,10 @@ struct PO {
         let a = abs(i.uv);
         let t = max(0.0, 1.0 - a.x * a.y * 40.0 - d2 * 0.7);
         f = t * t * (1.0 - d2);
+      }
+      case 6u: {
+        // stone: flat and hard-edged, so neighbouring grains merge into one solid mass
+        f = 1.0 - smoothstep(0.7, 1.0, d2);
       }
       default: {
         let t = 1.0 - d2;
@@ -1930,6 +2018,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     }
   };
   var ADHESION = { reef: 0.85, plankton: 0, grazer: 0, crawler: 0.75, hunter: 0.6, scavenger: 0.25, filament: 0.9 };
+  var CALCIFY = { reef: [0.4, 0.9], filament: [0, 0.3] };
   var ARCHETYPE_TYPES = Object.keys(ARCHETYPES);
   function archetypeGenome(type, r = Math.random, K = DEFAULT_K) {
     const A = ARCHETYPES[type];
@@ -1974,7 +2063,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       born: 0,
       depth: 0,
       archetype: type,
-      adhesion: ADHESION[type] ?? 0
+      adhesion: ADHESION[type] ?? 0,
+      calcify: CALCIFY[type] ? mix(...CALCIFY[type], r()) : 0
     };
     return finalizeGenome(g, K);
   }
@@ -1983,7 +2073,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     g.dGlint /= s;
     g.dHusk /= s;
     g.dFlesh /= s;
-    g.metab = (0.012 + 32e-4 * g.force + 0.012 * g.radius + 12e-5 * g.lifespan + (K.anchorCost ?? 0) * (1 - g.advect) + 4e-3 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 6e-3 * g.align + 4e-3 * (g.adhesion || 0)) * K.metab;
+    g.metab = (0.012 + 32e-4 * g.force + 0.012 * g.radius + 12e-5 * g.lifespan + (K.anchorCost ?? 0) * (1 - g.advect) + 4e-3 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 6e-3 * g.align + 4e-3 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0)) * K.metab;
     g.col = packUnorm(...roleColor(g, 0));
     return g;
   }
@@ -2031,6 +2121,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     f32[o + 42] = g.born || 0;
     u32[o + 43] = g.depth >>> 0;
     f32[o + 44] = g.adhesion || 0;
+    f32[o + 45] = g.calcify || 0;
   }
   var genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
   function readGenome(u32, f32, slot) {
@@ -2073,7 +2164,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       serial: u32[o + 41],
       born: f32[o + 42],
       depth: u32[o + 43],
-      adhesion: f32[o + 44]
+      adhesion: f32[o + 44],
+      calcify: f32[o + 45]
     };
   }
   function parseParticle(u32, f32, o) {
@@ -2466,7 +2558,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       this.seedValue = 1;
       this.censusEvery = 20;
       this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1, tide: 1 };
-      this.simData = new ArrayBuffer(224);
+      this.simData = new ArrayBuffer(240);
+      this.rock = new Float32Array(4);
       this.simF = new Float32Array(this.simData);
       this.simU = new Uint32Array(this.simData);
       this.waves = new Float32Array(16);
@@ -2487,7 +2580,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       this.b = {};
       const d = device;
       const b = this.b;
-      b.sim = d.createBuffer({ size: 224, usage: U.UNIFORM | U.COPY_DST });
+      b.sim = d.createBuffer({ size: 240, usage: U.UNIFORM | U.COPY_DST });
       b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
       this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
       b.view = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
@@ -2760,14 +2853,18 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       this.randomizeTide(rng);
       this.randomizeCurrents(rng);
       const silt = mix2(0.42, 0.58, rng()), glint = mix2(0.06, 0.18, rng()), husk = mix2(0.02, 0.06, rng());
+      const cells = this.grid[0] * this.grid[1];
+      const rockR = mix2(1.2, 3, rng());
+      const cover = rng() ** 1.5 * 0.08 * this.K.rocks;
+      this.rock.set([Math.min(256, Math.round(cover * cells / (10 * rockR * rockR))), rockR, 0, 0]);
       const clump = rng();
       const conc = mix2(3, 10, rng());
       const spread = Math.sqrt(this.grid[0] * this.grid[1] / (conc * 2.5 * 2 * Math.PI));
       const gbuf = new ArrayBuffer(MAXK * G_BYTES);
       const gu = new Uint32Array(gbuf);
       const gf = new Float32Array(gbuf);
-      const matterCols = [[0.3, 0.34, 0.46], [0.7, 0.93, 1], [0.5, 0.35, 0.25]];
-      for (let m = 0; m < 3; m++) {
+      const matterCols = [[0.3, 0.34, 0.46], [0.7, 0.93, 1], [0.5, 0.35, 0.25], [0.62, 0.57, 0.5]];
+      for (let m = 0; m < 4; m++) {
         const g = archetypeGenome("plankton", rng, this.K);
         g.col = packUnorm(...matterCols[m]);
         writeGenome(gu, gf, m, g);
@@ -2869,6 +2966,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       f2.set(this.waves, 20);
       f2.set(this.tide, 36);
       f2.set(this.tidePh, 52);
+      f2.set(this.rock, 56);
     }
     requestPick(center, radius, selId, { kind = 4294967295, maxOut = 4096, raw = false } = {}) {
       return new Promise((resolve) => {
@@ -3415,6 +3513,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     predator: "Mostly eats flesh: hunts animal cells, and crops plants only reluctantly.",
     celltype: "α, β and γ cells of one species share a genome but each has its own surface and receptor signature, so each type is pulled toward and away from things differently. Types also differ in colour tint, size and shape.",
     bodyplan: "The long-run mix of cell types a species produces. Each child’s type is chosen by a developmental rule from its parent’s type; this is where that rule settles.",
+    stone: "Bedrock, and the skeletons of calcifying cells. Stone never drifts and the living cannot pass through it. Attacks made from among stone often miss, so prey shelters in reefs; adhesive cells grip nearby stone against the currents. Bedrock lasts nearly an hour, a reef grain a few minutes, so a reef persists only while it is being built.",
+    calcify: "How much of a skeleton a cell lays down. Calcifying costs upkeep. When a settled calcifying cell dies of hunger or old age it may leave stone instead of a husk, far more often beside stone already there, so reefs grow outward from rock and from the rare place one starts. Drifting cells seldom leave stone.",
     adhesion: "How strongly cells of one species bond. Above 15%, each cell bonds to its two nearest same-species neighbours with a spring. Bonds are the links you see and they hold bodies together. Bonded cells share the cost of living (up to 15% less upkeep), shade each other less and are armoured against attack. They still pay crowding beyond their bond partners, disperse poorly and their inner cells struggle to reach silt to divide. Species without adhesion are free-living.",
     bond: "A spring between two cells of the same species. Drawn as a link. A connected web of bonds is one organism.",
     organism: "A body: all same-species cells connected through bonds. A species only forms bodies if its adhesion is above 15%; otherwise every cell is its own organism, even when the species has several cell types (morphs) or gathers into swarms.",
@@ -3461,7 +3561,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     {
       id: "overview",
       title: "What you are looking at",
-      html: `<p>Tidemote is a sealed world on the surface of a torus: what leaves one edge enters the opposite one. Every point is one particle, and the total number never changes. Particles only change form: inert ${t("silt", "silt")}, charged ${t("glint", "glint")}, living cells, and dead ${t("husk", "husks")}.</p>
+      html: `<p>Tidemote is a sealed world on the surface of a torus: what leaves one edge enters the opposite one. Every point is one particle, and the total number never changes. Particles only change form: inert ${t("silt", "silt")}, charged ${t("glint", "glint")}, living cells, dead ${t("husk", "husks")}, and ${t("stone", "stone")}: the world's bedrock and the reefs that calcifying cells leave behind.</p>
 <p>Energy is the only thing that enters and leaves. It arrives as ${t("light", "light")} and as glint charged by the ${t("tide", "Tide")}, and it is lost as cells pay ${t("upkeep", "upkeep")}, as glint fades and as husks decay. Everything you see grows out of a handful of local rules applied to every particle 60 times a second.</p>`
     },
     {
@@ -3472,7 +3572,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 <li><b>Feeding.</b> Cells eat glint, husks, or other cells (${t("flesh", "flesh")}), according to their ${t("diet", "diet")}. Eaten glint and husks turn into silt; a killed cell becomes a husk. Photosynthetic cells drink ${t("light", "light")} instead, and are only cropped a bite at a time. Cells stop feeding once they have enough energy to divide.</li>
 <li><b>Division.</b> Once its energy passes its ${t("dividesat", "division threshold")} and a grain of silt lies within 0.25 cells, a cell turns that grain into its child and hands over a ${t("childshare", "share")} of its energy. Every child is built out of silt.</li>
 <li><b>Mutation.</b> Each division has a small chance of founding a new species with a nudged genome.</li>
-<li><b>Death.</b> At zero energy (starvation) or at its ${t("lifespan", "lifespan")} a cell becomes a husk carrying leftover energy. Husks decay and crumble into silt.</li>
+<li><b>Death.</b> At zero energy (starvation) or at its ${t("lifespan", "lifespan")} a cell becomes a husk carrying leftover energy. Husks decay and crumble into silt. A settled ${t("calcify", "calcifying")} cell may leave ${t("stone", "stone")} instead, mostly beside stone already there; stone wears back into silt over minutes.</li>
 <li><b>Sparks.</b> Occasionally glint sparks into a completely random new species (${t("abiogenesis", "abiogenesis")}), so life can always restart.</li>
 </ol>`
     },
@@ -3684,7 +3784,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     }
     function renderComposition() {
       const life = api.life();
-      const [silt, glint, husk, living] = life.counts;
+      const [silt, glint, husk, living, stone] = life.counts;
       const roles = life.roles || [0, 0, 0];
       const groups = api.groups();
       let html = '<p class="muted">Click any bar to highlight it in the simulation. Everything else is dimmed until you clear the highlight.</p>';
@@ -3692,6 +3792,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         { key: "class:living", label: "Living cells", n: living, col: "var(--warm)", tip: "living" },
         { key: "class:glint", label: "Glint", n: glint, col: MATTER2[1].css, tip: "glint" },
         { key: "class:husk", label: "Husk", n: husk, col: MATTER2[2].css, tip: "husk" },
+        { key: "class:stone", label: "Stone", n: stone, col: MATTER2[3].css, tip: "stone" },
         { key: "class:silt", label: "Silt", n: silt, col: MATTER2[0].css, tip: "silt" }
       ]);
       html += bars("Cell types", ROLE2.map((r, i) => ({ key: `role:${i}`, label: `${r}-cells`, n: roles[i], col: ["#ffb45e", "#b38cff", "#5fd4c4"][i] })), "celltype");
@@ -4163,9 +4264,10 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   var MATTER = [
     { name: "Silt", css: "#566079", blurb: "Inert mineral grit carried on the currents. The Tide charges it into glint, and cells build their offspring out of it." },
     { name: "Glint", css: "#b9e6ff", blurb: "Silt charged by the Tide: free-floating food. Its charge fades back to silt if nothing eats it." },
-    { name: "Husk", css: "#8a6247", blurb: "The remains of a dead cell. Scavengers feed on what energy is left; the rest crumbles back into silt." }
+    { name: "Husk", css: "#8a6247", blurb: "The remains of a dead cell. Scavengers feed on what energy is left; the rest crumbles back into silt." },
+    { name: "Stone", css: "#b8ae9f", blurb: "Bedrock, or the skeleton a calcifying cell left where it settled. Stone never drifts and the living cannot pass through it. Prey shelters in its crevices, clinging cells grip it against the currents, and it slowly wears back into silt." }
   ];
-  var CAUSE = { 0: "", 1: "starved", 2: "died of old age", 3: "was consumed", 4: "crumbled from a husk", 5: "charged by the Tide", 6: "faded back to silt", 8: "sparked into life from glint", 9: "built from silt by its parent" };
+  var CAUSE = { 0: "", 1: "starved", 2: "died of old age", 3: "was consumed", 4: "crumbled from a husk", 5: "charged by the Tide", 6: "faded back to silt", 7: "wore away from stone", 8: "sparked into life from glint", 9: "built from silt by its parent" };
   var SHAPES = ["disc", "ring", "star", "nucleus", "diamond"];
   var ROLE = ["α", "β", "γ"];
   function fail(title, detail) {
@@ -4359,7 +4461,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         history: [],
         histEvery: 3,
         lastHist: -1e9,
-        counts: [0, 0, 0, 0],
+        counts: [0, 0, 0, 0, 0],
         roles: [0, 0, 0],
         alive: 0,
         thriving: 0,
@@ -4448,14 +4550,14 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       };
     }
     const spLink = (serial, name) => `<a href="#" class="sp" data-serial="${serial}">${esc(name)}</a>`;
-    const focus = { key: null, label: "", pred: null, roleMask: 7, stateMode: 0, matter: [false, false, false] };
+    const focus = { key: null, label: "", pred: null, roleMask: 7, stateMode: 0, matter: [false, false, false, false] };
     let members = null;
     let memberKind = NONE;
     function pushFocus() {
       let kinds = null;
       if (focus.key) {
         kinds = new Uint32Array(MAXK / 32);
-        for (let m = 0; m < 3; m++) if (focus.matter[m]) kinds[0] |= 1 << m;
+        for (let m = 0; m < 4; m++) if (focus.matter[m]) kinds[0] |= 1 << m;
         const c = life.lastCensus;
         if (c && focus.pred) {
           for (let s = FIRST_LIFE; s < MAXK; s++) {
@@ -4492,7 +4594,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       const [kind, val] = key.split(":");
       if (kind === "class") {
         if (val === "living") setFocus(key, "All living cells", { pred: allLiving });
-        else setFocus(key, MATTER[{ silt: 0, glint: 1, husk: 2 }[val]].name, { matter: [val === "silt", val === "glint", val === "husk"] });
+        else setFocus(key, MATTER[{ silt: 0, glint: 1, husk: 2, stone: 3 }[val]].name, { matter: [val === "silt", val === "glint", val === "husk", val === "stone"] });
       } else if (kind === "role") setFocus(key, `${ROLE[+val]}-cells`, { pred: allLiving, roleMask: 1 << +val });
       else if (kind === "state") setFocus(key, ["", "Hungry cells", "Cells ready to divide", "Elderly cells"][+val], { pred: allLiving, stateMode: +val });
       else if (kind === "diet") setFocus(key, `Diet: ${val}`, { pred: (g) => facets(g, K).diet === val });
@@ -4613,9 +4715,9 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       life.lastCensus = c;
       const pop = c.pop;
       const t2 = c.simTime;
-      life.counts = [pop[0], pop[1], pop[2], 0];
+      life.counts = [pop[0], pop[1], pop[2], 0, pop[3]];
       life.roles = [c.globals[12], c.globals[13], c.globals[14]];
-      life.matter = [0, 1, 2].map((s) => readGenome(c.genomeU32, c.genomeF32, s));
+      life.matter = [0, 1, 2, 3].map((s) => readGenome(c.genomeU32, c.genomeF32, s));
       life.arisen = c.globals[1];
       life.births = c.globals[2];
       const seen = /* @__PURE__ */ new Set();
@@ -4732,11 +4834,12 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     const classRows = $("classes");
     function renderCensus() {
       const N = Math.max(1, eng.count);
-      const [silt, glint, husk, living] = life.counts;
+      const [silt, glint, husk, living, stone] = life.counts;
       const rows = [
         ["Living", living, "var(--warm)", "living", "class:living"],
         ["Glint", glint, MATTER[1].css, "glint", "class:glint"],
         ["Husk", husk, MATTER[2].css, "husk", "class:husk"],
+        ["Stone", stone, MATTER[3].css, "stone", "class:stone"],
         ["Silt", silt, MATTER[0].css, "silt", "class:silt"]
       ];
       if (!classRows.firstChild) {
@@ -4957,6 +5060,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       if (a.kind >= FIRST_LIFE && b.kind === 2) return `Died: ${b.cause === 2 ? "old age" : b.cause === 3 ? "killed by a hunter or grazed away" : "starved"} at age ${fmtDur(a.age)}. Its body is now a husk.`;
       if (a.kind >= FIRST_LIFE && b.kind === 0) return "Was eaten. What remained is silt.";
       if (a.kind >= FIRST_LIFE && b.kind >= FIRST_LIFE) return "Changed species.";
+      if (a.kind >= FIRST_LIFE && b.kind === 3) return `Died: ${b.cause === 2 ? "old age" : "starved"} at age ${fmtDur(a.age)}. Its skeleton is now stone.`;
+      if (a.kind === 3 && b.kind === 0) return "The stone wore away into silt.";
       if (a.kind === 2 && b.kind === 0) return b.cause === 3 ? "The husk was eaten by a scavenger." : "The husk crumbled into silt.";
       if (a.kind === 0 && b.kind === 1) return "Charged into glint by the Tide.";
       if (a.kind === 1 && b.kind === 0) return b.cause === 3 ? "The glint was eaten by a cell." : "The glint faded back into silt.";
@@ -5180,6 +5285,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       const sh = roleShares(g);
       html += compRow("Body plan", "bodyplan", sh, g, (v, r) => `${ROLE[r]} ${Math.round(v * 100)}%`);
       html += traitRow("Adhesion", g.adhesion || 0, 0, 1, `${Math.round((g.adhesion || 0) * 100)}%${(g.adhesion || 0) > K.adhMin ? " · bonds" : " · no bonds"}`, "adhesion");
+      if (g.calcify > 5e-3) html += traitRow("Calcifying", g.calcify, 0, 1, `${Math.round(g.calcify * 100)}%`, "calcify");
       html += traitRow("Swimming", g.swim * (1 - g.photo), 0, 3, (g.swim * (1 - g.photo)).toFixed(2), "swimming");
       html += traitRow("Schooling", g.align, 0, 1, `${Math.round(g.align * 100)}%`, "schooling");
       html += traitRow("Reach", g.radius, 0.4, 1, g.radius.toFixed(2), "reach");
@@ -5200,7 +5306,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       const list = [];
       for (let r = 0; r < 3; r++) if (sh[r] > 0.05) list.push({ name: `Own ${ROLE[r]}-cells`, v: affinity(g, role, g, r, K), css: cssRgb(roleColor(g, r)) });
       for (const s2 of others.slice(0, 4)) list.push({ name: spLink(s2.serial, s2.name), raw: true, v: affinity(g, role, s2.genome, 0, K), css: cssCol(s2.genome.col) });
-      for (let m = 0; m < 3; m++) if (life.matter[m]) list.push({ name: MATTER[m].name, v: affinity(g, role, life.matter[m], 0, K) * K.matterPull, css: MATTER[m].css });
+      for (let m = 0; m < 4; m++) if (life.matter[m]) list.push({ name: MATTER[m].name, v: affinity(g, role, life.matter[m], 0, K) * K.matterPull, css: MATTER[m].css });
       html += `<div class="sect"><div class="eyebrow">${ROLE[role]}-cells pull toward · flee</div><div class="aff">`;
       for (const it of list) html += `<div><i style="background:${it.css}"></i><span>${it.raw ? it.name : esc(it.name)}</span>${dbar(it.v)}<b>${it.v >= 0 ? "+" : ""}${it.v.toFixed(2)}</b></div>`;
       return html + "</div></div>";
@@ -5253,10 +5359,10 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         if (kind < FIRST_LIFE) {
           const m = MATTER[kind];
           const lightHere = Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H, eng.simTime, eng.tide, eng.tidePh) * eng.season) * 100);
-          $("ins-kind").textContent = mem ? `Now ${m.name.toLowerCase()} · once a cell of` : kind === 2 ? "Remains" : "Matter";
+          $("ins-kind").textContent = mem ? `Now ${m.name.toLowerCase()} · once a cell of` : kind === 2 ? "Remains" : kind === 3 ? "Structure" : "Matter";
           $("ins-name").textContent = mem && mem.sp ? mem.sp.name : m.name;
           $("ins-sub").textContent = sel.lost ? "Lost track of this particle." : mem && sel.diedAt != null ? `died ${fmtDur(eng.simTime - sel.diedAt)} ago · particle ${fmt(p.id)}` : `particle ${fmt(p.id)}${CAUSE[p.cause] ? ` · ${CAUSE[p.cause]}` : ""}`;
-          drawGlyph(kind === 1 ? 2 : kind === 2 ? 1 : 0, kind === 0 ? 4286144598 : kind === 1 ? 4294960825 : 4282868362);
+          drawGlyph(kind === 1 ? 2 : kind === 2 ? 1 : 0, kind === 0 ? 4286144598 : kind === 1 ? 4294960825 : kind === 3 ? 4288655032 : 4282868362);
           html += storyHTML();
           if (mem) html += '<button type="button" class="wide" data-act="relative">Watch a surviving relative</button>';
           html += `<div class="sect"><div class="eyebrow">Now: ${term(m.name.toLowerCase(), m.name.toLowerCase())}</div><p class="note">${m.blurb}</p>`;
@@ -5268,7 +5374,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
             html += row("Crumbles in", `~${fmtDur(Math.max(0, (p.energy - K.huskMin) / K.decay))}`);
             html += row("Cause of death", CAUSE[p.cause] || "unknown");
           }
-          html += row(kind === 2 ? "Dead for" : "In this state", fmtDur(p.age));
+          if (kind === 3) html += row("Wears away in", `~${fmtDur(Math.max(0, p.energy))}`, "stone");
+          html += row(kind === 2 ? "Dead for" : kind === 3 ? "Stone for" : "In this state", fmtDur(p.age));
           html += row("Light here", `${lightHere}%`, "lighthere");
           html += "</div>";
           if (mem) {
