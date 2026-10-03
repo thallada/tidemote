@@ -16,6 +16,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     const E = await import('./engine.js');
     const { genomeSerial, readGenome } = await import('./genome.js');
     const { communitySample, summarizeRun } = await import('./ecostats.js');
+    const { ENERGY_SLOTS } = await import('./shaders.js');
     const eng = await E.createEngine(device, 'rgba8unorm', { K: config.k });
     if (!(await eng.allocate(config.n))) throw new Error(`could not allocate ${config.n} particles`);
     const W = width, H = height;
@@ -26,7 +27,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     const climate = createClimate(eng, rng);
     const samples = [];
     const ledger = { births: 2, mutants: 3, starved: 5, oldAge: 6, kills: 7, extinctions: 8, grazes: 9, scavenges: 10, bites: 11 };
-    let lastSample = -Infinity, lastPrint = -Infinity, prevG, prevD, prevT, latest;
+    let lastSample = -Infinity, lastPrint = -Infinity, prevG, prevD, prevE, prevT, latest;
     let minLivingFrac = null, collapses = 0, collapsed = false;
     const established = new Set(), lost = new Set();
     const genomes = new Array(E.MAXK);
@@ -78,8 +79,17 @@ export async function runHeadless(device, config, { print, width = 640, height =
           meals[guild][victim] = prevD && c.simTime > prevT ? ((c.demography[i] - prevD[i]) >>> 0) * 60 / (c.simTime - prevT) : 0;
         }
       }
-      samples.push({ ...latest, rates, demography, meals });
-      prevG = Array.from(c.globals); prevD = Array.from(c.demography); prevT = lastSample = c.simTime;
+      // energy flows per guild per simulated minute (the ledger counts thousandths)
+      const energy = {};
+      for (const [g, guild] of guilds.entries()) {
+        energy[guild] = {};
+        for (const [k, slot] of ENERGY_SLOTS.entries()) {
+          const i = g * 8 + k;
+          energy[guild][slot] = prevE && c.simTime > prevT ? ((c.energy[i] - prevE[i]) >>> 0) / 1000 * 60 / (c.simTime - prevT) : 0;
+        }
+      }
+      samples.push({ ...latest, rates, demography, meals, energy });
+      prevG = Array.from(c.globals); prevD = Array.from(c.demography); prevE = Array.from(c.energy); prevT = lastSample = c.simTime;
     }
     const frames = Math.max(1, Math.round(config.minutes * 3600)), t0 = Date.now();
     for (let f = 0; f < frames; f++) {

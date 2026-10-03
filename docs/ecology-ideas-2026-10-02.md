@@ -143,3 +143,35 @@ matter here: the 131k × 60 min ensemble (closest to the page the gate can affor
 demography, which says *why* a guild declines. For 2.1 the expected signature is: producers' deaths
 shift from starvation to being eaten, life's share of matter falls, silt rises, and consumer-only phases
 disappear.
+
+## 5. What came of it (2026-10-03)
+
+**Energy conservation (2.1) was tried and not adopted.** Ten screening rounds, about 40 configurations
+at 32k and a 131k check, are on branch `exp/energy` (its copy of this document, section 5, has every
+table). Conserving energy made worlds less interesting: predators survived late in 1-3 of 16 runs
+(53% of runs today) and scavengers almost vanished, because husks then hold only a body's worth of energy.
+The deepest reason: today the free energy in a kill makes partial carnivory pay, so predators *re-evolve*
+after crashes (at 131k they climb from 0-3% to 15-41% of life). Under conservation partial carnivory pays
+nothing, and every predator crash is permanent. Softening the specialist curve and a small kill bonus did
+not reopen that path.
+
+**Side rules, screened on today's energy rules and not adopted** (16 seeds × 30 min, 32k, cumulative):
+
+| rules | food web | runs with predators > 5% late | runs with scavengers > 5% late |
+| --- | --- | --- | --- |
+| today's rules (64 runs) | 56% | 53% | 61% |
+| + search images per class of food | 31% | 38% | 50% |
+| + food value graded by the prey's photosynthesis | 25% | 25% | 38% |
+| + cost of moving paid by pace, well-fed cells ease off | 25% | 25% | 63% |
+| + pyramid founders | 25% | 31% | 56% |
+
+None improved worlds on average. A predator's search image being reset by its occasional plant bite looks
+like a bug but acts as a brake that keeps hunters from overshooting one prey; pace-based upkeep favoured
+producers (74% of life) and halved leader changes. The code is on `exp/energy`.
+
+**Kept:** an energy ledger per diet guild (light, glint, plant bites, husks and kills in; upkeep and
+children out), reported by headless runs as `energy` (see `docs/headless-gpu.md`). It changes nothing in
+the simulation; it is what showed where each guild's energy comes from and goes.
+
+Still open from section 2: calcified reefs (2.3), which would give the persistent structures and refuges
+this all started from, and do not depend on the energy rules.

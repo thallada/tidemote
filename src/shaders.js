@@ -8,7 +8,10 @@ export const MAX_CELLS = 1 << 18;
 export const META_SLOT = 16;
 export const META_POP = META_SLOT + MAXK;
 export const META_DEATH = META_POP + MAXK;
-export const META_CLAIM = META_DEATH + 64;
+export const META_ENERGY = META_DEATH + 64;
+export const META_CLAIM = META_ENERGY + 64;
+// Energy ledger per diet guild, in thousandths: light, glint, plant bites, husks, kills, upkeep, children.
+export const ENERGY_SLOTS = ['light', 'glint', 'plant', 'husk', 'flesh', 'upkeep', 'children'];
 export const P_BYTES = 40;
 export const G_BYTES = 192;
 export const G_WORDS = 48;
@@ -83,6 +86,7 @@ const MAX_CELLS = 262144u;
 const META_SLOT = ${META_SLOT}u;
 const META_POP = ${META_POP}u;
 const META_DEATH = ${META_DEATH}u;
+const META_ENERGY = ${META_ENERGY}u;
 const META_CLAIM = ${META_CLAIM}u;
 const TAU = 6.28318530718;
 
@@ -202,6 +206,10 @@ fn dietGuild(g: Genome) -> u32 {
   if (g.dHusk > 0.55) { return 3u; }
   if (g.dGlint > 0.55) { return 1u; }
   return 4u;
+}
+
+fn addEnergy(guild: u32, slot: u32, e: f32) {
+  if (e > 0.0) { atomicAdd(&ledger[META_ENERGY + 8u * guild + slot], u32(e * 1000.0 + 0.5)); }
 }
 
 fn deriveMetab(g: Genome) -> f32 {
@@ -776,6 +784,12 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   let thrift = 1.0 - ${f(K.bodyThrift)} * 0.5 * bonds;
   let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0));
   var E = p.energy + (photoGain - upkeep) * sim.dt;
+  let dg = dietGuild(g);
+  // light and upkeep flow every frame; the ledger samples them once a second per cell
+  if (((sim.frame + p.id) % 60u) == 0u) {
+    addEnergy(dg, 0u, photoGain * sim.dt * 60.0);
+    addEnergy(dg, 5u, upkeep * sim.dt * 60.0);
+  }
   var age = p.age + sim.dt;
   var act = 0u;
   var ck = 0u;
@@ -796,6 +810,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
       }
       ce = E * g.share;
       E -= ce + ${f(K.buildCost)};
+      addEnergy(dg, 6u, ce + ${f(K.buildCost)});
       act = 2u;
     }
   } else if (food != NONE && ((sim.frame + p.id) % ${K.eatEvery | 0}u) == 0u
@@ -825,6 +840,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
       }
       if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
       E += gain * ${f(K.gain)} * eatEff;
+      addEnergy(dg, select(select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), 1u, fp.kind == GLINT), gain * ${f(K.gain)} * eatEff);
     }
   }
 
