@@ -70,7 +70,7 @@ export const DEFAULT_K = {
   dietMin: 0.02,    // share of the diet a food must have before a cell bothers to eat it
   // Stone: calcified remains and bedrock. Immobile, solid to the living, slowly eroding back to silt.
   calcCost: 0.012,  // upkeep of a fully calcifying cell (× metab)
-  stoneLife: 400,   // seconds a reef stone lasts on average before it crumbles to silt
+  stoneLife: 200,   // seconds a reef stone lasts on average before it crumbles to silt
   nucleate: 0.1,    // chance of leaving stone away from other stone, relative to beside it: reefs accrete
   rockLife: 3000,   // ...and a grain of bedrock
   rocks: 1,         // scales each world's bedrock outcrops (0: none)
