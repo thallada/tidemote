@@ -1,5 +1,5 @@
 // WGSL for the Tidemote biosphere.
-// Kinds: 0 silt, 1 glint, 2 husk, 3 unused, 4..1023 living genomes.
+// Kinds: 0 silt, 1 glint, 2 husk, 3 stone, 4..1023 living genomes.
 // Each living genome has up to three cell roles with their own signatures.
 
 export const MAXK = 1024;
@@ -68,6 +68,17 @@ export const DEFAULT_K = {
   bite: 0.06,       // energy taken per bite from a photosynthesising cell
   eatEvery: 6,      // frames between meals
   dietMin: 0.02,    // share of the diet a food must have before a cell bothers to eat it
+  // Stone: calcified remains and bedrock. Immobile, solid to the living, slowly eroding back to silt.
+  calcCost: 0.012,  // upkeep of a fully calcifying cell (× metab)
+  stoneLife: 400,   // seconds a reef stone lasts on average before it crumbles to silt
+  nucleate: 0.1,    // chance of leaving stone away from other stone, relative to beside it: reefs accrete
+  rockLife: 3000,   // ...and a grain of bedrock
+  rocks: 1,         // scales each world's bedrock outcrops (0: none)
+  stoneR: 0.32,     // distance within which stone pushes cells away
+  stoneWall: 5.0,   // how hard stone pushes
+  refuge: 0.12,     // chance per nearby grain of stone that an attack made from among stone misses...
+  refugeMax: 0.6,   // ...up to this
+  holdfast: 0.85,   // how much nearby stone shelters an adhesive cell from the currents
 };
 
 const f = (x) => {
@@ -81,6 +92,7 @@ const FIRST_LIFE = 4u;
 const SILT = 0u;
 const GLINT = 1u;
 const HUSK = 2u;
+const STONE = 3u;
 const NONE = 0xffffffffu;
 const MAX_CELLS = 262144u;
 const META_SLOT = ${META_SLOT}u;
@@ -102,7 +114,7 @@ struct Genome {
   shape: f32, pulse: f32, roleHue: f32, advect: f32,
   swim: f32, align: f32, photo: f32, col: u32,
   parent: u32, serial: u32, born: f32, depth: u32,
-  adhesion: f32, gp0: f32, gp1: f32, gp2: f32,
+  adhesion: f32, calcify: f32, gp1: f32, gp2: f32,
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
@@ -141,6 +153,7 @@ struct Sim {
   waves: array<vec4f, 4>,
   tide: array<vec4f, 4>,
   tidePh: vec4f,
+  rock: vec4f,
 };
 // kr: 0..9 kind, 10..11 role, 12 plant.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
@@ -214,7 +227,7 @@ fn addEnergy(guild: u32, slot: u32, e: f32) {
 
 fn deriveMetab(g: Genome) -> f32 {
   return (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
-        + ${f(K.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K.swimCost)} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion) * ${f(K.metab)};
+        + ${f(K.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K.swimCost)} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion + ${f(K.calcCost)} * g.calcify) * ${f(K.metab)};
 }
 
 fn finalize(g: ptr<function, Genome>) {
@@ -289,6 +302,8 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   g.align = clamp(g.align + gauss(s) * m * 0.3, 0.0, 1.0);
   g.photo = clamp(g.photo + gauss(s) * m * 0.25, 0.0, 1.0);
   g.adhesion = clamp(g.adhesion + gauss(s) * m * 0.25, 0.0, 1.0);
+  g.calcify = clamp(g.calcify + gauss(s) * m * 0.2, 0.0, 1.0);
+  if (rnd(s) < m * 0.1) { g.calcify = select(0.0, mix(0.2, 0.8, rnd(s)), g.calcify < 0.05); }
   if (rnd(s) < m * 0.15) { g.adhesion = select(0.0, mix(0.3, 1.0, rnd(s)), g.adhesion < 0.15); }
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
@@ -332,12 +347,33 @@ fn randomInto(slot: u32, s: ptr<function, u32>) {
   g.photo = select(0.0, ph, ph > 0.5);
   let ad = rnd(s);
   g.adhesion = select(0.0, ad, ad > 0.5);
+  let ca = rnd(s);
+  g.calcify = select(0.0, ca, ca > 0.7);
   g.parent = 0u;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
   g.depth = 0u;
   finalize(&g);
   genomes[slot] = g;
+}
+
+// Bedrock: sim.rock.x outcrops, each a wandering chain of five discs of radius about sim.rock.y.
+fn inRock(p: vec2f) -> bool {
+  for (var b = 0u; b < u32(sim.rock.x); b++) {
+    var s = pcg(sim.seed ^ pcg(b * 7919u + 17u));
+    var c = vec2f(rnd(&s), rnd(&s)) * sim.world;
+    var a = rnd(&s) * TAU;
+    let r0 = sim.rock.y * (0.5 + rnd(&s));
+    for (var k = 0u; k < 5u; k++) {
+      let r = r0 * (0.6 + 0.6 * rnd(&s));
+      var d = p - c;
+      d -= sim.world * round(d / sim.world);
+      if (dot(d, d) < r * r) { return true; }
+      a += (rnd(&s) - 0.5) * 1.6;
+      c += vec2f(cos(a), sin(a)) * r * 1.3;
+    }
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------- seeding
@@ -373,6 +409,9 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
     col = pack4x8unorm(vec4f(roleColor(g, r), 1.0));
     age = rnd(&s) * g.lifespan * 0.6;
     info = r << 4u;
+  }
+  if (kind == SILT && sim.rock.x > 0.0 && inRock(pos)) {
+    kind = STONE; e = ${f(K.rockLife)} * (0.5 + rnd(&s)); col = pack4x8unorm(vec4f(0.46, 0.42, 0.38, 1.0));
   }
   parts[i] = Particle(pos, vec2f(0.0), kind, e, age, i, col, info);
 }
@@ -555,6 +594,18 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u) {
   if (i >= sim.count) { return; }
   var p = sortedFull[i];
   if (p.kind >= FIRST_LIFE) { return; }
+  if (p.kind == STONE) {
+    // stone stays put and wears away; its energy is the time it has left
+    p.energy -= sim.dt;
+    p.age += sim.dt;
+    p.vel = vec2f(0.0);
+    if (p.energy <= 0.0) {
+      p.kind = SILT; p.energy = 0.0; p.age = 0.0;
+      p.info = (p.info & 0xffffffc0u) | 7u;
+    }
+    parts[i] = p;
+    return;
+  }
   var s = pcg((p.id * 1664525u) ^ pcg(sim.frame * 2654435761u + sim.seed));
   let jit = vec2f(rnd(&s) - 0.5, rnd(&s) - 0.5) * ${f(K.jitter)};
   var vel = flowAt(p.pos) + jit;
@@ -640,6 +691,8 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   var n1 = NONE; var n2 = NONE;
   var food = NONE; var foodScore = -1e9;
   var silt = NONE; var siltD = 1e9;
+  var stoneF = vec2f(0.0);
+  var stoneN = 0.0;
   var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
 
   // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam).
@@ -725,17 +778,23 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
         }
       } else {
         fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);
-        if (hungry && qk != SILT && x >= beta) {
-          fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)} * shape;
-        }
-        if (qk == SILT) { nutr += 1.0; }
-        if (r < EAT_R) {
-          if (qk == SILT) {
-            if (r < siltD) { siltD = r; silt = j; }
-          } else if (hungry) {
-            let dv = select(g.dHusk, g.dGlint, qk == GLINT);
-            let sc = dv - r;
-            if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+        if (qk == STONE) {
+          // stone is solid: it pushes cells out however hard they swim, and shelters those among it
+          if (r < ${f(K.stoneR)}) { stoneF += d * ((r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r)); }
+          if (r < 0.5) { stoneN += 1.0; }
+        } else {
+          if (hungry && qk != SILT && x >= beta) {
+            fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)} * shape;
+          }
+          if (qk == SILT) { nutr += 1.0; }
+          if (r < EAT_R) {
+            if (qk == SILT) {
+              if (r < siltD) { siltD = r; silt = j; }
+            } else if (hungry) {
+              let dv = select(g.dHusk, g.dGlint, qk == GLINT);
+              let sc = dv - r;
+              if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+            }
           }
         }
       }
@@ -743,7 +802,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
     }
     at -= len;
   }
-  force *= stride; crowd *= stride; nutr *= stride; kinVel *= stride; kinN *= stride;
+  force *= stride; crowd *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride;
 
   let heavy = 1.0 - 0.7 * g.photo;
   let fr0 = pow(0.5, sim.dt / g.drag);
@@ -756,6 +815,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   if (n1 != NONE) { bondF += dn1 * ((d1 - LINK_R * 0.55) / max(d1, 1e-4)); }
   if (n2 != NONE) { bondF += dn2 * ((d2 - LINK_R * 0.55) / max(d2, 1e-4)); }
   vel += bondF * (g.adhesion * ${f(K.bond)} * sim.dt);
+  vel += stoneF * (${f(K.stoneWall)} * sim.dt);
   let swim = g.swim * (1.0 - g.photo);
   if (swim > 0.0) {
     var dir = vel;
@@ -767,7 +827,9 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   }
   let sp = length(vel);
   if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
-  let pos = wrapPos(p.pos + (vel + flowAt(p.pos) * g.advect) * sim.dt);
+  // adhesive cells grip nearby stone against the currents
+  let hold = clamp(stoneN * 0.25, 0.0, 1.0) * g.adhesion * ${f(K.holdfast)};
+  let pos = wrapPos(p.pos + (vel + flowAt(p.pos) * g.advect * (1.0 - hold)) * sim.dt);
 
   var col = unpack4x8unorm(p.col).rgb;
   if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }
@@ -821,7 +883,9 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
     let image = (info >> 6u) & 1023u;
     let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(&s) < ${f(K.searchImage)};
     let unskilled = ${f(K.catchSkill)} > 0.0 && fk >= FIRST_LIFE && rnd(&s) >= min(1.0, eatEff * select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, genomes[fk].photo > 0.4) / ${f(K.catchSkill)});
-    if (!armored && !unfamiliar && !unskilled && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
+    // an attack made from among stone often misses: prey hides in the crevices
+    let sheltered = fk >= FIRST_LIFE && rnd(&s) < min(${f(K.refugeMax)}, stoneN * ${f(K.refuge)});
+    if (!armored && !unfamiliar && !unskilled && !sheltered && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
       let fp = sortedFull[food];
       if (fp.kind >= FIRST_LIFE) {
         atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
@@ -855,6 +919,11 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
     info = (info & 0xffffffc0u) | 2u;
     atomicAdd(&ledger[6], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 2u], 1u);
+  }
+  // calcifying cells that settled leave their skeleton as stone, in their own colour, mostly where
+  // stone already is, so reefs grow outward from rock and from the rare place one starts
+  if (kind == HUSK && g.calcify > 0.0 && rnd(&s) < g.calcify * (1.0 - g.advect) * select(${f(K.nucleate)}, 1.0, stoneN >= 1.0)) {
+    kind = STONE; E = ${f(K.stoneLife)} * (0.5 + rnd(&s)); vel = vec2f(0.0);
   }
   let childGen = ((genOf(p.info) + 1u) & 0xffffu) << 14u;
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(ce), n1, n2);
@@ -1061,6 +1130,11 @@ struct PO {
     shape = 5u;
     let tw = 0.6 + 0.4 * sin(view.time * 6.0 + f32(p.id % 977u));
     col = vec3f(0.7, 0.93, 1.0) * (0.4 + p.energy) * tw * view.matterGain * 2.0;
+  } else if (k == STONE) {
+    // stone: chalky and matte, tinted by the species that built it
+    size = 3.2;
+    shape = 6u;
+    col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 0.9;
   } else {
     size = 0.62;
     shape = 1u;
@@ -1114,6 +1188,10 @@ struct PO {
         let a = abs(i.uv);
         let t = max(0.0, 1.0 - a.x * a.y * 40.0 - d2 * 0.7);
         f = t * t * (1.0 - d2);
+      }
+      case 6u: {
+        // stone: flat and hard-edged, so neighbouring grains merge into one solid mass
+        f = 1.0 - smoothstep(0.7, 1.0, d2);
       }
       default: {
         let t = 1.0 - d2;

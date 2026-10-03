@@ -1,6 +1,6 @@
 import { DEFAULT_K, G_WORDS } from './shaders.js';
 
-export const KIND = { SILT: 0, GLINT: 1, HUSK: 2 };
+export const KIND = { SILT: 0, GLINT: 1, HUSK: 2, STONE: 3 };
 
 // ------------------------------------------------------------ genome helpers
 export function hsl2rgb(h, s, l) {
@@ -73,6 +73,8 @@ const ARCHETYPES = {
       lifespan: mix(150, 300, r()), reproE: mix(1.1, 1.7, r()), share: mix(0.35, 0.45, r()), diet: [0.7, 0.3, 0], size: mix(0.8, 1.2, r()), radius: mix(0.6, 0.85, r()) }) },
 };
 const ADHESION = { reef: 0.85, plankton: 0, grazer: 0, crawler: 0.75, hunter: 0.6, scavenger: 0.25, filament: 0.9 };
+// Reefs lay down stone when they die; filaments sometimes do.
+const CALCIFY = { reef: [0.4, 0.9], filament: [0, 0.3] };
 export const ARCHETYPE_TYPES = Object.keys(ARCHETYPES);
 
 export function archetypeGenome(type, r = Math.random, K = DEFAULT_K) {
@@ -98,6 +100,7 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K) {
     roleHue: (r() - 0.5) * 0.35, advect: t.advect, swim: t.swim, align: t.align, photo: t.photo,
     parent: 0, serial: 0, born: 0, depth: 0, archetype: type,
     adhesion: ADHESION[type] ?? 0,
+    calcify: CALCIFY[type] ? mix(...CALCIFY[type], r()) : 0,
   };
   return finalizeGenome(g, K);
 }
@@ -106,7 +109,7 @@ export function finalizeGenome(g, K = DEFAULT_K) {
   const s = Math.max(g.dGlint + g.dHusk + g.dFlesh, 1e-3);
   g.dGlint /= s; g.dHusk /= s; g.dFlesh /= s;
   g.metab = (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
-    + (K.anchorCost ?? 0) * (1 - g.advect) + 0.004 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 0.006 * g.align + 0.004 * (g.adhesion || 0)) * K.metab;
+    + (K.anchorCost ?? 0) * (1 - g.advect) + 0.004 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 0.006 * g.align + 0.004 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0)) * K.metab;
   g.col = packUnorm(...roleColor(g, 0));
   return g;
 }
@@ -125,6 +128,7 @@ export function writeGenome(u32, f32, slot, g) {
   u32[o + 39] = g.col >>> 0;
   u32[o + 40] = g.parent >>> 0; u32[o + 41] = g.serial >>> 0; f32[o + 42] = g.born || 0; u32[o + 43] = g.depth >>> 0;
   f32[o + 44] = g.adhesion || 0;
+  f32[o + 45] = g.calcify || 0;
 }
 
 export const genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
@@ -143,7 +147,7 @@ export function readGenome(u32, f32, slot) {
     dGlint: F(8), dHusk: F(9), dFlesh: F(10), mutRate: F(11), hue: F(12), sat: F(13), lum: F(14), size: F(15),
     shape: F(16), pulse: F(17), roleHue: F(18), advect: F(19), swim: F(20), align: F(21), photo: F(22),
     col: u32[o + 39], parent: u32[o + 40], serial: u32[o + 41], born: f32[o + 42], depth: u32[o + 43],
-    adhesion: f32[o + 44],
+    adhesion: f32[o + 44], calcify: f32[o + 45],
   };
 }
 

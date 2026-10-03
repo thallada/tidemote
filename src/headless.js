@@ -53,7 +53,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
         if (diet[key] > 0.05) established.add(key);
         if (diet[key] === 0 && established.has(key)) lost.add(key);
       }
-      latest = { t, silt: pop[0], glint: pop[1], husk: pop[2], ...community,
+      latest = { t, silt: pop[0], glint: pop[1], husk: pop[2], stone: pop[3], ...community,
         ambient: eng.ambient, chargeMul: eng.chargeMul, season: eng.season,
         era: climate.name };
       if (t - lastSample >= config.sample - 1e-6 || c.frameNo === frames) record(c);

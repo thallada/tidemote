@@ -53,7 +53,8 @@ class Engine {
     this.seedValue = 1;
     this.censusEvery = 20;
     this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 1 };
-    this.simData = new ArrayBuffer(224);
+    this.simData = new ArrayBuffer(240);
+    this.rock = new Float32Array(4);
     this.simF = new Float32Array(this.simData);
     this.simU = new Uint32Array(this.simData);
     this.waves = new Float32Array(16);
@@ -75,7 +76,7 @@ class Engine {
 
     const d = device;
     const b = this.b;
-    b.sim = d.createBuffer({ size: 224, usage: U.UNIFORM | U.COPY_DST });
+    b.sim = d.createBuffer({ size: 240, usage: U.UNIFORM | U.COPY_DST });
     b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
     this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
     b.view = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
@@ -313,6 +314,11 @@ class Engine {
     const silt = mix(0.42, 0.58, rng()), glint = mix(0.06, 0.18, rng()), husk = mix(0.02, 0.06, rng());
     // Founders: a share of each species starts in a few colonies, the rest scattered. Colony size
     // follows the world so a colony is `conc` times denser in its species than an even spread.
+    // Bedrock outcrops: from none to about 8% of the area, as chains of discs a few cells across.
+    const cells = this.grid[0] * this.grid[1];
+    const rockR = mix(1.2, 3.0, rng());
+    const cover = rng() ** 1.5 * 0.08 * this.K.rocks;
+    this.rock.set([Math.min(256, Math.round((cover * cells) / (10 * rockR * rockR))), rockR, 0, 0]);
     const clump = rng();
     const conc = mix(3, 10, rng());
     const spread = Math.sqrt((this.grid[0] * this.grid[1]) / (conc * 2.5 * 2 * Math.PI));
@@ -320,8 +326,8 @@ class Engine {
     const gbuf = new ArrayBuffer(MAXK * G_BYTES);
     const gu = new Uint32Array(gbuf);
     const gf = new Float32Array(gbuf);
-    const matterCols = [[0.3, 0.34, 0.46], [0.7, 0.93, 1.0], [0.5, 0.35, 0.25]];
-    for (let m = 0; m < 3; m++) {
+    const matterCols = [[0.3, 0.34, 0.46], [0.7, 0.93, 1.0], [0.5, 0.35, 0.25], [0.62, 0.57, 0.5]];
+    for (let m = 0; m < 4; m++) {
       const g = archetypeGenome('plankton', rng, this.K);
       g.col = packUnorm(...matterCols[m]);
       writeGenome(gu, gf, m, g);
@@ -415,6 +421,7 @@ class Engine {
     f.set(this.waves, 20);
     f.set(this.tide, 36);
     f.set(this.tidePh, 52);
+    f.set(this.rock, 56);
   }
 
   requestPick(center, radius, selId, { kind = 0xffffffff, maxOut = 4096, raw = false } = {}) {
