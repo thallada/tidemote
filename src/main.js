@@ -571,27 +571,33 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const hist = life.history;
     if (hist.length < 2) return;
     const N = Math.max(1, eng.count);
-    const serials = new Set();
-    for (const s of hist) for (const [k] of s.sp) serials.add(k);
-    const order = [...serials].sort((a, b) => a - b);
+    const bySerial = new Map(); // serial -> { vals: population at each sample, a, b: the samples it spans }
+    hist.forEach((s, i) => {
+      for (const [k, p] of s.sp) {
+        let e = bySerial.get(k);
+        if (!e) bySerial.set(k, (e = { vals: new Float32Array(hist.length), a: i, b: i }));
+        e.vals[i] = p; e.b = i;
+      }
+    });
+    const order = [...bySerial.keys()].sort((a, b) => a - b);
     const x = (i) => (i / (hist.length - 1)) * w;
     const base = new Float32Array(hist.length);
-    const band = (vals, fill) => {
+    // a band over samples a..b (it is zero elsewhere)
+    const band = (vals, fill, a = 0, b = hist.length - 1) => {
       cctx.beginPath();
-      for (let i = 0; i < hist.length; i++) cctx.lineTo(x(i), h - ((base[i] + vals[i]) / N) * h);
-      for (let i = hist.length - 1; i >= 0; i--) cctx.lineTo(x(i), h - (base[i] / N) * h);
+      for (let i = a; i <= b; i++) cctx.lineTo(x(i), h - ((base[i] + vals[i]) / N) * h);
+      for (let i = b; i >= a; i--) cctx.lineTo(x(i), h - (base[i] / N) * h);
       cctx.closePath();
       cctx.fillStyle = fill;
       cctx.fill();
-      for (let i = 0; i < hist.length; i++) base[i] += vals[i];
+      for (let i = a; i <= b; i++) base[i] += vals[i];
     };
     band(hist.map((s) => s.silt), 'rgba(86,96,121,0.35)');
     band(hist.map((s) => s.husk), 'rgba(138,98,71,0.6)');
     band(hist.map((s) => s.glint), 'rgba(185,230,255,0.45)');
     for (const serial of order) {
-      const sp = life.reg.get(serial);
-      const vals = hist.map((s) => { const e = s.sp.find((q) => q[0] === serial); return e ? e[1] : 0; });
-      band(vals, sp ? cssCol(sp.genome.col) : 'rgba(255,200,140,0.8)');
+      const sp = life.reg.get(serial), e = bySerial.get(serial);
+      band(e.vals, sp ? cssCol(sp.genome.col) : 'rgba(255,200,140,0.8)', Math.max(0, e.a - 1), Math.min(hist.length - 1, e.b + 1));
     }
     band(hist.map((s) => Math.max(0, s.living - s.sp.reduce((a, q) => a + q[1], 0))), 'rgba(255,220,190,0.35)');
     $('histspan').textContent = fmtDur(hist[hist.length - 1].t - hist[0].t);
