@@ -1,5 +1,5 @@
 import {
-  simWGSL, PICK_WGSL, DRAW_WGSL, POST_WGSL, DEFAULT_K,
+  simWGSL, PICK_WGSL, VIEW_WGSL, DRAW_WGSL, POST_WGSL, DEFAULT_K,
   MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_CLAIM, P_BYTES, G_BYTES, LITE_BYTES,
 } from './shaders.js';
 import {
@@ -15,7 +15,8 @@ export const PICK_MAX = 131072;
 export const FOCUS_MAX = 65536;
 const PICK_BYTES = 56 + PICK_MAX * P_BYTES;
 const LEDGER_HEAD = META_CLAIM * 4;
-const CENSUS_BYTES = LEDGER_HEAD + MAXK * G_BYTES;
+const VIEW_BYTES = 3 * MAXK * 4; // per kind: count in view, summed screen x, summed screen y
+const CENSUS_BYTES = LEDGER_HEAD + MAXK * G_BYTES + VIEW_BYTES;
 export { MAXK, FIRST_LIFE, DEFAULT_K };
 
 const mix = (a, b, t) => a + (b - a) * t;
@@ -90,9 +91,12 @@ class Engine {
     b.genomes = d.createBuffer({ size: MAXK * G_BYTES, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.frameCtr = d.createBuffer({ size: 32, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
     b.pickOut = d.createBuffer({ size: PICK_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
+    b.viewCensusU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
+    b.viewCensus = d.createBuffer({ size: VIEW_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
 
     this.simModule = d.createShaderModule({ code: simWGSL(K), label: 'sim' });
     this.pickModule = d.createShaderModule({ code: PICK_WGSL, label: 'pick' });
+    this.viewModule = d.createShaderModule({ code: VIEW_WGSL, label: 'view census' });
     this.drawModule = d.createShaderModule({ code: DRAW_WGSL, label: 'draw' });
     this.postModule = d.createShaderModule({ code: POST_WGSL, label: 'post' });
 
@@ -111,6 +115,7 @@ class Engine {
     this.cp = {};
     for (const name of Object.keys(this.cpDefs)) this.cp[name] = { pipe: cp(this.simModule, name), bg: null };
     this.cpPick = { pipe: cp(this.pickModule, 'pickMain'), bg: null };
+    this.cpView = { pipe: cp(this.viewModule, 'viewMain'), bg: null };
 
     const additive = { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } };
     const fade = { color: { srcFactor: 'zero', dstFactor: 'constant', operation: 'add' }, alpha: { srcFactor: 'zero', dstFactor: 'constant', operation: 'add' } };
@@ -185,6 +190,8 @@ class Engine {
     }
     this.cpPick.bg = d.createBindGroup({ layout: this.cpPick.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.pickU } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.pickOut } }] });
+    this.cpView.bg = d.createBindGroup({ layout: this.cpView.pipe.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: b.viewCensusU } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.viewCensus } }] });
     const pointBG = (view) => d.createBindGroup({ layout: this.pPoint.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
       { binding: 5, resource: { buffer: b.focus } }] });
@@ -448,14 +455,29 @@ class Engine {
   }
 
   /** On a census step, copy the ledger and genomes into a free staging buffer. */
-  _censusCopy(enc) {
+  _censusCopy(enc, cam) {
     if (this.frameNo % this.censusEvery !== 0) return null;
     const st = this.censusStage.find((s) => !s.busy);
     if (!st) return null;
     st.busy = true;
-    enc.copyBufferToBuffer(this.b.ledger, 0, st.buf, 0, LEDGER_HEAD);
-    enc.copyBufferToBuffer(this.b.genomes, 0, st.buf, LEDGER_HEAD, MAXK * G_BYTES);
-    return { st, simTime: this.simTime, frameNo: this.frameNo };
+    const b = this.b;
+    // What the camera sees, per kind, for the soundtrack's spatial mix (observational only).
+    // The uniform is the same for every census in a frame, so a queue write is fine here.
+    const [W, H] = this.size, ppu = Math.max(cam.ppu, 1e-6);
+    const view = { x: cam.x, y: cam.y, hx: W > 0 ? W / (2 * ppu) : this.grid[0], hy: H > 0 ? H / (2 * ppu) : this.grid[1] };
+    const vu = new ArrayBuffer(32), vf = new Float32Array(vu), vv = new Uint32Array(vu);
+    vf[0] = view.x; vf[1] = view.y; vf[2] = view.hx; vf[3] = view.hy; vf[4] = this.grid[0]; vf[5] = this.grid[1]; vv[6] = this.count;
+    this.device.queue.writeBuffer(b.viewCensusU, 0, vu);
+    enc.clearBuffer(b.viewCensus, 0, VIEW_BYTES);
+    const vpass = enc.beginComputePass();
+    vpass.setPipeline(this.cpView.pipe);
+    vpass.setBindGroup(0, this.cpView.bg);
+    vpass.dispatchWorkgroups(Math.ceil(this.count / 256));
+    vpass.end();
+    enc.copyBufferToBuffer(b.ledger, 0, st.buf, 0, LEDGER_HEAD);
+    enc.copyBufferToBuffer(b.genomes, 0, st.buf, LEDGER_HEAD, MAXK * G_BYTES);
+    enc.copyBufferToBuffer(b.viewCensus, 0, st.buf, LEDGER_HEAD + MAXK * G_BYTES, VIEW_BYTES);
+    return { st, simTime: this.simTime, frameNo: this.frameNo, view };
   }
 
   /** Read a census back after its submit. */
@@ -473,7 +495,9 @@ class Engine {
           simTime: job.simTime, frameNo: job.frameNo,
           globals: u.subarray(0, 16), slots: u.subarray(META_SLOT, META_SLOT + MAXK), pop: u.subarray(META_POP, META_POP + MAXK),
           demography: u.subarray(META_DEATH, META_DEATH + 57),
-          genomeU32: new Uint32Array(copy, LEDGER_HEAD), genomeF32: new Float32Array(copy, LEDGER_HEAD),
+          genomeU32: new Uint32Array(copy, LEDGER_HEAD, MAXK * G_BYTES / 4), genomeF32: new Float32Array(copy, LEDGER_HEAD, MAXK * G_BYTES / 4),
+          view: { ...job.view, n: new Uint32Array(copy, LEDGER_HEAD + MAXK * G_BYTES, MAXK),
+            sx: new Uint32Array(copy, LEDGER_HEAD + MAXK * G_BYTES + MAXK * 4, MAXK), sy: new Uint32Array(copy, LEDGER_HEAD + MAXK * G_BYTES + MAXK * 8, MAXK) },
         });
       }
     }).catch(() => { st.busy = false; });
@@ -510,7 +534,7 @@ class Engine {
       const endTs = last && slot && !target ? { querySet: tm.qs, endOfPassWriteIndex: 1 } : undefined;
       const begin = tsBegin();
       this._step(enc, simDt, begin || endTs ? { ...(begin || {}), ...(endTs || {}) } : undefined, nSteps > 1 ? s : -1);
-      const job = this._censusCopy(enc);
+      const job = this._censusCopy(enc, cam);
       if (job) censusJobs.push(job);
     }
     if (nSteps > 1) d.queue.writeBuffer(b.simRing, 0, this.ringData, 0, nSteps * SIM_STRIDE);

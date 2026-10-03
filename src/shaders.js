@@ -869,6 +869,47 @@ fn pickMain(@builtin(global_invocation_id) gid: vec3u) {
 }
 `;
 
+// View census for the soundtrack: on census frames, count every kind inside the camera
+// rectangle and sum where those particles sit on screen (0..255 per axis), so the music
+// can follow what is in view. Purely observational: it reads particles and writes its own
+// buffer, and nothing in the simulation reads it back.
+export const VIEW_WGSL = COMMON + /* wgsl */ `
+struct ViewU { center: vec2f, half: vec2f, world: vec2f, count: u32, pad: u32 };
+@group(0) @binding(0) var<uniform> vu: ViewU;
+@group(0) @binding(1) var<storage, read> parts: array<Particle>;
+@group(0) @binding(2) var<storage, read_write> vout: array<atomic<u32>>;
+var<workgroup> vn: array<atomic<u32>, MAXK>;
+var<workgroup> vx: array<atomic<u32>, MAXK>;
+var<workgroup> vy: array<atomic<u32>, MAXK>;
+
+@compute @workgroup_size(256)
+fn viewMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
+  for (var k = l; k < MAXK; k += 256u) { atomicStore(&vn[k], 0u); atomicStore(&vx[k], 0u); atomicStore(&vy[k], 0u); }
+  workgroupBarrier();
+  let i = gid.x;
+  if (i < vu.count) {
+    let p = parts[i];
+    var d = p.pos - vu.center;
+    d -= vu.world * round(d / vu.world);
+    if (abs(d.x) <= vu.half.x && abs(d.y) <= vu.half.y) {
+      let k = p.kind % MAXK;
+      atomicAdd(&vn[k], 1u);
+      atomicAdd(&vx[k], u32(clamp((d.x / vu.half.x * 0.5 + 0.5) * 255.0, 0.0, 255.0)));
+      atomicAdd(&vy[k], u32(clamp((d.y / vu.half.y * 0.5 + 0.5) * 255.0, 0.0, 255.0)));
+    }
+  }
+  workgroupBarrier();
+  for (var k = l; k < MAXK; k += 256u) {
+    let n = atomicLoad(&vn[k]);
+    if (n > 0u) {
+      atomicAdd(&vout[k], n);
+      atomicAdd(&vout[MAXK + k], atomicLoad(&vx[k]));
+      atomicAdd(&vout[2u * MAXK + k], atomicLoad(&vy[k]));
+    }
+  }
+}
+`;
+
 export const DRAW_WGSL = COMMON + /* wgsl */ `
 struct View {
   cam: vec2f, world: vec2f, res: vec2f,

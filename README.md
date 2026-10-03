@@ -43,7 +43,27 @@ esbuild preserves module scope, so top-level names can be reused across files.
 | `src/lab.js` | The Field Lab drawer. |
 | `src/guide.js` | Glossary (hover hints) and field-guide text. |
 | `src/page.html` | Markup and styles. The bundled script is inserted at `/*__SCRIPT__*/`. |
+| `src/audio/` | The soundtrack: `ugens.js` and `voices.js` (a sample-level port of SuperCollider voices, effects and mastering), `mapping.js` (genome → voice), `conductor.js` (the generative score), `worklet.js` (the AudioWorklet), `sound.js` (main-thread controller and the spatial mix). |
+| `tools/audio-parity/` | Renders the same events in SuperCollider and in the JS engine and compares them. |
 | `tools/sim.mjs`, `tools/compare.mjs` | Headless ecology runs and comparisons across seeds (see below). |
+
+## Soundtrack
+
+Press **S** (or the Sound button) for a generative soundtrack that follows the simulation. Every
+living species is a voice: its instrument, register and rhythm come from its diet and body plan,
+and its melody is read from its cell-type signature, so a mutant plays a variation of its parent's
+motif. Each species is as loud as it is numerous, climate eras change the mode and colour, and
+abiogenesis is heard as a spark.
+
+The mix is spatial. Zoomed out you hear the whole sea. Zoom in and the species on screen come
+forward, panned to where they are, while everything outside the view recedes: quieter, darker and
+deeper in the reverb. Selecting a cell brings its species to the front, and a Lab highlight pushes
+the unhighlighted species back. A small GPU pass counts each species inside the camera rectangle on
+census frames; like the rest of the census, it only observes.
+
+The synthesis runs in an AudioWorklet as a sample-level port of a SuperCollider score (see
+`tools/audio-parity/`), so it sounds the same as the offline SuperCollider render. `-` and `=` (or the
+slider) set the volume; the choice is remembered.
 
 ## How the simulation works
 

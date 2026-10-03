@@ -1,3 +1,4 @@
+import { createSound, closeness } from './audio/sound.js';
 import { createEngine, MAXK, FIRST_LIFE } from './engine.js';
 import { genomeSerial, readGenome, parseParticle, affinity, roleShares, roleColor, unpackUnorm } from './genome.js';
 import { seasonAt, createClimate, abioRate } from './climate.js';
@@ -190,6 +191,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const lightWord = era.ambient > prevAmb + 0.05 ? 'light rises' : era.ambient < prevAmb - 0.05 ? 'light dims' : 'light holds';
       pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}% · glint ×${era.charge.toFixed(1)} · currents shift`, 0xffd6c7ff, 'era');
       flash(climate.name);
+      sound.era(climate.name);
     };
   }
 
@@ -211,6 +213,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     cam.x = g[0] / 2; cam.y = g[1] / 2; cam.zoom = cam.zoomTarget = 1; cam.anchor = null;
     resetLife();
     resetClimate();
+    sound.reset();
     life.estThreshold = Math.max(30, Math.round(n * 0.00025));
     deselect();
     clearFocus();
@@ -385,6 +388,50 @@ function run(eng, device, ctx, specCtx, hasTS) {
     renderEvents();
   }
 
+  // ------------------------------------------------------------ soundtrack
+  const sound = createSound({
+    onChange: renderSound,
+    onError: (m) => flash(`Sound unavailable: ${String(m).split('\n')[0].slice(0, 80)}`),
+  });
+  function renderSound() {
+    const b = $('snd'), v = $('vol');
+    if (!b) return;
+    b.setAttribute('aria-pressed', String(sound.on));
+    v.hidden = !sound.on;
+    v.value = String(Math.round(sound.volume * 100));
+  }
+  function feedSound(c, slots, genomes, living, sparks) {
+    if (!sound.on || !c.view) return;
+    const v = c.view, [W, H] = eng.grid;
+    const z = closeness(4 * v.hx * v.hy, W * H);
+    const selSlot = sel && sel.particle && sel.particle.kind >= FIRST_LIFE && !sel.lost ? sel.particle.kind : -1;
+    const isLit = focus.key && focus.pred ? (slot) => { const g = genomes.get(slot); return !!(g && focus.pred(g)); } : null;
+    const total = c.pop.reduce ? Array.prototype.reduce.call(c.pop, (a, b) => a + b, 0) : living;
+    let vTotal = 0;
+    for (let k = 0; k < c.view.n.length; k++) vTotal += c.view.n[k];
+    const frac = (k) => { const g = c.pop[k] / Math.max(1, total), vv = vTotal ? v.n[k] / vTotal : g; return g + (vv - g) * z; };
+    let ampSum = 0;
+    for (let k = 0; k < 4; k++) ampSum += eng.tide[k * 4 + 3];
+    const tideN = Math.min(1, ampSum / 3);
+    const world = {
+      glint: frac(1) * 6, husk: frac(2) * 5, season: eng.season, zoom: z, selected: selSlot >= 0 ? 1 : null,
+      light: Math.min(1.2, eng.ambient * 1.2 + 0.85 * eng.season * tideN), tide: eng.season * tideN, level: 1,
+    };
+    sound.census({ slots, pop: c.pop, living, view: v, genomeOf: (s) => genomes.get(s), serialOf: (s) => genomes.get(s).serial, z, selSlot, isLit, world });
+    for (const s of sparks) {
+      const inView = v.n[s] > 0;
+      sound.spark(inView ? (v.sx[s] / v.n[s] / 255) * 1.8 - 0.9 : 0, inView ? 1 : 1 - z);
+    }
+  }
+  function toggleSound() {
+    sound.toggle().then(() => flash(sound.on ? 'Sound on' : 'Sound off'));
+  }
+  function nudgeVolume(d) {
+    if (!sound.on) { toggleSound(); return; }
+    sound.setVolume(sound.volume + d);
+    flash(`Volume ${Math.round(sound.volume * 100)}%`);
+  }
+
   eng.onCensus = (c) => {
     if (state.phase !== 'running') return;
     life.lastCensus = c;
@@ -396,6 +443,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     life.arisen = c.globals[1];
     life.births = c.globals[2];
     const seen = new Set();
+    const audioSlots = [], audioGenome = new Map(), sparks = [];
     let living = 0, alive = 0, best = null;
     for (let s = FIRST_LIFE; s < MAXK; s++) {
       const p = pop[s];
@@ -404,7 +452,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       alive++;
       let sp = life.reg.get(genomeSerial(c.genomeU32, s));
       const g = sp ? sp.genome : readGenome(c.genomeU32, c.genomeF32, s);
-      if (!sp) sp = register(g);
+      if (!sp) { sp = register(g); if (g.parent === 0 && g.serial > eng.founders && t > 1) sparks.push(s); }
+      audioSlots.push(s); audioGenome.set(s, g);
       sp.slot = s;
       sp.genome = g;
       sp.pop = p;
@@ -461,6 +510,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       }
     }
     eng.abio = abioRate(pop[1]);
+    feedSound(c, audioSlots, audioGenome, living, sparks);
 
     if (t - life.lastHist >= life.histEvery) {
       const G = Array.from(c.globals);
@@ -1184,6 +1234,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
     toggleCurrents: () => { state.currents = !state.currents; },
   });
   $('lab-open').addEventListener('click', () => lab.toggle());
+  $('snd').addEventListener('click', toggleSound);
+  $('vol').addEventListener('input', (e) => sound.setVolume(Number(e.target.value) / 100));
+  renderSound();
+  // Browsers only start audio from a gesture: if sound was on last time, resume on the first one.
+  if (sound.wantsOn) {
+    const resume = () => { removeEventListener('pointerdown', resume, true); removeEventListener('keydown', resume, true); if (!sound.on) toggleSound(); };
+    addEventListener('pointerdown', resume, true); addEventListener('keydown', resume, true);
+  }
 
   // ------------------------------------------------------------ input
   const ptr = { pointers: new Map(), down: null, dragging: false, pinch: null };
@@ -1275,6 +1333,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === '[') { state.loupeMag = clamp(state.loupeMag / 1.25, 1.5, 20); flash(`Loupe ×${state.loupeMag.toFixed(1)}`); }
     else if (k === ']') { state.loupeMag = clamp(state.loupeMag * 1.25, 1.5, 20); flash(`Loupe ×${state.loupeMag.toFixed(1)}`); }
     else if (k === 'c' || k === 'C') { if (sel) toggleFollow(); }
+    else if (k === 's' || k === 'S') { toggleSound(); }
+    else if (k === '-' || k === '_') { nudgeVolume(-0.1); }
+    else if (k === '=' || k === '+') { nudgeVolume(0.1); }
     else if (k === 'Escape') {
       if (sel || spView != null) deselect();
       else if (focus.key) clearFocus();
