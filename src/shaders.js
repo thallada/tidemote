@@ -79,6 +79,8 @@ export const DEFAULT_K = {
   refuge: 0.12,     // chance per nearby grain of stone that an attack made from among stone misses...
   refugeMax: 0.6,   // ...up to this
   holdfast: 0.85,   // how much nearby stone shelters an adhesive cell from the currents
+  filmRate: 0,      // energy per second a film grows on stone in full light (grazers scrape it off)...
+  filmMax: 0.5,     // ...up to this
 };
 
 const f = (x) => {
@@ -440,6 +442,8 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
           atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
           p.kind = HUSK; p.energy = ${f(K.carcass)}; p.age = 0.0; p.vel *= 0.2;
           p.info = (p.info & 0xfffffff0u) | 3u;
+        } else if (p.kind == STONE) {
+          p.vel.x = 0.0; // the film is scraped off; the stone stays
         } else {
           p.kind = SILT; p.energy = 0.0; p.vel = vec2f(0.0); p.age = 0.0;
           p.info = (p.info & 0xffffffc0u) | 3u;
@@ -595,10 +599,12 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u) {
   var p = sortedFull[i];
   if (p.kind >= FIRST_LIFE) { return; }
   if (p.kind == STONE) {
-    // stone stays put and wears away; its energy is the time it has left
+    // stone stays put and wears away; its energy is the time it has left. vel.x holds the film
+    // growing on it in the light.
     p.energy -= sim.dt;
     p.age += sim.dt;
-    p.vel = vec2f(0.0);
+    let lightS = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season;
+    p.vel = vec2f(min(${f(K.filmMax)}, p.vel.x + ${f(K.filmRate)} * lightS * sim.dt), 0.0);
     if (p.energy <= 0.0) {
       p.kind = SILT; p.energy = 0.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 7u;
@@ -782,6 +788,13 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
           // stone is solid: it pushes cells out however hard they swim, and shelters those among it
           if (r < ${f(K.stoneR)}) { stoneF += d * ((r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r)); }
           if (r < 0.5) { stoneN += 1.0; }
+          // grazers are drawn to the film on stone, and scrape it at arm's length
+          let film = unpack2x16float(q.vel).x;
+          if (hungry && film > 0.05) {
+            fr += g.dGlint * eatEff * ${f(K.forage)} * shape * film;
+            let sc = g.dGlint * film / ${f(K.filmMax)} - r;
+            if (r < ${f(K.stoneR + 0.12)} && g.dGlint > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+          }
         } else {
           if (hungry && qk != SILT && x >= beta) {
             fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)} * shape;
@@ -895,6 +908,8 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
       act = 1u;
       if (fp.kind == GLINT) {
         gain = fp.energy * spec(g.dGlint); atomicAdd(&ledger[9], 1u);
+      } else if (fp.kind == STONE) {
+        gain = fp.vel.x * spec(g.dGlint); atomicAdd(&ledger[9], 1u);
       } else if (fp.kind == HUSK) {
         gain = fp.energy * spec(g.dHusk); atomicAdd(&ledger[10], 1u);
       } else if (genomes[fp.kind].photo > 0.4) {
@@ -904,7 +919,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
       }
       if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
       E += gain * ${f(K.gain)} * eatEff;
-      addEnergy(dg, select(select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), 1u, fp.kind == GLINT), gain * ${f(K.gain)} * eatEff);
+      addEnergy(dg, select(select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), 1u, fp.kind == GLINT || fp.kind == STONE), gain * ${f(K.gain)} * eatEff);
     }
   }
 
@@ -1133,7 +1148,8 @@ struct PO {
   } else if (k == STONE) {
     // stone: chalky and matte, tinted by the species that built it
     shape = 6u;
-    col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 2.0;
+    col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5);
+    col = mix(col, vec3f(0.3, 0.85, 0.45), clamp(p.vel.x * 1.6, 0.0, 0.7)) * view.matterGain * 2.0;
   } else {
     size = 0.62;
     shape = 1u;
