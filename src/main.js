@@ -1,4 +1,5 @@
-import { createSound, closeness } from './audio/sound.js';
+import { createSound, closeness, modeName } from './audio/sound.js';
+import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE } from './engine.js';
 import { genomeSerial, readGenome, parseParticle, affinity, roleShares, roleColor, unpackUnorm } from './genome.js';
 import { seasonAt, createClimate, abioRate } from './climate.js';
@@ -393,9 +394,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
     onChange: renderSound,
     onError: (m) => flash(`Sound unavailable: ${String(m).split('\n')[0].slice(0, 80)}`),
   });
+  let litSlots = null;
   function renderSound() {
+    // the GPU only listens while the soundtrack plays
+    if (sound.on && !eng.listen) eng.listen = { every: 6, keep: null, vscale: V_SCALE };
+    else if (!sound.on) eng.listen = null;
     const b = $('snd'), v = $('vol');
     if (!b) return;
+    b.title = `Soundtrack: ${modeName(sound.mode)} (S, ⇧S to change)`;
     b.setAttribute('aria-pressed', String(sound.on));
     v.hidden = !sound.on;
     v.value = String(Math.round(sound.volume * 100));
@@ -406,6 +412,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const z = closeness(4 * v.hx * v.hy, W * H);
     const selSlot = sel && sel.particle && sel.particle.kind >= FIRST_LIFE && !sel.lost ? sel.particle.kind : -1;
     const isLit = focus.key && focus.pred ? (slot) => { const g = genomes.get(slot); return !!(g && focus.pred(g)); } : null;
+    litSlots = isLit ? slots.filter(isLit) : null;
     const total = c.pop.reduce ? Array.prototype.reduce.call(c.pop, (a, b) => a + b, 0) : living;
     let vTotal = 0;
     for (let k = 0; k < c.view.n.length; k++) vTotal += c.view.n[k];
@@ -423,6 +430,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
       sound.spark(inView ? (v.sx[s] / v.n[s] / 255) * 1.8 - 0.9 : 0, inView ? 1 : 1 - z);
     }
   }
+  eng.onListen = (d) => {
+    if (state.phase !== 'running') return;
+    const selSlot = sel && sel.particle && sel.particle.kind >= FIRST_LIFE && !sel.lost ? sel.particle.kind : -1;
+    const keep = sound.listen(d, { selSlot, lit: litSlots });
+    if (keep && eng.listen) { eng.listen.keep = keep; eng.listen.selKind = selSlot >= 0 ? selSlot : 0xffffffff; }
+  };
   function toggleSound() {
     sound.toggle().then(() => flash(sound.on ? 'Sound on' : 'Sound off'));
   }
@@ -1333,6 +1346,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === '[') { state.loupeMag = clamp(state.loupeMag / 1.25, 1.5, 20); flash(`Loupe ×${state.loupeMag.toFixed(1)}`); }
     else if (k === ']') { state.loupeMag = clamp(state.loupeMag * 1.25, 1.5, 20); flash(`Loupe ×${state.loupeMag.toFixed(1)}`); }
     else if (k === 'c' || k === 'C') { if (sel) toggleFollow(); }
+    else if ((k === 's' || k === 'S') && e.shiftKey) { if (sound.on) { sound.cycleMode(); flash(`Soundtrack: ${modeName(sound.mode)}`); } }
     else if (k === 's' || k === 'S') { toggleSound(); }
     else if (k === '-' || k === '_') { nudgeVolume(-0.1); }
     else if (k === '=' || k === '+') { nudgeVolume(0.1); }

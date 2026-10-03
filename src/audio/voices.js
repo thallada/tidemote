@@ -387,6 +387,31 @@ export class Glint extends Voice {
   }
 }
 
+// ── \rustle: something swimming past (new for the field mix; not in the SC score) ──
+// White noise through a resonant band that sweeps from f0 to f1 under a soft swell.
+export class Rustle extends Voice {
+  constructor(eng, p) {
+    super(eng, p);
+    const atk = p.atk ?? 0.04, dec = p.dec ?? 0.25;
+    this.env = new EnvGen({ levels: [0, 1, 0], times: [atk, dec], curves: [2, -3] }, this.sr);
+    this.wn = new WhiteNoise(this.rg); this.rz = new Resonz(this.sr); this.pan = new Pan2(p.pan ?? 0);
+    this.dur = atk + dec; this.life = lineBlocks(this.dur + 0.03, this.kr);
+  }
+  render(B, S) {
+    const p = this.p, amp = p.amp ?? 0.1, f0 = p.f0 ?? 900, f1 = p.f1 ?? 1800, rq = p.rq ?? 0.2;
+    const x = Math.min(1, (this.age * BS) / (this.sr * this.dur));
+    const env = S.get(), n = S.get(), sig = S.get();
+    this.env.ar(env); this.wn.ar(n);
+    this.rz.ar(n, f0 * Math.pow(f1 / f0, x), rq, sig);
+    const g = amp * 2.2 / Math.sqrt(rq);
+    for (let i = 0; i < BS; i++) sig[i] *= env[i] * g;
+    const L = S.zero(), R = S.zero();
+    this.pan.addK(sig, p.pan ?? 0, 1, L, R);
+    outAll(B, L, R, p.rev ?? 0.3, p.dly ?? 0.05, this.send);
+    if (this.age + 1 >= this.life) this.done = true;
+  }
+}
+
 // SinOsc.kr: one table lookup per control block
 class SinOscK {
   constructor(kr, phase0) { this.inc = (8192 * 65536) / kr; this.phase = Math.trunc(((8192 * 65536) / (Math.PI * 2)) * phase0) | 0; }
@@ -580,7 +605,7 @@ export class Master {
 }
 
 // ── the engine: voices → delay → reverb → master, block by block ─────────────
-const DEFS = { cplx: Cplx, swell: Swell, glass: Glass, breath: Breath, tine: Tine, wood: Wood, bite: Bite, drop: Drop, tick: Tick, glint: Glint, sea: Sea, drone: Drone };
+const DEFS = { cplx: Cplx, swell: Swell, glass: Glass, breath: Breath, tine: Tine, wood: Wood, bite: Bite, drop: Drop, tick: Tick, glint: Glint, rustle: Rustle, sea: Sea, drone: Drone };
 
 export class Engine {
   constructor(sr, { seed = 1, noiseOff = false, master = {} } = {}) {

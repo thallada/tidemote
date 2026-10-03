@@ -12,12 +12,20 @@ class TidemoteSound extends AudioWorkletProcessor {
     this.cond = new Conductor(this.eng, { seed });
     this.L = new Float32Array(BS); this.R = new Float32Array(BS); this.have = 0; // leftover samples of the last block
     this.failed = false;
-    this.port.onmessage = (e) => { try { this.cond.message(e.data); } catch (err) { this.report(err); } };
+    this.busyMs = 0; this.frames = 0;
+    this.port.onmessage = (e) => {
+      if (e.data && e.data.type === 'load') { // fraction of real time spent rendering, since the last ask
+        this.port.postMessage({ type: 'load', load: this.frames ? this.busyMs / ((this.frames / sampleRate) * 1000) : 0, voices: this.eng.voices.length });
+        this.busyMs = 0; this.frames = 0; return;
+      }
+      try { this.cond.message(e.data); } catch (err) { this.report(err); }
+    };
   }
   report(err) { if (!this.failed) { this.failed = true; this.port.postMessage({ type: 'error', message: String(err && err.stack || err) }); } }
   process(inputs, outputs) {
     const out = outputs[0], l = out[0], r = out[1] || out[0], n = l.length;
     if (this.failed) { l.fill(0); r.fill(0); return true; }
+    const t0 = Date.now();
     try {
       let o = 0;
       while (o < n) {
@@ -28,6 +36,7 @@ class TidemoteSound extends AudioWorkletProcessor {
         this.have -= take; o += take;
       }
     } catch (err) { this.report(err); l.fill(0); r.fill(0); }
+    this.busyMs += Date.now() - t0; this.frames += n;
     return true;
   }
 }

@@ -49,21 +49,34 @@ esbuild preserves module scope, so top-level names can be reused across files.
 
 ## Soundtrack
 
-Press **S** (or the Sound button) for a generative soundtrack that follows the simulation. Every
-living species is a voice: its instrument, register and rhythm come from its diet and body plan,
-and its melody is read from its cell-type signature, so a mutant plays a variation of its parent's
-motif. Each species is as loud as it is numerous, climate eras change the mode and colour, and
-abiogenesis is heard as a spark.
+Press **S** (or the Sound button) for a soundtrack made from the simulation. `-` and `=` (or the
+slider) set the volume and **⇧S** switches what it follows; the choices are remembered.
 
-The mix is spatial. Zoomed out you hear the whole sea. Zoom in and the species on screen come
-forward, panned to where they are, while everything outside the view recedes: quieter, darker and
-deeper in the reverb. Selecting a cell brings its species to the front, and a Lab highlight pushes
-the unhighlighted species back. A small GPU pass counts each species inside the camera rectangle on
-census frames; like the rest of the census, it only observes.
+**What is in view** (the default). Every few frames a read-only GPU pass (`LISTEN_WGSL`) looks
+at the camera's rectangle. A particle's age restarts at each change of state and its info bits say
+why, so the pass finds every birth, mutation, spark of abiogenesis, death (starved, old age or
+killed), grazing or scavenging bite and tide charge since the last scan, with its exact time and
+place, and it samples the living cells in view. Each living cell sings: now and then it plays the
+next note of its species' motif, more often when it moves. Events are accents: a birth rings, a kill
+bites, grazing drips, a dying cell falls, the tide's charge shimmers, and movement rustles.
 
-The synthesis runs in an AudioWorklet as a sample-level port of a SuperCollider score (see
-`tools/audio-parity/`), so it sounds the same as the offline SuperCollider render. `-` and `=` (or the
-slider) set the volume; the choice is remembered.
+Loudness follows distance, as if the camera were a listener at a height proportional to the view.
+Each sound is as loud as `dRef / d`, and a view `d` times wider holds `d²` times as many cells, so a
+region's loudness depends on how much is happening there, not on the zoom. Zoomed in on a dozen
+cells you hear each one, panned to where it is; zoomed out, thousands of faint voices blur into a
+chorus (darker and deeper in the reverb), and the rest of the world is a faint background. Only a
+fair sample is played and each played note carries the power of the ones it stands for, so the
+audio thread never plays more than a few dozen voices. Selecting a cell brings its species forward;
+a Lab highlight pushes the others back. Notes snap to a pulse that follows the simulation's speed:
+slower when time is slowed, faster (up to 4×) when it runs fast.
+
+**Species score.** The earlier mode: a generative score in which every living species is a voice,
+as loud as it is numerous, with species in view brought forward.
+
+Both run in an AudioWorklet as a sample-level port of SuperCollider voices (see
+`tools/audio-parity/`). `tools/listen-capture.mjs` records what the soundtrack hears from a headless
+run at several zoom levels, and `tools/listen-render.mjs` renders such a capture offline and reports
+loudness and density per view, for tuning without a browser.
 
 ## How the simulation works
 

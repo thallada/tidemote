@@ -910,6 +910,101 @@ fn viewMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
 }
 `;
 
+// The soundtrack's ears: a read-only scan for what happened since the last scan. A particle's
+// age restarts at every change of state and the low bits of info say why, so every event in the
+// window (age < window) is found with its exact time. Counts are exact, in and out of the view;
+// in-view events are kept with a per-type probability (set from the previous scan's counts) so
+// the sample is unbiased when there are more than the audio can play. Nothing here is written
+// back to the simulation.
+// 'alive' is not an event: a fair sample of the living cells in view, so each one can sing.
+export const LISTEN_TYPES = ['birth', 'mutation', 'spark', 'starved', 'old', 'killed', 'eaten', 'charged', 'alive'];
+export const LISTEN_CAP = 512;
+export const LISTEN_HEAD = 32; // u32 words before the records
+export const LISTEN_WGSL = COMMON + /* wgsl */ `
+struct ListenU {
+  center: vec2f, half: vec2f, world: vec2f, count: u32, seed: u32,
+  now: f32, window: f32, vscale: f32, selKind: u32,
+  keep: array<vec4f, 3>,
+};
+@group(0) @binding(0) var<uniform> lu: ListenU;
+@group(0) @binding(1) var<storage, read> parts: array<Particle>;
+@group(0) @binding(2) var<storage, read> genomes: array<Genome>;
+@group(0) @binding(3) var<storage, read_write> lout: array<atomic<u32>>;
+// layout: [0,8) in-view events per type, [8,16) out of view, 16 living in view, 17 their summed
+// speed (x1000), 18 living everywhere, 19 their summed speed (x1000), 20 particles in view,
+// 21 glint in view, 22 husk in view, 23 records written, then records of 4 words from word 32.
+var<workgroup> wc: array<atomic<u32>, 24>;
+
+fn lhash(v: u32) -> u32 {
+  let s = v * 747796405u + 2891336453u;
+  let w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+  return (w >> 22u) ^ w;
+}
+
+@compute @workgroup_size(256)
+fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
+  if (l < 24u) { atomicStore(&wc[l], 0u); }
+  workgroupBarrier();
+  let i = gid.x;
+  if (i < lu.count) {
+    let p = parts[i];
+    var d = p.pos - lu.center;
+    d -= lu.world * round(d / lu.world);
+    let inView = abs(d.x) <= lu.half.x && abs(d.y) <= lu.half.y;
+    let life = p.kind >= FIRST_LIFE;
+    let speed = length(p.vel);
+    if (life) {
+      atomicAdd(&wc[18], 1u);
+      atomicAdd(&wc[19], u32(min(speed, 50.0) * 1000.0));
+    }
+    if (inView) {
+      atomicAdd(&wc[20], 1u);
+      if (life) { atomicAdd(&wc[16], 1u); atomicAdd(&wc[17], u32(min(speed, 50.0) * 1000.0)); }
+      else if (p.kind == GLINT) { atomicAdd(&wc[21], 1u); }
+      else if (p.kind == HUSK) { atomicAdd(&wc[22], 1u); }
+    }
+    var t = NONE;
+    if (life && inView) { t = 8u; }
+    if (p.age < lu.window) {
+      let code = p.info & 15u;
+      if (life) {
+        if (code == 9u) {
+          t = 0u;
+          let g = genomes[p.kind];
+          if (g.depth > 0u && abs(g.born - (lu.now - p.age)) < 0.05) { t = 1u; }
+        } else if (code == 8u) { t = 2u; }
+      } else if (p.kind == HUSK) {
+        if (code == 1u) { t = 3u; } else if (code == 2u) { t = 4u; } else if (code == 3u) { t = 5u; }
+      } else if (p.kind == SILT && code == 3u) { t = 6u; }
+      else if (p.kind == GLINT && code == 5u) { t = 7u; }
+    }
+    if (t != NONE) {
+      if (t < 8u) { atomicAdd(&wc[select(8u + t, t, inView)], 1u); }
+      var keep = lu.keep[t / 4u][t % 4u];
+      if (t == 8u && p.kind == lu.selKind) { keep = 1.0; }
+      if (inView && f32(lhash(p.id ^ lhash(lu.seed + t)) >> 8u) / 16777216.0 < keep) {
+        let r = atomicAdd(&lout[23], 1u);
+        if (r < ${LISTEN_CAP}u) {
+          let o = ${LISTEN_HEAD}u + r * 4u;
+          let uv = clamp(d / lu.half * 0.5 + 0.5, vec2f(0.0), vec2f(1.0));
+          atomicStore(&lout[o], t | ((p.kind & 1023u) << 4u) | (((p.info >> 4u) & 3u) << 14u) | ((p.id & 255u) << 16u)
+            | (u32(clamp(speed / lu.vscale, 0.0, 1.0) * 255.0) << 24u));
+          atomicStore(&lout[o + 1u], pack2x16unorm(uv));
+          // events: their age (when they happened); living cells: energy toward their next division
+          atomicStore(&lout[o + 2u], bitcast<u32>(select(p.age, clamp(p.energy / genomes[p.kind].reproE, 0.0, 1.5), t == 8u)));
+          atomicStore(&lout[o + 3u], p.col);
+        }
+      }
+    }
+  }
+  workgroupBarrier();
+  if (l < 23u) {
+    let v = atomicLoad(&wc[l]);
+    if (v > 0u) { atomicAdd(&lout[l], v); }
+  }
+}
+`;
+
 export const DRAW_WGSL = COMMON + /* wgsl */ `
 struct View {
   cam: vec2f, world: vec2f, res: vec2f,
