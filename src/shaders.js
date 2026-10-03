@@ -1132,9 +1132,8 @@ struct PO {
     col = vec3f(0.7, 0.93, 1.0) * (0.4 + p.energy) * tw * view.matterGain * 2.0;
   } else if (k == STONE) {
     // stone: chalky and matte, tinted by the species that built it
-    size = 3.2;
     shape = 6u;
-    col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 0.9;
+    col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 2.0;
   } else {
     size = 0.62;
     shape = 1u;
@@ -1155,7 +1154,8 @@ struct PO {
   }
   if (p.id == view.selId) { col = col * 1.5 + vec3f(0.5); size = max(size, 1.2) * 1.5; }
   let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
-  let px = max(view.pointSize * size, 0.9);
+  // stone has a real size in the world (a grain about a quarter of a cell across), so a reef reads as a solid mass
+  let px = select(max(view.pointSize * size, 0.9), max(view.ppu * 0.13, 0.9), k == STONE);
   o.pos = toClip(d + corner * px);
   o.uv = corner;
   o.col = col;
