@@ -30,6 +30,13 @@ const GRID = { alive: 1, birth: 1, starved: 2, old: 4, killed: 1, eaten: 0.5 };
 const PER_SLOT = { alive: 1, birth: 1, starved: 1, old: 1, killed: 1, eaten: 2 };
 const LATENCY = 0.22; // seconds: one scan interval plus scheduling headroom
 const BG_GAIN = 0.05; // the world outside the view, relative to a sound at the reference distance
+// Level riding: the field knows each scan's notes before it plays them, so it compresses their
+// summed power (sum of amp^2 per second) around P_REF at RATIO:1, within GAIN_RANGE, smoothly.
+// Busy places stay louder and denser than calm ones, but not by 10 dB.
+const P_REF = 0.05, RATIO = 2.5, GAIN_RANGE = [0.3, 2];
+// When the audio thread is crowded, the least important sounds are skipped first.
+const CROWDED = 70, FULL = 92;
+const MINOR = new Set(['charged', 'eaten', 'rustle']);
 
 // how fast the music moves at a given simulation speed (sim seconds per second)
 export function tempoFor(speed) {
@@ -47,6 +54,7 @@ export class Field {
     this.taken = new Map(); // grid point key -> notes placed there
     this.z = 0; this.gd = 1; this.act = 0.3; this.speed = 1;
     this.gain = {}; // per-type gain overrides (tuning)
+    this.agc = 1; this.power = P_REF; this.plan = null;
   }
   rr(lo, hi) { return lo + (hi - lo) * this.rnd(); }
 
@@ -62,6 +70,19 @@ export class Field {
 
   // one scan's worth of events and living cells
   listen(m) {
+    this.plan = [];
+    this.collect(m);
+    const plan = this.plan; this.plan = null;
+    const wall = Math.max(1e-3, m.window / Math.max(m.speed, 1e-6));
+    let P = 0;
+    for (const n of plan) P += n[2] * n[2];
+    this.power += (P / wall - this.power) * 0.3;
+    const target = clamp(Math.pow(P_REF / Math.max(this.power, 1e-9), (1 - 1 / RATIO) / 2), GAIN_RANGE[0], GAIN_RANGE[1]);
+    this.agc += (target - this.agc) * 0.2;
+    for (const n of plan) this.play(n[0], n[1], n[2] * this.agc, n[3]);
+  }
+
+  collect(m) {
     const c = this.c, now = c.time;
     this.speed = m.speed; this.z = m.z; this.gd = m.gd;
     this.act += (m.act - this.act) * 0.25;
@@ -154,7 +175,10 @@ export class Field {
 
   play(type, t0, g, o) {
     const c = this.c;
+    if (this.plan) { this.plan.push([type, t0, g, o]); return; }
     if (this.gain[type] != null) g *= this.gain[type];
+    const busy = c.eng.voices.length + c.queue.length;
+    if (busy > FULL || (busy > CROWDED && (MINOR.has(type) || o.dim === 0.3))) return;
     const t = this.snap(type, t0);
     if (t < 0 || g < 1e-4) return;
     const { root, scale } = c, piv = c.pivot;
@@ -187,6 +211,12 @@ export class Field {
       case 'eaten': // grazing and scavenging: water drops
         c.at(t, 'drop', { freq: midicps(d2m(7 + (o.idb % 8), root, scale)) * 2, amp: g, dec: this.rr(0.035, 0.08), rise: this.rr(1.3, 2.1), pan: o.pan, rev: o.wet(0.3), dly: 0.12 });
         return;
+      case 'rustle': { // something swimming past
+        const f0 = this.rr(500, 2400), up = this.rnd() < 0.5;
+        c.at(t, 'rustle', { f0, f1: f0 * (up ? this.rr(1.4, 2.4) : this.rr(0.45, 0.7)), rq: this.rr(0.08, 0.25),
+          atk: this.rr(0.02, 0.08), dec: this.rr(0.12, 0.35) / Math.sqrt(c.tempo), amp: g, pan: o.pan, rev: Math.min(0.9, 0.25 + 0.5 * (1 - this.z)), dly: 0.04 });
+        return;
+      }
       case 'charged': // the tide charging silt into glint: a faint shimmer
         c.at(t, 'glint', { freq: midicps(d2m(o.idb % 14, root, scale)) * (o.idb & 32 ? 8 : 4), amp: g * (0.5 + 0.5 * o.td), dec: this.rr(0.04, 0.2), pan: o.pan, rev: o.wet(0.55), dly: 0.25 });
     }
@@ -224,11 +254,7 @@ export class Field {
     const play = Math.min(rate, 8);
     let k = 0;
     for (let L = Math.exp(-play * wall), p = this.rnd(); p > L && k < 6; k++) p *= this.rnd();
-    const g = AMP.rustle * this.gd * Math.min(10, Math.sqrt(rate / play)) * (0.4 + 0.6 * this.z) * (this.gain.rustle ?? 1);
-    for (let i = 0; i < k; i++) {
-      const f0 = this.rr(500, 2400), up = this.rnd() < 0.5;
-      c.at(c.time + LATENCY + this.rnd() * wall, 'rustle', { f0, f1: f0 * (up ? this.rr(1.4, 2.4) : this.rr(0.45, 0.7)), rq: this.rr(0.08, 0.25),
-        atk: this.rr(0.02, 0.08), dec: this.rr(0.12, 0.35) / Math.sqrt(c.tempo), amp: g, pan: this.rr(-0.85, 0.85), rev: Math.min(0.9, 0.25 + 0.5 * (1 - this.z)), dly: 0.04 });
-    }
+    const g = AMP.rustle * this.gd * Math.min(10, Math.sqrt(rate / play)) * (0.4 + 0.6 * this.z);
+    for (let i = 0; i < k; i++) this.play('rustle', c.time + LATENCY + this.rnd() * wall, g, { pan: this.rr(-0.85, 0.85) });
   }
 }

@@ -34,8 +34,10 @@ window.capture = async ({ N, WARM, EACH, SEED }) => {
     for (let k = FIRST_LIFE; k < MAXK; k++) if (c.pop[k]) {
       const serial = genomeSerial(c.genomeU32, k);
       let v = null;
-      if (voices.get(k) !== serial) { voices.set(k, serial); v = voiceOf(readGenome(c.genomeU32, c.genomeF32, k)); }
-      slots.push({ slot: k, serial, voice: v, pop: c.pop[k] });
+      let genome = null;
+      if (voices.get(k) !== serial) { voices.set(k, serial); genome = readGenome(c.genomeU32, c.genomeF32, k); v = voiceOf(genome); }
+      // the genome is kept so tools/listen-render.mjs can re-derive voices with the current mapping
+      slots.push({ slot: k, serial, voice: v, genome, pop: c.pop[k] });
     }
     let amp = 0; for (let i = 0; i < 4; i++) amp += eng.tide[i * 4 + 3];
     const tideN = Math.min(1, amp / 3);

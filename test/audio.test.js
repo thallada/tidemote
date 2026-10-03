@@ -132,3 +132,12 @@ test('field mode turns scanned events into notes', () => {
   assert.ok(spawned >= 6, `spawned ${spawned}`);
   assert.ok(peak > 1e-4 && peak <= 0.97 + 1e-6);
 });
+
+test('mixotrophs that do not swim play as producers', () => {
+  const r = rng(9);
+  const g = finalizeGenome(archetypeGenome(ARCHETYPE_TYPES[0], r));
+  Object.assign(g, { photo: 0.48, dGlint: 0.5, dHusk: 0.1, dFlesh: 0.1, swim: 0.05, advect: 0.3, adhesion: 0 });
+  assert.equal(archOf(g), 'plankton');
+  Object.assign(g, { swim: 1.6, advect: 0.1 });
+  assert.notEqual(archOf(g), 'plankton');
+});

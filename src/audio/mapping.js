@@ -24,6 +24,9 @@ export const PRODUCERS = new Set(['reef', 'plankton', 'filament']);
 export function archOf(g) {
   const bonded = (g.adhesion || 0) > 0.15;
   let guild = dietGuild(g);
+  // musically, how a cell lives matters more than its strict diet: a cell that photosynthesises
+  // substantially and does not actively swim plays as a producer (mixotrophs included)
+  if (guild !== 'producer' && g.photo > 0.4 && mobilityGuild(g) !== 'swimmer') guild = 'producer';
   if (guild === 'omnivore') {
     const m = Math.max(g.dGlint, g.dHusk, g.dFlesh);
     guild = m === g.dFlesh ? 'predator' : m === g.dHusk ? 'scavenger' : 'grazer';
