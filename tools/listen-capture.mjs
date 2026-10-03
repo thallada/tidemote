@@ -42,7 +42,7 @@ window.capture = async ({ N, WARM, EACH, SEED }) => {
     let amp = 0; for (let i = 0; i < 4; i++) amp += eng.tide[i * 4 + 3];
     const tideN = Math.min(1, amp / 3);
     log.push({ t: c.simTime, phase, msg: { type: 'slots', all: true, slots } });
-    log.push({ t: c.simTime, phase, msg: { type: 'world', world: { light: Math.min(1.2, eng.ambient * 1.2 + 0.85 * eng.season * tideN), tide: eng.season * tideN, season: eng.season, glint: 0.1, husk: 0.1, zoom: 0, selected: null, level: 1 }, species: [] } });
+    log.push({ t: c.simTime, phase, msg: { type: 'world', world: { light: Math.min(1.2, eng.ambient * 1.2 + 0.85 * eng.season * tideN), tide: eng.season * tideN } } });
   };
   eng.onListen = (d) => {
     if (phase === 'warm') return;

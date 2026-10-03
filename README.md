@@ -43,18 +43,19 @@ esbuild preserves module scope, so top-level names can be reused across files.
 | `src/lab.js` | The Field Lab drawer. |
 | `src/guide.js` | Glossary (hover hints) and field-guide text. |
 | `src/page.html` | Markup and styles. The bundled script is inserted at `/*__SCRIPT__*/`. |
-| `src/audio/` | The soundtrack: `ugens.js` and `voices.js` (a sample-level port of SuperCollider voices, effects and mastering), `mapping.js` (genome → voice), `conductor.js` (the generative score), `worklet.js` (the AudioWorklet), `sound.js` (main-thread controller and the spatial mix). |
+| `src/audio/` | The soundtrack: `ugens.js` and `voices.js` (a sample-level port of SuperCollider voices, effects and mastering), `mapping.js` (genome → voice), `listen.js` (decoding the GPU listening scan), `field.js` (scan → notes), `conductor.js` (pulse, harmony, sea and drone), `worklet.js` (the AudioWorklet), `sound.js` (main-thread controller). |
 | `tools/audio-parity/` | Renders the same events in SuperCollider and in the JS engine and compares them. |
 | `tools/sim.mjs`, `tools/compare.mjs` | Headless ecology runs and comparisons across seeds (see below). |
 
 ## Soundtrack
 
-Press **S** (or the Sound button) for a soundtrack made from the simulation. `-` and `=` (or the
-slider) set the volume and **⇧S** switches what it follows; the choices are remembered.
+The soundtrack is on by default and is the sound of what is in view. **S** (or the Sound button)
+turns it off and on, `-` and `=` (or the slider) set the volume; both are remembered. Browsers only
+play audio after a click or key press, so where autoplay is blocked the new world waits behind the
+intro until one.
 
-**What is in view** (the default). Every few frames a read-only GPU pass (`LISTEN_WGSL`) looks
-at the camera's rectangle. A particle's age restarts at each change of state and its info bits say
-why, so the pass finds every birth, mutation, spark of abiogenesis, death (starved, old age or
+Every few frames a read-only GPU pass (`LISTEN_WGSL`) looks at the camera's rectangle. A
+particle's age restarts at each change of state and its info bits say why, so the pass finds every birth, mutation, spark of abiogenesis, death (starved, old age or
 killed), grazing or scavenging bite and tide charge since the last scan, with its exact time and
 place, and it samples the living cells in view. Each living cell sings: now and then it plays the
 next note of its species' motif, more often when it moves. Events are accents: a birth rings, a kill
@@ -70,10 +71,7 @@ audio thread never plays more than a few dozen voices. Selecting a cell brings i
 a Lab highlight pushes the others back. Notes snap to a pulse that follows the simulation's speed:
 slower when time is slowed, faster (up to 4×) when it runs fast.
 
-**Species score.** The earlier mode: a generative score in which every living species is a voice,
-as loud as it is numerous, with species in view brought forward.
-
-Both run in an AudioWorklet as a sample-level port of SuperCollider voices (see
+It runs in an AudioWorklet as a sample-level port of SuperCollider voices (see
 `tools/audio-parity/`). `tools/listen-capture.mjs` records what the soundtrack hears from a headless
 run at several zoom levels, and `tools/listen-render.mjs` renders such a capture offline and reports
 loudness and density per view, for tuning without a browser.

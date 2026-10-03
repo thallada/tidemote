@@ -8,17 +8,16 @@ const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const fract = (x) => x - Math.floor(x);
 const pick = (arr, u) => arr[Math.min(arr.length - 1, Math.floor(clamp(u, 0, 0.9999) * arr.length))];
 
-// archetype → instruments, register, loudness (from the SuperCollider soundtrack)
+// archetype → instruments and register (from the SuperCollider soundtrack)
 export const ARCH = {
-  reef:      { mats: ['glass', 'glass', 'swell'], oct: 1, amp: 0.5 },
-  plankton:  { mats: ['swell', 'swell', 'glass'], oct: 2, amp: 0.38 },
-  filament:  { mats: ['breath'], oct: 1, amp: 0.13 },
-  grazer:    { mats: ['cplx', 'cplx', 'tine'], oct: 1, amp: 0.5 },
-  crawler:   { mats: ['tine', 'cplx'], oct: 1, amp: 0.42 },
-  hunter:    { mats: ['bite', 'wood', 'wood'], oct: 0, amp: 0.32 },
-  scavenger: { mats: ['drop', 'drop', 'tick'], oct: 2, amp: 0.35 },
+  reef:      { mats: ['glass', 'glass', 'swell'], oct: 1 },
+  plankton:  { mats: ['swell', 'swell', 'glass'], oct: 2 },
+  filament:  { mats: ['breath'], oct: 1 },
+  grazer:    { mats: ['cplx', 'cplx', 'tine'], oct: 1 },
+  crawler:   { mats: ['tine', 'cplx'], oct: 1 },
+  hunter:    { mats: ['bite', 'wood', 'wood'], oct: 0 },
+  scavenger: { mats: ['drop', 'drop', 'tick'], oct: 2 },
 };
-export const PRODUCERS = new Set(['reef', 'plankton', 'filament']);
 
 // Which of the seven musical archetypes a genome plays as.
 export function archOf(g) {
@@ -71,7 +70,7 @@ export function voiceOf(g) {
     default: rate = 1;
   }
   return {
-    arch, guild: PRODUCERS.has(arch) ? 'prod' : arch === 'scavenger' ? 'scav' : arch === 'grazer' ? 'graz' : 'pred',
+    arch,
     seq: arch === 'reef' ? pick(CHORDS, (a.rec[2] + 1) / 2) : walk(a.surf, a.rec, len),
     seq2: walk(b.surf, b.rec, len), // the β cell type's line (crawlers alternate the two)
     rate,
@@ -82,8 +81,5 @@ export function voiceOf(g) {
     fold: 0.9 + 1.7 * clamp((g.lum - 0.52) / 0.2, 0, 1),
     dec: 0.8 + 0.5 * span,
     bright: 0.3 + 0.6 * clamp((g.sat - 0.6) / 0.4, 0, 1),
-    adh: g.adhesion || 0,
-    pan: clamp((fract(g.hue + 0.37) * 2 - 1) * 0.75, -0.85, 0.85),
-    amp: A.amp,
   };
 }

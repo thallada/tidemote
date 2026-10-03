@@ -869,47 +869,6 @@ fn pickMain(@builtin(global_invocation_id) gid: vec3u) {
 }
 `;
 
-// View census for the soundtrack: on census frames, count every kind inside the camera
-// rectangle and sum where those particles sit on screen (0..255 per axis), so the music
-// can follow what is in view. Purely observational: it reads particles and writes its own
-// buffer, and nothing in the simulation reads it back.
-export const VIEW_WGSL = COMMON + /* wgsl */ `
-struct ViewU { center: vec2f, half: vec2f, world: vec2f, count: u32, pad: u32 };
-@group(0) @binding(0) var<uniform> vu: ViewU;
-@group(0) @binding(1) var<storage, read> parts: array<Particle>;
-@group(0) @binding(2) var<storage, read_write> vout: array<atomic<u32>>;
-var<workgroup> vn: array<atomic<u32>, MAXK>;
-var<workgroup> vx: array<atomic<u32>, MAXK>;
-var<workgroup> vy: array<atomic<u32>, MAXK>;
-
-@compute @workgroup_size(256)
-fn viewMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
-  for (var k = l; k < MAXK; k += 256u) { atomicStore(&vn[k], 0u); atomicStore(&vx[k], 0u); atomicStore(&vy[k], 0u); }
-  workgroupBarrier();
-  let i = gid.x;
-  if (i < vu.count) {
-    let p = parts[i];
-    var d = p.pos - vu.center;
-    d -= vu.world * round(d / vu.world);
-    if (abs(d.x) <= vu.half.x && abs(d.y) <= vu.half.y) {
-      let k = p.kind % MAXK;
-      atomicAdd(&vn[k], 1u);
-      atomicAdd(&vx[k], u32(clamp((d.x / vu.half.x * 0.5 + 0.5) * 255.0, 0.0, 255.0)));
-      atomicAdd(&vy[k], u32(clamp((d.y / vu.half.y * 0.5 + 0.5) * 255.0, 0.0, 255.0)));
-    }
-  }
-  workgroupBarrier();
-  for (var k = l; k < MAXK; k += 256u) {
-    let n = atomicLoad(&vn[k]);
-    if (n > 0u) {
-      atomicAdd(&vout[k], n);
-      atomicAdd(&vout[MAXK + k], atomicLoad(&vx[k]));
-      atomicAdd(&vout[2u * MAXK + k], atomicLoad(&vy[k]));
-    }
-  }
-}
-`;
-
 // The soundtrack's ears: a read-only scan for what happened since the last scan. A particle's
 // age restarts at every change of state and the low bits of info say why, so every event in the
 // window (age < window) is found with its exact time. Counts are exact, in and out of the view;
@@ -932,8 +891,8 @@ struct ListenU {
 @group(0) @binding(3) var<storage, read_write> lout: array<atomic<u32>>;
 // layout: [0,8) in-view events per type, [8,16) out of view, 16 living in view, 17 their summed
 // speed (x1000), 18 living everywhere, 19 their summed speed (x1000), 20 particles in view,
-// 21 glint in view, 22 husk in view, 23 records written, then records of 4 words from word 32.
-var<workgroup> wc: array<atomic<u32>, 24>;
+// 21 records written, then records of 4 words from word 32.
+var<workgroup> wc: array<atomic<u32>, 21>;
 
 fn lhash(v: u32) -> u32 {
   let s = v * 747796405u + 2891336453u;
@@ -943,7 +902,7 @@ fn lhash(v: u32) -> u32 {
 
 @compute @workgroup_size(256)
 fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
-  if (l < 24u) { atomicStore(&wc[l], 0u); }
+  if (l < 21u) { atomicStore(&wc[l], 0u); }
   workgroupBarrier();
   let i = gid.x;
   if (i < lu.count) {
@@ -960,8 +919,6 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     if (inView) {
       atomicAdd(&wc[20], 1u);
       if (life) { atomicAdd(&wc[16], 1u); atomicAdd(&wc[17], u32(min(speed, 50.0) * 1000.0)); }
-      else if (p.kind == GLINT) { atomicAdd(&wc[21], 1u); }
-      else if (p.kind == HUSK) { atomicAdd(&wc[22], 1u); }
     }
     var t = NONE;
     if (life && inView) { t = 8u; }
@@ -983,7 +940,7 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       var keep = lu.keep[t / 4u][t % 4u];
       if (t == 8u && p.kind == lu.selKind) { keep = 1.0; }
       if (inView && f32(lhash(p.id ^ lhash(lu.seed + t)) >> 8u) / 16777216.0 < keep) {
-        let r = atomicAdd(&lout[23], 1u);
+        let r = atomicAdd(&lout[21], 1u);
         if (r < ${LISTEN_CAP}u) {
           let o = ${LISTEN_HEAD}u + r * 4u;
           let uv = clamp(d / lu.half * 0.5 + 0.5, vec2f(0.0), vec2f(1.0));
@@ -998,7 +955,7 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     }
   }
   workgroupBarrier();
-  if (l < 23u) {
+  if (l < 21u) {
     let v = atomicLoad(&wc[l]);
     if (v > 0u) { atomicAdd(&lout[l], v); }
   }

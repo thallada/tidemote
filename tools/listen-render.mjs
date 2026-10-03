@@ -1,5 +1,5 @@
 // Render a capture from tools/listen-capture.mjs through the soundtrack's audio-thread code.
-// usage: node tools/listen-render.mjs capture.json out.wav [--mode field|score|both] [--phase name] [--seed 3]
+// usage: node tools/listen-render.mjs capture.json out.wav [--phase name] [--seed 3] [--speed 1] [--gain '{"alive":0}']
 // Prints per-phase loudness (needs ffmpeg) and voice statistics.
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -11,15 +11,13 @@ import { voiceOf } from '../src/audio/mapping.js';
 
 const [inPath, outPath] = process.argv.slice(2);
 const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
-const mode = arg('mode', 'field'), only = arg('phase', null), seed = Number(arg('seed', 3));
+const only = arg('phase', null), seed = Number(arg('seed', 3));
 const speed = Number(arg('speed', 1)); // play the capture as if the simulation ran this fast
 const cap = JSON.parse(fs.readFileSync(inPath, 'utf8'));
 let log = cap.log;
 if (only) log = log.filter((e) => e.phase === only);
 const sr = 48000, eng = new Engine(sr, { seed }), cond = new Conductor(eng, { seed });
-cond.message({ type: 'mode', mode });
 if (arg('gain', null)) cond.message({ type: 'fieldGain', gain: JSON.parse(arg('gain')) }); // e.g. '{"alive":0}'
-if (arg('bed', null)) cond.world.level = Number(arg('bed'));
 const t0 = log[0].t - 1.0 * speed, tEnd = log[log.length - 1].t + 3 * speed;
 const nb = Math.ceil((((tEnd - t0) / speed) * sr) / BS), L = new Float32Array(nb * BS), R = new Float32Array(nb * BS);
 const bl = new Float32Array(BS), br = new Float32Array(BS);
@@ -48,7 +46,7 @@ for (let b = 0; b < nb; b++) {
   voices += eng.voices.length; peakVoices = Math.max(peakVoices, eng.voices.length);
 }
 const secs = (nb * BS) / sr, cpu = (performance.now() - tStart) / 1000;
-console.log(`${mode}: ${secs.toFixed(1)} s rendered in ${cpu.toFixed(1)} s (${(secs / cpu).toFixed(1)}x real time), voices avg ${(voices / nb).toFixed(1)} peak ${peakVoices}`);
+console.log(`${secs.toFixed(1)} s rendered in ${cpu.toFixed(1)} s (${(secs / cpu).toFixed(1)}x real time), voices avg ${(voices / nb).toFixed(1)} peak ${peakVoices}`);
 // write float WAV
 const wav = (path, l, r) => {
   const n = l.length, buf = Buffer.alloc(44 + n * 8);

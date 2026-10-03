@@ -1,3 +1,4 @@
+<meta charset="utf-8">
 <title>Tidemote</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -301,6 +302,8 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
 .intro .calib { color: var(--warm); letter-spacing: .12em; text-transform: uppercase; font-size: 10px; }
 .intro .calib::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--warm); margin-right: 8px; vertical-align: 1px; animation: blink 1s ease-in-out infinite; }
 .intro.ready .calib::before { animation: none; }
+.intro .begin { display: none; color: var(--ink); letter-spacing: .12em; text-transform: uppercase; font-size: 11px; padding: 8px 14px; border: 1px solid var(--warm); background: var(--glass); }
+.intro.ask .begin { display: block; }
 @keyframes blink { 50% { opacity: .2; } }
 
 .nogpu { position: fixed; inset: 0; display: grid; place-items: center; padding-inline: 16px; }
@@ -337,7 +340,7 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
     </div>
     <div class="era" id="era">The First Tides</div>
     <div class="tide-line" id="tideline"><span class="term" data-tip="light" id="hud-light">Light –</span> · <span class="term" data-tip="season" id="hud-tide">tide –</span></div>
-    <div class="top-actions"><button id="lab-open" type="button" title="Research tools (K)">Lab · K</button><button id="snd" type="button" aria-pressed="false" title="Generative soundtrack that follows the ecosystem (S)">Sound · S</button><input id="vol" type="range" min="0" max="100" step="1" value="70" aria-label="Soundtrack volume" title="Volume (- =)" hidden></div>
+    <div class="top-actions"><button id="lab-open" type="button" title="Research tools (K)">Lab · K</button><button id="snd" type="button" aria-pressed="false" title="Soundtrack: what is in view, heard (S)">Sound · S</button><input id="vol" type="range" min="0" max="100" step="1" value="70" aria-label="Soundtrack volume" title="Volume (- =)" hidden></div>
   </section>
 
   <section class="corner tr plate">
@@ -376,7 +379,7 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
       <kbd>⇧ wheel · [ ]</kbd><span>loupe magnification</span>
       <kbd>C · Esc</kbd><span>follow · close the inspector, then clear highlight</span>
       <kbd>T</kbd><span>trails: off, short, long, long exposure</span>
-      <kbd>S · - = · ⇧S</kbd><span>soundtrack on or off · volume · what it follows</span>
+      <kbd>S · - =</kbd><span>soundtrack on or off · volume</span>
       <kbd>K</kbd><span>open the Lab: species, charts, lineage, guide</span>
       <kbd>G · V</kbd><span>tide overlay (faint, light map) · currents</span>
       <kbd>L N B</kbd><span>bonds · particles · bloom</span>
@@ -433,6 +436,7 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
     <h1>Tide<span>mote</span></h1>
     <p>A sealed world of silt, light and hunger. Reefs drink the light, swimmers graze and hunt, and every child might be something new. Leave it running and come back.</p>
     <div class="calib" id="calib">Waking the GPU</div>
+    <div class="begin">Click or press a key to begin, with sound</div>
   </div>
 </div>
 
