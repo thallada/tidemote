@@ -1,7 +1,7 @@
 import { createSound } from './audio/sound.js';
 import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE } from './engine.js';
-import { genomeSerial, readGenome, parseParticle, affinity, roleShares, roleColor, unpackUnorm } from './genome.js';
+import { genomeSerial, readGenome, parseParticle, affinity, roleShares, roleColor, unpackUnorm, CELL_SHAPES, cellShape } from './genome.js';
 import { seasonAt, createClimate, abioRate } from './climate.js';
 import { GLOSSARY } from './guide.js';
 import { createLab } from './lab.js';
@@ -38,7 +38,6 @@ const MATTER = [
   { name: 'Stone', css: '#b8ae9f', blurb: 'Bedrock, or the skeleton a calcifying cell left where it settled. Stone never drifts and the living cannot pass through it. Prey shelters in its crevices, and it slowly wears back into silt.' },
 ];
 const CAUSE = { 0: '', 1: 'starved', 2: 'died of old age', 3: 'was consumed', 4: 'crumbled from a husk', 5: 'charged by the Tide', 6: 'faded back to silt', 7: 'wore away from stone', 8: 'sparked into life from glint', 9: 'built from silt by its parent' };
-const SHAPES = ['disc', 'ring', 'star', 'nucleus', 'diamond'];
 const ROLE = ['α', 'β', 'γ'];
 
 function fail(title, detail) {
@@ -975,7 +974,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     html += traitRow('Child share', g.share, 0.2, 0.7, `${Math.round(g.share * 100)}%`, 'childshare');
     html += traitRow('Upkeep', g.metab, 0.01, 0.15, `${g.metab.toFixed(3)}/s`, 'upkeep');
     html += traitRow('Mutation', g.mutRate, 0.002, 0.08, `${(g.mutRate * 100).toFixed(1)}%`, 'mutation');
-    html += traitRow('Size', g.size, 0.45, 2.6, `${g.size.toFixed(2)} · ${SHAPES[(Math.round(g.shape) + role * 2) % 5]}`, 'size');
+    html += traitRow('Size', g.size, 0.45, 2.6, `${g.size.toFixed(2)} · ${CELL_SHAPES[cellShape(g, role)]}`, 'size');
     html += '</div>';
 
     const others = [];
@@ -1013,7 +1012,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       $('ins-kind').textContent = sp.alive ? (sp.established ? 'Species · thriving' : 'Species · rare') : 'Species · extinct';
       $('ins-name').textContent = sp.name;
       $('ins-sub').textContent = `species ${fmt(sp.serial)} · ${g.depth ? `${g.depth} mutation${g.depth === 1 ? '' : 's'} from its founder` : originWord(sp)}`;
-      drawGlyph(Math.round(g.shape), g.col);
+      drawGlyph(cellShape(g), g.col);
       const hl = focus.key === `sp:${sp.serial}`;
       html += `<div class="ins-row">${sp.alive ? '<button type="button" data-act="find">Find a living cell</button>' : ''}${sp.alive ? `<button type="button" data-act="hl" aria-pressed="${hl}">${hl ? 'Highlighted' : 'Highlight'}</button>` : ''}</div>`;
       html += tagHTML(g);
@@ -1031,7 +1030,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         $('ins-kind').textContent = mem ? `Now ${m.name.toLowerCase()} · once a cell of` : kind === 2 ? 'Remains' : kind === 3 ? 'Structure' : 'Matter';
         $('ins-name').textContent = mem && mem.sp ? mem.sp.name : m.name;
         $('ins-sub').textContent = sel.lost ? 'Lost track of this particle.' : mem && sel.diedAt != null ? `died ${fmtDur(eng.simTime - sel.diedAt)} ago · particle ${fmt(p.id)}` : `particle ${fmt(p.id)}${CAUSE[p.cause] ? ` · ${CAUSE[p.cause]}` : ''}`;
-        drawGlyph(kind === 1 ? 2 : kind === 2 ? 1 : 0, kind === 0 ? 0xff796056 : kind === 1 ? 0xffffe6b9 : kind === 3 ? 0xff9faeb8 : 0xff47628a);
+        drawGlyph(kind === 1 ? 13 : kind === 2 ? 12 : 14, kind === 0 ? 0xff796056 : kind === 1 ? 0xffffe6b9 : kind === 3 ? 0xff9faeb8 : 0xff47628a);
         html += storyHTML();
         if (mem) html += '<button type="button" class="wide" data-act="relative">Watch a surviving relative</button>';
         html += `<div class="sect"><div class="eyebrow">Now: ${term(m.name.toLowerCase(), m.name.toLowerCase())}</div><p class="note">${m.blurb}</p>`;
@@ -1058,7 +1057,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         $('ins-kind').innerHTML = o && o.cells > 1 ? `${gr}-cell of a ${o.partial ? '≥ ' : ''}${fmt(o.cells)}-cell organism` : `${gr}-cell`;
         $('ins-name').innerHTML = sp ? spLink(sp.serial, sp.name) : 'Unsequenced species';
         $('ins-sub').textContent = sel.lost ? 'Lost track of this cell.' : g ? `species ${fmt(g.serial)} · ${g.depth ? `${g.depth} mutation${g.depth === 1 ? '' : 's'} from its founder` : originWord(sp || g)}` : 'This species arose moments ago. Sequencing…';
-        drawGlyph(g ? (Math.round(g.shape) + p.role * 2) % 5 : 0, p.col);
+        drawGlyph(g ? cellShape(g, p.role) : 0, p.col);
         if (g) html += tagHTML(g);
         html += storyHTML();
         html += cellSection(p, g, false);
@@ -1157,12 +1156,29 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const cx = s / 2, cy = s / 2, R = 16;
     g.fillStyle = c; g.strokeStyle = c;
     g.shadowColor = c; g.shadowBlur = 8;
-    g.beginPath();
-    if (shape === 1) { g.lineWidth = 4; g.arc(cx, cy, R * 0.62, 0, TAU); g.stroke(); }
-    else if (shape === 2) { for (let i = 0; i < 4; i++) { const a = (i * TAU) / 4; g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a - 0.12) * 3, cy + Math.sin(a - 0.12) * 3); g.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R); g.lineTo(cx + Math.cos(a + 0.12) * 3, cy + Math.sin(a + 0.12) * 3); } g.fill(); }
-    else if (shape === 3) { g.globalAlpha = 0.35; g.arc(cx, cy, R, 0, TAU); g.fill(); g.globalAlpha = 1; g.beginPath(); g.arc(cx, cy, R * 0.32, 0, TAU); g.fill(); }
-    else if (shape === 4) { g.moveTo(cx, cy - R); g.lineTo(cx + R, cy); g.lineTo(cx, cy + R); g.lineTo(cx - R, cy); g.closePath(); g.fill(); }
-    else { g.arc(cx, cy, R * 0.8, 0, TAU); g.fill(); }
+    // Small polygonal emblems; the live specimen below shows the actual individual.
+    const outlines = [
+      'M-.8,-.3 L-.4,-.8 L.2,-.7 L.7,-.3 L.6,.4 L.1,.9 L-.6,.6 Z',
+      'M-.9,-.4 L-.3,-.3 L-.2,-.9 L.1,-.3 L.8,-.6 L.4,-.1 L.9,.3 L.3,.3 L.1,.9 L-.2,.3 L-.8,.6 L-.4,0 Z',
+      'M-.3,-.8 L0,-.5 L.2,-.1 L.9,.1 L.6,.4 L.1,.3 L-.4,.9 L-.5,.6 L-.2,.1 L-.5,-.4 Z',
+      'M-.1,0 L-.3,-.8 L-.6,-.5 L-.9,-.6 L-.8,0 L-.9,.4 L-.4,.7 L-.1,.1 L.1,.1 L.4,.8 L.7,.5 L.9,.6 L.8,0 L.9,-.3 L.3,-.7 L.1,0 Z',
+      'M-.6,-.2 L-.3,-.6 L-.1,-1 L.2,-.5 L.5,-.3 L.5,.2 L.7,.8 L.2,.5 L-.1,.9 L-.2,.3 L-.6,.2 Z',
+      'M-1,.1 L-.4,-.5 L.1,-.3 L.5,-.4 L1,-.1 L.5,.3 L0,.2 L-.5,.4 Z',
+      'M-.9,-.2 L-.6,-.5 L.2,-.5 L.8,-.2 L.9,.2 L.5,.4 L.2,.1 L-.2,.5 L-.7,.3 Z',
+      'M-.7,0 L-.5,-.5 L0,-.7 L.5,-.5 L.8,0 L.6,.5 L.2,.6 L0,.3 L-.4,.5 Z',
+      'M-.8,-.3 L-.4,-.8 L.4,-.6 L.8,-.1 L.7,.6 L0,.8 L-.6,.5 Z M-.1,-.3 L.4,-.3 L.5,.2 L.2,.5 L-.1,.2 Z',
+      'M-.9,.3 L-.7,0 L-.2,-.1 L.3,-.8 L.8,-.6 L.6,0 L.8,.7 L.2,.5 L-.2,.1 L-.6,.2 Z',
+      'M-1,-.1 L-.8,-.4 L-.4,-.3 L-.2,-.5 L.1,-.4 L.3,-.1 L.7,-.3 L1,0 L.8,.4 L.5,.3 L.2,.2 L-.1,.4 L-.4,.2 L-.7,.3 Z',
+      'M-1,.2 L-.3,-.6 L.1,-.4 L.9,-.2 L.4,.3 L-.2,.7 Z',
+    ];
+    g.translate(cx, cy); g.scale(R, R);
+    if (shape < 12) { g.fill(new Path2D(outlines[shape]), 'evenodd'); }
+    else {
+      g.beginPath();
+      if (shape === 12) { g.lineWidth = 0.22; g.ellipse(0, 0, 0.65, 0.5, 0.4, 0, TAU); g.stroke(); }
+      else if (shape === 13) { g.fill(new Path2D('M0,-1 L.15,-.15 L1,0 L.15,.15 L0,1 L-.15,.15 L-1,0 L-.15,-.15 Z')); }
+      else { g.fill(new Path2D('M-.7,-.5 L.2,-.8 L.8,-.2 L.5,.6 L-.5,.8 L-.9,.1 Z')); }
+    }
   }
 
   // ------------------------------------------------------------ live specimen view

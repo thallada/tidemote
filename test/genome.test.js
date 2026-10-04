@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { archetypeGenome, genomeSerial, readGenome, writeGenome, dietGuild, mobilityGuild } from '../src/genome.js';
+import { archetypeGenome, genomeSerial, readGenome, writeGenome, dietGuild, mobilityGuild, ARCHETYPE_TYPES, cellShape } from '../src/genome.js';
 import { G_WORDS } from '../src/shaders.js';
 
 test('genomeSerial reads the unsigned serial of a slot and its replacement', () => {
@@ -43,4 +43,17 @@ test('mobilityGuild preserves effective swim and boundary comparisons', () => {
     [0.5, 1, 0.5, 'crawler'],
     [0.5, 1.6, 0.5, 'swimmer'],
   ]) assert.equal(mobilityGuild({ advect, swim, photo }), expected);
+});
+
+// Widening the cosmetic draw must leave each archetype's ecological RNG stream intact.
+test('twelve cosmetic shapes keep the archetype random-draw count', () => {
+  for (const type of ARCHETYPE_TYPES) for (const [r, shape] of [[0, 0], [0.5, 6], [1 - Number.EPSILON, 11]]) {
+    let draws = 0;
+    const g = archetypeGenome(type, () => { draws++; return r; });
+    assert.equal(g.shape, shape);
+    assert.equal(draws, type === 'grazer' ? 77 : type === 'filament' ? 78 : 76);
+    const before = JSON.stringify(g);
+    for (let role = 0; role < 3; role++) assert.ok(cellShape(g, role) >= 0 && cellShape(g, role) < 12);
+    assert.equal(JSON.stringify(g), before, 'cosmetic selection leaves the genome unchanged');
+  }
 });
