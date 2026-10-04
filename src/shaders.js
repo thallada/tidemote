@@ -72,6 +72,7 @@ export const DEFAULT_K = {
   calcCost: 0.012,  // upkeep of a fully calcifying cell (× metab)
   stoneLife: 300,   // seconds a reef stone lasts on average before it crumbles to silt
   reefs: 1,         // 0: calcifying cells never leave stone (bedrock only)
+  stoneCap: 0,      // stone grains within half a cell at which a dying calcifier leaves no more (0: no limit)
   nucleate: 0.03,   // chance of leaving stone away from other stone, relative to beside it: reefs accrete
   rockLife: 3000,   // ...and a grain of bedrock
   rocks: 0.5,       // scales each world's bedrock outcrops (0: none)
@@ -919,8 +920,10 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 2u], 1u);
   }
   // calcifying cells that settled leave their skeleton as stone, in their own colour, mostly where
-  // stone already is, so reefs grow outward from rock and from the rare place one starts
-  if (kind == HUSK && g.calcify > 0.0 && rnd(&s) < ${f(K.reefs)} * g.calcify * (1.0 - g.advect) * select(${f(K.nucleate)}, 1.0, stoneN >= 1.0)) {
+  // stone already is, so reefs grow outward from rock and from the rare place one starts; a reef that is
+  // already thick around the cell takes no more, so reefs grow as frameworks rather than solid carpets
+  if (kind == HUSK && g.calcify > 0.0 && rnd(&s) < ${f(K.reefs)} * g.calcify * (1.0 - g.advect) * select(${f(K.nucleate)}, 1.0, stoneN >= 1.0)
+      * select(1.0, clamp(1.0 - stoneN / ${f(K.stoneCap || 1)}, 0.0, 1.0), ${f(K.stoneCap)} > 0.0)) {
     kind = STONE; E = ${f(K.stoneLife)} * (0.5 + rnd(&s)); vel = vec2f(0.0);
   }
   let childGen = ((genOf(p.info) + 1u) & 0xffffu) << 14u;
