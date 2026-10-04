@@ -14,7 +14,7 @@ const { values: v } = parseArgs({ options: {
   sample: { type: 'string', default: '5' }, print: { type: 'string', default: '30' },
   out: { type: 'string' }, png: { type: 'string' }, cpu: { type: 'boolean' },
   chrome: { type: 'boolean' }, help: { type: 'boolean' },
-  'aim-life': { type: 'boolean' }, 'aim-body': { type: 'boolean' }, 'render-bench': { type: 'boolean' },
+  aim: { type: 'boolean' }, 'render-bench': { type: 'boolean' },
 } });
 if (v.help) {
   console.log(`Usage: node tools/sim.mjs [options]
@@ -25,15 +25,14 @@ if (v.help) {
                  Override the executable with PLAYWRIGHT_CHROMIUM
   --cpu          Select Mesa lavapipe for Dawn only
   --png file.png Render the final frame with Dawn only (W, H, ZOOM env supported)
-  --aim-life     Centre PNGs on the living cell nearest the world centre
-  --aim-body     Centre PNGs on the densest part of the largest bonded body
+  --aim          Centre PNGs on the living cell with the most incoming bonds
+                 Fall back to the world centre if no living cells remain
   --render-bench Time 180 paused render frames per zoom with GPU timestamps
   --help         Show this help`);
   process.exit(0);
 }
 if (v.chrome && v.png) throw new Error('--png is supported only with Dawn; omit --chrome');
-if ((v['aim-life'] || v['aim-body'] || v['render-bench']) && !v.png) throw new Error('--aim-life, --aim-body and --render-bench require --png');
-if (v['aim-life'] && v['aim-body']) throw new Error('Choose either --aim-life or --aim-body');
+if ((v.aim || v['render-bench']) && !v.png) throw new Error('--aim and --render-bench require --png');
 const config = { n: +v.n, minutes: +v.minutes, seed: +v.seed, k: JSON.parse(v.k),
   eras: !v['no-eras'], sample: +v.sample, print: +v.print, cpu: !!v.cpu };
 for (const key of ['n', 'minutes', 'sample', 'print']) {
@@ -114,58 +113,27 @@ async function writePNG(device, eng, frames) {
   const { PNG } = await import('pngjs');
   const tex = device.createTexture({ size: [W, H], format: 'rgba8unorm', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
   let x = eng.grid[0] / 2, y = eng.grid[1] / 2;
-  if (v['aim-life'] || v['aim-body']) {
+  if (v.aim) {
     const partBytes = eng.count * P_BYTES;
-    const buf = device.createBuffer({ size: partBytes + (v['aim-body'] ? eng.count * 16 : 0), usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const buf = device.createBuffer({ size: partBytes + eng.count * 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
     const enc = device.createCommandEncoder();
     enc.copyBufferToBuffer(eng.b.parts, 0, buf, 0, partBytes);
-    if (v['aim-body']) enc.copyBufferToBuffer(eng.b.intent, 0, buf, partBytes, eng.count * 16);
+    enc.copyBufferToBuffer(eng.b.intent, 0, buf, partBytes, eng.count * 16);
     device.queue.submit([enc.finish()]);
     await buf.mapAsync(GPUMapMode.READ);
     const f = new Float32Array(buf.getMappedRange()), u = new Uint32Array(f.buffer);
-    let best = Infinity, at = -1;
-    let candidates = Array.from({ length: eng.count }, (_, i) => i);
-    if (v['aim-body']) {
-      const bonds = new Uint32Array(f.buffer, partBytes);
-      const parent = Uint32Array.from(candidates);
-      const find = (i) => {
-        while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; }
-        return i;
-      };
-      for (const i of candidates) if (u[i * 10 + 4] >= FIRST_LIFE) {
-        for (const n of [bonds[i * 4 + 2], bonds[i * 4 + 3]]) {
-          if (n < eng.count && u[n * 10 + 4] === u[i * 10 + 4]) parent[find(n)] = find(i);
-        }
+    const bonds = new Uint32Array(f.buffer, partBytes), incoming = new Uint32Array(eng.count);
+    for (let i = 0; i < eng.count; i++) if (u[i * 10 + 4] >= FIRST_LIFE) {
+      for (const n of [bonds[i * 4 + 2], bonds[i * 4 + 3]]) {
+        if (n < eng.count && u[n * 10 + 4] === u[i * 10 + 4]) incoming[n]++;
       }
-      const bodies = new Map();
-      for (const i of candidates) if (u[i * 10 + 4] >= FIRST_LIFE) {
-        const root = find(i);
-        if (!bodies.has(root)) bodies.set(root, []);
-        bodies.get(root).push(i);
-      }
-      candidates = [...bodies.values()].reduce((a, b) => a.length >= b.length ? a : b, []);
-      if (candidates.length < 3) throw new Error('No multicellular body to aim at');
-      // Aim at a real member rather than a centroid that might fall in a hollow body's centre.
-      const wrap = (d, axis) => d - eng.grid[axis] * Math.round(d / eng.grid[axis]);
-      let densest = -1;
-      for (const i of candidates) {
-        let nearby = 0;
-        for (const n of candidates) {
-          const dx = wrap(f[i * 10] - f[n * 10], 0), dy = wrap(f[i * 10 + 1] - f[n * 10 + 1], 1);
-          if (dx * dx + dy * dy < 0.64) nearby++;
-        }
-        const distance = (f[i * 10] - x) ** 2 + (f[i * 10 + 1] - y) ** 2;
-        if (nearby > densest || (nearby === densest && distance < best)) { densest = nearby; best = distance; at = i * 10; }
-      }
-      console.log(`PNG body: ${candidates.length} bonded cells, ${densest} within 0.8 world units`);
     }
+    let at = -1, best = -1;
     for (let i = 0; i < eng.count; i++) {
-      const j = i * (P_BYTES / 4), d2 = (f[j] - x) ** 2 + (f[j + 1] - y) ** 2;
-      if (!v['aim-body'] && u[j + 4] >= FIRST_LIFE && d2 < best) { best = d2; at = j; }
+      if (u[i * 10 + 4] >= FIRST_LIFE && incoming[i] > best) { best = incoming[i]; at = i; }
     }
-    if (at < 0) throw new Error('No living cell to aim at');
-    x = f[at]; y = f[at + 1];
-    console.log(`PNG camera: ${x}, ${y}; cell ${u[at + 7]}, kind ${u[at + 4]}`);
+    if (at >= 0) { x = f[at * 10]; y = f[at * 10 + 1]; }
+    console.log(`PNG camera: ${x}, ${y}; incoming bonds ${Math.max(0, best)}`);
     buf.unmap(); buf.destroy();
   }
   const timings = [];
@@ -191,17 +159,15 @@ async function writePNG(device, eng, frames) {
     if (v['render-bench']) {
       const ms = [];
       eng.onGpuTime = (t) => ms.push(t);
-      // Drain each group to include every timestamp; discard warmup and pipeline compilation.
       for (let i = 0; i < 200; i++) {
-        render();
+        render(); // Drain timestamps; discard the first 20 frames as warmup below.
         while (eng.timing.reads.some((r) => r.busy)) await new Promise((resolve) => setTimeout(resolve, 0));
       }
       eng.onGpuTime = null;
       const samples = ms.slice(20).sort((a, b) => a - b);
       const timing = { zoom: z, ppu, samples: samples.length,
         medianMs: samples[Math.floor(samples.length / 2)], meanMs: samples.reduce((a, b) => a + b, 0) / samples.length };
-      timings.push(timing);
-      console.log(`GPU render: ${JSON.stringify(timing)}`);
+      timings.push(timing); console.log(`GPU render: ${JSON.stringify(timing)}`);
     }
   }
   if (timings.length) fs.writeFileSync(v.png.replace(/\.png$/, '-timing.json'), JSON.stringify({ adapter: config.adapter, n: eng.count, W, H, timings }, null, 2));

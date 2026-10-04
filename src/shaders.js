@@ -29,7 +29,7 @@ export const DEFAULT_K = {
   huskFrac: 0.5,
   eatR: 0.3,
   linkR: 0.42,
-  bondBreak: 1.75,  // bonds break beyond this multiple of linkR
+  bondBreak: 1.25,  // persistent bonds break beyond 1.25 × their formation range (linkR)
   buildCost: 0.06,
   gain: 1.5,
   sated: 1.0,       // cells stop feeding above this × the energy needed to divide
@@ -1608,17 +1608,19 @@ struct BO {
   @location(1) side: f32,
 };
 fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f {
+  let len = length(chord);
+  let reach = min(len, view.linkR * 0.55) / 3.0;
+  let straight = chord * (reach / len);
   let it = intent[index];
   let other = select(it.z, it.w, it.z == exclude || it.z == NONE);
-  if (other == NONE || other == exclude) { return chord / 3.0; }
+  if (other == NONE || other == exclude) { return straight; }
   let p = parts[index];
-  if (parts[other].kind != p.kind) { return chord / 3.0; }
-  let offset = wrapd(parts[other].pos - p.pos);
-  let tangent = chord + select(offset, -offset, outgoing);
-  let len = length(chord);
-  if (length(tangent) < 0.001) { return chord / 3.0; }
-  // Keep control points local even at bends or a torus seam.
-  return normalize(tangent) * len / 3.0;
+  if (parts[other].kind != p.kind) { return straight; }
+  let offset = wrapd(parts[other].pos - p.pos) * select(1.0, -1.0, outgoing);
+  let tangent = chord + offset;
+  // Sharp turnbacks stay straight; all other controls remain within the rest length.
+  if (dot(offset, chord) < -0.5 * length(offset) * len || length(tangent) < 0.001) { return straight; }
+  return normalize(tangent) * reach;
 }
 @vertex fn vsBridge(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> BO {
   var o: BO;
@@ -1643,8 +1645,10 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   let t = f32(v / 2u) / 6.0;
   let side = f32(v & 1u) * 2.0 - 1.0;
   let lod = detailLOD(view.pointSize);
-  let t0 = mix(dq / 3.0, bodyTangent(index, n, dq, true), lod);
-  let t1 = mix(dq / 3.0, bodyTangent(n, index, dq, false), lod);
+  let rest = view.linkR * 0.55;
+  let straight = dq * (min(len, rest) / (len * 3.0));
+  let t0 = mix(straight, bodyTangent(index, n, dq, true), lod);
+  let t1 = mix(straight, bodyTangent(n, index, dq, false), lod);
   let c1 = t0;
   let c2 = dq - t1;
   let u = 1.0 - t;
@@ -1653,13 +1657,14 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   let normal = vec2f(-tangent.y, tangent.x) / max(length(tangent), 0.00001);
   let adhesion = min(genomes[p.kind].adhesion, genomes[q.kind].adhesion);
   let taper = 0.55 + 0.45 * pow(2.0 * t - 1.0, 2.0);
-  let halfWidth = mix(0.5, max(0.5, view.ppu * (0.012 + adhesion * 0.025) * taper), lod);
+  let tension = pow(min(1.0, rest / len), 3.0);
+  let halfWidth = mix(0.5, max(0.5, view.ppu * (0.012 + adhesion * 0.025) * taper * tension), lod);
   o.pos = toClip((base + centre) * view.ppu + normal * side * halfWidth);
   let strength = clamp(1.0 - len / view.linkR, 0.0, 1.0);
   let fade = select(view.mute, 1.0, focusPass(p));
-  // Integral of the soft edge is 0.8. Keep total bridge light equal to the old one-pixel line.
+  // Soft-edge integral is 0.8: match the old line's light at rest, dim under tension.
   o.col = mix(unpack4x8unorm(p.col).rgb, unpack4x8unorm(q.col).rgb, t)
-    * ((0.35 + 0.65 * strength) * view.lineGain * fade * lod / (halfWidth * 1.6));
+    * ((0.35 + 0.65 * strength) * view.lineGain * fade * lod * tension * tension / (halfWidth * 1.6));
   o.side = side;
   return o;
 }

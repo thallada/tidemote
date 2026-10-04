@@ -91,7 +91,7 @@ Every 20 frames a census is read back: per-species counts and genomes. The CPU u
 - **Local minerals and food**: photosynthesis needs nearby silt, feeding needs nearby prey, glint or husks, and division needs a nearby silt grain.
 - **Catching takes skill**: a cell catches living prey in proportion to how well it is built to eat it, so photosynthesisers and husk eaters rarely kill.
 - **Search images**: hunters and grazers catch the species they caught last more readily and often miss unfamiliar prey, so booming species feed their predators while rare ones are spared.
-- **Bonds**: adhesive cells keep their partners until they die, change kind or stretch beyond `bondBreak × linkR` (by default 1.75×). Empty slots find the nearest same-species cells within `linkR` in the neighbour scan; newborns start with a bond to their parent if they are the same species. Bodies grow by division, share upkeep, shade each other less, and resist attack through armor.
+- **Bonds**: adhesive cells keep their partners until they die, change kind or stretch beyond `bondBreak × linkR` (by default 1.25×). Empty slots find the nearest same-species cells within `linkR` in the neighbour scan; newborns start with a bond to their parent if they are the same species. Bodies grow by division, share upkeep, shade each other less, and resist attack through armor.
 - **Stone**: each world has its own bedrock outcrops, and settled calcifying cells may leave their skeleton as stone, mostly beside stone already there, so reefs grow from rock. Stone never drifts and only calcifiers can settle on it; attacks made from among it sometimes miss. Loose stone wears away fast and packed stone slowly, while a neighbourhood that is mostly reef wears fast, so reefs grow as separate patches and the world never turns to stone.
 
 Glint sparks into a random new lineage about once every 30 simulated seconds on average, independent of climate eras and population.
@@ -120,8 +120,8 @@ tools/gpu-node.sh tools/ensemble.mjs --runs 32 --minutes 30 --n 32768 --k '{"arm
 
 `--no-eras` disables climate eras; `--sample` and `--print` set simulated-second intervals. JSON contains config, samples (composition, diversity, ledger rates per simulated minute and climate), eras and summary metrics. Metrics requiring observations after 60 seconds are `null` in shorter runs. Shares are fractions of living cells. `--png` renders the final frame with Dawn only; optional `ZOOM=1,4` writes separate zoom images. `--help` lists the CLI options.
 
-Add `--aim-life` to centre PNGs on the living cell nearest the world centre, or `--aim-body`
-to inspect the densest part of the largest connected body using its actual bond partners. `--render-bench`
+Add `--aim` to centre PNGs on the living cell with the most incoming bonds (a body’s hub),
+falling back to the world centre if no living cells remain. `--render-bench`
 uses GPU timestamps for 180 paused render frames per zoom after warmup, and saves a
 `-timing.json` beside the PNGs (requires a timestamp-capable Dawn adapter). Under WSL,
 include `ZOOM:W:H` in `WSLENV` when using those variables through `tools/gpu-node.sh`.
