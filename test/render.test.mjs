@@ -17,7 +17,7 @@ test('cell LOD preserves scale, reflects state, clips walls and renders auxiliar
   device.addEventListener('uncapturederror', (e) => errors.push(e.error.message));
   const { createEngine } = await import('../src/engine.js');
   const { archetypeGenome, writeGenome, packUnorm } = await import('../src/genome.js');
-  const { MAXK, G_WORDS } = await import('../src/shaders.js');
+  const { MAXK, G_WORDS, DRAW_WGSL } = await import('../src/shaders.js');
   const eng = await createEngine(device, 'rgba8unorm');
   assert.ok(await eng.allocate(8));
   eng.grid = [10, 10]; eng.count = 1; eng.resize(256, 256);
@@ -41,8 +41,21 @@ test('cell LOD preserves scale, reflects state, clips walls and renders auxiliar
   const texture = device.createTexture({ size: [256, 256], format: 'rgba16float',
     usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
   t.after(() => texture.destroy());
+  // Resolve the original falloffs at the same radius to compare integrated light without
+  // the sampling noise of a six-pixel sprite. This reference is used only in this GPU test.
+  const referenceModule = device.createShaderModule({ code: DRAW_WGSL + `
+    @fragment fn fsReference(i: PO) -> @location(0) vec4f {
+      return vec4f(i.col * spriteFalloff(i.uv, i.shape), 0.0);
+    }` });
+  const reference = device.createRenderPipeline({ layout: 'auto',
+    vertex: { module: referenceModule, entryPoint: 'vsPoint' },
+    fragment: { module: referenceModule, entryPoint: 'fsReference', targets: [{ format: 'rgba16float' }] },
+    primitive: { topology: 'triangle-strip' } });
+  const referenceBG = device.createBindGroup({ layout: reference.getBindGroupLayout(0), entries:
+    [[0, 'view'], [1, 'parts'], [2, 'genomes'], [3, 'intent'], [5, 'focus']]
+      .map(([binding, name]) => ({ binding, resource: { buffer: eng.b[name] } })) });
   const half = (h) => ((h & 0x8000) ? -1 : 1) * ((h & 0x7c00) ? (1 + (h & 1023) / 1024) * 2 ** (((h >> 10) & 31) - 15) : (h & 1023) * 2 ** -24);
-  const render = async (ppu) => {
+  const render = async (ppu, originalFalloff = false) => {
     updateGenome();
     device.queue.writeBuffer(eng.b.parts, 0, particles);
     device.queue.writeBuffer(eng.b.intent, 0, intent);
@@ -50,7 +63,11 @@ test('cell LOD preserves scale, reflects state, clips walls and renders auxiliar
     const enc = device.createCommandEncoder();
     enc.copyBufferToBuffer(eng.b.frameCtr, 20, eng.b.bridgeDraw, 4, 4);
     const pass = enc.beginRenderPass({ colorAttachments: [{ view: texture.createView(), loadOp: 'clear', storeOp: 'store' }] });
-    eng._drawScene(pass, eng.bgLine, eng.bgPoint, eng.bgPointFar, eng.bgBridge, eng.viewData);
+    if (originalFalloff) {
+      pass.setPipeline(reference); pass.setBindGroup(0, referenceBG); pass.draw(4, eng.count);
+    } else {
+      eng._drawScene(pass, eng.bgLine, eng.bgPoint, eng.bgBridge, eng.viewData);
+    }
     pass.end();
     const buf = device.createBuffer({ size: 256 * 256 * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
     enc.copyTextureToBuffer({ texture }, { buffer: buf, bytesPerRow: 2048 }, [256, 256]);
@@ -77,6 +94,34 @@ test('cell LOD preserves scale, reflects state, clips walls and renders auxiliar
   assert.ok(Math.abs(sum(aboveLOD) / sum(belowLOD) - 1) < 0.03, 'detail onset introduces no brightness jump');
 
   const at = (a, x, y = 128) => a[y * 256 + x];
+  const plans = [];
+  for (let shape = 0; shape < 5; shape++) {
+    g.shape = shape;
+    const close = await render(500);
+    const normalize = (image) => {
+      const view = new Float32Array(eng.viewData);
+      return sum(image) / (view[7] ** 2 * view[8]);
+    };
+    const closeLight = normalize(close);
+    const distantLight = normalize(await render(500, true));
+    assert.ok(Math.abs(closeLight / distantLight - 1) < 0.15, `class ${shape} preserves its far form's mean brightness`);
+    plans.push(close);
+  }
+  assert.ok(at(plans[1], 128) === 0 && at(plans[1], 168) > 0.05, 'annular cells retain a clear central vacuole and living rim');
+  assert.ok(at(plans[2], 169) > 0.01 && plans[2][156 * 256 + 156] === 0, 'stellate arms retain the far cross axes and open diagonal gaps');
+  const centralFraction = (image) => {
+    let core = 0;
+    for (let j = 0; j < image.length; j++) if ((j % 256 - 128) ** 2 + (Math.floor(j / 256) - 128) ** 2 < 33 ** 2) core += image[j];
+    return core / sum(image);
+  };
+  assert.ok(centralFraction(plans[3]) > 0.8 && centralFraction(plans[0]) < 0.65, 'heliozoans concentrate light in a small body surrounded by a faint ray halo');
+  assert.ok(at(plans[4], 175) > 0.02 && plans[4][162 * 256 + 162] === 0, 'pennate cells preserve a pointed diamond footprint');
+  // The displayed class includes the role, not just the species' raw shape gene.
+  g.shape = 0; pu[9] = 1 << 4;
+  const roleStar = await render(500);
+  assert.ok(at(roleStar, 160) > 0.01 && roleStar[156 * 256 + 156] === 0, 'role-adjusted shape 0 + role 1 resolves into a stellate cell');
+  pu[9] = 0;
+  g.shape = 0;
   const beforeWall = await render(500);
   intent[2] = 1;
   const wall = await render(500);

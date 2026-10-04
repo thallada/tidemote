@@ -120,7 +120,8 @@ tools/gpu-node.sh tools/ensemble.mjs --runs 32 --minutes 30 --n 32768 --k '{"arm
 
 `--no-eras` disables climate eras; `--sample` and `--print` set simulated-second intervals. JSON contains config, samples (composition, diversity, ledger rates per simulated minute and climate), eras and summary metrics. Metrics requiring observations after 60 seconds are `null` in shorter runs. Shares are fractions of living cells. `--png` renders the final frame with Dawn only; optional `ZOOM=1,4` writes separate zoom images. `--help` lists the CLI options.
 
-Add `--aim-life` to centre PNGs on the living cell nearest the world centre. `--render-bench`
+Add `--aim-life` to centre PNGs on the living cell nearest the world centre, or `--aim-body`
+to inspect the densest part of the largest connected body using its actual bond partners. `--render-bench`
 uses GPU timestamps for 180 paused render frames per zoom after warmup, and saves a
 `-timing.json` beside the PNGs (requires a timestamp-capable Dawn adapter). Under WSL,
 include `ZOOM:W:H` in `WSLENV` when using those variables through `tools/gpu-node.sh`.
