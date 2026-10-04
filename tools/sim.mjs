@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { runHeadless } from '../src/headless.js';
+import { P_BYTES, FIRST_LIFE } from '../src/shaders.js';
 
 const { values: v } = parseArgs({ options: {
   n: { type: 'string', default: '8192' }, minutes: { type: 'string', default: '10' },
@@ -13,6 +14,7 @@ const { values: v } = parseArgs({ options: {
   sample: { type: 'string', default: '5' }, print: { type: 'string', default: '30' },
   out: { type: 'string' }, png: { type: 'string' }, cpu: { type: 'boolean' },
   chrome: { type: 'boolean' }, help: { type: 'boolean' },
+  'aim-life': { type: 'boolean' }, 'render-bench': { type: 'boolean' },
 } });
 if (v.help) {
   console.log(`Usage: node tools/sim.mjs [options]
@@ -23,10 +25,13 @@ if (v.help) {
                  Override the executable with PLAYWRIGHT_CHROMIUM
   --cpu          Select Mesa lavapipe for Dawn only
   --png file.png Render the final frame with Dawn only (W, H, ZOOM env supported)
+  --aim-life     Centre PNGs on the living cell nearest the world centre
+  --render-bench Time 180 paused render frames per zoom with GPU timestamps
   --help         Show this help`);
   process.exit(0);
 }
 if (v.chrome && v.png) throw new Error('--png is supported only with Dawn; omit --chrome');
+if ((v['aim-life'] || v['render-bench']) && !v.png) throw new Error('--aim-life and --render-bench require --png');
 const config = { n: +v.n, minutes: +v.minutes, seed: +v.seed, k: JSON.parse(v.k),
   eras: !v['no-eras'], sample: +v.sample, print: +v.print, cpu: !!v.cpu };
 for (const key of ['n', 'minutes', 'sample', 'print']) {
@@ -90,7 +95,9 @@ async function runDawn() {
       ' under WSL run through tools/gpu-node.sh to reach the GPU via Windows D3D12 (see docs/headless-gpu.md).');
     process.exit(2);
   }
-  const device = await adapter.requestDevice();
+  const hasTS = v['render-bench'] && adapter.features.has('timestamp-query');
+  if (v['render-bench'] && !hasTS) throw new Error('GPU timestamps unavailable');
+  const device = await adapter.requestDevice({ requiredFeatures: hasTS ? ['timestamp-query'] : [] });
   try {
     return await runHeadless(device, config, {
       print: (line) => console.log(line), width: W, height: H,
@@ -104,10 +111,30 @@ async function runDawn() {
 async function writePNG(device, eng, frames) {
   const { PNG } = await import('pngjs');
   const tex = device.createTexture({ size: [W, H], format: 'rgba8unorm', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+  let x = eng.grid[0] / 2, y = eng.grid[1] / 2;
+  if (v['aim-life']) {
+    const buf = device.createBuffer({ size: eng.count * P_BYTES, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const enc = device.createCommandEncoder();
+    enc.copyBufferToBuffer(eng.b.parts, 0, buf, 0, buf.size);
+    device.queue.submit([enc.finish()]);
+    await buf.mapAsync(GPUMapMode.READ);
+    const f = new Float32Array(buf.getMappedRange()), u = new Uint32Array(f.buffer);
+    let best = Infinity, at = -1;
+    for (let i = 0; i < eng.count; i++) {
+      const j = i * (P_BYTES / 4), d2 = (f[j] - x) ** 2 + (f[j + 1] - y) ** 2;
+      if (u[j + 4] >= FIRST_LIFE && d2 < best) { best = d2; at = j; }
+    }
+    if (at < 0) throw new Error('No living cell to aim at');
+    x = f[at]; y = f[at + 1];
+    console.log(`PNG camera: ${x}, ${y}; cell ${u[at + 7]}, kind ${u[at + 4]}`);
+    buf.unmap(); buf.destroy();
+  }
+  const timings = [];
   for (const z of (process.env.ZOOM || '1').split(',').map(Number)) {
     eng.clearAccum = true;
     const ppu = Math.max(W / eng.grid[0], H / eng.grid[1]) * z;
-    eng.frame({ target: tex.createView(), cam: { x: eng.grid[0] / 2, y: eng.grid[1] / 2, ppu }, paused: true, time: frames / 60 });
+    const render = () => eng.frame({ target: tex.createView(), cam: { x, y, ppu }, paused: true, time: frames / 60 });
+    render();
     const bpr = Math.ceil((W * 4) / 256) * 256;
     const buf = device.createBuffer({ size: bpr * H, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
     const enc = device.createCommandEncoder();
@@ -120,6 +147,24 @@ async function writePNG(device, eng, frames) {
     const file = process.env.ZOOM ? v.png.replace(/\.png$/, `_z${z}.png`) : v.png;
     fs.writeFileSync(file, PNG.sync.write(png));
     buf.unmap();
+    buf.destroy();
     console.log(`wrote ${file}`);
+    if (v['render-bench']) {
+      const ms = [];
+      eng.onGpuTime = (t) => ms.push(t);
+      // Drain each group to include every timestamp; discard warmup and pipeline compilation.
+      for (let i = 0; i < 200; i++) {
+        render();
+        while (eng.timing.reads.some((r) => r.busy)) await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      eng.onGpuTime = null;
+      const samples = ms.slice(20).sort((a, b) => a - b);
+      const timing = { zoom: z, ppu, samples: samples.length,
+        medianMs: samples[Math.floor(samples.length / 2)], meanMs: samples.reduce((a, b) => a + b, 0) / samples.length };
+      timings.push(timing);
+      console.log(`GPU render: ${JSON.stringify(timing)}`);
+    }
   }
+  if (timings.length) fs.writeFileSync(v.png.replace(/\.png$/, '-timing.json'), JSON.stringify({ adapter: config.adapter, n: eng.count, W, H, timings }, null, 2));
+  tex.destroy();
 }

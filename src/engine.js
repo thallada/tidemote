@@ -91,7 +91,9 @@ class Engine {
     b.cellStart = d.createBuffer({ size: (MAX_CELLS + 1) * 4, usage: U.STORAGE });
     b.blockSums = d.createBuffer({ size: (MAX_CELLS / 256) * 4, usage: U.STORAGE });
     b.genomes = d.createBuffer({ size: MAXK * G_BYTES, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
-    b.frameCtr = d.createBuffer({ size: 32, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
+    b.frameCtr = d.createBuffer({ size: 32, usage: U.STORAGE | U.INDIRECT | U.COPY_SRC | U.COPY_DST });
+    b.bridgeDraw = d.createBuffer({ size: 16, usage: U.INDIRECT | U.COPY_DST });
+    d.queue.writeBuffer(b.bridgeDraw, 0, new Uint32Array([30, 0, 0, 0]));
     b.pickOut = d.createBuffer({ size: PICK_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
     b.listenU = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
     b.listen = d.createBuffer({ size: LISTEN_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
@@ -128,15 +130,17 @@ class Engine {
     const additive = { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } };
     const fade = { color: { srcFactor: 'zero', dstFactor: 'constant', operation: 'add' }, alpha: { srcFactor: 'zero', dstFactor: 'constant', operation: 'add' } };
     const over = { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } };
-    const rp = (mod, vs, fs, topology, blend, fmt = HDR) => d.createRenderPipeline({
+    const rp = (mod, vs, fs, topology, blend, fmt = HDR, constants = {}) => d.createRenderPipeline({
       layout: 'auto',
-      vertex: { module: mod, entryPoint: vs },
-      fragment: { module: mod, entryPoint: fs, targets: [{ format: fmt, blend }] },
+      vertex: { module: mod, entryPoint: vs, constants },
+      fragment: { module: mod, entryPoint: fs, constants, targets: [{ format: fmt, blend }] },
       primitive: { topology },
       label: fs,
     });
     this.pPoint = rp(this.drawModule, 'vsPoint', 'fsPoint', 'triangle-strip', additive);
+    this.pPointFar = rp(this.drawModule, 'vsPointFar', 'fsPointFar', 'triangle-strip', additive, HDR, { cellDetail: 0 });
     this.pLine = rp(this.drawModule, 'vsLine', 'fsLine', 'line-list', additive);
+    this.pBridge = rp(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', additive);
     this.pFade = rp(this.drawModule, 'vsFade', 'fsFade', 'triangle-list', fade);
     this.pDown = rp(this.postModule, 'vsFull', 'fsDown', 'triangle-list', undefined);
     this.pUp = rp(this.postModule, 'vsFull', 'fsUp', 'triangle-list', additive);
@@ -201,8 +205,9 @@ class Engine {
     this.cpListen.bg = d.createBindGroup({ layout: this.cpListen.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.listenU } }, { binding: 1, resource: { buffer: b.parts } },
       { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.listen } }] });
-    const pointBG = (view) => d.createBindGroup({ layout: this.pPoint.getBindGroupLayout(0), entries: [
+    const pointBG = (view, pipe = this.pPoint) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
+      { binding: 3, resource: { buffer: b.intent } },
       { binding: 5, resource: { buffer: b.focus } }] });
     const lineBG = (view) => d.createBindGroup({ layout: this.pLine.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
@@ -212,7 +217,16 @@ class Engine {
     this.bgPointL = pointBG(b.viewL);
     this.bgLineL = lineBG(b.viewL);
     this.bgPointS = pointBG(b.viewS);
+    this.bgPointFar = pointBG(b.view, this.pPointFar);
+    this.bgPointFarL = pointBG(b.viewL, this.pPointFar);
+    this.bgPointFarS = pointBG(b.viewS, this.pPointFar);
     this.bgLineS = lineBG(b.viewS);
+    const bridgeBG = (view) => d.createBindGroup({ layout: this.pBridge.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
+      { binding: 3, resource: { buffer: b.intent } }, { binding: 4, resource: { buffer: b.livingList } }, { binding: 5, resource: { buffer: b.focus } }] });
+    this.bgBridge = bridgeBG(b.view);
+    this.bgBridgeL = bridgeBG(b.viewL);
+    this.bgBridgeS = bridgeBG(b.viewS);
     const verr = await d.popErrorScope();
     const oerr = await d.popErrorScope();
     if (verr || oerr) {
@@ -700,7 +714,9 @@ class Engine {
   _writeView(buf, data, cam, W, H, dpr, time, selId) {
     const K = this.K;
     const ppu = cam.ppu;
-    const pointSize = Math.min(40 * dpr, Math.max(1.1 * dpr, 0.085 * ppu));
+    const farSize = Math.max(1.1 * dpr, 0.085 * ppu);
+    const t = Math.max(0, Math.min(1, (farSize - 6) / 24));
+    const pointSize = mix(farSize, Math.max(farSize, 0.12 * ppu), t * t * (3 - 2 * t));
     const perArea = K.density / (ppu * ppu);
     const overlapAll = perArea * pointSize * pointSize * 0.5;
     const overlapLife = overlapAll * 0.4;
@@ -718,15 +734,32 @@ class Engine {
     this.device.queue.writeBuffer(buf, 0, data);
   }
 
-  _drawScene(pass, bgLine, bgPoint) {
+  _drawScene(pass, bgLine, bgPoint, bgPointFar, bgBridge, data) {
+    const v = new Float32Array(data), u = new Uint32Array(data);
     if (this.settings.links) {
-      pass.setPipeline(this.pLine);
-      pass.setBindGroup(0, bgLine);
-      pass.drawIndirect(this.b.frameCtr, 16);
+      // Crossfade native lines and soft strips in this same pass. The strip has zero
+      // contribution at its topology switch, so subpixel line coverage cannot pop.
+      if (v[7] < 30) {
+        pass.setPipeline(this.pLine);
+        pass.setBindGroup(0, bgLine);
+        pass.drawIndirect(this.b.frameCtr, 16);
+      }
+      if (v[7] > 6) {
+        pass.setPipeline(this.pBridge);
+        pass.setBindGroup(0, bgBridge);
+        pass.drawIndirect(this.b.bridgeDraw, 0);
+      }
     }
     if (this.settings.nodes) {
-      pass.setPipeline(this.pPoint);
-      pass.setBindGroup(0, bgPoint);
+      // 2.6 is the simulation's maximum genome size. Include all display magnifications;
+      // specialization only removes detail if every sprite would take its early return anyway.
+      let maxSize = 2.6;
+      if (u[14] === 1) maxSize *= 1.12;
+      if (u[19] > 0) maxSize *= 1.15;
+      if (u[12] !== 0xffffffff) maxSize = Math.max(maxSize, 1.2) * 1.5;
+      const far = Math.max(v[7] * maxSize, v[6] * 0.13) <= 6;
+      pass.setPipeline(far ? this.pPointFar : this.pPoint);
+      pass.setBindGroup(0, far ? bgPointFar : bgPoint);
       pass.draw(4, this.count);
     }
   }
@@ -735,6 +768,11 @@ class Engine {
     const d = this.device;
     const [W, H] = this.size;
     this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId);
+    // The simulation's existing indirect args contain the living instance count. Only rendering
+    // changes the vertex count; keep all ecology WGSL and buffers' contents untouched.
+    if (new Float32Array(this.viewData)[7] > 6 || loupe || specimen) {
+      enc.copyBufferToBuffer(this.b.frameCtr, 20, this.b.bridgeDraw, 4, 4);
+    }
 
     const pd = this.postData;
     pd[0] = W; pd[1] = H; pd[2] = this.settings.bloom; pd[3] = 1.0;
@@ -765,7 +803,7 @@ class Engine {
         pass.setBindGroup(0, this.reprojBG[srcI]);
         pass.draw(3);
       }
-      this._drawScene(pass, this.bgLine, this.bgPoint);
+      this._drawScene(pass, this.bgLine, this.bgPoint, this.bgPointFar, this.bgBridge, this.viewData);
       pass.end();
     }
     this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu };
@@ -778,7 +816,7 @@ class Engine {
       this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / (loupe.r * 2)), time, selId);
       d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W, H, 0, 0]));
       const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.loupeView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
-      this._drawScene(pass, this.bgLineL, this.bgPointL);
+      this._drawScene(pass, this.bgLineL, this.bgPointL, this.bgPointFarL, this.bgBridgeL, this.viewDataL);
       pass.end();
     }
 
@@ -786,7 +824,7 @@ class Engine {
       this._ensureSpecTex(specimen.w, specimen.h);
       this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId);
       let pass = enc.beginRenderPass({ colorAttachments: [{ view: this.specView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
-      this._drawScene(pass, this.bgLineS, this.bgPointS);
+      this._drawScene(pass, this.bgLineS, this.bgPointS, this.bgPointFarS, this.bgBridgeS, this.viewDataS);
       pass.end();
       pass = enc.beginRenderPass({ colorAttachments: [{ view: specimen.target, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }] });
       pass.setPipeline(this.pPlain); pass.setBindGroup(0, this.specBG); pass.draw(3); pass.end();

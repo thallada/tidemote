@@ -131,7 +131,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const fitPPU = () => Math.max(canvas.width / eng.grid[0], canvas.height / eng.grid[1]);
   const ppu = () => fitPPU() * cam.zoom;
   const cssPPU = () => ppu() / dpr;
-  const maxZoom = () => Math.max(1, (220 * dpr) / fitPPU());
+  const maxZoom = () => Math.max(1, (1500 * dpr) / fitPPU());
   const toWorld = (sx, sy) => { const p = ppu(); return [cam.x + (sx * dpr - canvas.width / 2) / p, cam.y + (sy * dpr - canvas.height / 2) / p]; };
   const wrapD = (d, W) => d - W * Math.round(d / W);
   function toScreen(wx, wy) {
