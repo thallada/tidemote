@@ -671,9 +671,12 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u3
 @group(0) @binding(10) var<storage, read_write> genomes: array<Genome>;
 @group(0) @binding(11) var<storage, read_write> ledger: array<atomic<u32>>;
 @group(0) @binding(12) var<storage, read_write> livingList: array<u32>;
-@group(0) @binding(13) var<storage, read_write> frameCtr: array<atomic<u32>, 8>;
+// 0 living count, 1..3 life dispatch, 4..7 line draw, 8..11 stone draw (for rendering).
+@group(0) @binding(13) var<storage, read_write> frameCtr: array<atomic<u32>, 12>;
 // Grains of reef stone (not bedrock) in each grid cell, counted while binning.
 @group(0) @binding(14) var<storage, read_write> stoneGrid: array<atomic<u32>>;
+// Every grain of stone, gathered while matter moves, so rendering draws stone without scanning all.
+@group(0) @binding(16) var<storage, read_write> stoneList: array<u32>;
 @group(0) @binding(15) var<storage, read_write> bondsNow: array<vec2u>;
 
 const EAT_R = ${f(K.eatR)};
@@ -1103,13 +1106,28 @@ fn censusMain(@builtin(global_invocation_id) gid: vec3u) {
     atomicStore(&frameCtr[5], n);
     atomicStore(&frameCtr[6], 0u);
     atomicStore(&frameCtr[7], 0u);
+    atomicStore(&frameCtr[8], 4u);
+    atomicStore(&frameCtr[10], 0u);
+    atomicStore(&frameCtr[11], 0u);
   }
 }
 
 // ------------------------------------------------------------------- matter
+var<workgroup> stoneN: atomic<u32>;
+var<workgroup> stoneBase: u32;
+
 @compute @workgroup_size(256)
-fn matterMain(@builtin(global_invocation_id) gid: vec3u) {
+fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
   let i = gid.x;
+  // list this step's stone for rendering, one global atomic per workgroup
+  if (l == 0u) { atomicStore(&stoneN, 0u); }
+  workgroupBarrier();
+  var slot = NONE;
+  if (i < sim.count && sortedFull[i].kind == STONE) { slot = atomicAdd(&stoneN, 1u); }
+  workgroupBarrier();
+  if (l == 0u) { stoneBase = atomicAdd(&frameCtr[9], atomicLoad(&stoneN)); }
+  let base = workgroupUniformLoad(&stoneBase);
+  if (slot != NONE) { stoneList[base + slot] = i; }
   if (i >= sim.count) { return; }
   var p = sortedFull[i];
   if (p.kind >= FIRST_LIFE) { return; }
@@ -1630,6 +1648,56 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   }
 }
 `;
+  var INBOND_WGSL = COMMON + /* wgsl */
+  `
+@group(0) @binding(1) var<storage, read> intent: array<vec4u>;
+@group(0) @binding(2) var<storage, read> parts: array<Particle>;
+@group(0) @binding(3) var<storage, read_write> bondsIn: array<atomic<u32>>;
+// The grid cells of up to two drawn views (main, specimen): first cell, cell count; and the grid.
+// Particles are sorted by grid cell, so cellStart gives each cell's range: work scales with the view.
+struct Views { first: array<vec4i, 2>, count: array<vec4u, 2>, grid: vec4u };
+@group(0) @binding(4) var<uniform> views: Views;
+@group(0) @binding(5) var<storage, read> cellStart: array<u32>;
+
+fn cellRange(wg: vec3u) -> vec2u {
+  let v = wg.z;
+  if (any(wg.xy >= views.count[v].xy)) { return vec2u(0u); }
+  let g = vec2i(views.grid.xy);
+  let at = views.first[v].xy + vec2i(wg.xy);
+  // the specimen view leaves cells the main view already covers to it
+  if (v == 1u) {
+    let o = (at - views.first[0].xy) - g * vec2i(floor(vec2f(at - views.first[0].xy) / vec2f(g)));
+    if (all(vec2u(o) < views.count[0].xy)) { return vec2u(0u); }
+  }
+  let c = (at % g + g) % g;
+  let cell = u32(c.y) * views.grid.x + u32(c.x);
+  return vec2u(cellStart[cell], cellStart[cell + 1u]);
+}
+
+@compute @workgroup_size(64)
+fn inbondReset(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_index) l: u32) {
+  let r = cellRange(wg);
+  for (var i = r.x + l; i < r.y; i += 64u) {
+    if (parts[i].kind >= FIRST_LIFE) { atomicStore(&bondsIn[i * 5u], 0u); }
+  }
+}
+
+@compute @workgroup_size(64)
+fn inbondGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_index) l: u32) {
+  let r = cellRange(wg);
+  for (var i = r.x + l; i < r.y; i += 64u) {
+    let k = parts[i].kind;
+    if (k < FIRST_LIFE) { continue; }
+    let it = intent[i];
+    for (var b = 0u; b < 2u; b++) {
+      let j = select(it.z, it.w, b == 1u);
+      if (j == NONE || j == i || j >= arrayLength(&parts) || parts[j].kind != k) { continue; }
+      let c = atomicAdd(&bondsIn[j * 5u], 1u);
+      if (c < 4u) { atomicStore(&bondsIn[j * 5u + 1u + c], i); }
+    }
+  }
+}
+`;
   var DRAW_WGSL = COMMON + /* wgsl */
   `
 // Unresolved views use the cheap sprite profile; resolved cells share one outline path.
@@ -1646,6 +1714,9 @@ struct View {
 @group(0) @binding(3) var<storage, read> intent: array<vec4u>;
 @group(0) @binding(4) var<storage, read> livingList: array<u32>;
 @group(0) @binding(5) var<storage, read> focus: array<u32>;
+// Bonds other cells keep to each cell: a count, then up to four of their indices (INBOND_WGSL).
+@group(0) @binding(6) var<storage, read> bondsIn: array<u32>;
+@group(0) @binding(7) var<storage, read> stoneList: array<u32>;
 
 fn kindOn(k: u32) -> bool { return ((focus[k >> 5u] >> (k & 31u)) & 1u) == 1u; }
 fn isMember(id: u32) -> bool {
@@ -1922,17 +1993,20 @@ struct PO {
   @location(2) @interpolate(flat) shape: u32,
   @location(3) @interpolate(flat) index: u32,
   @location(4) @interpolate(flat) geom: vec4f, // radius, occupied area, motion direction
-  @location(5) @interpolate(flat) bondPlans: vec2u, // partner plan; NONE when absent
-  @location(6) @interpolate(flat) morph: vec2f, // species variation
-  @location(7) @interpolate(flat) bond0: vec4f, // offset / self radius, radius ratio, ID seed
-  @location(8) @interpolate(flat) bond1: vec4f,
-  @location(9) @interpolate(flat) bondDirs: vec4f,
+  @location(5) @interpolate(flat) morph: vec2f, // species variation
+  // up to three fused partners, packed as half floats: offset / own radius; radius ratio and heading;
+  // ID seeds as 16-bit fractions, the third sharing a word with the plans (5 bits each, 31 = absent)
+  @location(6) @interpolate(flat) bondOffset: vec3u,
+  @location(7) @interpolate(flat) bondFrame: vec3u,
+  @location(8) @interpolate(flat) bondSeeds: vec2u,
 };
 
 @vertex fn vsPoint(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> PO {
   var o: PO;
-  o.bondPlans = vec2u(NONE);
+  o.bondSeeds = vec2u(0u, 0x7fffu);
   let p = parts[ii];
+  // stone is drawn as one field of boulders (vsStone), not grain by grain
+  if (p.kind == STONE) { o.pos = vec4f(2.0, 2.0, 0.0, 1.0); return o; }
   let d = wrapd(p.pos - view.cam) * view.ppu;
   // Avoid genome/partner reads for offscreen distant sprites.
   if (view.pointSize <= 6.0 && any(abs(d) > view.res * 0.5 + vec2f(60.0))) {
@@ -2023,30 +2097,36 @@ struct PO {
     o.morph = species;
     o.geom.y = bodyArea(shape, species);
     // All partner storage reads and frame setup happen per vertex, never per pixel.
+    var plans = 0x7fffu;
+    var seeds = vec3f(0.0);
     if (detailLOD(min(px, view.pointSize)) > 0.0) {
+      // Fuse with every body partner, either way round: the bonds this cell keeps, then those
+      // other cells keep to it (gathered by INBOND_WGSL), up to three within reach.
       let it = intent[ii];
-      for (var j = 0u; j < 2u; j++) {
-        let index = select(it.z, it.w, j == 1u);
-        if (index == NONE || index == ii || (j == 1u && index == it.z)) { continue; }
+      let inN = min(bondsIn[ii * 5u], 4u);
+      var used = 0u;
+      var picked = vec2u(NONE);
+      for (var c = 0u; c < 6u && used < 3u; c++) {
+        var index = NONE;
+        if (c < 2u) { index = select(it.z, it.w, c == 1u); }
+        else if (c - 2u < inN) { index = bondsIn[ii * 5u + c - 1u]; }
+        if (index == NONE || index == ii || index == picked.x || index == picked.y) { continue; }
         let partner = parts[index];
         if (partner.kind != k) { continue; }
         let ratio = cellRadius(partner, g, index) / px;
         let offset = wrapd(partner.pos - p.pos) * view.ppu / px;
         let reach = 1.65 * (1.0 + ratio) + 0.12 * min(1.0, ratio);
         if (dot(offset, offset) > reach * reach) { continue; }
-        let plan = choosePlan(g, roleOf(partner.info));
-        let frame = vec4f(offset, ratio, renderHash(partner.id));
-        let direction = cellDirection(partner);
-        o.bondPlans[j] = plan;
-        if (j == 0u) {
-          o.bond0 = frame;
-          o.bondDirs = vec4f(direction, o.bondDirs.zw);
-        } else {
-          o.bond1 = frame;
-          o.bondDirs = vec4f(o.bondDirs.xy, direction);
-        }
+        let dir = cellDirection(partner);
+        plans = (plans & ~(31u << (5u * used))) | (choosePlan(g, roleOf(partner.info)) << (5u * used));
+        o.bondOffset[used] = pack2x16float(offset);
+        o.bondFrame[used] = pack2x16float(vec2f(ratio, atan2(dir.y, dir.x)));
+        seeds[used] = renderHash(partner.id);
+        if (used == 0u) { picked.x = index; } else if (used == 1u) { picked.y = index; }
+        used++;
       }
     }
+    o.bondSeeds = vec2u(pack2x16unorm(seeds.xy), (plans & 0xffffu) | (u32(seeds.z * 65535.0 + 0.5) << 16u));
   }
   return o;
 }
@@ -2071,9 +2151,9 @@ struct PO {
     var membraneSD = 0.0;
     var q = vec2f(0.0);
     var sd = 0.0;
-    // One outline call site for self and both partners keeps the twelve-plan
+    // One outline call site for self and its partners keeps the twelve-plan
     // switch out of duplicated inline code. Partner frames die before the interior.
-    for (var j = 0u; j < 3u; j++) {
+    for (var j = 0u; j < 4u; j++) {
       var uv = i.uv;
       var dir = i.geom.zw;
       var radius = i.geom.x;
@@ -2085,19 +2165,20 @@ struct PO {
         // The partner draws itself beyond our narrow union band. Owned pixels
         // need no further outlines or interior work.
         if (lod <= 0.0 || membraneSD > 0.12 + aa) { break; }
-        flags = i.bondPlans[j - 1u];
-        if (flags == NONE) { continue; }
-        let frame = select(i.bond0, i.bond1, j == 2u);
-        ratio = frame.z;
+        flags = (i.bondSeeds.y >> (5u * (j - 1u))) & 31u;
+        if (flags == 31u) { break; }
+        let offset = unpack2x16float(i.bondOffset[j - 1u]);
+        let shape = unpack2x16float(i.bondFrame[j - 1u]);
+        ratio = shape.x;
         let blend = 0.12 * min(1.0, ratio);
         if (membraneSD > blend + aa) { continue; }
-        let delta = i.uv - frame.xy;
+        let delta = i.uv - offset;
         let bound = ratio * 1.65 + blend + 0.75 / i.geom.x;
         if (dot(delta, delta) > bound * bound) { continue; }
         uv = delta / ratio;
-        dir = select(i.bondDirs.xy, i.bondDirs.zw, j == 2u);
+        dir = vec2f(cos(shape.y), sin(shape.y));
         radius *= ratio;
-        cellSeed = frame.w;
+        cellSeed = select(unpack2x16unorm(i.bondSeeds.x)[min(j - 1u, 1u)], f32(i.bondSeeds.y >> 16u) / 65535.0, j == 3u);
         plan = flags;
       }
       let outline = cellOutline(uv, dir, radius, cellSeed, plan,
@@ -2369,6 +2450,37 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   return vec4f(i.col * edge, i.cover * edge);
 }
 
+// Reef stone and bedrock: each grain adds a soft kernel (colour × weight, weight) to a field the
+// composite thresholds into boulders, so touching grains fuse into one rock and lone grains stay pebbles.
+const STONE_R = 0.22; // kernel radius in world units; a lone grain thresholds to ~0.15
+struct SO {
+  @builtin(position) pos: vec4f,
+  @location(0) uv: vec2f,
+  @location(1) @interpolate(flat) col: vec3f,
+};
+@vertex fn vsStone(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> SO {
+  var o: SO;
+  o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
+  let p = parts[stoneList[ii]];
+  if (p.kind != STONE) { return o; }
+  let d = wrapd(p.pos - view.cam) * view.ppu;
+  let r = max(STONE_R * view.ppu, 1.5);
+  if (any(abs(d) > view.res * 0.5 + vec2f(r))) { return o; }
+  // chalky and matte, tinted by the species that built it
+  var col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 1.1;
+  if (!focusPass(p)) { col = vec3f(dot(col, vec3f(0.3, 0.5, 0.2))) * view.mute; }
+  let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
+  o.pos = toClip(d + corner * r);
+  o.uv = corner;
+  o.col = col;
+  return o;
+}
+@fragment fn fsStone(i: SO) -> @location(0) vec4f {
+  let t = max(0.0, 1.0 - dot(i.uv, i.uv));
+  let w = t * t;
+  return vec4f(i.col * w, w);
+}
+
 @vertex fn vsFade(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
   let uv = vec2f(f32((vi << 1u) & 2u), f32(vi & 2u));
   return vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
@@ -2398,6 +2510,7 @@ struct Reproj { scale: vec2f, shift: vec2f, k: f32, p0: f32, p1: f32, p2: f32 };
 @group(0) @binding(4) var<uniform> loupe: Loupe;
 @group(0) @binding(5) var<uniform> rp: Reproj;
 @group(0) @binding(6) var<uniform> microView: MicroView;
+@group(0) @binding(7) var stoneTex: texture_2d<f32>;
 
 struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 
@@ -2416,6 +2529,69 @@ fn scene(uv: vec2f) -> vec3f {
   return t.rgb / max(1.0, t.a);
 }
 fn tap(uv: vec2f) -> vec3f { return scene(uv); }
+
+fn vnoise(p: vec2f) -> f32 {
+  let c = floor(p);
+  let f = fract(p);
+  let w = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash12(c), hash12(c + vec2f(1.0, 0.0)), w.x), mix(hash12(c + vec2f(0.0, 1.0)), hash12(c + vec2f(1.0, 1.0)), w.x), w.y);
+}
+// Cellular noise: distances to the nearest and second-nearest jittered feature point, and the
+// offset to the nearest, in units of p.
+fn worley(p: vec2f) -> vec4f {
+  let c = floor(p);
+  var f1 = 9.0; var f2 = 9.0; var off = vec2f(0.0);
+  for (var y = -1; y <= 1; y++) {
+    for (var x = -1; x <= 1; x++) {
+      let g = c + vec2f(f32(x), f32(y));
+      let q = g + vec2f(hash12(g), hash12(g + 17.3)) * 0.85 + 0.075 - p;
+      let d = length(q);
+      if (d < f1) { f2 = f1; f1 = d; off = q; } else if (d < f2) { f2 = d; }
+    }
+  }
+  return vec4f(f1, f2, off);
+}
+// Boulders from the stone field (DRAW_WGSL vsStone): the summed kernel weight is thresholded into
+// solid rock lit from the field's slope (per world unit, so lighting holds at every zoom). World-space
+// cells split a fused mass into separate rounded rocks with crevices between them, and hairline cracks
+// and grit resolve as the view closes in; each layer fades in once it is wide enough not to shimmer.
+fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
+  let t = textureSampleLevel(stoneTex, samp, uv, 0.0);
+  if (t.a < 0.1) { return vec3f(0.0); }
+  let h = 1.0 / vec2f(textureDimensions(stoneTex));
+  let gx = textureSampleLevel(stoneTex, samp, uv + vec2f(h.x, 0.0), 0.0).a - textureSampleLevel(stoneTex, samp, uv - vec2f(h.x, 0.0), 0.0).a;
+  let gy = textureSampleLevel(stoneTex, samp, uv + vec2f(0.0, h.y), 0.0).a - textureSampleLevel(stoneTex, samp, uv - vec2f(0.0, h.y), 0.0).a;
+  let T = 0.3;
+  let fw = max(0.5 * length(vec2f(gx, gy)), 1e-4);
+  let cover = smoothstep(T - fw, T + fw, t.a);
+  if (cover <= 0.0) { return vec3f(0.0); }
+  let light = normalize(vec3f(-0.5, -0.6, 0.65));
+  let slope = vec2f(gx, gy) * 0.5 * ppu * 0.05;
+  let edgeLit = 0.5 + 0.5 * max(dot(normalize(vec3f(-slope, 1.0)), light), 0.0);
+  // rocks ~0.6 world units across: crevices along cell edges, each rock domed and toned on its own
+  let rocks = smoothstep(25.0, 70.0, ppu);
+  let fine = smoothstep(150.0, 450.0, ppu);
+  var crevice = 1.0; var rockLit = 1.0; var tone = 1.0; var crack = 1.0;
+  var grit = 1.0 + 0.12 * (vnoise(wp * 5.0) - 0.5);
+  if (rocks > 0.0) {
+    // warped, so rock edges wander instead of running straight
+    let wq = wp + 0.3 * vec2f(vnoise(wp * 2.3), vnoise(wp * 2.3 + 9.1)) - 0.15;
+    let w = worley(wq * 1.7);
+    crevice = mix(1.0, mix(0.3, 1.0, smoothstep(0.03, 0.16, w.y - w.x)), rocks);
+    let dome = normalize(vec3f(-w.zw * 1.6, 1.0));
+    rockLit = mix(1.0, 0.55 + 0.6 * max(dot(dome, light), 0.0), rocks);
+    tone = mix(1.0, 0.8 + 0.4 * hash12(floor(wq * 1.7 + w.zw)), rocks);
+    if (fine > 0.0) {
+      // up close: hairline cracks in patches, and grit
+      let cw = worley(wq * 6.0 + 3.1);
+      let patchy = smoothstep(0.5, 0.7, vnoise(wp * 2.9 + 4.2));
+      crack = 1.0 - 0.3 * fine * patchy * (1.0 - smoothstep(0.0, 0.04, cw.y - cw.x));
+      grit += 0.25 * fine * (vnoise(wp * 60.0) - 0.5);
+    }
+  }
+  let rim = mix(0.7, 1.0, smoothstep(T, T + 0.25, t.a));
+  return t.rgb / t.a * (cover * edgeLit * rim * crevice * rockLit * tone * crack * grit * 1.4);
+}
 
 @fragment fn fsDown(i: VO) -> @location(0) vec4f {
   let h = 1.0 / vec2f(textureDimensions(src));
@@ -2645,7 +2821,7 @@ fn tonemap(hdrIn: vec3f) -> vec3f {
 }
 
 @fragment fn fsComposite(i: VO) -> @location(0) vec4f {
-  var hdr = scene(i.uv);
+  var hdr = scene(i.uv) + boulder(i.uv, post.cam + (i.pos.xy - post.res * 0.5) / post.ppu, post.ppu);
   let bl = textureSampleLevel(bloomTex, samp, i.uv, 0.0).rgb;
   hdr = (hdr + bl * post.bloom) * post.exposure;
   var T = 0.0;
@@ -2692,7 +2868,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   let d = length(i.uv);
   if (d > 1.035) { discard; }
   let tuv = i.uv * 0.5 + 0.5;
-  var hdr = scene(tuv) * post.exposure;
+  var hdr = (scene(tuv) + boulder(tuv, microView.cam + (tuv - 0.5) * microView.res / microView.ppu, microView.ppu)) * post.exposure;
   var c = tonemap(hdr) + vec3f(0.006, 0.006, 0.012);
   c = pondMicro(c, hdr, microView.cam, i.uv * microView.res * 0.5, microView.ppu, loupe.ppu);
   c = pow(c, vec3f(1.0 / 2.2));
@@ -2713,7 +2889,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 }
 
 @fragment fn fsPlain(i: VO) -> @location(0) vec4f {
-  let hdr = scene(i.uv) * post.exposure;
+  let hdr = (scene(i.uv) + boulder(i.uv, microView.cam + (i.uv - 0.5) * microView.res / microView.ppu, microView.ppu)) * post.exposure;
   var c = tonemap(hdr) + vec3f(0.006, 0.005, 0.012);
   c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu);
   return vec4f(pow(c, vec3f(1.0 / 2.2)), 1.0);
@@ -3494,7 +3670,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       b.cellStart = d.createBuffer({ size: (MAX_CELLS + 1) * 4, usage: U.STORAGE });
       b.blockSums = d.createBuffer({ size: MAX_CELLS / 256 * 4, usage: U.STORAGE });
       b.genomes = d.createBuffer({ size: MAXK * G_BYTES, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
-      b.frameCtr = d.createBuffer({ size: 32, usage: U.STORAGE | U.INDIRECT | U.COPY_SRC | U.COPY_DST });
+      b.frameCtr = d.createBuffer({ size: 48, usage: U.STORAGE | U.INDIRECT | U.COPY_SRC | U.COPY_DST });
       b.bridgeDraw = d.createBuffer({ size: 16, usage: U.INDIRECT | U.COPY_DST });
       d.queue.writeBuffer(b.bridgeDraw, 0, new Uint32Array([30, 0, 0, 0]));
       b.pickOut = d.createBuffer({ size: PICK_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
@@ -3509,6 +3685,9 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       this.pickModule = d.createShaderModule({ code: PICK_WGSL, label: "pick" });
       this.listenModule = d.createShaderModule({ code: LISTEN_WGSL, label: "listen" });
       this.drawModule = d.createShaderModule({ code: DRAW_WGSL, label: "draw" });
+      b.inbondU = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
+      const inbond = d.createShaderModule({ code: INBOND_WGSL, label: "inbond" });
+      this.cpInbond = ["inbondReset", "inbondGather"].map((entryPoint) => d.createComputePipeline({ layout: "auto", compute: { module: inbond, entryPoint }, label: entryPoint }));
       this.postModule = d.createShaderModule({ code: POST_WGSL, label: "post" });
       const cp = (mod, entryPoint) => d.createComputePipeline({ layout: "auto", compute: { module: mod, entryPoint }, label: entryPoint });
       this.cpDefs = {
@@ -3519,7 +3698,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         scanAdd: [6, 7],
         scatterMain: [0, 1, 2, 3, 6, 8, 9, 10, 12, 13, 15],
         censusMain: [11, 12, 13],
-        matterMain: [0, 1, 2, 9, 10, 11, 14],
+        matterMain: [0, 1, 2, 9, 10, 11, 13, 14, 16],
         lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12, 15]
       };
       this.cp = {};
@@ -3538,6 +3717,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       });
       this.pPoint = rp(this.drawModule, "vsPoint", "fsPoint", "triangle-strip", additive);
       this.pLine = rp(this.drawModule, "vsLine", "fsLine", "line-list", additive);
+      this.pStone = rp(this.drawModule, "vsStone", "fsStone", "triangle-strip", additive);
       this.pBridge = rp(this.drawModule, "vsBridge", "fsBridge", "triangle-strip", additive);
       this.pFade = rp(this.drawModule, "vsFade", "fsFade", "triangle-list", fade);
       this.pDown = rp(this.postModule, "vsFull", "fsDown", "triangle-list", void 0);
@@ -3573,7 +3753,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     async allocate(n) {
       const d = this.device;
       const b = this.b;
-      const names = ["parts", "sortedFull", "sortedLite", "aux", "intent", "bondsNow", "ledger", "livingList"];
+      const names = ["parts", "sortedFull", "sortedLite", "aux", "intent", "bondsNow", "bondsIn", "stoneList", "ledger", "livingList"];
       for (const k of names) {
         b[k]?.destroy();
         b[k] = null;
@@ -3588,6 +3768,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       b.aux = d.createBuffer({ size: n * 8, usage: U.STORAGE });
       b.intent = d.createBuffer({ size: n * 16, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
       b.bondsNow = d.createBuffer({ size: n * 8, usage: U.STORAGE });
+      b.bondsIn = d.createBuffer({ size: n * 20, usage: U.STORAGE });
+      b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
       b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
       b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
       const res = {
@@ -3606,7 +3788,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         12: { buffer: b.livingList },
         13: { buffer: b.frameCtr },
         14: { buffer: b.stoneGrid },
-        15: { buffer: b.bondsNow }
+        15: { buffer: b.bondsNow },
+        16: { buffer: b.stoneList }
       };
       for (const [name, ids] of Object.entries(this.cpDefs)) {
         const c = this.cp[name];
@@ -3629,8 +3812,18 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         { binding: 1, resource: { buffer: b.parts } },
         { binding: 2, resource: { buffer: b.genomes } },
         { binding: 3, resource: { buffer: b.intent } },
-        { binding: 5, resource: { buffer: b.focus } }
+        { binding: 5, resource: { buffer: b.focus } },
+        { binding: 6, resource: { buffer: b.bondsIn } }
       ] });
+      const stoneBG = (view) => d.createBindGroup({ layout: this.pStone.getBindGroupLayout(0), entries: [[0, view], [1, b.parts], [2, b.genomes], [5, b.focus], [7, b.stoneList]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+      this.bgStone = stoneBG(b.view);
+      this.bgStoneL = stoneBG(b.viewL);
+      this.bgStoneS = stoneBG(b.viewS);
+      const inbondRes = [null, b.intent, b.parts, b.bondsIn, b.inbondU, b.cellStart];
+      this.inbondBG = this.cpInbond.map((pipe, k) => d.createBindGroup({
+        layout: pipe.getBindGroupLayout(0),
+        entries: (k === 0 ? [2, 3, 4, 5] : [1, 2, 3, 4, 5]).map((binding) => ({ binding, resource: { buffer: inbondRes[binding] } }))
+      }));
       const lineBG = (view) => d.createBindGroup({ layout: this.pLine.getBindGroupLayout(0), entries: [
         { binding: 0, resource: { buffer: view } },
         { binding: 1, resource: { buffer: b.parts } },
@@ -3680,6 +3873,9 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       }
       const tex = (tw, th) => d.createTexture({ size: [Math.max(1, tw), Math.max(1, th)], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
       this.accum = [tex(w, h), tex(w, h)];
+      this.stoneTex?.destroy();
+      this.stoneTex = tex(w, h);
+      this.stoneView = this.stoneTex.createView();
       this.bloom = [];
       for (let i = 0; i < BLOOM_LEVELS; i++) this.bloom.push(tex(w >> i + 1, h >> i + 1));
       this.accumViews = this.accum.map((t2) => t2.createView());
@@ -3697,7 +3893,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         { binding: 0, resource: this.sampler },
         { binding: 1, resource: v },
         { binding: 2, resource: { buffer: this.b.post } },
-        { binding: 3, resource: this.bloomViews[0] }
+        { binding: 3, resource: this.bloomViews[0] },
+        { binding: 7, resource: this.stoneView }
       ] }));
       this.compBG = compBG(this.pComp);
       this.compClearBG = compBG(this.pCompClear);
@@ -3714,12 +3911,16 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       this.loupeSize = L;
       this.loupeTex = this.device.createTexture({ size: [L, L], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
       this.loupeView = this.loupeTex.createView();
+      this.loupeStoneTex?.destroy();
+      this.loupeStoneTex = this.device.createTexture({ size: [L, L], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+      this.loupeStoneView = this.loupeStoneTex.createView();
       this.loupeBG = this.device.createBindGroup({ layout: this.pLoupe.getBindGroupLayout(0), entries: [
         { binding: 0, resource: this.sampler },
         { binding: 1, resource: this.loupeView },
         { binding: 2, resource: { buffer: this.b.post } },
         { binding: 4, resource: { buffer: this.b.loupeU } },
-        { binding: 6, resource: { buffer: this.b.viewL } }
+        { binding: 6, resource: { buffer: this.b.viewL } },
+        { binding: 7, resource: this.loupeStoneView }
       ] });
     }
     /**
@@ -3743,11 +3944,15 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       this.specSize = [w, h];
       this.specTex = this.device.createTexture({ size: [w, h], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
       this.specView = this.specTex.createView();
+      this.specStoneTex?.destroy();
+      this.specStoneTex = this.device.createTexture({ size: [w, h], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+      this.specStoneView = this.specStoneTex.createView();
       this.specBG = this.device.createBindGroup({ layout: this.pPlain.getBindGroupLayout(0), entries: [
         { binding: 0, resource: this.sampler },
         { binding: 1, resource: this.specView },
         { binding: 2, resource: { buffer: this.b.post } },
-        { binding: 6, resource: { buffer: this.b.viewS } }
+        { binding: 6, resource: { buffer: this.b.viewS } },
+        { binding: 7, resource: this.specStoneView }
       ] });
     }
     gridFor(n, aspect) {
@@ -3915,6 +4120,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       enc.clearBuffer(b.stoneGrid, 0, cells * 4);
       enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
       enc.clearBuffer(b.frameCtr, 0, 4);
+      enc.clearBuffer(b.frameCtr, 36, 4);
       enc.clearBuffer(b.ledger, 48, 12);
       const pass = enc.beginComputePass({ timestampWrites });
       const run2 = (name, n) => {
@@ -4229,6 +4435,14 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       vu[19] = f2.memberN;
       this.device.queue.writeBuffer(buf, 0, data);
     }
+    // the stone field for one view: every grain of stone adds its kernel (see vsStone)
+    _drawStone(enc, view, bg) {
+      const pass = enc.beginRenderPass({ colorAttachments: [{ view, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
+      pass.setPipeline(this.pStone);
+      pass.setBindGroup(0, bg);
+      pass.drawIndirect(this.b.frameCtr, 32);
+      pass.end();
+    }
     _drawScene(pass, bgLine, bgPoint, bgBridge, data) {
       const v = new Float32Array(data);
       if (this.settings.links) {
@@ -4275,6 +4489,31 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       pd.set(this.tidePh, 32);
       pd.set(this.waves, 36);
       d.queue.writeBuffer(this.b.post, 0, pd);
+      const mainDetail = new Float32Array(this.viewData)[7] > 2.8;
+      if (mainDetail || loupe || specimen) {
+        const [gw, gh] = this.grid;
+        const u = new Int32Array(20);
+        const rect = (v, cx, cy, hw, hh) => {
+          const x0 = Math.floor(cx - hw) - 1, y0 = Math.floor(cy - hh) - 1;
+          u[v * 4] = x0;
+          u[v * 4 + 1] = y0;
+          u[8 + v * 4] = Math.min(gw, Math.floor(cx + hw) + 2 - x0);
+          u[8 + v * 4 + 1] = Math.min(gh, Math.floor(cy + hh) + 2 - y0);
+        };
+        if (mainDetail) rect(0, cam.x, cam.y, W / (2 * cam.ppu), H / (2 * cam.ppu));
+        else if (loupe) rect(0, loupe.cx, loupe.cy, loupe.r / loupe.ppu, loupe.r / loupe.ppu);
+        if (specimen) rect(1, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu));
+        u[16] = gw;
+        u[17] = gh;
+        d.queue.writeBuffer(this.b.inbondU, 0, u);
+        const pass2 = enc.beginComputePass({ timestampWrites: tsBegin() });
+        for (let k = 0; k < 2; k++) {
+          pass2.setPipeline(this.cpInbond[k]);
+          pass2.setBindGroup(0, this.inbondBG[k]);
+          pass2.dispatchWorkgroups(Math.max(u[8], u[12]), Math.max(u[9], u[13]), specimen ? 2 : 1);
+        }
+        pass2.end();
+      }
       {
         const clear = this.clearAccum || this.settings.trails <= 0 || !this.lastCam;
         this.clearAccum = false;
@@ -4298,6 +4537,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         this._drawScene(pass2, this.bgLine, this.bgPoint, this.bgBridge, this.viewData);
         pass2.end();
       }
+      this._drawStone(enc, this.stoneView, this.bgStone);
       this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu };
       const cur = this.accIdx;
       if (loupe) {
@@ -4309,6 +4549,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         const pass2 = enc.beginRenderPass({ colorAttachments: [{ view: this.loupeView, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
         this._drawScene(pass2, this.bgLineL, this.bgPointL, this.bgBridgeL, this.viewDataL);
         pass2.end();
+        this._drawStone(enc, this.loupeStoneView, this.bgStoneL);
       }
       if (specimen && specimen.target) {
         this._ensureSpecTex(specimen.w, specimen.h);
@@ -4316,6 +4557,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         let pass2 = enc.beginRenderPass({ colorAttachments: [{ view: this.specView, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
         this._drawScene(pass2, this.bgLineS, this.bgPointS, this.bgBridgeS, this.viewDataS);
         pass2.end();
+        this._drawStone(enc, this.specStoneView, this.bgStoneS);
         pass2 = enc.beginRenderPass({ colorAttachments: [{ view: specimen.target, loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }] });
         pass2.setPipeline(this.pPlain);
         pass2.setBindGroup(0, this.specBG);

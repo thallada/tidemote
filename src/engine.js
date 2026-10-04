@@ -1,5 +1,5 @@
 import {
-  simWGSL, PICK_WGSL, LISTEN_WGSL, LISTEN_CAP, LISTEN_HEAD, DRAW_WGSL, POST_WGSL, DEFAULT_K,
+  simWGSL, PICK_WGSL, LISTEN_WGSL, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, DRAW_WGSL, POST_WGSL, DEFAULT_K,
   MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES,
 } from './shaders.js';
 import {
@@ -91,7 +91,7 @@ class Engine {
     b.cellStart = d.createBuffer({ size: (MAX_CELLS + 1) * 4, usage: U.STORAGE });
     b.blockSums = d.createBuffer({ size: (MAX_CELLS / 256) * 4, usage: U.STORAGE });
     b.genomes = d.createBuffer({ size: MAXK * G_BYTES, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
-    b.frameCtr = d.createBuffer({ size: 32, usage: U.STORAGE | U.INDIRECT | U.COPY_SRC | U.COPY_DST });
+    b.frameCtr = d.createBuffer({ size: 48, usage: U.STORAGE | U.INDIRECT | U.COPY_SRC | U.COPY_DST });
     b.bridgeDraw = d.createBuffer({ size: 16, usage: U.INDIRECT | U.COPY_DST });
     d.queue.writeBuffer(b.bridgeDraw, 0, new Uint32Array([30, 0, 0, 0]));
     b.pickOut = d.createBuffer({ size: PICK_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
@@ -108,6 +108,9 @@ class Engine {
     this.pickModule = d.createShaderModule({ code: PICK_WGSL, label: 'pick' });
     this.listenModule = d.createShaderModule({ code: LISTEN_WGSL, label: 'listen' });
     this.drawModule = d.createShaderModule({ code: DRAW_WGSL, label: 'draw' });
+    b.inbondU = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
+    const inbond = d.createShaderModule({ code: INBOND_WGSL, label: 'inbond' });
+    this.cpInbond = ['inbondReset', 'inbondGather'].map((entryPoint) => d.createComputePipeline({ layout: 'auto', compute: { module: inbond, entryPoint }, label: entryPoint }));
     this.postModule = d.createShaderModule({ code: POST_WGSL, label: 'post' });
 
     const cp = (mod, entryPoint) => d.createComputePipeline({ layout: 'auto', compute: { module: mod, entryPoint }, label: entryPoint });
@@ -119,7 +122,7 @@ class Engine {
       scanAdd: [6, 7],
       scatterMain: [0, 1, 2, 3, 6, 8, 9, 10, 12, 13, 15],
       censusMain: [11, 12, 13],
-      matterMain: [0, 1, 2, 9, 10, 11, 14],
+      matterMain: [0, 1, 2, 9, 10, 11, 13, 14, 16],
       lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12, 15],
     };
     this.cp = {};
@@ -139,6 +142,7 @@ class Engine {
     });
     this.pPoint = rp(this.drawModule, 'vsPoint', 'fsPoint', 'triangle-strip', additive);
     this.pLine = rp(this.drawModule, 'vsLine', 'fsLine', 'line-list', additive);
+    this.pStone = rp(this.drawModule, 'vsStone', 'fsStone', 'triangle-strip', additive);
     this.pBridge = rp(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', additive);
     this.pFade = rp(this.drawModule, 'vsFade', 'fsFade', 'triangle-list', fade);
     this.pDown = rp(this.postModule, 'vsFull', 'fsDown', 'triangle-list', undefined);
@@ -177,7 +181,7 @@ class Engine {
   async allocate(n) {
     const d = this.device;
     const b = this.b;
-    const names = ['parts', 'sortedFull', 'sortedLite', 'aux', 'intent', 'bondsNow', 'ledger', 'livingList'];
+    const names = ['parts', 'sortedFull', 'sortedLite', 'aux', 'intent', 'bondsNow', 'bondsIn', 'stoneList', 'ledger', 'livingList'];
     for (const k of names) { b[k]?.destroy(); b[k] = null; }
     this.capacity = 0;
     this.count = 0;
@@ -189,6 +193,8 @@ class Engine {
     b.aux = d.createBuffer({ size: n * 8, usage: U.STORAGE });
     b.intent = d.createBuffer({ size: n * 16, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
     b.bondsNow = d.createBuffer({ size: n * 8, usage: U.STORAGE });
+    b.bondsIn = d.createBuffer({ size: n * 20, usage: U.STORAGE });
+    b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
     b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
     const res = {
@@ -196,7 +202,7 @@ class Engine {
       4: { buffer: b.counts }, 5: { buffer: b.counts }, 6: { buffer: b.cellStart }, 7: { buffer: b.blockSums },
       8: { buffer: b.aux }, 9: { buffer: b.intent }, 10: { buffer: b.genomes }, 11: { buffer: b.ledger },
       12: { buffer: b.livingList }, 13: { buffer: b.frameCtr }, 14: { buffer: b.stoneGrid },
-      15: { buffer: b.bondsNow },
+      15: { buffer: b.bondsNow }, 16: { buffer: b.stoneList },
     };
     for (const [name, ids] of Object.entries(this.cpDefs)) {
       const c = this.cp[name];
@@ -211,7 +217,13 @@ class Engine {
     const pointBG = (view) => d.createBindGroup({ layout: this.pPoint.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
       { binding: 3, resource: { buffer: b.intent } },
-      { binding: 5, resource: { buffer: b.focus } }] });
+      { binding: 5, resource: { buffer: b.focus } }, { binding: 6, resource: { buffer: b.bondsIn } }] });
+    const stoneBG = (view) => d.createBindGroup({ layout: this.pStone.getBindGroupLayout(0), entries:
+      [[0, view], [1, b.parts], [2, b.genomes], [5, b.focus], [7, b.stoneList]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+    this.bgStone = stoneBG(b.view); this.bgStoneL = stoneBG(b.viewL); this.bgStoneS = stoneBG(b.viewS);
+    const inbondRes = [null, b.intent, b.parts, b.bondsIn, b.inbondU, b.cellStart];
+    this.inbondBG = this.cpInbond.map((pipe, k) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0),
+      entries: (k === 0 ? [2, 3, 4, 5] : [1, 2, 3, 4, 5]).map((binding) => ({ binding, resource: { buffer: inbondRes[binding] } })) }));
     const lineBG = (view) => d.createBindGroup({ layout: this.pLine.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
       { binding: 3, resource: { buffer: b.intent } }, { binding: 4, resource: { buffer: b.livingList } }, { binding: 5, resource: { buffer: b.focus } }] });
@@ -245,6 +257,9 @@ class Engine {
     if (this.accum) { this.accum.forEach((t) => t.destroy()); this.bloom.forEach((t) => t.destroy()); }
     const tex = (tw, th) => d.createTexture({ size: [Math.max(1, tw), Math.max(1, th)], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
     this.accum = [tex(w, h), tex(w, h)];
+    this.stoneTex?.destroy();
+    this.stoneTex = tex(w, h);
+    this.stoneView = this.stoneTex.createView();
     this.bloom = [];
     for (let i = 0; i < BLOOM_LEVELS; i++) this.bloom.push(tex(w >> (i + 1), h >> (i + 1)));
     this.accumViews = this.accum.map((t) => t.createView());
@@ -258,7 +273,8 @@ class Engine {
     for (let i = BLOOM_LEVELS - 1; i > 0; i--) this.upBG.push({ target: i - 1, bg: sbg(this.pUp, this.bloomViews[i]) });
     const compBG = (pipe) => this.accumViews.map((v) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: v },
-      { binding: 2, resource: { buffer: this.b.post } }, { binding: 3, resource: this.bloomViews[0] }] }));
+      { binding: 2, resource: { buffer: this.b.post } }, { binding: 3, resource: this.bloomViews[0] },
+      { binding: 7, resource: this.stoneView }] }));
     this.compBG = compBG(this.pComp);
     this.compClearBG = compBG(this.pCompClear);
     this.reprojBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.pReproj.getBindGroupLayout(0), entries: [
@@ -272,10 +288,13 @@ class Engine {
     this.loupeSize = L;
     this.loupeTex = this.device.createTexture({ size: [L, L], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
     this.loupeView = this.loupeTex.createView();
+    this.loupeStoneTex?.destroy();
+    this.loupeStoneTex = this.device.createTexture({ size: [L, L], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+    this.loupeStoneView = this.loupeStoneTex.createView();
     this.loupeBG = this.device.createBindGroup({ layout: this.pLoupe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: this.loupeView },
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 4, resource: { buffer: this.b.loupeU } },
-      { binding: 6, resource: { buffer: this.b.viewL } }] });
+      { binding: 6, resource: { buffer: this.b.viewL } }, { binding: 7, resource: this.loupeStoneView }] });
   }
 
   /**
@@ -298,9 +317,13 @@ class Engine {
     this.specSize = [w, h];
     this.specTex = this.device.createTexture({ size: [w, h], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
     this.specView = this.specTex.createView();
+    this.specStoneTex?.destroy();
+    this.specStoneTex = this.device.createTexture({ size: [w, h], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+    this.specStoneView = this.specStoneTex.createView();
     this.specBG = this.device.createBindGroup({ layout: this.pPlain.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: this.specView },
-      { binding: 2, resource: { buffer: this.b.post } }, { binding: 6, resource: { buffer: this.b.viewS } }] });
+      { binding: 2, resource: { buffer: this.b.post } }, { binding: 6, resource: { buffer: this.b.viewS } },
+      { binding: 7, resource: this.specStoneView }] });
   }
 
   gridFor(n, aspect) {
@@ -467,6 +490,7 @@ class Engine {
     enc.clearBuffer(b.stoneGrid, 0, cells * 4);
     enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
     enc.clearBuffer(b.frameCtr, 0, 4);
+    enc.clearBuffer(b.frameCtr, 36, 4);
     enc.clearBuffer(b.ledger, 48, 12);
     const pass = enc.beginComputePass({ timestampWrites });
     const run = (name, n) => { const c = this.cp[name]; pass.setPipeline(c.pipe); pass.setBindGroup(0, c.bg); pass.dispatchWorkgroups(n); };
@@ -736,6 +760,15 @@ class Engine {
     this.device.queue.writeBuffer(buf, 0, data);
   }
 
+  // the stone field for one view: every grain of stone adds its kernel (see vsStone)
+  _drawStone(enc, view, bg) {
+    const pass = enc.beginRenderPass({ colorAttachments: [{ view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
+    pass.setPipeline(this.pStone);
+    pass.setBindGroup(0, bg);
+    pass.drawIndirect(this.b.frameCtr, 32);
+    pass.end();
+  }
+
   _drawScene(pass, bgLine, bgPoint, bgBridge, data) {
     const v = new Float32Array(data);
     if (this.settings.links) {
@@ -779,6 +812,32 @@ class Engine {
     pd.set(this.waves, 36);
     d.queue.writeBuffer(this.b.post, 0, pd);
 
+    // Cells fuse with their incoming bond partners only once partner outlines resolve (vsPoint:
+    // detailLOD(pointSize) > 0), so gather those bonds only then, and only for cells in view.
+    const mainDetail = new Float32Array(this.viewData)[7] > 2.8;
+    if (mainDetail || loupe || specimen) {
+      // the grid cells each view covers, with a cell of margin so partners just outside still fuse
+      const [gw, gh] = this.grid;
+      const u = new Int32Array(20);
+      const rect = (v, cx, cy, hw, hh) => {
+        const x0 = Math.floor(cx - hw) - 1, y0 = Math.floor(cy - hh) - 1;
+        u[v * 4] = x0; u[v * 4 + 1] = y0;
+        u[8 + v * 4] = Math.min(gw, Math.floor(cx + hw) + 2 - x0); u[8 + v * 4 + 1] = Math.min(gh, Math.floor(cy + hh) + 2 - y0);
+      };
+      // the loupe lies inside the main view; alone (main view too distant for detail) it is the view
+      if (mainDetail) rect(0, cam.x, cam.y, W / (2 * cam.ppu), H / (2 * cam.ppu));
+      else if (loupe) rect(0, loupe.cx, loupe.cy, loupe.r / loupe.ppu, loupe.r / loupe.ppu);
+      if (specimen) rect(1, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu));
+      u[16] = gw; u[17] = gh;
+      d.queue.writeBuffer(this.b.inbondU, 0, u);
+      const pass = enc.beginComputePass({ timestampWrites: tsBegin() });
+      for (let k = 0; k < 2; k++) {
+        pass.setPipeline(this.cpInbond[k]);
+        pass.setBindGroup(0, this.inbondBG[k]);
+        pass.dispatchWorkgroups(Math.max(u[8], u[12]), Math.max(u[9], u[13]), specimen ? 2 : 1);
+      }
+      pass.end();
+    }
     {
       const clear = this.clearAccum || this.settings.trails <= 0 || !this.lastCam;
       this.clearAccum = false;
@@ -802,6 +861,7 @@ class Engine {
       this._drawScene(pass, this.bgLine, this.bgPoint, this.bgBridge, this.viewData);
       pass.end();
     }
+    this._drawStone(enc, this.stoneView, this.bgStone);
     this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu };
     const cur = this.accIdx;
 
@@ -814,6 +874,7 @@ class Engine {
       const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.loupeView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
       this._drawScene(pass, this.bgLineL, this.bgPointL, this.bgBridgeL, this.viewDataL);
       pass.end();
+      this._drawStone(enc, this.loupeStoneView, this.bgStoneL);
     }
 
     if (specimen && specimen.target) {
@@ -822,6 +883,7 @@ class Engine {
       let pass = enc.beginRenderPass({ colorAttachments: [{ view: this.specView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
       this._drawScene(pass, this.bgLineS, this.bgPointS, this.bgBridgeS, this.viewDataS);
       pass.end();
+      this._drawStone(enc, this.specStoneView, this.bgStoneS);
       pass = enc.beginRenderPass({ colorAttachments: [{ view: specimen.target, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }] });
       pass.setPipeline(this.pPlain); pass.setBindGroup(0, this.specBG); pass.draw(3); pass.end();
     }
