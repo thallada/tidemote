@@ -778,6 +778,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   var silt = NONE; var siltD = 1e9;
   var stoneF = vec2f(0.0);
   var stoneN = 0.0;
+  var pack = 0.0;
   var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
 
   // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam).
@@ -834,6 +835,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
           fr += select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)} * shape;
         }
         crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
+        if (r < LINK_R) { let w = 1.0 - r / LINK_R; pack += w * w; }
         if (qk == p.kind) {
           kinVel += unpack2x16float(q.vel);
           kinN += 1.0;
@@ -889,7 +891,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
     }
     at -= len;
   }
-  force *= stride; crowd *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride;
+  force *= stride; crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride;
 
   let heavy = 1.0 - 0.7 * g.photo;
   let fr0 = pow(0.5, sim.dt / g.drag);
@@ -1012,7 +1014,8 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
     kind = STONE; E = ${f(K.stoneLife)} * (0.5 + rnd(&s)); vel = vec2f(0.0);
   }
   let childGen = ((genOf(p.info) + 1u) & 0xffffu) << 14u;
-  intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(ce), n1, n2);
+  // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
+  intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(pack, ce, act == 2u)), n1, n2);
   parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0)), info);
 }
 `;
@@ -1386,8 +1389,21 @@ fn cellDirection(p: Particle) -> vec2f {
   return vec2f(cos(a), sin(a));
 }
 // Match vsPoint's living-cell radius, including focus and unresolved highlights.
-fn cellRadius(p: Particle, g: Genome) -> f32 {
+// A resolved cell is drawn no larger than the room its living neighbours leave it, so a dense body
+// reads as packed tissue rather than a stack of overlapping cells. The sim records a kernel density
+// of living neighbours within LINK_R (sum of (1 - r/L)^2, i.e. pi L^2 rho / 6); a hexagonal packing
+// of that density has spacing L * sqrt(0.6046 / pack). Distant sprites keep their size.
+fn packFit(index: u32, size: f32) -> f32 {
+  let it = intent[index];
+  if ((it.x & 3u) == 2u) { return 1.0; }
+  let pack = bitcast<f32>(it.y);
+  if (!(pack > 0.01)) { return 1.0; }
+  let room = 0.75 * view.linkR * sqrt(0.6046 / pack);
+  return mix(1.0, min(1.0, room / (0.085 * size)), detailLOD(view.pointSize * size));
+}
+fn cellRadius(p: Particle, g: Genome, index: u32) -> f32 {
   var size = g.size * (1.0 - 0.12 * f32(roleOf(p.info)));
+  size *= packFit(index, size);
   let grow = 1.0 - detailLOD(view.pointSize * size);
   if (!focusPass(p)) { size *= 0.7; }
   else if (view.focusOn == 1u) { size *= 1.0 + 0.12 * grow; }
@@ -1425,7 +1441,7 @@ struct PO {
   @location(2) @interpolate(flat) shape: u32,
   @location(3) @interpolate(flat) index: u32,
   @location(4) @interpolate(flat) geom: vec4f, // radius, occupied area, motion direction
-  @location(5) @interpolate(flat) bondPlans: vec2u, // plan in low 4 bits, reciprocal in bit 4; NONE absent
+  @location(5) @interpolate(flat) bondPlans: vec2u, // partner plan; NONE when absent
   @location(6) @interpolate(flat) morph: vec2f, // species variation
   @location(7) @interpolate(flat) bond0: vec4f, // offset / self radius, radius ratio, ID seed
   @location(8) @interpolate(flat) bond1: vec4f,
@@ -1451,6 +1467,7 @@ struct PO {
     let g = genomes[k];
     let role = roleOf(p.info);
     size = g.size * (1.0 - 0.12 * f32(role));
+    size *= packFit(ii, size);
     swim = min(g.swim, 1.0);
     let e = clamp(p.energy / g.reproE, 0.0, 1.4);
     var b = 0.35 + 0.65 * e;
@@ -1532,13 +1549,11 @@ struct PO {
         if (index == NONE || index == ii || (j == 1u && index == it.z)) { continue; }
         let partner = parts[index];
         if (partner.kind != k) { continue; }
-        let ratio = cellRadius(partner, g) / px;
+        let ratio = cellRadius(partner, g, index) / px;
         let offset = wrapd(partner.pos - p.pos) * view.ppu / px;
         let reach = 1.65 * (1.0 + ratio) + 0.12 * min(1.0, ratio);
         if (dot(offset, offset) > reach * reach) { continue; }
-        let back = intent[index];
-        let plan = choosePlan(g, roleOf(partner.info))
-          | select(0u, 16u, back.z == ii || back.w == ii);
+        let plan = choosePlan(g, roleOf(partner.info));
         let frame = vec4f(offset, ratio, renderHash(partner.id));
         let direction = cellDirection(partner);
         o.bondPlans[j] = plan;
@@ -1564,6 +1579,9 @@ struct PO {
   let v = localPoint(i.uv, i.geom.zw);
   let aa = max(0.003, 0.75 / i.geom.x);
   var f = 0.0;
+  // body coverage of a resolved living cell, written to alpha: the composite divides overlapping
+  // cells' light by it, so stacked cells average into one translucent layer instead of summing
+  var cover = 0.0;
   if (p.kind >= FIRST_LIFE) {
     let g = genomes[p.kind];
     let s = i.morph;
@@ -1572,7 +1590,6 @@ struct PO {
     var membraneSD = 0.0;
     var q = vec2f(0.0);
     var sd = 0.0;
-    var share = 1.0;
     // One outline call site for self and both partners keeps the twelve-plan
     // switch out of duplicated inline code. Partner frames die before the interior.
     for (var j = 0u; j < 3u; j++) {
@@ -1586,7 +1603,7 @@ struct PO {
       if (j > 0u) {
         // The partner draws itself beyond our narrow union band. Owned pixels
         // need no further outlines or interior work.
-        if (lod <= 0.0 || membraneSD > 0.12 + aa || share < 0.001) { break; }
+        if (lod <= 0.0 || membraneSD > 0.12 + aa) { break; }
         flags = i.bondPlans[j - 1u];
         if (flags == NONE) { continue; }
         let frame = select(i.bond0, i.bond1, j == 2u);
@@ -1600,7 +1617,7 @@ struct PO {
         dir = select(i.bondDirs.xy, i.bondDirs.zw, j == 2u);
         radius *= ratio;
         cellSeed = frame.w;
-        plan = flags & 15u;
+        plan = flags;
       }
       let outline = cellOutline(uv, dir, radius, cellSeed, plan,
         vec4f(g.swim, g.pulse, g.calcify, g.dFlesh), s);
@@ -1612,21 +1629,8 @@ struct PO {
         let partnerSD = outline.sd * ratio;
         let blend = 0.12 * min(1.0, ratio);
         sd = smoothUnion(sd, partnerSD, blend);
-        if ((flags & 16u) != 0u) {
-          var width = 0.16 * min(1.0, ratio);
-          if (min(membraneSD, partnerSD) < 0.0) {
-            let pairAA = max(0.75 / i.geom.x, 0.003 * min(1.0, ratio));
-            width = min(width, max(pairAA, -min(membraneSD, partnerSD)));
-          }
-          share *= smoothstep(-width, width, partnerSD - membraneSD);
-        } else {
-          // One-way bonds yield overlap to the unpartitioned partner.
-          let partnerAA = max(0.75 / i.geom.x, 0.003 * ratio);
-          share *= smoothstep(-partnerAA, partnerAA, partnerSD);
-        }
       }
     }
-    if (share < 0.001) { return vec4f(i.col * far * (1.0 - lod), 0.0); }
     let body = 1.0 - smoothstep(-aa, aa, sd);
     // Reconstruct motion only after the partner loop; no partner structs or
     // unneeded hair coordinates stay live across the organelle loop.
@@ -1738,7 +1742,7 @@ struct PO {
         * smoothstep(0.60, 0.9, -motion.x) * (1.0 - smoothstep(1.55, 1.9, -motion.x));
       f += min(g.swim, 1.0) * resolved * (1.0 - body) * (0.05 * hairs + 0.08 * tail);
     }
-    f *= share;
+    cover = body;
   } else {
     let a = atan2(v.y, v.x) + seed * TAU;
     var r = length(v);
@@ -1768,7 +1772,7 @@ struct PO {
       }
     }
   }
-  return vec4f(i.col * mix(far, max(0.0, f), lod), 0.0);
+  return vec4f(i.col * mix(far, max(0.0, f), lod), lod * cover);
 }
 
 struct LO { @builtin(position) pos: vec4f, @location(0) col: vec3f };
@@ -1806,6 +1810,7 @@ struct BO {
   @builtin(position) pos: vec4f,
   @location(0) col: vec3f,
   @location(1) side: f32,
+  @location(2) cover: f32,
 };
 fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f {
   let len = length(chord);
@@ -1858,18 +1863,29 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   let adhesion = min(genomes[p.kind].adhesion, genomes[q.kind].adhesion);
   let taper = 0.55 + 0.45 * pow(2.0 * t - 1.0, 2.0);
   let tension = pow(min(1.0, rest / len), 3.0);
-  let halfWidth = mix(0.5, max(0.5, view.ppu * (0.012 + adhesion * 0.025) * taper * tension), lod);
+  // a neck is never wider than the cells it joins (cells shrink to fit dense bodies)
+  let ends = min(cellRadius(p, genomes[p.kind], index), cellRadius(q, genomes[q.kind], n));
+  let neck = min(view.ppu * (0.012 + adhesion * 0.025), 0.3 * ends);
+  // up close a bond reads as a neck between neighbouring cells; one reaching across a crowd past
+  // several cell widths fades (it still pulls in the sim, and shows as a line from afar)
+  let span = 1.0 - lod * smoothstep(3.5, 5.0, len * view.ppu / ends);
+  let halfWidth = mix(0.5, max(0.5, neck * taper * tension), lod);
   o.pos = toClip((base + centre) * view.ppu + normal * side * halfWidth);
   let strength = clamp(1.0 - len / view.linkR, 0.0, 1.0);
   let fade = select(view.mute, 1.0, focusPass(p));
-  // Soft-edge integral is 0.8: match the old line's light at rest, dim under tension.
+  // Thin bridges carry the old line's light (soft-edge integral 0.8); resolved ones are shaded as
+  // membrane, a little dimmer than cytoplasm, so a wide neck between bonded cells stays visible.
+  let line = (0.35 + 0.65 * strength) * view.lineGain / (halfWidth * 1.6);
+  let membrane = 0.18 * view.pointGain * (0.6 + 0.4 * strength);
   o.col = mix(unpack4x8unorm(p.col).rgb, unpack4x8unorm(q.col).rgb, t)
-    * ((0.35 + 0.65 * strength) * view.lineGain * fade * lod * tension * tension / (halfWidth * 1.6));
+    * (fade * lod * span * tension * tension * mix(line, membrane, lod));
+  o.cover = lod * lod * span;
   o.side = side;
   return o;
 }
 @fragment fn fsBridge(i: BO) -> @location(0) vec4f {
-  return vec4f(i.col * (1.0 - smoothstep(0.6, 1.0, abs(i.side))), 0.0);
+  let edge = 1.0 - smoothstep(0.6, 1.0, abs(i.side));
+  return vec4f(i.col * edge, i.cover * edge);
 }
 
 @vertex fn vsFade(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
@@ -1912,7 +1928,13 @@ struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   return o;
 }
 
-fn tap(uv: vec2f) -> vec3f { return textureSampleLevel(src, samp, uv, 0.0).rgb; }
+// The scene's alpha is the coverage of resolved cells: where several overlap their light is
+// averaged rather than summed. Bloom levels and empty space carry alpha 0, which leaves them as is.
+fn scene(uv: vec2f) -> vec3f {
+  let t = textureSampleLevel(src, samp, uv, 0.0);
+  return t.rgb / max(1.0, t.a);
+}
+fn tap(uv: vec2f) -> vec3f { return scene(uv); }
 
 @fragment fn fsDown(i: VO) -> @location(0) vec4f {
   let h = 1.0 / vec2f(textureDimensions(src));
@@ -1921,7 +1943,7 @@ fn tap(uv: vec2f) -> vec3f { return textureSampleLevel(src, samp, uv, 0.0).rgb; 
   c += tap(i.uv + h);
   c += tap(i.uv + vec2f(h.x, -h.y));
   c += tap(i.uv - vec2f(h.x, -h.y));
-  return vec4f(c / 8.0, 1.0);
+  return vec4f(c / 8.0, 0.0);
 }
 
 @fragment fn fsUp(i: VO) -> @location(0) vec4f {
@@ -1934,7 +1956,7 @@ fn tap(uv: vec2f) -> vec3f { return textureSampleLevel(src, samp, uv, 0.0).rgb; 
   c += tap(i.uv + vec2f(h.x, -h.y)) * 2.0;
   c += tap(i.uv + vec2f(0.0, -2.0 * h.y));
   c += tap(i.uv + vec2f(-h.x, -h.y)) * 2.0;
-  return vec4f(c / 12.0, 1.0);
+  return vec4f(c / 12.0, 0.0);
 }
 
 fn hash12(p: vec2f) -> f32 {
@@ -2142,7 +2164,7 @@ fn tonemap(hdrIn: vec3f) -> vec3f {
 }
 
 @fragment fn fsComposite(i: VO) -> @location(0) vec4f {
-  var hdr = textureSampleLevel(src, samp, i.uv, 0.0).rgb;
+  var hdr = scene(i.uv);
   let bl = textureSampleLevel(bloomTex, samp, i.uv, 0.0).rgb;
   hdr = (hdr + bl * post.bloom) * post.exposure;
   var T = 0.0;
@@ -2189,7 +2211,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   let d = length(i.uv);
   if (d > 1.035) { discard; }
   let tuv = i.uv * 0.5 + 0.5;
-  var hdr = textureSampleLevel(src, samp, vec2f(tuv.x, tuv.y), 0.0).rgb * post.exposure;
+  var hdr = scene(tuv) * post.exposure;
   var c = tonemap(hdr) + vec3f(0.006, 0.006, 0.012);
   c = pondMicro(c, hdr, microView.cam, i.uv * microView.res * 0.5, microView.ppu, loupe.ppu);
   c = pow(c, vec3f(1.0 / 2.2));
@@ -2205,11 +2227,12 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 @fragment fn fsReproj(i: VO) -> @location(0) vec4f {
   let u = (i.uv - 0.5) * rp.scale + 0.5 + rp.shift;
   if (u.x < 0.0 || u.y < 0.0 || u.x > 1.0 || u.y > 1.0) { return vec4f(0.0); }
-  return vec4f(textureSampleLevel(src, samp, u, 0.0).rgb * rp.k, 0.0);
+  // trails fade coverage with light, so faded overlaps stay averaged
+  return textureSampleLevel(src, samp, u, 0.0) * rp.k;
 }
 
 @fragment fn fsPlain(i: VO) -> @location(0) vec4f {
-  let hdr = textureSampleLevel(src, samp, i.uv, 0.0).rgb * post.exposure;
+  let hdr = scene(i.uv) * post.exposure;
   var c = tonemap(hdr) + vec3f(0.006, 0.005, 0.012);
   c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu);
   return vec4f(pow(c, vec3f(1.0 / 2.2)), 1.0);

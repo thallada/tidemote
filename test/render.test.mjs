@@ -77,7 +77,8 @@ test('LOD preserves light, bonded outlines merge, and all detail views validate'
     device.queue.submit([enc.finish()]);
     await buf.mapAsync(GPUMapMode.READ);
     const src = new Uint16Array(buf.getMappedRange());
-    const green = Float32Array.from({ length: 256 * 256 }, (_, j) => half(src[j * 4 + 1]));
+    // as the composite sees it: light divided by the coverage of overlapping resolved cells
+    const green = Float32Array.from({ length: 256 * 256 }, (_, j) => half(src[j * 4 + 1]) / Math.max(1, half(src[j * 4 + 3])));
     buf.unmap(); buf.destroy();
     assert.deepEqual(errors, []);
     return green;
@@ -127,29 +128,22 @@ test('LOD preserves light, bonded outlines merge, and all detail views validate'
       assert.ok(difference < sum(merged) * 0.001, 'either partner slot produces the same merge');
       intent[2] = 1; intent[3] = 0xffffffff;
     }
-    let overlapBefore = 0, overlapAfter = 0, unsupportedBefore = 0, unsupportedAfter = 0, pixels = 0;
+    // Overlaps never sum: wherever both cells cover a pixel, bonded or not, the light is no more
+    // than the brighter cell alone. Protrusions the partner doesn't cover survive the merge.
+    let overlap = 0, single = 0, unsupportedBefore = 0, unsupportedAfter = 0, pixels = 0;
     for (let j = 0; j < self.length; j++) {
       if (self[j] > 0.15 && partner[j] > 0.15) {
-        overlapBefore += unbonded[j]; overlapAfter += merged[j];
+        overlap += Math.max(unbonded[j], merged[j]); single += Math.max(self[j], partner[j]);
       }
       if (j % 256 > 148 && self[j] > 0.05 && partner[j] < 1e-6) {
         unsupportedBefore += self[j]; unsupportedAfter += merged[j]; pixels++;
       }
     }
-    assert.ok(overlapBefore > 1, `plan ${shape}, role ${role}: real overlapping tissue`);
-    assert.ok(overlapAfter / overlapBefore < 0.72 && overlapAfter / overlapBefore > 0.3,
-      `plan ${shape}, role ${role}: overlap light ratio ${overlapAfter / overlapBefore}`);
+    assert.ok(single > 1, `plan ${shape}, role ${role}: real overlapping tissue`);
+    assert.ok(overlap < single * 1.1, `plan ${shape}, role ${role}: overlap light ${overlap / single} of one cell`);
     protrusionPixels += pixels;
     assert.ok(unsupportedAfter >= unsupportedBefore * 0.95,
       `plan ${shape}, role ${role}: uncovered protrusions survive (${unsupportedAfter / unsupportedBefore})`);
-    // A one-way listing yields to B's unpartitioned body instead of doubling it.
-    intent[6] = 0xffffffff;
-    const oneWay = await render(500);
-    let oneWayOverlap = 0;
-    for (let j = 0; j < self.length; j++) {
-      if (self[j] > 0.15 && partner[j] > 0.15) oneWayOverlap += oneWay[j];
-    }
-    assert.ok(oneWayOverlap < overlapBefore * 0.72, 'one-way overlap does not double');
   }
   assert.ok(protrusionPixels > 20, 'tested unsupported protrusions beyond the old bisector');
   pu[19] = 0;
