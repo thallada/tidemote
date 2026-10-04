@@ -1555,7 +1555,8 @@ struct PO {
       f += 0.10 * exp(-pow((fold - 0.42) / (0.09 + aa), 2.0));
       f *= spriteMean(i.shape) / 0.20;
     } else {
-      let facets = 0.70 + 0.20 * cos(a * sides) + 0.10 * sin(v.x * 17.0 + v.y * 11.0 + seed * 23.0);
+      // one lit face and a faint grain, so grains read as solid chips rather than sectors
+      let facets = 0.70 + 0.16 * (v.x - v.y) + 0.06 * sin(v.x * 17.0 + v.y * 11.0 + seed * 23.0);
       f = body * facets * spriteMean(i.shape) / 0.56;
       if (p.kind == GLINT) {
         let seam = exp(-pow((v.y - v.x * 0.45) / (0.018 + aa), 2.0));
