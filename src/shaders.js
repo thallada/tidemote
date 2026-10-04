@@ -71,6 +71,7 @@ export const DEFAULT_K = {
   // Stone: calcified remains and bedrock. Immobile, solid to the living, slowly eroding back to silt.
   calcCost: 0.012,  // upkeep of a fully calcifying cell (× metab)
   stoneLife: 300,   // seconds a reef stone lasts on average before it crumbles to silt
+  reefs: 1,         // 0: calcifying cells never leave stone (bedrock only)
   nucleate: 0.03,   // chance of leaving stone away from other stone, relative to beside it: reefs accrete
   rockLife: 3000,   // ...and a grain of bedrock
   rocks: 0.5,       // scales each world's bedrock outcrops (0: none)
@@ -919,7 +920,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   }
   // calcifying cells that settled leave their skeleton as stone, in their own colour, mostly where
   // stone already is, so reefs grow outward from rock and from the rare place one starts
-  if (kind == HUSK && g.calcify > 0.0 && rnd(&s) < g.calcify * (1.0 - g.advect) * select(${f(K.nucleate)}, 1.0, stoneN >= 1.0)) {
+  if (kind == HUSK && g.calcify > 0.0 && rnd(&s) < ${f(K.reefs)} * g.calcify * (1.0 - g.advect) * select(${f(K.nucleate)}, 1.0, stoneN >= 1.0)) {
     kind = STONE; E = ${f(K.stoneLife)} * (0.5 + rnd(&s)); vel = vec2f(0.0);
   }
   let childGen = ((genOf(p.info) + 1u) & 0xffffu) << 14u;

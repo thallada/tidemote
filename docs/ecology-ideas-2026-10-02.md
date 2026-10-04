@@ -175,3 +175,32 @@ the simulation; it is what showed where each guild's energy comes from and goes.
 
 Still open from section 2: calcified reefs (2.3), which would give the persistent structures and refuges
 this all started from, and do not depend on the energy rules.
+
+## 6. Stone: bedrock and reefs (branch `exp/reefs`, 2026-10-03)
+
+Kind 3 became **stone**: immobile, solid to the living (it pushes cells out, however hard they swim), and
+slowly wearing back to silt. Each world draws its own bedrock outcrops (wandering chains of discs; `rocks`
+scales the area, up to about 4%), lasting about 50 minutes per grain. A new evolving trait, `calcify`,
+costs upkeep; a settled calcifying cell that dies of hunger or old age leaves stone instead of a husk,
+mostly beside stone already there (`nucleate` 0.03 elsewhere), so reefs accrete from rock and the rare
+spontaneous start, and each reef grain lasts about 5 minutes. Attacks made from among stone often miss (a
+refuge). Stone keeps its builder's colour and is drawn with a real size in the world.
+
+Screened (16-32 seeds × 30 min at 32k unless noted, against the 64-run baseline): none of about 20
+configurations was a gated regression; all were within noise of today's rules. Holdfast (stone sheltering
+adhesive cells from currents) made no difference and was removed. Films that grow on lit stone for
+grazers to scrape shifted worlds to grazers and cost producers (producers persisted in 59% of worlds
+against 86%, p = 0.004) and were removed. Cheaper calcification let producers sprawl.
+
+| | food web | late guilds | effective species | outcomes | predators > 5% late |
+| --- | --- | --- | --- | --- | --- |
+| 32k, today (64) | 56% | 2.66 | 75 | 7.7 | 53% of runs |
+| 32k, full stone (32) | 44% | 2.38 | 73 | 5.2 | 34% |
+| 32k, bedrock only (32) | 56% | 2.72 | 71 | 4.6 | 53% |
+| 131k, today (16) | 75% | 3.25 | 74 | 4.7 | 81% |
+| 131k, full stone (16) | 56% | 2.75 | 93 | 6.4 | 75% |
+| 131k, bedrock only (16) | 50% | 2.69 | 71 | 4.2 | 44% |
+
+Full stone at page scale raises diversity (effective species +25%) and run-to-run variety, and lowers
+food-web completeness a little; stone holds 12-14% of matter. Bedrock alone helps at 32k and is the
+weakest at 131k: at these sample sizes most differences are noise.
