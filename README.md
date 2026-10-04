@@ -20,6 +20,15 @@ Every world draws its own tide pattern (wave directions, drift and phases), open
 
 Press **H** in the page for controls and **K** for the Field Lab (species list, composition, population charts, lineage tree, chronicle, environment overlays and a field guide). Click any cell to follow it.
 
+Zooming in reveals twelve families of cell outlines: lobose and filose amoebae, bent radiates,
+incised desmids, horned armour, twisted spindles, slippers, chambered whorls, vacuolate crescents,
+stalked bells, bead chains and lattice frustules. A cosmetic shape gene chooses the family;
+a minority favour forms suited to their mineral, feeding, swimming or bonding traits.
+Species have different proportions and facets, and individual cells deform slowly. Outlines
+appear from about 3 pixels of radius, interiors at 12–26 pixels, and organelles and fine texture
+at 30–65 pixels. The unresolved default view stays cheap. Zoom resolves the same world-sized
+cell, with approximately conserved integrated light; visual anatomy does not change ecology.
+
 ## Building
 
 The source is a handful of ES modules in `src/`. `build.mjs` uses esbuild to bundle `src/main.js` into a readable IIFE, inserts it into `src/page.html`, and writes `dist/tidemote.html`:

@@ -37,7 +37,7 @@ export const GLOSSARY = {
   childshare: 'Fraction of the parent’s energy handed to each child.',
   upkeep: 'Energy burned per second. Grows with thrust, reach, swimming, schooling, adhesion, lifespan, size and anchoring. Starving cells burn slower. Crowding raises it: a cell packed among more than four of its own kind (not counting its bond partners) pays extra.',
   mutation: 'Chance per division that the child founds a new species with a nudged genome. Rarely, a whole cell type is reinvented or copied.',
-  size: 'Drawn size and shape. Purely visual apart from a small upkeep cost; physics uses reach and personal space.',
+  size: 'Drawn size has a small upkeep cost; physics uses reach and personal space. Shape is cosmetic: twelve families with species-specific proportions and irregular, slowly deforming outlines.',
   share: 'This species’ fraction of all living cells.',
   genus: 'A family of species within a set genetic distance of the genus founder. A lineage that drifts far enough founds a new genus.',
   species: 'Every mutant founds a new species. Most die out unseen; a species counts as thriving once it reaches a population threshold.',
@@ -92,6 +92,7 @@ export const GUIDE = [
   {
     id: 'cells', title: 'Cells, cell types and bodies',
     html: `<p>Each species has one genome. A genome describes up to three ${t('celltype', 'cell types')}, α, β and γ. Each type carries two 8-number signatures: a <b>surface</b> (how it appears to others) and a <b>receptor</b> (how it reacts). The pull of cell A on cell B is A’s receptor combined with B’s surface: above zero means attraction, below zero means repulsion. Silt, glint and husks have surfaces too, so a cell type can be drawn toward glint or repelled by husks.</p>
+<p>Zoom in to see lobose and filose cells, crooked radiates, incised desmids, horned armour, twisted spindles, slippers, chambered whorls, crescents, stalked bells, bead chains and lattice frustules. Species have their own proportions; individuals have uneven membranes and slowly shifting outlines. A nucleus pinches as division approaches, producers carry chloroplasts, eaters carry vacuoles, and swimmers grow cilia or flagella. These visual forms are cosmetic.</p>
 <p>When a cell divides, a developmental rule picks the child’s type from the parent’s type. Where that rule settles is the ${t('bodyplan', 'body plan')}, for example α 60 · β 40.</p>
 <p>Species with ${t('adhesion', 'adhesion')} form ${t('bond', 'bonds')}: each cell keeps up to two partners of the same species. New bonds fill empty slots with nearby cells, and children start bonded to their parent, so bodies grow by division. A bond lasts until a partner dies, changes kind or stretches too far away. Bonds are what the links show, so a web of links is one ${t('organism', 'organism')}. Species without adhesion are single-celled and never show links, however closely they crowd.</p>`,
   },

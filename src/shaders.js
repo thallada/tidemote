@@ -305,7 +305,7 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   g.sat = clamp(g.sat + gauss(s) * m * 0.1, 0.4, 1.0);
   g.lum = clamp(g.lum + gauss(s) * m * 0.08, 0.45, 0.8);
   g.size = clamp(g.size * exp(gauss(s) * m * 0.35), 0.45, 2.6);
-  if (rnd(s) < m * 0.6) { g.shape = floor(rnd(s) * 5.0); }
+  if (rnd(s) < m * 0.6) { g.shape = floor(rnd(s) * 12.0); }
   g.pulse = clamp(g.pulse + gauss(s) * m * 0.2, 0.0, 1.0);
   g.roleHue = clamp(g.roleHue + gauss(s) * m * 0.1, -0.35, 0.35);
   g.advect = clamp(g.advect + gauss(s) * m * 0.15, 0.03, 1.0);
@@ -346,7 +346,7 @@ fn randomInto(slot: u32, s: ptr<function, u32>) {
   g.sat = mix(0.6, 1.0, rnd(s));
   g.lum = mix(0.5, 0.72, rnd(s));
   g.size = mix(0.6, 1.6, rnd(s));
-  g.shape = floor(rnd(s) * 5.0);
+  g.shape = floor(rnd(s) * 12.0);
   let pu = rnd(s);
   g.pulse = pu * pu;
   g.roleHue = (rnd(s) - 0.5) * 0.3;
@@ -1142,6 +1142,7 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
 `;
 
 export const DRAW_WGSL = COMMON + /* wgsl */ `
+// Specialise this same path for unresolved views so near anatomy has no far-view overhead.
 struct View {
   cam: vec2f, world: vec2f, res: vec2f,
   ppu: f32, pointSize: f32, pointGain: f32, lineGain: f32,
@@ -1187,7 +1188,10 @@ fn wrapd(d: vec2f) -> vec2f { return d - view.world * round(d / view.world); }
 fn toClip(px: vec2f) -> vec4f { return vec4f(px.x / (view.res.x * 0.5), -px.y / (view.res.y * 0.5), 0.0, 1.0); }
 
 // Radii are in framebuffer pixels: the same LOD works in the main, loupe and specimen views.
-fn detailLOD(radius: f32) -> f32 { return smoothstep(6.0, 30.0, radius); }
+fn detailLOD(radius: f32) -> f32 { return smoothstep(2.8, 6.0, radius); }
+fn bondLOD(radius: f32) -> f32 { return smoothstep(6.0, 30.0, radius); }
+fn interiorLOD(radius: f32) -> f32 { return smoothstep(12.0, 26.0, radius); }
+fn fineLOD(radius: f32) -> f32 { return smoothstep(30.0, 65.0, radius); }
 fn renderHash(id: u32) -> f32 {
   var h = id * 747796405u + 2891336453u;
   h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
@@ -1203,53 +1207,32 @@ fn cellGrain(v: vec2f, id: u32) -> f32 {
   let b = mix(renderHash(x ^ (y + 3812015801u) ^ id), renderHash((x + 1597334677u) ^ (y + 3812015801u) ^ id), w.x);
   return mix(a, b, w.y) * 2.0 - 1.0;
 }
+// Unresolved living cells share a cheap soft profile; matter keeps its old light.
 fn spriteFalloff(uv: vec2f, shape: u32) -> f32 {
   let d2 = dot(uv, uv);
-  var f = 0.0;
-  if (d2 < 1.0) {
-    switch (shape) {
-      case 1u: {
-        let t = (sqrt(d2) - 0.62) / 0.2;
-        f = exp(-t * t);
-      }
-      case 2u: {
-        let a = abs(uv);
-        f = max(0.0, 1.0 - a.x * a.y * 14.0 - d2) * (1.0 - d2);
-      }
-      case 3u: {
-        f = 0.35 * (1.0 - d2) + smoothstep(0.32, 0.0, sqrt(d2));
-      }
-      case 4u: {
-        let a = abs(uv);
-        let t = max(0.0, 1.0 - (a.x + a.y));
-        f = t * t * 1.6;
-      }
-      case 5u: {
-        let a = abs(uv);
-        let t = max(0.0, 1.0 - a.x * a.y * 40.0 - d2 * 0.7);
-        f = t * t * (1.0 - d2);
-      }
-      case 6u: {
-        // stone: flat and hard-edged, so neighbouring grains merge into one solid mass
-        f = 1.0 - smoothstep(0.7, 1.0, d2);
-      }
-      default: {
-        let t = 1.0 - d2;
-        f = t * t;
-      }
-    }
+  if (d2 >= 1.0) { return 0.0; }
+  // A compact unresolved footprint saves fill; the 1/radius² gain keeps its integral.
+  if (shape < 12u) {
+    let t = max(0.0, 1.0 - d2 / 0.7225);
+    return t * t / 0.7225;
   }
-  return f;
+  switch (shape) {
+    case 12u: { let t = (sqrt(d2) - 0.62) / 0.2; return exp(-t * t); }
+    case 13u: {
+      let a = abs(uv);
+      let t = max(0.0, 1.0 - a.x * a.y * 40.0 - d2 * 0.7);
+      return t * t * (1.0 - d2);
+    }
+    case 14u: { return 1.0 - smoothstep(0.7, 1.0, d2); }
+    default: { let t = 1.0 - d2; return t * t; }
+  }
 }
-// Integrated distant profiles / pi. Preserve the species' brightness as detail replaces its sprite.
+// Integrated distant profiles / pi.
 fn spriteMean(shape: u32) -> f32 {
   switch (shape) {
-    case 1u: { return 0.4369; }
-    case 2u: { return 0.10636; }
-    case 3u: { return 0.20572; }
-    case 4u: { return 0.16976; }
-    case 5u: { return 0.0391; }
-    case 6u: { return 0.85; }
+    case 12u: { return 0.4369; }
+    case 13u: { return 0.0391; }
+    case 14u: { return 0.85; }
     default: { return 0.33333; }
   }
 }
@@ -1261,47 +1244,136 @@ fn polygonRadius(a: f32, sides: f32, roundness: f32) -> f32 {
 fn localPoint(v: vec2f, dir: vec2f) -> vec2f {
   return vec2f(dot(v, dir), dot(v, vec2f(-dir.y, dir.x)));
 }
-
-// The role-adjusted far shape is the body plan. Return outer radius, central vacuole
-// radius and mean occupied area / pi, before small ID/time perturbations.
-fn cellPlan(shape: u32, a: f32, g: Genome) -> vec3f {
+fn choosePlan(g: Genome, role: u32) -> u32 {
+  let gene = (u32(g.shape) + role * 5u) % 12u;
+  // Only a minority are trait-biased; every plan remains available to every guild.
+  if (renderHash(g.serial ^ g.sig[0].x) > 0.28) { return gene; }
+  if (g.calcify > 0.55) { return select(7u, 4u, gene % 2u == 0u); }
+  if (g.adhesion > 0.7) { return select(10u, 3u, gene % 2u == 0u); }
+  if (g.advect < 0.18 && g.swim < 0.25) { return 9u; }
+  if (g.photo > 0.6) { return select(3u, 11u, gene % 2u == 0u); }
+  if (g.dFlesh > 0.6) { return select(1u, 2u, gene % 2u == 0u); }
+  if (g.swim > 0.6) { return select(5u, 6u, gene % 2u == 0u); }
+  return gene;
+}
+fn facetSD(q: vec2f, radius: f32, sides: f32, rounding: f32) -> f32 {
+  // Warping the angle makes adjacent facets unequal without a vertex array.
+  let a = atan2(q.y, q.x);
+  return length(q) - radius * polygonRadius(a + 0.15 * sin(a * 3.0 + 1.7), sides, rounding);
+}
+fn loboseSD(q: vec2f, s: vec2f) -> f32 {
+  let a = atan2(q.y, q.x);
+  let lobes = 3.0 + floor(s.x * 3.0);
+  let edge = 0.73 + 0.11 * sin(a * lobes + s.y * TAU) + 0.07 * cos(a * 3.0 + 0.5);
+  return facetSD(q, edge, 7.0 + floor(s.y * 3.0), 0.22);
+}
+fn radiateSD(q: vec2f, s: vec2f, filose: bool) -> f32 {
+  let a = atan2(q.y, q.x);
+  let arms = select(3.0 + floor(s.x * 2.0), 5.0 + floor(s.x * 3.0), filose);
+  let bend = 0.32 * sin(length(q) * 4.0 + s.y * 5.0) + 0.18 * sin(a * 2.0 + s.y);
+  let lobe = pow(max(0.0, cos(a * arms + bend)), select(1.8, 3.0, filose));
+  let core = select(0.35, 0.33, filose);
+  let edge = core + (0.51 + 0.07 * sin(a * 3.0 + s.x * TAU)) * lobe;
+  return facetSD(q, edge, 9.0, 0.3);
+}
+fn desmidSD(q: vec2f, s: vec2f) -> f32 {
+  let side = select(-1.0, 1.0, q.x > 0.0);
+  let v = q - vec2f(side * 0.39, 0.04 * side);
+  let a = atan2(v.y, v.x);
+  let edge = 0.42 + 0.085 * cos(a * (5.0 + floor(s.x * 2.0)) + side * s.y * 1.5);
+  let semicell = facetSD(v * vec2f(1.12, 0.87), edge, 8.0, 0.12);
+  let isthmus = length(q * vec2f(0.8, 2.2)) - 0.24;
+  return min(semicell, isthmus);
+}
+fn hornSD(q: vec2f, s: vec2f) -> f32 {
+  let body = facetSD(q * vec2f(1.28, 0.9), 0.62, 5.0, 0.12);
+  let top = q - vec2f(0.1 + q.y * q.y * 0.18, 0.25);
+  let horn = length(top * vec2f(3.2, 0.75)) - (0.43 - 0.15 * clamp(top.y, 0.0, 1.0));
+  let lower = q - vec2f(-0.23 - q.y * q.y * 0.12, -0.35);
+  return min(body, min(horn, length(lower * vec2f(3.7, 0.95)) - 0.39 - s.x * 0.035));
+}
+fn spindleSD(q: vec2f, s: vec2f) -> f32 {
+  let v = vec2f(q.x, q.y + 0.17 * sin(q.x * 3.4 + s.y * 3.0));
+  let taper = 0.46 * pow(max(0.0, 1.0 - abs(v.x) / 0.94), 0.7);
+  return max(abs(v.x) - 0.94, abs(v.y) - taper);
+}
+fn slipperSD(q: vec2f, s: vec2f) -> f32 {
+  let v = vec2f(q.x, q.y + 0.13 * q.x + 0.06 * sin(q.x * 5.0 + s.y));
+  let body = facetSD(v * vec2f(0.8, 1.38), 0.73 - 0.075 * q.x, 9.0, 0.35);
+  let mouth = length((v - vec2f(0.1, 0.45)) * vec2f(1.0, 1.6)) - 0.23;
+  return max(body, -mouth);
+}
+fn spiralSD(q: vec2f, s: vec2f) -> f32 {
+  // Overlapping chambers grow along a crooked logarithmic whorl.
+  var sd = 10.0;
+  for (var j = 0u; j < 6u; j++) {
+    let t = f32(j) / 5.0;
+    let a = t * 5.3 + s.y * 0.7;
+    let c = vec2f(cos(a), sin(a)) * (0.12 + t * 0.36);
+    let v = q - c;
+    sd = min(sd, facetSD(v, 0.21 + t * 0.23, 7.0, 0.23));
+  }
+  return sd;
+}
+fn vacuolateSD(q: vec2f, s: vec2f) -> f32 {
+  let a = atan2(q.y, q.x);
+  let outer = facetSD(q, 0.80 + 0.045 * sin(a * 5.0 + s.y * 5.0), 9.0, 0.18);
+  let centre = vec2f(0.16 + s.x * 0.30, 0.09);
+  let hole = facetSD((q - centre) * vec2f(1.0, 1.12), 0.35 + s.x * 0.10, 7.0, 0.3);
+  return max(outer, -hole);
+}
+fn bellSD(q: vec2f, s: vec2f) -> f32 {
+  let v = q - vec2f(0.20, 0.05);
+  let width = 0.29 + 0.35 * clamp((v.x + 0.45) / 0.85, 0.0, 1.0);
+  let bell = max(abs(v.x) - 0.43, abs(v.y + v.x * 0.09) - width);
+  let stalk = max(abs(q.x + 0.55) - 0.40, abs(q.y - 0.10 * sin(q.x * 6.0 + s.y)) - 0.065);
+  return min(bell, stalk);
+}
+fn chainSD(q: vec2f, s: vec2f) -> f32 {
+  var sd = 10.0;
+  for (var j = 0u; j < 4u; j++) {
+    let x = (f32(j) - 1.5) * 0.40;
+    let v = q - vec2f(x, 0.14 * sin(x * 5.0 + s.y * 5.0));
+    sd = min(sd, facetSD(v, 0.29 + 0.03 * sin(f32(j) * 2.1 + s.x * 5.0), 6.0, 0.20));
+  }
+  return sd;
+}
+fn latticeSD(q: vec2f, s: vec2f) -> f32 {
+  let v = vec2f(q.x, q.y + 0.12 * sin(q.x * 4.0 + s.y * 3.0));
+  return (abs(v.x) * 0.72 + abs(v.y) * 1.35 - 0.75) / 1.5;
+}
+fn bodySD(q: vec2f, shape: u32, s: vec2f) -> f32 {
   switch (shape) {
-    case 1u: {
-      let inner = 0.40 + 0.13 * (1.0 - g.photo) + 0.05 * g.advect;
-      return vec3f(0.91, inner, 0.91 * 0.91 - inner * inner);
-    }
-    case 2u: {
-      let core = 0.20 + 0.10 * g.photo + 0.04 * g.adhesion;
-      let arm = 0.78 - core + 0.16 * g.swim / (1.0 + g.swim);
-      let t = clamp(g.align + g.calcify * 0.3, 0.0, 1.0);
-      let cosine = cos(a * 2.0);
-      let c = cosine * cosine;
-      let w = mix(c, c * c, t);
-      // Four primary arms remain on the far cross's axes; mineral armour can add four shorter arms.
-      let extra = 0.18 * g.calcify;
-      let diag = pow(abs(sin(a * 2.0)), 8.0);
-      let meanW = 0.5 - 0.125 * t;
-      let meanW2 = 0.375 * pow(1.0 - t, 2.0) + 0.625 * t * (1.0 - t) + 0.2734375 * t * t;
-      let area = core * core + 2.0 * core * arm * meanW + arm * arm * meanW2
-        + 0.546875 * core * extra + 0.1963806 * extra * extra
-        + 2.0 * arm * extra * mix(0.02734375, 0.0068359375, t);
-      return vec3f(core + arm * w + extra * diag, 0.0, area);
-    }
-    case 3u: {
-      let core = 0.30 + 0.12 * g.photo + 0.06 * g.calcify;
-      return vec3f(core, 0.0, core * core);
-    }
-    case 4u: {
-      let long = 0.92 + 0.16 * g.swim / (1.0 + g.swim);
-      let wide = 0.52 + 0.20 * g.photo + 0.12 * (1.0 - g.align);
-      return vec3f(1.0 / (abs(cos(a)) / long + abs(sin(a)) / wide), 0.0, 4.0 * long * wide / TAU);
-    }
-    default: {
-      let lobes = 3.0 + floor(g.advect * 3.0 + g.adhesion * 2.0);
-      let amp = 0.045 + 0.065 * g.advect + 0.04 * g.swim / (1.0 + g.swim);
-      let outline = 0.87 + amp * cos(a * lobes);
-      return vec3f(outline, 0.0, 0.87 * 0.87 + amp * amp * 0.5);
-    }
+    case 1u: { return radiateSD(q, s, true); }
+    case 2u: { return radiateSD(q, s, false); }
+    case 3u: { return desmidSD(q, s); }
+    case 4u: { return hornSD(q, s); }
+    case 5u: { return spindleSD(q, s); }
+    case 6u: { return slipperSD(q, s); }
+    case 7u: { return spiralSD(q, s); }
+    case 8u: { return vacuolateSD(q, s); }
+    case 9u: { return bellSD(q, s); }
+    case 10u: { return chainSD(q, s); }
+    case 11u: { return latticeSD(q, s); }
+    default: { return loboseSD(q, s); }
+  }
+}
+// Occupied area / pi, before the shared, nearly area-preserving domain warp.
+// Calibrated against raster integrals; avoids SDF sampling loops in the vertex shader.
+fn bodyArea(shape: u32, s: vec2f) -> f32 {
+  switch (shape) {
+    case 1u: { return 0.215; }
+    case 2u: { return 0.285; }
+    case 3u: { return 0.335; }
+    case 4u: { return 0.300; }
+    case 5u: { return 0.324; }
+    case 6u: { return 0.460; }
+    case 7u: { return 0.390; }
+    case 8u: { return 0.587 - pow(0.35 + s.x * 0.10, 2.0) / 1.12; }
+    case 9u: { return 0.260; }
+    case 10u: { return 0.300; }
+    case 11u: { return 0.368; }
+    default: { return 0.500; }
   }
 }
 
@@ -1311,8 +1383,9 @@ struct PO {
   @location(1) col: vec3f,
   @location(2) @interpolate(flat) shape: u32,
   @location(3) @interpolate(flat) index: u32,
-  @location(4) @interpolate(flat) geom: vec4f, // radius, quad extent, motion direction
+  @location(4) @interpolate(flat) geom: vec4f, // radius, occupied area, motion direction
   @location(5) @interpolate(flat) bonds: vec4f, // partner offsets / radius
+  @location(6) @interpolate(flat) morph: vec2f, // species variation
 };
 
 @vertex fn vsPoint(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> PO {
@@ -1333,7 +1406,6 @@ struct PO {
     let g = genomes[k];
     let role = roleOf(p.info);
     size = g.size * (1.0 - 0.12 * f32(role));
-    shape = (u32(g.shape) + role * 2u) % 5u;
     swim = min(g.swim, 1.0);
     let e = clamp(p.energy / g.reproE, 0.0, 1.4);
     var b = 0.35 + 0.65 * e;
@@ -1345,15 +1417,15 @@ struct PO {
     col = vec3f(0.30, 0.34, 0.46) * view.matterGain;
   } else if (k == GLINT) {
     size = 0.3;
-    shape = 5u;
+    shape = 13u;
     let tw = 0.6 + 0.4 * sin(view.time * 6.0 + f32(p.id % 977u));
     col = vec3f(0.7, 0.93, 1.0) * (0.4 + p.energy) * tw * view.matterGain * 2.0;
   } else if (k == STONE) {
-    shape = 6u;
+    shape = 14u;
     col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 1.1;
   } else {
     size = 0.62;
-    shape = 1u;
+    shape = 12u;
     let h = unpack4x8unorm(p.col).rgb;
     col = mix(h * 0.6, vec3f(0.42, 0.28, 0.16), 0.55) * (0.25 + p.energy * 0.6) * view.matterGain * 1.4;
   }
@@ -1376,70 +1448,66 @@ struct PO {
   o.shape = shape;
   o.index = ii;
   o.geom = vec4f(px, 1.0, 1.0, 0.0);
-  if (px <= 6.0) {
-    o.pos = toClip(d + corner * px);
-    o.uv = corner;
+  // Keep the whole unresolved view cheap, including its few oversized cells.
+  if (px <= 2.8) {
+    let footprint = select(1.0, 0.85, k >= FIRST_LIFE);
+    o.pos = toClip(d + corner * px * footprint);
+    o.uv = corner * footprint;
+    o.geom.x = min(px, 2.8);
     return o;
   }
-  let lod = detailLOD(px);
-  let radialSwimmer = k >= FIRST_LIFE && (shape == 2u || shape == 3u);
-  let extent = 1.0 + lod * (0.35 + select(1.9, 0.3, radialSwimmer) * swim);
+  let fine = fineLOD(px);
+  let extent = 1.35 + fine * swim * 0.65;
   if (any(abs(d) > view.res * 0.5 + vec2f(px * extent))) {
     o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
     return o;
   }
   o.pos = toClip(d + corner * px * extent);
   o.uv = corner * extent;
-  o.geom = vec4f(px, extent, 1.0, 0.0);
-  // All expensive state/partner work is confined to resolvable sprites.
-  if (lod > 0.0) {
-    let seed = renderHash(p.id);
-    let a = select(seed * TAU, atan2(p.vel.y, p.vel.x), dot(p.vel, p.vel) > 0.000001);
-    o.geom = vec4f(px, extent, cos(a), sin(a));
-    if (k >= FIRST_LIFE) {
-      let it = intent[ii];
-      if (it.z != NONE && parts[it.z].kind == k) { o.bonds = vec4f(wrapd(parts[it.z].pos - p.pos) * view.ppu / px, o.bonds.zw); }
-      if (it.w != NONE && parts[it.w].kind == k) { o.bonds = vec4f(o.bonds.xy, wrapd(parts[it.w].pos - p.pos) * view.ppu / px); }
-    }
+  let seed = renderHash(p.id);
+  let a = select(seed * TAU, atan2(p.vel.y, p.vel.x), dot(p.vel, p.vel) > 0.000001);
+  o.geom = vec4f(px, extent, cos(a), sin(a));
+  if (k >= FIRST_LIFE) {
+    let g = genomes[k];
+    shape = choosePlan(g, roleOf(p.info));
+    o.shape = shape;
+    let species = vec2f(renderHash(g.serial ^ g.sig[0].y), renderHash(g.serial ^ g.sig[1].x ^ 917u));
+    o.morph = species;
+    o.geom.y = bodyArea(shape, species);
+    let it = intent[ii];
+    if (it.z != NONE && parts[it.z].kind == k) { o.bonds = vec4f(wrapd(parts[it.z].pos - p.pos) * view.ppu / px, o.bonds.zw); }
+    if (it.w != NONE && parts[it.w].kind == k) { o.bonds = vec4f(o.bonds.xy, wrapd(parts[it.w].pos - p.pos) * view.ppu / px); }
   }
   return o;
 }
 
 @fragment fn fsPoint(i: PO) -> @location(0) vec4f {
   let far = spriteFalloff(i.uv, i.shape);
-  if (i.geom.x <= 6.0) { return vec4f(i.col * far, 0.0); }
-  let lod = detailLOD(i.geom.x);
+  if (i.geom.x <= 2.8) { return vec4f(i.col * far, 0.0); }
+  let lod = detailLOD(min(i.geom.x, view.pointSize));
   let p = parts[i.index];
   let seed = renderHash(p.id);
   let v = localPoint(i.uv, i.geom.zw);
-  let aa = max(0.003, 1.0 / i.geom.x);
+  let aa = max(0.003, 0.75 / i.geom.x);
   var f = 0.0;
   if (p.kind >= FIRST_LIFE) {
     let g = genomes[p.kind];
-    let speed = length(p.vel);
-    let stretch = 1.0 + min(g.swim, 1.5) * 0.28 * smoothstep(0.0, 0.5, speed);
-    let aspect = stretch * (1.0 + g.align * 0.12);
+    let s = i.morph;
+    let inside = interiorLOD(i.geom.x);
+    let fine = fineLOD(i.geom.x);
+    let aspect = 0.82 + s.x * 0.38 + min(g.swim, 1.5) * 0.10;
     let motion = v * vec2f(1.0 / aspect, aspect);
-    // Cross and diamond axes correlate with their screen-aligned far forms. Motion still
-    // stretches them, but cannot turn a four-point cross into a diagonal star at the LOD boundary.
+    // Shears preserve area. The two low-frequency waves bend every plan, including
+    // its facets, arms and internal structures. Cell identity dominates the slow motion.
+    let phase = seed * TAU + view.time * (0.18 + g.pulse * 0.15) * (1.0 - g.calcify * 0.7);
     var q = motion;
-    if (i.shape == 2u) {
-      let axisAspect = 1.0 + g.align * 0.12 + (stretch - 1.0) * (i.geom.z * i.geom.z - i.geom.w * i.geom.w);
-      q = i.uv * vec2f(1.0 / axisAspect, axisAspect);
-    } else if (i.shape == 4u) {
-      q = vec2f(i.geom.z * motion.x - i.geom.w * motion.y, i.geom.w * motion.x + i.geom.z * motion.y);
-    }
+    q.x += 0.075 * sin(q.y * 4.0 + phase) + (s.y - 0.5) * 0.20 * q.y;
+    q.y += 0.065 * sin(q.x * 4.5 + phase * 1.3);
     let a = atan2(q.y, q.x);
     let r = length(q);
-    let plan = cellPlan(i.shape, a, g);
-    let sides = 4.0 + floor(g.calcify * 4.0 + g.adhesion * 2.0);
-    let pulse = sin(a * 3.0 + view.time * (0.5 + g.pulse) + seed * TAU);
-    let irregular = select(0.012, 0.032, i.shape == 0u);
-    var outline = plan.x * (1.0 + irregular * sin(a * 3.0 + seed * 17.0));
-    outline += irregular * (0.3 + g.pulse) * pulse * (1.0 - g.calcify);
-    // Diet adds small teeth to this body plan rather than replacing it with a spiky blob.
-    outline += g.dFlesh * 0.032 * pow(max(0.0, cos(a * (sides * 2.0 + 5.0) + seed * TAU)), 6.0);
-    let membraneSD = max(r - outline, select(-10.0, plan.y - r, i.shape == 1u));
+    let ripple = 0.018 * sin(a * 5.0 + seed * 23.0) * smoothstep(0.1, 0.4, r);
+    let teeth = g.dFlesh * fine * 0.02 * pow(max(0.0, cos(a * 17.0 + seed * 11.0)), 6.0);
+    let membraneSD = bodySD(q, i.shape, s) - ripple - teeth;
     var wallSD = -10.0;
     for (var j = 0u; j < 2u; j++) {
       let b = select(i.bonds.xy, i.bonds.zw, j == 1u);
@@ -1447,98 +1515,102 @@ struct PO {
       if (len > 0.001) { wallSD = max(wallSD, dot(i.uv, b) / len - len * 0.5); }
     }
     let sd = max(membraneSD, wallSD);
-    let flagellate = i.shape == 0u || i.shape == 1u || i.shape == 4u;
-    let tailRegion = flagellate && g.swim > 0.05 && motion.x < -0.65 && motion.x > -2.0 && abs(motion.y) < 0.16 + aa;
-    if (sd > 0.18 + aa && !tailRegion && i.shape != 3u) { return vec4f(i.col * far * (1.0 - lod), 0.0); }
     let body = 1.0 - smoothstep(-aa, aa, sd);
-    let rim = exp(-pow((sd + 0.025) / (0.020 + aa), 2.0));
-    let age = clamp(p.age / max(g.lifespan, 1.0), 0.0, 1.0);
-    let fine = smoothstep(35.0, 90.0, i.geom.x);
-    // Small dense cores have their own scaled cytoplasm; annular cells leave the vacuole clear.
-    let organQ = select(q, q / plan.x, i.shape == 3u);
-    let grain = cellGrain(organQ * 65.0, p.id);
-    var interior = 0.43 + 0.03 * (1.0 - dot(organQ, organQ)) + 0.055 * grain * (0.25 + age) * fine;
-    interior *= 1.0 - 0.16 * age;
-    // Division remains visible in each body plan: along the annular rim, inside the central
-    // body of a heliozoan, or along the long axis of a stellate/diatom/amoeboid cell.
-    let division = smoothstep(0.55, 1.0, p.energy / max(g.reproE, 0.01));
-    var nq = organQ - vec2f(0.03 * sin(seed * 31.0), 0.08 * cos(seed * 19.0));
-    var nuclearSize = vec2f(0.19 + 0.07 * division, 0.23 - 0.045 * division);
-    var split = division * 0.24;
-    if (i.shape == 1u) {
-      let mid = (outline + plan.y) * 0.5;
-      nq = vec2f(q.y, -q.x - mid);
-      nuclearSize = vec2f(0.15 + 0.035 * division, (outline - plan.y) * 0.24);
-      split = division * 0.16;
-    }
-    if (i.shape == 2u) { nuclearSize *= 0.65; split *= 0.65; }
-    let nr = length(vec2f(abs(nq.x) - split, nq.y) / nuclearSize);
-    let nucleus = 1.0 - smoothstep(0.85, 1.0 + aa * 3.0, nr);
-    let nuclearWall = exp(-pow((nr - 0.95) / 0.10, 2.0));
-    interior += -0.22 * nucleus + 0.14 * nuclearWall;
-    interior += nucleus * 0.06 * cellGrain(nq * 35.0, p.id + 37u) * fine;
-    // Metabolic organelles follow the occupied tissue, not a universal circular scatter.
-    for (var j = 0u; j < 16u; j++) {
-      let h = renderHash(p.id + j * 1999u + 71u);
-      let th = TAU * renderHash(p.id + j * 1013u + 103u);
-      var centre = vec2f(cos(th), sin(th)) * (0.36 + 0.43 * h);
-      var organSize = 1.0;
-      if (i.shape == 1u) { centre = vec2f(cos(th), sin(th)) * ((0.91 + plan.y) * 0.5 + (h - 0.5) * 0.05); }
-      if (i.shape == 2u) {
-        let armAngle = f32(j % 4u) * TAU * 0.25;
-        centre = vec2f(cos(armAngle), sin(armAngle)) * (0.28 + 0.45 * h);
-        if (j < 4u) { centre = vec2f(cos(th), sin(th)) * (0.06 + 0.12 * h); }
-        organSize = 0.65;
-      }
+    // Flat cytoplasm is cheap at silhouette LOD. Detail is a small modulation of
+    // that same normalised light, so there is no bright jump when the nucleus appears.
+    var tissue = 1.0;
+    if (inside > 0.0 && body > 0.0) {
+      let age = clamp(p.age / max(g.lifespan, 1.0), 0.0, 1.0);
+      let wallWidth = 0.025 + 0.008 * sin(a * 3.0 + seed * 13.0);
+      let rim = exp(-pow((sd + 0.025) / (wallWidth + aa), 2.0));
+      let innerRim = exp(-pow((sd + 0.10) / (0.07 + aa), 2.0));
+      var detail = (0.44 + g.calcify * 0.12) * rim - 0.21 * innerRim;
+      let division = smoothstep(0.55, 1.0, p.energy / max(g.reproE, 0.01));
+      var centre = vec2f((s.x - 0.5) * 0.22, (seed - 0.5) * 0.26);
+      if (i.shape == 8u) { centre = vec2f(-0.43, -0.06); }
+      if (i.shape == 3u) { centre = vec2f(-0.35, 0.02); }
+      if (i.shape == 9u) { centre = vec2f(0.2, 0.0); }
+      let nq = q - centre;
+      let nr = length(vec2f(abs(nq.x) - division * 0.17, nq.y + 0.03 * sin(nq.x * 15.0 + seed))
+        / vec2f(0.17 + division * 0.04, 0.21 - division * 0.055));
+      detail += -0.34 * (1.0 - smoothstep(0.75, 1.0 + aa * 3.0, nr))
+        + 0.22 * exp(-pow((nr - 1.0) / (0.16 + aa), 2.0));
+      let plates = sin(q.x * (8.0 + s.x * 6.0) + sin(q.y * 5.0 + s.y * 3.0));
+      detail += g.calcify * 0.12 * plates * smoothstep(0.2, 0.6, r);
       if (i.shape == 4u) {
-        let x = (h * 2.0 - 1.0) * 0.72;
-        centre = vec2f(x, sin(th) * (1.0 - abs(x)) * 0.30);
-        organSize = 0.8;
+        let girdle = q.y + 0.10 * sin(q.x * 5.0 + s.y);
+        detail -= 0.30 * exp(-pow(girdle / (0.035 + aa), 2.0));
       }
-      let oq = (organQ - centre) / organSize;
-      let photo = 1.0 - smoothstep(f32(j), f32(j) + 1.0, (1.0 - clamp(g.photo, 0.0, 1.0)) * 16.0);
-      let chl = length(oq * vec2f(1.0, 1.8));
-      let chloroplast = 1.0 - smoothstep(0.060, 0.082 + aa, chl);
-      interior += photo * (-0.19 * chloroplast + 0.06 * exp(-pow((chl - 0.085) / (0.012 + aa), 2.0)));
-      let eat = clamp(g.dGlint + g.dHusk + g.dFlesh, 0.0, 1.0) * (1.0 - g.photo * 0.65);
-      let food = smoothstep(h - 0.05, h + 0.05, eat * 0.75);
-      let vr = length(oq + vec2f(0.07, 0.04));
-      interior += food * (0.14 * exp(-pow((vr - 0.055 - h * 0.025) / (0.012 + aa), 2.0)) - 0.08 * (1.0 - smoothstep(0.03, 0.06 + aa, vr)));
-    }
-    let plate = abs(sin((a + seed * 0.6) * sides * 0.5));
-    let seam = (1.0 - smoothstep(0.025, 0.07 + aa, plate)) * smoothstep(0.48, 0.72, r / max(outline, 0.1));
-    interior += g.calcify * (0.08 * cos(a * sides) * smoothstep(0.45, 0.85, r / max(outline, 0.1)) - 0.18 * seam);
-    if (i.shape == 4u) {
-      let raphe = exp(-pow(q.y / (0.012 + aa * 0.4), 2.0));
-      let striae = cos(q.x * TAU * (12.0 + floor(g.align * 10.0)) + 0.15 * sin(q.y * 14.0));
-      interior += -0.15 * raphe + 0.08 * striae * smoothstep(18.0, 60.0, i.geom.x) * (0.4 + 0.6 * g.calcify);
-    }
-    let coreShare = select(1.0, 0.94, i.shape == 3u);
-    // Profile means include each plan's rim-to-interior ratio; thin arms and two annular
-    // walls carry more membrane light per occupied area than an amoeboid body.
-    var profileMean = 0.47;
-    if (i.shape == 1u || i.shape == 2u) { profileMean = 0.49; }
-    if (i.shape == 3u) { profileMean = 0.50; }
-    f = body * (interior + rim * (0.30 + 0.18 * g.calcify)) * spriteMean(i.shape) * coreShare / (profileMean * plan.z);
-    let beat = view.time * (2.0 + speed * 10.0) + seed * TAU;
-    let wallMask = 1.0 - smoothstep(-aa, aa, wallSD);
-    if (i.shape == 3u) {
-      let rays = 20.0 + floor(g.align * 18.0 + g.photo * 12.0 + g.swim * 4.0);
-      let width = min(0.30, (0.003 + aa * 0.35) * rays * 0.5 / max(r, 0.1));
-      let beatAngle = min(g.swim, 1.0) * 0.08 * sin(beat + r * 6.0);
-      let ray = 1.0 - smoothstep(0.0, width, abs(sin(a * rays * 0.5 + beatAngle)));
-      let reach = smoothstep(outline, outline + 0.07, r) * (1.0 - smoothstep(0.85, 1.02, r));
-      // Angular coverage is approximately width / pi; keep the halo's average light stable.
-      f += wallMask * ray * reach * spriteMean(i.shape) * 0.06 / max(width * (0.87 - plan.z) * 2.0 / TAU, 0.001);
-    } else if (g.swim > 0.05) {
-      let cilia = pow(max(0.0, cos(a * (18.0 + g.align * 10.0) + 0.8 * sin(beat + a * 3.0))), 10.0);
-      let hairs = exp(-pow((r - outline - 0.035) / (0.035 + aa), 2.0)) * cilia;
-      var tail = 0.0;
-      if (flagellate) {
-        let tailY = 0.12 * sin(motion.x * 8.0 + beat) * smoothstep(0.7, 1.8, -motion.x);
-        tail = (1.0 - smoothstep(0.009, 0.019 + aa, abs(motion.y - tailY))) * smoothstep(0.65, 0.95, -motion.x) * (1.0 - smoothstep(1.7, 2.0, -motion.x));
+      if (i.shape == 5u) {
+        detail += 0.13 * sin(q.y * 29.0 + q.x * 10.0 + 1.2 * sin(q.x * 4.0)) * fine;
+        detail += 0.40 * exp(-dot(q - vec2f(0.5, -0.12), q - vec2f(0.5, -0.12)) * 350.0);
       }
-      f += wallMask * min(g.swim, 1.0) * (0.06 * hairs + 0.14 * tail) * (1.0 - body);
+      if (i.shape == 6u || i.shape == 9u) {
+        detail -= 0.25 * exp(-pow((q.y - 0.18 - 0.12 * sin(q.x * 4.0)) / (0.045 + aa), 2.0));
+      }
+      if (i.shape == 7u) {
+        let whorl = sin(atan2(q.y, q.x) * 2.0 - r * 18.0 + s.y);
+        detail -= 0.24 * exp(-whorl * whorl * 35.0) * smoothstep(0.1, 0.3, r);
+      }
+      if (i.shape == 11u) {
+        let lattice = sin(q.x * 26.0 + q.y * 12.0) * sin(q.y * 23.0 - q.x * 8.0);
+        detail += 0.23 * lattice * fine;
+      }
+      // Fine structure is genuinely skipped at small and mid zoom, not merely faded.
+      if (fine > 0.0) {
+        detail += 0.08 * cellGrain(q * 60.0, p.id) * (0.25 + age) * fine;
+        for (var j = 0u; j < 12u; j++) {
+          let h = renderHash(p.id + j * 1999u + 71u);
+          let th = TAU * renderHash(g.serial + j * 1013u + 103u);
+          // Irregular scatter is clipped by the tissue for holes, horns and chain cells.
+          var organCentre = vec2f(cos(th), sin(th)) * (0.22 + h * 0.51);
+          if (i.shape == 3u) {
+            organCentre = vec2f(select(-0.39, 0.39, j % 2u == 0u), 0.0)
+              + vec2f(cos(th), sin(th)) * (0.12 + h * 0.18);
+          } else if (i.shape == 5u || i.shape == 6u || i.shape == 11u) {
+            let x = (h - 0.5) * 1.45;
+            organCentre = vec2f(x, sin(th) * (0.30 - abs(x) * 0.22));
+          } else if (i.shape == 7u) {
+            let t = f32(j % 6u) / 5.0;
+            let chamberAngle = t * 5.3 + s.y * 0.7;
+            organCentre = vec2f(cos(chamberAngle), sin(chamberAngle)) * (0.12 + t * 0.36)
+              + vec2f(cos(th), sin(th)) * h * 0.14;
+          } else if (i.shape == 8u) {
+            organCentre = vec2f(0.16 + s.x * 0.30, 0.09)
+              + vec2f(cos(th), sin(th)) * (0.51 + h * 0.07);
+          } else if (i.shape == 9u) {
+            organCentre = vec2f(0.2, 0.0) + vec2f(cos(th), sin(th)) * h * 0.39;
+          } else if (i.shape == 10u) {
+            let x = (f32(j % 4u) - 1.5) * 0.40;
+            organCentre = vec2f(x, 0.14 * sin(x * 5.0 + s.y * 5.0))
+              + vec2f(cos(th), sin(th)) * h * 0.13;
+          }
+          let oq = q - organCentre;
+          let photo = smoothstep(f32(j), f32(j) + 1.0, clamp(g.photo, 0.0, 1.0) * 12.0);
+          let chl = length(oq * vec2f(1.0, 1.5 + h));
+          detail += photo * (-0.35 * (1.0 - smoothstep(0.04, 0.07 + aa, chl))
+            + 0.12 * exp(-pow((chl - 0.085) / (0.012 + aa), 2.0))) * fine;
+          let eat = (1.0 - g.photo * 0.65) * clamp(g.dGlint + g.dHusk + g.dFlesh, 0.0, 1.0);
+          let vr = length(oq + vec2f(0.04, 0.05));
+          detail += smoothstep(h - 0.05, h + 0.05, eat * 0.7) * fine
+            * (0.18 * exp(-pow((vr - 0.06 - h * 0.025) / (0.012 + aa), 2.0))
+              - 0.10 * (1.0 - smoothstep(0.03, 0.06 + aa, vr)));
+        }
+      }
+      tissue += inside * detail;
+    }
+    f = body * tissue * spriteMean(i.shape) / i.geom.y;
+    if (fine > 0.0 && g.swim > 0.05) {
+      let beat = view.time * 2.5 + seed * TAU;
+      // Fade subpixel hairs before widening them with the footprint; no sparkling fringe.
+      let resolved = smoothstep(0.7, 1.5, i.geom.x * 0.018) * fine;
+      let hairs = exp(-pow((membraneSD - 0.035) / (0.018 + aa), 2.0))
+        * pow(max(0.0, cos(a * 23.0 + sin(a * 5.0 + beat))), 8.0);
+      let tailY = 0.13 * sin(motion.x * 7.0 + beat) * smoothstep(0.65, 1.6, -motion.x);
+      let tail = (1.0 - smoothstep(0.009, 0.018 + aa, abs(motion.y - tailY)))
+        * smoothstep(0.60, 0.9, -motion.x) * (1.0 - smoothstep(1.55, 1.9, -motion.x));
+      let wallMask = 1.0 - smoothstep(-aa, aa, wallSD);
+      f += wallMask * min(g.swim, 1.0) * resolved * (1.0 - body) * (0.05 * hairs + 0.08 * tail);
     }
   } else {
     let a = atan2(v.y, v.x) + seed * TAU;
@@ -1595,7 +1667,7 @@ struct LO { @builtin(position) pos: vec4f, @location(0) col: vec3f };
   o.pos = toClip((base + select(vec2f(0.0), dq, isEnd)) * view.ppu);
   let fade = select(view.mute, 1.0, focusPass(p));
   o.col = unpack4x8unorm(select(p.col, q.col, isEnd)).rgb * ((0.35 + 0.65 * t) * view.lineGain * fade);
-  if (view.pointSize > 6.0) { o.col *= 1.0 - detailLOD(view.pointSize); }
+  if (view.pointSize > 6.0) { o.col *= 1.0 - bondLOD(view.pointSize); }
   return o;
 }
 
@@ -1645,7 +1717,7 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   let v = select(min(vi, 13u), select(vi - 16u, 0u, vi == 15u), second);
   let t = f32(v / 2u) / 6.0;
   let side = f32(v & 1u) * 2.0 - 1.0;
-  let lod = detailLOD(view.pointSize);
+  let lod = bondLOD(view.pointSize);
   let rest = view.linkR * 0.55;
   let straight = dq * (min(len, rest) / (len * 3.0));
   let t0 = mix(straight, bodyTangent(index, n, dq, true), lod);

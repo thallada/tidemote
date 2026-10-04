@@ -2,6 +2,26 @@ import { DEFAULT_K, G_WORDS } from './shaders.js';
 
 export const KIND = { SILT: 0, GLINT: 1, HUSK: 2, STONE: 3 };
 
+// Cosmetic names and selection mirror DRAW_WGSL; never consume ecological randomness.
+export const CELL_SHAPES = ['lobose', 'filose', 'radiate', 'desmid', 'horned', 'spindle',
+  'slipper', 'whorl', 'vacuolate', 'bell', 'bead chain', 'lattice'];
+const visualHash = (id) => {
+  let h = (Math.imul(id, 747796405) + 2891336453) >>> 0;
+  h = Math.imul((h >>> ((h >>> 28) + 4)) ^ h, 277803737) >>> 0;
+  return ((h >>> 22) ^ h) >>> 0;
+};
+export function cellShape(g, role = 0) {
+  const gene = (Math.floor(g.shape) + role * 5) % 12;
+  if (visualHash(g.serial ^ packSnorm(g.roles[0].surf.slice(0, 4))) / 4294967296 > 0.28) return gene;
+  if (g.calcify > 0.55) return gene % 2 === 0 ? 4 : 7;
+  if (g.adhesion > 0.7) return gene % 2 === 0 ? 3 : 10;
+  if (g.advect < 0.18 && g.swim < 0.25) return 9;
+  if (g.photo > 0.6) return gene % 2 === 0 ? 11 : 3;
+  if (g.dFlesh > 0.6) return gene % 2 === 0 ? 2 : 1;
+  if (g.swim > 0.6) return gene % 2 === 0 ? 6 : 5;
+  return gene;
+}
+
 // ------------------------------------------------------------ genome helpers
 export function hsl2rgb(h, s, l) {
   const k = [0, 8, 4].map((o) => (o + h * 12) % 12);
@@ -96,7 +116,7 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K) {
     lifespan: t.lifespan, reproE: t.reproE, share: t.share,
     dGlint: t.diet[0], dHusk: t.diet[1], dFlesh: t.diet[2],
     mutRate: mix(0.008, 0.025, r()), hue: r(), sat: mix(0.6, 1, r()), lum: mix(0.52, 0.72, r()),
-    size: t.size, shape: Math.floor(r() * 5), pulse: r() < 0.3 ? mix(0.4, 0.9, r()) : r() * 0.2,
+    size: t.size, shape: Math.floor(r() * 12), pulse: r() < 0.3 ? mix(0.4, 0.9, r()) : r() * 0.2,
     roleHue: (r() - 0.5) * 0.35, advect: t.advect, swim: t.swim, align: t.align, photo: t.photo,
     parent: 0, serial: 0, born: 0, depth: 0, archetype: type,
     adhesion: ADHESION[type] ?? 0,

@@ -16,7 +16,7 @@ test('LOD preserves light, bond walls clip, and all detail views validate', { ti
   const errors = [];
   device.addEventListener('uncapturederror', (e) => errors.push(e.error.message));
   const { createEngine } = await import('../src/engine.js');
-  const { archetypeGenome, writeGenome, packUnorm } = await import('../src/genome.js');
+  const { archetypeGenome, writeGenome, packUnorm, cellShape } = await import('../src/genome.js');
   const { MAXK, G_WORDS, DRAW_WGSL } = await import('../src/shaders.js');
   const eng = await createEngine(device, 'rgba8unorm');
   assert.ok(await eng.allocate(8));
@@ -41,7 +41,7 @@ test('LOD preserves light, bond walls clip, and all detail views validate', { ti
   const texture = device.createTexture({ size: [256, 256], format: 'rgba16float',
     usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
   t.after(() => texture.destroy());
-  // Resolve the original falloffs at the same radius to compare integrated light without
+  // Resolve the distant profile at the same radius to compare integrated light without
   // the sampling noise of a six-pixel sprite. This reference is used only in this GPU test.
   const referenceModule = device.createShaderModule({ code: DRAW_WGSL + `
     @fragment fn fsReference(i: PO) -> @location(0) vec4f {
@@ -55,7 +55,7 @@ test('LOD preserves light, bond walls clip, and all detail views validate', { ti
     [[0, 'view'], [1, 'parts'], [2, 'genomes'], [3, 'intent'], [5, 'focus']]
       .map(([binding, name]) => ({ binding, resource: { buffer: eng.b[name] } })) });
   const half = (h) => ((h & 0x8000) ? -1 : 1) * ((h & 0x7c00) ? (1 + (h & 1023) / 1024) * 2 ** (((h >> 10) & 31) - 15) : (h & 1023) * 2 ** -24);
-  const render = async (ppu, originalFalloff = false) => {
+  const render = async (ppu, distantProfile = false) => {
     updateGenome();
     device.queue.writeBuffer(eng.b.parts, 0, particles);
     device.queue.writeBuffer(eng.b.intent, 0, intent);
@@ -63,7 +63,7 @@ test('LOD preserves light, bond walls clip, and all detail views validate', { ti
     const enc = device.createCommandEncoder();
     enc.copyBufferToBuffer(eng.b.frameCtr, 20, eng.b.bridgeDraw, 4, 4);
     const pass = enc.beginRenderPass({ colorAttachments: [{ view: texture.createView(), loadOp: 'clear', storeOp: 'store' }] });
-    if (originalFalloff) {
+    if (distantProfile) {
       pass.setPipeline(reference); pass.setBindGroup(0, referenceBG); pass.draw(4, eng.count);
     } else {
       eng._drawScene(pass, eng.bgLine, eng.bgPoint, eng.bgBridge, eng.viewData);
@@ -80,18 +80,27 @@ test('LOD preserves light, bond walls clip, and all detail views validate', { ti
     return green;
   };
   const sum = (a) => a.reduce((s, v) => s + v, 0);
+  assert.ok(sum(await render(20)) > 0, 'far specialization renders with the shared bindings');
   // Compare integrated light with the distant profile at the same constant-world radius.
-  // Cover the onset, middle and end of the LOD ramp for every living shape class.
-  for (let shape = 0; shape < 5; shape++) {
-    g.shape = shape;
-    for (const radius of [6, 18, 42]) {
-      const ppu = radius / 0.085;
-      const light = sum(await render(ppu)), distant = sum(await render(ppu, true));
-      assert.ok(Math.abs(light / distant - 1) < 0.15,
-        `class ${shape}, radius ${radius}: LOD preserves distant brightness`);
+  // Cover silhouettes, interiors and organelles, with two genomes and cell states.
+  for (const serial of [1, 901]) {
+    // These serials select the unrestricted branch for this genome's surface signature.
+    Object.assign(g, { serial, photo: serial === 1 ? 0.5 : 1, calcify: serial === 1 ? 0 : 0.8,
+      swim: serial === 1 ? 0 : 1.3, adhesion: 0, advect: 0.5 });
+    pf[5] = serial === 1 ? 0.4 : 0.98;
+    pu[7] = serial === 1 ? 123 : 719;
+    for (let shape = 0; shape < 12; shape++) {
+      g.shape = shape;
+      assert.equal(cellShape(g), shape, 'inspector names match the unrestricted plans');
+      for (const radius of [3, 8, 18, 60]) {
+        const ppu = radius / 0.085;
+        const light = sum(await render(ppu)), distant = sum(await render(ppu, true));
+        assert.ok(Math.abs(light / distant - 1) < 0.15,
+          `class ${shape}, genome ${serial}, radius ${radius}: light ratio ${light / distant}`);
+      }
     }
   }
-  g.shape = 0;
+  Object.assign(g, { shape: 0, swim: 0 });
   particle(1, 5.08, 5);
   const beforeWall = await render(500);
   intent[2] = 1;
