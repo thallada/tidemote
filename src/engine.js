@@ -142,7 +142,11 @@ class Engine {
     });
     this.pPoint = rp(this.drawModule, 'vsPoint', 'fsPoint', 'triangle-strip', additive);
     this.pLine = rp(this.drawModule, 'vsLine', 'fsLine', 'line-list', additive);
-    this.pStone = rp(this.drawModule, 'vsStone', 'fsStone', 'triangle-strip', additive);
+    // stone: the highest cobble at each pixel wins the depth test and writes its colour and surface (vsStone)
+    this.pStone = d.createRenderPipeline({ layout: 'auto', label: 'fsStone', primitive: { topology: 'triangle-strip' },
+      depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'greater' },
+      vertex: { module: this.drawModule, entryPoint: 'vsStone' },
+      fragment: { module: this.drawModule, entryPoint: 'fsStone', targets: [{ format: HDR }, { format: HDR }] } });
     this.pBridge = rp(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', additive);
     this.pFade = rp(this.drawModule, 'vsFade', 'fsFade', 'triangle-list', fade);
     this.pDown = rp(this.postModule, 'vsFull', 'fsDown', 'triangle-list', undefined);
@@ -257,9 +261,9 @@ class Engine {
     if (this.accum) { this.accum.forEach((t) => t.destroy()); this.bloom.forEach((t) => t.destroy()); }
     const tex = (tw, th) => d.createTexture({ size: [Math.max(1, tw), Math.max(1, th)], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
     this.accum = [tex(w, h), tex(w, h)];
-    this.stoneTex?.destroy();
-    this.stoneTex = tex(w, h);
-    this.stoneView = this.stoneTex.createView();
+    this.stoneTex?.forEach((t) => t.destroy());
+    this.stoneTex = [tex(w, h), tex(w, h), d.createTexture({ size: [w, h], format: 'depth32float', usage: GPUTextureUsage.RENDER_ATTACHMENT })];
+    this.stoneView = this.stoneTex.map((t) => t.createView());
     this.bloom = [];
     for (let i = 0; i < BLOOM_LEVELS; i++) this.bloom.push(tex(w >> (i + 1), h >> (i + 1)));
     this.accumViews = this.accum.map((t) => t.createView());
@@ -274,7 +278,7 @@ class Engine {
     const compBG = (pipe) => this.accumViews.map((v) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: v },
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 3, resource: this.bloomViews[0] },
-      { binding: 7, resource: this.stoneView }] }));
+      { binding: 7, resource: this.stoneView[0] }, { binding: 8, resource: this.stoneView[1] }] }));
     this.compBG = compBG(this.pComp);
     this.compClearBG = compBG(this.pCompClear);
     this.reprojBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.pReproj.getBindGroupLayout(0), entries: [
@@ -288,13 +292,13 @@ class Engine {
     this.loupeSize = L;
     this.loupeTex = this.device.createTexture({ size: [L, L], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
     this.loupeView = this.loupeTex.createView();
-    this.loupeStoneTex?.destroy();
-    this.loupeStoneTex = this.device.createTexture({ size: [L, L], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
-    this.loupeStoneView = this.loupeStoneTex.createView();
+    this.loupeStoneTex?.forEach((t) => t.destroy());
+    this.loupeStoneTex = [HDR, HDR, 'depth32float'].map((format) => this.device.createTexture({ size: [L, L], format, usage: GPUTextureUsage.RENDER_ATTACHMENT | (format === HDR ? GPUTextureUsage.TEXTURE_BINDING : 0) }));
+    this.loupeStoneView = this.loupeStoneTex.map((t) => t.createView());
     this.loupeBG = this.device.createBindGroup({ layout: this.pLoupe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: this.loupeView },
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 4, resource: { buffer: this.b.loupeU } },
-      { binding: 6, resource: { buffer: this.b.viewL } }, { binding: 7, resource: this.loupeStoneView }] });
+      { binding: 6, resource: { buffer: this.b.viewL } }, { binding: 7, resource: this.loupeStoneView[0] }, { binding: 8, resource: this.loupeStoneView[1] }] });
   }
 
   /**
@@ -317,13 +321,13 @@ class Engine {
     this.specSize = [w, h];
     this.specTex = this.device.createTexture({ size: [w, h], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
     this.specView = this.specTex.createView();
-    this.specStoneTex?.destroy();
-    this.specStoneTex = this.device.createTexture({ size: [w, h], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
-    this.specStoneView = this.specStoneTex.createView();
+    this.specStoneTex?.forEach((t) => t.destroy());
+    this.specStoneTex = [HDR, HDR, 'depth32float'].map((format) => this.device.createTexture({ size: [w, h], format, usage: GPUTextureUsage.RENDER_ATTACHMENT | (format === HDR ? GPUTextureUsage.TEXTURE_BINDING : 0) }));
+    this.specStoneView = this.specStoneTex.map((t) => t.createView());
     this.specBG = this.device.createBindGroup({ layout: this.pPlain.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: this.specView },
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 6, resource: { buffer: this.b.viewS } },
-      { binding: 7, resource: this.specStoneView }] });
+      { binding: 7, resource: this.specStoneView[0] }, { binding: 8, resource: this.specStoneView[1] }] });
   }
 
   gridFor(n, aspect) {
@@ -761,8 +765,10 @@ class Engine {
   }
 
   // the stone field for one view: every grain of stone adds its kernel (see vsStone)
-  _drawStone(enc, view, bg) {
-    const pass = enc.beginRenderPass({ colorAttachments: [{ view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
+  _drawStone(enc, views, bg) {
+    const pass = enc.beginRenderPass({
+      colorAttachments: views.slice(0, 2).map((view) => ({ view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' })),
+      depthStencilAttachment: { view: views[2], depthClearValue: 0, depthLoadOp: 'clear', depthStoreOp: 'discard' } });
     pass.setPipeline(this.pStone);
     pass.setBindGroup(0, bg);
     pass.drawIndirect(this.b.frameCtr, 32);

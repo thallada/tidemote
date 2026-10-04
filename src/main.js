@@ -681,7 +681,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (d < ba) { ba = d; bestAny = e; }
     }
     // a click anywhere on a cell's body counts, however far in the view is zoomed
-    const chosen = bestLife && bl < Math.max(22, 0.2 * p) ? bestLife : bestAny && ba < Math.max(14, 0.05 * p) ? bestAny : null;
+    // a stone grain is a cobble ~0.17 across (vsStone); other matter is a small chip
+    const anyR = bestAny && bestAny.kind === 3 ? 0.17 : 0.05;
+    const chosen = bestLife && bl < Math.max(22, 0.2 * p) ? bestLife : bestAny && ba < Math.max(14, anyR * p) ? bestAny : null;
     if (!chosen) { deselect(); return; }
     beginTracking(chosen, res);
     if (state.keys) { state.keys = false; renderKeys(); }

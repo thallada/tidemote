@@ -1267,6 +1267,7 @@ fn focusPass(p: Particle) -> bool {
 }
 
 fn wrapd(d: vec2f) -> vec2f { return d - view.world * round(d / view.world); }
+fn pcgR(v: u32) -> u32 { let st = v * 747796405u + 2891336453u; let w = ((st >> ((st >> 28u) + 4u)) ^ st) * 277803737u; return (w >> 22u) ^ w; }
 fn toClip(px: vec2f) -> vec4f { return vec4f(px.x / (view.res.x * 0.5), -px.y / (view.res.y * 0.5), 0.0, 1.0); }
 
 // Radii are in framebuffer pixels: the same LOD works in the main, loupe and specimen views.
@@ -1971,13 +1972,18 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   return vec4f(i.col * edge, i.cover * edge);
 }
 
-// Reef stone and bedrock: each grain adds a soft kernel (colour × weight, weight) to a field the
-// composite thresholds into boulders, so touching grains fuse into one rock and lone grains stay pebbles.
-const STONE_R = 0.22; // kernel radius in world units; a lone grain thresholds to ~0.15
+// Reef stone and bedrock. Each grain is a cobble, an irregular dome; where cobbles overlap the higher
+// lies over its neighbours, so a seam runs exactly where grains meet and a rock is the union of its
+// cobbles. The cobble on top writes its colour and its own (analytic) slope; the composite (boulder)
+// lights it.
+const STONE_R = 0.2; // quad radius in world units; cobbles span ~0.12-0.17
 struct SO {
   @builtin(position) pos: vec4f,
   @location(0) uv: vec2f,
   @location(1) @interpolate(flat) col: vec3f,
+  @location(2) @interpolate(flat) seed: vec2f,
+  @location(3) @interpolate(flat) flags: u32, // 1: reef (built by calcifiers), 2: the selected grain
+  @location(4) @interpolate(flat) px: f32, // quad radius in pixels
 };
 @vertex fn vsStone(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> SO {
   var o: SO;
@@ -1987,19 +1993,39 @@ struct SO {
   let d = wrapd(p.pos - view.cam) * view.ppu;
   let r = max(STONE_R * view.ppu, 1.5);
   if (any(abs(d) > view.res * 0.5 + vec2f(r))) { return o; }
-  // chalky and matte, tinted by the species that built it
+  o.seed = vec2f(f32(pcgR(p.id) & 0xffffu), f32(pcgR(p.id) >> 16u)) / 65536.0;
+  // chalky and matte, tinted by the species that built it; each cobble a little lighter or darker
   var col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 1.1;
+  col *= 0.8 + 0.4 * o.seed.x;
   if (!focusPass(p)) { col = vec3f(dot(col, vec3f(0.3, 0.5, 0.2))) * view.mute; }
+  o.flags = select(0u, 1u, (p.info & 15u) != 0u) | select(0u, 2u, p.id == view.selId);
   let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
   o.pos = toClip(d + corner * r);
+  // the cobble's peak height orders it: the higher lies over its neighbours, and depth is per cobble,
+  // not per pixel, so the GPU can reject hidden cobbles before shading them
+  o.pos.z = select((0.45 + 0.55 * o.seed.x) * (0.62 + 0.18 * o.seed.y) * 0.95, 0.99, p.id == view.selId); // a selected grain sits on top
   o.uv = corner;
   o.col = col;
+  o.px = r;
   return o;
 }
-@fragment fn fsStone(i: SO) -> @location(0) vec4f {
-  let t = max(0.0, 1.0 - dot(i.uv, i.uv));
-  let w = t * t;
-  return vec4f(i.col * w, w);
+struct StoneOut { @location(0) col: vec4f, @location(1) surf: vec4f };
+@fragment fn fsStone(i: SO) -> StoneOut {
+  // an uneven cobble: the disc is warped smoothly, so the outline wanders without a seam at the top
+  let w = i.uv * 1.12 + 0.1 * vec2f(sin(i.uv.y * 3.1 + i.seed.x * 20.0), sin(i.uv.x * 2.7 + i.seed.y * 20.0));
+  let r0 = 0.62 + 0.18 * i.seed.y;
+  let q = length(w) / r0;
+  if (q >= 1.0) { discard; }
+  // between a flat slab and a round cobble; height and slope in world units (uv is world / STONE_R)
+  let hs = 0.45 + 0.55 * i.seed.x;
+  let c = sqrt(max(1.0 - q * q, 0.02));
+  var o: StoneOut;
+  let slope = -hs * w / (r0 * c);
+  let edge = 1.0 - smoothstep(1.0 - 1.5 / max(r0 * i.px, 1.0), 1.0, q);
+  o.col = vec4f(i.col, edge);
+  // .z: how far toward its own edge (where it meets its neighbours) the pixel lies
+  o.surf = vec4f(slope, smoothstep(0.5, 1.0, q), f32(i.flags));
+  return o;
 }
 
 @vertex fn vsFade(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
@@ -2032,6 +2058,7 @@ struct Reproj { scale: vec2f, shift: vec2f, k: f32, p0: f32, p1: f32, p2: f32 };
 @group(0) @binding(5) var<uniform> rp: Reproj;
 @group(0) @binding(6) var<uniform> microView: MicroView;
 @group(0) @binding(7) var stoneTex: texture_2d<f32>;
+@group(0) @binding(8) var stoneTop: texture_2d<f32>;
 
 struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 
@@ -2072,46 +2099,40 @@ fn worley(p: vec2f) -> vec4f {
   }
   return vec4f(f1, f2, off);
 }
-// Boulders from the stone field (DRAW_WGSL vsStone): the summed kernel weight is thresholded into
-// solid rock lit from the field's slope (per world unit, so lighting holds at every zoom). World-space
-// cells split a fused mass into separate rounded rocks with crevices between them, and hairline cracks
-// and grit resolve as the view closes in; each layer fades in once it is wide enough not to shimmer.
+// Rock from the stone targets (DRAW_WGSL vsStone): the cobble on top at each pixel, lit from its own
+// slope, darkening toward its edge where it tucks under its neighbours. Bedrock is speckled like
+// granite; reef stone, laid down by calcifiers, is pitted like limestone. The selected grain glows.
 fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
-  let t = textureSampleLevel(stoneTex, samp, uv, 0.0);
-  if (t.a < 0.1) { return vec3f(0.0); }
-  let h = 1.0 / vec2f(textureDimensions(stoneTex));
-  let gx = textureSampleLevel(stoneTex, samp, uv + vec2f(h.x, 0.0), 0.0).a - textureSampleLevel(stoneTex, samp, uv - vec2f(h.x, 0.0), 0.0).a;
-  let gy = textureSampleLevel(stoneTex, samp, uv + vec2f(0.0, h.y), 0.0).a - textureSampleLevel(stoneTex, samp, uv - vec2f(0.0, h.y), 0.0).a;
-  let T = 0.3;
-  let fw = max(0.5 * length(vec2f(gx, gy)), 1e-4);
-  let cover = smoothstep(T - fw, T + fw, t.a);
-  if (cover <= 0.0) { return vec3f(0.0); }
-  let light = normalize(vec3f(-0.5, -0.6, 0.65));
-  let slope = vec2f(gx, gy) * 0.5 * ppu * 0.05;
-  let edgeLit = 0.5 + 0.5 * max(dot(normalize(vec3f(-slope, 1.0)), light), 0.0);
-  // rocks ~0.6 world units across: crevices along cell edges, each rock domed and toned on its own
-  let rocks = smoothstep(25.0, 70.0, ppu);
-  let fine = smoothstep(150.0, 450.0, ppu);
-  var crevice = 1.0; var rockLit = 1.0; var tone = 1.0; var crack = 1.0;
-  var grit = 1.0 + 0.12 * (vnoise(wp * 5.0) - 0.5);
-  if (rocks > 0.0) {
-    // warped, so rock edges wander instead of running straight
-    let wq = wp + 0.3 * vec2f(vnoise(wp * 2.3), vnoise(wp * 2.3 + 9.1)) - 0.15;
-    let w = worley(wq * 1.7);
-    crevice = mix(1.0, mix(0.3, 1.0, smoothstep(0.03, 0.16, w.y - w.x)), rocks);
-    let dome = normalize(vec3f(-w.zw * 1.6, 1.0));
-    rockLit = mix(1.0, 0.55 + 0.6 * max(dot(dome, light), 0.0), rocks);
-    tone = mix(1.0, 0.8 + 0.4 * hash12(floor(wq * 1.7 + w.zw)), rocks);
-    if (fine > 0.0) {
-      // up close: hairline cracks in patches, and grit
-      let cw = worley(wq * 6.0 + 3.1);
-      let patchy = smoothstep(0.5, 0.7, vnoise(wp * 2.9 + 4.2));
-      crack = 1.0 - 0.3 * fine * patchy * (1.0 - smoothstep(0.0, 0.04, cw.y - cw.x));
-      grit += 0.25 * fine * (vnoise(wp * 60.0) - 0.5);
+  let c = textureSampleLevel(stoneTex, samp, uv, 0.0);
+  if (c.a <= 0.0) { return vec3f(0.0); }
+  let s = textureSampleLevel(stoneTop, samp, uv, 0.0);
+  let flags = u32(s.w + 0.5);
+  let fine = smoothstep(120.0, 400.0, ppu);
+  // a little surface relief up close
+  let relief = fine * (0.35 * vec2f(vnoise(wp * 40.0) - 0.5, vnoise(wp * 40.0 + 7.3) - 0.5)
+    + 0.25 * vec2f(vnoise(wp * 140.0) - 0.5, vnoise(wp * 140.0 + 3.1) - 0.5));
+  let n = normalize(vec3f(-s.xy + relief, 1.0));
+  let light = normalize(vec3f(-0.45, -0.55, 0.7));
+  let diffuse = max(dot(n, light), 0.0);
+  let spec = pow(max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0), 28.0);
+  let tuck = 1.0 - 0.55 * s.z * s.z;
+  var col = c.rgb * (1.0 + 0.12 * (vnoise(wp * 6.0) - 0.5) + 0.18 * fine * (vnoise(wp * 18.0) - 0.5));
+  if (fine > 0.0) {
+    if ((flags & 1u) != 0u) {
+      // pores: pits of varied size gathered in patches, shadowed on the lit side, a lit rim opposite
+      let pores = worley(wp * 55.0);
+      let size = 0.04 + 0.14 * hash12(floor(wp * 55.0 + pores.zw)) * hash12(floor(wp * 55.0 + pores.zw) + 3.3);
+      let pit = (1.0 - smoothstep(size * 0.7, size, pores.x)) * fine * smoothstep(0.3, 0.65, vnoise(wp * 5.0));
+      let side = dot(normalize(pores.zw + vec2f(1e-5)), normalize(light.xy));
+      col *= 1.0 + pit * (0.35 * side - 0.3);
+    } else {
+      col *= 1.0 + 0.3 * fine * (vnoise(wp * 80.0) - 0.5);
+      col += col * 0.8 * fine * step(0.985, hash12(floor(wp * 110.0)));
     }
   }
-  let rim = mix(0.7, 1.0, smoothstep(T, T + 0.25, t.a));
-  return t.rgb / t.a * (cover * edgeLit * rim * crevice * rockLit * tone * crack * grit * 1.4);
+  var lit = col * (0.3 + 0.75 * diffuse) * tuck + vec3f(0.12) * spec * dot(col, vec3f(0.33));
+  if ((flags & 2u) != 0u) { lit = lit * 1.5 + vec3f(0.05, 0.04, 0.02) + vec3f(0.35, 0.3, 0.2) * smoothstep(0.7, 1.0, s.z); }
+  return lit * c.a * 1.3;
 }
 
 @fragment fn fsDown(i: VO) -> @location(0) vec4f {
