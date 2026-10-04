@@ -594,13 +594,12 @@ const SWARM_POS = [-0.75, 0.55, -0.35, 0.15, -0.15, 0.35, -0.55, 0.75];
 export class Swarm extends Voice {
   constructor(eng, p) {
     super(eng, p);
-    this.p = Object.assign({ amp: 1, ring: 0.2, fizz: 0, fizzAmp: 0, rev: 0.6, dly: 0.1 }, p);
+    this.p = Object.assign({ amp: 1, ring: 0.2, rev: 0.6, dly: 0.1 }, p);
     for (let i = 1; i <= 8; i++) for (const [c, v] of [['f', 60], ['d', 0], ['a', 0]]) if (this.p[c + i] == null) this.p[c + i] = v;
     this.dust = SWARM_POS.map(() => new Dust(this.sr, this.rg));
     this.rz = SWARM_POS.map(() => [new Ringz(this.sr), new Ringz(this.sr)]);
     this.pans = SWARM_POS.map((x) => new Pan2(x));
     this.aA = SWARM_POS.map((_, i) => new KtoA(this.p['a' + (i + 1)]));
-    this.fz = [new Dust(this.sr, this.rg, true), new Dust(this.sr, this.rg, true)]; this.hp = [new HPF(this.sr), new HPF(this.sr)];
   }
   render(B, S) {
     const P = this.p, ring = P.ring;
@@ -614,42 +613,32 @@ export class Swarm extends Voice {
       this.rz[i][0].arAdd(x, f32(f * 0.9971), ring, 1, t); this.rz[i][1].arAdd(x, f32(f * 1.0029), ring, 1, t);
       this.pans[i].addK(t, SWARM_POS[i], 1, L, R);
     }
-    if (P.fizz > 0) {
-      for (let c = 0; c < 2; c++) {
-        this.fz[c].ar(P.fizz, x); this.hp[c].ar(x, 3000, t);
-        const o = c ? R : L;
-        for (let j = 0; j < BS; j++) o[j] += t[j] * P.fizzAmp;
-      }
-    }
     for (let j = 0; j < BS; j++) { L[j] *= P.amp; R[j] *= P.amp; }
     outAll(B, L, R, P.rev, P.dly, this.send);
   }
 }
 
-// ── \wave: one swell of water washing in and drawing back, foam at the crest ──
+// ── \wave: one swell of water washing in and drawing back, brightening as it crests ──
 export class Wave extends Voice {
   constructor(eng, p) {
     super(eng, p);
     const dur = p.dur ?? 7;
     this.env = new EnvGen({ levels: [0, 1, 0.3, 0], times: [dur * 0.4, dur * 0.2, dur * 0.4], curves: [2, -2, -2] }, this.kr);
-    this.foam = new EnvGen({ levels: [0, 0, 1, 0], times: [dur * 0.32, dur * 0.18, dur * 0.5], curves: [0, -1, -3] }, this.kr);
     this.pink = [new PinkNoise(this.rg), new PinkNoise(this.rg)]; this.lp = [new LPF(this.sr), new LPF(this.sr)];
-    this.dust = [new Dust(this.sr, this.rg, true), new Dust(this.sr, this.rg, true)]; this.hp = [new HPF(this.sr), new HPF(this.sr)];
     this.n1 = new LFNoise2(this.kr, this.rg); this.bal = new Balance2(p.pan ?? 0, 1);
-    this.envA = new KtoA(0); this.foamA = new KtoA(0); this.first = true;
+    this.envA = new KtoA(0); this.first = true;
   }
   render(B, S) {
     const p = this.p, bright = p.bright ?? 0.5, amp = p.amp ?? 0.1;
-    const e = this.env.kr(), fo = this.foam.kr();
-    if (this.first) { this.envA.prev = e; this.foamA.prev = fo; this.first = false; }
-    const ke = this.envA.fill(e, S.get()), kf = this.foamA.fill(fo, S.get());
-    const n = S.get(), t = S.get(), c2 = [S.get(), S.get()];
+    const e = this.env.kr();
+    if (this.first) { this.envA.prev = e; this.first = false; }
+    const ke = this.envA.fill(e, S.get());
+    const n = S.get(), c2 = [S.get(), S.get()];
     const cut = 200 + e * e * 2400 * bright;
     for (let c = 0; c < 2; c++) {
       const o = c2[c];
       this.pink[c].ar(n); this.lp[c].ar(n, cut, o);
-      this.dust[c].ar(fo * 1200, n); this.hp[c].ar(n, 2800, t);
-      for (let i = 0; i < BS; i++) o[i] = o[i] * ke[i] + t[i] * kf[i] * 0.4;
+      for (let i = 0; i < BS; i++) o[i] *= ke[i];
     }
     const L = S.zero(), R = S.zero();
     this.bal.addK2(c2[0], c2[1], (p.pan ?? 0) + this.n1.kr(0.25) * 0.3, 1, L, R);

@@ -16,9 +16,8 @@
 // carries the power of the ones it stands for.
 //
 // From afar, the notes give way to the swarm: every cell sound in view becomes one grain, a tiny
-// ping of its species' motif note, so thousands of them merge into a shimmering chord the way
-// countless snapping shrimp merge into the crackle of a reef. Zooming in, the swarm thins and
-// the single voices step out of it.
+// ping of its species' motif note, so thousands of them merge into a shimmering chord. Zooming
+// in, the swarm thins and the single voices step out of it.
 
 import { d2m, STEP, noteParams } from './conductor.js';
 import { LISTEN } from './listen.js';
@@ -43,9 +42,8 @@ const P_REF = 0.05, RATIO = 2.5, GAIN_RANGE = [0.3, 2];
 const CROWDED = 70, FULL = 92;
 const MINOR = new Set(['charged', 'eaten', 'rustle']);
 // The swarm: grains per second a band plays at most (beyond that a grain stands for several),
-// the level of one grain relative to a note, and of one click of the fizz (a click is a single
-// sample, so it needs a far higher level than a drop to carry a fraction of a drop's energy).
-const SWARM_MAX = 600, GRAIN = 1.1, FIZZ = 60;
+// and the level of one grain relative to a note.
+const SWARM_MAX = 600, GRAIN = 1.1;
 // how much of the view is heard as single voices (the rest as the swarm), by closeness z
 export const soloShare = (z) => { const x = clamp((z - 0.2) / 0.45, 0, 1); return x * x * (3 - 2 * x); };
 
@@ -111,7 +109,7 @@ export class Field {
     const wet = (r) => Math.min(0.95, r * (1 + 1.4 * far));
     const lit = m.lit ? new Set(m.lit) : null;
     const solo = soloShare(this.z), toSwarm = (1 - solo) / wall;
-    this.crowd = new Map(); this.fizz = 0; // swarm grains per second by species slot; fizz clicks per second
+    this.crowd = new Map(); // swarm grains per second by species slot
     const crowd = (slot, r) => this.crowd.set(slot, (this.crowd.get(slot) || 0) + r);
     const sel = m.selSlot;
     const focusGain = (slot) => {
@@ -148,10 +146,10 @@ export class Field {
       const type = LISTEN.types[ti], slot = ev[o + 1];
       let t = now + LATENCY - ev[o + 4] / Math.max(m.speed, 1e-6);
       if (t < now + 0.01) t = now + 0.01 + 0.03 * this.rnd();
-      // from afar, births and new species join their species' grains and the rest of the bustle
-      // becomes the fizz; only life sparking from glint still rings out
+      // from afar, every event joins the grains of its species; only life sparking from glint
+      // still rings out
       const rare = type === 'spark';
-      if (!rare) { if (type === 'birth' || type === 'mutation') crowd(slot, comp[ti] ** 2 * toSwarm); else this.fizz += comp[ti] ** 2 * toSwarm; }
+      if (!rare && slot >= 0) crowd(slot, comp[ti] ** 2 * toSwarm);
       const g = AMP[type] * this.gd * comp[ti] * focusGain(slot) * Math.sqrt(rare ? 0.3 + 0.7 * solo : solo);
       this.play(type, t, g, { slot, ...space(slot, ev[o + 2]), hue: ev[o + 6], idb: ev[o + 7], spd: ev[o + 5] });
     }
@@ -261,7 +259,7 @@ export class Field {
       this.bands = [];
       sp.forEach(([s], i) => { for (let j = 0; j < n[i]; j++) this.bands.push({ s, j, of: n[i] }); });
     }
-    const p = { fizz: this.fizz, fizzAmp: FIZZ * AMP.eaten * this.gd * this.agc, ring: 0.12 + 0.2 * clamp(c.world.light, 0, 1) };
+    const p = { ring: 0.12 + 0.2 * clamp(c.world.light, 0, 1) };
     const { root, scale } = c, piv = c.pivot;
     for (let b = 0; b < 8; b++) {
       const B = this.bands[b], r = B ? (this.heard.get(B.s) || 0) / B.of : 0, e = B && this.slots.get(B.s);

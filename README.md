@@ -77,8 +77,7 @@ Each sound is as loud as `dRef / d`, and a view `d` times wider holds `d²` time
 region's loudness depends on how much is happening there, not on the zoom. Zoomed in on a dozen
 cells you hear each one, panned to where it is. Zoomed out, the single voices give way to a swarm:
 every cell sound in view becomes one grain, a tiny ping of its species' motif note rung by random
-impulses (SuperCollider's `Dust` into `Ringz`), so thousands merge into a shimmering chord with a
-fizz of grazing and dying on top, the way countless snapping shrimp merge into a reef's crackle.
+impulses (SuperCollider's `Dust` into `Ringz`), so thousands merge into a shimmering chord.
 Up close only a fair sample is played and each played note carries the power of the ones it stands
 for, so the audio thread never plays more than a few dozen voices. Selecting a cell brings its species forward;
 a Lab highlight pushes the others back. Notes snap to a pulse that follows the simulation's speed:

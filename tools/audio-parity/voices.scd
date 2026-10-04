@@ -202,9 +202,8 @@
 
   // ── Swarm: a multitude heard from afar. Each band rings a pair of resonators a few cents
   //    apart at random impulses, one per cell sound (d: impulses per second, a: their level):
-  //    sparse, they are separate pings; dense, they merge into a shimmering chord. A fizz of
-  //    tiny clicks rides on top.
-  SynthDef(\swarm, { |out = 64, revBus = 66, dlyBus = 68, amp = 1, ring = 0.2, fizz = 0, fizzAmp = 0, rev = 0.6, dly = 0.1,
+  //    sparse, they are separate pings; dense, they merge into a shimmering chord.
+  SynthDef(\swarm, { |out = 64, revBus = 66, dlyBus = 68, amp = 1, ring = 0.2, rev = 0.6, dly = 0.1,
       f1 = 60, f2 = 60, f3 = 60, f4 = 60, f5 = 60, f6 = 60, f7 = 60, f8 = 60,
       d1 = 0, d2 = 0, d3 = 0, d4 = 0, d5 = 0, d6 = 0, d7 = 0, d8 = 0,
       a1 = 0, a2 = 0, a3 = 0, a4 = 0, a5 = 0, a6 = 0, a7 = 0, a8 = 0|
@@ -214,17 +213,15 @@
       var x = Dust.ar(ds[i]) * as[i];
       Pan2.ar(Ringz.ar(x, fs[i] * 0.9971, ring) + Ringz.ar(x, fs[i] * 1.0029, ring), pos[i])
     }.sum;
-    sig = (sig + (HPF.ar([Dust2.ar(fizz), Dust2.ar(fizz)], 3000) * fizzAmp)) * amp;
+    sig = sig * amp;
     Out.ar(out, sig); Out.ar(revBus, sig * rev); Out.ar(dlyBus, sig * dly);
   }),
 
-  // ── Wave: one swell of water washing in and drawing back, foam fizzing at the crest
+  // ── Wave: one swell of water washing in and drawing back, brightening as it crests
   SynthDef(\wave, { |out = 64, revBus = 66, amp = 0.1, dur = 7, pan = 0, bright = 0.5, rev = 0.4|
-    var env, foam, sig;
+    var env, sig;
     env  = EnvGen.kr(Env([0, 1, 0.3, 0], [dur * 0.4, dur * 0.2, dur * 0.4], [2, -2, -2]), doneAction: 2);
-    foam = EnvGen.kr(Env([0, 0, 1, 0], [dur * 0.32, dur * 0.18, dur * 0.5], [0, -1, -3]));
     sig  = LPF.ar([PinkNoise.ar, PinkNoise.ar], 200 + (env.squared * 2400 * bright)) * env;
-    sig  = sig + (HPF.ar([Dust2.ar(foam * 1200), Dust2.ar(foam * 1200)], 2800) * foam * 0.4);
     sig  = Balance2.ar(sig[0], sig[1], pan + LFNoise2.kr(0.25, 0.3)) * amp;
     Out.ar(out, sig); Out.ar(revBus, sig * rev);
   }),

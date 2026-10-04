@@ -28,7 +28,7 @@ segs.append({'name': 'sea 12s (fade)', 't0': T(t), 'dur': 12.0}); t += 12.5
 ev.append({'t': T(t), 'def': 'drone', 'id': 'drone', 'params': {'amp': 0.3, 'note': 38, 'light': 0.6, 'fade': 0}})
 ev.append({'t': T(t + 0.01), 'set': 'drone', 'params': {'fade': 1}})
 segs.append({'name': 'drone 12s (fade in)', 't0': T(t), 'dur': 12.0}); t += 12.5
-sw = {'amp': 1, 'ring': 0.15, 'fizz': 300, 'fizzAmp': 0.3}
+sw = {'amp': 1, 'ring': 0.15}
 for i, (f, d) in enumerate([(72, 40), (76, 400), (79, 3000), (84, 200), (88, 0), (91, 60), (64, 800), (60, 10)]):
     sw.update({f'f{i+1}': f, f'd{i+1}': d, f'a{i+1}': 0.3 / (1 + d / 200) ** 0.5})
 ev.append({'t': T(t), 'def': 'swarm', 'id': 'swarm', 'params': sw})
