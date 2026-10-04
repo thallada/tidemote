@@ -1699,7 +1699,9 @@ struct Post {
   tide: array<vec4f, 4>,
   tidePh: vec4f,
 };
-struct Loupe { center: vec2f, radius: f32, strength: f32, res: vec2f, p0: f32, p1: f32 };
+struct Loupe { center: vec2f, radius: f32, strength: f32, res: vec2f, ppu: f32, p1: f32 };
+// Prefix of DRAW's View: reuse the inspection cameras, without another buffer.
+struct MicroView { cam: vec2f, world: vec2f, res: vec2f, ppu: f32, pointSize: f32 };
 struct Reproj { scale: vec2f, shift: vec2f, k: f32, p0: f32, p1: f32, p2: f32 };
 @group(0) @binding(0) var samp: sampler;
 @group(0) @binding(1) var src: texture_2d<f32>;
@@ -1707,6 +1709,7 @@ struct Reproj { scale: vec2f, shift: vec2f, k: f32, p0: f32, p1: f32, p2: f32 };
 @group(0) @binding(3) var bloomTex: texture_2d<f32>;
 @group(0) @binding(4) var<uniform> loupe: Loupe;
 @group(0) @binding(5) var<uniform> rp: Reproj;
+@group(0) @binding(6) var<uniform> microView: MicroView;
 
 struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 
@@ -1749,6 +1752,124 @@ fn hash12(p: vec2f) -> f32 {
   return fract((p3.x + p3.y) * p3.z);
 }
 
+// Cosmetic pond suspension. Each octave has one bounded object per grid slot:
+// centres, motion and SDF support stay inside the slot, so no neighbour scan is
+// needed. The field drifts in world space; camera motion never reseeds it.
+fn microGrain(wp: vec2f, spacing: f32, ppu: f32, octave: f32, depth: f32) -> vec4f {
+  let resolved = smoothstep(0.6, 1.6, spacing * 0.075 * ppu);
+  if (resolved <= 0.0) { return vec4f(0.0); }
+  let t = post.simTime;
+  let drift = t * vec2f(0.0007, -0.0004) * depth;
+  // Each depth plane has its own toroidal world and camera parallax rate.
+  let layerWorld = post.world * depth;
+  let slots = max(vec2f(1.0), round(layerWorld / spacing));
+  let pitch = layerWorld / slots;
+  let offset = vec2f(octave * 17.3, octave * 9.7);
+  let p = (wp - drift) / pitch + offset;
+  let cell = floor(p);
+  let slot = cell - slots * floor(cell / slots);
+  let seed = slot + octave * 71.0;
+  let h = vec4f(hash12(seed), hash12(seed + 13.7), hash12(seed + 39.1), hash12(seed + 91.3));
+  // Most slots are occupied. Cleaner patches also lower translucency, rather
+  // than relying on black grains disappearing into the water background.
+  let phase = (slot + 0.5 - offset) / slots * TAU;
+  let patchiness = 0.5 + 0.5 * sin(phase.x * 61.0 + sin(phase.y * 29.0)) * cos(phase.y * 47.0 - phase.x * 17.0);
+  let density = mix(0.72, 0.98, patchiness);
+  if (h.w > density) { return vec4f(0.0); }
+  let abundance = mix(0.35, 1.0, patchiness);
+  let centre = vec2f(0.28) + h.xy * 0.44
+    + 0.018 * sin(vec2f(t * 0.53, t * 0.41) + h.yz * TAU);
+  var q = fract(p) - centre;
+  // Motion and full halo/blur support stay within the slot: one lookup only.
+  if (dot(q, q) > 0.0625) { return vec4f(0.0); }
+  let aa = 0.65 / (spacing * ppu);
+  let tint = vec3f(0.018, 0.023, 0.025) * mix(0.7, 1.15, h.w);
+  if (depth < 1.0) {
+    // A separate soft plane: large discs and elongated smudges, with broad
+    // focus falloff. It pans at 72% of the scene and drifts more slowly.
+    let stretch = mix(1.0, 1.6, h.z);
+    let d = length(q * vec2f(stretch, 1.0));
+    let soft = 1.0 - smoothstep(0.02, 0.21 + min(aa, 0.025), d);
+    let halo = smoothstep(0.01, 0.08, d) * (1.0 - smoothstep(0.08, 0.23, d));
+    let glow = (soft * soft * 0.28 + halo * 0.23) * abundance * resolved;
+    return vec4f(tint * glow, soft * soft * 0.1 * abundance * resolved);
+  }
+  let family = u32(h.z * 8.0);
+  let tumble = 0.9 * smoothstep(0.78, 0.98, sin(t * 0.17 + h.x * TAU));
+  let angle = h.x * TAU + t * (h.y - 0.5) * 0.08 + tumble;
+  let axis = vec2f(cos(angle), sin(angle));
+  q = vec2f(dot(q, axis), dot(q, vec2f(-axis.y, axis.x)));
+  let r = 0.05 + h.y * 0.025;
+  var sdf = 0.0;
+  var width = r;
+  var haloWidth = r * 0.45;
+  var body = 0.13;
+  if (family == 0u) {
+    // Rods: a translucent body inside a phase-contrast halo.
+    sdf = length(vec2f(max(abs(q.x) - 0.075, 0.0), q.y)) - r * 0.42;
+    width = r * 0.42;
+  } else if (family == 1u) {
+    // Pairs and chains of 3–6 cocci. Closest bead analytically, no bead loop.
+    let count = select(3.0 + floor(h.y * 4.0), 2.0, h.x < 0.25);
+    let mid = (count - 1.0) * 0.5;
+    let bead = clamp(round(q.x / 0.058 + mid), 0.0, count - 1.0);
+    let beadY = 0.012 * sin(bead * 1.4 + h.y * TAU);
+    sdf = length(q - vec2f((bead - mid) * 0.058, beadY)) - r * 0.36;
+    width = r * 0.36;
+  } else if (family == 2u) {
+    // Spirillum: a short, gently flexing helix stroke.
+    let bend = 0.035 * sin(q.x * 42.0 + t * 0.6 + h.x * TAU);
+    sdf = max(abs(q.y - bend) - r * 0.22, abs(q.x) - 0.16);
+    width = r * 0.22;
+  } else if (family == 3u) {
+    // Tiny flagellate and its wiggling hair; the head determines its LOD.
+    let head = length(q - vec2f(-0.07, 0.0)) - r * 0.7;
+    let bend = 0.025 * sin((q.x + 0.07) * 33.0 - t * 2.0) * smoothstep(-0.07, 0.02, q.x);
+    let hair = max(abs(q.y - bend) - r * 0.12, abs(q.x - 0.045) - 0.115);
+    sdf = min(head, hair);
+    width = r * 0.7;
+  } else if (family == 4u) {
+    // Long, bent mucilage / fibre with uneven thickness.
+    let bend = 0.032 * sin(q.x * 21.0 + h.x * TAU) + 0.01 * sin(q.x * 53.0 + t * 0.2);
+    sdf = max(abs(q.y - bend) - r * (0.18 + 0.05 * cos(q.x * 37.0)), abs(q.x) - 0.20);
+    width = r * 0.2;
+    body = 0.22;
+  } else if (family == 5u) {
+    sdf = max(abs(q.x) * 0.8 + abs(q.y) * 0.65, abs(q.y - q.x * 0.4)) - r;
+    body = 0.18;
+  } else if (family == 6u) {
+    // Flocculent fleck: three overlapping, irregular lobes.
+    sdf = min(length(q - vec2f(-0.027, -0.012)) - r * 0.8,
+      min(length(q - vec2f(0.032, 0.005)) - r * 0.7, length(q - vec2f(0.0, 0.04)) - r * 0.65));
+    body = 0.23;
+  } else {
+    // Bubble: a thin bright rim around a nearly clear, slightly darker core.
+    sdf = length(q) - r * 1.25;
+    width = r * 0.4;
+    haloWidth = r * 0.14;
+    body = 0.015;
+  }
+  let visible = resolved * smoothstep(0.45, 1.3, width * spacing * ppu) * abundance;
+  let core = 1.0 - smoothstep(-aa, aa, sdf);
+  let rim = 1.0 - smoothstep(aa * 0.5, aa + haloWidth, abs(sdf));
+  return vec4f(tint * (core * body + rim * 0.85), core * 0.24) * visible;
+}
+
+fn pondMicro(c: vec3f, hdr: vec3f, cam: vec2f, offset: vec2f, renderPPU: f32, ppu: f32) -> vec3f {
+  // Uniform early-out: no hashes, shapes or time work at ordinary zoom. The
+  // fit threshold also keeps the default view unchanged on very small worlds.
+  let start = max(80.0, 2.0 * max(post.res.x / post.world.x, post.res.y / post.world.y));
+  if (ppu <= start) { return c; }
+  let delta = offset / renderPPU;
+  let wp = cam + delta;
+  let reveal = smoothstep(start, start * 2.0, ppu);
+  var grains = microGrain(cam * 0.72 + delta, 0.055, ppu, 0.0, 0.72);
+  grains += microGrain(wp, 0.035, ppu, 1.0, 1.0);
+  grains += microGrain(wp, 0.008, ppu, 2.0, 1.0);
+  let behind = reveal / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
+  return max(vec3f(0.0), c * (1.0 - grains.a * behind) + grains.rgb * behind);
+}
+
 fn tonemap(hdrIn: vec3f) -> vec3f {
   let l = dot(hdrIn, vec3f(0.2126, 0.7152, 0.0722));
   let tl = l * (1.0 + l / 6.0) / (1.0 + l);
@@ -1782,6 +1903,7 @@ fn tonemap(hdrIn: vec3f) -> vec3f {
   let v = clamp(1.0 - dot(q, q) * 1.1, 0.0, 1.0);
   let bg = mix(vec3f(0.0015, 0.0012, 0.0035), vec3f(0.0055, 0.0045, 0.011), v);
   c = c * mix(0.72, 1.0, v) + bg;
+  c = pondMicro(c, hdr, post.cam, i.pos.xy - post.res * 0.5, post.ppu, post.ppu);
   c = pow(c, vec3f(1.0 / 2.2));
   c += (hash12(i.pos.xy + fract(post.time) * 91.7) - 0.5) / 255.0 * 2.0;
   return vec4f(c, 1.0);
@@ -1807,6 +1929,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   let tuv = i.uv * 0.5 + 0.5;
   var hdr = textureSampleLevel(src, samp, vec2f(tuv.x, tuv.y), 0.0).rgb * post.exposure;
   var c = tonemap(hdr) + vec3f(0.006, 0.006, 0.012);
+  c = pondMicro(c, hdr, microView.cam, i.uv * microView.res * 0.5, microView.ppu, loupe.ppu);
   c = pow(c, vec3f(1.0 / 2.2));
   let vign = smoothstep(1.0, 0.75, d);
   c *= mix(0.55, 1.0, vign);
@@ -1824,7 +1947,9 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 }
 
 @fragment fn fsPlain(i: VO) -> @location(0) vec4f {
-  var c = tonemap(textureSampleLevel(src, samp, i.uv, 0.0).rgb * post.exposure) + vec3f(0.006, 0.005, 0.012);
+  let hdr = textureSampleLevel(src, samp, i.uv, 0.0).rgb * post.exposure;
+  var c = tonemap(hdr) + vec3f(0.006, 0.005, 0.012);
+  c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu);
   return vec4f(pow(c, vec3f(1.0 / 2.2)), 1.0);
 }
 `;
