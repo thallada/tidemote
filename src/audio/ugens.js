@@ -141,6 +141,21 @@ export class LFNoise2 {
 
 export class WhiteNoise { constructor(rg) { this.rg = rg; } ar(out) { const rg = this.rg; for (let i = 0; i < BS; i++) out[i] = rg.off ? 0 : rg.frand2(); } }
 
+// Dust (impulses of 0..1) and Dust2 (-1..1) at a random density; the constructor runs one sample
+export class Dust {
+  constructor(sr, rg, bipolar = false) { this.sd = 1 / sr; this.rg = rg; this.bi = bipolar; this.density = 0; this.thresh = 0; this.scale = 0; this.step(0, null, 1); }
+  step(density, out, n = BS) {
+    if (density !== this.density) { this.thresh = f32(density * this.sd); this.scale = this.thresh > 0 ? f32((this.bi ? 2 : 1) / this.thresh) : 0; this.density = density; }
+    const rg = this.rg, th = this.thresh, sc = this.scale, off = this.bi ? 1 : 0;
+    for (let i = 0; i < n; i++) {
+      let v = 0;
+      if (!rg.off) { const z = rg.frand(); if (z < th) v = f32(z * sc) - off; }
+      if (out) out[i] = v;
+    }
+  }
+  ar(density, out) { this.step(density, out); }
+}
+
 export class BrownNoise {
   constructor(rg) { this.rg = rg; this.z = rg.off ? 0 : rg.frand2(); }
   ar(out) {

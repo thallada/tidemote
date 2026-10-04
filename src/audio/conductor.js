@@ -1,10 +1,11 @@
 // The conductor keeps the soundtrack's time and harmony: the pulse (following the simulation's
-// speed), the climate era's mode and root, the pivot, the sea and the drone. The field mix
-// (field.js) schedules the notes on it. Runs inside the AudioWorklet; times are in seconds of
-// audio rendered.
+// speed), the climate era's mode and root, the pivot, the sea, the waves and the drone. The field
+// mix (field.js) schedules the cells' notes on it and the score (score.js) the long form. Runs
+// inside the AudioWorklet; times are in seconds of audio rendered.
 
 import { BS } from './ugens.js';
 import { Field } from './field.js';
+import { Score } from './score.js';
 
 export const STEP = 0.18; // one sixteenth: tidemote's soundtrack pulse
 
@@ -26,7 +27,7 @@ const NOUN = {
   Hush: { level: 0.7, dens: 0.6 },
 };
 const ROOTS = [45, 47, 48, 50, 52, 53];
-const hashStr = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
+export const hashStr = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
 
 export function eraMusic(name, prevRoot) {
   const w = String(name || '').split(' ');
@@ -72,11 +73,23 @@ export class Conductor {
     this.field = new Field(this);
     this.queue = [];
     this.world = { light: 0.6, tide: 0.5 };
+    this.nodeN = 0;
     this.setEra(eraMusic('The First Tides'), true);
+    this.score = new Score(this);
     engine.master.p.gain = 1.6;
-    const r = this.root;
-    engine.spawn('sea', { amp: 0.09, surf: 0.45, sing: 1.3, f1: r - 12, f2: r, f3: r + 7, f4: r + 14, f5: r + 19 }, 'sea');
-    engine.spawn('drone', { amp: 0, note: r - 12 }, 'drone');
+    this.sea = this.swap(0, 'sea', this.seaChord(this.root), 0);
+    this.drone = this.swap(0, 'drone', { amp: 0, note: this.root - 12 }, 0);
+    engine.spawn('swarm', {}, 'swarm');
+    this.nextWave = 2;
+  }
+  seaChord(r) { return { amp: 0.09, surf: 0.45, sing: 1.3, f1: r - 12, f2: r, f3: r + 7, f4: r + 14, f5: r + 19 }; }
+  // A persistent node changes pitch by fading a new one in over the old (never a glide).
+  swap(t, def, params, fadeTime, old = null) {
+    const id = def + ++this.nodeN;
+    this.at(t, def, { ...params, fade: fadeTime ? 0 : 1, fadeTime }, id);
+    if (fadeTime) this.setAt(t, id, { fade: 1 });
+    if (old) { this.setAt(t, old, { fade: 0, fadeTime }); this.queue.push({ t: t + fadeTime * 1.2, free: old }); }
+    return id;
   }
   // the music follows the simulation's speed
   setTempo(tf) { if (tf > 0 && Math.abs(tf - this.tempo) > 1e-3) { this.tempo = tf; this.step = STEP / tf; } }
@@ -97,11 +110,15 @@ export class Conductor {
     else if (m.type === 'slots') this.field.slotsMsg(m);
     else if (m.type === 'fieldGain') Object.assign(this.field.gain, m.gain);
     else if (m.type === 'era') this.pendingEra = m.name;
-    else if (m.type === 'reset') { this.field.slots.clear(); this.pendingEra = null; this.switchAt = null; this.setEra(eraMusic('The First Tides'), true); this.eng.set('sea', { lag: 20, f1: 38, f2: 50, f3: 57, f4: 64, f5: 69 }); }
+    else if (m.type === 'reset') {
+      this.field.slots.clear(); this.pendingEra = null; this.switchAt = null;
+      this.setEra(eraMusic('The First Tides'), true); this.score.setEra(this.era);
+      this.sea = this.swap(this.time, 'sea', this.seaChord(this.root), 10, this.sea);
+    }
   }
 
   // ── scheduling ─────────────────────────────────────────────────────────────
-  at(t, def, params) { this.queue.push({ t, def, params }); }
+  at(t, def, params, id) { this.queue.push({ t, def, params, id }); }
   setAt(t, id, params) { this.queue.push({ t, set: id, params }); }
 
   // render one 64-sample block
@@ -113,7 +130,7 @@ export class Conductor {
       let i = 0;
       for (; i < this.queue.length && this.queue[i].t <= t1; i++) {
         const q = this.queue[i];
-        if (q.set) this.eng.set(q.set, q.params); else this.eng.spawn(q.def, q.params);
+        if (q.set) this.eng.set(q.set, q.params); else if (q.free) this.eng.free(q.free); else this.eng.spawn(q.def, q.params, q.id);
       }
       if (i) this.queue.splice(0, i);
     }
@@ -121,28 +138,35 @@ export class Conductor {
     this.time = t1;
   }
 
-  // once per bar: climate, harmony, the sea and the drone
+  // once per bar: climate, harmony, the sea, the waves, the drone and the score
   bar(ts) {
     const W = this.world;
-    if (this.pendingEra) {
+    if (this.pendingEra) { // the currents churn: a bridge to the new key
       const nx = eraMusic(this.pendingEra, this.era.root);
       this.pendingEra = null;
-      const sh = nx.fx.shift || 0, r = nx.root + sh;
       this.nextEra = nx; this.switchAt = ts + 45;
-      this.setAt(ts, 'sea', { lag: 40, f1: r - 12, f2: r, f3: r + 7, f4: r + 14, f5: r + 19 });
-      this.setAt(ts, 'master', { toneLag: 20, tone: 2500 });   // the currents churn: the world dims
-      this.at(ts + 1.5, 'breath', { freq: midicps(r - 12), amp: 0.35, atk: 9, sus: 10, rel: 14, glide: -0.25, bright: 0.25, rev: 0.6, pan: 0 }); // a long low call
+      this.score.bridge(ts, nx, nx.root + (nx.fx.shift || 0), MODES[nx.mode][0], this.switchAt);
     }
     if (this.switchAt != null && ts >= this.switchAt) {
       this.setEra(this.nextEra, true); this.switchAt = null;
-      this.setAt(ts, 'master', { toneLag: 25, tone: 16000 });
+      this.sea = this.swap(ts, 'sea', this.seaChord(this.root), 12, this.sea);
+      this.score.arrive(ts, this.era);
     }
     const bar = Math.round(this.stepN / 16);
     if (bar % 12 === 0) this.pivot = this.pivots[(bar / 12) % this.pivots.length | 0];
     const fx = this.era.fx, lvl = fx.level || 1;
     const light = clamp(W.light * (fx.bright || 1), 0, 1.2), td = clamp(W.tide * (fx.tide || 1), 0, 1);
     const seaDim = 1 - 0.3 * this.field.z; // zoomed in, the open water steps back a little
-    this.setAt(ts, 'sea', { tide: td, light, amp: 0.09 * (fx.sea || 1) * lvl * seaDim });
-    this.setAt(ts, 'drone', { note: d2m(this.pivot, this.root, this.scale) - 12, light, amp: 0.048 * lvl * seaDim });
+    this.setAt(ts, this.sea, { tide: td, light, amp: 0.09 * (fx.sea || 1) * lvl * seaDim });
+    const note = d2m(this.pivot, this.root, this.scale) - 12;
+    if (note !== this.droneNote) { this.drone = this.swap(ts, 'drone', { amp: 0.048 * lvl * seaDim, note, light }, 6, this.drone); this.droneNote = note; }
+    this.setAt(ts, this.drone, { light, amp: 0.048 * lvl * seaDim });
+    // waves wash in now and then, more often and stronger with the tide; heard best from afar
+    if (ts >= this.nextWave) {
+      const far = 1 - this.field.z, dur = 5 + 4 * this.rnd();
+      this.at(ts + this.rnd() * 16 * this.step, 'wave', { amp: 0.32 * lvl * (0.35 + 0.65 * far) * (0.5 + 0.5 * td), dur, bright: 0.3 + 0.4 * clamp(light, 0, 1), pan: (this.rnd() - 0.5) * 1.4, rev: 0.45 });
+      this.nextWave = ts + dur * 0.6 + (14 - 9 * td) * (0.5 + this.rnd());
+    }
+    this.score.bar(ts, bar);
   }
 }

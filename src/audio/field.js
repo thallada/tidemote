@@ -14,6 +14,11 @@
 // cells, each is a clear voice; zoomed out, thousands of faint ones blur into a chorus, and a busy
 // region is louder and denser than a calm one. Only a fair sample is played; each played note
 // carries the power of the ones it stands for.
+//
+// From afar, the notes give way to the swarm: every cell sound in view becomes one grain, a tiny
+// ping of its species' motif note, so thousands of them merge into a shimmering chord the way
+// countless snapping shrimp merge into the crackle of a reef. Zooming in, the swarm thins and
+// the single voices step out of it.
 
 import { d2m, STEP, noteParams } from './conductor.js';
 import { LISTEN } from './listen.js';
@@ -23,7 +28,7 @@ const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 
 const T = LISTEN.index;
 // base amplitude of one sound heard from the reference distance
-const AMP = { alive: 0.13, birth: 0.19, mutation: 0.09, spark: 0.045, starved: 0.13, old: 0.11, killed: 0.2, eaten: 0.075, charged: 0.04, rustle: 0.11 };
+const AMP = { alive: 0.13, birth: 0.19, mutation: 0.09, spark: 0.045, starved: 0.13, old: 0.11, killed: 0.2, eaten: 0.075, charged: 0.04, rustle: 0.035 };
 // playing grid (in steps) and how many notes of a type may share one grid point (calm water and
 // far views adjust these, see snap)
 const GRID = { alive: 1, birth: 1, starved: 2, old: 4, killed: 1, eaten: 0.5 };
@@ -37,6 +42,12 @@ const P_REF = 0.05, RATIO = 2.5, GAIN_RANGE = [0.3, 2];
 // When the audio thread is crowded, the least important sounds are skipped first.
 const CROWDED = 70, FULL = 92;
 const MINOR = new Set(['charged', 'eaten', 'rustle']);
+// The swarm: grains per second a band plays at most (beyond that a grain stands for several),
+// the level of one grain relative to a note, and of one click of the fizz (a click is a single
+// sample, so it needs a far higher level than a drop to carry a fraction of a drop's energy).
+const SWARM_MAX = 600, GRAIN = 1.1, FIZZ = 60;
+// how much of the view is heard as single voices (the rest as the swarm), by closeness z
+export const soloShare = (z) => { const x = clamp((z - 0.2) / 0.45, 0, 1); return x * x * (3 - 2 * x); };
 
 // how fast the music moves at a given simulation speed (sim seconds per second)
 export function tempoFor(speed) {
@@ -55,6 +66,7 @@ export class Field {
     this.z = 0; this.gd = 1; this.act = 0.3; this.speed = 1;
     this.gain = {}; // per-type gain overrides (tuning)
     this.agc = 1; this.power = P_REF; this.plan = null;
+    this.swarmK = -1; this.bands = null; this.heard = new Map(); // species slot -> grains per second, smoothed over scans
   }
   rr(lo, hi) { return lo + (hi - lo) * this.rnd(); }
 
@@ -76,10 +88,12 @@ export class Field {
     const wall = Math.max(1e-3, m.window / Math.max(m.speed, 1e-6));
     let P = 0;
     for (const n of plan) P += n[2] * n[2];
+    for (const r of this.crowd.values()) P += r * wall * (AMP.alive * this.gd) ** 2; // the swarm's grains count as notes
     this.power += (P / wall - this.power) * 0.3;
     const target = clamp(Math.pow(P_REF / Math.max(this.power, 1e-9), (1 - 1 / RATIO) / 2), GAIN_RANGE[0], GAIN_RANGE[1]);
     this.agc += (target - this.agc) * 0.2;
     for (const n of plan) this.play(n[0], n[1], n[2] * this.agc, n[3]);
+    this.swarm();
   }
 
   collect(m) {
@@ -96,6 +110,9 @@ export class Field {
     const dim = 0.4 + 0.6 * this.z;
     const wet = (r) => Math.min(0.95, r * (1 + 1.4 * far));
     const lit = m.lit ? new Set(m.lit) : null;
+    const solo = soloShare(this.z), toSwarm = (1 - solo) / wall;
+    this.crowd = new Map(); this.fizz = 0; // swarm grains per second by species slot; fizz clicks per second
+    const crowd = (slot, r) => this.crowd.set(slot, (this.crowd.get(slot) || 0) + r);
     const sel = m.selSlot;
     const focusGain = (slot) => {
       let g = 1;
@@ -114,8 +131,9 @@ export class Field {
     }
     if (alive.length) {
       const nView = m.inView[8], want = (nView / alive.length) * rSum * wall; // notes the whole view would sing
+      for (const [o, r] of alive) crowd(ev[o + 1], ((want * r) / rSum) * toSwarm * focusGain(ev[o + 1]) ** 2);
       const cap = (3 + 9 * far + 4 * Math.min(1, this.act)) * wall;              // notes we play
-      const play = Math.min(want, cap), g0 = AMP.alive * this.gd * Math.min(14, Math.sqrt(want / Math.max(play, 1e-9)));
+      const play = Math.min(want * solo, cap), g0 = AMP.alive * this.gd * Math.min(14, Math.sqrt((want * solo) / Math.max(play, 1e-9)));
       for (const [o, r] of alive) {
         if (this.rnd() >= (play * r) / rSum) continue;
         const slot = ev[o + 1], energy = ev[o + 4];
@@ -130,13 +148,17 @@ export class Field {
       const type = LISTEN.types[ti], slot = ev[o + 1];
       let t = now + LATENCY - ev[o + 4] / Math.max(m.speed, 1e-6);
       if (t < now + 0.01) t = now + 0.01 + 0.03 * this.rnd();
-      const g = AMP[type] * this.gd * comp[ti] * focusGain(slot);
+      // from afar, births and new species join their species' grains and the rest of the bustle
+      // becomes the fizz; only life sparking from glint still rings out
+      const rare = type === 'spark';
+      if (!rare) { if (type === 'birth' || type === 'mutation') crowd(slot, comp[ti] ** 2 * toSwarm); else this.fizz += comp[ti] ** 2 * toSwarm; }
+      const g = AMP[type] * this.gd * comp[ti] * focusGain(slot) * Math.sqrt(rare ? 0.3 + 0.7 * solo : solo);
       this.play(type, t, g, { slot, ...space(slot, ev[o + 2]), hue: ev[o + 6], idb: ev[o + 7], spd: ev[o + 5] });
     }
     this.background(m, wall, light, td);
     this.rustle(m, wall);
     // the sea moves with what moves in view
-    c.eng.set('sea', { surf: 0.3 + 0.5 * clamp(this.act, 0, 1) });
+    c.eng.set(c.sea, { surf: 0.3 + 0.5 * clamp(this.act, 0, 1) });
     if (this.taken.size > 400) for (const [k, v] of this.taken) if (v.t < now) this.taken.delete(k);
   }
 
@@ -211,15 +233,46 @@ export class Field {
       case 'eaten': // grazing and scavenging: water drops
         c.at(t, 'drop', { freq: midicps(d2m(7 + (o.idb % 8), root, scale)) * 2, amp: g, dec: this.rr(0.035, 0.08), rise: this.rr(1.3, 2.1), pan: o.pan, rev: o.wet(0.3), dly: 0.12 });
         return;
-      case 'rustle': { // something swimming past
-        const f0 = this.rr(500, 2400), up = this.rnd() < 0.5;
-        c.at(t, 'rustle', { f0, f1: f0 * (up ? this.rr(1.4, 2.4) : this.rr(0.45, 0.7)), rq: this.rr(0.08, 0.25),
-          atk: this.rr(0.02, 0.08), dec: this.rr(0.12, 0.35) / Math.sqrt(c.tempo), amp: g, pan: o.pan, rev: Math.min(0.9, 0.25 + 0.5 * (1 - this.z)), dly: 0.04 });
+      case 'rustle': { // something swimming past: a soft stir of water, not a whoosh
+        const f0 = this.rr(300, 1200), up = this.rnd() < 0.5;
+        c.at(t, 'rustle', { f0, f1: f0 * (up ? this.rr(1.15, 1.5) : this.rr(0.65, 0.85)), rq: this.rr(0.35, 0.7),
+          atk: this.rr(0.06, 0.15), dec: this.rr(0.2, 0.45) / Math.sqrt(c.tempo), amp: g, pan: o.pan, rev: Math.min(0.9, 0.35 + 0.5 * (1 - this.z)), dly: 0.04 });
         return;
       }
       case 'charged': // the tide charging silt into glint: a faint shimmer
         c.at(t, 'glint', { freq: midicps(d2m(o.idb % 14, root, scale)) * (o.idb & 32 ? 8 : 4), amp: g * (0.5 + 0.5 * o.td), dec: this.rr(0.04, 0.2), pan: o.pan, rev: o.wet(0.55), dly: 0.25 });
     }
+  }
+
+  // The swarm: the species heard most get bands (a bigger share, more bands: successive notes of
+  // its motif), each playing its share of grains. Bands are dealt out once a bar; each walks its
+  // motif at its own pace (3 to 6 steps a note), so the crowd never moves in step.
+  swarm() {
+    const c = this.c, now = c.time, K = Math.floor(now / (16 * c.step));
+    // each scan samples only some of the cells in view: smooth what each species sings over scans
+    for (const [s, r] of this.heard) { const v = r * 0.85; if (v < 0.01 && !this.crowd.has(s)) this.heard.delete(s); else this.heard.set(s, v); }
+    for (const [s, r] of this.crowd) this.heard.set(s, (this.heard.get(s) || 0) + 0.15 * r);
+    const sp = [...this.heard].filter(([s, r]) => r > 0 && this.slots.get(s)?.v).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    const tot = sp.reduce((a, x) => a + x[1], 0);
+    if (K !== this.swarmK || !this.bands) { // assign bands
+      this.swarmK = K;
+      const n = sp.map(([, r]) => Math.max(1, Math.round((8 * r) / Math.max(tot, 1e-9))));
+      while (n.reduce((a, b) => a + b, 0) > 8) n[n.indexOf(Math.max(...n))]--;
+      this.bands = [];
+      sp.forEach(([s], i) => { for (let j = 0; j < n[i]; j++) this.bands.push({ s, j, of: n[i] }); });
+    }
+    const p = { fizz: this.fizz, fizzAmp: FIZZ * AMP.eaten * this.gd * this.agc, ring: 0.12 + 0.2 * clamp(c.world.light, 0, 1) };
+    const { root, scale } = c, piv = c.pivot;
+    for (let b = 0; b < 8; b++) {
+      const B = this.bands[b], r = B ? (this.heard.get(B.s) || 0) / B.of : 0, e = B && this.slots.get(B.s);
+      if (!e || !(r > 0)) { p['d' + (b + 1)] = 0; continue; }
+      const seq = e.v.seq, d = Math.min(r, SWARM_MAX);
+      const kb = Math.floor(now / (c.step * (3 + (b % 4))) + b * 0.37);
+      p['f' + (b + 1)] = Math.min(96, d2m(seq[(kb + B.j) % seq.length] + piv, root, scale) + 12 * e.v.oct);
+      p['d' + (b + 1)] = d;
+      p['a' + (b + 1)] = GRAIN * AMP.alive * this.gd * this.agc * Math.sqrt(r / d);
+    }
+    c.setAt(now + LATENCY, 'swarm', p);
   }
 
   // the rest of the world, outside the view: distant, dark, mostly reverb
@@ -251,9 +304,9 @@ export class Field {
     const c = this.c;
     const rate = m.living * Math.max(0, m.act - 0.1) * 0.5; // swishes per second if every mover were heard
     if (rate <= 0) return;
-    const play = Math.min(rate, 8);
+    const play = Math.min(rate, 4);
     let k = 0;
-    for (let L = Math.exp(-play * wall), p = this.rnd(); p > L && k < 6; k++) p *= this.rnd();
+    for (let L = Math.exp(-play * wall), p = this.rnd(); p > L && k < 3; k++) p *= this.rnd();
     const g = AMP.rustle * this.gd * Math.min(10, Math.sqrt(rate / play)) * (0.4 + 0.6 * this.z);
     for (let i = 0; i < k; i++) this.play('rustle', c.time + LATENCY + this.rnd() * wall, g, { pan: this.rr(-0.85, 0.85) });
   }

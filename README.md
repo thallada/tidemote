@@ -54,7 +54,7 @@ esbuild preserves module scope, so top-level names can be reused across files.
 | `src/lab.js` | The Field Lab drawer. |
 | `src/guide.js` | Glossary (hover hints) and field-guide text. |
 | `src/page.html` | Markup and styles. The bundled script is inserted at `/*__SCRIPT__*/`. |
-| `src/audio/` | The soundtrack: `ugens.js` and `voices.js` (a sample-level port of SuperCollider voices, effects and mastering), `mapping.js` (genome → voice), `listen.js` (decoding the GPU listening scan), `field.js` (scan → notes), `conductor.js` (pulse, harmony, sea and drone), `worklet.js` (the AudioWorklet), `sound.js` (main-thread controller). |
+| `src/audio/` | The soundtrack: `ugens.js` and `voices.js` (a sample-level port of SuperCollider voices, effects and mastering), `mapping.js` (genome → voice), `listen.js` (decoding the GPU listening scan), `field.js` (scan → notes and the far swarm), `conductor.js` (pulse, harmony, sea, waves and drone), `score.js` (the long form: each era's ensemble, interludes, the modulation between eras), `worklet.js` (the AudioWorklet), `sound.js` (main-thread controller). |
 | `tools/audio-parity/` | Renders the same events in SuperCollider and in the JS engine and compares them. |
 | `tools/sim.mjs`, `tools/compare.mjs` | Headless ecology runs and comparisons across seeds (see below). |
 
@@ -75,17 +75,31 @@ bites, grazing drips, a dying cell falls, the tide's charge shimmers, and moveme
 Loudness follows distance, as if the camera were a listener at a height proportional to the view.
 Each sound is as loud as `dRef / d`, and a view `d` times wider holds `d²` times as many cells, so a
 region's loudness depends on how much is happening there, not on the zoom. Zoomed in on a dozen
-cells you hear each one, panned to where it is; zoomed out, thousands of faint voices blur into a
-chorus (darker and deeper in the reverb), and the rest of the world is a faint background. Only a
-fair sample is played and each played note carries the power of the ones it stands for, so the
-audio thread never plays more than a few dozen voices. Selecting a cell brings its species forward;
+cells you hear each one, panned to where it is. Zoomed out, the single voices give way to a swarm:
+every cell sound in view becomes one grain, a tiny ping of its species' motif note rung by random
+impulses (SuperCollider's `Dust` into `Ringz`), so thousands merge into a shimmering chord with a
+fizz of grazing and dying on top, the way countless snapping shrimp merge into a reef's crackle.
+Up close only a fair sample is played and each played note carries the power of the ones it stands
+for, so the audio thread never plays more than a few dozen voices. Selecting a cell brings its species forward;
 a Lab highlight pushes the others back. Notes snap to a pulse that follows the simulation's speed:
 slower when time is slowed, faster (up to 4×) when it runs fast.
+
+Around the cells plays a slower score. Each climate era brings its own ensemble, two of six layers
+the previous era did not play: notes on loops of incommensurate lengths, interlocking vibraphone
+figures built from the reigning species' motif that mutate a note at a time, a felt piano breaking
+chords, dub chords dissolving into echoes, string chords swelling, or a far sonar ping. The
+season's tide shapes them: as it strengthens they gain voices and brightness, as it slackens they
+thin out. Waves wash in more often at high tide and are heard best from afar. A new era is a
+modulation: a low piano chord sinks into a long reverb while strings swell on a chord the old and
+new keys share, then resolve into the new key, and a piano interlude develops the reigning
+species' motif. Interludes also mark a new reigning species and the height of a season. Nothing
+glides: the sea and the drone change pitch by fading a new voice in over the old.
 
 It runs in an AudioWorklet as a sample-level port of SuperCollider voices (see
 `tools/audio-parity/`). `tools/listen-capture.mjs` records what the soundtrack hears from a headless
 run at several zoom levels, and `tools/listen-render.mjs` renders such a capture offline and reports
-loudness and density per view, for tuning without a browser.
+loudness and density per view, for tuning without a browser (`--repeat`, `--season` and `--era`
+stretch a capture into a long piece with seasons and era changes).
 
 ## How the simulation works
 

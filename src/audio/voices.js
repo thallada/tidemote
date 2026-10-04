@@ -7,7 +7,7 @@
 import {
   BS, RGen, SinOsc, LFNoise2, WhiteNoise, BrownNoise, PinkNoise, EnvGen, KtoA, LPF, HPF, RLPF, Resonz,
   Ringz, BPF, BLowPass, BLowShelf, BHiShelf, MoogFF, Lag, LagUD, Decay2, LeakDC, Compander, Limiter,
-  DelayN, DelayC, AllpassC, Pan2, Balance2, sinTable,
+  DelayN, DelayC, AllpassC, Pan2, Balance2, Dust, sinTable,
 } from './ugens.js';
 
 const midicps = (m) => 440 * Math.pow(2, (m - 69) / 12);
@@ -422,9 +422,8 @@ class SinOscK {
 export class Sea extends Voice {
   constructor(eng, p) {
     super(eng, p);
-    const P = this.p = Object.assign({ amp: 0.1, f1: 38, f2: 45, f3: 50, f4: 57, f5: 64, lag: 30, tide: 0.5, light: 0.5, sing: 1, surf: 1, swellRate: 0.07, rev: 0.3 }, p);
-    this.tl = new Lag(this.kr, P.tide); this.ll = new Lag(this.kr, P.light);
-    this.fl = [P.f1, P.f2, P.f3, P.f4, P.f5].map((m) => new Lag(this.kr, m));
+    const P = this.p = Object.assign({ amp: 0.1, f1: 38, f2: 45, f3: 50, f4: 57, f5: 64, tide: 0.5, light: 0.5, sing: 1, surf: 1, swellRate: 0.07, fade: 1, fadeTime: 8, rev: 0.3 }, p);
+    this.tl = new Lag(this.kr, P.tide); this.ll = new Lag(this.kr, P.light); this.fl = new Lag(this.kr, P.fade); this.fadeA = new KtoA(0);
     this.pinks = [0, 1, 2, 3, 4].map(() => [new PinkNoise(this.rg), new PinkNoise(this.rg)]);
     this.res = [0, 1, 2, 3, 4].map(() => [new Resonz(this.sr), new Resonz(this.sr)]);
     this.nf = [0, 1, 2, 3, 4].map(() => new LFNoise2(this.kr, this.rg));
@@ -439,7 +438,7 @@ export class Sea extends Voice {
   render(B, S) {
     const P = this.p;
     const tl = this.tl.kr(P.tide, 6), ll = this.ll.kr(P.light, 6);
-    const fs = this.fl.map((l, i) => midicps(l.kr(P['f' + (i + 1)], P.lag)));
+    const fs = [P.f1, P.f2, P.f3, P.f4, P.f5].map(midicps), fd = this.fl.kr(P.fade, P.fadeTime);
     const L = S.zero(), R = S.zero(), t = S.get(), n = S.get(), k = S.get();
     const resGain = 9 * P.sing * (0.5 + ll);
     for (let i = 0; i < 5; i++) {
@@ -464,9 +463,11 @@ export class Sea extends Voice {
       const out = c ? R : L;
       for (let j = 0; j < BS; j++) out[j] += t[j] * k[j];
     }
+    if (this.first) this.fadeA.prev = fd;
     this.first = false;
-    this.hp[0].ar(L, 30, t); for (let j = 0; j < BS; j++) L[j] = t[j] * P.amp * 1.55;
-    this.hp[1].ar(R, 30, t); for (let j = 0; j < BS; j++) R[j] = t[j] * P.amp * 1.55;
+    this.fadeA.fill(fd, k);
+    this.hp[0].ar(L, 30, t); for (let j = 0; j < BS; j++) L[j] = t[j] * P.amp * 1.55 * k[j];
+    this.hp[1].ar(R, 30, t); for (let j = 0; j < BS; j++) R[j] = t[j] * P.amp * 1.55 * k[j];
     outAll(B, L, R, P.rev, 0, this.send);
   }
 }
@@ -475,17 +476,17 @@ export class Sea extends Voice {
 export class Drone extends Voice {
   constructor(eng, p) {
     super(eng, p);
-    const P = this.p = Object.assign({ amp: 0.1, note: 38, lag: 8, light: 0.5, rev: 0.15 }, p);
-    this.nl = new Lag(this.kr, P.note); this.ll = new Lag(this.kr, P.light);
+    const P = this.p = Object.assign({ amp: 0.1, note: 38, light: 0.5, fade: 1, fadeTime: 6, rev: 0.15 }, p);
+    this.ll = new Lag(this.kr, P.light); this.fl = new Lag(this.kr, P.fade);
     this.n1 = new LFNoise2(this.kr, this.rg); this.n2 = new LFNoise2(this.kr, this.rg);
     this.m = new SinOsc(this.sr); this.a = new SinOsc(this.sr); this.b = new SinOsc(this.sr); this.h = new SinOsc(this.sr);
     this.lp = new LPF(this.sr); this.ampA = new KtoA(0); this.idxA = new KtoA(0); this.first = true;
   }
   render(B, S) {
     const P = this.p;
-    const f = f32(midicps(this.nl.kr(P.note, P.lag))), ll = this.ll.kr(P.light, 8);
+    const f = f32(midicps(P.note)), ll = this.ll.kr(P.light, 8);
     const idx = (0.3 + 0.8 * ll) * (this.n1.kr(0.07) * 0.35 + 0.65);
-    const ag = P.amp * 0.52 * (this.n2.kr(0.05) * 0.15 + 0.85);
+    const ag = P.amp * 0.52 * (this.n2.kr(0.05) * 0.15 + 0.85) * this.fl.kr(P.fade, P.fadeTime);
     if (this.first) { this.idxA.prev = idx; this.ampA.prev = ag; this.first = false; }
     const m = S.get(), a = S.get(), b = S.get(), h = S.get(), k = S.get(), t = S.get();
     this.m.kk(f32(f * 2), m);
@@ -497,6 +498,164 @@ export class Drone extends Voice {
     this.ampA.fill(ag, k);
     for (let i = 0; i < BS; i++) t[i] *= k[i];
     outAll(B, t, t, P.rev, 0, this.send);
+  }
+}
+
+// ── \piano: felt piano (two strings a cent apart, six stretched partials each) ──
+const PIANO_FS = [1, 2, 3, 4, 5, 6].map((k) => k * Math.sqrt(1 + 0.0003 * k * k));
+const PIANO_F = [...PIANO_FS.map((f) => f32(f * 0.9994)), ...PIANO_FS.map((f) => f32(f * 1.0006))];
+const PIANO_A = [1, 0.5, 0.3, 0.2, 0.12, 0.08, 1, 0.5, 0.3, 0.2, 0.12, 0.08];
+const PIANO_D = [0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5].map((k) => f32(1 / f32(1 + 0.55 * k)));
+export class Piano extends Voice {
+  constructor(eng, p) {
+    super(eng, p);
+    const dec = p.dec ?? 5, felt = p.felt ?? 0.6;
+    this.st = new Strike(this.sr, f32(0.0004 + f32(0.0016 * felt)), f32(0.003 + f32(0.005 * felt)));
+    this.kl = new Klank(this.sr, 12); this.wn = new WhiteNoise(this.rg); this.lp = new LPF(this.sr);
+    this.kenv = new EnvGen(perc(0.001, 0.07, 1, -4), this.sr); this.pan = new Pan2(p.pan ?? 0);
+    this.life = lineBlocks(dec * 1.1 + 0.05, this.kr);
+  }
+  render(B, S) {
+    const p = this.p, freq = p.freq ?? 220, dec = p.dec ?? 5, felt = p.felt ?? 0.6, amp = p.amp ?? 0.1;
+    const exc = S.get(), sig = S.get(), n = S.get(), kn = S.get(), ke = S.get();
+    this.st.ar(exc);
+    this.kl.ar(exc, PIANO_F.map((f) => f * freq), PIANO_A, PIANO_D.map((d) => d * dec), sig);
+    this.wn.ar(n); this.lp.ar(n, 260, kn); this.kenv.ar(ke);
+    const g = 0.0045 * Math.sqrt(freq / 220);
+    for (let i = 0; i < BS; i++) sig[i] = (sig[i] * g + kn[i] * ke[i] * felt * 0.3) * amp;
+    const L = S.zero(), R = S.zero();
+    this.pan.addK(sig, p.pan ?? 0, 1, L, R);
+    outAll(B, L, R, p.rev ?? 0.3, p.dly ?? 0.05, this.send);
+    if (this.age + 1 >= this.life) this.done = true;
+  }
+}
+
+// ── \strings: detuned saw ensemble with a slow vibrato; the bow brightens as it swells ──
+const STR_DET = [0.9978, 1.0013, 1.0024, 0.9989];
+export class Strings extends Voice {
+  constructor(eng, p) {
+    super(eng, p);
+    const { atk = 3, sus = 2, rel = 5 } = p, freq = f32(p.freq ?? 220);
+    this.env = new EnvGen({ levels: [0, 1, 0.85, 0], times: [atk, sus, rel], curves: [2, 0, -3] }, this.kr);
+    this.n1 = new LFNoise2(this.kr, this.rg); this.vib = new SinOscK(this.kr, 0);
+    this.saws = STR_DET.map((m) => new Saw(this.sr, f32(freq * m))); // at construction the vibrato is still
+    this.lp = [new LPF(this.sr), new LPF(this.sr)]; this.hp = [new HPF(this.sr), new HPF(this.sr)];
+    this.bal = new Balance2(p.pan ?? 0, 1); this.envA = new KtoA(0);
+  }
+  render(B, S) {
+    const p = this.p, freq = p.freq ?? 220, bright = p.bright ?? 0.5, amp = p.amp ?? 0.1;
+    const e = this.env.kr();
+    const f = f32(freq * (1 + this.vib.kr(5.2 + this.n1.kr(0.5) * 0.6) * 0.0022 * e));
+    const a = S.get(), b = S.get(), cL = S.get(), cR = S.get(), t = S.get(), k = S.get();
+    this.saws[0].kr(f32(f * STR_DET[0]), a); this.saws[1].kr(f32(f * STR_DET[1]), b);
+    for (let i = 0; i < BS; i++) cL[i] = a[i] + b[i];
+    this.saws[2].kr(f32(f * STR_DET[2]), a); this.saws[3].kr(f32(f * STR_DET[3]), b);
+    for (let i = 0; i < BS; i++) cR[i] = a[i] + b[i];
+    const cut = clip(freq * (1.5 + e * bright * 5), 60, 9000);
+    this.lp[0].ar(cL, cut, t); this.hp[0].ar(t, 80, cL);
+    this.lp[1].ar(cR, cut, t); this.hp[1].ar(t, 80, cR);
+    const L = S.zero(), R = S.zero();
+    this.bal.addK2(cL, cR, p.pan ?? 0, 1, L, R);
+    this.envA.fill(e, k);
+    for (let i = 0; i < BS; i++) { const g = k[i] * amp * 0.5; L[i] *= g; R[i] *= g; }
+    outAll(B, L, R, p.rev ?? 0.5, p.dly ?? 0, this.send);
+    if (this.env.done) this.done = true;
+  }
+}
+
+// ── \vibe: vibraphone (soft mallet, tuned bar, the motor's tremolo) ──────────
+export class Vibe extends Voice {
+  constructor(eng, p) {
+    super(eng, p);
+    const dec = p.dec ?? 3;
+    this.st = new Strike(this.sr, 0.0006, 0.004); this.kl = new Klank(this.sr, 3); this.lp = new LPF(this.sr);
+    this.trem = new SinOscK(this.kr, 0); this.tA = new KtoA(0); this.pan = new Pan2(p.pan ?? 0); this.first = true;
+    this.life = lineBlocks(dec * 1.2 + 0.05, this.kr);
+  }
+  render(B, S) {
+    const p = this.p, freq = p.freq ?? 440, dec = p.dec ?? 3, bright = p.bright ?? 0.5, amp = p.amp ?? 0.1, depth = p.depth ?? 0.3;
+    const exc = S.get(), sig = S.get(), t = S.get(), k = S.get();
+    this.st.ar(exc);
+    this.kl.ar(exc, [freq, freq * 3.99, freq * 10.1], [1, 0.3 * bright, 0.1 * bright], [dec, dec * 0.25, dec * 0.08], sig);
+    this.lp.ar(sig, Math.min(freq * 14, 12000), t);
+    const tv = 1 - depth * (this.trem.kr(p.trem ?? 4.5) * 0.5 + 0.5);
+    if (this.first) { this.tA.prev = tv; this.first = false; }
+    this.tA.fill(tv, k);
+    for (let i = 0; i < BS; i++) t[i] *= k[i] * amp * 0.03;
+    const L = S.zero(), R = S.zero();
+    this.pan.addK(t, p.pan ?? 0, 1, L, R);
+    outAll(B, L, R, p.rev ?? 0.35, p.dly ?? 0.15, this.send);
+    if (this.age + 1 >= this.life) this.done = true;
+  }
+}
+
+// ── \swarm: a multitude heard from afar (bands of resonator pairs rung by Dust) ──
+const SWARM_POS = [-0.75, 0.55, -0.35, 0.15, -0.15, 0.35, -0.55, 0.75];
+export class Swarm extends Voice {
+  constructor(eng, p) {
+    super(eng, p);
+    this.p = Object.assign({ amp: 1, ring: 0.2, fizz: 0, fizzAmp: 0, rev: 0.6, dly: 0.1 }, p);
+    for (let i = 1; i <= 8; i++) for (const [c, v] of [['f', 60], ['d', 0], ['a', 0]]) if (this.p[c + i] == null) this.p[c + i] = v;
+    this.dust = SWARM_POS.map(() => new Dust(this.sr, this.rg));
+    this.rz = SWARM_POS.map(() => [new Ringz(this.sr), new Ringz(this.sr)]);
+    this.pans = SWARM_POS.map((x) => new Pan2(x));
+    this.aA = SWARM_POS.map((_, i) => new KtoA(this.p['a' + (i + 1)]));
+    this.fz = [new Dust(this.sr, this.rg, true), new Dust(this.sr, this.rg, true)]; this.hp = [new HPF(this.sr), new HPF(this.sr)];
+  }
+  render(B, S) {
+    const P = this.p, ring = P.ring;
+    const x = S.get(), k = S.get(), t = S.get(), L = S.zero(), R = S.zero();
+    for (let i = 0; i < 8; i++) {
+      const d = P['d' + (i + 1)], a = P['a' + (i + 1)], f = midicps(P['f' + (i + 1)]);
+      if (d > 0) this.dust[i].ar(d, x); else x.fill(0); // (no impulses: skip the random draws)
+      this.aA[i].fill(a, k);
+      for (let j = 0; j < BS; j++) x[j] *= k[j];
+      t.fill(0);
+      this.rz[i][0].arAdd(x, f32(f * 0.9971), ring, 1, t); this.rz[i][1].arAdd(x, f32(f * 1.0029), ring, 1, t);
+      this.pans[i].addK(t, SWARM_POS[i], 1, L, R);
+    }
+    if (P.fizz > 0) {
+      for (let c = 0; c < 2; c++) {
+        this.fz[c].ar(P.fizz, x); this.hp[c].ar(x, 3000, t);
+        const o = c ? R : L;
+        for (let j = 0; j < BS; j++) o[j] += t[j] * P.fizzAmp;
+      }
+    }
+    for (let j = 0; j < BS; j++) { L[j] *= P.amp; R[j] *= P.amp; }
+    outAll(B, L, R, P.rev, P.dly, this.send);
+  }
+}
+
+// ── \wave: one swell of water washing in and drawing back, foam at the crest ──
+export class Wave extends Voice {
+  constructor(eng, p) {
+    super(eng, p);
+    const dur = p.dur ?? 7;
+    this.env = new EnvGen({ levels: [0, 1, 0.3, 0], times: [dur * 0.4, dur * 0.2, dur * 0.4], curves: [2, -2, -2] }, this.kr);
+    this.foam = new EnvGen({ levels: [0, 0, 1, 0], times: [dur * 0.32, dur * 0.18, dur * 0.5], curves: [0, -1, -3] }, this.kr);
+    this.pink = [new PinkNoise(this.rg), new PinkNoise(this.rg)]; this.lp = [new LPF(this.sr), new LPF(this.sr)];
+    this.dust = [new Dust(this.sr, this.rg, true), new Dust(this.sr, this.rg, true)]; this.hp = [new HPF(this.sr), new HPF(this.sr)];
+    this.n1 = new LFNoise2(this.kr, this.rg); this.bal = new Balance2(p.pan ?? 0, 1);
+    this.envA = new KtoA(0); this.foamA = new KtoA(0); this.first = true;
+  }
+  render(B, S) {
+    const p = this.p, bright = p.bright ?? 0.5, amp = p.amp ?? 0.1;
+    const e = this.env.kr(), fo = this.foam.kr();
+    if (this.first) { this.envA.prev = e; this.foamA.prev = fo; this.first = false; }
+    const ke = this.envA.fill(e, S.get()), kf = this.foamA.fill(fo, S.get());
+    const n = S.get(), t = S.get(), c2 = [S.get(), S.get()];
+    const cut = 200 + e * e * 2400 * bright;
+    for (let c = 0; c < 2; c++) {
+      const o = c2[c];
+      this.pink[c].ar(n); this.lp[c].ar(n, cut, o);
+      this.dust[c].ar(fo * 1200, n); this.hp[c].ar(n, 2800, t);
+      for (let i = 0; i < BS; i++) o[i] = o[i] * ke[i] + t[i] * kf[i] * 0.4;
+    }
+    const L = S.zero(), R = S.zero();
+    this.bal.addK2(c2[0], c2[1], (p.pan ?? 0) + this.n1.kr(0.25) * 0.3, 1, L, R);
+    for (let i = 0; i < BS; i++) { L[i] *= amp; R[i] *= amp; }
+    outAll(B, L, R, p.rev ?? 0.4, 0, this.send);
+    if (this.env.done) this.done = true;
   }
 }
 
@@ -605,7 +764,7 @@ export class Master {
 }
 
 // ── the engine: voices → delay → reverb → master, block by block ─────────────
-const DEFS = { cplx: Cplx, swell: Swell, glass: Glass, breath: Breath, tine: Tine, wood: Wood, bite: Bite, drop: Drop, tick: Tick, glint: Glint, rustle: Rustle, sea: Sea, drone: Drone };
+const DEFS = { cplx: Cplx, swell: Swell, glass: Glass, breath: Breath, tine: Tine, wood: Wood, bite: Bite, drop: Drop, tick: Tick, glint: Glint, rustle: Rustle, sea: Sea, drone: Drone, piano: Piano, strings: Strings, vibe: Vibe, swarm: Swarm, wave: Wave };
 
 export class Engine {
   constructor(sr, { seed = 1, noiseOff = false, master = {} } = {}) {
@@ -628,6 +787,7 @@ export class Engine {
   set(id, params) {
     if (id === 'master') { Object.assign(this.master.p, params); return; }
     if (id === 'fdn') { Object.assign(this.fdn.p, params); return; }
+    if (id === 'ping') { Object.assign(this.ping.p, params); return; }
     const v = this.nodes.get(id); if (v) Object.assign(v.p, params);
   }
   free(id) { const v = this.nodes.get(id); if (v) { v.done = true; this.nodes.delete(id); } }
