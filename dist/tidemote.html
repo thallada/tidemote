@@ -1629,7 +1629,7 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
 `;
   var DRAW_WGSL = COMMON + /* wgsl */
   `
-// Specialise this same path for unresolved views so near anatomy has no far-view overhead.
+// Unresolved views use the cheap sprite profile; resolved cells share one outline path.
 struct View {
   cam: vec2f, world: vec2f, res: vec2f,
   ppu: f32, pointSize: f32, pointGain: f32, lineGain: f32,
@@ -1845,6 +1845,41 @@ fn bodySD(q: vec2f, shape: u32, s: vec2f) -> f32 {
     default: { return loboseSD(q, s); }
   }
 }
+// The same local frame and warp are used for a cell and its bond partners.
+// sd is in units of that cell's radius; only q survives into the interior.
+struct CellOutline { sd: f32, q: vec2f };
+fn cellOutline(uv: vec2f, dir: vec2f, radius: f32, seed: f32,
+    shape: u32, traits: vec4f, s: vec2f) -> CellOutline {
+  let aspect = 0.82 + s.x * 0.38 + min(traits.x, 1.5) * 0.10;
+  let motion = localPoint(uv, dir) * vec2f(1.0 / aspect, aspect);
+  // Area-preserving shears, with each cell's own phase.
+  let phase = seed * TAU + view.time * (0.18 + traits.y * 0.15) * (1.0 - traits.z * 0.7);
+  var q = motion;
+  q.x += 0.075 * sin(q.y * 4.0 + phase) + (s.y - 0.5) * 0.20 * q.y;
+  q.y += 0.065 * sin(q.x * 4.5 + phase * 1.3);
+  let a = atan2(q.y, q.x);
+  let ripple = 0.018 * sin(a * 5.0 + seed * 23.0) * smoothstep(0.1, 0.4, length(q));
+  let teeth = traits.w * fineLOD(radius) * 0.02 * pow(max(0.0, cos(a * 17.0 + seed * 11.0)), 6.0);
+  return CellOutline(bodySD(q, shape, s) - ripple - teeth, q);
+}
+fn cellDirection(p: Particle) -> vec2f {
+  let a = select(renderHash(p.id) * TAU, atan2(p.vel.y, p.vel.x), dot(p.vel, p.vel) > 0.000001);
+  return vec2f(cos(a), sin(a));
+}
+// Match vsPoint's living-cell radius, including focus and unresolved highlights.
+fn cellRadius(p: Particle, g: Genome) -> f32 {
+  var size = g.size * (1.0 - 0.12 * f32(roleOf(p.info)));
+  let grow = 1.0 - detailLOD(view.pointSize * size);
+  if (!focusPass(p)) { size *= 0.7; }
+  else if (view.focusOn == 1u) { size *= 1.0 + 0.12 * grow; }
+  if (view.memberN > 0u && p.kind == view.memberKind && isMember(p.id)) { size *= 1.0 + 0.15 * grow; }
+  if (p.id == view.selId) { size = mix(size, max(size, 1.2) * 1.5, grow); }
+  return max(view.pointSize * size, 0.9);
+}
+fn smoothUnion(a: f32, b: f32, k: f32) -> f32 {
+  let h = max(k - abs(a - b), 0.0) / k;
+  return min(a, b) - h * h * k * 0.25;
+}
 // Occupied area / pi, before the shared, nearly area-preserving domain warp.
 // Calibrated against raster integrals; avoids SDF sampling loops in the vertex shader.
 fn bodyArea(shape: u32, s: vec2f) -> f32 {
@@ -1871,12 +1906,16 @@ struct PO {
   @location(2) @interpolate(flat) shape: u32,
   @location(3) @interpolate(flat) index: u32,
   @location(4) @interpolate(flat) geom: vec4f, // radius, occupied area, motion direction
-  @location(5) @interpolate(flat) bonds: vec4f, // partner offsets / radius
+  @location(5) @interpolate(flat) bondPlans: vec2u, // plan in low 4 bits, reciprocal in bit 4; NONE absent
   @location(6) @interpolate(flat) morph: vec2f, // species variation
+  @location(7) @interpolate(flat) bond0: vec4f, // offset / self radius, radius ratio, ID seed
+  @location(8) @interpolate(flat) bond1: vec4f,
+  @location(9) @interpolate(flat) bondDirs: vec4f,
 };
 
 @vertex fn vsPoint(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> PO {
   var o: PO;
+  o.bondPlans = vec2u(NONE);
   let p = parts[ii];
   let d = wrapd(p.pos - view.cam) * view.ppu;
   // Avoid genome/partner reads for offscreen distant sprites.
@@ -1917,7 +1956,7 @@ struct PO {
     col = mix(h * 0.6, vec3f(0.42, 0.28, 0.16), 0.55) * (0.25 + p.energy * 0.6) * view.matterGain * 1.4;
   }
   // highlights enlarge only sprites too small to show detail; resolved cells keep their true size,
-  // so they never grow into their neighbours and get clipped by the shared walls
+  // so resolving anatomy preserves the organism's world size
   let grow = 1.0 - detailLOD(view.pointSize * size);
   if (!focusPass(p)) {
     let l = dot(col, vec3f(0.3, 0.5, 0.2));
@@ -1956,8 +1995,9 @@ struct PO {
   o.uv = corner * extent;
   let seed = renderHash(p.id);
   // cells face where they swim; matter keeps its own orientation (its motion is mostly Brownian)
-  let a = select(seed * TAU, atan2(p.vel.y, p.vel.x), k >= FIRST_LIFE && dot(p.vel, p.vel) > 0.000001);
-  o.geom = vec4f(px, extent, cos(a), sin(a));
+  var dir = vec2f(cos(seed * TAU), sin(seed * TAU));
+  if (k >= FIRST_LIFE) { dir = cellDirection(p); }
+  o.geom = vec4f(px, extent, dir);
   if (k >= FIRST_LIFE) {
     let g = genomes[k];
     shape = choosePlan(g, roleOf(p.info));
@@ -1965,9 +2005,33 @@ struct PO {
     let species = vec2f(renderHash(g.serial ^ g.sig[0].y), renderHash(g.serial ^ g.sig[1].x ^ 917u));
     o.morph = species;
     o.geom.y = bodyArea(shape, species);
-    let it = intent[ii];
-    if (it.z != NONE && parts[it.z].kind == k) { o.bonds = vec4f(wrapd(parts[it.z].pos - p.pos) * view.ppu / px, o.bonds.zw); }
-    if (it.w != NONE && parts[it.w].kind == k) { o.bonds = vec4f(o.bonds.xy, wrapd(parts[it.w].pos - p.pos) * view.ppu / px); }
+    // All partner storage reads and frame setup happen per vertex, never per pixel.
+    if (detailLOD(min(px, view.pointSize)) > 0.0) {
+      let it = intent[ii];
+      for (var j = 0u; j < 2u; j++) {
+        let index = select(it.z, it.w, j == 1u);
+        if (index == NONE || index == ii || (j == 1u && index == it.z)) { continue; }
+        let partner = parts[index];
+        if (partner.kind != k) { continue; }
+        let ratio = cellRadius(partner, g) / px;
+        let offset = wrapd(partner.pos - p.pos) * view.ppu / px;
+        let reach = 1.65 * (1.0 + ratio) + 0.12 * min(1.0, ratio);
+        if (dot(offset, offset) > reach * reach) { continue; }
+        let back = intent[index];
+        let plan = choosePlan(g, roleOf(partner.info))
+          | select(0u, 16u, back.z == ii || back.w == ii);
+        let frame = vec4f(offset, ratio, renderHash(partner.id));
+        let direction = cellDirection(partner);
+        o.bondPlans[j] = plan;
+        if (j == 0u) {
+          o.bond0 = frame;
+          o.bondDirs = vec4f(direction, o.bondDirs.zw);
+        } else {
+          o.bond1 = frame;
+          o.bondDirs = vec4f(o.bondDirs.xy, direction);
+        }
+      }
+    }
   }
   return o;
 }
@@ -1986,31 +2050,83 @@ struct PO {
     let s = i.morph;
     let inside = interiorLOD(i.geom.x);
     let fine = fineLOD(i.geom.x);
-    let aspect = 0.82 + s.x * 0.38 + min(g.swim, 1.5) * 0.10;
-    let motion = v * vec2f(1.0 / aspect, aspect);
-    // Shears preserve area. The two low-frequency waves bend every plan, including
-    // its facets, arms and internal structures. Cell identity dominates the slow motion.
-    let phase = seed * TAU + view.time * (0.18 + g.pulse * 0.15) * (1.0 - g.calcify * 0.7);
-    var q = motion;
-    q.x += 0.075 * sin(q.y * 4.0 + phase) + (s.y - 0.5) * 0.20 * q.y;
-    q.y += 0.065 * sin(q.x * 4.5 + phase * 1.3);
-    let a = atan2(q.y, q.x);
-    let r = length(q);
-    let ripple = 0.018 * sin(a * 5.0 + seed * 23.0) * smoothstep(0.1, 0.4, r);
-    let teeth = g.dFlesh * fine * 0.02 * pow(max(0.0, cos(a * 17.0 + seed * 11.0)), 6.0);
-    let membraneSD = bodySD(q, i.shape, s) - ripple - teeth;
-    var wallSD = -10.0;
-    for (var j = 0u; j < 2u; j++) {
-      let b = select(i.bonds.xy, i.bonds.zw, j == 1u);
-      let len = length(b);
-      if (len > 0.001) { wallSD = max(wallSD, dot(i.uv, b) / len - len * 0.5); }
+    var membraneSD = 0.0;
+    var q = vec2f(0.0);
+    var sd = 0.0;
+    var share = 1.0;
+    // One outline call site for self and both partners keeps the twelve-plan
+    // switch out of duplicated inline code. Partner frames die before the interior.
+    for (var j = 0u; j < 3u; j++) {
+      var uv = i.uv;
+      var dir = i.geom.zw;
+      var radius = i.geom.x;
+      var cellSeed = seed;
+      var plan = i.shape;
+      var ratio = 1.0;
+      var flags = 0u;
+      if (j > 0u) {
+        // The partner draws itself beyond our narrow union band. Owned pixels
+        // need no further outlines or interior work.
+        if (lod <= 0.0 || membraneSD > 0.12 + aa || share < 0.001) { break; }
+        flags = i.bondPlans[j - 1u];
+        if (flags == NONE) { continue; }
+        let frame = select(i.bond0, i.bond1, j == 2u);
+        ratio = frame.z;
+        let blend = 0.12 * min(1.0, ratio);
+        if (membraneSD > blend + aa) { continue; }
+        let delta = i.uv - frame.xy;
+        let bound = ratio * 1.65 + blend + 0.75 / i.geom.x;
+        if (dot(delta, delta) > bound * bound) { continue; }
+        uv = delta / ratio;
+        dir = select(i.bondDirs.xy, i.bondDirs.zw, j == 2u);
+        radius *= ratio;
+        cellSeed = frame.w;
+        plan = flags & 15u;
+      }
+      let outline = cellOutline(uv, dir, radius, cellSeed, plan,
+        vec4f(g.swim, g.pulse, g.calcify, g.dFlesh), s);
+      if (j == 0u) {
+        membraneSD = outline.sd;
+        sd = membraneSD;
+        q = outline.q;
+      } else {
+        let partnerSD = outline.sd * ratio;
+        let blend = 0.12 * min(1.0, ratio);
+        sd = smoothUnion(sd, partnerSD, blend);
+        if ((flags & 16u) != 0u) {
+          var width = 0.16 * min(1.0, ratio);
+          if (min(membraneSD, partnerSD) < 0.0) {
+            let pairAA = max(0.75 / i.geom.x, 0.003 * min(1.0, ratio));
+            width = min(width, max(pairAA, -min(membraneSD, partnerSD)));
+          }
+          share *= smoothstep(-width, width, partnerSD - membraneSD);
+        } else {
+          // One-way bonds yield overlap to the unpartitioned partner.
+          let partnerAA = max(0.75 / i.geom.x, 0.003 * ratio);
+          share *= smoothstep(-partnerAA, partnerAA, partnerSD);
+        }
+      }
     }
-    let sd = max(membraneSD, wallSD);
+    if (share < 0.001) { return vec4f(i.col * far * (1.0 - lod), 0.0); }
     let body = 1.0 - smoothstep(-aa, aa, sd);
+    // Reconstruct motion only after the partner loop; no partner structs or
+    // unneeded hair coordinates stay live across the organelle loop.
+    let resolved = smoothstep(0.7, 1.5, i.geom.x * 0.018) * fine;
+    let aspect = 0.82 + s.x * 0.38 + min(g.swim, 1.5) * 0.10;
+    let hairRange = membraneSD < 0.035 + 4.0 * (0.018 + aa);
+    var tailRange = false;
+    if (body <= 0.0 && resolved > 0.0 && g.swim > 0.05 && !hairRange) {
+      let motion = localPoint(i.uv, i.geom.zw) * vec2f(1.0 / aspect, aspect);
+      tailRange = motion.x > -1.9 && motion.x < -0.6 && abs(motion.y) < 0.148 + aa;
+    }
+    let appendages = resolved > 0.0 && g.swim > 0.05 && (body > 0.0 || hairRange || tailRange);
+    if (body <= 0.0 && !appendages) { return vec4f(i.col * far * (1.0 - lod), 0.0); }
     // Flat cytoplasm is cheap at silhouette LOD. Detail is a small modulation of
     // that same normalised light, so there is no bright jump when the nucleus appears.
     var tissue = 1.0;
     if (inside > 0.0 && body > 0.0) {
+      let a = atan2(q.y, q.x);
+      let r = length(q);
       let age = clamp(p.age / max(g.lifespan, 1.0), 0.0, 1.0);
       let wallWidth = 0.025 + 0.008 * sin(a * 3.0 + seed * 13.0);
       let rim = exp(-pow((sd + 0.025) / (wallWidth + aa), 2.0));
@@ -2091,18 +2207,19 @@ struct PO {
       tissue += inside * detail;
     }
     f = body * tissue * spriteMean(i.shape) / i.geom.y;
-    if (fine > 0.0 && g.swim > 0.05) {
+    if (appendages && body < 1.0) {
+      let a = atan2(q.y, q.x);
+      let motion = localPoint(i.uv, i.geom.zw) * vec2f(1.0 / aspect, aspect);
       let beat = view.time * 2.5 + seed * TAU;
       // Fade subpixel hairs before widening them with the footprint; no sparkling fringe.
-      let resolved = smoothstep(0.7, 1.5, i.geom.x * 0.018) * fine;
       let hairs = exp(-pow((membraneSD - 0.035) / (0.018 + aa), 2.0))
         * pow(max(0.0, cos(a * 23.0 + sin(a * 5.0 + beat))), 8.0);
       let tailY = 0.13 * sin(motion.x * 7.0 + beat) * smoothstep(0.65, 1.6, -motion.x);
       let tail = (1.0 - smoothstep(0.009, 0.018 + aa, abs(motion.y - tailY)))
         * smoothstep(0.60, 0.9, -motion.x) * (1.0 - smoothstep(1.55, 1.9, -motion.x));
-      let wallMask = 1.0 - smoothstep(-aa, aa, wallSD);
-      f += wallMask * min(g.swim, 1.0) * resolved * (1.0 - body) * (0.05 * hairs + 0.08 * tail);
+      f += min(g.swim, 1.0) * resolved * (1.0 - body) * (0.05 * hairs + 0.08 * tail);
     }
+    f *= share;
   } else {
     let a = atan2(v.y, v.x) + seed * TAU;
     var r = length(v);

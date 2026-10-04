@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 
 // Exercise real rasterization, including the three views, rather than matching shader text.
-test('LOD preserves light, bond walls clip, and all detail views validate', { timeout: 60_000 }, async (t) => {
+test('LOD preserves light, bonded outlines merge, and all detail views validate', { timeout: 60_000 }, async (t) => {
   if (process.platform === 'linux' && existsSync('/usr/share/vulkan/icd.d/lvp_icd.json')) {
     process.env.VK_ICD_FILENAMES = '/usr/share/vulkan/icd.d/lvp_icd.json';
   }
@@ -12,7 +12,8 @@ test('LOD preserves light, bond walls clip, and all detail views validate', { ti
   const gpu = create([]), adapter = await gpu.requestAdapter();
   if (!adapter) { t.skip('No WebGPU adapter available'); return; }
   const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
-  t.after(() => device.destroy());
+  // Dawn's instance must outlive the device, even if GC runs during readbacks.
+  t.after(() => { assert.ok(gpu); device.destroy(); });
   const errors = [];
   device.addEventListener('uncapturederror', (e) => errors.push(e.error.message));
   const { createEngine } = await import('../src/engine.js');
@@ -55,7 +56,7 @@ test('LOD preserves light, bond walls clip, and all detail views validate', { ti
     [[0, 'view'], [1, 'parts'], [2, 'genomes'], [3, 'intent'], [5, 'focus']]
       .map(([binding, name]) => ({ binding, resource: { buffer: eng.b[name] } })) });
   const half = (h) => ((h & 0x8000) ? -1 : 1) * ((h & 0x7c00) ? (1 + (h & 1023) / 1024) * 2 ** (((h >> 10) & 31) - 15) : (h & 1023) * 2 ** -24);
-  const render = async (ppu, distantProfile = false) => {
+  const render = async (ppu, distantProfile = false, onlyCell = null) => {
     updateGenome();
     device.queue.writeBuffer(eng.b.parts, 0, particles);
     device.queue.writeBuffer(eng.b.intent, 0, intent);
@@ -65,6 +66,8 @@ test('LOD preserves light, bond walls clip, and all detail views validate', { ti
     const pass = enc.beginRenderPass({ colorAttachments: [{ view: texture.createView(), loadOp: 'clear', storeOp: 'store' }] });
     if (distantProfile) {
       pass.setPipeline(reference); pass.setBindGroup(0, referenceBG); pass.draw(4, eng.count);
+    } else if (onlyCell !== null) {
+      pass.setPipeline(eng.pPoint); pass.setBindGroup(0, eng.bgPoint); pass.draw(4, 1, 0, onlyCell);
     } else {
       eng._drawScene(pass, eng.bgLine, eng.bgPoint, eng.bgBridge, eng.viewData);
     }
@@ -80,7 +83,7 @@ test('LOD preserves light, bond walls clip, and all detail views validate', { ti
     return green;
   };
   const sum = (a) => a.reduce((s, v) => s + v, 0);
-  assert.ok(sum(await render(20)) > 0, 'far specialization renders with the shared bindings');
+  assert.ok(sum(await render(20)) > 0, 'far profile renders with the shared bindings');
   // Compare integrated light with the distant profile at the same constant-world radius.
   // Cover silhouettes, interiors and organelles, with two genomes and cell states.
   for (const serial of [1, 901]) {
@@ -100,18 +103,58 @@ test('LOD preserves light, bond walls clip, and all detail views validate', { ti
       }
     }
   }
-  Object.assign(g, { shape: 0, swim: 0 });
-  particle(1, 5.08, 5);
-  const beforeWall = await render(500);
-  intent[2] = 1;
-  const wall = await render(500);
-  // Sum regions on either side of the partner bisector; avoid individual feature pixels.
-  const region = (image, side) => image.reduce((s, v, j) => s + (side(j % 256) ? v : 0), 0);
-  const right = (x) => x >= 152, left = (x) => x < 120;
-  assert.ok(region(beforeWall, right) > 1, 'overlapping side is initially visible');
-  assert.ok(region(wall, right) < region(beforeWall, right) * 0.01, 'partner wall clips the overlapping side');
-  assert.ok(region(wall, left) > region(beforeWall, left) * 0.9, 'opposite side survives clipping');
+  // Real outlines, per-cell phases/orientations, and role-dependent plans/radii.
+  // Read each cell alone, then both together: measure overlap and unsupported
+  // protrusions beyond the old bisector using raster coverage, not shader text.
+  Object.assign(g, { serial: 1, swim: 0, calcify: 0, photo: 0.5 });
+  particle(0, 5, 5); particle(1, 5.08, 5);
+  pf[2] = 0.04; pf[3] = 0.1; pf[13] = -0.04;
+  eng.count = 2;
+  let protrusionPixels = 0;
+  for (const shape of [2, 3, 4]) for (const role of [0, 1]) {
+    g.shape = shape; pu[19] = role << 4;
+    intent.fill(0xffffffff);
+    const self = await render(500, false, 0);
+    const partner = await render(500, false, 1);
+    const unbonded = await render(500);
+    intent[2] = 1; intent[6] = 0;
+    const merged = await render(500);
+    if (shape === 2 && role === 1) {
+      // The packed second frame must work even when the first slot is absent.
+      intent[2] = 0xffffffff; intent[3] = 1;
+      const secondSlot = await render(500);
+      const difference = secondSlot.reduce((s, v, j) => s + Math.abs(v - merged[j]), 0);
+      assert.ok(difference < sum(merged) * 0.001, 'either partner slot produces the same merge');
+      intent[2] = 1; intent[3] = 0xffffffff;
+    }
+    let overlapBefore = 0, overlapAfter = 0, unsupportedBefore = 0, unsupportedAfter = 0, pixels = 0;
+    for (let j = 0; j < self.length; j++) {
+      if (self[j] > 0.15 && partner[j] > 0.15) {
+        overlapBefore += unbonded[j]; overlapAfter += merged[j];
+      }
+      if (j % 256 > 148 && self[j] > 0.05 && partner[j] < 1e-6) {
+        unsupportedBefore += self[j]; unsupportedAfter += merged[j]; pixels++;
+      }
+    }
+    assert.ok(overlapBefore > 1, `plan ${shape}, role ${role}: real overlapping tissue`);
+    assert.ok(overlapAfter / overlapBefore < 0.72 && overlapAfter / overlapBefore > 0.3,
+      `plan ${shape}, role ${role}: overlap light ratio ${overlapAfter / overlapBefore}`);
+    protrusionPixels += pixels;
+    assert.ok(unsupportedAfter >= unsupportedBefore * 0.95,
+      `plan ${shape}, role ${role}: uncovered protrusions survive (${unsupportedAfter / unsupportedBefore})`);
+    // A one-way listing yields to B's unpartitioned body instead of doubling it.
+    intent[6] = 0xffffffff;
+    const oneWay = await render(500);
+    let oneWayOverlap = 0;
+    for (let j = 0; j < self.length; j++) {
+      if (self[j] > 0.15 && partner[j] > 0.15) oneWayOverlap += oneWay[j];
+    }
+    assert.ok(oneWayOverlap < overlapBefore * 0.72, 'one-way overlap does not double');
+  }
+  assert.ok(protrusionPixels > 20, 'tested unsupported protrusions beyond the old bisector');
+  pu[19] = 0;
 
+  g.shape = 0;
   // Real indirect bridges, both partner slots, and the collapsed single-partner strip.
   eng.count = 3; particle(1, 5.25, 5); particle(2, 5.5, 5.1);
   intent[2] = 1; intent[6] = 0; intent[7] = 2; intent[10] = 1;
