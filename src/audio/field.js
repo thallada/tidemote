@@ -19,7 +19,8 @@
 // note of its species' motif, and thousands of them blur into a murmur. Distance is heard the way
 // it is in air or water: far grains swell in slowly, ring long and lose their highs; diving in,
 // their attacks sharpen and open until the swarm thins and the single voices step out of it.
-// Close up the voices are held back a little (CLOSE), so diving in is not a jump in level.
+// Close up the voices are held back a touch (CLOSE) and the sea and the score step back further,
+// so diving in brings the place forward without a jump in level.
 
 import { d2m, STEP, noteParams } from './conductor.js';
 import { LISTEN } from './listen.js';
@@ -47,9 +48,9 @@ const MINOR = new Set(['charged', 'eaten', 'rustle']);
 // the activity stays audible as grains), and the level of one grain relative to a note.
 const SWARM_MAX = 150, GRAIN = 1.75;
 // level of the single voices fully zoomed in, relative to afar
-const CLOSE = 0.7;
+const CLOSE = 0.9;
 // how much of the view is heard as single voices (the rest as the swarm), by closeness z
-export const soloShare = (z) => { const x = clamp((z - 0.2) / 0.45, 0, 1); return x * x * (3 - 2 * x); };
+export const soloShare = (z) => { const x = clamp((z - 0.05) / 0.35, 0, 1); return x * x * (3 - 2 * x); };
 
 // how fast the music moves at a given simulation speed (sim seconds per second)
 export function tempoFor(speed) {
@@ -266,7 +267,7 @@ export class Field {
       this.bands = [];
       sp.forEach(([s], i) => { for (let j = 0; j < n[i]; j++) this.bands.push({ s, j, of: n[i] }); });
     }
-    const far = 1 - clamp(this.z / 0.65, 0, 1), light = clamp(c.world.light, 0, 1);
+    const far = 1 - clamp(this.z / 0.4, 0, 1), light = clamp(c.world.light, 0, 1);
     const p = { atk: 0.012 + 0.07 * far, ring: (0.25 + 0.55 * far) * (0.8 + 0.4 * light), cut: 7000 - 5000 * far };
     const { root, scale } = c, piv = c.pivot;
     for (let b = 0; b < 8; b++) {

@@ -156,7 +156,7 @@ export class Conductor {
     if (bar % 12 === 0) this.pivot = this.pivots[(bar / 12) % this.pivots.length | 0];
     const fx = this.era.fx, lvl = fx.level || 1;
     const light = clamp(W.light * (fx.bright || 1), 0, 1.2), td = clamp(W.tide * (fx.tide || 1), 0, 1);
-    const seaDim = 1 - 0.3 * this.field.z; // zoomed in, the open water steps back a little
+    const seaDim = 1 - 0.45 * this.field.z; // zoomed in, the open water steps back
     this.setAt(ts, this.sea, { tide: td, light, amp: 0.09 * (fx.sea || 1) * lvl * seaDim });
     const note = d2m(this.pivot, this.root, this.scale) - 12;
     if (note !== this.droneNote) { this.drone = this.swap(ts, 'drone', { amp: 0.048 * lvl * seaDim, note, light }, 6, this.drone); this.droneNote = note; }

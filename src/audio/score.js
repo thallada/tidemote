@@ -86,7 +86,7 @@ export class Score {
     }
     if (I > 0.85 && !this.peaked) { this.peaked = true; if (ts - this.lastInterlude > 240) this.interlude(ts + 16 * c.step); }
     if (I < 0.6) this.peaked = false;
-    const L = (fx.level || 1) * (1 - 0.45 * c.field.z) * (ts < this.duckUntil ? 0.45 : 1);
+    const L = (fx.level || 1) * (1 - 0.6 * c.field.z) * (ts < this.duckUntil ? 0.45 : 1);
     for (const name of this.layers) this[name](ts, barN, I, L);
   }
   topSlot() {
