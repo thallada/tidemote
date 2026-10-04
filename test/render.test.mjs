@@ -11,7 +11,7 @@ test('cell LOD preserves scale, reflects state, clips walls and renders auxiliar
   Object.assign(globalThis, globals);
   const gpu = create([]), adapter = await gpu.requestAdapter();
   if (!adapter) { t.skip('No WebGPU adapter available'); return; }
-  const device = await adapter.requestDevice();
+  const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
   t.after(() => device.destroy());
   const errors = [];
   device.addEventListener('uncapturederror', (e) => errors.push(e.error.message));
