@@ -91,7 +91,9 @@ class Engine {
     b.cellStart = d.createBuffer({ size: (MAX_CELLS + 1) * 4, usage: U.STORAGE });
     b.blockSums = d.createBuffer({ size: (MAX_CELLS / 256) * 4, usage: U.STORAGE });
     b.genomes = d.createBuffer({ size: MAXK * G_BYTES, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
-    b.frameCtr = d.createBuffer({ size: 32, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
+    b.frameCtr = d.createBuffer({ size: 32, usage: U.STORAGE | U.INDIRECT | U.COPY_SRC | U.COPY_DST });
+    b.bridgeDraw = d.createBuffer({ size: 16, usage: U.INDIRECT | U.COPY_DST });
+    d.queue.writeBuffer(b.bridgeDraw, 0, new Uint32Array([30, 0, 0, 0]));
     b.pickOut = d.createBuffer({ size: PICK_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
     b.listenU = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
     b.listen = d.createBuffer({ size: LISTEN_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
@@ -137,6 +139,7 @@ class Engine {
     });
     this.pPoint = rp(this.drawModule, 'vsPoint', 'fsPoint', 'triangle-strip', additive);
     this.pLine = rp(this.drawModule, 'vsLine', 'fsLine', 'line-list', additive);
+    this.pBridge = rp(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', additive);
     this.pFade = rp(this.drawModule, 'vsFade', 'fsFade', 'triangle-list', fade);
     this.pDown = rp(this.postModule, 'vsFull', 'fsDown', 'triangle-list', undefined);
     this.pUp = rp(this.postModule, 'vsFull', 'fsUp', 'triangle-list', additive);
@@ -183,7 +186,7 @@ class Engine {
     b.sortedFull = d.createBuffer({ size: n * P_BYTES, usage: U.STORAGE });
     b.sortedLite = d.createBuffer({ size: n * LITE_BYTES, usage: U.STORAGE });
     b.aux = d.createBuffer({ size: n * 8, usage: U.STORAGE });
-    b.intent = d.createBuffer({ size: n * 16, usage: U.STORAGE | U.COPY_DST });
+    b.intent = d.createBuffer({ size: n * 16, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
     b.bondsNow = d.createBuffer({ size: n * 8, usage: U.STORAGE });
     b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
@@ -206,6 +209,7 @@ class Engine {
       { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.listen } }] });
     const pointBG = (view) => d.createBindGroup({ layout: this.pPoint.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
+      { binding: 3, resource: { buffer: b.intent } },
       { binding: 5, resource: { buffer: b.focus } }] });
     const lineBG = (view) => d.createBindGroup({ layout: this.pLine.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
@@ -216,6 +220,12 @@ class Engine {
     this.bgLineL = lineBG(b.viewL);
     this.bgPointS = pointBG(b.viewS);
     this.bgLineS = lineBG(b.viewS);
+    const bridgeBG = (view) => d.createBindGroup({ layout: this.pBridge.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
+      { binding: 3, resource: { buffer: b.intent } }, { binding: 4, resource: { buffer: b.livingList } }, { binding: 5, resource: { buffer: b.focus } }] });
+    this.bgBridge = bridgeBG(b.view);
+    this.bgBridgeL = bridgeBG(b.viewL);
+    this.bgBridgeS = bridgeBG(b.viewS);
     const verr = await d.popErrorScope();
     const oerr = await d.popErrorScope();
     if (verr || oerr) {
@@ -702,7 +712,8 @@ class Engine {
   _writeView(buf, data, cam, W, H, dpr, time, selId) {
     const K = this.K;
     const ppu = cam.ppu;
-    const pointSize = Math.min(40 * dpr, Math.max(1.1 * dpr, 0.085 * ppu));
+    // a cell keeps one world size at every zoom, so zooming in only resolves it
+    const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
     const perArea = K.density / (ppu * ppu);
     const overlapAll = perArea * pointSize * pointSize * 0.5;
     const overlapLife = overlapAll * 0.4;
@@ -720,11 +731,21 @@ class Engine {
     this.device.queue.writeBuffer(buf, 0, data);
   }
 
-  _drawScene(pass, bgLine, bgPoint) {
+  _drawScene(pass, bgLine, bgPoint, bgBridge, data) {
+    const v = new Float32Array(data);
     if (this.settings.links) {
-      pass.setPipeline(this.pLine);
-      pass.setBindGroup(0, bgLine);
-      pass.drawIndirect(this.b.frameCtr, 16);
+      // Crossfade native lines and soft strips in this same pass. The strip has zero
+      // contribution at its topology switch, so subpixel line coverage cannot pop.
+      if (v[7] < 30) {
+        pass.setPipeline(this.pLine);
+        pass.setBindGroup(0, bgLine);
+        pass.drawIndirect(this.b.frameCtr, 16);
+      }
+      if (v[7] > 6) {
+        pass.setPipeline(this.pBridge);
+        pass.setBindGroup(0, bgBridge);
+        pass.drawIndirect(this.b.bridgeDraw, 0);
+      }
     }
     if (this.settings.nodes) {
       pass.setPipeline(this.pPoint);
@@ -737,6 +758,11 @@ class Engine {
     const d = this.device;
     const [W, H] = this.size;
     this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId);
+    // The simulation's existing indirect args contain the living instance count. Only rendering
+    // changes the vertex count; keep all ecology WGSL and buffers' contents untouched.
+    if (new Float32Array(this.viewData)[7] > 6 || loupe || specimen) {
+      enc.copyBufferToBuffer(this.b.frameCtr, 20, this.b.bridgeDraw, 4, 4);
+    }
 
     const pd = this.postData;
     pd[0] = W; pd[1] = H; pd[2] = this.settings.bloom; pd[3] = 1.0;
@@ -767,7 +793,7 @@ class Engine {
         pass.setBindGroup(0, this.reprojBG[srcI]);
         pass.draw(3);
       }
-      this._drawScene(pass, this.bgLine, this.bgPoint);
+      this._drawScene(pass, this.bgLine, this.bgPoint, this.bgBridge, this.viewData);
       pass.end();
     }
     this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu };
@@ -780,7 +806,7 @@ class Engine {
       this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / (loupe.r * 2)), time, selId);
       d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W, H, 0, 0]));
       const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.loupeView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
-      this._drawScene(pass, this.bgLineL, this.bgPointL);
+      this._drawScene(pass, this.bgLineL, this.bgPointL, this.bgBridgeL, this.viewDataL);
       pass.end();
     }
 
@@ -788,7 +814,7 @@ class Engine {
       this._ensureSpecTex(specimen.w, specimen.h);
       this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId);
       let pass = enc.beginRenderPass({ colorAttachments: [{ view: this.specView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
-      this._drawScene(pass, this.bgLineS, this.bgPointS);
+      this._drawScene(pass, this.bgLineS, this.bgPointS, this.bgBridgeS, this.viewDataS);
       pass.end();
       pass = enc.beginRenderPass({ colorAttachments: [{ view: specimen.target, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }] });
       pass.setPipeline(this.pPlain); pass.setBindGroup(0, this.specBG); pass.draw(3); pass.end();

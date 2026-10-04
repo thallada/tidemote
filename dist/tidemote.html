@@ -1667,19 +1667,141 @@ fn focusPass(p: Particle) -> bool {
 fn wrapd(d: vec2f) -> vec2f { return d - view.world * round(d / view.world); }
 fn toClip(px: vec2f) -> vec4f { return vec4f(px.x / (view.res.x * 0.5), -px.y / (view.res.y * 0.5), 0.0, 1.0); }
 
+// Radii are in framebuffer pixels: the same LOD works in the main, loupe and specimen views.
+fn detailLOD(radius: f32) -> f32 { return smoothstep(6.0, 30.0, radius); }
+fn renderHash(id: u32) -> f32 {
+  var h = id * 747796405u + 2891336453u;
+  h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
+  return f32((h >> 22u) ^ h) / 4294967296.0;
+}
+fn cellGrain(v: vec2f, id: u32) -> f32 {
+  let c = vec2i(floor(v));
+  let t = fract(v);
+  let w = t * t * (vec2f(3.0) - 2.0 * t);
+  let x = bitcast<u32>(c.x) * 1597334677u;
+  let y = bitcast<u32>(c.y) * 3812015801u;
+  let a = mix(renderHash(x ^ y ^ id), renderHash((x + 1597334677u) ^ y ^ id), w.x);
+  let b = mix(renderHash(x ^ (y + 3812015801u) ^ id), renderHash((x + 1597334677u) ^ (y + 3812015801u) ^ id), w.x);
+  return mix(a, b, w.y) * 2.0 - 1.0;
+}
+fn spriteFalloff(uv: vec2f, shape: u32) -> f32 {
+  let d2 = dot(uv, uv);
+  var f = 0.0;
+  if (d2 < 1.0) {
+    switch (shape) {
+      case 1u: {
+        let t = (sqrt(d2) - 0.62) / 0.2;
+        f = exp(-t * t);
+      }
+      case 2u: {
+        let a = abs(uv);
+        f = max(0.0, 1.0 - a.x * a.y * 14.0 - d2) * (1.0 - d2);
+      }
+      case 3u: {
+        f = 0.35 * (1.0 - d2) + smoothstep(0.32, 0.0, sqrt(d2));
+      }
+      case 4u: {
+        let a = abs(uv);
+        let t = max(0.0, 1.0 - (a.x + a.y));
+        f = t * t * 1.6;
+      }
+      case 5u: {
+        let a = abs(uv);
+        let t = max(0.0, 1.0 - a.x * a.y * 40.0 - d2 * 0.7);
+        f = t * t * (1.0 - d2);
+      }
+      case 6u: {
+        // stone: flat and hard-edged, so neighbouring grains merge into one solid mass
+        f = 1.0 - smoothstep(0.7, 1.0, d2);
+      }
+      default: {
+        let t = 1.0 - d2;
+        f = t * t;
+      }
+    }
+  }
+  return f;
+}
+// Integrated distant profiles / pi. Preserve the species' brightness as detail replaces its sprite.
+fn spriteMean(shape: u32) -> f32 {
+  switch (shape) {
+    case 1u: { return 0.4369; }
+    case 2u: { return 0.10636; }
+    case 3u: { return 0.20572; }
+    case 4u: { return 0.16976; }
+    case 5u: { return 0.0391; }
+    case 6u: { return 0.85; }
+    default: { return 0.33333; }
+  }
+}
+fn polygonRadius(a: f32, sides: f32, roundness: f32) -> f32 {
+  let sector = TAU / sides;
+  let th = a - sector * floor(a / sector + 0.5);
+  return mix(cos(sector * 0.5) / cos(th), 1.0, roundness);
+}
+fn localPoint(v: vec2f, dir: vec2f) -> vec2f {
+  return vec2f(dot(v, dir), dot(v, vec2f(-dir.y, dir.x)));
+}
+
+// The role-adjusted far shape is the body plan. Return outer radius, central vacuole
+// radius and mean occupied area / pi, before small ID/time perturbations.
+fn cellPlan(shape: u32, a: f32, g: Genome) -> vec3f {
+  switch (shape) {
+    case 1u: {
+      let inner = 0.40 + 0.13 * (1.0 - g.photo) + 0.05 * g.advect;
+      return vec3f(0.91, inner, 0.91 * 0.91 - inner * inner);
+    }
+    case 2u: {
+      let core = 0.20 + 0.10 * g.photo + 0.04 * g.adhesion;
+      let arm = 0.78 - core + 0.16 * g.swim / (1.0 + g.swim);
+      let t = clamp(g.align + g.calcify * 0.3, 0.0, 1.0);
+      let cosine = cos(a * 2.0);
+      let c = cosine * cosine;
+      let w = mix(c, c * c, t);
+      // Four primary arms remain on the far cross's axes; mineral armour can add four shorter arms.
+      let extra = 0.18 * g.calcify;
+      let diag = pow(abs(sin(a * 2.0)), 8.0);
+      let meanW = 0.5 - 0.125 * t;
+      let meanW2 = 0.375 * pow(1.0 - t, 2.0) + 0.625 * t * (1.0 - t) + 0.2734375 * t * t;
+      let area = core * core + 2.0 * core * arm * meanW + arm * arm * meanW2
+        + 0.546875 * core * extra + 0.1963806 * extra * extra
+        + 2.0 * arm * extra * mix(0.02734375, 0.0068359375, t);
+      return vec3f(core + arm * w + extra * diag, 0.0, area);
+    }
+    case 3u: {
+      let core = 0.30 + 0.12 * g.photo + 0.06 * g.calcify;
+      return vec3f(core, 0.0, core * core);
+    }
+    case 4u: {
+      let long = 0.92 + 0.16 * g.swim / (1.0 + g.swim);
+      let wide = 0.52 + 0.20 * g.photo + 0.12 * (1.0 - g.align);
+      return vec3f(1.0 / (abs(cos(a)) / long + abs(sin(a)) / wide), 0.0, 4.0 * long * wide / TAU);
+    }
+    default: {
+      let lobes = 3.0 + floor(g.advect * 3.0 + g.adhesion * 2.0);
+      let amp = 0.045 + 0.065 * g.advect + 0.04 * g.swim / (1.0 + g.swim);
+      let outline = 0.87 + amp * cos(a * lobes);
+      return vec3f(outline, 0.0, 0.87 * 0.87 + amp * amp * 0.5);
+    }
+  }
+}
+
 struct PO {
   @builtin(position) pos: vec4f,
   @location(0) uv: vec2f,
   @location(1) col: vec3f,
   @location(2) @interpolate(flat) shape: u32,
+  @location(3) @interpolate(flat) index: u32,
+  @location(4) @interpolate(flat) geom: vec4f, // radius, quad extent, motion direction
+  @location(5) @interpolate(flat) bonds: vec4f, // partner offsets / radius
 };
 
 @vertex fn vsPoint(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> PO {
   var o: PO;
   let p = parts[ii];
   let d = wrapd(p.pos - view.cam) * view.ppu;
-  let margin = view.res * 0.5 + vec2f(60.0);
-  if (abs(d.x) > margin.x || abs(d.y) > margin.y) {
+  // Avoid genome/partner reads for offscreen distant sprites.
+  if (view.pointSize <= 6.0 && any(abs(d) > view.res * 0.5 + vec2f(60.0))) {
     o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
     return o;
   }
@@ -1687,11 +1809,13 @@ struct PO {
   var size = 1.0;
   var col: vec3f;
   var shape = 0u;
+  var swim = 0.0;
   if (k >= FIRST_LIFE) {
     let g = genomes[k];
     let role = roleOf(p.info);
     size = g.size * (1.0 - 0.12 * f32(role));
     shape = (u32(g.shape) + role * 2u) % 5u;
+    swim = min(g.swim, 1.0);
     let e = clamp(p.energy / g.reproE, 0.0, 1.4);
     var b = 0.35 + 0.65 * e;
     b *= 1.0 + g.pulse * 0.6 * sin(view.time * (0.8 + g.pulse * 4.0) + f32(p.id % 1024u) * 0.37);
@@ -1706,7 +1830,6 @@ struct PO {
     let tw = 0.6 + 0.4 * sin(view.time * 6.0 + f32(p.id % 977u));
     col = vec3f(0.7, 0.93, 1.0) * (0.4 + p.energy) * tw * view.matterGain * 2.0;
   } else if (k == STONE) {
-    // stone: chalky and matte, tinted by the species that built it
     shape = 6u;
     col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 1.1;
   } else {
@@ -1728,53 +1851,205 @@ struct PO {
     size *= 1.15;
   }
   if (p.id == view.selId) { col = col * 1.5 + vec3f(0.5); size = max(size, 1.2) * 1.5; }
-  let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
-  // stone has a real size in the world (a grain about a quarter of a cell across), so a reef reads as a solid mass
   let px = select(max(view.pointSize * size, 0.9), max(view.ppu * 0.13, 0.9), k == STONE);
-  o.pos = toClip(d + corner * px);
-  o.uv = corner;
+  let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
   o.col = col;
   o.shape = shape;
+  o.index = ii;
+  o.geom = vec4f(px, 1.0, 1.0, 0.0);
+  if (px <= 6.0) {
+    o.pos = toClip(d + corner * px);
+    o.uv = corner;
+    return o;
+  }
+  let lod = detailLOD(px);
+  let radialSwimmer = k >= FIRST_LIFE && (shape == 2u || shape == 3u);
+  let extent = 1.0 + lod * (0.35 + select(1.9, 0.3, radialSwimmer) * swim);
+  if (any(abs(d) > view.res * 0.5 + vec2f(px * extent))) {
+    o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
+    return o;
+  }
+  o.pos = toClip(d + corner * px * extent);
+  o.uv = corner * extent;
+  o.geom = vec4f(px, extent, 1.0, 0.0);
+  // All expensive state/partner work is confined to resolvable sprites.
+  if (lod > 0.0) {
+    let seed = renderHash(p.id);
+    let a = select(seed * TAU, atan2(p.vel.y, p.vel.x), dot(p.vel, p.vel) > 0.000001);
+    o.geom = vec4f(px, extent, cos(a), sin(a));
+    if (k >= FIRST_LIFE) {
+      let it = intent[ii];
+      if (it.z != NONE && parts[it.z].kind == k) { o.bonds = vec4f(wrapd(parts[it.z].pos - p.pos) * view.ppu / px, o.bonds.zw); }
+      if (it.w != NONE && parts[it.w].kind == k) { o.bonds = vec4f(o.bonds.xy, wrapd(parts[it.w].pos - p.pos) * view.ppu / px); }
+    }
+  }
   return o;
 }
 
 @fragment fn fsPoint(i: PO) -> @location(0) vec4f {
-  let d2 = dot(i.uv, i.uv);
+  let far = spriteFalloff(i.uv, i.shape);
+  if (i.geom.x <= 6.0) { return vec4f(i.col * far, 0.0); }
+  let lod = detailLOD(i.geom.x);
+  let p = parts[i.index];
+  let seed = renderHash(p.id);
+  let v = localPoint(i.uv, i.geom.zw);
+  let aa = max(0.003, 1.0 / i.geom.x);
   var f = 0.0;
-  if (d2 < 1.0) {
-    switch (i.shape) {
-      case 1u: {
-        let t = (sqrt(d2) - 0.62) / 0.2;
-        f = exp(-t * t);
+  if (p.kind >= FIRST_LIFE) {
+    let g = genomes[p.kind];
+    let speed = length(p.vel);
+    let stretch = 1.0 + min(g.swim, 1.5) * 0.28 * smoothstep(0.0, 0.5, speed);
+    let aspect = stretch * (1.0 + g.align * 0.12);
+    let motion = v * vec2f(1.0 / aspect, aspect);
+    // Cross and diamond axes correlate with their screen-aligned far forms. Motion still
+    // stretches them, but cannot turn a four-point cross into a diagonal star at the LOD boundary.
+    var q = motion;
+    if (i.shape == 2u) {
+      let axisAspect = 1.0 + g.align * 0.12 + (stretch - 1.0) * (i.geom.z * i.geom.z - i.geom.w * i.geom.w);
+      q = i.uv * vec2f(1.0 / axisAspect, axisAspect);
+    } else if (i.shape == 4u) {
+      q = vec2f(i.geom.z * motion.x - i.geom.w * motion.y, i.geom.w * motion.x + i.geom.z * motion.y);
+    }
+    let a = atan2(q.y, q.x);
+    let r = length(q);
+    let plan = cellPlan(i.shape, a, g);
+    let sides = 4.0 + floor(g.calcify * 4.0 + g.adhesion * 2.0);
+    let pulse = sin(a * 3.0 + view.time * (0.5 + g.pulse) + seed * TAU);
+    let irregular = select(0.012, 0.032, i.shape == 0u);
+    var outline = plan.x * (1.0 + irregular * sin(a * 3.0 + seed * 17.0));
+    outline += irregular * (0.3 + g.pulse) * pulse * (1.0 - g.calcify);
+    // Diet adds small teeth to this body plan rather than replacing it with a spiky blob.
+    outline += g.dFlesh * 0.032 * pow(max(0.0, cos(a * (sides * 2.0 + 5.0) + seed * TAU)), 6.0);
+    let membraneSD = max(r - outline, select(-10.0, plan.y - r, i.shape == 1u));
+    var wallSD = -10.0;
+    for (var j = 0u; j < 2u; j++) {
+      let b = select(i.bonds.xy, i.bonds.zw, j == 1u);
+      let len = length(b);
+      if (len > 0.001) { wallSD = max(wallSD, dot(i.uv, b) / len - len * 0.5); }
+    }
+    let sd = max(membraneSD, wallSD);
+    let flagellate = i.shape == 0u || i.shape == 1u || i.shape == 4u;
+    let tailRegion = flagellate && g.swim > 0.05 && motion.x < -0.65 && motion.x > -2.0 && abs(motion.y) < 0.16 + aa;
+    if (sd > 0.18 + aa && !tailRegion && i.shape != 3u) { return vec4f(i.col * far * (1.0 - lod), 0.0); }
+    let body = 1.0 - smoothstep(-aa, aa, sd);
+    let rim = exp(-pow((sd + 0.025) / (0.020 + aa), 2.0));
+    let age = clamp(p.age / max(g.lifespan, 1.0), 0.0, 1.0);
+    let fine = smoothstep(35.0, 90.0, i.geom.x);
+    // Small dense cores have their own scaled cytoplasm; annular cells leave the vacuole clear.
+    let organQ = select(q, q / plan.x, i.shape == 3u);
+    let grain = cellGrain(organQ * 65.0, p.id);
+    var interior = 0.43 + 0.03 * (1.0 - dot(organQ, organQ)) + 0.055 * grain * (0.25 + age) * fine;
+    interior *= 1.0 - 0.16 * age;
+    // Division remains visible in each body plan: along the annular rim, inside the central
+    // body of a heliozoan, or along the long axis of a stellate/diatom/amoeboid cell.
+    let division = smoothstep(0.55, 1.0, p.energy / max(g.reproE, 0.01));
+    var nq = organQ - vec2f(0.03 * sin(seed * 31.0), 0.08 * cos(seed * 19.0));
+    var nuclearSize = vec2f(0.19 + 0.07 * division, 0.23 - 0.045 * division);
+    var split = division * 0.24;
+    if (i.shape == 1u) {
+      let mid = (outline + plan.y) * 0.5;
+      nq = vec2f(q.y, -q.x - mid);
+      nuclearSize = vec2f(0.15 + 0.035 * division, (outline - plan.y) * 0.24);
+      split = division * 0.16;
+    }
+    if (i.shape == 2u) { nuclearSize *= 0.65; split *= 0.65; }
+    let nr = length(vec2f(abs(nq.x) - split, nq.y) / nuclearSize);
+    let nucleus = 1.0 - smoothstep(0.85, 1.0 + aa * 3.0, nr);
+    let nuclearWall = exp(-pow((nr - 0.95) / 0.10, 2.0));
+    interior += -0.22 * nucleus + 0.14 * nuclearWall;
+    interior += nucleus * 0.06 * cellGrain(nq * 35.0, p.id + 37u) * fine;
+    // Metabolic organelles follow the occupied tissue, not a universal circular scatter.
+    for (var j = 0u; j < 16u; j++) {
+      let h = renderHash(p.id + j * 1999u + 71u);
+      let th = TAU * renderHash(p.id + j * 1013u + 103u);
+      var centre = vec2f(cos(th), sin(th)) * (0.36 + 0.43 * h);
+      var organSize = 1.0;
+      if (i.shape == 1u) { centre = vec2f(cos(th), sin(th)) * ((0.91 + plan.y) * 0.5 + (h - 0.5) * 0.05); }
+      if (i.shape == 2u) {
+        let armAngle = f32(j % 4u) * TAU * 0.25;
+        centre = vec2f(cos(armAngle), sin(armAngle)) * (0.28 + 0.45 * h);
+        if (j < 4u) { centre = vec2f(cos(th), sin(th)) * (0.06 + 0.12 * h); }
+        organSize = 0.65;
       }
-      case 2u: {
-        let a = abs(i.uv);
-        f = max(0.0, 1.0 - a.x * a.y * 14.0 - d2) * (1.0 - d2);
+      if (i.shape == 4u) {
+        let x = (h * 2.0 - 1.0) * 0.72;
+        centre = vec2f(x, sin(th) * (1.0 - abs(x)) * 0.30);
+        organSize = 0.8;
       }
-      case 3u: {
-        f = 0.35 * (1.0 - d2) + smoothstep(0.32, 0.0, sqrt(d2));
+      let oq = (organQ - centre) / organSize;
+      let photo = 1.0 - smoothstep(f32(j), f32(j) + 1.0, (1.0 - clamp(g.photo, 0.0, 1.0)) * 16.0);
+      let chl = length(oq * vec2f(1.0, 1.8));
+      let chloroplast = 1.0 - smoothstep(0.060, 0.082 + aa, chl);
+      interior += photo * (-0.19 * chloroplast + 0.06 * exp(-pow((chl - 0.085) / (0.012 + aa), 2.0)));
+      let eat = clamp(g.dGlint + g.dHusk + g.dFlesh, 0.0, 1.0) * (1.0 - g.photo * 0.65);
+      let food = smoothstep(h - 0.05, h + 0.05, eat * 0.75);
+      let vr = length(oq + vec2f(0.07, 0.04));
+      interior += food * (0.14 * exp(-pow((vr - 0.055 - h * 0.025) / (0.012 + aa), 2.0)) - 0.08 * (1.0 - smoothstep(0.03, 0.06 + aa, vr)));
+    }
+    let plate = abs(sin((a + seed * 0.6) * sides * 0.5));
+    let seam = (1.0 - smoothstep(0.025, 0.07 + aa, plate)) * smoothstep(0.48, 0.72, r / max(outline, 0.1));
+    interior += g.calcify * (0.08 * cos(a * sides) * smoothstep(0.45, 0.85, r / max(outline, 0.1)) - 0.18 * seam);
+    if (i.shape == 4u) {
+      let raphe = exp(-pow(q.y / (0.012 + aa * 0.4), 2.0));
+      let striae = cos(q.x * TAU * (12.0 + floor(g.align * 10.0)) + 0.15 * sin(q.y * 14.0));
+      interior += -0.15 * raphe + 0.08 * striae * smoothstep(18.0, 60.0, i.geom.x) * (0.4 + 0.6 * g.calcify);
+    }
+    let coreShare = select(1.0, 0.94, i.shape == 3u);
+    // Profile means include each plan's rim-to-interior ratio; thin arms and two annular
+    // walls carry more membrane light per occupied area than an amoeboid body.
+    var profileMean = 0.47;
+    if (i.shape == 1u || i.shape == 2u) { profileMean = 0.49; }
+    if (i.shape == 3u) { profileMean = 0.50; }
+    f = body * (interior + rim * (0.30 + 0.18 * g.calcify)) * spriteMean(i.shape) * coreShare / (profileMean * plan.z);
+    let beat = view.time * (2.0 + speed * 10.0) + seed * TAU;
+    let wallMask = 1.0 - smoothstep(-aa, aa, wallSD);
+    if (i.shape == 3u) {
+      let rays = 20.0 + floor(g.align * 18.0 + g.photo * 12.0 + g.swim * 4.0);
+      let width = min(0.30, (0.003 + aa * 0.35) * rays * 0.5 / max(r, 0.1));
+      let beatAngle = min(g.swim, 1.0) * 0.08 * sin(beat + r * 6.0);
+      let ray = 1.0 - smoothstep(0.0, width, abs(sin(a * rays * 0.5 + beatAngle)));
+      let reach = smoothstep(outline, outline + 0.07, r) * (1.0 - smoothstep(0.85, 1.02, r));
+      // Angular coverage is approximately width / pi; keep the halo's average light stable.
+      f += wallMask * ray * reach * spriteMean(i.shape) * 0.06 / max(width * (0.87 - plan.z) * 2.0 / TAU, 0.001);
+    } else if (g.swim > 0.05) {
+      let cilia = pow(max(0.0, cos(a * (18.0 + g.align * 10.0) + 0.8 * sin(beat + a * 3.0))), 10.0);
+      let hairs = exp(-pow((r - outline - 0.035) / (0.035 + aa), 2.0)) * cilia;
+      var tail = 0.0;
+      if (flagellate) {
+        let tailY = 0.12 * sin(motion.x * 8.0 + beat) * smoothstep(0.7, 1.8, -motion.x);
+        tail = (1.0 - smoothstep(0.009, 0.019 + aa, abs(motion.y - tailY))) * smoothstep(0.65, 0.95, -motion.x) * (1.0 - smoothstep(1.7, 2.0, -motion.x));
       }
-      case 4u: {
-        let a = abs(i.uv);
-        let t = max(0.0, 1.0 - (a.x + a.y));
-        f = t * t * 1.6;
+      f += wallMask * min(g.swim, 1.0) * (0.06 * hairs + 0.14 * tail) * (1.0 - body);
+    }
+  } else {
+    let a = atan2(v.y, v.x) + seed * TAU;
+    var r = length(v);
+    let sides = 4.0 + floor(seed * 4.0);
+    let edge = polygonRadius(a, sides, 0.08);
+    let body = 1.0 - smoothstep(edge - aa, edge + aa, r);
+    if (p.kind == HUSK) {
+      // A folded membrane, with missing arcs and torn ends, retains the dead particle's colour.
+      let fold = length(v * vec2f(0.86, 1.55));
+      let wall = 0.64 + 0.10 * sin(a * 3.0 + seed * 21.0) + 0.06 * sin(a * 7.0);
+      let breaks = smoothstep(-0.85, -0.55, sin(a * 3.0 + seed * 37.0));
+      f = exp(-pow((fold - wall) / (0.07 + aa), 2.0)) * breaks * 1.25;
+      f += 0.10 * exp(-pow((fold - 0.42) / (0.09 + aa), 2.0));
+      f *= spriteMean(i.shape) / 0.20;
+    } else {
+      let facets = 0.70 + 0.20 * cos(a * sides) + 0.10 * sin(v.x * 17.0 + v.y * 11.0 + seed * 23.0);
+      f = body * facets * spriteMean(i.shape) / 0.56;
+      if (p.kind == GLINT) {
+        let seam = exp(-pow((v.y - v.x * 0.45) / (0.018 + aa), 2.0));
+        let spark = pow(max(0.0, sin(view.time * 2.0 + seed * 71.0)), 18.0);
+        f += body * (seam * 0.09 + spark * exp(-dot(v - vec2f(0.22, -0.18), v - vec2f(0.22, -0.18)) * 180.0) * 0.4);
       }
-      case 5u: {
-        let a = abs(i.uv);
-        let t = max(0.0, 1.0 - a.x * a.y * 40.0 - d2 * 0.7);
-        f = t * t * (1.0 - d2);
-      }
-      case 6u: {
-        // stone: flat and hard-edged, so neighbouring grains merge into one solid mass
-        f = 1.0 - smoothstep(0.7, 1.0, d2);
-      }
-      default: {
-        let t = 1.0 - d2;
-        f = t * t;
+      if (p.kind == STONE) {
+        let seams = exp(-pow(sin(v.x * 5.0 + seed * 13.0) + 0.5 * sin(v.y * 7.0), 2.0) * 150.0);
+        f *= 1.0 - 0.32 * seams;
       }
     }
   }
-  return vec4f(i.col * f, 0.0);
+  return vec4f(i.col * mix(far, max(0.0, f), lod), 0.0);
 }
 
 struct LO { @builtin(position) pos: vec4f, @location(0) col: vec3f };
@@ -1800,10 +2075,78 @@ struct LO { @builtin(position) pos: vec4f, @location(0) col: vec3f };
   o.pos = toClip((base + select(vec2f(0.0), dq, isEnd)) * view.ppu);
   let fade = select(view.mute, 1.0, focusPass(p));
   o.col = unpack4x8unorm(select(p.col, q.col, isEnd)).rgb * ((0.35 + 0.65 * t) * view.lineGain * fade);
+  if (view.pointSize > 6.0) { o.col *= 1.0 - detailLOD(view.pointSize); }
   return o;
 }
 
 @fragment fn fsLine(i: LO) -> @location(0) vec4f { return vec4f(i.col, 0.0); }
+
+// One strip per partner, joined by two degenerate vertices: six segments per bridge.
+// The native line entry points above remain the cheap, identical distant path.
+struct BO {
+  @builtin(position) pos: vec4f,
+  @location(0) col: vec3f,
+  @location(1) side: f32,
+};
+fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f {
+  let it = intent[index];
+  let other = select(it.z, it.w, it.z == exclude || it.z == NONE);
+  if (other == NONE || other == exclude) { return chord / 3.0; }
+  let p = parts[index];
+  if (parts[other].kind != p.kind) { return chord / 3.0; }
+  let offset = wrapd(parts[other].pos - p.pos);
+  let tangent = chord + select(offset, -offset, outgoing);
+  let len = length(chord);
+  if (length(tangent) < 0.001) { return chord / 3.0; }
+  // Keep control points local even at bends or a torus seam.
+  return normalize(tangent) * len / 3.0;
+}
+@vertex fn vsBridge(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> BO {
+  var o: BO;
+  o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
+  let index = livingList[ii];
+  if (index == NONE) { return o; }
+  let it = intent[index];
+  let second = vi >= 15u;
+  let n = select(it.z, it.w, second);
+  if (n == NONE) { return o; }
+  let p = parts[index];
+  let q = parts[n];
+  if (p.kind < FIRST_LIFE || q.kind < FIRST_LIFE) { return o; }
+  let base = wrapd(p.pos - view.cam);
+  let dq = wrapd(q.pos - p.pos);
+  let len = length(dq);
+  if (len < 0.00001) { return o; }
+  let margin = view.res * 0.5 + vec2f((len + 0.1) * view.ppu);
+  if (any(abs(base * view.ppu) > margin)) { return o; }
+  // vi 14 repeats A's last vertex; vi 15 repeats B's first vertex.
+  let v = select(min(vi, 13u), select(vi - 16u, 0u, vi == 15u), second);
+  let t = f32(v / 2u) / 6.0;
+  let side = f32(v & 1u) * 2.0 - 1.0;
+  let lod = detailLOD(view.pointSize);
+  let t0 = mix(dq / 3.0, bodyTangent(index, n, dq, true), lod);
+  let t1 = mix(dq / 3.0, bodyTangent(n, index, dq, false), lod);
+  let c1 = t0;
+  let c2 = dq - t1;
+  let u = 1.0 - t;
+  let centre = 3.0 * u * u * t * c1 + 3.0 * u * t * t * c2 + t * t * t * dq;
+  let tangent = 3.0 * u * u * c1 + 6.0 * u * t * (c2 - c1) + 3.0 * t * t * (dq - c2);
+  let normal = vec2f(-tangent.y, tangent.x) / max(length(tangent), 0.00001);
+  let adhesion = min(genomes[p.kind].adhesion, genomes[q.kind].adhesion);
+  let taper = 0.55 + 0.45 * pow(2.0 * t - 1.0, 2.0);
+  let halfWidth = mix(0.5, max(0.5, view.ppu * (0.012 + adhesion * 0.025) * taper), lod);
+  o.pos = toClip((base + centre) * view.ppu + normal * side * halfWidth);
+  let strength = clamp(1.0 - len / view.linkR, 0.0, 1.0);
+  let fade = select(view.mute, 1.0, focusPass(p));
+  // Integral of the soft edge is 0.8. Keep total bridge light equal to the old one-pixel line.
+  o.col = mix(unpack4x8unorm(p.col).rgb, unpack4x8unorm(q.col).rgb, t)
+    * ((0.35 + 0.65 * strength) * view.lineGain * fade * lod / (halfWidth * 1.6));
+  o.side = side;
+  return o;
+}
+@fragment fn fsBridge(i: BO) -> @location(0) vec4f {
+  return vec4f(i.col * (1.0 - smoothstep(0.6, 1.0, abs(i.side))), 0.0);
+}
 
 @vertex fn vsFade(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
   let uv = vec2f(f32((vi << 1u) & 2u), f32(vi & 2u));
@@ -2695,7 +3038,9 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       b.cellStart = d.createBuffer({ size: (MAX_CELLS + 1) * 4, usage: U.STORAGE });
       b.blockSums = d.createBuffer({ size: MAX_CELLS / 256 * 4, usage: U.STORAGE });
       b.genomes = d.createBuffer({ size: MAXK * G_BYTES, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
-      b.frameCtr = d.createBuffer({ size: 32, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
+      b.frameCtr = d.createBuffer({ size: 32, usage: U.STORAGE | U.INDIRECT | U.COPY_SRC | U.COPY_DST });
+      b.bridgeDraw = d.createBuffer({ size: 16, usage: U.INDIRECT | U.COPY_DST });
+      d.queue.writeBuffer(b.bridgeDraw, 0, new Uint32Array([30, 0, 0, 0]));
       b.pickOut = d.createBuffer({ size: PICK_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
       b.listenU = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
       b.listen = d.createBuffer({ size: LISTEN_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
@@ -2737,6 +3082,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       });
       this.pPoint = rp(this.drawModule, "vsPoint", "fsPoint", "triangle-strip", additive);
       this.pLine = rp(this.drawModule, "vsLine", "fsLine", "line-list", additive);
+      this.pBridge = rp(this.drawModule, "vsBridge", "fsBridge", "triangle-strip", additive);
       this.pFade = rp(this.drawModule, "vsFade", "fsFade", "triangle-list", fade);
       this.pDown = rp(this.postModule, "vsFull", "fsDown", "triangle-list", void 0);
       this.pUp = rp(this.postModule, "vsFull", "fsUp", "triangle-list", additive);
@@ -2783,7 +3129,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       b.sortedFull = d.createBuffer({ size: n * P_BYTES, usage: U.STORAGE });
       b.sortedLite = d.createBuffer({ size: n * LITE_BYTES, usage: U.STORAGE });
       b.aux = d.createBuffer({ size: n * 8, usage: U.STORAGE });
-      b.intent = d.createBuffer({ size: n * 16, usage: U.STORAGE | U.COPY_DST });
+      b.intent = d.createBuffer({ size: n * 16, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
       b.bondsNow = d.createBuffer({ size: n * 8, usage: U.STORAGE });
       b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
       b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
@@ -2825,6 +3171,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         { binding: 0, resource: { buffer: view } },
         { binding: 1, resource: { buffer: b.parts } },
         { binding: 2, resource: { buffer: b.genomes } },
+        { binding: 3, resource: { buffer: b.intent } },
         { binding: 5, resource: { buffer: b.focus } }
       ] });
       const lineBG = (view) => d.createBindGroup({ layout: this.pLine.getBindGroupLayout(0), entries: [
@@ -2841,6 +3188,17 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       this.bgLineL = lineBG(b.viewL);
       this.bgPointS = pointBG(b.viewS);
       this.bgLineS = lineBG(b.viewS);
+      const bridgeBG = (view) => d.createBindGroup({ layout: this.pBridge.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: { buffer: view } },
+        { binding: 1, resource: { buffer: b.parts } },
+        { binding: 2, resource: { buffer: b.genomes } },
+        { binding: 3, resource: { buffer: b.intent } },
+        { binding: 4, resource: { buffer: b.livingList } },
+        { binding: 5, resource: { buffer: b.focus } }
+      ] });
+      this.bgBridge = bridgeBG(b.view);
+      this.bgBridgeL = bridgeBG(b.viewL);
+      this.bgBridgeS = bridgeBG(b.viewS);
       const verr = await d.popErrorScope();
       const oerr = await d.popErrorScope();
       if (verr || oerr) {
@@ -3380,7 +3738,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     _writeView(buf, data, cam, W, H, dpr, time, selId) {
       const K = this.K;
       const ppu = cam.ppu;
-      const pointSize = Math.min(40 * dpr, Math.max(1.1 * dpr, 0.085 * ppu));
+      const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
       const perArea = K.density / (ppu * ppu);
       const overlapAll = perArea * pointSize * pointSize * 0.5;
       const overlapLife = overlapAll * 0.4;
@@ -3410,11 +3768,19 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       vu[19] = f2.memberN;
       this.device.queue.writeBuffer(buf, 0, data);
     }
-    _drawScene(pass, bgLine, bgPoint) {
+    _drawScene(pass, bgLine, bgPoint, bgBridge, data) {
+      const v = new Float32Array(data);
       if (this.settings.links) {
-        pass.setPipeline(this.pLine);
-        pass.setBindGroup(0, bgLine);
-        pass.drawIndirect(this.b.frameCtr, 16);
+        if (v[7] < 30) {
+          pass.setPipeline(this.pLine);
+          pass.setBindGroup(0, bgLine);
+          pass.drawIndirect(this.b.frameCtr, 16);
+        }
+        if (v[7] > 6) {
+          pass.setPipeline(this.pBridge);
+          pass.setBindGroup(0, bgBridge);
+          pass.drawIndirect(this.b.bridgeDraw, 0);
+        }
       }
       if (this.settings.nodes) {
         pass.setPipeline(this.pPoint);
@@ -3426,6 +3792,9 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       const d = this.device;
       const [W, H] = this.size;
       this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId);
+      if (new Float32Array(this.viewData)[7] > 6 || loupe || specimen) {
+        enc.copyBufferToBuffer(this.b.frameCtr, 20, this.b.bridgeDraw, 4, 4);
+      }
       const pd = this.postData;
       pd[0] = W;
       pd[1] = H;
@@ -3464,7 +3833,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
           pass2.setBindGroup(0, this.reprojBG[srcI]);
           pass2.draw(3);
         }
-        this._drawScene(pass2, this.bgLine, this.bgPoint);
+        this._drawScene(pass2, this.bgLine, this.bgPoint, this.bgBridge, this.viewData);
         pass2.end();
       }
       this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu };
@@ -3476,14 +3845,14 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / (loupe.r * 2)), time, selId);
         d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W, H, 0, 0]));
         const pass2 = enc.beginRenderPass({ colorAttachments: [{ view: this.loupeView, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
-        this._drawScene(pass2, this.bgLineL, this.bgPointL);
+        this._drawScene(pass2, this.bgLineL, this.bgPointL, this.bgBridgeL, this.viewDataL);
         pass2.end();
       }
       if (specimen && specimen.target) {
         this._ensureSpecTex(specimen.w, specimen.h);
         this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId);
         let pass2 = enc.beginRenderPass({ colorAttachments: [{ view: this.specView, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
-        this._drawScene(pass2, this.bgLineS, this.bgPointS);
+        this._drawScene(pass2, this.bgLineS, this.bgPointS, this.bgBridgeS, this.viewDataS);
         pass2.end();
         pass2 = enc.beginRenderPass({ colorAttachments: [{ view: specimen.target, loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }] });
         pass2.setPipeline(this.pPlain);
@@ -4411,7 +4780,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     const fitPPU = () => Math.max(canvas.width / eng.grid[0], canvas.height / eng.grid[1]);
     const ppu = () => fitPPU() * cam.zoom;
     const cssPPU = () => ppu() / dpr;
-    const maxZoom = () => Math.max(1, 220 * dpr / fitPPU());
+    const maxZoom = () => Math.max(1, 1500 * dpr / fitPPU());
     const toWorld = (sx, sy) => {
       const p = ppu();
       return [cam.x + (sx * dpr - canvas.width / 2) / p, cam.y + (sy * dpr - canvas.height / 2) / p];

@@ -17,7 +17,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     const { genomeSerial, readGenome } = await import('./genome.js');
     const { communitySample, summarizeRun } = await import('./ecostats.js');
     const { ENERGY_SLOTS } = await import('./shaders.js');
-    const eng = await E.createEngine(device, 'rgba8unorm', { K: config.k });
+    const eng = await E.createEngine(device, 'rgba8unorm', { K: config.k, hasTimestamps: device.features.has('timestamp-query') });
     if (!(await eng.allocate(config.n))) throw new Error(`could not allocate ${config.n} particles`);
     const W = width, H = height;
     eng.resize(W, H);
