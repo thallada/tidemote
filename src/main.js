@@ -132,7 +132,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const fitPPU = () => Math.max(canvas.width / eng.grid[0], canvas.height / eng.grid[1]);
   const ppu = () => fitPPU() * cam.zoom;
   const cssPPU = () => ppu() / dpr;
-  const maxZoom = () => Math.max(1, (1500 * dpr) / fitPPU());
+  const MAX_PPU = 1500; // css px per world unit at full zoom
+  const maxZoom = () => Math.max(1, (MAX_PPU * dpr) / fitPPU());
   const toWorld = (sx, sy) => { const p = ppu(); return [cam.x + (sx * dpr - canvas.width / 2) / p, cam.y + (sy * dpr - canvas.height / 2) / p]; };
   const wrapD = (d, W) => d - W * Math.round(d / W);
   function toScreen(wx, wy) {
@@ -150,9 +151,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function loupeGeom() {
     if (!state.loupe || !hover.on || ptr.dragging || state.phase !== 'running') return null;
     const base = cssPPU();
-    if (base >= 40) return null;
+    // the loupe magnifies until the view itself is as close as the old zoom limit allowed (40 of 220 px per unit)
+    if (base >= 40 * MAX_PPU / 220) return null;
     const R = Math.round(clamp(Math.min(innerWidth, innerHeight) * 0.2, 90, 170));
-    const lp = clamp(base * state.loupeMag, 8, 240);
+    const lp = clamp(base * state.loupeMag, 8, MAX_PPU);
     const [cx, cy] = toWorld(hover.x, hover.y);
     return { sx: hover.x, sy: hover.y, R, cssPPU: lp, cx, cy };
   }
@@ -679,7 +681,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (e.kind >= FIRST_LIFE && d < bl) { bl = d; bestLife = e; }
       if (d < ba) { ba = d; bestAny = e; }
     }
-    const chosen = bestLife && bl < 22 ? bestLife : bestAny && ba < 14 ? bestAny : null;
+    // a click anywhere on a cell's body counts, however far in the view is zoomed
+    const chosen = bestLife && bl < Math.max(22, 0.2 * p) ? bestLife : bestAny && ba < Math.max(14, 0.05 * p) ? bestAny : null;
     if (!chosen) { deselect(); return; }
     beginTracking(chosen, res);
     if (state.keys) { state.keys = false; renderKeys(); }

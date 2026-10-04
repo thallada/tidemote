@@ -4786,7 +4786,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     const fitPPU = () => Math.max(canvas.width / eng.grid[0], canvas.height / eng.grid[1]);
     const ppu = () => fitPPU() * cam.zoom;
     const cssPPU = () => ppu() / dpr;
-    const maxZoom = () => Math.max(1, 1500 * dpr / fitPPU());
+    const MAX_PPU = 1500;
+    const maxZoom = () => Math.max(1, MAX_PPU * dpr / fitPPU());
     const toWorld = (sx, sy) => {
       const p = ppu();
       return [cam.x + (sx * dpr - canvas.width / 2) / p, cam.y + (sy * dpr - canvas.height / 2) / p];
@@ -4809,9 +4810,9 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     function loupeGeom() {
       if (!state.loupe || !hover.on || ptr.dragging || state.phase !== "running") return null;
       const base = cssPPU();
-      if (base >= 40) return null;
+      if (base >= 40 * MAX_PPU / 220) return null;
       const R = Math.round(clamp5(Math.min(innerWidth, innerHeight) * 0.2, 90, 170));
-      const lp = clamp5(base * state.loupeMag, 8, 240);
+      const lp = clamp5(base * state.loupeMag, 8, MAX_PPU);
       const [cx, cy] = toWorld(hover.x, hover.y);
       return { sx: hover.x, sy: hover.y, R, cssPPU: lp, cx, cy };
     }
@@ -5411,7 +5412,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
           bestAny = e;
         }
       }
-      const chosen = bestLife && bl < 22 ? bestLife : bestAny && ba < 14 ? bestAny : null;
+      const chosen = bestLife && bl < Math.max(22, 0.2 * p) ? bestLife : bestAny && ba < Math.max(14, 0.05 * p) ? bestAny : null;
       if (!chosen) {
         deselect();
         return;
