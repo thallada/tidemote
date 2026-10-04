@@ -540,23 +540,34 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
     // frames between meals
     dietMin: 0.02,
     // share of the diet a food must have before a cell bothers to eat it
-    // Stone: calcified remains and bedrock. Immobile, solid to the living, slowly eroding back to silt.
+    // Stone: calcified remains and bedrock. Immobile, solid to all but calcifiers, slowly eroding back to silt.
     calcCost: 0.012,
     // upkeep of a fully calcifying cell (× metab)
-    stoneLife: 300,
-    // seconds a reef stone lasts on average before it crumbles to silt
     reefs: 1,
     // 0: calcifying cells never leave stone (bedrock only)
-    nucleate: 0.03,
+    nucleate: 0.12,
     // chance of leaving stone away from other stone, relative to beside it: reefs accrete
+    stoneLife: 400,
+    // seconds a grain of reef stone lasts on average before it crumbles to silt...
     rockLife: 3e3,
     // ...and a grain of bedrock
+    wearLoose: 3,
+    // how fast a loose grain of reef stone wears, relative to stoneLife...
+    wearPacked: 0.3,
+    // ...and a grain packed into a reef...
+    packedAt: 8,
+    // ...with this many grains in its grid cell
+    regionWear: 30,
+    // extra wear on reef stone whose neighbourhood (cells within regionR) holds more than...
+    regionR: 4,
+    regionCap: 2,
+    // ...this many reef grains per cell on average: reefs grow as separate patches
     rocks: 0.5,
     // scales each world's bedrock outcrops (0: none)
     stoneR: 0.32,
     // distance within which stone pushes cells away
     stoneWall: 5,
-    // how hard stone pushes
+    // how hard stone pushes (scaled down for calcifiers, which settle on it)
     refuge: 0.12,
     // chance per nearby grain of stone that an attack made from among stone misses...
     refugeMax: 0.3
@@ -658,6 +669,8 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u3
 @group(0) @binding(11) var<storage, read_write> ledger: array<atomic<u32>>;
 @group(0) @binding(12) var<storage, read_write> livingList: array<u32>;
 @group(0) @binding(13) var<storage, read_write> frameCtr: array<atomic<u32>, 8>;
+// Grains of reef stone (not bedrock) in each grid cell, counted while binning.
+@group(0) @binding(14) var<storage, read_write> stoneGrid: array<atomic<u32>>;
 
 const EAT_R = ${f(K.eatR)};
 const LINK_R = ${f(K.linkR)};
@@ -954,6 +967,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
     let cell = cellOf(p.pos);
     let r = atomicAdd(&countsA[cell], 1u);
     aux[i] = vec2u(cell, r);
+    if (p.kind == STONE && (p.info & 15u) != 0u) { atomicAdd(&stoneGrid[cell], 1u); }
     atomicAdd(&hist[p.kind % MAXK], 1u);
     if (p.kind >= FIRST_LIFE) { atomicAdd(&roleHist[roleOf(p.info)], 1u); }
   }
@@ -1078,8 +1092,30 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u) {
   var p = sortedFull[i];
   if (p.kind >= FIRST_LIFE) { return; }
   if (p.kind == STONE) {
-    // stone stays put and wears away; its energy is the time it has left
-    p.energy -= sim.dt;
+    // stone stays put and wears away; its energy is the time it has left. Reef stone (bedrock has cause 0)
+    // wears by its surroundings: loose grains fast and grains packed into a reef slowly, so rubble clears
+    // and reefs stay solid, but a neighbourhood that is mostly reef wears fast (waves and borers on a reef
+    // flat), so reefs grow as separate patches about as wide as that neighbourhood.
+    var wear = 1.0;
+    if ((p.info & 15u) != 0u) {
+      let c = vec2i(clamp(floor(p.pos), vec2f(0.0), vec2f(sim.grid) - 1.0));
+      let gw = i32(sim.grid.x);
+      let gh = i32(sim.grid.y);
+      let here = f32(atomicLoad(&stoneGrid[u32(c.y * gw + c.x)]));
+      var region = 0.0;
+      if (${f(K.regionWear)} > 0.0) {
+        for (var dy = -${K.regionR | 0}; dy <= ${K.regionR | 0}; dy++) {
+          for (var dx = -${K.regionR | 0}; dx <= ${K.regionR | 0}; dx++) {
+            let x = (c.x + dx + gw) % gw;
+            let y = (c.y + dy + gh) % gh;
+            region += f32(atomicLoad(&stoneGrid[u32(y * gw + x)]));
+          }
+        }
+      }
+      wear = mix(${f(K.wearLoose)}, ${f(K.wearPacked)}, smoothstep(2.0, ${f(K.packedAt)}, here))
+        * (1.0 + ${f(K.regionWear)} * max(0.0, region / ${f((2 * (K.regionR | 0) + 1) ** 2)} / ${f(K.regionCap)} - 1.0));
+    }
+    p.energy -= sim.dt * wear;
     p.age += sim.dt;
     p.vel = vec2f(0.0);
     if (p.energy <= 0.0) {
@@ -1298,7 +1334,8 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   if (n1 != NONE) { bondF += dn1 * ((d1 - LINK_R * 0.55) / max(d1, 1e-4)); }
   if (n2 != NONE) { bondF += dn2 * ((d2 - LINK_R * 0.55) / max(d2, 1e-4)); }
   vel += bondF * (g.adhesion * ${f(K.bond)} * sim.dt);
-  vel += stoneF * (${f(K.stoneWall)} * sim.dt);
+  // stone is solid to everything but the calcifiers that build it, which settle on their own reef
+  vel += stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify) * sim.dt);
   let swim = g.swim * (1.0 - g.photo);
   if (swim > 0.0) {
     var dir = vel;
@@ -1606,7 +1643,7 @@ struct PO {
   } else if (k == STONE) {
     // stone: chalky and matte, tinted by the species that built it
     shape = 6u;
-    col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 2.0;
+    col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 1.1;
   } else {
     size = 0.62;
     shape = 1u;
@@ -2589,6 +2626,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
       b.pickU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
       b.counts = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST });
+      b.stoneGrid = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST });
       b.cellStart = d.createBuffer({ size: (MAX_CELLS + 1) * 4, usage: U.STORAGE });
       b.blockSums = d.createBuffer({ size: MAX_CELLS / 256 * 4, usage: U.STORAGE });
       b.genomes = d.createBuffer({ size: MAXK * G_BYTES, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
@@ -2609,13 +2647,13 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       const cp = (mod, entryPoint) => d.createComputePipeline({ layout: "auto", compute: { module: mod, entryPoint }, label: entryPoint });
       this.cpDefs = {
         seedMain: [0, 1, 10],
-        resolveCount: [0, 1, 4, 8, 9, 10, 11],
+        resolveCount: [0, 1, 4, 8, 9, 10, 11, 14],
         scanBlocks: [5, 6, 7],
         scanSums: [6, 7],
         scanAdd: [6, 7],
         scatterMain: [0, 1, 2, 3, 6, 8, 10, 12, 13],
         censusMain: [11, 12, 13],
-        matterMain: [0, 1, 2, 10, 11],
+        matterMain: [0, 1, 2, 10, 11, 14],
         lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12]
       };
       this.cp = {};
@@ -2697,7 +2735,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         10: { buffer: b.genomes },
         11: { buffer: b.ledger },
         12: { buffer: b.livingList },
-        13: { buffer: b.frameCtr }
+        13: { buffer: b.frameCtr },
+        14: { buffer: b.stoneGrid }
       };
       for (const [name, ids] of Object.entries(this.cpDefs)) {
         const c = this.cp[name];
@@ -2987,6 +3026,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       }
       const cells = this.grid[0] * this.grid[1];
       enc.clearBuffer(b.counts, 0, cells * 4);
+      enc.clearBuffer(b.stoneGrid, 0, cells * 4);
       enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
       enc.clearBuffer(b.frameCtr, 0, 4);
       enc.clearBuffer(b.ledger, 48, 12);
@@ -3511,8 +3551,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     predator: "Mostly eats flesh: hunts animal cells, and crops plants only reluctantly.",
     celltype: "α, β and γ cells of one species share a genome but each has its own surface and receptor signature, so each type is pulled toward and away from things differently. Types also differ in colour tint, size and shape.",
     bodyplan: "The long-run mix of cell types a species produces. Each child’s type is chosen by a developmental rule from its parent’s type; this is where that rule settles.",
-    stone: "Bedrock, and the skeletons of calcifying cells. Stone never drifts and the living cannot pass through it. Attacks made from among stone often miss, so prey shelters in reefs. Bedrock lasts nearly an hour, a reef grain about five minutes, so a reef persists only while it is being built.",
-    calcify: "How much of a skeleton a cell lays down. Calcifying costs upkeep. When a settled calcifying cell dies of hunger or old age it may leave stone instead of a husk, far more often beside stone already there, so reefs grow outward from rock and from the rare place one starts. Drifting cells seldom leave stone.",
+    stone: "Bedrock, and the skeletons of calcifying cells. Stone never drifts and the living cannot pass through it. Attacks made from among stone sometimes miss, so prey shelters in reefs, and calcifying cells settle on their own reef while everything else must go around it. Bedrock lasts nearly an hour. A loose grain of reef stone crumbles within minutes, a grain packed into a reef lasts far longer, and a neighbourhood that is mostly reef wears fast, so reefs grow as separate patches and persist only while they are being built.",
+    calcify: "How much of a skeleton a cell lays down. Calcifying costs upkeep. When a settled calcifying cell dies of hunger or old age it may leave stone instead of a husk, far more often beside stone already there, so reefs grow outward from rock and from the rare place one starts. Drifting cells seldom leave stone. Calcifiers can settle on stone; to everything else it is solid.",
     adhesion: "How strongly cells of one species bond. Above 15%, each cell bonds to its two nearest same-species neighbours with a spring. Bonds are the links you see and they hold bodies together. Bonded cells share the cost of living (up to 15% less upkeep), shade each other less and are armoured against attack. They still pay crowding beyond their bond partners, disperse poorly and their inner cells struggle to reach silt to divide. Species without adhesion are free-living.",
     bond: "A spring between two cells of the same species. Drawn as a link. A connected web of bonds is one organism.",
     organism: "A body: all same-species cells connected through bonds. A species only forms bodies if its adhesion is above 15%; otherwise every cell is its own organism, even when the species has several cell types (morphs) or gathers into swarms.",

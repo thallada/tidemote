@@ -92,7 +92,7 @@ Every 20 frames a census is read back: per-species counts and genomes. The CPU u
 - **Catching takes skill**: a cell catches living prey in proportion to how well it is built to eat it, so photosynthesisers and husk eaters rarely kill.
 - **Search images**: hunters and grazers catch the species they caught last more readily and often miss unfamiliar prey, so booming species feed their predators while rare ones are spared.
 - **Bonds**: bodies share upkeep, shade each other less, and resist attack through armor.
-- **Stone**: each world has its own bedrock outcrops, and settled calcifying cells may leave their skeleton as stone, mostly beside stone already there, so reefs grow from rock. Stone never drifts, the living cannot pass through it, attacks made from among it sometimes miss, and it slowly wears back into silt.
+- **Stone**: each world has its own bedrock outcrops, and settled calcifying cells may leave their skeleton as stone, mostly beside stone already there, so reefs grow from rock. Stone never drifts and only calcifiers can settle on it; attacks made from among it sometimes miss. Loose stone wears away fast and packed stone slowly, while a neighbourhood that is mostly reef wears fast, so reefs grow as separate patches and the world never turns to stone.
 
 Glint sparks into a random new lineage about once every 30 simulated seconds on average, independent of climate eras and population.
 

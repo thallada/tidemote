@@ -68,23 +68,21 @@ export const DEFAULT_K = {
   bite: 0.06,       // energy taken per bite from a photosynthesising cell
   eatEvery: 6,      // frames between meals
   dietMin: 0.02,    // share of the diet a food must have before a cell bothers to eat it
-  // Stone: calcified remains and bedrock. Immobile, solid to the living, slowly eroding back to silt.
+  // Stone: calcified remains and bedrock. Immobile, solid to all but calcifiers, slowly eroding back to silt.
   calcCost: 0.012,  // upkeep of a fully calcifying cell (× metab)
-  stoneLife: 300,   // seconds a reef stone lasts on average before it crumbles to silt
   reefs: 1,         // 0: calcifying cells never leave stone (bedrock only)
-  stoneCap: 0,      // stone grains within half a cell at which a dying calcifier leaves no more (0: no limit)
-  nucleate: 0.03,
-  wearLoose: 1,     // how fast a loose grain of stone wears, relative to stoneLife...
-  wearPacked: 1,    // ...and a grain packed into a reef...
-  packedAt: 8,      // ...with this many grains in its grid cell
-  regionWear: 0,    // extra wear on reef stone whose neighbourhood (cells within regionR) holds more than...
-  regionR: 2,
-  regionCap: 2.5,   // ...this many reef grains per cell on average
-  reefLight: 0,     // light below which calcifiers leave no stone, rising to full at reefLight + 0.4 (0: any light)   // chance of leaving stone away from other stone, relative to beside it: reefs accrete
+  nucleate: 0.12,   // chance of leaving stone away from other stone, relative to beside it: reefs accrete
+  stoneLife: 400,   // seconds a grain of reef stone lasts on average before it crumbles to silt...
   rockLife: 3000,   // ...and a grain of bedrock
+  wearLoose: 3,     // how fast a loose grain of reef stone wears, relative to stoneLife...
+  wearPacked: 0.3,  // ...and a grain packed into a reef...
+  packedAt: 8,      // ...with this many grains in its grid cell
+  regionWear: 30,   // extra wear on reef stone whose neighbourhood (cells within regionR) holds more than...
+  regionR: 4,
+  regionCap: 2.0,   // ...this many reef grains per cell on average: reefs grow as separate patches
   rocks: 0.5,       // scales each world's bedrock outcrops (0: none)
   stoneR: 0.32,     // distance within which stone pushes cells away
-  stoneWall: 5.0,   // how hard stone pushes
+  stoneWall: 5.0,   // how hard stone pushes (scaled down for calcifiers, which settle on it)
   refuge: 0.12,     // chance per nearby grain of stone that an attack made from among stone misses...
   refugeMax: 0.3,   // ...up to this (a leaky refuge: hunters at reefs still make a living)
 };
@@ -953,11 +951,8 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 2u], 1u);
   }
   // calcifying cells that settled leave their skeleton as stone, in their own colour, mostly where
-  // stone already is, so reefs grow outward from rock and from the rare place one starts; a reef that is
-  // already thick around the cell takes no more, so reefs grow as frameworks rather than solid carpets
-  if (kind == HUSK && g.calcify > 0.0 && rnd(&s) < ${f(K.reefs)} * g.calcify * (1.0 - g.advect) * select(${f(K.nucleate)}, 1.0, stoneN >= 1.0)
-      * select(1.0, smoothstep(${f(K.reefLight)}, ${f(K.reefLight + 0.4)}, light), ${f(K.reefLight)} > 0.0)
-      * select(1.0, clamp(1.0 - stoneN / ${f(K.stoneCap || 1)}, 0.0, 1.0), ${f(K.stoneCap)} > 0.0)) {
+  // stone already is, so reefs grow outward from rock and from the rare place one starts
+  if (kind == HUSK && g.calcify > 0.0 && rnd(&s) < ${f(K.reefs)} * g.calcify * (1.0 - g.advect) * select(${f(K.nucleate)}, 1.0, stoneN >= 1.0)) {
     kind = STONE; E = ${f(K.stoneLife)} * (0.5 + rnd(&s)); vel = vec2f(0.0);
   }
   let childGen = ((genOf(p.info) + 1u) & 0xffffu) << 14u;

@@ -223,3 +223,29 @@ Capping the refuge at 30% (`refugeMax` 0.3) closes the gap:
 
 The 32k gate passes with the adopted rules (no gated metric regressed). Stone holds about 17% of matter
 at 30 minutes, so the living share falls from 64% to 51%.
+
+### Limiting stone without losing the reefs (2026-10-04)
+
+Long runs showed stone taking over: over 60 minutes at 131k (12 runs) the average peak was 25% of all
+matter and the worst 55%, highest in sessile-heavy worlds. Tried, on 131k × 60 min runs:
+
+- **A local thickness cap** (no stone where 4 or 8 grains already surround the dying cell) bounded stone
+  (worst peak 25%) but turned reefs into loose pebble frameworks. Rejected for the look.
+- **Shorter-lived stone, or half as many deaths becoming stone**: worst peaks of 58-68%. They slow stone but
+  do not bound it in a world full of calcifiers.
+- **Packing** (a loose grain wears 3× faster than `stoneLife`, a grain with 8 others in its grid cell 0.3×)
+  clears rubble and keeps reefs solid, but on its own it is bistable: reefs never start, or run away (87%
+  of matter in 20 minutes in one world).
+- **Plus a regional brake** (reef stone wears faster when its 9×9-cell neighbourhood holds more than 2
+  reef grains per cell on average): short-range help and long-range inhibition, the recipe for patterns
+  with a characteristic size. Reefs grow as separate patches. With the brake at ×4 it was too soft (worst
+  peak 48%); at ×30 it holds.
+- **Calcifiers settle on stone**: the wall's push is scaled by `1 − calcify`, so builders live on their
+  own reef and extend it, while everything else goes around. Without this each reef stayed colony-sized.
+
+| 131k × 60 min, 12 runs | average peak | worst peak | predators > 5% late | guilds lost |
+| --- | --- | --- | --- | --- |
+| previous stone rules | 25% | 55% | 42% of runs | 0.58 |
+| packing + regional brake ×30 + settling (adopted) | 16% | 23% | 75% | 0 |
+
+The 32k gate passes against the previous stone rules (food web 47% → 56%, effective species 80 → 89).
