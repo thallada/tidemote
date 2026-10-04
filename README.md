@@ -14,7 +14,7 @@ python3 -m http.server -d dist 8000   # then open http://localhost:8000/tidemote
 
 On start it sizes the universe to your GPU: it times a few frames and fixes the particle count so the simulation fits in about 7.5 ms a frame. If the frame rate later drops, it lowers the render resolution instead of the particle count.
 
-Deep zoom reveals organic detail in cells, minerals and bonds, with a faint, world-anchored suspension of cosmetic microbial fragments, fibres and grit that also appears in the loupe and specimen view.
+Deep zoom reveals organic detail in cells, minerals and bonds, with a faint, patchy suspension of cosmetic microbial fragments, fibres and grit that follows the water's currents and also appears in the loupe and specimen view.
 
 The time control under the epoch clock pauses, steps the speed along ×¼ … ×1, ×1.25, ×1.5, ×2, ×4 … ×64 (`,` and `.`), returns to real time (`/`) or runs as fast as the GPU allows (**Max**, `>`). Above ×1 the page runs several whole simulation steps per drawn frame, as the headless runs do, so the ecology is the same at every speed; it keeps a frame under about 30 ms of GPU time and shows the speed actually reached when that is less than asked. Below ×1 the steps are shortened instead.
 

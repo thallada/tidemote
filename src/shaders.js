@@ -1763,6 +1763,7 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
 `;
 
 export const POST_WGSL = COMMON + /* wgsl */ `
+override MICRO_SUSPENSION: bool = true;
 struct Post {
   res: vec2f, bloom: f32, exposure: f32,
   time: f32, season: f32, tideVis: f32, ppu: f32,
@@ -1770,6 +1771,7 @@ struct Post {
   simTime: f32, ambient: f32, p1: f32, p2: f32,
   tide: array<vec4f, 4>,
   tidePh: vec4f,
+  waves: array<vec4f, 4>,
 };
 struct Loupe { center: vec2f, radius: f32, strength: f32, res: vec2f, ppu: f32, p1: f32 };
 // Prefix of DRAW's View: reuse the inspection cameras, without another buffer.
@@ -1824,41 +1826,45 @@ fn hash12(p: vec2f) -> f32 {
   return fract((p3.x + p3.y) * p3.z);
 }
 
-// Cosmetic pond suspension. Each octave has one bounded object per grid slot:
-// centres, motion and SDF support stay inside the slot, so no neighbour scan is
-// needed. The field drifts in world space; camera motion never reseeds it.
-fn microGrain(wp: vec2f, spacing: f32, ppu: f32, octave: f32, depth: f32) -> vec4f {
-  let resolved = smoothstep(0.6, 1.6, spacing * 0.075 * ppu);
-  if (resolved <= 0.0) { return vec4f(0.0); }
-  let t = post.simTime;
-  let drift = t * vec2f(0.0007, -0.0004) * depth;
-  // Each depth plane has its own toroidal world and camera parallax rate.
-  let layerWorld = post.world * depth;
-  let slots = max(vec2f(1.0), round(layerWorld / spacing));
-  let pitch = layerWorld / slots;
-  let offset = vec2f(octave * 17.3, octave * 9.7);
-  let p = (wp - drift) / pitch + offset;
+// Same four divergence-free waves as matter's flowAt, including phase/time.
+fn postFlowAt(p: vec2f, time: f32) -> vec2f {
+  var v = vec2f(0.0);
+  for (var k = 0u; k < 4u; k++) {
+    let w = post.waves[k];
+    let ph = dot(w.xy, p) + w.z * time + f32(k) * 1.7;
+    v += vec2f(w.y, -w.x) * (cos(ph) * w.w / max(length(w.xy), 1e-4));
+  }
+  return v;
+}
+
+// Four decorrelated hash channels in one inexpensive vector hash.
+fn microHash(p: vec2f) -> vec4f {
+  var h = fract(vec4f(p.xy, p.xy + vec2f(19.19, 73.73)) * vec4f(0.1031, 0.1030, 0.0973, 0.1099));
+  h += dot(h, h.wzxy + 33.33);
+  return fract((h.xxyz + h.yzzw) * h.zywx);
+}
+
+fn microNoise(p: vec2f, period: vec2f) -> vec3f {
   let cell = floor(p);
-  let slot = cell - slots * floor(cell / slots);
-  let seed = slot + octave * 71.0;
-  let h = vec4f(hash12(seed), hash12(seed + 13.7), hash12(seed + 39.1), hash12(seed + 91.3));
-  // Most slots are occupied. Cleaner patches also lower translucency, rather
-  // than relying on black grains disappearing into the water background.
-  let phase = (slot + 0.5 - offset) / slots * TAU;
-  let patchiness = 0.5 + 0.5 * sin(phase.x * 61.0 + sin(phase.y * 29.0)) * cos(phase.y * 47.0 - phase.x * 17.0);
-  let density = mix(0.72, 0.98, patchiness);
-  if (h.w > density) { return vec4f(0.0); }
-  let abundance = mix(0.35, 1.0, patchiness);
-  let centre = vec2f(0.28) + h.xy * 0.44
-    + 0.018 * sin(vec2f(t * 0.53, t * 0.41) + h.yz * TAU);
-  var q = fract(p) - centre;
-  // Motion and full halo/blur support stay within the slot: one lookup only.
-  if (dot(q, q) > 0.0625) { return vec4f(0.0); }
-  let aa = 0.65 / (spacing * ppu);
+  let f = fract(p);
+  let u = f * f * (3.0 - 2.0 * f);
+  let a = cell - period * floor(cell / period);
+  let b = (cell + 1.0) - period * floor((cell + 1.0) / period);
+  return mix(mix(microHash(a).xyz, microHash(vec2f(b.x, a.y)).xyz, u.x),
+    mix(microHash(vec2f(a.x, b.y)).xyz, microHash(b).xyz, u.x), u.y);
+}
+
+fn microBody(local: vec2f, h: vec4f, spacing: f32, ppu: f32, depth: f32, abundance: f32) -> vec4f {
+  let t = post.simTime;
+  let size = mix(0.55, 1.55, h.w);
+  var q = local / size;
+  let resolved = smoothstep(0.6, 1.6, spacing * size * 0.075 * ppu);
+  if (resolved <= 0.0) { return vec4f(0.0); }
+  let aa = 0.65 / (spacing * size * ppu);
   let tint = vec3f(0.018, 0.023, 0.025) * mix(0.7, 1.15, h.w);
   if (depth < 1.0) {
     // A separate soft plane: large discs and elongated smudges, with broad
-    // focus falloff. It pans at 72% of the scene and drifts more slowly.
+    // focus falloff. It pans and follows the water at 72% of the in-focus plane.
     let stretch = mix(1.0, 1.6, h.z);
     let d = length(q * vec2f(stretch, 1.0));
     let soft = 1.0 - smoothstep(0.02, 0.21 + min(aa, 0.025), d);
@@ -1867,11 +1873,15 @@ fn microGrain(wp: vec2f, spacing: f32, ppu: f32, octave: f32, depth: f32) -> vec
     return vec4f(tint * glow, soft * soft * 0.1 * abundance * resolved);
   }
   let family = u32(h.z * 8.0);
+  let r = 0.05 + h.y * 0.025;
+  let widths = array<f32, 8>(0.42, 0.36, 0.22, 0.7, 0.2, 1.0, 1.0, 0.4);
+  // Avoid shape/trigonometric work for individual unresolved objects, even
+  // when a larger sibling in this octave can already be seen.
+  if (r * widths[family] * spacing * size * ppu <= 0.45) { return vec4f(0.0); }
   let tumble = 0.9 * smoothstep(0.78, 0.98, sin(t * 0.17 + h.x * TAU));
   let angle = h.x * TAU + t * (h.y - 0.5) * 0.08 + tumble;
   let axis = vec2f(cos(angle), sin(angle));
   q = vec2f(dot(q, axis), dot(q, vec2f(-axis.y, axis.x)));
-  let r = 0.05 + h.y * 0.025;
   var sdf = 0.0;
   var width = r;
   var haloWidth = r * 0.45;
@@ -1921,23 +1931,86 @@ fn microGrain(wp: vec2f, spacing: f32, ppu: f32, octave: f32, depth: f32) -> vec
     haloWidth = r * 0.14;
     body = 0.015;
   }
-  let visible = resolved * smoothstep(0.45, 1.3, width * spacing * ppu) * abundance;
+  let visible = resolved * smoothstep(0.45, 1.3, width * spacing * size * ppu) * abundance;
   let core = 1.0 - smoothstep(-aa, aa, sdf);
   let rim = 1.0 - smoothstep(aa * 0.5, aa + haloWidth, abs(sdf));
   return vec4f(tint * (core * body + rim * 0.85), core * 0.24) * visible;
 }
 
+// Random 0–3 objects per slot, full-extent centres and a 2x2 nearest-slot
+// lookup. Rotation, shear, continuous sizes and clumpy domain warping erase
+// the grid. Integer torus winding vectors preserve the irrational-angle
+// lattice across world wraps; inverse mapping canonicalises hash addresses.
+fn microGrain(wp: vec2f, spacing: f32, ppu: f32, octave: f32, depth: f32, cycle: f32) -> vec4f {
+  if (spacing * 1.55 * 0.075 * ppu <= 0.6) { return vec4f(0.0); }
+  let world = post.world * depth;
+  let theta = 0.618033989 + octave * 2.39996323;
+  let axis = vec2f(cos(theta), sin(theta));
+  let row0 = round(axis * world / spacing);
+  let row1 = round((vec2f(-axis.y, axis.x) + axis * 0.37) * world / spacing);
+  let lattice = mat2x2f(vec2f(row0.x, row1.x), vec2f(row0.y, row1.y));
+  let det = row0.x * row1.y - row0.y * row1.x;
+  let inverse = mat2x2f(vec2f(row1.y, -row1.x) / det, vec2f(-row0.y, row0.x) / det);
+  let patchCells = max(vec2f(1.0), round(world / vec2f(0.21, 0.38)));
+  let noise = microNoise(wp / world * patchCells, patchCells);
+  let density = smoothstep(0.18, 0.82, noise.z);
+  let abundance = mix(0.45, 1.0, density);
+  let p = lattice * (wp / world) + (noise.xy - 0.5) * 1.3 + vec2f(octave * 17.3, octave * 9.7);
+  let base = floor(p - 0.5);
+  var grains = vec4f(0.0);
+  for (var y = 0; y < 2; y++) {
+    for (var x = 0; x < 2; x++) {
+      let slot = base + vec2f(f32(x), f32(y));
+      let canonical = round(slot - lattice * floor(inverse * slot + 0.000001));
+      let seed = canonical + vec2f(octave * 71.0 + cycle * 37.1, cycle * 91.7);
+      let count = u32(microHash(seed).w * 3.999);
+      for (var object = 0u; object < count; object++) {
+        let h = microHash(seed + f32(object) * vec2f(123.3, 217.7) + 13.7);
+        // Smooth probabilistic occupancy avoids clipping a body where the
+        // coarse density field crosses a threshold.
+        let occupied = smoothstep(h.w - 0.12, h.w + 0.12, density) * density;
+        if (occupied <= 0.0) { continue; }
+        var q = p - slot - h.xy;
+        if (dot(q, q) > 0.25) { continue; }
+        q -= 0.012 * sin(vec2f(post.simTime * 0.53, post.simTime * 0.41) + h.yz * TAU);
+        grains += microBody(q, h, spacing, ppu, depth, abundance * occupied);
+      }
+    }
+  }
+  return grains;
+}
+
 fn pondMicro(c: vec3f, hdr: vec3f, cam: vec2f, offset: vec2f, renderPPU: f32, ppu: f32) -> vec3f {
+  // The main view specialises this away below the reveal threshold, avoiding
+  // register/stack overhead from the deep-zoom shader even on software GPUs.
+  if (!MICRO_SUSPENSION) { return c; }
   // Uniform early-out: no hashes, shapes or time work at ordinary zoom. The
   // fit threshold also keeps the default view unchanged on very small worlds.
   let start = max(80.0, 2.0 * max(post.res.x / post.world.x, post.res.y / post.world.y));
   if (ppu <= start) { return c; }
   let delta = offset / renderPPU;
   let wp = cam + delta;
+  let velocity = postFlowAt(wp, post.simTime);
   let reveal = smoothstep(start, start * 2.0, ppu);
-  var grains = microGrain(cam * 0.72 + delta, 0.055, ppu, 0.0, 0.72);
-  grains += microGrain(wp, 0.035, ppu, 1.0, 1.0);
-  grains += microGrain(wp, 0.008, ppu, 2.0, 1.0);
+  var grains = vec4f(0.0);
+  // Complementary triangle windows sum to one; each field is invisible at
+  // its reset. New cycle seeds read as suspension entering the focal plane.
+  for (var phase = 0u; phase < 2u; phase++) {
+    let clock = post.simTime / 4.0 + f32(phase) * 0.5;
+    let age = fract(clock);
+    let weight = 1.0 - abs(2.0 * age - 1.0);
+    if (weight <= 0.001) { continue; }
+    let tau = age * 4.0;
+    // Midpoint backtrace also follows changing waves and curved streamlines.
+    // A current-time Euler projection adds tau * dv/dt to apparent velocity,
+    // which can move dust sideways relative to matter near a slow-flow node.
+    let back = postFlowAt(wp - velocity * (tau * 0.5), post.simTime - tau * 0.5) * tau;
+    let cycle = floor(clock) + f32(phase) * 131.0;
+    var field = microGrain(cam * 0.72 + delta - back * 0.72, 0.055, ppu, 0.0, 0.72, cycle);
+    field += microGrain(wp - back, 0.035, ppu, 1.0, 1.0, cycle);
+    field += microGrain(wp - back, 0.008, ppu, 2.0, 1.0, cycle);
+    grains += field * weight;
+  }
   let behind = reveal / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
   return max(vec3f(0.0), c * (1.0 - grains.a * behind) + grains.rgb * behind);
 }

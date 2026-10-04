@@ -60,7 +60,7 @@ class Engine {
     this.waves = new Float32Array(16);
     this.viewData = new ArrayBuffer(80);
     this.viewDataL = new ArrayBuffer(80);
-    this.postData = new Float32Array(36);
+    this.postData = new Float32Array(52);
     this.loupe = null;
     this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 0xffffffff, memberN: 0 };
     this.viewDataS = new ArrayBuffer(80);
@@ -83,7 +83,7 @@ class Engine {
     b.viewL = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
     b.viewS = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
     b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
-    b.post = d.createBuffer({ size: 144, usage: U.UNIFORM | U.COPY_DST });
+    b.post = d.createBuffer({ size: 208, usage: U.UNIFORM | U.COPY_DST });
     b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     b.pickU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
     b.counts = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST });
@@ -130,10 +130,10 @@ class Engine {
     const additive = { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } };
     const fade = { color: { srcFactor: 'zero', dstFactor: 'constant', operation: 'add' }, alpha: { srcFactor: 'zero', dstFactor: 'constant', operation: 'add' } };
     const over = { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } };
-    const rp = (mod, vs, fs, topology, blend, fmt = HDR) => d.createRenderPipeline({
+    const rp = (mod, vs, fs, topology, blend, fmt = HDR, constants = {}) => d.createRenderPipeline({
       layout: 'auto',
       vertex: { module: mod, entryPoint: vs },
-      fragment: { module: mod, entryPoint: fs, targets: [{ format: fmt, blend }] },
+      fragment: { module: mod, entryPoint: fs, targets: [{ format: fmt, blend }], constants },
       primitive: { topology },
       label: fs,
     });
@@ -144,6 +144,7 @@ class Engine {
     this.pDown = rp(this.postModule, 'vsFull', 'fsDown', 'triangle-list', undefined);
     this.pUp = rp(this.postModule, 'vsFull', 'fsUp', 'triangle-list', additive);
     this.pComp = rp(this.postModule, 'vsFull', 'fsComposite', 'triangle-list', undefined, format);
+    this.pCompClear = rp(this.postModule, 'vsFull', 'fsComposite', 'triangle-list', undefined, format, { MICRO_SUSPENSION: 0 });
     this.pLoupe = rp(this.postModule, 'vsLoupe', 'fsLoupe', 'triangle-list', over, format);
     this.pPlain = rp(this.postModule, 'vsFull', 'fsPlain', 'triangle-list', undefined, format);
     this.sampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
@@ -255,9 +256,11 @@ class Engine {
     this.down0BG = this.accumViews.map((v) => sbg(this.pDown, v));
     this.upBG = [];
     for (let i = BLOOM_LEVELS - 1; i > 0; i--) this.upBG.push({ target: i - 1, bg: sbg(this.pUp, this.bloomViews[i]) });
-    this.compBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.pComp.getBindGroupLayout(0), entries: [
+    const compBG = (pipe) => this.accumViews.map((v) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: v },
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 3, resource: this.bloomViews[0] }] }));
+    this.compBG = compBG(this.pComp);
+    this.compClearBG = compBG(this.pCompClear);
     this.reprojBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.pReproj.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: v }, { binding: 5, resource: { buffer: this.b.reprojU } }] }));
     this.clearAccum = true;
@@ -773,6 +776,7 @@ class Engine {
     pd[12] = this.simTime; pd[13] = this.ambient;
     pd.set(this.tide, 16);
     pd.set(this.tidePh, 32);
+    pd.set(this.waves, 36);
     d.queue.writeBuffer(this.b.post, 0, pd);
 
     {
@@ -840,7 +844,9 @@ class Engine {
       colorAttachments: [{ view: target, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }],
       timestampWrites: tsEnd,
     });
-    pass.setPipeline(this.pComp); pass.setBindGroup(0, this.compBG[cur]); pass.draw(3);
+    const micro = cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H / this.grid[1]));
+    pass.setPipeline(micro ? this.pComp : this.pCompClear);
+    pass.setBindGroup(0, micro ? this.compBG[cur] : this.compClearBG[cur]); pass.draw(3);
     if (loupe) { pass.setPipeline(this.pLoupe); pass.setBindGroup(0, this.loupeBG); pass.draw(6); }
     pass.end();
   }
