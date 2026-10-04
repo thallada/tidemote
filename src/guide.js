@@ -138,7 +138,7 @@ export const GUIDE = [
   {
     id: 'tools', title: 'Research tools',
     html: `<ul>
-<li><b>Inspector</b> (click a particle): its life story, an estimate of its organism (traced by proximity and highlighted), its species and full genome, and a live specimen view. Species names everywhere are links.</li>
+<li><b>Inspector</b> (click a particle): its life story, its organism (traced through its bonds and highlighted), its species and full genome, and a live specimen view. Species names everywhere are links.</li>
 <li><b>Lab → Species</b>: every species ranked and filterable by diet, mobility, body, status and more. <b>Highlight</b> dims everything outside the filter.</li>
 <li><b>Lab → Composition</b>: the world broken down by matter, cell type, diet, mobility and body type. Click any bar to highlight it.</li>
 <li><b>Lab → Dynamics</b>: population, diversity, births, deaths and feeding over time.</li>

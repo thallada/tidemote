@@ -8,6 +8,7 @@ import { createLab } from './lab.js';
 import { genusName, speciesEpithet } from './names.js';
 import { facets, describe, tagsOf, DIET_COL, MOB_COL } from './facets.js';
 import { traceBody } from './trace.js';
+import { PICK_WORDS } from './shaders.js';
 import { tideAt, flowAt } from './flow.js';
 
 const $ = (id) => document.getElementById(id);
@@ -771,12 +772,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   };
 
   // ------------------------------------------------------------ organism tracing
-  // One GPU pass copies every cell of the selected species (anywhere in the world). On the CPU we
-  // estimate the body using each cell's two nearest same-species neighbours within the link radius,
-  // either direction. This proximity walk does not read the GPU's persistent bonds. Neighbours are
-  // evaluated only around cells the walk reaches, so the cost tracks the size of the body, not the species.
+  // One GPU pass copies every cell of the selected species and its bond partner IDs.
+  // On the CPU a BFS traces the body through those bonds, treating either direction as a connection.
   let gatherBusy = false;
-  const orgScratch = { bins: null, nb: 0 };
   function gatherTick(force) {
     if (!sel || sel.lost || gatherBusy || state.phase !== 'running') return;
     const now = performance.now();
@@ -834,7 +832,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const [W, H] = eng.grid;
     const { u32, f32, count: n } = res.raw;
     const me = sel.particle;
-    const tb = traceBody(u32, f32, n, me.id, W, H, K.linkR);
+    const tb = traceBody(u32, f32, n, me.id);
     if (!tb) { sel.org = { ...(sel.org || {}), pending: true }; dirty = true; return; }
     const { body, X, Y } = tb;
     // body statistics, measured relative to the selected cell so wrap-around bodies stay whole
@@ -846,8 +844,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       dx -= W * Math.round(dx / W); dy -= H * Math.round(dy / H);
       rel[k * 2] = dx; rel[k * 2 + 1] = dy;
       cx += dx; cy += dy;
-      eSum += f32[i * 10 + 5]; vx += f32[i * 10 + 2]; vy += f32[i * 10 + 3];
-      roles[(u32[i * 10 + 9] >> 4) & 3]++;
+      eSum += f32[i * PICK_WORDS + 5]; vx += f32[i * PICK_WORDS + 2]; vy += f32[i * PICK_WORDS + 3];
+      roles[(u32[i * PICK_WORDS + 9] >> 4) & 3]++;
     });
     const m = Math.max(1, body.length);
     cx /= m; cy /= m;
@@ -863,7 +861,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     sel.org = { cells: body.length, roles, span: span * 2, speed: Math.hypot(vx / m, vy / m), meanE: eSum / m, partial: res.truncated, touching: prev ? prev.touching : 0, at: res.simTime, ms: performance.now() - t0 };
     if (sel.orgFirst == null) sel.orgFirst = body.length;
     const ids = new Uint32Array(body.length);
-    for (let k = 0; k < body.length; k++) ids[k] = u32[body[k] * 10 + 7];
+    for (let k = 0; k < body.length; k++) ids[k] = u32[body[k] * PICK_WORDS + 7];
     ids.sort();
     setMembers(body.length > 1 ? ids : null, me.kind);
     remember();
@@ -1108,14 +1106,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     let bestI = 0;
     if ((sp.genome.adhesion || 0) > K.adhMin) {
       const claimed = new Uint8Array(n);
-      const idIndex = new Map();
-      for (let i = 0; i < n; i++) idIndex.set(u32[i * 10 + 7], i);
       let bestN = 0;
       const t0 = performance.now();
       for (let tries = 0; tries < 60 && performance.now() - t0 < 60; tries++) {
         const i = Math.floor(Math.random() * n);
         if (claimed[i]) continue;
-        const tb = traceBody(u32, f32, n, u32[i * 10 + 7], W, H, K.linkR);
+        const tb = traceBody(u32, f32, n, u32[i * PICK_WORDS + 7]);
         if (!tb) continue;
         for (const k of tb.body) claimed[k] = 1;
         if (tb.body.length > bestN) { bestN = tb.body.length; bestI = i; }
@@ -1125,11 +1121,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
       let bestN = -1;
       for (let i = 0; i < n; i += step) {
         let c = 0;
-        for (let j = 0; j < n; j += step) if (Math.hypot(wrapD(f32[j * 10] - f32[i * 10], W), wrapD(f32[j * 10 + 1] - f32[i * 10 + 1], H)) < 2) c++;
+        for (let j = 0; j < n; j += step) if (Math.hypot(wrapD(f32[j * PICK_WORDS] - f32[i * PICK_WORDS], W), wrapD(f32[j * PICK_WORDS + 1] - f32[i * PICK_WORDS + 1], H)) < 2) c++;
         if (c > bestN) { bestN = c; bestI = i; }
       }
     }
-    const best = parseParticle(u32, f32, bestI * 10);
+    const best = parseParticle(u32, f32, bestI * PICK_WORDS);
     cam.x = best.x; cam.y = best.y;
     if (cssPPU() < 18) { cam.zoomTarget = clamp((18 * dpr) / fitPPU(), 1, maxZoom()); cam.anchor = null; }
     beginTracking(best, { entries: [], simTime: res.simTime });

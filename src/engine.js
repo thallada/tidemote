@@ -1,6 +1,6 @@
 import {
   simWGSL, PICK_WGSL, LISTEN_WGSL, LISTEN_CAP, LISTEN_HEAD, DRAW_WGSL, POST_WGSL, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_CLAIM, P_BYTES, G_BYTES, LITE_BYTES,
+  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES,
 } from './shaders.js';
 import {
   archetypeGenome, writeGenome, parseParticle,
@@ -13,7 +13,7 @@ const BLOOM_LEVELS = 6;
 const U = GPUBufferUsage;
 export const PICK_MAX = 131072;
 export const FOCUS_MAX = 65536;
-const PICK_BYTES = 56 + PICK_MAX * P_BYTES;
+const PICK_BYTES = 56 + PICK_MAX * PICK_WORDS * 4;
 const LEDGER_HEAD = META_CLAIM * 4;
 const CENSUS_BYTES = LEDGER_HEAD + MAXK * G_BYTES;
 const LISTEN_BYTES = (LISTEN_HEAD + 4 * LISTEN_CAP) * 4;
@@ -199,7 +199,8 @@ class Engine {
       c.bg = d.createBindGroup({ layout: c.pipe.getBindGroupLayout(0), entries: ids.map((id) => ({ binding: id, resource: res[id] })) });
     }
     this.cpPick.bg = d.createBindGroup({ layout: this.cpPick.pipe.getBindGroupLayout(0), entries: [
-      { binding: 0, resource: { buffer: b.pickU } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.pickOut } }] });
+      { binding: 0, resource: { buffer: b.pickU } }, { binding: 1, resource: { buffer: b.parts } },
+      { binding: 2, resource: { buffer: b.pickOut } }, { binding: 3, resource: { buffer: b.intent } }] });
     this.cpListen.bg = d.createBindGroup({ layout: this.cpListen.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.listenU } }, { binding: 1, resource: { buffer: b.parts } },
       { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.listen } }] });
@@ -576,7 +577,7 @@ class Engine {
         pass.setBindGroup(0, this.cpPick.bg);
         pass.dispatchWorkgroups(Math.ceil(N / 256));
         pass.end();
-        enc.copyBufferToBuffer(b.pickOut, 0, st.buf, 0, 56 + pickJob.req.maxOut * P_BYTES);
+        enc.copyBufferToBuffer(b.pickOut, 0, st.buf, 0, 56 + pickJob.req.maxOut * PICK_WORDS * 4);
       }
     }
 
@@ -620,10 +621,10 @@ class Engine {
         const found = u32[1] === 1;
         const out = { total: u32[0], truncated: u32[0] > req.maxOut, found, tracked: found ? parseParticle(u32, f32, 4) : null, entries: [], center: req.center, radius: req.radius, simTime: pickJob.simTime };
         if (req.raw) {
-          const copy = buf.slice(56, 56 + count * P_BYTES);
+          const copy = buf.slice(56, 56 + count * PICK_WORDS * 4);
           out.raw = { u32: new Uint32Array(copy), f32: new Float32Array(copy), count };
         } else {
-          for (let k = 0; k < count; k++) out.entries.push(parseParticle(u32, f32, 14 + k * 10));
+          for (let k = 0; k < count; k++) out.entries.push(parseParticle(u32, f32, 14 + k * PICK_WORDS));
         }
         st.buf.unmap();
         st.busy = false;

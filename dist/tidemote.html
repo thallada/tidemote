@@ -460,6 +460,7 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
   var META_ENERGY = META_DEATH + 64;
   var META_CLAIM = META_ENERGY + 64;
   var P_BYTES = 40;
+  var PICK_WORDS = 12;
   var G_BYTES = 192;
   var G_WORDS = 48;
   var LITE_BYTES = 32;
@@ -1502,10 +1503,12 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   var PICK_WGSL = COMMON + /* wgsl */
   `
 struct PickU { center: vec2f, radius: f32, selId: u32, maxOut: u32, count: u32, world: vec2f, kindFilter: u32, p0: u32, p1: u32, p2: u32 };
-struct PickOut { count: atomic<u32>, found: u32, pad0: u32, pad1: u32, tracked: Particle, entries: array<Particle> };
+struct PickEntry { particle: Particle, partners: vec2u };
+struct PickOut { count: atomic<u32>, found: u32, pad0: u32, pad1: u32, tracked: Particle, entries: array<PickEntry> };
 @group(0) @binding(0) var<uniform> pu: PickU;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
 @group(0) @binding(2) var<storage, read_write> pout: PickOut;
+@group(0) @binding(3) var<storage, read> intent: array<vec4u>;
 
 @compute @workgroup_size(256)
 fn pickMain(@builtin(global_invocation_id) gid: vec3u) {
@@ -1517,7 +1520,19 @@ fn pickMain(@builtin(global_invocation_id) gid: vec3u) {
   d -= pu.world * round(d / pu.world);
   if (dot(d, d) < pu.radius * pu.radius && (pu.kindFilter == NONE || p.kind == pu.kindFilter)) {
     let k = atomicAdd(&pout.count, 1u);
-    if (k < pu.maxOut) { pout.entries[k] = p; }
+    if (k < pu.maxOut) {
+      var partners = vec2u(NONE);
+      if (p.kind >= FIRST_LIFE) {
+        for (var b = 0u; b < 2u; b++) {
+          let j = intent[i][b + 2u];
+          if (j < pu.count) {
+            let partner = parts[j];
+            if (partner.kind == p.kind) { partners[b] = partner.id; }
+          }
+        }
+      }
+      pout.entries[k] = PickEntry(p, partners);
+    }
   }
 }
 `;
@@ -2608,7 +2623,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   var U = GPUBufferUsage;
   var PICK_MAX = 131072;
   var FOCUS_MAX = 65536;
-  var PICK_BYTES = 56 + PICK_MAX * P_BYTES;
+  var PICK_BYTES = 56 + PICK_MAX * PICK_WORDS * 4;
   var LEDGER_HEAD = META_CLAIM * 4;
   var CENSUS_BYTES = LEDGER_HEAD + MAXK * G_BYTES;
   var LISTEN_BYTES = (LISTEN_HEAD + 4 * LISTEN_CAP) * 4;
@@ -2797,7 +2812,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       this.cpPick.bg = d.createBindGroup({ layout: this.cpPick.pipe.getBindGroupLayout(0), entries: [
         { binding: 0, resource: { buffer: b.pickU } },
         { binding: 1, resource: { buffer: b.parts } },
-        { binding: 2, resource: { buffer: b.pickOut } }
+        { binding: 2, resource: { buffer: b.pickOut } },
+        { binding: 3, resource: { buffer: b.intent } }
       ] });
       this.cpListen.bg = d.createBindGroup({ layout: this.cpListen.pipe.getBindGroupLayout(0), entries: [
         { binding: 0, resource: { buffer: b.listenU } },
@@ -3219,7 +3235,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
           pass.setBindGroup(0, this.cpPick.bg);
           pass.dispatchWorkgroups(Math.ceil(N / 256));
           pass.end();
-          enc.copyBufferToBuffer(b.pickOut, 0, st.buf, 0, 56 + pickJob.req.maxOut * P_BYTES);
+          enc.copyBufferToBuffer(b.pickOut, 0, st.buf, 0, 56 + pickJob.req.maxOut * PICK_WORDS * 4);
         }
       }
       if (target) this._render(enc, { target, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd: slot ? { querySet: tm.qs, endOfPassWriteIndex: 1 } : void 0 });
@@ -3261,10 +3277,10 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
           const found = u32[1] === 1;
           const out = { total: u32[0], truncated: u32[0] > req.maxOut, found, tracked: found ? parseParticle(u32, f32, 4) : null, entries: [], center: req.center, radius: req.radius, simTime: pickJob.simTime };
           if (req.raw) {
-            const copy = buf.slice(56, 56 + count * P_BYTES);
+            const copy = buf.slice(56, 56 + count * PICK_WORDS * 4);
             out.raw = { u32: new Uint32Array(copy), f32: new Float32Array(copy), count };
           } else {
-            for (let k = 0; k < count; k++) out.entries.push(parseParticle(u32, f32, 14 + k * 10));
+            for (let k = 0; k < count; k++) out.entries.push(parseParticle(u32, f32, 14 + k * PICK_WORDS));
           }
           st.buf.unmap();
           st.busy = false;
@@ -3727,7 +3743,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       id: "tools",
       title: "Research tools",
       html: `<ul>
-<li><b>Inspector</b> (click a particle): its life story, an estimate of its organism (traced by proximity and highlighted), its species and full genome, and a live specimen view. Species names everywhere are links.</li>
+<li><b>Inspector</b> (click a particle): its life story, its organism (traced through its bonds and highlighted), its species and full genome, and a live specimen view. Species names everywhere are links.</li>
 <li><b>Lab → Species</b>: every species ranked and filterable by diet, mobility, body, status and more. <b>Highlight</b> dims everything outside the filter.</li>
 <li><b>Lab → Composition</b>: the world broken down by matter, cell type, diet, mobility and body type. Click any bar to highlight it.</li>
 <li><b>Lab → Dynamics</b>: population, diversity, births, deaths and feeding over time.</li>
@@ -4221,100 +4237,36 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   }
 
   // src/trace.js
-  var TB = { bins: null, nb: 0 };
-  function traceBody(u32, f32, n, startId, W, H, LR) {
-    const LR2 = LR * LR;
-    const bx = Math.max(3, Math.floor(W / LR)), by = Math.max(3, Math.floor(H / LR));
-    const sx = bx / W, sy = by / H;
-    const nb = bx * by;
-    if (!TB.bins || TB.nb !== nb) {
-      TB.bins = new Int32Array(nb + 1);
-      TB.nb = nb;
-    }
-    const start = TB.bins;
-    start.fill(0);
-    const binOf = new Int32Array(n);
+  function traceBody(u32, f32, n, startId) {
+    const idIndex = /* @__PURE__ */ new Map();
     const X = new Float32Array(n), Y = new Float32Array(n);
-    let startIdx = -1;
     for (let i = 0; i < n; i++) {
-      const x = f32[i * 10], y = f32[i * 10 + 1];
-      X[i] = x;
-      Y[i] = y;
-      const b = Math.min(by - 1, Math.floor(y * sy)) * bx + Math.min(bx - 1, Math.floor(x * sx));
-      binOf[i] = b;
-      start[b + 1]++;
-      if (u32[i * 10 + 7] === startId) startIdx = i;
+      const o = i * PICK_WORDS;
+      idIndex.set(u32[o + 7], i);
+      X[i] = f32[o];
+      Y[i] = f32[o + 1];
     }
-    for (let b = 0; b < nb; b++) start[b + 1] += start[b];
-    const fill = start.slice(0, nb);
-    const order = new Int32Array(n);
-    for (let i = 0; i < n; i++) order[fill[binOf[i]]++] = i;
-    if (startIdx < 0) return null;
-    const nn1 = new Int32Array(n).fill(-2), nn2 = new Int32Array(n).fill(-2);
-    const top2 = (i) => {
-      if (nn1[i] !== -2) return;
-      const x = X[i], y = Y[i];
-      const b = binOf[i], cx = b % bx, cy = b / bx | 0;
-      let a1 = -1, a2 = -1, d1 = LR2, d2 = LR2;
-      for (let oy = -1; oy <= 1; oy++) {
-        const row = (cy + oy + by) % by * bx;
-        for (let ox = -1; ox <= 1; ox++) {
-          const c = row + (cx + ox + bx) % bx;
-          for (let k = start[c], e = start[c + 1]; k < e; k++) {
-            const j = order[k];
-            if (j === i) continue;
-            let dx = X[j] - x, dy = Y[j] - y;
-            dx -= W * Math.round(dx / W);
-            dy -= H * Math.round(dy / H);
-            const d = dx * dx + dy * dy;
-            if (d < d1) {
-              d2 = d1;
-              a2 = a1;
-              d1 = d;
-              a1 = j;
-            } else if (d < d2) {
-              d2 = d;
-              a2 = j;
-            }
-          }
-        }
+    const start = idIndex.get(startId);
+    if (start === void 0) return null;
+    const edges = Array.from({ length: n }, () => []);
+    for (let i = 0; i < n; i++) {
+      for (let b = 10; b < PICK_WORDS; b++) {
+        const id = u32[i * PICK_WORDS + b];
+        if (id === 4294967295) continue;
+        const j = idIndex.get(id);
+        if (j === void 0) continue;
+        edges[i].push(j);
+        edges[j].push(i);
       }
-      nn1[i] = a1;
-      nn2[i] = a2;
-    };
+    }
     const seen = new Uint8Array(n);
-    const stack = [startIdx];
-    seen[startIdx] = 1;
-    const body = [];
-    const visit = (j) => {
-      if (j >= 0 && !seen[j]) {
+    const body = [start];
+    seen[start] = 1;
+    for (let head = 0; head < body.length; head++) {
+      for (const j of edges[body[head]]) {
+        if (seen[j]) continue;
         seen[j] = 1;
-        stack.push(j);
-      }
-    };
-    while (stack.length) {
-      const i = stack.pop();
-      body.push(i);
-      top2(i);
-      visit(nn1[i]);
-      visit(nn2[i]);
-      const x = X[i], y = Y[i];
-      const b = binOf[i], cx = b % bx, cy = b / bx | 0;
-      for (let oy = -1; oy <= 1; oy++) {
-        const row = (cy + oy + by) % by * bx;
-        for (let ox = -1; ox <= 1; ox++) {
-          const c = row + (cx + ox + bx) % bx;
-          for (let k = start[c], e = start[c + 1]; k < e; k++) {
-            const j = order[k];
-            if (seen[j]) continue;
-            let dx = X[j] - x, dy = Y[j] - y;
-            dx -= W * Math.round(dx / W);
-            dy -= H * Math.round(dy / H);
-            if (dx * dx + dy * dy >= LR2) continue;
-            top2(j);
-            if (nn1[j] === i || nn2[j] === i) visit(j);
-          }
-        }
+        body.push(j);
       }
     }
     return { body, X, Y };
@@ -5185,7 +5137,6 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       applySample(r.tracked, r.simTime);
     };
     let gatherBusy = false;
-    const orgScratch = { bins: null, nb: 0 };
     function gatherTick(force) {
       if (!sel || sel.lost || gatherBusy || state.phase !== "running") return;
       const now = performance.now();
@@ -5244,7 +5195,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       const [W, H] = eng.grid;
       const { u32, f32, count: n } = res.raw;
       const me = sel.particle;
-      const tb = traceBody(u32, f32, n, me.id, W, H, K.linkR);
+      const tb = traceBody(u32, f32, n, me.id);
       if (!tb) {
         sel.org = { ...sel.org || {}, pending: true };
         dirty = true;
@@ -5262,10 +5213,10 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         rel[k * 2 + 1] = dy;
         cx += dx;
         cy += dy;
-        eSum += f32[i * 10 + 5];
-        vx += f32[i * 10 + 2];
-        vy += f32[i * 10 + 3];
-        roles[u32[i * 10 + 9] >> 4 & 3]++;
+        eSum += f32[i * PICK_WORDS + 5];
+        vx += f32[i * PICK_WORDS + 2];
+        vy += f32[i * PICK_WORDS + 3];
+        roles[u32[i * PICK_WORDS + 9] >> 4 & 3]++;
       });
       const m = Math.max(1, body.length);
       cx /= m;
@@ -5284,7 +5235,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       sel.org = { cells: body.length, roles, span: span * 2, speed: Math.hypot(vx / m, vy / m), meanE: eSum / m, partial: res.truncated, touching: prev ? prev.touching : 0, at: res.simTime, ms: performance.now() - t0 };
       if (sel.orgFirst == null) sel.orgFirst = body.length;
       const ids = new Uint32Array(body.length);
-      for (let k = 0; k < body.length; k++) ids[k] = u32[body[k] * 10 + 7];
+      for (let k = 0; k < body.length; k++) ids[k] = u32[body[k] * PICK_WORDS + 7];
       ids.sort();
       setMembers(body.length > 1 ? ids : null, me.kind);
       remember();
@@ -5535,14 +5486,12 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
       let bestI = 0;
       if ((sp.genome.adhesion || 0) > K.adhMin) {
         const claimed = new Uint8Array(n);
-        const idIndex = /* @__PURE__ */ new Map();
-        for (let i = 0; i < n; i++) idIndex.set(u32[i * 10 + 7], i);
         let bestN = 0;
         const t0 = performance.now();
         for (let tries = 0; tries < 60 && performance.now() - t0 < 60; tries++) {
           const i = Math.floor(Math.random() * n);
           if (claimed[i]) continue;
-          const tb = traceBody(u32, f32, n, u32[i * 10 + 7], W, H, K.linkR);
+          const tb = traceBody(u32, f32, n, u32[i * PICK_WORDS + 7]);
           if (!tb) continue;
           for (const k of tb.body) claimed[k] = 1;
           if (tb.body.length > bestN) {
@@ -5555,14 +5504,14 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
         let bestN = -1;
         for (let i = 0; i < n; i += step) {
           let c = 0;
-          for (let j = 0; j < n; j += step) if (Math.hypot(wrapD(f32[j * 10] - f32[i * 10], W), wrapD(f32[j * 10 + 1] - f32[i * 10 + 1], H)) < 2) c++;
+          for (let j = 0; j < n; j += step) if (Math.hypot(wrapD(f32[j * PICK_WORDS] - f32[i * PICK_WORDS], W), wrapD(f32[j * PICK_WORDS + 1] - f32[i * PICK_WORDS + 1], H)) < 2) c++;
           if (c > bestN) {
             bestN = c;
             bestI = i;
           }
         }
       }
-      const best = parseParticle(u32, f32, bestI * 10);
+      const best = parseParticle(u32, f32, bestI * PICK_WORDS);
       cam.x = best.x;
       cam.y = best.y;
       if (cssPPU() < 18) {

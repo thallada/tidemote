@@ -13,6 +13,7 @@ export const META_CLAIM = META_ENERGY + 64;
 // Energy ledger per diet guild, in thousandths: light, glint, plant bites, husks, kills, upkeep, children.
 export const ENERGY_SLOTS = ['light', 'glint', 'plant', 'husk', 'flesh', 'upkeep', 'children'];
 export const P_BYTES = 40;
+export const PICK_WORDS = 12; // Particle's 10 words, then two partner IDs (NONE if absent).
 export const G_BYTES = 192;
 export const G_WORDS = 48;
 export const LITE_BYTES = 32;
@@ -1013,10 +1014,12 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
 
 export const PICK_WGSL = COMMON + /* wgsl */ `
 struct PickU { center: vec2f, radius: f32, selId: u32, maxOut: u32, count: u32, world: vec2f, kindFilter: u32, p0: u32, p1: u32, p2: u32 };
-struct PickOut { count: atomic<u32>, found: u32, pad0: u32, pad1: u32, tracked: Particle, entries: array<Particle> };
+struct PickEntry { particle: Particle, partners: vec2u };
+struct PickOut { count: atomic<u32>, found: u32, pad0: u32, pad1: u32, tracked: Particle, entries: array<PickEntry> };
 @group(0) @binding(0) var<uniform> pu: PickU;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
 @group(0) @binding(2) var<storage, read_write> pout: PickOut;
+@group(0) @binding(3) var<storage, read> intent: array<vec4u>;
 
 @compute @workgroup_size(256)
 fn pickMain(@builtin(global_invocation_id) gid: vec3u) {
@@ -1028,7 +1031,19 @@ fn pickMain(@builtin(global_invocation_id) gid: vec3u) {
   d -= pu.world * round(d / pu.world);
   if (dot(d, d) < pu.radius * pu.radius && (pu.kindFilter == NONE || p.kind == pu.kindFilter)) {
     let k = atomicAdd(&pout.count, 1u);
-    if (k < pu.maxOut) { pout.entries[k] = p; }
+    if (k < pu.maxOut) {
+      var partners = vec2u(NONE);
+      if (p.kind >= FIRST_LIFE) {
+        for (var b = 0u; b < 2u; b++) {
+          let j = intent[i][b + 2u];
+          if (j < pu.count) {
+            let partner = parts[j];
+            if (partner.kind == p.kind) { partners[b] = partner.id; }
+          }
+        }
+      }
+      pout.entries[k] = PickEntry(p, partners);
+    }
   }
 }
 `;

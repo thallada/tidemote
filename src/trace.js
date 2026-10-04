@@ -1,82 +1,36 @@
-// Walk the bond graph outward from one cell. The caller filters to one species.
-// u32/f32 hold n packed particles
-// (10 words each). Bonds join each cell to its two nearest same-species cells within LR.
-const TB = { bins: null, nb: 0 };
-export function traceBody(u32, f32, n, startId, W, H, LR) {
-  const LR2 = LR * LR;
-  // bin every cell into a torus grid of link-radius squares (counting sort)
-  const bx = Math.max(3, Math.floor(W / LR)), by = Math.max(3, Math.floor(H / LR));
-  const sx = bx / W, sy = by / H;
-  const nb = bx * by;
-  if (!TB.bins || TB.nb !== nb) { TB.bins = new Int32Array(nb + 1); TB.nb = nb; }
-  const start = TB.bins;
-  start.fill(0);
-  const binOf = new Int32Array(n);
-  const X = new Float32Array(n), Y = new Float32Array(n);
-  let startIdx = -1;
-  for (let i = 0; i < n; i++) {
-    const x = f32[i * 10], y = f32[i * 10 + 1];
-    X[i] = x; Y[i] = y;
-    const b = Math.min(by - 1, Math.floor(y * sy)) * bx + Math.min(bx - 1, Math.floor(x * sx));
-    binOf[i] = b;
-    start[b + 1]++;
-    if (u32[i * 10 + 7] === startId) startIdx = i;
-  }
-  for (let b = 0; b < nb; b++) start[b + 1] += start[b];
-  const fill = start.slice(0, nb);
-  const order = new Int32Array(n);
-  for (let i = 0; i < n; i++) order[fill[binOf[i]]++] = i;
-  if (startIdx < 0) return null;
+import { PICK_WORDS } from './shaders.js';
 
-  const nn1 = new Int32Array(n).fill(-2), nn2 = new Int32Array(n).fill(-2);
-  const top2 = (i) => {
-    if (nn1[i] !== -2) return;
-    const x = X[i], y = Y[i];
-    const b = binOf[i], cx = b % bx, cy = (b / bx) | 0;
-    let a1 = -1, a2 = -1, d1 = LR2, d2 = LR2;
-    for (let oy = -1; oy <= 1; oy++) {
-      const row = ((cy + oy + by) % by) * bx;
-      for (let ox = -1; ox <= 1; ox++) {
-        const c = row + ((cx + ox + bx) % bx);
-        for (let k = start[c], e = start[c + 1]; k < e; k++) {
-          const j = order[k];
-          if (j === i) continue;
-          let dx = X[j] - x, dy = Y[j] - y;
-          dx -= W * Math.round(dx / W); dy -= H * Math.round(dy / H);
-          const d = dx * dx + dy * dy;
-          if (d < d1) { d2 = d1; a2 = a1; d1 = d; a1 = j; } else if (d < d2) { d2 = d; a2 = j; }
-        }
-      }
+// Gathered records contain a particle followed by two partner IDs (0xffffffff if absent).
+// The caller filters to one species; asymmetric bonds count as undirected edges.
+export function traceBody(u32, f32, n, startId) {
+  const idIndex = new Map();
+  const X = new Float32Array(n), Y = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const o = i * PICK_WORDS;
+    idIndex.set(u32[o + 7], i);
+    X[i] = f32[o]; Y[i] = f32[o + 1];
+  }
+  const start = idIndex.get(startId);
+  if (start === undefined) return null;
+
+  const edges = Array.from({ length: n }, () => []);
+  for (let i = 0; i < n; i++) {
+    for (let b = 10; b < PICK_WORDS; b++) {
+      const id = u32[i * PICK_WORDS + b];
+      if (id === 0xffffffff) continue;
+      const j = idIndex.get(id);
+      if (j === undefined) continue; // A truncated readback may omit a partner.
+      edges[i].push(j); edges[j].push(i);
     }
-    nn1[i] = a1; nn2[i] = a2;
-  };
+  }
   const seen = new Uint8Array(n);
-  const stack = [startIdx];
-  seen[startIdx] = 1;
-  const body = [];
-  const visit = (j) => { if (j >= 0 && !seen[j]) { seen[j] = 1; stack.push(j); } };
-  while (stack.length) {
-    const i = stack.pop();
-    body.push(i);
-    top2(i);
-    visit(nn1[i]); visit(nn2[i]);
-    // reverse bonds: neighbours whose own two nearest include i
-    const x = X[i], y = Y[i];
-    const b = binOf[i], cx = b % bx, cy = (b / bx) | 0;
-    for (let oy = -1; oy <= 1; oy++) {
-      const row = ((cy + oy + by) % by) * bx;
-      for (let ox = -1; ox <= 1; ox++) {
-        const c = row + ((cx + ox + bx) % bx);
-        for (let k = start[c], e = start[c + 1]; k < e; k++) {
-          const j = order[k];
-          if (seen[j]) continue;
-          let dx = X[j] - x, dy = Y[j] - y;
-          dx -= W * Math.round(dx / W); dy -= H * Math.round(dy / H);
-          if (dx * dx + dy * dy >= LR2) continue;
-          top2(j);
-          if (nn1[j] === i || nn2[j] === i) visit(j);
-        }
-      }
+  const body = [start];
+  seen[start] = 1;
+  for (let head = 0; head < body.length; head++) {
+    for (const j of edges[body[head]]) {
+      if (seen[j]) continue;
+      seen[j] = 1;
+      body.push(j);
     }
   }
   return { body, X, Y };
