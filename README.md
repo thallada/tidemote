@@ -76,8 +76,11 @@ Loudness follows distance, as if the camera were a listener at a height proporti
 Each sound is as loud as `dRef / d`, and a view `d` times wider holds `d²` times as many cells, so a
 region's loudness depends on how much is happening there, not on the zoom. Zoomed in on a dozen
 cells you hear each one, panned to where it is. Zoomed out, the single voices give way to a swarm:
-every cell sound in view becomes one grain, a tiny ping of its species' motif note rung by random
-impulses (SuperCollider's `Dust` into `Ringz`), so thousands merge into a shimmering chord.
+every cell sound in view becomes one grain, a soft note of its species' motif rung by random
+impulses (SuperCollider's `Dust` into `Formlet`), and thousands blur into a murmur. Distance is
+heard as it is in water or air: far grains swell in slowly, ring long and lose their highs, and
+diving in sharpens and opens them until single voices step out. Close up the voices are held
+back a little, so diving in is not a jump in level.
 Up close only a fair sample is played and each played note carries the power of the ones it stands
 for, so the audio thread never plays more than a few dozen voices. Selecting a cell brings its species forward;
 a Lab highlight pushes the others back. Notes snap to a pulse that follows the simulation's speed:

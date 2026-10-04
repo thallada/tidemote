@@ -7,7 +7,7 @@
 import {
   BS, RGen, SinOsc, LFNoise2, WhiteNoise, BrownNoise, PinkNoise, EnvGen, KtoA, LPF, HPF, RLPF, Resonz,
   Ringz, BPF, BLowPass, BLowShelf, BHiShelf, MoogFF, Lag, LagUD, Decay2, LeakDC, Compander, Limiter,
-  DelayN, DelayC, AllpassC, Pan2, Balance2, Dust, sinTable,
+  DelayN, DelayC, AllpassC, Pan2, Balance2, Dust, Formlet, sinTable,
 } from './ugens.js';
 
 const midicps = (m) => 440 * Math.pow(2, (m - 69) / 12);
@@ -589,20 +589,21 @@ export class Vibe extends Voice {
   }
 }
 
-// ── \swarm: a multitude heard from afar (bands of resonator pairs rung by Dust) ──
+// ── \swarm: a multitude heard from afar (bands of soft-attack resonator pairs rung by Dust) ──
 const SWARM_POS = [-0.75, 0.55, -0.35, 0.15, -0.15, 0.35, -0.55, 0.75];
 export class Swarm extends Voice {
   constructor(eng, p) {
     super(eng, p);
-    this.p = Object.assign({ amp: 1, ring: 0.2, rev: 0.6, dly: 0.1 }, p);
+    this.p = Object.assign({ amp: 1, atk: 0.03, ring: 0.4, cut: 4000, rev: 0.6, dly: 0.1 }, p);
     for (let i = 1; i <= 8; i++) for (const [c, v] of [['f', 60], ['d', 0], ['a', 0]]) if (this.p[c + i] == null) this.p[c + i] = v;
     this.dust = SWARM_POS.map(() => new Dust(this.sr, this.rg));
-    this.rz = SWARM_POS.map(() => [new Ringz(this.sr), new Ringz(this.sr)]);
+    this.rz = SWARM_POS.map(() => [new Formlet(this.sr), new Formlet(this.sr)]);
+    this.lp = [new LPF(this.sr), new LPF(this.sr)];
     this.pans = SWARM_POS.map((x) => new Pan2(x));
     this.aA = SWARM_POS.map((_, i) => new KtoA(this.p['a' + (i + 1)]));
   }
   render(B, S) {
-    const P = this.p, ring = P.ring;
+    const P = this.p, ring = P.ring, atk = P.atk;
     const x = S.get(), k = S.get(), t = S.get(), L = S.zero(), R = S.zero();
     for (let i = 0; i < 8; i++) {
       const d = P['d' + (i + 1)], a = P['a' + (i + 1)], f = midicps(P['f' + (i + 1)]);
@@ -610,10 +611,11 @@ export class Swarm extends Voice {
       this.aA[i].fill(a, k);
       for (let j = 0; j < BS; j++) x[j] *= k[j];
       t.fill(0);
-      this.rz[i][0].arAdd(x, f32(f * 0.9971), ring, 1, t); this.rz[i][1].arAdd(x, f32(f * 1.0029), ring, 1, t);
+      this.rz[i][0].arAdd(x, f32(f * 0.9971), atk, ring, 1, t); this.rz[i][1].arAdd(x, f32(f * 1.0029), atk, ring, 1, t);
       this.pans[i].addK(t, SWARM_POS[i], 1, L, R);
     }
-    for (let j = 0; j < BS; j++) { L[j] *= P.amp; R[j] *= P.amp; }
+    this.lp[0].ar(L, P.cut, x); this.lp[1].ar(R, P.cut, t);
+    for (let j = 0; j < BS; j++) { L[j] = x[j] * P.amp; R[j] = t[j] * P.amp; }
     outAll(B, L, R, P.rev, P.dly, this.send);
   }
 }

@@ -15,9 +15,11 @@
 // region is louder and denser than a calm one. Only a fair sample is played; each played note
 // carries the power of the ones it stands for.
 //
-// From afar, the notes give way to the swarm: every cell sound in view becomes one grain, a tiny
-// ping of its species' motif note, so thousands of them merge into a shimmering chord. Zooming
-// in, the swarm thins and the single voices step out of it.
+// From afar, the notes give way to the swarm: every cell sound in view becomes one grain, a soft
+// note of its species' motif, and thousands of them blur into a murmur. Distance is heard the way
+// it is in air or water: far grains swell in slowly, ring long and lose their highs; diving in,
+// their attacks sharpen and open until the swarm thins and the single voices step out of it.
+// Close up the voices are held back a little (CLOSE), so diving in is not a jump in level.
 
 import { d2m, STEP, noteParams } from './conductor.js';
 import { LISTEN } from './listen.js';
@@ -41,9 +43,11 @@ const P_REF = 0.05, RATIO = 2.5, GAIN_RANGE = [0.3, 2];
 // When the audio thread is crowded, the least important sounds are skipped first.
 const CROWDED = 70, FULL = 92;
 const MINOR = new Set(['charged', 'eaten', 'rustle']);
-// The swarm: grains per second a band plays at most (beyond that a grain stands for several),
-// and the level of one grain relative to a note.
-const SWARM_MAX = 600, GRAIN = 1.1;
+// The swarm: grains per second a band plays at most (beyond that a grain stands for several, so
+// the activity stays audible as grains), and the level of one grain relative to a note.
+const SWARM_MAX = 150, GRAIN = 1.75;
+// level of the single voices fully zoomed in, relative to afar
+const CLOSE = 0.7;
 // how much of the view is heard as single voices (the rest as the swarm), by closeness z
 export const soloShare = (z) => { const x = clamp((z - 0.2) / 0.45, 0, 1); return x * x * (3 - 2 * x); };
 
@@ -64,7 +68,7 @@ export class Field {
     this.z = 0; this.gd = 1; this.act = 0.3; this.speed = 1;
     this.gain = {}; // per-type gain overrides (tuning)
     this.agc = 1; this.power = P_REF; this.plan = null;
-    this.swarmK = -1; this.bands = null; this.heard = new Map(); // species slot -> grains per second, smoothed over scans
+    this.swarmK = -1; this.bands = null; this.heard = new Map(); // species slot -> [grains per second, their power], smoothed over scans
   }
   rr(lo, hi) { return lo + (hi - lo) * this.rnd(); }
 
@@ -90,7 +94,8 @@ export class Field {
     this.power += (P / wall - this.power) * 0.3;
     const target = clamp(Math.pow(P_REF / Math.max(this.power, 1e-9), (1 - 1 / RATIO) / 2), GAIN_RANGE[0], GAIN_RANGE[1]);
     this.agc += (target - this.agc) * 0.2;
-    for (const n of plan) this.play(n[0], n[1], n[2] * this.agc, n[3]);
+    const close = 1 - (1 - CLOSE) * this.z;
+    for (const n of plan) this.play(n[0], n[1], n[2] * this.agc * close, n[3]);
     this.swarm();
   }
 
@@ -248,9 +253,11 @@ export class Field {
   swarm() {
     const c = this.c, now = c.time, K = Math.floor(now / (16 * c.step));
     // each scan samples only some of the cells in view: smooth what each species sings over scans
-    for (const [s, r] of this.heard) { const v = r * 0.85; if (v < 0.01 && !this.crowd.has(s)) this.heard.delete(s); else this.heard.set(s, v); }
-    for (const [s, r] of this.crowd) this.heard.set(s, (this.heard.get(s) || 0) + 0.15 * r);
-    const sp = [...this.heard].filter(([s, r]) => r > 0 && this.slots.get(s)?.v).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    // (its power too, heard from where the grains were, so a zoom does not carry them along)
+    for (const [s, h] of this.heard) { h[0] *= 0.85; h[1] *= 0.85; if (h[0] < 0.01 && !this.crowd.has(s)) this.heard.delete(s); }
+    const g2 = (AMP.alive * this.gd) ** 2;
+    for (const [s, r] of this.crowd) { const h = this.heard.get(s) || [0, 0]; h[0] += 0.15 * r; h[1] += 0.15 * r * g2; this.heard.set(s, h); }
+    const sp = [...this.heard].map(([s, h]) => [s, h[0]]).filter(([s, r]) => r > 0 && this.slots.get(s)?.v).sort((a, b) => b[1] - a[1]).slice(0, 8);
     const tot = sp.reduce((a, x) => a + x[1], 0);
     if (K !== this.swarmK || !this.bands) { // assign bands
       this.swarmK = K;
@@ -259,16 +266,17 @@ export class Field {
       this.bands = [];
       sp.forEach(([s], i) => { for (let j = 0; j < n[i]; j++) this.bands.push({ s, j, of: n[i] }); });
     }
-    const p = { ring: 0.12 + 0.2 * clamp(c.world.light, 0, 1) };
+    const far = 1 - clamp(this.z / 0.65, 0, 1), light = clamp(c.world.light, 0, 1);
+    const p = { atk: 0.012 + 0.07 * far, ring: (0.25 + 0.55 * far) * (0.8 + 0.4 * light), cut: 7000 - 5000 * far };
     const { root, scale } = c, piv = c.pivot;
     for (let b = 0; b < 8; b++) {
-      const B = this.bands[b], r = B ? (this.heard.get(B.s) || 0) / B.of : 0, e = B && this.slots.get(B.s);
+      const B = this.bands[b], h = B && this.heard.get(B.s), r = h ? h[0] / B.of : 0, e = B && this.slots.get(B.s);
       if (!e || !(r > 0)) { p['d' + (b + 1)] = 0; continue; }
       const seq = e.v.seq, d = Math.min(r, SWARM_MAX);
       const kb = Math.floor(now / (c.step * (3 + (b % 4))) + b * 0.37);
       p['f' + (b + 1)] = Math.min(96, d2m(seq[(kb + B.j) % seq.length] + piv, root, scale) + 12 * e.v.oct);
       p['d' + (b + 1)] = d;
-      p['a' + (b + 1)] = GRAIN * AMP.alive * this.gd * this.agc * Math.sqrt(r / d);
+      p['a' + (b + 1)] = GRAIN * this.agc * Math.sqrt(h[1] / B.of / d);
     }
     c.setAt(now + LATENCY, 'swarm', p);
   }

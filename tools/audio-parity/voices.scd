@@ -201,9 +201,11 @@
   }),
 
   // ── Swarm: a multitude heard from afar. Each band rings a pair of resonators a few cents
-  //    apart at random impulses, one per cell sound (d: impulses per second, a: their level):
-  //    sparse, they are separate pings; dense, they merge into a shimmering chord.
-  SynthDef(\swarm, { |out = 64, revBus = 66, dlyBus = 68, amp = 1, ring = 0.2, rev = 0.6, dly = 0.1,
+  //    apart at random impulses, one per cell sound (d: impulses per second, a: their level).
+  //    Formlets swell in over `atk` instead of starting with a click; with a long attack, a
+  //    long ring and a low cutoff (far away) they blur into a murmur, short and open (near)
+  //    they are separate notes.
+  SynthDef(\swarm, { |out = 64, revBus = 66, dlyBus = 68, amp = 1, atk = 0.03, ring = 0.4, cut = 4000, rev = 0.6, dly = 0.1,
       f1 = 60, f2 = 60, f3 = 60, f4 = 60, f5 = 60, f6 = 60, f7 = 60, f8 = 60,
       d1 = 0, d2 = 0, d3 = 0, d4 = 0, d5 = 0, d6 = 0, d7 = 0, d8 = 0,
       a1 = 0, a2 = 0, a3 = 0, a4 = 0, a5 = 0, a6 = 0, a7 = 0, a8 = 0|
@@ -211,9 +213,9 @@
     var pos = [-0.75, 0.55, -0.35, 0.15, -0.15, 0.35, -0.55, 0.75], sig;
     sig = 8.collect { |i|
       var x = Dust.ar(ds[i]) * as[i];
-      Pan2.ar(Ringz.ar(x, fs[i] * 0.9971, ring) + Ringz.ar(x, fs[i] * 1.0029, ring), pos[i])
+      Pan2.ar(Formlet.ar(x, fs[i] * 0.9971, atk, ring) + Formlet.ar(x, fs[i] * 1.0029, atk, ring), pos[i])
     }.sum;
-    sig = sig * amp;
+    sig = LPF.ar(sig, cut) * amp;
     Out.ar(out, sig); Out.ar(revBus, sig * rev); Out.ar(dlyBus, sig * dly);
   }),
 

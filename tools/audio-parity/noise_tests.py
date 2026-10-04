@@ -28,11 +28,11 @@ segs.append({'name': 'sea 12s (fade)', 't0': T(t), 'dur': 12.0}); t += 12.5
 ev.append({'t': T(t), 'def': 'drone', 'id': 'drone', 'params': {'amp': 0.3, 'note': 38, 'light': 0.6, 'fade': 0}})
 ev.append({'t': T(t + 0.01), 'set': 'drone', 'params': {'fade': 1}})
 segs.append({'name': 'drone 12s (fade in)', 't0': T(t), 'dur': 12.0}); t += 12.5
-sw = {'amp': 1, 'ring': 0.15}
+sw = {'amp': 1, 'atk': 0.05, 'ring': 0.5, 'cut': 2500}
 for i, (f, d) in enumerate([(72, 40), (76, 400), (79, 3000), (84, 200), (88, 0), (91, 60), (64, 800), (60, 10)]):
     sw.update({f'f{i+1}': f, f'd{i+1}': d, f'a{i+1}': 0.3 / (1 + d / 200) ** 0.5})
 ev.append({'t': T(t), 'def': 'swarm', 'id': 'swarm', 'params': sw})
-ev.append({'t': T(t + 6), 'set': 'swarm', 'params': {'d1': 2000, 'd5': 300, 'f2': 74, 'ring': 0.3}})
+ev.append({'t': T(t + 6), 'set': 'swarm', 'params': {'d1': 2000, 'd5': 300, 'f2': 74, 'ring': 0.3, 'atk': 0.01, 'cut': 7000}})
 segs.append({'name': 'swarm 12s', 't0': T(t), 'dur': 12.0}); t += 12.5
 json.dump(ev, open('noise.json', 'w')); json.dump({'tail': 1.0}, open('noise.meta.json', 'w')); json.dump(segs, open('noise.segs.json', 'w'))
 print(len(ev), 'events, ends', round(t, 1))
