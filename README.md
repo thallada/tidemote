@@ -83,7 +83,7 @@ Each frame runs entirely on the GPU:
 1. **Resolve** last frame's claims (meals, births, bites) and count each species.
 2. **Bin** every particle into a grid with a counting sort and prefix scan, so neighbours can be found in the surrounding 3×3 cells. A cell reads at most 288 neighbours; in denser places it samples them evenly from a random offset and weights each sample accordingly, so no direction or grid line is favoured.
 3. **Matter**: silt, glint and husks drift on divergence-free currents. The tide charges silt into glint, glint fades, and husks decay.
-4. **Life**: only the living are dispatched, indirectly. Each cell sums particle-life forces from 8-dimensional surface/receptor signatures, bonds to its two nearest same-species neighbours if it is adhesive, photosynthesises, pays upkeep, and claims food or a silt grain to divide into.
+4. **Life**: only the living are dispatched, indirectly. Each cell sums particle-life forces from 8-dimensional surface/receptor signatures, keeps up to two same-species bonds if it is adhesive, photosynthesises, pays upkeep, and claims food or a silt grain to divide into.
 
 Every 20 frames a census is read back: per-species counts and genomes. The CPU uses it to name species and track lineages; it does not steer the ecology. The ecology is shaped only by local rules:
 
@@ -91,7 +91,7 @@ Every 20 frames a census is read back: per-species counts and genomes. The CPU u
 - **Local minerals and food**: photosynthesis needs nearby silt, feeding needs nearby prey, glint or husks, and division needs a nearby silt grain.
 - **Catching takes skill**: a cell catches living prey in proportion to how well it is built to eat it, so photosynthesisers and husk eaters rarely kill.
 - **Search images**: hunters and grazers catch the species they caught last more readily and often miss unfamiliar prey, so booming species feed their predators while rare ones are spared.
-- **Bonds**: bodies share upkeep, shade each other less, and resist attack through armor.
+- **Bonds**: adhesive cells keep their partners until they die, change kind or stretch beyond `bondBreak × linkR` (by default 1.75×). Empty slots find the nearest same-species cells within `linkR` in the neighbour scan; newborns start with a bond to their parent if they are the same species. Bodies grow by division, share upkeep, shade each other less, and resist attack through armor.
 - **Stone**: each world has its own bedrock outcrops, and settled calcifying cells may leave their skeleton as stone, mostly beside stone already there, so reefs grow from rock. Stone never drifts and only calcifiers can settle on it; attacks made from among it sometimes miss. Loose stone wears away fast and packed stone slowly, while a neighbourhood that is mostly reef wears fast, so reefs grow as separate patches and the world never turns to stone.
 
 Glint sparks into a random new lineage about once every 30 simulated seconds on average, independent of climate eras and population.

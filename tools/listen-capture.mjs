@@ -21,7 +21,7 @@ import { createClimate, abioRate } from './src/climate.js';
 window.capture = async ({ N, WARM, EACH, SEED }) => {
   let s = SEED >>> 0; const rng = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
   Math.random = rng;
-  const device = await (await navigator.gpu.requestAdapter()).requestDevice();
+  const device = await (await navigator.gpu.requestAdapter()).requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
   const eng = await createEngine(device, 'rgba8unorm', {});
   await eng.allocate(N); eng.resize(1280, 720); eng.seed(N, { aspect: 16 / 9, rng }); eng.censusEvery = 30;
   const climate = createClimate(eng, rng);

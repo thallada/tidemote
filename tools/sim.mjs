@@ -63,7 +63,7 @@ async function runChrome() {
     return await page.evaluate(async ({ config, width, height }) => {
       const adapter = await navigator.gpu.requestAdapter();
       if (!adapter) throw new Error('No WebGPU adapter available');
-      const device = await adapter.requestDevice();
+      const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
       try {
         return await Tidemote.runHeadless(device, config, { print: (line) => console.log(line), width, height });
       } finally {
@@ -90,7 +90,7 @@ async function runDawn() {
       ' under WSL run through tools/gpu-node.sh to reach the GPU via Windows D3D12 (see docs/headless-gpu.md).');
     process.exit(2);
   }
-  const device = await adapter.requestDevice();
+  const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
   try {
     return await runHeadless(device, config, {
       print: (line) => console.log(line), width: W, height: H,

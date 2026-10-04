@@ -772,9 +772,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ organism tracing
   // One GPU pass copies every cell of the selected species (anywhere in the world). On the CPU we
-  // rebuild exactly the bonds the GPU draws (each cell's two nearest same-species cells within the
-  // link radius, either direction) and walk them outward from the selected cell. Bonds are only
-  // evaluated around cells the walk reaches, so the cost tracks the size of the body, not the species.
+  // estimate the body using each cell's two nearest same-species neighbours within the link radius,
+  // either direction. This proximity walk does not read the GPU's persistent bonds. Neighbours are
+  // evaluated only around cells the walk reaches, so the cost tracks the size of the body, not the species.
   let gatherBusy = false;
   const orgScratch = { bins: null, nb: 0 };
   function gatherTick(force) {

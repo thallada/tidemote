@@ -110,15 +110,15 @@ class Engine {
 
     const cp = (mod, entryPoint) => d.createComputePipeline({ layout: 'auto', compute: { module: mod, entryPoint }, label: entryPoint });
     this.cpDefs = {
-      seedMain: [0, 1, 10],
+      seedMain: [0, 1, 9, 10],
       resolveCount: [0, 1, 4, 8, 9, 10, 11, 14],
       scanBlocks: [5, 6, 7],
       scanSums: [6, 7],
       scanAdd: [6, 7],
-      scatterMain: [0, 1, 2, 3, 6, 8, 10, 12, 13],
+      scatterMain: [0, 1, 2, 3, 6, 8, 9, 10, 12, 13, 15],
       censusMain: [11, 12, 13],
-      matterMain: [0, 1, 2, 10, 11, 14],
-      lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12],
+      matterMain: [0, 1, 2, 9, 10, 11, 14],
+      lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12, 15],
     };
     this.cp = {};
     for (const name of Object.keys(this.cpDefs)) this.cp[name] = { pipe: cp(this.simModule, name), bg: null };
@@ -173,7 +173,7 @@ class Engine {
   async allocate(n) {
     const d = this.device;
     const b = this.b;
-    const names = ['parts', 'sortedFull', 'sortedLite', 'aux', 'intent', 'ledger', 'livingList'];
+    const names = ['parts', 'sortedFull', 'sortedLite', 'aux', 'intent', 'bondsNow', 'ledger', 'livingList'];
     for (const k of names) { b[k]?.destroy(); b[k] = null; }
     this.capacity = 0;
     this.count = 0;
@@ -184,6 +184,7 @@ class Engine {
     b.sortedLite = d.createBuffer({ size: n * LITE_BYTES, usage: U.STORAGE });
     b.aux = d.createBuffer({ size: n * 8, usage: U.STORAGE });
     b.intent = d.createBuffer({ size: n * 16, usage: U.STORAGE | U.COPY_DST });
+    b.bondsNow = d.createBuffer({ size: n * 8, usage: U.STORAGE });
     b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
     const res = {
@@ -191,6 +192,7 @@ class Engine {
       4: { buffer: b.counts }, 5: { buffer: b.counts }, 6: { buffer: b.cellStart }, 7: { buffer: b.blockSums },
       8: { buffer: b.aux }, 9: { buffer: b.intent }, 10: { buffer: b.genomes }, 11: { buffer: b.ledger },
       12: { buffer: b.livingList }, 13: { buffer: b.frameCtr }, 14: { buffer: b.stoneGrid },
+      15: { buffer: b.bondsNow },
     };
     for (const [name, ids] of Object.entries(this.cpDefs)) {
       const c = this.cp[name];
@@ -359,7 +361,6 @@ class Engine {
     enc.clearBuffer(this.b.counts);
     enc.clearBuffer(this.b.ledger, LEDGER_HEAD, n * 4);
     enc.clearBuffer(this.b.frameCtr);
-    enc.clearBuffer(this.b.intent);
     const pass = enc.beginComputePass();
     pass.setPipeline(this.cp.seedMain.pipe);
     pass.setBindGroup(0, this.cp.seedMain.bg);

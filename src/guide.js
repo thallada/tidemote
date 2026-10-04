@@ -22,8 +22,8 @@ export const GLOSSARY = {
   bodyplan: 'The long-run mix of cell types a species produces. Each child’s type is chosen by a developmental rule from its parent’s type; this is where that rule settles.',
   stone: 'Bedrock, and the skeletons of calcifying cells. Stone never drifts and the living cannot pass through it. Attacks made from among stone sometimes miss, so prey shelters in reefs, and calcifying cells settle on their own reef while everything else must go around it. Bedrock lasts nearly an hour. A loose grain of reef stone crumbles within minutes, a grain packed into a reef lasts far longer, and a neighbourhood that is mostly reef wears fast, so reefs grow as separate patches and persist only while they are being built.',
   calcify: 'How much of a skeleton a cell lays down. Calcifying costs upkeep. When a settled calcifying cell dies of hunger or old age it may leave stone instead of a husk, far more often beside stone already there, so reefs grow outward from rock and from the rare place one starts. Drifting cells seldom leave stone. Calcifiers can settle on stone; to everything else it is solid.',
-  adhesion: 'How strongly cells of one species bond. Above 15%, each cell bonds to its two nearest same-species neighbours with a spring. Bonds are the links you see and they hold bodies together. Bonded cells share the cost of living (up to 15% less upkeep), shade each other less and are armoured against attack. They still pay crowding beyond their bond partners, disperse poorly and their inner cells struggle to reach silt to divide. Species without adhesion are free-living.',
-  bond: 'A spring between two cells of the same species. Drawn as a link. A connected web of bonds is one organism.',
+  adhesion: 'How strongly cells of one species bond. Above 15%, each cell keeps up to two same-species partners with springs. Empty slots find the nearest neighbours within bond range; children start bonded to their parent if they are the same species. Bonds last until a partner dies, changes kind or stretches too far away. Bonds are the links you see and they hold bodies together. Bonded cells share the cost of living (up to 15% less upkeep), shade each other less and are armoured against attack. They still pay crowding beyond their bond partners, disperse poorly and their inner cells struggle to reach silt to divide. Species without adhesion are free-living.',
+  bond: 'A persistent spring between two cells of the same species. Drawn as a link. It breaks if a partner dies, changes kind or stretches beyond 1.75 times the range at which bonds form. A connected web of bonds is one organism.',
   organism: 'A body: all same-species cells connected through bonds. A species only forms bodies if its adhesion is above 15%; otherwise every cell is its own organism, even when the species has several cell types (morphs) or gathers into swarms.',
   swimming: 'Self-propulsion: a steady push in the direction the cell is already moving. Reduced by photosynthesis.',
   schooling: 'Steering toward the average velocity of nearby cells of the same species. Makes schools and coherent bodies move together.',
@@ -93,7 +93,7 @@ export const GUIDE = [
     id: 'cells', title: 'Cells, cell types and bodies',
     html: `<p>Each species has one genome. A genome describes up to three ${t('celltype', 'cell types')}, α, β and γ. Each type carries two 8-number signatures: a <b>surface</b> (how it appears to others) and a <b>receptor</b> (how it reacts). The pull of cell A on cell B is A’s receptor combined with B’s surface: above zero means attraction, below zero means repulsion. Silt, glint and husks have surfaces too, so a cell type can be drawn toward glint or repelled by husks.</p>
 <p>When a cell divides, a developmental rule picks the child’s type from the parent’s type. Where that rule settles is the ${t('bodyplan', 'body plan')}, for example α 60 · β 40.</p>
-<p>Species with ${t('adhesion', 'adhesion')} form ${t('bond', 'bonds')}: each cell ties itself with a spring to its two nearest cells of the same species. Bonds are what the links show, so a web of links is one ${t('organism', 'organism')}. Species without adhesion are single-celled and never show links, however closely they crowd.</p>`,
+<p>Species with ${t('adhesion', 'adhesion')} form ${t('bond', 'bonds')}: each cell keeps up to two partners of the same species. New bonds fill empty slots with nearby cells, and children start bonded to their parent, so bodies grow by division. A bond lasts until a partner dies, changes kind or stretches too far away. Bonds are what the links show, so a web of links is one ${t('organism', 'organism')}. Species without adhesion are single-celled and never show links, however closely they crowd.</p>`,
   },
   {
     id: 'movement', title: 'How things move',
@@ -138,7 +138,7 @@ export const GUIDE = [
   {
     id: 'tools', title: 'Research tools',
     html: `<ul>
-<li><b>Inspector</b> (click a particle): its life story, its whole organism (traced through bonds and highlighted), its species and full genome, and a live specimen view. Species names everywhere are links.</li>
+<li><b>Inspector</b> (click a particle): its life story, an estimate of its organism (traced by proximity and highlighted), its species and full genome, and a live specimen view. Species names everywhere are links.</li>
 <li><b>Lab → Species</b>: every species ranked and filterable by diet, mobility, body, status and more. <b>Highlight</b> dims everything outside the filter.</li>
 <li><b>Lab → Composition</b>: the world broken down by matter, cell type, diet, mobility and body type. Click any bar to highlight it.</li>
 <li><b>Lab → Dynamics</b>: population, diversity, births, deaths and feeding over time.</li>

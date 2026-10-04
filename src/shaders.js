@@ -28,6 +28,7 @@ export const DEFAULT_K = {
   huskFrac: 0.5,
   eatR: 0.3,
   linkR: 0.42,
+  bondBreak: 1.75,  // bonds break beyond this multiple of linkR
   buildCost: 0.06,
   gain: 1.5,
   sated: 1.0,       // cells stop feeding above this × the energy needed to divide
@@ -183,6 +184,7 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u3
 @group(0) @binding(13) var<storage, read_write> frameCtr: array<atomic<u32>, 8>;
 // Grains of reef stone (not bedrock) in each grid cell, counted while binning.
 @group(0) @binding(14) var<storage, read_write> stoneGrid: array<atomic<u32>>;
+@group(0) @binding(15) var<storage, read_write> bondsNow: array<vec2u>;
 
 const EAT_R = ${f(K.eatR)};
 const LINK_R = ${f(K.linkR)};
@@ -422,6 +424,7 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
     kind = STONE; e = ${f(K.rockLife)} * (0.5 + rnd(&s)); col = pack4x8unorm(vec4f(0.46, 0.42, 0.38, 1.0));
   }
   parts[i] = Particle(pos, vec2f(0.0), kind, e, age, i, col, info);
+  intent[i] = vec4u(0u, 0u, NONE, NONE);
 }
 
 // ------------------------------------------------- resolve claims + count
@@ -436,12 +439,15 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
   let i = gid.x;
   if (i < sim.count) {
     var p = parts[i];
+    // Matter has no bonds, even if this index held a living cell before the last sort.
+    if (p.kind < FIRST_LIFE) { intent[i].z = NONE; intent[i].w = NONE; }
     let c = atomicLoad(&ledger[META_CLAIM + i]);
     if (c != 0u) {
       atomicStore(&ledger[META_CLAIM + i], 0u);
-      let it = intent[c - 1u];
-      let act = it.x & 3u;
-      let ck = (it.x >> 2u) & 1023u;
+      // Only x/y are read here; other invocations may reset their own bond slots.
+      let action = intent[c - 1u].x;
+      let act = action & 3u;
+      let ck = (action >> 2u) & 1023u;
       if (act == 1u && p.kind == ck) {
         if (p.kind >= FIRST_LIFE) {
           // a kill leaves a carcass for the scavengers
@@ -462,15 +468,17 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
           }
         }
       } else if (act == 2u && (p.kind == SILT || p.kind == GLINT)) {
-        let cr = (it.x >> 12u) & 3u;
-        let gen = (it.x >> 14u) & 0xffffu;
+        let cr = (action >> 12u) & 3u;
+        let gen = (action >> 14u) & 0xffffu;
         p.kind = ck;
-        p.energy = bitcast<f32>(it.y);
+        p.energy = bitcast<f32>(intent[c - 1u].y);
         p.age = 0.0;
         p.vel = vec2f(0.0);
         p.id = atomicAdd(&ledger[0], 1u);
         p.col = pack4x8unorm(vec4f(roleColor(genomes[ck], cr), 1.0));
         p.info = (gen << 16u) | (cr << 4u) | 9u;
+        intent[i].z = select(NONE, c - 1u, genomes[ck].adhesion > ${f(K.adhMin)});
+        intent[i].w = NONE;
         atomicAdd(&ledger[2], 1u);
         atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[ck])], 1u);
       }
@@ -560,6 +568,18 @@ fn scatterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocat
     dst = cellStart[a.x] + a.y;
     let p = parts[i];
     sortedFull[dst] = p;
+    // Bonds use last frame's sorted indices; move each endpoint through the same sort.
+    var partners = vec2u(NONE);
+    if (p.kind >= FIRST_LIFE) {
+      for (var k = 0u; k < 2u; k++) {
+        let j = intent[i][k + 2u];
+        if (j < sim.count && j != i) {
+          let b = aux[j];
+          partners[k] = cellStart[b.x] + b.y;
+        }
+      }
+    }
+    bondsNow[dst] = partners;
     let role = roleOf(p.info);
     let sig = genomes[p.kind].sig[role].xy;
     let plant = select(0u, 1u << 12u, p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4);
@@ -662,6 +682,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u) {
           p.id = atomicAdd(&ledger[0], 1u);
           p.col = genomes[k].col;
           p.info = 8u;
+          intent[i] = vec4u(0u, 0u, NONE, NONE);
           vel = vec2f(0.0);
           atomicAdd(&ledger[4], 1u);
         }
@@ -680,6 +701,16 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u) {
 }
 
 // --------------------------------------------------------------------- life
+fn keepBond(i: u32, j: u32, p: Particle) -> u32 {
+  if (j >= sim.count || j == i) { return NONE; }
+  let q = sortedFull[j];
+  if (q.kind != p.kind) { return NONE; }
+  var d = q.pos - p.pos;
+  d -= sim.world * round(d / sim.world);
+  if (dot(d, d) > LINK_R * LINK_R * ${f(K.bondBreak * K.bondBreak)}) { return NONE; }
+  return j;
+}
+
 @compute @workgroup_size(128)
 fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
@@ -720,6 +751,22 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   var nutr = 0.0;
   var d1 = 1e9; var d2 = 1e9;
   var n1 = NONE; var n2 = NONE;
+  if (bonding) {
+    n1 = keepBond(i, bondsNow[i].x, p);
+    n2 = keepBond(i, bondsNow[i].y, p);
+    if (n2 == n1) { n2 = NONE; }
+    if (n1 != NONE) {
+      dn1 = sortedFull[n1].pos - p.pos;
+      dn1 -= world * round(dn1 * invWorld);
+      d1 = length(dn1);
+    }
+    if (n2 != NONE) {
+      dn2 = sortedFull[n2].pos - p.pos;
+      dn2 -= world * round(dn2 * invWorld);
+      d2 = length(dn2);
+    }
+  }
+  let keep1 = n1 != NONE; let keep2 = n2 != NONE;
   var food = NONE; var foodScore = -1e9;
   var silt = NONE; var siltD = 1e9;
   var stoneF = vec2f(0.0);
@@ -791,9 +838,11 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
             csum += unpack4x8unorm(q.col).rgb * w;
             wsum += w;
           }
-          if (bonding && qk == p.kind) {
-            if (r < d1) { d2 = d1; n2 = n1; dn2 = dn1; d1 = r; n1 = j; dn1 = d; }
-            else if (r < d2) { d2 = r; n2 = j; dn2 = d; }
+          if (bonding && qk == p.kind && j != n1 && j != n2) {
+            if (!keep1 && r < d1) {
+              if (!keep2) { d2 = d1; n2 = n1; dn2 = dn1; }
+              d1 = r; n1 = j; dn1 = d;
+            } else if (!keep2 && r < d2) { d2 = r; n2 = j; dn2 = d; }
           }
         }
         if (canHunt && r < EAT_R && qk != p.kind) {
@@ -841,7 +890,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   if (kinN > 0.0 && g.align > 0.0) {
     vel = mix(vel, kinVel / kinN, clamp(g.align * ${f(K.align)} * sim.dt, 0.0, 1.0));
   }
-  // bonds: springs to the two nearest cells of the same species hold a body together
+  // Persistent bonds pull on the partners' current positions, even outside the sampled scan.
   var bondF = vec2f(0.0);
   if (n1 != NONE) { bondF += dn1 * ((d1 - LINK_R * 0.55) / max(d1, 1e-4)); }
   if (n2 != NONE) { bondF += dn2 * ((d2 - LINK_R * 0.55) / max(d2, 1e-4)); }
