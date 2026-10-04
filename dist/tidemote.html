@@ -1838,19 +1838,22 @@ struct PO {
     let h = unpack4x8unorm(p.col).rgb;
     col = mix(h * 0.6, vec3f(0.42, 0.28, 0.16), 0.55) * (0.25 + p.energy * 0.6) * view.matterGain * 1.4;
   }
+  // highlights enlarge only sprites too small to show detail; resolved cells keep their true size,
+  // so they never grow into their neighbours and get clipped by the shared walls
+  let grow = 1.0 - detailLOD(view.pointSize * size);
   if (!focusPass(p)) {
     let l = dot(col, vec3f(0.3, 0.5, 0.2));
     col = mix(vec3f(l), col, 0.1) * view.mute;
     size *= 0.7;
   } else if (view.focusOn == 1u) {
     col *= 1.6;
-    size *= 1.12;
+    size *= 1.0 + 0.12 * grow;
   }
   if (view.memberN > 0u && k == view.memberKind && isMember(p.id)) {
     col = mix(col, vec3f(1.0, 0.97, 0.9) * max(1.0, dot(col, vec3f(0.33))), 0.35) * (1.25 + 0.2 * sin(view.time * 4.0));
-    size *= 1.15;
+    size *= 1.0 + 0.15 * grow;
   }
-  if (p.id == view.selId) { col = col * 1.5 + vec3f(0.5); size = max(size, 1.2) * 1.5; }
+  if (p.id == view.selId) { col = col * 1.5 + vec3f(0.5); size = mix(size, max(size, 1.2) * 1.5, grow); }
   let px = select(max(view.pointSize * size, 0.9), max(view.ppu * 0.13, 0.9), k == STONE);
   let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
   o.col = col;
