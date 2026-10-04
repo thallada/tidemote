@@ -204,3 +204,22 @@ against 86%, p = 0.004) and were removed. Cheaper calcification let producers sp
 Full stone at page scale raises diversity (effective species +25%) and run-to-run variety, and lowers
 food-web completeness a little; stone holds 12-14% of matter. Bedrock alone helps at 32k and is the
 weakest at 131k: at these sample sizes most differences are noise.
+
+### Why stone cost food webs, and the fix
+
+At 131k with 32 runs each, today's rules keep a food web in 66% of worlds (the earlier 75% from 16 runs
+was partly luck) and full stone in 56%. The missing guild is almost always predators (above 5% of life late
+in 56% of stone worlds against 72%). Their budgets show why: early on, predators near reefs eat as well as
+anywhere, but late in the run they starve more (4.1 starvations per predator per minute against 2.4),
+because attacks made from among stone missed up to 60% of the time. It was not the matter that stone
+locks up: halving how often calcifiers turn to stone (`reefs` 0.5) made food webs worse, not better.
+Capping the refuge at 30% (`refugeMax` 0.3) closes the gap:
+
+| 131k × 30 min, 32 runs each | food web | late guilds | predators > 5% late | outcomes |
+| --- | --- | --- | --- | --- |
+| today's rules | 66% | 3.03 | 72% | 5.8 |
+| stone, refuge up to 60% | 56% | 2.75 | 56% | 6.7 |
+| stone, refuge up to 30% (adopted) | 63% | 2.88 | 66% | 7.3 |
+
+The 32k gate passes with the adopted rules (no gated metric regressed). Stone holds about 17% of matter
+at 30 minutes, so the living share falls from 64% to 51%.

@@ -78,7 +78,7 @@ export const DEFAULT_K = {
   stoneR: 0.32,     // distance within which stone pushes cells away
   stoneWall: 5.0,   // how hard stone pushes
   refuge: 0.12,     // chance per nearby grain of stone that an attack made from among stone misses...
-  refugeMax: 0.6,   // ...up to this
+  refugeMax: 0.3,   // ...up to this (a leaky refuge: hunters at reefs still make a living)
 };
 
 const f = (x) => {
