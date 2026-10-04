@@ -1148,7 +1148,13 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u) {
     return;
   }
   var s = pcg((p.id * 1664525u) ^ pcg(sim.frame * 2654435761u + sim.seed));
-  let jit = vec2f(rnd(&s) - 0.5, rnd(&s) - 0.5) * ${f(K.jitter)};
+  // Brownian drift as a smooth random velocity that persists ~0.5 s (Ornstein-Uhlenbeck), scaled so
+  // grains spread as far as independent per-frame kicks would, without visibly shaking up close
+  let keep = exp(-sim.dt / 0.5);
+  let kick = vec2f(rnd(&s) - 0.5, rnd(&s) - 0.5) * (${f(K.jitter)} * sqrt((1.0 - keep * keep) * sim.dt / (2.0 * 0.5)));
+  // a fresh husk still carries its cell's velocity; cap it to the jitter's own scale so it doesn't coast
+  let w = p.vel - flowAt(p.pos);
+  let jit = w * (keep * min(1.0, 0.05 / max(length(w), 1e-6))) + kick;
   var vel = flowAt(p.pos) + jit;
   let pos = wrapPos(p.pos + vel * sim.dt);
   p.age += sim.dt;
@@ -1878,7 +1884,8 @@ struct PO {
   // All expensive state/partner work is confined to resolvable sprites.
   if (lod > 0.0) {
     let seed = renderHash(p.id);
-    let a = select(seed * TAU, atan2(p.vel.y, p.vel.x), dot(p.vel, p.vel) > 0.000001);
+    // cells face where they swim; matter keeps its own orientation (its motion is mostly Brownian)
+    let a = select(seed * TAU, atan2(p.vel.y, p.vel.x), k >= FIRST_LIFE && dot(p.vel, p.vel) > 0.000001);
     o.geom = vec4f(px, extent, cos(a), sin(a));
     if (k >= FIRST_LIFE) {
       let it = intent[ii];
