@@ -271,7 +271,8 @@ class Engine {
     this.loupeView = this.loupeTex.createView();
     this.loupeBG = this.device.createBindGroup({ layout: this.pLoupe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: this.loupeView },
-      { binding: 2, resource: { buffer: this.b.post } }, { binding: 4, resource: { buffer: this.b.loupeU } }] });
+      { binding: 2, resource: { buffer: this.b.post } }, { binding: 4, resource: { buffer: this.b.loupeU } },
+      { binding: 6, resource: { buffer: this.b.viewL } }] });
   }
 
   /**
@@ -295,7 +296,8 @@ class Engine {
     this.specTex = this.device.createTexture({ size: [w, h], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
     this.specView = this.specTex.createView();
     this.specBG = this.device.createBindGroup({ layout: this.pPlain.getBindGroupLayout(0), entries: [
-      { binding: 0, resource: this.sampler }, { binding: 1, resource: this.specView }, { binding: 2, resource: { buffer: this.b.post } }] });
+      { binding: 0, resource: this.sampler }, { binding: 1, resource: this.specView },
+      { binding: 2, resource: { buffer: this.b.post } }, { binding: 6, resource: { buffer: this.b.viewS } }] });
   }
 
   gridFor(n, aspect) {
@@ -804,7 +806,7 @@ class Engine {
       this._ensureLoupeTex(L);
       const lppu = loupe.ppu * (L / (loupe.r * 2));
       this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / (loupe.r * 2)), time, selId);
-      d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W, H, 0, 0]));
+      d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W, H, loupe.ppu, 0]));
       const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.loupeView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
       this._drawScene(pass, this.bgLineL, this.bgPointL, this.bgBridgeL, this.viewDataL);
       pass.end();
