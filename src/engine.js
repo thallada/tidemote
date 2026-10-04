@@ -87,6 +87,7 @@ class Engine {
     b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     b.pickU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
     b.counts = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST });
+    b.stoneGrid = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST });
     b.cellStart = d.createBuffer({ size: (MAX_CELLS + 1) * 4, usage: U.STORAGE });
     b.blockSums = d.createBuffer({ size: (MAX_CELLS / 256) * 4, usage: U.STORAGE });
     b.genomes = d.createBuffer({ size: MAXK * G_BYTES, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
@@ -110,13 +111,13 @@ class Engine {
     const cp = (mod, entryPoint) => d.createComputePipeline({ layout: 'auto', compute: { module: mod, entryPoint }, label: entryPoint });
     this.cpDefs = {
       seedMain: [0, 1, 10],
-      resolveCount: [0, 1, 4, 8, 9, 10, 11],
+      resolveCount: [0, 1, 4, 8, 9, 10, 11, 14],
       scanBlocks: [5, 6, 7],
       scanSums: [6, 7],
       scanAdd: [6, 7],
       scatterMain: [0, 1, 2, 3, 6, 8, 10, 12, 13],
       censusMain: [11, 12, 13],
-      matterMain: [0, 1, 2, 10, 11],
+      matterMain: [0, 1, 2, 10, 11, 14],
       lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12],
     };
     this.cp = {};
@@ -189,7 +190,7 @@ class Engine {
       0: { buffer: b.sim }, 1: { buffer: b.parts }, 2: { buffer: b.sortedFull }, 3: { buffer: b.sortedLite },
       4: { buffer: b.counts }, 5: { buffer: b.counts }, 6: { buffer: b.cellStart }, 7: { buffer: b.blockSums },
       8: { buffer: b.aux }, 9: { buffer: b.intent }, 10: { buffer: b.genomes }, 11: { buffer: b.ledger },
-      12: { buffer: b.livingList }, 13: { buffer: b.frameCtr },
+      12: { buffer: b.livingList }, 13: { buffer: b.frameCtr }, 14: { buffer: b.stoneGrid },
     };
     for (const [name, ids] of Object.entries(this.cpDefs)) {
       const c = this.cp[name];
@@ -446,6 +447,7 @@ class Engine {
     }
     const cells = this.grid[0] * this.grid[1];
     enc.clearBuffer(b.counts, 0, cells * 4);
+    enc.clearBuffer(b.stoneGrid, 0, cells * 4);
     enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
     enc.clearBuffer(b.frameCtr, 0, 4);
     enc.clearBuffer(b.ledger, 48, 12);

@@ -73,7 +73,14 @@ export const DEFAULT_K = {
   stoneLife: 300,   // seconds a reef stone lasts on average before it crumbles to silt
   reefs: 1,         // 0: calcifying cells never leave stone (bedrock only)
   stoneCap: 0,      // stone grains within half a cell at which a dying calcifier leaves no more (0: no limit)
-  nucleate: 0.03,   // chance of leaving stone away from other stone, relative to beside it: reefs accrete
+  nucleate: 0.03,
+  wearLoose: 1,     // how fast a loose grain of stone wears, relative to stoneLife...
+  wearPacked: 1,    // ...and a grain packed into a reef...
+  packedAt: 8,      // ...with this many grains in its grid cell
+  regionWear: 0,    // extra wear on reef stone whose neighbourhood (cells within regionR) holds more than...
+  regionR: 2,
+  regionCap: 2.5,   // ...this many reef grains per cell on average
+  reefLight: 0,     // light below which calcifiers leave no stone, rising to full at reefLight + 0.4 (0: any light)   // chance of leaving stone away from other stone, relative to beside it: reefs accrete
   rockLife: 3000,   // ...and a grain of bedrock
   rocks: 0.5,       // scales each world's bedrock outcrops (0: none)
   stoneR: 0.32,     // distance within which stone pushes cells away
@@ -176,6 +183,8 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u3
 @group(0) @binding(11) var<storage, read_write> ledger: array<atomic<u32>>;
 @group(0) @binding(12) var<storage, read_write> livingList: array<u32>;
 @group(0) @binding(13) var<storage, read_write> frameCtr: array<atomic<u32>, 8>;
+// Grains of reef stone (not bedrock) in each grid cell, counted while binning.
+@group(0) @binding(14) var<storage, read_write> stoneGrid: array<atomic<u32>>;
 
 const EAT_R = ${f(K.eatR)};
 const LINK_R = ${f(K.linkR)};
@@ -472,6 +481,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
     let cell = cellOf(p.pos);
     let r = atomicAdd(&countsA[cell], 1u);
     aux[i] = vec2u(cell, r);
+    if (p.kind == STONE && (p.info & 15u) != 0u) { atomicAdd(&stoneGrid[cell], 1u); }
     atomicAdd(&hist[p.kind % MAXK], 1u);
     if (p.kind >= FIRST_LIFE) { atomicAdd(&roleHist[roleOf(p.info)], 1u); }
   }
@@ -596,8 +606,30 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u) {
   var p = sortedFull[i];
   if (p.kind >= FIRST_LIFE) { return; }
   if (p.kind == STONE) {
-    // stone stays put and wears away; its energy is the time it has left
-    p.energy -= sim.dt;
+    // stone stays put and wears away; its energy is the time it has left. Reef stone (bedrock has cause 0)
+    // wears by its surroundings: loose grains fast and grains packed into a reef slowly, so rubble clears
+    // and reefs stay solid, but a neighbourhood that is mostly reef wears fast (waves and borers on a reef
+    // flat), so reefs grow as separate patches about as wide as that neighbourhood.
+    var wear = 1.0;
+    if ((p.info & 15u) != 0u) {
+      let c = vec2i(clamp(floor(p.pos), vec2f(0.0), vec2f(sim.grid) - 1.0));
+      let gw = i32(sim.grid.x);
+      let gh = i32(sim.grid.y);
+      let here = f32(atomicLoad(&stoneGrid[u32(c.y * gw + c.x)]));
+      var region = 0.0;
+      if (${f(K.regionWear)} > 0.0) {
+        for (var dy = -${K.regionR | 0}; dy <= ${K.regionR | 0}; dy++) {
+          for (var dx = -${K.regionR | 0}; dx <= ${K.regionR | 0}; dx++) {
+            let x = (c.x + dx + gw) % gw;
+            let y = (c.y + dy + gh) % gh;
+            region += f32(atomicLoad(&stoneGrid[u32(y * gw + x)]));
+          }
+        }
+      }
+      wear = mix(${f(K.wearLoose)}, ${f(K.wearPacked)}, smoothstep(2.0, ${f(K.packedAt)}, here))
+        * (1.0 + ${f(K.regionWear)} * max(0.0, region / ${f((2 * (K.regionR | 0) + 1) ** 2)} / ${f(K.regionCap)} - 1.0));
+    }
+    p.energy -= sim.dt * wear;
     p.age += sim.dt;
     p.vel = vec2f(0.0);
     if (p.energy <= 0.0) {
@@ -816,7 +848,8 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   if (n1 != NONE) { bondF += dn1 * ((d1 - LINK_R * 0.55) / max(d1, 1e-4)); }
   if (n2 != NONE) { bondF += dn2 * ((d2 - LINK_R * 0.55) / max(d2, 1e-4)); }
   vel += bondF * (g.adhesion * ${f(K.bond)} * sim.dt);
-  vel += stoneF * (${f(K.stoneWall)} * sim.dt);
+  // stone is solid to everything but the calcifiers that build it, which settle on their own reef
+  vel += stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify) * sim.dt);
   let swim = g.swim * (1.0 - g.photo);
   if (swim > 0.0) {
     var dir = vel;
@@ -923,6 +956,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   // stone already is, so reefs grow outward from rock and from the rare place one starts; a reef that is
   // already thick around the cell takes no more, so reefs grow as frameworks rather than solid carpets
   if (kind == HUSK && g.calcify > 0.0 && rnd(&s) < ${f(K.reefs)} * g.calcify * (1.0 - g.advect) * select(${f(K.nucleate)}, 1.0, stoneN >= 1.0)
+      * select(1.0, smoothstep(${f(K.reefLight)}, ${f(K.reefLight + 0.4)}, light), ${f(K.reefLight)} > 0.0)
       * select(1.0, clamp(1.0 - stoneN / ${f(K.stoneCap || 1)}, 0.0, 1.0), ${f(K.stoneCap)} > 0.0)) {
     kind = STONE; E = ${f(K.stoneLife)} * (0.5 + rnd(&s)); vel = vec2f(0.0);
   }
@@ -1134,7 +1168,7 @@ struct PO {
   } else if (k == STONE) {
     // stone: chalky and matte, tinted by the species that built it
     shape = 6u;
-    col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 2.0;
+    col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 1.1;
   } else {
     size = 0.62;
     shape = 1u;
