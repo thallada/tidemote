@@ -1,6 +1,6 @@
 import {
   simWGSL, PICK_WGSL, LISTEN_WGSL, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, DRAW_WGSL, POST_WGSL, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES,
+  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD,
 } from './shaders.js';
 import {
   archetypeGenome, writeGenome, parseParticle,
@@ -52,7 +52,7 @@ class Engine {
     this.tidePh = Float32Array.from(TIDE_PHASE);
     this.seedValue = 1;
     this.censusEvery = 20;
-    this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 1 };
+    this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 1, optics: 1 };
     this.simData = new ArrayBuffer(240);
     this.rock = new Float32Array(4);
     this.simF = new Float32Array(this.simData);
@@ -151,6 +151,7 @@ class Engine {
     this.pFade = rp(this.drawModule, 'vsFade', 'fsFade', 'triangle-list', fade);
     this.pDown = rp(this.postModule, 'vsFull', 'fsDown', 'triangle-list', undefined);
     this.pUp = rp(this.postModule, 'vsFull', 'fsUp', 'triangle-list', additive);
+    this.pMurk = rp(this.postModule, 'vsFull', 'fsMurk', 'triangle-list', undefined);
     this.pComp = rp(this.postModule, 'vsFull', 'fsComposite', 'triangle-list', undefined, format);
     this.pCompClear = rp(this.postModule, 'vsFull', 'fsComposite', 'triangle-list', undefined, format, { MICRO_SUSPENSION: 0 });
     this.pLoupe = rp(this.postModule, 'vsLoupe', 'fsLoupe', 'triangle-list', over, format);
@@ -265,7 +266,7 @@ class Engine {
     if (this.size[0] === w && this.size[1] === h) return;
     this.size = [w, h];
     const d = this.device;
-    if (this.accum) { this.accum.forEach((t) => t.destroy()); this.bloom.forEach((t) => t.destroy()); }
+    if (this.accum) { this.accum.forEach((t) => t.destroy()); this.bloom.forEach((t) => t.destroy()); this.murkTex.destroy(); }
     const tex = (tw, th) => d.createTexture({ size: [Math.max(1, tw), Math.max(1, th)], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
     this.accum = [tex(w, h), tex(w, h)];
     this.stoneTex?.forEach((t) => t.destroy());
@@ -273,6 +274,9 @@ class Engine {
     this.stoneView = this.stoneTex.map((t) => t.createView());
     this.bloom = [];
     for (let i = 0; i < BLOOM_LEVELS; i++) this.bloom.push(tex(w >> (i + 1), h >> (i + 1)));
+    this.murkTex = tex(w >> 2, h >> 2);
+    this.murkView = this.murkTex.createView();
+    this.murkBG = d.createBindGroup({ layout: this.pMurk.getBindGroupLayout(0), entries: [{ binding: 2, resource: { buffer: this.b.post } }] });
     this.accumViews = this.accum.map((t) => t.createView());
     this.bloomViews = this.bloom.map((t) => t.createView());
     const sbg = (pipe, view) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
@@ -285,7 +289,7 @@ class Engine {
     const compBG = (pipe) => this.accumViews.map((v) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: v },
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 3, resource: this.bloomViews[0] },
-      { binding: 7, resource: this.stoneView[0] }, { binding: 8, resource: this.stoneView[1] }] }));
+      { binding: 7, resource: this.stoneView[0] }, { binding: 8, resource: this.stoneView[1] }, { binding: 9, resource: this.murkView }] }));
     this.compBG = compBG(this.pComp);
     this.compClearBG = compBG(this.pCompClear);
     this.reprojBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.pReproj.getBindGroupLayout(0), entries: [
@@ -819,7 +823,7 @@ class Engine {
     pd[0] = W; pd[1] = H; pd[2] = this.settings.bloom; pd[3] = 1.0;
     pd[4] = time; pd[5] = this.season; pd[6] = this.settings.tide; pd[7] = cam.ppu;
     pd[8] = cam.x; pd[9] = cam.y; pd[10] = this.grid[0]; pd[11] = this.grid[1];
-    pd[12] = this.simTime; pd[13] = this.ambient;
+    pd[12] = this.simTime; pd[13] = this.ambient; pd[14] = this.settings.optics;
     pd.set(this.tide, 16);
     pd.set(this.tidePh, 32);
     pd.set(this.waves, 36);
@@ -840,7 +844,7 @@ class Engine {
       };
       // the loupe lies inside the main view; alone (main view too distant for detail) it is the view
       if (mainDetail) rect(0, cam.x, cam.y, W / (2 * cam.ppu), H / (2 * cam.ppu));
-      else if (loupe) rect(0, loupe.cx, loupe.cy, loupe.r / loupe.ppu, loupe.r / loupe.ppu);
+      else if (loupe) rect(0, loupe.cx, loupe.cy, LOUPE_FIELD * loupe.r / loupe.ppu, LOUPE_FIELD * loupe.r / loupe.ppu);
       if (specimen) rect(1, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu));
       u[16] = gw; u[17] = gh; new Float32Array(u.buffer)[18] = time;
       d.queue.writeBuffer(this.b.inbondU, 0, u);
@@ -880,10 +884,12 @@ class Engine {
     const cur = this.accIdx;
 
     if (loupe) {
-      const L = Math.max(64, Math.min(1024, Math.ceil((loupe.r * 2) / 32) * 32));
+      // the lens is barrel-distorted: its rim shows LOUPE_FIELD times its radius, so render that much
+      const span = loupe.r * 2 * LOUPE_FIELD;
+      const L = Math.max(64, Math.min(1024, Math.ceil(span / 32) * 32));
       this._ensureLoupeTex(L);
-      const lppu = loupe.ppu * (L / (loupe.r * 2));
-      this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / (loupe.r * 2)), time, selId);
+      const lppu = loupe.ppu * (L / span);
+      this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span), time, selId);
       d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W, H, loupe.ppu, 0]));
       const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.loupeView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
       this._drawScene(pass, this.bgLineL, this.bgPointL, this.bgBridgeL, this.viewDataL);
@@ -914,6 +920,11 @@ class Engine {
     } else {
       const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.bloomViews[0], loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
       pass.end();
+    }
+
+    if (this.settings.optics > 0) {
+      const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.murkView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
+      pass.setPipeline(this.pMurk); pass.setBindGroup(0, this.murkBG); pass.draw(3); pass.end();
     }
 
     const pass = enc.beginRenderPass({

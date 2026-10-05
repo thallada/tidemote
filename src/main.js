@@ -1349,6 +1349,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === 'l' || k === 'L') { eng.settings.links = !eng.settings.links; flash(eng.settings.links ? 'Bonds shown' : 'Bonds hidden'); }
     else if (k === 'n' || k === 'N') { eng.settings.nodes = !eng.settings.nodes; flash(eng.settings.nodes ? 'Particles on' : 'Particles off'); }
     else if (k === 'b' || k === 'B') { eng.settings.bloom = eng.settings.bloom > 0 ? 0 : 0.012; flash(eng.settings.bloom ? 'Bloom on' : 'Bloom off'); }
+    else if (k === 'o' || k === 'O') { eng.settings.optics = eng.settings.optics > 0 ? 0 : 1; flash(eng.settings.optics ? 'Microscope optics on' : 'Microscope optics off'); }
     else if (k === 'g' || k === 'G') { eng.settings.tide = (eng.settings.tide + 1) % 3; flash(['Tide hidden', 'Faint tide', 'Light map'][eng.settings.tide]); lab.render(true); }
     else if (k === 'v' || k === 'V') { state.currents = !state.currents; flash(state.currents ? 'Currents shown' : 'Currents hidden'); lab.render(true); }
     else if (k === 'k' || k === 'K') { lab.toggle(); }

@@ -16,6 +16,8 @@ On start it sizes the universe to your GPU: it times a few frames and fixes the 
 
 Deep zoom reveals organic detail in cells, minerals and bonds, with a faint, patchy suspension of cosmetic microbial fragments, fibres and grit that follows the water's currents and also appears in the loupe and specimen view.
 
+The view is seen through a microscope (**O** turns this off): clouds of mud drift on the currents and fade in and out of the focal plane, the edge of the field softens and splits colour a little, the lamp is slightly off-centre, dust sits on the eyepiece and the camera adds grain. The loupe is a glass lens with mild barrel distortion. All of it is cosmetic and costs a few tenths of a millisecond at 4K.
+
 The time control under the epoch clock pauses, steps the speed along ×¼ … ×1, ×1.25, ×1.5, ×2, ×4 … ×64 (`,` and `.`), returns to real time (`/`) or runs as fast as the GPU allows (**Max**, `>`). Above ×1 the page runs several whole simulation steps per drawn frame, as the headless runs do, so the ecology is the same at every speed; it keeps a frame under about 30 ms of GPU time and shows the speed actually reached when that is less than asked. Below ×1 the steps are shortened instead.
 
 Every world draws its own tide pattern (wave directions, drift and phases), opening light and glint charge, matter mix, founding community, and how clumped the founders start.
