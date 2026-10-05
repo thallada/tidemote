@@ -179,9 +179,10 @@ class Engine {
     this.timing = null;
     if (hasTimestamps) {
       this.timing = {
-        qs: d.createQuerySet({ type: 'timestamp', count: 2 }),
-        resolve: d.createBuffer({ size: 16, usage: U.QUERY_RESOLVE | U.COPY_SRC }),
-        reads: [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: 16, usage: U.COPY_DST | U.MAP_READ }), busy: false })),
+        // 0: start of the frame's first pass, 1: end of its last, 2: end of its last simulation step
+        qs: d.createQuerySet({ type: 'timestamp', count: 3 }),
+        resolve: d.createBuffer({ size: 24, usage: U.QUERY_RESOLVE | U.COPY_SRC }),
+        reads: [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: 24, usage: U.COPY_DST | U.MAP_READ }), busy: false })),
       };
     }
     this.censusStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: CENSUS_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
@@ -632,7 +633,7 @@ class Engine {
     const censusJobs = [];
     for (let s = 0; s < nSteps; s++) {
       const last = s === nSteps - 1;
-      const endTs = last && slot && !target ? { querySet: tm.qs, endOfPassWriteIndex: 1 } : undefined;
+      const endTs = last && slot ? { querySet: tm.qs, endOfPassWriteIndex: target ? 2 : 1 } : undefined;
       const begin = tsBegin();
       this._step(enc, simDt, begin || endTs ? { ...(begin || {}), ...(endTs || {}) } : undefined, nSteps > 1 ? s : -1);
       const job = this._censusCopy(enc);
@@ -688,8 +689,8 @@ class Engine {
 
     const timed = slot && (stepping || target);
     if (timed) {
-      enc.resolveQuerySet(tm.qs, 0, 2, tm.resolve, 0);
-      enc.copyBufferToBuffer(tm.resolve, 0, slot.buf, 0, 16);
+      enc.resolveQuerySet(tm.qs, 0, 3, tm.resolve, 0);
+      enc.copyBufferToBuffer(tm.resolve, 0, slot.buf, 0, 24);
     }
     d.queue.submit([enc.finish()]);
 
@@ -698,9 +699,11 @@ class Engine {
       slot.buf.mapAsync(GPUMapMode.READ).then(() => {
         const t = new BigUint64Array(slot.buf.getMappedRange());
         const ms = Number(t[1] - t[0]) / 1e6;
+        // the simulation's share: up to the end of the last step (the whole frame when nothing is drawn)
+        const simMs = !nSteps ? 0 : target ? Number(t[2] - t[0]) / 1e6 : ms;
         slot.buf.unmap();
         slot.busy = false;
-        if (generation === this.worldGeneration && ms > 0 && ms < 5000 && this.onGpuTime) this.onGpuTime(ms, N, nSteps);
+        if (generation === this.worldGeneration && ms > 0 && ms < 5000 && this.onGpuTime) this.onGpuTime(ms, N, nSteps, simMs > 0 && simMs <= ms ? simMs : null);
       }).catch(() => { slot.busy = false; });
     } else if (!tm && this.onGpuTime && (stepping || target)) {
       d.queue.onSubmittedWorkDone().then(() => {

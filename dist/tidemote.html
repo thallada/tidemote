@@ -4633,8 +4633,8 @@ struct SV {
     return t2 * t2 * (3 - 2 * t2);
   };
   var TIDE_PHASE = [0, 1.7, 3.4, 5.1];
-  function tideAt(x, y, W, H, t2, w, ph = TIDE_PHASE) {
-    const ux = x / W * TAU, uy = y / H * TAU;
+  function tideAt(x, y, W, H2, t2, w, ph = TIDE_PHASE) {
+    const ux = x / W * TAU, uy = y / H2 * TAU;
     let s = 0, n = 0;
     for (let k = 0; k < 4; k++) {
       s += w[k * 4 + 3] * Math.sin(w[k * 4] * ux + w[k * 4 + 1] * uy + w[k * 4 + 2] * t2 + ph[k]);
@@ -4814,9 +4814,10 @@ struct SV {
       this.timing = null;
       if (hasTimestamps) {
         this.timing = {
-          qs: d.createQuerySet({ type: "timestamp", count: 2 }),
-          resolve: d.createBuffer({ size: 16, usage: U.QUERY_RESOLVE | U.COPY_SRC }),
-          reads: [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: 16, usage: U.COPY_DST | U.MAP_READ }), busy: false }))
+          // 0: start of the frame's first pass, 1: end of its last, 2: end of its last simulation step
+          qs: d.createQuerySet({ type: "timestamp", count: 3 }),
+          resolve: d.createBuffer({ size: 24, usage: U.QUERY_RESOLVE | U.COPY_SRC }),
+          reads: [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: 24, usage: U.COPY_DST | U.MAP_READ }), busy: false }))
         };
       }
       this.censusStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: CENSUS_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
@@ -5192,15 +5193,15 @@ struct SV {
     }
     /** Divergence-free, torus-periodic currents. Returns the new wave table. */
     randomizeCurrents(rng = Math.random, into = this.waves) {
-      const [W, H] = this.grid;
+      const [W, H2] = this.grid;
       for (let k = 0; k < 4; k++) {
         const L = mix2(14, 34, rng());
         const th = rng() * Math.PI * 2;
         let kx = Math.round(W / L * Math.cos(th));
-        const ky = Math.round(H / L * Math.sin(th));
+        const ky = Math.round(H2 / L * Math.sin(th));
         if (kx === 0 && ky === 0) kx = 1;
         into[k * 4] = Math.PI * 2 * kx / W;
-        into[k * 4 + 1] = Math.PI * 2 * ky / H;
+        into[k * 4 + 1] = Math.PI * 2 * ky / H2;
         into[k * 4 + 2] = (rng() < 0.5 ? -1 : 1) * mix2(0.04, 0.12, rng());
         into[k * 4 + 3] = mix2(0.08, 0.16, rng());
       }
@@ -5345,7 +5346,7 @@ struct SV {
       const censusJobs = [];
       for (let s = 0; s < nSteps; s++) {
         const last = s === nSteps - 1;
-        const endTs = last && slot && !target ? { querySet: tm.qs, endOfPassWriteIndex: 1 } : void 0;
+        const endTs = last && slot ? { querySet: tm.qs, endOfPassWriteIndex: target ? 2 : 1 } : void 0;
         const begin = tsBegin();
         this._step(enc, simDt, begin || endTs ? { ...begin || {}, ...endTs || {} } : void 0, nSteps > 1 ? s : -1);
         const job = this._censusCopy(enc);
@@ -5410,8 +5411,8 @@ struct SV {
       if (target) this._render(enc, { target, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd: slot ? { querySet: tm.qs, endOfPassWriteIndex: 1 } : void 0 });
       const timed = slot && (stepping || target);
       if (timed) {
-        enc.resolveQuerySet(tm.qs, 0, 2, tm.resolve, 0);
-        enc.copyBufferToBuffer(tm.resolve, 0, slot.buf, 0, 16);
+        enc.resolveQuerySet(tm.qs, 0, 3, tm.resolve, 0);
+        enc.copyBufferToBuffer(tm.resolve, 0, slot.buf, 0, 24);
       }
       d.queue.submit([enc.finish()]);
       if (timed) {
@@ -5419,9 +5420,10 @@ struct SV {
         slot.buf.mapAsync(GPUMapMode.READ).then(() => {
           const t2 = new BigUint64Array(slot.buf.getMappedRange());
           const ms = Number(t2[1] - t2[0]) / 1e6;
+          const simMs = !nSteps ? 0 : target ? Number(t2[2] - t2[0]) / 1e6 : ms;
           slot.buf.unmap();
           slot.busy = false;
-          if (generation === this.worldGeneration && ms > 0 && ms < 5e3 && this.onGpuTime) this.onGpuTime(ms, N, nSteps);
+          if (generation === this.worldGeneration && ms > 0 && ms < 5e3 && this.onGpuTime) this.onGpuTime(ms, N, nSteps, simMs > 0 && simMs <= ms ? simMs : null);
         }).catch(() => {
           slot.busy = false;
         });
@@ -5543,8 +5545,8 @@ struct SV {
       this._listenFrames = 0;
       st.busy = true;
       const b = this.b;
-      const [W, H] = this.size, ppu = Math.max(cam.ppu, 1e-6);
-      const view = { x: cam.x, y: cam.y, hx: W > 0 ? W / (2 * ppu) : this.grid[0], hy: H > 0 ? H / (2 * ppu) : this.grid[1] };
+      const [W, H2] = this.size, ppu = Math.max(cam.ppu, 1e-6);
+      const view = { x: cam.x, y: cam.y, hx: W > 0 ? W / (2 * ppu) : this.grid[0], hy: H2 > 0 ? H2 / (2 * ppu) : this.grid[1] };
       const window2 = this.simTime - this._listenSim;
       this._listenSim = this.simTime;
       const u = new ArrayBuffer(96), f2 = new Float32Array(u), w = new Uint32Array(u);
@@ -5598,7 +5600,7 @@ struct SV {
         st.busy = false;
       });
     }
-    _writeView(buf, data, cam, W, H, dpr, time, selId) {
+    _writeView(buf, data, cam, W, H2, dpr, time, selId) {
       const K = this.K;
       const ppu = cam.ppu;
       const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
@@ -5613,7 +5615,7 @@ struct SV {
       v[2] = this.grid[0];
       v[3] = this.grid[1];
       v[4] = W;
-      v[5] = H;
+      v[5] = H2;
       v[6] = ppu;
       v[7] = pointSize;
       v[8] = 0.95 / (1 + overlapLife * 0.8) * this.settings.exposure;
@@ -5664,13 +5666,13 @@ struct SV {
     }
     // The micro-suspension's specks for the main view (MICRO_WGSL): for each phase and resolved octave
     // of pondMicro, the block of lattice slots whose objects can land in view.
-    _drawSpecks(enc, cam, W, H) {
+    _drawSpecks(enc, cam, W, H2) {
       const d = this.device;
       const [gw, gh] = this.grid;
       const ppu = cam.ppu, t2 = this.simTime;
       let vmax = 0;
       for (let k = 0; k < 4; k++) vmax += Math.abs(this.waves[k * 4 + 3]);
-      const hw = W / (2 * ppu), hh = H / (2 * ppu);
+      const hw = W / (2 * ppu), hh = H2 / (2 * ppu);
       const iv = new Int32Array(this.microData), fv = new Float32Array(this.microData), uv = new Uint32Array(this.microData);
       let n = 0, total = 0;
       for (let phase = 0; phase < 2; phase++) {
@@ -5712,7 +5714,7 @@ struct SV {
       fv[58] = ppu;
       uv[59] = MICRO_SPECKS;
       fv[60] = W;
-      fv[61] = H;
+      fv[61] = H2;
       fv[62] = cam.x;
       fv[63] = cam.y;
       d.queue.writeBuffer(this.b.microU, 0, this.microData);
@@ -5735,14 +5737,14 @@ struct SV {
     }
     _render(enc, { target, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd }) {
       const d = this.device;
-      const [W, H] = this.size;
-      this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId);
+      const [W, H2] = this.size;
+      this._writeView(this.b.view, this.viewData, cam, W, H2, dpr, time, selId);
       if (new Float32Array(this.viewData)[7] > 6 || loupe || specimen) {
         enc.copyBufferToBuffer(this.b.frameCtr, 20, this.b.bridgeDraw, 4, 4);
       }
       const pd = this.postData;
       pd[0] = W;
-      pd[1] = H;
+      pd[1] = H2;
       pd[2] = this.settings.bloom;
       pd[3] = 1;
       pd[4] = time;
@@ -5771,7 +5773,7 @@ struct SV {
           u[8 + v * 4] = Math.min(gw, Math.floor(cx + hw) + 2 - x0);
           u[8 + v * 4 + 1] = Math.min(gh, Math.floor(cy + hh) + 2 - y0);
         };
-        if (mainDetail) rect(0, cam.x, cam.y, W / (2 * cam.ppu), H / (2 * cam.ppu));
+        if (mainDetail) rect(0, cam.x, cam.y, W / (2 * cam.ppu), H2 / (2 * cam.ppu));
         else if (loupe) rect(0, loupe.cx, loupe.cy, LOUPE_FIELD * loupe.r / loupe.ppu, LOUPE_FIELD * loupe.r / loupe.ppu);
         if (specimen) rect(1, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu));
         u[16] = gw;
@@ -5804,7 +5806,7 @@ struct SV {
           const gx = this.grid[0], gy = this.grid[1];
           const wx = dx - gx * Math.round(dx / gx), wy = dy - gy * Math.round(dy / gy);
           const ratio = lc.ppu / cam.ppu;
-          d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([ratio, ratio, wx * lc.ppu / W, wy * lc.ppu / H, this.settings.trails, 0, 0, 0]));
+          d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([ratio, ratio, wx * lc.ppu / W, wy * lc.ppu / H2, this.settings.trails, 0, 0, 0]));
           pass2.setPipeline(this.pReproj);
           pass2.setBindGroup(0, this.reprojBG[srcI]);
           pass2.draw(3);
@@ -5821,7 +5823,7 @@ struct SV {
         this._ensureLoupeTex(L);
         const lppu = loupe.ppu * (L / span);
         this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span), time, selId);
-        d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W, H, loupe.ppu, 0]));
+        d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W, H2, loupe.ppu, 0]));
         const pass2 = enc.beginRenderPass({ colorAttachments: [{ view: this.loupeView, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
         this._drawScene(pass2, this.bgLineL, this.bgPointL, this.bgBridgeL, this.viewDataL);
         pass2.end();
@@ -5866,8 +5868,8 @@ struct SV {
         pass2.draw(3);
         pass2.end();
       }
-      const micro = this.settings.specks && cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H / this.grid[1]));
-      if (micro) this._drawSpecks(enc, cam, W, H);
+      const micro = this.settings.specks && cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H2 / this.grid[1]));
+      if (micro) this._drawSpecks(enc, cam, W, H2);
       const pass = enc.beginRenderPass({
         colorAttachments: [{ view: target, loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }],
         timestampWrites: tsEnd
@@ -5966,7 +5968,6 @@ struct SV {
     season: "A 5-minute cycle that swings tide strength between 10% and 100%. Glint production and peak light follow it, which drives booms and busts.",
     era: "Every 10–18 minutes the climate turns: the baseline light and glint production change, one tide wave is replaced, and the currents shift. The names are random labels.",
     epoch: "Simulated time since this universe began.",
-    simrate: "Simulated seconds per real second actually achieved. Shown when running at Max, or when the GPU cannot keep up with the chosen speed. Above ×1 the page runs more simulation steps between drawn frames, so the ecology is exactly the one at ×1, only sooner.",
     abiogenesis: "Life sparking from glint: a completely random new species, about once every 30 simulated seconds on average.",
     flesh: "Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Caught animal prey is killed outright and leaves a husk; this takes time, so a hunter manages at most one kill every few seconds. Plant cells are cropped a 0.06-energy bite at a time. Bonded bodies are armoured and shrug off some attacks.",
     diet: "The share of energy a species takes from each food. Food is worth its energy × share × 1.5, less for partly photosynthetic species.",
@@ -6628,7 +6629,7 @@ struct SV {
         lastKey = key;
         const RH = 32, top = 22, padL = 4, padR = 10;
         const X = (t2) => padL + t2 / T * (W - padL - padR);
-        const H = rows.length * RH + 8;
+        const H2 = rows.length * RH + 8;
         const hist = life.history;
         const series = /* @__PURE__ */ new Map();
         hist.forEach((h, i) => {
@@ -6641,13 +6642,13 @@ struct SV {
         const yOf = new Map(rows.map((r, i) => [r.s.serial, i * RH + 22]));
         const step = [60, 120, 300, 600, 900, 1800, 3600, 7200].find((s) => T / s <= 6) || 7200;
         let axis = `<svg class="lin-axis" viewBox="0 0 ${W} ${top}" width="${W}" height="${top}" aria-hidden="true">`;
-        let svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="list" aria-label="Lineage of established species">`;
+        let svg = `<svg viewBox="0 0 ${W} ${H2}" width="${W}" height="${H2}" role="list" aria-label="Lineage of established species">`;
         for (let t2 = 0; t2 <= T; t2 += step) {
           axis += `<line x1="${X(t2)}" x2="${X(t2)}" y1="${top - 5}" y2="${top}" stroke="rgba(150,222,230,0.55)"/><text x="${X(t2) + 3}" y="12" font-size="10" fill="#6f8a8c" letter-spacing="1">${fmtClock(t2)}</text>`;
-          svg += `<line x1="${X(t2)}" x2="${X(t2)}" y1="0" y2="${H}" stroke="rgba(130,205,214,0.08)"/>`;
+          svg += `<line x1="${X(t2)}" x2="${X(t2)}" y1="0" y2="${H2}" stroke="rgba(130,205,214,0.08)"/>`;
         }
         axis += `<line x1="0" x2="${W}" y1="${top - 0.5}" y2="${top - 0.5}" stroke="rgba(130,205,214,0.22)"/></svg>`;
-        for (const e of api.climate().history.slice(1)) svg += `<line x1="${X(e.t)}" x2="${X(e.t)}" y1="0" y2="${H}" stroke="rgba(241,227,160,0.3)" stroke-dasharray="1 3"/>`;
+        for (const e of api.climate().history.slice(1)) svg += `<line x1="${X(e.t)}" x2="${X(e.t)}" y1="0" y2="${H2}" stroke="rgba(241,227,160,0.3)" stroke-dasharray="1 3"/>`;
         for (const { s } of rows) {
           const a = s.ancestor && yOf.get(s.ancestor);
           if (a == null) continue;
@@ -6943,8 +6944,8 @@ struct SV {
     const blk = (title, html) => `<div class="blk"><div class="sub-h"><span>${title}</span></div>${html}</div>`;
     const vital = (label, frac, cls, text, tip) => `<div class="vital"><span>${tip ? term(tip, label) : label}</span>${meter(frac, cls)}<b>${text}</b></div>`;
     const lightAt = (p) => {
-      const [W, H] = eng.grid;
-      return Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H, eng.simTime, eng.tide, eng.tidePh) * eng.season) * 100);
+      const [W, H2] = eng.grid;
+      return Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H2, eng.simTime, eng.tide, eng.tidePh) * eng.season) * 100);
     };
     function storyHTML(sel) {
       if (!sel || !sel.story.length) return "";
@@ -7242,9 +7243,9 @@ struct SV {
       g.fillText(fmtClock(eng.simTime), 14, 20);
       g.fillStyle = "rgba(163,189,190,0.9)";
       if (sel) {
-        const [W, H] = eng.grid;
+        const [W, H2] = eng.grid;
         g.textAlign = "right";
-        g.fillText(`X ${((sel.disp[0] % W + W) % W).toFixed(1)}  Y ${((sel.disp[1] % H + H) % H).toFixed(1)}`, w - 14, 20);
+        g.fillText(`X ${((sel.disp[0] % W + W) % W).toFixed(1)}  Y ${((sel.disp[1] % H2 + H2) % H2).toFixed(1)}`, w - 14, 20);
         g.textAlign = "left";
       }
     }
@@ -7425,10 +7426,10 @@ struct SV {
     }
     return best && { body: best, X, Y, index };
   }
-  function nearBody(X, Y, body, candidates, r, W, H) {
+  function nearBody(X, Y, body, candidates, r, W, H2) {
     const out = /* @__PURE__ */ new Set();
-    const gw = Math.max(1, Math.floor(W / r)), gh = Math.max(1, Math.floor(H / r));
-    const cw = W / gw, ch = H / gh;
+    const gw = Math.max(1, Math.floor(W / r)), gh = Math.max(1, Math.floor(H2 / r));
+    const cw = W / gw, ch = H2 / gh;
     const key = (x, y) => (Math.floor(y / ch) % gh + gh) % gh * gw + (Math.floor(x / cw) % gw + gw) % gw;
     const wrap = (d, w) => d - w * Math.round(d / w);
     const pending = /* @__PURE__ */ new Map();
@@ -7449,7 +7450,7 @@ struct SV {
           if (!l) continue;
           for (let n = l.length - 1; n >= 0; n--) {
             const c = l[n];
-            if (Math.hypot(wrap(X[i] - X[c], W), wrap(Y[i] - Y[c], H)) >= r) continue;
+            if (Math.hypot(wrap(X[i] - X[c], W), wrap(Y[i] - Y[c], H2)) >= r) continue;
             out.add(c);
             queue.push(c);
             l[n] = l[l.length - 1];
@@ -7697,11 +7698,11 @@ struct SV {
       this.trackId = NONE;
       const old = sh.subject.p;
       const [x, y] = this.io.predict(old, sh.subject.t);
-      const [W, H] = this.io.world();
+      const [W, H2] = this.io.world();
       this.io.pick([x, y], 3, { kind: old.kind, maxOut: 4096, raw: true }).then((res) => {
         if (this.shot !== sh) return;
         sh.rehoming = false;
-        const best = res && res.raw ? this.bodyCell(res.raw, x, y, W, H, old.id, sh.why.cells > 1) : -1;
+        const best = res && res.raw ? this.bodyCell(res.raw, x, y, W, H2, old.id, sh.why.cells > 1) : -1;
         if (best < 0) {
           this.lose(fate);
           return;
@@ -7718,12 +7719,12 @@ struct SV {
       });
     }
     // The cell near (x, y) most worth watching (bonded, for a body): close, and young enough to last.
-    bodyCell({ u32, f32, count }, x, y, W, H, skip, bonded = true) {
+    bodyCell({ u32, f32, count }, x, y, W, H2, skip, bonded = true) {
       let best = -1, bs = Infinity;
       for (let i = 0; i < count; i++) {
         const o = i * PICK_WORDS;
         if (u32[o + 7] === skip || bonded && u32[o + 10] === NONE && u32[o + 11] === NONE) continue;
-        const d = Math.hypot(wrapD(f32[o] - x, W), wrapD(f32[o + 1] - y, H));
+        const d = Math.hypot(wrapD(f32[o] - x, W), wrapD(f32[o + 1] - y, H2));
         const s = d + 2 * f32[o + 6] / (this.io.lifespan(u32[o + 4]) || 100);
         if (s < bs) {
           bs = s;
@@ -7765,8 +7766,8 @@ struct SV {
     makeShot(type, to, { hold = 25, drift = 0.01, zr = 0, subject = null, fly = true, why = { kind: type } } = {}) {
       const from = this.lastRig || this.view();
       const [wMin, wMax] = this.io.widths();
-      const [W, H] = this.io.world();
-      const target = { x: from.x + wrapD(to.x - from.x, W), y: from.y + wrapD(to.y - from.y, H), w: clamp6(to.w, wMin, wMax) };
+      const [W, H2] = this.io.world();
+      const target = { x: from.x + wrapD(to.x - from.x, W), y: from.y + wrapD(to.y - from.y, H2), w: clamp6(to.w, wMin, wMax) };
       const path = zoomPath(from, target);
       const flight = fly ? flightTime(path.S) : 0;
       const a = this.rng() * Math.PI * 2;
@@ -7814,14 +7815,14 @@ struct SV {
     }
     // Where the shot wants the view now.
     rig(sh, dt) {
-      const [W, H] = this.io.world();
+      const [W, H2] = this.io.world();
       const [wMin, wMax] = this.io.widths();
       let base;
       if (sh.subject) {
         const s = sh.subject;
         const [px, py] = this.io.predict(s.p, s.t);
         const ref = sh.last || sh.target;
-        const ux = ref.x + wrapD(px - ref.x, W), uy = ref.y + wrapD(py - ref.y, H);
+        const ux = ref.x + wrapD(px - ref.x, W), uy = ref.y + wrapD(py - ref.y, H2);
         if (sh.last && dt > 0) {
           const k = 1 - Math.exp(-dt / 2.5);
           sh.vel.x += ((ux - sh.last.x) / dt - sh.vel.x) * k;
@@ -7920,8 +7921,8 @@ struct SV {
     // A hotspot: high interest, away from where the camera has lately been.
     hotspot() {
       const I = this.interest;
-      const [W, H] = this.io.world();
-      if (!I.n) return { x: this.rng() * W, y: this.rng() * H, tile: 8, reasons: [], div: 0 };
+      const [W, H2] = this.io.world();
+      if (!I.n) return { x: this.rng() * W, y: this.rng() * H2, tile: 8, reasons: [], div: 0 };
       const parts = I.parts(), sc = I.scores(parts);
       const now = this.io.now(), R = I.tile * 2.5;
       let total = 0;
@@ -7931,7 +7932,7 @@ struct SV {
         const [x2, y2] = I.center(i);
         let pen = 1;
         for (const v of this.visited) {
-          const d2 = wrapD(x2 - v.x, W) ** 2 + wrapD(y2 - v.y, H) ** 2;
+          const d2 = wrapD(x2 - v.x, W) ** 2 + wrapD(y2 - v.y, H2) ** 2;
           pen *= 1 - 0.85 * Math.exp(-(now - v.t) / 150) * Math.exp(-d2 / (2 * R * R));
         }
         wts[i] = sc[i] ** 4 * pen * (0.7 + 0.6 * this.rng());
@@ -7991,8 +7992,8 @@ struct SV {
     async spotlightShot(spot) {
       const sp = this.io.species(spot.slot);
       if (!sp) return null;
-      const [W, H] = this.io.world();
-      const res = await this.io.pick([W / 2, H / 2], Math.hypot(W, H), { kind: spot.slot, maxOut: Math.min(131072, sp.pop * 1.25 + 2048), raw: true });
+      const [W, H2] = this.io.world();
+      const res = await this.io.pick([W / 2, H2 / 2], Math.hypot(W, H2), { kind: spot.slot, maxOut: Math.min(131072, sp.pop * 1.25 + 2048), raw: true });
       if (!res || !res.raw || !res.raw.count) return null;
       const { f32, count } = res.raw;
       const step = Math.max(1, Math.floor(count / 200));
@@ -8000,7 +8001,7 @@ struct SV {
       for (let i = 0; i < count; i += step) {
         let c = 0;
         for (let j = 0; j < count; j += step) {
-          if (Math.hypot(wrapD(f32[j * PICK_WORDS] - f32[i * PICK_WORDS], W), wrapD(f32[j * PICK_WORDS + 1] - f32[i * PICK_WORDS + 1], H)) < 2.5) c++;
+          if (Math.hypot(wrapD(f32[j * PICK_WORDS] - f32[i * PICK_WORDS], W), wrapD(f32[j * PICK_WORDS + 1] - f32[i * PICK_WORDS + 1], H2)) < 2.5) c++;
         }
         if (c > bn) {
           bn = c;
@@ -8012,7 +8013,7 @@ struct SV {
       let pick3 = best, ps = -Infinity;
       for (let i = 0; i < count; i++) {
         const o = i * PICK_WORDS;
-        if (Math.hypot(wrapD(f32[o] - cx, W), wrapD(f32[o + 1] - cy, H)) > 2.5) continue;
+        if (Math.hypot(wrapD(f32[o] - cx, W), wrapD(f32[o + 1] - cy, H2)) > 2.5) continue;
         const bonded = u32[o + 10] !== NONE || u32[o + 11] !== NONE;
         const s = (bonded ? 1 : 0) - f32[o + 6] / (this.io.lifespan(u32[o + 4]) || 100);
         if (s > ps) {
@@ -8100,6 +8101,7 @@ struct SV {
   }
   var SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8, 16, 32, 64, Infinity];
   var MAX_FRAME_MS = 30;
+  var H = 1 / 60;
   var fmtSpeed = (s) => s === Infinity ? "Max" : `×${s}`;
   var PARTICLE_SIZES = [32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
   var PREFS_KEY = "tidemote.view";
@@ -8125,7 +8127,7 @@ struct SV {
       phase: "calibrating",
       busy: true,
       paused: false,
-      speedIdx: SPEEDS.indexOf(1),
+      speed: 1,
       hud: true,
       follow: false,
       confirmReset: 0,
@@ -8203,9 +8205,9 @@ struct SV {
       return [innerWidth / 2 + wrapD2(wx - cam.x, eng.grid[0]) * p, innerHeight / 2 + wrapD2(wy - cam.y, eng.grid[1]) * p];
     }
     function wrapCam() {
-      const [W, H] = eng.grid;
+      const [W, H2] = eng.grid;
       cam.x = (cam.x % W + W) % W;
-      cam.y = (cam.y % H + H) % H;
+      cam.y = (cam.y % H2 + H2) % H2;
     }
     function zoomAt(factor, sx, sy) {
       cam.zoomTarget = clamp5(cam.zoomTarget * factor, 1, maxZoom());
@@ -8242,14 +8244,21 @@ struct SV {
       ceilingUntil: 0,
       lastAdjust: performance.now(),
       stepMs: 0,
+      simS: 0,
+      renderR: 0,
       rate: 1,
       rateT: performance.now(),
       rateSim: 0
     };
     let calibWait = null;
     const frameWaiters = [];
-    eng.onGpuTime = (ms, n, steps) => {
-      if (steps > 0) perf.stepMs = perf.stepMs ? perf.stepMs * 0.85 + ms / steps * 0.15 : ms / steps;
+    const ema = (a, v, k) => a ? a + (v - a) * k : v;
+    eng.onGpuTime = (ms, n, steps, simMs) => {
+      if (steps > 0) perf.stepMs = ema(perf.stepMs, ms / steps, 0.15);
+      if (steps > 0 && simMs != null) {
+        perf.simS = ema(perf.simS, simMs / steps, 0.1);
+        perf.renderR = ema(perf.renderR, ms - simMs, 0.1);
+      }
       perf.gpu = perf.gpu ? perf.gpu * 0.9 + ms * 0.1 : ms;
       perf.samples.push(ms);
       if (perf.samples.length > 240) perf.samples.shift();
@@ -8647,12 +8656,12 @@ struct SV {
         }
       }
       let thriving = 0;
-      let H = 0;
+      let H2 = 0;
       for (const sp of life.reg.values()) {
         if (!sp.alive) continue;
         if (sp.established) thriving++;
         const q = sp.pop / Math.max(1, living);
-        if (q > 0) H -= q * Math.log(q);
+        if (q > 0) H2 -= q * Math.log(q);
       }
       life.thriving = thriving;
       if (best && best.serial !== life.top) {
@@ -8678,7 +8687,7 @@ struct SV {
           sp,
           alive,
           thriving,
-          diversity: Math.exp(H),
+          diversity: Math.exp(H2),
           births: rate(2),
           starve: rate(5),
           old: rate(6),
@@ -8805,10 +8814,10 @@ struct SV {
       const radius = Math.max(3, 40 / p);
       const res = await eng.requestPick([wx, wy], radius, NONE2);
       if (!res) return;
-      const [W, H] = eng.grid;
+      const [W, H2] = eng.grid;
       let bestLife = null, bl = Infinity, bestAny = null, ba = Infinity;
       for (const e of res.entries) {
-        const d = Math.hypot(wrapD2(e.x - wx, W) * p, wrapD2(e.y - wy, H) * p);
+        const d = Math.hypot(wrapD2(e.x - wx, W) * p, wrapD2(e.y - wy, H2) * p);
         if (e.kind >= FIRST_LIFE && d < bl) {
           bl = d;
           bestLife = e;
@@ -8859,12 +8868,12 @@ struct SV {
     }
     function followRelative() {
       if (!sel || !sel.nbr || !sel.memory) return;
-      const [W, H] = eng.grid;
+      const [W, H2] = eng.grid;
       const me = sel.particle;
       let best = null, bd = Infinity;
       for (const e of sel.nbr.entries) {
         if (e.kind !== sel.memory.kind || e.id === sel.id) continue;
-        const d = Math.hypot(wrapD2(e.x - me.x, W), wrapD2(e.y - me.y, H));
+        const d = Math.hypot(wrapD2(e.x - me.x, W), wrapD2(e.y - me.y, H2));
         if (d < bd) {
           bd = d;
           best = e;
@@ -8938,11 +8947,11 @@ struct SV {
         gatherBusy = true;
         sel.lastOrg = now;
         const pop = life.lastCensus && life.lastCensus.pop[p.kind] || 4096;
-        const [W, H] = eng.grid;
-        let center = [W / 2, H / 2], radius = Math.hypot(W, H);
+        const [W, H2] = eng.grid;
+        let center = [W / 2, H2 / 2], radius = Math.hypot(W, H2);
         if (o && o.mid) {
           const r = o.span * 0.75 + 6 + o.speed * orgEvery * 3e-3;
-          if (r * 2 < Math.min(W, H)) {
+          if (r * 2 < Math.min(W, H2)) {
             center = o.mid;
             radius = r;
           }
@@ -8972,14 +8981,14 @@ struct SV {
     }
     function touchingCount(cells) {
       if (!sel.nbr || !cells.length) return 0;
-      const [W, H] = eng.grid;
+      const [W, H2] = eng.grid;
       const LR = K.linkR;
       const kind = sel.particle.kind;
       const others = /* @__PURE__ */ new Set();
       const near = sel.nbr.entries.filter((e) => e.kind >= FIRST_LIFE && e.kind !== kind);
       for (const o of near) {
         for (const c of cells) {
-          if (Math.hypot(wrapD2(o.x - c.x, W), wrapD2(o.y - c.y, H)) < LR) {
+          if (Math.hypot(wrapD2(o.x - c.x, W), wrapD2(o.y - c.y, H2)) < LR) {
             others.add(o.kind);
             break;
           }
@@ -8990,7 +8999,7 @@ struct SV {
     const ORG_GRACE = 3;
     function traceOrganism(res) {
       const t0 = performance.now();
-      const [W, H] = eng.grid;
+      const [W, H2] = eng.grid;
       const { u32, f32, count: n } = res.raw;
       const tb = retraceBody(u32, f32, n, sel.members, sel.id);
       if (!tb) {
@@ -9008,7 +9017,7 @@ struct SV {
         const i = index.get(id);
         if (i !== void 0) loose.push(i);
       }
-      const touching = new Set([...nearBody(X, Y, body, loose, K.linkR * K.bondBreak, W, H)].map(idAt));
+      const touching = new Set([...nearBody(X, Y, body, loose, K.linkR * K.bondBreak, W, H2)].map(idAt));
       const members2 = settleMembers(sel.members || /* @__PURE__ */ new Map(), body.map(idAt), res.truncated ? null : index, ORG_GRACE, touching);
       sel.members = members2;
       const cells = [];
@@ -9022,7 +9031,7 @@ struct SV {
       const roles = [0, 0, 0];
       const rel = new Float32Array(cells.length * 2);
       cells.forEach((i, k) => {
-        const dx = wrapD2(X[i] - rx, W), dy = wrapD2(Y[i] - ry, H);
+        const dx = wrapD2(X[i] - rx, W), dy = wrapD2(Y[i] - ry, H2);
         rel[k * 2] = dx;
         rel[k * 2 + 1] = dy;
         cx += dx;
@@ -9043,7 +9052,7 @@ struct SV {
         let best = -1, bs = Infinity;
         for (const i of body) {
           if (idAt(i) === sel.id) continue;
-          const d = Math.hypot(wrapD2(X[i] - rx, W) - cx, wrapD2(Y[i] - ry, H) - cy);
+          const d = Math.hypot(wrapD2(X[i] - rx, W) - cx, wrapD2(Y[i] - ry, H2) - cy);
           const s = d / Math.max(1, span) + f32[i * PICK_WORDS + 6] / lifespan;
           if (s < bs) {
             bs = s;
@@ -9065,11 +9074,11 @@ struct SV {
       const near = [];
       for (let k = 0; k < cells.length && near.length < 400; k++) {
         const i = cells[k];
-        if (Math.hypot(wrapD2(X[i] - sel.particle.x, W), wrapD2(Y[i] - sel.particle.y, H)) < 2) near.push({ x: X[i], y: Y[i] });
+        if (Math.hypot(wrapD2(X[i] - sel.particle.x, W), wrapD2(Y[i] - sel.particle.y, H2)) < 2) near.push({ x: X[i], y: Y[i] });
       }
       sel.orgNear = near;
       const prev = sel.org;
-      const mid = [((rx + cx) % W + W) % W, ((ry + cy) % H + H) % H];
+      const mid = [((rx + cx) % W + W) % W, ((ry + cy) % H2 + H2) % H2];
       sel.org = { cells: members2.size, roles, span: span * 2, mid, speed: Math.hypot(vx / m, vy / m), meanE: eSum / m, partial: res.truncated, touching: prev ? prev.touching : 0, at: res.simTime, ms: performance.now() - t0 };
       if (sel.orgFirst == null) {
         sel.orgFirst = members2.size;
@@ -9138,8 +9147,8 @@ struct SV {
     async function findMember(serial) {
       const sp = life.reg.get(serial);
       if (!sp || !sp.alive) return;
-      const [W, H] = eng.grid;
-      const res = await eng.requestPick([W / 2, H / 2], Math.hypot(W, H), NONE2, { kind: sp.slot, maxOut: sp.pop * 1.25 + 2048, raw: true });
+      const [W, H2] = eng.grid;
+      const res = await eng.requestPick([W / 2, H2 / 2], Math.hypot(W, H2), NONE2, { kind: sp.slot, maxOut: sp.pop * 1.25 + 2048, raw: true });
       if (!res || !res.raw.count) {
         flash("No living cells found");
         return;
@@ -9166,7 +9175,7 @@ struct SV {
         let bestN = -1;
         for (let i = 0; i < n; i += step) {
           let c = 0;
-          for (let j = 0; j < n; j += step) if (Math.hypot(wrapD2(f32[j * PICK_WORDS] - f32[i * PICK_WORDS], W), wrapD2(f32[j * PICK_WORDS + 1] - f32[i * PICK_WORDS + 1], H)) < 2) c++;
+          for (let j = 0; j < n; j += step) if (Math.hypot(wrapD2(f32[j * PICK_WORDS] - f32[i * PICK_WORDS], W), wrapD2(f32[j * PICK_WORDS + 1] - f32[i * PICK_WORDS + 1], H2)) < 2) c++;
           if (c > bestN) {
             bestN = c;
             bestI = i;
@@ -9535,10 +9544,10 @@ struct SV {
         else if (lab.isOpen()) lab.close();
         else handled = false;
       } else if (k === " ") togglePause();
-      else if (k === ",") setSpeed(state.speedIdx - 1);
-      else if (k === ".") setSpeed(state.speedIdx + 1);
-      else if (k === "/" || k === "<") setSpeed(SPEEDS.indexOf(1));
-      else if (k === ">") setSpeed(SPEEDS.length - 1);
+      else if (k === ",") stepSpeed(-1);
+      else if (k === ".") stepSpeed(1);
+      else if (k === "/" || k === "<") setSpeed(1);
+      else if (k === ">") setSpeed(Infinity);
       else if (k === "h" || k === "H" || k === "?") toggleHelp();
       else if (k === "i" || k === "I") {
         state.hud = !state.hud;
@@ -9563,26 +9572,51 @@ struct SV {
       clearTimeout(flashTimer);
       flashTimer = setTimeout(() => flashEl.classList.remove("on"), 1500);
     }
+    let speedCap = Infinity, speedCapAt = 0;
+    const speedChoices = () => SPEEDS.filter((v) => v <= 1 || v !== Infinity && v <= speedCap * 0.75).concat(Infinity);
     function renderTime() {
-      const s = SPEEDS[state.speedIdx];
+      const s = state.speed, list = speedChoices();
       const play = $("t-play");
       play.innerHTML = `<svg><use href="#i-${state.paused ? "play" : "pause"}"/></svg>`;
       play.setAttribute("aria-label", state.paused ? "Resume" : "Pause");
       play.dataset.hint = state.paused ? "Resume · Space" : "Pause · Space";
       $("t-speed-v").textContent = state.paused ? "Paused" : fmtSpeed(s);
       $("t-speed").setAttribute("aria-label", `Speed ${fmtSpeed(s)}${s !== 1 ? ", back to real time" : ""}`);
-      $("t-slower").disabled = state.speedIdx === 0;
-      $("t-faster").disabled = state.speedIdx === SPEEDS.length - 1;
+      $("t-slower").disabled = s === list[0];
+      $("t-faster").disabled = s === Infinity;
       $("t-speed").classList.toggle("fast", s > 1 && s !== Infinity);
       $("t-speed").classList.toggle("max", s === Infinity);
     }
-    function setSpeed(i) {
-      state.speedIdx = clamp5(i, 0, SPEEDS.length - 1);
+    function setSpeed(v) {
+      state.speed = v;
       if (state.paused) state.paused = false;
-      stepAcc = 0;
+      clock.owed = 0;
       perf.frameDt.length = 0;
       perf.lastAdjust = performance.now();
-      flash(`Speed ${fmtSpeed(SPEEDS[state.speedIdx])}`);
+      flash(`Speed ${fmtSpeed(v)}`);
+      renderTime();
+    }
+    function stepSpeed(d) {
+      const list = speedChoices();
+      let i = list.indexOf(state.speed);
+      if (i < 0) i = list.findIndex((v) => v > state.speed) - (d > 0 ? 1 : 0);
+      setSpeed(list[clamp5(i + d, 0, list.length - 1)]);
+    }
+    function sustainable() {
+      const S = perf.simS || perf.stepMs, R = perf.simS ? perf.renderR : 0;
+      if (!S) return Infinity;
+      return (MAX_FRAME_MS - R) / S * (H * 1e3 / MAX_FRAME_MS);
+    }
+    function updateSpeedCap(now) {
+      if (state.phase !== "running" || now - speedCapAt < 2e3) return;
+      speedCapAt = now;
+      const m = sustainable();
+      if (!Number.isFinite(m)) return;
+      if (!(m > speedCap * 0.87 && m < speedCap * 1.15)) speedCap = m;
+      if (state.speed > 1 && state.speed !== Infinity && state.speed > speedCap) {
+        state.speed = Infinity;
+        flash("Speed Max");
+      }
       renderTime();
     }
     function togglePause() {
@@ -9591,9 +9625,9 @@ struct SV {
       renderTime();
     }
     $("t-play").addEventListener("click", togglePause);
-    $("t-slower").addEventListener("click", () => setSpeed(state.speedIdx - 1));
-    $("t-faster").addEventListener("click", () => setSpeed(state.speedIdx + 1));
-    $("t-speed").addEventListener("click", () => state.paused ? togglePause() : setSpeed(SPEEDS.indexOf(1)));
+    $("t-slower").addEventListener("click", () => stepSpeed(-1));
+    $("t-faster").addEventListener("click", () => stepSpeed(1));
+    $("t-speed").addEventListener("click", () => state.paused ? togglePause() : setSpeed(1));
     renderTime();
     let introHidden = false;
     function hideIntro() {
@@ -9651,9 +9685,7 @@ struct SV {
       $("g-tide").setAttribute("aria-label", `Tide ${Math.round(eng.season * 100)}%, ${seasonAt(eng.simTime + 5) >= seasonAt(eng.simTime) ? "rising" : "ebbing"}`);
       $("g-light").setAttribute("aria-label", `Light ${L}%`);
       tips.check();
-      const want = SPEEDS[state.speedIdx];
-      const actual = state.paused ? "" : want === Infinity || perf.rate < want * 0.9 ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)} actual` : "";
-      setText("t-rate", actual);
+      setText("t-rate", state.speed === Infinity && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : "");
       setText("sys-n", fmt(eng.count));
       setText("sys-fps", perf.fps ? perf.fps.toFixed(0) : "–");
       setText("sys-ms", perf.gpu ? perf.gpu.toFixed(1) : "–");
@@ -9669,7 +9701,7 @@ struct SV {
       perf.lastAdjust = performance.now();
     }
     function adaptResolution(now) {
-      if (state.perf.scale !== "auto" || state.phase !== "running" || SPEEDS[state.speedIdx] > 1 || now - perf.lastAdjust < 2e3 || perf.frameDt.length < 30) return;
+      if (state.perf.scale !== "auto" || state.phase !== "running" || state.speed > 1 || now - perf.lastAdjust < 2e3 || perf.frameDt.length < 30) return;
       const m = perf.frameDt.reduce((a, b) => a + b, 0) / perf.frameDt.length;
       perf.frameDt.length = 0;
       perf.lastAdjust = now;
@@ -9767,16 +9799,16 @@ struct SV {
       if (state.currents) drawCurrents();
       drawScale();
       if (sel && sel.particle) {
-        const [W, H] = eng.grid;
+        const [W, H2] = eng.grid;
         const [px, py] = predicted();
         const k = Math.min(1, dt / 40);
         sel.disp[0] += wrapD2(px - sel.disp[0], W) * k;
-        sel.disp[1] += wrapD2(py - sel.disp[1], H) * k;
+        sel.disp[1] += wrapD2(py - sel.disp[1], H2) * k;
         let [sx, sy] = toScreen(sel.disp[0], sel.disp[1]);
         let inLens = false;
         if (L && Math.hypot(sx - L.sx, sy - L.sy) < L.R) {
           sx = L.sx + wrapD2(sel.disp[0] - L.cx, W) * L.cssPPU;
-          sy = L.sy + wrapD2(sel.disp[1] - L.cy, H) * L.cssPPU;
+          sy = L.sy + wrapD2(sel.disp[1] - L.cy, H2) * L.cssPPU;
           inLens = true;
         }
         const visible = !inLens || Math.hypot(sx - L.sx, sy - L.sy) < L.R - 8;
@@ -10054,18 +10086,32 @@ struct SV {
     let last = performance.now();
     let frameCount = 0;
     let inflight = 0;
-    let stepAcc = 0;
+    const clock = { owed: 0, lastT: 0 };
+    function tickClock(now) {
+      const real = clock.lastT ? Math.min(0.1, (now - clock.lastT) / 1e3) : 0;
+      clock.lastT = now;
+      if (state.phase === "running" && !state.paused && !state.busy && state.speed !== Infinity) clock.owed += real * state.speed;
+    }
+    const stepCap = () => {
+      const S = perf.simS || perf.stepMs, R = perf.simS ? perf.renderR : 0;
+      return S ? clamp5(Math.floor((MAX_FRAME_MS - R) / S), 1, 512) : 4;
+    };
     function plan() {
-      const s0 = SPEEDS[state.speedIdx];
-      if (state.paused || state.phase !== "running") return { steps: 1, dt: 1 / 60 };
-      const s = s0 === Infinity ? s0 : s0 * clamp5(Math.round(frameTarget() * 60 / 1e3 * 8) / 8, 0.125, 4);
-      if (s <= 1) return { steps: 1, dt: s / 60 };
-      const capN = perf.stepMs ? clamp5(Math.floor(MAX_FRAME_MS / perf.stepMs), 1, 512) : 1;
-      if (s === Infinity) return { steps: capN, dt: 1 / 60 };
-      stepAcc += s;
-      const steps = Math.min(Math.floor(stepAcc), capN);
-      stepAcc = Math.min(stepAcc - steps, 1);
-      return { steps: Math.max(1, steps), dt: 1 / 60 };
+      if (state.paused || state.phase !== "running") {
+        clock.owed = 0;
+        return { steps: 1, dt: H };
+      }
+      const cap3 = stepCap();
+      if (state.speed === Infinity) return { steps: cap3, dt: H };
+      if (clock.owed < H * 0.2) return null;
+      let n = Math.max(1, Math.ceil(clock.owed / H - 0.05));
+      if (n > cap3) {
+        n = cap3;
+        clock.owed = n * H;
+      }
+      const dt = clock.owed / n;
+      clock.owed = 0;
+      return { steps: n, dt };
     }
     const rafDt = [];
     function frame2(now) {
@@ -10077,6 +10123,8 @@ struct SV {
         perf.rafMs = median(rafDt);
         rafDt.length = 0;
       }
+      tickClock(now);
+      updateSpeedCap(now);
       const due = !state.perf.fps || !perf.lastSubmit || now - perf.lastSubmit >= 1e3 / state.perf.fps - 4;
       if (now - perf.fpsT > 500) {
         perf.fps = perf.frames * 1e3 / (now - perf.fpsT);
@@ -10098,7 +10146,7 @@ struct SV {
         if (perf.lastSubmit) perf.frameDt.push(Math.min(Math.max(50, frameTarget() * 2.5), now - perf.lastSubmit));
         perf.lastSubmit = now;
         eng.season = seasonAt(eng.simTime);
-        const step = plan();
+        const step = plan() || { steps: 0, dt: H };
         if (state.phase === "running" && !state.paused) climate.tick(step.steps * step.dt);
         autoCamera(now, dt);
         renderCaption(now);
@@ -10129,7 +10177,7 @@ struct SV {
         eng.frame({
           target: ctx.getCurrentTexture().createView(),
           cam: { x: cam.x, y: cam.y, ppu: ppu() },
-          paused: state.paused,
+          paused: state.paused || !step.steps,
           simDt: step.dt,
           steps: step.steps,
           time: now / 1e3,

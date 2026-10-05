@@ -66,10 +66,11 @@ async function boot() {
   run(eng, device, ctx, specCtx, hasTS);
 }
 
-// Time multipliers. Above 1× the page runs several whole 1/60 s steps per rendered frame, exactly as the
-// headless runs do; below 1× it shortens the step instead. Infinity is "Max": as many steps as fit.
+// Time multipliers of real time. Infinity is "Max": as many 1/60 s steps as fit in a frame. Speeds
+// above 1× are offered only up to what the GPU can sustain (sustainable()).
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8, 16, 32, 64, Infinity];
 const MAX_FRAME_MS = 30; // GPU time a frame may take when running fast (about 30 fps)
+const H = 1 / 60; // the simulation's step, as in the headless runs
 const fmtSpeed = (s) => (s === Infinity ? 'Max' : `×${s}`);
 const PARTICLE_SIZES = [32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
 
@@ -84,7 +85,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let lab = null, specimen = null, view = null; // panels, created below
   let dockTop = innerHeight;
   const state = {
-    phase: 'calibrating', busy: true, paused: false, speedIdx: SPEEDS.indexOf(1),
+    phase: 'calibrating', busy: true, paused: false, speed: 1,
     hud: true, follow: false, confirmReset: 0,
     loupe: !isCoarse, loupeMag: 3.5, currents: false, specCells: 3,
     world: prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
@@ -186,12 +187,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ perf
   const perf = { samples: [], gpu: 0, fps: 0, frames: 0, fpsT: performance.now(), frameDt: [], lastSubmit: 0, rafMs: 0, goodWindows: 0, ceiling: 1, ceilingUntil: 0, lastAdjust: performance.now(),
-    stepMs: 0, rate: 1, rateT: performance.now(), rateSim: 0 };
+    stepMs: 0, simS: 0, renderR: 0, rate: 1, rateT: performance.now(), rateSim: 0 };
   let calibWait = null;
   const frameWaiters = [];
-  eng.onGpuTime = (ms, n, steps) => {
+  const ema = (a, v, k) => (a ? a + (v - a) * k : v);
+  eng.onGpuTime = (ms, n, steps, simMs) => {
     // Per-step cost, render included (an overestimate that shrinks as more steps share one render).
-    if (steps > 0) perf.stepMs = perf.stepMs ? perf.stepMs * 0.85 + (ms / steps) * 0.15 : ms / steps;
+    if (steps > 0) perf.stepMs = ema(perf.stepMs, ms / steps, 0.15);
+    // with GPU timestamps, the cost of a step and of drawing a frame, apart
+    if (steps > 0 && simMs != null) { perf.simS = ema(perf.simS, simMs / steps, 0.1); perf.renderR = ema(perf.renderR, ms - simMs, 0.1); }
     perf.gpu = perf.gpu ? perf.gpu * 0.9 + ms * 0.1 : ms;
     perf.samples.push(ms);
     if (perf.samples.length > 240) perf.samples.shift();
@@ -1297,10 +1301,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else handled = false;
     }
     else if (k === ' ') togglePause();
-    else if (k === ',') setSpeed(state.speedIdx - 1);
-    else if (k === '.') setSpeed(state.speedIdx + 1);
-    else if (k === '/' || k === '<') setSpeed(SPEEDS.indexOf(1));
-    else if (k === '>') setSpeed(SPEEDS.length - 1);
+    else if (k === ',') stepSpeed(-1);
+    else if (k === '.') stepSpeed(1);
+    else if (k === '/' || k === '<') setSpeed(1);
+    else if (k === '>') setSpeed(Infinity);
     else if (k === 'h' || k === 'H' || k === '?') toggleHelp();
     else if (k === 'i' || k === 'I') { state.hud = !state.hud; $('hud').classList.toggle('off', !state.hud); flash(state.hud ? 'Readouts shown' : 'Readouts hidden'); }
     else if (k === 'f' || k === 'F') toggleFullscreen();
@@ -1318,26 +1322,56 @@ function run(eng, device, ctx, specCtx, hasTS) {
     clearTimeout(flashTimer);
     flashTimer = setTimeout(() => flashEl.classList.remove('on'), 1500);
   }
+  // The speeds on offer: everything up to ×1, faster ones the GPU can sustain with room to spare
+  // (the cost of a step measured at low speed runs a little under its cost when many share a frame),
+  // and Max.
+  let speedCap = Infinity, speedCapAt = 0;
+  const speedChoices = () => SPEEDS.filter((v) => v <= 1 || (v !== Infinity && v <= speedCap * 0.75)).concat(Infinity);
   function renderTime() {
-    const s = SPEEDS[state.speedIdx];
+    const s = state.speed, list = speedChoices();
     const play = $('t-play');
     play.innerHTML = `<svg><use href="#i-${state.paused ? 'play' : 'pause'}"/></svg>`;
     play.setAttribute('aria-label', state.paused ? 'Resume' : 'Pause');
     play.dataset.hint = state.paused ? 'Resume · Space' : 'Pause · Space';
     $('t-speed-v').textContent = state.paused ? 'Paused' : fmtSpeed(s);
     $('t-speed').setAttribute('aria-label', `Speed ${fmtSpeed(s)}${s !== 1 ? ', back to real time' : ''}`);
-    $('t-slower').disabled = state.speedIdx === 0;
-    $('t-faster').disabled = state.speedIdx === SPEEDS.length - 1;
+    $('t-slower').disabled = s === list[0];
+    $('t-faster').disabled = s === Infinity;
     $('t-speed').classList.toggle('fast', s > 1 && s !== Infinity);
     $('t-speed').classList.toggle('max', s === Infinity);
   }
-  function setSpeed(i) {
-    state.speedIdx = clamp(i, 0, SPEEDS.length - 1);
+  function setSpeed(v) {
+    state.speed = v;
     if (state.paused) state.paused = false;
-    stepAcc = 0;
+    clock.owed = 0;
     perf.frameDt.length = 0;
     perf.lastAdjust = performance.now();
-    flash(`Speed ${fmtSpeed(SPEEDS[state.speedIdx])}`);
+    flash(`Speed ${fmtSpeed(v)}`);
+    renderTime();
+  }
+  // one notch along the speeds on offer
+  function stepSpeed(d) {
+    const list = speedChoices();
+    let i = list.indexOf(state.speed);
+    if (i < 0) i = list.findIndex((v) => v > state.speed) - (d > 0 ? 1 : 0);
+    setSpeed(list[clamp(i + d, 0, list.length - 1)]);
+  }
+  // What the GPU can sustain, from the measured cost of a step (S) and of drawing a frame (R): a frame
+  // may take MAX_FRAME_MS when running fast, which fits (MAX_FRAME_MS - R) / S steps.
+  function sustainable() {
+    const S = perf.simS || perf.stepMs, R = perf.simS ? perf.renderR : 0;
+    if (!S) return Infinity;
+    return ((MAX_FRAME_MS - R) / S) * ((H * 1000) / MAX_FRAME_MS);
+  }
+  // Re-judged every few seconds. The cap moves only when the estimate leaves a band around it, so
+  // the choices don't flicker; a chosen speed that no longer fits becomes Max.
+  function updateSpeedCap(now) {
+    if (state.phase !== 'running' || now - speedCapAt < 2000) return;
+    speedCapAt = now;
+    const m = sustainable();
+    if (!Number.isFinite(m)) return;
+    if (!(m > speedCap * 0.87 && m < speedCap * 1.15)) speedCap = m;
+    if (state.speed > 1 && state.speed !== Infinity && state.speed > speedCap) { state.speed = Infinity; flash('Speed Max'); }
     renderTime();
   }
   function togglePause() {
@@ -1346,9 +1380,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     renderTime();
   }
   $('t-play').addEventListener('click', togglePause);
-  $('t-slower').addEventListener('click', () => setSpeed(state.speedIdx - 1));
-  $('t-faster').addEventListener('click', () => setSpeed(state.speedIdx + 1));
-  $('t-speed').addEventListener('click', () => (state.paused ? togglePause() : setSpeed(SPEEDS.indexOf(1))));
+  $('t-slower').addEventListener('click', () => stepSpeed(-1));
+  $('t-faster').addEventListener('click', () => stepSpeed(1));
+  $('t-speed').addEventListener('click', () => (state.paused ? togglePause() : setSpeed(1)));
   renderTime();
 
   let introHidden = false;
@@ -1396,9 +1430,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     $('g-tide').setAttribute('aria-label', `Tide ${Math.round(eng.season * 100)}%, ${seasonAt(eng.simTime + 5) >= seasonAt(eng.simTime) ? 'rising' : 'ebbing'}`);
     $('g-light').setAttribute('aria-label', `Light ${L}%`);
     tips.check();
-    const want = SPEEDS[state.speedIdx];
-    const actual = state.paused ? '' : want === Infinity || perf.rate < want * 0.9 ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)} actual` : '';
-    setText('t-rate', actual);
+    // Max shows what it reaches; every other speed is exact
+    setText('t-rate', state.speed === Infinity && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : '');
     // fixed-width cells: a figure changing length never moves anything else in the dock
     setText('sys-n', fmt(eng.count));
     setText('sys-fps', perf.fps ? perf.fps.toFixed(0) : '–');
@@ -1417,7 +1450,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // Running fast spends the frame on simulation on purpose; only adapt at real time or slower.
     // Judged by the interval between submitted frames, not requestAnimationFrame's: while the GPU
     // lags, rAF keeps its cadence and the frames are skipped (inflight), so rAF alone looks smooth.
-    if (state.perf.scale !== 'auto' || state.phase !== 'running' || SPEEDS[state.speedIdx] > 1 || now - perf.lastAdjust < 2000 || perf.frameDt.length < 30) return;
+    if (state.perf.scale !== 'auto' || state.phase !== 'running' || state.speed > 1 || now - perf.lastAdjust < 2000 || perf.frameDt.length < 30) return;
     // the mean, not the median: on a 60 Hz display each interval is 16.7 or 33.3 ms, and the median
     // stays at 16.7 until more than half the frames are missed
     const m = perf.frameDt.reduce((a, b) => a + b, 0) / perf.frameDt.length;
@@ -1754,22 +1787,35 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let last = performance.now();
   let frameCount = 0;
   let inflight = 0;
-  let stepAcc = 0;
-  // Steps this frame and their length: whole steps above 1× (fractions carried over), capped so a
-  // frame's GPU time stays near MAX_FRAME_MS; one shortened step below 1×.
-  // Each frame stands for frameTarget() of real time, in 1/60 s steps, so ×1 stays real time at any
-  // target frame rate (quantised to eighths so a steady display gives steady steps).
+  // The simulation clock, after Glenn Fiedler's "Fix Your Timestep!": real time, from the vsync-aligned
+  // requestAnimationFrame timestamps, times the speed is owed to the simulation, and each drawn frame
+  // pays all of it in equal steps of at most about 1/60 s (his semi-fixed variant: the renderer draws
+  // only the current state, so whole steps alone would judder). So ×1 is real time at any refresh or
+  // frame rate, and motion stays smooth. A tick owes at most 0.1 s (a stalled or hidden tab is
+  // skipped, not replayed), and what a frame's budget cannot fit is dropped, not carried, so a slow
+  // GPU runs slow instead of spiralling.
+  const clock = { owed: 0, lastT: 0 };
+  function tickClock(now) {
+    const real = clock.lastT ? Math.min(0.1, (now - clock.lastT) / 1000) : 0;
+    clock.lastT = now;
+    if (state.phase === 'running' && !state.paused && !state.busy && state.speed !== Infinity) clock.owed += real * state.speed;
+  }
+  // steps a frame may take within MAX_FRAME_MS
+  const stepCap = () => {
+    const S = perf.simS || perf.stepMs, R = perf.simS ? perf.renderR : 0;
+    return S ? clamp(Math.floor((MAX_FRAME_MS - R) / S), 1, 512) : 4;
+  };
+  // This frame's steps, or null to only draw (too little owed to be worth a step)
   function plan() {
-    const s0 = SPEEDS[state.speedIdx];
-    if (state.paused || state.phase !== 'running') return { steps: 1, dt: 1 / 60 };
-    const s = s0 === Infinity ? s0 : s0 * clamp(Math.round((frameTarget() * 60 / 1000) * 8) / 8, 0.125, 4);
-    if (s <= 1) return { steps: 1, dt: s / 60 };
-    const capN = perf.stepMs ? clamp(Math.floor(MAX_FRAME_MS / perf.stepMs), 1, 512) : 1;
-    if (s === Infinity) return { steps: capN, dt: 1 / 60 };
-    stepAcc += s;
-    const steps = Math.min(Math.floor(stepAcc), capN);
-    stepAcc = Math.min(stepAcc - steps, 1);
-    return { steps: Math.max(1, steps), dt: 1 / 60 };
+    if (state.paused || state.phase !== 'running') { clock.owed = 0; return { steps: 1, dt: H }; }
+    const cap = stepCap();
+    if (state.speed === Infinity) return { steps: cap, dt: H };
+    if (clock.owed < H * 0.2) return null;
+    let n = Math.max(1, Math.ceil(clock.owed / H - 0.05));
+    if (n > cap) { n = cap; clock.owed = n * H; }
+    const dt = clock.owed / n;
+    clock.owed = 0;
+    return { steps: n, dt };
   }
   const rafDt = [];
   function frame(now) {
@@ -1780,6 +1826,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     rafDt.push(dt);
     if (rafDt.length >= 60) { perf.rafMs = median(rafDt); rafDt.length = 0; }
     // aiming below the display's rate skips frames; a little slack keeps a 60 Hz display at 60
+    tickClock(now);
+    updateSpeedCap(now);
     const due = !state.perf.fps || !perf.lastSubmit || now - perf.lastSubmit >= 1000 / state.perf.fps - 4;
     if (now - perf.fpsT > 500) { perf.fps = (perf.frames * 1000) / (now - perf.fpsT); perf.frames = 0; perf.fpsT = now; }
     if (now - perf.rateT > 1000) {
@@ -1794,7 +1842,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (perf.lastSubmit) perf.frameDt.push(Math.min(Math.max(50, frameTarget() * 2.5), now - perf.lastSubmit));
       perf.lastSubmit = now;
       eng.season = seasonAt(eng.simTime);
-      const step = plan();
+      const step = plan() || { steps: 0, dt: H };
       if (state.phase === 'running' && !state.paused) climate.tick(step.steps * step.dt);
       autoCamera(now, dt);
       renderCaption(now);
@@ -1827,7 +1875,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       eng.frame({
         target: ctx.getCurrentTexture().createView(),
         cam: { x: cam.x, y: cam.y, ppu: ppu() },
-        paused: state.paused,
+        paused: state.paused || !step.steps,
         simDt: step.dt,
         steps: step.steps,
         time: now / 1000,

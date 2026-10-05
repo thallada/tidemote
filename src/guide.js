@@ -10,7 +10,6 @@ export const GLOSSARY = {
   season: 'A 5-minute cycle that swings tide strength between 10% and 100%. Glint production and peak light follow it, which drives booms and busts.',
   era: 'Every 10–18 minutes the climate turns: the baseline light and glint production change, one tide wave is replaced, and the currents shift. The names are random labels.',
   epoch: 'Simulated time since this universe began.',
-  simrate: 'Simulated seconds per real second actually achieved. Shown when running at Max, or when the GPU cannot keep up with the chosen speed. Above ×1 the page runs more simulation steps between drawn frames, so the ecology is exactly the one at ×1, only sooner.',
   abiogenesis: 'Life sparking from glint: a completely random new species, about once every 30 simulated seconds on average.',
   flesh: 'Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Caught animal prey is killed outright and leaves a husk; this takes time, so a hunter manages at most one kill every few seconds. Plant cells are cropped a 0.06-energy bite at a time. Bonded bodies are armoured and shrug off some attacks.',
   diet: 'The share of energy a species takes from each food. Food is worth its energy × share × 1.5, less for partly photosynthetic species.',
