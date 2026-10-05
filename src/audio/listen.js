@@ -43,9 +43,10 @@ export function keepFor(inView, wallWindow, target = LISTEN.target) {
 }
 
 // Listener distance in world units: the side of the view. dRef is a patch of about a dozen cells:
-// sounds are as loud as dRef / d. Closeness z (timbre, reverb, single voices over the swarm) is
-// already full at dNear, a patch of a few dozen cells, and none from dFar.
-export const D_REF = 1.2, D_NEAR = 4, D_FAR = 20;
+// sounds are as loud as dRef / d. Closeness z (timbre, reverb, single voices over the swarm)
+// follows what the page shows: none from dFar, where cells blur into a haze (under ~25 px per
+// unit on a 1920 px screen), full from dNear, where their shapes resolve (~120 px per unit).
+export const D_REF = 1.2, D_NEAR = 12, D_FAR = 60;
 // living cells' typical speed (world units per second) maps to activity 1
 export const V_SCALE = 0.4;
 /** Distance gain (dRef/d, capped) and closeness z (0 far .. 1 at dRef or nearer). */

@@ -3075,8 +3075,8 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     return keep;
   }
   var D_REF = 1.2;
-  var D_NEAR = 4;
-  var D_FAR = 20;
+  var D_NEAR = 12;
+  var D_FAR = 60;
   var V_SCALE = 0.4;
   function hearing(hx, hy) {
     const d = Math.sqrt(4 * hx * hy);

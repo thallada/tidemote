@@ -55,9 +55,9 @@ test('the scan keeps a fair sample sized to what the audio plays', () => {
 });
 
 test('hearing: nearer views are louder per event and closer in timbre', () => {
-  const near = hearing(D_REF / 2, D_REF / 2), far = hearing(10, 6);
+  const near = hearing(D_REF / 2, D_REF / 2), far = hearing(40, 25);
   assert.ok(Math.abs(near.gd - 1) < 1e-9 && near.z === 1);
-  assert.ok(far.gd < 0.12 && far.z < 0.3);
+  assert.ok(far.gd < 0.03 && far.z === 0);
   // equal power for equal density: per-event power x events in view is constant
   const a = hearing(1, 1), b = hearing(4, 4);
   assert.ok(Math.abs(a.gd ** 2 * 4 - b.gd ** 2 * 64) < 1e-9);
@@ -146,7 +146,7 @@ test('from afar the view is heard as a swarm, up close as single voices', () => 
     for (let k = 0; k < 20; k++) { cond.message(digest(data, { speed: 1 }).msg); renderBars(cond, 0.25); }
     return { notes, grains: eng.nodes.get('swarm').p.d1 };
   };
-  const far = run(12), near = run(0.5);
+  const far = run(60), near = run(0.5);
   assert.ok(far.grains > 100 && near.grains === 0, `grains far ${far.grains} near ${near.grains}`);
   assert.ok(near.notes > far.notes, `notes near ${near.notes} far ${far.notes}`);
 });
