@@ -118,9 +118,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // ------------------------------------------------------------ sizing
   let renderScale = 1;
   let dpr = 1;
+  // The scene renders at no more than 1.5 device pixels per CSS pixel: its per-pixel shading is heavy,
+  // and a 2x display would quadruple it for little visible gain. Overlay text and lines stay native.
+  const SCENE_DPR = 1.5;
   function fit() {
     const base = Math.min(devicePixelRatio || 1, 2);
-    dpr = base * renderScale;
+    dpr = Math.min(base, SCENE_DPR) * renderScale;
     const maxDim = device.limits.maxTextureDimension2D;
     canvas.width = Math.min(maxDim, Math.max(1, Math.round(innerWidth * dpr)));
     canvas.height = Math.min(maxDim, Math.max(1, Math.round(innerHeight * dpr)));
@@ -174,7 +177,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
 
   // ------------------------------------------------------------ perf
-  const perf = { samples: [], gpu: 0, fps: 0, frames: 0, fpsT: performance.now(), rafDt: [], goodWindows: 0, lastAdjust: performance.now(),
+  const perf = { samples: [], gpu: 0, fps: 0, frames: 0, fpsT: performance.now(), frameDt: [], lastSubmit: 0, goodWindows: 0, ceiling: 1, ceilingUntil: 0, lastAdjust: performance.now(),
     stepMs: 0, rate: 1, rateT: performance.now(), rateSim: 0 };
   let calibWait = null;
   const frameWaiters = [];
@@ -1244,7 +1247,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     state.speedIdx = clamp(i, 0, SPEEDS.length - 1);
     if (state.paused) state.paused = false;
     stepAcc = 0;
-    perf.rafDt.length = 0;
+    perf.frameDt.length = 0;
     perf.lastAdjust = performance.now();
     flash(`Speed ${fmtSpeed(SPEEDS[state.speedIdx])}`);
     renderTime();
@@ -1313,14 +1316,25 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   function adaptResolution(now) {
     // Running fast spends the frame on simulation on purpose; only adapt at real time or slower.
-    if (state.phase !== 'running' || state.paused || SPEEDS[state.speedIdx] > 1 || now - perf.lastAdjust < 2000 || perf.rafDt.length < 60) return;
-    const m = median(perf.rafDt);
-    perf.rafDt.length = 0;
+    // Judged by the interval between submitted frames, not requestAnimationFrame's: while the GPU
+    // lags, rAF keeps its cadence and the frames are skipped (inflight), so rAF alone looks smooth.
+    if (state.phase !== 'running' || SPEEDS[state.speedIdx] > 1 || now - perf.lastAdjust < 2000 || perf.frameDt.length < 30) return;
+    // the mean, not the median: on a 60 Hz display each interval is 16.7 or 33.3 ms, and the median
+    // stays at 16.7 until more than half the frames are missed
+    const m = perf.frameDt.reduce((a, b) => a + b, 0) / perf.frameDt.length;
+    perf.frameDt.length = 0;
     perf.lastAdjust = now;
-    if (m > 18.8 && renderScale > 0.5) { renderScale = Math.max(0.5, renderScale * 0.85); perf.goodWindows = 0; fit(); }
-    else if (m < 17.2) {
+    // the further behind, the larger the step: pixel cost scales with the square of the scale
+    if (m > 18.8 && renderScale > 0.5) {
+      // a scale that just proved too slow is not tried again for a while, so the view doesn't
+      // keep climbing back into the same stutter
+      perf.ceiling = renderScale; perf.ceilingUntil = now + 30000;
+      renderScale = Math.max(0.5, renderScale * clamp(Math.sqrt(16.7 / m), 0.7, 0.9)); perf.goodWindows = 0; fit();
+    } else if (m < 17.2) {
       perf.goodWindows++;
-      if (perf.goodWindows >= 3 && renderScale < 1) { renderScale = Math.min(1, renderScale * 1.12); perf.goodWindows = 0; fit(); }
+      const cap = now < perf.ceilingUntil ? perf.ceiling * 0.95 : 1;
+      const next = Math.min(1, renderScale * 1.12, cap);
+      if (perf.goodWindows >= 3 && next > renderScale + 0.01) { renderScale = next; perf.goodWindows = 0; fit(); }
     } else perf.goodWindows = 0;
   }
 
@@ -1657,7 +1671,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const dt = Math.min(100, now - last);
     last = now;
     frameCount++;
-    if (!state.paused) perf.rafDt.push(dt);
     if (now - perf.fpsT > 500) { perf.fps = (perf.frames * 1000) / (now - perf.fpsT); perf.frames = 0; perf.fpsT = now; }
     if (now - perf.rateT > 1000) {
       const r = (eng.simTime - perf.rateSim) / ((now - perf.rateT) / 1000);
@@ -1668,6 +1681,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
     if (!state.busy && inflight < 3) {
       perf.frames++;
+      if (perf.lastSubmit) perf.frameDt.push(Math.min(50, now - perf.lastSubmit));
+      perf.lastSubmit = now;
       eng.season = seasonAt(eng.simTime);
       const step = plan();
       if (state.phase === 'running' && !state.paused) climate.tick(step.steps * step.dt);
@@ -1727,7 +1742,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   resetClimate();
   requestAnimationFrame(frame);
 
-  document.addEventListener('visibilitychange', () => { perf.rafDt.length = 0; perf.lastAdjust = performance.now() + 1500; });
+  document.addEventListener('visibilitychange', () => { perf.frameDt.length = 0; perf.lastSubmit = 0; perf.lastAdjust = performance.now() + 1500; });
 
   calibrate().then(() => {
     state.phase = 'running';
