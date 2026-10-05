@@ -10,6 +10,7 @@ import { facets, describe, tagsOf, DIET_COL, MOB_COL } from './facets.js';
 import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
 import { PICK_WORDS } from './shaders.js';
 import { tideAt, flowAt } from './flow.js';
+import { Director } from './director.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('stage');
@@ -148,7 +149,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // ------------------------------------------------------------ loupe
   const hover = { x: 0, y: 0, on: false };
   function loupeGeom() {
-    if (!state.loupe || !hover.on || ptr.dragging || state.phase !== 'running') return null;
+    if (!state.loupe || !hover.on || ptr.dragging || state.phase !== 'running' || director.active) return null;
     const base = cssPPU();
     // the loupe magnifies until the view itself is as close as the old zoom limit allowed (40 of 220 px per unit)
     if (base >= 40 * MAX_PPU / 220) return null;
@@ -215,6 +216,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     eng.seed(n, { aspect: innerWidth / Math.max(1, innerHeight) });
     const g = eng.grid;
     cam.x = g[0] / 2; cam.y = g[1] / 2; cam.zoom = cam.zoomTarget = 1; cam.anchor = null;
+    resetDirector();
     resetLife();
     resetClimate();
     sound.reset();
@@ -474,6 +476,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
           }
         }
         if (gen) gen.announced = true;
+        if (t > 20) director.spotlight(s, g.serial);
       }
       if (sp.established && (!best || p > best.pop)) best = sp;
     }
@@ -647,6 +650,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function toggleFollow() {
     if (!sel) return;
     state.follow = !state.follow;
+    if (state.follow) takeOver();
     $('ins-follow').setAttribute('aria-pressed', String(state.follow));
     flash(state.follow ? 'Following' : 'Stopped following');
   }
@@ -774,6 +778,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
 
   eng.onTrack = (r) => {
+    if (director.active && r.id === director.trackId) director.onTrack(r);
     if (!sel || r.id !== sel.id || sel.lost) return;
     if (!r.found) {
       sel.lost = true;
@@ -1202,6 +1207,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       }
     }
     const best = parseParticle(u32, f32, bestI * PICK_WORDS);
+    takeOver();
     cam.x = best.x; cam.y = best.y;
     if (cssPPU() < 18) { cam.zoomTarget = clamp((18 * dpr) / fitPPU(), 1, maxZoom()); cam.anchor = null; }
     beginTracking(best, { entries: [], simTime: res.simTime });
@@ -1349,6 +1355,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const [a, b] = [...ptr.pointers.values()];
       ptr.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
       ptr.dragging = true;
+      takeOver();
     }
     hideIntro();
   });
@@ -1368,7 +1375,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       state.follow = false;
       return;
     }
-    if (ptr.down && !ptr.dragging && Math.hypot(e.clientX - ptr.down.x, e.clientY - ptr.down.y) > 5) ptr.dragging = true;
+    if (ptr.down && !ptr.dragging && Math.hypot(e.clientX - ptr.down.x, e.clientY - ptr.down.y) > 5) { ptr.dragging = true; takeOver(); }
     if (ptr.dragging) {
       const p = ppu();
       cam.x -= (dxs * dpr) / p; cam.y -= (dys * dpr) / p;
@@ -1399,6 +1406,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     e.preventDefault();
     const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
     const f = Math.exp(-dy * 0.0016);
+    takeOver();
     if (e.shiftKey && loupeGeom()) { state.loupeMag = clamp(state.loupeMag * f, 1.5, 20); return; }
     if (state.follow && sel) zoomAt(f, innerWidth / 2, innerHeight / 2);
     else zoomAt(f, e.clientX, e.clientY);
@@ -1429,6 +1437,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === '[') { state.loupeMag = clamp(state.loupeMag / 1.25, 1.5, 20); flash(`Loupe ×${state.loupeMag.toFixed(1)}`); }
     else if (k === ']') { state.loupeMag = clamp(state.loupeMag * 1.25, 1.5, 20); flash(`Loupe ×${state.loupeMag.toFixed(1)}`); }
     else if (k === 'c' || k === 'C') { if (sel) toggleFollow(); }
+    else if (k === 'a' || k === 'A') { toggleAuto(); }
     else if (k === 's' || k === 'S') { toggleSound(); }
     else if (k === '-' || k === '_') { nudgeVolume(-0.1); }
     else if (k === '=' || k === '+') { nudgeVolume(0.1); }
@@ -1446,7 +1455,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === 'h' || k === 'H' || k === '?') { state.keys = !state.keys; renderKeys(); }
     else if (k === 'i' || k === 'I') { state.hud = !state.hud; $('hud').classList.toggle('off', !state.hud); }
     else if (k === 'f' || k === 'F') { if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {}); else document.exitFullscreen?.(); }
-    else if (k === '0') { cam.zoomTarget = 1; cam.anchor = null; }
+    else if (k === '0') { takeOver(); cam.zoomTarget = 1; cam.anchor = null; }
     else handled = false;
     if (handled) { e.preventDefault(); hideIntro(); }
   });
@@ -1547,9 +1556,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
 
   // Where the tracked particle is now: last GPU sample advanced by its own velocity plus the current it rides.
-  function predicted() {
-    const p = sel.particle;
-    const dtS = state.paused ? 0 : Math.max(0, Math.min(0.25, eng.simTime - sel.sampleT));
+  function predicted() { return predictAt(sel.particle, sel.sampleT); }
+  function predictAt(p, sampleT) {
+    const dtS = state.paused ? 0 : Math.max(0, Math.min(0.25, eng.simTime - sampleT));
     let adv = 1;
     if (p.kind >= FIRST_LIFE) { const g = genomeFor(p.kind); adv = g ? g.advect : 0.5; }
     const [fx, fy] = flowAt(p.x, p.y, eng.simTime, eng.waves);
@@ -1631,6 +1640,186 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
   }
 
+  // ------------------------------------------------------------ auto camera
+  // Left alone for a minute (three with the inspector or the Lab open), the view is handed to the
+  // director (director.js), which films the world until the user clicks, drags or scrolls the view.
+  const AUTO_KEY = 'tidemote.autoCamera';
+  const AUTO_IDLE = 60e3, AUTO_IDLE_READING = 180e3;
+  state.auto = (() => { try { return localStorage.getItem(AUTO_KEY) !== 'off'; } catch { return true; } })();
+  let lastInput = performance.now();
+  const lastPtr = { x: -1, y: -1, moved: performance.now() };
+  const poke = () => { lastInput = performance.now(); };
+  addEventListener('pointerdown', poke, true);
+  addEventListener('keydown', poke, true);
+  addEventListener('wheel', poke, { capture: true, passive: true });
+  addEventListener('pointermove', (e) => {
+    if (Math.abs(e.clientX - lastPtr.x) + Math.abs(e.clientY - lastPtr.y) > 3) { lastPtr.x = e.clientX; lastPtr.y = e.clientY; lastPtr.moved = performance.now(); poke(); }
+  }, true);
+  // the closest and widest view widths the director uses, in world units
+  const viewWidths = () => {
+    const wMax = canvas.width / fitPPU();
+    return [Math.min(wMax, Math.max(canvas.width / (MAX_PPU * dpr), innerWidth / 360)), wMax];
+  };
+  const director = new Director({
+    world: () => eng.grid,
+    widths: viewWidths,
+    pick: (center, radius, opts) => eng.requestPick(center, radius, NONE, opts),
+    predict: predictAt,
+    species: (slot) => {
+      const c = life.lastCensus;
+      if (!c || !c.pop[slot]) return null;
+      return { serial: genomeSerial(c.genomeU32, slot), pop: c.pop[slot] };
+    },
+    lifespan: (slot) => { const g = genomeFor(slot); return g ? g.lifespan : 0; },
+    now: () => performance.now() / 1000,
+  });
+  let surveyT = 0;
+  eng.onSurvey = (s) => {
+    const t = performance.now();
+    director.survey(s, surveyT ? (t - surveyT) / 1000 : 1);
+    surveyT = t;
+  };
+  function resetDirector() {
+    if (director.active) renderAuto(false);
+    director.reset();
+    surveyT = 0;
+  }
+  // Auto · A arms the takeover after idling; the play button beside it starts the camera now and,
+  // while the camera is filming, shows pause to stop it.
+  function renderAuto(live) {
+    eng.survey = state.auto || live ? { every: 45 } : null;
+    $('auto').setAttribute('aria-pressed', String(state.auto));
+    const play = $('auto-play'), label = live ? 'Stop the auto camera' : 'Start the auto camera now';
+    play.textContent = live ? '❚❚' : '▶';
+    play.setAttribute('aria-pressed', String(!!live));
+    play.setAttribute('aria-label', label);
+    play.title = label;
+  }
+  // the user takes the camera back where it is
+  function takeOver() {
+    poke();
+    if (!director.active) return;
+    director.stop();
+    cam.zoomTarget = cam.zoom; cam.anchor = null;
+    renderAuto(false);
+  }
+  function startAuto(idle) {
+    if (idle && (sel || spView != null)) deselect();
+    if (idle && lab.isOpen()) lab.close();
+    director.start({ x: cam.x, y: cam.y, w: viewWidths()[1] / cam.zoom });
+    renderAuto(true);
+  }
+  function toggleAuto() {
+    state.auto = !state.auto;
+    try { localStorage.setItem(AUTO_KEY, state.auto ? 'on' : 'off'); } catch { /* storage unavailable */ }
+    if (state.auto) flash('Auto camera on · takes over after a minute alone');
+    else { takeOver(); flash('Auto camera off'); }
+    renderAuto(director.active);
+  }
+  function playAuto() {
+    if (director.active) { takeOver(); flash('Auto camera stopped'); }
+    else if (state.phase === 'running') { startAuto(false); flash('Auto camera · drag or scroll to take over'); }
+  }
+  $('auto').addEventListener('click', toggleAuto);
+  $('auto-play').addEventListener('click', playAuto);
+  renderAuto(false);
+  // What the auto camera is showing and why, as a caption: where it is heading while it flies,
+  // what is in view once it arrives (from the director's shot.why).
+  const REASON = {
+    mutations: ['where new variants are being born', 'mutants are appearing here'],
+    sparks: ['where life is sparking from glint', 'life is sparking from glint'],
+    kills: ['a hunting ground', 'kills are frequent'],
+    births: ['a crowd of births', 'many are being born'],
+    deaths: ['a die-off', 'many are dying'],
+    diverse: ['a meeting of many species', (div) => (div >= 3 ? `about ${div} species meet` : 'several species meet')],
+    bodies: ['a gathering of bodies', 'many-celled bodies gather'],
+    swift: ['swift swimmers', 'the cells here move fast'],
+    dense: ['the thickest crowd of life', 'life is crowded here'],
+  };
+  const upper = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+  const spName = (serial) => { const sp = life.reg.get(serial); return sp ? spLink(serial, sp.name) : 'an unnamed species'; };
+  const spDesc = (serial) => { const sp = life.reg.get(serial); return sp ? describe(sp.genome, K) : ''; };
+  const article = (serial) => { const sp = life.reg.get(serial); return sp && /^[AEIOU]/i.test(sp.name) ? 'an' : 'a'; };
+  // "an 8-cell", "an 11-cell", "a 12-cell"
+  const numArticle = (n) => (/^8/.test(String(n)) || (String(n).length % 3 === 2 && /^1[18]/.test(String(n))) ? 'an' : 'a');
+  const organism = (w, the) => (w.cells > 1 ? `${the ? 'the' : numArticle(w.cells)} ${fmt(w.cells)}-cell ${spName(w.serial)}` : `${the ? 'the' : article(w.serial)} ${spName(w.serial)} cell`);
+  function fateOf(f) {
+    if (!f) return ['vanished', 'perhaps built into a new cell'];
+    if (f.kind === 0) return ['was eaten', 'what remained is silt'];
+    if (f.kind === 3) return [f.cause === 2 ? 'died of old age' : 'starved', 'its skeleton is now stone'];
+    return [f.cause === 2 ? 'died of old age' : f.cause === 3 ? 'was killed' : 'starved', 'its body is now a husk'];
+  }
+  function captionHtml(w, going) {
+    const r = (w.reasons || []).map((x) => REASON[x.key]);
+    const note = (x) => upper(typeof x[1] === 'function' ? x[1](w.div) : x[1]);
+    let eyebrow, main, sub = '';
+    if (w.kind === 'wide') {
+      if (going) { eyebrow = 'Rising'; main = 'For a view of the whole tide'; }
+      else { eyebrow = 'The whole tide'; main = `${fmt(life.counts[3])} living cells in ${fmt(life.alive)} species`; sub = `${esc(climate.name)} · light ${Math.round(eng.ambient * 100)}%`; }
+    } else if (w.kind === 'scene') {
+      if (going && w.lost) {
+        const [verb] = fateOf(w.lost.fate);
+        eyebrow = 'Heading on'; main = `To where ${w.lost.cells > 1 ? `a cell of ${organism(w.lost)}` : organism(w.lost)} ${verb}`; sub = 'It was gone before the camera arrived';
+      } else if (going) {
+        eyebrow = 'Heading to'; main = upper(r[0] ? r[0][0] : 'somewhere quieter'); sub = r[1] ? note(r[1]) : '';
+      } else {
+        eyebrow = 'In view';
+        const sp = (w.species || []).filter((x) => life.reg.has(x.serial)).map((x) => spName(x.serial));
+        main = sp.length ? (sp.length > 1 ? `${sp.slice(0, -1).join(', ')} and ${sp[sp.length - 1]}` : sp[0]) : upper(r[0] ? r[0][0] : 'a quiet stretch of water');
+        sub = r.slice(0, 2).map(note).join(' · ');
+      }
+    } else if (w.kind === 'follow') {
+      if (w.spotlight) { eyebrow = going ? 'A new species' : 'Following a new species'; main = going ? spName(w.serial) : upper(organism(w)); }
+      else { eyebrow = going ? 'Picking out' : 'Following'; main = upper(organism(w)); }
+      sub = going && r[0] && !w.spotlight ? note(r[0]) : spDesc(w.serial);
+    } else if (w.kind === 'linger') {
+      const [verb, after] = fateOf(w.fate);
+      eyebrow = 'Lingering';
+      main = `${w.cells > 1 ? `A cell of ${organism(w, true)}` : upper(organism(w, true))} ${verb}`;
+      sub = upper(after);
+    } else return '';
+    return `<div class="eyebrow">${eyebrow}</div><div class="cap-main">${main}</div>${sub ? `<div class="cap-sub">${sub}</div>` : ''}`;
+  }
+  const capEl = $('caption');
+  const cap = { key: '', html: '', swapAt: 0, swapped: true };
+  function renderCaption(now) {
+    const sh = director.active ? director.shot : null;
+    const going = sh && sh.t < sh.flight - 0.5;
+    const key = sh ? `${sh.id}:${going}:${sh.whyVer}` : '';
+    if (key !== cap.key) {
+      cap.key = key;
+      const html = sh ? captionHtml(sh.why, going) : '';
+      if (html !== cap.html) {
+        cap.html = html;
+        // fade the old words out before the new ones come in
+        cap.swapAt = capEl.classList.contains('on') ? now + 800 : now;
+        cap.swapped = false;
+      }
+    }
+    if (!cap.swapped) {
+      if (now < cap.swapAt) { capEl.classList.remove('on'); return; }
+      capEl.innerHTML = cap.html;
+      cap.swapped = true;
+    }
+    capEl.classList.toggle('on', !!(sh && cap.html && sh.t < sh.dur - 2.5));
+  }
+
+  function autoCamera(now, dt) {
+    if (state.phase !== 'running') return;
+    if (!director.active) {
+      if (!state.auto) return;
+      const reading = sel || spView != null || lab.isOpen();
+      if (state.paused || !introHidden || ptr.pointers.size || now - lastInput < (reading ? AUTO_IDLE_READING : AUTO_IDLE)) return;
+      startAuto(true);
+    }
+    const v = director.update(dt / 1000);
+    if (!v) return;
+    const wMax = viewWidths()[1];
+    cam.x = v.x; cam.y = v.y;
+    cam.zoom = cam.zoomTarget = clamp(wMax / v.w, 1, maxZoom());
+    cam.anchor = null;
+  }
+
   // ------------------------------------------------------------ loop
   let last = performance.now();
   let frameCount = 0;
@@ -1667,6 +1856,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
       eng.season = seasonAt(eng.simTime);
       const step = plan();
       if (state.phase === 'running' && !state.paused) climate.tick(step.steps * step.dt);
+      autoCamera(now, dt);
+      renderCaption(now);
+      // while filming, the readouts step back to the epoch, the camera and the sound, until the
+      // inspector or the Lab is opened
+      document.body.classList.toggle('filming', director.active && ins.hidden && !lab.isOpen());
+      // and the pointer hides once the mouse has rested a few seconds
+      document.body.classList.toggle('cursor-off', director.active && now - lastPtr.moved > 3000);
       if (state.follow && sel) {
         const [px, py] = predicted();
         const k = Math.min(1, dt / 70);
@@ -1684,6 +1880,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const L = loupeGeom();
       canvas.classList.toggle('lens', !!L);
       eng.trackId = sel && !sel.lost ? sel.id : NONE;
+      eng.trackId2 = director.active ? director.trackId : NONE;
       drawOverlay(dt, L);
       eng.frame({
         target: ctx.getCurrentTexture().createView(),

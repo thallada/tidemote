@@ -110,6 +110,7 @@ body {
 .top-actions button { padding: 5px 7px; }
 .top-actions input[type="range"] { width: 76px; align-self: center; margin: 0 2px; accent-color: var(--warm); cursor: pointer; }
 .top-actions input[hidden] { display: none; }
+.top-actions #auto-play { min-width: 28px; padding-inline: 0; letter-spacing: 0; }
 .tip { position: fixed; z-index: 20; pointer-events: none; background: #120f1c; border: 1px solid rgba(236,230,245,0.3); color: var(--ink); padding: 7px 9px; font-size: 10.5px; line-height: 1.5; box-shadow: 0 6px 24px rgba(0,0,0,.5); user-select: none; }
 .focus-chip { position: fixed; top: calc(env(safe-area-inset-top, 0px) + var(--gut)); left: 50%; transform: translateX(-50%); z-index: 4; display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 10px; background: var(--glass); border: 1px solid var(--warm); pointer-events: auto; max-width: calc(100vw - 2 * var(--gut)); }
 .focus-chip .eyebrow { color: var(--warm); }
@@ -281,6 +282,29 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
 .note, .blurb { margin: 2px 0 0; color: var(--dim); line-height: 1.55; }
 .blurb { margin-top: 12px; color: var(--ink); }
 
+.caption {
+  position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + var(--gut) + 4px);
+  max-width: min(560px, calc(100vw - 640px)); text-align: center; padding: 7px 14px 8px;
+  background: var(--glass); border: 1px solid var(--faint); pointer-events: none;
+  opacity: 0; transform: translate(-50%, 6px); transition: opacity .8s ease, transform .8s ease;
+}
+.caption.on { opacity: 1; transform: translate(-50%, 0); }
+.caption.on a.sp { pointer-events: auto; color: var(--ink); text-decoration: underline dotted var(--dim); text-underline-offset: 3px; text-decoration-skip-ink: auto; }
+/* the mono, not Syne: Syne's descenders are stubs that read as clipped at this size */
+.caption .cap-main { font: 500 13px/1.55 var(--mono); color: var(--ink); margin-top: 3px; }
+.caption .cap-sub { color: var(--dim); font-size: 11px; line-height: 1.45; margin-top: 3px; }
+@media (max-width: 1100px) { .caption { bottom: 28vh; max-width: calc(100vw - 2 * var(--gut)); } }
+
+/* while the auto camera films: only the epoch, the camera and the sound stay up */
+.tl > *, .tr, .census-body, .census-sum { transition: opacity .6s ease; }
+body.filming .tr { opacity: 0; visibility: hidden; }
+body.filming .tl .name, body.filming .tl .time, body.filming .tl .era, body.filming .tl .tide-line, body.filming #lab-open { display: none; }
+body.filming .tl .epoch-row { margin-top: 0; }
+body.filming .census .census-body { display: none; }
+body.filming .census .census-sum { display: flex; }
+body.filming .census .census-head button::after { transform: rotate(-90deg); }
+body.cursor-off, body.cursor-off * { cursor: none !important; }
+
 .flash {
   position: fixed; left: 50%; top: 22%; transform: translate(-50%, -50%) scale(.98);
   font: 700 clamp(16px, 2vw, 24px)/1.3 var(--display); letter-spacing: .02em;
@@ -340,7 +364,7 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
     </div>
     <div class="era" id="era">The First Tides</div>
     <div class="tide-line" id="tideline"><span class="term" data-tip="light" id="hud-light">Light –</span> · <span class="term" data-tip="season" id="hud-tide">tide –</span></div>
-    <div class="top-actions"><button id="lab-open" type="button" title="Research tools (K)">Lab · K</button><button id="snd" type="button" aria-pressed="false" title="Soundtrack: what is in view, heard (S)">Sound · S</button><input id="vol" type="range" min="0" max="100" step="1" value="70" aria-label="Soundtrack volume" title="Volume (- =)" hidden></div>
+    <div class="top-actions"><button id="lab-open" type="button" title="Research tools (K)">Lab · K</button><button id="auto" type="button" aria-pressed="true" title="Auto camera: left alone for a minute, the view wanders the world on its own; drag or scroll to take it back (A)">Auto · A</button><button id="auto-play" type="button" aria-pressed="false" aria-label="Start the auto camera now" title="Start the auto camera now">▶</button><button id="snd" type="button" aria-pressed="false" title="Soundtrack: what is in view, heard (S)">Sound · S</button><input id="vol" type="range" min="0" max="100" step="1" value="70" aria-label="Soundtrack volume" title="Volume (- =)" hidden></div>
   </section>
 
   <section class="corner tr plate">
@@ -369,6 +393,8 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
     </div>
   </section>
 
+  <div class="caption" id="caption" aria-live="polite"></div>
+
   <section class="corner br">
     <button id="keys-hint" class="hint" type="button">Controls</button>
     <div class="keys plate panel" id="keys" hidden>
@@ -386,6 +412,7 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
       <kbd>, .</kbd><span>slower · faster (×¼ to ×64)</span>
       <kbd>/ · &gt;</kbd><span>real time · as fast as the GPU allows</span>
       <kbd>space</kbd><span>pause</span>
+      <kbd>A · ▶</kbd><span>auto camera after a minute alone · film now (❚❚ while filming)</span>
       <kbd>0 · F · I</kbd><span>reset zoom · fullscreen · hide readouts</span>
       <kbd>⇧R ⇧R</kbd><span>discard this epoch and begin again</span>
       <p>Light and <b>tides</b> feed the world. Tides charge <b>silt</b> into <b>glint</b>; photosynthesising cells drink light directly. Others eat glint, husks or each other, and every cell builds its children out of silt. The dead fall into <b>husks</b> that crumble back into silt. Children sometimes mutate, and every so often the climate turns.</p>
@@ -1648,6 +1675,51 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   if (l < 21u) {
     let v = atomicLoad(&wc[l]);
     if (v > 0u) { atomicAdd(&lout[l], v); }
+  }
+}
+`;
+  var SURVEY_WORDS = 10;
+  var SURVEY = { living: 0, bonded: 1, births: 2, mutations: 3, sparks: 4, deaths: 5, kills: 6, species: 7, speed: 8, glint: 9 };
+  var SURVEY_MAX_TILES = 4096;
+  var SURVEY_WGSL = COMMON + /* wgsl */
+  `
+struct SurveyU { grid: vec2u, tiles: vec2u, tile: u32, now: f32, window: f32, adhMin: f32 };
+@group(0) @binding(0) var<uniform> su: SurveyU;
+@group(0) @binding(1) var<storage, read> parts: array<Particle>;
+@group(0) @binding(2) var<storage, read> genomes: array<Genome>;
+@group(0) @binding(3) var<storage, read> cellStart: array<u32>;
+@group(0) @binding(4) var<storage, read_write> sout: array<atomic<u32>>;
+
+@compute @workgroup_size(64)
+fn surveyMain(@builtin(global_invocation_id) gid: vec3u) {
+  let c = gid.x;
+  if (c >= su.grid.x * su.grid.y) { return; }
+  var n = array<u32, ${SURVEY_WORDS}>();
+  var mask = 0u;
+  for (var i = cellStart[c]; i < cellStart[c + 1u]; i++) {
+    let p = parts[i];
+    let recent = p.age < su.window;
+    let code = p.info & 15u;
+    if (p.kind >= FIRST_LIFE) {
+      let g = genomes[p.kind];
+      n[0] += 1u;
+      if (g.adhesion > su.adhMin) { n[1] += 1u; }
+      n[8] += u32(min(length(p.vel), 50.0) * 100.0);
+      mask |= 1u << (p.kind & 31u);
+      if (recent && code == 9u) {
+        n[2] += 1u;
+        if (g.depth > 0u && abs(g.born - (su.now - p.age)) < 0.05) { n[3] += 1u; }
+      } else if (recent && code == 8u) { n[4] += 1u; }
+    } else if (p.kind == HUSK && recent) {
+      if (code == 1u || code == 2u) { n[5] += 1u; } else if (code == 3u) { n[6] += 1u; }
+    } else if (p.kind == SILT && recent && code == 3u) { n[6] += 1u; }
+    else if (p.kind == GLINT) { n[9] += 1u; }
+  }
+  let t = min(vec2u(c % su.grid.x, c / su.grid.x) / su.tile, su.tiles - 1u);
+  let o = (t.y * su.tiles.x + t.x) * ${SURVEY_WORDS}u;
+  for (var k = 0u; k < ${SURVEY_WORDS}u; k++) {
+    if (k == 7u) { if (mask != 0u) { atomicOr(&sout[o + 7u], mask); } }
+    else if (n[k] != 0u) { atomicAdd(&sout[o + k], n[k]); }
   }
 }
 `;
@@ -4077,6 +4149,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   var LEDGER_HEAD = META_CLAIM * 4;
   var CENSUS_BYTES = LEDGER_HEAD + MAXK * G_BYTES;
   var LISTEN_BYTES = (LISTEN_HEAD + 4 * LISTEN_CAP) * 4;
+  var SURVEY_BYTES = SURVEY_MAX_TILES * SURVEY_WORDS * 4;
   var mix2 = (a, b, t2) => a + (b - a) * t2;
   var SIM_STRIDE = 256;
   var MAX_STEPS = 512;
@@ -4123,6 +4196,7 @@ fn loupeScene(r: vec2f) -> vec3f {
       this.onCensus = null;
       this.pickReq = null;
       this.trackId = 4294967295;
+      this.trackId2 = 4294967295;
       this.onTrack = null;
       this.lastCam = null;
       this.accIdx = 0;
@@ -4149,6 +4223,8 @@ fn loupeScene(r: vec2f) -> vec3f {
       b.bridgeDraw = d.createBuffer({ size: 16, usage: U.INDIRECT | U.COPY_DST });
       d.queue.writeBuffer(b.bridgeDraw, 0, new Uint32Array([30, 0, 0, 0]));
       b.pickOut = d.createBuffer({ size: PICK_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
+      b.trackU = [0, 1].map(() => d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST }));
+      b.trackOut = [0, 1].map(() => d.createBuffer({ size: 56 + PICK_WORDS * 4, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST }));
       b.listenU = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
       b.listen = d.createBuffer({ size: LISTEN_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
       this.listenStage = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: LISTEN_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
@@ -4156,9 +4232,17 @@ fn loupeScene(r: vec2f) -> vec3f {
       this.onListen = null;
       this._listenFrames = 0;
       this._listenSim = null;
+      b.surveyU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
+      b.survey = d.createBuffer({ size: SURVEY_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
+      this.surveyStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: SURVEY_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
+      this.survey = null;
+      this.onSurvey = null;
+      this._surveyFrames = 0;
+      this._surveySim = null;
       this.simModule = d.createShaderModule({ code: simWGSL(K), label: "sim" });
       this.pickModule = d.createShaderModule({ code: PICK_WGSL, label: "pick" });
       this.listenModule = d.createShaderModule({ code: LISTEN_WGSL, label: "listen" });
+      this.surveyModule = d.createShaderModule({ code: SURVEY_WGSL, label: "survey" });
       this.drawModule = d.createShaderModule({ code: DRAW_WGSL, label: "draw" });
       b.inbondU = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
       const inbond = d.createShaderModule({ code: INBOND_WGSL, label: "inbond" });
@@ -4180,6 +4264,7 @@ fn loupeScene(r: vec2f) -> vec3f {
       for (const name of Object.keys(this.cpDefs)) this.cp[name] = { pipe: cp(this.simModule, name), bg: null };
       this.cpPick = { pipe: cp(this.pickModule, "pickMain"), bg: null };
       this.cpListen = { pipe: cp(this.listenModule, "listenMain"), bg: null };
+      this.cpSurvey = { pipe: cp(this.surveyModule, "surveyMain"), bg: null };
       const additive = { color: { srcFactor: "one", dstFactor: "one", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one", operation: "add" } };
       const fade = { color: { srcFactor: "zero", dstFactor: "constant", operation: "add" }, alpha: { srcFactor: "zero", dstFactor: "constant", operation: "add" } };
       const over = { color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" } };
@@ -4220,7 +4305,7 @@ fn loupeScene(r: vec2f) -> vec3f {
       }
       this.censusStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: CENSUS_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
       this.pickStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: PICK_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
-      this.trackStage = [0, 1, 2, 3].map(() => ({ buf: d.createBuffer({ size: 56, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
+      this.trackStage = [0, 1, 2, 3, 4, 5, 6, 7].map(() => ({ buf: d.createBuffer({ size: 56, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
       b.reprojU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
       this.pReproj = rp(this.postModule, "vsFull", "fsReproj", "triangle-list", void 0);
     }
@@ -4288,11 +4373,24 @@ fn loupeScene(r: vec2f) -> vec3f {
         { binding: 2, resource: { buffer: b.pickOut } },
         { binding: 3, resource: { buffer: b.intent } }
       ] });
+      this.trackBG = [0, 1].map((k) => d.createBindGroup({ layout: this.cpPick.pipe.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: { buffer: b.trackU[k] } },
+        { binding: 1, resource: { buffer: b.parts } },
+        { binding: 2, resource: { buffer: b.trackOut[k] } },
+        { binding: 3, resource: { buffer: b.intent } }
+      ] }));
       this.cpListen.bg = d.createBindGroup({ layout: this.cpListen.pipe.getBindGroupLayout(0), entries: [
         { binding: 0, resource: { buffer: b.listenU } },
         { binding: 1, resource: { buffer: b.parts } },
         { binding: 2, resource: { buffer: b.genomes } },
         { binding: 3, resource: { buffer: b.listen } }
+      ] });
+      this.cpSurvey.bg = d.createBindGroup({ layout: this.cpSurvey.pipe.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: { buffer: b.surveyU } },
+        { binding: 1, resource: { buffer: b.parts } },
+        { binding: 2, resource: { buffer: b.genomes } },
+        { binding: 3, resource: { buffer: b.cellStart } },
+        { binding: 4, resource: { buffer: b.survey } }
       ] });
       const pointBG = (view) => d.createBindGroup({ layout: this.pPoint.getBindGroupLayout(0), entries: [
         { binding: 0, resource: { buffer: view } },
@@ -4710,30 +4808,33 @@ fn loupeScene(r: vec2f) -> vec3f {
       }
       if (nSteps > 1) d.queue.writeBuffer(b.simRing, 0, this.ringData, 0, nSteps * SIM_STRIDE);
       const listenJob = nSteps > 0 ? this._listenCopy(enc, cam) : null;
+      const surveyJob = nSteps > 0 ? this._surveyCopy(enc) : null;
       let pickJob = null;
-      let trackJob = null;
-      if (!this.pickReq && this.trackId !== 4294967295 && N > 0) {
+      const trackJobs = [];
+      for (let k = 0; k < 2 && N > 0; k++) {
+        const id = k ? this.trackId2 : this.trackId;
+        if (id === 4294967295 || k && id === this.trackId) continue;
         const st = this.trackStage.find((s) => !s.busy);
-        if (st) {
-          trackJob = { st, id: this.trackId, simTime: this.simTime };
-          const pu = new ArrayBuffer(48);
-          const pf = new Float32Array(pu), pv = new Uint32Array(pu);
-          pf[2] = 0;
-          pv[3] = this.trackId;
-          pv[4] = 0;
-          pv[5] = N;
-          pf[6] = this.grid[0];
-          pf[7] = this.grid[1];
-          pv[8] = 4294967295;
-          d.queue.writeBuffer(b.pickU, 0, pu);
-          enc.clearBuffer(b.pickOut, 0, 56);
-          const pass = enc.beginComputePass();
-          pass.setPipeline(this.cpPick.pipe);
-          pass.setBindGroup(0, this.cpPick.bg);
-          pass.dispatchWorkgroups(Math.ceil(N / 256));
-          pass.end();
-          enc.copyBufferToBuffer(b.pickOut, 0, st.buf, 0, 56);
-        }
+        if (!st) break;
+        st.busy = true;
+        trackJobs.push({ st, id, simTime: this.simTime });
+        const pu = new ArrayBuffer(48);
+        const pf = new Float32Array(pu), pv = new Uint32Array(pu);
+        pf[2] = 0;
+        pv[3] = id;
+        pv[4] = 0;
+        pv[5] = N;
+        pf[6] = this.grid[0];
+        pf[7] = this.grid[1];
+        pv[8] = 4294967295;
+        d.queue.writeBuffer(b.trackU[k], 0, pu);
+        enc.clearBuffer(b.trackOut[k], 0, 56);
+        const pass = enc.beginComputePass();
+        pass.setPipeline(this.cpPick.pipe);
+        pass.setBindGroup(0, this.trackBG[k]);
+        pass.dispatchWorkgroups(Math.ceil(N / 256));
+        pass.end();
+        enc.copyBufferToBuffer(b.trackOut[k], 0, st.buf, 0, 56);
       }
       if (this.pickReq && N > 0) {
         const st = this.pickStage.find((s) => !s.busy);
@@ -4813,9 +4914,8 @@ fn loupeScene(r: vec2f) -> vec3f {
           req.resolve(null);
         });
       }
-      if (trackJob) {
+      for (const trackJob of trackJobs) {
         const { st } = trackJob;
-        st.busy = true;
         st.buf.mapAsync(GPUMapMode.READ).then(() => {
           const buf = st.buf.getMappedRange();
           const u32 = new Uint32Array(buf), f32 = new Float32Array(buf);
@@ -4830,6 +4930,59 @@ fn loupeScene(r: vec2f) -> vec3f {
       }
       for (const job of censusJobs) this._censusRead(job, generation);
       if (listenJob) this._listenRead(listenJob, generation);
+      if (surveyJob) this._surveyRead(surveyJob, generation);
+    }
+    /** Every so many frames while surveying: what happened in each tile of the world since the last survey. */
+    _surveyCopy(enc) {
+      const S = this.survey;
+      if (!S) {
+        this._surveySim = null;
+        return null;
+      }
+      if (this._surveySim == null || this._surveySim > this.simTime) this._surveySim = this.simTime - 1 / 60;
+      if (++this._surveyFrames < (S.every || 60)) return null;
+      const st = this.surveyStage.find((s) => !s.busy);
+      if (!st) return null;
+      this._surveyFrames = 0;
+      st.busy = true;
+      const b = this.b;
+      const [gw, gh] = this.grid;
+      let tile = Math.max(4, Math.ceil(Math.max(gw, gh) / 48));
+      while (Math.ceil(gw / tile) * Math.ceil(gh / tile) > SURVEY_MAX_TILES) tile++;
+      const tiles = [Math.ceil(gw / tile), Math.ceil(gh / tile)];
+      const window2 = this.simTime - this._surveySim;
+      this._surveySim = this.simTime;
+      const u = new ArrayBuffer(32), f2 = new Float32Array(u), w = new Uint32Array(u);
+      w[0] = gw;
+      w[1] = gh;
+      w[2] = tiles[0];
+      w[3] = tiles[1];
+      w[4] = tile;
+      f2[5] = this.simTime;
+      f2[6] = window2;
+      f2[7] = this.K.adhMin;
+      this.device.queue.writeBuffer(b.surveyU, 0, u);
+      const bytes = tiles[0] * tiles[1] * SURVEY_WORDS * 4;
+      enc.clearBuffer(b.survey, 0, bytes);
+      const pass = enc.beginComputePass();
+      pass.setPipeline(this.cpSurvey.pipe);
+      pass.setBindGroup(0, this.cpSurvey.bg);
+      pass.dispatchWorkgroups(Math.ceil(gw * gh / 64));
+      pass.end();
+      enc.copyBufferToBuffer(b.survey, 0, st.buf, 0, bytes);
+      return { st, bytes, simTime: this.simTime, window: window2, tiles, tile };
+    }
+    _surveyRead(job, generation) {
+      const { st } = job;
+      st.buf.mapAsync(GPUMapMode.READ, 0, job.bytes).then(() => {
+        const u = new Uint32Array(st.buf.getMappedRange(0, job.bytes).slice(0));
+        st.buf.unmap();
+        st.busy = false;
+        if (generation !== this.worldGeneration || !this.onSurvey) return;
+        this.onSurvey({ simTime: job.simTime, window: job.window, tiles: job.tiles, tile: job.tile, grid: [...this.grid], data: u });
+      }).catch(() => {
+        st.busy = false;
+      });
     }
     /** Every few frames while listening: scan for events since the last scan (observational). */
     _listenCopy(enc, cam) {
@@ -5933,17 +6086,579 @@ fn loupeScene(r: vec2f) -> vec3f {
     return members;
   }
 
+  // src/director.js
+  var NONE = 4294967295;
+  var clamp5 = (x, a, b) => x < a ? a : x > b ? b : x;
+  var lerp = (a, b, t2) => a + (b - a) * t2;
+  var wrapD = (d, W) => d - W * Math.round(d / W);
+  var ease = (t2) => (1 - Math.cos(Math.PI * clamp5(t2, 0, 1))) / 2;
+  var smooth = (a, b, x) => {
+    const t2 = clamp5((x - a) / (b - a), 0, 1);
+    return t2 * t2 * (3 - 2 * t2);
+  };
+  var RATES = ["births", "deaths", "kills", "mutations", "sparks"];
+  var PARTS = ["dense", "diverse", "births", "deaths", "kills", "bodies", "swift", "mutations", "sparks"];
+  var popcount = (v) => {
+    v -= v >>> 1 & 1431655765;
+    v = (v & 858993459) + (v >>> 2 & 858993459);
+    return (v + (v >>> 4) & 252645135) * 16843009 >>> 24;
+  };
+  function zoomPath(a, b, rho = 1.3) {
+    const r2 = rho * rho, r4 = r2 * r2;
+    const dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy;
+    if (d2 < 1e-12) {
+      const S2 = Math.log(b.w / a.w) / rho;
+      return { S: Math.abs(S2), at: (t2) => ({ x: a.x + t2 * dx, y: a.y + t2 * dy, w: a.w * Math.exp(rho * t2 * S2) }) };
+    }
+    const d1 = Math.sqrt(d2);
+    const b0 = (b.w * b.w - a.w * a.w + r4 * d2) / (2 * a.w * r2 * d1);
+    const b1 = (b.w * b.w - a.w * a.w - r4 * d2) / (2 * b.w * r2 * d1);
+    const q0 = Math.log(Math.sqrt(b0 * b0 + 1) - b0), q1 = Math.log(Math.sqrt(b1 * b1 + 1) - b1);
+    const S = (q1 - q0) / rho;
+    const c0 = Math.cosh(q0), s0 = Math.sinh(q0);
+    return {
+      S,
+      at(t2) {
+        if (t2 >= 1) return { ...b };
+        const s = t2 * S;
+        const u = a.w / (r2 * d1) * (c0 * Math.tanh(rho * s + q0) - s0);
+        return { x: a.x + u * dx, y: a.y + u * dy, w: a.w * c0 / Math.cosh(rho * s + q0) };
+      }
+    };
+  }
+  var flightTime = (S) => clamp5(Math.abs(S) * 7, 9, 32);
+  var Interest = class {
+    constructor() {
+      this.n = 0;
+    }
+    ingest(s, wallDt) {
+      const [tx, ty] = s.tiles, n = tx * ty;
+      if (n !== this.n || s.tile !== this.tile || s.grid[0] !== this.grid?.[0] || s.grid[1] !== this.grid?.[1]) {
+        this.n = n;
+        this.tiles = s.tiles;
+        this.tile = s.tile;
+        this.grid = s.grid;
+        this.living = new Float32Array(n);
+        this.bonded = new Float32Array(n);
+        this.speed = new Float32Array(n);
+        this.div = new Float32Array(n);
+        for (const k of RATES) this[k] = new Float32Array(n);
+        this.fresh = true;
+      }
+      const win = Math.max(s.window, 1 / 60);
+      const kf = this.fresh ? 1 : 1 - Math.exp(-wallDt / 15);
+      const ks = this.fresh ? 1 : 1 - Math.exp(-wallDt / 60);
+      const ka = this.fresh ? 1 : 1 - Math.exp(-wallDt / 4);
+      this.fresh = false;
+      const d = s.data;
+      for (let i = 0; i < n; i++) {
+        const o = i * SURVEY_WORDS;
+        const L = d[o + SURVEY.living];
+        this.living[i] += (L - this.living[i]) * ka;
+        this.bonded[i] += (d[o + SURVEY.bonded] - this.bonded[i]) * ka;
+        this.speed[i] += ((L ? d[o + SURVEY.speed] / 100 / L : 0) - this.speed[i]) * ka;
+        this.div[i] += (popcount(d[o + SURVEY.species]) - this.div[i]) * ka;
+        for (const k of ["births", "deaths", "kills"]) this[k][i] += (d[o + SURVEY[k]] / win - this[k][i]) * kf;
+        for (const k of ["mutations", "sparks"]) this[k][i] += (d[o + SURVEY[k]] / win - this[k][i]) * ks;
+      }
+    }
+    // Each tile's score in parts, by what draws the eye there (before blurring).
+    parts() {
+      const n = this.n;
+      const max = (f2) => {
+        let m = 1e-9;
+        for (let i = 0; i < n; i++) {
+          const v = f2(i);
+          if (v > m) m = v;
+        }
+        return m;
+      };
+      const act = (i) => this.births[i] + this.deaths[i] + 2 * this.kills[i];
+      const nov = (i) => 8 * this.mutations[i] + 3 * this.sparks[i];
+      const mL = max((i) => this.living[i]), mD = max((i) => this.div[i]), mA = max(act), mN = max(nov);
+      const mS = max((i) => this.living[i] > 3 ? this.speed[i] : 0);
+      const out = { total: new Float32Array(n) };
+      for (const k of PARTS) out[k] = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        const L = this.living[i];
+        if (L < 3) continue;
+        const a = act(i), sa = a > 0 ? 0.25 * Math.sqrt(a / mA) / a : 0;
+        const v = nov(i), sn = v > 0 && mN > 1e-6 ? 0.6 * Math.sqrt(v / mN) / v : 0;
+        out.dense[i] = 0.15 * (L / mL);
+        out.diverse[i] = 0.25 * (this.div[i] / mD);
+        out.births[i] = sa * this.births[i];
+        out.deaths[i] = sa * this.deaths[i];
+        out.kills[i] = sa * 2 * this.kills[i];
+        out.bodies[i] = 0.2 * (this.bonded[i] / L);
+        out.swift[i] = 0.15 * Math.min(1, this.speed[i] / mS);
+        out.mutations[i] = sn * 8 * this.mutations[i];
+        out.sparks[i] = sn * 3 * this.sparks[i];
+        for (const k of PARTS) out.total[i] += out[k][i];
+      }
+      return out;
+    }
+    // The tiles around tile i (3 x 3, wrapping) with their weights in the blur.
+    around(i, f2) {
+      const [tx, ty] = this.tiles, x = i % tx, y = Math.floor(i / tx);
+      for (let j = -1; j <= 1; j++) for (let k = -1; k <= 1; k++) f2((y + j + ty) % ty * tx + (x + k + tx) % tx, j || k ? 0.5 : 1);
+    }
+    /** Why tile i draws the eye: the parts of its score around it, strongest first. */
+    reasons(i, parts = this.parts()) {
+      const sum = Object.fromEntries(PARTS.map((k) => [k, 0]));
+      const recent = { mutations: 0, sparks: 0 };
+      let div = 0;
+      this.around(i, (j, w) => {
+        for (const k of PARTS) sum[k] += parts[k][j] * w;
+        for (const k in recent) recent[k] += this[k][j] * 60;
+        div = Math.max(div, this.div[j]);
+      });
+      const reasons = PARTS.map((key) => ({ key, v: sum[key] + (key in recent ? 10 : 0) })).filter((r) => r.key in recent ? recent[r.key] >= 0.5 : r.v > 1e-6);
+      reasons.sort((a, b) => b.v - a.v);
+      return { reasons, div: Math.round(div) };
+    }
+    /** Tile scores in [0, 1], each blurred over its neighbours, since a shot frames several tiles. */
+    scores(parts = this.parts()) {
+      if (!this.n) return null;
+      const n = this.n, raw = parts.total;
+      const out = new Float32Array(n);
+      let m = 1e-9;
+      for (let i = 0; i < n; i++) {
+        let s = 0, w = 0;
+        this.around(i, (j, k) => {
+          s += raw[j] * k;
+          w += k;
+        });
+        out[i] = s / w;
+        if (out[i] > m) m = out[i];
+      }
+      for (let i = 0; i < n; i++) out[i] /= m;
+      return out;
+    }
+    /** World position of a tile's centre (tiles at the world's edge may be partial). */
+    center(i) {
+      const [tx] = this.tiles, t2 = this.tile;
+      const x = i % tx, y = Math.floor(i / tx);
+      return [Math.min((x + 0.5) * t2, (x * t2 + this.grid[0]) / 2), Math.min((y + 0.5) * t2, (y * t2 + this.grid[1]) / 2)];
+    }
+  };
+  var Director = class {
+    constructor(io, rng = Math.random) {
+      this.io = io;
+      this.rng = rng;
+      this.interest = new Interest();
+      this.active = false;
+      this.trackId = NONE;
+      this.spotlights = [];
+      this.visited = [];
+      this.history = [];
+    }
+    /** A new world: forget everything. */
+    reset() {
+      this.stop();
+      this.interest = new Interest();
+      this.spotlights = [];
+      this.visited = [];
+    }
+    survey(s, wallDt) {
+      this.interest.ingest(s, wallDt);
+    }
+    /** A species was just established: worth a visit while it is new. */
+    spotlight(slot, serial) {
+      this.spotlights.push({ slot, serial, t: this.io.now() });
+      if (this.spotlights.length > 4) this.spotlights.shift();
+    }
+    start(view) {
+      this.active = true;
+      this.cam = { x: view.x, y: view.y, lw: Math.log(view.w), vx: 0, vy: 0, vw: 0 };
+      this.history = [];
+      this.planning = null;
+      this.gen = (this.gen || 0) + 1;
+      this.lastRig = null;
+      this.shot = this.makeShot("settle", view, { hold: 9 + 4 * this.rng(), fly: false });
+      this.looked = 0;
+    }
+    stop() {
+      this.active = false;
+      this.shot = null;
+      this.planning = null;
+      this.trackId = NONE;
+      this.lastRig = null;
+      this.gen = (this.gen || 0) + 1;
+    }
+    /** Engine track samples for the followed cell. */
+    onTrack(r) {
+      const sh = this.shot;
+      if (!sh || !sh.subject || r.id !== sh.subject.id) return;
+      const dead = r.found && r.tracked.kind < FIRST_LIFE && sh.subject.p.kind >= FIRST_LIFE;
+      if (!r.found || dead) {
+        const fate = dead ? r.tracked : null;
+        if (sh.why.cells > 1 || sh.t < sh.flight - 2) this.rehome(sh, fate);
+        else this.lose(fate);
+        return;
+      }
+      sh.subject.p = r.tracked;
+      sh.subject.t = r.simTime;
+    }
+    // A cell of a followed body died: keep following the body through another of its cells nearby
+    // (or, still on the way to a lone cell, follow another of its species there).
+    rehome(sh, fate) {
+      if (sh.rehoming) return;
+      sh.rehoming = true;
+      this.trackId = NONE;
+      const old = sh.subject.p;
+      const [x, y] = this.io.predict(old, sh.subject.t);
+      const [W, H] = this.io.world();
+      this.io.pick([x, y], 3, { kind: old.kind, maxOut: 4096, raw: true }).then((res) => {
+        if (this.shot !== sh) return;
+        sh.rehoming = false;
+        const best = res && res.raw ? this.bodyCell(res.raw, x, y, W, H, old.id, sh.why.cells > 1) : -1;
+        if (best < 0) {
+          this.lose(fate);
+          return;
+        }
+        const { u32, f32 } = res.raw, o = best * PICK_WORDS;
+        sh.subject = { id: u32[o + 7], t: res.simTime, p: { x: f32[o], y: f32[o + 1], vx: f32[o + 2], vy: f32[o + 3], kind: u32[o + 4], energy: f32[o + 5], age: f32[o + 6], id: u32[o + 7] } };
+        sh.last = null;
+        this.trackId = sh.subject.id;
+      }, () => {
+        if (this.shot === sh) {
+          sh.rehoming = false;
+          this.lose(fate);
+        }
+      });
+    }
+    // The cell near (x, y) most worth watching (bonded, for a body): close, and young enough to last.
+    bodyCell({ u32, f32, count }, x, y, W, H, skip, bonded = true) {
+      let best = -1, bs = Infinity;
+      for (let i = 0; i < count; i++) {
+        const o = i * PICK_WORDS;
+        if (u32[o + 7] === skip || bonded && u32[o + 10] === NONE && u32[o + 11] === NONE) continue;
+        const d = Math.hypot(wrapD(f32[o] - x, W), wrapD(f32[o + 1] - y, H));
+        const s = d + 2 * f32[o + 6] / (this.io.lifespan(u32[o + 4]) || 100);
+        if (s < bs) {
+          bs = s;
+          best = i;
+        }
+      }
+      return best;
+    }
+    // The subject died or vanished: linger on the spot a moment, easing back, then move on. Lost
+    // before the camera got there, the flight goes on to where it was.
+    lose(fate) {
+      const sh = this.shot;
+      if (!sh || sh.type !== "follow") return;
+      this.trackId = NONE;
+      const lost = { slot: sh.subject.p.kind, serial: sh.why.serial, cells: sh.why.cells, fate };
+      if (sh.t < sh.flight - 2) {
+        const [x, y] = this.io.predict(sh.subject.p, sh.subject.t);
+        this.shot = this.makeShot("scene", { x, y, w: sh.target.w * 1.5 }, {
+          hold: 10 + 6 * this.rng(),
+          drift: 6e-3,
+          zr: 6e-3,
+          why: { kind: "scene", reasons: sh.why.reasons || [], div: 0, lost }
+        });
+        return;
+      }
+      this.shot = this.makeShot("linger", this.lastRig || this.view(), { hold: 5 + 3 * this.rng(), zr: 0.025, drift: 0, fly: false, why: { kind: "linger", ...lost } });
+    }
+    serialOf(slot) {
+      const sp = this.io.species(slot);
+      return sp ? sp.serial : 0;
+    }
+    view() {
+      return { x: this.cam.x, y: this.cam.y, w: Math.exp(this.cam.lw) };
+    }
+    /**
+     * A shot flies from the current view to `to`, then holds, drifting at `drift` view widths per
+     * second in a random direction and changing its width by zr per second (negative creeps in).
+     */
+    makeShot(type, to, { hold = 25, drift = 0.01, zr = 0, subject = null, fly = true, why = { kind: type } } = {}) {
+      const from = this.lastRig || this.view();
+      const [wMin, wMax] = this.io.widths();
+      const [W, H] = this.io.world();
+      const target = { x: from.x + wrapD(to.x - from.x, W), y: from.y + wrapD(to.y - from.y, H), w: clamp5(to.w, wMin, wMax) };
+      const path = zoomPath(from, target);
+      const flight = fly ? flightTime(path.S) : 0;
+      const a = this.rng() * Math.PI * 2;
+      return {
+        id: this.shots = (this.shots || 0) + 1,
+        why,
+        whyVer: 0,
+        type,
+        path,
+        target,
+        flight,
+        dur: flight + hold,
+        t: 0,
+        subject,
+        dx: Math.cos(a) * drift,
+        dy: Math.sin(a) * drift,
+        zr,
+        off: { x: 0, y: 0 },
+        wMul: 1,
+        wide: 1,
+        lead: { x: 0, y: 0 },
+        vel: { x: 0, y: 0 },
+        last: null
+      };
+    }
+    update(dt) {
+      if (!this.active) return null;
+      const sh = this.shot;
+      sh.t += dt;
+      if (sh.t >= sh.dur - 1 && !this.planning) this.plan();
+      else if (sh.type === "scene" && sh.t >= sh.flight - 1 && this.looked !== sh.id) this.look(sh);
+      const rig = this.rig(sh, dt);
+      this.lastRig = rig;
+      const c = this.cam, om = 1.1;
+      const lw = Math.log(rig.w);
+      c.vx += (om * om * (rig.x - c.x) - 2 * om * c.vx) * dt;
+      c.vy += (om * om * (rig.y - c.y) - 2 * om * c.vy) * dt;
+      c.vw += (om * om * (lw - c.lw) - 2 * om * c.vw) * dt;
+      c.x += c.vx * dt;
+      c.y += c.vy * dt;
+      c.lw += c.vw * dt;
+      const [wMin, wMax] = this.io.widths();
+      c.lw = clamp5(c.lw, Math.log(wMin), Math.log(wMax));
+      return this.view();
+    }
+    // Where the shot wants the view now.
+    rig(sh, dt) {
+      const [W, H] = this.io.world();
+      const [wMin, wMax] = this.io.widths();
+      let base;
+      if (sh.subject) {
+        const s = sh.subject;
+        const [px, py] = this.io.predict(s.p, s.t);
+        const ref = sh.last || sh.target;
+        const ux = ref.x + wrapD(px - ref.x, W), uy = ref.y + wrapD(py - ref.y, H);
+        if (sh.last && dt > 0) {
+          const k = 1 - Math.exp(-dt / 2.5);
+          sh.vel.x += ((ux - sh.last.x) / dt - sh.vel.x) * k;
+          sh.vel.y += ((uy - sh.last.y) / dt - sh.vel.y) * k;
+        }
+        sh.last = { x: ux, y: uy };
+        const sp = Math.hypot(sh.vel.x, sh.vel.y);
+        sh.wide += (Math.max(1, sp / 0.1 / (sh.target.w * sh.wMul)) - sh.wide) * (1 - Math.exp(-dt / 2));
+        const w2 = sh.target.w * sh.wMul * sh.wide;
+        const room = Math.min(1, sp / 0.3) * w2 / 6 / Math.max(sp, 1e-6);
+        const kl = 1 - Math.exp(-dt / 3);
+        sh.lead.x += (sh.vel.x * room - sh.lead.x) * kl;
+        sh.lead.y += (sh.vel.y * room - sh.lead.y) * kl;
+        const e = sh.flight ? ease(sh.t / sh.flight) : 1;
+        const p = sh.path.at(e);
+        base = { x: p.x + (ux + sh.lead.x - sh.target.x) * e, y: p.y + (uy + sh.lead.y - sh.target.y) * e, w: p.w * lerp(1, sh.wide, e) };
+      } else {
+        base = sh.flight ? sh.path.at(ease(sh.t / sh.flight)) : { ...sh.target };
+      }
+      const ramp = smooth(sh.flight - 2, sh.flight + 5, sh.t);
+      const w = base.w * sh.wMul;
+      sh.off.x += sh.dx * w * ramp * dt;
+      sh.off.y += sh.dy * w * ramp * dt;
+      sh.wMul *= Math.exp(sh.zr * ramp * dt);
+      if (base.w * sh.wMul > wMax || base.w * sh.wMul < wMin) sh.zr = -sh.zr * 0.5;
+      return { x: base.x + sh.off.x, y: base.y + sh.off.y, w: clamp5(base.w * sh.wMul, wMin, wMax) };
+    }
+    // A scene arriving: which species are in view, most numerous first.
+    look(sh) {
+      this.looked = sh.id;
+      const w = sh.target.w * sh.wMul;
+      this.io.pick([sh.target.x, sh.target.y], Math.min(w / 2, 20), { maxOut: 8192, raw: true }).then((res) => {
+        if (!res || !res.raw || this.shot !== sh) return;
+        const { u32, count } = res.raw;
+        const n = /* @__PURE__ */ new Map();
+        for (let i = 0; i < count; i++) {
+          const k = u32[i * PICK_WORDS + 4];
+          if (k >= FIRST_LIFE) n.set(k, (n.get(k) || 0) + 1);
+        }
+        sh.why.species = [...n].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([slot, cells]) => ({ slot, serial: this.serialOf(slot), cells }));
+        sh.whyVer++;
+      });
+    }
+    // Choose the next shot. A follow or a spotlight waits on a pick; the current shot holds meanwhile.
+    plan() {
+      const gen = this.gen;
+      const r = this.rng;
+      const now = this.io.now();
+      this.spotlights = this.spotlights.filter((s) => now - s.t < 150);
+      const sinceWide = this.history.length - 1 - this.history.lastIndexOf("wide");
+      const last = this.history[this.history.length - 1];
+      let type;
+      const spot = this.spotlights.find((s) => {
+        const sp = this.io.species(s.slot);
+        return sp && sp.serial === s.serial && sp.pop > 0;
+      });
+      if (this.shot.type === "settle" && r() < 0.5) type = "wide";
+      else if (spot && last !== "spotlight") type = "spotlight";
+      else if (sinceWide >= 3 + (r() < 0.5 ? 1 : 0) && last !== "wide") type = "wide";
+      else {
+        const u = r();
+        type = u < 0.45 ? "follow" : u < 0.88 ? "scene" : "wide";
+        if (type === last && type !== "follow" && r() < 0.7) type = type === "scene" ? "follow" : "scene";
+      }
+      const begin = (shot) => {
+        if (gen !== this.gen || !this.active) return;
+        this.planning = null;
+        this.shot = shot;
+        this.trackId = shot.subject ? shot.subject.id : NONE;
+        this.history.push(type);
+        if (this.history.length > 12) this.history.shift();
+        this.visited.push({ x: shot.target.x, y: shot.target.y, t: this.io.now() });
+        if (this.visited.length > 24) this.visited.shift();
+      };
+      const fallback = () => {
+        if (gen === this.gen) {
+          type = "scene";
+          begin(this.scene());
+        }
+      };
+      if (type === "wide") {
+        begin(this.wide());
+        return;
+      }
+      if (type === "scene") {
+        begin(this.scene());
+        return;
+      }
+      if (type === "spotlight") {
+        this.spotlights = this.spotlights.filter((s) => s !== spot);
+        this.planning = this.spotlightShot(spot).then((sh) => sh ? begin(sh) : fallback(), fallback);
+        return;
+      }
+      this.planning = this.followShot().then((sh) => sh ? begin(sh) : fallback(), fallback);
+    }
+    // A hotspot: high interest, away from where the camera has lately been.
+    hotspot() {
+      const I = this.interest;
+      const [W, H] = this.io.world();
+      if (!I.n) return { x: this.rng() * W, y: this.rng() * H, tile: 8, reasons: [], div: 0 };
+      const parts = I.parts(), sc = I.scores(parts);
+      const now = this.io.now(), R = I.tile * 2.5;
+      let total = 0;
+      const wts = new Float32Array(sc.length);
+      for (let i = 0; i < sc.length; i++) {
+        if (sc[i] <= 0) continue;
+        const [x2, y2] = I.center(i);
+        let pen = 1;
+        for (const v of this.visited) {
+          const d2 = wrapD(x2 - v.x, W) ** 2 + wrapD(y2 - v.y, H) ** 2;
+          pen *= 1 - 0.85 * Math.exp(-(now - v.t) / 150) * Math.exp(-d2 / (2 * R * R));
+        }
+        wts[i] = sc[i] ** 4 * pen * (0.7 + 0.6 * this.rng());
+        total += wts[i];
+      }
+      let u = this.rng() * total, pick3 = 0;
+      for (let i = 0; i < wts.length; i++) {
+        u -= wts[i];
+        if (u <= 0) {
+          pick3 = i;
+          break;
+        }
+      }
+      const [x, y] = I.center(pick3);
+      return { x: x + (this.rng() - 0.5) * I.tile * 0.6, y: y + (this.rng() - 0.5) * I.tile * 0.6, tile: I.tile, ...I.reasons(pick3, parts) };
+    }
+    wide() {
+      const [, wMax] = this.io.widths();
+      const h = this.hotspot();
+      const r = this.rng;
+      return this.makeShot("wide", { x: h.x, y: h.y, w: wMax * lerp(0.7, 1, r()) }, { hold: lerp(22, 34, r()), drift: lerp(6e-3, 0.012, r()), zr: r() < 0.6 ? -6e-3 : 4e-3 });
+    }
+    scene() {
+      const [wMin, wMax] = this.io.widths();
+      const h = this.hotspot();
+      const r = this.rng;
+      const w = clamp5(lerp(10, 30, r() ** 1.5), wMin * 4, wMax * 0.6);
+      return this.makeShot("scene", { x: h.x, y: h.y, w }, {
+        hold: lerp(20, 36, r()),
+        drift: lerp(6e-3, 0.014, r()),
+        zr: r() < 0.65 ? -lerp(6e-3, 0.014, r()) : lerp(4e-3, 9e-3, r()),
+        why: { kind: "scene", reasons: h.reasons, div: h.div }
+      });
+    }
+    // Follow a living cell near a hotspot: a body or a swimmer if there is one.
+    async followShot() {
+      const h = this.hotspot();
+      const res = await this.io.pick([h.x, h.y], Math.max(4, h.tile * 0.9), { maxOut: 8192, raw: true });
+      if (!res || !res.raw || !res.raw.count) return null;
+      const { u32, f32, count } = res.raw;
+      let best = -1, bs = 0;
+      for (let i = 0; i < count; i++) {
+        const o = i * PICK_WORDS;
+        if (u32[o + 4] < FIRST_LIFE) continue;
+        const bonded = u32[o + 10] !== NONE || u32[o + 11] !== NONE;
+        const young = clamp5(1 - f32[o + 6] / (this.io.lifespan(u32[o + 4]) || 100), 0.05, 1);
+        const s = (bonded ? 2.5 : 1) * young * (0.25 + Math.min(1.5, Math.hypot(f32[o + 2], f32[o + 3]))) * (0.4 + this.rng());
+        if (s > bs) {
+          bs = s;
+          best = i;
+        }
+      }
+      if (best < 0) return null;
+      return this.subjectShot(res, best, u32[best * PICK_WORDS + 10] !== NONE ? [5, 12] : [3, 7], { reasons: h.reasons });
+    }
+    // Visit a newly established species: a cell where its members are densest.
+    async spotlightShot(spot) {
+      const sp = this.io.species(spot.slot);
+      if (!sp) return null;
+      const [W, H] = this.io.world();
+      const res = await this.io.pick([W / 2, H / 2], Math.hypot(W, H), { kind: spot.slot, maxOut: Math.min(131072, sp.pop * 1.25 + 2048), raw: true });
+      if (!res || !res.raw || !res.raw.count) return null;
+      const { f32, count } = res.raw;
+      const step = Math.max(1, Math.floor(count / 200));
+      let best = 0, bn = -1;
+      for (let i = 0; i < count; i += step) {
+        let c = 0;
+        for (let j = 0; j < count; j += step) {
+          if (Math.hypot(wrapD(f32[j * PICK_WORDS] - f32[i * PICK_WORDS], W), wrapD(f32[j * PICK_WORDS + 1] - f32[i * PICK_WORDS + 1], H)) < 2.5) c++;
+        }
+        if (c > bn) {
+          bn = c;
+          best = i;
+        }
+      }
+      const cx = f32[best * PICK_WORDS], cy = f32[best * PICK_WORDS + 1];
+      const { u32 } = res.raw;
+      let pick3 = best, ps = -Infinity;
+      for (let i = 0; i < count; i++) {
+        const o = i * PICK_WORDS;
+        if (Math.hypot(wrapD(f32[o] - cx, W), wrapD(f32[o + 1] - cy, H)) > 2.5) continue;
+        const bonded = u32[o + 10] !== NONE || u32[o + 11] !== NONE;
+        const s = (bonded ? 1 : 0) - f32[o + 6] / (this.io.lifespan(u32[o + 4]) || 100);
+        if (s > ps) {
+          ps = s;
+          pick3 = i;
+        }
+      }
+      return this.subjectShot(res, pick3, [4, 9], { spotlight: spot.serial, reasons: [] });
+    }
+    subjectShot(res, i, [w0, w1], why) {
+      const { u32, f32, count } = res.raw;
+      const o = i * PICK_WORDS;
+      const p = { x: f32[o], y: f32[o + 1], vx: f32[o + 2], vy: f32[o + 3], kind: u32[o + 4], energy: f32[o + 5], age: f32[o + 6], id: u32[o + 7] };
+      const tb = u32[o + 10] !== NONE || u32[o + 11] !== NONE ? traceBody(u32, f32, count, p.id) : null;
+      const r = this.rng;
+      return this.makeShot("follow", { x: p.x, y: p.y, w: lerp(w0, w1, r()) }, {
+        hold: lerp(28, 55, r()),
+        drift: 0,
+        zr: r() < 0.5 ? -4e-3 : 3e-3,
+        subject: { id: p.id, p, t: res.simTime },
+        why: { kind: "follow", slot: p.kind, serial: this.serialOf(p.kind), cells: tb ? tb.body.length : 1, ...why }
+      });
+    }
+  };
+
   // src/main.js
   var $ = (id) => document.getElementById(id);
   var canvas = $("stage");
   var overlay = $("overlay");
   var octx = overlay.getContext("2d");
   var isCoarse = matchMedia("(pointer: coarse)").matches;
-  var NONE = 4294967295;
+  var NONE2 = 4294967295;
   var TAU2 = Math.PI * 2;
   var nf = new Intl.NumberFormat("en-US");
   var fmt = (n) => nf.format(n);
-  var clamp5 = (x, a, b) => Math.max(a, Math.min(b, x));
+  var clamp6 = (x, a, b) => Math.max(a, Math.min(b, x));
   var pad = (n) => String(n).padStart(2, "0");
   var fmtClock = (s) => {
     s = Math.floor(s);
@@ -5958,9 +6673,9 @@ fn loupeScene(r: vec2f) -> vec3f {
   };
   var cssCol = (u, k = 1) => {
     const c = unpackUnorm(u);
-    return `rgb(${c.slice(0, 3).map((v) => Math.round(clamp5(v * k, 0, 1) * 255)).join(",")})`;
+    return `rgb(${c.slice(0, 3).map((v) => Math.round(clamp6(v * k, 0, 1) * 255)).join(",")})`;
   };
-  var cssRgb = (c, k = 1) => `rgb(${c.map((v) => Math.round(clamp5(v * k, 0, 1) * 255)).join(",")})`;
+  var cssRgb = (c, k = 1) => `rgb(${c.map((v) => Math.round(clamp6(v * k, 0, 1) * 255)).join(",")})`;
   var esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   var term = (key, label) => `<span class="term" data-tip="${key}">${label}</span>`;
   var MATTER = [
@@ -6077,10 +6792,10 @@ fn loupeScene(r: vec2f) -> vec3f {
       const p = ppu();
       return [cam.x + (sx * dpr - canvas.width / 2) / p, cam.y + (sy * dpr - canvas.height / 2) / p];
     };
-    const wrapD = (d, W) => d - W * Math.round(d / W);
+    const wrapD2 = (d, W) => d - W * Math.round(d / W);
     function toScreen(wx, wy) {
       const p = cssPPU();
-      return [innerWidth / 2 + wrapD(wx - cam.x, eng.grid[0]) * p, innerHeight / 2 + wrapD(wy - cam.y, eng.grid[1]) * p];
+      return [innerWidth / 2 + wrapD2(wx - cam.x, eng.grid[0]) * p, innerHeight / 2 + wrapD2(wy - cam.y, eng.grid[1]) * p];
     }
     function wrapCam() {
       const [W, H] = eng.grid;
@@ -6088,16 +6803,16 @@ fn loupeScene(r: vec2f) -> vec3f {
       cam.y = (cam.y % H + H) % H;
     }
     function zoomAt(factor, sx, sy) {
-      cam.zoomTarget = clamp5(cam.zoomTarget * factor, 1, maxZoom());
+      cam.zoomTarget = clamp6(cam.zoomTarget * factor, 1, maxZoom());
       cam.anchor = [sx, sy];
     }
     const hover = { x: 0, y: 0, on: false };
     function loupeGeom() {
-      if (!state.loupe || !hover.on || ptr.dragging || state.phase !== "running") return null;
+      if (!state.loupe || !hover.on || ptr.dragging || state.phase !== "running" || director.active) return null;
       const base = cssPPU();
       if (base >= 40 * MAX_PPU / 220) return null;
-      const R = Math.round(clamp5(Math.min(innerWidth, innerHeight) * 0.2, 90, 170));
-      const lp = clamp5(base * state.loupeMag, 8, MAX_PPU);
+      const R = Math.round(clamp6(Math.min(innerWidth, innerHeight) * 0.2, 90, 170));
+      const lp = clamp6(base * state.loupeMag, 8, MAX_PPU);
       const [cx, cy] = toWorld(hover.x, hover.y);
       return { sx: hover.x, sy: hover.y, R, cssPPU: lp, cx, cy };
     }
@@ -6187,6 +6902,7 @@ fn loupeScene(r: vec2f) -> vec3f {
       cam.y = g[1] / 2;
       cam.zoom = cam.zoomTarget = 1;
       cam.anchor = null;
+      resetDirector();
       resetLife();
       resetClimate();
       sound.reset();
@@ -6210,7 +6926,7 @@ fn loupeScene(r: vec2f) -> vec3f {
       const hardCap = Math.floor(Math.min(lim.maxStorageBufferBindingSize, lim.maxBufferSize) / 40 / 4096) * 4096;
       const maxN = Math.min(hardCap, 4194304, Math.floor(262144 * K.density * 0.95), window.__MC_MAX || Infinity);
       const target = hasTS ? 7.5 : 9;
-      const clampN = (x) => clamp5(Math.round(x / 4096) * 4096, Math.min(32768, maxN), maxN);
+      const clampN = (x) => clamp6(Math.round(x / 4096) * 4096, Math.min(32768, maxN), maxN);
       let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
       seedWorld(n);
       state.busy = false;
@@ -6254,7 +6970,7 @@ fn loupeScene(r: vec2f) -> vec3f {
     const spLink = (serial, name) => `<a href="#" class="sp" data-serial="${serial}">${esc(name)}</a>`;
     const focus = { key: null, label: "", pred: null, roleMask: 7, stateMode: 0, matter: [false, false, false, false] };
     let members = null;
-    let memberKind = NONE;
+    let memberKind = NONE2;
     function pushFocus() {
       let kinds = null;
       if (focus.key) {
@@ -6310,7 +7026,7 @@ fn loupeScene(r: vec2f) -> vec3f {
     }
     function setMembers(ids, kind) {
       members = ids && ids.length ? ids : null;
-      memberKind = members ? kind : NONE;
+      memberKind = members ? kind : NONE2;
       pushFocus();
     }
     function gdist(a, b) {
@@ -6456,6 +7172,7 @@ fn loupeScene(r: vec2f) -> vec3f {
             }
           }
           if (gen) gen.announced = true;
+          if (t2 > 20) director.spotlight(s, g.serial);
         }
         if (sp.established && (!best || p > best.pop)) best = sp;
       }
@@ -6647,7 +7364,7 @@ fn loupeScene(r: vec2f) -> vec3f {
     function deselect() {
       sel = null;
       spView = null;
-      eng.trackId = NONE;
+      eng.trackId = NONE2;
       state.follow = false;
       ins.hidden = true;
       ins.classList.remove("species-mode");
@@ -6660,6 +7377,7 @@ fn loupeScene(r: vec2f) -> vec3f {
     function toggleFollow() {
       if (!sel) return;
       state.follow = !state.follow;
+      if (state.follow) takeOver();
       $("ins-follow").setAttribute("aria-pressed", String(state.follow));
       flash(state.follow ? "Following" : "Stopped following");
     }
@@ -6682,12 +7400,12 @@ fn loupeScene(r: vec2f) -> vec3f {
       const [wx, wy] = world || toWorld(sx, sy);
       const p = pxPerWorld || cssPPU();
       const radius = Math.max(3, 40 / p);
-      const res = await eng.requestPick([wx, wy], radius, NONE);
+      const res = await eng.requestPick([wx, wy], radius, NONE2);
       if (!res) return;
       const [W, H] = eng.grid;
       let bestLife = null, bl = Infinity, bestAny = null, ba = Infinity;
       for (const e of res.entries) {
-        const d = Math.hypot(wrapD(e.x - wx, W) * p, wrapD(e.y - wy, H) * p);
+        const d = Math.hypot(wrapD2(e.x - wx, W) * p, wrapD2(e.y - wy, H) * p);
         if (e.kind >= FIRST_LIFE && d < bl) {
           bl = d;
           bestLife = e;
@@ -6747,7 +7465,7 @@ fn loupeScene(r: vec2f) -> vec3f {
       let best = null, bd = Infinity;
       for (const e of sel.nbr.entries) {
         if (e.kind !== sel.memory.kind || e.id === sel.id) continue;
-        const d = Math.hypot(wrapD(e.x - me.x, W), wrapD(e.y - me.y, H));
+        const d = Math.hypot(wrapD2(e.x - me.x, W), wrapD2(e.y - me.y, H));
         if (d < bd) {
           bd = d;
           best = e;
@@ -6796,10 +7514,11 @@ fn loupeScene(r: vec2f) -> vec3f {
       dirty = true;
     }
     eng.onTrack = (r) => {
+      if (director.active && r.id === director.trackId) director.onTrack(r);
       if (!sel || r.id !== sel.id || sel.lost) return;
       if (!r.found) {
         sel.lost = true;
-        eng.trackId = NONE;
+        eng.trackId = NONE2;
         setMembers(null);
         story(sel.particle && sel.particle.kind === 0 ? "Built into a new cell by a parent nearby. Lost track." : "Lost track.");
         return;
@@ -6861,7 +7580,7 @@ fn loupeScene(r: vec2f) -> vec3f {
       const near = sel.nbr.entries.filter((e) => e.kind >= FIRST_LIFE && e.kind !== kind);
       for (const o of near) {
         for (const c of cells) {
-          if (Math.hypot(wrapD(o.x - c.x, W), wrapD(o.y - c.y, H)) < LR) {
+          if (Math.hypot(wrapD2(o.x - c.x, W), wrapD2(o.y - c.y, H)) < LR) {
             others.add(o.kind);
             break;
           }
@@ -6904,7 +7623,7 @@ fn loupeScene(r: vec2f) -> vec3f {
       const roles = [0, 0, 0];
       const rel = new Float32Array(cells.length * 2);
       cells.forEach((i, k) => {
-        const dx = wrapD(X[i] - rx, W), dy = wrapD(Y[i] - ry, H);
+        const dx = wrapD2(X[i] - rx, W), dy = wrapD2(Y[i] - ry, H);
         rel[k * 2] = dx;
         rel[k * 2 + 1] = dy;
         cx += dx;
@@ -6925,7 +7644,7 @@ fn loupeScene(r: vec2f) -> vec3f {
         let best = -1, bs = Infinity;
         for (const i of body) {
           if (idAt(i) === sel.id) continue;
-          const d = Math.hypot(wrapD(X[i] - rx, W) - cx, wrapD(Y[i] - ry, H) - cy);
+          const d = Math.hypot(wrapD2(X[i] - rx, W) - cx, wrapD2(Y[i] - ry, H) - cy);
           const s = d / Math.max(1, span) + f32[i * PICK_WORDS + 6] / lifespan;
           if (s < bs) {
             bs = s;
@@ -6947,7 +7666,7 @@ fn loupeScene(r: vec2f) -> vec3f {
       const near = [];
       for (let k = 0; k < cells.length && near.length < 400; k++) {
         const i = cells[k];
-        if (Math.hypot(wrapD(X[i] - sel.particle.x, W), wrapD(Y[i] - sel.particle.y, H)) < 2) near.push({ x: X[i], y: Y[i] });
+        if (Math.hypot(wrapD2(X[i] - sel.particle.x, W), wrapD2(Y[i] - sel.particle.y, H)) < 2) near.push({ x: X[i], y: Y[i] });
       }
       sel.orgNear = near;
       const prev = sel.org;
@@ -6974,7 +7693,7 @@ fn loupeScene(r: vec2f) -> vec3f {
       setMembers(null);
       dirty = true;
     }
-    const bar = (frac, col) => `<span class="bar"><i style="width:${(clamp5(frac, 0, 1) * 100).toFixed(1)}%;background:${col}"></i></span>`;
+    const bar = (frac, col) => `<span class="bar"><i style="width:${(clamp6(frac, 0, 1) * 100).toFixed(1)}%;background:${col}"></i></span>`;
     const dbar = (v) => {
       const w = (Math.abs(v) * 50).toFixed(1);
       const left = v < 0 ? (50 - Math.abs(v) * 50).toFixed(1) : 50;
@@ -7196,7 +7915,7 @@ fn loupeScene(r: vec2f) -> vec3f {
         return;
       }
       sel = null;
-      eng.trackId = NONE;
+      eng.trackId = NONE2;
       state.follow = false;
       setMembers(null);
       spView = serial;
@@ -7210,7 +7929,7 @@ fn loupeScene(r: vec2f) -> vec3f {
       const sp = life.reg.get(serial);
       if (!sp || !sp.alive) return;
       const [W, H] = eng.grid;
-      const res = await eng.requestPick([W / 2, H / 2], Math.hypot(W, H), NONE, { kind: sp.slot, maxOut: sp.pop * 1.25 + 2048, raw: true });
+      const res = await eng.requestPick([W / 2, H / 2], Math.hypot(W, H), NONE2, { kind: sp.slot, maxOut: sp.pop * 1.25 + 2048, raw: true });
       if (!res || !res.raw.count) {
         flash("No living cells found");
         return;
@@ -7237,7 +7956,7 @@ fn loupeScene(r: vec2f) -> vec3f {
         let bestN = -1;
         for (let i = 0; i < n; i += step) {
           let c = 0;
-          for (let j = 0; j < n; j += step) if (Math.hypot(wrapD(f32[j * PICK_WORDS] - f32[i * PICK_WORDS], W), wrapD(f32[j * PICK_WORDS + 1] - f32[i * PICK_WORDS + 1], H)) < 2) c++;
+          for (let j = 0; j < n; j += step) if (Math.hypot(wrapD2(f32[j * PICK_WORDS] - f32[i * PICK_WORDS], W), wrapD2(f32[j * PICK_WORDS + 1] - f32[i * PICK_WORDS + 1], H)) < 2) c++;
           if (c > bestN) {
             bestN = c;
             bestI = i;
@@ -7245,10 +7964,11 @@ fn loupeScene(r: vec2f) -> vec3f {
         }
       }
       const best = parseParticle(u32, f32, bestI * PICK_WORDS);
+      takeOver();
       cam.x = best.x;
       cam.y = best.y;
       if (cssPPU() < 18) {
-        cam.zoomTarget = clamp5(18 * dpr / fitPPU(), 1, maxZoom());
+        cam.zoomTarget = clamp6(18 * dpr / fitPPU(), 1, maxZoom());
         cam.anchor = null;
       }
       beginTracking(best, { entries: [], simTime: res.simTime });
@@ -7352,7 +8072,7 @@ fn loupeScene(r: vec2f) -> vec3f {
     }
     spec.addEventListener("wheel", (e) => {
       e.preventDefault();
-      state.specCells = clamp5(state.specCells * Math.exp(e.deltaY * 15e-4), 0.8, 14);
+      state.specCells = clamp6(state.specCells * Math.exp(e.deltaY * 15e-4), 0.8, 14);
     }, { passive: false });
     const tip = $("tip");
     let tipFor = null;
@@ -7367,7 +8087,7 @@ fn loupeScene(r: vec2f) -> vec3f {
       const r = el.getBoundingClientRect();
       const tw = Math.min(300, innerWidth - 16);
       tip.style.maxWidth = `${tw}px`;
-      const left = clamp5(r.left, 8, innerWidth - tw - 8);
+      const left = clamp6(r.left, 8, innerWidth - tw - 8);
       const below = r.bottom + 8 + 120 < innerHeight;
       tip.style.left = `${left}px`;
       tip.style.top = below ? `${r.bottom + 6}px` : "";
@@ -7428,6 +8148,7 @@ fn loupeScene(r: vec2f) -> vec3f {
         const [a, b] = [...ptr.pointers.values()];
         ptr.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
         ptr.dragging = true;
+        takeOver();
       }
       hideIntro();
     });
@@ -7453,7 +8174,10 @@ fn loupeScene(r: vec2f) -> vec3f {
         state.follow = false;
         return;
       }
-      if (ptr.down && !ptr.dragging && Math.hypot(e.clientX - ptr.down.x, e.clientY - ptr.down.y) > 5) ptr.dragging = true;
+      if (ptr.down && !ptr.dragging && Math.hypot(e.clientX - ptr.down.x, e.clientY - ptr.down.y) > 5) {
+        ptr.dragging = true;
+        takeOver();
+      }
       if (ptr.dragging) {
         const p = ppu();
         cam.x -= dxs * dpr / p;
@@ -7490,8 +8214,9 @@ fn loupeScene(r: vec2f) -> vec3f {
       e.preventDefault();
       const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
       const f2 = Math.exp(-dy * 16e-4);
+      takeOver();
       if (e.shiftKey && loupeGeom()) {
-        state.loupeMag = clamp5(state.loupeMag * f2, 1.5, 20);
+        state.loupeMag = clamp6(state.loupeMag * f2, 1.5, 20);
         return;
       }
       if (state.follow && sel) zoomAt(f2, innerWidth / 2, innerHeight / 2);
@@ -7548,13 +8273,15 @@ fn loupeScene(r: vec2f) -> vec3f {
         state.loupe = !state.loupe;
         flash(state.loupe ? "Loupe on" : "Loupe off");
       } else if (k === "[") {
-        state.loupeMag = clamp5(state.loupeMag / 1.25, 1.5, 20);
+        state.loupeMag = clamp6(state.loupeMag / 1.25, 1.5, 20);
         flash(`Loupe ×${state.loupeMag.toFixed(1)}`);
       } else if (k === "]") {
-        state.loupeMag = clamp5(state.loupeMag * 1.25, 1.5, 20);
+        state.loupeMag = clamp6(state.loupeMag * 1.25, 1.5, 20);
         flash(`Loupe ×${state.loupeMag.toFixed(1)}`);
       } else if (k === "c" || k === "C") {
         if (sel) toggleFollow();
+      } else if (k === "a" || k === "A") {
+        toggleAuto();
       } else if (k === "s" || k === "S") {
         toggleSound();
       } else if (k === "-" || k === "_") {
@@ -7585,6 +8312,7 @@ fn loupeScene(r: vec2f) -> vec3f {
         });
         else document.exitFullscreen?.();
       } else if (k === "0") {
+        takeOver();
         cam.zoomTarget = 1;
         cam.anchor = null;
       } else handled = false;
@@ -7612,7 +8340,7 @@ fn loupeScene(r: vec2f) -> vec3f {
       $("time").classList.toggle("fast", s > 1);
     }
     function setSpeed(i) {
-      state.speedIdx = clamp5(i, 0, SPEEDS.length - 1);
+      state.speedIdx = clamp6(i, 0, SPEEDS.length - 1);
       stepAcc = 0;
       perf.rafDt.length = 0;
       perf.lastAdjust = performance.now();
@@ -7707,8 +8435,10 @@ fn loupeScene(r: vec2f) -> vec3f {
       } else perf.goodWindows = 0;
     }
     function predicted() {
-      const p = sel.particle;
-      const dtS = state.paused ? 0 : Math.max(0, Math.min(0.25, eng.simTime - sel.sampleT));
+      return predictAt(sel.particle, sel.sampleT);
+    }
+    function predictAt(p, sampleT) {
+      const dtS = state.paused ? 0 : Math.max(0, Math.min(0.25, eng.simTime - sampleT));
       let adv = 1;
       if (p.kind >= FIRST_LIFE) {
         const g = genomeFor(p.kind);
@@ -7757,13 +8487,13 @@ fn loupeScene(r: vec2f) -> vec3f {
         const [W, H] = eng.grid;
         const [px, py] = predicted();
         const k = Math.min(1, dt / 40);
-        sel.disp[0] += wrapD(px - sel.disp[0], W) * k;
-        sel.disp[1] += wrapD(py - sel.disp[1], H) * k;
+        sel.disp[0] += wrapD2(px - sel.disp[0], W) * k;
+        sel.disp[1] += wrapD2(py - sel.disp[1], H) * k;
         let [sx, sy] = toScreen(sel.disp[0], sel.disp[1]);
         let inLens = false;
         if (L && Math.hypot(sx - L.sx, sy - L.sy) < L.R) {
-          sx = L.sx + wrapD(sel.disp[0] - L.cx, W) * L.cssPPU;
-          sy = L.sy + wrapD(sel.disp[1] - L.cy, H) * L.cssPPU;
+          sx = L.sx + wrapD2(sel.disp[0] - L.cx, W) * L.cssPPU;
+          sy = L.sy + wrapD2(sel.disp[1] - L.cy, H) * L.cssPPU;
           inLens = true;
         }
         const visible = !inLens || Math.hypot(sx - L.sx, sy - L.sy) < L.R - 8;
@@ -7802,6 +8532,229 @@ fn loupeScene(r: vec2f) -> vec3f {
         octx.fill();
       }
     }
+    const AUTO_KEY = "tidemote.autoCamera";
+    const AUTO_IDLE = 6e4, AUTO_IDLE_READING = 18e4;
+    state.auto = (() => {
+      try {
+        return localStorage.getItem(AUTO_KEY) !== "off";
+      } catch {
+        return true;
+      }
+    })();
+    let lastInput = performance.now();
+    const lastPtr = { x: -1, y: -1, moved: performance.now() };
+    const poke = () => {
+      lastInput = performance.now();
+    };
+    addEventListener("pointerdown", poke, true);
+    addEventListener("keydown", poke, true);
+    addEventListener("wheel", poke, { capture: true, passive: true });
+    addEventListener("pointermove", (e) => {
+      if (Math.abs(e.clientX - lastPtr.x) + Math.abs(e.clientY - lastPtr.y) > 3) {
+        lastPtr.x = e.clientX;
+        lastPtr.y = e.clientY;
+        lastPtr.moved = performance.now();
+        poke();
+      }
+    }, true);
+    const viewWidths = () => {
+      const wMax = canvas.width / fitPPU();
+      return [Math.min(wMax, Math.max(canvas.width / (MAX_PPU * dpr), innerWidth / 360)), wMax];
+    };
+    const director = new Director({
+      world: () => eng.grid,
+      widths: viewWidths,
+      pick: (center, radius, opts) => eng.requestPick(center, radius, NONE2, opts),
+      predict: predictAt,
+      species: (slot) => {
+        const c = life.lastCensus;
+        if (!c || !c.pop[slot]) return null;
+        return { serial: genomeSerial(c.genomeU32, slot), pop: c.pop[slot] };
+      },
+      lifespan: (slot) => {
+        const g = genomeFor(slot);
+        return g ? g.lifespan : 0;
+      },
+      now: () => performance.now() / 1e3
+    });
+    let surveyT = 0;
+    eng.onSurvey = (s) => {
+      const t2 = performance.now();
+      director.survey(s, surveyT ? (t2 - surveyT) / 1e3 : 1);
+      surveyT = t2;
+    };
+    function resetDirector() {
+      if (director.active) renderAuto(false);
+      director.reset();
+      surveyT = 0;
+    }
+    function renderAuto(live) {
+      eng.survey = state.auto || live ? { every: 45 } : null;
+      $("auto").setAttribute("aria-pressed", String(state.auto));
+      const play = $("auto-play"), label = live ? "Stop the auto camera" : "Start the auto camera now";
+      play.textContent = live ? "❚❚" : "▶";
+      play.setAttribute("aria-pressed", String(!!live));
+      play.setAttribute("aria-label", label);
+      play.title = label;
+    }
+    function takeOver() {
+      poke();
+      if (!director.active) return;
+      director.stop();
+      cam.zoomTarget = cam.zoom;
+      cam.anchor = null;
+      renderAuto(false);
+    }
+    function startAuto(idle) {
+      if (idle && (sel || spView != null)) deselect();
+      if (idle && lab.isOpen()) lab.close();
+      director.start({ x: cam.x, y: cam.y, w: viewWidths()[1] / cam.zoom });
+      renderAuto(true);
+    }
+    function toggleAuto() {
+      state.auto = !state.auto;
+      try {
+        localStorage.setItem(AUTO_KEY, state.auto ? "on" : "off");
+      } catch {
+      }
+      if (state.auto) flash("Auto camera on · takes over after a minute alone");
+      else {
+        takeOver();
+        flash("Auto camera off");
+      }
+      renderAuto(director.active);
+    }
+    function playAuto() {
+      if (director.active) {
+        takeOver();
+        flash("Auto camera stopped");
+      } else if (state.phase === "running") {
+        startAuto(false);
+        flash("Auto camera · drag or scroll to take over");
+      }
+    }
+    $("auto").addEventListener("click", toggleAuto);
+    $("auto-play").addEventListener("click", playAuto);
+    renderAuto(false);
+    const REASON = {
+      mutations: ["where new variants are being born", "mutants are appearing here"],
+      sparks: ["where life is sparking from glint", "life is sparking from glint"],
+      kills: ["a hunting ground", "kills are frequent"],
+      births: ["a crowd of births", "many are being born"],
+      deaths: ["a die-off", "many are dying"],
+      diverse: ["a meeting of many species", (div) => div >= 3 ? `about ${div} species meet` : "several species meet"],
+      bodies: ["a gathering of bodies", "many-celled bodies gather"],
+      swift: ["swift swimmers", "the cells here move fast"],
+      dense: ["the thickest crowd of life", "life is crowded here"]
+    };
+    const upper = (t2) => t2.charAt(0).toUpperCase() + t2.slice(1);
+    const spName = (serial) => {
+      const sp = life.reg.get(serial);
+      return sp ? spLink(serial, sp.name) : "an unnamed species";
+    };
+    const spDesc = (serial) => {
+      const sp = life.reg.get(serial);
+      return sp ? describe(sp.genome, K) : "";
+    };
+    const article = (serial) => {
+      const sp = life.reg.get(serial);
+      return sp && /^[AEIOU]/i.test(sp.name) ? "an" : "a";
+    };
+    const numArticle = (n) => /^8/.test(String(n)) || String(n).length % 3 === 2 && /^1[18]/.test(String(n)) ? "an" : "a";
+    const organism = (w, the) => w.cells > 1 ? `${the ? "the" : numArticle(w.cells)} ${fmt(w.cells)}-cell ${spName(w.serial)}` : `${the ? "the" : article(w.serial)} ${spName(w.serial)} cell`;
+    function fateOf(f2) {
+      if (!f2) return ["vanished", "perhaps built into a new cell"];
+      if (f2.kind === 0) return ["was eaten", "what remained is silt"];
+      if (f2.kind === 3) return [f2.cause === 2 ? "died of old age" : "starved", "its skeleton is now stone"];
+      return [f2.cause === 2 ? "died of old age" : f2.cause === 3 ? "was killed" : "starved", "its body is now a husk"];
+    }
+    function captionHtml(w, going) {
+      const r = (w.reasons || []).map((x) => REASON[x.key]);
+      const note = (x) => upper(typeof x[1] === "function" ? x[1](w.div) : x[1]);
+      let eyebrow, main, sub = "";
+      if (w.kind === "wide") {
+        if (going) {
+          eyebrow = "Rising";
+          main = "For a view of the whole tide";
+        } else {
+          eyebrow = "The whole tide";
+          main = `${fmt(life.counts[3])} living cells in ${fmt(life.alive)} species`;
+          sub = `${esc(climate.name)} · light ${Math.round(eng.ambient * 100)}%`;
+        }
+      } else if (w.kind === "scene") {
+        if (going && w.lost) {
+          const [verb] = fateOf(w.lost.fate);
+          eyebrow = "Heading on";
+          main = `To where ${w.lost.cells > 1 ? `a cell of ${organism(w.lost)}` : organism(w.lost)} ${verb}`;
+          sub = "It was gone before the camera arrived";
+        } else if (going) {
+          eyebrow = "Heading to";
+          main = upper(r[0] ? r[0][0] : "somewhere quieter");
+          sub = r[1] ? note(r[1]) : "";
+        } else {
+          eyebrow = "In view";
+          const sp = (w.species || []).filter((x) => life.reg.has(x.serial)).map((x) => spName(x.serial));
+          main = sp.length ? sp.length > 1 ? `${sp.slice(0, -1).join(", ")} and ${sp[sp.length - 1]}` : sp[0] : upper(r[0] ? r[0][0] : "a quiet stretch of water");
+          sub = r.slice(0, 2).map(note).join(" · ");
+        }
+      } else if (w.kind === "follow") {
+        if (w.spotlight) {
+          eyebrow = going ? "A new species" : "Following a new species";
+          main = going ? spName(w.serial) : upper(organism(w));
+        } else {
+          eyebrow = going ? "Picking out" : "Following";
+          main = upper(organism(w));
+        }
+        sub = going && r[0] && !w.spotlight ? note(r[0]) : spDesc(w.serial);
+      } else if (w.kind === "linger") {
+        const [verb, after] = fateOf(w.fate);
+        eyebrow = "Lingering";
+        main = `${w.cells > 1 ? `A cell of ${organism(w, true)}` : upper(organism(w, true))} ${verb}`;
+        sub = upper(after);
+      } else return "";
+      return `<div class="eyebrow">${eyebrow}</div><div class="cap-main">${main}</div>${sub ? `<div class="cap-sub">${sub}</div>` : ""}`;
+    }
+    const capEl = $("caption");
+    const cap2 = { key: "", html: "", swapAt: 0, swapped: true };
+    function renderCaption(now) {
+      const sh = director.active ? director.shot : null;
+      const going = sh && sh.t < sh.flight - 0.5;
+      const key = sh ? `${sh.id}:${going}:${sh.whyVer}` : "";
+      if (key !== cap2.key) {
+        cap2.key = key;
+        const html = sh ? captionHtml(sh.why, going) : "";
+        if (html !== cap2.html) {
+          cap2.html = html;
+          cap2.swapAt = capEl.classList.contains("on") ? now + 800 : now;
+          cap2.swapped = false;
+        }
+      }
+      if (!cap2.swapped) {
+        if (now < cap2.swapAt) {
+          capEl.classList.remove("on");
+          return;
+        }
+        capEl.innerHTML = cap2.html;
+        cap2.swapped = true;
+      }
+      capEl.classList.toggle("on", !!(sh && cap2.html && sh.t < sh.dur - 2.5));
+    }
+    function autoCamera(now, dt) {
+      if (state.phase !== "running") return;
+      if (!director.active) {
+        if (!state.auto) return;
+        const reading = sel || spView != null || lab.isOpen();
+        if (state.paused || !introHidden || ptr.pointers.size || now - lastInput < (reading ? AUTO_IDLE_READING : AUTO_IDLE)) return;
+        startAuto(true);
+      }
+      const v = director.update(dt / 1e3);
+      if (!v) return;
+      const wMax = viewWidths()[1];
+      cam.x = v.x;
+      cam.y = v.y;
+      cam.zoom = cam.zoomTarget = clamp6(wMax / v.w, 1, maxZoom());
+      cam.anchor = null;
+    }
     let last = performance.now();
     let frameCount = 0;
     let inflight = 0;
@@ -7810,10 +8763,10 @@ fn loupeScene(r: vec2f) -> vec3f {
       const s = SPEEDS[state.speedIdx];
       if (state.paused || state.phase !== "running") return { steps: 1, dt: 1 / 60 };
       if (s <= 1) return { steps: 1, dt: s / 60 };
-      const cap2 = perf.stepMs ? clamp5(Math.floor(MAX_FRAME_MS / perf.stepMs), 1, 512) : 1;
-      if (s === Infinity) return { steps: cap2, dt: 1 / 60 };
+      const cap3 = perf.stepMs ? clamp6(Math.floor(MAX_FRAME_MS / perf.stepMs), 1, 512) : 1;
+      if (s === Infinity) return { steps: cap3, dt: 1 / 60 };
       stepAcc += s;
-      const steps = Math.min(Math.floor(stepAcc), cap2);
+      const steps = Math.min(Math.floor(stepAcc), cap3);
       stepAcc = Math.min(stepAcc - steps, 1);
       return { steps: Math.max(1, steps), dt: 1 / 60 };
     }
@@ -7842,11 +8795,15 @@ fn loupeScene(r: vec2f) -> vec3f {
         eng.season = seasonAt(eng.simTime);
         const step = plan();
         if (state.phase === "running" && !state.paused) climate.tick(step.steps * step.dt);
+        autoCamera(now, dt);
+        renderCaption(now);
+        document.body.classList.toggle("filming", director.active && ins.hidden && !lab.isOpen());
+        document.body.classList.toggle("cursor-off", director.active && now - lastPtr.moved > 3e3);
         if (state.follow && sel) {
           const [px, py] = predicted();
           const k = Math.min(1, dt / 70);
-          cam.x += wrapD(px - cam.x, eng.grid[0]) * k;
-          cam.y += wrapD(py - cam.y, eng.grid[1]) * k;
+          cam.x += wrapD2(px - cam.x, eng.grid[0]) * k;
+          cam.y += wrapD2(py - cam.y, eng.grid[1]) * k;
         }
         if (Math.abs(cam.zoom - cam.zoomTarget) > 1e-4) {
           const a = cam.anchor || [innerWidth / 2, innerHeight / 2];
@@ -7861,7 +8818,8 @@ fn loupeScene(r: vec2f) -> vec3f {
         wrapCam();
         const L = loupeGeom();
         canvas.classList.toggle("lens", !!L);
-        eng.trackId = sel && !sel.lost ? sel.id : NONE;
+        eng.trackId = sel && !sel.lost ? sel.id : NONE2;
+        eng.trackId2 = director.active ? director.trackId : NONE2;
         drawOverlay(dt, L);
         eng.frame({
           target: ctx.getCurrentTexture().createView(),
@@ -7871,7 +8829,7 @@ fn loupeScene(r: vec2f) -> vec3f {
           steps: step.steps,
           time: now / 1e3,
           dpr,
-          selId: sel ? sel.id : NONE,
+          selId: sel ? sel.id : NONE2,
           loupe: L ? { x: L.sx * dpr, y: L.sy * dpr, r: L.R * dpr, ppu: L.cssPPU * dpr, cx: L.cx, cy: L.cy } : null,
           specimen: specimenParams()
         });

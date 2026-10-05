@@ -1,5 +1,5 @@
 import {
-  simWGSL, PICK_WGSL, LISTEN_WGSL, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, DRAW_WGSL, POST_WGSL, DEFAULT_K,
+  simWGSL, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, DRAW_WGSL, POST_WGSL, DEFAULT_K,
   MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD,
 } from './shaders.js';
 import {
@@ -17,6 +17,7 @@ const PICK_BYTES = 56 + PICK_MAX * PICK_WORDS * 4;
 const LEDGER_HEAD = META_CLAIM * 4;
 const CENSUS_BYTES = LEDGER_HEAD + MAXK * G_BYTES;
 const LISTEN_BYTES = (LISTEN_HEAD + 4 * LISTEN_CAP) * 4;
+const SURVEY_BYTES = SURVEY_MAX_TILES * SURVEY_WORDS * 4;
 export { MAXK, FIRST_LIFE, DEFAULT_K };
 
 const mix = (a, b, t) => a + (b - a) * t;
@@ -67,7 +68,9 @@ class Engine {
     this.onGpuTime = null;
     this.onCensus = null;
     this.pickReq = null;
+    // Up to two particles followed every frame (the page's selection and the auto camera's subject).
     this.trackId = 0xffffffff;
+    this.trackId2 = 0xffffffff;
     this.onTrack = null;
     this.lastCam = null;
     this.accIdx = 0;
@@ -95,6 +98,9 @@ class Engine {
     b.bridgeDraw = d.createBuffer({ size: 16, usage: U.INDIRECT | U.COPY_DST });
     d.queue.writeBuffer(b.bridgeDraw, 0, new Uint32Array([30, 0, 0, 0]));
     b.pickOut = d.createBuffer({ size: PICK_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
+    // tracking has its own uniforms and output per slot, so both slots and a pick share a frame
+    b.trackU = [0, 1].map(() => d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST }));
+    b.trackOut = [0, 1].map(() => d.createBuffer({ size: 56 + PICK_WORDS * 4, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST }));
     b.listenU = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
     b.listen = d.createBuffer({ size: LISTEN_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
     this.listenStage = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: LISTEN_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
@@ -103,10 +109,19 @@ class Engine {
     this.onListen = null;
     this._listenFrames = 0;
     this._listenSim = null;
+    b.surveyU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
+    b.survey = d.createBuffer({ size: SURVEY_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
+    this.surveyStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: SURVEY_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
+    // The auto camera's survey of the whole world (see SURVEY_WGSL). Off until the page sets { every }.
+    this.survey = null;
+    this.onSurvey = null;
+    this._surveyFrames = 0;
+    this._surveySim = null;
 
     this.simModule = d.createShaderModule({ code: simWGSL(K), label: 'sim' });
     this.pickModule = d.createShaderModule({ code: PICK_WGSL, label: 'pick' });
     this.listenModule = d.createShaderModule({ code: LISTEN_WGSL, label: 'listen' });
+    this.surveyModule = d.createShaderModule({ code: SURVEY_WGSL, label: 'survey' });
     this.drawModule = d.createShaderModule({ code: DRAW_WGSL, label: 'draw' });
     b.inbondU = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
     const inbond = d.createShaderModule({ code: INBOND_WGSL, label: 'inbond' });
@@ -129,6 +144,7 @@ class Engine {
     for (const name of Object.keys(this.cpDefs)) this.cp[name] = { pipe: cp(this.simModule, name), bg: null };
     this.cpPick = { pipe: cp(this.pickModule, 'pickMain'), bg: null };
     this.cpListen = { pipe: cp(this.listenModule, 'listenMain'), bg: null };
+    this.cpSurvey = { pipe: cp(this.surveyModule, 'surveyMain'), bg: null };
 
     const additive = { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } };
     const fade = { color: { srcFactor: 'zero', dstFactor: 'constant', operation: 'add' }, alpha: { srcFactor: 'zero', dstFactor: 'constant', operation: 'add' } };
@@ -168,7 +184,7 @@ class Engine {
     }
     this.censusStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: CENSUS_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     this.pickStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: PICK_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
-    this.trackStage = [0, 1, 2, 3].map(() => ({ buf: d.createBuffer({ size: 56, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
+    this.trackStage = [0, 1, 2, 3, 4, 5, 6, 7].map(() => ({ buf: d.createBuffer({ size: 56, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     b.reprojU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     this.pReproj = rp(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined);
   }
@@ -221,9 +237,16 @@ class Engine {
     this.cpPick.bg = d.createBindGroup({ layout: this.cpPick.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.pickU } }, { binding: 1, resource: { buffer: b.parts } },
       { binding: 2, resource: { buffer: b.pickOut } }, { binding: 3, resource: { buffer: b.intent } }] });
+    this.trackBG = [0, 1].map((k) => d.createBindGroup({ layout: this.cpPick.pipe.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: b.trackU[k] } }, { binding: 1, resource: { buffer: b.parts } },
+      { binding: 2, resource: { buffer: b.trackOut[k] } }, { binding: 3, resource: { buffer: b.intent } }] }));
     this.cpListen.bg = d.createBindGroup({ layout: this.cpListen.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.listenU } }, { binding: 1, resource: { buffer: b.parts } },
       { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.listen } }] });
+    this.cpSurvey.bg = d.createBindGroup({ layout: this.cpSurvey.pipe.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: b.surveyU } }, { binding: 1, resource: { buffer: b.parts } },
+      { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.cellStart } },
+      { binding: 4, resource: { buffer: b.survey } }] });
     const pointBG = (view) => d.createBindGroup({ layout: this.pPoint.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
       { binding: 3, resource: { buffer: b.intent } },
@@ -594,26 +617,29 @@ class Engine {
     }
     if (nSteps > 1) d.queue.writeBuffer(b.simRing, 0, this.ringData, 0, nSteps * SIM_STRIDE);
     const listenJob = nSteps > 0 ? this._listenCopy(enc, cam) : null;
+    const surveyJob = nSteps > 0 ? this._surveyCopy(enc) : null;
 
     // ---- picking
     let pickJob = null;
-    let trackJob = null;
-    if (!this.pickReq && this.trackId !== 0xffffffff && N > 0) {
+    const trackJobs = [];
+    for (let k = 0; k < 2 && N > 0; k++) {
+      const id = k ? this.trackId2 : this.trackId;
+      if (id === 0xffffffff || (k && id === this.trackId)) continue;
       const st = this.trackStage.find((s) => !s.busy);
-      if (st) {
-        trackJob = { st, id: this.trackId, simTime: this.simTime };
-        const pu = new ArrayBuffer(48);
-        const pf = new Float32Array(pu), pv = new Uint32Array(pu);
-        pf[2] = 0; pv[3] = this.trackId; pv[4] = 0; pv[5] = N; pf[6] = this.grid[0]; pf[7] = this.grid[1]; pv[8] = 0xffffffff;
-        d.queue.writeBuffer(b.pickU, 0, pu);
-        enc.clearBuffer(b.pickOut, 0, 56);
-        const pass = enc.beginComputePass();
-        pass.setPipeline(this.cpPick.pipe);
-        pass.setBindGroup(0, this.cpPick.bg);
-        pass.dispatchWorkgroups(Math.ceil(N / 256));
-        pass.end();
-        enc.copyBufferToBuffer(b.pickOut, 0, st.buf, 0, 56);
-      }
+      if (!st) break;
+      st.busy = true;
+      trackJobs.push({ st, id, simTime: this.simTime });
+      const pu = new ArrayBuffer(48);
+      const pf = new Float32Array(pu), pv = new Uint32Array(pu);
+      pf[2] = 0; pv[3] = id; pv[4] = 0; pv[5] = N; pf[6] = this.grid[0]; pf[7] = this.grid[1]; pv[8] = 0xffffffff;
+      d.queue.writeBuffer(b.trackU[k], 0, pu);
+      enc.clearBuffer(b.trackOut[k], 0, 56);
+      const pass = enc.beginComputePass();
+      pass.setPipeline(this.cpPick.pipe);
+      pass.setBindGroup(0, this.trackBG[k]);
+      pass.dispatchWorkgroups(Math.ceil(N / 256));
+      pass.end();
+      enc.copyBufferToBuffer(b.trackOut[k], 0, st.buf, 0, 56);
     }
     if (this.pickReq && N > 0) {
       const st = this.pickStage.find((s) => !s.busy);
@@ -686,9 +712,8 @@ class Engine {
       }).catch(() => { st.busy = false; req.resolve(null); });
     }
 
-    if (trackJob) {
+    for (const trackJob of trackJobs) {
       const { st } = trackJob;
-      st.busy = true;
       st.buf.mapAsync(GPUMapMode.READ).then(() => {
         const buf = st.buf.getMappedRange();
         const u32 = new Uint32Array(buf), f32 = new Float32Array(buf);
@@ -702,6 +727,51 @@ class Engine {
 
     for (const job of censusJobs) this._censusRead(job, generation);
     if (listenJob) this._listenRead(listenJob, generation);
+    if (surveyJob) this._surveyRead(surveyJob, generation);
+  }
+
+  /** Every so many frames while surveying: what happened in each tile of the world since the last survey. */
+  _surveyCopy(enc) {
+    const S = this.survey;
+    if (!S) { this._surveySim = null; return null; }
+    if (this._surveySim == null || this._surveySim > this.simTime) this._surveySim = this.simTime - 1 / 60;
+    if (++this._surveyFrames < (S.every || 60)) return null;
+    const st = this.surveyStage.find((s) => !s.busy);
+    if (!st) return null;
+    this._surveyFrames = 0;
+    st.busy = true;
+    const b = this.b;
+    const [gw, gh] = this.grid;
+    // tiles of at least 4 grid cells, no more than SURVEY_MAX_TILES of them
+    let tile = Math.max(4, Math.ceil(Math.max(gw, gh) / 48));
+    while (Math.ceil(gw / tile) * Math.ceil(gh / tile) > SURVEY_MAX_TILES) tile++;
+    const tiles = [Math.ceil(gw / tile), Math.ceil(gh / tile)];
+    const window = this.simTime - this._surveySim;
+    this._surveySim = this.simTime;
+    const u = new ArrayBuffer(32), f = new Float32Array(u), w = new Uint32Array(u);
+    w[0] = gw; w[1] = gh; w[2] = tiles[0]; w[3] = tiles[1]; w[4] = tile;
+    f[5] = this.simTime; f[6] = window; f[7] = this.K.adhMin;
+    this.device.queue.writeBuffer(b.surveyU, 0, u);
+    const bytes = tiles[0] * tiles[1] * SURVEY_WORDS * 4;
+    enc.clearBuffer(b.survey, 0, bytes);
+    const pass = enc.beginComputePass();
+    pass.setPipeline(this.cpSurvey.pipe);
+    pass.setBindGroup(0, this.cpSurvey.bg);
+    pass.dispatchWorkgroups(Math.ceil((gw * gh) / 64));
+    pass.end();
+    enc.copyBufferToBuffer(b.survey, 0, st.buf, 0, bytes);
+    return { st, bytes, simTime: this.simTime, window, tiles, tile };
+  }
+
+  _surveyRead(job, generation) {
+    const { st } = job;
+    st.buf.mapAsync(GPUMapMode.READ, 0, job.bytes).then(() => {
+      const u = new Uint32Array(st.buf.getMappedRange(0, job.bytes).slice(0));
+      st.buf.unmap();
+      st.busy = false;
+      if (generation !== this.worldGeneration || !this.onSurvey) return;
+      this.onSurvey({ simTime: job.simTime, window: job.window, tiles: job.tiles, tile: job.tile, grid: [...this.grid], data: u });
+    }).catch(() => { st.busy = false; });
   }
 
   /** Every few frames while listening: scan for events since the last scan (observational). */
