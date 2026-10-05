@@ -5207,7 +5207,7 @@ fn loupeScene(r: vec2f) -> vec3f {
     calcify: "How much of a skeleton a cell lays down. Calcifying costs upkeep. When a settled calcifying cell dies of hunger or old age it may leave stone instead of a husk, far more often beside stone already there, so reefs grow outward from rock and from the rare place one starts. Drifting cells seldom leave stone. Calcifiers can settle on stone; to everything else it is solid.",
     adhesion: "How strongly cells of one species bond. Above 15%, each cell keeps up to two same-species partners with springs. Empty slots find the nearest neighbours within bond range; children start bonded to their parent if they are the same species. Bonds last until a partner dies, changes kind or stretches too far away. Bonds are the links you see and they hold bodies together. Bonded cells share the cost of living (up to 15% less upkeep), shade each other less and are armoured against attack. They still pay crowding beyond their bond partners, disperse poorly and their inner cells struggle to reach silt to divide. Species without adhesion are free-living.",
     bond: "A persistent spring between two cells of the same species. Drawn as a link. It breaks if a partner dies, changes kind or stretches beyond 1.25 times the range at which bonds form. A connected web of bonds is one organism.",
-    organism: "A body: all same-species cells connected through bonds. A species only forms bodies if its adhesion is above 15%; otherwise every cell is its own organism, even when the species has several cell types (morphs) or gathers into swarms.",
+    organism: "A body: all same-species cells connected through bonds. A species only forms bodies if its adhesion is above 15%; otherwise every cell is its own organism, even when the species has several cell types (morphs) or gathers into swarms. Selecting a cell of a body follows the whole body: if the watched cell dies the watch passes to another of its cells, and if the body splits it follows the larger part.",
     swimming: "Self-propulsion: a steady push in the direction the cell is already moving. Reduced by photosynthesis.",
     schooling: "Steering toward the average velocity of nearby cells of the same species. Makes schools and coherent bodies move together.",
     reach: "How far a cell’s attraction and repulsion forces extend, in grid cells (at most 1).",
@@ -5329,7 +5329,7 @@ fn loupeScene(r: vec2f) -> vec3f {
       id: "tools",
       title: "Research tools",
       html: `<ul>
-<li><b>Inspector</b> (click a particle): its life story, its organism (traced through its bonds and highlighted), its species and full genome, and a live specimen view. Species names everywhere are links.</li>
+<li><b>Inspector</b> (click a particle): its life story, its organism (traced through its bonds, highlighted and followed as a whole, even after the cell you clicked dies), its species and full genome, and a live specimen view. Species names everywhere are links.</li>
 <li><b>Lab → Species</b>: every species ranked and filterable by diet, mobility, body, status and more. <b>Highlight</b> dims everything outside the filter.</li>
 <li><b>Lab → Composition</b>: the world broken down by matter, cell type, diet, mobility and body type. Click any bar to highlight it.</li>
 <li><b>Lab → Dynamics</b>: population, diversity, births, deaths and feeding over time.</li>
@@ -5823,29 +5823,29 @@ fn loupeScene(r: vec2f) -> vec3f {
   }
 
   // src/trace.js
-  function traceBody(u32, f32, n, startId) {
-    const idIndex = /* @__PURE__ */ new Map();
+  function bondGraph(u32, f32, n) {
+    const index = /* @__PURE__ */ new Map();
     const X = new Float32Array(n), Y = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       const o = i * PICK_WORDS;
-      idIndex.set(u32[o + 7], i);
+      index.set(u32[o + 7], i);
       X[i] = f32[o];
       Y[i] = f32[o + 1];
     }
-    const start = idIndex.get(startId);
-    if (start === void 0) return null;
     const edges = Array.from({ length: n }, () => []);
     for (let i = 0; i < n; i++) {
       for (let b = 10; b < PICK_WORDS; b++) {
         const id = u32[i * PICK_WORDS + b];
         if (id === 4294967295) continue;
-        const j = idIndex.get(id);
+        const j = index.get(id);
         if (j === void 0) continue;
         edges[i].push(j);
         edges[j].push(i);
       }
     }
-    const seen = new Uint8Array(n);
+    return { index, X, Y, edges };
+  }
+  function component(edges, seen, start) {
     const body = [start];
     seen[start] = 1;
     for (let head = 0; head < body.length; head++) {
@@ -5855,7 +5855,82 @@ fn loupeScene(r: vec2f) -> vec3f {
         body.push(j);
       }
     }
-    return { body, X, Y };
+    return body;
+  }
+  function traceBody(u32, f32, n, startId) {
+    const { index, X, Y, edges } = bondGraph(u32, f32, n);
+    const start = index.get(startId);
+    if (start === void 0) return null;
+    return { body: component(edges, new Uint8Array(n), start), X, Y };
+  }
+  function retraceBody(u32, f32, n, prev, preferId) {
+    const { index, X, Y, edges } = bondGraph(u32, f32, n);
+    const seen = new Uint8Array(n);
+    const prefer = index.get(preferId);
+    if (!prev || !prev.size) return prefer === void 0 ? null : { body: component(edges, seen, prefer), X, Y, index };
+    let best = null, bestShared = 0;
+    for (const id of prev.keys()) {
+      const i = index.get(id);
+      if (i === void 0 || seen[i]) continue;
+      const body = component(edges, seen, i);
+      let shared = 0;
+      for (const k of body) if (prev.has(u32[k * PICK_WORDS + 7])) shared++;
+      if (shared > bestShared || shared === bestShared && prefer !== void 0 && body.includes(prefer)) {
+        best = body;
+        bestShared = shared;
+      }
+    }
+    return best && { body: best, X, Y, index };
+  }
+  function nearBody(X, Y, body, candidates, r, W, H) {
+    const out = /* @__PURE__ */ new Set();
+    const gw = Math.max(1, Math.floor(W / r)), gh = Math.max(1, Math.floor(H / r));
+    const cw = W / gw, ch = H / gh;
+    const key = (x, y) => (Math.floor(y / ch) % gh + gh) % gh * gw + (Math.floor(x / cw) % gw + gw) % gw;
+    const wrap = (d, w) => d - w * Math.round(d / w);
+    const pending = /* @__PURE__ */ new Map();
+    for (const c of candidates) {
+      const k = key(X[c], Y[c]);
+      let l = pending.get(k);
+      if (!l) pending.set(k, l = []);
+      l.push(c);
+    }
+    const queue = [...body];
+    for (let head = 0; head < queue.length && pending.size; head++) {
+      const i = queue[head];
+      const cx = Math.floor(X[i] / cw), cy = Math.floor(Y[i] / ch);
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          const k = key((cx + ox + 0.5) * cw, (cy + oy + 0.5) * ch);
+          const l = pending.get(k);
+          if (!l) continue;
+          for (let n = l.length - 1; n >= 0; n--) {
+            const c = l[n];
+            if (Math.hypot(wrap(X[i] - X[c], W), wrap(Y[i] - Y[c], H)) >= r) continue;
+            out.add(c);
+            queue.push(c);
+            l[n] = l[l.length - 1];
+            l.pop();
+          }
+          if (!l.length) pending.delete(k);
+        }
+      }
+    }
+    return out;
+  }
+  function settleMembers(members, bodyIds, present, grace, touching = null) {
+    const inBody = new Set(bodyIds);
+    for (const [id, missed] of members) {
+      if (inBody.has(id)) continue;
+      if (touching && touching.has(id)) {
+        members.set(id, 0);
+        continue;
+      }
+      if (present && !present.has(id) || missed + 1 > grace) members.delete(id);
+      else members.set(id, missed + 1);
+    }
+    for (const id of inBody) members.set(id, 0);
+    return members;
   }
 
   // src/main.js
@@ -6638,7 +6713,7 @@ fn loupeScene(r: vec2f) -> vec3f {
       const oldStory = keepStory && sel ? sel.story : [];
       spView = null;
       ins.classList.remove("species-mode");
-      sel = { id: p.id, particle: p, sampleT: res.simTime ?? eng.simTime, nbr: res, disp: [p.x, p.y], lost: false, story: oldStory, memory: null, org: null, orgFirst: null, orgNear: null, diedAt: null, lastOrg: -1e9, lastNbr: -1e9 };
+      sel = { id: p.id, particle: p, sampleT: res.simTime ?? eng.simTime, nbr: res, disp: [p.x, p.y], lost: false, story: oldStory, memory: null, org: null, orgFirst: null, orgNear: null, members: null, rehome: null, diedAt: null, lastOrg: -1e9, lastNbr: -1e9 };
       eng.trackId = p.id;
       ins.hidden = false;
       lastHtml = "";
@@ -6697,8 +6772,16 @@ fn loupeScene(r: vec2f) -> vec3f {
     }
     function applySample(cur, t2) {
       if (!sel || t2 < sel.sampleT) return;
+      if (sel.rehome) return;
       const prev = sel.particle;
       if (prev.kind !== cur.kind) {
+        if (prev.kind >= FIRST_LIFE && cur.kind < FIRST_LIFE && sel.members && sel.members.size > 1) {
+          sel.rehome = { cell: cur, t: t2 };
+          sel.members.delete(sel.id);
+          sel.lastOrg = -1e9;
+          dirty = true;
+          return;
+        }
         story(transitionText(prev, cur));
         if (prev.kind >= FIRST_LIFE && cur.kind < FIRST_LIFE) {
           sel.diedAt = t2;
@@ -6731,13 +6814,22 @@ fn loupeScene(r: vec2f) -> vec3f {
       const id = sel.id;
       const g = p.kind >= FIRST_LIFE ? genomeFor(p.kind) : null;
       const multi = g && (g.adhesion || 0) > K.adhMin;
-      const orgEvery = sel.org && sel.org.cells > 2e4 ? 2e3 : 1e3;
+      const o = sel.org;
+      const orgEvery = o && o.cells > 2e4 ? 2e3 : 1e3;
       if (multi && (force || now - sel.lastOrg > orgEvery)) {
         gatherBusy = true;
         sel.lastOrg = now;
         const pop = life.lastCensus && life.lastCensus.pop[p.kind] || 4096;
         const [W, H] = eng.grid;
-        eng.requestPick([W / 2, H / 2], Math.hypot(W, H), id, { kind: p.kind, maxOut: pop * 1.25 + 2048, raw: true }).then((res) => {
+        let center = [W / 2, H / 2], radius = Math.hypot(W, H);
+        if (o && o.mid) {
+          const r = o.span * 0.75 + 6 + o.speed * orgEvery * 3e-3;
+          if (r * 2 < Math.min(W, H)) {
+            center = o.mid;
+            radius = r;
+          }
+        }
+        eng.requestPick(center, radius, id, { kind: p.kind, maxOut: pop * 1.25 + 2048, raw: true }).then((res) => {
           gatherBusy = false;
           if (!res || !sel || sel.id !== id) return;
           if (res.found) applySample(res.tracked, res.simTime);
@@ -6777,25 +6869,42 @@ fn loupeScene(r: vec2f) -> vec3f {
       }
       return others.size;
     }
+    const ORG_GRACE = 3;
     function traceOrganism(res) {
       const t0 = performance.now();
       const [W, H] = eng.grid;
       const { u32, f32, count: n } = res.raw;
-      const me = sel.particle;
-      const tb = traceBody(u32, f32, n, me.id);
+      const tb = retraceBody(u32, f32, n, sel.members, sel.id);
       if (!tb) {
-        sel.org = { ...sel.org || {}, pending: true };
-        dirty = true;
+        if (sel.rehome) organismGone();
+        else {
+          sel.org = { ...sel.org || {}, pending: true };
+          dirty = true;
+        }
         return;
       }
-      const { body, X, Y } = tb;
+      const { body, X, Y, index } = tb;
+      const idAt = (i) => u32[i * PICK_WORDS + 7];
+      const loose = [];
+      if (sel.members) for (const id of sel.members.keys()) {
+        const i = index.get(id);
+        if (i !== void 0) loose.push(i);
+      }
+      const touching = new Set([...nearBody(X, Y, body, loose, K.linkR * K.bondBreak, W, H)].map(idAt));
+      const members2 = settleMembers(sel.members || /* @__PURE__ */ new Map(), body.map(idAt), res.truncated ? null : index, ORG_GRACE, touching);
+      sel.members = members2;
+      const cells = [];
+      for (const id of members2.keys()) {
+        const i = index.get(id);
+        if (i !== void 0) cells.push(i);
+      }
+      const ai = index.get(sel.id);
+      const rx = ai !== void 0 ? X[ai] : sel.particle.x, ry = ai !== void 0 ? Y[ai] : sel.particle.y;
       let cx = 0, cy = 0, eSum = 0, vx = 0, vy = 0;
       const roles = [0, 0, 0];
-      const rel = new Float32Array(body.length * 2);
-      body.forEach((i, k) => {
-        let dx = X[i] - me.x, dy = Y[i] - me.y;
-        dx -= W * Math.round(dx / W);
-        dy -= H * Math.round(dy / H);
+      const rel = new Float32Array(cells.length * 2);
+      cells.forEach((i, k) => {
+        const dx = wrapD(X[i] - rx, W), dy = wrapD(Y[i] - ry, H);
         rel[k * 2] = dx;
         rel[k * 2 + 1] = dy;
         cx += dx;
@@ -6805,27 +6914,64 @@ fn loupeScene(r: vec2f) -> vec3f {
         vy += f32[i * PICK_WORDS + 3];
         roles[u32[i * PICK_WORDS + 9] >> 4 & 3]++;
       });
-      const m = Math.max(1, body.length);
+      const m = Math.max(1, cells.length);
       cx /= m;
       cy /= m;
       let span = 0;
-      for (let k = 0; k < body.length; k++) span = Math.max(span, Math.hypot(rel[k * 2] - cx, rel[k * 2 + 1] - cy));
-      const near = [];
-      for (let k = 0; k < body.length && near.length < 400; k++) {
-        if (rel[k * 2] * rel[k * 2] + rel[k * 2 + 1] * rel[k * 2 + 1] < 4) {
-          const i = body[k];
-          near.push({ x: X[i], y: Y[i] });
+      for (let k = 0; k < cells.length; k++) span = Math.max(span, Math.hypot(rel[k * 2] - cx, rel[k * 2 + 1] - cy));
+      if (sel.rehome || !members2.has(sel.id)) {
+        const g = genomeFor(sel.particle.kind);
+        const lifespan = g ? g.lifespan : 100;
+        let best = -1, bs = Infinity;
+        for (const i of body) {
+          if (idAt(i) === sel.id) continue;
+          const d = Math.hypot(wrapD(X[i] - rx, W) - cx, wrapD(Y[i] - ry, H) - cy);
+          const s = d / Math.max(1, span) + f32[i * PICK_WORDS + 6] / lifespan;
+          if (s < bs) {
+            bs = s;
+            best = i;
+          }
         }
+        if (best < 0) {
+          if (sel.rehome) organismGone();
+          return;
+        }
+        if (sel.rehome) {
+          story(`${transitionText(sel.particle, sel.rehome.cell).replace(/ Its (body|skeleton) is now .*$/, "").replace(/ What remained is silt\.$/, "")} Its organism lives on; now watching another of its cells.`);
+        } else story("Its organism split: following the larger part.");
+        sel.rehome = null;
+        sel.id = idAt(best);
+        sel.particle = parseParticle(u32, f32, best * PICK_WORDS);
+        sel.sampleT = res.simTime;
+      }
+      const near = [];
+      for (let k = 0; k < cells.length && near.length < 400; k++) {
+        const i = cells[k];
+        if (Math.hypot(wrapD(X[i] - sel.particle.x, W), wrapD(Y[i] - sel.particle.y, H)) < 2) near.push({ x: X[i], y: Y[i] });
       }
       sel.orgNear = near;
       const prev = sel.org;
-      sel.org = { cells: body.length, roles, span: span * 2, speed: Math.hypot(vx / m, vy / m), meanE: eSum / m, partial: res.truncated, touching: prev ? prev.touching : 0, at: res.simTime, ms: performance.now() - t0 };
-      if (sel.orgFirst == null) sel.orgFirst = body.length;
-      const ids = new Uint32Array(body.length);
-      for (let k = 0; k < body.length; k++) ids[k] = u32[body[k] * PICK_WORDS + 7];
-      ids.sort();
-      setMembers(body.length > 1 ? ids : null, me.kind);
+      const mid = [((rx + cx) % W + W) % W, ((ry + cy) % H + H) % H];
+      sel.org = { cells: members2.size, roles, span: span * 2, mid, speed: Math.hypot(vx / m, vy / m), meanE: eSum / m, partial: res.truncated, touching: prev ? prev.touching : 0, at: res.simTime, ms: performance.now() - t0 };
+      if (sel.orgFirst == null) {
+        sel.orgFirst = members2.size;
+        if (members2.size > 1) story(`It is one cell of a ${fmt(members2.size)}-cell organism. Following the whole body.`);
+      }
+      const ids = Uint32Array.from(members2.keys()).sort();
+      setMembers(ids.length > 1 ? ids : null, sel.particle.kind);
       remember();
+      dirty = true;
+    }
+    function organismGone() {
+      const { cell, t: t2 } = sel.rehome;
+      sel.rehome = null;
+      sel.members = null;
+      story(transitionText(sel.particle, cell));
+      story("None of its organism survived.");
+      sel.diedAt = t2;
+      sel.particle = cell;
+      sel.sampleT = Math.max(sel.sampleT, t2);
+      setMembers(null);
       dirty = true;
     }
     const bar = (frac, col) => `<span class="bar"><i style="width:${(clamp5(frac, 0, 1) * 100).toFixed(1)}%;background:${col}"></i></span>`;
@@ -6842,9 +6988,9 @@ fn loupeScene(r: vec2f) -> vec3f {
       if (!sel || !sel.story.length) return "";
       return `<div class="sect"><div class="eyebrow">Life story</div><ol class="story">${sel.story.map((s) => `<li><time>${fmtClock(s.t)}</time><span>${s.text}</span></li>`).join("")}</ol></div>`;
     }
-    function cellSection(p, g, past) {
+    function cellSection(p, g, past, inBody) {
       const [W, H] = eng.grid;
-      let html = `<div class="sect"><div class="eyebrow">${past ? "This cell, last seen alive" : "This cell"}</div>`;
+      let html = `<div class="sect"><div class="eyebrow">${past ? "This cell, last seen alive" : inBody ? "The cell being watched" : "This cell"}</div>`;
       if (g) {
         html += row("Energy", `${p.energy.toFixed(2)} of ${g.reproE.toFixed(2)} to divide ${bar(p.energy / g.reproE, "var(--warm)")}`, "energy");
         html += row("Age", `${fmtDur(p.age)} of ${fmtDur(g.lifespan)} ${bar(p.age / g.lifespan, "var(--ink-dim)")}`, "lifespan");
@@ -7013,14 +7159,14 @@ fn loupeScene(r: vec2f) -> vec3f {
           const sp = g ? life.reg.get(g.serial) : null;
           const gr = `<span class="greek">${ROLE[p.role]}</span>`;
           const o = sel.org;
-          $("ins-kind").innerHTML = o && o.cells > 1 ? `${gr}-cell of a ${o.partial ? "≥ " : ""}${fmt(o.cells)}-cell organism` : `${gr}-cell`;
+          const inBody = !!(o && !o.pending && o.cells > 1 && g && (g.adhesion || 0) > K.adhMin);
+          $("ins-kind").innerHTML = inBody ? `${o.partial ? "≥ " : ""}${fmt(o.cells)}-cell organism · watching a ${gr}-cell` : `${gr}-cell`;
           $("ins-name").innerHTML = sp ? spLink(sp.serial, sp.name) : "Unsequenced species";
           $("ins-sub").textContent = sel.lost ? "Lost track of this cell." : g ? `species ${fmt(g.serial)} · ${g.depth ? `${g.depth} mutation${g.depth === 1 ? "" : "s"} from its founder` : originWord(sp || g)}` : "This species arose moments ago. Sequencing…";
           drawGlyph(g ? cellShape(g, p.role) : 0, p.col);
           if (g) html += tagHTML(g);
           html += storyHTML();
-          html += cellSection(p, g, false);
-          html += organismSection(o, g, false);
+          html += inBody ? organismSection(o, g, false) + cellSection(p, g, false, true) : cellSection(p, g, false) + organismSection(o, g, false);
           if (g) html += speciesSection(g, null) + genomeSection(g, p.role);
         }
       }

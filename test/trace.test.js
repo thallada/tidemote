@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { traceBody } from '../src/trace.js';
+import { traceBody, retraceBody, settleMembers, nearBody } from '../src/trace.js';
 import { PICK_WORDS } from '../src/shaders.js';
 
 const NONE = 0xffffffff;
@@ -58,4 +58,59 @@ test('traceBody handles empty readbacks and independent calls', () => {
   assert.equal(traceBody(...particles([]), 100), null);
   assert.deepEqual(traceBody(...particles([[100, 0, 0, 200], [200, 0, 0]]), 100).body, [0, 1]);
   assert.deepEqual(traceBody(...particles([[100, 0, 0], [200, 0, 0]]), 100).body, [0]);
+});
+
+test('retraceBody re-finds a body after its watched cell is gone, and follows the larger part of a split', () => {
+  const prev = new Map([[1, 0], [2, 0], [3, 0], [4, 0], [5, 0]]);
+  // Cell 1 died; the rest are still bonded.
+  let tb = retraceBody(...particles([[2, 0, 0, 3], [3, 0, 0, 4], [4, 0, 0, 5], [5, 0, 0], [9, 0, 0]]), prev, 1);
+  assert.deepEqual(tb.body.map((i) => [2, 3, 4, 5, 9][i]).sort(), [2, 3, 4, 5]);
+  // Split into {1, 2} and {3, 4, 5}: the larger part wins even though it lacks the watched cell.
+  const cells = [[1, 0, 0, 2], [2, 0, 0], [3, 0, 0, 4], [4, 0, 0, 5], [5, 0, 0]];
+  tb = retraceBody(...particles(cells), prev, 1);
+  assert.deepEqual(tb.body.map((i) => cells[i][0]).sort(), [3, 4, 5]);
+  assert.equal(tb.index.get(1), 0);
+  // An even split goes to the part holding the watched cell.
+  tb = retraceBody(...particles(cells), new Map([[1, 0], [2, 0], [3, 0], [4, 0]]), 1);
+  assert.deepEqual(tb.body.map((i) => cells[i][0]).sort(), [1, 2]);
+  // No previous members: trace from the preferred cell; none left: null.
+  assert.deepEqual(retraceBody(...particles(cells), null, 4).body.map((i) => cells[i][0]).sort(), [3, 4, 5]);
+  assert.equal(retraceBody(...particles([[7, 0, 0]]), prev, 1), null);
+});
+
+test('settleMembers keeps cells through brief bond breaks and drops the dead at once', () => {
+  const m = new Map();
+  settleMembers(m, [1, 2, 3], new Set([1, 2, 3]), 2);
+  assert.deepEqual([...m.keys()].sort(), [1, 2, 3]);
+  // 3 is alive but momentarily unbonded; 2 died (missing from the readback); 4 joins.
+  settleMembers(m, [1, 4], new Set([1, 3, 4]), 2);
+  assert.deepEqual([...m.entries()].sort(), [[1, 0], [3, 1], [4, 0]]);
+  settleMembers(m, [1, 4], new Set([1, 3, 4]), 2);
+  assert.equal(m.get(3), 2);
+  settleMembers(m, [1, 4], new Set([1, 3, 4]), 2);
+  assert.equal(m.has(3), false);
+  // A partial readback cannot tell a missing cell is dead, so it only counts as a miss.
+  settleMembers(m, [1], null, 2);
+  assert.deepEqual([...m.entries()].sort(), [[1, 0], [4, 1]]);
+  // Rebonding resets the count.
+  settleMembers(m, [1, 4], null, 2);
+  assert.equal(m.get(4), 0);
+});
+
+test('nearBody reaches candidates touching the body directly or through each other, across the wrap', () => {
+  const X = new Float32Array([1, 1.3, 1.6, 5, 9.9]);
+  const Y = new Float32Array([1, 1, 1, 1, 1]);
+  // body: 0; candidates: 2 (via 1), 1 (direct), 3 (far), 4 (across the wrap from 0 at x = 1 - 1.1)
+  const got = nearBody(X, Y, [0], [1, 2, 3, 4], 0.4, 10, 10);
+  assert.deepEqual([...got].sort(), [1, 2]);
+  X[4] = 9.8; X[0] = 0.1;
+  X[1] = 0.4; X[2] = 0.7;
+  assert.deepEqual([...nearBody(X, Y, [0], [1, 2, 3, 4], 0.4, 10, 10)].sort(), [1, 2, 4]);
+  assert.equal(nearBody(X, Y, [0], [], 0.4, 10, 10).size, 0);
+});
+
+test('settleMembers keeps a member that is unbonded but still touching the body', () => {
+  const m = new Map([[1, 0], [2, 0]]);
+  for (let k = 0; k < 5; k++) settleMembers(m, [1], new Set([1, 2]), 2, new Set([2]));
+  assert.equal(m.get(2), 0);
 });

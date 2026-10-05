@@ -7,7 +7,7 @@ import { GLOSSARY } from './guide.js';
 import { createLab } from './lab.js';
 import { genusName, speciesEpithet } from './names.js';
 import { facets, describe, tagsOf, DIET_COL, MOB_COL } from './facets.js';
-import { traceBody } from './trace.js';
+import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
 import { PICK_WORDS } from './shaders.js';
 import { tideAt, flowAt } from './flow.js';
 
@@ -693,7 +693,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const oldStory = keepStory && sel ? sel.story : [];
     spView = null;
     ins.classList.remove('species-mode');
-    sel = { id: p.id, particle: p, sampleT: res.simTime ?? eng.simTime, nbr: res, disp: [p.x, p.y], lost: false, story: oldStory, memory: null, org: null, orgFirst: null, orgNear: null, diedAt: null, lastOrg: -1e9, lastNbr: -1e9 };
+    sel = { id: p.id, particle: p, sampleT: res.simTime ?? eng.simTime, nbr: res, disp: [p.x, p.y], lost: false, story: oldStory, memory: null, org: null, orgFirst: null, orgNear: null, members: null, rehome: null, diedAt: null, lastOrg: -1e9, lastNbr: -1e9 };
     eng.trackId = p.id;
     ins.hidden = false;
     lastHtml = '';
@@ -750,8 +750,18 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   function applySample(cur, t) {
     if (!sel || t < sel.sampleT) return;
+    // The watched cell died inside a body: keep its last living sample until the next trace
+    // moves the watch to another cell of the body (or finds none left).
+    if (sel.rehome) return;
     const prev = sel.particle;
     if (prev.kind !== cur.kind) {
+      if (prev.kind >= FIRST_LIFE && cur.kind < FIRST_LIFE && sel.members && sel.members.size > 1) {
+        sel.rehome = { cell: cur, t };
+        sel.members.delete(sel.id);
+        sel.lastOrg = -1e9;
+        dirty = true;
+        return;
+      }
       story(transitionText(prev, cur));
       if (prev.kind >= FIRST_LIFE && cur.kind < FIRST_LIFE) { sel.diedAt = t; setMembers(null); }
     } else if (cur.kind >= FIRST_LIFE && prev.energy - cur.energy > 0.2 && cur.energy < prev.energy * 0.8 && cur.age >= prev.age) {
@@ -786,13 +796,21 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const id = sel.id;
     const g = p.kind >= FIRST_LIFE ? genomeFor(p.kind) : null;
     const multi = g && (g.adhesion || 0) > K.adhMin;
-    const orgEvery = sel.org && sel.org.cells > 20000 ? 2000 : 1000;
+    const o = sel.org;
+    const orgEvery = o && o.cells > 20000 ? 2000 : 1000;
     if (multi && (force || now - sel.lastOrg > orgEvery)) {
       gatherBusy = true;
       sel.lastOrg = now;
       const pop = (life.lastCensus && life.lastCensus.pop[p.kind]) || 4096;
       const [W, H] = eng.grid;
-      eng.requestPick([W / 2, H / 2], Math.hypot(W, H), id, { kind: p.kind, maxOut: pop * 1.25 + 2048, raw: true }).then((res) => {
+      // Once the body is known, gather only around it, with room for growth and drift since the
+      // last trace; a species too numerous for one readback is then still traced whole.
+      let center = [W / 2, H / 2], radius = Math.hypot(W, H);
+      if (o && o.mid) {
+        const r = o.span * 0.75 + 6 + o.speed * orgEvery * 0.003;
+        if (r * 2 < Math.min(W, H)) { center = o.mid; radius = r; }
+      }
+      eng.requestPick(center, radius, id, { kind: p.kind, maxOut: pop * 1.25 + 2048, raw: true }).then((res) => {
         gatherBusy = false;
         if (!res || !sel || sel.id !== id) return;
         if (res.found) applySample(res.tracked, res.simTime);
@@ -831,44 +849,98 @@ function run(eng, device, ctx, specCtx, hasTS) {
     return others.size;
   }
 
+  // The body is followed as a whole: its members persist across traces (settleMembers), the
+  // watch moves to another member when the watched cell dies or drifts out, and a split follows
+  // the larger part.
+  const ORG_GRACE = 3;
   function traceOrganism(res) {
     const t0 = performance.now();
     const [W, H] = eng.grid;
     const { u32, f32, count: n } = res.raw;
-    const me = sel.particle;
-    const tb = traceBody(u32, f32, n, me.id);
-    if (!tb) { sel.org = { ...(sel.org || {}), pending: true }; dirty = true; return; }
-    const { body, X, Y } = tb;
-    // body statistics, measured relative to the selected cell so wrap-around bodies stay whole
+    const tb = retraceBody(u32, f32, n, sel.members, sel.id);
+    if (!tb) {
+      if (sel.rehome) organismGone();
+      else { sel.org = { ...(sel.org || {}), pending: true }; dirty = true; }
+      return;
+    }
+    const { body, X, Y, index } = tb;
+    const idAt = (i) => u32[i * PICK_WORDS + 7];
+    const loose = [];
+    if (sel.members) for (const id of sel.members.keys()) { const i = index.get(id); if (i !== undefined) loose.push(i); }
+    const touching = new Set([...nearBody(X, Y, body, loose, K.linkR * K.bondBreak, W, H)].map(idAt));
+    const members = settleMembers(sel.members || new Map(), body.map(idAt), res.truncated ? null : index, ORG_GRACE, touching);
+    sel.members = members;
+    const cells = [];
+    for (const id of members.keys()) { const i = index.get(id); if (i !== undefined) cells.push(i); }
+    // body statistics, measured relative to one cell so wrap-around bodies stay whole
+    const ai = index.get(sel.id);
+    const rx = ai !== undefined ? X[ai] : sel.particle.x, ry = ai !== undefined ? Y[ai] : sel.particle.y;
     let cx = 0, cy = 0, eSum = 0, vx = 0, vy = 0;
     const roles = [0, 0, 0];
-    const rel = new Float32Array(body.length * 2);
-    body.forEach((i, k) => {
-      let dx = X[i] - me.x, dy = Y[i] - me.y;
-      dx -= W * Math.round(dx / W); dy -= H * Math.round(dy / H);
+    const rel = new Float32Array(cells.length * 2);
+    cells.forEach((i, k) => {
+      const dx = wrapD(X[i] - rx, W), dy = wrapD(Y[i] - ry, H);
       rel[k * 2] = dx; rel[k * 2 + 1] = dy;
       cx += dx; cy += dy;
       eSum += f32[i * PICK_WORDS + 5]; vx += f32[i * PICK_WORDS + 2]; vy += f32[i * PICK_WORDS + 3];
       roles[(u32[i * PICK_WORDS + 9] >> 4) & 3]++;
     });
-    const m = Math.max(1, body.length);
+    const m = Math.max(1, cells.length);
     cx /= m; cy /= m;
     let span = 0;
-    for (let k = 0; k < body.length; k++) span = Math.max(span, Math.hypot(rel[k * 2] - cx, rel[k * 2 + 1] - cy));
-    // the cells of the body near the selected one, for "touching"
+    for (let k = 0; k < cells.length; k++) span = Math.max(span, Math.hypot(rel[k * 2] - cx, rel[k * 2 + 1] - cy));
+
+    if (sel.rehome || !members.has(sel.id)) {
+      // Watch the traced cell nearest the body's middle, favouring young ones so the watch lasts.
+      const g = genomeFor(sel.particle.kind);
+      const lifespan = g ? g.lifespan : 100;
+      let best = -1, bs = Infinity;
+      for (const i of body) {
+        if (idAt(i) === sel.id) continue;
+        const d = Math.hypot(wrapD(X[i] - rx, W) - cx, wrapD(Y[i] - ry, H) - cy);
+        const s = d / Math.max(1, span) + f32[i * PICK_WORDS + 6] / lifespan;
+        if (s < bs) { bs = s; best = i; }
+      }
+      if (best < 0) { if (sel.rehome) organismGone(); return; }
+      if (sel.rehome) {
+        story(`${transitionText(sel.particle, sel.rehome.cell).replace(/ Its (body|skeleton) is now .*$/, '').replace(/ What remained is silt\.$/, '')} Its organism lives on; now watching another of its cells.`);
+      } else story('Its organism split: following the larger part.');
+      sel.rehome = null;
+      sel.id = idAt(best);
+      sel.particle = parseParticle(u32, f32, best * PICK_WORDS);
+      sel.sampleT = res.simTime;
+    }
+
+    // the cells of the body near the watched one, for "touching"
     const near = [];
-    for (let k = 0; k < body.length && near.length < 400; k++) {
-      if (rel[k * 2] * rel[k * 2] + rel[k * 2 + 1] * rel[k * 2 + 1] < 4) { const i = body[k]; near.push({ x: X[i], y: Y[i] }); }
+    for (let k = 0; k < cells.length && near.length < 400; k++) {
+      const i = cells[k];
+      if (Math.hypot(wrapD(X[i] - sel.particle.x, W), wrapD(Y[i] - sel.particle.y, H)) < 2) near.push({ x: X[i], y: Y[i] });
     }
     sel.orgNear = near;
     const prev = sel.org;
-    sel.org = { cells: body.length, roles, span: span * 2, speed: Math.hypot(vx / m, vy / m), meanE: eSum / m, partial: res.truncated, touching: prev ? prev.touching : 0, at: res.simTime, ms: performance.now() - t0 };
-    if (sel.orgFirst == null) sel.orgFirst = body.length;
-    const ids = new Uint32Array(body.length);
-    for (let k = 0; k < body.length; k++) ids[k] = u32[body[k] * PICK_WORDS + 7];
-    ids.sort();
-    setMembers(body.length > 1 ? ids : null, me.kind);
+    const mid = [((rx + cx) % W + W) % W, ((ry + cy) % H + H) % H];
+    sel.org = { cells: members.size, roles, span: span * 2, mid, speed: Math.hypot(vx / m, vy / m), meanE: eSum / m, partial: res.truncated, touching: prev ? prev.touching : 0, at: res.simTime, ms: performance.now() - t0 };
+    if (sel.orgFirst == null) {
+      sel.orgFirst = members.size;
+      if (members.size > 1) story(`It is one cell of a ${fmt(members.size)}-cell organism. Following the whole body.`);
+    }
+    const ids = Uint32Array.from(members.keys()).sort();
+    setMembers(ids.length > 1 ? ids : null, sel.particle.kind);
     remember();
+    dirty = true;
+  }
+
+  function organismGone() {
+    const { cell, t } = sel.rehome;
+    sel.rehome = null;
+    sel.members = null;
+    story(transitionText(sel.particle, cell));
+    story('None of its organism survived.');
+    sel.diedAt = t;
+    sel.particle = cell;
+    sel.sampleT = Math.max(sel.sampleT, t);
+    setMembers(null);
     dirty = true;
   }
 
@@ -890,9 +962,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     return `<div class="sect"><div class="eyebrow">Life story</div><ol class="story">${sel.story.map((s) => `<li><time>${fmtClock(s.t)}</time><span>${s.text}</span></li>`).join('')}</ol></div>`;
   }
 
-  function cellSection(p, g, past) {
+  function cellSection(p, g, past, inBody) {
     const [W, H] = eng.grid;
-    let html = `<div class="sect"><div class="eyebrow">${past ? 'This cell, last seen alive' : 'This cell'}</div>`;
+    let html = `<div class="sect"><div class="eyebrow">${past ? 'This cell, last seen alive' : inBody ? 'The cell being watched' : 'This cell'}</div>`;
     if (g) {
       html += row('Energy', `${p.energy.toFixed(2)} of ${g.reproE.toFixed(2)} to divide ${bar(p.energy / g.reproE, 'var(--warm)')}`, 'energy');
       html += row('Age', `${fmtDur(p.age)} of ${fmtDur(g.lifespan)} ${bar(p.age / g.lifespan, 'var(--ink-dim)')}`, 'lifespan');
@@ -1056,14 +1128,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
         const sp = g ? life.reg.get(g.serial) : null;
         const gr = `<span class="greek">${ROLE[p.role]}</span>`;
         const o = sel.org;
-        $('ins-kind').innerHTML = o && o.cells > 1 ? `${gr}-cell of a ${o.partial ? '≥ ' : ''}${fmt(o.cells)}-cell organism` : `${gr}-cell`;
+        const inBody = !!(o && !o.pending && o.cells > 1 && g && (g.adhesion || 0) > K.adhMin);
+        $('ins-kind').innerHTML = inBody ? `${o.partial ? '≥ ' : ''}${fmt(o.cells)}-cell organism · watching a ${gr}-cell` : `${gr}-cell`;
         $('ins-name').innerHTML = sp ? spLink(sp.serial, sp.name) : 'Unsequenced species';
         $('ins-sub').textContent = sel.lost ? 'Lost track of this cell.' : g ? `species ${fmt(g.serial)} · ${g.depth ? `${g.depth} mutation${g.depth === 1 ? '' : 's'} from its founder` : originWord(sp || g)}` : 'This species arose moments ago. Sequencing…';
         drawGlyph(g ? cellShape(g, p.role) : 0, p.col);
         if (g) html += tagHTML(g);
         html += storyHTML();
-        html += cellSection(p, g, false);
-        html += organismSection(o, g, false);
+        html += inBody ? organismSection(o, g, false) + cellSection(p, g, false, true) : cellSection(p, g, false) + organismSection(o, g, false);
         if (g) html += speciesSection(g, null) + genomeSection(g, p.role);
       }
     }
