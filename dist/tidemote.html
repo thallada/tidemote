@@ -8137,7 +8137,7 @@ struct SV {
       closeup: prefs.closeup ?? true,
       // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
       // pixels per CSS pixel, the frame rate aimed for (0: the display's), and a fixed particle count
-      perf: { scale: prefs.scale ?? "auto", floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.fps ?? 60, particles: prefs.particles ?? null }
+      perf: { scale: prefs.scale ?? "auto", floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.fps ?? 0, particles: prefs.particles ?? null }
     };
     let uiHoldUntil = 0;
     const panelSel = ".panel, .rail, .dock, .focus";

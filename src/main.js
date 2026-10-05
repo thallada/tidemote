@@ -91,7 +91,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     closeup: prefs.closeup ?? true,
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
     // pixels per CSS pixel, the frame rate aimed for (0: the display's), and a fixed particle count
-    perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.fps ?? 60, particles: prefs.particles ?? null },
+    perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.fps ?? 0, particles: prefs.particles ?? null },
   };
   // While a pointer is held down on a panel, nothing re-renders under it: replacing the element
   // between pointerdown and pointerup swallows the click.
