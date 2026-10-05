@@ -583,6 +583,8 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
   var COMMON = (
     /* wgsl */
     `
+// Relief, as in DIC microscopy: one light from the upper left (screen y down) for every resolved shape.
+const TO_LIGHT = vec2f(-0.633, -0.774);
 const MAXK = ${MAXK}u;
 const FIRST_LIFE = 4u;
 const SILT = 0u;
@@ -1700,8 +1702,6 @@ fn inbondGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_inde
 `;
   var DRAW_WGSL = "diagnostic(off, derivative_uniformity);\n" + COMMON + /* wgsl */
   `
-// Relief, as in DIC microscopy: one light from the upper left for every resolved shape (and the stone).
-const TO_LIGHT = vec2f(-0.633, -0.774);
 // Unresolved views use the cheap sprite profile; resolved cells share one outline path.
 struct View {
   cam: vec2f, world: vec2f, res: vec2f,
@@ -2333,9 +2333,20 @@ struct PO {
       let fold = length(v * vec2f(0.86, 1.55));
       let wall = 0.64 + 0.10 * sin(a * 3.0 + seed * 21.0) + 0.06 * sin(a * 7.0);
       let breaks = smoothstep(-0.85, -0.55, sin(a * 3.0 + seed * 37.0));
-      f = exp(-pow((fold - wall) / (0.07 + aa), 2.0)) * breaks * 1.25;
-      f += 0.10 * exp(-pow((fold - 0.42) / (0.09 + aa), 2.0));
-      f *= spriteMean(i.shape) / 0.20;
+      // The torn rim is a tube of membrane, crisp and lit across its section from the upper left;
+      // inside it the collapsed skin is a faint film whose wrinkles catch the light.
+      let lightV = localPoint(TO_LIGHT, i.geom.zw);
+      let w = 0.075;
+      let t = (fold - wall) / w;
+      let tube = 1.0 - smoothstep(0.8, 1.0 + aa / w, abs(t));
+      let outward = normalize(v * vec2f(0.74, 2.4) + vec2f(1e-5));
+      let n = normalize(vec3f(outward * t, sqrt(max(1.0 - t * t, 0.05))));
+      let toLight = normalize(vec3f(lightV, 0.7));
+      let membrane = tube * breaks * (0.3 + 0.9 * max(dot(n, toLight), 0.0));
+      let wave = v.x * 9.0 + seed * 5.0 + 1.5 * sin(v.y * 6.0 + seed * 3.0);
+      let slope = cos(wave) * normalize(vec2f(1.0, cos(v.y * 6.0 + seed * 3.0)));
+      let film = (1.0 - smoothstep(wall - 0.14, wall - 0.04, fold)) * (0.14 + 0.16 * dot(slope, lightV));
+      f = max(membrane + film, 0.0) * spriteMean(i.shape) / 0.30;
     } else {
       // one lit face and a faint grain, so grains read as solid chips rather than sectors
       var facets = 0.70 + 0.16 * (v.x - v.y) + 0.06 * sin(v.x * 17.0 + v.y * 11.0 + seed * 23.0);
@@ -2356,6 +2367,16 @@ struct PO {
       }
       f = body * facets * spriteMean(i.shape) / 0.56;
       if (p.kind == GLINT) {
+        // a crystal: steep facets, one per edge, lit by a light that tumbles slowly so they flash in turn
+        let sector = TAU / sides;
+        let facing = floor(a / sector + 0.5) * sector - seed * TAU;
+        let n = normalize(vec3f(vec2f(cos(facing), sin(facing)) * 1.4 * smoothstep(0.0, 0.25, r), 1.0));
+        let turn = view.time * (0.4 + 0.5 * seed) + seed * TAU;
+        let lit = pow(max(dot(n, normalize(vec3f(cos(turn), sin(turn), 0.8))), 0.0), 4.0);
+        let ridge = exp(-pow(fract(a / sector + 0.5) - 0.5, 2.0) * 900.0);
+        let core = exp(-r * r * 6.0);
+        // charged mineral glows once its crystal resolves, so it stands out from the grey silt around it
+        f = body * (0.45 + 1.6 * lit + 0.4 * ridge + 0.35 * core) * spriteMean(i.shape) / 0.56 * 1.8;
         let seam = exp(-pow((v.y - v.x * 0.45) / (0.018 + aa), 2.0));
         let spark = pow(max(0.0, sin(view.time * 2.0 + seed * 71.0)), 18.0);
         f += body * (seam * 0.09 + spark * exp(-dot(v - vec2f(0.22, -0.18), v - vec2f(0.22, -0.18)) * 180.0) * 0.4);
@@ -2405,6 +2426,7 @@ struct BO {
   @location(0) col: vec3f,
   @location(1) side: f32,
   @location(2) cover: f32,
+  @location(3) across: vec2f, // the neck's sideways direction on screen
 };
 fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f {
   let len = length(chord);
@@ -2475,11 +2497,15 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
     * (fade * lod * span * tension * tension * mix(line, membrane, lod));
   o.cover = lod * lod * span;
   o.side = side;
+  o.across = normal;
   return o;
 }
 @fragment fn fsBridge(i: BO) -> @location(0) vec4f {
   let edge = 1.0 - smoothstep(0.6, 1.0, abs(i.side));
-  return vec4f(i.col * edge, i.cover * edge);
+  // a resolved neck is a tube of membrane: lit along the side toward the light
+  let n = normalize(vec3f(i.across * i.side, sqrt(max(1.0 - i.side * i.side, 0.05))));
+  let tube = 0.45 + 0.75 * max(dot(n, normalize(vec3f(TO_LIGHT, 0.7))), 0.0);
+  return vec4f(i.col * edge * mix(1.0, tube, clamp(i.cover * 3.0, 0.0, 1.0)), i.cover * edge);
 }
 
 // Reef stone and bedrock. Each grain is a cobble, an irregular dome; where cobbles overlap the higher
@@ -2544,7 +2570,7 @@ struct StoneOut { @location(0) col: vec4f, @location(1) surf: vec4f };
 }
 @fragment fn fsFade() -> @location(0) vec4f { return vec4f(0.0); }
 `;
-  var POST_WGSL = COMMON + /* wgsl */
+  var POST_WGSL = "diagnostic(off, derivative_uniformity);\n" + COMMON + /* wgsl */
   `
 override MICRO_SUSPENSION: bool = true;
 struct Post {
@@ -2860,7 +2886,9 @@ fn pondMicro(c: vec3f, hdr: vec3f, cam: vec2f, offset: vec2f, renderPPU: f32, pp
     grains += field * weight;
   }
   let behind = reveal / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
-  return max(vec3f(0.0), c * (1.0 - grains.a * behind) + grains.rgb * behind);
+  // relief: in-focus specks have sharp edges, lit on the side toward the light; soft defocus has none
+  let emboss = -dot(vec2f(dpdx(grains.a), dpdy(grains.a)), TO_LIGHT);
+  return max(vec3f(0.0), c * (1.0 - grains.a * behind) + (grains.rgb + vec3f(0.006, 0.0065, 0.007) * emboss) * behind);
 }
 
 fn tonemap(hdrIn: vec3f) -> vec3f {
