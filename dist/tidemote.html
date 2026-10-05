@@ -2143,8 +2143,8 @@ struct PO {
   let v = localPoint(i.uv, i.geom.zw);
   let aa = max(0.003, 0.75 / i.geom.x);
   var f = 0.0;
-  // body coverage of a resolved living cell, written to alpha: the composite divides overlapping
-  // cells' light by it, so stacked cells average into one translucent layer instead of summing
+  // coverage of a resolved cell or grain, written to alpha: the composite divides overlapping light
+  // by it, so stacked cells and matter average into one translucent layer instead of summing
   var cover = 0.0;
   if (p.kind >= FIRST_LIFE) {
     let g = genomes[p.kind];
@@ -2347,6 +2347,7 @@ struct PO {
       let slope = cos(wave) * normalize(vec2f(1.0, cos(v.y * 6.0 + seed * 3.0)));
       let film = (1.0 - smoothstep(wall - 0.14, wall - 0.04, fold)) * (0.14 + 0.16 * dot(slope, lightV));
       f = max(membrane + film, 0.0) * spriteMean(i.shape) / 0.30;
+      cover = clamp(tube * breaks + 0.6 * (1.0 - smoothstep(wall - 0.14, wall - 0.04, fold)), 0.0, 1.0);
     } else {
       // one lit face and a faint grain, so grains read as solid chips rather than sectors
       var facets = 0.70 + 0.16 * (v.x - v.y) + 0.06 * sin(v.x * 17.0 + v.y * 11.0 + seed * 23.0);
@@ -2366,6 +2367,7 @@ struct PO {
         facets = ((0.25 + 0.6 * max(dot(n, toLight), 0.0)) * tone * seams + 0.8 * glint) * 1.3; // same mean light as before
       }
       f = body * facets * spriteMean(i.shape) / 0.56;
+      cover = body;
       if (p.kind == GLINT) {
         // a crystal: steep facets, one per edge, lit by a light that tumbles slowly so they flash in turn
         let sector = TAU / sides;
