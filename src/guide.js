@@ -24,7 +24,7 @@ export const GLOSSARY = {
   calcify: 'How much of a skeleton a cell lays down. Calcifying costs upkeep. When a settled calcifying cell dies of hunger or old age it may leave stone instead of a husk, far more often beside stone already there, so reefs grow outward from rock and from the rare place one starts. Drifting cells seldom leave stone. Calcifiers can settle on stone; to everything else it is solid.',
   adhesion: 'How strongly cells of one species bond. Above 15%, each cell keeps up to two same-species partners with springs. Empty slots find the nearest neighbours within bond range; children start bonded to their parent if they are the same species. Bonds last until a partner dies, changes kind or stretches too far away. Bonds are the links you see and they hold bodies together. Bonded cells share the cost of living (up to 15% less upkeep), shade each other less and are armoured against attack. They still pay crowding beyond their bond partners, disperse poorly and their inner cells struggle to reach silt to divide. Species without adhesion are free-living.',
   bond: 'A persistent spring between two cells of the same species. Drawn as a link. It breaks if a partner dies, changes kind or stretches beyond 1.25 times the range at which bonds form. A connected web of bonds is one organism.',
-  organism: 'A body: all same-species cells connected through bonds. A species only forms bodies if its adhesion is above 15%; otherwise every cell is its own organism, even when the species has several cell types (morphs) or gathers into swarms.',
+  organism: 'A body: all same-species cells connected through bonds. A species only forms bodies if its adhesion is above 15%; otherwise every cell is its own organism, even when the species has several cell types (morphs) or gathers into swarms. Selecting a cell of a body follows the whole body: if the watched cell dies the watch passes to another of its cells, and if the body splits it follows the larger part.',
   swimming: 'Self-propulsion: a steady push in the direction the cell is already moving. Reduced by photosynthesis.',
   schooling: 'Steering toward the average velocity of nearby cells of the same species. Makes schools and coherent bodies move together.',
   reach: 'How far a cell’s attraction and repulsion forces extend, in grid cells (at most 1).',
@@ -139,7 +139,7 @@ export const GUIDE = [
   {
     id: 'tools', title: 'Research tools',
     html: `<ul>
-<li><b>Inspector</b> (click a particle): its life story, its organism (traced through its bonds and highlighted), its species and full genome, and a live specimen view. Species names everywhere are links.</li>
+<li><b>Inspector</b> (click a particle): its life story, its organism (traced through its bonds, highlighted and followed as a whole, even after the cell you clicked dies), its species and full genome, and a live specimen view. Species names everywhere are links.</li>
 <li><b>Lab → Species</b>: every species ranked and filterable by diet, mobility, body, status and more. <b>Highlight</b> dims everything outside the filter.</li>
 <li><b>Lab → Composition</b>: the world broken down by matter, cell type, diet, mobility and body type. Click any bar to highlight it.</li>
 <li><b>Lab → Dynamics</b>: population, diversity, births, deaths and feeding over time.</li>
