@@ -1229,9 +1229,13 @@ const TOUCH_N = 6u;
 @group(0) @binding(6) var<storage, read_write> touch: array<u32>;
 @group(0) @binding(7) var<storage, read> genomes: array<Genome>;
 // Each living cell in view bends along the curve of its path, through a soft spring so it lags and
-// sways back as it straightens. Kept by ID (unique serials), so it needs nothing from the sort: the
-// ID, last heading, bend and its rate (half floats), and when. Another ID in the slot starts afresh.
-@group(0) @binding(8) var<storage, read_write> bends: array<vec4u>;
+// sways back as it straightens, and a knock (a sudden change of velocity) squashes it along the
+// knock through a quicker spring, so it jiggles and settles. Kept by ID (unique serials), so it needs
+// nothing from the sort; another ID in the slot starts afresh. Half-float pairs: velocity smoothed
+// over about 0.08 s, so jitter neither turns nor knocks it; bend
+// and its rate; the squash (a nematic: amount times (cos, sin) of twice its axis) and its rate.
+struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32 };
+@group(0) @binding(8) var<storage, read_write> sway: array<Sway>;
 
 fn drawnSize(p: Particle) -> f32 { return genomes[p.kind].size * (1.0 - 0.12 * f32(roleOf(p.info))); }
 
@@ -1272,28 +1276,45 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     for (var c = 0u; c < TOUCH_N; c++) { touch[i * TOUCH_N + c] = best[c]; }
 
     let now = bitcast<f32>(views.grid.z);
-    let slot = p.id % arrayLength(&bends);
-    let was = bends[slot];
-    let heading = atan2(p.vel.y, p.vel.x);
-    let dt = now - bitcast<f32>(was.w);
+    let slot = p.id % arrayLength(&sway);
+    let was = sway[slot];
+    let dt = now - was.time;
+    if (was.id == p.id && dt == 0.0) { continue; }
     var bend = vec2f(0.0);
-    if (was.x == p.id && dt > 0.0 && dt < 0.1) {
-      bend = unpack2x16float(was.z);
+    var squash = vec2f(0.0);
+    var rate = vec2f(0.0);
+    var vel = p.vel;
+    if (was.id == p.id && dt > 0.0 && dt < 0.1) {
+      let prev = unpack2x16float(was.vel);
+      vel = mix(prev, p.vel, 1.0 - exp(-dt / 0.08));
+      bend = unpack2x16float(was.bend);
+      squash = unpack2x16float(was.squash);
+      rate = unpack2x16float(was.rate);
       // the path's curvature (turn rate / speed) in units of the drawn radius, trusted only once the
       // cell moves a radius or so a second, below which its heading is mostly jitter
-      let speed = length(p.vel);
+      let speed = length(vel);
       let radius = 0.085 * si;
-      var turn = heading - bitcast<f32>(was.y);
+      var turn = atan2(vel.y, vel.x) - atan2(prev.y, prev.x);
       turn -= TAU * round(turn / TAU);
       let follow = clamp(0.5 * turn / (dt * max(speed, 1e-4)) * radius, -0.45, 0.45)
         * smoothstep(0.5, 2.0, speed / radius);
       // about 1.4 Hz, damping 0.3: it overshoots a little once the turn ends
       bend.y += ((follow - bend.x) * 80.0 - bend.y * 5.4) * dt;
       bend.x = clamp(bend.x + bend.y * dt, -0.6, 0.6);
-    } else if (was.x == p.id && dt == 0.0) {
-      continue;
+      let dv = (vel - prev) / (dt * radius);
+      let knock = length(dv);
+      let axis = 2.0 * atan2(dv.y, dv.x);
+      // knocks run from a few to a few hundred radii/s² (crowded colonies are shoved constantly), so
+      // the squash saturates
+      let push = 0.2 * (1.0 - exp(-knock / 60.0)) * vec2f(cos(axis), sin(axis));
+      // about 2.5 Hz, damping 0.25
+      rate += ((push - squash) * 247.0 - rate * 7.9) * dt;
+      squash += rate * dt;
+      let amount = length(squash);
+      if (amount > 0.3) { squash *= 0.3 / amount; }
     }
-    bends[slot] = vec4u(p.id, bitcast<u32>(heading), pack2x16float(bend), bitcast<u32>(now));
+    sway[slot] = Sway(p.id, pack2x16float(vel), pack2x16float(bend), now,
+      pack2x16float(squash), pack2x16float(rate));
   }
 }
 `;
@@ -1318,8 +1339,9 @@ struct View {
 @group(0) @binding(7) var<storage, read> stoneList: array<u32>;
 // The living cells each cell presses against (INBOND_WGSL contactGather).
 @group(0) @binding(8) var<storage, read> touch: array<u32>;
-// Each cell's bend along its path (INBOND_WGSL contactGather), by ID.
-@group(0) @binding(9) var<storage, read> bends: array<vec4u>;
+// Each cell's bend along its path and squash from knocks (INBOND_WGSL contactGather), by ID.
+struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32 };
+@group(0) @binding(9) var<storage, read> sway: array<Sway>;
 
 fn kindOn(k: u32) -> bool { return ((focus[k >> 5u] >> (k & 31u)) & 1u) == 1u; }
 fn isMember(id: u32) -> bool {
@@ -1555,8 +1577,18 @@ fn cellOutline(uv: vec2f, dir: vec2f, radius: f32, seed: f32,
   let teeth = traits.w * fineLOD(radius) * 0.02 * pow(max(0.0, cos(a * 17.0 + seed * 11.0)), 6.0);
   return CellOutline(bodySD(q, shape, s) - ripple - teeth, q);
 }
+// This cell's sway, if contactGather kept it just now (the slot may hold another cell, or this one
+// from when it was last in view).
+fn swayOf(p: Particle) -> Sway {
+  let st = sway[p.id % arrayLength(&sway)];
+  if (st.id != p.id || abs(view.time - st.time) > 0.2) { var none: Sway; none.id = ~p.id; return none; }
+  return st;
+}
+// Heading along the smoothed velocity once contactGather keeps one, so jitter doesn't spin the cell.
 fn cellDirection(p: Particle) -> vec2f {
-  let a = select(renderHash(p.id) * TAU, atan2(p.vel.y, p.vel.x), dot(p.vel, p.vel) > 0.000001);
+  let st = swayOf(p);
+  let v = select(p.vel, unpack2x16float(st.vel), st.id == p.id);
+  let a = select(renderHash(p.id) * TAU, atan2(v.y, v.x), dot(v, v) > 0.000001);
   return vec2f(cos(a), sin(a));
 }
 // Match vsPoint's living-cell radius, including focus and unresolved highlights.
@@ -1623,6 +1655,8 @@ struct PO {
   // species: it only dents the cell, softly, where kin share a crisp wall
   @location(9) @interpolate(flat) contact: vec3u,
   @location(11) @interpolate(flat) contact2: vec3u,
+  // squashed along this axis by its length (stretched across it), keeping area
+  @location(12) @interpolate(flat) squash: vec2f,
   // inflation that restores the area those planes cut off; pace through the water (0..1); bend
   @location(10) @interpolate(flat) jelly: vec3f,
 };
@@ -1711,9 +1745,15 @@ struct PO {
     let radii = length(p.vel) * view.ppu / px;
     let give = 1.0 - 0.75 * min(genomes[k].calcify, 1.0);
     pace = (1.0 - exp(-radii * 0.25)) * give;
-    let st = bends[p.id % arrayLength(&bends)];
-    o.jelly.z = select(0.0, unpack2x16float(st.z).x * give, st.x == p.id);
-    extent *= (1.0 + 0.3 * pace) * (1.0 + 0.5 * abs(o.jelly.z));
+    let st = swayOf(p);
+    if (st.id == p.id) {
+      o.jelly.z = unpack2x16float(st.bend).x * give;
+      // the squash's axis, its length the amount
+      let q = unpack2x16float(st.squash) * give;
+      let axis = 0.5 * atan2(q.y, q.x);
+      o.squash = vec2f(cos(axis), sin(axis)) * length(q);
+    }
+    extent *= (1.0 + 0.3 * pace) * (1.0 + 0.5 * abs(o.jelly.z)) * exp(length(o.squash));
   }
   if (any(abs(d) > view.res * 0.5 + vec2f(px * extent))) {
     o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
@@ -1824,8 +1864,15 @@ struct PO {
     let swell = i.jelly.x;
     let pace = i.jelly.y;
     let bend = i.jelly.z;
+    var own = i.uv / swell;
+    let squashed = length(i.squash);
+    if (squashed > 0.0) {
+      let axis = i.squash / squashed;
+      let along = dot(own, axis);
+      own = (own - axis * along) * exp(-squashed) + axis * along * exp(squashed);
+    }
     for (var j = 0u; j < 4u; j++) {
-      var uv = i.uv / swell;
+      var uv = own;
       var dir = i.geom.zw;
       var radius = i.geom.x;
       var cellSeed = seed;

@@ -53,7 +53,7 @@ test('LOD preserves light, bonded outlines merge, and all detail views validate'
     fragment: { module: referenceModule, entryPoint: 'fsReference', targets: [{ format: 'rgba16float' }] },
     primitive: { topology: 'triangle-strip' } });
   const referenceBG = device.createBindGroup({ layout: reference.getBindGroupLayout(0), entries:
-    [[0, 'view'], [1, 'parts'], [2, 'genomes'], [3, 'intent'], [5, 'focus'], [6, 'bondsIn'], [8, 'touch'], [9, 'bends']]
+    [[0, 'view'], [1, 'parts'], [2, 'genomes'], [3, 'intent'], [5, 'focus'], [6, 'bondsIn'], [8, 'touch'], [9, 'sway']]
       .map(([binding, name]) => ({ binding, resource: { buffer: eng.b[name] } })) });
   const half = (h) => ((h & 0x8000) ? -1 : 1) * ((h & 0x7c00) ? (1 + (h & 1023) / 1024) * 2 ** (((h >> 10) & 31) - 15) : (h & 1023) * 2 ** -24);
   const render = async (ppu, distantProfile = false, onlyCell = null) => {
