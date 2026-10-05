@@ -1220,7 +1220,9 @@ fn inbondGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_inde
 }
 `;
 
-export const DRAW_WGSL = COMMON + /* wgsl */ `
+export const DRAW_WGSL = 'diagnostic(off, derivative_uniformity);\n' + COMMON + /* wgsl */ `
+// Relief, as in DIC microscopy: one light from the upper left for every resolved shape (and the stone).
+const TO_LIGHT = vec2f(-0.633, -0.774);
 // Unresolved views use the cheap sprite profile; resolved cells share one outline path.
 struct View {
   cam: vec2f, world: vec2f, res: vec2f,
@@ -1716,6 +1718,11 @@ struct PO {
       }
     }
     let body = 1.0 - smoothstep(-aa, aa, sd);
+    // The outline's outward direction on screen, before any pixel leaves: a soft dome lit from the
+    // upper left, bright along the facing membrane and shadowed opposite.
+    let sdGrad = vec2f(dpdx(sd), dpdy(sd));
+    let outward = sdGrad / max(length(sdGrad), 1e-6);
+    let lightQ = localPoint(TO_LIGHT, i.geom.zw);
     // Reconstruct motion only after the partner loop; no partner structs or
     // unneeded hair coordinates stay live across the organelle loop.
     let resolved = smoothstep(0.7, 1.5, i.geom.x * 0.018) * fine;
@@ -1739,6 +1746,9 @@ struct PO {
       let rim = exp(-pow((sd + 0.025) / (wallWidth + aa), 2.0));
       let innerRim = exp(-pow((sd + 0.10) / (0.07 + aa), 2.0));
       var detail = (0.44 + g.calcify * 0.12) * rim - 0.21 * innerRim;
+      // relief: the dome near the membrane, then each organelle's own bulge or hollow
+      // kept to the membrane's own band, clear of the outline's medial axis in narrow arms
+      var relief = 0.45 * dot(outward, TO_LIGHT) * (1.0 - smoothstep(0.0, 0.13, -sd));
       let division = smoothstep(0.55, 1.0, p.energy / max(g.reproE, 0.01));
       var centre = vec2f((s.x - 0.5) * 0.22, (seed - 0.5) * 0.26);
       if (i.shape == 8u) { centre = vec2f(-0.43, -0.06); }
@@ -1747,6 +1757,7 @@ struct PO {
       let nq = q - centre;
       let nr = length(vec2f(abs(nq.x) - division * 0.17, nq.y + 0.03 * sin(nq.x * 15.0 + seed))
         / vec2f(0.17 + division * 0.04, 0.21 - division * 0.055));
+      relief += 0.3 * exp(-pow((nr - 0.8) / 0.3, 2.0)) * dot(nq / max(length(nq), 1e-4), lightQ);
       detail += -0.34 * (1.0 - smoothstep(0.75, 1.0 + aa * 3.0, nr))
         + 0.22 * exp(-pow((nr - 1.0) / (0.16 + aa), 2.0));
       let plates = sin(q.x * (8.0 + s.x * 6.0) + sin(q.y * 5.0 + s.y * 3.0));
@@ -1802,16 +1813,20 @@ struct PO {
           let oq = q - organCentre;
           let photo = smoothstep(f32(j), f32(j) + 1.0, clamp(g.photo, 0.0, 1.0) * 12.0);
           let chl = length(oq * vec2f(1.0, 1.5 + h));
+          let oDir = dot(oq / max(length(oq), 1e-4), lightQ);
+          relief += photo * 0.35 * exp(-pow((chl - 0.05) / 0.03, 2.0)) * oDir * fine;
           detail += photo * (-0.35 * (1.0 - smoothstep(0.04, 0.07 + aa, chl))
             + 0.12 * exp(-pow((chl - 0.085) / (0.012 + aa), 2.0))) * fine;
           let eat = (1.0 - g.photo * 0.65) * clamp(g.dGlint + g.dHusk + g.dFlesh, 0.0, 1.0);
           let vr = length(oq + vec2f(0.04, 0.05));
+          // vacuoles are hollows: shadowed on the side toward the light
+          relief -= smoothstep(h - 0.05, h + 0.05, eat * 0.7) * fine * 0.3 * exp(-pow((vr - 0.05) / 0.03, 2.0)) * oDir;
           detail += smoothstep(h - 0.05, h + 0.05, eat * 0.7) * fine
             * (0.18 * exp(-pow((vr - 0.06 - h * 0.025) / (0.012 + aa), 2.0))
               - 0.10 * (1.0 - smoothstep(0.03, 0.06 + aa, vr)));
         }
       }
-      tissue += inside * detail;
+      tissue += inside * (detail + relief);
     }
     f = body * tissue * spriteMean(i.shape) / i.geom.y;
     if (appendages && body < 1.0) {
@@ -1831,7 +1846,8 @@ struct PO {
     let a = atan2(v.y, v.x) + seed * TAU;
     var r = length(v);
     let sides = 4.0 + floor(seed * 4.0);
-    let edge = polygonRadius(a, sides, 0.08);
+    // a broken grain: silt chips' edges wander, so no two are regular polygons
+    let edge = polygonRadius(a, sides, 0.08) * select(1.0, 1.0 + 0.12 * sin(a * 2.0 + seed * 9.0) + 0.06 * sin(a * 5.0 + seed * 17.0), p.kind == SILT);
     let body = 1.0 - smoothstep(edge - aa, edge + aa, r);
     if (p.kind == HUSK) {
       // A folded membrane, with missing arcs and torn ends, retains the dead particle's colour.
@@ -1843,7 +1859,22 @@ struct PO {
       f *= spriteMean(i.shape) / 0.20;
     } else {
       // one lit face and a faint grain, so grains read as solid chips rather than sectors
-      let facets = 0.70 + 0.16 * (v.x - v.y) + 0.06 * sin(v.x * 17.0 + v.y * 11.0 + seed * 23.0);
+      var facets = 0.70 + 0.16 * (v.x - v.y) + 0.06 * sin(v.x * 17.0 + v.y * 11.0 + seed * 23.0);
+      if (p.kind == SILT) {
+        // a mineral chip: a flat top and bevelled sides, each facet lit by its own angle, one may glint
+        let sector = TAU / sides;
+        // one bevel per polygon edge (edges are centred on multiples of the sector); a tilted top
+        let k = floor(a / sector + 0.5);
+        let facing = k * sector - seed * TAU;
+        let side = smoothstep(0.5 - aa, 0.5 + aa, r / edge);
+        let tilt = vec2f(renderHash(p.id + 11u), renderHash(p.id + 23u)) - 0.5;
+        let n = normalize(vec3f(mix(tilt * 0.6, vec2f(cos(facing), sin(facing)) * 0.9, side), 1.0));
+        let toLight = normalize(vec3f(localPoint(TO_LIGHT, i.geom.zw), 0.7));
+        let tone = 0.85 + 0.3 * renderHash(p.id + u32(k) * 7u);
+        let glint = pow(max(dot(n, normalize(toLight + vec3f(0.0, 0.0, 1.0))), 0.0), 40.0);
+        let seams = 1.0 - 0.25 * exp(-pow(fract(a / sector + 0.5) - 0.5, 2.0) * 1600.0) * side;
+        facets = ((0.25 + 0.6 * max(dot(n, toLight), 0.0)) * tone * seams + 0.8 * glint) * 1.3; // same mean light as before
+      }
       f = body * facets * spriteMean(i.shape) / 0.56;
       if (p.kind == GLINT) {
         let seam = exp(-pow((v.y - v.x * 0.45) / (0.018 + aa), 2.0));
