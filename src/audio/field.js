@@ -50,7 +50,7 @@ const SWARM_MAX = 150, GRAIN = 1.75;
 // level of the single voices fully zoomed in, relative to afar
 const CLOSE = 0.9;
 // how much of the view is heard as single voices (the rest as the swarm), by closeness z
-export const soloShare = (z) => { const x = clamp((z - 0.05) / 0.35, 0, 1); return x * x * (3 - 2 * x); };
+export const soloShare = (z) => { const x = clamp((z - 0.1) / 0.5, 0, 1); return x * x * (3 - 2 * x); };
 
 // how fast the music moves at a given simulation speed (sim seconds per second)
 export function tempoFor(speed) {
@@ -136,7 +136,7 @@ export class Field {
     if (alive.length) {
       const nView = m.inView[8], want = (nView / alive.length) * rSum * wall; // notes the whole view would sing
       for (const [o, r] of alive) crowd(ev[o + 1], ((want * r) / rSum) * toSwarm * focusGain(ev[o + 1]) ** 2);
-      const cap = (3 + 9 * far + 4 * Math.min(1, this.act)) * wall;              // notes we play
+      const cap = (4 + 4 * Math.min(1, this.act) + 10 * Math.min(1, want / (30 * wall))) * wall; // notes we play: more where more is going on
       const play = Math.min(want * solo, cap), g0 = AMP.alive * this.gd * Math.min(14, Math.sqrt((want * solo) / Math.max(play, 1e-9)));
       for (const [o, r] of alive) {
         if (this.rnd() >= (play * r) / rSum) continue;
@@ -174,7 +174,7 @@ export class Field {
     const step = this.c.step * gs * (calm ? 2 : 1); // calm water moves in eighths
     const q = Math.ceil(t / step) * step, key = type + Math.round(q / step);
     const e = this.taken.get(key);
-    const cap = PER_SLOT[type] + (type === 'alive' ? Math.round(2.5 * (1 - this.z)) : 0);
+    const cap = PER_SLOT[type] + (type === 'alive' ? 2 : 0);
     if (e) { if (e.n >= cap) return -1; e.n++; } else this.taken.set(key, { n: 1, t: q });
     return q;
   }
@@ -267,7 +267,7 @@ export class Field {
       this.bands = [];
       sp.forEach(([s], i) => { for (let j = 0; j < n[i]; j++) this.bands.push({ s, j, of: n[i] }); });
     }
-    const far = 1 - clamp(this.z / 0.4, 0, 1), light = clamp(c.world.light, 0, 1);
+    const far = 1 - clamp(this.z / 0.6, 0, 1), light = clamp(c.world.light, 0, 1);
     const p = { atk: 0.012 + 0.07 * far, ring: (0.25 + 0.55 * far) * (0.8 + 0.4 * light), cut: 7000 - 5000 * far };
     const { root, scale } = c, piv = c.pivot;
     for (let b = 0; b < 8; b++) {

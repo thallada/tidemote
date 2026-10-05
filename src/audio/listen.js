@@ -42,14 +42,16 @@ export function keepFor(inView, wallWindow, target = LISTEN.target) {
   return keep;
 }
 
-// Listener distance in world units: the side of the view. dRef is a patch of about a dozen cells.
-export const D_REF = 1.2, D_FAR = 20;
+// Listener distance in world units: the side of the view. dRef is a patch of about a dozen cells:
+// sounds are as loud as dRef / d. Closeness z (timbre, reverb, single voices over the swarm) is
+// already full at dNear, a patch of a few dozen cells, and none from dFar.
+export const D_REF = 1.2, D_NEAR = 4, D_FAR = 20;
 // living cells' typical speed (world units per second) maps to activity 1
 export const V_SCALE = 0.4;
 /** Distance gain (dRef/d, capped) and closeness z (0 far .. 1 at dRef or nearer). */
 export function hearing(hx, hy) {
   const d = Math.sqrt(4 * hx * hy);
-  return { d, gd: Math.min(1.25, D_REF / d), z: clamp01(Math.log(D_FAR / d) / Math.log(D_FAR / D_REF)) };
+  return { d, gd: Math.min(1.25, D_REF / d), z: clamp01(Math.log(D_FAR / d) / Math.log(D_FAR / D_NEAR)) };
 }
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 
