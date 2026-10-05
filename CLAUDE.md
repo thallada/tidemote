@@ -18,6 +18,7 @@ GPU biosphere simulation (WebGPU, WGSL) with a browser page and headless tools. 
 - `src/climate.js` seasons, climate eras, abiogenesis rate: shared by the page and headless runs.
 - `src/headless.js` the headless frame loop, run under Dawn or inside Chromium; `src/ecostats.js` run and ensemble metrics and the statistical comparison.
 - `src/audio/` the soundtrack: a sample-level JS port of SuperCollider UGens and voices (`ugens.js`, `voices.js`) driven by `conductor.js` in an AudioWorklet; `sound.js` is the main-thread controller; `field.js` turns the GPU listening scan (`LISTEN_WGSL`, observational) into notes. Tune it offline with `tools/listen-capture.mjs` + `tools/listen-render.mjs`. Check changes to `ugens.js`/`voices.js` against SuperCollider with `tools/audio-parity/`.
+- `src/director.js` the auto camera: shot planning over the observational survey (`SURVEY_WGSL`), smooth zoom-and-pan paths; pure, tested in `test/director.test.js`.
 - `src/main.js` the page; `names.js`, `facets.js`, `trace.js`, `flow.js` are its pure helpers; `lab.js` the Field Lab.
 
 ## Headless caveats

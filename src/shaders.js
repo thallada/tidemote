@@ -1172,6 +1172,54 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
 }
 `;
 
+// The auto camera's survey (observational): the world in coarse tiles of `tile` grid cells, with
+// what happened in each since the last survey. One thread per grid cell walks that cell's
+// particles (they are sorted by cell) and adds its sums to the tile's counters.
+export const SURVEY_WORDS = 10;
+export const SURVEY = { living: 0, bonded: 1, births: 2, mutations: 3, sparks: 4, deaths: 5, kills: 6, species: 7, speed: 8, glint: 9 };
+export const SURVEY_MAX_TILES = 4096;
+export const SURVEY_WGSL = COMMON + /* wgsl */ `
+struct SurveyU { grid: vec2u, tiles: vec2u, tile: u32, now: f32, window: f32, adhMin: f32 };
+@group(0) @binding(0) var<uniform> su: SurveyU;
+@group(0) @binding(1) var<storage, read> parts: array<Particle>;
+@group(0) @binding(2) var<storage, read> genomes: array<Genome>;
+@group(0) @binding(3) var<storage, read> cellStart: array<u32>;
+@group(0) @binding(4) var<storage, read_write> sout: array<atomic<u32>>;
+
+@compute @workgroup_size(64)
+fn surveyMain(@builtin(global_invocation_id) gid: vec3u) {
+  let c = gid.x;
+  if (c >= su.grid.x * su.grid.y) { return; }
+  var n = array<u32, ${SURVEY_WORDS}>();
+  var mask = 0u;
+  for (var i = cellStart[c]; i < cellStart[c + 1u]; i++) {
+    let p = parts[i];
+    let recent = p.age < su.window;
+    let code = p.info & 15u;
+    if (p.kind >= FIRST_LIFE) {
+      let g = genomes[p.kind];
+      n[0] += 1u;
+      if (g.adhesion > su.adhMin) { n[1] += 1u; }
+      n[8] += u32(min(length(p.vel), 50.0) * 100.0);
+      mask |= 1u << (p.kind & 31u);
+      if (recent && code == 9u) {
+        n[2] += 1u;
+        if (g.depth > 0u && abs(g.born - (su.now - p.age)) < 0.05) { n[3] += 1u; }
+      } else if (recent && code == 8u) { n[4] += 1u; }
+    } else if (p.kind == HUSK && recent) {
+      if (code == 1u || code == 2u) { n[5] += 1u; } else if (code == 3u) { n[6] += 1u; }
+    } else if (p.kind == SILT && recent && code == 3u) { n[6] += 1u; }
+    else if (p.kind == GLINT) { n[9] += 1u; }
+  }
+  let t = min(vec2u(c % su.grid.x, c / su.grid.x) / su.tile, su.tiles - 1u);
+  let o = (t.y * su.tiles.x + t.x) * ${SURVEY_WORDS}u;
+  for (var k = 0u; k < ${SURVEY_WORDS}u; k++) {
+    if (k == 7u) { if (mask != 0u) { atomicOr(&sout[o + 7u], mask); } }
+    else if (n[k] != 0u) { atomicAdd(&sout[o + k], n[k]); }
+  }
+}
+`;
+
 // Rendering only: each living cell's incoming bonds, so a body's cells fuse with every partner,
 // not only the (up to two) they keep themselves. Bonds are one-sided in the sim.
 export const INBOND_WGSL = COMMON + /* wgsl */ `

@@ -22,6 +22,8 @@ The time control under the epoch clock pauses, steps the speed along ×¼ … ×
 
 Every world draws its own tide pattern (wave directions, drift and phases), opening light and glint charge, matter mix, founding community, and how clumped the founders start.
 
+Left alone for a minute (three with the inspector or the Lab open), an auto camera takes over and films the world: slow establishing shots of the whole torus, scenes where a survey of the world finds life dense, diverse and busy, long takes following a single organism, and visits to newly established species. Between shots it rises, crosses and descends along a smooth zoom-and-pan path, then drifts and creeps in or out, all trailed through a damped spring so nothing is sudden. A caption at the bottom says what it is doing and why: where it is heading (a hunting ground, a crowd of births, where new variants are being born, a new species) and, once there, the species in view, the organism it follows, or how that one died. Dragging or scrolling the view takes it back where it is (clicking a cell or a species name only opens the inspector, and the readouts it tucks away while filming come back while the inspector is open); **A** (or the Auto button) turns the takeover off or on, and the ▶ button beside it starts the camera at once; it shows ❚❚ while the camera is filming, to stop it. The survey is an observational GPU pass, like the soundtrack's listening scan.
+
 Press **H** in the page for controls and **K** for the Field Lab (species list, composition, population charts, lineage tree, chronicle, environment overlays and a field guide). Click any cell to follow it.
 
 Zooming in reveals twelve families of cell outlines: lobose and filose amoebae, bent radiates,
