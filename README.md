@@ -22,9 +22,9 @@ The time control under the epoch clock pauses, steps the speed along ×¼ … ×
 
 Every world draws its own tide pattern (wave directions, drift and phases), opening light and glint charge, matter mix, founding community, and how clumped the founders start.
 
-Left alone for a minute (three with the inspector or the Lab open), an auto camera takes over and films the world: slow establishing shots of the whole torus, scenes where a survey of the world finds life dense, diverse and busy, long takes following a single organism, and visits to newly established species. Between shots it rises, crosses and descends along a smooth zoom-and-pan path, then drifts and creeps in or out, all trailed through a damped spring so nothing is sudden. A caption at the bottom says what it is doing and why: where it is heading (a hunting ground, a crowd of births, where new variants are being born, a new species) and, once there, the species in view, the organism it follows, or how that one died. Dragging or scrolling the view takes it back where it is (clicking a cell or a species name only opens the inspector, and the readouts it tucks away while filming come back while the inspector is open); **A** (or the Auto button) turns the takeover off or on, and the ▶ button beside it starts the camera at once; it shows ❚❚ while the camera is filming, to stop it. The survey is an observational GPU pass, like the soundtrack's listening scan.
+Left alone for a minute (three with the specimen panel or the Lab open), an auto camera takes over and films the world: slow establishing shots of the whole torus, scenes where a survey of the world finds life dense, diverse and busy, long takes following a single organism, and visits to newly established species. Between shots it rises, crosses and descends along a smooth zoom-and-pan path, then drifts and creeps in or out, all trailed through a damped spring so nothing is sudden. A caption at the bottom says what it is doing and why: where it is heading (a hunting ground, a crowd of births, where new variants are being born, a new species) and, once there, the species in view, the organism it follows, or how that one died. Dragging or scrolling the view takes it back where it is (clicking a cell or a species name only opens the specimen panel, and the readouts it tucks away while filming come back while a panel is open); **A** (or the Auto button) starts or stops the camera at once, and **View → Auto when idle** turns the takeover off or on. The survey is an observational GPU pass, like the soundtrack's listening scan.
 
-Press **H** in the page for controls and **K** for the Field Lab (species list, composition, population charts, lineage tree, chronicle, environment overlays and a field guide). Click any cell to follow it.
+The page is laid out as an instrument bench around the world: a status rail along the top (epoch, era, light, tide), the census column on the left, the specimen panel on the right when something is picked, and a dock of controls along the bottom (time, Auto, Sound, View, Lab). On a phone the census lives in the Lab and the specimen panel is a sheet that peeks above the dock and is pulled up for details. Press **?** for every shortcut, **V** for view options and **K** for the Field Lab (species, lineage, census, charts, log and a field guide). Click any cell to examine it.
 
 Zooming in reveals twelve families of cell outlines: lobose and filose amoebae, bent radiates,
 incised desmids, horned armour, twisted spindles, slippers, chambered whorls, vacuolate crescents,
@@ -54,10 +54,12 @@ esbuild preserves module scope, so top-level names can be reused across files.
 | `src/engine.js` | The WebGPU engine: buffers, pipelines, the per-frame pass sequence, census and pick readbacks, and the focus/highlight filter. |
 | `src/genome.js` | CPU genome helpers: founding archetypes, packing and decoding, colours, affinities, role shares, and diet/mobility guilds. |
 | `src/climate.js` | Shared seasons, climate eras and abiogenesis rules. |
-| `src/main.js` | The page: calibration, camera, inspector, organism tracing, species registry and naming, census panel, input. |
-| `src/lab.js` | The Field Lab drawer. |
-| `src/guide.js` | Glossary (hover hints) and field-guide text. |
-| `src/page.html` | Markup and styles. The bundled script is inserted at `/*__SCRIPT__*/`. |
+| `src/main.js` | The page: calibration, camera, organism tracing, species registry and naming, the census column, view options, input. |
+| `src/specimen.js` | The specimen panel (a picked cell or grain, or a species opened by name). |
+| `src/lab.js` | The Field Lab: species, lineage, census, charts, log and guide. |
+| `src/tip.js`, `src/charts.js`, `src/glyphs.js`, `src/fmt.js` | Hints (glossary terms and control hints), census-history charts, species emblems, shared formatting. |
+| `src/guide.js` | Glossary (hints) and field-guide text. |
+| `src/page.html`, `src/page.css` | Markup and styles. The bundled script is inserted at `/*__SCRIPT__*/`, the styles at `/*__STYLE__*/`. |
 | `src/audio/` | The soundtrack: `ugens.js` and `voices.js` (a sample-level port of SuperCollider voices, effects and mastering), `mapping.js` (genome → voice), `listen.js` (decoding the GPU listening scan), `field.js` (scan → notes and the far swarm), `conductor.js` (pulse, harmony, sea, waves and drone), `score.js` (the long form: each era's ensemble, interludes, the modulation between eras), `worklet.js` (the AudioWorklet), `sound.js` (main-thread controller). |
 | `tools/audio-parity/` | Renders the same events in SuperCollider and in the JS engine and compares them. |
 | `tools/sim.mjs`, `tools/compare.mjs` | Headless ecology runs and comparisons across seeds (see below). |

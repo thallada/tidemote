@@ -46,7 +46,9 @@ export const GLOSSARY = {
   ever: 'Total number of species that have ever existed in this epoch.',
   deepest: 'The most speciation steps between any living species and its founder.',
   generation: 'How many divisions separate this cell from the beginning of the world.',
-  depth: 'How many speciation events separate this species from its founder.',
+  serial: 'Species number (SP): every species is numbered in the order it arose.',
+  pid: 'Particle number (ID): every particle keeps its number through every form it takes.',
+  depth: 'Δ: how many speciation events separate this species from its founder.',
   touching: 'Other species whose cells sit within bond range of this organism.',
   energy: 'Stored energy. Gained from food or light, spent on upkeep and on building children. A cell starves at zero.',
   origin: 'How this particle came to be what it is now.',
@@ -59,6 +61,7 @@ export const GLOSSARY = {
   drifting: 'Carried by the currents.',
   focus: 'A highlight: everything outside the chosen filter is dimmed in the simulation.',
   links: 'Bonds between cells of one multicellular body. Single-celled species never show links.',
+  autoidle: 'Left alone for a minute (three with a panel open), the camera starts filming the world on its own. Drag, scroll or tap to take it back.',
   loupe: 'A magnifier that follows the mouse when zoomed out. Clicks inside it select what is under the crosshair.',
   speed: 'Current speed, in grid cells per second.',
   diversity: 'Effective number of species: exp of the Shannon entropy of species populations. A world of 10 equally common species scores 10.',
@@ -68,12 +71,12 @@ const t = (term, label) => `<span class="term" data-tip="${term}">${label}</span
 
 export const GUIDE = [
   {
-    id: 'overview', title: 'What you are looking at',
+    id: 'overview', title: 'What you are looking at', short: 'Overview',
     html: `<p>Tidemote is a sealed world on the surface of a torus: what leaves one edge enters the opposite one. Every point is one particle, and the total number never changes. Particles only change form: inert ${t('silt', 'silt')}, charged ${t('glint', 'glint')}, living cells, dead ${t('husk', 'husks')}, and ${t('stone', 'stone')}: the world's bedrock and the reefs that calcifying cells leave behind.</p>
 <p>Energy is the only thing that enters and leaves. It arrives as ${t('light', 'light')} and as glint charged by the ${t('tide', 'Tide')}, and it is lost as cells pay ${t('upkeep', 'upkeep')}, as glint fades and as husks decay. Everything you see grows out of a handful of local rules applied to every particle 60 times a second.</p>`,
   },
   {
-    id: 'cycle', title: 'The matter cycle',
+    id: 'cycle', title: 'The matter cycle', short: 'Matter',
     html: `<ol class="steps">
 <li><b>Silt → glint.</b> Each second a grain of silt has a chance to become glint, mostly inside tide bands. Glint holds 1.0 energy, leaks 0.03 per second and turns back into silt below 0.2.</li>
 <li><b>Feeding.</b> Cells eat glint, husks, or other cells (${t('flesh', 'flesh')}), according to their ${t('diet', 'diet')}. Eaten glint and husks turn into silt; a killed cell becomes a husk. Photosynthetic cells drink ${t('light', 'light')} instead, and are only cropped a bite at a time. Cells stop feeding once they have enough energy to divide.</li>
@@ -84,20 +87,20 @@ export const GUIDE = [
 </ol>`,
   },
   {
-    id: 'climate', title: 'Tides, light, seasons and eras',
+    id: 'climate', title: 'Tides, light, seasons and eras', short: 'Climate',
     html: `<p>The ${t('tide', 'Tide')} is four slow waves summed over the torus; where they add up, bright bands form and drift. ${t('light', 'Light')} is a dim baseline everywhere plus the Tide on top. So tide bands are rich in both glint and light, while baseline light lets plants live anywhere.</p>
 <p>The ${t('season', 'season')} is a 5-minute cycle that swings tide strength between 10% and 100%; it drives the regular booms and busts. Every 10–18 minutes an ${t('era', 'era')} begins: the baseline light and glint production change, one tide wave is replaced so the bright zones form and move differently, and two current patterns are swapped. Era names are random labels; the event log says what actually changed.</p>
-<p>Use <b>Lab → Environment</b> to show a light map with contour lines and the current field.</p>`,
+<p><b>View → Light map</b> colours every point by the light a photosynthesising cell would receive there, with a contour every 10%; <b>View → Currents</b> draws the flow that carries silt, glint and drifting cells. The <b>Tide</b> gauge at the top follows the season: the dot rides the 5-minute wave.</p>`,
   },
   {
-    id: 'cells', title: 'Cells, cell types and bodies',
+    id: 'cells', title: 'Cells, cell types and bodies', short: 'Cells',
     html: `<p>Each species has one genome. A genome describes up to three ${t('celltype', 'cell types')}, α, β and γ. Each type carries two 8-number signatures: a <b>surface</b> (how it appears to others) and a <b>receptor</b> (how it reacts). The pull of cell A on cell B is A’s receptor combined with B’s surface: above zero means attraction, below zero means repulsion. Silt, glint and husks have surfaces too, so a cell type can be drawn toward glint or repelled by husks.</p>
 <p>Zoom in to see lobose and filose cells, crooked radiates, incised desmids, horned armour, twisted spindles, slippers, chambered whorls, crescents, stalked bells, bead chains and lattice frustules. Species have their own proportions; individuals have uneven membranes and slowly shifting outlines. A nucleus pinches as division approaches, producers carry chloroplasts, eaters carry vacuoles, and swimmers grow cilia or flagella. These visual forms are cosmetic.</p>
 <p>When a cell divides, a developmental rule picks the child’s type from the parent’s type. Where that rule settles is the ${t('bodyplan', 'body plan')}, for example α 60 · β 40.</p>
 <p>Species with ${t('adhesion', 'adhesion')} form ${t('bond', 'bonds')}: each cell keeps up to two partners of the same species. New bonds fill empty slots with nearby cells, and children start bonded to their parent, so bodies grow by division. A bond lasts until a partner dies, changes kind or stretches too far away. Bonds are what the links show, so a web of links is one ${t('organism', 'organism')}. Species without adhesion are single-celled and never show links, however closely they crowd.</p>`,
   },
   {
-    id: 'movement', title: 'How things move',
+    id: 'movement', title: 'How things move', short: 'Movement',
     html: `<p>Every frame each living cell adds up:</p>
 <ul>
 <li><b>Pairwise forces</b> from everything within its ${t('reach', 'reach')}: any living cell inside its ${t('personalspace', 'personal space')} is pushed away; further out, the attraction value applies, strongest at mid-range. Scaled by ${t('thrust', 'thrust')}.</li>
@@ -110,7 +113,7 @@ export const GUIDE = [
 <p>There is no pathfinding and no sense beyond about one grid cell. Roamers are swimmers that travel until forces bend their path. Self-propelled bodies come from chases between cell types: if β is drawn to α while α pushes β away, β chases α forever and the body drives itself forward. Evolution keeps whichever pulls lead to food.</p>`,
   },
   {
-    id: 'ecology', title: 'Ecology',
+    id: 'ecology', title: 'Ecology', short: 'Ecology',
     html: `<p>Producers are photosynthesising reefs, mats and plankton, plus glint grazers. Consumers are grazers of plants, scavengers of husks, and predators. Several pressures shape which forms thrive:</p>
 <ul>
 <li>Crowding: cells packed among their own kind sicken (a body’s bond partners do not count), so clonal blobs and sprawling bodies break up and species mix.</li>
@@ -123,29 +126,30 @@ export const GUIDE = [
 <p>Mass is conserved, so every birth needs silt freed by some earlier death or meal. Life is limited by matter as well as energy.</p>`,
   },
   {
-    id: 'evolution', title: 'Evolution and naming',
+    id: 'evolution', title: 'Evolution and naming', short: 'Evolution',
     html: `<p>Every mutant founds a new ${t('species', 'species')}. Mutations nudge every gene: signatures, diet, swimming, adhesion, colour and more. Occasionally a whole cell type is reinvented or copied over another. Most mutants vanish within seconds; those that reach the population threshold become ${t('thriving', 'thriving')} and are named.</p>
 <p>Names are a ${t('genus', 'genus')} plus an epithet. A lineage that drifts far enough from its genus founder starts a new genus, which gets its own new name. Colours are inherited with drift, so related species look related.</p>`,
   },
   {
-    id: 'reading', title: 'Reading the screen',
+    id: 'reading', title: 'Reading the screen', short: 'Screen',
     html: `<ul>
 <li><b>Colour</b>: the species, tinted per cell type. Related species share hues. Brightness shows stored energy; newborns flash; some lineages pulse.</li>
 <li><b>Shape</b>: disc, ring, star, nucleus or diamond, a lineage marker per cell type. Husks are dim brown rings, glint is a pale sparkle, silt is faint slate.</li>
 <li><b>Links</b>: ${t('bond', 'bonds')} within one multicellular body.</li>
-<li><b>Census chart</b>: every particle over time, stacked. Silt, husks and glint sit at the bottom; above them each thriving species appears in its colour; the pale top band is life in species too small to list.</li>
+<li><b>Census</b>: the bar splits every particle between living cells, glint, husks, stone and silt. The chart below it stacks living cells by species in their colours; the pale top band is life in species too small to list, and dotted lines mark new eras.</li>
+<li><b>Scale</b>: the ticks above the controls are whole grid cells (or a few, zoomed out); the bar at the right says how many.</li>
 </ul>`,
   },
   {
-    id: 'tools', title: 'Research tools',
+    id: 'tools', title: 'Research tools', short: 'Tools',
     html: `<ul>
-<li><b>Inspector</b> (click a particle): its life story, its organism (traced through its bonds, highlighted and followed as a whole, even after the cell you clicked dies), its species and full genome, and a live specimen view. Species names everywhere are links.</li>
-<li><b>Lab → Species</b>: every species ranked and filterable by diet, mobility, body, status and more. <b>Highlight</b> dims everything outside the filter.</li>
-<li><b>Lab → Composition</b>: the world broken down by matter, cell type, diet, mobility and body type. Click any bar to highlight it.</li>
-<li><b>Lab → Dynamics</b>: population, diversity, births, deaths and feeding over time.</li>
-<li><b>Lab → Lineage</b>: the family tree of every thriving species.</li>
-<li><b>Lab → Chronicle</b>: the full event history.</li>
-<li><b>Lab → Environment</b>: light map, current field, the climate and its eras.</li>
+<li><b>Specimen</b> (click or tap a particle): a live close-up, its energy and age, its record, its organism (traced through its bonds, highlighted and followed as a whole, even after the cell you picked dies), its species and its full genome. Species names everywhere are links.</li>
+<li><b>Lab → Species</b>: every species, filtered by status, diet, movement and body. <b>Highlight these</b> dims everything outside the filter.</li>
+<li><b>Lab → Lineage</b>: every established species on a time axis, joined to the ancestor it arose from; each bar thickens with its population.</li>
+<li><b>Lab → Census</b>: the world broken down by matter, diet, movement, body and cell type. Choose a row to highlight it.</li>
+<li><b>Lab → Charts</b>: population, diversity, births, deaths, meals and climate over time, and the eras so far.</li>
+<li><b>Lab → Log</b>: every logged event, searchable.</li>
+<li><b>Auto</b>: the camera films the world on its own, with captions saying what it is showing; it also takes over after a minute alone (switch that off in View).</li>
 </ul>`,
   },
 ];

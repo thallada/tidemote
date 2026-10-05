@@ -27,7 +27,8 @@ const result = await build({
   define: { __TIDEMOTE_WORKLET__: JSON.stringify(worklet.outputFiles[0].text) },
 });
 const template = await readFile(new URL('src/page.html', import.meta.url), 'utf8');
-const html = template.replace('/*__SCRIPT__*/', () => result.outputFiles[0].text);
+const style = await readFile(new URL('src/page.css', import.meta.url), 'utf8');
+const html = template.replace('/*__STYLE__*/', () => style).replace('/*__SCRIPT__*/', () => result.outputFiles[0].text);
 await mkdir(new URL('dist/', import.meta.url), { recursive: true });
 await writeFile(new URL('dist/tidemote.html', import.meta.url), html);
 console.log(`wrote dist/tidemote.html (${Buffer.byteLength(html).toLocaleString('en-US')} bytes)`);
