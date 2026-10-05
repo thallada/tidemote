@@ -289,7 +289,8 @@ em.delta { font-style: normal; color: var(--warm); margin-left: 6px; }
   opacity: 0; transform: translate(-50%, 6px); transition: opacity .8s ease, transform .8s ease;
 }
 .caption.on { opacity: 1; transform: translate(-50%, 0); }
-.caption.on a.sp { pointer-events: auto; color: var(--ink); text-decoration: underline dotted var(--dim); text-underline-offset: 3px; text-decoration-skip-ink: auto; }
+.caption a.sp { color: var(--ink); text-decoration: underline dotted var(--dim); text-underline-offset: 3px; text-decoration-skip-ink: auto; }
+.caption.on a.sp { pointer-events: auto; }
 /* the mono, not Syne: Syne's descenders are stubs that read as clipped at this size */
 .caption .cap-main { font: 500 13px/1.55 var(--mono); color: var(--ink); margin-top: 3px; }
 .caption .cap-sub { color: var(--dim); font-size: 11px; line-height: 1.45; margin-top: 3px; }
