@@ -8,7 +8,7 @@ nonoise, dry = '--nonoise' in sys.argv, '--dry' in sys.argv
 here = os.path.dirname(os.path.abspath(__file__))
 src = open(os.path.join(here, 'voices.scd')).read()
 if nonoise:
-    pat = re.compile(r'(LFNoise2|WhiteNoise|PinkNoise|BrownNoise)\.(ar|kr)\(')
+    pat = re.compile(r'(LFNoise2|WhiteNoise|PinkNoise|BrownNoise|Dust2|Dust)\.(ar|kr)\(')
     out, i = [], 0
     while True:
         m = pat.search(src, i)
@@ -17,7 +17,7 @@ if nonoise:
         while depth: depth += {'(': 1, ')': -1}.get(src[j], 0); j += 1
         out.append(f'DC.{m.group(2)}(0)'); i = j
     src = ''.join(out)
-    src = re.sub(r'(LFNoise2|WhiteNoise|PinkNoise|BrownNoise)\.(ar|kr)(?!\()', r'DC.\2(0)', src)  # bare WhiteNoise.ar
+    src = re.sub(r'(LFNoise2|WhiteNoise|PinkNoise|BrownNoise|Dust2|Dust)\.(ar|kr)(?!\()', r'DC.\2(0)', src)  # bare WhiteNoise.ar
 events = json.load(open(ev_path))
 def lit(v):
     if isinstance(v, str): return '\\' + v

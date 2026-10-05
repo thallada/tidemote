@@ -135,27 +135,96 @@
 
   // ── Sea: persistent bed. Noise "currents" singing through narrow resonators
   //    tuned to the era's open chord, plus slow surf swells that follow the tide.
+  //    A new chord is a new sea faded in over the old one (fade), never a glide.
   SynthDef(\sea, { |out = 64, revBus = 66, amp = 0.1, f1 = 38, f2 = 45, f3 = 50, f4 = 57, f5 = 64,
-      lag = 30, tide = 0.5, light = 0.5, sing = 1, surf = 1, swellRate = 0.07, rev = 0.3|
+      tide = 0.5, light = 0.5, sing = 1, surf = 1, swellRate = 0.07, fade = 1, fadeTime = 8, rev = 0.3|
     var fs, res, wav, sig, tl = tide.lag(6), ll = light.lag(6);
-    fs  = [f1, f2, f3, f4, f5].collect { |m| m.lag(lag).midicps };
+    fs  = [f1, f2, f3, f4, f5].midicps;
     res = fs.collect { |f, i|
       Resonz.ar(PinkNoise.ar(1 ! 2), f * (1 + LFNoise2.kr(0.05, 0.002)), 0.004)
         * LFNoise2.kr(0.02 + (i * 0.013)).range(0.15, 1) * (6 / (i + 2))
     }.sum * 9 * sing * (0.5 + ll);
     wav = LPF.ar(BrownNoise.ar(1 ! 2), 180 + (tl * 700) + (ll * 900))
         * SinOsc.kr(swellRate * [1, 1.13], [0, 2]).range(0.15, 1).squared * 0.5 * surf * (0.4 + tl);
-    sig = HPF.ar(res + wav, 30) * amp * 1.55;
+    sig = HPF.ar(res + wav, 30) * amp * 1.55 * fade.lag(fadeTime);
     Out.ar(out, sig); Out.ar(revBus, sig * rev);
   }),
 
-  // ── Drone: soft low tone breathing under everything
-  SynthDef(\drone, { |out = 64, revBus = 66, amp = 0.1, note = 38, lag = 8, light = 0.5, rev = 0.15|
-    var f = note.lag(lag).midicps, ll = light.lag(8), sig;
+  // ── Drone: soft low tone breathing under everything (a new note is a new drone, faded in)
+  SynthDef(\drone, { |out = 64, revBus = 66, amp = 0.1, note = 38, light = 0.5, fade = 1, fadeTime = 6, rev = 0.15|
+    var f = note.midicps, ll = light.lag(8), sig;
     sig = SinOsc.ar(f * [1, 1.002], SinOsc.ar(f * 2) * (0.3 + (0.8 * ll)) * LFNoise2.kr(0.07).range(0.3, 1)).sum * 0.5;
     sig = sig + (SinOsc.ar(f * 2.001) * 0.18 * ll);
-    sig = LPF.ar(sig, f * 6) * amp * 0.52 * LFNoise2.kr(0.05).range(0.7, 1);
+    sig = LPF.ar(sig, f * 6) * amp * 0.52 * LFNoise2.kr(0.05).range(0.7, 1) * fade.lag(fadeTime);
     sig = sig ! 2;
+    Out.ar(out, sig); Out.ar(revBus, sig * rev);
+  }),
+
+  // ── Felt piano: a soft hammer on two strings a cent apart, six stretched partials each
+  //    (felt 0..1: a softer, longer hammer contact excites fewer partials; with a knock of the key)
+  SynthDef(\piano, { |out = 64, revBus = 66, dlyBus = 68, freq = 220, amp = 0.1, pan = 0,
+      dec = 5, felt = 0.6, rev = 0.3, dly = 0.05|
+    var k = (1..6), fs, amps, decs, exc, sig, knock;
+    fs   = k * (1 + (0.0003 * k * k)).sqrt;
+    amps = [1, 0.5, 0.3, 0.2, 0.12, 0.08];
+    decs = (1 + (0.55 * (k - 1))).reciprocal;
+    exc  = Decay2.ar(Impulse.ar(0), 0.0004 + (0.0016 * felt), 0.003 + (0.005 * felt));
+    sig  = DynKlank.ar(`[(fs * 0.9994) ++ (fs * 1.0006), amps ++ amps, decs ++ decs], exc, freq, 0, dec);
+    knock = LPF.ar(WhiteNoise.ar, 260) * EnvGen.ar(Env.perc(0.001, 0.07)) * felt;
+    sig  = Pan2.ar(((sig * 0.0045 * (freq / 220).sqrt) + (knock * 0.3)) * amp, pan);
+    Line.kr(0, 0, dec * 1.1 + 0.05, doneAction: 2);
+    Out.ar(out, sig); Out.ar(revBus, sig * rev); Out.ar(dlyBus, sig * dly);
+  }),
+
+  // ── Strings: an ensemble of detuned saws with a slow vibrato; the bow brightens as it swells
+  SynthDef(\strings, { |out = 64, revBus = 66, dlyBus = 68, freq = 220, amp = 0.1, pan = 0,
+      atk = 3, sus = 2, rel = 5, bright = 0.5, rev = 0.5, dly = 0|
+    var env, f, sig;
+    env = EnvGen.kr(Env([0, 1, 0.85, 0], [atk, sus, rel], [2, 0, -3]), doneAction: 2);
+    f   = freq * (1 + (SinOsc.kr(5.2 + LFNoise2.kr(0.5, 0.6)) * 0.0022 * env));
+    sig = [Saw.ar(f * 0.9978) + Saw.ar(f * 1.0013), Saw.ar(f * 1.0024) + Saw.ar(f * 0.9989)];
+    sig = HPF.ar(LPF.ar(sig, (freq * (1.5 + (env * bright * 5))).clip(60, 9000)), 80);
+    sig = Balance2.ar(sig[0], sig[1], pan) * env * amp * 0.5;
+    Out.ar(out, sig); Out.ar(revBus, sig * rev); Out.ar(dlyBus, sig * dly);
+  }),
+
+  // ── Vibraphone: a soft mallet on a tuned bar, with the motor's tremolo
+  SynthDef(\vibe, { |out = 64, revBus = 66, dlyBus = 68, freq = 440, amp = 0.1, pan = 0,
+      dec = 3, bright = 0.5, trem = 4.5, depth = 0.3, rev = 0.35, dly = 0.15|
+    var exc, sig;
+    exc = Decay2.ar(Impulse.ar(0), 0.0006, 0.004);
+    sig = DynKlank.ar(`[[1, 3.99, 10.1], [1, 0.3 * bright, 0.1 * bright], [1, 0.25, 0.08]], exc, freq, 0, dec);
+    sig = LPF.ar(sig, (freq * 14).min(12000)) * (1 - (depth * SinOsc.kr(trem, 0, 0.5, 0.5)));
+    sig = Pan2.ar(sig * amp * 0.03, pan);
+    Line.kr(0, 0, dec * 1.2 + 0.05, doneAction: 2);
+    Out.ar(out, sig); Out.ar(revBus, sig * rev); Out.ar(dlyBus, sig * dly);
+  }),
+
+  // ── Swarm: a multitude heard from afar. Each band rings a pair of resonators a few cents
+  //    apart at random impulses, one per cell sound (d: impulses per second, a: their level).
+  //    Formlets swell in over `atk` instead of starting with a click; with a long attack, a
+  //    long ring and a low cutoff (far away) they blur into a murmur, short and open (near)
+  //    they are separate notes.
+  SynthDef(\swarm, { |out = 64, revBus = 66, dlyBus = 68, amp = 1, atk = 0.03, ring = 0.4, cut = 4000, rev = 0.6, dly = 0.1,
+      f1 = 60, f2 = 60, f3 = 60, f4 = 60, f5 = 60, f6 = 60, f7 = 60, f8 = 60,
+      d1 = 0, d2 = 0, d3 = 0, d4 = 0, d5 = 0, d6 = 0, d7 = 0, d8 = 0,
+      a1 = 0, a2 = 0, a3 = 0, a4 = 0, a5 = 0, a6 = 0, a7 = 0, a8 = 0|
+    var fs = [f1, f2, f3, f4, f5, f6, f7, f8].midicps, ds = [d1, d2, d3, d4, d5, d6, d7, d8], as = [a1, a2, a3, a4, a5, a6, a7, a8];
+    var pos = [-0.75, 0.55, -0.35, 0.15, -0.15, 0.35, -0.55, 0.75], sig;
+    sig = 8.collect { |i|
+      var x = Dust.ar(ds[i]) * as[i];
+      Pan2.ar(Formlet.ar(x, fs[i] * 0.9971, atk, ring) + Formlet.ar(x, fs[i] * 1.0029, atk, ring), pos[i])
+    }.sum;
+    sig = LPF.ar(sig, cut) * amp;
+    Out.ar(out, sig); Out.ar(revBus, sig * rev); Out.ar(dlyBus, sig * dly);
+  }),
+
+  // ── Wave: one swell of water washing in and drawing back, brightening as it crests
+  SynthDef(\wave, { |out = 64, revBus = 66, amp = 0.1, dur = 7, pan = 0, bright = 0.5, rev = 0.4|
+    var env, sig;
+    env  = EnvGen.kr(Env([0, 1, 0.3, 0], [dur * 0.4, dur * 0.2, dur * 0.4], [2, -2, -2]), doneAction: 2);
+    sig  = LPF.ar([PinkNoise.ar, PinkNoise.ar], 200 + (env.squared * 2400 * bright)) * env;
+    sig  = Balance2.ar(sig[0], sig[1], pan + LFNoise2.kr(0.25, 0.3)) * amp;
     Out.ar(out, sig); Out.ar(revBus, sig * rev);
   }),
 

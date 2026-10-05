@@ -23,3 +23,10 @@ Results when the port was made: deterministic voices match to between −85 and 
 error (the float noise floor), the full chain (ping-pong delay, FDN reverb, master) to −71 dB,
 and noise voices sit within the spread between two JS seeds. A 20 minute SC score rendered
 through the JS engine lands within 0.2 LU per minute and ±0.75 dB per third-octave band.
+
+The felt piano, strings, vibraphone, swarm (with a `Formlet` port) and wave voices added later were checked the same way:
+piano and vibraphone match to −120 dB or better; strings to −57 dB, because the JS `Saw`
+computes its band-limited pulse with exact sines where scsynth interpolates sine and cosecant
+tables (0.14% of the signal); the noise-driven swarm, waves and the sea and drone fades sit within
+the spread between two JS seeds.
+

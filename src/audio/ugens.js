@@ -141,6 +141,21 @@ export class LFNoise2 {
 
 export class WhiteNoise { constructor(rg) { this.rg = rg; } ar(out) { const rg = this.rg; for (let i = 0; i < BS; i++) out[i] = rg.off ? 0 : rg.frand2(); } }
 
+// Dust (impulses of 0..1) and Dust2 (-1..1) at a random density; the constructor runs one sample
+export class Dust {
+  constructor(sr, rg, bipolar = false) { this.sd = 1 / sr; this.rg = rg; this.bi = bipolar; this.density = 0; this.thresh = 0; this.scale = 0; this.step(0, null, 1); }
+  step(density, out, n = BS) {
+    if (density !== this.density) { this.thresh = f32(density * this.sd); this.scale = this.thresh > 0 ? f32((this.bi ? 2 : 1) / this.thresh) : 0; this.density = density; }
+    const rg = this.rg, th = this.thresh, sc = this.scale, off = this.bi ? 1 : 0;
+    for (let i = 0; i < n; i++) {
+      let v = 0;
+      if (!rg.off) { const z = rg.frand(); if (z < th) v = f32(z * sc) - off; }
+      if (out) out[i] = v;
+    }
+  }
+  ar(density, out) { this.step(density, out); }
+}
+
 export class BrownNoise {
   constructor(rg) { this.rg = rg; this.z = rg.off ? 0 : rg.frand2(); }
   ar(out) {
@@ -392,6 +407,36 @@ export class Ringz {
     }
     for (let r = 0; r < REMAIN; r++) { const y0 = inp[j] + b1 * y1 + b2 * y2; acc[j++] += f32(0.5 * (y0 - y2)) * amp; y2 = y1; y1 = y0; }
     this.y1 = zap(y1); this.y2 = zap(y2);
+  }
+}
+
+// Formlet: a resonator with a soft attack (a Ringz of the decay time minus one of the attack
+// time), out = 0.25 * ((y00 - y02) - (y10 - y12)); adds amp * output into acc
+export class Formlet {
+  constructor(sr) { this.sr = sr; this.rps = TWOPI / sr; this.y01 = 0; this.y02 = 0; this.y11 = 0; this.y12 = 0; this.b01 = 0; this.b02 = 0; this.b11 = 0; this.b12 = 0; this.key = null; }
+  coefs(ff, t) { const R = t === 0 ? 0 : Math.exp(LOG001 / (t * this.sr)), twoR = 2 * R, R2 = R * R, cost = (twoR * Math.cos(ff)) / (1 + R2); return [twoR * cost, -R2]; }
+  arAdd(inp, freq, attackTime, decayTime, amp, acc) {
+    let { y01, y02, y11, y12, b01, b02, b11, b12 } = this;
+    let s01 = 0, s02 = 0, s11 = 0, s12 = 0;
+    const key = freq * 1e6 + decayTime * 1e3 + attackTime;
+    if (key !== this.key) {
+      const ff = freq * this.rps, [n01, n02] = this.coefs(ff, decayTime), [n11, n12] = this.coefs(ff, attackTime);
+      if (this.key === null) { b01 = n01; b02 = n02; b11 = n11; b12 = n12; } // the constructor's first sample sets them
+      else { s01 = (n01 - b01) * FSLOPE; s02 = (n02 - b02) * FSLOPE; s11 = (n11 - b11) * FSLOPE; s12 = (n12 - b12) * FSLOPE; }
+      this.key = key; this.b01 = n01; this.b02 = n02; this.b11 = n11; this.b12 = n12;
+    }
+    let j = 0, y00, y10;
+    for (let l = 0; l < LOOPS; l++) {
+      let a = inp[j]; y00 = a + b01 * y01 + b02 * y02; y10 = a + b11 * y11 + b12 * y12; acc[j++] += f32(0.25 * ((y00 - y02) - (y10 - y12))) * amp;
+      a = inp[j]; y02 = a + b01 * y00 + b02 * y01; y12 = a + b11 * y10 + b12 * y11; acc[j++] += f32(0.25 * ((y02 - y01) - (y12 - y11))) * amp;
+      a = inp[j]; y01 = a + b01 * y02 + b02 * y00; y11 = a + b11 * y12 + b12 * y10; acc[j++] += f32(0.25 * ((y01 - y00) - (y11 - y10))) * amp;
+      b01 += s01; b02 += s02; b11 += s11; b12 += s12;
+    }
+    for (let r = 0; r < REMAIN; r++) {
+      const a = inp[j]; y00 = a + b01 * y01 + b02 * y02; y10 = a + b11 * y11 + b12 * y12; acc[j++] += f32(0.25 * ((y00 - y02) - (y10 - y12))) * amp;
+      y02 = y01; y01 = y00; y12 = y11; y11 = y10;
+    }
+    this.y01 = zap(y01); this.y02 = zap(y02); this.y11 = zap(y11); this.y12 = zap(y12);
   }
 }
 

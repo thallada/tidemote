@@ -102,7 +102,7 @@ window.capture = async ({ N, WARM, EACH, SEED }) => {
   const calmP = best(first, 'calm'), busyP = best(first, 'busy');
   eng.listen = { every: 6, keep: null, vscale: 1 };
   const info = { grid: [GW, GH], calm: calmP, busy: busyP, phases: [] };
-  for (const [name, cam, follow] of [['far', whole], ['mid', camFor(busyP, 4)], ['calm', camFor(calmP, D_REF), 'calm'], ['busy', camFor(busyP, D_REF * 1.5), 'busy']]) {
+  for (const [name, cam, follow] of [['far', whole], ['wide', camFor(busyP, 30)], ['mid', camFor(busyP, 10)], ['calm', camFor(calmP, D_REF), 'calm'], ['busy', camFor(busyP, D_REF * 1.5), 'busy']]) {
     phase = name; info.phases.push({ name, t0: eng.simTime, cam });
     await run(EACH, cam, 1, follow);
   }

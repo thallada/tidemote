@@ -19,6 +19,12 @@ for f, r in [(900, 1.7), (1400, 2.2)]:
     note('drop', 0.3, freq=f, amp=0.5, dec=0.07, rise=r)
 for f in [2349, 4699]:
     note('glint', 0.4, freq=f, amp=0.5, dec=0.2)
+for f, fe in [(110, 0.8), (220, 0.6), (440, 0.4), (880, 0.2)]:
+    note('piano', 3.0, freq=f, amp=0.5, dec=3.0, felt=fe, pan=-0.2)
+for f, br in [(147, 0.4), (440, 0.8)]:
+    note('strings', 4.0, freq=f, amp=0.5, bright=br, atk=1.0, sus=0.8, rel=1.5, pan=0.3)
+for f, br in [(587, 0.5), (1175, 0.9)]:
+    note('vibe', 2.0, freq=f, amp=0.5, bright=br, dec=1.6, trem=5.0, depth=0.35, pan=-0.4)
 json.dump(ev, open('voices.json', 'w')); json.dump({'tail': 2.0}, open('voices.meta.json', 'w'))
 json.dump(segs, open('voices.segs.json', 'w'))
 print(len(ev), 'notes, ends at', round(t, 1), 's')

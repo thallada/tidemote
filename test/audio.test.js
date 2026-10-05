@@ -7,6 +7,7 @@ import { Conductor } from '../src/audio/conductor.js';
 import { LISTEN, decodeRecords, keepFor, hearing, D_REF, digest } from '../src/audio/listen.js';
 import { LISTEN_TYPES } from '../src/shaders.js';
 import { tempoFor } from '../src/audio/field.js';
+import { palette, LAYERS } from '../src/audio/score.js';
 
 const rng = (s) => () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
 
@@ -54,9 +55,9 @@ test('the scan keeps a fair sample sized to what the audio plays', () => {
 });
 
 test('hearing: nearer views are louder per event and closer in timbre', () => {
-  const near = hearing(D_REF / 2, D_REF / 2), far = hearing(10, 6);
+  const near = hearing(D_REF / 2, D_REF / 2), far = hearing(40, 25);
   assert.ok(Math.abs(near.gd - 1) < 1e-9 && near.z === 1);
-  assert.ok(far.gd < 0.12 && far.z < 0.3);
+  assert.ok(far.gd < 0.03 && far.z === 0);
   // equal power for equal density: per-event power x events in view is constant
   const a = hearing(1, 1), b = hearing(4, 4);
   assert.ok(Math.abs(a.gd ** 2 * 4 - b.gd ** 2 * 64) < 1e-9);
@@ -92,4 +93,60 @@ test('mixotrophs that do not swim play as producers', () => {
   assert.equal(archOf(g), 'plankton');
   Object.assign(g, { swim: 1.6, advect: 0.1 });
   assert.notEqual(archOf(g), 'plankton');
+});
+
+const renderBars = (cond, bars) => { const L = new Float32Array(64), R = new Float32Array(64); const n = Math.ceil((bars * 16 * cond.step * 48000) / 64); for (let b = 0; b < n; b++) cond.render(L, R); };
+
+test('a change of era fades a new sea in and bridges to the new key without gliding', () => {
+  const eng = new Engine(48000, { seed: 2 }), cond = new Conductor(eng, { seed: 2 });
+  const sets = [], spawns = [];
+  const set0 = eng.set.bind(eng), spawn0 = eng.spawn.bind(eng);
+  eng.set = (id, p) => { sets.push([id, p]); return set0(id, p); };
+  eng.spawn = (d, p, id) => { spawns.push([d, p, id]); return spawn0(d, p, id); };
+  renderBars(cond, 4);
+  const sea0 = cond.sea;
+  cond.message({ type: 'era', name: 'The Hollow Murk' });
+  renderBars(cond, 40);
+  assert.equal(cond.era.name, 'The Hollow Murk');
+  assert.notEqual(cond.sea, sea0);
+  // no node is ever retuned in place, and the whole mix is never swept
+  assert.ok(!sets.some(([id, p]) => ('f1' in p && id !== 'swarm') || 'note' in p || 'tone' in p), 'a set retuned a node');
+  assert.ok(sets.some(([id, p]) => id === sea0 && p.fade === 0), 'the old sea fades out');
+  assert.ok(spawns.some(([d]) => d === 'strings') && spawns.some(([d]) => d === 'piano'), 'bridge and interlude play');
+  assert.ok(!eng.nodes.has(sea0), 'the old sea is freed');
+});
+
+test('each era has its own ensemble, and every layer plays', () => {
+  for (const name of ['The Dim Gyre', 'The Bright Calm', 'The Silver Tides', 'The Bitter Bloom']) {
+    const p = palette(name);
+    assert.equal(p.length, 2); assert.notEqual(p[0], p[1]); assert.ok(p.every((l) => LAYERS.includes(l)));
+    assert.deepEqual(p, palette(name));
+  }
+  for (const layer of LAYERS) {
+    const eng = new Engine(48000, { seed: 4 }), cond = new Conductor(eng, { seed: 4 });
+    cond.score.layers = [layer];
+    let n = 0; const spawn0 = eng.spawn.bind(eng);
+    eng.spawn = (d, p, id) => { if (id == null) n++; return spawn0(d, p, id); };
+    for (const tide of [0.1, 0.95]) { cond.message({ type: 'world', world: { tide, light: 0.6 } }); renderBars(cond, 24); }
+    assert.ok(n > 0, `${layer} played nothing`);
+  }
+});
+
+test('from afar the view is heard as a swarm, up close as single voices', () => {
+  const r = rng(3), g = finalizeGenome(archetypeGenome(ARCHETYPE_TYPES[0], r));
+  const run = (hx) => {
+    const eng = new Engine(48000, { seed: 5 }), cond = new Conductor(eng, { seed: 5 });
+    cond.message({ type: 'slots', all: true, slots: [{ slot: 7, serial: 70, voice: voiceOf(g), pop: 5000 }] });
+    const N = 60, u = new Uint32Array(4 * N), f = new Float32Array(u.buffer);
+    for (let i = 0; i < N; i++) { u[i * 4] = 8 | (7 << 4); u[i * 4 + 1] = (i * 1000) | (30000 << 16); f[i * 4 + 2] = 0.8; u[i * 4 + 3] = 0xff3080ff; }
+    const data = { records: u, f32: f, window: 0.1, view: { hx, hy: hx * 0.6 }, inView: [0, 0, 0, 0, 0, 0, 0, 0], outView: [0, 0, 0, 0, 0, 0, 0, 0], living: hx > 5 ? 50000 : 12, speed: 0.2 };
+    let notes = 0; const spawn0 = eng.spawn.bind(eng);
+    eng.spawn = (d, p, id) => { if (['cplx', 'tine', 'swell', 'glass', 'breath', 'bite', 'wood', 'drop'].includes(d) && id == null) notes++; return spawn0(d, p, id); };
+    cond.score.layers = [];
+    for (let k = 0; k < 20; k++) { cond.message(digest(data, { speed: 1 }).msg); renderBars(cond, 0.25); }
+    return { notes, grains: eng.nodes.get('swarm').p.d1 };
+  };
+  const far = run(60), near = run(0.5);
+  assert.ok(far.grains > 100 && near.grains === 0, `grains far ${far.grains} near ${near.grains}`);
+  assert.ok(near.notes > far.notes, `notes near ${near.notes} far ${far.notes}`);
 });
