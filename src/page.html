@@ -19,7 +19,7 @@
   <symbol id="i-auto" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2.5 6.5v-4h4M13.5 2.5h4v4M17.5 13.5v4h-4M6.5 17.5h-4v-4"/><circle cx="10" cy="10" r="3.2"/></g></symbol>
   <symbol id="i-sound" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M3 7.5h3l4-3.5v12l-4-3.5H3Z"/><path class="w1" d="M13 7.5a3.5 3.5 0 0 1 0 5"/><path class="w2" d="M15.5 5a7 7 0 0 1 0 10"/></g></symbol>
   <symbol id="i-lab" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2"><rect x="3" y="3" width="5.5" height="5.5"/><rect x="11.5" y="3" width="5.5" height="5.5"/><rect x="3" y="11.5" width="5.5" height="5.5"/><path d="M11.5 12.5h5.5M11.5 15h5.5M11.5 17.3h3.5"/></g></symbol>
-  <symbol id="i-view" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M10 3 18 7l-8 4-8-4Z"/><path d="m2 10.5 8 4 8-4M2 14l8 4 8-4"/></g></symbol>
+  <symbol id="i-gear" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2"><path d="M3 5.5h8M14.5 5.5H17M3 10h2.5M9 10h8M3 14.5h6M12.5 14.5H17"/><circle cx="12.75" cy="5.5" r="1.75"/><circle cx="7.25" cy="10" r="1.75"/><circle cx="10.75" cy="14.5" r="1.75"/></g></symbol>
   <symbol id="i-close" viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-plus" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-minus" viewBox="0 0 20 20"><path d="M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
@@ -76,15 +76,26 @@
     <div class="grp acts">
       <button type="button" class="act" id="auto-play" aria-pressed="false" data-hint="Auto camera · A"><svg><use href="#i-auto"/></svg><span>Auto</span></button>
       <span class="snd-wrap"><button type="button" class="act" id="snd" aria-pressed="false" data-hint="Sound · S"><svg><use href="#i-sound"/></svg><span>Sound</span></button><input id="vol" type="range" min="0" max="100" step="1" value="70" aria-label="Volume" hidden></span>
-      <button type="button" class="act" id="view-open" aria-expanded="false" aria-controls="view" data-hint="View options · V"><svg><use href="#i-view"/></svg><span>View</span></button>
+      <button type="button" class="act" id="set-open" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span>Settings</span></button>
       <button type="button" class="act primary" id="lab-open" aria-expanded="false" aria-controls="lab" data-hint="Lab · K"><svg><use href="#i-lab"/></svg><span>Lab</span></button>
     </div>
-    <div class="sys" id="sys" aria-hidden="true"></div>
+    <div class="sys" id="sys" aria-hidden="true"><span><b id="sys-n" class="w-n">–</b> particles</span><span><b id="sys-fps" class="w-3">–</b> fps</span><span><b id="sys-ms" class="w-4">–</b> ms</span><span><b id="sys-res" class="w-4">–</b> res</span></div>
   </nav>
 
-  <!-- view options -->
-  <div class="view panel float" id="view" hidden role="dialog" aria-label="View options">
-    <div class="sec-h"><h2><kbd class="key">V</kbd><span>View</span> Options</h2><button type="button" class="ghost" id="view-close" aria-label="Close view options"><svg><use href="#i-close"/></svg></button></div>
+  <!-- settings: what is shown, and what it costs -->
+  <div class="settings panel float" id="settings" hidden role="dialog" aria-label="Settings">
+    <div class="sec-h"><h2><kbd class="key">V</kbd>Settings</h2>
+      <div class="tabs" role="tablist" id="set-tabs" aria-label="Settings sections">
+        <button type="button" role="tab" data-tab="display" aria-selected="true">Display</button>
+        <button type="button" role="tab" data-tab="performance" aria-selected="false" tabindex="-1">Performance</button>
+      </div>
+      <button type="button" class="ghost" id="set-close" aria-label="Close settings"><svg><use href="#i-close"/></svg></button></div>
+    <div class="readout" id="readout" hidden aria-live="off">
+      <div><b id="ro-fps">–</b><span>fps</span></div>
+      <div><b id="ro-ms">–</b><span>GPU ms</span></div>
+      <div><b id="ro-px">–</b><span>Scene px</span></div>
+      <div><b id="ro-n">–</b><span>Particles</span></div>
+    </div>
     <div class="opts" id="opts"></div>
     <div class="keys-note">Keyboard: <kbd>?</kbd> lists every shortcut.</div>
   </div>
@@ -146,7 +157,7 @@
     <dt>C</dt><dd>Follow the specimen</dd>
     <dt>Esc</dt><dd>Close, then clear the highlight</dd>
     <dt>K</dt><dd>Lab</dd>
-    <dt>V</dt><dd>View options</dd>
+    <dt>V</dt><dd>Settings</dd>
     <dt>S · − =</dt><dd>Sound · volume</dd>
     <dt>T</dt><dd>Trails</dd>
     <dt>G · W</dt><dd>Light map · currents</dd>

@@ -53,7 +53,7 @@ class Engine {
     this.tidePh = Float32Array.from(TIDE_PHASE);
     this.seedValue = 1;
     this.censusEvery = 20;
-    this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 1, optics: 1 };
+    this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 1, optics: 1, specks: true };
     this.simData = new ArrayBuffer(240);
     this.rock = new Float32Array(4);
     this.simF = new Float32Array(this.simData);
@@ -1088,7 +1088,7 @@ class Engine {
       pass.setPipeline(this.pMurk); pass.setBindGroup(0, this.murkBG); pass.draw(3); pass.end();
     }
 
-    const micro = cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H / this.grid[1]));
+    const micro = this.settings.specks && cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H / this.grid[1]));
     if (micro) this._drawSpecks(enc, cam, W, H);
 
     const pass = enc.beginRenderPass({

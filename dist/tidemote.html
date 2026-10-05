@@ -112,7 +112,7 @@ input[type="range"] { accent-color: var(--cyan); cursor: pointer; }
   pointer-events: auto;
   -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
 }
-/* floating panels (view options, help) get a frame with brighter corner brackets */
+/* floating panels (settings, help) get a frame with brighter corner brackets */
 .panel.float {
   --c: var(--line-2);
   background:
@@ -162,7 +162,7 @@ body:not(.live) .hud { opacity: 0; }
 .brand span { font-size: 15px; font-weight: 300; letter-spacing: .32em; text-transform: uppercase; font-stretch: 125%; }
 .clock, .era-box, .gauge { padding-left: 16px; border-left: 1px solid var(--line); height: 30px; }
 .clock, .era-box, .gauge, .stat { display: flex; flex-direction: column; justify-content: center; gap: 3px; min-width: 0; }
-.clock b { font-size: 21px; line-height: 1; font-weight: 300; font-stretch: 110%; color: var(--sun); letter-spacing: .04em; }
+.clock b { min-width: 3.4em; font-size: 21px; line-height: 1; font-weight: 300; font-stretch: 110%; color: var(--sun); letter-spacing: .04em; }
 .era-box b { font-size: 13px; font-weight: 400; letter-spacing: .1em; text-transform: uppercase; font-stretch: 110%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gauge { flex-direction: row; align-items: center; gap: 9px; text-decoration: none; }
 .gauge b { font-size: 13px; font-weight: 400; min-width: 3.4ch; }
@@ -186,7 +186,7 @@ body:not(.live) .hud { opacity: 0; }
 }
 .grp { display: flex; align-items: center; gap: 6px; }
 .dock .ico { width: 40px; height: 38px; display: grid; place-items: center; }
-.dock .speed { height: 38px; min-width: 72px; padding: 0 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; color: var(--ink); }
+.dock .speed { height: 38px; width: 84px; flex: none; padding: 0 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; color: var(--ink); }
 .dock .speed span { font-size: 15px; font-weight: 400; font-stretch: 110%; line-height: 1; }
 .dock .speed small { font-size: 9.5px; color: var(--ink-3); letter-spacing: .08em; line-height: 1; }
 .dock .speed small:empty { display: none; }
@@ -200,7 +200,12 @@ body:not(.live) .hud { opacity: 0; }
 #snd[aria-pressed="false"] .w1, #snd[aria-pressed="false"] .w2 { opacity: .25; }
 .snd-wrap { display: flex; align-items: center; gap: 8px; }
 #vol { width: 74px; }
-.sys { font-size: 10px; letter-spacing: .12em; color: var(--ink-3); text-transform: uppercase; white-space: nowrap; font-stretch: 108%; min-width: 0; overflow: hidden; }
+.sys { font-size: 10px; letter-spacing: .12em; color: var(--ink-3); text-transform: uppercase; white-space: nowrap; font-stretch: 108%; flex: none; display: flex; gap: 12px; }
+/* every figure gets a fixed right-aligned cell, so nothing in the dock moves as it changes */
+.sys b { display: inline-block; text-align: right; font-weight: 500; color: var(--ink-2); letter-spacing: .04em; }
+.sys .w-n { width: 7.6em; }
+.sys .w-3 { width: 2.4em; }
+.sys .w-4 { width: 3.2em; }
 
 /* ------------------------------------------------------------------ world column */
 .world {
@@ -279,12 +284,26 @@ body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520p
 }
 .tip kbd { color: var(--sun); margin-left: 8px; }
 
-/* ------------------------------------------------------------------ view options, help */
-.view {
-  position: absolute; right: calc(var(--gut) + var(--safe-r)); bottom: calc(var(--bot) + 10px); width: 400px;
+/* ------------------------------------------------------------------ settings, help */
+.settings {
+  position: absolute; right: calc(var(--gut) + var(--safe-r)); bottom: calc(var(--bot) + 10px); width: 430px;
   padding: 8px 14px 14px; z-index: 5; max-height: calc(100% - var(--top) - var(--bot) - 20px); overflow-y: auto;
 }
-.opts { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.settings .sec-h { gap: 12px; }
+.settings .sec-h h2 { white-space: nowrap; }
+.settings .tabs { margin-right: auto; }
+.settings .tabs button { height: 32px; }
+.opt-h { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--cyan); font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; font-weight: 500; font-stretch: 112%; }
+.opt-h:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
+.opt .chip:disabled { opacity: .35; cursor: default; }
+.hot-btn { border-color: var(--hot); color: var(--ink); background: rgba(255, 95, 58, 0.14); justify-self: start; }
+.hot-btn:hover { background: rgba(255, 95, 58, 0.26); border-color: var(--hot); }
+.readout { display: grid; grid-template-columns: repeat(4, 1fr); margin: 10px 0 2px; border: 1px solid var(--line); }
+.readout div { display: flex; flex-direction: column; gap: 3px; padding: 7px 9px; border-left: 1px solid var(--line); min-width: 0; }
+.readout div:first-child { border-left: 0; }
+.readout b { font-size: 17px; font-weight: 300; line-height: 1; color: var(--sun); white-space: nowrap; }
+.readout span { font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
+.opts { flex-direction: column; gap: 6px; margin-top: 10px; }
 .opt { display: grid; grid-template-columns: 9.6em 1fr; gap: 10px; align-items: center; }
 .opt .row { display: flex; flex-wrap: wrap; gap: 3px; }
 .opt .lbl { color: var(--ink-2); }
@@ -323,7 +342,7 @@ dd { margin: 0; color: var(--ink-2); }
 #spec-ui { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .vz { position: absolute; right: 6px; bottom: 6px; display: flex; gap: 2px; }
 .vz button { width: 30px; height: 30px; background: rgba(6, 9, 10, 0.7); border-color: var(--line); }
-.spec.no-view .viewer { display: none; }
+.spec.no-view .viewer, body.no-closeup .viewer { display: none; }
 .spec-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .spec-acts:empty { display: none; }
 .vitals { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
@@ -523,7 +542,7 @@ body.filming .world, body.filming .rail .era-box, body.filming .rail .gauge, bod
   .dock .speed { min-width: 0; width: 56px; height: 46px; padding: 0 2px; overflow: hidden; }
   .dock .speed small { font-size: 8.5px; letter-spacing: 0; }
   .act { flex-direction: column; justify-content: center; gap: 3px; width: 48px; height: 50px; padding: 0; border-color: transparent; }
-  .act span { display: block; font-size: 9px; letter-spacing: .08em; }
+  .act span { display: block; font-size: 8.5px; letter-spacing: .04em; }
   .act[aria-pressed="true"], .act[aria-expanded="true"] { border-color: var(--line-2); }
   #vol { display: none; }
   .caption { bottom: calc(var(--bot) + 14px); }
@@ -558,13 +577,17 @@ body.filming .world, body.filming .rail .era-box, body.filming .rail .gauge, bod
   .lin-key { display: none; }
   .splist .spark { display: none; }
   .barrow { grid-template-columns: 7.5em minmax(24px, 1fr) 7ch 5.4ch; font-size: 12px; }
-  .view { left: 0; right: 0; width: auto; bottom: var(--bot); max-height: 70%; }
+  .settings { left: 0; right: 0; width: auto; bottom: var(--bot); max-height: calc(100% - var(--top) - var(--bot)); }
+  .readout b { font-size: 15px; }
+  .opt { grid-template-columns: 7.6em 1fr; }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }
 }
 @media (max-width: 380px) {
   #g-tide { display: none; }
-  .act { width: 46px; }
+  .act { width: 44px; }
+  .dock .ico { width: 34px; }
+  .dock .speed { width: 50px; }
 }
 @media (max-height: 560px) and (min-width: 721px) {
   :root { --rail-h: 44px; --dock-h: 48px; }
@@ -577,6 +600,9 @@ body.filming .world, body.filming .rail .era-box, body.filming .rail .gauge, bod
 }
 @media (max-width: 380px) {
   .tabs button { padding: 0 6px; letter-spacing: .06em; }
+}
+@media (pointer: coarse) {
+  .keys-note, .opt kbd { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .intro, .flash, .hud, .caption, .spec { transition: none; }
@@ -594,7 +620,7 @@ body.filming .world, body.filming .rail .era-box, body.filming .rail .gauge, bod
   <symbol id="i-auto" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2.5 6.5v-4h4M13.5 2.5h4v4M17.5 13.5v4h-4M6.5 17.5h-4v-4"/><circle cx="10" cy="10" r="3.2"/></g></symbol>
   <symbol id="i-sound" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M3 7.5h3l4-3.5v12l-4-3.5H3Z"/><path class="w1" d="M13 7.5a3.5 3.5 0 0 1 0 5"/><path class="w2" d="M15.5 5a7 7 0 0 1 0 10"/></g></symbol>
   <symbol id="i-lab" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2"><rect x="3" y="3" width="5.5" height="5.5"/><rect x="11.5" y="3" width="5.5" height="5.5"/><rect x="3" y="11.5" width="5.5" height="5.5"/><path d="M11.5 12.5h5.5M11.5 15h5.5M11.5 17.3h3.5"/></g></symbol>
-  <symbol id="i-view" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M10 3 18 7l-8 4-8-4Z"/><path d="m2 10.5 8 4 8-4M2 14l8 4 8-4"/></g></symbol>
+  <symbol id="i-gear" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2"><path d="M3 5.5h8M14.5 5.5H17M3 10h2.5M9 10h8M3 14.5h6M12.5 14.5H17"/><circle cx="12.75" cy="5.5" r="1.75"/><circle cx="7.25" cy="10" r="1.75"/><circle cx="10.75" cy="14.5" r="1.75"/></g></symbol>
   <symbol id="i-close" viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-plus" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-minus" viewBox="0 0 20 20"><path d="M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
@@ -651,15 +677,26 @@ body.filming .world, body.filming .rail .era-box, body.filming .rail .gauge, bod
     <div class="grp acts">
       <button type="button" class="act" id="auto-play" aria-pressed="false" data-hint="Auto camera · A"><svg><use href="#i-auto"/></svg><span>Auto</span></button>
       <span class="snd-wrap"><button type="button" class="act" id="snd" aria-pressed="false" data-hint="Sound · S"><svg><use href="#i-sound"/></svg><span>Sound</span></button><input id="vol" type="range" min="0" max="100" step="1" value="70" aria-label="Volume" hidden></span>
-      <button type="button" class="act" id="view-open" aria-expanded="false" aria-controls="view" data-hint="View options · V"><svg><use href="#i-view"/></svg><span>View</span></button>
+      <button type="button" class="act" id="set-open" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span>Settings</span></button>
       <button type="button" class="act primary" id="lab-open" aria-expanded="false" aria-controls="lab" data-hint="Lab · K"><svg><use href="#i-lab"/></svg><span>Lab</span></button>
     </div>
-    <div class="sys" id="sys" aria-hidden="true"></div>
+    <div class="sys" id="sys" aria-hidden="true"><span><b id="sys-n" class="w-n">–</b> particles</span><span><b id="sys-fps" class="w-3">–</b> fps</span><span><b id="sys-ms" class="w-4">–</b> ms</span><span><b id="sys-res" class="w-4">–</b> res</span></div>
   </nav>
 
-  <!-- view options -->
-  <div class="view panel float" id="view" hidden role="dialog" aria-label="View options">
-    <div class="sec-h"><h2><kbd class="key">V</kbd><span>View</span> Options</h2><button type="button" class="ghost" id="view-close" aria-label="Close view options"><svg><use href="#i-close"/></svg></button></div>
+  <!-- settings: what is shown, and what it costs -->
+  <div class="settings panel float" id="settings" hidden role="dialog" aria-label="Settings">
+    <div class="sec-h"><h2><kbd class="key">V</kbd>Settings</h2>
+      <div class="tabs" role="tablist" id="set-tabs" aria-label="Settings sections">
+        <button type="button" role="tab" data-tab="display" aria-selected="true">Display</button>
+        <button type="button" role="tab" data-tab="performance" aria-selected="false" tabindex="-1">Performance</button>
+      </div>
+      <button type="button" class="ghost" id="set-close" aria-label="Close settings"><svg><use href="#i-close"/></svg></button></div>
+    <div class="readout" id="readout" hidden aria-live="off">
+      <div><b id="ro-fps">–</b><span>fps</span></div>
+      <div><b id="ro-ms">–</b><span>GPU ms</span></div>
+      <div><b id="ro-px">–</b><span>Scene px</span></div>
+      <div><b id="ro-n">–</b><span>Particles</span></div>
+    </div>
     <div class="opts" id="opts"></div>
     <div class="keys-note">Keyboard: <kbd>?</kbd> lists every shortcut.</div>
   </div>
@@ -721,7 +758,7 @@ body.filming .world, body.filming .rail .era-box, body.filming .rail .gauge, bod
     <dt>C</dt><dd>Follow the specimen</dd>
     <dt>Esc</dt><dd>Close, then clear the highlight</dd>
     <dt>K</dt><dd>Lab</dd>
-    <dt>V</dt><dd>View options</dd>
+    <dt>V</dt><dd>Settings</dd>
     <dt>S · − =</dt><dd>Sound · volume</dd>
     <dt>T</dt><dd>Trails</dd>
     <dt>G · W</dt><dd>Light map · currents</dd>
@@ -4657,7 +4694,7 @@ struct SV {
       this.tidePh = Float32Array.from(TIDE_PHASE);
       this.seedValue = 1;
       this.censusEvery = 20;
-      this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1, tide: 1, optics: 1 };
+      this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1, tide: 1, optics: 1, specks: true };
       this.simData = new ArrayBuffer(240);
       this.rock = new Float32Array(4);
       this.simF = new Float32Array(this.simData);
@@ -5829,7 +5866,7 @@ struct SV {
         pass2.draw(3);
         pass2.end();
       }
-      const micro = cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H / this.grid[1]));
+      const micro = this.settings.specks && cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H / this.grid[1]));
       if (micro) this._drawSpecks(enc, cam, W, H);
       const pass = enc.beginRenderPass({
         colorAttachments: [{ view: target, loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }],
@@ -5981,6 +6018,15 @@ struct SV {
     focus: "A highlight: everything outside the chosen filter is dimmed in the simulation.",
     links: "Bonds between cells of one multicellular body. Single-celled species never show links.",
     autoidle: "Left alone for a minute (three with a panel open), the camera starts filming the world on its own. Drag, scroll or tap to take it back.",
+    renderscale: "The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room; a fixed value never changes.",
+    autofloor: "The lowest render scale Auto may drop to.",
+    density: "The most device pixels drawn per CSS pixel. High-density (Retina) screens look sharper at 2× but cost up to four times the pixels of 1×. Readouts and outlines stay sharp either way.",
+    targetfps: "Frames per second aimed for. 30 halves the GPU’s work and saves battery; Display follows the screen’s refresh rate (120 on many phones and Macs). Simulated time keeps pace with real time at any rate.",
+    bloom: "A soft glow around bright cells. Several extra full-screen passes.",
+    optics: "Microscope optics: depth haze and a vignette over the world. One extra full-screen pass.",
+    specks: "The fine suspension that drifts between cells when zoomed far in. Drawn speck by speck; off saves a compute pass and a full-screen pass.",
+    closeup: "The live close-up in the specimen panel: a second, small view of the world drawn every frame.",
+    particles: "Every grain, husk and cell is one particle; their number is fixed for a world’s whole life. Auto measures the GPU and picks the most it can run smoothly. Changing it starts a new world.",
     loupe: "A magnifier that follows the mouse when zoomed out. Clicks inside it select what is under the crosshair.",
     speed: "Current speed, in grid cells per second.",
     diversity: "Effective number of species: exp of the Shannon entropy of species populations. A world of 10 equally common species scores 10."
@@ -6013,7 +6059,7 @@ struct SV {
       short: "Climate",
       html: `<p>The ${t("tide", "Tide")} is four slow waves summed over the torus; where they add up, bright bands form and drift. ${t("light", "Light")} is a dim baseline everywhere plus the Tide on top. So tide bands are rich in both glint and light, while baseline light lets plants live anywhere.</p>
 <p>The ${t("season", "season")} is a 5-minute cycle that swings tide strength between 10% and 100%; it drives the regular booms and busts. Every 10–18 minutes an ${t("era", "era")} begins: the baseline light and glint production change, one tide wave is replaced so the bright zones form and move differently, and two current patterns are swapped. Era names are random labels; the event log says what actually changed.</p>
-<p><b>View → Light map</b> colours every point by the light a photosynthesising cell would receive there, with a contour every 10%; <b>View → Currents</b> draws the flow that carries silt, glint and drifting cells. The <b>Tide</b> gauge at the top follows the season: the dot rides the 5-minute wave.</p>`
+<p><b>Settings → Light map</b> colours every point by the light a photosynthesising cell would receive there, with a contour every 10%; <b>Settings → Currents</b> draws the flow that carries silt, glint and drifting cells. The <b>Tide</b> gauge at the top follows the season: the dot rides the 5-minute wave.</p>`
     },
     {
       id: "cells",
@@ -6084,7 +6130,7 @@ struct SV {
 <li><b>Lab → Census</b>: the world broken down by matter, diet, movement, body and cell type. Choose a row to highlight it.</li>
 <li><b>Lab → Charts</b>: population, diversity, births, deaths, meals and climate over time, and the eras so far.</li>
 <li><b>Lab → Log</b>: every logged event, searchable.</li>
-<li><b>Auto</b>: the camera films the world on its own, with captions saying what it is showing; it also takes over after a minute alone (switch that off in View).</li>
+<li><b>Auto</b>: the camera films the world on its own, with captions saying what it is showing; it also takes over after a minute alone (switch that off in Settings).</li>
 </ul>`
     }
   ];
@@ -8055,6 +8101,7 @@ struct SV {
   var SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8, 16, 32, 64, Infinity];
   var MAX_FRAME_MS = 30;
   var fmtSpeed = (s) => s === Infinity ? "Max" : `×${s}`;
+  var PARTICLE_SIZES = [32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
   var PREFS_KEY = "tidemote.view";
   var loadPrefs = () => {
     try {
@@ -8086,7 +8133,11 @@ struct SV {
       loupeMag: 3.5,
       currents: false,
       specCells: 3,
-      world: prefs.world ?? (innerWidth > 1100 && innerHeight > 600)
+      world: prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
+      closeup: prefs.closeup ?? true,
+      // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
+      // pixels per CSS pixel, the frame rate aimed for (0: the display's), and a fixed particle count
+      perf: { scale: prefs.scale ?? "auto", floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.fps ?? 60, particles: prefs.particles ?? null }
     };
     let uiHoldUntil = 0;
     const panelSel = ".panel, .rail, .dock, .focus";
@@ -8110,17 +8161,19 @@ struct SV {
     const trailNames = ["Off", "Short", "Long", "Exposure"];
     let trailIdx = prefs.trails ?? 1;
     eng.settings.trails = trailLevels[trailIdx];
-    for (const k of ["links", "nodes", "bloom", "optics", "tide"]) if (prefs[k] !== void 0) eng.settings[k] = prefs[k];
+    for (const k of ["links", "nodes", "bloom", "optics", "specks", "tide"]) if (prefs[k] !== void 0) eng.settings[k] = prefs[k];
+    document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
-      savePrefs({ trails: trailIdx, links: eng.settings.links, nodes: eng.settings.nodes, bloom: eng.settings.bloom, optics: eng.settings.optics, tide: eng.settings.tide, world: state.world, auto: state.auto, loupe: state.loupe });
+      const s = eng.settings;
+      savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, tide: s.tide, world: state.world, auto: state.auto, loupe: state.loupe, closeup: state.closeup, ...state.perf });
+      document.body.classList.toggle("no-closeup", !state.closeup);
     };
     if (prefs.loupe !== void 0 && !isCoarse) state.loupe = prefs.loupe;
-    let renderScale = 1;
+    let renderScale = state.perf.scale === "auto" ? 1 : state.perf.scale;
     let dpr = 1;
-    const SCENE_DPR = 1.5;
     function fit2() {
       const base = Math.min(devicePixelRatio || 1, 2);
-      dpr = Math.min(base, SCENE_DPR) * renderScale;
+      dpr = Math.min(base, state.perf.density) * renderScale;
       const maxDim = device.limits.maxTextureDimension2D;
       canvas.width = Math.min(maxDim, Math.max(1, Math.round(innerWidth * dpr)));
       canvas.height = Math.min(maxDim, Math.max(1, Math.round(innerHeight * dpr)));
@@ -8183,6 +8236,7 @@ struct SV {
       fpsT: performance.now(),
       frameDt: [],
       lastSubmit: 0,
+      rafMs: 0,
       goodWindows: 0,
       ceiling: 1,
       ceilingUntil: 0,
@@ -8288,10 +8342,20 @@ struct SV {
       calText.textContent = text;
       calBar.style.width = `${Math.round(frac * 100)}%`;
     };
-    async function calibrate() {
+    function maxParticles() {
       const lim = device.limits;
       const hardCap = Math.floor(Math.min(lim.maxStorageBufferBindingSize, lim.maxBufferSize) / 40 / 4096) * 4096;
-      const maxN = Math.min(hardCap, 4194304, Math.floor(262144 * K.density * 0.95), window.__MC_MAX || Infinity);
+      return Math.min(hardCap, 4194304, Math.floor(262144 * K.density * 0.95), window.__MC_MAX || Infinity);
+    }
+    async function calibrate() {
+      const maxN = maxParticles();
+      if (state.perf.particles) {
+        const n2 = await allocDown(Math.min(state.perf.particles, maxN));
+        seedWorld(n2);
+        state.busy = false;
+        calStep(`${fmt(n2)} particles`, 1);
+        return n2;
+      }
       const target = hasTS ? 7.5 : 9;
       const clampN = (x) => clamp5(Math.round(x / 4096) * 4096, Math.min(32768, maxN), maxN);
       let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
@@ -8316,6 +8380,23 @@ struct SV {
       state.busy = false;
       calStep(`${fmt(final)} particles`, 1);
       return final;
+    }
+    async function setParticles(n) {
+      if (state.phase !== "running") return;
+      state.perf.particles = n === "auto" ? null : n;
+      persist();
+      state.phase = "calibrating";
+      flash(n === "auto" ? "Measuring the GPU" : `${fmt(n)} particles`);
+      try {
+        await calibrate();
+      } catch (e) {
+        fail("Could not start the simulation", String(e.message || e));
+        return;
+      }
+      state.phase = "running";
+      renderWorld();
+      view.render();
+      flash("A new world begins");
     }
     function groups() {
       const out = { diet: {}, mobility: {}, body: {}, types: {} };
@@ -9110,7 +9191,7 @@ struct SV {
     });
     const spec = $("specimen");
     function specimenParams() {
-      if (!sel || !specimen.isOpen() || spView != null) return null;
+      if (!sel || !specimen.isOpen() || spView != null || !state.closeup) return null;
       const r = Math.min(devicePixelRatio || 1, 2);
       const w = Math.round(spec.clientWidth * r), h = Math.round(spec.clientHeight * r);
       if (!w || !h) return null;
@@ -9144,36 +9225,105 @@ struct SV {
       lab.toggle();
     });
     view = (() => {
-      const el = $("view"), opts = $("opts"), btn = $("view-open");
-      const choice = (id, title, key, items, cur, tip) => `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ""}</span><div class="row" role="group" aria-label="${title}">${items.map(([v, l]) => `<button type="button" class="chip" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}">${l}</button>`).join("")}</div></div>`;
+      const el = $("settings"), opts = $("opts"), btn = $("set-open"), tabs = [...el.querySelectorAll("#set-tabs [data-tab]")];
+      let tab = "display";
+      let pendingN = null;
+      const choice = (id, title, key, items, cur, tip) => `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ""}</span><div class="row" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? " disabled" : ""}>${l}</button>`).join("")}</div></div>`;
       const onoff = (id, title, key, on, tip) => choice(id, title, key, [[1, "On"], [0, "Off"]], on ? 1 : 0, tip);
+      const head = (t2) => `<div class="opt-h">${t2}</div>`;
+      const kfmt = (n) => n >= 1048576 ? `${n / 1048576}M` : `${Math.round(n / 1024)}k`;
+      function display() {
+        const s = eng.settings;
+        return choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? '<div class="ramp"><span>dark</span><i></i><span>full light</span></div>' : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe")) + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + (document.fullscreenEnabled && !isCoarse ? onoff("fs", "Full screen", "F", !!document.fullscreenElement) : "");
+      }
+      function performance_() {
+        const s = eng.settings, P = state.perf;
+        const dev = Math.min(devicePixelRatio || 1, 2);
+        const sizes = PARTICLE_SIZES.filter((n) => n <= maxParticles());
+        const nowN = pendingN ?? (P.particles || "auto");
+        return head("Resolution") + choice("scale", "Render scale", "", [["auto", "Auto"], [1, "100%"], [0.75, "75%"], [0.5, "50%"], [0.35, "35%"]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", "Auto lowest", "", [[0.75, "75%"], [0.5, "50%"], [0.35, "35%"], [0.25, "25%"]], P.floor, "autofloor") : "") + choice("density", "Pixel density", "", [[1, "1×"], [1.5, "1.5×", dev < 1.5], [2, "2×", dev < 2]], P.density, "density") + choice("fps", "Target fps", "", [[30, "30"], [60, "60"], [0, "Display"]], P.fps, "targetfps") + head("Effects") + onoff("bloom", "Bloom", "B", s.bloom > 0, "bloom") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("closeup", "Live close-up", "", state.closeup, "closeup") + head("World") + choice("n", "Particles", "", [["auto", "Auto"], ...sizes.map((n) => [n, kfmt(n)])], nowN, "particles") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === "auto" ? "a measured count" : fmt(pendingN)}</button></div>` : "");
+      }
       function render() {
         if (el.hidden) return;
-        const s = eng.settings;
-        opts.innerHTML = choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? '<div class="ramp"><span>dark</span><i></i><span>full light</span></div>' : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + onoff("bloom", "Bloom", "B", s.bloom > 0) + onoff("optics", "Optics", "O", s.optics > 0) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe")) + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + (document.fullscreenEnabled && !isCoarse ? onoff("fs", "Full screen", "F", !!document.fullscreenElement) : "");
+        tabs.forEach((b) => {
+          const on = b.dataset.tab === tab;
+          b.setAttribute("aria-selected", String(on));
+          b.tabIndex = on ? 0 : -1;
+        });
+        $("readout").hidden = tab !== "performance";
+        opts.innerHTML = tab === "display" ? display() : performance_();
+        readout(true);
+      }
+      let roAt = 0;
+      function readout(force) {
+        if (el.hidden || tab !== "performance") return;
+        const now = performance.now();
+        if (!force && now - roAt < 500) return;
+        roAt = now;
+        setText("ro-fps", perf.fps ? perf.fps.toFixed(0) : "–");
+        setText("ro-ms", perf.gpu ? perf.gpu.toFixed(1) : "–");
+        setText("ro-px", `${canvas.width}×${canvas.height}`);
+        setText("ro-n", fmt(eng.count));
       }
       function set(id, v) {
-        const s = eng.settings;
+        const s = eng.settings, P = state.perf;
         if (id === "trails") {
-          trailIdx = v;
-          s.trails = trailLevels[v];
-        } else if (id === "tide") s.tide = v;
-        else if (id === "currents") state.currents = !!v;
-        else if (id === "links") s.links = !!v;
-        else if (id === "nodes") s.nodes = !!v;
-        else if (id === "bloom") s.bloom = v ? 0.012 : 0;
-        else if (id === "optics") s.optics = v ? 1 : 0;
-        else if (id === "loupe") state.loupe = !!v;
+          trailIdx = +v;
+          s.trails = trailLevels[trailIdx];
+        } else if (id === "tide") s.tide = +v;
+        else if (id === "currents") state.currents = !!+v;
+        else if (id === "links") s.links = !!+v;
+        else if (id === "nodes") s.nodes = !!+v;
+        else if (id === "bloom") s.bloom = +v ? 0.012 : 0;
+        else if (id === "optics") s.optics = +v ? 1 : 0;
+        else if (id === "specks") s.specks = !!+v;
+        else if (id === "closeup") state.closeup = !!+v;
+        else if (id === "loupe") state.loupe = !!+v;
         else if (id === "auto") {
-          state.auto = !!v;
+          state.auto = !!+v;
           renderAuto(director.active);
         } else if (id === "fs") toggleFullscreen();
+        else if (id === "scale") {
+          P.scale = v === "auto" ? "auto" : +v;
+          if (P.scale !== "auto") renderScale = P.scale;
+          else renderScale = Math.max(renderScale, P.floor);
+          resetAdapt();
+          fit2();
+        } else if (id === "floor") {
+          P.floor = +v;
+          renderScale = Math.max(renderScale, P.floor);
+          resetAdapt();
+          fit2();
+        } else if (id === "density") {
+          P.density = +v;
+          resetAdapt();
+          fit2();
+        } else if (id === "fps") {
+          P.fps = +v;
+          resetAdapt();
+        } else if (id === "n") pendingN = v === "auto" ? "auto" : +v;
+        else if (id === "apply") {
+          const n = pendingN;
+          pendingN = null;
+          setParticles(n);
+        }
         persist();
         render();
       }
       opts.addEventListener("click", (e) => {
         const b = e.target.closest("[data-o]");
-        if (b) set(b.dataset.o, +b.dataset.v);
+        if (b && !b.disabled) set(b.dataset.o, b.dataset.v);
+      });
+      tabs.forEach((b) => b.addEventListener("click", () => {
+        tab = b.dataset.tab;
+        render();
+      }));
+      $("set-tabs").addEventListener("keydown", (e) => {
+        if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+        const n = tabs.find((b) => b.dataset.tab !== tab);
+        e.preventDefault();
+        n.click();
+        n.focus();
       });
       function toggle(on = el.hidden) {
         el.hidden = !on;
@@ -9182,11 +9332,11 @@ struct SV {
           $("help").hidden = true;
           if (phone()) lab.close();
           render();
-        }
+        } else pendingN = null;
       }
       btn.addEventListener("click", () => toggle());
-      $("view-close").addEventListener("click", () => toggle(false));
-      return { render, toggle, isOpen: () => !el.hidden };
+      $("set-close").addEventListener("click", () => toggle(false));
+      return { render, toggle, readout, isOpen: () => !el.hidden };
     })();
     function toggleFullscreen() {
       if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {
@@ -9504,20 +9654,33 @@ struct SV {
       const want = SPEEDS[state.speedIdx];
       const actual = state.paused ? "" : want === Infinity || perf.rate < want * 0.9 ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)} actual` : "";
       setText("t-rate", actual);
-      setText("sys", `${fmt(eng.count)} particles · ${perf.fps ? perf.fps.toFixed(0) : "–"} fps · ${perf.gpu ? perf.gpu.toFixed(1) : "–"} ms${renderScale < 1 ? ` · render ${Math.round(renderScale * 100)}%` : ""}`);
+      setText("sys-n", fmt(eng.count));
+      setText("sys-fps", perf.fps ? perf.fps.toFixed(0) : "–");
+      setText("sys-ms", perf.gpu ? perf.gpu.toFixed(1) : "–");
+      setText("sys-res", `${Math.round(renderScale * 100)}%`);
+      view.readout();
+    }
+    const frameTarget = () => Math.max(state.perf.fps ? 1e3 / state.perf.fps : 0, perf.rafMs || 16.7);
+    function resetAdapt() {
+      perf.frameDt.length = 0;
+      perf.goodWindows = 0;
+      perf.ceiling = 1;
+      perf.ceilingUntil = 0;
+      perf.lastAdjust = performance.now();
     }
     function adaptResolution(now) {
-      if (state.phase !== "running" || SPEEDS[state.speedIdx] > 1 || now - perf.lastAdjust < 2e3 || perf.frameDt.length < 30) return;
+      if (state.perf.scale !== "auto" || state.phase !== "running" || SPEEDS[state.speedIdx] > 1 || now - perf.lastAdjust < 2e3 || perf.frameDt.length < 30) return;
       const m = perf.frameDt.reduce((a, b) => a + b, 0) / perf.frameDt.length;
       perf.frameDt.length = 0;
       perf.lastAdjust = now;
-      if (m > 18.8 && renderScale > 0.5) {
+      const T = frameTarget(), floor = state.perf.floor;
+      if (m > T * 1.125 && renderScale > floor) {
         perf.ceiling = renderScale;
         perf.ceilingUntil = now + 3e4;
-        renderScale = Math.max(0.5, renderScale * clamp5(Math.sqrt(16.7 / m), 0.7, 0.9));
+        renderScale = Math.max(floor, renderScale * clamp5(Math.sqrt(T / m), 0.7, 0.9));
         perf.goodWindows = 0;
         fit2();
-      } else if (m < 17.2) {
+      } else if (m < T * 1.03) {
         perf.goodWindows++;
         const cap3 = now < perf.ceilingUntil ? perf.ceiling * 0.95 : 1;
         const next = Math.min(1, renderScale * 1.12, cap3);
@@ -9893,8 +10056,9 @@ struct SV {
     let inflight = 0;
     let stepAcc = 0;
     function plan() {
-      const s = SPEEDS[state.speedIdx];
+      const s0 = SPEEDS[state.speedIdx];
       if (state.paused || state.phase !== "running") return { steps: 1, dt: 1 / 60 };
+      const s = s0 === Infinity ? s0 : s0 * clamp5(Math.round(frameTarget() * 60 / 1e3 * 8) / 8, 0.125, 4);
       if (s <= 1) return { steps: 1, dt: s / 60 };
       const capN = perf.stepMs ? clamp5(Math.floor(MAX_FRAME_MS / perf.stepMs), 1, 512) : 1;
       if (s === Infinity) return { steps: capN, dt: 1 / 60 };
@@ -9903,10 +10067,17 @@ struct SV {
       stepAcc = Math.min(stepAcc - steps, 1);
       return { steps: Math.max(1, steps), dt: 1 / 60 };
     }
+    const rafDt = [];
     function frame2(now) {
       const dt = Math.min(100, now - last);
       last = now;
       frameCount++;
+      rafDt.push(dt);
+      if (rafDt.length >= 60) {
+        perf.rafMs = median(rafDt);
+        rafDt.length = 0;
+      }
+      const due = !state.perf.fps || !perf.lastSubmit || now - perf.lastSubmit >= 1e3 / state.perf.fps - 4;
       if (now - perf.fpsT > 500) {
         perf.fps = perf.frames * 1e3 / (now - perf.fpsT);
         perf.frames = 0;
@@ -9922,9 +10093,9 @@ struct SV {
         frameWaiters[i].res();
         frameWaiters.splice(i, 1);
       }
-      if (!state.busy && inflight < 3) {
+      if (!state.busy && inflight < 3 && due) {
         perf.frames++;
-        if (perf.lastSubmit) perf.frameDt.push(Math.min(50, now - perf.lastSubmit));
+        if (perf.lastSubmit) perf.frameDt.push(Math.min(Math.max(50, frameTarget() * 2.5), now - perf.lastSubmit));
         perf.lastSubmit = now;
         eng.season = seasonAt(eng.simTime);
         const step = plan();

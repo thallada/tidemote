@@ -62,6 +62,15 @@ export const GLOSSARY = {
   focus: 'A highlight: everything outside the chosen filter is dimmed in the simulation.',
   links: 'Bonds between cells of one multicellular body. Single-celled species never show links.',
   autoidle: 'Left alone for a minute (three with a panel open), the camera starts filming the world on its own. Drag, scroll or tap to take it back.',
+  renderscale: 'The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room; a fixed value never changes.',
+  autofloor: 'The lowest render scale Auto may drop to.',
+  density: 'The most device pixels drawn per CSS pixel. High-density (Retina) screens look sharper at 2× but cost up to four times the pixels of 1×. Readouts and outlines stay sharp either way.',
+  targetfps: 'Frames per second aimed for. 30 halves the GPU’s work and saves battery; Display follows the screen’s refresh rate (120 on many phones and Macs). Simulated time keeps pace with real time at any rate.',
+  bloom: 'A soft glow around bright cells. Several extra full-screen passes.',
+  optics: 'Microscope optics: depth haze and a vignette over the world. One extra full-screen pass.',
+  specks: 'The fine suspension that drifts between cells when zoomed far in. Drawn speck by speck; off saves a compute pass and a full-screen pass.',
+  closeup: 'The live close-up in the specimen panel: a second, small view of the world drawn every frame.',
+  particles: 'Every grain, husk and cell is one particle; their number is fixed for a world’s whole life. Auto measures the GPU and picks the most it can run smoothly. Changing it starts a new world.',
   loupe: 'A magnifier that follows the mouse when zoomed out. Clicks inside it select what is under the crosshair.',
   speed: 'Current speed, in grid cells per second.',
   diversity: 'Effective number of species: exp of the Shannon entropy of species populations. A world of 10 equally common species scores 10.',
@@ -90,7 +99,7 @@ export const GUIDE = [
     id: 'climate', title: 'Tides, light, seasons and eras', short: 'Climate',
     html: `<p>The ${t('tide', 'Tide')} is four slow waves summed over the torus; where they add up, bright bands form and drift. ${t('light', 'Light')} is a dim baseline everywhere plus the Tide on top. So tide bands are rich in both glint and light, while baseline light lets plants live anywhere.</p>
 <p>The ${t('season', 'season')} is a 5-minute cycle that swings tide strength between 10% and 100%; it drives the regular booms and busts. Every 10–18 minutes an ${t('era', 'era')} begins: the baseline light and glint production change, one tide wave is replaced so the bright zones form and move differently, and two current patterns are swapped. Era names are random labels; the event log says what actually changed.</p>
-<p><b>View → Light map</b> colours every point by the light a photosynthesising cell would receive there, with a contour every 10%; <b>View → Currents</b> draws the flow that carries silt, glint and drifting cells. The <b>Tide</b> gauge at the top follows the season: the dot rides the 5-minute wave.</p>`,
+<p><b>Settings → Light map</b> colours every point by the light a photosynthesising cell would receive there, with a contour every 10%; <b>Settings → Currents</b> draws the flow that carries silt, glint and drifting cells. The <b>Tide</b> gauge at the top follows the season: the dot rides the 5-minute wave.</p>`,
   },
   {
     id: 'cells', title: 'Cells, cell types and bodies', short: 'Cells',
@@ -149,7 +158,7 @@ export const GUIDE = [
 <li><b>Lab → Census</b>: the world broken down by matter, diet, movement, body and cell type. Choose a row to highlight it.</li>
 <li><b>Lab → Charts</b>: population, diversity, births, deaths, meals and climate over time, and the eras so far.</li>
 <li><b>Lab → Log</b>: every logged event, searchable.</li>
-<li><b>Auto</b>: the camera films the world on its own, with captions saying what it is showing; it also takes over after a minute alone (switch that off in View).</li>
+<li><b>Auto</b>: the camera films the world on its own, with captions saying what it is showing; it also takes over after a minute alone (switch that off in Settings).</li>
 </ul>`,
   },
 ];
