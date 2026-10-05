@@ -489,6 +489,7 @@ body.cursor-off, body.cursor-off * { cursor: none !important; }
   var META_CLAIM = META_ENERGY + 64;
   var P_BYTES = 40;
   var LOUPE_FIELD = 1.1;
+  var ORGANS = 12;
   var PICK_WORDS = 12;
   var G_BYTES = 192;
   var G_WORDS = 48;
@@ -628,6 +629,7 @@ const META_DEATH = ${META_DEATH}u;
 const META_ENERGY = ${META_ENERGY}u;
 const META_CLAIM = ${META_CLAIM}u;
 const TAU = 6.28318530718;
+const ORGANS = ${ORGANS}u;
 
 // Info: 0..3 cause, 4..5 role, 6..15 search image, 16..31 generation.
 struct Particle { pos: vec2f, vel: vec2f, kind: u32, energy: f32, age: f32, id: u32, col: u32, info: u32 };
@@ -645,6 +647,11 @@ struct Genome {
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
+fn renderHash(id: u32) -> f32 {
+  var h = id * 747796405u + 2891336453u;
+  h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
+  return f32((h >> 22u) ^ h) / 4294967296.0;
+}
 fn genOf(info: u32) -> u32 { return info >> 16u; }
 
 fn tideAt(p: vec2f, world: vec2f, t: f32, w: array<vec4f, 4>, ph: vec4f) -> f32 {
@@ -1870,6 +1877,16 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
       pack2x16float(squash), pack2x16float(rate));
   }
 }
+
+// Each species' organelles scatter in their own directions, the same in every cell: found once per
+// frame here rather than at every pixel of every cell (fsPoint).
+@group(0) @binding(9) var<storage, read_write> organDir: array<u32>;
+@compute @workgroup_size(64)
+fn organDirs(@builtin(global_invocation_id) gid: vec3u) {
+  if (gid.x >= MAXK * ORGANS) { return; }
+  let th = TAU * renderHash(genomes[gid.x / ORGANS].serial + (gid.x % ORGANS) * 1013u + 103u);
+  organDir[gid.x] = pack2x16snorm(vec2f(cos(th), sin(th)));
+}
 `;
   var DRAW_WGSL = "diagnostic(off, derivative_uniformity);\n" + COMMON + /* wgsl */
   `
@@ -1895,6 +1912,7 @@ struct View {
 // Each cell's bend along its path and squash from knocks (INBOND_WGSL contactGather), by ID.
 struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32 };
 @group(0) @binding(9) var<storage, read> sway: array<Sway>;
+@group(0) @binding(10) var<storage, read> organDir: array<u32>;
 
 fn kindOn(k: u32) -> bool { return ((focus[k >> 5u] >> (k & 31u)) & 1u) == 1u; }
 fn isMember(id: u32) -> bool {
@@ -1932,11 +1950,6 @@ fn detailLOD(radius: f32) -> f32 { return smoothstep(2.8, 6.0, radius); }
 fn bondLOD(radius: f32) -> f32 { return smoothstep(6.0, 30.0, radius); }
 fn interiorLOD(radius: f32) -> f32 { return smoothstep(12.0, 26.0, radius); }
 fn fineLOD(radius: f32) -> f32 { return smoothstep(30.0, 65.0, radius); }
-fn renderHash(id: u32) -> f32 {
-  var h = id * 747796405u + 2891336453u;
-  h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
-  return f32((h >> 22u) ^ h) / 4294967296.0;
-}
 fn cellGrain(v: vec2f, id: u32) -> f32 {
   let c = vec2i(floor(v));
   let t = fract(v);
@@ -2337,7 +2350,8 @@ struct PO {
       let inN = min(bondsIn[ii * 5u], 4u);
       var used = 0u;
       var picked = vec2u(NONE);
-      for (var c = 0u; c < 6u && used < 3u; c++) {
+      // (only from 6 px, where fsPoint starts drawing the fused neck)
+      for (var c = 0u; c < 6u && used < 3u && px >= 6.0; c++) {
         var index = NONE;
         if (c < 2u) { index = select(it.z, it.w, c == 1u); }
         else if (c - 2u < inN) { index = bondsIn[ii * 5u + c - 1u]; }
@@ -2435,7 +2449,9 @@ struct PO {
       if (j > 0u) {
         // The partner draws itself beyond our narrow union band. Owned pixels
         // need no further outlines or interior work.
-        if (lod <= 0.0 || membraneSD > 0.12 + aa) { break; }
+        // Deep inside, the union only darkens sd further where rim, wall and relief are all spent;
+        // below 6 px (vsPoint gathers no partners) the fused neck would be under a pixel wide.
+        if (lod <= 0.0 || i.geom.x < 6.0 || membraneSD > 0.12 + aa || membraneSD < -0.45) { break; }
         flags = (i.bondSeeds.y >> (5u * (j - 1u))) & 31u;
         if (flags == 31u) { break; }
         let offset = unpack2x16float(i.bondOffset[j - 1u]);
@@ -2464,12 +2480,28 @@ struct PO {
         sd = smoothUnion(sd, partnerSD, blend);
       }
     }
+    let resolved = smoothstep(0.7, 1.5, i.geom.x * 0.018) * fine;
+    let swimmer = resolved > 0.0 && g.swim > 0.05;
+    let hairRange = membraneSD < 0.035 + 4.0 * (0.018 + aa);
+    // Well clear of the membrane (contacts only cut the body back, and the partners were skipped out
+    // here) and of any hairs or tail, the pixel is empty: leave before the rest. The margin keeps
+    // whole 2x2 quads together wherever the outline's derivatives are used.
+    if (membraneSD > max(0.12, 0.035 + 4.0 * (0.018 + aa)) + 3.0 * aa) {
+      var tail = false;
+      if (swimmer) {
+        var motion = localPoint(i.uv / swell, i.geom.zw) * vec2f(1.0 / bodyAspect(s, g.swim, pace), bodyAspect(s, g.swim, pace));
+        motion.y -= bendShift(motion.x, bend);
+        tail = motion.x > -1.9 && motion.x < -0.6 && abs(motion.y) < 0.148 + aa;
+      }
+      if (!tail) { return vec4f(i.col * far * (1.0 - lod), 0.0); }
+    }
     // Flattened against the cells it presses on: a soft intersection with each contact plane. The
     // seam wanders a little, as pressed membranes do; the wander is taken in the world, so the two
-    // cells on either side of a seam agree on it.
+    // cells on either side of a seam agree on it. It is found only for a plane that can reach the
+    // pixel (the wander is at most 0.09).
     var pressed = -1.0;
-    let seamAt = (p.pos + i.uv * i.geom.x / view.ppu) * (6.0 / view.linkR);
-    let wander = 0.06 * cellGrain(seamAt, 0u) + 0.03 * cellGrain(seamAt * 2.7, 1u);
+    var wander = 0.0;
+    var wandered = false;
     for (var c = 0u; c < 6u; c++) {
       let foot = unpack2x16float(select(i.contact2[c % 3u], i.contact[c % 3u], c < 3u));
       var t = length(foot);
@@ -2478,7 +2510,14 @@ struct PO {
       let soft = select(0.16, 0.05, kin);
       let normal = foot / t;
       t -= select(4.0, 0.0, kin);
-      let plane = dot(i.uv, normal) - t + wander;
+      let level = dot(i.uv, normal) - t;
+      if (level + 0.09 < min(sd - soft, -0.15)) { continue; }
+      if (!wandered) {
+        let seamAt = (p.pos + i.uv * i.geom.x / view.ppu) * (6.0 / view.linkR);
+        wander = 0.06 * cellGrain(seamAt, 0u) + 0.03 * cellGrain(seamAt * 2.7, 1u);
+        wandered = true;
+      }
+      let plane = level + wander;
       pressed = max(pressed, plane);
       let h = max(soft - abs(sd - plane), 0.0) / soft;
       sd = max(sd, plane) + h * h * soft * 0.25;
@@ -2491,16 +2530,14 @@ struct PO {
     let lightQ = localPoint(TO_LIGHT, i.geom.zw);
     // Reconstruct motion only after the partner loop; no partner structs or
     // unneeded hair coordinates stay live across the organelle loop.
-    let resolved = smoothstep(0.7, 1.5, i.geom.x * 0.018) * fine;
     let aspect = bodyAspect(s, g.swim, pace);
-    let hairRange = membraneSD < 0.035 + 4.0 * (0.018 + aa);
     var tailRange = false;
-    if (body <= 0.0 && resolved > 0.0 && g.swim > 0.05 && !hairRange) {
+    if (body <= 0.0 && swimmer && !hairRange) {
       var motion = localPoint(i.uv / swell, i.geom.zw) * vec2f(1.0 / aspect, aspect);
       motion.y -= bendShift(motion.x, bend);
       tailRange = motion.x > -1.9 && motion.x < -0.6 && abs(motion.y) < 0.148 + aa;
     }
-    let appendages = resolved > 0.0 && g.swim > 0.05 && (body > 0.0 || hairRange || tailRange);
+    let appendages = swimmer && (body > 0.0 || hairRange || tailRange);
     if (body <= 0.0 && !appendages) { return vec4f(i.col * far * (1.0 - lod), 0.0); }
     // Flat cytoplasm is cheap at silhouette LOD. Detail is a small modulation of
     // that same normalised light, so there is no bright jump when the nucleus appears.
@@ -2557,44 +2594,48 @@ struct PO {
       // Fine structure is genuinely skipped at small and mid zoom, not merely faded.
       if (fine > 0.0) {
         detail += 0.08 * cellGrain(q * 60.0, p.id) * (0.25 + age) * fine;
-        for (var j = 0u; j < 12u; j++) {
+        for (var j = 0u; j < ORGANS; j++) {
           let h = renderHash(p.id + j * 1999u + 71u);
-          let th = TAU * renderHash(g.serial + j * 1013u + 103u);
+          // the species' own scatter direction for this organelle (organDirs, INBOND_WGSL)
+          let dir = unpack2x16snorm(organDir[p.kind * ORGANS + j]);
           // Irregular scatter is clipped by the tissue for holes, horns and chain cells.
-          var organCentre = vec2f(cos(th), sin(th)) * (0.22 + h * 0.51);
+          var organCentre = dir * (0.22 + h * 0.51);
           if (i.shape == 3u) {
             organCentre = vec2f(select(-0.39, 0.39, j % 2u == 0u), 0.0)
-              + vec2f(cos(th), sin(th)) * (0.12 + h * 0.18);
+              + dir * (0.12 + h * 0.18);
           } else if (i.shape == 5u || i.shape == 6u || i.shape == 11u) {
             let x = (h - 0.5) * 1.45;
-            organCentre = vec2f(x, sin(th) * (0.30 - abs(x) * 0.22));
+            organCentre = vec2f(x, dir.y * (0.30 - abs(x) * 0.22));
           } else if (i.shape == 7u) {
             let t = f32(j % 6u) / 5.0;
             let chamberAngle = t * 5.3 + s.y * 0.7;
             organCentre = vec2f(cos(chamberAngle), sin(chamberAngle)) * (0.12 + t * 0.36)
-              + vec2f(cos(th), sin(th)) * h * 0.14;
+              + dir * h * 0.14;
           } else if (i.shape == 8u) {
             organCentre = vec2f(0.16 + s.x * 0.30, 0.09)
-              + vec2f(cos(th), sin(th)) * (0.51 + h * 0.07);
+              + dir * (0.51 + h * 0.07);
           } else if (i.shape == 9u) {
-            organCentre = vec2f(0.2, 0.0) + vec2f(cos(th), sin(th)) * h * 0.39;
+            organCentre = vec2f(0.2, 0.0) + dir * h * 0.39;
           } else if (i.shape == 10u) {
             let x = (f32(j % 4u) - 1.5) * 0.40;
             organCentre = vec2f(x, 0.14 * sin(x * 5.0 + s.y * 5.0))
-              + vec2f(cos(th), sin(th)) * h * 0.13;
+              + dir * h * 0.13;
           }
           let oq = q - organCentre;
           let photo = smoothstep(f32(j), f32(j) + 1.0, clamp(g.photo, 0.0, 1.0) * 12.0);
+          let eat = (1.0 - g.photo * 0.65) * clamp(g.dGlint + g.dHusk + g.dFlesh, 0.0, 1.0);
+          let stored = smoothstep(h - 0.05, h + 0.05, eat * 0.7);
+          // neither a chloroplast nor a vacuole here, or this pixel is beyond either's reach
+          if ((photo <= 0.0 && stored <= 0.0) || dot(oq, oq) > 0.36 * 0.36) { continue; }
           let chl = length(oq * vec2f(1.0, 1.5 + h));
           let oDir = dot(oq / max(length(oq), 1e-4), lightQ);
           relief += photo * 0.35 * exp(-pow((chl - 0.05) / 0.03, 2.0)) * oDir * fine;
           detail += photo * (-0.35 * (1.0 - smoothstep(0.04, 0.07 + aa, chl))
             + 0.12 * exp(-pow((chl - 0.085) / (0.012 + aa), 2.0))) * fine;
-          let eat = (1.0 - g.photo * 0.65) * clamp(g.dGlint + g.dHusk + g.dFlesh, 0.0, 1.0);
           let vr = length(oq + vec2f(0.04, 0.05));
           // vacuoles are hollows: shadowed on the side toward the light
-          relief -= smoothstep(h - 0.05, h + 0.05, eat * 0.7) * fine * 0.3 * exp(-pow((vr - 0.05) / 0.03, 2.0)) * oDir;
-          detail += smoothstep(h - 0.05, h + 0.05, eat * 0.7) * fine
+          relief -= stored * fine * 0.3 * exp(-pow((vr - 0.05) / 0.03, 2.0)) * oDir;
+          detail += stored * fine
             * (0.18 * exp(-pow((vr - 0.06 - h * 0.025) / (0.012 + aa), 2.0))
               - 0.10 * (1.0 - smoothstep(0.03, 0.06 + aa, vr)));
         }
@@ -2876,10 +2917,9 @@ struct StoneOut { @location(0) col: vec4f, @location(1) surf: vec4f };
 }
 @fragment fn fsFade() -> @location(0) vec4f { return vec4f(0.0); }
 `;
-  var POST_WGSL = "diagnostic(off, derivative_uniformity);\n" + COMMON + /* wgsl */
-  `
-override MICRO_SUSPENSION: bool = true;
-const LOUPE_FIELD = ${LOUPE_FIELD};
+  var POST_STRUCT = (
+    /* wgsl */
+    `
 struct Post {
   res: vec2f, bloom: f32, exposure: f32,
   time: f32, season: f32, tideVis: f32, ppu: f32,
@@ -2889,7 +2929,153 @@ struct Post {
   tidePh: vec4f,
   waves: array<vec4f, 4>,
 };
-struct Loupe { center: vec2f, radius: f32, strength: f32, res: vec2f, ppu: f32, p1: f32 };
+`
+  );
+  var MICRO_FNS = (
+    /* wgsl */
+    `
+// Same four divergence-free waves as matter's flowAt, including phase/time.
+fn postFlowAt(p: vec2f, time: f32) -> vec2f {
+  var v = vec2f(0.0);
+  for (var k = 0u; k < 4u; k++) {
+    let w = post.waves[k];
+    let ph = dot(w.xy, p) + w.z * time + f32(k) * 1.7;
+    v += vec2f(w.y, -w.x) * (cos(ph) * w.w / max(length(w.xy), 1e-4));
+  }
+  return v;
+}
+
+// Four decorrelated hash channels in one inexpensive vector hash.
+fn microHash(p: vec2f) -> vec4f {
+  var h = fract(vec4f(p.xy, p.xy + vec2f(19.19, 73.73)) * vec4f(0.1031, 0.1030, 0.0973, 0.1099));
+  h += dot(h, h.wzxy + 33.33);
+  return fract((h.xxyz + h.yzzw) * h.zywx);
+}
+
+fn microNoise(p: vec2f, period: vec2f) -> vec3f {
+  let cell = floor(p);
+  let f = fract(p);
+  let u = f * f * (3.0 - 2.0 * f);
+  let a = cell - period * floor(cell / period);
+  let b = (cell + 1.0) - period * floor((cell + 1.0) / period);
+  return mix(mix(microHash(a).xyz, microHash(vec2f(b.x, a.y)).xyz, u.x),
+    mix(microHash(vec2f(a.x, b.y)).xyz, microHash(b).xyz, u.x), u.y);
+}
+
+// Each body family's stroke width relative to its r (microBody's per-family width), as a select
+// chain: a dynamically indexed local array lands in stack memory on some GPUs.
+fn microWidth(family: u32) -> f32 {
+  return select(select(select(0.42, 0.36, family == 1u), select(0.22, 0.7, family == 3u), family >= 2u),
+    select(select(0.2, 1.0, family == 5u), select(1.0, 0.4, family == 7u), family >= 6u), family >= 4u);
+}
+
+fn microBody(local: vec2f, h: vec4f, spacing: f32, ppu: f32, depth: f32, abundance: f32) -> vec4f {
+  let t = post.simTime;
+  let size = mix(0.55, 1.55, h.w);
+  var q = local / size;
+  let resolved = smoothstep(0.6, 1.6, spacing * size * 0.075 * ppu);
+  if (resolved <= 0.0) { return vec4f(0.0); }
+  let aa = 0.65 / (spacing * size * ppu);
+  let tint = vec3f(0.018, 0.023, 0.025) * mix(0.7, 1.15, h.w);
+  if (depth < 1.0) {
+    // A separate soft plane: large discs and elongated smudges, with broad
+    // focus falloff. It pans and follows the water at 72% of the in-focus plane.
+    let stretch = mix(1.0, 1.6, h.z);
+    let d = length(q * vec2f(stretch, 1.0));
+    let soft = 1.0 - smoothstep(0.02, 0.21 + min(aa, 0.025), d);
+    let halo = smoothstep(0.01, 0.08, d) * (1.0 - smoothstep(0.08, 0.23, d));
+    let glow = (soft * soft * 0.28 + halo * 0.23) * abundance * resolved;
+    return vec4f(tint * glow, soft * soft * 0.1 * abundance * resolved);
+  }
+  let family = u32(h.z * 8.0);
+  let r = 0.05 + h.y * 0.025;
+  // Avoid shape/trigonometric work for individual unresolved objects, even
+  // when a larger sibling in this octave can already be seen.
+  if (r * microWidth(family) * spacing * size * ppu <= 0.45) { return vec4f(0.0); }
+  let tumble = 0.9 * smoothstep(0.78, 0.98, sin(t * 0.17 + h.x * TAU));
+  let angle = h.x * TAU + t * (h.y - 0.5) * 0.08 + tumble;
+  let axis = vec2f(cos(angle), sin(angle));
+  q = vec2f(dot(q, axis), dot(q, vec2f(-axis.y, axis.x)));
+  var sdf = 0.0;
+  var width = r;
+  var haloWidth = r * 0.45;
+  var body = 0.13;
+  if (family == 0u) {
+    // Rods: a translucent body inside a phase-contrast halo.
+    sdf = length(vec2f(max(abs(q.x) - 0.075, 0.0), q.y)) - r * 0.42;
+    width = r * 0.42;
+  } else if (family == 1u) {
+    // Pairs and chains of 3–6 cocci. Closest bead analytically, no bead loop.
+    let count = select(3.0 + floor(h.y * 4.0), 2.0, h.x < 0.25);
+    let mid = (count - 1.0) * 0.5;
+    let bead = clamp(round(q.x / 0.058 + mid), 0.0, count - 1.0);
+    let beadY = 0.012 * sin(bead * 1.4 + h.y * TAU);
+    sdf = length(q - vec2f((bead - mid) * 0.058, beadY)) - r * 0.36;
+    width = r * 0.36;
+  } else if (family == 2u) {
+    // Spirillum: a short, gently flexing helix stroke.
+    let bend = 0.035 * sin(q.x * 42.0 + t * 0.6 + h.x * TAU);
+    sdf = max(abs(q.y - bend) - r * 0.22, abs(q.x) - 0.16);
+    width = r * 0.22;
+  } else if (family == 3u) {
+    // Tiny flagellate and its wiggling hair; the head determines its LOD.
+    let head = length(q - vec2f(-0.07, 0.0)) - r * 0.7;
+    let bend = 0.025 * sin((q.x + 0.07) * 33.0 - t * 2.0) * smoothstep(-0.07, 0.02, q.x);
+    let hair = max(abs(q.y - bend) - r * 0.12, abs(q.x - 0.045) - 0.115);
+    sdf = min(head, hair);
+    width = r * 0.7;
+  } else if (family == 4u) {
+    // Long, bent mucilage / fibre with uneven thickness.
+    let bend = 0.032 * sin(q.x * 21.0 + h.x * TAU) + 0.01 * sin(q.x * 53.0 + t * 0.2);
+    sdf = max(abs(q.y - bend) - r * (0.18 + 0.05 * cos(q.x * 37.0)), abs(q.x) - 0.20);
+    width = r * 0.2;
+    body = 0.22;
+  } else if (family == 5u) {
+    sdf = max(abs(q.x) * 0.8 + abs(q.y) * 0.65, abs(q.y - q.x * 0.4)) - r;
+    body = 0.18;
+  } else if (family == 6u) {
+    // Flocculent fleck: three overlapping, irregular lobes.
+    sdf = min(length(q - vec2f(-0.027, -0.012)) - r * 0.8,
+      min(length(q - vec2f(0.032, 0.005)) - r * 0.7, length(q - vec2f(0.0, 0.04)) - r * 0.65));
+    body = 0.23;
+  } else {
+    // Bubble: a thin bright rim around a nearly clear, slightly darker core.
+    sdf = length(q) - r * 1.25;
+    width = r * 0.4;
+    haloWidth = r * 0.14;
+    body = 0.015;
+  }
+  let visible = resolved * smoothstep(0.45, 1.3, width * spacing * size * ppu) * abundance;
+  let core = 1.0 - smoothstep(-aa, aa, sdf);
+  let rim = 1.0 - smoothstep(aa * 0.5, aa + haloWidth, abs(sdf));
+  return vec4f(tint * (core * body + rim * 0.85), core * 0.24) * visible;
+}
+
+// One octave's slot lattice. Integer torus winding vectors keep the irrational-angle lattice
+// seamless across world wraps; inverse maps a slot back to its canonical hash address.
+struct MicroLattice { lattice: mat2x2f, inverse: mat2x2f, world: vec2f, patchCells: vec2f, offset: vec2f };
+fn microLattice(spacing: f32, octave: f32, depth: f32) -> MicroLattice {
+  let world = post.world * depth;
+  let theta = 0.618033989 + octave * 2.39996323;
+  let axis = vec2f(cos(theta), sin(theta));
+  let row0 = round(axis * world / spacing);
+  let row1 = round((vec2f(-axis.y, axis.x) + axis * 0.37) * world / spacing);
+  var L: MicroLattice;
+  L.lattice = mat2x2f(vec2f(row0.x, row1.x), vec2f(row0.y, row1.y));
+  let det = row0.x * row1.y - row0.y * row1.x;
+  L.inverse = mat2x2f(vec2f(row1.y, -row1.x) / det, vec2f(-row0.y, row0.x) / det);
+  L.world = world;
+  L.patchCells = max(vec2f(1.0), round(world / vec2f(0.21, 0.38)));
+  L.offset = vec2f(octave * 17.3, octave * 9.7);
+  return L;
+}
+`
+  );
+  var POST_WGSL = "diagnostic(off, derivative_uniformity);\n" + COMMON + /* wgsl */
+  `
+override MICRO_SUSPENSION: bool = true;
+const LOUPE_FIELD = ${LOUPE_FIELD};
+${POST_STRUCT}struct Loupe { center: vec2f, radius: f32, strength: f32, res: vec2f, ppu: f32, p1: f32 };
 // Prefix of DRAW's View: reuse the inspection cameras, without another buffer.
 struct MicroView { cam: vec2f, world: vec2f, res: vec2f, ppu: f32, pointSize: f32 };
 struct Reproj { scale: vec2f, shift: vec2f, k: f32, p0: f32, p1: f32, p2: f32 };
@@ -2903,6 +3089,7 @@ struct Reproj { scale: vec2f, shift: vec2f, k: f32, p0: f32, p1: f32, p2: f32 };
 @group(0) @binding(7) var stoneTex: texture_2d<f32>;
 @group(0) @binding(8) var stoneTop: texture_2d<f32>;
 @group(0) @binding(9) var murkTex: texture_2d<f32>;
+@group(0) @binding(10) var microTex: texture_2d<f32>;
 
 struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 
@@ -3008,136 +3195,21 @@ fn hash12(p: vec2f) -> f32 {
   return fract((p3.x + p3.y) * p3.z);
 }
 
-// Same four divergence-free waves as matter's flowAt, including phase/time.
-fn postFlowAt(p: vec2f, time: f32) -> vec2f {
-  var v = vec2f(0.0);
-  for (var k = 0u; k < 4u; k++) {
-    let w = post.waves[k];
-    let ph = dot(w.xy, p) + w.z * time + f32(k) * 1.7;
-    v += vec2f(w.y, -w.x) * (cos(ph) * w.w / max(length(w.xy), 1e-4));
-  }
-  return v;
-}
-
-// Four decorrelated hash channels in one inexpensive vector hash.
-fn microHash(p: vec2f) -> vec4f {
-  var h = fract(vec4f(p.xy, p.xy + vec2f(19.19, 73.73)) * vec4f(0.1031, 0.1030, 0.0973, 0.1099));
-  h += dot(h, h.wzxy + 33.33);
-  return fract((h.xxyz + h.yzzw) * h.zywx);
-}
-
-fn microNoise(p: vec2f, period: vec2f) -> vec3f {
-  let cell = floor(p);
-  let f = fract(p);
-  let u = f * f * (3.0 - 2.0 * f);
-  let a = cell - period * floor(cell / period);
-  let b = (cell + 1.0) - period * floor((cell + 1.0) / period);
-  return mix(mix(microHash(a).xyz, microHash(vec2f(b.x, a.y)).xyz, u.x),
-    mix(microHash(vec2f(a.x, b.y)).xyz, microHash(b).xyz, u.x), u.y);
-}
-
-fn microBody(local: vec2f, h: vec4f, spacing: f32, ppu: f32, depth: f32, abundance: f32) -> vec4f {
-  let t = post.simTime;
-  let size = mix(0.55, 1.55, h.w);
-  var q = local / size;
-  let resolved = smoothstep(0.6, 1.6, spacing * size * 0.075 * ppu);
-  if (resolved <= 0.0) { return vec4f(0.0); }
-  let aa = 0.65 / (spacing * size * ppu);
-  let tint = vec3f(0.018, 0.023, 0.025) * mix(0.7, 1.15, h.w);
-  if (depth < 1.0) {
-    // A separate soft plane: large discs and elongated smudges, with broad
-    // focus falloff. It pans and follows the water at 72% of the in-focus plane.
-    let stretch = mix(1.0, 1.6, h.z);
-    let d = length(q * vec2f(stretch, 1.0));
-    let soft = 1.0 - smoothstep(0.02, 0.21 + min(aa, 0.025), d);
-    let halo = smoothstep(0.01, 0.08, d) * (1.0 - smoothstep(0.08, 0.23, d));
-    let glow = (soft * soft * 0.28 + halo * 0.23) * abundance * resolved;
-    return vec4f(tint * glow, soft * soft * 0.1 * abundance * resolved);
-  }
-  let family = u32(h.z * 8.0);
-  let r = 0.05 + h.y * 0.025;
-  let widths = array<f32, 8>(0.42, 0.36, 0.22, 0.7, 0.2, 1.0, 1.0, 0.4);
-  // Avoid shape/trigonometric work for individual unresolved objects, even
-  // when a larger sibling in this octave can already be seen.
-  if (r * widths[family] * spacing * size * ppu <= 0.45) { return vec4f(0.0); }
-  let tumble = 0.9 * smoothstep(0.78, 0.98, sin(t * 0.17 + h.x * TAU));
-  let angle = h.x * TAU + t * (h.y - 0.5) * 0.08 + tumble;
-  let axis = vec2f(cos(angle), sin(angle));
-  q = vec2f(dot(q, axis), dot(q, vec2f(-axis.y, axis.x)));
-  var sdf = 0.0;
-  var width = r;
-  var haloWidth = r * 0.45;
-  var body = 0.13;
-  if (family == 0u) {
-    // Rods: a translucent body inside a phase-contrast halo.
-    sdf = length(vec2f(max(abs(q.x) - 0.075, 0.0), q.y)) - r * 0.42;
-    width = r * 0.42;
-  } else if (family == 1u) {
-    // Pairs and chains of 3–6 cocci. Closest bead analytically, no bead loop.
-    let count = select(3.0 + floor(h.y * 4.0), 2.0, h.x < 0.25);
-    let mid = (count - 1.0) * 0.5;
-    let bead = clamp(round(q.x / 0.058 + mid), 0.0, count - 1.0);
-    let beadY = 0.012 * sin(bead * 1.4 + h.y * TAU);
-    sdf = length(q - vec2f((bead - mid) * 0.058, beadY)) - r * 0.36;
-    width = r * 0.36;
-  } else if (family == 2u) {
-    // Spirillum: a short, gently flexing helix stroke.
-    let bend = 0.035 * sin(q.x * 42.0 + t * 0.6 + h.x * TAU);
-    sdf = max(abs(q.y - bend) - r * 0.22, abs(q.x) - 0.16);
-    width = r * 0.22;
-  } else if (family == 3u) {
-    // Tiny flagellate and its wiggling hair; the head determines its LOD.
-    let head = length(q - vec2f(-0.07, 0.0)) - r * 0.7;
-    let bend = 0.025 * sin((q.x + 0.07) * 33.0 - t * 2.0) * smoothstep(-0.07, 0.02, q.x);
-    let hair = max(abs(q.y - bend) - r * 0.12, abs(q.x - 0.045) - 0.115);
-    sdf = min(head, hair);
-    width = r * 0.7;
-  } else if (family == 4u) {
-    // Long, bent mucilage / fibre with uneven thickness.
-    let bend = 0.032 * sin(q.x * 21.0 + h.x * TAU) + 0.01 * sin(q.x * 53.0 + t * 0.2);
-    sdf = max(abs(q.y - bend) - r * (0.18 + 0.05 * cos(q.x * 37.0)), abs(q.x) - 0.20);
-    width = r * 0.2;
-    body = 0.22;
-  } else if (family == 5u) {
-    sdf = max(abs(q.x) * 0.8 + abs(q.y) * 0.65, abs(q.y - q.x * 0.4)) - r;
-    body = 0.18;
-  } else if (family == 6u) {
-    // Flocculent fleck: three overlapping, irregular lobes.
-    sdf = min(length(q - vec2f(-0.027, -0.012)) - r * 0.8,
-      min(length(q - vec2f(0.032, 0.005)) - r * 0.7, length(q - vec2f(0.0, 0.04)) - r * 0.65));
-    body = 0.23;
-  } else {
-    // Bubble: a thin bright rim around a nearly clear, slightly darker core.
-    sdf = length(q) - r * 1.25;
-    width = r * 0.4;
-    haloWidth = r * 0.14;
-    body = 0.015;
-  }
-  let visible = resolved * smoothstep(0.45, 1.3, width * spacing * size * ppu) * abundance;
-  let core = 1.0 - smoothstep(-aa, aa, sdf);
-  let rim = 1.0 - smoothstep(aa * 0.5, aa + haloWidth, abs(sdf));
-  return vec4f(tint * (core * body + rim * 0.85), core * 0.24) * visible;
-}
-
+${MICRO_FNS}
 // Random 0–3 objects per slot, full-extent centres and a 2x2 nearest-slot
 // lookup. Rotation, shear, continuous sizes and clumpy domain warping erase
 // the grid. Integer torus winding vectors preserve the irrational-angle
 // lattice across world wraps; inverse mapping canonicalises hash addresses.
 fn microGrain(wp: vec2f, spacing: f32, ppu: f32, octave: f32, depth: f32, cycle: f32) -> vec4f {
   if (spacing * 1.55 * 0.075 * ppu <= 0.6) { return vec4f(0.0); }
-  let world = post.world * depth;
-  let theta = 0.618033989 + octave * 2.39996323;
-  let axis = vec2f(cos(theta), sin(theta));
-  let row0 = round(axis * world / spacing);
-  let row1 = round((vec2f(-axis.y, axis.x) + axis * 0.37) * world / spacing);
-  let lattice = mat2x2f(vec2f(row0.x, row1.x), vec2f(row0.y, row1.y));
-  let det = row0.x * row1.y - row0.y * row1.x;
-  let inverse = mat2x2f(vec2f(row1.y, -row1.x) / det, vec2f(-row0.y, row0.x) / det);
-  let patchCells = max(vec2f(1.0), round(world / vec2f(0.21, 0.38)));
-  let noise = microNoise(wp / world * patchCells, patchCells);
+  let L = microLattice(spacing, octave, depth);
+  let world = L.world;
+  let lattice = L.lattice;
+  let inverse = L.inverse;
+  let noise = microNoise(wp / world * L.patchCells, L.patchCells);
   let density = smoothstep(0.18, 0.82, noise.z);
   let abundance = mix(0.45, 1.0, density);
-  let p = lattice * (wp / world) + (noise.xy - 0.5) * 1.3 + vec2f(octave * 17.3, octave * 9.7);
+  let p = lattice * (wp / world) + (noise.xy - 0.5) * 1.3 + L.offset;
   let base = floor(p - 0.5);
   var grains = vec4f(0.0);
   for (var y = 0; y < 2; y++) {
@@ -3316,6 +3388,23 @@ fn tonemap(hdrIn: vec3f) -> vec3f {
   return c;
 }
 
+// The main view's micro-suspension, drawn speck by speck into microTex (MICRO_WGSL) and laid over
+// the image here as pondMicro does: behind what is lit, embossed toward the light.
+fn pondSpecks(c: vec3f, hdr: vec3f, pos: vec2f) -> vec3f {
+  if (!MICRO_SUSPENSION) { return c; }
+  let start = max(80.0, 2.0 * max(post.res.x / post.world.x, post.res.y / post.world.y));
+  if (post.ppu <= start) { return c; }
+  let reveal = smoothstep(start, start * 2.0, post.ppu);
+  let last = vec2i(textureDimensions(microTex)) - 1;
+  let ip = min(vec2i(pos), last);
+  let grains = textureLoad(microTex, ip, 0);
+  let ax = textureLoad(microTex, min(ip + vec2i(1, 0), last), 0).a;
+  let ay = textureLoad(microTex, min(ip + vec2i(0, 1), last), 0).a;
+  let behind = reveal / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
+  let emboss = -dot(vec2f(ax - grains.a, ay - grains.a), TO_LIGHT);
+  return max(vec3f(0.0), c * (1.0 - grains.a * behind) + (grains.rgb + vec3f(0.006, 0.0065, 0.007) * emboss) * behind);
+}
+
 @fragment fn fsComposite(i: VO) -> @location(0) vec4f {
   let k = post.optics;
   let q = (i.pos.xy - post.res * 0.5) / (post.res.y * 0.5);
@@ -3350,7 +3439,7 @@ fn tonemap(hdrIn: vec3f) -> vec3f {
   let behind = 1.0 / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
   bg = mix(bg, bg * mix(vec3f(0.85, 0.88, 0.94), vec3f(1.12, 1.06, 1.0), lamp), k) + vec3f(0.0045, 0.004, 0.0015) * m * behind;
   c = c * mix(0.72, 1.0, v) * mix(1.0, mix(0.88, 1.05, lamp), k) + bg;
-  c = pondMicro(c, hdr, post.cam, i.pos.xy - post.res * 0.5, post.ppu, post.ppu, m);
+  c = pondSpecks(c, hdr, i.pos.xy);
   // the round field stop of the eyepiece clips the corners of the camera's frame
   let corner = length(vec2f(post.res.x / post.res.y, 1.0));
   c *= mix(1.0, 1.0 - 0.85 * smoothstep(corner * 0.78, corner * 1.02, length(q)), k);
@@ -3440,6 +3529,116 @@ fn loupeScene(r: vec2f) -> vec3f {
   var c = tonemap(hdr) + vec3f(0.006, 0.005, 0.012);
   c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0);
   return vec4f(pow(c, vec3f(1.0 / 2.2)), 1.0);
+}
+`;
+  var MICRO_SPECKS = 262144;
+  var MICRO_WGSL = COMMON + POST_STRUCT + /* wgsl */
+  `
+struct MicroU {
+  lists: array<vec4i, 6>, // first slot x, y; slots across, down
+  phases: array<vec4f, 6>, // phase weight, tau, cycle, octave
+  start: array<vec4u, 2>, // first thread of each list
+  total: u32, nLists: u32, ppu: f32, cap: u32,
+  res: vec2f, cam: vec2f,
+};
+// center and quad axes in pixels; extent: the quad's half-size in slot units; gain: weight × abundance × occupancy
+struct Speck { center: vec2f, ax: vec2f, ay: vec2f, extent: f32, gain: f32, h: vec4f, spacing: f32, depth: f32, p0: f32, p1: f32 };
+@group(0) @binding(0) var<uniform> post: Post;
+@group(0) @binding(1) var<uniform> mu: MicroU;
+@group(0) @binding(2) var<storage, read_write> specks: array<Speck>;
+@group(0) @binding(3) var<storage, read_write> args: array<atomic<u32>, 4>;
+@group(0) @binding(4) var<storage, read> specksR: array<Speck>;
+@group(0) @binding(5) var samp: sampler;
+@group(0) @binding(6) var murkTex: texture_2d<f32>;
+${MICRO_FNS}
+// how far the current carries a speck over tau seconds (pondMicro's backtrace)
+fn backtrace(wp: vec2f, tau: f32) -> vec2f {
+  let velocity = postFlowAt(wp, post.simTime);
+  return postFlowAt(wp - velocity * (tau * 0.5), post.simTime - tau * 0.5) * tau;
+}
+
+@compute @workgroup_size(64) fn microSpecks(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nw: vec3u) {
+  let id = gid.x + gid.y * nw.x * 64u;
+  if (id >= mu.total) { return; }
+  var k = 0u;
+  for (var j = 1u; j < mu.nLists; j++) { if (id >= mu.start[j / 4u][j % 4u]) { k = j; } }
+  let list = mu.lists[k];
+  let ph = mu.phases[k];
+  let local = id - mu.start[k / 4u][k % 4u];
+  let slot = vec2f(f32(list.x + i32(local % u32(list.z))), f32(list.y + i32(local / u32(list.z))));
+  let octave = ph.w;
+  let tau = ph.y;
+  let cycle = ph.z;
+  let spacing = select(select(0.008, 0.035, octave < 1.5), 0.055, octave < 0.5);
+  let depth = select(1.0, 0.72, octave < 0.5);
+  let ppu = mu.ppu;
+  let L = microLattice(spacing, octave, depth);
+  let canonical = round(slot - L.lattice * floor(L.inverse * slot + 0.000001));
+  let seed = canonical + vec2f(octave * 71.0 + cycle * 37.1, cycle * 91.7);
+  let count = u32(microHash(seed).w * 3.999);
+  for (var object = 0u; object < count; object++) {
+    let h = microHash(seed + f32(object) * vec2f(123.3, 217.7) + 13.7);
+    // microBody's own culls, which depend only on the object and the zoom
+    let size = mix(0.55, 1.55, h.w);
+    if (smoothstep(0.6, 1.6, spacing * size * 0.075 * ppu) <= 0.0) { continue; }
+    if (depth >= 1.0 && (0.05 + h.y * 0.025) * microWidth(u32(h.z * 8.0)) * spacing * size * ppu <= 0.45) { continue; }
+    // Where the body floats: its lattice point, displaced by the domain warp and then carried by the
+    // current. Each term is smooth in time, so a speck glides; generations fade in and out (weight).
+    let jitter = 0.012 * sin(vec2f(post.simTime * 0.53, post.simTime * 0.41) + h.yz * TAU);
+    let home = L.world * (L.inverse * (slot + h.xy + jitter - L.offset));
+    let n = microNoise(home / L.world * L.patchCells, L.patchCells);
+    let density = smoothstep(0.18, 0.82, n.z);
+    let occupied = smoothstep(h.w - 0.12, h.w + 0.12, density) * density;
+    if (occupied <= 0.0) { continue; }
+    let xin = home - L.world * (L.inverse * ((n.xy - 0.5) * 1.3));
+    let wp = xin + mu.cam * (1.0 - depth) + backtrace(xin, tau) * depth;
+    let Ji = mat2x2f(L.inverse[0] * L.world, L.inverse[1] * L.world);
+    // the body reaches about 0.25 of its size in q, plus its antialiasing; pondMicro skips slots beyond 0.5
+    let aa = 0.65 / (spacing * size * ppu);
+    let extent = min((0.26 + 1.2 * aa) * size, 0.52);
+    var sp: Speck;
+    sp.center = (wp - mu.cam) * ppu + mu.res * 0.5;
+    sp.ax = Ji[0] * (extent * ppu);
+    sp.ay = Ji[1] * (extent * ppu);
+    let reach = abs(sp.ax) + abs(sp.ay);
+    if (any(sp.center + reach < vec2f(0.0)) || any(sp.center - reach > mu.res)) { continue; }
+    sp.extent = extent;
+    sp.gain = mix(0.45, 1.0, density) * occupied * ph.x;
+    sp.h = h;
+    sp.spacing = spacing;
+    sp.depth = depth;
+    let at = atomicAdd(&args[1], 1u);
+    if (at < mu.cap) { specks[at] = sp; }
+  }
+}
+
+struct SV {
+  @builtin(position) pos: vec4f,
+  @location(0) q: vec2f,
+  @location(1) @interpolate(flat) h: vec4f,
+  @location(2) @interpolate(flat) misc: vec3f, // spacing, depth, gain
+};
+@vertex fn vsSpeck(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> SV {
+  var o: SV;
+  o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
+  if (ii >= mu.cap) { return o; }
+  let s = specksR[ii];
+  let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
+  let px = s.center + s.ax * corner.x + s.ay * corner.y;
+  o.pos = vec4f(px.x / mu.res.x * 2.0 - 1.0, 1.0 - px.y / mu.res.y * 2.0, 0.0, 1.0);
+  o.q = corner * s.extent;
+  o.h = s.h;
+  o.misc = vec3f(s.spacing, s.depth, s.gain);
+  return o;
+}
+@fragment fn fsSpeck(i: SV) -> @location(0) vec4f {
+  let j = 0.012 * sin(vec2f(post.simTime * 0.53, post.simTime * 0.41) + i.h.yz * TAU);
+  let qp = i.q + j;
+  if (dot(qp, qp) > 0.25) { return vec4f(0.0); }
+  var g = microBody(i.q, i.h, i.misc.x, mu.ppu, i.misc.y, i.misc.z);
+  // the soft plane lies below the mud, which veils it
+  if (i.misc.y < 1.0) { g *= 1.0 - 0.6 * textureSampleLevel(murkTex, samp, i.pos.xy / mu.res, 0.0).r * post.optics; }
+  return g;
 }
 `;
 
@@ -4248,6 +4447,8 @@ fn loupeScene(r: vec2f) -> vec3f {
       b.inbondU = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
       const inbond = d.createShaderModule({ code: INBOND_WGSL, label: "inbond" });
       this.cpInbond = ["inbondReset", "inbondGather", "contactGather"].map((entryPoint) => d.createComputePipeline({ layout: "auto", compute: { module: inbond, entryPoint }, label: entryPoint }));
+      this.cpOrgans = d.createComputePipeline({ layout: "auto", compute: { module: inbond, entryPoint: "organDirs" }, label: "organDirs" });
+      b.organDir = d.createBuffer({ size: MAXK * ORGANS * 4, usage: U.STORAGE });
       this.postModule = d.createShaderModule({ code: POST_WGSL, label: "post" });
       const cp = (mod, entryPoint) => d.createComputePipeline({ layout: "auto", compute: { module: mod, entryPoint }, label: entryPoint });
       this.cpDefs = {
@@ -4309,10 +4510,23 @@ fn loupeScene(r: vec2f) -> vec3f {
       this.trackStage = [0, 1, 2, 3, 4, 5, 6, 7].map(() => ({ buf: d.createBuffer({ size: 56, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
       b.reprojU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
       this.pReproj = rp(this.postModule, "vsFull", "fsReproj", "triangle-list", void 0);
+      this.microModule = d.createShaderModule({ code: MICRO_WGSL, label: "micro" });
+      this.cpMicro = d.createComputePipeline({ layout: "auto", compute: { module: this.microModule, entryPoint: "microSpecks" }, label: "microSpecks" });
+      this.pSpeck = rp(this.microModule, "vsSpeck", "fsSpeck", "triangle-strip", additive);
+      b.microU = d.createBuffer({ size: 256, usage: U.UNIFORM | U.COPY_DST });
+      b.specks = d.createBuffer({ size: MICRO_SPECKS * 64, usage: U.STORAGE });
+      b.microArgs = d.createBuffer({ size: 16, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
+      this.microData = new ArrayBuffer(256);
+      this.cpMicroBG = d.createBindGroup({ layout: this.cpMicro.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: { buffer: b.post } },
+        { binding: 1, resource: { buffer: b.microU } },
+        { binding: 2, resource: { buffer: b.specks } },
+        { binding: 3, resource: { buffer: b.microArgs } }
+      ] });
     }
     async compileErrors() {
       const out = [];
-      for (const m of [this.simModule, this.pickModule, this.drawModule, this.postModule]) {
+      for (const m of [this.simModule, this.pickModule, this.drawModule, this.postModule, this.microModule]) {
         const info = await m.getCompilationInfo();
         for (const msg of info.messages) if (msg.type === "error") out.push(`${m.label}:${msg.lineNum}:${msg.linePos} ${msg.message}`);
       }
@@ -4401,7 +4615,12 @@ fn loupeScene(r: vec2f) -> vec3f {
         { binding: 5, resource: { buffer: b.focus } },
         { binding: 6, resource: { buffer: b.bondsIn } },
         { binding: 8, resource: { buffer: b.touch } },
-        { binding: 9, resource: { buffer: b.sway } }
+        { binding: 9, resource: { buffer: b.sway } },
+        { binding: 10, resource: { buffer: b.organDir } }
+      ] });
+      this.organsBG = d.createBindGroup({ layout: this.cpOrgans.getBindGroupLayout(0), entries: [
+        { binding: 7, resource: { buffer: b.genomes } },
+        { binding: 9, resource: { buffer: b.organDir } }
       ] });
       const stoneBG = (view) => d.createBindGroup({ layout: this.pStone.getBindGroupLayout(0), entries: [[0, view], [1, b.parts], [2, b.genomes], [5, b.focus], [7, b.stoneList]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
       this.bgStone = stoneBG(b.view);
@@ -4460,6 +4679,7 @@ fn loupeScene(r: vec2f) -> vec3f {
         this.accum.forEach((t2) => t2.destroy());
         this.bloom.forEach((t2) => t2.destroy());
         this.murkTex.destroy();
+        this.microTex.destroy();
       }
       const tex = (tw, th) => d.createTexture({ size: [Math.max(1, tw), Math.max(1, th)], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
       this.accum = [tex(w, h), tex(w, h)];
@@ -4470,6 +4690,15 @@ fn loupeScene(r: vec2f) -> vec3f {
       for (let i = 0; i < BLOOM_LEVELS; i++) this.bloom.push(tex(w >> i + 1, h >> i + 1));
       this.murkTex = tex(w >> 2, h >> 2);
       this.murkView = this.murkTex.createView();
+      this.microTex = tex(w, h);
+      this.microView = this.microTex.createView();
+      this.speckBG = d.createBindGroup({ layout: this.pSpeck.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: { buffer: this.b.post } },
+        { binding: 1, resource: { buffer: this.b.microU } },
+        { binding: 4, resource: { buffer: this.b.specks } },
+        { binding: 5, resource: this.sampler },
+        { binding: 6, resource: this.murkView }
+      ] });
       this.murkBG = d.createBindGroup({ layout: this.pMurk.getBindGroupLayout(0), entries: [{ binding: 2, resource: { buffer: this.b.post } }] });
       this.accumViews = this.accum.map((t2) => t2.createView());
       this.bloomViews = this.bloom.map((t2) => t2.createView());
@@ -4489,7 +4718,8 @@ fn loupeScene(r: vec2f) -> vec3f {
         { binding: 3, resource: this.bloomViews[0] },
         { binding: 7, resource: this.stoneView[0] },
         { binding: 8, resource: this.stoneView[1] },
-        { binding: 9, resource: this.murkView }
+        { binding: 9, resource: this.murkView },
+        { binding: 10, resource: this.microView }
       ] }));
       this.compBG = compBG(this.pComp);
       this.compClearBG = compBG(this.pCompClear);
@@ -5118,6 +5348,77 @@ fn loupeScene(r: vec2f) -> vec3f {
         pass.draw(4, this.count);
       }
     }
+    // The micro-suspension's specks for the main view (MICRO_WGSL): for each phase and resolved octave
+    // of pondMicro, the block of lattice slots whose objects can land in view.
+    _drawSpecks(enc, cam, W, H) {
+      const d = this.device;
+      const [gw, gh] = this.grid;
+      const ppu = cam.ppu, t2 = this.simTime;
+      let vmax = 0;
+      for (let k = 0; k < 4; k++) vmax += Math.abs(this.waves[k * 4 + 3]);
+      const hw = W / (2 * ppu), hh = H / (2 * ppu);
+      const iv = new Int32Array(this.microData), fv = new Float32Array(this.microData), uv = new Uint32Array(this.microData);
+      let n = 0, total = 0;
+      for (let phase = 0; phase < 2; phase++) {
+        const clock = t2 / 4 + phase * 0.5;
+        const age = clock - Math.floor(clock);
+        const weight = 1 - Math.abs(2 * age - 1);
+        if (weight <= 1e-3) continue;
+        const tau = age * 4;
+        for (let oct = 0; oct < 3; oct++) {
+          const spacing = [0.055, 0.035, 8e-3][oct], depth = oct === 0 ? 0.72 : 1;
+          if (spacing * 1.55 * 0.075 * ppu <= 0.6) continue;
+          const wx = gw * depth, wy = gh * depth;
+          const th = 0.618033989 + oct * 2.39996323, ax = Math.cos(th), ay = Math.sin(th);
+          const r0 = [Math.round(ax * wx / spacing), Math.round(ay * wy / spacing)];
+          const r1 = [Math.round((-ay + ax * 0.37) * wx / spacing), Math.round((ax + ay * 0.37) * wy / spacing)];
+          const pad2 = tau * vmax * depth;
+          const cx = cam.x * depth, cy = cam.y * depth;
+          let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+          for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+            const ux = (cx + sx * (hw + pad2)) / wx, uy = (cy + sy * (hh + pad2)) / wy;
+            const px = r0[0] * ux + r0[1] * uy + oct * 17.3, py = r1[0] * ux + r1[1] * uy + oct * 9.7;
+            x0 = Math.min(x0, px);
+            x1 = Math.max(x1, px);
+            y0 = Math.min(y0, py);
+            y1 = Math.max(y1, py);
+          }
+          const m = 0.65 + 1.6;
+          const sx0 = Math.floor(x0 - m), sy0 = Math.floor(y0 - m);
+          const cols = Math.ceil(x1 + m) - sx0 + 1, rows = Math.ceil(y1 + m) - sy0 + 1;
+          iv.set([sx0, sy0, cols, rows], n * 4);
+          fv.set([weight, tau, Math.floor(clock) + phase * 131, oct], 24 + n * 4);
+          uv[48 + n] = total;
+          total += cols * rows;
+          n++;
+        }
+      }
+      uv[56] = total;
+      uv[57] = n;
+      fv[58] = ppu;
+      uv[59] = MICRO_SPECKS;
+      fv[60] = W;
+      fv[61] = H;
+      fv[62] = cam.x;
+      fv[63] = cam.y;
+      d.queue.writeBuffer(this.b.microU, 0, this.microData);
+      d.queue.writeBuffer(this.b.microArgs, 0, new Uint32Array([4, 0, 0, 0]));
+      if (total > 0) {
+        const wg = Math.ceil(total / 64);
+        const pass2 = enc.beginComputePass();
+        pass2.setPipeline(this.cpMicro);
+        pass2.setBindGroup(0, this.cpMicroBG);
+        pass2.dispatchWorkgroups(Math.min(wg, 65535), Math.ceil(wg / 65535));
+        pass2.end();
+      }
+      const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.microView, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
+      if (total > 0) {
+        pass.setPipeline(this.pSpeck);
+        pass.setBindGroup(0, this.speckBG);
+        pass.drawIndirect(this.b.microArgs, 0);
+      }
+      pass.end();
+    }
     _render(enc, { target, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd }) {
       const d = this.device;
       const [W, H] = this.size;
@@ -5169,6 +5470,9 @@ fn loupeScene(r: vec2f) -> vec3f {
           pass2.setBindGroup(0, this.inbondBG[k]);
           pass2.dispatchWorkgroups(Math.max(u[8], u[12]), Math.max(u[9], u[13]), specimen ? 2 : 1);
         }
+        pass2.setPipeline(this.cpOrgans);
+        pass2.setBindGroup(0, this.organsBG);
+        pass2.dispatchWorkgroups(Math.ceil(MAXK * ORGANS / 64));
         pass2.end();
       }
       {
@@ -5248,11 +5552,12 @@ fn loupeScene(r: vec2f) -> vec3f {
         pass2.draw(3);
         pass2.end();
       }
+      const micro = cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H / this.grid[1]));
+      if (micro) this._drawSpecks(enc, cam, W, H);
       const pass = enc.beginRenderPass({
         colorAttachments: [{ view: target, loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }],
         timestampWrites: tsEnd
       });
-      const micro = cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H / this.grid[1]));
       pass.setPipeline(micro ? this.pComp : this.pCompClear);
       pass.setBindGroup(0, micro ? this.compBG[cur] : this.compClearBG[cur]);
       pass.draw(3);
@@ -6771,9 +7076,10 @@ fn loupeScene(r: vec2f) -> vec3f {
     eng.settings.trails = trailLevels[trailIdx];
     let renderScale = 1;
     let dpr = 1;
+    const SCENE_DPR = 1.5;
     function fit() {
       const base = Math.min(devicePixelRatio || 1, 2);
-      dpr = base * renderScale;
+      dpr = Math.min(base, SCENE_DPR) * renderScale;
       const maxDim = device.limits.maxTextureDimension2D;
       canvas.width = Math.min(maxDim, Math.max(1, Math.round(innerWidth * dpr)));
       canvas.height = Math.min(maxDim, Math.max(1, Math.round(innerHeight * dpr)));
@@ -6823,8 +7129,11 @@ fn loupeScene(r: vec2f) -> vec3f {
       fps: 0,
       frames: 0,
       fpsT: performance.now(),
-      rafDt: [],
+      frameDt: [],
+      lastSubmit: 0,
       goodWindows: 0,
+      ceiling: 1,
+      ceilingUntil: 0,
       lastAdjust: performance.now(),
       stepMs: 0,
       rate: 1,
@@ -8343,7 +8652,7 @@ fn loupeScene(r: vec2f) -> vec3f {
     function setSpeed(i) {
       state.speedIdx = clamp6(i, 0, SPEEDS.length - 1);
       stepAcc = 0;
-      perf.rafDt.length = 0;
+      perf.frameDt.length = 0;
       perf.lastAdjust = performance.now();
       flash(`Time ${fmtSpeed(SPEEDS[state.speedIdx])}`);
       renderTime();
@@ -8418,18 +8727,22 @@ fn loupeScene(r: vec2f) -> vec3f {
       $("perf").textContent = `${perf.fps ? perf.fps.toFixed(0) : "–"} fps · ${perf.gpu ? perf.gpu.toFixed(1) : "–"} ms${renderScale < 1 ? ` · render ${Math.round(renderScale * 100)}%` : ""}`;
     }
     function adaptResolution(now) {
-      if (state.phase !== "running" || state.paused || SPEEDS[state.speedIdx] > 1 || now - perf.lastAdjust < 2e3 || perf.rafDt.length < 60) return;
-      const m = median(perf.rafDt);
-      perf.rafDt.length = 0;
+      if (state.phase !== "running" || SPEEDS[state.speedIdx] > 1 || now - perf.lastAdjust < 2e3 || perf.frameDt.length < 30) return;
+      const m = perf.frameDt.reduce((a, b) => a + b, 0) / perf.frameDt.length;
+      perf.frameDt.length = 0;
       perf.lastAdjust = now;
       if (m > 18.8 && renderScale > 0.5) {
-        renderScale = Math.max(0.5, renderScale * 0.85);
+        perf.ceiling = renderScale;
+        perf.ceilingUntil = now + 3e4;
+        renderScale = Math.max(0.5, renderScale * clamp6(Math.sqrt(16.7 / m), 0.7, 0.9));
         perf.goodWindows = 0;
         fit();
       } else if (m < 17.2) {
         perf.goodWindows++;
-        if (perf.goodWindows >= 3 && renderScale < 1) {
-          renderScale = Math.min(1, renderScale * 1.12);
+        const cap3 = now < perf.ceilingUntil ? perf.ceiling * 0.95 : 1;
+        const next = Math.min(1, renderScale * 1.12, cap3);
+        if (perf.goodWindows >= 3 && next > renderScale + 0.01) {
+          renderScale = next;
           perf.goodWindows = 0;
           fit();
         }
@@ -8775,7 +9088,6 @@ fn loupeScene(r: vec2f) -> vec3f {
       const dt = Math.min(100, now - last);
       last = now;
       frameCount++;
-      if (!state.paused) perf.rafDt.push(dt);
       if (now - perf.fpsT > 500) {
         perf.fps = perf.frames * 1e3 / (now - perf.fpsT);
         perf.frames = 0;
@@ -8793,6 +9105,8 @@ fn loupeScene(r: vec2f) -> vec3f {
       }
       if (!state.busy && inflight < 3) {
         perf.frames++;
+        if (perf.lastSubmit) perf.frameDt.push(Math.min(50, now - perf.lastSubmit));
+        perf.lastSubmit = now;
         eng.season = seasonAt(eng.simTime);
         const step = plan();
         if (state.phase === "running" && !state.paused) climate.tick(step.steps * step.dt);
@@ -8851,7 +9165,8 @@ fn loupeScene(r: vec2f) -> vec3f {
     }
     requestAnimationFrame(frame);
     document.addEventListener("visibilitychange", () => {
-      perf.rafDt.length = 0;
+      perf.frameDt.length = 0;
+      perf.lastSubmit = 0;
       perf.lastAdjust = performance.now() + 1500;
     });
     calibrate().then(() => {
