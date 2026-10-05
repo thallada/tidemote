@@ -1,5 +1,5 @@
 import {
-  simWGSL, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, DRAW_WGSL, POST_WGSL, DEFAULT_K,
+  simWGSL, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, DRAW_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
   MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD,
 } from './shaders.js';
 import {
@@ -126,6 +126,8 @@ class Engine {
     b.inbondU = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
     const inbond = d.createShaderModule({ code: INBOND_WGSL, label: 'inbond' });
     this.cpInbond = ['inbondReset', 'inbondGather', 'contactGather'].map((entryPoint) => d.createComputePipeline({ layout: 'auto', compute: { module: inbond, entryPoint }, label: entryPoint }));
+    this.cpOrgans = d.createComputePipeline({ layout: 'auto', compute: { module: inbond, entryPoint: 'organDirs' }, label: 'organDirs' });
+    b.organDir = d.createBuffer({ size: MAXK * ORGANS * 4, usage: U.STORAGE });
     this.postModule = d.createShaderModule({ code: POST_WGSL, label: 'post' });
 
     const cp = (mod, entryPoint) => d.createComputePipeline({ layout: 'auto', compute: { module: mod, entryPoint }, label: entryPoint });
@@ -187,11 +189,23 @@ class Engine {
     this.trackStage = [0, 1, 2, 3, 4, 5, 6, 7].map(() => ({ buf: d.createBuffer({ size: 56, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     b.reprojU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     this.pReproj = rp(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined);
+
+    // the main view's micro-suspension: specks found per frame, then drawn as quads (MICRO_WGSL)
+    this.microModule = d.createShaderModule({ code: MICRO_WGSL, label: 'micro' });
+    this.cpMicro = d.createComputePipeline({ layout: 'auto', compute: { module: this.microModule, entryPoint: 'microSpecks' }, label: 'microSpecks' });
+    this.pSpeck = rp(this.microModule, 'vsSpeck', 'fsSpeck', 'triangle-strip', additive);
+    b.microU = d.createBuffer({ size: 256, usage: U.UNIFORM | U.COPY_DST });
+    b.specks = d.createBuffer({ size: MICRO_SPECKS * 64, usage: U.STORAGE });
+    b.microArgs = d.createBuffer({ size: 16, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
+    this.microData = new ArrayBuffer(256);
+    this.cpMicroBG = d.createBindGroup({ layout: this.cpMicro.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: b.post } }, { binding: 1, resource: { buffer: b.microU } },
+      { binding: 2, resource: { buffer: b.specks } }, { binding: 3, resource: { buffer: b.microArgs } }] });
   }
 
   async compileErrors() {
     const out = [];
-    for (const m of [this.simModule, this.pickModule, this.drawModule, this.postModule]) {
+    for (const m of [this.simModule, this.pickModule, this.drawModule, this.postModule, this.microModule]) {
       const info = await m.getCompilationInfo();
       for (const msg of info.messages) if (msg.type === 'error') out.push(`${m.label}:${msg.lineNum}:${msg.linePos} ${msg.message}`);
     }
@@ -251,7 +265,10 @@ class Engine {
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
       { binding: 3, resource: { buffer: b.intent } },
       { binding: 5, resource: { buffer: b.focus } }, { binding: 6, resource: { buffer: b.bondsIn } },
-      { binding: 8, resource: { buffer: b.touch } }, { binding: 9, resource: { buffer: b.sway } }] });
+      { binding: 8, resource: { buffer: b.touch } }, { binding: 9, resource: { buffer: b.sway } },
+      { binding: 10, resource: { buffer: b.organDir } }] });
+    this.organsBG = d.createBindGroup({ layout: this.cpOrgans.getBindGroupLayout(0), entries: [
+      { binding: 7, resource: { buffer: b.genomes } }, { binding: 9, resource: { buffer: b.organDir } }] });
     const stoneBG = (view) => d.createBindGroup({ layout: this.pStone.getBindGroupLayout(0), entries:
       [[0, view], [1, b.parts], [2, b.genomes], [5, b.focus], [7, b.stoneList]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
     this.bgStone = stoneBG(b.view); this.bgStoneL = stoneBG(b.viewL); this.bgStoneS = stoneBG(b.viewS);
@@ -289,7 +306,7 @@ class Engine {
     if (this.size[0] === w && this.size[1] === h) return;
     this.size = [w, h];
     const d = this.device;
-    if (this.accum) { this.accum.forEach((t) => t.destroy()); this.bloom.forEach((t) => t.destroy()); this.murkTex.destroy(); }
+    if (this.accum) { this.accum.forEach((t) => t.destroy()); this.bloom.forEach((t) => t.destroy()); this.murkTex.destroy(); this.microTex.destroy(); }
     const tex = (tw, th) => d.createTexture({ size: [Math.max(1, tw), Math.max(1, th)], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
     this.accum = [tex(w, h), tex(w, h)];
     this.stoneTex?.forEach((t) => t.destroy());
@@ -299,6 +316,11 @@ class Engine {
     for (let i = 0; i < BLOOM_LEVELS; i++) this.bloom.push(tex(w >> (i + 1), h >> (i + 1)));
     this.murkTex = tex(w >> 2, h >> 2);
     this.murkView = this.murkTex.createView();
+    this.microTex = tex(w, h);
+    this.microView = this.microTex.createView();
+    this.speckBG = d.createBindGroup({ layout: this.pSpeck.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: this.b.post } }, { binding: 1, resource: { buffer: this.b.microU } },
+      { binding: 4, resource: { buffer: this.b.specks } }, { binding: 5, resource: this.sampler }, { binding: 6, resource: this.murkView }] });
     this.murkBG = d.createBindGroup({ layout: this.pMurk.getBindGroupLayout(0), entries: [{ binding: 2, resource: { buffer: this.b.post } }] });
     this.accumViews = this.accum.map((t) => t.createView());
     this.bloomViews = this.bloom.map((t) => t.createView());
@@ -312,7 +334,8 @@ class Engine {
     const compBG = (pipe) => this.accumViews.map((v) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: v },
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 3, resource: this.bloomViews[0] },
-      { binding: 7, resource: this.stoneView[0] }, { binding: 8, resource: this.stoneView[1] }, { binding: 9, resource: this.murkView }] }));
+      { binding: 7, resource: this.stoneView[0] }, { binding: 8, resource: this.stoneView[1] }, { binding: 9, resource: this.murkView },
+      { binding: 10, resource: this.microView }] }));
     this.compBG = compBG(this.pComp);
     this.compClearBG = compBG(this.pCompClear);
     this.reprojBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.pReproj.getBindGroupLayout(0), entries: [
@@ -879,6 +902,71 @@ class Engine {
     }
   }
 
+  // The micro-suspension's specks for the main view (MICRO_WGSL): for each phase and resolved octave
+  // of pondMicro, the block of lattice slots whose objects can land in view.
+  _drawSpecks(enc, cam, W, H) {
+    const d = this.device;
+    const [gw, gh] = this.grid;
+    const ppu = cam.ppu, t = this.simTime;
+    let vmax = 0;
+    for (let k = 0; k < 4; k++) vmax += Math.abs(this.waves[k * 4 + 3]);
+    const hw = W / (2 * ppu), hh = H / (2 * ppu);
+    const iv = new Int32Array(this.microData), fv = new Float32Array(this.microData), uv = new Uint32Array(this.microData);
+    let n = 0, total = 0;
+    for (let phase = 0; phase < 2; phase++) {
+      const clock = t / 4 + phase * 0.5;
+      const age = clock - Math.floor(clock);
+      const weight = 1 - Math.abs(2 * age - 1);
+      if (weight <= 0.001) continue;
+      const tau = age * 4;
+      for (let oct = 0; oct < 3; oct++) {
+        const spacing = [0.055, 0.035, 0.008][oct], depth = oct === 0 ? 0.72 : 1;
+        if (spacing * 1.55 * 0.075 * ppu <= 0.6) continue;
+        const wx = gw * depth, wy = gh * depth;
+        const th = 0.618033989 + oct * 2.39996323, ax = Math.cos(th), ay = Math.sin(th);
+        const r0 = [Math.round(ax * wx / spacing), Math.round(ay * wy / spacing)];
+        const r1 = [Math.round((-ay + ax * 0.37) * wx / spacing), Math.round((ax + ay * 0.37) * wy / spacing)];
+        // the looked-up point: the view shifted to this plane's depth, give or take the drift
+        const pad = tau * vmax * depth;
+        const cx = cam.x * depth, cy = cam.y * depth;
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+          const ux = (cx + sx * (hw + pad)) / wx, uy = (cy + sy * (hh + pad)) / wy;
+          const px = r0[0] * ux + r0[1] * uy + oct * 17.3, py = r1[0] * ux + r1[1] * uy + oct * 9.7;
+          x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py);
+        }
+        // the warp moves a slot up to 0.65, an object sits up to one slot from its corner, and reaches half a slot
+        const m = 0.65 + 1.6;
+        const sx0 = Math.floor(x0 - m), sy0 = Math.floor(y0 - m);
+        const cols = Math.ceil(x1 + m) - sx0 + 1, rows = Math.ceil(y1 + m) - sy0 + 1;
+        iv.set([sx0, sy0, cols, rows], n * 4);
+        fv.set([weight, tau, Math.floor(clock) + phase * 131, oct], 24 + n * 4);
+        uv[48 + n] = total;
+        total += cols * rows;
+        n++;
+      }
+    }
+    uv[56] = total; uv[57] = n; fv[58] = ppu; uv[59] = MICRO_SPECKS;
+    fv[60] = W; fv[61] = H; fv[62] = cam.x; fv[63] = cam.y;
+    d.queue.writeBuffer(this.b.microU, 0, this.microData);
+    d.queue.writeBuffer(this.b.microArgs, 0, new Uint32Array([4, 0, 0, 0]));
+    if (total > 0) {
+      const wg = Math.ceil(total / 64);
+      const pass = enc.beginComputePass();
+      pass.setPipeline(this.cpMicro);
+      pass.setBindGroup(0, this.cpMicroBG);
+      pass.dispatchWorkgroups(Math.min(wg, 65535), Math.ceil(wg / 65535));
+      pass.end();
+    }
+    const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.microView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
+    if (total > 0) {
+      pass.setPipeline(this.pSpeck);
+      pass.setBindGroup(0, this.speckBG);
+      pass.drawIndirect(this.b.microArgs, 0);
+    }
+    pass.end();
+  }
+
   _render(enc, { target, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd }) {
     const d = this.device;
     const [W, H] = this.size;
@@ -924,6 +1012,9 @@ class Engine {
         pass.setBindGroup(0, this.inbondBG[k]);
         pass.dispatchWorkgroups(Math.max(u[8], u[12]), Math.max(u[9], u[13]), specimen ? 2 : 1);
       }
+      pass.setPipeline(this.cpOrgans);
+      pass.setBindGroup(0, this.organsBG);
+      pass.dispatchWorkgroups(Math.ceil((MAXK * ORGANS) / 64));
       pass.end();
     }
     {
@@ -997,11 +1088,13 @@ class Engine {
       pass.setPipeline(this.pMurk); pass.setBindGroup(0, this.murkBG); pass.draw(3); pass.end();
     }
 
+    const micro = cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H / this.grid[1]));
+    if (micro) this._drawSpecks(enc, cam, W, H);
+
     const pass = enc.beginRenderPass({
       colorAttachments: [{ view: target, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }],
       timestampWrites: tsEnd,
     });
-    const micro = cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H / this.grid[1]));
     pass.setPipeline(micro ? this.pComp : this.pCompClear);
     pass.setBindGroup(0, micro ? this.compBG[cur] : this.compClearBG[cur]); pass.draw(3);
     if (loupe) { pass.setPipeline(this.pLoupe); pass.setBindGroup(0, this.loupeBG); pass.draw(6); }
