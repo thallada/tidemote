@@ -163,6 +163,8 @@ body:not(.live) .hud { opacity: 0; }
 #tide-wave .wave { fill: none; stroke: var(--line-2); stroke-width: 1; }
 #tide-wave .dot { fill: var(--cyan); }
 .rail-right { margin-left: auto; display: flex; gap: 22px; }
+.rail-right { align-items: center; }
+.rail .fs { margin-right: -8px; flex: none; }
 .stat { align-items: flex-end; }
 .stat b { font-size: 17px; font-weight: 300; line-height: 1; font-stretch: 110%; }
 
@@ -342,6 +344,7 @@ dd { margin: 0; color: var(--ink-2); }
 .vital > b { font-weight: 400; font-size: 12.5px; white-space: nowrap; }
 .spec .tabs { margin-top: 12px; border-bottom: 1px solid var(--line); }
 .spec .tabs:empty { display: none; }
+.spec-more { display: none; }
 .spec-body { overflow-y: auto; min-height: 0; flex: 1; padding: 4px 4px 16px 0; scrollbar-width: thin; user-select: text; -webkit-user-select: text; }
 .blk { margin-top: 14px; display: flex; flex-direction: column; gap: 7px; }
 .blk > .sub-h { margin-bottom: 0; }
@@ -491,12 +494,12 @@ canvas.dyn { width: 100%; height: 112px; display: block; }
 .nogpu p { margin: 0; color: var(--ink-2); font-size: 14px; white-space: pre-wrap; }
 
 /* ------------------------------------------------------------------ filming: only the clock, the caption and the dock stay */
-.world, .rail > :not(.brand):not(.clock), .rail-right { transition: opacity .6s ease; }
-body.filming .world, body.filming .rail .era-box, body.filming .rail .gauge, body.filming .rail-right { opacity: 0; visibility: hidden; }
+.world { transition: opacity .6s ease; }
+body.filming .world { opacity: 0; visibility: hidden; }
 
 /* ------------------------------------------------------------------ medium */
 @media (max-width: 1180px) {
-  .rail-right { display: none; }
+  .rail-right .stat { display: none; }
   .sys { display: none; }
 }
 @media (max-width: 980px) {
@@ -511,10 +514,14 @@ body.filming .world, body.filming .rail .era-box, body.filming .rail .gauge, bod
 /* ------------------------------------------------------------------ phone */
 @media (max-width: 720px) {
   :root { --gut: 10px; --rail-h: 48px; --dock-h: 62px; }
-  .rail { gap: 12px; }
+  .rail { gap: 9px; }
   .brand { display: none; }
   .clock { border-left: 0; padding-left: 0; }
-  .era-box, .gauge { padding-left: 10px; height: 26px; }
+  .clock b { min-width: 0; }
+  .era-box, .gauge { padding-left: 9px; height: 26px; }
+  .era-box b { letter-spacing: .06em; }
+  .gauge b { min-width: 3ch; }
+  .rail .fs { width: 30px; margin-right: -6px; }
   .clock .lbl, .era-box .lbl { display: none; }
   .clock b { font-size: 19px; }
   .era-box { flex: 1; }
@@ -539,10 +546,16 @@ body.filming .world, body.filming .rail .era-box, body.filming .rail .gauge, bod
   .caption .cap-main { font-size: 15px; }
   .focus { top: calc(var(--top) + 8px); }
   /* the specimen is a sheet: peeking above the dock, pulled up for everything */
-  .spec { z-index: 7; overflow: hidden; left: 0; right: 0; width: auto; top: auto; bottom: var(--bot); height: var(--sheet-h, 236px); max-height: calc(100% - var(--top) - var(--bot)); padding: 0 14px; border: 0; border-top: 1px solid var(--line-2); transition: height .28s ease; }
+  .spec { z-index: 7; overflow: hidden; left: 0; right: 0; width: auto; top: auto; bottom: var(--bot); max-height: calc(100% - var(--top) - var(--bot)); padding: 0 14px; border: 0; border-top: 1px solid var(--line-2); transition: height .28s ease; }
   .spec.dragging { transition: none; }
   .spec.full { height: calc(100% - var(--top) - var(--bot) - 8px); }
+  /* collapsed, the sheet is as tall as its summary, and dragging anywhere on it moves it */
+  .spec:not(.full) { touch-action: none; }
+  .spec .spec-head { touch-action: none; }
   .grab { display: flex; justify-content: center; align-items: center; height: 22px; margin: 0 -14px; cursor: grab; touch-action: none; }
+  .spec-more { display: flex; align-items: center; justify-content: center; gap: 8px; height: 42px; margin: 12px -14px 0; border: 0; border-top: 1px solid var(--line); color: var(--cyan); font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase; font-weight: 500; font-stretch: 112%; width: calc(100% + 28px); }
+  .spec-more svg { width: 16px; height: 16px; }
+  .spec.full .spec-more { display: none; }
   .grab i { width: 44px; height: 3px; background: var(--line-2); }
   .spec-head { grid-template-columns: 34px 1fr 36px; gap: 10px; }
   #glyph { width: 34px; height: 34px; }

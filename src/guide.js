@@ -67,6 +67,7 @@ export const GLOSSARY = {
   targetfps: 'Frames per second aimed for. 30 halves the GPU’s work and saves battery; Display follows the screen’s refresh rate (120 on many phones and Macs). Simulated time keeps pace with real time at any rate.',
   bloom: 'A soft glow around bright cells. Several extra full-screen passes.',
   optics: 'Microscope optics: depth haze and a vignette over the world. One extra full-screen pass.',
+  lod: 'Zoomed in, cells resolve into membranes, organelles and fused bodies, and bonds into soft strands. Off, every cell stays the glowing point it is from afar, at any zoom: far cheaper, so the page can run more particles. The loupe and the live close-up still show the detail.',
   specks: 'The fine suspension that drifts between cells when zoomed far in. Drawn speck by speck; off saves a compute pass and a full-screen pass.',
   closeup: 'The live close-up in the specimen panel: a second, small view of the world drawn every frame.',
   particles: 'Every grain, husk and cell is one particle; their number is fixed for a world’s whole life. Auto measures the GPU and picks the most it can run smoothly. Changing it starts a new world.',

@@ -4,6 +4,8 @@ import { GLOSSARY } from './guide.js';
 
 export function createTips(tip) {
   let owner = null;
+  let via = '';
+  let rect = null; // what opened the hint: 'hover', 'tap' or 'focus'; each closes its own way
   const textFor = (el) => {
     if (el.dataset.tip) return GLOSSARY[el.dataset.tip] ? { text: GLOSSARY[el.dataset.tip] } : null;
     const h = el.dataset.hint;
@@ -11,14 +13,16 @@ export function createTips(tip) {
     const i = h.lastIndexOf(' · ');
     return i > 0 ? { text: h.slice(0, i), key: h.slice(i + 3) } : { text: h };
   };
-  function show(el) {
+  function show(el, how) {
     const t = textFor(el);
     if (!t) return;
     owner = el;
+    via = how;
     tip.textContent = t.text;
     if (t.key) { const k = document.createElement('kbd'); k.textContent = t.key; tip.append(k); }
     tip.hidden = false;
     const r = el.getBoundingClientRect();
+    rect = r;
     const tw = Math.min(300, innerWidth - 16);
     tip.style.maxWidth = `${tw}px`;
     const w = tip.offsetWidth, h = tip.offsetHeight;
@@ -37,24 +41,39 @@ export function createTips(tip) {
   document.addEventListener('pointerover', (e) => {
     if (e.pointerType !== 'mouse') return;
     const el = target(e);
-    if (el && el !== owner) show(el);
-    else if (!el && owner) hide();
+    if (el && el !== owner) show(el, 'hover');
+    else if (!el && owner && via === 'hover') hide();
   });
   document.addEventListener('pointerout', (e) => {
-    if (e.pointerType === 'mouse' && owner && !owner.contains(e.relatedTarget)) hide();
+    if (e.pointerType === 'mouse' && owner && via === 'hover' && !owner.contains(e.relatedTarget)) hide();
   });
-  // touch: a tap on a term toggles its hint; any other tap closes it
+  // touch: a tap on a term opens its hint, which stays after the finger lifts; the next tap
+  // anywhere (the term included) closes it
   document.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse') { if (owner) hide(); return; }
     const el = e.target.closest && e.target.closest('[data-tip]');
-    if (el && el !== owner) { show(el); return; }
+    if (el && el !== owner) { show(el, 'tap'); return; }
     if (owner) hide();
   }, true);
   document.addEventListener('focusin', (e) => {
     const el = target(e);
-    if (el && el.matches(':focus-visible')) show(el);
+    if (el && el.matches(':focus-visible')) show(el, 'focus');
   });
-  document.addEventListener('focusout', () => { if (owner) hide(); });
+  document.addEventListener('focusout', () => { if (owner && via === 'focus') hide(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && owner) hide(); }, true);
-  return { hide, check() { if (owner && !owner.isConnected) hide(); } };
+  // Live panels re-render the element a hint belongs to: move the hint to its replacement (the same
+  // term, where the old one was) instead of closing it.
+  function check() {
+    if (!owner || owner.isConnected) return;
+    const key = owner.dataset.tip ? `[data-tip="${owner.dataset.tip}"]` : `[data-hint="${CSS.escape(owner.dataset.hint || '')}"]`;
+    const old = rect;
+    let best = null, bd = 24;
+    for (const el of document.querySelectorAll(key)) {
+      const r = el.getBoundingClientRect();
+      const d = Math.hypot(r.left - old.left, r.top - old.top);
+      if (d < bd) { bd = d; best = el; }
+    }
+    if (best) { owner = best; owner.setAttribute('aria-describedby', 'tip'); } else hide();
+  }
+  return { hide, check };
 }

@@ -173,6 +173,8 @@ body:not(.live) .hud { opacity: 0; }
 #tide-wave .wave { fill: none; stroke: var(--line-2); stroke-width: 1; }
 #tide-wave .dot { fill: var(--cyan); }
 .rail-right { margin-left: auto; display: flex; gap: 22px; }
+.rail-right { align-items: center; }
+.rail .fs { margin-right: -8px; flex: none; }
 .stat { align-items: flex-end; }
 .stat b { font-size: 17px; font-weight: 300; line-height: 1; font-stretch: 110%; }
 
@@ -352,6 +354,7 @@ dd { margin: 0; color: var(--ink-2); }
 .vital > b { font-weight: 400; font-size: 12.5px; white-space: nowrap; }
 .spec .tabs { margin-top: 12px; border-bottom: 1px solid var(--line); }
 .spec .tabs:empty { display: none; }
+.spec-more { display: none; }
 .spec-body { overflow-y: auto; min-height: 0; flex: 1; padding: 4px 4px 16px 0; scrollbar-width: thin; user-select: text; -webkit-user-select: text; }
 .blk { margin-top: 14px; display: flex; flex-direction: column; gap: 7px; }
 .blk > .sub-h { margin-bottom: 0; }
@@ -501,12 +504,12 @@ canvas.dyn { width: 100%; height: 112px; display: block; }
 .nogpu p { margin: 0; color: var(--ink-2); font-size: 14px; white-space: pre-wrap; }
 
 /* ------------------------------------------------------------------ filming: only the clock, the caption and the dock stay */
-.world, .rail > :not(.brand):not(.clock), .rail-right { transition: opacity .6s ease; }
-body.filming .world, body.filming .rail .era-box, body.filming .rail .gauge, body.filming .rail-right { opacity: 0; visibility: hidden; }
+.world { transition: opacity .6s ease; }
+body.filming .world { opacity: 0; visibility: hidden; }
 
 /* ------------------------------------------------------------------ medium */
 @media (max-width: 1180px) {
-  .rail-right { display: none; }
+  .rail-right .stat { display: none; }
   .sys { display: none; }
 }
 @media (max-width: 980px) {
@@ -521,10 +524,14 @@ body.filming .world, body.filming .rail .era-box, body.filming .rail .gauge, bod
 /* ------------------------------------------------------------------ phone */
 @media (max-width: 720px) {
   :root { --gut: 10px; --rail-h: 48px; --dock-h: 62px; }
-  .rail { gap: 12px; }
+  .rail { gap: 9px; }
   .brand { display: none; }
   .clock { border-left: 0; padding-left: 0; }
-  .era-box, .gauge { padding-left: 10px; height: 26px; }
+  .clock b { min-width: 0; }
+  .era-box, .gauge { padding-left: 9px; height: 26px; }
+  .era-box b { letter-spacing: .06em; }
+  .gauge b { min-width: 3ch; }
+  .rail .fs { width: 30px; margin-right: -6px; }
   .clock .lbl, .era-box .lbl { display: none; }
   .clock b { font-size: 19px; }
   .era-box { flex: 1; }
@@ -549,10 +556,16 @@ body.filming .world, body.filming .rail .era-box, body.filming .rail .gauge, bod
   .caption .cap-main { font-size: 15px; }
   .focus { top: calc(var(--top) + 8px); }
   /* the specimen is a sheet: peeking above the dock, pulled up for everything */
-  .spec { z-index: 7; overflow: hidden; left: 0; right: 0; width: auto; top: auto; bottom: var(--bot); height: var(--sheet-h, 236px); max-height: calc(100% - var(--top) - var(--bot)); padding: 0 14px; border: 0; border-top: 1px solid var(--line-2); transition: height .28s ease; }
+  .spec { z-index: 7; overflow: hidden; left: 0; right: 0; width: auto; top: auto; bottom: var(--bot); max-height: calc(100% - var(--top) - var(--bot)); padding: 0 14px; border: 0; border-top: 1px solid var(--line-2); transition: height .28s ease; }
   .spec.dragging { transition: none; }
   .spec.full { height: calc(100% - var(--top) - var(--bot) - 8px); }
+  /* collapsed, the sheet is as tall as its summary, and dragging anywhere on it moves it */
+  .spec:not(.full) { touch-action: none; }
+  .spec .spec-head { touch-action: none; }
   .grab { display: flex; justify-content: center; align-items: center; height: 22px; margin: 0 -14px; cursor: grab; touch-action: none; }
+  .spec-more { display: flex; align-items: center; justify-content: center; gap: 8px; height: 42px; margin: 12px -14px 0; border: 0; border-top: 1px solid var(--line); color: var(--cyan); font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase; font-weight: 500; font-stretch: 112%; width: calc(100% + 28px); }
+  .spec-more svg { width: 16px; height: 16px; }
+  .spec.full .spec-more { display: none; }
   .grab i { width: 44px; height: 3px; background: var(--line-2); }
   .spec-head { grid-template-columns: 34px 1fr 36px; gap: 10px; }
   #glyph { width: 34px; height: 34px; }
@@ -621,6 +634,8 @@ body.filming .world, body.filming .rail .era-box, body.filming .rail .gauge, bod
   <symbol id="i-sound" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M3 7.5h3l4-3.5v12l-4-3.5H3Z"/><path class="w1" d="M13 7.5a3.5 3.5 0 0 1 0 5"/><path class="w2" d="M15.5 5a7 7 0 0 1 0 10"/></g></symbol>
   <symbol id="i-lab" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2"><rect x="3" y="3" width="5.5" height="5.5"/><rect x="11.5" y="3" width="5.5" height="5.5"/><rect x="3" y="11.5" width="5.5" height="5.5"/><path d="M11.5 12.5h5.5M11.5 15h5.5M11.5 17.3h3.5"/></g></symbol>
   <symbol id="i-gear" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2"><path d="M3 5.5h8M14.5 5.5H17M3 10h2.5M9 10h8M3 14.5h6M12.5 14.5H17"/><circle cx="12.75" cy="5.5" r="1.75"/><circle cx="7.25" cy="10" r="1.75"/><circle cx="10.75" cy="14.5" r="1.75"/></g></symbol>
+  <symbol id="i-full" viewBox="0 0 20 20"><path d="M3 7.5V3h4.5M12.5 3H17v4.5M17 12.5V17h-4.5M7.5 17H3v-4.5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+  <symbol id="i-unfull" viewBox="0 0 20 20"><path d="M7.5 3v4.5H3M17 7.5h-4.5V3M12.5 17v-4.5H17M3 12.5h4.5V17" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-close" viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-plus" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-minus" viewBox="0 0 20 20"><path d="M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
@@ -641,6 +656,7 @@ body.filming .world, body.filming .rail .era-box, body.filming .rail .gauge, bod
     <div class="rail-right">
       <div class="stat"><span class="lbl">Living</span><b id="r-living">–</b></div>
       <div class="stat"><span class="lbl">Species</span><b id="r-species">–</b></div>
+      <button type="button" class="ghost fs" id="fs" aria-label="Full screen" aria-pressed="false" data-hint="Full screen · F" hidden><svg><use href="#i-full"/></svg></button>
     </div>
   </header>
 
@@ -728,6 +744,7 @@ body.filming .world, body.filming .rail .era-box, body.filming .rail .gauge, bod
   <div class="vitals" id="vitals"></div>
   <div class="tabs" role="tablist" id="spec-tabs" aria-label="Specimen details"></div>
   <div class="spec-body" id="spec-body" role="tabpanel"></div>
+  <button type="button" class="spec-more" id="spec-more" aria-controls="spec-body" aria-expanded="false"><svg aria-hidden="true"><use href="#i-chev"/></svg><span>Full record</span></button>
 </aside>
 
 <!-- lab: the records -->
@@ -776,7 +793,7 @@ body.filming .world, body.filming .rail .era-box, body.filming .rail .gauge, bod
   <div class="intro-in">
     <h1>Tidemote</h1>
     <div class="intro-rule" aria-hidden="true"><i></i></div>
-    <p>A sealed world of particles. Light and tide feed it, and whatever lives in it evolves.</p>
+    <p>A simulated emergent ecology of particles and mutating organisms.</p>
     <div class="calib" id="calib" role="status">Starting the GPU</div>
     <button type="button" class="begin" id="begin">Begin</button>
   </div>
@@ -2211,6 +2228,8 @@ struct View {
   linkR: f32, time: f32, selId: u32, matterGain: f32,
   focusOn: u32, roleMask: u32, stateMode: u32, mute: f32,
   memberKind: u32, memberN: u32,
+  // 0: draw every cell as its distant sprite at any zoom (no resolved anatomy, bonds stay lines)
+  detail: u32,
 };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -2260,8 +2279,8 @@ fn pcgR(v: u32) -> u32 { let st = v * 747796405u + 2891336453u; let w = ((st >> 
 fn toClip(px: vec2f) -> vec4f { return vec4f(px.x / (view.res.x * 0.5), -px.y / (view.res.y * 0.5), 0.0, 1.0); }
 
 // Radii are in framebuffer pixels: the same LOD works in the main, loupe and specimen views.
-fn detailLOD(radius: f32) -> f32 { return smoothstep(2.8, 6.0, radius); }
-fn bondLOD(radius: f32) -> f32 { return smoothstep(6.0, 30.0, radius); }
+fn detailLOD(radius: f32) -> f32 { return smoothstep(2.8, 6.0, radius) * f32(view.detail); }
+fn bondLOD(radius: f32) -> f32 { return smoothstep(6.0, 30.0, radius) * f32(view.detail); }
 fn interiorLOD(radius: f32) -> f32 { return smoothstep(12.0, 26.0, radius); }
 fn fineLOD(radius: f32) -> f32 { return smoothstep(30.0, 65.0, radius); }
 fn cellGrain(v: vec2f, id: u32) -> f32 {
@@ -2610,7 +2629,7 @@ struct PO {
   o.index = ii;
   o.geom = vec4f(px, 1.0, 1.0, 0.0);
   // Keep the whole unresolved view cheap, including its few oversized cells.
-  if (px <= 2.8) {
+  if (px <= 2.8 || view.detail == 0u) {
     let footprint = select(1.0, 0.85, k >= FIRST_LIFE);
     o.pos = toClip(d + corner * px * footprint);
     o.uv = corner * footprint;
@@ -4694,18 +4713,18 @@ struct SV {
       this.tidePh = Float32Array.from(TIDE_PHASE);
       this.seedValue = 1;
       this.censusEvery = 20;
-      this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1, tide: 1, optics: 1, specks: true };
+      this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1, tide: 1, optics: 1, specks: true, lod: true };
       this.simData = new ArrayBuffer(240);
       this.rock = new Float32Array(4);
       this.simF = new Float32Array(this.simData);
       this.simU = new Uint32Array(this.simData);
       this.waves = new Float32Array(16);
-      this.viewData = new ArrayBuffer(80);
-      this.viewDataL = new ArrayBuffer(80);
+      this.viewData = new ArrayBuffer(96);
+      this.viewDataL = new ArrayBuffer(96);
       this.postData = new Float32Array(52);
       this.loupe = null;
       this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 4294967295, memberN: 0 };
-      this.viewDataS = new ArrayBuffer(80);
+      this.viewDataS = new ArrayBuffer(96);
       this.onGpuTime = null;
       this.onCensus = null;
       this.pickReq = null;
@@ -4721,9 +4740,9 @@ struct SV {
       b.sim = d.createBuffer({ size: 240, usage: U.UNIFORM | U.COPY_DST });
       b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
       this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
-      b.view = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
-      b.viewL = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
-      b.viewS = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
+      b.view = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
+      b.viewL = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
+      b.viewS = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
       b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
       b.post = d.createBuffer({ size: 208, usage: U.UNIFORM | U.COPY_DST });
       b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
@@ -5600,7 +5619,8 @@ struct SV {
         st.busy = false;
       });
     }
-    _writeView(buf, data, cam, W, H2, dpr, time, selId) {
+    // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
+    _writeView(buf, data, cam, W, H2, dpr, time, selId, detail = true) {
       const K = this.K;
       const ppu = cam.ppu;
       const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
@@ -5631,6 +5651,7 @@ struct SV {
       v[17] = f2.mute;
       vu[18] = f2.memberKind;
       vu[19] = f2.memberN;
+      vu[20] = detail ? 1 : 0;
       this.device.queue.writeBuffer(buf, 0, data);
     }
     // the stone field for one view: every grain of stone adds its kernel (see vsStone)
@@ -5646,13 +5667,14 @@ struct SV {
     }
     _drawScene(pass, bgLine, bgPoint, bgBridge, data) {
       const v = new Float32Array(data);
+      const detail = new Uint32Array(data)[20] === 1;
       if (this.settings.links) {
-        if (v[7] < 30) {
+        if (v[7] < 30 || !detail) {
           pass.setPipeline(this.pLine);
           pass.setBindGroup(0, bgLine);
           pass.drawIndirect(this.b.frameCtr, 16);
         }
-        if (v[7] > 6) {
+        if (v[7] > 6 && detail) {
           pass.setPipeline(this.pBridge);
           pass.setBindGroup(0, bgBridge);
           pass.drawIndirect(this.b.bridgeDraw, 0);
@@ -5738,8 +5760,9 @@ struct SV {
     _render(enc, { target, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd }) {
       const d = this.device;
       const [W, H2] = this.size;
-      this._writeView(this.b.view, this.viewData, cam, W, H2, dpr, time, selId);
-      if (new Float32Array(this.viewData)[7] > 6 || loupe || specimen) {
+      const lod = this.settings.lod;
+      this._writeView(this.b.view, this.viewData, cam, W, H2, dpr, time, selId, lod);
+      if (lod && new Float32Array(this.viewData)[7] > 6 || loupe || specimen) {
         enc.copyBufferToBuffer(this.b.frameCtr, 20, this.b.bridgeDraw, 4, 4);
       }
       const pd = this.postData;
@@ -5762,7 +5785,7 @@ struct SV {
       pd.set(this.tidePh, 32);
       pd.set(this.waves, 36);
       d.queue.writeBuffer(this.b.post, 0, pd);
-      const mainDetail = new Float32Array(this.viewData)[7] > 2.8;
+      const mainDetail = lod && new Float32Array(this.viewData)[7] > 2.8;
       if (mainDetail || loupe || specimen) {
         const [gw, gh] = this.grid;
         const u = new Int32Array(20);
@@ -6025,6 +6048,7 @@ struct SV {
     targetfps: "Frames per second aimed for. 30 halves the GPU’s work and saves battery; Display follows the screen’s refresh rate (120 on many phones and Macs). Simulated time keeps pace with real time at any rate.",
     bloom: "A soft glow around bright cells. Several extra full-screen passes.",
     optics: "Microscope optics: depth haze and a vignette over the world. One extra full-screen pass.",
+    lod: "Zoomed in, cells resolve into membranes, organelles and fused bodies, and bonds into soft strands. Off, every cell stays the glowing point it is from afar, at any zoom: far cheaper, so the page can run more particles. The loupe and the live close-up still show the detail.",
     specks: "The fine suspension that drifts between cells when zoomed far in. Drawn speck by speck; off saves a compute pass and a full-screen pass.",
     closeup: "The live close-up in the specimen panel: a second, small view of the world drawn every frame.",
     particles: "Every grain, husk and cell is one particle; their number is fixed for a world’s whole life. Auto measures the GPU and picks the most it can run smoothly. Changing it starts a new world.",
@@ -6868,39 +6892,53 @@ struct SV {
     const root = $2("spec"), body = $2("spec-body"), tabsEl = $2("spec-tabs"), acts = $2("spec-acts"), vit = $2("vitals");
     const st = { tab: "status", mode: "", actKey: "", tabKey: "", lastHtml: "", lastVit: "", lastHead: "", at: 0 };
     const phone2 = () => matchMedia("(max-width: 720px)").matches;
-    const grab = $2("spec-grab");
+    const more = $2("spec-more");
     let drag = null;
-    const setFull = (on) => root.classList.toggle("full", on);
-    grab.addEventListener("pointerdown", (e) => {
-      if (!phone2()) return;
-      grab.setPointerCapture(e.pointerId);
-      drag = { y: e.clientY, h: root.getBoundingClientRect().height, moved: false };
-      root.classList.add("dragging");
+    const isFull = () => root.classList.contains("full");
+    function setFull(on) {
+      root.classList.toggle("full", on);
+      more.setAttribute("aria-expanded", String(on));
+    }
+    more.addEventListener("click", () => setFull(true));
+    root.addEventListener("pointerdown", (e) => {
+      if (!phone2() || e.button > 0) return;
+      if (e.target.closest("button, a, input, select, .term, #specimen")) return;
+      const head = e.target.closest(".grab, .spec-head");
+      if (!head && isFull()) return;
+      drag = { id: e.pointerId, y: e.clientY, h: root.getBoundingClientRect().height, moved: false, head: !!head };
     });
-    grab.addEventListener("pointermove", (e) => {
-      if (!drag) return;
+    root.addEventListener("pointermove", (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
       const dy = e.clientY - drag.y;
-      if (Math.abs(dy) > 4) drag.moved = true;
-      root.style.height = `${clamp5(drag.h - dy, 120, innerHeight)}px`;
+      if (!drag.moved && Math.abs(dy) > 8) {
+        drag.moved = true;
+        try {
+          root.setPointerCapture(e.pointerId);
+        } catch {
+        }
+        root.classList.add("dragging");
+      }
+      if (drag.moved) root.style.height = `${clamp5(drag.h - dy, 80, innerHeight)}px`;
     });
     const endDrag = (e) => {
-      if (!drag) return;
+      if (!drag || e.pointerId !== drag.id) return;
+      const d = drag;
+      drag = null;
       root.classList.remove("dragging");
-      const dy = e.clientY - drag.y;
       root.style.height = "";
-      if (!drag.moved) setFull(!root.classList.contains("full"));
-      else if (dy < -40) setFull(true);
+      if (!d.moved) {
+        if (d.head && e.type === "pointerup") setFull(!isFull());
+        return;
+      }
+      const dy = e.clientY - d.y;
+      if (dy < -40) setFull(true);
       else if (dy > 40) {
-        if (root.classList.contains("full")) setFull(false);
+        if (isFull()) setFull(false);
         else api.onClose();
       }
-      drag = null;
     };
-    grab.addEventListener("pointerup", endDrag);
-    grab.addEventListener("pointercancel", endDrag);
-    root.querySelector(".spec-id").addEventListener("click", (e) => {
-      if (phone2() && !e.target.closest("a") && !root.classList.contains("full")) setFull(true);
-    });
+    root.addEventListener("pointerup", endDrag);
+    root.addEventListener("pointercancel", endDrag);
     $2("spec-close").addEventListener("click", () => api.onClose());
     $2("vz-in").addEventListener("click", () => {
       api.state.specCells = clamp5(api.state.specCells / 1.4, 0.8, 14);
@@ -7176,7 +7214,7 @@ struct SV {
     function open() {
       if (root.hidden) {
         root.hidden = false;
-        root.classList.remove("full");
+        setFull(false);
         document.body.classList.add("spec-open");
       }
       st.lastHtml = "";
@@ -7187,7 +7225,7 @@ struct SV {
     }
     function close() {
       root.hidden = true;
-      root.classList.remove("full");
+      setFull(false);
       document.body.classList.remove("spec-open");
     }
     function inset() {
@@ -7259,6 +7297,8 @@ struct SV {
   // src/tip.js
   function createTips(tip) {
     let owner = null;
+    let via = "";
+    let rect = null;
     const textFor = (el) => {
       if (el.dataset.tip) return GLOSSARY[el.dataset.tip] ? { text: GLOSSARY[el.dataset.tip] } : null;
       const h = el.dataset.hint;
@@ -7266,10 +7306,11 @@ struct SV {
       const i = h.lastIndexOf(" · ");
       return i > 0 ? { text: h.slice(0, i), key: h.slice(i + 3) } : { text: h };
     };
-    function show(el) {
+    function show(el, how) {
       const t2 = textFor(el);
       if (!t2) return;
       owner = el;
+      via = how;
       tip.textContent = t2.text;
       if (t2.key) {
         const k = document.createElement("kbd");
@@ -7278,6 +7319,7 @@ struct SV {
       }
       tip.hidden = false;
       const r = el.getBoundingClientRect();
+      rect = r;
       const tw = Math.min(300, innerWidth - 16);
       tip.style.maxWidth = `${tw}px`;
       const w = tip.offsetWidth, h = tip.offsetHeight;
@@ -7296,11 +7338,11 @@ struct SV {
     document.addEventListener("pointerover", (e) => {
       if (e.pointerType !== "mouse") return;
       const el = target(e);
-      if (el && el !== owner) show(el);
-      else if (!el && owner) hide();
+      if (el && el !== owner) show(el, "hover");
+      else if (!el && owner && via === "hover") hide();
     });
     document.addEventListener("pointerout", (e) => {
-      if (e.pointerType === "mouse" && owner && !owner.contains(e.relatedTarget)) hide();
+      if (e.pointerType === "mouse" && owner && via === "hover" && !owner.contains(e.relatedTarget)) hide();
     });
     document.addEventListener("pointerdown", (e) => {
       if (e.pointerType === "mouse") {
@@ -7309,24 +7351,40 @@ struct SV {
       }
       const el = e.target.closest && e.target.closest("[data-tip]");
       if (el && el !== owner) {
-        show(el);
+        show(el, "tap");
         return;
       }
       if (owner) hide();
     }, true);
     document.addEventListener("focusin", (e) => {
       const el = target(e);
-      if (el && el.matches(":focus-visible")) show(el);
+      if (el && el.matches(":focus-visible")) show(el, "focus");
     });
     document.addEventListener("focusout", () => {
-      if (owner) hide();
+      if (owner && via === "focus") hide();
     });
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && owner) hide();
     }, true);
-    return { hide, check() {
-      if (owner && !owner.isConnected) hide();
-    } };
+    function check() {
+      if (!owner || owner.isConnected) return;
+      const key = owner.dataset.tip ? `[data-tip="${owner.dataset.tip}"]` : `[data-hint="${CSS.escape(owner.dataset.hint || "")}"]`;
+      const old = rect;
+      let best = null, bd = 24;
+      for (const el of document.querySelectorAll(key)) {
+        const r = el.getBoundingClientRect();
+        const d = Math.hypot(r.left - old.left, r.top - old.top);
+        if (d < bd) {
+          bd = d;
+          best = el;
+        }
+      }
+      if (best) {
+        owner = best;
+        owner.setAttribute("aria-describedby", "tip");
+      } else hide();
+    }
+    return { hide, check };
   }
 
   // src/names.js
@@ -8163,11 +8221,11 @@ struct SV {
     const trailNames = ["Off", "Short", "Long", "Exposure"];
     let trailIdx = prefs.trails ?? 1;
     eng.settings.trails = trailLevels[trailIdx];
-    for (const k of ["links", "nodes", "bloom", "optics", "specks", "tide"]) if (prefs[k] !== void 0) eng.settings[k] = prefs[k];
+    for (const k of ["links", "nodes", "bloom", "optics", "specks", "lod", "tide"]) if (prefs[k] !== void 0) eng.settings[k] = prefs[k];
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, tide: s.tide, world: state.world, auto: state.auto, loupe: state.loupe, closeup: state.closeup, ...state.perf });
+      savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, world: state.world, auto: state.auto, loupe: state.loupe, closeup: state.closeup, ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
     if (prefs.loupe !== void 0 && !isCoarse) state.loupe = prefs.loupe;
@@ -8575,7 +8633,7 @@ struct SV {
     }
     eng.onListen = (d) => {
       if (state.phase !== "running") return;
-      const selSlot = sel && sel.particle && sel.particle.kind >= FIRST_LIFE && !sel.lost ? sel.particle.kind : -1;
+      const selSlot = sel && !sel.film && sel.particle && sel.particle.kind >= FIRST_LIFE && !sel.lost ? sel.particle.kind : -1;
       const keep = sound.listen(d, { selSlot, lit: litSlots });
       if (keep && eng.listen) {
         eng.listen.keep = keep;
@@ -8837,12 +8895,13 @@ struct SV {
       beginTracking(chosen, res);
       closeMenus();
     }
-    function beginTracking(p, res, keepStory) {
+    function beginTracking(p, res, keepStory, film = false) {
       const oldStory = keepStory && sel ? sel.story : [];
       spView = null;
-      sel = { id: p.id, particle: p, sampleT: res.simTime ?? eng.simTime, nbr: res, disp: [p.x, p.y], lost: false, story: oldStory, memory: null, org: null, orgFirst: null, orgNear: null, members: null, rehome: null, diedAt: null, lastOrg: -1e9, lastNbr: -1e9 };
+      sel = { id: p.id, particle: p, sampleT: res.simTime ?? eng.simTime, nbr: res, disp: [p.x, p.y], err: [0, 0], dispT: null, lost: false, story: oldStory, memory: null, org: null, orgFirst: null, orgNear: null, members: null, rehome: null, diedAt: null, lastOrg: -1e9, lastNbr: -1e9, film, filmFor: film ? p.id : null };
       eng.trackId = p.id;
-      specimen.open();
+      if (film) specimen.close();
+      else specimen.open();
       setMembers(null);
       if (p.kind >= FIRST_LIFE) {
         const g = genomeFor(p.kind);
@@ -8922,7 +8981,13 @@ struct SV {
       dirty = true;
     }
     eng.onTrack = (r) => {
-      if (director.active && r.id === director.trackId) director.onTrack(r);
+      if (director.active && r.id === director.trackId) {
+        director.onTrack(r);
+        const sh = director.shot;
+        if (r.found && sh && sh.why && sh.why.kind === "follow" && spView == null && (!sel || sel.film && sel.filmFor !== r.id)) {
+          beginTracking(r.tracked, { entries: [], simTime: r.simTime }, false, true);
+        }
+      }
       if (!sel || r.id !== sel.id || sel.lost) return;
       if (!r.found) {
         sel.lost = true;
@@ -9126,8 +9191,9 @@ struct SV {
       onClose: deselect
     });
     function renderSpecimen(force) {
-      if (!sel && spView == null) return;
+      if (!sel && spView == null || sel && sel.film) return;
       dirty = !specimen.render(force);
+      tips.check();
     }
     function openSpecies(serial) {
       const sp = life.reg.get(serial);
@@ -9243,14 +9309,14 @@ struct SV {
       const kfmt = (n) => n >= 1048576 ? `${n / 1048576}M` : `${Math.round(n / 1024)}k`;
       function display() {
         const s = eng.settings;
-        return choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? '<div class="ramp"><span>dark</span><i></i><span>full light</span></div>' : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe")) + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + (document.fullscreenEnabled && !isCoarse ? onoff("fs", "Full screen", "F", !!document.fullscreenElement) : "");
+        return choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? '<div class="ramp"><span>dark</span><i></i><span>full light</span></div>' : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe")) + onoff("auto", "Auto when idle", "", state.auto, "autoidle");
       }
       function performance_() {
         const s = eng.settings, P = state.perf;
         const dev = Math.min(devicePixelRatio || 1, 2);
         const sizes = PARTICLE_SIZES.filter((n) => n <= maxParticles());
         const nowN = pendingN ?? (P.particles || "auto");
-        return head("Resolution") + choice("scale", "Render scale", "", [["auto", "Auto"], [1, "100%"], [0.75, "75%"], [0.5, "50%"], [0.35, "35%"]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", "Auto lowest", "", [[0.75, "75%"], [0.5, "50%"], [0.35, "35%"], [0.25, "25%"]], P.floor, "autofloor") : "") + choice("density", "Pixel density", "", [[1, "1×"], [1.5, "1.5×", dev < 1.5], [2, "2×", dev < 2]], P.density, "density") + choice("fps", "Target fps", "", [[30, "30"], [60, "60"], [0, "Display"]], P.fps, "targetfps") + head("Effects") + onoff("bloom", "Bloom", "B", s.bloom > 0, "bloom") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("closeup", "Live close-up", "", state.closeup, "closeup") + head("World") + choice("n", "Particles", "", [["auto", "Auto"], ...sizes.map((n) => [n, kfmt(n)])], nowN, "particles") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === "auto" ? "a measured count" : fmt(pendingN)}</button></div>` : "");
+        return head("Resolution") + choice("scale", "Render scale", "", [["auto", "Auto"], [1, "100%"], [0.75, "75%"], [0.5, "50%"], [0.35, "35%"]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", "Auto lowest", "", [[0.75, "75%"], [0.5, "50%"], [0.35, "35%"], [0.25, "25%"]], P.floor, "autofloor") : "") + choice("density", "Pixel density", "", [[1, "1×"], [1.5, "1.5×", dev < 1.5], [2, "2×", dev < 2]], P.density, "density") + choice("fps", "Target fps", "", [[30, "30"], [60, "60"], [0, "Display"]], P.fps, "targetfps") + head("Effects") + onoff("bloom", "Bloom", "B", s.bloom > 0, "bloom") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("lod", "Zoom detail", "", s.lod, "lod") + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("closeup", "Live close-up", "", state.closeup, "closeup") + head("World") + choice("n", "Particles", "", [["auto", "Auto"], ...sizes.map((n) => [n, kfmt(n)])], nowN, "particles") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === "auto" ? "a measured count" : fmt(pendingN)}</button></div>` : "");
       }
       function render() {
         if (el.hidden) return;
@@ -9286,13 +9352,13 @@ struct SV {
         else if (id === "bloom") s.bloom = +v ? 0.012 : 0;
         else if (id === "optics") s.optics = +v ? 1 : 0;
         else if (id === "specks") s.specks = !!+v;
+        else if (id === "lod") s.lod = !!+v;
         else if (id === "closeup") state.closeup = !!+v;
         else if (id === "loupe") state.loupe = !!+v;
         else if (id === "auto") {
           state.auto = !!+v;
           renderAuto(director.active);
-        } else if (id === "fs") toggleFullscreen();
-        else if (id === "scale") {
+        } else if (id === "scale") {
           P.scale = v === "auto" ? "auto" : +v;
           if (P.scale !== "auto") renderScale = P.scale;
           else renderScale = Math.max(renderScale, P.floor);
@@ -9352,7 +9418,16 @@ struct SV {
       });
       else document.exitFullscreen?.();
     }
-    document.addEventListener("fullscreenchange", () => view.render());
+    const fsBtn = $("fs");
+    fsBtn.hidden = !document.fullscreenEnabled;
+    fsBtn.addEventListener("click", toggleFullscreen);
+    document.addEventListener("fullscreenchange", () => {
+      const on = !!document.fullscreenElement;
+      fsBtn.setAttribute("aria-pressed", String(on));
+      fsBtn.setAttribute("aria-label", on ? "Exit full screen" : "Full screen");
+      fsBtn.dataset.hint = on ? "Exit full screen · F" : "Full screen · F";
+      fsBtn.innerHTML = `<svg><use href="#i-${on ? "unfull" : "full"}"/></svg>`;
+    });
     function toggleHelp(on = $("help").hidden) {
       $("help").hidden = !on;
       if (on) view.toggle(false);
@@ -9723,11 +9798,12 @@ struct SV {
         }
       } else perf.goodWindows = 0;
     }
+    let viewSimTime = 0;
     function predicted() {
       return predictAt(sel.particle, sel.sampleT);
     }
     function predictAt(p, sampleT) {
-      const dtS = state.paused ? 0 : Math.max(0, Math.min(0.25, eng.simTime - sampleT));
+      const dtS = Math.max(0, Math.min(0.25, (viewSimTime || eng.simTime) - sampleT));
       let adv = 1;
       if (p.kind >= FIRST_LIFE) {
         const g = genomeFor(p.kind);
@@ -9801,9 +9877,18 @@ struct SV {
       if (sel && sel.particle) {
         const [W, H2] = eng.grid;
         const [px, py] = predicted();
-        const k = Math.min(1, dt / 40);
-        sel.disp[0] += wrapD2(px - sel.disp[0], W) * k;
-        sel.disp[1] += wrapD2(py - sel.disp[1], H2) * k;
+        if (sel.dispT !== sel.sampleT) {
+          if (sel.dispT != null) {
+            sel.err[0] = wrapD2(sel.disp[0] - px, W);
+            sel.err[1] = wrapD2(sel.disp[1] - py, H2);
+          }
+          sel.dispT = sel.sampleT;
+        }
+        const fade = Math.exp(-dt / 45);
+        sel.err[0] *= fade;
+        sel.err[1] *= fade;
+        sel.disp[0] = px + sel.err[0];
+        sel.disp[1] = py + sel.err[1];
         let [sx, sy] = toScreen(sel.disp[0], sel.disp[1]);
         let inLens = false;
         if (L && Math.hypot(sx - L.sx, sy - L.sy) < L.R) {
@@ -9836,6 +9921,8 @@ struct SV {
     }
     function drawMarker(sx, sy, inLens) {
       const lost = sel.lost;
+      const dead = sel.particle.kind < FIRST_LIFE;
+      if (sel.film && dead && !(director.shot && director.shot.why && director.shot.why.kind === "linger")) return;
       const R = 11, c = 5;
       octx.lineWidth = 1.25;
       octx.strokeStyle = lost ? "rgba(255,255,255,0.35)" : "rgba(255,95,58,0.95)";
@@ -9850,7 +9937,7 @@ struct SV {
       const p = sel.particle;
       const g = p.kind >= FIRST_LIFE ? genomeFor(p.kind) : null;
       const sp = g && life.reg.get(g.serial);
-      const name = sp ? sp.name : p.kind < FIRST_LIFE ? MATTER[p.kind].name : "";
+      const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : p.kind < FIRST_LIFE ? MATTER[p.kind].name : "";
       if (!name) return;
       const left = sx > innerWidth * 0.62 && !phone() || sx > innerWidth - 160;
       const ex = sx + (left ? -1 : 1) * (R + 14), ey = sy - R - 14;
@@ -9935,6 +10022,7 @@ struct SV {
     }
     function takeOver() {
       poke();
+      if (sel && sel.film) deselect();
       if (!director.active) return;
       director.stop();
       cam.zoomTarget = cam.zoom;
@@ -10076,6 +10164,10 @@ struct SV {
         startAuto(true);
       }
       const v = director.update(dt / 1e3);
+      if (sel && sel.film) {
+        const kind = director.shot && director.shot.why && director.shot.why.kind;
+        if (!director.active || kind !== "follow" && kind !== "linger") deselect();
+      }
       if (!v) return;
       const wMax = viewWidths()[1];
       cam.x = v.x;
@@ -10147,6 +10239,7 @@ struct SV {
         perf.lastSubmit = now;
         eng.season = seasonAt(eng.simTime);
         const step = plan() || { steps: 0, dt: H };
+        viewSimTime = eng.simTime + (state.paused ? 0 : step.steps * step.dt);
         if (state.phase === "running" && !state.paused) climate.tick(step.steps * step.dt);
         autoCamera(now, dt);
         renderCaption(now);

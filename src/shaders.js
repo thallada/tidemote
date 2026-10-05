@@ -1394,6 +1394,8 @@ struct View {
   linkR: f32, time: f32, selId: u32, matterGain: f32,
   focusOn: u32, roleMask: u32, stateMode: u32, mute: f32,
   memberKind: u32, memberN: u32,
+  // 0: draw every cell as its distant sprite at any zoom (no resolved anatomy, bonds stay lines)
+  detail: u32,
 };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -1443,8 +1445,8 @@ fn pcgR(v: u32) -> u32 { let st = v * 747796405u + 2891336453u; let w = ((st >> 
 fn toClip(px: vec2f) -> vec4f { return vec4f(px.x / (view.res.x * 0.5), -px.y / (view.res.y * 0.5), 0.0, 1.0); }
 
 // Radii are in framebuffer pixels: the same LOD works in the main, loupe and specimen views.
-fn detailLOD(radius: f32) -> f32 { return smoothstep(2.8, 6.0, radius); }
-fn bondLOD(radius: f32) -> f32 { return smoothstep(6.0, 30.0, radius); }
+fn detailLOD(radius: f32) -> f32 { return smoothstep(2.8, 6.0, radius) * f32(view.detail); }
+fn bondLOD(radius: f32) -> f32 { return smoothstep(6.0, 30.0, radius) * f32(view.detail); }
 fn interiorLOD(radius: f32) -> f32 { return smoothstep(12.0, 26.0, radius); }
 fn fineLOD(radius: f32) -> f32 { return smoothstep(30.0, 65.0, radius); }
 fn cellGrain(v: vec2f, id: u32) -> f32 {
@@ -1793,7 +1795,7 @@ struct PO {
   o.index = ii;
   o.geom = vec4f(px, 1.0, 1.0, 0.0);
   // Keep the whole unresolved view cheap, including its few oversized cells.
-  if (px <= 2.8) {
+  if (px <= 2.8 || view.detail == 0u) {
     let footprint = select(1.0, 0.85, k >= FIRST_LIFE);
     o.pos = toClip(d + corner * px * footprint);
     o.uv = corner * footprint;

@@ -115,11 +115,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const trailNames = ['Off', 'Short', 'Long', 'Exposure'];
   let trailIdx = prefs.trails ?? 1;
   eng.settings.trails = trailLevels[trailIdx];
-  for (const k of ['links', 'nodes', 'bloom', 'optics', 'specks', 'tide']) if (prefs[k] !== undefined) eng.settings[k] = prefs[k];
+  for (const k of ['links', 'nodes', 'bloom', 'optics', 'specks', 'lod', 'tide']) if (prefs[k] !== undefined) eng.settings[k] = prefs[k];
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, tide: s.tide, world: state.world, auto: state.auto, loupe: state.loupe, closeup: state.closeup, ...state.perf });
+    savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, world: state.world, auto: state.auto, loupe: state.loupe, closeup: state.closeup, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   if (prefs.loupe !== undefined && !isCoarse) state.loupe = prefs.loupe;
@@ -480,7 +480,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   eng.onListen = (d) => {
     if (state.phase !== 'running') return;
-    const selSlot = sel && sel.particle && sel.particle.kind >= FIRST_LIFE && !sel.lost ? sel.particle.kind : -1;
+    const selSlot = sel && !sel.film && sel.particle && sel.particle.kind >= FIRST_LIFE && !sel.lost ? sel.particle.kind : -1;
     const keep = sound.listen(d, { selSlot, lit: litSlots });
     if (keep && eng.listen) { eng.listen.keep = keep; eng.listen.selKind = selSlot >= 0 ? selSlot : 0xffffffff; }
   };
@@ -712,12 +712,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     closeMenus();
   }
 
-  function beginTracking(p, res, keepStory) {
+  // film: the auto camera's subject, marked and traced like a pick but without opening the panel
+  function beginTracking(p, res, keepStory, film = false) {
     const oldStory = keepStory && sel ? sel.story : [];
     spView = null;
-    sel = { id: p.id, particle: p, sampleT: res.simTime ?? eng.simTime, nbr: res, disp: [p.x, p.y], lost: false, story: oldStory, memory: null, org: null, orgFirst: null, orgNear: null, members: null, rehome: null, diedAt: null, lastOrg: -1e9, lastNbr: -1e9 };
+    sel = { id: p.id, particle: p, sampleT: res.simTime ?? eng.simTime, nbr: res, disp: [p.x, p.y], err: [0, 0], dispT: null, lost: false, story: oldStory, memory: null, org: null, orgFirst: null, orgNear: null, members: null, rehome: null, diedAt: null, lastOrg: -1e9, lastNbr: -1e9, film, filmFor: film ? p.id : null };
     eng.trackId = p.id;
-    specimen.open();
+    if (film) specimen.close(); else specimen.open();
     setMembers(null);
     if (p.kind >= FIRST_LIFE) {
       const g = genomeFor(p.kind);
@@ -795,7 +796,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
 
   eng.onTrack = (r) => {
-    if (director.active && r.id === director.trackId) director.onTrack(r);
+    if (director.active && r.id === director.trackId) {
+      director.onTrack(r);
+      // the camera picked a new subject to follow: mark it as if it had been clicked
+      const sh = director.shot;
+      if (r.found && sh && sh.why && sh.why.kind === 'follow' && spView == null && (!sel || (sel.film && sel.filmFor !== r.id))) {
+        beginTracking(r.tracked, { entries: [], simTime: r.simTime }, false, true);
+      }
+    }
     if (!sel || r.id !== sel.id || sel.lost) return;
     if (!r.found) {
       sel.lost = true;
@@ -983,8 +991,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     onClose: deselect,
   });
   function renderSpecimen(force) {
-    if (!sel && spView == null) return;
+    if ((!sel && spView == null) || (sel && sel.film)) return;
     dirty = !specimen.render(force);
+    tips.check();
   }
 
   function openSpecies(serial) {
@@ -1094,8 +1103,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + onoff('links', 'Bonds', 'L', s.links, 'bond')
         + onoff('nodes', 'Particles', 'N', s.nodes)
         + (isCoarse ? '' : onoff('loupe', 'Loupe', 'M', state.loupe, 'loupe'))
-        + onoff('auto', 'Auto when idle', '', state.auto, 'autoidle')
-        + (document.fullscreenEnabled && !isCoarse ? onoff('fs', 'Full screen', 'F', !!document.fullscreenElement) : '');
+        + onoff('auto', 'Auto when idle', '', state.auto, 'autoidle');
     }
     function performance_() {
       const s = eng.settings, P = state.perf;
@@ -1110,6 +1118,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + head('Effects')
         + onoff('bloom', 'Bloom', 'B', s.bloom > 0, 'bloom')
         + onoff('optics', 'Optics', 'O', s.optics > 0, 'optics')
+        + onoff('lod', 'Zoom detail', '', s.lod, 'lod')
         + onoff('specks', 'Suspension', '', s.specks, 'specks')
         + onoff('closeup', 'Live close-up', '', state.closeup, 'closeup')
         + head('World')
@@ -1145,10 +1154,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'bloom') s.bloom = +v ? 0.012 : 0;
       else if (id === 'optics') s.optics = +v ? 1 : 0;
       else if (id === 'specks') s.specks = !!+v;
+      else if (id === 'lod') s.lod = !!+v;
       else if (id === 'closeup') state.closeup = !!+v;
       else if (id === 'loupe') state.loupe = !!+v;
       else if (id === 'auto') { state.auto = !!+v; renderAuto(director.active); }
-      else if (id === 'fs') toggleFullscreen();
       else if (id === 'scale') { P.scale = v === 'auto' ? 'auto' : +v; if (P.scale !== 'auto') renderScale = P.scale; else renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
       else if (id === 'floor') { P.floor = +v; renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
       else if (id === 'density') { P.density = +v; resetAdapt(); fit(); }
@@ -1178,7 +1187,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
     else document.exitFullscreen?.();
   }
-  document.addEventListener('fullscreenchange', () => view.render());
+  // full screen from the rail, where the browser allows it (not on iPhone)
+  const fsBtn = $('fs');
+  fsBtn.hidden = !document.fullscreenEnabled;
+  fsBtn.addEventListener('click', toggleFullscreen);
+  document.addEventListener('fullscreenchange', () => {
+    const on = !!document.fullscreenElement;
+    fsBtn.setAttribute('aria-pressed', String(on));
+    fsBtn.setAttribute('aria-label', on ? 'Exit full screen' : 'Full screen');
+    fsBtn.dataset.hint = on ? 'Exit full screen · F' : 'Full screen · F';
+    fsBtn.innerHTML = `<svg><use href="#i-${on ? 'unfull' : 'full'}"/></svg>`;
+  });
   function toggleHelp(on = $('help').hidden) { $('help').hidden = !on; if (on) view.toggle(false); }
   $('help-close').addEventListener('click', () => toggleHelp(false));
   function closeMenus() { view.toggle(false); toggleHelp(false); }
@@ -1473,9 +1492,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
 
   // Where the tracked particle is now: last GPU sample advanced by its own velocity plus the current it rides.
+  // the simulated time the frame being drawn shows (after this frame's steps)
+  let viewSimTime = 0;
   function predicted() { return predictAt(sel.particle, sel.sampleT); }
   function predictAt(p, sampleT) {
-    const dtS = state.paused ? 0 : Math.max(0, Math.min(0.25, eng.simTime - sampleT));
+    const dtS = Math.max(0, Math.min(0.25, (viewSimTime || eng.simTime) - sampleT));
     let adv = 1;
     if (p.kind >= FIRST_LIFE) { const g = genomeFor(p.kind); adv = g ? g.advect : 0.5; }
     const [fx, fy] = flowAt(p.x, p.y, eng.simTime, eng.waves);
@@ -1549,10 +1570,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
     drawScale();
     if (sel && sel.particle) {
       const [W, H] = eng.grid;
+      // The marker sits on the prediction for this very frame. A new GPU sample that corrects the
+      // prediction would make it jump, so the jump becomes an offset that fades within ~0.1 s.
       const [px, py] = predicted();
-      const k = Math.min(1, dt / 40);
-      sel.disp[0] += wrapD(px - sel.disp[0], W) * k;
-      sel.disp[1] += wrapD(py - sel.disp[1], H) * k;
+      if (sel.dispT !== sel.sampleT) {
+        if (sel.dispT != null) { sel.err[0] = wrapD(sel.disp[0] - px, W); sel.err[1] = wrapD(sel.disp[1] - py, H); }
+        sel.dispT = sel.sampleT;
+      }
+      const fade = Math.exp(-dt / 45);
+      sel.err[0] *= fade; sel.err[1] *= fade;
+      sel.disp[0] = px + sel.err[0];
+      sel.disp[1] = py + sel.err[1];
       let [sx, sy] = toScreen(sel.disp[0], sel.disp[1]);
       let inLens = false;
       if (L && Math.hypot(sx - L.sx, sy - L.sy) < L.R) {
@@ -1581,6 +1609,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // the picked particle: orange corner brackets and a leader to its name
   function drawMarker(sx, sy, inLens) {
     const lost = sel.lost;
+    // the camera's subject died while the camera finds another cell of its body: mark nothing yet
+    const dead = sel.particle.kind < FIRST_LIFE;
+    if (sel.film && dead && !(director.shot && director.shot.why && director.shot.why.kind === 'linger')) return;
     const R = 11, c = 5;
     octx.lineWidth = 1.25;
     octx.strokeStyle = lost ? 'rgba(255,255,255,0.35)' : 'rgba(255,95,58,0.95)';
@@ -1591,7 +1622,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const p = sel.particle;
     const g = p.kind >= FIRST_LIFE ? genomeFor(p.kind) : null;
     const sp = g && life.reg.get(g.serial);
-    const name = sp ? sp.name : p.kind < FIRST_LIFE ? MATTER[p.kind].name : '';
+    // the camera lingering on a death keeps the species' name on its remains
+    const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : p.kind < FIRST_LIFE ? MATTER[p.kind].name : '';
     if (!name) return;
     const left = sx > innerWidth * 0.62 && !phone() || sx > innerWidth - 160;
     const ex = sx + (left ? -1 : 1) * (R + 14), ey = sy - R - 14;
@@ -1662,6 +1694,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // the user takes the camera back where it is
   function takeOver() {
     poke();
+    if (sel && sel.film) deselect();
     if (!director.active) return;
     director.stop();
     cam.zoomTarget = cam.zoom; cam.anchor = null;
@@ -1776,6 +1809,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
       startAuto(true);
     }
     const v = director.update(dt / 1000);
+    // the camera's subject stays marked through a follow and the linger after its death; other
+    // shots drop it
+    if (sel && sel.film) {
+      const kind = director.shot && director.shot.why && director.shot.why.kind;
+      if (!director.active || (kind !== 'follow' && kind !== 'linger')) deselect();
+    }
     if (!v) return;
     const wMax = viewWidths()[1];
     cam.x = v.x; cam.y = v.y;
@@ -1843,6 +1882,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       perf.lastSubmit = now;
       eng.season = seasonAt(eng.simTime);
       const step = plan() || { steps: 0, dt: H };
+      viewSimTime = eng.simTime + (state.paused ? 0 : step.steps * step.dt);
       if (state.phase === 'running' && !state.paused) climate.tick(step.steps * step.dt);
       autoCamera(now, dt);
       renderCaption(now);

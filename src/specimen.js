@@ -19,36 +19,47 @@ export function createSpecimen(api) {
   const phone = () => matchMedia('(max-width: 720px)').matches;
 
   // ------------------------------------------------------------ sheet (phone)
-  const grab = $('spec-grab');
+  // Collapsed, the sheet shows the picked particle's name, actions and vitals; full, everything.
+  // Drag the handle or the header (or, collapsed, anywhere on the sheet) up to open it and down to
+  // close it; a tap on the handle or header toggles it; Full record opens it too.
+  const more = $('spec-more');
   let drag = null;
-  const setFull = (on) => root.classList.toggle('full', on);
-  grab.addEventListener('pointerdown', (e) => {
-    if (!phone()) return;
-    grab.setPointerCapture(e.pointerId);
-    drag = { y: e.clientY, h: root.getBoundingClientRect().height, moved: false };
-    root.classList.add('dragging');
+  const isFull = () => root.classList.contains('full');
+  function setFull(on) {
+    root.classList.toggle('full', on);
+    more.setAttribute('aria-expanded', String(on));
+  }
+  more.addEventListener('click', () => setFull(true));
+  root.addEventListener('pointerdown', (e) => {
+    if (!phone() || e.button > 0) return;
+    if (e.target.closest('button, a, input, select, .term, #specimen')) return;
+    const head = e.target.closest('.grab, .spec-head');
+    if (!head && isFull()) return;
+    drag = { id: e.pointerId, y: e.clientY, h: root.getBoundingClientRect().height, moved: false, head: !!head };
   });
-  grab.addEventListener('pointermove', (e) => {
-    if (!drag) return;
+  root.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
     const dy = e.clientY - drag.y;
-    if (Math.abs(dy) > 4) drag.moved = true;
-    root.style.height = `${clamp(drag.h - dy, 120, innerHeight)}px`;
+    if (!drag.moved && Math.abs(dy) > 8) {
+      drag.moved = true;
+      try { root.setPointerCapture(e.pointerId); } catch { /* the pointer already ended */ }
+      root.classList.add('dragging');
+    }
+    if (drag.moved) root.style.height = `${clamp(drag.h - dy, 80, innerHeight)}px`;
   });
   const endDrag = (e) => {
-    if (!drag) return;
-    root.classList.remove('dragging');
-    const dy = e.clientY - drag.y;
-    root.style.height = '';
-    if (!drag.moved) setFull(!root.classList.contains('full'));
-    else if (dy < -40) setFull(true);
-    else if (dy > 40) { if (root.classList.contains('full')) setFull(false); else api.onClose(); }
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag;
     drag = null;
+    root.classList.remove('dragging');
+    root.style.height = '';
+    if (!d.moved) { if (d.head && e.type === 'pointerup') setFull(!isFull()); return; }
+    const dy = e.clientY - d.y;
+    if (dy < -40) setFull(true);
+    else if (dy > 40) { if (isFull()) setFull(false); else api.onClose(); }
   };
-  grab.addEventListener('pointerup', endDrag);
-  grab.addEventListener('pointercancel', endDrag);
-  root.querySelector('.spec-id').addEventListener('click', (e) => {
-    if (phone() && !e.target.closest('a') && !root.classList.contains('full')) setFull(true);
-  });
+  root.addEventListener('pointerup', endDrag);
+  root.addEventListener('pointercancel', endDrag);
 
   $('spec-close').addEventListener('click', () => api.onClose());
   $('vz-in').addEventListener('click', () => { api.state.specCells = clamp(api.state.specCells / 1.4, 0.8, 14); });
@@ -305,14 +316,14 @@ export function createSpecimen(api) {
   function open() {
     if (root.hidden) {
       root.hidden = false;
-      root.classList.remove('full');
+      setFull(false);
       document.body.classList.add('spec-open');
     }
     st.lastHtml = ''; st.lastVit = ''; st.actKey = ''; st.tabKey = ''; st.lastHead = '';
   }
   function close() {
     root.hidden = true;
-    root.classList.remove('full');
+    setFull(false);
     document.body.classList.remove('spec-open');
   }
   // the screen area the panel covers, so following can centre the specimen in what is left

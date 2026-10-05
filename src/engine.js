@@ -53,18 +53,18 @@ class Engine {
     this.tidePh = Float32Array.from(TIDE_PHASE);
     this.seedValue = 1;
     this.censusEvery = 20;
-    this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 1, optics: 1, specks: true };
+    this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 1, optics: 1, specks: true, lod: true };
     this.simData = new ArrayBuffer(240);
     this.rock = new Float32Array(4);
     this.simF = new Float32Array(this.simData);
     this.simU = new Uint32Array(this.simData);
     this.waves = new Float32Array(16);
-    this.viewData = new ArrayBuffer(80);
-    this.viewDataL = new ArrayBuffer(80);
+    this.viewData = new ArrayBuffer(96);
+    this.viewDataL = new ArrayBuffer(96);
     this.postData = new Float32Array(52);
     this.loupe = null;
     this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 0xffffffff, memberN: 0 };
-    this.viewDataS = new ArrayBuffer(80);
+    this.viewDataS = new ArrayBuffer(96);
     this.onGpuTime = null;
     this.onCensus = null;
     this.pickReq = null;
@@ -82,9 +82,9 @@ class Engine {
     b.sim = d.createBuffer({ size: 240, usage: U.UNIFORM | U.COPY_DST });
     b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
     this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
-    b.view = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
-    b.viewL = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
-    b.viewS = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
+    b.view = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
+    b.viewL = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
+    b.viewS = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
     b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
     b.post = d.createBuffer({ size: 208, usage: U.UNIFORM | U.COPY_DST });
     b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
@@ -849,7 +849,8 @@ class Engine {
     }).catch(() => { st.busy = false; });
   }
 
-  _writeView(buf, data, cam, W, H, dpr, time, selId) {
+  // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
+  _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true) {
     const K = this.K;
     const ppu = cam.ppu;
     // a cell keeps one world size at every zoom, so zooming in only resolves it
@@ -868,6 +869,7 @@ class Engine {
     v[13] = (0.075 / (1 + overlapAll * 0.9)) * this.settings.exposure;
     const f = this.focus;
     vu[14] = f.on; vu[15] = f.roleMask; vu[16] = f.stateMode; v[17] = f.mute; vu[18] = f.memberKind; vu[19] = f.memberN;
+    vu[20] = detail ? 1 : 0;
     this.device.queue.writeBuffer(buf, 0, data);
   }
 
@@ -884,15 +886,16 @@ class Engine {
 
   _drawScene(pass, bgLine, bgPoint, bgBridge, data) {
     const v = new Float32Array(data);
+    const detail = new Uint32Array(data)[20] === 1;
     if (this.settings.links) {
       // Crossfade native lines and soft strips in this same pass. The strip has zero
       // contribution at its topology switch, so subpixel line coverage cannot pop.
-      if (v[7] < 30) {
+      if (v[7] < 30 || !detail) {
         pass.setPipeline(this.pLine);
         pass.setBindGroup(0, bgLine);
         pass.drawIndirect(this.b.frameCtr, 16);
       }
-      if (v[7] > 6) {
+      if (v[7] > 6 && detail) {
         pass.setPipeline(this.pBridge);
         pass.setBindGroup(0, bgBridge);
         pass.drawIndirect(this.b.bridgeDraw, 0);
@@ -973,10 +976,12 @@ class Engine {
   _render(enc, { target, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd }) {
     const d = this.device;
     const [W, H] = this.size;
-    this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId);
+    // the main view may skip resolving cells (settings.lod); the loupe and the close-up always resolve
+    const lod = this.settings.lod;
+    this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod);
     // The simulation's existing indirect args contain the living instance count. Only rendering
     // changes the vertex count; keep all ecology WGSL and buffers' contents untouched.
-    if (new Float32Array(this.viewData)[7] > 6 || loupe || specimen) {
+    if ((lod && new Float32Array(this.viewData)[7] > 6) || loupe || specimen) {
       enc.copyBufferToBuffer(this.b.frameCtr, 20, this.b.bridgeDraw, 4, 4);
     }
 
@@ -993,7 +998,7 @@ class Engine {
     // Cells fuse with their incoming bond partners, and flatten against the cells they press on, only
     // once outlines resolve (vsPoint: detailLOD(pointSize) > 0), so gather both only then, and only
     // for cells in view.
-    const mainDetail = new Float32Array(this.viewData)[7] > 2.8;
+    const mainDetail = lod && new Float32Array(this.viewData)[7] > 2.8;
     if (mainDetail || loupe || specimen) {
       // the grid cells each view covers, with a cell of margin so partners just outside still fuse
       const [gw, gh] = this.grid;
