@@ -185,7 +185,7 @@ class Engine {
   async allocate(n) {
     const d = this.device;
     const b = this.b;
-    const names = ['parts', 'sortedFull', 'sortedLite', 'aux', 'intent', 'bondsNow', 'bondsIn', 'touch', 'stoneList', 'ledger', 'livingList'];
+    const names = ['parts', 'sortedFull', 'sortedLite', 'aux', 'intent', 'bondsNow', 'bondsIn', 'touch', 'bends', 'stoneList', 'ledger', 'livingList'];
     for (const k of names) { b[k]?.destroy(); b[k] = null; }
     this.capacity = 0;
     this.count = 0;
@@ -202,6 +202,7 @@ class Engine {
     b.touch = d.createBuffer({ size: n * 24, usage: U.STORAGE, mappedAtCreation: true });
     new Uint32Array(b.touch.getMappedRange()).fill(0xffffffff);
     b.touch.unmap();
+    b.bends = d.createBuffer({ size: n * 16, usage: U.STORAGE });
     b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
     b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
@@ -226,12 +227,12 @@ class Engine {
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
       { binding: 3, resource: { buffer: b.intent } },
       { binding: 5, resource: { buffer: b.focus } }, { binding: 6, resource: { buffer: b.bondsIn } },
-      { binding: 8, resource: { buffer: b.touch } }] });
+      { binding: 8, resource: { buffer: b.touch } }, { binding: 9, resource: { buffer: b.bends } }] });
     const stoneBG = (view) => d.createBindGroup({ layout: this.pStone.getBindGroupLayout(0), entries:
       [[0, view], [1, b.parts], [2, b.genomes], [5, b.focus], [7, b.stoneList]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
     this.bgStone = stoneBG(b.view); this.bgStoneL = stoneBG(b.viewL); this.bgStoneS = stoneBG(b.viewS);
-    const inbondRes = [null, b.intent, b.parts, b.bondsIn, b.inbondU, b.cellStart, b.touch, b.genomes];
-    const inbondUse = [[2, 3, 4, 5], [1, 2, 3, 4, 5], [2, 4, 5, 6, 7]];
+    const inbondRes = [null, b.intent, b.parts, b.bondsIn, b.inbondU, b.cellStart, b.touch, b.genomes, b.bends];
+    const inbondUse = [[2, 3, 4, 5], [1, 2, 3, 4, 5], [2, 4, 5, 6, 7, 8]];
     this.inbondBG = this.cpInbond.map((pipe, k) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0),
       entries: inbondUse[k].map((binding) => ({ binding, resource: { buffer: inbondRes[binding] } })) }));
     const lineBG = (view) => d.createBindGroup({ layout: this.pLine.getBindGroupLayout(0), entries: [
@@ -841,7 +842,7 @@ class Engine {
       if (mainDetail) rect(0, cam.x, cam.y, W / (2 * cam.ppu), H / (2 * cam.ppu));
       else if (loupe) rect(0, loupe.cx, loupe.cy, loupe.r / loupe.ppu, loupe.r / loupe.ppu);
       if (specimen) rect(1, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu));
-      u[16] = gw; u[17] = gh;
+      u[16] = gw; u[17] = gh; new Float32Array(u.buffer)[18] = time;
       d.queue.writeBuffer(this.b.inbondU, 0, u);
       const pass = enc.beginComputePass({ timestampWrites: tsBegin() });
       for (let k = 0; k < 3; k++) {

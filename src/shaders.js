@@ -1176,7 +1176,8 @@ export const INBOND_WGSL = COMMON + /* wgsl */ `
 @group(0) @binding(1) var<storage, read> intent: array<vec4u>;
 @group(0) @binding(2) var<storage, read> parts: array<Particle>;
 @group(0) @binding(3) var<storage, read_write> bondsIn: array<atomic<u32>>;
-// The grid cells of up to two drawn views (main, specimen): first cell, cell count; and the grid.
+// The grid cells of up to two drawn views (main, specimen): first cell, cell count; the grid, and
+// in grid.z the animation time's bits.
 // Particles are sorted by grid cell, so cellStart gives each cell's range: work scales with the view.
 struct Views { first: array<vec4i, 2>, count: array<vec4u, 2>, grid: vec4u };
 @group(0) @binding(4) var<uniform> views: Views;
@@ -1227,6 +1228,10 @@ fn inbondGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_inde
 const TOUCH_N = 6u;
 @group(0) @binding(6) var<storage, read_write> touch: array<u32>;
 @group(0) @binding(7) var<storage, read> genomes: array<Genome>;
+// Each living cell in view bends along the curve of its path, through a soft spring so it lags and
+// sways back as it straightens. Kept by ID (unique serials), so it needs nothing from the sort: the
+// ID, last heading, bend and its rate (half floats), and when. Another ID in the slot starts afresh.
+@group(0) @binding(8) var<storage, read_write> bends: array<vec4u>;
 
 fn drawnSize(p: Particle) -> f32 { return genomes[p.kind].size * (1.0 - 0.12 * f32(roleOf(p.info))); }
 
@@ -1265,6 +1270,30 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
       }
     }
     for (var c = 0u; c < TOUCH_N; c++) { touch[i * TOUCH_N + c] = best[c]; }
+
+    let now = bitcast<f32>(views.grid.z);
+    let slot = p.id % arrayLength(&bends);
+    let was = bends[slot];
+    let heading = atan2(p.vel.y, p.vel.x);
+    let dt = now - bitcast<f32>(was.w);
+    var bend = vec2f(0.0);
+    if (was.x == p.id && dt > 0.0 && dt < 0.1) {
+      bend = unpack2x16float(was.z);
+      // the path's curvature (turn rate / speed) in units of the drawn radius, trusted only once the
+      // cell moves a radius or so a second, below which its heading is mostly jitter
+      let speed = length(p.vel);
+      let radius = 0.085 * si;
+      var turn = heading - bitcast<f32>(was.y);
+      turn -= TAU * round(turn / TAU);
+      let follow = clamp(0.5 * turn / (dt * max(speed, 1e-4)) * radius, -0.45, 0.45)
+        * smoothstep(0.5, 2.0, speed / radius);
+      // about 1.4 Hz, damping 0.3: it overshoots a little once the turn ends
+      bend.y += ((follow - bend.x) * 80.0 - bend.y * 5.4) * dt;
+      bend.x = clamp(bend.x + bend.y * dt, -0.6, 0.6);
+    } else if (was.x == p.id && dt == 0.0) {
+      continue;
+    }
+    bends[slot] = vec4u(p.id, bitcast<u32>(heading), pack2x16float(bend), bitcast<u32>(now));
   }
 }
 `;
@@ -1289,6 +1318,8 @@ struct View {
 @group(0) @binding(7) var<storage, read> stoneList: array<u32>;
 // The living cells each cell presses against (INBOND_WGSL contactGather).
 @group(0) @binding(8) var<storage, read> touch: array<u32>;
+// Each cell's bend along its path (INBOND_WGSL contactGather), by ID.
+@group(0) @binding(9) var<storage, read> bends: array<vec4u>;
 
 fn kindOn(k: u32) -> bool { return ((focus[k >> 5u] >> (k & 31u)) & 1u) == 1u; }
 fn isMember(id: u32) -> bool {
@@ -1501,10 +1532,14 @@ struct CellOutline { sd: f32, q: vec2f };
 fn bodyAspect(s: vec2f, swim: f32, pace: f32) -> f32 {
   return (0.82 + s.x * 0.38 + min(swim, 1.5) * 0.10) * (1.0 + 0.3 * pace);
 }
+// Turning, the body curves along its path (an area-preserving shear); past the body, as a tail
+// does, the curve runs on straight.
+fn bendShift(x: f32, bend: f32) -> f32 { return bend * abs(x) * min(abs(x), 1.0); }
 fn cellOutline(uv: vec2f, dir: vec2f, radius: f32, seed: f32,
-    shape: u32, traits: vec4f, s: vec2f, pace: f32) -> CellOutline {
+    shape: u32, traits: vec4f, s: vec2f, pace: f32, bend: f32) -> CellOutline {
   let aspect = bodyAspect(s, traits.x, pace);
   var motion = localPoint(uv, dir) * vec2f(1.0 / aspect, aspect);
+  motion.y -= bendShift(motion.x, bend);
   // Dragged through the water a cell is blunt in front and drawn out thin behind, by as much,
   // so its area holds (to second order in pace).
   motion.y *= exp(pace * 0.35 * (smoothstep(0.0, -0.9, motion.x) - smoothstep(0.0, 0.9, motion.x)));
@@ -1588,14 +1623,14 @@ struct PO {
   // species: it only dents the cell, softly, where kin share a crisp wall
   @location(9) @interpolate(flat) contact: vec3u,
   @location(11) @interpolate(flat) contact2: vec3u,
-  // inflation that restores the area those planes cut off; pace through the water (0..1)
-  @location(10) @interpolate(flat) jelly: vec2f,
+  // inflation that restores the area those planes cut off; pace through the water (0..1); bend
+  @location(10) @interpolate(flat) jelly: vec3f,
 };
 
 @vertex fn vsPoint(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> PO {
   var o: PO;
   o.bondSeeds = vec2u(0u, 0x7fffu);
-  o.jelly = vec2f(1.0, 0.0);
+  o.jelly = vec3f(1.0, 0.0, 0.0);
   let p = parts[ii];
   // stone is drawn as one field of boulders (vsStone), not grain by grain
   if (p.kind == STONE) { o.pos = vec4f(2.0, 2.0, 0.0, 1.0); return o; }
@@ -1674,8 +1709,11 @@ struct PO {
   if (k >= FIRST_LIFE) {
     // radii per second through the water (vel excludes the flow); shells barely give
     let radii = length(p.vel) * view.ppu / px;
-    pace = (1.0 - exp(-radii * 0.25)) * (1.0 - 0.75 * min(genomes[k].calcify, 1.0));
-    extent *= 1.0 + 0.3 * pace;
+    let give = 1.0 - 0.75 * min(genomes[k].calcify, 1.0);
+    pace = (1.0 - exp(-radii * 0.25)) * give;
+    let st = bends[p.id % arrayLength(&bends)];
+    o.jelly.z = select(0.0, unpack2x16float(st.z).x * give, st.x == p.id);
+    extent *= (1.0 + 0.3 * pace) * (1.0 + 0.5 * abs(o.jelly.z));
   }
   if (any(abs(d) > view.res * 0.5 + vec2f(px * extent))) {
     o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
@@ -1785,6 +1823,7 @@ struct PO {
     // A swollen cell's own frame is shrunk to match; partners keep the shared one.
     let swell = i.jelly.x;
     let pace = i.jelly.y;
+    let bend = i.jelly.z;
     for (var j = 0u; j < 4u; j++) {
       var uv = i.uv / swell;
       var dir = i.geom.zw;
@@ -1814,7 +1853,7 @@ struct PO {
         plan = flags;
       }
       let outline = cellOutline(uv, dir, radius, cellSeed, plan,
-        vec4f(g.swim, g.pulse, g.calcify, g.dFlesh), s, pace);
+        vec4f(g.swim, g.pulse, g.calcify, g.dFlesh), s, pace, bend);
       if (j == 0u) {
         membraneSD = outline.sd * swell;
         sd = membraneSD;
@@ -1853,7 +1892,8 @@ struct PO {
     let hairRange = membraneSD < 0.035 + 4.0 * (0.018 + aa);
     var tailRange = false;
     if (body <= 0.0 && resolved > 0.0 && g.swim > 0.05 && !hairRange) {
-      let motion = localPoint(i.uv / swell, i.geom.zw) * vec2f(1.0 / aspect, aspect);
+      var motion = localPoint(i.uv / swell, i.geom.zw) * vec2f(1.0 / aspect, aspect);
+      motion.y -= bendShift(motion.x, bend);
       tailRange = motion.x > -1.9 && motion.x < -0.6 && abs(motion.y) < 0.148 + aa;
     }
     let appendages = resolved > 0.0 && g.swim > 0.05 && (body > 0.0 || hairRange || tailRange);
@@ -1954,7 +1994,8 @@ struct PO {
     f = body * tissue * spriteMean(i.shape) / i.geom.y;
     if (appendages && body < 1.0) {
       let a = atan2(q.y, q.x);
-      let motion = localPoint(i.uv / swell, i.geom.zw) * vec2f(1.0 / aspect, aspect);
+      var motion = localPoint(i.uv / swell, i.geom.zw) * vec2f(1.0 / aspect, aspect);
+      motion.y -= bendShift(motion.x, bend);
       let beat = view.time * 2.5 + seed * TAU;
       // Fade subpixel hairs before widening them with the footprint; no sparkling fringe.
       let hairs = exp(-pow((membraneSD - 0.035) / (0.018 + aa), 2.0))
