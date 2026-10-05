@@ -167,7 +167,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function viewOffset() {
     const ins = specimen.inset();
     const top = phone() ? 48 : 52, bot = phone() ? 62 : 56;
-    const cx = (innerWidth - ins.right) / 2, cy = (top + innerHeight - Math.max(bot, ins.bottom)) / 2;
+    const left = lab && lab.isOpen() && !phone() ? $('lab').getBoundingClientRect().right : 0;
+    const cx = (left + innerWidth - ins.right) / 2, cy = (top + innerHeight - Math.max(bot, ins.bottom)) / 2;
     const p = cssPPU();
     return [(innerWidth / 2 - cx) / p, (innerHeight / 2 - cy) / p];
   }
@@ -401,6 +402,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   function setMembers(ids, kind) {
     members = ids && ids.length ? ids : null;
+    if (!members && sel) sel.box = null;
     memberKind = members ? kind : NONE;
     pushFocus();
   }
@@ -716,7 +718,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function beginTracking(p, res, keepStory, film = false) {
     const oldStory = keepStory && sel ? sel.story : [];
     spView = null;
-    sel = { id: p.id, particle: p, sampleT: res.simTime ?? eng.simTime, nbr: res, disp: [p.x, p.y], err: [0, 0], dispT: null, lost: false, story: oldStory, memory: null, org: null, orgFirst: null, orgNear: null, members: null, rehome: null, diedAt: null, lastOrg: -1e9, lastNbr: -1e9, film, filmFor: film ? p.id : null };
+    sel = { id: p.id, particle: p, sampleT: res.simTime ?? eng.simTime, nbr: res, disp: [p.x, p.y], err: [0, 0], dispT: null, box: null, boxD: null, lost: false, story: oldStory, memory: null, org: null, orgFirst: null, orgNear: null, members: null, rehome: null, diedAt: null, lastOrg: -1e9, lastNbr: -1e9, film, filmFor: film ? p.id : null };
     eng.trackId = p.id;
     if (film) specimen.close(); else specimen.open();
     setMembers(null);
@@ -941,13 +943,18 @@ function run(eng, device, ctx, specCtx, hasTS) {
       sel.sampleT = res.simTime;
     }
 
-    // the cells of the body near the watched one, for "touching"
+    // the cells of the body near the watched one, for "touching", and the body's extent around it,
+    // which the marker frames
     const near = [];
-    for (let k = 0; k < cells.length && near.length < 400; k++) {
+    const box = [0, 0, 0, 0];
+    for (let k = 0; k < cells.length; k++) {
       const i = cells[k];
-      if (Math.hypot(wrapD(X[i] - sel.particle.x, W), wrapD(Y[i] - sel.particle.y, H)) < 2) near.push({ x: X[i], y: Y[i] });
+      const dx = wrapD(X[i] - sel.particle.x, W), dy = wrapD(Y[i] - sel.particle.y, H);
+      if (near.length < 400 && Math.hypot(dx, dy) < 2) near.push({ x: X[i], y: Y[i] });
+      box[0] = Math.min(box[0], dx); box[1] = Math.min(box[1], dy); box[2] = Math.max(box[2], dx); box[3] = Math.max(box[3], dy);
     }
     sel.orgNear = near;
+    sel.box = members.size > 1 ? box : null;
     const prev = sel.org;
     const mid = [((rx + cx) % W + W) % W, ((ry + cy) % H + H) % H];
     sel.org = { cells: members.size, roles, span: span * 2, mid, speed: Math.hypot(vx / m, vy / m), meanE: eSum / m, partial: res.truncated, touching: prev ? prev.touching : 0, at: res.simTime, ms: performance.now() - t0 };
@@ -1589,7 +1596,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         inLens = true;
       }
       const visible = !inLens || Math.hypot(sx - L.sx, sy - L.sy) < L.R - 8;
-      if (visible) drawMarker(sx, sy, inLens);
+      if (visible) drawMarker(sx, sy, inLens, dt);
     }
     if (L) {
       const { sx, sy } = L;
@@ -1607,16 +1614,29 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
   }
   // the picked particle: orange corner brackets and a leader to its name
-  function drawMarker(sx, sy, inLens) {
+  // The picked particle: orange corner brackets around it, or around its whole organism (the
+  // body's extent from the last trace, riding on the watched cell), and a leader to its name.
+  function drawMarker(sx, sy, inLens, dt) {
     const lost = sel.lost;
     // the camera's subject died while the camera finds another cell of its body: mark nothing yet
     const dead = sel.particle.kind < FIRST_LIFE;
     if (sel.film && dead && !(director.shot && director.shot.why && director.shot.why.kind === 'linger')) return;
-    const R = 11, c = 5;
+    const R = 11;
+    let l = sx - R, t = sy - R, r = sx + R, b = sy + R;
+    if (sel.box && !inLens && !dead) {
+      // ease toward each new trace so the frame doesn't jump once a second
+      if (!sel.boxD) sel.boxD = sel.box.slice();
+      const k = 1 - Math.exp(-dt / 150);
+      for (let i = 0; i < 4; i++) sel.boxD[i] += (sel.box[i] - sel.boxD[i]) * k;
+      const p = cssPPU(), pad = Math.max(6, 0.12 * p);
+      l = Math.min(l, sx + sel.boxD[0] * p - pad); t = Math.min(t, sy + sel.boxD[1] * p - pad);
+      r = Math.max(r, sx + sel.boxD[2] * p + pad); b = Math.max(b, sy + sel.boxD[3] * p + pad);
+    } else sel.boxD = null;
+    const c = Math.min(10, (r - l) / 3, (b - t) / 3);
     octx.lineWidth = 1.25;
     octx.strokeStyle = lost ? 'rgba(255,255,255,0.35)' : 'rgba(255,95,58,0.95)';
     octx.beginPath();
-    for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { octx.moveTo(sx + dx * R, sy + dy * (R - c)); octx.lineTo(sx + dx * R, sy + dy * R); octx.lineTo(sx + dx * (R - c), sy + dy * R); }
+    for (const [x, y, dx, dy] of [[l, t, 1, 1], [r, t, -1, 1], [l, b, 1, -1], [r, b, -1, -1]]) { octx.moveTo(x, y + dy * c); octx.lineTo(x, y); octx.lineTo(x + dx * c, y); }
     octx.stroke();
     if (inLens || lost) return;
     const p = sel.particle;
@@ -1625,16 +1645,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the camera lingering on a death keeps the species' name on its remains
     const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : p.kind < FIRST_LIFE ? MATTER[p.kind].name : '';
     if (!name) return;
-    const left = sx > innerWidth * 0.62 && !phone() || sx > innerWidth - 160;
-    const ex = sx + (left ? -1 : 1) * (R + 14), ey = sy - R - 14;
-    octx.strokeStyle = 'rgba(255,95,58,0.75)';
-    octx.lineWidth = 1;
-    octx.beginPath(); octx.moveTo(sx + (left ? -R : R), sy - R); octx.lineTo(ex, ey); octx.lineTo(ex + (left ? -1 : 1) * 10, ey); octx.stroke();
     octx.font = '500 11px Saira, system-ui, sans-serif';
     const label = name.toUpperCase();
     octx.letterSpacing = '1.5px';
     const tw = octx.measureText(label).width;
-    const tx = left ? ex - 14 - tw : ex + 14;
+    // the label goes to whichever side of the frame has room inside the area the panels leave open
+    const lo = lab.isOpen() && !phone() ? $('lab').getBoundingClientRect().right : 0;
+    const hi = innerWidth - specimen.inset().right;
+    const left = r + 38 + tw > hi - 8 && l - 38 - tw >= lo + 8;
+    const ex = (left ? l - 14 : r + 14), ey = Math.max(t - 14, 64);
+    octx.strokeStyle = 'rgba(255,95,58,0.75)';
+    octx.lineWidth = 1;
+    octx.beginPath(); octx.moveTo(left ? l : r, t); octx.lineTo(ex, ey); octx.lineTo(ex + (left ? -1 : 1) * 10, ey); octx.stroke();
+    const tx = clamp(left ? ex - 14 - tw : ex + 14, lo + 8, hi - tw - 8);
     octx.fillStyle = 'rgba(6,9,10,0.7)';
     octx.fillRect(tx - 4, ey - 9, tw + 8, 16);
     octx.fillStyle = 'rgba(226,241,240,0.95)';
