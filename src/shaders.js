@@ -13,6 +13,8 @@ export const META_CLAIM = META_ENERGY + 64;
 // Energy ledger per diet guild, in thousandths: light, glint, plant bites, husks, kills, upkeep, children.
 export const ENERGY_SLOTS = ['light', 'glint', 'plant', 'husk', 'flesh', 'upkeep', 'children'];
 export const P_BYTES = 40;
+// The loupe's barrel distortion: its rim shows this many times its radius.
+export const LOUPE_FIELD = 1.1;
 export const PICK_WORDS = 12; // Particle's 10 words, then two partner IDs (NONE if absent).
 export const G_BYTES = 192;
 export const G_WORDS = 48;
@@ -1911,8 +1913,12 @@ struct PO {
         sd = smoothUnion(sd, partnerSD, blend);
       }
     }
-    // Flattened against the cells it presses on: a soft intersection with each contact plane.
+    // Flattened against the cells it presses on: a soft intersection with each contact plane. The
+    // seam wanders a little, as pressed membranes do; the wander is taken in the world, so the two
+    // cells on either side of a seam agree on it.
     var pressed = -1.0;
+    let seamAt = (p.pos + i.uv * i.geom.x / view.ppu) * (6.0 / view.linkR);
+    let wander = 0.06 * cellGrain(seamAt, 0u) + 0.03 * cellGrain(seamAt * 2.7, 1u);
     for (var c = 0u; c < 6u; c++) {
       let foot = unpack2x16float(select(i.contact2[c % 3u], i.contact[c % 3u], c < 3u));
       var t = length(foot);
@@ -1921,7 +1927,7 @@ struct PO {
       let soft = select(0.16, 0.05, kin);
       let normal = foot / t;
       t -= select(4.0, 0.0, kin);
-      let plane = dot(i.uv, normal) - t;
+      let plane = dot(i.uv, normal) - t + wander;
       pressed = max(pressed, plane);
       let h = max(soft - abs(sd - plane), 0.0) / soft;
       sd = max(sd, plane) + h * h * soft * 0.25;
@@ -1948,6 +1954,7 @@ struct PO {
     // Flat cytoplasm is cheap at silhouette LOD. Detail is a small modulation of
     // that same normalised light, so there is no bright jump when the nucleus appears.
     var tissue = 1.0;
+    var hue = vec3f(1.0);
     if (inside > 0.0 && body > 0.0) {
       let a = atan2(q.y, q.x);
       let r = length(q);
@@ -1956,6 +1963,11 @@ struct PO {
       let rim = exp(-pow((sd + 0.025) / (wallWidth + aa), 2.0));
       let innerRim = exp(-pow((sd + 0.10) / (0.07 + aa), 2.0));
       var detail = (0.44 + g.calcify * 0.12) * rim - 0.21 * innerRim;
+      // cytoplasm is never an even fill: it is mottled, thicker in places (the difference of two
+      // fields, so a cell's light is unchanged on average), and stained here and there by what the
+      // cell has eaten or stored
+      detail += 0.12 * (cellGrain(q * 8.0, p.id) - cellGrain(q * 8.0 + 31.7, p.id + 3u));
+      hue = mix(vec3f(1.0), vec3f(1.25, 1.0, 0.65), inside * smoothstep(0.1, 0.6, cellGrain(q * 3.0 + 5.0, p.id + 13u)));
       // relief: the dome near the membrane, then each organelle's own bulge or hollow
       // kept to the membrane's own band, clear of the outline's medial axis in narrow arms
       var relief = 0.45 * dot(outward, TO_LIGHT) * (1.0 - smoothstep(0.0, 0.13, -sd));
@@ -2054,6 +2066,7 @@ struct PO {
       f += min(g.swim, 1.0) * resolved * (1.0 - body) * (0.05 * hairs + 0.08 * tail);
     }
     cover = body;
+    return vec4f(i.col * hue * mix(far, max(0.0, f), lod), lod * cover);
   } else {
     let a = atan2(v.y, v.x) + seed * TAU;
     var r = length(v);
@@ -2162,6 +2175,7 @@ struct BO {
   @location(1) side: f32,
   @location(2) cover: f32,
   @location(3) across: vec2f, // the neck's sideways direction on screen
+  @location(4) along: vec2f, // fraction of the way from p to q, and world distance from p
 };
 fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f {
   let len = length(chord);
@@ -2233,6 +2247,7 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   o.cover = lod * lod * span;
   o.side = side;
   o.across = normal;
+  o.along = vec2f(t, t * len);
   return o;
 }
 @fragment fn fsBridge(i: BO) -> @location(0) vec4f {
@@ -2240,7 +2255,12 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   // a resolved neck is a tube of membrane: lit along the side toward the light
   let n = normalize(vec3f(i.across * i.side, sqrt(max(1.0 - i.side * i.side, 0.05))));
   let tube = 0.45 + 0.75 * max(dot(n, normalize(vec3f(TO_LIGHT, 0.7))), 0.0);
-  return vec4f(i.col * edge * mix(1.0, tube, clamp(i.cover * 3.0, 0.0, 1.0)), i.cover * edge);
+  let resolved = clamp(i.cover * 3.0, 0.0, 1.0);
+  // up close it dissolves into the cells it joins rather than ending in a cut, and granular
+  // cytoplasm streams along it
+  let ends = mix(1.0, smoothstep(0.0, 0.25, i.along.x) * smoothstep(1.0, 0.75, i.along.x), resolved);
+  let stream = 1.0 + 0.3 * resolved * cellGrain(vec2f(i.along.y * 50.0 / view.linkR - view.time * 1.2, i.side * 1.5), 7u);
+  return vec4f(i.col * edge * ends * stream * mix(1.0, tube, resolved), i.cover * edge * ends);
 }
 
 // Reef stone and bedrock. Each grain is a cobble, an irregular dome; where cobbles overlap the higher
@@ -2308,11 +2328,12 @@ struct StoneOut { @location(0) col: vec4f, @location(1) surf: vec4f };
 
 export const POST_WGSL = 'diagnostic(off, derivative_uniformity);\n' + COMMON + /* wgsl */ `
 override MICRO_SUSPENSION: bool = true;
+const LOUPE_FIELD = ${LOUPE_FIELD};
 struct Post {
   res: vec2f, bloom: f32, exposure: f32,
   time: f32, season: f32, tideVis: f32, ppu: f32,
   cam: vec2f, world: vec2f,
-  simTime: f32, ambient: f32, p1: f32, p2: f32,
+  simTime: f32, ambient: f32, optics: f32, p2: f32,
   tide: array<vec4f, 4>,
   tidePh: vec4f,
   waves: array<vec4f, 4>,
@@ -2330,6 +2351,7 @@ struct Reproj { scale: vec2f, shift: vec2f, k: f32, p0: f32, p1: f32, p2: f32 };
 @group(0) @binding(6) var<uniform> microView: MicroView;
 @group(0) @binding(7) var stoneTex: texture_2d<f32>;
 @group(0) @binding(8) var stoneTop: texture_2d<f32>;
+@group(0) @binding(9) var murkTex: texture_2d<f32>;
 
 struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 
@@ -2589,7 +2611,8 @@ fn microGrain(wp: vec2f, spacing: f32, ppu: f32, octave: f32, depth: f32, cycle:
   return grains;
 }
 
-fn pondMicro(c: vec3f, hdr: vec3f, cam: vec2f, offset: vec2f, renderPPU: f32, ppu: f32) -> vec3f {
+// mud: the murk lying between the focal plane and the soft plane, which it veils
+fn pondMicro(c: vec3f, hdr: vec3f, cam: vec2f, offset: vec2f, renderPPU: f32, ppu: f32, mud: f32) -> vec3f {
   // The main view specialises this away below the reveal threshold, avoiding
   // register/stack overhead from the deep-zoom shader even on software GPUs.
   if (!MICRO_SUSPENSION) { return c; }
@@ -2615,7 +2638,7 @@ fn pondMicro(c: vec3f, hdr: vec3f, cam: vec2f, offset: vec2f, renderPPU: f32, pp
     // which can move dust sideways relative to matter near a slow-flow node.
     let back = postFlowAt(wp - velocity * (tau * 0.5), post.simTime - tau * 0.5) * tau;
     let cycle = floor(clock) + f32(phase) * 131.0;
-    var field = microGrain(cam * 0.72 + delta - back * 0.72, 0.055, ppu, 0.0, 0.72, cycle);
+    var field = microGrain(cam * 0.72 + delta - back * 0.72, 0.055, ppu, 0.0, 0.72, cycle) * (1.0 - 0.6 * mud);
     field += microGrain(wp - back, 0.035, ppu, 1.0, 1.0, cycle);
     field += microGrain(wp - back, 0.008, ppu, 2.0, 1.0, cycle);
     grains += field * weight;
@@ -2624,6 +2647,113 @@ fn pondMicro(c: vec3f, hdr: vec3f, cam: vec2f, offset: vec2f, renderPPU: f32, pp
   // relief: in-focus specks have sharp edges, lit on the side toward the light; soft defocus has none
   let emboss = -dot(vec2f(dpdx(grains.a), dpdy(grains.a)), TO_LIGHT);
   return max(vec3f(0.0), c * (1.0 - grains.a * behind) + (grains.rgb + vec3f(0.006, 0.0065, 0.007) * emboss) * behind);
+}
+
+// One channel of microNoise's periodic value noise, for a quarter of the hashing.
+fn valueNoise(p: vec2f, period: vec2f) -> f32 {
+  let cell = floor(p);
+  let f = fract(p);
+  let u = f * f * (3.0 - 2.0 * f);
+  let a = cell - period * floor(cell / period);
+  let b = (cell + 1.0) - period * floor((cell + 1.0) / period);
+  return mix(mix(hash12(a), hash12(vec2f(b.x, a.y)), u.x), mix(hash12(vec2f(a.x, b.y)), hash12(b), u.x), u.y);
+}
+
+// ------------------------------------------------------------ optics
+// What a camera on a microscope adds to the specimen. Except for the murk in the water these are
+// fixed to the screen, so they stay put as the view pans. post.optics scales them all; 0 is bare.
+
+// The objective's image at uv; q is the offset from the optical axis in half-heights, wp the world
+// point. Lateral chromatic aberration pulls red and blue apart toward the edge of the field. Near the
+// rim the image softens (field curvature) and, at high magnification, the shallow focus loses
+// whatever lies above or below the focal plane there: cells come in and out of focus as they move.
+fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32) -> vec3f {
+  let r2 = dot(q, q);
+  let px = k * post.res.y / 1000.0 / post.res;
+  let ca = q * r2 * 0.2 * px;
+  var c = vec3f(scene(uv + ca).r, scene(uv).g, scene(uv - ca).b);
+  let rim = smoothstep(1.0, 4.2, r2);
+  var blur = rim * 1.5;
+  let start = max(80.0, 2.0 * max(post.res.x / post.world.x, post.res.y / post.world.y));
+  if (rim > 0.0 && post.ppu > start) {
+    let cells = max(vec2f(1.0), round(post.world / 2.5));
+    let drift = vec2f(0.0, post.simTime * 0.004);
+    // focused on the middle of the view, as a microscopist keeps what they watch sharp
+    let depth = valueNoise(wp / post.world * cells + drift, cells) - valueNoise(post.cam / post.world * cells + drift, cells);
+    blur += rim * smoothstep(0.08, 0.35, abs(depth)) * smoothstep(start, start * 4.0, post.ppu) * 4.5;
+  }
+  if (blur * k > 0.3) {
+    // eight taps on a disc, turned at random per pixel; the sensor's grain hides the pattern
+    let turn = hash12(pos) * TAU;
+    var b = vec3f(0.0);
+    for (var t = 0; t < 8; t++) {
+      let a = turn + f32(t) * 2.39996;
+      b += scene(uv + vec2f(cos(a), sin(a)) * sqrt((f32(t) + 0.5) / 8.0) * blur * px);
+    }
+    c = mix(c, b / 8.0, smoothstep(0.3, 1.5, blur * k));
+  }
+  return c;
+}
+
+// Dust on the optics, far out of focus: soft discs, each with a brighter diffraction rim.
+fn opticDust(q: vec2f) -> f32 {
+  // only out toward the edge of the field, where the eyepiece's dust is in the light path
+  let edge = smoothstep(1.1, 1.9, length(q));
+  if (edge <= 0.0) { return 0.0; }
+  let g = q * 2.2;
+  let base = floor(g);
+  var dust = 0.0;
+  for (var y = -1; y <= 1; y++) {
+    for (var x = -1; x <= 1; x++) {
+      let cell = base + vec2f(f32(x), f32(y));
+      let h = microHash(cell + 41.0);
+      if (h.w < 0.55) { continue; }
+      let d = length(g - cell - h.xy) / mix(0.15, 0.5, h.z);
+      dust += (1.0 - smoothstep(0.75, 1.0, d)) * (0.4 + 0.6 * smoothstep(0.4, 0.92, d)) * mix(0.4, 1.0, h.y);
+    }
+  }
+  return dust * edge;
+}
+
+// Clouds of fine mud suspended in the water, in flocs of every size, a little below the cells and
+// above pondMicro's soft plane: they pan at MUD_DEPTH of the focal plane's speed. The currents carry
+// and shear them; each generation gathers out of a blur, sharpens and dissolves again while the next
+// gathers elsewhere (two crossfaded generations, as in pondMicro). delta is the world offset from
+// the view's centre.
+const MUD_DEPTH = 0.85;
+fn murk(cam: vec2f, delta: vec2f) -> f32 {
+  let world = post.world * MUD_DEPTH;
+  let cells = max(vec2f(1.0), round(world / 4.0));
+  let velocity = postFlowAt(cam + delta, post.simTime);
+  var sum = 0.0;
+  for (var phase = 0u; phase < 2u; phase++) {
+    let clock = post.simTime / 24.0 + f32(phase) * 0.5;
+    let age = fract(clock);
+    let weight = 1.0 - abs(2.0 * age - 1.0);
+    let tau = age * 24.0;
+    let back = postFlowAt(cam + delta - velocity * (tau * 0.5), post.simTime - tau * 0.5) * tau;
+    let gen = floor(clock) * 2.0 + f32(phase);
+    let u = (cam * MUD_DEPTH + delta - back * MUD_DEPTH) / world * cells + vec2f(gen * 7.31, gen * 3.17);
+    let density = valueNoise(u, cells) * 0.35 + valueNoise(u * 4.0, cells * 4.0) * 0.3
+      + valueNoise(u * 16.0, cells * 16.0) * 0.2 + valueNoise(u * 64.0, cells * 64.0) * 0.15;
+    let width = mix(0.2, 0.08, weight);
+    sum += smoothstep(0.58 - width, 0.58 + width, density) * weight;
+  }
+  return sum;
+}
+
+// The main view's murk, at a quarter of its resolution: it is soft, and costly per pixel.
+@fragment fn fsMurk(i: VO) -> @location(0) vec4f {
+  return vec4f(murk(post.cam, (i.uv - 0.5) * post.res / post.ppu), 0.0, 0.0, 1.0);
+}
+
+// The camera's sensor: read noise in the dark, shot noise growing with light, a little of it in
+// colour. Display space, after the gamma curve.
+fn sensor(c: vec3f, pos: vec2f, k: f32) -> vec3f {
+  let t = fract(post.time) * 91.7;
+  let n = vec3f(hash12(pos + t), hash12(pos.yx + t * 1.37 + 11.3), hash12(pos + t * 0.71 + 27.1)) - 0.5;
+  let lum = dot(c, vec3f(0.299, 0.587, 0.114));
+  return c + (n.g + (n - n.g) * 0.35) * (0.016 + 0.03 * sqrt(max(lum, 0.0))) * k;
 }
 
 fn tonemap(hdrIn: vec3f) -> vec3f {
@@ -2636,12 +2766,15 @@ fn tonemap(hdrIn: vec3f) -> vec3f {
 }
 
 @fragment fn fsComposite(i: VO) -> @location(0) vec4f {
-  var hdr = scene(i.uv) + boulder(i.uv, post.cam + (i.pos.xy - post.res * 0.5) / post.ppu, post.ppu);
+  let k = post.optics;
+  let q = (i.pos.xy - post.res * 0.5) / (post.res.y * 0.5);
+  let wp = post.cam + (i.pos.xy - post.res * 0.5) / post.ppu;
+  var hdr = boulder(i.uv, wp, post.ppu);
+  if (k > 0.0) { hdr += lensScene(i.uv, q, wp, i.pos.xy, k); } else { hdr += scene(i.uv); }
   let bl = textureSampleLevel(bloomTex, samp, i.uv, 0.0).rgb;
   hdr = (hdr + bl * post.bloom) * post.exposure;
   var T = 0.0;
   if (post.tideVis > 0.0) {
-    let wp = post.cam + (i.pos.xy - post.res * 0.5) / post.ppu;
     T = tideAt(wp, post.world, post.simTime, post.tide, post.tidePh) * post.season;
     if (post.tideVis < 1.5) { hdr += vec3f(0.003, 0.010, 0.014) * T; }
   }
@@ -2655,14 +2788,27 @@ fn tonemap(hdrIn: vec3f) -> vec3f {
     let contour = 1.0 - smoothstep(0.0, w * 1.2, min(fract(band), 1.0 - fract(band)));
     c += vec3f(0.22) * contour;
   }
-  let q = i.uv - 0.5;
-  let v = clamp(1.0 - dot(q, q) * 1.1, 0.0, 1.0);
-  let bg = mix(vec3f(0.0015, 0.0012, 0.0035), vec3f(0.0055, 0.0045, 0.011), v);
-  c = c * mix(0.72, 1.0, v) + bg;
-  c = pondMicro(c, hdr, post.cam, i.pos.xy - post.res * 0.5, post.ppu, post.ppu);
+  let uq = i.uv - 0.5;
+  let v = clamp(1.0 - dot(uq, uq) * 1.1, 0.0, 1.0);
+  var bg = mix(vec3f(0.0015, 0.0012, 0.0035), vec3f(0.0055, 0.0045, 0.011), v);
+  // the lamp is never quite centred: brighter and warmer toward a hotspot off the axis
+  let hs = q - vec2f(0.35, -0.2);
+  let lamp = exp(-dot(hs, hs) * 0.3);
+  let m = textureSampleLevel(murkTex, samp, i.uv, 0.0).r * k;
+  // the mud lies behind the cells: what is lit in the focal plane hides it
+  let behind = 1.0 / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
+  bg = mix(bg, bg * mix(vec3f(0.85, 0.88, 0.94), vec3f(1.12, 1.06, 1.0), lamp), k) + vec3f(0.0045, 0.004, 0.0015) * m * behind;
+  c = c * mix(0.72, 1.0, v) * mix(1.0, mix(0.88, 1.05, lamp), k) + bg;
+  c = pondMicro(c, hdr, post.cam, i.pos.xy - post.res * 0.5, post.ppu, post.ppu, m);
+  // the round field stop of the eyepiece clips the corners of the camera's frame
+  let corner = length(vec2f(post.res.x / post.res.y, 1.0));
+  c *= mix(1.0, 1.0 - 0.85 * smoothstep(corner * 0.78, corner * 1.02, length(q)), k);
+  var dust = 0.0;
+  if (k > 0.0) { dust = opticDust(q) * k; }
+  c = c * (1.0 - 0.12 * dust) + vec3f(0.003, 0.0031, 0.0036) * dust;
   c = pow(c, vec3f(1.0 / 2.2));
   c += (hash12(i.pos.xy + fract(post.time) * 91.7) - 0.5) / 255.0 * 2.0;
-  return vec4f(c, 1.0);
+  return vec4f(sensor(c, i.pos.xy, k), 1.0);
 }
 
 // loupe: a circular lens composited over the main view
@@ -2671,7 +2817,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 @vertex fn vsLoupe(@builtin(vertex_index) vi: u32) -> LV {
   let corners = array<vec2f, 6>(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0), vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0));
   let c = corners[vi];
-  let rr = loupe.radius + 4.0;
+  let rr = loupe.radius * 1.2 + 4.0;
   let px = loupe.center + c * rr;
   var o: LV;
   o.pos = vec4f(px.x / loupe.res.x * 2.0 - 1.0, 1.0 - px.y / loupe.res.y * 2.0, 0.0, 1.0);
@@ -2679,18 +2825,53 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   return o;
 }
 
+// The loupe's view through its lens, at r in its texture's half-widths.
+fn loupeScene(r: vec2f) -> vec3f {
+  let tuv = r * 0.5 + 0.5;
+  return scene(tuv) + boulder(tuv, microView.cam + r * microView.res * 0.5 / microView.ppu, microView.ppu);
+}
+
 @fragment fn fsLoupe(i: LV) -> @location(0) vec4f {
+  let k = post.optics;
   let d = length(i.uv);
-  if (d > 1.035) { discard; }
-  let tuv = i.uv * 0.5 + 0.5;
-  var hdr = (scene(tuv) + boulder(tuv, microView.cam + (tuv - 0.5) * microView.res / microView.ppu, microView.ppu)) * post.exposure;
-  var c = tonemap(hdr) + vec3f(0.006, 0.006, 0.012);
-  c = pondMicro(c, hdr, microView.cam, i.uv * microView.res * 0.5, microView.ppu, loupe.ppu);
+  if (d > 1.035) {
+    // the lens casts a soft shadow, away from the light
+    if (k <= 0.0) { discard; }
+    let ds = length(i.uv + TO_LIGHT * 0.06);
+    return vec4f(0.0, 0.0, 0.0, 0.45 * k * (1.0 - smoothstep(0.98, 1.2, ds)) * loupe.strength);
+  }
+  // a magnifier's barrel distortion: true scale at the centre, the field squeezed toward the rim,
+  // where red and blue bend apart and the image softens
+  let d2 = d * d;
+  let r = i.uv * (1.0 + k * (LOUPE_FIELD - 1.0) * d2) / LOUPE_FIELD;
+  let ca = r * d2 * d2 * 0.015 * k;
+  var hdr = vec3f(loupeScene(r + ca).r, loupeScene(r).g, loupeScene(r - ca).b);
+  let soft = d2 * d2 * k;
+  if (soft > 0.05) {
+    let o = vec2f(2.0 * soft / microView.res.x);
+    let b = loupeScene(r + o) + loupeScene(r - o) + loupeScene(r + vec2f(o.x, -o.y)) + loupeScene(r - vec2f(o.x, -o.y));
+    hdr = mix(hdr, b * 0.25, 0.6 * soft);
+  }
+  hdr *= post.exposure;
+  var m = 0.0;
+  if (k > 0.0) { m = murk(microView.cam, r * microView.res * 0.5 / microView.ppu) * k; }
+  let behind = 1.0 / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
+  var c = tonemap(hdr) + vec3f(0.006, 0.006, 0.012) + vec3f(0.0045, 0.004, 0.0015) * m * behind;
+  c = pondMicro(c, hdr, microView.cam, r * microView.res * 0.5, microView.ppu, loupe.ppu, m);
   c = pow(c, vec3f(1.0 / 2.2));
   let vign = smoothstep(1.0, 0.75, d);
-  c *= mix(0.55, 1.0, vign);
-  let ring = smoothstep(0.012, 0.0, abs(d - 1.0)) * 0.85;
-  c = mix(c, vec3f(0.93, 0.9, 0.97), ring);
+  c *= mix(mix(0.55, 0.75, k), 1.0, vign);
+  if (k > 0.0) {
+    // glass: a soft glint toward the light, and a rim lit on its near side, shadowed on its far side
+    let toward = dot(i.uv / max(d, 1e-4), TO_LIGHT);
+    let g = i.uv - TO_LIGHT * 0.55;
+    let glint = exp(-dot(g, g) * 9.0) * 0.05 + exp(-pow((d - 0.9) * 22.0, 2.0)) * smoothstep(0.55, 0.95, toward) * 0.12;
+    c += vec3f(0.95, 0.97, 1.0) * glint * k;
+    c = sensor(c, i.pos.xy, k);
+  }
+  let rimCol = mix(vec3f(0.93, 0.9, 0.97), mix(vec3f(0.2, 0.2, 0.24), vec3f(0.97, 0.95, 1.0), 0.5 + 0.5 * dot(i.uv / max(d, 1e-4), TO_LIGHT)), k);
+  let ring = smoothstep(0.012 + 0.012 * k, 0.0, abs(d - 1.0)) * 0.85;
+  c = mix(c, rimCol, ring);
   let a = select(1.0, smoothstep(1.035, 1.0, d), d > 1.0);
   return vec4f(c, a * loupe.strength);
 }
@@ -2706,7 +2887,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 @fragment fn fsPlain(i: VO) -> @location(0) vec4f {
   let hdr = (scene(i.uv) + boulder(i.uv, microView.cam + (i.uv - 0.5) * microView.res / microView.ppu, microView.ppu)) * post.exposure;
   var c = tonemap(hdr) + vec3f(0.006, 0.005, 0.012);
-  c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu);
+  c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0);
   return vec4f(pow(c, vec3f(1.0 / 2.2)), 1.0);
 }
 `;

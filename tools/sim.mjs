@@ -140,34 +140,40 @@ async function writePNG(device, eng, frames) {
   for (const z of (process.env.ZOOM || '1').split(',').map(Number)) {
     eng.clearAccum = true;
     const ppu = Math.max(W / eng.grid[0], H / eng.grid[1]) * z;
-    const render = () => eng.frame({ target: tex.createView(), cam: { x, y, ppu }, paused: true, time: frames / 60 });
-    render();
-    const bpr = Math.ceil((W * 4) / 256) * 256;
-    const buf = device.createBuffer({ size: bpr * H, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-    const enc = device.createCommandEncoder();
-    enc.copyTextureToBuffer({ texture: tex }, { buffer: buf, bytesPerRow: bpr }, [W, H]);
-    device.queue.submit([enc.finish()]);
-    await buf.mapAsync(GPUMapMode.READ);
-    const src = new Uint8Array(buf.getMappedRange());
-    const png = new PNG({ width: W, height: H });
-    for (let y = 0; y < H; y++) png.data.set(src.subarray(y * bpr, y * bpr + W * 4), y * W * 4);
-    const file = process.env.ZOOM ? v.png.replace(/\.png$/, `_z${z}.png`) : v.png;
-    fs.writeFileSync(file, PNG.sync.write(png));
-    buf.unmap();
-    buf.destroy();
-    console.log(`wrote ${file}`);
-    if (v['render-bench']) {
-      const ms = [];
-      eng.onGpuTime = (t) => ms.push(t);
-      for (let i = 0; i < 200; i++) {
-        render(); // Drain timestamps; discard the first 20 frames as warmup below.
-        while (eng.timing.reads.some((r) => r.busy)) await new Promise((resolve) => setTimeout(resolve, 0));
+    // LOUPE=mag puts a page-sized loupe of that magnification at the centre
+    const mag = +process.env.LOUPE || 0, R = Math.round(Math.min(Math.max(Math.min(W, H) * 0.2, 90), 170));
+    const loupe = mag ? { x: W / 2, y: H / 2, r: R, ppu: ppu * mag, cx: x, cy: y } : null;
+    const render = () => eng.frame({ target: tex.createView(), cam: { x, y, ppu }, paused: true, time: frames / 60, loupe });
+    for (const optics of (process.env.OPTICS || '1').split(',').map(Number)) {
+      eng.settings.optics = optics;
+      render();
+      const bpr = Math.ceil((W * 4) / 256) * 256;
+      const buf = device.createBuffer({ size: bpr * H, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+      const enc = device.createCommandEncoder();
+      enc.copyTextureToBuffer({ texture: tex }, { buffer: buf, bytesPerRow: bpr }, [W, H]);
+      device.queue.submit([enc.finish()]);
+      await buf.mapAsync(GPUMapMode.READ);
+      const src = new Uint8Array(buf.getMappedRange());
+      const png = new PNG({ width: W, height: H });
+      for (let y = 0; y < H; y++) png.data.set(src.subarray(y * bpr, y * bpr + W * 4), y * W * 4);
+      const file = v.png.replace(/\.png$/, (process.env.ZOOM ? `_z${z}` : '') + (process.env.OPTICS ? `_o${optics}` : '') + '.png');
+      fs.writeFileSync(file, PNG.sync.write(png));
+      buf.unmap();
+      buf.destroy();
+      console.log(`wrote ${file}`);
+      if (v['render-bench']) {
+        const ms = [];
+        eng.onGpuTime = (t) => ms.push(t);
+        for (let i = 0; i < 200; i++) {
+          render(); // Drain timestamps; discard the first 20 frames as warmup below.
+          while (eng.timing.reads.some((r) => r.busy)) await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        eng.onGpuTime = null;
+        const samples = ms.slice(20).sort((a, b) => a - b);
+        const timing = { zoom: z, optics, ppu, samples: samples.length,
+          medianMs: samples[Math.floor(samples.length / 2)], meanMs: samples.reduce((a, b) => a + b, 0) / samples.length };
+        timings.push(timing); console.log(`GPU render: ${JSON.stringify(timing)}`);
       }
-      eng.onGpuTime = null;
-      const samples = ms.slice(20).sort((a, b) => a - b);
-      const timing = { zoom: z, ppu, samples: samples.length,
-        medianMs: samples[Math.floor(samples.length / 2)], meanMs: samples.reduce((a, b) => a + b, 0) / samples.length };
-      timings.push(timing); console.log(`GPU render: ${JSON.stringify(timing)}`);
     }
   }
   if (timings.length) fs.writeFileSync(v.png.replace(/\.png$/, '-timing.json'), JSON.stringify({ adapter: config.adapter, n: eng.count, W, H, timings }, null, 2));
