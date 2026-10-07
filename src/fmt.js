@@ -14,6 +14,8 @@ export const term = (key, label) => `<span class="term" data-tip="${key}" tabind
 export const spLink = (serial, name) => `<a href="#" class="sp" data-serial="${serial}">${esc(name)}</a>`;
 export const meter = (frac, cls = '') => `<span class="meter ${cls}"><i style="width:${(clamp(frac, 0, 1) * 100).toFixed(1)}%"></i></span>`;
 export const ROLE = ['α', 'β', 'γ'];
+// A living cell's drawn radius at `ppu` pixels per world unit (vsPoint: 0.085 world units per unit of size).
+export const cellRadius = (p, g, ppu) => 0.085 * (g ? g.size : 1) * (1 - 0.12 * (p.role || 0)) * ppu;
 
 export const MATTER = [
   { name: 'Silt', css: '#5d6a82', blurb: 'Inert mineral grit carried on the currents. The Tide charges it into glint, and cells build their offspring out of it.' },

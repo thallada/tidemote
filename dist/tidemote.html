@@ -13931,6 +13931,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var spLink = (serial, name) => `<a href="#" class="sp" data-serial="${serial}">${esc(name)}</a>`;
   var meter = (frac, cls = "") => `<span class="meter ${cls}"><i style="width:${(clamp6(frac, 0, 1) * 100).toFixed(1)}%"></i></span>`;
   var ROLE = ["α", "β", "γ"];
+  var cellRadius = (p, g, ppu) => 0.085 * (g ? g.size : 1) * (1 - 0.12 * (p.role || 0)) * ppu;
   var MATTER = [
     { name: "Silt", css: "#5d6a82", blurb: "Inert mineral grit carried on the currents. The Tide charges it into glint, and cells build their offspring out of it." },
     { name: "Glint", css: "#b9e6ff", blurb: "Silt charged by the Tide: free-floating food. Its charge fades back to silt if nothing eats it." },
@@ -15660,7 +15661,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const ui = $2("spec-ui");
     let uiAt = 0;
     function drawViewerUI(now) {
-      if (root.hidden || root.classList.contains("no-view") || now - uiAt < 250) return;
+      if (root.hidden || root.classList.contains("no-view")) return;
+      const sel0 = api.sel(), box = sel0 && !sel0.lost && sel0.particle.kind >= FIRST_LIFE && (sel0.boxD || sel0.box);
+      if (!box && now - uiAt < 250) return;
       uiAt = now;
       const r = Math.min(devicePixelRatio || 1, 2);
       const w = ui.clientWidth, h = ui.clientHeight;
@@ -15683,16 +15686,31 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       g.stroke();
       const sel = api.sel();
-      g.strokeStyle = sel && sel.lost ? "rgba(255,255,255,0.3)" : "rgba(255,95,58,0.9)";
-      const R2 = 9;
-      g.beginPath();
-      for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-        g.moveTo(w / 2 + sx * R2, h / 2 + sy * (R2 - 4));
-        g.lineTo(w / 2 + sx * R2, h / 2 + sy * R2);
-        g.lineTo(w / 2 + sx * (R2 - 4), h / 2 + sy * R2);
-      }
-      g.stroke();
       const pxPerCell = h / api.state.specCells;
+      const brackets = (l, t2, r2, b, c2) => {
+        g.beginPath();
+        for (const [x, y, dx, dy] of [[l, t2, 1, 1], [r2, t2, -1, 1], [l, b, 1, -1], [r2, b, -1, -1]]) {
+          g.moveTo(x, y + dy * c2);
+          g.lineTo(x, y);
+          g.lineTo(x + dx * c2, y);
+        }
+        g.stroke();
+      };
+      g.lineWidth = 1.25;
+      if (box) {
+        const pad2 = 6, e = m + 2;
+        const l = clamp6(w / 2 + box[0] * pxPerCell - pad2, e, w / 2 - 14), t2 = clamp6(h / 2 + box[1] * pxPerCell - pad2, e, h / 2 - 14);
+        const r2 = clamp6(w / 2 + box[2] * pxPerCell + pad2, w / 2 + 14, w - e), b = clamp6(h / 2 + box[3] * pxPerCell + pad2, h / 2 + 14, h - e);
+        g.strokeStyle = "rgba(255,95,58,0.9)";
+        brackets(l, t2, r2, b, Math.min(10, (r2 - l) / 3, (b - t2) / 3));
+        const R2 = Math.max(6, cellRadius(sel.particle, api.genomeFor(sel.particle.kind), pxPerCell) * 1.4 + 3), c2 = Math.max(3, Math.min(10, R2 * 0.45));
+        g.strokeStyle = "rgba(241,227,160,0.95)";
+        brackets(w / 2 - R2, h / 2 - R2, w / 2 + R2, h / 2 + R2, c2);
+      } else {
+        g.strokeStyle = sel && sel.lost ? "rgba(255,255,255,0.3)" : "rgba(255,95,58,0.9)";
+        brackets(w / 2 - 9, h / 2 - 9, w / 2 + 9, h / 2 + 9, 4);
+      }
+      g.lineWidth = 1;
       const bar = pxPerCell * 0.5;
       g.fillStyle = "rgba(226,241,240,0.85)";
       g.fillRect(12, h - 14, bar, 1.5);
@@ -16592,6 +16610,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var fmtSpeed = (s) => s === Infinity ? "Max" : `×${s}`;
   var PARTICLE_SIZES = [32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
   var PREFS_KEY = "tidemote.view";
+  var CELL_MARK = "rgba(241,227,160,0.95)";
   var loadPrefs = () => {
     try {
       return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
@@ -18465,6 +18484,18 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       octx.globalAlpha = 1;
     }
+    function cellBrackets(g, x, y, R2) {
+      const c = Math.max(2.5, Math.min(10, R2 * 0.45));
+      g.lineWidth = 1.25;
+      g.strokeStyle = CELL_MARK;
+      g.beginPath();
+      for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        g.moveTo(x + dx * R2, y + dy * (R2 - c));
+        g.lineTo(x + dx * R2, y + dy * R2);
+        g.lineTo(x + dx * (R2 - c), y + dy * R2);
+      }
+      g.stroke();
+    }
     function drawMarker(sx, sy, inLens, dt) {
       const lost = sel.lost;
       const dead = sel.particle.kind < FIRST_LIFE;
@@ -18491,6 +18522,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         octx.lineTo(x + dx * c, y);
       }
       octx.stroke();
+      if (sel.boxD && !lost) cellBrackets(octx, sx, sy, Math.max(5, cellRadius(sel.particle, genomeFor(sel.particle.kind), cssPPU()) * 1.4 + 3));
       if (inLens || lost) return;
       const p = sel.particle;
       const g = p.kind >= FIRST_LIFE ? genomeFor(p.kind) : null;

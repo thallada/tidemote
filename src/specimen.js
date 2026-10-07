@@ -2,7 +2,7 @@ import { roleShares, roleColor, affinity, CELL_SHAPES, cellShape } from './genom
 import { FIRST_LIFE } from './engine.js';
 import { tagsOf } from './facets.js';
 import { tideAt } from './flow.js';
-import { fmt, fmtClock, fmtDur, esc, cssCol, cssRgb, term, spLink, meter, clamp, ROLE, MATTER, CAUSE } from './fmt.js';
+import { fmt, fmtClock, fmtDur, esc, cssCol, cssRgb, term, spLink, meter, clamp, ROLE, MATTER, CAUSE, cellRadius } from './fmt.js';
 import { glyphURL, MATTER_GLYPH } from './glyphs.js';
 import { sparkPath } from './charts.js';
 import { voiceOf } from './audio/mapping.js';
@@ -442,7 +442,10 @@ export function createSpecimen(api) {
   const ui = $('spec-ui');
   let uiAt = 0;
   function drawViewerUI(now) {
-    if (root.hidden || root.classList.contains('no-view') || now - uiAt < 250) return;
+    if (root.hidden || root.classList.contains('no-view')) return;
+    // the organism's brackets follow its easing frame every frame; otherwise a few times a second is enough
+    const sel0 = api.sel(), box = sel0 && !sel0.lost && sel0.particle.kind >= FIRST_LIFE && (sel0.boxD || sel0.box);
+    if (!box && now - uiAt < 250) return;
     uiAt = now;
     const r = Math.min(devicePixelRatio || 1, 2);
     const w = ui.clientWidth, h = ui.clientHeight;
@@ -458,12 +461,24 @@ export function createSpecimen(api) {
     for (const [x, y, sx, sy] of [[m, m, 1, 1], [w - m, m, -1, 1], [m, h - m, 1, -1], [w - m, h - m, -1, -1]]) { g.moveTo(x, y + sy * c); g.lineTo(x, y); g.lineTo(x + sx * c, y); }
     g.stroke();
     const sel = api.sel();
-    g.strokeStyle = sel && sel.lost ? 'rgba(255,255,255,0.3)' : 'rgba(255,95,58,0.9)';
-    const R = 9;
-    g.beginPath();
-    for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { g.moveTo(w / 2 + sx * R, h / 2 + sy * (R - 4)); g.lineTo(w / 2 + sx * R, h / 2 + sy * R); g.lineTo(w / 2 + sx * (R - 4), h / 2 + sy * R); }
-    g.stroke();
     const pxPerCell = h / api.state.specCells;
+    const brackets = (l, t, r, b, c) => { g.beginPath(); for (const [x, y, dx, dy] of [[l, t, 1, 1], [r, t, -1, 1], [l, b, 1, -1], [r, b, -1, -1]]) { g.moveTo(x, y + dy * c); g.lineTo(x, y); g.lineTo(x + dx * c, y); } g.stroke(); };
+    g.lineWidth = 1.25;
+    if (box) {
+      // a body: the organism in the world view's orange, the watched cell (centred) in the panel's cell colour
+      const pad = 6, e = m + 2;
+      const l = clamp(w / 2 + box[0] * pxPerCell - pad, e, w / 2 - 14), t = clamp(h / 2 + box[1] * pxPerCell - pad, e, h / 2 - 14);
+      const r = clamp(w / 2 + box[2] * pxPerCell + pad, w / 2 + 14, w - e), b = clamp(h / 2 + box[3] * pxPerCell + pad, h / 2 + 14, h - e);
+      g.strokeStyle = 'rgba(255,95,58,0.9)';
+      brackets(l, t, r, b, Math.min(10, (r - l) / 3, (b - t) / 3));
+      const R = Math.max(6, cellRadius(sel.particle, api.genomeFor(sel.particle.kind), pxPerCell) * 1.4 + 3), c = Math.max(3, Math.min(10, R * 0.45));
+      g.strokeStyle = 'rgba(241,227,160,0.95)';
+      brackets(w / 2 - R, h / 2 - R, w / 2 + R, h / 2 + R, c);
+    } else {
+      g.strokeStyle = sel && sel.lost ? 'rgba(255,255,255,0.3)' : 'rgba(255,95,58,0.9)';
+      brackets(w / 2 - 9, h / 2 - 9, w / 2 + 9, h / 2 + 9, 4);
+    }
+    g.lineWidth = 1;
     const bar = pxPerCell * 0.5;
     g.fillStyle = 'rgba(226,241,240,0.85)';
     g.fillRect(12, h - 14, bar, 1.5);

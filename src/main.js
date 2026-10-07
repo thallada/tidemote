@@ -14,7 +14,7 @@ import { PICK_WORDS, WATCH_MAX } from './shaders.js';
 import { flowAt } from './flow.js';
 import { Director } from './director.js';
 import { parseMind, interpretMind, settleMind } from './mind.js';
-import { fmt, fmtClock, fmtDur, esc, cssCol, clamp, term, spLink, ROLE, MATTER, LIVING_CSS } from './fmt.js';
+import { fmt, fmtClock, fmtDur, esc, cssCol, clamp, term, spLink, ROLE, MATTER, LIVING_CSS, cellRadius } from './fmt.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('stage');
@@ -77,6 +77,7 @@ const PARTICLE_SIZES = [32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 
 
 // view preferences that outlive the page
 const PREFS_KEY = 'tidemote.view';
+const CELL_MARK = 'rgba(241,227,160,0.95)'; // the watched cell, inside its organism's (orange) brackets
 const loadPrefs = () => { try { return JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); } catch { return {}; } };
 const savePrefs = (p) => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(p)); } catch { /* storage unavailable */ } };
 
@@ -1719,6 +1720,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // the picked particle: orange corner brackets and a leader to its name
   // The picked particle: orange corner brackets around it, or around its whole organism (the
   // body's extent from the last trace, riding on the watched cell), and a leader to its name.
+  // A cell's own brackets, inside its organism's (also drawn by the specimen viewer), hugging the cell as drawn.
+  function cellBrackets(g, x, y, R) {
+    const c = Math.max(2.5, Math.min(10, R * 0.45));
+    g.lineWidth = 1.25;
+    g.strokeStyle = CELL_MARK;
+    g.beginPath();
+    for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { g.moveTo(x + dx * R, y + dy * (R - c)); g.lineTo(x + dx * R, y + dy * R); g.lineTo(x + dx * (R - c), y + dy * R); }
+    g.stroke();
+  }
   function drawMarker(sx, sy, inLens, dt) {
     const lost = sel.lost;
     // the camera's subject died while the camera finds another cell of its body: mark nothing yet
@@ -1741,6 +1751,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     octx.beginPath();
     for (const [x, y, dx, dy] of [[l, t, 1, 1], [r, t, -1, 1], [l, b, 1, -1], [r, b, -1, -1]]) { octx.moveTo(x, y + dy * c); octx.lineTo(x, y); octx.lineTo(x + dx * c, y); }
     octx.stroke();
+    // framing a body, the brackets are the organism's; the watched cell gets its own, in the panel's cell colour
+    if (sel.boxD && !lost) cellBrackets(octx, sx, sy, Math.max(5, cellRadius(sel.particle, genomeFor(sel.particle.kind), cssPPU()) * 1.4 + 3));
     if (inLens || lost) return;
     const p = sel.particle;
     const g = p.kind >= FIRST_LIFE ? genomeFor(p.kind) : null;
