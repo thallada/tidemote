@@ -13,6 +13,7 @@ import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
 import { PICK_WORDS, WATCH_MAX } from './shaders.js';
 import { flowAt } from './flow.js';
 import { Director } from './director.js';
+import { parseMind, interpretMind, settleMind } from './mind.js';
 import { fmt, fmtClock, fmtDur, esc, cssCol, clamp, term, spLink, ROLE, MATTER, LIVING_CSS } from './fmt.js';
 
 const $ = (id) => document.getElementById(id);
@@ -833,6 +834,20 @@ function run(eng, device, ctx, specCtx, hasTS) {
     applySample(r.tracked, r.simTime);
   };
 
+  // What the watched cell is doing: a replay of its last decision (mind.js), steadied so the headline holds.
+  eng.onMind = (r) => {
+    if (!sel || r.id !== sel.id || sel.lost) return;
+    const m = parseMind(r.u32, r.f32);
+    const kind = sel.particle.kind;
+    const g = m && kind >= FIRST_LIFE ? genomeFor(kind) : null;
+    if (!g) { sel.mind = null; return; }
+    const it = interpretMind(m, g, kind, { K, genomeOf: genomeFor });
+    sel.mindMemo = settleMind(sel.mindMemo, it);
+    sel.mind = { ...it, head: sel.mindMemo.cur, m, kind };
+    specimen.mindUpdate();
+    dirty = true;
+  };
+
   // ------------------------------------------------------------ organism tracing
   // One GPU pass copies every cell of the selected species and its bond partner IDs.
   // On the CPU a BFS traces the body through those bonds, treating either direction as a connection.
@@ -955,6 +970,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       } else story('Its organism split: following the larger part.');
       sel.rehome = null;
       sel.id = idAt(best);
+      sel.mind = null;
+      sel.mindMemo = null;
       sel.particle = parseParticle(u32, f32, best * PICK_WORDS);
       sel.sampleT = res.simTime;
     }
@@ -2020,8 +2037,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       eng.trackId = sel && !sel.lost ? sel.id : NONE;
       eng.trackId2 = director.active ? director.trackId : NONE;
       watchMarks(performance.now());
+      eng.mindId = sel && !sel.lost && !sel.film && sel.particle.kind >= FIRST_LIFE && specimen.isOpen() ? sel.id : NONE;
       drawOverlay(dt, L);
       specimen.drawViewerUI(now);
+      specimen.mindTick(now);
       eng.frame({
         target: ctx.getCurrentTexture().createView(),
         cam: { x: cam.x, y: cam.y, ppu: ppu() },

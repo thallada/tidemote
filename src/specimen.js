@@ -8,6 +8,7 @@ import { sparkPath } from './charts.js';
 import { voiceOf } from './audio/mapping.js';
 import { describe, compareMotifs } from './audio/motif.js';
 import { songSVG, sigilSVG } from './song.js';
+import { createMindView } from './mindview.js';
 
 /**
  * The specimen panel: whatever was picked in the world (a cell, a grain) or opened by name (a species).
@@ -107,18 +108,39 @@ export function createSpecimen(api) {
   const vital = (label, frac, cls, text, tip) => `<div class="vital"><span>${tip ? term(tip, label) : label}</span>${meter(frac, cls)}<b>${text}</b></div>`;
   const lightAt = (p) => { const [W, H] = eng.grid; return Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H, eng.simTime, eng.tide, eng.tidePh) * eng.season) * 100); };
 
+  // ------------------------------------------------------------ behaviour (mind.js, mindview.js)
+  function spName(kind) {
+    const g = api.genomeFor(kind);
+    const sp = g && api.life().reg.get(g.serial);
+    return sp ? spLink(sp.serial, sp.name) : 'an unnamed species';
+  }
+  const withSp = (text, kind) => (kind == null ? text : text.replaceAll('{sp}', spName(kind)));
+  const signed = (x, d = 3) => `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(d)}`;
+  const mv = createMindView({
+    K, genomeFor: api.genomeFor,
+    nameOf: (kind) => { const g = api.genomeFor(kind); const sp = g && api.life().reg.get(g.serial); return sp ? { serial: sp.serial, name: sp.name } : null; },
+    sigil: (g, size) => sigilSVG(songOf(g).v, g, { size }),
+  });
+
   function storyHTML(sel) {
     if (!sel || !sel.story.length) return '';
     return blk('Record', `<ol class="story">${sel.story.map((s) => `<li><time>${fmtClock(s.t)}</time><span>${s.text}</span></li>`).join('')}</ol>`);
   }
 
-  function cellBlock(p, g, past) {
+  // The cell's own record and, while it lives, its energy budget between meals (from the replay).
+  function cellBlock(p, g, past, mind) {
     let h = kv('Cell type', `<span class="greek">${ROLE[p.role]}</span>-cell`, 'celltype');
     h += kv('Origin', CAUSE[p.cause] || 'a founder of this world', 'origin');
     h += kv('Generation', fmt(p.gen), 'generation');
     h += kv('Speed', `${Math.hypot(p.vx, p.vy).toFixed(2)} cells/s`, 'speed');
-    if (!past) h += kv('Light here', `${lightAt(p)}%`, 'lighthere');
-    return blk(past ? 'The cell, last seen' : 'This cell', h);
+    if (!past) {
+      const b = mind && mind.budget;
+      h += kv('Light here', `${lightAt(p)}%${g && g.photo > 0.05 ? ` · ${b ? signed(b.light) : '—'}/s` : ''}`, g && g.photo > 0.05 ? 'photosynth' : 'lighthere');
+      const mods = b ? [b.crowding > 0.01 ? `crowding +${Math.round(b.crowding * 100)}%` : '', b.thrift > 0.001 ? `bonds −${Math.round(b.thrift * 100)}%` : '', b.lean < 0.995 ? `lean ×${b.lean.toFixed(2)}` : ''].filter(Boolean).join(' · ') : '';
+      h += kv('Upkeep', `${b ? signed(-b.upkeep) : '—'}/s${mods ? ` <em class="mods">${mods}</em>` : ''}`, 'upkeep');
+      h += kv('Net', b ? `<span class="${b.net >= 0 ? 'pos' : 'neg'}">${signed(b.net)}/s</span> between meals` : '—', 'mind-net');
+    }
+    return blk(past ? 'The cell, last seen' : `<span><i class="ico cell"></i>This cell</span>`, h);
   }
 
   function organismBlock(o, g, past, sel) {
@@ -137,8 +159,9 @@ export function createSpecimen(api) {
       const tot = o.roles[0] + o.roles[1] + o.roles[2] || 1;
       h += comp('Cell types', 'celltype', o.roles.map((c) => c / tot), g, (v, r) => `${ROLE[r]} ${fmt(o.roles[r])}`);
     }
-    h += kv('Touching', o.touching ? `${o.touching} other species` : 'no other species', 'touching');
-    return blk(past ? 'Its organism, last seen' : term('organism', 'Organism'), h);
+    // a free cell's neighbours are listed under Neighbours; a body's contacts are its own
+    if ((g.adhesion || 0) > K.adhMin) h += kv('Touching', o.touching ? `${o.touching} other species` : 'no other species', 'touching');
+    return blk(past ? 'Its organism, last seen' : `<span><i class="ico org"></i>${term('organism', 'Organism')}</span>`, h);
   }
 
   // the header's emblem: a species' sigil (its song drawn as its organism), or matter's glyph
@@ -316,7 +339,7 @@ export function createSpecimen(api) {
     if (!force && (api.held() || now - st.at < 250)) return false;
     st.at = now;
     const sel = api.sel(), spView = api.spView();
-    let html = '', v = '';
+    let html = '', v = '', fixedKey = '', fixedHtml = '';
     if (spView != null) {
       const life = api.life();
       const sp = life.reg.get(spView);
@@ -370,19 +393,27 @@ export function createSpecimen(api) {
         if (g) {
           v += vital('Energy', p.energy / g.reproE, 'sun', `${p.energy.toFixed(2)} / ${g.reproE.toFixed(2)}`, 'energy');
           v += vital('Age', p.age / g.lifespan, 'cyan', `${fmtDur(p.age)} / ${fmtDur(g.lifespan)}`, 'lifespan');
+          const head = sel.mind && !sel.lost && (sel.mind.head || sel.mind);
+          if (!sel.lost) v = `<div class="vital now"><span>${term('mind', 'Now')}</span><b>${head ? withSp(head.text, head.target) : '—'}</b></div>` + v;
         }
         setTabs(g ? ['status', 'species', 'genome'] : ['status']);
         if (st.tab === 'status') {
-          if (g) html += tags(g);
+          // the instruments are built once per cell and update in place (mindview.js); the rest flows below
+          if (g && !sel.lost) { fixedKey = `mv:${sel.id}:${p.kind}:${g.serial}`; fixedHtml = tags(g) + mv.html(g, p.kind); } else if (g) html += tags(g);
           if (g) html += songBlock(g, sp, true);
+          const cb = cellBlock(p, g, false, sel.lost ? null : sel.mind), ob = organismBlock(o, g, false, sel);
+          html += inBody ? ob + cb : cb + ob;
           html += storyHTML(sel);
-          html += inBody ? organismBlock(o, g, false, sel) + cellBlock(p, g, false) : cellBlock(p, g, false) + organismBlock(o, g, false, sel);
         } else if (st.tab === 'species') html = speciesTab(g, null);
         else html = genomeTab(g, p.role);
       }
     } else return false;
     if (v !== st.lastVit) { vit.innerHTML = v; st.lastVit = v; }
-    if (html !== st.lastHtml) { body.innerHTML = html; st.lastHtml = html; songKey = ''; }
+    if (fixedKey !== st.fixedKey || !body.firstElementChild) {
+      body.innerHTML = `<div class="spec-fixed">${fixedHtml}</div><div class="spec-flow">${html}</div>`;
+      st.fixedKey = fixedKey; st.lastHtml = html; songKey = '';
+      if (fixedKey) { mv.bind(body.firstElementChild); mindUpdate(); }
+    } else if (html !== st.lastHtml) { body.lastElementChild.innerHTML = html; st.lastHtml = html; songKey = ''; }
     return true;
   }
 
@@ -392,7 +423,7 @@ export function createSpecimen(api) {
       setFull(false);
       document.body.classList.add('spec-open');
     }
-    st.lastHtml = ''; st.lastVit = ''; st.actKey = ''; st.tabKey = ''; st.lastHead = '';
+    st.lastHtml = ''; st.lastVit = ''; st.actKey = ''; st.tabKey = ''; st.lastHead = ''; st.fixedKey = null;
   }
   function close() {
     root.hidden = true;
@@ -450,5 +481,11 @@ export function createSpecimen(api) {
     }
   }
 
-  return { render, open, close, inset, drawViewerUI, songTick, isOpen: () => !root.hidden, invalidate() { st.lastHtml = ''; st.actKey = ''; st.lastHead = ''; } };
+  // a new reading of the selected cell: update the instruments in place, between renders
+  function mindUpdate() {
+    const sel = api.sel();
+    if (sel && sel.mind && !sel.lost && st.fixedKey) mv.update(sel.mind, sel.particle.kind);
+  }
+
+  return { render, open, close, inset, drawViewerUI, songTick, mindUpdate, mindTick: (now) => mv.tick(now), isOpen: () => !root.hidden, invalidate() { st.lastHtml = ''; st.actKey = ''; st.lastHead = ''; st.fixedKey = null; } };
 }

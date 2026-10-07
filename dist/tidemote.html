@@ -393,6 +393,82 @@ dd { margin: 0; color: var(--ink-2); }
 em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .popchart { width: 100%; height: 64px; display: block; }
 .past { margin-top: 18px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.vital.now { grid-template-columns: 6.5em minmax(0, 1fr); }
+.vital.now > b { color: var(--sun); overflow: hidden; text-overflow: ellipsis; }
+.vital.now > b a.sp { color: inherit; }
+/* The behaviour instrument (mindview.js): fixed rows whose values change in place. */
+/* Corner brackets: the colour that marks the watched cell (sun) or its organism (hot) in the views. */
+.ico { display: inline-block; width: 10px; height: 10px; margin-right: 7px; vertical-align: -1px; background-repeat: no-repeat;
+  background-image: linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor);
+  background-size: 4px 1.25px, 1.25px 4px, 4px 1.25px, 1.25px 4px, 4px 1.25px, 1.25px 4px, 4px 1.25px, 1.25px 4px;
+  background-position: 0 0, 0 0, 100% 0, 100% 0, 0 100%, 0 100%, 100% 100%, 100% 100%; }
+.ico.cell { color: var(--sun); }
+.ico.org { color: var(--hot); }
+.mv-live { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
+.mv-live i { width: 5px; height: 5px; background: var(--cyan); opacity: .25; }
+.mv-live.blink i { animation: mv-blink .5s ease-out; }
+@keyframes mv-blink { from { opacity: 1; } to { opacity: .25; } }
+.mv-read { display: flex; flex-direction: column; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.mv-read > div { display: grid; grid-template-columns: 5.2em minmax(0, 1fr); gap: 10px; align-items: center; height: 24px; }
+.mv-read > div + div { border-top: 1px dashed rgba(130, 205, 214, 0.12); }
+.mv-read > div > span { color: var(--ink-3); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; font-weight: 500; }
+.mv-read b { font-weight: 400; font-size: 12.5px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 6px; }
+.mv-read .mv-mode { font-size: 15px; color: var(--sun); letter-spacing: .06em; text-transform: uppercase; }
+.mv-read b.mv-target > span { overflow: hidden; text-overflow: ellipsis; }
+.mv-sig:empty { display: none; }
+.mv-sig .sigil, .nb-sig .sigil { display: block; }
+.mv-tdist { font-style: normal; color: var(--ink-3); font-size: 11px; margin-left: auto; }
+.mv-detail { color: var(--ink-2); }
+.mv-pulls { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; align-items: center; }
+.compass { width: 112px; height: 112px; display: block; overflow: visible; }
+.c-ring { fill: none; stroke: var(--line-2); stroke-width: .8; }
+.c-ring.faint { stroke: var(--line); stroke-dasharray: 1.5 2.5; }
+.c-tick { stroke: var(--line-2); stroke-width: .8; }
+.c-hdg { stroke: var(--ink); stroke-width: .9; stroke-dasharray: 2 2; }
+.c-bug { fill: none; stroke: var(--ink); stroke-width: 1.2; }
+.c-tgt { fill: var(--hot); }
+.c-arw { stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.c-hub { fill: var(--ink); }
+.mv-drives { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.mv-drives > div[data-k] { display: grid; grid-template-columns: 8px minmax(0, 1fr) 54px 3ch; gap: 7px; align-items: center; font-size: 12px; }
+.mv-drives > div > i { width: 8px; height: 2px; }
+.mv-drives span:not(.meter) { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mv-drives b { font-weight: 400; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 11px; }
+.mv-drives .meter > i { transition: width .12s linear; }
+.mv-key { display: flex; gap: 12px; color: var(--ink-3); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; margin-top: 2px; }
+.mv-key span { display: inline-flex; align-items: center; gap: 5px; }
+.mv-key i.dash { width: 12px; border-top: 1px dashed var(--ink); }
+.mv-key i.dia { width: 5px; height: 5px; background: var(--hot); transform: rotate(45deg); }
+.mv-lamps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; padding-top: 2px; }
+.lamp { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--ink-3); transition: color .2s; }
+.lamp > i { flex: none; width: 7px; height: 7px; border: 1px solid var(--line-2); transition: background .2s, border-color .2s; }
+.lamp > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lamp.on { color: var(--ink); }
+.lamp.on > i { background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 6px rgba(127, 214, 223, 0.6); }
+.lamp.on[data-k="threat"] > i, .lamp.on[data-k="low"] > i { background: var(--hot); border-color: var(--hot); box-shadow: 0 0 6px rgba(255, 95, 58, 0.6); }
+.lamp.on[data-k="full"] > i { background: var(--sun); border-color: var(--sun); box-shadow: 0 0 6px rgba(241, 227, 160, 0.6); }
+.mv-nb .nb-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) 3.6em 5.6em 64px; gap: 8px; align-items: center; height: 22px; font-size: 12.5px; }
+.nb-row + .nb-row:not(.nb-head) { border-top: 1px dashed rgba(130, 205, 214, 0.12); }
+.nb-head { height: auto !important; color: var(--ink-3); font-size: 9.5px !important; letter-spacing: .14em; text-transform: uppercase; font-weight: 500; }
+.nb-head span:nth-child(3) { text-align: right; }
+.nb-pull { display: flex; justify-content: space-between; cursor: help; }
+.nb-pull i { font-style: normal; }
+.nb-name { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nb-row.empty .nb-name, .nb-row.empty .nb-sig { opacity: .35; }
+.nb-n { font-weight: 400; text-align: right; font-variant-numeric: tabular-nums; }
+.nb-role { font-style: normal; font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; }
+.nb-role.predator { color: var(--hot); }
+.nb-role.prey { color: var(--cyan); }
+.nb-role.both { color: var(--sun); }
+.nb-row .dbar i { transition: left .12s linear, width .12s linear; }
+@media (max-width: 720px) {
+  .mv-pulls { grid-template-columns: 96px minmax(0, 1fr); gap: 10px; }
+  .compass { width: 96px; height: 96px; }
+  .mv-drives > div[data-k] { grid-template-columns: 8px minmax(0, 1fr) 44px 3ch; font-size: 11.5px; }
+}
+.kv em.mods { font-style: normal; color: var(--ink-3); margin-left: 6px; }
+.kv .pos { color: var(--cyan); }
+.kv .neg { color: var(--hot); }
 
 /* a species' song: its motif on hairline rails (song.js); notes light as they are sung */
 .btn.mini { height: 24px; padding: 0 9px; font-size: 9.5px; }
@@ -860,6 +936,10 @@ body.filming .world { opacity: 0; visibility: hidden; }
   var G_BYTES = 192;
   var G_WORDS = 48;
   var LITE_BYTES = 32;
+  var MIND_HEAD = 50;
+  var MIND_NBR = 48;
+  var MIND_NBR_WORDS = 7;
+  var MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
   var DEFAULT_K = {
     density: 22,
     charge: 0.28,
@@ -1042,6 +1122,223 @@ fn roleColor(g: Genome, r: u32) -> vec3f {
 }
 `
   );
+  function cellWGSL(K, w) {
+    const W = (s) => w ? " " + s : "";
+    return (
+      /* wgsl */
+      `  let p = sortedFull[i];
+  let g = genomes[p.kind];
+  let role = roleOf(p.info);
+  let sg = g.sig[role];
+  let rec0 = unpack4x8snorm(sg.z);
+  let rec1 = unpack4x8snorm(sg.w);
+  let my0 = unpack4x8snorm(sg.x);
+  let my1 = unpack4x8snorm(sg.y);
+  let world = sim.world;
+  let invWorld = 1.0 / world;
+  let gw = i32(sim.grid.x);
+  let gh = i32(sim.grid.y);
+  let cc = clamp(vec2i(floor(p.pos)), vec2i(0), vec2i(gw - 1, gh - 1));
+  let R = g.radius;
+  let R2 = R * R;
+  let invR = 1.0 / R;
+  let beta = g.beta;
+  let invBeta = 1.0 / beta;
+  let invOM = 1.0 / (1.0 - beta);
+  // photosynthesis and eating don't mix well: a cell that does both does neither efficiently
+  let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
+  let hungry = p.energy < g.reproE * ${f(K.sated)} && eatEff > 0.1;
+  let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
+  let bonding = g.adhesion > ${f(K.adhMin)};
+  var dn1 = vec2f(0.0);
+  var dn2 = vec2f(0.0);
+
+  var force = vec2f(0.0);
+  var csum = vec3f(0.0);
+  var wsum = 0.0;
+  var kinVel = vec2f(0.0);
+  var kinN = 0.0;
+  var crowd = 0.0;
+  var nutr = 0.0;
+  var d1 = 1e9; var d2 = 1e9;
+  var n1 = NONE; var n2 = NONE;
+  if (bonding) {
+    n1 = keepBond(i, bondsNow[i].x, p);
+    n2 = keepBond(i, bondsNow[i].y, p);
+    if (n2 == n1) { n2 = NONE; }
+    if (n1 != NONE) {
+      dn1 = sortedFull[n1].pos - p.pos;
+      dn1 -= world * round(dn1 * invWorld);
+      d1 = length(dn1);
+    }
+    if (n2 != NONE) {
+      dn2 = sortedFull[n2].pos - p.pos;
+      dn2 -= world * round(dn2 * invWorld);
+      d2 = length(dn2);
+    }
+  }
+  let keep1 = n1 != NONE; let keep2 = n2 != NONE;
+  var food = NONE; var foodScore = -1e9;
+  var silt = NONE; var siltD = 1e9;
+  var stoneF = vec2f(0.0);
+  var stoneN = 0.0;
+  var pack = 0.0;
+  var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
+
+  // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam).
+  var rs: array<u32, 9>;
+  var re: array<u32, 9>;
+  var nr = 0u;
+  var total = 0u;
+  for (var dy = -1; dy <= 1; dy++) {
+    let y = (cc.y + dy + gh) % gh;
+    let rowBase = y * gw;
+    if (cc.x > 0 && cc.x < gw - 1) {
+      rs[nr] = cellStart[u32(rowBase + cc.x - 1)];
+      re[nr] = cellStart[u32(rowBase + cc.x + 2)];
+      total += re[nr] - rs[nr];
+      nr++;
+    } else {
+      for (var dx = -1; dx <= 1; dx++) {
+        let x = (cc.x + dx + gw) % gw;
+        let c = u32(rowBase + x);
+        rs[nr] = cellStart[c];
+        re[nr] = cellStart[c + 1u];
+        total += re[nr] - rs[nr];
+        nr++;
+      }
+    }
+  }
+  // Crowded neighbourhoods are sampled evenly with a random offset, each sample standing for
+  // \`stride\` particles, so no direction or grid cell is favoured (scanning in order and stopping
+  // at the budget left out the last row and drew dense species into grid-aligned bands).
+  let stride = max(1.0, f32(total) / f32(MAX_SCAN));
+  var at = select(0.0, rnd(&s) * stride, stride > 1.0);
+  for (var k = 0u; k < nr; k++) {
+    let len = f32(re[k] - rs[k]);
+    for (; at < len; at += stride) {
+      let j = rs[k] + u32(at);
+      let q = sortedLite[j];
+      var d = q.pos - p.pos;
+      d -= world * round(d * invWorld);
+      let r2 = dot(d, d);
+      if (r2 >= R2 || r2 < 1e-12) { continue; }
+      let r = sqrt(r2);
+      let x = r * invR;
+      let qk = q.kr & 1023u;
+      let s0 = unpack4x8snorm(q.s0);
+      let s1 = unpack4x8snorm(q.s1);
+      let a = clamp((dot(rec0, s0) + dot(rec1, s1)) * ${f(K.affScale)}, -1.0, 1.0);
+      let shape = 1.0 - abs(2.0 * x - 1.0 - beta) * invOM;
+      var fr: f32;
+      if (qk >= FIRST_LIFE) {
+        // a hungry forager lets other species inside its personal space so it can reach them
+        if (x < beta) { fr = (x * invBeta - 1.0) * select(1.0, 0.15, canHunt && qk != p.kind); } else { fr = a * shape; }${W("mFr0 = fr;")}
+        // hungry foragers are drawn toward the cells their diet favours
+        if (canHunt && qk != p.kind && x >= beta) {
+          fr += select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)} * shape;
+        }
+        crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
+        if (r < LINK_R) { let w = 1.0 - r / LINK_R; pack += w * w; }
+        if (qk == p.kind) {
+          kinVel += unpack2x16float(q.vel);
+          kinN += 1.0;
+        }
+        if (r < LINK_R) {
+          // colour only blends within a species, so mixed neighbourhoods stay visibly mixed
+          if (qk == p.kind) {
+            let w = 1.0 - r / LINK_R;
+            csum += unpack4x8unorm(q.col).rgb * w;
+            wsum += w;
+          }
+          if (bonding && qk == p.kind && j != n1 && j != n2) {
+            if (!keep1 && r < d1) {
+              if (!keep2) { d2 = d1; n2 = n1; dn2 = dn1; }
+              d1 = r; n1 = j; dn1 = d;
+            } else if (!keep2 && r < d2) { d2 = r; n2 = j; dn2 = d; }
+          }
+        }
+        if (canHunt && r < EAT_R && qk != p.kind) {
+          let da = s0 - my0;
+          let db = s1 - my1;
+          if (dot(da, da) + dot(db, db) > ${f(K.kin)}) {
+            // grazers crop plant cells; flesh-eaters hunt animals (and crop plants reluctantly)
+            let plant = (q.kr & (1u << 12u)) != 0u;
+            let pref = select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, plant);
+            let sc = pref - r;
+            if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+          }
+        }
+      } else {
+        fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);${W("mFr0 = fr;")}
+        if (qk == STONE) {
+          // stone is solid: it pushes cells out however hard they swim, and shelters those among it
+          if (r < ${f(K.stoneR)}) { stoneF += d * ((r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r)); }
+          if (r < 0.5) { stoneN += 1.0; }
+        } else {
+          if (hungry && qk != SILT && x >= beta) {
+            fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)} * shape;
+          }
+          if (qk == SILT) { nutr += 1.0; }
+          if (r < EAT_R) {
+            if (qk == SILT) {
+              if (r < siltD) { siltD = r; silt = j; }
+            } else if (hungry) {
+              let dv = select(g.dHusk, g.dGlint, qk == GLINT);
+              let sc = dv - r;
+              if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+            }
+          }
+        }
+      }
+      force += d * (fr / r);${W("mPair(j, q, d, r, x < beta, qk == p.kind, mFr0, fr);")}
+    }
+    at -= len;
+  }
+  force *= stride; crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride;
+
+  let heavy = 1.0 - 0.7 * g.photo;
+  let fr0 = pow(0.5, sim.dt / g.drag);
+  var vel = p.vel * fr0 + force * (g.force * heavy * sim.dt);${W("mVel = vel;")}
+  if (kinN > 0.0 && g.align > 0.0) {
+    vel = mix(vel, kinVel / kinN, clamp(g.align * ${f(K.align)} * sim.dt, 0.0, 1.0));${W("mAlign = vel - mVel;")}
+  }
+  // Persistent bonds pull on the partners' current positions, even outside the sampled scan.
+  var bondF = vec2f(0.0);
+  if (n1 != NONE) { bondF += dn1 * ((d1 - LINK_R * 0.55) / max(d1, 1e-4)); }
+  if (n2 != NONE) { bondF += dn2 * ((d2 - LINK_R * 0.55) / max(d2, 1e-4)); }
+  vel += bondF * (g.adhesion * ${f(K.bond)} * sim.dt);
+  // stone is solid to everything but the calcifiers that build it, which settle on their own reef
+  vel += stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify) * sim.dt);
+  let swim = g.swim * (1.0 - g.photo);
+  if (swim > 0.0) {
+    var dir = vel;
+    if (dot(dir, dir) < 1e-6) {
+      let a = rnd(&s) * TAU;
+      dir = vec2f(cos(a), sin(a));
+    }
+    vel += normalize(dir) * swim * sim.dt;${W("mSwim = normalize(dir) * swim;")}
+  }
+  let sp = length(vel);
+  if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
+  let pos = wrapPos(p.pos + (vel + flowAt(p.pos) * g.advect) * sim.dt);
+
+  var col = unpack4x8unorm(p.col).rgb;
+  if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }
+  col = mix(col, roleColor(g, role), ${f(K.baseMix)});
+
+  let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
+  // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
+  // water; anchored cells have fresh silt carried past them by the currents.
+  let photoGain = g.photo * light * ${f(K.photo)} / (1.0 + crowd * ${f(K.shade)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
+    * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0));
+  let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
+  // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); a body's bond partners do not count
+  let kinCost = 1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - bonds - ${f(K.kinFree)});
+  let thrift = 1.0 - ${f(K.bodyThrift)} * 0.5 * bonds;
+  let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0));`
+    );
+  }
   function simWGSL(K) {
     return COMMON + /* wgsl */
     `
@@ -1633,217 +1930,7 @@ fn keepBond(i: u32, j: u32, p: Particle) -> u32 {
 fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
   if (i == NONE) { return; }
-  let p = sortedFull[i];
-  let g = genomes[p.kind];
-  let role = roleOf(p.info);
-  let sg = g.sig[role];
-  let rec0 = unpack4x8snorm(sg.z);
-  let rec1 = unpack4x8snorm(sg.w);
-  let my0 = unpack4x8snorm(sg.x);
-  let my1 = unpack4x8snorm(sg.y);
-  let world = sim.world;
-  let invWorld = 1.0 / world;
-  let gw = i32(sim.grid.x);
-  let gh = i32(sim.grid.y);
-  let cc = clamp(vec2i(floor(p.pos)), vec2i(0), vec2i(gw - 1, gh - 1));
-  let R = g.radius;
-  let R2 = R * R;
-  let invR = 1.0 / R;
-  let beta = g.beta;
-  let invBeta = 1.0 / beta;
-  let invOM = 1.0 / (1.0 - beta);
-  // photosynthesis and eating don't mix well: a cell that does both does neither efficiently
-  let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
-  let hungry = p.energy < g.reproE * ${f(K.sated)} && eatEff > 0.1;
-  let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
-  let bonding = g.adhesion > ${f(K.adhMin)};
-  var dn1 = vec2f(0.0);
-  var dn2 = vec2f(0.0);
-
-  var force = vec2f(0.0);
-  var csum = vec3f(0.0);
-  var wsum = 0.0;
-  var kinVel = vec2f(0.0);
-  var kinN = 0.0;
-  var crowd = 0.0;
-  var nutr = 0.0;
-  var d1 = 1e9; var d2 = 1e9;
-  var n1 = NONE; var n2 = NONE;
-  if (bonding) {
-    n1 = keepBond(i, bondsNow[i].x, p);
-    n2 = keepBond(i, bondsNow[i].y, p);
-    if (n2 == n1) { n2 = NONE; }
-    if (n1 != NONE) {
-      dn1 = sortedFull[n1].pos - p.pos;
-      dn1 -= world * round(dn1 * invWorld);
-      d1 = length(dn1);
-    }
-    if (n2 != NONE) {
-      dn2 = sortedFull[n2].pos - p.pos;
-      dn2 -= world * round(dn2 * invWorld);
-      d2 = length(dn2);
-    }
-  }
-  let keep1 = n1 != NONE; let keep2 = n2 != NONE;
-  var food = NONE; var foodScore = -1e9;
-  var silt = NONE; var siltD = 1e9;
-  var stoneF = vec2f(0.0);
-  var stoneN = 0.0;
-  var pack = 0.0;
-  var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
-
-  // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam).
-  var rs: array<u32, 9>;
-  var re: array<u32, 9>;
-  var nr = 0u;
-  var total = 0u;
-  for (var dy = -1; dy <= 1; dy++) {
-    let y = (cc.y + dy + gh) % gh;
-    let rowBase = y * gw;
-    if (cc.x > 0 && cc.x < gw - 1) {
-      rs[nr] = cellStart[u32(rowBase + cc.x - 1)];
-      re[nr] = cellStart[u32(rowBase + cc.x + 2)];
-      total += re[nr] - rs[nr];
-      nr++;
-    } else {
-      for (var dx = -1; dx <= 1; dx++) {
-        let x = (cc.x + dx + gw) % gw;
-        let c = u32(rowBase + x);
-        rs[nr] = cellStart[c];
-        re[nr] = cellStart[c + 1u];
-        total += re[nr] - rs[nr];
-        nr++;
-      }
-    }
-  }
-  // Crowded neighbourhoods are sampled evenly with a random offset, each sample standing for
-  // \`stride\` particles, so no direction or grid cell is favoured (scanning in order and stopping
-  // at the budget left out the last row and drew dense species into grid-aligned bands).
-  let stride = max(1.0, f32(total) / f32(MAX_SCAN));
-  var at = select(0.0, rnd(&s) * stride, stride > 1.0);
-  for (var k = 0u; k < nr; k++) {
-    let len = f32(re[k] - rs[k]);
-    for (; at < len; at += stride) {
-      let j = rs[k] + u32(at);
-      let q = sortedLite[j];
-      var d = q.pos - p.pos;
-      d -= world * round(d * invWorld);
-      let r2 = dot(d, d);
-      if (r2 >= R2 || r2 < 1e-12) { continue; }
-      let r = sqrt(r2);
-      let x = r * invR;
-      let qk = q.kr & 1023u;
-      let s0 = unpack4x8snorm(q.s0);
-      let s1 = unpack4x8snorm(q.s1);
-      let a = clamp((dot(rec0, s0) + dot(rec1, s1)) * ${f(K.affScale)}, -1.0, 1.0);
-      let shape = 1.0 - abs(2.0 * x - 1.0 - beta) * invOM;
-      var fr: f32;
-      if (qk >= FIRST_LIFE) {
-        // a hungry forager lets other species inside its personal space so it can reach them
-        if (x < beta) { fr = (x * invBeta - 1.0) * select(1.0, 0.15, canHunt && qk != p.kind); } else { fr = a * shape; }
-        // hungry foragers are drawn toward the cells their diet favours
-        if (canHunt && qk != p.kind && x >= beta) {
-          fr += select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)} * shape;
-        }
-        crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
-        if (r < LINK_R) { let w = 1.0 - r / LINK_R; pack += w * w; }
-        if (qk == p.kind) {
-          kinVel += unpack2x16float(q.vel);
-          kinN += 1.0;
-        }
-        if (r < LINK_R) {
-          // colour only blends within a species, so mixed neighbourhoods stay visibly mixed
-          if (qk == p.kind) {
-            let w = 1.0 - r / LINK_R;
-            csum += unpack4x8unorm(q.col).rgb * w;
-            wsum += w;
-          }
-          if (bonding && qk == p.kind && j != n1 && j != n2) {
-            if (!keep1 && r < d1) {
-              if (!keep2) { d2 = d1; n2 = n1; dn2 = dn1; }
-              d1 = r; n1 = j; dn1 = d;
-            } else if (!keep2 && r < d2) { d2 = r; n2 = j; dn2 = d; }
-          }
-        }
-        if (canHunt && r < EAT_R && qk != p.kind) {
-          let da = s0 - my0;
-          let db = s1 - my1;
-          if (dot(da, da) + dot(db, db) > ${f(K.kin)}) {
-            // grazers crop plant cells; flesh-eaters hunt animals (and crop plants reluctantly)
-            let plant = (q.kr & (1u << 12u)) != 0u;
-            let pref = select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, plant);
-            let sc = pref - r;
-            if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
-          }
-        }
-      } else {
-        fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);
-        if (qk == STONE) {
-          // stone is solid: it pushes cells out however hard they swim, and shelters those among it
-          if (r < ${f(K.stoneR)}) { stoneF += d * ((r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r)); }
-          if (r < 0.5) { stoneN += 1.0; }
-        } else {
-          if (hungry && qk != SILT && x >= beta) {
-            fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)} * shape;
-          }
-          if (qk == SILT) { nutr += 1.0; }
-          if (r < EAT_R) {
-            if (qk == SILT) {
-              if (r < siltD) { siltD = r; silt = j; }
-            } else if (hungry) {
-              let dv = select(g.dHusk, g.dGlint, qk == GLINT);
-              let sc = dv - r;
-              if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
-            }
-          }
-        }
-      }
-      force += d * (fr / r);
-    }
-    at -= len;
-  }
-  force *= stride; crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride;
-
-  let heavy = 1.0 - 0.7 * g.photo;
-  let fr0 = pow(0.5, sim.dt / g.drag);
-  var vel = p.vel * fr0 + force * (g.force * heavy * sim.dt);
-  if (kinN > 0.0 && g.align > 0.0) {
-    vel = mix(vel, kinVel / kinN, clamp(g.align * ${f(K.align)} * sim.dt, 0.0, 1.0));
-  }
-  // Persistent bonds pull on the partners' current positions, even outside the sampled scan.
-  var bondF = vec2f(0.0);
-  if (n1 != NONE) { bondF += dn1 * ((d1 - LINK_R * 0.55) / max(d1, 1e-4)); }
-  if (n2 != NONE) { bondF += dn2 * ((d2 - LINK_R * 0.55) / max(d2, 1e-4)); }
-  vel += bondF * (g.adhesion * ${f(K.bond)} * sim.dt);
-  // stone is solid to everything but the calcifiers that build it, which settle on their own reef
-  vel += stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify) * sim.dt);
-  let swim = g.swim * (1.0 - g.photo);
-  if (swim > 0.0) {
-    var dir = vel;
-    if (dot(dir, dir) < 1e-6) {
-      let a = rnd(&s) * TAU;
-      dir = vec2f(cos(a), sin(a));
-    }
-    vel += normalize(dir) * swim * sim.dt;
-  }
-  let sp = length(vel);
-  if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
-  let pos = wrapPos(p.pos + (vel + flowAt(p.pos) * g.advect) * sim.dt);
-
-  var col = unpack4x8unorm(p.col).rgb;
-  if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }
-  col = mix(col, roleColor(g, role), ${f(K.baseMix)});
-
-  let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
-  // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
-  // water; anchored cells have fresh silt carried past them by the currents.
-  let photoGain = g.photo * light * ${f(K.photo)} / (1.0 + crowd * ${f(K.shade)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
-    * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0));
-  let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
-  // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); a body's bond partners do not count
-  let kinCost = 1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - bonds - ${f(K.kinFree)});
-  let thrift = 1.0 - ${f(K.bodyThrift)} * 0.5 * bonds;
-  let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0));
+${cellWGSL(K, false)}
   var E = p.energy + (photoGain - upkeep) * sim.dt;
   let dg = dietGuild(g);
   // light and upkeep flow every frame; the ledger samples them once a second per cell
@@ -1928,6 +2015,100 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(pack, ce, act == 2u)), n1, n2);
   parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0)), info);
+}
+
+// --------------------------------------------------------------------- mind
+// Observational: after the last step, replays the watched cell's lifeMain decision with the same
+// inputs (sorted particles, bonds, uniforms and random stream) and records every term of it.
+// Writes only to the mind buffer, which nothing in the simulation reads.
+@group(0) @binding(17) var<storage, read_write> mind: array<u32>;
+const MIND_HEAD = ${MIND_HEAD}u;
+const MIND_NBR = ${MIND_NBR}u;
+var<private> mFr0: f32;
+var<private> mVel: vec2f;
+var<private> mAlign: vec2f;
+var<private> mSwim: vec2f;
+var<private> mSpace: vec2f;
+var<private> mKin: vec2f;
+var<private> mOther: vec2f;
+var<private> mDiet: vec2f;
+var<private> mMatter: vec2f;
+var<private> mForage: vec2f;
+var<private> mMatterN: vec4f;
+var<private> mN: u32;
+
+fn mPut(o: u32, v: f32) { mind[o] = bitcast<u32>(v); }
+fn mPut2(o: u32, v: vec2f) { mind[o] = bitcast<u32>(v.x); mind[o + 1u] = bitcast<u32>(v.y); }
+
+// One sampled neighbour's pull: fr0 its signature (or personal-space) term, fr with the diet's added.
+fn mPair(j: u32, q: Lite, d: vec2f, r: f32, inside: bool, kin: bool, fr0: f32, fr: f32) {
+  let u = d / r;
+  let qk = q.kr & 1023u;
+  if (qk < FIRST_LIFE) {
+    mMatter += u * fr0;
+    mForage += u * (fr - fr0);
+    mMatterN[qk] += 1.0;
+    return;
+  }
+  if (inside) { mSpace += u * fr0; } else if (kin) { mKin += u * fr0; } else { mOther += u * fr0; }
+  mDiet += u * (fr - fr0);
+  if (mN < MIND_NBR) {
+    let o = MIND_HEAD + mN * ${MIND_NBR_WORDS}u;
+    mind[o] = qk;
+    mind[o + 1u] = select(0u, 1u, inside);
+    mPut2(o + 2u, d);
+    mPut(o + 4u, fr0);
+    mPut(o + 5u, fr - fr0);
+    mind[o + 6u] = j;
+  }
+  mN++;
+}
+
+@compute @workgroup_size(64)
+fn mindMain(@builtin(global_invocation_id) gid: vec3u) {
+  let i = gid.x;
+  if (i >= sim.count || sortedFull[i].id != mind[0] || sortedFull[i].kind < FIRST_LIFE) { return; }
+${cellWGSL(K, true)}
+  let acc = stride * g.force * heavy;
+  mind[1] = 1u;
+  mind[2] = select(0u, 1u, hungry) | select(0u, 2u, silt != NONE) | select(0u, 4u, food != NONE);
+  mind[3] = NONE;
+  mPut(4, 0.0);
+  mind[5] = food;
+  if (food != NONE) {
+    var df = sortedFull[food].pos - p.pos;
+    df -= world * round(df * invWorld);
+    mind[3] = sortedFull[food].kind;
+    mPut(4, length(df));
+  }
+  mind[6] = (p.info >> 6u) & 1023u;
+  mind[7] = mN;
+  mPut(8, photoGain);
+  mPut(9, upkeep);
+  mPut(10, light);
+  mPut(11, nutr);
+  mPut(12, kinN);
+  mPut(13, bonds);
+  mPut(14, kinCost);
+  mPut(15, stoneN);
+  mPut(16, eatEff);
+  mPut(17, stride);
+  mPut(18, sim.dt);
+  mPut(19, p.energy);
+  mPut(20, acc);
+  mPut2(22, vel);
+  mPut2(24, mSpace * acc);
+  mPut2(26, mKin * acc);
+  mPut2(28, mOther * acc);
+  mPut2(30, mDiet * acc);
+  mPut2(32, mMatter * acc);
+  mPut2(34, mForage * acc);
+  mPut2(36, mAlign / sim.dt);
+  mPut2(38, bondF * (g.adhesion * ${f(K.bond)}));
+  mPut2(40, stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify)));
+  mPut2(42, mSwim);
+  mPut2(44, flowAt(p.pos) * g.advect);
+  for (var k = 0u; k < 4u; k++) { mPut(46u + k, mMatterN[k] * stride); }
 }
 `;
   }
@@ -4293,11 +4474,11 @@ struct SV {
   function writeGenome(u32, f32, slot, g) {
     const o = slot * G_WORDS;
     for (let r = 0; r < 3; r++) {
-      const R = g.roles[r];
-      u32[o + r * 4] = packSnorm(R.surf.slice(0, 4));
-      u32[o + r * 4 + 1] = packSnorm(R.surf.slice(4, 8));
-      u32[o + r * 4 + 2] = packSnorm(R.rec.slice(0, 4));
-      u32[o + r * 4 + 3] = packSnorm(R.rec.slice(4, 8));
+      const R2 = g.roles[r];
+      u32[o + r * 4] = packSnorm(R2.surf.slice(0, 4));
+      u32[o + r * 4 + 1] = packSnorm(R2.surf.slice(4, 8));
+      u32[o + r * 4 + 2] = packSnorm(R2.rec.slice(0, 4));
+      u32[o + r * 4 + 3] = packSnorm(R2.rec.slice(4, 8));
       u32[o + 12 + r] = packUnorm(g.dev[r][0], g.dev[r][1], g.dev[r][2], 0);
     }
     const fl = [
@@ -4822,16 +5003,16 @@ struct SV {
     return (h / 6 % 1 + 1) % 1;
   };
   function decodeRecords(u32, f32) {
-    const R = LISTEN_REC2, S = LISTEN.stride, n = Math.floor(u32.length / R), out = new Float32Array(n * S), recorded = new Uint32Array(9);
+    const R2 = LISTEN_REC2, S = LISTEN.stride, n = Math.floor(u32.length / R2), out = new Float32Array(n * S), recorded = new Uint32Array(9);
     for (let i = 0; i < n; i++) {
-      const w = u32[i * R], uv = u32[i * R + 1], o = i * S, t2 = w & 15;
+      const w = u32[i * R2], uv = u32[i * R2 + 1], o = i * S, t2 = w & 15;
       out[o] = t2;
       out[o + 1] = w >>> 4 & 1023;
       out[o + 2] = (uv & 65535) / 65535;
       out[o + 3] = (uv >>> 16) / 65535;
-      out[o + 4] = f32[i * R + 2];
+      out[o + 4] = f32[i * R2 + 2];
       out[o + 5] = (w >>> 24) / 255;
-      out[o + 6] = hueOf(u32[i * R + 3]);
+      out[o + 6] = hueOf(u32[i * R2 + 3]);
       out[o + 7] = w >>> 16 & 255;
       out[o + 8] = w >>> 14 & 3;
       if (t2 < 9) recorded[t2]++;
@@ -4845,14 +5026,14 @@ struct SV {
     return s * (1 + m / 1024) * 2 ** (e - 15);
   };
   function recordCells(u32, view) {
-    const R = LISTEN_REC2, n = Math.floor(u32.length / R), out = new Float32Array(n * 5);
+    const R2 = LISTEN_REC2, n = Math.floor(u32.length / R2), out = new Float32Array(n * 5);
     for (let i = 0; i < n; i++) {
-      const uv = u32[i * R + 1], vel = u32[i * R + 4], o = i * 5;
+      const uv = u32[i * R2 + 1], vel = u32[i * R2 + 4], o = i * 5;
       out[o] = view.x + ((uv & 65535) / 65535 - 0.5) * 2 * view.hx;
       out[o + 1] = view.y + ((uv >>> 16) / 65535 - 0.5) * 2 * view.hy;
       out[o + 2] = f16(vel & 65535);
       out[o + 3] = f16(vel >>> 16);
-      out[o + 4] = u32[i * R + 5];
+      out[o + 4] = u32[i * R2 + 5];
     }
     return out;
   }
@@ -12196,6 +12377,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.trackId = 4294967295;
       this.trackId2 = 4294967295;
       this.onTrack = null;
+      this.mindId = 4294967295;
+      this.mindEvery = 6;
+      this.onMind = null;
+      this._mindFrames = 0;
       this.lastCam = null;
       this.accIdx = 0;
       this.size = [0, 0];
@@ -12228,6 +12413,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.watchStage = [0, 1, 2, 3].map(() => ({ buf: d.createBuffer({ size: WATCH_MAX * 20, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
       this.watch = [];
       this.onWatch = null;
+      b.mind = d.createBuffer({ size: MIND_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
+      this.mindStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: MIND_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
       b.listenU = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
       b.listen = d.createBuffer({ size: LISTEN_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
       this.listenStage = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: LISTEN_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
@@ -12264,7 +12451,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         scatterMain: [0, 1, 2, 3, 6, 8, 9, 10, 12, 13, 15],
         censusMain: [11, 12, 13],
         matterMain: [0, 1, 2, 9, 10, 11, 13, 14, 16],
-        lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12, 15]
+        lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12, 15],
+        mindMain: [0, 2, 3, 6, 10, 15, 17]
       };
       this.cp = {};
       for (const name of Object.keys(this.cpDefs)) this.cp[name] = { pipe: cp(this.simModule, name), bg: null };
@@ -12382,7 +12570,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         13: { buffer: b.frameCtr },
         14: { buffer: b.stoneGrid },
         15: { buffer: b.bondsNow },
-        16: { buffer: b.stoneList }
+        16: { buffer: b.stoneList },
+        17: { buffer: b.mind }
       };
       for (const [name, ids] of Object.entries(this.cpDefs)) {
         const c = this.cp[name];
@@ -12850,6 +13039,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       if (nSteps > 1) d.queue.writeBuffer(b.simRing, 0, this.ringData, 0, nSteps * SIM_STRIDE);
       const listenJob = nSteps > 0 ? this._listenCopy(enc, cam) : null;
+      const mindJob = this._mindCopy(enc);
       const surveyJob = nSteps > 0 ? this._surveyCopy(enc) : null;
       let pickJob = null;
       const trackJobs = [];
@@ -13009,7 +13199,42 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       for (const job of censusJobs) this._censusRead(job, generation);
       if (listenJob) this._listenRead(listenJob, generation);
+      if (mindJob) this._mindRead(mindJob, generation);
       if (surveyJob) this._surveyRead(surveyJob, generation);
+    }
+    /**
+     * Every mindEvery frames while a cell is watched: replay its last decision (mindMain) after the
+     * frame's steps. While paused the replay is of the same step, so it is cheap to repeat.
+     */
+    _mindCopy(enc) {
+      const N = this.count;
+      if (this.mindId === 4294967295 || !N || !this.frameNo || ++this._mindFrames < this.mindEvery) return null;
+      const st = this.mindStage.find((s) => !s.busy);
+      if (!st) return null;
+      this._mindFrames = 0;
+      st.busy = true;
+      const b = this.b;
+      this.device.queue.writeBuffer(b.mind, 0, new Uint32Array([this.mindId]));
+      enc.clearBuffer(b.mind, 4, 4);
+      const pass = enc.beginComputePass();
+      pass.setPipeline(this.cp.mindMain.pipe);
+      pass.setBindGroup(0, this.cp.mindMain.bg);
+      pass.dispatchWorkgroups(Math.ceil(N / 64));
+      pass.end();
+      enc.copyBufferToBuffer(b.mind, 0, st.buf, 0, MIND_BYTES);
+      return { st, id: this.mindId, simTime: this.simTime };
+    }
+    _mindRead(job, generation) {
+      const { st } = job;
+      st.buf.mapAsync(GPUMapMode.READ).then(() => {
+        const copy = st.buf.getMappedRange().slice(0);
+        st.buf.unmap();
+        st.busy = false;
+        if (generation !== this.worldGeneration || !this.onMind) return;
+        this.onMind({ id: job.id, simTime: job.simTime, u32: new Uint32Array(copy), f32: new Float32Array(copy) });
+      }).catch(() => {
+        st.busy = false;
+      });
     }
     /** Every so many frames while surveying: what happened in each tile of the world since the last survey. */
     _surveyCopy(enc) {
@@ -13546,6 +13771,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
     energy: "Stored energy. Gained from food or light, spent on upkeep and on building children. A cell starves at zero.",
     origin: "How this particle came to be what it is now.",
     lighthere: "Light at this cell’s position right now: baseline plus tide, scaled by the season.",
+    mind: "What this cell is doing, read from a replay of its latest decision. A cell has no brain: every frame it adds up the pulls and pushes of everything within reach (its receptors against their surface signatures, appetite for the foods its diet favours, schooling, bonds, stone), moves, then eats, divides or neither. The mode names which pull wins; hover it for the reasoning. The compass draws each pull as an arrow, its length the pull’s strength, with the cell’s heading dashed and its target as a diamond on the rim. The lamps light for conditions that shape what it does. Fleeing is an evolved aversion: no cell knows what a predator is, but lineages whose receptors happened to push them away from their hunters survived.",
+    "mind-food": "Appetite: a hungry cell is drawn toward the foods its diet favours. Flesh-eaters are drawn to animal cells, grazers (and, reluctantly, flesh-eaters) to plant cells, and glint- and husk-eaters to glint and husks. It lets living food inside its personal space so it can reach it. A sated cell feels no appetite.",
+    "mind-other": "The pull or push of other species’ cells on this one: its receptors against their surface signatures. Evolved, not chosen: it is how prey comes to avoid hunters and how species come to live side by side.",
+    "mind-kin": "The pull or push of its own species’ cells (beyond personal space and bonds). Attraction gathers swarms and packs bodies; repulsion spreads them out.",
+    "mind-matter": "The pull or push of silt, glint, husks and stone on its receptors (apart from appetite), plus stone’s solid push on any cell but a calcifier.",
+    "mind-net": "Light minus upkeep, per second. Below zero the cell is living on its reserves until it eats.",
+    "mind-near": "Every species with cells within this cell’s reach, its own kind first; a species keeps its row while it stays. Cells: how many are in reach. Role: predator, a species built to catch this one; prey, one this cell is built to eat. The last column is how they pull on this cell: right, drawn toward them; left, pushed away.",
     colonial: "On average its cells attract each other. In a bonded species this packs the body tight; in a free-living species the cells gather into swarms without ever joining.",
     solitary: "On average its cells repel each other, so they spread out (or, if bonded, stretch into strands).",
     looseknit: "Its cells barely attract or repel each other.",
@@ -13726,7 +13958,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var MATTER_GLYPH = [[14, 4286144598], [13, 4294960825], [12, 4282868362], [14, 4288655032]];
   function paintGlyph(g, size, shape, col) {
     const c = cssCol(col);
-    const R = size * 0.36;
+    const R2 = size * 0.36;
     g.clearRect(0, 0, size, size);
     g.save();
     g.fillStyle = c;
@@ -13734,7 +13966,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     g.shadowColor = c;
     g.shadowBlur = size * 0.16;
     g.translate(size / 2, size / 2);
-    g.scale(R, R);
+    g.scale(R2, R2);
     if (shape < 12) g.fill(new Path2D(OUTLINES[shape]), "evenodd");
     else if (shape === 12) {
       g.lineWidth = 0.22;
@@ -13793,8 +14025,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
     if (m.cycle < cyc - 1e-6 || ghost) s += `<line class="bar" x1="${r1(x(m.cycle))}" x2="${r1(x(m.cycle))}" y1="${pad2}" y2="${h - pad2}"/>`;
     const barLen = (nt) => Math.max(2, Math.min(nt.dur * Math.min(1, nt.leg ?? 1), cyc - nt.at) * sx - 1);
     const bar = (nt, cls, extra = "") => {
-      const len = barLen(nt);
-      return `<rect class="${cls}" x="${r1(x(nt.at))}" y="${r1(y(nt.deg) - bh / 2)}" width="${r1(len)}" height="${r1(bh)}"${extra}/>`;
+      const len2 = barLen(nt);
+      return `<rect class="${cls}" x="${r1(x(nt.at))}" y="${r1(y(nt.deg) - bh / 2)}" width="${r1(len2)}" height="${r1(bh)}"${extra}/>`;
     };
     if (ghost) {
       for (const nt of ghost.notes) if (!m.notes.some((q) => Math.abs(q.at - nt.at) < 1e-6 && Math.abs(q.deg - nt.deg) < 1e-6)) s += bar(nt, "ghost");
@@ -14516,6 +14748,450 @@ registerProcessor("tidemote-sound", TidemoteSound);
     return tags;
   }
 
+  // src/mind.js
+  var GLINT = 1;
+  var HUSK = 2;
+  function parseMind(u32, f32) {
+    if (u32[1] !== 1) return null;
+    const v2 = (o) => [f32[o], f32[o + 1]];
+    const flags = u32[2];
+    const stride = f32[17], acc = f32[20];
+    const n = Math.min(u32[7], MIND_NBR);
+    const nbrs = [];
+    for (let k = 0; k < n; k++) {
+      const o = MIND_HEAD + k * MIND_NBR_WORDS;
+      nbrs.push({ kind: u32[o], inside: u32[o + 1] === 1, d: v2(o + 2), fSig: f32[o + 4] * acc * stride, fDiet: f32[o + 5] * acc * stride, j: u32[o + 6] });
+    }
+    return {
+      hungry: !!(flags & 1),
+      siltNear: !!(flags & 2),
+      food: flags & 4 ? { kind: u32[3], dist: f32[4], j: u32[5] } : null,
+      image: u32[6],
+      seen: u32[7],
+      sampled: n,
+      photoGain: f32[8],
+      upkeep: f32[9],
+      light: f32[10],
+      nutr: f32[11],
+      kinN: f32[12],
+      bonds: f32[13],
+      kinCost: f32[14],
+      stoneN: f32[15],
+      eatEff: f32[16],
+      stride,
+      dt: f32[18],
+      energy: f32[19],
+      vel: v2(22),
+      drives: {
+        space: v2(24),
+        kin: v2(26),
+        other: v2(28),
+        diet: v2(30),
+        matter: v2(32),
+        forage: v2(34),
+        align: v2(36),
+        bond: v2(38),
+        stone: v2(40),
+        swim: v2(42)
+      },
+      flow: v2(44),
+      matterN: [f32[46], f32[47], f32[48], f32[49]],
+      nbrs
+    };
+  }
+  var GROUPS = [
+    { key: "food", label: "Appetite", parts: ["diet", "forage"], tip: "mind-food", css: "#ff8a6b", when: (g, K) => (1 - g.photo) ** 2 > 0.1 },
+    { key: "other", label: "Other species", parts: ["other"], tip: "mind-other", css: "#c79bff" },
+    { key: "kin", label: "Own kind", parts: ["kin"], tip: "mind-kin", css: "#f1e3a0" },
+    { key: "space", label: "Personal space", parts: ["space"], tip: "personalspace", css: "#8fa3a6" },
+    { key: "matter", label: "Matter & stone", parts: ["matter", "stone"], tip: "mind-matter", css: "#6fa0c0" },
+    { key: "bond", label: "Bonds", parts: ["bond"], tip: "bond", css: "#ffb36b", when: (g, K) => (g.adhesion || 0) > K.adhMin },
+    { key: "align", label: "Schooling", parts: ["align"], tip: "schooling", css: "#7fe0c0", when: (g) => g.align > 0.02 },
+    { key: "swim", label: "Swimming", parts: ["swim"], tip: "swimming", css: "#e2f1f0", when: (g) => g.swim * (1 - g.photo) > 0.01 }
+  ];
+  var groupsFor = (g, K) => GROUPS.filter((gr) => !gr.when || gr.when(g, K));
+  var len = (v) => Math.hypot(v[0], v[1]);
+  var MODES = {
+    divide: "Dividing",
+    seeksilt: "Ready to divide",
+    feed: "Eating glint",
+    scavenge: "Scavenging",
+    graze: "Grazing",
+    hunt: "Hunting",
+    starve: "Starving",
+    flee: "Fleeing",
+    stalk: "Stalking",
+    seekgraze: "Seeking forage",
+    forage: "Foraging",
+    avoid: "Avoiding",
+    follow: "Drawn in",
+    bask: "Basking",
+    dark: "Waiting out the dark",
+    school: "Schooling",
+    body: "Holding together",
+    gather: "Gathering",
+    spread: "Spreading out",
+    jostle: "Jostled",
+    blocked: "Against stone",
+    drift: "Drifting",
+    cruise: "Cruising",
+    idle: "Idling"
+  };
+  function catchSkill(hunter, prey, K) {
+    if (!hunter || !prey) return 0;
+    const eatEff = (1 - hunter.photo) ** 2;
+    if (eatEff <= 0.1 || hunter.dFlesh <= K.dietMin && hunter.dGlint <= K.dietMin) return 0;
+    const pref = prey.photo > 0.4 ? K.grazePref * hunter.dGlint + K.plantPref * hunter.dFlesh : hunter.dFlesh;
+    if (pref <= K.dietMin) return 0;
+    return K.catchSkill > 0 ? Math.min(1, eatEff * pref / K.catchSkill) : 1;
+  }
+  function strikeChance(g, prey, preyKind, image, stoneN, K) {
+    const armor = 1 / (1 + K.armor * Math.max(0, (prey.adhesion || 0) - K.adhMin));
+    const familiar = image === 0 || image === preyKind ? 1 : 1 - K.searchImage;
+    const shelter = 1 - Math.min(K.refugeMax, stoneN * K.refuge);
+    return armor * familiar * catchSkill(g, prey, K) * shelter;
+  }
+  function neighbourSpecies(m, g, kind, genomeOf, K) {
+    const map = /* @__PURE__ */ new Map();
+    const scale = m.sampled ? m.seen / m.sampled : 1;
+    for (const q of m.nbrs) {
+      let s = map.get(q.kind);
+      if (!s) {
+        const gq = q.kind === kind ? g : genomeOf(q.kind);
+        s = {
+          kind: q.kind,
+          kin: q.kind === kind,
+          n: 0,
+          sig: 0,
+          diet: 0,
+          g: gq,
+          threat: q.kind === kind ? 0 : catchSkill(gq, g, K),
+          prey: q.kind === kind ? 0 : catchSkill(g, gq, K),
+          // how often one of their strikes lands on this cell (taking them to be used to its kind, and in open water)
+          danger: q.kind === kind || !gq ? 0 : strikeChance(gq, g, kind, 0, 0, K)
+        };
+        map.set(q.kind, s);
+      }
+      s.n += m.stride * scale;
+      if (!q.inside) s.sig += q.fSig * scale;
+      s.diet += q.fDiet * scale;
+    }
+    return [...map.values()].sort((a, b) => b.n - a.n);
+  }
+  function interpretMind(m, g, kind, { K, genomeOf }) {
+    const drives = Object.entries(m.drives).map(([key, v]) => ({ key, v, mag: len(v) })).filter((d) => d.mag > 1e-4).sort((a, b) => b.mag - a.mag);
+    const total = drives.reduce((s, d) => s + d.mag, 0) || 1;
+    const share = (key) => (drives.find((d) => d.key === key)?.mag || 0) / total;
+    const groups = groupsFor(g, K).map((gr) => {
+      const v = gr.parts.reduce((a, k) => [a[0] + m.drives[k][0], a[1] + m.drives[k][1]], [0, 0]);
+      return { ...gr, v, mag: len(v), share: len(v) / total };
+    });
+    const species = neighbourSpecies(m, g, kind, genomeOf, K);
+    const others = species.filter((s) => !s.kin);
+    const E = m.energy, need = g.reproE;
+    const lean = 0.55 + 0.45 * Math.min(1, Math.max(0, E / need));
+    const net = m.photoGain - m.upkeep;
+    const budget = { light: m.photoGain, upkeep: m.upkeep, net, lean, crowding: m.kinCost - 1, thrift: K.bodyThrift * 0.5 * m.bonds };
+    const pct = (x) => `${Math.round(x * 100)}%`;
+    const hunger = `energy ${E.toFixed(2)} of the ${need.toFixed(2)} it needs to divide`;
+    let st = null;
+    const threat = others.filter((s) => s.threat >= 0.5).sort((a, b) => a.sig - b.sig)[0];
+    const repel = others.filter((s) => s.sig < 0).sort((a, b) => a.sig - b.sig)[0];
+    const draw = others.filter((s) => s.sig > 0).sort((a, b) => b.sig - a.sig)[0];
+    if (E >= need) {
+      st = m.siltNear ? { key: "divide", matter: "Silt", text: "Dividing", why: `Its energy (${E.toFixed(2)}) has reached the ${need.toFixed(2)} it needs, and a grain of silt is in reach to build a child from.` } : { key: "seeksilt", matter: "Silt, none in reach", text: "Ready to divide", why: `It has the energy to divide (${E.toFixed(2)} of ${need.toFixed(2)}) but no grain of silt within reach to build a child from, so it waits. Full, it has stopped feeding.` };
+    } else if (m.food && m.hungry) {
+      const fk = m.food.kind;
+      if (fk === GLINT) st = { key: "feed", matter: "Glint", text: "Eating glint", why: `Hungry (${hunger}), with charged glint in reach.` };
+      else if (fk === HUSK) st = { key: "scavenge", matter: "Husk", text: "Scavenging a husk", why: `Hungry (${hunger}), with a husk in reach to pick over.` };
+      else {
+        const gq = genomeOf(fk);
+        const plant = gq && gq.photo > 0.4;
+        const p = gq ? strikeChance(g, gq, fk, m.image, m.stoneN, K) : 0;
+        const every = K.eatEvery * (plant ? K.biteEvery : K.killEvery) * (m.dt || 1 / 60);
+        const unfamiliar = m.image !== 0 && m.image !== fk && K.searchImage > 0;
+        const odds = { p, every, verb: plant ? "bite" : "kill", unfamiliar };
+        st = plant ? { key: "graze", target: fk, odds, text: "Grazing on {sp}", why: `Hungry (${hunger}), with a {sp} cell in reach to crop. A bite lands about ${pct(p)} of the time, one try every ${every.toFixed(1)} s.` } : { key: "hunt", target: fk, odds, text: "Hunting {sp}", why: `Hungry (${hunger}), with {sp} in reach. A strike kills about ${pct(p)} of the time, one try every ${every.toFixed(1)} s${unfamiliar ? "; it is used to other prey, so it often misses this one" : ""}.` };
+      }
+    }
+    const left = net < 0 ? E / -net : Infinity;
+    if (!st && left < 8) {
+      st = { key: "starve", text: "Starving", why: `Its energy (${E.toFixed(2)}) is nearly spent: about ${Math.max(1, Math.round(left))} s left at ${(-net).toFixed(3)}/s${m.hungry ? ", with nothing it eats in reach" : ""}.` };
+    }
+    if (!st && threat && -threat.sig > 0.2 * total) {
+      st = { key: "flee", target: threat.kind, text: "Fleeing {sp}", why: `{sp} hunts cells like this one: about ${pct(threat.danger)} of their strikes would land. This cell's receptors are repelled by {sp}'s surface signature, so it is pushed away from them.` };
+    }
+    if (!st && m.hungry && share("diet") >= 0.25) {
+      const prey = others.filter((s) => s.diet > 0).sort((a, b) => b.diet - a.diet)[0];
+      if (prey) {
+        const plant = prey.g && prey.g.photo > 0.4;
+        st = { key: plant ? "seekgraze" : "stalk", target: prey.kind, text: plant ? "Seeking {sp} to graze" : "Stalking {sp}", why: `Hungry (${hunger}). Its diet draws it toward {sp} nearby, which is not yet in reach.` };
+      }
+    }
+    if (!st && m.hungry && share("forage") >= 0.25) {
+      const glint = g.dGlint * m.matterN[GLINT] >= g.dHusk * m.matterN[HUSK];
+      st = { key: "forage", matter: glint ? "Glint" : "Husks", text: glint ? "Foraging for glint" : "Foraging for husks", why: `Hungry (${hunger}). Its diet draws it toward the ${glint ? "glint" : "husks"} drifting nearby.` };
+    }
+    if (!st && repel && -repel.sig > 0.35 * total) {
+      st = { key: "avoid", target: repel.kind, text: "Keeping away from {sp}", why: "Its receptors are repelled by the surface signature of {sp}, so it is pushed away from them." };
+    }
+    if (!st && draw && draw.sig > 0.35 * total) {
+      st = { key: "follow", target: draw.kind, text: "Drawn to {sp}", why: "Its receptors are attracted to the surface signature of {sp}, so it gathers among them." };
+    }
+    if (!st && g.photo > 0.4) {
+      st = net >= 0 ? { key: "bask", text: "Basking", why: `Photosynthesising: ${m.photoGain.toFixed(3)}/s from ${pct(m.light)} light, more than its ${m.upkeep.toFixed(3)}/s upkeep.` } : { key: "dark", text: "Waiting out the dark", why: `Photosynthesising ${m.photoGain.toFixed(3)}/s from ${pct(m.light)} light${m.nutr < 3 ? " with little silt nearby for minerals" : ""}: less than its ${m.upkeep.toFixed(3)}/s upkeep, so it is living on its reserves.` };
+    }
+    if (!st) {
+      const top = drives[0];
+      const kinSig = species.find((s) => s.kin)?.sig || 0;
+      const flowing = len(m.flow) > len(m.vel) && len(m.flow) > 0.05;
+      if (top && top.key === "align") st = { key: "school", text: "Schooling", why: "Steering to match the heading of its own kind around it." };
+      else if (top && top.key === "bond") st = { key: "body", text: "Holding its body together", why: "Its bonds are the strongest pull on it: the body keeps its shape." };
+      else if (top && top.key === "kin") st = kinSig >= 0 ? { key: "gather", text: "Gathering with its kind", why: "Drawn toward cells of its own species." } : { key: "spread", text: "Spreading from its kind", why: "Its own species repels it, so it keeps its distance." };
+      else if (top && top.key === "space") st = { key: "jostle", text: "Jostled in a crowd", why: "Packed in tight: the strongest push on it is other cells' personal space." };
+      else if (top && top.key === "stone") st = { key: "blocked", text: "Pressed against stone", why: "Stone is solid to it; it is being pushed around a grain." };
+      else if (flowing) st = { key: "drift", text: "Drifting on the current", why: "Nothing nearby pulls on it much; the current carries it." };
+      else if (top && top.key === "swim") st = { key: "cruise", text: "Cruising", why: m.hungry ? `Hungry (${hunger}) but nothing it eats is near, so it swims on.` : "Swimming on, with nothing nearby pulling on it much." };
+      else st = { key: "idle", text: "Idling", why: m.hungry ? `Hungry (${hunger}), but nothing it eats is in sight.` : "Nothing nearby pulls on it much." };
+    }
+    const shelter = Math.min(K.refugeMax, m.stoneN * K.refuge);
+    const flags = [
+      { key: "hungry", label: "Hungry", on: m.hungry, hint: m.hungry ? `Hungry: ${hunger}. It is drawn to food and eats what comes in reach.` : g.photo > 0.4 && m.eatEff <= 0.1 ? "Lives on light alone: too committed to photosynthesis to eat." : `Not hungry: ${hunger}.` },
+      { key: "full", label: "Ready to divide", on: E >= need, hint: E >= need ? `Has the energy to divide; ${m.siltNear ? "a grain of silt is in reach." : "needs a grain of silt within reach to build a child from."}` : `Divides at ${need.toFixed(2)} energy.` },
+      { key: "threat", label: "Predator in reach", on: !!threat, target: threat ? threat.kind : null, hint: threat ? `{sp}, within reach, hunts cells like this one: about ${pct(threat.danger)} of their strikes would land.` : "Nothing within reach is built to catch cells like this one." },
+      { key: "low", label: "Energy running out", on: left < 30, hint: left < 30 ? `About ${Math.max(1, Math.round(left))} s of energy left without ${g.photo > 0.4 ? "more light" : "a meal"}.` : "Energy reserves are not running out." },
+      { key: "lean", label: "Saving energy", on: lean < 0.8, hint: `A cell low on energy slows its metabolism: this one burns ${pct(lean)} of its full upkeep.` },
+      { key: "crowd", label: "Crowded by kin", on: m.kinCost > 1.01, hint: m.kinCost > 1.01 ? `Packed among ${Math.round(m.kinN)} of its own kind: upkeep +${pct(m.kinCost - 1)}.` : `Fewer than ${K.kinFree + 1} of its own kind around (bond partners aside): no crowding cost.` },
+      { key: "shelter", label: "Sheltered by stone", on: m.stoneN >= 1, hint: m.stoneN >= 1 ? `Among stone: attacks made from here miss ${pct(shelter)} of the time.` : "No stone nearby to hide among." }
+    ];
+    return { ...st, need, mode: MODES[st.key], target: st.target ?? null, flags, groups, drives, total, species, budget };
+  }
+  function slotRows(rows, kinds, n) {
+    const out = Array.from({ length: n }, (_, i) => rows && kinds.includes(rows[i]) ? rows[i] : null);
+    for (const k of kinds) {
+      if (out.includes(k)) continue;
+      const i = out.indexOf(null);
+      if (i < 0) break;
+      out[i] = k;
+    }
+    return out;
+  }
+  function settleMind(memo, state, hold = 2) {
+    const id = `${state.key}:${state.target}`;
+    if (!memo || !memo.cur) return { cur: state, id, cand: null, n: 0 };
+    if (id === memo.id) return { cur: state, id, cand: null, n: 0 };
+    const n = memo.cand === id ? memo.n + 1 : 1;
+    if (n >= hold) return { cur: state, id, cand: null, n: 0 };
+    return { ...memo, cand: id, n };
+  }
+
+  // src/mindview.js
+  var R = 40;
+  var NB_ROWS = 4;
+  var EASE_MS = 70;
+  function createMindView({ K, genomeFor, nameOf, sigil }) {
+    let el = null;
+    let parts = null;
+    let rows = null;
+    let ease2 = null;
+    let last = 0;
+    const fix = (x) => x.toFixed(2);
+    const plainName = (kind) => {
+      const n = nameOf(kind);
+      return n ? n.name : "an unnamed species";
+    };
+    const linkName = (kind) => {
+      const n = nameOf(kind);
+      return n ? spLink(n.serial, n.name) : "unnamed species";
+    };
+    const plain = (text, kind) => kind == null ? text : text.replaceAll("{sp}", plainName(kind));
+    const pct = (x) => `${Math.round(x * 100)}%`;
+    function compassHTML(groups) {
+      let s = `<svg class="compass" viewBox="-50 -50 100 100" aria-label="The pulls on this cell, and its heading">`;
+      s += `<circle class="c-ring" r="${R}"/><circle class="c-ring faint" r="${R / 2}"/>`;
+      let ticks = "";
+      for (let a = 0; a < 360; a += 10) {
+        const t2 = a * Math.PI / 180, l = a % 90 === 0 ? 6 : a % 30 === 0 ? 3.5 : 2;
+        ticks += `M${fix(Math.cos(t2) * R)},${fix(Math.sin(t2) * R)}L${fix(Math.cos(t2) * (R + l))},${fix(Math.sin(t2) * (R + l))}`;
+      }
+      s += `<path class="c-tick" d="${ticks}"/>`;
+      s += `<line class="c-hdg" x1="0" y1="0" x2="0" y2="0"/><path class="c-bug" d=""/><path class="c-tgt" d=""/>`;
+      s += groups.slice().reverse().map((gr) => `<g class="c-arw" data-k="${gr.key}" style="color:${gr.css}"><line x1="0" y1="0" x2="0" y2="0"/><path d=""/></g>`).join("");
+      return s + '<circle class="c-hub" r="1.8"/></svg>';
+    }
+    function html(g, kind) {
+      const groups = groupsFor(g, K);
+      let h = `<div class="blk mv" data-kind="${kind}"><div class="sub-h"><span><i class="ico cell"></i>${term("mind", "Behaviour")}</span><span class="mv-live"><i></i><b>replay</b></span></div>`;
+      h += '<div class="mv-read">';
+      h += `<div><span>Mode</span><b><span class="mv-mode term" data-hint="" tabindex="0">—</span></b></div>`;
+      h += `<div><span>Target</span><b class="mv-target"><span class="mv-sig"></span><span class="mv-tname">—</span><em class="mv-tdist"></em></b></div>`;
+      h += `<div><span>Detail</span><b class="mv-detail">—</b></div>`;
+      h += "</div>";
+      h += `<div class="mv-pulls">${compassHTML(groups)}<div class="mv-drives">`;
+      h += groups.map((gr) => `<div data-k="${gr.key}"><i style="background:${gr.css}"></i><span>${term(gr.tip, gr.label)}</span><span class="meter thin" style="color:${gr.css}"><i style="width:0"></i></span><b>0%</b></div>`).join("");
+      h += `<div class="mv-key"><span><i class="dash"></i>heading</span><span><i class="dia"></i>target</span></div></div></div>`;
+      h += `<div class="mv-lamps">${["hungry", "full", "threat", "low", "lean", "crowd", "shelter"].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join("")}</div></div>`;
+      h += `<div class="blk mv-nb"><div class="sub-h"><span><i class="ico cell"></i>${term("mind-near", "Neighbours")}</span><span>within its reach</span></div>`;
+      h += `<div class="nb-row nb-head"><span></span><span>Species</span><span>Cells</span><span>Role</span><span class="nb-pull term" data-hint="How each species moves this cell: pushes it away (left) or pulls it toward them (right)." tabindex="0"><i>push</i><i>pull</i></span></div>`;
+      for (let i = 0; i <= NB_ROWS; i++) h += `<div class="nb-row empty" data-i="${i}"><span class="nb-sig"></span><span class="nb-name">—</span><b class="nb-n"></b><em class="nb-role"></em><span class="dbar"><i></i></span></div>`;
+      return h + "</div>";
+    }
+    function bind(container) {
+      el = container;
+      const q = (s) => el.querySelector(s);
+      parts = {
+        mode: q(".mv-mode"),
+        sig: q(".mv-sig"),
+        tname: q(".mv-tname"),
+        tdist: q(".mv-tdist"),
+        detail: q(".mv-detail"),
+        live: q(".mv-live"),
+        hdg: q(".c-hdg"),
+        bug: q(".c-bug"),
+        tgt: q(".c-tgt"),
+        arrows: new Map([...el.querySelectorAll(".c-arw")].map((n) => [n.dataset.k, { line: n.querySelector("line"), head: n.querySelector("path") }])),
+        drives: new Map([...el.querySelectorAll(".mv-drives > div[data-k]")].map((n) => [n.dataset.k, { bar: n.querySelector(".meter i"), val: n.querySelector("b") }])),
+        lamps: new Map([...el.querySelectorAll(".lamp")].map((n) => [n.dataset.k, { el: n, label: n.querySelector("span") }])),
+        nb: [...el.querySelectorAll(".nb-row[data-i]")].map((n) => ({ row: n, sig: n.querySelector(".nb-sig"), name: n.querySelector(".nb-name"), n: n.querySelector(".nb-n"), role: n.querySelector(".nb-role"), bar: n.querySelector(".dbar i"), kind: null })),
+        tkind: void 0
+      };
+      rows = null;
+      ease2 = null;
+    }
+    const bound = () => !!(el && el.isConnected);
+    const len2 = (v) => Math.hypot(v[0], v[1]);
+    const unit = (v) => {
+      const l = len2(v);
+      return l > 1e-9 ? [v[0] / l, v[1] / l] : [0, 0];
+    };
+    const signed = (x) => `${x >= 0 ? "+" : "−"}${Math.abs(x).toFixed(3)}`;
+    function update(mind, kind) {
+      if (!bound() || !mind) return;
+      const head = mind.head || mind;
+      parts.mode.textContent = head.mode || "—";
+      parts.mode.dataset.hint = plain(head.why, head.target);
+      const tk = head.target;
+      if (tk !== parts.tkind) {
+        parts.tkind = tk;
+        const g = tk != null ? genomeFor(tk) : null;
+        parts.sig.innerHTML = g ? sigil(g, 16) : "";
+        parts.tname.innerHTML = tk != null ? linkName(tk) : "—";
+      }
+      if (tk == null) parts.tname.textContent = head.matter || "—";
+      const m = mind.m, food = m.food;
+      const q = tk == null ? null : m.nbrs.find((n) => food && n.j === food.j) || m.nbrs.filter((n) => n.kind === tk).sort((a, b) => len2(a.d) - len2(b.d))[0];
+      const tdist = q ? len2(q.d) : food && head.matter && head.key !== "forage" ? food.dist : null;
+      parts.tdist.textContent = tdist != null ? `${tdist.toFixed(2)} cells away` : "";
+      parts.detail.textContent = detail(head, mind);
+      const max = Math.max(1e-6, ...mind.groups.map((g) => g.mag));
+      if (!ease2) ease2 = { groups: /* @__PURE__ */ new Map(), hdg: { cur: [0, 0], to: [0, 0] }, tgt: { cur: null, to: null } };
+      for (const gr of mind.groups) {
+        const u = unit(gr.v), l = gr.mag > max * 0.02 ? R * Math.sqrt(gr.mag / max) : 0;
+        const to = [u[0] * l, u[1] * l];
+        const e = ease2.groups.get(gr.key);
+        if (e) e.to = to;
+        else ease2.groups.set(gr.key, { cur: to.slice(), to });
+        const d = parts.drives.get(gr.key);
+        if (d) {
+          d.bar.style.width = `${gr.mag / max * 100}%`;
+          d.val.textContent = pct(gr.share);
+        }
+      }
+      const hu = unit(m.vel);
+      ease2.hdg.to = len2(m.vel) > 0.02 ? [hu[0] * R, hu[1] * R] : [0, 0];
+      ease2.tgt.to = q ? unit(q.d) : null;
+      if (ease2.tgt.to && !ease2.tgt.cur) ease2.tgt.cur = ease2.tgt.to.slice();
+      for (const f2 of mind.flags) {
+        const n = parts.lamps.get(f2.key);
+        if (!n) continue;
+        n.el.classList.toggle("on", !!f2.on);
+        if (n.label.textContent !== f2.label) n.label.textContent = f2.label;
+        n.label.dataset.hint = plain(f2.hint, f2.target);
+      }
+      parts.live.classList.remove("blink");
+      void parts.live.offsetWidth;
+      parts.live.classList.add("blink");
+      const others = mind.species.filter((s) => !s.kin);
+      const byKind = new Map(mind.species.map((s) => [s.kind, s]));
+      rows = slotRows(rows, others.map((s) => s.kind), NB_ROWS);
+      const kinds = [kind, ...rows];
+      kinds.forEach((k, i) => {
+        const r = parts.nb[i], s = k != null ? byKind.get(k) : null;
+        if (r.kind !== k) {
+          r.kind = k;
+          const g = k != null ? genomeFor(k) : null;
+          r.sig.innerHTML = g ? sigil(g, 16) : "";
+          r.name.innerHTML = k == null ? "—" : i === 0 ? "its own kind" : linkName(k);
+        }
+        r.row.classList.toggle("empty", !s);
+        r.n.textContent = s ? String(Math.max(1, Math.round(s.n))) : i === 0 ? "0" : "";
+        const role = !s || s.kin ? "" : s.threat >= 0.5 && s.prey >= 0.1 ? "both" : s.threat >= 0.5 ? "predator" : s.prey >= 0.1 ? "prey" : "";
+        r.role.textContent = role;
+        r.role.className = `nb-role ${role}`;
+        const pull = s ? (s.sig + s.diet) / (mind.total || 1) : 0;
+        const w = Math.min(1, Math.abs(pull)) * 50;
+        r.bar.style.left = `${pull < 0 ? 50 - w : 50}%`;
+        r.bar.style.width = `${w}%`;
+        r.bar.style.background = pull >= 0 ? "var(--sun)" : "var(--cyan)";
+      });
+    }
+    function detail(st, mind) {
+      const { net } = mind.budget, m = mind.m;
+      if (st.odds) return `${pct(st.odds.p)} per ${st.odds.verb} · one try / ${st.odds.every.toFixed(1)} s`;
+      if (st.key === "flee" || st.key === "avoid") {
+        const s = mind.species.find((x) => x.kind === st.target);
+        return s && s.danger > 0 ? `about ${pct(s.danger)} of their strikes would land` : "repelled by their surface signature";
+      }
+      if (st.key === "starve" || mind.flags.find((x) => x.key === "low").on) return `≈ ${Math.max(1, Math.round(m.energy / Math.max(1e-6, -net)))} s of energy left · ${signed(net)}/s`;
+      if (st.key === "divide" || st.key === "seeksilt") return `energy ${m.energy.toFixed(2)} of ${mind.need.toFixed(2)} · ${m.siltNear ? "silt in reach" : "no silt in reach"}`;
+      if (st.key === "bask" || st.key === "dark") return `light ${pct(m.light)} · ${signed(net)}/s net`;
+      return `net ${signed(net)}/s between meals`;
+    }
+    function tick(now) {
+      const dt = Math.min(100, now - last);
+      last = now;
+      if (!ease2 || !bound()) return;
+      const k = 1 - Math.exp(-dt / EASE_MS);
+      const step = (e) => {
+        e.cur[0] += (e.to[0] - e.cur[0]) * k;
+        e.cur[1] += (e.to[1] - e.cur[1]) * k;
+      };
+      for (const [key, e] of ease2.groups) {
+        step(e);
+        const a = parts.arrows.get(key);
+        if (!a) continue;
+        const [x, y] = e.cur, l = Math.hypot(x, y);
+        a.line.setAttribute("x2", fix(x));
+        a.line.setAttribute("y2", fix(y));
+        if (l < 2) {
+          a.head.setAttribute("d", "");
+          continue;
+        }
+        const t2 = Math.atan2(y, x), h = 5;
+        a.head.setAttribute("d", `M${fix(x - h * Math.cos(t2 - 0.45))},${fix(y - h * Math.sin(t2 - 0.45))}L${fix(x)},${fix(y)}L${fix(x - h * Math.cos(t2 + 0.45))},${fix(y - h * Math.sin(t2 + 0.45))}`);
+      }
+      step(ease2.hdg);
+      const [hx, hy] = ease2.hdg.cur, hl = Math.hypot(hx, hy);
+      parts.hdg.setAttribute("x2", fix(hx));
+      parts.hdg.setAttribute("y2", fix(hy));
+      if (hl > 4) {
+        const t2 = Math.atan2(hy, hx), c = Math.cos(t2), s = Math.sin(t2), r0 = R + 2.5, r12 = R + 8;
+        parts.bug.setAttribute("d", `M${fix(c * r12 - s * 3.5)},${fix(s * r12 + c * 3.5)}L${fix(c * r0)},${fix(s * r0)}L${fix(c * r12 + s * 3.5)},${fix(s * r12 - c * 3.5)}`);
+      } else parts.bug.setAttribute("d", "");
+      const tg = ease2.tgt;
+      if (tg.to) {
+        tg.cur[0] += (tg.to[0] - tg.cur[0]) * k;
+        tg.cur[1] += (tg.to[1] - tg.cur[1]) * k;
+        const [ux, uy] = unit(tg.cur), r = R, d = 3.5;
+        parts.tgt.setAttribute("d", `M${fix(ux * (r + d))},${fix(uy * (r + d))}L${fix(ux * r - uy * d)},${fix(uy * r + ux * d)}L${fix(ux * (r - d))},${fix(uy * (r - d))}L${fix(ux * r + uy * d)},${fix(uy * r - ux * d)}Z`);
+      } else {
+        tg.cur = null;
+        parts.tgt.setAttribute("d", "");
+      }
+    }
+    return { html, bind, update, tick };
+  }
+
   // src/specimen.js
   function createSpecimen(api) {
     const { eng, K } = api;
@@ -14620,17 +15296,40 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const [W, H2] = eng.grid;
       return Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H2, eng.simTime, eng.tide, eng.tidePh) * eng.season) * 100);
     };
+    function spName(kind) {
+      const g = api.genomeFor(kind);
+      const sp = g && api.life().reg.get(g.serial);
+      return sp ? spLink(sp.serial, sp.name) : "an unnamed species";
+    }
+    const withSp = (text, kind) => kind == null ? text : text.replaceAll("{sp}", spName(kind));
+    const signed = (x, d = 3) => `${x >= 0 ? "+" : "−"}${Math.abs(x).toFixed(d)}`;
+    const mv = createMindView({
+      K,
+      genomeFor: api.genomeFor,
+      nameOf: (kind) => {
+        const g = api.genomeFor(kind);
+        const sp = g && api.life().reg.get(g.serial);
+        return sp ? { serial: sp.serial, name: sp.name } : null;
+      },
+      sigil: (g, size) => sigilSVG(songOf(g).v, g, { size })
+    });
     function storyHTML(sel) {
       if (!sel || !sel.story.length) return "";
       return blk("Record", `<ol class="story">${sel.story.map((s) => `<li><time>${fmtClock(s.t)}</time><span>${s.text}</span></li>`).join("")}</ol>`);
     }
-    function cellBlock(p, g, past) {
+    function cellBlock(p, g, past, mind) {
       let h = kv("Cell type", `<span class="greek">${ROLE[p.role]}</span>-cell`, "celltype");
       h += kv("Origin", CAUSE[p.cause] || "a founder of this world", "origin");
       h += kv("Generation", fmt(p.gen), "generation");
       h += kv("Speed", `${Math.hypot(p.vx, p.vy).toFixed(2)} cells/s`, "speed");
-      if (!past) h += kv("Light here", `${lightAt(p)}%`, "lighthere");
-      return blk(past ? "The cell, last seen" : "This cell", h);
+      if (!past) {
+        const b = mind && mind.budget;
+        h += kv("Light here", `${lightAt(p)}%${g && g.photo > 0.05 ? ` · ${b ? signed(b.light) : "—"}/s` : ""}`, g && g.photo > 0.05 ? "photosynth" : "lighthere");
+        const mods = b ? [b.crowding > 0.01 ? `crowding +${Math.round(b.crowding * 100)}%` : "", b.thrift > 1e-3 ? `bonds −${Math.round(b.thrift * 100)}%` : "", b.lean < 0.995 ? `lean ×${b.lean.toFixed(2)}` : ""].filter(Boolean).join(" · ") : "";
+        h += kv("Upkeep", `${b ? signed(-b.upkeep) : "—"}/s${mods ? ` <em class="mods">${mods}</em>` : ""}`, "upkeep");
+        h += kv("Net", b ? `<span class="${b.net >= 0 ? "pos" : "neg"}">${signed(b.net)}/s</span> between meals` : "—", "mind-net");
+      }
+      return blk(past ? "The cell, last seen" : `<span><i class="ico cell"></i>This cell</span>`, h);
     }
     function organismBlock(o, g, past, sel) {
       if (!o || !g) return "";
@@ -14648,8 +15347,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         const tot = o.roles[0] + o.roles[1] + o.roles[2] || 1;
         h += comp("Cell types", "celltype", o.roles.map((c) => c / tot), g, (v, r) => `${ROLE[r]} ${fmt(o.roles[r])}`);
       }
-      h += kv("Touching", o.touching ? `${o.touching} other species` : "no other species", "touching");
-      return blk(past ? "Its organism, last seen" : term("organism", "Organism"), h);
+      if ((g.adhesion || 0) > K.adhMin) h += kv("Touching", o.touching ? `${o.touching} other species` : "no other species", "touching");
+      return blk(past ? "Its organism, last seen" : `<span><i class="ico org"></i>${term("organism", "Organism")}</span>`, h);
     }
     const glyphEl = $2("glyph");
     function setGlyph(key, html) {
@@ -14830,7 +15529,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (!force && (api.held() || now - st.at < 250)) return false;
       st.at = now;
       const sel = api.sel(), spView = api.spView();
-      let html = "", v = "";
+      let html = "", v = "", fixedKey = "", fixedHtml = "";
       if (spView != null) {
         const life = api.life();
         const sp = life.reg.get(spView);
@@ -14897,13 +15596,19 @@ registerProcessor("tidemote-sound", TidemoteSound);
           if (g) {
             v += vital("Energy", p.energy / g.reproE, "sun", `${p.energy.toFixed(2)} / ${g.reproE.toFixed(2)}`, "energy");
             v += vital("Age", p.age / g.lifespan, "cyan", `${fmtDur(p.age)} / ${fmtDur(g.lifespan)}`, "lifespan");
+            const head = sel.mind && !sel.lost && (sel.mind.head || sel.mind);
+            if (!sel.lost) v = `<div class="vital now"><span>${term("mind", "Now")}</span><b>${head ? withSp(head.text, head.target) : "—"}</b></div>` + v;
           }
           setTabs(g ? ["status", "species", "genome"] : ["status"]);
           if (st.tab === "status") {
-            if (g) html += tags(g);
+            if (g && !sel.lost) {
+              fixedKey = `mv:${sel.id}:${p.kind}:${g.serial}`;
+              fixedHtml = tags(g) + mv.html(g, p.kind);
+            } else if (g) html += tags(g);
             if (g) html += songBlock(g, sp, true);
+            const cb = cellBlock(p, g, false, sel.lost ? null : sel.mind), ob = organismBlock(o, g, false, sel);
+            html += inBody ? ob + cb : cb + ob;
             html += storyHTML(sel);
-            html += inBody ? organismBlock(o, g, false, sel) + cellBlock(p, g, false) : cellBlock(p, g, false) + organismBlock(o, g, false, sel);
           } else if (st.tab === "species") html = speciesTab(g, null);
           else html = genomeTab(g, p.role);
         }
@@ -14912,8 +15617,17 @@ registerProcessor("tidemote-sound", TidemoteSound);
         vit.innerHTML = v;
         st.lastVit = v;
       }
-      if (html !== st.lastHtml) {
-        body.innerHTML = html;
+      if (fixedKey !== st.fixedKey || !body.firstElementChild) {
+        body.innerHTML = `<div class="spec-fixed">${fixedHtml}</div><div class="spec-flow">${html}</div>`;
+        st.fixedKey = fixedKey;
+        st.lastHtml = html;
+        songKey = "";
+        if (fixedKey) {
+          mv.bind(body.firstElementChild);
+          mindUpdate();
+        }
+      } else if (html !== st.lastHtml) {
+        body.lastElementChild.innerHTML = html;
         st.lastHtml = html;
         songKey = "";
       }
@@ -14930,6 +15644,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       st.actKey = "";
       st.tabKey = "";
       st.lastHead = "";
+      st.fixedKey = null;
     }
     function close() {
       root.hidden = true;
@@ -14969,12 +15684,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
       g.stroke();
       const sel = api.sel();
       g.strokeStyle = sel && sel.lost ? "rgba(255,255,255,0.3)" : "rgba(255,95,58,0.9)";
-      const R = 9;
+      const R2 = 9;
       g.beginPath();
       for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-        g.moveTo(w / 2 + sx * R, h / 2 + sy * (R - 4));
-        g.lineTo(w / 2 + sx * R, h / 2 + sy * R);
-        g.lineTo(w / 2 + sx * (R - 4), h / 2 + sy * R);
+        g.moveTo(w / 2 + sx * R2, h / 2 + sy * (R2 - 4));
+        g.lineTo(w / 2 + sx * R2, h / 2 + sy * R2);
+        g.lineTo(w / 2 + sx * (R2 - 4), h / 2 + sy * R2);
       }
       g.stroke();
       const pxPerCell = h / api.state.specCells;
@@ -14995,10 +15710,15 @@ registerProcessor("tidemote-sound", TidemoteSound);
         g.textAlign = "left";
       }
     }
-    return { render, open, close, inset, drawViewerUI, songTick, isOpen: () => !root.hidden, invalidate() {
+    function mindUpdate() {
+      const sel = api.sel();
+      if (sel && sel.mind && !sel.lost && st.fixedKey) mv.update(sel.mind, sel.particle.kind);
+    }
+    return { render, open, close, inset, drawViewerUI, songTick, mindUpdate, mindTick: (now) => mv.tick(now), isOpen: () => !root.hidden, invalidate() {
       st.lastHtml = "";
       st.actKey = "";
       st.lastHead = "";
+      st.fixedKey = null;
     } };
   }
 
@@ -15011,6 +15731,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (el.dataset.tip) return GLOSSARY[el.dataset.tip] ? { text: GLOSSARY[el.dataset.tip] } : null;
       const h = el.dataset.hint;
       if (!h) return null;
+      if (el.classList.contains("term")) return { text: h };
       const i = h.lastIndexOf(" · ");
       return i > 0 ? { text: h.slice(0, i), key: h.slice(i + 3) } : { text: h };
     };
@@ -15057,7 +15778,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (owner) hide();
         return;
       }
-      const el = e.target.closest && e.target.closest("[data-tip]");
+      const el = e.target.closest && e.target.closest("[data-tip], .term[data-hint]");
       if (el && el !== owner) {
         show(el, "tap");
         return;
@@ -15690,7 +16411,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const [W, H2] = this.io.world();
       if (!I.n) return { x: this.rng() * W, y: this.rng() * H2, tile: 8, reasons: [], div: 0 };
       const parts = I.parts(), sc = I.scores(parts);
-      const now = this.io.now(), R = I.tile * 2.5;
+      const now = this.io.now(), R2 = I.tile * 2.5;
       let total = 0;
       const wts = new Float32Array(sc.length);
       for (let i = 0; i < sc.length; i++) {
@@ -15699,7 +16420,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         let pen = 1;
         for (const v of this.visited) {
           const d2 = wrapD(x2 - v.x, W) ** 2 + wrapD(y2 - v.y, H2) ** 2;
-          pen *= 1 - 0.85 * Math.exp(-(now - v.t) / 150) * Math.exp(-d2 / (2 * R * R));
+          pen *= 1 - 0.85 * Math.exp(-(now - v.t) / 150) * Math.exp(-d2 / (2 * R2 * R2));
         }
         wts[i] = sc[i] ** 4 * pen * (0.7 + 0.6 * this.rng());
         total += wts[i];
@@ -15994,10 +16715,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (!state.loupe || !hover.on || ptr.dragging || state.phase !== "running" || director.active) return null;
       const base = cssPPU();
       if (base >= 40 * MAX_PPU / 220) return null;
-      const R = Math.round(clamp6(Math.min(innerWidth, innerHeight) * 0.2, 90, 170));
+      const R2 = Math.round(clamp6(Math.min(innerWidth, innerHeight) * 0.2, 90, 170));
       const lp = clamp6(base * state.loupeMag, 8, MAX_PPU);
       const [cx, cy] = toWorld(hover.x, hover.y);
-      return { sx: hover.x, sy: hover.y, R, cssPPU: lp, cx, cy };
+      return { sx: hover.x, sy: hover.y, R: R2, cssPPU: lp, cx, cy };
     }
     const perf = {
       samples: [],
@@ -16728,6 +17449,21 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       applySample(r.tracked, r.simTime);
     };
+    eng.onMind = (r) => {
+      if (!sel || r.id !== sel.id || sel.lost) return;
+      const m = parseMind(r.u32, r.f32);
+      const kind = sel.particle.kind;
+      const g = m && kind >= FIRST_LIFE ? genomeFor(kind) : null;
+      if (!g) {
+        sel.mind = null;
+        return;
+      }
+      const it = interpretMind(m, g, kind, { K, genomeOf: genomeFor });
+      sel.mindMemo = settleMind(sel.mindMemo, it);
+      sel.mind = { ...it, head: sel.mindMemo.cur, m, kind };
+      specimen.mindUpdate();
+      dirty = true;
+    };
     let gatherBusy = false;
     function gatherTick(force) {
       if (!sel || sel.lost || gatherBusy || state.phase !== "running") return;
@@ -16863,6 +17599,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         } else story("Its organism split: following the larger part.");
         sel.rehome = null;
         sel.id = idAt(best);
+        sel.mind = null;
+        sel.mindMemo = null;
         sel.particle = parseParticle(u32, f32, best * PICK_WORDS);
         sel.sampleT = res.simTime;
       }
@@ -17419,9 +18157,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
       setSpeed(list[clamp6(i + d, 0, list.length - 1)]);
     }
     function sustainable() {
-      const S = perf.simS || perf.stepMs, R = perf.simS ? perf.renderR : 0;
+      const S = perf.simS || perf.stepMs, R2 = perf.simS ? perf.renderR : 0;
       if (!S) return Infinity;
-      return (MAX_FRAME_MS - R) / S * (H * 1e3 / MAX_FRAME_MS);
+      return (MAX_FRAME_MS - R2) / S * (H * 1e3 / MAX_FRAME_MS);
     }
     function updateSpeedCap(now) {
       if (state.phase !== "running" || now - speedCapAt < 2e3) return;
@@ -17568,12 +18306,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       octx.lineWidth = 1.1;
       for (const [sx, sy, vx, vy, m] of pts) {
-        const len = 6 + 16 * (m / maxV);
+        const len2 = 6 + 16 * (m / maxV);
         const ux = vx / (m || 1), uy = vy / (m || 1);
-        const ex = sx + ux * len, ey = sy + uy * len;
+        const ex = sx + ux * len2, ey = sy + uy * len2;
         octx.strokeStyle = `rgba(127,214,223,${0.25 + 0.45 * (m / maxV)})`;
         octx.beginPath();
-        octx.moveTo(sx - ux * len * 0.3, sy - uy * len * 0.3);
+        octx.moveTo(sx - ux * len2 * 0.3, sy - uy * len2 * 0.3);
         octx.lineTo(ex, ey);
         octx.lineTo(ex - ux * 4 - uy * 3, ey - uy * 4 + ux * 3);
         octx.moveTo(ex, ey);
@@ -17597,15 +18335,15 @@ registerProcessor("tidemote-sound", TidemoteSound);
         octx.fillRect(Math.round(sx), y - (major ? 6 : 3), 1, major ? 6 : 3);
       }
       if (phone()) return;
-      const len = NICE.find((u) => u * p >= 50) || 50;
-      const w = len * p, x1 = innerWidth - 24 - (specimen.isOpen() ? specimen.inset().right : 0), x0 = x1 - w, by = y - 16;
+      const len2 = NICE.find((u) => u * p >= 50) || 50;
+      const w = len2 * p, x1 = innerWidth - 24 - (specimen.isOpen() ? specimen.inset().right : 0), x0 = x1 - w, by = y - 16;
       octx.fillStyle = "rgba(226,241,240,0.85)";
       octx.fillRect(x0, by, w, 1);
       octx.fillRect(x0, by - 4, 1, 5);
       octx.fillRect(x1 - 1, by - 4, 1, 5);
       octx.font = "500 10px Saira, system-ui, sans-serif";
       octx.textAlign = "right";
-      octx.fillText(`${len < 1 ? len : fmt(len)} cell${len === 1 ? "" : "s"}`, x0 - 8, by + 3);
+      octx.fillText(`${len2 < 1 ? len2 : fmt(len2)} cell${len2 === 1 ? "" : "s"}`, x0 - 8, by + 3);
       octx.textAlign = "left";
     }
     function drawOverlay(dt, L) {
@@ -17718,11 +18456,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
           if (Math.hypot(sx - L.sx, sy - L.sy) > L.R - 8) continue;
         }
         if (sx < -20 || sy < -20 || sx > innerWidth + 20 || sy > innerHeight + 20) continue;
-        const u = t2 / MARK_MS, R = Math.max(4, 0.09 * scale) * (1 + 1.4 * u);
+        const u = t2 / MARK_MS, R2 = Math.max(4, 0.09 * scale) * (1 + 1.4 * u);
         octx.strokeStyle = cssCol(g.col);
         octx.globalAlpha = 0.5 * (1 - u) * (1 - u);
         octx.beginPath();
-        octx.arc(sx, sy, R, 0, TAU2);
+        octx.arc(sx, sy, R2, 0, TAU2);
         octx.stroke();
       }
       octx.globalAlpha = 1;
@@ -17731,8 +18469,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const lost = sel.lost;
       const dead = sel.particle.kind < FIRST_LIFE;
       if (sel.film && dead && !(director.shot && director.shot.why && director.shot.why.kind === "linger")) return;
-      const R = 11;
-      let l = sx - R, t2 = sy - R, r = sx + R, b = sy + R;
+      const R2 = 11;
+      let l = sx - R2, t2 = sy - R2, r = sx + R2, b = sy + R2;
       if (sel.box && !inLens && !dead) {
         if (!sel.boxD) sel.boxD = sel.box.slice();
         const k = 1 - Math.exp(-dt / 150);
@@ -18007,8 +18745,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (state.phase === "running" && !state.paused && !state.busy && state.speed !== Infinity) clock.owed += real * state.speed;
     }
     const stepCap = () => {
-      const S = perf.simS || perf.stepMs, R = perf.simS ? perf.renderR : 0;
-      return S ? clamp6(Math.floor((MAX_FRAME_MS - R) / S), 1, 512) : 4;
+      const S = perf.simS || perf.stepMs, R2 = perf.simS ? perf.renderR : 0;
+      return S ? clamp6(Math.floor((MAX_FRAME_MS - R2) / S), 1, 512) : 4;
     };
     function plan() {
       if (state.paused || state.phase !== "running") {
@@ -18088,8 +18826,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
         eng.trackId = sel && !sel.lost ? sel.id : NONE2;
         eng.trackId2 = director.active ? director.trackId : NONE2;
         watchMarks(performance.now());
+        eng.mindId = sel && !sel.lost && !sel.film && sel.particle.kind >= FIRST_LIFE && specimen.isOpen() ? sel.id : NONE2;
         drawOverlay(dt, L);
         specimen.drawViewerUI(now);
+        specimen.mindTick(now);
         eng.frame({
           target: ctx.getCurrentTexture().createView(),
           cam: { x: cam.x, y: cam.y, ppu: ppu() },
