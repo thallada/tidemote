@@ -77,6 +77,18 @@
     Out.ar(out, sig); Out.ar(revBus, sig * rev); Out.ar(dlyBus, sig * dly);
   }),
 
+  // ── Pluck: a plucked string (Karplus-Strong; hunters, crawlers, grazers)
+  SynthDef(\pluck, { |out = 64, revBus = 66, dlyBus = 68, freq = 220, amp = 0.1, pan = 0,
+      dec = 1.2, bright = 0.5, coef = 0.35, rev = 0.2, dly = 0.1|
+    var exc, sig;
+    exc = Decay2.ar(Impulse.ar(0), 0.0003, 0.002 + (0.004 * (1 - bright))) + WhiteNoise.ar(0.25 * bright);
+    sig = Pluck.ar(exc, 1, 0.05, freq.reciprocal, dec, coef);
+    sig = LPF.ar(sig, (freq * 12).min(12000));
+    sig = Pan2.ar(sig * amp, pan);
+    Line.kr(0, 0, dec * 1.2 + 0.05, doneAction: 2);
+    Out.ar(out, sig); Out.ar(revBus, sig * rev); Out.ar(dlyBus, sig * dly);
+  }),
+
   // ── Wood: low marimba-like knock (hunters)
   SynthDef(\wood, { |out = 64, revBus = 66, dlyBus = 68, freq = 110, amp = 0.1, pan = 0,
       dec = 0.5, bright = 0.5, rev = 0.15, dly = 0.05|

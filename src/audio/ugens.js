@@ -726,6 +726,42 @@ export class AllpassC extends DelayLine {
   }
 }
 
+// ── Pluck: Karplus-Strong string (DelayUGens.cpp Pluck_next_kk) ─────────────
+// A cubic-interpolated feedback delay with a one-pole lowpass in the loop. After a trigger the
+// input is let in for one delay time; the loop then rings, darker the larger coef. Delay, decay
+// and coef are control rate and slewed across the block when they change. The buffer starts
+// zeroed, where scsynth's Pluck_next_kk_z reads the unwritten part as zeros: the same output.
+export class Pluck extends DelayLine {
+  constructor(sr, maxDelay) { super(sr, maxDelay, 2); this.last = 0; this.prevtrig = 0; this.inputs = 0; this.fb = NaN; this.coef = NaN; this.dec = NaN; }
+  kk(inp, trig, dt, decay, coef, out) {
+    const f = Math.fround, b = this.buf, m = this.mask, sr = this.sr;
+    const calc = (d) => Math.min(Math.max(f(f(d) * f(sr)), this.min), this.len);
+    const feedback = (d, dec) => (d === 0 || dec === 0 ? 0 : Math.sign(dec) * f(Math.exp((LOG001 * d) / Math.abs(dec))));
+    if (Number.isNaN(this.fb)) { this.dsamp = calc(dt); this.dt = dt; this.dec = decay; this.fb = feedback(dt, decay); this.coef = coef; }
+    if (this.prevtrig <= 0 && trig > 0) this.inputs = Math.trunc(dt * sr + 0.5);
+    this.prevtrig = trig;
+    let w = this.w, last = this.last, inputs = this.inputs, ds = this.dsamp, fb = this.fb, c = this.coef;
+    let dsl = 0, fbl = 0, cl = 0;
+    if (dt !== this.dt || decay !== this.dec || coef !== this.coef) {
+      dsl = (calc(dt) - ds) * SLOPE; fbl = (feedback(dt, decay) - fb) * SLOPE; cl = (coef - c) * SLOPE;
+    }
+    for (let i = 0; i < BS; i++) {
+      if (dsl) ds = f(ds + dsl);
+      const id = Math.trunc(ds), fr = f(ds - id), r1 = w - id;
+      const x = inputs > 0 ? (inputs--, inp[i]) : 0;
+      const v = f(cubic(fr, b[(r1 + 1) & m], b[r1 & m], b[(r1 - 1) & m], b[(r1 - 2) & m]));
+      const op = f((1 - Math.abs(c)) * v + c * last);
+      b[w & m] = f(x + f(fb * op));
+      out[i] = last = op;
+      if (fbl) fb = f(fb + fbl);
+      if (cl) c = f(c + cl);
+      w++;
+    }
+    if (dsl || fbl || cl) { this.dt = dt; this.dec = decay; this.coef = coef; this.fb = fb; this.dsamp = ds; }
+    this.w = w; this.last = zap(last); this.inputs = inputs;
+  }
+}
+
 // ── panning (equal-power from the 8192-point sine table, 2049 positions) ─────
 const panAmps = (pos, level) => {
   const ip = Math.min(2048, Math.max(0, Math.trunc(1024 * pos + 1024 + 0.5)));
