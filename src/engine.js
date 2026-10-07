@@ -1,6 +1,6 @@
 import {
   simWGSL, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD,
+  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES,
 } from './shaders.js';
 import {
   archetypeGenome, writeGenome, parseParticle,
@@ -72,6 +72,11 @@ class Engine {
     this.trackId = 0xffffffff;
     this.trackId2 = 0xffffffff;
     this.onTrack = null;
+    // The selected cell's mind (mindMain), replayed every `mindEvery` frames while mindId is set.
+    this.mindId = 0xffffffff;
+    this.mindEvery = 6;
+    this.onMind = null;
+    this._mindFrames = 0;
     this.lastCam = null;
     this.accIdx = 0;
     this.size = [0, 0];
@@ -107,6 +112,8 @@ class Engine {
     this.watchStage = [0, 1, 2, 3].map(() => ({ buf: d.createBuffer({ size: WATCH_MAX * 20, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     this.watch = [];
     this.onWatch = null;
+    b.mind = d.createBuffer({ size: MIND_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
+    this.mindStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: MIND_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     b.listenU = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
     b.listen = d.createBuffer({ size: LISTEN_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
     this.listenStage = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: LISTEN_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
@@ -148,6 +155,7 @@ class Engine {
       censusMain: [11, 12, 13],
       matterMain: [0, 1, 2, 9, 10, 11, 13, 14, 16],
       lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12, 15],
+      mindMain: [0, 2, 3, 6, 10, 15, 17],
     };
     this.cp = {};
     for (const name of Object.keys(this.cpDefs)) this.cp[name] = { pipe: cp(this.simModule, name), bg: null };
@@ -251,7 +259,7 @@ class Engine {
       4: { buffer: b.counts }, 5: { buffer: b.counts }, 6: { buffer: b.cellStart }, 7: { buffer: b.blockSums },
       8: { buffer: b.aux }, 9: { buffer: b.intent }, 10: { buffer: b.genomes }, 11: { buffer: b.ledger },
       12: { buffer: b.livingList }, 13: { buffer: b.frameCtr }, 14: { buffer: b.stoneGrid },
-      15: { buffer: b.bondsNow }, 16: { buffer: b.stoneList },
+      15: { buffer: b.bondsNow }, 16: { buffer: b.stoneList }, 17: { buffer: b.mind },
     };
     for (const [name, ids] of Object.entries(this.cpDefs)) {
       const c = this.cp[name];
@@ -651,6 +659,7 @@ class Engine {
     }
     if (nSteps > 1) d.queue.writeBuffer(b.simRing, 0, this.ringData, 0, nSteps * SIM_STRIDE);
     const listenJob = nSteps > 0 ? this._listenCopy(enc, cam) : null;
+    const mindJob = this._mindCopy(enc);
     const surveyJob = nSteps > 0 ? this._surveyCopy(enc) : null;
 
     // ---- picking
@@ -793,7 +802,42 @@ class Engine {
     }
     for (const job of censusJobs) this._censusRead(job, generation);
     if (listenJob) this._listenRead(listenJob, generation);
+    if (mindJob) this._mindRead(mindJob, generation);
     if (surveyJob) this._surveyRead(surveyJob, generation);
+  }
+
+  /**
+   * Every mindEvery frames while a cell is watched: replay its last decision (mindMain) after the
+   * frame's steps. While paused the replay is of the same step, so it is cheap to repeat.
+   */
+  _mindCopy(enc) {
+    const N = this.count;
+    if (this.mindId === 0xffffffff || !N || !this.frameNo || ++this._mindFrames < this.mindEvery) return null;
+    const st = this.mindStage.find((s) => !s.busy);
+    if (!st) return null;
+    this._mindFrames = 0;
+    st.busy = true;
+    const b = this.b;
+    this.device.queue.writeBuffer(b.mind, 0, new Uint32Array([this.mindId]));
+    enc.clearBuffer(b.mind, 4, 4);
+    const pass = enc.beginComputePass();
+    pass.setPipeline(this.cp.mindMain.pipe);
+    pass.setBindGroup(0, this.cp.mindMain.bg);
+    pass.dispatchWorkgroups(Math.ceil(N / 64));
+    pass.end();
+    enc.copyBufferToBuffer(b.mind, 0, st.buf, 0, MIND_BYTES);
+    return { st, id: this.mindId, simTime: this.simTime };
+  }
+
+  _mindRead(job, generation) {
+    const { st } = job;
+    st.buf.mapAsync(GPUMapMode.READ).then(() => {
+      const copy = st.buf.getMappedRange().slice(0);
+      st.buf.unmap();
+      st.busy = false;
+      if (generation !== this.worldGeneration || !this.onMind) return;
+      this.onMind({ id: job.id, simTime: job.simTime, u32: new Uint32Array(copy), f32: new Float32Array(copy) });
+    }).catch(() => { st.busy = false; });
   }
 
   /** Every so many frames while surveying: what happened in each tile of the world since the last survey. */

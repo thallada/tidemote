@@ -20,6 +20,12 @@ export const PICK_WORDS = 12; // Particle's 10 words, then two partner IDs (NONE
 export const G_BYTES = 192;
 export const G_WORDS = 48;
 export const LITE_BYTES = 32;
+// The selected cell's mind (mindMain): a header of MIND_HEAD words, then MIND_NBR living neighbours
+// of MIND_NBR_WORDS words each. See parseMind in mind.js for the layout.
+export const MIND_HEAD = 50;
+export const MIND_NBR = 48;
+export const MIND_NBR_WORDS = 7;
+export const MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
 
 export const DEFAULT_K = {
   density: 22,
@@ -160,6 +166,223 @@ fn roleColor(g: Genome, r: u32) -> vec3f {
   return hsl2rgb(fract(g.hue + f32(r) * g.roleHue + 1.0), g.sat, g.lum * (1.0 - 0.08 * f32(r)));
 }
 `;
+
+// One living cell's senses, forces and energy budget for this frame, shared by lifeMain and mindMain.
+// w (mindMain only) adds statements that record each term; without it the text is lifeMain's alone.
+function cellWGSL(K, w) {
+  const W = (s) => (w ? ' ' + s : '');
+  return /* wgsl */ `  let p = sortedFull[i];
+  let g = genomes[p.kind];
+  let role = roleOf(p.info);
+  let sg = g.sig[role];
+  let rec0 = unpack4x8snorm(sg.z);
+  let rec1 = unpack4x8snorm(sg.w);
+  let my0 = unpack4x8snorm(sg.x);
+  let my1 = unpack4x8snorm(sg.y);
+  let world = sim.world;
+  let invWorld = 1.0 / world;
+  let gw = i32(sim.grid.x);
+  let gh = i32(sim.grid.y);
+  let cc = clamp(vec2i(floor(p.pos)), vec2i(0), vec2i(gw - 1, gh - 1));
+  let R = g.radius;
+  let R2 = R * R;
+  let invR = 1.0 / R;
+  let beta = g.beta;
+  let invBeta = 1.0 / beta;
+  let invOM = 1.0 / (1.0 - beta);
+  // photosynthesis and eating don't mix well: a cell that does both does neither efficiently
+  let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
+  let hungry = p.energy < g.reproE * ${f(K.sated)} && eatEff > 0.1;
+  let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
+  let bonding = g.adhesion > ${f(K.adhMin)};
+  var dn1 = vec2f(0.0);
+  var dn2 = vec2f(0.0);
+
+  var force = vec2f(0.0);
+  var csum = vec3f(0.0);
+  var wsum = 0.0;
+  var kinVel = vec2f(0.0);
+  var kinN = 0.0;
+  var crowd = 0.0;
+  var nutr = 0.0;
+  var d1 = 1e9; var d2 = 1e9;
+  var n1 = NONE; var n2 = NONE;
+  if (bonding) {
+    n1 = keepBond(i, bondsNow[i].x, p);
+    n2 = keepBond(i, bondsNow[i].y, p);
+    if (n2 == n1) { n2 = NONE; }
+    if (n1 != NONE) {
+      dn1 = sortedFull[n1].pos - p.pos;
+      dn1 -= world * round(dn1 * invWorld);
+      d1 = length(dn1);
+    }
+    if (n2 != NONE) {
+      dn2 = sortedFull[n2].pos - p.pos;
+      dn2 -= world * round(dn2 * invWorld);
+      d2 = length(dn2);
+    }
+  }
+  let keep1 = n1 != NONE; let keep2 = n2 != NONE;
+  var food = NONE; var foodScore = -1e9;
+  var silt = NONE; var siltD = 1e9;
+  var stoneF = vec2f(0.0);
+  var stoneN = 0.0;
+  var pack = 0.0;
+  var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
+
+  // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam).
+  var rs: array<u32, 9>;
+  var re: array<u32, 9>;
+  var nr = 0u;
+  var total = 0u;
+  for (var dy = -1; dy <= 1; dy++) {
+    let y = (cc.y + dy + gh) % gh;
+    let rowBase = y * gw;
+    if (cc.x > 0 && cc.x < gw - 1) {
+      rs[nr] = cellStart[u32(rowBase + cc.x - 1)];
+      re[nr] = cellStart[u32(rowBase + cc.x + 2)];
+      total += re[nr] - rs[nr];
+      nr++;
+    } else {
+      for (var dx = -1; dx <= 1; dx++) {
+        let x = (cc.x + dx + gw) % gw;
+        let c = u32(rowBase + x);
+        rs[nr] = cellStart[c];
+        re[nr] = cellStart[c + 1u];
+        total += re[nr] - rs[nr];
+        nr++;
+      }
+    }
+  }
+  // Crowded neighbourhoods are sampled evenly with a random offset, each sample standing for
+  // \`stride\` particles, so no direction or grid cell is favoured (scanning in order and stopping
+  // at the budget left out the last row and drew dense species into grid-aligned bands).
+  let stride = max(1.0, f32(total) / f32(MAX_SCAN));
+  var at = select(0.0, rnd(&s) * stride, stride > 1.0);
+  for (var k = 0u; k < nr; k++) {
+    let len = f32(re[k] - rs[k]);
+    for (; at < len; at += stride) {
+      let j = rs[k] + u32(at);
+      let q = sortedLite[j];
+      var d = q.pos - p.pos;
+      d -= world * round(d * invWorld);
+      let r2 = dot(d, d);
+      if (r2 >= R2 || r2 < 1e-12) { continue; }
+      let r = sqrt(r2);
+      let x = r * invR;
+      let qk = q.kr & 1023u;
+      let s0 = unpack4x8snorm(q.s0);
+      let s1 = unpack4x8snorm(q.s1);
+      let a = clamp((dot(rec0, s0) + dot(rec1, s1)) * ${f(K.affScale)}, -1.0, 1.0);
+      let shape = 1.0 - abs(2.0 * x - 1.0 - beta) * invOM;
+      var fr: f32;
+      if (qk >= FIRST_LIFE) {
+        // a hungry forager lets other species inside its personal space so it can reach them
+        if (x < beta) { fr = (x * invBeta - 1.0) * select(1.0, 0.15, canHunt && qk != p.kind); } else { fr = a * shape; }${W('mFr0 = fr;')}
+        // hungry foragers are drawn toward the cells their diet favours
+        if (canHunt && qk != p.kind && x >= beta) {
+          fr += select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)} * shape;
+        }
+        crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
+        if (r < LINK_R) { let w = 1.0 - r / LINK_R; pack += w * w; }
+        if (qk == p.kind) {
+          kinVel += unpack2x16float(q.vel);
+          kinN += 1.0;
+        }
+        if (r < LINK_R) {
+          // colour only blends within a species, so mixed neighbourhoods stay visibly mixed
+          if (qk == p.kind) {
+            let w = 1.0 - r / LINK_R;
+            csum += unpack4x8unorm(q.col).rgb * w;
+            wsum += w;
+          }
+          if (bonding && qk == p.kind && j != n1 && j != n2) {
+            if (!keep1 && r < d1) {
+              if (!keep2) { d2 = d1; n2 = n1; dn2 = dn1; }
+              d1 = r; n1 = j; dn1 = d;
+            } else if (!keep2 && r < d2) { d2 = r; n2 = j; dn2 = d; }
+          }
+        }
+        if (canHunt && r < EAT_R && qk != p.kind) {
+          let da = s0 - my0;
+          let db = s1 - my1;
+          if (dot(da, da) + dot(db, db) > ${f(K.kin)}) {
+            // grazers crop plant cells; flesh-eaters hunt animals (and crop plants reluctantly)
+            let plant = (q.kr & (1u << 12u)) != 0u;
+            let pref = select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, plant);
+            let sc = pref - r;
+            if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+          }
+        }
+      } else {
+        fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);${W('mFr0 = fr;')}
+        if (qk == STONE) {
+          // stone is solid: it pushes cells out however hard they swim, and shelters those among it
+          if (r < ${f(K.stoneR)}) { stoneF += d * ((r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r)); }
+          if (r < 0.5) { stoneN += 1.0; }
+        } else {
+          if (hungry && qk != SILT && x >= beta) {
+            fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)} * shape;
+          }
+          if (qk == SILT) { nutr += 1.0; }
+          if (r < EAT_R) {
+            if (qk == SILT) {
+              if (r < siltD) { siltD = r; silt = j; }
+            } else if (hungry) {
+              let dv = select(g.dHusk, g.dGlint, qk == GLINT);
+              let sc = dv - r;
+              if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+            }
+          }
+        }
+      }
+      force += d * (fr / r);${W('mPair(j, q, d, r, x < beta, qk == p.kind, mFr0, fr);')}
+    }
+    at -= len;
+  }
+  force *= stride; crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride;
+
+  let heavy = 1.0 - 0.7 * g.photo;
+  let fr0 = pow(0.5, sim.dt / g.drag);
+  var vel = p.vel * fr0 + force * (g.force * heavy * sim.dt);${W('mVel = vel;')}
+  if (kinN > 0.0 && g.align > 0.0) {
+    vel = mix(vel, kinVel / kinN, clamp(g.align * ${f(K.align)} * sim.dt, 0.0, 1.0));${W('mAlign = vel - mVel;')}
+  }
+  // Persistent bonds pull on the partners' current positions, even outside the sampled scan.
+  var bondF = vec2f(0.0);
+  if (n1 != NONE) { bondF += dn1 * ((d1 - LINK_R * 0.55) / max(d1, 1e-4)); }
+  if (n2 != NONE) { bondF += dn2 * ((d2 - LINK_R * 0.55) / max(d2, 1e-4)); }
+  vel += bondF * (g.adhesion * ${f(K.bond)} * sim.dt);
+  // stone is solid to everything but the calcifiers that build it, which settle on their own reef
+  vel += stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify) * sim.dt);
+  let swim = g.swim * (1.0 - g.photo);
+  if (swim > 0.0) {
+    var dir = vel;
+    if (dot(dir, dir) < 1e-6) {
+      let a = rnd(&s) * TAU;
+      dir = vec2f(cos(a), sin(a));
+    }
+    vel += normalize(dir) * swim * sim.dt;${W('mSwim = normalize(dir) * swim;')}
+  }
+  let sp = length(vel);
+  if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
+  let pos = wrapPos(p.pos + (vel + flowAt(p.pos) * g.advect) * sim.dt);
+
+  var col = unpack4x8unorm(p.col).rgb;
+  if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }
+  col = mix(col, roleColor(g, role), ${f(K.baseMix)});
+
+  let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
+  // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
+  // water; anchored cells have fresh silt carried past them by the currents.
+  let photoGain = g.photo * light * ${f(K.photo)} / (1.0 + crowd * ${f(K.shade)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
+    * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0));
+  let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
+  // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); a body's bond partners do not count
+  let kinCost = 1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - bonds - ${f(K.kinFree)});
+  let thrift = 1.0 - ${f(K.bodyThrift)} * 0.5 * bonds;
+  let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0));`;
+}
 
 export function simWGSL(K) {
   return COMMON + /* wgsl */ `
@@ -751,217 +974,7 @@ fn keepBond(i: u32, j: u32, p: Particle) -> u32 {
 fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
   if (i == NONE) { return; }
-  let p = sortedFull[i];
-  let g = genomes[p.kind];
-  let role = roleOf(p.info);
-  let sg = g.sig[role];
-  let rec0 = unpack4x8snorm(sg.z);
-  let rec1 = unpack4x8snorm(sg.w);
-  let my0 = unpack4x8snorm(sg.x);
-  let my1 = unpack4x8snorm(sg.y);
-  let world = sim.world;
-  let invWorld = 1.0 / world;
-  let gw = i32(sim.grid.x);
-  let gh = i32(sim.grid.y);
-  let cc = clamp(vec2i(floor(p.pos)), vec2i(0), vec2i(gw - 1, gh - 1));
-  let R = g.radius;
-  let R2 = R * R;
-  let invR = 1.0 / R;
-  let beta = g.beta;
-  let invBeta = 1.0 / beta;
-  let invOM = 1.0 / (1.0 - beta);
-  // photosynthesis and eating don't mix well: a cell that does both does neither efficiently
-  let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
-  let hungry = p.energy < g.reproE * ${f(K.sated)} && eatEff > 0.1;
-  let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
-  let bonding = g.adhesion > ${f(K.adhMin)};
-  var dn1 = vec2f(0.0);
-  var dn2 = vec2f(0.0);
-
-  var force = vec2f(0.0);
-  var csum = vec3f(0.0);
-  var wsum = 0.0;
-  var kinVel = vec2f(0.0);
-  var kinN = 0.0;
-  var crowd = 0.0;
-  var nutr = 0.0;
-  var d1 = 1e9; var d2 = 1e9;
-  var n1 = NONE; var n2 = NONE;
-  if (bonding) {
-    n1 = keepBond(i, bondsNow[i].x, p);
-    n2 = keepBond(i, bondsNow[i].y, p);
-    if (n2 == n1) { n2 = NONE; }
-    if (n1 != NONE) {
-      dn1 = sortedFull[n1].pos - p.pos;
-      dn1 -= world * round(dn1 * invWorld);
-      d1 = length(dn1);
-    }
-    if (n2 != NONE) {
-      dn2 = sortedFull[n2].pos - p.pos;
-      dn2 -= world * round(dn2 * invWorld);
-      d2 = length(dn2);
-    }
-  }
-  let keep1 = n1 != NONE; let keep2 = n2 != NONE;
-  var food = NONE; var foodScore = -1e9;
-  var silt = NONE; var siltD = 1e9;
-  var stoneF = vec2f(0.0);
-  var stoneN = 0.0;
-  var pack = 0.0;
-  var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
-
-  // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam).
-  var rs: array<u32, 9>;
-  var re: array<u32, 9>;
-  var nr = 0u;
-  var total = 0u;
-  for (var dy = -1; dy <= 1; dy++) {
-    let y = (cc.y + dy + gh) % gh;
-    let rowBase = y * gw;
-    if (cc.x > 0 && cc.x < gw - 1) {
-      rs[nr] = cellStart[u32(rowBase + cc.x - 1)];
-      re[nr] = cellStart[u32(rowBase + cc.x + 2)];
-      total += re[nr] - rs[nr];
-      nr++;
-    } else {
-      for (var dx = -1; dx <= 1; dx++) {
-        let x = (cc.x + dx + gw) % gw;
-        let c = u32(rowBase + x);
-        rs[nr] = cellStart[c];
-        re[nr] = cellStart[c + 1u];
-        total += re[nr] - rs[nr];
-        nr++;
-      }
-    }
-  }
-  // Crowded neighbourhoods are sampled evenly with a random offset, each sample standing for
-  // \`stride\` particles, so no direction or grid cell is favoured (scanning in order and stopping
-  // at the budget left out the last row and drew dense species into grid-aligned bands).
-  let stride = max(1.0, f32(total) / f32(MAX_SCAN));
-  var at = select(0.0, rnd(&s) * stride, stride > 1.0);
-  for (var k = 0u; k < nr; k++) {
-    let len = f32(re[k] - rs[k]);
-    for (; at < len; at += stride) {
-      let j = rs[k] + u32(at);
-      let q = sortedLite[j];
-      var d = q.pos - p.pos;
-      d -= world * round(d * invWorld);
-      let r2 = dot(d, d);
-      if (r2 >= R2 || r2 < 1e-12) { continue; }
-      let r = sqrt(r2);
-      let x = r * invR;
-      let qk = q.kr & 1023u;
-      let s0 = unpack4x8snorm(q.s0);
-      let s1 = unpack4x8snorm(q.s1);
-      let a = clamp((dot(rec0, s0) + dot(rec1, s1)) * ${f(K.affScale)}, -1.0, 1.0);
-      let shape = 1.0 - abs(2.0 * x - 1.0 - beta) * invOM;
-      var fr: f32;
-      if (qk >= FIRST_LIFE) {
-        // a hungry forager lets other species inside its personal space so it can reach them
-        if (x < beta) { fr = (x * invBeta - 1.0) * select(1.0, 0.15, canHunt && qk != p.kind); } else { fr = a * shape; }
-        // hungry foragers are drawn toward the cells their diet favours
-        if (canHunt && qk != p.kind && x >= beta) {
-          fr += select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)} * shape;
-        }
-        crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
-        if (r < LINK_R) { let w = 1.0 - r / LINK_R; pack += w * w; }
-        if (qk == p.kind) {
-          kinVel += unpack2x16float(q.vel);
-          kinN += 1.0;
-        }
-        if (r < LINK_R) {
-          // colour only blends within a species, so mixed neighbourhoods stay visibly mixed
-          if (qk == p.kind) {
-            let w = 1.0 - r / LINK_R;
-            csum += unpack4x8unorm(q.col).rgb * w;
-            wsum += w;
-          }
-          if (bonding && qk == p.kind && j != n1 && j != n2) {
-            if (!keep1 && r < d1) {
-              if (!keep2) { d2 = d1; n2 = n1; dn2 = dn1; }
-              d1 = r; n1 = j; dn1 = d;
-            } else if (!keep2 && r < d2) { d2 = r; n2 = j; dn2 = d; }
-          }
-        }
-        if (canHunt && r < EAT_R && qk != p.kind) {
-          let da = s0 - my0;
-          let db = s1 - my1;
-          if (dot(da, da) + dot(db, db) > ${f(K.kin)}) {
-            // grazers crop plant cells; flesh-eaters hunt animals (and crop plants reluctantly)
-            let plant = (q.kr & (1u << 12u)) != 0u;
-            let pref = select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, plant);
-            let sc = pref - r;
-            if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
-          }
-        }
-      } else {
-        fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);
-        if (qk == STONE) {
-          // stone is solid: it pushes cells out however hard they swim, and shelters those among it
-          if (r < ${f(K.stoneR)}) { stoneF += d * ((r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r)); }
-          if (r < 0.5) { stoneN += 1.0; }
-        } else {
-          if (hungry && qk != SILT && x >= beta) {
-            fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)} * shape;
-          }
-          if (qk == SILT) { nutr += 1.0; }
-          if (r < EAT_R) {
-            if (qk == SILT) {
-              if (r < siltD) { siltD = r; silt = j; }
-            } else if (hungry) {
-              let dv = select(g.dHusk, g.dGlint, qk == GLINT);
-              let sc = dv - r;
-              if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
-            }
-          }
-        }
-      }
-      force += d * (fr / r);
-    }
-    at -= len;
-  }
-  force *= stride; crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride;
-
-  let heavy = 1.0 - 0.7 * g.photo;
-  let fr0 = pow(0.5, sim.dt / g.drag);
-  var vel = p.vel * fr0 + force * (g.force * heavy * sim.dt);
-  if (kinN > 0.0 && g.align > 0.0) {
-    vel = mix(vel, kinVel / kinN, clamp(g.align * ${f(K.align)} * sim.dt, 0.0, 1.0));
-  }
-  // Persistent bonds pull on the partners' current positions, even outside the sampled scan.
-  var bondF = vec2f(0.0);
-  if (n1 != NONE) { bondF += dn1 * ((d1 - LINK_R * 0.55) / max(d1, 1e-4)); }
-  if (n2 != NONE) { bondF += dn2 * ((d2 - LINK_R * 0.55) / max(d2, 1e-4)); }
-  vel += bondF * (g.adhesion * ${f(K.bond)} * sim.dt);
-  // stone is solid to everything but the calcifiers that build it, which settle on their own reef
-  vel += stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify) * sim.dt);
-  let swim = g.swim * (1.0 - g.photo);
-  if (swim > 0.0) {
-    var dir = vel;
-    if (dot(dir, dir) < 1e-6) {
-      let a = rnd(&s) * TAU;
-      dir = vec2f(cos(a), sin(a));
-    }
-    vel += normalize(dir) * swim * sim.dt;
-  }
-  let sp = length(vel);
-  if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
-  let pos = wrapPos(p.pos + (vel + flowAt(p.pos) * g.advect) * sim.dt);
-
-  var col = unpack4x8unorm(p.col).rgb;
-  if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }
-  col = mix(col, roleColor(g, role), ${f(K.baseMix)});
-
-  let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
-  // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
-  // water; anchored cells have fresh silt carried past them by the currents.
-  let photoGain = g.photo * light * ${f(K.photo)} / (1.0 + crowd * ${f(K.shade)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
-    * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0));
-  let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
-  // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); a body's bond partners do not count
-  let kinCost = 1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - bonds - ${f(K.kinFree)});
-  let thrift = 1.0 - ${f(K.bodyThrift)} * 0.5 * bonds;
-  let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0));
+${cellWGSL(K, false)}
   var E = p.energy + (photoGain - upkeep) * sim.dt;
   let dg = dietGuild(g);
   // light and upkeep flow every frame; the ledger samples them once a second per cell
@@ -1046,6 +1059,100 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(pack, ce, act == 2u)), n1, n2);
   parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0)), info);
+}
+
+// --------------------------------------------------------------------- mind
+// Observational: after the last step, replays the watched cell's lifeMain decision with the same
+// inputs (sorted particles, bonds, uniforms and random stream) and records every term of it.
+// Writes only to the mind buffer, which nothing in the simulation reads.
+@group(0) @binding(17) var<storage, read_write> mind: array<u32>;
+const MIND_HEAD = ${MIND_HEAD}u;
+const MIND_NBR = ${MIND_NBR}u;
+var<private> mFr0: f32;
+var<private> mVel: vec2f;
+var<private> mAlign: vec2f;
+var<private> mSwim: vec2f;
+var<private> mSpace: vec2f;
+var<private> mKin: vec2f;
+var<private> mOther: vec2f;
+var<private> mDiet: vec2f;
+var<private> mMatter: vec2f;
+var<private> mForage: vec2f;
+var<private> mMatterN: vec4f;
+var<private> mN: u32;
+
+fn mPut(o: u32, v: f32) { mind[o] = bitcast<u32>(v); }
+fn mPut2(o: u32, v: vec2f) { mind[o] = bitcast<u32>(v.x); mind[o + 1u] = bitcast<u32>(v.y); }
+
+// One sampled neighbour's pull: fr0 its signature (or personal-space) term, fr with the diet's added.
+fn mPair(j: u32, q: Lite, d: vec2f, r: f32, inside: bool, kin: bool, fr0: f32, fr: f32) {
+  let u = d / r;
+  let qk = q.kr & 1023u;
+  if (qk < FIRST_LIFE) {
+    mMatter += u * fr0;
+    mForage += u * (fr - fr0);
+    mMatterN[qk] += 1.0;
+    return;
+  }
+  if (inside) { mSpace += u * fr0; } else if (kin) { mKin += u * fr0; } else { mOther += u * fr0; }
+  mDiet += u * (fr - fr0);
+  if (mN < MIND_NBR) {
+    let o = MIND_HEAD + mN * ${MIND_NBR_WORDS}u;
+    mind[o] = qk;
+    mind[o + 1u] = select(0u, 1u, inside);
+    mPut2(o + 2u, d);
+    mPut(o + 4u, fr0);
+    mPut(o + 5u, fr - fr0);
+    mind[o + 6u] = j;
+  }
+  mN++;
+}
+
+@compute @workgroup_size(64)
+fn mindMain(@builtin(global_invocation_id) gid: vec3u) {
+  let i = gid.x;
+  if (i >= sim.count || sortedFull[i].id != mind[0] || sortedFull[i].kind < FIRST_LIFE) { return; }
+${cellWGSL(K, true)}
+  let acc = stride * g.force * heavy;
+  mind[1] = 1u;
+  mind[2] = select(0u, 1u, hungry) | select(0u, 2u, silt != NONE) | select(0u, 4u, food != NONE);
+  mind[3] = NONE;
+  mPut(4, 0.0);
+  mind[5] = food;
+  if (food != NONE) {
+    var df = sortedFull[food].pos - p.pos;
+    df -= world * round(df * invWorld);
+    mind[3] = sortedFull[food].kind;
+    mPut(4, length(df));
+  }
+  mind[6] = (p.info >> 6u) & 1023u;
+  mind[7] = mN;
+  mPut(8, photoGain);
+  mPut(9, upkeep);
+  mPut(10, light);
+  mPut(11, nutr);
+  mPut(12, kinN);
+  mPut(13, bonds);
+  mPut(14, kinCost);
+  mPut(15, stoneN);
+  mPut(16, eatEff);
+  mPut(17, stride);
+  mPut(18, sim.dt);
+  mPut(19, p.energy);
+  mPut(20, acc);
+  mPut2(22, vel);
+  mPut2(24, mSpace * acc);
+  mPut2(26, mKin * acc);
+  mPut2(28, mOther * acc);
+  mPut2(30, mDiet * acc);
+  mPut2(32, mMatter * acc);
+  mPut2(34, mForage * acc);
+  mPut2(36, mAlign / sim.dt);
+  mPut2(38, bondF * (g.adhesion * ${f(K.bond)}));
+  mPut2(40, stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify)));
+  mPut2(42, mSwim);
+  mPut2(44, flowAt(p.pos) * g.advect);
+  for (var k = 0u; k < 4u; k++) { mPut(46u + k, mMatterN[k] * stride); }
 }
 `;
 }
