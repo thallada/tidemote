@@ -64,10 +64,11 @@ export class Score {
   }
 
   // the reigning species' motif (scale degrees), or a plain one
-  theme() {
+  theme() { const m = this.reigning(); return m ? m.seq : [0, 2, 4, 1, 3]; }
+  reigning() {
     let best = null;
     for (const e of this.c.field.slots.values()) if (e.v && (!best || e.pop > best.pop)) best = e;
-    return best ? best.v.seq : [0, 2, 4, 1, 3];
+    return best ? best.v.motif : null;
   }
   chord(deg, n = 3) { const c = this.c; return Array.from({ length: n }, (_, i) => d2m(deg + 2 * i, c.root, c.scale)); }
 
@@ -167,9 +168,15 @@ export class Score {
   }
 
   // ── a melodic interlude: the reigning motif, sequenced up, inverted, brought home ──
-  interlude(t0, theme = this.theme()) {
+  // It keeps the motif's own rhythm, slowed to the piano's pace (its shortest note two steps).
+  interlude(t0, theme = this.theme(), motif = this.reigning()) {
     const c = this.c, s = c.step, L = (c.era.fx.level || 1) * (1 - 0.3 * c.field.z);
-    const th = theme.slice(0, Math.min(5, theme.length)), r = RHYTHMS[Math.floor(this.rnd() * RHYTHMS.length)];
+    const th = theme.slice(0, Math.min(5, theme.length));
+    let r = RHYTHMS[Math.floor(this.rnd() * RHYTHMS.length)];
+    if (motif && motif.notes.length >= 2) {
+      const ds = motif.notes.slice(0, th.length).map((nt) => nt.dur), lo = Math.min(...ds);
+      r = ds.map((d) => clamp(Math.round((2 * d) / lo), 2, 8));
+    }
     const phrases = [th, th.map((d) => d + 2), th.slice(0, 3).map((d) => 2 * th[0] - d), [th[0] + 2, th[0] + 1, th[0]]];
     const bassDeg = [0, 3, 5, 0], dyn = [0.75, 0.9, 1, 0.7];
     let t = t0;

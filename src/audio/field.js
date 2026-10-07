@@ -4,9 +4,14 @@
 // position and exact time; this turns them into notes. Runs inside the AudioWorklet next to the
 // conductor, whose harmony (era mode, root, pivot), sea and drone it shares.
 //
-// Every living cell sings: now and then it plays the next note of its species' motif (from its
-// genome, see mapping.js), more often when it moves. Events are accents on top: a birth rings,
-// a kill bites, grazing drips, a dying cell falls, the tide's charge shimmers.
+// Every living cell sings: now and then it comes in on its species' motif (from its genome, see
+// motif.js), more often when it moves. A species keeps time by its motif: a cell that sings joins
+// at the motif's next note, in its rhythm, so a crowd assembles the phrase between them. A
+// schooling species keeps one clock and sings in unison; the others each keep their own and
+// the phrase goes round in canon. Where only a few cells are heard each sings a longer stretch,
+// so a handful of cells still carries the whole song. A colony's β cells sing its second voice.
+// Events are accents on top: a birth rings, a kill bites, grazing drips, a dying cell falls,
+// the tide's charge shimmers.
 //
 // Loudness follows distance. The camera is a listener at a height proportional to the view's size:
 // each sound is as loud as dRef / d, and a view d times wider holds d² times as many cells, so the
@@ -33,8 +38,8 @@ const T = LISTEN.index;
 const AMP = { alive: 0.13, birth: 0.19, mutation: 0.09, spark: 0.045, starved: 0.13, old: 0.11, killed: 0.2, eaten: 0.075, charged: 0.04, rustle: 0.035 };
 // playing grid (in steps) and how many notes of a type may share one grid point (calm water and
 // far views adjust these, see snap)
-const GRID = { alive: 1, birth: 1, starved: 2, old: 4, killed: 1, eaten: 0.5 };
-const PER_SLOT = { alive: 1, birth: 1, starved: 1, old: 1, killed: 1, eaten: 2 };
+const GRID = { starved: 2, old: 4, killed: 1, eaten: 0.5 };
+const PER_SLOT = { starved: 1, old: 1, killed: 1, eaten: 2 };
 const LATENCY = 0.22; // seconds: one scan interval plus scheduling headroom
 const BG_GAIN = 0.05; // the world outside the view, relative to a sound at the reference distance
 // Level riding: the field knows each scan's notes before it plays them, so it compresses their
@@ -49,6 +54,8 @@ const MINOR = new Set(['charged', 'eaten', 'rustle']);
 const SWARM_MAX = 150, GRAIN = 1.75;
 // level of the single voices fully zoomed in, relative to afar
 const CLOSE = 0.9;
+// seconds the picked species takes to ease back into the mix after its greeting
+const FOCUS_FADE = 2.5;
 // how much of the view is heard as single voices (the rest as the swarm), by closeness z
 export const soloShare = (z) => { const x = clamp((z - 0.1) / 0.5, 0, 1); return x * x * (3 - 2 * x); };
 
@@ -70,13 +77,29 @@ export class Field {
     this.gain = {}; // per-type gain overrides (tuning)
     this.agc = 1; this.power = P_REF; this.plan = null;
     this.swarmK = -1; this.bands = null; this.heard = new Map(); // species slot -> [grains per second, their power], smoothed over scans
+    this.sang = []; // notes sung since the last report to the page: [slot, seconds from now, note, line, scan, record]
+    this.duckUntil = 0; // an audition is playing: the field steps back
+    this.selPrev = -1; this.greetFor = -1; this.focusEnd = -1e9; // a newly picked species: see greet
+    this.litKey = ''; this.litEnd = -1e9; // a new Lab highlight: brought forward briefly, like a pick
   }
+
+  // Picking a species greets it: its song plays once, close and clear, while the rest of the
+  // field steps back; its own cells stay forward until the song ends, then ease back into the
+  // mix over FOCUS_FADE seconds (they are not held forward for as long as it stays picked).
+  greet(slot) {
+    const v = this.slots.get(slot)?.v;
+    if (!v) { this.greetFor = slot; return; } // its voice comes with the next census
+    this.greetFor = -1;
+    this.focusEnd = this.phrase(v, this.c.time + LATENCY, { amp: 0.13, slot, times: 1 });
+  }
+  // how far forward the picked species is: 1 while its greeting plays, then down to 0
+  focus() { return clamp(1 - (this.c.time - this.focusEnd) / FOCUS_FADE, 0, 1); }
   rr(lo, hi) { return lo + (hi - lo) * this.rnd(); }
 
   slotsMsg(m) {
     for (const s of m.slots) {
       let e = this.slots.get(s.slot);
-      if (!e || e.serial !== s.serial) { e = { serial: s.serial, v: null, pop: 0, k: 0 }; this.slots.set(s.slot, e); }
+      if (!e || e.serial !== s.serial) { e = { serial: s.serial, v: null, pop: 0 }; this.slots.set(s.slot, e); }
       if (s.voice) e.v = s.voice;
       e.pop = s.pop;
     }
@@ -96,8 +119,32 @@ export class Field {
     const target = clamp(Math.pow(P_REF / Math.max(this.power, 1e-9), (1 - 1 / RATIO) / 2), GAIN_RANGE[0], GAIN_RANGE[1]);
     this.agc += (target - this.agc) * 0.2;
     const close = 1 - (1 - CLOSE) * this.z;
-    for (const n of plan) this.play(n[0], n[1], n[2] * this.agc * close, n[3]);
+    // cells of a species coming in on the same note of its motif sing it as one, louder note
+    const unison = new Map();
+    for (const n of plan) {
+      if (n[0] !== 'alive' && n[0] !== 'birth') continue;
+      const o = n[3], e = this.slots.get(o.slot), v = e && e.v;
+      if (!v) continue;
+      const line = o.role === 1 && v.motif.voice2 ? v.motif.voice2 : v.motif.notes;
+      o.on = this.onset(v.motif, line, n[1], o.idb);
+      n[1] = o.on.t;
+      if (n[0] !== 'alive') continue;
+      const key = `${o.slot}:${line === v.motif.notes ? 0 : 1}:${o.on.beat}`, u = unison.get(key);
+      if (!u) { unison.set(key, n); n[4] = n[2] * n[2]; continue; }
+      u[4] += n[2] * n[2]; u[3].frag = Math.max(u[3].frag || 1, o.frag || 1); n[2] = 0;
+    }
+    for (const u of unison.values()) u[2] = Math.min(Math.sqrt(u[4]), 2.2 * u[2]);
+    const duck = this.c.time < this.duckUntil ? 0.3 : 1;
+    for (const n of plan) if (n[2] > 0) this.play(n[0], n[1], n[2] * this.agc * close * duck, n[3]);
     this.swarm();
+    this.report();
+  }
+
+  // tell the page which notes are about to sound (its song panel and the cells that sing them)
+  report() {
+    if (!this.sang.length || !this.c.post) { this.sang.length = 0; return; }
+    this.c.post({ type: 'sang', notes: this.sang });
+    this.sang = [];
   }
 
   collect(m) {
@@ -106,7 +153,7 @@ export class Field {
     this.act += (m.act - this.act) * 0.25;
     c.setTempo(tempoFor(m.speed));
     const wall = Math.max(1e-3, m.window / Math.max(m.speed, 1e-6));
-    const ev = m.ev, n = ev.length / 8;
+    const S = LISTEN.stride, ev = m.ev, n = ev.length / S;
     const comp = new Float32Array(8);
     for (let t = 0; t < 8; t++) comp[t] = Math.min(12, Math.sqrt(m.inView[t] / Math.max(1, m.recorded[t])));
     const W = c.world, light = clamp(W.light, 0, 1.2), td = clamp(W.tide, 0, 1);
@@ -118,36 +165,59 @@ export class Field {
     this.crowd = new Map(); // swarm grains per second by species slot
     const crowd = (slot, r) => this.crowd.set(slot, (this.crowd.get(slot) || 0) + r);
     const sel = m.selSlot;
+    if (sel !== this.selPrev) { this.selPrev = sel; this.greetFor = -1; if (sel >= 0) this.greet(sel); else this.focusEnd = -1e9; }
+    else if (sel >= 0 && this.greetFor === sel) this.greet(sel);
+    const F = sel >= 0 ? this.focus() : 0, near = F > 0.3;
+    // a highlight, too, comes forward only for a moment and then eases back: neither a pick nor a
+    // highlight changes the mix for as long as it lasts
+    const litKey = m.lit ? [...m.lit].sort((a, b) => a - b).join(',') : '';
+    if (litKey !== this.litKey) { this.litKey = litKey; this.litEnd = litKey ? c.time + 1.5 : -1e9; }
+    const LF = clamp(1 - (c.time - this.litEnd) / FOCUS_FADE, 0, 1);
     const focusGain = (slot) => {
       let g = 1;
-      if (sel >= 0) g *= slot === sel ? 2.2 : 0.5;
-      if (lit && slot >= 4) g *= lit.has(slot) ? 1.3 : 0.5;
+      if (sel >= 0) g *= slot === sel ? 1 + 1.2 * F : 1 - 0.5 * F;
+      if (lit && slot >= 4 && LF > 0) g *= lit.has(slot) ? 1 + 0.3 * LF : 1 - 0.5 * LF;
       return g;
     };
-    const space = (slot, x) => ({ pan: clamp((x * 2 - 1) * 0.85, -0.9, 0.9), light, td, dim: sel >= 0 && slot === sel ? 1 : dim, wet: sel >= 0 && slot === sel ? (r) => r : wet });
+    // the scan sampled the picked species' cells in full and the rest at a fraction: weight them
+    // back to their real share, so after its greeting the species sings as much as any other
+    const sampled = m.sampled && m.sampled.sel >= 0 ? m.sampled : null;
+    const space = (slot, x) => ({ pan: clamp((x * 2 - 1) * 0.85, -0.9, 0.9), light, td, dim: near && slot === sel ? 1 : dim, wet: near && slot === sel ? (r) => r : wet });
 
     // living cells: how many notes this window, and which sampled cells sing them
-    const alive = [];
-    let rSum = 0;
-    for (let i = 0; i < n; i++) if (ev[i * 8] === 8) {
-      const o = i * 8, e = this.slots.get(ev[o + 1]), r = singRate(e && e.v, ev[o + 5], c.step) * (ev[o + 1] === sel ? 1.6 : 1);
-      alive.push([o, r]); rSum += r;
+    const alive = [], perSp = new Map();
+    let rSum = 0, wSum = 0; // wSum: the sample's size counted at the others' sampling rate
+    for (let i = 0; i < n; i++) if (ev[i * S] === 8) {
+      const o = i * S, e = this.slots.get(ev[o + 1]), w = sampled && ev[o + 1] === sampled.sel ? Math.min(1, sampled.keep) : 1;
+      const r = singRate(e && e.v, ev[o + 5], c.step) * (ev[o + 1] === sel ? 1 + 0.6 * F : 1) * w;
+      alive.push([o, r, i]); rSum += r; wSum += w;
+      perSp.set(ev[o + 1], (perSp.get(ev[o + 1]) || 0) + r);
     }
     if (alive.length) {
-      const nView = m.inView[8], want = (nView / alive.length) * rSum * wall; // notes the whole view would sing
+      const nView = m.inView[8], want = (nView / Math.max(wSum, 1e-6)) * rSum * wall; // notes the whole view would sing
       for (const [o, r] of alive) crowd(ev[o + 1], ((want * r) / rSum) * toSwarm * focusGain(ev[o + 1]) ** 2);
       const cap = (4 + 4 * Math.min(1, this.act) + 10 * Math.min(1, want / (30 * wall))) * wall; // notes we play: more where more is going on
       const play = Math.min(want * solo, cap), g0 = AMP.alive * this.gd * Math.min(14, Math.sqrt((want * solo) / Math.max(play, 1e-9)));
-      for (const [o, r] of alive) {
-        if (this.rnd() >= (play * r) / rSum) continue;
-        const slot = ev[o + 1], energy = ev[o + 4];
+      // where a species' cells come in less than once a phrase, each sings a stretch of it:
+      // the same notes per second, gathered into phrases
+      const frag = new Map();
+      for (const [slot, r] of perSp) {
+        const v = this.slots.get(slot)?.v;
+        if (!v) continue;
+        const perCycle = ((play * r) / rSum / wall) * v.motif.cycle * c.step;
+        frag.set(slot, clamp(Math.round(v.motif.notes.length / Math.max(perCycle, 0.25)), 1, Math.min(6, v.motif.notes.length)));
+      }
+      for (const [o, r, i] of alive) {
+        const slot = ev[o + 1], F = frag.get(slot) || 1;
+        if (this.rnd() >= (play * r) / rSum / F) continue;
+        const energy = ev[o + 4];
         const g = g0 * (0.6 + 0.4 * Math.min(1, energy)) * focusGain(slot);
-        this.play('alive', now + LATENCY + this.rnd() * wall, g, { slot, ...space(slot, ev[o + 2]), hue: ev[o + 6], idb: ev[o + 7], spd: ev[o + 5] });
+        this.play('alive', now + LATENCY + this.rnd() * wall, g, { slot, ...space(slot, ev[o + 2]), hue: ev[o + 6], idb: ev[o + 7], spd: ev[o + 5], role: ev[o + 8], frag: F, rec: [m.seq, i] });
       }
     }
     // events
     for (let i = 0; i < n; i++) {
-      const o = i * 8, ti = ev[o];
+      const o = i * S, ti = ev[o];
       if (ti === 8) continue;
       const type = LISTEN.types[ti], slot = ev[o + 1];
       let t = now + LATENCY - ev[o + 4] / Math.max(m.speed, 1e-6);
@@ -157,7 +227,7 @@ export class Field {
       const rare = type === 'spark';
       if (!rare && slot >= 0) crowd(slot, comp[ti] ** 2 * toSwarm);
       const g = AMP[type] * this.gd * comp[ti] * focusGain(slot) * Math.sqrt(rare ? 0.3 + 0.7 * solo : solo);
-      this.play(type, t, g, { slot, ...space(slot, ev[o + 2]), hue: ev[o + 6], idb: ev[o + 7], spd: ev[o + 5] });
+      this.play(type, t, g, { slot, ...space(slot, ev[o + 2]), hue: ev[o + 6], idb: ev[o + 7], spd: ev[o + 5], role: ev[o + 8], rec: [m.seq, i] });
     }
     this.background(m, wall, light, td);
     this.rustle(m, wall);
@@ -166,20 +236,40 @@ export class Field {
     if (this.taken.size > 400) for (const [k, v] of this.taken) if (v.t < now) this.taken.delete(k);
   }
 
+  // cells sing on their motifs' notes: at most a few notes may start on one step
+  beatCap(type, t, o) {
+    const key = type + (o.on ? o.on.beat : Math.round(t / this.c.step)), e = this.taken.get(key);
+    const cap = type === 'alive' ? 4 : 2;
+    if (e) { if (e.n >= cap) return -1; e.n++; } else this.taken.set(key, { n: 1, t });
+    return t;
+  }
+
   // snap to the playing grid; -1 if that grid point is already full for this type
   snap(type, t) {
     const gs = GRID[type];
     if (!gs) return t;
-    const calm = (type === 'alive' || type === 'birth') && this.act < 0.25;
-    const step = this.c.step * gs * (calm ? 2 : 1); // calm water moves in eighths
+    const step = this.c.step * gs;
     const q = Math.ceil(t / step) * step, key = type + Math.round(q / step);
     const e = this.taken.get(key);
-    const cap = PER_SLOT[type] + (type === 'alive' ? 2 : 0);
-    if (e) { if (e.n >= cap) return -1; e.n++; } else this.taken.set(key, { n: 1, t: q });
+    if (e) { if (e.n >= PER_SLOT[type]) return -1; e.n++; } else this.taken.set(key, { n: 1, t: q });
     return q;
   }
 
-  // the next note of a species' motif (each one sung advances it)
+  // Where in its species' motif a cell singing at time t comes in: the motif's next note on the
+  // cell's clock. A schooling species shares one clock; otherwise a cell's clock is offset by
+  // whole units (fewer cells keep the common one the less the species schools).
+  onset(m, line, t, idb = 0) {
+    const c = this.c, b = c.stepN + (t - c.nextStep) / c.step;
+    const h = (idb * 0.6180339887) % 1;
+    const off = h < m.sync ? 0 : Math.floor(((h - m.sync) / (1 - m.sync)) * (m.cycle / m.unit)) * m.unit;
+    const p = (((b - off) % m.cycle) + m.cycle) % m.cycle;
+    let j = line.findIndex((nt) => nt.at >= p - 1e-6), wait;
+    if (j < 0) { j = 0; wait = m.cycle - p + line[0].at; } else wait = line[j].at - p;
+    return { j, t: t + wait * c.step, beat: Math.round(b + wait) };
+  }
+
+  // A species sings: from the motif note it comes in on, as many notes as it was given (o.frag).
+  // Returns the first note's MIDI pitch, or null.
   speciesNote(slot, t, g, o) {
     const c = this.c, e = this.slots.get(slot), v = e && e.v;
     const { root, scale } = c, piv = c.pivot;
@@ -187,16 +277,71 @@ export class Field {
       c.at(t, 'tine', { freq: midicps(d2m((Math.floor(o.hue * 10) % 8) + piv, root, scale) + 12), amp: g * 0.8, dec: 0.9, bright: 0.5 * o.dim, pan: o.pan, rev: o.wet(0.3), dly: 0.1 });
       return null;
     }
-    const k = e.k++;
-    const line = v.arch === 'crawler' && (k & 1) ? v.seq2 : v.seq;
-    const midi = d2m(line[k % line.length] + piv, root, scale) + 12 * v.oct;
-    if (v.mat === 'drop' || v.mat === 'tick') { // scavengers: drops
-      c.at(t, 'drop', { freq: midicps(midi + 12), amp: g * 0.8, dec: this.rr(0.04, 0.09), rise: this.rr(1.3, 2.0), pan: o.pan, rev: o.wet(0.35), dly: 0.15 });
-      return midi;
+    const m = v.motif, second = o.role === 1 && !!m.voice2, line = second ? m.voice2 : m.notes;
+    const on = o.on || this.onset(m, line, t, o.idb);
+    const F = Math.min(o.frag || 1, line.length);
+    let first = null;
+    for (let i = 0; i < F; i++) {
+      const k = (on.j + i) % line.length;
+      const dt = (((line[k].at - line[on.j].at) % m.cycle) + m.cycle) % m.cycle;
+      const ts = on.t + dt * c.step;
+      const midi = this.motifNote(v, line[k], ts, g * (second ? 0.6 : 1) * (i ? 0.85 : 1), o, k);
+      if (first == null) first = midi;
+      if (o.rec) this.sang.push([slot, ts - c.time, k, second ? 1 : 0, o.rec[0], o.rec[1]]);
     }
-    const p = noteParams(v, midi, Math.min(v.rate, 8) * c.step, g, { light: o.light, td: o.td, dim: o.dim, wet: o.wet, k, rr: (a, b) => this.rr(a, b) });
-    if (p) { p.pan = o.pan; c.at(t, v.mat, p); }
+    return first;
+  }
+
+  // One note of a motif as the species' instrument plays it, with its swing, rubato and grace note.
+  motifNote(v, nt, t, g, o, k = 0) {
+    const c = this.c, m = v.motif, { root, scale } = c, piv = c.pivot;
+    if (m.swing && Math.round(nt.at / m.unit) % 2) t += m.swing * m.unit * c.step;
+    if (m.rubato) t += (this.rnd() - 0.5) * m.rubato * m.unit * c.step;
+    t = Math.max(t, c.time + 0.005);
+    const midi = d2m(nt.deg + piv, root, scale) + 12 * v.oct, amp = g * nt.acc;
+    if (nt.grace != null) {
+      const lead = Math.min(0.09, 0.3 * m.unit * c.step);
+      this.strike(v, d2m(nt.grace + piv, root, scale) + 12 * v.oct, Math.max(c.time + 0.005, t - lead), lead, amp * 0.45, o, k);
+    }
+    this.strike(v, midi, t, Math.min(10, nt.dur * nt.leg) * c.step, amp, o, k);
     return midi;
+  }
+  strike(v, midi, t, dur, amp, o, k) {
+    const c = this.c;
+    if (v.mat === 'drop' || v.mat === 'tick') { // scavengers: drops
+      c.at(t, 'drop', { freq: midicps(midi + 12), amp: amp * 0.8, dec: this.rr(0.04, 0.09), rise: this.rr(1.3, 2.0), pan: o.pan, rev: o.wet(0.35), dly: 0.15 });
+      return;
+    }
+    const p = noteParams(v, midi, dur, amp, { light: o.light, td: o.td, dim: o.dim, wet: o.wet, k, rr: (a, b) => this.rr(a, b) });
+    if (p) { p.pan = o.pan; c.at(t, v.mat, p); }
+  }
+
+  // A species' motif played whole from t0 (the song panel's play button, the gallery): its voice
+  // heard alone and close, the second voice under it, while the field steps back. Returns its end.
+  phrase(v, t0, { amp = 0.16, slot = null, times = 2 } = {}) {
+    const c = this.c, m = v.motif, light = clamp(c.world.light, 0, 1.2), td = clamp(c.world.tide, 0, 1);
+    const o = { pan: 0, light, td, dim: 1, wet: (r) => r };
+    const reps = m.cycle * c.step > 5 ? 1 : times;
+    for (let r = 0; r < reps; r++) {
+      const base = t0 + r * m.cycle * c.step;
+      for (const [line, li, a] of [[m.notes, 0, amp], [m.voice2 || [], 1, amp * 0.6]]) {
+        line.forEach((nt, k) => {
+          const ts = base + nt.at * c.step;
+          this.motifNote(v, nt, ts, a, o, k);
+          if (slot != null) this.sang.push([slot, ts - c.time, k, li, -1, -1]);
+        });
+      }
+    }
+    const end = t0 + reps * m.cycle * c.step;
+    this.duckUntil = Math.max(this.duckUntil, end);
+    return end;
+  }
+
+  // the song panel's play button: { slot (a tag for its notes), voice }
+  audition(msg) {
+    const c = this.c, end = this.phrase(msg.voice, c.time + 0.12, { slot: msg.slot });
+    c.score.duckUntil = Math.max(c.score.duckUntil, end);
+    this.report();
   }
 
   play(type, t0, g, o) {

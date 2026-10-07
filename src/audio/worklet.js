@@ -10,6 +10,7 @@ class TidemoteSound extends AudioWorkletProcessor {
     const seed = (options.processorOptions && options.processorOptions.seed) || 1;
     this.eng = new Engine(sampleRate, { seed });
     this.cond = new Conductor(this.eng, { seed });
+    this.cond.post = (m) => this.port.postMessage(m);
     this.L = new Float32Array(BS); this.R = new Float32Array(BS); this.have = 0; // leftover samples of the last block
     this.failed = false;
     this.port.onmessage = (e) => {

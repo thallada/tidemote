@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { archetypeGenome, ARCHETYPE_TYPES, finalizeGenome } from '../src/genome.js';
-import { voiceOf, archOf, walk, ARCH } from '../src/audio/mapping.js';
+import { voiceOf, archOf, ARCH } from '../src/audio/mapping.js';
 import { Engine } from '../src/audio/voices.js';
 import { Conductor } from '../src/audio/conductor.js';
-import { LISTEN, decodeRecords, keepFor, hearing, D_REF, digest } from '../src/audio/listen.js';
-import { LISTEN_TYPES } from '../src/shaders.js';
+import { LISTEN, LISTEN_REC as REC, decodeRecords, recordCells, keepFor, hearing, D_REF, digest } from '../src/audio/listen.js';
+import { LISTEN_TYPES, LISTEN_REC } from '../src/shaders.js';
+import { d2m } from '../src/audio/conductor.js';
 import { tempoFor } from '../src/audio/field.js';
 import { palette, LAYERS } from '../src/audio/score.js';
 
@@ -19,33 +20,41 @@ test('every archetype genome maps to a playable voice', () => {
       const v = voiceOf(g);
       assert.ok(ARCH[v.arch], `${type} -> ${v.arch}`);
       assert.equal(v.arch, archOf(g));
-      assert.ok(v.seq.length >= 3 && v.seq.every(Number.isInteger));
-      assert.ok(v.rate > 0);
+      assert.ok(v.seq.length >= 2 && v.seq.every(Number.isFinite));
+      assert.ok(v.rate > 0 && v.motif.cycle > 0);
     }
   }
 });
 
-test('melodic walk stays in range and is a pure function of the signature', () => {
-  const surf = [1, -1, 0.5, 0.95, -0.95, 0, 0.2, -0.3];
-  const a = walk(surf, [0.1, 0, 0], 12);
-  assert.deepEqual(a, walk(surf, [0.1, 0, 0], 12));
-  assert.ok(a.every((d) => d >= -3 && d <= 10));
+test('degrees carry SuperCollider accidentals', () => {
+  const ion = [0, 2, 4, 5, 7, 9, 11];
+  assert.equal(d2m(2, 60, ion), 64);
+  assert.equal(d2m(2.1, 60, ion), 65); // the third raised a semitone
+  assert.equal(d2m(1.9, 60, ion), 63); // the third lowered one
+  assert.equal(d2m(-1, 60, ion), 59);
+  assert.equal(d2m(9, 60, ion), 76);
 });
 
 test('listening event types match the GPU scan', () => {
   assert.deepEqual(LISTEN.types, LISTEN_TYPES);
+  assert.equal(REC, LISTEN_REC);
   LISTEN.types.forEach((t, i) => assert.equal(LISTEN.index[t], i));
 });
 
-test('scan records decode to type, slot, position, age, speed, hue', () => {
-  const u = new Uint32Array(8), f = new Float32Array(u.buffer);
+test('scan records decode to type, slot, position, age, speed, hue, cell type', () => {
+  const u = new Uint32Array(2 * REC), f = new Float32Array(u.buffer);
   u[0] = 5 | (37 << 4) | (2 << 14) | (200 << 16) | (128 << 24); u[1] = 0xffff | (0x8000 << 16); f[2] = 0.05; u[3] = 0xff0000ff; // red
-  u[4] = 0 | (1023 << 4); u[5] = 0; f[6] = 0; u[7] = 0xff00ff00; // green
+  u[4] = 0x3c00 | (0xbc00 << 16); u[5] = 4242; // velocity (1, -1) as halves, particle id 4242
+  u[REC] = 0 | (1023 << 4); u[REC + 1] = 0; f[REC + 2] = 0; u[REC + 3] = 0xff00ff00; // green
   const { ev, recorded } = decodeRecords(u, f);
+  const S = LISTEN.stride;
   assert.equal(ev[0], 5); assert.equal(ev[1], 37); assert.ok(Math.abs(ev[2] - 1) < 1e-6); assert.ok(Math.abs(ev[3] - 0.5) < 1e-3);
-  assert.ok(Math.abs(ev[4] - 0.05) < 1e-7); assert.ok(Math.abs(ev[5] - 128 / 255) < 1e-6); assert.equal(ev[6], 0); assert.equal(ev[7], 200);
-  assert.equal(ev[9], 1023); assert.ok(Math.abs(ev[14] - 1 / 3) < 1e-6);
+  assert.ok(Math.abs(ev[4] - 0.05) < 1e-7); assert.ok(Math.abs(ev[5] - 128 / 255) < 1e-6); assert.equal(ev[6], 0); assert.equal(ev[7], 200); assert.equal(ev[8], 2);
+  assert.equal(ev[S + 1], 1023); assert.ok(Math.abs(ev[S + 6] - 1 / 3) < 1e-6);
   assert.equal(recorded[5], 1); assert.equal(recorded[0], 1);
+  const cells = recordCells(u, { x: 10, y: 20, hx: 2, hy: 1 });
+  assert.ok(Math.abs(cells[0] - 12) < 1e-3 && Math.abs(cells[1] - 20) < 1e-3);
+  assert.equal(cells[2], 1); assert.equal(cells[3], -1); assert.equal(cells[4], 4242);
 });
 
 test('the scan keeps a fair sample sized to what the audio plays', () => {
@@ -73,8 +82,8 @@ test('scanned events become notes', () => {
   const sr = 48000, eng = new Engine(sr, { seed: 5 }), cond = new Conductor(eng, { seed: 5 });
   const r = rng(3), g = finalizeGenome(archetypeGenome(ARCHETYPE_TYPES[0], r));
   cond.message({ type: 'slots', all: true, slots: [{ slot: 7, serial: 70, voice: voiceOf(g), pop: 50 }] });
-  const u = new Uint32Array(4 * 6), f = new Float32Array(u.buffer);
-  for (let i = 0; i < 6; i++) { u[i * 4] = [0, 0, 5, 6, 7, 3][i] | (7 << 4) | (i << 16); u[i * 4 + 1] = (i * 10000) | (30000 << 16); f[i * 4 + 2] = 0.02 * i; u[i * 4 + 3] = 0xff3080ff; }
+  const u = new Uint32Array(REC * 6), f = new Float32Array(u.buffer);
+  for (let i = 0; i < 6; i++) { u[i * REC] = [0, 0, 5, 6, 7, 3][i] | (7 << 4) | (i << 16); u[i * REC + 1] = (i * 10000) | (30000 << 16); f[i * REC + 2] = 0.02 * i; u[i * REC + 3] = 0xff3080ff; }
   const data = { records: u, f32: f, window: 0.1, view: { hx: 0.6, hy: 0.6 }, inView: [2, 0, 0, 1, 0, 1, 1, 1], outView: [40, 0, 0, 0, 0, 5, 30, 20], living: 12, speed: 0.2 };
   const L = new Float32Array(64), R = new Float32Array(64);
   let spawned = 0;
@@ -149,4 +158,46 @@ test('from afar the view is heard as a swarm, up close as single voices', () => 
   const far = run(60), near = run(0.5);
   assert.ok(far.grains > 100 && near.grains === 0, `grains far ${far.grains} near ${near.grains}`);
   assert.ok(near.notes > far.notes, `notes near ${near.notes} far ${far.notes}`);
+});
+
+test('picking a species plays its song once, then its cells ease back into the mix', () => {
+  const eng = new Engine(48000, { seed: 6 }), cond = new Conductor(eng, { seed: 6 });
+  const g = finalizeGenome(archetypeGenome('grazer', rng(12))), v = voiceOf(g);
+  cond.message({ type: 'slots', all: true, slots: [{ slot: 9, serial: 90, voice: v, pop: 40 }] });
+  const scan = (sel) => {
+    const u = new Uint32Array(REC), f = new Float32Array(u.buffer);
+    u[0] = 8 | (9 << 4); u[1] = 30000 | (30000 << 16); f[2] = 0.5; u[3] = 0xff3080ff;
+    return digest({ records: u, f32: f, window: 0.1, view: { hx: 0.6, hy: 0.6 }, inView: [0, 0, 0, 0, 0, 0, 0, 0], outView: [0, 0, 0, 0, 0, 0, 0, 0], living: 1, speed: 0.2 }, { speed: 1, selSlot: sel }).msg;
+  };
+  const sang = [];
+  cond.post = (m) => { if (m.type === 'sang') sang.push(...m.notes.filter((n) => n[5] === -1)); };
+  cond.message(scan(9));
+  const greeting = sang.filter((n) => n[0] === 9 && n[3] === 0).length;
+  assert.equal(greeting, v.motif.notes.length, 'the whole motif, once');
+  assert.equal(cond.field.focus(), 1);
+  cond.message(scan(9)); // still picked: no second greeting
+  assert.equal(sang.filter((n) => n[0] === 9 && n[3] === 0).length, greeting);
+  renderBars(cond, Math.ceil((cond.field.focusEnd - cond.time + 3) / (16 * cond.step)) + 1);
+  assert.equal(cond.field.focus(), 0, 'eased back');
+  cond.message(scan(-1)); cond.message(scan(9)); // picked again: greeted again
+  assert.equal(sang.filter((n) => n[0] === 9 && n[3] === 0).length, 2 * greeting);
+});
+
+test('after its greeting a picked species sings its real share, though the scan samples it in full', () => {
+  const eng = new Engine(48000, { seed: 8 }), cond = new Conductor(eng, { seed: 8 }), f = cond.field;
+  const ga = finalizeGenome(archetypeGenome('grazer', rng(31))), gb = finalizeGenome(archetypeGenome('grazer', rng(32)));
+  cond.message({ type: 'slots', all: true, slots: [{ slot: 9, serial: 90, voice: voiceOf(ga), pop: 20 }, { slot: 10, serial: 100, voice: voiceOf(gb), pop: 20 }] });
+  // 20 cells of each in view: all 20 of the picked species sampled, 4 of the other (keep 0.2)
+  const msg = () => {
+    const n = 24, u = new Uint32Array(REC * n), fl = new Float32Array(u.buffer);
+    for (let i = 0; i < n; i++) { u[i * REC] = 8 | ((i < 20 ? 9 : 10) << 4) | (i << 16) | (128 << 24); u[i * REC + 1] = (i * 2000) | (30000 << 16); fl[i * REC + 2] = 0.5; u[i * REC + 3] = 0xff3080ff; }
+    const m = digest({ records: u, f32: fl, window: 0.1, view: { hx: 0.6, hy: 0.6 }, inView: [0, 0, 0, 0, 0, 0, 0, 0], outView: [0, 0, 0, 0, 0, 0, 0, 0], living: 40, speed: 0.3 }, { speed: 1, selSlot: 9 }).msg;
+    m.sampled = { sel: 9, keep: 0.2 };
+    return m;
+  };
+  f.selPrev = 9; f.focusEnd = -100; // greeted long ago
+  const count = { 9: 0, 10: 0 };
+  for (let k = 0; k < 400; k++) { f.plan = []; f.collect(msg()); for (const n of f.plan) if (n[0] === 'alive') count[n[3].slot] += n[3].frag || 1; f.plan = null; }
+  const share = count[9] / (count[9] + count[10]);
+  assert.ok(share > 0.4 && share < 0.6, `picked species' share ${share.toFixed(2)}`);
 });

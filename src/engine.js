@@ -1,5 +1,5 @@
 import {
-  simWGSL, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, DRAW_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
+  simWGSL, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, DRAW_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
   MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD,
 } from './shaders.js';
 import {
@@ -16,7 +16,7 @@ export const FOCUS_MAX = 65536;
 const PICK_BYTES = 56 + PICK_MAX * PICK_WORDS * 4;
 const LEDGER_HEAD = META_CLAIM * 4;
 const CENSUS_BYTES = LEDGER_HEAD + MAXK * G_BYTES;
-const LISTEN_BYTES = (LISTEN_HEAD + 4 * LISTEN_CAP) * 4;
+const LISTEN_BYTES = (LISTEN_HEAD + LISTEN_REC * LISTEN_CAP) * 4;
 const SURVEY_BYTES = SURVEY_MAX_TILES * SURVEY_WORDS * 4;
 export { MAXK, FIRST_LIFE, DEFAULT_K };
 
@@ -844,7 +844,7 @@ class Engine {
         inView: u.subarray(0, 8), outView: u.subarray(8, 16),
         living: u[16], speed: u[17] / 1000 / Math.max(1, u[16]), livingAll: u[18], speedAll: u[19] / 1000 / Math.max(1, u[18]),
         particles: u[20], found: u[21],
-        records: u.subarray(LISTEN_HEAD, LISTEN_HEAD + 4 * n), f32: new Float32Array(u.buffer, LISTEN_HEAD * 4, 4 * n),
+        records: u.subarray(LISTEN_HEAD, LISTEN_HEAD + LISTEN_REC * n), f32: new Float32Array(u.buffer, LISTEN_HEAD * 4, LISTEN_REC * n),
       });
     }).catch(() => { st.busy = false; });
   }

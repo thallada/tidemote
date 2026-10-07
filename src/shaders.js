@@ -1096,6 +1096,7 @@ fn pickMain(@builtin(global_invocation_id) gid: vec3u) {
 export const LISTEN_TYPES = ['birth', 'mutation', 'spark', 'starved', 'old', 'killed', 'eaten', 'charged', 'alive'];
 export const LISTEN_CAP = 512;
 export const LISTEN_HEAD = 32; // u32 words before the records
+export const LISTEN_REC = 6; // u32 words per record
 export const LISTEN_WGSL = COMMON + /* wgsl */ `
 struct ListenU {
   center: vec2f, half: vec2f, world: vec2f, count: u32, seed: u32,
@@ -1159,7 +1160,7 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       if (inView && f32(lhash(p.id ^ lhash(lu.seed + t)) >> 8u) / 16777216.0 < keep) {
         let r = atomicAdd(&lout[21], 1u);
         if (r < ${LISTEN_CAP}u) {
-          let o = ${LISTEN_HEAD}u + r * 4u;
+          let o = ${LISTEN_HEAD}u + r * ${LISTEN_REC}u;
           let uv = clamp(d / lu.half * 0.5 + 0.5, vec2f(0.0), vec2f(1.0));
           atomicStore(&lout[o], t | ((p.kind & 1023u) << 4u) | (((p.info >> 4u) & 3u) << 14u) | ((p.id & 255u) << 16u)
             | (u32(clamp(speed / lu.vscale, 0.0, 1.0) * 255.0) << 24u));
@@ -1167,6 +1168,9 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
           // events: their age (when they happened); living cells: energy toward their next division
           atomicStore(&lout[o + 2u], bitcast<u32>(select(p.age, clamp(p.energy / genomes[p.kind].reproE, 0.0, 1.5), t == 8u)));
           atomicStore(&lout[o + 3u], p.col);
+          // where it is going and which particle it is (the page marks the cells that sing)
+          atomicStore(&lout[o + 4u], pack2x16float(p.vel));
+          atomicStore(&lout[o + 5u], p.id);
         }
       }
     }

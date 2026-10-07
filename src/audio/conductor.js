@@ -36,7 +36,14 @@ export function eraMusic(name, prevRoot) {
   return { name, mode: ADJ[w[1]], root: roots[hashStr(name) % roots.length], fx: NOUN[w[2]] || {} };
 }
 
-export const d2m = (deg, root, scale) => { const n = scale.length, o = Math.floor(deg / n); return root + scale[((deg % n) + n) % n] + 12 * o; };
+// Scale degree → MIDI note, as SuperCollider's degreeToKey: a fractional degree carries an
+// accidental of ten times its distance from the nearest degree (2.1 is the third degree raised a
+// semitone, 2.9 the fourth lowered one).
+export const d2m = (deg, root, scale) => {
+  const sd = Math.round(deg), acc = Math.round((deg - sd) * 10 * 1e6) / 1e6;
+  const n = scale.length, o = Math.floor(sd / n);
+  return root + scale[((sd % n) + n) % n] + 12 * o + acc;
+};
 const midicps = (m) => 440 * Math.pow(2, (m - 69) / 12);
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 
@@ -49,12 +56,13 @@ export function noteParams(v, midi, dur, amp, o) {
   switch (v.mat) {
     case 'cplx': p = { freq: midicps(midi), amp: amp * rr(0.7, 1), ratio: v.ratio, index: v.index * (0.5 + td), fold: v.fold * (0.6 + 0.6 * light),
       dec: (0.12 + 0.25 * v.dec) * (dur > 0.3 ? 1.5 : 1), bright: v.bright * (0.4 + 0.6 * light) * dim, rev: wet(0.22), dly: 0.12 }; break;
-    case 'tine': if (v.arch === 'crawler' && (k & 1)) midi += 12;
-      p = { freq: midicps(midi), amp: amp * rr(0.7, 1), dec: 0.8 + v.dec, bright: v.bright * dim, rev: wet(0.28), dly: 0.14 }; break;
+    case 'tine': p = { freq: midicps(midi), amp: amp * rr(0.7, 1), dec: 0.8 + v.dec, bright: v.bright * dim, rev: wet(0.28), dly: 0.14 }; break;
     case 'swell': p = { freq: midicps(midi), amp, ratio: v.ratio, index: v.index * 0.7, fold: v.fold * 0.8, atk: dur * 0.45, hold: dur * 0.5, rel: dur * 2,
       bright: Math.min(1.2, v.bright * (0.5 + light)) * dim, rev: wet(0.35), dly: 0.06 }; break;
     case 'breath': p = { freq: midicps(midi), amp, atk: dur * 0.5, sus: dur * 0.4, rel: dur * 1.5, bright: v.bright * 0.6 * dim, glide: [0, 0.03, -0.03][Math.min(2, Math.floor(rr(0, 3)))], rev: wet(0.4), dly: 0.08 }; break;
     case 'glass': p = { freq: midicps(midi), amp, atk: dur * 0.4, sus: dur * 0.6, rel: dur * 1.6, bright: Math.min(1.2, v.bright * (0.5 + light)) * dim, rev: wet(0.5), dly: 0.04 }; break;
+    case 'pluck': p = { freq: midicps(midi), amp: amp * rr(0.75, 1), dec: (0.35 + 0.8 * v.dec) * (dur > 0.5 ? 1.4 : 1), bright: v.bright * dim,
+      coef: 0.12 + 0.45 * (1 - v.bright) + 0.2 * (1 - light), rev: wet(0.2), dly: 0.1 }; break;
     case 'bite': p = { freq: midicps(midi), amp: amp * rr(0.7, 1), dec: 0.25 + 0.25 * v.dec, bright: v.bright * dim, rev: wet(0.12) }; break;
     case 'wood': p = { freq: midicps(midi), amp: amp * rr(0.7, 1), dec: 0.35 + 0.3 * v.dec, bright: v.bright * dim, rev: wet(0.18) }; break;
     default: p = null;
@@ -71,6 +79,7 @@ export class Conductor {
     this.time = 0; this.stepN = 0; this.nextStep = 0.1;
     this.tempo = 1; this.step = STEP;
     this.field = new Field(this);
+    this.post = null; // messages back to the page (the worklet sets this)
     this.queue = [];
     this.world = { light: 0.6, tide: 0.5 };
     this.nodeN = 0;
@@ -108,6 +117,7 @@ export class Conductor {
     if (m.type === 'world') Object.assign(this.world, m.world);
     else if (m.type === 'listen') this.field.listen(m);
     else if (m.type === 'slots') this.field.slotsMsg(m);
+    else if (m.type === 'audition') this.field.audition(m);
     else if (m.type === 'fieldGain') Object.assign(this.field.gain, m.gain);
     else if (m.type === 'era') this.pendingEra = m.name;
     else if (m.type === 'reset') {

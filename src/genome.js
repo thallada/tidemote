@@ -134,6 +134,44 @@ export function finalizeGenome(g, K = DEFAULT_K) {
   return g;
 }
 
+/**
+ * A mutant of g, as the GPU makes one (mutateInto in shaders.js, mirrored on the CPU). The
+ * simulation never calls this: it is for tools and tests that need plausible lineages, such as
+ * tools/motif-gallery.mjs. r: a uniform random source.
+ */
+export function mutateLike(g, r = Math.random, K = DEFAULT_K) {
+  const gauss = () => (r() + r() + r() - 1.5) * 2;
+  const q = (v) => Math.max(-1, Math.round(clamp(v, -1, 1) * 127) / 127); // pack4x8snorm
+  const h = structuredClone(g);
+  const m = 0.04 + 0.8 * r() ** 3;
+  for (const R of h.roles) { R.surf = R.surf.map((v) => q(v + gauss() * m)); R.rec = R.rec.map((v) => q(v + gauss() * m)); }
+  if (r() < 0.06) {
+    const k = Math.min(2, Math.floor(r() * 3));
+    h.roles[k] = { surf: randSig(r).map(q), rec: randSig(r).map(q) };
+  } else if (r() < 0.05) {
+    const a = Math.min(2, Math.floor(r() * 3)), b = (a + 1 + Math.min(1, Math.floor(r() * 2))) % 3;
+    h.roles[b] = structuredClone(h.roles[a]);
+  }
+  h.dev = h.dev.map((row) => row.map((v) => clamp(v + gauss() * m * 0.35, 0, 1)));
+  const ln = (v, s, lo, hi) => clamp(v * Math.exp(gauss() * m * s), lo, hi);
+  h.radius = clamp(h.radius + gauss() * m * 0.12, 0.4, 1); h.beta = clamp(h.beta + gauss() * m * 0.06, 0.12, 0.5);
+  h.force = ln(h.force, 0.4, 1, 16); h.drag = ln(h.drag, 0.4, 0.015, 0.4); h.lifespan = ln(h.lifespan, 0.4, 20, 500);
+  h.reproE = ln(h.reproE, 0.3, 0.6, 4); h.share = clamp(h.share + gauss() * m * 0.08, 0.2, 0.7);
+  h.dGlint = Math.max(h.dGlint + gauss() * m * 0.3, 0); h.dHusk = Math.max(h.dHusk + gauss() * m * 0.3, 0); h.dFlesh = Math.max(h.dFlesh + gauss() * m * 0.3, 0);
+  h.mutRate = ln(h.mutRate, 0.5, 0.002, 0.08);
+  h.hue = fract(h.hue + gauss() * m * 0.35 + 1); h.sat = clamp(h.sat + gauss() * m * 0.1, 0.4, 1); h.lum = clamp(h.lum + gauss() * m * 0.08, 0.45, 0.8);
+  h.size = ln(h.size, 0.35, 0.45, 2.6);
+  if (r() < m * 0.6) h.shape = Math.floor(r() * 12);
+  h.pulse = clamp(h.pulse + gauss() * m * 0.2, 0, 1); h.roleHue = clamp(h.roleHue + gauss() * m * 0.1, -0.35, 0.35);
+  h.advect = clamp(h.advect + gauss() * m * 0.15, 0.03, 1); h.swim = clamp(h.swim + gauss() * m * 0.5, 0, 3);
+  h.align = clamp(h.align + gauss() * m * 0.3, 0, 1); h.photo = clamp(h.photo + gauss() * m * 0.25, 0, 1);
+  h.adhesion = clamp((h.adhesion || 0) + gauss() * m * 0.25, 0, 1); h.calcify = clamp((h.calcify || 0) + gauss() * m * 0.2, 0, 1);
+  if (r() < m * 0.1) h.calcify = h.calcify < 0.05 ? 0.2 + 0.6 * r() : 0;
+  if (r() < m * 0.15) h.adhesion = h.adhesion < 0.15 ? 0.3 + 0.7 * r() : 0;
+  h.parent = g.serial; h.serial = (g.serial || 0) + 1; h.depth = (g.depth || 0) + 1;
+  return finalizeGenome(h, K);
+}
+
 export function writeGenome(u32, f32, slot, g) {
   const o = slot * G_WORDS;
   for (let r = 0; r < 3; r++) {
