@@ -3,8 +3,11 @@ import { FIRST_LIFE } from './engine.js';
 import { tagsOf } from './facets.js';
 import { tideAt } from './flow.js';
 import { fmt, fmtClock, fmtDur, esc, cssCol, cssRgb, term, spLink, meter, clamp, ROLE, MATTER, CAUSE } from './fmt.js';
-import { drawGlyph, MATTER_GLYPH } from './glyphs.js';
+import { glyphURL, MATTER_GLYPH } from './glyphs.js';
 import { sparkPath } from './charts.js';
+import { voiceOf } from './audio/mapping.js';
+import { describe, compareMotifs } from './audio/motif.js';
+import { songSVG, sigilSVG } from './song.js';
 
 /**
  * The specimen panel: whatever was picked in the world (a cell, a grain) or opened by name (a species).
@@ -79,6 +82,10 @@ export function createSpecimen(api) {
     const n = bs[(i + (e.key === 'ArrowRight' ? 1 : bs.length - 1)) % bs.length];
     if (n) { e.preventDefault(); n.click(); n.focus(); }
   });
+  body.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-song]');
+    if (b) api.onPlaySong(+b.dataset.song);
+  });
   acts.addEventListener('click', (e) => {
     const b = e.target.closest('[data-act]');
     if (!b) return;
@@ -134,6 +141,70 @@ export function createSpecimen(api) {
     return blk(past ? 'Its organism, last seen' : term('organism', 'Organism'), h);
   }
 
+  // the header's emblem: a species' sigil (its song drawn as its organism), or matter's glyph
+  const glyphEl = $('glyph');
+  function setGlyph(key, html) { if (glyphEl.dataset.k !== key) { glyphEl.dataset.k = key; glyphEl.innerHTML = html; } }
+  const speciesGlyph = (g) => setGlyph(`sp${g.serial}`, sigilSVG(songOf(g).v, g, { size: 40 }));
+  const plainGlyph = (shape, col) => setGlyph(`g${shape}:${col}`, `<img alt="" src="${glyphURL(shape, col)}">`);
+
+  // ------------------------------------------------------------ song
+  // A species' song (audio/motif.js): its motif as a piano roll, in words, and how it differs
+  // from its nearest thriving ancestor's (drawn faintly behind). The notes light as the species
+  // sings them, here or in the world (songTick).
+  const songs = new Map(); // serial -> { v (voice), d (description) }
+  function songOf(g) {
+    let e = songs.get(g.serial);
+    if (!e) {
+      const v = voiceOf(g);
+      e = { v, d: describe(v) };
+      songs.set(g.serial, e);
+      if (songs.size > 300) songs.delete(songs.keys().next().value);
+    }
+    return e;
+  }
+  function songBlock(g, sp, compact) {
+    const { v, d } = songOf(g);
+    const anc = sp && sp.ancestor && api.life().reg.get(sp.ancestor);
+    const av = anc ? songOf(anc.genome).v : null;
+    const diff = av ? compareMotifs(av.motif, v.motif) : null;
+    const slot = (sp ? sp.alive : true) && g.slot != null ? g.slot : -1;
+    const m = v.motif, pad2 = (n) => String(n).padStart(2, '0');
+    let h = `<div class="sub-h"><span>${term('song', 'Song')}</span><span class="song-read"><span><b>${pad2(m.notes.length)}</b> notes</span><span><b>${(m.cycle * 0.18).toFixed(1)}</b> s</span>${m.voice2 ? '<span><b>2</b> voices</span>' : ''}</span><button type="button" class="btn mini" data-song="${g.serial}" data-hint="Hear it alone">Play</button></div>`;
+    h += `<div class="song-wrap">${songSVG(v.motif, { col: cssCol(g.col), col2: cssRgb(roleColor(g, 1)), ghost: compact ? null : av && av.motif, h: compact ? 46 : 68, label: `${d.tags.join(', ')}: ${d.line}` })}</div>`;
+    h += `<div class="song-tags">${d.tags.map((t, i) => `<span class="term" data-tip="${['instrument', 'register', 'tempo'][i]}" tabindex="0">${esc(t)}</span>`).join('<i>·</i>')}</div>`;
+    if (!compact) {
+      h += `<p class="note">${esc(d.line)}</p>`;
+      if (diff) h += `<p class="note song-diff">${diff.length ? `Compared with ${spLink(anc.serial, anc.name)}’s song (drawn dashed): ${esc(diff.join(', '))}.` : `The same song as its ancestor ${spLink(anc.serial, anc.name)}.`}</p>`;
+    }
+    return `<div class="blk song" data-slot="${slot}" data-tag="sp${g.serial}">${h}</div>`;
+  }
+  // light the notes being sung (events from the soundtrack: { at, slot, k, line })
+  const HOLD = 240;
+  let songKey = '';
+  function songTick(now, events) {
+    const blk = body.querySelector('.blk.song');
+    if (!blk) { songKey = ''; return; }
+    const slot = +blk.dataset.slot, tag = blk.dataset.tag;
+    let last = null;
+    const lit = [];
+    for (const e of events) {
+      if ((e.slot !== slot || slot < 0) && e.slot !== tag) continue;
+      if (e.at > now || now >= e.at + HOLD) continue;
+      lit.push(`${e.line}:${e.k}`);
+      if (!last || e.at > last.at) last = e;
+    }
+    const key = lit.sort().join(',') + (last ? `|${last.line}:${last.k}` : '');
+    if (key === songKey && blk.dataset.drawn) return;
+    songKey = key; blk.dataset.drawn = '1';
+    const set = new Set(lit);
+    for (const r of blk.querySelectorAll('rect[data-k]')) r.classList.toggle('lit', set.has(`${r.dataset.l}:${r.dataset.k}`));
+    const ph = blk.querySelector('.ph');
+    if (!ph) return;
+    const r = last && blk.querySelector(`rect[data-k="${last.k}"][data-l="${last.line}"]`);
+    ph.classList.toggle('on', !!r);
+    if (r) { const x = r.getAttribute('x'); ph.setAttribute('x1', x); ph.setAttribute('x2', x); }
+  }
+
   function lineagePath(sp) {
     const life = api.life();
     const chain = [];
@@ -163,6 +234,7 @@ export function createSpecimen(api) {
       s += kv('Mutations', `${g.depth} from its founder`, 'depth');
     }
     h += blk(term('species', 'Species'), s);
+    h += songBlock(g, sp, false);
     const chain = lineagePath(src);
     if (chain.length) h += blk('Descends from', `<div class="note">${chain.map((a) => spLink(a.serial, a.name)).join(' ← ')}${chain.length === 6 ? ' ← …' : ''}</div>`);
     const kids = [...life.reg.values()].filter((s2) => s2.ancestor === g.serial && s2.established);
@@ -253,7 +325,7 @@ export function createSpecimen(api) {
       root.classList.add('no-view');
       setHead(sp.alive ? (sp.established ? 'Species · thriving' : 'Species · rare') : 'Species · extinct', esc(sp.name),
         code('SP', fmt(sp.serial)) + code('Δ', g.depth) + (sp.alive ? code('Pop', fmt(sp.pop)) : ''));
-      drawGlyph($('glyph'), cellShape(g), g.col);
+      speciesGlyph(g);
       const hl = api.focusKey() === `sp:${sp.serial}`;
       setActs(`sp${sp.alive}${hl}`, sp.alive ? `<button type="button" class="btn" data-act="find">Find one</button><button type="button" class="btn" data-act="hl" aria-pressed="${hl}">Highlight</button>` : '');
       if (sp.alive) v += vital('Share', sp.pop / Math.max(1, life.counts[3]), 'sun', `${((sp.pop / Math.max(1, life.counts[3])) * 100).toFixed(1)}% of life`, 'share');
@@ -266,7 +338,7 @@ export function createSpecimen(api) {
         const m = MATTER[p.kind];
         setHead(mem ? `Now ${m.name} · once` : m.name, mem && mem.sp ? spLink(mem.sp.serial, mem.sp.name) : m.name,
           sel.lost ? 'Lost track of it' : (mem && sel.diedAt != null ? code('Died', `${fmtDur(eng.simTime - sel.diedAt)} ago`) : '') + code('ID', fmt(p.id)));
-        drawGlyph($('glyph'), MATTER_GLYPH[p.kind][0], MATTER_GLYPH[p.kind][1]);
+        plainGlyph(MATTER_GLYPH[p.kind][0], MATTER_GLYPH[p.kind][1]);
         setActs(`m${!!mem}`, mem ? '<button type="button" class="btn" data-act="relative">Watch a relative</button>' : '');
         if (p.kind === 1) v += vital('Charge', p.energy, 'cyan', `fades in ${fmtDur(Math.max(0, (p.energy - K.glintMin) / K.leak))}`, 'glint');
         else if (p.kind === 2) v += vital('Energy left', p.energy / 1.2, 'sun', `crumbles in ${fmtDur(Math.max(0, (p.energy - K.huskMin) / K.decay))}`, 'husk');
@@ -292,7 +364,7 @@ export function createSpecimen(api) {
         const gr = `<span class="greek">${ROLE[p.role]}</span>`;
         setHead(inBody ? `${gr}-cell of a ${o.partial ? '≥ ' : ''}${fmt(o.cells)}-cell body` : `${gr}-cell`, sp ? esc(sp.name) : 'Unnamed species',
           sel.lost ? 'Lost track of it' : (g ? code('SP', fmt(g.serial)) + code('Δ', g.depth) : 'sequencing…') + code('ID', fmt(p.id)));
-        drawGlyph($('glyph'), g ? cellShape(g, p.role) : 0, p.col);
+        if (g) speciesGlyph(g); else plainGlyph(0, p.col);
         const hl = sp && api.focusKey() === `sp:${sp.serial}`;
         setActs(`c${api.follow()}${hl}${!!sp}`, `<button type="button" class="btn" data-act="follow" aria-pressed="${api.follow()}" data-hint="Keep it in view · C">Follow</button>${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}">Highlight species</button>` : ''}`);
         if (g) {
@@ -302,6 +374,7 @@ export function createSpecimen(api) {
         setTabs(g ? ['status', 'species', 'genome'] : ['status']);
         if (st.tab === 'status') {
           if (g) html += tags(g);
+          if (g) html += songBlock(g, sp, true);
           html += storyHTML(sel);
           html += inBody ? organismBlock(o, g, false, sel) + cellBlock(p, g, false) : cellBlock(p, g, false) + organismBlock(o, g, false, sel);
         } else if (st.tab === 'species') html = speciesTab(g, null);
@@ -309,7 +382,7 @@ export function createSpecimen(api) {
       }
     } else return false;
     if (v !== st.lastVit) { vit.innerHTML = v; st.lastVit = v; }
-    if (html !== st.lastHtml) { body.innerHTML = html; st.lastHtml = html; }
+    if (html !== st.lastHtml) { body.innerHTML = html; st.lastHtml = html; songKey = ''; }
     return true;
   }
 
@@ -377,5 +450,5 @@ export function createSpecimen(api) {
     }
   }
 
-  return { render, open, close, inset, drawViewerUI, isOpen: () => !root.hidden, invalidate() { st.lastHtml = ''; st.actKey = ''; st.lastHead = ''; } };
+  return { render, open, close, inset, drawViewerUI, songTick, isOpen: () => !root.hidden, invalidate() { st.lastHtml = ''; st.actKey = ''; st.lastHead = ''; } };
 }

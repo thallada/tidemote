@@ -1086,6 +1086,28 @@ fn pickMain(@builtin(global_invocation_id) gid: vec3u) {
 }
 `;
 
+// Where a few particles are right now, found by id (observational): the page marks the cells
+// that sing their species' note exactly where they are, as it does the followed cell.
+export const WATCH_MAX = 16;
+export const WATCH_WGSL = COMMON + /* wgsl */ `
+struct WatchU { count: u32, n: u32, p0: u32, p1: u32, ids: array<vec4u, ${WATCH_MAX / 4}> };
+struct WatchOut { at: array<vec4f, ${WATCH_MAX}>, found: array<u32, ${WATCH_MAX}> };
+@group(0) @binding(0) var<uniform> wu: WatchU;
+@group(0) @binding(1) var<storage, read> parts: array<Particle>;
+@group(0) @binding(2) var<storage, read_write> wout: WatchOut;
+
+@compute @workgroup_size(256)
+fn watchMain(@builtin(global_invocation_id) gid: vec3u) {
+  let i = gid.x;
+  if (i >= wu.count) { return; }
+  let p = parts[i];
+  if (p.kind < FIRST_LIFE) { return; }
+  for (var k = 0u; k < wu.n; k++) {
+    if (wu.ids[k / 4u][k % 4u] == p.id) { wout.at[k] = vec4f(p.pos, p.vel); wout.found[k] = 1u; }
+  }
+}
+`;
+
 // The soundtrack's ears: a read-only scan for what happened since the last scan. A particle's
 // age restarts at every change of state and the low bits of info say why, so every event in the
 // window (age < window) is found with its exact time. Counts are exact, in and out of the view;

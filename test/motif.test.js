@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { archetypeGenome, ARCHETYPE_TYPES, finalizeGenome, mutateLike } from '../src/genome.js';
 import { voiceOf } from '../src/audio/mapping.js';
 import { motifOf, describe, compareMotifs, motifDistance, contourWord, noteSeconds, character } from '../src/audio/motif.js';
+import { songSVG, sigilSVG } from '../src/song.js';
 
 const rng = (s) => () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
 const founders = (n, seed = 7) => {
@@ -75,11 +76,16 @@ test('receptor genes develop the theme: inversion and retrograde', () => {
   assert.deepEqual(compareMotifs(a, motifOf(structuredClone(g), 'grazer')), []);
 });
 
-test('the song in words', () => {
+test('the song in words and pictures', () => {
   for (const g of founders(21, 9)) {
     const v = voiceOf(g), d = describe(v);
     assert.equal(d.tags.length, 3);
     assert.match(d.line, /^[A-Z]\w+ notes, [^.]+\..*(in step|copies overlap|own beat)\.( Its β cells add a lower second voice\.)?$/);
+    const svg = songSVG(v.motif, { col: '#fff' });
+    assert.equal((svg.match(/class="nt/g) || []).length, v.motif.notes.length);
+    const sig = sigilSVG(v, g, { size: 22 });
+    assert.equal((sig.match(/class="cell"/g) || []).length, v.motif.notes.length + (v.motif.voice2 ? v.motif.voice2.length : 0), 'a cell per note');
+    assert.equal(sig.includes('class="bonds"'), (g.adhesion || 0) > 0.15, 'bonds only where the species bonds');
   }
   assert.equal(contourWord([0, 2, 4, 2, 0]), 'arching');
   assert.equal(contourWord([0, 1, 2, 3]), 'rising');

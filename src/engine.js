@@ -1,5 +1,5 @@
 import {
-  simWGSL, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, DRAW_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
+  simWGSL, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
   MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD,
 } from './shaders.js';
 import {
@@ -101,6 +101,12 @@ class Engine {
     // tracking has its own uniforms and output per slot, so both slots and a pick share a frame
     b.trackU = [0, 1].map(() => d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST }));
     b.trackOut = [0, 1].map(() => d.createBuffer({ size: 56 + PICK_WORDS * 4, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST }));
+    // watching: up to WATCH_MAX particles found by id every frame (the page sets this.watch to their ids)
+    b.watchU = d.createBuffer({ size: 16 + WATCH_MAX * 4, usage: U.UNIFORM | U.COPY_DST });
+    b.watchOut = d.createBuffer({ size: WATCH_MAX * 20, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
+    this.watchStage = [0, 1, 2, 3].map(() => ({ buf: d.createBuffer({ size: WATCH_MAX * 20, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
+    this.watch = [];
+    this.onWatch = null;
     b.listenU = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
     b.listen = d.createBuffer({ size: LISTEN_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
     this.listenStage = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: LISTEN_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
@@ -121,6 +127,7 @@ class Engine {
     this.simModule = d.createShaderModule({ code: simWGSL(K), label: 'sim' });
     this.pickModule = d.createShaderModule({ code: PICK_WGSL, label: 'pick' });
     this.listenModule = d.createShaderModule({ code: LISTEN_WGSL, label: 'listen' });
+    this.watchModule = d.createShaderModule({ code: WATCH_WGSL, label: 'watch' });
     this.surveyModule = d.createShaderModule({ code: SURVEY_WGSL, label: 'survey' });
     this.drawModule = d.createShaderModule({ code: DRAW_WGSL, label: 'draw' });
     b.inbondU = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
@@ -146,6 +153,7 @@ class Engine {
     for (const name of Object.keys(this.cpDefs)) this.cp[name] = { pipe: cp(this.simModule, name), bg: null };
     this.cpPick = { pipe: cp(this.pickModule, 'pickMain'), bg: null };
     this.cpListen = { pipe: cp(this.listenModule, 'listenMain'), bg: null };
+    this.cpWatch = { pipe: cp(this.watchModule, 'watchMain'), bg: null };
     this.cpSurvey = { pipe: cp(this.surveyModule, 'surveyMain'), bg: null };
 
     const additive = { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } };
@@ -255,6 +263,8 @@ class Engine {
     this.trackBG = [0, 1].map((k) => d.createBindGroup({ layout: this.cpPick.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.trackU[k] } }, { binding: 1, resource: { buffer: b.parts } },
       { binding: 2, resource: { buffer: b.trackOut[k] } }, { binding: 3, resource: { buffer: b.intent } }] }));
+    this.cpWatch.bg = d.createBindGroup({ layout: this.cpWatch.pipe.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: b.watchU } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.watchOut } }] });
     this.cpListen.bg = d.createBindGroup({ layout: this.cpListen.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.listenU } }, { binding: 1, resource: { buffer: b.parts } },
       { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.listen } }] });
@@ -665,6 +675,25 @@ class Engine {
       pass.end();
       enc.copyBufferToBuffer(b.trackOut[k], 0, st.buf, 0, 56);
     }
+    let watchJob = null;
+    if (this.watch.length && N > 0) {
+      const st = this.watchStage.find((s) => !s.busy);
+      if (st) {
+        st.busy = true;
+        const ids = this.watch.slice(0, WATCH_MAX);
+        watchJob = { st, ids, simTime: this.simTime };
+        const wu = new Uint32Array(4 + WATCH_MAX);
+        wu[0] = N; wu[1] = ids.length; wu.set(ids, 4);
+        d.queue.writeBuffer(b.watchU, 0, wu);
+        enc.clearBuffer(b.watchOut, 0, WATCH_MAX * 20);
+        const pass = enc.beginComputePass();
+        pass.setPipeline(this.cpWatch.pipe);
+        pass.setBindGroup(0, this.cpWatch.bg);
+        pass.dispatchWorkgroups(Math.ceil(N / 256));
+        pass.end();
+        enc.copyBufferToBuffer(b.watchOut, 0, st.buf, 0, WATCH_MAX * 20);
+      }
+    }
     if (this.pickReq && N > 0) {
       const st = this.pickStage.find((s) => !s.busy);
       if (st) {
@@ -751,6 +780,17 @@ class Engine {
       }).catch(() => { st.busy = false; });
     }
 
+    if (watchJob) {
+      const { st, ids, simTime } = watchJob;
+      st.buf.mapAsync(GPUMapMode.READ).then(() => {
+        const buf = st.buf.getMappedRange(), f = new Float32Array(buf), u = new Uint32Array(buf);
+        const seen = [];
+        ids.forEach((id, k) => { if (u[WATCH_MAX * 4 + k]) seen.push({ id, x: f[k * 4], y: f[k * 4 + 1], vx: f[k * 4 + 2], vy: f[k * 4 + 3] }); });
+        st.buf.unmap();
+        st.busy = false;
+        if (generation === this.worldGeneration && this.onWatch) this.onWatch({ simTime, seen });
+      }).catch(() => { st.busy = false; });
+    }
     for (const job of censusJobs) this._censusRead(job, generation);
     if (listenJob) this._listenRead(listenJob, generation);
     if (surveyJob) this._surveyRead(surveyJob, generation);

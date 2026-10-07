@@ -10,7 +10,7 @@ import { drawLiving } from './charts.js';
 import { genusName, speciesEpithet } from './names.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
-import { PICK_WORDS } from './shaders.js';
+import { PICK_WORDS, WATCH_MAX } from './shaders.js';
 import { flowAt } from './flow.js';
 import { Director } from './director.js';
 import { fmt, fmtClock, fmtDur, esc, cssCol, clamp, term, spLink, ROLE, MATTER, LIVING_CSS } from './fmt.js';
@@ -90,6 +90,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     loupe: !isCoarse, loupeMag: 3.5, currents: false, specCells: 3,
     world: prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
     closeup: prefs.closeup ?? true,
+    songMarks: prefs.songMarks ?? 1, // mark the cells that sing: 0 off, 1 the picked species, 2 all
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
     // pixels per CSS pixel, the frame rate aimed for (0: the display's), and a fixed particle count
     perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.fps ?? 0, particles: prefs.particles ?? null },
@@ -119,7 +120,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, world: state.world, auto: state.auto, loupe: state.loupe, closeup: state.closeup, ...state.perf });
+    savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, world: state.world, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   if (prefs.loupe !== undefined && !isCoarse) state.loupe = prefs.loupe;
@@ -457,10 +458,25 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
 
   // ------------------------------------------------------------ soundtrack
+  // the motif notes the soundtrack is about to play (sound.js onSang), for the song panel and marks
+  const songEvents = [];
   const sound = createSound({
     onChange: renderSound,
     onError: (m) => flash(`Sound unavailable: ${String(m).split('\n')[0].slice(0, 80)}`),
+    onSang: (list) => { songEvents.push(...list); if (songEvents.length > 800) songEvents.splice(0, songEvents.length - 800); },
   });
+  // the picked species' slot (-1 for none): a picked cell's, or the living species open in the panel
+  function pickedSlot() {
+    if (sel && !sel.film && sel.particle && sel.particle.kind >= FIRST_LIFE && !sel.lost) return sel.particle.kind;
+    const sp = spView != null && life.reg.get(spView);
+    return sp && sp.alive && genomeFor(sp.genome.slot)?.serial === sp.serial ? sp.genome.slot : -1;
+  }
+  function playSong(serial) {
+    const sp = life.reg.get(serial);
+    if (!sp) return;
+    const was = sound.on;
+    sound.audition(sp.genome, `sp${serial}`).then(() => { if (!was && sound.on) flash('Sound on'); });
+  }
   let litSlots = null;
   function renderSound() {
     // the GPU only listens while the soundtrack plays
@@ -482,7 +498,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   eng.onListen = (d) => {
     if (state.phase !== 'running') return;
-    const selSlot = sel && !sel.film && sel.particle && sel.particle.kind >= FIRST_LIFE && !sel.lost ? sel.particle.kind : -1;
+    const selSlot = pickedSlot();
     const keep = sound.listen(d, { selSlot, lit: litSlots });
     if (keep && eng.listen) { eng.listen.keep = keep; eng.listen.selKind = selSlot >= 0 ? selSlot : 0xffffffff; }
   };
@@ -996,6 +1012,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (focus.key === `sp:${sp.serial}`) clearFocus(); else focusSpecies(sp);
     },
     onClose: deselect,
+    onPlaySong: playSong,
   });
   function renderSpecimen(force) {
     if ((!sel && spView == null) || (sel && sel.film)) return;
@@ -1110,7 +1127,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + onoff('links', 'Bonds', 'L', s.links, 'bond')
         + onoff('nodes', 'Particles', 'N', s.nodes)
         + (isCoarse ? '' : onoff('loupe', 'Loupe', 'M', state.loupe, 'loupe'))
-        + onoff('auto', 'Auto when idle', '', state.auto, 'autoidle');
+        + onoff('auto', 'Auto when idle', '', state.auto, 'autoidle')
+        + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks');
     }
     function performance_() {
       const s = eng.settings, P = state.perf;
@@ -1165,6 +1183,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'specks') s.specks = !!+v;
       else if (id === 'lod') s.lod = !!+v;
       else if (id === 'closeup') state.closeup = !!+v;
+      else if (id === 'songmarks') state.songMarks = +v;
       else if (id === 'loupe') state.loupe = !!+v;
       else if (id === 'auto') { state.auto = !!+v; renderAuto(director.active); }
       else if (id === 'scale') { P.scale = v === 'auto' ? 'auto' : +v; if (P.scale !== 'auto') renderScale = P.scale; else renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
@@ -1614,7 +1633,72 @@ function run(eng, device, ctx, specCtx, hasTS) {
       octx.beginPath(); octx.arc(sx, sy, 1.2, 0, TAU); octx.fill();
       octx.lineCap = 'butt';
     }
+    drawSongMarks(performance.now(), L);
   }
+  // Song marks: a faint ring spreads from each cell as it sings its species' note (the picked
+  // species', or every species'). Like the followed cell's brackets, a mark sits where its cell
+  // is: the cells about to sing are found by id on the GPU every frame (eng.watch) and carried the
+  // last few frames on by their velocity and the current. A cell not found yet falls back to where
+  // the listening scan saw it, carried on, and is not drawn once that guess has drifted too far.
+  const MARK_MS = 650;
+  const watched = new Map(); // particle id -> { x, y, vx, vy, t (sim time) }
+  eng.onWatch = ({ simTime, seen }) => { for (const w of seen) watched.set(w.id, { x: w.x, y: w.y, vx: w.vx, vy: w.vy, t: simTime }); };
+  function markSlot() { // -1: every species; -2: none
+    if (!state.songMarks || !sound.on) return -2;
+    if (state.songMarks === 2) return -1;
+    const slot = pickedSlot();
+    return slot >= 0 ? slot : -2;
+  }
+  // which cells to find this frame: those whose marks are about to show or showing
+  function watchMarks(now) {
+    const only = markSlot(), ids = [];
+    if (only !== -2) {
+      for (const e of songEvents) {
+        if (!e.cell || (only >= 0 && e.slot !== only) || e.at < now - MARK_MS || e.at > now + 1500) continue;
+        if (!ids.includes(e.cell.id)) ids.push(e.cell.id);
+        if (ids.length >= WATCH_MAX) break;
+      }
+    }
+    eng.watch = ids;
+    for (const id of watched.keys()) if (!ids.includes(id)) watched.delete(id);
+  }
+  function drawSongMarks(now, L) {
+    while (songEvents.length && songEvents[0].at < now - 2000) songEvents.shift();
+    const only = markSlot();
+    if (only === -2 || !songEvents.length) return;
+    const p = cssPPU(), simNow = viewSimTime || eng.simTime, [W, H] = eng.grid;
+    octx.lineWidth = 1;
+    for (const e of songEvents) {
+      const t = now - e.at;
+      if (t < 0 || t >= MARK_MS || !e.cell || (only >= 0 && e.slot !== only)) continue;
+      const g = genomeFor(e.slot);
+      if (!g) continue;
+      const c = e.cell, w = watched.get(c.id);
+      let x, y;
+      if (w) { // found this frame or the last few: as exact as the brackets
+        const dts = Math.max(0, Math.min(0.25, simNow - w.t)), [fx, fy] = flowAt(w.x, w.y, eng.simTime, eng.waves);
+        x = w.x + (w.vx + fx * g.advect) * dts; y = w.y + (w.vy + fy * g.advect) * dts;
+      } else {
+        const dts = Math.max(0, Math.min(3, simNow - c.t));
+        if (0.25 * Math.hypot(c.vx, c.vy) * dts * p > 30) continue;
+        const [fx, fy] = flowAt(c.x, c.y, eng.simTime, eng.waves);
+        x = c.x + (c.vx + fx * g.advect) * dts; y = c.y + (c.vy + fy * g.advect) * dts;
+      }
+      x = ((x % W) + W) % W; y = ((y % H) + H) % H;
+      let [sx, sy] = toScreen(x, y), scale = p;
+      if (L && Math.hypot(sx - L.sx, sy - L.sy) < L.R) { // inside the loupe: where the lens shows it
+        sx = L.sx + wrapD(x - L.cx, W) * L.cssPPU; sy = L.sy + wrapD(y - L.cy, H) * L.cssPPU; scale = L.cssPPU;
+        if (Math.hypot(sx - L.sx, sy - L.sy) > L.R - 8) continue;
+      }
+      if (sx < -20 || sy < -20 || sx > innerWidth + 20 || sy > innerHeight + 20) continue;
+      const u = t / MARK_MS, R = Math.max(4, 0.09 * scale) * (1 + 1.4 * u);
+      octx.strokeStyle = cssCol(g.col);
+      octx.globalAlpha = 0.5 * (1 - u) * (1 - u);
+      octx.beginPath(); octx.arc(sx, sy, R, 0, TAU); octx.stroke();
+    }
+    octx.globalAlpha = 1;
+  }
+
   // the picked particle: orange corner brackets and a leader to its name
   // The picked particle: orange corner brackets around it, or around its whole organism (the
   // body's extent from the last trace, riding on the watched cell), and a leader to its name.
@@ -1935,6 +2019,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       canvas.classList.toggle('lens', !!L);
       eng.trackId = sel && !sel.lost ? sel.id : NONE;
       eng.trackId2 = director.active ? director.trackId : NONE;
+      watchMarks(performance.now());
       drawOverlay(dt, L);
       specimen.drawViewerUI(now);
       eng.frame({
@@ -1954,6 +2039,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (sel && frameCount % 10 === 0 && !state.paused) gatherTick(false);
     }
     if (dirty && (sel || spView != null)) renderSpecimen(false);
+    if (specimen.isOpen()) specimen.songTick(performance.now(), songEvents); // every display frame, whatever the GPU's pace
     renderFeed();
     lab.render(false);
     adaptResolution(now);
