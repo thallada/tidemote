@@ -1,6 +1,10 @@
 // Event types reported by the GPU listening scan (LISTEN_WGSL in shaders.js; the order must match
 // LISTEN_TYPES there) and the decoding of its records for the audio thread.
+// words per record: LISTEN_REC in shaders.js (not imported: this module runs in the audio thread)
+export const LISTEN_REC = 6;
+
 export const LISTEN = {
+  stride: 9, // floats per decoded event (decodeRecords)
   types: ['birth', 'mutation', 'spark', 'starved', 'old', 'killed', 'eaten', 'charged', 'alive'],
   index: { birth: 0, mutation: 1, spark: 2, starved: 3, old: 4, killed: 5, eaten: 6, charged: 7, alive: 8 },
   // how many of each type per second the scan reports at most (it samples down to this); 'alive'
@@ -17,22 +21,44 @@ const hueOf = (col) => {
 };
 
 /**
- * Records (4 words each) → Float32Array, 8 per event: type, slot, x, y (0..1 across the view),
- * age (sim seconds; for 'alive', energy toward division 0..1.5), speed (0..1 of vscale), hue,
- * a per-particle byte.
+ * Records (LISTEN_REC words each) → Float32Array, LISTEN.stride per event: type, slot, x, y (0..1
+ * across the view), age (sim seconds; for 'alive', energy toward division 0..1.5), speed (0..1 of
+ * vscale), hue, a per-particle byte, cell type (0 α, 1 β, 2 γ).
  * Also returns how many of each type were recorded.
  */
 export function decodeRecords(u32, f32) {
-  const n = u32.length >> 2, out = new Float32Array(n * 8), recorded = new Uint32Array(9);
+  const R = LISTEN_REC, S = LISTEN.stride, n = Math.floor(u32.length / R), out = new Float32Array(n * S), recorded = new Uint32Array(9);
   for (let i = 0; i < n; i++) {
-    const w = u32[i * 4], uv = u32[i * 4 + 1], o = i * 8, t = w & 15;
+    const w = u32[i * R], uv = u32[i * R + 1], o = i * S, t = w & 15;
     out[o] = t; out[o + 1] = (w >>> 4) & 1023;
     out[o + 2] = (uv & 0xffff) / 65535; out[o + 3] = (uv >>> 16) / 65535;
-    out[o + 4] = f32[i * 4 + 2]; out[o + 5] = (w >>> 24) / 255;
-    out[o + 6] = hueOf(u32[i * 4 + 3]); out[o + 7] = (w >>> 16) & 255;
+    out[o + 4] = f32[i * R + 2]; out[o + 5] = (w >>> 24) / 255;
+    out[o + 6] = hueOf(u32[i * R + 3]); out[o + 7] = (w >>> 16) & 255; out[o + 8] = (w >>> 14) & 3;
     if (t < 9) recorded[t]++;
   }
   return { ev: out, recorded };
+}
+
+const f16 = (h) => { // IEEE half → number (WGSL pack2x16float)
+  const s = h & 0x8000 ? -1 : 1, e = (h >>> 10) & 31, m = h & 1023;
+  if (e === 0) return s * m * 2 ** -24;
+  if (e === 31) return m ? NaN : s * Infinity;
+  return s * (1 + m / 1024) * 2 ** (e - 15);
+};
+
+/**
+ * Where each recorded particle was in the world and where it was going, 5 floats per record:
+ * x, y, vx, vy (world units, per sim second) and its particle id. For marking the cells that sing.
+ */
+export function recordCells(u32, view) {
+  const R = LISTEN_REC, n = Math.floor(u32.length / R), out = new Float32Array(n * 5);
+  for (let i = 0; i < n; i++) {
+    const uv = u32[i * R + 1], vel = u32[i * R + 4], o = i * 5;
+    out[o] = view.x + ((uv & 0xffff) / 65535 - 0.5) * 2 * view.hx;
+    out[o + 1] = view.y + ((uv >>> 16) / 65535 - 0.5) * 2 * view.hy;
+    out[o + 2] = f16(vel & 0xffff); out[o + 3] = f16(vel >>> 16); out[o + 4] = u32[i * R + 5];
+  }
+  return out;
 }
 
 /** Per-type keep probabilities for the next scan, from this scan's counts. */
@@ -60,14 +86,14 @@ const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
  * One scan (engine.onListen data) → the message for the audio thread, and keep probabilities
  * for the next scan. speed: sim seconds per wall second; selSlot/lit: selection and highlight.
  */
-export function digest(data, { speed = 1, selSlot = -1, lit = null, vscale = V_SCALE } = {}) {
+export function digest(data, { speed = 1, selSlot = -1, lit = null, vscale = V_SCALE, seq = -1 } = {}) {
   const { ev, recorded } = decodeRecords(data.records, data.f32);
   const { gd, z } = hearing(data.view.hx, data.view.hy);
   const wall = data.window / Math.max(speed, 1e-6);
   const inView = [...data.inView, data.living]; // events per type, then living cells in view
   return {
     msg: {
-      type: 'listen', window: data.window, speed, z, gd,
+      type: 'listen', window: data.window, speed, z, gd, seq,
       inView, outView: [...data.outView, Math.max(0, data.livingAll - data.living)], recorded: Array.from(recorded),
       living: data.living, act: Math.min(1.5, data.speed / vscale), ev, selSlot, lit,
     },

@@ -1,7 +1,7 @@
 import { GUIDE } from './guide.js';
 import { fmt, fmtClock, esc, cssCol, term, spLink, ROLE, MATTER, LIVING_CSS } from './fmt.js';
-import { cellShape } from './genome.js';
-import { glyphURL } from './glyphs.js';
+import { voiceOf } from './audio/mapping.js';
+import { sigilSVG } from './song.js';
 import { drawLines, sparkPath } from './charts.js';
 
 /**
@@ -132,7 +132,7 @@ export function createLab(api) {
         li.dataset.serial = sp.serial;
         li.tabIndex = 0;
         const f = api.facets(sp.genome);
-        li.innerHTML = `<img alt="" src="${glyphURL(cellShape(sp.genome), sp.genome.col)}"><div class="spmain">${spLink(sp.serial, sp.name)}<small>${f.diet} · ${f.mobility} · ${f.body === 'multicellular' ? `${f.types}-type body` : 'one cell'}</small></div><svg viewBox="0 0 78 22" class="spark" aria-hidden="true"><path stroke="${cssCol(sp.genome.col)}"/></svg><div class="spnum"><b></b><span></span></div>`;
+        li.innerHTML = `<span class="spsig term" data-tip="sigil">${sigilSVG(voiceOf(sp.genome), sp.genome, { size: 26 })}</span><div class="spmain">${spLink(sp.serial, sp.name)}<small>${f.diet} · ${f.mobility} · ${f.body === 'multicellular' ? `${f.types}-type body` : 'one cell'}</small></div><svg viewBox="0 0 78 22" class="spark" aria-hidden="true"><path stroke="${cssCol(sp.genome.col)}"/></svg><div class="spnum"><b></b><span></span></div>`;
         r = { li, path: li.querySelector('path'), b: li.querySelector('.spnum b'), s: li.querySelector('.spnum span'), key: '' };
         rows.set(sp.serial, r);
       }

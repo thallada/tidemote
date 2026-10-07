@@ -73,6 +73,13 @@ export const GLOSSARY = {
   particles: 'Every grain, husk and cell is one particle; their number is fixed for a world’s whole life. Auto measures the GPU and picks the most it can run smoothly. Changing it starts a new world.',
   loupe: 'A magnifier that follows the mouse when zoomed out. Clicks inside it select what is under the crosshair.',
   speed: 'Current speed, in grid cells per second.',
+  song: 'Every species has its own song, read from its genome. Its surface signature picks the notes, how it lives sets the rhythm, tempo and range (hunters leap in quick clipped figures, drifting algae sway through long ones), and its colour picks the instrument. A mutant sings a variation: a few notes moved, or the tune turned upside down, reversed or answered. Its cells sing it as they go, in step if the species schools; a bonded colony adds a second voice.',
+  sigil: 'The species’ song drawn as the organism that sings it: one cell per note, in the shape and colour of the cell type that sings it, as large as the note is long and turned by its pitch, packed in the order they sing as a colony grows. Cells are bonded only if the species bonds.',
+  instrument: 'The instrument a species sings with: its family follows how it lives, its exact voice and timbre its colour.',
+  register: 'How high the species sings. Plankton and scavengers sing high, hunters low.',
+  tempo: 'How quickly its song moves, from how fast and how hungrily it lives.',
+  audioload: 'How much of its time the soundtrack’s audio thread spends rendering. Near 100% it would crackle, so above about 50% fewer notes may sound at once and the oldest fade out early.',
+  songmarks: 'A faint ring spreads from a cell each time it sings its species’ note: for the picked species only, or for every species. Needs sound on.',
   diversity: 'Effective number of species: exp of the Shannon entropy of species populations. A world of 10 equally common species scores 10.',
 };
 

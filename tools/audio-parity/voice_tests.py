@@ -13,6 +13,8 @@ for f, br in [(587, 0.6), (1175, 1.0)]:
     note('tine', 2.0, freq=f, amp=0.5, bright=br, dec=1.3, pan=0.4)
 for f in [147, 98]:
     note('wood', 1.0, freq=f, amp=0.5, bright=0.7, dec=0.6)
+for f, br, co in [(220, 0.5, 0.35), (587, 0.9, 0.15), (110, 0.2, 0.6), (73.4, 0.4, -0.2)]:
+    note('pluck', 1.6, freq=f, amp=0.5, bright=br, dec=1.2, coef=co, pan=0.2)
 for f in [147, 73]:
     note('bite', 0.8, freq=f, amp=0.5, bright=0.6, dec=0.4)
 for f, r in [(900, 1.7), (1400, 2.2)]:

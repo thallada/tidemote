@@ -2,7 +2,7 @@
 // specimen view shows the actual individual.
 import { cssCol } from './fmt.js';
 
-const OUTLINES = [
+export const OUTLINES = [
   'M-.8,-.3 L-.4,-.8 L.2,-.7 L.7,-.3 L.6,.4 L.1,.9 L-.6,.6 Z',
   'M-.9,-.4 L-.3,-.3 L-.2,-.9 L.1,-.3 L.8,-.6 L.4,-.1 L.9,.3 L.3,.3 L.1,.9 L-.2,.3 L-.8,.6 L-.4,0 Z',
   'M-.3,-.8 L0,-.5 L.2,-.1 L.9,.1 L.6,.4 L.1,.3 L-.4,.9 L-.5,.6 L-.2,.1 L-.5,-.4 Z',
@@ -32,17 +32,6 @@ export function paintGlyph(g, size, shape, col) {
   else if (shape === 13) g.fill(new Path2D('M0,-1 L.15,-.15 L1,0 L.15,.15 L0,1 L-.15,.15 L-1,0 L-.15,-.15 Z'));
   else g.fill(new Path2D('M-.7,-.5 L.2,-.8 L.8,-.2 L.5,.6 L-.5,.8 L-.9,.1 Z'));
   g.restore();
-}
-
-export function drawGlyph(cv, shape, col) {
-  const k = `${shape}:${col}`;
-  if (cv.dataset.k === k) return;
-  cv.dataset.k = k;
-  const r = Math.min(devicePixelRatio || 1, 2), s = cv.clientWidth || 40;
-  cv.width = s * r; cv.height = s * r;
-  const g = cv.getContext('2d');
-  g.setTransform(r, 0, 0, r, 0, 0);
-  paintGlyph(g, s, shape, col);
 }
 
 const urls = new Map();

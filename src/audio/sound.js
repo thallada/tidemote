@@ -1,8 +1,10 @@
 // Main-thread side of the soundtrack: the AudioContext, the volume, and the messages to the
-// audio thread (species voices from the census, the GPU listening scans).
+// audio thread (species voices from the census, the GPU listening scans). The audio thread
+// reports back the motif notes it is about to play; onSang hears them as page-clock events, with
+// the cell that sings each (where it was and where it was going), for the song panel and marks.
 
 import { voiceOf } from './mapping.js';
-import { digest } from './listen.js';
+import { digest, recordCells } from './listen.js';
 /* global __TIDEMOTE_WORKLET__ */
 
 const KEY = 'tidemote.sound';
@@ -10,9 +12,9 @@ const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; }
 const save = (s) => { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* storage unavailable */ } };
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 
-export function createSound({ onChange = () => {}, onError = () => {} } = {}) {
+export function createSound({ onChange = () => {}, onError = () => {}, onSang = null } = {}) {
   const pref = load();
-  const st = { on: false, volume: clamp(pref.volume ?? 0.7, 0, 1), starting: null, ctx: null, node: null, gain: null, sent: new Map(), speed: 1, lastScan: 0 };
+  const st = { on: false, volume: clamp(pref.volume ?? 0.7, 0, 1), starting: null, ctx: null, node: null, gain: null, sent: new Map(), speed: 1, lastScan: 0, seq: 0, scans: new Map() };
   const persist = () => save({ volume: st.volume, on: st.on });
   const notify = () => onChange({ on: st.on, volume: st.volume });
 
@@ -29,7 +31,12 @@ export function createSound({ onChange = () => {}, onError = () => {} } = {}) {
     catch { await ctx.audioWorklet.addModule(`data:text/javascript;charset=utf-8,${encodeURIComponent(__TIDEMOTE_WORKLET__)}`); }
     finally { URL.revokeObjectURL(url); }
     const node = new AudioWorkletNode(ctx, 'tidemote-sound', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { seed: (Math.random() * 2 ** 31) | 0 } });
-    node.port.onmessage = (e) => { if (e.data && e.data.type === 'error') { console.error('soundtrack:', e.data.message); onError(e.data.message); } };
+    node.port.onmessage = (e) => {
+      if (!e.data) return;
+      if (e.data.type === 'sang') sang(e.data.notes);
+      else if (e.data.type === 'load') st.load = e.data.load;
+      else if (e.data.type === 'error') { console.error('soundtrack:', e.data.message); onError(e.data.message); }
+    };
     const gain = ctx.createGain(); gain.gain.value = 0;
     node.connect(gain).connect(ctx.destination);
     Object.assign(st, { node, gain });
@@ -73,25 +80,54 @@ export function createSound({ onChange = () => {}, onError = () => {} } = {}) {
     post({ type: 'world', world });
   }
 
+  // notes the audio thread is about to play: [slot, seconds from now, note, line, scan, record]
+  // → { at (performance.now() ms), slot, k, line, cell: { x, y, vx, vy, t (sim time), id } | null }
+  function sang(notes) {
+    if (!onSang) return;
+    const lat = st.ctx ? (st.ctx.outputLatency || 0) + (st.ctx.baseLatency || 0) : 0, now = performance.now();
+    onSang(notes.map(([slot, dt, k, line, scan, rec]) => {
+      const S = st.scans.get(scan);
+      const c = S && rec >= 0 ? S.cells.subarray(rec * 5, rec * 5 + 5) : null;
+      return { at: now + (dt + lat) * 1000, slot, k, line, cell: c && c.length === 5 ? { x: c[0], y: c[1], vx: c[2], vy: c[3], id: c[4], t: S.sim } : null };
+    }));
+  }
+
   // Called on every listening scan (engine.onListen). Returns keep probabilities for the next scan.
   function listen(data, { selSlot = -1, lit = null } = {}) {
     if (!st.node || !st.on) return null;
+    const seq = ++st.seq;
+    if (onSang) {
+      st.scans.set(seq, { cells: recordCells(data.records, data.view), sim: data.simTime });
+      st.scans.delete(seq - 16);
+    }
     const now = performance.now(), dt = (now - st.lastScan) / 1000;
     st.lastScan = now;
     // the simulation's real speed (sim seconds per second), measured, not the setting
     if (dt > 0.01 && dt < 1) st.speed += (Math.min(500, data.window / dt) - st.speed) * 0.3;
-    const { msg, keep } = digest(data, { speed: st.speed, selSlot, lit });
+    const { msg, keep } = digest(data, { speed: st.speed, selSlot, lit, seq });
+    // This scan sampled the picked species' cells in full and the rest at the keep it was given
+    // (the last one returned); the audio thread weights them back to their real share.
+    msg.sampled = { sel: st.lastSel ?? -1, keep: st.lastKeep ?? 0.05 };
+    st.lastSel = selSlot; st.lastKeep = keep ? keep[8] : st.lastKeep;
     st.node.port.postMessage(msg, [msg.ev.buffer]);
     return keep;
   }
   return {
     get on() { return st.on; }, get volume() { return st.volume; },
+    // the audio thread's load: the share of real time it spends rendering (null when off)
+    get load() { return st.on ? st.load ?? null : null; },
     // on, and the browser lets it play
     get playing() { return st.on && !!st.ctx && st.ctx.state === 'running'; },
     // resume from inside a click or key press, where autoplay is blocked
     unlock: () => { if (st.on && st.ctx) st.ctx.resume(); },
     toggle: () => setOn(!st.on), setOn, setVolume,
     census, listen, era: (name) => post({ type: 'era', name }),
+    // play a species' motif alone (its genome; tag names its notes in onSang). Turns sound on.
+    async audition(genome, tag) {
+      if (!st.on) await setOn(true);
+      if (st.starting) await st.starting;
+      if (st.on) post({ type: 'audition', slot: tag, voice: voiceOf(genome) });
+    },
     reset: () => { st.sent.clear(); post({ type: 'reset' }); },
     wantsOn: pref.on ?? true,
   };

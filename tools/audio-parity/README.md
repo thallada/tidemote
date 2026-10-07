@@ -19,6 +19,9 @@ node js_score.mjs score.json piece.wav                  # a whole SC score dump 
 python3 compare_piece.py sc_piece.wav piece.wav         # loudness per minute, band balance
 ```
 
+sclang refuses to start as root inside a container unless Qt WebEngine's sandbox is off:
+`QTWEBENGINE_DISABLE_SANDBOX=1 QT_QPA_PLATFORM=offscreen sclang sc.scd`.
+
 Results when the port was made: deterministic voices match to between −85 and −145 dB of
 error (the float noise floor), the full chain (ping-pong delay, FDN reverb, master) to −71 dB,
 and noise voices sit within the spread between two JS seeds. A 20 minute SC score rendered
@@ -28,5 +31,6 @@ The felt piano, strings, vibraphone, swarm (with a `Formlet` port) and wave voic
 piano and vibraphone match to −120 dB or better; strings to −57 dB, because the JS `Saw`
 computes its band-limited pulse with exact sines where scsynth interpolates sine and cosecant
 tables (0.14% of the signal); the noise-driven swarm, waves and the sea and drone fades sit within
-the spread between two JS seeds.
+the spread between two JS seeds. The plucked string (a port of `Pluck`, the Karplus-Strong UGen)
+matches to between −102 and −143 dB.
 

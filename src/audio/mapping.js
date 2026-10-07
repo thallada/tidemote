@@ -1,8 +1,9 @@
 // Genome → voice. Everything a species sounds like is read from its genome, so a mutant
-// plays a variation of its parent: the melody is a walk whose steps are the α surface
-// signature, so a nudged gene shifts a step and the rest of the motif follows.
+// plays a variation of its parent: the archetype picks the instrument family and register, the
+// colour the instrument and its timbre, and motif.js the song itself.
 
 import { dietGuild, mobilityGuild } from '../genome.js';
+import { motifOf } from './motif.js';
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const fract = (x) => x - Math.floor(x);
@@ -13,9 +14,9 @@ export const ARCH = {
   reef:      { mats: ['glass', 'glass', 'swell'], oct: 1 },
   plankton:  { mats: ['swell', 'swell', 'glass'], oct: 2 },
   filament:  { mats: ['breath'], oct: 1 },
-  grazer:    { mats: ['cplx', 'cplx', 'tine'], oct: 1 },
-  crawler:   { mats: ['tine', 'cplx'], oct: 1 },
-  hunter:    { mats: ['bite', 'wood', 'wood'], oct: 0 },
+  grazer:    { mats: ['cplx', 'cplx', 'tine', 'pluck'], oct: 1 },
+  crawler:   { mats: ['tine', 'cplx', 'pluck'], oct: 1 },
+  hunter:    { mats: ['bite', 'wood', 'pluck', 'pluck'], oct: 0 },
   scavenger: { mats: ['drop', 'drop', 'tick'], oct: 2 },
 };
 
@@ -39,41 +40,15 @@ export function archOf(g) {
   return 'grazer';
 }
 
-// A melodic walk in scale degrees from a signature: start from rec, step by surf.
-export function walk(surf, rec, len) {
-  let d = clamp(Math.round((rec[0] + 1) * 2.5), 0, 5);
-  const out = [];
-  for (let i = 0; i < len; i++) {
-    out.push(d);
-    const s = surf[i % 8];
-    d = clamp(d + Math.round(s * 2.4) + (Math.abs(s) > 0.92 ? Math.sign(s) * 2 : 0), -3, 10);
-  }
-  return out;
-}
-
-const CHORDS = [[0, 2, 4], [0, 4, 7], [0, 2, 7], [0, 4, 9]];
-
 export function voiceOf(g) {
   const arch = archOf(g);
   const A = ARCH[arch];
-  const a = g.roles[0], b = g.roles[1];
-  const len = 3 + Math.round(((a.rec[1] + 1) / 2) * 5);
   const span = clamp((g.lifespan - 60) / 400, 0, 1);
-  let rate;
-  switch (arch) {
-    case 'grazer': rate = g.swim >= 1.1 ? 1 : g.swim >= 0.8 ? 1.5 : 2; break;
-    case 'crawler': rate = g.swim >= 0.8 ? 1.5 : g.swim >= 0.5 ? 2 : 3; break;
-    case 'hunter': rate = g.force > 11 ? 3 : g.force > 9.5 ? 4 : 6; break;
-    case 'reef': rate = g.lifespan > 360 ? 12 : 8; break;
-    case 'plankton': rate = g.swim > 0.1 ? 4 : 6; break;
-    case 'filament': rate = (g.adhesion || 0) > 0.5 ? 8 : 6; break;
-    default: rate = 1;
-  }
+  const motif = motifOf(g, arch);
   return {
-    arch,
-    seq: arch === 'reef' ? pick(CHORDS, (a.rec[2] + 1) / 2) : walk(a.surf, a.rec, len),
-    seq2: walk(b.surf, b.rec, len), // the β cell type's line (crawlers alternate the two)
-    rate,
+    arch, motif,
+    seq: motif.seq, // the line's degrees (the score develops these)
+    rate: motif.rate, // steps a note lasts on average
     oct: A.oct + (arch === 'grazer' && g.size < 0.85 ? 1 : 0),
     mat: pick(A.mats, g.hue),
     ratio: pick([1, 1.5, 2, 2, 3], fract(g.hue * 7.3)),

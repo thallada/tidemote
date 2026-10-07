@@ -7,7 +7,7 @@
 import {
   BS, RGen, SinOsc, LFNoise2, WhiteNoise, BrownNoise, PinkNoise, EnvGen, KtoA, LPF, HPF, RLPF, Resonz,
   Ringz, BPF, BLowPass, BLowShelf, BHiShelf, MoogFF, Lag, LagUD, Decay2, LeakDC, Compander, Limiter,
-  DelayN, DelayC, AllpassC, Pan2, Balance2, Dust, Formlet, sinTable,
+  DelayN, DelayC, AllpassC, Pan2, Balance2, Dust, Formlet, Pluck, sinTable,
 } from './ugens.js';
 
 const midicps = (m) => 440 * Math.pow(2, (m - 69) / 12);
@@ -258,6 +258,31 @@ export class Tine extends Voice {
     const L = S.zero(), R = S.zero();
     this.pan.addK(t, p.pan ?? 0, 1, L, R);
     outAll(B, L, R, p.rev ?? 0.25, p.dly ?? 0.12, this.send);
+    if (this.age + 1 >= this.life) this.done = true;
+  }
+}
+
+// ── \pluck: a plucked string (SuperCollider's Pluck, Karplus-Strong) ─────────
+export class PluckV extends Voice {
+  constructor(eng, p) {
+    super(eng, p);
+    const dec = p.dec ?? 1.2, bright = p.bright ?? 0.5;
+    this.st = new Strike(this.sr, 0.0003, f32(0.002 + f32(0.004 * f32(1 - bright)))); this.wn = new WhiteNoise(this.rg);
+    this.pl = new Pluck(this.sr, 0.05); this.lp = new LPF(this.sr); this.pan = new Pan2(p.pan ?? 0);
+    this.life = lineBlocks(dec * 1.2 + 0.05, this.kr);
+  }
+  render(B, S) {
+    const p = this.p, freq = p.freq ?? 220, dec = p.dec ?? 1.2, bright = p.bright ?? 0.5, amp = p.amp ?? 0.1, coef = p.coef ?? 0.35;
+    const exc = S.get(), n = S.get(), sig = S.get(), t = S.get();
+    this.st.ar(exc); this.wn.ar(n);
+    const nm = f32(0.25 * bright);
+    for (let i = 0; i < BS; i++) exc[i] += n[i] * nm;
+    this.pl.kk(exc, 1, f32(1 / freq), dec, coef, sig);
+    this.lp.ar(sig, Math.min(freq * 12, 12000), t);
+    for (let i = 0; i < BS; i++) t[i] *= amp;
+    const L = S.zero(), R = S.zero();
+    this.pan.addK(t, p.pan ?? 0, 1, L, R);
+    outAll(B, L, R, p.rev ?? 0.2, p.dly ?? 0.1, this.send);
     if (this.age + 1 >= this.life) this.done = true;
   }
 }
@@ -755,7 +780,8 @@ export class Master {
 }
 
 // ── the engine: voices → delay → reverb → master, block by block ─────────────
-const DEFS = { cplx: Cplx, swell: Swell, glass: Glass, breath: Breath, tine: Tine, wood: Wood, bite: Bite, drop: Drop, tick: Tick, glint: Glint, rustle: Rustle, sea: Sea, drone: Drone, piano: Piano, strings: Strings, vibe: Vibe, swarm: Swarm, wave: Wave };
+const FADE_BLOCKS = 8; // a shed note fades out over 8 blocks (about 11 ms)
+const DEFS = { cplx: Cplx, swell: Swell, glass: Glass, breath: Breath, tine: Tine, pluck: PluckV, wood: Wood, bite: Bite, drop: Drop, tick: Tick, glint: Glint, rustle: Rustle, sea: Sea, drone: Drone, piano: Piano, strings: Strings, vibe: Vibe, swarm: Swarm, wave: Wave };
 
 export class Engine {
   constructor(sr, { seed = 1, noiseOff = false, master = {} } = {}) {
@@ -765,6 +791,16 @@ export class Engine {
     this.fxRg = new RGen(this.nextSeed()); this.fxRg.off = noiseOff;
     this.ping = new PingPong(sr); this.fdn = new FDN(sr, this.fxRg); this.master = new Master(sr, master);
     this.blocks = 0;
+    // The most notes that may sound at once (the worklet lowers it when the device can't keep
+    // up). Beyond it the oldest notes fade out over a few milliseconds instead of the audio
+    // breaking up; persistent nodes (sea, drone, swarm) are never shed.
+    this.maxVoices = Infinity; this.fading = 0;
+  }
+  shed() {
+    let over = this.voices.length - this.fading - this.maxVoices;
+    if (over <= 0) return;
+    const old = this.voices.filter((v) => !v.persistent && !v.shed).sort((a, b) => b.age - a.age);
+    for (let i = 0; i < over && i < old.length; i++) { old[i].shed = true; old[i].fade = FADE_BLOCKS; this.fading++; }
   }
   nextSeed() { this.seed = (Math.imul(this.seed, 1664525) + 1013904223) >>> 0; return this.seed; }
   // start a synth; id (optional) names a persistent node that can be set later
@@ -772,7 +808,7 @@ export class Engine {
     const C = DEFS[def]; if (!C) return null;
     const v = new C(this, params || {});
     this.voices.push(v);
-    if (id != null) this.nodes.set(id, v);
+    if (id != null) { this.nodes.set(id, v); v.persistent = true; } else if (this.voices.length - this.fading > this.maxVoices) this.shed();
     return v;
   }
   set(id, params) {
@@ -790,9 +826,10 @@ export class Engine {
     let w = 0;
     for (let i = 0; i < vs.length; i++) {
       const v = vs[i];
+      if (v.fade) { v.send *= (v.fade - 1) / v.fade; if (--v.fade === 0) v.done = true; } // shed: a short linear fade
       S.reset();
       v.tick(B, S);
-      if (!v.done) vs[w++] = v;
+      if (!v.done) vs[w++] = v; else if (v.shed) this.fading--;
     }
     vs.length = w;
     S.reset(); this.ping.process(B, S);

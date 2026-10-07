@@ -60,7 +60,7 @@ esbuild preserves module scope, so top-level names can be reused across files.
 | `src/tip.js`, `src/charts.js`, `src/glyphs.js`, `src/fmt.js` | Hints (glossary terms and control hints), census-history charts, species emblems, shared formatting. |
 | `src/guide.js` | Glossary (hints) and field-guide text. |
 | `src/page.html`, `src/page.css` | Markup and styles. The bundled script is inserted at `/*__SCRIPT__*/`, the styles at `/*__STYLE__*/`. |
-| `src/audio/` | The soundtrack: `ugens.js` and `voices.js` (a sample-level port of SuperCollider voices, effects and mastering), `mapping.js` (genome → voice), `listen.js` (decoding the GPU listening scan), `field.js` (scan → notes and the far swarm), `conductor.js` (pulse, harmony, sea, waves and drone), `score.js` (the long form: each era's ensemble, interludes, the modulation between eras), `worklet.js` (the AudioWorklet), `sound.js` (main-thread controller). |
+| `src/audio/` | The soundtrack: `ugens.js` and `voices.js` (a sample-level port of SuperCollider voices, effects and mastering), `mapping.js` (genome → voice), `motif.js` (genome → song, its description and comparison), `listen.js` (decoding the GPU listening scan), `field.js` (scan → notes and the far swarm), `conductor.js` (pulse, harmony, sea, waves and drone), `score.js` (the long form: each era's ensemble, interludes, the modulation between eras), `worklet.js` (the AudioWorklet), `sound.js` (main-thread controller). |
 | `tools/audio-parity/` | Renders the same events in SuperCollider and in the JS engine and compares them. |
 | `tools/sim.mjs`, `tools/compare.mjs` | Headless ecology runs and comparisons across seeds (see below). |
 
@@ -74,9 +74,64 @@ intro until one.
 Every few frames a read-only GPU pass (`LISTEN_WGSL`) looks at the camera's rectangle. A
 particle's age restarts at each change of state and its info bits say why, so the pass finds every birth, mutation, spark of abiogenesis, death (starved, old age or
 killed), grazing or scavenging bite and tide charge since the last scan, with its exact time and
-place, and it samples the living cells in view. Each living cell sings: now and then it plays the
-next note of its species' motif, more often when it moves. Events are accents: a birth rings, a kill
-bites, grazing drips, a dying cell falls, the tide's charge shimmers, and movement rustles.
+place, and it samples the living cells in view. Each living cell sings: now and then it comes in on
+its species' song, more often when it moves. Events are accents: a birth rings, a kill bites,
+grazing drips, a dying cell falls, the tide's charge shimmers, and movement rustles.
+
+### Species songs
+
+Every species has its own song, a motif read from its genome (`src/audio/motif.js`), and different
+parts of the genome shape different parts of it:
+
+- **Identity.** The α cell type's surface signature (the genes that decide who sticks to and eats
+  whom) picks each interval of the line, so relatives sound related.
+- **Character.** How the species lives sets the rhythm, tempo, range, intervals, articulation and
+  cadence. A fast hunter pounces: a held note, then a quick clipped run of leaps, ending in the
+  air, sometimes slipping in a chromatic approach note. A drifting alga sways through long tied
+  notes, the thirds of a broken chord, and comes home. Grazers gallop on repeated notes,
+  scavengers skitter downward between rests. The rhythm comes from a library of figures, chosen by
+  the species' character in coarse steps (so a lineage keeps its rhythm while it drifts) and among
+  the closest by its shape gene.
+- **Development.** Receptor genes switch transformations of the theme on and off, as a composer
+  develops one: inversion, retrograde, displacement, an answering phrase (a step away, upside down,
+  echoed an octave up, or held), a grace note. A mutation that crosses one is heard as the parent's
+  tune turned upside down, reversed or answered; most mutations move a note or two.
+- **Voice.** The archetype picks the instrument family and register, the colour the instrument
+  (among them a plucked string, a port of SuperCollider's `Pluck`). A bonded colony's β cells sing a
+  second voice under the first: a third, fifth, sixth or octave below.
+
+Degrees follow SuperCollider's `degreeToKey`, so `2.9` is the third degree lowered a semitone.
+
+The crowd sings it in time: a cell that sings comes in on the motif's next note, in its rhythm, so
+the cells in view assemble the phrase between them. A schooling species keeps one clock and sings in
+unison; the others each keep their own and the phrase goes round in canon. Where only a few cells are
+heard each sings a longer stretch, so a handful still carries the whole song, and cells coming in on
+the same note sing it as one louder note.
+
+The specimen panel shows the song: a piano roll whose notes light as the species sings them (in the
+world or from **Play**, which plays it alone while everything else steps back), a description, and
+how it differs from its nearest thriving ancestor's song, drawn faintly behind. Each song also has a
+sigil, drawn as the organism that sings it: one cell per note in the shape and colour of the cell type
+that sings it, sized by the note's length and turned by its pitch, packed in the order they sing as a
+colony grows and bonded only if the species bonds (the species' emblem in the Lab's species list and the specimen panel;
+`tools/sigil-gallery.mjs` shows them beside each species as the sim draws it). **Settings → Song marks** spreads
+a faint ring from each cell as it sings: for the picked species (the default), every species, or none.
+Like the followed cell's brackets, each mark sits on its cell: the cells about to sing are found by id
+on the GPU every frame (`WATCH_WGSL`, observational).
+
+Picking a species (a cell of it, or the species itself) greets it: its song plays once, close and
+clear, while the rest of the field steps back, then its cells ease back into the mix over a few
+seconds, as do a Lab highlight's. After that the soundtrack is what it would be without the pick: the
+listening scan samples the picked species' cells in full (for the song marks and the panel), and the
+field weights them back to their real share.
+
+The audio thread watches its own load. Where the device can't keep up (a phone, or any machine once
+it heats up and slows down) fewer notes may sound at once and the oldest fade out over a few
+milliseconds, so the soundtrack thins instead of crackling. **Settings → Performance** shows the load.
+
+`tools/motif-gallery.mjs --out gallery --legacy` renders a page of songs side by side (founders of
+every archetype, lineages of mutants drawn over their parents, sweeps of one trait at a time, each
+with a recording and, with `--legacy`, the old generator's line) and prints how alike they are.
 
 Loudness follows distance, as if the camera were a listener at a height proportional to the view.
 Each sound is as loud as `dRef / d`, and a view `d` times wider holds `d²` times as many cells, so a
@@ -89,7 +144,7 @@ diving in sharpens and opens them until single voices step out. Close up the voi
 back a little, so diving in is not a jump in level.
 Up close only a fair sample is played and each played note carries the power of the ones it stands
 for, so the audio thread never plays more than a few dozen voices. Selecting a cell brings its species forward;
-a Lab highlight pushes the others back. Notes snap to a pulse that follows the simulation's speed:
+a Lab highlight pushes the others back. Songs and accents keep a pulse that follows the simulation's speed:
 slower when time is slowed, faster (up to 4×) when it runs fast.
 
 Around the cells plays a slower score. Each climate era brings its own ensemble, two of six layers
@@ -100,7 +155,7 @@ season's tide shapes them: as it strengthens they gain voices and brightness, as
 thin out. Waves wash in more often at high tide and are heard best from afar. A new era is a
 modulation: a low piano chord sinks into a long reverb while strings swell on a chord the old and
 new keys share, then resolve into the new key, and a piano interlude develops the reigning
-species' motif. Interludes also mark a new reigning species and the height of a season. Nothing
+species' motif in its own rhythm. Interludes also mark a new reigning species and the height of a season. Nothing
 glides: the sea and the drone change pitch by fading a new voice in over the old.
 
 It runs in an AudioWorklet as a sample-level port of SuperCollider voices (see
