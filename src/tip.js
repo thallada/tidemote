@@ -10,6 +10,8 @@ export function createTips(tip) {
     if (el.dataset.tip) return GLOSSARY[el.dataset.tip] ? { text: GLOSSARY[el.dataset.tip] } : null;
     const h = el.dataset.hint;
     if (!h) return null;
+    // a term with a live explanation (no shortcut key to split off)
+    if (el.classList.contains('term')) return { text: h };
     const i = h.lastIndexOf(' · ');
     return i > 0 ? { text: h.slice(0, i), key: h.slice(i + 3) } : { text: h };
   };
@@ -47,11 +49,11 @@ export function createTips(tip) {
   document.addEventListener('pointerout', (e) => {
     if (e.pointerType === 'mouse' && owner && via === 'hover' && !owner.contains(e.relatedTarget)) hide();
   });
-  // touch: a tap on a term opens its hint, which stays after the finger lifts; the next tap
-  // anywhere (the term included) closes it
+  // touch: a tap on a term (from the glossary, or with a live explanation) opens its hint, which
+  // stays after the finger lifts; the next tap anywhere (the term included) closes it
   document.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse') { if (owner) hide(); return; }
-    const el = e.target.closest && e.target.closest('[data-tip]');
+    const el = e.target.closest && e.target.closest('[data-tip], .term[data-hint]');
     if (el && el !== owner) { show(el, 'tap'); return; }
     if (owner) hide();
   }, true);
