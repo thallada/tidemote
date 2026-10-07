@@ -34,6 +34,7 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
     node.port.onmessage = (e) => {
       if (!e.data) return;
       if (e.data.type === 'sang') sang(e.data.notes);
+      else if (e.data.type === 'load') st.load = e.data.load;
       else if (e.data.type === 'error') { console.error('soundtrack:', e.data.message); onError(e.data.message); }
     };
     const gain = ctx.createGain(); gain.gain.value = 0;
@@ -113,6 +114,8 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
   }
   return {
     get on() { return st.on; }, get volume() { return st.volume; },
+    // the audio thread's load: the share of real time it spends rendering (null when off)
+    get load() { return st.on ? st.load ?? null : null; },
     // on, and the browser lets it play
     get playing() { return st.on && !!st.ctx && st.ctx.state === 'running'; },
     // resume from inside a click or key press, where autoplay is blocked

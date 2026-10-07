@@ -1150,6 +1150,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       setText('ro-ms', perf.gpu ? perf.gpu.toFixed(1) : '–');
       setText('ro-px', `${canvas.width}×${canvas.height}`);
       setText('ro-n', fmt(eng.count));
+      const al = sound.load;
+      setText('ro-audio', al != null ? `${Math.round(al * 100)}%` : '–');
     }
     function set(id, v) {
       const s = eng.settings, P = state.perf;

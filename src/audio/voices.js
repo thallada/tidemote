@@ -780,6 +780,7 @@ export class Master {
 }
 
 // ── the engine: voices → delay → reverb → master, block by block ─────────────
+const FADE_BLOCKS = 8; // a shed note fades out over 8 blocks (about 11 ms)
 const DEFS = { cplx: Cplx, swell: Swell, glass: Glass, breath: Breath, tine: Tine, pluck: PluckV, wood: Wood, bite: Bite, drop: Drop, tick: Tick, glint: Glint, rustle: Rustle, sea: Sea, drone: Drone, piano: Piano, strings: Strings, vibe: Vibe, swarm: Swarm, wave: Wave };
 
 export class Engine {
@@ -790,6 +791,16 @@ export class Engine {
     this.fxRg = new RGen(this.nextSeed()); this.fxRg.off = noiseOff;
     this.ping = new PingPong(sr); this.fdn = new FDN(sr, this.fxRg); this.master = new Master(sr, master);
     this.blocks = 0;
+    // The most notes that may sound at once (the worklet lowers it when the device can't keep
+    // up). Beyond it the oldest notes fade out over a few milliseconds instead of the audio
+    // breaking up; persistent nodes (sea, drone, swarm) are never shed.
+    this.maxVoices = Infinity; this.fading = 0;
+  }
+  shed() {
+    let over = this.voices.length - this.fading - this.maxVoices;
+    if (over <= 0) return;
+    const old = this.voices.filter((v) => !v.persistent && !v.shed).sort((a, b) => b.age - a.age);
+    for (let i = 0; i < over && i < old.length; i++) { old[i].shed = true; old[i].fade = FADE_BLOCKS; this.fading++; }
   }
   nextSeed() { this.seed = (Math.imul(this.seed, 1664525) + 1013904223) >>> 0; return this.seed; }
   // start a synth; id (optional) names a persistent node that can be set later
@@ -797,7 +808,7 @@ export class Engine {
     const C = DEFS[def]; if (!C) return null;
     const v = new C(this, params || {});
     this.voices.push(v);
-    if (id != null) this.nodes.set(id, v);
+    if (id != null) { this.nodes.set(id, v); v.persistent = true; } else if (this.voices.length - this.fading > this.maxVoices) this.shed();
     return v;
   }
   set(id, params) {
@@ -815,9 +826,10 @@ export class Engine {
     let w = 0;
     for (let i = 0; i < vs.length; i++) {
       const v = vs[i];
+      if (v.fade) { v.send *= (v.fade - 1) / v.fade; if (--v.fade === 0) v.done = true; } // shed: a short linear fade
       S.reset();
       v.tick(B, S);
-      if (!v.done) vs[w++] = v;
+      if (!v.done) vs[w++] = v; else if (v.shed) this.fading--;
     }
     vs.length = w;
     S.reset(); this.ping.process(B, S);

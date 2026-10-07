@@ -73,6 +73,7 @@ export const GLOSSARY = {
   particles: 'Every grain, husk and cell is one particle; their number is fixed for a world’s whole life. Auto measures the GPU and picks the most it can run smoothly. Changing it starts a new world.',
   loupe: 'A magnifier that follows the mouse when zoomed out. Clicks inside it select what is under the crosshair.',
   speed: 'Current speed, in grid cells per second.',
+  audioload: 'How much of its time the soundtrack’s audio thread spends rendering. Near 100% it would crackle, so above about 50% fewer notes may sound at once and the oldest fade out early.',
   diversity: 'Effective number of species: exp of the Shannon entropy of species populations. A world of 10 equally common species scores 10.',
 };
 

@@ -300,7 +300,7 @@ body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520p
 .opt .chip:disabled { opacity: .35; cursor: default; }
 .hot-btn { border-color: var(--hot); color: var(--ink); background: rgba(255, 95, 58, 0.14); justify-self: start; }
 .hot-btn:hover { background: rgba(255, 95, 58, 0.26); border-color: var(--hot); }
-.readout { display: grid; grid-template-columns: repeat(4, 1fr); margin: 10px 0 2px; border: 1px solid var(--line); }
+.readout { display: grid; grid-template-columns: repeat(5, 1fr); margin: 10px 0 2px; border: 1px solid var(--line); }
 .readout div { display: flex; flex-direction: column; gap: 3px; padding: 7px 9px; border-left: 1px solid var(--line); min-width: 0; }
 .readout div:first-child { border-left: 0; }
 .readout b { font-size: 17px; font-weight: 300; line-height: 1; color: var(--sun); white-space: nowrap; }
@@ -592,6 +592,9 @@ body.filming .world { opacity: 0; visibility: hidden; }
   .barrow { grid-template-columns: 7.5em minmax(24px, 1fr) 7ch 5.4ch; font-size: 12px; }
   .settings { left: 0; right: 0; width: auto; bottom: var(--bot); max-height: calc(100% - var(--top) - var(--bot)); }
   .readout b { font-size: 15px; }
+  .readout { grid-template-columns: repeat(3, 1fr); }
+  .readout div:nth-child(3n + 1) { border-left: 0; }
+  .readout div:nth-child(n + 4) { border-top: 1px solid var(--line); }
   .opt { grid-template-columns: 7.6em 1fr; }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }
@@ -712,6 +715,7 @@ body.filming .world { opacity: 0; visibility: hidden; }
       <div><b id="ro-ms">–</b><span>GPU ms</span></div>
       <div><b id="ro-px">–</b><span>Scene px</span></div>
       <div><b id="ro-n">–</b><span>Particles</span></div>
+      <div><b id="ro-audio">–</b><span class="term" data-tip="audioload" tabindex="0">Audio</span></div>
     </div>
     <div class="opts" id="opts"></div>
     <div class="keys-note">Keyboard: <kbd>?</kbd> lists every shortcut.</div>
@@ -7162,6 +7166,7 @@ var Master = class {
     }
   }
 };
+var FADE_BLOCKS = 8;
 var DEFS = { cplx: Cplx, swell: Swell, glass: Glass, breath: Breath, tine: Tine, pluck: PluckV, wood: Wood, bite: Bite, drop: Drop, tick: Tick, glint: Glint, rustle: Rustle, sea: Sea, drone: Drone, piano: Piano, strings: Strings, vibe: Vibe, swarm: Swarm, wave: Wave };
 var Engine = class {
   constructor(sr, { seed = 1, noiseOff = false, master = {} } = {}) {
@@ -7179,6 +7184,18 @@ var Engine = class {
     this.fdn = new FDN(sr, this.fxRg);
     this.master = new Master(sr, master);
     this.blocks = 0;
+    this.maxVoices = Infinity;
+    this.fading = 0;
+  }
+  shed() {
+    let over = this.voices.length - this.fading - this.maxVoices;
+    if (over <= 0) return;
+    const old = this.voices.filter((v) => !v.persistent && !v.shed).sort((a, b) => b.age - a.age);
+    for (let i = 0; i < over && i < old.length; i++) {
+      old[i].shed = true;
+      old[i].fade = FADE_BLOCKS;
+      this.fading++;
+    }
   }
   nextSeed() {
     this.seed = Math.imul(this.seed, 1664525) + 1013904223 >>> 0;
@@ -7190,7 +7207,10 @@ var Engine = class {
     if (!C) return null;
     const v = new C(this, params || {});
     this.voices.push(v);
-    if (id != null) this.nodes.set(id, v);
+    if (id != null) {
+      this.nodes.set(id, v);
+      v.persistent = true;
+    } else if (this.voices.length - this.fading > this.maxVoices) this.shed();
     return v;
   }
   set(id, params) {
@@ -7224,9 +7244,14 @@ var Engine = class {
     let w = 0;
     for (let i = 0; i < vs.length; i++) {
       const v = vs[i];
+      if (v.fade) {
+        v.send *= (v.fade - 1) / v.fade;
+        if (--v.fade === 0) v.done = true;
+      }
       S.reset();
       v.tick(B, S);
       if (!v.done) vs[w++] = v;
+      else if (v.shed) this.fading--;
     }
     vs.length = w;
     S.reset();
@@ -7595,8 +7620,9 @@ var Field = class {
     }
     if (this.gain[type] != null) g *= this.gain[type];
     const busy = c.eng.voices.length + c.queue.length;
-    if (busy > FULL || busy > CROWDED && (MINOR.has(type) || o.dim === 0.3)) return;
-    const t = this.snap(type, t0);
+    const cap = c.eng.maxVoices;
+    if (busy > Math.min(FULL, cap + 8) || busy > Math.min(CROWDED, cap * 0.75) && (MINOR.has(type) || o.dim === 0.3)) return;
+    const t = type === "alive" || type === "birth" ? this.beatCap(type, t0, o) : this.snap(type, t0);
     if (t < 0 || g < 1e-4) return;
     const { root, scale } = c, piv = c.pivot;
     switch (type) {
@@ -8219,6 +8245,11 @@ var TidemoteSound = class extends AudioWorkletProcessor {
     this.R = new Float32Array(BS);
     this.have = 0;
     this.failed = false;
+    this.busy = 0;
+    this.span = 0;
+    this.load = 0;
+    this.lastPost = 0;
+    this.eng.maxVoices = VOICES[1];
     this.port.onmessage = (e) => {
       try {
         this.cond.message(e.data);
@@ -8240,6 +8271,7 @@ var TidemoteSound = class extends AudioWorkletProcessor {
       r.fill(0);
       return true;
     }
+    const t0 = Date.now();
     try {
       let o = 0;
       while (o < n) {
@@ -8258,9 +8290,26 @@ var TidemoteSound = class extends AudioWorkletProcessor {
       l.fill(0);
       r.fill(0);
     }
+    this.busy += Date.now() - t0;
+    this.span += n / sampleRate * 1e3;
+    if (this.span >= 500) this.adapt();
     return true;
   }
+  adapt() {
+    const load = this.busy / this.span, e = this.eng, live = e.voices.length - e.fading;
+    this.load += (load - this.load) * 0.5;
+    if (load > 0.7) e.maxVoices = Math.max(VOICES[0], Math.min(e.maxVoices, Math.floor(live * 0.75)));
+    else if (load > 0.5) e.maxVoices = Math.max(VOICES[0], e.maxVoices - 4);
+    else if (load < 0.3) e.maxVoices = Math.min(VOICES[2], e.maxVoices + 2);
+    this.busy = 0;
+    this.span = 0;
+    if (currentTime - this.lastPost >= 2) {
+      this.lastPost = currentTime;
+      this.port.postMessage({ type: "load", load: this.load });
+    }
+  }
 };
+var VOICES = [16, 72, 96];
 registerProcessor("tidemote-sound", TidemoteSound);
 `], { type: "text/javascript" }));
       try {
@@ -10642,6 +10691,7 @@ var Master = class {
     }
   }
 };
+var FADE_BLOCKS = 8;
 var DEFS = { cplx: Cplx, swell: Swell, glass: Glass, breath: Breath, tine: Tine, pluck: PluckV, wood: Wood, bite: Bite, drop: Drop, tick: Tick, glint: Glint, rustle: Rustle, sea: Sea, drone: Drone, piano: Piano, strings: Strings, vibe: Vibe, swarm: Swarm, wave: Wave };
 var Engine = class {
   constructor(sr, { seed = 1, noiseOff = false, master = {} } = {}) {
@@ -10659,6 +10709,18 @@ var Engine = class {
     this.fdn = new FDN(sr, this.fxRg);
     this.master = new Master(sr, master);
     this.blocks = 0;
+    this.maxVoices = Infinity;
+    this.fading = 0;
+  }
+  shed() {
+    let over = this.voices.length - this.fading - this.maxVoices;
+    if (over <= 0) return;
+    const old = this.voices.filter((v) => !v.persistent && !v.shed).sort((a, b) => b.age - a.age);
+    for (let i = 0; i < over && i < old.length; i++) {
+      old[i].shed = true;
+      old[i].fade = FADE_BLOCKS;
+      this.fading++;
+    }
   }
   nextSeed() {
     this.seed = Math.imul(this.seed, 1664525) + 1013904223 >>> 0;
@@ -10670,7 +10732,10 @@ var Engine = class {
     if (!C) return null;
     const v = new C(this, params || {});
     this.voices.push(v);
-    if (id != null) this.nodes.set(id, v);
+    if (id != null) {
+      this.nodes.set(id, v);
+      v.persistent = true;
+    } else if (this.voices.length - this.fading > this.maxVoices) this.shed();
     return v;
   }
   set(id, params) {
@@ -10704,9 +10769,14 @@ var Engine = class {
     let w = 0;
     for (let i = 0; i < vs.length; i++) {
       const v = vs[i];
+      if (v.fade) {
+        v.send *= (v.fade - 1) / v.fade;
+        if (--v.fade === 0) v.done = true;
+      }
       S.reset();
       v.tick(B, S);
       if (!v.done) vs[w++] = v;
+      else if (v.shed) this.fading--;
     }
     vs.length = w;
     S.reset();
@@ -11075,8 +11145,9 @@ var Field = class {
     }
     if (this.gain[type] != null) g *= this.gain[type];
     const busy = c.eng.voices.length + c.queue.length;
-    if (busy > FULL || busy > CROWDED && (MINOR.has(type) || o.dim === 0.3)) return;
-    const t = this.snap(type, t0);
+    const cap = c.eng.maxVoices;
+    if (busy > Math.min(FULL, cap + 8) || busy > Math.min(CROWDED, cap * 0.75) && (MINOR.has(type) || o.dim === 0.3)) return;
+    const t = type === "alive" || type === "birth" ? this.beatCap(type, t0, o) : this.snap(type, t0);
     if (t < 0 || g < 1e-4) return;
     const { root, scale } = c, piv = c.pivot;
     switch (type) {
@@ -11699,6 +11770,11 @@ var TidemoteSound = class extends AudioWorkletProcessor {
     this.R = new Float32Array(BS);
     this.have = 0;
     this.failed = false;
+    this.busy = 0;
+    this.span = 0;
+    this.load = 0;
+    this.lastPost = 0;
+    this.eng.maxVoices = VOICES[1];
     this.port.onmessage = (e) => {
       try {
         this.cond.message(e.data);
@@ -11720,6 +11796,7 @@ var TidemoteSound = class extends AudioWorkletProcessor {
       r.fill(0);
       return true;
     }
+    const t0 = Date.now();
     try {
       let o = 0;
       while (o < n) {
@@ -11738,9 +11815,26 @@ var TidemoteSound = class extends AudioWorkletProcessor {
       l.fill(0);
       r.fill(0);
     }
+    this.busy += Date.now() - t0;
+    this.span += n / sampleRate * 1e3;
+    if (this.span >= 500) this.adapt();
     return true;
   }
+  adapt() {
+    const load = this.busy / this.span, e = this.eng, live = e.voices.length - e.fading;
+    this.load += (load - this.load) * 0.5;
+    if (load > 0.7) e.maxVoices = Math.max(VOICES[0], Math.min(e.maxVoices, Math.floor(live * 0.75)));
+    else if (load > 0.5) e.maxVoices = Math.max(VOICES[0], e.maxVoices - 4);
+    else if (load < 0.3) e.maxVoices = Math.min(VOICES[2], e.maxVoices + 2);
+    this.busy = 0;
+    this.span = 0;
+    if (currentTime - this.lastPost >= 2) {
+      this.lastPost = currentTime;
+      this.port.postMessage({ type: "load", load: this.load });
+    }
+  }
 };
+var VOICES = [16, 72, 96];
 registerProcessor("tidemote-sound", TidemoteSound);
 `)}`);
       } finally {
@@ -11750,6 +11844,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       node.port.onmessage = (e) => {
         if (!e.data) return;
         if (e.data.type === "sang") sang(e.data.notes);
+        else if (e.data.type === "load") st.load = e.data.load;
         else if (e.data.type === "error") {
           console.error("soundtrack:", e.data.message);
           onError(e.data.message);
@@ -11847,6 +11942,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       },
       get volume() {
         return st.volume;
+      },
+      // the audio thread's load: the share of real time it spends rendering (null when off)
+      get load() {
+        return st.on ? st.load ?? null : null;
       },
       // on, and the browser lets it play
       get playing() {
@@ -13286,6 +13385,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     particles: "Every grain, husk and cell is one particle; their number is fixed for a world’s whole life. Auto measures the GPU and picks the most it can run smoothly. Changing it starts a new world.",
     loupe: "A magnifier that follows the mouse when zoomed out. Clicks inside it select what is under the crosshair.",
     speed: "Current speed, in grid cells per second.",
+    audioload: "How much of its time the soundtrack’s audio thread spends rendering. Near 100% it would crackle, so above about 50% fewer notes may sound at once and the oldest fade out early.",
     diversity: "Effective number of species: exp of the Shannon entropy of species populations. A world of 10 equally common species scores 10."
   };
   var t = (term2, label) => `<span class="term" data-tip="${term2}">${label}</span>`;
@@ -16580,6 +16680,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         setText("ro-ms", perf.gpu ? perf.gpu.toFixed(1) : "–");
         setText("ro-px", `${canvas.width}×${canvas.height}`);
         setText("ro-n", fmt(eng.count));
+        const al = sound.load;
+        setText("ro-audio", al != null ? `${Math.round(al * 100)}%` : "–");
       }
       function set(id, v) {
         const s = eng.settings, P = state.perf;

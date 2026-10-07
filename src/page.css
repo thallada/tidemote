@@ -290,7 +290,7 @@ body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520p
 .opt .chip:disabled { opacity: .35; cursor: default; }
 .hot-btn { border-color: var(--hot); color: var(--ink); background: rgba(255, 95, 58, 0.14); justify-self: start; }
 .hot-btn:hover { background: rgba(255, 95, 58, 0.26); border-color: var(--hot); }
-.readout { display: grid; grid-template-columns: repeat(4, 1fr); margin: 10px 0 2px; border: 1px solid var(--line); }
+.readout { display: grid; grid-template-columns: repeat(5, 1fr); margin: 10px 0 2px; border: 1px solid var(--line); }
 .readout div { display: flex; flex-direction: column; gap: 3px; padding: 7px 9px; border-left: 1px solid var(--line); min-width: 0; }
 .readout div:first-child { border-left: 0; }
 .readout b { font-size: 17px; font-weight: 300; line-height: 1; color: var(--sun); white-space: nowrap; }
@@ -582,6 +582,9 @@ body.filming .world { opacity: 0; visibility: hidden; }
   .barrow { grid-template-columns: 7.5em minmax(24px, 1fr) 7ch 5.4ch; font-size: 12px; }
   .settings { left: 0; right: 0; width: auto; bottom: var(--bot); max-height: calc(100% - var(--top) - var(--bot)); }
   .readout b { font-size: 15px; }
+  .readout { grid-template-columns: repeat(3, 1fr); }
+  .readout div:nth-child(3n + 1) { border-left: 0; }
+  .readout div:nth-child(n + 4) { border-top: 1px solid var(--line); }
   .opt { grid-template-columns: 7.6em 1fr; }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }

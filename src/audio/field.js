@@ -349,8 +349,9 @@ export class Field {
     if (this.plan) { this.plan.push([type, t0, g, o]); return; }
     if (this.gain[type] != null) g *= this.gain[type];
     const busy = c.eng.voices.length + c.queue.length;
-    if (busy > FULL || (busy > CROWDED && (MINOR.has(type) || o.dim === 0.3))) return;
-    const t = this.snap(type, t0);
+    const cap = c.eng.maxVoices; // the worklet lowers this when the device can't keep up
+    if (busy > Math.min(FULL, cap + 8) || (busy > Math.min(CROWDED, cap * 0.75) && (MINOR.has(type) || o.dim === 0.3))) return;
+    const t = type === 'alive' || type === 'birth' ? this.beatCap(type, t0, o) : this.snap(type, t0);
     if (t < 0 || g < 1e-4) return;
     const { root, scale } = c, piv = c.pivot;
     switch (type) {

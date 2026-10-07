@@ -160,6 +160,24 @@ test('from afar the view is heard as a swarm, up close as single voices', () => 
   assert.ok(near.notes > far.notes, `notes near ${near.notes} far ${far.notes}`);
 });
 
+test('over its voice limit the engine fades the oldest notes out instead of breaking up', () => {
+  const eng = new Engine(48000, { seed: 4 });
+  eng.maxVoices = 8;
+  eng.spawn('sea', { amp: 0.05 }, 'sea'); // persistent: never shed
+  const L = new Float32Array(64), R = new Float32Array(64);
+  let maxLive = 0, peak = 0, prev = 0, jump = 0;
+  for (let b = 0; b < 1500; b++) {
+    if (b % 5 === 0) eng.spawn('tine', { freq: 300 + (b % 7) * 50, amp: 0.2, dec: 2 });
+    eng.block(L, R);
+    maxLive = Math.max(maxLive, eng.voices.length - eng.fading);
+    for (let i = 0; i < 64; i++) { assert.ok(Number.isFinite(L[i])); peak = Math.max(peak, Math.abs(L[i])); jump = Math.max(jump, Math.abs(L[i] - prev)); prev = L[i]; }
+  }
+  assert.ok(maxLive <= 9, `live ${maxLive}`); // the limit plus the persistent sea
+  assert.ok(eng.nodes.get('sea') && eng.voices.includes(eng.nodes.get('sea')));
+  assert.ok(eng.fading >= 0 && eng.fading <= eng.voices.length);
+  assert.ok(peak > 1e-3 && jump < 0.5, `peak ${peak} jump ${jump}`);
+});
+
 test('picking a species plays its song once, then its cells ease back into the mix', () => {
   const eng = new Engine(48000, { seed: 6 }), cond = new Conductor(eng, { seed: 6 });
   const g = finalizeGenome(archetypeGenome('grazer', rng(12))), v = voiceOf(g);
