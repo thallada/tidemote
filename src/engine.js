@@ -44,6 +44,8 @@ class Engine {
     this.grid = [3, 3];
     this.simTime = 0;
     this.frameNo = 0;
+    this.tick = 0; // 1/60 s ticks simulated: one a step, more a coarse step (the meal cadence counts them)
+    this.ticks = 1;
     this.worldGeneration = 0;
     this.season = 1;
     this.abio = 0;
@@ -54,7 +56,7 @@ class Engine {
     this.seedValue = 1;
     this.censusEvery = 20;
     this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 1, optics: 1, specks: true, lod: true };
-    this.simData = new ArrayBuffer(240);
+    this.simData = new ArrayBuffer(256);
     this.rock = new Float32Array(4);
     this.simF = new Float32Array(this.simData);
     this.simU = new Uint32Array(this.simData);
@@ -84,7 +86,7 @@ class Engine {
 
     const d = device;
     const b = this.b;
-    b.sim = d.createBuffer({ size: 240, usage: U.UNIFORM | U.COPY_DST });
+    b.sim = d.createBuffer({ size: 256, usage: U.UNIFORM | U.COPY_DST });
     b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
     this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
     b.view = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
@@ -206,6 +208,9 @@ class Engine {
     this.trackStage = [0, 1, 2, 3, 4, 5, 6, 7].map(() => ({ buf: d.createBuffer({ size: 56, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     b.reprojU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     this.pReproj = rp(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined);
+    // Max and coarse speeds: the last drawn world, carried with the camera onto the display frames between draws
+    b.holdU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
+    this.pHold = rp(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, format);
 
     // the main view's micro-suspension: specks found per frame, then drawn as quads (MICRO_WGSL)
     this.microModule = d.createShaderModule({ code: MICRO_WGSL, label: 'micro' });
@@ -359,6 +364,12 @@ class Engine {
     this.compClearBG = compBG(this.pCompClear);
     this.reprojBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.pReproj.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: v }, { binding: 5, resource: { buffer: this.b.reprojU } }] }));
+    this.holdTex?.destroy();
+    this.holdTex = d.createTexture({ size: [w, h], format: this.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+    this.holdView = this.holdTex.createView();
+    this.holdBG = d.createBindGroup({ layout: this.pHold.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: this.sampler }, { binding: 1, resource: this.holdView }, { binding: 5, resource: { buffer: this.b.holdU } }] });
+    this.holdCam = null;
     this.clearAccum = true;
   }
 
@@ -428,6 +439,7 @@ class Engine {
     this.grid = this.gridFor(n, aspect);
     this.simTime = 0;
     this.frameNo = 0;
+    this.tick = 0;
     this.seedValue = (rng() * 0xffffffff) >>> 0;
     this.ambient = mix(0.12, 0.3, rng());
     this.chargeMul = mix(0.8, 1.25, rng());
@@ -535,7 +547,8 @@ class Engine {
     u[2] = this.grid[0]; u[3] = this.grid[1];
     u[4] = this.count; u[5] = this.frameNo;
     f[6] = this.dt || 1 / 60; f[7] = this.simTime;
-    f[8] = this.season; f[9] = this.abio;
+    // a coarse step keeps per-second rates: the per-step abiogenesis chance scales with its length
+    f[8] = this.season; f[9] = Math.min(1, this.abio * this.ticks);
     u[10] = (this.seedValue + this.frameNo * 7919) >>> 0; f[11] = this.K.maxSpeed;
     u[12] = extra.seedKinds || 1; f[13] = extra.pSilt || 0; f[14] = extra.pGlint || 0; f[15] = extra.pHusk || 0;
     f[16] = this.ambient; f[17] = this.chargeMul; f[18] = extra.clump || 0; f[19] = extra.spread || 0;
@@ -543,6 +556,7 @@ class Engine {
     f.set(this.tide, 36);
     f.set(this.tidePh, 52);
     f.set(this.rock, 56);
+    u[60] = this.tick; u[61] = this.ticks;
   }
 
   requestPick(center, radius, selId, { kind = 0xffffffff, maxOut = 4096, raw = false } = {}) {
@@ -559,6 +573,8 @@ class Engine {
     this.dt = simDt;
     this.simTime += simDt;
     this.frameNo++;
+    this.ticks = Math.max(1, Math.round(simDt * 60));
+    this.tick += this.ticks;
     if (ring < 0) this._writeSim();
     else {
       this._fillSim();
@@ -626,8 +642,10 @@ class Engine {
   /**
    * One rendered frame after `steps` simulation steps. target: GPUTextureView or null (simulate only).
    * cam: {x,y,ppu}; loupe: {x,y,r (canvas px), ppu, cx, cy (world)} or null.
+   * hold (Max and coarse speeds): true draws the world into the held image, false only carries the held
+   * image with the camera (a fullscreen blit), so most of the GPU stays on the simulation.
    */
-  frame({ target = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, steps = 1, time = 0, dpr = 1, selId = 0xffffffff, loupe = null, specimen = null }) {
+  frame({ target = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, steps = 1, time = 0, dpr = 1, selId = 0xffffffff, loupe = null, specimen = null, hold = null }) {
     const d = this.device;
     const generation = this.worldGeneration;
     const b = this.b;
@@ -723,7 +741,25 @@ class Engine {
       }
     }
 
-    if (target) this._render(enc, { target, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd: slot ? { querySet: tm.qs, endOfPassWriteIndex: 1 } : undefined });
+    const tsEndAt1 = slot ? { querySet: tm.qs, endOfPassWriteIndex: 1 } : undefined;
+    // whether the world itself is drawn this frame (not just the held image)
+    const drew = !!target && (hold == null || hold || !this.holdCam);
+    if (target && hold == null) this._render(enc, { target, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd: tsEndAt1 });
+    else if (target) {
+      if (drew) {
+        this._render(enc, { target: this.holdView, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd: tsEndAt1 });
+        this.holdCam = { x: cam.x, y: cam.y, ppu: cam.ppu };
+      }
+      // the held image, carried to the current camera (the trails' reprojection, unfaded)
+      const [W, H] = this.size, lc = this.holdCam;
+      const dx = cam.x - lc.x, dy = cam.y - lc.y, gx = this.grid[0], gy = this.grid[1];
+      const wx = dx - gx * Math.round(dx / gx), wy = dy - gy * Math.round(dy / gy), ratio = lc.ppu / cam.ppu;
+      d.queue.writeBuffer(b.holdU, 0, new Float32Array([ratio, ratio, (wx * lc.ppu) / W, (wy * lc.ppu) / H, 1, 0, 0, 0]));
+      const begin = tsBegin();
+      const tw = drew ? undefined : begin || tsEndAt1 ? { ...(begin || {}), ...(tsEndAt1 || {}) } : undefined;
+      const pass = enc.beginRenderPass({ colorAttachments: [{ view: target, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }], timestampWrites: tw });
+      pass.setPipeline(this.pHold); pass.setBindGroup(0, this.holdBG); pass.draw(3); pass.end();
+    }
 
     const timed = slot && (stepping || target);
     if (timed) {
@@ -741,11 +777,11 @@ class Engine {
         const simMs = !nSteps ? 0 : target ? Number(t[2] - t[0]) / 1e6 : ms;
         slot.buf.unmap();
         slot.busy = false;
-        if (generation === this.worldGeneration && ms > 0 && ms < 5000 && this.onGpuTime) this.onGpuTime(ms, N, nSteps, simMs > 0 && simMs <= ms ? simMs : null);
+        if (generation === this.worldGeneration && ms > 0 && ms < 5000 && this.onGpuTime) this.onGpuTime(ms, N, nSteps, simMs > 0 && simMs <= ms ? simMs : null, drew);
       }).catch(() => { slot.busy = false; });
     } else if (!tm && this.onGpuTime && (stepping || target)) {
       d.queue.onSubmittedWorkDone().then(() => {
-        if (generation === this.worldGeneration && this.onGpuTime) this.onGpuTime(performance.now() - t0, N, nSteps);
+        if (generation === this.worldGeneration && this.onGpuTime) this.onGpuTime(performance.now() - t0, N, nSteps, null, drew);
       });
     }
 

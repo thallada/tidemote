@@ -1,6 +1,6 @@
 import { createSound } from './audio/sound.js';
 import { V_SCALE } from './audio/listen.js';
-import { createEngine, MAXK, FIRST_LIFE } from './engine.js';
+import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS } from './engine.js';
 import { genomeSerial, readGenome, parseParticle } from './genome.js';
 import { seasonAt, createClimate, abioRate } from './climate.js';
 import { createLab } from './lab.js';
@@ -67,10 +67,15 @@ async function boot() {
   run(eng, device, ctx, specCtx, hasTS);
 }
 
-// Time multipliers of real time. Infinity is "Max": as many 1/60 s steps as fit in a frame. Speeds
-// above 1× are offered only up to what the GPU can sustain (sustainable()).
+// Time multipliers of real time. Infinity is "Max": as fast as the GPU goes. Speeds above 1× are
+// offered only up to what the GPU can sustain (sustainable()).
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8, 16, 32, 64, Infinity];
 const MAX_FRAME_MS = 30; // GPU time a frame may take when running fast (about 30 fps)
+// A fast speed the GPU can't reach in 1/60 s steps takes coarse steps instead, of up to MAX_TICKS/60 s:
+// as many steps a second, each covering more time (docs/fast-forward.md; longer steps lose diversity).
+// Fast speeds that can't afford to draw the world every display frame, coarse ones and Max draw it about
+// every MAX_FRAME_MS; the camera keeps the display's rate.
+const MAX_TICKS = 4;
 const H = 1 / 60; // the simulation's step, as in the headless runs
 const fmtSpeed = (s) => (s === Infinity ? 'Max' : `×${s}`);
 const PARTICLE_SIZES = [32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
@@ -191,15 +196,20 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ perf
   const perf = { samples: [], gpu: 0, fps: 0, frames: 0, fpsT: performance.now(), frameDt: [], lastSubmit: 0, rafMs: 0, goodWindows: 0, ceiling: 1, ceilingUntil: 0, lastAdjust: performance.now(),
-    stepMs: 0, simS: 0, renderR: 0, rate: 1, rateT: performance.now(), rateSim: 0 };
+    stepMs: 0, simS: 0, renderR: 0, presentR: 0, worldAt: 0, stepCredit: 0, ticks: 1, held: false, ticksAt: 0, rate: 1, rateT: performance.now(), rateSim: 0 };
   let calibWait = null;
   const frameWaiters = [];
   const ema = (a, v, k) => (a ? a + (v - a) * k : v);
-  eng.onGpuTime = (ms, n, steps, simMs) => {
+  eng.onGpuTime = (ms, n, steps, simMs, drew) => {
     // Per-step cost, render included (an overestimate that shrinks as more steps share one render).
-    if (steps > 0) perf.stepMs = ema(perf.stepMs, ms / steps, 0.15);
-    // with GPU timestamps, the cost of a step and of drawing a frame, apart
-    if (steps > 0 && simMs != null) { perf.simS = ema(perf.simS, simMs / steps, 0.1); perf.renderR = ema(perf.renderR, ms - simMs, 0.1); }
+    if (steps > 0 && drew) perf.stepMs = ema(perf.stepMs, ms / steps, 0.15);
+    // with GPU timestamps, the cost of a step and of drawing a frame (or, at Max between draws, of
+    // carrying the held image), apart
+    if (steps > 0 && simMs != null) {
+      perf.simS = ema(perf.simS, simMs / steps, 0.1);
+      if (drew) perf.renderR = ema(perf.renderR, ms - simMs, 0.1);
+      else perf.presentR = ema(perf.presentR, ms - simMs, 0.1);
+    }
     perf.gpu = perf.gpu ? perf.gpu * 0.9 + ms * 0.1 : ms;
     perf.samples.push(ms);
     if (perf.samples.length > 240) perf.samples.shift();
@@ -1188,6 +1198,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
       setText('ro-n', fmt(eng.count));
       const al = sound.load;
       setText('ro-audio', al != null ? `${Math.round(al * 100)}%` : '–');
+      // where the GPU time goes: a step, a drawn world, the time a step covers, and the speed reached
+      const S = perf.simS || perf.stepMs;
+      setText('ro-step', S ? S.toFixed(S < 1 ? 3 : 2) : '–');
+      setText('ro-draw', perf.simS ? perf.renderR.toFixed(1) : '–');
+      setText('ro-ceil', state.paused ? '–' : `${perf.ticks}/60 s`);
+      setText('ro-rate', state.phase === 'running' && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : '–');
     }
     function set(id, v) {
       const s = eng.settings, P = state.perf;
@@ -1387,11 +1403,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     clearTimeout(flashTimer);
     flashTimer = setTimeout(() => flashEl.classList.remove('on'), 1500);
   }
-  // The speeds on offer: everything up to ×1, faster ones the GPU can sustain with room to spare
-  // (the cost of a step measured at low speed runs a little under its cost when many share a frame),
-  // and Max.
+  // The speeds on offer: everything up to ×1, faster ones the GPU can sustain (within GPU_BUDGET, in
+  // the coarsest steps), and Max.
   let speedCap = Infinity, speedCapAt = 0;
-  const speedChoices = () => SPEEDS.filter((v) => v <= 1 || (v !== Infinity && v <= speedCap * 0.75)).concat(Infinity);
+  const speedChoices = () => SPEEDS.filter((v) => v <= 1 || (v !== Infinity && v <= speedCap)).concat(Infinity);
   function renderTime() {
     const s = state.speed, list = speedChoices();
     const play = $('t-play');
@@ -1407,6 +1422,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   function setSpeed(v) {
     state.speed = v;
+    perf.ticksAt = 0;
     if (state.paused) state.paused = false;
     clock.owed = 0;
     perf.frameDt.length = 0;
@@ -1421,12 +1437,39 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (i < 0) i = list.findIndex((v) => v > state.speed) - (d > 0 ? 1 : 0);
     setSpeed(list[clamp(i + d, 0, list.length - 1)]);
   }
-  // What the GPU can sustain, from the measured cost of a step (S) and of drawing a frame (R): a frame
-  // may take MAX_FRAME_MS when running fast, which fits (MAX_FRAME_MS - R) / S steps.
+  // A step's GPU cost (a coarse step costs about what a 1/60 s one does: one scan of the neighbours)
+  const stepCost = () => perf.simS || perf.stepMs;
+  // GPU ms a second of real time takes at speed s in steps of m ticks: the steps, plus drawing the
+  // world every display frame, or (held) about every MAX_FRAME_MS, carrying the image between.
+  function gpuLoad(s, m, held = true) {
+    const fps = 1000 / frameTarget();
+    const draw = held ? (1000 / MAX_FRAME_MS) * perf.renderR + fps * (perf.presentR || 0.3) : fps * perf.renderR;
+    return ((s * 60) / m) * stepCost() + draw;
+  }
+  // GPU time a second may take when running fast, with room for what the estimate misses
+  const GPU_BUDGET = 800;
+  // What the GPU can sustain: the speed that fills the budget in the coarsest steps.
   function sustainable() {
-    const S = perf.simS || perf.stepMs, R = perf.simS ? perf.renderR : 0;
+    const S = stepCost();
     if (!S) return Infinity;
-    return ((MAX_FRAME_MS - R) / S) * ((H * 1000) / MAX_FRAME_MS);
+    return (Math.max(0, GPU_BUDGET - gpuLoad(0, MAX_TICKS)) / S) * MAX_TICKS / 60;
+  }
+  // How the chosen speed is run, cheapest first: 1/60 s steps with the world drawn every display
+  // frame; the same with it drawn only about every MAX_FRAME_MS (held); then the shortest coarse step the
+  // GPU fits (Max: the coarsest). Re-judged each second; a cheaper way is taken back only with room to spare.
+  function updateTicks(now) {
+    if (now - perf.ticksAt < 1000) return;
+    perf.ticksAt = now;
+    const s = state.speed;
+    if (!(s > 1) || !stepCost()) { perf.ticks = 1; perf.held = false; return; }
+    if (s === Infinity) { perf.ticks = MAX_TICKS; perf.held = true; return; }
+    const ways = [[1, false]];
+    for (let m = 1; m <= MAX_TICKS; m++) ways.push([m, true]);
+    const rank = ways.findIndex(([m, h]) => m === perf.ticks && h === perf.held);
+    let i = ways.findIndex(([m, h]) => gpuLoad(s, m, h) <= GPU_BUDGET);
+    if (i < 0) i = ways.length - 1;
+    if (i < rank && gpuLoad(s, ...ways[i]) > GPU_BUDGET * 0.8) i = rank;
+    [perf.ticks, perf.held] = ways[i];
   }
   // Re-judged every few seconds. The cap moves only when the estimate leaves a band around it, so
   // the choices don't flicker; a chosen speed that no longer fits becomes Max.
@@ -1496,7 +1539,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     $('g-light').setAttribute('aria-label', `Light ${L}%`);
     tips.check();
     // Max shows what it reaches; every other speed is exact
-    setText('t-rate', state.speed === Infinity && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : '');
+    setText('t-rate', state.speed > 1 && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : '');
     // fixed-width cells: a figure changing length never moves anything else in the dock
     setText('sys-n', fmt(eng.count));
     setText('sys-fps', perf.fps ? perf.fps.toFixed(0) : '–');
@@ -1982,11 +2025,44 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const S = perf.simS || perf.stepMs, R = perf.simS ? perf.renderR : 0;
     return S ? clamp(Math.floor((MAX_FRAME_MS - R) / S), 1, 512) : 4;
   };
+  // Max: the world is drawn about every MAX_FRAME_MS, but the camera, loupe and HUD keep the display's
+  // rate. Each display frame's GPU time, the whole display interval, goes to steps of m ticks, less the
+  // cost of drawing the world when it is due (else of carrying the last drawn image with the camera).
+  // Up to three frames queue, so the GPU never waits on the page between them.
+  function maxPlan(now, m) {
+    const world = now - perf.worldAt >= MAX_FRAME_MS;
+    if (world) perf.worldAt = now;
+    const dt = m * H, S = stepCost();
+    const cost = world ? perf.renderR : perf.presentR || 0.3;
+    if (!S) return { steps: 4, dt, world };
+    // whole steps only; the fraction left over carries to the next frame, so a step that costs a good
+    // part of the interval doesn't leave the GPU idle for the rest of it
+    perf.stepCredit = Math.min(perf.stepCredit + (frameTarget() - cost) / S, MAX_STEPS);
+    const steps = clamp(Math.floor(perf.stepCredit), 1, MAX_STEPS);
+    perf.stepCredit = Math.max(0, perf.stepCredit - steps);
+    return { steps, dt, world };
+  }
+  // A fast speed held (drawn as at Max), in steps of m ticks: the steps owed, whole ones (the remainder
+  // carries), as many as the frame's budget fits; the speed falls short when even that is too little.
+  function coarsePlan(now, m) {
+    const world = now - perf.worldAt >= MAX_FRAME_MS;
+    if (world) perf.worldAt = now;
+    const dt = m * H, S = stepCost();
+    // the frame's budget in steps, its fraction carried as at Max
+    perf.stepCredit = S ? Math.min(perf.stepCredit + (frameTarget() - (world ? perf.renderR : perf.presentR || 0.3)) / S, MAX_STEPS) : 4;
+    const cap = Math.max(1, Math.floor(perf.stepCredit));
+    let steps = Math.floor(clock.owed / dt);
+    // beyond the budget a couple of steps stay owed, to even out whole steps; the rest is dropped
+    if (steps > cap) { steps = cap; clock.owed = Math.min(clock.owed - steps * dt, 2 * dt); } else clock.owed -= steps * dt;
+    perf.stepCredit = Math.max(0, perf.stepCredit - steps);
+    return { steps, dt, world };
+  }
   // This frame's steps, or null to only draw (too little owed to be worth a step)
-  function plan() {
+  function plan(now) {
     if (state.paused || state.phase !== 'running') { clock.owed = 0; return { steps: 1, dt: H }; }
+    if (state.speed === Infinity) return maxPlan(now, perf.ticks);
+    if (perf.held) return coarsePlan(now, perf.ticks);
     const cap = stepCap();
-    if (state.speed === Infinity) return { steps: cap, dt: H };
     if (clock.owed < H * 0.2) return null;
     let n = Math.max(1, Math.ceil(clock.owed / H - 0.05));
     if (n > cap) { n = cap; clock.owed = n * H; }
@@ -2005,6 +2081,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // aiming below the display's rate skips frames; a little slack keeps a 60 Hz display at 60
     tickClock(now);
     updateSpeedCap(now);
+    updateTicks(now);
     const due = !state.perf.fps || !perf.lastSubmit || now - perf.lastSubmit >= 1000 / state.perf.fps - 4;
     if (now - perf.fpsT > 500) { perf.fps = (perf.frames * 1000) / (now - perf.fpsT); perf.frames = 0; perf.fpsT = now; }
     if (now - perf.rateT > 1000) {
@@ -2019,7 +2096,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (perf.lastSubmit) perf.frameDt.push(Math.min(Math.max(50, frameTarget() * 2.5), now - perf.lastSubmit));
       perf.lastSubmit = now;
       eng.season = seasonAt(eng.simTime);
-      const step = plan() || { steps: 0, dt: H };
+      const step = plan(now) || { steps: 0, dt: H };
+      // the census (naming and lineage) at most about five times a real second, however fast the world runs
+      eng.censusEvery = Math.max(20, Math.round((step.steps * 1000) / frameTarget() / 5));
       viewSimTime = eng.simTime + (state.paused ? 0 : step.steps * step.dt);
       if (state.phase === 'running' && !state.paused) climate.tick(step.steps * step.dt);
       autoCamera(now, dt);
@@ -2064,6 +2143,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         selId: sel ? sel.id : NONE,
         loupe: L ? { x: L.sx * dpr, y: L.sy * dpr, r: L.R * dpr, ppu: L.cssPPU * dpr, cx: L.cx, cy: L.cy } : null,
         specimen: specimenParams(),
+        // Max and coarse speeds draw the world only when due (step.world), carrying it with the camera between
+        hold: (state.speed === Infinity || perf.held) && !state.paused && state.phase === 'running' ? !!step.world : null,
       });
       inflight++;
       device.queue.onSubmittedWorkDone().then(() => { inflight--; }, () => { inflight--; });

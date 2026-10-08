@@ -302,7 +302,8 @@ body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520p
 .hot-btn:hover { background: rgba(255, 95, 58, 0.26); border-color: var(--hot); }
 .readout { display: grid; grid-template-columns: repeat(5, 1fr); margin: 10px 0 2px; border: 1px solid var(--line); }
 .readout div { display: flex; flex-direction: column; gap: 3px; padding: 7px 9px; border-left: 1px solid var(--line); min-width: 0; }
-.readout div:first-child { border-left: 0; }
+.readout div:nth-child(4n + 1) { border-left: 0; }
+.readout div:nth-child(n + 5) { border-top: 1px solid var(--line); }
 .readout b { font-size: 17px; font-weight: 300; line-height: 1; color: var(--sun); white-space: nowrap; }
 .readout span { font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
 .opts { flex-direction: column; gap: 6px; margin-top: 10px; }
@@ -823,6 +824,10 @@ body.filming .world { opacity: 0; visibility: hidden; }
       <div><b id="ro-px">–</b><span>Scene px</span></div>
       <div><b id="ro-n">–</b><span>Particles</span></div>
       <div><b id="ro-audio">–</b><span class="term" data-tip="audioload" tabindex="0">Audio</span></div>
+      <div><b id="ro-step">–</b><span class="term" data-tip="stepms" tabindex="0">Step ms</span></div>
+      <div><b id="ro-draw">–</b><span class="term" data-tip="drawms" tabindex="0">Draw ms</span></div>
+      <div><b id="ro-ceil">–</b><span class="term" data-tip="stride" tabindex="0">Stride</span></div>
+      <div><b id="ro-rate">–</b><span class="term" data-tip="simrate" tabindex="0">Now</span></div>
     </div>
     <div class="opts" id="opts"></div>
     <div class="keys-note">Keyboard: <kbd>?</kbd> lists every shortcut.</div>
@@ -1068,6 +1073,10 @@ const GLINT = 1u;
 const HUSK = 2u;
 const STONE = 3u;
 const NONE = 0xffffffffu;
+// A claim made by a coarse step's walk (lifeMain) says what it is for itself rather than through the
+// claimer's intent: bit 31, then a class in bits 29-30 (0 a kill, 1 glint, 2 a husk, each taken by the
+// claimer in bits 0-22; 3 bites of a photosynthesiser, counted in bits 0-15, any number of eaters).
+const MEAL_CLAIM = 0x80000000u;
 const MAX_CELLS = 262144u;
 const META_SLOT = ${META_SLOT}u;
 const META_POP = ${META_POP}u;
@@ -1149,11 +1158,23 @@ fn roleColor(g: Genome, r: u32) -> vec3f {
   let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
   let hungry = p.energy < g.reproE * ${f(K.sated)} && eatEff > 0.1;
   let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
+  // food in reach is gathered by hungry cells; in a coarse step also by any that may grow hungry in it
+  let seek = hungry || (sim.ticks > 1u && eatEff > 0.1);
+  let seekHunt = canHunt || (seek && (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN));
   let bonding = g.adhesion > ${f(K.adhMin)};
   var dn1 = vec2f(0.0);
   var dn2 = vec2f(0.0);
 
   var force = vec2f(0.0);
+  // Coarse steps (sim.ticks > 1) also gather how the pair and stone forces change as this cell moves
+  // (their gradients jF, jS: xx, xy, yy) and its neighbours' velocity weighted by how stiffly each holds
+  // it (vN / wN, with wN2 for their number): see the motion below.
+  var jF = vec3f(0.0);
+  var jS = vec3f(0.0);
+  var vN = vec2f(0.0);
+  var wN = 0.0;
+  var wN2 = 0.0;
+  let selfVel = p.vel + flowAt(p.pos) * g.advect;
   var csum = vec3f(0.0);
   var wsum = 0.0;
   var kinVel = vec2f(0.0);
@@ -1179,7 +1200,11 @@ fn roleColor(g: Genome, r: u32) -> vec3f {
   }
   let keep1 = n1 != NONE; let keep2 = n2 != NONE;
   var food = NONE; var foodScore = -1e9;
+  // a coarse step keeps the four best, for its meals and for claims lost to other eaters
+  var fc = array<u32, 4>(NONE, NONE, NONE, NONE);
+  var fsc = array<f32, 4>(-1e9, -1e9, -1e9, -1e9);
   var silt = NONE; var siltD = 1e9;
+  var silt2 = NONE; var siltD2 = 1e9;
   var stoneF = vec2f(0.0);
   var stoneN = 0.0;
   var pack = 0.0;
@@ -1231,13 +1256,16 @@ fn roleColor(g: Genome, r: u32) -> vec3f {
       let a = clamp((dot(rec0, s0) + dot(rec1, s1)) * ${f(K.affScale)}, -1.0, 1.0);
       let shape = 1.0 - abs(2.0 * x - 1.0 - beta) * invOM;
       var fr: f32;
+      // how fr changes with distance (coarse steps' gradient), and the pull that scales shape
+      var dfr = 0.0;
+      var pull = 0.0;
       if (qk >= FIRST_LIFE) {
         // a hungry forager lets other species inside its personal space so it can reach them
-        if (x < beta) { fr = (x * invBeta - 1.0) * select(1.0, 0.15, canHunt && qk != p.kind); } else { fr = a * shape; }${W("mFr0 = fr;")}
+        let core = select(1.0, 0.15, canHunt && qk != p.kind);
+        if (x < beta) { fr = (x * invBeta - 1.0) * core; } else { fr = a * shape; }${W("mFr0 = fr;")}
         // hungry foragers are drawn toward the cells their diet favours
-        if (canHunt && qk != p.kind && x >= beta) {
-          fr += select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)} * shape;
-        }
+        let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
+        if (x >= beta) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * invBeta * invR; }
         crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
         if (r < LINK_R) { let w = 1.0 - r / LINK_R; pack += w * w; }
         if (qk == p.kind) {
@@ -1258,7 +1286,7 @@ fn roleColor(g: Genome, r: u32) -> vec3f {
             } else if (!keep2 && r < d2) { d2 = r; n2 = j; dn2 = d; }
           }
         }
-        if (canHunt && r < EAT_R && qk != p.kind) {
+        if (seekHunt && r < EAT_R && qk != p.kind) {
           let da = s0 - my0;
           let db = s1 - my1;
           if (dot(da, da) + dot(db, db) > ${f(K.kin)}) {
@@ -1267,61 +1295,135 @@ fn roleColor(g: Genome, r: u32) -> vec3f {
             let pref = select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, plant);
             let sc = pref - r;
             if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+            if (pref > DIET_MIN && sim.ticks > 1u) { pushFood(&fc, &fsc, j, sc); }
           }
         }
       } else {
         fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);${W("mFr0 = fr;")}
+        pull = a * ${f(K.matterPull)};
         if (qk == STONE) {
           // stone is solid: it pushes cells out however hard they swim, and shelters those among it
-          if (r < ${f(K.stoneR)}) { stoneF += d * ((r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r)); }
+          if (r < ${f(K.stoneR)}) {
+            stoneF += d * ((r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r));
+            // its push, g(r) = 1/stoneR - 1/r along d, has gradient -(g I + d d' / r^3)
+            let gs = (r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r); let cs = 1.0 / (r2 * r);
+            jS -= vec3f(gs + cs * d.x * d.x, cs * d.x * d.y, gs + cs * d.y * d.y);
+          }
           if (r < 0.5) { stoneN += 1.0; }
         } else {
           if (hungry && qk != SILT && x >= beta) {
             fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)} * shape;
+            pull += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)};
           }
           if (qk == SILT) { nutr += 1.0; }
-          if (r < EAT_R) {
-            if (qk == SILT) {
-              if (r < siltD) { siltD = r; silt = j; }
-            } else if (hungry) {
-              let dv = select(g.dHusk, g.dGlint, qk == GLINT);
-              let sc = dv - r;
-              if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
-            }
+          // a cell ready to divide looks for a grain every tick, so in a coarse step a grain counts if it
+          // came within reach at any tick of it: the closest approach of their paths over the step
+          var rc = r;
+          if (qk == SILT && sim.ticks > 1u) {
+            let w = unpack2x16float(q.vel) - selfVel;
+            let ww = dot(w, w);
+            rc = length(d + w * select(0.0, clamp(-dot(d, w) / ww, 0.0, sim.dt), ww > 1e-12));
+          }
+          if (qk == SILT && rc < EAT_R) {
+            if (rc < siltD) { siltD2 = siltD; silt2 = silt; siltD = rc; silt = j; }
+            else if (rc < siltD2) { siltD2 = rc; silt2 = j; }
+          } else if (qk != SILT && r < EAT_R && seek) {
+            let dv = select(g.dHusk, g.dGlint, qk == GLINT);
+            let sc = dv - r;
+            if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+            if (dv > DIET_MIN && sim.ticks > 1u) { pushFood(&fc, &fsc, j, sc); }
           }
         }
       }
+      if (x >= beta) { dfr = select(-2.0, 2.0, 2.0 * x < 1.0 + beta) * invOM * invR * pull; }
       force += d * (fr / r);${W("mPair(j, q, d, r, x < beta, qk == p.kind, mFr0, fr);")}
+      if (sim.ticks > 1u) {
+        // the pair force d g(r), g = fr / r, has gradient in this cell's position -(g I + g'/r d d')
+        let gr = fr / r;
+        let c = (dfr * r - fr) / (r2 * r);
+        jF -= vec3f(gr + c * d.x * d.x, c * d.x * d.y, gr + c * d.y * d.y);
+        let w = abs(gr) + abs(c) * r2;
+        vN += unpack2x16float(q.vel) * w;
+        wN += w;
+        wN2 += w * w;
+      }
     }
     at -= len;
   }
   force *= stride; crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride;
 
   let heavy = 1.0 - 0.7 * g.photo;
-  let fr0 = pow(0.5, sim.dt / g.drag);
-  var vel = p.vel * fr0 + force * (g.force * heavy * sim.dt);${W("mVel = vel;")}
-  if (kinN > 0.0 && g.align > 0.0) {
-    vel = mix(vel, kinVel / kinN, clamp(g.align * ${f(K.align)} * sim.dt, 0.0, 1.0));${W("mAlign = vel - mVel;")}
-  }
   // Persistent bonds pull on the partners' current positions, even outside the sampled scan.
   var bondF = vec2f(0.0);
   if (n1 != NONE) { bondF += dn1 * ((d1 - LINK_R * 0.55) / max(d1, 1e-4)); }
   if (n2 != NONE) { bondF += dn2 * ((d2 - LINK_R * 0.55) / max(d2, 1e-4)); }
-  vel += bondF * (g.adhesion * ${f(K.bond)} * sim.dt);
-  // stone is solid to everything but the calcifiers that build it, which settle on their own reef
-  vel += stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify) * sim.dt);
   let swim = g.swim * (1.0 - g.photo);
-  if (swim > 0.0) {
-    var dir = vel;
-    if (dot(dir, dir) < 1e-6) {
-      let a = rnd(&s) * TAU;
-      dir = vec2f(cos(a), sin(a));
-    }
-    vel += normalize(dir) * swim * sim.dt;${W("mSwim = normalize(dir) * swim;")}
+  let flow = flowAt(p.pos) * g.advect;
+  // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
+  // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
+  // The cell and its neighbourhood are taken as two bodies sharing momentum: the reaction to this cell's
+  // forces is spread over Mn neighbours (the participation number of the stiffness weights), their centre
+  // (v + Mn vNear) / (1 + Mn) keeps its velocity under drag, and only the relative velocity v - vNear
+  // meets the restoring stiffness D (1 + 1/Mn), backward Euler in its end value. A clump drifting together
+  // is untouched and a collision too stiff to resolve shares its momentum; stable for every mode of a
+  // clump (tools/fastforward/stiff-modes.py, docs/fast-forward.md).
+  var stiff = vec2f(0.0);
+  if (sim.ticks > 1u && wN2 > 0.0) {
+    let cf = g.force * heavy;
+    let cw = ${f(K.stoneWall)} * (1.0 - g.calcify);
+    let D = -(restoring(jF * stride) * cf + restoring(jS * stride) * cw);
+    let a0 = force * cf + stoneF * cw;
+    let vNear = vN / wN;
+    let Mn = wN * wN / wN2;
+    let frT = pow(0.5, sim.dt / g.drag);
+    let G = (1.0 - frT) * g.drag / 0.69314718;
+    let kk = D * (1.0 + 1.0 / Mn);
+    let rhs = (p.vel - vNear) * frT + a0 * (G * (1.0 + 1.0 / Mn));
+    let m00 = 1.0 + G * sim.dt * kk.x; let m01 = G * sim.dt * kk.y; let m11 = 1.0 + G * sim.dt * kk.z;
+    let vr = vec2f(m11 * rhs.x - m01 * rhs.y, m00 * rhs.y - m01 * rhs.x) / max(m00 * m11 - m01 * m01, 1e-6);
+    let vEnd = (p.vel + vNear * Mn) / (1.0 + Mn) * frT + vr * (Mn / (1.0 + Mn));
+    stiff = (vEnd - p.vel * frT) / G - a0;
   }
-  let sp = length(vel);
-  if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
-  let pos = wrapPos(p.pos + (vel + flowAt(p.pos) * g.advect) * sim.dt);
+  // Motion in substeps of one tick (1/60 s), so a coarse step moves a cell as that many 1/60 s steps
+  // would under its forces; bonds pull toward where the partners will be, carried on their velocities.
+  // A 1/60 s step is a single substep.
+  let h = sim.dt / f32(sim.ticks);
+  let fr0 = pow(0.5, h / g.drag);
+  var vB1 = vec2f(0.0);
+  var vB2 = vec2f(0.0);
+  if (n1 != NONE) { vB1 = sortedFull[n1].vel; }
+  if (n2 != NONE) { vB2 = sortedFull[n2].vel; }
+  var vel = p.vel;
+  var pos = p.pos;
+  for (var k = 0u; k < sim.ticks; k++) {
+    var fb = bondF;
+    if (k > 0u) {
+      let t = f32(k) * h;
+      let moved = pos - p.pos;
+      fb = vec2f(0.0);
+      if (n1 != NONE) { let e = dn1 + vB1 * t - moved; let l = length(e); fb += e * ((l - LINK_R * 0.55) / max(l, 1e-4)); }
+      if (n2 != NONE) { let e = dn2 + vB2 * t - moved; let l = length(e); fb += e * ((l - LINK_R * 0.55) / max(l, 1e-4)); }
+    }
+    vel = vel * fr0 + force * (g.force * heavy * h) + stiff * h;${W("if (k == 0u) { mVel = vel; }")}
+    if (kinN > 0.0 && g.align > 0.0) {
+      vel = mix(vel, kinVel / kinN, clamp(g.align * ${f(K.align)} * h, 0.0, 1.0));${W("if (k == 0u) { mAlign = vel - mVel; }")}
+    }
+    vel += fb * (g.adhesion * ${f(K.bond)} * h);
+    // stone is solid to everything but the calcifiers that build it, which settle on their own reef
+    vel += stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify) * h);
+    if (swim > 0.0) {
+      var dir = vel;
+      if (dot(dir, dir) < 1e-6) {
+        let a = rnd(&s) * TAU;
+        dir = vec2f(cos(a), sin(a));
+      }
+      vel += normalize(dir) * swim * h;${W("if (k == 0u) { mSwim = normalize(dir) * swim; }")}
+    }
+    let sp = length(vel);
+    if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
+    pos += (vel + flow) * h;
+  }
+  pos = wrapPos(pos);
 
   var col = unpack4x8unorm(p.col).rgb;
   if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }
@@ -1352,6 +1454,8 @@ struct Sim {
   tide: array<vec4f, 4>,
   tidePh: vec4f,
   rock: vec4f,
+  // tick: 1/60 s ticks simulated up to the end of this step; ticks: how many this step covers
+  tick: u32, ticks: u32, pad0: u32, pad1: u32,
 };
 // kr: 0..9 kind, 10..11 role, 12 plant.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
@@ -1638,10 +1742,22 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
     let c = atomicLoad(&ledger[META_CLAIM + i]);
     if (c != 0u) {
       atomicStore(&ledger[META_CLAIM + i], 0u);
-      // Only x/y are read here; other invocations may reset their own bond slots.
-      let action = intent[c - 1u].x;
-      let act = action & 3u;
-      let ck = (action >> 2u) & 1023u;
+      var action = 0u;
+      var act = 0u;
+      var ck = 0u;
+      var bites = 1.0;
+      if ((c & MEAL_CLAIM) != 0u) {
+        // a coarse step's meal: the target's kind follows from its class; bites at most one a tick
+        let cls = (c >> 29u) & 3u;
+        act = select(1u, 3u, cls == 3u);
+        ck = select(select(HUSK, GLINT, cls == 1u), select(NONE, p.kind, p.kind >= FIRST_LIFE), cls == 0u || cls == 3u);
+        if (cls == 3u) { bites = f32(min(c & 0xffffu, sim.ticks)); }
+      } else {
+        // Only x/y are read here; other invocations may reset their own bond slots.
+        action = intent[c - 1u].x;
+        act = action & 3u;
+        ck = (action >> 2u) & 1023u;
+      }
       if (act == 1u && p.kind == ck) {
         if (p.kind >= FIRST_LIFE) {
           // a kill leaves a carcass for the scavengers
@@ -1654,7 +1770,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         }
       } else if (act == 3u && p.kind == ck) {
         if (p.kind >= FIRST_LIFE) {
-          p.energy -= ${f(K.bite)};
+          p.energy -= ${f(K.bite)} * bites;
           if (p.energy <= 0.0) {
             atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
             p.kind = HUSK; p.energy = ${f(K.huskBase)}; p.age = 0.0;
@@ -1879,7 +1995,9 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   p.age += sim.dt;
   if (p.kind == SILT) {
     let T = tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient;
-    if (rnd(&s) < T * ${f(K.charge)} * sim.chargeMul * sim.dt) {
+    // a step's chance of charging; for coarse steps the exact chance of at least one event in the step
+    let lam = T * ${f(K.charge)} * sim.chargeMul;
+    if (rnd(&s) < select(lam * sim.dt, 1.0 - exp(-lam * sim.dt), sim.ticks > 1u)) {
       p.kind = GLINT; p.energy = 1.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 5u;
     }
@@ -1926,6 +2044,45 @@ fn keepBond(i: u32, j: u32, p: Particle) -> u32 {
   return j;
 }
 
+// Handling time: matter is eaten at every meal opportunity, living prey only at every Nth.
+fn mealDue(fk: u32, meal: u32) -> bool {
+  return fk < FIRST_LIFE || meal % select(${K.killEvery | 0}u, ${K.biteEvery | 0}u, genomes[fk].photo > 0.4) == 0u;
+}
+
+// Whether an attack on food of kind fk misses: armour, an unfamiliar quarry, too little skill, or prey
+// hiding among stone. Every roll is drawn whatever the outcome, so the random stream stays the same.
+fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, s: ptr<function, u32>) -> bool {
+  let armored = fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
+  let image = (info >> 6u) & 1023u;
+  let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(s) < ${f(K.searchImage)};
+  let unskilled = ${f(K.catchSkill)} > 0.0 && fk >= FIRST_LIFE && rnd(s) >= min(1.0, eatEff * select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, genomes[fk].photo > 0.4) / ${f(K.catchSkill)});
+  // an attack made from among stone often misses: prey hides in the crevices
+  let sheltered = fk >= FIRST_LIFE && rnd(s) < min(${f(K.refugeMax)}, stoneN * ${f(K.refuge)});
+  return armored || unfamiliar || unskilled || sheltered;
+}
+
+// Keep the four best food targets (fc, best first, by score fsc).
+fn pushFood(fc: ptr<function, array<u32, 4>>, fsc: ptr<function, array<f32, 4>>, j: u32, sc: f32) {
+  if (sc <= (*fsc)[3]) { return; }
+  var k = 3u;
+  while (k > 0u && (*fsc)[k - 1u] < sc) { (*fsc)[k] = (*fsc)[k - 1u]; (*fc)[k] = (*fc)[k - 1u]; k--; }
+  (*fsc)[k] = sc;
+  (*fc)[k] = j;
+}
+
+// The restoring part of a symmetric 2x2 gradient (xx, xy, yy): its eigenvalues clamped to <= 0.
+fn restoring(j: vec3f) -> vec3f {
+  let m = 0.5 * (j.x + j.z);
+  let q = sqrt(0.25 * (j.x - j.z) * (j.x - j.z) + j.y * j.y);
+  // isotropic (or empty): no direction to pick, and atan2(0, 0) is undefined
+  if (q < 1e-9) { return vec3f(min(m, 0.0), 0.0, min(m, 0.0)); }
+  let l1 = min(m + q, 0.0);
+  let l2 = min(m - q, 0.0);
+  let th = 0.5 * atan2(2.0 * j.y, j.x - j.z);
+  let c = cos(th); let sn = sin(th);
+  return vec3f(l1 * c * c + l2 * sn * sn, (l1 - l2) * c * sn, l1 * sn * sn + l2 * c * c);
+}
+
 @compute @workgroup_size(128)
 fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
@@ -1944,53 +2101,124 @@ ${cellWGSL(K, false)}
   var cr = 0u;
   var ce = 0.0;
   var info = p.info;
-  if (E > g.reproE && silt != NONE) {
-    if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
-      ck = p.kind;
-      cr = sampleRole(g, role, &s);
-      if (rnd(&s) < g.mutRate) {
-        let slot = allocSlot(&s);
-        if (slot != NONE) {
-          mutateInto(slot, p.kind, &s);
-          ck = slot;
-          atomicAdd(&ledger[3], 1u);
+  if (sim.ticks == 1u) {
+    if (E > g.reproE && silt != NONE) {
+      if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
+        ck = p.kind;
+        cr = sampleRole(g, role, &s);
+        if (rnd(&s) < g.mutRate) {
+          let slot = allocSlot(&s);
+          if (slot != NONE) {
+            mutateInto(slot, p.kind, &s);
+            ck = slot;
+            atomicAdd(&ledger[3], 1u);
+          }
+        }
+        ce = E * g.share;
+        E -= ce + ${f(K.buildCost)};
+        addEnergy(dg, 6u, ce + ${f(K.buildCost)});
+        act = 2u;
+      }
+    // a meal opportunity every K.eatEvery ticks, in the cell's own phase
+    } else if (food != NONE && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && mealDue(sortedFull[food].kind, (sim.tick + p.id) / ${K.eatEvery | 0}u)) {
+      let fk = sortedFull[food].kind;
+      if (!mealMissed(fk, info, g, eatEff, stoneN, &s) && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
+        let fp = sortedFull[food];
+        if (fp.kind >= FIRST_LIFE) {
+          atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
+        }
+        ck = fp.kind;
+        var gain = 0.0;
+        act = 1u;
+        if (fp.kind == GLINT) {
+          gain = fp.energy * spec(g.dGlint); atomicAdd(&ledger[9], 1u);
+        } else if (fp.kind == HUSK) {
+          gain = fp.energy * spec(g.dHusk); atomicAdd(&ledger[10], 1u);
+        } else if (genomes[fp.kind].photo > 0.4) {
+          gain = min(max(fp.energy, 0.0), ${f(K.bite)}) * spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh); act = 3u; atomicAdd(&ledger[11], 1u);
+        } else {
+          gain = (${f(K.preyBase)} + ${f(K.preyFrac)} * max(fp.energy, 0.0)) * spec(g.dFlesh); atomicAdd(&ledger[7], 1u);
+        }
+        if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
+        E += gain * ${f(K.gain)} * eatEff;
+        addEnergy(dg, select(select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), 1u, fp.kind == GLINT), gain * ${f(K.gain)} * eatEff);
+      }
+    }
+  } else {
+    // A coarse step walks its ticks in order, as that many 1/60 s steps would: energy flows tick by tick
+    // (upkeep following it), the cell divides once its energy crosses the mark (one birth a step), eats
+    // at each of its own meal opportunities while still hungry then (the next-best target after a meal or
+    // a target lost to another eater), and stops at the tick it starves or ages out.
+    E = p.energy;
+    age = p.age;
+    var next = 0u;
+    var born = false;
+    for (var k = 1u; k <= sim.ticks; k++) {
+      E += (photoGain - g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(E / g.reproE, 0.0, 1.0))) * h;
+      age += h;
+      let tk = sim.tick - sim.ticks + k;
+      if (!born && E > g.reproE && silt != NONE) {
+        born = true;
+        var won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged;
+        if (!won && silt2 != NONE) { won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt2], 0u, i + 1u).exchanged; }
+        if (won) {
+          ck = p.kind;
+          cr = sampleRole(g, role, &s);
+          if (rnd(&s) < g.mutRate) {
+            let slot = allocSlot(&s);
+            if (slot != NONE) {
+              mutateInto(slot, p.kind, &s);
+              ck = slot;
+              atomicAdd(&ledger[3], 1u);
+            }
+          }
+          ce = E * g.share;
+          E -= ce + ${f(K.buildCost)};
+          addEnergy(dg, 6u, ce + ${f(K.buildCost)});
+          act = 2u;
+          continue;
+        }
+      } else if ((tk + p.id) % ${K.eatEvery | 0}u == 0u && next < 4u && E < g.reproE * ${f(K.sated)} && eatEff > 0.1) {
+        let mi = (tk + p.id) / ${K.eatEvery | 0}u;
+        while (next < 4u) {
+          let fd = fc[next];
+          if (fd == NONE) { next = 4u; break; }
+          let fp = sortedFull[fd];
+          // handling time, or a miss (armour, an unfamiliar quarry, skill, shelter), ends this opportunity
+          if (!mealDue(fp.kind, mi) || mealMissed(fp.kind, info, g, eatEff, stoneN, &s)) { break; }
+          let plant = fp.kind >= FIRST_LIFE && genomes[fp.kind].photo > 0.4;
+          var got = true;
+          if (plant) {
+            // bites don't exclude each other: in 1/60 s steps several grazers would each have had a turn
+            atomicOr(&ledger[META_CLAIM + fd], MEAL_CLAIM | (3u << 29u));
+            atomicAdd(&ledger[META_CLAIM + fd], 1u);
+          } else {
+            let cls = select(select(2u, 1u, fp.kind == GLINT), 0u, fp.kind >= FIRST_LIFE);
+            got = atomicCompareExchangeWeak(&ledger[META_CLAIM + fd], 0u, MEAL_CLAIM | (cls << 29u) | (i + 1u)).exchanged;
+          }
+          next++;
+          if (!got) { continue; }
+          var gain = 0.0;
+          var slot = 4u;
+          if (fp.kind == GLINT) {
+            gain = fp.energy * spec(g.dGlint); atomicAdd(&ledger[9], 1u); slot = 1u;
+          } else if (fp.kind == HUSK) {
+            gain = fp.energy * spec(g.dHusk); atomicAdd(&ledger[10], 1u); slot = 3u;
+          } else if (plant) {
+            gain = min(max(fp.energy, 0.0), ${f(K.bite)}) * spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh); atomicAdd(&ledger[11], 1u); slot = 2u;
+          } else {
+            gain = (${f(K.preyBase)} + ${f(K.preyFrac)} * max(fp.energy, 0.0)) * spec(g.dFlesh); atomicAdd(&ledger[7], 1u);
+          }
+          if (fp.kind >= FIRST_LIFE) {
+            atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
+            info = (info & 0xffff003fu) | (fp.kind << 6u);
+          }
+          E += gain * ${f(K.gain)} * eatEff;
+          addEnergy(dg, slot, gain * ${f(K.gain)} * eatEff);
+          break;
         }
       }
-      ce = E * g.share;
-      E -= ce + ${f(K.buildCost)};
-      addEnergy(dg, 6u, ce + ${f(K.buildCost)});
-      act = 2u;
-    }
-  } else if (food != NONE && ((sim.frame + p.id) % ${K.eatEvery | 0}u) == 0u
-             && (sortedFull[food].kind < FIRST_LIFE
-                 || ((sim.frame + p.id) / ${K.eatEvery | 0}u) % select(${K.killEvery | 0}u, ${K.biteEvery | 0}u, genomes[sortedFull[food].kind].photo > 0.4) == 0u)) {
-    let fk = sortedFull[food].kind;
-    let armored = fk >= FIRST_LIFE && rnd(&s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
-    let image = (info >> 6u) & 1023u;
-    let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(&s) < ${f(K.searchImage)};
-    let unskilled = ${f(K.catchSkill)} > 0.0 && fk >= FIRST_LIFE && rnd(&s) >= min(1.0, eatEff * select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, genomes[fk].photo > 0.4) / ${f(K.catchSkill)});
-    // an attack made from among stone often misses: prey hides in the crevices
-    let sheltered = fk >= FIRST_LIFE && rnd(&s) < min(${f(K.refugeMax)}, stoneN * ${f(K.refuge)});
-    if (!armored && !unfamiliar && !unskilled && !sheltered && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
-      let fp = sortedFull[food];
-      if (fp.kind >= FIRST_LIFE) {
-        atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
-      }
-      ck = fp.kind;
-      var gain = 0.0;
-      act = 1u;
-      if (fp.kind == GLINT) {
-        gain = fp.energy * spec(g.dGlint); atomicAdd(&ledger[9], 1u);
-      } else if (fp.kind == HUSK) {
-        gain = fp.energy * spec(g.dHusk); atomicAdd(&ledger[10], 1u);
-      } else if (genomes[fp.kind].photo > 0.4) {
-        gain = min(max(fp.energy, 0.0), ${f(K.bite)}) * spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh); act = 3u; atomicAdd(&ledger[11], 1u);
-      } else {
-        gain = (${f(K.preyBase)} + ${f(K.preyFrac)} * max(fp.energy, 0.0)) * spec(g.dFlesh); atomicAdd(&ledger[7], 1u);
-      }
-      if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
-      E += gain * ${f(K.gain)} * eatEff;
-      addEnergy(dg, select(select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), 1u, fp.kind == GLINT), gain * ${f(K.gain)} * eatEff);
+      if (E <= 0.0 || age > g.lifespan) { break; }
     }
   }
 
@@ -2103,7 +2331,7 @@ ${cellWGSL(K, true)}
   mPut2(30, mDiet * acc);
   mPut2(32, mMatter * acc);
   mPut2(34, mForage * acc);
-  mPut2(36, mAlign / sim.dt);
+  mPut2(36, mAlign / h);
   mPut2(38, bondF * (g.adhesion * ${f(K.bond)}));
   mPut2(40, stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify)));
   mPut2(42, mSwim);
@@ -12350,6 +12578,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.grid = [3, 3];
       this.simTime = 0;
       this.frameNo = 0;
+      this.tick = 0;
+      this.ticks = 1;
       this.worldGeneration = 0;
       this.season = 1;
       this.abio = 0;
@@ -12360,7 +12590,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.seedValue = 1;
       this.censusEvery = 20;
       this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1, tide: 1, optics: 1, specks: true, lod: true };
-      this.simData = new ArrayBuffer(240);
+      this.simData = new ArrayBuffer(256);
       this.rock = new Float32Array(4);
       this.simF = new Float32Array(this.simData);
       this.simU = new Uint32Array(this.simData);
@@ -12387,7 +12617,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.b = {};
       const d = device;
       const b = this.b;
-      b.sim = d.createBuffer({ size: 240, usage: U.UNIFORM | U.COPY_DST });
+      b.sim = d.createBuffer({ size: 256, usage: U.UNIFORM | U.COPY_DST });
       b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
       this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
       b.view = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
@@ -12504,6 +12734,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.trackStage = [0, 1, 2, 3, 4, 5, 6, 7].map(() => ({ buf: d.createBuffer({ size: 56, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
       b.reprojU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
       this.pReproj = rp(this.postModule, "vsFull", "fsReproj", "triangle-list", void 0);
+      b.holdU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
+      this.pHold = rp(this.postModule, "vsFull", "fsReproj", "triangle-list", void 0, format);
       this.microModule = d.createShaderModule({ code: MICRO_WGSL, label: "micro" });
       this.cpMicro = d.createComputePipeline({ layout: "auto", compute: { module: this.microModule, entryPoint: "microSpecks" }, label: "microSpecks" });
       this.pSpeck = rp(this.microModule, "vsSpeck", "fsSpeck", "triangle-strip", additive);
@@ -12728,6 +12960,15 @@ registerProcessor("tidemote-sound", TidemoteSound);
         { binding: 1, resource: v },
         { binding: 5, resource: { buffer: this.b.reprojU } }
       ] }));
+      this.holdTex?.destroy();
+      this.holdTex = d.createTexture({ size: [w, h], format: this.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+      this.holdView = this.holdTex.createView();
+      this.holdBG = d.createBindGroup({ layout: this.pHold.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: this.sampler },
+        { binding: 1, resource: this.holdView },
+        { binding: 5, resource: { buffer: this.b.holdU } }
+      ] });
+      this.holdCam = null;
       this.clearAccum = true;
     }
     _ensureLoupeTex(L) {
@@ -12803,6 +13044,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.grid = this.gridFor(n, aspect);
       this.simTime = 0;
       this.frameNo = 0;
+      this.tick = 0;
       this.seedValue = rng() * 4294967295 >>> 0;
       this.ambient = mix2(0.12, 0.3, rng());
       this.chargeMul = mix2(0.8, 1.25, rng());
@@ -12907,7 +13149,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       f2[6] = this.dt || 1 / 60;
       f2[7] = this.simTime;
       f2[8] = this.season;
-      f2[9] = this.abio;
+      f2[9] = Math.min(1, this.abio * this.ticks);
       u[10] = this.seedValue + this.frameNo * 7919 >>> 0;
       f2[11] = this.K.maxSpeed;
       u[12] = extra.seedKinds || 1;
@@ -12922,6 +13164,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       f2.set(this.tide, 36);
       f2.set(this.tidePh, 52);
       f2.set(this.rock, 56);
+      u[60] = this.tick;
+      u[61] = this.ticks;
     }
     requestPick(center, radius, selId, { kind = 4294967295, maxOut = 4096, raw = false } = {}) {
       return new Promise((resolve) => {
@@ -12936,6 +13180,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.dt = simDt;
       this.simTime += simDt;
       this.frameNo++;
+      this.ticks = Math.max(1, Math.round(simDt * 60));
+      this.tick += this.ticks;
       if (ring < 0) this._writeSim();
       else {
         this._fillSim();
@@ -13010,8 +13256,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
     /**
      * One rendered frame after `steps` simulation steps. target: GPUTextureView or null (simulate only).
      * cam: {x,y,ppu}; loupe: {x,y,r (canvas px), ppu, cx, cy (world)} or null.
+     * hold (Max and coarse speeds): true draws the world into the held image, false only carries the held
+     * image with the camera (a fullscreen blit), so most of the GPU stays on the simulation.
      */
-    frame({ target = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, steps = 1, time = 0, dpr = 1, selId = 4294967295, loupe = null, specimen = null }) {
+    frame({ target = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, steps = 1, time = 0, dpr = 1, selId = 4294967295, loupe = null, specimen = null, hold = null }) {
       const d = this.device;
       const generation = this.worldGeneration;
       const b = this.b;
@@ -13115,7 +13363,26 @@ registerProcessor("tidemote-sound", TidemoteSound);
           enc.copyBufferToBuffer(b.pickOut, 0, st.buf, 0, 56 + pickJob.req.maxOut * PICK_WORDS * 4);
         }
       }
-      if (target) this._render(enc, { target, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd: slot ? { querySet: tm.qs, endOfPassWriteIndex: 1 } : void 0 });
+      const tsEndAt1 = slot ? { querySet: tm.qs, endOfPassWriteIndex: 1 } : void 0;
+      const drew = !!target && (hold == null || hold || !this.holdCam);
+      if (target && hold == null) this._render(enc, { target, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd: tsEndAt1 });
+      else if (target) {
+        if (drew) {
+          this._render(enc, { target: this.holdView, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd: tsEndAt1 });
+          this.holdCam = { x: cam.x, y: cam.y, ppu: cam.ppu };
+        }
+        const [W, H2] = this.size, lc = this.holdCam;
+        const dx = cam.x - lc.x, dy = cam.y - lc.y, gx = this.grid[0], gy = this.grid[1];
+        const wx = dx - gx * Math.round(dx / gx), wy = dy - gy * Math.round(dy / gy), ratio = lc.ppu / cam.ppu;
+        d.queue.writeBuffer(b.holdU, 0, new Float32Array([ratio, ratio, wx * lc.ppu / W, wy * lc.ppu / H2, 1, 0, 0, 0]));
+        const begin = tsBegin();
+        const tw = drew ? void 0 : begin || tsEndAt1 ? { ...begin || {}, ...tsEndAt1 || {} } : void 0;
+        const pass = enc.beginRenderPass({ colorAttachments: [{ view: target, loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }], timestampWrites: tw });
+        pass.setPipeline(this.pHold);
+        pass.setBindGroup(0, this.holdBG);
+        pass.draw(3);
+        pass.end();
+      }
       const timed = slot && (stepping || target);
       if (timed) {
         enc.resolveQuerySet(tm.qs, 0, 3, tm.resolve, 0);
@@ -13130,13 +13397,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
           const simMs = !nSteps ? 0 : target ? Number(t2[2] - t2[0]) / 1e6 : ms;
           slot.buf.unmap();
           slot.busy = false;
-          if (generation === this.worldGeneration && ms > 0 && ms < 5e3 && this.onGpuTime) this.onGpuTime(ms, N, nSteps, simMs > 0 && simMs <= ms ? simMs : null);
+          if (generation === this.worldGeneration && ms > 0 && ms < 5e3 && this.onGpuTime) this.onGpuTime(ms, N, nSteps, simMs > 0 && simMs <= ms ? simMs : null, drew);
         }).catch(() => {
           slot.busy = false;
         });
       } else if (!tm && this.onGpuTime && (stepping || target)) {
         d.queue.onSubmittedWorkDone().then(() => {
-          if (generation === this.worldGeneration && this.onGpuTime) this.onGpuTime(performance.now() - t0, N, nSteps);
+          if (generation === this.worldGeneration && this.onGpuTime) this.onGpuTime(performance.now() - t0, N, nSteps, null, drew);
         });
       }
       if (pickJob) {
@@ -13762,6 +14029,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
     thriving: "Species that have reached the population threshold (scaled to world size) and are still alive.",
     alive: "Every species with at least one living cell, including brand-new mutants.",
     ever: "Total number of species that have ever existed in this epoch.",
+    stepms: "GPU time one simulation step takes.",
+    drawms: "GPU time drawing the world once takes: cells, stone, bloom and the final image. At high speeds it is drawn about thirty times a second.",
+    stride: "How much time each simulation step covers, in sixtieths of a second. At 1 the world runs exactly; a speed the GPU cannot reach that way takes longer steps (up to 4/60 s), which keep the same rates of life and death and, over long runs, the same diversity.",
+    simrate: "How fast the world is running right now, as a multiple of real time.",
     deepest: "The most speciation steps between any living species and its founder.",
     generation: "How many divisions separate this cell from the beginning of the world.",
     serial: "Species number (SP): every species is numbered in the order it arose.",
@@ -16606,6 +16877,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   }
   var SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8, 16, 32, 64, Infinity];
   var MAX_FRAME_MS = 30;
+  var MAX_TICKS = 4;
   var H = 1 / 60;
   var fmtSpeed = (s) => s === Infinity ? "Max" : `×${s}`;
   var PARTICLE_SIZES = [32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
@@ -16755,6 +17027,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
       stepMs: 0,
       simS: 0,
       renderR: 0,
+      presentR: 0,
+      worldAt: 0,
+      stepCredit: 0,
+      ticks: 1,
+      held: false,
+      ticksAt: 0,
       rate: 1,
       rateT: performance.now(),
       rateSim: 0
@@ -16762,11 +17040,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
     let calibWait = null;
     const frameWaiters = [];
     const ema = (a, v, k) => a ? a + (v - a) * k : v;
-    eng.onGpuTime = (ms, n, steps, simMs) => {
-      if (steps > 0) perf.stepMs = ema(perf.stepMs, ms / steps, 0.15);
+    eng.onGpuTime = (ms, n, steps, simMs, drew) => {
+      if (steps > 0 && drew) perf.stepMs = ema(perf.stepMs, ms / steps, 0.15);
       if (steps > 0 && simMs != null) {
         perf.simS = ema(perf.simS, simMs / steps, 0.1);
-        perf.renderR = ema(perf.renderR, ms - simMs, 0.1);
+        if (drew) perf.renderR = ema(perf.renderR, ms - simMs, 0.1);
+        else perf.presentR = ema(perf.presentR, ms - simMs, 0.1);
       }
       perf.gpu = perf.gpu ? perf.gpu * 0.9 + ms * 0.1 : ms;
       perf.samples.push(ms);
@@ -17836,6 +18115,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
         setText("ro-n", fmt(eng.count));
         const al = sound.load;
         setText("ro-audio", al != null ? `${Math.round(al * 100)}%` : "–");
+        const S = perf.simS || perf.stepMs;
+        setText("ro-step", S ? S.toFixed(S < 1 ? 3 : 2) : "–");
+        setText("ro-draw", perf.simS ? perf.renderR.toFixed(1) : "–");
+        setText("ro-ceil", state.paused ? "–" : `${perf.ticks}/60 s`);
+        setText("ro-rate", state.phase === "running" && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : "–");
       }
       function set(id, v) {
         const s = eng.settings, P = state.perf;
@@ -18146,7 +18430,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       flashTimer = setTimeout(() => flashEl.classList.remove("on"), 1500);
     }
     let speedCap = Infinity, speedCapAt = 0;
-    const speedChoices = () => SPEEDS.filter((v) => v <= 1 || v !== Infinity && v <= speedCap * 0.75).concat(Infinity);
+    const speedChoices = () => SPEEDS.filter((v) => v <= 1 || v !== Infinity && v <= speedCap).concat(Infinity);
     function renderTime() {
       const s = state.speed, list = speedChoices();
       const play = $("t-play");
@@ -18162,6 +18446,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     function setSpeed(v) {
       state.speed = v;
+      perf.ticksAt = 0;
       if (state.paused) state.paused = false;
       clock.owed = 0;
       perf.frameDt.length = 0;
@@ -18175,10 +18460,39 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (i < 0) i = list.findIndex((v) => v > state.speed) - (d > 0 ? 1 : 0);
       setSpeed(list[clamp6(i + d, 0, list.length - 1)]);
     }
+    const stepCost = () => perf.simS || perf.stepMs;
+    function gpuLoad(s, m, held = true) {
+      const fps = 1e3 / frameTarget();
+      const draw = held ? 1e3 / MAX_FRAME_MS * perf.renderR + fps * (perf.presentR || 0.3) : fps * perf.renderR;
+      return s * 60 / m * stepCost() + draw;
+    }
+    const GPU_BUDGET = 800;
     function sustainable() {
-      const S = perf.simS || perf.stepMs, R2 = perf.simS ? perf.renderR : 0;
+      const S = stepCost();
       if (!S) return Infinity;
-      return (MAX_FRAME_MS - R2) / S * (H * 1e3 / MAX_FRAME_MS);
+      return Math.max(0, GPU_BUDGET - gpuLoad(0, MAX_TICKS)) / S * MAX_TICKS / 60;
+    }
+    function updateTicks(now) {
+      if (now - perf.ticksAt < 1e3) return;
+      perf.ticksAt = now;
+      const s = state.speed;
+      if (!(s > 1) || !stepCost()) {
+        perf.ticks = 1;
+        perf.held = false;
+        return;
+      }
+      if (s === Infinity) {
+        perf.ticks = MAX_TICKS;
+        perf.held = true;
+        return;
+      }
+      const ways = [[1, false]];
+      for (let m = 1; m <= MAX_TICKS; m++) ways.push([m, true]);
+      const rank = ways.findIndex(([m, h]) => m === perf.ticks && h === perf.held);
+      let i = ways.findIndex(([m, h]) => gpuLoad(s, m, h) <= GPU_BUDGET);
+      if (i < 0) i = ways.length - 1;
+      if (i < rank && gpuLoad(s, ...ways[i]) > GPU_BUDGET * 0.8) i = rank;
+      [perf.ticks, perf.held] = ways[i];
     }
     function updateSpeedCap(now) {
       if (state.phase !== "running" || now - speedCapAt < 2e3) return;
@@ -18258,7 +18572,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       $("g-tide").setAttribute("aria-label", `Tide ${Math.round(eng.season * 100)}%, ${seasonAt(eng.simTime + 5) >= seasonAt(eng.simTime) ? "rising" : "ebbing"}`);
       $("g-light").setAttribute("aria-label", `Light ${L}%`);
       tips.check();
-      setText("t-rate", state.speed === Infinity && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : "");
+      setText("t-rate", state.speed > 1 && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : "");
       setText("sys-n", fmt(eng.count));
       setText("sys-fps", perf.fps ? perf.fps.toFixed(0) : "–");
       setText("sys-ms", perf.gpu ? perf.gpu.toFixed(1) : "–");
@@ -18780,13 +19094,39 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const S = perf.simS || perf.stepMs, R2 = perf.simS ? perf.renderR : 0;
       return S ? clamp6(Math.floor((MAX_FRAME_MS - R2) / S), 1, 512) : 4;
     };
-    function plan() {
+    function maxPlan(now, m) {
+      const world = now - perf.worldAt >= MAX_FRAME_MS;
+      if (world) perf.worldAt = now;
+      const dt = m * H, S = stepCost();
+      const cost = world ? perf.renderR : perf.presentR || 0.3;
+      if (!S) return { steps: 4, dt, world };
+      perf.stepCredit = Math.min(perf.stepCredit + (frameTarget() - cost) / S, MAX_STEPS);
+      const steps = clamp6(Math.floor(perf.stepCredit), 1, MAX_STEPS);
+      perf.stepCredit = Math.max(0, perf.stepCredit - steps);
+      return { steps, dt, world };
+    }
+    function coarsePlan(now, m) {
+      const world = now - perf.worldAt >= MAX_FRAME_MS;
+      if (world) perf.worldAt = now;
+      const dt = m * H, S = stepCost();
+      perf.stepCredit = S ? Math.min(perf.stepCredit + (frameTarget() - (world ? perf.renderR : perf.presentR || 0.3)) / S, MAX_STEPS) : 4;
+      const cap3 = Math.max(1, Math.floor(perf.stepCredit));
+      let steps = Math.floor(clock.owed / dt);
+      if (steps > cap3) {
+        steps = cap3;
+        clock.owed = Math.min(clock.owed - steps * dt, 2 * dt);
+      } else clock.owed -= steps * dt;
+      perf.stepCredit = Math.max(0, perf.stepCredit - steps);
+      return { steps, dt, world };
+    }
+    function plan(now) {
       if (state.paused || state.phase !== "running") {
         clock.owed = 0;
         return { steps: 1, dt: H };
       }
+      if (state.speed === Infinity) return maxPlan(now, perf.ticks);
+      if (perf.held) return coarsePlan(now, perf.ticks);
       const cap3 = stepCap();
-      if (state.speed === Infinity) return { steps: cap3, dt: H };
       if (clock.owed < H * 0.2) return null;
       let n = Math.max(1, Math.ceil(clock.owed / H - 0.05));
       if (n > cap3) {
@@ -18809,6 +19149,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       tickClock(now);
       updateSpeedCap(now);
+      updateTicks(now);
       const due = !state.perf.fps || !perf.lastSubmit || now - perf.lastSubmit >= 1e3 / state.perf.fps - 4;
       if (now - perf.fpsT > 500) {
         perf.fps = perf.frames * 1e3 / (now - perf.fpsT);
@@ -18830,7 +19171,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (perf.lastSubmit) perf.frameDt.push(Math.min(Math.max(50, frameTarget() * 2.5), now - perf.lastSubmit));
         perf.lastSubmit = now;
         eng.season = seasonAt(eng.simTime);
-        const step = plan() || { steps: 0, dt: H };
+        const step = plan(now) || { steps: 0, dt: H };
+        eng.censusEvery = Math.max(20, Math.round(step.steps * 1e3 / frameTarget() / 5));
         viewSimTime = eng.simTime + (state.paused ? 0 : step.steps * step.dt);
         if (state.phase === "running" && !state.paused) climate.tick(step.steps * step.dt);
         autoCamera(now, dt);
@@ -18872,7 +19214,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
           dpr,
           selId: sel ? sel.id : NONE2,
           loupe: L ? { x: L.sx * dpr, y: L.sy * dpr, r: L.R * dpr, ppu: L.cssPPU * dpr, cx: L.cx, cy: L.cy } : null,
-          specimen: specimenParams()
+          specimen: specimenParams(),
+          // Max and coarse speeds draw the world only when due (step.world), carrying it with the camera between
+          hold: (state.speed === Infinity || perf.held) && !state.paused && state.phase === "running" ? !!step.world : null
         });
         inflight++;
         device.queue.onSubmittedWorkDone().then(() => {

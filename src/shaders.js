@@ -113,6 +113,10 @@ const GLINT = 1u;
 const HUSK = 2u;
 const STONE = 3u;
 const NONE = 0xffffffffu;
+// A claim made by a coarse step's walk (lifeMain) says what it is for itself rather than through the
+// claimer's intent: bit 31, then a class in bits 29-30 (0 a kill, 1 glint, 2 a husk, each taken by the
+// claimer in bits 0-22; 3 bites of a photosynthesiser, counted in bits 0-15, any number of eaters).
+const MEAL_CLAIM = 0x80000000u;
 const MAX_CELLS = 262144u;
 const META_SLOT = ${META_SLOT}u;
 const META_POP = ${META_POP}u;
@@ -194,11 +198,23 @@ function cellWGSL(K, w) {
   let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
   let hungry = p.energy < g.reproE * ${f(K.sated)} && eatEff > 0.1;
   let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
+  // food in reach is gathered by hungry cells; in a coarse step also by any that may grow hungry in it
+  let seek = hungry || (sim.ticks > 1u && eatEff > 0.1);
+  let seekHunt = canHunt || (seek && (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN));
   let bonding = g.adhesion > ${f(K.adhMin)};
   var dn1 = vec2f(0.0);
   var dn2 = vec2f(0.0);
 
   var force = vec2f(0.0);
+  // Coarse steps (sim.ticks > 1) also gather how the pair and stone forces change as this cell moves
+  // (their gradients jF, jS: xx, xy, yy) and its neighbours' velocity weighted by how stiffly each holds
+  // it (vN / wN, with wN2 for their number): see the motion below.
+  var jF = vec3f(0.0);
+  var jS = vec3f(0.0);
+  var vN = vec2f(0.0);
+  var wN = 0.0;
+  var wN2 = 0.0;
+  let selfVel = p.vel + flowAt(p.pos) * g.advect;
   var csum = vec3f(0.0);
   var wsum = 0.0;
   var kinVel = vec2f(0.0);
@@ -224,7 +240,11 @@ function cellWGSL(K, w) {
   }
   let keep1 = n1 != NONE; let keep2 = n2 != NONE;
   var food = NONE; var foodScore = -1e9;
+  // a coarse step keeps the four best, for its meals and for claims lost to other eaters
+  var fc = array<u32, 4>(NONE, NONE, NONE, NONE);
+  var fsc = array<f32, 4>(-1e9, -1e9, -1e9, -1e9);
   var silt = NONE; var siltD = 1e9;
+  var silt2 = NONE; var siltD2 = 1e9;
   var stoneF = vec2f(0.0);
   var stoneN = 0.0;
   var pack = 0.0;
@@ -276,13 +296,16 @@ function cellWGSL(K, w) {
       let a = clamp((dot(rec0, s0) + dot(rec1, s1)) * ${f(K.affScale)}, -1.0, 1.0);
       let shape = 1.0 - abs(2.0 * x - 1.0 - beta) * invOM;
       var fr: f32;
+      // how fr changes with distance (coarse steps' gradient), and the pull that scales shape
+      var dfr = 0.0;
+      var pull = 0.0;
       if (qk >= FIRST_LIFE) {
         // a hungry forager lets other species inside its personal space so it can reach them
-        if (x < beta) { fr = (x * invBeta - 1.0) * select(1.0, 0.15, canHunt && qk != p.kind); } else { fr = a * shape; }${W('mFr0 = fr;')}
+        let core = select(1.0, 0.15, canHunt && qk != p.kind);
+        if (x < beta) { fr = (x * invBeta - 1.0) * core; } else { fr = a * shape; }${W('mFr0 = fr;')}
         // hungry foragers are drawn toward the cells their diet favours
-        if (canHunt && qk != p.kind && x >= beta) {
-          fr += select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)} * shape;
-        }
+        let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
+        if (x >= beta) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * invBeta * invR; }
         crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
         if (r < LINK_R) { let w = 1.0 - r / LINK_R; pack += w * w; }
         if (qk == p.kind) {
@@ -303,7 +326,7 @@ function cellWGSL(K, w) {
             } else if (!keep2 && r < d2) { d2 = r; n2 = j; dn2 = d; }
           }
         }
-        if (canHunt && r < EAT_R && qk != p.kind) {
+        if (seekHunt && r < EAT_R && qk != p.kind) {
           let da = s0 - my0;
           let db = s1 - my1;
           if (dot(da, da) + dot(db, db) > ${f(K.kin)}) {
@@ -312,61 +335,135 @@ function cellWGSL(K, w) {
             let pref = select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, plant);
             let sc = pref - r;
             if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+            if (pref > DIET_MIN && sim.ticks > 1u) { pushFood(&fc, &fsc, j, sc); }
           }
         }
       } else {
         fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);${W('mFr0 = fr;')}
+        pull = a * ${f(K.matterPull)};
         if (qk == STONE) {
           // stone is solid: it pushes cells out however hard they swim, and shelters those among it
-          if (r < ${f(K.stoneR)}) { stoneF += d * ((r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r)); }
+          if (r < ${f(K.stoneR)}) {
+            stoneF += d * ((r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r));
+            // its push, g(r) = 1/stoneR - 1/r along d, has gradient -(g I + d d' / r^3)
+            let gs = (r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r); let cs = 1.0 / (r2 * r);
+            jS -= vec3f(gs + cs * d.x * d.x, cs * d.x * d.y, gs + cs * d.y * d.y);
+          }
           if (r < 0.5) { stoneN += 1.0; }
         } else {
           if (hungry && qk != SILT && x >= beta) {
             fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)} * shape;
+            pull += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)};
           }
           if (qk == SILT) { nutr += 1.0; }
-          if (r < EAT_R) {
-            if (qk == SILT) {
-              if (r < siltD) { siltD = r; silt = j; }
-            } else if (hungry) {
-              let dv = select(g.dHusk, g.dGlint, qk == GLINT);
-              let sc = dv - r;
-              if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
-            }
+          // a cell ready to divide looks for a grain every tick, so in a coarse step a grain counts if it
+          // came within reach at any tick of it: the closest approach of their paths over the step
+          var rc = r;
+          if (qk == SILT && sim.ticks > 1u) {
+            let w = unpack2x16float(q.vel) - selfVel;
+            let ww = dot(w, w);
+            rc = length(d + w * select(0.0, clamp(-dot(d, w) / ww, 0.0, sim.dt), ww > 1e-12));
+          }
+          if (qk == SILT && rc < EAT_R) {
+            if (rc < siltD) { siltD2 = siltD; silt2 = silt; siltD = rc; silt = j; }
+            else if (rc < siltD2) { siltD2 = rc; silt2 = j; }
+          } else if (qk != SILT && r < EAT_R && seek) {
+            let dv = select(g.dHusk, g.dGlint, qk == GLINT);
+            let sc = dv - r;
+            if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+            if (dv > DIET_MIN && sim.ticks > 1u) { pushFood(&fc, &fsc, j, sc); }
           }
         }
       }
+      if (x >= beta) { dfr = select(-2.0, 2.0, 2.0 * x < 1.0 + beta) * invOM * invR * pull; }
       force += d * (fr / r);${W('mPair(j, q, d, r, x < beta, qk == p.kind, mFr0, fr);')}
+      if (sim.ticks > 1u) {
+        // the pair force d g(r), g = fr / r, has gradient in this cell's position -(g I + g'/r d d')
+        let gr = fr / r;
+        let c = (dfr * r - fr) / (r2 * r);
+        jF -= vec3f(gr + c * d.x * d.x, c * d.x * d.y, gr + c * d.y * d.y);
+        let w = abs(gr) + abs(c) * r2;
+        vN += unpack2x16float(q.vel) * w;
+        wN += w;
+        wN2 += w * w;
+      }
     }
     at -= len;
   }
   force *= stride; crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride;
 
   let heavy = 1.0 - 0.7 * g.photo;
-  let fr0 = pow(0.5, sim.dt / g.drag);
-  var vel = p.vel * fr0 + force * (g.force * heavy * sim.dt);${W('mVel = vel;')}
-  if (kinN > 0.0 && g.align > 0.0) {
-    vel = mix(vel, kinVel / kinN, clamp(g.align * ${f(K.align)} * sim.dt, 0.0, 1.0));${W('mAlign = vel - mVel;')}
-  }
   // Persistent bonds pull on the partners' current positions, even outside the sampled scan.
   var bondF = vec2f(0.0);
   if (n1 != NONE) { bondF += dn1 * ((d1 - LINK_R * 0.55) / max(d1, 1e-4)); }
   if (n2 != NONE) { bondF += dn2 * ((d2 - LINK_R * 0.55) / max(d2, 1e-4)); }
-  vel += bondF * (g.adhesion * ${f(K.bond)} * sim.dt);
-  // stone is solid to everything but the calcifiers that build it, which settle on their own reef
-  vel += stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify) * sim.dt);
   let swim = g.swim * (1.0 - g.photo);
-  if (swim > 0.0) {
-    var dir = vel;
-    if (dot(dir, dir) < 1e-6) {
-      let a = rnd(&s) * TAU;
-      dir = vec2f(cos(a), sin(a));
-    }
-    vel += normalize(dir) * swim * sim.dt;${W('mSwim = normalize(dir) * swim;')}
+  let flow = flowAt(p.pos) * g.advect;
+  // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
+  // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
+  // The cell and its neighbourhood are taken as two bodies sharing momentum: the reaction to this cell's
+  // forces is spread over Mn neighbours (the participation number of the stiffness weights), their centre
+  // (v + Mn vNear) / (1 + Mn) keeps its velocity under drag, and only the relative velocity v - vNear
+  // meets the restoring stiffness D (1 + 1/Mn), backward Euler in its end value. A clump drifting together
+  // is untouched and a collision too stiff to resolve shares its momentum; stable for every mode of a
+  // clump (tools/fastforward/stiff-modes.py, docs/fast-forward.md).
+  var stiff = vec2f(0.0);
+  if (sim.ticks > 1u && wN2 > 0.0) {
+    let cf = g.force * heavy;
+    let cw = ${f(K.stoneWall)} * (1.0 - g.calcify);
+    let D = -(restoring(jF * stride) * cf + restoring(jS * stride) * cw);
+    let a0 = force * cf + stoneF * cw;
+    let vNear = vN / wN;
+    let Mn = wN * wN / wN2;
+    let frT = pow(0.5, sim.dt / g.drag);
+    let G = (1.0 - frT) * g.drag / 0.69314718;
+    let kk = D * (1.0 + 1.0 / Mn);
+    let rhs = (p.vel - vNear) * frT + a0 * (G * (1.0 + 1.0 / Mn));
+    let m00 = 1.0 + G * sim.dt * kk.x; let m01 = G * sim.dt * kk.y; let m11 = 1.0 + G * sim.dt * kk.z;
+    let vr = vec2f(m11 * rhs.x - m01 * rhs.y, m00 * rhs.y - m01 * rhs.x) / max(m00 * m11 - m01 * m01, 1e-6);
+    let vEnd = (p.vel + vNear * Mn) / (1.0 + Mn) * frT + vr * (Mn / (1.0 + Mn));
+    stiff = (vEnd - p.vel * frT) / G - a0;
   }
-  let sp = length(vel);
-  if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
-  let pos = wrapPos(p.pos + (vel + flowAt(p.pos) * g.advect) * sim.dt);
+  // Motion in substeps of one tick (1/60 s), so a coarse step moves a cell as that many 1/60 s steps
+  // would under its forces; bonds pull toward where the partners will be, carried on their velocities.
+  // A 1/60 s step is a single substep.
+  let h = sim.dt / f32(sim.ticks);
+  let fr0 = pow(0.5, h / g.drag);
+  var vB1 = vec2f(0.0);
+  var vB2 = vec2f(0.0);
+  if (n1 != NONE) { vB1 = sortedFull[n1].vel; }
+  if (n2 != NONE) { vB2 = sortedFull[n2].vel; }
+  var vel = p.vel;
+  var pos = p.pos;
+  for (var k = 0u; k < sim.ticks; k++) {
+    var fb = bondF;
+    if (k > 0u) {
+      let t = f32(k) * h;
+      let moved = pos - p.pos;
+      fb = vec2f(0.0);
+      if (n1 != NONE) { let e = dn1 + vB1 * t - moved; let l = length(e); fb += e * ((l - LINK_R * 0.55) / max(l, 1e-4)); }
+      if (n2 != NONE) { let e = dn2 + vB2 * t - moved; let l = length(e); fb += e * ((l - LINK_R * 0.55) / max(l, 1e-4)); }
+    }
+    vel = vel * fr0 + force * (g.force * heavy * h) + stiff * h;${W('if (k == 0u) { mVel = vel; }')}
+    if (kinN > 0.0 && g.align > 0.0) {
+      vel = mix(vel, kinVel / kinN, clamp(g.align * ${f(K.align)} * h, 0.0, 1.0));${W('if (k == 0u) { mAlign = vel - mVel; }')}
+    }
+    vel += fb * (g.adhesion * ${f(K.bond)} * h);
+    // stone is solid to everything but the calcifiers that build it, which settle on their own reef
+    vel += stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify) * h);
+    if (swim > 0.0) {
+      var dir = vel;
+      if (dot(dir, dir) < 1e-6) {
+        let a = rnd(&s) * TAU;
+        dir = vec2f(cos(a), sin(a));
+      }
+      vel += normalize(dir) * swim * h;${W('if (k == 0u) { mSwim = normalize(dir) * swim; }')}
+    }
+    let sp = length(vel);
+    if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
+    pos += (vel + flow) * h;
+  }
+  pos = wrapPos(pos);
 
   var col = unpack4x8unorm(p.col).rgb;
   if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }
@@ -396,6 +493,8 @@ struct Sim {
   tide: array<vec4f, 4>,
   tidePh: vec4f,
   rock: vec4f,
+  // tick: 1/60 s ticks simulated up to the end of this step; ticks: how many this step covers
+  tick: u32, ticks: u32, pad0: u32, pad1: u32,
 };
 // kr: 0..9 kind, 10..11 role, 12 plant.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
@@ -682,10 +781,22 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
     let c = atomicLoad(&ledger[META_CLAIM + i]);
     if (c != 0u) {
       atomicStore(&ledger[META_CLAIM + i], 0u);
-      // Only x/y are read here; other invocations may reset their own bond slots.
-      let action = intent[c - 1u].x;
-      let act = action & 3u;
-      let ck = (action >> 2u) & 1023u;
+      var action = 0u;
+      var act = 0u;
+      var ck = 0u;
+      var bites = 1.0;
+      if ((c & MEAL_CLAIM) != 0u) {
+        // a coarse step's meal: the target's kind follows from its class; bites at most one a tick
+        let cls = (c >> 29u) & 3u;
+        act = select(1u, 3u, cls == 3u);
+        ck = select(select(HUSK, GLINT, cls == 1u), select(NONE, p.kind, p.kind >= FIRST_LIFE), cls == 0u || cls == 3u);
+        if (cls == 3u) { bites = f32(min(c & 0xffffu, sim.ticks)); }
+      } else {
+        // Only x/y are read here; other invocations may reset their own bond slots.
+        action = intent[c - 1u].x;
+        act = action & 3u;
+        ck = (action >> 2u) & 1023u;
+      }
       if (act == 1u && p.kind == ck) {
         if (p.kind >= FIRST_LIFE) {
           // a kill leaves a carcass for the scavengers
@@ -698,7 +809,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         }
       } else if (act == 3u && p.kind == ck) {
         if (p.kind >= FIRST_LIFE) {
-          p.energy -= ${f(K.bite)};
+          p.energy -= ${f(K.bite)} * bites;
           if (p.energy <= 0.0) {
             atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
             p.kind = HUSK; p.energy = ${f(K.huskBase)}; p.age = 0.0;
@@ -923,7 +1034,9 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   p.age += sim.dt;
   if (p.kind == SILT) {
     let T = tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient;
-    if (rnd(&s) < T * ${f(K.charge)} * sim.chargeMul * sim.dt) {
+    // a step's chance of charging; for coarse steps the exact chance of at least one event in the step
+    let lam = T * ${f(K.charge)} * sim.chargeMul;
+    if (rnd(&s) < select(lam * sim.dt, 1.0 - exp(-lam * sim.dt), sim.ticks > 1u)) {
       p.kind = GLINT; p.energy = 1.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 5u;
     }
@@ -970,6 +1083,45 @@ fn keepBond(i: u32, j: u32, p: Particle) -> u32 {
   return j;
 }
 
+// Handling time: matter is eaten at every meal opportunity, living prey only at every Nth.
+fn mealDue(fk: u32, meal: u32) -> bool {
+  return fk < FIRST_LIFE || meal % select(${K.killEvery | 0}u, ${K.biteEvery | 0}u, genomes[fk].photo > 0.4) == 0u;
+}
+
+// Whether an attack on food of kind fk misses: armour, an unfamiliar quarry, too little skill, or prey
+// hiding among stone. Every roll is drawn whatever the outcome, so the random stream stays the same.
+fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, s: ptr<function, u32>) -> bool {
+  let armored = fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
+  let image = (info >> 6u) & 1023u;
+  let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(s) < ${f(K.searchImage)};
+  let unskilled = ${f(K.catchSkill)} > 0.0 && fk >= FIRST_LIFE && rnd(s) >= min(1.0, eatEff * select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, genomes[fk].photo > 0.4) / ${f(K.catchSkill)});
+  // an attack made from among stone often misses: prey hides in the crevices
+  let sheltered = fk >= FIRST_LIFE && rnd(s) < min(${f(K.refugeMax)}, stoneN * ${f(K.refuge)});
+  return armored || unfamiliar || unskilled || sheltered;
+}
+
+// Keep the four best food targets (fc, best first, by score fsc).
+fn pushFood(fc: ptr<function, array<u32, 4>>, fsc: ptr<function, array<f32, 4>>, j: u32, sc: f32) {
+  if (sc <= (*fsc)[3]) { return; }
+  var k = 3u;
+  while (k > 0u && (*fsc)[k - 1u] < sc) { (*fsc)[k] = (*fsc)[k - 1u]; (*fc)[k] = (*fc)[k - 1u]; k--; }
+  (*fsc)[k] = sc;
+  (*fc)[k] = j;
+}
+
+// The restoring part of a symmetric 2x2 gradient (xx, xy, yy): its eigenvalues clamped to <= 0.
+fn restoring(j: vec3f) -> vec3f {
+  let m = 0.5 * (j.x + j.z);
+  let q = sqrt(0.25 * (j.x - j.z) * (j.x - j.z) + j.y * j.y);
+  // isotropic (or empty): no direction to pick, and atan2(0, 0) is undefined
+  if (q < 1e-9) { return vec3f(min(m, 0.0), 0.0, min(m, 0.0)); }
+  let l1 = min(m + q, 0.0);
+  let l2 = min(m - q, 0.0);
+  let th = 0.5 * atan2(2.0 * j.y, j.x - j.z);
+  let c = cos(th); let sn = sin(th);
+  return vec3f(l1 * c * c + l2 * sn * sn, (l1 - l2) * c * sn, l1 * sn * sn + l2 * c * c);
+}
+
 @compute @workgroup_size(128)
 fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
@@ -988,53 +1140,124 @@ ${cellWGSL(K, false)}
   var cr = 0u;
   var ce = 0.0;
   var info = p.info;
-  if (E > g.reproE && silt != NONE) {
-    if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
-      ck = p.kind;
-      cr = sampleRole(g, role, &s);
-      if (rnd(&s) < g.mutRate) {
-        let slot = allocSlot(&s);
-        if (slot != NONE) {
-          mutateInto(slot, p.kind, &s);
-          ck = slot;
-          atomicAdd(&ledger[3], 1u);
+  if (sim.ticks == 1u) {
+    if (E > g.reproE && silt != NONE) {
+      if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
+        ck = p.kind;
+        cr = sampleRole(g, role, &s);
+        if (rnd(&s) < g.mutRate) {
+          let slot = allocSlot(&s);
+          if (slot != NONE) {
+            mutateInto(slot, p.kind, &s);
+            ck = slot;
+            atomicAdd(&ledger[3], 1u);
+          }
+        }
+        ce = E * g.share;
+        E -= ce + ${f(K.buildCost)};
+        addEnergy(dg, 6u, ce + ${f(K.buildCost)});
+        act = 2u;
+      }
+    // a meal opportunity every K.eatEvery ticks, in the cell's own phase
+    } else if (food != NONE && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && mealDue(sortedFull[food].kind, (sim.tick + p.id) / ${K.eatEvery | 0}u)) {
+      let fk = sortedFull[food].kind;
+      if (!mealMissed(fk, info, g, eatEff, stoneN, &s) && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
+        let fp = sortedFull[food];
+        if (fp.kind >= FIRST_LIFE) {
+          atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
+        }
+        ck = fp.kind;
+        var gain = 0.0;
+        act = 1u;
+        if (fp.kind == GLINT) {
+          gain = fp.energy * spec(g.dGlint); atomicAdd(&ledger[9], 1u);
+        } else if (fp.kind == HUSK) {
+          gain = fp.energy * spec(g.dHusk); atomicAdd(&ledger[10], 1u);
+        } else if (genomes[fp.kind].photo > 0.4) {
+          gain = min(max(fp.energy, 0.0), ${f(K.bite)}) * spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh); act = 3u; atomicAdd(&ledger[11], 1u);
+        } else {
+          gain = (${f(K.preyBase)} + ${f(K.preyFrac)} * max(fp.energy, 0.0)) * spec(g.dFlesh); atomicAdd(&ledger[7], 1u);
+        }
+        if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
+        E += gain * ${f(K.gain)} * eatEff;
+        addEnergy(dg, select(select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), 1u, fp.kind == GLINT), gain * ${f(K.gain)} * eatEff);
+      }
+    }
+  } else {
+    // A coarse step walks its ticks in order, as that many 1/60 s steps would: energy flows tick by tick
+    // (upkeep following it), the cell divides once its energy crosses the mark (one birth a step), eats
+    // at each of its own meal opportunities while still hungry then (the next-best target after a meal or
+    // a target lost to another eater), and stops at the tick it starves or ages out.
+    E = p.energy;
+    age = p.age;
+    var next = 0u;
+    var born = false;
+    for (var k = 1u; k <= sim.ticks; k++) {
+      E += (photoGain - g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(E / g.reproE, 0.0, 1.0))) * h;
+      age += h;
+      let tk = sim.tick - sim.ticks + k;
+      if (!born && E > g.reproE && silt != NONE) {
+        born = true;
+        var won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged;
+        if (!won && silt2 != NONE) { won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt2], 0u, i + 1u).exchanged; }
+        if (won) {
+          ck = p.kind;
+          cr = sampleRole(g, role, &s);
+          if (rnd(&s) < g.mutRate) {
+            let slot = allocSlot(&s);
+            if (slot != NONE) {
+              mutateInto(slot, p.kind, &s);
+              ck = slot;
+              atomicAdd(&ledger[3], 1u);
+            }
+          }
+          ce = E * g.share;
+          E -= ce + ${f(K.buildCost)};
+          addEnergy(dg, 6u, ce + ${f(K.buildCost)});
+          act = 2u;
+          continue;
+        }
+      } else if ((tk + p.id) % ${K.eatEvery | 0}u == 0u && next < 4u && E < g.reproE * ${f(K.sated)} && eatEff > 0.1) {
+        let mi = (tk + p.id) / ${K.eatEvery | 0}u;
+        while (next < 4u) {
+          let fd = fc[next];
+          if (fd == NONE) { next = 4u; break; }
+          let fp = sortedFull[fd];
+          // handling time, or a miss (armour, an unfamiliar quarry, skill, shelter), ends this opportunity
+          if (!mealDue(fp.kind, mi) || mealMissed(fp.kind, info, g, eatEff, stoneN, &s)) { break; }
+          let plant = fp.kind >= FIRST_LIFE && genomes[fp.kind].photo > 0.4;
+          var got = true;
+          if (plant) {
+            // bites don't exclude each other: in 1/60 s steps several grazers would each have had a turn
+            atomicOr(&ledger[META_CLAIM + fd], MEAL_CLAIM | (3u << 29u));
+            atomicAdd(&ledger[META_CLAIM + fd], 1u);
+          } else {
+            let cls = select(select(2u, 1u, fp.kind == GLINT), 0u, fp.kind >= FIRST_LIFE);
+            got = atomicCompareExchangeWeak(&ledger[META_CLAIM + fd], 0u, MEAL_CLAIM | (cls << 29u) | (i + 1u)).exchanged;
+          }
+          next++;
+          if (!got) { continue; }
+          var gain = 0.0;
+          var slot = 4u;
+          if (fp.kind == GLINT) {
+            gain = fp.energy * spec(g.dGlint); atomicAdd(&ledger[9], 1u); slot = 1u;
+          } else if (fp.kind == HUSK) {
+            gain = fp.energy * spec(g.dHusk); atomicAdd(&ledger[10], 1u); slot = 3u;
+          } else if (plant) {
+            gain = min(max(fp.energy, 0.0), ${f(K.bite)}) * spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh); atomicAdd(&ledger[11], 1u); slot = 2u;
+          } else {
+            gain = (${f(K.preyBase)} + ${f(K.preyFrac)} * max(fp.energy, 0.0)) * spec(g.dFlesh); atomicAdd(&ledger[7], 1u);
+          }
+          if (fp.kind >= FIRST_LIFE) {
+            atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
+            info = (info & 0xffff003fu) | (fp.kind << 6u);
+          }
+          E += gain * ${f(K.gain)} * eatEff;
+          addEnergy(dg, slot, gain * ${f(K.gain)} * eatEff);
+          break;
         }
       }
-      ce = E * g.share;
-      E -= ce + ${f(K.buildCost)};
-      addEnergy(dg, 6u, ce + ${f(K.buildCost)});
-      act = 2u;
-    }
-  } else if (food != NONE && ((sim.frame + p.id) % ${K.eatEvery | 0}u) == 0u
-             && (sortedFull[food].kind < FIRST_LIFE
-                 || ((sim.frame + p.id) / ${K.eatEvery | 0}u) % select(${K.killEvery | 0}u, ${K.biteEvery | 0}u, genomes[sortedFull[food].kind].photo > 0.4) == 0u)) {
-    let fk = sortedFull[food].kind;
-    let armored = fk >= FIRST_LIFE && rnd(&s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
-    let image = (info >> 6u) & 1023u;
-    let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(&s) < ${f(K.searchImage)};
-    let unskilled = ${f(K.catchSkill)} > 0.0 && fk >= FIRST_LIFE && rnd(&s) >= min(1.0, eatEff * select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, genomes[fk].photo > 0.4) / ${f(K.catchSkill)});
-    // an attack made from among stone often misses: prey hides in the crevices
-    let sheltered = fk >= FIRST_LIFE && rnd(&s) < min(${f(K.refugeMax)}, stoneN * ${f(K.refuge)});
-    if (!armored && !unfamiliar && !unskilled && !sheltered && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
-      let fp = sortedFull[food];
-      if (fp.kind >= FIRST_LIFE) {
-        atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
-      }
-      ck = fp.kind;
-      var gain = 0.0;
-      act = 1u;
-      if (fp.kind == GLINT) {
-        gain = fp.energy * spec(g.dGlint); atomicAdd(&ledger[9], 1u);
-      } else if (fp.kind == HUSK) {
-        gain = fp.energy * spec(g.dHusk); atomicAdd(&ledger[10], 1u);
-      } else if (genomes[fp.kind].photo > 0.4) {
-        gain = min(max(fp.energy, 0.0), ${f(K.bite)}) * spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh); act = 3u; atomicAdd(&ledger[11], 1u);
-      } else {
-        gain = (${f(K.preyBase)} + ${f(K.preyFrac)} * max(fp.energy, 0.0)) * spec(g.dFlesh); atomicAdd(&ledger[7], 1u);
-      }
-      if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
-      E += gain * ${f(K.gain)} * eatEff;
-      addEnergy(dg, select(select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), 1u, fp.kind == GLINT), gain * ${f(K.gain)} * eatEff);
+      if (E <= 0.0 || age > g.lifespan) { break; }
     }
   }
 
@@ -1147,7 +1370,7 @@ ${cellWGSL(K, true)}
   mPut2(30, mDiet * acc);
   mPut2(32, mMatter * acc);
   mPut2(34, mForage * acc);
-  mPut2(36, mAlign / sim.dt);
+  mPut2(36, mAlign / h);
   mPut2(38, bondF * (g.adhesion * ${f(K.bond)}));
   mPut2(40, stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify)));
   mPut2(42, mSwim);

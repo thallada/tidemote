@@ -292,7 +292,8 @@ body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520p
 .hot-btn:hover { background: rgba(255, 95, 58, 0.26); border-color: var(--hot); }
 .readout { display: grid; grid-template-columns: repeat(5, 1fr); margin: 10px 0 2px; border: 1px solid var(--line); }
 .readout div { display: flex; flex-direction: column; gap: 3px; padding: 7px 9px; border-left: 1px solid var(--line); min-width: 0; }
-.readout div:first-child { border-left: 0; }
+.readout div:nth-child(4n + 1) { border-left: 0; }
+.readout div:nth-child(n + 5) { border-top: 1px solid var(--line); }
 .readout b { font-size: 17px; font-weight: 300; line-height: 1; color: var(--sun); white-space: nowrap; }
 .readout span { font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
 .opts { flex-direction: column; gap: 6px; margin-top: 10px; }
