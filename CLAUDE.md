@@ -9,6 +9,8 @@ GPU biosphere simulation (WebGPU, WGSL) with a browser page and headless tools. 
 - `node tools/sim.mjs --chrome --n 4096 --minutes 5 --out run.json` runs the page's ecology headlessly and writes JSON metrics.
 - `node tools/compare.mjs --chrome --seeds 3 --minutes 5 --n 4096 --jobs 3 --out runs base '{}' variant '{"k":{"shade":0.1}}'` compares configurations across seeds.
 - `npm run gate -- --out runs/NAME --k '{...}'` (32 seeds × 30 min at 32k against `balance/baseline-32k-30m.json`, ~16 min) is the balance regression gate (see docs/headless-gpu.md). Run it before and after any ecology change.
+- `tools/fork.mjs --k '{"diag":1}' --variants '[{"name":"m1","step":1},{"name":"m4","step":4}]'` runs matched-start forks: one world, the same moment run forward under several step lengths or tunables, pair by pair (summaries in `tools/fastforward/`). `--step N` on `sim.mjs`/`ensemble.mjs` runs coarse steps; `sim.mjs --profile` times each pass.
+- Fast speeds take coarse steps of up to 4/60 s (docs/fast-forward.md). An ecology change that touches `lifeMain`, `cellWGSL` or `resolveCount` should also keep 4-tick long runs (`ensemble.mjs --runs 128 --step 4`, `tools/fastforward/pool.mjs`) in line with normal ones.
 
 ## Layout
 
