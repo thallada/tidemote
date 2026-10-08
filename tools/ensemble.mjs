@@ -11,6 +11,7 @@ const { values: v } = parseArgs({ options: {
   runs: { type: 'string', default: '24' }, 'first-seed': { type: 'string', default: '1' },
   minutes: { type: 'string', default: '30' }, n: { type: 'string', default: '32768' },
   jobs: { type: 'string', default: '4' }, k: { type: 'string', default: '{}' }, 'no-eras': { type: 'boolean' },
+  step: { type: 'string', default: '1' },
   out: { type: 'string' }, from: { type: 'string' }, name: { type: 'string' },
   baseline: { type: 'string' }, targets: { type: 'string' }, 'save-baseline': { type: 'string' },
   alpha: { type: 'string', default: '0.05' }, help: { type: 'boolean' },
@@ -18,6 +19,7 @@ const { values: v } = parseArgs({ options: {
 if (v.help || (!v.out && !v.from)) {
   console.log(`Usage: tools/gpu-node.sh tools/ensemble.mjs --out runs/NAME [options]
   --runs 24 --first-seed 1 --minutes 30 --n 32768 --jobs 4 --k '{}' --no-eras
+  --step 1                Each step covers step/60 s (coarse steps; the page takes up to 4)
   --from DIR              Analyse the run JSONs already in DIR instead of running
   --baseline FILE         Compare with a saved report; exit 1 if a gated metric regressed
   --targets FILE          Check target bounds (balance/targets.json); exit 1 if any fails
@@ -29,7 +31,7 @@ Run JSONs and report.json are written to --out.`);
 const fmt = (x) => x == null ? 'n/a' : typeof x === 'number' ? (Math.abs(x) >= 100 || Number.isInteger(x) ? String(Math.round(x)) : x.toFixed(3)) : String(x);
 const dir = v.from ?? v.out;
 fs.mkdirSync(dir, { recursive: true });
-const config = { n: +v.n, minutes: +v.minutes, k: JSON.parse(v.k), eras: !v['no-eras'] };
+const config = { n: +v.n, minutes: +v.minutes, k: JSON.parse(v.k), eras: !v['no-eras'], step: +v.step };
 const runs = +v.runs, first = +v['first-seed'], jobs = +v.jobs;
 if (![runs, first, jobs, config.n].every(Number.isInteger) || runs < 1 || jobs < 1) throw new Error('--runs, --first-seed, --jobs and --n must be integers');
 
@@ -41,7 +43,7 @@ const outcomes = results.map((r) => ({ seed: r.config.seed, ...r.outcome }));
 const ran = results[0].config;
 const report = {
   name: v.name ?? path.basename(path.resolve(dir)),
-  config: { n: ran.n, minutes: ran.minutes, k: ran.k, eras: ran.eras, adapter: ran.adapter },
+  config: { n: ran.n, minutes: ran.minutes, k: ran.k, eras: ran.eras, step: ran.step ?? 1, adapter: ran.adapter },
   created: new Date().toISOString(),
   wallSecondsPerRun: results.reduce((a, r) => a + r.summary.wallSeconds, 0) / results.length,
   summary: summarizeEnsemble(outcomes),
@@ -70,6 +72,7 @@ async function runAll() {
       const args = [sim, '--n', String(config.n), '--minutes', String(config.minutes), '--seed', String(seed),
         '--k', JSON.stringify(config.k), '--print', '1e9', '--out', out];
       if (!config.eras) args.push('--no-eras');
+      if (config.step !== 1) args.push('--step', String(config.step));
       let failure = await child(args);
       if (failure) failure = await child(args);
       done++;

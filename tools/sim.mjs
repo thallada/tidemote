@@ -9,17 +9,18 @@ import { P_BYTES, FIRST_LIFE } from '../src/shaders.js';
 
 const { values: v } = parseArgs({ options: {
   n: { type: 'string', default: '8192' }, minutes: { type: 'string', default: '10' },
-  seed: { type: 'string', default: '23' }, k: { type: 'string', default: '{}' },
+  seed: { type: 'string', default: '23' }, k: { type: 'string', default: '{}' }, step: { type: 'string', default: '1' },
   'no-eras': { type: 'boolean' },
   sample: { type: 'string', default: '5' }, print: { type: 'string', default: '30' },
   out: { type: 'string' }, png: { type: 'string' }, cpu: { type: 'boolean' },
   chrome: { type: 'boolean' }, help: { type: 'boolean' },
-  aim: { type: 'boolean' }, 'render-bench': { type: 'boolean' },
+  aim: { type: 'boolean' }, 'render-bench': { type: 'boolean' }, profile: { type: 'boolean' },
 } });
 if (v.help) {
   console.log(`Usage: node tools/sim.mjs [options]
   --n 8192 --minutes 10 --seed 23 --k '{}'
   --sample 5 --print 30 --out run.json
+  --step 1       Each step covers step/60 s (coarse steps; the page takes up to 4)
   --no-eras
   --chrome       Run in headless Chromium (recommended without a GPU)
                  Override the executable with PLAYWRIGHT_CHROMIUM
@@ -28,14 +29,15 @@ if (v.help) {
   --aim          Centre PNGs on the living cell with the most incoming bonds
                  Fall back to the world centre if no living cells remain
   --render-bench Time 180 paused render frames per zoom with GPU timestamps
+  --profile      Time each simulation pass every simulated minute (GPU timestamps)
   --help         Show this help`);
   process.exit(0);
 }
 if (v.chrome && v.png) throw new Error('--png is supported only with Dawn; omit --chrome');
 if ((v.aim || v['render-bench']) && !v.png) throw new Error('--aim and --render-bench require --png');
 const config = { n: +v.n, minutes: +v.minutes, seed: +v.seed, k: JSON.parse(v.k),
-  eras: !v['no-eras'], sample: +v.sample, print: +v.print, cpu: !!v.cpu };
-for (const key of ['n', 'minutes', 'sample', 'print']) {
+  eras: !v['no-eras'], sample: +v.sample, print: +v.print, cpu: !!v.cpu, profile: !!v.profile, step: +v.step };
+for (const key of ['n', 'minutes', 'sample', 'print', 'step']) {
   if (!Number.isFinite(config[key]) || config[key] <= 0) throw new Error(`--${key} must be positive`);
 }
 if (!Number.isInteger(config.n) || !Number.isInteger(config.seed)) throw new Error('--n and --seed must be integers');
@@ -96,8 +98,8 @@ async function runDawn() {
       ' under WSL run through tools/gpu-node.sh to reach the GPU via Windows D3D12 (see docs/headless-gpu.md).');
     process.exit(2);
   }
-  const hasTS = v['render-bench'] && adapter.features.has('timestamp-query');
-  if (v['render-bench'] && !hasTS) throw new Error('GPU timestamps unavailable');
+  const hasTS = (v['render-bench'] || v.profile) && adapter.features.has('timestamp-query');
+  if ((v['render-bench'] || v.profile) && !hasTS) throw new Error('GPU timestamps unavailable');
   const device = await adapter.requestDevice({ requiredFeatures: hasTS ? ['timestamp-query'] : [], requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
   try {
     return await runHeadless(device, config, {

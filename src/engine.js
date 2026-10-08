@@ -1,6 +1,6 @@
 import {
   simWGSL, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES,
+  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES,
 } from './shaders.js';
 import {
   archetypeGenome, writeGenome, parseParticle,
@@ -566,8 +566,11 @@ class Engine {
     });
   }
 
-  /** Encode one simulation step whose uniforms are at `ring` (a slot of b.simRing), or written directly. */
-  _step(enc, simDt, timestampWrites, ring = -1) {
+  /**
+   * Encode one simulation step whose uniforms are at `ring` (a slot of b.simRing), or written directly.
+   * prof: {qs, names}, to time each dispatch in a pass of its own (profileStep).
+   */
+  _step(enc, simDt, timestampWrites, ring = -1, prof = null) {
     const b = this.b;
     const N = this.count;
     this.dt = simDt;
@@ -588,8 +591,17 @@ class Engine {
     enc.clearBuffer(b.frameCtr, 0, 4);
     enc.clearBuffer(b.frameCtr, 36, 4);
     enc.clearBuffer(b.ledger, 48, 12);
-    const pass = enc.beginComputePass({ timestampWrites });
-    const run = (name, n) => { const c = this.cp[name]; pass.setPipeline(c.pipe); pass.setBindGroup(0, c.bg); pass.dispatchWorkgroups(n); };
+    let pass = prof ? null : enc.beginComputePass({ timestampWrites });
+    const run = (name, n) => {
+      const q = prof ? prof.names.push(name) * 2 - 2 : 0;
+      if (prof) pass = enc.beginComputePass({ timestampWrites: { querySet: prof.qs, beginningOfPassWriteIndex: q, endOfPassWriteIndex: q + 1 } });
+      const c = this.cp[name];
+      pass.setPipeline(c.pipe);
+      pass.setBindGroup(0, c.bg);
+      if (n == null) pass.dispatchWorkgroupsIndirect(b.frameCtr, 4);
+      else pass.dispatchWorkgroups(n);
+      if (prof) pass.end();
+    };
     const wg = Math.ceil(N / 256);
     run('resolveCount', wg);
     // Scan only the cells in use (+1 for the one-past-the-end start of the last cell; when the grid
@@ -601,10 +613,87 @@ class Engine {
     run('scatterMain', wg);
     run('censusMain', Math.ceil(MAXK / 256));
     run('matterMain', wg);
-    pass.setPipeline(this.cp.lifeMain.pipe);
-    pass.setBindGroup(0, this.cp.lifeMain.bg);
-    pass.dispatchWorkgroupsIndirect(b.frameCtr, 4);
-    pass.end();
+    run('lifeMain', null);
+    if (!prof) pass.end();
+  }
+
+  /** One simulation step with each dispatch timed on the GPU: [[name, ms], ...]. Needs timestamps. */
+  async profileStep(simDt = 1 / 60) {
+    const d = this.device, U = GPUBufferUsage;
+    this.prof ??= { qs: d.createQuerySet({ type: 'timestamp', count: 32 }),
+      resolve: d.createBuffer({ size: 256, usage: U.QUERY_RESOLVE | U.COPY_SRC }),
+      read: d.createBuffer({ size: 256, usage: U.COPY_DST | U.MAP_READ }) };
+    const prof = { qs: this.prof.qs, names: [] };
+    const enc = d.createCommandEncoder();
+    this._step(enc, simDt, undefined, -1, prof);
+    const n = prof.names.length * 2;
+    enc.resolveQuerySet(prof.qs, 0, n, this.prof.resolve, 0);
+    enc.copyBufferToBuffer(this.prof.resolve, 0, this.prof.read, 0, n * 8);
+    d.queue.submit([enc.finish()]);
+    await this.prof.read.mapAsync(GPUMapMode.READ);
+    const t = new BigUint64Array(this.prof.read.getMappedRange().slice(0, n * 8));
+    this.prof.read.unmap();
+    return prof.names.map((name, i) => [name, Number(t[i * 2 + 1] - t[i * 2]) / 1e6]);
+  }
+
+  /**
+   * Headless forks: set the world's state aside on the GPU (particles, genomes, intents and the ledger,
+   * with the clock, light and tides), to run the same moment forward again with restore().
+   */
+  snapshot() {
+    const d = this.device, b = this.b, U = GPUBufferUsage;
+    const enc = d.createCommandEncoder();
+    const keep = { gpu: {} };
+    for (const k of ['parts', 'genomes', 'intent', 'ledger']) {
+      keep.gpu[k] = d.createBuffer({ size: b[k].size, usage: U.COPY_SRC | U.COPY_DST });
+      enc.copyBufferToBuffer(b[k], 0, keep.gpu[k], 0, b[k].size);
+    }
+    d.queue.submit([enc.finish()]);
+    keep.cpu = { simTime: this.simTime, frameNo: this.frameNo, tick: this.tick, season: this.season, abio: this.abio,
+      ambient: this.ambient, chargeMul: this.chargeMul, seedValue: this.seedValue,
+      tide: this.tide.slice(), tidePh: this.tidePh.slice(), waves: this.waves.slice(), rock: this.rock.slice() };
+    return keep;
+  }
+
+  restore(keep) {
+    const d = this.device, b = this.b;
+    const enc = d.createCommandEncoder();
+    for (const [k, buf] of Object.entries(keep.gpu)) enc.copyBufferToBuffer(buf, 0, b[k], 0, buf.size);
+    d.queue.submit([enc.finish()]);
+    const c = keep.cpu;
+    Object.assign(this, { simTime: c.simTime, frameNo: c.frameNo, tick: c.tick, season: c.season, abio: c.abio,
+      ambient: c.ambient, chargeMul: c.chargeMul, seedValue: c.seedValue });
+    this.tide.set(c.tide); this.tidePh.set(c.tidePh); this.waves.set(c.waves); this.rock.set(c.rock);
+  }
+
+  /** Read every particle now (headless forks): { u32, f32 } views over count records of P_BYTES. */
+  async readParticles() {
+    const d = this.device, U = GPUBufferUsage, size = this.count * P_BYTES;
+    const st = d.createBuffer({ size, usage: U.COPY_DST | U.MAP_READ });
+    const enc = d.createCommandEncoder();
+    enc.copyBufferToBuffer(this.b.parts, 0, st, 0, size);
+    d.queue.submit([enc.finish()]);
+    await st.mapAsync(GPUMapMode.READ);
+    const copy = st.getMappedRange().slice(0);
+    st.unmap(); st.destroy();
+    return { u32: new Uint32Array(copy), f32: new Float32Array(copy) };
+  }
+
+  /** Read the ledger and genomes now (headless forks), in the shape onCensus receives, with K.diag's counters. */
+  async readCensus() {
+    const d = this.device, U = GPUBufferUsage;
+    const st = d.createBuffer({ size: CENSUS_BYTES, usage: U.COPY_DST | U.MAP_READ });
+    const enc = d.createCommandEncoder();
+    enc.copyBufferToBuffer(this.b.ledger, 0, st, 0, LEDGER_HEAD);
+    enc.copyBufferToBuffer(this.b.genomes, 0, st, LEDGER_HEAD, MAXK * G_BYTES);
+    d.queue.submit([enc.finish()]);
+    await st.mapAsync(GPUMapMode.READ);
+    const copy = st.getMappedRange().slice(0);
+    st.unmap(); st.destroy();
+    const u = new Uint32Array(copy);
+    return { simTime: this.simTime, globals: u.subarray(0, 16), pop: u.subarray(META_POP, META_POP + MAXK),
+      demography: u.subarray(META_DEATH, META_DEATH + 57), energy: u.subarray(META_ENERGY, META_ENERGY + 40),
+      diag: u.subarray(META_DIAG, META_CLAIM), genomeU32: new Uint32Array(copy, LEDGER_HEAD), genomeF32: new Float32Array(copy, LEDGER_HEAD) };
   }
 
   /** On a census step, copy the ledger and genomes into a free staging buffer. */

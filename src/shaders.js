@@ -9,7 +9,15 @@ export const META_SLOT = 16;
 export const META_POP = META_SLOT + MAXK;
 export const META_DEATH = META_POP + MAXK;
 export const META_ENERGY = META_DEATH + 64;
-export const META_CLAIM = META_ENERGY + 64;
+// K.diag's counters, DIAG_STRIDE per diet guild (headless forks record them, tools/fastforward/fork-diag.cjs):
+// once a second per cell its neighbourhood, motion, light, hunger, energy and overlap (cells inside its
+// core); at hunters' kill opportunities the kill funnel; and their contact density (animals within reach
+// and twice reach).
+export const DIAG_SLOTS = ['samples', 'crowd', 'silt', 'pack', 'kin', 'speed', 'photo', 'light', 'hungry', 'hungryFood', 'force', 'energy', 'overlap',
+  'killOpp', 'preyInReach', 'tried', 'missed', 'lost', 'won', 'preyNear', 'preyNear2', 'huntSamples'];
+export const DIAG_STRIDE = 24;
+export const META_DIAG = META_ENERGY + 64;
+export const META_CLAIM = META_DIAG + 5 * DIAG_STRIDE;
 // Energy ledger per diet guild, in thousandths: light, glint, plant bites, husks, kills, upkeep, children.
 export const ENERGY_SLOTS = ['light', 'glint', 'plant', 'husk', 'flesh', 'upkeep', 'children'];
 export const P_BYTES = 40;
@@ -64,6 +72,7 @@ export const DEFAULT_K = {
   preyFrac: 0.7,
   kin: 0.8,
   maxScan: 288,
+  diag: 0,          // 1: count K.diag's diagnostics into the ledger (DIAG_SLOTS; headless forks record them)
   affScale: 0.42,
   matterPull: 0.6,
   metab: 0.75,
@@ -122,6 +131,8 @@ const META_SLOT = ${META_SLOT}u;
 const META_POP = ${META_POP}u;
 const META_DEATH = ${META_DEATH}u;
 const META_ENERGY = ${META_ENERGY}u;
+const META_DIAG = ${META_DIAG}u;
+const DIAG_STRIDE = ${DIAG_STRIDE}u;
 const META_CLAIM = ${META_CLAIM}u;
 const TAU = 6.28318530718;
 const ORGANS = ${ORGANS}u;
@@ -248,6 +259,9 @@ function cellWGSL(K, w) {
   var stoneF = vec2f(0.0);
   var stoneN = 0.0;
   var pack = 0.0;
+  // (K.diag: neighbours inside this cell's core; animals within reach and twice reach)
+  var overlap = 0.0;
+  var preyNear = vec2f(0.0);
   var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
 
   // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam).
@@ -307,6 +321,10 @@ function cellWGSL(K, w) {
         let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
         if (x >= beta) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * invBeta * invR; }
         crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
+        if (DIAG) {
+          if (x < beta) { overlap += 1.0; }
+          if (qk != p.kind && (q.kr & (1u << 12u)) == 0u && r < 2.0 * EAT_R) { preyNear += vec2f(select(0.0, 1.0, r < EAT_R), 1.0); }
+        }
         if (r < LINK_R) { let w = 1.0 - r / LINK_R; pack += w * w; }
         if (qk == p.kind) {
           kinVel += unpack2x16float(q.vel);
@@ -390,6 +408,7 @@ function cellWGSL(K, w) {
     }
     at -= len;
   }
+  overlap *= stride; preyNear *= stride;
   force *= stride; crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride;
 
   let heavy = 1.0 - 0.7 * g.photo;
@@ -524,6 +543,7 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u3
 @group(0) @binding(15) var<storage, read_write> bondsNow: array<vec2u>;
 
 const EAT_R = ${f(K.eatR)};
+const DIAG = ${K.diag ? 'true' : 'false'};
 const LINK_R = ${f(K.linkR)};
 const MAX_SCAN = ${K.maxScan | 0}u;
 const DIET_MIN = ${f(K.dietMin)};
@@ -1100,6 +1120,10 @@ fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, s: ptr<fu
   return armored || unfamiliar || unskilled || sheltered;
 }
 
+// K.diag: count v into a guild's slot k
+fn diagAdd(dg: u32, k: u32, v: u32) { atomicAdd(&ledger[META_DIAG + DIAG_STRIDE * dg + k], v); }
+fn isAnimal(j: u32) -> bool { return j != NONE && sortedFull[j].kind >= FIRST_LIFE && genomes[sortedFull[j].kind].photo <= 0.4; }
+
 // Keep the four best food targets (fc, best first, by score fsc).
 fn pushFood(fc: ptr<function, array<u32, 4>>, fsc: ptr<function, array<f32, 4>>, j: u32, sc: f32) {
   if (sc <= (*fsc)[3]) { return; }
@@ -1140,7 +1164,26 @@ ${cellWGSL(K, false)}
   var cr = 0u;
   var ce = 0.0;
   var info = p.info;
+  if (DIAG && (sim.tick + p.id) / 60u != (sim.tick - sim.ticks + p.id) / 60u) {
+    diagAdd(dg, 0u, 1u);
+    diagAdd(dg, 1u, u32(crowd * 16.0));
+    diagAdd(dg, 2u, u32(nutr * 16.0));
+    diagAdd(dg, 3u, u32(pack * 16.0));
+    diagAdd(dg, 4u, u32(kinN * 16.0));
+    diagAdd(dg, 5u, u32(length(vel) * 1000.0));
+    diagAdd(dg, 6u, u32(max(photoGain, 0.0) * 1000.0));
+    diagAdd(dg, 7u, u32(light * 1000.0));
+    if (hungry) { diagAdd(dg, 8u, 1u); if (food != NONE) { diagAdd(dg, 9u, 1u); } }
+    diagAdd(dg, 10u, u32(length(force) * 100.0));
+    diagAdd(dg, 11u, u32(clamp(E / g.reproE, 0.0, 4.0) * 1000.0));
+    diagAdd(dg, 12u, u32(overlap * 16.0));
+    if (canHunt) { diagAdd(dg, 19u, u32(preyNear.x * 16.0)); diagAdd(dg, 20u, u32(preyNear.y * 16.0)); diagAdd(dg, 21u, 1u); }
+  }
   if (sim.ticks == 1u) {
+    if (DIAG && canHunt && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && ((sim.tick + p.id) / ${K.eatEvery | 0}u) % ${K.killEvery | 0}u == 0u) {
+      diagAdd(dg, 13u, 1u);
+      if (isAnimal(food)) { diagAdd(dg, 14u, 1u); }
+    }
     if (E > g.reproE && silt != NONE) {
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
@@ -1161,7 +1204,10 @@ ${cellWGSL(K, false)}
     // a meal opportunity every K.eatEvery ticks, in the cell's own phase
     } else if (food != NONE && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && mealDue(sortedFull[food].kind, (sim.tick + p.id) / ${K.eatEvery | 0}u)) {
       let fk = sortedFull[food].kind;
-      if (!mealMissed(fk, info, g, eatEff, stoneN, &s) && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
+      let missed = mealMissed(fk, info, g, eatEff, stoneN, &s);
+      let won = !missed && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged;
+      if (DIAG && canHunt && isAnimal(food)) { diagAdd(dg, 15u, 1u); diagAdd(dg, select(select(17u, 18u, won), 16u, missed), 1u); }
+      if (won) {
         let fp = sortedFull[food];
         if (fp.kind >= FIRST_LIFE) {
           atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
@@ -1219,12 +1265,18 @@ ${cellWGSL(K, false)}
         }
       } else if ((tk + p.id) % ${K.eatEvery | 0}u == 0u && next < 4u && E < g.reproE * ${f(K.sated)} && eatEff > 0.1) {
         let mi = (tk + p.id) / ${K.eatEvery | 0}u;
+        let hunt = DIAG && mi % ${K.killEvery | 0}u == 0u && (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN);
+        if (hunt) {
+          diagAdd(dg, 13u, 1u);
+          if (isAnimal(fc[next])) { diagAdd(dg, 14u, 1u); diagAdd(dg, 15u, 1u); }
+        }
         while (next < 4u) {
           let fd = fc[next];
           if (fd == NONE) { next = 4u; break; }
           let fp = sortedFull[fd];
           // handling time, or a miss (armour, an unfamiliar quarry, skill, shelter), ends this opportunity
-          if (!mealDue(fp.kind, mi) || mealMissed(fp.kind, info, g, eatEff, stoneN, &s)) { break; }
+          if (!mealDue(fp.kind, mi)) { break; }
+          if (mealMissed(fp.kind, info, g, eatEff, stoneN, &s)) { if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); } break; }
           let plant = fp.kind >= FIRST_LIFE && genomes[fp.kind].photo > 0.4;
           var got = true;
           if (plant) {
@@ -1235,6 +1287,7 @@ ${cellWGSL(K, false)}
             let cls = select(select(2u, 1u, fp.kind == GLINT), 0u, fp.kind >= FIRST_LIFE);
             got = atomicCompareExchangeWeak(&ledger[META_CLAIM + fd], 0u, MEAL_CLAIM | (cls << 29u) | (i + 1u)).exchanged;
           }
+          if (hunt && isAnimal(fd)) { diagAdd(dg, select(17u, 18u, got), 1u); }
           next++;
           if (!got) { continue; }
           var gain = 0.0;

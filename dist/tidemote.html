@@ -933,7 +933,9 @@ body.filming .world { opacity: 0; visibility: hidden; }
   var META_POP = META_SLOT + MAXK;
   var META_DEATH = META_POP + MAXK;
   var META_ENERGY = META_DEATH + 64;
-  var META_CLAIM = META_ENERGY + 64;
+  var DIAG_STRIDE = 24;
+  var META_DIAG = META_ENERGY + 64;
+  var META_CLAIM = META_DIAG + 5 * DIAG_STRIDE;
   var P_BYTES = 40;
   var LOUPE_FIELD = 1.1;
   var ORGANS = 12;
@@ -1002,6 +1004,8 @@ body.filming .world { opacity: 0; visibility: hidden; }
     preyFrac: 0.7,
     kin: 0.8,
     maxScan: 288,
+    diag: 0,
+    // 1: count K.diag's diagnostics into the ledger (DIAG_SLOTS; headless forks record them)
     affScale: 0.42,
     matterPull: 0.6,
     metab: 0.75,
@@ -1082,6 +1086,8 @@ const META_SLOT = ${META_SLOT}u;
 const META_POP = ${META_POP}u;
 const META_DEATH = ${META_DEATH}u;
 const META_ENERGY = ${META_ENERGY}u;
+const META_DIAG = ${META_DIAG}u;
+const DIAG_STRIDE = ${DIAG_STRIDE}u;
 const META_CLAIM = ${META_CLAIM}u;
 const TAU = 6.28318530718;
 const ORGANS = ${ORGANS}u;
@@ -1208,6 +1214,9 @@ fn roleColor(g: Genome, r: u32) -> vec3f {
   var stoneF = vec2f(0.0);
   var stoneN = 0.0;
   var pack = 0.0;
+  // (K.diag: neighbours inside this cell's core; animals within reach and twice reach)
+  var overlap = 0.0;
+  var preyNear = vec2f(0.0);
   var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
 
   // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam).
@@ -1267,6 +1276,10 @@ fn roleColor(g: Genome, r: u32) -> vec3f {
         let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
         if (x >= beta) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * invBeta * invR; }
         crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
+        if (DIAG) {
+          if (x < beta) { overlap += 1.0; }
+          if (qk != p.kind && (q.kr & (1u << 12u)) == 0u && r < 2.0 * EAT_R) { preyNear += vec2f(select(0.0, 1.0, r < EAT_R), 1.0); }
+        }
         if (r < LINK_R) { let w = 1.0 - r / LINK_R; pack += w * w; }
         if (qk == p.kind) {
           kinVel += unpack2x16float(q.vel);
@@ -1350,6 +1363,7 @@ fn roleColor(g: Genome, r: u32) -> vec3f {
     }
     at -= len;
   }
+  overlap *= stride; preyNear *= stride;
   force *= stride; crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride;
 
   let heavy = 1.0 - 0.7 * g.photo;
@@ -1485,6 +1499,7 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u3
 @group(0) @binding(15) var<storage, read_write> bondsNow: array<vec2u>;
 
 const EAT_R = ${f(K.eatR)};
+const DIAG = ${K.diag ? "true" : "false"};
 const LINK_R = ${f(K.linkR)};
 const MAX_SCAN = ${K.maxScan | 0}u;
 const DIET_MIN = ${f(K.dietMin)};
@@ -2061,6 +2076,10 @@ fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, s: ptr<fu
   return armored || unfamiliar || unskilled || sheltered;
 }
 
+// K.diag: count v into a guild's slot k
+fn diagAdd(dg: u32, k: u32, v: u32) { atomicAdd(&ledger[META_DIAG + DIAG_STRIDE * dg + k], v); }
+fn isAnimal(j: u32) -> bool { return j != NONE && sortedFull[j].kind >= FIRST_LIFE && genomes[sortedFull[j].kind].photo <= 0.4; }
+
 // Keep the four best food targets (fc, best first, by score fsc).
 fn pushFood(fc: ptr<function, array<u32, 4>>, fsc: ptr<function, array<f32, 4>>, j: u32, sc: f32) {
   if (sc <= (*fsc)[3]) { return; }
@@ -2101,7 +2120,26 @@ ${cellWGSL(K, false)}
   var cr = 0u;
   var ce = 0.0;
   var info = p.info;
+  if (DIAG && (sim.tick + p.id) / 60u != (sim.tick - sim.ticks + p.id) / 60u) {
+    diagAdd(dg, 0u, 1u);
+    diagAdd(dg, 1u, u32(crowd * 16.0));
+    diagAdd(dg, 2u, u32(nutr * 16.0));
+    diagAdd(dg, 3u, u32(pack * 16.0));
+    diagAdd(dg, 4u, u32(kinN * 16.0));
+    diagAdd(dg, 5u, u32(length(vel) * 1000.0));
+    diagAdd(dg, 6u, u32(max(photoGain, 0.0) * 1000.0));
+    diagAdd(dg, 7u, u32(light * 1000.0));
+    if (hungry) { diagAdd(dg, 8u, 1u); if (food != NONE) { diagAdd(dg, 9u, 1u); } }
+    diagAdd(dg, 10u, u32(length(force) * 100.0));
+    diagAdd(dg, 11u, u32(clamp(E / g.reproE, 0.0, 4.0) * 1000.0));
+    diagAdd(dg, 12u, u32(overlap * 16.0));
+    if (canHunt) { diagAdd(dg, 19u, u32(preyNear.x * 16.0)); diagAdd(dg, 20u, u32(preyNear.y * 16.0)); diagAdd(dg, 21u, 1u); }
+  }
   if (sim.ticks == 1u) {
+    if (DIAG && canHunt && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && ((sim.tick + p.id) / ${K.eatEvery | 0}u) % ${K.killEvery | 0}u == 0u) {
+      diagAdd(dg, 13u, 1u);
+      if (isAnimal(food)) { diagAdd(dg, 14u, 1u); }
+    }
     if (E > g.reproE && silt != NONE) {
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
@@ -2122,7 +2160,10 @@ ${cellWGSL(K, false)}
     // a meal opportunity every K.eatEvery ticks, in the cell's own phase
     } else if (food != NONE && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && mealDue(sortedFull[food].kind, (sim.tick + p.id) / ${K.eatEvery | 0}u)) {
       let fk = sortedFull[food].kind;
-      if (!mealMissed(fk, info, g, eatEff, stoneN, &s) && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged) {
+      let missed = mealMissed(fk, info, g, eatEff, stoneN, &s);
+      let won = !missed && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged;
+      if (DIAG && canHunt && isAnimal(food)) { diagAdd(dg, 15u, 1u); diagAdd(dg, select(select(17u, 18u, won), 16u, missed), 1u); }
+      if (won) {
         let fp = sortedFull[food];
         if (fp.kind >= FIRST_LIFE) {
           atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
@@ -2180,12 +2221,18 @@ ${cellWGSL(K, false)}
         }
       } else if ((tk + p.id) % ${K.eatEvery | 0}u == 0u && next < 4u && E < g.reproE * ${f(K.sated)} && eatEff > 0.1) {
         let mi = (tk + p.id) / ${K.eatEvery | 0}u;
+        let hunt = DIAG && mi % ${K.killEvery | 0}u == 0u && (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN);
+        if (hunt) {
+          diagAdd(dg, 13u, 1u);
+          if (isAnimal(fc[next])) { diagAdd(dg, 14u, 1u); diagAdd(dg, 15u, 1u); }
+        }
         while (next < 4u) {
           let fd = fc[next];
           if (fd == NONE) { next = 4u; break; }
           let fp = sortedFull[fd];
           // handling time, or a miss (armour, an unfamiliar quarry, skill, shelter), ends this opportunity
-          if (!mealDue(fp.kind, mi) || mealMissed(fp.kind, info, g, eatEff, stoneN, &s)) { break; }
+          if (!mealDue(fp.kind, mi)) { break; }
+          if (mealMissed(fp.kind, info, g, eatEff, stoneN, &s)) { if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); } break; }
           let plant = fp.kind >= FIRST_LIFE && genomes[fp.kind].photo > 0.4;
           var got = true;
           if (plant) {
@@ -2196,6 +2243,7 @@ ${cellWGSL(K, false)}
             let cls = select(select(2u, 1u, fp.kind == GLINT), 0u, fp.kind >= FIRST_LIFE);
             got = atomicCompareExchangeWeak(&ledger[META_CLAIM + fd], 0u, MEAL_CLAIM | (cls << 29u) | (i + 1u)).exchanged;
           }
+          if (hunt && isAnimal(fd)) { diagAdd(dg, select(17u, 18u, got), 1u); }
           next++;
           if (!got) { continue; }
           var gain = 0.0;
@@ -13173,8 +13221,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
         this.pickReq = { center, radius, selId: selId >>> 0, kind, maxOut: Math.max(1, Math.min(Math.ceil(maxOut), PICK_MAX)), raw, resolve };
       });
     }
-    /** Encode one simulation step whose uniforms are at `ring` (a slot of b.simRing), or written directly. */
-    _step(enc, simDt, timestampWrites, ring = -1) {
+    /**
+     * Encode one simulation step whose uniforms are at `ring` (a slot of b.simRing), or written directly.
+     * prof: {qs, names}, to time each dispatch in a pass of its own (profileStep).
+     */
+    _step(enc, simDt, timestampWrites, ring = -1, prof = null) {
       const b = this.b;
       const N = this.count;
       this.dt = simDt;
@@ -13195,12 +13246,16 @@ registerProcessor("tidemote-sound", TidemoteSound);
       enc.clearBuffer(b.frameCtr, 0, 4);
       enc.clearBuffer(b.frameCtr, 36, 4);
       enc.clearBuffer(b.ledger, 48, 12);
-      const pass = enc.beginComputePass({ timestampWrites });
+      let pass = prof ? null : enc.beginComputePass({ timestampWrites });
       const run2 = (name, n) => {
+        const q = prof ? prof.names.push(name) * 2 - 2 : 0;
+        if (prof) pass = enc.beginComputePass({ timestampWrites: { querySet: prof.qs, beginningOfPassWriteIndex: q, endOfPassWriteIndex: q + 1 } });
         const c = this.cp[name];
         pass.setPipeline(c.pipe);
         pass.setBindGroup(0, c.bg);
-        pass.dispatchWorkgroups(n);
+        if (n == null) pass.dispatchWorkgroupsIndirect(b.frameCtr, 4);
+        else pass.dispatchWorkgroups(n);
+        if (prof) pass.end();
       };
       const wg = Math.ceil(N / 256);
       run2("resolveCount", wg);
@@ -13211,10 +13266,115 @@ registerProcessor("tidemote-sound", TidemoteSound);
       run2("scatterMain", wg);
       run2("censusMain", Math.ceil(MAXK / 256));
       run2("matterMain", wg);
-      pass.setPipeline(this.cp.lifeMain.pipe);
-      pass.setBindGroup(0, this.cp.lifeMain.bg);
-      pass.dispatchWorkgroupsIndirect(b.frameCtr, 4);
-      pass.end();
+      run2("lifeMain", null);
+      if (!prof) pass.end();
+    }
+    /** One simulation step with each dispatch timed on the GPU: [[name, ms], ...]. Needs timestamps. */
+    async profileStep(simDt = 1 / 60) {
+      const d = this.device, U2 = GPUBufferUsage;
+      this.prof ??= {
+        qs: d.createQuerySet({ type: "timestamp", count: 32 }),
+        resolve: d.createBuffer({ size: 256, usage: U2.QUERY_RESOLVE | U2.COPY_SRC }),
+        read: d.createBuffer({ size: 256, usage: U2.COPY_DST | U2.MAP_READ })
+      };
+      const prof = { qs: this.prof.qs, names: [] };
+      const enc = d.createCommandEncoder();
+      this._step(enc, simDt, void 0, -1, prof);
+      const n = prof.names.length * 2;
+      enc.resolveQuerySet(prof.qs, 0, n, this.prof.resolve, 0);
+      enc.copyBufferToBuffer(this.prof.resolve, 0, this.prof.read, 0, n * 8);
+      d.queue.submit([enc.finish()]);
+      await this.prof.read.mapAsync(GPUMapMode.READ);
+      const t2 = new BigUint64Array(this.prof.read.getMappedRange().slice(0, n * 8));
+      this.prof.read.unmap();
+      return prof.names.map((name, i) => [name, Number(t2[i * 2 + 1] - t2[i * 2]) / 1e6]);
+    }
+    /**
+     * Headless forks: set the world's state aside on the GPU (particles, genomes, intents and the ledger,
+     * with the clock, light and tides), to run the same moment forward again with restore().
+     */
+    snapshot() {
+      const d = this.device, b = this.b, U2 = GPUBufferUsage;
+      const enc = d.createCommandEncoder();
+      const keep = { gpu: {} };
+      for (const k of ["parts", "genomes", "intent", "ledger"]) {
+        keep.gpu[k] = d.createBuffer({ size: b[k].size, usage: U2.COPY_SRC | U2.COPY_DST });
+        enc.copyBufferToBuffer(b[k], 0, keep.gpu[k], 0, b[k].size);
+      }
+      d.queue.submit([enc.finish()]);
+      keep.cpu = {
+        simTime: this.simTime,
+        frameNo: this.frameNo,
+        tick: this.tick,
+        season: this.season,
+        abio: this.abio,
+        ambient: this.ambient,
+        chargeMul: this.chargeMul,
+        seedValue: this.seedValue,
+        tide: this.tide.slice(),
+        tidePh: this.tidePh.slice(),
+        waves: this.waves.slice(),
+        rock: this.rock.slice()
+      };
+      return keep;
+    }
+    restore(keep) {
+      const d = this.device, b = this.b;
+      const enc = d.createCommandEncoder();
+      for (const [k, buf] of Object.entries(keep.gpu)) enc.copyBufferToBuffer(buf, 0, b[k], 0, buf.size);
+      d.queue.submit([enc.finish()]);
+      const c = keep.cpu;
+      Object.assign(this, {
+        simTime: c.simTime,
+        frameNo: c.frameNo,
+        tick: c.tick,
+        season: c.season,
+        abio: c.abio,
+        ambient: c.ambient,
+        chargeMul: c.chargeMul,
+        seedValue: c.seedValue
+      });
+      this.tide.set(c.tide);
+      this.tidePh.set(c.tidePh);
+      this.waves.set(c.waves);
+      this.rock.set(c.rock);
+    }
+    /** Read every particle now (headless forks): { u32, f32 } views over count records of P_BYTES. */
+    async readParticles() {
+      const d = this.device, U2 = GPUBufferUsage, size = this.count * P_BYTES;
+      const st = d.createBuffer({ size, usage: U2.COPY_DST | U2.MAP_READ });
+      const enc = d.createCommandEncoder();
+      enc.copyBufferToBuffer(this.b.parts, 0, st, 0, size);
+      d.queue.submit([enc.finish()]);
+      await st.mapAsync(GPUMapMode.READ);
+      const copy = st.getMappedRange().slice(0);
+      st.unmap();
+      st.destroy();
+      return { u32: new Uint32Array(copy), f32: new Float32Array(copy) };
+    }
+    /** Read the ledger and genomes now (headless forks), in the shape onCensus receives, with K.diag's counters. */
+    async readCensus() {
+      const d = this.device, U2 = GPUBufferUsage;
+      const st = d.createBuffer({ size: CENSUS_BYTES, usage: U2.COPY_DST | U2.MAP_READ });
+      const enc = d.createCommandEncoder();
+      enc.copyBufferToBuffer(this.b.ledger, 0, st, 0, LEDGER_HEAD);
+      enc.copyBufferToBuffer(this.b.genomes, 0, st, LEDGER_HEAD, MAXK * G_BYTES);
+      d.queue.submit([enc.finish()]);
+      await st.mapAsync(GPUMapMode.READ);
+      const copy = st.getMappedRange().slice(0);
+      st.unmap();
+      st.destroy();
+      const u = new Uint32Array(copy);
+      return {
+        simTime: this.simTime,
+        globals: u.subarray(0, 16),
+        pop: u.subarray(META_POP, META_POP + MAXK),
+        demography: u.subarray(META_DEATH, META_DEATH + 57),
+        energy: u.subarray(META_ENERGY, META_ENERGY + 40),
+        diag: u.subarray(META_DIAG, META_CLAIM),
+        genomeU32: new Uint32Array(copy, LEDGER_HEAD),
+        genomeF32: new Float32Array(copy, LEDGER_HEAD)
+      };
     }
     /** On a census step, copy the ledger and genomes into a free staging buffer. */
     _censusCopy(enc) {

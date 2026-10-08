@@ -19,7 +19,7 @@ for (let i = 0; i < positionals.length; i += 2) {
   const name = positionals[i], config = JSON.parse(positionals[i + 1]);
   if (!/^[\w-]+$/.test(name) || configs.some((c) => c.name === name)) throw new Error('Config names must be unique and contain only letters, numbers, underscores or hyphens');
   if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('Config must be an object');
-  for (const key of Object.keys(config)) if (!['k', 'eras'].includes(key)) throw new Error(`Unknown config key: ${key}`);
+  for (const key of Object.keys(config)) if (!['k', 'eras', 'step'].includes(key)) throw new Error(`Unknown config key: ${key}`);
   if ('eras' in config && typeof config.eras !== 'boolean') throw new Error('eras must be boolean');
   configs.push({ name, config, runs: [], failed: [] });
 }
@@ -36,6 +36,7 @@ async function worker() {
     if (v.chrome) args.push('--chrome');
     else if (v.cpu) args.push('--cpu');
     if (c.config.eras === false) args.push('--no-eras');
+    if (c.config.step) args.push('--step', String(c.config.step));
     // The software Vulkan driver occasionally aborts a process; retry once, then record the failure and carry on.
     let failure = await runSim(args);
     if (failure) failure = await runSim(args);
