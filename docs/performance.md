@@ -39,9 +39,10 @@ faster than linearly (the level of detail is set in framebuffer pixels).
   three windows: the frame rate back first, then the scale; a level that just proved too slow is
   not retried for 30 s. Settings → Performance shows the rate aimed for and why.
 - **Coarse steps at low frame rates.** At real time a step covers up to a frame's worth of whole
-  ticks, so below about 45 fps the world takes coarse steps (docs/fast-forward.md). A coarse step
-  costs about what a 1/60 s step does, so 30 fps halves the simulation's cost too and a slow device
-  keeps real time: the mature 4M world ran at 0.67× and now runs at 1× at 36 fps.
+  ticks, so below about 45 fps the world takes coarse steps (docs/fast-forward.md). A 2-tick step
+  costs about 1.45 times a 1/60 s one (one neighbour scan, more motion substeps), so 30 fps still cuts
+  the simulation's cost by a quarter and the drawing's by half, and a slow device keeps real time:
+  the mature 4M world ran at 0.67× and now runs at 1× at 32 to 36 fps.
 - **Bounded GPU work per submit.** At most two frames in flight, and fast speeds carry only the
   fraction of a step their budget leaves (they once saved credit up to 512 steps, which came due on
   a switch to Max: 2 s of GPU in one submit). A phone's compositor shares its GPU, so a long or deep

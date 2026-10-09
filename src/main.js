@@ -1701,8 +1701,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const frameEvery = () => Math.max(1, Math.round((state.perf.fps ? 1000 / state.perf.fps : 0) / displayMs())) * (state.speed > 1 ? 1 : perf.slow);
   const frameTarget = () => frameEvery() * displayMs();
   // At real time or slower a step covers up to one frame of the rate aimed for, in whole 1/60 s ticks
-  // (at most MAX_TICKS): below about 45 fps the world takes coarse steps, which cost about what a 1/60 s
-  // step does and keep its ecology (docs/fast-forward.md), so a slow device keeps real time.
+  // (at most MAX_TICKS): below about 45 fps the world takes coarse steps, which cost far less than the
+  // 1/60 s steps they stand for and keep its ecology (docs/fast-forward.md), so a slow device keeps real time.
   const stepTicks = () => clamp(Math.ceil(frameTarget() * 60 / 1000 - 0.1), 1, MAX_TICKS);
   // render scales the auto resolution steps between (down to the floor chosen in Settings)
   const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
