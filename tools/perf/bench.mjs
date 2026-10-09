@@ -75,6 +75,10 @@ async function openPage(n, extra = {}, k = null, init = null, html = null) {
   page.on('pageerror', (e) => console.log(`  [page error] ${e.message}`));
   await page.goto(`${base}/${html ? `pages/${html}.html` : 'tidemote.html'}${k ? `#k=${encodeURIComponent(JSON.stringify(k))}` : ''}`);
   await page.waitForFunction(() => globalThis.__tidemote && globalThis.__tidemote.state.phase === 'running', null, { polling: 250 });
+  report.browser ??= await page.evaluate(async () => {
+    const a = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    return { ua: navigator.userAgent, adapter: a.info && [a.info.vendor, a.info.architecture, a.info.description].join(' / '), wgsl: [...navigator.gpu.wgslLanguageFeatures], dpr: devicePixelRatio };
+  });
   return page;
 }
 
@@ -215,6 +219,7 @@ try {
     const scs = plan.scenarios.filter((s) => s.world === w.name && (!only || only.test(s.name)));
     if (!scs.length) continue;
     const page = await openPage(w.n, w.prefs, w.k, w.init, w.page);
+    if (!report.shown) { report.shown = true; console.log(JSON.stringify(report.browser)); }
     await world(page, w);
     for (const sc of scs) {
       const r = await measure(page, sc);

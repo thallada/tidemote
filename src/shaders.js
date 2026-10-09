@@ -292,10 +292,8 @@ function cellWGSL(K, w) {
   let g = genomes[p.kind];
   let role = roleOf(p.info);
   let sg = g.sig[role];
-  let rec0 = unpack4x8snorm(sg.z);
-  let rec1 = unpack4x8snorm(sg.w);
-  let my0 = unpack4x8snorm(sg.x);
-  let my1 = unpack4x8snorm(sg.y);
+  // its surface signature (x, y) and receptors (z, w), kept packed: sdot reads them as they are
+  let myNorm = sdot(sg.x, sg.x) + sdot(sg.y, sg.y);
   let world = sim.world;
   let invWorld = 1.0 / world;
   let gw = i32(sim.grid.x);
@@ -314,7 +312,9 @@ function cellWGSL(K, w) {
   var dn2 = vec2f(0.0);
 
   var force = vec2f(0.0);
-  // Coarse steps (sim.ticks > 1) also gather how the pair and stone forces change as this cell moves
+  // a coarse step, in lifeMainCoarse (COARSE: a 1/60 s step's pipeline leaves all of it out)
+  let coarse = COARSE && sim.ticks > 1u;
+  // Coarse steps also gather how the pair and stone forces change as this cell moves
   // (their gradients jF, jS: xx, xy, yy) and its neighbours' velocity weighted by how stiffly each holds
   // it (vN / wN, with wN2 for their number): see the motion below.
   var jF = vec3f(0.0);
@@ -356,7 +356,7 @@ function cellWGSL(K, w) {
   let hungry = p.energy < g.reproE * ${f(K.sated)} && eatEff > 0.1 && !th.torpid;
   let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
   // food in reach is gathered by hungry cells; in a coarse step also by any that may grow hungry in it
-  let seek = hungry || (sim.ticks > 1u && eatEff > 0.1 && !th.torpid);
+  let seek = hungry || (coarse && eatEff > 0.1 && !th.torpid);
   let seekHunt = canHunt || (seek && (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN));
   var food = NONE; var foodScore = -1e9;
   // a coarse step keeps the four best, for its meals and for claims lost to other eaters
@@ -413,9 +413,7 @@ function cellWGSL(K, w) {
       let r = sqrt(r2);
       let x = r * invR;
       let qk = q.kr & 1023u;
-      let s0 = unpack4x8snorm(q.s0);
-      let s1 = unpack4x8snorm(q.s1);
-      let a = clamp((dot(rec0, s0) + dot(rec1, s1)) * ${f(K.affScale)}, -1.0, 1.0);
+      let a = clamp((sdot(sg.z, q.s0) + sdot(sg.w, q.s1)) * ${f(K.affScale)}, -1.0, 1.0);
       let shape = 1.0 - abs(2.0 * x - 1.0 - beta) * invOM;
       var fr: f32;
       // how fr changes with distance (coarse steps' gradient), and the pull that scales shape
@@ -453,15 +451,15 @@ function cellWGSL(K, w) {
           }
         }
         if (seekHunt && r < EAT_R && qk != p.kind) {
-          let da = s0 - my0;
-          let db = s1 - my1;
-          if (dot(da, da) + dot(db, db) > ${f(K.kin)}) {
+          // how far its signature is from this cell's: |s - my|^2
+          let far = sdot(q.s0, q.s0) + sdot(q.s1, q.s1) - 2.0 * (sdot(q.s0, sg.x) + sdot(q.s1, sg.y)) + myNorm;
+          if (far > ${f(K.kin)}) {
             // grazers crop plant cells; flesh-eaters hunt animals (and crop plants reluctantly)
             let plant = (q.kr & (1u << 12u)) != 0u;
             let pref = select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, plant);
             let sc = pref - r;
             if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
-            if (pref > DIET_MIN && sim.ticks > 1u) { pushFood(&fc, &fsc, j, sc); }
+            if (pref > DIET_MIN && coarse) { pushFood(&fc, &fsc, j, sc); }
           }
         }
       } else {
@@ -485,7 +483,7 @@ function cellWGSL(K, w) {
           // a cell ready to divide looks for a grain every tick, so in a coarse step a grain counts if it
           // came within reach at any tick of it: the closest approach of their paths over the step
           var rc = r;
-          if (qk == SILT && sim.ticks > 1u) {
+          if (qk == SILT && coarse) {
             let w = unpack2x16float(q.vel) - selfVel;
             let ww = dot(w, w);
             rc = length(d + w * select(0.0, clamp(-dot(d, w) / ww, 0.0, sim.dt), ww > 1e-12));
@@ -497,13 +495,13 @@ function cellWGSL(K, w) {
             let dv = select(g.dHusk, g.dGlint, qk == GLINT);
             let sc = dv - r;
             if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
-            if (dv > DIET_MIN && sim.ticks > 1u) { pushFood(&fc, &fsc, j, sc); }
+            if (dv > DIET_MIN && coarse) { pushFood(&fc, &fsc, j, sc); }
           }
         }
       }
       if (x >= beta) { dfr = select(-2.0, 2.0, 2.0 * x < 1.0 + beta) * invOM * invR * pull; }
       force += d * (fr / r);${W('mPair(j, q, d, r, x < beta, qk == p.kind, mFr0, fr);')}
-      if (sim.ticks > 1u) {
+      if (coarse) {
         // the pair force d g(r), g = fr / r, has gradient in this cell's position -(g I + g'/r d d')
         let gr = fr / r;
         let c = (dfr * r - fr) / (r2 * r);
@@ -541,7 +539,7 @@ function cellWGSL(K, w) {
   // is untouched and a collision too stiff to resolve shares its momentum; stable for every mode of a
   // clump (tools/fastforward/stiff-modes.py, docs/fast-forward.md).
   var stiff = vec2f(0.0);
-  if (sim.ticks > 1u && wN2 > 0.0) {
+  if (coarse && wN2 > 0.0) {
     let cf = g.force * heavy;
     let cw = ${f(K.stoneWall)} * (1.0 - g.calcify);
     let D = -(restoring(jF * stride) * cf + restoring(jS * stride) * cw);
@@ -568,7 +566,7 @@ function cellWGSL(K, w) {
   if (n2 != NONE) { vB2 = sortedFull[n2].vel; }
   var vel = p.vel;
   var pos = p.pos;
-  for (var k = 0u; k < sim.ticks; k++) {
+  for (var k = 0u; k < select(1u, sim.ticks, COARSE); k++) {
     var fb = bondF;
     if (k > 0u) {
       let t = f32(k) * h;
@@ -619,8 +617,12 @@ function cellWGSL(K, w) {
     * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking;`;
 }
 
-export function simWGSL(K) {
+// dp4a: the WGSL language feature packed_4x8_integer_dot_product is available
+export function simWGSL(K, { dp4a = false } = {}) {
   return COMMON + /* wgsl */ `
+// Coarse steps (sim.ticks > 1) run lifeMain and mindMain as pipelines of their own (lifeMainCoarse):
+// a 1/60 s step's leaves out everything only a coarse step needs, which saves it registers.
+override COARSE = false;
 struct Sim {
   world: vec2f, grid: vec2u,
   count: u32, frame: u32, dt: f32, time: f32,
@@ -683,6 +685,8 @@ fn pcg(v: u32) -> u32 {
   return (w >> 22u) ^ w;
 }
 fn rnd(s: ptr<function, u32>) -> f32 { *s = pcg(*s); return f32(*s >> 8u) / 16777216.0; }
+// The dot product of two signatures packed as 4x8 snorm, exactly (whole numbers over 127^2).
+fn sdot(a: u32, b: u32) -> f32 { return ${dp4a ? `f32(dot4I8Packed(a, b)) * ${f(1 / 16129)}` : 'dot(unpack4x8snorm(a), unpack4x8snorm(b))'}; }
 fn gauss(s: ptr<function, u32>) -> f32 { return (rnd(s) + rnd(s) + rnd(s) - 1.5) * 2.0; }
 fn g4(s: ptr<function, u32>) -> vec4f { return vec4f(gauss(s), gauss(s), gauss(s), gauss(s)); }
 fn r4(s: ptr<function, u32>) -> vec4f { return vec4f(rnd(s), rnd(s), rnd(s), rnd(s)) * 2.0 - 1.0; }
@@ -1410,7 +1414,7 @@ ${cellWGSL(K, false)}
     diagAdd(dg, 23u, u32(clamp(Tc - g.topt + 64.0, 0.0, 128.0) * 8.0));
     if (canHunt) { diagAdd(dg, 19u, u32(preyNear.x * 16.0)); diagAdd(dg, 20u, u32(preyNear.y * 16.0)); diagAdd(dg, 21u, 1u); }
   }
-  if (sim.ticks == 1u) {
+  if (!coarse) {
     if (DIAG && canHunt && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && ((sim.tick + p.id) / ${K.eatEvery | 0}u) % ${K.killEvery | 0}u == 0u) {
       diagAdd(dg, 13u, 1u);
       if (isAnimal(food)) { diagAdd(dg, 14u, 1u); }
@@ -1621,7 +1625,7 @@ fn mPair(j: u32, q: Lite, d: vec2f, r: f32, inside: bool, kin: bool, fr0: f32, f
   mN++;
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(256)
 fn mindMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = gid.x;
   if (i >= sim.count || sortedFull[i].id != mind[0] || sortedFull[i].kind < FIRST_LIFE) { return; }

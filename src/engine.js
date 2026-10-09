@@ -140,7 +140,8 @@ class Engine {
     this._surveyFrames = 0;
     this._surveySim = null;
 
-    this.simModule = d.createShaderModule({ code: simWGSL(K), label: 'sim' });
+    const dp4a = !!globalThis.navigator?.gpu?.wgslLanguageFeatures?.has('packed_4x8_integer_dot_product');
+    this.simModule = d.createShaderModule({ code: simWGSL(K, { dp4a }), label: 'sim' });
     this.pickModule = d.createShaderModule({ code: PICK_WGSL, label: 'pick' });
     this.listenModule = d.createShaderModule({ code: LISTEN_WGSL, label: 'listen' });
     this.watchModule = d.createShaderModule({ code: WATCH_WGSL, label: 'watch' });
@@ -167,8 +168,14 @@ class Engine {
       heatMain: [0, 14, 18, 19],
       mindMain: [0, 2, 3, 6, 10, 15, 17, 18],
     };
+    // coarse steps run their own lifeMain and mindMain (COARSE in simWGSL)
+    this.cpDefs.lifeMainCoarse = this.cpDefs.lifeMain;
+    this.cpDefs.mindMainCoarse = this.cpDefs.mindMain;
     this.cp = {};
-    for (const name of Object.keys(this.cpDefs)) this.cp[name] = { pipe: cp(this.simModule, name), bg: null };
+    for (const name of Object.keys(this.cpDefs)) {
+      const coarse = name.endsWith('Coarse');
+      this.cp[name] = { pipe: coarse ? d.createComputePipeline({ layout: 'auto', compute: { module: this.simModule, entryPoint: name.slice(0, -6), constants: { COARSE: 1 } }, label: name }) : cp(this.simModule, name), bg: null };
+    }
     this.cpPick = { pipe: cp(this.pickModule, 'pickMain'), bg: null };
     this.cpListen = { pipe: cp(this.listenModule, 'listenMain'), bg: null };
     this.cpWatch = { pipe: cp(this.watchModule, 'watchMain'), bg: null };
@@ -633,7 +640,7 @@ class Engine {
     run('scatterMain', wg);
     run('censusMain', Math.ceil(MAXK / 256));
     run('matterMain', wg);
-    run('lifeMain', null);
+    run(this.ticks > 1 ? 'lifeMainCoarse' : 'lifeMain', null);
     if (this.K.heat) run('heatMain', Math.ceil(cells / 64));
     if (!prof) pass.end();
     // the next temperatures become this step's
@@ -1063,9 +1070,10 @@ class Engine {
     this.device.queue.writeBuffer(b.mind, 0, new Uint32Array([this.mindId]));
     enc.clearBuffer(b.mind, 4, 4);
     const pass = enc.beginComputePass();
-    pass.setPipeline(this.cp.mindMain.pipe);
-    pass.setBindGroup(0, this.cp.mindMain.bg);
-    pass.dispatchWorkgroups(Math.ceil(N / 64));
+    const mind = this.cp[this.ticks > 1 ? 'mindMainCoarse' : 'mindMain'];
+    pass.setPipeline(mind.pipe);
+    pass.setBindGroup(0, mind.bg);
+    pass.dispatchWorkgroups(Math.ceil(N / 256));
     pass.end();
     enc.copyBufferToBuffer(b.mind, 0, st.buf, 0, MIND_BYTES);
     return { st, id: this.mindId, simTime: this.simTime };

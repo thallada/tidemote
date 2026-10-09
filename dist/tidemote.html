@@ -1413,10 +1413,8 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   let g = genomes[p.kind];
   let role = roleOf(p.info);
   let sg = g.sig[role];
-  let rec0 = unpack4x8snorm(sg.z);
-  let rec1 = unpack4x8snorm(sg.w);
-  let my0 = unpack4x8snorm(sg.x);
-  let my1 = unpack4x8snorm(sg.y);
+  // its surface signature (x, y) and receptors (z, w), kept packed: sdot reads them as they are
+  let myNorm = sdot(sg.x, sg.x) + sdot(sg.y, sg.y);
   let world = sim.world;
   let invWorld = 1.0 / world;
   let gw = i32(sim.grid.x);
@@ -1435,7 +1433,9 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   var dn2 = vec2f(0.0);
 
   var force = vec2f(0.0);
-  // Coarse steps (sim.ticks > 1) also gather how the pair and stone forces change as this cell moves
+  // a coarse step, in lifeMainCoarse (COARSE: a 1/60 s step's pipeline leaves all of it out)
+  let coarse = COARSE && sim.ticks > 1u;
+  // Coarse steps also gather how the pair and stone forces change as this cell moves
   // (their gradients jF, jS: xx, xy, yy) and its neighbours' velocity weighted by how stiffly each holds
   // it (vN / wN, with wN2 for their number): see the motion below.
   var jF = vec3f(0.0);
@@ -1477,7 +1477,7 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   let hungry = p.energy < g.reproE * ${f(K.sated)} && eatEff > 0.1 && !th.torpid;
   let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
   // food in reach is gathered by hungry cells; in a coarse step also by any that may grow hungry in it
-  let seek = hungry || (sim.ticks > 1u && eatEff > 0.1 && !th.torpid);
+  let seek = hungry || (coarse && eatEff > 0.1 && !th.torpid);
   let seekHunt = canHunt || (seek && (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN));
   var food = NONE; var foodScore = -1e9;
   // a coarse step keeps the four best, for its meals and for claims lost to other eaters
@@ -1534,9 +1534,7 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
       let r = sqrt(r2);
       let x = r * invR;
       let qk = q.kr & 1023u;
-      let s0 = unpack4x8snorm(q.s0);
-      let s1 = unpack4x8snorm(q.s1);
-      let a = clamp((dot(rec0, s0) + dot(rec1, s1)) * ${f(K.affScale)}, -1.0, 1.0);
+      let a = clamp((sdot(sg.z, q.s0) + sdot(sg.w, q.s1)) * ${f(K.affScale)}, -1.0, 1.0);
       let shape = 1.0 - abs(2.0 * x - 1.0 - beta) * invOM;
       var fr: f32;
       // how fr changes with distance (coarse steps' gradient), and the pull that scales shape
@@ -1574,15 +1572,15 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
           }
         }
         if (seekHunt && r < EAT_R && qk != p.kind) {
-          let da = s0 - my0;
-          let db = s1 - my1;
-          if (dot(da, da) + dot(db, db) > ${f(K.kin)}) {
+          // how far its signature is from this cell's: |s - my|^2
+          let far = sdot(q.s0, q.s0) + sdot(q.s1, q.s1) - 2.0 * (sdot(q.s0, sg.x) + sdot(q.s1, sg.y)) + myNorm;
+          if (far > ${f(K.kin)}) {
             // grazers crop plant cells; flesh-eaters hunt animals (and crop plants reluctantly)
             let plant = (q.kr & (1u << 12u)) != 0u;
             let pref = select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, plant);
             let sc = pref - r;
             if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
-            if (pref > DIET_MIN && sim.ticks > 1u) { pushFood(&fc, &fsc, j, sc); }
+            if (pref > DIET_MIN && coarse) { pushFood(&fc, &fsc, j, sc); }
           }
         }
       } else {
@@ -1606,7 +1604,7 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
           // a cell ready to divide looks for a grain every tick, so in a coarse step a grain counts if it
           // came within reach at any tick of it: the closest approach of their paths over the step
           var rc = r;
-          if (qk == SILT && sim.ticks > 1u) {
+          if (qk == SILT && coarse) {
             let w = unpack2x16float(q.vel) - selfVel;
             let ww = dot(w, w);
             rc = length(d + w * select(0.0, clamp(-dot(d, w) / ww, 0.0, sim.dt), ww > 1e-12));
@@ -1618,13 +1616,13 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
             let dv = select(g.dHusk, g.dGlint, qk == GLINT);
             let sc = dv - r;
             if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
-            if (dv > DIET_MIN && sim.ticks > 1u) { pushFood(&fc, &fsc, j, sc); }
+            if (dv > DIET_MIN && coarse) { pushFood(&fc, &fsc, j, sc); }
           }
         }
       }
       if (x >= beta) { dfr = select(-2.0, 2.0, 2.0 * x < 1.0 + beta) * invOM * invR * pull; }
       force += d * (fr / r);${W("mPair(j, q, d, r, x < beta, qk == p.kind, mFr0, fr);")}
-      if (sim.ticks > 1u) {
+      if (coarse) {
         // the pair force d g(r), g = fr / r, has gradient in this cell's position -(g I + g'/r d d')
         let gr = fr / r;
         let c = (dfr * r - fr) / (r2 * r);
@@ -1662,7 +1660,7 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   // is untouched and a collision too stiff to resolve shares its momentum; stable for every mode of a
   // clump (tools/fastforward/stiff-modes.py, docs/fast-forward.md).
   var stiff = vec2f(0.0);
-  if (sim.ticks > 1u && wN2 > 0.0) {
+  if (coarse && wN2 > 0.0) {
     let cf = g.force * heavy;
     let cw = ${f(K.stoneWall)} * (1.0 - g.calcify);
     let D = -(restoring(jF * stride) * cf + restoring(jS * stride) * cw);
@@ -1689,7 +1687,7 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   if (n2 != NONE) { vB2 = sortedFull[n2].vel; }
   var vel = p.vel;
   var pos = p.pos;
-  for (var k = 0u; k < sim.ticks; k++) {
+  for (var k = 0u; k < select(1u, sim.ticks, COARSE); k++) {
     var fb = bondF;
     if (k > 0u) {
       let t = f32(k) * h;
@@ -1740,9 +1738,12 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
     * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking;`
     );
   }
-  function simWGSL(K) {
+  function simWGSL(K, { dp4a = false } = {}) {
     return COMMON + /* wgsl */
     `
+// Coarse steps (sim.ticks > 1) run lifeMain and mindMain as pipelines of their own (lifeMainCoarse):
+// a 1/60 s step's leaves out everything only a coarse step needs, which saves it registers.
+override COARSE = false;
 struct Sim {
   world: vec2f, grid: vec2u,
   count: u32, frame: u32, dt: f32, time: f32,
@@ -1805,6 +1806,8 @@ fn pcg(v: u32) -> u32 {
   return (w >> 22u) ^ w;
 }
 fn rnd(s: ptr<function, u32>) -> f32 { *s = pcg(*s); return f32(*s >> 8u) / 16777216.0; }
+// The dot product of two signatures packed as 4x8 snorm, exactly (whole numbers over 127^2).
+fn sdot(a: u32, b: u32) -> f32 { return ${dp4a ? `f32(dot4I8Packed(a, b)) * ${f(1 / 16129)}` : "dot(unpack4x8snorm(a), unpack4x8snorm(b))"}; }
 fn gauss(s: ptr<function, u32>) -> f32 { return (rnd(s) + rnd(s) + rnd(s) - 1.5) * 2.0; }
 fn g4(s: ptr<function, u32>) -> vec4f { return vec4f(gauss(s), gauss(s), gauss(s), gauss(s)); }
 fn r4(s: ptr<function, u32>) -> vec4f { return vec4f(rnd(s), rnd(s), rnd(s), rnd(s)) * 2.0 - 1.0; }
@@ -2532,7 +2535,7 @@ ${cellWGSL(K, false)}
     diagAdd(dg, 23u, u32(clamp(Tc - g.topt + 64.0, 0.0, 128.0) * 8.0));
     if (canHunt) { diagAdd(dg, 19u, u32(preyNear.x * 16.0)); diagAdd(dg, 20u, u32(preyNear.y * 16.0)); diagAdd(dg, 21u, 1u); }
   }
-  if (sim.ticks == 1u) {
+  if (!coarse) {
     if (DIAG && canHunt && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && ((sim.tick + p.id) / ${K.eatEvery | 0}u) % ${K.killEvery | 0}u == 0u) {
       diagAdd(dg, 13u, 1u);
       if (isAnimal(food)) { diagAdd(dg, 14u, 1u); }
@@ -2743,7 +2746,7 @@ fn mPair(j: u32, q: Lite, d: vec2f, r: f32, inside: bool, kin: bool, fr0: f32, f
   mN++;
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(256)
 fn mindMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = gid.x;
   if (i >= sim.count || sortedFull[i].id != mind[0] || sortedFull[i].kind < FIRST_LIFE) { return; }
@@ -13686,7 +13689,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.onSurvey = null;
       this._surveyFrames = 0;
       this._surveySim = null;
-      this.simModule = d.createShaderModule({ code: simWGSL(K), label: "sim" });
+      const dp4a = !!globalThis.navigator?.gpu?.wgslLanguageFeatures?.has("packed_4x8_integer_dot_product");
+      this.simModule = d.createShaderModule({ code: simWGSL(K, { dp4a }), label: "sim" });
       this.pickModule = d.createShaderModule({ code: PICK_WGSL, label: "pick" });
       this.listenModule = d.createShaderModule({ code: LISTEN_WGSL, label: "listen" });
       this.watchModule = d.createShaderModule({ code: WATCH_WGSL, label: "watch" });
@@ -13712,8 +13716,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
         heatMain: [0, 14, 18, 19],
         mindMain: [0, 2, 3, 6, 10, 15, 17, 18]
       };
+      this.cpDefs.lifeMainCoarse = this.cpDefs.lifeMain;
+      this.cpDefs.mindMainCoarse = this.cpDefs.mindMain;
       this.cp = {};
-      for (const name of Object.keys(this.cpDefs)) this.cp[name] = { pipe: cp(this.simModule, name), bg: null };
+      for (const name of Object.keys(this.cpDefs)) {
+        const coarse = name.endsWith("Coarse");
+        this.cp[name] = { pipe: coarse ? d.createComputePipeline({ layout: "auto", compute: { module: this.simModule, entryPoint: name.slice(0, -6), constants: { COARSE: 1 } }, label: name }) : cp(this.simModule, name), bg: null };
+      }
       this.cpPick = { pipe: cp(this.pickModule, "pickMain"), bg: null };
       this.cpListen = { pipe: cp(this.listenModule, "listenMain"), bg: null };
       this.cpWatch = { pipe: cp(this.watchModule, "watchMain"), bg: null };
@@ -14265,7 +14274,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       run2("scatterMain", wg);
       run2("censusMain", Math.ceil(MAXK / 256));
       run2("matterMain", wg);
-      run2("lifeMain", null);
+      run2(this.ticks > 1 ? "lifeMainCoarse" : "lifeMain", null);
       if (this.K.heat) run2("heatMain", Math.ceil(cells / 64));
       if (!prof) pass.end();
       if (this.K.heat) enc.copyBufferToBuffer(b.heatNext, 0, b.thermal, MAX_CELLS * 4, cells * 4);
@@ -14343,6 +14352,30 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.tidePh.set(c.tidePh);
       this.waves.set(c.waves);
       this.rock.set(c.rock);
+    }
+    /** What snapshot() keeps, as bytes (tools/perf saves worlds to profile them again): { cpu, gpu: {name: ArrayBuffer} }. */
+    async readState() {
+      const d = this.device, keep = this.snapshot(), gpu = {};
+      for (const [k, buf] of Object.entries(keep.gpu)) {
+        const st = d.createBuffer({ size: buf.size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+        const enc = d.createCommandEncoder();
+        enc.copyBufferToBuffer(buf, 0, st, 0, buf.size);
+        d.queue.submit([enc.finish()]);
+        await st.mapAsync(GPUMapMode.READ);
+        gpu[k] = st.getMappedRange().slice(0);
+        st.destroy();
+        buf.destroy();
+      }
+      return { cpu: { ...keep.cpu, count: this.count, grid: [...this.grid] }, gpu };
+    }
+    /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
+    writeState({ cpu, gpu }) {
+      for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, data);
+      this.restore({ gpu: {}, cpu });
+      this.count = cpu.count;
+      this.grid = [...cpu.grid];
+      this.worldGeneration++;
+      this.clearAccum = true;
     }
     /** Read every particle now (headless forks): { u32, f32 } views over count records of P_BYTES. */
     async readParticles() {
@@ -14446,7 +14479,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const stepping = !paused && N > 0;
       const nSteps = stepping ? Math.min(MAX_STEPS, Math.max(1, steps | 0)) : 0;
       const tm = this.timing;
-      const slot = tm ? tm.reads.find((r) => !r.busy) : null;
+      const slot = tm && !this.passProfile ? tm.reads.find((r) => !r.busy) : null;
       let tsFirst = !!slot;
       const tsBegin = () => {
         if (!tsFirst) return void 0;
@@ -14454,6 +14487,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         return { querySet: tm.qs, beginningOfPassWriteIndex: 0 };
       };
       const enc = d.createCommandEncoder();
+      const prof = this.passProfile ? this._profileEncoder(enc) : null;
       const censusJobs = [];
       for (let s = 0; s < nSteps; s++) {
         const last = s === nSteps - 1;
@@ -14566,7 +14600,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
         enc.resolveQuerySet(tm.qs, 0, 3, tm.resolve, 0);
         enc.copyBufferToBuffer(tm.resolve, 0, slot.buf, 0, 24);
       }
+      if (prof) prof.finish(nSteps, drew, generation);
       d.queue.submit([enc.finish()]);
+      if (prof) prof.read();
       if (timed) {
         slot.busy = true;
         slot.buf.mapAsync(GPUMapMode.READ).then(() => {
@@ -14648,6 +14684,66 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (surveyJob) this._surveyRead(surveyJob, generation);
     }
     /**
+     * Profiling (this.passProfile = true, needs timestamps): every pass of the frame timed on its own,
+     * named by its pipelines (a simulation step's pass is 'step'). onPassTimes hears
+     * [[name, ms], ...] per frame; onGpuTime hears the frame as usual.
+     */
+    _profileEncoder(enc) {
+      const d = this.device, CAP = 4096;
+      const P = this._prof ??= {
+        qs: d.createQuerySet({ type: "timestamp", count: CAP }),
+        resolve: d.createBuffer({ size: CAP * 8, usage: U.QUERY_RESOLVE | U.COPY_SRC }),
+        stage: []
+      };
+      const names = [];
+      const wrap = (begin) => (desc = {}) => {
+        if (names.length * 2 + 2 > CAP) return begin(desc);
+        const k = names.push("clear") - 1;
+        const pass = begin({ ...desc, timestampWrites: { querySet: P.qs, beginningOfPassWriteIndex: 2 * k, endOfPassWriteIndex: 2 * k + 1 } });
+        const set = pass.setPipeline.bind(pass), used = [];
+        pass.setPipeline = (p) => {
+          if (!used.includes(p.label)) {
+            used.push(p.label);
+            names[k] = used[0] === "resolveCount" ? "step" : used.slice(0, 3).join("+");
+          }
+          set(p);
+        };
+        return pass;
+      };
+      enc.beginComputePass = wrap(enc.beginComputePass.bind(enc));
+      enc.beginRenderPass = wrap(enc.beginRenderPass.bind(enc));
+      let job = null;
+      return {
+        finish: (nSteps, drew, generation) => {
+          const n = names.length * 2;
+          if (!n) return;
+          let st = P.stage.find((s) => !s.busy);
+          if (!st) P.stage.push(st = { buf: d.createBuffer({ size: CAP * 8, usage: U.COPY_DST | U.MAP_READ }), busy: false });
+          st.busy = true;
+          enc.resolveQuerySet(P.qs, 0, n, P.resolve, 0);
+          enc.copyBufferToBuffer(P.resolve, 0, st.buf, 0, n * 8);
+          job = { st, n, nSteps, drew, generation, names: names.slice() };
+        },
+        read: () => {
+          if (!job) return;
+          const { st, n, nSteps, drew, generation, names: names2 } = job;
+          st.buf.mapAsync(GPUMapMode.READ, 0, n * 8).then(() => {
+            const t2 = new BigUint64Array(st.buf.getMappedRange(0, n * 8).slice(0));
+            st.buf.unmap();
+            st.busy = false;
+            if (generation !== this.worldGeneration) return;
+            const times = names2.map((name, k) => [name, Number(t2[2 * k + 1] - t2[2 * k]) / 1e6]);
+            const ms = Number(t2[n - 1] - t2[0]) / 1e6;
+            const simMs = times.reduce((a, [name, x]) => a + (name === "step" ? x : 0), 0);
+            if (this.onPassTimes) this.onPassTimes(times, { ms, simMs, nSteps, drew });
+            if (ms > 0 && ms < 5e3 && this.onGpuTime) this.onGpuTime(ms, this.count, nSteps, nSteps ? simMs : null, drew);
+          }).catch(() => {
+            st.busy = false;
+          });
+        }
+      };
+    }
+    /**
      * Every mindEvery frames while a cell is watched: replay its last decision (mindMain) after the
      * frame's steps. While paused the replay is of the same step, so it is cheap to repeat.
      */
@@ -14662,9 +14758,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.device.queue.writeBuffer(b.mind, 0, new Uint32Array([this.mindId]));
       enc.clearBuffer(b.mind, 4, 4);
       const pass = enc.beginComputePass();
-      pass.setPipeline(this.cp.mindMain.pipe);
-      pass.setBindGroup(0, this.cp.mindMain.bg);
-      pass.dispatchWorkgroups(Math.ceil(N / 64));
+      const mind = this.cp[this.ticks > 1 ? "mindMainCoarse" : "mindMain"];
+      pass.setPipeline(mind.pipe);
+      pass.setBindGroup(0, mind.bg);
+      pass.dispatchWorkgroups(Math.ceil(N / 256));
       pass.end();
       enc.copyBufferToBuffer(b.mind, 0, st.buf, 0, MIND_BYTES);
       return { st, id: this.mindId, simTime: this.simTime };
@@ -21147,6 +21244,39 @@ registerProcessor("tidemote-sound", TidemoteSound);
       perf.lastSubmit = 0;
       perf.lastAdjust = performance.now() + 1500;
     });
+    globalThis.__tidemote = {
+      state,
+      cam,
+      perf,
+      eng,
+      sound,
+      life: () => life,
+      sel: () => sel,
+      renderScale: () => renderScale,
+      maxZoom,
+      setSpeed,
+      findMember,
+      deselect,
+      fit: fit2,
+      setScale(v) {
+        state.perf.scale = v;
+        if (v !== "auto") renderScale = v;
+        resetAdapt();
+        fit2();
+      },
+      // a world saved by eng.readState(), in place of this one
+      loadWorld(s) {
+        eng.writeState(s);
+        resetDirector();
+        resetLife();
+        resetClimate();
+        sound.reset();
+        lab.reset();
+        specimen.reset();
+        deselect();
+        clearFocus();
+      }
+    };
     calibrate().then(() => {
       state.phase = "running";
       renderWorld();
