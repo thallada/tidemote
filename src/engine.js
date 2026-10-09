@@ -1,5 +1,5 @@
 import {
-  simWGSL, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
+  simWGSL, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
   MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES,
 } from './shaders.js';
 import {
@@ -147,6 +147,19 @@ class Engine {
     this.watchModule = d.createShaderModule({ code: WATCH_WGSL, label: 'watch' });
     this.surveyModule = d.createShaderModule({ code: SURVEY_WGSL, label: 'survey' });
     this.drawModule = d.createShaderModule({ code: DRAW_WGSL, label: 'draw' });
+    // culling for the main view, the loupe and the specimen (CULL_WGSL): uniforms, segments, draw arguments
+    const cullModule = d.createShaderModule({ code: CULL_WGSL, label: 'cull' });
+    this.cpCull = d.createComputePipeline({ layout: 'auto', compute: { module: cullModule, entryPoint: 'cullRows' }, label: 'cullRows' });
+    this.cull = [0, 1, 2].map(() => {
+      const u = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
+      const segs = d.createBuffer({ size: CULL_SEGS * 8, usage: U.STORAGE });
+      const args = d.createBuffer({ size: 48, usage: U.STORAGE | U.INDIRECT });
+      return { u, segs, args, on: false, bg: d.createBindGroup({ layout: this.cpCull.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: { buffer: u } }, { binding: 1, resource: { buffer: b.cellStart } },
+        { binding: 2, resource: { buffer: segs } }, { binding: 3, resource: { buffer: args } }] }) };
+    });
+    // particles are in grid-cell order (cellStart valid) once a step has sorted them
+    this.sorted = false;
     b.inbondU = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
     const inbond = d.createShaderModule({ code: INBOND_WGSL, label: 'inbond' });
     this.cpInbond = ['inbondReset', 'inbondGather', 'contactGather'].map((entryPoint) => d.createComputePipeline({ layout: 'auto', compute: { module: inbond, entryPoint }, label: entryPoint }));
@@ -300,12 +313,12 @@ class Engine {
       { binding: 0, resource: { buffer: b.surveyU } }, { binding: 1, resource: { buffer: b.parts } },
       { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.cellStart } },
       { binding: 4, resource: { buffer: b.survey } }] });
-    const pointBG = (view) => d.createBindGroup({ layout: this.pPoint.getBindGroupLayout(0), entries: [
+    const pointBG = (view, k) => d.createBindGroup({ layout: this.pPoint.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
       { binding: 3, resource: { buffer: b.intent } },
       { binding: 5, resource: { buffer: b.focus } }, { binding: 6, resource: { buffer: b.bondsIn } },
       { binding: 8, resource: { buffer: b.touch } }, { binding: 9, resource: { buffer: b.sway } },
-      { binding: 10, resource: { buffer: b.organDir } }, { binding: 11, resource: { buffer: b.thermal } }] });
+      { binding: 10, resource: { buffer: b.organDir } }, { binding: 11, resource: { buffer: b.thermal } }, { binding: 12, resource: { buffer: this.cull[k].segs } }] });
     this.organsBG = d.createBindGroup({ layout: this.cpOrgans.getBindGroupLayout(0), entries: [
       { binding: 7, resource: { buffer: b.genomes } }, { binding: 9, resource: { buffer: b.organDir } }] });
     const stoneBG = (view) => d.createBindGroup({ layout: this.pStone.getBindGroupLayout(0), entries:
@@ -315,21 +328,19 @@ class Engine {
     const inbondUse = [[2, 3, 4, 5], [1, 2, 3, 4, 5], [2, 4, 5, 6, 7, 8]];
     this.inbondBG = this.cpInbond.map((pipe, k) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0),
       entries: inbondUse[k].map((binding) => ({ binding, resource: { buffer: inbondRes[binding] } })) }));
-    const lineBG = (view) => d.createBindGroup({ layout: this.pLine.getBindGroupLayout(0), entries: [
+    const lineBG = (pipe, view, k) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
-      { binding: 3, resource: { buffer: b.intent } }, { binding: 4, resource: { buffer: b.livingList } }, { binding: 5, resource: { buffer: b.focus } }, { binding: 11, resource: { buffer: b.thermal } }] });
-    this.bgPoint = pointBG(b.view);
-    this.bgLine = lineBG(b.view);
-    this.bgPointL = pointBG(b.viewL);
-    this.bgLineL = lineBG(b.viewL);
-    this.bgPointS = pointBG(b.viewS);
-    this.bgLineS = lineBG(b.viewS);
-    const bridgeBG = (view) => d.createBindGroup({ layout: this.pBridge.getBindGroupLayout(0), entries: [
-      { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
-      { binding: 3, resource: { buffer: b.intent } }, { binding: 4, resource: { buffer: b.livingList } }, { binding: 5, resource: { buffer: b.focus } }, { binding: 11, resource: { buffer: b.thermal } }] });
-    this.bgBridge = bridgeBG(b.view);
-    this.bgBridgeL = bridgeBG(b.viewL);
-    this.bgBridgeS = bridgeBG(b.viewS);
+      { binding: 3, resource: { buffer: b.intent } }, { binding: 4, resource: { buffer: b.livingList } }, { binding: 5, resource: { buffer: b.focus } },
+      { binding: 11, resource: { buffer: b.thermal } }, { binding: 12, resource: { buffer: this.cull[k].segs } }] });
+    this.bgPoint = pointBG(b.view, 0);
+    this.bgLine = lineBG(this.pLine, b.view, 0);
+    this.bgPointL = pointBG(b.viewL, 1);
+    this.bgLineL = lineBG(this.pLine, b.viewL, 1);
+    this.bgPointS = pointBG(b.viewS, 2);
+    this.bgLineS = lineBG(this.pLine, b.viewS, 2);
+    this.bgBridge = lineBG(this.pBridge, b.view, 0);
+    this.bgBridgeL = lineBG(this.pBridge, b.viewL, 1);
+    this.bgBridgeS = lineBG(this.pBridge, b.viewS, 2);
     const verr = await d.popErrorScope();
     const oerr = await d.popErrorScope();
     if (verr || oerr) {
@@ -468,6 +479,7 @@ class Engine {
     this.frameNo = 0;
     this.tick = 0;
     this.seedValue = (rng() * 0xffffffff) >>> 0;
+    this.sorted = false;
     this.ambient = mix(0.12, 0.3, rng());
     this.chargeMul = mix(0.8, 1.25, rng());
     this.temp = mix(10, 22, rng());
@@ -623,6 +635,7 @@ class Engine {
       enc.copyBufferToBuffer(b.simRing, ring * SIM_STRIDE, b.sim, 0, this.simData.byteLength);
     }
     const cells = this.grid[0] * this.grid[1];
+    this.sorted = true;
     enc.clearBuffer(b.counts, 0, cells * 4);
     enc.clearBuffer(b.stoneGrid, 0, cells * 4);
     if (this.K.heat) enc.clearBuffer(b.thermal, 2 * MAX_CELLS * 4, cells * 4);
@@ -728,6 +741,7 @@ class Engine {
     for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, data);
     this.restore({ gpu: {}, cpu });
     this.count = cpu.count; this.grid = [...cpu.grid];
+    this.sorted = false;
     this.worldGeneration++;
     this.clearAccum = true;
   }
@@ -1197,7 +1211,7 @@ class Engine {
   }
 
   // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
-  _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true) {
+  _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true, culled = false) {
     const K = this.K;
     const ppu = cam.ppu;
     // a cell keeps one world size at every zoom, so zooming in only resolves it
@@ -1217,6 +1231,7 @@ class Engine {
     const f = this.focus;
     vu[14] = f.on; vu[15] = f.roleMask; vu[16] = f.stateMode; v[17] = f.mute; vu[18] = f.memberKind; vu[19] = f.memberN;
     vu[20] = detail ? 1 : 0;
+    vu[21] = culled ? 1 : 0;
     this.device.queue.writeBuffer(buf, 0, data);
   }
 
@@ -1231,27 +1246,29 @@ class Engine {
     pass.end();
   }
 
-  _drawScene(pass, bgLine, bgPoint, bgBridge, data) {
+  _drawScene(pass, bgLine, bgPoint, bgBridge, data, k) {
     const v = new Float32Array(data);
     const detail = new Uint32Array(data)[20] === 1;
+    // culled: only the particles of the grid rows in view (cullRows wrote the draws' arguments)
+    const culled = new Uint32Array(data)[21] === 1 ? this.cull[k].args : null;
     if (this.settings.links) {
       // Crossfade native lines and soft strips in this same pass. The strip has zero
       // contribution at its topology switch, so subpixel line coverage cannot pop.
       if (v[7] < 30 || !detail) {
         pass.setPipeline(this.pLine);
         pass.setBindGroup(0, bgLine);
-        pass.drawIndirect(this.b.frameCtr, 16);
+        if (culled) pass.drawIndirect(culled, 16); else pass.drawIndirect(this.b.frameCtr, 16);
       }
       if (v[7] > 6 && detail) {
         pass.setPipeline(this.pBridge);
         pass.setBindGroup(0, bgBridge);
-        pass.drawIndirect(this.b.bridgeDraw, 0);
+        if (culled) pass.drawIndirect(culled, 32); else pass.drawIndirect(this.b.bridgeDraw, 0);
       }
     }
     if (this.settings.nodes) {
       pass.setPipeline(this.pPoint);
       pass.setBindGroup(0, bgPoint);
-      pass.draw(4, this.count);
+      if (culled) pass.drawIndirect(culled, 0); else pass.draw(4, this.count);
     }
   }
 
@@ -1320,12 +1337,37 @@ class Engine {
     pass.end();
   }
 
+  // Whether view k (main, loupe, specimen), centred on (cx, cy) and reaching hw, hh world units either
+  // way, sees little enough of the world to draw only the grid rows it covers; if so, its uniforms for
+  // cullRows. Two cells of margin: a cell drifts less than half of one in a step, and its outline
+  // reaches about one beyond its centre.
+  _cullView(k, cx, cy, hw, hh) {
+    const [gw, gh] = this.grid, m = 2;
+    const nx = Math.min(gw, Math.ceil(2 * hw) + 2 * m + 1), ny = Math.min(gh, Math.ceil(2 * hh) + 2 * m + 1);
+    const fx = Math.floor(cx - hw) - m, fy = Math.floor(cy - hh) - m;
+    const segs = ny * (nx < gw && ((fx % gw) + gw) % gw + nx > gw ? 2 : 1);
+    const on = this.sorted && nx * ny < 0.5 * gw * gh && segs < CULL_SEGS;
+    this.cull[k].on = on;
+    if (on) this.device.queue.writeBuffer(this.cull[k].u, 0, new Uint32Array([((fx % gw) + gw) % gw, ((fy % gh) + gh) % gh, nx, ny, gw, gh, 0, 0]));
+    return on;
+  }
+
   _render(enc, { target, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd }) {
     const d = this.device;
     const [W, H] = this.size;
+    // the views that see little of the world draw only the rows they cover (CULL_WGSL)
+    const culled = [this._cullView(0, cam.x, cam.y, W / (2 * cam.ppu), H / (2 * cam.ppu)),
+      !!loupe && this._cullView(1, loupe.cx, loupe.cy, (LOUPE_FIELD * loupe.r) / loupe.ppu, (LOUPE_FIELD * loupe.r) / loupe.ppu),
+      !!(specimen && specimen.target) && this._cullView(2, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu))];
+    if (culled.some(Boolean)) {
+      const pass = enc.beginComputePass({ timestampWrites: tsBegin() });
+      pass.setPipeline(this.cpCull);
+      for (let k = 0; k < 3; k++) if (culled[k]) { pass.setBindGroup(0, this.cull[k].bg); pass.dispatchWorkgroups(1); }
+      pass.end();
+    }
     // the main view may skip resolving cells (settings.lod); the loupe and the close-up always resolve
     const lod = this.settings.lod;
-    this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod);
+    this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0]);
     // The simulation's existing indirect args contain the living instance count. Only rendering
     // changes the vertex count; keep all ecology WGSL and buffers' contents untouched.
     if ((lod && new Float32Array(this.viewData)[7] > 6) || loupe || specimen) {
@@ -1399,7 +1441,7 @@ class Engine {
         pass.setBindGroup(0, carry ? carry.bg : this.reprojBG[srcI]);
         pass.draw(3);
       }
-      this._drawScene(pass, this.bgLine, this.bgPoint, this.bgBridge, this.viewData);
+      this._drawScene(pass, this.bgLine, this.bgPoint, this.bgBridge, this.viewData, 0);
       pass.end();
     }
     this._drawStone(enc, this.stoneView, this.bgStone);
@@ -1412,19 +1454,19 @@ class Engine {
       const L = Math.max(64, Math.min(1024, Math.ceil(span / 32) * 32));
       this._ensureLoupeTex(L);
       const lppu = loupe.ppu * (L / span);
-      this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span), time, selId);
+      this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span), time, selId, true, culled[1]);
       d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W, H, loupe.ppu, 0]));
       const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.loupeView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
-      this._drawScene(pass, this.bgLineL, this.bgPointL, this.bgBridgeL, this.viewDataL);
+      this._drawScene(pass, this.bgLineL, this.bgPointL, this.bgBridgeL, this.viewDataL, 1);
       pass.end();
       this._drawStone(enc, this.loupeStoneView, this.bgStoneL);
     }
 
     if (specimen && specimen.target) {
       this._ensureSpecTex(specimen.w, specimen.h);
-      this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId);
+      this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, true, culled[2]);
       let pass = enc.beginRenderPass({ colorAttachments: [{ view: this.specView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
-      this._drawScene(pass, this.bgLineS, this.bgPointS, this.bgBridgeS, this.viewDataS);
+      this._drawScene(pass, this.bgLineS, this.bgPointS, this.bgBridgeS, this.viewDataS, 2);
       pass.end();
       this._drawStone(enc, this.specStoneView, this.bgStoneS);
       pass = enc.beginRenderPass({ colorAttachments: [{ view: specimen.target, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }] });

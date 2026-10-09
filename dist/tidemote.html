@@ -3002,6 +3002,62 @@ fn surveyMain(@builtin(global_invocation_id) gid: vec3u) {
   }
 }
 `;
+  var CULL_SEGS = 2048;
+  var CULL_WGSL = (
+    /* wgsl */
+    `
+// the view's grid cells (first, count; count.x <= grid width) and the grid
+struct Cull { first: vec2u, count: vec2u, grid: vec2u, pad: vec2u };
+@group(0) @binding(0) var<uniform> cull: Cull;
+@group(0) @binding(1) var<storage, read> cellStart: array<u32>;
+// [0]: (segments, particles), then (first index, particles before) per segment
+@group(0) @binding(2) var<storage, read_write> segs: array<vec2u>;
+// points (4 vertices), lines (4), bridges (30), as drawIndirect arguments
+@group(0) @binding(3) var<storage, read_write> args: array<u32, 12>;
+var<workgroup> sums: array<u32, 256>;
+
+@compute @workgroup_size(256)
+fn cullRows(@builtin(local_invocation_index) l: u32) {
+  let wraps = cull.first.x + cull.count.x > cull.grid.x;
+  let per = select(1u, 2u, wraps);
+  let n = min(cull.count.y * per, ${CULL_SEGS - 1}u);
+  var at: array<u32, 8>;
+  var len: array<u32, 8>;
+  var sum = 0u;
+  for (var k = 0u; k < 8u; k++) {
+    let s = l * 8u + k;
+    var a = 0u; var b = 0u;
+    if (s < n) {
+      let row = ((cull.first.y + s / per) % cull.grid.y) * cull.grid.x;
+      var x0 = cull.first.x; var x1 = min(cull.first.x + cull.count.x, cull.grid.x);
+      if (wraps && s % per == 1u) { x0 = 0u; x1 = cull.first.x + cull.count.x - cull.grid.x; }
+      a = cellStart[row + x0]; b = cellStart[row + x1];
+    }
+    at[k] = a; len[k] = b - a; sum += b - a;
+  }
+  sums[l] = sum;
+  workgroupBarrier();
+  for (var o = 1u; o < 256u; o = o << 1u) {
+    var t = 0u;
+    if (l >= o) { t = sums[l - o]; }
+    workgroupBarrier();
+    sums[l] = sums[l] + t;
+    workgroupBarrier();
+  }
+  var before = sums[l] - sum;
+  for (var k = 0u; k < 8u; k++) {
+    let s = l * 8u + k;
+    if (s < n) { segs[1u + s] = vec2u(at[k], before); }
+    before += len[k];
+  }
+  if (l == 255u) {
+    let total = sums[255];
+    segs[0] = vec2u(n, total);
+    args = array<u32, 12>(4u, total, 0u, 0u, 4u, total, 0u, 0u, 30u, total, 0u, 0u);
+  }
+}
+`
+  );
   var INBOND_WGSL = COMMON + /* wgsl */
   `
 @group(0) @binding(1) var<storage, read> intent: array<vec4u>;
@@ -3170,6 +3226,8 @@ struct View {
   memberKind: u32, memberN: u32,
   // 0: draw every cell as its distant sprite at any zoom (no resolved anatomy, bonds stay lines)
   detail: u32,
+  // 1: the draw covers only the grid rows in view (segs, CULL_WGSL); instances map through cullIndex
+  culled: u32,
 };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -3188,6 +3246,21 @@ struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32 };
 @group(0) @binding(10) var<storage, read> organDir: array<u32>;
 // The water's temperature per grid cell (heatMain), for how heat shows on a cell.
 @group(0) @binding(11) var<storage, read> heatField: array<f32>;
+@group(0) @binding(12) var<storage, read> segs: array<vec2u>;
+
+// The particle a culled draw's instance ii stands for: the last segment that starts at or before it.
+fn cullIndex(ii: u32) -> u32 {
+  var lo = 1u;
+  var hi = segs[0].x + 1u;
+  while (hi - lo > 1u) {
+    let mid = (lo + hi) / 2u;
+    if (segs[mid].y <= ii) { lo = mid; } else { hi = mid; }
+  }
+  return segs[lo].x + ii - segs[lo].y;
+}
+// the particle a point's instance draws, and the cell a bond's instance draws (living, unless culled)
+fn pointAt(ii: u32) -> u32 { if (view.culled == 1u) { return cullIndex(ii); } return ii; }
+fn livingAt(ii: u32) -> u32 { if (view.culled == 1u) { return cullIndex(ii); } return livingList[ii]; }
 
 fn kindOn(k: u32) -> bool { return ((focus[k >> 5u] >> (k & 31u)) & 1u) == 1u; }
 fn isMember(id: u32) -> bool {
@@ -3509,8 +3582,9 @@ struct PO {
   @location(10) @interpolate(flat) jelly: vec3f,
 };
 
-@vertex fn vsPoint(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> PO {
+@vertex fn vsPoint(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) -> PO {
   var o: PO;
+  let ii = pointAt(inst);
   o.bondSeeds = vec2u(0u, 0x7fffu);
   o.jelly = vec3f(1.0, 0.0, 0.0);
   let p = parts[ii];
@@ -4028,7 +4102,8 @@ struct LO { @builtin(position) pos: vec4f, @location(0) col: vec3f };
   var o: LO;
   o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
   o.col = vec3f(0.0);
-  let i = livingList[ii];
+  // a culled draw covers every particle in view; matter keeps no bonds (NONE below)
+  let i = livingAt(ii);
   if (i == 0xffffffffu) { return o; }
   let it = intent[i];
   let n = select(it.z, it.w, (vi >> 1u) == 1u);
@@ -4079,7 +4154,7 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
 @vertex fn vsBridge(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> BO {
   var o: BO;
   o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
-  let index = livingList[ii];
+  let index = livingAt(ii);
   if (index == NONE) { return o; }
   let it = intent[index];
   let second = vi >= 15u;
@@ -13713,6 +13788,20 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.watchModule = d.createShaderModule({ code: WATCH_WGSL, label: "watch" });
       this.surveyModule = d.createShaderModule({ code: SURVEY_WGSL, label: "survey" });
       this.drawModule = d.createShaderModule({ code: DRAW_WGSL, label: "draw" });
+      const cullModule = d.createShaderModule({ code: CULL_WGSL, label: "cull" });
+      this.cpCull = d.createComputePipeline({ layout: "auto", compute: { module: cullModule, entryPoint: "cullRows" }, label: "cullRows" });
+      this.cull = [0, 1, 2].map(() => {
+        const u = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
+        const segs = d.createBuffer({ size: CULL_SEGS * 8, usage: U.STORAGE });
+        const args = d.createBuffer({ size: 48, usage: U.STORAGE | U.INDIRECT });
+        return { u, segs, args, on: false, bg: d.createBindGroup({ layout: this.cpCull.getBindGroupLayout(0), entries: [
+          { binding: 0, resource: { buffer: u } },
+          { binding: 1, resource: { buffer: b.cellStart } },
+          { binding: 2, resource: { buffer: segs } },
+          { binding: 3, resource: { buffer: args } }
+        ] }) };
+      });
+      this.sorted = false;
       b.inbondU = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
       const inbond = d.createShaderModule({ code: INBOND_WGSL, label: "inbond" });
       this.cpInbond = ["inbondReset", "inbondGather", "contactGather"].map((entryPoint) => d.createComputePipeline({ layout: "auto", compute: { module: inbond, entryPoint }, label: entryPoint }));
@@ -13896,7 +13985,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         { binding: 3, resource: { buffer: b.cellStart } },
         { binding: 4, resource: { buffer: b.survey } }
       ] });
-      const pointBG = (view) => d.createBindGroup({ layout: this.pPoint.getBindGroupLayout(0), entries: [
+      const pointBG = (view, k) => d.createBindGroup({ layout: this.pPoint.getBindGroupLayout(0), entries: [
         { binding: 0, resource: { buffer: view } },
         { binding: 1, resource: { buffer: b.parts } },
         { binding: 2, resource: { buffer: b.genomes } },
@@ -13906,7 +13995,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         { binding: 8, resource: { buffer: b.touch } },
         { binding: 9, resource: { buffer: b.sway } },
         { binding: 10, resource: { buffer: b.organDir } },
-        { binding: 11, resource: { buffer: b.thermal } }
+        { binding: 11, resource: { buffer: b.thermal } },
+        { binding: 12, resource: { buffer: this.cull[k].segs } }
       ] });
       this.organsBG = d.createBindGroup({ layout: this.cpOrgans.getBindGroupLayout(0), entries: [
         { binding: 7, resource: { buffer: b.genomes } },
@@ -13922,33 +14012,25 @@ registerProcessor("tidemote-sound", TidemoteSound);
         layout: pipe.getBindGroupLayout(0),
         entries: inbondUse[k].map((binding) => ({ binding, resource: { buffer: inbondRes[binding] } }))
       }));
-      const lineBG = (view) => d.createBindGroup({ layout: this.pLine.getBindGroupLayout(0), entries: [
+      const lineBG = (pipe, view, k) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
         { binding: 0, resource: { buffer: view } },
         { binding: 1, resource: { buffer: b.parts } },
         { binding: 2, resource: { buffer: b.genomes } },
         { binding: 3, resource: { buffer: b.intent } },
         { binding: 4, resource: { buffer: b.livingList } },
         { binding: 5, resource: { buffer: b.focus } },
-        { binding: 11, resource: { buffer: b.thermal } }
+        { binding: 11, resource: { buffer: b.thermal } },
+        { binding: 12, resource: { buffer: this.cull[k].segs } }
       ] });
-      this.bgPoint = pointBG(b.view);
-      this.bgLine = lineBG(b.view);
-      this.bgPointL = pointBG(b.viewL);
-      this.bgLineL = lineBG(b.viewL);
-      this.bgPointS = pointBG(b.viewS);
-      this.bgLineS = lineBG(b.viewS);
-      const bridgeBG = (view) => d.createBindGroup({ layout: this.pBridge.getBindGroupLayout(0), entries: [
-        { binding: 0, resource: { buffer: view } },
-        { binding: 1, resource: { buffer: b.parts } },
-        { binding: 2, resource: { buffer: b.genomes } },
-        { binding: 3, resource: { buffer: b.intent } },
-        { binding: 4, resource: { buffer: b.livingList } },
-        { binding: 5, resource: { buffer: b.focus } },
-        { binding: 11, resource: { buffer: b.thermal } }
-      ] });
-      this.bgBridge = bridgeBG(b.view);
-      this.bgBridgeL = bridgeBG(b.viewL);
-      this.bgBridgeS = bridgeBG(b.viewS);
+      this.bgPoint = pointBG(b.view, 0);
+      this.bgLine = lineBG(this.pLine, b.view, 0);
+      this.bgPointL = pointBG(b.viewL, 1);
+      this.bgLineL = lineBG(this.pLine, b.viewL, 1);
+      this.bgPointS = pointBG(b.viewS, 2);
+      this.bgLineS = lineBG(this.pLine, b.viewS, 2);
+      this.bgBridge = lineBG(this.pBridge, b.view, 0);
+      this.bgBridgeL = lineBG(this.pBridge, b.viewL, 1);
+      this.bgBridgeS = lineBG(this.pBridge, b.viewS, 2);
       const verr = await d.popErrorScope();
       const oerr = await d.popErrorScope();
       if (verr || oerr) {
@@ -14117,6 +14199,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.frameNo = 0;
       this.tick = 0;
       this.seedValue = rng() * 4294967295 >>> 0;
+      this.sorted = false;
       this.ambient = mix2(0.12, 0.3, rng());
       this.chargeMul = mix2(0.8, 1.25, rng());
       this.temp = mix2(10, 22, rng());
@@ -14274,6 +14357,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         enc.copyBufferToBuffer(b.simRing, ring2 * SIM_STRIDE, b.sim, 0, this.simData.byteLength);
       }
       const cells = this.grid[0] * this.grid[1];
+      this.sorted = true;
       enc.clearBuffer(b.counts, 0, cells * 4);
       enc.clearBuffer(b.stoneGrid, 0, cells * 4);
       if (this.K.heat) enc.clearBuffer(b.thermal, 2 * MAX_CELLS * 4, cells * 4);
@@ -14401,6 +14485,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.restore({ gpu: {}, cpu });
       this.count = cpu.count;
       this.grid = [...cpu.grid];
+      this.sorted = false;
       this.worldGeneration++;
       this.clearAccum = true;
     }
@@ -14931,7 +15016,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       });
     }
     // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
-    _writeView(buf, data, cam, W, H2, dpr, time, selId, detail = true) {
+    _writeView(buf, data, cam, W, H2, dpr, time, selId, detail = true, culled = false) {
       const K = this.K;
       const ppu = cam.ppu;
       const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
@@ -14963,6 +15048,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       vu[18] = f2.memberKind;
       vu[19] = f2.memberN;
       vu[20] = detail ? 1 : 0;
+      vu[21] = culled ? 1 : 0;
       this.device.queue.writeBuffer(buf, 0, data);
     }
     // the stone field for one view: every grain of stone adds its kernel (see vsStone)
@@ -14976,25 +15062,29 @@ registerProcessor("tidemote-sound", TidemoteSound);
       pass.drawIndirect(this.b.frameCtr, 32);
       pass.end();
     }
-    _drawScene(pass, bgLine, bgPoint, bgBridge, data) {
+    _drawScene(pass, bgLine, bgPoint, bgBridge, data, k) {
       const v = new Float32Array(data);
       const detail = new Uint32Array(data)[20] === 1;
+      const culled = new Uint32Array(data)[21] === 1 ? this.cull[k].args : null;
       if (this.settings.links) {
         if (v[7] < 30 || !detail) {
           pass.setPipeline(this.pLine);
           pass.setBindGroup(0, bgLine);
-          pass.drawIndirect(this.b.frameCtr, 16);
+          if (culled) pass.drawIndirect(culled, 16);
+          else pass.drawIndirect(this.b.frameCtr, 16);
         }
         if (v[7] > 6 && detail) {
           pass.setPipeline(this.pBridge);
           pass.setBindGroup(0, bgBridge);
-          pass.drawIndirect(this.b.bridgeDraw, 0);
+          if (culled) pass.drawIndirect(culled, 32);
+          else pass.drawIndirect(this.b.bridgeDraw, 0);
         }
       }
       if (this.settings.nodes) {
         pass.setPipeline(this.pPoint);
         pass.setBindGroup(0, bgPoint);
-        pass.draw(4, this.count);
+        if (culled) pass.drawIndirect(culled, 0);
+        else pass.draw(4, this.count);
       }
     }
     // The micro-suspension's specks for the main view (MICRO_WGSL): for each phase and resolved octave
@@ -15068,11 +15158,39 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       pass.end();
     }
+    // Whether view k (main, loupe, specimen), centred on (cx, cy) and reaching hw, hh world units either
+    // way, sees little enough of the world to draw only the grid rows it covers; if so, its uniforms for
+    // cullRows. Two cells of margin: a cell drifts less than half of one in a step, and its outline
+    // reaches about one beyond its centre.
+    _cullView(k, cx, cy, hw, hh) {
+      const [gw, gh] = this.grid, m = 2;
+      const nx = Math.min(gw, Math.ceil(2 * hw) + 2 * m + 1), ny = Math.min(gh, Math.ceil(2 * hh) + 2 * m + 1);
+      const fx = Math.floor(cx - hw) - m, fy = Math.floor(cy - hh) - m;
+      const segs = ny * (nx < gw && (fx % gw + gw) % gw + nx > gw ? 2 : 1);
+      const on = this.sorted && nx * ny < 0.5 * gw * gh && segs < CULL_SEGS;
+      this.cull[k].on = on;
+      if (on) this.device.queue.writeBuffer(this.cull[k].u, 0, new Uint32Array([(fx % gw + gw) % gw, (fy % gh + gh) % gh, nx, ny, gw, gh, 0, 0]));
+      return on;
+    }
     _render(enc, { target, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd }) {
       const d = this.device;
       const [W, H2] = this.size;
+      const culled = [
+        this._cullView(0, cam.x, cam.y, W / (2 * cam.ppu), H2 / (2 * cam.ppu)),
+        !!loupe && this._cullView(1, loupe.cx, loupe.cy, LOUPE_FIELD * loupe.r / loupe.ppu, LOUPE_FIELD * loupe.r / loupe.ppu),
+        !!(specimen && specimen.target) && this._cullView(2, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu))
+      ];
+      if (culled.some(Boolean)) {
+        const pass2 = enc.beginComputePass({ timestampWrites: tsBegin() });
+        pass2.setPipeline(this.cpCull);
+        for (let k = 0; k < 3; k++) if (culled[k]) {
+          pass2.setBindGroup(0, this.cull[k].bg);
+          pass2.dispatchWorkgroups(1);
+        }
+        pass2.end();
+      }
       const lod = this.settings.lod;
-      this._writeView(this.b.view, this.viewData, cam, W, H2, dpr, time, selId, lod);
+      this._writeView(this.b.view, this.viewData, cam, W, H2, dpr, time, selId, lod, culled[0]);
       if (lod && new Float32Array(this.viewData)[7] > 6 || loupe || specimen) {
         enc.copyBufferToBuffer(this.b.frameCtr, 20, this.b.bridgeDraw, 4, 4);
       }
@@ -15155,7 +15273,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           pass2.setBindGroup(0, carry ? carry.bg : this.reprojBG[srcI]);
           pass2.draw(3);
         }
-        this._drawScene(pass2, this.bgLine, this.bgPoint, this.bgBridge, this.viewData);
+        this._drawScene(pass2, this.bgLine, this.bgPoint, this.bgBridge, this.viewData, 0);
         pass2.end();
       }
       this._drawStone(enc, this.stoneView, this.bgStone);
@@ -15166,18 +15284,18 @@ registerProcessor("tidemote-sound", TidemoteSound);
         const L = Math.max(64, Math.min(1024, Math.ceil(span2 / 32) * 32));
         this._ensureLoupeTex(L);
         const lppu = loupe.ppu * (L / span2);
-        this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span2), time, selId);
+        this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span2), time, selId, true, culled[1]);
         d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W, H2, loupe.ppu, 0]));
         const pass2 = enc.beginRenderPass({ colorAttachments: [{ view: this.loupeView, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
-        this._drawScene(pass2, this.bgLineL, this.bgPointL, this.bgBridgeL, this.viewDataL);
+        this._drawScene(pass2, this.bgLineL, this.bgPointL, this.bgBridgeL, this.viewDataL, 1);
         pass2.end();
         this._drawStone(enc, this.loupeStoneView, this.bgStoneL);
       }
       if (specimen && specimen.target) {
         this._ensureSpecTex(specimen.w, specimen.h);
-        this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId);
+        this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, true, culled[2]);
         let pass2 = enc.beginRenderPass({ colorAttachments: [{ view: this.specView, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
-        this._drawScene(pass2, this.bgLineS, this.bgPointS, this.bgBridgeS, this.viewDataS);
+        this._drawScene(pass2, this.bgLineS, this.bgPointS, this.bgBridgeS, this.viewDataS, 2);
         pass2.end();
         this._drawStone(enc, this.specStoneView, this.bgStoneS);
         pass2 = enc.beginRenderPass({ colorAttachments: [{ view: specimen.target, loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }] });

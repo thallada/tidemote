@@ -1895,6 +1895,64 @@ fn surveyMain(@builtin(global_invocation_id) gid: vec3u) {
 
 // Rendering only: each living cell's incoming bonds, so a body's cells fuse with every partner,
 // not only the (up to two) they keep themselves. Bonds are one-sided in the sim.
+// A view that sees little of the world draws only the particles in the grid rows it covers. Particles
+// are sorted by grid cell, so each row's cells in view are one range of indices (two where the view
+// wraps): cullRows lists them as segments (first index, how many come before) with the draws' indirect
+// arguments, and the vertex shaders map an instance to its particle (cullIndex).
+export const CULL_SEGS = 2048;
+export const CULL_WGSL = /* wgsl */ `
+// the view's grid cells (first, count; count.x <= grid width) and the grid
+struct Cull { first: vec2u, count: vec2u, grid: vec2u, pad: vec2u };
+@group(0) @binding(0) var<uniform> cull: Cull;
+@group(0) @binding(1) var<storage, read> cellStart: array<u32>;
+// [0]: (segments, particles), then (first index, particles before) per segment
+@group(0) @binding(2) var<storage, read_write> segs: array<vec2u>;
+// points (4 vertices), lines (4), bridges (30), as drawIndirect arguments
+@group(0) @binding(3) var<storage, read_write> args: array<u32, 12>;
+var<workgroup> sums: array<u32, 256>;
+
+@compute @workgroup_size(256)
+fn cullRows(@builtin(local_invocation_index) l: u32) {
+  let wraps = cull.first.x + cull.count.x > cull.grid.x;
+  let per = select(1u, 2u, wraps);
+  let n = min(cull.count.y * per, ${CULL_SEGS - 1}u);
+  var at: array<u32, 8>;
+  var len: array<u32, 8>;
+  var sum = 0u;
+  for (var k = 0u; k < 8u; k++) {
+    let s = l * 8u + k;
+    var a = 0u; var b = 0u;
+    if (s < n) {
+      let row = ((cull.first.y + s / per) % cull.grid.y) * cull.grid.x;
+      var x0 = cull.first.x; var x1 = min(cull.first.x + cull.count.x, cull.grid.x);
+      if (wraps && s % per == 1u) { x0 = 0u; x1 = cull.first.x + cull.count.x - cull.grid.x; }
+      a = cellStart[row + x0]; b = cellStart[row + x1];
+    }
+    at[k] = a; len[k] = b - a; sum += b - a;
+  }
+  sums[l] = sum;
+  workgroupBarrier();
+  for (var o = 1u; o < 256u; o = o << 1u) {
+    var t = 0u;
+    if (l >= o) { t = sums[l - o]; }
+    workgroupBarrier();
+    sums[l] = sums[l] + t;
+    workgroupBarrier();
+  }
+  var before = sums[l] - sum;
+  for (var k = 0u; k < 8u; k++) {
+    let s = l * 8u + k;
+    if (s < n) { segs[1u + s] = vec2u(at[k], before); }
+    before += len[k];
+  }
+  if (l == 255u) {
+    let total = sums[255];
+    segs[0] = vec2u(n, total);
+    args = array<u32, 12>(4u, total, 0u, 0u, 4u, total, 0u, 0u, 30u, total, 0u, 0u);
+  }
+}
+`;
+
 export const INBOND_WGSL = COMMON + /* wgsl */ `
 @group(0) @binding(1) var<storage, read> intent: array<vec4u>;
 @group(0) @binding(2) var<storage, read> parts: array<Particle>;
@@ -2062,6 +2120,8 @@ struct View {
   memberKind: u32, memberN: u32,
   // 0: draw every cell as its distant sprite at any zoom (no resolved anatomy, bonds stay lines)
   detail: u32,
+  // 1: the draw covers only the grid rows in view (segs, CULL_WGSL); instances map through cullIndex
+  culled: u32,
 };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -2080,6 +2140,21 @@ struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32 };
 @group(0) @binding(10) var<storage, read> organDir: array<u32>;
 // The water's temperature per grid cell (heatMain), for how heat shows on a cell.
 @group(0) @binding(11) var<storage, read> heatField: array<f32>;
+@group(0) @binding(12) var<storage, read> segs: array<vec2u>;
+
+// The particle a culled draw's instance ii stands for: the last segment that starts at or before it.
+fn cullIndex(ii: u32) -> u32 {
+  var lo = 1u;
+  var hi = segs[0].x + 1u;
+  while (hi - lo > 1u) {
+    let mid = (lo + hi) / 2u;
+    if (segs[mid].y <= ii) { lo = mid; } else { hi = mid; }
+  }
+  return segs[lo].x + ii - segs[lo].y;
+}
+// the particle a point's instance draws, and the cell a bond's instance draws (living, unless culled)
+fn pointAt(ii: u32) -> u32 { if (view.culled == 1u) { return cullIndex(ii); } return ii; }
+fn livingAt(ii: u32) -> u32 { if (view.culled == 1u) { return cullIndex(ii); } return livingList[ii]; }
 
 fn kindOn(k: u32) -> bool { return ((focus[k >> 5u] >> (k & 31u)) & 1u) == 1u; }
 fn isMember(id: u32) -> bool {
@@ -2401,8 +2476,9 @@ struct PO {
   @location(10) @interpolate(flat) jelly: vec3f,
 };
 
-@vertex fn vsPoint(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> PO {
+@vertex fn vsPoint(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) -> PO {
   var o: PO;
+  let ii = pointAt(inst);
   o.bondSeeds = vec2u(0u, 0x7fffu);
   o.jelly = vec3f(1.0, 0.0, 0.0);
   let p = parts[ii];
@@ -2920,7 +2996,8 @@ struct LO { @builtin(position) pos: vec4f, @location(0) col: vec3f };
   var o: LO;
   o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
   o.col = vec3f(0.0);
-  let i = livingList[ii];
+  // a culled draw covers every particle in view; matter keeps no bonds (NONE below)
+  let i = livingAt(ii);
   if (i == 0xffffffffu) { return o; }
   let it = intent[i];
   let n = select(it.z, it.w, (vi >> 1u) == 1u);
@@ -2971,7 +3048,7 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
 @vertex fn vsBridge(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> BO {
   var o: BO;
   o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
-  let index = livingList[ii];
+  let index = livingAt(ii);
   if (index == NONE) { return o; }
   let it = intent[index];
   let second = vi >= 15u;
