@@ -90,7 +90,7 @@ export class Field {
     const v = this.slots.get(slot)?.v;
     if (!v) { this.greetFor = slot; return; } // its voice comes with the next census
     this.greetFor = -1;
-    this.focusEnd = this.phrase(v, this.c.time + LATENCY, { amp: 0.13, slot, times: 1 });
+    this.focusEnd = this.phrase(v, this.c.time + LATENCY, { amp: 0.13, slot });
   }
   // how far forward the picked species is: 1 while its greeting plays, then down to 0
   focus() { return clamp(1 - (this.c.time - this.focusEnd) / FOCUS_FADE, 0, 1); }
@@ -317,9 +317,10 @@ export class Field {
     if (p) { p.pan = o.pan; c.at(t, v.mat, p); }
   }
 
-  // A species' motif played whole from t0 (the song panel's play button, the gallery): its voice
-  // heard alone and close, the second voice under it, while the field steps back. Returns its end.
-  phrase(v, t0, { amp = 0.16, slot = null, times = 2 } = {}) {
+  // A species' motif played whole from t0 (picking a species, the song panel's play button; `times` over
+  // for a short motif in the gallery): its voice heard alone and close, the second voice under it, while
+  // the field steps back. Returns its end.
+  phrase(v, t0, { amp = 0.16, slot = null, times = 1 } = {}) {
     const c = this.c, m = v.motif, light = clamp(c.world.light, 0, 1.2), td = clamp(c.world.tide, 0, 1);
     const o = { pan: 0, light, td, dim: 1, wet: (r) => r };
     const reps = m.cycle * c.step > 5 ? 1 : times;
