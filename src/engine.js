@@ -702,6 +702,19 @@ class Engine {
     return { u32: new Uint32Array(copy), f32: new Float32Array(copy) };
   }
 
+  /** Read the water's temperature on each grid cell now (headless diagnostics): a Float32Array of grid[0] * grid[1]. */
+  async readThermal() {
+    const d = this.device, U = GPUBufferUsage, n = this.grid[0] * this.grid[1];
+    const st = d.createBuffer({ size: n * 4, usage: U.COPY_DST | U.MAP_READ });
+    const enc = d.createCommandEncoder();
+    enc.copyBufferToBuffer(this.b.thermal, MAX_CELLS * 4, st, 0, n * 4);
+    d.queue.submit([enc.finish()]);
+    await st.mapAsync(GPUMapMode.READ);
+    const out = new Float32Array(st.getMappedRange().slice(0));
+    st.unmap(); st.destroy();
+    return out;
+  }
+
   /** Read the ledger and genomes now (headless forks), in the shape onCensus receives, with K.diag's counters. */
   async readCensus() {
     const d = this.device, U = GPUBufferUsage;

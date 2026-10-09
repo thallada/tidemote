@@ -2497,6 +2497,9 @@ ${cellWGSL(K, false)}
     diagAdd(dg, 10u, u32(length(force) * 100.0));
     diagAdd(dg, 11u, u32(clamp(E / g.reproE, 0.0, 4.0) * 1000.0));
     diagAdd(dg, 12u, u32(overlap * 16.0));
+    // thermal performance, and how far it sits from its optimum (warmer or cooler, offset so it stays positive)
+    diagAdd(dg, 22u, u32(th.perf * 1000.0));
+    diagAdd(dg, 23u, u32(clamp(Tc - g.topt + 64.0, 0.0, 128.0) * 8.0));
     if (canHunt) { diagAdd(dg, 19u, u32(preyNear.x * 16.0)); diagAdd(dg, 20u, u32(preyNear.y * 16.0)); diagAdd(dg, 21u, 1u); }
   }
   if (sim.ticks == 1u) {
@@ -14323,6 +14326,19 @@ registerProcessor("tidemote-sound", TidemoteSound);
       st.unmap();
       st.destroy();
       return { u32: new Uint32Array(copy), f32: new Float32Array(copy) };
+    }
+    /** Read the water's temperature on each grid cell now (headless diagnostics): a Float32Array of grid[0] * grid[1]. */
+    async readThermal() {
+      const d = this.device, U2 = GPUBufferUsage, n = this.grid[0] * this.grid[1];
+      const st = d.createBuffer({ size: n * 4, usage: U2.COPY_DST | U2.MAP_READ });
+      const enc = d.createCommandEncoder();
+      enc.copyBufferToBuffer(this.b.thermal, MAX_CELLS * 4, st, 0, n * 4);
+      d.queue.submit([enc.finish()]);
+      await st.mapAsync(GPUMapMode.READ);
+      const out = new Float32Array(st.getMappedRange().slice(0));
+      st.unmap();
+      st.destroy();
+      return out;
     }
     /** Read the ledger and genomes now (headless forks), in the shape onCensus receives, with K.diag's counters. */
     async readCensus() {

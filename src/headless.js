@@ -1,6 +1,18 @@
 // Browser-compatible ecology runner; the caller owns the WebGPU device.
 import { createClimate, seasonAt, abioRate } from './climate.js';
 
+// The water's temperature field against the background: mean, spread and extremes of the departure
+// (degrees), and the shares of grid cells more than 2° warmer or 1° cooler than the background.
+function fieldStats(field, tbg) {
+  const n = field.length;
+  if (!n) return null;
+  const d = Float32Array.from(field, (t) => t - tbg).sort();
+  let sum = 0, sq = 0, hot = 0, cold = 0;
+  for (const x of d) { sum += x; sq += x * x; if (x > 2) hot++; if (x < -1) cold++; }
+  const mean = sum / n;
+  return { mean, sd: Math.sqrt(Math.max(0, sq / n - mean * mean)), p99: d[Math.floor(0.99 * (n - 1))], max: d[n - 1], min: d[0], hotFrac: hot / n, coldFrac: cold / n };
+}
+
 export async function runHeadless(device, config, { print, width = 640, height = 360, snapshot } = {}) {
   const originalRandom = Math.random;
   const errors = [];
@@ -27,7 +39,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     const climate = createClimate(eng, rng);
     const samples = [];
     const ledger = { births: 2, mutants: 3, starved: 5, oldAge: 6, kills: 7, extinctions: 8, grazes: 9, scavenges: 10, bites: 11 };
-    let lastSample = -Infinity, lastPrint = -Infinity, prevG, prevD, prevE, prevT, latest;
+    let lastSample = -Infinity, lastPrint = -Infinity, prevG, prevD, prevE, prevT, latest, latestField = null;
     let minLivingFrac = null, collapses = 0, collapsed = false;
     const established = new Set(), lost = new Set();
     const genomes = new Array(E.MAXK);
@@ -104,6 +116,8 @@ export async function runHeadless(device, config, { print, width = 640, height =
         torpidFrac: felt ? since(THERMAL_LEDGER.torpid) / felt : 0, makerFrac: felt ? since(THERMAL_LEDGER.makers) / felt : 0, scalded,
         framboids: c.pop[4],
         framboidsMade: prevE ? since(THERMAL_LEDGER.framboidsMade) * 60 / (c.simTime - prevT) : 0 };
+      thermal.field = latestField;
+      eng.readThermal().then((f) => { latestField = fieldStats(f, eng.tbg); }).catch(() => {});
       samples.push({ ...latest, thermal, rates, demography, meals, energy });
       prevG = Array.from(c.globals); prevD = Array.from(c.demography); prevE = Array.from(c.energy); prevT = lastSample = c.simTime;
     }
@@ -118,6 +132,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
       if (prof) {
         eng.season = seasonAt(eng.simTime);
         if (config.eras) climate.tick(dt);
+        if (config.temp != null) { eng.temp = config.temp; eng.excursion = 0; }
         for (const [name, ms] of await eng.profileStep(dt)) prof.passes[name] = (prof.passes[name] || 0) + ms;
         if (++prof.n === 30) {
           const passes = Object.fromEntries(Object.entries(prof.passes).map(([k, ms]) => [k, +(ms / prof.n).toFixed(4)]));
@@ -129,6 +144,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
       }
       eng.season = seasonAt(eng.simTime);
       if (config.eras) climate.tick(dt);
+      if (config.temp != null) { eng.temp = config.temp; eng.excursion = 0; }
       if (f === frames - 1) eng.censusEvery = 1;
       // Before a census frame, wait until a staging buffer is free so no census is skipped. The other
       // buffer may still be in flight, so the GPU keeps working while the CPU reads the previous census,
@@ -183,7 +199,7 @@ export async function runForks(device, config, { print } = {}) {
     const E = await import('./engine.js');
     const { readGenome, dietGuild } = await import('./genome.js');
     const { communitySample, DIETS } = await import('./ecostats.js');
-    const { ENERGY_SLOTS, P_BYTES, DIAG_SLOTS, DIAG_STRIDE } = await import('./shaders.js');
+    const { ENERGY_SLOTS, P_BYTES, DIAG_SLOTS, DIAG_STRIDE, THERMAL_LEDGER, HEAT_BINS, HEAT_BIN } = await import('./shaders.js');
     const eng = await E.createEngine(device, 'rgba8unorm', { K: config.k, hasTimestamps: false });
     if (!(await eng.allocate(config.n))) throw new Error(`could not allocate ${config.n} particles`);
     eng.resize(64, 36);
@@ -195,6 +211,7 @@ export async function runForks(device, config, { print } = {}) {
     for (let f = 0; f < warm; f++) {
       eng.season = seasonAt(eng.simTime);
       if (config.eras) climate.tick(1 / 60);
+      if (config.temp != null) { eng.temp = config.temp; eng.excursion = 0; }
       while ((eng.frameNo + 1) % eng.censusEvery === 0 && eng.censusStage.every((s) => s.busy)) await new Promise((r) => setTimeout(r, 0));
       eng.frame({ target: null, simDt: 1 / 60, time: f / 60 });
     }
@@ -205,7 +222,7 @@ export async function runForks(device, config, { print } = {}) {
       const species = [];
       for (let s = E.FIRST_LIFE; s < E.MAXK; s++) if (c.pop[s]) species.push({ pop: c.pop[s], genome: readGenome(c.genomeU32, c.genomeF32, s) });
       const cs = communitySample(species, eng.K.adhMin);
-      return { living: cs.living, ...Object.fromEntries(DIETS.map((g) => [g, cs.living * cs.diet[g]])), effSpecies: cs.effSpecies };
+      return { living: cs.living, ...Object.fromEntries(DIETS.map((g) => [g, cs.living * cs.diet[g]])), effSpecies: cs.effSpecies, framboids: c.pop[4] };
     };
     // an engine per distinct tunables, each loaded with the same moment
     const engines = new Map([['{}', eng]]);
@@ -229,6 +246,8 @@ export async function runForks(device, config, { print } = {}) {
         if (!n) return;
         const o = (out[g] = { samples: n });
         for (const k of Object.keys(SCALE)) o[k] = dd(k) / SCALE[k] / n;
+        o.perf = dd('perf') / 1000 / n;
+        o.warmOff = dd('warmOff') / 8 / n - 64;
         o.hungry = dd('hungry') / n;
         o.foodInReach = dd('hungry') ? dd('hungryFood') / dd('hungry') : 0;
         for (const k of ['killOpp', 'preyInReach', 'tried', 'missed', 'lost', 'won']) o[`kill.${k}`] = dd(k) / n;
@@ -276,7 +295,19 @@ export async function runForks(device, config, { print } = {}) {
           DIETS.forEach((v2, vi) => { out.rates[`${g}>${v2}`] = d(c0.demography, c1.demography, 32 + gi * 5 + vi); });
           // the energy ledger counts thousandths
           ENERGY_SLOTS.forEach((slot, si) => { out.rates[`${g}.E.${slot}`] = d(c0.energy, c1.energy, gi * 8 + si) / 1000; });
+          out.rates[`${g}.scalded`] = d(c0.demography, c1.demography, 20 + gi);
         });
+        // heat: deaths by scalding, framboids grown, and what the living felt over the fork (the ledger
+        // samples each cell once a second), with the water's field at its end
+        out.rates.scalded = DIETS.reduce((a, g) => a + out.rates[`${g}.scalded`], 0);
+        out.rates.framboidsMade = d(c0.energy, c1.energy, THERMAL_LEDGER.framboidsMade);
+        const since = (i) => (c1.energy[i] - c0.energy[i]) >>> 0;
+        const th = Array.from({ length: HEAT_BINS }, (_, b) => since(THERMAL_LEDGER.hist + b));
+        const felt = th.reduce((a, b) => a + b, 0);
+        const q = (p) => { let acc = 0; for (let b = 0; b < HEAT_BINS; b++) { acc += th[b]; if (acc >= p * felt) return (b + 0.5) * HEAT_BIN; } return null; };
+        out.thermal = { tbg: eng.tbg, felt: felt ? { mean: th.reduce((a, h, b) => a + h * (b + 0.5) * HEAT_BIN, 0) / felt, p10: q(0.1), p50: q(0.5), p90: q(0.9), hist: th } : null,
+          torpidFrac: felt ? since(THERMAL_LEDGER.torpid) / felt : 0, makerFrac: felt ? since(THERMAL_LEDGER.makers) / felt : 0,
+          field: fieldStats(await eng.readThermal(), eng.tbg) };
         forks.push(out);
         print?.(`rep ${r} ${v.name}: living ${g0.living} -> ${g1.living}, kills ${out.rates.kills.toFixed(0)}/min`);
       }

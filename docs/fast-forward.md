@@ -104,6 +104,15 @@ mechanism on matched forks over at least 16 worlds, switching seeds between hypo
 - **Decomposition:** `eventTicks`-style batching (meals and division every Nth tick with 1/60 s motion)
   separated event timing from motion; worth rebuilding as a tunable if a question needs it again.
 - `sim.mjs --step N --profile` times each pass.
+- **Heat:** every sample carries a `thermal` block (the water, what the living felt, preferred temperatures,
+  torpor, heat-makers, scalding, framboids, and the water's field against the background), and run outcomes
+  summarize it; forks record the same per fork, and `K.diag` adds each guild's thermal performance and its
+  offset from the optimum. `--temp T` (sim, ensemble, fork) holds the water at T degrees.
+  `fork-heat.cjs` compares heat between variants, `fork-worlds.cjs` lists each fork world's mix, crowding,
+  heat and deviations, `heat-pool.mjs` sets ensembles side by side with paired differences, `history.mjs`
+  counts busts, extinction pulses and guild crashes and recoveries over each run, `trajectory.mjs` bins runs
+  by time, and `guild-flows.mjs` gives per-capita demography and energy. `ensemble.mjs --resume` skips seeds
+  already done or claimed, so two ensembles can share one directory.
 
 ## What did not work
 

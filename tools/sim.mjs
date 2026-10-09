@@ -9,7 +9,7 @@ import { P_BYTES, FIRST_LIFE, FRAMBOID } from '../src/shaders.js';
 
 const { values: v } = parseArgs({ options: {
   n: { type: 'string', default: '8192' }, minutes: { type: 'string', default: '10' },
-  seed: { type: 'string', default: '23' }, k: { type: 'string', default: '{}' }, step: { type: 'string', default: '1' },
+  seed: { type: 'string', default: '23' }, k: { type: 'string', default: '{}' }, step: { type: 'string', default: '1' }, temp: { type: 'string' },
   'no-eras': { type: 'boolean' },
   sample: { type: 'string', default: '5' }, print: { type: 'string', default: '30' },
   out: { type: 'string' }, png: { type: 'string' }, cpu: { type: 'boolean' },
@@ -21,6 +21,7 @@ if (v.help) {
   --n 8192 --minutes 10 --seed 23 --k '{}'
   --sample 5 --print 30 --out run.json
   --step 1       Each step covers step/60 s (coarse steps; the page takes up to 4)
+  --temp T       Hold the water's background temperature at T degrees (no climate walk or excursions)
   --no-eras
   --chrome       Run in headless Chromium (recommended without a GPU)
                  Override the executable with PLAYWRIGHT_CHROMIUM
@@ -37,7 +38,7 @@ if (v.help) {
 if (v.chrome && v.png) throw new Error('--png is supported only with Dawn; omit --chrome');
 if ((v.aim || v['render-bench']) && !v.png) throw new Error('--aim and --render-bench require --png');
 const config = { n: +v.n, minutes: +v.minutes, seed: +v.seed, k: JSON.parse(v.k),
-  eras: !v['no-eras'], sample: +v.sample, print: +v.print, cpu: !!v.cpu, profile: !!v.profile, step: +v.step };
+  eras: !v['no-eras'], sample: +v.sample, print: +v.print, cpu: !!v.cpu, profile: !!v.profile, step: +v.step, ...(v.temp != null ? { temp: +v.temp } : {}) };
 for (const key of ['n', 'minutes', 'sample', 'print', 'step']) {
   if (!Number.isFinite(config[key]) || config[key] <= 0) throw new Error(`--${key} must be positive`);
 }

@@ -14,7 +14,7 @@ export const META_ENERGY = META_DEATH + 64;
 // core); at hunters' kill opportunities the kill funnel; and their contact density (animals within reach
 // and twice reach).
 export const DIAG_SLOTS = ['samples', 'crowd', 'silt', 'pack', 'kin', 'speed', 'photo', 'light', 'hungry', 'hungryFood', 'force', 'energy', 'overlap',
-  'killOpp', 'preyInReach', 'tried', 'missed', 'lost', 'won', 'preyNear', 'preyNear2', 'huntSamples'];
+  'killOpp', 'preyInReach', 'tried', 'missed', 'lost', 'won', 'preyNear', 'preyNear2', 'huntSamples', 'perf', 'warmOff'];
 export const DIAG_STRIDE = 24;
 export const META_DIAG = META_ENERGY + 64;
 export const META_CLAIM = META_DIAG + 5 * DIAG_STRIDE;
@@ -1370,6 +1370,9 @@ ${cellWGSL(K, false)}
     diagAdd(dg, 10u, u32(length(force) * 100.0));
     diagAdd(dg, 11u, u32(clamp(E / g.reproE, 0.0, 4.0) * 1000.0));
     diagAdd(dg, 12u, u32(overlap * 16.0));
+    // thermal performance, and how far it sits from its optimum (warmer or cooler, offset so it stays positive)
+    diagAdd(dg, 22u, u32(th.perf * 1000.0));
+    diagAdd(dg, 23u, u32(clamp(Tc - g.topt + 64.0, 0.0, 128.0) * 8.0));
     if (canHunt) { diagAdd(dg, 19u, u32(preyNear.x * 16.0)); diagAdd(dg, 20u, u32(preyNear.y * 16.0)); diagAdd(dg, 21u, 1u); }
   }
   if (sim.ticks == 1u) {
