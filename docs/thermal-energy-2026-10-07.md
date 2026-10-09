@@ -994,7 +994,7 @@ changed every world's random draws), not the framboids. notableSpecies 26 → 35
 **Gate** after the rebase and these changes (32 × 30 min at 32k): passes, every gated metric "same";
 notableSpecies 26 → 35 and leaderChanges 5.9 → 8.9 improved; foodWeb 0.56 → 0.34 (p 0.08, Holm 0.53).
 
-## 16. Sediment under the microscope
+## 16. Sediment under the microscope, and panel polish
 
 - **Stone grains are kinds of sediment** (`vsStone` picks one per grain; `mineralSurf` draws it; `boulder`
   lights it as its material): angular quartz (faceted glass: the surface is the lowest of a set of
@@ -1008,3 +1008,8 @@ notableSpecies 26 → 35 and leaderChanges 5.9 → 8.9 improved; foodWeb 0.56 �
   only right up close. The stones are lit by a lower, raking light so each grain's form shows, and the
   old table shading's slope sign (which lit bevels and domes as if sunken) is fixed. Render-only; about
   +0.6 ms per 1600×1000 frame when stones fill the screen.
+- **Panels**: the rail's gauge graphics centre on their labels' ink; on phones the Tide gauge gives way to
+  a season track under the era name (it also stays at 360 px, where the gauge was hidden); the census
+  condition chips sit under their own heading as one block (life cycle in a row of three, temperature
+  in a row of two); the behaviour compass's key keeps the drives' row pitch and is centred over the
+  compass, with room before the lamps.

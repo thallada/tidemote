@@ -186,6 +186,10 @@ body:not(.live) .hud { opacity: 0; }
 .era-box b { font-size: 13px; font-weight: 400; letter-spacing: .1em; text-transform: uppercase; font-stretch: 110%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gauge { flex-direction: row; align-items: center; gap: 9px; text-decoration: none; }
 .gauge b { font-size: 13px; font-weight: 400; min-width: 3.4ch; }
+/* the graphics centre on the text's ink, which sits above its line box's middle (room for descenders) */
+.gauge > svg { transform: translateY(-1px); }
+.gauge > .seg { transform: translateY(-2px); }
+.gauge > .thermo { transform: translateY(-1.5px); }
 .seg { display: inline-flex; gap: 2px; }
 .seg i { width: 3px; height: 12px; background: rgba(130, 205, 214, 0.18); }
 .seg i.on { background: var(--sun); }
@@ -207,6 +211,11 @@ body:not(.live) .hud { opacity: 0; }
 #tide-wave { width: 60px; height: 16px; overflow: visible; }
 #tide-wave .wave { fill: none; stroke: var(--line-2); stroke-width: 1; }
 #tide-wave .dot { fill: var(--cyan); }
+/* on phones the season rides under the era name instead of in its own gauge */
+.era-tide { display: none; position: relative; height: 6px; margin-top: 2px; }
+.era-tide svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.era-tide path { fill: none; stroke: var(--line-2); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.era-tide i { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 4px var(--cyan); left: calc(var(--x, 0) * 100% - 2px); top: calc(1px - 2.6px * var(--y, 0)); }
 .rail-right { margin-left: auto; display: flex; gap: 22px; }
 .rail-right { align-items: center; }
 .rail .fs { margin-right: -8px; flex: none; }
@@ -262,6 +271,13 @@ body:not(.live) .hud { opacity: 0; }
 .ov .mix-row { padding-top: 2px; padding-bottom: 2px; }
 .ov .nums div { padding-top: 6px; padding-bottom: 6px; }
 .ov-census .segs .chip { flex: 1 1 auto; justify-content: center; padding: 0 8px; white-space: nowrap; }
+/* the conditions as one block: the life cycle in a row of three (the long label gets the room),
+   temperature in a row of two */
+.segs.even { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); }
+.segs.even .chip { grid-column: span 4; padding: 0 4px; }
+.segs.even .chip:nth-child(2) { grid-column: span 6; }
+.segs.even .chip:nth-child(4) { margin-left: 0; }
+.segs.even .chip:nth-child(n+4) { grid-column: span 7; margin-top: -1px; }
 .mix-row .term { text-decoration-color: rgba(111, 138, 140, 0.45); }
 .mix-bar { display: flex; height: 10px; gap: 2px; margin-bottom: var(--s1); }
 .mix-bar i { display: block; min-width: 2px; }
@@ -509,14 +525,15 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .mv-drives span:not(.meter) { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mv-drives b { font-weight: 400; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 11px; }
 .mv-drives .meter > i { transition: width .12s linear; }
-.mv-dial { display: flex; flex-direction: column; gap: 4px; align-self: stretch; justify-content: flex-start; }
+.mv-dial { display: flex; flex-direction: column; align-items: center; gap: 5px; align-self: stretch; }
 .mv-dial .compass { margin: auto 0; } /* the key at the top, the compass centred in what is left */
-.mv-key { display: flex; flex-direction: column; gap: 3px; color: var(--ink-3); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; }
-.mv-key span { display: grid; grid-template-columns: 12px auto; align-items: center; justify-items: center; gap: 6px; }
+/* the key's two rows keep the drives' pitch, so they line up with the first two drives */
+.mv-key { display: flex; flex-direction: column; gap: 5px; color: var(--ink-3); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; }
+.mv-key span { display: grid; grid-template-columns: 12px auto; align-items: center; justify-items: center; gap: 6px; height: 17px; }
 .mv-key span > b { justify-self: start; font-weight: 500; }
 .mv-key i.dash { width: 12px; border-top: 1px dashed var(--ink); }
 .mv-key i.dia { width: 5px; height: 5px; background: var(--hot); transform: rotate(45deg); }
-.mv-lamps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; padding-top: 2px; }
+.mv-lamps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; padding-top: var(--s2); }
 .lamp { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--ink-3); transition: color .2s; }
 .lamp > i { flex: none; width: 7px; height: 7px; border: 1px solid var(--line-2); transition: background .2s, border-color .2s; }
 .lamp > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -754,8 +771,9 @@ canvas.niches { width: 100%; height: 150px; display: block; }
   #g-light .seg { display: none; }
   #g-light::before { content: '☀'; color: var(--ink-3); font-size: 12px; }
   #g-heat .thermo { display: none; }
-  #g-heat .thermo-i { display: block; }
-  #tide-wave { width: 34px; }
+  #g-heat .thermo-i { display: block; transform: translateY(-2px); }
+  #g-tide { display: none; }
+  .era-tide { display: block; }
   #lab-open { display: flex; }
   .dock { gap: 0; justify-content: space-between; padding-left: calc(6px + var(--safe-l)); padding-right: calc(6px + var(--safe-r)); }
   .grp { gap: 2px; }
@@ -813,7 +831,6 @@ canvas.niches { width: 100%; height: 150px; display: block; }
   .help { display: none; }
 }
 @media (max-width: 380px) {
-  #g-tide { display: none; }
   .act { width: 44px; }
   .dock .ico { width: 34px; }
   .dock .speed { width: 50px; }

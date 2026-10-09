@@ -1607,6 +1607,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   $('g-heat').hidden = !K.heat;
   const wave = $('tide-wave');
   wave.querySelector('.wave').setAttribute('d', Array.from({ length: 31 }, (_, i) => `${i ? 'L' : 'M'}${i * 2},${(8 - 6 * Math.sin((i / 30) * TAU)).toFixed(2)}`).join(''));
+  const eraTide = $('era-tide');
+  eraTide.querySelector('path').setAttribute('d', Array.from({ length: 61 }, (_, i) => `${i ? 'L' : 'M'}${i},${(3 - 2.6 * Math.sin((i / 60) * TAU)).toFixed(2)}`).join(''));
   let hudT = 0;
   const setText = (id, v) => { const el = $(id); if (el.textContent !== v) el.textContent = v; };
   function updateHud(now) {
@@ -1622,6 +1624,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const dot = wave.querySelector('.dot');
     dot.setAttribute('cx', (ph * 60).toFixed(1));
     dot.setAttribute('cy', (8 - 6 * Math.sin(ph * TAU)).toFixed(2));
+    eraTide.style.setProperty('--x', ph.toFixed(3)); eraTide.style.setProperty('--y', Math.sin(ph * TAU).toFixed(3));
     setText('tide-v', `${Math.round(eng.season * 100)}%`);
     $('g-tide').setAttribute('aria-label', `Tide ${Math.round(eng.season * 100)}%, ${seasonAt(eng.simTime + 5) >= seasonAt(eng.simTime) ? 'rising' : 'ebbing'}`);
     $('g-light').setAttribute('aria-label', `Light ${L}%`);

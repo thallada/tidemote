@@ -364,12 +364,12 @@ export function createLab(api) {
         const fold = secs.length - 2; // the two cell-type breakdowns, last
         box.innerHTML = secs.slice(0, fold).map(bars).join('')
           + disclosure('celltypes', 'Cell types', `<div class="stack">${secs.slice(fold).map(bars).join('')}</div>`, st.open_.celltypes)
-          + block('Condition', `<div class="segs" role="group" aria-label="Condition">
+          + block('Condition', `<div class="segs even" role="group" aria-label="Condition">
             <button type="button" class="chip" data-focus="state:1" aria-pressed="false" data-hint="Under 35% of the energy needed to divide">Hungry</button>
             <button type="button" class="chip" data-focus="state:2" aria-pressed="false" data-hint="Over 85% of the energy needed to divide">Ready to divide</button>
             <button type="button" class="chip" data-focus="state:3" aria-pressed="false" data-hint="Past 80% of their lifespan">Elderly</button>${api.eng.K.heat ? `
             <button type="button" class="chip" data-focus="state:4" aria-pressed="false" data-hint="Warmer than they can comfortably bear">Heat-stressed</button>
-            <button type="button" class="chip" data-focus="state:5" aria-pressed="false" data-hint="Too cold to feed, swim or divide">Torpid</button>` : ''}</div>`, { cls: 'inline' });
+            <button type="button" class="chip" data-focus="state:5" aria-pressed="false" data-hint="Too cold to feed, swim or divide">Torpid</button>` : ''}</div>`);
       }
       const fk = api.focusKey();
       const els = box.querySelectorAll('.bars');
