@@ -20562,7 +20562,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
           inLens = true;
         }
         const visible = !inLens || Math.hypot(sx - L.sx, sy - L.sy) < L.R - 8;
-        if (visible) drawMarker(sx, sy, inLens, dt);
+        const sh = filmShot();
+        if (sh && !sh.why.seen && sh.t >= sh.flight - 0.5 && sx > innerWidth * 0.1 && sx < innerWidth * 0.9 && sy > innerHeight * 0.1 && sy < innerHeight * 0.9) {
+          sh.why.seen = true;
+          if (sel.org && sel.org.cells && !sel.org.pending) sh.why.cells = sel.org.cells;
+          sh.whyVer++;
+        }
+        if (visible && (!sh || sh.why.seen)) drawMarker(sx, sy, inLens, dt);
       }
       if (L) {
         const { sx, sy } = L;
@@ -20594,11 +20600,20 @@ registerProcessor("tidemote-sound", TidemoteSound);
         watched.set(w.id, { x: w.x, y: w.y, vx: w.vx, vy: w.vy, t: simTime, disp: o && o.disp, err: o ? o.err : [0, 0], fresh: true });
       }
     };
+    function filmShot() {
+      const sh = sel && sel.film && director.active ? director.shot : null;
+      return sh && sh.why && sh.why.kind === "follow" && sh.subject && sh.subject.id === sel.filmFor ? sh : null;
+    }
+    const filmShown = () => {
+      const sh = filmShot();
+      return !!(sh && sh.why.seen && !sel.lost && sel.particle.kind >= FIRST_LIFE);
+    };
     function markSlot() {
       if (!state.songMarks || !sound.on) return -2;
       if (state.songMarks === 2) return -1;
       const slot = pickedSlot();
-      return slot >= 0 ? slot : -2;
+      if (slot >= 0) return slot;
+      return filmShown() ? sel.particle.kind : -2;
     }
     function watchMarks(now) {
       const only = markSlot(), ids = [];
@@ -20889,14 +20904,19 @@ registerProcessor("tidemote-sound", TidemoteSound);
           sub = r.slice(0, 2).map(note).join(" · ");
         }
       } else if (w.kind === "follow") {
-        if (w.spotlight) {
-          eyebrow = going ? "A new species" : "Following a new species";
-          main = going ? spName(w.serial) : upper(organism(w));
-        } else {
-          eyebrow = going ? "Picking out" : "Following";
+        if (!w.seen) {
+          eyebrow = w.spotlight ? "Searching" : "Exploring";
+          main = w.spotlight ? "For a new species" : "Moving to a new area";
+          sub = w.spotlight ? "" : "To discover the life there";
+        } else if (w.spotlight) {
+          eyebrow = "Following a new species";
           main = upper(organism(w));
+          sub = spDesc(w.serial);
+        } else {
+          eyebrow = "Following";
+          main = upper(organism(w));
+          sub = spDesc(w.serial);
         }
-        sub = going && r[0] && !w.spotlight ? note(r[0]) : spDesc(w.serial);
       } else if (w.kind === "linger") {
         const [verb, after] = fateOf(w.fate);
         eyebrow = "Lingering";

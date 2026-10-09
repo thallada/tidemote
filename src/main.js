@@ -1790,7 +1790,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
         inLens = true;
       }
       const visible = !inLens || Math.hypot(sx - L.sx, sy - L.sy) < L.R - 8;
-      if (visible) drawMarker(sx, sy, inLens, dt);
+      // the auto camera's subject is marked and named once it is in view, after the camera's flight
+      const sh = filmShot();
+      if (sh && !sh.why.seen && sh.t >= sh.flight - 0.5 && sx > innerWidth * 0.1 && sx < innerWidth * 0.9 && sy > innerHeight * 0.1 && sy < innerHeight * 0.9) {
+        sh.why.seen = true;
+        if (sel.org && sel.org.cells && !sel.org.pending) sh.why.cells = sel.org.cells;
+        sh.whyVer++;
+      }
+      if (visible && (!sh || sh.why.seen)) drawMarker(sx, sy, inLens, dt);
     }
     if (L) {
       const { sx, sy } = L;
@@ -1821,11 +1828,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
   eng.onWatch = ({ simTime, seen }) => {
     for (const w of seen) { const o = watched.get(w.id); watched.set(w.id, { x: w.x, y: w.y, vx: w.vx, vy: w.vy, t: simTime, disp: o && o.disp, err: o ? o.err : [0, 0], fresh: true }); }
   };
+  // the auto camera's follow shot of the marked subject, and whether it has come into view
+  function filmShot() {
+    const sh = sel && sel.film && director.active ? director.shot : null;
+    return sh && sh.why && sh.why.kind === 'follow' && sh.subject && sh.subject.id === sel.filmFor ? sh : null;
+  }
+  const filmShown = () => { const sh = filmShot(); return !!(sh && sh.why.seen && !sel.lost && sel.particle.kind >= FIRST_LIFE); };
   function markSlot() { // -1: every species; -2: none
     if (!state.songMarks || !sound.on) return -2;
     if (state.songMarks === 2) return -1;
     const slot = pickedSlot();
-    return slot >= 0 ? slot : -2;
+    if (slot >= 0) return slot;
+    // the auto camera's subject, once it is marked in view
+    return filmShown() ? sel.particle.kind : -2;
   }
   // which cells to find this frame: those whose marks are about to show or showing
   function watchMarks(now) {
@@ -2079,9 +2094,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
         sub = r.slice(0, 2).map(note).join(' · ');
       }
     } else if (w.kind === 'follow') {
-      if (w.spotlight) { eyebrow = going ? 'A new species' : 'Following a new species'; main = going ? spName(w.serial) : upper(organism(w)); }
-      else { eyebrow = going ? 'Picking out' : 'Following'; main = upper(organism(w)); }
-      sub = going && r[0] && !w.spotlight ? note(r[0]) : spDesc(w.serial);
+      // named only once it is in view (w.seen): on the way, where the camera is going
+      if (!w.seen) { eyebrow = w.spotlight ? 'Searching' : 'Exploring'; main = w.spotlight ? 'For a new species' : 'Moving to a new area'; sub = w.spotlight ? '' : 'To discover the life there'; }
+      else if (w.spotlight) { eyebrow = 'Following a new species'; main = upper(organism(w)); sub = spDesc(w.serial); }
+      else { eyebrow = 'Following'; main = upper(organism(w)); sub = spDesc(w.serial); }
     } else if (w.kind === 'linger') {
       const [verb, after] = fateOf(w.fate);
       eyebrow = 'Lingering';
