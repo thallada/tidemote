@@ -17320,9 +17320,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       for (const e of events) {
         if ((e.slot !== slot || slot < 0) && e.slot !== tag) continue;
         if (e.at > now) continue;
-        const end = e.at + Math.max(HOLD, e.dur || 0);
-        if (now < end) lit.push(`${e.line}:${e.k}`);
-        if (now < end + GLIDE && (!last || e.at > last.at)) last = e;
+        if (now < e.at + Math.max(HOLD, e.dur || 0)) lit.push(`${e.line}:${e.k}`);
+        if (!last || e.at > last.at) last = e;
       }
       const key = lit.sort().join(",");
       if (key !== songKey || !blk2.dataset.drawn) {
@@ -17334,10 +17333,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const svg = blk2.querySelector("svg.song-roll"), ph = svg && svg.querySelector(".ph");
       if (!ph) return;
       const r = last && last.step > 0 && svg.querySelector(`rect[data-k="${last.k}"][data-l="${last.line}"]`);
-      ph.classList.toggle("on", !!r);
-      if (r) {
-        const cyc = +svg.dataset.cycle, t2 = (+r.dataset.at + (now - last.at) / last.step) % cyc;
-        const x = (+svg.dataset.x0 + t2 * +svg.dataset.sx).toFixed(2);
+      const cyc = +svg.dataset.cycle, t2 = r ? +r.dataset.at + (now - last.at) / last.step : 0;
+      const on = !!r && t2 < cyc + GLIDE / last.step;
+      ph.classList.toggle("on", on);
+      if (on) {
+        const x = (+svg.dataset.x0 + Math.min(t2, cyc) * +svg.dataset.sx).toFixed(2);
         ph.setAttribute("x1", x);
         ph.setAttribute("x2", x);
       }
@@ -20602,7 +20602,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       for (const id of watched.keys()) if (!ids.includes(id)) watched.delete(id);
     }
     function drawSongMarks(now, L) {
-      while (songEvents.length && songEvents[0].at < now - 2e3) songEvents.shift();
+      while (songEvents.length && songEvents[0].at < now - 8e3) songEvents.shift();
       const only = markSlot();
       if (only === -2 || !songEvents.length) return;
       const p = cssPPU(), simNow = viewSimTime || eng.simTime, [W, H2] = eng.grid;

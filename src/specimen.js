@@ -280,8 +280,8 @@ export function createSpecimen(api) {
   }
   // light the notes being sung, each for as long as it sounds, and run a playhead along the song's
   // time axis at its tempo from the note last struck (events from the soundtrack: { at, dur, step,
-  // slot, k, line }); a short note still flashes for HOLD ms, and the playhead stays while the species
-  // sings, until GLIDE ms after its last note ends
+  // slot, k, line }); a short note still flashes for HOLD ms. The playhead never wraps by itself: it
+  // runs to the end of the roll and rests there GLIDE ms before fading, unless a new note moves it
   const HOLD = 240, GLIDE = 400;
   let songKey = '';
   function songTick(now, events) {
@@ -293,9 +293,8 @@ export function createSpecimen(api) {
     for (const e of events) {
       if ((e.slot !== slot || slot < 0) && e.slot !== tag) continue;
       if (e.at > now) continue;
-      const end = e.at + Math.max(HOLD, e.dur || 0);
-      if (now < end) lit.push(`${e.line}:${e.k}`);
-      if (now < end + GLIDE && (!last || e.at > last.at)) last = e;
+      if (now < e.at + Math.max(HOLD, e.dur || 0)) lit.push(`${e.line}:${e.k}`);
+      if (!last || e.at > last.at) last = e;
     }
     const key = lit.sort().join(',');
     if (key !== songKey || !blk.dataset.drawn) {
@@ -306,10 +305,11 @@ export function createSpecimen(api) {
     const svg = blk.querySelector('svg.song-roll'), ph = svg && svg.querySelector('.ph');
     if (!ph) return;
     const r = last && last.step > 0 && svg.querySelector(`rect[data-k="${last.k}"][data-l="${last.line}"]`);
-    ph.classList.toggle('on', !!r);
-    if (r) {
-      const cyc = +svg.dataset.cycle, t = (+r.dataset.at + (now - last.at) / last.step) % cyc;
-      const x = (+svg.dataset.x0 + t * +svg.dataset.sx).toFixed(2);
+    const cyc = +svg.dataset.cycle, t = r ? +r.dataset.at + (now - last.at) / last.step : 0;
+    const on = !!r && t < cyc + GLIDE / last.step;
+    ph.classList.toggle('on', on);
+    if (on) {
+      const x = (+svg.dataset.x0 + Math.min(t, cyc) * +svg.dataset.sx).toFixed(2);
       ph.setAttribute('x1', x); ph.setAttribute('x2', x);
     }
   }

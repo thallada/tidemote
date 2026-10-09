@@ -1834,7 +1834,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     for (const id of watched.keys()) if (!ids.includes(id)) watched.delete(id);
   }
   function drawSongMarks(now, L) {
-    while (songEvents.length && songEvents[0].at < now - 2000) songEvents.shift();
+    // kept a while: the song panel's playhead runs on from the last note to the end of its song
+    while (songEvents.length && songEvents[0].at < now - 8000) songEvents.shift();
     const only = markSlot();
     if (only === -2 || !songEvents.length) return;
     const p = cssPPU(), simNow = viewSimTime || eng.simTime, [W, H] = eng.grid;
