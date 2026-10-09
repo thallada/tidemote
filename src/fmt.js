@@ -17,6 +17,18 @@ export const ROLE = ['α', 'β', 'γ'];
 // A living cell's drawn radius at `ppu` pixels per world unit (vsPoint: 0.085 world units per unit of size).
 export const cellRadius = (p, g, ppu) => 0.085 * (g ? g.size : 1) * (1 - 0.12 * (p.role || 0)) * ppu;
 
+// Lengths as the page shows them, in micrometres: a cell of size 1 (0.17 world units across) is
+// taken to be 10 µm, about the size of a protist.
+export const UM_PER_UNIT = 10 / 0.17;
+// a world length (or speed, with unit '/s') in µm, or mm from a millimetre up
+export const fmtLen = (u, unit = '') => {
+  const um = Math.abs(u) * UM_PER_UNIT;
+  const v = um >= 1000 ? `${(um / 1000).toFixed(um >= 10000 ? 1 : 2)} mm` : `${um >= 10 ? Math.round(um) : um.toFixed(1)} µm`;
+  return v + unit;
+};
+// round lengths for scale bars, in µm
+export const NICE_UM = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000];
+
 export const MATTER = [
   { name: 'Silt', css: '#5d6a82', blurb: 'Inert mineral grit carried on the currents. The Tide charges it into glint, and cells build their offspring out of it.' },
   { name: 'Glint', css: '#b9e6ff', blurb: 'Silt charged by the Tide: free-floating food. Its charge fades back to silt if nothing eats it.' },

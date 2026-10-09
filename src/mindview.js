@@ -3,7 +3,8 @@
 // arrive about ten times a second and only values change, so nothing reflows. The compass's arrows
 // are eased every frame, so they slide between readings instead of jumping.
 import { groupsFor, slotRows } from './mind.js';
-import { term, spLink } from './fmt.js';
+import { term, spLink, fmtLen } from './fmt.js';
+import { subHead } from './ui.js';
 
 const R = 40; // compass radius, in a -50..50 viewBox
 const NB_ROWS = 4; // other species shown (own kind has its own row)
@@ -39,18 +40,19 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
   /** The markup for one cell of species g in slot `kind`. */
   function html(g, kind) {
     const groups = groupsFor(g, K);
-    let h = `<div class="blk mv" data-kind="${kind}"><div class="sub-h"><span><i class="ico cell"></i>${term('mind', 'Behaviour')}</span><span class="mv-live"><i></i><b>replay</b></span></div>`;
+    let h = `<div class="blk mv" data-kind="${kind}">${subHead(`<i class="ico cell"></i>${term('mind', 'Last decision')}`, '<span class="mv-live"><i></i><b>replay</b></span>')}`;
     h += '<div class="mv-read">';
     h += `<div><span>Mode</span><b><span class="mv-mode term" data-hint="" tabindex="0">—</span></b></div>`;
     h += `<div><span>Target</span><b class="mv-target"><span class="mv-sig"></span><span class="mv-tname">—</span><em class="mv-tdist"></em></b></div>`;
-    h += `<div><span>Detail</span><b class="mv-detail">—</b></div>`;
+    // two lines, always: a long detail wraps rather than being cut, and never moves what follows
+    h += `<div class="two"><span>Detail</span><b class="mv-detail">—</b></div>`;
     h += '</div>';
     h += `<div class="mv-pulls">${compassHTML(groups)}<div class="mv-drives">`;
     h += groups.map((gr) => `<div data-k="${gr.key}"><i style="background:${gr.css}"></i><span>${term(gr.tip, gr.label)}</span><span class="meter thin" style="color:${gr.css}"><i style="width:0"></i></span><b>0%</b></div>`).join('');
     h += `<div class="mv-key"><span><i class="dash"></i>heading</span><span><i class="dia"></i>target</span></div></div></div>`;
     // conditions that shape what it does: a fixed set of lamps, lit or dark, never added or removed
     h += `<div class="mv-lamps">${['hungry', 'full', 'threat', 'low', 'lean', 'crowd', 'shelter'].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join('')}</div></div>`;
-    h += `<div class="blk mv-nb"><div class="sub-h"><span><i class="ico cell"></i>${term('mind-near', 'Neighbours')}</span><span>within its reach</span></div>`;
+    h += `<div class="blk mv-nb">${subHead(`<i class="ico cell"></i>${term('mind-near', 'Neighbours')}`, 'within its reach')}`;
     h += `<div class="nb-row nb-head"><span></span><span>Species</span><span>Cells</span><span>Role</span><span class="nb-pull term" data-hint="How each species moves this cell: pushes it away (left) or pulls it toward them (right)." tabindex="0"><i>push</i><i>pull</i></span></div>`;
     for (let i = 0; i <= NB_ROWS; i++) h += `<div class="nb-row empty" data-i="${i}"><span class="nb-sig"></span><span class="nb-name">—</span><b class="nb-n"></b><em class="nb-role"></em><span class="dbar"><i></i></span></div>`;
     return h + '</div>';
@@ -95,7 +97,7 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
     const m = mind.m, food = m.food;
     const q = tk == null ? null : m.nbrs.find((n) => food && n.j === food.j) || m.nbrs.filter((n) => n.kind === tk).sort((a, b) => len(a.d) - len(b.d))[0];
     const tdist = q ? len(q.d) : food && head.matter && head.key !== 'forage' ? food.dist : null;
-    parts.tdist.textContent = tdist != null ? `${tdist.toFixed(2)} cells away` : '';
+    parts.tdist.textContent = tdist != null ? `${fmtLen(tdist)} away` : '';
     parts.detail.textContent = detail(head, mind);
     // ---- pulls
     const max = Math.max(1e-6, ...mind.groups.map((g) => g.mag));

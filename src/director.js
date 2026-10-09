@@ -207,15 +207,18 @@ export class Director {
     if (this.spotlights.length > 4) this.spotlights.shift();
   }
 
-  start(view) {
+  // now: asked for (the Auto button), so the first shot sets off at once; otherwise (taking over an
+  // idle view) the camera first wakes slowly where it was left
+  start(view, { now = false } = {}) {
     this.active = true;
+    this.quick = now;
     this.cam = { x: view.x, y: view.y, lw: Math.log(view.w), vx: 0, vy: 0, vw: 0 };
     this.history = [];
     this.planning = null;
     this.gen = (this.gen || 0) + 1;
     // first the camera wakes: the view it was left at, starting to drift
     this.lastRig = null;
-    this.shot = this.makeShot('settle', view, { hold: 9 + 4 * this.rng(), fly: false });
+    this.shot = this.makeShot('settle', view, { hold: now ? 0 : 9 + 4 * this.rng(), fly: false });
     this.looked = 0;
   }
 
@@ -405,7 +408,9 @@ export class Director {
     const last = this.history[this.history.length - 1];
     let type;
     const spot = this.spotlights.find((s) => { const sp = this.io.species(s.slot); return sp && sp.serial === s.serial && sp.pop > 0; });
-    if (this.shot.type === 'settle' && r() < 0.5) type = 'wide';
+    // asked for, the first shot is one that needs no pick, so the camera moves at once
+    if (this.shot.type === 'settle' && this.quick) type = r() < 0.5 ? 'wide' : 'scene';
+    else if (this.shot.type === 'settle' && r() < 0.5) type = 'wide';
     else if (spot && last !== 'spotlight') type = 'spotlight';
     else if (sinceWide >= 3 + (r() < 0.5 ? 1 : 0) && last !== 'wide') type = 'wide';
     else {

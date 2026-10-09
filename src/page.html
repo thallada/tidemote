@@ -46,26 +46,6 @@
     </div>
   </header>
 
-  <!-- world column: what the world is made of and what has happened -->
-  <section class="world panel" id="world" aria-label="Census">
-    <div class="sec-h"><h2><span>World</span> Census</h2><span class="world-sum" id="world-sum" aria-hidden="true"></span><button type="button" class="ghost" id="world-toggle" aria-expanded="true" aria-controls="world-body" aria-label="Collapse census"><svg><use href="#i-chev"/></svg></button></div>
-    <div id="world-body" class="world-body">
-      <div class="mix" id="mix" role="group" aria-label="Matter: choose one to highlight it"></div>
-      <div class="nums">
-        <div><b id="n-alive">–</b><span class="term" data-tip="alive" tabindex="0">Species</span></div>
-        <div><b id="n-thriving">–</b><span class="term" data-tip="thriving" tabindex="0">Thriving</span></div>
-        <div><b id="n-ever">–</b><span class="term" data-tip="ever" tabindex="0">Ever</span></div>
-        <div><b id="n-depth">–</b><span class="term" data-tip="deepest" tabindex="0">Depth</span></div>
-      </div>
-      <div class="hist">
-        <div class="sub-h"><span>Living cells by species</span><span id="hist-span"></span></div>
-        <canvas id="chart" aria-label="Living cells by species over time"></canvas>
-      </div>
-      <div class="feed-h sub-h"><span>Log</span><button type="button" class="link" id="feed-all">All entries</button></div>
-      <ol class="feed" id="feed" aria-live="off"></ol>
-    </div>
-  </section>
-
   <div class="caption" id="caption" aria-live="polite"></div>
 
   <!-- transport dock -->
@@ -80,7 +60,7 @@
       <button type="button" class="act" id="auto-play" aria-pressed="false" data-hint="Auto camera · A"><svg><use href="#i-auto"/></svg><span>Auto</span></button>
       <span class="snd-wrap"><button type="button" class="act" id="snd" aria-pressed="false" data-hint="Sound · S"><svg><use href="#i-sound"/></svg><span>Sound</span></button><input id="vol" type="range" min="0" max="100" step="1" value="70" aria-label="Volume" hidden></span>
       <button type="button" class="act" id="set-open" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span>Settings</span></button>
-      <button type="button" class="act primary" id="lab-open" aria-expanded="false" aria-controls="lab" data-hint="Lab · K"><svg><use href="#i-lab"/></svg><span>Lab</span></button>
+      <button type="button" class="act primary" id="lab-open" aria-expanded="false" aria-controls="lab" data-hint="Field Lab · K"><svg><use href="#i-lab"/></svg><span>Lab</span></button>
     </div>
     <div class="sys" id="sys" aria-hidden="true"><span><b id="sys-n" class="w-n">–</b> particles</span><span><b id="sys-fps" class="w-3">–</b> fps</span><span><b id="sys-ms" class="w-4">–</b> ms</span><span><b id="sys-res" class="w-4">–</b> res</span></div>
   </nav>
@@ -96,11 +76,12 @@
     <div class="readout" id="readout" hidden aria-live="off">
       <div><b id="ro-fps">–</b><span>fps</span></div>
       <div><b id="ro-ms">–</b><span>GPU ms</span></div>
-      <div><b id="ro-px">–</b><span>Scene px</span></div>
-      <div><b id="ro-n">–</b><span>Particles</span></div>
-      <div><b id="ro-audio">–</b><span class="term" data-tip="audioload" tabindex="0">Audio</span></div>
       <div><b id="ro-step">–</b><span class="term" data-tip="stepms" tabindex="0">Step ms</span></div>
       <div><b id="ro-draw">–</b><span class="term" data-tip="drawms" tabindex="0">Draw ms</span></div>
+      <div><b id="ro-res">–</b><span class="term" data-tip="renderres" tabindex="0">Render</span></div>
+      <div class="w2"><b id="ro-px">–</b><span>Scene px</span></div>
+      <div><b id="ro-audio">–</b><span class="term" data-tip="audioload" tabindex="0">Audio</span></div>
+      <div class="w2"><b id="ro-n">–</b><span>Particles</span></div>
       <div><b id="ro-ceil">–</b><span class="term" data-tip="stride" tabindex="0">Stride</span></div>
       <div><b id="ro-rate">–</b><span class="term" data-tip="simrate" tabindex="0">Now</span></div>
     </div>
@@ -132,27 +113,56 @@
     </div>
   </div>
   <div class="spec-acts" id="spec-acts"></div>
+  <div class="tags sm" id="spec-tags"></div>
   <div class="vitals" id="vitals"></div>
   <div class="tabs" role="tablist" id="spec-tabs" aria-label="Specimen details"></div>
   <div class="spec-body" id="spec-body" role="tabpanel"></div>
   <button type="button" class="spec-more" id="spec-more" aria-controls="spec-body" aria-expanded="false"><svg aria-hidden="true"><use href="#i-chev"/></svg><span>Full record</span></button>
 </aside>
 
-<!-- lab: the records -->
-<aside class="lab panel" id="lab" hidden aria-label="Lab">
+<!-- lab: what the world is made of, what has happened, and the records; collapses to its header -->
+<aside class="lab panel" id="lab" aria-label="Field Lab">
   <div class="lab-head">
-    <h2><kbd class="key">K</kbd><span>Field</span> Lab</h2>
+    <div class="lab-title">
+      <h2><kbd class="key">K</kbd><span>Field</span> Lab</h2>
+      <span class="world-sum" id="world-sum" aria-hidden="true"></span>
+      <button type="button" class="ghost lab-fold" id="lab-close" aria-expanded="true" aria-controls="lab-body" aria-label="Collapse the Lab" data-hint="Collapse · K"><svg><use href="#i-chev"/></svg></button>
+    </div>
     <div class="tabs" role="tablist" id="lab-tabs" aria-label="Lab sections">
+      <button type="button" role="tab" data-tab="census">Census</button>
       <button type="button" role="tab" data-tab="species">Species</button>
       <button type="button" role="tab" data-tab="lineage">Lineage</button>
-      <button type="button" role="tab" data-tab="census">Census</button>
       <button type="button" role="tab" data-tab="charts">Charts</button>
       <button type="button" role="tab" data-tab="log">Log</button>
       <button type="button" role="tab" data-tab="guide">Guide</button>
     </div>
-    <button type="button" class="ghost x" id="lab-close" aria-label="Close the Lab" data-hint="Close · K"><svg><use href="#i-close"/></svg></button>
   </div>
-  <div class="lab-body" id="lab-body"></div>
+  <div class="lab-body" id="lab-body">
+    <div class="pane census" id="pane-census">
+      <div class="scroll ov">
+        <div class="blk">
+          <div class="sub-h"><span>Matter</span><span class="sub-a">of every particle</span></div>
+          <div class="mix" id="mix" role="group" aria-label="Matter: choose one to highlight it"></div>
+        </div>
+        <div class="nums">
+          <div><b id="n-alive">–</b><span class="term" data-tip="alive" tabindex="0">Species</span></div>
+          <div><b id="n-thriving">–</b><span class="term" data-tip="thriving" tabindex="0">Thriving</span></div>
+          <div><b id="n-ever">–</b><span class="term" data-tip="ever" tabindex="0">Ever</span></div>
+          <div><b id="n-depth">–</b><span class="term" data-tip="deepest" tabindex="0">Depth</span></div>
+        </div>
+        <div class="blk">
+          <div class="sub-h"><span>Living cells by species</span><span class="sub-a" id="hist-span"></span></div>
+          <canvas id="chart" aria-label="Living cells by species over time. Point at a band to name its species; click to open it."></canvas>
+        </div>
+        <div class="ov-census stack" id="ov-census"></div>
+      </div>
+      <!-- pinned below: the census above scrolls only when the screen is too short for it -->
+      <div class="blk ov-log">
+        <div class="sub-h"><span>Log</span><span class="sub-a"><button type="button" class="link" id="feed-all">All entries</button></span></div>
+        <ol class="feed" id="feed" aria-live="off"></ol>
+      </div>
+    </div>
+  </div>
 </aside>
 
 <div class="help panel float" id="help" hidden role="dialog" aria-label="Keyboard shortcuts">
@@ -165,7 +175,7 @@
     <dt>A</dt><dd>Auto camera</dd>
     <dt>C</dt><dd>Follow the specimen</dd>
     <dt>Esc</dt><dd>Close, then clear the highlight</dd>
-    <dt>K</dt><dd>Lab</dd>
+    <dt>K</dt><dd>Fold or open the Field Lab</dd>
     <dt>V</dt><dd>Settings</dd>
     <dt>S · − =</dt><dd>Sound · volume</dd>
     <dt>T</dt><dd>Trails</dd>
@@ -178,6 +188,7 @@
 </div>
 
 <div class="tip" id="tip" hidden role="tooltip"></div>
+<div class="plate" id="plate" hidden aria-hidden="true"></div>
 <div class="flash" id="flash" role="status" aria-live="polite"></div>
 
 <div class="intro" id="intro">

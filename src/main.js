@@ -5,8 +5,9 @@ import { genomeSerial, readGenome, parseParticle } from './genome.js';
 import { seasonAt, createClimate, abioRate } from './climate.js';
 import { createLab } from './lab.js';
 import { createSpecimen } from './specimen.js';
+import { sectHead } from './ui.js';
 import { createTips } from './tip.js';
-import { drawLiving } from './charts.js';
+import { drawLiving, livingAt } from './charts.js';
 import { genusName, speciesEpithet } from './names.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
@@ -14,7 +15,7 @@ import { PICK_WORDS, WATCH_MAX } from './shaders.js';
 import { flowAt } from './flow.js';
 import { Director } from './director.js';
 import { parseMind, interpretMind, settleMind } from './mind.js';
-import { fmt, fmtClock, fmtDur, esc, cssCol, clamp, term, spLink, ROLE, MATTER, LIVING_CSS, cellRadius } from './fmt.js';
+import { fmt, fmtClock, fmtDur, esc, cssCol, clamp, term, spLink, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('stage');
@@ -95,7 +96,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     phase: 'calibrating', busy: true, paused: false, speed: 1,
     hud: true, follow: false, confirmReset: 0,
     loupe: !isCoarse, loupeMag: 3.5, currents: false, specCells: 3,
-    world: prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
+    // the Field Lab's column, open or folded to its header ("world": its name when it was the census)
+    labOpen: prefs.labOpen ?? prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
     closeup: prefs.closeup ?? true,
     songMarks: prefs.songMarks ?? 1, // mark the cells that sing: 0 off, 1 the picked species, 2 all
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
@@ -127,7 +129,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, world: state.world, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
+    savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   if (prefs.loupe !== undefined && !isCoarse) state.loupe = prefs.loupe;
@@ -150,7 +152,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     dockTop = $('dock').getBoundingClientRect().top;
   }
   fit();
-  addEventListener('resize', () => { fit(); drawWorldChart(); });
+  addEventListener('resize', () => { fit(); if (lab) drawWorldChart(); });
 
   // ------------------------------------------------------------ camera
   const cam = { x: 0, y: 0, zoom: 1, zoomTarget: 1, anchor: null };
@@ -184,7 +186,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // ------------------------------------------------------------ loupe
   const hover = { x: 0, y: 0, on: false };
   function loupeGeom() {
-    if (!state.loupe || !hover.on || ptr.dragging || state.phase !== 'running' || director.active) return null;
+    if (!state.loupe || !hover.on || ptr.dragging || state.phase !== 'running') return null;
+    // filming, the loupe hides with the pointer once the mouse rests
+    if (director.active && performance.now() - lastPtr.moved > CURSOR_REST) return null;
     const base = cssPPU();
     // the loupe magnifies until the view itself is as close as the old zoom limit allowed (40 of 220 px per unit)
     if (base >= 40 * MAX_PPU / 220) return null;
@@ -263,6 +267,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     resetLife();
     resetClimate();
     sound.reset();
+    // species serials (and the names drawn from them) start over: drop what the panels built from the last world's
+    if (lab) lab.reset();
+    if (specimen) specimen.reset();
     life.estThreshold = Math.max(30, Math.round(n * 0.00025));
     deselect();
     clearFocus();
@@ -351,7 +358,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     return {
       diet: Object.keys(DIET_COL).map((k) => ({ name: k, n: out.diet[k] || 0, col: DIET_COL[k] })),
       mobility: Object.keys(MOB_COL).map((k) => ({ name: k, n: out.mobility[k] || 0, col: MOB_COL[k] })),
-      body: [{ name: 'multicellular', n: out.body.multicellular || 0, col: '#ffb45e' }, { name: 'single-celled', n: out.body['single-celled'] || 0, col: '#9aa3b8' }],
+      body: [{ name: 'multicellular', n: out.body.multicellular || 0, col: '#ffb45e' }, { name: 'single-cell', n: out.body['single-cell'] || 0, col: '#9aa3b8' }],
       types: ['1', '2', '3'].map((k, i) => ({ name: k, n: out.types[k] || 0, col: ['#9aa3b8', '#b38cff', '#5fd4c4'][i] })),
     };
   }
@@ -407,7 +414,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (kind === 'state') setFocus(key, ['', 'Hungry cells', 'Cells ready to divide', 'Elderly cells'][+val], { pred: allLiving, stateMode: +val });
     else if (kind === 'diet') setFocus(key, `Diet: ${val}`, { pred: (g) => facets(g, K).diet === val });
     else if (kind === 'mobility') setFocus(key, `Movement: ${val}`, { pred: (g) => facets(g, K).mobility === val });
-    else if (kind === 'body') setFocus(key, val === 'multicellular' ? 'Multicellular species' : 'Single-celled species', { pred: (g) => facets(g, K).body === val });
+    else if (kind === 'body') setFocus(key, val === 'multicellular' ? 'Multicellular species' : 'Single-cell species', { pred: (g) => facets(g, K).body === val });
     else if (kind === 'types') setFocus(key, `${val} cell type${val === '1' ? '' : 's'}`, { pred: (g) => String(facets(g, K).types) === val });
   }
   function focusSpecies(sp) {
@@ -638,7 +645,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   ];
   const mixEl = $('mix');
   mixEl.innerHTML = `<div class="mix-bar" aria-hidden="true">${MIX.map(([, , col]) => `<i style="background:${col}"></i>`).join('')}</div>`
-    + MIX.map(([label, , col, , key]) => `<button type="button" class="mix-row" data-focus="${key}" aria-pressed="false"><i style="background:${col}"></i><span>${label}</span><b></b><em></em></button>`).join('');
+    + MIX.map(([label, , col, tip, key]) => `<button type="button" class="mix-row" data-focus="${key}" aria-pressed="false"><i style="background:${col}"></i><span><span class="term" data-tip="${tip}">${label}</span></span><b></b><em></em></button>`).join('');
   mixEl.addEventListener('click', (e) => { const b = e.target.closest('[data-focus]'); if (b) focusFacet(b.dataset.focus); });
   function renderWorld() {
     const N = Math.max(1, eng.count);
@@ -660,11 +667,46 @@ function run(eng, device, ctx, specCtx, hasTS) {
     $('world-sum').textContent = `${fmt(life.counts[3])} living · ${fmt(life.alive)} species`;
   }
   function drawWorldChart() {
-    if (!state.world || phone() || !life) return;
-    drawLiving($('chart'), life.history, life.reg, climate && climate.history);
+    if (!lab || !lab.isOpen() || lab.tab() !== 'census' || !life) return;
+    drawLiving($('chart'), life.history, life.reg, climate && climate.history, chartHot && chartHot.serial);
     const h = life.history;
     $('hist-span').textContent = h.length > 1 ? `${fmtClock(h[0].t)} – ${fmtClock(h[h.length - 1].t)}` : '';
   }
+  // Pointing at the chart names the species under it, on the plate the world view gives a picked
+  // cell; a click (on touch, a second tap on the same species) opens it.
+  let chartHot = null;
+  const chartEl = $('chart'), plateEl = $('plate');
+  function chartPoint(e) {
+    const r = chartEl.getBoundingClientRect();
+    const hit = life && livingAt(chartEl, life.history, e.clientX - r.left, e.clientY - r.top);
+    const sp = hit && life.reg.get(hit.serial);
+    const prev = chartHot && chartHot.serial;
+    chartHot = sp ? hit : null;
+    if (sp) {
+      plateEl.innerHTML = `<i style="background:${cssCol(sp.genome.col)}"></i><span>${esc(sp.name)}</span><small>${fmt(hit.pop)} · ${fmtClock(hit.t)}${sp.alive ? '' : ' · extinct'}</small>`;
+      plateEl.hidden = false;
+      const pw = plateEl.offsetWidth;
+      plateEl.style.left = `${Math.round(Math.min(e.clientX + 14, innerWidth - pw - 8))}px`;
+      plateEl.style.top = `${Math.round(e.clientY - 26)}px`;
+    } else plateEl.hidden = true;
+    if ((chartHot && chartHot.serial) !== prev) drawWorldChart();
+    return prev;
+  }
+  function chartLeave() {
+    plateEl.hidden = true;
+    if (chartHot) { chartHot = null; drawWorldChart(); }
+  }
+  chartEl.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') chartPoint(e); });
+  chartEl.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') chartLeave(); });
+  chartEl.addEventListener('pointerdown', (e) => {
+    const prev = chartPoint(e);
+    if (chartHot && (e.pointerType === 'mouse' || prev === chartHot.serial)) { openSpecies(chartHot.serial); if (e.pointerType !== 'mouse') chartLeave(); }
+  });
+  // On touch the plate stays after the finger lifts, like a tapped term's hint: the next tap
+  // anywhere else, Esc, or the chart leaving the screen (another Lab tab, the Lab folded) closes it.
+  document.addEventListener('pointerdown', (e) => { if (!plateEl.hidden && e.target !== chartEl) chartLeave(); }, true);
+  addEventListener('keydown', (e) => { if (e.key === 'Escape' && !plateEl.hidden) chartLeave(); }, true);
+  const chartShown = () => lab && lab.isOpen() && lab.tab() === 'census' && chartEl.offsetParent !== null;
   let feedKey = '';
   function renderFeed() {
     if (!life || uiHeld()) return;
@@ -672,17 +714,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const key = `${ch.length}:${ch[0] ? ch[0].t : 0}`;
     if (key === feedKey) return;
     feedKey = key;
-    $('feed').innerHTML = ch.length ? ch.slice(0, 12).map((e) => `<li><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join('') : '<li class="quiet">New species, extinctions and eras are logged here.</li>';
+    $('feed').innerHTML = ch.length ? ch.slice(0, 40).map((e) => `<li><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join('') : '<li class="quiet">New species, extinctions and eras are logged here.</li>';
   }
-  function renderWorldOpen() {
-    $('world').classList.toggle('closed', !state.world);
-    $('world-toggle').setAttribute('aria-expanded', String(state.world));
-    $('world-toggle').setAttribute('aria-label', state.world ? 'Collapse census' : 'Expand census');
-    drawWorldChart();
-  }
-  $('world-toggle').addEventListener('click', () => { state.world = !state.world; persist(); renderWorldOpen(); });
   $('feed-all').addEventListener('click', () => lab.open('log'));
-  renderWorldOpen();
 
   // ------------------------------------------------------------ selection
   let sel = null;
@@ -1128,6 +1162,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // ------------------------------------------------------------ lab
   lab = createLab({
     eng, state, held: uiHeld,
+    // a phone starts with it folded away: there it covers the world
+    startOpen: state.labOpen && !phone(),
+    // keep: folded for the auto camera, not by the reader, so the preference stands
+    onFold: (on, keep) => { if (!phone() && !keep) { state.labOpen = on; persist(); } drawWorldChart(); },
+    onCensusShown: drawWorldChart,
     life: () => life, facets: (g) => facets(g, K), groups, climate: () => climate,
     openSpecies, focusFacet,
     focusKey: () => focus.key,
@@ -1145,7 +1184,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // one row per option: its name and key on the left, the choices on the right
     const choice = (id, title, key, items, cur, tip) => `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ''}</span><div class="row" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? ' disabled' : ''}>${l}</button>`).join('')}</div></div>`;
     const onoff = (id, title, key, on, tip) => choice(id, title, key, [[1, 'On'], [0, 'Off']], on ? 1 : 0, tip);
-    const head = (t) => `<div class="opt-h">${t}</div>`;
+    const head = (t) => sectHead(t);
     const kfmt = (n) => (n >= 1048576 ? `${n / 1048576}M` : `${Math.round(n / 1024)}k`);
     function display() {
       const s = eng.settings;
@@ -1195,6 +1234,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       roAt = now;
       setText('ro-fps', perf.fps ? perf.fps.toFixed(0) : '–');
       setText('ro-ms', perf.gpu ? perf.gpu.toFixed(1) : '–');
+      setText('ro-res', `${Math.round(renderScale * 100)}%`);
       setText('ro-px', `${canvas.width}×${canvas.height}`);
       setText('ro-n', fmt(eng.count));
       const al = sound.load;
@@ -1379,7 +1419,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (view.isOpen()) view.toggle(false);
       else if (sel || spView != null) deselect();
       else if (focus.key) clearFocus();
-      else if (lab.isOpen()) lab.close();
+      else if (lab.isWide() && !phone()) lab.narrow();
+      else if (lab.isOpen() && phone()) lab.close();
       else handled = false;
     }
     else if (k === ' ') togglePause();
@@ -1388,7 +1429,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === '/' || k === '<') setSpeed(1);
     else if (k === '>') setSpeed(Infinity);
     else if (k === 'h' || k === 'H' || k === '?') toggleHelp();
-    else if (k === 'i' || k === 'I') { state.hud = !state.hud; $('hud').classList.toggle('off', !state.hud); flash(state.hud ? 'Readouts shown' : 'Readouts hidden'); }
+    else if (k === 'i' || k === 'I') { state.hud = !state.hud; $('hud').classList.toggle('off', !state.hud); document.body.classList.toggle('hud-off', !state.hud); flash(state.hud ? 'Readouts shown' : 'Readouts hidden'); }
     else if (k === 'f' || k === 'F') toggleFullscreen();
     else if (k === '0') { takeOver(); cam.zoomTarget = 1; cam.anchor = null; }
     else handled = false;
@@ -1547,6 +1588,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     setText('sys-fps', perf.fps ? perf.fps.toFixed(0) : '–');
     setText('sys-ms', perf.gpu ? perf.gpu.toFixed(1) : '–');
     setText('sys-res', `${Math.round(renderScale * 100)}%`);
+    if (!plateEl.hidden && !chartShown()) chartLeave();
     view.readout();
   }
 
@@ -1623,14 +1665,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
   }
 
-  // a scale bar and coordinate ticks along the bottom of the view: how big a grid cell is right now
-  const NICE = [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 50];
+  // a scale bar and ticks along the bottom of the view: how long things are right now, in µm or mm
   function drawScale() {
     if (!state.hud || director.active && !phone()) return;
     const p = cssPPU();
     const y = dockTop - 1;
-    // ticks at whole grid cells (or coarser) along the dock's top edge
-    const unit = NICE.find((u) => u * p >= 14) || 50;
+    // ticks at round lengths along the dock's top edge
+    const unit = (NICE_UM.find((u) => (u / UM_PER_UNIT) * p >= 14) || 50000) / UM_PER_UNIT;
     const [wx0] = toWorld(0, 0);
     const first = Math.ceil(wx0 / unit) * unit;
     octx.fillStyle = 'rgba(150,222,230,0.45)';
@@ -1641,14 +1682,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
       octx.fillRect(Math.round(sx), y - (major ? 6 : 3), 1, major ? 6 : 3);
     }
     if (phone()) return;
-    const len = NICE.find((u) => u * p >= 50) || 50;
+    const len = (NICE_UM.find((u) => (u / UM_PER_UNIT) * p >= 50) || 50000) / UM_PER_UNIT;
     const w = len * p, x1 = innerWidth - 24 - (specimen.isOpen() ? specimen.inset().right : 0), x0 = x1 - w, by = y - 16;
     octx.fillStyle = 'rgba(226,241,240,0.85)';
     octx.fillRect(x0, by, w, 1);
     octx.fillRect(x0, by - 4, 1, 5); octx.fillRect(x1 - 1, by - 4, 1, 5);
     octx.font = '500 10px Saira, system-ui, sans-serif';
     octx.textAlign = 'right';
-    octx.fillText(`${len < 1 ? len : fmt(len)} cell${len === 1 ? '' : 's'}`, x0 - 8, by + 3);
+    octx.fillText(fmtLen(len), x0 - 8, by + 3);
     octx.textAlign = 'left';
   }
 
@@ -1786,14 +1827,21 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // The picked particle: orange corner brackets around it, or around its whole organism (the
   // body's extent from the last trace, riding on the watched cell), and a leader to its name.
   // A cell's own brackets, inside its organism's (also drawn by the specimen viewer), hugging the cell as drawn.
-  function cellBrackets(g, x, y, R) {
-    const c = Math.max(2.5, Math.min(10, R * 0.45));
-    g.lineWidth = 1.25;
-    g.strokeStyle = CELL_MARK;
+  // Corner brackets over a dark halo, so they hold up over a bright crowd. A large frame gets longer,
+  // heavier corners: four small ticks around half the screen are easy to lose.
+  function brackets(g, l, t, r, b, col, minC = 2.5, frac = 0.16) {
+    const m = Math.min(r - l, b - t);
+    const c = Math.min(clamp(m * frac, minC, 64), (r - l) / 3, (b - t) / 3);
+    const w = 1.25 + 1.25 * clamp((m - 120) / 480, 0, 1);
     g.beginPath();
-    for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { g.moveTo(x + dx * R, y + dy * (R - c)); g.lineTo(x + dx * R, y + dy * R); g.lineTo(x + dx * (R - c), y + dy * R); }
-    g.stroke();
+    for (const [x, y, dx, dy] of [[l, t, 1, 1], [r, t, -1, 1], [l, b, 1, -1], [r, b, -1, -1]]) { g.moveTo(x, y + dy * c); g.lineTo(x, y); g.lineTo(x + dx * c, y); }
+    g.lineCap = 'square';
+    g.lineWidth = w + 2; g.strokeStyle = 'rgba(0,0,0,0.45)'; g.stroke();
+    g.lineWidth = w; g.strokeStyle = col; g.stroke();
+    g.lineCap = 'butt';
   }
+  // the watched cell's own brackets, hugging the cell as drawn
+  const cellMarkR = (p) => Math.max(5, cellRadius(p, genomeFor(p.kind), cssPPU()) * 1.4 + 3);
   function drawMarker(sx, sy, inLens, dt) {
     const lost = sel.lost;
     // the camera's subject died while the camera finds another cell of its body: mark nothing yet
@@ -1801,23 +1849,20 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (sel.film && dead && !(director.shot && director.shot.why && director.shot.why.kind === 'linger')) return;
     const R = 11;
     let l = sx - R, t = sy - R, r = sx + R, b = sy + R;
-    if (sel.box && !inLens && !dead) {
+    const cr = sel.box && !inLens && !dead ? cellMarkR(sel.particle) : 0;
+    if (cr) {
       // ease toward each new trace so the frame doesn't jump once a second
       if (!sel.boxD) sel.boxD = sel.box.slice();
       const k = 1 - Math.exp(-dt / 150);
       for (let i = 0; i < 4; i++) sel.boxD[i] += (sel.box[i] - sel.boxD[i]) * k;
-      const p = cssPPU(), pad = Math.max(6, 0.12 * p);
+      // room around the outermost cells for a cell's own brackets, so the organism's frame always holds them
+      const p = cssPPU(), pad = Math.max(6, 0.12 * p, cr + 6);
       l = Math.min(l, sx + sel.boxD[0] * p - pad); t = Math.min(t, sy + sel.boxD[1] * p - pad);
       r = Math.max(r, sx + sel.boxD[2] * p + pad); b = Math.max(b, sy + sel.boxD[3] * p + pad);
     } else sel.boxD = null;
-    const c = Math.min(10, (r - l) / 3, (b - t) / 3);
-    octx.lineWidth = 1.25;
-    octx.strokeStyle = lost ? 'rgba(255,255,255,0.35)' : 'rgba(255,95,58,0.95)';
-    octx.beginPath();
-    for (const [x, y, dx, dy] of [[l, t, 1, 1], [r, t, -1, 1], [l, b, 1, -1], [r, b, -1, -1]]) { octx.moveTo(x, y + dy * c); octx.lineTo(x, y); octx.lineTo(x + dx * c, y); }
-    octx.stroke();
+    brackets(octx, l, t, r, b, lost ? 'rgba(255,255,255,0.35)' : 'rgba(255,95,58,0.95)', 10);
     // framing a body, the brackets are the organism's; the watched cell gets its own, in the panel's cell colour
-    if (sel.boxD && !lost) cellBrackets(octx, sx, sy, Math.max(5, cellRadius(sel.particle, genomeFor(sel.particle.kind), cssPPU()) * 1.4 + 3));
+    if (sel.boxD && !lost) brackets(octx, sx - cr, sy - cr, sx + cr, sy + cr, CELL_MARK, 2.5, 0.225);
     if (inLens || lost) return;
     const p = sel.particle;
     const g = p.kind >= FIRST_LIFE ? genomeFor(p.kind) : null;
@@ -1849,6 +1894,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // Left alone for a minute (three with the specimen or the Lab open), the view is handed to the
   // director (director.js), which films the world until the user clicks, drags or scrolls the view.
   const AUTO_IDLE = 60e3, AUTO_IDLE_READING = 180e3;
+  const CURSOR_REST = 3000; // filming, the pointer and the loupe hide once the mouse rests this long
   state.auto = prefs.auto ?? (() => { try { return localStorage.getItem('tidemote.autoCamera') !== 'off'; } catch { return true; } })();
   let lastInput = performance.now();
   const lastPtr = { x: -1, y: -1, moved: performance.now() };
@@ -1905,10 +1951,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   function startAuto(idle) {
     if (idle && (sel || spView != null)) deselect();
-    if (idle && lab.isOpen()) lab.close();
-    if (phone() && lab.isOpen()) lab.close();
+    // the Lab folds to its tab while the camera films (it may be opened again without stopping it)
+    lab.close({ keep: true });
     closeMenus();
-    director.start({ x: cam.x, y: cam.y, w: viewWidths()[1] / cam.zoom });
+    director.start({ x: cam.x, y: cam.y, w: viewWidths()[1] / cam.zoom }, { now: !idle });
     renderAuto(true);
   }
   function playAuto() {
@@ -2007,7 +2053,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (state.phase !== 'running') return;
     if (!director.active) {
       if (!state.auto) return;
-      const reading = sel || spView != null || lab.isOpen();
+      const reading = sel || spView != null || lab.isWide();
       if (state.paused || !introHidden || ptr.pointers.size || now - lastInput < (reading ? AUTO_IDLE_READING : AUTO_IDLE)) return;
       startAuto(true);
     }
@@ -2125,11 +2171,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (state.phase === 'running' && !state.paused) climate.tick(step.steps * step.dt);
       autoCamera(now, dt);
       renderCaption(now);
-      // while filming, the readouts step back to the clock, the caption and the dock, until the
-      // specimen or the Lab is opened
-      document.body.classList.toggle('filming', director.active && !specimen.isOpen() && !lab.isOpen());
       // and the pointer hides once the mouse has rested a few seconds
-      document.body.classList.toggle('cursor-off', director.active && now - lastPtr.moved > 3000);
+      document.body.classList.toggle('cursor-off', director.active && now - lastPtr.moved > CURSOR_REST);
       if (state.follow && sel) {
         const [px, py] = predicted();
         const [ox, oy] = viewOffset();

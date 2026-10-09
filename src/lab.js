@@ -1,41 +1,58 @@
 import { GUIDE } from './guide.js';
-import { fmt, fmtClock, esc, cssCol, term, spLink, ROLE, MATTER, LIVING_CSS } from './fmt.js';
+import { fmt, fmtClock, esc, cssCol, term, spLink, ROLE, LIVING_CSS } from './fmt.js';
 import { voiceOf } from './audio/mapping.js';
 import { sigilSVG } from './song.js';
 import { drawLines, sparkPath } from './charts.js';
+import { block, disclosure, wireDisclosures } from './ui.js';
 
 /**
- * The Lab: the records of this world. Each section is built once and then updated in place, so
- * controls never vanish under the pointer and lists keep their scroll position.
+ * The Field Lab: the left column. Its Census is what the world is made of and what has happened;
+ * the other sections are the records. It collapses to its header. Each section is built once and
+ * then updated in place, so controls never vanish under the pointer and lists keep their scroll
+ * position.
  */
 export function createLab(api) {
   const $ = (id) => document.getElementById(id);
-  const root = $('lab'), bodyEl = $('lab-body'), tabs = [...root.querySelectorAll('[data-tab]')];
+  const root = $('lab'), bodyEl = $('lab-body'), tabs = [...root.querySelectorAll('[data-tab]')], fold = $('lab-close');
   const st = {
-    open: false, tab: 'species',
+    open: api.startOpen, tab: 'census',
     q: '', status: 'thriving', diet: 'all', mobility: 'all', body: 'all', sort: 'pop',
     linAll: false, logType: 'all', logQ: '',
+    open_: { celltypes: false }, // census disclosures
   };
   const panes = {};
   let lastUpdate = 0;
 
+  function apply() {
+    root.classList.toggle('closed', !st.open);
+    root.dataset.tab = st.tab;
+    document.body.classList.toggle('lab-open', st.open);
+    document.body.classList.toggle('lab-wide', st.open && st.tab !== 'census');
+    fold.setAttribute('aria-expanded', String(st.open));
+    fold.setAttribute('aria-label', st.open ? 'Collapse the Lab' : 'Open the Lab');
+    fold.dataset.hint = st.open ? 'Collapse · K' : 'Open the Lab · K';
+    $('lab-open').setAttribute('aria-expanded', String(st.open));
+  }
   function open(tab) {
     if (tab) st.tab = tab;
+    const was = st.open;
     st.open = true;
-    root.hidden = false;
-    document.body.classList.add('lab-open');
-    $('lab-open').setAttribute('aria-expanded', 'true');
+    apply();
     show();
+    if (!was) api.onFold(true);
   }
-  function close() {
+  // keep: folded for a moment (the auto camera), not by the reader
+  function close({ keep = false } = {}) {
+    if (!st.open) return;
     st.open = false;
-    root.hidden = true;
-    document.body.classList.remove('lab-open');
-    $('lab-open').setAttribute('aria-expanded', 'false');
+    apply();
+    api.onFold(false, keep);
   }
   function toggle(tab) { if (st.open && (!tab || tab === st.tab)) close(); else open(tab); }
-  $('lab-close').addEventListener('click', close);
-  tabs.forEach((b) => b.addEventListener('click', () => { st.tab = b.dataset.tab; show(); }));
+  fold.addEventListener('click', (e) => { e.stopPropagation(); toggle(); });
+  // the whole title bar folds and opens it, not only its chevron (which handles its own click)
+  root.querySelector('.lab-title').addEventListener('click', (e) => { if (!e.target.closest('button')) toggle(); });
+  tabs.forEach((b) => b.addEventListener('click', () => { st.tab = b.dataset.tab; apply(); show(); }));
   $('lab-tabs').addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
     const i = tabs.findIndex((b) => b.dataset.tab === st.tab);
@@ -46,10 +63,11 @@ export function createLab(api) {
   function show() {
     tabs.forEach((b) => { const on = b.dataset.tab === st.tab; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; });
     for (const [k, p] of Object.entries(panes)) p.el.hidden = k !== st.tab;
+    $('pane-census').hidden = st.tab !== 'census'; // part of the page, built or not
     if (!panes[st.tab]) {
       const p = builders[st.tab]();
       panes[st.tab] = p;
-      bodyEl.append(p.el);
+      if (!p.el.parentNode) bodyEl.append(p.el);
     }
     panes[st.tab].update(true);
     tabs.find((b) => b.dataset.tab === st.tab)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -69,7 +87,7 @@ export function createLab(api) {
 
   // ---------------------------------------------------------- species
   const DIETS = [['all', 'Any'], ['photosynth', 'Photosynth'], ['grazer', 'Grazer'], ['scavenger', 'Scavenger'], ['predator', 'Predator'], ['omnivore', 'Omnivore']];
-  const MOBS = [['all', 'Any'], ['sessile', 'Sessile'], ['crawler', 'Crawler'], ['swimmer', 'Swimmer'], ['drifter', 'Drifter']];
+  const MOBS = [['all', 'Any'], ['anchored', 'Anchored'], ['crawler', 'Crawler'], ['swimmer', 'Swimmer'], ['drifter', 'Drifter']];
   const SORTS = { pop: 'Population', peak: 'Peak', newest: 'Newest', oldest: 'Oldest', depth: 'Mutations', swim: 'Swimming', size: 'Size' };
   function matches(sp, F) {
     const f = api.facets(sp.genome);
@@ -89,12 +107,14 @@ export function createLab(api) {
     swim: (a, b) => b.genome.swim * (1 - b.genome.photo) - a.genome.swim * (1 - a.genome.photo),
   };
   function buildSpecies() {
+    // the filters: one segmented row each, under a fixed label column
+    const seg = (label, key, opts) => `<span class="lbl">${label}</span><div class="segs" role="group" aria-label="${key}">${chips(key, opts, st[key])}</div>`;
     const p = pane(`<div class="qrow"><input type="search" id="lab-q" placeholder="Search by name" aria-label="Search species by name" autocomplete="off"><button type="button" class="chip filt" id="sp-filt" aria-expanded="false" aria-controls="sp-filters">Filters</button></div><div class="filters" id="sp-filters">
-      <div class="row" role="group" aria-label="Status"><span class="lbl">Status</span>${chips('status', [['thriving', 'Thriving'], ['alive', 'All alive'], ['extinct', 'Extinct'], ['all', 'All']], st.status)}</div>
-      <div class="row" role="group" aria-label="Diet"><span class="lbl">${term('diet', 'Diet')}</span>${chips('diet', DIETS, st.diet)}</div>
-      <div class="row" role="group" aria-label="Movement"><span class="lbl">Moves</span>${chips('mobility', MOBS, st.mobility)}</div>
-      <div class="row" role="group" aria-label="Body"><span class="lbl">${term('organism', 'Body')}</span>${chips('body', [['all', 'Any'], ['multicellular', 'Many cells'], ['single-celled', 'One cell']], st.body)}</div></div>
-      <div class="sum"><span id="sp-sum"></span><span class="sel"><label class="lbl" for="sp-sort">Sort</label><select id="sp-sort">${Object.entries(SORTS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select><button type="button" class="chip" id="sp-hl">Highlight these</button></span></div>`);
+      ${seg('Status', 'status', [['thriving', 'Thriving'], ['alive', 'Living'], ['extinct', 'Extinct'], ['all', 'Any']])}
+      ${seg(term('diet', 'Diet'), 'diet', DIETS)}
+      ${seg('Moves', 'mobility', MOBS)}
+      ${seg(term('organism', 'Body'), 'body', [['all', 'Any'], ['multicellular', 'Multicellular'], ['single-cell', 'Single-cell']])}</div>
+      <div class="sum"><span><span id="sp-sum"></span><button type="button" class="link" id="sp-reset" hidden>Reset</button></span><span class="sel"><label class="lbl" for="sp-sort">Sort</label><select id="sp-sort">${Object.entries(SORTS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select><button type="button" class="chip" id="sp-hl">Highlight these</button></span></div>`);
     const list = document.createElement('ol');
     list.className = 'splist';
     p.scroll.append(list);
@@ -109,6 +129,12 @@ export function createLab(api) {
     p.ctl.addEventListener('click', (e) => {
       const b = e.target.closest('[data-k]');
       if (b) { st[b.dataset.k] = b.dataset.v; pressChips(p.ctl, b.dataset.k); update(true); return; }
+      if (e.target.closest('#sp-reset')) {
+        Object.assign(st, { status: 'thriving', diet: 'all', mobility: 'all', body: 'all' });
+        ['status', 'diet', 'mobility', 'body'].forEach((k) => pressChips(p.ctl, k));
+        update(true);
+        return;
+      }
       const ft = e.target.closest('#sp-filt');
       if (ft) { const on = !p.ctl.classList.contains('open'); p.ctl.classList.toggle('open', on); ft.setAttribute('aria-expanded', String(on)); return; }
       if (e.target.closest('#sp-hl')) {
@@ -132,7 +158,7 @@ export function createLab(api) {
         li.dataset.serial = sp.serial;
         li.tabIndex = 0;
         const f = api.facets(sp.genome);
-        li.innerHTML = `<span class="spsig term" data-tip="sigil">${sigilSVG(voiceOf(sp.genome), sp.genome, { size: 26 })}</span><div class="spmain">${spLink(sp.serial, sp.name)}<small>${f.diet} · ${f.mobility} · ${f.body === 'multicellular' ? `${f.types}-type body` : 'one cell'}</small></div><svg viewBox="0 0 78 22" class="spark" aria-hidden="true"><path stroke="${cssCol(sp.genome.col)}"/></svg><div class="spnum"><b></b><span></span></div>`;
+        li.innerHTML = `<span class="spsig term" data-tip="sigil">${sigilSVG(voiceOf(sp.genome), sp.genome, { size: 26 })}</span><div class="spmain">${spLink(sp.serial, sp.name)}<small>${f.diet} · ${f.mobility} · ${f.body}</small></div><svg viewBox="0 0 78 22" class="spark" aria-hidden="true"><path stroke="${cssCol(sp.genome.col)}"/></svg><div class="spnum"><b></b><span></span></div>`;
         r = { li, path: li.querySelector('path'), b: li.querySelector('.spnum b'), s: li.querySelector('.spnum span'), key: '' };
         rows.set(sp.serial, r);
       }
@@ -148,6 +174,7 @@ export function createLab(api) {
       $('sp-sum').textContent = `${fmt(all.length)} species · ${fmt(tot)} cells · ${((tot / living) * 100).toFixed(1)}% of life`;
       const nf = ['status', 'diet', 'mobility', 'body'].filter((k) => st[k] !== (k === 'status' ? 'thriving' : 'all')).length;
       $('sp-filt').textContent = nf ? `Filters · ${nf}` : 'Filters';
+      $('sp-reset').hidden = !nf;
       const now = performance.now();
       const sparks = force || now - sparkAt > 3000;
       if (sparks) sparkAt = now;
@@ -296,45 +323,42 @@ export function createLab(api) {
   }
 
   // ---------------------------------------------------------- census
+  // The page's overview (matter, counts, the chart and the log, kept current by main.js), with what
+  // life is made of below the chart: every row highlights its cells in the world.
   function buildCensus() {
-    const p = pane('<p class="note">Choose any row to highlight it in the world; everything else dims.</p>');
-    const box = document.createElement('div');
-    p.scroll.append(box);
+    const el = $('pane-census'), box = $('ov-census');
     let shape = '';
+    wireDisclosures(box, (k, on) => { st.open_[k] = on; });
     box.addEventListener('click', (e) => {
       const b = e.target.closest('[data-focus]');
       if (b) { api.focusFacet(b.dataset.focus); update(true); }
     });
     function sections() {
       const life = api.life();
-      const [silt, glint, husk, living, stone] = life.counts;
       const roles = life.roles || [0, 0, 0];
       const g = api.groups();
       return [
-        ['Matter and life', 'living', [
-          { key: 'class:living', label: 'Living cells', n: living, col: LIVING_CSS, tip: 'living' },
-          { key: 'class:glint', label: 'Glint', n: glint, col: MATTER[1].css, tip: 'glint' },
-          { key: 'class:husk', label: 'Husk', n: husk, col: MATTER[2].css, tip: 'husk' },
-          { key: 'class:stone', label: 'Stone', n: stone, col: MATTER[3].css, tip: 'stone' },
-          { key: 'class:silt', label: 'Silt', n: silt, col: MATTER[0].css, tip: 'silt' }]],
         ['Diet', 'diet', g.diet.map((d) => ({ key: `diet:${d.name}`, label: d.name, n: d.n, col: d.col }))],
         ['Movement', null, g.mobility.map((d) => ({ key: `mobility:${d.name}`, label: d.name, n: d.n, col: d.col }))],
         ['Body', 'organism', g.body.map((d) => ({ key: `body:${d.name}`, label: d.name, n: d.n, col: d.col }))],
-        ['Cell types', 'celltype', ROLE.map((r, i) => ({ key: `role:${i}`, label: `${r}-cells`, n: roles[i], col: ['#ffb45e', '#b38cff', '#5fd4c4'][i] }))],
+        ['Cells by type', 'celltype', ROLE.map((r, i) => ({ key: `role:${i}`, label: `${r}-cells`, n: roles[i], col: ['#ffb45e', '#b38cff', '#5fd4c4'][i] }))],
         ['Cell types per species', 'bodyplan', g.types.map((d) => ({ key: `types:${d.name}`, label: `${d.name} type${d.name === '1' ? '' : 's'}`, n: d.n, col: d.col }))],
       ];
     }
     function update() {
+      if (!api.life()) return; // the Lab opens before the first world is seeded
       const secs = sections();
       const k = secs.map(([t, , r]) => t + r.map((x) => x.key).join()).join('|');
       if (k !== shape) {
         shape = k;
-        box.innerHTML = secs.map(([title, tip, rows]) => `<div class="cblk"><div class="sub-h"><span>${tip ? term(tip, title) : title}</span></div><div class="bars">${rows.map((r) => `<button type="button" class="barrow" data-focus="${r.key}" aria-pressed="false"><span class="bl">${r.label}</span><span class="meter" style="color:${r.col}"><i></i></span><span class="bn"></span><span class="bp"></span></button>`).join('')}</div></div>`).join('')
-          + `<div class="cblk"><div class="sub-h"><span>Condition</span></div><div class="row" style="display:flex;flex-wrap:wrap;gap:4px">
-            <button type="button" class="chip" data-focus="state:1" aria-pressed="false">Hungry</button>
-            <button type="button" class="chip" data-focus="state:2" aria-pressed="false">Ready to divide</button>
-            <button type="button" class="chip" data-focus="state:3" aria-pressed="false">Elderly</button></div>
-            <p class="note" style="margin-top:8px">Hungry: under 35% of the energy needed to divide. Ready: over 85%. Elderly: past 80% of lifespan.</p></div>`;
+        const bars = ([title, tip, rows]) => block(title, `<div class="bars">${rows.map((r) => `<button type="button" class="barrow" data-focus="${r.key}" aria-pressed="false"><span class="bl">${r.label}</span><span class="meter" style="color:${r.col}"><i></i></span><span class="bn"></span><span class="bp"></span></button>`).join('')}</div>`, { tip });
+        // the cell-type breakdowns matter less than what life eats and how it moves: folded away by default
+        box.innerHTML = secs.slice(0, 3).map(bars).join('')
+          + disclosure('celltypes', 'Cell types', `<div class="stack">${secs.slice(3).map(bars).join('')}</div>`, st.open_.celltypes)
+          + block('Condition', `<div class="segs" role="group" aria-label="Condition">
+            <button type="button" class="chip" data-focus="state:1" aria-pressed="false" data-hint="Under 35% of the energy needed to divide">Hungry</button>
+            <button type="button" class="chip" data-focus="state:2" aria-pressed="false" data-hint="Over 85% of the energy needed to divide">Ready to divide</button>
+            <button type="button" class="chip" data-focus="state:3" aria-pressed="false" data-hint="Past 80% of their lifespan">Elderly</button></div>`, { cls: 'inline' });
       }
       const fk = api.focusKey();
       const els = box.querySelectorAll('.bars');
@@ -350,8 +374,9 @@ export function createLab(api) {
         });
       });
       box.querySelectorAll('.chip[data-focus]').forEach((b) => b.setAttribute('aria-pressed', String(fk === b.dataset.focus)));
+      api.onCensusShown();
     }
-    return { ...p, update };
+    return { el, update };
   }
 
   // ---------------------------------------------------------- charts
@@ -359,15 +384,16 @@ export function createLab(api) {
     ['Population', null, [{ k: 'living', label: 'living cells', col: LIVING_CSS }, { k: 'glint', label: 'glint', col: '#b9e6ff' }, { k: 'husk', label: 'husks', col: '#9a6c4c' }]],
     ['Species', 'diversity', [{ k: 'alive', label: 'alive', col: '#a3bdbe' }, { k: 'thriving', label: 'thriving', col: '#f1e3a0' }, { k: 'diversity', label: 'effective species', col: '#7fe0b0' }]],
     ['Births and deaths per minute', null, [{ k: 'births', label: 'births', col: '#7fe0b0' }, { k: 'starve', label: 'starved', col: '#ff8a6b' }, { k: 'old', label: 'old age', col: '#c9b8ff' }, { k: 'eaten', label: 'eaten', col: '#ff5f3a' }]],
-    ['Meals per minute', 'flesh', [{ k: 'graze', label: 'glint', col: '#b9e6ff' }, { k: 'scav', label: 'husks', col: '#a87b5c' }, { k: 'prey', label: 'kills', col: '#ff5f3a' }, { k: 'bite', label: 'bites of plants', col: '#d9f27a' }]],
+    ['Meals per minute', 'flesh', [{ k: 'graze', label: 'glint', col: '#b9e6ff' }, { k: 'scav', label: 'husks', col: '#a87b5c' }, { k: 'prey', label: 'kills', col: '#ff5f3a' }, { k: 'bite', label: 'bites of photosynths', col: '#d9f27a' }]],
     ['New species and extinctions per minute', 'mutation', [{ k: 'mut', label: 'new species', col: '#c9b8ff' }, { k: 'ext', label: 'extinctions', col: '#ff8a6b' }]],
     ['Climate', 'season', [{ k: 'ambient', label: 'baseline light', col: '#d9f27a' }, { k: 'season', label: 'tide strength', col: '#5fd4c4' }]],
   ];
   function buildCharts() {
     const p = pane('');
-    p.scroll.innerHTML = `<div class="legend" style="margin:8px 0 4px"><span><i style="background:var(--sun);height:6px;width:1px"></i>dotted lines mark a new era</span></div>`
-      + CHARTS.map(([t, tip, s], i) => `<div class="cblk"><div class="sub-h"><span>${tip ? term(tip, t) : t}</span></div><canvas class="dyn" data-i="${i}" aria-label="${esc(t)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join('')}</div></div>`).join('')
-      + '<div class="cblk"><div class="sub-h"><span>Eras</span></div><ol class="eras" id="eras"></ol></div>';
+    p.scroll.classList.add('stack');
+    p.scroll.innerHTML = `<div class="legend"><span><i style="background:var(--sun);height:6px;width:1px"></i>dotted lines mark a new era</span></div>`
+      + CHARTS.map(([t, tip, s], i) => block(t, `<canvas class="dyn" data-i="${i}" aria-label="${esc(t)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join('')}</div>`, { tip })).join('')
+      + block('Eras', '<ol class="eras" id="eras"></ol>');
     const cvs = [...p.scroll.querySelectorAll('canvas.dyn')];
     let erasN = -1;
     function update() {
@@ -424,6 +450,9 @@ export function createLab(api) {
 
   const builders = { species: buildSpecies, lineage: buildLineage, census: buildCensus, charts: buildCharts, log: buildLog, guide: buildGuide };
 
+  apply();
+  if (st.open) show();
+
   // called on every census; while a pointer is held on the Lab nothing is rebuilt under it
   function render(force) {
     if (!st.open || !panes[st.tab]) return;
@@ -432,5 +461,17 @@ export function createLab(api) {
     lastUpdate = now;
     panes[st.tab].update(!!force);
   }
-  return { open, close, toggle, render, isOpen: () => st.open, tab: () => st.tab };
+  // A new world: its species reuse the old one's serials (and so their names), so every record
+  // built from the old world goes (the census, built from the page and kept current, stays).
+  function reset() {
+    for (const k of Object.keys(panes)) if (k !== 'census') { panes[k].el.remove(); delete panes[k]; }
+    if (st.open) show();
+  }
+  return {
+    open, close, toggle, render, reset, isOpen: () => st.open, tab: () => st.tab,
+    // open on one of the records (wider than the census)
+    isWide: () => st.open && st.tab !== 'census',
+    // back to the census, as the column it was before a record was opened
+    narrow() { if (st.open && st.tab !== 'census') { st.tab = 'census'; apply(); show(); } },
+  };
 }

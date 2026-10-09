@@ -2,13 +2,14 @@ import { roleShares, roleColor, affinity, CELL_SHAPES, cellShape } from './genom
 import { FIRST_LIFE } from './engine.js';
 import { tagsOf } from './facets.js';
 import { tideAt } from './flow.js';
-import { fmt, fmtClock, fmtDur, esc, cssCol, cssRgb, term, spLink, meter, clamp, ROLE, MATTER, CAUSE, cellRadius } from './fmt.js';
+import { fmt, fmtClock, fmtDur, esc, cssCol, cssRgb, term, spLink, meter, clamp, ROLE, MATTER, CAUSE, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
 import { glyphURL, MATTER_GLYPH } from './glyphs.js';
 import { sparkPath } from './charts.js';
 import { voiceOf } from './audio/mapping.js';
 import { describe, compareMotifs } from './audio/motif.js';
 import { songSVG, sigilSVG } from './song.js';
 import { createMindView } from './mindview.js';
+import { block, kv, trait, section, subHead } from './ui.js';
 
 /**
  * The specimen panel: whatever was picked in the world (a cell, a grain) or opened by name (a species).
@@ -19,7 +20,7 @@ export function createSpecimen(api) {
   const { eng, K } = api;
   const $ = (id) => document.getElementById(id);
   const root = $('spec'), body = $('spec-body'), tabsEl = $('spec-tabs'), acts = $('spec-acts'), vit = $('vitals');
-  const st = { tab: 'status', mode: '', actKey: '', tabKey: '', lastHtml: '', lastVit: '', lastHead: '', at: 0 };
+  const st = { active: '', mode: '', actKey: '', tabKey: '', lastVit: '', lastHead: '', at: 0, flow: new Map(), flowKey: '' };
   const phone = () => matchMedia('(max-width: 720px)').matches;
 
   // ------------------------------------------------------------ sheet (phone)
@@ -69,19 +70,46 @@ export function createSpecimen(api) {
   $('vz-in').addEventListener('click', () => { api.state.specCells = clamp(api.state.specCells / 1.4, 0.8, 14); });
   $('vz-out').addEventListener('click', () => { api.state.specCells = clamp(api.state.specCells * 1.4, 0.8, 14); });
 
+  // The details are one scroll of sections; the bar above them jumps between the sections and
+  // marks the one being read, so what lies further down is never hidden behind a tab.
+  const sectionEl = (id) => body.querySelector(`[data-sx="${id}"]`);
+  // a jump holds its section at the top for a moment, while sections above it are redrawn
+  let pin = null;
+  function jump(id) {
+    const el = sectionEl(id);
+    if (!el) return;
+    pin = { id, until: performance.now() + 1500 };
+    body.scrollTop = Math.max(0, el.offsetTop - 2);
+    mark(id);
+  }
+  const unpin = () => { pin = null; };
+  body.addEventListener('wheel', unpin, { passive: true });
+  body.addEventListener('touchstart', unpin, { passive: true });
+  function mark(id) {
+    if (id === st.active) return;
+    st.active = id;
+    for (const b of tabsEl.children) { const on = b.dataset.tab === id; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; }
+  }
+  // the section at the top of the scroll (the last one, once scrolled to the end)
+  function spy() {
+    if (pin && performance.now() < pin.until) return;
+    const secs = [...body.querySelectorAll('[data-sx]')];
+    if (!secs.length) return;
+    let cur = secs[0];
+    if (body.scrollTop + body.clientHeight >= body.scrollHeight - 4) cur = secs[secs.length - 1];
+    else for (const el of secs) if (el.offsetTop - body.scrollTop <= 24) cur = el;
+    mark(cur.dataset.sx);
+  }
+  body.addEventListener('scroll', spy, { passive: true });
   tabsEl.addEventListener('click', (e) => {
     const b = e.target.closest('[data-tab]');
-    if (!b) return;
-    st.tab = b.dataset.tab;
-    st.tabKey = '';
-    render(true);
-    body.scrollTop = 0;
+    if (b) jump(b.dataset.tab);
   });
   tabsEl.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-    const bs = [...tabsEl.children], i = bs.findIndex((b) => b.dataset.tab === st.tab);
+    const bs = [...tabsEl.children], i = bs.findIndex((b) => b.dataset.tab === st.active);
     const n = bs[(i + (e.key === 'ArrowRight' ? 1 : bs.length - 1)) % bs.length];
-    if (n) { e.preventDefault(); n.click(); n.focus(); }
+    if (n) { e.preventDefault(); jump(n.dataset.tab); n.focus(); }
   });
   body.addEventListener('click', (e) => {
     const b = e.target.closest('[data-song]');
@@ -100,11 +128,35 @@ export function createSpecimen(api) {
   });
 
   // ------------------------------------------------------------ pieces
-  const kv = (label, value, tip) => `<div class="kv"><span>${tip ? term(tip, label) : label}</span><b>${value}</b></div>`;
-  const trait = (label, v, lo, hi, text, tip) => `<div class="trait"><span>${tip ? term(tip, label) : label}</span>${meter((v - lo) / (hi - lo), 'cyan thin')}<b>${text}</b></div>`;
-  const comp = (label, tip, shares, g, text) => `<div class="comp"><div class="tl"><span>${term(tip, label)}</span><b>${shares.map((v, r) => (v > 0.02 ? text(v, r) : '')).filter(Boolean).join(' · ')}</b></div><span class="compbar">${shares.map((v, r) => (v > 0.02 ? `<i style="flex:${v};background:${cssRgb(roleColor(g, r))}"></i>` : '')).join('')}</span></div>`;
-  const tags = (g) => `<div class="tags">${tagsOf(g, K).map(([t, k]) => `<span class="term" data-tip="${k}" tabindex="0">${t}</span>`).join('')}</div>`;
-  const blk = (title, html) => `<div class="blk"><div class="sub-h"><span>${title}</span></div>${html}</div>`;
+  // A mix of cell types on one row, like the traits around it: a dotted meter split into each type's
+  // share in its colour, and the shares as α54 β41 γ5 (a sliver under 1% reads <1). hint: the
+  // full figures, on hover.
+  const comp = (label, tip, shares, g, hint) => {
+    const types = [0, 1, 2].filter((r) => shares[r] > 0.0005);
+    const pct = (v) => (v < 0.01 ? '<1' : String(Math.round(v * 100)));
+    const seg = types.map((r) => `<i style="flex:${Math.max(shares[r], 0.015)};color:${cssRgb(roleColor(g, r))}"></i>`).join('');
+    const val = types.map((r) => `<s><em class="greek" style="color:${cssRgb(roleColor(g, r))}">${ROLE[r]}</em>${pct(shares[r])}</s>`).join('');
+    return `<div class="trait mixrow"><span>${term(tip, label)}</span><span class="mixbar">${seg}</span><b class="term" tabindex="0" data-hint="${esc(hint)}">${val}</b></div>`;
+  };
+  // the species at a glance, under its name in the header: its diet first, then how it is built
+  // and lives (g null: none). Set only when the species changes.
+  const tagsEl = $('spec-tags');
+  function setTags(g) {
+    const key = g ? `sp${g.serial}` : '';
+    if (tagsEl.dataset.k === key) return;
+    tagsEl.dataset.k = key;
+    const all = g ? tagsOf(g, K) : [];
+    const chip = ([t, k]) => `<span class="term" data-tip="${k}" tabindex="0">${t}</span>`;
+    tagsEl.innerHTML = all.map(chip).join('');
+    // more than two lines: the last that fit give way to a +n chip naming the rest
+    if (!tagsEl.clientHeight && all.length) { tagsEl.dataset.k = ''; return; } // not laid out yet: measure on the next render
+    const fits = () => tagsEl.scrollHeight <= tagsEl.clientHeight + 1;
+    for (let n = all.length - 1; n > 0 && !fits(); n--) {
+      const rest = all.slice(n).map(([t]) => t);
+      tagsEl.innerHTML = all.slice(0, n).map(chip).join('') + `<span class="more" tabindex="0" data-hint="Also: ${esc(rest.join(', '))}">+${rest.length}</span>`;
+    }
+  }
+  const blk = (title, html, opts) => block(title, html, opts);
   const vital = (label, frac, cls, text, tip) => `<div class="vital"><span>${tip ? term(tip, label) : label}</span>${meter(frac, cls)}<b>${text}</b></div>`;
   const lightAt = (p) => { const [W, H] = eng.grid; return Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H, eng.simTime, eng.tide, eng.tidePh) * eng.season) * 100); };
 
@@ -122,46 +174,54 @@ export function createSpecimen(api) {
     sigil: (g, size) => sigilSVG(songOf(g).v, g, { size }),
   });
 
+  // a fixed window onto the record, newest first, scrolling once it fills, so nothing below it moves
   function storyHTML(sel) {
-    if (!sel || !sel.story.length) return '';
+    if (!sel) return '';
     return blk('Record', `<ol class="story">${sel.story.map((s) => `<li><time>${fmtClock(s.t)}</time><span>${s.text}</span></li>`).join('')}</ol>`);
   }
 
   // The cell's own record and, while it lives, its energy budget between meals (from the replay).
-  function cellBlock(p, g, past, mind) {
+  function cellBlock(p, g, past) {
     let h = kv('Cell type', `<span class="greek">${ROLE[p.role]}</span>-cell`, 'celltype');
     h += kv('Origin', CAUSE[p.cause] || 'a founder of this world', 'origin');
     h += kv('Generation', fmt(p.gen), 'generation');
-    h += kv('Speed', `${Math.hypot(p.vx, p.vy).toFixed(2)} cells/s`, 'speed');
-    if (!past) {
-      const b = mind && mind.budget;
-      h += kv('Light here', `${lightAt(p)}%${g && g.photo > 0.05 ? ` · ${b ? signed(b.light) : '—'}/s` : ''}`, g && g.photo > 0.05 ? 'photosynth' : 'lighthere');
-      const mods = b ? [b.crowding > 0.01 ? `crowding +${Math.round(b.crowding * 100)}%` : '', b.thrift > 0.001 ? `bonds −${Math.round(b.thrift * 100)}%` : '', b.lean < 0.995 ? `lean ×${b.lean.toFixed(2)}` : ''].filter(Boolean).join(' · ') : '';
-      h += kv('Upkeep', `${b ? signed(-b.upkeep) : '—'}/s${mods ? ` <em class="mods">${mods}</em>` : ''}`, 'upkeep');
-      h += kv('Net', b ? `<span class="${b.net >= 0 ? 'pos' : 'neg'}">${signed(b.net)}/s</span> between meals` : '—', 'mind-net');
-    }
-    return blk(past ? 'The cell, last seen' : `<span><i class="ico cell"></i>This cell</span>`, h);
+    h += kv('Speed', fmtLen(Math.hypot(p.vx, p.vy), '/s'), 'speed');
+    return blk(past ? 'The cell, last seen' : '<i class="ico cell"></i>This cell', h);
+  }
+
+  // While it lives, its energy budget between meals (from the replay): one row per term, always
+  // all of them, so the figures change in place and nothing below moves.
+  function budgetBlock(p, g, mind) {
+    const b = mind && mind.budget, none = '<span class="nil">none</span>';
+    let h = kv('Light here', `${lightAt(p)}%`, 'lighthere');
+    if (g && g.photo > 0.05) h += kv('Photosynthesis', b ? `<span class="pos">${signed(b.light)}/s</span>` : '—', 'photosynth');
+    h += kv('Upkeep', b ? `<span class="neg">${signed(-b.upkeep)}/s</span>` : '—', 'upkeep');
+    h += kv('Crowding', !b ? '—' : b.crowding > 0.01 ? `upkeep +${Math.round(b.crowding * 100)}%` : none, 'crowding');
+    if (g && (g.adhesion || 0) > K.adhMin) h += kv('Bond share', !b ? '—' : b.thrift > 0.001 ? `upkeep −${Math.round(b.thrift * 100)}%` : none, 'bondthrift');
+    h += kv('Saving energy', !b ? '—' : b.lean < 0.995 ? `burns ${Math.round(b.lean * 100)}% of its upkeep` : none, 'lean');
+    h += kv('Net', b ? `<span class="${b.net >= 0 ? 'pos' : 'neg'}">${signed(b.net)}/s</span> between meals` : '—', 'mind-net');
+    return blk('Energy budget', h, { tip: 'energy' });
   }
 
   function organismBlock(o, g, past, sel) {
     if (!o || !g) return '';
     let h = '';
     if ((g.adhesion || 0) <= K.adhMin) {
-      h += kv('Body', 'a single free cell', 'adhesion');
+      h += kv('Body', 'single-cell', 'singlecelled');
     } else {
       const count = o.pending ? 'counting…' : `${o.partial ? '≥ ' : ''}${fmt(o.cells)} cell${o.cells === 1 ? '' : 's'}`;
       const first = past || o.pending ? null : sel && sel.orgFirst;
       const delta = first != null && o.cells !== first ? `<em class="delta">${o.cells > first ? '+' : '−'}${fmt(Math.abs(o.cells - first))}</em>` : '';
       h += kv('Body', count + delta, 'organism');
-      if (!o.pending) h += kv('Span', `${o.span.toFixed(1)} cells across`);
-      h += kv('Moving', `${o.speed.toFixed(2)} cells/s`, 'speed');
+      h += kv('Span', o.pending ? '—' : `${fmtLen(o.span)} across`);
+      h += kv('Moving', fmtLen(o.speed, '/s'), 'speed');
       h += kv('Mean energy', o.meanE.toFixed(2), 'energy');
       const tot = o.roles[0] + o.roles[1] + o.roles[2] || 1;
-      h += comp('Cell types', 'celltype', o.roles.map((c) => c / tot), g, (v, r) => `${ROLE[r]} ${fmt(o.roles[r])}`);
+      h += comp('Cell types', 'celltype', o.roles.map((c) => c / tot), g, `Of its ${fmt(tot)} cells: ${[0, 1, 2].filter((r) => o.roles[r]).map((r) => `${fmt(o.roles[r])} ${ROLE[r]}`).join(', ')}.`);
     }
     // a free cell's neighbours are listed under Neighbours; a body's contacts are its own
     if ((g.adhesion || 0) > K.adhMin) h += kv('Touching', o.touching ? `${o.touching} other species` : 'no other species', 'touching');
-    return blk(past ? 'Its organism, last seen' : `<span><i class="ico org"></i>${term('organism', 'Organism')}</span>`, h);
+    return blk(past ? 'Its organism, last seen' : `<i class="ico org"></i>${term('organism', 'Organism')}`, h);
   }
 
   // the header's emblem: a species' sigil (its song drawn as its organism), or matter's glyph
@@ -192,7 +252,7 @@ export function createSpecimen(api) {
     const diff = av ? compareMotifs(av.motif, v.motif) : null;
     const slot = (sp ? sp.alive : true) && g.slot != null ? g.slot : -1;
     const m = v.motif, pad2 = (n) => String(n).padStart(2, '0');
-    let h = `<div class="sub-h"><span>${term('song', 'Song')}</span><span class="song-read"><span><b>${pad2(m.notes.length)}</b> notes</span><span><b>${(m.cycle * 0.18).toFixed(1)}</b> s</span>${m.voice2 ? '<span><b>2</b> voices</span>' : ''}</span><button type="button" class="btn mini" data-song="${g.serial}" data-hint="Hear it alone">Play</button></div>`;
+    let h = subHead('Song', `<span class="song-read"><span><b>${pad2(m.notes.length)}</b> notes</span><span><b>${(m.cycle * 0.18).toFixed(1)}</b> s</span>${m.voice2 ? '<span><b>2</b> voices</span>' : ''}</span><button type="button" class="btn mini" data-song="${g.serial}" data-hint="Hear it alone">Play</button>`, 'song');
     h += `<div class="song-wrap">${songSVG(v.motif, { col: cssCol(g.col), col2: cssRgb(roleColor(g, 1)), ghost: compact ? null : av && av.motif, h: compact ? 46 : 68, label: `${d.tags.join(', ')}: ${d.line}` })}</div>`;
     h += `<div class="song-tags">${d.tags.map((t, i) => `<span class="term" data-tip="${['instrument', 'register', 'tempo'][i]}" tabindex="0">${esc(t)}</span>`).join('<i>·</i>')}</div>`;
     if (!compact) {
@@ -243,48 +303,55 @@ export function createSpecimen(api) {
     let h = '';
     if (sp) {
       const d = sparkPath(life.history, sp.serial, 300, 64);
-      if (d) h += `<div class="blk"><div class="sub-h"><span>Population</span><span>peak ${fmt(sp.peak)}</span></div><svg class="popchart" viewBox="0 0 300 64" preserveAspectRatio="none" aria-label="Population over time"><path d="${d}" fill="none" stroke="${cssCol(g.col)}" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg><div class="legend-note"><span>${fmtClock(life.history[0].t)}</span><span>${fmtClock(life.history[life.history.length - 1].t)}</span></div></div>`;
+      if (d) h += `<div class="blk">${subHead('Population', `peak ${fmt(sp.peak)}`)}<svg class="popchart" viewBox="0 0 300 64" preserveAspectRatio="none" aria-label="Population over time"><path d="${d}" fill="none" stroke="${cssCol(g.col)}" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg><div class="legend-note"><span>${fmtClock(life.history[0].t)}</span><span>${fmtClock(life.history[life.history.length - 1].t)}</span></div></div>`;
     }
     let s = '';
     if (sp && sp.alive) {
       s += kv('Population', fmt(sp.pop));
       s += kv('Share of life', `${((sp.pop / Math.max(1, life.counts[3])) * 100).toFixed(1)}%`, 'share');
-    } else s += kv('Status', sp ? `extinct at ${fmtClock(sp.extinct ?? 0)} · peak ${fmt(sp.peak)}` : 'never established');
+    } else {
+      // as many rows as a living species has, so an extinction moves nothing below
+      s += kv('Status', sp ? `extinct at ${fmtClock(sp.extinct ?? 0)}` : 'never established');
+      s += kv('Peak', sp ? fmt(sp.peak) : '—');
+    }
     if (src) {
       s += kv('Arose', `${fmtClock(src.born || 0)}${src.founder ? ` · ${api.originWord(src)}` : ''}`);
       const gen = life.genera.get(src.genus);
       s += kv('Genus', gen ? `${esc(gen.name)}${gen.from ? ` · split from ${esc(gen.from)}` : ''}` : '–', 'genus');
       s += kv('Mutations', `${g.depth} from its founder`, 'depth');
     }
-    h += blk(term('species', 'Species'), s);
+    h += blk('At a glance', s, { tip: 'species' });
     h += songBlock(g, sp, false);
     const chain = lineagePath(src);
-    if (chain.length) h += blk('Descends from', `<div class="note">${chain.map((a) => spLink(a.serial, a.name)).join(' ← ')}${chain.length === 6 ? ' ← …' : ''}</div>`);
+    // two lines each, always: a lineage that grows never moves what follows
+    h += blk('Descends from', `<div class="note two">${chain.length ? chain.map((a) => spLink(a.serial, a.name)).join(' ← ') + (chain.length === 6 ? ' ← …' : '') : src && src.founder ? 'a founding lineage' : 'no established ancestor'}</div>`);
     const kids = [...life.reg.values()].filter((s2) => s2.ancestor === g.serial && s2.established);
-    h += blk('Descendants', `<div class="note">${kids.length ? kids.slice(0, 8).map((k) => spLink(k.serial, k.name)).join(', ') + (kids.length > 8 ? ` +${kids.length - 8}` : '') : 'none established'}</div>`);
+    h += blk('Descendants', `<div class="note two">${kids.length ? kids.slice(0, 6).map((k) => spLink(k.serial, k.name)).join(', ') + (kids.length > 6 ? ` and ${kids.length - 6} more` : '') : 'none established'}</div>`, { aside: kids.length ? fmt(kids.length) : '' });
     return h;
   }
 
-  function genomeTab(g, role) {
+  // role: the cell type whose size and shape to show; cellRole: a picked cell's type (null for a species)
+  function genomeTab(g, role, cellRole = null) {
     const life = api.life();
-    let h = tags(g);
+    let h = '';
     const diet = [
       ['Light', 'photosynth', g.photo, '#d9f27a', g.photo],
       ['Glint', 'glint', g.dGlint, MATTER[1].css, g.dGlint * (1 - 0.6 * g.photo)],
       ['Husk', 'husk', g.dHusk, MATTER[2].css, g.dHusk * (1 - 0.6 * g.photo)],
       ['Flesh', 'flesh', g.dFlesh, '#ff6b6b', g.dFlesh * (1 - 0.6 * g.photo)],
     ];
-    h += blk(term('diet', 'Diet'), diet.map(([l, t, v, c, w]) => `<div class="trait"><span>${term(t, l)}</span><span class="meter thin" style="color:${c}"><i style="width:${(clamp(w, 0, 1) * 100).toFixed(1)}%"></i></span><b>${Math.round(v * 100)}%</b></div>`).join(''));
+    h += blk('Diet', diet.map(([l, t, v, c, w]) => `<div class="trait"><span>${term(t, l)}</span><span class="meter thin" style="color:${c}"><i style="width:${(clamp(w, 0, 1) * 100).toFixed(1)}%"></i></span><b>${Math.round(v * 100)}%</b></div>`).join(''), { tip: 'diet' });
     const sh = roleShares(g);
-    let b = comp('Body plan', 'bodyplan', sh, g, (v, r) => `${ROLE[r]} ${Math.round(v * 100)}%`);
+    let b = comp('Body plan', 'bodyplan', sh, g, `Of every 100 cells it grows: ${[0, 1, 2].filter((r) => sh[r] > 0.0005).map((r) => `${(sh[r] * 100).toFixed(sh[r] < 0.01 ? 1 : 0)} ${ROLE[r]}`).join(', ')}.`);
     b += trait('Adhesion', g.adhesion || 0, 0, 1, `${Math.round((g.adhesion || 0) * 100)}%${(g.adhesion || 0) > K.adhMin ? ' · bonds' : ''}`, 'adhesion');
     if (g.calcify > 0.005) b += trait('Calcifying', g.calcify, 0, 1, `${Math.round(g.calcify * 100)}%`, 'calcify');
-    b += trait('Size', g.size, 0.45, 2.6, `${g.size.toFixed(2)} · ${CELL_SHAPES[cellShape(g, role)]}`, 'size');
+    b += trait('Size', g.size, 0.45, 2.6, fmtLen(0.17 * g.size), 'size');
+    b += kv('Shape', CELL_SHAPES[cellShape(g, role)], 'size');
     h += blk('Body', b);
     let m = trait('Swimming', g.swim * (1 - g.photo), 0, 3, (g.swim * (1 - g.photo)).toFixed(2), 'swimming');
     m += trait('Schooling', g.align, 0, 1, `${Math.round(g.align * 100)}%`, 'schooling');
-    m += trait('Reach', g.radius, 0.4, 1, g.radius.toFixed(2), 'reach');
-    m += trait('Personal space', g.beta, 0.12, 0.5, g.beta.toFixed(2), 'personalspace');
+    m += trait('Reach', g.radius, 0.4, 1, fmtLen(g.radius), 'reach');
+    m += trait('Personal space', g.beta, 0.12, 0.5, `${Math.round(g.beta * 100)}% of reach`, 'personalspace');
     m += trait('Thrust', g.force, 1, 16, g.force.toFixed(1), 'thrust');
     m += trait('Glide', g.drag, 0.015, 0.4, `${(g.drag * 1000).toFixed(0)} ms`, 'glide');
     m += trait('Current pull', g.advect, 0.03, 1, `${Math.round(g.advect * 100)}%`, 'currentpull');
@@ -296,27 +363,40 @@ export function createSpecimen(api) {
     l += trait('Mutation', g.mutRate, 0.002, 0.08, `${(g.mutRate * 100).toFixed(1)}%`, 'mutation');
     h += blk('Life cycle', l);
 
+    // How each of its cell types reacts to what it meets: one column per cell type it grows, one row
+    // per thing it can meet (its own cell types, the most numerous other species, matter). Warm:
+    // drawn toward it; cool: pushed away. A picked cell's own column is marked.
+    const types = [0, 1, 2].filter((r) => sh[r] > 0.05);
     const others = [];
     for (const s of life.reg.values()) if (s.alive && s.established && s.serial !== g.serial) others.push(s);
     others.sort((a, b2) => b2.pop - a.pop);
-    const list = [];
-    for (let r = 0; r < 3; r++) if (sh[r] > 0.05) list.push({ name: `own ${ROLE[r]}-cells`, v: affinity(g, role, g, r, K), css: cssRgb(roleColor(g, r)) });
-    for (const s2 of others.slice(0, 4)) list.push({ name: spLink(s2.serial, s2.name), raw: true, v: affinity(g, role, s2.genome, 0, K), css: cssCol(s2.genome.col) });
-    for (let k = 0; k < 4; k++) if (life.matter[k]) list.push({ name: MATTER[k].name, v: affinity(g, role, life.matter[k], 0, K) * K.matterPull, css: MATTER[k].css });
-    const dbar = (v) => { const w = (Math.min(1, Math.abs(v)) * 50).toFixed(1); return `<span class="dbar"><i style="left:${v < 0 ? 50 - w : 50}%;width:${w}%;background:${v >= 0 ? 'var(--sun)' : 'var(--cyan)'}"></i></span>`; };
-    h += blk(`<span class="greek">${ROLE[role]}</span>-cells drawn to · pushed from`, `<div class="legend-note"><span>pushed</span><span>drawn</span></div><div class="aff">${list.map((it) => `<div><i style="background:${it.css}"></i><span>${it.raw ? it.name : esc(it.name)}</span>${dbar(it.v)}<b>${it.v >= 0 ? '+' : ''}${it.v.toFixed(2)}</b></div>`).join('')}</div>`);
+    const rows = [];
+    for (const r of types) rows.push({ name: `own <span class="greek">${ROLE[r]}</span>-cells`, css: cssRgb(roleColor(g, r)), v: (t) => affinity(g, t, g, r, K) });
+    for (const s2 of others.slice(0, 4)) rows.push({ name: spLink(s2.serial, s2.name), css: cssCol(s2.genome.col), v: (t) => affinity(g, t, s2.genome, 0, K) });
+    for (let k = 0; k < 4; k++) if (life.matter[k]) rows.push({ name: esc(MATTER[k].name), css: MATTER[k].css, v: (t) => affinity(g, t, life.matter[k], 0, K) * K.matterPull });
+    const heat = (v) => {
+      const a = Math.min(1, Math.abs(v));
+      const sign = Math.abs(v) < 0.005 ? '' : v > 0 ? '+' : '−';
+      return `<b class="pull ${v >= 0 ? 'to' : 'away'}" style="--a:${(0.08 + 0.5 * a).toFixed(2)}">${sign}${Math.abs(v).toFixed(2)}</b>`;
+    };
+    const cols = `grid-template-columns: minmax(0, 1fr) repeat(${types.length}, 5.4em)`;
+    let t = `<div class="pulls-t" style="${cols}"><span class="pt-h">Meets</span>${types.map((r) => `<span class="pt-h pt-col${cellRole === r ? ' mine' : ''}" style="color:${cssRgb(roleColor(g, r))}"><span><span class="greek">${ROLE[r]}</span>-cells</span>${cellRole === r ? '<i>this cell</i>' : ''}</span>`).join('')}`;
+    for (const it of rows) t += `<span class="pt-name"><i style="background:${it.css}"></i><span>${it.name}</span></span>${types.map((r) => heat(it.v(r))).join('')}`;
+    t += '</div><div class="pulls-key"><span><i class="to"></i>drawn toward</span><span><i class="away"></i>pushed away</span></div>';
+    h += blk('How its cells react', t, { tip: 'affinity' });
     return h;
   }
 
   // ------------------------------------------------------------ render
+  // the section bar: [id, label] for every section, in order
   function setTabs(list) {
-    const key = list.join(',');
-    if (!list.includes(st.tab)) st.tab = list[0];
-    if (key + st.tab === st.tabKey) return;
-    st.tabKey = key + st.tab;
-    const names = { status: 'Status', species: 'Species', genome: 'Genome' };
-    tabsEl.innerHTML = list.length < 2 ? '' : list.map((t) => `<button type="button" role="tab" data-tab="${t}" aria-selected="${t === st.tab}" tabindex="${t === st.tab ? 0 : -1}">${names[t]}</button>`).join('');
+    const key = list.map(([id, l]) => id + l).join(',');
+    if (key === st.tabKey) return;
+    st.tabKey = key;
+    if (!list.some(([id]) => id === st.active)) st.active = list.length ? list[0][0] : '';
+    tabsEl.innerHTML = list.length < 2 ? '' : list.map(([id, l]) => `<button type="button" role="tab" data-tab="${id}" aria-selected="${id === st.active}" tabindex="${id === st.active ? 0 : -1}">${l}</button>`).join('');
   }
+
   function setActs(key, html) {
     if (key === st.actKey) return;
     st.actKey = key;
@@ -339,7 +419,8 @@ export function createSpecimen(api) {
     if (!force && (api.held() || now - st.at < 250)) return false;
     st.at = now;
     const sel = api.sel(), spView = api.spView();
-    let html = '', v = '', fixedKey = '', fixedHtml = '';
+    let v = '', fixedKey = '', fixedHtml = '';
+    const flow = []; // [id, label, html] of the sections below the fixed one
     if (spView != null) {
       const life = api.life();
       const sp = life.reg.get(spView);
@@ -352,8 +433,8 @@ export function createSpecimen(api) {
       const hl = api.focusKey() === `sp:${sp.serial}`;
       setActs(`sp${sp.alive}${hl}`, sp.alive ? `<button type="button" class="btn" data-act="find">Find one</button><button type="button" class="btn" data-act="hl" aria-pressed="${hl}">Highlight</button>` : '');
       if (sp.alive) v += vital('Share', sp.pop / Math.max(1, life.counts[3]), 'sun', `${((sp.pop / Math.max(1, life.counts[3])) * 100).toFixed(1)}% of life`, 'share');
-      setTabs(['species', 'genome']);
-      html = st.tab === 'genome' ? genomeTab(g, 0) : speciesTab(g, null);
+      setTags(g);
+      flow.push(['species', 'Species', speciesTab(g, null)], ['genome', 'Genome', genomeTab(g, 0)]);
     } else if (sel) {
       root.classList.remove('no-view');
       const p = sel.particle, mem = sel.memory;
@@ -367,17 +448,16 @@ export function createSpecimen(api) {
         else if (p.kind === 2) v += vital('Energy left', p.energy / 1.2, 'sun', `crumbles in ${fmtDur(Math.max(0, (p.energy - K.huskMin) / K.decay))}`, 'husk');
         else if (p.kind === 3) v += vital('Wears away', clamp(p.energy / 600, 0, 1), 'cyan', `in ${fmtDur(Math.max(0, p.energy))}`, 'stone');
         else v += vital('Light here', lightAt(p) / 100, 'sun', `${lightAt(p)}%`, 'lighthere');
-        setTabs(mem ? ['status', 'species', 'genome'] : ['status']);
-        if (st.tab === 'status') {
-          html += storyHTML(sel);
-          let s = `<p class="note">${m.blurb}</p>`;
-          s += kv(p.kind === 2 ? 'Dead for' : p.kind === 3 ? 'Stone for' : 'In this state', fmtDur(p.age));
-          if (p.kind === 2) s += kv('Cause of death', CAUSE[p.cause] || 'unknown');
-          s += kv('Light here', `${lightAt(p)}%`, 'lighthere');
-          html += blk(term(m.name.toLowerCase(), m.name), s);
-          if (mem) html += `<div class="past">${cellBlock(mem.p, mem.g, true)}${organismBlock(mem.org, mem.g, true, sel)}</div>`;
-        } else if (st.tab === 'species') html = speciesTab(mem.g, mem.sp);
-        else html = genomeTab(mem.g, mem.role);
+        setTags(mem ? mem.g : null); // what it was
+        let s = `<p class="note">${m.blurb}</p>`;
+        s += kv(p.kind === 2 ? 'Dead for' : p.kind === 3 ? 'Stone for' : 'In this state', fmtDur(p.age));
+        if (p.kind === 2) s += kv('Cause of death', CAUSE[p.cause] || 'unknown');
+        s += kv('Light here', `${lightAt(p)}%`, 'lighthere');
+        flow.push(['state', m.name, blk('', s) + storyHTML(sel)]);
+        if (mem) {
+          flow.push(['body', 'Body', cellBlock(mem.p, mem.g, true) + organismBlock(mem.org, mem.g, true, sel)]);
+          flow.push(['species', 'Species', speciesTab(mem.g, mem.sp)], ['genome', 'Genome', genomeTab(mem.g, mem.role, mem.role)]);
+        }
       } else {
         const g = api.genomeFor(p.kind);
         const life = api.life();
@@ -388,6 +468,7 @@ export function createSpecimen(api) {
         setHead(inBody ? `${gr}-cell of a ${o.partial ? '≥ ' : ''}${fmt(o.cells)}-cell body` : `${gr}-cell`, sp ? esc(sp.name) : 'Unnamed species',
           sel.lost ? 'Lost track of it' : (g ? code('SP', fmt(g.serial)) + code('Δ', g.depth) : 'sequencing…') + code('ID', fmt(p.id)));
         if (g) speciesGlyph(g); else plainGlyph(0, p.col);
+        setTags(g);
         const hl = sp && api.focusKey() === `sp:${sp.serial}`;
         setActs(`c${api.follow()}${hl}${!!sp}`, `<button type="button" class="btn" data-act="follow" aria-pressed="${api.follow()}" data-hint="Keep it in view · C">Follow</button>${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}">Highlight species</button>` : ''}`);
         if (g) {
@@ -396,26 +477,40 @@ export function createSpecimen(api) {
           const head = sel.mind && !sel.lost && (sel.mind.head || sel.mind);
           if (!sel.lost) v = `<div class="vital now"><span>${term('mind', 'Now')}</span><b>${head ? withSp(head.text, head.target) : '—'}</b></div>` + v;
         }
-        setTabs(g ? ['status', 'species', 'genome'] : ['status']);
-        if (st.tab === 'status') {
-          // the instruments are built once per cell and update in place (mindview.js); the rest flows below
-          if (g && !sel.lost) { fixedKey = `mv:${sel.id}:${p.kind}:${g.serial}`; fixedHtml = tags(g) + mv.html(g, p.kind); } else if (g) html += tags(g);
-          if (g) html += songBlock(g, sp, true);
-          const cb = cellBlock(p, g, false, sel.lost ? null : sel.mind), ob = organismBlock(o, g, false, sel);
-          html += inBody ? ob + cb : cb + ob;
-          html += storyHTML(sel);
-        } else if (st.tab === 'species') html = speciesTab(g, null);
-        else html = genomeTab(g, p.role);
+        // the instruments are built once per cell and update in place (mindview.js); the rest flows below
+        if (g && !sel.lost) { fixedKey = `mv:${sel.id}:${p.kind}:${g.serial}`; fixedHtml = section('behaviour', 'Behaviour', mv.html(g, p.kind)); }
+        // a bonded species' organism first, a free cell's own record first: fixed by the genome, so
+        // the order never flips as a trace comes in
+        const cb = cellBlock(p, g, false), ob = organismBlock(o, g, false, sel), bb = sel.lost ? '' : budgetBlock(p, g, sel.mind);
+        const bonded = g && (g.adhesion || 0) > K.adhMin;
+        flow.push(['body', 'Body', (bonded ? ob + cb : cb + ob) + bb + storyHTML(sel)]);
+        if (g) flow.push(['species', 'Species', speciesTab(g, null)], ['genome', 'Genome', genomeTab(g, p.role, p.role)]);
       }
     } else return false;
     if (v !== st.lastVit) { vit.innerHTML = v; st.lastVit = v; }
-    if (fixedKey !== st.fixedKey || !body.firstElementChild) {
-      body.innerHTML = `<div class="spec-fixed">${fixedHtml}</div><div class="spec-flow">${html}</div>`;
-      st.fixedKey = fixedKey; st.lastHtml = html; songKey = '';
+    setTabs([...(fixedKey ? [['behaviour', 'Behaviour']] : []), ...flow.map(([id, l]) => [id, l])]);
+    const flowKey = flow.map(([id]) => id).join(',');
+    if (fixedKey !== st.fixedKey || flowKey !== st.flowKey || !body.firstElementChild) {
+      // the same cell's panel rebuilt (the watch moved to another cell of its body) keeps its place
+      const keep = body.scrollTop;
+      body.innerHTML = `<div class="spec-fixed">${fixedHtml}</div><div class="spec-flow">${flow.map(([id, l]) => section(id, l, '')).join('')}</div>`;
+      st.fixedKey = fixedKey; st.flowKey = flowKey; st.flow.clear(); songKey = '';
       if (fixedKey) { mv.bind(body.firstElementChild); mindUpdate(); }
-    } else if (html !== st.lastHtml) { body.lastElementChild.innerHTML = html; st.lastHtml = html; songKey = ''; }
+      restoreTop = keep;
+    }
+    // each section is replaced only when what it shows changed, so the others keep their hover and selection
+    for (const [id, , html] of flow) {
+      if (st.flow.get(id) === html) continue;
+      const el = sectionEl(id);
+      if (el) { el.querySelector('.sx-b').innerHTML = html; st.flow.set(id, html); songKey = ''; }
+    }
+    if (restoreTop != null) { body.scrollTop = restoreTop; restoreTop = null; }
+    if (pin && performance.now() < pin.until) { const el = sectionEl(pin.id); if (el) body.scrollTop = Math.max(0, el.offsetTop - 2); mark(pin.id); return true; }
+    pin = null;
+    spy();
     return true;
   }
+  let restoreTop = null;
 
   function open() {
     if (root.hidden) {
@@ -423,7 +518,8 @@ export function createSpecimen(api) {
       setFull(false);
       document.body.classList.add('spec-open');
     }
-    st.lastHtml = ''; st.lastVit = ''; st.actKey = ''; st.tabKey = ''; st.lastHead = ''; st.fixedKey = null;
+    st.lastVit = ''; st.actKey = ''; st.tabKey = ''; st.lastHead = ''; st.fixedKey = null; st.flowKey = ''; st.flow.clear(); st.active = '';
+    body.scrollTop = 0;
   }
   function close() {
     root.hidden = true;
@@ -466,12 +562,13 @@ export function createSpecimen(api) {
     g.lineWidth = 1.25;
     if (box) {
       // a body: the organism in the world view's orange, the watched cell (centred) in the panel's cell colour
-      const pad = 6, e = m + 2;
-      const l = clamp(w / 2 + box[0] * pxPerCell - pad, e, w / 2 - 14), t = clamp(h / 2 + box[1] * pxPerCell - pad, e, h / 2 - 14);
-      const r = clamp(w / 2 + box[2] * pxPerCell + pad, w / 2 + 14, w - e), b = clamp(h / 2 + box[3] * pxPerCell + pad, h / 2 + 14, h - e);
+      // the watched cell's brackets first: the organism's frame leaves room for them around every cell
+      const R = Math.max(6, cellRadius(sel.particle, api.genomeFor(sel.particle.kind), pxPerCell) * 1.4 + 3), c = Math.max(3, Math.min(10, R * 0.45));
+      const pad = R + 6, e = m + 2;
+      const l = clamp(w / 2 + box[0] * pxPerCell - pad, e, w / 2 - R - 4), t = clamp(h / 2 + box[1] * pxPerCell - pad, e, h / 2 - R - 4);
+      const r = clamp(w / 2 + box[2] * pxPerCell + pad, w / 2 + R + 4, w - e), b = clamp(h / 2 + box[3] * pxPerCell + pad, h / 2 + R + 4, h - e);
       g.strokeStyle = 'rgba(255,95,58,0.9)';
       brackets(l, t, r, b, Math.min(10, (r - l) / 3, (b - t) / 3));
-      const R = Math.max(6, cellRadius(sel.particle, api.genomeFor(sel.particle.kind), pxPerCell) * 1.4 + 3), c = Math.max(3, Math.min(10, R * 0.45));
       g.strokeStyle = 'rgba(241,227,160,0.95)';
       brackets(w / 2 - R, h / 2 - R, w / 2 + R, h / 2 + R, c);
     } else {
@@ -479,19 +576,22 @@ export function createSpecimen(api) {
       brackets(w / 2 - 9, h / 2 - 9, w / 2 + 9, h / 2 + 9, 4);
     }
     g.lineWidth = 1;
-    const bar = pxPerCell * 0.5;
+    // the longest round length that fits a third of the viewer
+    const um = [...NICE_UM].reverse().find((u) => (u / UM_PER_UNIT) * pxPerCell <= w * 0.34) || 1;
+    const bar = (um / UM_PER_UNIT) * pxPerCell;
     g.fillStyle = 'rgba(226,241,240,0.85)';
     g.fillRect(12, h - 14, bar, 1.5);
     g.fillRect(12, h - 18, 1, 6); g.fillRect(12 + bar - 1, h - 18, 1, 6);
     g.font = '500 10px Saira, system-ui, sans-serif';
-    g.fillText('½ CELL', 18 + bar, h - 10);
+    g.fillText(fmtLen(um / UM_PER_UNIT), 18 + bar, h - 10); // not upper-cased: µ would become Μ
     g.fillStyle = 'rgba(241,227,160,0.95)';
     g.fillText(fmtClock(eng.simTime), 14, 20);
     g.fillStyle = 'rgba(163,189,190,0.9)';
     if (sel) {
       const [W, H] = eng.grid;
       g.textAlign = 'right';
-      g.fillText(`X ${(((sel.disp[0] % W) + W) % W).toFixed(1)}  Y ${(((sel.disp[1] % H) + H) % H).toFixed(1)}`, w - 14, 20);
+      const mm = (v, n) => ((((v % n) + n) % n) * UM_PER_UNIT / 1000).toFixed(2);
+      g.fillText(`X ${mm(sel.disp[0], W)}  Y ${mm(sel.disp[1], H)} MM`, w - 14, 20);
       g.textAlign = 'left';
     }
   }
@@ -502,5 +602,7 @@ export function createSpecimen(api) {
     if (sel && sel.mind && !sel.lost && st.fixedKey) mv.update(sel.mind, sel.particle.kind);
   }
 
-  return { render, open, close, inset, drawViewerUI, songTick, mindUpdate, mindTick: (now) => mv.tick(now), isOpen: () => !root.hidden, invalidate() { st.lastHtml = ''; st.actKey = ''; st.lastHead = ''; st.fixedKey = null; } };
+  // a new world reuses serials: forget everything cached by one
+  function reset() { songs.clear(); glyphEl.dataset.k = ''; tagsEl.dataset.k = ''; }
+  return { reset, render, open, close, inset, drawViewerUI, songTick, mindUpdate, mindTick: (now) => mv.tick(now), isOpen: () => !root.hidden, invalidate() { st.flow.clear(); st.actKey = ''; st.lastHead = ''; st.fixedKey = null; } };
 }

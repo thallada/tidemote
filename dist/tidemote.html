@@ -25,6 +25,10 @@
   --sun: #f1e3a0;
   --sans: 'Saira', 'Bahnschrift', 'DIN Alternate', 'Segoe UI', system-ui, sans-serif;
   --gut: 14px;
+  /* one spacing scale for every panel: within a row, between rows, after a heading, between
+     blocks, between sections */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 20px; --s5: 32px;
+  --lab-w: 7.6em; /* the label column of every labelled row */
   --rail-h: 52px;
   --dock-h: 56px;
   --safe-t: env(safe-area-inset-top, 0px);
@@ -130,7 +134,27 @@ input[type="range"] { accent-color: var(--cyan); cursor: pointer; }
 .sec-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; border-bottom: 1px solid var(--line); margin: 0 -2px; padding: 0 2px; position: relative; }
 .sec-h::after { content: ''; position: absolute; right: -1px; bottom: -3px; width: 5px; height: 5px; border-right: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2); }
 .sec-h h2 { color: var(--ink); }
-.sub-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: var(--ink-3); margin-bottom: 6px; }
+/* ------------------------------------------------------------------ components (ui.js)
+   sect-h: a section's heading (cyan, with a rule). sub-h: a block's heading (grey capitals) with
+   an optional aside. blk: a block, its rows a step apart. sx-b / stack: blocks a block apart. */
+.sect-h { display: flex; align-items: center; gap: var(--s3); margin: 0; color: var(--cyan); font-size: 10.5px; font-weight: 500; line-height: 1.2; letter-spacing: .22em; text-transform: uppercase; font-stretch: 112%; }
+.sect-h::after { content: ''; flex: 1; height: 1px; background: var(--line-2); }
+.sub-h { display: flex; justify-content: space-between; align-items: center; gap: var(--s2); min-height: 18px; margin: 0; color: var(--ink-3); }
+.sub-h > span:first-child { display: inline-flex; align-items: center; }
+.sub-a { display: inline-flex; align-items: center; gap: var(--s2); color: var(--ink-3); }
+.sub-a .link { padding: 0; }
+.blk { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.blk.inline { flex-direction: row; align-items: center; gap: var(--s3); }
+.blk.inline > :last-child { flex: 1; min-width: 0; }
+.sx { display: flex; flex-direction: column; gap: var(--s3); }
+.sx-b, .stack, .disc-b { display: flex; flex-direction: column; gap: var(--s4); }
+/* a disclosure: a block heading that opens what it heads */
+.disc-h { width: 100%; border: 0; padding: 0; text-align: left; cursor: pointer; }
+.disc-h:hover { color: var(--ink); }
+.disc-i { width: 14px !important; height: 14px !important; transform: rotate(90deg); transition: transform .15s; }
+.disc-h[aria-expanded="true"] .disc-i { transform: rotate(180deg); }
+.disc > .disc-b { padding-top: var(--s2); }
+.nil { color: var(--ink-3); }
 .rule { height: 1px; background: var(--line); position: relative; margin: 10px 0; }
 
 /* segmented meters */
@@ -210,19 +234,25 @@ body:not(.live) .hud { opacity: 0; }
 .sys .w-4 { width: 3.2em; }
 
 /* ------------------------------------------------------------------ world column */
-.world {
-  position: absolute; left: 0; top: var(--top); bottom: var(--bot); width: 316px;
-  display: flex; flex-direction: column; padding: 8px 14px 12px calc(14px + var(--safe-l)); overflow: hidden;
-  border-right: 1px solid var(--line);
-}
-.world.closed { bottom: auto; border-bottom: 1px solid var(--line); }
-.world.closed .world-body { display: none; }
-.world.closed #world-toggle svg { transform: rotate(180deg); }
+/* the Lab's census: what the world is made of above, the log filling what is left below */
 .world-sum { display: none; margin-left: auto; color: var(--ink-2); font-size: 12px; white-space: nowrap; }
-.world.closed .world-sum { display: block; }
+/* the rail shows living and species; only where it hides them does the folded Lab repeat them */
+@media (max-width: 1180px) { .lab.closed .world-sum { display: block; } }
 .codes .term { text-decoration: none; }
-.world-body { display: flex; flex-direction: column; gap: 14px; min-height: 0; flex: 1; overflow: hidden; padding-top: 10px; }
-.mix-bar { display: flex; height: 10px; gap: 2px; margin-bottom: 8px; }
+.scroll.ov { flex: 0 1 auto; display: flex; flex-direction: column; gap: var(--s3); padding: var(--s3) 14px; }
+.ov > * { flex: none; }
+/* the log takes what the census leaves, and never less than a few entries */
+.ov-log { flex: 1 0 156px; min-height: 156px; overflow: hidden; padding: var(--s3) 14px var(--s3); border-top: 1px solid var(--line); }
+/* the census bars sit close: a list to scan, not a set of readings */
+.ov-census.stack, .ov-census .stack { gap: var(--s3); }
+.ov-census .blk { gap: var(--s1); }
+.ov-census .bars { gap: 0; }
+.ov-census .barrow { grid-template-columns: 8.6em minmax(24px, 1fr) 7ch 5.4ch; font-size: 12px; padding: 1px 4px; line-height: 1.4; }
+.ov .mix-row { padding-top: 2px; padding-bottom: 2px; }
+.ov .nums div { padding-top: 6px; padding-bottom: 6px; }
+.ov-census .segs .chip { flex: 1 1 auto; justify-content: center; padding: 0 8px; white-space: nowrap; }
+.mix-row .term { text-decoration-color: rgba(111, 138, 140, 0.45); }
+.mix-bar { display: flex; height: 10px; gap: 2px; margin-bottom: var(--s1); }
 .mix-bar i { display: block; min-width: 2px; }
 .mix-row {
   display: grid; grid-template-columns: 9px 1fr auto 5.2ch; gap: 9px; align-items: center; width: 100%;
@@ -239,7 +269,7 @@ body:not(.live) .hud { opacity: 0; }
 .nums div:first-child { border-left: 0; padding-left: 0; }
 .nums b { font-size: 18px; font-weight: 300; line-height: 1; font-stretch: 108%; }
 .nums span { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; text-decoration-color: rgba(111, 138, 140, 0.6); }
-#chart { width: 100%; height: 70px; display: block; }
+#chart { width: 100%; height: clamp(64px, 8vh, 130px); display: block; }
 .feed { list-style: none; margin: 0; padding: 0 4px 0 0; display: flex; flex-direction: column; gap: 7px; overflow-y: auto; min-height: 0; flex: 1; scrollbar-width: thin; }
 .feed li { display: grid; grid-template-columns: 3px 4.2ch 1fr; gap: 8px; font-size: 12px; line-height: 1.4; color: var(--ink-2); }
 .feed li > i { width: 3px; align-self: stretch; }
@@ -285,6 +315,11 @@ body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520p
   color: var(--ink); padding: 8px 11px; font-size: 12.5px; line-height: 1.5; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
 }
 .tip kbd { color: var(--sun); margin-left: 8px; }
+/* a species' name plate, as the world view labels a picked cell (the census chart's hover) */
+.plate { position: fixed; z-index: 40; pointer-events: none; display: flex; align-items: baseline; gap: 8px; padding: 2px 5px 3px; background: rgba(6, 9, 10, 0.82); color: rgba(226, 241, 240, 0.95); font-size: 11px; font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase; white-space: nowrap; }
+.plate i { align-self: center; width: 7px; height: 7px; flex: none; }
+.plate small { color: var(--ink-3); font-size: 10px; letter-spacing: .06em; }
+#chart { cursor: crosshair; }
 
 /* ------------------------------------------------------------------ settings, help */
 .settings {
@@ -295,16 +330,15 @@ body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520p
 .settings .sec-h h2 { white-space: nowrap; }
 .settings .tabs { margin-right: auto; }
 .settings .tabs button { height: 32px; }
-.opt-h { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--cyan); font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; font-weight: 500; font-stretch: 112%; }
-.opt-h:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
+.opts .sect-h:not(:first-child) { margin-top: var(--s3); }
 .opt .chip:disabled { opacity: .35; cursor: default; }
 .hot-btn { border-color: var(--hot); color: var(--ink); background: rgba(255, 95, 58, 0.14); justify-self: start; }
 .hot-btn:hover { background: rgba(255, 95, 58, 0.26); border-color: var(--hot); }
-.readout { display: grid; grid-template-columns: repeat(5, 1fr); margin: 10px 0 2px; border: 1px solid var(--line); }
-.readout div { display: flex; flex-direction: column; gap: 3px; padding: 7px 9px; border-left: 1px solid var(--line); min-width: 0; }
-.readout div:nth-child(4n + 1) { border-left: 0; }
-.readout div:nth-child(n + 5) { border-top: 1px solid var(--line); }
-.readout b { font-size: 17px; font-weight: 300; line-height: 1; color: var(--sun); white-space: nowrap; }
+/* hairline cells drawn by the gaps between them, so any count of figures lines up */
+.readout { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin: 10px 0 2px; background: var(--line); border: 1px solid var(--line); }
+.readout div { display: flex; flex-direction: column; gap: 3px; padding: 7px 9px; min-width: 0; background: var(--panel-solid); }
+.readout div.w2 { grid-column: span 2; }
+.readout b { font-size: 17px; font-weight: 300; line-height: 1; color: var(--sun); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .readout span { font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
 .opts { flex-direction: column; gap: 6px; margin-top: 10px; }
 .opt { display: grid; grid-template-columns: 9.6em 1fr; gap: 10px; align-items: center; }
@@ -327,7 +361,7 @@ dd { margin: 0; color: var(--ink-2); }
 /* ------------------------------------------------------------------ specimen */
 .spec {
   position: fixed; z-index: 4; right: 0; top: var(--top); bottom: var(--bot);
-  width: 386px; display: flex; flex-direction: column; padding: 12px calc(14px + var(--safe-r)) 0 14px;
+  width: 386px; display: flex; flex-direction: column; gap: var(--s3); padding: var(--s3) calc(14px + var(--safe-r)) 0 14px;
   border-left: 1px solid var(--line);
 }
 .grab { display: none; }
@@ -341,60 +375,85 @@ dd { margin: 0; color: var(--ink-2); }
 .spec-id h2 a.sp { text-decoration: none; font-weight: 400; }
 .codes { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--ink-3); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; font-weight: 500; font-stretch: 108%; }
 .codes b { color: var(--ink-2); font-weight: 500; }
-.viewer { position: relative; margin-top: 12px; flex: none; height: 176px; }
+.viewer { position: relative; flex: none; height: 176px; }
 #specimen { position: absolute; inset: 0; width: 100%; height: 100%; display: block; background: #000; cursor: ns-resize; }
 #spec-ui { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .vz { position: absolute; right: 6px; bottom: 6px; display: flex; gap: 2px; }
 .vz button { width: 30px; height: 30px; background: rgba(6, 9, 10, 0.7); border-color: var(--line); }
 .spec.no-view .viewer, body.no-closeup .viewer { display: none; }
-.spec-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.spec-acts { display: flex; flex-wrap: wrap; gap: 6px; }
 .spec-acts:empty { display: none; }
-.vitals { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.vitals { display: flex; flex-direction: column; gap: var(--s2); }
 .vitals:empty { display: none; }
-.vital { display: grid; grid-template-columns: 6.5em 1fr auto; gap: 10px; align-items: center; }
+.vital { display: grid; grid-template-columns: var(--lab-w) 1fr auto; gap: 10px; align-items: center; min-height: 18px; }
 .vital > span { color: var(--ink-3); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; font-weight: 500; font-stretch: 108%; }
 .vital > b { font-weight: 400; font-size: 12.5px; white-space: nowrap; }
-.spec .tabs { margin-top: 12px; border-bottom: 1px solid var(--line); }
+.spec .tabs { border-bottom: 1px solid var(--line); flex: none; }
 .spec .tabs:empty { display: none; }
 .spec-more { display: none; }
-.spec-body { overflow-y: auto; min-height: 0; flex: 1; padding: 4px 4px 16px 0; scrollbar-width: thin; user-select: text; -webkit-user-select: text; }
-.blk { margin-top: 14px; display: flex; flex-direction: column; gap: 7px; }
-.blk > .sub-h { margin-bottom: 0; }
-.kv { display: grid; grid-template-columns: 8.2em 1fr; gap: 10px; align-items: baseline; font-size: 12.5px; }
+.spec-body { position: relative; overflow-y: auto; min-height: 0; flex: 1; margin-top: calc(-1 * var(--s1)); padding: 0 4px var(--s4) 0; scrollbar-width: thin; user-select: text; -webkit-user-select: text; }
+/* the details are one scroll of sections under a bar that jumps between them */
+.spec .tabs button { flex: 1; padding: 0 6px; }
+.sx + .sx, .spec-fixed:not(:empty) + .spec-flow > .sx:first-child { margin-top: var(--s5); }
+.kv { display: grid; grid-template-columns: var(--lab-w) minmax(0, 1fr); gap: 10px; align-items: baseline; font-size: 12.5px; }
+.kv > span, .trait > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kv > span { color: var(--ink-3); }
-.kv > b { font-weight: 400; min-width: 0; }
+.kv > b { font-weight: 400; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kv .meter { margin-top: 5px; }
 .tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .tags span { border: 1px solid var(--line); padding: 3px 7px; color: var(--ink-2); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; font-weight: 500; text-decoration: none; }
 .tags span:first-child { border-color: var(--line-2); color: var(--ink); }
-.story { list-style: none; margin: 0; padding: 0 0 0 12px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 7px; }
+/* compact, under the species' name: two short lines for most species */
+.tags.sm { gap: 3px; }
+/* between the actions and the readings: at most two lines (the rest behind a +n chip). A species'
+   tags never change while it is open, so the height may follow them. */
+#spec-tags { max-height: 41px; overflow: hidden; align-content: flex-start; flex: none; }
+#spec-tags .more { border-style: dashed; color: var(--ink-3); cursor: help; }
+#spec-tags:empty { display: none; }
+.tags.sm span { padding: 1px 5px; font-size: 9.5px; letter-spacing: .08em; }
+/* a mix of cell types (specimen comp): a trait row whose meter is split by type */
+.trait.mixrow { grid-template-columns: var(--lab-w) 1fr auto; }
+.mixbar { display: flex; height: 5px; gap: 2px; }
+.mixbar i { background: repeating-linear-gradient(90deg, currentColor 0 3px, transparent 3px 5px); }
+.mixrow b { display: flex; gap: 6px; text-decoration: none; cursor: help; }
+.mixrow b s { text-decoration: none; }
+.mixrow b em { font-style: normal; font-size: 11px; margin-right: 1px; }
+.story { list-style: none; margin: 0; padding: 0 var(--s1) 0 12px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--s2);
+  /* a fixed window, newest first, scrolling once it fills */
+  height: 152px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .story li { display: grid; grid-template-columns: 4.4ch minmax(0, 1fr); gap: 10px; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); position: relative; }
 .story li::before { content: ''; position: absolute; left: -15px; top: 6px; width: 5px; height: 5px; background: var(--line-2); }
 .story li:first-child { color: var(--ink); }
 .story li:first-child::before { background: var(--hot); }
 .story time { color: var(--ink-3); }
-.trait { display: grid; grid-template-columns: 8.2em 1fr 6.6em; gap: 10px; align-items: center; font-size: 12.5px; }
+.trait { display: grid; grid-template-columns: var(--lab-w) 1fr 6.6em; gap: 10px; align-items: center; font-size: 12.5px; min-height: 18px; }
 .trait > span { color: var(--ink-3); }
 .trait > b { font-weight: 400; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.comp { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; }
-.comp .tl { display: flex; justify-content: space-between; gap: 10px; }
-.comp .tl > span { color: var(--ink-3); }
-.comp .tl > b { font-weight: 400; }
-.compbar { display: flex; height: 8px; gap: 2px; }
 .dbar { position: relative; height: 6px; background: rgba(130, 205, 214, 0.1); }
 .dbar::after { content: ''; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--ink-3); }
 .dbar i { position: absolute; top: 0; bottom: 0; }
-.aff { display: flex; flex-direction: column; gap: 6px; }
-.aff > div { display: grid; grid-template-columns: 8px minmax(0, 1fr) 76px 3.8em; gap: 9px; align-items: center; font-size: 12.5px; }
-.aff i { width: 8px; height: 8px; }
-.aff span { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.aff b { font-weight: 400; text-align: right; }
+.note.two { min-height: 3.1em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* how its cells react: what it meets down the side, its cell types across, warm drawn, cool pushed */
+.pulls-t { display: grid; gap: 3px 4px; align-items: center; font-size: 12.5px; }
+.pt-h { color: var(--ink-3); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; padding-bottom: var(--s1); }
+.pt-col { white-space: nowrap; text-align: center; text-transform: none; letter-spacing: .04em; font-size: 11.5px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.pt-col i { font-style: normal; color: var(--hot); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; }
+.pt-name { display: flex; align-items: center; gap: var(--s2); min-width: 0; color: var(--ink-2); height: 22px; }
+.pt-name > i { flex: none; width: 8px; height: 8px; }
+.pt-name > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pull { height: 22px; display: grid; place-items: center; font-weight: 400; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.pull.to { background: rgba(241, 227, 160, var(--a)); color: var(--ink); }
+.pull.away { background: rgba(127, 214, 223, var(--a)); color: var(--ink); }
+.pulls-key { display: flex; gap: var(--s3); color: var(--ink-3); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; }
+.pulls-key span { display: inline-flex; align-items: center; gap: 6px; }
+.pulls-key i { width: 10px; height: 10px; }
+.pulls-key i.to { background: rgba(241, 227, 160, 0.5); }
+.pulls-key i.away { background: rgba(127, 214, 223, 0.5); }
 .legend-note { display: flex; justify-content: space-between; color: var(--ink-3); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; }
 .note { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.55; }
 em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .popchart { width: 100%; height: 64px; display: block; }
-.past { margin-top: 18px; padding-top: 6px; border-top: 1px dashed var(--line); }
-.vital.now { grid-template-columns: 6.5em minmax(0, 1fr); }
+.vital.now { grid-template-columns: var(--lab-w) minmax(0, 1fr); }
 .vital.now > b { color: var(--sun); overflow: hidden; text-overflow: ellipsis; }
 .vital.now > b a.sp { color: inherit; }
 /* The behaviour instrument (mindview.js): fixed rows whose values change in place. */
@@ -410,11 +469,14 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .mv-live.blink i { animation: mv-blink .5s ease-out; }
 @keyframes mv-blink { from { opacity: 1; } to { opacity: .25; } }
 .mv-read { display: flex; flex-direction: column; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.mv-read > div { display: grid; grid-template-columns: 5.2em minmax(0, 1fr); gap: 10px; align-items: center; height: 24px; }
+.mv-read > div { display: grid; grid-template-columns: var(--lab-w) minmax(0, 1fr); gap: 10px; align-items: center; height: 26px; }
+/* a two-line row: the value wraps into a space always kept for it */
+.mv-read > div.two { height: 42px; align-items: start; padding-top: 5px; }
+.mv-read > div.two > b { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.4; }
 .mv-read > div + div { border-top: 1px dashed rgba(130, 205, 214, 0.12); }
 .mv-read > div > span { color: var(--ink-3); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; font-weight: 500; }
 .mv-read b { font-weight: 400; font-size: 12.5px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 6px; }
-.mv-read .mv-mode { font-size: 15px; color: var(--sun); letter-spacing: .06em; text-transform: uppercase; }
+.mv-read .mv-mode { color: var(--sun); letter-spacing: .06em; text-transform: uppercase; }
 .mv-read b.mv-target > span { overflow: hidden; text-overflow: ellipsis; }
 .mv-sig:empty { display: none; }
 .mv-sig .sigil, .nb-sig .sigil { display: block; }
@@ -467,7 +529,6 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
   .compass { width: 96px; height: 96px; }
   .mv-drives > div[data-k] { grid-template-columns: 8px minmax(0, 1fr) 44px 3ch; font-size: 11.5px; }
 }
-.kv em.mods { font-style: normal; color: var(--ink-3); margin-left: 6px; }
 .kv .pos { color: var(--cyan); }
 .kv .neg { color: var(--hot); }
 
@@ -503,26 +564,55 @@ svg.sigil { display: block; }
 /* ------------------------------------------------------------------ lab */
 .lab {
   position: fixed; z-index: 4; left: 0; top: var(--top); bottom: var(--bot);
-  width: min(620px, 100%); display: flex; flex-direction: column; padding: 0 0 0 var(--safe-l);
-  border-right: 1px solid var(--line);
+  width: 384px; display: flex; flex-direction: column; padding: 0 0 0 var(--safe-l);
+  border-right: 1px solid var(--line); transition: opacity .6s ease;
 }
-body.lab-open .world { display: none; }
-body.lab-open.spec-open .lab { width: min(620px, calc(100% - 386px)); }
-.lab-head { display: flex; align-items: center; gap: 14px; padding: 0 8px 0 16px; border-bottom: 1px solid var(--line); }
+body.lab-wide .lab { width: min(620px, 100%); }
+body.lab-wide.spec-open .lab { width: min(620px, calc(100% - 386px)); }
+/* folded to its header: a bar that opens it again */
+.lab.closed { width: 36px; bottom: auto; top: calc(var(--top) + var(--s3)); border: 1px solid var(--line); border-left: 0; }
+.lab.closed .lab-body, .lab.closed .tabs { display: none; }
+.lab.closed .lab-head { border-bottom: 0; }
+.lab.closed .lab-title { flex-direction: column; gap: var(--s3); min-height: 0; padding: var(--s1) 0 var(--s3); cursor: pointer; }
+.lab.closed .lab-title h2, .lab.closed .world-sum { writing-mode: vertical-rl; transform: rotate(180deg); }
+.lab.closed .lab-title h2 kbd.key { margin: 8px 0 0; }
+.lab.closed .lab-fold { order: -1; margin: 0; }
+.lab.closed:hover { border-color: var(--line-2); }
+/* the fold points the way the column goes: left to fold it away, right to bring it back */
+.lab-fold svg { transform: rotate(-90deg); }
+.lab.closed .lab-fold svg { transform: rotate(90deg); }
+body:not(.live) .lab { opacity: 0; pointer-events: none; }
+body.hud-off .lab.closed, body.hud-off .lab[data-tab="census"] { opacity: 0; visibility: hidden; }
+.lab-head { display: flex; flex-direction: column; border-bottom: 1px solid var(--line); }
+.lab-title { display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 0 6px 0 14px; cursor: pointer; }
+.lab-title:hover h2, .lab-title:hover .lab-fold { color: var(--ink); }
 .lab-head h2 { display: flex; gap: .5em; font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; font-weight: 500; font-stretch: 112%; white-space: nowrap; }
-.lab-head .tabs { flex: 1; overflow-x: auto; scrollbar-width: none; }
+.lab-fold { margin-left: auto; }
+.lab-head .tabs { overflow-x: auto; scrollbar-width: none; padding: 0 6px; justify-content: space-between; border-top: 1px solid rgba(130, 205, 214, 0.1); }
+body.lab-wide .lab-head .tabs { justify-content: flex-start; padding: 0 8px; }
+.lab-head .tabs button { padding: 0 6px; letter-spacing: .1em; }
+body.lab-wide .lab-head .tabs button { padding: 0 10px; letter-spacing: .16em; }
 .lab-head .tabs::-webkit-scrollbar { display: none; }
-.lab-head .x { margin-left: auto; }
+/* the Lab opens from its own header; the dock keeps a button only on a phone, where the Lab covers the world */
+#lab-open { display: none; }
 .lab-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.pane-ctl { padding: 12px 16px 10px; display: flex; flex-direction: column; gap: 9px; border-bottom: 1px solid var(--line); }
+.pane-ctl { padding: var(--s3) 16px; display: flex; flex-direction: column; gap: var(--s3); border-bottom: 1px solid var(--line); }
 .qrow { display: flex; gap: 6px; }
 .qrow .filt { display: none; height: 34px; flex: none; }
-.filters { display: flex; flex-direction: column; gap: 9px; }
+.filters { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 12px; align-items: center; }
+.filters > .lbl { color: var(--ink-3); }
+/* a segmented control: joined chips sharing their borders */
+.segs { display: flex; flex-wrap: wrap; }
+.segs .chip { height: 26px; padding: 0 9px; letter-spacing: .08em; margin-left: -1px; }
+.segs .chip:first-child { margin-left: 0; }
+.segs .chip:hover, .segs .chip[aria-pressed="true"] { position: relative; z-index: 1; }
+.pane-ctl .sum > span:first-child { display: flex; align-items: baseline; gap: 12px; }
+.pane-ctl .sum .link { padding: 0; }
 .pane-ctl .row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .pane-ctl .row > .lbl { width: 5.4em; }
 .pane-ctl .sum { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 10px; color: var(--ink-2); font-size: 12px; }
-.scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: 6px 16px 18px; overscroll-behavior: contain; }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: var(--s3) 16px var(--s4); overscroll-behavior: contain; }
 .sel { display: inline-flex; align-items: center; gap: 6px; }
 
 .splist { list-style: none; margin: 0; padding: 0; }
@@ -556,8 +646,6 @@ body.lab-open.spec-open .lab { width: min(620px, calc(100% - 386px)); }
 .barrow .bl { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .barrow .bn, .barrow .bp { text-align: right; white-space: nowrap; }
 .barrow .bp { color: var(--ink-3); }
-.cblk { margin-top: 16px; }
-.cblk:first-child { margin-top: 6px; }
 canvas.dyn { width: 100%; height: 112px; display: block; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-2); font-size: 11.5px; margin-top: 4px; }
 .legend i { display: inline-block; width: 10px; height: 2px; margin-right: 6px; vertical-align: 3px; }
@@ -611,9 +699,6 @@ canvas.dyn { width: 100%; height: 112px; display: block; }
 .nogpu h1 { font-size: 26px; font-weight: 300; letter-spacing: .06em; }
 .nogpu p { margin: 0; color: var(--ink-2); font-size: 14px; white-space: pre-wrap; }
 
-/* ------------------------------------------------------------------ filming: only the clock, the caption and the dock stay */
-.world { transition: opacity .6s ease; }
-body.filming .world { opacity: 0; visibility: hidden; }
 
 /* ------------------------------------------------------------------ medium */
 @media (max-width: 1180px) {
@@ -624,7 +709,7 @@ body.filming .world { opacity: 0; visibility: hidden; }
   .rail { gap: 14px; }
   .clock, .era-box, .gauge { padding-left: 12px; }
   .brand span { display: none; }
-  .world { width: 270px; }
+  .lab { width: 316px; }
   .act span { display: none; }
   .act { padding: 0 10px; }
 }
@@ -649,7 +734,7 @@ body.filming .world { opacity: 0; visibility: hidden; }
   #g-light .seg { display: none; }
   #g-light::before { content: '☀'; color: var(--ink-3); font-size: 12px; }
   #tide-wave { width: 34px; }
-  .world { display: none; }
+  #lab-open { display: flex; }
   .dock { gap: 0; justify-content: space-between; padding-left: calc(6px + var(--safe-l)); padding-right: calc(6px + var(--safe-r)); }
   .grp { gap: 2px; }
   .acts { margin-left: 0; gap: 2px; }
@@ -679,15 +764,15 @@ body.filming .world { opacity: 0; visibility: hidden; }
   #glyph { width: 34px; height: 34px; }
   .spec-id h2 { font-size: 18px; }
   .spec:not(.full) .viewer, .spec:not(.full) .tabs, .spec:not(.full) .spec-body { display: none; }
-  .spec:not(.full) .spec-acts { margin-top: 8px; }
   .viewer { height: 150px; }
   button.ghost.x { width: 40px; height: 40px; }
-  .lab { left: 0; right: 0; top: var(--safe-t); bottom: var(--bot); width: auto; z-index: 6; padding-top: 0; border: 0; }
-  body.lab-open.spec-open .lab { width: auto; }
-  .lab-head { padding: 0 4px 0 12px; flex-wrap: wrap; gap: 0; }
-  .lab-head h2 { flex: 1; height: 44px; display: flex; align-items: center; }
-  .lab-head .x { order: 2; width: 44px; height: 44px; }
-  .lab-head .tabs { order: 3; flex-basis: 100%; margin: 0 -4px 0 -12px; padding: 0 6px; }
+  .lab, body.lab-wide .lab { left: 0; right: 0; top: var(--safe-t); bottom: var(--bot); width: auto; z-index: 6; padding-top: 0; border: 0; }
+  body.lab-wide.spec-open .lab { width: auto; }
+  .lab.closed { display: none; }
+  .lab-title { min-height: 44px; padding: 0 4px 0 12px; }
+  .lab-fold { width: 44px; height: 44px; }
+  .lab-fold svg { transform: rotate(180deg); }
+  .lab-head .tabs, body.lab-wide .lab-head .tabs { justify-content: flex-start; padding: 0 6px; }
   .tabs button { height: 40px; padding: 0 8px; letter-spacing: .1em; }
   .lab-head .tabs { mask-image: linear-gradient(90deg, #000 85%, transparent); -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); }
   .pane-ctl { padding: 10px 12px 8px; }
@@ -700,9 +785,7 @@ body.filming .world { opacity: 0; visibility: hidden; }
   .barrow { grid-template-columns: 7.5em minmax(24px, 1fr) 7ch 5.4ch; font-size: 12px; }
   .settings { left: 0; right: 0; width: auto; bottom: var(--bot); max-height: calc(100% - var(--top) - var(--bot)); }
   .readout b { font-size: 15px; }
-  .readout { grid-template-columns: repeat(3, 1fr); }
-  .readout div:nth-child(3n + 1) { border-left: 0; }
-  .readout div:nth-child(n + 4) { border-top: 1px solid var(--line); }
+  .readout { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .opt { grid-template-columns: 7.6em 1fr; }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }
@@ -771,26 +854,6 @@ body.filming .world { opacity: 0; visibility: hidden; }
     </div>
   </header>
 
-  <!-- world column: what the world is made of and what has happened -->
-  <section class="world panel" id="world" aria-label="Census">
-    <div class="sec-h"><h2><span>World</span> Census</h2><span class="world-sum" id="world-sum" aria-hidden="true"></span><button type="button" class="ghost" id="world-toggle" aria-expanded="true" aria-controls="world-body" aria-label="Collapse census"><svg><use href="#i-chev"/></svg></button></div>
-    <div id="world-body" class="world-body">
-      <div class="mix" id="mix" role="group" aria-label="Matter: choose one to highlight it"></div>
-      <div class="nums">
-        <div><b id="n-alive">–</b><span class="term" data-tip="alive" tabindex="0">Species</span></div>
-        <div><b id="n-thriving">–</b><span class="term" data-tip="thriving" tabindex="0">Thriving</span></div>
-        <div><b id="n-ever">–</b><span class="term" data-tip="ever" tabindex="0">Ever</span></div>
-        <div><b id="n-depth">–</b><span class="term" data-tip="deepest" tabindex="0">Depth</span></div>
-      </div>
-      <div class="hist">
-        <div class="sub-h"><span>Living cells by species</span><span id="hist-span"></span></div>
-        <canvas id="chart" aria-label="Living cells by species over time"></canvas>
-      </div>
-      <div class="feed-h sub-h"><span>Log</span><button type="button" class="link" id="feed-all">All entries</button></div>
-      <ol class="feed" id="feed" aria-live="off"></ol>
-    </div>
-  </section>
-
   <div class="caption" id="caption" aria-live="polite"></div>
 
   <!-- transport dock -->
@@ -805,7 +868,7 @@ body.filming .world { opacity: 0; visibility: hidden; }
       <button type="button" class="act" id="auto-play" aria-pressed="false" data-hint="Auto camera · A"><svg><use href="#i-auto"/></svg><span>Auto</span></button>
       <span class="snd-wrap"><button type="button" class="act" id="snd" aria-pressed="false" data-hint="Sound · S"><svg><use href="#i-sound"/></svg><span>Sound</span></button><input id="vol" type="range" min="0" max="100" step="1" value="70" aria-label="Volume" hidden></span>
       <button type="button" class="act" id="set-open" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span>Settings</span></button>
-      <button type="button" class="act primary" id="lab-open" aria-expanded="false" aria-controls="lab" data-hint="Lab · K"><svg><use href="#i-lab"/></svg><span>Lab</span></button>
+      <button type="button" class="act primary" id="lab-open" aria-expanded="false" aria-controls="lab" data-hint="Field Lab · K"><svg><use href="#i-lab"/></svg><span>Lab</span></button>
     </div>
     <div class="sys" id="sys" aria-hidden="true"><span><b id="sys-n" class="w-n">–</b> particles</span><span><b id="sys-fps" class="w-3">–</b> fps</span><span><b id="sys-ms" class="w-4">–</b> ms</span><span><b id="sys-res" class="w-4">–</b> res</span></div>
   </nav>
@@ -821,11 +884,12 @@ body.filming .world { opacity: 0; visibility: hidden; }
     <div class="readout" id="readout" hidden aria-live="off">
       <div><b id="ro-fps">–</b><span>fps</span></div>
       <div><b id="ro-ms">–</b><span>GPU ms</span></div>
-      <div><b id="ro-px">–</b><span>Scene px</span></div>
-      <div><b id="ro-n">–</b><span>Particles</span></div>
-      <div><b id="ro-audio">–</b><span class="term" data-tip="audioload" tabindex="0">Audio</span></div>
       <div><b id="ro-step">–</b><span class="term" data-tip="stepms" tabindex="0">Step ms</span></div>
       <div><b id="ro-draw">–</b><span class="term" data-tip="drawms" tabindex="0">Draw ms</span></div>
+      <div><b id="ro-res">–</b><span class="term" data-tip="renderres" tabindex="0">Render</span></div>
+      <div class="w2"><b id="ro-px">–</b><span>Scene px</span></div>
+      <div><b id="ro-audio">–</b><span class="term" data-tip="audioload" tabindex="0">Audio</span></div>
+      <div class="w2"><b id="ro-n">–</b><span>Particles</span></div>
       <div><b id="ro-ceil">–</b><span class="term" data-tip="stride" tabindex="0">Stride</span></div>
       <div><b id="ro-rate">–</b><span class="term" data-tip="simrate" tabindex="0">Now</span></div>
     </div>
@@ -857,27 +921,56 @@ body.filming .world { opacity: 0; visibility: hidden; }
     </div>
   </div>
   <div class="spec-acts" id="spec-acts"></div>
+  <div class="tags sm" id="spec-tags"></div>
   <div class="vitals" id="vitals"></div>
   <div class="tabs" role="tablist" id="spec-tabs" aria-label="Specimen details"></div>
   <div class="spec-body" id="spec-body" role="tabpanel"></div>
   <button type="button" class="spec-more" id="spec-more" aria-controls="spec-body" aria-expanded="false"><svg aria-hidden="true"><use href="#i-chev"/></svg><span>Full record</span></button>
 </aside>
 
-<!-- lab: the records -->
-<aside class="lab panel" id="lab" hidden aria-label="Lab">
+<!-- lab: what the world is made of, what has happened, and the records; collapses to its header -->
+<aside class="lab panel" id="lab" aria-label="Field Lab">
   <div class="lab-head">
-    <h2><kbd class="key">K</kbd><span>Field</span> Lab</h2>
+    <div class="lab-title">
+      <h2><kbd class="key">K</kbd><span>Field</span> Lab</h2>
+      <span class="world-sum" id="world-sum" aria-hidden="true"></span>
+      <button type="button" class="ghost lab-fold" id="lab-close" aria-expanded="true" aria-controls="lab-body" aria-label="Collapse the Lab" data-hint="Collapse · K"><svg><use href="#i-chev"/></svg></button>
+    </div>
     <div class="tabs" role="tablist" id="lab-tabs" aria-label="Lab sections">
+      <button type="button" role="tab" data-tab="census">Census</button>
       <button type="button" role="tab" data-tab="species">Species</button>
       <button type="button" role="tab" data-tab="lineage">Lineage</button>
-      <button type="button" role="tab" data-tab="census">Census</button>
       <button type="button" role="tab" data-tab="charts">Charts</button>
       <button type="button" role="tab" data-tab="log">Log</button>
       <button type="button" role="tab" data-tab="guide">Guide</button>
     </div>
-    <button type="button" class="ghost x" id="lab-close" aria-label="Close the Lab" data-hint="Close · K"><svg><use href="#i-close"/></svg></button>
   </div>
-  <div class="lab-body" id="lab-body"></div>
+  <div class="lab-body" id="lab-body">
+    <div class="pane census" id="pane-census">
+      <div class="scroll ov">
+        <div class="blk">
+          <div class="sub-h"><span>Matter</span><span class="sub-a">of every particle</span></div>
+          <div class="mix" id="mix" role="group" aria-label="Matter: choose one to highlight it"></div>
+        </div>
+        <div class="nums">
+          <div><b id="n-alive">–</b><span class="term" data-tip="alive" tabindex="0">Species</span></div>
+          <div><b id="n-thriving">–</b><span class="term" data-tip="thriving" tabindex="0">Thriving</span></div>
+          <div><b id="n-ever">–</b><span class="term" data-tip="ever" tabindex="0">Ever</span></div>
+          <div><b id="n-depth">–</b><span class="term" data-tip="deepest" tabindex="0">Depth</span></div>
+        </div>
+        <div class="blk">
+          <div class="sub-h"><span>Living cells by species</span><span class="sub-a" id="hist-span"></span></div>
+          <canvas id="chart" aria-label="Living cells by species over time. Point at a band to name its species; click to open it."></canvas>
+        </div>
+        <div class="ov-census stack" id="ov-census"></div>
+      </div>
+      <!-- pinned below: the census above scrolls only when the screen is too short for it -->
+      <div class="blk ov-log">
+        <div class="sub-h"><span>Log</span><span class="sub-a"><button type="button" class="link" id="feed-all">All entries</button></span></div>
+        <ol class="feed" id="feed" aria-live="off"></ol>
+      </div>
+    </div>
+  </div>
 </aside>
 
 <div class="help panel float" id="help" hidden role="dialog" aria-label="Keyboard shortcuts">
@@ -890,7 +983,7 @@ body.filming .world { opacity: 0; visibility: hidden; }
     <dt>A</dt><dd>Auto camera</dd>
     <dt>C</dt><dd>Follow the specimen</dd>
     <dt>Esc</dt><dd>Close, then clear the highlight</dd>
-    <dt>K</dt><dd>Lab</dd>
+    <dt>K</dt><dd>Fold or open the Field Lab</dd>
     <dt>V</dt><dd>Settings</dd>
     <dt>S · − =</dt><dd>Sound · volume</dd>
     <dt>T</dt><dd>Trails</dd>
@@ -903,6 +996,7 @@ body.filming .world { opacity: 0; visibility: hidden; }
 </div>
 
 <div class="tip" id="tip" hidden role="tooltip"></div>
+<div class="plate" id="plate" hidden aria-hidden="true"></div>
 <div class="flash" id="flash" role="status" aria-live="polite"></div>
 
 <div class="intro" id="intro">
@@ -3672,10 +3766,10 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   // a neck is never wider than the cells it joins (cells shrink to fit dense bodies)
   let ends = min(cellRadius(p, genomes[p.kind], index), cellRadius(q, genomes[q.kind], n));
   let neck = min(view.ppu * (0.012 + adhesion * 0.025), 0.3 * ends);
-  // up close a bond reads as a neck between neighbouring cells; one reaching across a crowd past
-  // several cell widths fades (it still pulls in the sim, and shows as a line from afar)
-  let span = 1.0 - lod * smoothstep(3.5, 5.0, len * view.ppu / ends);
-  let halfWidth = mix(0.5, max(0.5, neck * taper * tension), lod);
+  // up close a bond between neighbouring cells reads as a neck; one reaching across a crowd past
+  // several cell widths stays the thin thread it is from afar, so zooming never hides a bond
+  let neckness = lod * (1.0 - smoothstep(3.5, 5.0, len * view.ppu / ends));
+  let halfWidth = mix(0.5, max(0.5, neck * taper * tension), neckness);
   o.pos = toClip((base + centre) * view.ppu + normal * side * halfWidth);
   let strength = clamp(1.0 - len / view.linkR, 0.0, 1.0);
   let fade = select(view.mute, 1.0, focusPass(p));
@@ -3684,8 +3778,8 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   let line = (0.35 + 0.65 * strength) * view.lineGain / (halfWidth * 1.6);
   let membrane = 0.18 * view.pointGain * (0.6 + 0.4 * strength);
   o.col = mix(unpack4x8unorm(p.col).rgb, unpack4x8unorm(q.col).rgb, t)
-    * (fade * lod * span * tension * tension * mix(line, membrane, lod));
-  o.cover = lod * lod * span;
+    * (fade * lod * mix(1.0, tension * tension, neckness) * mix(line, membrane, neckness));
+  o.cover = lod * neckness;
   o.side = side;
   o.across = normal;
   o.along = vec2f(t, t * len);
@@ -5302,7 +5396,7 @@ struct SV {
     return s * (1 + m / 1024) * 2 ** (e - 15);
   };
   function recordCells(u32, view) {
-    const R2 = LISTEN_REC2, n = Math.floor(u32.length / R2), out = new Float32Array(n * 5);
+    const R2 = LISTEN_REC2, n = Math.floor(u32.length / R2), out = new Float64Array(n * 5);
     for (let i = 0; i < n; i++) {
       const uv = u32[i * R2 + 1], vel = u32[i * R2 + 4], o = i * 5;
       out[o] = view.x + ((uv & 65535) / 65535 - 0.5) * 2 * view.hx;
@@ -8563,6 +8657,21 @@ var Score = class {
     });
     this.layers = [];
   }
+  // ── the opening of a world ─────────────────────────────────────────────────
+  // A new world is announced as an era arrives: a low chord rings out in a long reverb, strings
+  // swell on the era's tonic chord, then the piano plays the reigning motif (or a plain one).
+  overture(ts) {
+    const c = this.c, T2 = 10;
+    [c.root - 24, c.root - 12, d2m(4, c.root, c.scale) - 12, d2m(2, c.root, c.scale)].forEach((m, i) => {
+      c.at(ts + i * 0.02, "piano", { freq: midicps3(m), amp: 0.18, dec: 9, felt: 0.35, pan: (i - 1.5) * 0.2, rev: 0.95, dly: 0.1 });
+    });
+    c.setAt(ts, "fdn", { decay: 18 });
+    c.setAt(ts + T2, "fdn", { decay: 9 });
+    [c.root - 12, ...this.chord(0)].forEach((m, i) => {
+      c.at(ts + 1.5 + i * 0.3, "strings", { freq: midicps3(m), amp: 0.12, atk: 0.7 * T2, sus: 0.3 * T2, rel: 12, bright: 0.6, pan: (i - 1.5) * 0.35, rev: 0.6 });
+    });
+    this.interlude(ts + T2);
+  }
   // the new key arrives: its tonic chord, then the new ensemble and the reigning motif
   arrive(ts, era) {
     const c = this.c;
@@ -8638,17 +8747,18 @@ function noteParams(v, midi, dur, amp, o) {
     case "tine":
       p = { freq: midicps4(midi), amp: amp * rr(0.7, 1), dec: 0.8 + v.dec, bright: v.bright * dim, rev: wet(0.28), dly: 0.14 };
       break;
+    // the swell's bloom is long, bright and folded: it sits lower and darker than the rest, or it drowns them out
     case "swell":
       p = {
         freq: midicps4(midi),
-        amp,
+        amp: amp * 0.7,
         ratio: v.ratio,
         index: v.index * 0.7,
-        fold: v.fold * 0.8,
+        fold: v.fold * 0.6,
         atk: dur * 0.45,
         hold: dur * 0.5,
         rel: dur * 2,
-        bright: Math.min(1.2, v.bright * (0.5 + light)) * dim,
+        bright: Math.min(0.6, v.bright * (0.25 + 0.5 * light)) * dim,
         rev: wet(0.35),
         dly: 0.06
       };
@@ -8749,10 +8859,12 @@ var Conductor = class {
     else if (m.type === "audition") this.field.audition(m);
     else if (m.type === "fieldGain") Object.assign(this.field.gain, m.gain);
     else if (m.type === "era") this.pendingEra = m.name;
+    else if (m.type === "open") this.pendingOpen = true;
     else if (m.type === "reset") {
       this.field.slots.clear();
       this.pendingEra = null;
       this.switchAt = null;
+      this.pendingOpen = false;
       this.setEra(eraMusic("The First Tides"), true);
       this.score.setEra(this.era);
       this.sea = this.swap(this.time, "sea", this.seaChord(this.root), 10, this.sea);
@@ -8796,6 +8908,10 @@ var Conductor = class {
       this.nextEra = nx;
       this.switchAt = ts + 45;
       this.score.bridge(ts, nx, nx.root + (nx.fx.shift || 0), MODES[nx.mode][0], this.switchAt);
+    }
+    if (this.pendingOpen) {
+      this.pendingOpen = false;
+      if (this.switchAt == null) this.score.overture(ts);
     }
     if (this.switchAt != null && ts >= this.switchAt) {
       this.setEra(this.nextEra, true);
@@ -12088,6 +12204,21 @@ var Score = class {
     });
     this.layers = [];
   }
+  // ── the opening of a world ─────────────────────────────────────────────────
+  // A new world is announced as an era arrives: a low chord rings out in a long reverb, strings
+  // swell on the era's tonic chord, then the piano plays the reigning motif (or a plain one).
+  overture(ts) {
+    const c = this.c, T2 = 10;
+    [c.root - 24, c.root - 12, d2m(4, c.root, c.scale) - 12, d2m(2, c.root, c.scale)].forEach((m, i) => {
+      c.at(ts + i * 0.02, "piano", { freq: midicps3(m), amp: 0.18, dec: 9, felt: 0.35, pan: (i - 1.5) * 0.2, rev: 0.95, dly: 0.1 });
+    });
+    c.setAt(ts, "fdn", { decay: 18 });
+    c.setAt(ts + T2, "fdn", { decay: 9 });
+    [c.root - 12, ...this.chord(0)].forEach((m, i) => {
+      c.at(ts + 1.5 + i * 0.3, "strings", { freq: midicps3(m), amp: 0.12, atk: 0.7 * T2, sus: 0.3 * T2, rel: 12, bright: 0.6, pan: (i - 1.5) * 0.35, rev: 0.6 });
+    });
+    this.interlude(ts + T2);
+  }
   // the new key arrives: its tonic chord, then the new ensemble and the reigning motif
   arrive(ts, era) {
     const c = this.c;
@@ -12163,17 +12294,18 @@ function noteParams(v, midi, dur, amp, o) {
     case "tine":
       p = { freq: midicps4(midi), amp: amp * rr(0.7, 1), dec: 0.8 + v.dec, bright: v.bright * dim, rev: wet(0.28), dly: 0.14 };
       break;
+    // the swell's bloom is long, bright and folded: it sits lower and darker than the rest, or it drowns them out
     case "swell":
       p = {
         freq: midicps4(midi),
-        amp,
+        amp: amp * 0.7,
         ratio: v.ratio,
         index: v.index * 0.7,
-        fold: v.fold * 0.8,
+        fold: v.fold * 0.6,
         atk: dur * 0.45,
         hold: dur * 0.5,
         rel: dur * 2,
-        bright: Math.min(1.2, v.bright * (0.5 + light)) * dim,
+        bright: Math.min(0.6, v.bright * (0.25 + 0.5 * light)) * dim,
         rev: wet(0.35),
         dly: 0.06
       };
@@ -12274,10 +12406,12 @@ var Conductor = class {
     else if (m.type === "audition") this.field.audition(m);
     else if (m.type === "fieldGain") Object.assign(this.field.gain, m.gain);
     else if (m.type === "era") this.pendingEra = m.name;
+    else if (m.type === "open") this.pendingOpen = true;
     else if (m.type === "reset") {
       this.field.slots.clear();
       this.pendingEra = null;
       this.switchAt = null;
+      this.pendingOpen = false;
       this.setEra(eraMusic("The First Tides"), true);
       this.score.setEra(this.era);
       this.sea = this.swap(this.time, "sea", this.seaChord(this.root), 10, this.sea);
@@ -12321,6 +12455,10 @@ var Conductor = class {
       this.nextEra = nx;
       this.switchAt = ts + 45;
       this.score.bridge(ts, nx, nx.root + (nx.fx.shift || 0), MODES[nx.mode][0], this.switchAt);
+    }
+    if (this.pendingOpen) {
+      this.pendingOpen = false;
+      if (this.switchAt == null) this.score.overture(ts);
     }
     if (this.switchAt != null && ts >= this.switchAt) {
       this.setEra(this.nextEra, true);
@@ -12561,6 +12699,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
       reset: () => {
         st.sent.clear();
         post({ type: "reset" });
+      },
+      // a new world begins: its era's song plays as soon as the soundtrack is heard
+      async overture() {
+        if (st.starting) await st.starting.catch(() => {
+        });
+        if (st.on) post({ type: "open" });
       },
       wantsOn: pref.on ?? true
     };
@@ -14167,12 +14311,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
     bodyplan: "The long-run mix of cell types a species produces. Each child’s type is chosen by a developmental rule from its parent’s type; this is where that rule settles.",
     stone: "Bedrock, and the skeletons of calcifying cells. Stone never drifts and the living cannot pass through it. Attacks made from among stone sometimes miss, so prey shelters in reefs, and calcifying cells settle on their own reef while everything else must go around it. Bedrock lasts nearly an hour. A loose grain of reef stone crumbles within minutes, a grain packed into a reef lasts far longer, and a neighbourhood that is mostly reef wears fast, so reefs grow as separate patches and persist only while they are being built.",
     calcify: "How much of a skeleton a cell lays down. Calcifying costs upkeep. When a settled calcifying cell dies of hunger or old age it may leave stone instead of a husk, far more often beside stone already there, so reefs grow outward from rock and from the rare place one starts. Drifting cells seldom leave stone. Calcifiers can settle on stone; to everything else it is solid.",
-    adhesion: "How strongly cells of one species bond. Above 15%, each cell keeps up to two same-species partners with springs. Empty slots find the nearest neighbours within bond range; children start bonded to their parent if they are the same species. Bonds last until a partner dies, changes kind or stretches too far away. Bonds are the links you see and they hold bodies together. Bonded cells share the cost of living (up to 15% less upkeep), shade each other less and are armoured against attack. They still pay crowding beyond their bond partners, disperse poorly and their inner cells struggle to reach silt to divide. Species without adhesion are free-living.",
+    adhesion: "How strongly cells of one species bond. Above 15%, each cell keeps up to two same-species partners with springs. Empty slots find the nearest neighbours within bond range; children start bonded to their parent if they are the same species. Bonds last until a partner dies, changes kind or stretches too far away. Bonds are the links you see and they hold bodies together. Bonded cells share the cost of living (up to 15% less upkeep), shade each other less and are armoured against attack. They still pay crowding beyond their bond partners, disperse poorly and their inner cells struggle to reach silt to divide. Species without adhesion are single-celled.",
     bond: "A persistent spring between two cells of the same species. Drawn as a link. It breaks if a partner dies, changes kind or stretches beyond 1.25 times the range at which bonds form. A connected web of bonds is one organism.",
-    organism: "A body: all same-species cells connected through bonds. A species only forms bodies if its adhesion is above 15%; otherwise every cell is its own organism, even when the species has several cell types (morphs) or gathers into swarms. Selecting a cell of a body follows the whole body: if the watched cell dies the watch passes to another of its cells, and if the body splits it follows the larger part.",
+    organism: "A body: all same-species cells connected through bonds. A species only forms bodies if its adhesion is above 15%; otherwise every cell is its own organism, even when the species has several cell types or gathers into swarms. Selecting a cell of a body follows the whole body: if the watched cell dies the watch passes to another of its cells, and if the body splits it follows the larger part.",
     swimming: "Self-propulsion: a steady push in the direction the cell is already moving. Reduced by photosynthesis.",
     schooling: "Steering toward the average velocity of nearby cells of the same species. Makes schools and coherent bodies move together.",
-    reach: "How far a cell’s attraction and repulsion forces extend, in grid cells (at most 1).",
+    reach: "How far a cell’s attraction and repulsion forces extend, in micrometres (at most about 60 µm, six cell widths).",
     personalspace: "The inner part of the reach where any living cell is pushed away. Sets how tightly packed bodies are.",
     thrust: "How strongly a cell responds to attractions and repulsions.",
     glide: "How long momentum lasts (the half-life of velocity). Short glide stops quickly; long glide coasts.",
@@ -14190,8 +14334,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
     alive: "Every species with at least one living cell, including brand-new mutants.",
     ever: "Total number of species that have ever existed in this epoch.",
     stepms: "GPU time one simulation step takes.",
+    renderres: "The share of the screen’s resolution the world is drawn at right now (Scene px). With Render scale on Auto it drops when frames run late and climbs back when there is room.",
     drawms: "GPU time drawing the world once takes: cells, stone, bloom and the final image. At high speeds it is drawn about thirty times a second.",
-    stride: "How much time each simulation step covers, in sixtieths of a second. At 1 the world runs exactly; a speed the GPU cannot reach that way takes longer steps (up to 4/60 s), which keep the same rates of life and death and, over long runs, the same diversity.",
+    stride: "How much simulated time each step moves the world forward. Normally a step is 1/60 s, the most exact. When you ask for a speed the GPU can’t reach in steps that small, it takes bigger ones instead, up to 4/60 s. Bigger steps are a little coarser, but births, deaths and the variety of species stay the same over long runs.",
     simrate: "How fast the world is running right now, as a multiple of real time.",
     deepest: "The most speciation steps between any living species and its founder.",
     generation: "How many divisions separate this cell from the beginning of the world.",
@@ -14201,6 +14346,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
     touching: "Other species whose cells sit within bond range of this organism.",
     energy: "Stored energy. Gained from food or light, spent on upkeep and on building children. A cell starves at zero.",
     origin: "How this particle came to be what it is now.",
+    crowding: "Packed among more than four of its own kind (bond partners aside), a cell pays extra upkeep: the more crowded, the more.",
+    bondthrift: "Bonded cells share the cost of living: each bond partner takes a little off a cell’s upkeep, up to 15%.",
+    lean: "A cell low on energy slows its metabolism and burns only part of its full upkeep, so it lasts longer between meals.",
+    affinity: "How strongly each of the species’ cell types is drawn toward (warm, +) or pushed away from (cool, −) what it meets within reach: its own cell types, other species and matter. It is read from the cell type’s receptors against the other’s surface signature; −1 to +1. A picked cell’s own type is marked. Diet adds its own pull toward food on top of this.",
     lighthere: "Light at this cell’s position right now: baseline plus tide, scaled by the season.",
     mind: "What this cell is doing, read from a replay of its latest decision. A cell has no brain: every frame it adds up the pulls and pushes of everything within reach (its receptors against their surface signatures, appetite for the foods its diet favours, schooling, bonds, stone), moves, then eats, divides or neither. The mode names which pull wins; hover it for the reasoning. The compass draws each pull as an arrow, its length the pull’s strength, with the cell’s heading dashed and its target as a diamond on the rim. The lamps light for conditions that shape what it does. Fleeing is an evolved aversion: no cell knows what a predator is, but lineages whose receptors happened to push them away from their hunters survived.",
     "mind-food": "Appetite: a hungry cell is drawn toward the foods its diet favours. Flesh-eaters are drawn to animal cells, grazers (and, reluctantly, flesh-eaters) to plant cells, and glint- and husk-eaters to glint and husks. It lets living food inside its personal space so it can reach it. A sated cell feels no appetite.",
@@ -14209,11 +14358,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
     "mind-matter": "The pull or push of silt, glint, husks and stone on its receptors (apart from appetite), plus stone’s solid push on any cell but a calcifier.",
     "mind-net": "Light minus upkeep, per second. Below zero the cell is living on its reserves until it eats.",
     "mind-near": "Every species with cells within this cell’s reach, its own kind first; a species keeps its row while it stays. Cells: how many are in reach. Role: predator, a species built to catch this one; prey, one this cell is built to eat. The last column is how they pull on this cell: right, drawn toward them; left, pushed away.",
-    colonial: "On average its cells attract each other. In a bonded species this packs the body tight; in a free-living species the cells gather into swarms without ever joining.",
+    colonial: "On average its cells attract each other. In a bonded species this packs the body tight; in a single-celled species the cells gather into swarms without ever joining.",
     solitary: "On average its cells repel each other, so they spread out (or, if bonded, stretch into strands).",
     looseknit: "Its cells barely attract or repel each other.",
-    morphs: "A free-living species whose genome makes more than one cell type. The types never bond into a body: they are separate individuals of one species with different shapes and behaviours, like castes or life stages. Their children can be any type the developmental rule allows.",
-    sessile: "Barely moves and resists currents: a reef or mat.",
+    morphs: "A single-celled species whose genome makes more than one cell type. The types never bond into a body: they are separate individuals of one species with different shapes and behaviours, like castes or life stages. Their children can be any type the developmental rule allows.",
+    singlecelled: "Its cells never bond: each one is a whole organism, however closely they crowd. A species bonds into multicellular bodies only once its adhesion passes 15%.",
+    anchored: "Barely moves and holds against the currents: a reef or a mat.",
     drifting: "Carried by the currents.",
     focus: "A highlight: everything outside the chosen filter is dimmed in the simulation.",
     links: "Bonds between cells of one multicellular body. Single-celled species never show links.",
@@ -14229,17 +14379,18 @@ registerProcessor("tidemote-sound", TidemoteSound);
     closeup: "The live close-up in the specimen panel: a second, small view of the world drawn every frame.",
     particles: "Every grain, husk and cell is one particle; their number is fixed for a world’s whole life. Auto measures the GPU and picks the most it can run smoothly. Changing it starts a new world.",
     loupe: "A magnifier that follows the mouse when zoomed out. Clicks inside it select what is under the crosshair.",
-    speed: "Current speed, in grid cells per second.",
-    song: "Every species has its own song, read from its genome. Its surface signature picks the notes, how it lives sets the rhythm, tempo and range (hunters leap in quick clipped figures, drifting algae sway through long ones), and its colour picks the instrument. A mutant sings a variation: a few notes moved, or the tune turned upside down, reversed or answered. Its cells sing it as they go, in step if the species schools; a bonded colony adds a second voice.",
+    speed: "Current speed, in micrometres (µm) per second.",
+    scale: "Lengths are in micrometres (µm, a thousandth of a millimetre), taking a cell of ordinary size to be 10 µm across, about the size of a protist. A cell senses and pulls on others at most about 60 µm away.",
+    song: "Every species has its own song, read from its genome. Its surface signature picks the notes, how it lives sets the rhythm, tempo and range (hunters leap in quick clipped figures, drifting photosynths sway through long ones), and its colour picks the instrument. A mutant sings a variation: a few notes moved, or the tune turned upside down, reversed or answered. Its cells sing it as they go, in step if the species schools; a bonded colony adds a second voice.",
     sigil: "The species’ song drawn as the organism that sings it: one cell per note, in the shape and colour of the cell type that sings it, as large as the note is long and turned by its pitch, packed in the order they sing as a colony grows. Cells are bonded only if the species bonds.",
     instrument: "The instrument a species sings with: its family follows how it lives, its exact voice and timbre its colour.",
-    register: "How high the species sings. Plankton and scavengers sing high, hunters low.",
+    register: "How high the species sings. Free-floating photosynths and scavengers sing high, hunters low.",
     tempo: "How quickly its song moves, from how fast and how hungrily it lives.",
     audioload: "How much of its time the soundtrack’s audio thread spends rendering. Near 100% it would crackle, so above about 50% fewer notes may sound at once and the oldest fade out early.",
     songmarks: "A faint ring spreads from a cell each time it sings its species’ note: for the picked species only, or for every species. Needs sound on.",
     diversity: "Effective number of species: exp of the Shannon entropy of species populations. A world of 10 equally common species scores 10."
   };
-  var t = (term2, label) => `<span class="term" data-tip="${term2}">${label}</span>`;
+  var t = (term2, label2) => `<span class="term" data-tip="${term2}">${label2}</span>`;
   var GUIDE = [
     {
       id: "overview",
@@ -14255,7 +14406,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       html: `<ol class="steps">
 <li><b>Silt → glint.</b> Each second a grain of silt has a chance to become glint, mostly inside tide bands. Glint holds 1.0 energy, leaks 0.03 per second and turns back into silt below 0.2.</li>
 <li><b>Feeding.</b> Cells eat glint, husks, or other cells (${t("flesh", "flesh")}), according to their ${t("diet", "diet")}. Eaten glint and husks turn into silt; a killed cell becomes a husk. Photosynthetic cells drink ${t("light", "light")} instead, and are only cropped a bite at a time. Cells stop feeding once they have enough energy to divide.</li>
-<li><b>Division.</b> Once its energy passes its ${t("dividesat", "division threshold")} and a grain of silt lies within 0.25 cells, a cell turns that grain into its child and hands over a ${t("childshare", "share")} of its energy. Every child is built out of silt.</li>
+<li><b>Division.</b> Once its energy passes its ${t("dividesat", "division threshold")} and a grain of silt lies within about 15 µm, a cell turns that grain into its child and hands over a ${t("childshare", "share")} of its energy. Every child is built out of silt.</li>
 <li><b>Mutation.</b> Each division has a small chance of founding a new species with a nudged genome.</li>
 <li><b>Death.</b> At zero energy (starvation) or at its ${t("lifespan", "lifespan")} a cell becomes a husk carrying leftover energy. Husks decay and crumble into silt. A settled ${t("calcify", "calcifying")} cell may leave ${t("stone", "stone")} instead, mostly beside stone already there; stone wears back into silt over minutes.</li>
 <li><b>Sparks.</b> Occasionally glint sparks into a completely random new species (${t("abiogenesis", "abiogenesis")}), so life can always restart.</li>
@@ -14291,19 +14442,19 @@ registerProcessor("tidemote-sound", TidemoteSound);
 <li><b>${t("glide", "Glide")}</b>: how long momentum lasts.</li>
 <li><b>Currents</b>, scaled by ${t("currentpull", "current pull")}.</li>
 </ul>
-<p>There is no pathfinding and no sense beyond about one grid cell. Roamers are swimmers that travel until forces bend their path. Self-propelled bodies come from chases between cell types: if β is drawn to α while α pushes β away, β chases α forever and the body drives itself forward. Evolution keeps whichever pulls lead to food.</p>`
+<p>There is no pathfinding and no sense beyond about 60 µm, six cell widths. Roamers are swimmers that travel until forces bend their path. Self-propelled bodies come from chases between cell types: if β is drawn to α while α pushes β away, β chases α forever and the body drives itself forward. Evolution keeps whichever pulls lead to food.</p>`
     },
     {
       id: "ecology",
       title: "Ecology",
       short: "Ecology",
-      html: `<p>Producers are photosynthesising reefs, mats and plankton, plus glint grazers. Consumers are grazers of plants, scavengers of husks, and predators. Several pressures shape which forms thrive:</p>
+      html: `<p>Producers are photosynths, anchored colonies and free-floating drifters alike, plus glint grazers. Consumers are grazers that crop photosynths, scavengers of husks, and predators. Several pressures shape which forms thrive:</p>
 <ul>
 <li>Crowding: cells packed among their own kind sicken (a body’s bond partners do not count), so clonal blobs and sprawling bodies break up and species mix.</li>
 <li>Grazers crop the plants, predators thin out the grazers, and scavengers live off the husks both leave behind.</li>
 <li>Catching takes skill: cells catch living prey in proportion to how well they are built to eat it, so photosynthesisers and husk eaters rarely kill.</li>
 <li>Hunters and grazers get good at catching what they caught last and often miss unfamiliar prey, so booming species feed their predators and rare ones are spared.</li>
-<li>Anchored plants thrive where currents run strong; drifting plankton where they are calm. Bonded bodies live cheaply and resist attack but disperse poorly.</li>
+<li>Anchored photosynths thrive where currents run strong; drifting ones where they are calm. Bonded bodies live cheaply and resist attack but disperse poorly.</li>
 <li>The climate keeps changing which strategy pays.</li>
 </ul>
 <p>Mass is conserved, so every birth needs silt freed by some earlier death or meal. Life is limited by matter as well as energy.</p>`
@@ -14323,8 +14474,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
 <li><b>Colour</b>: the species, tinted per cell type. Related species share hues. Brightness shows stored energy; newborns flash; some lineages pulse.</li>
 <li><b>Shape</b>: disc, ring, star, nucleus or diamond, a lineage marker per cell type. Husks are dim brown rings, glint is a pale sparkle, silt is faint slate.</li>
 <li><b>Links</b>: ${t("bond", "bonds")} within one multicellular body.</li>
-<li><b>Census</b>: the bar splits every particle between living cells, glint, husks, stone and silt. The chart below it stacks living cells by species in their colours; the pale top band is life in species too small to list, and dotted lines mark new eras.</li>
-<li><b>Scale</b>: the ticks above the controls are whole grid cells (or a few, zoomed out); the bar at the right says how many.</li>
+<li><b>Census</b>: the bar splits every particle between living cells, glint, husks, stone and silt. The chart below it stacks living cells by species in their colours (point at a band to name its species, click to open it); the pale top band is life in species too small to list, and dotted lines mark new eras.</li>
+<li><b>Scale</b>: the ticks above the controls are round lengths in ${t("scale", "micrometres")} (millimetres, zoomed out); the bar at the right says how long.</li>
 </ul>`
     },
     {
@@ -14332,10 +14483,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       title: "Research tools",
       short: "Tools",
       html: `<ul>
-<li><b>Specimen</b> (click or tap a particle): a live close-up, its energy and age, its record, its organism (traced through its bonds, highlighted and followed as a whole, even after the cell you picked dies), its species and its full genome. Species names everywhere are links.</li>
+<li><b>Specimen</b> (click or tap a particle): a live close-up, its energy and age, then one scroll of sections (the bar above them jumps between them): its behaviour, its body and record (its organism traced through its bonds, highlighted and followed as a whole, even after the cell you picked dies), its species and its full genome. Species names everywhere are links.</li>
 <li><b>Lab → Species</b>: every species, filtered by status, diet, movement and body. <b>Highlight these</b> dims everything outside the filter.</li>
 <li><b>Lab → Lineage</b>: every established species on a time axis, joined to the ancestor it arose from; each bar thickens with its population.</li>
-<li><b>Lab → Census</b>: the world broken down by matter, diet, movement, body and cell type. Choose a row to highlight it.</li>
+<li><b>Lab → Census</b> (the Lab's first section, the column on the left; fold it away from its header or with K): the world broken down by matter, diet, movement, body, cell type and condition, the chart of living cells by species, and the latest log entries. Choose a row to highlight it.</li>
 <li><b>Lab → Charts</b>: population, diversity, births, deaths, meals and climate over time, and the eras so far.</li>
 <li><b>Lab → Log</b>: every logged event, searchable.</li>
 <li><b>Auto</b>: the camera films the world on its own, with captions saying what it is showing; it also takes over after a minute alone (switch that off in Settings).</li>
@@ -14358,11 +14509,18 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   var cssRgb = (c, k = 1) => `rgb(${c.slice(0, 3).map((v) => Math.round(clamp6(v * k, 0, 1) * 255)).join(",")})`;
   var cssCol = (u, k = 1) => cssRgb(unpackUnorm(u), k);
-  var term = (key, label) => `<span class="term" data-tip="${key}" tabindex="0">${label}</span>`;
+  var term = (key, label2) => `<span class="term" data-tip="${key}" tabindex="0">${label2}</span>`;
   var spLink = (serial, name) => `<a href="#" class="sp" data-serial="${serial}">${esc(name)}</a>`;
   var meter = (frac, cls = "") => `<span class="meter ${cls}"><i style="width:${(clamp6(frac, 0, 1) * 100).toFixed(1)}%"></i></span>`;
   var ROLE = ["α", "β", "γ"];
   var cellRadius = (p, g, ppu) => 0.085 * (g ? g.size : 1) * (1 - 0.12 * (p.role || 0)) * ppu;
+  var UM_PER_UNIT = 10 / 0.17;
+  var fmtLen = (u, unit = "") => {
+    const um = Math.abs(u) * UM_PER_UNIT;
+    const v = um >= 1e3 ? `${(um / 1e3).toFixed(um >= 1e4 ? 1 : 2)} mm` : `${um >= 10 ? Math.round(um) : um.toFixed(1)} µm`;
+    return v + unit;
+  };
+  var NICE_UM = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1e3, 2e3, 5e3, 1e4, 2e4, 5e4];
   var MATTER = [
     { name: "Silt", css: "#5d6a82", blurb: "Inert mineral grit carried on the currents. The Tide charges it into glint, and cells build their offspring out of it." },
     { name: "Glint", css: "#b9e6ff", blurb: "Silt charged by the Tide: free-floating food. Its charge fades back to silt if nothing eats it." },
@@ -14434,7 +14592,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     return [lo, hi];
   }
-  function songSVG(m, { w = 300, h = 68, col = "#7fd6df", col2 = col, ghost = null, label = "Its song" } = {}) {
+  function songSVG(m, { w = 300, h = 68, col = "#7fd6df", col2 = col, ghost = null, label: label2 = "Its song" } = {}) {
     const lines = [m.notes, m.voice2 || [], ...ghost ? [ghost.notes] : []];
     const [lo, hi] = span(lines);
     const rows = hi - lo + 1, pad2 = 8, base = h - 7;
@@ -14444,7 +14602,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const cyc = Math.max(m.cycle, ghost ? ghost.cycle : 0);
     const sx = (w - 2 * pad2) / cyc, x = (t2) => pad2 + t2 * sx;
     const bh = Math.max(2, rowH * 0.5);
-    let s = `<svg class="song-roll" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${label}">`;
+    let s = `<svg class="song-roll" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${label2}">`;
     const c = 6;
     s += `<path class="brk" d="M.5 ${c}V.5H${c}M${w - c} .5H${w - 0.5}V${c}M.5 ${h - c}V${h - 0.5}H${c}M${w - c} ${h - 0.5}H${w - 0.5}V${h - c}"/>`;
     let ticks = "";
@@ -14504,7 +14662,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     return out;
   }
-  function sigilSVG(v, g, { size = 26, label = "" } = {}) {
+  function sigilSVG(v, g, { size = 26, label: label2 = "" } = {}) {
     const m = v.motif, roles = noteRoles(m, g);
     const cells = [...m.notes.map((nt, i) => ({ nt, role: roles[i], line: 0 })), ...(m.voice2 || []).map((nt) => ({ nt, role: 1, line: 1 }))].sort((a, b) => a.nt.at - b.nt.at || a.line - b.line);
     const maxDur = Math.max(...cells.map((c) => c.nt.dur));
@@ -14525,7 +14683,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const k = size * 0.94 / Math.max(x1 - x0, y1 - y0);
     const cx = size / 2 - (x0 + x1) / 2 * k, cy = size / 2 - (y0 + y1) / 2 * k;
     const X = (c) => r1(cx + c.x * k), Y = (c) => r1(cy + c.y * k), cellR = Math.min(k * 0.42, size * 0.22);
-    let s = `<svg class="sigil" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}"${label ? ` role="img" aria-label="${label}"` : ' aria-hidden="true"'}>`;
+    let s = `<svg class="sigil" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}"${label2 ? ` role="img" aria-label="${label2}"` : ' aria-hidden="true"'}>`;
     if ((g.adhesion || 0) > DEFAULT_K.adhMin) {
       const deg = /* @__PURE__ */ new Map(), pairs = [];
       cells.forEach((c, i) => {
@@ -14578,12 +14736,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       for (let y = top; y < h; y += 3) g.fillRect(x - 0.5, y, 1, 1.5);
     }
   }
-  function drawLiving(cv, hist, reg, eras) {
-    const f2 = fit(cv);
-    if (!f2) return;
-    const { g, w, h } = f2;
-    frame(g, w, h, 2, hist, eras);
-    if (hist.length < 2) return;
+  function stack(hist) {
     let max = 1;
     for (const s of hist) if (s.living > max) max = s.living;
     const by = /* @__PURE__ */ new Map();
@@ -14595,6 +14748,30 @@ registerProcessor("tidemote-sound", TidemoteSound);
         e.b = i;
       }
     });
+    return { max, by, order: [...by.keys()].sort((a, b) => a - b) };
+  }
+  function livingAt(cv, hist, px, py) {
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if (hist.length < 2 || !w || !h) return null;
+    const { max, by, order } = stack(hist);
+    const i = Math.max(0, Math.min(hist.length - 1, Math.round(px / w * (hist.length - 1))));
+    const v = (h - py) / (h - 4) * max;
+    if (v < 0) return null;
+    let base = 0;
+    for (const serial of order) {
+      const p = by.get(serial).vals[i];
+      if (p > 0 && v >= base && v < base + p) return { serial, pop: p, t: hist[i].t, x: i / (hist.length - 1) * w };
+      base += p;
+    }
+    return null;
+  }
+  function drawLiving(cv, hist, reg, eras, hot = null) {
+    const f2 = fit(cv);
+    if (!f2) return;
+    const { g, w, h } = f2;
+    frame(g, w, h, 2, hist, eras);
+    if (hist.length < 2) return;
+    const { max, by, order } = stack(hist);
     const x = (i) => i / (hist.length - 1) * w;
     const y = (v) => h - v / max * (h - 4);
     const base = new Float32Array(hist.length);
@@ -14607,9 +14784,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       g.fill();
       for (let i = a; i <= b; i++) base[i] += vals[i];
     };
-    for (const serial of [...by.keys()].sort((a, b) => a - b)) {
+    for (const serial of order) {
       const sp = reg.get(serial), e = by.get(serial);
-      band(e.vals, sp ? cssCol(sp.genome.col, 0.9) : "rgba(255,200,140,0.8)", Math.max(0, e.a - 1), Math.min(hist.length - 1, e.b + 1));
+      const a = hot == null || hot === serial ? 0.9 : 0.35;
+      band(e.vals, sp ? cssCol(sp.genome.col, a) : `rgba(255,200,140,${a * 0.9})`, Math.max(0, e.a - 1), Math.min(hist.length - 1, e.b + 1));
     }
     band(hist.map((s) => Math.max(0, s.living - s.sp.reduce((a, q) => a + q[1], 0))), "rgba(226,241,240,0.16)");
     g.strokeStyle = "rgba(226,241,240,0.55)";
@@ -14662,13 +14840,34 @@ registerProcessor("tidemote-sound", TidemoteSound);
     return vals.map((v, i) => `${i ? "L" : "M"}${(i / (vals.length - 1) * w).toFixed(1)},${(h - 1 - v / max * (h - 2)).toFixed(1)}`).join("");
   }
 
+  // src/ui.js
+  var label = (text, tip) => tip ? term(tip, text) : text;
+  var sectHead = (text, tip) => `<h3 class="sect-h"><span>${label(text, tip)}</span></h3>`;
+  var section = (id, text, html) => `<section class="sx" data-sx="${id}">${text ? sectHead(text) : ""}<div class="sx-b">${html}</div></section>`;
+  var subHead = (text, aside = "", tip) => `<div class="sub-h"><span>${label(text, tip)}</span>${aside ? `<span class="sub-a">${aside}</span>` : ""}</div>`;
+  var block = (text, html, { aside = "", tip, cls = "" } = {}) => `<div class="blk${cls ? ` ${cls}` : ""}">${text ? subHead(text, aside, tip) : ""}${html}</div>`;
+  var kv = (text, value, tip) => `<div class="kv"><span>${label(text, tip)}</span><b>${value}</b></div>`;
+  var trait = (text, v, lo, hi, value, tip, cls = "cyan thin") => `<div class="trait"><span>${label(text, tip)}</span>${meter((v - lo) / (hi - lo), cls)}<b>${value}</b></div>`;
+  var disclosure = (key, text, html, open = false) => `<div class="blk disc" data-disc="${key}"><button type="button" class="sub-h disc-h" aria-expanded="${open}"><span>${text}</span><svg class="disc-i" aria-hidden="true"><use href="#i-chev"/></svg></button><div class="disc-b"${open ? "" : " hidden"}>${html}</div></div>`;
+  function wireDisclosures(root, onToggle = () => {
+  }) {
+    root.addEventListener("click", (e) => {
+      const h = e.target.closest(".disc-h");
+      if (!h || !root.contains(h)) return;
+      const on = h.getAttribute("aria-expanded") !== "true";
+      h.setAttribute("aria-expanded", String(on));
+      h.nextElementSibling.hidden = !on;
+      onToggle(h.parentElement.dataset.disc, on);
+    });
+  }
+
   // src/lab.js
   function createLab(api) {
     const $2 = (id) => document.getElementById(id);
-    const root = $2("lab"), bodyEl = $2("lab-body"), tabs = [...root.querySelectorAll("[data-tab]")];
+    const root = $2("lab"), bodyEl = $2("lab-body"), tabs = [...root.querySelectorAll("[data-tab]")], fold = $2("lab-close");
     const st = {
-      open: false,
-      tab: "species",
+      open: api.startOpen,
+      tab: "census",
       q: "",
       status: "thriving",
       diet: "all",
@@ -14677,31 +14876,50 @@ registerProcessor("tidemote-sound", TidemoteSound);
       sort: "pop",
       linAll: false,
       logType: "all",
-      logQ: ""
+      logQ: "",
+      open_: { celltypes: false }
+      // census disclosures
     };
     const panes = {};
     let lastUpdate = 0;
+    function apply() {
+      root.classList.toggle("closed", !st.open);
+      root.dataset.tab = st.tab;
+      document.body.classList.toggle("lab-open", st.open);
+      document.body.classList.toggle("lab-wide", st.open && st.tab !== "census");
+      fold.setAttribute("aria-expanded", String(st.open));
+      fold.setAttribute("aria-label", st.open ? "Collapse the Lab" : "Open the Lab");
+      fold.dataset.hint = st.open ? "Collapse · K" : "Open the Lab · K";
+      $2("lab-open").setAttribute("aria-expanded", String(st.open));
+    }
     function open(tab) {
       if (tab) st.tab = tab;
+      const was = st.open;
       st.open = true;
-      root.hidden = false;
-      document.body.classList.add("lab-open");
-      $2("lab-open").setAttribute("aria-expanded", "true");
+      apply();
       show();
+      if (!was) api.onFold(true);
     }
-    function close() {
+    function close({ keep = false } = {}) {
+      if (!st.open) return;
       st.open = false;
-      root.hidden = true;
-      document.body.classList.remove("lab-open");
-      $2("lab-open").setAttribute("aria-expanded", "false");
+      apply();
+      api.onFold(false, keep);
     }
     function toggle(tab) {
       if (st.open && (!tab || tab === st.tab)) close();
       else open(tab);
     }
-    $2("lab-close").addEventListener("click", close);
+    fold.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggle();
+    });
+    root.querySelector(".lab-title").addEventListener("click", (e) => {
+      if (!e.target.closest("button")) toggle();
+    });
     tabs.forEach((b) => b.addEventListener("click", () => {
       st.tab = b.dataset.tab;
+      apply();
       show();
     }));
     $2("lab-tabs").addEventListener("keydown", (e) => {
@@ -14719,10 +14937,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
         b.tabIndex = on ? 0 : -1;
       });
       for (const [k, p] of Object.entries(panes)) p.el.hidden = k !== st.tab;
+      $2("pane-census").hidden = st.tab !== "census";
       if (!panes[st.tab]) {
         const p = builders[st.tab]();
         panes[st.tab] = p;
-        bodyEl.append(p.el);
+        if (!p.el.parentNode) bodyEl.append(p.el);
       }
       panes[st.tab].update(true);
       tabs.find((b) => b.dataset.tab === st.tab)?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -14737,7 +14956,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const pressChips = (ctl, key) => ctl.querySelectorAll(`[data-k="${key}"]`).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === st[key])));
     const hovering = (el) => el.matches(":hover");
     const DIETS = [["all", "Any"], ["photosynth", "Photosynth"], ["grazer", "Grazer"], ["scavenger", "Scavenger"], ["predator", "Predator"], ["omnivore", "Omnivore"]];
-    const MOBS = [["all", "Any"], ["sessile", "Sessile"], ["crawler", "Crawler"], ["swimmer", "Swimmer"], ["drifter", "Drifter"]];
+    const MOBS = [["all", "Any"], ["anchored", "Anchored"], ["crawler", "Crawler"], ["swimmer", "Swimmer"], ["drifter", "Drifter"]];
     const SORTS = { pop: "Population", peak: "Peak", newest: "Newest", oldest: "Oldest", depth: "Mutations", swim: "Swimming", size: "Size" };
     function matches(sp, F) {
       const f2 = api.facets(sp.genome);
@@ -14760,12 +14979,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
       swim: (a, b) => b.genome.swim * (1 - b.genome.photo) - a.genome.swim * (1 - a.genome.photo)
     };
     function buildSpecies() {
+      const seg = (label2, key, opts) => `<span class="lbl">${label2}</span><div class="segs" role="group" aria-label="${key}">${chips(key, opts, st[key])}</div>`;
       const p = pane(`<div class="qrow"><input type="search" id="lab-q" placeholder="Search by name" aria-label="Search species by name" autocomplete="off"><button type="button" class="chip filt" id="sp-filt" aria-expanded="false" aria-controls="sp-filters">Filters</button></div><div class="filters" id="sp-filters">
-      <div class="row" role="group" aria-label="Status"><span class="lbl">Status</span>${chips("status", [["thriving", "Thriving"], ["alive", "All alive"], ["extinct", "Extinct"], ["all", "All"]], st.status)}</div>
-      <div class="row" role="group" aria-label="Diet"><span class="lbl">${term("diet", "Diet")}</span>${chips("diet", DIETS, st.diet)}</div>
-      <div class="row" role="group" aria-label="Movement"><span class="lbl">Moves</span>${chips("mobility", MOBS, st.mobility)}</div>
-      <div class="row" role="group" aria-label="Body"><span class="lbl">${term("organism", "Body")}</span>${chips("body", [["all", "Any"], ["multicellular", "Many cells"], ["single-celled", "One cell"]], st.body)}</div></div>
-      <div class="sum"><span id="sp-sum"></span><span class="sel"><label class="lbl" for="sp-sort">Sort</label><select id="sp-sort">${Object.entries(SORTS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select><button type="button" class="chip" id="sp-hl">Highlight these</button></span></div>`);
+      ${seg("Status", "status", [["thriving", "Thriving"], ["alive", "Living"], ["extinct", "Extinct"], ["all", "Any"]])}
+      ${seg(term("diet", "Diet"), "diet", DIETS)}
+      ${seg("Moves", "mobility", MOBS)}
+      ${seg(term("organism", "Body"), "body", [["all", "Any"], ["multicellular", "Multicellular"], ["single-cell", "Single-cell"]])}</div>
+      <div class="sum"><span><span id="sp-sum"></span><button type="button" class="link" id="sp-reset" hidden>Reset</button></span><span class="sel"><label class="lbl" for="sp-sort">Sort</label><select id="sp-sort">${Object.entries(SORTS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select><button type="button" class="chip" id="sp-hl">Highlight these</button></span></div>`);
       const list = document.createElement("ol");
       list.className = "splist";
       p.scroll.append(list);
@@ -14796,6 +15016,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (b) {
           st[b.dataset.k] = b.dataset.v;
           pressChips(p.ctl, b.dataset.k);
+          update(true);
+          return;
+        }
+        if (e.target.closest("#sp-reset")) {
+          Object.assign(st, { status: "thriving", diet: "all", mobility: "all", body: "all" });
+          ["status", "diet", "mobility", "body"].forEach((k) => pressChips(p.ctl, k));
           update(true);
           return;
         }
@@ -14830,7 +15056,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           li.dataset.serial = sp.serial;
           li.tabIndex = 0;
           const f2 = api.facets(sp.genome);
-          li.innerHTML = `<span class="spsig term" data-tip="sigil">${sigilSVG(voiceOf(sp.genome), sp.genome, { size: 26 })}</span><div class="spmain">${spLink(sp.serial, sp.name)}<small>${f2.diet} · ${f2.mobility} · ${f2.body === "multicellular" ? `${f2.types}-type body` : "one cell"}</small></div><svg viewBox="0 0 78 22" class="spark" aria-hidden="true"><path stroke="${cssCol(sp.genome.col)}"/></svg><div class="spnum"><b></b><span></span></div>`;
+          li.innerHTML = `<span class="spsig term" data-tip="sigil">${sigilSVG(voiceOf(sp.genome), sp.genome, { size: 26 })}</span><div class="spmain">${spLink(sp.serial, sp.name)}<small>${f2.diet} · ${f2.mobility} · ${f2.body}</small></div><svg viewBox="0 0 78 22" class="spark" aria-hidden="true"><path stroke="${cssCol(sp.genome.col)}"/></svg><div class="spnum"><b></b><span></span></div>`;
           r = { li, path: li.querySelector("path"), b: li.querySelector(".spnum b"), s: li.querySelector(".spnum span"), key: "" };
           rows.set(sp.serial, r);
         }
@@ -14846,6 +15072,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         $2("sp-sum").textContent = `${fmt(all.length)} species · ${fmt(tot)} cells · ${(tot / living * 100).toFixed(1)}% of life`;
         const nf2 = ["status", "diet", "mobility", "body"].filter((k) => st[k] !== (k === "status" ? "thriving" : "all")).length;
         $2("sp-filt").textContent = nf2 ? `Filters · ${nf2}` : "Filters";
+        $2("sp-reset").hidden = !nf2;
         const now = performance.now();
         const sparks = force || now - sparkAt > 3e3;
         if (sparks) sparkAt = now;
@@ -14995,10 +15222,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
             }
           }
           const anchorEnd = x0 > W * 0.62;
-          const label = `${esc(s.name)}${s.alive ? "" : " †"}`;
+          const label2 = `${esc(s.name)}${s.alive ? "" : " †"}`;
           const tx = anchorEnd ? Math.min(W - padR, x1) : x0 + 1;
           const tip = `${s.name} · ${s.alive ? `${fmt(s.pop)} alive` : `extinct at ${fmtClock(s.extinct ?? 0)}`} · arose ${fmtClock(s.born)} · peak ${fmt(s.peak)}`;
-          svg += `<g class="row" data-serial="${s.serial}" tabindex="0" role="listitem" aria-label="${esc(tip)}"><rect class="hit" x="0" y="${y - 22}" width="${W}" height="${RH}" fill="${hl === `sp:${s.serial}` ? "rgba(255,95,58,0.12)" : "transparent"}"/><line x1="${x0}" x2="${x1}" y1="${y}" y2="${y}" stroke="${col}" stroke-width="1.5"/>${band}<circle cx="${x0}" cy="${y}" r="2.2" fill="${col}"/><text x="${tx}" y="${y - 8}" font-size="11.5" fill="${s.alive ? "#e2f1f0" : "#6f8a8c"}" ${anchorEnd ? 'text-anchor="end"' : ""}>${label}</text></g>`;
+          svg += `<g class="row" data-serial="${s.serial}" tabindex="0" role="listitem" aria-label="${esc(tip)}"><rect class="hit" x="0" y="${y - 22}" width="${W}" height="${RH}" fill="${hl === `sp:${s.serial}` ? "rgba(255,95,58,0.12)" : "transparent"}"/><line x1="${x0}" x2="${x1}" y1="${y}" y2="${y}" stroke="${col}" stroke-width="1.5"/>${band}<circle cx="${x0}" cy="${y}" r="2.2" fill="${col}"/><text x="${tx}" y="${y - 8}" font-size="11.5" fill="${s.alive ? "#e2f1f0" : "#6f8a8c"}" ${anchorEnd ? 'text-anchor="end"' : ""}>${label2}</text></g>`;
         });
         svg += "</svg>";
         svgWrap.innerHTML = rows.length ? axis + svg : '<p class="note">Species appear here once they become established.</p>';
@@ -15006,10 +15233,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
       return { ...p, update };
     }
     function buildCensus() {
-      const p = pane('<p class="note">Choose any row to highlight it in the world; everything else dims.</p>');
-      const box = document.createElement("div");
-      p.scroll.append(box);
+      const el = $2("pane-census"), box = $2("ov-census");
       let shape = "";
+      wireDisclosures(box, (k, on) => {
+        st.open_[k] = on;
+      });
       box.addEventListener("click", (e) => {
         const b = e.target.closest("[data-focus]");
         if (b) {
@@ -15019,34 +15247,27 @@ registerProcessor("tidemote-sound", TidemoteSound);
       });
       function sections() {
         const life = api.life();
-        const [silt, glint, husk, living, stone] = life.counts;
         const roles = life.roles || [0, 0, 0];
         const g = api.groups();
         return [
-          ["Matter and life", "living", [
-            { key: "class:living", label: "Living cells", n: living, col: LIVING_CSS, tip: "living" },
-            { key: "class:glint", label: "Glint", n: glint, col: MATTER[1].css, tip: "glint" },
-            { key: "class:husk", label: "Husk", n: husk, col: MATTER[2].css, tip: "husk" },
-            { key: "class:stone", label: "Stone", n: stone, col: MATTER[3].css, tip: "stone" },
-            { key: "class:silt", label: "Silt", n: silt, col: MATTER[0].css, tip: "silt" }
-          ]],
           ["Diet", "diet", g.diet.map((d) => ({ key: `diet:${d.name}`, label: d.name, n: d.n, col: d.col }))],
           ["Movement", null, g.mobility.map((d) => ({ key: `mobility:${d.name}`, label: d.name, n: d.n, col: d.col }))],
           ["Body", "organism", g.body.map((d) => ({ key: `body:${d.name}`, label: d.name, n: d.n, col: d.col }))],
-          ["Cell types", "celltype", ROLE.map((r, i) => ({ key: `role:${i}`, label: `${r}-cells`, n: roles[i], col: ["#ffb45e", "#b38cff", "#5fd4c4"][i] }))],
+          ["Cells by type", "celltype", ROLE.map((r, i) => ({ key: `role:${i}`, label: `${r}-cells`, n: roles[i], col: ["#ffb45e", "#b38cff", "#5fd4c4"][i] }))],
           ["Cell types per species", "bodyplan", g.types.map((d) => ({ key: `types:${d.name}`, label: `${d.name} type${d.name === "1" ? "" : "s"}`, n: d.n, col: d.col }))]
         ];
       }
       function update() {
+        if (!api.life()) return;
         const secs = sections();
         const k = secs.map(([t2, , r]) => t2 + r.map((x) => x.key).join()).join("|");
         if (k !== shape) {
           shape = k;
-          box.innerHTML = secs.map(([title, tip, rows]) => `<div class="cblk"><div class="sub-h"><span>${tip ? term(tip, title) : title}</span></div><div class="bars">${rows.map((r) => `<button type="button" class="barrow" data-focus="${r.key}" aria-pressed="false"><span class="bl">${r.label}</span><span class="meter" style="color:${r.col}"><i></i></span><span class="bn"></span><span class="bp"></span></button>`).join("")}</div></div>`).join("") + `<div class="cblk"><div class="sub-h"><span>Condition</span></div><div class="row" style="display:flex;flex-wrap:wrap;gap:4px">
-            <button type="button" class="chip" data-focus="state:1" aria-pressed="false">Hungry</button>
-            <button type="button" class="chip" data-focus="state:2" aria-pressed="false">Ready to divide</button>
-            <button type="button" class="chip" data-focus="state:3" aria-pressed="false">Elderly</button></div>
-            <p class="note" style="margin-top:8px">Hungry: under 35% of the energy needed to divide. Ready: over 85%. Elderly: past 80% of lifespan.</p></div>`;
+          const bars = ([title, tip, rows]) => block(title, `<div class="bars">${rows.map((r) => `<button type="button" class="barrow" data-focus="${r.key}" aria-pressed="false"><span class="bl">${r.label}</span><span class="meter" style="color:${r.col}"><i></i></span><span class="bn"></span><span class="bp"></span></button>`).join("")}</div>`, { tip });
+          box.innerHTML = secs.slice(0, 3).map(bars).join("") + disclosure("celltypes", "Cell types", `<div class="stack">${secs.slice(3).map(bars).join("")}</div>`, st.open_.celltypes) + block("Condition", `<div class="segs" role="group" aria-label="Condition">
+            <button type="button" class="chip" data-focus="state:1" aria-pressed="false" data-hint="Under 35% of the energy needed to divide">Hungry</button>
+            <button type="button" class="chip" data-focus="state:2" aria-pressed="false" data-hint="Over 85% of the energy needed to divide">Ready to divide</button>
+            <button type="button" class="chip" data-focus="state:3" aria-pressed="false" data-hint="Past 80% of their lifespan">Elderly</button></div>`, { cls: "inline" });
         }
         const fk = api.focusKey();
         const els = box.querySelectorAll(".bars");
@@ -15062,20 +15283,22 @@ registerProcessor("tidemote-sound", TidemoteSound);
           });
         });
         box.querySelectorAll(".chip[data-focus]").forEach((b) => b.setAttribute("aria-pressed", String(fk === b.dataset.focus)));
+        api.onCensusShown();
       }
-      return { ...p, update };
+      return { el, update };
     }
     const CHARTS = [
       ["Population", null, [{ k: "living", label: "living cells", col: LIVING_CSS }, { k: "glint", label: "glint", col: "#b9e6ff" }, { k: "husk", label: "husks", col: "#9a6c4c" }]],
       ["Species", "diversity", [{ k: "alive", label: "alive", col: "#a3bdbe" }, { k: "thriving", label: "thriving", col: "#f1e3a0" }, { k: "diversity", label: "effective species", col: "#7fe0b0" }]],
       ["Births and deaths per minute", null, [{ k: "births", label: "births", col: "#7fe0b0" }, { k: "starve", label: "starved", col: "#ff8a6b" }, { k: "old", label: "old age", col: "#c9b8ff" }, { k: "eaten", label: "eaten", col: "#ff5f3a" }]],
-      ["Meals per minute", "flesh", [{ k: "graze", label: "glint", col: "#b9e6ff" }, { k: "scav", label: "husks", col: "#a87b5c" }, { k: "prey", label: "kills", col: "#ff5f3a" }, { k: "bite", label: "bites of plants", col: "#d9f27a" }]],
+      ["Meals per minute", "flesh", [{ k: "graze", label: "glint", col: "#b9e6ff" }, { k: "scav", label: "husks", col: "#a87b5c" }, { k: "prey", label: "kills", col: "#ff5f3a" }, { k: "bite", label: "bites of photosynths", col: "#d9f27a" }]],
       ["New species and extinctions per minute", "mutation", [{ k: "mut", label: "new species", col: "#c9b8ff" }, { k: "ext", label: "extinctions", col: "#ff8a6b" }]],
       ["Climate", "season", [{ k: "ambient", label: "baseline light", col: "#d9f27a" }, { k: "season", label: "tide strength", col: "#5fd4c4" }]]
     ];
     function buildCharts() {
       const p = pane("");
-      p.scroll.innerHTML = `<div class="legend" style="margin:8px 0 4px"><span><i style="background:var(--sun);height:6px;width:1px"></i>dotted lines mark a new era</span></div>` + CHARTS.map(([t2, tip, s], i) => `<div class="cblk"><div class="sub-h"><span>${tip ? term(tip, t2) : t2}</span></div><canvas class="dyn" data-i="${i}" aria-label="${esc(t2)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join("")}</div></div>`).join("") + '<div class="cblk"><div class="sub-h"><span>Eras</span></div><ol class="eras" id="eras"></ol></div>';
+      p.scroll.classList.add("stack");
+      p.scroll.innerHTML = `<div class="legend"><span><i style="background:var(--sun);height:6px;width:1px"></i>dotted lines mark a new era</span></div>` + CHARTS.map(([t2, tip, s], i) => block(t2, `<canvas class="dyn" data-i="${i}" aria-label="${esc(t2)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join("")}</div>`, { tip })).join("") + block("Eras", '<ol class="eras" id="eras"></ol>');
       const cvs = [...p.scroll.querySelectorAll("canvas.dyn")];
       let erasN = -1;
       function update() {
@@ -15133,6 +15356,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       } };
     }
     const builders = { species: buildSpecies, lineage: buildLineage, census: buildCensus, charts: buildCharts, log: buildLog, guide: buildGuide };
+    apply();
+    if (st.open) show();
     function render(force) {
       if (!st.open || !panes[st.tab]) return;
       const now = performance.now();
@@ -15140,24 +15365,49 @@ registerProcessor("tidemote-sound", TidemoteSound);
       lastUpdate = now;
       panes[st.tab].update(!!force);
     }
-    return { open, close, toggle, render, isOpen: () => st.open, tab: () => st.tab };
+    function reset() {
+      for (const k of Object.keys(panes)) if (k !== "census") {
+        panes[k].el.remove();
+        delete panes[k];
+      }
+      if (st.open) show();
+    }
+    return {
+      open,
+      close,
+      toggle,
+      render,
+      reset,
+      isOpen: () => st.open,
+      tab: () => st.tab,
+      // open on one of the records (wider than the census)
+      isWide: () => st.open && st.tab !== "census",
+      // back to the census, as the column it was before a record was opened
+      narrow() {
+        if (st.open && st.tab !== "census") {
+          st.tab = "census";
+          apply();
+          show();
+        }
+      }
+    };
   }
 
   // src/facets.js
   var DIET_COL = { photosynth: "#d9f27a", grazer: "#b9e6ff", scavenger: "#a87b5c", predator: "#ff5e7a", omnivore: "#c9b8ff" };
-  var MOB_COL = { sessile: "#7fe0b0", crawler: "#ffb45e", swimmer: "#6e96ff", drifter: "#9aa3b8" };
+  var MOB_COL = { anchored: "#7fe0b0", crawler: "#ffb45e", swimmer: "#6e96ff", drifter: "#9aa3b8" };
   function facets(g, K) {
     const swim = g.swim * (1 - g.photo);
     const guild = dietGuild(g), diet = guild === "producer" ? "photosynth" : guild;
-    const mobility = mobilityGuild(g);
+    const mob = mobilityGuild(g), mobility = mob === "sessile" ? "anchored" : mob;
     const multi = (g.adhesion || 0) > K.adhMin;
     const types = roleShares(g).filter((v) => v > 0.1).length;
-    return { diet, mobility, body: multi ? "multicellular" : "single-celled", types, schooling: g.align > 0.5 && swim > 0.3 };
+    return { diet, mobility, body: multi ? "multicellular" : "single-cell", types, schooling: g.align > 0.5 && swim > 0.3 };
   }
   function describe2(g, K) {
     const f2 = facets(g, K);
     const parts = [f2.diet];
-    parts.push(f2.body === "multicellular" ? `${f2.types > 1 ? `${f2.types}-type ` : ""}bodies` : `free cells${f2.types > 1 ? ` in ${f2.types} morphs` : ""}`);
+    parts.push(`${f2.body}${f2.types > 1 ? `, ${f2.types} cell types` : ""}`);
     parts.push(f2.schooling ? `schooling ${f2.mobility}` : f2.mobility);
     return parts.join(" · ");
   }
@@ -15165,18 +15415,18 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const f2 = facets(g, K);
     const tags = [[f2.diet, f2.diet === "omnivore" ? "diet" : f2.diet]];
     const multi = f2.body === "multicellular";
-    tags.push([multi ? "multicellular" : "free-living cells", multi ? "adhesion" : "organism"]);
-    if (f2.types > 1) tags.push(multi ? [`${f2.types} cell types`, "bodyplan"] : [`${f2.types} morphs`, "morphs"]);
+    tags.push([f2.body, multi ? "adhesion" : "singlecelled"]);
+    if (f2.types > 1) tags.push([`${f2.types} cell types`, multi ? "bodyplan" : "morphs"]);
     const sh = roleShares(g);
     let self = 0;
     for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) self += sh[a] * sh[b] * affinity(g, a, g, b, K);
-    if (multi) tags.push(self > 0.3 ? ["compact body", "colonial"] : self < -0.1 ? ["strung-out body", "solitary"] : ["loose body", "looseknit"]);
-    else tags.push(self > 0.3 ? ["swarming", "colonial"] : self < -0.1 ? ["solitary", "solitary"] : ["loosely social", "looseknit"]);
-    tags.push([f2.mobility, { sessile: "sessile", drifter: "drifting", swimmer: "swimming", crawler: "thrust" }[f2.mobility]]);
+    if (multi) tags.push(self > 0.3 ? ["compact body", "colonial"] : self < -0.1 ? ["stringy body", "solitary"] : ["loose body", "looseknit"]);
+    else tags.push(self > 0.3 ? ["swarming", "colonial"] : self < -0.1 ? ["solitary", "solitary"] : ["loose-knit", "looseknit"]);
+    tags.push([f2.mobility, { anchored: "anchored", drifter: "drifting", swimmer: "swimming", crawler: "thrust" }[f2.mobility]]);
     if (f2.schooling) tags.push(["schooling", "schooling"]);
     if (g.photo > 0.25 && g.photo <= 0.55) tags.push(["part photosynth", "photosynth"]);
     if (g.lifespan > 300) tags.push(["long-lived", "lifespan"]);
-    if (g.mutRate > 0.035) tags.push(["volatile genome", "mutation"]);
+    if (g.mutRate > 0.035) tags.push(["fast-mutating", "mutation"]);
     return tags;
   }
 
@@ -15453,17 +15703,17 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     function html(g, kind) {
       const groups = groupsFor(g, K);
-      let h = `<div class="blk mv" data-kind="${kind}"><div class="sub-h"><span><i class="ico cell"></i>${term("mind", "Behaviour")}</span><span class="mv-live"><i></i><b>replay</b></span></div>`;
+      let h = `<div class="blk mv" data-kind="${kind}">${subHead(`<i class="ico cell"></i>${term("mind", "Last decision")}`, '<span class="mv-live"><i></i><b>replay</b></span>')}`;
       h += '<div class="mv-read">';
       h += `<div><span>Mode</span><b><span class="mv-mode term" data-hint="" tabindex="0">—</span></b></div>`;
       h += `<div><span>Target</span><b class="mv-target"><span class="mv-sig"></span><span class="mv-tname">—</span><em class="mv-tdist"></em></b></div>`;
-      h += `<div><span>Detail</span><b class="mv-detail">—</b></div>`;
+      h += `<div class="two"><span>Detail</span><b class="mv-detail">—</b></div>`;
       h += "</div>";
       h += `<div class="mv-pulls">${compassHTML(groups)}<div class="mv-drives">`;
       h += groups.map((gr) => `<div data-k="${gr.key}"><i style="background:${gr.css}"></i><span>${term(gr.tip, gr.label)}</span><span class="meter thin" style="color:${gr.css}"><i style="width:0"></i></span><b>0%</b></div>`).join("");
       h += `<div class="mv-key"><span><i class="dash"></i>heading</span><span><i class="dia"></i>target</span></div></div></div>`;
       h += `<div class="mv-lamps">${["hungry", "full", "threat", "low", "lean", "crowd", "shelter"].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join("")}</div></div>`;
-      h += `<div class="blk mv-nb"><div class="sub-h"><span><i class="ico cell"></i>${term("mind-near", "Neighbours")}</span><span>within its reach</span></div>`;
+      h += `<div class="blk mv-nb">${subHead(`<i class="ico cell"></i>${term("mind-near", "Neighbours")}`, "within its reach")}`;
       h += `<div class="nb-row nb-head"><span></span><span>Species</span><span>Cells</span><span>Role</span><span class="nb-pull term" data-hint="How each species moves this cell: pushes it away (left) or pulls it toward them (right)." tabindex="0"><i>push</i><i>pull</i></span></div>`;
       for (let i = 0; i <= NB_ROWS; i++) h += `<div class="nb-row empty" data-i="${i}"><span class="nb-sig"></span><span class="nb-name">—</span><b class="nb-n"></b><em class="nb-role"></em><span class="dbar"><i></i></span></div>`;
       return h + "</div>";
@@ -15513,7 +15763,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const m = mind.m, food = m.food;
       const q = tk == null ? null : m.nbrs.find((n) => food && n.j === food.j) || m.nbrs.filter((n) => n.kind === tk).sort((a, b) => len2(a.d) - len2(b.d))[0];
       const tdist = q ? len2(q.d) : food && head.matter && head.key !== "forage" ? food.dist : null;
-      parts.tdist.textContent = tdist != null ? `${tdist.toFixed(2)} cells away` : "";
+      parts.tdist.textContent = tdist != null ? `${fmtLen(tdist)} away` : "";
       parts.detail.textContent = detail(head, mind);
       const max = Math.max(1e-6, ...mind.groups.map((g) => g.mag));
       if (!ease2) ease2 = { groups: /* @__PURE__ */ new Map(), hdg: { cur: [0, 0], to: [0, 0] }, tgt: { cur: null, to: null } };
@@ -15629,7 +15879,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const { eng, K } = api;
     const $2 = (id) => document.getElementById(id);
     const root = $2("spec"), body = $2("spec-body"), tabsEl = $2("spec-tabs"), acts = $2("spec-acts"), vit = $2("vitals");
-    const st = { tab: "status", mode: "", actKey: "", tabKey: "", lastHtml: "", lastVit: "", lastHead: "", at: 0 };
+    const st = { active: "", mode: "", actKey: "", tabKey: "", lastVit: "", lastHead: "", at: 0, flow: /* @__PURE__ */ new Map(), flowKey: "" };
     const phone2 = () => matchMedia("(max-width: 720px)").matches;
     const more = $2("spec-more");
     let drag = null;
@@ -15685,21 +15935,50 @@ registerProcessor("tidemote-sound", TidemoteSound);
     $2("vz-out").addEventListener("click", () => {
       api.state.specCells = clamp6(api.state.specCells * 1.4, 0.8, 14);
     });
+    const sectionEl = (id) => body.querySelector(`[data-sx="${id}"]`);
+    let pin = null;
+    function jump(id) {
+      const el = sectionEl(id);
+      if (!el) return;
+      pin = { id, until: performance.now() + 1500 };
+      body.scrollTop = Math.max(0, el.offsetTop - 2);
+      mark(id);
+    }
+    const unpin = () => {
+      pin = null;
+    };
+    body.addEventListener("wheel", unpin, { passive: true });
+    body.addEventListener("touchstart", unpin, { passive: true });
+    function mark(id) {
+      if (id === st.active) return;
+      st.active = id;
+      for (const b of tabsEl.children) {
+        const on = b.dataset.tab === id;
+        b.setAttribute("aria-selected", String(on));
+        b.tabIndex = on ? 0 : -1;
+      }
+    }
+    function spy() {
+      if (pin && performance.now() < pin.until) return;
+      const secs = [...body.querySelectorAll("[data-sx]")];
+      if (!secs.length) return;
+      let cur = secs[0];
+      if (body.scrollTop + body.clientHeight >= body.scrollHeight - 4) cur = secs[secs.length - 1];
+      else for (const el of secs) if (el.offsetTop - body.scrollTop <= 24) cur = el;
+      mark(cur.dataset.sx);
+    }
+    body.addEventListener("scroll", spy, { passive: true });
     tabsEl.addEventListener("click", (e) => {
       const b = e.target.closest("[data-tab]");
-      if (!b) return;
-      st.tab = b.dataset.tab;
-      st.tabKey = "";
-      render(true);
-      body.scrollTop = 0;
+      if (b) jump(b.dataset.tab);
     });
     tabsEl.addEventListener("keydown", (e) => {
       if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-      const bs = [...tabsEl.children], i = bs.findIndex((b) => b.dataset.tab === st.tab);
+      const bs = [...tabsEl.children], i = bs.findIndex((b) => b.dataset.tab === st.active);
       const n = bs[(i + (e.key === "ArrowRight" ? 1 : bs.length - 1)) % bs.length];
       if (n) {
         e.preventDefault();
-        n.click();
+        jump(n.dataset.tab);
         n.focus();
       }
     });
@@ -15718,12 +15997,33 @@ registerProcessor("tidemote-sound", TidemoteSound);
       st.actKey = "";
       render(true);
     });
-    const kv = (label, value, tip) => `<div class="kv"><span>${tip ? term(tip, label) : label}</span><b>${value}</b></div>`;
-    const trait = (label, v, lo, hi, text, tip) => `<div class="trait"><span>${tip ? term(tip, label) : label}</span>${meter((v - lo) / (hi - lo), "cyan thin")}<b>${text}</b></div>`;
-    const comp = (label, tip, shares, g, text) => `<div class="comp"><div class="tl"><span>${term(tip, label)}</span><b>${shares.map((v, r) => v > 0.02 ? text(v, r) : "").filter(Boolean).join(" · ")}</b></div><span class="compbar">${shares.map((v, r) => v > 0.02 ? `<i style="flex:${v};background:${cssRgb(roleColor(g, r))}"></i>` : "").join("")}</span></div>`;
-    const tags = (g) => `<div class="tags">${tagsOf(g, K).map(([t2, k]) => `<span class="term" data-tip="${k}" tabindex="0">${t2}</span>`).join("")}</div>`;
-    const blk = (title, html) => `<div class="blk"><div class="sub-h"><span>${title}</span></div>${html}</div>`;
-    const vital = (label, frac, cls, text, tip) => `<div class="vital"><span>${tip ? term(tip, label) : label}</span>${meter(frac, cls)}<b>${text}</b></div>`;
+    const comp = (label2, tip, shares, g, hint) => {
+      const types = [0, 1, 2].filter((r) => shares[r] > 5e-4);
+      const pct = (v) => v < 0.01 ? "<1" : String(Math.round(v * 100));
+      const seg = types.map((r) => `<i style="flex:${Math.max(shares[r], 0.015)};color:${cssRgb(roleColor(g, r))}"></i>`).join("");
+      const val = types.map((r) => `<s><em class="greek" style="color:${cssRgb(roleColor(g, r))}">${ROLE[r]}</em>${pct(shares[r])}</s>`).join("");
+      return `<div class="trait mixrow"><span>${term(tip, label2)}</span><span class="mixbar">${seg}</span><b class="term" tabindex="0" data-hint="${esc(hint)}">${val}</b></div>`;
+    };
+    const tagsEl = $2("spec-tags");
+    function setTags(g) {
+      const key = g ? `sp${g.serial}` : "";
+      if (tagsEl.dataset.k === key) return;
+      tagsEl.dataset.k = key;
+      const all = g ? tagsOf(g, K) : [];
+      const chip = ([t2, k]) => `<span class="term" data-tip="${k}" tabindex="0">${t2}</span>`;
+      tagsEl.innerHTML = all.map(chip).join("");
+      if (!tagsEl.clientHeight && all.length) {
+        tagsEl.dataset.k = "";
+        return;
+      }
+      const fits = () => tagsEl.scrollHeight <= tagsEl.clientHeight + 1;
+      for (let n = all.length - 1; n > 0 && !fits(); n--) {
+        const rest = all.slice(n).map(([t2]) => t2);
+        tagsEl.innerHTML = all.slice(0, n).map(chip).join("") + `<span class="more" tabindex="0" data-hint="Also: ${esc(rest.join(", "))}">+${rest.length}</span>`;
+      }
+    }
+    const blk = (title, html, opts) => block(title, html, opts);
+    const vital = (label2, frac, cls, text, tip) => `<div class="vital"><span>${tip ? term(tip, label2) : label2}</span>${meter(frac, cls)}<b>${text}</b></div>`;
     const lightAt = (p) => {
       const [W, H2] = eng.grid;
       return Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H2, eng.simTime, eng.tide, eng.tidePh) * eng.season) * 100);
@@ -15746,41 +16046,45 @@ registerProcessor("tidemote-sound", TidemoteSound);
       sigil: (g, size) => sigilSVG(songOf(g).v, g, { size })
     });
     function storyHTML(sel) {
-      if (!sel || !sel.story.length) return "";
+      if (!sel) return "";
       return blk("Record", `<ol class="story">${sel.story.map((s) => `<li><time>${fmtClock(s.t)}</time><span>${s.text}</span></li>`).join("")}</ol>`);
     }
-    function cellBlock(p, g, past, mind) {
+    function cellBlock(p, g, past) {
       let h = kv("Cell type", `<span class="greek">${ROLE[p.role]}</span>-cell`, "celltype");
       h += kv("Origin", CAUSE[p.cause] || "a founder of this world", "origin");
       h += kv("Generation", fmt(p.gen), "generation");
-      h += kv("Speed", `${Math.hypot(p.vx, p.vy).toFixed(2)} cells/s`, "speed");
-      if (!past) {
-        const b = mind && mind.budget;
-        h += kv("Light here", `${lightAt(p)}%${g && g.photo > 0.05 ? ` · ${b ? signed(b.light) : "—"}/s` : ""}`, g && g.photo > 0.05 ? "photosynth" : "lighthere");
-        const mods = b ? [b.crowding > 0.01 ? `crowding +${Math.round(b.crowding * 100)}%` : "", b.thrift > 1e-3 ? `bonds −${Math.round(b.thrift * 100)}%` : "", b.lean < 0.995 ? `lean ×${b.lean.toFixed(2)}` : ""].filter(Boolean).join(" · ") : "";
-        h += kv("Upkeep", `${b ? signed(-b.upkeep) : "—"}/s${mods ? ` <em class="mods">${mods}</em>` : ""}`, "upkeep");
-        h += kv("Net", b ? `<span class="${b.net >= 0 ? "pos" : "neg"}">${signed(b.net)}/s</span> between meals` : "—", "mind-net");
-      }
-      return blk(past ? "The cell, last seen" : `<span><i class="ico cell"></i>This cell</span>`, h);
+      h += kv("Speed", fmtLen(Math.hypot(p.vx, p.vy), "/s"), "speed");
+      return blk(past ? "The cell, last seen" : '<i class="ico cell"></i>This cell', h);
+    }
+    function budgetBlock(p, g, mind) {
+      const b = mind && mind.budget, none = '<span class="nil">none</span>';
+      let h = kv("Light here", `${lightAt(p)}%`, "lighthere");
+      if (g && g.photo > 0.05) h += kv("Photosynthesis", b ? `<span class="pos">${signed(b.light)}/s</span>` : "—", "photosynth");
+      h += kv("Upkeep", b ? `<span class="neg">${signed(-b.upkeep)}/s</span>` : "—", "upkeep");
+      h += kv("Crowding", !b ? "—" : b.crowding > 0.01 ? `upkeep +${Math.round(b.crowding * 100)}%` : none, "crowding");
+      if (g && (g.adhesion || 0) > K.adhMin) h += kv("Bond share", !b ? "—" : b.thrift > 1e-3 ? `upkeep −${Math.round(b.thrift * 100)}%` : none, "bondthrift");
+      h += kv("Saving energy", !b ? "—" : b.lean < 0.995 ? `burns ${Math.round(b.lean * 100)}% of its upkeep` : none, "lean");
+      h += kv("Net", b ? `<span class="${b.net >= 0 ? "pos" : "neg"}">${signed(b.net)}/s</span> between meals` : "—", "mind-net");
+      return blk("Energy budget", h, { tip: "energy" });
     }
     function organismBlock(o, g, past, sel) {
       if (!o || !g) return "";
       let h = "";
       if ((g.adhesion || 0) <= K.adhMin) {
-        h += kv("Body", "a single free cell", "adhesion");
+        h += kv("Body", "single-cell", "singlecelled");
       } else {
         const count = o.pending ? "counting…" : `${o.partial ? "≥ " : ""}${fmt(o.cells)} cell${o.cells === 1 ? "" : "s"}`;
         const first = past || o.pending ? null : sel && sel.orgFirst;
         const delta = first != null && o.cells !== first ? `<em class="delta">${o.cells > first ? "+" : "−"}${fmt(Math.abs(o.cells - first))}</em>` : "";
         h += kv("Body", count + delta, "organism");
-        if (!o.pending) h += kv("Span", `${o.span.toFixed(1)} cells across`);
-        h += kv("Moving", `${o.speed.toFixed(2)} cells/s`, "speed");
+        h += kv("Span", o.pending ? "—" : `${fmtLen(o.span)} across`);
+        h += kv("Moving", fmtLen(o.speed, "/s"), "speed");
         h += kv("Mean energy", o.meanE.toFixed(2), "energy");
         const tot = o.roles[0] + o.roles[1] + o.roles[2] || 1;
-        h += comp("Cell types", "celltype", o.roles.map((c) => c / tot), g, (v, r) => `${ROLE[r]} ${fmt(o.roles[r])}`);
+        h += comp("Cell types", "celltype", o.roles.map((c) => c / tot), g, `Of its ${fmt(tot)} cells: ${[0, 1, 2].filter((r) => o.roles[r]).map((r) => `${fmt(o.roles[r])} ${ROLE[r]}`).join(", ")}.`);
       }
       if ((g.adhesion || 0) > K.adhMin) h += kv("Touching", o.touching ? `${o.touching} other species` : "no other species", "touching");
-      return blk(past ? "Its organism, last seen" : `<span><i class="ico org"></i>${term("organism", "Organism")}</span>`, h);
+      return blk(past ? "Its organism, last seen" : `<i class="ico org"></i>${term("organism", "Organism")}`, h);
     }
     const glyphEl = $2("glyph");
     function setGlyph(key, html) {
@@ -15809,7 +16113,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const diff = av ? compareMotifs(av.motif, v.motif) : null;
       const slot = (sp ? sp.alive : true) && g.slot != null ? g.slot : -1;
       const m = v.motif, pad2 = (n) => String(n).padStart(2, "0");
-      let h = `<div class="sub-h"><span>${term("song", "Song")}</span><span class="song-read"><span><b>${pad2(m.notes.length)}</b> notes</span><span><b>${(m.cycle * 0.18).toFixed(1)}</b> s</span>${m.voice2 ? "<span><b>2</b> voices</span>" : ""}</span><button type="button" class="btn mini" data-song="${g.serial}" data-hint="Hear it alone">Play</button></div>`;
+      let h = subHead("Song", `<span class="song-read"><span><b>${pad2(m.notes.length)}</b> notes</span><span><b>${(m.cycle * 0.18).toFixed(1)}</b> s</span>${m.voice2 ? "<span><b>2</b> voices</span>" : ""}</span><button type="button" class="btn mini" data-song="${g.serial}" data-hint="Hear it alone">Play</button>`, "song");
       h += `<div class="song-wrap">${songSVG(v.motif, { col: cssCol(g.col), col2: cssRgb(roleColor(g, 1)), ghost: compact ? null : av && av.motif, h: compact ? 46 : 68, label: `${d.tags.join(", ")}: ${d.line}` })}</div>`;
       h += `<div class="song-tags">${d.tags.map((t2, i) => `<span class="term" data-tip="${["instrument", "register", "tempo"][i]}" tabindex="0">${esc(t2)}</span>`).join("<i>·</i>")}</div>`;
       if (!compact) {
@@ -15868,47 +16172,51 @@ registerProcessor("tidemote-sound", TidemoteSound);
       let h = "";
       if (sp) {
         const d = sparkPath(life.history, sp.serial, 300, 64);
-        if (d) h += `<div class="blk"><div class="sub-h"><span>Population</span><span>peak ${fmt(sp.peak)}</span></div><svg class="popchart" viewBox="0 0 300 64" preserveAspectRatio="none" aria-label="Population over time"><path d="${d}" fill="none" stroke="${cssCol(g.col)}" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg><div class="legend-note"><span>${fmtClock(life.history[0].t)}</span><span>${fmtClock(life.history[life.history.length - 1].t)}</span></div></div>`;
+        if (d) h += `<div class="blk">${subHead("Population", `peak ${fmt(sp.peak)}`)}<svg class="popchart" viewBox="0 0 300 64" preserveAspectRatio="none" aria-label="Population over time"><path d="${d}" fill="none" stroke="${cssCol(g.col)}" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg><div class="legend-note"><span>${fmtClock(life.history[0].t)}</span><span>${fmtClock(life.history[life.history.length - 1].t)}</span></div></div>`;
       }
       let s = "";
       if (sp && sp.alive) {
         s += kv("Population", fmt(sp.pop));
         s += kv("Share of life", `${(sp.pop / Math.max(1, life.counts[3]) * 100).toFixed(1)}%`, "share");
-      } else s += kv("Status", sp ? `extinct at ${fmtClock(sp.extinct ?? 0)} · peak ${fmt(sp.peak)}` : "never established");
+      } else {
+        s += kv("Status", sp ? `extinct at ${fmtClock(sp.extinct ?? 0)}` : "never established");
+        s += kv("Peak", sp ? fmt(sp.peak) : "—");
+      }
       if (src) {
         s += kv("Arose", `${fmtClock(src.born || 0)}${src.founder ? ` · ${api.originWord(src)}` : ""}`);
         const gen = life.genera.get(src.genus);
         s += kv("Genus", gen ? `${esc(gen.name)}${gen.from ? ` · split from ${esc(gen.from)}` : ""}` : "–", "genus");
         s += kv("Mutations", `${g.depth} from its founder`, "depth");
       }
-      h += blk(term("species", "Species"), s);
+      h += blk("At a glance", s, { tip: "species" });
       h += songBlock(g, sp, false);
       const chain = lineagePath(src);
-      if (chain.length) h += blk("Descends from", `<div class="note">${chain.map((a) => spLink(a.serial, a.name)).join(" ← ")}${chain.length === 6 ? " ← …" : ""}</div>`);
+      h += blk("Descends from", `<div class="note two">${chain.length ? chain.map((a) => spLink(a.serial, a.name)).join(" ← ") + (chain.length === 6 ? " ← …" : "") : src && src.founder ? "a founding lineage" : "no established ancestor"}</div>`);
       const kids = [...life.reg.values()].filter((s2) => s2.ancestor === g.serial && s2.established);
-      h += blk("Descendants", `<div class="note">${kids.length ? kids.slice(0, 8).map((k) => spLink(k.serial, k.name)).join(", ") + (kids.length > 8 ? ` +${kids.length - 8}` : "") : "none established"}</div>`);
+      h += blk("Descendants", `<div class="note two">${kids.length ? kids.slice(0, 6).map((k) => spLink(k.serial, k.name)).join(", ") + (kids.length > 6 ? ` and ${kids.length - 6} more` : "") : "none established"}</div>`, { aside: kids.length ? fmt(kids.length) : "" });
       return h;
     }
-    function genomeTab(g, role) {
+    function genomeTab(g, role, cellRole = null) {
       const life = api.life();
-      let h = tags(g);
+      let h = "";
       const diet = [
         ["Light", "photosynth", g.photo, "#d9f27a", g.photo],
         ["Glint", "glint", g.dGlint, MATTER[1].css, g.dGlint * (1 - 0.6 * g.photo)],
         ["Husk", "husk", g.dHusk, MATTER[2].css, g.dHusk * (1 - 0.6 * g.photo)],
         ["Flesh", "flesh", g.dFlesh, "#ff6b6b", g.dFlesh * (1 - 0.6 * g.photo)]
       ];
-      h += blk(term("diet", "Diet"), diet.map(([l2, t2, v, c, w]) => `<div class="trait"><span>${term(t2, l2)}</span><span class="meter thin" style="color:${c}"><i style="width:${(clamp6(w, 0, 1) * 100).toFixed(1)}%"></i></span><b>${Math.round(v * 100)}%</b></div>`).join(""));
+      h += blk("Diet", diet.map(([l2, t3, v, c, w]) => `<div class="trait"><span>${term(t3, l2)}</span><span class="meter thin" style="color:${c}"><i style="width:${(clamp6(w, 0, 1) * 100).toFixed(1)}%"></i></span><b>${Math.round(v * 100)}%</b></div>`).join(""), { tip: "diet" });
       const sh = roleShares(g);
-      let b = comp("Body plan", "bodyplan", sh, g, (v, r) => `${ROLE[r]} ${Math.round(v * 100)}%`);
+      let b = comp("Body plan", "bodyplan", sh, g, `Of every 100 cells it grows: ${[0, 1, 2].filter((r) => sh[r] > 5e-4).map((r) => `${(sh[r] * 100).toFixed(sh[r] < 0.01 ? 1 : 0)} ${ROLE[r]}`).join(", ")}.`);
       b += trait("Adhesion", g.adhesion || 0, 0, 1, `${Math.round((g.adhesion || 0) * 100)}%${(g.adhesion || 0) > K.adhMin ? " · bonds" : ""}`, "adhesion");
       if (g.calcify > 5e-3) b += trait("Calcifying", g.calcify, 0, 1, `${Math.round(g.calcify * 100)}%`, "calcify");
-      b += trait("Size", g.size, 0.45, 2.6, `${g.size.toFixed(2)} · ${CELL_SHAPES[cellShape(g, role)]}`, "size");
+      b += trait("Size", g.size, 0.45, 2.6, fmtLen(0.17 * g.size), "size");
+      b += kv("Shape", CELL_SHAPES[cellShape(g, role)], "size");
       h += blk("Body", b);
       let m = trait("Swimming", g.swim * (1 - g.photo), 0, 3, (g.swim * (1 - g.photo)).toFixed(2), "swimming");
       m += trait("Schooling", g.align, 0, 1, `${Math.round(g.align * 100)}%`, "schooling");
-      m += trait("Reach", g.radius, 0.4, 1, g.radius.toFixed(2), "reach");
-      m += trait("Personal space", g.beta, 0.12, 0.5, g.beta.toFixed(2), "personalspace");
+      m += trait("Reach", g.radius, 0.4, 1, fmtLen(g.radius), "reach");
+      m += trait("Personal space", g.beta, 0.12, 0.5, `${Math.round(g.beta * 100)}% of reach`, "personalspace");
       m += trait("Thrust", g.force, 1, 16, g.force.toFixed(1), "thrust");
       m += trait("Glide", g.drag, 0.015, 0.4, `${(g.drag * 1e3).toFixed(0)} ms`, "glide");
       m += trait("Current pull", g.advect, 0.03, 1, `${Math.round(g.advect * 100)}%`, "currentpull");
@@ -15919,27 +16227,32 @@ registerProcessor("tidemote-sound", TidemoteSound);
       l += trait("Upkeep", g.metab, 0.01, 0.15, `${g.metab.toFixed(3)}/s`, "upkeep");
       l += trait("Mutation", g.mutRate, 2e-3, 0.08, `${(g.mutRate * 100).toFixed(1)}%`, "mutation");
       h += blk("Life cycle", l);
+      const types = [0, 1, 2].filter((r) => sh[r] > 0.05);
       const others = [];
       for (const s of life.reg.values()) if (s.alive && s.established && s.serial !== g.serial) others.push(s);
       others.sort((a, b2) => b2.pop - a.pop);
-      const list = [];
-      for (let r = 0; r < 3; r++) if (sh[r] > 0.05) list.push({ name: `own ${ROLE[r]}-cells`, v: affinity(g, role, g, r, K), css: cssRgb(roleColor(g, r)) });
-      for (const s2 of others.slice(0, 4)) list.push({ name: spLink(s2.serial, s2.name), raw: true, v: affinity(g, role, s2.genome, 0, K), css: cssCol(s2.genome.col) });
-      for (let k = 0; k < 4; k++) if (life.matter[k]) list.push({ name: MATTER[k].name, v: affinity(g, role, life.matter[k], 0, K) * K.matterPull, css: MATTER[k].css });
-      const dbar = (v) => {
-        const w = (Math.min(1, Math.abs(v)) * 50).toFixed(1);
-        return `<span class="dbar"><i style="left:${v < 0 ? 50 - w : 50}%;width:${w}%;background:${v >= 0 ? "var(--sun)" : "var(--cyan)"}"></i></span>`;
+      const rows = [];
+      for (const r of types) rows.push({ name: `own <span class="greek">${ROLE[r]}</span>-cells`, css: cssRgb(roleColor(g, r)), v: (t3) => affinity(g, t3, g, r, K) });
+      for (const s2 of others.slice(0, 4)) rows.push({ name: spLink(s2.serial, s2.name), css: cssCol(s2.genome.col), v: (t3) => affinity(g, t3, s2.genome, 0, K) });
+      for (let k = 0; k < 4; k++) if (life.matter[k]) rows.push({ name: esc(MATTER[k].name), css: MATTER[k].css, v: (t3) => affinity(g, t3, life.matter[k], 0, K) * K.matterPull });
+      const heat = (v) => {
+        const a = Math.min(1, Math.abs(v));
+        const sign = Math.abs(v) < 5e-3 ? "" : v > 0 ? "+" : "−";
+        return `<b class="pull ${v >= 0 ? "to" : "away"}" style="--a:${(0.08 + 0.5 * a).toFixed(2)}">${sign}${Math.abs(v).toFixed(2)}</b>`;
       };
-      h += blk(`<span class="greek">${ROLE[role]}</span>-cells drawn to · pushed from`, `<div class="legend-note"><span>pushed</span><span>drawn</span></div><div class="aff">${list.map((it) => `<div><i style="background:${it.css}"></i><span>${it.raw ? it.name : esc(it.name)}</span>${dbar(it.v)}<b>${it.v >= 0 ? "+" : ""}${it.v.toFixed(2)}</b></div>`).join("")}</div>`);
+      const cols = `grid-template-columns: minmax(0, 1fr) repeat(${types.length}, 5.4em)`;
+      let t2 = `<div class="pulls-t" style="${cols}"><span class="pt-h">Meets</span>${types.map((r) => `<span class="pt-h pt-col${cellRole === r ? " mine" : ""}" style="color:${cssRgb(roleColor(g, r))}"><span><span class="greek">${ROLE[r]}</span>-cells</span>${cellRole === r ? "<i>this cell</i>" : ""}</span>`).join("")}`;
+      for (const it of rows) t2 += `<span class="pt-name"><i style="background:${it.css}"></i><span>${it.name}</span></span>${types.map((r) => heat(it.v(r))).join("")}`;
+      t2 += '</div><div class="pulls-key"><span><i class="to"></i>drawn toward</span><span><i class="away"></i>pushed away</span></div>';
+      h += blk("How its cells react", t2, { tip: "affinity" });
       return h;
     }
     function setTabs(list) {
-      const key = list.join(",");
-      if (!list.includes(st.tab)) st.tab = list[0];
-      if (key + st.tab === st.tabKey) return;
-      st.tabKey = key + st.tab;
-      const names = { status: "Status", species: "Species", genome: "Genome" };
-      tabsEl.innerHTML = list.length < 2 ? "" : list.map((t2) => `<button type="button" role="tab" data-tab="${t2}" aria-selected="${t2 === st.tab}" tabindex="${t2 === st.tab ? 0 : -1}">${names[t2]}</button>`).join("");
+      const key = list.map(([id, l]) => id + l).join(",");
+      if (key === st.tabKey) return;
+      st.tabKey = key;
+      if (!list.some(([id]) => id === st.active)) st.active = list.length ? list[0][0] : "";
+      tabsEl.innerHTML = list.length < 2 ? "" : list.map(([id, l]) => `<button type="button" role="tab" data-tab="${id}" aria-selected="${id === st.active}" tabindex="${id === st.active ? 0 : -1}">${l}</button>`).join("");
     }
     function setActs(key, html) {
       if (key === st.actKey) return;
@@ -15961,7 +16274,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (!force && (api.held() || now - st.at < 250)) return false;
       st.at = now;
       const sel = api.sel(), spView = api.spView();
-      let html = "", v = "", fixedKey = "", fixedHtml = "";
+      let v = "", fixedKey = "", fixedHtml = "";
+      const flow = [];
       if (spView != null) {
         const life = api.life();
         const sp = life.reg.get(spView);
@@ -15980,8 +16294,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         const hl = api.focusKey() === `sp:${sp.serial}`;
         setActs(`sp${sp.alive}${hl}`, sp.alive ? `<button type="button" class="btn" data-act="find">Find one</button><button type="button" class="btn" data-act="hl" aria-pressed="${hl}">Highlight</button>` : "");
         if (sp.alive) v += vital("Share", sp.pop / Math.max(1, life.counts[3]), "sun", `${(sp.pop / Math.max(1, life.counts[3]) * 100).toFixed(1)}% of life`, "share");
-        setTabs(["species", "genome"]);
-        html = st.tab === "genome" ? genomeTab(g, 0) : speciesTab(g, null);
+        setTags(g);
+        flow.push(["species", "Species", speciesTab(g, null)], ["genome", "Genome", genomeTab(g, 0)]);
       } else if (sel) {
         root.classList.remove("no-view");
         const p = sel.particle, mem = sel.memory;
@@ -15998,17 +16312,16 @@ registerProcessor("tidemote-sound", TidemoteSound);
           else if (p.kind === 2) v += vital("Energy left", p.energy / 1.2, "sun", `crumbles in ${fmtDur(Math.max(0, (p.energy - K.huskMin) / K.decay))}`, "husk");
           else if (p.kind === 3) v += vital("Wears away", clamp6(p.energy / 600, 0, 1), "cyan", `in ${fmtDur(Math.max(0, p.energy))}`, "stone");
           else v += vital("Light here", lightAt(p) / 100, "sun", `${lightAt(p)}%`, "lighthere");
-          setTabs(mem ? ["status", "species", "genome"] : ["status"]);
-          if (st.tab === "status") {
-            html += storyHTML(sel);
-            let s = `<p class="note">${m.blurb}</p>`;
-            s += kv(p.kind === 2 ? "Dead for" : p.kind === 3 ? "Stone for" : "In this state", fmtDur(p.age));
-            if (p.kind === 2) s += kv("Cause of death", CAUSE[p.cause] || "unknown");
-            s += kv("Light here", `${lightAt(p)}%`, "lighthere");
-            html += blk(term(m.name.toLowerCase(), m.name), s);
-            if (mem) html += `<div class="past">${cellBlock(mem.p, mem.g, true)}${organismBlock(mem.org, mem.g, true, sel)}</div>`;
-          } else if (st.tab === "species") html = speciesTab(mem.g, mem.sp);
-          else html = genomeTab(mem.g, mem.role);
+          setTags(mem ? mem.g : null);
+          let s = `<p class="note">${m.blurb}</p>`;
+          s += kv(p.kind === 2 ? "Dead for" : p.kind === 3 ? "Stone for" : "In this state", fmtDur(p.age));
+          if (p.kind === 2) s += kv("Cause of death", CAUSE[p.cause] || "unknown");
+          s += kv("Light here", `${lightAt(p)}%`, "lighthere");
+          flow.push(["state", m.name, blk("", s) + storyHTML(sel)]);
+          if (mem) {
+            flow.push(["body", "Body", cellBlock(mem.p, mem.g, true) + organismBlock(mem.org, mem.g, true, sel)]);
+            flow.push(["species", "Species", speciesTab(mem.g, mem.sp)], ["genome", "Genome", genomeTab(mem.g, mem.role, mem.role)]);
+          }
         } else {
           const g = api.genomeFor(p.kind);
           const life = api.life();
@@ -16023,6 +16336,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           );
           if (g) speciesGlyph(g);
           else plainGlyph(0, p.col);
+          setTags(g);
           const hl = sp && api.focusKey() === `sp:${sp.serial}`;
           setActs(`c${api.follow()}${hl}${!!sp}`, `<button type="button" class="btn" data-act="follow" aria-pressed="${api.follow()}" data-hint="Keep it in view · C">Follow</button>${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}">Highlight species</button>` : ""}`);
           if (g) {
@@ -16031,52 +16345,74 @@ registerProcessor("tidemote-sound", TidemoteSound);
             const head = sel.mind && !sel.lost && (sel.mind.head || sel.mind);
             if (!sel.lost) v = `<div class="vital now"><span>${term("mind", "Now")}</span><b>${head ? withSp(head.text, head.target) : "—"}</b></div>` + v;
           }
-          setTabs(g ? ["status", "species", "genome"] : ["status"]);
-          if (st.tab === "status") {
-            if (g && !sel.lost) {
-              fixedKey = `mv:${sel.id}:${p.kind}:${g.serial}`;
-              fixedHtml = tags(g) + mv.html(g, p.kind);
-            } else if (g) html += tags(g);
-            if (g) html += songBlock(g, sp, true);
-            const cb = cellBlock(p, g, false, sel.lost ? null : sel.mind), ob = organismBlock(o, g, false, sel);
-            html += inBody ? ob + cb : cb + ob;
-            html += storyHTML(sel);
-          } else if (st.tab === "species") html = speciesTab(g, null);
-          else html = genomeTab(g, p.role);
+          if (g && !sel.lost) {
+            fixedKey = `mv:${sel.id}:${p.kind}:${g.serial}`;
+            fixedHtml = section("behaviour", "Behaviour", mv.html(g, p.kind));
+          }
+          const cb = cellBlock(p, g, false), ob = organismBlock(o, g, false, sel), bb = sel.lost ? "" : budgetBlock(p, g, sel.mind);
+          const bonded = g && (g.adhesion || 0) > K.adhMin;
+          flow.push(["body", "Body", (bonded ? ob + cb : cb + ob) + bb + storyHTML(sel)]);
+          if (g) flow.push(["species", "Species", speciesTab(g, null)], ["genome", "Genome", genomeTab(g, p.role, p.role)]);
         }
       } else return false;
       if (v !== st.lastVit) {
         vit.innerHTML = v;
         st.lastVit = v;
       }
-      if (fixedKey !== st.fixedKey || !body.firstElementChild) {
-        body.innerHTML = `<div class="spec-fixed">${fixedHtml}</div><div class="spec-flow">${html}</div>`;
+      setTabs([...fixedKey ? [["behaviour", "Behaviour"]] : [], ...flow.map(([id, l]) => [id, l])]);
+      const flowKey = flow.map(([id]) => id).join(",");
+      if (fixedKey !== st.fixedKey || flowKey !== st.flowKey || !body.firstElementChild) {
+        const keep = body.scrollTop;
+        body.innerHTML = `<div class="spec-fixed">${fixedHtml}</div><div class="spec-flow">${flow.map(([id, l]) => section(id, l, "")).join("")}</div>`;
         st.fixedKey = fixedKey;
-        st.lastHtml = html;
+        st.flowKey = flowKey;
+        st.flow.clear();
         songKey = "";
         if (fixedKey) {
           mv.bind(body.firstElementChild);
           mindUpdate();
         }
-      } else if (html !== st.lastHtml) {
-        body.lastElementChild.innerHTML = html;
-        st.lastHtml = html;
-        songKey = "";
+        restoreTop = keep;
       }
+      for (const [id, , html] of flow) {
+        if (st.flow.get(id) === html) continue;
+        const el = sectionEl(id);
+        if (el) {
+          el.querySelector(".sx-b").innerHTML = html;
+          st.flow.set(id, html);
+          songKey = "";
+        }
+      }
+      if (restoreTop != null) {
+        body.scrollTop = restoreTop;
+        restoreTop = null;
+      }
+      if (pin && performance.now() < pin.until) {
+        const el = sectionEl(pin.id);
+        if (el) body.scrollTop = Math.max(0, el.offsetTop - 2);
+        mark(pin.id);
+        return true;
+      }
+      pin = null;
+      spy();
       return true;
     }
+    let restoreTop = null;
     function open() {
       if (root.hidden) {
         root.hidden = false;
         setFull(false);
         document.body.classList.add("spec-open");
       }
-      st.lastHtml = "";
       st.lastVit = "";
       st.actKey = "";
       st.tabKey = "";
       st.lastHead = "";
       st.fixedKey = null;
+      st.flowKey = "";
+      st.flow.clear();
+      st.active = "";
+      body.scrollTop = 0;
     }
     function close() {
       root.hidden = true;
@@ -16129,12 +16465,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
       };
       g.lineWidth = 1.25;
       if (box) {
-        const pad2 = 6, e = m + 2;
-        const l = clamp6(w / 2 + box[0] * pxPerCell - pad2, e, w / 2 - 14), t2 = clamp6(h / 2 + box[1] * pxPerCell - pad2, e, h / 2 - 14);
-        const r2 = clamp6(w / 2 + box[2] * pxPerCell + pad2, w / 2 + 14, w - e), b = clamp6(h / 2 + box[3] * pxPerCell + pad2, h / 2 + 14, h - e);
+        const R2 = Math.max(6, cellRadius(sel.particle, api.genomeFor(sel.particle.kind), pxPerCell) * 1.4 + 3), c2 = Math.max(3, Math.min(10, R2 * 0.45));
+        const pad2 = R2 + 6, e = m + 2;
+        const l = clamp6(w / 2 + box[0] * pxPerCell - pad2, e, w / 2 - R2 - 4), t2 = clamp6(h / 2 + box[1] * pxPerCell - pad2, e, h / 2 - R2 - 4);
+        const r2 = clamp6(w / 2 + box[2] * pxPerCell + pad2, w / 2 + R2 + 4, w - e), b = clamp6(h / 2 + box[3] * pxPerCell + pad2, h / 2 + R2 + 4, h - e);
         g.strokeStyle = "rgba(255,95,58,0.9)";
         brackets(l, t2, r2, b, Math.min(10, (r2 - l) / 3, (b - t2) / 3));
-        const R2 = Math.max(6, cellRadius(sel.particle, api.genomeFor(sel.particle.kind), pxPerCell) * 1.4 + 3), c2 = Math.max(3, Math.min(10, R2 * 0.45));
         g.strokeStyle = "rgba(241,227,160,0.95)";
         brackets(w / 2 - R2, h / 2 - R2, w / 2 + R2, h / 2 + R2, c2);
       } else {
@@ -16142,20 +16478,22 @@ registerProcessor("tidemote-sound", TidemoteSound);
         brackets(w / 2 - 9, h / 2 - 9, w / 2 + 9, h / 2 + 9, 4);
       }
       g.lineWidth = 1;
-      const bar = pxPerCell * 0.5;
+      const um = [...NICE_UM].reverse().find((u) => u / UM_PER_UNIT * pxPerCell <= w * 0.34) || 1;
+      const bar = um / UM_PER_UNIT * pxPerCell;
       g.fillStyle = "rgba(226,241,240,0.85)";
       g.fillRect(12, h - 14, bar, 1.5);
       g.fillRect(12, h - 18, 1, 6);
       g.fillRect(12 + bar - 1, h - 18, 1, 6);
       g.font = "500 10px Saira, system-ui, sans-serif";
-      g.fillText("½ CELL", 18 + bar, h - 10);
+      g.fillText(fmtLen(um / UM_PER_UNIT), 18 + bar, h - 10);
       g.fillStyle = "rgba(241,227,160,0.95)";
       g.fillText(fmtClock(eng.simTime), 14, 20);
       g.fillStyle = "rgba(163,189,190,0.9)";
       if (sel) {
         const [W, H2] = eng.grid;
         g.textAlign = "right";
-        g.fillText(`X ${((sel.disp[0] % W + W) % W).toFixed(1)}  Y ${((sel.disp[1] % H2 + H2) % H2).toFixed(1)}`, w - 14, 20);
+        const mm = (v, n) => ((v % n + n) % n * UM_PER_UNIT / 1e3).toFixed(2);
+        g.fillText(`X ${mm(sel.disp[0], W)}  Y ${mm(sel.disp[1], H2)} MM`, w - 14, 20);
         g.textAlign = "left";
       }
     }
@@ -16163,8 +16501,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const sel = api.sel();
       if (sel && sel.mind && !sel.lost && st.fixedKey) mv.update(sel.mind, sel.particle.kind);
     }
-    return { render, open, close, inset, drawViewerUI, songTick, mindUpdate, mindTick: (now) => mv.tick(now), isOpen: () => !root.hidden, invalidate() {
-      st.lastHtml = "";
+    function reset() {
+      songs.clear();
+      glyphEl.dataset.k = "";
+      tagsEl.dataset.k = "";
+    }
+    return { reset, render, open, close, inset, drawViewerUI, songTick, mindUpdate, mindTick: (now) => mv.tick(now), isOpen: () => !root.hidden, invalidate() {
+      st.flow.clear();
       st.actKey = "";
       st.lastHead = "";
       st.fixedKey = null;
@@ -16594,14 +16937,17 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.spotlights.push({ slot, serial, t: this.io.now() });
       if (this.spotlights.length > 4) this.spotlights.shift();
     }
-    start(view) {
+    // now: asked for (the Auto button), so the first shot sets off at once; otherwise (taking over an
+    // idle view) the camera first wakes slowly where it was left
+    start(view, { now = false } = {}) {
       this.active = true;
+      this.quick = now;
       this.cam = { x: view.x, y: view.y, lw: Math.log(view.w), vx: 0, vy: 0, vw: 0 };
       this.history = [];
       this.planning = null;
       this.gen = (this.gen || 0) + 1;
       this.lastRig = null;
-      this.shot = this.makeShot("settle", view, { hold: 9 + 4 * this.rng(), fly: false });
+      this.shot = this.makeShot("settle", view, { hold: now ? 0 : 9 + 4 * this.rng(), fly: false });
       this.looked = 0;
     }
     stop() {
@@ -16815,7 +17161,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         const sp = this.io.species(s.slot);
         return sp && sp.serial === s.serial && sp.pop > 0;
       });
-      if (this.shot.type === "settle" && r() < 0.5) type = "wide";
+      if (this.shot.type === "settle" && this.quick) type = r() < 0.5 ? "wide" : "scene";
+      else if (this.shot.type === "settle" && r() < 0.5) type = "wide";
       else if (spot && last !== "spotlight") type = "spotlight";
       else if (sinceWide >= 3 + (r() < 0.5 ? 1 : 0) && last !== "wide") type = "wide";
       else {
@@ -17073,7 +17420,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       loupeMag: 3.5,
       currents: false,
       specCells: 3,
-      world: prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
+      // the Field Lab's column, open or folded to its header ("world": its name when it was the census)
+      labOpen: prefs.labOpen ?? prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
       closeup: prefs.closeup ?? true,
       songMarks: prefs.songMarks ?? 1,
       // mark the cells that sing: 0 off, 1 the picked species, 2 all
@@ -17107,7 +17455,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, world: state.world, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
+      savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
     if (prefs.loupe !== void 0 && !isCoarse) state.loupe = prefs.loupe;
@@ -17127,7 +17475,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     fit2();
     addEventListener("resize", () => {
       fit2();
-      drawWorldChart();
+      if (lab) drawWorldChart();
     });
     const cam = { x: 0, y: 0, zoom: 1, zoomTarget: 1, anchor: null };
     const fitPPU = () => Math.max(canvas.width / eng.grid[0], canvas.height / eng.grid[1]);
@@ -17163,7 +17511,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     const hover = { x: 0, y: 0, on: false };
     function loupeGeom() {
-      if (!state.loupe || !hover.on || ptr.dragging || state.phase !== "running" || director.active) return null;
+      if (!state.loupe || !hover.on || ptr.dragging || state.phase !== "running") return null;
+      if (director.active && performance.now() - lastPtr.moved > CURSOR_REST) return null;
       const base = cssPPU();
       if (base >= 40 * MAX_PPU / 220) return null;
       const R2 = Math.round(clamp6(Math.min(innerWidth, innerHeight) * 0.2, 90, 170));
@@ -17279,6 +17628,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       resetLife();
       resetClimate();
       sound.reset();
+      if (lab) lab.reset();
+      if (specimen) specimen.reset();
       life.estThreshold = Math.max(30, Math.round(n * 25e-5));
       deselect();
       clearFocus();
@@ -17353,6 +17704,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       state.phase = "running";
       renderWorld();
       view.render();
+      sound.overture();
       flash("A new world begins");
     }
     function groups() {
@@ -17368,7 +17720,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       return {
         diet: Object.keys(DIET_COL).map((k) => ({ name: k, n: out.diet[k] || 0, col: DIET_COL[k] })),
         mobility: Object.keys(MOB_COL).map((k) => ({ name: k, n: out.mobility[k] || 0, col: MOB_COL[k] })),
-        body: [{ name: "multicellular", n: out.body.multicellular || 0, col: "#ffb45e" }, { name: "single-celled", n: out.body["single-celled"] || 0, col: "#9aa3b8" }],
+        body: [{ name: "multicellular", n: out.body.multicellular || 0, col: "#ffb45e" }, { name: "single-cell", n: out.body["single-cell"] || 0, col: "#9aa3b8" }],
         types: ["1", "2", "3"].map((k, i) => ({ name: k, n: out.types[k] || 0, col: ["#9aa3b8", "#b38cff", "#5fd4c4"][i] }))
       };
     }
@@ -17394,8 +17746,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       $("focus").hidden = !focus.key;
       $("focus-label").textContent = focus.label;
     }
-    function setFocus(key, label, { pred = null, roleMask = 7, stateMode = 0, matter = [false, false, false] } = {}) {
-      Object.assign(focus, { key, label, pred, roleMask, stateMode, matter });
+    function setFocus(key, label2, { pred = null, roleMask = 7, stateMode = 0, matter = [false, false, false] } = {}) {
+      Object.assign(focus, { key, label: label2, pred, roleMask, stateMode, matter });
       pushFocus();
       afterFocus();
     }
@@ -17429,7 +17781,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       else if (kind === "state") setFocus(key, ["", "Hungry cells", "Cells ready to divide", "Elderly cells"][+val], { pred: allLiving, stateMode: +val });
       else if (kind === "diet") setFocus(key, `Diet: ${val}`, { pred: (g) => facets(g, K).diet === val });
       else if (kind === "mobility") setFocus(key, `Movement: ${val}`, { pred: (g) => facets(g, K).mobility === val });
-      else if (kind === "body") setFocus(key, val === "multicellular" ? "Multicellular species" : "Single-celled species", { pred: (g) => facets(g, K).body === val });
+      else if (kind === "body") setFocus(key, val === "multicellular" ? "Multicellular species" : "Single-cell species", { pred: (g) => facets(g, K).body === val });
       else if (kind === "types") setFocus(key, `${val} cell type${val === "1" ? "" : "s"}`, { pred: (g) => String(facets(g, K).types) === val });
     }
     function focusSpecies(sp) {
@@ -17690,7 +18042,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       ["Silt", 0, MATTER[0].css, "silt", "class:silt"]
     ];
     const mixEl = $("mix");
-    mixEl.innerHTML = `<div class="mix-bar" aria-hidden="true">${MIX.map(([, , col]) => `<i style="background:${col}"></i>`).join("")}</div>` + MIX.map(([label, , col, , key]) => `<button type="button" class="mix-row" data-focus="${key}" aria-pressed="false"><i style="background:${col}"></i><span>${label}</span><b></b><em></em></button>`).join("");
+    mixEl.innerHTML = `<div class="mix-bar" aria-hidden="true">${MIX.map(([, , col]) => `<i style="background:${col}"></i>`).join("")}</div>` + MIX.map(([label2, , col, tip, key]) => `<button type="button" class="mix-row" data-focus="${key}" aria-pressed="false"><i style="background:${col}"></i><span><span class="term" data-tip="${tip}">${label2}</span></span><b></b><em></em></button>`).join("");
     mixEl.addEventListener("click", (e) => {
       const b = e.target.closest("[data-focus]");
       if (b) focusFacet(b.dataset.focus);
@@ -17715,11 +18067,56 @@ registerProcessor("tidemote-sound", TidemoteSound);
       $("world-sum").textContent = `${fmt(life.counts[3])} living · ${fmt(life.alive)} species`;
     }
     function drawWorldChart() {
-      if (!state.world || phone() || !life) return;
-      drawLiving($("chart"), life.history, life.reg, climate && climate.history);
+      if (!lab || !lab.isOpen() || lab.tab() !== "census" || !life) return;
+      drawLiving($("chart"), life.history, life.reg, climate && climate.history, chartHot && chartHot.serial);
       const h = life.history;
       $("hist-span").textContent = h.length > 1 ? `${fmtClock(h[0].t)} – ${fmtClock(h[h.length - 1].t)}` : "";
     }
+    let chartHot = null;
+    const chartEl = $("chart"), plateEl = $("plate");
+    function chartPoint(e) {
+      const r = chartEl.getBoundingClientRect();
+      const hit = life && livingAt(chartEl, life.history, e.clientX - r.left, e.clientY - r.top);
+      const sp = hit && life.reg.get(hit.serial);
+      const prev = chartHot && chartHot.serial;
+      chartHot = sp ? hit : null;
+      if (sp) {
+        plateEl.innerHTML = `<i style="background:${cssCol(sp.genome.col)}"></i><span>${esc(sp.name)}</span><small>${fmt(hit.pop)} · ${fmtClock(hit.t)}${sp.alive ? "" : " · extinct"}</small>`;
+        plateEl.hidden = false;
+        const pw = plateEl.offsetWidth;
+        plateEl.style.left = `${Math.round(Math.min(e.clientX + 14, innerWidth - pw - 8))}px`;
+        plateEl.style.top = `${Math.round(e.clientY - 26)}px`;
+      } else plateEl.hidden = true;
+      if ((chartHot && chartHot.serial) !== prev) drawWorldChart();
+      return prev;
+    }
+    function chartLeave() {
+      plateEl.hidden = true;
+      if (chartHot) {
+        chartHot = null;
+        drawWorldChart();
+      }
+    }
+    chartEl.addEventListener("pointermove", (e) => {
+      if (e.pointerType === "mouse") chartPoint(e);
+    });
+    chartEl.addEventListener("pointerleave", (e) => {
+      if (e.pointerType === "mouse") chartLeave();
+    });
+    chartEl.addEventListener("pointerdown", (e) => {
+      const prev = chartPoint(e);
+      if (chartHot && (e.pointerType === "mouse" || prev === chartHot.serial)) {
+        openSpecies(chartHot.serial);
+        if (e.pointerType !== "mouse") chartLeave();
+      }
+    });
+    document.addEventListener("pointerdown", (e) => {
+      if (!plateEl.hidden && e.target !== chartEl) chartLeave();
+    }, true);
+    addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !plateEl.hidden) chartLeave();
+    }, true);
+    const chartShown = () => lab && lab.isOpen() && lab.tab() === "census" && chartEl.offsetParent !== null;
     let feedKey = "";
     function renderFeed() {
       if (!life || uiHeld()) return;
@@ -17727,21 +18124,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const key = `${ch.length}:${ch[0] ? ch[0].t : 0}`;
       if (key === feedKey) return;
       feedKey = key;
-      $("feed").innerHTML = ch.length ? ch.slice(0, 12).map((e) => `<li><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join("") : '<li class="quiet">New species, extinctions and eras are logged here.</li>';
+      $("feed").innerHTML = ch.length ? ch.slice(0, 40).map((e) => `<li><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join("") : '<li class="quiet">New species, extinctions and eras are logged here.</li>';
     }
-    function renderWorldOpen() {
-      $("world").classList.toggle("closed", !state.world);
-      $("world-toggle").setAttribute("aria-expanded", String(state.world));
-      $("world-toggle").setAttribute("aria-label", state.world ? "Collapse census" : "Expand census");
-      drawWorldChart();
-    }
-    $("world-toggle").addEventListener("click", () => {
-      state.world = !state.world;
-      persist();
-      renderWorldOpen();
-    });
     $("feed-all").addEventListener("click", () => lab.open("log"));
-    renderWorldOpen();
     let sel = null;
     let spView = null;
     let dirty = false;
@@ -18220,6 +18605,17 @@ registerProcessor("tidemote-sound", TidemoteSound);
       eng,
       state,
       held: uiHeld,
+      // a phone starts with it folded away: there it covers the world
+      startOpen: state.labOpen && !phone(),
+      // keep: folded for the auto camera, not by the reader, so the preference stands
+      onFold: (on, keep) => {
+        if (!phone() && !keep) {
+          state.labOpen = on;
+          persist();
+        }
+        drawWorldChart();
+      },
+      onCensusShown: drawWorldChart,
       life: () => life,
       facets: (g) => facets(g, K),
       groups,
@@ -18227,7 +18623,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       openSpecies,
       focusFacet,
       focusKey: () => focus.key,
-      focusPredicate: (label, pred) => setFocus(`pred:${label}`, label, { pred })
+      focusPredicate: (label2, pred) => setFocus(`pred:${label2}`, label2, { pred })
     });
     $("lab-open").addEventListener("click", () => {
       closeMenus();
@@ -18239,7 +18635,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       let pendingN = null;
       const choice = (id, title, key, items, cur, tip) => `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ""}</span><div class="row" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? " disabled" : ""}>${l}</button>`).join("")}</div></div>`;
       const onoff = (id, title, key, on, tip) => choice(id, title, key, [[1, "On"], [0, "Off"]], on ? 1 : 0, tip);
-      const head = (t2) => `<div class="opt-h">${t2}</div>`;
+      const head = (t2) => sectHead(t2);
       const kfmt = (n) => n >= 1048576 ? `${n / 1048576}M` : `${Math.round(n / 1024)}k`;
       function display() {
         const s = eng.settings;
@@ -18271,6 +18667,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         roAt = now;
         setText("ro-fps", perf.fps ? perf.fps.toFixed(0) : "–");
         setText("ro-ms", perf.gpu ? perf.gpu.toFixed(1) : "–");
+        setText("ro-res", `${Math.round(renderScale * 100)}%`);
         setText("ro-px", `${canvas.width}×${canvas.height}`);
         setText("ro-n", fmt(eng.count));
         const al = sound.load;
@@ -18492,6 +18889,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (now - state.confirmReset < 2500) {
           state.confirmReset = 0;
           seedWorld(eng.count);
+          sound.overture();
           flash("A new world begins");
         } else {
           state.confirmReset = now;
@@ -18558,7 +18956,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         else if (view.isOpen()) view.toggle(false);
         else if (sel || spView != null) deselect();
         else if (focus.key) clearFocus();
-        else if (lab.isOpen()) lab.close();
+        else if (lab.isWide() && !phone()) lab.narrow();
+        else if (lab.isOpen() && phone()) lab.close();
         else handled = false;
       } else if (k === " ") togglePause();
       else if (k === ",") stepSpeed(-1);
@@ -18569,6 +18968,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       else if (k === "i" || k === "I") {
         state.hud = !state.hud;
         $("hud").classList.toggle("off", !state.hud);
+        document.body.classList.toggle("hud-off", !state.hud);
         flash(state.hud ? "Readouts shown" : "Readouts hidden");
       } else if (k === "f" || k === "F") toggleFullscreen();
       else if (k === "0") {
@@ -18684,6 +19084,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       document.body.classList.add("live");
     }
     function begin() {
+      sound.overture();
       if (sound.on && !sound.playing) {
         state.paused = true;
         renderTime();
@@ -18737,6 +19138,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       setText("sys-fps", perf.fps ? perf.fps.toFixed(0) : "–");
       setText("sys-ms", perf.gpu ? perf.gpu.toFixed(1) : "–");
       setText("sys-res", `${Math.round(renderScale * 100)}%`);
+      if (!plateEl.hidden && !chartShown()) chartLeave();
       view.readout();
     }
     const frameTarget = () => Math.max(state.perf.fps ? 1e3 / state.perf.fps : 0, perf.rafMs || 16.7);
@@ -18812,12 +19214,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
         octx.stroke();
       }
     }
-    const NICE = [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 50];
     function drawScale() {
       if (!state.hud || director.active && !phone()) return;
       const p = cssPPU();
       const y = dockTop - 1;
-      const unit = NICE.find((u) => u * p >= 14) || 50;
+      const unit = (NICE_UM.find((u) => u / UM_PER_UNIT * p >= 14) || 5e4) / UM_PER_UNIT;
       const [wx0] = toWorld(0, 0);
       const first = Math.ceil(wx0 / unit) * unit;
       octx.fillStyle = "rgba(150,222,230,0.45)";
@@ -18828,7 +19229,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         octx.fillRect(Math.round(sx), y - (major ? 6 : 3), 1, major ? 6 : 3);
       }
       if (phone()) return;
-      const len2 = NICE.find((u) => u * p >= 50) || 50;
+      const len2 = (NICE_UM.find((u) => u / UM_PER_UNIT * p >= 50) || 5e4) / UM_PER_UNIT;
       const w = len2 * p, x1 = innerWidth - 24 - (specimen.isOpen() ? specimen.inset().right : 0), x0 = x1 - w, by = y - 16;
       octx.fillStyle = "rgba(226,241,240,0.85)";
       octx.fillRect(x0, by, w, 1);
@@ -18836,7 +19237,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       octx.fillRect(x1 - 1, by - 4, 1, 5);
       octx.font = "500 10px Saira, system-ui, sans-serif";
       octx.textAlign = "right";
-      octx.fillText(`${len2 < 1 ? len2 : fmt(len2)} cell${len2 === 1 ? "" : "s"}`, x0 - 8, by + 3);
+      octx.fillText(fmtLen(len2), x0 - 8, by + 3);
       octx.textAlign = "left";
     }
     function drawOverlay(dt, L) {
@@ -18894,8 +19295,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     const MARK_MS = 650;
     const watched = /* @__PURE__ */ new Map();
+    let marksAt = 0;
     eng.onWatch = ({ simTime, seen }) => {
-      for (const w of seen) watched.set(w.id, { x: w.x, y: w.y, vx: w.vx, vy: w.vy, t: simTime });
+      for (const w of seen) {
+        const o = watched.get(w.id);
+        watched.set(w.id, { x: w.x, y: w.y, vx: w.vx, vy: w.vy, t: simTime, disp: o && o.disp, err: o ? o.err : [0, 0], fresh: true });
+      }
     };
     function markSlot() {
       if (!state.songMarks || !sound.on) return -2;
@@ -18920,6 +19325,25 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const only = markSlot();
       if (only === -2 || !songEvents.length) return;
       const p = cssPPU(), simNow = viewSimTime || eng.simTime, [W, H2] = eng.grid;
+      const fade = Math.exp(-Math.max(0, now - (marksAt || now)) / 45);
+      marksAt = now;
+      const placed = /* @__PURE__ */ new Map();
+      const place = (w, g) => {
+        let q = placed.get(w);
+        if (q) return q;
+        const dts = Math.max(0, Math.min(0.25, simNow - w.t)), [fx, fy] = flowAt(w.x, w.y, eng.simTime, eng.waves);
+        const px = w.x + (w.vx + fx * g.advect) * dts, py = w.y + (w.vy + fy * g.advect) * dts;
+        if (w.fresh && w.disp) {
+          w.err = [wrapD2(w.disp[0] - px, W), wrapD2(w.disp[1] - py, H2)];
+        }
+        w.fresh = false;
+        w.err[0] *= fade;
+        w.err[1] *= fade;
+        q = [px + w.err[0], py + w.err[1]];
+        w.disp = q;
+        placed.set(w, q);
+        return q;
+      };
       octx.lineWidth = 1;
       for (const e of songEvents) {
         const t2 = now - e.at;
@@ -18928,11 +19352,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (!g) continue;
         const c = e.cell, w = watched.get(c.id);
         let x, y;
-        if (w) {
-          const dts = Math.max(0, Math.min(0.25, simNow - w.t)), [fx, fy] = flowAt(w.x, w.y, eng.simTime, eng.waves);
-          x = w.x + (w.vx + fx * g.advect) * dts;
-          y = w.y + (w.vy + fy * g.advect) * dts;
-        } else {
+        if (w) [x, y] = place(w, g);
+        else {
           const dts = Math.max(0, Math.min(3, simNow - c.t));
           if (0.25 * Math.hypot(c.vx, c.vy) * dts * p > 30) continue;
           const [fx, fy] = flowAt(c.x, c.y, eng.simTime, eng.waves);
@@ -18958,45 +19379,45 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       octx.globalAlpha = 1;
     }
-    function cellBrackets(g, x, y, R2) {
-      const c = Math.max(2.5, Math.min(10, R2 * 0.45));
-      g.lineWidth = 1.25;
-      g.strokeStyle = CELL_MARK;
+    function brackets(g, l, t2, r, b, col, minC = 2.5, frac = 0.16) {
+      const m = Math.min(r - l, b - t2);
+      const c = Math.min(clamp6(m * frac, minC, 64), (r - l) / 3, (b - t2) / 3);
+      const w = 1.25 + 1.25 * clamp6((m - 120) / 480, 0, 1);
       g.beginPath();
-      for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-        g.moveTo(x + dx * R2, y + dy * (R2 - c));
-        g.lineTo(x + dx * R2, y + dy * R2);
-        g.lineTo(x + dx * (R2 - c), y + dy * R2);
+      for (const [x, y, dx, dy] of [[l, t2, 1, 1], [r, t2, -1, 1], [l, b, 1, -1], [r, b, -1, -1]]) {
+        g.moveTo(x, y + dy * c);
+        g.lineTo(x, y);
+        g.lineTo(x + dx * c, y);
       }
+      g.lineCap = "square";
+      g.lineWidth = w + 2;
+      g.strokeStyle = "rgba(0,0,0,0.45)";
       g.stroke();
+      g.lineWidth = w;
+      g.strokeStyle = col;
+      g.stroke();
+      g.lineCap = "butt";
     }
+    const cellMarkR = (p) => Math.max(5, cellRadius(p, genomeFor(p.kind), cssPPU()) * 1.4 + 3);
     function drawMarker(sx, sy, inLens, dt) {
       const lost = sel.lost;
       const dead = sel.particle.kind < FIRST_LIFE;
       if (sel.film && dead && !(director.shot && director.shot.why && director.shot.why.kind === "linger")) return;
       const R2 = 11;
       let l = sx - R2, t2 = sy - R2, r = sx + R2, b = sy + R2;
-      if (sel.box && !inLens && !dead) {
+      const cr = sel.box && !inLens && !dead ? cellMarkR(sel.particle) : 0;
+      if (cr) {
         if (!sel.boxD) sel.boxD = sel.box.slice();
         const k = 1 - Math.exp(-dt / 150);
         for (let i = 0; i < 4; i++) sel.boxD[i] += (sel.box[i] - sel.boxD[i]) * k;
-        const p2 = cssPPU(), pad2 = Math.max(6, 0.12 * p2);
+        const p2 = cssPPU(), pad2 = Math.max(6, 0.12 * p2, cr + 6);
         l = Math.min(l, sx + sel.boxD[0] * p2 - pad2);
         t2 = Math.min(t2, sy + sel.boxD[1] * p2 - pad2);
         r = Math.max(r, sx + sel.boxD[2] * p2 + pad2);
         b = Math.max(b, sy + sel.boxD[3] * p2 + pad2);
       } else sel.boxD = null;
-      const c = Math.min(10, (r - l) / 3, (b - t2) / 3);
-      octx.lineWidth = 1.25;
-      octx.strokeStyle = lost ? "rgba(255,255,255,0.35)" : "rgba(255,95,58,0.95)";
-      octx.beginPath();
-      for (const [x, y, dx, dy] of [[l, t2, 1, 1], [r, t2, -1, 1], [l, b, 1, -1], [r, b, -1, -1]]) {
-        octx.moveTo(x, y + dy * c);
-        octx.lineTo(x, y);
-        octx.lineTo(x + dx * c, y);
-      }
-      octx.stroke();
-      if (sel.boxD && !lost) cellBrackets(octx, sx, sy, Math.max(5, cellRadius(sel.particle, genomeFor(sel.particle.kind), cssPPU()) * 1.4 + 3));
+      brackets(octx, l, t2, r, b, lost ? "rgba(255,255,255,0.35)" : "rgba(255,95,58,0.95)", 10);
+      if (sel.boxD && !lost) brackets(octx, sx - cr, sy - cr, sx + cr, sy + cr, CELL_MARK, 2.5, 0.225);
       if (inLens || lost) return;
       const p = sel.particle;
       const g = p.kind >= FIRST_LIFE ? genomeFor(p.kind) : null;
@@ -19004,9 +19425,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : p.kind < FIRST_LIFE ? MATTER[p.kind].name : "";
       if (!name) return;
       octx.font = "500 11px Saira, system-ui, sans-serif";
-      const label = name.toUpperCase();
+      const label2 = name.toUpperCase();
       octx.letterSpacing = "1.5px";
-      const tw = octx.measureText(label).width;
+      const tw = octx.measureText(label2).width;
       const lo = lab.isOpen() && !phone() ? $("lab").getBoundingClientRect().right : 0;
       const hi = innerWidth - specimen.inset().right;
       const left = r + 38 + tw > hi - 8 && l - 38 - tw >= lo + 8;
@@ -19022,10 +19443,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
       octx.fillStyle = "rgba(6,9,10,0.7)";
       octx.fillRect(tx - 4, ey - 9, tw + 8, 16);
       octx.fillStyle = "rgba(226,241,240,0.95)";
-      octx.fillText(label, tx, ey + 3.5);
+      octx.fillText(label2, tx, ey + 3.5);
       octx.letterSpacing = "0px";
     }
     const AUTO_IDLE = 6e4, AUTO_IDLE_READING = 18e4;
+    const CURSOR_REST = 3e3;
     state.auto = prefs.auto ?? (() => {
       try {
         return localStorage.getItem("tidemote.autoCamera") !== "off";
@@ -19097,10 +19519,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     function startAuto(idle) {
       if (idle && (sel || spView != null)) deselect();
-      if (idle && lab.isOpen()) lab.close();
-      if (phone() && lab.isOpen()) lab.close();
+      lab.close({ keep: true });
       closeMenus();
-      director.start({ x: cam.x, y: cam.y, w: viewWidths()[1] / cam.zoom });
+      director.start({ x: cam.x, y: cam.y, w: viewWidths()[1] / cam.zoom }, { now: !idle });
       renderAuto(true);
     }
     function playAuto() {
@@ -19225,7 +19646,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (state.phase !== "running") return;
       if (!director.active) {
         if (!state.auto) return;
-        const reading = sel || spView != null || lab.isOpen();
+        const reading = sel || spView != null || lab.isWide();
         if (state.paused || !introHidden || ptr.pointers.size || now - lastInput < (reading ? AUTO_IDLE_READING : AUTO_IDLE)) return;
         startAuto(true);
       }
@@ -19337,8 +19758,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (state.phase === "running" && !state.paused) climate.tick(step.steps * step.dt);
         autoCamera(now, dt);
         renderCaption(now);
-        document.body.classList.toggle("filming", director.active && !specimen.isOpen() && !lab.isOpen());
-        document.body.classList.toggle("cursor-off", director.active && now - lastPtr.moved > 3e3);
+        document.body.classList.toggle("cursor-off", director.active && now - lastPtr.moved > CURSOR_REST);
         if (state.follow && sel) {
           const [px, py] = predicted();
           const [ox, oy] = viewOffset();

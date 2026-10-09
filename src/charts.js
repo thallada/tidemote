@@ -33,13 +33,8 @@ function frame(g, w, h, top, hist, eras) {
   }
 }
 
-/** Living cells stacked by thriving species (in their colours), the rest of life as a pale band on top. */
-export function drawLiving(cv, hist, reg, eras) {
-  const f = fit(cv);
-  if (!f) return;
-  const { g, w, h } = f;
-  frame(g, w, h, 2, hist, eras);
-  if (hist.length < 2) return;
+// each thriving species' population at every sample, and the chart's scale
+function stack(hist) {
   let max = 1;
   for (const s of hist) if (s.living > max) max = s.living;
   const by = new Map();
@@ -50,6 +45,34 @@ export function drawLiving(cv, hist, reg, eras) {
       e.vals[i] = p; e.b = i;
     }
   });
+  return { max, by, order: [...by.keys()].sort((a, b) => a - b) };
+}
+
+/** The species under a point of drawLiving's chart (CSS px from its top left): { serial, pop, t, x } or null. */
+export function livingAt(cv, hist, px, py) {
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (hist.length < 2 || !w || !h) return null;
+  const { max, by, order } = stack(hist);
+  const i = Math.max(0, Math.min(hist.length - 1, Math.round((px / w) * (hist.length - 1))));
+  const v = ((h - py) / (h - 4)) * max;
+  if (v < 0) return null;
+  let base = 0;
+  for (const serial of order) {
+    const p = by.get(serial).vals[i];
+    if (p > 0 && v >= base && v < base + p) return { serial, pop: p, t: hist[i].t, x: (i / (hist.length - 1)) * w };
+    base += p;
+  }
+  return null;
+}
+
+/** Living cells stacked by thriving species (in their colours), the rest of life as a pale band on top. Hot: a species brought forward. */
+export function drawLiving(cv, hist, reg, eras, hot = null) {
+  const f = fit(cv);
+  if (!f) return;
+  const { g, w, h } = f;
+  frame(g, w, h, 2, hist, eras);
+  if (hist.length < 2) return;
+  const { max, by, order } = stack(hist);
   const x = (i) => (i / (hist.length - 1)) * w;
   const y = (v) => h - (v / max) * (h - 4);
   const base = new Float32Array(hist.length);
@@ -62,9 +85,10 @@ export function drawLiving(cv, hist, reg, eras) {
     g.fill();
     for (let i = a; i <= b; i++) base[i] += vals[i];
   };
-  for (const serial of [...by.keys()].sort((a, b) => a - b)) {
+  for (const serial of order) {
     const sp = reg.get(serial), e = by.get(serial);
-    band(e.vals, sp ? cssCol(sp.genome.col, 0.9) : 'rgba(255,200,140,0.8)', Math.max(0, e.a - 1), Math.min(hist.length - 1, e.b + 1));
+    const a = hot == null || hot === serial ? 0.9 : 0.35;
+    band(e.vals, sp ? cssCol(sp.genome.col, a) : `rgba(255,200,140,${a * 0.9})`, Math.max(0, e.a - 1), Math.min(hist.length - 1, e.b + 1));
   }
   band(hist.map((s) => Math.max(0, s.living - s.sp.reduce((a, q) => a + q[1], 0))), 'rgba(226,241,240,0.16)');
   g.strokeStyle = 'rgba(226,241,240,0.55)'; g.lineWidth = 1;
