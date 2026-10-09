@@ -2731,10 +2731,10 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   // a neck is never wider than the cells it joins (cells shrink to fit dense bodies)
   let ends = min(cellRadius(p, genomes[p.kind], index), cellRadius(q, genomes[q.kind], n));
   let neck = min(view.ppu * (0.012 + adhesion * 0.025), 0.3 * ends);
-  // up close a bond reads as a neck between neighbouring cells; one reaching across a crowd past
-  // several cell widths fades (it still pulls in the sim, and shows as a line from afar)
-  let span = 1.0 - lod * smoothstep(3.5, 5.0, len * view.ppu / ends);
-  let halfWidth = mix(0.5, max(0.5, neck * taper * tension), lod);
+  // up close a bond between neighbouring cells reads as a neck; one reaching across a crowd past
+  // several cell widths stays the thin thread it is from afar, so zooming never hides a bond
+  let neckness = lod * (1.0 - smoothstep(3.5, 5.0, len * view.ppu / ends));
+  let halfWidth = mix(0.5, max(0.5, neck * taper * tension), neckness);
   o.pos = toClip((base + centre) * view.ppu + normal * side * halfWidth);
   let strength = clamp(1.0 - len / view.linkR, 0.0, 1.0);
   let fade = select(view.mute, 1.0, focusPass(p));
@@ -2743,8 +2743,8 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   let line = (0.35 + 0.65 * strength) * view.lineGain / (halfWidth * 1.6);
   let membrane = 0.18 * view.pointGain * (0.6 + 0.4 * strength);
   o.col = mix(unpack4x8unorm(p.col).rgb, unpack4x8unorm(q.col).rgb, t)
-    * (fade * lod * span * tension * tension * mix(line, membrane, lod));
-  o.cover = lod * lod * span;
+    * (fade * lod * mix(1.0, tension * tension, neckness) * mix(line, membrane, neckness));
+  o.cover = lod * neckness;
   o.side = side;
   o.across = normal;
   o.along = vec2f(t, t * len);
