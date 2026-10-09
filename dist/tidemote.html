@@ -4100,7 +4100,7 @@ struct SO {
   @location(0) uv: vec2f,
   @location(1) @interpolate(flat) col: vec3f,
   @location(2) @interpolate(flat) seed: vec2f,
-  @location(3) @interpolate(flat) flags: u32, // 1: reef (built by calcifiers), 2: the selected grain, 4: a framboid
+  @location(3) @interpolate(flat) flags: u32, // 1: reef (built by calcifiers), 2: the selected grain, 4: a framboid; bits 3-5 the kind of grain
   @location(4) @interpolate(flat) px: f32, // quad radius in pixels
   @location(5) @interpolate(flat) fuel: f32, // a framboid's fuel left, 0..1
 };
@@ -4115,18 +4115,39 @@ struct SO {
   let r = max(STONE_R * view.ppu * select(0.8 + 0.4 * renderHash(p.id + 77u), 0.5, framboid), 1.5);
   if (any(abs(d) > view.res * 0.5 + vec2f(r))) { return o; }
   o.seed = vec2f(f32(pcgR(p.id) & 0xffffu), f32(pcgR(p.id) >> 16u)) / 65536.0;
-  // chalky and matte, tinted by the species that built it; each cobble a little lighter or darker;
-  // a framboid is brassy pyrite
+  // sediment seen under a microscope: each grain is one of a few kinds (its own outline, detail and
+  // material, mineralSurf and boulder), coloured as that kind is. Bedrock is mostly mineral grains;
+  // reef stone, laid down by calcifiers, mostly the skeletons of small organisms, and keeps a little
+  // of its builder's tint. A framboid is brassy pyrite.
   var base = unpack4x8unorm(p.col).rgb;
-  // bedrock is a mix of minerals: each grain quartz-grey, pinkish feldspar, dark mafic or olive
-  if (!framboid && (p.info & 15u) == 0u) {
-    let m = u32(renderHash(p.id ^ 0x9e3779b9u) * 4.0);
-    base = mix(base, select(select(vec3f(0.74, 0.73, 0.7), vec3f(0.8, 0.64, 0.56), m == 1u), select(vec3f(0.3, 0.31, 0.33), vec3f(0.52, 0.54, 0.42), m == 3u), m >= 2u), 0.55);
+  let reef = (p.info & 15u) != 0u && !framboid;
+  var ty = 0u;
+  if (!framboid) {
+    let h = renderHash(p.id ^ 0x9e3779b9u);
+    let h2 = renderHash(p.id ^ 0x85ebca6bu);
+    if (reef) {
+      ty = select(select(select(select(7u, 5u, h < 0.88), 3u, h < 0.75), 6u, h < 0.55), 4u, h < 0.3);
+    } else {
+      ty = select(select(select(select(select(select(select(7u, 6u, h < 0.97), 5u, h < 0.93), 4u, h < 0.88), 3u, h < 0.82), 2u, h < 0.67), 1u, h < 0.55), 0u, h < 0.35);
+    }
+    var mc = vec3f(0.84, 0.87, 0.87); // a sponge spicule: clear silica
+    switch ty {
+      case 0u: { mc = select(select(vec3f(0.74, 0.75, 0.73), vec3f(0.56, 0.48, 0.41), h2 > 0.6), vec3f(0.82, 0.62, 0.64), h2 > 0.9); } // quartz: clear, smoky or rose
+      case 1u: { mc = select(vec3f(0.95, 0.55, 0.42), vec3f(0.95, 0.85, 0.64), h2 > 0.6); } // feldspar: pink or cream
+      case 2u: { mc = select(select(vec3f(0.16, 0.18, 0.17), vec3f(0.18, 0.26, 0.15), h2 > 0.5), vec3f(0.28, 0.15, 0.12), h2 > 0.85); } // mafic: black, green-black or red-black
+      case 3u: { mc = select(select(vec3f(0.92, 0.78, 0.55), vec3f(0.76, 0.75, 0.72), h2 > 0.55), vec3f(0.9, 0.56, 0.32), h2 > 0.85); } // worn sand: tan, grey or iron-stained
+      case 4u: { mc = select(vec3f(1.0, 0.95, 0.85), vec3f(1.0, 0.8, 0.74), h2 > 0.7); } // a foraminifer's chalk test
+      case 5u: { mc = select(vec3f(0.74, 0.9, 0.84), vec3f(0.9, 0.85, 0.55), h2 > 0.6); } // a diatom's glass
+      case 6u: { mc = select(vec3f(0.98, 0.9, 0.78), vec3f(0.9, 0.7, 0.54), h2 > 0.6); } // a shell fragment
+      default: {}
+    }
+    base = mix(mc, base, select(0.0, 0.3, reef));
   }
-  var col = mix(base, vec3f(0.9, 0.86, 0.78), select(0.4, 0.0, framboid)) * view.matterGain * 1.1;
-  col *= 0.75 + 0.5 * o.seed.x;
+  var col = base * view.matterGain * 1.1;
+  if (!framboid) { col = max(mix(vec3f(dot(col, vec3f(0.3, 0.5, 0.2))), col, 1.5), vec3f(0.0)); }
+  col *= select(0.75 + 0.5 * o.seed.x, 0.85 + 0.3 * o.seed.x, !framboid);
   if (!focusPass(p)) { col = vec3f(dot(col, vec3f(0.3, 0.5, 0.2))) * view.mute; }
-  o.flags = select(0u, 1u, (p.info & 15u) != 0u && !framboid) | select(0u, 2u, p.id == view.selId) | select(0u, 4u, framboid);
+  o.flags = select(0u, 1u, reef) | select(0u, 2u, p.id == view.selId) | select(0u, 4u, framboid) | (ty << 3u);
   o.fuel = select(0.0, clamp(p.energy / ${f(DEFAULT_K.framboidLife)}, 0.0, 1.0), framboid);
   let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
   o.pos = toClip(d + corner * r);
@@ -4182,57 +4203,277 @@ fn framboidSurf(i: SO) -> StoneOut {
   return o;
 }
 
-// A grain of mineral sediment: an irregular convex polygon of five to eight facets at uneven angles
-// and distances, stretched along its own axis, sometimes with a chip bitten out of its edge. It is a
-// table with bevelled sides, each bevel lit as its own facet, a crisp ridge where two meet, and a top
-// tilted a little its own way. Height and slope in world units (uv is world / the quad's radius).
+// The kinds of sediment grain (vsStone picks one per grain; boulder lights each as its material):
+// 0 quartz, glassy, angular, with curved fracture ripples, a hairline crack and specks of inclusions;
+// 1 feldspar, blocky, stepped along its cleavage and faintly banded; 2 a mafic prism, long, dark and
+// glossy, striated along its length; 3 worn sand, a rounded frosted pebble; 4 a foraminifer's test,
+// chambers coiled in a growing spiral, sutured and pored; 5 a diatom, a glass disc with a raised rim
+// and rows of pores (or a slim boat with cross ribs and a central slit); 6 a shell fragment, a broken
+// shard with growth lines and ribs; 7 a sponge spicule, a slim glass needle with its axial canal.
+// Fine detail fades in as the grain grows on screen. Height and slope in uv units (uv is world over
+// the quad's radius).
+struct Poly { sd: f32, sd2: f32, nrm: vec2f, face: f32 };
+// An irregular convex polygon of n facets at uneven angles (jit) and distances (spread), sometimes
+// with a wedge chipped out of its edge.
+fn grainPoly(w: vec2f, seed: vec2f, n: u32, r0: f32, jit: f32, spread: f32, chip: bool) -> Poly {
+  var p: Poly;
+  p.sd = -1e9; p.sd2 = -1e9; p.nrm = vec2f(1.0, 0.0); p.face = 0.0;
+  for (var k = 0u; k < n; k++) {
+    let at = (f32(k) + jit * (grainHash(seed, f32(k) + 2.0) - 0.5)) * TAU / f32(n);
+    let dir = vec2f(cos(at), sin(at));
+    let dk = dot(w, dir) - r0 * (1.0 - 0.5 * spread + spread * grainHash(seed, f32(k) + 11.0));
+    if (dk > p.sd) { p.sd2 = p.sd; p.sd = dk; p.nrm = dir; p.face = f32(k); } else if (dk > p.sd2) { p.sd2 = dk; }
+  }
+  if (chip && grainHash(seed, 19.0) > 0.5) {
+    let ca = grainHash(seed, 23.0) * TAU;
+    let c = vec2f(cos(ca), sin(ca)) * r0 * (0.55 + 0.2 * grainHash(seed, 29.0));
+    let sp = 0.5 + 0.5 * grainHash(seed, 31.0);
+    let n1 = vec2f(cos(ca + 1.5708 + sp), sin(ca + 1.5708 + sp));
+    let n2 = vec2f(cos(ca - 1.5708 - sp * 0.7), sin(ca - 1.5708 - sp * 0.7));
+    let d1 = dot(w - c, n1);
+    let d2 = dot(w - c, n2);
+    let cut = -max(d1, d2);
+    if (cut > p.sd) { p.sd2 = p.sd; p.sd = cut; p.nrm = select(-n2, -n1, d1 > d2); p.face = 9.0; }
+  }
+  return p;
+}
+// Scattered round dots on a jittered grid: 1 inside a dot. dens is the share of cells with one.
+fn grainDots(q: vec2f, size: f32, dens: f32) -> f32 {
+  let c = floor(q);
+  let h = fract(sin(vec2f(dot(c, vec2f(127.1, 311.7)), dot(c, vec2f(269.5, 183.3)))) * 43758.5453);
+  let d = length(fract(q) - 0.25 - 0.5 * h);
+  return select(0.0, 1.0 - smoothstep(size * 0.6, size, d), fract(h.x * 7.13 + h.y * 3.1) < dens);
+}
+
 fn mineralSurf(i: SO) -> StoneOut {
-  let n = 5u + u32(grainHash(i.seed, 3.0) * 3.99);
+  let ty = (i.flags >> 3u) & 7u;
   let rot = i.seed.x * TAU;
   let ax = vec2f(cos(rot), sin(rot));
   let ay = vec2f(-ax.y, ax.x);
-  let stretch = 1.0 + 0.5 * grainHash(i.seed, 1.0);
-  let w = vec2f(dot(i.uv, ax) / stretch, dot(i.uv, ay));
-  let r0 = 0.48 + 0.2 * i.seed.y;
-  var sd = -1e9;
-  var sd2 = -1e9;
-  var nrm = vec2f(1.0, 0.0);
-  var face = 0.0;
-  for (var k = 0u; k < n; k++) {
-    let at = (f32(k) + 0.7 * (grainHash(i.seed, f32(k) + 2.0) - 0.5)) * TAU / f32(n);
-    let dir = vec2f(cos(at), sin(at));
-    let dk = dot(w, dir) - r0 * (0.7 + 0.4 * grainHash(i.seed, f32(k) + 11.0));
-    if (dk > sd) { sd2 = sd; sd = dk; nrm = dir; face = f32(k); } else if (dk > sd2) { sd2 = dk; }
-  }
-  // a chip out of the edge: a wedge broken off, its two new faces at uneven angles
-  if (grainHash(i.seed, 19.0) > 0.5) {
-    let ca = grainHash(i.seed, 23.0) * TAU;
-    let out = vec2f(cos(ca), sin(ca));
-    let c = out * r0 * (0.55 + 0.2 * grainHash(i.seed, 29.0));
-    let spread = 0.5 + 0.5 * grainHash(i.seed, 31.0);
-    let n1 = vec2f(cos(ca + 1.5708 + spread), sin(ca + 1.5708 + spread));
-    let n2 = vec2f(cos(ca - 1.5708 - spread * 0.7), sin(ca - 1.5708 - spread * 0.7));
-    let d1 = dot(w - c, n1);
-    let d2 = dot(w - c, n2);
-    let chip = -max(d1, d2);
-    if (chip > sd) { sd2 = sd; sd = chip; nrm = select(-n2, -n1, d1 > d2); face = 9.0; }
-  }
+  let u = vec2f(dot(i.uv, ax), dot(i.uv, ay));
   let aa = 1.5 / max(i.px, 1.0);
+  let det = smoothstep(18.0, 70.0, i.px);
+  let det2 = smoothstep(70.0, 260.0, i.px); // the finest detail, only right up close
+  let H = i.seed;
+  var stretch = 1.0;
+  var sd = 0.0;
+  var ls = vec2f(0.0);
+  var alb = 1.0;
+  var edge = 0.0;
+  if (ty <= 2u || ty == 6u) {
+    // crystals and shell shards: a table with bevelled sides, each bevel lit as its own facet, a crisp
+    // ridge where two meet, and a top tilted a little its own way
+    let shell = ty == 6u;
+    var n = 6u + u32(grainHash(H, 3.0) * 4.99);
+    var r0 = 0.48 + 0.2 * H.y;
+    var jit = 0.8;
+    var spread = 0.55;
+    stretch = 1.0 + 0.5 * grainHash(H, 1.0);
+    if (ty == 1u) { n = select(4u, 5u, grainHash(H, 3.0) > 0.6); jit = 0.2; spread = 0.35; stretch = 1.2 + 0.5 * grainHash(H, 1.0); r0 = 0.42 + 0.14 * H.y; }
+    if (ty == 2u) { n = 6u; jit = 0.25; spread = 0.2; stretch = 1.8 + 0.6 * grainHash(H, 1.0); r0 = 0.3 + 0.08 * H.y; }
+    if (shell) { n = 4u + u32(grainHash(H, 3.0) * 2.99); jit = 1.0; spread = 0.5; stretch = 1.1 + 0.4 * grainHash(H, 1.0); }
+    let w = vec2f(u.x / stretch, u.y);
+    let P = grainPoly(w, H, n, r0, jit, spread, ty != 2u);
+    sd = P.sd;
+    let steep = select(1.3 + 1.6 * grainHash(H, 7.0), 2.2, shell);
+    let bevel = r0 * select(select(0.28 + 0.25 * grainHash(H, 5.0), 0.12 + 0.08 * grainHash(H, 5.0), ty == 1u || ty == 2u), 0.07, shell);
+    let t = smoothstep(0.0, bevel, -sd);
+    let faceted = ty == 0u || ty == 2u;
+    var form = vec2f(0.0); // the grain's own slope; its markings add to tilt below
+    var tilt = vec2f(0.0);
+    if (faceted) {
+      // a faceted crystal: its surface is the lowest of a set of planes, the steep outer facets (one
+      // per edge of its outline, meeting the floor there), a ring of gentler crown facets turned
+      // between them, and a top face (on a prism, two long faces meeting in a ridge instead); each
+      // facet reflects a little differently, with a crisp line where two meet
+      var h1 = 1e9;
+      var h2 = 1e9;
+      var fid = 0.0;
+      for (var k = 0u; k < n; k++) {
+        let at = (f32(k) + jit * (grainHash(H, f32(k) + 2.0) - 0.5)) * TAU / f32(n);
+        let dir = vec2f(cos(at), sin(at));
+        let sk = steep * (0.8 + 0.6 * grainHash(H, f32(k) + 81.0));
+        let hk = -sk * (dot(w, dir) - r0 * (1.0 - 0.5 * spread + spread * grainHash(H, f32(k) + 11.0)));
+        if (hk < h1) { h2 = h1; h1 = hk; form = -sk * dir; fid = f32(k); } else if (hk < h2) { h2 = hk; }
+      }
+      let ns = select(3u + u32(grainHash(H, 90.0) * 3.99), 2u, ty == 2u);
+      for (var k = 0u; k < ns; k++) {
+        let at = select((f32(k) + grainHash(H, f32(k) + 91.0) - 0.5) * TAU / f32(ns) + H.y * TAU, (f32(k) + 0.25) * TAU / 2.0 + 0.1 * (grainHash(H, 92.0) - 0.5), ty == 2u);
+        let dir = vec2f(cos(at), sin(at));
+        let sk = select(0.35, 0.9, ty == 2u) + 0.5 * grainHash(H, f32(k) + 93.0);
+        let hk = r0 * (0.45 + 0.4 * grainHash(H, f32(k) + 95.0)) + sk * (r0 * select(0.2 + 0.4 * grainHash(H, f32(k) + 96.0), 0.0, ty == 2u) - dot(w, dir));
+        if (hk < h1) { h2 = h1; h1 = hk; form = -sk * dir; fid = f32(k) + 20.0; } else if (hk < h2) { h2 = hk; }
+      }
+      let tv = (vec2f(grainHash(H, 13.0), grainHash(H, 17.0)) - 0.5) * 0.5;
+      let htop = select(r0 * (0.75 + 0.2 * grainHash(H, 97.0)) + dot(w, tv), 1e9, ty == 2u);
+      if (htop < h1) { h2 = h1; h1 = htop; form = tv; fid = 40.0; } else if (htop < h2) { h2 = htop; }
+      let fline = 1.0 - smoothstep(0.0, 0.012, h2 - h1);
+      // milky clouds inside the glass
+      let milk = grainDots(w * 5.0 + H * 13.0, 0.9, 0.7) * grainDots(w * 7.0 + H * 3.0, 0.9, 0.7);
+      // higher on the grain is brighter, so each facet shades across its width
+      alb = (0.82 + 0.36 * grainHash(H, fid + 41.0)) * (1.0 - 0.2 * fline) * (0.72 + 0.3 * clamp(h1 / (r0 * 0.8), 0.0, 1.0)) * (1.0 - 0.22 * milk * det);
+      edge = max(1.0 - smoothstep(0.0, 0.06, -sd), 0.35 * fline);
+    } else {
+      // a table with bevelled sides, each bevel lit as its own facet, a crisp ridge where two meet, and
+      // a top tilted a little its own way and gently domed
+      let top = (vec2f(grainHash(H, 13.0), grainHash(H, 17.0)) - 0.5) * 0.9 - w / r0 * select(0.8, 1.6, shell);
+      let ridge = 1.0 - smoothstep(0.0, 0.025, P.sd - P.sd2);
+      alb = mix(0.82 + 0.36 * grainHash(H, P.face + 41.0), 1.0, t) * (1.0 - 0.25 * ridge * (1.0 - t));
+      edge = max(1.0 - smoothstep(0.0, bevel * 1.3, -sd), 0.5 * ridge * (1.0 - t));
+      form = -P.nrm * (steep * (1.0 - t)) + top * t;
+    }
+    if (ty == 0u) {
+      // conchoidal fracture: curved ripples spreading from a point where it broke
+      let fa = grainHash(H, 47.0) * TAU;
+      let fc = vec2f(cos(fa), sin(fa)) * r0 * 0.95;
+      let fv = w - fc;
+      let fd = length(fv);
+      let conch = smoothstep(r0 * 0.9, r0 * 0.2, fd) * step(0.65, grainHash(H, 49.0));
+      tilt += fv / max(fd, 1e-3) * 0.1 * sin(fd * (34.0 + 20.0 * grainHash(H, 50.0)) + 1.5 * sin(atan2(fv.y, fv.x) * 3.0)) * conch * conch * det;
+      // a hairline crack that catches the light
+      let cn = vec2f(cos(grainHash(H, 51.0) * TAU), sin(grainHash(H, 51.0) * TAU));
+      let cdist = dot(w, cn) - (grainHash(H, 52.0) - 0.5) * r0;
+      let crack = (1.0 - smoothstep(0.0, 0.008, abs(cdist + 0.04 * sin(dot(w, vec2f(-cn.y, cn.x)) * 17.0)))) * step(0.4, grainHash(H, 53.0)) * det * t;
+      alb *= 1.0 - 0.25 * crack;
+      tilt += cn * sign(cdist) * crack * 0.5;
+      // a healed fracture: a trail of tiny fluid inclusions across it
+      let ia = grainHash(H, 57.0) * TAU;
+      let iq = mat2x2f(cos(ia), sin(ia), -sin(ia), cos(ia)) * w;
+      let iy = iq.y - (grainHash(H, 58.0) - 0.5) * r0 + 0.03 * sin(iq.x * 9.0);
+      alb *= 1.0 - 0.45 * grainDots(vec2f(iq.x, iy) * 70.0 + vec2f(0.0, 0.5), 0.25, 0.75) * (1.0 - smoothstep(0.004, 0.012, abs(iy))) * det2;
+      // specks of other minerals and fluid trapped as it grew
+      alb *= 1.0 - 0.35 * grainDots(w * 13.0 + H * 9.0, 0.1 + 0.12 * grainHash(H, 55.0), 0.12) * det - 0.25 * grainDots(w * 37.0 + H * 4.0, 0.12, 0.08) * det;
+    }
+    if (ty == 1u) {
+      // perthite: fine wavy streaks of a second feldspar grown through it
+      alb *= 1.0 + 0.1 * det2 * smoothstep(0.55, 0.9, sin(w.x * 140.0 + 5.0 * sin(w.y * 17.0 + H.x * 20.0) + 3.0 * sin(w.x * 11.0)));
+      // cleavage: the top steps down in terraces across its length, each riser a thin lit line
+      let cy = w.y * (5.0 + 4.0 * grainHash(H, 61.0)) + grainHash(H, 63.0) * 9.0;
+      let cv = fract(cy + 0.35 * sin(floor(cy) * 12.9898));
+      let riser = smoothstep(0.86, 0.95, cv) * (1.0 - smoothstep(0.95, 1.0, cv)) * step(0.35, fract(sin(floor(cy) * 78.233) * 437.585));
+      tilt += vec2f(0.0, 1.8) * riser * det * t;
+      alb *= 1.0 - 0.15 * riser * det * t;
+      // faint bands of twinned crystal along it, and cloudy alteration
+      alb *= 1.0 + 0.1 * det * (smoothstep(-0.25, 0.25, sin(w.x * (10.0 + 8.0 * grainHash(H, 65.0)) + 2.0 * sin(w.y * 3.0))) * 2.0 - 1.0);
+    }
+    if (ty == 2u) {
+      // striations along the prism's length
+      let st = sin(w.y * (150.0 + 60.0 * grainHash(H, 67.0)) + 2.5 * sin(w.x * 5.0 + H.y * 9.0)) * (0.5 + 0.5 * sin(w.y * 23.0 + H.x * 7.0));
+      tilt.y += 0.08 * st * det;
+      // two cleavages crossing at an angle, as fine cracks
+      let c1 = abs(fract(dot(w, vec2f(0.83, 0.56)) * 18.0 + H.x * 5.0) - 0.5);
+      let c2 = abs(fract(dot(w, vec2f(0.83, -0.56)) * 15.0 + H.y * 5.0) - 0.5);
+      alb *= 1.0 + 0.5 * det2 * (1.0 - smoothstep(0.0, 0.04, min(c1, c2))) * step(0.5, fract(sin(dot(floor(w * 9.0), vec2f(12.9, 78.2))) * 437.5));
+      alb *= 1.0 + 0.06 * st * det;
+    }
+    if (shell) {
+      // growth lines curving about the hinge (beyond the shard), radial ribs, and broad colour bands
+      let ha = grainHash(H, 71.0) * TAU;
+      let hc = vec2f(cos(ha), sin(ha)) * r0 * (1.5 + grainHash(H, 72.0));
+      let hv = w - hc;
+      let hd = length(hv);
+      let hr = hv / hd;
+      let hp = vec2f(-hr.y, hr.x);
+      let gk = hd * (26.0 + 16.0 * grainHash(H, 73.0));
+      tilt += hr * 0.5 * pow(abs(cos(gk + 1.7 * sin(gk * 0.37))), 6.0) * sign(cos(gk + 1.7 * sin(gk * 0.37))) * det;
+      let rib = dot(hr, vec2f(-hc.y, hc.x) / length(hc));
+      tilt += hp * 0.35 * cos(rib * (30.0 + 20.0 * grainHash(H, 74.0))) * det * step(0.4, grainHash(H, 75.0));
+      alb *= 1.0 + 0.14 * sin(hd * (8.0 + 6.0 * grainHash(H, 76.0)) + H.x * 20.0) + 0.08 * det2 * sin(hd * 160.0 + 2.0 * sin(hd * 31.0));
+    }
+    ls = form + tilt * select(t, 1.0, faceted);
+  } else if (ty == 3u) {
+    // worn sand: a rounded pebble, its outline gently wobbling, its surface frosted by pits
+    stretch = 1.0 + 0.45 * grainHash(H, 1.0);
+    let w = vec2f(u.x / stretch, u.y);
+    let rho = length(w);
+    let c = w / max(rho, 1e-4);
+    let wob = 1.0 + 0.06 * (c.x * c.x - c.y * c.y) * sin(H.x * 30.0) + 0.05 * dot(c, vec2f(cos(H.y * 40.0), sin(H.y * 40.0))) * (4.0 * c.x * c.x * c.x - 3.0 * c.x) + 0.04 * c.y * (3.0 * c.x * c.x - c.y * c.y);
+    let r0 = (0.55 + 0.15 * H.y) * wob;
+    sd = rho - r0;
+    let q = min(rho / r0, 0.995);
+    let hgt = sqrt(1.0 - q * q);
+    ls = -2.2 * w / (r0 * max(hgt, 0.22));
+    alb = 1.0 - 0.18 * grainDots(w * 26.0 + H * 5.0, 0.3, 0.6) * det - 0.15 * grainDots(w * 75.0 + H * 2.0, 0.35, 0.5) * det2 + 0.12 * (grainDots(w * 9.0 + H * 3.0, 0.45, 0.5) - 0.3) * det;
+    edge = 1.0 - smoothstep(0.0, 0.15 * r0, -sd);
+  } else if (ty == 4u) {
+    // a foraminifer: chambers, each larger than the last, coiled in a log spiral; the newest lies
+    // over the older; sutures sink where two meet, and the chalk is finely pored
+    let N = 7u + u32(grainHash(H, 3.0) * 4.99);
+    let gr = 0.22 + 0.1 * grainHash(H, 1.0);
+    let dth = (0.8 + 0.3 * grainHash(H, 5.0)) * select(-1.0, 1.0, grainHash(H, 7.0) > 0.5);
+    let rN = exp(gr * f32(N - 1u));
+    let sc = 0.7 / (1.55 * rN);
+    let w = u + vec2f(rN * sc * 0.25, 0.0);
+    var h1 = -1.0;
+    var h2 = -1.0;
+    var sdm = 1e9;
+    var top = vec2f(0.0);
+    for (var k = 0u; k < N; k++) {
+      let rk = exp(gr * f32(k)) * sc;
+      let th = f32(k) * dth;
+      let rad = rk * 0.6;
+      let dv = w - vec2f(cos(th), sin(th)) * rk;
+      let dd = length(dv);
+      sdm = min(sdm, dd - rad);
+      let hk = sqrt(max(rad * rad - dd * dd, 0.0)) * select(0.0, 1.0, dd < rad) + f32(k) * 1e-4;
+      if (hk > h1) { h2 = h1; h1 = hk; top = -dv / max(hk, rad * 0.3); } else if (hk > h2) { h2 = hk; }
+    }
+    sd = sdm;
+    ls = top * 1.4;
+    let suture = (1.0 - smoothstep(0.0, 0.035, h1 - h2)) * step(1e-3, h2);
+    alb = (1.0 - 0.4 * suture) * (1.0 - 0.3 * grainDots(w * 50.0 + H * 7.0, 0.3, 0.7) * det);
+    edge = max(1.0 - smoothstep(0.0, 0.035, -sd), 0.5 * suture);
+  } else if (ty == 5u) {
+    if (grainHash(H, 9.0) < 0.6) {
+      // a centric diatom: a flat glass valve with a raised rim, pores in rows radiating out
+      let r0 = 0.52 + 0.15 * H.y;
+      let rho = length(u);
+      sd = rho - r0;
+      let q = rho / r0;
+      let dr = -0.2 * q - 4.4 * (q - 0.9) * exp(-pow((q - 0.9) / 0.06, 2.0));
+      ls = u / max(rho, 1e-4) * dr * 2.5;
+      let rows = f32(18u + u32(grainHash(H, 11.0) * 18.0));
+      let ac = vec2f(fract(atan2(u.y, u.x) / TAU * rows) - 0.5, fract(q * (8.0 + 5.0 * grainHash(H, 13.0))) - 0.5);
+      let pore = (1.0 - smoothstep(0.18, 0.32, length(ac))) * smoothstep(0.15, 0.25, q) * (1.0 - smoothstep(0.82, 0.86, q));
+      alb = 1.0 - 0.45 * pore * det;
+      edge = 1.0 - smoothstep(0.0, 0.1, -sd);
+    } else {
+      // a pennate diatom: a slim boat, ribbed across, a slit (the raphe) down its middle
+      let L = 0.75;
+      let Wd = 0.17 + 0.06 * H.y;
+      let e = u / vec2f(L, Wd);
+      let rho = length(e);
+      sd = (rho - 1.0) * Wd;
+      let hgt = sqrt(max(1.0 - rho * rho, 0.04));
+      ls = -0.8 * vec2f(e.x / L, e.y / Wd) / hgt;
+      let rib = 1.0 - smoothstep(0.12, 0.3, abs(fract(u.x * (26.0 + 10.0 * grainHash(H, 11.0))) - 0.5));
+      let raphe = (1.0 - smoothstep(0.0, 0.012, abs(u.y))) * smoothstep(0.05, 0.08, abs(u.x)) * (1.0 - smoothstep(0.8, 0.9, abs(e.x)));
+      alb = (1.0 - 0.3 * rib * det * smoothstep(0.25, 0.4, abs(e.y))) * (1.0 - 0.5 * raphe * det);
+      edge = 1.0 - smoothstep(0.0, 0.06, -sd);
+    }
+  } else {
+    // a sponge spicule: a slim glass needle, tapered at both ends, a little bent, its canal inside
+    let L = 0.68 + 0.15 * H.y;
+    let rr = 0.08 + 0.05 * grainHash(H, 3.0);
+    let w = vec2f(u.x, u.y - (grainHash(H, 5.0) - 0.5) * 0.5 * u.x * u.x);
+    let cx = clamp(w.x, -L, L);
+    let rad = rr * (1.0 - 0.7 * pow(abs(cx) / L, 3.0));
+    let dv = vec2f(w.x - cx, w.y);
+    let dd = length(dv);
+    sd = dd - rad;
+    let q = min(dd / rad, 0.995);
+    ls = -1.5 * dv / max(dd, 1e-4) * q / max(sqrt(1.0 - q * q), 0.2);
+    alb = 1.0 - 0.4 * (1.0 - smoothstep(0.0, 0.2 * rad, abs(w.y))) * step(abs(w.x), L * 0.85) * det;
+    edge = 1.0 - smoothstep(0.0, 0.5 * rad, -sd);
+  }
+  // silt and clay stuck to it: dark and pale specks
+  alb *= 1.0 - 0.3 * grainDots(u * 55.0 + H * 17.0, 0.35, 0.16) * det2 + 0.25 * grainDots(u * 85.0 + H * 23.0, 0.3, 0.1) * det2;
   if (sd >= aa) { discard; }
-  let bevel = r0 * (0.2 + 0.18 * grainHash(i.seed, 5.0));
-  let t = smoothstep(0.0, bevel, -sd);
-  let steep = 1.3 + 1.6 * grainHash(i.seed, 7.0);
-  // the top is not flat: tilted its own way and gently domed
-  let tilt = (vec2f(grainHash(i.seed, 13.0), grainHash(i.seed, 17.0)) - 0.5) * 0.9 + w / r0 * 0.45;
-  let ls = nrm * (steep * (1.0 - t)) + tilt * t;
   var o: StoneOut;
   let slope = (ls.x / stretch) * ax + ls.y * ay;
-  let ridge = 1.0 - smoothstep(0.0, 0.025, sd - sd2);
-  // each face of a crystal reflects a little differently
-  let albedo = mix(0.82 + 0.36 * grainHash(i.seed, face + 41.0), 1.0, t);
-  o.col = vec4f(i.col * albedo * (1.0 - 0.25 * ridge * (1.0 - t)), 1.0 - smoothstep(-aa, aa, sd));
+  o.col = vec4f(i.col * alb, 1.0 - smoothstep(-aa, aa, sd));
   // .z: how near its own edge (where it meets its neighbours) the pixel lies
-  o.surf = vec4f(slope, max(1.0 - smoothstep(0.0, bevel * 1.3, -sd), 0.5 * ridge), f32(i.flags));
+  o.surf = vec4f(slope, edge, f32(i.flags));
   return o;
 }
 
@@ -4488,32 +4729,51 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
     if ((flags & 2u) != 0u) { lit = lit * 1.4 + vec3f(0.05, 0.04, 0.02); }
     return lit * c.a * 1.3;
   }
-  // a little surface relief up close
-  let relief = fine * (0.35 * vec2f(vnoise(wp * 40.0) - 0.5, vnoise(wp * 40.0 + 7.3) - 0.5)
+  // each kind of grain is its own material (mineralSurf): glass (quartz, diatoms, spicules) is crisp
+  // and bright where light leaves it, a mafic prism glossy, chalk and shell matte, worn sand frosted
+  let mat = (flags >> 3u) & 7u;
+  let glass = mat == 0u || mat == 5u || mat == 7u;
+  let bio = mat >= 4u;
+  // a little surface relief up close, least on glass and on skeletons, which carry their own
+  let relief = fine * select(select(1.0, 0.3, bio), 0.0, glass || mat == 2u) * (0.35 * vec2f(vnoise(wp * 40.0) - 0.5, vnoise(wp * 40.0 + 7.3) - 0.5)
     + 0.25 * vec2f(vnoise(wp * 140.0) - 0.5, vnoise(wp * 140.0 + 3.1) - 0.5));
   let n = normalize(vec3f(-s.xy + relief, 1.0));
-  let light = normalize(vec3f(-0.45, -0.55, 0.7));
+  // a low, raking light, so each grain's form shows
+  let light = normalize(vec3f(-0.55, -0.65, 0.5));
   let diffuse = max(dot(n, light), 0.0);
-  let spec = pow(max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0), 28.0);
+  let hv = max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0);
   let tuck = 1.0 - 0.55 * s.z * s.z;
   // mineral grains are mottled and veined well before their fine relief resolves
-  let mid = smoothstep(25.0, 90.0, ppu);
-  var col = c.rgb * (1.0 + 0.12 * (vnoise(wp * 6.0) - 0.5) + (0.12 * mid + 0.18 * fine) * (vnoise(wp * 18.0) - 0.5)
+  let mid = smoothstep(25.0, 90.0, ppu) * select(1.0, 0.4, glass || bio);
+  var col = c.rgb * (1.0 + 0.12 * (vnoise(wp * 6.0) - 0.5) * select(1.0, 0.4, glass || bio) + (0.12 * mid + 0.18 * fine * select(1.0, 0.4, glass || bio)) * (vnoise(wp * 18.0) - 0.5)
     + 0.16 * mid * (vnoise(wp * 47.0 + 3.7) - 0.5));
-  if (fine > 0.0) {
+  if (fine > 0.0 && mat == 3u) {
     if ((flags & 1u) != 0u) {
-      // pores: pits of varied size gathered in patches, shadowed on the lit side, a lit rim opposite
+      // reef chalk: pits of varied size gathered in patches, shadowed on the lit side, a lit rim opposite
       let pores = worley(wp * 55.0);
       let size = 0.04 + 0.14 * hash12(floor(wp * 55.0 + pores.zw)) * hash12(floor(wp * 55.0 + pores.zw) + 3.3);
       let pit = (1.0 - smoothstep(size * 0.7, size, pores.x)) * fine * smoothstep(0.3, 0.65, vnoise(wp * 5.0));
       let side = dot(normalize(pores.zw + vec2f(1e-5)), normalize(light.xy));
       col *= 1.0 + pit * (0.35 * side - 0.3);
     } else {
-      col *= 1.0 + 0.3 * fine * (vnoise(wp * 80.0) - 0.5);
-      col += col * 0.8 * fine * step(0.985, hash12(floor(wp * 110.0)));
+      // frosted: the odd pit catches the light
+      let gl = worley(wp * 120.0);
+      col += col * 0.7 * fine * (1.0 - smoothstep(0.0, 0.12, gl.x)) * step(0.88, hash12(floor(wp * 120.0 + gl.zw)));
     }
   }
-  var lit = col * (0.25 + 0.8 * diffuse) * tuck + vec3f(select(0.3, 0.12, (flags & 1u) != 0u)) * spec * dot(col, vec3f(0.33));
+  var lit: vec3f;
+  if (glass) {
+    // glass: dim where it faces you, bright toward its rim, where light that went in comes out on
+    // the side away from the lamp, and a sharp white highlight
+    let fres = 1.0 - n.z;
+    let exitL = max(dot(normalize(n.xy + vec2f(1e-5)), -normalize(light.xy)), 0.0) * fres;
+    lit = col * (0.25 + 0.75 * diffuse / (0.35 + diffuse) + 0.3 * exitL + 0.25 * fres) * tuck + vec3f(0.95, 0.97, 1.0) * pow(hv, 80.0) * 0.08 * (0.4 + 0.6 * vnoise(wp * 30.0));
+  } else if (mat == 2u) {
+    lit = col * (0.2 + 0.85 * diffuse) * tuck + vec3f(0.22) * pow(hv, 40.0);
+  } else {
+    let chalk = mat == 1u || mat == 4u || mat == 6u;
+    lit = col * (select(0.15 + 1.0 * diffuse, 0.4 + 1.15 * diffuse, chalk)) * tuck + vec3f(select(0.25, 0.08, chalk || (flags & 1u) != 0u)) * pow(hv, 28.0) * dot(col, vec3f(0.33));
+  }
   if ((flags & 2u) != 0u) { lit = lit * 1.5 + vec3f(0.05, 0.04, 0.02) + vec3f(0.35, 0.3, 0.2) * smoothstep(0.7, 1.0, s.z); }
   return lit * c.a * 1.3;
 }

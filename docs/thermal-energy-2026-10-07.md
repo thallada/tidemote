@@ -993,3 +993,18 @@ changed every world's random draws), not the framboids. notableSpecies 26 → 35
 
 **Gate** after the rebase and these changes (32 × 30 min at 32k): passes, every gated metric "same";
 notableSpecies 26 → 35 and leaderChanges 5.9 → 8.9 improved; foodWeb 0.56 → 0.34 (p 0.08, Holm 0.53).
+
+## 16. Sediment under the microscope
+
+- **Stone grains are kinds of sediment** (`vsStone` picks one per grain; `mineralSurf` draws it; `boulder`
+  lights it as its material): angular quartz (faceted glass: the surface is the lowest of a set of
+  planes, with curved fracture ripples, a hairline crack, inclusion specks and trails), blocky pink or
+  cream feldspar (stepped cleavage, twinning bands, perthite streaks), long dark mafic prisms (two faces
+  meeting in a ridge, striations, crossing cleavage cracks), rounded frosted sand, coiled foraminifer
+  tests (chambers on a log spiral, sutured and pored), diatoms (pored glass discs with a raised rim, or
+  ribbed boats with a raphe), shell shards (growth lines and ribs) and sponge spicules. Bedrock is mostly
+  mineral grains, reef stone (laid down by calcifiers) mostly skeletons and keeps a little of its
+  builder's tint. Fine detail fades in with size on screen, the finest (clinging silt, inclusion trails)
+  only right up close. The stones are lit by a lower, raking light so each grain's form shows, and the
+  old table shading's slope sign (which lit bevels and domes as if sunken) is fixed. Render-only; about
+  +0.6 ms per 1600×1000 frame when stones fill the screen.
