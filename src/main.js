@@ -1266,7 +1266,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + head('World')
         + choice('n', 'Particles', '', [['auto', 'Auto'], ...sizes.map((n) => [n, kfmt(n)])], nowN, 'particles')
         + (pendingN != null && String(pendingN) !== String(P.particles || 'auto')
-          ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === 'auto' ? 'a measured count' : fmt(pendingN)}</button></div>` : '');
+          ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === 'auto' ? 'a measured count' : fmt(pendingN)}</button></div>` : '')
+        + (hasTS ? `<div class="opt"><span class="lbl">${term('profile', 'Profile')}</span><div class="row"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : '');
     }
     function render() {
       if (el.hidden) return;
@@ -1318,6 +1319,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'fps') { P.fps = +v; resetAdapt(); }
       else if (id === 'n') pendingN = v === 'auto' ? 'auto' : +v;
       else if (id === 'apply') { const n = pendingN; pendingN = null; setParticles(n); }
+      else if (id === 'profile') { copyProfile(); return; }
       persist();
       render();
     }
@@ -1337,6 +1339,25 @@ function run(eng, device, ctx, specCtx, hasTS) {
     $('set-close').addEventListener('click', () => toggle(false));
     return { render, toggle, readout, isOpen: () => !el.hidden };
   })();
+  // How the page runs on this device, to report it: three seconds of frames timed pass by pass on the
+  // GPU and one simulation step dispatch by dispatch, with what was drawn, copied as JSON.
+  async function copyProfile() {
+    flash('Profiling for three seconds');
+    const passes = {};
+    let frames = 0, gpu = 0;
+    eng.passProfile = true;
+    eng.onPassTimes = (times, f) => { frames++; gpu += f.ms; for (const [k, ms] of times) passes[k] = (passes[k] || 0) + ms; };
+    await sleep(3000);
+    eng.passProfile = false; eng.onPassTimes = null;
+    const per = (x) => +(x / Math.max(1, frames)).toFixed(3);
+    const step = Object.fromEntries((await eng.profileStep(1 / 60)).map(([k, ms]) => [k, +ms.toFixed(3)]));
+    const a = device.adapterInfo || {};
+    const json = JSON.stringify({ ua: navigator.userAgent, gpu: [a.vendor, a.architecture, a.description].filter(Boolean).join(' / '),
+      canvas: [canvas.width, canvas.height], dpr: devicePixelRatio, scale: renderScale, particles: eng.count, living: life.counts[3],
+      cssPPU: +cssPPU().toFixed(1), speed: state.speed, fps: +perf.fps.toFixed(1), aim: Math.round(1000 / frameTarget()), why: perf.why, audio: sound.load,
+      frameMs: per(gpu), passes: Object.fromEntries(Object.entries(passes).sort((x, y) => y[1] - x[1]).map(([k, x]) => [k, per(x)])), step });
+    try { await navigator.clipboard.writeText(json); flash('Profile copied'); } catch { prompt('The profile, to copy:', json); }
+  }
   function toggleFullscreen() {
     if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
     else document.exitFullscreen?.();
@@ -1676,7 +1697,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // every third of a 175 Hz one (58). While the device can't keep up, frames take perf.slow times
   // longer (30, 20, 15 fps), and at real time steps grow to match (stepTicks).
   const displayMs = () => perf.rafMs || 16.7;
-  const frameEvery = () => Math.max(1, Math.round((state.perf.fps ? 1000 / state.perf.fps : 0) / displayMs())) * perf.slow;
+  // (Fast speeds fill whatever time a frame has with steps: they keep the full rate.)
+  const frameEvery = () => Math.max(1, Math.round((state.perf.fps ? 1000 / state.perf.fps : 0) / displayMs())) * (state.speed > 1 ? 1 : perf.slow);
   const frameTarget = () => frameEvery() * displayMs();
   // At real time or slower a step covers up to one frame of the rate aimed for, in whole 1/60 s ticks
   // (at most MAX_TICKS): below about 45 fps the world takes coarse steps, which cost about what a 1/60 s

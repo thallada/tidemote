@@ -12,7 +12,7 @@ Open `dist/tidemote.html` in a browser with WebGPU: a current Chrome or Edge, a 
 python3 -m http.server -d dist 8000   # then open http://localhost:8000/tidemote.html
 ```
 
-On start it sizes the universe to your GPU: it times a few frames and fixes the particle count so the simulation fits in about 7.5 ms a frame. If the frame rate later drops, it lowers the render resolution instead of the particle count.
+On start it sizes the universe to your GPU: it times a few frames and fixes the particle count so the simulation fits in about 7.5 ms a frame. It aims for 60 fps (as a whole number of the display's refreshes, so frames stay evenly spaced). If frames later run late, it lowers the render resolution, then the frame rate, taking coarser steps so simulated time keeps pace with real time; it never changes the particle count. See [docs/performance.md](docs/performance.md).
 
 Deep zoom reveals organic detail in cells, minerals and bonds, with a faint, patchy suspension of cosmetic microbial fragments, fibres and grit that follows the water's currents and also appears in the loupe and specimen view.
 

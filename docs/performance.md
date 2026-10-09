@@ -1,0 +1,82 @@
+# Performance: how the page keeps its frame rate, and how to measure it
+
+Measured on an RTX 4070 Ti (Chrome 154, D3D12, 2560×1440 at 143 Hz) with `tools/perf/` (below),
+on saved worlds grown at Max: `w1m` (1M particles, about 540k living) and `w4m` (4M, about 1.8M living).
+
+## Where the GPU time goes
+
+The simulation step dominates. In a mature world `lifeMain` (every living cell's neighbour scan,
+forces and budget) is about 80% of a step, and a step costs 5 to 6 ns per living cell:
+
+| world | step | lifeMain | scatter | resolveCount | matter |
+| --- | --- | --- | --- | --- | --- |
+| 1M, 540k living | 2.9 ms | 2.2 ms | 0.31 | 0.18 | 0.19 |
+| 4M, 1.8M living | 12.8 ms | 9.5 ms | 1.3 | 1.0 | 0.82 |
+
+Life fills a world within a couple of simulated minutes (30 to 70% of particles living after that),
+so the cost the page calibrates against at start is close to the mature one; it then swings with
+the climate by ±30%.
+
+`lifeMain` is limited by registers (occupancy), not arithmetic: cutting state it carries through the
+neighbour loop is what pays. The neighbour loop is about 93% of it; its cost scales with the sample
+budget `maxScan` (288 by default: 192 would save about 25%, 144 about 35%, at the price of noisier
+neighbourhoods; an ecology change, so it needs the balance gate).
+
+Drawing: zoomed out, the cost is the points' vertex work (4M particles: 4.6 ms, the same at half the
+render scale); zoomed in it is the resolved cells' fragment work, which the render scale reduces
+faster than linearly (the level of detail is set in framebuffer pixels).
+
+## What keeps the frame rate (main.js `adaptQuality`)
+
+- **Frame pacing.** The frame rate aimed for (60 by default) is a whole number of display frames,
+  so frames stay evenly spaced: 72 fps on a 144 Hz display, 58 on 175 Hz. Display rate means one
+  simulation step per refresh, 2.4 times the work of 60 at 143 Hz.
+- **Adaptive quality,** every two seconds at real time or slower. Behind (frames late, the GPU busy
+  for more than 92% of the frame with timestamps or 100% of it by submit-to-done time without, or
+  Compute Pressure reporting `serious`): the render scale steps down a fixed ladder (1, 0.85, 0.7,
+  0.6, 0.5 …) to its floor, then the frame rate drops (half, a third, a quarter: 30, 20, 15 fps), or
+  the frame rate first when the simulation is more than twice the drawing. With room again for
+  three windows: the frame rate back first, then the scale; a level that just proved too slow is
+  not retried for 30 s. Settings → Performance shows the rate aimed for and why.
+- **Coarse steps at low frame rates.** At real time a step covers up to a frame's worth of whole
+  ticks, so below about 45 fps the world takes coarse steps (docs/fast-forward.md). A coarse step
+  costs about what a 1/60 s step does, so 30 fps halves the simulation's cost too and a slow device
+  keeps real time: the mature 4M world ran at 0.67× and now runs at 1× at 36 fps.
+- **Bounded GPU work per submit.** At most two frames in flight, and fast speeds carry only the
+  fraction of a step their budget leaves (they once saved credit up to 512 steps, which came due on
+  a switch to Max: 2 s of GPU in one submit). A phone's compositor shares its GPU, so a long or deep
+  queue of GPU work freezes the whole screen; this is the likeliest cause of the reported lockups.
+- **Hidden page:** requestAnimationFrame stops, so the GPU rests; the soundtrack fades out and its
+  audio thread is suspended.
+
+## Culling and per-particle work
+
+- Particles are sorted by grid cell, so a view that sees under half the world draws only the grid
+  rows it covers (`CULL_WGSL`): the main view zoomed in, the loupe and the specimen close-up. A 4M
+  world at 150 px per unit: scene pass 6.1 → 0.15 ms; with a cell picked the frame fell 29 → 19 ms.
+- Tried and dropped: working out each distant sprite once in a compute pass instead of at each of
+  its four corners (the 4M far view's points cost the same: the vertices themselves, not their
+  arithmetic), and limiting `contactGather` to the grid cells a contact can reach (within noise).
+  For millions of near-pixel points a compute splat (atomic adds into a buffer) is the known faster
+  path; it would change how far sprites look.
+
+## Tools (`tools/perf/`)
+
+All run Windows Chrome or Dawn on the real GPU through `tools/gpu-node.sh`. Keep benchmarks serial,
+and never during a balance gate.
+
+- `bench.mjs --plan PLAN --out OUT.json` drives the built page. A plan names worlds (grown at Max
+  once and saved to `runs/perf/worlds/`, so every scenario starts from the same moment) and
+  scenarios: zoom (css px per world unit), speed, fps, render scale, a picked cell, sound, effects.
+  Every pass of every frame is timed on the GPU (`engine.passProfile`), and each simulation dispatch
+  (`profileStep`). `kind: 'step'` times only the step, repeated from one saved moment (about ±4%,
+  but ±8% between page loads: compare variants in one run, alternating). `kind: 'growth'` follows a
+  fresh world's step cost as life grows. A world's `page` loads a variant build from
+  `runs/perf/pages/`, `init` runs a script first, `k` overrides tunables.
+- `stepbench.mjs` times a saved world's step under Dawn. Dawn's npm build compiles with FXC, not
+  DXC as Chrome does, so its kernel timings differ from the browser's.
+- `shots.mjs` screenshots a saved world at several zooms (for pixel comparisons of render variants);
+  `flash.mjs` measures every composited frame's brightness around render-scale changes.
+- In the page, Settings → Performance → **Copy profile** (where the GPU gives timestamps) times three
+  seconds of frames pass by pass and a step dispatch by dispatch on that device, and copies it as
+  JSON: the way to see how a phone spends its time.
