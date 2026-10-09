@@ -20450,7 +20450,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     function predictAt(p, sampleT) {
       const dtS = Math.max(0, Math.min(0.25, (viewSimTime || eng.simTime) - sampleT));
-      let adv = 1;
+      let adv = 0;
       if (p.kind >= FIRST_LIFE) {
         const g = genomeFor(p.kind);
         adv = g ? g.advect : 0.5;
@@ -20694,7 +20694,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const p = sel.particle;
       const g = p.kind >= FIRST_LIFE ? genomeFor(p.kind) : null;
       const sp = g && life.reg.get(g.serial);
-      const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : p.kind < FIRST_LIFE ? MATTER[p.kind].name : "";
+      const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : p.kind === 3 ? stoneGrain(p.id, p.info).name : p.kind < FIRST_LIFE ? MATTER[p.kind].name : "";
       if (!name) return;
       octx.font = "500 11px Saira, system-ui, sans-serif";
       const label2 = name.toUpperCase();

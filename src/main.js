@@ -11,7 +11,7 @@ import { drawLiving, livingAt } from './charts.js';
 import { genusName, speciesEpithet } from './names.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
-import { PICK_WORDS, WATCH_MAX } from './shaders.js';
+import { PICK_WORDS, WATCH_MAX, stoneGrain } from './shaders.js';
 import { flowAt } from './flow.js';
 import { Director } from './director.js';
 import { parseMind, interpretMind, settleMind } from './mind.js';
@@ -1690,7 +1690,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function predicted() { return predictAt(sel.particle, sel.sampleT); }
   function predictAt(p, sampleT) {
     const dtS = Math.max(0, Math.min(0.25, (viewSimTime || eng.simTime) - sampleT));
-    let adv = 1;
+    // a cell's velocity leaves out the current, which carries it by its advect; matter's already
+    // includes it (stone and framboids hold still), so adding it again would walk the marker off them
+    let adv = 0;
     if (p.kind >= FIRST_LIFE) { const g = genomeFor(p.kind); adv = g ? g.advect : 0.5; }
     const [fx, fy] = flowAt(p.x, p.y, eng.simTime, eng.waves);
     return [p.x + (p.vx + fx * adv) * dtS, p.y + (p.vy + fy * adv) * dtS];
@@ -1928,7 +1930,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const g = p.kind >= FIRST_LIFE ? genomeFor(p.kind) : null;
     const sp = g && life.reg.get(g.serial);
     // the camera lingering on a death keeps the species' name on its remains
-    const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : p.kind < FIRST_LIFE ? MATTER[p.kind].name : '';
+    const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : p.kind === 3 ? stoneGrain(p.id, p.info).name : p.kind < FIRST_LIFE ? MATTER[p.kind].name : '';
     if (!name) return;
     octx.font = '500 11px Saira, system-ui, sans-serif';
     const label = name.toUpperCase();
