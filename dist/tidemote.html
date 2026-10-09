@@ -375,6 +375,7 @@ body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520p
 .readout { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin: 10px 0 2px; background: var(--line); border: 1px solid var(--line); }
 .readout div { display: flex; flex-direction: column; gap: 3px; padding: 7px 9px; min-width: 0; background: var(--panel-solid); }
 .readout div.w2 { grid-column: span 2; }
+.readout div.w4 { grid-column: 1 / -1; }
 .readout b { font-size: 17px; font-weight: 300; line-height: 1; color: var(--sun); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .readout span { font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
 .opts { flex-direction: column; gap: 6px; margin-top: 10px; }
@@ -949,6 +950,7 @@ svg.niche .n-dot { fill: var(--cyan); }
       <div class="w2"><b id="ro-n">–</b><span>Particles</span></div>
       <div><b id="ro-ceil">–</b><span class="term" data-tip="stride" tabindex="0">Stride</span></div>
       <div><b id="ro-rate">–</b><span class="term" data-tip="simrate" tabindex="0">Now</span></div>
+      <div class="w4"><b id="ro-aim">–</b><span class="term" data-tip="aimfps" tabindex="0">Aiming for</span></div>
     </div>
     <div class="opts" id="opts"></div>
     <div class="keys-note">Keyboard: <kbd>?</kbd> lists every shortcut.</div>
@@ -13435,6 +13437,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           st.starting = st.starting || boot2();
           await st.starting;
           if (!st.on) return;
+          if (st.away) return;
           await st.ctx.resume();
           if (st.on) ramp(level(st.volume), 1.2);
         } else if (st.gain) {
@@ -13516,7 +13519,21 @@ registerProcessor("tidemote-sound", TidemoteSound);
       },
       // resume from inside a click or key press, where autoplay is blocked
       unlock: () => {
-        if (st.on && st.ctx) st.ctx.resume();
+        if (st.on && st.ctx && !st.away) st.ctx.resume();
+      },
+      // the page hidden (another tab, the phone locked): fade out and let the audio thread rest; shown
+      // again, fade back in
+      away(on) {
+        st.away = on;
+        if (!st.ctx || !st.gain || !st.on) return;
+        if (on) {
+          ramp(0, 0.5);
+          setTimeout(() => {
+            if (st.away) st.ctx.suspend();
+          }, 550);
+        } else st.ctx.resume().then(() => {
+          if (st.on && !st.away) ramp(level(st.volume), 1);
+        });
       },
       toggle: () => setOn(!st.on),
       setOn,
@@ -13950,8 +13967,18 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (this.size[0] === w && this.size[1] === h) return;
       this.size = [w, h];
       const d = this.device;
+      this.carry?.tex.destroy();
+      this.carry = null;
       if (this.accum) {
-        this.accum.forEach((t2) => t2.destroy());
+        const keep = this.accum[this.accIdx];
+        this.accum[1 - this.accIdx].destroy();
+        if (!this.clearAccum && this.lastCam) {
+          this.carry = { tex: keep, bg: d.createBindGroup({ layout: this.pReproj.getBindGroupLayout(0), entries: [
+            { binding: 0, resource: this.sampler },
+            { binding: 1, resource: keep.createView() },
+            { binding: 5, resource: { buffer: this.b.reprojU } }
+          ] }) };
+        } else keep.destroy();
         this.bloom.forEach((t2) => t2.destroy());
         this.murkTex.destroy();
         this.microTex.destroy();
@@ -14013,7 +14040,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         { binding: 5, resource: { buffer: this.b.holdU } }
       ] });
       this.holdCam = null;
-      this.clearAccum = true;
+      this.clearAccum = !this.carry;
     }
     _ensureLoupeTex(L) {
       if (this.loupeTex && this.loupeSize === L) return;
@@ -14603,6 +14630,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (prof) prof.finish(nSteps, drew, generation);
       d.queue.submit([enc.finish()]);
       if (prof) prof.read();
+      if (this.carryDone) {
+        this.carryDone.destroy();
+        this.carryDone = null;
+      }
       if (timed) {
         slot.busy = true;
         slot.buf.mapAsync(GPUMapMode.READ).then(() => {
@@ -15102,6 +15133,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
       {
         const clear = this.clearAccum || this.settings.trails <= 0 || !this.lastCam;
         this.clearAccum = false;
+        const carry = this.carry;
+        if (carry) {
+          this.carry = null;
+          this.carryDone = carry.tex;
+        }
         const srcI = this.accIdx, dstI = 1 - this.accIdx;
         this.accIdx = dstI;
         const pass2 = enc.beginRenderPass({
@@ -15113,17 +15149,17 @@ registerProcessor("tidemote-sound", TidemoteSound);
           const dx = cam.x - lc.x, dy = cam.y - lc.y;
           const gx = this.grid[0], gy = this.grid[1];
           const wx = dx - gx * Math.round(dx / gx), wy = dy - gy * Math.round(dy / gy);
-          const ratio = lc.ppu / cam.ppu;
-          d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([ratio, ratio, wx * lc.ppu / W, wy * lc.ppu / H2, this.settings.trails, 0, 0, 0]));
+          const sx = lc.ppu * W / (cam.ppu * lc.w), sy = lc.ppu * H2 / (cam.ppu * lc.h);
+          d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([sx, sy, wx * lc.ppu / lc.w, wy * lc.ppu / lc.h, this.settings.trails, 0, 0, 0]));
           pass2.setPipeline(this.pReproj);
-          pass2.setBindGroup(0, this.reprojBG[srcI]);
+          pass2.setBindGroup(0, carry ? carry.bg : this.reprojBG[srcI]);
           pass2.draw(3);
         }
         this._drawScene(pass2, this.bgLine, this.bgPoint, this.bgBridge, this.viewData);
         pass2.end();
       }
       this._drawStone(enc, this.stoneView, this.bgStone);
-      this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu };
+      this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu, w: W, h: H2 };
       const cur = this.accIdx;
       if (loupe) {
         const span2 = loupe.r * 2 * LOUPE_FIELD;
@@ -15350,6 +15386,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     alive: "Every species with at least one living cell, including brand-new mutants.",
     ever: "Total number of species that have ever existed in this epoch.",
     stepms: "GPU time one simulation step takes.",
+    aimfps: "The frame rate the page aims for now, and why when it is lower than Target fps: frames running late, the GPU busy for nearly the whole frame, or the device under pressure (hot or busy, where the browser reports it). It first lowers the render scale; below 45 fps each step covers more simulated time, so the world keeps real time. It climbs back after a stretch with room to spare.",
     renderres: "The share of the screen’s resolution the world is drawn at right now (Scene px). With Render scale on Auto it drops when frames run late and climbs back when there is room.",
     drawms: "GPU time drawing the world once takes: cells, stone, bloom and the final image. At high speeds it is drawn about thirty times a second.",
     stride: "How much simulated time each step moves the world forward. Normally a step is 1/60 s, the most exact. When you ask for a speed the GPU can’t reach in steps that small, it takes bigger ones instead, up to 4/60 s. Bigger steps are a little coarser, but births, deaths and the variety of species stay the same over long runs.",
@@ -15387,7 +15424,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     renderscale: "The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room; a fixed value never changes.",
     autofloor: "The lowest render scale Auto may drop to.",
     density: "The most device pixels drawn per CSS pixel. High-density (Retina) screens look sharper at 2× but cost up to four times the pixels of 1×. Readouts and outlines stay sharp either way.",
-    targetfps: "Frames per second aimed for. 30 halves the GPU’s work and saves battery; Display follows the screen’s refresh rate (120 on many phones and Macs). Simulated time keeps pace with real time at any rate.",
+    targetfps: "Frames per second aimed for, as a whole number of the screen’s refreshes so frames stay evenly spaced (60 on a 144 Hz screen is every second refresh, 72 fps). 30 halves the GPU’s work and saves battery; Display follows the screen’s refresh rate (120 on many phones and Macs), which costs the most. Simulated time keeps pace with real time at any rate; when the device can’t keep up the page lowers the rate itself (Aiming for).",
     bloom: "A soft glow around bright cells. Several extra full-screen passes.",
     optics: "Microscope optics: depth haze and a vignette over the world. One extra full-screen pass.",
     lod: "Zoomed in, cells resolve into membranes, organelles and fused bodies, and bonds into soft strands. Off, every cell stays the glowing point it is from afar, at any zoom: far cheaper, so the page can run more particles. The loupe and the live close-up still show the detail.",
@@ -18756,8 +18793,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
       songMarks: prefs.songMarks ?? 1,
       // mark the cells that sing: 0 off, 1 the picked species, 2 all
       // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
-      // pixels per CSS pixel, the frame rate aimed for (0: the display's), and a fixed particle count
-      perf: { scale: prefs.scale ?? "auto", floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.fps ?? 0, particles: prefs.particles ?? null }
+      // pixels per CSS pixel, the frame rate aimed for (0: the display's; 60 by default, and for prefs
+      // saved before v2, which stored the display's without anyone choosing it), and a fixed particle count
+      perf: { scale: prefs.scale ?? "auto", floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.v >= 2 ? prefs.fps ?? 60 : 60, particles: prefs.particles ?? null }
     };
     let uiHoldUntil = 0;
     const panelSel = ".panel, .rail, .dock, .focus";
@@ -18785,7 +18823,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
+      savePrefs({ v: 2, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
     if (prefs.loupe !== void 0 && !isCoarse) state.loupe = prefs.loupe;
@@ -18874,7 +18912,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       ticksAt: 0,
       rate: 1,
       rateT: performance.now(),
-      rateSim: 0
+      rateSim: 0,
+      slow: 1,
+      slowCeiling: 0,
+      why: ""
     };
     let calibWait = null;
     const frameWaiters = [];
@@ -20041,6 +20082,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         setText("ro-draw", perf.simS ? perf.renderR.toFixed(1) : "–");
         setText("ro-ceil", state.paused ? "–" : `${perf.ticks}/60 s`);
         setText("ro-rate", state.phase === "running" && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : "–");
+        setText("ro-aim", state.speed > 1 ? "as fast as it goes" : `${Math.round(1e3 / frameTarget())} fps${perf.why ? ` · ${perf.why}` : ""}`);
       }
       function set(id, v) {
         const s = eng.settings, P = state.perf;
@@ -20377,6 +20419,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     function setSpeed(v) {
       state.speed = v;
       perf.ticksAt = 0;
+      perf.stepCredit = 0;
       if (state.paused) state.paused = false;
       clock.owed = 0;
       perf.frameDt.length = 0;
@@ -20534,37 +20577,81 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (!plateEl.hidden && !chartShown()) chartLeave();
       view.readout();
     }
-    const frameTarget = () => Math.max(state.perf.fps ? 1e3 / state.perf.fps : 0, perf.rafMs || 16.7);
+    const displayMs = () => perf.rafMs || 16.7;
+    const frameEvery = () => Math.max(1, Math.round((state.perf.fps ? 1e3 / state.perf.fps : 0) / displayMs())) * perf.slow;
+    const frameTarget = () => frameEvery() * displayMs();
+    const stepTicks = () => clamp6(Math.ceil(frameTarget() * 60 / 1e3 - 0.1), 1, MAX_TICKS);
+    const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
     function resetAdapt() {
       perf.frameDt.length = 0;
       perf.goodWindows = 0;
       perf.ceiling = 1;
       perf.ceilingUntil = 0;
       perf.lastAdjust = performance.now();
+      perf.slow = 1;
+      perf.why = "";
     }
-    function adaptResolution(now) {
-      if (state.perf.scale !== "auto" || state.phase !== "running" || state.speed > 1 || now - perf.lastAdjust < 2e3 || perf.frameDt.length < 30) return;
+    let pressure = "nominal";
+    try {
+      new PressureObserver((r) => {
+        pressure = r.at(-1).state;
+      }).observe("cpu").catch(() => {
+      });
+    } catch {
+    }
+    const stressed = () => pressure === "serious" || pressure === "critical";
+    function adaptQuality(now) {
+      if (state.phase !== "running" || state.speed > 1 || state.paused || now - perf.lastAdjust < 2e3 || perf.frameDt.length < 20) return;
       const m = perf.frameDt.reduce((a, b) => a + b, 0) / perf.frameDt.length;
       perf.frameDt.length = 0;
       perf.lastAdjust = now;
-      const T = frameTarget(), floor = state.perf.floor;
-      if (m > T * 1.125 && renderScale > floor) {
-        perf.ceiling = renderScale;
-        perf.ceilingUntil = now + 3e4;
-        renderScale = Math.max(floor, renderScale * clamp6(Math.sqrt(T / m), 0.7, 0.9));
+      const T = frameTarget(), auto = state.perf.scale === "auto";
+      const floor = auto ? state.perf.floor : renderScale;
+      const busy = hasTS && perf.gpu > T * 0.92;
+      const behind = m > T * 1.125 || busy || stressed();
+      const simBound = hasTS && perf.simS > 2 * perf.renderR;
+      if (behind) {
+        perf.why = stressed() ? "device under pressure" : busy ? "GPU busy" : "frames late";
         perf.goodWindows = 0;
-        fit2();
-      } else if (m < T * 1.03) {
-        perf.goodWindows++;
-        const cap3 = now < perf.ceilingUntil ? perf.ceiling * 0.95 : 1;
-        const next = Math.min(1, renderScale * 1.12, cap3);
-        if (perf.goodWindows >= 3 && next > renderScale + 0.01) {
-          renderScale = next;
-          perf.goodWindows = 0;
-          fit2();
+        perf.ceilingUntil = now + 3e4;
+        if (renderScale > floor + 0.01 && !(simBound && perf.slow < 4)) {
+          perf.ceiling = renderScale;
+          const want = renderScale * clamp6(Math.sqrt(T / m), 0.7, 0.9);
+          renderScale = Math.max(floor, SCALES.find((s) => s <= want + 0.01) ?? floor);
+          resizeDue = true;
+        } else if (perf.slow < 4) {
+          perf.slow++;
+          perf.slowCeiling = perf.slow - 1;
         }
-      } else perf.goodWindows = 0;
+        return;
+      }
+      if (m > T * 1.03 || stressed()) {
+        perf.goodWindows = 0;
+        return;
+      }
+      perf.goodWindows++;
+      if (perf.goodWindows < 3) return;
+      const held = now < perf.ceilingUntil;
+      if (perf.slow > 1) {
+        const faster = T * (perf.slow - 1) / perf.slow;
+        if (!(held && perf.slow - 1 <= perf.slowCeiling) && (!perf.gpu || perf.gpu < faster * 0.75)) {
+          perf.slow--;
+          perf.goodWindows = 0;
+        }
+        if (perf.slow === 1) perf.why = "";
+        return;
+      }
+      if (!auto) return;
+      const cap3 = held ? perf.ceiling * 0.95 : 1;
+      const next = [...SCALES].reverse().find((s) => s > renderScale + 0.01 && s <= cap3 + 1e-3);
+      if (next) {
+        renderScale = next;
+        perf.goodWindows = 0;
+        resizeDue = true;
+      }
+      if (renderScale >= 1) perf.why = "";
     }
+    let resizeDue = false;
     let viewSimTime = 0;
     function predicted() {
       return predictAt(sel.particle, sel.sampleT);
@@ -21097,7 +21184,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (!S) return { steps: 4, dt, world };
       perf.stepCredit = Math.min(perf.stepCredit + (frameTarget() - cost) / S, MAX_STEPS);
       const steps = clamp6(Math.floor(perf.stepCredit), 1, MAX_STEPS);
-      perf.stepCredit = Math.max(0, perf.stepCredit - steps);
+      perf.stepCredit = clamp6(perf.stepCredit - steps, 0, 1);
       return { steps, dt, world };
     }
     function coarsePlan(now, m) {
@@ -21111,7 +21198,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         steps = cap3;
         clock.owed = Math.min(clock.owed - steps * dt, 2 * dt);
       } else clock.owed -= steps * dt;
-      perf.stepCredit = Math.max(0, perf.stepCredit - steps);
+      perf.stepCredit = clamp6(perf.stepCredit - steps, 0, 1);
       return { steps, dt, world };
     }
     function plan(now) {
@@ -21123,10 +21210,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (perf.held) return coarsePlan(now, perf.ticks);
       const cap3 = stepCap();
       if (clock.owed < H * 0.2) return null;
-      let n = Math.max(1, Math.ceil(clock.owed / H - 0.05));
+      const most = H * (state.speed <= 1 ? stepTicks() : 1);
+      let n = Math.max(1, Math.ceil(clock.owed / most - 0.05));
       if (n > cap3) {
         n = cap3;
-        clock.owed = n * H;
+        clock.owed = n * most;
       }
       const dt = clock.owed / n;
       clock.owed = 0;
@@ -21137,6 +21225,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const dt = Math.min(100, now - last);
       last = now;
       frameCount++;
+      if (resizeDue) {
+        resizeDue = false;
+        fit2();
+      }
       rafDt.push(dt);
       if (rafDt.length >= 60) {
         perf.rafMs = median(rafDt);
@@ -21145,7 +21237,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       tickClock(now);
       updateSpeedCap(now);
       updateTicks(now);
-      const due = !state.perf.fps || !perf.lastSubmit || now - perf.lastSubmit >= 1e3 / state.perf.fps - 4;
+      const due = !perf.lastSubmit || now - perf.lastSubmit >= frameTarget() - displayMs() / 2;
       if (now - perf.fpsT > 500) {
         perf.fps = perf.frames * 1e3 / (now - perf.fpsT);
         perf.frames = 0;
@@ -21232,7 +21324,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (specimen.isOpen()) specimen.songTick(performance.now(), songEvents);
       renderFeed();
       lab.render(false);
-      adaptResolution(now);
+      adaptQuality(now);
       if (state.phase === "running") updateHud(now);
       requestAnimationFrame(frame2);
     }
@@ -21243,6 +21335,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       perf.frameDt.length = 0;
       perf.lastSubmit = 0;
       perf.lastAdjust = performance.now() + 1500;
+      sound.away(document.hidden);
     });
     globalThis.__tidemote = {
       state,

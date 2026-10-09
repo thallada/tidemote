@@ -365,6 +365,7 @@ body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520p
 .readout { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin: 10px 0 2px; background: var(--line); border: 1px solid var(--line); }
 .readout div { display: flex; flex-direction: column; gap: 3px; padding: 7px 9px; min-width: 0; background: var(--panel-solid); }
 .readout div.w2 { grid-column: span 2; }
+.readout div.w4 { grid-column: 1 / -1; }
 .readout b { font-size: 17px; font-weight: 300; line-height: 1; color: var(--sun); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .readout span { font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
 .opts { flex-direction: column; gap: 6px; margin-top: 10px; }

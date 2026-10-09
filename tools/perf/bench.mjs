@@ -68,7 +68,7 @@ async function openPage(n, extra = {}, k = null, init = null, html = null) {
   await page.addInitScript(({ n, extra }) => {
     if (sessionStorage.getItem('tm-init')) return;
     sessionStorage.setItem('tm-init', '1');
-    localStorage.setItem('tidemote.view', JSON.stringify({ particles: n, auto: false, labOpen: false, ...extra }));
+    localStorage.setItem('tidemote.view', JSON.stringify({ particles: n ?? null, auto: false, labOpen: false, ...extra }));
     localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0.5 }));
   }, { n, extra });
   page.on('console', (m) => { if (m.type() === 'error' || /tidemote|perf/.test(m.text())) console.log(`  [page] ${m.text()}`); });
@@ -141,9 +141,32 @@ async function stepBench(page, sc) {
   }, sc);
 }
 
+// growth: a fresh world run at a speed, its step timed every `every` real seconds against its life
+async function growth(page, sc) {
+  return page.evaluate(async (sc) => {
+    const T = globalThis.__tidemote, { state, eng } = T;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    T.setSpeed(sc.speed === 'max' ? Infinity : sc.speed ?? 1);
+    const out = [], t0 = performance.now();
+    while (performance.now() - t0 < sc.seconds * 1000) {
+      await sleep((sc.every || 10) * 1000);
+      state.paused = true; await sleep(100);
+      const d = {};
+      for (let i = 0; i < 3; i++) for (const [k, ms] of await eng.profileStep(1 / 60)) d[k] = (d[k] || 0) + ms / 3;
+      state.paused = false;
+      const L = T.life();
+      out.push({ wall: Math.round((performance.now() - t0) / 1000), sim: Math.round(eng.simTime), living: L.counts[3], species: L.alive,
+        step: +Object.values(d).reduce((a, b) => a + b, 0).toFixed(3), life: +d.lifeMain.toFixed(3) });
+      console.log(`perf growth ${JSON.stringify(out.at(-1))}`);
+    }
+    return { name: sc.name, count: eng.count, growth: out };
+  }, sc);
+}
+
 // one scenario: set it up, settle, measure
 async function measure(page, sc) {
   if (sc.kind === 'step') return stepBench(page, sc);
+  if (sc.kind === 'growth') return growth(page, sc);
   return page.evaluate(async (sc) => {
     const T = globalThis.__tidemote, { state, cam, perf, eng } = T;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -166,11 +189,15 @@ async function measure(page, sc) {
     T.setSpeed(sc.speed === 'max' ? Infinity : sc.speed ?? 1);
     await sleep((sc.settle ?? 3) * 1000);
     // ---- record
-    const rec = { raf: [], submits: [], encode: [], gpu: [], sim: [], steps: 0, passes: {}, passFrames: 0, scale: [], long: 0, longMs: 0 };
+    const rec = { slow: [], raf: [], submits: [], encode: [], gpu: [], sim: [], steps: 0, passes: {}, passFrames: 0, scale: [], long: 0, longMs: 0 };
     const origFrame = eng.frame.bind(eng);
-    eng.frame = (o) => { const t = performance.now(); origFrame(o); rec.encode.push(performance.now() - t); rec.submits.push(t); };
+    rec.dts = [];
+    eng.frame = (o) => { const t = performance.now(); if (rec.dts.length < 40) rec.dts.push([+o.simDt.toFixed(4), o.steps, o.paused ? 1 : 0]); origFrame(o); rec.encode.push(performance.now() - t); rec.submits.push(t); };
     eng.passProfile = true;
+    rec.series = [];
+    let t0 = performance.now();
     eng.onPassTimes = (times, f) => {
+      if (rec.series.length < 90) rec.series.push([+(performance.now() - t0).toFixed(1), f.nSteps, +f.ms.toFixed(2)]);
       if (!(f.ms > 0 && f.ms < 1000)) return;
       rec.gpu.push(f.ms); rec.sim.push(f.simMs); rec.steps += f.nSteps; rec.passFrames++;
       for (const [name, ms] of times) rec.passes[name] = (rec.passes[name] || 0) + ms;
@@ -178,9 +205,12 @@ async function measure(page, sc) {
     const po = new PerformanceObserver((l) => { for (const e of l.getEntries()) { rec.long++; rec.longMs += e.duration; } });
     try { po.observe({ type: 'longtask', buffered: false }); } catch { /* unsupported */ }
     let on = true;
-    const tick = (t) => { if (!on) return; rec.raf.push(t); rec.scale.push(T.renderScale()); requestAnimationFrame(tick); };
+    const tick = (t) => { if (!on) return; rec.raf.push(t); rec.scale.push(T.renderScale()); rec.slow.push(perf.slow || 1); requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
-    const sim0 = eng.simTime, t0 = performance.now();
+    const sim0 = eng.simTime;
+    t0 = performance.now();
+    // a change made as recording starts (series: each frame's [ms since, steps, GPU ms])
+    if (sc.then && sc.then.speed) T.setSpeed(sc.then.speed === 'max' ? Infinity : sc.then.speed);
     await sleep((sc.seconds ?? 8) * 1000);
     on = false;
     const wall = (performance.now() - t0) / 1000, simRate = (eng.simTime - sim0) / wall;
@@ -207,8 +237,8 @@ async function measure(page, sc) {
       gpu: { mean: mean(rec.gpu), p50: q(rec.gpu, 0.5), p95: q(rec.gpu, 0.95), max: q(rec.gpu, 1) },
       sim: { mean: mean(rec.sim), stepsPerFrame: +(rec.steps / Math.max(1, rec.passFrames)).toFixed(2) },
       encodeMs: { mean: mean(rec.encode), p95: q(rec.encode, 0.95) },
-      scale: { min: Math.min(...rec.scale), mean: mean(rec.scale), end: rec.scale.at(-1) },
-      longTasks: rec.long, longMs: Math.round(rec.longMs), passes, dispatch,
+      scale: { min: Math.min(...rec.scale), mean: mean(rec.scale), end: rec.scale.at(-1) }, slow: { mean: mean(rec.slow), end: rec.slow.at(-1), why: perf.why },
+      longTasks: rec.long, longMs: Math.round(rec.longMs), passes, dispatch, series: sc.then ? rec.series : undefined, dts: rec.dts,
     };
   }, sc);
 }
@@ -220,13 +250,14 @@ try {
     if (!scs.length) continue;
     const page = await openPage(w.n, w.prefs, w.k, w.init, w.page);
     if (!report.shown) { report.shown = true; console.log(JSON.stringify(report.browser)); }
-    await world(page, w);
+    if (!w.fresh) await world(page, w);
     for (const sc of scs) {
       const r = await measure(page, sc);
       report.scenarios.push({ world: w.name, ...r });
+      if (sc.kind === 'growth') continue;
       if (sc.kind === 'step') { console.log(`${w.name}/${r.name}: step ${r.total} ms | ${JSON.stringify(r.dispatch)}`); continue; }
       const top = Object.entries(r.passes).slice(0, 4).map(([k, x]) => `${k} ${x}`).join(', ');
-      console.log(`${w.name}/${r.name}: ${r.fps} fps (raf ${r.rafFps}), gpu ${r.gpu.mean} ms (p95 ${r.gpu.p95}), sim ${r.sim.mean} ms x${r.sim.stepsPerFrame}, enc ${r.encodeMs.mean} ms, scale ${r.scale.mean}, ppu ${r.ppu} | ${top}`);
+      console.log(`${w.name}/${r.name}: ${r.fps} fps (raf ${r.rafFps}), gpu ${r.gpu.mean} ms (p95 ${r.gpu.p95}), sim ${r.sim.mean} ms x${r.sim.stepsPerFrame}, enc ${r.encodeMs.mean} ms, scale ${r.scale.mean}, slow ${r.slow.end} ${r.slow.why || ''}, ppu ${r.ppu} | ${top}`);
       if (v.out) fs.writeFileSync(v.out, JSON.stringify(report, null, 2));
     }
     if (!v.keep) await page.close();

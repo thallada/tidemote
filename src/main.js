@@ -105,8 +105,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     closeup: prefs.closeup ?? true,
     songMarks: prefs.songMarks ?? 1, // mark the cells that sing: 0 off, 1 the picked species, 2 all
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
-    // pixels per CSS pixel, the frame rate aimed for (0: the display's), and a fixed particle count
-    perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.fps ?? 0, particles: prefs.particles ?? null },
+    // pixels per CSS pixel, the frame rate aimed for (0: the display's; 60 by default, and for prefs
+    // saved before v2, which stored the display's without anyone choosing it), and a fixed particle count
+    perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.v >= 2 ? prefs.fps ?? 60 : 60, particles: prefs.particles ?? null },
   };
   // While a pointer is held down on a panel, nothing re-renders under it: replacing the element
   // between pointerdown and pointerup swallows the click.
@@ -133,7 +134,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
+    savePrefs({ v: 2, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   if (prefs.loupe !== undefined && !isCoarse) state.loupe = prefs.loupe;
@@ -204,7 +205,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ perf
   const perf = { samples: [], gpu: 0, fps: 0, frames: 0, fpsT: performance.now(), frameDt: [], lastSubmit: 0, rafMs: 0, goodWindows: 0, ceiling: 1, ceilingUntil: 0, lastAdjust: performance.now(),
-    stepMs: 0, simS: 0, renderR: 0, presentR: 0, worldAt: 0, stepCredit: 0, ticks: 1, held: false, ticksAt: 0, rate: 1, rateT: performance.now(), rateSim: 0 };
+    stepMs: 0, simS: 0, renderR: 0, presentR: 0, worldAt: 0, stepCredit: 0, ticks: 1, held: false, ticksAt: 0, rate: 1, rateT: performance.now(), rateSim: 0,
+    slow: 1, slowCeiling: 0, why: '' };
   let calibWait = null;
   const frameWaiters = [];
   const ema = (a, v, k) => (a ? a + (v - a) * k : v);
@@ -1285,6 +1287,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       setText('ro-draw', perf.simS ? perf.renderR.toFixed(1) : '–');
       setText('ro-ceil', state.paused ? '–' : `${perf.ticks}/60 s`);
       setText('ro-rate', state.phase === 'running' && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : '–');
+      setText('ro-aim', state.speed > 1 ? 'as fast as it goes' : `${Math.round(1000 / frameTarget())} fps${perf.why ? ` · ${perf.why}` : ''}`);
     }
     function set(id, v) {
       const s = eng.settings, P = state.perf;
@@ -1507,6 +1510,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function setSpeed(v) {
     state.speed = v;
     perf.ticksAt = 0;
+    perf.stepCredit = 0;
     if (state.paused) state.paused = false;
     clock.owed = 0;
     perf.frameDt.length = 0;
@@ -1659,37 +1663,83 @@ function run(eng, device, ctx, specCtx, hasTS) {
     view.readout();
   }
 
-  // the interval between submitted frames the page aims for, in ms: the target frame rate, or the
-  // display's own (measured from requestAnimationFrame) when it has none or the display is slower
-  const frameTarget = () => Math.max(state.perf.fps ? 1000 / state.perf.fps : 0, perf.rafMs || 16.7);
+  // The frame rate aimed for, as the interval between submitted frames in ms: a whole number of the
+  // display's frames (measured from requestAnimationFrame), so frames stay evenly spaced. The target
+  // (60 by default) is met as closely as that allows: every second frame of a 144 Hz display (72 fps),
+  // every third of a 175 Hz one (58). While the device can't keep up, frames take perf.slow times
+  // longer (30, 20, 15 fps), and at real time steps grow to match (stepTicks).
+  const displayMs = () => perf.rafMs || 16.7;
+  const frameEvery = () => Math.max(1, Math.round((state.perf.fps ? 1000 / state.perf.fps : 0) / displayMs())) * perf.slow;
+  const frameTarget = () => frameEvery() * displayMs();
+  // At real time or slower a step covers up to one frame of the rate aimed for, in whole 1/60 s ticks
+  // (at most MAX_TICKS): below about 45 fps the world takes coarse steps, which cost about what a 1/60 s
+  // step does and keep its ecology (docs/fast-forward.md), so a slow device keeps real time.
+  const stepTicks = () => clamp(Math.ceil(frameTarget() * 60 / 1000 - 0.1), 1, MAX_TICKS);
+  // render scales the auto resolution steps between (down to the floor chosen in Settings)
+  const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
   function resetAdapt() {
     perf.frameDt.length = 0; perf.goodWindows = 0; perf.ceiling = 1; perf.ceilingUntil = 0; perf.lastAdjust = performance.now();
+    perf.slow = 1; perf.why = '';
   }
-  function adaptResolution(now) {
-    // Running fast spends the frame on simulation on purpose; only adapt at real time or slower.
+  // where the browser reports it (Compute Pressure), a device under serious pressure, hot or busy,
+  // backs off before its frames start to miss
+  let pressure = 'nominal';
+  try { new PressureObserver((r) => { pressure = r.at(-1).state; }).observe('cpu').catch(() => {}); } catch { /* unsupported */ }
+  const stressed = () => pressure === 'serious' || pressure === 'critical';
+  // Adapt what a frame costs to what the device sustains, every two seconds at real time or slower
+  // (running fast spends the frame on simulation on purpose). Behind (frames late, or with GPU
+  // timestamps the GPU busy for nearly the whole interval, or the device under pressure): a lower
+  // render scale, then a lower frame rate, or the frame rate first when the simulation is most of the
+  // cost (resolution would barely help). With room again: the frame rate back first, then the scale.
+  function adaptQuality(now) {
+    if (state.phase !== 'running' || state.speed > 1 || state.paused || now - perf.lastAdjust < 2000 || perf.frameDt.length < 20) return;
     // Judged by the interval between submitted frames, not requestAnimationFrame's: while the GPU
     // lags, rAF keeps its cadence and the frames are skipped (inflight), so rAF alone looks smooth.
-    if (state.perf.scale !== 'auto' || state.phase !== 'running' || state.speed > 1 || now - perf.lastAdjust < 2000 || perf.frameDt.length < 30) return;
-    // the mean, not the median: on a 60 Hz display each interval is 16.7 or 33.3 ms, and the median
-    // stays at 16.7 until more than half the frames are missed
+    // The mean, not the median: on a 60 Hz display each interval is 16.7 or 33.3 ms, and the median
+    // stays at 16.7 until more than half the frames are missed.
     const m = perf.frameDt.reduce((a, b) => a + b, 0) / perf.frameDt.length;
     perf.frameDt.length = 0;
     perf.lastAdjust = now;
-    // judged against the frame interval aimed for
-    const T = frameTarget(), floor = state.perf.floor;
-    // the further behind, the larger the step: pixel cost scales with the square of the scale
-    if (m > T * 1.125 && renderScale > floor) {
-      // a scale that just proved too slow is not tried again for a while, so the view doesn't
-      // keep climbing back into the same stutter
-      perf.ceiling = renderScale; perf.ceilingUntil = now + 30000;
-      renderScale = Math.max(floor, renderScale * clamp(Math.sqrt(T / m), 0.7, 0.9)); perf.goodWindows = 0; fit();
-    } else if (m < T * 1.03) {
-      perf.goodWindows++;
-      const cap = now < perf.ceilingUntil ? perf.ceiling * 0.95 : 1;
-      const next = Math.min(1, renderScale * 1.12, cap);
-      if (perf.goodWindows >= 3 && next > renderScale + 0.01) { renderScale = next; perf.goodWindows = 0; fit(); }
-    } else perf.goodWindows = 0;
+    const T = frameTarget(), auto = state.perf.scale === 'auto';
+    const floor = auto ? state.perf.floor : renderScale;
+    const busy = hasTS && perf.gpu > T * 0.92;
+    const behind = m > T * 1.125 || busy || stressed();
+    const simBound = hasTS && perf.simS > 2 * perf.renderR;
+    if (behind) {
+      perf.why = stressed() ? 'device under pressure' : busy ? 'GPU busy' : 'frames late';
+      perf.goodWindows = 0;
+      // a level that just proved too slow is not tried again for a while, so the view doesn't keep
+      // climbing back into the same stutter
+      perf.ceilingUntil = now + 30000;
+      if (renderScale > floor + 0.01 && !(simBound && perf.slow < 4)) {
+        perf.ceiling = renderScale;
+        // the further behind, the larger the step: pixel cost scales with the square of the scale
+        const want = renderScale * clamp(Math.sqrt(T / m), 0.7, 0.9);
+        renderScale = Math.max(floor, SCALES.find((s) => s <= want + 0.01) ?? floor);
+        resizeDue = true;
+      } else if (perf.slow < 4) { perf.slow++; perf.slowCeiling = perf.slow - 1; }
+      return;
+    }
+    if (m > T * 1.03 || stressed()) { perf.goodWindows = 0; return; }
+    perf.goodWindows++;
+    if (perf.goodWindows < 3) return;
+    const held = now < perf.ceilingUntil;
+    // a faster frame rate costs the same GPU time per frame (a step and a drawing), in less time
+    if (perf.slow > 1) {
+      const faster = (T * (perf.slow - 1)) / perf.slow;
+      if (!(held && perf.slow - 1 <= perf.slowCeiling) && (!perf.gpu || perf.gpu < faster * 0.75)) { perf.slow--; perf.goodWindows = 0; }
+      if (perf.slow === 1) perf.why = '';
+      return;
+    }
+    if (!auto) return;
+    const cap = held ? perf.ceiling * 0.95 : 1;
+    const next = [...SCALES].reverse().find((s) => s > renderScale + 0.01 && s <= cap + 0.001);
+    if (next) { renderScale = next; perf.goodWindows = 0; resizeDue = true; }
+    if (renderScale >= 1) perf.why = '';
   }
+  // A new render scale is applied at the start of the next frame, before it takes the canvas's
+  // texture: resizing the canvas after a frame is drawn into it discards that frame (a black flash).
+  let resizeDue = false;
 
   // Where the tracked particle is now: last GPU sample advanced by its own velocity plus the current it rides.
   // the simulated time the frame being drawn shows (after this frame's steps)
@@ -2198,7 +2248,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // part of the interval doesn't leave the GPU idle for the rest of it
     perf.stepCredit = Math.min(perf.stepCredit + (frameTarget() - cost) / S, MAX_STEPS);
     const steps = clamp(Math.floor(perf.stepCredit), 1, MAX_STEPS);
-    perf.stepCredit = Math.max(0, perf.stepCredit - steps);
+    perf.stepCredit = clamp(perf.stepCredit - steps, 0, 1);
     return { steps, dt, world };
   }
   // A fast speed held (drawn as at Max), in steps of m ticks: the steps owed, whole ones (the remainder
@@ -2213,7 +2263,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     let steps = Math.floor(clock.owed / dt);
     // beyond the budget a couple of steps stay owed, to even out whole steps; the rest is dropped
     if (steps > cap) { steps = cap; clock.owed = Math.min(clock.owed - steps * dt, 2 * dt); } else clock.owed -= steps * dt;
-    perf.stepCredit = Math.max(0, perf.stepCredit - steps);
+    // what the budget left unused is not saved up: only its fraction carries (saved up, it once came
+    // due all at once on a switch to Max, hundreds of steps in one submit)
+    perf.stepCredit = clamp(perf.stepCredit - steps, 0, 1);
     return { steps, dt, world };
   }
   // This frame's steps, or null to only draw (too little owed to be worth a step)
@@ -2223,8 +2275,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (perf.held) return coarsePlan(now, perf.ticks);
     const cap = stepCap();
     if (clock.owed < H * 0.2) return null;
-    let n = Math.max(1, Math.ceil(clock.owed / H - 0.05));
-    if (n > cap) { n = cap; clock.owed = n * H; }
+    const most = H * (state.speed <= 1 ? stepTicks() : 1);
+    let n = Math.max(1, Math.ceil(clock.owed / most - 0.05));
+    if (n > cap) { n = cap; clock.owed = n * most; }
     const dt = clock.owed / n;
     clock.owed = 0;
     return { steps: n, dt };
@@ -2234,14 +2287,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const dt = Math.min(100, now - last);
     last = now;
     frameCount++;
+    if (resizeDue) { resizeDue = false; fit(); }
     // the display's own frame interval, for the "Display" target and for pacing
     rafDt.push(dt);
     if (rafDt.length >= 60) { perf.rafMs = median(rafDt); rafDt.length = 0; }
-    // aiming below the display's rate skips frames; a little slack keeps a 60 Hz display at 60
     tickClock(now);
     updateSpeedCap(now);
     updateTicks(now);
-    const due = !state.perf.fps || !perf.lastSubmit || now - perf.lastSubmit >= 1000 / state.perf.fps - 4;
+    // a frame every frameEvery() display frames (half a display frame's slack absorbs the jitter)
+    const due = !perf.lastSubmit || now - perf.lastSubmit >= frameTarget() - displayMs() / 2;
     if (now - perf.fpsT > 500) { perf.fps = (perf.frames * 1000) / (now - perf.fpsT); perf.frames = 0; perf.fpsT = now; }
     if (now - perf.rateT > 1000) {
       const r = (eng.simTime - perf.rateSim) / ((now - perf.rateT) / 1000);
@@ -2318,7 +2372,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (specimen.isOpen()) specimen.songTick(performance.now(), songEvents); // every display frame, whatever the GPU's pace
     renderFeed();
     lab.render(false);
-    adaptResolution(now);
+    adaptQuality(now);
     if (state.phase === 'running') updateHud(now);
     requestAnimationFrame(frame);
   }
@@ -2327,7 +2381,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
   resetClimate();
   requestAnimationFrame(frame);
 
-  document.addEventListener('visibilitychange', () => { perf.frameDt.length = 0; perf.lastSubmit = 0; perf.lastAdjust = performance.now() + 1500; });
+  // Hidden, the page draws nothing (requestAnimationFrame stops) and the soundtrack fades out.
+  document.addEventListener('visibilitychange', () => {
+    perf.frameDt.length = 0; perf.lastSubmit = 0; perf.lastAdjust = performance.now() + 1500;
+    sound.away(document.hidden);
+  });
   // a handle for tools/perf, which profiles the page in a real browser
   globalThis.__tidemote = { state, cam, perf, eng, sound, life: () => life, sel: () => sel, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect, fit,
     setScale(v) { state.perf.scale = v; if (v !== 'auto') renderScale = v; resetAdapt(); fit(); },

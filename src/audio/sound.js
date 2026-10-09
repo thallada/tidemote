@@ -52,6 +52,7 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
         st.starting = st.starting || boot();
         await st.starting;
         if (!st.on) return;
+        if (st.away) return; // heard when the page is shown again (away)
         await st.ctx.resume(); // pending until the browser allows audio
         if (st.on) ramp(level(st.volume), 1.2);
       } else if (st.gain) {
@@ -119,7 +120,15 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
     // on, and the browser lets it play
     get playing() { return st.on && !!st.ctx && st.ctx.state === 'running'; },
     // resume from inside a click or key press, where autoplay is blocked
-    unlock: () => { if (st.on && st.ctx) st.ctx.resume(); },
+    unlock: () => { if (st.on && st.ctx && !st.away) st.ctx.resume(); },
+    // the page hidden (another tab, the phone locked): fade out and let the audio thread rest; shown
+    // again, fade back in
+    away(on) {
+      st.away = on;
+      if (!st.ctx || !st.gain || !st.on) return;
+      if (on) { ramp(0, 0.5); setTimeout(() => { if (st.away) st.ctx.suspend(); }, 550); }
+      else st.ctx.resume().then(() => { if (st.on && !st.away) ramp(level(st.volume), 1.0); });
+    },
     toggle: () => setOn(!st.on), setOn, setVolume,
     census, listen, era: (name) => post({ type: 'era', name }),
     // play a species' motif alone (its genome; tag names its notes in onSang). Turns sound on.

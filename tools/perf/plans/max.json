@@ -1,0 +1,6 @@
+{ "worlds": [{ "name": "w1m", "n": 1048576 }],
+  "scenarios": [
+    { "world": "w1m", "name": "x4-to-max", "zoom": "fit", "fps": 60, "speed": 4, "settle": 8, "then": { "speed": "max" }, "seconds": 4, "dispatch": false },
+    { "world": "w1m", "name": "x2-to-max", "zoom": "fit", "fps": 60, "speed": 2, "settle": 8, "then": { "speed": "max" }, "seconds": 4, "dispatch": false },
+    { "world": "w1m", "name": "max-to-x4", "zoom": "fit", "fps": 60, "speed": "max", "settle": 6, "then": { "speed": 4 }, "seconds": 4, "dispatch": false }
+  ] }

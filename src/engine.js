@@ -345,7 +345,19 @@ class Engine {
     if (this.size[0] === w && this.size[1] === h) return;
     this.size = [w, h];
     const d = this.device;
-    if (this.accum) { this.accum.forEach((t) => t.destroy()); this.bloom.forEach((t) => t.destroy()); this.murkTex.destroy(); this.microTex.destroy(); }
+    // The trails carry over: the last frame's image is reprojected into the new size once (the
+    // reprojection samples by texture coordinate), then let go.
+    this.carry?.tex.destroy();
+    this.carry = null;
+    if (this.accum) {
+      const keep = this.accum[this.accIdx];
+      this.accum[1 - this.accIdx].destroy();
+      if (!this.clearAccum && this.lastCam) {
+        this.carry = { tex: keep, bg: d.createBindGroup({ layout: this.pReproj.getBindGroupLayout(0), entries: [
+          { binding: 0, resource: this.sampler }, { binding: 1, resource: keep.createView() }, { binding: 5, resource: { buffer: this.b.reprojU } }] }) };
+      } else keep.destroy();
+      this.bloom.forEach((t) => t.destroy()); this.murkTex.destroy(); this.microTex.destroy();
+    }
     const tex = (tw, th) => d.createTexture({ size: [Math.max(1, tw), Math.max(1, th)], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
     this.accum = [tex(w, h), tex(w, h)];
     this.stoneTex?.forEach((t) => t.destroy());
@@ -385,7 +397,7 @@ class Engine {
     this.holdBG = d.createBindGroup({ layout: this.pHold.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: this.holdView }, { binding: 5, resource: { buffer: this.b.holdU } }] });
     this.holdCam = null;
-    this.clearAccum = true;
+    this.clearAccum = !this.carry;
   }
 
   _ensureLoupeTex(L) {
@@ -927,6 +939,7 @@ class Engine {
     if (prof) prof.finish(nSteps, drew, generation);
     d.queue.submit([enc.finish()]);
     if (prof) prof.read();
+    if (this.carryDone) { this.carryDone.destroy(); this.carryDone = null; }
 
     if (timed) {
       slot.busy = true;
@@ -1365,6 +1378,9 @@ class Engine {
     {
       const clear = this.clearAccum || this.settings.trails <= 0 || !this.lastCam;
       this.clearAccum = false;
+      // after a resize the trails come from the image kept from before it (resize), once
+      const carry = this.carry;
+      if (carry) { this.carry = null; this.carryDone = carry.tex; }
       const srcI = this.accIdx, dstI = 1 - this.accIdx;
       this.accIdx = dstI;
       const pass = enc.beginRenderPass({
@@ -1376,17 +1392,18 @@ class Engine {
         const dx = cam.x - lc.x, dy = cam.y - lc.y;
         const gx = this.grid[0], gy = this.grid[1];
         const wx = dx - gx * Math.round(dx / gx), wy = dy - gy * Math.round(dy / gy);
-        const ratio = lc.ppu / cam.ppu;
-        d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([ratio, ratio, (wx * lc.ppu) / W, (wy * lc.ppu) / H, this.settings.trails, 0, 0, 0]));
+        // in the last frame's texture coordinates (its size differs after a resize)
+        const sx = (lc.ppu * W) / (cam.ppu * lc.w), sy = (lc.ppu * H) / (cam.ppu * lc.h);
+        d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([sx, sy, (wx * lc.ppu) / lc.w, (wy * lc.ppu) / lc.h, this.settings.trails, 0, 0, 0]));
         pass.setPipeline(this.pReproj);
-        pass.setBindGroup(0, this.reprojBG[srcI]);
+        pass.setBindGroup(0, carry ? carry.bg : this.reprojBG[srcI]);
         pass.draw(3);
       }
       this._drawScene(pass, this.bgLine, this.bgPoint, this.bgBridge, this.viewData);
       pass.end();
     }
     this._drawStone(enc, this.stoneView, this.bgStone);
-    this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu };
+    this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu, w: W, h: H };
     const cur = this.accIdx;
 
     if (loupe) {

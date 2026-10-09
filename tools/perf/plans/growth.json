@@ -1,0 +1,6 @@
+{ "worlds": [{ "name": "g1m", "n": 1048576, "fresh": true }, { "name": "g4m", "n": 4194304, "fresh": true }, { "name": "g256k", "n": 262144, "fresh": true }],
+  "scenarios": [
+    { "world": "g1m", "name": "growth", "kind": "growth", "speed": "max", "seconds": 150, "every": 10 },
+    { "world": "g4m", "name": "growth", "kind": "growth", "speed": "max", "seconds": 300, "every": 20 },
+    { "world": "g256k", "name": "growth", "kind": "growth", "speed": "max", "seconds": 60, "every": 5 }
+  ] }
