@@ -2138,6 +2138,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let last = performance.now();
   let frameCount = 0;
   let inflight = 0;
+  let shownFrame = null; // the camera and moment of the world frame the GPU finished last
   // The simulation clock, after Glenn Fiedler's "Fix Your Timestep!": real time, from the vsync-aligned
   // requestAnimationFrame timestamps, times the speed is owed to the simulation, and each drawn frame
   // pays all of it in equal steps of at most about 1/60 s (his semi-fixed variant: the renderer draws
@@ -2257,7 +2258,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
       eng.trackId2 = director.active ? director.trackId : NONE;
       watchMarks(performance.now());
       eng.mindId = sel && !sel.lost && !sel.film && sel.particle.kind >= FIRST_LIFE && specimen.isOpen() ? sel.id : NONE;
-      drawOverlay(dt, L);
+      // The overlay is drawn now, but the world it marks reaches the screen only when the GPU has drawn
+      // it, frames behind while frames queue (and the camera may be moving, following a cell). So while
+      // frames are in flight it is drawn with the camera and moment of the world frame last finished.
+      const cur = { x: cam.x, y: cam.y, zoom: cam.zoom, t: viewSimTime };
+      const seen = inflight && shownFrame ? shownFrame : cur;
+      Object.assign(cam, { x: seen.x, y: seen.y, zoom: seen.zoom }); viewSimTime = seen.t;
+      drawOverlay(dt, inflight && shownFrame ? loupeGeom() : L);
+      Object.assign(cam, { x: cur.x, y: cur.y, zoom: cur.zoom }); viewSimTime = cur.t;
       specimen.drawViewerUI(now);
       specimen.mindTick(now);
       eng.frame({
@@ -2275,7 +2283,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         hold: (state.speed === Infinity || perf.held) && !state.paused && state.phase === 'running' ? !!step.world : null,
       });
       inflight++;
-      device.queue.onSubmittedWorkDone().then(() => { inflight--; }, () => { inflight--; });
+      const sent = cur;
+      device.queue.onSubmittedWorkDone().then(() => { inflight--; shownFrame = sent; }, () => { inflight--; });
       if (sel && frameCount % 10 === 0 && !state.paused) gatherTick(false);
     }
     if (dirty && (sel || spView != null)) renderSpecimen(false);

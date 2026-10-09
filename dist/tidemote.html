@@ -20948,6 +20948,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     let last = performance.now();
     let frameCount = 0;
     let inflight = 0;
+    let shownFrame = null;
     const clock = { owed: 0, lastT: 0 };
     function tickClock(now) {
       const real = clock.lastT ? Math.min(0.1, (now - clock.lastT) / 1e3) : 0;
@@ -21064,7 +21065,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
         eng.trackId2 = director.active ? director.trackId : NONE2;
         watchMarks(performance.now());
         eng.mindId = sel && !sel.lost && !sel.film && sel.particle.kind >= FIRST_LIFE && specimen.isOpen() ? sel.id : NONE2;
-        drawOverlay(dt, L);
+        const cur = { x: cam.x, y: cam.y, zoom: cam.zoom, t: viewSimTime };
+        const seen = inflight && shownFrame ? shownFrame : cur;
+        Object.assign(cam, { x: seen.x, y: seen.y, zoom: seen.zoom });
+        viewSimTime = seen.t;
+        drawOverlay(dt, inflight && shownFrame ? loupeGeom() : L);
+        Object.assign(cam, { x: cur.x, y: cur.y, zoom: cur.zoom });
+        viewSimTime = cur.t;
         specimen.drawViewerUI(now);
         specimen.mindTick(now);
         eng.frame({
@@ -21082,8 +21089,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
           hold: (state.speed === Infinity || perf.held) && !state.paused && state.phase === "running" ? !!step.world : null
         });
         inflight++;
+        const sent = cur;
         device.queue.onSubmittedWorkDone().then(() => {
           inflight--;
+          shownFrame = sent;
         }, () => {
           inflight--;
         });
