@@ -21357,6 +21357,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
         resetAdapt();
         fit2();
       },
+      // as the adaptive scale does it: applied when the next frame begins
+      queueScale(v) {
+        renderScale = v;
+        resizeDue = true;
+      },
       // a world saved by eng.readState(), in place of this one
       loadWorld(s) {
         eng.writeState(s);

@@ -2389,6 +2389,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // a handle for tools/perf, which profiles the page in a real browser
   globalThis.__tidemote = { state, cam, perf, eng, sound, life: () => life, sel: () => sel, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect, fit,
     setScale(v) { state.perf.scale = v; if (v !== 'auto') renderScale = v; resetAdapt(); fit(); },
+    // as the adaptive scale does it: applied when the next frame begins
+    queueScale(v) { renderScale = v; resizeDue = true; },
     // a world saved by eng.readState(), in place of this one
     loadWorld(s) { eng.writeState(s); resetDirector(); resetLife(); resetClimate(); sound.reset(); lab.reset(); specimen.reset(); deselect(); clearFocus(); } };
 
