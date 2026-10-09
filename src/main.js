@@ -62,8 +62,12 @@ async function boot() {
   ctx.configure({ device, format, alphaMode: 'opaque' });
   const specCtx = $('specimen').getContext('webgpu');
   specCtx.configure({ device, format, alphaMode: 'opaque' });
+  // #k={"shade":0.1} opens the page with tunables overridden (DEFAULT_K), to watch a variant live
+  let K = {};
+  const kHash = /[#&]k=([^&]*)/.exec(location.hash);
+  if (kHash) { try { K = JSON.parse(decodeURIComponent(kHash[1])); } catch { console.warn('[tidemote] ignoring a #k= that is not JSON'); } }
   let eng;
-  try { eng = await createEngine(device, format, { hasTimestamps: hasTS }); }
+  try { eng = await createEngine(device, format, { hasTimestamps: hasTS, K }); }
   catch (e) { fail('The simulation failed to compile', String(e.message || e)); return; }
   run(eng, device, ctx, specCtx, hasTS);
 }
@@ -125,11 +129,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const trailNames = ['Off', 'Short', 'Long', 'Exposure'];
   let trailIdx = prefs.trails ?? 1;
   eng.settings.trails = trailLevels[trailIdx];
-  for (const k of ['links', 'nodes', 'bloom', 'optics', 'specks', 'lod', 'tide']) if (prefs[k] !== undefined) eng.settings[k] = prefs[k];
+  for (const k of ['links', 'nodes', 'bloom', 'optics', 'specks', 'lod', 'tide', 'heat']) if (prefs[k] !== undefined) eng.settings[k] = prefs[k];
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
+    savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   if (prefs.loupe !== undefined && !isCoarse) state.loupe = prefs.loupe;
@@ -239,11 +243,18 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let climate;
   function resetClimate() {
     climate = createClimate(eng);
-    climate.onEra = (era, prevAmb) => {
+    climate.onEra = (era, prevAmb, prevTemp) => {
       const lightWord = era.ambient > prevAmb + 0.05 ? 'light rises' : era.ambient < prevAmb - 0.05 ? 'light dims' : 'light holds';
-      pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}% · glint ×${era.charge.toFixed(1)} · currents shift`, 0xffa0e3f1, 'era');
+      const waterWord = !K.heat ? '' : ` · water ${era.temp > prevTemp + 1 ? 'warms' : era.temp < prevTemp - 1 ? 'cools' : 'holds'} to ${Math.round(era.temp)}°`;
+      pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}%${waterWord} · glint ×${era.charge.toFixed(1)} · currents shift`, 0xffa0e3f1, 'era');
       flash(climate.name, 'New era');
       sound.era(climate.name);
+    };
+    climate.onExcursion = (x) => {
+      if (!K.heat) return;
+      const wave = x.dT > 0;
+      pushEvent(`${wave ? 'A heat wave' : 'A cold snap'}: the water ${wave ? 'rises' : 'falls'} ${Math.abs(x.dT).toFixed(0)}° for ${fmtDur(x.dur)}`, wave ? 0xff3a8aff : 0xffd68a3d, 'heat');
+      flash(wave ? 'A heat wave' : 'A cold snap', 'Climate');
     };
   }
 
@@ -253,7 +264,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     life = {
       reg: new Map(), genera: new Map(), orphan: new Map(), chronicle: [], history: [], histEvery: 3, lastHist: -1e9,
       counts: [0, 0, 0, 0, 0], roles: [0, 0, 0], alive: 0, thriving: 0, arisen: 0, maxDepth: 0, top: 0, lastCensus: null, matter: [],
-      estThreshold: 30, births: 0, prevG: null, prevT: 0,
+      estThreshold: 30, births: 0, prevG: null, prevD: null, prevT: 0,
     };
     feedKey = '';
     renderFeed();
@@ -514,7 +525,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     let ampSum = 0;
     for (let k = 0; k < 4; k++) ampSum += eng.tide[k * 4 + 3];
     const tide = eng.season * Math.min(1, ampSum / 3);
-    sound.census({ species, pop, world: { light: Math.min(1.2, eng.ambient * 1.2 + 0.85 * tide), tide } });
+    sound.census({ species, pop, world: { light: Math.min(1.2, eng.ambient * 1.2 + 0.85 * tide), tide, warm: K.heat ? clamp((eng.tbg - 16) / 12, -1, 1) : 0 } });
   }
   eng.onListen = (d) => {
     if (state.phase !== 'running') return;
@@ -622,7 +633,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
         alive, thriving, diversity: Math.exp(H),
         births: rate(2), starve: rate(5), old: rate(6), eaten: rate(7), graze: rate(9), scav: rate(10), prey: rate(7), bite: rate(11),
         mut: rate(3), ext: rate(8), ambient: eng.ambient, season: eng.season,
+        temp: eng.tbg, scald: [20, 21, 22, 23, 24].reduce((a, i) => a + (life.prevD ? c.demography[i] - life.prevD[i] : 0), 0) / Math.max(1e-6, t - life.prevT) * 60,
+        torpid: torpidShare(c),
       });
+      life.prevD = Array.from(c.demography);
       life.prevG = G;
       life.prevT = t;
       life.lastHist = t;
@@ -634,6 +648,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
     lab.render(false);
     if (sel || spView != null) dirty = true;
   };
+
+  // the share of the living that were torpid since the last census that read it (the ledger samples
+  // each living cell once a second)
+  let torpidPrev = null;
+  function torpidShare(c) {
+    const e = c.energy, now = [e[56], e.slice(40, 56).reduce((a, b) => a + b, 0)];
+    const prev = torpidPrev;
+    torpidPrev = now;
+    return prev && now[1] > prev[1] ? (now[0] - prev[0]) / (now[1] - prev[1]) : 0;
+  }
 
   // ------------------------------------------------------------ world column
   const MIX = [
@@ -1191,6 +1215,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       return choice('trails', 'Trails', 'T', trailNames.map((n, i) => [i, n]), trailIdx)
         + choice('tide', 'Light map', 'G', [[0, 'Off'], [1, 'Faint'], [2, 'Full']], s.tide, 'light')
         + (s.tide === 2 ? '<div class="ramp"><span>dark</span><i></i><span>full light</span></div>' : '')
+        + (K.heat ? choice('heat', 'Heat map', 'E', [[0, 'Off'], [1, 'Shimmer'], [2, 'Full']], s.heat, 'heatmap') : '')
+        + (K.heat && s.heat === 2 ? `<div class="ramp heat"><span>${Math.round(eng.tbg - 2)}°</span><i></i><span>${Math.round(eng.tbg + 10)}°</span></div>` : '')
         + onoff('currents', 'Currents', 'W', state.currents)
         + onoff('links', 'Bonds', 'L', s.links, 'bond')
         + onoff('nodes', 'Particles', 'N', s.nodes)
@@ -1250,6 +1276,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const s = eng.settings, P = state.perf;
       if (id === 'trails') { trailIdx = +v; s.trails = trailLevels[trailIdx]; }
       else if (id === 'tide') s.tide = +v;
+      else if (id === 'heat') s.heat = +v;
       else if (id === 'currents') state.currents = !!+v;
       else if (id === 'links') s.links = !!+v;
       else if (id === 'nodes') s.nodes = !!+v;
@@ -1403,6 +1430,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === 'b' || k === 'B') { eng.settings.bloom = eng.settings.bloom > 0 ? 0 : 0.012; flash(eng.settings.bloom ? 'Bloom on' : 'Bloom off'); persist(); view.render(); }
     else if (k === 'o' || k === 'O') { eng.settings.optics = eng.settings.optics > 0 ? 0 : 1; flash(eng.settings.optics ? 'Microscope optics on' : 'Microscope optics off'); persist(); view.render(); }
     else if (k === 'g' || k === 'G') { eng.settings.tide = (eng.settings.tide + 1) % 3; flash(['Light map off', 'Faint light map', 'Light map'][eng.settings.tide]); persist(); view.render(); }
+    else if ((k === 'e' || k === 'E') && K.heat) { eng.settings.heat = (eng.settings.heat + 1) % 3; flash(['Heat map off', 'Heat shimmer', 'Thermal camera'][eng.settings.heat]); persist(); view.render(); }
     else if (k === 'w' || k === 'W') { state.currents = !state.currents; flash(state.currents ? 'Currents shown' : 'Currents hidden'); view.render(); }
     else if (k === 'v' || k === 'V') view.toggle();
     else if (k === 'k' || k === 'K') { closeMenus(); lab.toggle(); }
@@ -1560,6 +1588,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // ------------------------------------------------------------ rail
   const segs = $('light-seg');
   segs.innerHTML = '<i></i>'.repeat(10);
+  // the water gauge: a thermometer of ten segments from the climate's coldest (4°) to its warmest (28°)
+  const heatSegs = $('heat-seg');
+  heatSegs.innerHTML = Array.from({ length: 10 }, (_, i) => `<i style="--c:${['#3d6fd6', '#3f86d8', '#3fa0d0', '#41b7c2', '#62c6a8', '#9bcd86', '#d2c865', '#f0b04a', '#ff8a3a', '#ff5f3a'][i]}"></i>`).join('');
+  $('g-heat').hidden = !K.heat;
   const wave = $('tide-wave');
   wave.querySelector('.wave').setAttribute('d', Array.from({ length: 31 }, (_, i) => `${i ? 'L' : 'M'}${i * 2},${(8 - 6 * Math.sin((i / 30) * TAU)).toFixed(2)}`).join(''));
   let hudT = 0;
@@ -1580,6 +1612,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
     setText('tide-v', `${Math.round(eng.season * 100)}%`);
     $('g-tide').setAttribute('aria-label', `Tide ${Math.round(eng.season * 100)}%, ${seasonAt(eng.simTime + 5) >= seasonAt(eng.simTime) ? 'rising' : 'ebbing'}`);
     $('g-light').setAttribute('aria-label', `Light ${L}%`);
+    if (K.heat) {
+      const T = eng.tbg, trend = climate.tempTo - eng.temp + (climate.excursion && eng.excursion ? Math.sign(climate.excursion.dT) * (eng.simTime < climate.excursion.t + climate.excursion.dur / 2 ? 1 : -1) : 0);
+      const arrow = trend > 0.4 ? '↑' : trend < -0.4 ? '↓' : '';
+      setText('heat-v', `${Math.round(T)}°${arrow}`);
+      [...heatSegs.children].forEach((s, i) => s.classList.toggle('on', i < Math.round(((T - 4) / 24) * 10)));
+      const exc = eng.excursion > 0.5 ? 'heat wave' : eng.excursion < -0.5 ? 'cold snap' : '';
+      $('g-heat').classList.toggle('exc', !!exc);
+      $('g-heat').setAttribute('aria-label', `${exc ? `${exc}, ` : ''}water ${Math.round(T)}°${arrow ? (arrow === '↑' ? ' and rising' : ' and falling') : ''}`);
+    }
     tips.check();
     // Max shows what it reaches; every other speed is exact
     setText('t-rate', state.speed > 1 && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : '');

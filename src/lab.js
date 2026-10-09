@@ -2,7 +2,8 @@ import { GUIDE } from './guide.js';
 import { fmt, fmtClock, esc, cssCol, term, spLink, ROLE, LIVING_CSS } from './fmt.js';
 import { voiceOf } from './audio/mapping.js';
 import { sigilSVG } from './song.js';
-import { drawLines, sparkPath } from './charts.js';
+import { drawLines, drawNiches, sparkPath } from './charts.js';
+import { HEAT_BINS, HEAT_BIN, THERMAL_LEDGER } from './shaders.js';
 import { block, disclosure, wireDisclosures } from './ui.js';
 
 /**
@@ -388,27 +389,49 @@ export function createLab(api) {
     ['New species and extinctions per minute', 'mutation', [{ k: 'mut', label: 'new species', col: '#c9b8ff' }, { k: 'ext', label: 'extinctions', col: '#ff8a6b' }]],
     ['Climate', 'season', [{ k: 'ambient', label: 'baseline light', col: '#d9f27a' }, { k: 'season', label: 'tide strength', col: '#5fd4c4' }]],
   ];
+  // the heat charts, while the world has a heat field
+  if (api.eng.K.heat) {
+    CHARTS.push(
+      ['Water', 'water', [{ k: 'temp', label: 'background water', col: '#ff8a3a' }], '°'],
+      ['Heat deaths per minute', 'scalding', [{ k: 'scald', label: 'scalded', col: '#ff5f3a' }]],
+      ['Torpid', 'torpor', [{ k: 'torpid', label: 'share of the living', col: '#7fb0ff' }], '%'],
+    );
+  }
   function buildCharts() {
     const p = pane('');
     p.scroll.classList.add('stack');
     p.scroll.innerHTML = `<div class="legend"><span><i style="background:var(--sun);height:6px;width:1px"></i>dotted lines mark a new era</span></div>`
       + CHARTS.map(([t, tip, s], i) => block(t, `<canvas class="dyn" data-i="${i}" aria-label="${esc(t)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join('')}</div>`, { tip })).join('')
+      + (api.eng.K.heat ? block('Thermal niches', `<canvas class="niches" aria-label="Each species by the temperature it prefers and its population"></canvas><div class="legend"><span><i style="background:#ff8a3a;opacity:.4"></i>warmth the living feel</span><span><i style="background:#ff8a3a;height:6px;width:1px"></i>background water</span><span>dot size: tolerance · ring: ${term('heatmaker', 'heat-maker')}</span></div>`, { tip: 'optimum' }) : '')
       + block('Eras', '<ol class="eras" id="eras"></ol>');
     const cvs = [...p.scroll.querySelectorAll('canvas.dyn')];
-    let erasN = -1;
+    const niches = p.scroll.querySelector('canvas.niches');
+    let erasN = -1, excN = 0;
     function update() {
-      const hist = api.life().history, eras = api.climate().history;
-      cvs.forEach((cv, i) => drawLines(cv, hist, CHARTS[i][2], eras, ''));
-      if (eras.length !== erasN) {
-        erasN = eras.length;
-        $('eras').innerHTML = eras.slice().reverse().map((h) => `<li><time>${fmtClock(h.t)}</time><b>${esc(h.name)}</b><span>light ${Math.round(h.ambient * 100)}% · glint ×${h.charge.toFixed(2)}</span></li>`).join('');
+      const life = api.life(), hist = life.history, eras = api.climate().history;
+      cvs.forEach((cv, i) => drawLines(cv, hist, CHARTS[i][2], eras, CHARTS[i][3] || ''));
+      if (niches) {
+        const sp = [];
+        for (const s of life.reg.values()) if (s.alive && s.pop > 0) sp.push({ topt: s.genome.topt, tol: s.genome.tol, pop: s.pop, maker: s.genome.thermo > 0.2, col: s.genome.col });
+        // the warmth felt over the last half minute or more (the ledger's counts are cumulative)
+        const c = life.lastCensus, now = c ? Array.from(c.energy.slice(THERMAL_LEDGER.hist, THERMAL_LEDGER.hist + HEAT_BINS)) : null;
+        if (now && (!felt0 || c.simTime - felt0.t > 60 || c.simTime < felt0.t)) felt0 = { t: c.simTime, n: felt1 ? felt1.n : now };
+        if (now && (!felt1 || c.simTime - felt1.t > 30 || c.simTime < felt1.t)) felt1 = { t: c.simTime, n: now };
+        drawNiches(niches, sp, api.eng.tbg, now ? now.map((v, b) => v - felt0.n[b]) : [], HEAT_BIN);
+      }
+      const exc = eras.filter((h) => h.excursion).length;
+      if (eras.length !== erasN || exc !== excN) {
+        erasN = eras.length; excN = exc;
+        const water = (h) => (api.eng.K.heat && h.temp != null ? ` · water ${Math.round(h.temp)}°${h.excursion ? ` · ${h.excursion.dT > 0 ? 'heat wave' : 'cold snap'} ${h.excursion.dT > 0 ? '+' : '−'}${Math.abs(h.excursion.dT).toFixed(0)}°` : ''}` : '');
+        $('eras').innerHTML = eras.slice().reverse().map((h) => `<li><time>${fmtClock(h.t)}</time><b>${esc(h.name)}</b><span>light ${Math.round(h.ambient * 100)}% · glint ×${h.charge.toFixed(2)}${water(h)}</span></li>`).join('');
       }
     }
+    let felt0 = null, felt1 = null;
     return { ...p, update };
   }
 
   // ---------------------------------------------------------- log
-  const TYPES = [['all', 'All'], ['est', 'New species'], ['genus', 'New genera'], ['ext', 'Extinctions'], ['top', 'Dominance'], ['era', 'Eras']];
+  const TYPES = [['all', 'All'], ['est', 'New species'], ['genus', 'New genera'], ['ext', 'Extinctions'], ['top', 'Dominance'], ['era', 'Eras'], ...(api.eng.K.heat ? [['heat', 'Heat']] : [])];
   function buildLog() {
     const p = pane(`<input type="search" id="log-q" placeholder="Search the log" aria-label="Search the log" autocomplete="off">
       <div class="row" role="group" aria-label="Show">${chips('logType', TYPES, st.logType)}</div>`);

@@ -51,9 +51,25 @@ test('twelve cosmetic shapes keep the archetype random-draw count', () => {
     let draws = 0;
     const g = archetypeGenome(type, () => { draws++; return r; });
     assert.equal(g.shape, shape);
-    assert.equal(draws, type === 'grazer' ? 77 : type === 'filament' ? 78 : 76);
+    // + 4 for the thermal optimum and tolerance; heat-maker founders draw one (two when chosen)
+    const thermo = ['crawler', 'grazer', 'filament'].includes(type) ? (r < 0.25 ? 2 : 1) : 0;
+    assert.equal(draws, (type === 'grazer' ? 77 : type === 'filament' ? 78 : 76) + 4 + thermo);
     const before = JSON.stringify(g);
     for (let role = 0; role < 3; role++) assert.ok(cellShape(g, role) >= 0 && cellShape(g, role) < 12);
     assert.equal(JSON.stringify(g), before, 'cosmetic selection leaves the genome unchanged');
   }
+});
+
+test('thermal performance peaks at the optimum, higher for specialists, steeper on the warm side', async () => {
+  const { thermalPerf, thermalGuild } = await import('../src/genome.js');
+  const { DEFAULT_K } = await import('../src/shaders.js');
+  const narrow = { topt: 20, tol: 2 }, broad = { topt: 20, tol: 15 };
+  assert.ok(Math.abs(thermalPerf(narrow, 20).perf - (1 + DEFAULT_K.specBonus)) < 1e-9);
+  assert.ok(Math.abs(thermalPerf(broad, 20).perf - 1) < 1e-9);
+  const g = { topt: 20, tol: 5 };
+  assert.ok(thermalPerf(g, 24).perf < thermalPerf(g, 16).perf, 'heat hurts more than cold');
+  assert.equal(thermalPerf(g, 12).torpid, true);
+  assert.equal(thermalPerf(g, 12).perf, 0);
+  assert.equal(thermalPerf(g, 14).torpid, false);
+  assert.deepEqual(thermalGuild({ topt: 40, tol: 3, thermo: 0.5 }), { pref: 'thermophile', breadth: 'specialist', maker: true });
 });

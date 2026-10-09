@@ -29,10 +29,13 @@ export function parseMind(u32, f32) {
     vel: v2(22),
     drives: {
       space: v2(24), kin: v2(26), other: v2(28), diet: v2(30), matter: v2(32), forage: v2(34),
-      align: v2(36), bond: v2(38), stone: v2(40), swim: v2(42),
+      align: v2(36), bond: v2(38), stone: v2(40), swim: v2(42), heat: v2(50),
     },
     flow: v2(44),
     matterN: [f32[46], f32[47], f32[48], f32[49]],
+    // warmth: its own temperature (body warmth included), the water's, how well it works there
+    // (perf, a rate multiplier) and how many tolerances it is from its optimum (x)
+    warmth: f32[21], water: f32[52], perf: f32[53], x: f32[54], torpid: !!(u32[55] & 1),
     nbrs,
   };
 }
@@ -48,10 +51,12 @@ const GROUPS = [
   { key: 'bond', label: 'Bonds', parts: ['bond'], tip: 'bond', css: '#ffb36b', when: (g, K) => (g.adhesion || 0) > K.adhMin },
   { key: 'align', label: 'Schooling', parts: ['align'], tip: 'schooling', css: '#7fe0c0', when: (g) => g.align > 0.02 },
   { key: 'swim', label: 'Swimming', parts: ['swim'], tip: 'swimming', css: '#e2f1f0', when: (g) => g.swim * (1 - g.photo) > 0.01 },
+  { key: 'heat', label: 'Warmth', parts: ['heat'], tip: 'thermotaxis', css: '#ff8a3a', when: (g, K) => K.heat && g.swim * (1 - g.photo) > 0.01 },
 ];
 export const groupsFor = (g, K) => GROUPS.filter((gr) => !gr.when || gr.when(g, K));
 
 const len = (v) => Math.hypot(v[0], v[1]);
+const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 // The mode readout: one or two words for each state, its target shown beside it.
 const MODES = {
@@ -60,6 +65,7 @@ const MODES = {
   forage: 'Foraging', avoid: 'Avoiding', follow: 'Drawn in', bask: 'Basking', dark: 'Waiting out the dark',
   school: 'Schooling', body: 'Holding together', gather: 'Gathering', spread: 'Spreading out', jostle: 'Jostled',
   blocked: 'Against stone', drift: 'Drifting', cruise: 'Cruising', idle: 'Idling',
+  torpid: 'Torpid', scalding: 'Scalding', seekwarm: 'Seeking warmth', seekcool: 'Seeking cooler water', huddle: 'Keeping warm',
 };
 
 /** How well a hunter's build lets it catch a prey cell (0..1), as lifeMain's catch-skill roll. */
@@ -120,7 +126,12 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
   const E = m.energy, need = g.reproE;
   const lean = 0.55 + 0.45 * Math.min(1, Math.max(0, E / need));
   const net = m.photoGain - m.upkeep;
-  const budget = { light: m.photoGain, upkeep: m.upkeep, net, lean, crowding: m.kinCost - 1, thrift: K.bodyThrift * 0.5 * m.bonds };
+  // thermal stress costs upkeep; a heat-maker burns extra (thermalPerf mirrors the GPU's stress)
+  const heatMaking = K.heat ? K.thermoCost * (g.thermo || 0) : 0;
+  const stress = K.heat ? smooth(0.3, 0.9, Math.abs(m.x)) : 0;
+  const budget = { light: m.photoGain, upkeep: m.upkeep, net, lean, crowding: m.kinCost - 1, thrift: K.bodyThrift * 0.5 * m.bonds, stress: K.stressCost * stress, heatMaking };
+  const deg = (t) => `${Math.round(t)}°`;
+  const range = g.topt != null ? `${deg(g.topt)} ± ${Math.round(g.tol)}°` : '';
   const pct = (x) => `${Math.round(x * 100)}%`;
   const hunger = `energy ${E.toFixed(2)} of the ${need.toFixed(2)} it needs to divide`;
   let st = null;
@@ -129,7 +140,9 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
   const repel = others.filter((s) => s.sig < 0).sort((a, b) => a.sig - b.sig)[0];
   const draw = others.filter((s) => s.sig > 0).sort((a, b) => b.sig - a.sig)[0];
 
-  if (E >= need) {
+  if (K.heat && m.torpid) {
+    st = { key: 'torpid', text: 'Torpid in the cold', why: `At ${deg(m.warmth)} it is ${Math.round((g.topt - g.tol * K.torporAt) - m.warmth + 0.5)}° below the range it can work in (it prefers ${range}): it neither feeds, swims nor divides, and burns ${Math.round(K.torporCost * 100)}% of its upkeep until the water warms.` };
+  } else if (E >= need) {
     st = m.siltNear
       ? { key: 'divide', matter: 'Silt', text: 'Dividing', why: `Its energy (${E.toFixed(2)}) has reached the ${need.toFixed(2)} it needs, and a grain of silt is in reach to build a child from.` }
       : { key: 'seeksilt', matter: 'Silt, none in reach', text: 'Ready to divide', why: `It has the energy to divide (${E.toFixed(2)} of ${need.toFixed(2)}) but no grain of silt within reach to build a child from, so it waits. Full, it has stopped feeding.` };
@@ -150,6 +163,9 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
     }
   }
   const left = net < 0 ? E / -net : Infinity;
+  if (!st && K.heat && m.x > 0.8) {
+    st = { key: 'scalding', text: 'Scalding', why: `At ${deg(m.warmth)} it is far above the ${deg(g.topt)} it prefers: it barely works (${Math.round(m.perf * 100)}%) and may die of the heat any moment.` };
+  }
   if (!st && left < 8) {
     st = { key: 'starve', text: 'Starving', why: `Its energy (${E.toFixed(2)}) is nearly spent: about ${Math.max(1, Math.round(left))} s left at ${(-net).toFixed(3)}/s${m.hungry ? ', with nothing it eats in reach' : ''}.` };
   }
@@ -167,6 +183,13 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
     const glint = g.dGlint * m.matterN[GLINT] >= g.dHusk * m.matterN[HUSK];
     st = { key: 'forage', matter: glint ? 'Glint' : 'Husks', text: glint ? 'Foraging for glint' : 'Foraging for husks', why: `Hungry (${hunger}). Its diet draws it toward the ${glint ? 'glint' : 'husks'} drifting nearby.` };
   }
+  if (!st && K.heat && share('heat') >= 0.25) {
+    const warmer = g.topt > m.warmth;
+    st = { key: warmer ? 'seekwarm' : 'seekcool', text: warmer ? 'Seeking warmth' : 'Seeking cooler water', why: `At ${deg(m.warmth)} it is ${warmer ? 'colder' : 'warmer'} than the ${deg(g.topt)} it prefers, so it swims ${warmer ? 'up' : 'down'} the warmth of the water around it.` };
+  }
+  if (!st && K.heat && (g.thermo || 0) > 0.2 && m.bonds > 0 && m.x < 0 && m.water < g.topt - 1) {
+    st = { key: 'huddle', text: 'Keeping warm', why: `A heat-maker in a body: it burns ${heatMaking.toFixed(3)}/s to run ${deg(m.warmth - m.water)} above the ${deg(m.water)} water, and its body holds the warmth in.` };
+  }
   if (!st && repel && -repel.sig > 0.35 * total) {
     st = { key: 'avoid', target: repel.kind, text: 'Keeping away from {sp}', why: 'Its receptors are repelled by the surface signature of {sp}, so it is pushed away from them.' };
   }
@@ -175,7 +198,7 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
   }
   if (!st && g.photo > 0.4) {
     st = net >= 0
-      ? { key: 'bask', text: 'Basking', why: `Photosynthesising: ${m.photoGain.toFixed(3)}/s from ${pct(m.light)} light, more than its ${m.upkeep.toFixed(3)}/s upkeep.` }
+      ? { key: 'bask', text: 'Basking', why: `Photosynthesising: ${m.photoGain.toFixed(3)}/s from ${pct(m.light)} light${K.heat && m.perf > 1.05 ? ` in warm water that suits it (${pct(m.perf)})` : ''}, more than its ${m.upkeep.toFixed(3)}/s upkeep.` }
       : { key: 'dark', text: 'Waiting out the dark', why: `Photosynthesising ${m.photoGain.toFixed(3)}/s from ${pct(m.light)} light${m.nutr < 3 ? ' with little silt nearby for minerals' : ''}: less than its ${m.upkeep.toFixed(3)}/s upkeep, so it is living on its reserves.` };
   }
   if (!st) {
@@ -203,6 +226,13 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
     { key: 'crowd', label: 'Crowded by kin', on: m.kinCost > 1.01, hint: m.kinCost > 1.01 ? `Packed among ${Math.round(m.kinN)} of its own kind: upkeep +${pct(m.kinCost - 1)}.` : `Fewer than ${K.kinFree + 1} of its own kind around (bond partners aside): no crowding cost.` },
     { key: 'shelter', label: 'Sheltered by stone', on: m.stoneN >= 1, hint: m.stoneN >= 1 ? `Among stone: attacks made from here miss ${pct(shelter)} of the time.` : 'No stone nearby to hide among.' },
   ];
+  if (K.heat) {
+    const cold = m.x < -0.3, hot = m.x > 0.3;
+    flags.push(
+      { key: 'cold', label: 'Cold', on: cold, hint: `${deg(m.warmth)}, it prefers ${range}: ${cold ? `${pct(m.perf)} of its best${m.torpid ? '; torpid' : ''}.` : 'not too cold.'}` },
+      { key: 'hot', label: 'Hot', on: hot, hint: `${deg(m.warmth)}, it prefers ${range}: ${hot ? `${pct(m.perf)} of its best${m.x > 0.8 ? '; it may scald' : ''}.` : 'not too hot.'}` },
+    );
+  }
   return { ...st, need, mode: MODES[st.key], target: st.target ?? null, flags, groups, drives, total, species, budget };
 }
 

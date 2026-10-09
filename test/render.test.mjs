@@ -18,7 +18,7 @@ test('LOD preserves light, bonded outlines merge, and all detail views validate'
   device.addEventListener('uncapturederror', (e) => errors.push(e.error.message));
   const { createEngine } = await import('../src/engine.js');
   const { archetypeGenome, writeGenome, packUnorm, cellShape } = await import('../src/genome.js');
-  const { MAXK, G_WORDS, DRAW_WGSL } = await import('../src/shaders.js');
+  const { MAXK, G_WORDS, DRAW_WGSL, MAX_CELLS } = await import('../src/shaders.js');
   const eng = await createEngine(device, 'rgba8unorm');
   assert.ok(await eng.allocate(8));
   eng.grid = [10, 10]; eng.count = 1; eng.resize(256, 256);
@@ -27,6 +27,8 @@ test('LOD preserves light, bonded outlines merge, and all detail views validate'
     size: 1, shape: 0, pulse: 0, swim: 0, calcify: 0, photo: 1, lifespan: 100, reproE: 1,
   });
   const genome = new ArrayBuffer(MAXK * G_WORDS * 4);
+  // water at the cell's optimum, so heat neither dims nor bleaches it
+  device.queue.writeBuffer(eng.b.thermal, MAX_CELLS * 4, new Float32Array(100).fill(g.topt));
   const updateGenome = () => {
     writeGenome(new Uint32Array(genome), new Float32Array(genome), 4, g);
     device.queue.writeBuffer(eng.b.genomes, 0, genome);
@@ -53,7 +55,7 @@ test('LOD preserves light, bonded outlines merge, and all detail views validate'
     fragment: { module: referenceModule, entryPoint: 'fsReference', targets: [{ format: 'rgba16float' }] },
     primitive: { topology: 'triangle-strip' } });
   const referenceBG = device.createBindGroup({ layout: reference.getBindGroupLayout(0), entries:
-    [[0, 'view'], [1, 'parts'], [2, 'genomes'], [3, 'intent'], [5, 'focus'], [6, 'bondsIn'], [8, 'touch'], [9, 'sway']]
+    [[0, 'view'], [1, 'parts'], [2, 'genomes'], [3, 'intent'], [5, 'focus'], [6, 'bondsIn'], [8, 'touch'], [9, 'sway'], [11, 'thermal']]
       .map(([binding, name]) => ({ binding, resource: { buffer: eng.b[name] } })) });
   const half = (h) => ((h & 0x8000) ? -1 : 1) * ((h & 0x7c00) ? (1 + (h & 1023) / 1024) * 2 ** (((h >> 10) & 31) - 15) : (h & 1023) * 2 ** -24);
   const render = async (ppu, distantProfile = false, onlyCell = null) => {

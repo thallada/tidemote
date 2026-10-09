@@ -163,6 +163,12 @@ input[type="range"] { accent-color: var(--cyan); cursor: pointer; }
 .meter.hot { color: var(--hot); }
 .meter.sun { color: var(--sun); }
 .meter.cyan { color: var(--cyan); }
+.meter.warm { color: #ff8a3a; }
+/* the Warmth vital: a needle on a cold-to-hot scale, over the band where the species works best */
+.tgauge { position: relative; height: 8px; background: linear-gradient(90deg, rgba(61, 111, 214, 0.35), rgba(65, 183, 194, 0.3) 40%, rgba(155, 205, 134, 0.3) 50%, rgba(240, 176, 74, 0.35) 62%, rgba(255, 95, 58, 0.45)); }
+.tgauge em { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line-2); border-right: 1px solid var(--line-2); background: rgba(241, 227, 160, 0.12); }
+.tgauge i { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--ink); box-shadow: 0 0 4px rgba(226, 241, 240, 0.7); transition: left .3s; }
+.tgauge.alarm i { background: var(--hot); box-shadow: 0 0 5px rgba(255, 95, 58, 0.8); }
 .meter.thin { height: 5px; }
 
 /* ------------------------------------------------------------------ HUD frame */
@@ -193,6 +199,15 @@ body:not(.live) .hud { opacity: 0; }
 .seg { display: inline-flex; gap: 2px; }
 .seg i { width: 3px; height: 12px; background: rgba(130, 205, 214, 0.18); }
 .seg i.on { background: var(--sun); }
+/* the water gauge: a thermometer, each segment lit in its own temperature's colour */
+.seg.therm i.on { background: var(--c); box-shadow: 0 0 4px color-mix(in srgb, var(--c) 45%, transparent); }
+#g-heat b { color: var(--ink); }
+/* a heat wave or cold snap: the gauge breathes, its rule lit hot */
+#g-heat.exc { border-left-color: var(--hot); }
+#g-heat.exc .seg i.on { animation: exc 1.6s ease-in-out infinite; }
+#g-heat.exc b { color: var(--hot); }
+@keyframes exc { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { #g-heat.exc .seg i.on { animation: none; } }
 #tide-wave { width: 60px; height: 16px; overflow: visible; }
 #tide-wave .wave { fill: none; stroke: var(--line-2); stroke-width: 1; }
 #tide-wave .dot { fill: var(--cyan); }
@@ -510,6 +525,8 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .lamp.on > i { background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 6px rgba(127, 214, 223, 0.6); }
 .lamp.on[data-k="threat"] > i, .lamp.on[data-k="low"] > i { background: var(--hot); border-color: var(--hot); box-shadow: 0 0 6px rgba(255, 95, 58, 0.6); }
 .lamp.on[data-k="full"] > i { background: var(--sun); border-color: var(--sun); box-shadow: 0 0 6px rgba(241, 227, 160, 0.6); }
+.lamp.on[data-k="cold"] > i { background: #6f9cff; border-color: #6f9cff; box-shadow: 0 0 6px rgba(111, 156, 255, 0.6); }
+.lamp.on[data-k="hot"] > i { background: #ff8a3a; border-color: #ff8a3a; box-shadow: 0 0 6px rgba(255, 138, 58, 0.6); }
 .mv-nb .nb-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) 3.6em 5.6em 64px; gap: 8px; align-items: center; height: 22px; font-size: 12.5px; }
 .nb-row + .nb-row:not(.nb-head) { border-top: 1px dashed rgba(130, 205, 214, 0.12); }
 .nb-head { height: auto !important; color: var(--ink-3); font-size: 9.5px !important; letter-spacing: .14em; text-transform: uppercase; font-weight: 500; }
@@ -647,10 +664,14 @@ body.lab-wide .lab-head .tabs button { padding: 0 10px; letter-spacing: .16em; }
 .barrow .bn, .barrow .bp { text-align: right; white-space: nowrap; }
 .barrow .bp { color: var(--ink-3); }
 canvas.dyn { width: 100%; height: 112px; display: block; }
+canvas.niches { width: 100%; height: 150px; display: block; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-2); font-size: 11.5px; margin-top: 4px; }
 .legend i { display: inline-block; width: 10px; height: 2px; margin-right: 6px; vertical-align: 3px; }
 .ramp { display: flex; align-items: center; gap: 8px; color: var(--ink-3); font-size: 11px; }
-.ramp i { flex: 1; height: 6px; background: linear-gradient(90deg, #0b0a1a, #1e2a6e, #1f7a8c, #6cc070, #e8e26a, #fff6d8); }
+/* the light map's ramp (fsComposite): deep blue, teal, sun */
+.ramp i { flex: 1; height: 6px; background: linear-gradient(90deg, #080a29 0%, #006b80 48%, #4e9a7a 62%, #ffdb52 100%); }
+/* the thermal camera's ramp (heatRamp in shaders.js): deep blue, teal, amber, white */
+.ramp.heat i { background: linear-gradient(90deg, #050a2e 0%, #006b7a 35%, #ff8520 70%, #ff8520 75%, #fff2d1 100%); }
 .eras { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
 .eras li { display: grid; grid-template-columns: 4.4ch 1fr auto; gap: 10px; align-items: baseline; }
 .eras time, .eras span { color: var(--ink-3); }
@@ -733,6 +754,8 @@ canvas.dyn { width: 100%; height: 112px; display: block; }
   .gauge .lbl { display: none; }
   #g-light .seg { display: none; }
   #g-light::before { content: '☀'; color: var(--ink-3); font-size: 12px; }
+  #g-heat .seg { display: none; }
+  #g-heat::before { content: '🌡'; color: var(--ink-3); font-size: 12px; filter: grayscale(1); }
   #tide-wave { width: 34px; }
   #lab-open { display: flex; }
   .dock { gap: 0; justify-content: space-between; padding-left: calc(6px + var(--safe-l)); padding-right: calc(6px + var(--safe-r)); }
@@ -817,6 +840,13 @@ canvas.dyn { width: 100%; height: 112px; display: block; }
 }
 
 
+/* a species' thermal niche: its performance curve from 0 to 45°, and the open water now */
+svg.niche { width: 100%; height: 60px; display: block; margin-top: 8px; overflow: visible; }
+svg.niche .n-curve { fill: none; stroke: #ff8a3a; stroke-width: 1.4; vector-effect: non-scaling-stroke; }
+svg.niche .n-one { stroke: var(--line); stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
+svg.niche .n-water { stroke: var(--cyan); stroke-dasharray: 1 3; vector-effect: non-scaling-stroke; }
+svg.niche .n-dot { fill: var(--cyan); }
+
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -846,6 +876,7 @@ canvas.dyn { width: 100%; height: 112px; display: block; }
     <div class="clock" role="timer" aria-label="Simulated time"><span class="lbl">Epoch</span><b id="epoch">0:00</b></div>
     <div class="era-box"><span class="lbl" id="era-n">Era 01</span><b id="era">The First Tides</b></div>
     <div class="gauge term" data-tip="light" tabindex="0" id="g-light"><span class="lbl">Light</span><span class="seg" id="light-seg" aria-hidden="true"></span><b id="light-v">–</b></div>
+    <div class="gauge term" data-tip="water" tabindex="0" id="g-heat"><span class="lbl">Water</span><span class="seg therm" id="heat-seg" aria-hidden="true"></span><b id="heat-v">–</b></div>
     <div class="gauge term" data-tip="season" tabindex="0" id="g-tide"><span class="lbl">Tide</span><svg id="tide-wave" viewBox="0 0 60 16" aria-hidden="true"><path class="wave" d=""/><circle class="dot" r="2.2" cx="0" cy="8"/></svg><b id="tide-v">–</b></div>
     <div class="rail-right">
       <div class="stat"><span class="lbl">Living</span><b id="r-living">–</b></div>
@@ -987,7 +1018,7 @@ canvas.dyn { width: 100%; height: 112px; display: block; }
     <dt>V</dt><dd>Settings</dd>
     <dt>S · − =</dt><dd>Sound · volume</dd>
     <dt>T</dt><dd>Trails</dd>
-    <dt>G · W</dt><dd>Light map · currents</dd>
+    <dt>G · E · W</dt><dd>Light map · heat map · currents</dd>
     <dt>L N B O</dt><dd>Bonds · particles · bloom · optics</dd>
     <dt>M · [ ]</dt><dd>Loupe · magnification</dd>
     <dt>0 · F · I</dt><dd>Reset zoom · fullscreen · hide readouts</dd>
@@ -1030,6 +1061,11 @@ canvas.dyn { width: 100%; height: 112px; display: block; }
   var DIAG_STRIDE = 24;
   var META_DIAG = META_ENERGY + 64;
   var META_CLAIM = META_DIAG + 5 * DIAG_STRIDE;
+  var HEAT_BINS = 16;
+  var HEAT_BIN = 3;
+  var THERMAL_LEDGER = { hist: 40, torpid: 56, makers: 57, framboidsMade: 58, framboidsSpent: 59 };
+  var FRAMBOID = 12;
+  var HEAT_FIX = 1048576;
   var P_BYTES = 40;
   var LOUPE_FIELD = 1.1;
   var ORGANS = 12;
@@ -1037,7 +1073,7 @@ canvas.dyn { width: 100%; height: 112px; display: block; }
   var G_BYTES = 192;
   var G_WORDS = 48;
   var LITE_BYTES = 32;
-  var MIND_HEAD = 50;
+  var MIND_HEAD = 56;
   var MIND_NBR = 48;
   var MIND_NBR_WORDS = 7;
   var MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
@@ -1152,9 +1188,73 @@ canvas.dyn { width: 100%; height: 112px; display: block; }
     // how hard stone pushes (scaled down for calcifiers, which settle on it)
     refuge: 0.12,
     // chance per nearby grain of stone that an attack made from among stone misses...
-    refugeMax: 0.3
+    refugeMax: 0.3,
     // ...up to this (a leaky refuge: hunters at reefs still make a living)
+    // Heat: a field on the binning grid that life writes (its spent energy) and reads (each species'
+    // preferred temperature). Degrees are notional; see docs/thermal-energy-2026-10-07.md.
+    heat: 1,
+    // 0: no field, and temperature has no effect
+    // heatD and heatLoss set how far a hot spot spreads, sqrt(heatD / heatLoss) ≈ 2.8 cells: about a
+    // colony's own neighbourhood, so warm patches stay distinct rather than blurring into one haze
+    heatD: 0.25,
+    // diffusion, cells²/s
+    heatLoss: 0.033,
+    // relaxation toward the background temperature, per second
+    metabHeat: 0.18,
+    // degrees per unit of energy spent on upkeep
+    sunHeat: 0.04,
+    // degrees per second in full light
+    rotHeat: 0.3,
+    // degrees per unit of energy a husk loses as it rots
+    // Pyrite framboids: raspberry clusters of iron sulfide that form where carcasses rot (their sulfide)
+    // and warm their water as they oxidise, until they are spent and crumble to silt.
+    framboids: 0.02,
+    // share of the silt in a world's mud patches that starts as framboids
+    framboidLife: 300,
+    // seconds a framboid burns on average at tRef (twice as fast per 10° warmer)
+    framboidHeat: 1.5,
+    // degrees per second it warms its grid cell (before stone's heat capacity)
+    framboidForm: 0.1,
+    // chance a husk rotting out in a pile of them leaves a framboid instead of silt...
+    framboidPile: 8,
+    // ...in a grid cell holding this many husks (rising from three), in water no warmer than
+    // the background (none at 6° above it: pyrite forms in cool mud)
+    stoneMass: 0.15,
+    // heat capacity added by each grain of stone in a grid cell
+    tRef: 16,
+    // the temperature at which glint and husks wear at their base rates
+    specBonus: 0.25,
+    // extra performance at its optimum of the narrowest tolerance (2°)
+    thermalFlat: 0.5,
+    // tolerances either side of its optimum where a cell works at its best
+    thermalWarm: 0.6,
+    // how wide the warm side of the curve is relative to the cold side (heat kills)
+    stressCost: 0.5,
+    // extra upkeep at full thermal stress
+    torporAt: 1.25,
+    // tolerances below its optimum where a cell goes torpid...
+    torporCost: 0.25,
+    // ...and the share of its upkeep it then pays
+    scald: 0.03,
+    // chance per second of dying at full heat stress
+    thermotaxis: 0.6,
+    // how hard swimmers steer toward water that suits them, relative to their swimming
+    thermoCost: 0.03,
+    // energy per second a full heat-maker burns to warm itself and its water
+    selfWarm: 4,
+    // degrees a full heat-maker runs above its water (×1.5 with two bonds)
+    glintQ10: 2,
+    // glint fades this much faster per 10° above tRef
+    rotQ10: 2.5,
+    // husks rot this much faster per 10° above tRef
+    hotCharge: 0.6,
+    // extra chance per second that silt charges in the hottest water (hot springs)
+    abioHeat: 3,
+    // extra weight of sparks of life in hot water
+    marangoni: 0
+    // matter drifts from warm water toward cold at this many cells/s per °/cell
   };
+  var packCol = (r, g, b) => (Math.round(r * 255) | Math.round(g * 255) << 8 | Math.round(b * 255) << 16 | 255 << 24) >>> 0;
   var f = (x) => {
     const s = String(x);
     return /[.eE]/.test(s) ? s : s + ".0";
@@ -1198,7 +1298,7 @@ struct Genome {
   shape: f32, pulse: f32, roleHue: f32, advect: f32,
   swim: f32, align: f32, photo: f32, col: u32,
   parent: u32, serial: u32, born: f32, depth: u32,
-  adhesion: f32, calcify: f32, gp1: f32, gp2: f32,
+  adhesion: f32, calcify: f32, topt: f32, tol: f32,
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
@@ -1229,8 +1329,24 @@ fn hsl2rgb(h: f32, s: f32, l: f32) -> vec3f {
 fn roleColor(g: Genome, r: u32) -> vec3f {
   return hsl2rgb(fract(g.hue + f32(r) * g.roleHue + 1.0), g.sat, g.lum * (1.0 - 0.08 * f32(r)));
 }
+
+// A heat-maker's output, 0..1, kept in the spare fourth developmental word.
+fn thermoOf(g: Genome) -> f32 { return f32(g.dev.w & 255u) / 255.0; }
+// How well a cell of genome g works at temperature t (its own, body warmth included): perf scales
+// photosynthesis, digestion and swimming, peaking higher the narrower its tolerance and falling
+// about twice as steeply above its optimum as below (heat kills, cold stills). x is how many
+// tolerances it is from its optimum.
+struct Thermal { perf: f32, stress: f32, x: f32, torpid: bool };
+fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, warm: f32) -> Thermal {
+  let x = (t - g.topt) / max(g.tol, 0.5);
+  let peak = 1.0 + specBonus * (1.0 - clamp((g.tol - 2.0) / 13.0, 0.0, 1.0));
+  let y = select(min(x + flat, 0.0), max(x - flat, 0.0) / warm, x > 0.0);
+  let torpid = x < -torporAt;
+  return Thermal(select(peak * exp(-y * y), 0.0, torpid), smoothstep(0.3, 0.9, abs(x)), x, torpid);
+}
 `
   );
+  var shownThermal = (g, t2) => `thermalState(${g}, ${t2}, ${f(DEFAULT_K.specBonus)}, ${f(DEFAULT_K.torporAt)}, ${f(DEFAULT_K.thermalFlat)}, ${f(DEFAULT_K.thermalWarm)})`;
   function cellWGSL(K, w) {
     const W = (s) => w ? " " + s : "";
     return (
@@ -1256,11 +1372,6 @@ fn roleColor(g: Genome, r: u32) -> vec3f {
   let invOM = 1.0 / (1.0 - beta);
   // photosynthesis and eating don't mix well: a cell that does both does neither efficiently
   let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
-  let hungry = p.energy < g.reproE * ${f(K.sated)} && eatEff > 0.1;
-  let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
-  // food in reach is gathered by hungry cells; in a coarse step also by any that may grow hungry in it
-  let seek = hungry || (sim.ticks > 1u && eatEff > 0.1);
-  let seekHunt = canHunt || (seek && (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN));
   let bonding = g.adhesion > ${f(K.adhMin)};
   var dn1 = vec2f(0.0);
   var dn2 = vec2f(0.0);
@@ -1299,6 +1410,17 @@ fn roleColor(g: Genome, r: u32) -> vec3f {
     }
   }
   let keep1 = n1 != NONE; let keep2 = n2 != NONE;
+  // warmth: the water here, plus a heat-maker's own (a body insulates its cells)
+  let thermo = thermoOf(g);
+  let heat = heatSample(p.pos);
+  let Tc = heat.x + ${f(K.selfWarm)} * thermo * (1.0 + 0.5 * (select(0.0, 1.0, keep1) + select(0.0, 1.0, keep2)));
+  let th = cellThermal(g, Tc);
+  // a torpid cell neither hunts, grazes nor divides
+  let hungry = p.energy < g.reproE * ${f(K.sated)} && eatEff > 0.1 && !th.torpid;
+  let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
+  // food in reach is gathered by hungry cells; in a coarse step also by any that may grow hungry in it
+  let seek = hungry || (sim.ticks > 1u && eatEff > 0.1 && !th.torpid);
+  let seekHunt = canHunt || (seek && (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN));
   var food = NONE; var foodScore = -1e9;
   // a coarse step keeps the four best, for its meals and for claims lost to other eaters
   var fc = array<u32, 4>(NONE, NONE, NONE, NONE);
@@ -1465,8 +1587,14 @@ fn roleColor(g: Genome, r: u32) -> vec3f {
   var bondF = vec2f(0.0);
   if (n1 != NONE) { bondF += dn1 * ((d1 - LINK_R * 0.55) / max(d1, 1e-4)); }
   if (n2 != NONE) { bondF += dn2 * ((d2 - LINK_R * 0.55) / max(d2, 1e-4)); }
-  let swim = g.swim * (1.0 - g.photo);
+  let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0);
   let flow = flowAt(p.pos) * g.advect;
+  // thermotaxis: a swimmer away from its optimum steers up or down the warmth toward it
+  var taxis = vec2f(0.0);
+  let slope = length(heat.yz);
+  if (swim > 0.0 && slope > 1e-3) {
+    taxis = heat.yz * (sign(g.topt - Tc) * min(1.0, abs(th.x)) * swim * ${f(K.thermotaxis)} / slope);
+  }
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
   // The cell and its neighbourhood are taken as two bodies sharing momentum: the reaction to this cell's
@@ -1527,6 +1655,7 @@ fn roleColor(g: Genome, r: u32) -> vec3f {
       }
       vel += normalize(dir) * swim * h;${W("if (k == 0u) { mSwim = normalize(dir) * swim; }")}
     }
+    vel += taxis * h;
     let sp = length(vel);
     if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
     pos += (vel + flow) * h;
@@ -1540,13 +1669,17 @@ fn roleColor(g: Genome, r: u32) -> vec3f {
   let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
   // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
   // water; anchored cells have fresh silt carried past them by the currents.
-  let photoGain = g.photo * light * ${f(K.photo)} / (1.0 + crowd * ${f(K.shade)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
+  let photoGain = th.perf * g.photo * light * ${f(K.photo)} / (1.0 + crowd * ${f(K.shade)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
     * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0));
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
   // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); a body's bond partners do not count
   let kinCost = 1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - bonds - ${f(K.kinFree)});
   let thrift = 1.0 - ${f(K.bodyThrift)} * 0.5 * bonds;
-  let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0));`
+  // thermal stress costs upkeep (relative to the cell's own optimum); torpor saves most of it; a
+  // heat-maker burns extra, all of it heat
+  let heatMaking = ${f(K.heat ? K.thermoCost : 0)} * thermo;
+  let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0))
+    * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking;`
     );
   }
   function simWGSL(K) {
@@ -1562,8 +1695,9 @@ struct Sim {
   tide: array<vec4f, 4>,
   tidePh: vec4f,
   rock: vec4f,
-  // tick: 1/60 s ticks simulated up to the end of this step; ticks: how many this step covers
-  tick: u32, ticks: u32, pad0: u32, pad1: u32,
+  // tick: 1/60 s ticks simulated up to the end of this step; ticks: how many this step covers;
+  // tbg: the background water temperature (climate, season, excursion)
+  tick: u32, ticks: u32, tbg: f32, pad1: u32,
 };
 // kr: 0..9 kind, 10..11 role, 12 plant.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
@@ -1586,17 +1720,27 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u3
 @group(0) @binding(12) var<storage, read_write> livingList: array<u32>;
 // 0 living count, 1..3 life dispatch, 4..7 line draw, 8..11 stone draw (for rendering).
 @group(0) @binding(13) var<storage, read_write> frameCtr: array<atomic<u32>, 12>;
-// Grains of reef stone (not bedrock) in each grid cell, counted while binning.
+// Grains of reef stone in each grid cell (low 16 bits) and of bedrock (high 16), counted while binning.
 @group(0) @binding(14) var<storage, read_write> stoneGrid: array<atomic<u32>>;
 // Every grain of stone, gathered while matter moves, so rendering draws stone without scanning all.
 @group(0) @binding(16) var<storage, read_write> stoneList: array<u32>;
 @group(0) @binding(15) var<storage, read_write> bondsNow: array<vec2u>;
+// The heat field: [0, MAX_CELLS) deposits this step (HEAT_FIX per degree), then the water's
+// temperature per grid cell (f32 bits), then husks per grid cell this step. heatMain writes the next
+// temperatures to heatNext.
+@group(0) @binding(18) var<storage, read_write> thermal: array<atomic<u32>>;
+@group(0) @binding(19) var<storage, read_write> heatNext: array<f32>;
 
 const EAT_R = ${f(K.eatR)};
 const DIAG = ${K.diag ? "true" : "false"};
 const LINK_R = ${f(K.linkR)};
 const MAX_SCAN = ${K.maxScan | 0}u;
 const DIET_MIN = ${f(K.dietMin)};
+const HEAT_ON = ${K.heat ? "true" : "false"};
+const TREF = ${f(K.tRef)};
+const HEAT_FIX = ${f(HEAT_FIX)};
+const FRAMBOID = ${FRAMBOID}u;
+const FRAMBOID_COL = ${packCol(0.8, 0.7, 0.45)}u;
 
 fn pcg(v: u32) -> u32 {
   let s = v * 747796405u + 2891336453u;
@@ -1625,6 +1769,32 @@ fn flowAt(p: vec2f) -> vec2f {
 }
 
 fn wrapPos(p: vec2f) -> vec2f { return p - sim.world * floor(p / sim.world); }
+
+fn heatCell(x: i32, y: i32) -> f32 {
+  let gw = i32(sim.grid.x);
+  let gh = i32(sim.grid.y);
+  return bitcast<f32>(atomicLoad(&thermal[MAX_CELLS + u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw)]));
+}
+// The water's temperature at p, bilinear between cell centres, and its gradient (degrees per cell).
+fn heatSample(p: vec2f) -> vec3f {
+  if (!HEAT_ON) { return vec3f(TREF, 0.0, 0.0); }
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  let a = heatCell(i.x, i.y);
+  let b = heatCell(i.x + 1, i.y);
+  let c = heatCell(i.x, i.y + 1);
+  let d = heatCell(i.x + 1, i.y + 1);
+  return vec3f(mix(mix(a, b, t.x), mix(c, d, t.x), t.y), mix(b - a, d - c, t.y), mix(c - a, d - b, t.x));
+}
+fn cellThermal(g: Genome, t: f32) -> Thermal {
+  if (!HEAT_ON) { return Thermal(1.0, 0.0, 0.0, false); }
+  return thermalState(g, t, ${f(K.specBonus)}, ${f(K.torporAt)}, ${f(K.thermalFlat)}, ${f(K.thermalWarm)});
+}
+// Warm the water at p by e degrees (before its heat capacity), in eighths of a frame's worth.
+fn depositHeat(p: vec2f, e: f32) {
+  if (HEAT_ON && e > 0.0) { atomicAdd(&thermal[cellOf(p)], u32(e * HEAT_FIX + 0.5)); }
+}
 
 // Specialists digest their food better than generalists: value of a food given the share of the diet devoted to it.
 fn spec(d: f32) -> f32 { let c = min(d, 1.0); return c * (${f(1 - 0.6)} + ${f(0.6)} * c); }
@@ -1722,6 +1892,11 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   g.calcify = clamp(g.calcify + gauss(s) * m * 0.2, 0.0, 1.0);
   if (rnd(s) < m * 0.1) { g.calcify = select(0.0, mix(0.2, 0.8, rnd(s)), g.calcify < 0.05); }
   if (rnd(s) < m * 0.15) { g.adhesion = select(0.0, mix(0.3, 1.0, rnd(s)), g.adhesion < 0.15); }
+  g.topt = clamp(g.topt + gauss(s) * m * 3.0, 0.0, 45.0);
+  g.tol = clamp(g.tol * exp(gauss(s) * m * 0.3), 2.0, 15.0);
+  var thermo = clamp(thermoOf(g) + gauss(s) * m * 0.15, 0.0, 1.0);
+  if (rnd(s) < m * 0.1) { thermo = select(0.0, mix(0.3, 0.7, rnd(s)), thermo < 0.05); }
+  g.dev.w = u32(thermo * 255.0 + 0.5);
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -1730,7 +1905,8 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   genomes[slot] = g;
 }
 
-fn randomInto(slot: u32, s: ptr<function, u32>) {
+// A spark of life founds a species suited to the water it sparked in (t).
+fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   var g: Genome;
   for (var r = 0u; r < 3u; r++) {
     g.sig[r] = vec4u(pack4x8snorm(r4(s)), pack4x8snorm(r4(s)), pack4x8snorm(r4(s)), pack4x8snorm(r4(s)));
@@ -1766,6 +1942,8 @@ fn randomInto(slot: u32, s: ptr<function, u32>) {
   g.adhesion = select(0.0, ad, ad > 0.5);
   let ca = rnd(s);
   g.calcify = select(0.0, ca, ca > 0.7);
+  g.topt = clamp(t + gauss(s) * 3.0, 0.0, 45.0);
+  g.tol = mix(3.0, 10.0, rnd(s));
   g.parent = 0u;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -1829,6 +2007,11 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
   }
   if (kind == SILT && sim.rock.x > 0.0 && inRock(pos)) {
     kind = STONE; e = ${f(K.rockLife)} * (0.5 + rnd(&s)); col = pack4x8unorm(vec4f(0.46, 0.42, 0.38, 1.0));
+  } else if (kind == SILT && HEAT_ON && rnd(&s) < ${f(K.framboids)}
+             && f32(pcg(sim.seed ^ pcg(u32(pos.x / 5.0) * 7919u + u32(pos.y / 5.0) * 104729u)) >> 8u) / 16777216.0 < 0.25) {
+    // framboids lie in patches of the mud, part burnt already, so they do not all burn out together
+    kind = STONE; e = ${f(K.framboidLife)} * (0.2 + rnd(&s)); col = FRAMBOID_COL; info = FRAMBOID;
+    atomicAdd(&ledger[META_ENERGY + 58u], 1u);
   }
   parts[i] = Particle(pos, vec2f(0.0), kind, e, age, i, col, info);
   intent[i] = vec4u(0u, 0u, NONE, NONE);
@@ -1906,7 +2089,9 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
     let cell = cellOf(p.pos);
     let r = atomicAdd(&countsA[cell], 1u);
     aux[i] = vec2u(cell, r);
-    if (p.kind == STONE && (p.info & 15u) != 0u) { atomicAdd(&stoneGrid[cell], 1u); }
+    if (p.kind == STONE && (p.info & 15u) != FRAMBOID) { atomicAdd(&stoneGrid[cell], select(0x10000u, 1u, (p.info & 15u) != 0u)); }
+    // husks per grid cell: where they pile up and rot, framboids form (matterMain)
+    if (p.kind == HUSK && HEAT_ON) { atomicAdd(&thermal[2u * MAX_CELLS + cell], 1u); }
     atomicAdd(&hist[p.kind % MAXK], 1u);
     if (p.kind >= FIRST_LIFE) { atomicAdd(&roleHist[roleOf(p.info)], 1u); }
   }
@@ -2063,18 +2248,24 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     // and reefs stay solid, but a neighbourhood that is mostly reef wears fast (waves and borers on a reef
     // flat), so reefs grow as separate patches about as wide as that neighbourhood.
     var wear = 1.0;
-    if ((p.info & 15u) != 0u) {
+    let framboid = (p.info & 15u) == FRAMBOID;
+    if (framboid) {
+      // a framboid oxidises: it warms its water while it lasts (every eighth frame, eight frames' worth)
+      if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, ${f(K.framboidHeat)} * sim.dt * 8.0); }
+      // and oxidises faster the warmer its water, so a crowded, hot cluster burns itself out
+      wear = pow(2.0, (heatCell(i32(p.pos.x), i32(p.pos.y)) - TREF) / 10.0);
+    } else if ((p.info & 15u) != 0u) {
       let c = vec2i(clamp(floor(p.pos), vec2f(0.0), vec2f(sim.grid) - 1.0));
       let gw = i32(sim.grid.x);
       let gh = i32(sim.grid.y);
-      let here = f32(atomicLoad(&stoneGrid[u32(c.y * gw + c.x)]));
+      let here = f32(atomicLoad(&stoneGrid[u32(c.y * gw + c.x)]) & 0xffffu);
       var region = 0.0;
       if (${f(K.regionWear)} > 0.0) {
         for (var dy = -${K.regionR | 0}; dy <= ${K.regionR | 0}; dy++) {
           for (var dx = -${K.regionR | 0}; dx <= ${K.regionR | 0}; dx++) {
             let x = (c.x + dx + gw) % gw;
             let y = (c.y + dy + gh) % gh;
-            region += f32(atomicLoad(&stoneGrid[u32(y * gw + x)]));
+            region += f32(atomicLoad(&stoneGrid[u32(y * gw + x)]) & 0xffffu);
           }
         }
       }
@@ -2087,39 +2278,49 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     if (p.energy <= 0.0) {
       p.kind = SILT; p.energy = 0.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 7u;
+      if (framboid) { atomicAdd(&ledger[META_ENERGY + 59u], 1u); }
     }
     parts[i] = p;
     return;
   }
   var s = pcg((p.id * 1664525u) ^ pcg(sim.frame * 2654435761u + sim.seed));
+  // the water's warmth here: warm water wears glint and husks faster and shakes grains harder
+  let T = select(TREF, heatCell(i32(p.pos.x), i32(p.pos.y)), HEAT_ON);
+  let warm = (T - TREF) / 10.0;
+  let hot = T - sim.tbg;
   // Brownian drift as a smooth random velocity that persists ~0.5 s (Ornstein-Uhlenbeck), scaled so
   // grains spread as far as independent per-frame kicks would, without visibly shaking up close
   let keep = exp(-sim.dt / 0.5);
-  let kick = vec2f(rnd(&s) - 0.5, rnd(&s) - 0.5) * (${f(K.jitter)} * sqrt((1.0 - keep * keep) * sim.dt / (2.0 * 0.5)));
+  let kick = vec2f(rnd(&s) - 0.5, rnd(&s) - 0.5) * (${f(K.jitter)} * sqrt((1.0 - keep * keep) * sim.dt / (2.0 * 0.5))
+    * select(1.0, sqrt(max(T, 0.0) + 10.0) / ${f(Math.sqrt(K.tRef + 10))}, HEAT_ON));
   // a fresh husk still carries its cell's velocity; cap it to the jitter's own scale so it doesn't coast
   let w = p.vel - flowAt(p.pos);
   let jit = w * (keep * min(1.0, 0.05 / max(length(w), 1e-6))) + kick;
-  var vel = flowAt(p.pos) + jit;
+  var vel = flowAt(p.pos) + jit;${K.heat && K.marangoni > 0 ? `
+  // surface flow: warm water's surface pulls toward cooler water, carrying matter with it
+  vel -= heatSample(p.pos).yz * ${f(K.marangoni)};` : ""}
   let pos = wrapPos(p.pos + vel * sim.dt);
   p.age += sim.dt;
   if (p.kind == SILT) {
-    let T = tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient;
-    // a step's chance of charging; for coarse steps the exact chance of at least one event in the step
-    let lam = T * ${f(K.charge)} * sim.chargeMul;
+    let tide = tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient;
+    // a step's chance of charging; for coarse steps the exact chance of at least one event in the step.
+    // Hot springs: water far above the background charges silt even in the dark
+    let lam = tide * ${f(K.charge)} * sim.chargeMul + ${f(K.hotCharge)} * smoothstep(5.0, 15.0, hot);
     if (rnd(&s) < select(lam * sim.dt, 1.0 - exp(-lam * sim.dt), sim.ticks > 1u)) {
       p.kind = GLINT; p.energy = 1.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 5u;
     }
   } else if (p.kind == GLINT) {
-    p.energy -= ${f(K.leak)} * sim.dt;
+    p.energy -= ${f(K.leak)} * pow(${f(K.glintQ10)}, warm) * sim.dt;
     if (p.energy < ${f(K.glintMin)}) {
       p.kind = SILT; p.energy = 0.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 6u;
     } else if (sim.abio > 0.0) {
-      if (rnd(&s) < sim.abio) {
+      // sparks favour hot water (around framboids) and found species suited to it
+      if (rnd(&s) < sim.abio * (1.0 + ${f(K.abioHeat)} * smoothstep(4.0, 20.0, hot))) {
         let k = allocSlot(&s);
         if (k != NONE) {
-          randomInto(k, &s);
+          randomInto(k, &s, T);
           p.kind = k; p.energy = 0.9; p.age = 0.0;
           p.id = atomicAdd(&ledger[0], 1u);
           p.col = genomes[k].col;
@@ -2131,15 +2332,48 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       }
     }
   } else if (p.kind == HUSK) {
-    p.energy -= ${f(K.decay)} * sim.dt;
+    // rot is faster in warm water, and a carcass pile steams
+    let rot = ${f(K.decay)} * pow(${f(K.rotQ10)}, warm) * sim.dt;
+    p.energy -= rot;
+    if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, rot * 8.0 * ${f(K.rotHeat)}); }
     if (p.energy < ${f(K.huskMin)}) {
       p.kind = SILT; p.energy = 0.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 4u;
+      // in a pile of rotting husks the sulfide they release may crystallise as a framboid
+      let pile = f32(atomicLoad(&thermal[2u * MAX_CELLS + cellOf(p.pos)]));
+      if (HEAT_ON && rnd(&s) < ${f(K.framboidForm)} * smoothstep(3.0, ${f(K.framboidPile)}, pile) * (1.0 - smoothstep(0.0, 6.0, hot))) {
+        p.kind = STONE; p.energy = ${f(K.framboidLife)} * (0.5 + rnd(&s)); p.col = FRAMBOID_COL;
+        p.info = (p.info & 0xffffffc0u) | FRAMBOID;
+        vel = vec2f(0.0);
+        atomicAdd(&ledger[META_ENERGY + 58u], 1u);
+      }
     }
   }
   p.pos = pos;
   p.vel = vel;
   parts[i] = p;
+}
+
+// --------------------------------------------------------------------- heat
+// One thread per grid cell: the water is carried by the currents (semi-Lagrangian), spreads, takes
+// the heat deposited this step by life, rot and framboids, plus sunlight, and relaxes toward the
+// climate's background. Stone in a cell gives it thermal mass: it warms and cools slowly.
+@compute @workgroup_size(64)
+fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
+  let c = gid.x;
+  if (c >= sim.grid.x * sim.grid.y) { return; }
+  let x = i32(c % sim.grid.x);
+  let y = i32(c / sim.grid.x);
+  let centre = vec2f(f32(x), f32(y)) + 0.5;
+  let here = heatCell(x, y);
+  let carried = heatSample(centre - flowAt(centre) * sim.dt).x;
+  let lap = heatCell(x + 1, y) + heatCell(x - 1, y) + heatCell(x, y + 1) + heatCell(x, y - 1) - 4.0 * here;
+  let stones = atomicLoad(&stoneGrid[c]);
+  let mass = 1.0 + ${f(K.stoneMass)} * f32((stones & 0xffffu) + (stones >> 16u));
+  let light = sim.ambient + (1.0 - sim.ambient) * tideAt(centre, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season;
+  let q = f32(atomicExchange(&thermal[c], 0u)) / HEAT_FIX + ${f(K.sunHeat)} * light * sim.dt;
+  let t = carried + ${f(K.heatD)} * lap * sim.dt + (q - ${f(K.heatLoss)} * (carried - sim.tbg) * sim.dt) / mass;
+  heatNext[c] = t;
 }
 
 // --------------------------------------------------------------------- life
@@ -2203,10 +2437,18 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
 ${cellWGSL(K, false)}
   var E = p.energy + (photoGain - upkeep) * sim.dt;
   let dg = dietGuild(g);
+  // all the energy a cell spends warms its water (every eighth frame, eight frames' worth)
+  if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, upkeep * sim.dt * 8.0 * ${f(K.metabHeat)}); }
   // light and upkeep flow every frame; the ledger samples them once a second per cell
   if (((sim.frame + p.id) % 60u) == 0u) {
     addEnergy(dg, 0u, photoGain * sim.dt * 60.0);
-    addEnergy(dg, 5u, upkeep * sim.dt * 60.0);
+    addEnergy(dg, 5u, (upkeep - heatMaking) * sim.dt * 60.0);
+    addEnergy(dg, 7u, heatMaking * sim.dt * 60.0);
+    if (HEAT_ON) {
+      atomicAdd(&ledger[META_ENERGY + 40u + u32(clamp(Tc / ${f(HEAT_BIN)}, 0.0, ${f(HEAT_BINS - 1)}))], 1u);
+      if (th.torpid) { atomicAdd(&ledger[META_ENERGY + 56u], 1u); }
+      if (thermo > 0.2) { atomicAdd(&ledger[META_ENERGY + 57u], 1u); }
+    }
   }
   var age = p.age + sim.dt;
   var act = 0u;
@@ -2234,7 +2476,7 @@ ${cellWGSL(K, false)}
       diagAdd(dg, 13u, 1u);
       if (isAnimal(food)) { diagAdd(dg, 14u, 1u); }
     }
-    if (E > g.reproE && silt != NONE) {
+    if (E > g.reproE && silt != NONE && !th.torpid) {
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
         cr = sampleRole(g, role, &s);
@@ -2275,8 +2517,8 @@ ${cellWGSL(K, false)}
           gain = (${f(K.preyBase)} + ${f(K.preyFrac)} * max(fp.energy, 0.0)) * spec(g.dFlesh); atomicAdd(&ledger[7], 1u);
         }
         if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
-        E += gain * ${f(K.gain)} * eatEff;
-        addEnergy(dg, select(select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), 1u, fp.kind == GLINT), gain * ${f(K.gain)} * eatEff);
+        E += gain * ${f(K.gain)} * eatEff * th.perf;
+        addEnergy(dg, select(select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), 1u, fp.kind == GLINT), gain * ${f(K.gain)} * eatEff * th.perf);
       }
     }
   } else {
@@ -2289,10 +2531,11 @@ ${cellWGSL(K, false)}
     var next = 0u;
     var born = false;
     for (var k = 1u; k <= sim.ticks; k++) {
-      E += (photoGain - g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(E / g.reproE, 0.0, 1.0))) * h;
+      E += (photoGain - g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(E / g.reproE, 0.0, 1.0))
+        * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking) * h;
       age += h;
       let tk = sim.tick - sim.ticks + k;
-      if (!born && E > g.reproE && silt != NONE) {
+      if (!born && E > g.reproE && silt != NONE && !th.torpid) {
         born = true;
         var won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged;
         if (!won && silt2 != NONE) { won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt2], 0u, i + 1u).exchanged; }
@@ -2313,7 +2556,7 @@ ${cellWGSL(K, false)}
           act = 2u;
           continue;
         }
-      } else if ((tk + p.id) % ${K.eatEvery | 0}u == 0u && next < 4u && E < g.reproE * ${f(K.sated)} && eatEff > 0.1) {
+      } else if ((tk + p.id) % ${K.eatEvery | 0}u == 0u && next < 4u && E < g.reproE * ${f(K.sated)} && eatEff > 0.1 && !th.torpid) {
         let mi = (tk + p.id) / ${K.eatEvery | 0}u;
         let hunt = DIAG && mi % ${K.killEvery | 0}u == 0u && (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN);
         if (hunt) {
@@ -2355,8 +2598,8 @@ ${cellWGSL(K, false)}
             atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
             info = (info & 0xffff003fu) | (fp.kind << 6u);
           }
-          E += gain * ${f(K.gain)} * eatEff;
-          addEnergy(dg, slot, gain * ${f(K.gain)} * eatEff);
+          E += gain * ${f(K.gain)} * eatEff * th.perf;
+          addEnergy(dg, slot, gain * ${f(K.gain)} * eatEff * th.perf);
           break;
         }
       }
@@ -2375,6 +2618,11 @@ ${cellWGSL(K, false)}
     info = (info & 0xffffffc0u) | 2u;
     atomicAdd(&ledger[6], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 2u], 1u);
+  } else if (th.x > 0.8 && rnd(&s) < ${f(K.scald)} * smoothstep(0.8, 1.4, th.x) * sim.dt) {
+    // scalded: far above its optimum, a cell's proteins come apart
+    kind = HUSK; E = ${f(K.huskBase)}; age = 0.0; vel *= 0.3;
+    info = (info & 0xffffffc0u) | 10u;
+    atomicAdd(&ledger[META_DEATH + 20u + dg], 1u);
   }
   // calcifying cells that settled leave their skeleton as stone, in their own colour, mostly where
   // stone already is, so reefs grow outward from rock and from the rare place one starts
@@ -2479,6 +2727,13 @@ ${cellWGSL(K, true)}
   mPut2(42, mSwim);
   mPut2(44, flowAt(p.pos) * g.advect);
   for (var k = 0u; k < 4u; k++) { mPut(46u + k, mMatterN[k] * stride); }
+  // warmth: its own temperature, the steer toward its optimum, the water, how well it works there
+  mPut(21, Tc);
+  mPut2(50, taxis);
+  mPut(52, heat.x);
+  mPut(53, th.perf);
+  mPut(54, th.x);
+  mind[55] = select(0u, 1u, th.torpid);
 }
 `;
   }
@@ -2552,6 +2807,8 @@ struct ListenU {
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
 @group(0) @binding(2) var<storage, read> genomes: array<Genome>;
 @group(0) @binding(3) var<storage, read_write> lout: array<atomic<u32>>;
+// the water's temperature per grid cell (heatMain): torpid cells are still and silent
+@group(0) @binding(4) var<storage, read> heatField: array<f32>;
 // layout: [0,8) in-view events per type, [8,16) out of view, 16 living in view, 17 their summed
 // speed (x1000), 18 living everywhere, 19 their summed speed (x1000), 20 particles in view,
 // 21 records written, then records of 4 words from word 32.
@@ -2584,7 +2841,12 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       if (life) { atomicAdd(&wc[16], 1u); atomicAdd(&wc[17], u32(min(speed, 50.0) * 1000.0)); }
     }
     var t = NONE;
-    if (life && inView) { t = 8u; }
+    if (life && inView) {
+      let g = genomes[p.kind];
+      let c = vec2u(clamp(p.pos, vec2f(0.0), lu.world - 1.0));
+      let warmth = heatField[MAX_CELLS + c.y * u32(lu.world.x) + c.x] + ${f(DEFAULT_K.selfWarm)} * thermoOf(g);
+      if (!${shownThermal("g", "warmth")}.torpid) { t = 8u; }
+    }
     if (p.age < lu.window) {
       let code = p.info & 15u;
       if (life) {
@@ -2594,7 +2856,8 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
           if (g.depth > 0u && abs(g.born - (lu.now - p.age)) < 0.05) { t = 1u; }
         } else if (code == 8u) { t = 2u; }
       } else if (p.kind == HUSK) {
-        if (code == 1u) { t = 3u; } else if (code == 2u) { t = 4u; } else if (code == 3u) { t = 5u; }
+        // a scalded cell (10) dies as a starved one sounds
+        if (code == 1u || code == 10u) { t = 3u; } else if (code == 2u) { t = 4u; } else if (code == 3u) { t = 5u; }
       } else if (p.kind == SILT && code == 3u) { t = 6u; }
       else if (p.kind == GLINT && code == 5u) { t = 7u; }
     }
@@ -2856,6 +3119,8 @@ struct View {
 struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32 };
 @group(0) @binding(9) var<storage, read> sway: array<Sway>;
 @group(0) @binding(10) var<storage, read> organDir: array<u32>;
+// The water's temperature per grid cell (heatMain), for how heat shows on a cell.
+@group(0) @binding(11) var<storage, read> heatField: array<f32>;
 
 fn kindOn(k: u32) -> bool { return ((focus[k >> 5u] >> (k & 31u)) & 1u) == 1u; }
 fn isMember(id: u32) -> bool {
@@ -3196,9 +3461,19 @@ struct PO {
     swim = min(g.swim, 1.0);
     let e = clamp(p.energy / g.reproE, 0.0, 1.4);
     var b = 0.35 + 0.65 * e;
-    b *= 1.0 + g.pulse * 0.6 * sin(view.time * (0.8 + g.pulse * 4.0) + f32(p.id % 1024u) * 0.37);
+    let c = vec2u(clamp(p.pos, vec2f(0.0), view.world - 1.0));
+    let thermo = thermoOf(g);
+    let warmth = heatField[MAX_CELLS + c.y * u32(view.world.x) + c.x] + ${f(DEFAULT_K.selfWarm)} * thermo;
+    let th = ${shownThermal("g", "warmth")};
+    // a torpid cell's pulse stops and it dims, cold blue
+    if (!th.torpid) { b *= 1.0 + g.pulse * 0.6 * sin(view.time * (0.8 + g.pulse * 4.0) + f32(p.id % 1024u) * 0.37); }
     b *= 1.0 + 2.5 * max(0.0, 1.0 - p.age * 2.5);
-    col = unpack4x8unorm(p.col).rgb * b * view.pointGain;
+    col = unpack4x8unorm(p.col).rgb;
+    if (th.torpid) { col = mix(col, vec3f(0.55, 0.7, 0.95) * dot(col, vec3f(0.33)), 0.5); b *= 0.6; }
+    // heat stress bleaches a cell toward pale bone; a heat-maker glows faintly warm
+    col = mix(col, vec3f(1.0, 0.96, 0.9) * max(0.45, dot(col, vec3f(0.3, 0.5, 0.2))), 0.6 * smoothstep(0.3, 1.0, th.x));
+    col = mix(col, col * vec3f(1.25, 0.92, 0.72) + vec3f(0.12, 0.04, 0.0), 0.7 * thermo);
+    col *= b * view.pointGain;
   } else if (k == SILT) {
     size = 0.4;
     col = vec3f(0.30, 0.34, 0.46) * view.matterGain;
@@ -3808,8 +4083,9 @@ struct SO {
   @location(0) uv: vec2f,
   @location(1) @interpolate(flat) col: vec3f,
   @location(2) @interpolate(flat) seed: vec2f,
-  @location(3) @interpolate(flat) flags: u32, // 1: reef (built by calcifiers), 2: the selected grain
+  @location(3) @interpolate(flat) flags: u32, // 1: reef (built by calcifiers), 2: the selected grain, 4: a framboid
   @location(4) @interpolate(flat) px: f32, // quad radius in pixels
+  @location(5) @interpolate(flat) fuel: f32, // a framboid's fuel left, 0..1
 };
 @vertex fn vsStone(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> SO {
   var o: SO;
@@ -3817,26 +4093,60 @@ struct SO {
   let p = parts[stoneList[ii]];
   if (p.kind != STONE) { return o; }
   let d = wrapd(p.pos - view.cam) * view.ppu;
-  let r = max(STONE_R * view.ppu, 1.5);
+  let framboid = (p.info & 15u) == ${FRAMBOID}u;
+  // a framboid is smaller than a cobble: a few microns of crystals
+  let r = max(STONE_R * view.ppu * select(1.0, 0.5, framboid), 1.5);
   if (any(abs(d) > view.res * 0.5 + vec2f(r))) { return o; }
   o.seed = vec2f(f32(pcgR(p.id) & 0xffffu), f32(pcgR(p.id) >> 16u)) / 65536.0;
-  // chalky and matte, tinted by the species that built it; each cobble a little lighter or darker
-  var col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 1.1;
+  // chalky and matte, tinted by the species that built it; each cobble a little lighter or darker;
+  // a framboid is brassy pyrite
+  var col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), select(0.5, 0.0, framboid)) * view.matterGain * 1.1;
   col *= 0.8 + 0.4 * o.seed.x;
   if (!focusPass(p)) { col = vec3f(dot(col, vec3f(0.3, 0.5, 0.2))) * view.mute; }
-  o.flags = select(0u, 1u, (p.info & 15u) != 0u) | select(0u, 2u, p.id == view.selId);
+  o.flags = select(0u, 1u, (p.info & 15u) != 0u && !framboid) | select(0u, 2u, p.id == view.selId) | select(0u, 4u, framboid);
+  o.fuel = select(0.0, clamp(p.energy / ${f(DEFAULT_K.framboidLife)}, 0.0, 1.0), framboid);
   let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
   o.pos = toClip(d + corner * r);
   // the cobble's peak height orders it: the higher lies over its neighbours, and depth is per cobble,
   // not per pixel, so the GPU can reject hidden cobbles before shading them
-  o.pos.z = select((0.45 + 0.55 * o.seed.x) * (0.62 + 0.18 * o.seed.y) * 0.95, 0.99, p.id == view.selId); // a selected grain sits on top
+  o.pos.z = select(select((0.45 + 0.55 * o.seed.x) * (0.62 + 0.18 * o.seed.y) * 0.95, 0.97, framboid), 0.99, p.id == view.selId); // a selected grain sits on top
   o.uv = corner;
   o.col = col;
   o.px = r;
   return o;
 }
 struct StoneOut { @location(0) col: vec4f, @location(1) surf: vec4f };
+// A pyrite framboid: a sphere packed with tiny crystals, seen from above. The crystals are laid on the
+// sphere (the lattice taken in arc length), so they crowd toward its limb; each is set a little off
+// the lattice and sized a little differently, those on the rim break the outline, and the gaps between
+// them are dark. Its fuel rides in the surface's flags (see boulder).
+fn framboidSurf(i: SO) -> StoneOut {
+  let u = i.uv / 0.85;
+  let env = length(u);
+  if (env >= 1.1) { discard; }
+  let e = min(env, 0.999);
+  let dome = sqrt(1.0 - e * e);
+  let g = u * (asin(e) / max(e, 1e-3)) * 4.2 + i.seed * 9.0;
+  let cell = vec2f(1.0, 1.7320508);
+  let a = g - cell * floor(g / cell) - cell * 0.5;
+  let b = (g - cell * 0.5) - cell * floor((g - cell * 0.5) / cell) - cell * 0.5;
+  let nb = select(b, a, dot(a, a) < dot(b, b));
+  let id = g - nb;
+  let h = fract(sin(vec2f(dot(id, vec2f(127.1, 311.7)), dot(id, vec2f(269.5, 183.3)))) * 43758.5453);
+  let off = nb - (h - 0.5) * 0.16;
+  let rr = length(off) / (0.58 + 0.1 * h.x);
+  let sph = sqrt(max(1.0 - rr * rr, 0.0));
+  if (env - 0.09 * sph >= 1.0) { discard; }
+  var o: StoneOut;
+  let slope = -1.1 * u / max(dome, 0.2) - 1.6 * off / max(sph, 0.3) * (0.4 + 0.6 * dome);
+  let gap = smoothstep(0.85, 1.0, rr);
+  o.col = vec4f(i.col * (1.0 - 0.6 * gap) * (0.75 + 0.5 * h.y), 1.0 - smoothstep(0.92, 1.0, env - 0.09 * sph));
+  o.surf = vec4f(slope, gap, f32(i.flags) + i.fuel * 0.45);
+  return o;
+}
+
 @fragment fn fsStone(i: SO) -> StoneOut {
+  if ((i.flags & 4u) != 0u) { return framboidSurf(i); }
   // an uneven cobble: the disc is warped smoothly, so the outline wanders without a seam at the top
   let w = i.uv * 1.12 + 0.1 * vec2f(sin(i.uv.y * 3.1 + i.seed.x * 20.0), sin(i.uv.x * 2.7 + i.seed.y * 20.0));
   let r0 = 0.62 + 0.18 * i.seed.y;
@@ -3867,10 +4177,14 @@ struct Post {
   res: vec2f, bloom: f32, exposure: f32,
   time: f32, season: f32, tideVis: f32, ppu: f32,
   cam: vec2f, world: vec2f,
-  simTime: f32, ambient: f32, optics: f32, p2: f32,
+  simTime: f32, ambient: f32, optics: f32,
+  // -1: no heat field; 0: heat map off; 1: shimmer; 2: thermal camera
+  heatVis: f32,
   tide: array<vec4f, 4>,
   tidePh: vec4f,
   waves: array<vec4f, 4>,
+  // the background water temperature, then the heat map's span
+  heat: vec4f,
 };
 `
   );
@@ -4033,6 +4347,7 @@ struct Reproj { scale: vec2f, shift: vec2f, k: f32, p0: f32, p1: f32, p2: f32 };
 @group(0) @binding(8) var stoneTop: texture_2d<f32>;
 @group(0) @binding(9) var murkTex: texture_2d<f32>;
 @group(0) @binding(10) var microTex: texture_2d<f32>;
+@group(0) @binding(11) var<storage, read> heatField: array<f32>;
 
 struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 
@@ -4080,8 +4395,22 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
   let c = textureSampleLevel(stoneTex, samp, uv, 0.0);
   if (c.a <= 0.0) { return vec3f(0.0); }
   let s = textureSampleLevel(stoneTop, samp, uv, 0.0);
-  let flags = u32(s.w + 0.5);
+  // flags, and a framboid's fuel in the fraction (fsStone)
+  let flags = u32(floor(s.w + 0.01));
   let fine = smoothstep(120.0, 400.0, ppu);
+  if ((flags & 4u) != 0u) {
+    // pyrite: metallic, so mostly a brassy glint off each crystal; and while it oxidises a dull warm
+    // glow from within, brightest in the gaps between crystals, fading as it is spent
+    let fuel = (s.w - f32(flags)) / 0.45;
+    let n = normalize(vec3f(-s.xy, 1.0));
+    let light = normalize(vec3f(-0.45, -0.55, 0.7));
+    let spec = pow(max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0), 18.0);
+    var lit = c.rgb * (0.25 + 0.65 * max(dot(n, light), 0.0)) + mix(c.rgb, vec3f(1.0, 0.95, 0.8), 0.3) * spec * 1.8;
+    let flick = 0.85 + 0.15 * vnoise(wp * 30.0 + vec2f(post.simTime * 0.7, 0.0));
+    lit += vec3f(1.0, 0.38, 0.08) * (0.015 + 0.6 * s.z) * fuel * flick;
+    if ((flags & 2u) != 0u) { lit = lit * 1.4 + vec3f(0.05, 0.04, 0.02); }
+    return lit * c.a * 1.3;
+  }
   // a little surface relief up close
   let relief = fine * (0.35 * vec2f(vnoise(wp * 40.0) - 0.5, vnoise(wp * 40.0 + 7.3) - 0.5)
     + 0.25 * vec2f(vnoise(wp * 140.0) - 0.5, vnoise(wp * 140.0 + 3.1) - 0.5));
@@ -4348,13 +4677,61 @@ fn pondSpecks(c: vec3f, hdr: vec3f, pos: vec2f) -> vec3f {
   return max(vec3f(0.0), c * (1.0 - grains.a * behind) + (grains.rgb + vec3f(0.006, 0.0065, 0.007) * emboss) * behind);
 }
 
+// Smooth noise carried by the currents (two generations crossfading, as the murk), so haze drifts
+// with the water instead of sliding over it. Two channels, -0.5..0.5, at about scale per world unit.
+fn flowNoise(wp: vec2f, scale: f32) -> vec2f {
+  var n = vec2f(0.0);
+  for (var phase = 0u; phase < 2u; phase++) {
+    let clock = post.simTime / 2.5 + f32(phase) * 0.5;
+    let age = fract(clock);
+    let back = postFlowAt(wp, post.simTime) * (age * 2.5);
+    let q = (wp - back) * scale + vec2f(fract(floor(clock) * 0.618034 + f32(phase) * 0.37) * 61.0, 3.7);
+    n += (vec2f(vnoise(q), vnoise(q + 9.7)) - 0.5) * (1.0 - abs(2.0 * age - 1.0));
+  }
+  return n;
+}
+
+// The water's temperature at world point p, bilinear between cell centres, and its gradient.
+fn waterCell(x: i32, y: i32) -> f32 {
+  let g = vec2i(post.world);
+  return heatField[${MAX_CELLS}u + u32(((y % g.y) + g.y) % g.y) * u32(g.x) + u32(((x % g.x) + g.x) % g.x)];
+}
+fn waterAt(p: vec2f) -> vec3f {
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  let a = waterCell(i.x, i.y);
+  let b = waterCell(i.x + 1, i.y);
+  let c = waterCell(i.x, i.y + 1);
+  let d = waterCell(i.x + 1, i.y + 1);
+  return vec3f(mix(mix(a, b, t.x), mix(c, d, t.x), t.y), mix(b - a, d - c, t.y), mix(c - a, d - b, t.x));
+}
+// A thermal camera's false colour: deep blue, teal, amber, white.
+fn heatRamp(u: f32) -> vec3f {
+  let a = mix(vec3f(0.02, 0.04, 0.18), vec3f(0.0, 0.42, 0.48), smoothstep(0.0, 0.35, u));
+  let b = mix(a, vec3f(1.0, 0.52, 0.12), smoothstep(0.35, 0.7, u));
+  return mix(b, vec3f(1.0, 0.95, 0.82), smoothstep(0.75, 1.0, u));
+}
+
 @fragment fn fsComposite(i: VO) -> @location(0) vec4f {
   let k = post.optics;
   let q = (i.pos.xy - post.res * 0.5) / (post.res.y * 0.5);
   let wp = post.cam + (i.pos.xy - post.res * 0.5) / post.ppu;
-  var hdr = boulder(i.uv, wp, post.ppu);
-  if (k > 0.0) { hdr += lensScene(i.uv, q, wp, i.pos.xy, k); } else { hdr += scene(i.uv); }
-  let bl = textureSampleLevel(bloomTex, samp, i.uv, 0.0).rgb;
+  var water = vec3f(post.heat.x, 0.0, 0.0);
+  var uv = i.uv;
+  if (post.heatVis >= 0.0) {
+    water = waterAt(wp - post.world * floor(wp / post.world));
+    // schlieren: with the heat map on Shimmer, warm water bends the light passing through it like the
+    // air over a hot road, faintly, wherever warmth changes (around colonies and framboids, at
+    // fronts), the ripples carried by the current
+    if (post.heatVis > 0.5 && post.heatVis < 1.5) {
+      let shift = water.yz * flowNoise(wp, 7.0) * 2.0;
+      uv += shift * min(1.0, 3.0 / max(length(shift), 1e-4)) / post.res;
+    }
+  }
+  var hdr = boulder(uv, wp, post.ppu);
+  if (k > 0.0) { hdr += lensScene(uv, q, wp, i.pos.xy, k); } else { hdr += scene(uv); }
+  let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
   hdr = (hdr + bl * post.bloom) * post.exposure;
   var T = 0.0;
   if (post.tideVis > 0.0) {
@@ -4370,6 +4747,15 @@ fn pondSpecks(c: vec3f, hdr: vec3f, pos: vec2f) -> vec3f {
     let w = fwidth(band);
     let contour = 1.0 - smoothstep(0.0, w * 1.2, min(fract(band), 1.0 - fract(band)));
     c += vec3f(0.22) * contour;
+  }
+  if (post.heatVis > 1.5) {
+    // the thermal camera: false colour over the map's span (drawn as isotherms alone over a full
+    // light map), with an isotherm every 2°
+    if (post.tideVis < 1.5) { c = mix(c, heatRamp(clamp((water.x - post.heat.y) / (post.heat.z - post.heat.y), 0.0, 1.0)), 0.4); }
+    let band = water.x * 0.5;
+    let w = fwidth(band);
+    let iso = 1.0 - smoothstep(0.0, w * 1.2, min(fract(band), 1.0 - fract(band)));
+    c += vec3f(1.0, 0.7, 0.4) * 0.16 * iso;
   }
   let uq = i.uv - 0.5;
   let v = clamp(1.0 - dot(uq, uq) * 1.1, 0.0, 1.0);
@@ -4468,7 +4854,8 @@ fn loupeScene(r: vec2f) -> vec3f {
 }
 
 @fragment fn fsPlain(i: VO) -> @location(0) vec4f {
-  let hdr = (scene(i.uv) + boulder(i.uv, microView.cam + (i.uv - 0.5) * microView.res / microView.ppu, microView.ppu)) * post.exposure;
+  let wp = microView.cam + (i.uv - 0.5) * microView.res / microView.ppu;
+  let hdr = (scene(i.uv) + boulder(i.uv, wp, microView.ppu)) * post.exposure;
   var c = tonemap(hdr) + vec3f(0.006, 0.005, 0.012);
   c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0);
   return vec4f(pow(c, vec3f(1.0 / 2.2)), 1.0);
@@ -4784,7 +5171,10 @@ struct SV {
   var ADHESION = { reef: 0.85, plankton: 0, grazer: 0, crawler: 0.75, hunter: 0.6, scavenger: 0.25, filament: 0.9 };
   var CALCIFY = { reef: [0.4, 0.9], filament: [0, 0.3] };
   var ARCHETYPE_TYPES = Object.keys(ARCHETYPES);
-  function archetypeGenome(type, r = Math.random, K = DEFAULT_K) {
+  var THERMO_FOUNDERS = /* @__PURE__ */ new Set(["crawler", "grazer", "filament"]);
+  var gaussOf = (r) => (r() + r() + r() - 1.5) * 2;
+  var unorm8 = (v) => Math.round(clamp(v, 0, 1) * 255) / 255;
+  function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
     const A = ARCHETYPES[type];
     const W = A.selfW ? A.W.map((row, i) => i === 0 ? [mix(A.selfW[0], A.selfW[1], r()), row[1], row[2]] : row) : A.W;
     const surfs = [randSig(r), randSig(r), randSig(r)];
@@ -4828,7 +5218,10 @@ struct SV {
       depth: 0,
       archetype: type,
       adhesion: ADHESION[type] ?? 0,
-      calcify: CALCIFY[type] ? mix(...CALCIFY[type], r()) : 0
+      calcify: CALCIFY[type] ? mix(...CALCIFY[type], r()) : 0,
+      topt: clamp(t0 + gaussOf(r) * 3, 0, 45),
+      tol: type === "reef" ? mix(3, 6, r()) : mix(5, 10, r()),
+      thermo: THERMO_FOUNDERS.has(type) && r() < 0.25 ? unorm8(mix(0.3, 0.7, r())) : 0
     };
     return finalizeGenome(g, K);
   }
@@ -4851,6 +5244,7 @@ struct SV {
       u32[o + r * 4 + 3] = packSnorm(R2.rec.slice(4, 8));
       u32[o + 12 + r] = packUnorm(g.dev[r][0], g.dev[r][1], g.dev[r][2], 0);
     }
+    u32[o + 15] = Math.round(clamp(g.thermo || 0, 0, 1) * 255);
     const fl = [
       "radius",
       "beta",
@@ -4886,6 +5280,8 @@ struct SV {
     u32[o + 43] = g.depth >>> 0;
     f32[o + 44] = g.adhesion || 0;
     f32[o + 45] = g.calcify || 0;
+    f32[o + 46] = g.topt ?? 19;
+    f32[o + 47] = g.tol ?? 7;
   }
   var genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
   function readGenome(u32, f32, slot) {
@@ -4929,7 +5325,10 @@ struct SV {
       born: f32[o + 42],
       depth: u32[o + 43],
       adhesion: f32[o + 44],
-      calcify: f32[o + 45]
+      calcify: f32[o + 45],
+      topt: f32[o + 46],
+      tol: f32[o + 47],
+      thermo: (u32[o + 15] & 255) / 255
     };
   }
   function parseParticle(u32, f32, o) {
@@ -4956,6 +5355,23 @@ struct SV {
   function mobilityGuild(g) {
     const swim = g.swim * (1 - g.photo);
     return g.advect < 0.2 && swim < 0.2 ? "sessile" : swim >= 0.8 ? "swimmer" : g.advect > 0.7 && swim < 0.4 ? "drifter" : "crawler";
+  }
+  function thermalPerf(g, t2, K = DEFAULT_K) {
+    const tol = Math.max(g.tol ?? 7, 0.5);
+    const x = (t2 - (g.topt ?? 19)) / tol;
+    const peak = 1 + K.specBonus * (1 - clamp((tol - 2) / 13, 0, 1));
+    const flat = K.thermalFlat ?? 0, y = x > 0 ? Math.max(x - flat, 0) / (K.thermalWarm ?? 0.45) : Math.min(x + flat, 0);
+    const torpid = x < -K.torporAt;
+    const s = clamp((Math.abs(x) - 0.3) / 0.6, 0, 1);
+    return { perf: torpid ? 0 : peak * Math.exp(-y * y), stress: s * s * (3 - 2 * s), x, torpid };
+  }
+  function thermalGuild(g) {
+    const t2 = g.topt ?? 19, tol = g.tol ?? 7;
+    return {
+      pref: t2 < 10 ? "cold-loving" : t2 > 38 ? "thermophile" : t2 > 28 ? "warmth-loving" : "temperate",
+      breadth: tol < 4 ? "specialist" : tol > 10 ? "generalist" : "",
+      maker: (g.thermo || 0) > 0.2
+    };
   }
 
   // src/audio/motif.js
@@ -8101,7 +8517,7 @@ var Field = class {
     this.z = m.z;
     this.gd = m.gd;
     this.act += (m.act - this.act) * 0.25;
-    c.setTempo(tempoFor(m.speed));
+    c.setTempo(tempoFor(m.speed) * (1 + 0.06 * c.warm));
     const wall = Math.max(1e-3, m.window / Math.max(m.speed, 1e-6));
     const S = LISTEN.stride, ev = m.ev, n = ev.length / S;
     const comp = new Float32Array(8);
@@ -8265,7 +8681,7 @@ var Field = class {
       c.at(t, "drop", { freq: midicps2(midi + 12), amp: amp * 0.8, dec: this.rr(0.04, 0.09), rise: this.rr(1.3, 2), pan: o.pan, rev: o.wet(0.35), dly: 0.15 });
       return;
     }
-    const p = noteParams(v, midi, dur, amp, { light: o.light, td: o.td, dim: o.dim, wet: o.wet, k, rr: (a, b) => this.rr(a, b) });
+    const p = noteParams(v, midi, dur, amp, { light: o.light, td: o.td, dim: o.dim, wet: o.wet, k, rr: (a, b) => this.rr(a, b), warm: this.c.warm });
     if (p) {
       p.pan = o.pan;
       c.at(t, v.mat, p);
@@ -8728,7 +9144,8 @@ var d2m = (deg, root, scale) => {
 var midicps4 = (m) => 440 * Math.pow(2, (m - 69) / 12);
 var clamp3 = (x, a, b) => x < a ? a : x > b ? b : x;
 function noteParams(v, midi, dur, amp, o) {
-  const { light, td, dim, wet, k, rr } = o;
+  const { light, td, dim, wet, k, rr } = o, warm = o.warm || 0;
+  const ring = warm < 0 ? 1 - 0.4 * warm : 1 - 0.1 * warm;
   let p;
   switch (v.mat) {
     case "cplx":
@@ -8745,7 +9162,7 @@ function noteParams(v, midi, dur, amp, o) {
       };
       break;
     case "tine":
-      p = { freq: midicps4(midi), amp: amp * rr(0.7, 1), dec: 0.8 + v.dec, bright: v.bright * dim, rev: wet(0.28), dly: 0.14 };
+      p = { freq: midicps4(midi), amp: amp * rr(0.7, 1), dec: (0.8 + v.dec) * ring, bright: v.bright * dim, rev: wet(0.28), dly: 0.14 };
       break;
     // the swell's bloom is long, bright and folded: it sits lower and darker than the rest, or it drowns them out
     case "swell":
@@ -8767,7 +9184,7 @@ function noteParams(v, midi, dur, amp, o) {
       p = { freq: midicps4(midi), amp, atk: dur * 0.5, sus: dur * 0.4, rel: dur * 1.5, bright: v.bright * 0.6 * dim, glide: [0, 0.03, -0.03][Math.min(2, Math.floor(rr(0, 3)))], rev: wet(0.4), dly: 0.08 };
       break;
     case "glass":
-      p = { freq: midicps4(midi), amp, atk: dur * 0.4, sus: dur * 0.6, rel: dur * 1.6, bright: Math.min(1.2, v.bright * (0.5 + light)) * dim, rev: wet(0.5), dly: 0.04 };
+      p = { freq: midicps4(midi), amp, atk: dur * 0.4, sus: dur * 0.6, rel: dur * 1.6 * ring, bright: Math.min(1.2, v.bright * (0.5 + light)) * dim, rev: wet(0.5), dly: 0.04 };
       break;
     case "pluck":
       p = {
@@ -8775,7 +9192,7 @@ function noteParams(v, midi, dur, amp, o) {
         amp: amp * rr(0.75, 1),
         dec: (0.35 + 0.8 * v.dec) * (dur > 0.5 ? 1.4 : 1),
         bright: v.bright * dim,
-        coef: 0.12 + 0.45 * (1 - v.bright) + 0.2 * (1 - light),
+        coef: 0.12 + 0.45 * (1 - v.bright) + 0.2 * (1 - light) + (warm < 0 ? 0.08 : 0.06) * warm,
         rev: wet(0.2),
         dly: 0.1
       };
@@ -8812,7 +9229,8 @@ var Conductor = class {
     this.field = new Field(this);
     this.post = null;
     this.queue = [];
-    this.world = { light: 0.6, tide: 0.5 };
+    this.world = { light: 0.6, tide: 0.5, warm: 0 };
+    this.warm = 0;
     this.nodeN = 0;
     this.setEra(eraMusic("The First Tides"), true);
     this.score = new Score(this);
@@ -8907,6 +9325,7 @@ var Conductor = class {
       this.pendingEra = null;
       this.nextEra = nx;
       this.switchAt = ts + 45;
+      this.fdnDecay = null;
       this.score.bridge(ts, nx, nx.root + (nx.fx.shift || 0), MODES[nx.mode][0], this.switchAt);
     }
     if (this.pendingOpen) {
@@ -8922,6 +9341,15 @@ var Conductor = class {
     const bar = Math.round(this.stepN / 16);
     if (bar % 12 === 0) this.pivot = this.pivots[bar / 12 % this.pivots.length | 0];
     const fx = this.era.fx, lvl = fx.level || 1;
+    this.warm += ((W.warm || 0) - this.warm) * 0.25;
+    if (this.switchAt == null) {
+      const w = this.warm, damp = Math.round(w < 0 ? 5e3 - 2e3 * w : 5e3 - 1500 * w), decay = Math.round((w < 0 ? 9 - 2 * w : 9 - w) * 10) / 10;
+      if (damp !== this.fdnDamp || decay !== this.fdnDecay) {
+        this.setAt(ts, "fdn", { damp, decay });
+        this.fdnDamp = damp;
+        this.fdnDecay = decay;
+      }
+    }
     const light = clamp3(W.light * (fx.bright || 1), 0, 1.2), td = clamp3(W.tide * (fx.tide || 1), 0, 1);
     const seaDim = 1 - 0.45 * this.field.z;
     this.setAt(ts, this.sea, { tide: td, light, amp: 0.09 * (fx.sea || 1) * lvl * seaDim });
@@ -11648,7 +12076,7 @@ var Field = class {
     this.z = m.z;
     this.gd = m.gd;
     this.act += (m.act - this.act) * 0.25;
-    c.setTempo(tempoFor(m.speed));
+    c.setTempo(tempoFor(m.speed) * (1 + 0.06 * c.warm));
     const wall = Math.max(1e-3, m.window / Math.max(m.speed, 1e-6));
     const S = LISTEN.stride, ev = m.ev, n = ev.length / S;
     const comp = new Float32Array(8);
@@ -11812,7 +12240,7 @@ var Field = class {
       c.at(t, "drop", { freq: midicps2(midi + 12), amp: amp * 0.8, dec: this.rr(0.04, 0.09), rise: this.rr(1.3, 2), pan: o.pan, rev: o.wet(0.35), dly: 0.15 });
       return;
     }
-    const p = noteParams(v, midi, dur, amp, { light: o.light, td: o.td, dim: o.dim, wet: o.wet, k, rr: (a, b) => this.rr(a, b) });
+    const p = noteParams(v, midi, dur, amp, { light: o.light, td: o.td, dim: o.dim, wet: o.wet, k, rr: (a, b) => this.rr(a, b), warm: this.c.warm });
     if (p) {
       p.pan = o.pan;
       c.at(t, v.mat, p);
@@ -12275,7 +12703,8 @@ var d2m = (deg, root, scale) => {
 var midicps4 = (m) => 440 * Math.pow(2, (m - 69) / 12);
 var clamp3 = (x, a, b) => x < a ? a : x > b ? b : x;
 function noteParams(v, midi, dur, amp, o) {
-  const { light, td, dim, wet, k, rr } = o;
+  const { light, td, dim, wet, k, rr } = o, warm = o.warm || 0;
+  const ring = warm < 0 ? 1 - 0.4 * warm : 1 - 0.1 * warm;
   let p;
   switch (v.mat) {
     case "cplx":
@@ -12292,7 +12721,7 @@ function noteParams(v, midi, dur, amp, o) {
       };
       break;
     case "tine":
-      p = { freq: midicps4(midi), amp: amp * rr(0.7, 1), dec: 0.8 + v.dec, bright: v.bright * dim, rev: wet(0.28), dly: 0.14 };
+      p = { freq: midicps4(midi), amp: amp * rr(0.7, 1), dec: (0.8 + v.dec) * ring, bright: v.bright * dim, rev: wet(0.28), dly: 0.14 };
       break;
     // the swell's bloom is long, bright and folded: it sits lower and darker than the rest, or it drowns them out
     case "swell":
@@ -12314,7 +12743,7 @@ function noteParams(v, midi, dur, amp, o) {
       p = { freq: midicps4(midi), amp, atk: dur * 0.5, sus: dur * 0.4, rel: dur * 1.5, bright: v.bright * 0.6 * dim, glide: [0, 0.03, -0.03][Math.min(2, Math.floor(rr(0, 3)))], rev: wet(0.4), dly: 0.08 };
       break;
     case "glass":
-      p = { freq: midicps4(midi), amp, atk: dur * 0.4, sus: dur * 0.6, rel: dur * 1.6, bright: Math.min(1.2, v.bright * (0.5 + light)) * dim, rev: wet(0.5), dly: 0.04 };
+      p = { freq: midicps4(midi), amp, atk: dur * 0.4, sus: dur * 0.6, rel: dur * 1.6 * ring, bright: Math.min(1.2, v.bright * (0.5 + light)) * dim, rev: wet(0.5), dly: 0.04 };
       break;
     case "pluck":
       p = {
@@ -12322,7 +12751,7 @@ function noteParams(v, midi, dur, amp, o) {
         amp: amp * rr(0.75, 1),
         dec: (0.35 + 0.8 * v.dec) * (dur > 0.5 ? 1.4 : 1),
         bright: v.bright * dim,
-        coef: 0.12 + 0.45 * (1 - v.bright) + 0.2 * (1 - light),
+        coef: 0.12 + 0.45 * (1 - v.bright) + 0.2 * (1 - light) + (warm < 0 ? 0.08 : 0.06) * warm,
         rev: wet(0.2),
         dly: 0.1
       };
@@ -12359,7 +12788,8 @@ var Conductor = class {
     this.field = new Field(this);
     this.post = null;
     this.queue = [];
-    this.world = { light: 0.6, tide: 0.5 };
+    this.world = { light: 0.6, tide: 0.5, warm: 0 };
+    this.warm = 0;
     this.nodeN = 0;
     this.setEra(eraMusic("The First Tides"), true);
     this.score = new Score(this);
@@ -12454,6 +12884,7 @@ var Conductor = class {
       this.pendingEra = null;
       this.nextEra = nx;
       this.switchAt = ts + 45;
+      this.fdnDecay = null;
       this.score.bridge(ts, nx, nx.root + (nx.fx.shift || 0), MODES[nx.mode][0], this.switchAt);
     }
     if (this.pendingOpen) {
@@ -12469,6 +12900,15 @@ var Conductor = class {
     const bar = Math.round(this.stepN / 16);
     if (bar % 12 === 0) this.pivot = this.pivots[bar / 12 % this.pivots.length | 0];
     const fx = this.era.fx, lvl = fx.level || 1;
+    this.warm += ((W.warm || 0) - this.warm) * 0.25;
+    if (this.switchAt == null) {
+      const w = this.warm, damp = Math.round(w < 0 ? 5e3 - 2e3 * w : 5e3 - 1500 * w), decay = Math.round((w < 0 ? 9 - 2 * w : 9 - w) * 10) / 10;
+      if (damp !== this.fdnDamp || decay !== this.fdnDecay) {
+        this.setAt(ts, "fdn", { damp, decay });
+        this.fdnDamp = damp;
+        this.fdnDecay = decay;
+      }
+    }
     const light = clamp3(W.light * (fx.bright || 1), 0, 1.2), td = clamp3(W.tide * (fx.tide || 1), 0, 1);
     const seaDim = 1 - 0.45 * this.field.z;
     this.setAt(ts, this.sea, { tide: td, light, amp: 0.09 * (fx.sea || 1) * lvl * seaDim });
@@ -12777,11 +13217,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.abio = 0;
       this.ambient = 0.17;
       this.chargeMul = 1;
+      this.temp = 16;
+      this.excursion = 0;
       this.tide = new Float32Array([1, 1, 0.021, 1, 2, -1, -0.017, 1, -1, 3, 0.013, 0.7, 1, -2, 0.011, 0]);
       this.tidePh = Float32Array.from(TIDE_PHASE);
       this.seedValue = 1;
       this.censusEvery = 20;
-      this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1, tide: 1, optics: 1, specks: true, lod: true };
+      this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1, tide: 1, heat: 1, optics: 1, specks: true, lod: true };
       this.simData = new ArrayBuffer(256);
       this.rock = new Float32Array(4);
       this.simF = new Float32Array(this.simData);
@@ -12789,7 +13231,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.waves = new Float32Array(16);
       this.viewData = new ArrayBuffer(96);
       this.viewDataL = new ArrayBuffer(96);
-      this.postData = new Float32Array(52);
+      this.postData = new Float32Array(56);
       this.loupe = null;
       this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 4294967295, memberN: 0 };
       this.viewDataS = new ArrayBuffer(96);
@@ -12810,13 +13252,15 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const d = device;
       const b = this.b;
       b.sim = d.createBuffer({ size: 256, usage: U.UNIFORM | U.COPY_DST });
+      b.thermal = d.createBuffer({ size: 3 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+      b.heatNext = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
       b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
       this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
       b.view = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
       b.viewL = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
       b.viewS = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
       b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
-      b.post = d.createBuffer({ size: 208, usage: U.UNIFORM | U.COPY_DST });
+      b.post = d.createBuffer({ size: 224, usage: U.UNIFORM | U.COPY_DST });
       b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
       b.pickU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
       b.counts = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST });
@@ -12865,16 +13309,17 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.postModule = d.createShaderModule({ code: POST_WGSL, label: "post" });
       const cp = (mod, entryPoint) => d.createComputePipeline({ layout: "auto", compute: { module: mod, entryPoint }, label: entryPoint });
       this.cpDefs = {
-        seedMain: [0, 1, 9, 10],
-        resolveCount: [0, 1, 4, 8, 9, 10, 11, 14],
+        seedMain: [0, 1, 9, 10, 11],
+        resolveCount: [0, 1, 4, 8, 9, 10, 11, 14, 18],
         scanBlocks: [5, 6, 7],
         scanSums: [6, 7],
         scanAdd: [6, 7],
         scatterMain: [0, 1, 2, 3, 6, 8, 9, 10, 12, 13, 15],
         censusMain: [11, 12, 13],
-        matterMain: [0, 1, 2, 9, 10, 11, 13, 14, 16],
-        lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12, 15],
-        mindMain: [0, 2, 3, 6, 10, 15, 17]
+        matterMain: [0, 1, 2, 9, 10, 11, 13, 14, 16, 18],
+        lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12, 15, 18],
+        heatMain: [0, 14, 18, 19],
+        mindMain: [0, 2, 3, 6, 10, 15, 17, 18]
       };
       this.cp = {};
       for (const name of Object.keys(this.cpDefs)) this.cp[name] = { pipe: cp(this.simModule, name), bg: null };
@@ -12995,7 +13440,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
         14: { buffer: b.stoneGrid },
         15: { buffer: b.bondsNow },
         16: { buffer: b.stoneList },
-        17: { buffer: b.mind }
+        17: { buffer: b.mind },
+        18: { buffer: b.thermal },
+        19: { buffer: b.heatNext }
       };
       for (const [name, ids] of Object.entries(this.cpDefs)) {
         const c = this.cp[name];
@@ -13022,7 +13469,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         { binding: 0, resource: { buffer: b.listenU } },
         { binding: 1, resource: { buffer: b.parts } },
         { binding: 2, resource: { buffer: b.genomes } },
-        { binding: 3, resource: { buffer: b.listen } }
+        { binding: 3, resource: { buffer: b.listen } },
+        { binding: 4, resource: { buffer: b.thermal } }
       ] });
       this.cpSurvey.bg = d.createBindGroup({ layout: this.cpSurvey.pipe.getBindGroupLayout(0), entries: [
         { binding: 0, resource: { buffer: b.surveyU } },
@@ -13040,7 +13488,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         { binding: 6, resource: { buffer: b.bondsIn } },
         { binding: 8, resource: { buffer: b.touch } },
         { binding: 9, resource: { buffer: b.sway } },
-        { binding: 10, resource: { buffer: b.organDir } }
+        { binding: 10, resource: { buffer: b.organDir } },
+        { binding: 11, resource: { buffer: b.thermal } }
       ] });
       this.organsBG = d.createBindGroup({ layout: this.cpOrgans.getBindGroupLayout(0), entries: [
         { binding: 7, resource: { buffer: b.genomes } },
@@ -13143,7 +13592,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         { binding: 7, resource: this.stoneView[0] },
         { binding: 8, resource: this.stoneView[1] },
         { binding: 9, resource: this.murkView },
-        { binding: 10, resource: this.microView }
+        { binding: 10, resource: this.microView },
+        { binding: 11, resource: { buffer: this.b.thermal } }
       ] }));
       this.compBG = compBG(this.pComp);
       this.compClearBG = compBG(this.pCompClear);
@@ -13240,6 +13690,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.seedValue = rng() * 4294967295 >>> 0;
       this.ambient = mix2(0.12, 0.3, rng());
       this.chargeMul = mix2(0.8, 1.25, rng());
+      this.temp = mix2(10, 22, rng());
+      this.excursion = 0;
       this.randomizeTide(rng);
       this.randomizeCurrents(rng);
       const silt = mix2(0.42, 0.58, rng()), glint = mix2(0.06, 0.18, rng()), husk = mix2(0.02, 0.06, rng());
@@ -13269,8 +13721,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
       });
       head[0] = n;
       head[1] = plan.length;
+      const warm = this.temp + 3;
       plan.forEach((type, s) => {
-        const g = archetypeGenome(type, rng, this.K);
+        const g = archetypeGenome(type, rng, this.K, warm);
         g.serial = s + 1;
         writeGenome(gu, gf, FIRST_LIFE + s, g);
         head[META_SLOT + FIRST_LIFE + s] = 1;
@@ -13279,7 +13732,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       d.queue.writeBuffer(this.b.ledger, 0, head);
       this.founders = plan.length;
       this._writeSim({ seedKinds: plan.length, pSilt: silt, pGlint: glint, pHusk: husk, clump, spread });
+      const water = new Float32Array(cells).fill(this.tbg);
+      d.queue.writeBuffer(this.b.thermal, MAX_CELLS * 4, water);
       const enc = d.createCommandEncoder();
+      enc.clearBuffer(this.b.thermal, 0, cells * 4);
       enc.clearBuffer(this.b.counts);
       enc.clearBuffer(this.b.ledger, LEDGER_HEAD, n * 4);
       enc.clearBuffer(this.b.frameCtr);
@@ -13326,6 +13782,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       return into;
     }
+    /** The background water temperature: the climate's, the tide's season (±2.5°) and any excursion. */
+    get tbg() {
+      return this.temp + 2.5 * (this.season - 0.55) / 0.45 + this.excursion;
+    }
     _writeSim(extra = {}) {
       this._fillSim(extra);
       this.device.queue.writeBuffer(this.b.sim, 0, this.simData);
@@ -13358,6 +13818,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       f2.set(this.rock, 56);
       u[60] = this.tick;
       u[61] = this.ticks;
+      f2[62] = this.tbg;
     }
     requestPick(center, radius, selId, { kind = 4294967295, maxOut = 4096, raw = false } = {}) {
       return new Promise((resolve) => {
@@ -13386,6 +13847,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const cells = this.grid[0] * this.grid[1];
       enc.clearBuffer(b.counts, 0, cells * 4);
       enc.clearBuffer(b.stoneGrid, 0, cells * 4);
+      if (this.K.heat) enc.clearBuffer(b.thermal, 2 * MAX_CELLS * 4, cells * 4);
       enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
       enc.clearBuffer(b.frameCtr, 0, 4);
       enc.clearBuffer(b.frameCtr, 36, 4);
@@ -13411,7 +13873,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
       run2("censusMain", Math.ceil(MAXK / 256));
       run2("matterMain", wg);
       run2("lifeMain", null);
+      if (this.K.heat) run2("heatMain", Math.ceil(cells / 64));
       if (!prof) pass.end();
+      if (this.K.heat) enc.copyBufferToBuffer(b.heatNext, 0, b.thermal, MAX_CELLS * 4, cells * 4);
     }
     /** One simulation step with each dispatch timed on the GPU: [[name, ms], ...]. Needs timestamps. */
     async profileStep(simDt = 1 / 60) {
@@ -13441,7 +13905,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const d = this.device, b = this.b, U2 = GPUBufferUsage;
       const enc = d.createCommandEncoder();
       const keep = { gpu: {} };
-      for (const k of ["parts", "genomes", "intent", "ledger"]) {
+      for (const k of ["parts", "genomes", "intent", "ledger", "thermal"]) {
         keep.gpu[k] = d.createBuffer({ size: b[k].size, usage: U2.COPY_SRC | U2.COPY_DST });
         enc.copyBufferToBuffer(b[k], 0, keep.gpu[k], 0, b[k].size);
       }
@@ -13455,6 +13919,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         ambient: this.ambient,
         chargeMul: this.chargeMul,
         seedValue: this.seedValue,
+        temp: this.temp,
+        excursion: this.excursion,
         tide: this.tide.slice(),
         tidePh: this.tidePh.slice(),
         waves: this.waves.slice(),
@@ -13476,7 +13942,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
         abio: c.abio,
         ambient: c.ambient,
         chargeMul: c.chargeMul,
-        seedValue: c.seedValue
+        seedValue: c.seedValue,
+        temp: c.temp,
+        excursion: c.excursion
       });
       this.tide.set(c.tide);
       this.tidePh.set(c.tidePh);
@@ -13514,7 +13982,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         globals: u.subarray(0, 16),
         pop: u.subarray(META_POP, META_POP + MAXK),
         demography: u.subarray(META_DEATH, META_DEATH + 57),
-        energy: u.subarray(META_ENERGY, META_ENERGY + 40),
+        energy: u.subarray(META_ENERGY, META_ENERGY + 64),
         diag: u.subarray(META_DIAG, META_CLAIM),
         genomeU32: new Uint32Array(copy, LEDGER_HEAD),
         genomeF32: new Float32Array(copy, LEDGER_HEAD)
@@ -13548,7 +14016,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
             slots: u.subarray(META_SLOT, META_SLOT + MAXK),
             pop: u.subarray(META_POP, META_POP + MAXK),
             demography: u.subarray(META_DEATH, META_DEATH + 57),
-            energy: u.subarray(META_ENERGY, META_ENERGY + 40),
+            energy: u.subarray(META_ENERGY, META_ENERGY + 64),
             genomeU32: new Uint32Array(copy, LEDGER_HEAD),
             genomeF32: new Float32Array(copy, LEDGER_HEAD)
           });
@@ -14090,9 +14558,14 @@ registerProcessor("tidemote-sound", TidemoteSound);
       pd[12] = this.simTime;
       pd[13] = this.ambient;
       pd[14] = this.settings.optics;
+      pd[15] = this.K.heat ? this.settings.heat : -1;
       pd.set(this.tide, 16);
       pd.set(this.tidePh, 32);
       pd.set(this.waves, 36);
+      const tbg = this.tbg;
+      pd[52] = tbg;
+      pd[53] = tbg - 2;
+      pd[54] = tbg + 10;
       d.queue.writeBuffer(this.b.post, 0, pd);
       const mainDetail = lod && new Float32Array(this.viewData)[7] > 2.8;
       if (mainDetail || loupe || specimen) {
@@ -14224,8 +14697,17 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var climatePick = (r, a) => a[Math.floor(r() * a.length)];
   var ERA_ADJ = ["Restless", "Dim", "Bright", "Still", "Pale", "Warm", "Hollow", "Rising", "Long", "Bitter", "Green", "Silver"];
   var ERA_NOUN = ["Glare", "Tides", "Drift", "Calm", "Surge", "Murk", "Bloom", "Shallows", "Gyre", "Hush"];
+  var WARMING = ["Warm", "Rising"];
+  var COOLING = ["Bitter", "Pale"];
+  var TEMPERATE = ERA_ADJ.filter((a) => !WARMING.includes(a) && !COOLING.includes(a));
+  var TEMP_MIN = 4;
+  var TEMP_MAX = 28;
+  function excursionAt(x, t2) {
+    if (!x || t2 < x.t || t2 > x.t + x.dur) return 0;
+    return x.dT * Math.sin(Math.PI * (t2 - x.t) / x.dur) ** 2;
+  }
   function createClimate(eng, rng = Math.random) {
-    const climate = { tick, reset, onEra: null };
+    const climate = { tick, reset, onEra: null, onExcursion: null };
     function reset() {
       Object.assign(climate, {
         name: "The First Tides",
@@ -14234,9 +14716,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
         ambientTo: eng.ambient,
         chargeTo: eng.chargeMul,
         tideTo: Array.from(eng.tide.filter((_, i) => i % 4 === 3)),
+        tempTo: eng.temp,
+        excursion: null,
+        announced: null,
         flow: null,
         index: 1,
-        history: [{ t: 0, name: "The First Tides", ambient: eng.ambient, charge: eng.chargeMul }]
+        history: [{ t: 0, name: "The First Tides", ambient: eng.ambient, charge: eng.chargeMul, temp: eng.temp }]
       });
     }
     function startEra() {
@@ -14255,17 +14740,34 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const newWaves = eng.randomizeCurrents(r, new Float32Array(16));
       climate.flow = { from: Float32Array.from(eng.waves), to: newWaves, t0: t2, k: [Math.floor(r() * 4), Math.floor(r() * 4)] };
       climate.index++;
-      climate.name = `The ${climatePick(r, ERA_ADJ)} ${climatePick(r, ERA_NOUN)}`;
+      const prevTemp = climate.tempTo;
+      climate.tempTo = Math.min(TEMP_MAX, Math.max(TEMP_MIN, prevTemp + climateMix(-10, 10, r())));
+      const dT = climate.tempTo - prevTemp;
+      const adj = climatePick(r, dT >= 5 ? WARMING : dT <= -5 ? COOLING : TEMPERATE);
+      climate.name = `The ${adj} ${climatePick(r, ERA_NOUN)}`;
       climate.started = t2;
       climate.next = t2 + climateMix(600, 1080, r());
-      climate.history.push({ t: t2, name: climate.name, ambient: climate.ambientTo, charge: climate.chargeTo });
-      climate.onEra?.(climate.history.at(-1), prevAmb);
+      climate.excursion = r() < 0.35 ? {
+        t: t2 + climateMix(120, Math.max(150, climate.next - t2 - 300), r()),
+        dT: (r() < 0.5 ? -1 : 1) * climateMix(5, 8, r()),
+        dur: climateMix(120, 240, r())
+      } : null;
+      climate.history.push({ t: t2, name: climate.name, ambient: climate.ambientTo, charge: climate.chargeTo, temp: climate.tempTo });
+      climate.onEra?.(climate.history.at(-1), prevAmb, prevTemp);
     }
     function tick(dt) {
       if (eng.simTime > climate.next) startEra();
       const k = Math.min(1, dt / 60);
       eng.ambient += (climate.ambientTo - eng.ambient) * k;
       eng.chargeMul += (climate.chargeTo - eng.chargeMul) * k;
+      eng.temp += (climate.tempTo - eng.temp) * Math.min(1, dt / 180);
+      const x = climate.excursion;
+      eng.excursion = excursionAt(x, eng.simTime);
+      if (x && eng.simTime >= x.t && climate.announced !== x) {
+        climate.announced = x;
+        climate.history.at(-1).excursion = x;
+        climate.onExcursion?.(x);
+      }
       for (let i = 0; i < 4; i++) eng.tide[i * 4 + 3] += (climate.tideTo[i] - eng.tide[i * 4 + 3]) * k;
       const f2 = climate.flow;
       if (f2) {
@@ -14292,13 +14794,24 @@ registerProcessor("tidemote-sound", TidemoteSound);
   // src/guide.js
   var GLOSSARY = {
     silt: "Inert grit, most of the world’s matter. It drifts on currents, is charged into glint by the Tide, and every newborn cell is built out of one grain of it.",
-    glint: "Charged silt: free-floating food holding 1.0 energy. It forms mostly inside tide bands, leaks charge, and fades back to silt after about 27 s if nothing eats it.",
-    husk: "A dead cell’s remains. Starved, elderly and killed cells all leave one. Holds leftover energy for scavengers and crumbles back into silt after about half a minute.",
+    glint: "Charged silt: free-floating food holding 1.0 energy. It forms mostly inside tide bands (and around hot springs), leaks charge, and fades back to silt after about 27 s if nothing eats it: sooner in warm water, later in cold.",
+    husk: "A dead cell’s remains. Starved, elderly, killed and scalded cells all leave one. Holds leftover energy for scavengers and crumbles back into silt after about half a minute: cold water keeps carcasses for the scavengers, warm water rots them fast, and a rotting pile warms its water a little.",
     living: "Cells: particles with a genome. They feed, pay upkeep, divide by building a child out of silt, and die into husks.",
     tide: "Four slow waves summed across the wrap-around world. Where they add up, bright bands form and drift. The Tide charges silt into glint and adds to the light.",
     light: "What photosynthesising cells feed on: a dim baseline everywhere (set by the era) plus the Tide on top, scaled by the season.",
     season: "A 5-minute cycle that swings tide strength between 10% and 100%. Glint production and peak light follow it, which drives booms and busts.",
-    era: "Every 10–18 minutes the climate turns: the baseline light and glint production change, one tide wave is replaced, and the currents shift. The names are random labels.",
+    era: "Every 10–18 minutes the climate turns: the baseline light, glint production and the water’s temperature change, one tide wave is replaced, and the currents shift. An era that warms the water by 5° or more is named Warm or Rising, one that cools it Bitter or Pale; otherwise the names are random labels.",
+    water: "The water’s background temperature, set by the climate: it walks from era to era between 4° and 28°, swings ±2.5° with the season, and now and then a heat wave or cold snap passes. Life warms its own water above this: every cell’s spent energy becomes heat, so crowds, bodies and reefs sit in warm patches.",
+    heatmap: "How heat is drawn. Shimmer: warm water bends light like the air over a hot road, so plumes, colony halos and fronts waver. Full: a thermal camera, deep blue to teal to amber to white over a span from 2° below the background water to 10° above it, with a line every 2°.",
+    thermal: "How well a cell works at its temperature: a rate that scales its photosynthesis, digestion and swimming. It is at its best within half a tolerance of the species’ optimum (higher the narrower its tolerance), then falls slowly on the cold side and steeply on the warm side. Away from its optimum a cell also pays extra upkeep for the stress.",
+    optimum: "The temperature a species works best at (a gene, 0–45°). It drifts by mutation, so lineages can follow the climate or find a warm or cold refuge. A spark of life founds a species suited to the water it sparked in.",
+    tolerance: "How far from its optimum a species still works (a gene, ±2–15°). Narrow specialists work up to 25% better at their optimum than broad generalists, but a few degrees away they falter.",
+    heatmaker: "A species that burns extra energy (up to 0.03 per second) as heat. Its cells run warmer than the water, more so in a body, and its colonies warm the water around them: lifeboats for itself and for warmth-lovers in a cold snap, overheating traps in a heat wave.",
+    torpor: "Far below its optimum (more than 1.25 tolerances) a cell goes torpid: it neither feeds, swims nor divides, pays a quarter of its upkeep, dims, its pulse stops and it falls silent, until the water warms.",
+    scalding: "Far above its optimum a cell begins to die of the heat: a chance each second, rising steeply. A scalded cell leaves a husk. Heat-stressed cells bleach toward pale bone first.",
+    thermotaxis: "Swimmers away from their optimum steer up or down the warmth of the water toward it, harder the further off they are. Drifters and anchored cells cannot steer; heat sorts them by who survives where.",
+    framboid: "A pyrite framboid: a sphere of tiny iron sulfide crystals, a few microns across like the cells. Framboids grow where a pile of husks rots in cool water (the rot releases the sulfide), and a few lie in the mud from the start. As one oxidises it warms its water, burning faster the warmer that water is, so a crowded, hot cluster burns itself out; spent, it crumbles to silt. Their warmth charges nearby silt into glint (a hot spring), sparks of life favour it, and heat-loving species gather round them. Framboids are solid like stone.",
+    heatwave: "An excursion of the climate: for a few minutes the water rises (a heat wave) or falls (a cold snap) by 5–8°. Heat waves scald and bleach; cold snaps still the world except where heat-makers keep colonies warm.",
     epoch: "Simulated time since this universe began.",
     abiogenesis: "Life sparking from glint: a completely random new species, about once every 30 simulated seconds on average.",
     flesh: "Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Caught animal prey is killed outright and leaves a husk; this takes time, so a hunter manages at most one kill every few seconds. Plant cells are cropped a 0.06-energy bite at a time. Bonded bodies are armoured and shrug off some attacks.",
@@ -14397,7 +14910,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       title: "What you are looking at",
       short: "Overview",
       html: `<p>Tidemote is a sealed world on the surface of a torus: what leaves one edge enters the opposite one. Every point is one particle, and the total number never changes. Particles only change form: inert ${t("silt", "silt")}, charged ${t("glint", "glint")}, living cells, dead ${t("husk", "husks")}, and ${t("stone", "stone")}: the world's bedrock and the reefs that calcifying cells leave behind.</p>
-<p>Energy is the only thing that enters and leaves. It arrives as ${t("light", "light")} and as glint charged by the ${t("tide", "Tide")}, and it is lost as cells pay ${t("upkeep", "upkeep")}, as glint fades and as husks decay. Everything you see grows out of a handful of local rules applied to every particle 60 times a second.</p>`
+<p>Energy is the only thing that enters and leaves. It arrives as ${t("light", "light")}, as glint charged by the ${t("tide", "Tide")} and as the heat of oxidising ${t("framboid", "framboids")}. The energy cells spend on ${t("upkeep", "upkeep")} becomes heat that warms their own ${t("water", "water")}, spreads, drifts on the currents and is lost to the deep; glint fades and husks rot. Everything you see grows out of a handful of local rules applied to every particle 60 times a second.</p>`
     },
     {
       id: "cycle",
@@ -14417,8 +14930,17 @@ registerProcessor("tidemote-sound", TidemoteSound);
       title: "Tides, light, seasons and eras",
       short: "Climate",
       html: `<p>The ${t("tide", "Tide")} is four slow waves summed over the torus; where they add up, bright bands form and drift. ${t("light", "Light")} is a dim baseline everywhere plus the Tide on top. So tide bands are rich in both glint and light, while baseline light lets plants live anywhere.</p>
-<p>The ${t("season", "season")} is a 5-minute cycle that swings tide strength between 10% and 100%; it drives the regular booms and busts. Every 10–18 minutes an ${t("era", "era")} begins: the baseline light and glint production change, one tide wave is replaced so the bright zones form and move differently, and two current patterns are swapped. Era names are random labels; the event log says what actually changed.</p>
-<p><b>Settings → Light map</b> colours every point by the light a photosynthesising cell would receive there, with a contour every 10%; <b>Settings → Currents</b> draws the flow that carries silt, glint and drifting cells. The <b>Tide</b> gauge at the top follows the season: the dot rides the 5-minute wave.</p>`
+<p>The ${t("season", "season")} is a 5-minute cycle that swings tide strength between 10% and 100%; it drives the regular booms and busts. Every 10–18 minutes an ${t("era", "era")} begins: the baseline light and glint production change, one tide wave is replaced so the bright zones form and move differently, and two current patterns are swapped. The water’s temperature walks from era to era, so each world has its own thermal history; eras that warm or cool it a lot are named for it, otherwise era names are random labels, and the event log says what actually changed.</p>
+<p><b>Settings → Light map</b> colours every point by the light a photosynthesising cell would receive there, with a contour every 10%; <b>Settings → Currents</b> draws the flow that carries silt, glint and drifting cells. The <b>Tide</b> gauge at the top follows the season: the dot rides the 5-minute wave, and the <b>Water</b> gauge beside it shows the background temperature, with an arrow while it changes; it breathes during a heat wave or cold snap.</p>`
+    },
+    {
+      id: "heat",
+      title: "Heat",
+      short: "Heat",
+      html: `<p>The water has a temperature, and most of its warmth comes from life. Every unit of energy a cell spends on ${t("upkeep", "upkeep")} becomes heat in its water, so crowds, bodies and reefs sit in warm patches of their own making. Heat also comes from sunlight (a little), from rotting carcass piles, and from ${t("framboid", "framboids")}: grains of pyrite that crystallise in those piles and warm their water as they burn out over a few minutes, so a die-off leaves a warm oasis behind it for a while. Heat spreads a few cells, rides the currents (warm water trails downstream of a bloom) and relaxes toward the climate's ${t("water", "background")} within about half a minute. Stone holds heat: reefs and bedrock warm and cool slowly.</p>
+<p>Each species prefers a temperature (its ${t("optimum", "optimum")}) and stands only so much either side (its ${t("tolerance", "tolerance")}). How well it ${t("thermal", "works")} falls off slowly in the cold and steeply in the heat, and narrow specialists work best of all at their optimum, so small differences in warmth matter. Swimmers steer toward water that suits them (${t("thermotaxis", "thermotaxis")}). Far too cold, a cell goes ${t("torpor", "torpid")}; far too hot, it bleaches and may ${t("scalding", "scald")}.</p>
+<p>${t("heatmaker", "Heat-makers")} burn extra energy to warm themselves and their water. In a cold era their colonies are lifeboats where life keeps moving and singing while the world around it goes still; in a ${t("heatwave", "heat wave")} they overheat from the core outward. Warm water also wears glint and husks faster, so cold eras favour grazers and scavengers and warm ones recycle matter quickly.</p>
+<p><b>Settings → Heat map</b> (E): <b>Shimmer</b> makes warm water waver as if seen through rising heat; <b>Full</b> is a thermal camera with an isotherm every 2°. Framboids show as brassy beaded spheres, faintly glowing while they burn.</p>`
     },
     {
       id: "cells",
@@ -14455,7 +14977,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
 <li>Catching takes skill: cells catch living prey in proportion to how well they are built to eat it, so photosynthesisers and husk eaters rarely kill.</li>
 <li>Hunters and grazers get good at catching what they caught last and often miss unfamiliar prey, so booming species feed their predators and rare ones are spared.</li>
 <li>Anchored photosynths thrive where currents run strong; drifting ones where they are calm. Bonded bodies live cheaply and resist attack but disperse poorly.</li>
-<li>The climate keeps changing which strategy pays.</li>
+<li>Heat links species that never touch: a heat-maker's colony warms its neighbours, helping the warmth-lovers among them and driving the cold-lovers away, so species sort into thermal territories of their own making.</li>
+<li>The climate keeps changing which strategy pays, and its temperature walks, so the lineages that track it and those that hide in refuges trade places.</li>
 </ul>
 <p>Mass is conserved, so every birth needs silt freed by some earlier death or meal. Life is limited by matter as well as energy.</p>`
     },
@@ -14471,7 +14994,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       title: "Reading the screen",
       short: "Screen",
       html: `<ul>
-<li><b>Colour</b>: the species, tinted per cell type. Related species share hues. Brightness shows stored energy; newborns flash; some lineages pulse.</li>
+<li><b>Colour</b>: the species, tinted per cell type. Related species share hues. Brightness shows stored energy; newborns flash; some lineages pulse. Heat-stressed cells bleach toward pale bone, torpid ones dim to a cold blue and stop pulsing, and heat-makers glow faintly warm.</li>
 <li><b>Shape</b>: disc, ring, star, nucleus or diamond, a lineage marker per cell type. Husks are dim brown rings, glint is a pale sparkle, silt is faint slate.</li>
 <li><b>Links</b>: ${t("bond", "bonds")} within one multicellular body.</li>
 <li><b>Census</b>: the bar splits every particle between living cells, glint, husks, stone and silt. The chart below it stacks living cells by species in their colours (point at a band to name its species, click to open it); the pale top band is life in species too small to list, and dotted lines mark new eras.</li>
@@ -14527,7 +15050,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
     { name: "Husk", css: "#9a6c4c", blurb: "The remains of a dead cell. Scavengers feed on what energy is left; the rest crumbles back into silt." },
     { name: "Stone", css: "#c2b8a8", blurb: "Bedrock, or the skeleton a calcifying cell left where it settled. Stone never drifts and the living cannot pass through it. Prey shelters in its crevices, and it slowly wears back into silt." }
   ];
-  var CAUSE = { 0: "", 1: "starved", 2: "died of old age", 3: "was consumed", 4: "crumbled from a husk", 5: "charged by the Tide", 6: "faded back to silt", 7: "wore away from stone", 8: "sparked into life from glint", 9: "built from silt by its parent" };
+  var FRAMBOID_MATTER = { name: "Framboid", css: "#ccb373", blurb: "A pyrite framboid: a sphere of tiny iron sulfide crystals, grown from the sulfide a pile of rotting husks releases in cool mud. As it oxidises it warms the water around it, faster the warmer that water is, until it is spent and crumbles to silt." };
+  var CAUSE = { 0: "", 1: "starved", 2: "died of old age", 3: "was consumed", 4: "crumbled from a husk", 5: "charged by the Tide", 6: "faded back to silt", 7: "wore away from stone", 8: "sparked into life from glint", 9: "built from silt by its parent", 10: "scalded", 12: "crystallised in a rotting pile" };
   var LIVING_CSS = "#ff9a6a";
 
   // src/glyphs.js
@@ -14838,6 +15362,50 @@ registerProcessor("tidemote-sound", TidemoteSound);
       return v;
     });
     return vals.map((v, i) => `${i ? "L" : "M"}${(i / (vals.length - 1) * w).toFixed(1)},${(h - 1 - v / max * (h - 2)).toFixed(1)}`).join("");
+  }
+  function drawNiches(cv, species, tbg, felt, binW) {
+    const f2 = fit(cv);
+    if (!f2) return;
+    const { g, w, h } = f2;
+    const top = 16, bot = 14, X = (t2) => Math.max(0, Math.min(45, t2)) / 45 * (w - 1);
+    frame(g, w, h - bot, top, [], null);
+    g.font = "500 10px Saira, system-ui, sans-serif";
+    g.fillStyle = AXIS;
+    const fmax = Math.max(1, ...felt);
+    g.fillStyle = "rgba(255,138,58,0.16)";
+    felt.forEach((n, b) => {
+      const bh = n / fmax * (h - bot - top);
+      g.fillRect(X(b * binW) + 1, h - bot - bh, X(binW) - X(0) - 2, bh);
+    });
+    g.fillStyle = "rgba(255,138,58,0.8)";
+    for (let y = top; y < h - bot; y += 3) g.fillRect(Math.round(X(tbg)), y, 1, 1.5);
+    const pmax = Math.max(10, ...species.map((s) => s.pop));
+    const Y = (p) => h - bot - 3 - Math.log10(Math.max(1, p)) / Math.log10(pmax) * (h - bot - top - 6);
+    for (const s of species) {
+      const r = 1.5 + s.tol / 15 * 4;
+      g.globalAlpha = 0.85;
+      g.fillStyle = cssCol(s.col);
+      g.beginPath();
+      g.arc(X(s.topt), Y(s.pop), r, 0, Math.PI * 2);
+      g.fill();
+      if (s.maker) {
+        g.strokeStyle = "#ff8a3a";
+        g.lineWidth = 1;
+        g.beginPath();
+        g.arc(X(s.topt), Y(s.pop), r + 2.5, 0, Math.PI * 2);
+        g.stroke();
+      }
+    }
+    g.globalAlpha = 1;
+    g.fillStyle = AXIS;
+    g.textAlign = "left";
+    g.fillText(`${fmt(pmax)} cells`, 0, 10);
+    for (const t2 of [0, 10, 20, 30, 40]) {
+      g.textAlign = t2 ? "center" : "left";
+      g.fillText(`${t2}°`, X(t2), h - 2);
+    }
+    g.textAlign = "right";
+    g.fillText(`water ${Math.round(tbg)}°`, w, 10);
   }
 
   // src/ui.js
@@ -15295,23 +15863,43 @@ registerProcessor("tidemote-sound", TidemoteSound);
       ["New species and extinctions per minute", "mutation", [{ k: "mut", label: "new species", col: "#c9b8ff" }, { k: "ext", label: "extinctions", col: "#ff8a6b" }]],
       ["Climate", "season", [{ k: "ambient", label: "baseline light", col: "#d9f27a" }, { k: "season", label: "tide strength", col: "#5fd4c4" }]]
     ];
+    if (api.eng.K.heat) {
+      CHARTS.push(
+        ["Water", "water", [{ k: "temp", label: "background water", col: "#ff8a3a" }], "°"],
+        ["Heat deaths per minute", "scalding", [{ k: "scald", label: "scalded", col: "#ff5f3a" }]],
+        ["Torpid", "torpor", [{ k: "torpid", label: "share of the living", col: "#7fb0ff" }], "%"]
+      );
+    }
     function buildCharts() {
       const p = pane("");
       p.scroll.classList.add("stack");
-      p.scroll.innerHTML = `<div class="legend"><span><i style="background:var(--sun);height:6px;width:1px"></i>dotted lines mark a new era</span></div>` + CHARTS.map(([t2, tip, s], i) => block(t2, `<canvas class="dyn" data-i="${i}" aria-label="${esc(t2)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join("")}</div>`, { tip })).join("") + block("Eras", '<ol class="eras" id="eras"></ol>');
+      p.scroll.innerHTML = `<div class="legend"><span><i style="background:var(--sun);height:6px;width:1px"></i>dotted lines mark a new era</span></div>` + CHARTS.map(([t2, tip, s], i) => block(t2, `<canvas class="dyn" data-i="${i}" aria-label="${esc(t2)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join("")}</div>`, { tip })).join("") + (api.eng.K.heat ? block("Thermal niches", `<canvas class="niches" aria-label="Each species by the temperature it prefers and its population"></canvas><div class="legend"><span><i style="background:#ff8a3a;opacity:.4"></i>warmth the living feel</span><span><i style="background:#ff8a3a;height:6px;width:1px"></i>background water</span><span>dot size: tolerance · ring: ${term("heatmaker", "heat-maker")}</span></div>`, { tip: "optimum" }) : "") + block("Eras", '<ol class="eras" id="eras"></ol>');
       const cvs = [...p.scroll.querySelectorAll("canvas.dyn")];
-      let erasN = -1;
+      const niches = p.scroll.querySelector("canvas.niches");
+      let erasN = -1, excN = 0;
       function update() {
-        const hist = api.life().history, eras = api.climate().history;
-        cvs.forEach((cv, i) => drawLines(cv, hist, CHARTS[i][2], eras, ""));
-        if (eras.length !== erasN) {
+        const life = api.life(), hist = life.history, eras = api.climate().history;
+        cvs.forEach((cv, i) => drawLines(cv, hist, CHARTS[i][2], eras, CHARTS[i][3] || ""));
+        if (niches) {
+          const sp = [];
+          for (const s of life.reg.values()) if (s.alive && s.pop > 0) sp.push({ topt: s.genome.topt, tol: s.genome.tol, pop: s.pop, maker: s.genome.thermo > 0.2, col: s.genome.col });
+          const c = life.lastCensus, now = c ? Array.from(c.energy.slice(THERMAL_LEDGER.hist, THERMAL_LEDGER.hist + HEAT_BINS)) : null;
+          if (now && (!felt0 || c.simTime - felt0.t > 60 || c.simTime < felt0.t)) felt0 = { t: c.simTime, n: felt1 ? felt1.n : now };
+          if (now && (!felt1 || c.simTime - felt1.t > 30 || c.simTime < felt1.t)) felt1 = { t: c.simTime, n: now };
+          drawNiches(niches, sp, api.eng.tbg, now ? now.map((v, b) => v - felt0.n[b]) : [], HEAT_BIN);
+        }
+        const exc = eras.filter((h) => h.excursion).length;
+        if (eras.length !== erasN || exc !== excN) {
           erasN = eras.length;
-          $2("eras").innerHTML = eras.slice().reverse().map((h) => `<li><time>${fmtClock(h.t)}</time><b>${esc(h.name)}</b><span>light ${Math.round(h.ambient * 100)}% · glint ×${h.charge.toFixed(2)}</span></li>`).join("");
+          excN = exc;
+          const water = (h) => api.eng.K.heat && h.temp != null ? ` · water ${Math.round(h.temp)}°${h.excursion ? ` · ${h.excursion.dT > 0 ? "heat wave" : "cold snap"} ${h.excursion.dT > 0 ? "+" : "−"}${Math.abs(h.excursion.dT).toFixed(0)}°` : ""}` : "";
+          $2("eras").innerHTML = eras.slice().reverse().map((h) => `<li><time>${fmtClock(h.t)}</time><b>${esc(h.name)}</b><span>light ${Math.round(h.ambient * 100)}% · glint ×${h.charge.toFixed(2)}${water(h)}</span></li>`).join("");
         }
       }
+      let felt0 = null, felt1 = null;
       return { ...p, update };
     }
-    const TYPES = [["all", "All"], ["est", "New species"], ["genus", "New genera"], ["ext", "Extinctions"], ["top", "Dominance"], ["era", "Eras"]];
+    const TYPES = [["all", "All"], ["est", "New species"], ["genus", "New genera"], ["ext", "Extinctions"], ["top", "Dominance"], ["era", "Eras"], ...api.eng.K.heat ? [["heat", "Heat"]] : []];
     function buildLog() {
       const p = pane(`<input type="search" id="log-q" placeholder="Search the log" aria-label="Search the log" autocomplete="off">
       <div class="row" role="group" aria-label="Show">${chips("logType", TYPES, st.logType)}</div>`);
@@ -15427,6 +16015,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
     if (g.photo > 0.25 && g.photo <= 0.55) tags.push(["part photosynth", "photosynth"]);
     if (g.lifespan > 300) tags.push(["long-lived", "lifespan"]);
     if (g.mutRate > 0.035) tags.push(["fast-mutating", "mutation"]);
+    if (K.heat && g.topt != null) {
+      const t2 = thermalGuild(g);
+      if (t2.pref !== "temperate") tags.push([t2.pref, "optimum"]);
+      if (t2.breadth === "specialist") tags.push(["thermal specialist", "tolerance"]);
+      if (t2.maker) tags.push(["heat-maker", "heatmaker"]);
+    }
     return tags;
   }
 
@@ -15474,10 +16068,18 @@ registerProcessor("tidemote-sound", TidemoteSound);
         align: v2(36),
         bond: v2(38),
         stone: v2(40),
-        swim: v2(42)
+        swim: v2(42),
+        heat: v2(50)
       },
       flow: v2(44),
       matterN: [f32[46], f32[47], f32[48], f32[49]],
+      // warmth: its own temperature (body warmth included), the water's, how well it works there
+      // (perf, a rate multiplier) and how many tolerances it is from its optimum (x)
+      warmth: f32[21],
+      water: f32[52],
+      perf: f32[53],
+      x: f32[54],
+      torpid: !!(u32[55] & 1),
       nbrs
     };
   }
@@ -15489,10 +16091,15 @@ registerProcessor("tidemote-sound", TidemoteSound);
     { key: "matter", label: "Matter & stone", parts: ["matter", "stone"], tip: "mind-matter", css: "#6fa0c0" },
     { key: "bond", label: "Bonds", parts: ["bond"], tip: "bond", css: "#ffb36b", when: (g, K) => (g.adhesion || 0) > K.adhMin },
     { key: "align", label: "Schooling", parts: ["align"], tip: "schooling", css: "#7fe0c0", when: (g) => g.align > 0.02 },
-    { key: "swim", label: "Swimming", parts: ["swim"], tip: "swimming", css: "#e2f1f0", when: (g) => g.swim * (1 - g.photo) > 0.01 }
+    { key: "swim", label: "Swimming", parts: ["swim"], tip: "swimming", css: "#e2f1f0", when: (g) => g.swim * (1 - g.photo) > 0.01 },
+    { key: "heat", label: "Warmth", parts: ["heat"], tip: "thermotaxis", css: "#ff8a3a", when: (g, K) => K.heat && g.swim * (1 - g.photo) > 0.01 }
   ];
   var groupsFor = (g, K) => GROUPS.filter((gr) => !gr.when || gr.when(g, K));
   var len = (v) => Math.hypot(v[0], v[1]);
+  var smooth = (a, b, x) => {
+    const t2 = Math.min(1, Math.max(0, (x - a) / (b - a)));
+    return t2 * t2 * (3 - 2 * t2);
+  };
   var MODES = {
     divide: "Dividing",
     seeksilt: "Ready to divide",
@@ -15517,7 +16124,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
     blocked: "Against stone",
     drift: "Drifting",
     cruise: "Cruising",
-    idle: "Idling"
+    idle: "Idling",
+    torpid: "Torpid",
+    scalding: "Scalding",
+    seekwarm: "Seeking warmth",
+    seekcool: "Seeking cooler water",
+    huddle: "Keeping warm"
   };
   function catchSkill(hunter, prey, K) {
     if (!hunter || !prey) return 0;
@@ -15573,14 +16185,20 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const E = m.energy, need = g.reproE;
     const lean = 0.55 + 0.45 * Math.min(1, Math.max(0, E / need));
     const net = m.photoGain - m.upkeep;
-    const budget = { light: m.photoGain, upkeep: m.upkeep, net, lean, crowding: m.kinCost - 1, thrift: K.bodyThrift * 0.5 * m.bonds };
+    const heatMaking = K.heat ? K.thermoCost * (g.thermo || 0) : 0;
+    const stress = K.heat ? smooth(0.3, 0.9, Math.abs(m.x)) : 0;
+    const budget = { light: m.photoGain, upkeep: m.upkeep, net, lean, crowding: m.kinCost - 1, thrift: K.bodyThrift * 0.5 * m.bonds, stress: K.stressCost * stress, heatMaking };
+    const deg = (t2) => `${Math.round(t2)}°`;
+    const range = g.topt != null ? `${deg(g.topt)} ± ${Math.round(g.tol)}°` : "";
     const pct = (x) => `${Math.round(x * 100)}%`;
     const hunger = `energy ${E.toFixed(2)} of the ${need.toFixed(2)} it needs to divide`;
     let st = null;
     const threat = others.filter((s) => s.threat >= 0.5).sort((a, b) => a.sig - b.sig)[0];
     const repel = others.filter((s) => s.sig < 0).sort((a, b) => a.sig - b.sig)[0];
     const draw = others.filter((s) => s.sig > 0).sort((a, b) => b.sig - a.sig)[0];
-    if (E >= need) {
+    if (K.heat && m.torpid) {
+      st = { key: "torpid", text: "Torpid in the cold", why: `At ${deg(m.warmth)} it is ${Math.round(g.topt - g.tol * K.torporAt - m.warmth + 0.5)}° below the range it can work in (it prefers ${range}): it neither feeds, swims nor divides, and burns ${Math.round(K.torporCost * 100)}% of its upkeep until the water warms.` };
+    } else if (E >= need) {
       st = m.siltNear ? { key: "divide", matter: "Silt", text: "Dividing", why: `Its energy (${E.toFixed(2)}) has reached the ${need.toFixed(2)} it needs, and a grain of silt is in reach to build a child from.` } : { key: "seeksilt", matter: "Silt, none in reach", text: "Ready to divide", why: `It has the energy to divide (${E.toFixed(2)} of ${need.toFixed(2)}) but no grain of silt within reach to build a child from, so it waits. Full, it has stopped feeding.` };
     } else if (m.food && m.hungry) {
       const fk = m.food.kind;
@@ -15597,6 +16215,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
     }
     const left = net < 0 ? E / -net : Infinity;
+    if (!st && K.heat && m.x > 0.8) {
+      st = { key: "scalding", text: "Scalding", why: `At ${deg(m.warmth)} it is far above the ${deg(g.topt)} it prefers: it barely works (${Math.round(m.perf * 100)}%) and may die of the heat any moment.` };
+    }
     if (!st && left < 8) {
       st = { key: "starve", text: "Starving", why: `Its energy (${E.toFixed(2)}) is nearly spent: about ${Math.max(1, Math.round(left))} s left at ${(-net).toFixed(3)}/s${m.hungry ? ", with nothing it eats in reach" : ""}.` };
     }
@@ -15614,6 +16235,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const glint = g.dGlint * m.matterN[GLINT] >= g.dHusk * m.matterN[HUSK];
       st = { key: "forage", matter: glint ? "Glint" : "Husks", text: glint ? "Foraging for glint" : "Foraging for husks", why: `Hungry (${hunger}). Its diet draws it toward the ${glint ? "glint" : "husks"} drifting nearby.` };
     }
+    if (!st && K.heat && share("heat") >= 0.25) {
+      const warmer = g.topt > m.warmth;
+      st = { key: warmer ? "seekwarm" : "seekcool", text: warmer ? "Seeking warmth" : "Seeking cooler water", why: `At ${deg(m.warmth)} it is ${warmer ? "colder" : "warmer"} than the ${deg(g.topt)} it prefers, so it swims ${warmer ? "up" : "down"} the warmth of the water around it.` };
+    }
+    if (!st && K.heat && (g.thermo || 0) > 0.2 && m.bonds > 0 && m.x < 0 && m.water < g.topt - 1) {
+      st = { key: "huddle", text: "Keeping warm", why: `A heat-maker in a body: it burns ${heatMaking.toFixed(3)}/s to run ${deg(m.warmth - m.water)} above the ${deg(m.water)} water, and its body holds the warmth in.` };
+    }
     if (!st && repel && -repel.sig > 0.35 * total) {
       st = { key: "avoid", target: repel.kind, text: "Keeping away from {sp}", why: "Its receptors are repelled by the surface signature of {sp}, so it is pushed away from them." };
     }
@@ -15621,7 +16249,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       st = { key: "follow", target: draw.kind, text: "Drawn to {sp}", why: "Its receptors are attracted to the surface signature of {sp}, so it gathers among them." };
     }
     if (!st && g.photo > 0.4) {
-      st = net >= 0 ? { key: "bask", text: "Basking", why: `Photosynthesising: ${m.photoGain.toFixed(3)}/s from ${pct(m.light)} light, more than its ${m.upkeep.toFixed(3)}/s upkeep.` } : { key: "dark", text: "Waiting out the dark", why: `Photosynthesising ${m.photoGain.toFixed(3)}/s from ${pct(m.light)} light${m.nutr < 3 ? " with little silt nearby for minerals" : ""}: less than its ${m.upkeep.toFixed(3)}/s upkeep, so it is living on its reserves.` };
+      st = net >= 0 ? { key: "bask", text: "Basking", why: `Photosynthesising: ${m.photoGain.toFixed(3)}/s from ${pct(m.light)} light${K.heat && m.perf > 1.05 ? ` in warm water that suits it (${pct(m.perf)})` : ""}, more than its ${m.upkeep.toFixed(3)}/s upkeep.` } : { key: "dark", text: "Waiting out the dark", why: `Photosynthesising ${m.photoGain.toFixed(3)}/s from ${pct(m.light)} light${m.nutr < 3 ? " with little silt nearby for minerals" : ""}: less than its ${m.upkeep.toFixed(3)}/s upkeep, so it is living on its reserves.` };
     }
     if (!st) {
       const top = drives[0];
@@ -15646,6 +16274,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
       { key: "crowd", label: "Crowded by kin", on: m.kinCost > 1.01, hint: m.kinCost > 1.01 ? `Packed among ${Math.round(m.kinN)} of its own kind: upkeep +${pct(m.kinCost - 1)}.` : `Fewer than ${K.kinFree + 1} of its own kind around (bond partners aside): no crowding cost.` },
       { key: "shelter", label: "Sheltered by stone", on: m.stoneN >= 1, hint: m.stoneN >= 1 ? `Among stone: attacks made from here miss ${pct(shelter)} of the time.` : "No stone nearby to hide among." }
     ];
+    if (K.heat) {
+      const cold = m.x < -0.3, hot = m.x > 0.3;
+      flags.push(
+        { key: "cold", label: "Cold", on: cold, hint: `${deg(m.warmth)}, it prefers ${range}: ${cold ? `${pct(m.perf)} of its best${m.torpid ? "; torpid" : ""}.` : "not too cold."}` },
+        { key: "hot", label: "Hot", on: hot, hint: `${deg(m.warmth)}, it prefers ${range}: ${hot ? `${pct(m.perf)} of its best${m.x > 0.8 ? "; it may scald" : ""}.` : "not too hot."}` }
+      );
+    }
     return { ...st, need, mode: MODES[st.key], target: st.target ?? null, flags, groups, drives, total, species, budget };
   }
   function slotRows(rows, kinds, n) {
@@ -15712,7 +16347,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       h += `<div class="mv-pulls">${compassHTML(groups)}<div class="mv-drives">`;
       h += groups.map((gr) => `<div data-k="${gr.key}"><i style="background:${gr.css}"></i><span>${term(gr.tip, gr.label)}</span><span class="meter thin" style="color:${gr.css}"><i style="width:0"></i></span><b>0%</b></div>`).join("");
       h += `<div class="mv-key"><span><i class="dash"></i>heading</span><span><i class="dia"></i>target</span></div></div></div>`;
-      h += `<div class="mv-lamps">${["hungry", "full", "threat", "low", "lean", "crowd", "shelter"].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join("")}</div></div>`;
+      h += `<div class="mv-lamps">${["hungry", "full", "threat", "low", "lean", "crowd", "shelter", ...K.heat ? ["cold", "hot"] : []].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join("")}</div></div>`;
       h += `<div class="blk mv-nb">${subHead(`<i class="ico cell"></i>${term("mind-near", "Neighbours")}`, "within its reach")}`;
       h += `<div class="nb-row nb-head"><span></span><span>Species</span><span>Cells</span><span>Role</span><span class="nb-pull term" data-hint="How each species moves this cell: pushes it away (left) or pulls it toward them (right)." tabindex="0"><i>push</i><i>pull</i></span></div>`;
       for (let i = 0; i <= NB_ROWS; i++) h += `<div class="nb-row empty" data-i="${i}"><span class="nb-sig"></span><span class="nb-name">—</span><b class="nb-n"></b><em class="nb-role"></em><span class="dbar"><i></i></span></div>`;
@@ -16024,6 +16659,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     const blk = (title, html, opts) => block(title, html, opts);
     const vital = (label2, frac, cls, text, tip) => `<div class="vital"><span>${tip ? term(tip, label2) : label2}</span>${meter(frac, cls)}<b>${text}</b></div>`;
+    const warmthVital = (m, g, text) => {
+      const at = (t2) => (clamp6((t2 - (g.topt - 2 * g.tol)) / (4 * g.tol), 0, 1) * 100).toFixed(1);
+      const lo = at(g.topt - K.thermalFlat * g.tol), hi = at(g.topt + K.thermalFlat * g.tol);
+      return `<div class="vital"><span>${term("thermal", "Warmth")}</span><span class="tgauge${m.x > 0.8 || m.torpid ? " alarm" : ""}"><em style="left:${lo}%;width:${(hi - lo).toFixed(1)}%"></em><i style="left:${at(m.warmth)}%"></i></span><b>${text}</b></div>`;
+    };
     const lightAt = (p) => {
       const [W, H2] = eng.grid;
       return Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H2, eng.simTime, eng.tide, eng.tidePh) * eng.season) * 100);
@@ -16063,6 +16703,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       h += kv("Upkeep", b ? `<span class="neg">${signed(-b.upkeep)}/s</span>` : "—", "upkeep");
       h += kv("Crowding", !b ? "—" : b.crowding > 0.01 ? `upkeep +${Math.round(b.crowding * 100)}%` : none, "crowding");
       if (g && (g.adhesion || 0) > K.adhMin) h += kv("Bond share", !b ? "—" : b.thrift > 1e-3 ? `upkeep −${Math.round(b.thrift * 100)}%` : none, "bondthrift");
+      if (K.heat) h += kv("Heat stress", !b ? "—" : mind.m.torpid ? `torpid: burns ${Math.round(K.torporCost * 100)}% of its upkeep` : b.stress > 0.01 ? `upkeep +${Math.round(b.stress * 100)}%` : none, "thermal");
+      if (K.heat && (g.thermo || 0) > 5e-3) h += kv("Heat-making", b ? `<span class="neg">${signed(-b.heatMaking)}/s</span>` : "—", "heatmaker");
       h += kv("Saving energy", !b ? "—" : b.lean < 0.995 ? `burns ${Math.round(b.lean * 100)}% of its upkeep` : none, "lean");
       h += kv("Net", b ? `<span class="${b.net >= 0 ? "pos" : "neg"}">${signed(b.net)}/s</span> between meals` : "—", "mind-net");
       return blk("Energy budget", h, { tip: "energy" });
@@ -16187,6 +16829,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         const gen = life.genera.get(src.genus);
         s += kv("Genus", gen ? `${esc(gen.name)}${gen.from ? ` · split from ${esc(gen.from)}` : ""}` : "–", "genus");
         s += kv("Mutations", `${g.depth} from its founder`, "depth");
+        if (K.heat) s += kv("Thermal niche", nicheWords(g), "optimum");
       }
       h += blk("At a glance", s, { tip: "species" });
       h += songBlock(g, sp, false);
@@ -16227,6 +16870,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       l += trait("Upkeep", g.metab, 0.01, 0.15, `${g.metab.toFixed(3)}/s`, "upkeep");
       l += trait("Mutation", g.mutRate, 2e-3, 0.08, `${(g.mutRate * 100).toFixed(1)}%`, "mutation");
       h += blk("Life cycle", l);
+      if (K.heat) h += blk("Temperature", thermalBlock(g), { tip: "thermal" });
       const types = [0, 1, 2].filter((r) => sh[r] > 0.05);
       const others = [];
       for (const s of life.reg.values()) if (s.alive && s.established && s.serial !== g.serial) others.push(s);
@@ -16245,6 +16889,21 @@ registerProcessor("tidemote-sound", TidemoteSound);
       for (const it of rows) t2 += `<span class="pt-name"><i style="background:${it.css}"></i><span>${it.name}</span></span>${types.map((r) => heat(it.v(r))).join("")}`;
       t2 += '</div><div class="pulls-key"><span><i class="to"></i>drawn toward</span><span><i class="away"></i>pushed away</span></div>';
       h += blk("How its cells react", t2, { tip: "affinity" });
+      return h;
+    }
+    function nicheWords(g) {
+      const t2 = thermalGuild(g);
+      return [t2.pref, t2.breadth, t2.maker ? "heat-maker" : ""].filter(Boolean).join(", ") + `, ${Math.round(g.topt)}° ± ${Math.round(g.tol)}°`;
+    }
+    function thermalBlock(g) {
+      let h = trait("Optimum", g.topt, 0, 45, `${g.topt.toFixed(1)}°`, "optimum");
+      h += trait("Tolerance", g.tol, 2, 15, `±${g.tol.toFixed(1)}°`, "tolerance");
+      h += trait("Heat output", g.thermo || 0, 0, 1, (g.thermo || 0) > 5e-3 ? `${Math.round(g.thermo * 100)}% · +${(K.thermoCost * g.thermo).toFixed(3)}/s` : "none", "heatmaker");
+      const W = 300, H2 = 60, X = (t2) => t2 / 45 * W, Y = (v) => H2 - 4 - v / 1.45 * (H2 - 10);
+      let d = "";
+      for (let t2 = 0; t2 <= 45; t2 += 0.5) d += `${t2 ? "L" : "M"}${X(t2).toFixed(1)},${Y(thermalPerf(g, t2, K).perf).toFixed(1)}`;
+      const water = Math.round(eng.tbg * 2) / 2, live = thermalPerf(g, water, K);
+      h += `<svg class="niche" viewBox="0 0 ${W} ${H2}" preserveAspectRatio="none" aria-label="How well it works from 0 to 45°"><line x1="0" x2="${W}" y1="${Y(1)}" y2="${Y(1)}" class="n-one"/><path d="${d}" class="n-curve"/><line x1="${X(water)}" x2="${X(water)}" y1="0" y2="${H2}" class="n-water"/><circle cx="${X(water)}" cy="${Y(live.perf)}" r="2.5" class="n-dot"/></svg><div class="legend-note"><span>0°</span><span>open water ${water}° · ${Math.round(live.perf * 100)}%</span><span>45°</span></div>`;
       return h;
     }
     function setTabs(list) {
@@ -16300,7 +16959,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         root.classList.remove("no-view");
         const p = sel.particle, mem = sel.memory;
         if (p.kind < FIRST_LIFE) {
-          const m = MATTER[p.kind];
+          const framboid = p.kind === 3 && p.cause === FRAMBOID;
+          const m = framboid ? FRAMBOID_MATTER : MATTER[p.kind];
           setHead(
             mem ? `Now ${m.name} · once` : m.name,
             mem && mem.sp ? spLink(mem.sp.serial, mem.sp.name) : m.name,
@@ -16308,13 +16968,15 @@ registerProcessor("tidemote-sound", TidemoteSound);
           );
           plainGlyph(MATTER_GLYPH[p.kind][0], MATTER_GLYPH[p.kind][1]);
           setActs(`m${!!mem}`, mem ? '<button type="button" class="btn" data-act="relative">Watch a relative</button>' : "");
-          if (p.kind === 1) v += vital("Charge", p.energy, "cyan", `fades in ${fmtDur(Math.max(0, (p.energy - K.glintMin) / K.leak))}`, "glint");
-          else if (p.kind === 2) v += vital("Energy left", p.energy / 1.2, "sun", `crumbles in ${fmtDur(Math.max(0, (p.energy - K.huskMin) / K.decay))}`, "husk");
+          const q10 = (q) => K.heat ? q ** ((eng.tbg - K.tRef) / 10) : 1;
+          if (p.kind === 1) v += vital("Charge", p.energy, "cyan", `fades in ${fmtDur(Math.max(0, (p.energy - K.glintMin) / (K.leak * q10(K.glintQ10))))}`, "glint");
+          else if (p.kind === 2) v += vital("Energy left", p.energy / 1.2, "sun", `${q10(K.rotQ10) > 1.3 ? "rotting fast · " : ""}crumbles in ${fmtDur(Math.max(0, (p.energy - K.huskMin) / (K.decay * q10(K.rotQ10))))}`, "husk");
+          else if (framboid) v += vital("Fuel", clamp6(p.energy / K.framboidLife, 0, 1), "warm", `burns out in about ${fmtDur(Math.max(0, p.energy / q10(2)))}`, "framboid");
           else if (p.kind === 3) v += vital("Wears away", clamp6(p.energy / 600, 0, 1), "cyan", `in ${fmtDur(Math.max(0, p.energy))}`, "stone");
           else v += vital("Light here", lightAt(p) / 100, "sun", `${lightAt(p)}%`, "lighthere");
           setTags(mem ? mem.g : null);
           let s = `<p class="note">${m.blurb}</p>`;
-          s += kv(p.kind === 2 ? "Dead for" : p.kind === 3 ? "Stone for" : "In this state", fmtDur(p.age));
+          s += kv(p.kind === 2 ? "Dead for" : framboid ? "Burning for" : p.kind === 3 ? "Stone for" : "In this state", fmtDur(p.age));
           if (p.kind === 2) s += kv("Cause of death", CAUSE[p.cause] || "unknown");
           s += kv("Light here", `${lightAt(p)}%`, "lighthere");
           flow.push(["state", m.name, blk("", s) + storyHTML(sel)]);
@@ -16342,6 +17004,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
           if (g) {
             v += vital("Energy", p.energy / g.reproE, "sun", `${p.energy.toFixed(2)} / ${g.reproE.toFixed(2)}`, "energy");
             v += vital("Age", p.age / g.lifespan, "cyan", `${fmtDur(p.age)} / ${fmtDur(g.lifespan)}`, "lifespan");
+            const m = !sel.lost && sel.mind && sel.mind.m;
+            if (K.heat && m) {
+              const warm = m.warmth - m.water, works = `works ${Math.round(m.perf * 100)}%`;
+              const text = m.torpid ? `Torpid · ${Math.max(1, Math.round(g.topt - g.tol * K.torporAt - m.warmth))}° below its range` : m.x > 0.8 ? `Scalding · ${Math.round(m.warmth)}°, best ${Math.round(g.topt)}°` : `${Math.round(m.warmth)}°${warm > 0.4 ? ` (runs ${Math.round(warm)}° warm)` : ""} · ${works}`;
+              v += warmthVital(m, g, text);
+            }
             const head = sel.mind && !sel.lost && (sel.mind.head || sel.mind);
             if (!sel.lost) v = `<div class="vital now"><span>${term("mind", "Now")}</span><b>${head ? withSp(head.text, head.target) : "—"}</b></div>` + v;
           }
@@ -16762,7 +17430,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var lerp2 = (a, b, t2) => a + (b - a) * t2;
   var wrapD = (d, W) => d - W * Math.round(d / W);
   var ease = (t2) => (1 - Math.cos(Math.PI * clamp7(t2, 0, 1))) / 2;
-  var smooth = (a, b, x) => {
+  var smooth2 = (a, b, x) => {
     const t2 = clamp7((x - a) / (b - a), 0, 1);
     return t2 * t2 * (3 - 2 * t2);
   };
@@ -17124,7 +17792,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       } else {
         base = sh.flight ? sh.path.at(ease(sh.t / sh.flight)) : { ...sh.target };
       }
-      const ramp = smooth(sh.flight - 2, sh.flight + 5, sh.t);
+      const ramp = smooth2(sh.flight - 2, sh.flight + 5, sh.t);
       const w = base.w * sh.wMul;
       sh.off.x += sh.dx * w * ramp * dt;
       sh.off.y += sh.dy * w * ramp * dt;
@@ -17373,9 +18041,18 @@ registerProcessor("tidemote-sound", TidemoteSound);
     ctx.configure({ device, format, alphaMode: "opaque" });
     const specCtx = $("specimen").getContext("webgpu");
     specCtx.configure({ device, format, alphaMode: "opaque" });
+    let K = {};
+    const kHash = /[#&]k=([^&]*)/.exec(location.hash);
+    if (kHash) {
+      try {
+        K = JSON.parse(decodeURIComponent(kHash[1]));
+      } catch {
+        console.warn("[tidemote] ignoring a #k= that is not JSON");
+      }
+    }
     let eng;
     try {
-      eng = await createEngine(device, format, { hasTimestamps: hasTS });
+      eng = await createEngine(device, format, { hasTimestamps: hasTS, K });
     } catch (e) {
       fail("The simulation failed to compile", String(e.message || e));
       return;
@@ -17451,11 +18128,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const trailNames = ["Off", "Short", "Long", "Exposure"];
     let trailIdx = prefs.trails ?? 1;
     eng.settings.trails = trailLevels[trailIdx];
-    for (const k of ["links", "nodes", "bloom", "optics", "specks", "lod", "tide"]) if (prefs[k] !== void 0) eng.settings[k] = prefs[k];
+    for (const k of ["links", "nodes", "bloom", "optics", "specks", "lod", "tide", "heat"]) if (prefs[k] !== void 0) eng.settings[k] = prefs[k];
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
+      savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
     if (prefs.loupe !== void 0 && !isCoarse) state.loupe = prefs.loupe;
@@ -17583,11 +18260,18 @@ registerProcessor("tidemote-sound", TidemoteSound);
     let climate;
     function resetClimate() {
       climate = createClimate(eng);
-      climate.onEra = (era, prevAmb) => {
+      climate.onEra = (era, prevAmb, prevTemp) => {
         const lightWord = era.ambient > prevAmb + 0.05 ? "light rises" : era.ambient < prevAmb - 0.05 ? "light dims" : "light holds";
-        pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}% · glint ×${era.charge.toFixed(1)} · currents shift`, 4288734193, "era");
+        const waterWord = !K.heat ? "" : ` · water ${era.temp > prevTemp + 1 ? "warms" : era.temp < prevTemp - 1 ? "cools" : "holds"} to ${Math.round(era.temp)}°`;
+        pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}%${waterWord} · glint ×${era.charge.toFixed(1)} · currents shift`, 4288734193, "era");
         flash(climate.name, "New era");
         sound.era(climate.name);
+      };
+      climate.onExcursion = (x) => {
+        if (!K.heat) return;
+        const wave2 = x.dT > 0;
+        pushEvent(`${wave2 ? "A heat wave" : "A cold snap"}: the water ${wave2 ? "rises" : "falls"} ${Math.abs(x.dT).toFixed(0)}° for ${fmtDur(x.dur)}`, wave2 ? 4282026751 : 4292250173, "heat");
+        flash(wave2 ? "A heat wave" : "A cold snap", "Climate");
       };
     }
     let life;
@@ -17612,6 +18296,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         estThreshold: 30,
         births: 0,
         prevG: null,
+        prevD: null,
         prevT: 0
       };
       feedKey = "";
@@ -17890,7 +18575,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       let ampSum = 0;
       for (let k = 0; k < 4; k++) ampSum += eng.tide[k * 4 + 3];
       const tide = eng.season * Math.min(1, ampSum / 3);
-      sound.census({ species, pop, world: { light: Math.min(1.2, eng.ambient * 1.2 + 0.85 * tide), tide } });
+      sound.census({ species, pop, world: { light: Math.min(1.2, eng.ambient * 1.2 + 0.85 * tide), tide, warm: K.heat ? clamp6((eng.tbg - 16) / 12, -1, 1) : 0 } });
     }
     eng.onListen = (d) => {
       if (state.phase !== "running") return;
@@ -18018,8 +18703,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
           mut: rate(3),
           ext: rate(8),
           ambient: eng.ambient,
-          season: eng.season
+          season: eng.season,
+          temp: eng.tbg,
+          scald: [20, 21, 22, 23, 24].reduce((a, i) => a + (life.prevD ? c.demography[i] - life.prevD[i] : 0), 0) / Math.max(1e-6, t2 - life.prevT) * 60,
+          torpid: torpidShare(c)
         });
+        life.prevD = Array.from(c.demography);
         life.prevG = G;
         life.prevT = t2;
         life.lastHist = t2;
@@ -18034,6 +18723,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
       lab.render(false);
       if (sel || spView != null) dirty = true;
     };
+    let torpidPrev = null;
+    function torpidShare(c) {
+      const e = c.energy, now = [e[56], e.slice(40, 56).reduce((a, b) => a + b, 0)];
+      const prev = torpidPrev;
+      torpidPrev = now;
+      return prev && now[1] > prev[1] ? (now[0] - prev[0]) / (now[1] - prev[1]) : 0;
+    }
     const MIX = [
       ["Living", 3, LIVING_CSS, "living", "class:living"],
       ["Glint", 1, MATTER[1].css, "glint", "class:glint"],
@@ -18639,7 +19335,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const kfmt = (n) => n >= 1048576 ? `${n / 1048576}M` : `${Math.round(n / 1024)}k`;
       function display() {
         const s = eng.settings;
-        return choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? '<div class="ramp"><span>dark</span><i></i><span>full light</span></div>' : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe")) + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks");
+        return choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? '<div class="ramp"><span>dark</span><i></i><span>full light</span></div>' : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? `<div class="ramp heat"><span>${Math.round(eng.tbg - 2)}°</span><i></i><span>${Math.round(eng.tbg + 10)}°</span></div>` : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe")) + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks");
       }
       function performance_() {
         const s = eng.settings, P = state.perf;
@@ -18684,6 +19380,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           trailIdx = +v;
           s.trails = trailLevels[trailIdx];
         } else if (id === "tide") s.tide = +v;
+        else if (id === "heat") s.heat = +v;
         else if (id === "currents") state.currents = !!+v;
         else if (id === "links") s.links = !!+v;
         else if (id === "nodes") s.nodes = !!+v;
@@ -18926,6 +19623,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
         flash(["Light map off", "Faint light map", "Light map"][eng.settings.tide]);
         persist();
         view.render();
+      } else if ((k === "e" || k === "E") && K.heat) {
+        eng.settings.heat = (eng.settings.heat + 1) % 3;
+        flash(["Heat map off", "Heat shimmer", "Thermal camera"][eng.settings.heat]);
+        persist();
+        view.render();
       } else if (k === "w" || k === "W") {
         state.currents = !state.currents;
         flash(state.currents ? "Currents shown" : "Currents hidden");
@@ -19109,6 +19811,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     const segs = $("light-seg");
     segs.innerHTML = "<i></i>".repeat(10);
+    const heatSegs = $("heat-seg");
+    heatSegs.innerHTML = Array.from({ length: 10 }, (_, i) => `<i style="--c:${["#3d6fd6", "#3f86d8", "#3fa0d0", "#41b7c2", "#62c6a8", "#9bcd86", "#d2c865", "#f0b04a", "#ff8a3a", "#ff5f3a"][i]}"></i>`).join("");
+    $("g-heat").hidden = !K.heat;
     const wave = $("tide-wave");
     wave.querySelector(".wave").setAttribute("d", Array.from({ length: 31 }, (_, i) => `${i ? "L" : "M"}${i * 2},${(8 - 6 * Math.sin(i / 30 * TAU2)).toFixed(2)}`).join(""));
     let hudT = 0;
@@ -19132,6 +19837,15 @@ registerProcessor("tidemote-sound", TidemoteSound);
       setText("tide-v", `${Math.round(eng.season * 100)}%`);
       $("g-tide").setAttribute("aria-label", `Tide ${Math.round(eng.season * 100)}%, ${seasonAt(eng.simTime + 5) >= seasonAt(eng.simTime) ? "rising" : "ebbing"}`);
       $("g-light").setAttribute("aria-label", `Light ${L}%`);
+      if (K.heat) {
+        const T = eng.tbg, trend = climate.tempTo - eng.temp + (climate.excursion && eng.excursion ? Math.sign(climate.excursion.dT) * (eng.simTime < climate.excursion.t + climate.excursion.dur / 2 ? 1 : -1) : 0);
+        const arrow = trend > 0.4 ? "↑" : trend < -0.4 ? "↓" : "";
+        setText("heat-v", `${Math.round(T)}°${arrow}`);
+        [...heatSegs.children].forEach((s, i) => s.classList.toggle("on", i < Math.round((T - 4) / 24 * 10)));
+        const exc = eng.excursion > 0.5 ? "heat wave" : eng.excursion < -0.5 ? "cold snap" : "";
+        $("g-heat").classList.toggle("exc", !!exc);
+        $("g-heat").setAttribute("aria-label", `${exc ? `${exc}, ` : ""}water ${Math.round(T)}°${arrow ? arrow === "↑" ? " and rising" : " and falling" : ""}`);
+      }
       tips.check();
       setText("t-rate", state.speed > 1 && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : "");
       setText("sys-n", fmt(eng.count));

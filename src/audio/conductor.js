@@ -49,21 +49,23 @@ const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 
 
 // One note of a species voice: the synth parameters for its material.
-// o: { light, td (tide), dim (distance darkening), wet(r) (distance reverb), k, rr }.
+// o: { light, td (tide), dim (distance darkening), wet(r) (distance reverb), k, rr, warm }.
+// warm (-1 cold .. 1 warm water, 0 neutral): cold rings longer and clearer, warm is duller and quicker.
 export function noteParams(v, midi, dur, amp, o) {
-  const { light, td, dim, wet, k, rr } = o;
+  const { light, td, dim, wet, k, rr } = o, warm = o.warm || 0;
+  const ring = warm < 0 ? 1 - 0.4 * warm : 1 - 0.1 * warm;
   let p;
   switch (v.mat) {
     case 'cplx': p = { freq: midicps(midi), amp: amp * rr(0.7, 1), ratio: v.ratio, index: v.index * (0.5 + td), fold: v.fold * (0.6 + 0.6 * light),
       dec: (0.12 + 0.25 * v.dec) * (dur > 0.3 ? 1.5 : 1), bright: v.bright * (0.4 + 0.6 * light) * dim, rev: wet(0.22), dly: 0.12 }; break;
-    case 'tine': p = { freq: midicps(midi), amp: amp * rr(0.7, 1), dec: 0.8 + v.dec, bright: v.bright * dim, rev: wet(0.28), dly: 0.14 }; break;
+    case 'tine': p = { freq: midicps(midi), amp: amp * rr(0.7, 1), dec: (0.8 + v.dec) * ring, bright: v.bright * dim, rev: wet(0.28), dly: 0.14 }; break;
     // the swell's bloom is long, bright and folded: it sits lower and darker than the rest, or it drowns them out
     case 'swell': p = { freq: midicps(midi), amp: amp * 0.7, ratio: v.ratio, index: v.index * 0.7, fold: v.fold * 0.6, atk: dur * 0.45, hold: dur * 0.5, rel: dur * 2,
       bright: Math.min(0.6, v.bright * (0.25 + 0.5 * light)) * dim, rev: wet(0.35), dly: 0.06 }; break;
     case 'breath': p = { freq: midicps(midi), amp, atk: dur * 0.5, sus: dur * 0.4, rel: dur * 1.5, bright: v.bright * 0.6 * dim, glide: [0, 0.03, -0.03][Math.min(2, Math.floor(rr(0, 3)))], rev: wet(0.4), dly: 0.08 }; break;
-    case 'glass': p = { freq: midicps(midi), amp, atk: dur * 0.4, sus: dur * 0.6, rel: dur * 1.6, bright: Math.min(1.2, v.bright * (0.5 + light)) * dim, rev: wet(0.5), dly: 0.04 }; break;
+    case 'glass': p = { freq: midicps(midi), amp, atk: dur * 0.4, sus: dur * 0.6, rel: dur * 1.6 * ring, bright: Math.min(1.2, v.bright * (0.5 + light)) * dim, rev: wet(0.5), dly: 0.04 }; break;
     case 'pluck': p = { freq: midicps(midi), amp: amp * rr(0.75, 1), dec: (0.35 + 0.8 * v.dec) * (dur > 0.5 ? 1.4 : 1), bright: v.bright * dim,
-      coef: 0.12 + 0.45 * (1 - v.bright) + 0.2 * (1 - light), rev: wet(0.2), dly: 0.1 }; break;
+      coef: 0.12 + 0.45 * (1 - v.bright) + 0.2 * (1 - light) + (warm < 0 ? 0.08 : 0.06) * warm, rev: wet(0.2), dly: 0.1 }; break;
     case 'bite': p = { freq: midicps(midi), amp: amp * rr(0.7, 1), dec: 0.25 + 0.25 * v.dec, bright: v.bright * dim, rev: wet(0.12) }; break;
     case 'wood': p = { freq: midicps(midi), amp: amp * rr(0.7, 1), dec: 0.35 + 0.3 * v.dec, bright: v.bright * dim, rev: wet(0.18) }; break;
     default: p = null;
@@ -82,7 +84,8 @@ export class Conductor {
     this.field = new Field(this);
     this.post = null; // messages back to the page (the worklet sets this)
     this.queue = [];
-    this.world = { light: 0.6, tide: 0.5 };
+    this.world = { light: 0.6, tide: 0.5, warm: 0 };
+    this.warm = 0; // the water's warmth, eased over a few bars (world.warm)
     this.nodeN = 0;
     this.setEra(eraMusic('The First Tides'), true);
     this.score = new Score(this);
@@ -156,7 +159,7 @@ export class Conductor {
     if (this.pendingEra) { // the currents churn: a bridge to the new key
       const nx = eraMusic(this.pendingEra, this.era.root);
       this.pendingEra = null;
-      this.nextEra = nx; this.switchAt = ts + 45;
+      this.nextEra = nx; this.switchAt = ts + 45; this.fdnDecay = null; // the bridge takes the reverb
       this.score.bridge(ts, nx, nx.root + (nx.fx.shift || 0), MODES[nx.mode][0], this.switchAt);
     }
     // a new world opens with its era's song, unless an era change is already under way
@@ -169,6 +172,13 @@ export class Conductor {
     const bar = Math.round(this.stepN / 16);
     if (bar % 12 === 0) this.pivot = this.pivots[(bar / 12) % this.pivots.length | 0];
     const fx = this.era.fx, lvl = fx.level || 1;
+    // the water: cold is a clear, long-ringing hall; warm is close, humid air (the bridge's long
+    // reverb wins while it plays)
+    this.warm += ((W.warm || 0) - this.warm) * 0.25;
+    if (this.switchAt == null) {
+      const w = this.warm, damp = Math.round(w < 0 ? 5000 - 2000 * w : 5000 - 1500 * w), decay = Math.round((w < 0 ? 9 - 2 * w : 9 - w) * 10) / 10;
+      if (damp !== this.fdnDamp || decay !== this.fdnDecay) { this.setAt(ts, 'fdn', { damp, decay }); this.fdnDamp = damp; this.fdnDecay = decay; }
+    }
     const light = clamp(W.light * (fx.bright || 1), 0, 1.2), td = clamp(W.tide * (fx.tide || 1), 0, 1);
     const seaDim = 1 - 0.45 * this.field.z; // zoomed in, the open water steps back
     this.setAt(ts, this.sea, { tide: td, light, amp: 0.09 * (fx.sea || 1) * lvl * seaDim });

@@ -143,3 +143,16 @@ test('the pull rows are fixed by the genome and match the hunt', () => {
   assert.equal(it.mode, 'Hunting');
   assert.ok(it.odds.p > 0 && it.odds.verb === 'kill');
 });
+
+test('a torpid cell reads as torpid before anything else', () => {
+  const buf = new ArrayBuffer(MIND_BYTES);
+  const u32 = new Uint32Array(buf), f32 = new Float32Array(buf);
+  u32[1] = 1; u32[2] = 1; u32[3] = NONE; u32[5] = NONE;
+  Object.assign(f32, { 9: 0.01, 17: 1, 18: 1 / 60, 19: 0.5, 20: 1, 21: 6, 52: 6, 53: 0, 54: -2 });
+  u32[55] = 1;
+  const m = parseMind(u32, f32);
+  assert.equal(m.torpid, true);
+  const it = interpretMind(m, { ...G[ME], topt: 20, tol: 6 }, ME, { K, genomeOf });
+  assert.equal(it.key, 'torpid');
+  assert.ok(it.flags.find((f) => f.key === 'cold').on);
+});

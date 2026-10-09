@@ -1,9 +1,10 @@
 // Render a capture from tools/listen-capture.mjs through the soundtrack's audio-thread code.
 // usage: node tools/listen-render.mjs capture.json out.wav [--phase name] [--seed 3] [--speed 1] [--gain '{"alive":0}']
-//   [--repeat n] [--era 'sec:The Dim Gyre,sec:...'] [--season period]
+//   [--repeat n] [--era 'sec:The Dim Gyre,sec:...'] [--season period] [--warm v | --heat period]
 // --repeat plays the capture n times over, --era announces climate eras at those audio seconds, and
 // --season replaces the captured tide with a full season cycle of that many seconds (as the page's
-// seasonAt, sped up) to hear the long form build and ebb.
+// seasonAt, sped up) to hear the long form build and ebb. --warm holds the water's warmth at v (-1
+// cold .. 1 warm) and --heat sweeps it from cold to warm and back over that many seconds.
 // Prints per-phase loudness (needs ffmpeg) and voice statistics.
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -24,6 +25,7 @@ const repeat = Number(arg('repeat', 1)), span = log[log.length - 1].t - log[0].t
 log = Array.from({ length: repeat }, (_, i) => log.map((e) => ({ ...e, t: e.t + i * span }))).flat();
 const eras = (arg('era', '') || '').split(',').filter(Boolean).map((x) => { const i = x.indexOf(':'); return { at: Number(x.slice(0, i)), name: x.slice(i + 1) }; });
 const season = Number(arg('season', 0));
+const warmAt = arg('warm', null), heatPeriod = Number(arg('heat', 0));
 const sr = 48000, eng = new Engine(sr, { seed }), cond = new Conductor(eng, { seed });
 if (arg('gain', null)) cond.message({ type: 'fieldGain', gain: JSON.parse(arg('gain')) }); // e.g. '{"alive":0}'
 const t0 = log[0].t - 1.0 * speed, tEnd = log[log.length - 1].t + 3 * speed;
@@ -47,7 +49,8 @@ for (let b = 0; b < nb; b++) {
       P.t1 = tAudio; P.scans++; P.agc = (P.agc || 0) + cond.field.agc; P.pow = (P.pow || 0) + Math.log10(cond.field.power + 1e-9); P.events += m.ev.length / 8; P.living += m.living; P.act += m.act; m.inView.forEach((v, i) => (P.inView[i] += v));
     }
     if (m.type === 'slots') m.slots = m.slots.map((x) => (x.genome ? { ...x, voice: voiceOf(x.genome) } : x));
-    if (m.type === 'world' && season) { const sn = 0.55 + 0.45 * Math.sin((tAudio / season) * Math.PI * 2); m.world = { tide: 0.9 * sn, light: Math.min(1.2, 0.3 + 0.85 * 0.9 * sn) }; }
+    if (m.type === 'world' && season) { const sn = 0.55 + 0.45 * Math.sin((tAudio / season) * Math.PI * 2); m.world = { ...m.world, tide: 0.9 * sn, light: Math.min(1.2, 0.3 + 0.85 * 0.9 * sn) }; }
+    if (m.type === 'world' && (warmAt != null || heatPeriod)) m.world = { ...m.world, warm: heatPeriod ? -Math.cos((tAudio / heatPeriod) * Math.PI * 2) : Number(warmAt) };
     cond.message(m);
   }
   while (eras.length && eras[0].at <= tAudio) cond.message({ type: 'era', name: eras.shift().name });

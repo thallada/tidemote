@@ -16,7 +16,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     const E = await import('./engine.js');
     const { genomeSerial, readGenome } = await import('./genome.js');
     const { communitySample, summarizeRun } = await import('./ecostats.js');
-    const { ENERGY_SLOTS } = await import('./shaders.js');
+    const { ENERGY_SLOTS, THERMAL_LEDGER, HEAT_BINS, HEAT_BIN } = await import('./shaders.js');
     const eng = await E.createEngine(device, 'rgba8unorm', { K: config.k, hasTimestamps: device.features.has('timestamp-query') });
     if (!(await eng.allocate(config.n))) throw new Error(`could not allocate ${config.n} particles`);
     const W = width, H = height;
@@ -53,9 +53,14 @@ export async function runHeadless(device, config, { print, width = 640, height =
         if (diet[key] > 0.05) established.add(key);
         if (diet[key] === 0 && established.has(key)) lost.add(key);
       }
+      // the living's preferred temperatures, population-weighted, and the share that make heat
+      let n = 0, sum = 0, sq = 0, makers = 0, tol = 0;
+      for (const { pop: p, genome: g } of species) { n += p; sum += p * g.topt; sq += p * g.topt * g.topt; tol += p * g.tol; if (g.thermo > 0.2) makers += p; }
+      const toptMean = n ? sum / n : null;
       latest = { t, silt: pop[0], glint: pop[1], husk: pop[2], stone: pop[3], ...community,
         ambient: eng.ambient, chargeMul: eng.chargeMul, season: eng.season,
-        era: climate.name };
+        era: climate.name,
+        thermal: { tbg: eng.tbg, temp: eng.temp, excursion: eng.excursion, toptMean, toptSD: n ? Math.sqrt(Math.max(0, sq / n - toptMean ** 2)) : null, makerShare: n ? makers / n : 0, tolMean: n ? tol / n : null } };
       if (t - lastSample >= config.sample - 1e-6 || c.frameNo === frames) record(c);
       if (t - lastPrint >= config.print - 1e-6) {
         print?.(`t=${t.toFixed(0)}s living=${living}/${eng.count} species=${community.species} effective=${latest.effSpecies.toFixed(2)} era="${climate.name}"`);
@@ -88,7 +93,18 @@ export async function runHeadless(device, config, { print, width = 640, height =
           energy[guild][slot] = prevE && c.simTime > prevT ? ((c.energy[i] - prevE[i]) >>> 0) / 1000 * 60 / (c.simTime - prevT) : 0;
         }
       }
-      samples.push({ ...latest, rates, demography, meals, energy });
+      // what the living felt since the last sample (the ledger samples each cell once a second)
+      const since = (i) => (prevE ? (c.energy[i] - prevE[i]) >>> 0 : 0);
+      const hist = Array.from({ length: HEAT_BINS }, (_, b) => since(THERMAL_LEDGER.hist + b));
+      const felt = hist.reduce((a, b) => a + b, 0);
+      const quantile = (q) => { let acc = 0; for (let b = 0; b < HEAT_BINS; b++) { acc += hist[b]; if (acc >= q * felt) return (b + 0.5) * HEAT_BIN; } return null; };
+      const scalded = {};
+      for (const [g, guild] of guilds.entries()) scalded[guild] = prevD && c.simTime > prevT ? ((c.demography[20 + g] - prevD[20 + g]) >>> 0) * 60 / (c.simTime - prevT) : 0;
+      const thermal = { ...latest.thermal, felt: felt ? { p10: quantile(0.1), p50: quantile(0.5), p90: quantile(0.9) } : null,
+        torpidFrac: felt ? since(THERMAL_LEDGER.torpid) / felt : 0, makerFrac: felt ? since(THERMAL_LEDGER.makers) / felt : 0, scalded,
+        framboids: (c.energy[THERMAL_LEDGER.framboidsMade] - c.energy[THERMAL_LEDGER.framboidsSpent]) >>> 0,
+        framboidsMade: prevE ? since(THERMAL_LEDGER.framboidsMade) * 60 / (c.simTime - prevT) : 0 };
+      samples.push({ ...latest, thermal, rates, demography, meals, energy });
       prevG = Array.from(c.globals); prevD = Array.from(c.demography); prevE = Array.from(c.energy); prevT = lastSample = c.simTime;
     }
     // config.step: each step covers step/60 s (coarse steps), so fewer steps fill the minutes

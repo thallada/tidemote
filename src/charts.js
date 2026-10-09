@@ -127,3 +127,39 @@ export function sparkPath(hist, serial, w, h) {
   const vals = hist.map((s) => { const e = s.sp.find((q) => q[0] === serial); const v = e ? e[1] : 0; if (v > max) max = v; return v; });
   return vals.map((v, i) => `${i ? 'L' : 'M'}${((i / (vals.length - 1)) * w).toFixed(1)},${(h - 1 - (v / max) * (h - 2)).toFixed(1)}`).join('');
 }
+
+/**
+ * Thermal niches: each living species as a dot at its preferred temperature (x, 0..45°) and its
+ * population (y, log), sized by its tolerance and ringed if it makes heat, over a histogram of the
+ * warmth the living feel (felt: counts per bin of binW degrees). A line marks the background water.
+ */
+export function drawNiches(cv, species, tbg, felt, binW) {
+  const f = fit(cv);
+  if (!f) return;
+  const { g, w, h } = f;
+  const top = 16, bot = 14, X = (t) => (Math.max(0, Math.min(45, t)) / 45) * (w - 1);
+  frame(g, w, h - bot, top, [], null);
+  g.font = '500 10px Saira, system-ui, sans-serif';
+  g.fillStyle = AXIS;
+  const fmax = Math.max(1, ...felt);
+  g.fillStyle = 'rgba(255,138,58,0.16)';
+  felt.forEach((n, b) => { const bh = (n / fmax) * (h - bot - top); g.fillRect(X(b * binW) + 1, h - bot - bh, X(binW) - X(0) - 2, bh); });
+  g.fillStyle = 'rgba(255,138,58,0.8)';
+  for (let y = top; y < h - bot; y += 3) g.fillRect(Math.round(X(tbg)), y, 1, 1.5);
+  const pmax = Math.max(10, ...species.map((s) => s.pop));
+  const Y = (p) => h - bot - 3 - (Math.log10(Math.max(1, p)) / Math.log10(pmax)) * (h - bot - top - 6);
+  for (const s of species) {
+    const r = 1.5 + (s.tol / 15) * 4;
+    g.globalAlpha = 0.85;
+    g.fillStyle = cssCol(s.col);
+    g.beginPath(); g.arc(X(s.topt), Y(s.pop), r, 0, Math.PI * 2); g.fill();
+    if (s.maker) { g.strokeStyle = '#ff8a3a'; g.lineWidth = 1; g.beginPath(); g.arc(X(s.topt), Y(s.pop), r + 2.5, 0, Math.PI * 2); g.stroke(); }
+  }
+  g.globalAlpha = 1;
+  g.fillStyle = AXIS;
+  g.textAlign = 'left';
+  g.fillText(`${fmt(pmax)} cells`, 0, 10);
+  for (const t of [0, 10, 20, 30, 40]) { g.textAlign = t ? 'center' : 'left'; g.fillText(`${t}°`, X(t), h - 2); }
+  g.textAlign = 'right';
+  g.fillText(`water ${Math.round(tbg)}°`, w, 10);
+}

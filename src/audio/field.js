@@ -151,7 +151,8 @@ export class Field {
     const c = this.c, now = c.time;
     this.speed = m.speed; this.z = m.z; this.gd = m.gd;
     this.act += (m.act - this.act) * 0.25;
-    c.setTempo(tempoFor(m.speed));
+    // the pulse quickens a little in warm water and slows in cold
+    c.setTempo(tempoFor(m.speed) * (1 + 0.06 * c.warm));
     const wall = Math.max(1e-3, m.window / Math.max(m.speed, 1e-6));
     const S = LISTEN.stride, ev = m.ev, n = ev.length / S;
     const comp = new Float32Array(8);
@@ -312,7 +313,7 @@ export class Field {
       c.at(t, 'drop', { freq: midicps(midi + 12), amp: amp * 0.8, dec: this.rr(0.04, 0.09), rise: this.rr(1.3, 2.0), pan: o.pan, rev: o.wet(0.35), dly: 0.15 });
       return;
     }
-    const p = noteParams(v, midi, dur, amp, { light: o.light, td: o.td, dim: o.dim, wet: o.wet, k, rr: (a, b) => this.rr(a, b) });
+    const p = noteParams(v, midi, dur, amp, { light: o.light, td: o.td, dim: o.dim, wet: o.wet, k, rr: (a, b) => this.rr(a, b), warm: this.c.warm });
     if (p) { p.pan = o.pan; c.at(t, v.mat, p); }
   }
 

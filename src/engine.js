@@ -51,11 +51,15 @@ class Engine {
     this.abio = 0;
     this.ambient = 0.17;
     this.chargeMul = 1;
+    // the water's background temperature: the climate's (temp, eased), an excursion (heat wave or cold
+    // snap) on top, and the tide's season (tbg)
+    this.temp = 16;
+    this.excursion = 0;
     this.tide = new Float32Array([1, 1, 0.021, 1, 2, -1, -0.017, 1, -1, 3, 0.013, 0.7, 1, -2, 0.011, 0]);
     this.tidePh = Float32Array.from(TIDE_PHASE);
     this.seedValue = 1;
     this.censusEvery = 20;
-    this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 1, optics: 1, specks: true, lod: true };
+    this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 1, heat: 1, optics: 1, specks: true, lod: true };
     this.simData = new ArrayBuffer(256);
     this.rock = new Float32Array(4);
     this.simF = new Float32Array(this.simData);
@@ -63,7 +67,7 @@ class Engine {
     this.waves = new Float32Array(16);
     this.viewData = new ArrayBuffer(96);
     this.viewDataL = new ArrayBuffer(96);
-    this.postData = new Float32Array(52);
+    this.postData = new Float32Array(56);
     this.loupe = null;
     this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 0xffffffff, memberN: 0 };
     this.viewDataS = new ArrayBuffer(96);
@@ -87,13 +91,16 @@ class Engine {
     const d = device;
     const b = this.b;
     b.sim = d.createBuffer({ size: 256, usage: U.UNIFORM | U.COPY_DST });
+    // the heat field: deposits, temperatures and husks per cell, and heatMain's next temperatures (shaders.js)
+    b.thermal = d.createBuffer({ size: 3 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    b.heatNext = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
     b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
     this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
     b.view = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
     b.viewL = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
     b.viewS = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
     b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
-    b.post = d.createBuffer({ size: 208, usage: U.UNIFORM | U.COPY_DST });
+    b.post = d.createBuffer({ size: 224, usage: U.UNIFORM | U.COPY_DST });
     b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     b.pickU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
     b.counts = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST });
@@ -148,16 +155,17 @@ class Engine {
 
     const cp = (mod, entryPoint) => d.createComputePipeline({ layout: 'auto', compute: { module: mod, entryPoint }, label: entryPoint });
     this.cpDefs = {
-      seedMain: [0, 1, 9, 10],
-      resolveCount: [0, 1, 4, 8, 9, 10, 11, 14],
+      seedMain: [0, 1, 9, 10, 11],
+      resolveCount: [0, 1, 4, 8, 9, 10, 11, 14, 18],
       scanBlocks: [5, 6, 7],
       scanSums: [6, 7],
       scanAdd: [6, 7],
       scatterMain: [0, 1, 2, 3, 6, 8, 9, 10, 12, 13, 15],
       censusMain: [11, 12, 13],
-      matterMain: [0, 1, 2, 9, 10, 11, 13, 14, 16],
-      lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12, 15],
-      mindMain: [0, 2, 3, 6, 10, 15, 17],
+      matterMain: [0, 1, 2, 9, 10, 11, 13, 14, 16, 18],
+      lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12, 15, 18],
+      heatMain: [0, 14, 18, 19],
+      mindMain: [0, 2, 3, 6, 10, 15, 17, 18],
     };
     this.cp = {};
     for (const name of Object.keys(this.cpDefs)) this.cp[name] = { pipe: cp(this.simModule, name), bg: null };
@@ -264,7 +272,7 @@ class Engine {
       4: { buffer: b.counts }, 5: { buffer: b.counts }, 6: { buffer: b.cellStart }, 7: { buffer: b.blockSums },
       8: { buffer: b.aux }, 9: { buffer: b.intent }, 10: { buffer: b.genomes }, 11: { buffer: b.ledger },
       12: { buffer: b.livingList }, 13: { buffer: b.frameCtr }, 14: { buffer: b.stoneGrid },
-      15: { buffer: b.bondsNow }, 16: { buffer: b.stoneList }, 17: { buffer: b.mind },
+      15: { buffer: b.bondsNow }, 16: { buffer: b.stoneList }, 17: { buffer: b.mind }, 18: { buffer: b.thermal }, 19: { buffer: b.heatNext },
     };
     for (const [name, ids] of Object.entries(this.cpDefs)) {
       const c = this.cp[name];
@@ -280,7 +288,7 @@ class Engine {
       { binding: 0, resource: { buffer: b.watchU } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.watchOut } }] });
     this.cpListen.bg = d.createBindGroup({ layout: this.cpListen.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.listenU } }, { binding: 1, resource: { buffer: b.parts } },
-      { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.listen } }] });
+      { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.listen } }, { binding: 4, resource: { buffer: b.thermal } }] });
     this.cpSurvey.bg = d.createBindGroup({ layout: this.cpSurvey.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.surveyU } }, { binding: 1, resource: { buffer: b.parts } },
       { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.cellStart } },
@@ -290,7 +298,7 @@ class Engine {
       { binding: 3, resource: { buffer: b.intent } },
       { binding: 5, resource: { buffer: b.focus } }, { binding: 6, resource: { buffer: b.bondsIn } },
       { binding: 8, resource: { buffer: b.touch } }, { binding: 9, resource: { buffer: b.sway } },
-      { binding: 10, resource: { buffer: b.organDir } }] });
+      { binding: 10, resource: { buffer: b.organDir } }, { binding: 11, resource: { buffer: b.thermal } }] });
     this.organsBG = d.createBindGroup({ layout: this.cpOrgans.getBindGroupLayout(0), entries: [
       { binding: 7, resource: { buffer: b.genomes } }, { binding: 9, resource: { buffer: b.organDir } }] });
     const stoneBG = (view) => d.createBindGroup({ layout: this.pStone.getBindGroupLayout(0), entries:
@@ -359,7 +367,7 @@ class Engine {
       { binding: 0, resource: this.sampler }, { binding: 1, resource: v },
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 3, resource: this.bloomViews[0] },
       { binding: 7, resource: this.stoneView[0] }, { binding: 8, resource: this.stoneView[1] }, { binding: 9, resource: this.murkView },
-      { binding: 10, resource: this.microView }] }));
+      { binding: 10, resource: this.microView }, { binding: 11, resource: { buffer: this.b.thermal } }] }));
     this.compBG = compBG(this.pComp);
     this.compClearBG = compBG(this.pCompClear);
     this.reprojBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.pReproj.getBindGroupLayout(0), entries: [
@@ -443,6 +451,8 @@ class Engine {
     this.seedValue = (rng() * 0xffffffff) >>> 0;
     this.ambient = mix(0.12, 0.3, rng());
     this.chargeMul = mix(0.8, 1.25, rng());
+    this.temp = mix(10, 22, rng());
+    this.excursion = 0;
     this.randomizeTide(rng);
     this.randomizeCurrents(rng);
     const silt = mix(0.42, 0.58, rng()), glint = mix(0.06, 0.18, rng()), husk = mix(0.02, 0.06, rng());
@@ -477,8 +487,10 @@ class Engine {
     });
     head[0] = n;
     head[1] = plan.length;
+    // founders suit the water they will live in: the background, warmed a little by life
+    const warm = this.temp + 3;
     plan.forEach((type, s) => {
-      const g = archetypeGenome(type, rng, this.K);
+      const g = archetypeGenome(type, rng, this.K, warm);
       g.serial = s + 1;
       writeGenome(gu, gf, FIRST_LIFE + s, g);
       head[META_SLOT + FIRST_LIFE + s] = 1;
@@ -488,7 +500,11 @@ class Engine {
     this.founders = plan.length;
 
     this._writeSim({ seedKinds: plan.length, pSilt: silt, pGlint: glint, pHusk: husk, clump, spread });
+    // the water starts at the background everywhere; framboids and crowds warm it within a minute
+    const water = new Float32Array(cells).fill(this.tbg);
+    d.queue.writeBuffer(this.b.thermal, MAX_CELLS * 4, water);
     const enc = d.createCommandEncoder();
+    enc.clearBuffer(this.b.thermal, 0, cells * 4);
     enc.clearBuffer(this.b.counts);
     enc.clearBuffer(this.b.ledger, LEDGER_HEAD, n * 4);
     enc.clearBuffer(this.b.frameCtr);
@@ -536,6 +552,9 @@ class Engine {
     return into;
   }
 
+  /** The background water temperature: the climate's, the tide's season (±2.5°) and any excursion. */
+  get tbg() { return this.temp + (2.5 * (this.season - 0.55)) / 0.45 + this.excursion; }
+
   _writeSim(extra = {}) {
     this._fillSim(extra);
     this.device.queue.writeBuffer(this.b.sim, 0, this.simData);
@@ -556,7 +575,7 @@ class Engine {
     f.set(this.tide, 36);
     f.set(this.tidePh, 52);
     f.set(this.rock, 56);
-    u[60] = this.tick; u[61] = this.ticks;
+    u[60] = this.tick; u[61] = this.ticks; f[62] = this.tbg;
   }
 
   requestPick(center, radius, selId, { kind = 0xffffffff, maxOut = 4096, raw = false } = {}) {
@@ -587,6 +606,7 @@ class Engine {
     const cells = this.grid[0] * this.grid[1];
     enc.clearBuffer(b.counts, 0, cells * 4);
     enc.clearBuffer(b.stoneGrid, 0, cells * 4);
+    if (this.K.heat) enc.clearBuffer(b.thermal, 2 * MAX_CELLS * 4, cells * 4);
     enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
     enc.clearBuffer(b.frameCtr, 0, 4);
     enc.clearBuffer(b.frameCtr, 36, 4);
@@ -614,7 +634,10 @@ class Engine {
     run('censusMain', Math.ceil(MAXK / 256));
     run('matterMain', wg);
     run('lifeMain', null);
+    if (this.K.heat) run('heatMain', Math.ceil(cells / 64));
     if (!prof) pass.end();
+    // the next temperatures become this step's
+    if (this.K.heat) enc.copyBufferToBuffer(b.heatNext, 0, b.thermal, MAX_CELLS * 4, cells * 4);
   }
 
   /** One simulation step with each dispatch timed on the GPU: [[name, ms], ...]. Needs timestamps. */
@@ -644,13 +667,13 @@ class Engine {
     const d = this.device, b = this.b, U = GPUBufferUsage;
     const enc = d.createCommandEncoder();
     const keep = { gpu: {} };
-    for (const k of ['parts', 'genomes', 'intent', 'ledger']) {
+    for (const k of ['parts', 'genomes', 'intent', 'ledger', 'thermal']) {
       keep.gpu[k] = d.createBuffer({ size: b[k].size, usage: U.COPY_SRC | U.COPY_DST });
       enc.copyBufferToBuffer(b[k], 0, keep.gpu[k], 0, b[k].size);
     }
     d.queue.submit([enc.finish()]);
     keep.cpu = { simTime: this.simTime, frameNo: this.frameNo, tick: this.tick, season: this.season, abio: this.abio,
-      ambient: this.ambient, chargeMul: this.chargeMul, seedValue: this.seedValue,
+      ambient: this.ambient, chargeMul: this.chargeMul, seedValue: this.seedValue, temp: this.temp, excursion: this.excursion,
       tide: this.tide.slice(), tidePh: this.tidePh.slice(), waves: this.waves.slice(), rock: this.rock.slice() };
     return keep;
   }
@@ -662,7 +685,7 @@ class Engine {
     d.queue.submit([enc.finish()]);
     const c = keep.cpu;
     Object.assign(this, { simTime: c.simTime, frameNo: c.frameNo, tick: c.tick, season: c.season, abio: c.abio,
-      ambient: c.ambient, chargeMul: c.chargeMul, seedValue: c.seedValue });
+      ambient: c.ambient, chargeMul: c.chargeMul, seedValue: c.seedValue, temp: c.temp, excursion: c.excursion });
     this.tide.set(c.tide); this.tidePh.set(c.tidePh); this.waves.set(c.waves); this.rock.set(c.rock);
   }
 
@@ -692,7 +715,7 @@ class Engine {
     st.unmap(); st.destroy();
     const u = new Uint32Array(copy);
     return { simTime: this.simTime, globals: u.subarray(0, 16), pop: u.subarray(META_POP, META_POP + MAXK),
-      demography: u.subarray(META_DEATH, META_DEATH + 57), energy: u.subarray(META_ENERGY, META_ENERGY + 40),
+      demography: u.subarray(META_DEATH, META_DEATH + 57), energy: u.subarray(META_ENERGY, META_ENERGY + 64),
       diag: u.subarray(META_DIAG, META_CLAIM), genomeU32: new Uint32Array(copy, LEDGER_HEAD), genomeF32: new Float32Array(copy, LEDGER_HEAD) };
   }
 
@@ -721,7 +744,7 @@ class Engine {
         this.onCensus({
           simTime: job.simTime, frameNo: job.frameNo,
           globals: u.subarray(0, 16), slots: u.subarray(META_SLOT, META_SLOT + MAXK), pop: u.subarray(META_POP, META_POP + MAXK),
-          demography: u.subarray(META_DEATH, META_DEATH + 57), energy: u.subarray(META_ENERGY, META_ENERGY + 40),
+          demography: u.subarray(META_DEATH, META_DEATH + 57), energy: u.subarray(META_ENERGY, META_ENERGY + 64),
           genomeU32: new Uint32Array(copy, LEDGER_HEAD), genomeF32: new Float32Array(copy, LEDGER_HEAD),
         });
       }
@@ -1198,10 +1221,13 @@ class Engine {
     pd[0] = W; pd[1] = H; pd[2] = this.settings.bloom; pd[3] = 1.0;
     pd[4] = time; pd[5] = this.season; pd[6] = this.settings.tide; pd[7] = cam.ppu;
     pd[8] = cam.x; pd[9] = cam.y; pd[10] = this.grid[0]; pd[11] = this.grid[1];
-    pd[12] = this.simTime; pd[13] = this.ambient; pd[14] = this.settings.optics;
+    pd[12] = this.simTime; pd[13] = this.ambient; pd[14] = this.settings.optics; pd[15] = this.K.heat ? this.settings.heat : -1;
     pd.set(this.tide, 16);
     pd.set(this.tidePh, 32);
     pd.set(this.waves, 36);
+    // the heat map's span: from a little below the background to framboid-hot
+    const tbg = this.tbg;
+    pd[52] = tbg; pd[53] = tbg - 2; pd[54] = tbg + 10;
     d.queue.writeBuffer(this.b.post, 0, pd);
 
     // Cells fuse with their incoming bond partners, and flatten against the cells they press on, only

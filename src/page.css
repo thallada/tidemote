@@ -153,6 +153,12 @@ input[type="range"] { accent-color: var(--cyan); cursor: pointer; }
 .meter.hot { color: var(--hot); }
 .meter.sun { color: var(--sun); }
 .meter.cyan { color: var(--cyan); }
+.meter.warm { color: #ff8a3a; }
+/* the Warmth vital: a needle on a cold-to-hot scale, over the band where the species works best */
+.tgauge { position: relative; height: 8px; background: linear-gradient(90deg, rgba(61, 111, 214, 0.35), rgba(65, 183, 194, 0.3) 40%, rgba(155, 205, 134, 0.3) 50%, rgba(240, 176, 74, 0.35) 62%, rgba(255, 95, 58, 0.45)); }
+.tgauge em { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line-2); border-right: 1px solid var(--line-2); background: rgba(241, 227, 160, 0.12); }
+.tgauge i { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--ink); box-shadow: 0 0 4px rgba(226, 241, 240, 0.7); transition: left .3s; }
+.tgauge.alarm i { background: var(--hot); box-shadow: 0 0 5px rgba(255, 95, 58, 0.8); }
 .meter.thin { height: 5px; }
 
 /* ------------------------------------------------------------------ HUD frame */
@@ -183,6 +189,15 @@ body:not(.live) .hud { opacity: 0; }
 .seg { display: inline-flex; gap: 2px; }
 .seg i { width: 3px; height: 12px; background: rgba(130, 205, 214, 0.18); }
 .seg i.on { background: var(--sun); }
+/* the water gauge: a thermometer, each segment lit in its own temperature's colour */
+.seg.therm i.on { background: var(--c); box-shadow: 0 0 4px color-mix(in srgb, var(--c) 45%, transparent); }
+#g-heat b { color: var(--ink); }
+/* a heat wave or cold snap: the gauge breathes, its rule lit hot */
+#g-heat.exc { border-left-color: var(--hot); }
+#g-heat.exc .seg i.on { animation: exc 1.6s ease-in-out infinite; }
+#g-heat.exc b { color: var(--hot); }
+@keyframes exc { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { #g-heat.exc .seg i.on { animation: none; } }
 #tide-wave { width: 60px; height: 16px; overflow: visible; }
 #tide-wave .wave { fill: none; stroke: var(--line-2); stroke-width: 1; }
 #tide-wave .dot { fill: var(--cyan); }
@@ -500,6 +515,8 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .lamp.on > i { background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 6px rgba(127, 214, 223, 0.6); }
 .lamp.on[data-k="threat"] > i, .lamp.on[data-k="low"] > i { background: var(--hot); border-color: var(--hot); box-shadow: 0 0 6px rgba(255, 95, 58, 0.6); }
 .lamp.on[data-k="full"] > i { background: var(--sun); border-color: var(--sun); box-shadow: 0 0 6px rgba(241, 227, 160, 0.6); }
+.lamp.on[data-k="cold"] > i { background: #6f9cff; border-color: #6f9cff; box-shadow: 0 0 6px rgba(111, 156, 255, 0.6); }
+.lamp.on[data-k="hot"] > i { background: #ff8a3a; border-color: #ff8a3a; box-shadow: 0 0 6px rgba(255, 138, 58, 0.6); }
 .mv-nb .nb-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) 3.6em 5.6em 64px; gap: 8px; align-items: center; height: 22px; font-size: 12.5px; }
 .nb-row + .nb-row:not(.nb-head) { border-top: 1px dashed rgba(130, 205, 214, 0.12); }
 .nb-head { height: auto !important; color: var(--ink-3); font-size: 9.5px !important; letter-spacing: .14em; text-transform: uppercase; font-weight: 500; }
@@ -637,10 +654,14 @@ body.lab-wide .lab-head .tabs button { padding: 0 10px; letter-spacing: .16em; }
 .barrow .bn, .barrow .bp { text-align: right; white-space: nowrap; }
 .barrow .bp { color: var(--ink-3); }
 canvas.dyn { width: 100%; height: 112px; display: block; }
+canvas.niches { width: 100%; height: 150px; display: block; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-2); font-size: 11.5px; margin-top: 4px; }
 .legend i { display: inline-block; width: 10px; height: 2px; margin-right: 6px; vertical-align: 3px; }
 .ramp { display: flex; align-items: center; gap: 8px; color: var(--ink-3); font-size: 11px; }
-.ramp i { flex: 1; height: 6px; background: linear-gradient(90deg, #0b0a1a, #1e2a6e, #1f7a8c, #6cc070, #e8e26a, #fff6d8); }
+/* the light map's ramp (fsComposite): deep blue, teal, sun */
+.ramp i { flex: 1; height: 6px; background: linear-gradient(90deg, #080a29 0%, #006b80 48%, #4e9a7a 62%, #ffdb52 100%); }
+/* the thermal camera's ramp (heatRamp in shaders.js): deep blue, teal, amber, white */
+.ramp.heat i { background: linear-gradient(90deg, #050a2e 0%, #006b7a 35%, #ff8520 70%, #ff8520 75%, #fff2d1 100%); }
 .eras { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
 .eras li { display: grid; grid-template-columns: 4.4ch 1fr auto; gap: 10px; align-items: baseline; }
 .eras time, .eras span { color: var(--ink-3); }
@@ -723,6 +744,8 @@ canvas.dyn { width: 100%; height: 112px; display: block; }
   .gauge .lbl { display: none; }
   #g-light .seg { display: none; }
   #g-light::before { content: '☀'; color: var(--ink-3); font-size: 12px; }
+  #g-heat .seg { display: none; }
+  #g-heat::before { content: '🌡'; color: var(--ink-3); font-size: 12px; filter: grayscale(1); }
   #tide-wave { width: 34px; }
   #lab-open { display: flex; }
   .dock { gap: 0; justify-content: space-between; padding-left: calc(6px + var(--safe-l)); padding-right: calc(6px + var(--safe-r)); }
@@ -806,3 +829,10 @@ canvas.dyn { width: 100%; height: 112px; display: block; }
   .calib::before { animation: none; }
 }
 
+
+/* a species' thermal niche: its performance curve from 0 to 45°, and the open water now */
+svg.niche { width: 100%; height: 60px; display: block; margin-top: 8px; overflow: visible; }
+svg.niche .n-curve { fill: none; stroke: #ff8a3a; stroke-width: 1.4; vector-effect: non-scaling-stroke; }
+svg.niche .n-one { stroke: var(--line); stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
+svg.niche .n-water { stroke: var(--cyan); stroke-dasharray: 1 3; vector-effect: non-scaling-stroke; }
+svg.niche .n-dot { fill: var(--cyan); }
