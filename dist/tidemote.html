@@ -4734,13 +4734,16 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
   let c = textureSampleLevel(stoneTex, samp, uv, 0.0);
   if (c.a <= 0.0) { return vec3f(0.0); }
   let s = textureSampleLevel(stoneTop, samp, uv, 0.0);
-  // flags, and a framboid's fuel in the fraction (fsStone)
-  let flags = u32(floor(s.w + 0.01));
+  // flags (with the kind of grain), and a framboid's fuel in the fraction (fsStone): read from the nearest
+  // pixel, since blending two grains' flags at their seam would decode as some other material
+  let st = vec2f(textureDimensions(stoneTop));
+  let sw = textureLoad(stoneTop, vec2i(clamp(uv * st, vec2f(0.0), st - 1.0)), 0).w;
+  let flags = u32(floor(sw + 0.01));
   let fine = smoothstep(120.0, 400.0, ppu);
   if ((flags & 4u) != 0u) {
     // pyrite: metallic, so mostly a brassy glint off each crystal; and while it oxidises a dull warm
     // glow from within, brightest in the gaps between crystals, fading as it is spent
-    let fuel = (s.w - f32(flags)) / 0.45;
+    let fuel = (sw - f32(flags)) / 0.45;
     let n = normalize(vec3f(-s.xy, 1.0));
     let light = normalize(vec3f(-0.45, -0.55, 0.7));
     let spec = pow(max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0), 18.0);
