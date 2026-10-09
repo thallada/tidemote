@@ -57,7 +57,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
       let n = 0, sum = 0, sq = 0, makers = 0, tol = 0;
       for (const { pop: p, genome: g } of species) { n += p; sum += p * g.topt; sq += p * g.topt * g.topt; tol += p * g.tol; if (g.thermo > 0.2) makers += p; }
       const toptMean = n ? sum / n : null;
-      latest = { t, silt: pop[0], glint: pop[1], husk: pop[2], stone: pop[3], ...community,
+      latest = { t, silt: pop[0], glint: pop[1], husk: pop[2], stone: pop[3], framboid: pop[4], ...community,
         ambient: eng.ambient, chargeMul: eng.chargeMul, season: eng.season,
         era: climate.name,
         thermal: { tbg: eng.tbg, temp: eng.temp, excursion: eng.excursion, toptMean, toptSD: n ? Math.sqrt(Math.max(0, sq / n - toptMean ** 2)) : null, makerShare: n ? makers / n : 0, tolMean: n ? tol / n : null } };
@@ -102,7 +102,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
       for (const [g, guild] of guilds.entries()) scalded[guild] = prevD && c.simTime > prevT ? ((c.demography[20 + g] - prevD[20 + g]) >>> 0) * 60 / (c.simTime - prevT) : 0;
       const thermal = { ...latest.thermal, felt: felt ? { p10: quantile(0.1), p50: quantile(0.5), p90: quantile(0.9) } : null,
         torpidFrac: felt ? since(THERMAL_LEDGER.torpid) / felt : 0, makerFrac: felt ? since(THERMAL_LEDGER.makers) / felt : 0, scalded,
-        framboids: (c.energy[THERMAL_LEDGER.framboidsMade] - c.energy[THERMAL_LEDGER.framboidsSpent]) >>> 0,
+        framboids: c.pop[4],
         framboidsMade: prevE ? since(THERMAL_LEDGER.framboidsMade) * 60 / (c.simTime - prevT) : 0 };
       samples.push({ ...latest, thermal, rates, demography, meals, energy });
       prevG = Array.from(c.globals); prevD = Array.from(c.demography); prevE = Array.from(c.energy); prevT = lastSample = c.simTime;

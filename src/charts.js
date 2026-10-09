@@ -161,5 +161,5 @@ export function drawNiches(cv, species, tbg, felt, binW) {
   g.fillText(`${fmt(pmax)} cells`, 0, 10);
   for (const t of [0, 10, 20, 30, 40]) { g.textAlign = t ? 'center' : 'left'; g.fillText(`${t}°`, X(t), h - 2); }
   g.textAlign = 'right';
-  g.fillText(`water ${Math.round(tbg)}°`, w, 10);
+  g.fillText(`temperature ${Math.round(tbg)}°`, w, 10);
 }

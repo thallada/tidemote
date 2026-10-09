@@ -1,7 +1,7 @@
 import { createSound } from './audio/sound.js';
 import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS } from './engine.js';
-import { genomeSerial, readGenome, parseParticle } from './genome.js';
+import { genomeSerial, readGenome, parseParticle, thermalGuild } from './genome.js';
 import { seasonAt, createClimate, abioRate } from './climate.js';
 import { createLab } from './lab.js';
 import { createSpecimen } from './specimen.js';
@@ -357,7 +357,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
 
   function groups() {
-    const out = { diet: {}, mobility: {}, body: {}, types: {} };
+    const out = { diet: {}, mobility: {}, body: {}, types: {}, temp: {} };
     for (const sp of life.reg.values()) {
       if (!sp.alive) continue;
       const f = facets(sp.genome, K);
@@ -365,24 +365,27 @@ function run(eng, device, ctx, specCtx, hasTS) {
       out.mobility[f.mobility] = (out.mobility[f.mobility] || 0) + sp.pop;
       out.body[f.body] = (out.body[f.body] || 0) + sp.pop;
       out.types[f.types] = (out.types[f.types] || 0) + sp.pop;
+      const tp = thermalGuild(sp.genome).pref;
+      out.temp[tp] = (out.temp[tp] || 0) + sp.pop;
     }
     return {
       diet: Object.keys(DIET_COL).map((k) => ({ name: k, n: out.diet[k] || 0, col: DIET_COL[k] })),
       mobility: Object.keys(MOB_COL).map((k) => ({ name: k, n: out.mobility[k] || 0, col: MOB_COL[k] })),
       body: [{ name: 'multicellular', n: out.body.multicellular || 0, col: '#ffb45e' }, { name: 'single-cell', n: out.body['single-cell'] || 0, col: '#9aa3b8' }],
       types: ['1', '2', '3'].map((k, i) => ({ name: k, n: out.types[k] || 0, col: ['#9aa3b8', '#b38cff', '#5fd4c4'][i] })),
+      temp: [['cold-loving', '#6f9cff'], ['temperate', '#62c6a8'], ['warmth-loving', '#f0b04a'], ['thermophile', '#ff5f3a']].map(([k, col]) => ({ name: k, n: out.temp[k] || 0, col })),
     };
   }
 
   // ------------------------------------------------------------ focus (dim everything outside a filter)
-  const focus = { key: null, label: '', pred: null, roleMask: 7, stateMode: 0, matter: [false, false, false, false] };
+  const focus = { key: null, label: '', pred: null, roleMask: 7, stateMode: 0, matter: [false, false, false, false, false] };
   let members = null;
   let memberKind = NONE;
   function pushFocus() {
     let kinds = null;
     if (focus.key) {
       kinds = new Uint32Array(MAXK / 32);
-      for (let m = 0; m < 4; m++) if (focus.matter[m]) kinds[0] |= 1 << m;
+      for (let m = 0; m < FIRST_LIFE; m++) if (focus.matter[m]) kinds[0] |= 1 << m;
       const c = life.lastCensus;
       if (c && focus.pred) {
         for (let s = FIRST_LIFE; s < MAXK; s++) {
@@ -397,7 +400,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     $('focus').hidden = !focus.key;
     $('focus-label').textContent = focus.label;
   }
-  function setFocus(key, label, { pred = null, roleMask = 7, stateMode = 0, matter = [false, false, false] } = {}) {
+  function setFocus(key, label, { pred = null, roleMask = 7, stateMode = 0, matter = [false, false, false, false, false] } = {}) {
     Object.assign(focus, { key, label, pred, roleMask, stateMode, matter });
     pushFocus();
     afterFocus();
@@ -420,9 +423,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const [kind, val] = key.split(':');
     if (kind === 'class') {
       if (val === 'living') setFocus(key, 'All living cells', { pred: allLiving });
-      else setFocus(key, MATTER[{ silt: 0, glint: 1, husk: 2, stone: 3 }[val]].name, { matter: [val === 'silt', val === 'glint', val === 'husk', val === 'stone'] });
+      else setFocus(key, MATTER[{ silt: 0, glint: 1, husk: 2, stone: 3, framboid: 4 }[val]].name, { matter: ['silt', 'glint', 'husk', 'stone', 'framboid'].map((m) => m === val) });
     } else if (kind === 'role') setFocus(key, `${ROLE[+val]}-cells`, { pred: allLiving, roleMask: 1 << +val });
-    else if (kind === 'state') setFocus(key, ['', 'Hungry cells', 'Cells ready to divide', 'Elderly cells'][+val], { pred: allLiving, stateMode: +val });
+    else if (kind === 'state') setFocus(key, ['', 'Hungry cells', 'Cells ready to divide', 'Elderly cells', 'Heat-stressed cells', 'Torpid cells'][+val], { pred: allLiving, stateMode: +val });
+    else if (kind === 'temp') setFocus(key, `Prefers: ${val}`, { pred: (g) => thermalGuild(g).pref === val });
     else if (kind === 'diet') setFocus(key, `Diet: ${val}`, { pred: (g) => facets(g, K).diet === val });
     else if (kind === 'mobility') setFocus(key, `Movement: ${val}`, { pred: (g) => facets(g, K).mobility === val });
     else if (kind === 'body') setFocus(key, val === 'multicellular' ? 'Multicellular species' : 'Single-cell species', { pred: (g) => facets(g, K).body === val });
@@ -547,9 +551,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     life.lastCensus = c;
     const pop = c.pop;
     const t = c.simTime;
-    life.counts = [pop[0], pop[1], pop[2], 0, pop[3]];
+    life.counts = [pop[0], pop[1], pop[2], 0, pop[3], pop[4]];
     life.roles = [c.globals[12], c.globals[13], c.globals[14]];
-    life.matter = [0, 1, 2, 3].map((s) => readGenome(c.genomeU32, c.genomeF32, s));
+    life.matter = [0, 1, 2, 3, 4].map((s) => readGenome(c.genomeU32, c.genomeF32, s));
     life.arisen = c.globals[1];
     life.births = c.globals[2];
     const seen = new Set();
@@ -665,6 +669,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     ['Glint', 1, MATTER[1].css, 'glint', 'class:glint'],
     ['Husk', 2, MATTER[2].css, 'husk', 'class:husk'],
     ['Stone', 4, MATTER[3].css, 'stone', 'class:stone'],
+    ...(K.heat ? [['Framboids', 5, MATTER[4].css, 'framboid', 'class:framboid']] : []),
     ['Silt', 0, MATTER[0].css, 'silt', 'class:silt'],
   ];
   const mixEl = $('mix');
@@ -792,8 +797,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (d < ba) { ba = d; bestAny = e; }
     }
     // a click anywhere on a cell's body counts, however far in the view is zoomed
-    // a stone grain is a cobble ~0.17 across (vsStone); other matter is a small chip
-    const anyR = bestAny && bestAny.kind === 3 ? 0.17 : 0.05;
+    // a stone grain is a cobble ~0.17 across (vsStone), a framboid about half that; other matter is a small chip
+    const anyR = bestAny && bestAny.kind === 3 ? 0.17 : bestAny && bestAny.kind === 4 ? 0.09 : 0.05;
     const touchR = isCoarse ? 30 : 22;
     const chosen = bestLife && bl < Math.max(touchR, 0.2 * p) ? bestLife : bestAny && ba < Math.max(isCoarse ? 20 : 14, anyR * p) ? bestAny : null;
     if (!chosen) { deselect(); return; }
@@ -816,7 +821,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       remember();
       story(`${keepStory ? 'Now watching' : 'Picked'} a ${ROLE[p.role]}-cell${sp ? ` of ${spLink(sp.serial, sp.name)}` : ''}, age ${fmtDur(p.age)}.`);
     } else {
-      story(`Picked a grain of ${MATTER[p.kind].name.toLowerCase()}.`);
+      story(p.kind === 4 ? 'Picked a framboid.' : `Picked a grain of ${MATTER[p.kind].name.toLowerCase()}.`);
     }
     gatherTick(true);
     renderSpecimen(true);
@@ -853,6 +858,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (a.kind >= FIRST_LIFE && b.kind >= FIRST_LIFE) return 'Changed species.';
     if (a.kind >= FIRST_LIFE && b.kind === 3) return `Died: ${b.cause === 2 ? 'old age' : 'starved'} at age ${fmtDur(a.age)}. Its skeleton is now stone.`;
     if (a.kind === 3 && b.kind === 0) return 'The stone wore away into silt.';
+    if (a.kind === 4 && b.kind === 0) return 'The framboid was spent and crumbled into silt.';
+    if (a.kind === 2 && b.kind === 4) return 'The husk rotted in a pile, and its sulfide crystallised as a framboid.';
     if (a.kind === 2 && b.kind === 0) return b.cause === 3 ? 'The husk was eaten by a scavenger.' : 'The husk crumbled into silt.';
     if (a.kind === 0 && b.kind === 1) return 'Charged into glint by the Tide.';
     if (a.kind === 1 && b.kind === 0) return b.cause === 3 ? 'The glint was eaten by a cell.' : 'The glint faded back into silt.';
@@ -1589,8 +1596,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const segs = $('light-seg');
   segs.innerHTML = '<i></i>'.repeat(10);
   // the water gauge: a thermometer of ten segments from the climate's coldest (4°) to its warmest (28°)
-  const heatSegs = $('heat-seg');
-  heatSegs.innerHTML = Array.from({ length: 10 }, (_, i) => `<i style="--c:${['#3d6fd6', '#3f86d8', '#3fa0d0', '#41b7c2', '#62c6a8', '#9bcd86', '#d2c865', '#f0b04a', '#ff8a3a', '#ff5f3a'][i]}"></i>`).join('');
+  // the temperature gauge: a thermometer whose tube fills with ten bars from the climate's coldest
+  // (4°) to its warmest (28°), each lit in its own temperature's colour, the bulb in the current one;
+  // on phones a small upright thermometer whose level rises
+  const THERMO = ['#3d6fd6', '#3f86d8', '#3fa0d0', '#41b7c2', '#62c6a8', '#9bcd86', '#d2c865', '#f0b04a', '#ff8a3a', '#ff5f3a'];
+  // a big bulb joined to a slim tube, as a real thermometer is
+  $('thermo').innerHTML = `<rect class="tube" x="11" y="5.5" width="56" height="7" rx="3.5"/><circle class="bulb-o" cx="8" cy="9" r="7.5"/>${THERMO.map((c, k) => `<rect class="bar" x="${17.5 + k * 4.8}" y="7" width="3" height="4" style="--c:${c}"/>`).join('')}<circle class="bulb" cx="8" cy="9" r="5"/>`;
+  $('thermo-i').innerHTML = '<rect class="tube" x="4" y="1" width="4" height="12" rx="2"/><circle class="bulb-o" cx="6" cy="15" r="4.2"/><rect class="lvl" x="5" y="2" width="2" height="12"/><circle class="bulb" cx="6" cy="15" r="2.8"/>';
+  const heatBars = [...$('thermo').querySelectorAll('.bar')], heatBulbs = [...document.querySelectorAll('#g-heat .bulb')], heatLvl = $('thermo-i').querySelector('.lvl');
   $('g-heat').hidden = !K.heat;
   const wave = $('tide-wave');
   wave.querySelector('.wave').setAttribute('d', Array.from({ length: 31 }, (_, i) => `${i ? 'L' : 'M'}${i * 2},${(8 - 6 * Math.sin((i / 30) * TAU)).toFixed(2)}`).join(''));
@@ -1616,10 +1629,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const T = eng.tbg, trend = climate.tempTo - eng.temp + (climate.excursion && eng.excursion ? Math.sign(climate.excursion.dT) * (eng.simTime < climate.excursion.t + climate.excursion.dur / 2 ? 1 : -1) : 0);
       const arrow = trend > 0.4 ? '↑' : trend < -0.4 ? '↓' : '';
       setText('heat-v', `${Math.round(T)}°${arrow}`);
-      [...heatSegs.children].forEach((s, i) => s.classList.toggle('on', i < Math.round(((T - 4) / 24) * 10)));
+      const frac = clamp((T - 4) / 24, 0, 1), c = THERMO[Math.min(9, Math.floor(frac * 10))];
+      heatBars.forEach((s, i) => s.classList.toggle('on', i < Math.round(frac * 10)));
+      heatBulbs.forEach((b) => b.style.setProperty('fill', c));
+      heatLvl.setAttribute('y', (2 + 10 * (1 - frac)).toFixed(2)); heatLvl.setAttribute('height', (10 * frac + 3).toFixed(2)); heatLvl.style.setProperty('fill', c);
       const exc = eng.excursion > 0.5 ? 'heat wave' : eng.excursion < -0.5 ? 'cold snap' : '';
       $('g-heat').classList.toggle('exc', !!exc);
-      $('g-heat').setAttribute('aria-label', `${exc ? `${exc}, ` : ''}water ${Math.round(T)}°${arrow ? (arrow === '↑' ? ' and rising' : ' and falling') : ''}`);
+      $('g-heat').setAttribute('aria-label', `${exc ? `${exc}, ` : ''}temperature ${Math.round(T)}°${arrow ? (arrow === '↑' ? ' and rising' : ' and falling') : ''}`);
     }
     tips.check();
     // Max shows what it reaches; every other speed is exact

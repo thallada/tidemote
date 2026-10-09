@@ -302,7 +302,7 @@ class Engine {
     this.organsBG = d.createBindGroup({ layout: this.cpOrgans.getBindGroupLayout(0), entries: [
       { binding: 7, resource: { buffer: b.genomes } }, { binding: 9, resource: { buffer: b.organDir } }] });
     const stoneBG = (view) => d.createBindGroup({ layout: this.pStone.getBindGroupLayout(0), entries:
-      [[0, view], [1, b.parts], [2, b.genomes], [5, b.focus], [7, b.stoneList]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+      [[0, view], [1, b.parts], [2, b.genomes], [5, b.focus], [7, b.stoneList], [11, b.thermal]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
     this.bgStone = stoneBG(b.view); this.bgStoneL = stoneBG(b.viewL); this.bgStoneS = stoneBG(b.viewS);
     const inbondRes = [null, b.intent, b.parts, b.bondsIn, b.inbondU, b.cellStart, b.touch, b.genomes, b.sway];
     const inbondUse = [[2, 3, 4, 5], [1, 2, 3, 4, 5], [2, 4, 5, 6, 7, 8]];
@@ -310,7 +310,7 @@ class Engine {
       entries: inbondUse[k].map((binding) => ({ binding, resource: { buffer: inbondRes[binding] } })) }));
     const lineBG = (view) => d.createBindGroup({ layout: this.pLine.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
-      { binding: 3, resource: { buffer: b.intent } }, { binding: 4, resource: { buffer: b.livingList } }, { binding: 5, resource: { buffer: b.focus } }] });
+      { binding: 3, resource: { buffer: b.intent } }, { binding: 4, resource: { buffer: b.livingList } }, { binding: 5, resource: { buffer: b.focus } }, { binding: 11, resource: { buffer: b.thermal } }] });
     this.bgPoint = pointBG(b.view);
     this.bgLine = lineBG(b.view);
     this.bgPointL = pointBG(b.viewL);
@@ -319,7 +319,7 @@ class Engine {
     this.bgLineS = lineBG(b.viewS);
     const bridgeBG = (view) => d.createBindGroup({ layout: this.pBridge.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
-      { binding: 3, resource: { buffer: b.intent } }, { binding: 4, resource: { buffer: b.livingList } }, { binding: 5, resource: { buffer: b.focus } }] });
+      { binding: 3, resource: { buffer: b.intent } }, { binding: 4, resource: { buffer: b.livingList } }, { binding: 5, resource: { buffer: b.focus } }, { binding: 11, resource: { buffer: b.thermal } }] });
     this.bgBridge = bridgeBG(b.view);
     this.bgBridgeL = bridgeBG(b.viewL);
     this.bgBridgeS = bridgeBG(b.viewS);
@@ -470,8 +470,8 @@ class Engine {
     const gbuf = new ArrayBuffer(MAXK * G_BYTES);
     const gu = new Uint32Array(gbuf);
     const gf = new Float32Array(gbuf);
-    const matterCols = [[0.3, 0.34, 0.46], [0.7, 0.93, 1.0], [0.5, 0.35, 0.25], [0.62, 0.57, 0.5]];
-    for (let m = 0; m < 4; m++) {
+    const matterCols = [[0.3, 0.34, 0.46], [0.7, 0.93, 1.0], [0.5, 0.35, 0.25], [0.62, 0.57, 0.5], [0.8, 0.7, 0.45]];
+    for (let m = 0; m < FIRST_LIFE; m++) {
       const g = archetypeGenome('plankton', rng, this.K);
       g.col = packUnorm(...matterCols[m]);
       writeGenome(gu, gf, m, g);

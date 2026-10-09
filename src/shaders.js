@@ -1,9 +1,9 @@
 // WGSL for the Tidemote biosphere.
-// Kinds: 0 silt, 1 glint, 2 husk, 3 stone, 4..1023 living genomes.
+// Kinds: 0 silt, 1 glint, 2 husk, 3 stone, 4 framboid, 5..1023 living genomes.
 // Each living genome has up to three cell roles with their own signatures.
 
 export const MAXK = 1024;
-export const FIRST_LIFE = 4;
+export const FIRST_LIFE = 5;
 export const MAX_CELLS = 1 << 18;
 export const META_SLOT = 16;
 export const META_POP = META_SLOT + MAXK;
@@ -26,10 +26,11 @@ export const ENERGY_SLOTS = ['light', 'glint', 'plant', 'husk', 'flesh', 'upkeep
 // META_DEATH + 20 + guild.
 export const HEAT_BINS = 16;
 export const HEAT_BIN = 3;
-// framboids: how many have formed (seeded ones included) and how many have burnt out, cumulative
-export const THERMAL_LEDGER = { hist: 40, torpid: 56, makers: 57, framboidsMade: 58, framboidsSpent: 59 };
-// A pyrite framboid is a grain of stone with this cause code (info & 15).
-export const FRAMBOID = 12;
+// framboids: how many have formed (seeded ones included), cumulative
+export const THERMAL_LEDGER = { hist: 40, torpid: 56, makers: 57, framboidsMade: 58 };
+// A pyrite framboid: its particle kind, and the cause code (info & 15) of one grown in a rotting pile.
+export const FRAMBOID = 4;
+export const FRAMBOID_GROWN = 12;
 // The heat field: deposits (fixed point), then this step's temperatures.
 export const HEAT_FIX = 1048576;
 export const P_BYTES = 40;
@@ -164,11 +165,12 @@ const COMMON = /* wgsl */ `
 // Relief, as in DIC microscopy: one light from the upper left (screen y down) for every resolved shape.
 const TO_LIGHT = vec2f(-0.633, -0.774);
 const MAXK = ${MAXK}u;
-const FIRST_LIFE = 4u;
+const FIRST_LIFE = ${FIRST_LIFE}u;
 const SILT = 0u;
 const GLINT = 1u;
 const HUSK = 2u;
 const STONE = 3u;
+const FRAMBOID = ${FRAMBOID}u;
 const NONE = 0xffffffffu;
 // A claim made by a coarse step's walk (lifeMain) says what it is for itself rather than through the
 // claimer's intent: bit 31, then a class in bits 29-30 (0 a kill, 1 glint, 2 a husk, each taken by the
@@ -430,8 +432,8 @@ function cellWGSL(K, w) {
       } else {
         fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);${W('mFr0 = fr;')}
         pull = a * ${f(K.matterPull)};
-        if (qk == STONE) {
-          // stone is solid: it pushes cells out however hard they swim, and shelters those among it
+        if (qk == STONE || qk == FRAMBOID) {
+          // stone (and a framboid) is solid: it pushes cells out however hard they swim, and shelters those among it
           if (r < ${f(K.stoneR)}) {
             stoneF += d * ((r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r));
             // its push, g(r) = 1/stoneR - 1/r along d, has gradient -(g I + d d' / r^3)
@@ -638,7 +640,6 @@ const DIET_MIN = ${f(K.dietMin)};
 const HEAT_ON = ${K.heat ? 'true' : 'false'};
 const TREF = ${f(K.tRef)};
 const HEAT_FIX = ${f(HEAT_FIX)};
-const FRAMBOID = ${FRAMBOID}u;
 const FRAMBOID_COL = ${packCol(0.8, 0.7, 0.45)}u;
 
 fn pcg(v: u32) -> u32 {
@@ -909,7 +910,7 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
   } else if (kind == SILT && HEAT_ON && rnd(&s) < ${f(K.framboids)}
              && f32(pcg(sim.seed ^ pcg(u32(pos.x / 5.0) * 7919u + u32(pos.y / 5.0) * 104729u)) >> 8u) / 16777216.0 < 0.25) {
     // framboids lie in patches of the mud, part burnt already, so they do not all burn out together
-    kind = STONE; e = ${f(K.framboidLife)} * (0.2 + rnd(&s)); col = FRAMBOID_COL; info = FRAMBOID;
+    kind = FRAMBOID; e = ${f(K.framboidLife)} * (0.2 + rnd(&s)); col = FRAMBOID_COL;
     atomicAdd(&ledger[META_ENERGY + 58u], 1u);
   }
   parts[i] = Particle(pos, vec2f(0.0), kind, e, age, i, col, info);
@@ -988,7 +989,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
     let cell = cellOf(p.pos);
     let r = atomicAdd(&countsA[cell], 1u);
     aux[i] = vec2u(cell, r);
-    if (p.kind == STONE && (p.info & 15u) != FRAMBOID) { atomicAdd(&stoneGrid[cell], select(0x10000u, 1u, (p.info & 15u) != 0u)); }
+    if (p.kind == STONE) { atomicAdd(&stoneGrid[cell], select(0x10000u, 1u, (p.info & 15u) != 0u)); }
     // husks per grid cell: where they pile up and rot, framboids form (matterMain)
     if (p.kind == HUSK && HEAT_ON) { atomicAdd(&thermal[2u * MAX_CELLS + cell], 1u); }
     atomicAdd(&hist[p.kind % MAXK], 1u);
@@ -1133,7 +1134,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   if (l == 0u) { atomicStore(&stoneN, 0u); }
   workgroupBarrier();
   var slot = NONE;
-  if (i < sim.count && sortedFull[i].kind == STONE) { slot = atomicAdd(&stoneN, 1u); }
+  if (i < sim.count && (sortedFull[i].kind == STONE || sortedFull[i].kind == FRAMBOID)) { slot = atomicAdd(&stoneN, 1u); }
   workgroupBarrier();
   if (l == 0u) { stoneBase = atomicAdd(&frameCtr[9], atomicLoad(&stoneN)); }
   let base = workgroupUniformLoad(&stoneBase);
@@ -1141,13 +1142,13 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   if (i >= sim.count) { return; }
   var p = sortedFull[i];
   if (p.kind >= FIRST_LIFE) { return; }
-  if (p.kind == STONE) {
+  if (p.kind == STONE || p.kind == FRAMBOID) {
     // stone stays put and wears away; its energy is the time it has left. Reef stone (bedrock has cause 0)
     // wears by its surroundings: loose grains fast and grains packed into a reef slowly, so rubble clears
     // and reefs stay solid, but a neighbourhood that is mostly reef wears fast (waves and borers on a reef
     // flat), so reefs grow as separate patches about as wide as that neighbourhood.
     var wear = 1.0;
-    let framboid = (p.info & 15u) == FRAMBOID;
+    let framboid = p.kind == FRAMBOID;
     if (framboid) {
       // a framboid oxidises: it warms its water while it lasts (every eighth frame, eight frames' worth)
       if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, ${f(K.framboidHeat)} * sim.dt * 8.0); }
@@ -1175,9 +1176,9 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     p.age += sim.dt;
     p.vel = vec2f(0.0);
     if (p.energy <= 0.0) {
+      // worn away (7), or a spent framboid crumbling (13)
       p.kind = SILT; p.energy = 0.0; p.age = 0.0;
-      p.info = (p.info & 0xffffffc0u) | 7u;
-      if (framboid) { atomicAdd(&ledger[META_ENERGY + 59u], 1u); }
+      p.info = (p.info & 0xffffffc0u) | select(7u, 13u, framboid);
     }
     parts[i] = p;
     return;
@@ -1241,8 +1242,8 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       // in a pile of rotting husks the sulfide they release may crystallise as a framboid
       let pile = f32(atomicLoad(&thermal[2u * MAX_CELLS + cellOf(p.pos)]));
       if (HEAT_ON && rnd(&s) < ${f(K.framboidForm)} * smoothstep(3.0, ${f(K.framboidPile)}, pile) * (1.0 - smoothstep(0.0, 6.0, hot))) {
-        p.kind = STONE; p.energy = ${f(K.framboidLife)} * (0.5 + rnd(&s)); p.col = FRAMBOID_COL;
-        p.info = (p.info & 0xffffffc0u) | FRAMBOID;
+        p.kind = FRAMBOID; p.energy = ${f(K.framboidLife)} * (0.5 + rnd(&s)); p.col = FRAMBOID_COL;
+        p.info = (p.info & 0xffffffc0u) | ${FRAMBOID_GROWN}u;
         vel = vec2f(0.0);
         atomicAdd(&ledger[META_ENERGY + 58u], 1u);
       }
@@ -1564,7 +1565,7 @@ fn mPair(j: u32, q: Lite, d: vec2f, r: f32, inside: bool, kin: bool, fr0: f32, f
   if (qk < FIRST_LIFE) {
     mMatter += u * fr0;
     mForage += u * (fr - fr0);
-    mMatterN[qk] += 1.0;
+    mMatterN[min(qk, STONE)] += 1.0; // (a framboid counts with stone)
     return;
   }
   if (inside) { mSpace += u * fr0; } else if (kin) { mKin += u * fr0; } else { mOther += u * fr0; }
@@ -2060,6 +2061,13 @@ fn focusPass(p: Particle) -> bool {
   let e = p.energy / g.reproE;
   if (view.stateMode == 1u) { return e < 0.35; }
   if (view.stateMode == 2u) { return e > 0.85; }
+  if (view.stateMode >= 4u) {
+    // heat-stressed (4) or torpid (5), at the water's warmth where the cell is
+    let c = vec2u(clamp(p.pos, vec2f(0.0), view.world - 1.0));
+    let warmth = heatField[MAX_CELLS + c.y * u32(view.world.x) + c.x] + ${f(DEFAULT_K.selfWarm)} * thermoOf(g);
+    let th = ${shownThermal('g', 'warmth')};
+    return select(th.x > 0.3, th.torpid, view.stateMode == 5u);
+  }
   return p.age > 0.8 * g.lifespan;
 }
 
@@ -2355,7 +2363,7 @@ struct PO {
   o.jelly = vec3f(1.0, 0.0, 0.0);
   let p = parts[ii];
   // stone is drawn as one field of boulders (vsStone), not grain by grain
-  if (p.kind == STONE) { o.pos = vec4f(2.0, 2.0, 0.0, 1.0); return o; }
+  if (p.kind == STONE || p.kind == FRAMBOID) { o.pos = vec4f(2.0, 2.0, 0.0, 1.0); return o; }
   let d = wrapd(p.pos - view.cam) * view.ppu;
   // Avoid genome/partner reads for offscreen distant sprites.
   if (view.pointSize <= 6.0 && any(abs(d) > view.res * 0.5 + vec2f(60.0))) {
@@ -3005,17 +3013,23 @@ struct SO {
   var o: SO;
   o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
   let p = parts[stoneList[ii]];
-  if (p.kind != STONE) { return o; }
+  if (p.kind != STONE && p.kind != FRAMBOID) { return o; }
   let d = wrapd(p.pos - view.cam) * view.ppu;
-  let framboid = (p.info & 15u) == ${FRAMBOID}u;
+  let framboid = p.kind == FRAMBOID;
   // a framboid is smaller than a cobble: a few microns of crystals
-  let r = max(STONE_R * view.ppu * select(1.0, 0.5, framboid), 1.5);
+  let r = max(STONE_R * view.ppu * select(0.8 + 0.4 * renderHash(p.id + 77u), 0.5, framboid), 1.5);
   if (any(abs(d) > view.res * 0.5 + vec2f(r))) { return o; }
   o.seed = vec2f(f32(pcgR(p.id) & 0xffffu), f32(pcgR(p.id) >> 16u)) / 65536.0;
   // chalky and matte, tinted by the species that built it; each cobble a little lighter or darker;
   // a framboid is brassy pyrite
-  var col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), select(0.5, 0.0, framboid)) * view.matterGain * 1.1;
-  col *= 0.8 + 0.4 * o.seed.x;
+  var base = unpack4x8unorm(p.col).rgb;
+  // bedrock is a mix of minerals: each grain quartz-grey, pinkish feldspar, dark mafic or olive
+  if (!framboid && (p.info & 15u) == 0u) {
+    let m = u32(renderHash(p.id ^ 0x9e3779b9u) * 4.0);
+    base = mix(base, select(select(vec3f(0.74, 0.73, 0.7), vec3f(0.8, 0.64, 0.56), m == 1u), select(vec3f(0.3, 0.31, 0.33), vec3f(0.52, 0.54, 0.42), m == 3u), m >= 2u), 0.55);
+  }
+  var col = mix(base, vec3f(0.9, 0.86, 0.78), select(0.4, 0.0, framboid)) * view.matterGain * 1.1;
+  col *= 0.75 + 0.5 * o.seed.x;
   if (!focusPass(p)) { col = vec3f(dot(col, vec3f(0.3, 0.5, 0.2))) * view.mute; }
   o.flags = select(0u, 1u, (p.info & 15u) != 0u && !framboid) | select(0u, 2u, p.id == view.selId) | select(0u, 4u, framboid);
   o.fuel = select(0.0, clamp(p.energy / ${f(DEFAULT_K.framboidLife)}, 0.0, 1.0), framboid);
@@ -3030,52 +3044,106 @@ struct SO {
   return o;
 }
 struct StoneOut { @location(0) col: vec4f, @location(1) surf: vec4f };
-// A pyrite framboid: a sphere packed with tiny crystals, seen from above. The crystals are laid on the
-// sphere (the lattice taken in arc length), so they crowd toward its limb; each is set a little off
-// the lattice and sized a little differently, those on the rim break the outline, and the gaps between
-// them are dark. Its fuel rides in the surface's flags (see boulder).
+fn grainHash(seed: vec2f, k: f32) -> f32 { return fract(sin(dot(seed * 91.7 + k * 1.618, vec2f(12.9898, 78.233))) * 43758.5453); }
+
+// A pyrite framboid: a cluster of tiny crystals packed on a rough sphere, seen from above. The
+// cluster is a little squashed and lumpy; the crystals are laid on it (the lattice taken in arc
+// length), so they crowd toward its limb; each sits a little off the lattice, has its own size and
+// is partly faceted (a cube or octahedron seen at its own angle), the odd one is missing, those on the
+// rim break the outline, and the gaps between them are dark. Its fuel rides in the surface's flags.
 fn framboidSurf(i: SO) -> StoneOut {
-  let u = i.uv / 0.85;
-  let env = length(u);
-  if (env >= 1.1) { discard; }
+  let rot = i.seed.x * TAU;
+  let ax = vec2f(cos(rot), sin(rot));
+  let squash = 1.0 + 0.22 * grainHash(i.seed, 1.0);
+  let u0 = i.uv / 0.85;
+  let u = vec2f(dot(u0, ax) * squash, dot(u0, vec2f(-ax.y, ax.x)));
+  let ang = atan2(u.y, u.x);
+  let lumps = 1.0 + 0.04 * sin(ang * 3.0 + i.seed.y * 20.0) + 0.04 * sin(ang * 5.0 + i.seed.x * 31.0) + 0.025 * sin(ang * 7.0 + i.seed.y * 9.0);
+  let env = length(u) * lumps;
+  if (env >= 1.12) { discard; }
   let e = min(env, 0.999);
   let dome = sqrt(1.0 - e * e);
-  let g = u * (asin(e) / max(e, 1e-3)) * 4.2 + i.seed * 9.0;
+  let g = u * (asin(e) / max(length(u), 1e-3)) * 4.2 + i.seed * 9.0;
   let cell = vec2f(1.0, 1.7320508);
   let a = g - cell * floor(g / cell) - cell * 0.5;
   let b = (g - cell * 0.5) - cell * floor((g - cell * 0.5) / cell) - cell * 0.5;
   let nb = select(b, a, dot(a, a) < dot(b, b));
   let id = g - nb;
-  let h = fract(sin(vec2f(dot(id, vec2f(127.1, 311.7)), dot(id, vec2f(269.5, 183.3)))) * 43758.5453);
-  let off = nb - (h - 0.5) * 0.16;
-  let rr = length(off) / (0.58 + 0.1 * h.x);
+  let h = fract(sin(vec3f(dot(id, vec2f(127.1, 311.7)), dot(id, vec2f(269.5, 183.3)), dot(id, vec2f(419.2, 371.9)))) * 43758.5453);
+  let off = nb - (h.xy - 0.5) * 0.2;
+  let cr = vec2f(cos(h.z * TAU), sin(h.z * TAU));
+  let lo = vec2f(dot(off, cr), dot(off, vec2f(-cr.y, cr.x)));
+  // round to faceted: a cube's square, or an octahedron's diamond, blended with a sphere
+  let facet = select(abs(lo.x) + abs(lo.y), max(abs(lo.x), abs(lo.y)) * 1.15, h.x > 0.5);
+  let rr = mix(length(off), facet, 0.45 + 0.4 * h.y) / (0.45 + 0.27 * h.y) + select(0.0, 2.0, h.x > 0.94);
   let sph = sqrt(max(1.0 - rr * rr, 0.0));
   if (env - 0.09 * sph >= 1.0) { discard; }
   var o: StoneOut;
-  let slope = -1.1 * u / max(dome, 0.2) - 1.6 * off / max(sph, 0.3) * (0.4 + 0.6 * dome);
+  let sl = -1.1 * u / max(dome, 0.2) - 1.6 * off / max(sph, 0.3) * (0.4 + 0.6 * dome);
+  let slope = (sl.x / squash) * ax + sl.y * vec2f(-ax.y, ax.x);
   let gap = smoothstep(0.85, 1.0, rr);
   o.col = vec4f(i.col * (1.0 - 0.6 * gap) * (0.75 + 0.5 * h.y), 1.0 - smoothstep(0.92, 1.0, env - 0.09 * sph));
   o.surf = vec4f(slope, gap, f32(i.flags) + i.fuel * 0.45);
   return o;
 }
 
+// A grain of mineral sediment: an irregular convex polygon of five to eight facets at uneven angles
+// and distances, stretched along its own axis, sometimes with a chip bitten out of its edge. It is a
+// table with bevelled sides, each bevel lit as its own facet, a crisp ridge where two meet, and a top
+// tilted a little its own way. Height and slope in world units (uv is world / the quad's radius).
+fn mineralSurf(i: SO) -> StoneOut {
+  let n = 5u + u32(grainHash(i.seed, 3.0) * 3.99);
+  let rot = i.seed.x * TAU;
+  let ax = vec2f(cos(rot), sin(rot));
+  let ay = vec2f(-ax.y, ax.x);
+  let stretch = 1.0 + 0.5 * grainHash(i.seed, 1.0);
+  let w = vec2f(dot(i.uv, ax) / stretch, dot(i.uv, ay));
+  let r0 = 0.48 + 0.2 * i.seed.y;
+  var sd = -1e9;
+  var sd2 = -1e9;
+  var nrm = vec2f(1.0, 0.0);
+  var face = 0.0;
+  for (var k = 0u; k < n; k++) {
+    let at = (f32(k) + 0.7 * (grainHash(i.seed, f32(k) + 2.0) - 0.5)) * TAU / f32(n);
+    let dir = vec2f(cos(at), sin(at));
+    let dk = dot(w, dir) - r0 * (0.7 + 0.4 * grainHash(i.seed, f32(k) + 11.0));
+    if (dk > sd) { sd2 = sd; sd = dk; nrm = dir; face = f32(k); } else if (dk > sd2) { sd2 = dk; }
+  }
+  // a chip out of the edge: a wedge broken off, its two new faces at uneven angles
+  if (grainHash(i.seed, 19.0) > 0.5) {
+    let ca = grainHash(i.seed, 23.0) * TAU;
+    let out = vec2f(cos(ca), sin(ca));
+    let c = out * r0 * (0.55 + 0.2 * grainHash(i.seed, 29.0));
+    let spread = 0.5 + 0.5 * grainHash(i.seed, 31.0);
+    let n1 = vec2f(cos(ca + 1.5708 + spread), sin(ca + 1.5708 + spread));
+    let n2 = vec2f(cos(ca - 1.5708 - spread * 0.7), sin(ca - 1.5708 - spread * 0.7));
+    let d1 = dot(w - c, n1);
+    let d2 = dot(w - c, n2);
+    let chip = -max(d1, d2);
+    if (chip > sd) { sd2 = sd; sd = chip; nrm = select(-n2, -n1, d1 > d2); face = 9.0; }
+  }
+  let aa = 1.5 / max(i.px, 1.0);
+  if (sd >= aa) { discard; }
+  let bevel = r0 * (0.2 + 0.18 * grainHash(i.seed, 5.0));
+  let t = smoothstep(0.0, bevel, -sd);
+  let steep = 1.3 + 1.6 * grainHash(i.seed, 7.0);
+  // the top is not flat: tilted its own way and gently domed
+  let tilt = (vec2f(grainHash(i.seed, 13.0), grainHash(i.seed, 17.0)) - 0.5) * 0.9 + w / r0 * 0.45;
+  let ls = nrm * (steep * (1.0 - t)) + tilt * t;
+  var o: StoneOut;
+  let slope = (ls.x / stretch) * ax + ls.y * ay;
+  let ridge = 1.0 - smoothstep(0.0, 0.025, sd - sd2);
+  // each face of a crystal reflects a little differently
+  let albedo = mix(0.82 + 0.36 * grainHash(i.seed, face + 41.0), 1.0, t);
+  o.col = vec4f(i.col * albedo * (1.0 - 0.25 * ridge * (1.0 - t)), 1.0 - smoothstep(-aa, aa, sd));
+  // .z: how near its own edge (where it meets its neighbours) the pixel lies
+  o.surf = vec4f(slope, max(1.0 - smoothstep(0.0, bevel * 1.3, -sd), 0.5 * ridge), f32(i.flags));
+  return o;
+}
+
 @fragment fn fsStone(i: SO) -> StoneOut {
   if ((i.flags & 4u) != 0u) { return framboidSurf(i); }
-  // an uneven cobble: the disc is warped smoothly, so the outline wanders without a seam at the top
-  let w = i.uv * 1.12 + 0.1 * vec2f(sin(i.uv.y * 3.1 + i.seed.x * 20.0), sin(i.uv.x * 2.7 + i.seed.y * 20.0));
-  let r0 = 0.62 + 0.18 * i.seed.y;
-  let q = length(w) / r0;
-  if (q >= 1.0) { discard; }
-  // between a flat slab and a round cobble; height and slope in world units (uv is world / STONE_R)
-  let hs = 0.45 + 0.55 * i.seed.x;
-  let c = sqrt(max(1.0 - q * q, 0.02));
-  var o: StoneOut;
-  let slope = -hs * w / (r0 * c);
-  let edge = 1.0 - smoothstep(1.0 - 1.5 / max(r0 * i.px, 1.0), 1.0, q);
-  o.col = vec4f(i.col, edge);
-  // .z: how far toward its own edge (where it meets its neighbours) the pixel lies
-  o.surf = vec4f(slope, smoothstep(0.5, 1.0, q), f32(i.flags));
-  return o;
+  return mineralSurf(i);
 }
 
 @vertex fn vsFade(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
@@ -3320,7 +3388,7 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
     let spec = pow(max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0), 18.0);
     var lit = c.rgb * (0.25 + 0.65 * max(dot(n, light), 0.0)) + mix(c.rgb, vec3f(1.0, 0.95, 0.8), 0.3) * spec * 1.8;
     let flick = 0.85 + 0.15 * vnoise(wp * 30.0 + vec2f(post.simTime * 0.7, 0.0));
-    lit += vec3f(1.0, 0.38, 0.08) * (0.015 + 0.6 * s.z) * fuel * flick;
+    lit += vec3f(1.0, 0.38, 0.08) * (0.01 + 0.32 * s.z) * fuel * flick;
     if ((flags & 2u) != 0u) { lit = lit * 1.4 + vec3f(0.05, 0.04, 0.02); }
     return lit * c.a * 1.3;
   }
@@ -3332,7 +3400,10 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
   let diffuse = max(dot(n, light), 0.0);
   let spec = pow(max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0), 28.0);
   let tuck = 1.0 - 0.55 * s.z * s.z;
-  var col = c.rgb * (1.0 + 0.12 * (vnoise(wp * 6.0) - 0.5) + 0.18 * fine * (vnoise(wp * 18.0) - 0.5));
+  // mineral grains are mottled and veined well before their fine relief resolves
+  let mid = smoothstep(25.0, 90.0, ppu);
+  var col = c.rgb * (1.0 + 0.12 * (vnoise(wp * 6.0) - 0.5) + (0.12 * mid + 0.18 * fine) * (vnoise(wp * 18.0) - 0.5)
+    + 0.16 * mid * (vnoise(wp * 47.0 + 3.7) - 0.5));
   if (fine > 0.0) {
     if ((flags & 1u) != 0u) {
       // pores: pits of varied size gathered in patches, shadowed on the lit side, a lit rim opposite
@@ -3346,7 +3417,7 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
       col += col * 0.8 * fine * step(0.985, hash12(floor(wp * 110.0)));
     }
   }
-  var lit = col * (0.3 + 0.75 * diffuse) * tuck + vec3f(0.12) * spec * dot(col, vec3f(0.33));
+  var lit = col * (0.25 + 0.8 * diffuse) * tuck + vec3f(select(0.3, 0.12, (flags & 1u) != 0u)) * spec * dot(col, vec3f(0.33));
   if ((flags & 2u) != 0u) { lit = lit * 1.5 + vec3f(0.05, 0.04, 0.02) + vec3f(0.35, 0.3, 0.2) * smoothstep(0.7, 1.0, s.z); }
   return lit * c.a * 1.3;
 }

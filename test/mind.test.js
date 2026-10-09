@@ -154,5 +154,6 @@ test('a torpid cell reads as torpid before anything else', () => {
   assert.equal(m.torpid, true);
   const it = interpretMind(m, { ...G[ME], topt: 20, tol: 6 }, ME, { K, genomeOf });
   assert.equal(it.key, 'torpid');
-  assert.ok(it.flags.find((f) => f.key === 'cold').on);
+  const lamp = it.flags.find((f) => f.key === 'thermal');
+  assert.ok(lamp.on && lamp.tone === 'cold' && lamp.label === 'Too cold');
 });

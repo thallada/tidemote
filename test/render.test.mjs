@@ -18,7 +18,7 @@ test('LOD preserves light, bonded outlines merge, and all detail views validate'
   device.addEventListener('uncapturederror', (e) => errors.push(e.error.message));
   const { createEngine } = await import('../src/engine.js');
   const { archetypeGenome, writeGenome, packUnorm, cellShape } = await import('../src/genome.js');
-  const { MAXK, G_WORDS, DRAW_WGSL, MAX_CELLS } = await import('../src/shaders.js');
+  const { MAXK, G_WORDS, DRAW_WGSL, MAX_CELLS, FIRST_LIFE } = await import('../src/shaders.js');
   const eng = await createEngine(device, 'rgba8unorm');
   assert.ok(await eng.allocate(8));
   eng.grid = [10, 10]; eng.count = 1; eng.resize(256, 256);
@@ -30,11 +30,11 @@ test('LOD preserves light, bonded outlines merge, and all detail views validate'
   // water at the cell's optimum, so heat neither dims nor bleaches it
   device.queue.writeBuffer(eng.b.thermal, MAX_CELLS * 4, new Float32Array(100).fill(g.topt));
   const updateGenome = () => {
-    writeGenome(new Uint32Array(genome), new Float32Array(genome), 4, g);
+    writeGenome(new Uint32Array(genome), new Float32Array(genome), FIRST_LIFE, g);
     device.queue.writeBuffer(eng.b.genomes, 0, genome);
   };
   const particles = new ArrayBuffer(8 * 40), pf = new Float32Array(particles), pu = new Uint32Array(particles);
-  const particle = (i, x, y, kind = 4) => {
+  const particle = (i, x, y, kind = FIRST_LIFE) => {
     const j = i * 10;
     pf[j] = x; pf[j + 1] = y; pf[j + 2] = 0.1; pu[j + 4] = kind;
     pf[j + 5] = 0.4; pf[j + 6] = 5; pu[j + 7] = 123 + i; pu[j + 8] = packUnorm(0.4, 0.7, 0.5, 1);

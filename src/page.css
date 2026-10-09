@@ -189,15 +189,21 @@ body:not(.live) .hud { opacity: 0; }
 .seg { display: inline-flex; gap: 2px; }
 .seg i { width: 3px; height: 12px; background: rgba(130, 205, 214, 0.18); }
 .seg i.on { background: var(--sun); }
-/* the water gauge: a thermometer, each segment lit in its own temperature's colour */
-.seg.therm i.on { background: var(--c); box-shadow: 0 0 4px color-mix(in srgb, var(--c) 45%, transparent); }
+/* the temperature gauge: a thermometer whose tube fills with bars, each lit in its own temperature's
+   colour (main.js THERMO); a small upright one on phones */
+.thermo { width: 68px; height: 18px; overflow: visible; }
+.thermo .tube, .thermo .bulb-o, .thermo-i .tube, .thermo-i .bulb-o { fill: rgba(6, 10, 11, 0.6); stroke: var(--line-2); stroke-width: 1; }
+.thermo .bar { fill: rgba(130, 205, 214, 0.18); }
+.thermo .bar.on { fill: var(--c); filter: drop-shadow(0 0 2px var(--c)); }
+.thermo-i { display: none; width: 12px; height: 20px; }
+.thermo-i .tube, .thermo-i .bulb-o { stroke-width: .8; }
 #g-heat b { color: var(--ink); }
 /* a heat wave or cold snap: the gauge breathes, its rule lit hot */
 #g-heat.exc { border-left-color: var(--hot); }
-#g-heat.exc .seg i.on { animation: exc 1.6s ease-in-out infinite; }
+#g-heat.exc .bar.on, #g-heat.exc .bulb { animation: exc 1.6s ease-in-out infinite; }
 #g-heat.exc b { color: var(--hot); }
 @keyframes exc { 50% { opacity: .35; } }
-@media (prefers-reduced-motion: reduce) { #g-heat.exc .seg i.on { animation: none; } }
+@media (prefers-reduced-motion: reduce) { #g-heat.exc .bar.on, #g-heat.exc .bulb { animation: none; } }
 #tide-wave { width: 60px; height: 16px; overflow: visible; }
 #tide-wave .wave { fill: none; stroke: var(--line-2); stroke-width: 1; }
 #tide-wave .dot { fill: var(--cyan); }
@@ -503,8 +509,11 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .mv-drives span:not(.meter) { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mv-drives b { font-weight: 400; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 11px; }
 .mv-drives .meter > i { transition: width .12s linear; }
-.mv-key { display: flex; gap: 12px; color: var(--ink-3); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; margin-top: 2px; }
-.mv-key span { display: inline-flex; align-items: center; gap: 5px; }
+.mv-dial { display: flex; flex-direction: column; gap: 4px; align-self: stretch; justify-content: flex-start; }
+.mv-dial .compass { margin: auto 0; } /* the key at the top, the compass centred in what is left */
+.mv-key { display: flex; flex-direction: column; gap: 3px; color: var(--ink-3); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; }
+.mv-key span { display: grid; grid-template-columns: 12px auto; align-items: center; justify-items: center; gap: 6px; }
+.mv-key span > b { justify-self: start; font-weight: 500; }
 .mv-key i.dash { width: 12px; border-top: 1px dashed var(--ink); }
 .mv-key i.dia { width: 5px; height: 5px; background: var(--hot); transform: rotate(45deg); }
 .mv-lamps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; padding-top: 2px; }
@@ -515,8 +524,8 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .lamp.on > i { background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 6px rgba(127, 214, 223, 0.6); }
 .lamp.on[data-k="threat"] > i, .lamp.on[data-k="low"] > i { background: var(--hot); border-color: var(--hot); box-shadow: 0 0 6px rgba(255, 95, 58, 0.6); }
 .lamp.on[data-k="full"] > i { background: var(--sun); border-color: var(--sun); box-shadow: 0 0 6px rgba(241, 227, 160, 0.6); }
-.lamp.on[data-k="cold"] > i { background: #6f9cff; border-color: #6f9cff; box-shadow: 0 0 6px rgba(111, 156, 255, 0.6); }
-.lamp.on[data-k="hot"] > i { background: #ff8a3a; border-color: #ff8a3a; box-shadow: 0 0 6px rgba(255, 138, 58, 0.6); }
+.lamp.on[data-tone="cold"] > i { background: #6f9cff; border-color: #6f9cff; box-shadow: 0 0 6px rgba(111, 156, 255, 0.6); }
+.lamp.on[data-tone="hot"] > i { background: #ff8a3a; border-color: #ff8a3a; box-shadow: 0 0 6px rgba(255, 138, 58, 0.6); }
 .mv-nb .nb-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) 3.6em 5.6em 64px; gap: 8px; align-items: center; height: 22px; font-size: 12.5px; }
 .nb-row + .nb-row:not(.nb-head) { border-top: 1px dashed rgba(130, 205, 214, 0.12); }
 .nb-head { height: auto !important; color: var(--ink-3); font-size: 9.5px !important; letter-spacing: .14em; text-transform: uppercase; font-weight: 500; }
@@ -744,8 +753,8 @@ canvas.niches { width: 100%; height: 150px; display: block; }
   .gauge .lbl { display: none; }
   #g-light .seg { display: none; }
   #g-light::before { content: '☀'; color: var(--ink-3); font-size: 12px; }
-  #g-heat .seg { display: none; }
-  #g-heat::before { content: '🌡'; color: var(--ink-3); font-size: 12px; filter: grayscale(1); }
+  #g-heat .thermo { display: none; }
+  #g-heat .thermo-i { display: block; }
   #tide-wave { width: 34px; }
   #lab-open { display: flex; }
   .dock { gap: 0; justify-content: space-between; padding-left: calc(6px + var(--safe-l)); padding-right: calc(6px + var(--safe-r)); }

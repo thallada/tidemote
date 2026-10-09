@@ -3,7 +3,7 @@ import { FIRST_LIFE } from './engine.js';
 import { FRAMBOID } from './shaders.js';
 import { tagsOf } from './facets.js';
 import { tideAt } from './flow.js';
-import { fmt, fmtClock, fmtDur, esc, cssCol, cssRgb, term, spLink, meter, clamp, ROLE, MATTER, FRAMBOID_MATTER, CAUSE, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
+import { fmt, fmtClock, fmtDur, esc, cssCol, cssRgb, term, spLink, meter, clamp, ROLE, MATTER, CAUSE, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
 import { glyphURL, MATTER_GLYPH } from './glyphs.js';
 import { sparkPath } from './charts.js';
 import { voiceOf } from './audio/mapping.js';
@@ -473,8 +473,8 @@ export function createSpecimen(api) {
       root.classList.remove('no-view');
       const p = sel.particle, mem = sel.memory;
       if (p.kind < FIRST_LIFE) {
-        const framboid = p.kind === 3 && p.cause === FRAMBOID;
-        const m = framboid ? FRAMBOID_MATTER : MATTER[p.kind];
+        const framboid = p.kind === FRAMBOID;
+        const m = MATTER[p.kind];
         setHead(mem ? `Now ${m.name} · once` : m.name, mem && mem.sp ? spLink(mem.sp.serial, mem.sp.name) : m.name,
           sel.lost ? 'Lost track of it' : (mem && sel.diedAt != null ? code('Died', `${fmtDur(eng.simTime - sel.diedAt)} ago`) : '') + code('ID', fmt(p.id)));
         plainGlyph(MATTER_GLYPH[p.kind][0], MATTER_GLYPH[p.kind][1]);

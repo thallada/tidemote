@@ -26,7 +26,7 @@ if (v.help) {
                  Override the executable with PLAYWRIGHT_CHROMIUM
   --cpu          Select Mesa lavapipe for Dawn only
   --png file.png Render the final frame with Dawn only (W, H, ZOOM, OPTICS, HEAT env supported;
-                 HEAT=0,1,2: heat map off, shimmer, thermal camera; FRAMBOID=1: centre on framboids)
+                 HEAT=0,1,2: heat map off, shimmer, thermal camera; FRAMBOID=1 or STONE=1: centre on framboids or stone)
   --aim          Centre PNGs on the living cell with the most incoming bonds
                  Fall back to the world centre if no living cells remain
   --render-bench Time 180 paused render frames per zoom with GPU timestamps
@@ -139,8 +139,9 @@ async function writePNG(device, eng, frames) {
     console.log(`PNG camera: ${x}, ${y}; incoming bonds ${Math.max(0, best)}`);
     buf.unmap(); buf.destroy();
   }
-  // FRAMBOID=1 centres the PNG on the densest cluster of pyrite framboids, if there are any
-  if (process.env.FRAMBOID) {
+  // FRAMBOID=1 (or STONE=1) centres the PNG on the densest cluster of pyrite framboids (or stone)
+  const aimKind = process.env.FRAMBOID ? FRAMBOID : process.env.STONE ? 3 : -1;
+  if (aimKind >= 0) {
     const buf = device.createBuffer({ size: eng.count * P_BYTES, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
     const enc = device.createCommandEncoder();
     enc.copyBufferToBuffer(eng.b.parts, 0, buf, 0, eng.count * P_BYTES);
@@ -148,13 +149,13 @@ async function writePNG(device, eng, frames) {
     await buf.mapAsync(GPUMapMode.READ);
     const f = new Float32Array(buf.getMappedRange()), u = new Uint32Array(f.buffer);
     const at = [];
-    for (let i = 0; i < eng.count; i++) if (u[i * 10 + 4] === 3 && (u[i * 10 + 9] & 15) === FRAMBOID) at.push([f[i * 10], f[i * 10 + 1]]);
+    for (let i = 0; i < eng.count; i++) if (u[i * 10 + 4] === aimKind) at.push([f[i * 10], f[i * 10 + 1]]);
     let best = -1;
     for (const [px, py] of at) {
       const n = at.filter(([qx, qy]) => Math.hypot(qx - px, qy - py) < 1.5).length;
       if (n > best) { best = n; x = px; y = py; }
     }
-    console.log(`framboids ${at.length}, densest cluster ${Math.max(0, best)}`);
+    console.log(`${aimKind === 3 ? 'stone' : 'framboids'} ${at.length}, densest cluster ${Math.max(0, best)}`);
     buf.unmap(); buf.destroy();
   }
   const timings = [];

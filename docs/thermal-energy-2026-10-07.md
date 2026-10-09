@@ -967,3 +967,29 @@ and on (everything else equal) followed: with framboids, foodWeb 0.67 vs 0.42, e
 guilds 3.0 vs 2.7. The dip is the heat system's variance across these seeds' worlds (removing the vents
 changed every world's random draws), not the framboids. notableSpecies 26 → 35 and leaderChanges 5.9 →
 10.2 improved, as with vents.
+
+---
+
+## 15. Rebased onto the coarse steps and the polished panels (2026-10-09)
+
+- **Coarse steps** (main's fast speeds): thermal upkeep (stress, torpor, heat-making) is paid in the tick
+  walk, torpid cells skip its divisions and meals, digestion scales by performance there too,
+  thermotaxis runs in the 1/60 s motion substeps, hot springs use the exact coarse charging chance, and
+  headless forks snapshot the heat field and the climate's temperature. The background temperature
+  rides in the uniform's spare word (`sim.tbg`).
+- **Framboids are their own particle kind** (4; living genomes start at 5). They stay solid like stone in
+  the simulation and are drawn in the stone pass, but are counted, named and highlighted as Framboids:
+  a census row, their own glyph and specimen entry. A spent one crumbles to silt with its own cause.
+- **Panels**: the rail's gauge is "Temp", a thermometer whose tube fills with bars lit in their own
+  temperature's colour (a dial with a needle was mocked and set aside: less legible at rail size, and a
+  third kind of instrument beside the light bars and tide wave); phones show a small upright thermometer.
+  The Census tab gains a Temperature facet group and Heat-stressed and Torpid condition chips; Species
+  gains a Temp filter and a Warmest sort; the specimen's energy budget has Water here, Heat stress and
+  Heat-making rows; the behaviour panel's heading/target key sits above the compass, and one lamp
+  (Too cold / Too hot) replaces two. Charts: "Temperature".
+- **Minerals**: stone grains are drawn as irregular faceted fragments (five to eight facets, a chip broken
+  off some, each face its own lightness, bedrock in mixed mineral tints) instead of round cobbles;
+  framboids are squashed, lumpy clusters of partly faceted crystals of varied size.
+
+**Gate** after the rebase and these changes (32 × 30 min at 32k): passes, every gated metric "same";
+notableSpecies 26 → 35 and leaderChanges 5.9 → 8.9 improved; foodWeb 0.56 → 0.34 (p 0.08, Holm 0.53).

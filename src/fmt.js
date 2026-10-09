@@ -34,8 +34,7 @@ export const MATTER = [
   { name: 'Glint', css: '#b9e6ff', blurb: 'Silt charged by the Tide: free-floating food. Its charge fades back to silt if nothing eats it.' },
   { name: 'Husk', css: '#9a6c4c', blurb: 'The remains of a dead cell. Scavengers feed on what energy is left; the rest crumbles back into silt.' },
   { name: 'Stone', css: '#c2b8a8', blurb: 'Bedrock, or the skeleton a calcifying cell left where it settled. Stone never drifts and the living cannot pass through it. Prey shelters in its crevices, and it slowly wears back into silt.' },
+  { name: 'Framboid', css: '#ccb373', blurb: 'A pyrite framboid: a sphere of tiny iron sulfide crystals, grown from the sulfide a pile of rotting husks releases in cool mud. As it oxidises it warms the water around it, faster the warmer that water is, until it is spent and crumbles to silt. Solid, like stone.' },
 ];
-// a pyrite framboid is a grain of stone (cause code FRAMBOID in shaders.js)
-export const FRAMBOID_MATTER = { name: 'Framboid', css: '#ccb373', blurb: 'A pyrite framboid: a sphere of tiny iron sulfide crystals, grown from the sulfide a pile of rotting husks releases in cool mud. As it oxidises it warms the water around it, faster the warmer that water is, until it is spent and crumbles to silt.' };
-export const CAUSE = { 0: '', 1: 'starved', 2: 'died of old age', 3: 'was consumed', 4: 'crumbled from a husk', 5: 'charged by the Tide', 6: 'faded back to silt', 7: 'wore away from stone', 8: 'sparked into life from glint', 9: 'built from silt by its parent', 10: 'scalded', 12: 'crystallised in a rotting pile' };
+export const CAUSE = { 0: '', 1: 'starved', 2: 'died of old age', 3: 'was consumed', 4: 'crumbled from a husk', 5: 'charged by the Tide', 6: 'faded back to silt', 7: 'wore away from stone', 8: 'sparked into life from glint', 9: 'built from silt by its parent', 10: 'scalded', 12: 'crystallised in a rotting pile', 13: 'crumbled from a spent framboid' };
 export const LIVING_CSS = '#ff9a6a';

@@ -227,11 +227,10 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
     { key: 'shelter', label: 'Sheltered by stone', on: m.stoneN >= 1, hint: m.stoneN >= 1 ? `Among stone: attacks made from here miss ${pct(shelter)} of the time.` : 'No stone nearby to hide among.' },
   ];
   if (K.heat) {
+    // one lamp for temperature: a cell is too cold or too hot, never both
     const cold = m.x < -0.3, hot = m.x > 0.3;
-    flags.push(
-      { key: 'cold', label: 'Cold', on: cold, hint: `${deg(m.warmth)}, it prefers ${range}: ${cold ? `${pct(m.perf)} of its best${m.torpid ? '; torpid' : ''}.` : 'not too cold.'}` },
-      { key: 'hot', label: 'Hot', on: hot, hint: `${deg(m.warmth)}, it prefers ${range}: ${hot ? `${pct(m.perf)} of its best${m.x > 0.8 ? '; it may scald' : ''}.` : 'not too hot.'}` },
-    );
+    flags.push({ key: 'thermal', tone: cold ? 'cold' : hot ? 'hot' : '', label: cold ? 'Too cold' : hot ? 'Too hot' : 'Comfortable', on: cold || hot,
+      hint: `${deg(m.warmth)}, it prefers ${range}: ${cold ? `${pct(m.perf)} of its best${m.torpid ? '; torpid' : ''}.` : hot ? `${pct(m.perf)} of its best${m.x > 0.8 ? '; it may scald' : ''}.` : 'comfortable.'}` });
   }
   return { ...st, need, mode: MODES[st.key], target: st.target ?? null, flags, groups, drives, total, species, budget };
 }

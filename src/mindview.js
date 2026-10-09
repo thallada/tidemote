@@ -47,11 +47,12 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
     // two lines, always: a long detail wraps rather than being cut, and never moves what follows
     h += `<div class="two"><span>Detail</span><b class="mv-detail">—</b></div>`;
     h += '</div>';
-    h += `<div class="mv-pulls">${compassHTML(groups)}<div class="mv-drives">`;
+    // the key sits in the free space above the compass, so the drives column keeps every row
+    h += `<div class="mv-pulls"><div class="mv-dial"><div class="mv-key"><span><i class="dash"></i><b>heading</b></span><span><i class="dia"></i><b>target</b></span></div>${compassHTML(groups)}</div><div class="mv-drives">`;
     h += groups.map((gr) => `<div data-k="${gr.key}"><i style="background:${gr.css}"></i><span>${term(gr.tip, gr.label)}</span><span class="meter thin" style="color:${gr.css}"><i style="width:0"></i></span><b>0%</b></div>`).join('');
-    h += `<div class="mv-key"><span><i class="dash"></i>heading</span><span><i class="dia"></i>target</span></div></div></div>`;
+    h += '</div></div>';
     // conditions that shape what it does: a fixed set of lamps, lit or dark, never added or removed
-    h += `<div class="mv-lamps">${['hungry', 'full', 'threat', 'low', 'lean', 'crowd', 'shelter', ...(K.heat ? ['cold', 'hot'] : [])].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join('')}</div></div>`;
+    h += `<div class="mv-lamps">${['hungry', 'full', 'threat', 'low', 'lean', 'crowd', 'shelter', ...(K.heat ? ['thermal'] : [])].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join('')}</div></div>`;
     h += `<div class="blk mv-nb">${subHead(`<i class="ico cell"></i>${term('mind-near', 'Neighbours')}`, 'within its reach')}`;
     h += `<div class="nb-row nb-head"><span></span><span>Species</span><span>Cells</span><span>Role</span><span class="nb-pull term" data-hint="How each species moves this cell: pushes it away (left) or pulls it toward them (right)." tabindex="0"><i>push</i><i>pull</i></span></div>`;
     for (let i = 0; i <= NB_ROWS; i++) h += `<div class="nb-row empty" data-i="${i}"><span class="nb-sig"></span><span class="nb-name">—</span><b class="nb-n"></b><em class="nb-role"></em><span class="dbar"><i></i></span></div>`;
@@ -119,6 +120,7 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
       const n = parts.lamps.get(f.key);
       if (!n) continue;
       n.el.classList.toggle('on', !!f.on);
+      if (f.tone !== undefined && n.el.dataset.tone !== f.tone) n.el.dataset.tone = f.tone;
       if (n.label.textContent !== f.label) n.label.textContent = f.label;
       n.label.dataset.hint = plain(f.hint, f.target);
     }

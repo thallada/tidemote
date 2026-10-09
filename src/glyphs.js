@@ -16,8 +16,8 @@ export const OUTLINES = [
   'M-1,-.1 L-.8,-.4 L-.4,-.3 L-.2,-.5 L.1,-.4 L.3,-.1 L.7,-.3 L1,0 L.8,.4 L.5,.3 L.2,.2 L-.1,.4 L-.4,.2 L-.7,.3 Z',
   'M-1,.2 L-.3,-.6 L.1,-.4 L.9,-.2 L.4,.3 L-.2,.7 Z',
 ];
-// matter emblems: husk ring, glint spark, stone/silt chip
-export const MATTER_GLYPH = [[14, 0xff796056], [13, 0xffffe6b9], [12, 0xff47628a], [14, 0xff9faeb8]];
+// matter emblems: husk ring, glint spark, stone/silt chip, framboid (a raspberry of crystals)
+export const MATTER_GLYPH = [[14, 0xff796056], [13, 0xffffe6b9], [12, 0xff47628a], [14, 0xff9faeb8], [15, 0xff73b3cc]];
 
 export function paintGlyph(g, size, shape, col) {
   const c = cssCol(col);
@@ -30,6 +30,11 @@ export function paintGlyph(g, size, shape, col) {
   if (shape < 12) g.fill(new Path2D(OUTLINES[shape]), 'evenodd');
   else if (shape === 12) { g.lineWidth = 0.22; g.beginPath(); g.ellipse(0, 0, 0.65, 0.5, 0.4, 0, Math.PI * 2); g.stroke(); }
   else if (shape === 13) g.fill(new Path2D('M0,-1 L.15,-.15 L1,0 L.15,.15 L0,1 L-.15,.15 L-1,0 L-.15,-.15 Z'));
+  else if (shape === 15) {
+    g.beginPath();
+    for (const [x, y] of [[0, 0], [0.5, 0], [-0.5, 0], [0.25, 0.43], [-0.25, 0.43], [0.25, -0.43], [-0.25, -0.43]]) { g.moveTo(x + 0.22, y); g.arc(x, y, 0.22, 0, Math.PI * 2); }
+    g.fill();
+  }
   else g.fill(new Path2D('M-.7,-.5 L.2,-.8 L.8,-.2 L.5,.6 L-.5,.8 L-.9,.1 Z'));
   g.restore();
 }

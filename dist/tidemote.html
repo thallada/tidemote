@@ -199,15 +199,21 @@ body:not(.live) .hud { opacity: 0; }
 .seg { display: inline-flex; gap: 2px; }
 .seg i { width: 3px; height: 12px; background: rgba(130, 205, 214, 0.18); }
 .seg i.on { background: var(--sun); }
-/* the water gauge: a thermometer, each segment lit in its own temperature's colour */
-.seg.therm i.on { background: var(--c); box-shadow: 0 0 4px color-mix(in srgb, var(--c) 45%, transparent); }
+/* the temperature gauge: a thermometer whose tube fills with bars, each lit in its own temperature's
+   colour (main.js THERMO); a small upright one on phones */
+.thermo { width: 68px; height: 18px; overflow: visible; }
+.thermo .tube, .thermo .bulb-o, .thermo-i .tube, .thermo-i .bulb-o { fill: rgba(6, 10, 11, 0.6); stroke: var(--line-2); stroke-width: 1; }
+.thermo .bar { fill: rgba(130, 205, 214, 0.18); }
+.thermo .bar.on { fill: var(--c); filter: drop-shadow(0 0 2px var(--c)); }
+.thermo-i { display: none; width: 12px; height: 20px; }
+.thermo-i .tube, .thermo-i .bulb-o { stroke-width: .8; }
 #g-heat b { color: var(--ink); }
 /* a heat wave or cold snap: the gauge breathes, its rule lit hot */
 #g-heat.exc { border-left-color: var(--hot); }
-#g-heat.exc .seg i.on { animation: exc 1.6s ease-in-out infinite; }
+#g-heat.exc .bar.on, #g-heat.exc .bulb { animation: exc 1.6s ease-in-out infinite; }
 #g-heat.exc b { color: var(--hot); }
 @keyframes exc { 50% { opacity: .35; } }
-@media (prefers-reduced-motion: reduce) { #g-heat.exc .seg i.on { animation: none; } }
+@media (prefers-reduced-motion: reduce) { #g-heat.exc .bar.on, #g-heat.exc .bulb { animation: none; } }
 #tide-wave { width: 60px; height: 16px; overflow: visible; }
 #tide-wave .wave { fill: none; stroke: var(--line-2); stroke-width: 1; }
 #tide-wave .dot { fill: var(--cyan); }
@@ -513,8 +519,11 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .mv-drives span:not(.meter) { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mv-drives b { font-weight: 400; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 11px; }
 .mv-drives .meter > i { transition: width .12s linear; }
-.mv-key { display: flex; gap: 12px; color: var(--ink-3); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; margin-top: 2px; }
-.mv-key span { display: inline-flex; align-items: center; gap: 5px; }
+.mv-dial { display: flex; flex-direction: column; gap: 4px; align-self: stretch; justify-content: flex-start; }
+.mv-dial .compass { margin: auto 0; } /* the key at the top, the compass centred in what is left */
+.mv-key { display: flex; flex-direction: column; gap: 3px; color: var(--ink-3); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; }
+.mv-key span { display: grid; grid-template-columns: 12px auto; align-items: center; justify-items: center; gap: 6px; }
+.mv-key span > b { justify-self: start; font-weight: 500; }
 .mv-key i.dash { width: 12px; border-top: 1px dashed var(--ink); }
 .mv-key i.dia { width: 5px; height: 5px; background: var(--hot); transform: rotate(45deg); }
 .mv-lamps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; padding-top: 2px; }
@@ -525,8 +534,8 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .lamp.on > i { background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 6px rgba(127, 214, 223, 0.6); }
 .lamp.on[data-k="threat"] > i, .lamp.on[data-k="low"] > i { background: var(--hot); border-color: var(--hot); box-shadow: 0 0 6px rgba(255, 95, 58, 0.6); }
 .lamp.on[data-k="full"] > i { background: var(--sun); border-color: var(--sun); box-shadow: 0 0 6px rgba(241, 227, 160, 0.6); }
-.lamp.on[data-k="cold"] > i { background: #6f9cff; border-color: #6f9cff; box-shadow: 0 0 6px rgba(111, 156, 255, 0.6); }
-.lamp.on[data-k="hot"] > i { background: #ff8a3a; border-color: #ff8a3a; box-shadow: 0 0 6px rgba(255, 138, 58, 0.6); }
+.lamp.on[data-tone="cold"] > i { background: #6f9cff; border-color: #6f9cff; box-shadow: 0 0 6px rgba(111, 156, 255, 0.6); }
+.lamp.on[data-tone="hot"] > i { background: #ff8a3a; border-color: #ff8a3a; box-shadow: 0 0 6px rgba(255, 138, 58, 0.6); }
 .mv-nb .nb-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) 3.6em 5.6em 64px; gap: 8px; align-items: center; height: 22px; font-size: 12.5px; }
 .nb-row + .nb-row:not(.nb-head) { border-top: 1px dashed rgba(130, 205, 214, 0.12); }
 .nb-head { height: auto !important; color: var(--ink-3); font-size: 9.5px !important; letter-spacing: .14em; text-transform: uppercase; font-weight: 500; }
@@ -754,8 +763,8 @@ canvas.niches { width: 100%; height: 150px; display: block; }
   .gauge .lbl { display: none; }
   #g-light .seg { display: none; }
   #g-light::before { content: '☀'; color: var(--ink-3); font-size: 12px; }
-  #g-heat .seg { display: none; }
-  #g-heat::before { content: '🌡'; color: var(--ink-3); font-size: 12px; filter: grayscale(1); }
+  #g-heat .thermo { display: none; }
+  #g-heat .thermo-i { display: block; }
   #tide-wave { width: 34px; }
   #lab-open { display: flex; }
   .dock { gap: 0; justify-content: space-between; padding-left: calc(6px + var(--safe-l)); padding-right: calc(6px + var(--safe-r)); }
@@ -876,7 +885,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     <div class="clock" role="timer" aria-label="Simulated time"><span class="lbl">Epoch</span><b id="epoch">0:00</b></div>
     <div class="era-box"><span class="lbl" id="era-n">Era 01</span><b id="era">The First Tides</b></div>
     <div class="gauge term" data-tip="light" tabindex="0" id="g-light"><span class="lbl">Light</span><span class="seg" id="light-seg" aria-hidden="true"></span><b id="light-v">–</b></div>
-    <div class="gauge term" data-tip="water" tabindex="0" id="g-heat"><span class="lbl">Water</span><span class="seg therm" id="heat-seg" aria-hidden="true"></span><b id="heat-v">–</b></div>
+    <div class="gauge term" data-tip="water" tabindex="0" id="g-heat"><span class="lbl">Temp</span><svg class="thermo" id="thermo" viewBox="0 0 68 18" aria-hidden="true"></svg><svg class="thermo-i" id="thermo-i" viewBox="0 0 12 20" aria-hidden="true"></svg><b id="heat-v">–</b></div>
     <div class="gauge term" data-tip="season" tabindex="0" id="g-tide"><span class="lbl">Tide</span><svg id="tide-wave" viewBox="0 0 60 16" aria-hidden="true"><path class="wave" d=""/><circle class="dot" r="2.2" cx="0" cy="8"/></svg><b id="tide-v">–</b></div>
     <div class="rail-right">
       <div class="stat"><span class="lbl">Living</span><b id="r-living">–</b></div>
@@ -1052,7 +1061,7 @@ svg.niche .n-dot { fill: var(--cyan); }
 (() => {
   // src/shaders.js
   var MAXK = 1024;
-  var FIRST_LIFE = 4;
+  var FIRST_LIFE = 5;
   var MAX_CELLS = 1 << 18;
   var META_SLOT = 16;
   var META_POP = META_SLOT + MAXK;
@@ -1063,8 +1072,9 @@ svg.niche .n-dot { fill: var(--cyan); }
   var META_CLAIM = META_DIAG + 5 * DIAG_STRIDE;
   var HEAT_BINS = 16;
   var HEAT_BIN = 3;
-  var THERMAL_LEDGER = { hist: 40, torpid: 56, makers: 57, framboidsMade: 58, framboidsSpent: 59 };
-  var FRAMBOID = 12;
+  var THERMAL_LEDGER = { hist: 40, torpid: 56, makers: 57, framboidsMade: 58 };
+  var FRAMBOID = 4;
+  var FRAMBOID_GROWN = 12;
   var HEAT_FIX = 1048576;
   var P_BYTES = 40;
   var LOUPE_FIELD = 1.1;
@@ -1265,11 +1275,12 @@ svg.niche .n-dot { fill: var(--cyan); }
 // Relief, as in DIC microscopy: one light from the upper left (screen y down) for every resolved shape.
 const TO_LIGHT = vec2f(-0.633, -0.774);
 const MAXK = ${MAXK}u;
-const FIRST_LIFE = 4u;
+const FIRST_LIFE = ${FIRST_LIFE}u;
 const SILT = 0u;
 const GLINT = 1u;
 const HUSK = 2u;
 const STONE = 3u;
+const FRAMBOID = ${FRAMBOID}u;
 const NONE = 0xffffffffu;
 // A claim made by a coarse step's walk (lifeMain) says what it is for itself rather than through the
 // claimer's intent: bit 31, then a class in bits 29-30 (0 a kill, 1 glint, 2 a husk, each taken by the
@@ -1530,8 +1541,8 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
       } else {
         fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);${W("mFr0 = fr;")}
         pull = a * ${f(K.matterPull)};
-        if (qk == STONE) {
-          // stone is solid: it pushes cells out however hard they swim, and shelters those among it
+        if (qk == STONE || qk == FRAMBOID) {
+          // stone (and a framboid) is solid: it pushes cells out however hard they swim, and shelters those among it
           if (r < ${f(K.stoneR)}) {
             stoneF += d * ((r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r));
             // its push, g(r) = 1/stoneR - 1/r along d, has gradient -(g I + d d' / r^3)
@@ -1739,7 +1750,6 @@ const DIET_MIN = ${f(K.dietMin)};
 const HEAT_ON = ${K.heat ? "true" : "false"};
 const TREF = ${f(K.tRef)};
 const HEAT_FIX = ${f(HEAT_FIX)};
-const FRAMBOID = ${FRAMBOID}u;
 const FRAMBOID_COL = ${packCol(0.8, 0.7, 0.45)}u;
 
 fn pcg(v: u32) -> u32 {
@@ -2010,7 +2020,7 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
   } else if (kind == SILT && HEAT_ON && rnd(&s) < ${f(K.framboids)}
              && f32(pcg(sim.seed ^ pcg(u32(pos.x / 5.0) * 7919u + u32(pos.y / 5.0) * 104729u)) >> 8u) / 16777216.0 < 0.25) {
     // framboids lie in patches of the mud, part burnt already, so they do not all burn out together
-    kind = STONE; e = ${f(K.framboidLife)} * (0.2 + rnd(&s)); col = FRAMBOID_COL; info = FRAMBOID;
+    kind = FRAMBOID; e = ${f(K.framboidLife)} * (0.2 + rnd(&s)); col = FRAMBOID_COL;
     atomicAdd(&ledger[META_ENERGY + 58u], 1u);
   }
   parts[i] = Particle(pos, vec2f(0.0), kind, e, age, i, col, info);
@@ -2089,7 +2099,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
     let cell = cellOf(p.pos);
     let r = atomicAdd(&countsA[cell], 1u);
     aux[i] = vec2u(cell, r);
-    if (p.kind == STONE && (p.info & 15u) != FRAMBOID) { atomicAdd(&stoneGrid[cell], select(0x10000u, 1u, (p.info & 15u) != 0u)); }
+    if (p.kind == STONE) { atomicAdd(&stoneGrid[cell], select(0x10000u, 1u, (p.info & 15u) != 0u)); }
     // husks per grid cell: where they pile up and rot, framboids form (matterMain)
     if (p.kind == HUSK && HEAT_ON) { atomicAdd(&thermal[2u * MAX_CELLS + cell], 1u); }
     atomicAdd(&hist[p.kind % MAXK], 1u);
@@ -2234,7 +2244,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   if (l == 0u) { atomicStore(&stoneN, 0u); }
   workgroupBarrier();
   var slot = NONE;
-  if (i < sim.count && sortedFull[i].kind == STONE) { slot = atomicAdd(&stoneN, 1u); }
+  if (i < sim.count && (sortedFull[i].kind == STONE || sortedFull[i].kind == FRAMBOID)) { slot = atomicAdd(&stoneN, 1u); }
   workgroupBarrier();
   if (l == 0u) { stoneBase = atomicAdd(&frameCtr[9], atomicLoad(&stoneN)); }
   let base = workgroupUniformLoad(&stoneBase);
@@ -2242,13 +2252,13 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   if (i >= sim.count) { return; }
   var p = sortedFull[i];
   if (p.kind >= FIRST_LIFE) { return; }
-  if (p.kind == STONE) {
+  if (p.kind == STONE || p.kind == FRAMBOID) {
     // stone stays put and wears away; its energy is the time it has left. Reef stone (bedrock has cause 0)
     // wears by its surroundings: loose grains fast and grains packed into a reef slowly, so rubble clears
     // and reefs stay solid, but a neighbourhood that is mostly reef wears fast (waves and borers on a reef
     // flat), so reefs grow as separate patches about as wide as that neighbourhood.
     var wear = 1.0;
-    let framboid = (p.info & 15u) == FRAMBOID;
+    let framboid = p.kind == FRAMBOID;
     if (framboid) {
       // a framboid oxidises: it warms its water while it lasts (every eighth frame, eight frames' worth)
       if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, ${f(K.framboidHeat)} * sim.dt * 8.0); }
@@ -2276,9 +2286,9 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     p.age += sim.dt;
     p.vel = vec2f(0.0);
     if (p.energy <= 0.0) {
+      // worn away (7), or a spent framboid crumbling (13)
       p.kind = SILT; p.energy = 0.0; p.age = 0.0;
-      p.info = (p.info & 0xffffffc0u) | 7u;
-      if (framboid) { atomicAdd(&ledger[META_ENERGY + 59u], 1u); }
+      p.info = (p.info & 0xffffffc0u) | select(7u, 13u, framboid);
     }
     parts[i] = p;
     return;
@@ -2342,8 +2352,8 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       // in a pile of rotting husks the sulfide they release may crystallise as a framboid
       let pile = f32(atomicLoad(&thermal[2u * MAX_CELLS + cellOf(p.pos)]));
       if (HEAT_ON && rnd(&s) < ${f(K.framboidForm)} * smoothstep(3.0, ${f(K.framboidPile)}, pile) * (1.0 - smoothstep(0.0, 6.0, hot))) {
-        p.kind = STONE; p.energy = ${f(K.framboidLife)} * (0.5 + rnd(&s)); p.col = FRAMBOID_COL;
-        p.info = (p.info & 0xffffffc0u) | FRAMBOID;
+        p.kind = FRAMBOID; p.energy = ${f(K.framboidLife)} * (0.5 + rnd(&s)); p.col = FRAMBOID_COL;
+        p.info = (p.info & 0xffffffc0u) | ${FRAMBOID_GROWN}u;
         vel = vec2f(0.0);
         atomicAdd(&ledger[META_ENERGY + 58u], 1u);
       }
@@ -2665,7 +2675,7 @@ fn mPair(j: u32, q: Lite, d: vec2f, r: f32, inside: bool, kin: bool, fr0: f32, f
   if (qk < FIRST_LIFE) {
     mMatter += u * fr0;
     mForage += u * (fr - fr0);
-    mMatterN[qk] += 1.0;
+    mMatterN[min(qk, STONE)] += 1.0; // (a framboid counts with stone)
     return;
   }
   if (inside) { mSpace += u * fr0; } else if (kin) { mKin += u * fr0; } else { mOther += u * fr0; }
@@ -3146,6 +3156,13 @@ fn focusPass(p: Particle) -> bool {
   let e = p.energy / g.reproE;
   if (view.stateMode == 1u) { return e < 0.35; }
   if (view.stateMode == 2u) { return e > 0.85; }
+  if (view.stateMode >= 4u) {
+    // heat-stressed (4) or torpid (5), at the water's warmth where the cell is
+    let c = vec2u(clamp(p.pos, vec2f(0.0), view.world - 1.0));
+    let warmth = heatField[MAX_CELLS + c.y * u32(view.world.x) + c.x] + ${f(DEFAULT_K.selfWarm)} * thermoOf(g);
+    let th = ${shownThermal("g", "warmth")};
+    return select(th.x > 0.3, th.torpid, view.stateMode == 5u);
+  }
   return p.age > 0.8 * g.lifespan;
 }
 
@@ -3441,7 +3458,7 @@ struct PO {
   o.jelly = vec3f(1.0, 0.0, 0.0);
   let p = parts[ii];
   // stone is drawn as one field of boulders (vsStone), not grain by grain
-  if (p.kind == STONE) { o.pos = vec4f(2.0, 2.0, 0.0, 1.0); return o; }
+  if (p.kind == STONE || p.kind == FRAMBOID) { o.pos = vec4f(2.0, 2.0, 0.0, 1.0); return o; }
   let d = wrapd(p.pos - view.cam) * view.ppu;
   // Avoid genome/partner reads for offscreen distant sprites.
   if (view.pointSize <= 6.0 && any(abs(d) > view.res * 0.5 + vec2f(60.0))) {
@@ -4091,17 +4108,23 @@ struct SO {
   var o: SO;
   o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
   let p = parts[stoneList[ii]];
-  if (p.kind != STONE) { return o; }
+  if (p.kind != STONE && p.kind != FRAMBOID) { return o; }
   let d = wrapd(p.pos - view.cam) * view.ppu;
-  let framboid = (p.info & 15u) == ${FRAMBOID}u;
+  let framboid = p.kind == FRAMBOID;
   // a framboid is smaller than a cobble: a few microns of crystals
-  let r = max(STONE_R * view.ppu * select(1.0, 0.5, framboid), 1.5);
+  let r = max(STONE_R * view.ppu * select(0.8 + 0.4 * renderHash(p.id + 77u), 0.5, framboid), 1.5);
   if (any(abs(d) > view.res * 0.5 + vec2f(r))) { return o; }
   o.seed = vec2f(f32(pcgR(p.id) & 0xffffu), f32(pcgR(p.id) >> 16u)) / 65536.0;
   // chalky and matte, tinted by the species that built it; each cobble a little lighter or darker;
   // a framboid is brassy pyrite
-  var col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), select(0.5, 0.0, framboid)) * view.matterGain * 1.1;
-  col *= 0.8 + 0.4 * o.seed.x;
+  var base = unpack4x8unorm(p.col).rgb;
+  // bedrock is a mix of minerals: each grain quartz-grey, pinkish feldspar, dark mafic or olive
+  if (!framboid && (p.info & 15u) == 0u) {
+    let m = u32(renderHash(p.id ^ 0x9e3779b9u) * 4.0);
+    base = mix(base, select(select(vec3f(0.74, 0.73, 0.7), vec3f(0.8, 0.64, 0.56), m == 1u), select(vec3f(0.3, 0.31, 0.33), vec3f(0.52, 0.54, 0.42), m == 3u), m >= 2u), 0.55);
+  }
+  var col = mix(base, vec3f(0.9, 0.86, 0.78), select(0.4, 0.0, framboid)) * view.matterGain * 1.1;
+  col *= 0.75 + 0.5 * o.seed.x;
   if (!focusPass(p)) { col = vec3f(dot(col, vec3f(0.3, 0.5, 0.2))) * view.mute; }
   o.flags = select(0u, 1u, (p.info & 15u) != 0u && !framboid) | select(0u, 2u, p.id == view.selId) | select(0u, 4u, framboid);
   o.fuel = select(0.0, clamp(p.energy / ${f(DEFAULT_K.framboidLife)}, 0.0, 1.0), framboid);
@@ -4116,52 +4139,106 @@ struct SO {
   return o;
 }
 struct StoneOut { @location(0) col: vec4f, @location(1) surf: vec4f };
-// A pyrite framboid: a sphere packed with tiny crystals, seen from above. The crystals are laid on the
-// sphere (the lattice taken in arc length), so they crowd toward its limb; each is set a little off
-// the lattice and sized a little differently, those on the rim break the outline, and the gaps between
-// them are dark. Its fuel rides in the surface's flags (see boulder).
+fn grainHash(seed: vec2f, k: f32) -> f32 { return fract(sin(dot(seed * 91.7 + k * 1.618, vec2f(12.9898, 78.233))) * 43758.5453); }
+
+// A pyrite framboid: a cluster of tiny crystals packed on a rough sphere, seen from above. The
+// cluster is a little squashed and lumpy; the crystals are laid on it (the lattice taken in arc
+// length), so they crowd toward its limb; each sits a little off the lattice, has its own size and
+// is partly faceted (a cube or octahedron seen at its own angle), the odd one is missing, those on the
+// rim break the outline, and the gaps between them are dark. Its fuel rides in the surface's flags.
 fn framboidSurf(i: SO) -> StoneOut {
-  let u = i.uv / 0.85;
-  let env = length(u);
-  if (env >= 1.1) { discard; }
+  let rot = i.seed.x * TAU;
+  let ax = vec2f(cos(rot), sin(rot));
+  let squash = 1.0 + 0.22 * grainHash(i.seed, 1.0);
+  let u0 = i.uv / 0.85;
+  let u = vec2f(dot(u0, ax) * squash, dot(u0, vec2f(-ax.y, ax.x)));
+  let ang = atan2(u.y, u.x);
+  let lumps = 1.0 + 0.04 * sin(ang * 3.0 + i.seed.y * 20.0) + 0.04 * sin(ang * 5.0 + i.seed.x * 31.0) + 0.025 * sin(ang * 7.0 + i.seed.y * 9.0);
+  let env = length(u) * lumps;
+  if (env >= 1.12) { discard; }
   let e = min(env, 0.999);
   let dome = sqrt(1.0 - e * e);
-  let g = u * (asin(e) / max(e, 1e-3)) * 4.2 + i.seed * 9.0;
+  let g = u * (asin(e) / max(length(u), 1e-3)) * 4.2 + i.seed * 9.0;
   let cell = vec2f(1.0, 1.7320508);
   let a = g - cell * floor(g / cell) - cell * 0.5;
   let b = (g - cell * 0.5) - cell * floor((g - cell * 0.5) / cell) - cell * 0.5;
   let nb = select(b, a, dot(a, a) < dot(b, b));
   let id = g - nb;
-  let h = fract(sin(vec2f(dot(id, vec2f(127.1, 311.7)), dot(id, vec2f(269.5, 183.3)))) * 43758.5453);
-  let off = nb - (h - 0.5) * 0.16;
-  let rr = length(off) / (0.58 + 0.1 * h.x);
+  let h = fract(sin(vec3f(dot(id, vec2f(127.1, 311.7)), dot(id, vec2f(269.5, 183.3)), dot(id, vec2f(419.2, 371.9)))) * 43758.5453);
+  let off = nb - (h.xy - 0.5) * 0.2;
+  let cr = vec2f(cos(h.z * TAU), sin(h.z * TAU));
+  let lo = vec2f(dot(off, cr), dot(off, vec2f(-cr.y, cr.x)));
+  // round to faceted: a cube's square, or an octahedron's diamond, blended with a sphere
+  let facet = select(abs(lo.x) + abs(lo.y), max(abs(lo.x), abs(lo.y)) * 1.15, h.x > 0.5);
+  let rr = mix(length(off), facet, 0.45 + 0.4 * h.y) / (0.45 + 0.27 * h.y) + select(0.0, 2.0, h.x > 0.94);
   let sph = sqrt(max(1.0 - rr * rr, 0.0));
   if (env - 0.09 * sph >= 1.0) { discard; }
   var o: StoneOut;
-  let slope = -1.1 * u / max(dome, 0.2) - 1.6 * off / max(sph, 0.3) * (0.4 + 0.6 * dome);
+  let sl = -1.1 * u / max(dome, 0.2) - 1.6 * off / max(sph, 0.3) * (0.4 + 0.6 * dome);
+  let slope = (sl.x / squash) * ax + sl.y * vec2f(-ax.y, ax.x);
   let gap = smoothstep(0.85, 1.0, rr);
   o.col = vec4f(i.col * (1.0 - 0.6 * gap) * (0.75 + 0.5 * h.y), 1.0 - smoothstep(0.92, 1.0, env - 0.09 * sph));
   o.surf = vec4f(slope, gap, f32(i.flags) + i.fuel * 0.45);
   return o;
 }
 
+// A grain of mineral sediment: an irregular convex polygon of five to eight facets at uneven angles
+// and distances, stretched along its own axis, sometimes with a chip bitten out of its edge. It is a
+// table with bevelled sides, each bevel lit as its own facet, a crisp ridge where two meet, and a top
+// tilted a little its own way. Height and slope in world units (uv is world / the quad's radius).
+fn mineralSurf(i: SO) -> StoneOut {
+  let n = 5u + u32(grainHash(i.seed, 3.0) * 3.99);
+  let rot = i.seed.x * TAU;
+  let ax = vec2f(cos(rot), sin(rot));
+  let ay = vec2f(-ax.y, ax.x);
+  let stretch = 1.0 + 0.5 * grainHash(i.seed, 1.0);
+  let w = vec2f(dot(i.uv, ax) / stretch, dot(i.uv, ay));
+  let r0 = 0.48 + 0.2 * i.seed.y;
+  var sd = -1e9;
+  var sd2 = -1e9;
+  var nrm = vec2f(1.0, 0.0);
+  var face = 0.0;
+  for (var k = 0u; k < n; k++) {
+    let at = (f32(k) + 0.7 * (grainHash(i.seed, f32(k) + 2.0) - 0.5)) * TAU / f32(n);
+    let dir = vec2f(cos(at), sin(at));
+    let dk = dot(w, dir) - r0 * (0.7 + 0.4 * grainHash(i.seed, f32(k) + 11.0));
+    if (dk > sd) { sd2 = sd; sd = dk; nrm = dir; face = f32(k); } else if (dk > sd2) { sd2 = dk; }
+  }
+  // a chip out of the edge: a wedge broken off, its two new faces at uneven angles
+  if (grainHash(i.seed, 19.0) > 0.5) {
+    let ca = grainHash(i.seed, 23.0) * TAU;
+    let out = vec2f(cos(ca), sin(ca));
+    let c = out * r0 * (0.55 + 0.2 * grainHash(i.seed, 29.0));
+    let spread = 0.5 + 0.5 * grainHash(i.seed, 31.0);
+    let n1 = vec2f(cos(ca + 1.5708 + spread), sin(ca + 1.5708 + spread));
+    let n2 = vec2f(cos(ca - 1.5708 - spread * 0.7), sin(ca - 1.5708 - spread * 0.7));
+    let d1 = dot(w - c, n1);
+    let d2 = dot(w - c, n2);
+    let chip = -max(d1, d2);
+    if (chip > sd) { sd2 = sd; sd = chip; nrm = select(-n2, -n1, d1 > d2); face = 9.0; }
+  }
+  let aa = 1.5 / max(i.px, 1.0);
+  if (sd >= aa) { discard; }
+  let bevel = r0 * (0.2 + 0.18 * grainHash(i.seed, 5.0));
+  let t = smoothstep(0.0, bevel, -sd);
+  let steep = 1.3 + 1.6 * grainHash(i.seed, 7.0);
+  // the top is not flat: tilted its own way and gently domed
+  let tilt = (vec2f(grainHash(i.seed, 13.0), grainHash(i.seed, 17.0)) - 0.5) * 0.9 + w / r0 * 0.45;
+  let ls = nrm * (steep * (1.0 - t)) + tilt * t;
+  var o: StoneOut;
+  let slope = (ls.x / stretch) * ax + ls.y * ay;
+  let ridge = 1.0 - smoothstep(0.0, 0.025, sd - sd2);
+  // each face of a crystal reflects a little differently
+  let albedo = mix(0.82 + 0.36 * grainHash(i.seed, face + 41.0), 1.0, t);
+  o.col = vec4f(i.col * albedo * (1.0 - 0.25 * ridge * (1.0 - t)), 1.0 - smoothstep(-aa, aa, sd));
+  // .z: how near its own edge (where it meets its neighbours) the pixel lies
+  o.surf = vec4f(slope, max(1.0 - smoothstep(0.0, bevel * 1.3, -sd), 0.5 * ridge), f32(i.flags));
+  return o;
+}
+
 @fragment fn fsStone(i: SO) -> StoneOut {
   if ((i.flags & 4u) != 0u) { return framboidSurf(i); }
-  // an uneven cobble: the disc is warped smoothly, so the outline wanders without a seam at the top
-  let w = i.uv * 1.12 + 0.1 * vec2f(sin(i.uv.y * 3.1 + i.seed.x * 20.0), sin(i.uv.x * 2.7 + i.seed.y * 20.0));
-  let r0 = 0.62 + 0.18 * i.seed.y;
-  let q = length(w) / r0;
-  if (q >= 1.0) { discard; }
-  // between a flat slab and a round cobble; height and slope in world units (uv is world / STONE_R)
-  let hs = 0.45 + 0.55 * i.seed.x;
-  let c = sqrt(max(1.0 - q * q, 0.02));
-  var o: StoneOut;
-  let slope = -hs * w / (r0 * c);
-  let edge = 1.0 - smoothstep(1.0 - 1.5 / max(r0 * i.px, 1.0), 1.0, q);
-  o.col = vec4f(i.col, edge);
-  // .z: how far toward its own edge (where it meets its neighbours) the pixel lies
-  o.surf = vec4f(slope, smoothstep(0.5, 1.0, q), f32(i.flags));
-  return o;
+  return mineralSurf(i);
 }
 
 @vertex fn vsFade(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
@@ -4407,7 +4484,7 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
     let spec = pow(max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0), 18.0);
     var lit = c.rgb * (0.25 + 0.65 * max(dot(n, light), 0.0)) + mix(c.rgb, vec3f(1.0, 0.95, 0.8), 0.3) * spec * 1.8;
     let flick = 0.85 + 0.15 * vnoise(wp * 30.0 + vec2f(post.simTime * 0.7, 0.0));
-    lit += vec3f(1.0, 0.38, 0.08) * (0.015 + 0.6 * s.z) * fuel * flick;
+    lit += vec3f(1.0, 0.38, 0.08) * (0.01 + 0.32 * s.z) * fuel * flick;
     if ((flags & 2u) != 0u) { lit = lit * 1.4 + vec3f(0.05, 0.04, 0.02); }
     return lit * c.a * 1.3;
   }
@@ -4419,7 +4496,10 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
   let diffuse = max(dot(n, light), 0.0);
   let spec = pow(max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0), 28.0);
   let tuck = 1.0 - 0.55 * s.z * s.z;
-  var col = c.rgb * (1.0 + 0.12 * (vnoise(wp * 6.0) - 0.5) + 0.18 * fine * (vnoise(wp * 18.0) - 0.5));
+  // mineral grains are mottled and veined well before their fine relief resolves
+  let mid = smoothstep(25.0, 90.0, ppu);
+  var col = c.rgb * (1.0 + 0.12 * (vnoise(wp * 6.0) - 0.5) + (0.12 * mid + 0.18 * fine) * (vnoise(wp * 18.0) - 0.5)
+    + 0.16 * mid * (vnoise(wp * 47.0 + 3.7) - 0.5));
   if (fine > 0.0) {
     if ((flags & 1u) != 0u) {
       // pores: pits of varied size gathered in patches, shadowed on the lit side, a lit rim opposite
@@ -4433,7 +4513,7 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
       col += col * 0.8 * fine * step(0.985, hash12(floor(wp * 110.0)));
     }
   }
-  var lit = col * (0.3 + 0.75 * diffuse) * tuck + vec3f(0.12) * spec * dot(col, vec3f(0.33));
+  var lit = col * (0.25 + 0.8 * diffuse) * tuck + vec3f(select(0.3, 0.12, (flags & 1u) != 0u)) * spec * dot(col, vec3f(0.33));
   if ((flags & 2u) != 0u) { lit = lit * 1.5 + vec3f(0.05, 0.04, 0.02) + vec3f(0.35, 0.3, 0.2) * smoothstep(0.7, 1.0, s.z); }
   return lit * c.a * 1.3;
 }
@@ -13495,7 +13575,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         { binding: 7, resource: { buffer: b.genomes } },
         { binding: 9, resource: { buffer: b.organDir } }
       ] });
-      const stoneBG = (view) => d.createBindGroup({ layout: this.pStone.getBindGroupLayout(0), entries: [[0, view], [1, b.parts], [2, b.genomes], [5, b.focus], [7, b.stoneList]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+      const stoneBG = (view) => d.createBindGroup({ layout: this.pStone.getBindGroupLayout(0), entries: [[0, view], [1, b.parts], [2, b.genomes], [5, b.focus], [7, b.stoneList], [11, b.thermal]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
       this.bgStone = stoneBG(b.view);
       this.bgStoneL = stoneBG(b.viewL);
       this.bgStoneS = stoneBG(b.viewS);
@@ -13511,7 +13591,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         { binding: 2, resource: { buffer: b.genomes } },
         { binding: 3, resource: { buffer: b.intent } },
         { binding: 4, resource: { buffer: b.livingList } },
-        { binding: 5, resource: { buffer: b.focus } }
+        { binding: 5, resource: { buffer: b.focus } },
+        { binding: 11, resource: { buffer: b.thermal } }
       ] });
       this.bgPoint = pointBG(b.view);
       this.bgLine = lineBG(b.view);
@@ -13525,7 +13606,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         { binding: 2, resource: { buffer: b.genomes } },
         { binding: 3, resource: { buffer: b.intent } },
         { binding: 4, resource: { buffer: b.livingList } },
-        { binding: 5, resource: { buffer: b.focus } }
+        { binding: 5, resource: { buffer: b.focus } },
+        { binding: 11, resource: { buffer: b.thermal } }
       ] });
       this.bgBridge = bridgeBG(b.view);
       this.bgBridgeL = bridgeBG(b.viewL);
@@ -13705,8 +13787,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const gbuf = new ArrayBuffer(MAXK * G_BYTES);
       const gu = new Uint32Array(gbuf);
       const gf = new Float32Array(gbuf);
-      const matterCols = [[0.3, 0.34, 0.46], [0.7, 0.93, 1], [0.5, 0.35, 0.25], [0.62, 0.57, 0.5]];
-      for (let m = 0; m < 4; m++) {
+      const matterCols = [[0.3, 0.34, 0.46], [0.7, 0.93, 1], [0.5, 0.35, 0.25], [0.62, 0.57, 0.5], [0.8, 0.7, 0.45]];
+      for (let m = 0; m < FIRST_LIFE; m++) {
         const g = archetypeGenome("plankton", rng, this.K);
         g.col = packUnorm(...matterCols[m]);
         writeGenome(gu, gf, m, g);
@@ -14931,7 +15013,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       short: "Climate",
       html: `<p>The ${t("tide", "Tide")} is four slow waves summed over the torus; where they add up, bright bands form and drift. ${t("light", "Light")} is a dim baseline everywhere plus the Tide on top. So tide bands are rich in both glint and light, while baseline light lets plants live anywhere.</p>
 <p>The ${t("season", "season")} is a 5-minute cycle that swings tide strength between 10% and 100%; it drives the regular booms and busts. Every 10–18 minutes an ${t("era", "era")} begins: the baseline light and glint production change, one tide wave is replaced so the bright zones form and move differently, and two current patterns are swapped. The water’s temperature walks from era to era, so each world has its own thermal history; eras that warm or cool it a lot are named for it, otherwise era names are random labels, and the event log says what actually changed.</p>
-<p><b>Settings → Light map</b> colours every point by the light a photosynthesising cell would receive there, with a contour every 10%; <b>Settings → Currents</b> draws the flow that carries silt, glint and drifting cells. The <b>Tide</b> gauge at the top follows the season: the dot rides the 5-minute wave, and the <b>Water</b> gauge beside it shows the background temperature, with an arrow while it changes; it breathes during a heat wave or cold snap.</p>`
+<p><b>Settings → Light map</b> colours every point by the light a photosynthesising cell would receive there, with a contour every 10%; <b>Settings → Currents</b> draws the flow that carries silt, glint and drifting cells. The <b>Tide</b> gauge at the top follows the season: the dot rides the 5-minute wave, and the <b>Temp</b> thermometer beside it shows the background temperature, with an arrow while it changes; it breathes during a heat wave or cold snap.</p>`
     },
     {
       id: "heat",
@@ -15048,10 +15130,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
     { name: "Silt", css: "#5d6a82", blurb: "Inert mineral grit carried on the currents. The Tide charges it into glint, and cells build their offspring out of it." },
     { name: "Glint", css: "#b9e6ff", blurb: "Silt charged by the Tide: free-floating food. Its charge fades back to silt if nothing eats it." },
     { name: "Husk", css: "#9a6c4c", blurb: "The remains of a dead cell. Scavengers feed on what energy is left; the rest crumbles back into silt." },
-    { name: "Stone", css: "#c2b8a8", blurb: "Bedrock, or the skeleton a calcifying cell left where it settled. Stone never drifts and the living cannot pass through it. Prey shelters in its crevices, and it slowly wears back into silt." }
+    { name: "Stone", css: "#c2b8a8", blurb: "Bedrock, or the skeleton a calcifying cell left where it settled. Stone never drifts and the living cannot pass through it. Prey shelters in its crevices, and it slowly wears back into silt." },
+    { name: "Framboid", css: "#ccb373", blurb: "A pyrite framboid: a sphere of tiny iron sulfide crystals, grown from the sulfide a pile of rotting husks releases in cool mud. As it oxidises it warms the water around it, faster the warmer that water is, until it is spent and crumbles to silt. Solid, like stone." }
   ];
-  var FRAMBOID_MATTER = { name: "Framboid", css: "#ccb373", blurb: "A pyrite framboid: a sphere of tiny iron sulfide crystals, grown from the sulfide a pile of rotting husks releases in cool mud. As it oxidises it warms the water around it, faster the warmer that water is, until it is spent and crumbles to silt." };
-  var CAUSE = { 0: "", 1: "starved", 2: "died of old age", 3: "was consumed", 4: "crumbled from a husk", 5: "charged by the Tide", 6: "faded back to silt", 7: "wore away from stone", 8: "sparked into life from glint", 9: "built from silt by its parent", 10: "scalded", 12: "crystallised in a rotting pile" };
+  var CAUSE = { 0: "", 1: "starved", 2: "died of old age", 3: "was consumed", 4: "crumbled from a husk", 5: "charged by the Tide", 6: "faded back to silt", 7: "wore away from stone", 8: "sparked into life from glint", 9: "built from silt by its parent", 10: "scalded", 12: "crystallised in a rotting pile", 13: "crumbled from a spent framboid" };
   var LIVING_CSS = "#ff9a6a";
 
   // src/glyphs.js
@@ -15069,7 +15151,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     "M-1,-.1 L-.8,-.4 L-.4,-.3 L-.2,-.5 L.1,-.4 L.3,-.1 L.7,-.3 L1,0 L.8,.4 L.5,.3 L.2,.2 L-.1,.4 L-.4,.2 L-.7,.3 Z",
     "M-1,.2 L-.3,-.6 L.1,-.4 L.9,-.2 L.4,.3 L-.2,.7 Z"
   ];
-  var MATTER_GLYPH = [[14, 4286144598], [13, 4294960825], [12, 4282868362], [14, 4288655032]];
+  var MATTER_GLYPH = [[14, 4286144598], [13, 4294960825], [12, 4282868362], [14, 4288655032], [15, 4285772748]];
   function paintGlyph(g, size, shape, col) {
     const c = cssCol(col);
     const R2 = size * 0.36;
@@ -15088,7 +15170,14 @@ registerProcessor("tidemote-sound", TidemoteSound);
       g.ellipse(0, 0, 0.65, 0.5, 0.4, 0, Math.PI * 2);
       g.stroke();
     } else if (shape === 13) g.fill(new Path2D("M0,-1 L.15,-.15 L1,0 L.15,.15 L0,1 L-.15,.15 L-1,0 L-.15,-.15 Z"));
-    else g.fill(new Path2D("M-.7,-.5 L.2,-.8 L.8,-.2 L.5,.6 L-.5,.8 L-.9,.1 Z"));
+    else if (shape === 15) {
+      g.beginPath();
+      for (const [x, y] of [[0, 0], [0.5, 0], [-0.5, 0], [0.25, 0.43], [-0.25, 0.43], [0.25, -0.43], [-0.25, -0.43]]) {
+        g.moveTo(x + 0.22, y);
+        g.arc(x, y, 0.22, 0, Math.PI * 2);
+      }
+      g.fill();
+    } else g.fill(new Path2D("M-.7,-.5 L.2,-.8 L.8,-.2 L.5,.6 L-.5,.8 L-.9,.1 Z"));
     g.restore();
   }
   var urls = /* @__PURE__ */ new Map();
@@ -15405,7 +15494,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       g.fillText(`${t2}°`, X(t2), h - 2);
     }
     g.textAlign = "right";
-    g.fillText(`water ${Math.round(tbg)}°`, w, 10);
+    g.fillText(`temperature ${Math.round(tbg)}°`, w, 10);
   }
 
   // src/ui.js
@@ -15441,6 +15530,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       diet: "all",
       mobility: "all",
       body: "all",
+      temp: "all",
       sort: "pop",
       linAll: false,
       logType: "all",
@@ -15525,7 +15615,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const hovering = (el) => el.matches(":hover");
     const DIETS = [["all", "Any"], ["photosynth", "Photosynth"], ["grazer", "Grazer"], ["scavenger", "Scavenger"], ["predator", "Predator"], ["omnivore", "Omnivore"]];
     const MOBS = [["all", "Any"], ["anchored", "Anchored"], ["crawler", "Crawler"], ["swimmer", "Swimmer"], ["drifter", "Drifter"]];
-    const SORTS = { pop: "Population", peak: "Peak", newest: "Newest", oldest: "Oldest", depth: "Mutations", swim: "Swimming", size: "Size" };
+    const TEMPS = [["all", "Any"], ["cold-loving", "Cold"], ["temperate", "Temperate"], ["warmth-loving", "Warm"], ["thermophile", "Hot"]];
+    const SORTS = { pop: "Population", peak: "Peak", newest: "Newest", oldest: "Oldest", depth: "Mutations", swim: "Swimming", size: "Size", ...api.eng.K.heat ? { warm: "Warmest" } : {} };
     function matches(sp, F) {
       const f2 = api.facets(sp.genome);
       if (F.status === "thriving" && !(sp.alive && sp.established)) return false;
@@ -15534,6 +15625,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (F.diet !== "all" && f2.diet !== F.diet) return false;
       if (F.mobility !== "all" && f2.mobility !== F.mobility) return false;
       if (F.body !== "all" && f2.body !== F.body) return false;
+      if (F.temp !== "all" && thermalGuild(sp.genome).pref !== F.temp) return false;
       if (F.q && !sp.name.toLowerCase().includes(F.q.toLowerCase())) return false;
       return true;
     }
@@ -15544,7 +15636,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       oldest: (a, b) => a.born - b.born,
       depth: (a, b) => b.genome.depth - a.genome.depth,
       size: (a, b) => b.genome.size - a.genome.size,
-      swim: (a, b) => b.genome.swim * (1 - b.genome.photo) - a.genome.swim * (1 - a.genome.photo)
+      swim: (a, b) => b.genome.swim * (1 - b.genome.photo) - a.genome.swim * (1 - a.genome.photo),
+      warm: (a, b) => b.genome.topt - a.genome.topt
     };
     function buildSpecies() {
       const seg = (label2, key, opts) => `<span class="lbl">${label2}</span><div class="segs" role="group" aria-label="${key}">${chips(key, opts, st[key])}</div>`;
@@ -15552,7 +15645,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       ${seg("Status", "status", [["thriving", "Thriving"], ["alive", "Living"], ["extinct", "Extinct"], ["all", "Any"]])}
       ${seg(term("diet", "Diet"), "diet", DIETS)}
       ${seg("Moves", "mobility", MOBS)}
-      ${seg(term("organism", "Body"), "body", [["all", "Any"], ["multicellular", "Multicellular"], ["single-cell", "Single-cell"]])}</div>
+      ${seg(term("organism", "Body"), "body", [["all", "Any"], ["multicellular", "Multicellular"], ["single-cell", "Single-cell"]])}
+      ${api.eng.K.heat ? seg(term("optimum", "Temp"), "temp", TEMPS) : ""}</div>
       <div class="sum"><span><span id="sp-sum"></span><button type="button" class="link" id="sp-reset" hidden>Reset</button></span><span class="sel"><label class="lbl" for="sp-sort">Sort</label><select id="sp-sort">${Object.entries(SORTS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select><button type="button" class="chip" id="sp-hl">Highlight these</button></span></div>`);
       const list = document.createElement("ol");
       list.className = "splist";
@@ -15588,8 +15682,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
           return;
         }
         if (e.target.closest("#sp-reset")) {
-          Object.assign(st, { status: "thriving", diet: "all", mobility: "all", body: "all" });
-          ["status", "diet", "mobility", "body"].forEach((k) => pressChips(p.ctl, k));
+          Object.assign(st, { status: "thriving", diet: "all", mobility: "all", body: "all", temp: "all" });
+          ["status", "diet", "mobility", "body", "temp"].forEach((k) => pressChips(p.ctl, k));
           update(true);
           return;
         }
@@ -15602,7 +15696,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         }
         if (e.target.closest("#sp-hl")) {
           const F = { ...st };
-          const parts = [F.status !== "all" ? F.status : "", F.diet !== "all" ? F.diet : "", F.mobility !== "all" ? F.mobility : "", F.body !== "all" ? F.body : "", F.q ? `“${F.q}”` : ""].filter(Boolean);
+          const parts = [F.status !== "all" ? F.status : "", F.diet !== "all" ? F.diet : "", F.mobility !== "all" ? F.mobility : "", F.body !== "all" ? F.body : "", F.temp !== "all" ? F.temp : "", F.q ? `“${F.q}”` : ""].filter(Boolean);
           api.focusPredicate(`Species: ${parts.join(" · ") || "all"}`, (g, sp) => !!sp && sp.alive && matches(sp, F));
         }
       });
@@ -15821,6 +15915,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           ["Diet", "diet", g.diet.map((d) => ({ key: `diet:${d.name}`, label: d.name, n: d.n, col: d.col }))],
           ["Movement", null, g.mobility.map((d) => ({ key: `mobility:${d.name}`, label: d.name, n: d.n, col: d.col }))],
           ["Body", "organism", g.body.map((d) => ({ key: `body:${d.name}`, label: d.name, n: d.n, col: d.col }))],
+          ...api.eng.K.heat ? [["Temperature", "optimum", g.temp.map((d) => ({ key: `temp:${d.name}`, label: d.name, n: d.n, col: d.col }))]] : [],
           ["Cells by type", "celltype", ROLE.map((r, i) => ({ key: `role:${i}`, label: `${r}-cells`, n: roles[i], col: ["#ffb45e", "#b38cff", "#5fd4c4"][i] }))],
           ["Cell types per species", "bodyplan", g.types.map((d) => ({ key: `types:${d.name}`, label: `${d.name} type${d.name === "1" ? "" : "s"}`, n: d.n, col: d.col }))]
         ];
@@ -15832,10 +15927,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (k !== shape) {
           shape = k;
           const bars = ([title, tip, rows]) => block(title, `<div class="bars">${rows.map((r) => `<button type="button" class="barrow" data-focus="${r.key}" aria-pressed="false"><span class="bl">${r.label}</span><span class="meter" style="color:${r.col}"><i></i></span><span class="bn"></span><span class="bp"></span></button>`).join("")}</div>`, { tip });
-          box.innerHTML = secs.slice(0, 3).map(bars).join("") + disclosure("celltypes", "Cell types", `<div class="stack">${secs.slice(3).map(bars).join("")}</div>`, st.open_.celltypes) + block("Condition", `<div class="segs" role="group" aria-label="Condition">
+          const fold2 = secs.length - 2;
+          box.innerHTML = secs.slice(0, fold2).map(bars).join("") + disclosure("celltypes", "Cell types", `<div class="stack">${secs.slice(fold2).map(bars).join("")}</div>`, st.open_.celltypes) + block("Condition", `<div class="segs" role="group" aria-label="Condition">
             <button type="button" class="chip" data-focus="state:1" aria-pressed="false" data-hint="Under 35% of the energy needed to divide">Hungry</button>
             <button type="button" class="chip" data-focus="state:2" aria-pressed="false" data-hint="Over 85% of the energy needed to divide">Ready to divide</button>
-            <button type="button" class="chip" data-focus="state:3" aria-pressed="false" data-hint="Past 80% of their lifespan">Elderly</button></div>`, { cls: "inline" });
+            <button type="button" class="chip" data-focus="state:3" aria-pressed="false" data-hint="Past 80% of their lifespan">Elderly</button>${api.eng.K.heat ? `
+            <button type="button" class="chip" data-focus="state:4" aria-pressed="false" data-hint="Warmer than they can comfortably bear">Heat-stressed</button>
+            <button type="button" class="chip" data-focus="state:5" aria-pressed="false" data-hint="Too cold to feed, swim or divide">Torpid</button>` : ""}</div>`, { cls: "inline" });
         }
         const fk = api.focusKey();
         const els = box.querySelectorAll(".bars");
@@ -15865,7 +15963,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     ];
     if (api.eng.K.heat) {
       CHARTS.push(
-        ["Water", "water", [{ k: "temp", label: "background water", col: "#ff8a3a" }], "°"],
+        ["Temperature", "water", [{ k: "temp", label: "background temperature", col: "#ff8a3a" }], "°"],
         ["Heat deaths per minute", "scalding", [{ k: "scald", label: "scalded", col: "#ff5f3a" }]],
         ["Torpid", "torpor", [{ k: "torpid", label: "share of the living", col: "#7fb0ff" }], "%"]
       );
@@ -15873,7 +15971,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     function buildCharts() {
       const p = pane("");
       p.scroll.classList.add("stack");
-      p.scroll.innerHTML = `<div class="legend"><span><i style="background:var(--sun);height:6px;width:1px"></i>dotted lines mark a new era</span></div>` + CHARTS.map(([t2, tip, s], i) => block(t2, `<canvas class="dyn" data-i="${i}" aria-label="${esc(t2)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join("")}</div>`, { tip })).join("") + (api.eng.K.heat ? block("Thermal niches", `<canvas class="niches" aria-label="Each species by the temperature it prefers and its population"></canvas><div class="legend"><span><i style="background:#ff8a3a;opacity:.4"></i>warmth the living feel</span><span><i style="background:#ff8a3a;height:6px;width:1px"></i>background water</span><span>dot size: tolerance · ring: ${term("heatmaker", "heat-maker")}</span></div>`, { tip: "optimum" }) : "") + block("Eras", '<ol class="eras" id="eras"></ol>');
+      p.scroll.innerHTML = `<div class="legend"><span><i style="background:var(--sun);height:6px;width:1px"></i>dotted lines mark a new era</span></div>` + CHARTS.map(([t2, tip, s], i) => block(t2, `<canvas class="dyn" data-i="${i}" aria-label="${esc(t2)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join("")}</div>`, { tip })).join("") + (api.eng.K.heat ? block("Thermal niches", `<canvas class="niches" aria-label="Each species by the temperature it prefers and its population"></canvas><div class="legend"><span><i style="background:#ff8a3a;opacity:.4"></i>warmth the living feel</span><span><i style="background:#ff8a3a;height:6px;width:1px"></i>background temperature</span><span>dot size: tolerance · ring: ${term("heatmaker", "heat-maker")}</span></div>`, { tip: "optimum" }) : "") + block("Eras", '<ol class="eras" id="eras"></ol>');
       const cvs = [...p.scroll.querySelectorAll("canvas.dyn")];
       const niches = p.scroll.querySelector("canvas.niches");
       let erasN = -1, excN = 0;
@@ -15892,7 +15990,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (eras.length !== erasN || exc !== excN) {
           erasN = eras.length;
           excN = exc;
-          const water = (h) => api.eng.K.heat && h.temp != null ? ` · water ${Math.round(h.temp)}°${h.excursion ? ` · ${h.excursion.dT > 0 ? "heat wave" : "cold snap"} ${h.excursion.dT > 0 ? "+" : "−"}${Math.abs(h.excursion.dT).toFixed(0)}°` : ""}` : "";
+          const water = (h) => api.eng.K.heat && h.temp != null ? ` · temperature ${Math.round(h.temp)}°${h.excursion ? ` · ${h.excursion.dT > 0 ? "heat wave" : "cold snap"} ${h.excursion.dT > 0 ? "+" : "−"}${Math.abs(h.excursion.dT).toFixed(0)}°` : ""}` : "";
           $2("eras").innerHTML = eras.slice().reverse().map((h) => `<li><time>${fmtClock(h.t)}</time><b>${esc(h.name)}</b><span>light ${Math.round(h.ambient * 100)}% · glint ×${h.charge.toFixed(2)}${water(h)}</span></li>`).join("");
         }
       }
@@ -16276,10 +16374,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
     ];
     if (K.heat) {
       const cold = m.x < -0.3, hot = m.x > 0.3;
-      flags.push(
-        { key: "cold", label: "Cold", on: cold, hint: `${deg(m.warmth)}, it prefers ${range}: ${cold ? `${pct(m.perf)} of its best${m.torpid ? "; torpid" : ""}.` : "not too cold."}` },
-        { key: "hot", label: "Hot", on: hot, hint: `${deg(m.warmth)}, it prefers ${range}: ${hot ? `${pct(m.perf)} of its best${m.x > 0.8 ? "; it may scald" : ""}.` : "not too hot."}` }
-      );
+      flags.push({
+        key: "thermal",
+        tone: cold ? "cold" : hot ? "hot" : "",
+        label: cold ? "Too cold" : hot ? "Too hot" : "Comfortable",
+        on: cold || hot,
+        hint: `${deg(m.warmth)}, it prefers ${range}: ${cold ? `${pct(m.perf)} of its best${m.torpid ? "; torpid" : ""}.` : hot ? `${pct(m.perf)} of its best${m.x > 0.8 ? "; it may scald" : ""}.` : "comfortable."}`
+      });
     }
     return { ...st, need, mode: MODES[st.key], target: st.target ?? null, flags, groups, drives, total, species, budget };
   }
@@ -16344,10 +16445,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       h += `<div><span>Target</span><b class="mv-target"><span class="mv-sig"></span><span class="mv-tname">—</span><em class="mv-tdist"></em></b></div>`;
       h += `<div class="two"><span>Detail</span><b class="mv-detail">—</b></div>`;
       h += "</div>";
-      h += `<div class="mv-pulls">${compassHTML(groups)}<div class="mv-drives">`;
+      h += `<div class="mv-pulls"><div class="mv-dial"><div class="mv-key"><span><i class="dash"></i><b>heading</b></span><span><i class="dia"></i><b>target</b></span></div>${compassHTML(groups)}</div><div class="mv-drives">`;
       h += groups.map((gr) => `<div data-k="${gr.key}"><i style="background:${gr.css}"></i><span>${term(gr.tip, gr.label)}</span><span class="meter thin" style="color:${gr.css}"><i style="width:0"></i></span><b>0%</b></div>`).join("");
-      h += `<div class="mv-key"><span><i class="dash"></i>heading</span><span><i class="dia"></i>target</span></div></div></div>`;
-      h += `<div class="mv-lamps">${["hungry", "full", "threat", "low", "lean", "crowd", "shelter", ...K.heat ? ["cold", "hot"] : []].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join("")}</div></div>`;
+      h += "</div></div>";
+      h += `<div class="mv-lamps">${["hungry", "full", "threat", "low", "lean", "crowd", "shelter", ...K.heat ? ["thermal"] : []].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join("")}</div></div>`;
       h += `<div class="blk mv-nb">${subHead(`<i class="ico cell"></i>${term("mind-near", "Neighbours")}`, "within its reach")}`;
       h += `<div class="nb-row nb-head"><span></span><span>Species</span><span>Cells</span><span>Role</span><span class="nb-pull term" data-hint="How each species moves this cell: pushes it away (left) or pulls it toward them (right)." tabindex="0"><i>push</i><i>pull</i></span></div>`;
       for (let i = 0; i <= NB_ROWS; i++) h += `<div class="nb-row empty" data-i="${i}"><span class="nb-sig"></span><span class="nb-name">—</span><b class="nb-n"></b><em class="nb-role"></em><span class="dbar"><i></i></span></div>`;
@@ -16422,6 +16523,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         const n = parts.lamps.get(f2.key);
         if (!n) continue;
         n.el.classList.toggle("on", !!f2.on);
+        if (f2.tone !== void 0 && n.el.dataset.tone !== f2.tone) n.el.dataset.tone = f2.tone;
         if (n.label.textContent !== f2.label) n.label.textContent = f2.label;
         n.label.dataset.hint = plain(f2.hint, f2.target);
       }
@@ -16959,8 +17061,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         root.classList.remove("no-view");
         const p = sel.particle, mem = sel.memory;
         if (p.kind < FIRST_LIFE) {
-          const framboid = p.kind === 3 && p.cause === FRAMBOID;
-          const m = framboid ? FRAMBOID_MATTER : MATTER[p.kind];
+          const framboid = p.kind === FRAMBOID;
+          const m = MATTER[p.kind];
           setHead(
             mem ? `Now ${m.name} · once` : m.name,
             mem && mem.sp ? spLink(mem.sp.serial, mem.sp.name) : m.name,
@@ -18393,7 +18495,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       flash("A new world begins");
     }
     function groups() {
-      const out = { diet: {}, mobility: {}, body: {}, types: {} };
+      const out = { diet: {}, mobility: {}, body: {}, types: {}, temp: {} };
       for (const sp of life.reg.values()) {
         if (!sp.alive) continue;
         const f2 = facets(sp.genome, K);
@@ -18401,22 +18503,25 @@ registerProcessor("tidemote-sound", TidemoteSound);
         out.mobility[f2.mobility] = (out.mobility[f2.mobility] || 0) + sp.pop;
         out.body[f2.body] = (out.body[f2.body] || 0) + sp.pop;
         out.types[f2.types] = (out.types[f2.types] || 0) + sp.pop;
+        const tp = thermalGuild(sp.genome).pref;
+        out.temp[tp] = (out.temp[tp] || 0) + sp.pop;
       }
       return {
         diet: Object.keys(DIET_COL).map((k) => ({ name: k, n: out.diet[k] || 0, col: DIET_COL[k] })),
         mobility: Object.keys(MOB_COL).map((k) => ({ name: k, n: out.mobility[k] || 0, col: MOB_COL[k] })),
         body: [{ name: "multicellular", n: out.body.multicellular || 0, col: "#ffb45e" }, { name: "single-cell", n: out.body["single-cell"] || 0, col: "#9aa3b8" }],
-        types: ["1", "2", "3"].map((k, i) => ({ name: k, n: out.types[k] || 0, col: ["#9aa3b8", "#b38cff", "#5fd4c4"][i] }))
+        types: ["1", "2", "3"].map((k, i) => ({ name: k, n: out.types[k] || 0, col: ["#9aa3b8", "#b38cff", "#5fd4c4"][i] })),
+        temp: [["cold-loving", "#6f9cff"], ["temperate", "#62c6a8"], ["warmth-loving", "#f0b04a"], ["thermophile", "#ff5f3a"]].map(([k, col]) => ({ name: k, n: out.temp[k] || 0, col }))
       };
     }
-    const focus = { key: null, label: "", pred: null, roleMask: 7, stateMode: 0, matter: [false, false, false, false] };
+    const focus = { key: null, label: "", pred: null, roleMask: 7, stateMode: 0, matter: [false, false, false, false, false] };
     let members = null;
     let memberKind = NONE2;
     function pushFocus() {
       let kinds = null;
       if (focus.key) {
         kinds = new Uint32Array(MAXK / 32);
-        for (let m = 0; m < 4; m++) if (focus.matter[m]) kinds[0] |= 1 << m;
+        for (let m = 0; m < FIRST_LIFE; m++) if (focus.matter[m]) kinds[0] |= 1 << m;
         const c = life.lastCensus;
         if (c && focus.pred) {
           for (let s = FIRST_LIFE; s < MAXK; s++) {
@@ -18431,7 +18536,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       $("focus").hidden = !focus.key;
       $("focus-label").textContent = focus.label;
     }
-    function setFocus(key, label2, { pred = null, roleMask = 7, stateMode = 0, matter = [false, false, false] } = {}) {
+    function setFocus(key, label2, { pred = null, roleMask = 7, stateMode = 0, matter = [false, false, false, false, false] } = {}) {
       Object.assign(focus, { key, label: label2, pred, roleMask, stateMode, matter });
       pushFocus();
       afterFocus();
@@ -18461,9 +18566,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const [kind, val] = key.split(":");
       if (kind === "class") {
         if (val === "living") setFocus(key, "All living cells", { pred: allLiving });
-        else setFocus(key, MATTER[{ silt: 0, glint: 1, husk: 2, stone: 3 }[val]].name, { matter: [val === "silt", val === "glint", val === "husk", val === "stone"] });
+        else setFocus(key, MATTER[{ silt: 0, glint: 1, husk: 2, stone: 3, framboid: 4 }[val]].name, { matter: ["silt", "glint", "husk", "stone", "framboid"].map((m) => m === val) });
       } else if (kind === "role") setFocus(key, `${ROLE[+val]}-cells`, { pred: allLiving, roleMask: 1 << +val });
-      else if (kind === "state") setFocus(key, ["", "Hungry cells", "Cells ready to divide", "Elderly cells"][+val], { pred: allLiving, stateMode: +val });
+      else if (kind === "state") setFocus(key, ["", "Hungry cells", "Cells ready to divide", "Elderly cells", "Heat-stressed cells", "Torpid cells"][+val], { pred: allLiving, stateMode: +val });
+      else if (kind === "temp") setFocus(key, `Prefers: ${val}`, { pred: (g) => thermalGuild(g).pref === val });
       else if (kind === "diet") setFocus(key, `Diet: ${val}`, { pred: (g) => facets(g, K).diet === val });
       else if (kind === "mobility") setFocus(key, `Movement: ${val}`, { pred: (g) => facets(g, K).mobility === val });
       else if (kind === "body") setFocus(key, val === "multicellular" ? "Multicellular species" : "Single-cell species", { pred: (g) => facets(g, K).body === val });
@@ -18602,9 +18708,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
       life.lastCensus = c;
       const pop = c.pop;
       const t2 = c.simTime;
-      life.counts = [pop[0], pop[1], pop[2], 0, pop[3]];
+      life.counts = [pop[0], pop[1], pop[2], 0, pop[3], pop[4]];
       life.roles = [c.globals[12], c.globals[13], c.globals[14]];
-      life.matter = [0, 1, 2, 3].map((s) => readGenome(c.genomeU32, c.genomeF32, s));
+      life.matter = [0, 1, 2, 3, 4].map((s) => readGenome(c.genomeU32, c.genomeF32, s));
       life.arisen = c.globals[1];
       life.births = c.globals[2];
       const seen = /* @__PURE__ */ new Set();
@@ -18735,6 +18841,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       ["Glint", 1, MATTER[1].css, "glint", "class:glint"],
       ["Husk", 2, MATTER[2].css, "husk", "class:husk"],
       ["Stone", 4, MATTER[3].css, "stone", "class:stone"],
+      ...K.heat ? [["Framboids", 5, MATTER[4].css, "framboid", "class:framboid"]] : [],
       ["Silt", 0, MATTER[0].css, "silt", "class:silt"]
     ];
     const mixEl = $("mix");
@@ -18875,7 +18982,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           bestAny = e;
         }
       }
-      const anyR = bestAny && bestAny.kind === 3 ? 0.17 : 0.05;
+      const anyR = bestAny && bestAny.kind === 3 ? 0.17 : bestAny && bestAny.kind === 4 ? 0.09 : 0.05;
       const touchR = isCoarse ? 30 : 22;
       const chosen = bestLife && bl < Math.max(touchR, 0.2 * p) ? bestLife : bestAny && ba < Math.max(isCoarse ? 20 : 14, anyR * p) ? bestAny : null;
       if (!chosen) {
@@ -18900,7 +19007,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         remember();
         story(`${keepStory ? "Now watching" : "Picked"} a ${ROLE[p.role]}-cell${sp ? ` of ${spLink(sp.serial, sp.name)}` : ""}, age ${fmtDur(p.age)}.`);
       } else {
-        story(`Picked a grain of ${MATTER[p.kind].name.toLowerCase()}.`);
+        story(p.kind === 4 ? "Picked a framboid." : `Picked a grain of ${MATTER[p.kind].name.toLowerCase()}.`);
       }
       gatherTick(true);
       renderSpecimen(true);
@@ -18940,6 +19047,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (a.kind >= FIRST_LIFE && b.kind >= FIRST_LIFE) return "Changed species.";
       if (a.kind >= FIRST_LIFE && b.kind === 3) return `Died: ${b.cause === 2 ? "old age" : "starved"} at age ${fmtDur(a.age)}. Its skeleton is now stone.`;
       if (a.kind === 3 && b.kind === 0) return "The stone wore away into silt.";
+      if (a.kind === 4 && b.kind === 0) return "The framboid was spent and crumbled into silt.";
+      if (a.kind === 2 && b.kind === 4) return "The husk rotted in a pile, and its sulfide crystallised as a framboid.";
       if (a.kind === 2 && b.kind === 0) return b.cause === 3 ? "The husk was eaten by a scavenger." : "The husk crumbled into silt.";
       if (a.kind === 0 && b.kind === 1) return "Charged into glint by the Tide.";
       if (a.kind === 1 && b.kind === 0) return b.cause === 3 ? "The glint was eaten by a cell." : "The glint faded back into silt.";
@@ -19811,8 +19920,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     const segs = $("light-seg");
     segs.innerHTML = "<i></i>".repeat(10);
-    const heatSegs = $("heat-seg");
-    heatSegs.innerHTML = Array.from({ length: 10 }, (_, i) => `<i style="--c:${["#3d6fd6", "#3f86d8", "#3fa0d0", "#41b7c2", "#62c6a8", "#9bcd86", "#d2c865", "#f0b04a", "#ff8a3a", "#ff5f3a"][i]}"></i>`).join("");
+    const THERMO = ["#3d6fd6", "#3f86d8", "#3fa0d0", "#41b7c2", "#62c6a8", "#9bcd86", "#d2c865", "#f0b04a", "#ff8a3a", "#ff5f3a"];
+    $("thermo").innerHTML = `<rect class="tube" x="11" y="5.5" width="56" height="7" rx="3.5"/><circle class="bulb-o" cx="8" cy="9" r="7.5"/>${THERMO.map((c, k) => `<rect class="bar" x="${17.5 + k * 4.8}" y="7" width="3" height="4" style="--c:${c}"/>`).join("")}<circle class="bulb" cx="8" cy="9" r="5"/>`;
+    $("thermo-i").innerHTML = '<rect class="tube" x="4" y="1" width="4" height="12" rx="2"/><circle class="bulb-o" cx="6" cy="15" r="4.2"/><rect class="lvl" x="5" y="2" width="2" height="12"/><circle class="bulb" cx="6" cy="15" r="2.8"/>';
+    const heatBars = [...$("thermo").querySelectorAll(".bar")], heatBulbs = [...document.querySelectorAll("#g-heat .bulb")], heatLvl = $("thermo-i").querySelector(".lvl");
     $("g-heat").hidden = !K.heat;
     const wave = $("tide-wave");
     wave.querySelector(".wave").setAttribute("d", Array.from({ length: 31 }, (_, i) => `${i ? "L" : "M"}${i * 2},${(8 - 6 * Math.sin(i / 30 * TAU2)).toFixed(2)}`).join(""));
@@ -19841,10 +19952,15 @@ registerProcessor("tidemote-sound", TidemoteSound);
         const T = eng.tbg, trend = climate.tempTo - eng.temp + (climate.excursion && eng.excursion ? Math.sign(climate.excursion.dT) * (eng.simTime < climate.excursion.t + climate.excursion.dur / 2 ? 1 : -1) : 0);
         const arrow = trend > 0.4 ? "↑" : trend < -0.4 ? "↓" : "";
         setText("heat-v", `${Math.round(T)}°${arrow}`);
-        [...heatSegs.children].forEach((s, i) => s.classList.toggle("on", i < Math.round((T - 4) / 24 * 10)));
+        const frac = clamp6((T - 4) / 24, 0, 1), c = THERMO[Math.min(9, Math.floor(frac * 10))];
+        heatBars.forEach((s, i) => s.classList.toggle("on", i < Math.round(frac * 10)));
+        heatBulbs.forEach((b) => b.style.setProperty("fill", c));
+        heatLvl.setAttribute("y", (2 + 10 * (1 - frac)).toFixed(2));
+        heatLvl.setAttribute("height", (10 * frac + 3).toFixed(2));
+        heatLvl.style.setProperty("fill", c);
         const exc = eng.excursion > 0.5 ? "heat wave" : eng.excursion < -0.5 ? "cold snap" : "";
         $("g-heat").classList.toggle("exc", !!exc);
-        $("g-heat").setAttribute("aria-label", `${exc ? `${exc}, ` : ""}water ${Math.round(T)}°${arrow ? arrow === "↑" ? " and rising" : " and falling" : ""}`);
+        $("g-heat").setAttribute("aria-label", `${exc ? `${exc}, ` : ""}temperature ${Math.round(T)}°${arrow ? arrow === "↑" ? " and rising" : " and falling" : ""}`);
       }
       tips.check();
       setText("t-rate", state.speed > 1 && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : "");

@@ -1,6 +1,6 @@
 import { DEFAULT_K, G_WORDS } from './shaders.js';
 
-export const KIND = { SILT: 0, GLINT: 1, HUSK: 2, STONE: 3 };
+export const KIND = { SILT: 0, GLINT: 1, HUSK: 2, STONE: 3, FRAMBOID: 4 };
 
 // Cosmetic names and selection mirror DRAW_WGSL; never consume ecological randomness.
 export const CELL_SHAPES = ['lobose', 'filose', 'radiate', 'desmid', 'horned', 'spindle',
