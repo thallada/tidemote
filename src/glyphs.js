@@ -41,16 +41,43 @@ export function paintGlyph(g, size, shape, col) {
   g.restore();
 }
 
-// A kind of stone grain, simplified: its silhouette, with its telling detail cut out of it.
+// A kind of stone grain, simplified: built of pieces (facets, slabs, chambers, ribs) parted by thin
+// sutures, each shaded by how it faces the light (from the upper left), as the grain is drawn.
+const LIGHT = [-0.6, -0.8];
+const ring = (pts) => `M${pts.map(([x, y]) => `${x},${y}`).join(' L')} Z`;
+const disc = (x, y, r) => `M${x + r},${y} A${r},${r} 0 1,1 ${x - r},${y} A${r},${r} 0 1,1 ${x + r},${y} Z`;
+// the facets of a crystal seen from above: each edge of its outline sloping up to the matching edge of a
+// smaller top face; shaded by the edge's outward normal
+const facets = (out, top) => [...out.map((a, i) => {
+  const b = out[(i + 1) % out.length];
+  const n = [b[1] - a[1], a[0] - b[0]], l = Math.hypot(...n);
+  return [ring([a, b, top[(i + 1) % out.length], top[i]]), 0.9 * (n[0] * LIGHT[0] + n[1] * LIGHT[1]) / l];
+}), [ring(top), 0.25]];
+const QUARTZ = [[-0.72, -0.38], [-0.1, -0.86], [0.66, -0.5], [0.82, 0.2], [0.2, 0.82], [-0.62, 0.6]];
 const GRAIN = [
-  ['M-.7,-.4 L-.1,-.85 L.65,-.5 L.8,.2 L.2,.8 L-.6,.6 Z', 'M-.25,-.35 L.3,-.3 L.35,.2 L-.15,.3 Z M-.25,-.35 L-.7,-.4 M.3,-.3 L.65,-.5 M.35,.2 L.8,.2 M-.15,.3 L-.6,.6'], // quartz: facets
-  ['M-.8,-.45 L.6,-.62 L.85,-.35 L.85,.35 L-.7,.55 Z', 'M-.75,-.1 L.85,-.28 M-.72,.24 L.85,.06'], // feldspar: cleavage steps
-  ['M-.95,0 L-.6,-.38 L.6,-.38 L.95,0 L.6,.38 L-.6,.38 Z', 'M-.95,0 L.95,0'], // hornblende: a prism's ridge
-  ['M.8,0 A.8,.6 0 1,1 -.8,0 A.8,.6 0 1,1 .8,0 Z', ''], // sand: a worn oval
-  [null, null], // foraminifer: coiled chambers (drawn below)
-  ['M.8,0 A.8,.8 0 1,1 -.8,0 A.8,.8 0 1,1 .8,0 Z', null], // diatom: a pored disc (pores below)
-  ['M0,.85 L-.85,-.3 Q0,-1 .85,-.3 Z', 'M0,.85 L-.45,-.6 M0,.85 L0,-.66 M0,.85 L.45,-.6 M-.55,-.05 Q0,-.4 .55,-.05'], // shell: ribs and a growth line
-  ['M-1,.14 Q0,-.38 1,-.14 Q0,.3 -1,.14 Z', 'M-.7,.07 Q0,-.12 .7,-.06'], // spicule: a needle and its canal
+  facets(QUARTZ, QUARTZ.map(([x, y]) => [0.42 * x + 0.04, 0.42 * y - 0.06])), // quartz
+  [ // feldspar: a block seen at an angle, its top lit, its sides stepped along the cleavage
+    [ring([[-0.8, -0.28], [0.3, -0.62], [0.86, -0.34], [-0.24, 0.0]]), 0.45],
+    [ring([[-0.8, -0.28], [-0.24, 0.0], [-0.24, 0.28], [-0.8, 0.0]]), -0.35],
+    [ring([[-0.8, 0.0], [-0.24, 0.28], [-0.24, 0.62], [-0.8, 0.32]]), -0.5],
+    [ring([[-0.24, 0.0], [0.86, -0.34], [0.86, -0.02], [-0.24, 0.3]]), 0.0],
+    [ring([[-0.24, 0.3], [0.86, -0.02], [0.86, 0.32], [-0.24, 0.62]]), -0.15],
+  ],
+  [ // hornblende: a long prism, three faces of its six showing
+    [ring([[-0.95, -0.05], [-0.62, -0.4], [0.62, -0.4], [0.95, -0.05]]), 0.55],
+    [ring([[-0.95, -0.05], [0.95, -0.05], [0.75, 0.16], [-0.75, 0.16]]), 0.0],
+    [ring([[-0.75, 0.16], [0.75, 0.16], [0.6, 0.38], [-0.6, 0.38]]), -0.5],
+  ],
+  null, // sand: a worn oval, shaded round (below)
+  null, // foraminifer: chambers (below)
+  null, // diatom: a pored disc with a rim (below)
+  [ // shell fragment: a fan of ribs from its hinge, alternately lit
+    ...[-3, -2, -1, 0, 1, 2].map((i) => {
+      const a0 = -Math.PI / 2 + i * 0.36, a1 = a0 + 0.36;
+      return [`M0,0.82 L${(0.92 * Math.cos(a0)).toFixed(3)},${(0.82 + 1.5 * Math.sin(a0)).toFixed(3)} L${(0.92 * Math.cos(a1)).toFixed(3)},${(0.82 + 1.5 * Math.sin(a1)).toFixed(3)} Z`, i % 2 ? 0.3 : -0.15];
+    }),
+  ],
+  [['M-1,0.16 Q0,-0.44 1,-0.16 Q0,-0.06 -1,0.16 Z', 0.35], ['M-1,0.16 Q0,-0.06 1,-0.16 Q0,0.36 -1,0.16 Z', -0.4]], // sponge spicule: a rod, lit above
 ];
 // a foraminifer's chambers, each larger than the last on a log spiral, fitted to the emblem
 const FORAM = (() => {
@@ -60,23 +87,56 @@ const FORAM = (() => {
   return cs.map(([x, y, r]) => [(x - (lo[0] + hi[0]) / 2) * k, (y - (lo[1] + hi[1]) / 2) * k, r * k]);
 })();
 function stoneGlyph(g, k) {
-  const [body, cuts] = GRAIN[k];
-  const circles = (cs) => { const p = new Path2D(); for (const [x, y, r] of cs) { p.moveTo(x + r, y); p.arc(x, y, r, 0, Math.PI * 2); } return p; };
-  g.lineWidth = 0.1;
-  if (k === 4) {
-    // oldest first, each newer chamber parting from the older ones it covers by a thin suture
-    for (const [i, c] of FORAM.entries()) {
-      if (i) { g.globalCompositeOperation = 'destination-out'; g.stroke(circles([c])); g.globalCompositeOperation = 'source-over'; }
-      g.fill(circles([c]));
-    }
-    return;
+  const glow = g.shadowBlur;
+  // a piece: parted from what lies under it by a thin suture, filled, then lit or shaded
+  const piece = (d, tone = 0, cut = true) => {
+    const p = new Path2D(d);
+    g.shadowBlur = 0;
+    if (cut) { g.globalCompositeOperation = 'destination-out'; g.stroke(p); }
+    g.globalCompositeOperation = 'source-over';
+    g.shadowBlur = glow;
+    g.fill(p);
+    shade(p, tone);
+  };
+  const shade = (p, tone) => {
+    if (!tone) return;
+    g.save();
+    g.shadowBlur = 0;
+    g.globalCompositeOperation = 'source-atop';
+    g.fillStyle = tone > 0 ? `rgba(255,255,255,${0.4 * tone})` : `rgba(0,0,0,${-0.55 * tone})`;
+    g.fill(p);
+    g.restore();
+  };
+  // rounded: lit toward the light, dark away from it
+  const round = (d) => {
+    g.save();
+    g.shadowBlur = 0;
+    g.globalCompositeOperation = 'source-atop';
+    const gr = g.createRadialGradient(-0.35, -0.35, 0.05, 0, 0, 1);
+    gr.addColorStop(0, 'rgba(255,255,255,0.35)'); gr.addColorStop(0.55, 'rgba(255,255,255,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.45)');
+    g.fillStyle = gr;
+    g.fill(new Path2D(d));
+    g.restore();
+  };
+  g.lineWidth = 0.08;
+  if (k === 3) {
+    const d = 'M0.8,0 A0.8,0.6 0 1,1 -0.8,0 A0.8,0.6 0 1,1 0.8,0 Z';
+    piece(d, 0, false); round(d);
+  } else if (k === 4) {
+    FORAM.forEach(([x, y, r], i) => { const d = disc(x, y, r); piece(d, 0, i > 0); round(d); });
+  } else if (k === 5) {
+    piece(disc(0, 0, 0.82), 0, false); round(disc(0, 0, 0.82));
+    g.globalCompositeOperation = 'destination-out';
+    g.shadowBlur = 0;
+    g.lineWidth = 0.05;
+    g.stroke(new Path2D(disc(0, 0, 0.66)));
+    const pores = new Path2D();
+    for (let i = 0; i < 12; i++) for (const r of [0.3, 0.5]) { const a = i * Math.PI / 6 + r * 1.5, x = Math.cos(a) * r, y = Math.sin(a) * r, q = 0.035 + r * 0.03; pores.moveTo(x + q, y); pores.arc(x, y, q, 0, Math.PI * 2); }
+    g.fill(pores);
+    g.globalCompositeOperation = 'source-over';
+  } else {
+    GRAIN[k].forEach(([d, tone], i) => piece(d, tone, i > 0));
   }
-  g.fill(new Path2D(body));
-  g.globalCompositeOperation = 'destination-out';
-  g.shadowBlur = 0;
-  if (k === 5) g.fill(circles(Array.from({ length: 10 }, (_, i) => [Math.cos(i * 0.628) * 0.52, Math.sin(i * 0.628) * 0.52, 0.09]).concat([[0, 0, 0.14]])));
-  else if (cuts) g.stroke(new Path2D(cuts));
-  g.globalCompositeOperation = 'source-over';
 }
 
 const urls = new Map();

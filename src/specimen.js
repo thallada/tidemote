@@ -189,8 +189,15 @@ export function createSpecimen(api) {
   }
 
   // The cell's own record and, while it lives, its energy budget between meals (from the replay).
-  function cellBlock(p, g, past) {
+  function cellBlock(p, g, past, mind) {
     let h = kv('Cell type', `<span class="greek">${ROLE[p.role]}</span>-cell`, 'celltype');
+    // the warmth meter above shows the reading; here, what it means for this cell
+    const m = mind && mind.m;
+    if (K.heat && !past && g) {
+      h += kv('Warmth', !m ? '—' : m.torpid ? `${Math.round(m.warmth)}° · torpid, ${Math.max(1, Math.round(g.topt - g.tol * K.torporAt - m.warmth))}° below its range`
+        : m.x > 0.8 ? `${Math.round(m.warmth)}° · scalding, best ${Math.round(g.topt)}°`
+          : `${Math.round(m.warmth)}° · works ${Math.round(m.perf * 100)}%, best ${Math.round(g.topt)}°${m.warmth - m.water > 0.4 ? ` · runs ${Math.round(m.warmth - m.water)}° warm` : ''}`, 'thermal');
+    }
     h += kv('Origin', CAUSE[p.cause] || 'a founder of this world', 'origin');
     h += kv('Generation', fmt(p.gen), 'generation');
     h += kv('Speed', fmtLen(Math.hypot(p.vx, p.vy), '/s'), 'speed');
@@ -523,11 +530,7 @@ export function createSpecimen(api) {
           v += vital('Age', p.age / g.lifespan, 'cyan', `${fmtDur(p.age)} / ${fmtDur(g.lifespan)}`, 'lifespan');
           const m = !sel.lost && sel.mind && sel.mind.m;
           if (K.heat && m) {
-            const warm = m.warmth - m.water, works = `works ${Math.round(m.perf * 100)}%`;
-            const text = m.torpid ? `Torpid · ${Math.max(1, Math.round(g.topt - g.tol * K.torporAt - m.warmth))}° below its range`
-              : m.x > 0.8 ? `Scalding · ${Math.round(m.warmth)}°, best ${Math.round(g.topt)}°`
-                : `${Math.round(m.warmth)}°${warm > 0.4 ? ` (runs ${Math.round(warm)}° warm)` : ''} · ${works}`;
-            v += warmthVital(m, g, text);
+            v += warmthVital(m, g, `${Math.round(m.warmth)}°`);
           }
           const head = sel.mind && !sel.lost && (sel.mind.head || sel.mind);
           if (!sel.lost) v = `<div class="vital now"><span>${term('mind', 'Now')}</span><b>${head ? withSp(head.text, head.target) : '—'}</b></div>` + v;
@@ -536,7 +539,7 @@ export function createSpecimen(api) {
         if (g && !sel.lost) { fixedKey = `mv:${sel.id}:${p.kind}:${g.serial}`; fixedHtml = section('behaviour', 'Behaviour', mv.html(g, p.kind)); }
         // a bonded species' organism first, a free cell's own record first: fixed by the genome, so
         // the order never flips as a trace comes in
-        const cb = cellBlock(p, g, false), ob = organismBlock(o, g, false, sel), bb = sel.lost ? '' : budgetBlock(p, g, sel.mind);
+        const cb = cellBlock(p, g, false, sel.lost ? null : sel.mind), ob = organismBlock(o, g, false, sel), bb = sel.lost ? '' : budgetBlock(p, g, sel.mind);
         const bonded = g && (g.adhesion || 0) > K.adhMin;
         flow.push(['body', 'Body', (bonded ? ob + cb : cb + ob) + bb + storyHTML(sel)]);
         if (g) flow.push(['species', 'Species', speciesTab(g, null)], ['genome', 'Genome', genomeTab(g, p.role, p.role)]);
