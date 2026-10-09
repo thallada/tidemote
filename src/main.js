@@ -1769,6 +1769,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     octx.setTransform(r, 0, 0, r, 0, 0);
     if (state.currents) drawCurrents();
     drawScale();
+    filmMarked = false;
     if (sel && sel.particle) {
       const [W, H] = eng.grid;
       // The marker sits on the prediction for this very frame. A new GPU sample that corrects the
@@ -1797,7 +1798,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         if (sel.org && sel.org.cells && !sel.org.pending) sh.why.cells = sel.org.cells;
         sh.whyVer++;
       }
-      if (visible && (!sh || sh.why.seen)) drawMarker(sx, sy, inLens, dt);
+      filmMarked = !!(visible && (!sh || sh.why.seen) && drawMarker(sx, sy, inLens, dt)) && !!sh;
     }
     if (L) {
       const { sx, sy } = L;
@@ -1833,7 +1834,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const sh = sel && sel.film && director.active ? director.shot : null;
     return sh && sh.why && sh.why.kind === 'follow' && sh.subject && sh.subject.id === sel.filmFor ? sh : null;
   }
-  const filmShown = () => { const sh = filmShot(); return !!(sh && sh.why.seen && !sel.lost && sel.particle.kind >= FIRST_LIFE); };
+  // whether the subject's brackets were drawn this frame (drawOverlay): its song is marked only then
+  let filmMarked = false;
+  const filmShown = () => filmMarked && !sel.lost && sel.particle.kind >= FIRST_LIFE;
   function markSlot() { // -1: every species; -2: none
     if (!state.songMarks || !sound.on) return -2;
     if (state.songMarks === 2) return -1;
@@ -1931,7 +1934,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const lost = sel.lost;
     // the camera's subject died while the camera finds another cell of its body: mark nothing yet
     const dead = sel.particle.kind < FIRST_LIFE;
-    if (sel.film && dead && !(director.shot && director.shot.why && director.shot.why.kind === 'linger')) return;
+    if (sel.film && dead && !(director.shot && director.shot.why && director.shot.why.kind === 'linger')) return false;
     const R = 11;
     let l = sx - R, t = sy - R, r = sx + R, b = sy + R;
     const cr = sel.box && !inLens && !dead ? cellMarkR(sel.particle) : 0;
@@ -1948,13 +1951,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     brackets(octx, l, t, r, b, lost ? 'rgba(255,255,255,0.35)' : 'rgba(255,95,58,0.95)', 10);
     // framing a body, the brackets are the organism's; the watched cell gets its own, in the panel's cell colour
     if (sel.boxD && !lost) brackets(octx, sx - cr, sy - cr, sx + cr, sy + cr, CELL_MARK, 2.5, 0.225);
-    if (inLens || lost) return;
+    if (inLens || lost) return true;
     const p = sel.particle;
     const g = p.kind >= FIRST_LIFE ? genomeFor(p.kind) : null;
     const sp = g && life.reg.get(g.serial);
     // the camera lingering on a death keeps the species' name on its remains
     const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : p.kind === 3 ? stoneGrain(p.id, p.info).name : p.kind < FIRST_LIFE ? MATTER[p.kind].name : '';
-    if (!name) return;
+    if (!name) return true;
     octx.font = '500 11px Saira, system-ui, sans-serif';
     const label = name.toUpperCase();
     octx.letterSpacing = '1.5px';
@@ -1973,6 +1976,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     octx.fillStyle = 'rgba(226,241,240,0.95)';
     octx.fillText(label, tx, ey + 3.5);
     octx.letterSpacing = '0px';
+    return true;
   }
 
   // ------------------------------------------------------------ auto camera

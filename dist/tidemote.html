@@ -20539,6 +20539,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       octx.setTransform(r, 0, 0, r, 0, 0);
       if (state.currents) drawCurrents();
       drawScale();
+      filmMarked = false;
       if (sel && sel.particle) {
         const [W, H2] = eng.grid;
         const [px, py] = predicted();
@@ -20568,7 +20569,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           if (sel.org && sel.org.cells && !sel.org.pending) sh.why.cells = sel.org.cells;
           sh.whyVer++;
         }
-        if (visible && (!sh || sh.why.seen)) drawMarker(sx, sy, inLens, dt);
+        filmMarked = !!(visible && (!sh || sh.why.seen) && drawMarker(sx, sy, inLens, dt)) && !!sh;
       }
       if (L) {
         const { sx, sy } = L;
@@ -20604,10 +20605,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const sh = sel && sel.film && director.active ? director.shot : null;
       return sh && sh.why && sh.why.kind === "follow" && sh.subject && sh.subject.id === sel.filmFor ? sh : null;
     }
-    const filmShown = () => {
-      const sh = filmShot();
-      return !!(sh && sh.why.seen && !sel.lost && sel.particle.kind >= FIRST_LIFE);
-    };
+    let filmMarked = false;
+    const filmShown = () => filmMarked && !sel.lost && sel.particle.kind >= FIRST_LIFE;
     function markSlot() {
       if (!state.songMarks || !sound.on) return -2;
       if (state.songMarks === 2) return -1;
@@ -20709,7 +20708,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     function drawMarker(sx, sy, inLens, dt) {
       const lost = sel.lost;
       const dead = sel.particle.kind < FIRST_LIFE;
-      if (sel.film && dead && !(director.shot && director.shot.why && director.shot.why.kind === "linger")) return;
+      if (sel.film && dead && !(director.shot && director.shot.why && director.shot.why.kind === "linger")) return false;
       const R2 = 11;
       let l = sx - R2, t2 = sy - R2, r = sx + R2, b = sy + R2;
       const cr = sel.box && !inLens && !dead ? cellMarkR(sel.particle) : 0;
@@ -20725,12 +20724,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
       } else sel.boxD = null;
       brackets(octx, l, t2, r, b, lost ? "rgba(255,255,255,0.35)" : "rgba(255,95,58,0.95)", 10);
       if (sel.boxD && !lost) brackets(octx, sx - cr, sy - cr, sx + cr, sy + cr, CELL_MARK, 2.5, 0.225);
-      if (inLens || lost) return;
+      if (inLens || lost) return true;
       const p = sel.particle;
       const g = p.kind >= FIRST_LIFE ? genomeFor(p.kind) : null;
       const sp = g && life.reg.get(g.serial);
       const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : p.kind === 3 ? stoneGrain(p.id, p.info).name : p.kind < FIRST_LIFE ? MATTER[p.kind].name : "";
-      if (!name) return;
+      if (!name) return true;
       octx.font = "500 11px Saira, system-ui, sans-serif";
       const label2 = name.toUpperCase();
       octx.letterSpacing = "1.5px";
@@ -20752,6 +20751,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       octx.fillStyle = "rgba(226,241,240,0.95)";
       octx.fillText(label2, tx, ey + 3.5);
       octx.letterSpacing = "0px";
+      return true;
     }
     const AUTO_IDLE = 6e4, AUTO_IDLE_READING = 18e4;
     const CURSOR_REST = 3e3;
