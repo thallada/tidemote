@@ -994,7 +994,7 @@ changed every world's random draws), not the framboids. notableSpecies 26 → 35
 **Gate** after the rebase and these changes (32 × 30 min at 32k): passes, every gated metric "same";
 notableSpecies 26 → 35 and leaderChanges 5.9 → 8.9 improved; foodWeb 0.56 → 0.34 (p 0.08, Holm 0.53).
 
-## 16. Sediment under the microscope, and panel polish
+## 16. Sediment under the microscope, panel polish and a rot fix
 
 - **Stone grains are kinds of sediment** (`vsStone` picks one per grain; `mineralSurf` draws it; `boulder`
   lights it as its material): angular quartz (faceted glass: the surface is the lowest of a set of
@@ -1013,3 +1013,7 @@ notableSpecies 26 → 35 and leaderChanges 5.9 → 8.9 improved; foodWeb 0.56 �
   condition chips sit under their own heading as one block (life cycle in a row of three, temperature
   in a row of two); the behaviour compass's key keeps the drives' row pitch and is centred over the
   compass, with room before the lamps.
+- **Husk rot is capped by what a husk holds.** Rot speeds up in warm water (`rotQ10`), but its heat was
+  the uncapped amount: in water ~100° over the background a husk gave off thousands of times its energy,
+  scald deaths made more husks, and one dense 1/60 s world ran to 3,766° over the background. A husk now
+  rots no more than it holds. The gate passes after it (all gated metrics "same").

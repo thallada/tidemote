@@ -2359,8 +2359,9 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       }
     }
   } else if (p.kind == HUSK) {
-    // rot is faster in warm water, and a carcass pile steams
-    let rot = ${f(K.decay)} * pow(${f(K.rotQ10)}, warm) * sim.dt;
+    // rot is faster in warm water, and a carcass pile steams; a husk gives off no more than it holds,
+    // or hot water would rot husks into heat from nothing and run away
+    let rot = min(${f(K.decay)} * pow(${f(K.rotQ10)}, warm) * sim.dt, max(p.energy, 0.0));
     p.energy -= rot;
     if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, rot * 8.0 * ${f(K.rotHeat)}); }
     if (p.energy < ${f(K.huskMin)}) {
