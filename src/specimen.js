@@ -294,16 +294,21 @@ export function createSpecimen(api) {
       lit.push(`${e.line}:${e.k}`);
       if (!last || e.at > last.at) last = e;
     }
-    const key = lit.sort().join(',') + (last ? `|${last.line}:${last.k}` : '');
-    if (key === songKey && blk.dataset.drawn) return;
-    songKey = key; blk.dataset.drawn = '1';
-    const set = new Set(lit);
-    for (const r of blk.querySelectorAll('rect[data-k]')) r.classList.toggle('lit', set.has(`${r.dataset.l}:${r.dataset.k}`));
+    const key = lit.sort().join(',');
+    if (key !== songKey || !blk.dataset.drawn) {
+      songKey = key; blk.dataset.drawn = '1';
+      const set = new Set(lit);
+      for (const r of blk.querySelectorAll('rect[data-k]')) r.classList.toggle('lit', set.has(`${r.dataset.l}:${r.dataset.k}`));
+    }
+    // the playhead runs through the note being sung, from its start to its end, as it sounds
     const ph = blk.querySelector('.ph');
     if (!ph) return;
     const r = last && blk.querySelector(`rect[data-k="${last.k}"][data-l="${last.line}"]`);
     ph.classList.toggle('on', !!r);
-    if (r) { const x = r.getAttribute('x'); ph.setAttribute('x1', x); ph.setAttribute('x2', x); }
+    if (r) {
+      const x = +r.getAttribute('x') + +r.getAttribute('width') * clamp((now - last.at) / Math.max(last.dur || 0, 1), 0, 1);
+      ph.setAttribute('x1', x.toFixed(2)); ph.setAttribute('x2', x.toFixed(2));
+    }
   }
 
   function lineagePath(sp) {

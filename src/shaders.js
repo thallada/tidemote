@@ -3037,7 +3037,8 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
 // lies over its neighbours, so a seam runs exactly where grains meet and a rock is the union of its
 // cobbles. The cobble on top writes its colour and its own (analytic) slope; the composite (boulder)
 // lights it.
-const STONE_R = 0.2; // quad radius in world units; cobbles span ~0.12-0.17
+const STONE_R = 0.2; // a grain's radius in world units (uv 1); cobbles span ~0.12-0.17
+const STONE_QUAD = 1.35; // the quad reaches this far in uv, so a stretched or ragged grain is never cut off
 struct SO {
   @builtin(position) pos: vec4f,
   @location(0) uv: vec2f,
@@ -3056,7 +3057,7 @@ struct SO {
   let framboid = p.kind == FRAMBOID;
   // a framboid is smaller than a cobble: a few microns of crystals
   let r = max(STONE_R * view.ppu * select(0.8 + 0.4 * renderHash(p.id + 77u), 0.5, framboid), 1.5);
-  if (any(abs(d) > view.res * 0.5 + vec2f(r))) { return o; }
+  if (any(abs(d) > view.res * 0.5 + vec2f(r * STONE_QUAD))) { return o; }
   o.seed = vec2f(f32(pcgR(p.id) & 0xffffu), f32(pcgR(p.id) >> 16u)) / 65536.0;
   // sediment seen under a microscope: each grain is one of a few kinds (its own outline, detail and
   // material, mineralSurf and boulder), coloured as that kind is. Bedrock is mostly mineral grains;
@@ -3083,11 +3084,11 @@ ${STONE_COL_WGSL}
   o.flags = select(0u, 1u, reef) | select(0u, 2u, p.id == view.selId) | select(0u, 4u, framboid) | (ty << 3u);
   o.fuel = select(0.0, clamp(p.energy / ${f(DEFAULT_K.framboidLife)}, 0.0, 1.0), framboid);
   let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
-  o.pos = toClip(d + corner * r);
+  o.pos = toClip(d + corner * r * STONE_QUAD);
   // the cobble's peak height orders it: the higher lies over its neighbours, and depth is per cobble,
   // not per pixel, so the GPU can reject hidden cobbles before shading them
   o.pos.z = select(select((0.45 + 0.55 * o.seed.x) * (0.62 + 0.18 * o.seed.y) * 0.95, 0.97, framboid), 0.99, p.id == view.selId); // a selected grain sits on top
-  o.uv = corner;
+  o.uv = corner * STONE_QUAD;
   o.col = col;
   o.px = r;
   return o;
@@ -3204,10 +3205,13 @@ fn mineralSurf(i: SO) -> StoneOut {
     stretch = 1.0 + 0.5 * grainHash(H, 1.0);
     if (ty == 1u) { n = select(4u, 5u, grainHash(H, 3.0) > 0.6); jit = 0.2; spread = 0.35; stretch = 1.2 + 0.5 * grainHash(H, 1.0); r0 = 0.42 + 0.14 * H.y; }
     if (ty == 2u) { n = 6u; jit = 0.25; spread = 0.2; stretch = 1.8 + 0.6 * grainHash(H, 1.0); r0 = 0.3 + 0.08 * H.y; }
-    if (shell) { n = 4u + u32(grainHash(H, 3.0) * 2.99); jit = 1.0; spread = 0.5; stretch = 1.1 + 0.4 * grainHash(H, 1.0); }
+    if (shell) { n = 6u + u32(grainHash(H, 3.0) * 2.99); jit = 0.7; spread = 0.5; stretch = 1.1 + 0.4 * grainHash(H, 1.0); }
+    // keep its farthest corner inside the quad (a polygon's corners lie up to ~1.5 times its faces' reach)
+    r0 = min(r0, 0.86 / (stretch * (1.0 + 0.5 * spread)));
     let w = vec2f(u.x / stretch, u.y);
     let P = grainPoly(w, H, n, r0, jit, spread, ty != 2u);
     sd = P.sd;
+    if (sd >= aa) { discard; }
     let steep = select(1.3 + 1.6 * grainHash(H, 7.0), 2.2, shell);
     let bevel = r0 * select(select(0.28 + 0.25 * grainHash(H, 5.0), 0.12 + 0.08 * grainHash(H, 5.0), ty == 1u || ty == 2u), 0.07, shell);
     let t = smoothstep(0.0, bevel, -sd);
