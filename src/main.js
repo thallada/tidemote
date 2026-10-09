@@ -1692,7 +1692,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // render scale, then a lower frame rate, or the frame rate first when the simulation is most of the
   // cost (resolution would barely help). With room again: the frame rate back first, then the scale.
   function adaptQuality(now) {
-    if (state.phase !== 'running' || state.speed > 1 || state.paused || now - perf.lastAdjust < 2000 || perf.frameDt.length < 20) return;
+    if (state.phase !== 'running' || state.speed > 1 || state.paused || now - perf.lastAdjust < 2000 || perf.frameDt.length < 6) return;
     // Judged by the interval between submitted frames, not requestAnimationFrame's: while the GPU
     // lags, rAF keeps its cadence and the frames are skipped (inflight), so rAF alone looks smooth.
     // The mean, not the median: on a 60 Hz display each interval is 16.7 or 33.3 ms, and the median
@@ -1702,7 +1702,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     perf.lastAdjust = now;
     const T = frameTarget(), auto = state.perf.scale === 'auto';
     const floor = auto ? state.perf.floor : renderScale;
-    const busy = hasTS && perf.gpu > T * 0.92;
+    // without timestamps perf.gpu is the time from submit to done, which overstates the GPU's share
+    const busy = perf.gpu > T * (hasTS ? 0.92 : 1);
     const behind = m > T * 1.125 || busy || stressed();
     const simBound = hasTS && perf.simS > 2 * perf.renderR;
     if (behind) {
@@ -1714,10 +1715,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (renderScale > floor + 0.01 && !(simBound && perf.slow < 4)) {
         perf.ceiling = renderScale;
         // the further behind, the larger the step: pixel cost scales with the square of the scale
-        const want = renderScale * clamp(Math.sqrt(T / m), 0.7, 0.9);
+        const want = renderScale * clamp(Math.sqrt(T / m), 0.55, 0.9);
         renderScale = Math.max(floor, SCALES.find((s) => s <= want + 0.01) ?? floor);
         resizeDue = true;
-      } else if (perf.slow < 4) { perf.slow++; perf.slowCeiling = perf.slow - 1; }
+      } else if (perf.slow < 4) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + (m > 2 * T ? 2 : 1)); }
       return;
     }
     if (m > T * 1.03 || stressed()) { perf.goodWindows = 0; return; }
@@ -2237,7 +2238,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // Max: the world is drawn about every MAX_FRAME_MS, but the camera, loupe and HUD keep the display's
   // rate. Each display frame's GPU time, the whole display interval, goes to steps of m ticks, less the
   // cost of drawing the world when it is due (else of carrying the last drawn image with the camera).
-  // Up to three frames queue, so the GPU never waits on the page between them.
+  // Up to two frames queue, so the GPU never waits on the page between them.
   function maxPlan(now, m) {
     const world = now - perf.worldAt >= MAX_FRAME_MS;
     if (world) perf.worldAt = now;
@@ -2304,7 +2305,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     for (let i = frameWaiters.length - 1; i >= 0; i--) if (--frameWaiters[i].n <= 0) { frameWaiters[i].res(); frameWaiters.splice(i, 1); }
 
-    if (!state.busy && inflight < 3 && due) {
+    // Two frames in flight keep the GPU fed without queueing more of its time ahead of everything else
+    // (on a phone the compositor shares the GPU: a deep queue of long frames starves the whole screen).
+    if (!state.busy && inflight < 2 && due) {
       perf.frames++;
       if (perf.lastSubmit) perf.frameDt.push(Math.min(Math.max(50, frameTarget() * 2.5), now - perf.lastSubmit));
       perf.lastSubmit = now;

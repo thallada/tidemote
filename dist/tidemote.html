@@ -20719,13 +20719,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     const stressed = () => pressure === "serious" || pressure === "critical";
     function adaptQuality(now) {
-      if (state.phase !== "running" || state.speed > 1 || state.paused || now - perf.lastAdjust < 2e3 || perf.frameDt.length < 20) return;
+      if (state.phase !== "running" || state.speed > 1 || state.paused || now - perf.lastAdjust < 2e3 || perf.frameDt.length < 6) return;
       const m = perf.frameDt.reduce((a, b) => a + b, 0) / perf.frameDt.length;
       perf.frameDt.length = 0;
       perf.lastAdjust = now;
       const T = frameTarget(), auto = state.perf.scale === "auto";
       const floor = auto ? state.perf.floor : renderScale;
-      const busy = hasTS && perf.gpu > T * 0.92;
+      const busy = perf.gpu > T * (hasTS ? 0.92 : 1);
       const behind = m > T * 1.125 || busy || stressed();
       const simBound = hasTS && perf.simS > 2 * perf.renderR;
       if (behind) {
@@ -20734,12 +20734,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
         perf.ceilingUntil = now + 3e4;
         if (renderScale > floor + 0.01 && !(simBound && perf.slow < 4)) {
           perf.ceiling = renderScale;
-          const want = renderScale * clamp6(Math.sqrt(T / m), 0.7, 0.9);
+          const want = renderScale * clamp6(Math.sqrt(T / m), 0.55, 0.9);
           renderScale = Math.max(floor, SCALES.find((s) => s <= want + 0.01) ?? floor);
           resizeDue = true;
         } else if (perf.slow < 4) {
-          perf.slow++;
-          perf.slowCeiling = perf.slow - 1;
+          perf.slowCeiling = perf.slow;
+          perf.slow = Math.min(4, perf.slow + (m > 2 * T ? 2 : 1));
         }
         return;
       }
@@ -21371,7 +21371,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         frameWaiters[i].res();
         frameWaiters.splice(i, 1);
       }
-      if (!state.busy && inflight < 3 && due) {
+      if (!state.busy && inflight < 2 && due) {
         perf.frames++;
         if (perf.lastSubmit) perf.frameDt.push(Math.min(Math.max(50, frameTarget() * 2.5), now - perf.lastSubmit));
         perf.lastSubmit = now;

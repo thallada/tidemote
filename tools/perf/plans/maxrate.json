@@ -1,0 +1,7 @@
+{ "worlds": [{ "name": "w1m", "n": 1048576 }, { "name": "w1m-3", "file": "w1m", "n": 1048576, "page": "inflight3" }, { "name": "w1m-b", "file": "w1m", "n": 1048576 }, { "name": "w1m-3b", "file": "w1m", "n": 1048576, "page": "inflight3" }],
+  "scenarios": [
+    { "world": "w1m", "name": "max", "zoom": "fit", "fps": 60, "speed": "max", "settle": 5, "seconds": 8, "dispatch": false },
+    { "world": "w1m-3", "name": "max", "zoom": "fit", "fps": 60, "speed": "max", "settle": 5, "seconds": 8, "dispatch": false },
+    { "world": "w1m-b", "name": "max", "zoom": "fit", "fps": 60, "speed": "max", "settle": 5, "seconds": 8, "dispatch": false },
+    { "world": "w1m-3b", "name": "max", "zoom": "fit", "fps": 60, "speed": "max", "settle": 5, "seconds": 8, "dispatch": false }
+  ] }
