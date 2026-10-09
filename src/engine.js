@@ -689,6 +689,30 @@ class Engine {
     this.tide.set(c.tide); this.tidePh.set(c.tidePh); this.waves.set(c.waves); this.rock.set(c.rock);
   }
 
+  /** What snapshot() keeps, as bytes (tools/perf saves worlds to profile them again): { cpu, gpu: {name: ArrayBuffer} }. */
+  async readState() {
+    const d = this.device, keep = this.snapshot(), gpu = {};
+    for (const [k, buf] of Object.entries(keep.gpu)) {
+      const st = d.createBuffer({ size: buf.size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+      const enc = d.createCommandEncoder();
+      enc.copyBufferToBuffer(buf, 0, st, 0, buf.size);
+      d.queue.submit([enc.finish()]);
+      await st.mapAsync(GPUMapMode.READ);
+      gpu[k] = st.getMappedRange().slice(0);
+      st.destroy(); buf.destroy();
+    }
+    return { cpu: { ...keep.cpu, count: this.count, grid: [...this.grid] }, gpu };
+  }
+
+  /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
+  writeState({ cpu, gpu }) {
+    for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, data);
+    this.restore({ gpu: {}, cpu });
+    this.count = cpu.count; this.grid = [...cpu.grid];
+    this.worldGeneration++;
+    this.clearAccum = true;
+  }
+
   /** Read every particle now (headless forks): { u32, f32 } views over count records of P_BYTES. */
   async readParticles() {
     const d = this.device, U = GPUBufferUsage, size = this.count * P_BYTES;
@@ -779,7 +803,8 @@ class Engine {
     const stepping = !paused && N > 0;
     const nSteps = stepping ? Math.min(MAX_STEPS, Math.max(1, steps | 0)) : 0;
     const tm = this.timing;
-    const slot = tm ? tm.reads.find((r) => !r.busy) : null;
+    // profiling times every pass instead (_profileEncoder)
+    const slot = tm && !this.passProfile ? tm.reads.find((r) => !r.busy) : null;
     let tsFirst = !!slot;
     const tsBegin = () => {
       if (!tsFirst) return undefined;
@@ -791,6 +816,7 @@ class Engine {
     // b.simRing and copied into b.sim between passes: a queue.writeBuffer would land before the whole
     // submit.
     const enc = d.createCommandEncoder();
+    const prof = this.passProfile ? this._profileEncoder(enc) : null;
     const censusJobs = [];
     for (let s = 0; s < nSteps; s++) {
       const last = s === nSteps - 1;
@@ -891,7 +917,9 @@ class Engine {
       enc.resolveQuerySet(tm.qs, 0, 3, tm.resolve, 0);
       enc.copyBufferToBuffer(tm.resolve, 0, slot.buf, 0, 24);
     }
+    if (prof) prof.finish(nSteps, drew, generation);
     d.queue.submit([enc.finish()]);
+    if (prof) prof.read();
 
     if (timed) {
       slot.busy = true;
@@ -965,6 +993,59 @@ class Engine {
     if (listenJob) this._listenRead(listenJob, generation);
     if (mindJob) this._mindRead(mindJob, generation);
     if (surveyJob) this._surveyRead(surveyJob, generation);
+  }
+
+  /**
+   * Profiling (this.passProfile = true, needs timestamps): every pass of the frame timed on its own,
+   * named by its pipelines (a simulation step's pass is 'step'). onPassTimes hears
+   * [[name, ms], ...] per frame; onGpuTime hears the frame as usual.
+   */
+  _profileEncoder(enc) {
+    const d = this.device, CAP = 4096;
+    const P = this._prof ??= { qs: d.createQuerySet({ type: 'timestamp', count: CAP }),
+      resolve: d.createBuffer({ size: CAP * 8, usage: U.QUERY_RESOLVE | U.COPY_SRC }), stage: [] };
+    const names = [];
+    const wrap = (begin) => (desc = {}) => {
+      if (names.length * 2 + 2 > CAP) return begin(desc);
+      const k = names.push('clear') - 1;
+      const pass = begin({ ...desc, timestampWrites: { querySet: P.qs, beginningOfPassWriteIndex: 2 * k, endOfPassWriteIndex: 2 * k + 1 } });
+      const set = pass.setPipeline.bind(pass), used = [];
+      pass.setPipeline = (p) => {
+        if (!used.includes(p.label)) { used.push(p.label); names[k] = used[0] === 'resolveCount' ? 'step' : used.slice(0, 3).join('+'); }
+        set(p);
+      };
+      return pass;
+    };
+    enc.beginComputePass = wrap(enc.beginComputePass.bind(enc));
+    enc.beginRenderPass = wrap(enc.beginRenderPass.bind(enc));
+    let job = null;
+    return {
+      finish: (nSteps, drew, generation) => {
+        const n = names.length * 2;
+        if (!n) return;
+        let st = P.stage.find((s) => !s.busy);
+        if (!st) P.stage.push(st = { buf: d.createBuffer({ size: CAP * 8, usage: U.COPY_DST | U.MAP_READ }), busy: false });
+        st.busy = true;
+        enc.resolveQuerySet(P.qs, 0, n, P.resolve, 0);
+        enc.copyBufferToBuffer(P.resolve, 0, st.buf, 0, n * 8);
+        job = { st, n, nSteps, drew, generation, names: names.slice() };
+      },
+      read: () => {
+        if (!job) return;
+        const { st, n, nSteps, drew, generation, names } = job;
+        st.buf.mapAsync(GPUMapMode.READ, 0, n * 8).then(() => {
+          const t = new BigUint64Array(st.buf.getMappedRange(0, n * 8).slice(0));
+          st.buf.unmap();
+          st.busy = false;
+          if (generation !== this.worldGeneration) return;
+          const times = names.map((name, k) => [name, Number(t[2 * k + 1] - t[2 * k]) / 1e6]);
+          const ms = Number(t[n - 1] - t[0]) / 1e6;
+          const simMs = times.reduce((a, [name, x]) => a + (name === 'step' ? x : 0), 0);
+          if (this.onPassTimes) this.onPassTimes(times, { ms, simMs, nSteps, drew });
+          if (ms > 0 && ms < 5000 && this.onGpuTime) this.onGpuTime(ms, this.count, nSteps, nSteps ? simMs : null, drew);
+        }).catch(() => { st.busy = false; });
+      },
+    };
   }
 
   /**

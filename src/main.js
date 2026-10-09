@@ -2328,6 +2328,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
   requestAnimationFrame(frame);
 
   document.addEventListener('visibilitychange', () => { perf.frameDt.length = 0; perf.lastSubmit = 0; perf.lastAdjust = performance.now() + 1500; });
+  // a handle for tools/perf, which profiles the page in a real browser
+  globalThis.__tidemote = { state, cam, perf, eng, sound, life: () => life, sel: () => sel, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect, fit,
+    setScale(v) { state.perf.scale = v; if (v !== 'auto') renderScale = v; resetAdapt(); fit(); },
+    // a world saved by eng.readState(), in place of this one
+    loadWorld(s) { eng.writeState(s); resetDirector(); resetLife(); resetClimate(); sound.reset(); lab.reset(); specimen.reset(); deselect(); clearFocus(); } };
 
   calibrate().then(() => {
     state.phase = 'running';

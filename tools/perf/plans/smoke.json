@@ -1,0 +1,5 @@
+{ "worlds": [{ "name": "smoke256k", "n": 262144, "mature": 20 }],
+  "scenarios": [
+    { "world": "smoke256k", "name": "fit", "zoom": "fit", "seconds": 4 },
+    { "world": "smoke256k", "name": "z150", "zoom": 150, "seconds": 4 }
+  ] }

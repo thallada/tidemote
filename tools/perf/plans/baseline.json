@@ -1,0 +1,182 @@
+{
+ "worlds": [
+  {
+   "name": "w1m",
+   "n": 1048576,
+   "mature": 120
+  },
+  {
+   "name": "w4m",
+   "n": 4194304,
+   "mature": 240
+  }
+ ],
+ "scenarios": [
+  {
+   "world": "w1m",
+   "name": "zfit-60",
+   "zoom": "fit",
+   "fps": 60,
+   "scale": 1,
+   "seconds": 6
+  },
+  {
+   "world": "w1m",
+   "name": "z40-60",
+   "zoom": 40,
+   "fps": 60,
+   "scale": 1,
+   "seconds": 6
+  },
+  {
+   "world": "w1m",
+   "name": "z150-60",
+   "zoom": 150,
+   "fps": 60,
+   "scale": 1,
+   "seconds": 6
+  },
+  {
+   "world": "w1m",
+   "name": "z400-60",
+   "zoom": 400,
+   "fps": 60,
+   "scale": 1,
+   "seconds": 6
+  },
+  {
+   "world": "w1m",
+   "name": "z1000-60",
+   "zoom": 1000,
+   "fps": 60,
+   "scale": 1,
+   "seconds": 6
+  },
+  {
+   "world": "w1m",
+   "name": "z150-disp",
+   "zoom": 150,
+   "fps": 0,
+   "scale": 1,
+   "seconds": 6
+  },
+  {
+   "world": "w1m",
+   "name": "z150-sel",
+   "zoom": 150,
+   "fps": 60,
+   "scale": 1,
+   "select": true,
+   "seconds": 6
+  },
+  {
+   "world": "w1m",
+   "name": "z400-auto",
+   "zoom": 400,
+   "fps": 0,
+   "scale": "auto",
+   "seconds": 10
+  },
+  {
+   "world": "w1m",
+   "name": "fit-x4",
+   "zoom": "fit",
+   "speed": 4,
+   "fps": 60,
+   "scale": 1,
+   "seconds": 6
+  },
+  {
+   "world": "w1m",
+   "name": "fit-max",
+   "zoom": "fit",
+   "speed": "max",
+   "fps": 60,
+   "scale": 1,
+   "seconds": 6
+  },
+  {
+   "world": "w4m",
+   "name": "zfit-60",
+   "zoom": "fit",
+   "fps": 60,
+   "scale": 1,
+   "seconds": 6
+  },
+  {
+   "world": "w4m",
+   "name": "z40-60",
+   "zoom": 40,
+   "fps": 60,
+   "scale": 1,
+   "seconds": 6
+  },
+  {
+   "world": "w4m",
+   "name": "z150-60",
+   "zoom": 150,
+   "fps": 60,
+   "scale": 1,
+   "seconds": 6
+  },
+  {
+   "world": "w4m",
+   "name": "z400-60",
+   "zoom": 400,
+   "fps": 60,
+   "scale": 1,
+   "seconds": 6
+  },
+  {
+   "world": "w4m",
+   "name": "z1000-60",
+   "zoom": 1000,
+   "fps": 60,
+   "scale": 1,
+   "seconds": 6
+  },
+  {
+   "world": "w4m",
+   "name": "z150-disp",
+   "zoom": 150,
+   "fps": 0,
+   "scale": 1,
+   "seconds": 6
+  },
+  {
+   "world": "w4m",
+   "name": "z150-sel",
+   "zoom": 150,
+   "fps": 60,
+   "scale": 1,
+   "select": true,
+   "seconds": 6
+  },
+  {
+   "world": "w4m",
+   "name": "z400-auto",
+   "zoom": 400,
+   "fps": 0,
+   "scale": "auto",
+   "seconds": 10
+  },
+  {
+   "world": "w4m",
+   "name": "fit-x4",
+   "zoom": "fit",
+   "speed": 4,
+   "fps": 60,
+   "scale": 1,
+   "seconds": 6
+  },
+  {
+   "world": "w4m",
+   "name": "fit-max",
+   "zoom": "fit",
+   "speed": "max",
+   "fps": 60,
+   "scale": 1,
+   "seconds": 6
+  }
+ ]
+}

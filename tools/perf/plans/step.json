@@ -1,0 +1,6 @@
+{ "worlds": [{ "name": "w1m", "n": 1048576 }, { "name": "w4m", "n": 4194304 }],
+  "scenarios": [
+    { "world": "w1m", "name": "step", "kind": "step", "reps": 30 },
+    { "world": "w1m", "name": "step-b", "kind": "step", "reps": 30 },
+    { "world": "w4m", "name": "step", "kind": "step", "reps": 20 }
+  ] }
