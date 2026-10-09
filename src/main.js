@@ -500,7 +500,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const sound = createSound({
     onChange: renderSound,
     onError: (m) => flash(`Sound unavailable: ${String(m).split('\n')[0].slice(0, 80)}`),
-    onSang: (list) => { songEvents.push(...list); if (songEvents.length > 800) songEvents.splice(0, songEvents.length - 800); },
+    onSang: (list) => {
+      // a whole song stops the last one (Field.phrase): its notes still to come won't sound
+      if (list.some((e) => e.whole)) { const now = performance.now(); for (let i = songEvents.length - 1; i >= 0; i--) if (songEvents[i].whole && songEvents[i].at > now) songEvents.splice(i, 1); }
+      songEvents.push(...list);
+      if (songEvents.length > 800) songEvents.splice(0, songEvents.length - 800);
+    },
   });
   // the picked species' slot (-1 for none): a picked cell's, or the living species open in the panel
   function pickedSlot() {
@@ -512,7 +517,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const sp = life.reg.get(serial);
     if (!sp) return;
     const was = sound.on;
-    sound.audition(sp.genome, `sp${serial}`).then(() => { if (!was && sound.on) flash('Sound on'); });
+    // while it lives, its cells keep quiet as the song plays
+    const living = sp.alive && genomeFor(sp.genome.slot)?.serial === sp.serial;
+    sound.audition(sp.genome, `sp${serial}`, living ? sp.genome.slot : -1).then(() => { if (!was && sound.on) flash('Sound on'); });
   }
   let litSlots = null;
   function renderSound() {

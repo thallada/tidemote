@@ -90,7 +90,7 @@ export class Field {
     const v = this.slots.get(slot)?.v;
     if (!v) { this.greetFor = slot; return; } // its voice comes with the next census
     this.greetFor = -1;
-    this.focusEnd = this.phrase(v, this.c.time + LATENCY, { amp: 0.13, slot });
+    this.focusEnd = this.phrase(v, this.c.time + LATENCY, { amp: 0.13, slot, species: slot });
   }
   // how far forward the picked species is: 1 while its greeting plays, then down to 0
   focus() { return clamp(1 - (this.c.time - this.focusEnd) / FOCUS_FADE, 0, 1); }
@@ -134,8 +134,13 @@ export class Field {
       u[4] += n[2] * n[2]; u[3].frag = Math.max(u[3].frag || 1, o.frag || 1); n[2] = 0;
     }
     for (const u of unison.values()) u[2] = Math.min(Math.sqrt(u[4]), 2.2 * u[2]);
-    const duck = this.c.time < this.duckUntil ? 0.3 : 1;
-    for (const n of plan) if (n[2] > 0) this.play(n[0], n[1], n[2] * this.agc * close * duck, n[3]);
+    const solo = this.c.time < this.duckUntil, duck = solo ? 0.3 : 1;
+    for (const n of plan) {
+      if (!(n[2] > 0)) continue;
+      // while a species' song plays whole, its cells don't sing over it in canon
+      if (solo && n[3].slot === this.soloSlot && (n[0] === 'alive' || n[0] === 'birth')) continue;
+      this.play(n[0], n[1], n[2] * this.agc * close * duck, n[3]);
+    }
     this.swarm();
     this.report();
   }
@@ -310,19 +315,23 @@ export class Field {
   strike(v, midi, t, dur, amp, o, k) {
     const c = this.c;
     if (v.mat === 'drop' || v.mat === 'tick') { // scavengers: drops
-      c.at(t, 'drop', { freq: midicps(midi + 12), amp: amp * 0.8, dec: this.rr(0.04, 0.09), rise: this.rr(1.3, 2.0), pan: o.pan, rev: o.wet(0.35), dly: 0.15 });
+      c.at(t, 'drop', { freq: midicps(midi + 12), amp: amp * 0.8, dec: this.rr(0.04, 0.09), rise: this.rr(1.3, 2.0), pan: o.pan, rev: o.wet(0.35), dly: 0.15, solo: o.solo });
       return;
     }
     const p = noteParams(v, midi, dur, amp, { light: o.light, td: o.td, dim: o.dim, wet: o.wet, k, rr: (a, b) => this.rr(a, b), warm: this.c.warm });
-    if (p) { p.pan = o.pan; c.at(t, v.mat, p); }
+    if (p) { p.pan = o.pan; if (o.solo) p.solo = true; c.at(t, v.mat, p); }
   }
 
   // A species' motif played whole from t0 (picking a species, the song panel's play button; `times` over
   // for a short motif in the gallery): its voice heard alone and close, the second voice under it, while
-  // the field steps back. Returns its end.
-  phrase(v, t0, { amp = 0.16, slot = null, times = 1 } = {}) {
+  // the field steps back and the species' own cells (slot `species`) keep quiet. One song plays at a
+  // time: a new one stops the last. Its notes are solo, the last the audio thread lets go when the
+  // device can't keep up. Returns its end.
+  phrase(v, t0, { amp = 0.16, slot = null, times = 1, species = -1 } = {}) {
     const c = this.c, m = v.motif, light = clamp(c.world.light, 0, 1.2), td = clamp(c.world.tide, 0, 1);
-    const o = { pan: 0, light, td, dim: 1, wet: (r) => r };
+    c.stopSolo();
+    this.soloSlot = species;
+    const o = { pan: 0, light, td, dim: 1, wet: (r) => r, solo: true };
     const reps = m.cycle * c.step > 5 ? 1 : times;
     for (let r = 0; r < reps; r++) {
       const base = t0 + r * m.cycle * c.step;
@@ -341,7 +350,7 @@ export class Field {
 
   // the song panel's play button: { slot (a tag for its notes), voice }
   audition(msg) {
-    const c = this.c, end = this.phrase(msg.voice, c.time + 0.12, { slot: msg.slot });
+    const c = this.c, end = this.phrase(msg.voice, c.time + 0.12, { slot: msg.slot, species: msg.species ?? -1 });
     c.score.duckUntil = Math.max(c.score.duckUntil, end);
     this.report();
   }

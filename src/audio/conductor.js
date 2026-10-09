@@ -133,15 +133,20 @@ export class Conductor {
   }
 
   // ── scheduling ─────────────────────────────────────────────────────────────
-  at(t, def, params, id) { this.queue.push({ t, def, params, id }); }
-  setAt(t, id, params) { this.queue.push({ t, set: id, params }); }
+  at(t, def, params, id) { this.queue.push({ t, def, params, id }); this.unsorted = true; }
+  setAt(t, id, params) { this.queue.push({ t, set: id, params }); this.unsorted = true; }
+  // a whole song stops: its notes not yet begun are dropped and those sounding fade (Field.phrase)
+  stopSolo() {
+    this.queue = this.queue.filter((q) => !(q.params && q.params.solo));
+    for (const v of this.eng.voices) if (v.p.solo) this.eng.release(v);
+  }
 
   // render one 64-sample block
   render(outL, outR) {
     const t1 = this.time + BS / this.sr;
     while (this.nextStep < t1 + this.step) { if (this.stepN % 16 === 0) this.bar(this.nextStep); this.nextStep += this.step; this.stepN++; }
     if (this.queue.length) {
-      this.queue.sort((a, b) => a.t - b.t);
+      if (this.unsorted) { this.queue.sort((a, b) => a.t - b.t); this.unsorted = false; }
       let i = 0;
       for (; i < this.queue.length && this.queue[i].t <= t1; i++) {
         const q = this.queue[i];

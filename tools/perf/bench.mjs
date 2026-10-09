@@ -238,7 +238,7 @@ async function measure(page, sc) {
       sim: { mean: mean(rec.sim), stepsPerFrame: +(rec.steps / Math.max(1, rec.passFrames)).toFixed(2) },
       encodeMs: { mean: mean(rec.encode), p95: q(rec.encode, 0.95) },
       scale: { min: Math.min(...rec.scale), mean: mean(rec.scale), end: rec.scale.at(-1) }, slow: { mean: mean(rec.slow), end: rec.slow.at(-1), why: perf.why },
-      longTasks: rec.long, longMs: Math.round(rec.longMs), passes, dispatch, series: sc.then ? rec.series : undefined, dts: rec.dts,
+      audio: T.sound.loadInfo, longTasks: rec.long, longMs: Math.round(rec.longMs), passes, dispatch, series: sc.then ? rec.series : undefined, dts: rec.dts,
     };
   }, sc);
 }
@@ -257,7 +257,7 @@ try {
       if (sc.kind === 'growth') continue;
       if (sc.kind === 'step') { console.log(`${w.name}/${r.name}: step ${r.total} ms | ${JSON.stringify(r.dispatch)}`); continue; }
       const top = Object.entries(r.passes).slice(0, 4).map(([k, x]) => `${k} ${x}`).join(', ');
-      console.log(`${w.name}/${r.name}: ${r.fps} fps (raf ${r.rafFps}), gpu ${r.gpu.mean} ms (p95 ${r.gpu.p95}), sim ${r.sim.mean} ms x${r.sim.stepsPerFrame}, enc ${r.encodeMs.mean} ms, scale ${r.scale.mean}, slow ${r.slow.end} ${r.slow.why || ''}, ppu ${r.ppu} | ${top}`);
+      console.log(`${w.name}/${r.name}: ${r.audio ? `audio ${JSON.stringify(r.audio)} ` : ''}${r.fps} fps (raf ${r.rafFps}), gpu ${r.gpu.mean} ms (p95 ${r.gpu.p95}), sim ${r.sim.mean} ms x${r.sim.stepsPerFrame}, enc ${r.encodeMs.mean} ms, scale ${r.scale.mean}, slow ${r.slow.end} ${r.slow.why || ''}, ppu ${r.ppu} | ${top}`);
       if (v.out) fs.writeFileSync(v.out, JSON.stringify(report, null, 2));
     }
     if (!v.keep) await page.close();
