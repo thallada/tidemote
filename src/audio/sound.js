@@ -80,15 +80,15 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
     post({ type: 'world', world });
   }
 
-  // notes the audio thread is about to play: [slot, seconds from now, note, line, scan, record]
-  // → { at (performance.now() ms), slot, k, line, cell: { x, y, vx, vy, t (sim time), id } | null }
+  // notes the audio thread is about to play: [slot, seconds from now, note, line, scan, record, seconds it sounds]
+  // → { at (performance.now() ms), dur (ms), slot, k, line, cell: { x, y, vx, vy, t (sim time), id } | null }
   function sang(notes) {
     if (!onSang) return;
     const lat = st.ctx ? (st.ctx.outputLatency || 0) + (st.ctx.baseLatency || 0) : 0, now = performance.now();
-    onSang(notes.map(([slot, dt, k, line, scan, rec]) => {
+    onSang(notes.map(([slot, dt, k, line, scan, rec, dur]) => {
       const S = st.scans.get(scan);
       const c = S && rec >= 0 ? S.cells.subarray(rec * 5, rec * 5 + 5) : null;
-      return { at: now + (dt + lat) * 1000, slot, k, line, cell: c && c.length === 5 ? { x: c[0], y: c[1], vx: c[2], vy: c[3], id: c[4], t: S.sim } : null };
+      return { at: now + (dt + lat) * 1000, dur: (dur || 0) * 1000, slot, k, line, cell: c && c.length === 5 ? { x: c[0], y: c[1], vx: c[2], vy: c[3], id: c[4], t: S.sim } : null };
     }));
   }
 

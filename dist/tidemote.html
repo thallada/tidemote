@@ -457,7 +457,7 @@ dd { margin: 0; color: var(--ink-2); }
 .mixrow b em { font-style: normal; font-size: 11px; margin-right: 1px; }
 .story { list-style: none; margin: 0; padding: 0 var(--s1) 0 12px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--s2);
   /* a fixed window, newest first, scrolling once it fills */
-  height: 152px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+  height: 152px; overflow-y: auto; scrollbar-width: thin; }
 .story li { display: grid; grid-template-columns: 4.4ch minmax(0, 1fr); gap: 10px; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); position: relative; }
 .story li::before { content: ''; position: absolute; left: -15px; top: 6px; width: 5px; height: 5px; background: var(--line-2); }
 .story li:first-child { color: var(--ink); }
@@ -1100,7 +1100,7 @@ svg.niche .n-dot { fill: var(--cyan); }
   var G_BYTES = 192;
   var G_WORDS = 48;
   var LITE_BYTES = 32;
-  var MIND_HEAD = 56;
+  var MIND_HEAD = 58;
   var MIND_NBR = 48;
   var MIND_NBR_WORDS = 7;
   var MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
@@ -2755,6 +2755,7 @@ ${cellWGSL(K, true)}
     df -= world * round(df * invWorld);
     mind[3] = sortedFull[food].kind;
     mPut(4, length(df));
+    mPut2(56, df);
   }
   mind[6] = (p.info >> 6u) & 1023u;
   mind[7] = mN;
@@ -9037,7 +9038,7 @@ var Field = class {
       const ts = on.t + dt * c.step;
       const midi = this.motifNote(v, line[k], ts, g * (second ? 0.6 : 1) * (i ? 0.85 : 1), o, k);
       if (first == null) first = midi;
-      if (o.rec) this.sang.push([slot, ts - c.time, k, second ? 1 : 0, o.rec[0], o.rec[1]]);
+      if (o.rec) this.sang.push([slot, ts - c.time, k, second ? 1 : 0, o.rec[0], o.rec[1], Math.min(10, line[k].dur * line[k].leg) * c.step]);
     }
     return first;
   }
@@ -9079,7 +9080,7 @@ var Field = class {
         line.forEach((nt, k) => {
           const ts = base + nt.at * c.step;
           this.motifNote(v, nt, ts, a, o, k);
-          if (slot != null) this.sang.push([slot, ts - c.time, k, li, -1, -1]);
+          if (slot != null) this.sang.push([slot, ts - c.time, k, li, -1, -1, Math.min(10, nt.dur * nt.leg) * c.step]);
         });
       }
     }
@@ -12596,7 +12597,7 @@ var Field = class {
       const ts = on.t + dt * c.step;
       const midi = this.motifNote(v, line[k], ts, g * (second ? 0.6 : 1) * (i ? 0.85 : 1), o, k);
       if (first == null) first = midi;
-      if (o.rec) this.sang.push([slot, ts - c.time, k, second ? 1 : 0, o.rec[0], o.rec[1]]);
+      if (o.rec) this.sang.push([slot, ts - c.time, k, second ? 1 : 0, o.rec[0], o.rec[1], Math.min(10, line[k].dur * line[k].leg) * c.step]);
     }
     return first;
   }
@@ -12638,7 +12639,7 @@ var Field = class {
         line.forEach((nt, k) => {
           const ts = base + nt.at * c.step;
           this.motifNote(v, nt, ts, a, o, k);
-          if (slot != null) this.sang.push([slot, ts - c.time, k, li, -1, -1]);
+          if (slot != null) this.sang.push([slot, ts - c.time, k, li, -1, -1, Math.min(10, nt.dur * nt.leg) * c.step]);
         });
       }
     }
@@ -13462,10 +13463,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
     function sang(notes) {
       if (!onSang) return;
       const lat = st.ctx ? (st.ctx.outputLatency || 0) + (st.ctx.baseLatency || 0) : 0, now = performance.now();
-      onSang(notes.map(([slot, dt, k, line, scan, rec]) => {
+      onSang(notes.map(([slot, dt, k, line, scan, rec, dur]) => {
         const S = st.scans.get(scan);
         const c = S && rec >= 0 ? S.cells.subarray(rec * 5, rec * 5 + 5) : null;
-        return { at: now + (dt + lat) * 1e3, slot, k, line, cell: c && c.length === 5 ? { x: c[0], y: c[1], vx: c[2], vy: c[3], id: c[4], t: S.sim } : null };
+        return { at: now + (dt + lat) * 1e3, dur: (dur || 0) * 1e3, slot, k, line, cell: c && c.length === 5 ? { x: c[0], y: c[1], vx: c[2], vy: c[3], id: c[4], t: S.sim } : null };
       }));
     }
     function listen(data, { selSlot = -1, lit = null } = {}) {
@@ -16569,7 +16570,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     return {
       hungry: !!(flags & 1),
       siltNear: !!(flags & 2),
-      food: flags & 4 ? { kind: u32[3], dist: f32[4], j: u32[5] } : null,
+      food: flags & 4 ? { kind: u32[3], dist: f32[4], j: u32[5], d: v2(56) } : null,
       image: u32[6],
       seen: u32[7],
       sampled: n,
@@ -16947,7 +16948,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       const hu = unit(m.vel);
       ease2.hdg.to = len2(m.vel) > 0.02 ? [hu[0] * R, hu[1] * R] : [0, 0];
-      ease2.tgt.to = q ? unit(q.d) : null;
+      const matterTarget = tk == null && food && head.matter && head.key !== "forage";
+      ease2.tgt.to = q ? unit(q.d) : matterTarget && len2(food.d) > 0 ? unit(food.d) : null;
       if (ease2.tgt.to && !ease2.tgt.cur) ease2.tgt.cur = ease2.tgt.to.slice();
       for (const f2 of mind.flags) {
         const n = parts.lamps.get(f2.key);
@@ -17313,7 +17315,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const lit = [];
       for (const e of events) {
         if ((e.slot !== slot || slot < 0) && e.slot !== tag) continue;
-        if (e.at > now || now >= e.at + HOLD) continue;
+        if (e.at > now || now >= e.at + Math.max(HOLD, e.dur || 0)) continue;
         lit.push(`${e.line}:${e.k}`);
         if (!last || e.at > last.at) last = e;
       }

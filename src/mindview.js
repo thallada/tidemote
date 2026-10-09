@@ -113,7 +113,9 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
     }
     const hu = unit(m.vel);
     ease.hdg.to = len(m.vel) > 0.02 ? [hu[0] * R, hu[1] * R] : [0, 0];
-    ease.tgt.to = q ? unit(q.d) : null;
+    // a living target is found among its neighbours; matter (glint, a husk, silt) by the food it is after
+    const matterTarget = tk == null && food && head.matter && head.key !== 'forage';
+    ease.tgt.to = q ? unit(q.d) : matterTarget && len(food.d) > 0 ? unit(food.d) : null;
     if (ease.tgt.to && !ease.tgt.cur) ease.tgt.cur = ease.tgt.to.slice();
     // ---- lamps
     for (const f of mind.flags) {

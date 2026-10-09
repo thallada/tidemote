@@ -77,7 +77,7 @@ export class Field {
     this.gain = {}; // per-type gain overrides (tuning)
     this.agc = 1; this.power = P_REF; this.plan = null;
     this.swarmK = -1; this.bands = null; this.heard = new Map(); // species slot -> [grains per second, their power], smoothed over scans
-    this.sang = []; // notes sung since the last report to the page: [slot, seconds from now, note, line, scan, record]
+    this.sang = []; // notes sung since the last report to the page: [slot, seconds from now, note, line, scan, record, seconds it sounds]
     this.duckUntil = 0; // an audition is playing: the field steps back
     this.selPrev = -1; this.greetFor = -1; this.focusEnd = -1e9; // a newly picked species: see greet
     this.litKey = ''; this.litEnd = -1e9; // a new Lab highlight: brought forward briefly, like a pick
@@ -288,7 +288,7 @@ export class Field {
       const ts = on.t + dt * c.step;
       const midi = this.motifNote(v, line[k], ts, g * (second ? 0.6 : 1) * (i ? 0.85 : 1), o, k);
       if (first == null) first = midi;
-      if (o.rec) this.sang.push([slot, ts - c.time, k, second ? 1 : 0, o.rec[0], o.rec[1]]);
+      if (o.rec) this.sang.push([slot, ts - c.time, k, second ? 1 : 0, o.rec[0], o.rec[1], Math.min(10, line[k].dur * line[k].leg) * c.step]);
     }
     return first;
   }
@@ -329,7 +329,7 @@ export class Field {
         line.forEach((nt, k) => {
           const ts = base + nt.at * c.step;
           this.motifNote(v, nt, ts, a, o, k);
-          if (slot != null) this.sang.push([slot, ts - c.time, k, li, -1, -1]);
+          if (slot != null) this.sang.push([slot, ts - c.time, k, li, -1, -1, Math.min(10, nt.dur * nt.leg) * c.step]);
         });
       }
     }

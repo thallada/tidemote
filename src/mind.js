@@ -22,7 +22,7 @@ export function parseMind(u32, f32) {
   }
   return {
     hungry: !!(flags & 1), siltNear: !!(flags & 2),
-    food: flags & 4 ? { kind: u32[3], dist: f32[4], j: u32[5] } : null,
+    food: flags & 4 ? { kind: u32[3], dist: f32[4], j: u32[5], d: v2(56) } : null,
     image: u32[6], seen: u32[7], sampled: n,
     photoGain: f32[8], upkeep: f32[9], light: f32[10], nutr: f32[11], kinN: f32[12],
     bonds: f32[13], kinCost: f32[14], stoneN: f32[15], eatEff: f32[16], stride, dt: f32[18], energy: f32[19],

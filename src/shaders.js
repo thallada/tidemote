@@ -43,7 +43,7 @@ export const G_WORDS = 48;
 export const LITE_BYTES = 32;
 // The selected cell's mind (mindMain): a header of MIND_HEAD words, then MIND_NBR living neighbours
 // of MIND_NBR_WORDS words each. See parseMind in mind.js for the layout.
-export const MIND_HEAD = 56;
+export const MIND_HEAD = 58;
 export const MIND_NBR = 48;
 export const MIND_NBR_WORDS = 7;
 export const MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
@@ -1635,6 +1635,7 @@ ${cellWGSL(K, true)}
     df -= world * round(df * invWorld);
     mind[3] = sortedFull[food].kind;
     mPut(4, length(df));
+    mPut2(56, df);
   }
   mind[6] = (p.info >> 6u) & 1023u;
   mind[7] = mN;

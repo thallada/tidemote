@@ -278,7 +278,8 @@ export function createSpecimen(api) {
     }
     return `<div class="blk song" data-slot="${slot}" data-tag="sp${g.serial}">${h}</div>`;
   }
-  // light the notes being sung (events from the soundtrack: { at, slot, k, line })
+  // light the notes being sung, each for as long as it sounds (events from the soundtrack: { at, dur,
+  // slot, k, line }); a short note still flashes for HOLD ms
   const HOLD = 240;
   let songKey = '';
   function songTick(now, events) {
@@ -289,7 +290,7 @@ export function createSpecimen(api) {
     const lit = [];
     for (const e of events) {
       if ((e.slot !== slot || slot < 0) && e.slot !== tag) continue;
-      if (e.at > now || now >= e.at + HOLD) continue;
+      if (e.at > now || now >= e.at + Math.max(HOLD, e.dur || 0)) continue;
       lit.push(`${e.line}:${e.k}`);
       if (!last || e.at > last.at) last = e;
     }
