@@ -1070,6 +1070,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     sel.org = { cells: members.size, roles, span: span * 2, mid, speed: Math.hypot(vx / m, vy / m), meanE: eSum / m, partial: res.truncated, touching: prev ? prev.touching : 0, at: res.simTime, ms: performance.now() - t0 };
     if (sel.orgFirst == null) {
       sel.orgFirst = members.size;
+      // the camera moved on to another cell after its subject died, perhaps of another organism of
+      // the species: its caption counts the body it now follows
+      const sh = sel.film && director.shot;
+      if (sh && sh.rehomed && sh.subject && sh.subject.id === sel.filmFor) {
+        sh.rehomed = false;
+        if (sh.why.cells !== members.size) { sh.why.cells = members.size; sh.whyVer++; }
+      }
       if (members.size > 1) story(`It is one cell of a ${fmt(members.size)}-cell organism. Following the whole body.`);
     }
     const ids = Uint32Array.from(members.keys()).sort();

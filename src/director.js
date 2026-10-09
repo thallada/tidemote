@@ -263,6 +263,7 @@ export class Director {
       const { u32, f32 } = res.raw, o = best * PICK_WORDS;
       sh.subject = { id: u32[o + 7], t: res.simTime, p: { x: f32[o], y: f32[o + 1], vx: f32[o + 2], vy: f32[o + 3], kind: u32[o + 4], energy: f32[o + 5], age: f32[o + 6], id: u32[o + 7] } };
       sh.last = null; // the new cell sits a little apart; don't read that as speed
+      sh.rehomed = true; // its body may be another organism: the page recounts it (why.cells) once traced
       this.trackId = sh.subject.id;
     }, () => { if (this.shot === sh) { sh.rehoming = false; this.lose(fate); } });
   }

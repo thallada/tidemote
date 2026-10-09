@@ -18211,6 +18211,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         const { u32, f32 } = res.raw, o = best * PICK_WORDS;
         sh.subject = { id: u32[o + 7], t: res.simTime, p: { x: f32[o], y: f32[o + 1], vx: f32[o + 2], vy: f32[o + 3], kind: u32[o + 4], energy: f32[o + 5], age: f32[o + 6], id: u32[o + 7] } };
         sh.last = null;
+        sh.rehomed = true;
         this.trackId = sh.subject.id;
       }, () => {
         if (this.shot === sh) {
@@ -19719,6 +19720,14 @@ registerProcessor("tidemote-sound", TidemoteSound);
       sel.org = { cells: members2.size, roles, span: span2 * 2, mid, speed: Math.hypot(vx / m, vy / m), meanE: eSum / m, partial: res.truncated, touching: prev ? prev.touching : 0, at: res.simTime, ms: performance.now() - t0 };
       if (sel.orgFirst == null) {
         sel.orgFirst = members2.size;
+        const sh = sel.film && director.shot;
+        if (sh && sh.rehomed && sh.subject && sh.subject.id === sel.filmFor) {
+          sh.rehomed = false;
+          if (sh.why.cells !== members2.size) {
+            sh.why.cells = members2.size;
+            sh.whyVer++;
+          }
+        }
         if (members2.size > 1) story(`It is one cell of a ${fmt(members2.size)}-cell organism. Following the whole body.`);
       }
       const ids = Uint32Array.from(members2.keys()).sort();
