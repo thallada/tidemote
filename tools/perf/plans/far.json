@@ -1,0 +1,9 @@
+{ "worlds": [{ "name": "w4m", "n": 4194304 }],
+  "scenarios": [
+    { "world": "w4m", "name": "fit", "zoom": "fit", "fps": 60, "scale": 1, "seconds": 4, "dispatch": false },
+    { "world": "w4m", "name": "fit-nolinks", "zoom": "fit", "fps": 60, "scale": 1, "seconds": 4, "dispatch": false, "prefs": { "links": false } },
+    { "world": "w4m", "name": "fit-nonodes", "zoom": "fit", "fps": 60, "scale": 1, "seconds": 4, "dispatch": false, "prefs": { "links": true, "nodes": false } },
+    { "world": "w4m", "name": "fit-scale05", "zoom": "fit", "fps": 60, "scale": 0.5, "seconds": 4, "dispatch": false, "prefs": { "links": true, "nodes": true } },
+    { "world": "w4m", "name": "z4", "zoom": 4, "fps": 60, "scale": 1, "seconds": 4, "dispatch": false },
+    { "world": "w4m", "name": "z8", "zoom": 8, "fps": 60, "scale": 1, "seconds": 4, "dispatch": false }
+  ] }

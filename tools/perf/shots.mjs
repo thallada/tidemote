@@ -5,7 +5,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-const [world, outDir, init, zoomList] = process.argv.slice(2);
+const [world, outDir, init, zoomList, look] = process.argv.slice(2);
 const root = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 fs.mkdirSync(path.resolve(root, outDir), { recursive: true });
 const server = http.createServer((req, res) => {
@@ -18,11 +18,12 @@ const ctx = await chromium.launchPersistentContext(dir, { executablePath: 'C:\\P
   args: ['--window-size=1600,900', '--window-position=0,0'] });
 const page = ctx.pages()[0];
 const meta = JSON.parse(fs.readFileSync(path.join(root, 'runs/perf/worlds', `${world}.bin`)).subarray(4, 4 + fs.readFileSync(path.join(root, 'runs/perf/worlds', `${world}.bin`)).readUInt32LE(0)).toString());
-await page.addInitScript(({ n, init }) => {
-  localStorage.setItem('tidemote.view', JSON.stringify({ v: 2, particles: n, auto: false, labOpen: false, scale: 1, optics: 0, specks: false, trails: 0 }));
+await page.addInitScript(({ n, init, look }) => {
+  // the default look (look = 'default'), or plain: no optics, specks or trails, so frames compare pixel by pixel
+  localStorage.setItem('tidemote.view', JSON.stringify({ v: 2, particles: n, auto: false, labOpen: false, scale: 1, ...(look === 'default' ? {} : { optics: 0, specks: false, trails: 0 }) }));
   localStorage.setItem('tidemote.sound', '{"on":false}');
   if (init) (0, eval)(init);
-}, { n: meta.cpu.count, init });
+}, { n: meta.cpu.count, init, look });
 const base = `http://127.0.0.1:${server.address().port}`;
 await page.goto(`${base}/`);
 await page.waitForFunction(() => globalThis.__tidemote?.state.phase === 'running');

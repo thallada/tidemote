@@ -1,0 +1,218 @@
+{
+"worlds": [
+{
+"name": "s288-w1m-0",
+"file": "w1m",
+"n": 1048576
+},
+{
+"name": "s288-w4m-0",
+"file": "w4m",
+"n": 4194304
+},
+{
+"name": "s224-w1m-0",
+"file": "w1m",
+"n": 1048576,
+"k": {
+"maxScan": 224
+}
+},
+{
+"name": "s224-w4m-0",
+"file": "w4m",
+"n": 4194304,
+"k": {
+"maxScan": 224
+}
+},
+{
+"name": "s192-w1m-0",
+"file": "w1m",
+"n": 1048576,
+"k": {
+"maxScan": 192
+}
+},
+{
+"name": "s192-w4m-0",
+"file": "w4m",
+"n": 4194304,
+"k": {
+"maxScan": 192
+}
+},
+{
+"name": "s144-w1m-0",
+"file": "w1m",
+"n": 1048576,
+"k": {
+"maxScan": 144
+}
+},
+{
+"name": "s144-w4m-0",
+"file": "w4m",
+"n": 4194304,
+"k": {
+"maxScan": 144
+}
+},
+{
+"name": "s288-w1m-1",
+"file": "w1m",
+"n": 1048576
+},
+{
+"name": "s288-w4m-1",
+"file": "w4m",
+"n": 4194304
+},
+{
+"name": "s224-w1m-1",
+"file": "w1m",
+"n": 1048576,
+"k": {
+"maxScan": 224
+}
+},
+{
+"name": "s224-w4m-1",
+"file": "w4m",
+"n": 4194304,
+"k": {
+"maxScan": 224
+}
+},
+{
+"name": "s192-w1m-1",
+"file": "w1m",
+"n": 1048576,
+"k": {
+"maxScan": 192
+}
+},
+{
+"name": "s192-w4m-1",
+"file": "w4m",
+"n": 4194304,
+"k": {
+"maxScan": 192
+}
+},
+{
+"name": "s144-w1m-1",
+"file": "w1m",
+"n": 1048576,
+"k": {
+"maxScan": 144
+}
+},
+{
+"name": "s144-w4m-1",
+"file": "w4m",
+"n": 4194304,
+"k": {
+"maxScan": 144
+}
+}
+],
+"scenarios": [
+{
+"world": "s288-w1m-0",
+"name": "step",
+"kind": "step",
+"reps": 25
+},
+{
+"world": "s288-w4m-0",
+"name": "step",
+"kind": "step",
+"reps": 15
+},
+{
+"world": "s224-w1m-0",
+"name": "step",
+"kind": "step",
+"reps": 25
+},
+{
+"world": "s224-w4m-0",
+"name": "step",
+"kind": "step",
+"reps": 15
+},
+{
+"world": "s192-w1m-0",
+"name": "step",
+"kind": "step",
+"reps": 25
+},
+{
+"world": "s192-w4m-0",
+"name": "step",
+"kind": "step",
+"reps": 15
+},
+{
+"world": "s144-w1m-0",
+"name": "step",
+"kind": "step",
+"reps": 25
+},
+{
+"world": "s144-w4m-0",
+"name": "step",
+"kind": "step",
+"reps": 15
+},
+{
+"world": "s288-w1m-1",
+"name": "step",
+"kind": "step",
+"reps": 25
+},
+{
+"world": "s288-w4m-1",
+"name": "step",
+"kind": "step",
+"reps": 15
+},
+{
+"world": "s224-w1m-1",
+"name": "step",
+"kind": "step",
+"reps": 25
+},
+{
+"world": "s224-w4m-1",
+"name": "step",
+"kind": "step",
+"reps": 15
+},
+{
+"world": "s192-w1m-1",
+"name": "step",
+"kind": "step",
+"reps": 25
+},
+{
+"world": "s192-w4m-1",
+"name": "step",
+"kind": "step",
+"reps": 15
+},
+{
+"world": "s144-w1m-1",
+"name": "step",
+"kind": "step",
+"reps": 25
+},
+{
+"world": "s144-w4m-1",
+"name": "step",
+"kind": "step",
+"reps": 15
+}
+]
+}
