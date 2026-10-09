@@ -13470,7 +13470,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       onSang(notes.map(([slot, dt, k, line, scan, rec, dur, step]) => {
         const S = st.scans.get(scan);
         const c = S && rec >= 0 ? S.cells.subarray(rec * 5, rec * 5 + 5) : null;
-        return { at: now + (dt + lat) * 1e3, dur: (dur || 0) * 1e3, step: (step || 0) * 1e3, slot, k, line, cell: c && c.length === 5 ? { x: c[0], y: c[1], vx: c[2], vy: c[3], id: c[4], t: S.sim } : null };
+        return { at: now + (dt + lat) * 1e3, dur: (dur || 0) * 1e3, step: (step || 0) * 1e3, whole: scan === -1, slot, k, line, cell: c && c.length === 5 ? { x: c[0], y: c[1], vx: c[2], vy: c[3], id: c[4], t: S.sim } : null };
       }));
     }
     function listen(data, { selSlot = -1, lit = null } = {}) {
@@ -17321,7 +17321,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if ((e.slot !== slot || slot < 0) && e.slot !== tag) continue;
         if (e.at > now) continue;
         if (now < e.at + Math.max(HOLD, e.dur || 0)) lit.push(`${e.line}:${e.k}`);
-        if (!last || e.at > last.at) last = e;
+        if (e.whole && (!last || e.at > last.at)) last = e;
       }
       const key = lit.sort().join(",");
       if (key !== songKey || !blk2.dataset.drawn) {
