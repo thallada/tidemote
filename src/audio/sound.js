@@ -129,6 +129,8 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
       if (st.on) post({ type: 'audition', slot: tag, voice: voiceOf(genome) });
     },
     reset: () => { st.sent.clear(); post({ type: 'reset' }); },
+    // a new world begins: its era's song plays as soon as the soundtrack is heard
+    async overture() { if (st.starting) await st.starting.catch(() => {}); if (st.on) post({ type: 'open' }); },
     wantsOn: pref.on ?? true,
   };
 }

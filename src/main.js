@@ -334,6 +334,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     state.phase = 'running';
     renderWorld();
     view.render();
+    sound.overture();
     flash('A new world begins');
   }
 
@@ -1353,7 +1354,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (k === 'R' && e.shiftKey) {
       if (state.phase !== 'running') return;
       const now = performance.now();
-      if (now - state.confirmReset < 2500) { state.confirmReset = 0; seedWorld(eng.count); flash('A new world begins'); }
+      if (now - state.confirmReset < 2500) { state.confirmReset = 0; seedWorld(eng.count); sound.overture(); flash('A new world begins'); }
       else { state.confirmReset = now; flash('Press Shift+R again to discard this world'); }
     }
     else if (k === 't' || k === 'T') { trailIdx = (trailIdx + 1) % trailLevels.length; eng.settings.trails = trailLevels[trailIdx]; flash(`Trails ${trailNames[trailIdx].toLowerCase()}`); persist(); view.render(); }
@@ -1498,6 +1499,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // The browser blocks the soundtrack until a gesture: hold the new world still until one, so its
   // first moments are heard.
   function begin() {
+    sound.overture();
     if (sound.on && !sound.playing) {
       state.paused = true; renderTime();
       $('intro').classList.add('ask');
@@ -1702,8 +1704,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // last few frames on by their velocity and the current. A cell not found yet falls back to where
   // the listening scan saw it, carried on, and is not drawn once that guess has drifted too far.
   const MARK_MS = 650;
-  const watched = new Map(); // particle id -> { x, y, vx, vy, t (sim time) }
-  eng.onWatch = ({ simTime, seen }) => { for (const w of seen) watched.set(w.id, { x: w.x, y: w.y, vx: w.vx, vy: w.vy, t: simTime }); };
+  // particle id -> its last sample { x, y, vx, vy, t (sim time) }, and where its mark was last
+  // drawn (disp) with the correction still being eased out (err), as the brackets do
+  const watched = new Map();
+  let marksAt = 0;
+  eng.onWatch = ({ simTime, seen }) => {
+    for (const w of seen) { const o = watched.get(w.id); watched.set(w.id, { x: w.x, y: w.y, vx: w.vx, vy: w.vy, t: simTime, disp: o && o.disp, err: o ? o.err : [0, 0], fresh: true }); }
+  };
   function markSlot() { // -1: every species; -2: none
     if (!state.songMarks || !sound.on) return -2;
     if (state.songMarks === 2) return -1;
@@ -1728,6 +1735,23 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const only = markSlot();
     if (only === -2 || !songEvents.length) return;
     const p = cssPPU(), simNow = viewSimTime || eng.simTime, [W, H] = eng.grid;
+    const fade = Math.exp(-Math.max(0, now - (marksAt || now)) / 45);
+    marksAt = now;
+    // each found cell once a frame: its prediction, with a new sample's correction eased out
+    const placed = new Map();
+    const place = (w, g) => {
+      let q = placed.get(w);
+      if (q) return q;
+      const dts = Math.max(0, Math.min(0.25, simNow - w.t)), [fx, fy] = flowAt(w.x, w.y, eng.simTime, eng.waves);
+      const px = w.x + (w.vx + fx * g.advect) * dts, py = w.y + (w.vy + fy * g.advect) * dts;
+      if (w.fresh && w.disp) { w.err = [wrapD(w.disp[0] - px, W), wrapD(w.disp[1] - py, H)]; }
+      w.fresh = false;
+      w.err[0] *= fade; w.err[1] *= fade;
+      q = [px + w.err[0], py + w.err[1]];
+      w.disp = q;
+      placed.set(w, q);
+      return q;
+    };
     octx.lineWidth = 1;
     for (const e of songEvents) {
       const t = now - e.at;
@@ -1736,10 +1760,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (!g) continue;
       const c = e.cell, w = watched.get(c.id);
       let x, y;
-      if (w) { // found this frame or the last few: as exact as the brackets
-        const dts = Math.max(0, Math.min(0.25, simNow - w.t)), [fx, fy] = flowAt(w.x, w.y, eng.simTime, eng.waves);
-        x = w.x + (w.vx + fx * g.advect) * dts; y = w.y + (w.vy + fy * g.advect) * dts;
-      } else {
+      if (w) [x, y] = place(w, g); // found this frame or the last few: as exact as the brackets
+      else {
         const dts = Math.max(0, Math.min(3, simNow - c.t));
         if (0.25 * Math.hypot(c.vx, c.vy) * dts * p > 30) continue;
         const [fx, fy] = flowAt(c.x, c.y, eng.simTime, eng.waves);

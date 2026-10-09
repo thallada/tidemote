@@ -212,6 +212,21 @@ export class Score {
     this.layers = [];
   }
 
+  // ── the opening of a world ─────────────────────────────────────────────────
+  // A new world is announced as an era arrives: a low chord rings out in a long reverb, strings
+  // swell on the era's tonic chord, then the piano plays the reigning motif (or a plain one).
+  overture(ts) {
+    const c = this.c, T = 10;
+    [c.root - 24, c.root - 12, d2m(4, c.root, c.scale) - 12, d2m(2, c.root, c.scale)].forEach((m, i) => {
+      c.at(ts + i * 0.02, 'piano', { freq: midicps(m), amp: 0.18, dec: 9, felt: 0.35, pan: (i - 1.5) * 0.2, rev: 0.95, dly: 0.1 });
+    });
+    c.setAt(ts, 'fdn', { decay: 18 }); c.setAt(ts + T, 'fdn', { decay: 9 });
+    [c.root - 12, ...this.chord(0)].forEach((m, i) => {
+      c.at(ts + 1.5 + i * 0.3, 'strings', { freq: midicps(m), amp: 0.12, atk: 0.7 * T, sus: 0.3 * T, rel: 12, bright: 0.6, pan: (i - 1.5) * 0.35, rev: 0.6 });
+    });
+    this.interlude(ts + T);
+  }
+
   // the new key arrives: its tonic chord, then the new ensemble and the reigning motif
   arrive(ts, era) {
     const c = this.c;

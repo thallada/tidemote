@@ -51,7 +51,8 @@ const f16 = (h) => { // IEEE half → number (WGSL pack2x16float)
  * x, y, vx, vy (world units, per sim second) and its particle id. For marking the cells that sing.
  */
 export function recordCells(u32, view) {
-  const R = LISTEN_REC, n = Math.floor(u32.length / R), out = new Float32Array(n * 5);
+  // 64-bit, so particle ids (a counter that passes 2^24 in a long or large world) stay exact
+  const R = LISTEN_REC, n = Math.floor(u32.length / R), out = new Float64Array(n * 5);
   for (let i = 0; i < n; i++) {
     const uv = u32[i * R + 1], vel = u32[i * R + 4], o = i * 5;
     out[o] = view.x + ((uv & 0xffff) / 65535 - 0.5) * 2 * view.hx;

@@ -57,8 +57,9 @@ export function noteParams(v, midi, dur, amp, o) {
     case 'cplx': p = { freq: midicps(midi), amp: amp * rr(0.7, 1), ratio: v.ratio, index: v.index * (0.5 + td), fold: v.fold * (0.6 + 0.6 * light),
       dec: (0.12 + 0.25 * v.dec) * (dur > 0.3 ? 1.5 : 1), bright: v.bright * (0.4 + 0.6 * light) * dim, rev: wet(0.22), dly: 0.12 }; break;
     case 'tine': p = { freq: midicps(midi), amp: amp * rr(0.7, 1), dec: 0.8 + v.dec, bright: v.bright * dim, rev: wet(0.28), dly: 0.14 }; break;
-    case 'swell': p = { freq: midicps(midi), amp, ratio: v.ratio, index: v.index * 0.7, fold: v.fold * 0.8, atk: dur * 0.45, hold: dur * 0.5, rel: dur * 2,
-      bright: Math.min(1.2, v.bright * (0.5 + light)) * dim, rev: wet(0.35), dly: 0.06 }; break;
+    // the swell's bloom is long, bright and folded: it sits lower and darker than the rest, or it drowns them out
+    case 'swell': p = { freq: midicps(midi), amp: amp * 0.7, ratio: v.ratio, index: v.index * 0.7, fold: v.fold * 0.6, atk: dur * 0.45, hold: dur * 0.5, rel: dur * 2,
+      bright: Math.min(0.6, v.bright * (0.25 + 0.5 * light)) * dim, rev: wet(0.35), dly: 0.06 }; break;
     case 'breath': p = { freq: midicps(midi), amp, atk: dur * 0.5, sus: dur * 0.4, rel: dur * 1.5, bright: v.bright * 0.6 * dim, glide: [0, 0.03, -0.03][Math.min(2, Math.floor(rr(0, 3)))], rev: wet(0.4), dly: 0.08 }; break;
     case 'glass': p = { freq: midicps(midi), amp, atk: dur * 0.4, sus: dur * 0.6, rel: dur * 1.6, bright: Math.min(1.2, v.bright * (0.5 + light)) * dim, rev: wet(0.5), dly: 0.04 }; break;
     case 'pluck': p = { freq: midicps(midi), amp: amp * rr(0.75, 1), dec: (0.35 + 0.8 * v.dec) * (dur > 0.5 ? 1.4 : 1), bright: v.bright * dim,
@@ -120,8 +121,9 @@ export class Conductor {
     else if (m.type === 'audition') this.field.audition(m);
     else if (m.type === 'fieldGain') Object.assign(this.field.gain, m.gain);
     else if (m.type === 'era') this.pendingEra = m.name;
+    else if (m.type === 'open') this.pendingOpen = true;
     else if (m.type === 'reset') {
-      this.field.slots.clear(); this.pendingEra = null; this.switchAt = null;
+      this.field.slots.clear(); this.pendingEra = null; this.switchAt = null; this.pendingOpen = false;
       this.setEra(eraMusic('The First Tides'), true); this.score.setEra(this.era);
       this.sea = this.swap(this.time, 'sea', this.seaChord(this.root), 10, this.sea);
     }
@@ -157,6 +159,8 @@ export class Conductor {
       this.nextEra = nx; this.switchAt = ts + 45;
       this.score.bridge(ts, nx, nx.root + (nx.fx.shift || 0), MODES[nx.mode][0], this.switchAt);
     }
+    // a new world opens with its era's song, unless an era change is already under way
+    if (this.pendingOpen) { this.pendingOpen = false; if (this.switchAt == null) this.score.overture(ts); }
     if (this.switchAt != null && ts >= this.switchAt) {
       this.setEra(this.nextEra, true); this.switchAt = null;
       this.sea = this.swap(ts, 'sea', this.seaChord(this.root), 12, this.sea);
