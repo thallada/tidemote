@@ -9042,7 +9042,7 @@ var Field = class {
       const ts = on.t + dt * c.step;
       const midi = this.motifNote(v, line[k], ts, g * (second ? 0.6 : 1) * (i ? 0.85 : 1), o, k);
       if (first == null) first = midi;
-      if (o.rec) this.sang.push([slot, ts - c.time, k, second ? 1 : 0, o.rec[0], o.rec[1], Math.min(10, line[k].dur * line[k].leg) * c.step]);
+      if (o.rec) this.sang.push([slot, ts - c.time, k, second ? 1 : 0, o.rec[0], o.rec[1], Math.min(10, line[k].dur * line[k].leg) * c.step, c.step]);
     }
     return first;
   }
@@ -9084,7 +9084,7 @@ var Field = class {
         line.forEach((nt, k) => {
           const ts = base + nt.at * c.step;
           this.motifNote(v, nt, ts, a, o, k);
-          if (slot != null) this.sang.push([slot, ts - c.time, k, li, -1, -1, Math.min(10, nt.dur * nt.leg) * c.step]);
+          if (slot != null) this.sang.push([slot, ts - c.time, k, li, -1, -1, Math.min(10, nt.dur * nt.leg) * c.step, c.step]);
         });
       }
     }
@@ -12601,7 +12601,7 @@ var Field = class {
       const ts = on.t + dt * c.step;
       const midi = this.motifNote(v, line[k], ts, g * (second ? 0.6 : 1) * (i ? 0.85 : 1), o, k);
       if (first == null) first = midi;
-      if (o.rec) this.sang.push([slot, ts - c.time, k, second ? 1 : 0, o.rec[0], o.rec[1], Math.min(10, line[k].dur * line[k].leg) * c.step]);
+      if (o.rec) this.sang.push([slot, ts - c.time, k, second ? 1 : 0, o.rec[0], o.rec[1], Math.min(10, line[k].dur * line[k].leg) * c.step, c.step]);
     }
     return first;
   }
@@ -12643,7 +12643,7 @@ var Field = class {
         line.forEach((nt, k) => {
           const ts = base + nt.at * c.step;
           this.motifNote(v, nt, ts, a, o, k);
-          if (slot != null) this.sang.push([slot, ts - c.time, k, li, -1, -1, Math.min(10, nt.dur * nt.leg) * c.step]);
+          if (slot != null) this.sang.push([slot, ts - c.time, k, li, -1, -1, Math.min(10, nt.dur * nt.leg) * c.step, c.step]);
         });
       }
     }
@@ -13467,10 +13467,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
     function sang(notes) {
       if (!onSang) return;
       const lat = st.ctx ? (st.ctx.outputLatency || 0) + (st.ctx.baseLatency || 0) : 0, now = performance.now();
-      onSang(notes.map(([slot, dt, k, line, scan, rec, dur]) => {
+      onSang(notes.map(([slot, dt, k, line, scan, rec, dur, step]) => {
         const S = st.scans.get(scan);
         const c = S && rec >= 0 ? S.cells.subarray(rec * 5, rec * 5 + 5) : null;
-        return { at: now + (dt + lat) * 1e3, dur: (dur || 0) * 1e3, slot, k, line, cell: c && c.length === 5 ? { x: c[0], y: c[1], vx: c[2], vy: c[3], id: c[4], t: S.sim } : null };
+        return { at: now + (dt + lat) * 1e3, dur: (dur || 0) * 1e3, step: (step || 0) * 1e3, slot, k, line, cell: c && c.length === 5 ? { x: c[0], y: c[1], vx: c[2], vy: c[3], id: c[4], t: S.sim } : null };
       }));
     }
     function listen(data, { selSlot = -1, lit = null } = {}) {
@@ -15650,7 +15650,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const cyc = Math.max(m.cycle, ghost ? ghost.cycle : 0);
     const sx = (w - 2 * pad2) / cyc, x = (t2) => pad2 + t2 * sx;
     const bh = Math.max(2, rowH * 0.5);
-    let s = `<svg class="song-roll" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${label2}">`;
+    let s = `<svg class="song-roll" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${label2}" data-x0="${pad2}" data-sx="${sx}" data-cycle="${m.cycle}">`;
     const c = 6;
     s += `<path class="brk" d="M.5 ${c}V.5H${c}M${w - c} .5H${w - 0.5}V${c}M.5 ${h - c}V${h - 0.5}H${c}M${w - c} ${h - 0.5}H${w - 0.5}V${h - c}"/>`;
     let ticks = "";
@@ -15670,7 +15670,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       for (const nt of ghost.notes) if (!m.notes.some((q) => Math.abs(q.at - nt.at) < 1e-6 && Math.abs(q.deg - nt.deg) < 1e-6)) s += bar(nt, "ghost");
     }
     (m.voice2 || []).forEach((nt, k) => {
-      s += bar(nt, "v2", ` data-k="${k}" data-l="1" style="stroke:${col2}"`);
+      s += bar(nt, "v2", ` data-k="${k}" data-l="1" data-at="${nt.at}" style="stroke:${col2}"`);
     });
     const moved = ghost ? m.notes.map((nt, k) => {
       const g = ghost.notes[k];
@@ -15684,7 +15684,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }).join("")}"/>`;
     m.notes.forEach((nt, k) => {
       if (nt.grace != null) s += `<circle class="grace" cx="${r1(x(nt.at) - 2.5)}" cy="${r1(y(nt.grace))}" r="1.3" style="fill:${col}"/>`;
-      s += bar(nt, `nt${changed(nt, k) ? " changed" : ""}`, ` data-k="${k}" data-l="0" style="fill:${col};fill-opacity:${(0.35 + 0.55 * nt.acc).toFixed(2)}"`);
+      s += bar(nt, `nt${changed(nt, k) ? " changed" : ""}`, ` data-k="${k}" data-l="0" data-at="${nt.at}" style="fill:${col};fill-opacity:${(0.35 + 0.55 * nt.acc).toFixed(2)}"`);
       s += `<path class="on" d="M${r1(x(nt.at))} ${r1(y(nt.deg) - bh / 2 - 2)}v${r1(bh + 4)}" style="stroke:${col}"/>`;
       if (Math.round(nt.deg) !== nt.deg) s += `<path class="chrom" d="M${r1(x(nt.at))} ${r1(y(nt.deg) - bh / 2 - 2.5)}h3"/>`;
     });
@@ -17306,7 +17306,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       return `<div class="blk song" data-slot="${slot}" data-tag="sp${g.serial}">${h}</div>`;
     }
-    const HOLD = 240;
+    const HOLD = 240, GLIDE = 400;
     let songKey = "";
     function songTick(now, events) {
       const blk2 = body.querySelector(".blk.song");
@@ -17319,9 +17319,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const lit = [];
       for (const e of events) {
         if ((e.slot !== slot || slot < 0) && e.slot !== tag) continue;
-        if (e.at > now || now >= e.at + Math.max(HOLD, e.dur || 0)) continue;
-        lit.push(`${e.line}:${e.k}`);
-        if (!last || e.at > last.at) last = e;
+        if (e.at > now) continue;
+        const end = e.at + Math.max(HOLD, e.dur || 0);
+        if (now < end) lit.push(`${e.line}:${e.k}`);
+        if (now < end + GLIDE && (!last || e.at > last.at)) last = e;
       }
       const key = lit.sort().join(",");
       if (key !== songKey || !blk2.dataset.drawn) {
@@ -17330,14 +17331,15 @@ registerProcessor("tidemote-sound", TidemoteSound);
         const set = new Set(lit);
         for (const r2 of blk2.querySelectorAll("rect[data-k]")) r2.classList.toggle("lit", set.has(`${r2.dataset.l}:${r2.dataset.k}`));
       }
-      const ph = blk2.querySelector(".ph");
+      const svg = blk2.querySelector("svg.song-roll"), ph = svg && svg.querySelector(".ph");
       if (!ph) return;
-      const r = last && blk2.querySelector(`rect[data-k="${last.k}"][data-l="${last.line}"]`);
+      const r = last && last.step > 0 && svg.querySelector(`rect[data-k="${last.k}"][data-l="${last.line}"]`);
       ph.classList.toggle("on", !!r);
       if (r) {
-        const x = +r.getAttribute("x") + +r.getAttribute("width") * clamp6((now - last.at) / Math.max(last.dur || 0, 1), 0, 1);
-        ph.setAttribute("x1", x.toFixed(2));
-        ph.setAttribute("x2", x.toFixed(2));
+        const cyc = +svg.dataset.cycle, t2 = (+r.dataset.at + (now - last.at) / last.step) % cyc;
+        const x = (+svg.dataset.x0 + t2 * +svg.dataset.sx).toFixed(2);
+        ph.setAttribute("x1", x);
+        ph.setAttribute("x2", x);
       }
     }
     function lineagePath(sp) {
