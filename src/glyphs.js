@@ -16,7 +16,8 @@ export const OUTLINES = [
   'M-1,-.1 L-.8,-.4 L-.4,-.3 L-.2,-.5 L.1,-.4 L.3,-.1 L.7,-.3 L1,0 L.8,.4 L.5,.3 L.2,.2 L-.1,.4 L-.4,.2 L-.7,.3 Z',
   'M-1,.2 L-.3,-.6 L.1,-.4 L.9,-.2 L.4,.3 L-.2,.7 Z',
 ];
-// matter emblems: husk ring, glint spark, stone/silt chip, framboid (a raspberry of crystals)
+// matter emblems: husk ring, glint spark, stone/silt chip, framboid (a raspberry of crystals); shapes
+// 16 + k are the kinds of stone grain (STONE_KINDS in shaders.js)
 export const MATTER_GLYPH = [[14, 0xff796056], [13, 0xffffe6b9], [12, 0xff47628a], [14, 0xff9faeb8], [15, 0xff73b3cc]];
 
 export function paintGlyph(g, size, shape, col) {
@@ -35,8 +36,47 @@ export function paintGlyph(g, size, shape, col) {
     for (const [x, y] of [[0, 0], [0.5, 0], [-0.5, 0], [0.25, 0.43], [-0.25, 0.43], [0.25, -0.43], [-0.25, -0.43]]) { g.moveTo(x + 0.22, y); g.arc(x, y, 0.22, 0, Math.PI * 2); }
     g.fill();
   }
+  else if (shape >= 16) stoneGlyph(g, shape - 16);
   else g.fill(new Path2D('M-.7,-.5 L.2,-.8 L.8,-.2 L.5,.6 L-.5,.8 L-.9,.1 Z'));
   g.restore();
+}
+
+// A kind of stone grain, simplified: its silhouette, with its telling detail cut out of it.
+const GRAIN = [
+  ['M-.7,-.4 L-.1,-.85 L.65,-.5 L.8,.2 L.2,.8 L-.6,.6 Z', 'M-.25,-.35 L.3,-.3 L.35,.2 L-.15,.3 Z M-.25,-.35 L-.7,-.4 M.3,-.3 L.65,-.5 M.35,.2 L.8,.2 M-.15,.3 L-.6,.6'], // quartz: facets
+  ['M-.8,-.45 L.6,-.62 L.85,-.35 L.85,.35 L-.7,.55 Z', 'M-.75,-.1 L.85,-.28 M-.72,.24 L.85,.06'], // feldspar: cleavage steps
+  ['M-.95,0 L-.6,-.38 L.6,-.38 L.95,0 L.6,.38 L-.6,.38 Z', 'M-.95,0 L.95,0'], // hornblende: a prism's ridge
+  ['M.8,0 A.8,.6 0 1,1 -.8,0 A.8,.6 0 1,1 .8,0 Z', ''], // sand: a worn oval
+  [null, null], // foraminifer: coiled chambers (drawn below)
+  ['M.8,0 A.8,.8 0 1,1 -.8,0 A.8,.8 0 1,1 .8,0 Z', null], // diatom: a pored disc (pores below)
+  ['M0,.85 L-.85,-.3 Q0,-1 .85,-.3 Z', 'M0,.85 L-.45,-.6 M0,.85 L0,-.66 M0,.85 L.45,-.6 M-.55,-.05 Q0,-.4 .55,-.05'], // shell: ribs and a growth line
+  ['M-1,.14 Q0,-.38 1,-.14 Q0,.3 -1,.14 Z', 'M-.7,.07 Q0,-.12 .7,-.06'], // spicule: a needle and its canal
+];
+// a foraminifer's chambers, each larger than the last on a log spiral, fitted to the emblem
+const FORAM = (() => {
+  const cs = Array.from({ length: 10 }, (_, i) => { const r = 0.1 * Math.exp(0.19 * i), a = i * 0.8; return [Math.cos(a) * r, Math.sin(a) * r, r * 0.62]; });
+  const lo = [0, 1].map((d) => Math.min(...cs.map((c) => c[d] - c[2]))), hi = [0, 1].map((d) => Math.max(...cs.map((c) => c[d] + c[2])));
+  const k = 1.7 / Math.max(hi[0] - lo[0], hi[1] - lo[1]);
+  return cs.map(([x, y, r]) => [(x - (lo[0] + hi[0]) / 2) * k, (y - (lo[1] + hi[1]) / 2) * k, r * k]);
+})();
+function stoneGlyph(g, k) {
+  const [body, cuts] = GRAIN[k];
+  const circles = (cs) => { const p = new Path2D(); for (const [x, y, r] of cs) { p.moveTo(x + r, y); p.arc(x, y, r, 0, Math.PI * 2); } return p; };
+  g.lineWidth = 0.1;
+  if (k === 4) {
+    // oldest first, each newer chamber parting from the older ones it covers by a thin suture
+    for (const [i, c] of FORAM.entries()) {
+      if (i) { g.globalCompositeOperation = 'destination-out'; g.stroke(circles([c])); g.globalCompositeOperation = 'source-over'; }
+      g.fill(circles([c]));
+    }
+    return;
+  }
+  g.fill(new Path2D(body));
+  g.globalCompositeOperation = 'destination-out';
+  g.shadowBlur = 0;
+  if (k === 5) g.fill(circles(Array.from({ length: 10 }, (_, i) => [Math.cos(i * 0.628) * 0.52, Math.sin(i * 0.628) * 0.52, 0.09]).concat([[0, 0, 0.14]])));
+  else if (cuts) g.stroke(new Path2D(cuts));
+  g.globalCompositeOperation = 'source-over';
 }
 
 const urls = new Map();

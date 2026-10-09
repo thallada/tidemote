@@ -1286,6 +1286,32 @@ svg.niche .n-dot { fill: var(--cyan); }
     const s = String(x);
     return /[.eE]/.test(s) ? s : s + ".0";
   };
+  var STONE_KINDS = [
+    [{ name: "Quartz", col: [0.74, 0.75, 0.73] }, { from: 0.6, name: "Smoky quartz", col: [0.56, 0.48, 0.41] }, { from: 0.9, name: "Rose quartz", col: [0.82, 0.62, 0.64] }],
+    [{ name: "Pink feldspar", col: [0.95, 0.55, 0.42] }, { from: 0.6, name: "Cream feldspar", col: [0.95, 0.85, 0.64] }],
+    [{ name: "Hornblende", col: [0.16, 0.18, 0.17] }, { from: 0.5, name: "Hornblende", col: [0.18, 0.26, 0.15] }, { from: 0.85, name: "Hornblende", col: [0.28, 0.15, 0.12] }],
+    [{ name: "Sand grain", col: [0.92, 0.78, 0.55] }, { from: 0.55, name: "Sand grain", col: [0.76, 0.75, 0.72] }, { from: 0.85, name: "Iron-stained sand grain", col: [0.9, 0.56, 0.32] }],
+    [{ name: "Foraminifer shell", col: [1, 0.95, 0.85] }, { from: 0.7, name: "Foraminifer shell", col: [1, 0.8, 0.74] }],
+    [{ name: "Diatom", col: [0.74, 0.9, 0.84] }, { from: 0.6, name: "Diatom", col: [0.9, 0.85, 0.55] }],
+    [{ name: "Shell fragment", col: [0.98, 0.9, 0.78] }, { from: 0.6, name: "Shell fragment", col: [0.9, 0.7, 0.54] }],
+    [{ name: "Sponge spicule", col: [0.84, 0.87, 0.87] }]
+  ];
+  var BEDROCK_MIX = [[0, 0.35], [1, 0.55], [2, 0.67], [3, 0.82], [4, 0.88], [5, 0.93], [6, 0.97], [7, 1]];
+  var REEF_MIX = [[4, 0.3], [6, 0.55], [3, 0.75], [5, 0.88], [7, 1]];
+  var hashU = (id) => {
+    let h = Math.imul(id >>> 0, 747796405) + 2891336453 >>> 0;
+    h = Math.imul((h >>> (h >>> 28) + 4 ^ h) >>> 0, 277803737) >>> 0;
+    return ((h >>> 22 ^ h) >>> 0) / 4294967296;
+  };
+  function stoneGrain(id, info) {
+    const h = hashU(id ^ 2654435769), h2 = hashU(id ^ 2246822507);
+    const kind = ((info & 15) !== 0 ? REEF_MIX : BEDROCK_MIX).find(([, upTo]) => h < upTo)?.[0] ?? 7;
+    const v = STONE_KINDS[kind].filter((x) => !x.from || h2 > x.from).at(-1);
+    return { kind, name: v.name, col: v.col };
+  }
+  var v3 = (c) => `vec3f(${c.map(f).join(", ")})`;
+  var mixWGSL = (mix3) => mix3.slice(0, -1).reduceRight((e, [k, upTo]) => `select(${e}, ${k}u, h < ${f(upTo)})`, `${mix3.at(-1)[0]}u`);
+  var STONE_COL_WGSL = STONE_KINDS.map((vs, k) => `      case ${k}u: { mc = ${vs.slice(1).reduce((e, x) => `select(${e}, ${v3(x.col)}, h2 > ${f(x.from)})`, v3(vs[0].col))}; }`).join("\n");
   var COMMON = (
     /* wgsl */
     `
@@ -4146,20 +4172,10 @@ struct SO {
   if (!framboid) {
     let h = renderHash(p.id ^ 0x9e3779b9u);
     let h2 = renderHash(p.id ^ 0x85ebca6bu);
-    if (reef) {
-      ty = select(select(select(select(7u, 5u, h < 0.88), 3u, h < 0.75), 6u, h < 0.55), 4u, h < 0.3);
-    } else {
-      ty = select(select(select(select(select(select(select(7u, 6u, h < 0.97), 5u, h < 0.93), 4u, h < 0.88), 3u, h < 0.82), 2u, h < 0.67), 1u, h < 0.55), 0u, h < 0.35);
-    }
-    var mc = vec3f(0.84, 0.87, 0.87); // a sponge spicule: clear silica
+    ty = select(${mixWGSL(BEDROCK_MIX)}, ${mixWGSL(REEF_MIX)}, reef);
+    var mc = vec3f(0.0);
     switch ty {
-      case 0u: { mc = select(select(vec3f(0.74, 0.75, 0.73), vec3f(0.56, 0.48, 0.41), h2 > 0.6), vec3f(0.82, 0.62, 0.64), h2 > 0.9); } // quartz: clear, smoky or rose
-      case 1u: { mc = select(vec3f(0.95, 0.55, 0.42), vec3f(0.95, 0.85, 0.64), h2 > 0.6); } // feldspar: pink or cream
-      case 2u: { mc = select(select(vec3f(0.16, 0.18, 0.17), vec3f(0.18, 0.26, 0.15), h2 > 0.5), vec3f(0.28, 0.15, 0.12), h2 > 0.85); } // mafic: black, green-black or red-black
-      case 3u: { mc = select(select(vec3f(0.92, 0.78, 0.55), vec3f(0.76, 0.75, 0.72), h2 > 0.55), vec3f(0.9, 0.56, 0.32), h2 > 0.85); } // worn sand: tan, grey or iron-stained
-      case 4u: { mc = select(vec3f(1.0, 0.95, 0.85), vec3f(1.0, 0.8, 0.74), h2 > 0.7); } // a foraminifer's chalk test
-      case 5u: { mc = select(vec3f(0.74, 0.9, 0.84), vec3f(0.9, 0.85, 0.55), h2 > 0.6); } // a diatom's glass
-      case 6u: { mc = select(vec3f(0.98, 0.9, 0.78), vec3f(0.9, 0.7, 0.54), h2 > 0.6); } // a shell fragment
+${STONE_COL_WGSL}
       default: {}
     }
     base = mix(mc, base, select(0.0, 0.3, reef));
@@ -15474,8 +15490,65 @@ registerProcessor("tidemote-sound", TidemoteSound);
         g.arc(x, y, 0.22, 0, Math.PI * 2);
       }
       g.fill();
-    } else g.fill(new Path2D("M-.7,-.5 L.2,-.8 L.8,-.2 L.5,.6 L-.5,.8 L-.9,.1 Z"));
+    } else if (shape >= 16) stoneGlyph(g, shape - 16);
+    else g.fill(new Path2D("M-.7,-.5 L.2,-.8 L.8,-.2 L.5,.6 L-.5,.8 L-.9,.1 Z"));
     g.restore();
+  }
+  var GRAIN = [
+    ["M-.7,-.4 L-.1,-.85 L.65,-.5 L.8,.2 L.2,.8 L-.6,.6 Z", "M-.25,-.35 L.3,-.3 L.35,.2 L-.15,.3 Z M-.25,-.35 L-.7,-.4 M.3,-.3 L.65,-.5 M.35,.2 L.8,.2 M-.15,.3 L-.6,.6"],
+    // quartz: facets
+    ["M-.8,-.45 L.6,-.62 L.85,-.35 L.85,.35 L-.7,.55 Z", "M-.75,-.1 L.85,-.28 M-.72,.24 L.85,.06"],
+    // feldspar: cleavage steps
+    ["M-.95,0 L-.6,-.38 L.6,-.38 L.95,0 L.6,.38 L-.6,.38 Z", "M-.95,0 L.95,0"],
+    // hornblende: a prism's ridge
+    ["M.8,0 A.8,.6 0 1,1 -.8,0 A.8,.6 0 1,1 .8,0 Z", ""],
+    // sand: a worn oval
+    [null, null],
+    // foraminifer: coiled chambers (drawn below)
+    ["M.8,0 A.8,.8 0 1,1 -.8,0 A.8,.8 0 1,1 .8,0 Z", null],
+    // diatom: a pored disc (pores below)
+    ["M0,.85 L-.85,-.3 Q0,-1 .85,-.3 Z", "M0,.85 L-.45,-.6 M0,.85 L0,-.66 M0,.85 L.45,-.6 M-.55,-.05 Q0,-.4 .55,-.05"],
+    // shell: ribs and a growth line
+    ["M-1,.14 Q0,-.38 1,-.14 Q0,.3 -1,.14 Z", "M-.7,.07 Q0,-.12 .7,-.06"]
+    // spicule: a needle and its canal
+  ];
+  var FORAM = (() => {
+    const cs = Array.from({ length: 10 }, (_, i) => {
+      const r = 0.1 * Math.exp(0.19 * i), a = i * 0.8;
+      return [Math.cos(a) * r, Math.sin(a) * r, r * 0.62];
+    });
+    const lo = [0, 1].map((d) => Math.min(...cs.map((c) => c[d] - c[2]))), hi = [0, 1].map((d) => Math.max(...cs.map((c) => c[d] + c[2])));
+    const k = 1.7 / Math.max(hi[0] - lo[0], hi[1] - lo[1]);
+    return cs.map(([x, y, r]) => [(x - (lo[0] + hi[0]) / 2) * k, (y - (lo[1] + hi[1]) / 2) * k, r * k]);
+  })();
+  function stoneGlyph(g, k) {
+    const [body, cuts] = GRAIN[k];
+    const circles = (cs) => {
+      const p = new Path2D();
+      for (const [x, y, r] of cs) {
+        p.moveTo(x + r, y);
+        p.arc(x, y, r, 0, Math.PI * 2);
+      }
+      return p;
+    };
+    g.lineWidth = 0.1;
+    if (k === 4) {
+      for (const [i, c] of FORAM.entries()) {
+        if (i) {
+          g.globalCompositeOperation = "destination-out";
+          g.stroke(circles([c]));
+          g.globalCompositeOperation = "source-over";
+        }
+        g.fill(circles([c]));
+      }
+      return;
+    }
+    g.fill(new Path2D(body));
+    g.globalCompositeOperation = "destination-out";
+    g.shadowBlur = 0;
+    if (k === 5) g.fill(circles(Array.from({ length: 10 }, (_, i) => [Math.cos(i * 0.628) * 0.52, Math.sin(i * 0.628) * 0.52, 0.09]).concat([[0, 0, 0.14]])));
+    else if (cuts) g.stroke(new Path2D(cuts));
+    g.globalCompositeOperation = "source-over";
   }
   var urls = /* @__PURE__ */ new Map();
   var scratch = null;
@@ -17360,12 +17433,18 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (p.kind < FIRST_LIFE) {
           const framboid = p.kind === FRAMBOID;
           const m = MATTER[p.kind];
+          const grain = p.kind === 3 ? stoneGrain(p.id, p.info) : null;
           setHead(
             mem ? `Now ${m.name} · once` : m.name,
-            mem && mem.sp ? spLink(mem.sp.serial, mem.sp.name) : m.name,
+            mem && mem.sp ? spLink(mem.sp.serial, mem.sp.name) : grain ? grain.name : m.name,
             sel.lost ? "Lost track of it" : (mem && sel.diedAt != null ? code("Died", `${fmtDur(eng.simTime - sel.diedAt)} ago`) : "") + code("ID", fmt(p.id))
           );
-          plainGlyph(MATTER_GLYPH[p.kind][0], MATTER_GLYPH[p.kind][1]);
+          if (grain) {
+            const t2 = (p.info & 15) !== 0 ? 0.3 : 0, rgb2 = grain.col.map((x, i) => x + t2 * ((p.col >>> 8 * i & 255) / 255 - x));
+            const lift = Math.max(0, 0.45 - (0.3 * rgb2[0] + 0.5 * rgb2[1] + 0.2 * rgb2[2]));
+            const c = rgb2.map((x) => Math.round(255 * Math.min(1, x + lift)));
+            plainGlyph(16 + grain.kind, (4278190080 | c[2] << 16 | c[1] << 8 | c[0]) >>> 0);
+          } else plainGlyph(MATTER_GLYPH[p.kind][0], MATTER_GLYPH[p.kind][1]);
           setActs(`m${!!mem}`, mem ? '<button type="button" class="btn" data-act="relative">Watch a relative</button>' : "");
           const q10 = (q) => K.heat ? q ** ((eng.tbg - K.tRef) / 10) : 1;
           if (p.kind === 1) v += vital("Charge", p.energy, "cyan", `fades in ${fmtDur(Math.max(0, (p.energy - K.glintMin) / (K.leak * q10(K.glintQ10))))}`, "glint");

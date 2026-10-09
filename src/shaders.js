@@ -161,6 +161,39 @@ const f = (x) => {
   return /[.eE]/.test(s) ? s : s + '.0';
 };
 
+// The kinds of sediment grain, shared by the stone pass (vsStone, mineralSurf) and the specimen panel:
+// each kind's colour variants (a name and colour, from a share of grains on), and how bedrock and reef
+// stone (laid down by calcifiers) mix them, as [kind, cumulative share].
+export const STONE_KINDS = [
+  [{ name: 'Quartz', col: [0.74, 0.75, 0.73] }, { from: 0.6, name: 'Smoky quartz', col: [0.56, 0.48, 0.41] }, { from: 0.9, name: 'Rose quartz', col: [0.82, 0.62, 0.64] }],
+  [{ name: 'Pink feldspar', col: [0.95, 0.55, 0.42] }, { from: 0.6, name: 'Cream feldspar', col: [0.95, 0.85, 0.64] }],
+  [{ name: 'Hornblende', col: [0.16, 0.18, 0.17] }, { from: 0.5, name: 'Hornblende', col: [0.18, 0.26, 0.15] }, { from: 0.85, name: 'Hornblende', col: [0.28, 0.15, 0.12] }],
+  [{ name: 'Sand grain', col: [0.92, 0.78, 0.55] }, { from: 0.55, name: 'Sand grain', col: [0.76, 0.75, 0.72] }, { from: 0.85, name: 'Iron-stained sand grain', col: [0.9, 0.56, 0.32] }],
+  [{ name: 'Foraminifer shell', col: [1.0, 0.95, 0.85] }, { from: 0.7, name: 'Foraminifer shell', col: [1.0, 0.8, 0.74] }],
+  [{ name: 'Diatom', col: [0.74, 0.9, 0.84] }, { from: 0.6, name: 'Diatom', col: [0.9, 0.85, 0.55] }],
+  [{ name: 'Shell fragment', col: [0.98, 0.9, 0.78] }, { from: 0.6, name: 'Shell fragment', col: [0.9, 0.7, 0.54] }],
+  [{ name: 'Sponge spicule', col: [0.84, 0.87, 0.87] }],
+];
+const BEDROCK_MIX = [[0, 0.35], [1, 0.55], [2, 0.67], [3, 0.82], [4, 0.88], [5, 0.93], [6, 0.97], [7, 1]];
+const REEF_MIX = [[4, 0.3], [6, 0.55], [3, 0.75], [5, 0.88], [7, 1]];
+// renderHash (WGSL, below) on the CPU
+const hashU = (id) => {
+  let h = (Math.imul(id >>> 0, 747796405) + 2891336453) >>> 0;
+  h = Math.imul(((h >>> ((h >>> 28) + 4)) ^ h) >>> 0, 277803737) >>> 0;
+  return (((h >>> 22) ^ h) >>> 0) / 4294967296;
+};
+/** The kind of sediment a stone grain is drawn as (vsStone): { kind, name, col } from its id and info. */
+export function stoneGrain(id, info) {
+  const h = hashU(id ^ 0x9e3779b9), h2 = hashU(id ^ 0x85ebca6b);
+  const kind = ((info & 15) !== 0 ? REEF_MIX : BEDROCK_MIX).find(([, upTo]) => h < upTo)?.[0] ?? 7;
+  const v = STONE_KINDS[kind].filter((x) => !x.from || h2 > x.from).at(-1);
+  return { kind, name: v.name, col: v.col };
+}
+// The same choices in WGSL: a nested select over the mix, and each kind's colour over its variants.
+const v3 = (c) => `vec3f(${c.map(f).join(', ')})`;
+const mixWGSL = (mix) => mix.slice(0, -1).reduceRight((e, [k, upTo]) => `select(${e}, ${k}u, h < ${f(upTo)})`, `${mix.at(-1)[0]}u`);
+const STONE_COL_WGSL = STONE_KINDS.map((vs, k) => `      case ${k}u: { mc = ${vs.slice(1).reduce((e, x) => `select(${e}, ${v3(x.col)}, h2 > ${f(x.from)})`, v3(vs[0].col))}; }`).join('\n');
+
 const COMMON = /* wgsl */ `
 // Relief, as in DIC microscopy: one light from the upper left (screen y down) for every resolved shape.
 const TO_LIGHT = vec2f(-0.633, -0.774);
@@ -3034,20 +3067,10 @@ struct SO {
   if (!framboid) {
     let h = renderHash(p.id ^ 0x9e3779b9u);
     let h2 = renderHash(p.id ^ 0x85ebca6bu);
-    if (reef) {
-      ty = select(select(select(select(7u, 5u, h < 0.88), 3u, h < 0.75), 6u, h < 0.55), 4u, h < 0.3);
-    } else {
-      ty = select(select(select(select(select(select(select(7u, 6u, h < 0.97), 5u, h < 0.93), 4u, h < 0.88), 3u, h < 0.82), 2u, h < 0.67), 1u, h < 0.55), 0u, h < 0.35);
-    }
-    var mc = vec3f(0.84, 0.87, 0.87); // a sponge spicule: clear silica
+    ty = select(${mixWGSL(BEDROCK_MIX)}, ${mixWGSL(REEF_MIX)}, reef);
+    var mc = vec3f(0.0);
     switch ty {
-      case 0u: { mc = select(select(vec3f(0.74, 0.75, 0.73), vec3f(0.56, 0.48, 0.41), h2 > 0.6), vec3f(0.82, 0.62, 0.64), h2 > 0.9); } // quartz: clear, smoky or rose
-      case 1u: { mc = select(vec3f(0.95, 0.55, 0.42), vec3f(0.95, 0.85, 0.64), h2 > 0.6); } // feldspar: pink or cream
-      case 2u: { mc = select(select(vec3f(0.16, 0.18, 0.17), vec3f(0.18, 0.26, 0.15), h2 > 0.5), vec3f(0.28, 0.15, 0.12), h2 > 0.85); } // mafic: black, green-black or red-black
-      case 3u: { mc = select(select(vec3f(0.92, 0.78, 0.55), vec3f(0.76, 0.75, 0.72), h2 > 0.55), vec3f(0.9, 0.56, 0.32), h2 > 0.85); } // worn sand: tan, grey or iron-stained
-      case 4u: { mc = select(vec3f(1.0, 0.95, 0.85), vec3f(1.0, 0.8, 0.74), h2 > 0.7); } // a foraminifer's chalk test
-      case 5u: { mc = select(vec3f(0.74, 0.9, 0.84), vec3f(0.9, 0.85, 0.55), h2 > 0.6); } // a diatom's glass
-      case 6u: { mc = select(vec3f(0.98, 0.9, 0.78), vec3f(0.9, 0.7, 0.54), h2 > 0.6); } // a shell fragment
+${STONE_COL_WGSL}
       default: {}
     }
     base = mix(mc, base, select(0.0, 0.3, reef));

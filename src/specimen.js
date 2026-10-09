@@ -1,6 +1,6 @@
 import { roleShares, roleColor, affinity, CELL_SHAPES, cellShape, thermalPerf, thermalGuild } from './genome.js';
 import { FIRST_LIFE } from './engine.js';
-import { FRAMBOID } from './shaders.js';
+import { FRAMBOID, stoneGrain } from './shaders.js';
 import { tagsOf } from './facets.js';
 import { tideAt } from './flow.js';
 import { fmt, fmtClock, fmtDur, esc, cssCol, cssRgb, term, spLink, meter, clamp, ROLE, MATTER, CAUSE, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
@@ -475,9 +475,18 @@ export function createSpecimen(api) {
       if (p.kind < FIRST_LIFE) {
         const framboid = p.kind === FRAMBOID;
         const m = MATTER[p.kind];
-        setHead(mem ? `Now ${m.name} · once` : m.name, mem && mem.sp ? spLink(mem.sp.serial, mem.sp.name) : m.name,
+        // a stone is named and drawn as the kind of grain the world draws it as (reef stone keeps a little
+        // of its builder's tint)
+        const grain = p.kind === 3 ? stoneGrain(p.id, p.info) : null;
+        setHead(mem ? `Now ${m.name} · once` : m.name, mem && mem.sp ? spLink(mem.sp.serial, mem.sp.name) : grain ? grain.name : m.name,
           sel.lost ? 'Lost track of it' : (mem && sel.diedAt != null ? code('Died', `${fmtDur(eng.simTime - sel.diedAt)} ago`) : '') + code('ID', fmt(p.id)));
-        plainGlyph(MATTER_GLYPH[p.kind][0], MATTER_GLYPH[p.kind][1]);
+        if (grain) {
+          // its colour (reef stone keeps a little of its builder's tint), dark grains lifted so the emblem reads
+          const t = (p.info & 15) !== 0 ? 0.3 : 0, rgb = grain.col.map((x, i) => x + t * (((p.col >>> (8 * i)) & 255) / 255 - x));
+          const lift = Math.max(0, 0.45 - (0.3 * rgb[0] + 0.5 * rgb[1] + 0.2 * rgb[2]));
+          const c = rgb.map((x) => Math.round(255 * Math.min(1, x + lift)));
+          plainGlyph(16 + grain.kind, (0xff000000 | (c[2] << 16) | (c[1] << 8) | c[0]) >>> 0);
+        } else plainGlyph(MATTER_GLYPH[p.kind][0], MATTER_GLYPH[p.kind][1]);
         setActs(`m${!!mem}`, mem ? '<button type="button" class="btn" data-act="relative">Watch a relative</button>' : '');
         // in water at the background temperature (warm water wears glint and husks faster)
         const q10 = (q) => (K.heat ? q ** ((eng.tbg - K.tRef) / 10) : 1);
