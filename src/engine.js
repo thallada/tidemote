@@ -41,6 +41,8 @@ class Engine {
     this.device = device;
     this.format = format;
     this.K = K;
+    // particles a cell weighs in a crowd per step (the page's Neighbours setting); a uniform, so it changes live
+    this.maxScan = K.maxScan;
     this.capacity = 0;
     this.count = 0;
     this.grid = [3, 3];
@@ -626,7 +628,7 @@ class Engine {
     f.set(this.tide, 36);
     f.set(this.tidePh, 52);
     f.set(this.rock, 56);
-    u[60] = this.tick; u[61] = this.ticks; f[62] = this.tbg;
+    u[60] = this.tick; u[61] = this.ticks; f[62] = this.tbg; u[63] = this.maxScan;
   }
 
   requestPick(center, radius, selId, { kind = 0xffffffff, maxOut = 4096, raw = false } = {}) {

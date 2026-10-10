@@ -1163,6 +1163,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     preyFrac: 0.7,
     kin: 0.8,
     maxScan: 192,
+    // neighbours a cell weighs per step in a crowd, sampled evenly (each counts for those skipped)
     diag: 0,
     // 1: count K.diag's diagnostics into the ledger (DIAG_SLOTS; headless forks record them)
     affScale: 0.42,
@@ -1522,7 +1523,7 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   // Crowded neighbourhoods are sampled evenly with a random offset, each sample standing for
   // \`stride\` particles, so no direction or grid cell is favoured (scanning in order and stopping
   // at the budget left out the last row and drew dense species into grid-aligned bands).
-  let stride = max(1.0, f32(total) / f32(MAX_SCAN));
+  let stride = max(1.0, f32(total) / f32(sim.maxScan));
   var at = select(0.0, rnd(&s) * stride, stride > 1.0);
   for (var k = 0u; k < nr; k++) {
     let len = f32(re[k] - rs[k]);
@@ -1757,8 +1758,8 @@ struct Sim {
   tidePh: vec4f,
   rock: vec4f,
   // tick: 1/60 s ticks simulated up to the end of this step; ticks: how many this step covers;
-  // tbg: the background water temperature (climate, season, excursion)
-  tick: u32, ticks: u32, tbg: f32, pad1: u32,
+  // tbg: the background water temperature (climate, season, excursion); maxScan: the neighbour budget
+  tick: u32, ticks: u32, tbg: f32, maxScan: u32,
 };
 // kr: 0..9 kind, 10..11 role, 12 plant.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
@@ -1795,7 +1796,6 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u3
 const EAT_R = ${f(K.eatR)};
 const DIAG = ${K.diag ? "true" : "false"};
 const LINK_R = ${f(K.linkR)};
-const MAX_SCAN = ${K.maxScan | 0}u;
 const DIET_MIN = ${f(K.dietMin)};
 const HEAT_ON = ${K.heat ? "true" : "false"};
 const TREF = ${f(K.tRef)};
@@ -13844,6 +13844,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.device = device;
       this.format = format;
       this.K = K;
+      this.maxScan = K.maxScan;
       this.capacity = 0;
       this.count = 0;
       this.grid = [3, 3];
@@ -14498,6 +14499,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       u[60] = this.tick;
       u[61] = this.ticks;
       f2[62] = this.tbg;
+      u[63] = this.maxScan;
     }
     requestPick(center, radius, selId, { kind = 4294967295, maxOut = 4096, raw = false } = {}) {
       return new Promise((resolve) => {
@@ -15736,6 +15738,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     specks: "The fine suspension that drifts between cells when zoomed far in. Drawn speck by speck; off saves a compute pass and a full-screen pass.",
     closeup: "The live close-up in the specimen panel: a second, small view of the world drawn every frame.",
     particles: "Every grain, husk and cell is one particle; their number is fixed for a world’s whole life. Auto measures the GPU and picks the most it can run smoothly. Changing it starts a new world.",
+    neighbours: "In a crowd, the most nearby particles a cell weighs each step. It samples them evenly and counts each for the ones it skips, so crowding and pushes stay right on average; it only picks food and bond partners from those it saw. Fewer runs faster in dense colonies and makes no difference in open water. Takes effect at once.",
     loupe: "A magnifier that follows the mouse when zoomed out. Clicks inside it select what is under the crosshair.",
     speed: "Current speed, in micrometres (µm) per second.",
     scale: "Lengths are in micrometres (µm, a thousandth of a millimetre), taking a cell of ordinary size to be 10 µm across, about the size of a protist. A cell senses and pulls on others at most about 60 µm away.",
@@ -19100,7 +19103,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
       // pixels per CSS pixel, the frame rate aimed for (0: the display's; 60 by default, and for prefs
       // saved before v2, which stored the display's without anyone choosing it), and a fixed particle count
-      perf: { scale: prefs.scale ?? "auto", floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.v >= 2 ? prefs.fps ?? 60 : 60, particles: prefs.particles ?? null }
+      perf: { scale: prefs.scale ?? "auto", floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.v >= 2 ? prefs.fps ?? 60 : 60, particles: prefs.particles ?? null, scan: prefs.scan ?? null }
     };
     let uiHoldUntil = 0;
     const panelSel = ".panel, .rail, .dock, .focus";
@@ -19125,6 +19128,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     let trailIdx = prefs.trails ?? 1;
     eng.settings.trails = trailLevels[trailIdx];
     for (const k of ["links", "nodes", "bloom", "optics", "specks", "lod", "tide", "heat"]) if (prefs[k] !== void 0) eng.settings[k] = prefs[k];
+    eng.maxScan = state.perf.scan ?? K.maxScan;
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
@@ -20361,7 +20365,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         const dev = Math.min(devicePixelRatio || 1, 2);
         const sizes = PARTICLE_SIZES.filter((n) => n <= maxParticles());
         const nowN = pendingN ?? (P.particles || "auto");
-        return head("Resolution") + choice("scale", "Render scale", "", [["auto", "Auto"], [1, "100%"], [0.75, "75%"], [0.5, "50%"], [0.35, "35%"]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", "Auto lowest", "", [[0.75, "75%"], [0.5, "50%"], [0.35, "35%"], [0.25, "25%"]], P.floor, "autofloor") : "") + choice("density", "Pixel density", "", [[1, "1×"], [1.5, "1.5×", dev < 1.5], [2, "2×", dev < 2]], P.density, "density") + choice("fps", "Target fps", "", [[30, "30"], [60, "60"], [0, "Display"]], P.fps, "targetfps") + head("Effects") + onoff("bloom", "Bloom", "B", s.bloom > 0, "bloom") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("lod", "Zoom detail", "", s.lod, "lod") + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("closeup", "Live close-up", "", state.closeup, "closeup") + head("World") + choice("n", "Particles", "", [["auto", "Auto"], ...sizes.map((n) => [n, kfmt(n)])], nowN, "particles") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === "auto" ? "a measured count" : fmt(pendingN)}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", "Profile")}</span><div class="row"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : "");
+        return head("Resolution") + choice("scale", "Render scale", "", [["auto", "Auto"], [1, "100%"], [0.75, "75%"], [0.5, "50%"], [0.35, "35%"]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", "Auto lowest", "", [[0.75, "75%"], [0.5, "50%"], [0.35, "35%"], [0.25, "25%"]], P.floor, "autofloor") : "") + choice("density", "Pixel density", "", [[1, "1×"], [1.5, "1.5×", dev < 1.5], [2, "2×", dev < 2]], P.density, "density") + choice("fps", "Target fps", "", [[30, "30"], [60, "60"], [0, "Display"]], P.fps, "targetfps") + head("Effects") + onoff("bloom", "Bloom", "B", s.bloom > 0, "bloom") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("lod", "Zoom detail", "", s.lod, "lod") + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("closeup", "Live close-up", "", state.closeup, "closeup") + head("World") + choice("n", "Particles", "", [["auto", "Auto"], ...sizes.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", "Neighbours", "", [144, 192, 288].map((n) => [n, n === K.maxScan ? `${n} (default)` : String(n)]), eng.maxScan, "neighbours") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === "auto" ? "a measured count" : fmt(pendingN)}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", "Profile")}</span><div class="row"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : "");
       }
       function render() {
         if (el.hidden) return;
@@ -20432,6 +20436,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
         } else if (id === "fps") {
           P.fps = +v;
           resetAdapt();
+        } else if (id === "scan") {
+          P.scan = +v === K.maxScan ? null : +v;
+          eng.maxScan = +v;
         } else if (id === "n") pendingN = v === "auto" ? "auto" : +v;
         else if (id === "apply") {
           const n = pendingN;
@@ -20495,6 +20502,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         dpr: devicePixelRatio,
         scale: renderScale,
         particles: eng.count,
+        neighbours: eng.maxScan,
         living: life.counts[3],
         cssPPU: +cssPPU().toFixed(1),
         speed: state.speed,

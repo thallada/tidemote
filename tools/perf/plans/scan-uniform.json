@@ -1,0 +1,330 @@
+{
+ "worlds": [
+  {
+   "name": "const192-w1m-0",
+   "file": "w1m",
+   "n": 1048576,
+   "page": "const"
+  },
+  {
+   "name": "const192-w4m-0",
+   "file": "w4m",
+   "n": 4194304,
+   "page": "const"
+  },
+  {
+   "name": "uni192-w1m-0",
+   "file": "w1m",
+   "n": 1048576,
+   "page": "uni"
+  },
+  {
+   "name": "uni192-w4m-0",
+   "file": "w4m",
+   "n": 4194304,
+   "page": "uni"
+  },
+  {
+   "name": "uni144-w1m-0",
+   "file": "w1m",
+   "n": 1048576,
+   "page": "uni",
+   "k": {
+    "maxScan": 144
+   }
+  },
+  {
+   "name": "uni144-w4m-0",
+   "file": "w4m",
+   "n": 4194304,
+   "page": "uni",
+   "k": {
+    "maxScan": 144
+   }
+  },
+  {
+   "name": "uni288-w1m-0",
+   "file": "w1m",
+   "n": 1048576,
+   "page": "uni",
+   "k": {
+    "maxScan": 288
+   }
+  },
+  {
+   "name": "uni288-w4m-0",
+   "file": "w4m",
+   "n": 4194304,
+   "page": "uni",
+   "k": {
+    "maxScan": 288
+   }
+  },
+  {
+   "name": "const192-w1m-1",
+   "file": "w1m",
+   "n": 1048576,
+   "page": "const"
+  },
+  {
+   "name": "const192-w4m-1",
+   "file": "w4m",
+   "n": 4194304,
+   "page": "const"
+  },
+  {
+   "name": "uni192-w1m-1",
+   "file": "w1m",
+   "n": 1048576,
+   "page": "uni"
+  },
+  {
+   "name": "uni192-w4m-1",
+   "file": "w4m",
+   "n": 4194304,
+   "page": "uni"
+  },
+  {
+   "name": "uni144-w1m-1",
+   "file": "w1m",
+   "n": 1048576,
+   "page": "uni",
+   "k": {
+    "maxScan": 144
+   }
+  },
+  {
+   "name": "uni144-w4m-1",
+   "file": "w4m",
+   "n": 4194304,
+   "page": "uni",
+   "k": {
+    "maxScan": 144
+   }
+  },
+  {
+   "name": "uni288-w1m-1",
+   "file": "w1m",
+   "n": 1048576,
+   "page": "uni",
+   "k": {
+    "maxScan": 288
+   }
+  },
+  {
+   "name": "uni288-w4m-1",
+   "file": "w4m",
+   "n": 4194304,
+   "page": "uni",
+   "k": {
+    "maxScan": 288
+   }
+  },
+  {
+   "name": "const192-w1m-2",
+   "file": "w1m",
+   "n": 1048576,
+   "page": "const"
+  },
+  {
+   "name": "const192-w4m-2",
+   "file": "w4m",
+   "n": 4194304,
+   "page": "const"
+  },
+  {
+   "name": "uni192-w1m-2",
+   "file": "w1m",
+   "n": 1048576,
+   "page": "uni"
+  },
+  {
+   "name": "uni192-w4m-2",
+   "file": "w4m",
+   "n": 4194304,
+   "page": "uni"
+  },
+  {
+   "name": "uni144-w1m-2",
+   "file": "w1m",
+   "n": 1048576,
+   "page": "uni",
+   "k": {
+    "maxScan": 144
+   }
+  },
+  {
+   "name": "uni144-w4m-2",
+   "file": "w4m",
+   "n": 4194304,
+   "page": "uni",
+   "k": {
+    "maxScan": 144
+   }
+  },
+  {
+   "name": "uni288-w1m-2",
+   "file": "w1m",
+   "n": 1048576,
+   "page": "uni",
+   "k": {
+    "maxScan": 288
+   }
+  },
+  {
+   "name": "uni288-w4m-2",
+   "file": "w4m",
+   "n": 4194304,
+   "page": "uni",
+   "k": {
+    "maxScan": 288
+   }
+  }
+ ],
+ "scenarios": [
+  {
+   "world": "const192-w1m-0",
+   "name": "step",
+   "kind": "step",
+   "reps": 25
+  },
+  {
+   "world": "const192-w4m-0",
+   "name": "step",
+   "kind": "step",
+   "reps": 15
+  },
+  {
+   "world": "uni192-w1m-0",
+   "name": "step",
+   "kind": "step",
+   "reps": 25
+  },
+  {
+   "world": "uni192-w4m-0",
+   "name": "step",
+   "kind": "step",
+   "reps": 15
+  },
+  {
+   "world": "uni144-w1m-0",
+   "name": "step",
+   "kind": "step",
+   "reps": 25
+  },
+  {
+   "world": "uni144-w4m-0",
+   "name": "step",
+   "kind": "step",
+   "reps": 15
+  },
+  {
+   "world": "uni288-w1m-0",
+   "name": "step",
+   "kind": "step",
+   "reps": 25
+  },
+  {
+   "world": "uni288-w4m-0",
+   "name": "step",
+   "kind": "step",
+   "reps": 15
+  },
+  {
+   "world": "const192-w1m-1",
+   "name": "step",
+   "kind": "step",
+   "reps": 25
+  },
+  {
+   "world": "const192-w4m-1",
+   "name": "step",
+   "kind": "step",
+   "reps": 15
+  },
+  {
+   "world": "uni192-w1m-1",
+   "name": "step",
+   "kind": "step",
+   "reps": 25
+  },
+  {
+   "world": "uni192-w4m-1",
+   "name": "step",
+   "kind": "step",
+   "reps": 15
+  },
+  {
+   "world": "uni144-w1m-1",
+   "name": "step",
+   "kind": "step",
+   "reps": 25
+  },
+  {
+   "world": "uni144-w4m-1",
+   "name": "step",
+   "kind": "step",
+   "reps": 15
+  },
+  {
+   "world": "uni288-w1m-1",
+   "name": "step",
+   "kind": "step",
+   "reps": 25
+  },
+  {
+   "world": "uni288-w4m-1",
+   "name": "step",
+   "kind": "step",
+   "reps": 15
+  },
+  {
+   "world": "const192-w1m-2",
+   "name": "step",
+   "kind": "step",
+   "reps": 25
+  },
+  {
+   "world": "const192-w4m-2",
+   "name": "step",
+   "kind": "step",
+   "reps": 15
+  },
+  {
+   "world": "uni192-w1m-2",
+   "name": "step",
+   "kind": "step",
+   "reps": 25
+  },
+  {
+   "world": "uni192-w4m-2",
+   "name": "step",
+   "kind": "step",
+   "reps": 15
+  },
+  {
+   "world": "uni144-w1m-2",
+   "name": "step",
+   "kind": "step",
+   "reps": 25
+  },
+  {
+   "world": "uni144-w4m-2",
+   "name": "step",
+   "kind": "step",
+   "reps": 15
+  },
+  {
+   "world": "uni288-w1m-2",
+   "name": "step",
+   "kind": "step",
+   "reps": 25
+  },
+  {
+   "world": "uni288-w4m-2",
+   "name": "step",
+   "kind": "step",
+   "reps": 15
+  }
+ ]
+}

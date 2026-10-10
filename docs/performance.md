@@ -22,8 +22,17 @@ neighbour loop is what pays. The neighbour loop is about 93% of it; its cost sca
 budget `maxScan`: 192 since 2026-10-09 (288 before), which took about 25% off `lifeMain` (1M world
 2.30 → 1.67 ms, 4M 9.9 → 7.8 ms). It passed the 32-seed gate against 288 and against heat-framboids,
 and 128 seeds at 4-tick steps matched 288 or bettered it (effective species 79.5 ± 4.4 against
-72.0 ± 3.9; reports in `balance/maxscan/`). 144 (another 5-20%) also passed both, with the same
-diversity, but 4 of its 128 long runs collapsed against none at 192 (p = 0.06): kept at 192.
+72.0 ± 3.9; reports in `balance/maxscan/`). It is a uniform (`sim.maxScan`), so Settings → Performance →
+Neighbours changes it live (144, 192, 288; no measurable cost against a compiled constant).
+
+144 against 192 (2026-10-10, after the hot-springs change): the step is 8% faster in the 1M world and
+14% in the 4M one (`lifeMain` 11% and 15%; 288 is 20% slower). Ecology is unchanged: the gate passes
+against the baseline and against 192, and over 384 seeds at 4-tick steps collapses (living under 2%)
+were 5 at 144, 8 at 192 and 5 at 288. The 12 traced were sudden cold (a cold snap on a seasonal low,
+cells adapted to warm water torpid) or predator boom-busts, none budget-related. What fewer samples do
+change is the noise of a crowded cell's forces: in matched-start forks (16 worlds) 144 raises the mean
+force on a crowded cell by about 20% over 192 and its speed by 7–8% (288 lowers them as much), and a
+hungry cell finds food in reach 2–3% less often. That evens out over a run but colonies jostle more.
 
 Drawing: zoomed out, the cost is the points' vertex work (4M particles: 4.6 ms, the same at half the
 render scale); zoomed in it is the resolved cells' fragment work, which the render scale reduces

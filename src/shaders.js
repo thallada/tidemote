@@ -84,7 +84,7 @@ export const DEFAULT_K = {
   preyBase: 0.35,
   preyFrac: 0.7,
   kin: 0.8,
-  maxScan: 192,
+  maxScan: 192,     // neighbours a cell weighs per step in a crowd, sampled evenly (each counts for those skipped)
   diag: 0,          // 1: count K.diag's diagnostics into the ledger (DIAG_SLOTS; headless forks record them)
   affScale: 0.42,
   matterPull: 0.6,
@@ -399,7 +399,7 @@ function cellWGSL(K, w) {
   // Crowded neighbourhoods are sampled evenly with a random offset, each sample standing for
   // \`stride\` particles, so no direction or grid cell is favoured (scanning in order and stopping
   // at the budget left out the last row and drew dense species into grid-aligned bands).
-  let stride = max(1.0, f32(total) / f32(MAX_SCAN));
+  let stride = max(1.0, f32(total) / f32(sim.maxScan));
   var at = select(0.0, rnd(&s) * stride, stride > 1.0);
   for (var k = 0u; k < nr; k++) {
     let len = f32(re[k] - rs[k]);
@@ -634,8 +634,8 @@ struct Sim {
   tidePh: vec4f,
   rock: vec4f,
   // tick: 1/60 s ticks simulated up to the end of this step; ticks: how many this step covers;
-  // tbg: the background water temperature (climate, season, excursion)
-  tick: u32, ticks: u32, tbg: f32, pad1: u32,
+  // tbg: the background water temperature (climate, season, excursion); maxScan: the neighbour budget
+  tick: u32, ticks: u32, tbg: f32, maxScan: u32,
 };
 // kr: 0..9 kind, 10..11 role, 12 plant.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
@@ -672,7 +672,6 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u3
 const EAT_R = ${f(K.eatR)};
 const DIAG = ${K.diag ? 'true' : 'false'};
 const LINK_R = ${f(K.linkR)};
-const MAX_SCAN = ${K.maxScan | 0}u;
 const DIET_MIN = ${f(K.dietMin)};
 const HEAT_ON = ${K.heat ? 'true' : 'false'};
 const TREF = ${f(K.tRef)};

@@ -107,7 +107,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
     // pixels per CSS pixel, the frame rate aimed for (0: the display's; 60 by default, and for prefs
     // saved before v2, which stored the display's without anyone choosing it), and a fixed particle count
-    perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.v >= 2 ? prefs.fps ?? 60 : 60, particles: prefs.particles ?? null },
+    perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.v >= 2 ? prefs.fps ?? 60 : 60, particles: prefs.particles ?? null, scan: prefs.scan ?? null },
   };
   // While a pointer is held down on a panel, nothing re-renders under it: replacing the element
   // between pointerdown and pointerup swallows the click.
@@ -131,6 +131,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let trailIdx = prefs.trails ?? 1;
   eng.settings.trails = trailLevels[trailIdx];
   for (const k of ['links', 'nodes', 'bloom', 'optics', 'specks', 'lod', 'tide', 'heat']) if (prefs[k] !== undefined) eng.settings[k] = prefs[k];
+  eng.maxScan = state.perf.scan ?? K.maxScan;
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
@@ -1269,6 +1270,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + onoff('closeup', 'Live close-up', '', state.closeup, 'closeup')
         + head('World')
         + choice('n', 'Particles', '', [['auto', 'Auto'], ...sizes.map((n) => [n, kfmt(n)])], nowN, 'particles')
+        + choice('scan', 'Neighbours', '', [144, 192, 288].map((n) => [n, n === K.maxScan ? `${n} (default)` : String(n)]), eng.maxScan, 'neighbours')
         + (pendingN != null && String(pendingN) !== String(P.particles || 'auto')
           ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === 'auto' ? 'a measured count' : fmt(pendingN)}</button></div>` : '')
         + (hasTS ? `<div class="opt"><span class="lbl">${term('profile', 'Profile')}</span><div class="row"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : '');
@@ -1321,6 +1323,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'floor') { P.floor = +v; renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
       else if (id === 'density') { P.density = +v; resetAdapt(); fit(); }
       else if (id === 'fps') { P.fps = +v; resetAdapt(); }
+      else if (id === 'scan') { P.scan = +v === K.maxScan ? null : +v; eng.maxScan = +v; }
       else if (id === 'n') pendingN = v === 'auto' ? 'auto' : +v;
       else if (id === 'apply') { const n = pendingN; pendingN = null; setParticles(n); }
       else if (id === 'profile') { copyProfile(); return; }
@@ -1357,7 +1360,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const step = Object.fromEntries((await eng.profileStep(1 / 60)).map(([k, ms]) => [k, +ms.toFixed(3)]));
     const a = device.adapterInfo || {};
     const json = JSON.stringify({ ua: navigator.userAgent, gpu: [a.vendor, a.architecture, a.description].filter(Boolean).join(' / '),
-      canvas: [canvas.width, canvas.height], dpr: devicePixelRatio, scale: renderScale, particles: eng.count, living: life.counts[3],
+      canvas: [canvas.width, canvas.height], dpr: devicePixelRatio, scale: renderScale, particles: eng.count, neighbours: eng.maxScan, living: life.counts[3],
       cssPPU: +cssPPU().toFixed(1), speed: state.speed, fps: +perf.fps.toFixed(1), aim: Math.round(1000 / frameTarget()), why: perf.why, audio: sound.load,
       frameMs: per(gpu), passes: Object.fromEntries(Object.entries(passes).sort((x, y) => y[1] - x[1]).map(([k, x]) => [k, per(x)])), step });
     try { await navigator.clipboard.writeText(json); flash('Profile copied'); } catch { prompt('The profile, to copy:', json); }
