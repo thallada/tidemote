@@ -1162,7 +1162,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     preyBase: 0.35,
     preyFrac: 0.7,
     kin: 0.8,
-    maxScan: 288,
+    maxScan: 192,
     diag: 0,
     // 1: count K.diag's diagnostics into the ledger (DIAG_SLOTS; headless forks record them)
     affScale: 0.42,
@@ -19235,7 +19235,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         calStep(`${fmt(n2)} particles`, 1);
         return n2;
       }
-      const target = hasTS ? 7.5 : 9;
+      const target = !hasTS ? 9 : isCoarse ? 7.5 : 10;
       const clampN = (x) => clamp6(Math.round(x / 4096) * 4096, Math.min(32768, maxN), maxN);
       let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
       seedWorld(n);

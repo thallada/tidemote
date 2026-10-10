@@ -19,8 +19,10 @@ the climate by ±30%.
 
 `lifeMain` is limited by registers (occupancy), not arithmetic: cutting state it carries through the
 neighbour loop is what pays. The neighbour loop is about 93% of it; its cost scales with the sample
-budget `maxScan` (288 by default: 192 would save about 25%, 144 about 35%, at the price of noisier
-neighbourhoods; an ecology change, so it needs the balance gate).
+budget `maxScan`: 192 since 2026-10-09 (288 before), which took about 25% off `lifeMain` (1M world
+2.30 → 1.67 ms, 4M 9.9 → 7.8 ms). It passed the 32-seed gate against 288 and against heat-framboids,
+and 128 seeds at 4-tick steps matched 288 or bettered it (effective species 79.5 ± 4.4 against
+72.0 ± 3.9; reports in `balance/maxscan/`). 144 would save about 35% more and is untested.
 
 Drawing: zoomed out, the cost is the points' vertex work (4M particles: 4.6 ms, the same at half the
 render scale); zoomed in it is the resolved cells' fragment work, which the render scale reduces

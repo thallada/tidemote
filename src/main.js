@@ -317,7 +317,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
       calStep(`${fmt(n)} particles`, 1);
       return n;
     }
-    const target = hasTS ? 7.5 : 9;
+    // GPU ms a frame of the new world may take: a mature world costs about what it measures at the
+    // start (life fills it within minutes, then swings ±30% with the climate), drawn at 60 fps that
+    // leaves room for zooming and swings, and the adaptive frame rate covers the rest. Phones keep
+    // more in hand (their GPU is shared with the screen); without timestamps the measure overstates.
+    const target = !hasTS ? 9 : isCoarse ? 7.5 : 10;
     const clampN = (x) => clamp(Math.round(x / 4096) * 4096, Math.min(32768, maxN), maxN);
     let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
     seedWorld(n);

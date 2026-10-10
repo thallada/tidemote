@@ -84,7 +84,7 @@ export const DEFAULT_K = {
   preyBase: 0.35,
   preyFrac: 0.7,
   kin: 0.8,
-  maxScan: 288,
+  maxScan: 192,
   diag: 0,          // 1: count K.diag's diagnostics into the ledger (DIAG_SLOTS; headless forks record them)
   affScale: 0.42,
   matterPull: 0.6,

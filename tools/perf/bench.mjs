@@ -144,7 +144,7 @@ async function stepBench(page, sc) {
 // growth: a fresh world run at a speed, its step timed every `every` real seconds against its life
 async function growth(page, sc) {
   return page.evaluate(async (sc) => {
-    const T = globalThis.__tidemote, { state, eng } = T;
+    const T = globalThis.__tidemote, { state, eng, perf } = T;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     T.setSpeed(sc.speed === 'max' ? Infinity : sc.speed ?? 1);
     const out = [], t0 = performance.now();
@@ -155,7 +155,7 @@ async function growth(page, sc) {
       for (let i = 0; i < 3; i++) for (const [k, ms] of await eng.profileStep(1 / 60)) d[k] = (d[k] || 0) + ms / 3;
       state.paused = false;
       const L = T.life();
-      out.push({ wall: Math.round((performance.now() - t0) / 1000), sim: Math.round(eng.simTime), living: L.counts[3], species: L.alive,
+      out.push({ wall: Math.round((performance.now() - t0) / 1000), sim: Math.round(eng.simTime), living: L.counts[3], species: L.alive, fps: +perf.fps.toFixed(1), aim: perf.slow, why: perf.why, gpu: +perf.gpu.toFixed(2),
         step: +Object.values(d).reduce((a, b) => a + b, 0).toFixed(3), life: +d.lifeMain.toFixed(3) });
       console.log(`perf growth ${JSON.stringify(out.at(-1))}`);
     }

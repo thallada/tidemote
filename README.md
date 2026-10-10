@@ -12,7 +12,7 @@ Open `dist/tidemote.html` in a browser with WebGPU: a current Chrome or Edge, a 
 python3 -m http.server -d dist 8000   # then open http://localhost:8000/tidemote.html
 ```
 
-On start it sizes the universe to your GPU: it times a few frames and fixes the particle count so the simulation fits in about 7.5 ms a frame. It aims for 60 fps (as a whole number of the display's refreshes, so frames stay evenly spaced). If frames later run late, it lowers the render resolution, then the frame rate, taking coarser steps so simulated time keeps pace with real time; it never changes the particle count. See [docs/performance.md](docs/performance.md).
+On start it sizes the universe to your GPU: it times a few frames and fixes the particle count so a frame takes about 10 ms of GPU time (7.5 on phones). It aims for 60 fps (as a whole number of the display's refreshes, so frames stay evenly spaced). If frames later run late, it lowers the render resolution, then the frame rate, taking coarser steps so simulated time keeps pace with real time; it never changes the particle count. See [docs/performance.md](docs/performance.md).
 
 Deep zoom reveals organic detail in cells, minerals and bonds, with a faint, patchy suspension of cosmetic microbial fragments, fibres and grit that follows the water's currents and also appears in the loupe and specimen view.
 
@@ -169,7 +169,7 @@ stretch a capture into a long piece with seasons and era changes).
 Each frame runs entirely on the GPU:
 
 1. **Resolve** last frame's claims (meals, births, bites) and count each species.
-2. **Bin** every particle into a grid with a counting sort and prefix scan, so neighbours can be found in the surrounding 3×3 cells. A cell reads at most 288 neighbours; in denser places it samples them evenly from a random offset and weights each sample accordingly, so no direction or grid line is favoured.
+2. **Bin** every particle into a grid with a counting sort and prefix scan, so neighbours can be found in the surrounding 3×3 cells. A cell reads at most 192 neighbours; in denser places it samples them evenly from a random offset and weights each sample accordingly, so no direction or grid line is favoured.
 3. **Matter**: silt, glint and husks drift on divergence-free currents. The tide charges silt into glint, glint fades, and husks decay.
 4. **Life**: only the living are dispatched, indirectly. Each cell sums particle-life forces from 8-dimensional surface/receptor signatures, keeps up to two same-species bonds if it is adhesive, photosynthesises, pays upkeep, and claims food or a silt grain to divide into.
 5. **Heat**: one thread per grid cell carries the water's temperature on the currents, spreads it, adds the heat deposited this step (all upkeep, rotting husks, framboids) and sunlight, and relaxes it toward the climate's background temperature.
