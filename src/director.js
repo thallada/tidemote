@@ -15,7 +15,7 @@
 // Every shot carries `why`, what the director knows of its reasons, for the page's caption:
 //   { kind: 'settle' } | { kind: 'wide' }
 //   { kind: 'scene', reasons: [{ key, v }], div, species?: [{ slot, serial, cells }], lost?: { serial, cells, fate } }
-//   { kind: 'follow', slot, serial, cells, reasons, spotlight? } | { kind: 'linger', serial, cells, fate }
+//   { kind: 'follow', slot, serial, cells, reasons, spotlight?, signal? } | { kind: 'linger', serial, cells, fate }
 // Reasons are ranked; keys: 'mutations', 'sparks', 'kills', 'births', 'deaths', 'diverse',
 // 'bodies', 'swift', 'dense'. A scene learns which species are in view once it arrives (whyVer
 // counts such updates). fate is the particle the subject became, or null if it vanished.
@@ -201,10 +201,12 @@ export class Director {
 
   survey(s, wallDt) { this.interest.ingest(s, wallDt); }
 
-  /** A species was just established: worth a visit while it is new. */
-  spotlight(slot, serial) {
-    this.spotlights.push({ slot, serial, t: this.io.now() });
-    if (this.spotlights.length > 4) this.spotlights.shift();
+  /** A species was just established, or sings the five tones: worth a visit while it is new. */
+  spotlight(slot, serial, why = {}) {
+    // a signal goes to the front of the queue and is never crowded out by later arrivals
+    const spot = { slot, serial, why, t: this.io.now() };
+    if (why.signal) this.spotlights.unshift(spot); else this.spotlights.push(spot);
+    if (this.spotlights.length > 4) this.spotlights.splice(this.spotlights.findIndex((x) => !x.why.signal), 1);
   }
 
   // now: asked for (the Auto button), so the first shot sets off at once; otherwise (taking over an
@@ -399,16 +401,23 @@ export class Director {
     });
   }
 
+  // Drop spotlights gone stale and return the first whose species still lives. A new species is
+  // news for a couple of minutes; a signal waits as long as its singer lives.
+  pruneSpotlights(now) {
+    const alive = (s) => { const sp = this.io.species(s.slot); return sp && sp.serial === s.serial && sp.pop > 0; };
+    this.spotlights = this.spotlights.filter((s) => (s.why.signal ? alive(s) : now - s.t < 150));
+    return this.spotlights.find(alive);
+  }
+
   // Choose the next shot. A follow or a spotlight waits on a pick; the current shot holds meanwhile.
   plan() {
     const gen = this.gen;
     const r = this.rng;
     const now = this.io.now();
-    this.spotlights = this.spotlights.filter((s) => now - s.t < 150);
+    const spot = this.pruneSpotlights(now);
     const sinceWide = this.history.length - 1 - this.history.lastIndexOf('wide');
     const last = this.history[this.history.length - 1];
     let type;
-    const spot = this.spotlights.find((s) => { const sp = this.io.species(s.slot); return sp && sp.serial === s.serial && sp.pop > 0; });
     // asked for, the first shot is one that needs no pick, so the camera moves at once
     if (this.shot.type === 'settle' && this.quick) type = r() < 0.5 ? 'wide' : 'scene';
     else if (this.shot.type === 'settle' && r() < 0.5) type = 'wide';
@@ -530,7 +539,7 @@ export class Director {
       const s = (bonded ? 1 : 0) - f32[o + 6] / (this.io.lifespan(u32[o + 4]) || 100);
       if (s > ps) { ps = s; pick = i; }
     }
-    return this.subjectShot(res, pick, [4, 9], { spotlight: spot.serial, reasons: [] });
+    return this.subjectShot(res, pick, [4, 9], { spotlight: spot.serial, reasons: [], ...spot.why });
   }
 
   subjectShot(res, i, [w0, w1], why) {

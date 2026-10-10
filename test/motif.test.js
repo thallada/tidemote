@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { archetypeGenome, ARCHETYPE_TYPES, finalizeGenome, mutateLike } from '../src/genome.js';
 import { voiceOf } from '../src/audio/mapping.js';
-import { motifOf, describe, compareMotifs, motifDistance, contourWord, noteSeconds, character } from '../src/audio/motif.js';
+import { motifOf, describe, compareMotifs, motifDistance, contourWord, noteSeconds, character, signalAt } from '../src/audio/motif.js';
 import { songSVG, sigilSVG } from '../src/song.js';
 
 const rng = (s) => () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
@@ -90,4 +90,23 @@ test('the song in words and pictures', () => {
   assert.equal(contourWord([0, 2, 4, 2, 0]), 'arching');
   assert.equal(contourWord([0, 1, 2, 3]), 'rising');
   assert.equal(contourWord([3, 3, 3]), 'hovering');
+});
+
+test('signalAt finds the five tones in any key, and only them', () => {
+  assert.equal(signalAt({ seq: [1, 2, 0, -7, -3] }), 0);
+  assert.equal(signalAt({ seq: [4, 3, 4, 5, 3, -4, 0, 2] }), 2, 'transposed, after other notes');
+  assert.equal(signalAt({ seq: [1, 2, 0, 0, 4] }), -1, 'no octave drop');
+  assert.equal(signalAt({ seq: [1, 2, 0, -7] }), -1, 'cut short');
+  assert.equal(signalAt({ seq: [1, 2, 0, -7, -3.1] }), -1);
+  let hits = 0;
+  for (const g of founders(700)) if (signalAt(voiceOf(g).motif) >= 0) hits++;
+  assert.ok(hits <= 2, `rare: ${hits} of 700 founders`);
+});
+
+test('a sigil wears five dots only when its song is the signal', () => {
+  const [g] = founders(1);
+  const v = voiceOf(g);
+  assert.ok(!sigilSVG(v, g).includes('class="signal"'));
+  const sig = sigilSVG({ ...v, motif: { ...v.motif, seq: [1, 2, 0, -7, -3] } }, g);
+  assert.equal((sig.match(/<circle/g) || []).length, 5);
 });

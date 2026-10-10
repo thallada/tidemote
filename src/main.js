@@ -1,4 +1,6 @@
 import { createSound } from './audio/sound.js';
+import { voiceOf } from './audio/mapping.js';
+import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS } from './engine.js';
 import { genomeSerial, readGenome, parseParticle, thermalGuild } from './genome.js';
@@ -486,6 +488,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       parent: g.parent, parentName: parent ? parent.name : null, born: g.born,
       ancestor: parent ? (parent.established ? parent.serial : parent.ancestor) : null,
       pop: 0, peak: 0, alive: true, established: false, extinct: null, founder: g.parent === 0,
+      signal: signalAt(voiceOf(g).motif) >= 0, // its song is the five tones
     };
     life.reg.set(g.serial, sp);
     return sp;
@@ -581,7 +584,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
       alive++;
       let sp = life.reg.get(genomeSerial(c.genomeU32, s));
       const g = sp ? sp.genome : readGenome(c.genomeU32, c.genomeF32, s);
-      if (!sp) sp = register(g);
+      if (!sp) {
+        sp = register(g);
+        if (sp.signal) {
+          pushEvent(`${spLink(sp.serial, sp.name)} appears to be trying to communicate`, g.col, 'est');
+          director.spotlight(s, g.serial, { signal: true });
+        }
+      }
       audio.push([s, g]);
       sp.slot = s;
       sp.genome = g;
@@ -618,6 +627,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
         if (sp.established) {
           sp.extinct = t;
           if (sp.peak >= life.estThreshold * 3) pushEvent(`${spLink(sp.serial, sp.name)} extinct after ${fmtDur(t - (sp.born || 0))} · peak ${fmt(sp.peak)}`, sp.genome.col, 'ext');
+        } else if (sp.signal) { // kept, so the log's link still opens it
+          sp.extinct = t;
+          pushEvent(`${spLink(sp.serial, sp.name)} fell silent after ${fmtDur(t - (sp.born || 0))}`, sp.genome.col, 'ext');
         } else {
           life.reg.delete(sp.serial);
         }
@@ -2213,7 +2225,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       }
     } else if (w.kind === 'follow') {
       // named only once it is in view (w.seen): on the way, where the camera is going
-      if (!w.seen) { eyebrow = w.spotlight ? 'Searching' : 'Exploring'; main = w.spotlight ? 'For a new species' : 'Moving to a new area'; sub = w.spotlight ? '' : 'To discover the life there'; }
+      if (!w.seen && w.signal) { eyebrow = 'Searching'; main = 'For the source of a signal'; }
+      else if (!w.seen) { eyebrow = w.spotlight ? 'Searching' : 'Exploring'; main = w.spotlight ? 'For a new species' : 'Moving to a new area'; sub = w.spotlight ? '' : 'To discover the life there'; }
+      else if (w.signal) { eyebrow = 'Answering a signal'; main = upper(organism(w)); sub = spDesc(w.serial); }
       else if (w.spotlight) { eyebrow = 'Following a new species'; main = upper(organism(w)); sub = spDesc(w.serial); }
       else { eyebrow = 'Following'; main = upper(organism(w)); sub = spDesc(w.serial); }
     } else if (w.kind === 'linger') {
