@@ -1949,7 +1949,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   // whether the subject's brackets were drawn this frame (drawOverlay): its song is marked only then
   let filmMarked = false;
-  const filmShown = () => filmMarked && !sel.lost && sel.particle.kind >= FIRST_LIFE;
+  // (the camera can drop its subject between the overlay's draw and this check)
+  const filmShown = () => filmMarked && sel && !sel.lost && sel.particle.kind >= FIRST_LIFE;
   function markSlot() { // -1: every species; -2: none
     if (!state.songMarks || !sound.on) return -2;
     if (state.songMarks === 2) return -1;

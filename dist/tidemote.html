@@ -21198,7 +21198,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       return sh && sh.why && sh.why.kind === "follow" && sh.subject && sh.subject.id === sel.filmFor ? sh : null;
     }
     let filmMarked = false;
-    const filmShown = () => filmMarked && !sel.lost && sel.particle.kind >= FIRST_LIFE;
+    const filmShown = () => filmMarked && sel && !sel.lost && sel.particle.kind >= FIRST_LIFE;
     function markSlot() {
       if (!state.songMarks || !sound.on) return -2;
       if (state.songMarks === 2) return -1;
