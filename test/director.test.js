@@ -218,3 +218,27 @@ test('a lone cell lost on the way is swapped for a kin nearby; once filmed, its 
   d.onTrack({ id: 4242, found: true, tracked: { ...f.subject.p, kind: 0, cause: 3 }, simTime: 2 });
   assert.equal(d.shot.why.kind, 'linger');
 });
+
+test('a signal jumps the spotlight queue and is never crowded out', () => {
+  const d = new Director({ now: () => 0 }, rng(3));
+  d.spotlight(10, 1);
+  d.spotlight(11, 2, { signal: true });
+  for (let i = 0; i < 6; i++) d.spotlight(20 + i, 10 + i);
+  assert.equal(d.spotlights.length, 4);
+  assert.equal(d.spotlights[0].serial, 2);
+  assert.deepEqual(d.spotlights.slice(1).map((s) => s.serial), [13, 14, 15]);
+});
+
+test('a signal outlasts the spotlight window while its species lives', () => {
+  const pop = new Map([[11, 5], [20, 5]]);
+  const clock = { t: 0 };
+  const d = new Director({ now: () => clock.t, species: (slot) => (pop.get(slot) ? { serial: slot === 11 ? 2 : 10, pop: pop.get(slot) } : null) }, rng(4));
+  d.spotlight(20, 10);
+  d.spotlight(11, 2, { signal: true });
+  clock.t = 600;
+  assert.equal(d.pruneSpotlights(clock.t).serial, 2);
+  assert.deepEqual(d.spotlights.map((s) => s.serial), [2], 'the ordinary spotlight expired');
+  pop.delete(11);
+  assert.equal(d.pruneSpotlights(clock.t), undefined);
+  assert.equal(d.spotlights.length, 0, 'gone once its species dies');
+});

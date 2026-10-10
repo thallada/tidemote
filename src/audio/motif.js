@@ -270,6 +270,18 @@ export function motifOf(g, arch) {
   };
 }
 
+// The five tones (re, mi, do, the do an octave down, sol), as steps between scale degrees.
+const SIGNAL = [1, -2, -7, 4];
+/**
+ * Where a motif's line plays the five tones, in any key: the index in m.seq of its first note,
+ * or -1. About one species in 28,000 sings it (most songs cannot: the octave drop is rare).
+ */
+export function signalAt(m) {
+  const s = m.seq;
+  for (let i = 0; i + SIGNAL.length < s.length; i++) if (SIGNAL.every((d, k) => s[i + k + 1] - s[i + k] === d)) return i;
+  return -1;
+}
+
 // ── words ────────────────────────────────────────────────────────────────────
 const NUM = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen'];
 const MAT_WORD = { glass: 'singing glass', swell: 'swell', breath: 'reed breath', cplx: 'buzzing reed', tine: 'kalimba', bite: 'snapping drum', wood: 'woodblock', drop: 'water drops', pluck: 'plucked string' };

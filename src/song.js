@@ -6,6 +6,7 @@
 import { roleShares, roleColor, cellShape } from './genome.js';
 import { OUTLINES } from './glyphs.js';
 import { DEFAULT_K } from './shaders.js';
+import { signalAt } from './audio/motif.js';
 
 const r1 = (x) => Math.round(x * 10) / 10;
 
@@ -118,6 +119,11 @@ export function sigilSVG(v, g, { size = 26, label = '' } = {}) {
   for (const c of cells) {
     const col = rgb(roleColor(g, c.role)), sc = Math.round(cellR * c.size * 100) / 100;
     s += `<g class="cell" style="color:${col}"><path d="${OUTLINES[cellShape(g, c.role)]}" fill-rule="evenodd" transform="translate(${X(c)} ${Y(c)}) rotate(${Math.round(c.nt.deg * 32)}) scale(${sc})" style="fill:${col}"/></g>`;
+  }
+  // a song of the five tones: five faint dots around the rim, one per tone
+  if (signalAt(m) >= 0) {
+    const R = size * 0.47, dot = r1(Math.max(0.6, size * 0.025));
+    s += `<g class="signal" style="fill:${rgb(roleColor(g, 0))}" opacity="0.55">${[0, 1, 2, 3, 4].map((i) => { const a = -Math.PI / 2 + (i * 2 * Math.PI) / 5; return `<circle cx="${r1(size / 2 + R * Math.cos(a))}" cy="${r1(size / 2 + R * Math.sin(a))}" r="${dot}"/>`; }).join('')}</g>`;
   }
   return s + '</svg>';
 }
