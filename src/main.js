@@ -2414,6 +2414,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       Object.assign(cam, { x: cur.x, y: cur.y, zoom: cur.zoom }); viewSimTime = cur.t;
       specimen.drawViewerUI(now);
       specimen.mindTick(now);
+      // Max and coarse speeds draw the world only when due (step.world), carrying it with the camera between
+      const hold = (state.speed === Infinity || perf.held) && !state.paused && state.phase === 'running' ? !!step.world : null;
       eng.frame({
         target: ctx.getCurrentTexture().createView(),
         cam: { x: cam.x, y: cam.y, ppu: ppu() },
@@ -2424,9 +2426,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
         dpr,
         selId: sel ? sel.id : NONE,
         loupe: L ? { x: L.sx * dpr, y: L.sy * dpr, r: L.R * dpr, ppu: L.cssPPU * dpr, cx: L.cx, cy: L.cy } : null,
-        specimen: specimenParams(),
-        // Max and coarse speeds draw the world only when due (step.world), carrying it with the camera between
-        hold: (state.speed === Infinity || perf.held) && !state.paused && state.phase === 'running' ? !!step.world : null,
+        // the close-up only when the world is drawn: a canvas not given a new texture keeps its last image
+        specimen: hold === false ? null : specimenParams(),
+        hold,
       });
       inflight++;
       const sent = cur;
