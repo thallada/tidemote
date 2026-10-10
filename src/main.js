@@ -5,7 +5,7 @@ import { genomeSerial, readGenome, parseParticle, thermalGuild } from './genome.
 import { seasonAt, createClimate, abioRate } from './climate.js';
 import { createLab } from './lab.js';
 import { createSpecimen } from './specimen.js';
-import { sectHead } from './ui.js';
+import { section, block } from './ui.js';
 import { createTips } from './tip.js';
 import { drawLiving, livingAt } from './charts.js';
 import { genusName, speciesEpithet } from './names.js';
@@ -129,6 +129,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const trailLevels = [0, 0.45, 0.7, 0.88];
   const trailNames = ['Off', 'Short', 'Long', 'Exposure'];
   let trailIdx = prefs.trails ?? 1;
+  const defaults = { ...eng.settings }; // the engine's own, for Settings' reset
   eng.settings.trails = trailLevels[trailIdx];
   for (const k of ['links', 'nodes', 'bloom', 'optics', 'specks', 'lod', 'tide', 'heat']) if (prefs[k] !== undefined) eng.settings[k] = prefs[k];
   eng.maxScan = state.perf.scan ?? K.maxScan;
@@ -1234,13 +1235,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
     let tab = 'display';
     let pendingN = null;
     // one row per option: its name and key on the left, the choices on the right
-    const choice = (id, title, key, items, cur, tip) => `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ''}</span><div class="row" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? ' disabled' : ''}>${l}</button>`).join('')}</div></div>`;
+    const choice = (id, title, key, items, cur, tip) => `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ''}</span><div class="row segs" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? ' disabled' : ''}>${l}</button>`).join('')}</div></div>`;
     const onoff = (id, title, key, on, tip) => choice(id, title, key, [[1, 'On'], [0, 'Off']], on ? 1 : 0, tip);
-    const head = (t) => sectHead(t);
+    // a group of option rows, under a heading or (text '') none
+    const group = (id, text, rows) => section(id, text, block('', rows));
+    let confirming = false; // the reset button asked to confirm
     const kfmt = (n) => (n >= 1048576 ? `${n / 1048576}M` : `${Math.round(n / 1024)}k`);
     function display() {
       const s = eng.settings;
-      return choice('trails', 'Trails', 'T', trailNames.map((n, i) => [i, n]), trailIdx)
+      return group('look', '', choice('trails', 'Trails', 'T', trailNames.map((n, i) => [i, n]), trailIdx)
         + choice('tide', 'Light map', 'G', [[0, 'Off'], [1, 'Faint'], [2, 'Full']], s.tide, 'light')
         + (s.tide === 2 ? '<div class="ramp"><span>dark</span><i></i><span>full light</span></div>' : '')
         + (K.heat ? choice('heat', 'Heat map', 'E', [[0, 'Off'], [1, 'Shimmer'], [2, 'Full']], s.heat, 'heatmap') : '')
@@ -1250,36 +1253,57 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + onoff('nodes', 'Particles', 'N', s.nodes)
         + (isCoarse ? '' : onoff('loupe', 'Loupe', 'M', state.loupe, 'loupe'))
         + onoff('auto', 'Auto when idle', '', state.auto, 'autoidle')
-        + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks');
+        + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks'));
     }
     function performance_() {
       const s = eng.settings, P = state.perf;
       const dev = Math.min(devicePixelRatio || 1, 2);
       const sizes = PARTICLE_SIZES.filter((n) => n <= maxParticles());
       const nowN = pendingN ?? (P.particles || 'auto');
-      return head('Resolution')
-        + choice('scale', 'Render scale', '', [['auto', 'Auto'], [1, '100%'], [0.75, '75%'], [0.5, '50%'], [0.35, '35%']], P.scale, 'renderscale')
+      return group('res', 'Resolution', choice('scale', 'Render scale', '', [['auto', 'Auto'], [1, '100%'], [0.75, '75%'], [0.5, '50%'], [0.35, '35%']], P.scale, 'renderscale')
         + (P.scale === 'auto' ? choice('floor', 'Auto lowest', '', [[0.75, '75%'], [0.5, '50%'], [0.35, '35%'], [0.25, '25%']], P.floor, 'autofloor') : '')
         + choice('density', 'Pixel density', '', [[1, '1×'], [1.5, '1.5×', dev < 1.5], [2, '2×', dev < 2]], P.density, 'density')
-        + choice('fps', 'Target fps', '', [[30, '30'], [60, '60'], [0, 'Display']], P.fps, 'targetfps')
-        + head('Effects')
-        + onoff('bloom', 'Bloom', 'B', s.bloom > 0, 'bloom')
+        + choice('fps', 'Target fps', '', [[30, '30'], [60, '60'], [0, 'Display']], P.fps, 'targetfps'))
+        + group('fx', 'Effects', onoff('bloom', 'Bloom', 'B', s.bloom > 0, 'bloom')
         + onoff('optics', 'Optics', 'O', s.optics > 0, 'optics')
         + onoff('lod', 'Zoom detail', '', s.lod, 'lod')
         + onoff('specks', 'Suspension', '', s.specks, 'specks')
-        + onoff('closeup', 'Live close-up', '', state.closeup, 'closeup')
-        + head('World')
-        + choice('n', 'Particles', '', [['auto', 'Auto'], ...sizes.map((n) => [n, kfmt(n)])], nowN, 'particles')
-        + choice('scan', 'Neighbours', '', [144, 192, 288].map((n) => [n, n === K.maxScan ? `${n} (default)` : String(n)]), eng.maxScan, 'neighbours')
+        + onoff('closeup', 'Live close-up', '', state.closeup, 'closeup'))
+        + group('world', 'World', choice('n', 'Particles', '', [['auto', 'Auto'], ...sizes.map((n) => [n, kfmt(n)])], nowN, 'particles')
+        + choice('scan', 'Neighbours', '', [144, 192, 288].map((n) => [n, String(n)]), eng.maxScan, 'neighbours')
         + (pendingN != null && String(pendingN) !== String(P.particles || 'auto')
           ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === 'auto' ? 'a measured count' : fmt(pendingN)}</button></div>` : '')
-        + (hasTS ? `<div class="opt"><span class="lbl">${term('profile', 'Profile')}</span><div class="row"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : '');
+        + (hasTS ? `<div class="opt"><span class="lbl">${term('profile', 'Profile')}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ''));
+    }
+    // the keyboard note, and this tab's reset (which asks first)
+    function foot() {
+      const reset = confirming
+        ? `<span class="set-reset"><span>Reset every ${tab} setting?</span><button type="button" class="link" data-o="reset-no" data-v="0">Cancel</button><button type="button" class="btn hot-btn" data-o="reset-yes" data-v="0">Reset</button></span>`
+        : `<button type="button" class="link set-reset" data-o="reset" data-v="0">Reset to defaults</button>`;
+      return `<div class="set-foot">${confirming ? '' : '<span class="keys-note">Keyboard: <kbd>?</kbd> lists every shortcut.</span>'}${reset}</div>`;
+    }
+    // this tab's settings as a fresh page opens them (a particle count waits for its own new world)
+    function resetTab() {
+      const s = eng.settings, P = state.perf;
+      if (tab === 'display') {
+        trailIdx = 1; s.trails = trailLevels[trailIdx];
+        for (const k of ['tide', 'heat', 'links', 'nodes']) s[k] = defaults[k];
+        state.currents = false; state.loupe = !isCoarse; state.songMarks = 1;
+        state.auto = true; renderAuto(director.active);
+      } else {
+        for (const k of ['bloom', 'optics', 'specks', 'lod']) s[k] = defaults[k];
+        state.closeup = true;
+        Object.assign(P, { scale: 'auto', floor: 0.5, density: 1.5, fps: 60, scan: null });
+        eng.maxScan = K.maxScan;
+        renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit();
+        pendingN = P.particles ? 'auto' : null;
+      }
     }
     function render() {
       if (el.hidden) return;
       tabs.forEach((b) => { const on = b.dataset.tab === tab; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; });
       $('readout').hidden = tab !== 'performance';
-      opts.innerHTML = tab === 'display' ? display() : performance_();
+      opts.innerHTML = (tab === 'display' ? display() : performance_()) + foot();
       readout(true);
     }
     let roAt = 0;
@@ -1327,11 +1351,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'n') pendingN = v === 'auto' ? 'auto' : +v;
       else if (id === 'apply') { const n = pendingN; pendingN = null; setParticles(n); }
       else if (id === 'profile') { copyProfile(); return; }
+      else if (id === 'reset' || id === 'reset-no') { confirming = id === 'reset'; render(); return; }
+      else if (id === 'reset-yes') { confirming = false; resetTab(); }
       persist();
       render();
     }
     opts.addEventListener('click', (e) => { const b = e.target.closest('[data-o]'); if (b && !b.disabled) set(b.dataset.o, b.dataset.v); });
-    tabs.forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; render(); }));
+    tabs.forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; confirming = false; render(); }));
     $('set-tabs').addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
       const n = tabs.find((b) => b.dataset.tab !== tab);
@@ -1340,7 +1366,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     function toggle(on = el.hidden) {
       el.hidden = !on;
       btn.setAttribute('aria-expanded', String(on));
-      if (on) { $('help').hidden = true; if (phone()) lab.close(); render(); } else pendingN = null;
+      if (on) { $('help').hidden = true; if (phone()) lab.close(); render(); } else { pendingN = null; confirming = false; }
     }
     btn.addEventListener('click', () => toggle());
     $('set-close').addEventListener('click', () => toggle(false));

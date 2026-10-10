@@ -361,30 +361,34 @@ body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520p
 /* ------------------------------------------------------------------ settings, help */
 .settings {
   position: absolute; right: calc(var(--gut) + var(--safe-r)); bottom: calc(var(--bot) + 10px); width: 430px;
-  padding: 8px 14px 14px; z-index: 5; max-height: calc(100% - var(--top) - var(--bot) - 20px); overflow-y: auto;
+  padding: var(--s2) 14px var(--s3); z-index: 5; max-height: calc(100% - var(--top) - var(--bot) - 20px); overflow-y: auto;
 }
-.settings .sec-h { gap: 12px; }
+.settings .sec-h { gap: var(--s3); }
 .settings .sec-h h2 { white-space: nowrap; }
 .settings .tabs { margin-right: auto; }
 .settings .tabs button { height: 32px; }
-.opts .sect-h:not(:first-child) { margin-top: var(--s3); }
 .opt .chip:disabled { opacity: .35; cursor: default; }
 .hot-btn { border-color: var(--hot); color: var(--ink); background: rgba(255, 95, 58, 0.14); justify-self: start; }
 .hot-btn:hover { background: rgba(255, 95, 58, 0.26); border-color: var(--hot); }
 /* hairline cells drawn by the gaps between them, so any count of figures lines up */
-.readout { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin: 10px 0 2px; background: var(--line); border: 1px solid var(--line); }
-.readout div { display: flex; flex-direction: column; gap: 3px; padding: 7px 9px; min-width: 0; background: var(--panel-solid); }
+.readout { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-top: var(--s3); background: var(--line); border: 1px solid var(--line); }
+.readout div { display: flex; flex-direction: column; gap: var(--s1); padding: var(--s2); min-width: 0; background: var(--panel-solid); }
 .readout div.w2 { grid-column: span 2; }
 .readout div.w4 { grid-column: 1 / -1; }
 .readout b { font-size: 17px; font-weight: 300; line-height: 1; color: var(--sun); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .readout span { font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
-.opts { flex-direction: column; gap: 6px; margin-top: 10px; }
-.opt { display: grid; grid-template-columns: 9.6em 1fr; gap: 10px; align-items: center; }
-.opt .row { display: flex; flex-wrap: wrap; gap: 3px; }
-.opt .lbl { color: var(--ink-2); }
-.opt kbd { color: var(--sun); margin-left: 4px; }
-.opt .chip { height: 28px; padding: 0 9px; }
-.keys-note { margin-top: 14px; color: var(--ink-3); font-size: 12px; }
+.opts { display: flex; flex-direction: column; margin-top: var(--s4); }
+/* one option: its label in a fixed column (so rows line up across sections), then a segmented row of
+   choices whose wrapped lines share their borders, as the Lab's filters */
+.opt { display: grid; grid-template-columns: 9.6em 1fr; gap: var(--s3); align-items: center; }
+.opt .segs { padding-top: 1px; }
+.opt .segs .chip { margin-top: -1px; }
+.opt kbd { color: var(--sun); margin-left: var(--s1); }
+.opts .ramp { margin-left: calc(9.6em + var(--s3)); }
+.set-foot { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); min-height: 34px; margin-top: var(--s4); padding-top: var(--s2); border-top: 1px solid var(--line); }
+.set-reset { margin-left: auto; }
+span.set-reset { display: inline-flex; align-items: center; gap: var(--s3); color: var(--ink-2); font-size: 12px; }
+.keys-note { color: var(--ink-3); font-size: 12px; }
 .keys-note kbd, dt { color: var(--sun); }
 .help { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100% - 32px)); padding: 10px 18px 18px; z-index: 35; max-height: calc(100% - 32px); overflow-y: auto; }
 .keys { display: grid; grid-template-columns: max-content 1fr; gap: 9px 18px; margin: 10px 0 0; }
@@ -694,7 +698,7 @@ canvas.dyn { width: 100%; height: 112px; display: block; }
 canvas.niches { width: 100%; height: 150px; display: block; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-2); font-size: 11.5px; margin-top: 4px; }
 .legend i { display: inline-block; width: 10px; height: 2px; margin-right: 6px; vertical-align: 3px; }
-.ramp { display: flex; align-items: center; gap: 8px; color: var(--ink-3); font-size: 11px; }
+.ramp { display: flex; align-items: center; gap: var(--s2); color: var(--ink-3); font-size: 11px; }
 /* the light map's ramp (fsComposite): deep blue, teal, sun */
 .ramp i { flex: 1; height: 6px; background: linear-gradient(90deg, #080a29 0%, #006b80 48%, #4e9a7a 62%, #ffdb52 100%); }
 /* the thermal camera's ramp (heatRamp in shaders.js): deep blue, teal, amber, white */
@@ -836,8 +840,9 @@ canvas.niches { width: 100%; height: 150px; display: block; }
   .barrow { grid-template-columns: 7.5em minmax(24px, 1fr) 7ch 5.4ch; font-size: 12px; }
   .settings { left: 0; right: 0; width: auto; bottom: var(--bot); max-height: calc(100% - var(--top) - var(--bot)); }
   .readout b { font-size: 15px; }
-  .readout { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .readout { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-flow: dense; }
   .opt { grid-template-columns: 7.6em 1fr; }
+  .opts .ramp { margin-left: calc(7.6em + var(--s3)); }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }
 }
@@ -953,7 +958,6 @@ svg.niche .n-dot { fill: var(--cyan); }
       <div class="w4"><b id="ro-aim">–</b><span class="term" data-tip="aimfps" tabindex="0">Aiming for</span></div>
     </div>
     <div class="opts" id="opts"></div>
-    <div class="keys-note">Keyboard: <kbd>?</kbd> lists every shortcut.</div>
   </div>
 
   <div class="focus" id="focus" hidden><span class="lbl">Highlight</span><b id="focus-label"></b><button type="button" class="ghost" id="focus-clear" aria-label="Clear highlight" data-hint="Clear · Esc"><svg><use href="#i-close"/></svg></button></div>
@@ -19126,6 +19130,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const trailLevels = [0, 0.45, 0.7, 0.88];
     const trailNames = ["Off", "Short", "Long", "Exposure"];
     let trailIdx = prefs.trails ?? 1;
+    const defaults = { ...eng.settings };
     eng.settings.trails = trailLevels[trailIdx];
     for (const k of ["links", "nodes", "bloom", "optics", "specks", "lod", "tide", "heat"]) if (prefs[k] !== void 0) eng.settings[k] = prefs[k];
     eng.maxScan = state.perf.scan ?? K.maxScan;
@@ -20352,20 +20357,47 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const el = $("settings"), opts = $("opts"), btn = $("set-open"), tabs = [...el.querySelectorAll("#set-tabs [data-tab]")];
       let tab = "display";
       let pendingN = null;
-      const choice = (id, title, key, items, cur, tip) => `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ""}</span><div class="row" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? " disabled" : ""}>${l}</button>`).join("")}</div></div>`;
+      const choice = (id, title, key, items, cur, tip) => `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ""}</span><div class="row segs" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? " disabled" : ""}>${l}</button>`).join("")}</div></div>`;
       const onoff = (id, title, key, on, tip) => choice(id, title, key, [[1, "On"], [0, "Off"]], on ? 1 : 0, tip);
-      const head = (t2) => sectHead(t2);
+      const group = (id, text, rows) => section(id, text, block("", rows));
+      let confirming = false;
       const kfmt = (n) => n >= 1048576 ? `${n / 1048576}M` : `${Math.round(n / 1024)}k`;
       function display() {
         const s = eng.settings;
-        return choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? '<div class="ramp"><span>dark</span><i></i><span>full light</span></div>' : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? `<div class="ramp heat"><span>${Math.round(eng.tbg - 2)}°</span><i></i><span>${Math.round(eng.tbg + 10)}°</span></div>` : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe")) + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks");
+        return group("look", "", choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? '<div class="ramp"><span>dark</span><i></i><span>full light</span></div>' : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? `<div class="ramp heat"><span>${Math.round(eng.tbg - 2)}°</span><i></i><span>${Math.round(eng.tbg + 10)}°</span></div>` : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe")) + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks"));
       }
       function performance_() {
         const s = eng.settings, P = state.perf;
         const dev = Math.min(devicePixelRatio || 1, 2);
         const sizes = PARTICLE_SIZES.filter((n) => n <= maxParticles());
         const nowN = pendingN ?? (P.particles || "auto");
-        return head("Resolution") + choice("scale", "Render scale", "", [["auto", "Auto"], [1, "100%"], [0.75, "75%"], [0.5, "50%"], [0.35, "35%"]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", "Auto lowest", "", [[0.75, "75%"], [0.5, "50%"], [0.35, "35%"], [0.25, "25%"]], P.floor, "autofloor") : "") + choice("density", "Pixel density", "", [[1, "1×"], [1.5, "1.5×", dev < 1.5], [2, "2×", dev < 2]], P.density, "density") + choice("fps", "Target fps", "", [[30, "30"], [60, "60"], [0, "Display"]], P.fps, "targetfps") + head("Effects") + onoff("bloom", "Bloom", "B", s.bloom > 0, "bloom") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("lod", "Zoom detail", "", s.lod, "lod") + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("closeup", "Live close-up", "", state.closeup, "closeup") + head("World") + choice("n", "Particles", "", [["auto", "Auto"], ...sizes.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", "Neighbours", "", [144, 192, 288].map((n) => [n, n === K.maxScan ? `${n} (default)` : String(n)]), eng.maxScan, "neighbours") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === "auto" ? "a measured count" : fmt(pendingN)}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", "Profile")}</span><div class="row"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : "");
+        return group("res", "Resolution", choice("scale", "Render scale", "", [["auto", "Auto"], [1, "100%"], [0.75, "75%"], [0.5, "50%"], [0.35, "35%"]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", "Auto lowest", "", [[0.75, "75%"], [0.5, "50%"], [0.35, "35%"], [0.25, "25%"]], P.floor, "autofloor") : "") + choice("density", "Pixel density", "", [[1, "1×"], [1.5, "1.5×", dev < 1.5], [2, "2×", dev < 2]], P.density, "density") + choice("fps", "Target fps", "", [[30, "30"], [60, "60"], [0, "Display"]], P.fps, "targetfps")) + group("fx", "Effects", onoff("bloom", "Bloom", "B", s.bloom > 0, "bloom") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("lod", "Zoom detail", "", s.lod, "lod") + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("closeup", "Live close-up", "", state.closeup, "closeup")) + group("world", "World", choice("n", "Particles", "", [["auto", "Auto"], ...sizes.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", "Neighbours", "", [144, 192, 288].map((n) => [n, String(n)]), eng.maxScan, "neighbours") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === "auto" ? "a measured count" : fmt(pendingN)}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", "Profile")}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ""));
+      }
+      function foot() {
+        const reset = confirming ? `<span class="set-reset"><span>Reset every ${tab} setting?</span><button type="button" class="link" data-o="reset-no" data-v="0">Cancel</button><button type="button" class="btn hot-btn" data-o="reset-yes" data-v="0">Reset</button></span>` : `<button type="button" class="link set-reset" data-o="reset" data-v="0">Reset to defaults</button>`;
+        return `<div class="set-foot">${confirming ? "" : '<span class="keys-note">Keyboard: <kbd>?</kbd> lists every shortcut.</span>'}${reset}</div>`;
+      }
+      function resetTab() {
+        const s = eng.settings, P = state.perf;
+        if (tab === "display") {
+          trailIdx = 1;
+          s.trails = trailLevels[trailIdx];
+          for (const k of ["tide", "heat", "links", "nodes"]) s[k] = defaults[k];
+          state.currents = false;
+          state.loupe = !isCoarse;
+          state.songMarks = 1;
+          state.auto = true;
+          renderAuto(director.active);
+        } else {
+          for (const k of ["bloom", "optics", "specks", "lod"]) s[k] = defaults[k];
+          state.closeup = true;
+          Object.assign(P, { scale: "auto", floor: 0.5, density: 1.5, fps: 60, scan: null });
+          eng.maxScan = K.maxScan;
+          renderScale = Math.max(renderScale, P.floor);
+          resetAdapt();
+          fit2();
+          pendingN = P.particles ? "auto" : null;
+        }
       }
       function render() {
         if (el.hidden) return;
@@ -20375,7 +20407,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           b.tabIndex = on ? 0 : -1;
         });
         $("readout").hidden = tab !== "performance";
-        opts.innerHTML = tab === "display" ? display() : performance_();
+        opts.innerHTML = (tab === "display" ? display() : performance_()) + foot();
         readout(true);
       }
       let roAt = 0;
@@ -20447,6 +20479,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
         } else if (id === "profile") {
           copyProfile();
           return;
+        } else if (id === "reset" || id === "reset-no") {
+          confirming = id === "reset";
+          render();
+          return;
+        } else if (id === "reset-yes") {
+          confirming = false;
+          resetTab();
         }
         persist();
         render();
@@ -20457,6 +20496,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       });
       tabs.forEach((b) => b.addEventListener("click", () => {
         tab = b.dataset.tab;
+        confirming = false;
         render();
       }));
       $("set-tabs").addEventListener("keydown", (e) => {
@@ -20473,7 +20513,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
           $("help").hidden = true;
           if (phone()) lab.close();
           render();
-        } else pendingN = null;
+        } else {
+          pendingN = null;
+          confirming = false;
+        }
       }
       btn.addEventListener("click", () => toggle());
       $("set-close").addEventListener("click", () => toggle(false));
