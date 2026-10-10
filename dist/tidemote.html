@@ -1276,6 +1276,10 @@ svg.niche .n-dot { fill: var(--cyan); }
     // husks rot this much faster per 10° above tRef
     hotCharge: 0.6,
     // extra chance per second that silt charges in the hottest water (hot springs)
+    hotFrom: 8,
+    // hot springs begin this many degrees over the background (framboids, heat-maker colonies;
+    hotTo: 22,
+    // a grazer huddle stays below it) and charge fully this many degrees over it
     abioHeat: 3,
     // extra weight of sparks of life in hot water
     marangoni: 0
@@ -2358,7 +2362,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     let tide = tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient;
     // a step's chance of charging; for coarse steps the exact chance of at least one event in the step.
     // Hot springs: water far above the background charges silt even in the dark
-    let lam = tide * ${f(K.charge)} * sim.chargeMul + ${f(K.hotCharge)} * smoothstep(5.0, 15.0, hot);
+    let lam = tide * ${f(K.charge)} * sim.chargeMul + ${f(K.hotCharge)} * smoothstep(${f(K.hotFrom)}, ${f(K.hotTo)}, hot);
     if (rnd(&s) < select(lam * sim.dt, 1.0 - exp(-lam * sim.dt), sim.ticks > 1u)) {
       p.kind = GLINT; p.energy = 1.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 5u;

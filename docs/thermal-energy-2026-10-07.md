@@ -1018,3 +1018,23 @@ notableSpecies 26 → 35 and leaderChanges 5.9 → 8.9 improved; foodWeb 0.56 �
   the uncapped amount: in water ~100° over the background a husk gave off thousands of times its energy,
   scald deaths made more husks, and one dense 1/60 s world ran to 3,766° over the background. A husk now
   rots no more than it holds. The gate passes after it (all gated metrics "same").
+
+## 17. Testing under coarse steps, and hot springs
+
+A day of headless testing (docs/fast-forward.md, "With heat"; data in `runs/thermal-ff/`): forks over ~130
+worlds, a heat on/off × step 2x2 of 128-seed ensembles, 90-minute runs and worlds held cold and hot.
+
+- **Fast-forward holds up.** Heat matches at 4 ticks in every measure; the drift in a few dense predator
+  worlds predates heat; over 90 minutes 4 ticks lags heat's long-run succession.
+- **What heat does to worlds** (30 min, 1/60 s, against heat off): about twice the booms and busts, more
+  notable species and changes of leader, life 4–5° above the background, cold worlds huddling up to 10–12°
+  warm with heat-makers evolving, and over 90 minutes a grazer era giving way to scavengers and producers.
+- **Hot springs fed grazer huddles.** Charging silt from 5° over the background let a grazer huddle warm its
+  own water and feed itself (one huddle reached +50°, with 93% of its grazing from hot springs): producers were
+  present 57% of the time against 72% without heat, food webs fell from 52% to 34%, and grazer-only endings
+  rose to 39%. Hot springs now start at 8° and charge fully at 22° over the background (`hotFrom`, `hotTo`),
+  as first planned, so they ring framboids and heat-maker colonies rather than every crowd. Against no hot
+  springs at all (both 128 × 30 min and 32 × 90 min): as good at 30 min, and over 90 min it keeps grazers in
+  the succession (21% vs 5%) and outcomes as varied as without heat (8.8 vs 4.6 effective outcomes), with more
+  busts and changes of leader, for fewer species within a world (92 vs 124). A few worlds dip below 2% living
+  and recover (the gate's "persisted" counts these as failures).
