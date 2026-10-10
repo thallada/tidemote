@@ -22,6 +22,8 @@ export { MAXK, FIRST_LIFE, DEFAULT_K };
 
 const mix = (a, b, t) => a + (b - a) * t;
 const SIM_STRIDE = 256;
+// the largest sprite radius, in pixels, splatted rather than drawn as a quad (splatMain)
+const SPLAT_PX = 1.6;
 export const MAX_STEPS = 512;
 
 // --------------------------------------------------------------------- engine
@@ -205,6 +207,9 @@ class Engine {
       label: fs,
     });
     this.pPoint = rp(this.drawModule, 'vsPoint', 'fsPoint', 'triangle-strip', additive);
+    // sprites of a pixel or so, splatted into a buffer and added into the scene (splatMain, fsSplat)
+    this.cpSplat = d.createComputePipeline({ layout: 'auto', compute: { module: this.drawModule, entryPoint: 'splatMain' }, label: 'splatMain' });
+    this.pSplat = rp(this.drawModule, 'vsFade', 'fsSplat', 'triangle-list', additive);
     this.pLine = rp(this.drawModule, 'vsLine', 'fsLine', 'line-list', additive);
     // stone: the highest cobble at each pixel wins the depth test and writes its colour and surface (vsStone)
     this.pStone = d.createRenderPipeline({ layout: 'auto', label: 'fsStone', primitive: { topology: 'triangle-strip' },
@@ -266,7 +271,7 @@ class Engine {
   async allocate(n) {
     const d = this.device;
     const b = this.b;
-    const names = ['parts', 'sortedFull', 'sortedLite', 'aux', 'intent', 'bondsNow', 'bondsIn', 'touch', 'sway', 'stoneList', 'ledger', 'livingList'];
+    const names = ['parts', 'sortedFull', 'sortedLite', 'aux', 'intent', 'bondsNow', 'bondsIn', 'touch', 'sway', 'stoneList', 'ledger', 'livingList', 'quads'];
     for (const k of names) { b[k]?.destroy(); b[k] = null; }
     this.capacity = 0;
     this.count = 0;
@@ -287,6 +292,8 @@ class Engine {
     b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
     b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
+    // the particles too large to splat (splatMain): the points' draw arguments, then their indices
+    b.quads = d.createBuffer({ size: (4 + n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
     const res = {
       0: { buffer: b.sim }, 1: { buffer: b.parts }, 2: { buffer: b.sortedFull }, 3: { buffer: b.sortedLite },
       4: { buffer: b.counts }, 5: { buffer: b.counts }, 6: { buffer: b.cellStart }, 7: { buffer: b.blockSums },
@@ -318,7 +325,8 @@ class Engine {
       { binding: 3, resource: { buffer: b.intent } },
       { binding: 5, resource: { buffer: b.focus } }, { binding: 6, resource: { buffer: b.bondsIn } },
       { binding: 8, resource: { buffer: b.touch } }, { binding: 9, resource: { buffer: b.sway } },
-      { binding: 10, resource: { buffer: b.organDir } }, { binding: 11, resource: { buffer: b.thermal } }, { binding: 12, resource: { buffer: this.cull[k].segs } }] });
+      { binding: 10, resource: { buffer: b.organDir } }, { binding: 11, resource: { buffer: b.thermal } }, { binding: 12, resource: { buffer: this.cull[k].segs } },
+      { binding: 16, resource: { buffer: b.quads } }] });
     this.organsBG = d.createBindGroup({ layout: this.cpOrgans.getBindGroupLayout(0), entries: [
       { binding: 7, resource: { buffer: b.genomes } }, { binding: 9, resource: { buffer: b.organDir } }] });
     const stoneBG = (view) => d.createBindGroup({ layout: this.pStone.getBindGroupLayout(0), entries:
@@ -348,6 +356,7 @@ class Engine {
       return false;
     }
     this.capacity = n;
+    this._splatBGs();
     return true;
   }
 
@@ -409,6 +418,17 @@ class Engine {
       { binding: 0, resource: this.sampler }, { binding: 1, resource: this.holdView }, { binding: 5, resource: { buffer: this.b.holdU } }] });
     this.holdCam = null;
     this.clearAccum = !this.carry;
+    this.b.splat?.destroy();
+    this.b.splat = d.createBuffer({ size: w * h * 12, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this._splatBGs();
+  }
+
+  _splatBGs() {
+    const d = this.device, b = this.b;
+    if (!b.splat || !b.parts) return;
+    this.splatBG = d.createBindGroup({ layout: this.cpSplat.getBindGroupLayout(0), entries: [[0, b.view], [1, b.parts], [2, b.genomes], [3, b.intent], [5, b.focus], [11, b.thermal], [13, b.splat], [15, b.quads]]
+      .map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+    this.splatDrawBG = d.createBindGroup({ layout: this.pSplat.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: b.view } }, { binding: 14, resource: { buffer: b.splat } }] });
   }
 
   _ensureLoupeTex(L) {
@@ -1211,7 +1231,7 @@ class Engine {
   }
 
   // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
-  _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true, culled = false) {
+  _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0) {
     const K = this.K;
     const ppu = cam.ppu;
     // a cell keeps one world size at every zoom, so zooming in only resolves it
@@ -1232,6 +1252,7 @@ class Engine {
     vu[14] = f.on; vu[15] = f.roleMask; vu[16] = f.stateMode; v[17] = f.mute; vu[18] = f.memberKind; vu[19] = f.memberN;
     vu[20] = detail ? 1 : 0;
     vu[21] = culled ? 1 : 0;
+    v[22] = splat;
     this.device.queue.writeBuffer(buf, 0, data);
   }
 
@@ -1251,6 +1272,8 @@ class Engine {
     const detail = new Uint32Array(data)[20] === 1;
     // culled: only the particles of the grid rows in view (cullRows wrote the draws' arguments)
     const culled = new Uint32Array(data)[21] === 1 ? this.cull[k].args : null;
+    // splatting: points only for the particles too large to splat (splatMain listed them)
+    const quads = v[22] > 0 ? this.b.quads : null;
     if (this.settings.links) {
       // Crossfade native lines and soft strips in this same pass. The strip has zero
       // contribution at its topology switch, so subpixel line coverage cannot pop.
@@ -1268,7 +1291,7 @@ class Engine {
     if (this.settings.nodes) {
       pass.setPipeline(this.pPoint);
       pass.setBindGroup(0, bgPoint);
-      if (culled) pass.drawIndirect(culled, 0); else pass.draw(4, this.count);
+      if (culled) pass.drawIndirect(culled, 0); else if (quads) pass.drawIndirect(quads, 0); else pass.draw(4, this.count);
     }
   }
 
@@ -1367,7 +1390,18 @@ class Engine {
     }
     // the main view may skip resolving cells (settings.lod); the loupe and the close-up always resolve
     const lod = this.settings.lod;
-    this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0]);
+    // seeing most of the world with particles a pixel or so across, it splats those (splatMain), where
+    // there are enough of them to pay for the buffer it clears and adds in (a quarter as many as pixels)
+    const ps = Math.max(1.1 * dpr, 0.085 * cam.ppu);
+    const splat = !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W * H / 4 ? SPLAT_PX : 0;
+    this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0], splat);
+    if (splat) {
+      d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0]));
+      enc.clearBuffer(this.b.splat, 0, W * H * 12);
+      const pass = enc.beginComputePass({ timestampWrites: tsBegin() });
+      pass.setPipeline(this.cpSplat); pass.setBindGroup(0, this.splatBG); pass.dispatchWorkgroups(Math.ceil(this.count / 256));
+      pass.end();
+    }
     // The simulation's existing indirect args contain the living instance count. Only rendering
     // changes the vertex count; keep all ecology WGSL and buffers' contents untouched.
     if ((lod && new Float32Array(this.viewData)[7] > 6) || loupe || specimen) {
@@ -1441,6 +1475,7 @@ class Engine {
         pass.setBindGroup(0, carry ? carry.bg : this.reprojBG[srcI]);
         pass.draw(3);
       }
+      if (splat) { pass.setPipeline(this.pSplat); pass.setBindGroup(0, this.splatDrawBG); pass.draw(3); }
       this._drawScene(pass, this.bgLine, this.bgPoint, this.bgBridge, this.viewData, 0);
       pass.end();
     }

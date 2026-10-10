@@ -2122,6 +2122,8 @@ struct View {
   detail: u32,
   // 1: the draw covers only the grid rows in view (segs, CULL_WGSL); instances map through cullIndex
   culled: u32,
+  // sprites no larger than this radius in pixels are splatted (splatMain), not drawn as quads; 0: none
+  splat: f32,
 };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -2141,6 +2143,15 @@ struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32 };
 // The water's temperature per grid cell (heatMain), for how heat shows on a cell.
 @group(0) @binding(11) var<storage, read> heatField: array<f32>;
 @group(0) @binding(12) var<storage, read> segs: array<vec2u>;
+// the splatted sprites' light per pixel (r, g, b), in 1/SPLAT_FIX units
+@group(0) @binding(13) var<storage, read_write> splatW: array<atomic<u32>>;
+@group(0) @binding(14) var<storage, read> splatR: array<u32>;
+// the particles in view too large to splat, for the points' draw: indirect arguments, then indices
+@group(0) @binding(15) var<storage, read_write> quadW: array<atomic<u32>>;
+@group(0) @binding(16) var<storage, read> quadR: array<u32>;
+const SPLAT_FIX = 4096.0;
+var<workgroup> quadN: atomic<u32>;
+var<workgroup> quadBase: u32;
 
 // The particle a culled draw's instance ii stands for: the last segment that starts at or before it.
 fn cullIndex(ii: u32) -> u32 {
@@ -2153,7 +2164,11 @@ fn cullIndex(ii: u32) -> u32 {
   return segs[lo].x + ii - segs[lo].y;
 }
 // the particle a point's instance draws, and the cell a bond's instance draws (living, unless culled)
-fn pointAt(ii: u32) -> u32 { if (view.culled == 1u) { return cullIndex(ii); } return ii; }
+fn pointAt(ii: u32) -> u32 {
+  if (view.culled == 1u) { return cullIndex(ii); }
+  if (view.splat > 0.0) { return quadR[4u + ii]; }
+  return ii;
+}
 fn livingAt(ii: u32) -> u32 { if (view.culled == 1u) { return cullIndex(ii); } return livingList[ii]; }
 
 fn kindOn(k: u32) -> bool { return ((focus[k >> 5u] >> (k & 31u)) & 1u) == 1u; }
@@ -2452,44 +2467,10 @@ fn bodyArea(shape: u32, s: vec2f) -> f32 {
   }
 }
 
-struct PO {
-  @builtin(position) pos: vec4f,
-  @location(0) uv: vec2f,
-  @location(1) col: vec3f,
-  @location(2) @interpolate(flat) shape: u32,
-  @location(3) @interpolate(flat) index: u32,
-  @location(4) @interpolate(flat) geom: vec4f, // radius, occupied area, motion direction
-  @location(5) @interpolate(flat) morph: vec2f, // species variation
-  // up to three fused partners, packed as half floats: offset / own radius; radius ratio and heading;
-  // ID seeds as 16-bit fractions, the third sharing a word with the plans (5 bits each, 31 = absent)
-  @location(6) @interpolate(flat) bondOffset: vec3u,
-  @location(7) @interpolate(flat) bondFrame: vec3u,
-  @location(8) @interpolate(flat) bondSeeds: vec2u,
-  // up to six planes the cell is pressed flat against, each its point nearest the centre in
-  // units of own radius, packed as half floats (zero: none), pushed 4 further out for another
-  // species: it only dents the cell, softly, where kin share a crisp wall
-  @location(9) @interpolate(flat) contact: vec3u,
-  @location(11) @interpolate(flat) contact2: vec3u,
-  // squashed along this axis by its length (stretched across it), keeping area
-  @location(12) @interpolate(flat) squash: vec2f,
-  // inflation that restores the area those planes cut off; pace through the water (0..1); bend
-  @location(10) @interpolate(flat) jelly: vec3f,
-};
-
-@vertex fn vsPoint(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) -> PO {
-  var o: PO;
-  let ii = pointAt(inst);
-  o.bondSeeds = vec2u(0u, 0x7fffu);
-  o.jelly = vec3f(1.0, 0.0, 0.0);
-  let p = parts[ii];
-  // stone is drawn as one field of boulders (vsStone), not grain by grain
-  if (p.kind == STONE || p.kind == FRAMBOID) { o.pos = vec4f(2.0, 2.0, 0.0, 1.0); return o; }
-  let d = wrapd(p.pos - view.cam) * view.ppu;
-  // Avoid genome/partner reads for offscreen distant sprites.
-  if (view.pointSize <= 6.0 && any(abs(d) > view.res * 0.5 + vec2f(60.0))) {
-    o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
-    return o;
-  }
+// A particle as its distant sprite: its colour, profile and radius in pixels (and how much a resolved
+// cell swims, which sets its reach). vsPoint uses it, and splatMain for sprites too small for quads.
+struct Sprite { col: vec3f, shape: u32, px: f32, swim: f32 };
+fn spriteOf(p: Particle, ii: u32) -> Sprite {
   let k = p.kind;
   var size = 1.0;
   var col: vec3f;
@@ -2550,6 +2531,104 @@ struct PO {
   }
   if (p.id == view.selId) { col = col * 1.5 + vec3f(0.5); size = mix(size, max(size, 1.2) * 1.5, grow); }
   let px = select(max(view.pointSize * size, 0.9), max(view.ppu * 0.13, 0.9), k == STONE);
+  return Sprite(col, shape, px, swim);
+}
+
+// Sprites of a pixel or so (the main view from afar) are added straight into the image, as their light
+// spread over the four nearest pixels, rather than drawn as quads: millions of near-pixel quads cost
+// the vertex and raster stages far more than a thread each. Each brings the light its quad would
+// (pi px^2 times its profile's mean); fsSplat adds the sum into the scene.
+// The rest, too large to splat, are listed for the points' draw (quadW: its indirect arguments, then
+// the particles), so vsPoint runs only for them.
+@compute @workgroup_size(256)
+fn splatMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
+  if (l == 0u) { atomicStore(&quadN, 0u); }
+  workgroupBarrier();
+  let i = gid.x;
+  var slot = NONE;
+  if (i < arrayLength(&parts)) { slot = splatOne(i); }
+  workgroupBarrier();
+  if (l == 0u) { quadBase = atomicAdd(&quadW[1], atomicLoad(&quadN)); }
+  let base = workgroupUniformLoad(&quadBase);
+  if (slot != NONE) { atomicStore(&quadW[4u + base + slot], i); }
+}
+// one particle: splatted, or a slot in this workgroup's share of the quad list (NONE: neither)
+fn splatOne(i: u32) -> u32 {
+  let p = parts[i];
+  if (p.kind == STONE || p.kind == FRAMBOID) { return NONE; }
+  let d = wrapd(p.pos - view.cam) * view.ppu;
+  // as vsPoint culls an unresolved sprite
+  if (view.pointSize <= 6.0 && any(abs(d) > view.res * 0.5 + vec2f(60.0))) { return NONE; }
+  let sp = spriteOf(p, i);
+  if (sp.px > view.splat) { return atomicAdd(&quadN, 1u); }
+  if (any(abs(d) > view.res * 0.5 + vec2f(1.0))) { return NONE; }
+  let light = sp.col * (3.14159265 * sp.px * sp.px * spriteMean(sp.shape) * SPLAT_FIX);
+  let f = view.res * 0.5 + d - 0.5;
+  let c = vec2i(floor(f));
+  let t = f - floor(f);
+  let size = vec2i(view.res);
+  for (var k = 0u; k < 4u; k++) {
+    let o = vec2i(i32(k & 1u), i32(k >> 1u));
+    let at = c + o;
+    if (any(at < vec2i(0)) || any(at >= size)) { continue; }
+    let w = select(1.0 - t.x, t.x, o.x == 1) * select(1.0 - t.y, t.y, o.y == 1);
+    let q = u32(at.y * size.x + at.x) * 3u;
+    let e = light * w;
+    atomicAdd(&splatW[q], u32(e.r + 0.5));
+    atomicAdd(&splatW[q + 1u], u32(e.g + 0.5));
+    atomicAdd(&splatW[q + 2u], u32(e.b + 0.5));
+  }
+  return NONE;
+}
+@fragment fn fsSplat(@builtin(position) at: vec4f) -> @location(0) vec4f {
+  let q = (u32(at.y) * u32(view.res.x) + u32(at.x)) * 3u;
+  return vec4f(f32(splatR[q]), f32(splatR[q + 1u]), f32(splatR[q + 2u]), 0.0) / SPLAT_FIX;
+}
+
+struct PO {
+  @builtin(position) pos: vec4f,
+  @location(0) uv: vec2f,
+  @location(1) col: vec3f,
+  @location(2) @interpolate(flat) shape: u32,
+  @location(3) @interpolate(flat) index: u32,
+  @location(4) @interpolate(flat) geom: vec4f, // radius, occupied area, motion direction
+  @location(5) @interpolate(flat) morph: vec2f, // species variation
+  // up to three fused partners, packed as half floats: offset / own radius; radius ratio and heading;
+  // ID seeds as 16-bit fractions, the third sharing a word with the plans (5 bits each, 31 = absent)
+  @location(6) @interpolate(flat) bondOffset: vec3u,
+  @location(7) @interpolate(flat) bondFrame: vec3u,
+  @location(8) @interpolate(flat) bondSeeds: vec2u,
+  // up to six planes the cell is pressed flat against, each its point nearest the centre in
+  // units of own radius, packed as half floats (zero: none), pushed 4 further out for another
+  // species: it only dents the cell, softly, where kin share a crisp wall
+  @location(9) @interpolate(flat) contact: vec3u,
+  @location(11) @interpolate(flat) contact2: vec3u,
+  // squashed along this axis by its length (stretched across it), keeping area
+  @location(12) @interpolate(flat) squash: vec2f,
+  // inflation that restores the area those planes cut off; pace through the water (0..1); bend
+  @location(10) @interpolate(flat) jelly: vec3f,
+};
+
+@vertex fn vsPoint(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) -> PO {
+  var o: PO;
+  let ii = pointAt(inst);
+  o.bondSeeds = vec2u(0u, 0x7fffu);
+  o.jelly = vec3f(1.0, 0.0, 0.0);
+  let p = parts[ii];
+  // stone is drawn as one field of boulders (vsStone), not grain by grain
+  if (p.kind == STONE || p.kind == FRAMBOID) { o.pos = vec4f(2.0, 2.0, 0.0, 1.0); return o; }
+  let d = wrapd(p.pos - view.cam) * view.ppu;
+  // Avoid genome/partner reads for offscreen distant sprites.
+  if (view.pointSize <= 6.0 && any(abs(d) > view.res * 0.5 + vec2f(60.0))) {
+    o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
+    return o;
+  }
+  let k = p.kind;
+  let sp = spriteOf(p, ii);
+  let col = sp.col;
+  var shape = sp.shape;
+  let swim = sp.swim;
+  let px = sp.px;
   let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
   o.col = col;
   o.shape = shape;

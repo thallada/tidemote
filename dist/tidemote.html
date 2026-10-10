@@ -3228,6 +3228,8 @@ struct View {
   detail: u32,
   // 1: the draw covers only the grid rows in view (segs, CULL_WGSL); instances map through cullIndex
   culled: u32,
+  // sprites no larger than this radius in pixels are splatted (splatMain), not drawn as quads; 0: none
+  splat: f32,
 };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -3247,6 +3249,15 @@ struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32 };
 // The water's temperature per grid cell (heatMain), for how heat shows on a cell.
 @group(0) @binding(11) var<storage, read> heatField: array<f32>;
 @group(0) @binding(12) var<storage, read> segs: array<vec2u>;
+// the splatted sprites' light per pixel (r, g, b), in 1/SPLAT_FIX units
+@group(0) @binding(13) var<storage, read_write> splatW: array<atomic<u32>>;
+@group(0) @binding(14) var<storage, read> splatR: array<u32>;
+// the particles in view too large to splat, for the points' draw: indirect arguments, then indices
+@group(0) @binding(15) var<storage, read_write> quadW: array<atomic<u32>>;
+@group(0) @binding(16) var<storage, read> quadR: array<u32>;
+const SPLAT_FIX = 4096.0;
+var<workgroup> quadN: atomic<u32>;
+var<workgroup> quadBase: u32;
 
 // The particle a culled draw's instance ii stands for: the last segment that starts at or before it.
 fn cullIndex(ii: u32) -> u32 {
@@ -3259,7 +3270,11 @@ fn cullIndex(ii: u32) -> u32 {
   return segs[lo].x + ii - segs[lo].y;
 }
 // the particle a point's instance draws, and the cell a bond's instance draws (living, unless culled)
-fn pointAt(ii: u32) -> u32 { if (view.culled == 1u) { return cullIndex(ii); } return ii; }
+fn pointAt(ii: u32) -> u32 {
+  if (view.culled == 1u) { return cullIndex(ii); }
+  if (view.splat > 0.0) { return quadR[4u + ii]; }
+  return ii;
+}
 fn livingAt(ii: u32) -> u32 { if (view.culled == 1u) { return cullIndex(ii); } return livingList[ii]; }
 
 fn kindOn(k: u32) -> bool { return ((focus[k >> 5u] >> (k & 31u)) & 1u) == 1u; }
@@ -3558,44 +3573,10 @@ fn bodyArea(shape: u32, s: vec2f) -> f32 {
   }
 }
 
-struct PO {
-  @builtin(position) pos: vec4f,
-  @location(0) uv: vec2f,
-  @location(1) col: vec3f,
-  @location(2) @interpolate(flat) shape: u32,
-  @location(3) @interpolate(flat) index: u32,
-  @location(4) @interpolate(flat) geom: vec4f, // radius, occupied area, motion direction
-  @location(5) @interpolate(flat) morph: vec2f, // species variation
-  // up to three fused partners, packed as half floats: offset / own radius; radius ratio and heading;
-  // ID seeds as 16-bit fractions, the third sharing a word with the plans (5 bits each, 31 = absent)
-  @location(6) @interpolate(flat) bondOffset: vec3u,
-  @location(7) @interpolate(flat) bondFrame: vec3u,
-  @location(8) @interpolate(flat) bondSeeds: vec2u,
-  // up to six planes the cell is pressed flat against, each its point nearest the centre in
-  // units of own radius, packed as half floats (zero: none), pushed 4 further out for another
-  // species: it only dents the cell, softly, where kin share a crisp wall
-  @location(9) @interpolate(flat) contact: vec3u,
-  @location(11) @interpolate(flat) contact2: vec3u,
-  // squashed along this axis by its length (stretched across it), keeping area
-  @location(12) @interpolate(flat) squash: vec2f,
-  // inflation that restores the area those planes cut off; pace through the water (0..1); bend
-  @location(10) @interpolate(flat) jelly: vec3f,
-};
-
-@vertex fn vsPoint(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) -> PO {
-  var o: PO;
-  let ii = pointAt(inst);
-  o.bondSeeds = vec2u(0u, 0x7fffu);
-  o.jelly = vec3f(1.0, 0.0, 0.0);
-  let p = parts[ii];
-  // stone is drawn as one field of boulders (vsStone), not grain by grain
-  if (p.kind == STONE || p.kind == FRAMBOID) { o.pos = vec4f(2.0, 2.0, 0.0, 1.0); return o; }
-  let d = wrapd(p.pos - view.cam) * view.ppu;
-  // Avoid genome/partner reads for offscreen distant sprites.
-  if (view.pointSize <= 6.0 && any(abs(d) > view.res * 0.5 + vec2f(60.0))) {
-    o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
-    return o;
-  }
+// A particle as its distant sprite: its colour, profile and radius in pixels (and how much a resolved
+// cell swims, which sets its reach). vsPoint uses it, and splatMain for sprites too small for quads.
+struct Sprite { col: vec3f, shape: u32, px: f32, swim: f32 };
+fn spriteOf(p: Particle, ii: u32) -> Sprite {
   let k = p.kind;
   var size = 1.0;
   var col: vec3f;
@@ -3656,6 +3637,104 @@ struct PO {
   }
   if (p.id == view.selId) { col = col * 1.5 + vec3f(0.5); size = mix(size, max(size, 1.2) * 1.5, grow); }
   let px = select(max(view.pointSize * size, 0.9), max(view.ppu * 0.13, 0.9), k == STONE);
+  return Sprite(col, shape, px, swim);
+}
+
+// Sprites of a pixel or so (the main view from afar) are added straight into the image, as their light
+// spread over the four nearest pixels, rather than drawn as quads: millions of near-pixel quads cost
+// the vertex and raster stages far more than a thread each. Each brings the light its quad would
+// (pi px^2 times its profile's mean); fsSplat adds the sum into the scene.
+// The rest, too large to splat, are listed for the points' draw (quadW: its indirect arguments, then
+// the particles), so vsPoint runs only for them.
+@compute @workgroup_size(256)
+fn splatMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
+  if (l == 0u) { atomicStore(&quadN, 0u); }
+  workgroupBarrier();
+  let i = gid.x;
+  var slot = NONE;
+  if (i < arrayLength(&parts)) { slot = splatOne(i); }
+  workgroupBarrier();
+  if (l == 0u) { quadBase = atomicAdd(&quadW[1], atomicLoad(&quadN)); }
+  let base = workgroupUniformLoad(&quadBase);
+  if (slot != NONE) { atomicStore(&quadW[4u + base + slot], i); }
+}
+// one particle: splatted, or a slot in this workgroup's share of the quad list (NONE: neither)
+fn splatOne(i: u32) -> u32 {
+  let p = parts[i];
+  if (p.kind == STONE || p.kind == FRAMBOID) { return NONE; }
+  let d = wrapd(p.pos - view.cam) * view.ppu;
+  // as vsPoint culls an unresolved sprite
+  if (view.pointSize <= 6.0 && any(abs(d) > view.res * 0.5 + vec2f(60.0))) { return NONE; }
+  let sp = spriteOf(p, i);
+  if (sp.px > view.splat) { return atomicAdd(&quadN, 1u); }
+  if (any(abs(d) > view.res * 0.5 + vec2f(1.0))) { return NONE; }
+  let light = sp.col * (3.14159265 * sp.px * sp.px * spriteMean(sp.shape) * SPLAT_FIX);
+  let f = view.res * 0.5 + d - 0.5;
+  let c = vec2i(floor(f));
+  let t = f - floor(f);
+  let size = vec2i(view.res);
+  for (var k = 0u; k < 4u; k++) {
+    let o = vec2i(i32(k & 1u), i32(k >> 1u));
+    let at = c + o;
+    if (any(at < vec2i(0)) || any(at >= size)) { continue; }
+    let w = select(1.0 - t.x, t.x, o.x == 1) * select(1.0 - t.y, t.y, o.y == 1);
+    let q = u32(at.y * size.x + at.x) * 3u;
+    let e = light * w;
+    atomicAdd(&splatW[q], u32(e.r + 0.5));
+    atomicAdd(&splatW[q + 1u], u32(e.g + 0.5));
+    atomicAdd(&splatW[q + 2u], u32(e.b + 0.5));
+  }
+  return NONE;
+}
+@fragment fn fsSplat(@builtin(position) at: vec4f) -> @location(0) vec4f {
+  let q = (u32(at.y) * u32(view.res.x) + u32(at.x)) * 3u;
+  return vec4f(f32(splatR[q]), f32(splatR[q + 1u]), f32(splatR[q + 2u]), 0.0) / SPLAT_FIX;
+}
+
+struct PO {
+  @builtin(position) pos: vec4f,
+  @location(0) uv: vec2f,
+  @location(1) col: vec3f,
+  @location(2) @interpolate(flat) shape: u32,
+  @location(3) @interpolate(flat) index: u32,
+  @location(4) @interpolate(flat) geom: vec4f, // radius, occupied area, motion direction
+  @location(5) @interpolate(flat) morph: vec2f, // species variation
+  // up to three fused partners, packed as half floats: offset / own radius; radius ratio and heading;
+  // ID seeds as 16-bit fractions, the third sharing a word with the plans (5 bits each, 31 = absent)
+  @location(6) @interpolate(flat) bondOffset: vec3u,
+  @location(7) @interpolate(flat) bondFrame: vec3u,
+  @location(8) @interpolate(flat) bondSeeds: vec2u,
+  // up to six planes the cell is pressed flat against, each its point nearest the centre in
+  // units of own radius, packed as half floats (zero: none), pushed 4 further out for another
+  // species: it only dents the cell, softly, where kin share a crisp wall
+  @location(9) @interpolate(flat) contact: vec3u,
+  @location(11) @interpolate(flat) contact2: vec3u,
+  // squashed along this axis by its length (stretched across it), keeping area
+  @location(12) @interpolate(flat) squash: vec2f,
+  // inflation that restores the area those planes cut off; pace through the water (0..1); bend
+  @location(10) @interpolate(flat) jelly: vec3f,
+};
+
+@vertex fn vsPoint(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) -> PO {
+  var o: PO;
+  let ii = pointAt(inst);
+  o.bondSeeds = vec2u(0u, 0x7fffu);
+  o.jelly = vec3f(1.0, 0.0, 0.0);
+  let p = parts[ii];
+  // stone is drawn as one field of boulders (vsStone), not grain by grain
+  if (p.kind == STONE || p.kind == FRAMBOID) { o.pos = vec4f(2.0, 2.0, 0.0, 1.0); return o; }
+  let d = wrapd(p.pos - view.cam) * view.ppu;
+  // Avoid genome/partner reads for offscreen distant sprites.
+  if (view.pointSize <= 6.0 && any(abs(d) > view.res * 0.5 + vec2f(60.0))) {
+    o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
+    return o;
+  }
+  let k = p.kind;
+  let sp = spriteOf(p, ii);
+  let col = sp.col;
+  var shape = sp.shape;
+  let swim = sp.swim;
+  let px = sp.px;
   let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
   o.col = col;
   o.shape = shape;
@@ -13750,6 +13829,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var SURVEY_BYTES = SURVEY_MAX_TILES * SURVEY_WORDS * 4;
   var mix2 = (a, b, t2) => a + (b - a) * t2;
   var SIM_STRIDE = 256;
+  var SPLAT_PX = 1.6;
   var MAX_STEPS = 512;
   async function createEngine(device, format, { hasTimestamps = false, K = {} } = {}) {
     const unknown = Object.keys(K).filter((k) => !(k in DEFAULT_K));
@@ -13917,6 +13997,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         label: fs
       });
       this.pPoint = rp(this.drawModule, "vsPoint", "fsPoint", "triangle-strip", additive);
+      this.cpSplat = d.createComputePipeline({ layout: "auto", compute: { module: this.drawModule, entryPoint: "splatMain" }, label: "splatMain" });
+      this.pSplat = rp(this.drawModule, "vsFade", "fsSplat", "triangle-list", additive);
       this.pLine = rp(this.drawModule, "vsLine", "fsLine", "line-list", additive);
       this.pStone = d.createRenderPipeline({
         layout: "auto",
@@ -13978,7 +14060,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     async allocate(n) {
       const d = this.device;
       const b = this.b;
-      const names = ["parts", "sortedFull", "sortedLite", "aux", "intent", "bondsNow", "bondsIn", "touch", "sway", "stoneList", "ledger", "livingList"];
+      const names = ["parts", "sortedFull", "sortedLite", "aux", "intent", "bondsNow", "bondsIn", "touch", "sway", "stoneList", "ledger", "livingList", "quads"];
       for (const k of names) {
         b[k]?.destroy();
         b[k] = null;
@@ -14001,6 +14083,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
       b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
       b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
+      b.quads = d.createBuffer({ size: (4 + n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
       const res = {
         0: { buffer: b.sim },
         1: { buffer: b.parts },
@@ -14069,7 +14152,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         { binding: 9, resource: { buffer: b.sway } },
         { binding: 10, resource: { buffer: b.organDir } },
         { binding: 11, resource: { buffer: b.thermal } },
-        { binding: 12, resource: { buffer: this.cull[k].segs } }
+        { binding: 12, resource: { buffer: this.cull[k].segs } },
+        { binding: 16, resource: { buffer: b.quads } }
       ] });
       this.organsBG = d.createBindGroup({ layout: this.cpOrgans.getBindGroupLayout(0), entries: [
         { binding: 7, resource: { buffer: b.genomes } },
@@ -14114,6 +14198,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         return false;
       }
       this.capacity = n;
+      this._splatBGs();
       return true;
     }
     resize(w, h) {
@@ -14196,6 +14281,15 @@ registerProcessor("tidemote-sound", TidemoteSound);
       ] });
       this.holdCam = null;
       this.clearAccum = !this.carry;
+      this.b.splat?.destroy();
+      this.b.splat = d.createBuffer({ size: w * h * 12, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      this._splatBGs();
+    }
+    _splatBGs() {
+      const d = this.device, b = this.b;
+      if (!b.splat || !b.parts) return;
+      this.splatBG = d.createBindGroup({ layout: this.cpSplat.getBindGroupLayout(0), entries: [[0, b.view], [1, b.parts], [2, b.genomes], [3, b.intent], [5, b.focus], [11, b.thermal], [13, b.splat], [15, b.quads]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+      this.splatDrawBG = d.createBindGroup({ layout: this.pSplat.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: b.view } }, { binding: 14, resource: { buffer: b.splat } }] });
     }
     _ensureLoupeTex(L) {
       if (this.loupeTex && this.loupeSize === L) return;
@@ -15089,7 +15183,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       });
     }
     // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
-    _writeView(buf, data, cam, W, H2, dpr, time, selId, detail = true, culled = false) {
+    _writeView(buf, data, cam, W, H2, dpr, time, selId, detail = true, culled = false, splat = 0) {
       const K = this.K;
       const ppu = cam.ppu;
       const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
@@ -15122,6 +15216,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       vu[19] = f2.memberN;
       vu[20] = detail ? 1 : 0;
       vu[21] = culled ? 1 : 0;
+      v[22] = splat;
       this.device.queue.writeBuffer(buf, 0, data);
     }
     // the stone field for one view: every grain of stone adds its kernel (see vsStone)
@@ -15139,6 +15234,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const v = new Float32Array(data);
       const detail = new Uint32Array(data)[20] === 1;
       const culled = new Uint32Array(data)[21] === 1 ? this.cull[k].args : null;
+      const quads = v[22] > 0 ? this.b.quads : null;
       if (this.settings.links) {
         if (v[7] < 30 || !detail) {
           pass.setPipeline(this.pLine);
@@ -15157,6 +15253,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         pass.setPipeline(this.pPoint);
         pass.setBindGroup(0, bgPoint);
         if (culled) pass.drawIndirect(culled, 0);
+        else if (quads) pass.drawIndirect(quads, 0);
         else pass.draw(4, this.count);
       }
     }
@@ -15263,7 +15360,18 @@ registerProcessor("tidemote-sound", TidemoteSound);
         pass2.end();
       }
       const lod = this.settings.lod;
-      this._writeView(this.b.view, this.viewData, cam, W, H2, dpr, time, selId, lod, culled[0]);
+      const ps = Math.max(1.1 * dpr, 0.085 * cam.ppu);
+      const splat = !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W * H2 / 4 ? SPLAT_PX : 0;
+      this._writeView(this.b.view, this.viewData, cam, W, H2, dpr, time, selId, lod, culled[0], splat);
+      if (splat) {
+        d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0]));
+        enc.clearBuffer(this.b.splat, 0, W * H2 * 12);
+        const pass2 = enc.beginComputePass({ timestampWrites: tsBegin() });
+        pass2.setPipeline(this.cpSplat);
+        pass2.setBindGroup(0, this.splatBG);
+        pass2.dispatchWorkgroups(Math.ceil(this.count / 256));
+        pass2.end();
+      }
       if (lod && new Float32Array(this.viewData)[7] > 6 || loupe || specimen) {
         enc.copyBufferToBuffer(this.b.frameCtr, 20, this.b.bridgeDraw, 4, 4);
       }
@@ -15344,6 +15452,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
           d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([sx, sy, wx * lc.ppu / lc.w, wy * lc.ppu / lc.h, this.settings.trails, 0, 0, 0]));
           pass2.setPipeline(this.pReproj);
           pass2.setBindGroup(0, carry ? carry.bg : this.reprojBG[srcI]);
+          pass2.draw(3);
+        }
+        if (splat) {
+          pass2.setPipeline(this.pSplat);
+          pass2.setBindGroup(0, this.splatDrawBG);
           pass2.draw(3);
         }
         this._drawScene(pass2, this.bgLine, this.bgPoint, this.bgBridge, this.viewData, 0);

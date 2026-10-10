@@ -22,7 +22,8 @@ neighbour loop is what pays. The neighbour loop is about 93% of it; its cost sca
 budget `maxScan`: 192 since 2026-10-09 (288 before), which took about 25% off `lifeMain` (1M world
 2.30 → 1.67 ms, 4M 9.9 → 7.8 ms). It passed the 32-seed gate against 288 and against heat-framboids,
 and 128 seeds at 4-tick steps matched 288 or bettered it (effective species 79.5 ± 4.4 against
-72.0 ± 3.9; reports in `balance/maxscan/`). 144 would save about 35% more and is untested.
+72.0 ± 3.9; reports in `balance/maxscan/`). 144 (another 5-20%) also passed both, with the same
+diversity, but 4 of its 128 long runs collapsed against none at 192 (p = 0.06): kept at 192.
 
 Drawing: zoomed out, the cost is the points' vertex work (4M particles: 4.6 ms, the same at half the
 render scale); zoomed in it is the resolved cells' fragment work, which the render scale reduces
@@ -60,8 +61,13 @@ faster than linearly (the level of detail is set in framebuffer pixels).
 - Tried and dropped: working out each distant sprite once in a compute pass instead of at each of
   its four corners (the 4M far view's points cost the same: the vertices themselves, not their
   arithmetic), and limiting `contactGather` to the grid cells a contact can reach (within noise).
-  For millions of near-pixel points a compute splat (atomic adds into a buffer) is the known faster
-  path; it would change how far sprites look.
+- Seeing most of the world with particles a pixel or so across, and at least a quarter as many
+  particles as pixels, the main view splats sprites of up to 1.6 px (`splatMain`): each adds its
+  sprite's light to the four nearest pixels of a buffer (atomic adds), `fsSplat` adds the buffer into
+  the scene, and only the particles too large to splat are drawn as quads. Drawing from afar: 1M
+  world 1.97 → 1.64 ms, 4M 5.97 → 3.42 ms. The light is the same (the scene's total within 0.03%,
+  `tools/perf/lightsum.mjs`); dense views look about 5% brighter after tone mapping, the light spread
+  over a 2×2 footprint rather than a soft disc.
 
 ## Tools (`tools/perf/`)
 
