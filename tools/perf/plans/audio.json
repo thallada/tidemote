@@ -1,0 +1,7 @@
+{ "worlds": [{ "name": "w4m", "n": 4194304 }, { "name": "w1m", "n": 1048576 }],
+  "scenarios": [
+    { "world": "w4m", "name": "fit-sound", "zoom": "fit", "fps": 60, "scale": "auto", "sound": true, "settle": 10, "seconds": 10, "dispatch": false },
+    { "world": "w4m", "name": "z40-sound", "zoom": 40, "fps": 60, "scale": "auto", "sound": true, "settle": 6, "seconds": 10, "dispatch": false },
+    { "world": "w4m", "name": "z150-sel-sound", "zoom": 150, "fps": 60, "scale": "auto", "sound": true, "select": true, "settle": 6, "seconds": 10, "dispatch": false },
+    { "world": "w1m", "name": "z40-sound", "zoom": 40, "fps": 60, "scale": "auto", "sound": true, "settle": 6, "seconds": 10, "dispatch": false }
+  ] }

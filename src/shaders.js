@@ -84,7 +84,7 @@ export const DEFAULT_K = {
   preyBase: 0.35,
   preyFrac: 0.7,
   kin: 0.8,
-  maxScan: 288,
+  maxScan: 192,     // neighbours a cell weighs per step in a crowd, sampled evenly (each counts for those skipped)
   diag: 0,          // 1: count K.diag's diagnostics into the ledger (DIAG_SLOTS; headless forks record them)
   affScale: 0.42,
   matterPull: 0.6,
@@ -292,10 +292,8 @@ function cellWGSL(K, w) {
   let g = genomes[p.kind];
   let role = roleOf(p.info);
   let sg = g.sig[role];
-  let rec0 = unpack4x8snorm(sg.z);
-  let rec1 = unpack4x8snorm(sg.w);
-  let my0 = unpack4x8snorm(sg.x);
-  let my1 = unpack4x8snorm(sg.y);
+  // its surface signature (x, y) and receptors (z, w), kept packed: sdot reads them as they are
+  let myNorm = sdot(sg.x, sg.x) + sdot(sg.y, sg.y);
   let world = sim.world;
   let invWorld = 1.0 / world;
   let gw = i32(sim.grid.x);
@@ -314,7 +312,9 @@ function cellWGSL(K, w) {
   var dn2 = vec2f(0.0);
 
   var force = vec2f(0.0);
-  // Coarse steps (sim.ticks > 1) also gather how the pair and stone forces change as this cell moves
+  // a coarse step, in lifeMainCoarse (COARSE: a 1/60 s step's pipeline leaves all of it out)
+  let coarse = COARSE && sim.ticks > 1u;
+  // Coarse steps also gather how the pair and stone forces change as this cell moves
   // (their gradients jF, jS: xx, xy, yy) and its neighbours' velocity weighted by how stiffly each holds
   // it (vN / wN, with wN2 for their number): see the motion below.
   var jF = vec3f(0.0);
@@ -356,7 +356,7 @@ function cellWGSL(K, w) {
   let hungry = p.energy < g.reproE * ${f(K.sated)} && eatEff > 0.1 && !th.torpid;
   let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
   // food in reach is gathered by hungry cells; in a coarse step also by any that may grow hungry in it
-  let seek = hungry || (sim.ticks > 1u && eatEff > 0.1 && !th.torpid);
+  let seek = hungry || (coarse && eatEff > 0.1 && !th.torpid);
   let seekHunt = canHunt || (seek && (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN));
   var food = NONE; var foodScore = -1e9;
   // a coarse step keeps the four best, for its meals and for claims lost to other eaters
@@ -399,7 +399,7 @@ function cellWGSL(K, w) {
   // Crowded neighbourhoods are sampled evenly with a random offset, each sample standing for
   // \`stride\` particles, so no direction or grid cell is favoured (scanning in order and stopping
   // at the budget left out the last row and drew dense species into grid-aligned bands).
-  let stride = max(1.0, f32(total) / f32(MAX_SCAN));
+  let stride = max(1.0, f32(total) / f32(sim.maxScan));
   var at = select(0.0, rnd(&s) * stride, stride > 1.0);
   for (var k = 0u; k < nr; k++) {
     let len = f32(re[k] - rs[k]);
@@ -413,9 +413,7 @@ function cellWGSL(K, w) {
       let r = sqrt(r2);
       let x = r * invR;
       let qk = q.kr & 1023u;
-      let s0 = unpack4x8snorm(q.s0);
-      let s1 = unpack4x8snorm(q.s1);
-      let a = clamp((dot(rec0, s0) + dot(rec1, s1)) * ${f(K.affScale)}, -1.0, 1.0);
+      let a = clamp((sdot(sg.z, q.s0) + sdot(sg.w, q.s1)) * ${f(K.affScale)}, -1.0, 1.0);
       let shape = 1.0 - abs(2.0 * x - 1.0 - beta) * invOM;
       var fr: f32;
       // how fr changes with distance (coarse steps' gradient), and the pull that scales shape
@@ -453,15 +451,15 @@ function cellWGSL(K, w) {
           }
         }
         if (seekHunt && r < EAT_R && qk != p.kind) {
-          let da = s0 - my0;
-          let db = s1 - my1;
-          if (dot(da, da) + dot(db, db) > ${f(K.kin)}) {
+          // how far its signature is from this cell's: |s - my|^2
+          let far = sdot(q.s0, q.s0) + sdot(q.s1, q.s1) - 2.0 * (sdot(q.s0, sg.x) + sdot(q.s1, sg.y)) + myNorm;
+          if (far > ${f(K.kin)}) {
             // grazers crop plant cells; flesh-eaters hunt animals (and crop plants reluctantly)
             let plant = (q.kr & (1u << 12u)) != 0u;
             let pref = select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, plant);
             let sc = pref - r;
             if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
-            if (pref > DIET_MIN && sim.ticks > 1u) { pushFood(&fc, &fsc, j, sc); }
+            if (pref > DIET_MIN && coarse) { pushFood(&fc, &fsc, j, sc); }
           }
         }
       } else {
@@ -485,7 +483,7 @@ function cellWGSL(K, w) {
           // a cell ready to divide looks for a grain every tick, so in a coarse step a grain counts if it
           // came within reach at any tick of it: the closest approach of their paths over the step
           var rc = r;
-          if (qk == SILT && sim.ticks > 1u) {
+          if (qk == SILT && coarse) {
             let w = unpack2x16float(q.vel) - selfVel;
             let ww = dot(w, w);
             rc = length(d + w * select(0.0, clamp(-dot(d, w) / ww, 0.0, sim.dt), ww > 1e-12));
@@ -497,13 +495,13 @@ function cellWGSL(K, w) {
             let dv = select(g.dHusk, g.dGlint, qk == GLINT);
             let sc = dv - r;
             if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
-            if (dv > DIET_MIN && sim.ticks > 1u) { pushFood(&fc, &fsc, j, sc); }
+            if (dv > DIET_MIN && coarse) { pushFood(&fc, &fsc, j, sc); }
           }
         }
       }
       if (x >= beta) { dfr = select(-2.0, 2.0, 2.0 * x < 1.0 + beta) * invOM * invR * pull; }
       force += d * (fr / r);${W('mPair(j, q, d, r, x < beta, qk == p.kind, mFr0, fr);')}
-      if (sim.ticks > 1u) {
+      if (coarse) {
         // the pair force d g(r), g = fr / r, has gradient in this cell's position -(g I + g'/r d d')
         let gr = fr / r;
         let c = (dfr * r - fr) / (r2 * r);
@@ -541,7 +539,7 @@ function cellWGSL(K, w) {
   // is untouched and a collision too stiff to resolve shares its momentum; stable for every mode of a
   // clump (tools/fastforward/stiff-modes.py, docs/fast-forward.md).
   var stiff = vec2f(0.0);
-  if (sim.ticks > 1u && wN2 > 0.0) {
+  if (coarse && wN2 > 0.0) {
     let cf = g.force * heavy;
     let cw = ${f(K.stoneWall)} * (1.0 - g.calcify);
     let D = -(restoring(jF * stride) * cf + restoring(jS * stride) * cw);
@@ -568,7 +566,7 @@ function cellWGSL(K, w) {
   if (n2 != NONE) { vB2 = sortedFull[n2].vel; }
   var vel = p.vel;
   var pos = p.pos;
-  for (var k = 0u; k < sim.ticks; k++) {
+  for (var k = 0u; k < select(1u, sim.ticks, COARSE); k++) {
     var fb = bondF;
     if (k > 0u) {
       let t = f32(k) * h;
@@ -619,8 +617,12 @@ function cellWGSL(K, w) {
     * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking;`;
 }
 
-export function simWGSL(K) {
+// dp4a: the WGSL language feature packed_4x8_integer_dot_product is available
+export function simWGSL(K, { dp4a = false } = {}) {
   return COMMON + /* wgsl */ `
+// Coarse steps (sim.ticks > 1) run lifeMain and mindMain as pipelines of their own (lifeMainCoarse):
+// a 1/60 s step's leaves out everything only a coarse step needs, which saves it registers.
+override COARSE = false;
 struct Sim {
   world: vec2f, grid: vec2u,
   count: u32, frame: u32, dt: f32, time: f32,
@@ -632,8 +634,8 @@ struct Sim {
   tidePh: vec4f,
   rock: vec4f,
   // tick: 1/60 s ticks simulated up to the end of this step; ticks: how many this step covers;
-  // tbg: the background water temperature (climate, season, excursion)
-  tick: u32, ticks: u32, tbg: f32, pad1: u32,
+  // tbg: the background water temperature (climate, season, excursion); maxScan: the neighbour budget
+  tick: u32, ticks: u32, tbg: f32, maxScan: u32,
 };
 // kr: 0..9 kind, 10..11 role, 12 plant.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
@@ -670,7 +672,6 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u3
 const EAT_R = ${f(K.eatR)};
 const DIAG = ${K.diag ? 'true' : 'false'};
 const LINK_R = ${f(K.linkR)};
-const MAX_SCAN = ${K.maxScan | 0}u;
 const DIET_MIN = ${f(K.dietMin)};
 const HEAT_ON = ${K.heat ? 'true' : 'false'};
 const TREF = ${f(K.tRef)};
@@ -683,6 +684,8 @@ fn pcg(v: u32) -> u32 {
   return (w >> 22u) ^ w;
 }
 fn rnd(s: ptr<function, u32>) -> f32 { *s = pcg(*s); return f32(*s >> 8u) / 16777216.0; }
+// The dot product of two signatures packed as 4x8 snorm, exactly (whole numbers over 127^2).
+fn sdot(a: u32, b: u32) -> f32 { return ${dp4a ? `f32(dot4I8Packed(a, b)) * ${f(1 / 16129)}` : 'dot(unpack4x8snorm(a), unpack4x8snorm(b))'}; }
 fn gauss(s: ptr<function, u32>) -> f32 { return (rnd(s) + rnd(s) + rnd(s) - 1.5) * 2.0; }
 fn g4(s: ptr<function, u32>) -> vec4f { return vec4f(gauss(s), gauss(s), gauss(s), gauss(s)); }
 fn r4(s: ptr<function, u32>) -> vec4f { return vec4f(rnd(s), rnd(s), rnd(s), rnd(s)) * 2.0 - 1.0; }
@@ -1410,7 +1413,7 @@ ${cellWGSL(K, false)}
     diagAdd(dg, 23u, u32(clamp(Tc - g.topt + 64.0, 0.0, 128.0) * 8.0));
     if (canHunt) { diagAdd(dg, 19u, u32(preyNear.x * 16.0)); diagAdd(dg, 20u, u32(preyNear.y * 16.0)); diagAdd(dg, 21u, 1u); }
   }
-  if (sim.ticks == 1u) {
+  if (!coarse) {
     if (DIAG && canHunt && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && ((sim.tick + p.id) / ${K.eatEvery | 0}u) % ${K.killEvery | 0}u == 0u) {
       diagAdd(dg, 13u, 1u);
       if (isAnimal(food)) { diagAdd(dg, 14u, 1u); }
@@ -1621,7 +1624,7 @@ fn mPair(j: u32, q: Lite, d: vec2f, r: f32, inside: bool, kin: bool, fr0: f32, f
   mN++;
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(256)
 fn mindMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = gid.x;
   if (i >= sim.count || sortedFull[i].id != mind[0] || sortedFull[i].kind < FIRST_LIFE) { return; }
@@ -1889,6 +1892,64 @@ fn surveyMain(@builtin(global_invocation_id) gid: vec3u) {
 }
 `;
 
+// A view that sees little of the world draws only the particles in the grid rows it covers. Particles
+// are sorted by grid cell, so each row's cells in view are one range of indices (two where the view
+// wraps): cullRows lists them as segments (first index, how many come before) with the draws' indirect
+// arguments, and the vertex shaders map an instance to its particle (cullIndex).
+export const CULL_SEGS = 2048;
+export const CULL_WGSL = /* wgsl */ `
+// the view's grid cells (first, count; count.x <= grid width) and the grid
+struct Cull { first: vec2u, count: vec2u, grid: vec2u, pad: vec2u };
+@group(0) @binding(0) var<uniform> cull: Cull;
+@group(0) @binding(1) var<storage, read> cellStart: array<u32>;
+// [0]: (segments, particles), then (first index, particles before) per segment
+@group(0) @binding(2) var<storage, read_write> segs: array<vec2u>;
+// points (4 vertices), lines (4), bridges (30), as drawIndirect arguments
+@group(0) @binding(3) var<storage, read_write> args: array<u32, 12>;
+var<workgroup> sums: array<u32, 256>;
+
+@compute @workgroup_size(256)
+fn cullRows(@builtin(local_invocation_index) l: u32) {
+  let wraps = cull.first.x + cull.count.x > cull.grid.x;
+  let per = select(1u, 2u, wraps);
+  let n = min(cull.count.y * per, ${CULL_SEGS - 1}u);
+  var at: array<u32, 8>;
+  var len: array<u32, 8>;
+  var sum = 0u;
+  for (var k = 0u; k < 8u; k++) {
+    let s = l * 8u + k;
+    var a = 0u; var b = 0u;
+    if (s < n) {
+      let row = ((cull.first.y + s / per) % cull.grid.y) * cull.grid.x;
+      var x0 = cull.first.x; var x1 = min(cull.first.x + cull.count.x, cull.grid.x);
+      if (wraps && s % per == 1u) { x0 = 0u; x1 = cull.first.x + cull.count.x - cull.grid.x; }
+      a = cellStart[row + x0]; b = cellStart[row + x1];
+    }
+    at[k] = a; len[k] = b - a; sum += b - a;
+  }
+  sums[l] = sum;
+  workgroupBarrier();
+  for (var o = 1u; o < 256u; o = o << 1u) {
+    var t = 0u;
+    if (l >= o) { t = sums[l - o]; }
+    workgroupBarrier();
+    sums[l] = sums[l] + t;
+    workgroupBarrier();
+  }
+  var before = sums[l] - sum;
+  for (var k = 0u; k < 8u; k++) {
+    let s = l * 8u + k;
+    if (s < n) { segs[1u + s] = vec2u(at[k], before); }
+    before += len[k];
+  }
+  if (l == 255u) {
+    let total = sums[255];
+    segs[0] = vec2u(n, total);
+    args = array<u32, 12>(4u, total, 0u, 0u, 4u, total, 0u, 0u, 30u, total, 0u, 0u);
+  }
+}
+`;
+
 // Rendering only: each living cell's incoming bonds, so a body's cells fuse with every partner,
 // not only the (up to two) they keep themselves. Bonds are one-sided in the sim.
 export const INBOND_WGSL = COMMON + /* wgsl */ `
@@ -2058,6 +2119,10 @@ struct View {
   memberKind: u32, memberN: u32,
   // 0: draw every cell as its distant sprite at any zoom (no resolved anatomy, bonds stay lines)
   detail: u32,
+  // 1: the draw covers only the grid rows in view (segs, CULL_WGSL); instances map through cullIndex
+  culled: u32,
+  // sprites no larger than this radius in pixels are splatted (splatMain), not drawn as quads; 0: none
+  splat: f32,
 };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -2076,6 +2141,34 @@ struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32 };
 @group(0) @binding(10) var<storage, read> organDir: array<u32>;
 // The water's temperature per grid cell (heatMain), for how heat shows on a cell.
 @group(0) @binding(11) var<storage, read> heatField: array<f32>;
+@group(0) @binding(12) var<storage, read> segs: array<vec2u>;
+// the splatted sprites' light per pixel (r, g, b), in 1/SPLAT_FIX units
+@group(0) @binding(13) var<storage, read_write> splatW: array<atomic<u32>>;
+@group(0) @binding(14) var<storage, read> splatR: array<u32>;
+// the particles in view too large to splat, for the points' draw: indirect arguments, then indices
+@group(0) @binding(15) var<storage, read_write> quadW: array<atomic<u32>>;
+@group(0) @binding(16) var<storage, read> quadR: array<u32>;
+const SPLAT_FIX = 4096.0;
+var<workgroup> quadN: atomic<u32>;
+var<workgroup> quadBase: u32;
+
+// The particle a culled draw's instance ii stands for: the last segment that starts at or before it.
+fn cullIndex(ii: u32) -> u32 {
+  var lo = 1u;
+  var hi = segs[0].x + 1u;
+  while (hi - lo > 1u) {
+    let mid = (lo + hi) / 2u;
+    if (segs[mid].y <= ii) { lo = mid; } else { hi = mid; }
+  }
+  return segs[lo].x + ii - segs[lo].y;
+}
+// the particle a point's instance draws, and the cell a bond's instance draws (living, unless culled)
+fn pointAt(ii: u32) -> u32 {
+  if (view.culled == 1u) { return cullIndex(ii); }
+  if (view.splat > 0.0) { return quadR[4u + ii]; }
+  return ii;
+}
+fn livingAt(ii: u32) -> u32 { if (view.culled == 1u) { return cullIndex(ii); } return livingList[ii]; }
 
 fn kindOn(k: u32) -> bool { return ((focus[k >> 5u] >> (k & 31u)) & 1u) == 1u; }
 fn isMember(id: u32) -> bool {
@@ -2373,43 +2466,10 @@ fn bodyArea(shape: u32, s: vec2f) -> f32 {
   }
 }
 
-struct PO {
-  @builtin(position) pos: vec4f,
-  @location(0) uv: vec2f,
-  @location(1) col: vec3f,
-  @location(2) @interpolate(flat) shape: u32,
-  @location(3) @interpolate(flat) index: u32,
-  @location(4) @interpolate(flat) geom: vec4f, // radius, occupied area, motion direction
-  @location(5) @interpolate(flat) morph: vec2f, // species variation
-  // up to three fused partners, packed as half floats: offset / own radius; radius ratio and heading;
-  // ID seeds as 16-bit fractions, the third sharing a word with the plans (5 bits each, 31 = absent)
-  @location(6) @interpolate(flat) bondOffset: vec3u,
-  @location(7) @interpolate(flat) bondFrame: vec3u,
-  @location(8) @interpolate(flat) bondSeeds: vec2u,
-  // up to six planes the cell is pressed flat against, each its point nearest the centre in
-  // units of own radius, packed as half floats (zero: none), pushed 4 further out for another
-  // species: it only dents the cell, softly, where kin share a crisp wall
-  @location(9) @interpolate(flat) contact: vec3u,
-  @location(11) @interpolate(flat) contact2: vec3u,
-  // squashed along this axis by its length (stretched across it), keeping area
-  @location(12) @interpolate(flat) squash: vec2f,
-  // inflation that restores the area those planes cut off; pace through the water (0..1); bend
-  @location(10) @interpolate(flat) jelly: vec3f,
-};
-
-@vertex fn vsPoint(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> PO {
-  var o: PO;
-  o.bondSeeds = vec2u(0u, 0x7fffu);
-  o.jelly = vec3f(1.0, 0.0, 0.0);
-  let p = parts[ii];
-  // stone is drawn as one field of boulders (vsStone), not grain by grain
-  if (p.kind == STONE || p.kind == FRAMBOID) { o.pos = vec4f(2.0, 2.0, 0.0, 1.0); return o; }
-  let d = wrapd(p.pos - view.cam) * view.ppu;
-  // Avoid genome/partner reads for offscreen distant sprites.
-  if (view.pointSize <= 6.0 && any(abs(d) > view.res * 0.5 + vec2f(60.0))) {
-    o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
-    return o;
-  }
+// A particle as its distant sprite: its colour, profile and radius in pixels (and how much a resolved
+// cell swims, which sets its reach). vsPoint uses it, and splatMain for sprites too small for quads.
+struct Sprite { col: vec3f, shape: u32, px: f32, swim: f32 };
+fn spriteOf(p: Particle, ii: u32) -> Sprite {
   let k = p.kind;
   var size = 1.0;
   var col: vec3f;
@@ -2470,6 +2530,104 @@ struct PO {
   }
   if (p.id == view.selId) { col = col * 1.5 + vec3f(0.5); size = mix(size, max(size, 1.2) * 1.5, grow); }
   let px = select(max(view.pointSize * size, 0.9), max(view.ppu * 0.13, 0.9), k == STONE);
+  return Sprite(col, shape, px, swim);
+}
+
+// Sprites of a pixel or so (the main view from afar) are added straight into the image, as their light
+// spread over the four nearest pixels, rather than drawn as quads: millions of near-pixel quads cost
+// the vertex and raster stages far more than a thread each. Each brings the light its quad would
+// (pi px^2 times its profile's mean); fsSplat adds the sum into the scene.
+// The rest, too large to splat, are listed for the points' draw (quadW: its indirect arguments, then
+// the particles), so vsPoint runs only for them.
+@compute @workgroup_size(256)
+fn splatMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
+  if (l == 0u) { atomicStore(&quadN, 0u); }
+  workgroupBarrier();
+  let i = gid.x;
+  var slot = NONE;
+  if (i < arrayLength(&parts)) { slot = splatOne(i); }
+  workgroupBarrier();
+  if (l == 0u) { quadBase = atomicAdd(&quadW[1], atomicLoad(&quadN)); }
+  let base = workgroupUniformLoad(&quadBase);
+  if (slot != NONE) { atomicStore(&quadW[4u + base + slot], i); }
+}
+// one particle: splatted, or a slot in this workgroup's share of the quad list (NONE: neither)
+fn splatOne(i: u32) -> u32 {
+  let p = parts[i];
+  if (p.kind == STONE || p.kind == FRAMBOID) { return NONE; }
+  let d = wrapd(p.pos - view.cam) * view.ppu;
+  // as vsPoint culls an unresolved sprite
+  if (view.pointSize <= 6.0 && any(abs(d) > view.res * 0.5 + vec2f(60.0))) { return NONE; }
+  let sp = spriteOf(p, i);
+  if (sp.px > view.splat) { return atomicAdd(&quadN, 1u); }
+  if (any(abs(d) > view.res * 0.5 + vec2f(1.0))) { return NONE; }
+  let light = sp.col * (3.14159265 * sp.px * sp.px * spriteMean(sp.shape) * SPLAT_FIX);
+  let f = view.res * 0.5 + d - 0.5;
+  let c = vec2i(floor(f));
+  let t = f - floor(f);
+  let size = vec2i(view.res);
+  for (var k = 0u; k < 4u; k++) {
+    let o = vec2i(i32(k & 1u), i32(k >> 1u));
+    let at = c + o;
+    if (any(at < vec2i(0)) || any(at >= size)) { continue; }
+    let w = select(1.0 - t.x, t.x, o.x == 1) * select(1.0 - t.y, t.y, o.y == 1);
+    let q = u32(at.y * size.x + at.x) * 3u;
+    let e = light * w;
+    atomicAdd(&splatW[q], u32(e.r + 0.5));
+    atomicAdd(&splatW[q + 1u], u32(e.g + 0.5));
+    atomicAdd(&splatW[q + 2u], u32(e.b + 0.5));
+  }
+  return NONE;
+}
+@fragment fn fsSplat(@builtin(position) at: vec4f) -> @location(0) vec4f {
+  let q = (u32(at.y) * u32(view.res.x) + u32(at.x)) * 3u;
+  return vec4f(f32(splatR[q]), f32(splatR[q + 1u]), f32(splatR[q + 2u]), 0.0) / SPLAT_FIX;
+}
+
+struct PO {
+  @builtin(position) pos: vec4f,
+  @location(0) uv: vec2f,
+  @location(1) col: vec3f,
+  @location(2) @interpolate(flat) shape: u32,
+  @location(3) @interpolate(flat) index: u32,
+  @location(4) @interpolate(flat) geom: vec4f, // radius, occupied area, motion direction
+  @location(5) @interpolate(flat) morph: vec2f, // species variation
+  // up to three fused partners, packed as half floats: offset / own radius; radius ratio and heading;
+  // ID seeds as 16-bit fractions, the third sharing a word with the plans (5 bits each, 31 = absent)
+  @location(6) @interpolate(flat) bondOffset: vec3u,
+  @location(7) @interpolate(flat) bondFrame: vec3u,
+  @location(8) @interpolate(flat) bondSeeds: vec2u,
+  // up to six planes the cell is pressed flat against, each its point nearest the centre in
+  // units of own radius, packed as half floats (zero: none), pushed 4 further out for another
+  // species: it only dents the cell, softly, where kin share a crisp wall
+  @location(9) @interpolate(flat) contact: vec3u,
+  @location(11) @interpolate(flat) contact2: vec3u,
+  // squashed along this axis by its length (stretched across it), keeping area
+  @location(12) @interpolate(flat) squash: vec2f,
+  // inflation that restores the area those planes cut off; pace through the water (0..1); bend
+  @location(10) @interpolate(flat) jelly: vec3f,
+};
+
+@vertex fn vsPoint(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) -> PO {
+  var o: PO;
+  let ii = pointAt(inst);
+  o.bondSeeds = vec2u(0u, 0x7fffu);
+  o.jelly = vec3f(1.0, 0.0, 0.0);
+  let p = parts[ii];
+  // stone is drawn as one field of boulders (vsStone), not grain by grain
+  if (p.kind == STONE || p.kind == FRAMBOID) { o.pos = vec4f(2.0, 2.0, 0.0, 1.0); return o; }
+  let d = wrapd(p.pos - view.cam) * view.ppu;
+  // Avoid genome/partner reads for offscreen distant sprites.
+  if (view.pointSize <= 6.0 && any(abs(d) > view.res * 0.5 + vec2f(60.0))) {
+    o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
+    return o;
+  }
+  let k = p.kind;
+  let sp = spriteOf(p, ii);
+  let col = sp.col;
+  var shape = sp.shape;
+  let swim = sp.swim;
+  let px = sp.px;
   let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
   o.col = col;
   o.shape = shape;
@@ -2916,7 +3074,8 @@ struct LO { @builtin(position) pos: vec4f, @location(0) col: vec3f };
   var o: LO;
   o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
   o.col = vec3f(0.0);
-  let i = livingList[ii];
+  // a culled draw covers every particle in view; matter keeps no bonds (NONE below)
+  let i = livingAt(ii);
   if (i == 0xffffffffu) { return o; }
   let it = intent[i];
   let n = select(it.z, it.w, (vi >> 1u) == 1u);
@@ -2967,7 +3126,7 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
 @vertex fn vsBridge(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> BO {
   var o: BO;
   o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
-  let index = livingList[ii];
+  let index = livingAt(ii);
   if (index == NONE) { return o; }
   let it = intent[index];
   let second = vi >= 15u;

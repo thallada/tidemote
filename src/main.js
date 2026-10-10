@@ -5,7 +5,7 @@ import { genomeSerial, readGenome, parseParticle, thermalGuild } from './genome.
 import { seasonAt, createClimate, abioRate } from './climate.js';
 import { createLab } from './lab.js';
 import { createSpecimen } from './specimen.js';
-import { sectHead } from './ui.js';
+import { section, block } from './ui.js';
 import { createTips } from './tip.js';
 import { drawLiving, livingAt } from './charts.js';
 import { genusName, speciesEpithet } from './names.js';
@@ -105,8 +105,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     closeup: prefs.closeup ?? true,
     songMarks: prefs.songMarks ?? 1, // mark the cells that sing: 0 off, 1 the picked species, 2 all
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
-    // pixels per CSS pixel, the frame rate aimed for (0: the display's), and a fixed particle count
-    perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.fps ?? 0, particles: prefs.particles ?? null },
+    // pixels per CSS pixel, the frame rate aimed for (0: the display's; 60 by default, and for prefs
+    // saved before v2, which stored the display's without anyone choosing it), and a fixed particle count
+    perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.v >= 2 ? prefs.fps ?? 60 : 60, particles: prefs.particles ?? null, scan: prefs.scan ?? null },
   };
   // While a pointer is held down on a panel, nothing re-renders under it: replacing the element
   // between pointerdown and pointerup swallows the click.
@@ -128,12 +129,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const trailLevels = [0, 0.45, 0.7, 0.88];
   const trailNames = ['Off', 'Short', 'Long', 'Exposure'];
   let trailIdx = prefs.trails ?? 1;
+  const defaults = { ...eng.settings }; // the engine's own, for Settings' reset
   eng.settings.trails = trailLevels[trailIdx];
   for (const k of ['links', 'nodes', 'bloom', 'optics', 'specks', 'lod', 'tide', 'heat']) if (prefs[k] !== undefined) eng.settings[k] = prefs[k];
+  eng.maxScan = state.perf.scan ?? K.maxScan;
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
+    savePrefs({ v: 2, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   if (prefs.loupe !== undefined && !isCoarse) state.loupe = prefs.loupe;
@@ -204,7 +207,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ perf
   const perf = { samples: [], gpu: 0, fps: 0, frames: 0, fpsT: performance.now(), frameDt: [], lastSubmit: 0, rafMs: 0, goodWindows: 0, ceiling: 1, ceilingUntil: 0, lastAdjust: performance.now(),
-    stepMs: 0, simS: 0, renderR: 0, presentR: 0, worldAt: 0, stepCredit: 0, ticks: 1, held: false, ticksAt: 0, rate: 1, rateT: performance.now(), rateSim: 0 };
+    stepMs: 0, simS: 0, renderR: 0, presentR: 0, worldAt: 0, stepCredit: 0, ticks: 1, held: false, ticksAt: 0, rate: 1, rateT: performance.now(), rateSim: 0,
+    slow: 1, slowCeiling: 0, why: '' };
   let calibWait = null;
   const frameWaiters = [];
   const ema = (a, v, k) => (a ? a + (v - a) * k : v);
@@ -315,7 +319,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
       calStep(`${fmt(n)} particles`, 1);
       return n;
     }
-    const target = hasTS ? 7.5 : 9;
+    // GPU ms a frame of the new world may take: a mature world costs about what it measures at the
+    // start (life fills it within minutes, then swings ±30% with the climate), drawn at 60 fps that
+    // leaves room for zooming and swings, and the adaptive frame rate covers the rest. Phones keep
+    // more in hand (their GPU is shared with the screen); without timestamps the measure overstates.
+    const target = !hasTS ? 9 : isCoarse ? 7.5 : 10;
     const clampN = (x) => clamp(Math.round(x / 4096) * 4096, Math.min(32768, maxN), maxN);
     let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
     seedWorld(n);
@@ -498,7 +506,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const sound = createSound({
     onChange: renderSound,
     onError: (m) => flash(`Sound unavailable: ${String(m).split('\n')[0].slice(0, 80)}`),
-    onSang: (list) => { songEvents.push(...list); if (songEvents.length > 800) songEvents.splice(0, songEvents.length - 800); },
+    onSang: (list) => {
+      // a whole song stops the last one (Field.phrase): its notes still to come won't sound
+      if (list.some((e) => e.whole)) { const now = performance.now(); for (let i = songEvents.length - 1; i >= 0; i--) if (songEvents[i].whole && songEvents[i].at > now) songEvents.splice(i, 1); }
+      songEvents.push(...list);
+      if (songEvents.length > 800) songEvents.splice(0, songEvents.length - 800);
+    },
   });
   // the picked species' slot (-1 for none): a picked cell's, or the living species open in the panel
   function pickedSlot() {
@@ -510,7 +523,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const sp = life.reg.get(serial);
     if (!sp) return;
     const was = sound.on;
-    sound.audition(sp.genome, `sp${serial}`).then(() => { if (!was && sound.on) flash('Sound on'); });
+    // while it lives, its cells keep quiet as the song plays
+    const living = sp.alive && genomeFor(sp.genome.slot)?.serial === sp.serial;
+    sound.audition(sp.genome, `sp${serial}`, living ? sp.genome.slot : -1).then(() => { if (!was && sound.on) flash('Sound on'); });
   }
   let litSlots = null;
   function renderSound() {
@@ -1220,13 +1235,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
     let tab = 'display';
     let pendingN = null;
     // one row per option: its name and key on the left, the choices on the right
-    const choice = (id, title, key, items, cur, tip) => `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ''}</span><div class="row" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? ' disabled' : ''}>${l}</button>`).join('')}</div></div>`;
+    const choice = (id, title, key, items, cur, tip) => `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ''}</span><div class="row segs" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? ' disabled' : ''}>${l}</button>`).join('')}</div></div>`;
     const onoff = (id, title, key, on, tip) => choice(id, title, key, [[1, 'On'], [0, 'Off']], on ? 1 : 0, tip);
-    const head = (t) => sectHead(t);
+    // a group of option rows, under a heading or (text '') none
+    const group = (id, text, rows) => section(id, text, block('', rows));
+    let confirming = false; // the reset button asked to confirm
     const kfmt = (n) => (n >= 1048576 ? `${n / 1048576}M` : `${Math.round(n / 1024)}k`);
     function display() {
       const s = eng.settings;
-      return choice('trails', 'Trails', 'T', trailNames.map((n, i) => [i, n]), trailIdx)
+      return group('look', '', choice('trails', 'Trails', 'T', trailNames.map((n, i) => [i, n]), trailIdx)
         + choice('tide', 'Light map', 'G', [[0, 'Off'], [1, 'Faint'], [2, 'Full']], s.tide, 'light')
         + (s.tide === 2 ? '<div class="ramp"><span>dark</span><i></i><span>full light</span></div>' : '')
         + (K.heat ? choice('heat', 'Heat map', 'E', [[0, 'Off'], [1, 'Shimmer'], [2, 'Full']], s.heat, 'heatmap') : '')
@@ -1236,34 +1253,57 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + onoff('nodes', 'Particles', 'N', s.nodes)
         + (isCoarse ? '' : onoff('loupe', 'Loupe', 'M', state.loupe, 'loupe'))
         + onoff('auto', 'Auto when idle', '', state.auto, 'autoidle')
-        + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks');
+        + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks'));
     }
     function performance_() {
       const s = eng.settings, P = state.perf;
       const dev = Math.min(devicePixelRatio || 1, 2);
       const sizes = PARTICLE_SIZES.filter((n) => n <= maxParticles());
       const nowN = pendingN ?? (P.particles || 'auto');
-      return head('Resolution')
-        + choice('scale', 'Render scale', '', [['auto', 'Auto'], [1, '100%'], [0.75, '75%'], [0.5, '50%'], [0.35, '35%']], P.scale, 'renderscale')
+      return group('res', 'Resolution', choice('scale', 'Render scale', '', [['auto', 'Auto'], [1, '100%'], [0.75, '75%'], [0.5, '50%'], [0.35, '35%']], P.scale, 'renderscale')
         + (P.scale === 'auto' ? choice('floor', 'Auto lowest', '', [[0.75, '75%'], [0.5, '50%'], [0.35, '35%'], [0.25, '25%']], P.floor, 'autofloor') : '')
         + choice('density', 'Pixel density', '', [[1, '1×'], [1.5, '1.5×', dev < 1.5], [2, '2×', dev < 2]], P.density, 'density')
-        + choice('fps', 'Target fps', '', [[30, '30'], [60, '60'], [0, 'Display']], P.fps, 'targetfps')
-        + head('Effects')
-        + onoff('bloom', 'Bloom', 'B', s.bloom > 0, 'bloom')
+        + choice('fps', 'Target fps', '', [[30, '30'], [60, '60'], [0, 'Display']], P.fps, 'targetfps'))
+        + group('fx', 'Effects', onoff('bloom', 'Bloom', 'B', s.bloom > 0, 'bloom')
         + onoff('optics', 'Optics', 'O', s.optics > 0, 'optics')
         + onoff('lod', 'Zoom detail', '', s.lod, 'lod')
         + onoff('specks', 'Suspension', '', s.specks, 'specks')
-        + onoff('closeup', 'Live close-up', '', state.closeup, 'closeup')
-        + head('World')
-        + choice('n', 'Particles', '', [['auto', 'Auto'], ...sizes.map((n) => [n, kfmt(n)])], nowN, 'particles')
+        + onoff('closeup', 'Live close-up', '', state.closeup, 'closeup'))
+        + group('world', 'World', choice('n', 'Particles', '', [['auto', 'Auto'], ...sizes.map((n) => [n, kfmt(n)])], nowN, 'particles')
+        + choice('scan', 'Neighbours', '', [144, 192, 288].map((n) => [n, String(n)]), eng.maxScan, 'neighbours')
         + (pendingN != null && String(pendingN) !== String(P.particles || 'auto')
-          ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === 'auto' ? 'a measured count' : fmt(pendingN)}</button></div>` : '');
+          ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === 'auto' ? 'a measured count' : fmt(pendingN)}</button></div>` : '')
+        + (hasTS ? `<div class="opt"><span class="lbl">${term('profile', 'Profile')}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ''));
+    }
+    // the keyboard note, and this tab's reset (which asks first)
+    function foot() {
+      const reset = confirming
+        ? `<span class="set-reset"><span>Reset every ${tab} setting?</span><button type="button" class="link" data-o="reset-no" data-v="0">Cancel</button><button type="button" class="btn hot-btn" data-o="reset-yes" data-v="0">Reset</button></span>`
+        : `<button type="button" class="link set-reset" data-o="reset" data-v="0">Reset to defaults</button>`;
+      return `<div class="set-foot">${confirming ? '' : '<span class="keys-note">Keyboard: <kbd>?</kbd> lists every shortcut.</span>'}${reset}</div>`;
+    }
+    // this tab's settings as a fresh page opens them (a particle count waits for its own new world)
+    function resetTab() {
+      const s = eng.settings, P = state.perf;
+      if (tab === 'display') {
+        trailIdx = 1; s.trails = trailLevels[trailIdx];
+        for (const k of ['tide', 'heat', 'links', 'nodes']) s[k] = defaults[k];
+        state.currents = false; state.loupe = !isCoarse; state.songMarks = 1;
+        state.auto = true; renderAuto(director.active);
+      } else {
+        for (const k of ['bloom', 'optics', 'specks', 'lod']) s[k] = defaults[k];
+        state.closeup = true;
+        Object.assign(P, { scale: 'auto', floor: 0.5, density: 1.5, fps: 60, scan: null });
+        eng.maxScan = K.maxScan;
+        renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit();
+        pendingN = P.particles ? 'auto' : null;
+      }
     }
     function render() {
       if (el.hidden) return;
       tabs.forEach((b) => { const on = b.dataset.tab === tab; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; });
       $('readout').hidden = tab !== 'performance';
-      opts.innerHTML = tab === 'display' ? display() : performance_();
+      opts.innerHTML = (tab === 'display' ? display() : performance_()) + foot();
       readout(true);
     }
     let roAt = 0;
@@ -1285,6 +1325,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       setText('ro-draw', perf.simS ? perf.renderR.toFixed(1) : '–');
       setText('ro-ceil', state.paused ? '–' : `${perf.ticks}/60 s`);
       setText('ro-rate', state.phase === 'running' && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : '–');
+      setText('ro-aim', state.speed > 1 ? 'as fast as it goes' : `${Math.round(1000 / frameTarget())} fps${perf.why ? ` · ${perf.why}` : ''}`);
     }
     function set(id, v) {
       const s = eng.settings, P = state.perf;
@@ -1306,13 +1347,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'floor') { P.floor = +v; renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
       else if (id === 'density') { P.density = +v; resetAdapt(); fit(); }
       else if (id === 'fps') { P.fps = +v; resetAdapt(); }
+      else if (id === 'scan') { P.scan = +v === K.maxScan ? null : +v; eng.maxScan = +v; }
       else if (id === 'n') pendingN = v === 'auto' ? 'auto' : +v;
       else if (id === 'apply') { const n = pendingN; pendingN = null; setParticles(n); }
+      else if (id === 'profile') { copyProfile(); return; }
+      else if (id === 'reset' || id === 'reset-no') { confirming = id === 'reset'; render(); return; }
+      else if (id === 'reset-yes') { confirming = false; resetTab(); }
       persist();
       render();
     }
     opts.addEventListener('click', (e) => { const b = e.target.closest('[data-o]'); if (b && !b.disabled) set(b.dataset.o, b.dataset.v); });
-    tabs.forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; render(); }));
+    tabs.forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; confirming = false; render(); }));
     $('set-tabs').addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
       const n = tabs.find((b) => b.dataset.tab !== tab);
@@ -1321,12 +1366,31 @@ function run(eng, device, ctx, specCtx, hasTS) {
     function toggle(on = el.hidden) {
       el.hidden = !on;
       btn.setAttribute('aria-expanded', String(on));
-      if (on) { $('help').hidden = true; if (phone()) lab.close(); render(); } else pendingN = null;
+      if (on) { $('help').hidden = true; if (phone()) lab.close(); render(); } else { pendingN = null; confirming = false; }
     }
     btn.addEventListener('click', () => toggle());
     $('set-close').addEventListener('click', () => toggle(false));
     return { render, toggle, readout, isOpen: () => !el.hidden };
   })();
+  // How the page runs on this device, to report it: three seconds of frames timed pass by pass on the
+  // GPU and one simulation step dispatch by dispatch, with what was drawn, copied as JSON.
+  async function copyProfile() {
+    flash('Profiling for three seconds');
+    const passes = {};
+    let frames = 0, gpu = 0;
+    eng.passProfile = true;
+    eng.onPassTimes = (times, f) => { frames++; gpu += f.ms; for (const [k, ms] of times) passes[k] = (passes[k] || 0) + ms; };
+    await sleep(3000);
+    eng.passProfile = false; eng.onPassTimes = null;
+    const per = (x) => +(x / Math.max(1, frames)).toFixed(3);
+    const step = Object.fromEntries((await eng.profileStep(1 / 60)).map(([k, ms]) => [k, +ms.toFixed(3)]));
+    const a = device.adapterInfo || {};
+    const json = JSON.stringify({ ua: navigator.userAgent, gpu: [a.vendor, a.architecture, a.description].filter(Boolean).join(' / '),
+      canvas: [canvas.width, canvas.height], dpr: devicePixelRatio, scale: renderScale, particles: eng.count, neighbours: eng.maxScan, living: life.counts[3],
+      cssPPU: +cssPPU().toFixed(1), speed: state.speed, fps: +perf.fps.toFixed(1), aim: Math.round(1000 / frameTarget()), why: perf.why, audio: sound.load,
+      frameMs: per(gpu), passes: Object.fromEntries(Object.entries(passes).sort((x, y) => y[1] - x[1]).map(([k, x]) => [k, per(x)])), step });
+    try { await navigator.clipboard.writeText(json); flash('Profile copied'); } catch { prompt('The profile, to copy:', json); }
+  }
   function toggleFullscreen() {
     if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
     else document.exitFullscreen?.();
@@ -1507,6 +1571,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function setSpeed(v) {
     state.speed = v;
     perf.ticksAt = 0;
+    perf.stepCredit = 0;
     if (state.paused) state.paused = false;
     clock.owed = 0;
     perf.frameDt.length = 0;
@@ -1659,37 +1724,85 @@ function run(eng, device, ctx, specCtx, hasTS) {
     view.readout();
   }
 
-  // the interval between submitted frames the page aims for, in ms: the target frame rate, or the
-  // display's own (measured from requestAnimationFrame) when it has none or the display is slower
-  const frameTarget = () => Math.max(state.perf.fps ? 1000 / state.perf.fps : 0, perf.rafMs || 16.7);
+  // The frame rate aimed for, as the interval between submitted frames in ms: a whole number of the
+  // display's frames (measured from requestAnimationFrame), so frames stay evenly spaced. The target
+  // (60 by default) is met as closely as that allows: every second frame of a 144 Hz display (72 fps),
+  // every third of a 175 Hz one (58). While the device can't keep up, frames take perf.slow times
+  // longer (30, 20, 15 fps), and at real time steps grow to match (stepTicks).
+  const displayMs = () => perf.rafMs || 16.7;
+  // (Fast speeds fill whatever time a frame has with steps: they keep the full rate.)
+  const frameEvery = () => Math.max(1, Math.round((state.perf.fps ? 1000 / state.perf.fps : 0) / displayMs())) * (state.speed > 1 ? 1 : perf.slow);
+  const frameTarget = () => frameEvery() * displayMs();
+  // At real time or slower a step covers up to one frame of the rate aimed for, in whole 1/60 s ticks
+  // (at most MAX_TICKS): below about 45 fps the world takes coarse steps, which cost far less than the
+  // 1/60 s steps they stand for and keep its ecology (docs/fast-forward.md), so a slow device keeps real time.
+  const stepTicks = () => clamp(Math.ceil(frameTarget() * 60 / 1000 - 0.1), 1, MAX_TICKS);
+  // render scales the auto resolution steps between (down to the floor chosen in Settings)
+  const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
   function resetAdapt() {
     perf.frameDt.length = 0; perf.goodWindows = 0; perf.ceiling = 1; perf.ceilingUntil = 0; perf.lastAdjust = performance.now();
+    perf.slow = 1; perf.why = '';
   }
-  function adaptResolution(now) {
-    // Running fast spends the frame on simulation on purpose; only adapt at real time or slower.
+  // where the browser reports it (Compute Pressure), a device under serious pressure, hot or busy,
+  // backs off before its frames start to miss
+  let pressure = 'nominal';
+  try { new PressureObserver((r) => { pressure = r.at(-1).state; }).observe('cpu').catch(() => {}); } catch { /* unsupported */ }
+  const stressed = () => pressure === 'serious' || pressure === 'critical';
+  // Adapt what a frame costs to what the device sustains, every two seconds at real time or slower
+  // (running fast spends the frame on simulation on purpose). Behind (frames late, or with GPU
+  // timestamps the GPU busy for nearly the whole interval, or the device under pressure): a lower
+  // render scale, then a lower frame rate, or the frame rate first when the simulation is most of the
+  // cost (resolution would barely help). With room again: the frame rate back first, then the scale.
+  function adaptQuality(now) {
+    if (state.phase !== 'running' || state.speed > 1 || state.paused || now - perf.lastAdjust < 2000 || perf.frameDt.length < 6) return;
     // Judged by the interval between submitted frames, not requestAnimationFrame's: while the GPU
     // lags, rAF keeps its cadence and the frames are skipped (inflight), so rAF alone looks smooth.
-    if (state.perf.scale !== 'auto' || state.phase !== 'running' || state.speed > 1 || now - perf.lastAdjust < 2000 || perf.frameDt.length < 30) return;
-    // the mean, not the median: on a 60 Hz display each interval is 16.7 or 33.3 ms, and the median
-    // stays at 16.7 until more than half the frames are missed
+    // The mean, not the median: on a 60 Hz display each interval is 16.7 or 33.3 ms, and the median
+    // stays at 16.7 until more than half the frames are missed.
     const m = perf.frameDt.reduce((a, b) => a + b, 0) / perf.frameDt.length;
     perf.frameDt.length = 0;
     perf.lastAdjust = now;
-    // judged against the frame interval aimed for
-    const T = frameTarget(), floor = state.perf.floor;
-    // the further behind, the larger the step: pixel cost scales with the square of the scale
-    if (m > T * 1.125 && renderScale > floor) {
-      // a scale that just proved too slow is not tried again for a while, so the view doesn't
-      // keep climbing back into the same stutter
-      perf.ceiling = renderScale; perf.ceilingUntil = now + 30000;
-      renderScale = Math.max(floor, renderScale * clamp(Math.sqrt(T / m), 0.7, 0.9)); perf.goodWindows = 0; fit();
-    } else if (m < T * 1.03) {
-      perf.goodWindows++;
-      const cap = now < perf.ceilingUntil ? perf.ceiling * 0.95 : 1;
-      const next = Math.min(1, renderScale * 1.12, cap);
-      if (perf.goodWindows >= 3 && next > renderScale + 0.01) { renderScale = next; perf.goodWindows = 0; fit(); }
-    } else perf.goodWindows = 0;
+    const T = frameTarget(), auto = state.perf.scale === 'auto';
+    const floor = auto ? state.perf.floor : renderScale;
+    // without timestamps perf.gpu is the time from submit to done, which overstates the GPU's share
+    const busy = perf.gpu > T * (hasTS ? 0.92 : 1);
+    const behind = m > T * 1.125 || busy || stressed();
+    const simBound = hasTS && perf.simS > 2 * perf.renderR;
+    if (behind) {
+      perf.why = stressed() ? 'device under pressure' : busy ? 'GPU busy' : 'frames late';
+      perf.goodWindows = 0;
+      // a level that just proved too slow is not tried again for a while, so the view doesn't keep
+      // climbing back into the same stutter
+      perf.ceilingUntil = now + 30000;
+      if (renderScale > floor + 0.01 && !(simBound && perf.slow < 4)) {
+        perf.ceiling = renderScale;
+        // the further behind, the larger the step: pixel cost scales with the square of the scale
+        const want = renderScale * clamp(Math.sqrt(T / m), 0.55, 0.9);
+        renderScale = Math.max(floor, SCALES.find((s) => s <= want + 0.01) ?? floor);
+        resizeDue = true;
+      } else if (perf.slow < 4) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + (m > 2 * T ? 2 : 1)); }
+      return;
+    }
+    if (m > T * 1.03 || stressed()) { perf.goodWindows = 0; return; }
+    perf.goodWindows++;
+    if (perf.goodWindows < 3) return;
+    const held = now < perf.ceilingUntil;
+    // a faster frame rate costs the same GPU time per frame (a step and a drawing), in less time
+    if (perf.slow > 1) {
+      const faster = (T * (perf.slow - 1)) / perf.slow;
+      if (!(held && perf.slow - 1 <= perf.slowCeiling) && (!perf.gpu || perf.gpu < faster * 0.75)) { perf.slow--; perf.goodWindows = 0; }
+      if (perf.slow === 1) perf.why = '';
+      return;
+    }
+    if (!auto) return;
+    const cap = held ? perf.ceiling * 0.95 : 1;
+    const next = [...SCALES].reverse().find((s) => s > renderScale + 0.01 && s <= cap + 0.001);
+    if (next) { renderScale = next; perf.goodWindows = 0; resizeDue = true; }
+    if (renderScale >= 1) perf.why = '';
   }
+  // A new render scale is applied at the start of the next frame, before it takes the canvas's
+  // texture: resizing the canvas after a frame is drawn into it discards that frame (a black flash).
+  let resizeDue = false;
 
   // Where the tracked particle is now: last GPU sample advanced by its own velocity plus the current it rides.
   // the simulated time the frame being drawn shows (after this frame's steps)
@@ -2187,7 +2300,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // Max: the world is drawn about every MAX_FRAME_MS, but the camera, loupe and HUD keep the display's
   // rate. Each display frame's GPU time, the whole display interval, goes to steps of m ticks, less the
   // cost of drawing the world when it is due (else of carrying the last drawn image with the camera).
-  // Up to three frames queue, so the GPU never waits on the page between them.
+  // Up to two frames queue, so the GPU never waits on the page between them.
   function maxPlan(now, m) {
     const world = now - perf.worldAt >= MAX_FRAME_MS;
     if (world) perf.worldAt = now;
@@ -2198,7 +2311,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // part of the interval doesn't leave the GPU idle for the rest of it
     perf.stepCredit = Math.min(perf.stepCredit + (frameTarget() - cost) / S, MAX_STEPS);
     const steps = clamp(Math.floor(perf.stepCredit), 1, MAX_STEPS);
-    perf.stepCredit = Math.max(0, perf.stepCredit - steps);
+    perf.stepCredit = clamp(perf.stepCredit - steps, 0, 1);
     return { steps, dt, world };
   }
   // A fast speed held (drawn as at Max), in steps of m ticks: the steps owed, whole ones (the remainder
@@ -2213,7 +2326,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     let steps = Math.floor(clock.owed / dt);
     // beyond the budget a couple of steps stay owed, to even out whole steps; the rest is dropped
     if (steps > cap) { steps = cap; clock.owed = Math.min(clock.owed - steps * dt, 2 * dt); } else clock.owed -= steps * dt;
-    perf.stepCredit = Math.max(0, perf.stepCredit - steps);
+    // what the budget left unused is not saved up: only its fraction carries (saved up, it once came
+    // due all at once on a switch to Max, hundreds of steps in one submit)
+    perf.stepCredit = clamp(perf.stepCredit - steps, 0, 1);
     return { steps, dt, world };
   }
   // This frame's steps, or null to only draw (too little owed to be worth a step)
@@ -2223,8 +2338,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (perf.held) return coarsePlan(now, perf.ticks);
     const cap = stepCap();
     if (clock.owed < H * 0.2) return null;
-    let n = Math.max(1, Math.ceil(clock.owed / H - 0.05));
-    if (n > cap) { n = cap; clock.owed = n * H; }
+    const most = H * (state.speed <= 1 ? stepTicks() : 1);
+    let n = Math.max(1, Math.ceil(clock.owed / most - 0.05));
+    if (n > cap) { n = cap; clock.owed = n * most; }
     const dt = clock.owed / n;
     clock.owed = 0;
     return { steps: n, dt };
@@ -2234,14 +2350,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const dt = Math.min(100, now - last);
     last = now;
     frameCount++;
+    if (resizeDue) { resizeDue = false; fit(); }
     // the display's own frame interval, for the "Display" target and for pacing
     rafDt.push(dt);
     if (rafDt.length >= 60) { perf.rafMs = median(rafDt); rafDt.length = 0; }
-    // aiming below the display's rate skips frames; a little slack keeps a 60 Hz display at 60
     tickClock(now);
     updateSpeedCap(now);
     updateTicks(now);
-    const due = !state.perf.fps || !perf.lastSubmit || now - perf.lastSubmit >= 1000 / state.perf.fps - 4;
+    // a frame every frameEvery() display frames (half a display frame's slack absorbs the jitter)
+    const due = !perf.lastSubmit || now - perf.lastSubmit >= frameTarget() - displayMs() / 2;
     if (now - perf.fpsT > 500) { perf.fps = (perf.frames * 1000) / (now - perf.fpsT); perf.frames = 0; perf.fpsT = now; }
     if (now - perf.rateT > 1000) {
       const r = (eng.simTime - perf.rateSim) / ((now - perf.rateT) / 1000);
@@ -2250,7 +2367,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     for (let i = frameWaiters.length - 1; i >= 0; i--) if (--frameWaiters[i].n <= 0) { frameWaiters[i].res(); frameWaiters.splice(i, 1); }
 
-    if (!state.busy && inflight < 3 && due) {
+    // Two frames in flight keep the GPU fed without queueing more of its time ahead of everything else
+    // (on a phone the compositor shares the GPU: a deep queue of long frames starves the whole screen).
+    if (!state.busy && inflight < 2 && due) {
       perf.frames++;
       if (perf.lastSubmit) perf.frameDt.push(Math.min(Math.max(50, frameTarget() * 2.5), now - perf.lastSubmit));
       perf.lastSubmit = now;
@@ -2295,6 +2414,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       Object.assign(cam, { x: cur.x, y: cur.y, zoom: cur.zoom }); viewSimTime = cur.t;
       specimen.drawViewerUI(now);
       specimen.mindTick(now);
+      // Max and coarse speeds draw the world only when due (step.world), carrying it with the camera between
+      const hold = (state.speed === Infinity || perf.held) && !state.paused && state.phase === 'running' ? !!step.world : null;
       eng.frame({
         target: ctx.getCurrentTexture().createView(),
         cam: { x: cam.x, y: cam.y, ppu: ppu() },
@@ -2305,9 +2426,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
         dpr,
         selId: sel ? sel.id : NONE,
         loupe: L ? { x: L.sx * dpr, y: L.sy * dpr, r: L.R * dpr, ppu: L.cssPPU * dpr, cx: L.cx, cy: L.cy } : null,
-        specimen: specimenParams(),
-        // Max and coarse speeds draw the world only when due (step.world), carrying it with the camera between
-        hold: (state.speed === Infinity || perf.held) && !state.paused && state.phase === 'running' ? !!step.world : null,
+        // the close-up only when the world is drawn: a canvas not given a new texture keeps its last image
+        specimen: hold === false ? null : specimenParams(),
+        hold,
       });
       inflight++;
       const sent = cur;
@@ -2318,7 +2439,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (specimen.isOpen()) specimen.songTick(performance.now(), songEvents); // every display frame, whatever the GPU's pace
     renderFeed();
     lab.render(false);
-    adaptResolution(now);
+    adaptQuality(now);
     if (state.phase === 'running') updateHud(now);
     requestAnimationFrame(frame);
   }
@@ -2327,7 +2448,18 @@ function run(eng, device, ctx, specCtx, hasTS) {
   resetClimate();
   requestAnimationFrame(frame);
 
-  document.addEventListener('visibilitychange', () => { perf.frameDt.length = 0; perf.lastSubmit = 0; perf.lastAdjust = performance.now() + 1500; });
+  // Hidden, the page draws nothing (requestAnimationFrame stops) and the soundtrack fades out.
+  document.addEventListener('visibilitychange', () => {
+    perf.frameDt.length = 0; perf.lastSubmit = 0; perf.lastAdjust = performance.now() + 1500;
+    sound.away(document.hidden);
+  });
+  // a handle for tools/perf, which profiles the page in a real browser
+  globalThis.__tidemote = { state, cam, perf, eng, sound, life: () => life, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
+    setScale(v) { state.perf.scale = v; if (v !== 'auto') renderScale = v; resetAdapt(); fit(); },
+    // as the adaptive scale does it: applied when the next frame begins
+    queueScale(v) { renderScale = v; resizeDue = true; },
+    // a world saved by eng.readState(), in place of this one
+    loadWorld(s) { eng.writeState(s); resetDirector(); resetLife(); resetClimate(); sound.reset(); lab.reset(); specimen.reset(); deselect(); clearFocus(); } };
 
   calibrate().then(() => {
     state.phase = 'running';

@@ -50,7 +50,7 @@ class TidemoteSound extends AudioWorkletProcessor {
     else if (load > 0.5) e.maxVoices = Math.max(VOICES[0], e.maxVoices - 4);
     else if (load < 0.3) e.maxVoices = Math.min(VOICES[2], e.maxVoices + 2);
     this.busy = 0; this.span = 0;
-    if (currentTime - this.lastPost >= 2) { this.lastPost = currentTime; this.port.postMessage({ type: 'load', load: this.load }); }
+    if (currentTime - this.lastPost >= 2) { this.lastPost = currentTime; this.port.postMessage({ type: 'load', load: this.load, shed: e.shedN, voices: live, cap: e.maxVoices }); }
   }
 }
 const VOICES = [16, 72, 96]; // the voice limit's floor, start and ceiling

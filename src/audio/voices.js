@@ -794,14 +794,21 @@ export class Engine {
     // The most notes that may sound at once (the worklet lowers it when the device can't keep
     // up). Beyond it the oldest notes fade out over a few milliseconds instead of the audio
     // breaking up; persistent nodes (sea, drone, swarm) are never shed.
-    this.maxVoices = Infinity; this.fading = 0;
+    this.maxVoices = Infinity; this.fading = 0; this.shedN = 0;
   }
+  // Voices are kept in the order they started, so the oldest come first. A whole song's notes (solo)
+  // go last, only when nothing else is left to let go.
   shed() {
     let over = this.voices.length - this.fading - this.maxVoices;
-    if (over <= 0) return;
-    const old = this.voices.filter((v) => !v.persistent && !v.shed).sort((a, b) => b.age - a.age);
-    for (let i = 0; i < over && i < old.length; i++) { old[i].shed = true; old[i].fade = FADE_BLOCKS; this.fading++; }
+    for (const solo of [false, true]) {
+      for (let i = 0; i < this.voices.length && over > 0; i++) {
+        const v = this.voices[i];
+        if (!v.persistent && !v.shed && !!v.p.solo === solo) { this.release(v); this.shedN++; over--; }
+      }
+    }
   }
+  // let a note go: a short fade, then it is done
+  release(v) { if (!v.shed && !v.persistent) { v.shed = true; v.fade = FADE_BLOCKS; this.fading++; } }
   nextSeed() { this.seed = (Math.imul(this.seed, 1664525) + 1013904223) >>> 0; return this.seed; }
   // start a synth; id (optional) names a persistent node that can be set later
   spawn(def, params, id) {

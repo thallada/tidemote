@@ -1,0 +1,4 @@
+{ "worlds": [{ "name": "auto", "n": null, "fresh": true }],
+  "scenarios": [
+    { "world": "auto", "name": "growth-1x", "kind": "growth", "speed": 1, "seconds": 240, "every": 20 }
+  ] }
