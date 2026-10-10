@@ -2,13 +2,24 @@
 
 export const GLOSSARY = {
   silt: 'Inert grit, most of the world’s matter. It drifts on currents, is charged into glint by the Tide, and every newborn cell is built out of one grain of it.',
-  glint: 'Charged silt: free-floating food holding 1.0 energy. It forms mostly inside tide bands, leaks charge, and fades back to silt after about 27 s if nothing eats it.',
-  husk: 'A dead cell’s remains. Starved, elderly and killed cells all leave one. Holds leftover energy for scavengers and crumbles back into silt after about half a minute.',
+  glint: 'Charged silt: free-floating food holding 1.0 energy. It forms mostly inside tide bands (and around hot springs), leaks charge, and fades back to silt after about 27 s if nothing eats it: sooner in warm water, later in cold.',
+  husk: 'A dead cell’s remains. Starved, elderly, killed and scalded cells all leave one. Holds leftover energy for scavengers and crumbles back into silt after about half a minute: cold water keeps carcasses for the scavengers, warm water rots them fast, and a rotting pile warms its water a little.',
   living: 'Cells: particles with a genome. They feed, pay upkeep, divide by building a child out of silt, and die into husks.',
   tide: 'Four slow waves summed across the wrap-around world. Where they add up, bright bands form and drift. The Tide charges silt into glint and adds to the light.',
   light: 'What photosynthesising cells feed on: a dim baseline everywhere (set by the era) plus the Tide on top, scaled by the season.',
   season: 'A 5-minute cycle that swings tide strength between 10% and 100%. Glint production and peak light follow it, which drives booms and busts.',
-  era: 'Every 10–18 minutes the climate turns: the baseline light and glint production change, one tide wave is replaced, and the currents shift. The names are random labels.',
+  era: 'Every 10–18 minutes the climate turns: the baseline light, glint production and the water’s temperature change, one tide wave is replaced, and the currents shift. An era that warms the water by 5° or more is named Warm or Rising, one that cools it Bitter or Pale; otherwise the names are random labels.',
+  water: 'The water’s background temperature, set by the climate: it walks from era to era between 4° and 28°, swings ±2.5° with the season, and now and then a heat wave or cold snap passes. Life warms its own water above this: every cell’s spent energy becomes heat, so crowds, bodies and reefs sit in warm patches.',
+  heatmap: 'How heat is drawn. Shimmer: warm water bends light like the air over a hot road, so plumes, colony halos and fronts waver. Full: a thermal camera, deep blue to teal to amber to white over a span from 2° below the background water to 10° above it, with a line every 2°.',
+  thermal: 'How well a cell works at its temperature: a rate that scales its photosynthesis, digestion and swimming. It is at its best within half a tolerance of the species’ optimum (higher the narrower its tolerance), then falls slowly on the cold side and steeply on the warm side. Away from its optimum a cell also pays extra upkeep for the stress.',
+  optimum: 'The temperature a species works best at (a gene, 0–45°). It drifts by mutation, so lineages can follow the climate or find a warm or cold refuge. A spark of life founds a species suited to the water it sparked in.',
+  tolerance: 'How far from its optimum a species still works (a gene, ±2–15°). Narrow specialists work up to 25% better at their optimum than broad generalists, but a few degrees away they falter.',
+  heatmaker: 'A species that burns extra energy (up to 0.03 per second) as heat. Its cells run warmer than the water, more so in a body, and its colonies warm the water around them: lifeboats for itself and for warmth-lovers in a cold snap, overheating traps in a heat wave.',
+  torpor: 'Far below its optimum (more than 1.25 tolerances) a cell goes torpid: it neither feeds, swims nor divides, pays a quarter of its upkeep, dims, its pulse stops and it falls silent, until the water warms.',
+  scalding: 'Far above its optimum a cell begins to die of the heat: a chance each second, rising steeply. A scalded cell leaves a husk. Heat-stressed cells bleach toward pale bone first.',
+  thermotaxis: 'Swimmers away from their optimum steer up or down the warmth of the water toward it, harder the further off they are. Drifters and anchored cells cannot steer; heat sorts them by who survives where.',
+  framboid: 'A pyrite framboid: a sphere of tiny iron sulfide crystals, a few microns across like the cells. Framboids grow where a pile of husks rots in cool water (the rot releases the sulfide), and a few lie in the mud from the start. As one oxidises it warms its water, burning faster the warmer that water is, so a crowded, hot cluster burns itself out; spent, it crumbles to silt. Their warmth charges nearby silt into glint (a hot spring), sparks of life favour it, and heat-loving species gather round them. Framboids are solid like stone.',
+  heatwave: 'An excursion of the climate: for a few minutes the water rises (a heat wave) or falls (a cold snap) by 5–8°. Heat waves scald and bleach; cold snaps still the world except where heat-makers keep colonies warm.',
   epoch: 'Simulated time since this universe began.',
   abiogenesis: 'Life sparking from glint: a completely random new species, about once every 30 simulated seconds on average.',
   flesh: 'Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Caught animal prey is killed outright and leaves a husk; this takes time, so a hunter manages at most one kill every few seconds. Plant cells are cropped a 0.06-energy bite at a time. Bonded bodies are armoured and shrug off some attacks.',
@@ -107,7 +118,7 @@ export const GUIDE = [
   {
     id: 'overview', title: 'What you are looking at', short: 'Overview',
     html: `<p>Tidemote is a sealed world on the surface of a torus: what leaves one edge enters the opposite one. Every point is one particle, and the total number never changes. Particles only change form: inert ${t('silt', 'silt')}, charged ${t('glint', 'glint')}, living cells, dead ${t('husk', 'husks')}, and ${t('stone', 'stone')}: the world's bedrock and the reefs that calcifying cells leave behind.</p>
-<p>Energy is the only thing that enters and leaves. It arrives as ${t('light', 'light')} and as glint charged by the ${t('tide', 'Tide')}, and it is lost as cells pay ${t('upkeep', 'upkeep')}, as glint fades and as husks decay. Everything you see grows out of a handful of local rules applied to every particle 60 times a second.</p>`,
+<p>Energy is the only thing that enters and leaves. It arrives as ${t('light', 'light')}, as glint charged by the ${t('tide', 'Tide')} and as the heat of oxidising ${t('framboid', 'framboids')}. The energy cells spend on ${t('upkeep', 'upkeep')} becomes heat that warms their own ${t('water', 'water')}, spreads, drifts on the currents and is lost to the deep; glint fades and husks rot. Everything you see grows out of a handful of local rules applied to every particle 60 times a second.</p>`,
   },
   {
     id: 'cycle', title: 'The matter cycle', short: 'Matter',
@@ -123,8 +134,15 @@ export const GUIDE = [
   {
     id: 'climate', title: 'Tides, light, seasons and eras', short: 'Climate',
     html: `<p>The ${t('tide', 'Tide')} is four slow waves summed over the torus; where they add up, bright bands form and drift. ${t('light', 'Light')} is a dim baseline everywhere plus the Tide on top. So tide bands are rich in both glint and light, while baseline light lets plants live anywhere.</p>
-<p>The ${t('season', 'season')} is a 5-minute cycle that swings tide strength between 10% and 100%; it drives the regular booms and busts. Every 10–18 minutes an ${t('era', 'era')} begins: the baseline light and glint production change, one tide wave is replaced so the bright zones form and move differently, and two current patterns are swapped. Era names are random labels; the event log says what actually changed.</p>
-<p><b>Settings → Light map</b> colours every point by the light a photosynthesising cell would receive there, with a contour every 10%; <b>Settings → Currents</b> draws the flow that carries silt, glint and drifting cells. The <b>Tide</b> gauge at the top follows the season: the dot rides the 5-minute wave.</p>`,
+<p>The ${t('season', 'season')} is a 5-minute cycle that swings tide strength between 10% and 100%; it drives the regular booms and busts. Every 10–18 minutes an ${t('era', 'era')} begins: the baseline light and glint production change, one tide wave is replaced so the bright zones form and move differently, and two current patterns are swapped. The water’s temperature walks from era to era, so each world has its own thermal history; eras that warm or cool it a lot are named for it, otherwise era names are random labels, and the event log says what actually changed.</p>
+<p><b>Settings → Light map</b> colours every point by the light a photosynthesising cell would receive there, with a contour every 10%; <b>Settings → Currents</b> draws the flow that carries silt, glint and drifting cells. The <b>Tide</b> gauge at the top follows the season: the dot rides the 5-minute wave, and the <b>Temp</b> thermometer beside it shows the background temperature, with an arrow while it changes; it breathes during a heat wave or cold snap.</p>`,
+  },
+  {
+    id: 'heat', title: 'Heat', short: 'Heat',
+    html: `<p>The water has a temperature, and most of its warmth comes from life. Every unit of energy a cell spends on ${t('upkeep', 'upkeep')} becomes heat in its water, so crowds, bodies and reefs sit in warm patches of their own making. Heat also comes from sunlight (a little), from rotting carcass piles, and from ${t('framboid', 'framboids')}: grains of pyrite that crystallise in those piles and warm their water as they burn out over a few minutes, so a die-off leaves a warm oasis behind it for a while. Heat spreads a few cells, rides the currents (warm water trails downstream of a bloom) and relaxes toward the climate's ${t('water', 'background')} within about half a minute. Stone holds heat: reefs and bedrock warm and cool slowly.</p>
+<p>Each species prefers a temperature (its ${t('optimum', 'optimum')}) and stands only so much either side (its ${t('tolerance', 'tolerance')}). How well it ${t('thermal', 'works')} falls off slowly in the cold and steeply in the heat, and narrow specialists work best of all at their optimum, so small differences in warmth matter. Swimmers steer toward water that suits them (${t('thermotaxis', 'thermotaxis')}). Far too cold, a cell goes ${t('torpor', 'torpid')}; far too hot, it bleaches and may ${t('scalding', 'scald')}.</p>
+<p>${t('heatmaker', 'Heat-makers')} burn extra energy to warm themselves and their water. In a cold era their colonies are lifeboats where life keeps moving and singing while the world around it goes still; in a ${t('heatwave', 'heat wave')} they overheat from the core outward. Warm water also wears glint and husks faster, so cold eras favour grazers and scavengers and warm ones recycle matter quickly.</p>
+<p><b>Settings → Heat map</b> (E): <b>Shimmer</b> makes warm water waver as if seen through rising heat; <b>Full</b> is a thermal camera with an isotherm every 2°. Framboids show as brassy beaded spheres, faintly glowing while they burn.</p>`,
   },
   {
     id: 'cells', title: 'Cells, cell types and bodies', short: 'Cells',
@@ -155,7 +173,8 @@ export const GUIDE = [
 <li>Catching takes skill: cells catch living prey in proportion to how well they are built to eat it, so photosynthesisers and husk eaters rarely kill.</li>
 <li>Hunters and grazers get good at catching what they caught last and often miss unfamiliar prey, so booming species feed their predators and rare ones are spared.</li>
 <li>Anchored photosynths thrive where currents run strong; drifting ones where they are calm. Bonded bodies live cheaply and resist attack but disperse poorly.</li>
-<li>The climate keeps changing which strategy pays.</li>
+<li>Heat links species that never touch: a heat-maker's colony warms its neighbours, helping the warmth-lovers among them and driving the cold-lovers away, so species sort into thermal territories of their own making.</li>
+<li>The climate keeps changing which strategy pays, and its temperature walks, so the lineages that track it and those that hide in refuges trade places.</li>
 </ul>
 <p>Mass is conserved, so every birth needs silt freed by some earlier death or meal. Life is limited by matter as well as energy.</p>`,
   },
@@ -167,7 +186,7 @@ export const GUIDE = [
   {
     id: 'reading', title: 'Reading the screen', short: 'Screen',
     html: `<ul>
-<li><b>Colour</b>: the species, tinted per cell type. Related species share hues. Brightness shows stored energy; newborns flash; some lineages pulse.</li>
+<li><b>Colour</b>: the species, tinted per cell type. Related species share hues. Brightness shows stored energy; newborns flash; some lineages pulse. Heat-stressed cells bleach toward pale bone, torpid ones dim to a cold blue and stop pulsing, and heat-makers glow faintly warm.</li>
 <li><b>Shape</b>: disc, ring, star, nucleus or diamond, a lineage marker per cell type. Husks are dim brown rings, glint is a pale sparkle, silt is faint slate.</li>
 <li><b>Links</b>: ${t('bond', 'bonds')} within one multicellular body.</li>
 <li><b>Census</b>: the bar splits every particle between living cells, glint, husks, stone and silt. The chart below it stacks living cells by species in their colours (point at a band to name its species, click to open it); the pale top band is life in species too small to list, and dotted lines mark new eras.</li>

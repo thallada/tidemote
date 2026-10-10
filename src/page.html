@@ -36,8 +36,9 @@
   <header class="rail" id="rail">
     <div class="brand" aria-label="Tidemote"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></svg><span>Tidemote</span></div>
     <div class="clock" role="timer" aria-label="Simulated time"><span class="lbl">Epoch</span><b id="epoch">0:00</b></div>
-    <div class="era-box"><span class="lbl" id="era-n">Era 01</span><b id="era">The First Tides</b></div>
+    <div class="era-box"><span class="lbl" id="era-n">Era 01</span><b id="era">The First Tides</b><span class="era-tide" id="era-tide" aria-hidden="true"><svg viewBox="0 0 60 6" preserveAspectRatio="none"><path/></svg><i></i></span></div>
     <div class="gauge term" data-tip="light" tabindex="0" id="g-light"><span class="lbl">Light</span><span class="seg" id="light-seg" aria-hidden="true"></span><b id="light-v">–</b></div>
+    <div class="gauge term" data-tip="water" tabindex="0" id="g-heat"><span class="lbl">Temp</span><svg class="thermo" id="thermo" viewBox="0 0 68 18" aria-hidden="true"></svg><svg class="thermo-i" id="thermo-i" viewBox="0 0 12 20" aria-hidden="true"></svg><b id="heat-v">–</b></div>
     <div class="gauge term" data-tip="season" tabindex="0" id="g-tide"><span class="lbl">Tide</span><svg id="tide-wave" viewBox="0 0 60 16" aria-hidden="true"><path class="wave" d=""/><circle class="dot" r="2.2" cx="0" cy="8"/></svg><b id="tide-v">–</b></div>
     <div class="rail-right">
       <div class="stat"><span class="lbl">Living</span><b id="r-living">–</b></div>
@@ -179,7 +180,7 @@
     <dt>V</dt><dd>Settings</dd>
     <dt>S · − =</dt><dd>Sound · volume</dd>
     <dt>T</dt><dd>Trails</dd>
-    <dt>G · W</dt><dd>Light map · currents</dd>
+    <dt>G · E · W</dt><dd>Light map · heat map · currents</dd>
     <dt>L N B O</dt><dd>Bonds · particles · bloom · optics</dd>
     <dt>M · [ ]</dt><dd>Loupe · magnification</dd>
     <dt>0 · F · I</dt><dd>Reset zoom · fullscreen · hide readouts</dd>

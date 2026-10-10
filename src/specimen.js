@@ -1,5 +1,6 @@
-import { roleShares, roleColor, affinity, CELL_SHAPES, cellShape } from './genome.js';
+import { roleShares, roleColor, affinity, CELL_SHAPES, cellShape, thermalPerf, thermalGuild } from './genome.js';
 import { FIRST_LIFE } from './engine.js';
+import { FRAMBOID, stoneGrain } from './shaders.js';
 import { tagsOf } from './facets.js';
 import { tideAt } from './flow.js';
 import { fmt, fmtClock, fmtDur, esc, cssCol, cssRgb, term, spLink, meter, clamp, ROLE, MATTER, CAUSE, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
@@ -158,6 +159,13 @@ export function createSpecimen(api) {
   }
   const blk = (title, html, opts) => block(title, html, opts);
   const vital = (label, frac, cls, text, tip) => `<div class="vital"><span>${tip ? term(tip, label) : label}</span>${meter(frac, cls)}<b>${text}</b></div>`;
+  // How warm a cell is against its species' range: a needle on a cold-to-hot scale running two
+  // tolerances either side of its optimum, over the band where it works at its best.
+  const warmthVital = (m, g, text) => {
+    const at = (t) => (clamp((t - (g.topt - 2 * g.tol)) / (4 * g.tol), 0, 1) * 100).toFixed(1);
+    const lo = at(g.topt - K.thermalFlat * g.tol), hi = at(g.topt + K.thermalFlat * g.tol);
+    return `<div class="vital"><span>${term('thermal', 'Warmth')}</span><span class="tgauge${m.x > 0.8 || m.torpid ? ' alarm' : ''}"><em style="left:${lo}%;width:${(hi - lo).toFixed(1)}%"></em><i style="left:${at(m.warmth)}%"></i></span><b>${text}</b></div>`;
+  };
   const lightAt = (p) => { const [W, H] = eng.grid; return Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H, eng.simTime, eng.tide, eng.tidePh) * eng.season) * 100); };
 
   // ------------------------------------------------------------ behaviour (mind.js, mindview.js)
@@ -181,8 +189,15 @@ export function createSpecimen(api) {
   }
 
   // The cell's own record and, while it lives, its energy budget between meals (from the replay).
-  function cellBlock(p, g, past) {
+  function cellBlock(p, g, past, mind) {
     let h = kv('Cell type', `<span class="greek">${ROLE[p.role]}</span>-cell`, 'celltype');
+    // the warmth meter above shows the reading; here, what it means for this cell
+    const m = mind && mind.m;
+    if (K.heat && !past && g) {
+      h += kv('Warmth', !m ? '—' : m.torpid ? `${Math.round(m.warmth)}° · torpid, ${Math.max(1, Math.round(g.topt - g.tol * K.torporAt - m.warmth))}° below its range`
+        : m.x > 0.8 ? `${Math.round(m.warmth)}° · scalding, best ${Math.round(g.topt)}°`
+          : `${Math.round(m.warmth)}° · works ${Math.round(m.perf * 100)}%, best ${Math.round(g.topt)}°${m.warmth - m.water > 0.4 ? ` · runs ${Math.round(m.warmth - m.water)}° warm` : ''}`, 'thermal');
+    }
     h += kv('Origin', CAUSE[p.cause] || 'a founder of this world', 'origin');
     h += kv('Generation', fmt(p.gen), 'generation');
     h += kv('Speed', fmtLen(Math.hypot(p.vx, p.vy), '/s'), 'speed');
@@ -198,6 +213,8 @@ export function createSpecimen(api) {
     h += kv('Upkeep', b ? `<span class="neg">${signed(-b.upkeep)}/s</span>` : '—', 'upkeep');
     h += kv('Crowding', !b ? '—' : b.crowding > 0.01 ? `upkeep +${Math.round(b.crowding * 100)}%` : none, 'crowding');
     if (g && (g.adhesion || 0) > K.adhMin) h += kv('Bond share', !b ? '—' : b.thrift > 0.001 ? `upkeep −${Math.round(b.thrift * 100)}%` : none, 'bondthrift');
+    if (K.heat) h += kv('Heat stress', !b ? '—' : mind.m.torpid ? `torpid: burns ${Math.round(K.torporCost * 100)}% of its upkeep` : b.stress > 0.01 ? `upkeep +${Math.round(b.stress * 100)}%` : none, 'thermal');
+    if (K.heat && (g.thermo || 0) > 0.005) h += kv('Heat-making', b ? `<span class="neg">${signed(-b.heatMaking)}/s</span>` : '—', 'heatmaker');
     h += kv('Saving energy', !b ? '—' : b.lean < 0.995 ? `burns ${Math.round(b.lean * 100)}% of its upkeep` : none, 'lean');
     h += kv('Net', b ? `<span class="${b.net >= 0 ? 'pos' : 'neg'}">${signed(b.net)}/s</span> between meals` : '—', 'mind-net');
     return blk('Energy budget', h, { tip: 'energy' });
@@ -261,8 +278,13 @@ export function createSpecimen(api) {
     }
     return `<div class="blk song" data-slot="${slot}" data-tag="sp${g.serial}">${h}</div>`;
   }
-  // light the notes being sung (events from the soundtrack: { at, slot, k, line })
-  const HOLD = 240;
+  // light the notes being sung, each for as long as it sounds, and run a playhead along the song's
+  // time axis at its tempo from the note last struck (events from the soundtrack: { at, dur, step,
+  // whole, slot, k, line }); a short note still flashes for HOLD ms. The playhead follows only a whole
+  // song (the species picked, or played): the world's fragments come in anywhere in the song. It never
+  // wraps by itself: it runs to the end of the roll and rests there GLIDE ms before fading, unless a
+  // new note moves it
+  const HOLD = 240, GLIDE = 400;
   let songKey = '';
   function songTick(now, events) {
     const blk = body.querySelector('.blk.song');
@@ -272,20 +294,26 @@ export function createSpecimen(api) {
     const lit = [];
     for (const e of events) {
       if ((e.slot !== slot || slot < 0) && e.slot !== tag) continue;
-      if (e.at > now || now >= e.at + HOLD) continue;
-      lit.push(`${e.line}:${e.k}`);
-      if (!last || e.at > last.at) last = e;
+      if (e.at > now) continue;
+      if (now < e.at + Math.max(HOLD, e.dur || 0)) lit.push(`${e.line}:${e.k}`);
+      if (e.whole && (!last || e.at > last.at)) last = e;
     }
-    const key = lit.sort().join(',') + (last ? `|${last.line}:${last.k}` : '');
-    if (key === songKey && blk.dataset.drawn) return;
-    songKey = key; blk.dataset.drawn = '1';
-    const set = new Set(lit);
-    for (const r of blk.querySelectorAll('rect[data-k]')) r.classList.toggle('lit', set.has(`${r.dataset.l}:${r.dataset.k}`));
-    const ph = blk.querySelector('.ph');
+    const key = lit.sort().join(',');
+    if (key !== songKey || !blk.dataset.drawn) {
+      songKey = key; blk.dataset.drawn = '1';
+      const set = new Set(lit);
+      for (const r of blk.querySelectorAll('rect[data-k]')) r.classList.toggle('lit', set.has(`${r.dataset.l}:${r.dataset.k}`));
+    }
+    const svg = blk.querySelector('svg.song-roll'), ph = svg && svg.querySelector('.ph');
     if (!ph) return;
-    const r = last && blk.querySelector(`rect[data-k="${last.k}"][data-l="${last.line}"]`);
-    ph.classList.toggle('on', !!r);
-    if (r) { const x = r.getAttribute('x'); ph.setAttribute('x1', x); ph.setAttribute('x2', x); }
+    const r = last && last.step > 0 && svg.querySelector(`rect[data-k="${last.k}"][data-l="${last.line}"]`);
+    const cyc = +svg.dataset.cycle, t = r ? +r.dataset.at + (now - last.at) / last.step : 0;
+    const on = !!r && t < cyc + GLIDE / last.step;
+    ph.classList.toggle('on', on);
+    if (on) {
+      const x = (+svg.dataset.x0 + Math.min(t, cyc) * +svg.dataset.sx).toFixed(2);
+      ph.setAttribute('x1', x); ph.setAttribute('x2', x);
+    }
   }
 
   function lineagePath(sp) {
@@ -319,6 +347,7 @@ export function createSpecimen(api) {
       const gen = life.genera.get(src.genus);
       s += kv('Genus', gen ? `${esc(gen.name)}${gen.from ? ` · split from ${esc(gen.from)}` : ''}` : '–', 'genus');
       s += kv('Mutations', `${g.depth} from its founder`, 'depth');
+      if (K.heat) s += kv('Thermal niche', nicheWords(g), 'optimum');
     }
     h += blk('At a glance', s, { tip: 'species' });
     h += songBlock(g, sp, false);
@@ -362,6 +391,7 @@ export function createSpecimen(api) {
     l += trait('Upkeep', g.metab, 0.01, 0.15, `${g.metab.toFixed(3)}/s`, 'upkeep');
     l += trait('Mutation', g.mutRate, 0.002, 0.08, `${(g.mutRate * 100).toFixed(1)}%`, 'mutation');
     h += blk('Life cycle', l);
+    if (K.heat) h += blk('Temperature', thermalBlock(g), { tip: 'thermal' });
 
     // How each of its cell types reacts to what it meets: one column per cell type it grows, one row
     // per thing it can meet (its own cell types, the most numerous other species, matter). Warm:
@@ -384,6 +414,28 @@ export function createSpecimen(api) {
     for (const it of rows) t += `<span class="pt-name"><i style="background:${it.css}"></i><span>${it.name}</span></span>${types.map((r) => heat(it.v(r))).join('')}`;
     t += '</div><div class="pulls-key"><span><i class="to"></i>drawn toward</span><span><i class="away"></i>pushed away</span></div>';
     h += blk('How its cells react', t, { tip: 'affinity' });
+    return h;
+  }
+
+  // A species' thermal niche: its genes, and its performance curve (thermalPerf) from 0 to 45°, the
+  // narrow specialist's peak higher, against the background water now (rounded, so it rarely redraws).
+  function nicheWords(g) {
+    const t = thermalGuild(g);
+    return [t.pref, t.breadth, t.maker ? 'heat-maker' : ''].filter(Boolean).join(', ') + `, ${Math.round(g.topt)}° ± ${Math.round(g.tol)}°`;
+  }
+  function thermalBlock(g) {
+    let h = trait('Optimum', g.topt, 0, 45, `${g.topt.toFixed(1)}°`, 'optimum');
+    h += trait('Tolerance', g.tol, 2, 15, `±${g.tol.toFixed(1)}°`, 'tolerance');
+    h += trait('Heat output', g.thermo || 0, 0, 1, (g.thermo || 0) > 0.005 ? `${Math.round(g.thermo * 100)}% · +${(K.thermoCost * g.thermo).toFixed(3)}/s` : 'none', 'heatmaker');
+    const W = 300, H = 60, X = (t) => (t / 45) * W, Y = (v) => H - 4 - (v / 1.45) * (H - 10);
+    let d = '';
+    for (let t = 0; t <= 45; t += 0.5) d += `${t ? 'L' : 'M'}${X(t).toFixed(1)},${Y(thermalPerf(g, t, K).perf).toFixed(1)}`;
+    const water = Math.round(eng.tbg * 2) / 2, live = thermalPerf(g, water, K);
+    h += `<svg class="niche" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="How well it works from 0 to 45°">`
+      + `<line x1="0" x2="${W}" y1="${Y(1)}" y2="${Y(1)}" class="n-one"/>`
+      + `<path d="${d}" class="n-curve"/>`
+      + `<line x1="${X(water)}" x2="${X(water)}" y1="0" y2="${H}" class="n-water"/><circle cx="${X(water)}" cy="${Y(live.perf)}" r="2.5" class="n-dot"/></svg>`
+      + `<div class="legend-note"><span>0°</span><span>open water ${water}° · ${Math.round(live.perf * 100)}%</span><span>45°</span></div>`;
     return h;
   }
 
@@ -439,18 +491,31 @@ export function createSpecimen(api) {
       root.classList.remove('no-view');
       const p = sel.particle, mem = sel.memory;
       if (p.kind < FIRST_LIFE) {
+        const framboid = p.kind === FRAMBOID;
         const m = MATTER[p.kind];
-        setHead(mem ? `Now ${m.name} · once` : m.name, mem && mem.sp ? spLink(mem.sp.serial, mem.sp.name) : m.name,
+        // a stone is named and drawn as the kind of grain the world draws it as (reef stone keeps a little
+        // of its builder's tint)
+        const grain = p.kind === 3 ? stoneGrain(p.id, p.info) : null;
+        setHead(mem ? `Now ${m.name} · once` : m.name, mem && mem.sp ? spLink(mem.sp.serial, mem.sp.name) : grain ? grain.name : m.name,
           sel.lost ? 'Lost track of it' : (mem && sel.diedAt != null ? code('Died', `${fmtDur(eng.simTime - sel.diedAt)} ago`) : '') + code('ID', fmt(p.id)));
-        plainGlyph(MATTER_GLYPH[p.kind][0], MATTER_GLYPH[p.kind][1]);
+        if (grain) {
+          // its colour (reef stone keeps a little of its builder's tint), dark grains lifted so the emblem reads
+          const t = (p.info & 15) !== 0 ? 0.3 : 0, rgb = grain.col.map((x, i) => x + t * (((p.col >>> (8 * i)) & 255) / 255 - x));
+          const lift = Math.max(0, 0.45 - (0.3 * rgb[0] + 0.5 * rgb[1] + 0.2 * rgb[2]));
+          const c = rgb.map((x) => Math.round(255 * Math.min(1, x + lift)));
+          plainGlyph(16 + grain.kind, (0xff000000 | (c[2] << 16) | (c[1] << 8) | c[0]) >>> 0);
+        } else plainGlyph(MATTER_GLYPH[p.kind][0], MATTER_GLYPH[p.kind][1]);
         setActs(`m${!!mem}`, mem ? '<button type="button" class="btn" data-act="relative">Watch a relative</button>' : '');
-        if (p.kind === 1) v += vital('Charge', p.energy, 'cyan', `fades in ${fmtDur(Math.max(0, (p.energy - K.glintMin) / K.leak))}`, 'glint');
-        else if (p.kind === 2) v += vital('Energy left', p.energy / 1.2, 'sun', `crumbles in ${fmtDur(Math.max(0, (p.energy - K.huskMin) / K.decay))}`, 'husk');
+        // in water at the background temperature (warm water wears glint and husks faster)
+        const q10 = (q) => (K.heat ? q ** ((eng.tbg - K.tRef) / 10) : 1);
+        if (p.kind === 1) v += vital('Charge', p.energy, 'cyan', `fades in ${fmtDur(Math.max(0, (p.energy - K.glintMin) / (K.leak * q10(K.glintQ10))))}`, 'glint');
+        else if (p.kind === 2) v += vital('Energy left', p.energy / 1.2, 'sun', `${q10(K.rotQ10) > 1.3 ? 'rotting fast · ' : ''}crumbles in ${fmtDur(Math.max(0, (p.energy - K.huskMin) / (K.decay * q10(K.rotQ10))))}`, 'husk');
+        else if (framboid) v += vital('Fuel', clamp(p.energy / K.framboidLife, 0, 1), 'warm', `burns out in about ${fmtDur(Math.max(0, p.energy / q10(2)))}`, 'framboid');
         else if (p.kind === 3) v += vital('Wears away', clamp(p.energy / 600, 0, 1), 'cyan', `in ${fmtDur(Math.max(0, p.energy))}`, 'stone');
         else v += vital('Light here', lightAt(p) / 100, 'sun', `${lightAt(p)}%`, 'lighthere');
         setTags(mem ? mem.g : null); // what it was
         let s = `<p class="note">${m.blurb}</p>`;
-        s += kv(p.kind === 2 ? 'Dead for' : p.kind === 3 ? 'Stone for' : 'In this state', fmtDur(p.age));
+        s += kv(p.kind === 2 ? 'Dead for' : framboid ? 'Burning for' : p.kind === 3 ? 'Stone for' : 'In this state', fmtDur(p.age));
         if (p.kind === 2) s += kv('Cause of death', CAUSE[p.cause] || 'unknown');
         s += kv('Light here', `${lightAt(p)}%`, 'lighthere');
         flow.push(['state', m.name, blk('', s) + storyHTML(sel)]);
@@ -474,6 +539,10 @@ export function createSpecimen(api) {
         if (g) {
           v += vital('Energy', p.energy / g.reproE, 'sun', `${p.energy.toFixed(2)} / ${g.reproE.toFixed(2)}`, 'energy');
           v += vital('Age', p.age / g.lifespan, 'cyan', `${fmtDur(p.age)} / ${fmtDur(g.lifespan)}`, 'lifespan');
+          const m = !sel.lost && sel.mind && sel.mind.m;
+          if (K.heat && m) {
+            v += warmthVital(m, g, `${Math.round(m.warmth)}°`);
+          }
           const head = sel.mind && !sel.lost && (sel.mind.head || sel.mind);
           if (!sel.lost) v = `<div class="vital now"><span>${term('mind', 'Now')}</span><b>${head ? withSp(head.text, head.target) : '—'}</b></div>` + v;
         }
@@ -481,7 +550,7 @@ export function createSpecimen(api) {
         if (g && !sel.lost) { fixedKey = `mv:${sel.id}:${p.kind}:${g.serial}`; fixedHtml = section('behaviour', 'Behaviour', mv.html(g, p.kind)); }
         // a bonded species' organism first, a free cell's own record first: fixed by the genome, so
         // the order never flips as a trace comes in
-        const cb = cellBlock(p, g, false), ob = organismBlock(o, g, false, sel), bb = sel.lost ? '' : budgetBlock(p, g, sel.mind);
+        const cb = cellBlock(p, g, false, sel.lost ? null : sel.mind), ob = organismBlock(o, g, false, sel), bb = sel.lost ? '' : budgetBlock(p, g, sel.mind);
         const bonded = g && (g.adhesion || 0) > K.adhMin;
         flow.push(['body', 'Body', (bonded ? ob + cb : cb + ob) + bb + storyHTML(sel)]);
         if (g) flow.push(['species', 'Species', speciesTab(g, null)], ['genome', 'Genome', genomeTab(g, p.role, p.role)]);

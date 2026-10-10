@@ -1,4 +1,4 @@
-import { roleShares, affinity, dietGuild, mobilityGuild } from './genome.js';
+import { roleShares, affinity, dietGuild, mobilityGuild, thermalGuild } from './genome.js';
 
 export const DIET_COL = { photosynth: '#d9f27a', grazer: '#b9e6ff', scavenger: '#a87b5c', predator: '#ff5e7a', omnivore: '#c9b8ff' };
 export const MOB_COL = { anchored: '#7fe0b0', crawler: '#ffb45e', swimmer: '#6e96ff', drifter: '#9aa3b8' };
@@ -40,5 +40,11 @@ export function tagsOf(g, K) {
   if (g.photo > 0.25 && g.photo <= 0.55) tags.push(['part photosynth', 'photosynth']);
   if (g.lifespan > 300) tags.push(['long-lived', 'lifespan']);
   if (g.mutRate > 0.035) tags.push(['fast-mutating', 'mutation']);
+  if (K.heat && g.topt != null) {
+    const t = thermalGuild(g);
+    if (t.pref !== 'temperate') tags.push([t.pref, 'optimum']);
+    if (t.breadth === 'specialist') tags.push(['thermal specialist', 'tolerance']);
+    if (t.maker) tags.push(['heat-maker', 'heatmaker']);
+  }
   return tags;
 }

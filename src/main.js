@@ -1,7 +1,7 @@
 import { createSound } from './audio/sound.js';
 import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS } from './engine.js';
-import { genomeSerial, readGenome, parseParticle } from './genome.js';
+import { genomeSerial, readGenome, parseParticle, thermalGuild } from './genome.js';
 import { seasonAt, createClimate, abioRate } from './climate.js';
 import { createLab } from './lab.js';
 import { createSpecimen } from './specimen.js';
@@ -11,7 +11,7 @@ import { drawLiving, livingAt } from './charts.js';
 import { genusName, speciesEpithet } from './names.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
-import { PICK_WORDS, WATCH_MAX } from './shaders.js';
+import { PICK_WORDS, WATCH_MAX, stoneGrain } from './shaders.js';
 import { flowAt } from './flow.js';
 import { Director } from './director.js';
 import { parseMind, interpretMind, settleMind } from './mind.js';
@@ -62,8 +62,12 @@ async function boot() {
   ctx.configure({ device, format, alphaMode: 'opaque' });
   const specCtx = $('specimen').getContext('webgpu');
   specCtx.configure({ device, format, alphaMode: 'opaque' });
+  // #k={"shade":0.1} opens the page with tunables overridden (DEFAULT_K), to watch a variant live
+  let K = {};
+  const kHash = /[#&]k=([^&]*)/.exec(location.hash);
+  if (kHash) { try { K = JSON.parse(decodeURIComponent(kHash[1])); } catch { console.warn('[tidemote] ignoring a #k= that is not JSON'); } }
   let eng;
-  try { eng = await createEngine(device, format, { hasTimestamps: hasTS }); }
+  try { eng = await createEngine(device, format, { hasTimestamps: hasTS, K }); }
   catch (e) { fail('The simulation failed to compile', String(e.message || e)); return; }
   run(eng, device, ctx, specCtx, hasTS);
 }
@@ -125,11 +129,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const trailNames = ['Off', 'Short', 'Long', 'Exposure'];
   let trailIdx = prefs.trails ?? 1;
   eng.settings.trails = trailLevels[trailIdx];
-  for (const k of ['links', 'nodes', 'bloom', 'optics', 'specks', 'lod', 'tide']) if (prefs[k] !== undefined) eng.settings[k] = prefs[k];
+  for (const k of ['links', 'nodes', 'bloom', 'optics', 'specks', 'lod', 'tide', 'heat']) if (prefs[k] !== undefined) eng.settings[k] = prefs[k];
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
+    savePrefs({ trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   if (prefs.loupe !== undefined && !isCoarse) state.loupe = prefs.loupe;
@@ -239,11 +243,18 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let climate;
   function resetClimate() {
     climate = createClimate(eng);
-    climate.onEra = (era, prevAmb) => {
+    climate.onEra = (era, prevAmb, prevTemp) => {
       const lightWord = era.ambient > prevAmb + 0.05 ? 'light rises' : era.ambient < prevAmb - 0.05 ? 'light dims' : 'light holds';
-      pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}% · glint ×${era.charge.toFixed(1)} · currents shift`, 0xffa0e3f1, 'era');
+      const waterWord = !K.heat ? '' : ` · water ${era.temp > prevTemp + 1 ? 'warms' : era.temp < prevTemp - 1 ? 'cools' : 'holds'} to ${Math.round(era.temp)}°`;
+      pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}%${waterWord} · glint ×${era.charge.toFixed(1)} · currents shift`, 0xffa0e3f1, 'era');
       flash(climate.name, 'New era');
       sound.era(climate.name);
+    };
+    climate.onExcursion = (x) => {
+      if (!K.heat) return;
+      const wave = x.dT > 0;
+      pushEvent(`${wave ? 'A heat wave' : 'A cold snap'}: the water ${wave ? 'rises' : 'falls'} ${Math.abs(x.dT).toFixed(0)}° for ${fmtDur(x.dur)}`, wave ? 0xff3a8aff : 0xffd68a3d, 'heat');
+      flash(wave ? 'A heat wave' : 'A cold snap', 'Climate');
     };
   }
 
@@ -253,7 +264,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     life = {
       reg: new Map(), genera: new Map(), orphan: new Map(), chronicle: [], history: [], histEvery: 3, lastHist: -1e9,
       counts: [0, 0, 0, 0, 0], roles: [0, 0, 0], alive: 0, thriving: 0, arisen: 0, maxDepth: 0, top: 0, lastCensus: null, matter: [],
-      estThreshold: 30, births: 0, prevG: null, prevT: 0,
+      estThreshold: 30, births: 0, prevG: null, prevD: null, prevT: 0,
     };
     feedKey = '';
     renderFeed();
@@ -346,7 +357,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
 
   function groups() {
-    const out = { diet: {}, mobility: {}, body: {}, types: {} };
+    const out = { diet: {}, mobility: {}, body: {}, types: {}, temp: {} };
     for (const sp of life.reg.values()) {
       if (!sp.alive) continue;
       const f = facets(sp.genome, K);
@@ -354,24 +365,27 @@ function run(eng, device, ctx, specCtx, hasTS) {
       out.mobility[f.mobility] = (out.mobility[f.mobility] || 0) + sp.pop;
       out.body[f.body] = (out.body[f.body] || 0) + sp.pop;
       out.types[f.types] = (out.types[f.types] || 0) + sp.pop;
+      const tp = thermalGuild(sp.genome).pref;
+      out.temp[tp] = (out.temp[tp] || 0) + sp.pop;
     }
     return {
       diet: Object.keys(DIET_COL).map((k) => ({ name: k, n: out.diet[k] || 0, col: DIET_COL[k] })),
       mobility: Object.keys(MOB_COL).map((k) => ({ name: k, n: out.mobility[k] || 0, col: MOB_COL[k] })),
       body: [{ name: 'multicellular', n: out.body.multicellular || 0, col: '#ffb45e' }, { name: 'single-cell', n: out.body['single-cell'] || 0, col: '#9aa3b8' }],
       types: ['1', '2', '3'].map((k, i) => ({ name: k, n: out.types[k] || 0, col: ['#9aa3b8', '#b38cff', '#5fd4c4'][i] })),
+      temp: [['cold-loving', '#6f9cff'], ['temperate', '#62c6a8'], ['warmth-loving', '#f0b04a'], ['thermophile', '#ff5f3a']].map(([k, col]) => ({ name: k, n: out.temp[k] || 0, col })),
     };
   }
 
   // ------------------------------------------------------------ focus (dim everything outside a filter)
-  const focus = { key: null, label: '', pred: null, roleMask: 7, stateMode: 0, matter: [false, false, false, false] };
+  const focus = { key: null, label: '', pred: null, roleMask: 7, stateMode: 0, matter: [false, false, false, false, false] };
   let members = null;
   let memberKind = NONE;
   function pushFocus() {
     let kinds = null;
     if (focus.key) {
       kinds = new Uint32Array(MAXK / 32);
-      for (let m = 0; m < 4; m++) if (focus.matter[m]) kinds[0] |= 1 << m;
+      for (let m = 0; m < FIRST_LIFE; m++) if (focus.matter[m]) kinds[0] |= 1 << m;
       const c = life.lastCensus;
       if (c && focus.pred) {
         for (let s = FIRST_LIFE; s < MAXK; s++) {
@@ -386,7 +400,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     $('focus').hidden = !focus.key;
     $('focus-label').textContent = focus.label;
   }
-  function setFocus(key, label, { pred = null, roleMask = 7, stateMode = 0, matter = [false, false, false] } = {}) {
+  function setFocus(key, label, { pred = null, roleMask = 7, stateMode = 0, matter = [false, false, false, false, false] } = {}) {
     Object.assign(focus, { key, label, pred, roleMask, stateMode, matter });
     pushFocus();
     afterFocus();
@@ -409,9 +423,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const [kind, val] = key.split(':');
     if (kind === 'class') {
       if (val === 'living') setFocus(key, 'All living cells', { pred: allLiving });
-      else setFocus(key, MATTER[{ silt: 0, glint: 1, husk: 2, stone: 3 }[val]].name, { matter: [val === 'silt', val === 'glint', val === 'husk', val === 'stone'] });
+      else setFocus(key, MATTER[{ silt: 0, glint: 1, husk: 2, stone: 3, framboid: 4 }[val]].name, { matter: ['silt', 'glint', 'husk', 'stone', 'framboid'].map((m) => m === val) });
     } else if (kind === 'role') setFocus(key, `${ROLE[+val]}-cells`, { pred: allLiving, roleMask: 1 << +val });
-    else if (kind === 'state') setFocus(key, ['', 'Hungry cells', 'Cells ready to divide', 'Elderly cells'][+val], { pred: allLiving, stateMode: +val });
+    else if (kind === 'state') setFocus(key, ['', 'Hungry cells', 'Cells ready to divide', 'Elderly cells', 'Heat-stressed cells', 'Torpid cells'][+val], { pred: allLiving, stateMode: +val });
+    else if (kind === 'temp') setFocus(key, `Prefers: ${val}`, { pred: (g) => thermalGuild(g).pref === val });
     else if (kind === 'diet') setFocus(key, `Diet: ${val}`, { pred: (g) => facets(g, K).diet === val });
     else if (kind === 'mobility') setFocus(key, `Movement: ${val}`, { pred: (g) => facets(g, K).mobility === val });
     else if (kind === 'body') setFocus(key, val === 'multicellular' ? 'Multicellular species' : 'Single-cell species', { pred: (g) => facets(g, K).body === val });
@@ -514,7 +529,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     let ampSum = 0;
     for (let k = 0; k < 4; k++) ampSum += eng.tide[k * 4 + 3];
     const tide = eng.season * Math.min(1, ampSum / 3);
-    sound.census({ species, pop, world: { light: Math.min(1.2, eng.ambient * 1.2 + 0.85 * tide), tide } });
+    sound.census({ species, pop, world: { light: Math.min(1.2, eng.ambient * 1.2 + 0.85 * tide), tide, warm: K.heat ? clamp((eng.tbg - 16) / 12, -1, 1) : 0 } });
   }
   eng.onListen = (d) => {
     if (state.phase !== 'running') return;
@@ -536,9 +551,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     life.lastCensus = c;
     const pop = c.pop;
     const t = c.simTime;
-    life.counts = [pop[0], pop[1], pop[2], 0, pop[3]];
+    life.counts = [pop[0], pop[1], pop[2], 0, pop[3], pop[4]];
     life.roles = [c.globals[12], c.globals[13], c.globals[14]];
-    life.matter = [0, 1, 2, 3].map((s) => readGenome(c.genomeU32, c.genomeF32, s));
+    life.matter = [0, 1, 2, 3, 4].map((s) => readGenome(c.genomeU32, c.genomeF32, s));
     life.arisen = c.globals[1];
     life.births = c.globals[2];
     const seen = new Set();
@@ -622,7 +637,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
         alive, thriving, diversity: Math.exp(H),
         births: rate(2), starve: rate(5), old: rate(6), eaten: rate(7), graze: rate(9), scav: rate(10), prey: rate(7), bite: rate(11),
         mut: rate(3), ext: rate(8), ambient: eng.ambient, season: eng.season,
+        temp: eng.tbg, scald: [20, 21, 22, 23, 24].reduce((a, i) => a + (life.prevD ? c.demography[i] - life.prevD[i] : 0), 0) / Math.max(1e-6, t - life.prevT) * 60,
+        torpid: torpidShare(c),
       });
+      life.prevD = Array.from(c.demography);
       life.prevG = G;
       life.prevT = t;
       life.lastHist = t;
@@ -635,12 +653,23 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (sel || spView != null) dirty = true;
   };
 
+  // the share of the living that were torpid since the last census that read it (the ledger samples
+  // each living cell once a second)
+  let torpidPrev = null;
+  function torpidShare(c) {
+    const e = c.energy, now = [e[56], e.slice(40, 56).reduce((a, b) => a + b, 0)];
+    const prev = torpidPrev;
+    torpidPrev = now;
+    return prev && now[1] > prev[1] ? (now[0] - prev[0]) / (now[1] - prev[1]) : 0;
+  }
+
   // ------------------------------------------------------------ world column
   const MIX = [
     ['Living', 3, LIVING_CSS, 'living', 'class:living'],
     ['Glint', 1, MATTER[1].css, 'glint', 'class:glint'],
     ['Husk', 2, MATTER[2].css, 'husk', 'class:husk'],
     ['Stone', 4, MATTER[3].css, 'stone', 'class:stone'],
+    ...(K.heat ? [['Framboids', 5, MATTER[4].css, 'framboid', 'class:framboid']] : []),
     ['Silt', 0, MATTER[0].css, 'silt', 'class:silt'],
   ];
   const mixEl = $('mix');
@@ -768,8 +797,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (d < ba) { ba = d; bestAny = e; }
     }
     // a click anywhere on a cell's body counts, however far in the view is zoomed
-    // a stone grain is a cobble ~0.17 across (vsStone); other matter is a small chip
-    const anyR = bestAny && bestAny.kind === 3 ? 0.17 : 0.05;
+    // a stone grain is a cobble ~0.17 across (vsStone), a framboid about half that; other matter is a small chip
+    const anyR = bestAny && bestAny.kind === 3 ? 0.17 : bestAny && bestAny.kind === 4 ? 0.09 : 0.05;
     const touchR = isCoarse ? 30 : 22;
     const chosen = bestLife && bl < Math.max(touchR, 0.2 * p) ? bestLife : bestAny && ba < Math.max(isCoarse ? 20 : 14, anyR * p) ? bestAny : null;
     if (!chosen) { deselect(); return; }
@@ -792,7 +821,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       remember();
       story(`${keepStory ? 'Now watching' : 'Picked'} a ${ROLE[p.role]}-cell${sp ? ` of ${spLink(sp.serial, sp.name)}` : ''}, age ${fmtDur(p.age)}.`);
     } else {
-      story(`Picked a grain of ${MATTER[p.kind].name.toLowerCase()}.`);
+      story(p.kind === 4 ? 'Picked a framboid.' : `Picked a grain of ${MATTER[p.kind].name.toLowerCase()}.`);
     }
     gatherTick(true);
     renderSpecimen(true);
@@ -829,6 +858,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (a.kind >= FIRST_LIFE && b.kind >= FIRST_LIFE) return 'Changed species.';
     if (a.kind >= FIRST_LIFE && b.kind === 3) return `Died: ${b.cause === 2 ? 'old age' : 'starved'} at age ${fmtDur(a.age)}. Its skeleton is now stone.`;
     if (a.kind === 3 && b.kind === 0) return 'The stone wore away into silt.';
+    if (a.kind === 4 && b.kind === 0) return 'The framboid was spent and crumbled into silt.';
+    if (a.kind === 2 && b.kind === 4) return 'The husk rotted in a pile, and its sulfide crystallised as a framboid.';
     if (a.kind === 2 && b.kind === 0) return b.cause === 3 ? 'The husk was eaten by a scavenger.' : 'The husk crumbled into silt.';
     if (a.kind === 0 && b.kind === 1) return 'Charged into glint by the Tide.';
     if (a.kind === 1 && b.kind === 0) return b.cause === 3 ? 'The glint was eaten by a cell.' : 'The glint faded back into silt.';
@@ -1039,6 +1070,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     sel.org = { cells: members.size, roles, span: span * 2, mid, speed: Math.hypot(vx / m, vy / m), meanE: eSum / m, partial: res.truncated, touching: prev ? prev.touching : 0, at: res.simTime, ms: performance.now() - t0 };
     if (sel.orgFirst == null) {
       sel.orgFirst = members.size;
+      // the camera moved on to another cell after its subject died, perhaps of another organism of
+      // the species: its caption counts the body it now follows
+      const sh = sel.film && director.shot;
+      if (sh && sh.rehomed && sh.subject && sh.subject.id === sel.filmFor) {
+        sh.rehomed = false;
+        if (sh.why.cells !== members.size) { sh.why.cells = members.size; sh.whyVer++; }
+      }
       if (members.size > 1) story(`It is one cell of a ${fmt(members.size)}-cell organism. Following the whole body.`);
     }
     const ids = Uint32Array.from(members.keys()).sort();
@@ -1191,6 +1229,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       return choice('trails', 'Trails', 'T', trailNames.map((n, i) => [i, n]), trailIdx)
         + choice('tide', 'Light map', 'G', [[0, 'Off'], [1, 'Faint'], [2, 'Full']], s.tide, 'light')
         + (s.tide === 2 ? '<div class="ramp"><span>dark</span><i></i><span>full light</span></div>' : '')
+        + (K.heat ? choice('heat', 'Heat map', 'E', [[0, 'Off'], [1, 'Shimmer'], [2, 'Full']], s.heat, 'heatmap') : '')
+        + (K.heat && s.heat === 2 ? `<div class="ramp heat"><span>${Math.round(eng.tbg - 2)}°</span><i></i><span>${Math.round(eng.tbg + 10)}°</span></div>` : '')
         + onoff('currents', 'Currents', 'W', state.currents)
         + onoff('links', 'Bonds', 'L', s.links, 'bond')
         + onoff('nodes', 'Particles', 'N', s.nodes)
@@ -1250,6 +1290,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const s = eng.settings, P = state.perf;
       if (id === 'trails') { trailIdx = +v; s.trails = trailLevels[trailIdx]; }
       else if (id === 'tide') s.tide = +v;
+      else if (id === 'heat') s.heat = +v;
       else if (id === 'currents') state.currents = !!+v;
       else if (id === 'links') s.links = !!+v;
       else if (id === 'nodes') s.nodes = !!+v;
@@ -1403,6 +1444,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === 'b' || k === 'B') { eng.settings.bloom = eng.settings.bloom > 0 ? 0 : 0.012; flash(eng.settings.bloom ? 'Bloom on' : 'Bloom off'); persist(); view.render(); }
     else if (k === 'o' || k === 'O') { eng.settings.optics = eng.settings.optics > 0 ? 0 : 1; flash(eng.settings.optics ? 'Microscope optics on' : 'Microscope optics off'); persist(); view.render(); }
     else if (k === 'g' || k === 'G') { eng.settings.tide = (eng.settings.tide + 1) % 3; flash(['Light map off', 'Faint light map', 'Light map'][eng.settings.tide]); persist(); view.render(); }
+    else if ((k === 'e' || k === 'E') && K.heat) { eng.settings.heat = (eng.settings.heat + 1) % 3; flash(['Heat map off', 'Heat shimmer', 'Thermal camera'][eng.settings.heat]); persist(); view.render(); }
     else if (k === 'w' || k === 'W') { state.currents = !state.currents; flash(state.currents ? 'Currents shown' : 'Currents hidden'); view.render(); }
     else if (k === 'v' || k === 'V') view.toggle();
     else if (k === 'k' || k === 'K') { closeMenus(); lab.toggle(); }
@@ -1560,8 +1602,20 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // ------------------------------------------------------------ rail
   const segs = $('light-seg');
   segs.innerHTML = '<i></i>'.repeat(10);
+  // the water gauge: a thermometer of ten segments from the climate's coldest (4°) to its warmest (28°)
+  // the temperature gauge: a thermometer whose tube fills with ten bars from the climate's coldest
+  // (4°) to its warmest (28°), each lit in its own temperature's colour, the bulb in the current one;
+  // on phones a small upright thermometer whose level rises
+  const THERMO = ['#3d6fd6', '#3f86d8', '#3fa0d0', '#41b7c2', '#62c6a8', '#9bcd86', '#d2c865', '#f0b04a', '#ff8a3a', '#ff5f3a'];
+  // a big bulb joined to a slim tube, as a real thermometer is
+  $('thermo').innerHTML = `<rect class="tube" x="11" y="5.5" width="56" height="7" rx="3.5"/><circle class="bulb-o" cx="8" cy="9" r="7.5"/>${THERMO.map((c, k) => `<rect class="bar" x="${17.5 + k * 4.8}" y="7" width="3" height="4" style="--c:${c}"/>`).join('')}<circle class="bulb" cx="8" cy="9" r="5"/>`;
+  $('thermo-i').innerHTML = '<rect class="tube" x="4" y="1" width="4" height="12" rx="2"/><circle class="bulb-o" cx="6" cy="15" r="4.2"/><rect class="lvl" x="5" y="2" width="2" height="12"/><circle class="bulb" cx="6" cy="15" r="2.8"/>';
+  const heatBars = [...$('thermo').querySelectorAll('.bar')], heatBulbs = [...document.querySelectorAll('#g-heat .bulb')], heatLvl = $('thermo-i').querySelector('.lvl');
+  $('g-heat').hidden = !K.heat;
   const wave = $('tide-wave');
   wave.querySelector('.wave').setAttribute('d', Array.from({ length: 31 }, (_, i) => `${i ? 'L' : 'M'}${i * 2},${(8 - 6 * Math.sin((i / 30) * TAU)).toFixed(2)}`).join(''));
+  const eraTide = $('era-tide');
+  eraTide.querySelector('path').setAttribute('d', Array.from({ length: 61 }, (_, i) => `${i ? 'L' : 'M'}${i},${(3 - 2.6 * Math.sin((i / 60) * TAU)).toFixed(2)}`).join(''));
   let hudT = 0;
   const setText = (id, v) => { const el = $(id); if (el.textContent !== v) el.textContent = v; };
   function updateHud(now) {
@@ -1577,9 +1631,22 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const dot = wave.querySelector('.dot');
     dot.setAttribute('cx', (ph * 60).toFixed(1));
     dot.setAttribute('cy', (8 - 6 * Math.sin(ph * TAU)).toFixed(2));
+    eraTide.style.setProperty('--x', ph.toFixed(3)); eraTide.style.setProperty('--y', Math.sin(ph * TAU).toFixed(3));
     setText('tide-v', `${Math.round(eng.season * 100)}%`);
     $('g-tide').setAttribute('aria-label', `Tide ${Math.round(eng.season * 100)}%, ${seasonAt(eng.simTime + 5) >= seasonAt(eng.simTime) ? 'rising' : 'ebbing'}`);
     $('g-light').setAttribute('aria-label', `Light ${L}%`);
+    if (K.heat) {
+      const T = eng.tbg, trend = climate.tempTo - eng.temp + (climate.excursion && eng.excursion ? Math.sign(climate.excursion.dT) * (eng.simTime < climate.excursion.t + climate.excursion.dur / 2 ? 1 : -1) : 0);
+      const arrow = trend > 0.4 ? '↑' : trend < -0.4 ? '↓' : '';
+      setText('heat-v', `${Math.round(T)}°${arrow}`);
+      const frac = clamp((T - 4) / 24, 0, 1), c = THERMO[Math.min(9, Math.floor(frac * 10))];
+      heatBars.forEach((s, i) => s.classList.toggle('on', i < Math.round(frac * 10)));
+      heatBulbs.forEach((b) => b.style.setProperty('fill', c));
+      heatLvl.setAttribute('y', (2 + 10 * (1 - frac)).toFixed(2)); heatLvl.setAttribute('height', (10 * frac + 3).toFixed(2)); heatLvl.style.setProperty('fill', c);
+      const exc = eng.excursion > 0.5 ? 'heat wave' : eng.excursion < -0.5 ? 'cold snap' : '';
+      $('g-heat').classList.toggle('exc', !!exc);
+      $('g-heat').setAttribute('aria-label', `${exc ? `${exc}, ` : ''}temperature ${Math.round(T)}°${arrow ? (arrow === '↑' ? ' and rising' : ' and falling') : ''}`);
+    }
     tips.check();
     // Max shows what it reaches; every other speed is exact
     setText('t-rate', state.speed > 1 && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : '');
@@ -1630,7 +1697,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function predicted() { return predictAt(sel.particle, sel.sampleT); }
   function predictAt(p, sampleT) {
     const dtS = Math.max(0, Math.min(0.25, (viewSimTime || eng.simTime) - sampleT));
-    let adv = 1;
+    // a cell's velocity leaves out the current, which carries it by its advect; matter's already
+    // includes it (stone and framboids hold still), so adding it again would walk the marker off them
+    let adv = 0;
     if (p.kind >= FIRST_LIFE) { const g = genomeFor(p.kind); adv = g ? g.advect : 0.5; }
     const [fx, fy] = flowAt(p.x, p.y, eng.simTime, eng.waves);
     return [p.x + (p.vx + fx * adv) * dtS, p.y + (p.vy + fy * adv) * dtS];
@@ -1700,6 +1769,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     octx.setTransform(r, 0, 0, r, 0, 0);
     if (state.currents) drawCurrents();
     drawScale();
+    filmMarked = false;
     if (sel && sel.particle) {
       const [W, H] = eng.grid;
       // The marker sits on the prediction for this very frame. A new GPU sample that corrects the
@@ -1721,7 +1791,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
         inLens = true;
       }
       const visible = !inLens || Math.hypot(sx - L.sx, sy - L.sy) < L.R - 8;
-      if (visible) drawMarker(sx, sy, inLens, dt);
+      // the auto camera's subject is marked and named once it is in view, after the camera's flight
+      const sh = filmShot();
+      if (sh && !sh.why.seen && sh.t >= sh.flight - 0.5 && sx > innerWidth * 0.1 && sx < innerWidth * 0.9 && sy > innerHeight * 0.1 && sy < innerHeight * 0.9) {
+        sh.why.seen = true;
+        if (sel.org && sel.org.cells && !sel.org.pending) sh.why.cells = sel.org.cells;
+        sh.whyVer++;
+      }
+      filmMarked = !!(visible && (!sh || sh.why.seen) && drawMarker(sx, sy, inLens, dt)) && !!sh;
     }
     if (L) {
       const { sx, sy } = L;
@@ -1752,11 +1829,21 @@ function run(eng, device, ctx, specCtx, hasTS) {
   eng.onWatch = ({ simTime, seen }) => {
     for (const w of seen) { const o = watched.get(w.id); watched.set(w.id, { x: w.x, y: w.y, vx: w.vx, vy: w.vy, t: simTime, disp: o && o.disp, err: o ? o.err : [0, 0], fresh: true }); }
   };
+  // the auto camera's follow shot of the marked subject, and whether it has come into view
+  function filmShot() {
+    const sh = sel && sel.film && director.active ? director.shot : null;
+    return sh && sh.why && sh.why.kind === 'follow' && sh.subject && sh.subject.id === sel.filmFor ? sh : null;
+  }
+  // whether the subject's brackets were drawn this frame (drawOverlay): its song is marked only then
+  let filmMarked = false;
+  const filmShown = () => filmMarked && !sel.lost && sel.particle.kind >= FIRST_LIFE;
   function markSlot() { // -1: every species; -2: none
     if (!state.songMarks || !sound.on) return -2;
     if (state.songMarks === 2) return -1;
     const slot = pickedSlot();
-    return slot >= 0 ? slot : -2;
+    if (slot >= 0) return slot;
+    // the auto camera's subject, once it is marked in view
+    return filmShown() ? sel.particle.kind : -2;
   }
   // which cells to find this frame: those whose marks are about to show or showing
   function watchMarks(now) {
@@ -1772,7 +1859,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     for (const id of watched.keys()) if (!ids.includes(id)) watched.delete(id);
   }
   function drawSongMarks(now, L) {
-    while (songEvents.length && songEvents[0].at < now - 2000) songEvents.shift();
+    // kept a while: the song panel's playhead runs on from the last note to the end of its song
+    while (songEvents.length && songEvents[0].at < now - 8000) songEvents.shift();
     const only = markSlot();
     if (only === -2 || !songEvents.length) return;
     const p = cssPPU(), simNow = viewSimTime || eng.simTime, [W, H] = eng.grid;
@@ -1846,7 +1934,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const lost = sel.lost;
     // the camera's subject died while the camera finds another cell of its body: mark nothing yet
     const dead = sel.particle.kind < FIRST_LIFE;
-    if (sel.film && dead && !(director.shot && director.shot.why && director.shot.why.kind === 'linger')) return;
+    if (sel.film && dead && !(director.shot && director.shot.why && director.shot.why.kind === 'linger')) return false;
     const R = 11;
     let l = sx - R, t = sy - R, r = sx + R, b = sy + R;
     const cr = sel.box && !inLens && !dead ? cellMarkR(sel.particle) : 0;
@@ -1863,13 +1951,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     brackets(octx, l, t, r, b, lost ? 'rgba(255,255,255,0.35)' : 'rgba(255,95,58,0.95)', 10);
     // framing a body, the brackets are the organism's; the watched cell gets its own, in the panel's cell colour
     if (sel.boxD && !lost) brackets(octx, sx - cr, sy - cr, sx + cr, sy + cr, CELL_MARK, 2.5, 0.225);
-    if (inLens || lost) return;
+    if (inLens || lost) return true;
     const p = sel.particle;
     const g = p.kind >= FIRST_LIFE ? genomeFor(p.kind) : null;
     const sp = g && life.reg.get(g.serial);
     // the camera lingering on a death keeps the species' name on its remains
-    const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : p.kind < FIRST_LIFE ? MATTER[p.kind].name : '';
-    if (!name) return;
+    const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : p.kind === 3 ? stoneGrain(p.id, p.info).name : p.kind < FIRST_LIFE ? MATTER[p.kind].name : '';
+    if (!name) return true;
     octx.font = '500 11px Saira, system-ui, sans-serif';
     const label = name.toUpperCase();
     octx.letterSpacing = '1.5px';
@@ -1888,6 +1976,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     octx.fillStyle = 'rgba(226,241,240,0.95)';
     octx.fillText(label, tx, ey + 3.5);
     octx.letterSpacing = '0px';
+    return true;
   }
 
   // ------------------------------------------------------------ auto camera
@@ -2009,9 +2098,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
         sub = r.slice(0, 2).map(note).join(' · ');
       }
     } else if (w.kind === 'follow') {
-      if (w.spotlight) { eyebrow = going ? 'A new species' : 'Following a new species'; main = going ? spName(w.serial) : upper(organism(w)); }
-      else { eyebrow = going ? 'Picking out' : 'Following'; main = upper(organism(w)); }
-      sub = going && r[0] && !w.spotlight ? note(r[0]) : spDesc(w.serial);
+      // named only once it is in view (w.seen): on the way, where the camera is going
+      if (!w.seen) { eyebrow = w.spotlight ? 'Searching' : 'Exploring'; main = w.spotlight ? 'For a new species' : 'Moving to a new area'; sub = w.spotlight ? '' : 'To discover the life there'; }
+      else if (w.spotlight) { eyebrow = 'Following a new species'; main = upper(organism(w)); sub = spDesc(w.serial); }
+      else { eyebrow = 'Following'; main = upper(organism(w)); sub = spDesc(w.serial); }
     } else if (w.kind === 'linger') {
       const [verb, after] = fateOf(w.fate);
       eyebrow = 'Lingering';
@@ -2075,6 +2165,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let last = performance.now();
   let frameCount = 0;
   let inflight = 0;
+  let shownFrame = null; // the camera and moment of the world frame the GPU finished last
   // The simulation clock, after Glenn Fiedler's "Fix Your Timestep!": real time, from the vsync-aligned
   // requestAnimationFrame timestamps, times the speed is owed to the simulation, and each drawn frame
   // pays all of it in equal steps of at most about 1/60 s (his semi-fixed variant: the renderer draws
@@ -2194,7 +2285,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
       eng.trackId2 = director.active ? director.trackId : NONE;
       watchMarks(performance.now());
       eng.mindId = sel && !sel.lost && !sel.film && sel.particle.kind >= FIRST_LIFE && specimen.isOpen() ? sel.id : NONE;
-      drawOverlay(dt, L);
+      // The overlay is drawn now, but the world it marks reaches the screen only when the GPU has drawn
+      // it, frames behind while frames queue (and the camera may be moving, following a cell). So while
+      // frames are in flight it is drawn with the camera and moment of the world frame last finished.
+      const cur = { x: cam.x, y: cam.y, zoom: cam.zoom, t: viewSimTime };
+      const seen = inflight && shownFrame ? shownFrame : cur;
+      Object.assign(cam, { x: seen.x, y: seen.y, zoom: seen.zoom }); viewSimTime = seen.t;
+      drawOverlay(dt, inflight && shownFrame ? loupeGeom() : L);
+      Object.assign(cam, { x: cur.x, y: cur.y, zoom: cur.zoom }); viewSimTime = cur.t;
       specimen.drawViewerUI(now);
       specimen.mindTick(now);
       eng.frame({
@@ -2212,7 +2310,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         hold: (state.speed === Infinity || perf.held) && !state.paused && state.phase === 'running' ? !!step.world : null,
       });
       inflight++;
-      device.queue.onSubmittedWorkDone().then(() => { inflight--; }, () => { inflight--; });
+      const sent = cur;
+      device.queue.onSubmittedWorkDone().then(() => { inflight--; shownFrame = sent; }, () => { inflight--; });
       if (sel && frameCount % 10 === 0 && !state.paused) gatherTick(false);
     }
     if (dirty && (sel || spView != null)) renderSpecimen(false);

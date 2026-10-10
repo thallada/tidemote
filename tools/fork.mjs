@@ -9,9 +9,9 @@ const { values: v } = parseArgs({ options: {
   n: { type: 'string', default: '32768' }, warm: { type: 'string', default: '600' }, horizon: { type: 'string', default: '30' },
   reps: { type: 'string', default: '16' }, seed: { type: 'string', default: '1' }, k: { type: 'string', default: '{}' },
   variants: { type: 'string', default: '[{"name":"m1","step":1},{"name":"m4","step":4}]' }, eras: { type: 'boolean' },
-  out: { type: 'string' },
+  out: { type: 'string' }, temp: { type: 'string' },
 } });
-const config = { n: +v.n, warm: +v.warm, horizon: +v.horizon, reps: +v.reps, seed: +v.seed, k: JSON.parse(v.k), variants: JSON.parse(v.variants), eras: !!v.eras };
+const config = { n: +v.n, warm: +v.warm, horizon: +v.horizon, reps: +v.reps, seed: +v.seed, k: JSON.parse(v.k), variants: JSON.parse(v.variants), eras: !!v.eras, ...(v.temp != null ? { temp: +v.temp } : {}) };
 const { create, globals } = await import('webgpu');
 Object.assign(globalThis, globals);
 const gpu = create([]);

@@ -2,7 +2,9 @@ import { GUIDE } from './guide.js';
 import { fmt, fmtClock, esc, cssCol, term, spLink, ROLE, LIVING_CSS } from './fmt.js';
 import { voiceOf } from './audio/mapping.js';
 import { sigilSVG } from './song.js';
-import { drawLines, sparkPath } from './charts.js';
+import { drawLines, drawNiches, sparkPath } from './charts.js';
+import { HEAT_BINS, HEAT_BIN, THERMAL_LEDGER } from './shaders.js';
+import { thermalGuild } from './genome.js';
 import { block, disclosure, wireDisclosures } from './ui.js';
 
 /**
@@ -16,7 +18,7 @@ export function createLab(api) {
   const root = $('lab'), bodyEl = $('lab-body'), tabs = [...root.querySelectorAll('[data-tab]')], fold = $('lab-close');
   const st = {
     open: api.startOpen, tab: 'census',
-    q: '', status: 'thriving', diet: 'all', mobility: 'all', body: 'all', sort: 'pop',
+    q: '', status: 'thriving', diet: 'all', mobility: 'all', body: 'all', temp: 'all', sort: 'pop',
     linAll: false, logType: 'all', logQ: '',
     open_: { celltypes: false }, // census disclosures
   };
@@ -88,7 +90,9 @@ export function createLab(api) {
   // ---------------------------------------------------------- species
   const DIETS = [['all', 'Any'], ['photosynth', 'Photosynth'], ['grazer', 'Grazer'], ['scavenger', 'Scavenger'], ['predator', 'Predator'], ['omnivore', 'Omnivore']];
   const MOBS = [['all', 'Any'], ['anchored', 'Anchored'], ['crawler', 'Crawler'], ['swimmer', 'Swimmer'], ['drifter', 'Drifter']];
-  const SORTS = { pop: 'Population', peak: 'Peak', newest: 'Newest', oldest: 'Oldest', depth: 'Mutations', swim: 'Swimming', size: 'Size' };
+  // by preferred temperature (thermalGuild): cold-loving, temperate, warmth-loving and thermophile
+  const TEMPS = [['all', 'Any'], ['cold-loving', 'Cold'], ['temperate', 'Temperate'], ['warmth-loving', 'Warm'], ['thermophile', 'Hot']];
+  const SORTS = { pop: 'Population', peak: 'Peak', newest: 'Newest', oldest: 'Oldest', depth: 'Mutations', swim: 'Swimming', size: 'Size', ...(api.eng.K.heat ? { warm: 'Warmest' } : {}) };
   function matches(sp, F) {
     const f = api.facets(sp.genome);
     if (F.status === 'thriving' && !(sp.alive && sp.established)) return false;
@@ -97,6 +101,7 @@ export function createLab(api) {
     if (F.diet !== 'all' && f.diet !== F.diet) return false;
     if (F.mobility !== 'all' && f.mobility !== F.mobility) return false;
     if (F.body !== 'all' && f.body !== F.body) return false;
+    if (F.temp !== 'all' && thermalGuild(sp.genome).pref !== F.temp) return false;
     if (F.q && !sp.name.toLowerCase().includes(F.q.toLowerCase())) return false;
     return true;
   }
@@ -105,6 +110,7 @@ export function createLab(api) {
     newest: (a, b) => b.born - a.born, oldest: (a, b) => a.born - b.born,
     depth: (a, b) => b.genome.depth - a.genome.depth, size: (a, b) => b.genome.size - a.genome.size,
     swim: (a, b) => b.genome.swim * (1 - b.genome.photo) - a.genome.swim * (1 - a.genome.photo),
+    warm: (a, b) => b.genome.topt - a.genome.topt,
   };
   function buildSpecies() {
     // the filters: one segmented row each, under a fixed label column
@@ -113,7 +119,8 @@ export function createLab(api) {
       ${seg('Status', 'status', [['thriving', 'Thriving'], ['alive', 'Living'], ['extinct', 'Extinct'], ['all', 'Any']])}
       ${seg(term('diet', 'Diet'), 'diet', DIETS)}
       ${seg('Moves', 'mobility', MOBS)}
-      ${seg(term('organism', 'Body'), 'body', [['all', 'Any'], ['multicellular', 'Multicellular'], ['single-cell', 'Single-cell']])}</div>
+      ${seg(term('organism', 'Body'), 'body', [['all', 'Any'], ['multicellular', 'Multicellular'], ['single-cell', 'Single-cell']])}
+      ${api.eng.K.heat ? seg(term('optimum', 'Temp'), 'temp', TEMPS) : ''}</div>
       <div class="sum"><span><span id="sp-sum"></span><button type="button" class="link" id="sp-reset" hidden>Reset</button></span><span class="sel"><label class="lbl" for="sp-sort">Sort</label><select id="sp-sort">${Object.entries(SORTS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select><button type="button" class="chip" id="sp-hl">Highlight these</button></span></div>`);
     const list = document.createElement('ol');
     list.className = 'splist';
@@ -130,8 +137,8 @@ export function createLab(api) {
       const b = e.target.closest('[data-k]');
       if (b) { st[b.dataset.k] = b.dataset.v; pressChips(p.ctl, b.dataset.k); update(true); return; }
       if (e.target.closest('#sp-reset')) {
-        Object.assign(st, { status: 'thriving', diet: 'all', mobility: 'all', body: 'all' });
-        ['status', 'diet', 'mobility', 'body'].forEach((k) => pressChips(p.ctl, k));
+        Object.assign(st, { status: 'thriving', diet: 'all', mobility: 'all', body: 'all', temp: 'all' });
+        ['status', 'diet', 'mobility', 'body', 'temp'].forEach((k) => pressChips(p.ctl, k));
         update(true);
         return;
       }
@@ -139,7 +146,7 @@ export function createLab(api) {
       if (ft) { const on = !p.ctl.classList.contains('open'); p.ctl.classList.toggle('open', on); ft.setAttribute('aria-expanded', String(on)); return; }
       if (e.target.closest('#sp-hl')) {
         const F = { ...st };
-        const parts = [F.status !== 'all' ? F.status : '', F.diet !== 'all' ? F.diet : '', F.mobility !== 'all' ? F.mobility : '', F.body !== 'all' ? F.body : '', F.q ? `“${F.q}”` : ''].filter(Boolean);
+        const parts = [F.status !== 'all' ? F.status : '', F.diet !== 'all' ? F.diet : '', F.mobility !== 'all' ? F.mobility : '', F.body !== 'all' ? F.body : '', F.temp !== 'all' ? F.temp : '', F.q ? `“${F.q}”` : ''].filter(Boolean);
         api.focusPredicate(`Species: ${parts.join(' · ') || 'all'}`, (g, sp) => !!sp && sp.alive && matches(sp, F));
       }
     });
@@ -341,6 +348,7 @@ export function createLab(api) {
         ['Diet', 'diet', g.diet.map((d) => ({ key: `diet:${d.name}`, label: d.name, n: d.n, col: d.col }))],
         ['Movement', null, g.mobility.map((d) => ({ key: `mobility:${d.name}`, label: d.name, n: d.n, col: d.col }))],
         ['Body', 'organism', g.body.map((d) => ({ key: `body:${d.name}`, label: d.name, n: d.n, col: d.col }))],
+        ...(api.eng.K.heat ? [['Temperature', 'optimum', g.temp.map((d) => ({ key: `temp:${d.name}`, label: d.name, n: d.n, col: d.col }))]] : []),
         ['Cells by type', 'celltype', ROLE.map((r, i) => ({ key: `role:${i}`, label: `${r}-cells`, n: roles[i], col: ['#ffb45e', '#b38cff', '#5fd4c4'][i] }))],
         ['Cell types per species', 'bodyplan', g.types.map((d) => ({ key: `types:${d.name}`, label: `${d.name} type${d.name === '1' ? '' : 's'}`, n: d.n, col: d.col }))],
       ];
@@ -353,12 +361,15 @@ export function createLab(api) {
         shape = k;
         const bars = ([title, tip, rows]) => block(title, `<div class="bars">${rows.map((r) => `<button type="button" class="barrow" data-focus="${r.key}" aria-pressed="false"><span class="bl">${r.label}</span><span class="meter" style="color:${r.col}"><i></i></span><span class="bn"></span><span class="bp"></span></button>`).join('')}</div>`, { tip });
         // the cell-type breakdowns matter less than what life eats and how it moves: folded away by default
-        box.innerHTML = secs.slice(0, 3).map(bars).join('')
-          + disclosure('celltypes', 'Cell types', `<div class="stack">${secs.slice(3).map(bars).join('')}</div>`, st.open_.celltypes)
-          + block('Condition', `<div class="segs" role="group" aria-label="Condition">
+        const fold = secs.length - 2; // the two cell-type breakdowns, last
+        box.innerHTML = secs.slice(0, fold).map(bars).join('')
+          + disclosure('celltypes', 'Cell types', `<div class="stack">${secs.slice(fold).map(bars).join('')}</div>`, st.open_.celltypes)
+          + block('Condition', `<div class="segs even" role="group" aria-label="Condition">
             <button type="button" class="chip" data-focus="state:1" aria-pressed="false" data-hint="Under 35% of the energy needed to divide">Hungry</button>
             <button type="button" class="chip" data-focus="state:2" aria-pressed="false" data-hint="Over 85% of the energy needed to divide">Ready to divide</button>
-            <button type="button" class="chip" data-focus="state:3" aria-pressed="false" data-hint="Past 80% of their lifespan">Elderly</button></div>`, { cls: 'inline' });
+            <button type="button" class="chip" data-focus="state:3" aria-pressed="false" data-hint="Past 80% of their lifespan">Elderly</button>${api.eng.K.heat ? `
+            <button type="button" class="chip" data-focus="state:4" aria-pressed="false" data-hint="Warmer than they can comfortably bear">Heat-stressed</button>
+            <button type="button" class="chip" data-focus="state:5" aria-pressed="false" data-hint="Too cold to feed, swim or divide">Torpid</button>` : ''}</div>`);
       }
       const fk = api.focusKey();
       const els = box.querySelectorAll('.bars');
@@ -388,27 +399,49 @@ export function createLab(api) {
     ['New species and extinctions per minute', 'mutation', [{ k: 'mut', label: 'new species', col: '#c9b8ff' }, { k: 'ext', label: 'extinctions', col: '#ff8a6b' }]],
     ['Climate', 'season', [{ k: 'ambient', label: 'baseline light', col: '#d9f27a' }, { k: 'season', label: 'tide strength', col: '#5fd4c4' }]],
   ];
+  // the heat charts, while the world has a heat field
+  if (api.eng.K.heat) {
+    CHARTS.push(
+      ['Temperature', 'water', [{ k: 'temp', label: 'background temperature', col: '#ff8a3a' }], '°'],
+      ['Heat deaths per minute', 'scalding', [{ k: 'scald', label: 'scalded', col: '#ff5f3a' }]],
+      ['Torpid', 'torpor', [{ k: 'torpid', label: 'share of the living', col: '#7fb0ff' }], '%'],
+    );
+  }
   function buildCharts() {
     const p = pane('');
     p.scroll.classList.add('stack');
     p.scroll.innerHTML = `<div class="legend"><span><i style="background:var(--sun);height:6px;width:1px"></i>dotted lines mark a new era</span></div>`
       + CHARTS.map(([t, tip, s], i) => block(t, `<canvas class="dyn" data-i="${i}" aria-label="${esc(t)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join('')}</div>`, { tip })).join('')
+      + (api.eng.K.heat ? block('Thermal niches', `<canvas class="niches" aria-label="Each species by the temperature it prefers and its population"></canvas><div class="legend"><span><i style="background:#ff8a3a;opacity:.4"></i>warmth the living feel</span><span><i style="background:#ff8a3a;height:6px;width:1px"></i>background temperature</span><span>dot size: tolerance · ring: ${term('heatmaker', 'heat-maker')}</span></div>`, { tip: 'optimum' }) : '')
       + block('Eras', '<ol class="eras" id="eras"></ol>');
     const cvs = [...p.scroll.querySelectorAll('canvas.dyn')];
-    let erasN = -1;
+    const niches = p.scroll.querySelector('canvas.niches');
+    let erasN = -1, excN = 0;
     function update() {
-      const hist = api.life().history, eras = api.climate().history;
-      cvs.forEach((cv, i) => drawLines(cv, hist, CHARTS[i][2], eras, ''));
-      if (eras.length !== erasN) {
-        erasN = eras.length;
-        $('eras').innerHTML = eras.slice().reverse().map((h) => `<li><time>${fmtClock(h.t)}</time><b>${esc(h.name)}</b><span>light ${Math.round(h.ambient * 100)}% · glint ×${h.charge.toFixed(2)}</span></li>`).join('');
+      const life = api.life(), hist = life.history, eras = api.climate().history;
+      cvs.forEach((cv, i) => drawLines(cv, hist, CHARTS[i][2], eras, CHARTS[i][3] || ''));
+      if (niches) {
+        const sp = [];
+        for (const s of life.reg.values()) if (s.alive && s.pop > 0) sp.push({ topt: s.genome.topt, tol: s.genome.tol, pop: s.pop, maker: s.genome.thermo > 0.2, col: s.genome.col });
+        // the warmth felt over the last half minute or more (the ledger's counts are cumulative)
+        const c = life.lastCensus, now = c ? Array.from(c.energy.slice(THERMAL_LEDGER.hist, THERMAL_LEDGER.hist + HEAT_BINS)) : null;
+        if (now && (!felt0 || c.simTime - felt0.t > 60 || c.simTime < felt0.t)) felt0 = { t: c.simTime, n: felt1 ? felt1.n : now };
+        if (now && (!felt1 || c.simTime - felt1.t > 30 || c.simTime < felt1.t)) felt1 = { t: c.simTime, n: now };
+        drawNiches(niches, sp, api.eng.tbg, now ? now.map((v, b) => v - felt0.n[b]) : [], HEAT_BIN);
+      }
+      const exc = eras.filter((h) => h.excursion).length;
+      if (eras.length !== erasN || exc !== excN) {
+        erasN = eras.length; excN = exc;
+        const water = (h) => (api.eng.K.heat && h.temp != null ? ` · temperature ${Math.round(h.temp)}°${h.excursion ? ` · ${h.excursion.dT > 0 ? 'heat wave' : 'cold snap'} ${h.excursion.dT > 0 ? '+' : '−'}${Math.abs(h.excursion.dT).toFixed(0)}°` : ''}` : '');
+        $('eras').innerHTML = eras.slice().reverse().map((h) => `<li><time>${fmtClock(h.t)}</time><b>${esc(h.name)}</b><span>light ${Math.round(h.ambient * 100)}% · glint ×${h.charge.toFixed(2)}${water(h)}</span></li>`).join('');
       }
     }
+    let felt0 = null, felt1 = null;
     return { ...p, update };
   }
 
   // ---------------------------------------------------------- log
-  const TYPES = [['all', 'All'], ['est', 'New species'], ['genus', 'New genera'], ['ext', 'Extinctions'], ['top', 'Dominance'], ['era', 'Eras']];
+  const TYPES = [['all', 'All'], ['est', 'New species'], ['genus', 'New genera'], ['ext', 'Extinctions'], ['top', 'Dominance'], ['era', 'Eras'], ...(api.eng.K.heat ? [['heat', 'Heat']] : [])];
   function buildLog() {
     const p = pane(`<input type="search" id="log-q" placeholder="Search the log" aria-label="Search the log" autocomplete="off">
       <div class="row" role="group" aria-label="Show">${chips('logType', TYPES, st.logType)}</div>`);

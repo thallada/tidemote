@@ -1,6 +1,6 @@
 import { DEFAULT_K, G_WORDS } from './shaders.js';
 
-export const KIND = { SILT: 0, GLINT: 1, HUSK: 2, STONE: 3 };
+export const KIND = { SILT: 0, GLINT: 1, HUSK: 2, STONE: 3, FRAMBOID: 4 };
 
 // Cosmetic names and selection mirror DRAW_WGSL; never consume ecological randomness.
 export const CELL_SHAPES = ['lobose', 'filose', 'radiate', 'desmid', 'horned', 'spindle',
@@ -97,7 +97,13 @@ const ADHESION = { reef: 0.85, plankton: 0, grazer: 0, crawler: 0.75, hunter: 0.
 const CALCIFY = { reef: [0.4, 0.9], filament: [0, 0.3] };
 export const ARCHETYPE_TYPES = Object.keys(ARCHETYPES);
 
-export function archetypeGenome(type, r = Math.random, K = DEFAULT_K) {
+// Heat-makers among the founders: a quarter of these body plans start with some heat output.
+const THERMO_FOUNDERS = new Set(['crawler', 'grazer', 'filament']);
+const gaussOf = (r) => (r() + r() + r() - 1.5) * 2;
+const unorm8 = (v) => Math.round(clamp(v, 0, 1) * 255) / 255;
+
+/** A founder of body plan `type`, suited to water at t0 degrees. */
+export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
   const A = ARCHETYPES[type];
   const W = A.selfW ? A.W.map((row, i) => (i === 0 ? [mix(A.selfW[0], A.selfW[1], r()), row[1], row[2]] : row)) : A.W;
   const surfs = [randSig(r), randSig(r), randSig(r)];
@@ -121,6 +127,9 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K) {
     parent: 0, serial: 0, born: 0, depth: 0, archetype: type,
     adhesion: ADHESION[type] ?? 0,
     calcify: CALCIFY[type] ? mix(...CALCIFY[type], r()) : 0,
+    topt: clamp(t0 + gaussOf(r) * 3, 0, 45),
+    tol: type === 'reef' ? mix(3, 6, r()) : mix(5, 10, r()),
+    thermo: THERMO_FOUNDERS.has(type) && r() < 0.25 ? unorm8(mix(0.3, 0.7, r())) : 0,
   };
   return finalizeGenome(g, K);
 }
@@ -168,6 +177,11 @@ export function mutateLike(g, r = Math.random, K = DEFAULT_K) {
   h.adhesion = clamp((h.adhesion || 0) + gauss() * m * 0.25, 0, 1); h.calcify = clamp((h.calcify || 0) + gauss() * m * 0.2, 0, 1);
   if (r() < m * 0.1) h.calcify = h.calcify < 0.05 ? 0.2 + 0.6 * r() : 0;
   if (r() < m * 0.15) h.adhesion = h.adhesion < 0.15 ? 0.3 + 0.7 * r() : 0;
+  h.topt = clamp((h.topt ?? 19) + gauss() * m * 3, 0, 45);
+  h.tol = clamp((h.tol ?? 7) * Math.exp(gauss() * m * 0.3), 2, 15);
+  let thermo = clamp((h.thermo || 0) + gauss() * m * 0.15, 0, 1);
+  if (r() < m * 0.1) thermo = thermo < 0.05 ? 0.3 + 0.4 * r() : 0;
+  h.thermo = unorm8(thermo);
   h.parent = g.serial; h.serial = (g.serial || 0) + 1; h.depth = (g.depth || 0) + 1;
   return finalizeGenome(h, K);
 }
@@ -180,6 +194,7 @@ export function writeGenome(u32, f32, slot, g) {
     u32[o + r * 4 + 2] = packSnorm(R.rec.slice(0, 4)); u32[o + r * 4 + 3] = packSnorm(R.rec.slice(4, 8));
     u32[o + 12 + r] = packUnorm(g.dev[r][0], g.dev[r][1], g.dev[r][2], 0);
   }
+  u32[o + 15] = Math.round(clamp(g.thermo || 0, 0, 1) * 255);
   const fl = ['radius', 'beta', 'force', 'drag', 'metab', 'lifespan', 'reproE', 'share',
     'dGlint', 'dHusk', 'dFlesh', 'mutRate', 'hue', 'sat', 'lum', 'size', 'shape', 'pulse', 'roleHue', 'advect', 'swim', 'align', 'photo'];
   fl.forEach((k, i) => { f32[o + 16 + i] = g[k] ?? 0; });
@@ -187,6 +202,8 @@ export function writeGenome(u32, f32, slot, g) {
   u32[o + 40] = g.parent >>> 0; u32[o + 41] = g.serial >>> 0; f32[o + 42] = g.born || 0; u32[o + 43] = g.depth >>> 0;
   f32[o + 44] = g.adhesion || 0;
   f32[o + 45] = g.calcify || 0;
+  f32[o + 46] = g.topt ?? 19;
+  f32[o + 47] = g.tol ?? 7;
 }
 
 export const genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
@@ -206,6 +223,7 @@ export function readGenome(u32, f32, slot) {
     shape: F(16), pulse: F(17), roleHue: F(18), advect: F(19), swim: F(20), align: F(21), photo: F(22),
     col: u32[o + 39], parent: u32[o + 40], serial: u32[o + 41], born: f32[o + 42], depth: u32[o + 43],
     adhesion: f32[o + 44], calcify: f32[o + 45],
+    topt: f32[o + 46], tol: f32[o + 47], thermo: (u32[o + 15] & 255) / 255,
   };
 }
 
@@ -227,4 +245,29 @@ export function mobilityGuild(g) {
   const swim = g.swim * (1 - g.photo);
   return g.advect < 0.2 && swim < 0.2 ? 'sessile' : swim >= 0.8 ? 'swimmer'
     : g.advect > 0.7 && swim < 0.4 ? 'drifter' : 'crawler';
+}
+
+/**
+ * How well a cell of genome g works at temperature t (body warmth included), as thermalState in
+ * shaders.js: perf (a rate multiplier, peaking higher the narrower the tolerance), stress, x (how many
+ * tolerances from its optimum) and torpid.
+ */
+export function thermalPerf(g, t, K = DEFAULT_K) {
+  const tol = Math.max(g.tol ?? 7, 0.5);
+  const x = (t - (g.topt ?? 19)) / tol;
+  const peak = 1 + K.specBonus * (1 - clamp((tol - 2) / 13, 0, 1));
+  const flat = K.thermalFlat ?? 0, y = x > 0 ? Math.max(x - flat, 0) / (K.thermalWarm ?? 0.45) : Math.min(x + flat, 0);
+  const torpid = x < -K.torporAt;
+  const s = clamp((Math.abs(x) - 0.3) / 0.6, 0, 1);
+  return { perf: torpid ? 0 : peak * Math.exp(-y * y), stress: s * s * (3 - 2 * s), x, torpid };
+}
+
+/** Thermal niche words: { pref: cold-loving | temperate | warmth-loving | thermophile, breadth, maker }. */
+export function thermalGuild(g) {
+  const t = g.topt ?? 19, tol = g.tol ?? 7;
+  return {
+    pref: t < 10 ? 'cold-loving' : t > 38 ? 'thermophile' : t > 28 ? 'warmth-loving' : 'temperate',
+    breadth: tol < 4 ? 'specialist' : tol > 10 ? 'generalist' : '',
+    maker: (g.thermo || 0) > 0.2,
+  };
 }

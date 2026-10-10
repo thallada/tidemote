@@ -101,6 +101,29 @@ export function summarizeRun(samples, { count, collapseAt = 0.02, monoAt = 0.5, 
     outcome: collapsed ? 'collapsed' : maxShare > monoAt ? `mono:${late.at(-1).top[0]?.diet ?? '?'}`
       : DIETS.filter((k) => lateDiet[k] >= 0.2).join('+') || 'mixed',
     fingerprint: fingerprint(late),
+    ...(late[0].thermal ? { thermal: thermalSummary(mature, late) } : {}),
+  };
+}
+
+// Heat over a run (src/headless.js samples): the late phase's water, what the living felt and how far
+// their preferred temperatures sit from the water, torpor, scalding and framboids; and the whole run's
+// range of temperatures and its scalding.
+function thermalSummary(mature, late) {
+  const lm = (f) => { const xs = late.map(f).filter((x) => x != null && Number.isFinite(x)); return xs.length ? mean(xs) : null; };
+  const th = (s) => s.thermal;
+  const scald = (s) => Object.values(th(s).scalded || {}).reduce((a, b) => a + b, 0);
+  const tb = mature.map((s) => th(s).tbg);
+  let scaldTotal = 0;
+  for (let i = 1; i < mature.length; i++) scaldTotal += scald(mature[i]) * (mature[i].t - mature[i - 1].t) / 60;
+  return {
+    tbg: lm((s) => th(s).tbg), felt: lm((s) => th(s).felt?.p50), feltSpread: lm((s) => th(s).felt && th(s).felt.p90 - th(s).felt.p10),
+    toptMean: lm((s) => th(s).toptMean), toptSD: lm((s) => th(s).toptSD), tolMean: lm((s) => th(s).tolMean),
+    lag: lm((s) => th(s).toptMean == null ? null : th(s).toptMean - th(s).tbg),
+    torpid: lm((s) => th(s).torpidFrac), makers: lm((s) => th(s).makerFrac), scalded: lm(scald),
+    framboids: lm((s) => th(s).framboids), framboidsMade: lm((s) => th(s).framboidsMade),
+    hotFrac: lm((s) => th(s).field?.hotFrac), fieldP99: lm((s) => th(s).field?.p99),
+    tbgMin: tb.length ? Math.min(...tb) : null, tbgMax: tb.length ? Math.max(...tb) : null, scaldTotal,
+    torpidPeak: Math.max(0, ...mature.map((s) => th(s).torpidFrac || 0)),
   };
 }
 

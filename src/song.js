@@ -35,7 +35,8 @@ export function songSVG(m, { w = 300, h = 68, col = '#7fd6df', col2 = col, ghost
   const cyc = Math.max(m.cycle, ghost ? ghost.cycle : 0);
   const sx = (w - 2 * pad) / cyc, x = (t) => pad + t * sx;
   const bh = Math.max(2, rowH * 0.5);
-  let s = `<svg class="song-roll" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${label}">`;
+  // its time axis for a playhead (x = x0 + steps · sx, wrapping at the cycle)
+  let s = `<svg class="song-roll" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${label}" data-x0="${pad}" data-sx="${sx}" data-cycle="${m.cycle}">`;
   // corner brackets, as around the close-up viewer
   const c = 6;
   s += `<path class="brk" d="M.5 ${c}V.5H${c}M${w - c} .5H${w - 0.5}V${c}M.5 ${h - c}V${h - 0.5}H${c}M${w - c} ${h - 0.5}H${w - 0.5}V${h - c}"/>`;
@@ -52,7 +53,7 @@ export function songSVG(m, { w = 300, h = 68, col = '#7fd6df', col2 = col, ghost
   };
   // the ancestor's notes that this song no longer plays
   if (ghost) for (const nt of ghost.notes) if (!m.notes.some((q) => Math.abs(q.at - nt.at) < 1e-6 && Math.abs(q.deg - nt.deg) < 1e-6)) s += bar(nt, 'ghost');
-  (m.voice2 || []).forEach((nt, k) => { s += bar(nt, 'v2', ` data-k="${k}" data-l="1" style="stroke:${col2}"`); });
+  (m.voice2 || []).forEach((nt, k) => { s += bar(nt, 'v2', ` data-k="${k}" data-l="1" data-at="${nt.at}" style="stroke:${col2}"`); });
   // a riff on the ancestor: outline the notes that moved (a whole new phrase outlines nothing)
   const moved = ghost ? m.notes.map((nt, k) => { const g = ghost.notes[k]; return !g || Math.abs(g.at - nt.at) > 1e-6 || Math.abs(g.deg - nt.deg) > 1e-6; }) : [];
   const riff = moved.filter(Boolean).length <= Math.max(1, m.notes.length * 0.6);
@@ -61,7 +62,7 @@ export function songSVG(m, { w = 300, h = 68, col = '#7fd6df', col2 = col, ghost
   s += `<path class="contour" style="stroke:${col}" d="${m.notes.slice(1).map((nt, k) => { const a = m.notes[k]; return `M${r1(x(a.at) + barLen(a))} ${r1(y(a.deg))}L${r1(x(nt.at))} ${r1(y(nt.deg))}`; }).join('')}"/>`;
   m.notes.forEach((nt, k) => {
     if (nt.grace != null) s += `<circle class="grace" cx="${r1(x(nt.at) - 2.5)}" cy="${r1(y(nt.grace))}" r="1.3" style="fill:${col}"/>`;
-    s += bar(nt, `nt${changed(nt, k) ? ' changed' : ''}`, ` data-k="${k}" data-l="0" style="fill:${col};fill-opacity:${(0.35 + 0.55 * nt.acc).toFixed(2)}"`);
+    s += bar(nt, `nt${changed(nt, k) ? ' changed' : ''}`, ` data-k="${k}" data-l="0" data-at="${nt.at}" style="fill:${col};fill-opacity:${(0.35 + 0.55 * nt.acc).toFixed(2)}"`);
     s += `<path class="on" d="M${r1(x(nt.at))} ${r1(y(nt.deg) - bh / 2 - 2)}v${r1(bh + 4)}" style="stroke:${col}"/>`; // the attack
     if (Math.round(nt.deg) !== nt.deg) s += `<path class="chrom" d="M${r1(x(nt.at))} ${r1(y(nt.deg) - bh / 2 - 2.5)}h3"/>`;
   });

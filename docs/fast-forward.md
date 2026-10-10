@@ -87,7 +87,24 @@ normal ensemble gave food webs 0.41 and 71.8 effective species. Judge diversity 
 mechanism on matched forks over at least 16 worlds, switching seeds between hypotheses. Effects seen on
 3-4 worlds repeatedly failed to reproduce.
 
-## Measuring
+### With heat
+
+Tested after heat (docs/thermal-energy-2026-10-07.md), on the pinned code, data in `runs/thermal-ff/`
+(local; summarized in `NOTES.md` there).
+
+- **Heat itself matches at 4 ticks.** Over 128 long runs, felt temperature, preferred temperatures, torpor,
+  heat-makers, scalding, framboids and the water's field agree within error; in forks each guild's thermal
+  performance agrees within 0.004, and worlds held at 6° and 26° match as closely (births +0.2%, −1.5%).
+- **Rates in forks** over ~130 worlds (10 and 25 min old, held cold and hot) match within ~2% on average;
+  a few dense predator-rich worlds drift 10–47%. Worlds grown and forked with heat off show the same
+  outliers as often, so they are the dense-core limit above. Heat packs worlds about twice as densely
+  (huddling) without making them less faithful.
+- **A 2x2 at 30 min** (heat on/off × 1/60 s, 4 ticks, 128 seeds each): the step's effect is within batch
+  noise (its sign flips between heat on and off); heat's effect is the same at both steps.
+- **Over 90 minutes** heat drives a strong succession (a grazer era giving way to scavengers and
+  producers), and 4 ticks plays it out more slowly (late effective species 90 vs 119, 32 seeds); with heat
+  off 4 ticks keeps pace (100 vs 108). A coarse step's limit worth knowing for long fast-forwards.
+
 
 - **Long runs:** `tools/gpu-node.sh tools/ensemble.mjs --runs 128 --step 4 --out runs/NAME`, then
   `pool.mjs`. Run long queues from a pinned git worktree (each seed reads `src/` from disk).
@@ -104,6 +121,15 @@ mechanism on matched forks over at least 16 worlds, switching seeds between hypo
 - **Decomposition:** `eventTicks`-style batching (meals and division every Nth tick with 1/60 s motion)
   separated event timing from motion; worth rebuilding as a tunable if a question needs it again.
 - `sim.mjs --step N --profile` times each pass.
+- **Heat:** every sample carries a `thermal` block (the water, what the living felt, preferred temperatures,
+  torpor, heat-makers, scalding, framboids, and the water's field against the background), and run outcomes
+  summarize it; forks record the same per fork, and `K.diag` adds each guild's thermal performance and its
+  offset from the optimum. `--temp T` (sim, ensemble, fork) holds the water at T degrees.
+  `fork-heat.cjs` compares heat between variants, `fork-worlds.cjs` lists each fork world's mix, crowding,
+  heat and deviations, `heat-pool.mjs` sets ensembles side by side with paired differences, `history.mjs`
+  counts busts, extinction pulses and guild crashes and recoveries over each run, `trajectory.mjs` bins runs
+  by time, and `guild-flows.mjs` gives per-capita demography and energy. `ensemble.mjs --resume` skips seeds
+  already done or claimed, so two ensembles can share one directory.
 
 ## What did not work
 

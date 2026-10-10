@@ -20,6 +20,7 @@ function buffer({ hungry = false, silt = false, food = null, energy = 0.5, photo
   u32[0] = 77; u32[1] = 1;
   u32[2] = (hungry ? 1 : 0) | (silt ? 2 : 0) | (food ? 4 : 0);
   u32[3] = food ? food.kind : NONE; f32[4] = food ? food.dist : 0; u32[5] = food ? 5 : NONE;
+  if (food) f32.set(food.d || [food.dist, 0], 56);
   u32[6] = image; u32[7] = nbrs.length;
   Object.assign(f32, { 8: photoGain, 9: upkeep, 10: light, 11: 10, 12: 0, 13: 0, 14: kinCost, 15: stoneN, 16: 1, 17: 1, 18: 1 / 60, 19: energy, 20: 1 });
   f32.set(vel, 22);
@@ -38,7 +39,8 @@ test('parseMind reads the header, drives and neighbours', () => {
   const m = buffer({ hungry: true, silt: true, food: { kind: 1, dist: 0.2 }, drives: { diet: [0.5, 0] }, nbrs: [{ kind: HUNTER, d: [0.3, 0], fSig: -0.2, inside: true }] });
   assert.equal(m.hungry, true);
   assert.equal(m.siltNear, true);
-  assert.deepEqual(m.food, { kind: 1, dist: m.food.dist, j: 5 });
+  assert.deepEqual(m.food, { kind: 1, dist: m.food.dist, j: 5, d: m.food.d });
+  assert.ok(Math.abs(m.food.d[0] - 0.2) < 1e-6 && m.food.d[1] === 0);
   assert.ok(Math.abs(m.food.dist - 0.2) < 1e-6);
   assert.deepEqual(m.drives.diet, [0.5, 0]);
   assert.equal(m.nbrs.length, 1);
@@ -142,4 +144,18 @@ test('the pull rows are fixed by the genome and match the hunt', () => {
   assert.ok(Math.abs(food.mag - 0.5) < 1e-6);
   assert.equal(it.mode, 'Hunting');
   assert.ok(it.odds.p > 0 && it.odds.verb === 'kill');
+});
+
+test('a torpid cell reads as torpid before anything else', () => {
+  const buf = new ArrayBuffer(MIND_BYTES);
+  const u32 = new Uint32Array(buf), f32 = new Float32Array(buf);
+  u32[1] = 1; u32[2] = 1; u32[3] = NONE; u32[5] = NONE;
+  Object.assign(f32, { 9: 0.01, 17: 1, 18: 1 / 60, 19: 0.5, 20: 1, 21: 6, 52: 6, 53: 0, 54: -2 });
+  u32[55] = 1;
+  const m = parseMind(u32, f32);
+  assert.equal(m.torpid, true);
+  const it = interpretMind(m, { ...G[ME], topt: 20, tol: 6 }, ME, { K, genomeOf });
+  assert.equal(it.key, 'torpid');
+  const lamp = it.flags.find((f) => f.key === 'thermal');
+  assert.ok(lamp.on && lamp.tone === 'cold' && lamp.label === 'Too cold');
 });

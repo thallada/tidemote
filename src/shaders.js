@@ -1,9 +1,9 @@
 // WGSL for the Tidemote biosphere.
-// Kinds: 0 silt, 1 glint, 2 husk, 3 stone, 4..1023 living genomes.
+// Kinds: 0 silt, 1 glint, 2 husk, 3 stone, 4 framboid, 5..1023 living genomes.
 // Each living genome has up to three cell roles with their own signatures.
 
 export const MAXK = 1024;
-export const FIRST_LIFE = 4;
+export const FIRST_LIFE = 5;
 export const MAX_CELLS = 1 << 18;
 export const META_SLOT = 16;
 export const META_POP = META_SLOT + MAXK;
@@ -14,12 +14,25 @@ export const META_ENERGY = META_DEATH + 64;
 // core); at hunters' kill opportunities the kill funnel; and their contact density (animals within reach
 // and twice reach).
 export const DIAG_SLOTS = ['samples', 'crowd', 'silt', 'pack', 'kin', 'speed', 'photo', 'light', 'hungry', 'hungryFood', 'force', 'energy', 'overlap',
-  'killOpp', 'preyInReach', 'tried', 'missed', 'lost', 'won', 'preyNear', 'preyNear2', 'huntSamples'];
+  'killOpp', 'preyInReach', 'tried', 'missed', 'lost', 'won', 'preyNear', 'preyNear2', 'huntSamples', 'perf', 'warmOff'];
 export const DIAG_STRIDE = 24;
 export const META_DIAG = META_ENERGY + 64;
 export const META_CLAIM = META_DIAG + 5 * DIAG_STRIDE;
-// Energy ledger per diet guild, in thousandths: light, glint, plant bites, husks, kills, upkeep, children.
-export const ENERGY_SLOTS = ['light', 'glint', 'plant', 'husk', 'flesh', 'upkeep', 'children'];
+// Energy ledger per diet guild, in thousandths: light, glint, plant bites, husks, kills, upkeep,
+// children, heat-making. META_ENERGY + 40.. holds the thermal sample (THERMAL_LEDGER).
+export const ENERGY_SLOTS = ['light', 'glint', 'plant', 'husk', 'flesh', 'upkeep', 'children', 'heat'];
+// Sampled once a second per living cell: the warmth it lives at (HEAT_BINS bins of HEAT_BIN degrees
+// from 0), how many were torpid, and how many were heat-makers. Heat deaths per guild are
+// META_DEATH + 20 + guild.
+export const HEAT_BINS = 16;
+export const HEAT_BIN = 3;
+// framboids: how many have formed (seeded ones included), cumulative
+export const THERMAL_LEDGER = { hist: 40, torpid: 56, makers: 57, framboidsMade: 58 };
+// A pyrite framboid: its particle kind, and the cause code (info & 15) of one grown in a rotting pile.
+export const FRAMBOID = 4;
+export const FRAMBOID_GROWN = 12;
+// The heat field: deposits (fixed point), then this step's temperatures.
+export const HEAT_FIX = 1048576;
 export const P_BYTES = 40;
 // The loupe's barrel distortion: its rim shows this many times its radius.
 export const LOUPE_FIELD = 1.1;
@@ -30,7 +43,7 @@ export const G_WORDS = 48;
 export const LITE_BYTES = 32;
 // The selected cell's mind (mindMain): a header of MIND_HEAD words, then MIND_NBR living neighbours
 // of MIND_NBR_WORDS words each. See parseMind in mind.js for the layout.
-export const MIND_HEAD = 50;
+export const MIND_HEAD = 58;
 export const MIND_NBR = 48;
 export const MIND_NBR_WORDS = 7;
 export const MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
@@ -105,22 +118,94 @@ export const DEFAULT_K = {
   stoneWall: 5.0,   // how hard stone pushes (scaled down for calcifiers, which settle on it)
   refuge: 0.12,     // chance per nearby grain of stone that an attack made from among stone misses...
   refugeMax: 0.3,   // ...up to this (a leaky refuge: hunters at reefs still make a living)
+  // Heat: a field on the binning grid that life writes (its spent energy) and reads (each species'
+  // preferred temperature). Degrees are notional; see docs/thermal-energy-2026-10-07.md.
+  heat: 1,          // 0: no field, and temperature has no effect
+  // heatD and heatLoss set how far a hot spot spreads, sqrt(heatD / heatLoss) ≈ 2.8 cells: about a
+  // colony's own neighbourhood, so warm patches stay distinct rather than blurring into one haze
+  heatD: 0.25,      // diffusion, cells²/s
+  heatLoss: 0.033,  // relaxation toward the background temperature, per second
+  metabHeat: 0.18,  // degrees per unit of energy spent on upkeep
+  sunHeat: 0.04,    // degrees per second in full light
+  rotHeat: 0.3,     // degrees per unit of energy a husk loses as it rots
+  // Pyrite framboids: raspberry clusters of iron sulfide that form where carcasses rot (their sulfide)
+  // and warm their water as they oxidise, until they are spent and crumble to silt.
+  framboids: 0.02,  // share of the silt in a world's mud patches that starts as framboids
+  framboidLife: 300, // seconds a framboid burns on average at tRef (twice as fast per 10° warmer)
+  framboidHeat: 1.5, // degrees per second it warms its grid cell (before stone's heat capacity)
+  framboidForm: 0.1, // chance a husk rotting out in a pile of them leaves a framboid instead of silt...
+  framboidPile: 8,  // ...in a grid cell holding this many husks (rising from three), in water no warmer than
+                    // the background (none at 6° above it: pyrite forms in cool mud)
+  stoneMass: 0.15,  // heat capacity added by each grain of stone in a grid cell
+  tRef: 16,         // the temperature at which glint and husks wear at their base rates
+  specBonus: 0.25,  // extra performance at its optimum of the narrowest tolerance (2°)
+  thermalFlat: 0.5, // tolerances either side of its optimum where a cell works at its best
+  thermalWarm: 0.6, // how wide the warm side of the curve is relative to the cold side (heat kills)
+  stressCost: 0.5,  // extra upkeep at full thermal stress
+  torporAt: 1.25,   // tolerances below its optimum where a cell goes torpid...
+  torporCost: 0.25, // ...and the share of its upkeep it then pays
+  scald: 0.03,      // chance per second of dying at full heat stress
+  thermotaxis: 0.6, // how hard swimmers steer toward water that suits them, relative to their swimming
+  thermoCost: 0.03, // energy per second a full heat-maker burns to warm itself and its water
+  selfWarm: 4,      // degrees a full heat-maker runs above its water (×1.5 with two bonds)
+  glintQ10: 2.0,    // glint fades this much faster per 10° above tRef
+  rotQ10: 2.5,      // husks rot this much faster per 10° above tRef
+  hotCharge: 0.6,   // extra chance per second that silt charges in the hottest water (hot springs)
+  hotFrom: 8,       // hot springs begin this many degrees over the background (framboids, heat-maker colonies;
+  hotTo: 22,        // a grazer huddle stays below it) and charge fully this many degrees over it
+  abioHeat: 3,      // extra weight of sparks of life in hot water
+  marangoni: 0,     // matter drifts from warm water toward cold at this many cells/s per °/cell
 };
 
+const packCol = (r, g, b) => (Math.round(r * 255) | (Math.round(g * 255) << 8) | (Math.round(b * 255) << 16) | (255 << 24)) >>> 0;
 const f = (x) => {
   const s = String(x);
   return /[.eE]/.test(s) ? s : s + '.0';
 };
 
+// The kinds of sediment grain, shared by the stone pass (vsStone, mineralSurf) and the specimen panel:
+// each kind's colour variants (a name and colour, from a share of grains on), and how bedrock and reef
+// stone (laid down by calcifiers) mix them, as [kind, cumulative share].
+export const STONE_KINDS = [
+  [{ name: 'Quartz', col: [0.74, 0.75, 0.73] }, { from: 0.6, name: 'Smoky quartz', col: [0.56, 0.48, 0.41] }, { from: 0.9, name: 'Rose quartz', col: [0.82, 0.62, 0.64] }],
+  [{ name: 'Pink feldspar', col: [0.95, 0.55, 0.42] }, { from: 0.6, name: 'Cream feldspar', col: [0.95, 0.85, 0.64] }],
+  [{ name: 'Hornblende', col: [0.16, 0.18, 0.17] }, { from: 0.5, name: 'Hornblende', col: [0.18, 0.26, 0.15] }, { from: 0.85, name: 'Hornblende', col: [0.28, 0.15, 0.12] }],
+  [{ name: 'Sand grain', col: [0.92, 0.78, 0.55] }, { from: 0.55, name: 'Sand grain', col: [0.76, 0.75, 0.72] }, { from: 0.85, name: 'Iron-stained sand grain', col: [0.9, 0.56, 0.32] }],
+  [{ name: 'Foraminifer shell', col: [1.0, 0.95, 0.85] }, { from: 0.7, name: 'Foraminifer shell', col: [1.0, 0.8, 0.74] }],
+  [{ name: 'Diatom', col: [0.74, 0.9, 0.84] }, { from: 0.6, name: 'Diatom', col: [0.9, 0.85, 0.55] }],
+  [{ name: 'Shell fragment', col: [0.98, 0.9, 0.78] }, { from: 0.6, name: 'Shell fragment', col: [0.9, 0.7, 0.54] }],
+  [{ name: 'Sponge spicule', col: [0.84, 0.87, 0.87] }],
+];
+const BEDROCK_MIX = [[0, 0.35], [1, 0.55], [2, 0.67], [3, 0.82], [4, 0.88], [5, 0.93], [6, 0.97], [7, 1]];
+const REEF_MIX = [[4, 0.3], [6, 0.55], [3, 0.75], [5, 0.88], [7, 1]];
+// renderHash (WGSL, below) on the CPU
+const hashU = (id) => {
+  let h = (Math.imul(id >>> 0, 747796405) + 2891336453) >>> 0;
+  h = Math.imul(((h >>> ((h >>> 28) + 4)) ^ h) >>> 0, 277803737) >>> 0;
+  return (((h >>> 22) ^ h) >>> 0) / 4294967296;
+};
+/** The kind of sediment a stone grain is drawn as (vsStone): { kind, name, col } from its id and info. */
+export function stoneGrain(id, info) {
+  const h = hashU(id ^ 0x9e3779b9), h2 = hashU(id ^ 0x85ebca6b);
+  const kind = ((info & 15) !== 0 ? REEF_MIX : BEDROCK_MIX).find(([, upTo]) => h < upTo)?.[0] ?? 7;
+  const v = STONE_KINDS[kind].filter((x) => !x.from || h2 > x.from).at(-1);
+  return { kind, name: v.name, col: v.col };
+}
+// The same choices in WGSL: a nested select over the mix, and each kind's colour over its variants.
+const v3 = (c) => `vec3f(${c.map(f).join(', ')})`;
+const mixWGSL = (mix) => mix.slice(0, -1).reduceRight((e, [k, upTo]) => `select(${e}, ${k}u, h < ${f(upTo)})`, `${mix.at(-1)[0]}u`);
+const STONE_COL_WGSL = STONE_KINDS.map((vs, k) => `      case ${k}u: { mc = ${vs.slice(1).reduce((e, x) => `select(${e}, ${v3(x.col)}, h2 > ${f(x.from)})`, v3(vs[0].col))}; }`).join('\n');
+
 const COMMON = /* wgsl */ `
 // Relief, as in DIC microscopy: one light from the upper left (screen y down) for every resolved shape.
 const TO_LIGHT = vec2f(-0.633, -0.774);
 const MAXK = ${MAXK}u;
-const FIRST_LIFE = 4u;
+const FIRST_LIFE = ${FIRST_LIFE}u;
 const SILT = 0u;
 const GLINT = 1u;
 const HUSK = 2u;
 const STONE = 3u;
+const FRAMBOID = ${FRAMBOID}u;
 const NONE = 0xffffffffu;
 // A claim made by a coarse step's walk (lifeMain) says what it is for itself rather than through the
 // claimer's intent: bit 31, then a class in bits 29-30 (0 a kill, 1 glint, 2 a husk, each taken by the
@@ -149,7 +234,7 @@ struct Genome {
   shape: f32, pulse: f32, roleHue: f32, advect: f32,
   swim: f32, align: f32, photo: f32, col: u32,
   parent: u32, serial: u32, born: f32, depth: u32,
-  adhesion: f32, calcify: f32, gp1: f32, gp2: f32,
+  adhesion: f32, calcify: f32, topt: f32, tol: f32,
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
@@ -180,7 +265,24 @@ fn hsl2rgb(h: f32, s: f32, l: f32) -> vec3f {
 fn roleColor(g: Genome, r: u32) -> vec3f {
   return hsl2rgb(fract(g.hue + f32(r) * g.roleHue + 1.0), g.sat, g.lum * (1.0 - 0.08 * f32(r)));
 }
+
+// A heat-maker's output, 0..1, kept in the spare fourth developmental word.
+fn thermoOf(g: Genome) -> f32 { return f32(g.dev.w & 255u) / 255.0; }
+// How well a cell of genome g works at temperature t (its own, body warmth included): perf scales
+// photosynthesis, digestion and swimming, peaking higher the narrower its tolerance and falling
+// about twice as steeply above its optimum as below (heat kills, cold stills). x is how many
+// tolerances it is from its optimum.
+struct Thermal { perf: f32, stress: f32, x: f32, torpid: bool };
+fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, warm: f32) -> Thermal {
+  let x = (t - g.topt) / max(g.tol, 0.5);
+  let peak = 1.0 + specBonus * (1.0 - clamp((g.tol - 2.0) / 13.0, 0.0, 1.0));
+  let y = select(min(x + flat, 0.0), max(x - flat, 0.0) / warm, x > 0.0);
+  let torpid = x < -torporAt;
+  return Thermal(select(peak * exp(-y * y), 0.0, torpid), smoothstep(0.3, 0.9, abs(x)), x, torpid);
+}
 `;
+// The same, with the default tunables, for passes that only show it (rendering, listening).
+const shownThermal = (g, t) => `thermalState(${g}, ${t}, ${f(DEFAULT_K.specBonus)}, ${f(DEFAULT_K.torporAt)}, ${f(DEFAULT_K.thermalFlat)}, ${f(DEFAULT_K.thermalWarm)})`;
 
 // One living cell's senses, forces and energy budget for this frame, shared by lifeMain and mindMain.
 // w (mindMain only) adds statements that record each term; without it the text is lifeMain's alone.
@@ -207,11 +309,6 @@ function cellWGSL(K, w) {
   let invOM = 1.0 / (1.0 - beta);
   // photosynthesis and eating don't mix well: a cell that does both does neither efficiently
   let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
-  let hungry = p.energy < g.reproE * ${f(K.sated)} && eatEff > 0.1;
-  let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
-  // food in reach is gathered by hungry cells; in a coarse step also by any that may grow hungry in it
-  let seek = hungry || (sim.ticks > 1u && eatEff > 0.1);
-  let seekHunt = canHunt || (seek && (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN));
   let bonding = g.adhesion > ${f(K.adhMin)};
   var dn1 = vec2f(0.0);
   var dn2 = vec2f(0.0);
@@ -250,6 +347,17 @@ function cellWGSL(K, w) {
     }
   }
   let keep1 = n1 != NONE; let keep2 = n2 != NONE;
+  // warmth: the water here, plus a heat-maker's own (a body insulates its cells)
+  let thermo = thermoOf(g);
+  let heat = heatSample(p.pos);
+  let Tc = heat.x + ${f(K.selfWarm)} * thermo * (1.0 + 0.5 * (select(0.0, 1.0, keep1) + select(0.0, 1.0, keep2)));
+  let th = cellThermal(g, Tc);
+  // a torpid cell neither hunts, grazes nor divides
+  let hungry = p.energy < g.reproE * ${f(K.sated)} && eatEff > 0.1 && !th.torpid;
+  let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
+  // food in reach is gathered by hungry cells; in a coarse step also by any that may grow hungry in it
+  let seek = hungry || (sim.ticks > 1u && eatEff > 0.1 && !th.torpid);
+  let seekHunt = canHunt || (seek && (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN));
   var food = NONE; var foodScore = -1e9;
   // a coarse step keeps the four best, for its meals and for claims lost to other eaters
   var fc = array<u32, 4>(NONE, NONE, NONE, NONE);
@@ -359,8 +467,8 @@ function cellWGSL(K, w) {
       } else {
         fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);${W('mFr0 = fr;')}
         pull = a * ${f(K.matterPull)};
-        if (qk == STONE) {
-          // stone is solid: it pushes cells out however hard they swim, and shelters those among it
+        if (qk == STONE || qk == FRAMBOID) {
+          // stone (and a framboid) is solid: it pushes cells out however hard they swim, and shelters those among it
           if (r < ${f(K.stoneR)}) {
             stoneF += d * ((r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r));
             // its push, g(r) = 1/stoneR - 1/r along d, has gradient -(g I + d d' / r^3)
@@ -416,8 +524,14 @@ function cellWGSL(K, w) {
   var bondF = vec2f(0.0);
   if (n1 != NONE) { bondF += dn1 * ((d1 - LINK_R * 0.55) / max(d1, 1e-4)); }
   if (n2 != NONE) { bondF += dn2 * ((d2 - LINK_R * 0.55) / max(d2, 1e-4)); }
-  let swim = g.swim * (1.0 - g.photo);
+  let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0);
   let flow = flowAt(p.pos) * g.advect;
+  // thermotaxis: a swimmer away from its optimum steers up or down the warmth toward it
+  var taxis = vec2f(0.0);
+  let slope = length(heat.yz);
+  if (swim > 0.0 && slope > 1e-3) {
+    taxis = heat.yz * (sign(g.topt - Tc) * min(1.0, abs(th.x)) * swim * ${f(K.thermotaxis)} / slope);
+  }
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
   // The cell and its neighbourhood are taken as two bodies sharing momentum: the reaction to this cell's
@@ -478,6 +592,7 @@ function cellWGSL(K, w) {
       }
       vel += normalize(dir) * swim * h;${W('if (k == 0u) { mSwim = normalize(dir) * swim; }')}
     }
+    vel += taxis * h;
     let sp = length(vel);
     if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
     pos += (vel + flow) * h;
@@ -491,13 +606,17 @@ function cellWGSL(K, w) {
   let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
   // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
   // water; anchored cells have fresh silt carried past them by the currents.
-  let photoGain = g.photo * light * ${f(K.photo)} / (1.0 + crowd * ${f(K.shade)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
+  let photoGain = th.perf * g.photo * light * ${f(K.photo)} / (1.0 + crowd * ${f(K.shade)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
     * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0));
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
   // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); a body's bond partners do not count
   let kinCost = 1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - bonds - ${f(K.kinFree)});
   let thrift = 1.0 - ${f(K.bodyThrift)} * 0.5 * bonds;
-  let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0));`;
+  // thermal stress costs upkeep (relative to the cell's own optimum); torpor saves most of it; a
+  // heat-maker burns extra, all of it heat
+  let heatMaking = ${f(K.heat ? K.thermoCost : 0)} * thermo;
+  let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0))
+    * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking;`;
 }
 
 export function simWGSL(K) {
@@ -512,8 +631,9 @@ struct Sim {
   tide: array<vec4f, 4>,
   tidePh: vec4f,
   rock: vec4f,
-  // tick: 1/60 s ticks simulated up to the end of this step; ticks: how many this step covers
-  tick: u32, ticks: u32, pad0: u32, pad1: u32,
+  // tick: 1/60 s ticks simulated up to the end of this step; ticks: how many this step covers;
+  // tbg: the background water temperature (climate, season, excursion)
+  tick: u32, ticks: u32, tbg: f32, pad1: u32,
 };
 // kr: 0..9 kind, 10..11 role, 12 plant.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
@@ -536,17 +656,26 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u3
 @group(0) @binding(12) var<storage, read_write> livingList: array<u32>;
 // 0 living count, 1..3 life dispatch, 4..7 line draw, 8..11 stone draw (for rendering).
 @group(0) @binding(13) var<storage, read_write> frameCtr: array<atomic<u32>, 12>;
-// Grains of reef stone (not bedrock) in each grid cell, counted while binning.
+// Grains of reef stone in each grid cell (low 16 bits) and of bedrock (high 16), counted while binning.
 @group(0) @binding(14) var<storage, read_write> stoneGrid: array<atomic<u32>>;
 // Every grain of stone, gathered while matter moves, so rendering draws stone without scanning all.
 @group(0) @binding(16) var<storage, read_write> stoneList: array<u32>;
 @group(0) @binding(15) var<storage, read_write> bondsNow: array<vec2u>;
+// The heat field: [0, MAX_CELLS) deposits this step (HEAT_FIX per degree), then the water's
+// temperature per grid cell (f32 bits), then husks per grid cell this step. heatMain writes the next
+// temperatures to heatNext.
+@group(0) @binding(18) var<storage, read_write> thermal: array<atomic<u32>>;
+@group(0) @binding(19) var<storage, read_write> heatNext: array<f32>;
 
 const EAT_R = ${f(K.eatR)};
 const DIAG = ${K.diag ? 'true' : 'false'};
 const LINK_R = ${f(K.linkR)};
 const MAX_SCAN = ${K.maxScan | 0}u;
 const DIET_MIN = ${f(K.dietMin)};
+const HEAT_ON = ${K.heat ? 'true' : 'false'};
+const TREF = ${f(K.tRef)};
+const HEAT_FIX = ${f(HEAT_FIX)};
+const FRAMBOID_COL = ${packCol(0.8, 0.7, 0.45)}u;
 
 fn pcg(v: u32) -> u32 {
   let s = v * 747796405u + 2891336453u;
@@ -575,6 +704,32 @@ fn flowAt(p: vec2f) -> vec2f {
 }
 
 fn wrapPos(p: vec2f) -> vec2f { return p - sim.world * floor(p / sim.world); }
+
+fn heatCell(x: i32, y: i32) -> f32 {
+  let gw = i32(sim.grid.x);
+  let gh = i32(sim.grid.y);
+  return bitcast<f32>(atomicLoad(&thermal[MAX_CELLS + u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw)]));
+}
+// The water's temperature at p, bilinear between cell centres, and its gradient (degrees per cell).
+fn heatSample(p: vec2f) -> vec3f {
+  if (!HEAT_ON) { return vec3f(TREF, 0.0, 0.0); }
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  let a = heatCell(i.x, i.y);
+  let b = heatCell(i.x + 1, i.y);
+  let c = heatCell(i.x, i.y + 1);
+  let d = heatCell(i.x + 1, i.y + 1);
+  return vec3f(mix(mix(a, b, t.x), mix(c, d, t.x), t.y), mix(b - a, d - c, t.y), mix(c - a, d - b, t.x));
+}
+fn cellThermal(g: Genome, t: f32) -> Thermal {
+  if (!HEAT_ON) { return Thermal(1.0, 0.0, 0.0, false); }
+  return thermalState(g, t, ${f(K.specBonus)}, ${f(K.torporAt)}, ${f(K.thermalFlat)}, ${f(K.thermalWarm)});
+}
+// Warm the water at p by e degrees (before its heat capacity), in eighths of a frame's worth.
+fn depositHeat(p: vec2f, e: f32) {
+  if (HEAT_ON && e > 0.0) { atomicAdd(&thermal[cellOf(p)], u32(e * HEAT_FIX + 0.5)); }
+}
 
 // Specialists digest their food better than generalists: value of a food given the share of the diet devoted to it.
 fn spec(d: f32) -> f32 { let c = min(d, 1.0); return c * (${f(1 - 0.6)} + ${f(0.6)} * c); }
@@ -672,6 +827,11 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   g.calcify = clamp(g.calcify + gauss(s) * m * 0.2, 0.0, 1.0);
   if (rnd(s) < m * 0.1) { g.calcify = select(0.0, mix(0.2, 0.8, rnd(s)), g.calcify < 0.05); }
   if (rnd(s) < m * 0.15) { g.adhesion = select(0.0, mix(0.3, 1.0, rnd(s)), g.adhesion < 0.15); }
+  g.topt = clamp(g.topt + gauss(s) * m * 3.0, 0.0, 45.0);
+  g.tol = clamp(g.tol * exp(gauss(s) * m * 0.3), 2.0, 15.0);
+  var thermo = clamp(thermoOf(g) + gauss(s) * m * 0.15, 0.0, 1.0);
+  if (rnd(s) < m * 0.1) { thermo = select(0.0, mix(0.3, 0.7, rnd(s)), thermo < 0.05); }
+  g.dev.w = u32(thermo * 255.0 + 0.5);
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -680,7 +840,8 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   genomes[slot] = g;
 }
 
-fn randomInto(slot: u32, s: ptr<function, u32>) {
+// A spark of life founds a species suited to the water it sparked in (t).
+fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   var g: Genome;
   for (var r = 0u; r < 3u; r++) {
     g.sig[r] = vec4u(pack4x8snorm(r4(s)), pack4x8snorm(r4(s)), pack4x8snorm(r4(s)), pack4x8snorm(r4(s)));
@@ -716,6 +877,8 @@ fn randomInto(slot: u32, s: ptr<function, u32>) {
   g.adhesion = select(0.0, ad, ad > 0.5);
   let ca = rnd(s);
   g.calcify = select(0.0, ca, ca > 0.7);
+  g.topt = clamp(t + gauss(s) * 3.0, 0.0, 45.0);
+  g.tol = mix(3.0, 10.0, rnd(s));
   g.parent = 0u;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -779,6 +942,11 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
   }
   if (kind == SILT && sim.rock.x > 0.0 && inRock(pos)) {
     kind = STONE; e = ${f(K.rockLife)} * (0.5 + rnd(&s)); col = pack4x8unorm(vec4f(0.46, 0.42, 0.38, 1.0));
+  } else if (kind == SILT && HEAT_ON && rnd(&s) < ${f(K.framboids)}
+             && f32(pcg(sim.seed ^ pcg(u32(pos.x / 5.0) * 7919u + u32(pos.y / 5.0) * 104729u)) >> 8u) / 16777216.0 < 0.25) {
+    // framboids lie in patches of the mud, part burnt already, so they do not all burn out together
+    kind = FRAMBOID; e = ${f(K.framboidLife)} * (0.2 + rnd(&s)); col = FRAMBOID_COL;
+    atomicAdd(&ledger[META_ENERGY + 58u], 1u);
   }
   parts[i] = Particle(pos, vec2f(0.0), kind, e, age, i, col, info);
   intent[i] = vec4u(0u, 0u, NONE, NONE);
@@ -856,7 +1024,9 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
     let cell = cellOf(p.pos);
     let r = atomicAdd(&countsA[cell], 1u);
     aux[i] = vec2u(cell, r);
-    if (p.kind == STONE && (p.info & 15u) != 0u) { atomicAdd(&stoneGrid[cell], 1u); }
+    if (p.kind == STONE) { atomicAdd(&stoneGrid[cell], select(0x10000u, 1u, (p.info & 15u) != 0u)); }
+    // husks per grid cell: where they pile up and rot, framboids form (matterMain)
+    if (p.kind == HUSK && HEAT_ON) { atomicAdd(&thermal[2u * MAX_CELLS + cell], 1u); }
     atomicAdd(&hist[p.kind % MAXK], 1u);
     if (p.kind >= FIRST_LIFE) { atomicAdd(&roleHist[roleOf(p.info)], 1u); }
   }
@@ -999,7 +1169,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   if (l == 0u) { atomicStore(&stoneN, 0u); }
   workgroupBarrier();
   var slot = NONE;
-  if (i < sim.count && sortedFull[i].kind == STONE) { slot = atomicAdd(&stoneN, 1u); }
+  if (i < sim.count && (sortedFull[i].kind == STONE || sortedFull[i].kind == FRAMBOID)) { slot = atomicAdd(&stoneN, 1u); }
   workgroupBarrier();
   if (l == 0u) { stoneBase = atomicAdd(&frameCtr[9], atomicLoad(&stoneN)); }
   let base = workgroupUniformLoad(&stoneBase);
@@ -1007,24 +1177,30 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   if (i >= sim.count) { return; }
   var p = sortedFull[i];
   if (p.kind >= FIRST_LIFE) { return; }
-  if (p.kind == STONE) {
+  if (p.kind == STONE || p.kind == FRAMBOID) {
     // stone stays put and wears away; its energy is the time it has left. Reef stone (bedrock has cause 0)
     // wears by its surroundings: loose grains fast and grains packed into a reef slowly, so rubble clears
     // and reefs stay solid, but a neighbourhood that is mostly reef wears fast (waves and borers on a reef
     // flat), so reefs grow as separate patches about as wide as that neighbourhood.
     var wear = 1.0;
-    if ((p.info & 15u) != 0u) {
+    let framboid = p.kind == FRAMBOID;
+    if (framboid) {
+      // a framboid oxidises: it warms its water while it lasts (every eighth frame, eight frames' worth)
+      if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, ${f(K.framboidHeat)} * sim.dt * 8.0); }
+      // and oxidises faster the warmer its water, so a crowded, hot cluster burns itself out
+      wear = pow(2.0, (heatCell(i32(p.pos.x), i32(p.pos.y)) - TREF) / 10.0);
+    } else if ((p.info & 15u) != 0u) {
       let c = vec2i(clamp(floor(p.pos), vec2f(0.0), vec2f(sim.grid) - 1.0));
       let gw = i32(sim.grid.x);
       let gh = i32(sim.grid.y);
-      let here = f32(atomicLoad(&stoneGrid[u32(c.y * gw + c.x)]));
+      let here = f32(atomicLoad(&stoneGrid[u32(c.y * gw + c.x)]) & 0xffffu);
       var region = 0.0;
       if (${f(K.regionWear)} > 0.0) {
         for (var dy = -${K.regionR | 0}; dy <= ${K.regionR | 0}; dy++) {
           for (var dx = -${K.regionR | 0}; dx <= ${K.regionR | 0}; dx++) {
             let x = (c.x + dx + gw) % gw;
             let y = (c.y + dy + gh) % gh;
-            region += f32(atomicLoad(&stoneGrid[u32(y * gw + x)]));
+            region += f32(atomicLoad(&stoneGrid[u32(y * gw + x)]) & 0xffffu);
           }
         }
       }
@@ -1035,41 +1211,51 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     p.age += sim.dt;
     p.vel = vec2f(0.0);
     if (p.energy <= 0.0) {
+      // worn away (7), or a spent framboid crumbling (13)
       p.kind = SILT; p.energy = 0.0; p.age = 0.0;
-      p.info = (p.info & 0xffffffc0u) | 7u;
+      p.info = (p.info & 0xffffffc0u) | select(7u, 13u, framboid);
     }
     parts[i] = p;
     return;
   }
   var s = pcg((p.id * 1664525u) ^ pcg(sim.frame * 2654435761u + sim.seed));
+  // the water's warmth here: warm water wears glint and husks faster and shakes grains harder
+  let T = select(TREF, heatCell(i32(p.pos.x), i32(p.pos.y)), HEAT_ON);
+  let warm = (T - TREF) / 10.0;
+  let hot = T - sim.tbg;
   // Brownian drift as a smooth random velocity that persists ~0.5 s (Ornstein-Uhlenbeck), scaled so
   // grains spread as far as independent per-frame kicks would, without visibly shaking up close
   let keep = exp(-sim.dt / 0.5);
-  let kick = vec2f(rnd(&s) - 0.5, rnd(&s) - 0.5) * (${f(K.jitter)} * sqrt((1.0 - keep * keep) * sim.dt / (2.0 * 0.5)));
+  let kick = vec2f(rnd(&s) - 0.5, rnd(&s) - 0.5) * (${f(K.jitter)} * sqrt((1.0 - keep * keep) * sim.dt / (2.0 * 0.5))
+    * select(1.0, sqrt(max(T, 0.0) + 10.0) / ${f(Math.sqrt(K.tRef + 10))}, HEAT_ON));
   // a fresh husk still carries its cell's velocity; cap it to the jitter's own scale so it doesn't coast
   let w = p.vel - flowAt(p.pos);
   let jit = w * (keep * min(1.0, 0.05 / max(length(w), 1e-6))) + kick;
-  var vel = flowAt(p.pos) + jit;
+  var vel = flowAt(p.pos) + jit;${K.heat && K.marangoni > 0 ? `
+  // surface flow: warm water's surface pulls toward cooler water, carrying matter with it
+  vel -= heatSample(p.pos).yz * ${f(K.marangoni)};` : ''}
   let pos = wrapPos(p.pos + vel * sim.dt);
   p.age += sim.dt;
   if (p.kind == SILT) {
-    let T = tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient;
-    // a step's chance of charging; for coarse steps the exact chance of at least one event in the step
-    let lam = T * ${f(K.charge)} * sim.chargeMul;
+    let tide = tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient;
+    // a step's chance of charging; for coarse steps the exact chance of at least one event in the step.
+    // Hot springs: water far above the background charges silt even in the dark
+    let lam = tide * ${f(K.charge)} * sim.chargeMul + ${f(K.hotCharge)} * smoothstep(${f(K.hotFrom)}, ${f(K.hotTo)}, hot);
     if (rnd(&s) < select(lam * sim.dt, 1.0 - exp(-lam * sim.dt), sim.ticks > 1u)) {
       p.kind = GLINT; p.energy = 1.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 5u;
     }
   } else if (p.kind == GLINT) {
-    p.energy -= ${f(K.leak)} * sim.dt;
+    p.energy -= ${f(K.leak)} * pow(${f(K.glintQ10)}, warm) * sim.dt;
     if (p.energy < ${f(K.glintMin)}) {
       p.kind = SILT; p.energy = 0.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 6u;
     } else if (sim.abio > 0.0) {
-      if (rnd(&s) < sim.abio) {
+      // sparks favour hot water (around framboids) and found species suited to it
+      if (rnd(&s) < sim.abio * (1.0 + ${f(K.abioHeat)} * smoothstep(4.0, 20.0, hot))) {
         let k = allocSlot(&s);
         if (k != NONE) {
-          randomInto(k, &s);
+          randomInto(k, &s, T);
           p.kind = k; p.energy = 0.9; p.age = 0.0;
           p.id = atomicAdd(&ledger[0], 1u);
           p.col = genomes[k].col;
@@ -1081,15 +1267,49 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       }
     }
   } else if (p.kind == HUSK) {
-    p.energy -= ${f(K.decay)} * sim.dt;
+    // rot is faster in warm water, and a carcass pile steams; a husk gives off no more than it holds,
+    // or hot water would rot husks into heat from nothing and run away
+    let rot = min(${f(K.decay)} * pow(${f(K.rotQ10)}, warm) * sim.dt, max(p.energy, 0.0));
+    p.energy -= rot;
+    if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, rot * 8.0 * ${f(K.rotHeat)}); }
     if (p.energy < ${f(K.huskMin)}) {
       p.kind = SILT; p.energy = 0.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 4u;
+      // in a pile of rotting husks the sulfide they release may crystallise as a framboid
+      let pile = f32(atomicLoad(&thermal[2u * MAX_CELLS + cellOf(p.pos)]));
+      if (HEAT_ON && rnd(&s) < ${f(K.framboidForm)} * smoothstep(3.0, ${f(K.framboidPile)}, pile) * (1.0 - smoothstep(0.0, 6.0, hot))) {
+        p.kind = FRAMBOID; p.energy = ${f(K.framboidLife)} * (0.5 + rnd(&s)); p.col = FRAMBOID_COL;
+        p.info = (p.info & 0xffffffc0u) | ${FRAMBOID_GROWN}u;
+        vel = vec2f(0.0);
+        atomicAdd(&ledger[META_ENERGY + 58u], 1u);
+      }
     }
   }
   p.pos = pos;
   p.vel = vel;
   parts[i] = p;
+}
+
+// --------------------------------------------------------------------- heat
+// One thread per grid cell: the water is carried by the currents (semi-Lagrangian), spreads, takes
+// the heat deposited this step by life, rot and framboids, plus sunlight, and relaxes toward the
+// climate's background. Stone in a cell gives it thermal mass: it warms and cools slowly.
+@compute @workgroup_size(64)
+fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
+  let c = gid.x;
+  if (c >= sim.grid.x * sim.grid.y) { return; }
+  let x = i32(c % sim.grid.x);
+  let y = i32(c / sim.grid.x);
+  let centre = vec2f(f32(x), f32(y)) + 0.5;
+  let here = heatCell(x, y);
+  let carried = heatSample(centre - flowAt(centre) * sim.dt).x;
+  let lap = heatCell(x + 1, y) + heatCell(x - 1, y) + heatCell(x, y + 1) + heatCell(x, y - 1) - 4.0 * here;
+  let stones = atomicLoad(&stoneGrid[c]);
+  let mass = 1.0 + ${f(K.stoneMass)} * f32((stones & 0xffffu) + (stones >> 16u));
+  let light = sim.ambient + (1.0 - sim.ambient) * tideAt(centre, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season;
+  let q = f32(atomicExchange(&thermal[c], 0u)) / HEAT_FIX + ${f(K.sunHeat)} * light * sim.dt;
+  let t = carried + ${f(K.heatD)} * lap * sim.dt + (q - ${f(K.heatLoss)} * (carried - sim.tbg) * sim.dt) / mass;
+  heatNext[c] = t;
 }
 
 // --------------------------------------------------------------------- life
@@ -1153,10 +1373,18 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
 ${cellWGSL(K, false)}
   var E = p.energy + (photoGain - upkeep) * sim.dt;
   let dg = dietGuild(g);
+  // all the energy a cell spends warms its water (every eighth frame, eight frames' worth)
+  if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, upkeep * sim.dt * 8.0 * ${f(K.metabHeat)}); }
   // light and upkeep flow every frame; the ledger samples them once a second per cell
   if (((sim.frame + p.id) % 60u) == 0u) {
     addEnergy(dg, 0u, photoGain * sim.dt * 60.0);
-    addEnergy(dg, 5u, upkeep * sim.dt * 60.0);
+    addEnergy(dg, 5u, (upkeep - heatMaking) * sim.dt * 60.0);
+    addEnergy(dg, 7u, heatMaking * sim.dt * 60.0);
+    if (HEAT_ON) {
+      atomicAdd(&ledger[META_ENERGY + 40u + u32(clamp(Tc / ${f(HEAT_BIN)}, 0.0, ${f(HEAT_BINS - 1)}))], 1u);
+      if (th.torpid) { atomicAdd(&ledger[META_ENERGY + 56u], 1u); }
+      if (thermo > 0.2) { atomicAdd(&ledger[META_ENERGY + 57u], 1u); }
+    }
   }
   var age = p.age + sim.dt;
   var act = 0u;
@@ -1177,6 +1405,9 @@ ${cellWGSL(K, false)}
     diagAdd(dg, 10u, u32(length(force) * 100.0));
     diagAdd(dg, 11u, u32(clamp(E / g.reproE, 0.0, 4.0) * 1000.0));
     diagAdd(dg, 12u, u32(overlap * 16.0));
+    // thermal performance, and how far it sits from its optimum (warmer or cooler, offset so it stays positive)
+    diagAdd(dg, 22u, u32(th.perf * 1000.0));
+    diagAdd(dg, 23u, u32(clamp(Tc - g.topt + 64.0, 0.0, 128.0) * 8.0));
     if (canHunt) { diagAdd(dg, 19u, u32(preyNear.x * 16.0)); diagAdd(dg, 20u, u32(preyNear.y * 16.0)); diagAdd(dg, 21u, 1u); }
   }
   if (sim.ticks == 1u) {
@@ -1184,7 +1415,7 @@ ${cellWGSL(K, false)}
       diagAdd(dg, 13u, 1u);
       if (isAnimal(food)) { diagAdd(dg, 14u, 1u); }
     }
-    if (E > g.reproE && silt != NONE) {
+    if (E > g.reproE && silt != NONE && !th.torpid) {
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
         cr = sampleRole(g, role, &s);
@@ -1225,8 +1456,8 @@ ${cellWGSL(K, false)}
           gain = (${f(K.preyBase)} + ${f(K.preyFrac)} * max(fp.energy, 0.0)) * spec(g.dFlesh); atomicAdd(&ledger[7], 1u);
         }
         if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
-        E += gain * ${f(K.gain)} * eatEff;
-        addEnergy(dg, select(select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), 1u, fp.kind == GLINT), gain * ${f(K.gain)} * eatEff);
+        E += gain * ${f(K.gain)} * eatEff * th.perf;
+        addEnergy(dg, select(select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), 1u, fp.kind == GLINT), gain * ${f(K.gain)} * eatEff * th.perf);
       }
     }
   } else {
@@ -1239,10 +1470,11 @@ ${cellWGSL(K, false)}
     var next = 0u;
     var born = false;
     for (var k = 1u; k <= sim.ticks; k++) {
-      E += (photoGain - g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(E / g.reproE, 0.0, 1.0))) * h;
+      E += (photoGain - g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(E / g.reproE, 0.0, 1.0))
+        * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking) * h;
       age += h;
       let tk = sim.tick - sim.ticks + k;
-      if (!born && E > g.reproE && silt != NONE) {
+      if (!born && E > g.reproE && silt != NONE && !th.torpid) {
         born = true;
         var won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged;
         if (!won && silt2 != NONE) { won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt2], 0u, i + 1u).exchanged; }
@@ -1263,7 +1495,7 @@ ${cellWGSL(K, false)}
           act = 2u;
           continue;
         }
-      } else if ((tk + p.id) % ${K.eatEvery | 0}u == 0u && next < 4u && E < g.reproE * ${f(K.sated)} && eatEff > 0.1) {
+      } else if ((tk + p.id) % ${K.eatEvery | 0}u == 0u && next < 4u && E < g.reproE * ${f(K.sated)} && eatEff > 0.1 && !th.torpid) {
         let mi = (tk + p.id) / ${K.eatEvery | 0}u;
         let hunt = DIAG && mi % ${K.killEvery | 0}u == 0u && (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN);
         if (hunt) {
@@ -1305,8 +1537,8 @@ ${cellWGSL(K, false)}
             atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
             info = (info & 0xffff003fu) | (fp.kind << 6u);
           }
-          E += gain * ${f(K.gain)} * eatEff;
-          addEnergy(dg, slot, gain * ${f(K.gain)} * eatEff);
+          E += gain * ${f(K.gain)} * eatEff * th.perf;
+          addEnergy(dg, slot, gain * ${f(K.gain)} * eatEff * th.perf);
           break;
         }
       }
@@ -1325,6 +1557,11 @@ ${cellWGSL(K, false)}
     info = (info & 0xffffffc0u) | 2u;
     atomicAdd(&ledger[6], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 2u], 1u);
+  } else if (th.x > 0.8 && rnd(&s) < ${f(K.scald)} * smoothstep(0.8, 1.4, th.x) * sim.dt) {
+    // scalded: far above its optimum, a cell's proteins come apart
+    kind = HUSK; E = ${f(K.huskBase)}; age = 0.0; vel *= 0.3;
+    info = (info & 0xffffffc0u) | 10u;
+    atomicAdd(&ledger[META_DEATH + 20u + dg], 1u);
   }
   // calcifying cells that settled leave their skeleton as stone, in their own colour, mostly where
   // stone already is, so reefs grow outward from rock and from the rare place one starts
@@ -1367,7 +1604,7 @@ fn mPair(j: u32, q: Lite, d: vec2f, r: f32, inside: bool, kin: bool, fr0: f32, f
   if (qk < FIRST_LIFE) {
     mMatter += u * fr0;
     mForage += u * (fr - fr0);
-    mMatterN[qk] += 1.0;
+    mMatterN[min(qk, STONE)] += 1.0; // (a framboid counts with stone)
     return;
   }
   if (inside) { mSpace += u * fr0; } else if (kin) { mKin += u * fr0; } else { mOther += u * fr0; }
@@ -1400,6 +1637,7 @@ ${cellWGSL(K, true)}
     df -= world * round(df * invWorld);
     mind[3] = sortedFull[food].kind;
     mPut(4, length(df));
+    mPut2(56, df);
   }
   mind[6] = (p.info >> 6u) & 1023u;
   mind[7] = mN;
@@ -1429,6 +1667,13 @@ ${cellWGSL(K, true)}
   mPut2(42, mSwim);
   mPut2(44, flowAt(p.pos) * g.advect);
   for (var k = 0u; k < 4u; k++) { mPut(46u + k, mMatterN[k] * stride); }
+  // warmth: its own temperature, the steer toward its optimum, the water, how well it works there
+  mPut(21, Tc);
+  mPut2(50, taxis);
+  mPut(52, heat.x);
+  mPut(53, th.perf);
+  mPut(54, th.x);
+  mind[55] = select(0u, 1u, th.torpid);
 }
 `;
 }
@@ -1512,6 +1757,8 @@ struct ListenU {
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
 @group(0) @binding(2) var<storage, read> genomes: array<Genome>;
 @group(0) @binding(3) var<storage, read_write> lout: array<atomic<u32>>;
+// the water's temperature per grid cell (heatMain): torpid cells are still and silent
+@group(0) @binding(4) var<storage, read> heatField: array<f32>;
 // layout: [0,8) in-view events per type, [8,16) out of view, 16 living in view, 17 their summed
 // speed (x1000), 18 living everywhere, 19 their summed speed (x1000), 20 particles in view,
 // 21 records written, then records of 4 words from word 32.
@@ -1544,7 +1791,12 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       if (life) { atomicAdd(&wc[16], 1u); atomicAdd(&wc[17], u32(min(speed, 50.0) * 1000.0)); }
     }
     var t = NONE;
-    if (life && inView) { t = 8u; }
+    if (life && inView) {
+      let g = genomes[p.kind];
+      let c = vec2u(clamp(p.pos, vec2f(0.0), lu.world - 1.0));
+      let warmth = heatField[MAX_CELLS + c.y * u32(lu.world.x) + c.x] + ${f(DEFAULT_K.selfWarm)} * thermoOf(g);
+      if (!${shownThermal('g', 'warmth')}.torpid) { t = 8u; }
+    }
     if (p.age < lu.window) {
       let code = p.info & 15u;
       if (life) {
@@ -1554,7 +1806,8 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
           if (g.depth > 0u && abs(g.born - (lu.now - p.age)) < 0.05) { t = 1u; }
         } else if (code == 8u) { t = 2u; }
       } else if (p.kind == HUSK) {
-        if (code == 1u) { t = 3u; } else if (code == 2u) { t = 4u; } else if (code == 3u) { t = 5u; }
+        // a scalded cell (10) dies as a starved one sounds
+        if (code == 1u || code == 10u) { t = 3u; } else if (code == 2u) { t = 4u; } else if (code == 3u) { t = 5u; }
       } else if (p.kind == SILT && code == 3u) { t = 6u; }
       else if (p.kind == GLINT && code == 5u) { t = 7u; }
     }
@@ -1821,6 +2074,8 @@ struct View {
 struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32 };
 @group(0) @binding(9) var<storage, read> sway: array<Sway>;
 @group(0) @binding(10) var<storage, read> organDir: array<u32>;
+// The water's temperature per grid cell (heatMain), for how heat shows on a cell.
+@group(0) @binding(11) var<storage, read> heatField: array<f32>;
 
 fn kindOn(k: u32) -> bool { return ((focus[k >> 5u] >> (k & 31u)) & 1u) == 1u; }
 fn isMember(id: u32) -> bool {
@@ -1846,6 +2101,13 @@ fn focusPass(p: Particle) -> bool {
   let e = p.energy / g.reproE;
   if (view.stateMode == 1u) { return e < 0.35; }
   if (view.stateMode == 2u) { return e > 0.85; }
+  if (view.stateMode >= 4u) {
+    // heat-stressed (4) or torpid (5), at the water's warmth where the cell is
+    let c = vec2u(clamp(p.pos, vec2f(0.0), view.world - 1.0));
+    let warmth = heatField[MAX_CELLS + c.y * u32(view.world.x) + c.x] + ${f(DEFAULT_K.selfWarm)} * thermoOf(g);
+    let th = ${shownThermal('g', 'warmth')};
+    return select(th.x > 0.3, th.torpid, view.stateMode == 5u);
+  }
   return p.age > 0.8 * g.lifespan;
 }
 
@@ -2141,7 +2403,7 @@ struct PO {
   o.jelly = vec3f(1.0, 0.0, 0.0);
   let p = parts[ii];
   // stone is drawn as one field of boulders (vsStone), not grain by grain
-  if (p.kind == STONE) { o.pos = vec4f(2.0, 2.0, 0.0, 1.0); return o; }
+  if (p.kind == STONE || p.kind == FRAMBOID) { o.pos = vec4f(2.0, 2.0, 0.0, 1.0); return o; }
   let d = wrapd(p.pos - view.cam) * view.ppu;
   // Avoid genome/partner reads for offscreen distant sprites.
   if (view.pointSize <= 6.0 && any(abs(d) > view.res * 0.5 + vec2f(60.0))) {
@@ -2161,9 +2423,19 @@ struct PO {
     swim = min(g.swim, 1.0);
     let e = clamp(p.energy / g.reproE, 0.0, 1.4);
     var b = 0.35 + 0.65 * e;
-    b *= 1.0 + g.pulse * 0.6 * sin(view.time * (0.8 + g.pulse * 4.0) + f32(p.id % 1024u) * 0.37);
+    let c = vec2u(clamp(p.pos, vec2f(0.0), view.world - 1.0));
+    let thermo = thermoOf(g);
+    let warmth = heatField[MAX_CELLS + c.y * u32(view.world.x) + c.x] + ${f(DEFAULT_K.selfWarm)} * thermo;
+    let th = ${shownThermal('g', 'warmth')};
+    // a torpid cell's pulse stops and it dims, cold blue
+    if (!th.torpid) { b *= 1.0 + g.pulse * 0.6 * sin(view.time * (0.8 + g.pulse * 4.0) + f32(p.id % 1024u) * 0.37); }
     b *= 1.0 + 2.5 * max(0.0, 1.0 - p.age * 2.5);
-    col = unpack4x8unorm(p.col).rgb * b * view.pointGain;
+    col = unpack4x8unorm(p.col).rgb;
+    if (th.torpid) { col = mix(col, vec3f(0.55, 0.7, 0.95) * dot(col, vec3f(0.33)), 0.5); b *= 0.6; }
+    // heat stress bleaches a cell toward pale bone; a heat-maker glows faintly warm
+    col = mix(col, vec3f(1.0, 0.96, 0.9) * max(0.45, dot(col, vec3f(0.3, 0.5, 0.2))), 0.6 * smoothstep(0.3, 1.0, th.x));
+    col = mix(col, col * vec3f(1.25, 0.92, 0.72) + vec3f(0.12, 0.04, 0.0), 0.7 * thermo);
+    col *= b * view.pointGain;
   } else if (k == SILT) {
     size = 0.4;
     col = vec3f(0.30, 0.34, 0.46) * view.matterGain;
@@ -2767,56 +3039,386 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
 // lies over its neighbours, so a seam runs exactly where grains meet and a rock is the union of its
 // cobbles. The cobble on top writes its colour and its own (analytic) slope; the composite (boulder)
 // lights it.
-const STONE_R = 0.2; // quad radius in world units; cobbles span ~0.12-0.17
+const STONE_R = 0.2; // a grain's radius in world units (uv 1); cobbles span ~0.12-0.17
+const STONE_QUAD = 1.35; // the quad reaches this far in uv, so a stretched or ragged grain is never cut off
 struct SO {
   @builtin(position) pos: vec4f,
   @location(0) uv: vec2f,
   @location(1) @interpolate(flat) col: vec3f,
   @location(2) @interpolate(flat) seed: vec2f,
-  @location(3) @interpolate(flat) flags: u32, // 1: reef (built by calcifiers), 2: the selected grain
+  @location(3) @interpolate(flat) flags: u32, // 1: reef (built by calcifiers), 2: the selected grain, 4: a framboid; bits 3-5 the kind of grain
   @location(4) @interpolate(flat) px: f32, // quad radius in pixels
+  @location(5) @interpolate(flat) fuel: f32, // a framboid's fuel left, 0..1
 };
 @vertex fn vsStone(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> SO {
   var o: SO;
   o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
   let p = parts[stoneList[ii]];
-  if (p.kind != STONE) { return o; }
+  if (p.kind != STONE && p.kind != FRAMBOID) { return o; }
   let d = wrapd(p.pos - view.cam) * view.ppu;
-  let r = max(STONE_R * view.ppu, 1.5);
-  if (any(abs(d) > view.res * 0.5 + vec2f(r))) { return o; }
+  let framboid = p.kind == FRAMBOID;
+  // a framboid is smaller than a cobble: a few microns of crystals
+  let r = max(STONE_R * view.ppu * select(0.8 + 0.4 * renderHash(p.id + 77u), 0.5, framboid), 1.5);
+  if (any(abs(d) > view.res * 0.5 + vec2f(r * STONE_QUAD))) { return o; }
   o.seed = vec2f(f32(pcgR(p.id) & 0xffffu), f32(pcgR(p.id) >> 16u)) / 65536.0;
-  // chalky and matte, tinted by the species that built it; each cobble a little lighter or darker
-  var col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 1.1;
-  col *= 0.8 + 0.4 * o.seed.x;
+  // sediment seen under a microscope: each grain is one of a few kinds (its own outline, detail and
+  // material, mineralSurf and boulder), coloured as that kind is. Bedrock is mostly mineral grains;
+  // reef stone, laid down by calcifiers, mostly the skeletons of small organisms, and keeps a little
+  // of its builder's tint. A framboid is brassy pyrite.
+  var base = unpack4x8unorm(p.col).rgb;
+  let reef = (p.info & 15u) != 0u && !framboid;
+  var ty = 0u;
+  if (!framboid) {
+    let h = renderHash(p.id ^ 0x9e3779b9u);
+    let h2 = renderHash(p.id ^ 0x85ebca6bu);
+    ty = select(${mixWGSL(BEDROCK_MIX)}, ${mixWGSL(REEF_MIX)}, reef);
+    var mc = vec3f(0.0);
+    switch ty {
+${STONE_COL_WGSL}
+      default: {}
+    }
+    base = mix(mc, base, select(0.0, 0.3, reef));
+  }
+  var col = base * view.matterGain * 1.1;
+  if (!framboid) { col = max(mix(vec3f(dot(col, vec3f(0.3, 0.5, 0.2))), col, 1.5), vec3f(0.0)); }
+  col *= select(0.75 + 0.5 * o.seed.x, 0.85 + 0.3 * o.seed.x, !framboid);
   if (!focusPass(p)) { col = vec3f(dot(col, vec3f(0.3, 0.5, 0.2))) * view.mute; }
-  o.flags = select(0u, 1u, (p.info & 15u) != 0u) | select(0u, 2u, p.id == view.selId);
+  o.flags = select(0u, 1u, reef) | select(0u, 2u, p.id == view.selId) | select(0u, 4u, framboid) | (ty << 3u);
+  o.fuel = select(0.0, clamp(p.energy / ${f(DEFAULT_K.framboidLife)}, 0.0, 1.0), framboid);
   let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
-  o.pos = toClip(d + corner * r);
+  o.pos = toClip(d + corner * r * STONE_QUAD);
   // the cobble's peak height orders it: the higher lies over its neighbours, and depth is per cobble,
   // not per pixel, so the GPU can reject hidden cobbles before shading them
-  o.pos.z = select((0.45 + 0.55 * o.seed.x) * (0.62 + 0.18 * o.seed.y) * 0.95, 0.99, p.id == view.selId); // a selected grain sits on top
-  o.uv = corner;
+  o.pos.z = select(select((0.45 + 0.55 * o.seed.x) * (0.62 + 0.18 * o.seed.y) * 0.95, 0.97, framboid), 0.99, p.id == view.selId); // a selected grain sits on top
+  o.uv = corner * STONE_QUAD;
   o.col = col;
   o.px = r;
   return o;
 }
 struct StoneOut { @location(0) col: vec4f, @location(1) surf: vec4f };
-@fragment fn fsStone(i: SO) -> StoneOut {
-  // an uneven cobble: the disc is warped smoothly, so the outline wanders without a seam at the top
-  let w = i.uv * 1.12 + 0.1 * vec2f(sin(i.uv.y * 3.1 + i.seed.x * 20.0), sin(i.uv.x * 2.7 + i.seed.y * 20.0));
-  let r0 = 0.62 + 0.18 * i.seed.y;
-  let q = length(w) / r0;
-  if (q >= 1.0) { discard; }
-  // between a flat slab and a round cobble; height and slope in world units (uv is world / STONE_R)
-  let hs = 0.45 + 0.55 * i.seed.x;
-  let c = sqrt(max(1.0 - q * q, 0.02));
+fn grainHash(seed: vec2f, k: f32) -> f32 { return fract(sin(dot(seed * 91.7 + k * 1.618, vec2f(12.9898, 78.233))) * 43758.5453); }
+
+// A pyrite framboid: a cluster of tiny crystals packed on a rough sphere, seen from above. The
+// cluster is a little squashed and lumpy; the crystals are laid on it (the lattice taken in arc
+// length), so they crowd toward its limb; each sits a little off the lattice, has its own size and
+// is partly faceted (a cube or octahedron seen at its own angle), the odd one is missing, those on the
+// rim break the outline, and the gaps between them are dark. Its fuel rides in the surface's flags.
+fn framboidSurf(i: SO) -> StoneOut {
+  let rot = i.seed.x * TAU;
+  let ax = vec2f(cos(rot), sin(rot));
+  let squash = 1.0 + 0.22 * grainHash(i.seed, 1.0);
+  let u0 = i.uv / 0.85;
+  let u = vec2f(dot(u0, ax) * squash, dot(u0, vec2f(-ax.y, ax.x)));
+  let ang = atan2(u.y, u.x);
+  let lumps = 1.0 + 0.04 * sin(ang * 3.0 + i.seed.y * 20.0) + 0.04 * sin(ang * 5.0 + i.seed.x * 31.0) + 0.025 * sin(ang * 7.0 + i.seed.y * 9.0);
+  let env = length(u) * lumps;
+  if (env >= 1.12) { discard; }
+  let e = min(env, 0.999);
+  let dome = sqrt(1.0 - e * e);
+  let g = u * (asin(e) / max(length(u), 1e-3)) * 4.2 + i.seed * 9.0;
+  let cell = vec2f(1.0, 1.7320508);
+  let a = g - cell * floor(g / cell) - cell * 0.5;
+  let b = (g - cell * 0.5) - cell * floor((g - cell * 0.5) / cell) - cell * 0.5;
+  let nb = select(b, a, dot(a, a) < dot(b, b));
+  let id = g - nb;
+  let h = fract(sin(vec3f(dot(id, vec2f(127.1, 311.7)), dot(id, vec2f(269.5, 183.3)), dot(id, vec2f(419.2, 371.9)))) * 43758.5453);
+  let off = nb - (h.xy - 0.5) * 0.2;
+  let cr = vec2f(cos(h.z * TAU), sin(h.z * TAU));
+  let lo = vec2f(dot(off, cr), dot(off, vec2f(-cr.y, cr.x)));
+  // round to faceted: a cube's square, or an octahedron's diamond, blended with a sphere
+  let facet = select(abs(lo.x) + abs(lo.y), max(abs(lo.x), abs(lo.y)) * 1.15, h.x > 0.5);
+  let rr = mix(length(off), facet, 0.45 + 0.4 * h.y) / (0.45 + 0.27 * h.y) + select(0.0, 2.0, h.x > 0.94);
+  let sph = sqrt(max(1.0 - rr * rr, 0.0));
+  if (env - 0.09 * sph >= 1.0) { discard; }
   var o: StoneOut;
-  let slope = -hs * w / (r0 * c);
-  let edge = 1.0 - smoothstep(1.0 - 1.5 / max(r0 * i.px, 1.0), 1.0, q);
-  o.col = vec4f(i.col, edge);
-  // .z: how far toward its own edge (where it meets its neighbours) the pixel lies
-  o.surf = vec4f(slope, smoothstep(0.5, 1.0, q), f32(i.flags));
+  let sl = -1.1 * u / max(dome, 0.2) - 1.6 * off / max(sph, 0.3) * (0.4 + 0.6 * dome);
+  let slope = (sl.x / squash) * ax + sl.y * vec2f(-ax.y, ax.x);
+  let gap = smoothstep(0.85, 1.0, rr);
+  o.col = vec4f(i.col * (1.0 - 0.6 * gap) * (0.75 + 0.5 * h.y), 1.0 - smoothstep(0.92, 1.0, env - 0.09 * sph));
+  o.surf = vec4f(slope, gap, f32(i.flags) + i.fuel * 0.45);
   return o;
+}
+
+// The kinds of sediment grain (vsStone picks one per grain; boulder lights each as its material):
+// 0 quartz, glassy, angular, with curved fracture ripples, a hairline crack and specks of inclusions;
+// 1 feldspar, blocky, stepped along its cleavage and faintly banded; 2 a mafic prism, long, dark and
+// glossy, striated along its length; 3 worn sand, a rounded frosted pebble; 4 a foraminifer's test,
+// chambers coiled in a growing spiral, sutured and pored; 5 a diatom, a glass disc with a raised rim
+// and rows of pores (or a slim boat with cross ribs and a central slit); 6 a shell fragment, a broken
+// shard with growth lines and ribs; 7 a sponge spicule, a slim glass needle with its axial canal.
+// Fine detail fades in as the grain grows on screen. Height and slope in uv units (uv is world over
+// the quad's radius).
+struct Poly { sd: f32, sd2: f32, nrm: vec2f, face: f32 };
+// An irregular convex polygon of n facets at uneven angles (jit) and distances (spread), sometimes
+// with a wedge chipped out of its edge.
+fn grainPoly(w: vec2f, seed: vec2f, n: u32, r0: f32, jit: f32, spread: f32, chip: bool) -> Poly {
+  var p: Poly;
+  p.sd = -1e9; p.sd2 = -1e9; p.nrm = vec2f(1.0, 0.0); p.face = 0.0;
+  for (var k = 0u; k < n; k++) {
+    let at = (f32(k) + jit * (grainHash(seed, f32(k) + 2.0) - 0.5)) * TAU / f32(n);
+    let dir = vec2f(cos(at), sin(at));
+    let dk = dot(w, dir) - r0 * (1.0 - 0.5 * spread + spread * grainHash(seed, f32(k) + 11.0));
+    if (dk > p.sd) { p.sd2 = p.sd; p.sd = dk; p.nrm = dir; p.face = f32(k); } else if (dk > p.sd2) { p.sd2 = dk; }
+  }
+  if (chip && grainHash(seed, 19.0) > 0.5) {
+    let ca = grainHash(seed, 23.0) * TAU;
+    let c = vec2f(cos(ca), sin(ca)) * r0 * (0.55 + 0.2 * grainHash(seed, 29.0));
+    let sp = 0.5 + 0.5 * grainHash(seed, 31.0);
+    let n1 = vec2f(cos(ca + 1.5708 + sp), sin(ca + 1.5708 + sp));
+    let n2 = vec2f(cos(ca - 1.5708 - sp * 0.7), sin(ca - 1.5708 - sp * 0.7));
+    let d1 = dot(w - c, n1);
+    let d2 = dot(w - c, n2);
+    let cut = -max(d1, d2);
+    if (cut > p.sd) { p.sd2 = p.sd; p.sd = cut; p.nrm = select(-n2, -n1, d1 > d2); p.face = 9.0; }
+  }
+  return p;
+}
+// Scattered round dots on a jittered grid: 1 inside a dot. dens is the share of cells with one.
+fn grainDots(q: vec2f, size: f32, dens: f32) -> f32 {
+  let c = floor(q);
+  let h = fract(sin(vec2f(dot(c, vec2f(127.1, 311.7)), dot(c, vec2f(269.5, 183.3)))) * 43758.5453);
+  let d = length(fract(q) - 0.25 - 0.5 * h);
+  return select(0.0, 1.0 - smoothstep(size * 0.6, size, d), fract(h.x * 7.13 + h.y * 3.1) < dens);
+}
+
+fn mineralSurf(i: SO) -> StoneOut {
+  let ty = (i.flags >> 3u) & 7u;
+  let rot = i.seed.x * TAU;
+  let ax = vec2f(cos(rot), sin(rot));
+  let ay = vec2f(-ax.y, ax.x);
+  let u = vec2f(dot(i.uv, ax), dot(i.uv, ay));
+  let aa = 1.5 / max(i.px, 1.0);
+  let det = smoothstep(18.0, 70.0, i.px);
+  let det2 = smoothstep(70.0, 260.0, i.px); // the finest detail, only right up close
+  let H = i.seed;
+  var stretch = 1.0;
+  var sd = 0.0;
+  var ls = vec2f(0.0);
+  var alb = 1.0;
+  var edge = 0.0;
+  if (ty <= 2u || ty == 6u) {
+    // crystals and shell shards: a table with bevelled sides, each bevel lit as its own facet, a crisp
+    // ridge where two meet, and a top tilted a little its own way
+    let shell = ty == 6u;
+    var n = 6u + u32(grainHash(H, 3.0) * 4.99);
+    var r0 = 0.48 + 0.2 * H.y;
+    var jit = 0.8;
+    var spread = 0.55;
+    stretch = 1.0 + 0.5 * grainHash(H, 1.0);
+    if (ty == 1u) { n = select(4u, 5u, grainHash(H, 3.0) > 0.6); jit = 0.2; spread = 0.35; stretch = 1.2 + 0.5 * grainHash(H, 1.0); r0 = 0.42 + 0.14 * H.y; }
+    if (ty == 2u) { n = 6u; jit = 0.25; spread = 0.2; stretch = 1.8 + 0.6 * grainHash(H, 1.0); r0 = 0.3 + 0.08 * H.y; }
+    if (shell) { n = 6u + u32(grainHash(H, 3.0) * 2.99); jit = 0.7; spread = 0.5; stretch = 1.1 + 0.4 * grainHash(H, 1.0); }
+    // keep its farthest corner inside the quad (a polygon's corners lie up to ~1.5 times its faces' reach)
+    r0 = min(r0, 0.86 / (stretch * (1.0 + 0.5 * spread)));
+    let w = vec2f(u.x / stretch, u.y);
+    let P = grainPoly(w, H, n, r0, jit, spread, ty != 2u);
+    sd = P.sd;
+    if (sd >= aa) { discard; }
+    let steep = select(1.3 + 1.6 * grainHash(H, 7.0), 2.2, shell);
+    let bevel = r0 * select(select(0.28 + 0.25 * grainHash(H, 5.0), 0.12 + 0.08 * grainHash(H, 5.0), ty == 1u || ty == 2u), 0.07, shell);
+    let t = smoothstep(0.0, bevel, -sd);
+    let faceted = ty == 0u || ty == 2u;
+    var form = vec2f(0.0); // the grain's own slope; its markings add to tilt below
+    var tilt = vec2f(0.0);
+    if (faceted) {
+      // a faceted crystal: its surface is the lowest of a set of planes, the steep outer facets (one
+      // per edge of its outline, meeting the floor there), a ring of gentler crown facets turned
+      // between them, and a top face (on a prism, two long faces meeting in a ridge instead); each
+      // facet reflects a little differently, with a crisp line where two meet
+      var h1 = 1e9;
+      var h2 = 1e9;
+      var fid = 0.0;
+      for (var k = 0u; k < n; k++) {
+        let at = (f32(k) + jit * (grainHash(H, f32(k) + 2.0) - 0.5)) * TAU / f32(n);
+        let dir = vec2f(cos(at), sin(at));
+        let sk = steep * (0.8 + 0.6 * grainHash(H, f32(k) + 81.0));
+        let hk = -sk * (dot(w, dir) - r0 * (1.0 - 0.5 * spread + spread * grainHash(H, f32(k) + 11.0)));
+        if (hk < h1) { h2 = h1; h1 = hk; form = -sk * dir; fid = f32(k); } else if (hk < h2) { h2 = hk; }
+      }
+      let ns = select(3u + u32(grainHash(H, 90.0) * 3.99), 2u, ty == 2u);
+      for (var k = 0u; k < ns; k++) {
+        let at = select((f32(k) + grainHash(H, f32(k) + 91.0) - 0.5) * TAU / f32(ns) + H.y * TAU, (f32(k) + 0.25) * TAU / 2.0 + 0.1 * (grainHash(H, 92.0) - 0.5), ty == 2u);
+        let dir = vec2f(cos(at), sin(at));
+        let sk = select(0.35, 0.9, ty == 2u) + 0.5 * grainHash(H, f32(k) + 93.0);
+        let hk = r0 * (0.45 + 0.4 * grainHash(H, f32(k) + 95.0)) + sk * (r0 * select(0.2 + 0.4 * grainHash(H, f32(k) + 96.0), 0.0, ty == 2u) - dot(w, dir));
+        if (hk < h1) { h2 = h1; h1 = hk; form = -sk * dir; fid = f32(k) + 20.0; } else if (hk < h2) { h2 = hk; }
+      }
+      let tv = (vec2f(grainHash(H, 13.0), grainHash(H, 17.0)) - 0.5) * 0.5;
+      let htop = select(r0 * (0.75 + 0.2 * grainHash(H, 97.0)) + dot(w, tv), 1e9, ty == 2u);
+      if (htop < h1) { h2 = h1; h1 = htop; form = tv; fid = 40.0; } else if (htop < h2) { h2 = htop; }
+      let fline = 1.0 - smoothstep(0.0, 0.012, h2 - h1);
+      // milky clouds inside the glass
+      let milk = grainDots(w * 5.0 + H * 13.0, 0.9, 0.7) * grainDots(w * 7.0 + H * 3.0, 0.9, 0.7);
+      // higher on the grain is brighter, so each facet shades across its width
+      alb = (0.82 + 0.36 * grainHash(H, fid + 41.0)) * (1.0 - 0.2 * fline) * (0.72 + 0.3 * clamp(h1 / (r0 * 0.8), 0.0, 1.0)) * (1.0 - 0.22 * milk * det);
+      edge = max(1.0 - smoothstep(0.0, 0.06, -sd), 0.35 * fline);
+    } else {
+      // a table with bevelled sides, each bevel lit as its own facet, a crisp ridge where two meet, and
+      // a top tilted a little its own way and gently domed
+      let top = (vec2f(grainHash(H, 13.0), grainHash(H, 17.0)) - 0.5) * 0.9 - w / r0 * select(0.8, 1.6, shell);
+      let ridge = 1.0 - smoothstep(0.0, 0.025, P.sd - P.sd2);
+      alb = mix(0.82 + 0.36 * grainHash(H, P.face + 41.0), 1.0, t) * (1.0 - 0.25 * ridge * (1.0 - t));
+      edge = max(1.0 - smoothstep(0.0, bevel * 1.3, -sd), 0.5 * ridge * (1.0 - t));
+      form = -P.nrm * (steep * (1.0 - t)) + top * t;
+    }
+    if (ty == 0u) {
+      // conchoidal fracture: curved ripples spreading from a point where it broke
+      let fa = grainHash(H, 47.0) * TAU;
+      let fc = vec2f(cos(fa), sin(fa)) * r0 * 0.95;
+      let fv = w - fc;
+      let fd = length(fv);
+      let conch = smoothstep(r0 * 0.9, r0 * 0.2, fd) * step(0.65, grainHash(H, 49.0));
+      tilt += fv / max(fd, 1e-3) * 0.1 * sin(fd * (34.0 + 20.0 * grainHash(H, 50.0)) + 1.5 * sin(atan2(fv.y, fv.x) * 3.0)) * conch * conch * det;
+      // a hairline crack that catches the light
+      let cn = vec2f(cos(grainHash(H, 51.0) * TAU), sin(grainHash(H, 51.0) * TAU));
+      let cdist = dot(w, cn) - (grainHash(H, 52.0) - 0.5) * r0;
+      let crack = (1.0 - smoothstep(0.0, 0.008, abs(cdist + 0.04 * sin(dot(w, vec2f(-cn.y, cn.x)) * 17.0)))) * step(0.4, grainHash(H, 53.0)) * det * t;
+      alb *= 1.0 - 0.25 * crack;
+      tilt += cn * sign(cdist) * crack * 0.5;
+      // a healed fracture: a trail of tiny fluid inclusions across it
+      let ia = grainHash(H, 57.0) * TAU;
+      let iq = mat2x2f(cos(ia), sin(ia), -sin(ia), cos(ia)) * w;
+      let iy = iq.y - (grainHash(H, 58.0) - 0.5) * r0 + 0.03 * sin(iq.x * 9.0);
+      alb *= 1.0 - 0.45 * grainDots(vec2f(iq.x, iy) * 70.0 + vec2f(0.0, 0.5), 0.25, 0.75) * (1.0 - smoothstep(0.004, 0.012, abs(iy))) * det2;
+      // specks of other minerals and fluid trapped as it grew
+      alb *= 1.0 - 0.35 * grainDots(w * 13.0 + H * 9.0, 0.1 + 0.12 * grainHash(H, 55.0), 0.12) * det - 0.25 * grainDots(w * 37.0 + H * 4.0, 0.12, 0.08) * det;
+    }
+    if (ty == 1u) {
+      // perthite: fine wavy streaks of a second feldspar grown through it
+      alb *= 1.0 + 0.1 * det2 * smoothstep(0.55, 0.9, sin(w.x * 140.0 + 5.0 * sin(w.y * 17.0 + H.x * 20.0) + 3.0 * sin(w.x * 11.0)));
+      // cleavage: the top steps down in terraces across its length, each riser a thin lit line
+      let cy = w.y * (5.0 + 4.0 * grainHash(H, 61.0)) + grainHash(H, 63.0) * 9.0;
+      let cv = fract(cy + 0.35 * sin(floor(cy) * 12.9898));
+      let riser = smoothstep(0.86, 0.95, cv) * (1.0 - smoothstep(0.95, 1.0, cv)) * step(0.35, fract(sin(floor(cy) * 78.233) * 437.585));
+      tilt += vec2f(0.0, 1.8) * riser * det * t;
+      alb *= 1.0 - 0.15 * riser * det * t;
+      // faint bands of twinned crystal along it, and cloudy alteration
+      alb *= 1.0 + 0.1 * det * (smoothstep(-0.25, 0.25, sin(w.x * (10.0 + 8.0 * grainHash(H, 65.0)) + 2.0 * sin(w.y * 3.0))) * 2.0 - 1.0);
+    }
+    if (ty == 2u) {
+      // striations along the prism's length
+      let st = sin(w.y * (150.0 + 60.0 * grainHash(H, 67.0)) + 2.5 * sin(w.x * 5.0 + H.y * 9.0)) * (0.5 + 0.5 * sin(w.y * 23.0 + H.x * 7.0));
+      tilt.y += 0.08 * st * det;
+      // two cleavages crossing at an angle, as fine cracks
+      let c1 = abs(fract(dot(w, vec2f(0.83, 0.56)) * 18.0 + H.x * 5.0) - 0.5);
+      let c2 = abs(fract(dot(w, vec2f(0.83, -0.56)) * 15.0 + H.y * 5.0) - 0.5);
+      alb *= 1.0 + 0.5 * det2 * (1.0 - smoothstep(0.0, 0.04, min(c1, c2))) * step(0.5, fract(sin(dot(floor(w * 9.0), vec2f(12.9, 78.2))) * 437.5));
+      alb *= 1.0 + 0.06 * st * det;
+    }
+    if (shell) {
+      // growth lines curving about the hinge (beyond the shard), radial ribs, and broad colour bands
+      let ha = grainHash(H, 71.0) * TAU;
+      let hc = vec2f(cos(ha), sin(ha)) * r0 * (1.5 + grainHash(H, 72.0));
+      let hv = w - hc;
+      let hd = length(hv);
+      let hr = hv / hd;
+      let hp = vec2f(-hr.y, hr.x);
+      let gk = hd * (26.0 + 16.0 * grainHash(H, 73.0));
+      tilt += hr * 0.5 * pow(abs(cos(gk + 1.7 * sin(gk * 0.37))), 6.0) * sign(cos(gk + 1.7 * sin(gk * 0.37))) * det;
+      let rib = dot(hr, vec2f(-hc.y, hc.x) / length(hc));
+      tilt += hp * 0.35 * cos(rib * (30.0 + 20.0 * grainHash(H, 74.0))) * det * step(0.4, grainHash(H, 75.0));
+      alb *= 1.0 + 0.14 * sin(hd * (8.0 + 6.0 * grainHash(H, 76.0)) + H.x * 20.0) + 0.08 * det2 * sin(hd * 160.0 + 2.0 * sin(hd * 31.0));
+    }
+    ls = form + tilt * select(t, 1.0, faceted);
+  } else if (ty == 3u) {
+    // worn sand: a rounded pebble, its outline gently wobbling, its surface frosted by pits
+    stretch = 1.0 + 0.45 * grainHash(H, 1.0);
+    let w = vec2f(u.x / stretch, u.y);
+    let rho = length(w);
+    let c = w / max(rho, 1e-4);
+    let wob = 1.0 + 0.06 * (c.x * c.x - c.y * c.y) * sin(H.x * 30.0) + 0.05 * dot(c, vec2f(cos(H.y * 40.0), sin(H.y * 40.0))) * (4.0 * c.x * c.x * c.x - 3.0 * c.x) + 0.04 * c.y * (3.0 * c.x * c.x - c.y * c.y);
+    let r0 = (0.55 + 0.15 * H.y) * wob;
+    sd = rho - r0;
+    let q = min(rho / r0, 0.995);
+    let hgt = sqrt(1.0 - q * q);
+    ls = -2.2 * w / (r0 * max(hgt, 0.22));
+    alb = 1.0 - 0.18 * grainDots(w * 26.0 + H * 5.0, 0.3, 0.6) * det - 0.15 * grainDots(w * 75.0 + H * 2.0, 0.35, 0.5) * det2 + 0.12 * (grainDots(w * 9.0 + H * 3.0, 0.45, 0.5) - 0.3) * det;
+    edge = 1.0 - smoothstep(0.0, 0.15 * r0, -sd);
+  } else if (ty == 4u) {
+    // a foraminifer: chambers, each larger than the last, coiled in a log spiral; the newest lies
+    // over the older; sutures sink where two meet, and the chalk is finely pored
+    let N = 7u + u32(grainHash(H, 3.0) * 4.99);
+    let gr = 0.22 + 0.1 * grainHash(H, 1.0);
+    let dth = (0.8 + 0.3 * grainHash(H, 5.0)) * select(-1.0, 1.0, grainHash(H, 7.0) > 0.5);
+    let rN = exp(gr * f32(N - 1u));
+    let sc = 0.7 / (1.55 * rN);
+    let w = u + vec2f(rN * sc * 0.25, 0.0);
+    var h1 = -1.0;
+    var h2 = -1.0;
+    var sdm = 1e9;
+    var top = vec2f(0.0);
+    for (var k = 0u; k < N; k++) {
+      let rk = exp(gr * f32(k)) * sc;
+      let th = f32(k) * dth;
+      let rad = rk * 0.6;
+      let dv = w - vec2f(cos(th), sin(th)) * rk;
+      let dd = length(dv);
+      sdm = min(sdm, dd - rad);
+      let hk = sqrt(max(rad * rad - dd * dd, 0.0)) * select(0.0, 1.0, dd < rad) + f32(k) * 1e-4;
+      if (hk > h1) { h2 = h1; h1 = hk; top = -dv / max(hk, rad * 0.3); } else if (hk > h2) { h2 = hk; }
+    }
+    sd = sdm;
+    ls = top * 1.4;
+    let suture = (1.0 - smoothstep(0.0, 0.035, h1 - h2)) * step(1e-3, h2);
+    alb = (1.0 - 0.4 * suture) * (1.0 - 0.3 * grainDots(w * 50.0 + H * 7.0, 0.3, 0.7) * det);
+    edge = max(1.0 - smoothstep(0.0, 0.035, -sd), 0.5 * suture);
+  } else if (ty == 5u) {
+    if (grainHash(H, 9.0) < 0.6) {
+      // a centric diatom: a flat glass valve with a raised rim, pores in rows radiating out
+      let r0 = 0.52 + 0.15 * H.y;
+      let rho = length(u);
+      sd = rho - r0;
+      let q = rho / r0;
+      let dr = -0.2 * q - 4.4 * (q - 0.9) * exp(-pow((q - 0.9) / 0.06, 2.0));
+      ls = u / max(rho, 1e-4) * dr * 2.5;
+      let rows = f32(18u + u32(grainHash(H, 11.0) * 18.0));
+      let ac = vec2f(fract(atan2(u.y, u.x) / TAU * rows) - 0.5, fract(q * (8.0 + 5.0 * grainHash(H, 13.0))) - 0.5);
+      let pore = (1.0 - smoothstep(0.18, 0.32, length(ac))) * smoothstep(0.15, 0.25, q) * (1.0 - smoothstep(0.82, 0.86, q));
+      alb = 1.0 - 0.45 * pore * det;
+      edge = 1.0 - smoothstep(0.0, 0.1, -sd);
+    } else {
+      // a pennate diatom: a slim boat, ribbed across, a slit (the raphe) down its middle
+      let L = 0.75;
+      let Wd = 0.17 + 0.06 * H.y;
+      let e = u / vec2f(L, Wd);
+      let rho = length(e);
+      sd = (rho - 1.0) * Wd;
+      let hgt = sqrt(max(1.0 - rho * rho, 0.04));
+      ls = -0.8 * vec2f(e.x / L, e.y / Wd) / hgt;
+      let rib = 1.0 - smoothstep(0.12, 0.3, abs(fract(u.x * (26.0 + 10.0 * grainHash(H, 11.0))) - 0.5));
+      let raphe = (1.0 - smoothstep(0.0, 0.012, abs(u.y))) * smoothstep(0.05, 0.08, abs(u.x)) * (1.0 - smoothstep(0.8, 0.9, abs(e.x)));
+      alb = (1.0 - 0.3 * rib * det * smoothstep(0.25, 0.4, abs(e.y))) * (1.0 - 0.5 * raphe * det);
+      edge = 1.0 - smoothstep(0.0, 0.06, -sd);
+    }
+  } else {
+    // a sponge spicule: a slim glass needle, tapered at both ends, a little bent, its canal inside
+    let L = 0.68 + 0.15 * H.y;
+    let rr = 0.08 + 0.05 * grainHash(H, 3.0);
+    let w = vec2f(u.x, u.y - (grainHash(H, 5.0) - 0.5) * 0.5 * u.x * u.x);
+    let cx = clamp(w.x, -L, L);
+    let rad = rr * (1.0 - 0.7 * pow(abs(cx) / L, 3.0));
+    let dv = vec2f(w.x - cx, w.y);
+    let dd = length(dv);
+    sd = dd - rad;
+    let q = min(dd / rad, 0.995);
+    ls = -1.5 * dv / max(dd, 1e-4) * q / max(sqrt(1.0 - q * q), 0.2);
+    alb = 1.0 - 0.4 * (1.0 - smoothstep(0.0, 0.2 * rad, abs(w.y))) * step(abs(w.x), L * 0.85) * det;
+    edge = 1.0 - smoothstep(0.0, 0.5 * rad, -sd);
+  }
+  // silt and clay stuck to it: dark and pale specks
+  alb *= 1.0 - 0.3 * grainDots(u * 55.0 + H * 17.0, 0.35, 0.16) * det2 + 0.25 * grainDots(u * 85.0 + H * 23.0, 0.3, 0.1) * det2;
+  if (sd >= aa) { discard; }
+  var o: StoneOut;
+  let slope = (ls.x / stretch) * ax + ls.y * ay;
+  o.col = vec4f(i.col * alb, 1.0 - smoothstep(-aa, aa, sd));
+  // .z: how near its own edge (where it meets its neighbours) the pixel lies
+  o.surf = vec4f(slope, edge, f32(i.flags));
+  return o;
+}
+
+@fragment fn fsStone(i: SO) -> StoneOut {
+  if ((i.flags & 4u) != 0u) { return framboidSurf(i); }
+  return mineralSurf(i);
 }
 
 @vertex fn vsFade(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
@@ -2832,10 +3434,14 @@ struct Post {
   res: vec2f, bloom: f32, exposure: f32,
   time: f32, season: f32, tideVis: f32, ppu: f32,
   cam: vec2f, world: vec2f,
-  simTime: f32, ambient: f32, optics: f32, p2: f32,
+  simTime: f32, ambient: f32, optics: f32,
+  // -1: no heat field; 0: heat map off; 1: shimmer; 2: thermal camera
+  heatVis: f32,
   tide: array<vec4f, 4>,
   tidePh: vec4f,
   waves: array<vec4f, 4>,
+  // the background water temperature, then the heat map's span
+  heat: vec4f,
 };
 `;
 
@@ -2997,6 +3603,7 @@ struct Reproj { scale: vec2f, shift: vec2f, k: f32, p0: f32, p1: f32, p2: f32 };
 @group(0) @binding(8) var stoneTop: texture_2d<f32>;
 @group(0) @binding(9) var murkTex: texture_2d<f32>;
 @group(0) @binding(10) var microTex: texture_2d<f32>;
+@group(0) @binding(11) var<storage, read> heatField: array<f32>;
 
 struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 
@@ -3044,31 +3651,70 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
   let c = textureSampleLevel(stoneTex, samp, uv, 0.0);
   if (c.a <= 0.0) { return vec3f(0.0); }
   let s = textureSampleLevel(stoneTop, samp, uv, 0.0);
-  let flags = u32(s.w + 0.5);
+  // flags (with the kind of grain), and a framboid's fuel in the fraction (fsStone): read from the nearest
+  // pixel, since blending two grains' flags at their seam would decode as some other material
+  let st = vec2f(textureDimensions(stoneTop));
+  let sw = textureLoad(stoneTop, vec2i(clamp(uv * st, vec2f(0.0), st - 1.0)), 0).w;
+  let flags = u32(floor(sw + 0.01));
   let fine = smoothstep(120.0, 400.0, ppu);
-  // a little surface relief up close
-  let relief = fine * (0.35 * vec2f(vnoise(wp * 40.0) - 0.5, vnoise(wp * 40.0 + 7.3) - 0.5)
+  if ((flags & 4u) != 0u) {
+    // pyrite: metallic, so mostly a brassy glint off each crystal; and while it oxidises a dull warm
+    // glow from within, brightest in the gaps between crystals, fading as it is spent
+    let fuel = (sw - f32(flags)) / 0.45;
+    let n = normalize(vec3f(-s.xy, 1.0));
+    let light = normalize(vec3f(-0.45, -0.55, 0.7));
+    let spec = pow(max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0), 18.0);
+    var lit = c.rgb * (0.25 + 0.65 * max(dot(n, light), 0.0)) + mix(c.rgb, vec3f(1.0, 0.95, 0.8), 0.3) * spec * 1.8;
+    let flick = 0.85 + 0.15 * vnoise(wp * 30.0 + vec2f(post.simTime * 0.7, 0.0));
+    lit += vec3f(1.0, 0.38, 0.08) * (0.01 + 0.32 * s.z) * fuel * flick;
+    if ((flags & 2u) != 0u) { lit = lit * 1.4 + vec3f(0.05, 0.04, 0.02); }
+    return lit * c.a * 1.3;
+  }
+  // each kind of grain is its own material (mineralSurf): glass (quartz, diatoms, spicules) is crisp
+  // and bright where light leaves it, a mafic prism glossy, chalk and shell matte, worn sand frosted
+  let mat = (flags >> 3u) & 7u;
+  let glass = mat == 0u || mat == 5u || mat == 7u;
+  let bio = mat >= 4u;
+  // a little surface relief up close, least on glass and on skeletons, which carry their own
+  let relief = fine * select(select(1.0, 0.3, bio), 0.0, glass || mat == 2u) * (0.35 * vec2f(vnoise(wp * 40.0) - 0.5, vnoise(wp * 40.0 + 7.3) - 0.5)
     + 0.25 * vec2f(vnoise(wp * 140.0) - 0.5, vnoise(wp * 140.0 + 3.1) - 0.5));
   let n = normalize(vec3f(-s.xy + relief, 1.0));
-  let light = normalize(vec3f(-0.45, -0.55, 0.7));
+  // a low, raking light, so each grain's form shows
+  let light = normalize(vec3f(-0.55, -0.65, 0.5));
   let diffuse = max(dot(n, light), 0.0);
-  let spec = pow(max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0), 28.0);
+  let hv = max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0);
   let tuck = 1.0 - 0.55 * s.z * s.z;
-  var col = c.rgb * (1.0 + 0.12 * (vnoise(wp * 6.0) - 0.5) + 0.18 * fine * (vnoise(wp * 18.0) - 0.5));
-  if (fine > 0.0) {
+  // mineral grains are mottled and veined well before their fine relief resolves
+  let mid = smoothstep(25.0, 90.0, ppu) * select(1.0, 0.4, glass || bio);
+  var col = c.rgb * (1.0 + 0.12 * (vnoise(wp * 6.0) - 0.5) * select(1.0, 0.4, glass || bio) + (0.12 * mid + 0.18 * fine * select(1.0, 0.4, glass || bio)) * (vnoise(wp * 18.0) - 0.5)
+    + 0.16 * mid * (vnoise(wp * 47.0 + 3.7) - 0.5));
+  if (fine > 0.0 && mat == 3u) {
     if ((flags & 1u) != 0u) {
-      // pores: pits of varied size gathered in patches, shadowed on the lit side, a lit rim opposite
+      // reef chalk: pits of varied size gathered in patches, shadowed on the lit side, a lit rim opposite
       let pores = worley(wp * 55.0);
       let size = 0.04 + 0.14 * hash12(floor(wp * 55.0 + pores.zw)) * hash12(floor(wp * 55.0 + pores.zw) + 3.3);
       let pit = (1.0 - smoothstep(size * 0.7, size, pores.x)) * fine * smoothstep(0.3, 0.65, vnoise(wp * 5.0));
       let side = dot(normalize(pores.zw + vec2f(1e-5)), normalize(light.xy));
       col *= 1.0 + pit * (0.35 * side - 0.3);
     } else {
-      col *= 1.0 + 0.3 * fine * (vnoise(wp * 80.0) - 0.5);
-      col += col * 0.8 * fine * step(0.985, hash12(floor(wp * 110.0)));
+      // frosted: the odd pit catches the light
+      let gl = worley(wp * 120.0);
+      col += col * 0.7 * fine * (1.0 - smoothstep(0.0, 0.12, gl.x)) * step(0.88, hash12(floor(wp * 120.0 + gl.zw)));
     }
   }
-  var lit = col * (0.3 + 0.75 * diffuse) * tuck + vec3f(0.12) * spec * dot(col, vec3f(0.33));
+  var lit: vec3f;
+  if (glass) {
+    // glass: dim where it faces you, bright toward its rim, where light that went in comes out on
+    // the side away from the lamp, and a sharp white highlight
+    let fres = 1.0 - n.z;
+    let exitL = max(dot(normalize(n.xy + vec2f(1e-5)), -normalize(light.xy)), 0.0) * fres;
+    lit = col * (0.25 + 0.75 * diffuse / (0.35 + diffuse) + 0.3 * exitL + 0.25 * fres) * tuck + vec3f(0.95, 0.97, 1.0) * pow(hv, 80.0) * 0.08 * (0.4 + 0.6 * vnoise(wp * 30.0));
+  } else if (mat == 2u) {
+    lit = col * (0.2 + 0.85 * diffuse) * tuck + vec3f(0.22) * pow(hv, 40.0);
+  } else {
+    let chalk = mat == 1u || mat == 4u || mat == 6u;
+    lit = col * (select(0.15 + 1.0 * diffuse, 0.4 + 1.15 * diffuse, chalk)) * tuck + vec3f(select(0.25, 0.08, chalk || (flags & 1u) != 0u)) * pow(hv, 28.0) * dot(col, vec3f(0.33));
+  }
   if ((flags & 2u) != 0u) { lit = lit * 1.5 + vec3f(0.05, 0.04, 0.02) + vec3f(0.35, 0.3, 0.2) * smoothstep(0.7, 1.0, s.z); }
   return lit * c.a * 1.3;
 }
@@ -3312,13 +3958,61 @@ fn pondSpecks(c: vec3f, hdr: vec3f, pos: vec2f) -> vec3f {
   return max(vec3f(0.0), c * (1.0 - grains.a * behind) + (grains.rgb + vec3f(0.006, 0.0065, 0.007) * emboss) * behind);
 }
 
+// Smooth noise carried by the currents (two generations crossfading, as the murk), so haze drifts
+// with the water instead of sliding over it. Two channels, -0.5..0.5, at about scale per world unit.
+fn flowNoise(wp: vec2f, scale: f32) -> vec2f {
+  var n = vec2f(0.0);
+  for (var phase = 0u; phase < 2u; phase++) {
+    let clock = post.simTime / 2.5 + f32(phase) * 0.5;
+    let age = fract(clock);
+    let back = postFlowAt(wp, post.simTime) * (age * 2.5);
+    let q = (wp - back) * scale + vec2f(fract(floor(clock) * 0.618034 + f32(phase) * 0.37) * 61.0, 3.7);
+    n += (vec2f(vnoise(q), vnoise(q + 9.7)) - 0.5) * (1.0 - abs(2.0 * age - 1.0));
+  }
+  return n;
+}
+
+// The water's temperature at world point p, bilinear between cell centres, and its gradient.
+fn waterCell(x: i32, y: i32) -> f32 {
+  let g = vec2i(post.world);
+  return heatField[${MAX_CELLS}u + u32(((y % g.y) + g.y) % g.y) * u32(g.x) + u32(((x % g.x) + g.x) % g.x)];
+}
+fn waterAt(p: vec2f) -> vec3f {
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  let a = waterCell(i.x, i.y);
+  let b = waterCell(i.x + 1, i.y);
+  let c = waterCell(i.x, i.y + 1);
+  let d = waterCell(i.x + 1, i.y + 1);
+  return vec3f(mix(mix(a, b, t.x), mix(c, d, t.x), t.y), mix(b - a, d - c, t.y), mix(c - a, d - b, t.x));
+}
+// A thermal camera's false colour: deep blue, teal, amber, white.
+fn heatRamp(u: f32) -> vec3f {
+  let a = mix(vec3f(0.02, 0.04, 0.18), vec3f(0.0, 0.42, 0.48), smoothstep(0.0, 0.35, u));
+  let b = mix(a, vec3f(1.0, 0.52, 0.12), smoothstep(0.35, 0.7, u));
+  return mix(b, vec3f(1.0, 0.95, 0.82), smoothstep(0.75, 1.0, u));
+}
+
 @fragment fn fsComposite(i: VO) -> @location(0) vec4f {
   let k = post.optics;
   let q = (i.pos.xy - post.res * 0.5) / (post.res.y * 0.5);
   let wp = post.cam + (i.pos.xy - post.res * 0.5) / post.ppu;
-  var hdr = boulder(i.uv, wp, post.ppu);
-  if (k > 0.0) { hdr += lensScene(i.uv, q, wp, i.pos.xy, k); } else { hdr += scene(i.uv); }
-  let bl = textureSampleLevel(bloomTex, samp, i.uv, 0.0).rgb;
+  var water = vec3f(post.heat.x, 0.0, 0.0);
+  var uv = i.uv;
+  if (post.heatVis >= 0.0) {
+    water = waterAt(wp - post.world * floor(wp / post.world));
+    // schlieren: with the heat map on Shimmer, warm water bends the light passing through it like the
+    // air over a hot road, faintly, wherever warmth changes (around colonies and framboids, at
+    // fronts), the ripples carried by the current
+    if (post.heatVis > 0.5 && post.heatVis < 1.5) {
+      let shift = water.yz * flowNoise(wp, 7.0) * 2.0;
+      uv += shift * min(1.0, 3.0 / max(length(shift), 1e-4)) / post.res;
+    }
+  }
+  var hdr = boulder(uv, wp, post.ppu);
+  if (k > 0.0) { hdr += lensScene(uv, q, wp, i.pos.xy, k); } else { hdr += scene(uv); }
+  let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
   hdr = (hdr + bl * post.bloom) * post.exposure;
   var T = 0.0;
   if (post.tideVis > 0.0) {
@@ -3334,6 +4028,15 @@ fn pondSpecks(c: vec3f, hdr: vec3f, pos: vec2f) -> vec3f {
     let w = fwidth(band);
     let contour = 1.0 - smoothstep(0.0, w * 1.2, min(fract(band), 1.0 - fract(band)));
     c += vec3f(0.22) * contour;
+  }
+  if (post.heatVis > 1.5) {
+    // the thermal camera: false colour over the map's span (drawn as isotherms alone over a full
+    // light map), with an isotherm every 2°
+    if (post.tideVis < 1.5) { c = mix(c, heatRamp(clamp((water.x - post.heat.y) / (post.heat.z - post.heat.y), 0.0, 1.0)), 0.4); }
+    let band = water.x * 0.5;
+    let w = fwidth(band);
+    let iso = 1.0 - smoothstep(0.0, w * 1.2, min(fract(band), 1.0 - fract(band)));
+    c += vec3f(1.0, 0.7, 0.4) * 0.16 * iso;
   }
   let uq = i.uv - 0.5;
   let v = clamp(1.0 - dot(uq, uq) * 1.1, 0.0, 1.0);
@@ -3432,7 +4135,8 @@ fn loupeScene(r: vec2f) -> vec3f {
 }
 
 @fragment fn fsPlain(i: VO) -> @location(0) vec4f {
-  let hdr = (scene(i.uv) + boulder(i.uv, microView.cam + (i.uv - 0.5) * microView.res / microView.ppu, microView.ppu)) * post.exposure;
+  let wp = microView.cam + (i.uv - 0.5) * microView.res / microView.ppu;
+  let hdr = (scene(i.uv) + boulder(i.uv, wp, microView.ppu)) * post.exposure;
   var c = tonemap(hdr) + vec3f(0.006, 0.005, 0.012);
   c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0);
   return vec4f(pow(c, vec3f(1.0 / 2.2)), 1.0);

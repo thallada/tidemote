@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { runHeadless } from '../src/headless.js';
-import { P_BYTES, FIRST_LIFE } from '../src/shaders.js';
+import { P_BYTES, FIRST_LIFE, FRAMBOID } from '../src/shaders.js';
 
 const { values: v } = parseArgs({ options: {
   n: { type: 'string', default: '8192' }, minutes: { type: 'string', default: '10' },
-  seed: { type: 'string', default: '23' }, k: { type: 'string', default: '{}' }, step: { type: 'string', default: '1' },
+  seed: { type: 'string', default: '23' }, k: { type: 'string', default: '{}' }, step: { type: 'string', default: '1' }, temp: { type: 'string' },
   'no-eras': { type: 'boolean' },
   sample: { type: 'string', default: '5' }, print: { type: 'string', default: '30' },
   out: { type: 'string' }, png: { type: 'string' }, cpu: { type: 'boolean' },
@@ -21,11 +21,13 @@ if (v.help) {
   --n 8192 --minutes 10 --seed 23 --k '{}'
   --sample 5 --print 30 --out run.json
   --step 1       Each step covers step/60 s (coarse steps; the page takes up to 4)
+  --temp T       Hold the water's background temperature at T degrees (no climate walk or excursions)
   --no-eras
   --chrome       Run in headless Chromium (recommended without a GPU)
                  Override the executable with PLAYWRIGHT_CHROMIUM
   --cpu          Select Mesa lavapipe for Dawn only
-  --png file.png Render the final frame with Dawn only (W, H, ZOOM env supported)
+  --png file.png Render the final frame with Dawn only (W, H, ZOOM, OPTICS, HEAT env supported;
+                 HEAT=0,1,2: heat map off, shimmer, thermal camera; FRAMBOID=1 or STONE=1: centre on framboids or stone)
   --aim          Centre PNGs on the living cell with the most incoming bonds
                  Fall back to the world centre if no living cells remain
   --render-bench Time 180 paused render frames per zoom with GPU timestamps
@@ -36,7 +38,7 @@ if (v.help) {
 if (v.chrome && v.png) throw new Error('--png is supported only with Dawn; omit --chrome');
 if ((v.aim || v['render-bench']) && !v.png) throw new Error('--aim and --render-bench require --png');
 const config = { n: +v.n, minutes: +v.minutes, seed: +v.seed, k: JSON.parse(v.k),
-  eras: !v['no-eras'], sample: +v.sample, print: +v.print, cpu: !!v.cpu, profile: !!v.profile, step: +v.step };
+  eras: !v['no-eras'], sample: +v.sample, print: +v.print, cpu: !!v.cpu, profile: !!v.profile, step: +v.step, ...(v.temp != null ? { temp: +v.temp } : {}) };
 for (const key of ['n', 'minutes', 'sample', 'print', 'step']) {
   if (!Number.isFinite(config[key]) || config[key] <= 0) throw new Error(`--${key} must be positive`);
 }
@@ -138,6 +140,25 @@ async function writePNG(device, eng, frames) {
     console.log(`PNG camera: ${x}, ${y}; incoming bonds ${Math.max(0, best)}`);
     buf.unmap(); buf.destroy();
   }
+  // FRAMBOID=1 (or STONE=1) centres the PNG on the densest cluster of pyrite framboids (or stone)
+  const aimKind = process.env.FRAMBOID ? FRAMBOID : process.env.STONE ? 3 : -1;
+  if (aimKind >= 0) {
+    const buf = device.createBuffer({ size: eng.count * P_BYTES, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const enc = device.createCommandEncoder();
+    enc.copyBufferToBuffer(eng.b.parts, 0, buf, 0, eng.count * P_BYTES);
+    device.queue.submit([enc.finish()]);
+    await buf.mapAsync(GPUMapMode.READ);
+    const f = new Float32Array(buf.getMappedRange()), u = new Uint32Array(f.buffer);
+    const at = [];
+    for (let i = 0; i < eng.count; i++) if (u[i * 10 + 4] === aimKind) at.push([f[i * 10], f[i * 10 + 1]]);
+    let best = -1;
+    for (const [px, py] of at) {
+      const n = at.filter(([qx, qy]) => Math.hypot(qx - px, qy - py) < 1.5).length;
+      if (n > best) { best = n; x = px; y = py; }
+    }
+    console.log(`${aimKind === 3 ? 'stone' : 'framboids'} ${at.length}, densest cluster ${Math.max(0, best)}`);
+    buf.unmap(); buf.destroy();
+  }
   const timings = [];
   for (const z of (process.env.ZOOM || '1').split(',').map(Number)) {
     eng.clearAccum = true;
@@ -146,8 +167,9 @@ async function writePNG(device, eng, frames) {
     const mag = +process.env.LOUPE || 0, R = Math.round(Math.min(Math.max(Math.min(W, H) * 0.2, 90), 170));
     const loupe = mag ? { x: W / 2, y: H / 2, r: R, ppu: ppu * mag, cx: x, cy: y } : null;
     const render = () => eng.frame({ target: tex.createView(), cam: { x, y, ppu }, paused: true, time: frames / 60, loupe });
-    for (const optics of (process.env.OPTICS || '1').split(',').map(Number)) {
+    for (const [optics, heat] of (process.env.OPTICS || '1').split(',').flatMap((o) => (process.env.HEAT || '1').split(',').map((h) => [+o, +h]))) {
       eng.settings.optics = optics;
+      eng.settings.heat = heat;
       render();
       const bpr = Math.ceil((W * 4) / 256) * 256;
       const buf = device.createBuffer({ size: bpr * H, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
@@ -158,7 +180,7 @@ async function writePNG(device, eng, frames) {
       const src = new Uint8Array(buf.getMappedRange());
       const png = new PNG({ width: W, height: H });
       for (let y = 0; y < H; y++) png.data.set(src.subarray(y * bpr, y * bpr + W * 4), y * W * 4);
-      const file = v.png.replace(/\.png$/, (process.env.ZOOM ? `_z${z}` : '') + (process.env.OPTICS ? `_o${optics}` : '') + '.png');
+      const file = v.png.replace(/\.png$/, (process.env.ZOOM ? `_z${z}` : '') + (process.env.OPTICS ? `_o${optics}` : '') + (process.env.HEAT ? `_h${heat}` : '') + '.png');
       fs.writeFileSync(file, PNG.sync.write(png));
       buf.unmap();
       buf.destroy();

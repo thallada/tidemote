@@ -77,7 +77,7 @@ export class Field {
     this.gain = {}; // per-type gain overrides (tuning)
     this.agc = 1; this.power = P_REF; this.plan = null;
     this.swarmK = -1; this.bands = null; this.heard = new Map(); // species slot -> [grains per second, their power], smoothed over scans
-    this.sang = []; // notes sung since the last report to the page: [slot, seconds from now, note, line, scan, record]
+    this.sang = []; // notes sung since the last report to the page: [slot, seconds from now, note, line, scan, record, seconds it sounds, seconds a step]
     this.duckUntil = 0; // an audition is playing: the field steps back
     this.selPrev = -1; this.greetFor = -1; this.focusEnd = -1e9; // a newly picked species: see greet
     this.litKey = ''; this.litEnd = -1e9; // a new Lab highlight: brought forward briefly, like a pick
@@ -90,7 +90,7 @@ export class Field {
     const v = this.slots.get(slot)?.v;
     if (!v) { this.greetFor = slot; return; } // its voice comes with the next census
     this.greetFor = -1;
-    this.focusEnd = this.phrase(v, this.c.time + LATENCY, { amp: 0.13, slot, times: 1 });
+    this.focusEnd = this.phrase(v, this.c.time + LATENCY, { amp: 0.13, slot });
   }
   // how far forward the picked species is: 1 while its greeting plays, then down to 0
   focus() { return clamp(1 - (this.c.time - this.focusEnd) / FOCUS_FADE, 0, 1); }
@@ -151,7 +151,8 @@ export class Field {
     const c = this.c, now = c.time;
     this.speed = m.speed; this.z = m.z; this.gd = m.gd;
     this.act += (m.act - this.act) * 0.25;
-    c.setTempo(tempoFor(m.speed));
+    // the pulse quickens a little in warm water and slows in cold
+    c.setTempo(tempoFor(m.speed) * (1 + 0.06 * c.warm));
     const wall = Math.max(1e-3, m.window / Math.max(m.speed, 1e-6));
     const S = LISTEN.stride, ev = m.ev, n = ev.length / S;
     const comp = new Float32Array(8);
@@ -287,7 +288,7 @@ export class Field {
       const ts = on.t + dt * c.step;
       const midi = this.motifNote(v, line[k], ts, g * (second ? 0.6 : 1) * (i ? 0.85 : 1), o, k);
       if (first == null) first = midi;
-      if (o.rec) this.sang.push([slot, ts - c.time, k, second ? 1 : 0, o.rec[0], o.rec[1]]);
+      if (o.rec) this.sang.push([slot, ts - c.time, k, second ? 1 : 0, o.rec[0], o.rec[1], Math.min(10, line[k].dur * line[k].leg) * c.step, c.step]);
     }
     return first;
   }
@@ -312,13 +313,14 @@ export class Field {
       c.at(t, 'drop', { freq: midicps(midi + 12), amp: amp * 0.8, dec: this.rr(0.04, 0.09), rise: this.rr(1.3, 2.0), pan: o.pan, rev: o.wet(0.35), dly: 0.15 });
       return;
     }
-    const p = noteParams(v, midi, dur, amp, { light: o.light, td: o.td, dim: o.dim, wet: o.wet, k, rr: (a, b) => this.rr(a, b) });
+    const p = noteParams(v, midi, dur, amp, { light: o.light, td: o.td, dim: o.dim, wet: o.wet, k, rr: (a, b) => this.rr(a, b), warm: this.c.warm });
     if (p) { p.pan = o.pan; c.at(t, v.mat, p); }
   }
 
-  // A species' motif played whole from t0 (the song panel's play button, the gallery): its voice
-  // heard alone and close, the second voice under it, while the field steps back. Returns its end.
-  phrase(v, t0, { amp = 0.16, slot = null, times = 2 } = {}) {
+  // A species' motif played whole from t0 (picking a species, the song panel's play button; `times` over
+  // for a short motif in the gallery): its voice heard alone and close, the second voice under it, while
+  // the field steps back. Returns its end.
+  phrase(v, t0, { amp = 0.16, slot = null, times = 1 } = {}) {
     const c = this.c, m = v.motif, light = clamp(c.world.light, 0, 1.2), td = clamp(c.world.tide, 0, 1);
     const o = { pan: 0, light, td, dim: 1, wet: (r) => r };
     const reps = m.cycle * c.step > 5 ? 1 : times;
@@ -328,7 +330,7 @@ export class Field {
         line.forEach((nt, k) => {
           const ts = base + nt.at * c.step;
           this.motifNote(v, nt, ts, a, o, k);
-          if (slot != null) this.sang.push([slot, ts - c.time, k, li, -1, -1]);
+          if (slot != null) this.sang.push([slot, ts - c.time, k, li, -1, -1, Math.min(10, nt.dur * nt.leg) * c.step, c.step]);
         });
       }
     }
