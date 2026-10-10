@@ -13952,7 +13952,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         const u = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
         const segs = d.createBuffer({ size: CULL_SEGS * 8, usage: U.STORAGE });
         const args = d.createBuffer({ size: 48, usage: U.STORAGE | U.INDIRECT });
-        return { u, segs, args, on: false, bg: d.createBindGroup({ layout: this.cpCull.getBindGroupLayout(0), entries: [
+        return { u, segs, args, bg: d.createBindGroup({ layout: this.cpCull.getBindGroupLayout(0), entries: [
           { binding: 0, resource: { buffer: u } },
           { binding: 1, resource: { buffer: b.cellStart } },
           { binding: 2, resource: { buffer: segs } },
@@ -15344,7 +15344,6 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const fx = Math.floor(cx - hw) - m, fy = Math.floor(cy - hh) - m;
       const segs = ny * (nx < gw && (fx % gw + gw) % gw + nx > gw ? 2 : 1);
       const on = this.sorted && nx * ny < 0.5 * gw * gh && segs < CULL_SEGS;
-      this.cull[k].on = on;
       if (on) this.device.queue.writeBuffer(this.cull[k].u, 0, new Uint32Array([(fx % gw + gw) % gw, (fy % gh + gh) % gh, nx, ny, gw, gh, 0, 0]));
       return on;
     }
@@ -21750,13 +21749,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
       eng,
       sound,
       life: () => life,
-      sel: () => sel,
       renderScale: () => renderScale,
       maxZoom,
       setSpeed,
       findMember,
       deselect,
-      fit: fit2,
       setScale(v) {
         state.perf.scale = v;
         if (v !== "auto") renderScale = v;

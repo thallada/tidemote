@@ -1892,8 +1892,6 @@ fn surveyMain(@builtin(global_invocation_id) gid: vec3u) {
 }
 `;
 
-// Rendering only: each living cell's incoming bonds, so a body's cells fuse with every partner,
-// not only the (up to two) they keep themselves. Bonds are one-sided in the sim.
 // A view that sees little of the world draws only the particles in the grid rows it covers. Particles
 // are sorted by grid cell, so each row's cells in view are one range of indices (two where the view
 // wraps): cullRows lists them as segments (first index, how many come before) with the draws' indirect
@@ -1952,6 +1950,8 @@ fn cullRows(@builtin(local_invocation_index) l: u32) {
 }
 `;
 
+// Rendering only: each living cell's incoming bonds, so a body's cells fuse with every partner,
+// not only the (up to two) they keep themselves. Bonds are one-sided in the sim.
 export const INBOND_WGSL = COMMON + /* wgsl */ `
 @group(0) @binding(1) var<storage, read> intent: array<vec4u>;
 @group(0) @binding(2) var<storage, read> parts: array<Particle>;

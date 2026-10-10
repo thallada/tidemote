@@ -2454,7 +2454,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     sound.away(document.hidden);
   });
   // a handle for tools/perf, which profiles the page in a real browser
-  globalThis.__tidemote = { state, cam, perf, eng, sound, life: () => life, sel: () => sel, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect, fit,
+  globalThis.__tidemote = { state, cam, perf, eng, sound, life: () => life, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
     setScale(v) { state.perf.scale = v; if (v !== 'auto') renderScale = v; resetAdapt(); fit(); },
     // as the adaptive scale does it: applied when the next frame begins
     queueScale(v) { renderScale = v; resizeDue = true; },
