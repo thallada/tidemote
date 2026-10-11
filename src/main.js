@@ -83,6 +83,7 @@ const MAX_FRAME_MS = 30; // GPU time a frame may take when running fast (about 3
 // Fast speeds that can't afford to draw the world every display frame, coarse ones and Max draw it about
 // every MAX_FRAME_MS; the camera keeps the display's rate.
 const MAX_TICKS = 4;
+const SIGNAL_AFTER = 60; // seconds a species singing the five tones must live before it is heard
 const H = 1 / 60; // the simulation's step, as in the headless runs
 const fmtSpeed = (s) => (s === Infinity ? 'Max' : `×${s}`);
 const PARTICLE_SIZES = [32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
@@ -584,12 +585,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
       alive++;
       let sp = life.reg.get(genomeSerial(c.genomeU32, s));
       const g = sp ? sp.genome : readGenome(c.genomeU32, c.genomeF32, s);
-      if (!sp) {
-        sp = register(g);
-        if (sp.signal) {
-          pushEvent(`${spLink(sp.serial, sp.name)} appears to be trying to communicate`, g.col, 'est');
-          director.spotlight(s, g.serial, { signal: true });
-        }
+      if (!sp) sp = register(g);
+      // heard only once its singer has lived a minute, as most mutants do not (about one signal in 7 hours)
+      if (sp.signal && !sp.heard && t - (sp.born || 0) >= SIGNAL_AFTER) {
+        sp.heard = true;
+        pushEvent(`${spLink(sp.serial, sp.name)} appears to be trying to communicate`, g.col, 'est');
+        director.spotlight(s, g.serial, { signal: true });
       }
       audio.push([s, g]);
       sp.slot = s;
@@ -627,7 +628,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         if (sp.established) {
           sp.extinct = t;
           if (sp.peak >= life.estThreshold * 3) pushEvent(`${spLink(sp.serial, sp.name)} extinct after ${fmtDur(t - (sp.born || 0))} · peak ${fmt(sp.peak)}`, sp.genome.col, 'ext');
-        } else if (sp.signal) { // kept, so the log's link still opens it
+        } else if (sp.heard) { // kept, so the log's link still opens it
           sp.extinct = t;
           pushEvent(`${spLink(sp.serial, sp.name)} fell silent after ${fmtDur(t - (sp.born || 0))}`, sp.genome.col, 'ext');
         } else {
