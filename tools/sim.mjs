@@ -14,7 +14,7 @@ const { values: v } = parseArgs({ options: {
   sample: { type: 'string', default: '5' }, print: { type: 'string', default: '30' },
   out: { type: 'string' }, png: { type: 'string' }, cpu: { type: 'boolean' },
   chrome: { type: 'boolean' }, help: { type: 'boolean' },
-  aim: { type: 'boolean' }, 'render-bench': { type: 'boolean' }, profile: { type: 'boolean' },
+  aim: { type: 'boolean' }, 'render-bench': { type: 'boolean' }, profile: { type: 'boolean' }, species: { type: 'boolean' },
 } });
 if (v.help) {
   console.log(`Usage: node tools/sim.mjs [options]
@@ -32,13 +32,14 @@ if (v.help) {
                  Fall back to the world centre if no living cells remain
   --render-bench Time 180 paused render frames per zoom with GPU timestamps
   --profile      Time each simulation pass every simulated minute (GPU timestamps)
+  --species      Keep the last census's species and genomes in the output (tools/brain-probe.mjs)
   --help         Show this help`);
   process.exit(0);
 }
 if (v.chrome && v.png) throw new Error('--png is supported only with Dawn; omit --chrome');
 if ((v.aim || v['render-bench']) && !v.png) throw new Error('--aim and --render-bench require --png');
 const config = { n: +v.n, minutes: +v.minutes, seed: +v.seed, k: JSON.parse(v.k),
-  eras: !v['no-eras'], sample: +v.sample, print: +v.print, cpu: !!v.cpu, profile: !!v.profile, step: +v.step, ...(v.temp != null ? { temp: +v.temp } : {}) };
+  eras: !v['no-eras'], species: !!v.species, sample: +v.sample, print: +v.print, cpu: !!v.cpu, profile: !!v.profile, step: +v.step, ...(v.temp != null ? { temp: +v.temp } : {}) };
 for (const key of ['n', 'minutes', 'sample', 'print', 'step']) {
   if (!Number.isFinite(config[key]) || config[key] <= 0) throw new Error(`--${key} must be positive`);
 }

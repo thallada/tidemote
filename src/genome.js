@@ -1,4 +1,4 @@
-import { DEFAULT_K, G_WORDS } from './shaders.js';
+import { DEFAULT_K, G_WORDS, BRAIN_WORD, BRAIN_WORDS, BRAIN_SENSES, BRAIN_DIRS, BRAIN_SCALE } from './shaders.js';
 
 export const KIND = { SILT: 0, GLINT: 1, HUSK: 2, STONE: 3, FRAMBOID: 4 };
 
@@ -131,14 +131,66 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
     tol: type === 'reef' ? mix(3, 6, r()) : mix(5, 10, r()),
     thermo: THERMO_FOUNDERS.has(type) && r() < 0.25 ? unorm8(mix(0.3, 0.7, r())) : 0,
   };
+  // its own random stream, seeded from a trait already drawn, so founding a world takes no extra draws
+  let bs = (Math.floor(g.hue * 4294967296) ^ 0x9e3779b9) >>> 0;
+  g.brain = founderBrain(() => (bs = visualHash(bs)) / 4294967296);
   return finalizeGenome(g, K);
+}
+
+// ------------------------------------------------------------ brain
+// The brain's weights (K.brain; brainNet in shaders.js) as signed bytes, four to a word: hidden neuron h's
+// weight over sense i in word 4h + i/4, output o's over hidden neuron h in word 32 + 2o + h/4, output o's
+// bias in word 48 + o/4, the clock's rate in byte 0 of word 50. Each byte is a weight times 127/BRAIN_SCALE.
+const SI = Object.fromEntries(BRAIN_SENSES.map((n, i) => [n, i]));
+const DI = Object.fromEntries(BRAIN_DIRS.map((n, i) => [n, i]));
+const byteOf = (w) => Math.round(clamp(w / BRAIN_SCALE, -1, 1) * 127) & 255;
+const weightOf = (b) => Math.max(-1, ((b << 24) >> 24) / 127) * BRAIN_SCALE;
+const setByte = (words, k, w) => { const i = k >> 2, sh = (k & 3) * 8; words[i] = ((words[i] & ~(255 << sh)) | (byteOf(w) << sh)) >>> 0; };
+const getByte = (words, k) => weightOf((words[k >> 2] >>> ((k & 3) * 8)) & 255);
+export const brainHidden = (words, h, i) => getByte(words, h * 16 + i);
+export const brainOutput = (words, o, h) => getByte(words, 128 + o * 8 + h);
+export const brainBias = (words, o) => getByte(words, 192 + o);
+
+/**
+ * A founder's brain: reflexes like the rules a brainless world runs on (a hungry cell swims toward food,
+ * one out of its warmth back toward it, every cell keeps on its heading), a mild flight from what could eat
+ * it, a little wandering, and faint noise on every weight for evolution to work on.
+ */
+export function founderBrain(r = Math.random) {
+  const w = new Array(BRAIN_WORDS).fill(0);
+  for (let k = 0; k < 200; k++) setByte(w, k, (r() * 2 - 1) * 0.1);
+  const hid = (h, sense, v) => setByte(w, h * 16 + SI[sense], v);
+  const out = (dir, h, v) => setByte(w, 128 + DI[dir] * 8 + h, v);
+  const bias = (dir, v) => setByte(w, 192 + DI[dir], v);
+  hid(0, 'energy', -2); hid(0, 'bias', 1.8);   // hunger
+  hid(1, 'temp', 1.5);                         // too warm (+) or too cold (-)
+  hid(2, 'threat', 2.4);                       // danger near
+  out('food', 0, 1.5); bias('food', 0.9);
+  out('warmth', 1, -2);
+  out('threat', 2, -1.2);
+  bias('heading', 0.9);
+  bias('wander', 0.3);
+  setByte(w, 200, (r() * 2 - 1) * BRAIN_SCALE); // the clock's rate
+  return w;
+}
+// The CPU twin of mutateBrain (shaders.js), for mutateLike. gauss: the mutation's normal source.
+function mutateBrainLike(words, m, r, gauss, K) {
+  const b = words.slice();
+  const mb = m * (K.brainMut ?? 0.2) * BRAIN_SCALE;
+  const keep = 1 - m * (K.brainShrink ?? 0.5);
+  for (let k = 0; k < BRAIN_WORDS * 4; k++) setByte(b, k, getByte(b, k) * keep + gauss() * mb);
+  if (r() < m * 0.25) {
+    const row = Math.min(11, Math.floor(r() * 12));
+    for (let k = 0; k < 16; k++) setByte(b, row * 16 + k, (r() * 2 - 1) * 0.3 * BRAIN_SCALE);
+  }
+  return b;
 }
 
 export function finalizeGenome(g, K = DEFAULT_K) {
   const s = Math.max(g.dGlint + g.dHusk + g.dFlesh, 1e-3);
   g.dGlint /= s; g.dHusk /= s; g.dFlesh /= s;
   g.metab = (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
-    + (K.anchorCost ?? 0) * (1 - g.advect) + 0.004 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 0.006 * g.align + 0.004 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0)) * K.metab;
+    + (K.anchorCost ?? 0) * (1 - g.advect) + 0.004 * g.size + (K.swimCost ?? 0.018) * (K.brain ? 1 - (K.thrustShare ?? 0.5) : 1) * g.swim * (1 - g.photo) + 0.006 * g.align + 0.004 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0)) * K.metab;
   g.col = packUnorm(...roleColor(g, 0));
   return g;
 }
@@ -182,6 +234,7 @@ export function mutateLike(g, r = Math.random, K = DEFAULT_K) {
   let thermo = clamp((h.thermo || 0) + gauss() * m * 0.15, 0, 1);
   if (r() < m * 0.1) thermo = thermo < 0.05 ? 0.3 + 0.4 * r() : 0;
   h.thermo = unorm8(thermo);
+  h.brain = mutateBrainLike(g.brain ?? founderBrain(r), m, r, gauss, K);
   h.parent = g.serial; h.serial = (g.serial || 0) + 1; h.depth = (g.depth || 0) + 1;
   return finalizeGenome(h, K);
 }
@@ -204,6 +257,7 @@ export function writeGenome(u32, f32, slot, g) {
   f32[o + 45] = g.calcify || 0;
   f32[o + 46] = g.topt ?? 19;
   f32[o + 47] = g.tol ?? 7;
+  for (let k = 0; k < BRAIN_WORDS; k++) u32[o + BRAIN_WORD + k] = (g.brain?.[k] ?? 0) >>> 0;
 }
 
 export const genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
@@ -224,6 +278,7 @@ export function readGenome(u32, f32, slot) {
     col: u32[o + 39], parent: u32[o + 40], serial: u32[o + 41], born: f32[o + 42], depth: u32[o + 43],
     adhesion: f32[o + 44], calcify: f32[o + 45],
     topt: f32[o + 46], tol: f32[o + 47], thermo: (u32[o + 15] & 255) / 255,
+    brain: Array.from(u32.subarray(o + BRAIN_WORD, o + BRAIN_WORD + BRAIN_WORDS)),
   };
 }
 

@@ -43,6 +43,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     let minLivingFrac = null, collapses = 0, collapsed = false;
     const established = new Set(), lost = new Set();
     const genomes = new Array(E.MAXK);
+    let lastSpecies = [];
     eng.onCensus = (c) => {
       const pop = c.pop, t = c.simTime;
       const species = [];
@@ -52,6 +53,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
         if (!cached || cached.serial !== serial) genomes[s] = cached = { serial, genome: readGenome(c.genomeU32, c.genomeF32, s) };
         species.push({ pop: pop[s], genome: cached.genome });
       }
+      lastSpecies = species;
       const community = communitySample(species, eng.K.adhMin);
       const { living, diet } = community;
       const fraction = living / eng.count;
@@ -172,7 +174,9 @@ export async function runHeadless(device, config, { print, width = 640, height =
       frames, msPerFrame: wallSeconds * 1000 / frames, wallSeconds, ...(profile.length ? { profile } : {}) };
     if (snapshot) await snapshot(eng, frames);
     checkErrors();
-    return { config, samples, eras: climate.history, summary, outcome: summarizeRun(samples, { count: eng.count }) };
+    return { config, samples, eras: climate.history, summary, outcome: summarizeRun(samples, { count: eng.count }),
+      // config.species: the last census's living species, each { pop, genome } (tools/brain-probe.mjs)
+      ...(config.species ? { species: lastSpecies } : {}) };
   } finally {
     Math.random = originalRandom;
     device.removeEventListener('uncapturederror', onError);

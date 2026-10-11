@@ -5,10 +5,14 @@
 import { groupsFor, slotRows } from './mind.js';
 import { term, spLink, fmtLen } from './fmt.js';
 import { subHead } from './ui.js';
+import { BRAIN_DIRS } from './shaders.js';
 
 const R = 40; // compass radius, in a -50..50 viewBox
 const NB_ROWS = 4; // other species shown (own kind has its own row)
 const EASE_MS = 70;
+// The brain's directions (K.brain), as the panel names them, in output order (BRAIN_DIRS).
+const BRAIN_LABEL = { food: 'Toward food', threat: 'Toward danger', jostle: 'With its neighbours’ pull', warmth: 'Up the warmth',
+  current: 'With the current', heading: 'On its heading', wander: 'Wandering', flock: 'With its kind’s heading' };
 
 export function createMindView({ K, genomeFor, nameOf, sigil }) {
   let el = null; // the bound container
@@ -53,6 +57,12 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
     h += '</div></div>';
     // conditions that shape what it does: a fixed set of lamps, lit or dark, never added or removed
     h += `<div class="mv-lamps">${['hungry', 'full', 'threat', 'low', 'lean', 'crowd', 'shelter', ...(K.heat ? ['thermal'] : [])].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join('')}</div></div>`;
+    // the brain (K.brain): the gain it put on each direction it senses, from away (left) to toward (right)
+    if (K.brain && g.swim * (1 - g.photo) > 0.01) {
+      h += `<div class="blk mv-brain">${subHead(`<i class="ico cell"></i>${term('brain', 'Brain')}`, 'away · toward')}`;
+      h += BRAIN_DIRS.map((d) => `<div class="br-row" data-d="${d}"><span>${BRAIN_LABEL[d]}</span><span class="dbar"><i></i></span><b>0.00</b></div>`).join('');
+      h += '</div>';
+    }
     h += `<div class="blk mv-nb">${subHead(`<i class="ico cell"></i>${term('mind-near', 'Neighbours')}`, 'within its reach')}`;
     h += `<div class="nb-row nb-head"><span></span><span>Species</span><span>Cells</span><span>Role</span><span class="nb-pull term" data-hint="How each species moves this cell: pushes it away (left) or pulls it toward them (right)." tabindex="0"><i>push</i><i>pull</i></span></div>`;
     for (let i = 0; i <= NB_ROWS; i++) h += `<div class="nb-row empty" data-i="${i}"><span class="nb-sig"></span><span class="nb-name">—</span><b class="nb-n"></b><em class="nb-role"></em><span class="dbar"><i></i></span></div>`;
@@ -68,6 +78,7 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
       arrows: new Map([...el.querySelectorAll('.c-arw')].map((n) => [n.dataset.k, { line: n.querySelector('line'), head: n.querySelector('path') }])),
       drives: new Map([...el.querySelectorAll('.mv-drives > div[data-k]')].map((n) => [n.dataset.k, { bar: n.querySelector('.meter i'), val: n.querySelector('b') }])),
       lamps: new Map([...el.querySelectorAll('.lamp')].map((n) => [n.dataset.k, { el: n, label: n.querySelector('span') }])),
+      brain: [...el.querySelectorAll('.br-row')].map((n) => ({ bar: n.querySelector('.dbar i'), val: n.querySelector('b') })),
       nb: [...el.querySelectorAll('.nb-row[data-i]')].map((n) => ({ row: n, sig: n.querySelector('.nb-sig'), name: n.querySelector('.nb-name'), n: n.querySelector('.nb-n'), role: n.querySelector('.nb-role'), bar: n.querySelector('.dbar i'), kind: null })),
       tkind: undefined,
     };
@@ -126,6 +137,14 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
       if (n.label.textContent !== f.label) n.label.textContent = f.label;
       n.label.dataset.hint = plain(f.hint, f.target);
     }
+    const gains = m.brain ? m.brain.gains : null;
+    parts.brain.forEach((r, i) => {
+      const x = gains ? gains[i] : 0, w = Math.min(1, Math.abs(x)) * 50;
+      r.bar.style.left = `${x < 0 ? 50 - w : 50}%`;
+      r.bar.style.width = `${w}%`;
+      r.bar.style.background = x >= 0 ? 'var(--sun)' : 'var(--cyan)';
+      r.val.textContent = gains ? `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(2)}` : '—';
+    });
     parts.live.classList.remove('blink');
     void parts.live.offsetWidth; // restart the blink
     parts.live.classList.add('blink');

@@ -119,11 +119,13 @@ test('a cell with seconds of energy left and nothing to eat is starving', () => 
 
 test('lifeMain carries none of mindMain\'s recording hooks', async () => {
   const { simWGSL } = await import('../src/shaders.js');
-  const code = simWGSL(K);
-  const life = code.slice(code.indexOf('fn lifeMain'), code.indexOf('// --------------------------------------------------------------------- mind'));
-  assert.ok(life.length > 1000);
-  assert.doesNotMatch(life, /\bm(Fr0|Pair|Vel|Align|Swim|Put)\b|\bmind\[/);
-  assert.match(code.slice(code.indexOf('fn mindMain')), /mPair\(j, q, d, r/);
+  for (const k of [K, { ...K, brain: 1 }]) {
+    const code = simWGSL(k);
+    const life = code.slice(code.indexOf('fn lifeMain'), code.indexOf('// --------------------------------------------------------------------- mind'));
+    assert.ok(life.length > 1000);
+    assert.doesNotMatch(life, /\bm(Fr0|Pair|Vel|Align|Swim|Put|Gains|Sense|Brain)\b|\bmind\[/);
+    assert.match(code.slice(code.indexOf('fn mindMain')), /mPair\(j, q, d, r/);
+  }
 });
 
 test('neighbouring species keep their rows', () => {

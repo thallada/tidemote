@@ -562,6 +562,9 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .nb-role.prey { color: var(--cyan); }
 .nb-role.both { color: var(--sun); }
 .nb-row .dbar i { transition: left .12s linear, width .12s linear; }
+.mv-brain .br-row { display: grid; grid-template-columns: minmax(0, 1fr) 96px 3.4em; gap: 8px; align-items: center; height: 20px; font-size: 12.5px; }
+.mv-brain .br-row b { text-align: right; font-variant-numeric: tabular-nums; }
+.mv-brain .dbar i { transition: left .12s linear, width .12s linear; }
 @media (max-width: 720px) {
   .mv-pulls { grid-template-columns: 96px minmax(0, 1fr); gap: 10px; }
   .compass { width: 96px; height: 96px; }

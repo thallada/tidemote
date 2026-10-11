@@ -73,3 +73,24 @@ test('thermal performance peaks at the optimum, higher for specialists, steeper 
   assert.equal(thermalPerf(g, 14).torpid, false);
   assert.deepEqual(thermalGuild({ topt: 40, tol: 3, thermo: 0.5 }), { pref: 'thermophile', breadth: 'specialist', maker: true });
 });
+
+test('a founder brain survives packing and mutation keeps it a brain', async () => {
+  const { brainHidden, brainOutput, brainBias, mutateLike } = await import('../src/genome.js');
+  const { BRAIN_WORDS, BRAIN_SENSES, BRAIN_DIRS } = await import('../src/shaders.js');
+  const u32 = new Uint32Array(2 * G_WORDS), f32 = new Float32Array(u32.buffer);
+  const g = archetypeGenome('hunter', () => 0.5);
+  assert.equal(g.brain.length, BRAIN_WORDS);
+  writeGenome(u32, f32, 1, g);
+  const back = readGenome(u32, f32, 1);
+  assert.deepEqual(back.brain, g.brain.map((w) => w >>> 0));
+  // hunger: the first hidden neuron fires on low energy and drives the food gain
+  assert.ok(brainHidden(back.brain, 0, BRAIN_SENSES.indexOf('energy')) < -1.9);
+  assert.ok(brainOutput(back.brain, BRAIN_DIRS.indexOf('food'), 0) > 1.4);
+  assert.ok(Math.abs(brainBias(back.brain, BRAIN_DIRS.indexOf('heading')) - 0.9) < 0.03);
+  let s = 1;
+  const r = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  const child = mutateLike(g, r);
+  assert.equal(child.brain.length, BRAIN_WORDS);
+  assert.notDeepEqual(child.brain, g.brain);
+  assert.ok(Math.abs(brainOutput(child.brain, BRAIN_DIRS.indexOf('food'), 0) - 1.5) < 1.5);
+});

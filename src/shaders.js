@@ -38,12 +38,25 @@ export const P_BYTES = 40;
 export const LOUPE_FIELD = 1.1;
 export const ORGANS = 12; // organelles per resolved cell (fsPoint), directions per species (organDirs)
 export const PICK_WORDS = 12; // Particle's 10 words, then two partner IDs (NONE if absent).
-export const G_BYTES = 192;
-export const G_WORDS = 48;
+export const G_BYTES = 400;
+export const G_WORDS = 100;
+// The brain's words in a genome (after its 48 words of traits): see brainWGSL.
+export const BRAIN_WORD = 48;
+export const BRAIN_WORDS = 52;
+// The brain: BRAIN_IN senses -> BRAIN_HID hidden (tanh) -> BRAIN_OUT gains (tanh), weights 8-bit snorm
+// times BRAIN_SCALE. BRAIN_DIRS names the directions the gains steer along, in output order.
+export const BRAIN_IN = 16;
+export const BRAIN_HID = 8;
+export const BRAIN_OUT = 8;
+export const BRAIN_SCALE = 3;
+export const BRAIN_SENSES = ['energy', 'age', 'food', 'threat', 'kin', 'crowd', 'temp', 'light',
+  'silt', 'bonds', 'speed', 'heading-food', 'heading-threat', 'current', 'clock', 'bias'];
+export const BRAIN_DIRS = ['food', 'threat', 'jostle', 'warmth', 'current', 'heading', 'wander', 'flock'];
 export const LITE_BYTES = 32;
 // The selected cell's mind (mindMain): a header of MIND_HEAD words, then MIND_NBR living neighbours
 // of MIND_NBR_WORDS words each. See parseMind in mind.js for the layout.
-export const MIND_HEAD = 58;
+export const MIND_HEAD = 83;
+// (58..65 the brain's gains, 66..81 its senses, 82 whether it ran: see parseMind)
 export const MIND_NBR = 48;
 export const MIND_NBR_WORDS = 7;
 export const MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
@@ -155,6 +168,13 @@ export const DEFAULT_K = {
   hotTo: 22,        // a grazer huddle stays below it) and charge fully this many degrees over it
   abioHeat: 3,      // extra weight of sparks of life in hot water
   marangoni: 0,     // matter drifts from warm water toward cold at this many cells/s per °/cell
+  // The brain (docs/brain.md): 1 gives every species a small evolved network that steers its swimmers
+  // from what each cell senses, in place of the fixed hunger pulls, thermotaxis and swimming straight on.
+  brain: 0,
+  brainThrust: 1.0, // how hard a brain's full steer swims, relative to the genome's swim
+  brainMut: 0.2,    // brain weight noise per mutation, relative to the mutation's strength
+  brainShrink: 0.5, // ...and how far each weight is drawn toward zero, relative to it, so only selection keeps it large
+  thrustShare: 0.5, // the share of swimming's upkeep (swimCost) a brain pays by its stroke, not always: resting saves it
 };
 
 const packCol = (r, g, b) => (Math.round(r * 255) | (Math.round(g * 255) << 8) | (Math.round(b * 255) << 16) | (255 << 24)) >>> 0;
@@ -235,6 +255,9 @@ struct Genome {
   swim: f32, align: f32, photo: f32, col: u32,
   parent: u32, serial: u32, born: f32, depth: u32,
   adhesion: f32, calcify: f32, topt: f32, tol: f32,
+  // 0..7 hidden neurons' weights over the 16 senses (the last a bias), 8..11 the outputs' weights over
+  // the hidden neurons (two words each), 12 the outputs' biases (x, y) and the clock's rate (z, byte 0)
+  brain: array<vec4u, 13>,
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
@@ -370,6 +393,11 @@ function cellWGSL(K, w) {
   // (K.diag: neighbours inside this cell's core; animals within reach and twice reach)
   var overlap = 0.0;
   var preyNear = vec2f(0.0);
+  // what a brain (K.brain) senses: food its diet favours and cells that could eat it, nearer counting more
+  // (each sum it carries through the scan costs: a third, the centre of its own kind, made lifeMain 40% slower)
+  var foodV = vec2f(0.0);
+  var threatV = vec2f(0.0);
+  let eatsMe = select(1u << 13u, (1u << 13u) | (1u << 14u), g.photo > 0.4);
   var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
 
   // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam).
@@ -424,7 +452,7 @@ function cellWGSL(K, w) {
         let core = select(1.0, 0.15, canHunt && qk != p.kind);
         if (x < beta) { fr = (x * invBeta - 1.0) * core; } else { fr = a * shape; }${W('mFr0 = fr;')}
         // hungry foragers are drawn toward the cells their diet favours
-        let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
+        let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.brain ? 0 : K.hunt)}, canHunt && qk != p.kind);
         if (x >= beta) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * invBeta * invR; }
         crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
         if (DIAG) {
@@ -435,6 +463,11 @@ function cellWGSL(K, w) {
         if (qk == p.kind) {
           kinVel += unpack2x16float(q.vel);
           kinN += 1.0;
+        }
+        if (BRAIN && qk != p.kind) {
+          let near = d * ((1.0 - x) / r);
+          foodV += near * select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u);
+          if ((q.kr & eatsMe) != 0u) { threatV += near; }
         }
         if (r < LINK_R) {
           // colour only blends within a species, so mixed neighbourhoods stay visibly mixed
@@ -476,10 +509,11 @@ function cellWGSL(K, w) {
           if (r < 0.5) { stoneN += 1.0; }
         } else {
           if (hungry && qk != SILT && x >= beta) {
-            fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)} * shape;
-            pull += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.forage)};
+            fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.brain ? 0 : K.forage)} * shape;
+            pull += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.brain ? 0 : K.forage)};
           }
           if (qk == SILT) { nutr += 1.0; }
+          if (BRAIN && qk != SILT) { foodV += d * ((1.0 - x) / r) * select(g.dHusk, g.dGlint, qk == GLINT); }
           // a cell ready to divide looks for a grain every tick, so in a coarse step a grain counts if it
           // came within reach at any tick of it: the closest approach of their paths over the step
           var rc = r;
@@ -514,7 +548,7 @@ function cellWGSL(K, w) {
     }
     at -= len;
   }
-  overlap *= stride; preyNear *= stride;
+  overlap *= stride; preyNear *= stride; foodV *= stride * eatEff; threatV *= stride;
   force *= stride; crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride;
 
   let heavy = 1.0 - 0.7 * g.photo;
@@ -527,8 +561,29 @@ function cellWGSL(K, w) {
   // thermotaxis: a swimmer away from its optimum steers up or down the warmth toward it
   var taxis = vec2f(0.0);
   let slope = length(heat.yz);
-  if (swim > 0.0 && slope > 1e-3) {
+  if (!BRAIN && swim > 0.0 && slope > 1e-3) {
     taxis = heat.yz * (sign(g.topt - Tc) * min(1.0, abs(th.x)) * swim * ${f(K.thermotaxis)} / slope);
+  }
+  let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
+  // The brain (K.brain): the species' network reads this cell's senses and sets how hard it swims along
+  // each direction it senses; their sum is its stroke, held through the step.
+  var thrust = vec2f(0.0);
+  if (BRAIN && swim > 0.0) {
+    let uVel = unit(p.vel);
+    let uFood = unit(foodV);
+    let uThreat = unit(threatV);
+    let x0 = vec4f(clamp(p.energy / g.reproE, 0.0, 1.5), min(p.age / g.lifespan, 1.0), squash(length(foodV)), squash(length(threatV)));
+    let x1 = vec4f(kinN / (kinN + 4.0), crowd / (crowd + 4.0), clamp(th.x, -2.0, 2.0), light);
+    let nb = select(0.0, 0.5, n1 != NONE) + select(0.0, 0.5, n2 != NONE);
+    let x2 = vec4f(nutr / (nutr + 8.0), nb, min(length(p.vel) / sim.maxSpeed, 1.0), dot(uVel, uFood));
+    let x3 = vec4f(dot(uVel, uThreat), min(length(flow) * 5.0, 2.0), brainClock(p.kind, p.id), 1.0);
+    let gn = brainNet(p.kind, x0, x1, x2, x3);
+    let hw = renderHash(p.id ^ 0x5bd1e995u);
+    let wa = TAU * hw + 1.7 * sin(0.31 * sim.time + 40.0 * hw) + 1.1 * sin(0.83 * sim.time + 70.0 * hw);
+    let steer = gn.a.x * uFood + gn.a.y * uThreat + gn.a.z * unit(force) + gn.a.w * unit(heat.yz)
+      + gn.b.x * unit(flow) + gn.b.y * uVel + gn.b.z * vec2f(cos(wa), sin(wa)) + gn.b.w * unit(kinVel);
+    let sl = length(steer);
+    thrust = steer * (swim * ${f(K.brainThrust)} * min(sl, 1.0) / max(sl, 1e-6));${W('mGains = gn; mSense = array<vec4f, 4>(x0, x1, x2, x3); mBrain = 1u;')}
   }
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
@@ -582,7 +637,9 @@ function cellWGSL(K, w) {
     vel += fb * (g.adhesion * ${f(K.bond)} * h);
     // stone is solid to everything but the calcifiers that build it, which settle on their own reef
     vel += stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify) * h);
-    if (swim > 0.0) {
+    if (BRAIN) {
+      vel += thrust * h;${W('if (k == 0u) { mSwim = thrust; }')}
+    } else if (swim > 0.0) {
       var dir = vel;
       if (dot(dir, dir) < 1e-6) {
         let a = rnd(&s) * TAU;
@@ -601,7 +658,6 @@ function cellWGSL(K, w) {
   if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }
   col = mix(col, roleColor(g, role), ${f(K.baseMix)});
 
-  let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
   // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
   // water; anchored cells have fresh silt carried past them by the currents.
   let photoGain = th.perf * g.photo * light * ${f(K.photo)} / (1.0 + crowd * ${f(K.shade)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
@@ -614,7 +670,7 @@ function cellWGSL(K, w) {
   // heat-maker burns extra, all of it heat
   let heatMaking = ${f(K.heat ? K.thermoCost : 0)} * thermo;
   let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0))
-    * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking;`;
+    * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking${K.brain ? ` + ${f(K.swimCost * K.thrustShare * K.metab / K.brainThrust)} * length(thrust)` : ''};`;
 }
 
 // dp4a: the WGSL language feature packed_4x8_integer_dot_product is available
@@ -637,7 +693,7 @@ struct Sim {
   // tbg: the background water temperature (climate, season, excursion); maxScan: the neighbour budget
   tick: u32, ticks: u32, tbg: f32, maxScan: u32,
 };
-// kr: 0..9 kind, 10..11 role, 12 plant.
+// kr: 0..9 kind, 10..11 role, 12 plant, 13 flesh-eater, 14 plant-cropper (13, 14 with K.brain only).
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
 
 @group(0) @binding(0) var<uniform> sim: Sim;
@@ -671,6 +727,7 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u3
 
 const EAT_R = ${f(K.eatR)};
 const DIAG = ${K.diag ? 'true' : 'false'};
+const BRAIN = ${K.brain ? 'true' : 'false'};
 const LINK_R = ${f(K.linkR)};
 const DIET_MIN = ${f(K.dietMin)};
 const HEAT_ON = ${K.heat ? 'true' : 'false'};
@@ -752,7 +809,7 @@ fn addEnergy(guild: u32, slot: u32, e: f32) {
 
 fn deriveMetab(g: Genome) -> f32 {
   return (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
-        + ${f(K.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K.swimCost)} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion + ${f(K.calcCost)} * g.calcify) * ${f(K.metab)};
+        + ${f(K.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K.swimCost * (K.brain ? 1 - K.thrustShare : 1))} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion + ${f(K.calcCost)} * g.calcify) * ${f(K.metab)};
 }
 
 fn finalize(g: ptr<function, Genome>) {
@@ -776,6 +833,57 @@ fn allocSlot(s: ptr<function, u32>) -> u32 {
 
 fn mutSig(v: u32, m: f32, s: ptr<function, u32>) -> u32 {
   return pack4x8snorm(clamp(unpack4x8snorm(v) + g4(s) * m, vec4f(-1.0), vec4f(1.0)));
+}
+
+// ------------------------------------------------------------------ brain
+// Kinds that could eat a cell (K.brain), marked on each living particle's Lite: 13 a flesh-eater, 14 a
+// cropper of plants.
+fn eaterBits(g: Genome) -> u32 {
+  let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
+  return select(0u, 1u << 13u, eatEff * g.dFlesh > 0.3)
+    | select(0u, 1u << 14u, eatEff * (${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh) > 0.3);
+}
+fn unit(v: vec2f) -> vec2f { return v * inverseSqrt(max(dot(v, v), 1e-12)); }
+fn squash(x: f32) -> f32 { return x / (x + 1.0); }
+fn tanh4(v: vec4f) -> vec4f { return tanh(clamp(v, vec4f(-9.0), vec4f(9.0))); }
+fn neuron(w: vec4u, x0: vec4f, x1: vec4f, x2: vec4f, x3: vec4f) -> f32 {
+  return dot(unpack4x8snorm(w.x), x0) + dot(unpack4x8snorm(w.y), x1) + dot(unpack4x8snorm(w.z), x2) + dot(unpack4x8snorm(w.w), x3);
+}
+fn synapse(lo: u32, hi: u32, a: vec4f, b: vec4f) -> f32 { return dot(unpack4x8snorm(lo), a) + dot(unpack4x8snorm(hi), b); }
+// The gains of a brain's eight directions (a: food, threat, jostle, warmth; b: current, heading, wander, flock).
+struct Gains { a: vec4f, b: vec4f };
+// Species k's brain on one cell's sixteen senses (x0..x3, the last a constant 1): 16 -> 8 tanh -> 8 tanh.
+fn brainNet(k: u32, x0: vec4f, x1: vec4f, x2: vec4f, x3: vec4f) -> Gains {
+  let B = &genomes[k].brain;
+  let S = ${f(BRAIN_SCALE)};
+  let hA = tanh4(S * vec4f(neuron((*B)[0], x0, x1, x2, x3), neuron((*B)[1], x0, x1, x2, x3), neuron((*B)[2], x0, x1, x2, x3), neuron((*B)[3], x0, x1, x2, x3)));
+  let hB = tanh4(S * vec4f(neuron((*B)[4], x0, x1, x2, x3), neuron((*B)[5], x0, x1, x2, x3), neuron((*B)[6], x0, x1, x2, x3), neuron((*B)[7], x0, x1, x2, x3)));
+  let o0 = (*B)[8]; let o1 = (*B)[9]; let o2 = (*B)[10]; let o3 = (*B)[11]; let ob = (*B)[12];
+  let a = vec4f(synapse(o0.x, o0.y, hA, hB), synapse(o0.z, o0.w, hA, hB), synapse(o1.x, o1.y, hA, hB), synapse(o1.z, o1.w, hA, hB));
+  let b = vec4f(synapse(o2.x, o2.y, hA, hB), synapse(o2.z, o2.w, hA, hB), synapse(o3.x, o3.y, hA, hB), synapse(o3.z, o3.w, hA, hB));
+  return Gains(tanh4(S * (a + unpack4x8snorm(ob.x))), tanh4(S * (b + unpack4x8snorm(ob.y))));
+}
+// A brain's clock: a slow per-cell oscillation at the species' own rate (0.05 to 1.05 Hz).
+fn brainClock(k: u32, id: u32) -> f32 {
+  let rate = 0.55 + 0.5 * unpack4x8snorm(genomes[k].brain[12].z).x;
+  return sin(TAU * (rate * sim.time + renderHash(id ^ 0x2545f491u)));
+}
+// A child species' brain: its parent's, every weight jittered and drawn a little toward zero (so drift alone
+// leaves a brain responsive rather than saturated), and now and then one neuron rewired.
+fn mutWeights(v: u32, keep: f32, mb: f32, s: ptr<function, u32>) -> u32 {
+  return pack4x8snorm(clamp(unpack4x8snorm(v) * keep + g4(s) * mb, vec4f(-1.0), vec4f(1.0)));
+}
+fn mutateBrain(slot: u32, parentKind: u32, m: f32, s: ptr<function, u32>) {
+  let mb = m * ${f(K.brainMut)};
+  let keep = 1.0 - m * ${f(K.brainShrink)};
+  for (var k = 0u; k < 13u; k++) {
+    let w = genomes[parentKind].brain[k];
+    genomes[slot].brain[k] = vec4u(mutWeights(w.x, keep, mb, s), mutWeights(w.y, keep, mb, s), mutWeights(w.z, keep, mb, s), mutWeights(w.w, keep, mb, s));
+  }
+  if (rnd(s) < m * 0.25) { randomRow(slot, min(u32(rnd(s) * 12.0), 11u), s); }
+}
+fn randomRow(slot: u32, k: u32, s: ptr<function, u32>) {
+  genomes[slot].brain[k] = vec4u(pack4x8snorm(r4(s) * 0.3), pack4x8snorm(r4(s) * 0.3), pack4x8snorm(r4(s) * 0.3), pack4x8snorm(r4(s) * 0.3));
 }
 
 fn sampleRole(g: Genome, r: u32, s: ptr<function, u32>) -> u32 {
@@ -841,6 +949,7 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   g.depth = g.depth + 1u;
   finalize(&g);
   genomes[slot] = g;
+  mutateBrain(slot, parentKind, m, s);
 }
 
 // A spark of life founds a species suited to the water it sparked in (t).
@@ -888,6 +997,8 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   g.depth = 0u;
   finalize(&g);
   genomes[slot] = g;
+  // a random brain: whatever it does, selection keeps what works
+  for (var k = 0u; k < 13u; k++) { randomRow(slot, k, s); }
 }
 
 // Bedrock: sim.rock.x outcrops, each a wandering chain of five discs of radius about sim.rock.y.
@@ -1124,7 +1235,8 @@ fn scatterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocat
     bondsNow[dst] = partners;
     let role = roleOf(p.info);
     let sig = genomes[p.kind].sig[role].xy;
-    let plant = select(0u, 1u << 12u, p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4);
+    var plant = select(0u, 1u << 12u, p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4);
+    if (BRAIN && p.kind >= FIRST_LIFE) { plant |= eaterBits(genomes[p.kind]); }
     sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant, p.col, pack2x16float(p.vel), sig.x, sig.y, 0u);
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
   }
@@ -1596,6 +1708,9 @@ var<private> mMatter: vec2f;
 var<private> mForage: vec2f;
 var<private> mMatterN: vec4f;
 var<private> mN: u32;
+var<private> mGains: Gains;
+var<private> mSense: array<vec4f, 4>;
+var<private> mBrain: u32;
 
 fn mPut(o: u32, v: f32) { mind[o] = bitcast<u32>(v); }
 fn mPut2(o: u32, v: vec2f) { mind[o] = bitcast<u32>(v.x); mind[o + 1u] = bitcast<u32>(v.y); }
@@ -1677,6 +1792,13 @@ ${cellWGSL(K, true)}
   mPut(53, th.perf);
   mPut(54, th.x);
   mind[55] = select(0u, 1u, th.torpid);
+  // the brain (K.brain): what it steered by, and what it sensed
+  mind[82] = mBrain;
+  for (var k = 0u; k < 4u; k++) {
+    mPut(58u + k, mGains.a[k]);
+    mPut(62u + k, mGains.b[k]);
+    for (var c = 0u; c < 4u; c++) { mPut(66u + 4u * k + c, mSense[k][c]); }
+  }
 }
 `;
 }
