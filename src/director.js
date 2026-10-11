@@ -20,7 +20,7 @@
 // 'bodies', 'swift', 'dense'. A scene learns which species are in view once it arrives (whyVer
 // counts such updates). fate is the particle the subject became, or null if it vanished.
 
-import { SURVEY, SURVEY_WORDS, FIRST_LIFE, PICK_WORDS } from './shaders.js';
+import { SURVEY, SURVEY_WORDS, FIRST_LIFE, PICK_WORDS, PICK_PARTNERS } from './shaders.js';
 import { traceBody } from './trace.js';
 
 const NONE = 0xffffffff;
@@ -508,7 +508,7 @@ export class Director {
       if (s > bs) { bs = s; best = i; }
     }
     if (best < 0) return null;
-    return this.subjectShot(res, best, u32[best * PICK_WORDS + 10] !== NONE ? [5, 12] : [3, 7], { reasons: h.reasons });
+    return this.subjectShot(res, best, u32[best * PICK_WORDS + PICK_PARTNERS] !== NONE ? [5, 12] : [3, 7], { reasons: h.reasons });
   }
 
   // Visit a newly established species: a cell where its members are densest.

@@ -5,7 +5,7 @@
 //   node tools/brain-probe.mjs run.json [more.json...]
 import fs from 'node:fs';
 import { brainHidden, brainOutput, brainBias, founderBrain, dietGuild } from '../src/genome.js';
-import { BRAIN_SENSES, BRAIN_DIRS, BRAIN_HID, BRAIN_OUT } from '../src/shaders.js';
+import { BRAIN_SENSES, BRAIN_DIRS, BRAIN_STATE, BRAIN_HID, BRAIN_OUT } from '../src/shaders.js';
 
 const SI = Object.fromEntries(BRAIN_SENSES.map((n, i) => [n, i]));
 const BASE = { energy: 0.9, age: 0.3, food: 0, threat: 0, kin: 0.2, crowd: 0.2, temp: 0, light: 0.5, silt: 0.3,
@@ -20,9 +20,15 @@ const SITUATIONS = {
   crowded: { kin: 0.8, crowd: 0.8 },
   tick: { clock: 1 },
   tock: { clock: -1 },
+  callK: { 'kin-signal': 0.8 },
+  hushK: { 'kin-signal': -0.8 },
+  callO: { 'other-signal': 0.8 },
+  hushO: { 'other-signal': -0.8 },
+  memHi: { 'memory-1': 0.8, 'memory-2': 0.8 },
+  memLo: { 'memory-1': -0.8, 'memory-2': -0.8 },
 };
 
-/** The eight direction gains of brain words w on senses x (an object by sense name). */
+/** The outputs of brain words w on senses x (an object by sense name): eight gains, then its state. */
 export function brainGains(w, x) {
   const xs = BRAIN_SENSES.map((n) => x[n] ?? 0);
   const h = Array.from({ length: BRAIN_HID }, (_, j) => Math.tanh(xs.reduce((s, v, i) => s + brainHidden(w, j, i) * v, 0)));
@@ -30,6 +36,7 @@ export function brainGains(w, x) {
 }
 const profile = (w) => Object.fromEntries(Object.entries(SITUATIONS).map(([k, d]) => [k, brainGains(w, { ...BASE, ...d })]));
 const D = Object.fromEntries(BRAIN_DIRS.map((n, i) => [n, i]));
+const S = Object.fromEntries(BRAIN_STATE.map((n, i) => [n, BRAIN_DIRS.length + i]));
 // a few readings of a brain: how much hunger turns it to food, flight, thermotaxis, clock rhythm...
 function traits(w) {
   const p = profile(w);
@@ -38,16 +45,23 @@ function traits(w) {
     flee: -p.danger[D.threat],
     seekCool: -p.hot[D.warmth],
     seekWarm: p.cold[D.warmth],
-    gather: p.crowded[D.jostle],
+    gather: p.crowded[D.kin],
     flock: p.calm[D.flock],
     current: p.calm[D.current],
     cruise: p.calm[D.heading],
     wander: p.calm[D.wander],
     rhythm: Math.max(...BRAIN_DIRS.map((_, i) => Math.abs(p.tick[i] - p.tock[i]))),
+    // signals: does danger change what it says, does what its kind or others say change how it steers
+    alarm: p.danger[S.signal] - p.calm[S.signal],
+    heedKin: Math.max(...BRAIN_DIRS.map((_, i) => Math.abs(p.callK[i] - p.hushK[i]))),
+    heedOther: Math.max(...BRAIN_DIRS.map((_, i) => Math.abs(p.callO[i] - p.hushO[i]))),
+    // memory: how much of new candidates it keeps (1 all, 0 none) and how much memory steers it
+    keep: (p.calm[S.remember] + 1) / 2,
+    memSteer: Math.max(...BRAIN_DIRS.map((_, i) => Math.abs(p.memHi[i] - p.memLo[i]))),
   };
 }
 const template = founderBrain(() => 0.5);
-const dist = (a) => { let s = 0; for (let k = 0; k < 201; k++) s += Math.abs(brainByte(a, k) - brainByte(template, k)); return s / 201; };
+const dist = (a) => { let s = 0; for (let k = 0; k < 269; k++) s += Math.abs(brainByte(a, k) - brainByte(template, k)); return s / 269; };
 const brainByte = (w, k) => (((w[k >> 2] >>> ((k & 3) * 8)) & 255) << 24 >> 24) / 127;
 const swims = (g) => g.swim * (1 - g.photo) > 0.05;
 

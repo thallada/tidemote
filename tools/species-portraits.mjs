@@ -15,7 +15,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const entry = `
 import { createEngine, FIRST_LIFE, MAXK } from './src/engine.js';
 import { writeGenome, finalizeGenome } from './src/genome.js';
-import { G_WORDS } from './src/shaders.js';
+import { G_WORDS, P_BYTES, P_WORDS } from './src/shaders.js';
 window.portraits = async ({ N, SEC, SIZE, SEED, VIEWS, genomes }) => {
   let s = SEED >>> 0; const rng = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
   const device = await (await navigator.gpu.requestAdapter()).requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
@@ -37,11 +37,11 @@ window.portraits = async ({ N, SEC, SIZE, SEED, VIEWS, genomes }) => {
     eng.frame({ target: null, cam: whole, simDt: 1 / 60, steps: 4, time: eng.simTime });
   }
   await device.queue.onSubmittedWorkDone();
-  const rb = device.createBuffer({ size: eng.count * 40, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-  let enc = device.createCommandEncoder(); enc.copyBufferToBuffer(eng.b.parts, 0, rb, 0, eng.count * 40); device.queue.submit([enc.finish()]);
+  const rb = device.createBuffer({ size: eng.count * P_BYTES, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+  let enc = device.createCommandEncoder(); enc.copyBufferToBuffer(eng.b.parts, 0, rb, 0, eng.count * P_BYTES); device.queue.submit([enc.finish()]);
   await rb.mapAsync(GPUMapMode.READ); const pu = new Uint32Array(rb.getMappedRange().slice(0)), pf = new Float32Array(pu.buffer); rb.unmap();
   const byKind = new Map();
-  for (let i = 0; i < eng.count; i++) { const k = pu[i * 10 + 4]; if (k >= FIRST_LIFE) { if (!byKind.has(k)) byKind.set(k, []); byKind.get(k).push([pf[i * 10], pf[i * 10 + 1]]); } }
+  for (let i = 0; i < eng.count; i++) { const k = pu[i * P_WORDS + 4]; if (k >= FIRST_LIFE) { if (!byKind.has(k)) byKind.set(k, []); byKind.get(k).push([pf[i * P_WORDS], pf[i * P_WORDS + 1]]); } }
   const tex = device.createTexture({ size: [SIZE, SIZE], format: 'rgba8unorm', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
   const out = device.createBuffer({ size: SIZE * SIZE * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
   const wrap = (d, W) => d - W * Math.round(d / W);

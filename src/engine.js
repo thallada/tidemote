@@ -1,6 +1,6 @@
 import {
   simWGSL, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES,
+  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, P_BYTES, PICK_WORDS, PICK_HEAD, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES,
 } from './shaders.js';
 import {
   archetypeGenome, writeGenome, parseParticle,
@@ -13,7 +13,7 @@ const BLOOM_LEVELS = 6;
 const U = GPUBufferUsage;
 export const PICK_MAX = 131072;
 export const FOCUS_MAX = 65536;
-const PICK_BYTES = 56 + PICK_MAX * PICK_WORDS * 4;
+const PICK_BYTES = PICK_HEAD + PICK_MAX * PICK_WORDS * 4;
 const LEDGER_HEAD = META_CLAIM * 4;
 const CENSUS_BYTES = LEDGER_HEAD + MAXK * G_BYTES;
 const LISTEN_BYTES = (LISTEN_HEAD + LISTEN_REC * LISTEN_CAP) * 4;
@@ -112,13 +112,13 @@ class Engine {
     b.cellStart = d.createBuffer({ size: (MAX_CELLS + 1) * 4, usage: U.STORAGE });
     b.blockSums = d.createBuffer({ size: (MAX_CELLS / 256) * 4, usage: U.STORAGE });
     b.genomes = d.createBuffer({ size: MAXK * G_BYTES, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
-    b.frameCtr = d.createBuffer({ size: 48, usage: U.STORAGE | U.INDIRECT | U.COPY_SRC | U.COPY_DST });
+    b.frameCtr = d.createBuffer({ size: 64, usage: U.STORAGE | U.INDIRECT | U.COPY_SRC | U.COPY_DST });
     b.bridgeDraw = d.createBuffer({ size: 16, usage: U.INDIRECT | U.COPY_DST });
     d.queue.writeBuffer(b.bridgeDraw, 0, new Uint32Array([30, 0, 0, 0]));
     b.pickOut = d.createBuffer({ size: PICK_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
     // tracking has its own uniforms and output per slot, so both slots and a pick share a frame
     b.trackU = [0, 1].map(() => d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST }));
-    b.trackOut = [0, 1].map(() => d.createBuffer({ size: 56 + PICK_WORDS * 4, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST }));
+    b.trackOut = [0, 1].map(() => d.createBuffer({ size: PICK_HEAD + PICK_WORDS * 4, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST }));
     // watching: up to WATCH_MAX particles found by id every frame (the page sets this.watch to their ids)
     b.watchU = d.createBuffer({ size: 16 + WATCH_MAX * 4, usage: U.UNIFORM | U.COPY_DST });
     b.watchOut = d.createBuffer({ size: WATCH_MAX * 20, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
@@ -179,9 +179,10 @@ class Engine {
       scanSums: [6, 7],
       scanAdd: [6, 7],
       scatterMain: [0, 1, 2, 3, 6, 8, 9, 10, 12, 13, 15],
-      censusMain: [11, 12, 13],
+      censusMain: [0, 11, 12, 13],
       matterMain: [0, 1, 2, 9, 10, 11, 13, 14, 16, 18],
       lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12, 15, 18],
+      ...(this.K.brain ? { thinkMain: [0, 2, 3, 6, 10, 12, 15, 18] } : {}),
       heatMain: [0, 14, 18, 19],
       mindMain: [0, 2, 3, 6, 10, 15, 17, 18],
     };
@@ -293,7 +294,7 @@ class Engine {
     b.sway = d.createBuffer({ size: n * 24, usage: U.STORAGE });
     b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
     b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
-    b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
+    b.livingList = d.createBuffer({ size: (n + 512) * 4, usage: U.STORAGE | U.COPY_DST });
     // the particles too large to splat (splatMain): the points' draw arguments, then their indices
     b.quads = d.createBuffer({ size: (4 + n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
     const res = {
@@ -666,13 +667,13 @@ class Engine {
     enc.clearBuffer(b.frameCtr, 36, 4);
     enc.clearBuffer(b.ledger, 48, 12);
     let pass = prof ? null : enc.beginComputePass({ timestampWrites });
-    const run = (name, n) => {
+    const run = (name, n, at = 4) => {
       const q = prof ? prof.names.push(name) * 2 - 2 : 0;
       if (prof) pass = enc.beginComputePass({ timestampWrites: { querySet: prof.qs, beginningOfPassWriteIndex: q, endOfPassWriteIndex: q + 1 } });
       const c = this.cp[name];
       pass.setPipeline(c.pipe);
       pass.setBindGroup(0, c.bg);
-      if (n == null) pass.dispatchWorkgroupsIndirect(b.frameCtr, 4);
+      if (n == null) pass.dispatchWorkgroupsIndirect(b.frameCtr, at);
       else pass.dispatchWorkgroups(n);
       if (prof) pass.end();
     };
@@ -687,6 +688,7 @@ class Engine {
     run('scatterMain', wg);
     run('censusMain', Math.ceil(MAXK / 256));
     run('matterMain', wg);
+    if (this.K.brain) run('thinkMain', null, 48);
     run(this.ticks > 1 ? 'lifeMainCoarse' : 'lifeMain', null);
     if (this.K.heat) run('heatMain', Math.ceil(cells / 64));
     if (!prof) pass.end();
@@ -900,13 +902,13 @@ class Engine {
       const pf = new Float32Array(pu), pv = new Uint32Array(pu);
       pf[2] = 0; pv[3] = id; pv[4] = 0; pv[5] = N; pf[6] = this.grid[0]; pf[7] = this.grid[1]; pv[8] = 0xffffffff;
       d.queue.writeBuffer(b.trackU[k], 0, pu);
-      enc.clearBuffer(b.trackOut[k], 0, 56);
+      enc.clearBuffer(b.trackOut[k], 0, PICK_HEAD);
       const pass = enc.beginComputePass();
       pass.setPipeline(this.cpPick.pipe);
       pass.setBindGroup(0, this.trackBG[k]);
       pass.dispatchWorkgroups(Math.ceil(N / 256));
       pass.end();
-      enc.copyBufferToBuffer(b.trackOut[k], 0, st.buf, 0, 56);
+      enc.copyBufferToBuffer(b.trackOut[k], 0, st.buf, 0, PICK_HEAD);
     }
     let watchJob = null;
     if (this.watch.length && N > 0) {
@@ -937,13 +939,13 @@ class Engine {
         pf[0] = pickJob.req.center[0]; pf[1] = pickJob.req.center[1]; pf[2] = pickJob.req.radius;
         pv[3] = pickJob.req.selId; pv[4] = pickJob.req.maxOut; pv[5] = N; pf[6] = this.grid[0]; pf[7] = this.grid[1]; pv[8] = pickJob.req.kind;
         d.queue.writeBuffer(b.pickU, 0, pu);
-        enc.clearBuffer(b.pickOut, 0, 56);
+        enc.clearBuffer(b.pickOut, 0, PICK_HEAD);
         const pass = enc.beginComputePass();
         pass.setPipeline(this.cpPick.pipe);
         pass.setBindGroup(0, this.cpPick.bg);
         pass.dispatchWorkgroups(Math.ceil(N / 256));
         pass.end();
-        enc.copyBufferToBuffer(b.pickOut, 0, st.buf, 0, 56 + pickJob.req.maxOut * PICK_WORDS * 4);
+        enc.copyBufferToBuffer(b.pickOut, 0, st.buf, 0, PICK_HEAD + pickJob.req.maxOut * PICK_WORDS * 4);
       }
     }
 
@@ -1010,10 +1012,10 @@ class Engine {
         const found = u32[1] === 1;
         const out = { total: u32[0], truncated: u32[0] > req.maxOut, found, tracked: found ? parseParticle(u32, f32, 4) : null, entries: [], center: req.center, radius: req.radius, simTime: pickJob.simTime };
         if (req.raw) {
-          const copy = buf.slice(56, 56 + count * PICK_WORDS * 4);
+          const copy = buf.slice(PICK_HEAD, PICK_HEAD + count * PICK_WORDS * 4);
           out.raw = { u32: new Uint32Array(copy), f32: new Float32Array(copy), count };
         } else {
-          for (let k = 0; k < count; k++) out.entries.push(parseParticle(u32, f32, 14 + k * PICK_WORDS));
+          for (let k = 0; k < count; k++) out.entries.push(parseParticle(u32, f32, PICK_HEAD / 4 + k * PICK_WORDS));
         }
         st.buf.unmap();
         st.busy = false;

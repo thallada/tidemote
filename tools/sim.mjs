@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { runHeadless } from '../src/headless.js';
-import { P_BYTES, FIRST_LIFE, FRAMBOID } from '../src/shaders.js';
+import { P_BYTES, P_WORDS as PW, FIRST_LIFE, FRAMBOID } from '../src/shaders.js';
 
 const { values: v } = parseArgs({ options: {
   n: { type: 'string', default: '8192' }, minutes: { type: 'string', default: '10' },
@@ -128,16 +128,16 @@ async function writePNG(device, eng, frames) {
     await buf.mapAsync(GPUMapMode.READ);
     const f = new Float32Array(buf.getMappedRange()), u = new Uint32Array(f.buffer);
     const bonds = new Uint32Array(f.buffer, partBytes), incoming = new Uint32Array(eng.count);
-    for (let i = 0; i < eng.count; i++) if (u[i * 10 + 4] >= FIRST_LIFE) {
+    for (let i = 0; i < eng.count; i++) if (u[i * PW + 4] >= FIRST_LIFE) {
       for (const n of [bonds[i * 4 + 2], bonds[i * 4 + 3]]) {
-        if (n < eng.count && u[n * 10 + 4] === u[i * 10 + 4]) incoming[n]++;
+        if (n < eng.count && u[n * PW + 4] === u[i * PW + 4]) incoming[n]++;
       }
     }
     let at = -1, best = -1;
     for (let i = 0; i < eng.count; i++) {
-      if (u[i * 10 + 4] >= FIRST_LIFE && incoming[i] > best) { best = incoming[i]; at = i; }
+      if (u[i * PW + 4] >= FIRST_LIFE && incoming[i] > best) { best = incoming[i]; at = i; }
     }
-    if (at >= 0) { x = f[at * 10]; y = f[at * 10 + 1]; }
+    if (at >= 0) { x = f[at * PW]; y = f[at * PW + 1]; }
     console.log(`PNG camera: ${x}, ${y}; incoming bonds ${Math.max(0, best)}`);
     buf.unmap(); buf.destroy();
   }
@@ -151,7 +151,7 @@ async function writePNG(device, eng, frames) {
     await buf.mapAsync(GPUMapMode.READ);
     const f = new Float32Array(buf.getMappedRange()), u = new Uint32Array(f.buffer);
     const at = [];
-    for (let i = 0; i < eng.count; i++) if (u[i * 10 + 4] === aimKind) at.push([f[i * 10], f[i * 10 + 1]]);
+    for (let i = 0; i < eng.count; i++) if (u[i * PW + 4] === aimKind) at.push([f[i * PW], f[i * PW + 1]]);
     let best = -1;
     for (const [px, py] of at) {
       const n = at.filter(([qx, qy]) => Math.hypot(qx - px, qy - py) < 1.5).length;

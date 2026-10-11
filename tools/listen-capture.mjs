@@ -14,6 +14,7 @@ const out = arg('out', 'capture.json'), N = Number(arg('n', 4096)), WARM = Numbe
 const root = fileURLToPath(new URL('..', import.meta.url));
 const entry = `
 import { createEngine, MAXK, FIRST_LIFE } from './src/engine.js';
+import { P_BYTES, P_WORDS } from './src/shaders.js';
 import { readGenome, genomeSerial } from './src/genome.js';
 import { voiceOf } from './src/audio/mapping.js';
 import { digest, hearing, D_REF } from './src/audio/listen.js';
@@ -72,13 +73,13 @@ window.capture = async ({ N, WARM, EACH, SEED }) => {
   const side = D_REF, nx = Math.floor(GW / side), ny = Math.floor(GH / side);
   const photoOf = new Map();
   const patches = async () => {
-    const rb = device.createBuffer({ size: eng.count * 40, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-    const enc = device.createCommandEncoder(); enc.copyBufferToBuffer(eng.b.parts, 0, rb, 0, eng.count * 40); device.queue.submit([enc.finish()]);
+    const rb = device.createBuffer({ size: eng.count * P_BYTES, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const enc = device.createCommandEncoder(); enc.copyBufferToBuffer(eng.b.parts, 0, rb, 0, eng.count * P_BYTES); device.queue.submit([enc.finish()]);
     await rb.mapAsync(GPUMapMode.READ); const pf = new Float32Array(rb.getMappedRange().slice(0)); const pu = new Uint32Array(pf.buffer); rb.unmap(); rb.destroy();
     const c = lastCensus;
     const cells = new Array(nx * ny).fill(0).map(() => ({ n: 0, sp: 0, ph: 0 }));
     for (let i = 0; i < eng.count; i++) {
-      const o = i * 10, kind = pu[o + 4]; if (kind < FIRST_LIFE) continue;
+      const o = i * P_WORDS, kind = pu[o + 4]; if (kind < FIRST_LIFE) continue;
       const cx = Math.min(nx - 1, Math.floor(pf[o] / side)), cy = Math.min(ny - 1, Math.floor(pf[o + 1] / side)), e = cells[cy * nx + cx];
       const key = kind + ':' + genomeSerial(c.genomeU32, kind);
       if (!photoOf.has(key)) photoOf.set(key, readGenome(c.genomeU32, c.genomeF32, kind).photo);

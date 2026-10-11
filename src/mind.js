@@ -37,7 +37,8 @@ export function parseMind(u32, f32) {
     // (perf, a rate multiplier) and how many tolerances it is from its optimum (x)
     warmth: f32[21], water: f32[52], perf: f32[53], x: f32[54], torpid: !!(u32[55] & 1),
     // the brain (K.brain), if it steered this step: the gain on each direction and the senses it read
-    brain: u32[82] === 1 ? { gains: Array.from(f32.subarray(58, 66)), senses: Array.from(f32.subarray(66, 82)) } : null,
+    // (outputs: the eight direction gains, then memory candidates, signal, remember)
+    brain: u32[90] === 1 ? { gains: Array.from(f32.subarray(58, 66)), state: Array.from(f32.subarray(66, 70)), senses: Array.from(f32.subarray(70, 90)) } : null,
     nbrs,
   };
 }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { traceBody, retraceBody, settleMembers, nearBody } from '../src/trace.js';
-import { PICK_WORDS } from '../src/shaders.js';
+import { PICK_WORDS, PICK_PARTNERS } from '../src/shaders.js';
 
 const NONE = 0xffffffff;
 function particles(cells) {
@@ -11,7 +11,7 @@ function particles(cells) {
     const o = i * PICK_WORDS;
     f32[o] = x; f32[o + 1] = y;
     u32[o + 4] = 4; u32[o + 7] = id;
-    u32[o + 10] = a; u32[o + 11] = b;
+    u32[o + PICK_PARTNERS] = a; u32[o + PICK_PARTNERS + 1] = b;
   });
   return [u32, f32, cells.length];
 }

@@ -1,4 +1,4 @@
-import { PICK_WORDS } from './shaders.js';
+import { PICK_WORDS, PICK_PARTNERS } from './shaders.js';
 
 // Gathered records contain a particle followed by two partner IDs (0xffffffff if absent).
 // The caller filters to one species; asymmetric bonds count as undirected edges.
@@ -12,7 +12,7 @@ function bondGraph(u32, f32, n) {
   }
   const edges = Array.from({ length: n }, () => []);
   for (let i = 0; i < n; i++) {
-    for (let b = 10; b < PICK_WORDS; b++) {
+    for (let b = PICK_PARTNERS; b < PICK_WORDS; b++) {
       const id = u32[i * PICK_WORDS + b];
       if (id === 0xffffffff) continue;
       const j = index.get(id);

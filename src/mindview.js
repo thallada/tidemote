@@ -11,7 +11,10 @@ const R = 40; // compass radius, in a -50..50 viewBox
 const NB_ROWS = 4; // other species shown (own kind has its own row)
 const EASE_MS = 70;
 // The brain's directions (K.brain), as the panel names them, in output order (BRAIN_DIRS).
-const BRAIN_LABEL = { food: 'Toward food', threat: 'Toward danger', jostle: 'With its neighbours’ pull', warmth: 'Up the warmth',
+// Its state rows: [key, label, value from a mind reading's brain (senses 16..19, state 2)].
+const BRAIN_STATE_ROWS = [['m1', 'Memory 1', (b) => b.senses[16]], ['m2', 'Memory 2', (b) => b.senses[17]],
+  ['sig', 'Its signal', (b) => b.state[2]], ['hk', 'Hears its kind', (b) => b.senses[18]], ['ho', 'Hears others', (b) => b.senses[19]]];
+const BRAIN_LABEL = { food: 'Toward food', threat: 'Toward danger', kin: 'Toward its kind', warmth: 'Up the warmth',
   current: 'With the current', heading: 'On its heading', wander: 'Wandering', flock: 'With its kind’s heading' };
 
 export function createMindView({ K, genomeFor, nameOf, sigil }) {
@@ -61,6 +64,8 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
     if (K.brain && g.swim * (1 - g.photo) > 0.01) {
       h += `<div class="blk mv-brain">${subHead(`<i class="ico cell"></i>${term('brain', 'Brain')}`, 'away · toward')}`;
       h += BRAIN_DIRS.map((d) => `<div class="br-row" data-d="${d}"><span>${BRAIN_LABEL[d]}</span><span class="dbar"><i></i></span><b>0.00</b></div>`).join('');
+      // its state: what it holds in memory, the signal it gives off, and what it hears from its kind and others
+      h += `<div class="br-sep"></div>` + BRAIN_STATE_ROWS.map(([k, label]) => `<div class="br-row" data-d="${k}"><span>${label}</span><span class="dbar"><i></i></span><b>0.00</b></div>`).join('');
       h += '</div>';
     }
     h += `<div class="blk mv-nb">${subHead(`<i class="ico cell"></i>${term('mind-near', 'Neighbours')}`, 'within its reach')}`;
@@ -137,13 +142,14 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
       if (n.label.textContent !== f.label) n.label.textContent = f.label;
       n.label.dataset.hint = plain(f.hint, f.target);
     }
-    const gains = m.brain ? m.brain.gains : null;
+    const b = m.brain;
+    const vals = b ? [...b.gains, ...BRAIN_STATE_ROWS.map(([, , v]) => v(b))] : null;
     parts.brain.forEach((r, i) => {
-      const x = gains ? gains[i] : 0, w = Math.min(1, Math.abs(x)) * 50;
+      const x = vals ? vals[i] : 0, w = Math.min(1, Math.abs(x)) * 50;
       r.bar.style.left = `${x < 0 ? 50 - w : 50}%`;
       r.bar.style.width = `${w}%`;
       r.bar.style.background = x >= 0 ? 'var(--sun)' : 'var(--cyan)';
-      r.val.textContent = gains ? `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(2)}` : '—';
+      r.val.textContent = vals ? `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(2)}` : '—';
     });
     parts.live.classList.remove('blink');
     void parts.live.offsetWidth; // restart the blink

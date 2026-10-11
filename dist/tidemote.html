@@ -575,6 +575,7 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .mv-brain .br-row { display: grid; grid-template-columns: minmax(0, 1fr) 96px 3.4em; gap: 8px; align-items: center; height: 20px; font-size: 12.5px; }
 .mv-brain .br-row b { text-align: right; font-variant-numeric: tabular-nums; }
 .mv-brain .dbar i { transition: left .12s linear, width .12s linear; }
+.mv-brain .br-sep { height: var(--s2); }
 @media (max-width: 720px) {
   .mv-pulls { grid-template-columns: 96px minmax(0, 1fr); gap: 10px; }
   .compass { width: 96px; height: 96px; }
@@ -1102,14 +1103,19 @@ svg.niche .n-dot { fill: var(--cyan); }
   var FRAMBOID = 4;
   var FRAMBOID_GROWN = 12;
   var HEAT_FIX = 1048576;
-  var P_BYTES = 40;
+  var P_BYTES = 48;
+  var P_WORDS = 12;
   var LOUPE_FIELD = 1.1;
   var ORGANS = 12;
-  var PICK_WORDS = 12;
-  var G_BYTES = 400;
-  var G_WORDS = 100;
+  var PICK_WORDS = P_WORDS + 2;
+  var PICK_PARTNERS = P_WORDS;
+  var PICK_HEAD = 16 + P_BYTES;
+  var G_BYTES = 464;
+  var G_WORDS = 116;
   var BRAIN_WORD = 48;
-  var BRAIN_WORDS = 52;
+  var BRAIN_WORDS = 68;
+  var BRAIN_IN = 20;
+  var BRAIN_OUT = 12;
   var BRAIN_SCALE = 3;
   var BRAIN_SENSES = [
     "energy",
@@ -1127,11 +1133,16 @@ svg.niche .n-dot { fill: var(--cyan); }
     "heading-threat",
     "current",
     "clock",
-    "bias"
+    "bias",
+    "memory-1",
+    "memory-2",
+    "kin-signal",
+    "other-signal"
   ];
-  var BRAIN_DIRS = ["food", "threat", "jostle", "warmth", "current", "heading", "wander", "flock"];
+  var BRAIN_DIRS = ["food", "threat", "kin", "warmth", "current", "heading", "wander", "flock"];
+  var BRAIN_STATE = ["memory-1", "memory-2", "signal", "remember"];
   var LITE_BYTES = 32;
-  var MIND_HEAD = 83;
+  var MIND_HEAD = 91;
   var MIND_NBR = 48;
   var MIND_NBR_WORDS = 7;
   var MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
@@ -1323,6 +1334,12 @@ svg.niche .n-dot { fill: var(--cyan); }
     // how hard a brain's full steer swims, relative to the genome's swim
     brainMut: 0.2,
     // brain weight noise per mutation, relative to the mutation's strength
+    brainPulls: 1,
+    // with a brain, how much of the hunger pulls (hunt, forage) stay as body chemistry (0 starves predators)
+    brainControl: 0,
+    // 1: a control for selection: every mutant gets a fresh random brain, so none is inherited
+    thinkScan: 96,
+    // the neighbours a thought samples at most (lifeMain's scan takes maxScan)
     brainShrink: 0.5,
     // ...and how far each weight is drawn toward zero, relative to it, so only selection keeps it large
     thrustShare: 0.5
@@ -1388,7 +1405,9 @@ const TAU = 6.28318530718;
 const ORGANS = ${ORGANS}u;
 
 // Info: 0..3 cause, 4..5 role, 6..15 search image, 16..31 generation.
-struct Particle { pos: vec2f, vel: vec2f, kind: u32, energy: f32, age: f32, id: u32, col: u32, info: u32 };
+// mem: a living cell's brain state (K.brain), 4x8 snorm: its two memories and the signal it gives off;
+// spare: with K.brain, the stroke it last chose (2x16 float), held between thoughts.
+struct Particle { pos: vec2f, vel: vec2f, kind: u32, energy: f32, age: f32, id: u32, col: u32, info: u32, mem: u32, spare: u32 };
 struct Genome {
   sig: array<vec4u, 3>,
   dev: vec4u,
@@ -1400,9 +1419,10 @@ struct Genome {
   swim: f32, align: f32, photo: f32, col: u32,
   parent: u32, serial: u32, born: f32, depth: u32,
   adhesion: f32, calcify: f32, topt: f32, tol: f32,
-  // 0..7 hidden neurons' weights over the 16 senses (the last a bias), 8..11 the outputs' weights over
-  // the hidden neurons (two words each), 12 the outputs' biases (x, y) and the clock's rate (z, byte 0)
-  brain: array<vec4u, 13>,
+  // 0..7 hidden neurons' weights over senses 0..15 (15 a constant 1), 8..9 over senses 16..19 (a word
+  // per neuron), 10..15 the outputs' weights over the hidden neurons (two words each), 16 the outputs'
+  // biases (x, y, z) and the clock's rate (w, byte 0)
+  brain: array<vec4u, 17>,
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
@@ -1537,11 +1557,6 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   // (K.diag: neighbours inside this cell's core; animals within reach and twice reach)
   var overlap = 0.0;
   var preyNear = vec2f(0.0);
-  // what a brain (K.brain) senses: food its diet favours and cells that could eat it, nearer counting more
-  // (each sum it carries through the scan costs: a third, the centre of its own kind, made lifeMain 40% slower)
-  var foodV = vec2f(0.0);
-  var threatV = vec2f(0.0);
-  let eatsMe = select(1u << 13u, (1u << 13u) | (1u << 14u), g.photo > 0.4);
   var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
 
   // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam).
@@ -1596,7 +1611,7 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
         let core = select(1.0, 0.15, canHunt && qk != p.kind);
         if (x < beta) { fr = (x * invBeta - 1.0) * core; } else { fr = a * shape; }${W("mFr0 = fr;")}
         // hungry foragers are drawn toward the cells their diet favours
-        let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.brain ? 0 : K.hunt)}, canHunt && qk != p.kind);
+        let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.brain ? K.hunt * K.brainPulls : K.hunt)}, canHunt && qk != p.kind);
         if (x >= beta) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * invBeta * invR; }
         crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
         if (DIAG) {
@@ -1607,11 +1622,6 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
         if (qk == p.kind) {
           kinVel += unpack2x16float(q.vel);
           kinN += 1.0;
-        }
-        if (BRAIN && qk != p.kind) {
-          let near = d * ((1.0 - x) / r);
-          foodV += near * select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u);
-          if ((q.kr & eatsMe) != 0u) { threatV += near; }
         }
         if (r < LINK_R) {
           // colour only blends within a species, so mixed neighbourhoods stay visibly mixed
@@ -1653,11 +1663,10 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
           if (r < 0.5) { stoneN += 1.0; }
         } else {
           if (hungry && qk != SILT && x >= beta) {
-            fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.brain ? 0 : K.forage)} * shape;
-            pull += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.brain ? 0 : K.forage)};
+            fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.brain ? K.forage * K.brainPulls : K.forage)} * shape;
+            pull += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.brain ? K.forage * K.brainPulls : K.forage)};
           }
           if (qk == SILT) { nutr += 1.0; }
-          if (BRAIN && qk != SILT) { foodV += d * ((1.0 - x) / r) * select(g.dHusk, g.dGlint, qk == GLINT); }
           // a cell ready to divide looks for a grain every tick, so in a coarse step a grain counts if it
           // came within reach at any tick of it: the closest approach of their paths over the step
           var rc = r;
@@ -1692,7 +1701,7 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
     }
     at -= len;
   }
-  overlap *= stride; preyNear *= stride; foodV *= stride * eatEff; threatV *= stride;
+  overlap *= stride; preyNear *= stride;
   force *= stride; crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride;
 
   let heavy = 1.0 - 0.7 * g.photo;
@@ -1709,26 +1718,10 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
     taxis = heat.yz * (sign(g.topt - Tc) * min(1.0, abs(th.x)) * swim * ${f(K.thermotaxis)} / slope);
   }
   let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
-  // The brain (K.brain): the species' network reads this cell's senses and sets how hard it swims along
-  // each direction it senses; their sum is its stroke, held through the step.
+  // The brain (K.brain): the stroke its last thought chose (thinkMain), held until it thinks again. Read
+  // here, after the scan, so lifeMain carries nothing of the brain through it.
   var thrust = vec2f(0.0);
-  if (BRAIN && swim > 0.0) {
-    let uVel = unit(p.vel);
-    let uFood = unit(foodV);
-    let uThreat = unit(threatV);
-    let x0 = vec4f(clamp(p.energy / g.reproE, 0.0, 1.5), min(p.age / g.lifespan, 1.0), squash(length(foodV)), squash(length(threatV)));
-    let x1 = vec4f(kinN / (kinN + 4.0), crowd / (crowd + 4.0), clamp(th.x, -2.0, 2.0), light);
-    let nb = select(0.0, 0.5, n1 != NONE) + select(0.0, 0.5, n2 != NONE);
-    let x2 = vec4f(nutr / (nutr + 8.0), nb, min(length(p.vel) / sim.maxSpeed, 1.0), dot(uVel, uFood));
-    let x3 = vec4f(dot(uVel, uThreat), min(length(flow) * 5.0, 2.0), brainClock(p.kind, p.id), 1.0);
-    let gn = brainNet(p.kind, x0, x1, x2, x3);
-    let hw = renderHash(p.id ^ 0x5bd1e995u);
-    let wa = TAU * hw + 1.7 * sin(0.31 * sim.time + 40.0 * hw) + 1.1 * sin(0.83 * sim.time + 70.0 * hw);
-    let steer = gn.a.x * uFood + gn.a.y * uThreat + gn.a.z * unit(force) + gn.a.w * unit(heat.yz)
-      + gn.b.x * unit(flow) + gn.b.y * uVel + gn.b.z * vec2f(cos(wa), sin(wa)) + gn.b.w * unit(kinVel);
-    let sl = length(steer);
-    thrust = steer * (swim * ${f(K.brainThrust)} * min(sl, 1.0) / max(sl, 1e-6));${W("mGains = gn; mSense = array<vec4f, 4>(x0, x1, x2, x3); mBrain = 1u;")}
-  }
+  if (BRAIN && swim > 0.0) { thrust = unpack2x16float(sortedFull[i].spare); }
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
   // The cell and its neighbourhood are taken as two bodies sharing momentum: the reaction to this cell's
@@ -1817,6 +1810,115 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
     * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking${K.brain ? ` + ${f(K.swimCost * K.thrustShare * K.metab / K.brainThrust)} * length(thrust)` : ""};`
     );
   }
+  function thinkWGSL(K, w) {
+    const W = (s) => w ? " " + s : "";
+    return (
+      /* wgsl */
+      `  let p = sortedFull[i];
+  let g = genomes[p.kind];
+  let world = sim.world;
+  let invWorld = 1.0 / world;
+  let heat = heatSample(p.pos);
+  let bp = bondsNow[i];
+  let nb = select(0.0, 0.5, bp.x != NONE) + select(0.0, 0.5, bp.y != NONE);
+  let th = cellThermal(g, heat.x + ${f(K.selfWarm)} * thermoOf(g) * (1.0 + nb));
+  let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0);
+  var tThrust = vec2f(0.0);
+  var tMem = p.mem;
+  if (swim > 0.0) {
+    let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
+    // who could eat it: flesh-eaters, and croppers too if it is a plant (Lite.kr bits 13, 14)
+    let eatsMe = select(1u << 13u, (1u << 13u) | (1u << 14u), g.photo > 0.4);
+    let R = g.radius;
+    let invR = 1.0 / R;
+    let gw = i32(sim.grid.x);
+    let gh = i32(sim.grid.y);
+    let cc = clamp(vec2i(floor(p.pos)), vec2i(0), vec2i(gw - 1, gh - 1));
+    // food its diet favours, cells that could eat it and its own kind (nearer counting more), the signals it
+    // hears from its kind (x) and from others (y)
+    var foodV = vec2f(0.0);
+    var threatV = vec2f(0.0);
+    var kinP = vec2f(0.0);
+    var kinVel = vec2f(0.0);
+    var heard = vec2f(0.0);
+    var kinN = 0.0;
+    var crowd = 0.0;
+    var nutr = 0.0;
+    var rs: array<u32, 9>;
+    var re: array<u32, 9>;
+    var nr = 0u;
+    var total = 0u;
+    for (var dy = -1; dy <= 1; dy++) {
+      let rowBase = ((cc.y + dy + gh) % gh) * gw;
+      for (var dx = -1; dx <= 1; dx++) {
+        let c = u32(rowBase + (cc.x + dx + gw) % gw);
+        rs[nr] = cellStart[c];
+        re[nr] = cellStart[c + 1u];
+        total += re[nr] - rs[nr];
+        nr++;
+      }
+    }
+    let stride = max(1.0, f32(total) / ${f(K.thinkScan)});
+    var s = pcg(p.id ^ pcg(sim.frame * 2654435761u + (sim.seed ^ 0x68e31da4u)));
+    var at = select(0.0, rnd(&s) * stride, stride > 1.0);
+    for (var k = 0u; k < nr; k++) {
+      let len = f32(re[k] - rs[k]);
+      for (; at < len; at += stride) {
+        let q = sortedLite[rs[k] + u32(at)];
+        var d = q.pos - p.pos;
+        d -= world * round(d * invWorld);
+        let r2 = dot(d, d);
+        if (r2 >= R * R || r2 < 1e-12) { continue; }
+        let r = sqrt(r2);
+        let x = r * invR;
+        let near = d * ((1.0 - x) / r);
+        let qk = q.kr & 1023u;
+        if (qk >= FIRST_LIFE) {
+          crowd += 1.0 - x;
+          let hs = unpack4x8snorm(q.pad).z * (1.0 - x);
+          if (qk == p.kind) {
+            kinN += 1.0;
+            kinP += near;
+            kinVel += unpack2x16float(q.vel);
+            heard.x += hs;
+          } else {
+            foodV += near * select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u);
+            if ((q.kr & eatsMe) != 0u) { threatV += near; }
+            heard.y += hs;
+          }
+        } else if (qk == SILT) {
+          nutr += 1.0;
+        } else if (qk == GLINT || qk == HUSK) {
+          foodV += near * select(g.dHusk, g.dGlint, qk == GLINT);
+        }
+      }
+      at -= len;
+    }
+    foodV *= stride * eatEff; threatV *= stride; kinP *= stride; heard *= stride;
+    kinN *= stride; crowd *= stride; nutr *= stride;
+    let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
+    let flow = flowAt(p.pos) * g.advect;
+    let uVel = unit(p.vel);
+    let uFood = unit(foodV);
+    let uThreat = unit(threatV);
+    let ms = unpack4x8snorm(p.mem);
+    let x0 = vec4f(clamp(p.energy / g.reproE, 0.0, 1.5), min(p.age / g.lifespan, 1.0), squash(length(foodV)), squash(length(threatV)));
+    let x1 = vec4f(kinN / (kinN + 4.0), crowd / (crowd + 4.0), clamp(th.x, -2.0, 2.0), light);
+    let x2 = vec4f(nutr / (nutr + 8.0), nb, min(length(p.vel) / sim.maxSpeed, 1.0), dot(uVel, uFood));
+    let x3 = vec4f(dot(uVel, uThreat), min(length(flow) * 5.0, 2.0), brainClock(p.kind, p.id), 1.0);
+    let x4 = vec4f(ms.x, ms.y, heard.x / (abs(heard.x) + 1.0), heard.y / (abs(heard.y) + 1.0));
+    let gn = brainNet(p.kind, x0, x1, x2, x3, x4);
+    let hw = renderHash(p.id ^ 0x5bd1e995u);
+    let wa = TAU * hw + 1.7 * sin(0.31 * sim.time + 40.0 * hw) + 1.1 * sin(0.83 * sim.time + 70.0 * hw);
+    let steer = gn.a.x * uFood + gn.a.y * uThreat + gn.a.z * unit(kinP) + gn.a.w * unit(heat.yz)
+      + gn.b.x * unit(flow) + gn.b.y * uVel + gn.b.z * vec2f(cos(wa), sin(wa)) + gn.b.w * unit(kinVel);
+    let sl = length(steer);
+    tThrust = steer * (swim * ${f(K.brainThrust)} * min(sl, 1.0) / max(sl, 1e-6));
+    // it keeps (remember + 1) / 2 of the candidates: a gate, so a memory can hold until something matters
+    tMem = pack4x8snorm(vec4f(mix(ms.xy, gn.c.xy, 0.5 + 0.5 * gn.c.w), gn.c.z, 0.0));${W("mGains = gn; mSense = array<vec4f, 5>(x0, x1, x2, x3, x4); mBrain = 1u;")}
+  }`
+    );
+  }
   function simWGSL(K, { dp4a = false } = {}) {
     return COMMON + /* wgsl */
     `
@@ -1856,8 +1958,8 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u3
 @group(0) @binding(10) var<storage, read_write> genomes: array<Genome>;
 @group(0) @binding(11) var<storage, read_write> ledger: array<atomic<u32>>;
 @group(0) @binding(12) var<storage, read_write> livingList: array<u32>;
-// 0 living count, 1..3 life dispatch, 4..7 line draw, 8..11 stone draw (for rendering).
-@group(0) @binding(13) var<storage, read_write> frameCtr: array<atomic<u32>, 12>;
+// 0 living count, 1..3 life dispatch, 4..7 line draw, 8..11 stone draw (for rendering), 12..14 think dispatch.
+@group(0) @binding(13) var<storage, read_write> frameCtr: array<atomic<u32>, 16>;
 // Grains of reef stone in each grid cell (low 16 bits) and of bedrock (high 16), counted while binning.
 @group(0) @binding(14) var<storage, read_write> stoneGrid: array<atomic<u32>>;
 // Every grain of stone, gathered while matter moves, so rendering draws stone without scanning all.
@@ -1990,26 +2092,31 @@ fn eaterBits(g: Genome) -> u32 {
 fn unit(v: vec2f) -> vec2f { return v * inverseSqrt(max(dot(v, v), 1e-12)); }
 fn squash(x: f32) -> f32 { return x / (x + 1.0); }
 fn tanh4(v: vec4f) -> vec4f { return tanh(clamp(v, vec4f(-9.0), vec4f(9.0))); }
-fn neuron(w: vec4u, x0: vec4f, x1: vec4f, x2: vec4f, x3: vec4f) -> f32 {
-  return dot(unpack4x8snorm(w.x), x0) + dot(unpack4x8snorm(w.y), x1) + dot(unpack4x8snorm(w.z), x2) + dot(unpack4x8snorm(w.w), x3);
+fn neuron(w: vec4u, w4: u32, x0: vec4f, x1: vec4f, x2: vec4f, x3: vec4f, x4: vec4f) -> f32 {
+  return dot(unpack4x8snorm(w.x), x0) + dot(unpack4x8snorm(w.y), x1) + dot(unpack4x8snorm(w.z), x2) + dot(unpack4x8snorm(w.w), x3)
+    + dot(unpack4x8snorm(w4), x4);
 }
 fn synapse(lo: u32, hi: u32, a: vec4f, b: vec4f) -> f32 { return dot(unpack4x8snorm(lo), a) + dot(unpack4x8snorm(hi), b); }
-// The gains of a brain's eight directions (a: food, threat, jostle, warmth; b: current, heading, wander, flock).
-struct Gains { a: vec4f, b: vec4f };
-// Species k's brain on one cell's sixteen senses (x0..x3, the last a constant 1): 16 -> 8 tanh -> 8 tanh.
-fn brainNet(k: u32, x0: vec4f, x1: vec4f, x2: vec4f, x3: vec4f) -> Gains {
+fn synapses(o: vec4u, a: vec4f, b: vec4f) -> vec2f { return vec2f(synapse(o.x, o.y, a, b), synapse(o.z, o.w, a, b)); }
+// A brain's outputs: a, b the gains of its eight directions (food, threat, kin, warmth; current, heading,
+// wander, flock); c its state (two memory candidates, the signal, how much of the candidates it keeps).
+struct Gains { a: vec4f, b: vec4f, c: vec4f };
+// Species k's brain on one cell's twenty senses (x0..x4; x3.w a constant 1): 20 -> 8 tanh -> 12 tanh.
+fn brainNet(k: u32, x0: vec4f, x1: vec4f, x2: vec4f, x3: vec4f, x4: vec4f) -> Gains {
   let B = &genomes[k].brain;
   let S = ${f(BRAIN_SCALE)};
-  let hA = tanh4(S * vec4f(neuron((*B)[0], x0, x1, x2, x3), neuron((*B)[1], x0, x1, x2, x3), neuron((*B)[2], x0, x1, x2, x3), neuron((*B)[3], x0, x1, x2, x3)));
-  let hB = tanh4(S * vec4f(neuron((*B)[4], x0, x1, x2, x3), neuron((*B)[5], x0, x1, x2, x3), neuron((*B)[6], x0, x1, x2, x3), neuron((*B)[7], x0, x1, x2, x3)));
-  let o0 = (*B)[8]; let o1 = (*B)[9]; let o2 = (*B)[10]; let o3 = (*B)[11]; let ob = (*B)[12];
-  let a = vec4f(synapse(o0.x, o0.y, hA, hB), synapse(o0.z, o0.w, hA, hB), synapse(o1.x, o1.y, hA, hB), synapse(o1.z, o1.w, hA, hB));
-  let b = vec4f(synapse(o2.x, o2.y, hA, hB), synapse(o2.z, o2.w, hA, hB), synapse(o3.x, o3.y, hA, hB), synapse(o3.z, o3.w, hA, hB));
-  return Gains(tanh4(S * (a + unpack4x8snorm(ob.x))), tanh4(S * (b + unpack4x8snorm(ob.y))));
+  let e0 = (*B)[8]; let e1 = (*B)[9];
+  let hA = tanh4(S * vec4f(neuron((*B)[0], e0.x, x0, x1, x2, x3, x4), neuron((*B)[1], e0.y, x0, x1, x2, x3, x4), neuron((*B)[2], e0.z, x0, x1, x2, x3, x4), neuron((*B)[3], e0.w, x0, x1, x2, x3, x4)));
+  let hB = tanh4(S * vec4f(neuron((*B)[4], e1.x, x0, x1, x2, x3, x4), neuron((*B)[5], e1.y, x0, x1, x2, x3, x4), neuron((*B)[6], e1.z, x0, x1, x2, x3, x4), neuron((*B)[7], e1.w, x0, x1, x2, x3, x4)));
+  let ob = (*B)[16];
+  let a = vec4f(synapses((*B)[10], hA, hB), synapses((*B)[11], hA, hB));
+  let b = vec4f(synapses((*B)[12], hA, hB), synapses((*B)[13], hA, hB));
+  let c = vec4f(synapses((*B)[14], hA, hB), synapses((*B)[15], hA, hB));
+  return Gains(tanh4(S * (a + unpack4x8snorm(ob.x))), tanh4(S * (b + unpack4x8snorm(ob.y))), tanh4(S * (c + unpack4x8snorm(ob.z))));
 }
 // A brain's clock: a slow per-cell oscillation at the species' own rate (0.05 to 1.05 Hz).
 fn brainClock(k: u32, id: u32) -> f32 {
-  let rate = 0.55 + 0.5 * unpack4x8snorm(genomes[k].brain[12].z).x;
+  let rate = 0.55 + 0.5 * unpack4x8snorm(genomes[k].brain[16].w).x;
   return sin(TAU * (rate * sim.time + renderHash(id ^ 0x2545f491u)));
 }
 // A child species' brain: its parent's, every weight jittered and drawn a little toward zero (so drift alone
@@ -2020,11 +2127,15 @@ fn mutWeights(v: u32, keep: f32, mb: f32, s: ptr<function, u32>) -> u32 {
 fn mutateBrain(slot: u32, parentKind: u32, m: f32, s: ptr<function, u32>) {
   let mb = m * ${f(K.brainMut)};
   let keep = 1.0 - m * ${f(K.brainShrink)};
-  for (var k = 0u; k < 13u; k++) {
+  if (${K.brainControl ? "true" : "false"}) {
+    for (var k = 0u; k < 17u; k++) { randomRow(slot, k, s); }
+    return;
+  }
+  for (var k = 0u; k < 17u; k++) {
     let w = genomes[parentKind].brain[k];
     genomes[slot].brain[k] = vec4u(mutWeights(w.x, keep, mb, s), mutWeights(w.y, keep, mb, s), mutWeights(w.z, keep, mb, s), mutWeights(w.w, keep, mb, s));
   }
-  if (rnd(s) < m * 0.25) { randomRow(slot, min(u32(rnd(s) * 12.0), 11u), s); }
+  if (rnd(s) < m * 0.25) { randomRow(slot, min(u32(rnd(s) * 16.0), 15u), s); }
 }
 fn randomRow(slot: u32, k: u32, s: ptr<function, u32>) {
   genomes[slot].brain[k] = vec4u(pack4x8snorm(r4(s) * 0.3), pack4x8snorm(r4(s) * 0.3), pack4x8snorm(r4(s) * 0.3), pack4x8snorm(r4(s) * 0.3));
@@ -2142,7 +2253,7 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   finalize(&g);
   genomes[slot] = g;
   // a random brain: whatever it does, selection keeps what works
-  for (var k = 0u; k < 13u; k++) { randomRow(slot, k, s); }
+  for (var k = 0u; k < 17u; k++) { randomRow(slot, k, s); }
 }
 
 // Bedrock: sim.rock.x outcrops, each a wandering chain of five discs of radius about sim.rock.y.
@@ -2206,7 +2317,7 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
     kind = FRAMBOID; e = ${f(K.framboidLife)} * (0.2 + rnd(&s)); col = FRAMBOID_COL;
     atomicAdd(&ledger[META_ENERGY + 58u], 1u);
   }
-  parts[i] = Particle(pos, vec2f(0.0), kind, e, age, i, col, info);
+  parts[i] = Particle(pos, vec2f(0.0), kind, e, age, i, col, info, 0u, 0u);
   intent[i] = vec4u(0u, 0u, NONE, NONE);
 }
 
@@ -2272,6 +2383,8 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         p.id = atomicAdd(&ledger[0], 1u);
         p.col = pack4x8unorm(vec4f(roleColor(genomes[ck], cr), 1.0));
         p.info = (gen << 16u) | (cr << 4u) | 9u;
+        p.mem = 0u;
+        p.spare = 0u;
         intent[i].z = select(NONE, c - 1u, genomes[ck].adhesion > ${f(K.adhMin)});
         intent[i].w = NONE;
         atomicAdd(&ledger[2], 1u);
@@ -2381,7 +2494,8 @@ fn scatterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocat
     let sig = genomes[p.kind].sig[role].xy;
     var plant = select(0u, 1u << 12u, p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4);
     if (BRAIN && p.kind >= FIRST_LIFE) { plant |= eaterBits(genomes[p.kind]); }
-    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant, p.col, pack2x16float(p.vel), sig.x, sig.y, 0u);
+    // pad: with K.brain, the particle's brain state, so neighbours hear its signal
+    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant, p.col, pack2x16float(p.vel), sig.x, sig.y, select(0u, p.mem, BRAIN));
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
   }
   workgroupBarrier();
@@ -2401,8 +2515,9 @@ fn censusMain(@builtin(global_invocation_id) gid: vec3u) {
       atomicAdd(&ledger[8], 1u);
     }
   }
-  let padded = (n + 127u) / 128u * 128u;
-  if (s < 128u && n + s < padded) { livingList[n + s] = NONE; }
+  // padded to a whole number of thinkMain's widest workgroups (4 x 128), so it needs no count
+  let padded = (n + 511u) / 512u * 512u;
+  if (s < 512u && n + s < padded) { livingList[n + s] = NONE; }
   if (s == 0u) {
     atomicStore(&frameCtr[1], (n + 127u) / 128u);
     atomicStore(&frameCtr[2], 1u);
@@ -2414,6 +2529,10 @@ fn censusMain(@builtin(global_invocation_id) gid: vec3u) {
     atomicStore(&frameCtr[8], 4u);
     atomicStore(&frameCtr[10], 0u);
     atomicStore(&frameCtr[11], 0u);
+    // thinkMain: a share 1/thinkEvery of the living cells
+    atomicStore(&frameCtr[12], (n + thinkEvery() * 128u - 1u) / (thinkEvery() * 128u));
+    atomicStore(&frameCtr[13], 1u);
+    atomicStore(&frameCtr[14], 1u);
   }
 }
 
@@ -2830,7 +2949,22 @@ ${cellWGSL(K, false)}
   let childGen = ((genOf(p.info) + 1u) & 0xffffu) << 14u;
   // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(pack, ce, act == 2u)), n1, n2);
-  parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0)), info);
+  // (the brain's state, written by thinkMain, re-read rather than carried through the scan)
+  parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0)), info, sortedFull[i].mem, sortedFull[i].spare);
+}
+
+// -------------------------------------------------------------------- think
+// K.brain: a share of the living cells think each step (every fourth at 1/60 s, every one in 4-tick steps),
+// before lifeMain, which swims by the stroke each chose until it thinks again.
+fn thinkEvery() -> u32 { return max(1u, 4u / max(sim.ticks, 1u)); }
+@compute @workgroup_size(128)
+fn thinkMain(@builtin(global_invocation_id) gid: vec3u) {
+  let e = thinkEvery();
+  let i = livingList[gid.x * e + sim.frame % e];
+  if (i == NONE) { return; }
+${thinkWGSL(K, false)}
+  sortedFull[i].mem = tMem;
+  sortedFull[i].spare = pack2x16float(tThrust);
 }
 
 // --------------------------------------------------------------------- mind
@@ -2853,7 +2987,7 @@ var<private> mForage: vec2f;
 var<private> mMatterN: vec4f;
 var<private> mN: u32;
 var<private> mGains: Gains;
-var<private> mSense: array<vec4f, 4>;
+var<private> mSense: array<vec4f, 5>;
 var<private> mBrain: u32;
 
 fn mPut(o: u32, v: f32) { mind[o] = bitcast<u32>(v); }
@@ -2888,6 +3022,9 @@ fn mindMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = gid.x;
   if (i >= sim.count || sortedFull[i].id != mind[0] || sortedFull[i].kind < FIRST_LIFE) { return; }
 ${cellWGSL(K, true)}
+${K.brain ? `  {
+${thinkWGSL(K, true)}
+  }` : ""}
   let acc = stride * g.force * heavy;
   mind[1] = 1u;
   mind[2] = select(0u, 1u, hungry) | select(0u, 2u, silt != NONE) | select(0u, 4u, food != NONE);
@@ -2937,11 +3074,14 @@ ${cellWGSL(K, true)}
   mPut(54, th.x);
   mind[55] = select(0u, 1u, th.torpid);
   // the brain (K.brain): what it steered by, and what it sensed
-  mind[82] = mBrain;
+  mind[90] = mBrain;
   for (var k = 0u; k < 4u; k++) {
     mPut(58u + k, mGains.a[k]);
     mPut(62u + k, mGains.b[k]);
-    for (var c = 0u; c < 4u; c++) { mPut(66u + 4u * k + c, mSense[k][c]); }
+    mPut(66u + k, mGains.c[k]);
+  }
+  for (var k = 0u; k < 5u; k++) {
+    for (var c = 0u; c < 4u; c++) { mPut(70u + 4u * k + c, mSense[k][c]); }
   }
 }
 `;
@@ -5918,7 +6058,10 @@ struct SV {
     return finalizeGenome(g, K);
   }
   var SI = Object.fromEntries(BRAIN_SENSES.map((n, i) => [n, i]));
-  var DI = Object.fromEntries(BRAIN_DIRS.map((n, i) => [n, i]));
+  var DI = Object.fromEntries([...BRAIN_DIRS, ...BRAIN_STATE].map((n, i) => [n, i]));
+  var hidByte = (h, i) => i < 16 ? h * 16 + i : 128 + h * 4 + i - 16;
+  var outByte = (o, h) => 160 + o * 8 + h;
+  var CLOCK_BYTE = 268;
   var byteOf = (w) => Math.round(clamp(w / BRAIN_SCALE, -1, 1) * 127) & 255;
   var setByte = (words, k, w) => {
     const i = k >> 2, sh = (k & 3) * 8;
@@ -5927,10 +6070,10 @@ struct SV {
   function founderBrain(r = Math.random) {
     const w = new Array(BRAIN_WORDS).fill(0);
     const c = () => r() * 2 - 1;
-    for (let k = 0; k < 200; k++) setByte(w, k, c() * 0.1);
-    const hid = (h, sense, v) => setByte(w, h * 16 + SI[sense], v);
-    const out = (dir, h, v) => setByte(w, 128 + DI[dir] * 8 + h, v);
-    const bias = (dir, v) => setByte(w, 192 + DI[dir], v);
+    for (let k = 0; k <= CLOCK_BYTE; k++) setByte(w, k, c() * 0.1);
+    const hid = (h, sense, v) => setByte(w, hidByte(h, SI[sense]), v);
+    const out = (dir, h, v) => setByte(w, outByte(DI[dir], h), v);
+    const bias = (dir, v) => setByte(w, 256 + DI[dir], v);
     const hunger = 1 + 0.6 * c(), heat = 1 + 0.6 * c(), fear = 1 + 0.6 * c();
     hid(0, "energy", -2);
     hid(0, "bias", 1.8);
@@ -5941,15 +6084,17 @@ struct SV {
     out("warmth", 1, -2 * heat);
     out("threat", 2, -1.2 * fear);
     for (let h = 3; h < 8; h++) {
-      for (let i = 0; i < 16; i++) setByte(w, h * 16 + i, c());
-      for (const dir of BRAIN_DIRS) out(dir, h, c() * 0.8);
+      for (let i = 0; i < BRAIN_IN; i++) setByte(w, hidByte(h, i), c());
+      for (let o = 0; o < BRAIN_OUT; o++) setByte(w, outByte(o, h), c() * 0.8);
     }
     bias("heading", 0.9 + 0.3 * c());
     bias("wander", 0.3 + 0.3 * c());
     bias("current", 0.5 * c());
     bias("flock", 0.5 * c());
-    bias("jostle", 0.4 * c());
-    setByte(w, 200, c() * BRAIN_SCALE);
+    bias("kin", 0.4 * c());
+    bias("remember", 0.6 * c());
+    bias("signal", 0.3 * c());
+    setByte(w, CLOCK_BYTE, c() * BRAIN_SCALE);
     return w;
   }
   function finalizeGenome(g, K = DEFAULT_K) {
@@ -14009,7 +14154,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var U = GPUBufferUsage;
   var PICK_MAX = 131072;
   var FOCUS_MAX = 65536;
-  var PICK_BYTES = 56 + PICK_MAX * PICK_WORDS * 4;
+  var PICK_BYTES = PICK_HEAD + PICK_MAX * PICK_WORDS * 4;
   var LEDGER_HEAD = META_CLAIM * 4;
   var CENSUS_BYTES = LEDGER_HEAD + MAXK * G_BYTES;
   var LISTEN_BYTES = (LISTEN_HEAD + LISTEN_REC * LISTEN_CAP) * 4;
@@ -14095,12 +14240,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
       b.cellStart = d.createBuffer({ size: (MAX_CELLS + 1) * 4, usage: U.STORAGE });
       b.blockSums = d.createBuffer({ size: MAX_CELLS / 256 * 4, usage: U.STORAGE });
       b.genomes = d.createBuffer({ size: MAXK * G_BYTES, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
-      b.frameCtr = d.createBuffer({ size: 48, usage: U.STORAGE | U.INDIRECT | U.COPY_SRC | U.COPY_DST });
+      b.frameCtr = d.createBuffer({ size: 64, usage: U.STORAGE | U.INDIRECT | U.COPY_SRC | U.COPY_DST });
       b.bridgeDraw = d.createBuffer({ size: 16, usage: U.INDIRECT | U.COPY_DST });
       d.queue.writeBuffer(b.bridgeDraw, 0, new Uint32Array([30, 0, 0, 0]));
       b.pickOut = d.createBuffer({ size: PICK_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
       b.trackU = [0, 1].map(() => d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST }));
-      b.trackOut = [0, 1].map(() => d.createBuffer({ size: 56 + PICK_WORDS * 4, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST }));
+      b.trackOut = [0, 1].map(() => d.createBuffer({ size: PICK_HEAD + PICK_WORDS * 4, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST }));
       b.watchU = d.createBuffer({ size: 16 + WATCH_MAX * 4, usage: U.UNIFORM | U.COPY_DST });
       b.watchOut = d.createBuffer({ size: WATCH_MAX * 20, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
       this.watchStage = [0, 1, 2, 3].map(() => ({ buf: d.createBuffer({ size: WATCH_MAX * 20, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
@@ -14157,9 +14302,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
         scanSums: [6, 7],
         scanAdd: [6, 7],
         scatterMain: [0, 1, 2, 3, 6, 8, 9, 10, 12, 13, 15],
-        censusMain: [11, 12, 13],
+        censusMain: [0, 11, 12, 13],
         matterMain: [0, 1, 2, 9, 10, 11, 13, 14, 16, 18],
         lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12, 15, 18],
+        ...this.K.brain ? { thinkMain: [0, 2, 3, 6, 10, 12, 15, 18] } : {},
         heatMain: [0, 14, 18, 19],
         mindMain: [0, 2, 3, 6, 10, 15, 17, 18]
       };
@@ -14270,7 +14416,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       b.sway = d.createBuffer({ size: n * 24, usage: U.STORAGE });
       b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
       b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
-      b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
+      b.livingList = d.createBuffer({ size: (n + 512) * 4, usage: U.STORAGE | U.COPY_DST });
       b.quads = d.createBuffer({ size: (4 + n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
       const res = {
         0: { buffer: b.sim },
@@ -14722,13 +14868,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
       enc.clearBuffer(b.frameCtr, 36, 4);
       enc.clearBuffer(b.ledger, 48, 12);
       let pass = prof ? null : enc.beginComputePass({ timestampWrites });
-      const run2 = (name, n) => {
+      const run2 = (name, n, at = 4) => {
         const q = prof ? prof.names.push(name) * 2 - 2 : 0;
         if (prof) pass = enc.beginComputePass({ timestampWrites: { querySet: prof.qs, beginningOfPassWriteIndex: q, endOfPassWriteIndex: q + 1 } });
         const c = this.cp[name];
         pass.setPipeline(c.pipe);
         pass.setBindGroup(0, c.bg);
-        if (n == null) pass.dispatchWorkgroupsIndirect(b.frameCtr, 4);
+        if (n == null) pass.dispatchWorkgroupsIndirect(b.frameCtr, at);
         else pass.dispatchWorkgroups(n);
         if (prof) pass.end();
       };
@@ -14741,6 +14887,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       run2("scatterMain", wg);
       run2("censusMain", Math.ceil(MAXK / 256));
       run2("matterMain", wg);
+      if (this.K.brain) run2("thinkMain", null, 48);
       run2(this.ticks > 1 ? "lifeMainCoarse" : "lifeMain", null);
       if (this.K.heat) run2("heatMain", Math.ceil(cells / 64));
       if (!prof) pass.end();
@@ -14988,13 +15135,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
         pf[7] = this.grid[1];
         pv[8] = 4294967295;
         d.queue.writeBuffer(b.trackU[k], 0, pu);
-        enc.clearBuffer(b.trackOut[k], 0, 56);
+        enc.clearBuffer(b.trackOut[k], 0, PICK_HEAD);
         const pass = enc.beginComputePass();
         pass.setPipeline(this.cpPick.pipe);
         pass.setBindGroup(0, this.trackBG[k]);
         pass.dispatchWorkgroups(Math.ceil(N / 256));
         pass.end();
-        enc.copyBufferToBuffer(b.trackOut[k], 0, st.buf, 0, 56);
+        enc.copyBufferToBuffer(b.trackOut[k], 0, st.buf, 0, PICK_HEAD);
       }
       let watchJob = null;
       if (this.watch.length && N > 0) {
@@ -15034,13 +15181,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
           pf[7] = this.grid[1];
           pv[8] = pickJob.req.kind;
           d.queue.writeBuffer(b.pickU, 0, pu);
-          enc.clearBuffer(b.pickOut, 0, 56);
+          enc.clearBuffer(b.pickOut, 0, PICK_HEAD);
           const pass = enc.beginComputePass();
           pass.setPipeline(this.cpPick.pipe);
           pass.setBindGroup(0, this.cpPick.bg);
           pass.dispatchWorkgroups(Math.ceil(N / 256));
           pass.end();
-          enc.copyBufferToBuffer(b.pickOut, 0, st.buf, 0, 56 + pickJob.req.maxOut * PICK_WORDS * 4);
+          enc.copyBufferToBuffer(b.pickOut, 0, st.buf, 0, PICK_HEAD + pickJob.req.maxOut * PICK_WORDS * 4);
         }
       }
       const tsEndAt1 = slot ? { querySet: tm.qs, endOfPassWriteIndex: 1 } : void 0;
@@ -15108,10 +15255,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
           const found = u32[1] === 1;
           const out = { total: u32[0], truncated: u32[0] > req.maxOut, found, tracked: found ? parseParticle(u32, f32, 4) : null, entries: [], center: req.center, radius: req.radius, simTime: pickJob.simTime };
           if (req.raw) {
-            const copy = buf.slice(56, 56 + count * PICK_WORDS * 4);
+            const copy = buf.slice(PICK_HEAD, PICK_HEAD + count * PICK_WORDS * 4);
             out.raw = { u32: new Uint32Array(copy), f32: new Float32Array(copy), count };
           } else {
-            for (let k = 0; k < count; k++) out.entries.push(parseParticle(u32, f32, 14 + k * PICK_WORDS));
+            for (let k = 0; k < count; k++) out.entries.push(parseParticle(u32, f32, PICK_HEAD / 4 + k * PICK_WORDS));
           }
           st.buf.unmap();
           st.busy = false;
@@ -15898,7 +16045,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     affinity: "How strongly each of the species’ cell types is drawn toward (warm, +) or pushed away from (cool, −) what it meets within reach: its own cell types, other species and matter. It is read from the cell type’s receptors against the other’s surface signature; −1 to +1. A picked cell’s own type is marked. Diet adds its own pull toward food on top of this.",
     lighthere: "Light at this cell’s position right now: baseline plus tide, scaled by the season.",
     mind: "What this cell is doing, read from a replay of its latest decision. Unless the brain experiment is on (see Brain), a cell has no brain: every frame it adds up the pulls and pushes of everything within reach (its receptors against their surface signatures, appetite for the foods its diet favours, schooling, bonds, stone), moves, then eats, divides or neither. The mode names which pull wins; hover it for the reasoning. The compass draws each pull as an arrow, its length the pull’s strength, with the cell’s heading dashed and its target as a diamond on the rim. The lamps light for conditions that shape what it does. Fleeing is an evolved aversion: no cell knows what a predator is, but lineages whose receptors happened to push them away from their hunters survived.",
-    brain: 'The brain (an experiment, on with #k={"brain":1}): every species carries a small neural network, sixteen senses to eight hidden neurons to eight outputs, its weights in the genome. Each cell runs it on what it senses itself (its energy and age, food and danger in reach and where they lie, its own kind, crowding, warmth, light, silt, its bonds, its speed, the current and a slow clock of its own), and the outputs say how hard it swims along each direction it senses: toward food or danger, with or against the push and pull of its neighbours, with its own kind’s heading, up or down the warmth, with the current, on along its heading, or wandering. Nothing is trained. Founders are born with simple reflexes; mutation jitters the weights and now and then rewires a neuron, and lineages whose brains happened to work outlived the rest. Bars left of centre steer away, right of centre toward.',
+    brain: 'The brain (an experiment, on with #k={"brain":1}): every species carries a small neural network, twenty senses to eight hidden neurons to twelve outputs, its weights in the genome. Each swimming cell runs it on what it senses itself (its energy and age, food and danger in reach and where they lie, its own kind, crowding, warmth, light, silt, its bonds, its speed, the current, a slow clock of its own), on its two memories and on the signals it hears from its own kind and from other species. Eight outputs say how hard it swims along each direction it senses: toward food or danger, toward or with its own kind, up or down the warmth, with the current, on along its heading, or wandering. The rest are its state: what it remembers, how much of that it keeps, and the signal it gives off, which its neighbours hear. A cell thinks about fifteen times a second and swims by its last decision in between. Nothing is trained. Founders are born with simple reflexes and a temperament of their own; mutation jitters the weights and now and then rewires a neuron, and lineages whose brains happened to work outlived the rest. Bars left of centre steer away or read negative, right of centre toward or positive.',
     "mind-food": "Appetite: a hungry cell is drawn toward the foods its diet favours. Flesh-eaters are drawn to animal cells, grazers (and, reluctantly, flesh-eaters) to plant cells, and glint- and husk-eaters to glint and husks. It lets living food inside its personal space so it can reach it. A sated cell feels no appetite.",
     "mind-other": "The pull or push of other species’ cells on this one: its receptors against their surface signatures. Evolved, not chosen: it is how prey comes to avoid hunters and how species come to live side by side.",
     "mind-kin": "The pull or push of its own species’ cells (beyond personal space and bonds). Attraction gathers swarms and packs bodies; repulsion spreads them out.",
@@ -17256,7 +17403,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       x: f32[54],
       torpid: !!(u32[55] & 1),
       // the brain (K.brain), if it steered this step: the gain on each direction and the senses it read
-      brain: u32[82] === 1 ? { gains: Array.from(f32.subarray(58, 66)), senses: Array.from(f32.subarray(66, 82)) } : null,
+      // (outputs: the eight direction gains, then memory candidates, signal, remember)
+      brain: u32[90] === 1 ? { gains: Array.from(f32.subarray(58, 66)), state: Array.from(f32.subarray(66, 70)), senses: Array.from(f32.subarray(70, 90)) } : null,
       nbrs
     };
   }
@@ -17486,10 +17634,17 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var R = 40;
   var NB_ROWS = 4;
   var EASE_MS = 70;
+  var BRAIN_STATE_ROWS = [
+    ["m1", "Memory 1", (b) => b.senses[16]],
+    ["m2", "Memory 2", (b) => b.senses[17]],
+    ["sig", "Its signal", (b) => b.state[2]],
+    ["hk", "Hears its kind", (b) => b.senses[18]],
+    ["ho", "Hears others", (b) => b.senses[19]]
+  ];
   var BRAIN_LABEL = {
     food: "Toward food",
     threat: "Toward danger",
-    jostle: "With its neighbours’ pull",
+    kin: "Toward its kind",
     warmth: "Up the warmth",
     current: "With the current",
     heading: "On its heading",
@@ -17541,6 +17696,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (K.brain && g.swim * (1 - g.photo) > 0.01) {
         h += `<div class="blk mv-brain">${subHead(`<i class="ico cell"></i>${term("brain", "Brain")}`, "away · toward")}`;
         h += BRAIN_DIRS.map((d) => `<div class="br-row" data-d="${d}"><span>${BRAIN_LABEL[d]}</span><span class="dbar"><i></i></span><b>0.00</b></div>`).join("");
+        h += `<div class="br-sep"></div>` + BRAIN_STATE_ROWS.map(([k, label2]) => `<div class="br-row" data-d="${k}"><span>${label2}</span><span class="dbar"><i></i></span><b>0.00</b></div>`).join("");
         h += "</div>";
       }
       h += `<div class="blk mv-nb">${subHead(`<i class="ico cell"></i>${term("mind-near", "Neighbours")}`, "within its reach")}`;
@@ -17592,7 +17748,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       if (tk == null) parts.tname.textContent = head.matter || "—";
       const m = mind.m, food = m.food;
-      const q = tk == null ? null : m.nbrs.find((n) => food && n.j === food.j) || m.nbrs.filter((n) => n.kind === tk).sort((a, b) => len2(a.d) - len2(b.d))[0];
+      const q = tk == null ? null : m.nbrs.find((n) => food && n.j === food.j) || m.nbrs.filter((n) => n.kind === tk).sort((a, b2) => len2(a.d) - len2(b2.d))[0];
       const tdist = q ? len2(q.d) : food && head.matter && head.key !== "forage" ? food.dist : null;
       parts.tdist.textContent = tdist != null ? `${fmtLen(tdist)} away` : "";
       parts.detail.textContent = detail(head, mind);
@@ -17623,13 +17779,14 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (n.label.textContent !== f2.label) n.label.textContent = f2.label;
         n.label.dataset.hint = plain(f2.hint, f2.target);
       }
-      const gains = m.brain ? m.brain.gains : null;
+      const b = m.brain;
+      const vals = b ? [...b.gains, ...BRAIN_STATE_ROWS.map(([, , v]) => v(b))] : null;
       parts.brain.forEach((r, i) => {
-        const x = gains ? gains[i] : 0, w = Math.min(1, Math.abs(x)) * 50;
+        const x = vals ? vals[i] : 0, w = Math.min(1, Math.abs(x)) * 50;
         r.bar.style.left = `${x < 0 ? 50 - w : 50}%`;
         r.bar.style.width = `${w}%`;
         r.bar.style.background = x >= 0 ? "var(--sun)" : "var(--cyan)";
-        r.val.textContent = gains ? `${x >= 0 ? "+" : "−"}${Math.abs(x).toFixed(2)}` : "—";
+        r.val.textContent = vals ? `${x >= 0 ? "+" : "−"}${Math.abs(x).toFixed(2)}` : "—";
       });
       parts.live.classList.remove("blink");
       void parts.live.offsetWidth;
@@ -18542,7 +18699,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     const edges = Array.from({ length: n }, () => []);
     for (let i = 0; i < n; i++) {
-      for (let b = 10; b < PICK_WORDS; b++) {
+      for (let b = PICK_PARTNERS; b < PICK_WORDS; b++) {
         const id = u32[i * PICK_WORDS + b];
         if (id === 4294967295) continue;
         const j = index.get(id);
@@ -19163,7 +19320,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         }
       }
       if (best < 0) return null;
-      return this.subjectShot(res, best, u32[best * PICK_WORDS + 10] !== NONE ? [5, 12] : [3, 7], { reasons: h.reasons });
+      return this.subjectShot(res, best, u32[best * PICK_WORDS + PICK_PARTNERS] !== NONE ? [5, 12] : [3, 7], { reasons: h.reasons });
     }
     // Visit a newly established species: a cell where its members are densest.
     async spotlightShot(spot) {
