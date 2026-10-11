@@ -19084,6 +19084,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8, 16, 32, 64, Infinity];
   var MAX_FRAME_MS = 30;
   var MAX_TICKS = 4;
+  var SIGNAL_AFTER = 60;
   var H = 1 / 60;
   var fmtSpeed = (s) => s === Infinity ? "Max" : `×${s}`;
   var PARTICLE_SIZES = [32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
@@ -19656,12 +19657,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
         alive++;
         let sp = life.reg.get(genomeSerial(c.genomeU32, s));
         const g = sp ? sp.genome : readGenome(c.genomeU32, c.genomeF32, s);
-        if (!sp) {
-          sp = register(g);
-          if (sp.signal) {
-            pushEvent(`${spLink(sp.serial, sp.name)} appears to be trying to communicate`, g.col, "est");
-            director.spotlight(s, g.serial, { signal: true });
-          }
+        if (!sp) sp = register(g);
+        if (sp.signal && !sp.heard && t2 - (sp.born || 0) >= SIGNAL_AFTER) {
+          sp.heard = true;
+          pushEvent(`${spLink(sp.serial, sp.name)} appears to be trying to communicate`, g.col, "est");
+          director.spotlight(s, g.serial, { signal: true });
         }
         audio.push([s, g]);
         sp.slot = s;
@@ -19699,7 +19699,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           if (sp.established) {
             sp.extinct = t2;
             if (sp.peak >= life.estThreshold * 3) pushEvent(`${spLink(sp.serial, sp.name)} extinct after ${fmtDur(t2 - (sp.born || 0))} · peak ${fmt(sp.peak)}`, sp.genome.col, "ext");
-          } else if (sp.signal) {
+          } else if (sp.heard) {
             sp.extinct = t2;
             pushEvent(`${spLink(sp.serial, sp.name)} fell silent after ${fmtDur(t2 - (sp.born || 0))}`, sp.genome.col, "ext");
           } else {
