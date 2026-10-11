@@ -241,7 +241,7 @@ class Engine {
     }
     this.censusStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: CENSUS_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     this.pickStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: PICK_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
-    this.trackStage = [0, 1, 2, 3, 4, 5, 6, 7].map(() => ({ buf: d.createBuffer({ size: 56, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
+    this.trackStage = [0, 1, 2, 3, 4, 5, 6, 7].map(() => ({ buf: d.createBuffer({ size: PICK_HEAD, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     b.reprojU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     this.pReproj = rp(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined);
     // Max and coarse speeds: the last drawn world, carried with the camera onto the display frames between draws
