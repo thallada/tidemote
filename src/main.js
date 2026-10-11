@@ -115,7 +115,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // While a pointer is held down on a panel, nothing re-renders under it: replacing the element
   // between pointerdown and pointerup swallows the click.
   let uiHoldUntil = 0;
-  const panelSel = '.panel, .rail, .dock, .focus';
+  const panelSel = '.panel, .rail, .dock, .floats';
   document.addEventListener('pointerdown', (e) => { if (e.target.closest && e.target.closest(panelSel)) uiHoldUntil = Infinity; }, true);
   const releaseHold = () => { if (uiHoldUntil === Infinity) uiHoldUntil = performance.now() + 150; };
   document.addEventListener('pointerup', releaseHold, true);
@@ -134,12 +134,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let trailIdx = prefs.trails ?? 1;
   const defaults = { ...eng.settings }; // the engine's own, for Settings' reset
   eng.settings.trails = trailLevels[trailIdx];
-  for (const k of ['links', 'nodes', 'bloom', 'optics', 'specks', 'lod', 'tide', 'heat']) if (prefs[k] !== undefined) eng.settings[k] = prefs[k];
+  for (const k of ['links', 'nodes', 'bloom', 'optics', 'specks', 'lod', 'tide', 'heat', 'bands']) if (prefs[k] !== undefined) eng.settings[k] = prefs[k];
   eng.maxScan = state.perf.scan ?? K.maxScan;
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: 2, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
+    savePrefs({ v: 2, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   if (prefs.loupe !== undefined && !isCoarse) state.loupe = prefs.loupe;
@@ -428,6 +428,50 @@ function run(eng, device, ctx, specCtx, hasTS) {
     renderWorld();
   }
   $('focus-clear').addEventListener('click', clearFocus);
+
+  // ------------------------------------------------------------ maps (what a gauge opens)
+  // Tapping a gauge maps what it reads, alone: Light the light map, Temp the thermal camera, Tide the
+  // tide map (on phones, where the Tide rides under the era name, the era opens it). A bar beside the
+  // highlight names the map with its scale and closes it back to the plain view.
+  const MAPS = [
+    { gauge: 'g-light', name: 'Light', on: (s) => s.tide === 2, open: (s) => { s.tide = 2; }, close: (s) => { s.tide = defaults.tide; }, ramp: () => ['', 'dark', 'full light'] },
+    { gauge: 'g-heat', name: 'Temperature', on: (s) => s.heat === 2, open: (s) => { s.heat = 2; }, close: (s) => { s.heat = defaults.heat; }, ramp: () => ['heat', `${Math.round(eng.tbg - 2)}°`, `${Math.round(eng.tbg + 10)}°`] },
+    { gauge: 'g-tide', name: 'Tide', on: (s) => s.bands > 0, open: (s) => { s.bands = 1; }, close: (s) => { s.bands = 0; }, ramp: () => ['tide', 'no glint', 'most'] },
+  ];
+  const rampHtml = (m) => { const [cls, lo, hi] = m.ramp(); return `<div class="ramp ${cls}"><span>${lo}</span><i></i><span>${hi}</span></div>`; };
+  const mapsOn = () => MAPS.filter((m) => m.on(eng.settings));
+  function clearMaps() {
+    for (const m of mapsOn()) m.close(eng.settings);
+    mapsChanged();
+  }
+  function toggleMap(m) {
+    const only = mapsOn().length === 1 && m.on(eng.settings);
+    for (const o of mapsOn()) o.close(eng.settings);
+    if (!only) m.open(eng.settings);
+    mapsChanged();
+  }
+  function mapsChanged() { persist(); renderMaps(); view.render(); }
+  // the bar and the gauges' lit state, updated in place
+  function renderMaps() {
+    const on = mapsOn();
+    for (const m of MAPS) $(m.gauge).classList.toggle('on', on.includes(m));
+    $('maps').hidden = !on.length;
+    if (!on.length) return;
+    const html = on.length === 1 ? rampHtml(on[0]) : '';
+    const label = on.map((m) => m.name).join(' · ');
+    if ($('maps-label').textContent !== label) $('maps-label').textContent = label;
+    if ($('maps-ramp').innerHTML !== html) $('maps-ramp').innerHTML = html;
+    $('maps-ramp').hidden = !html;
+  }
+  for (const m of MAPS) {
+    const g = $(m.gauge);
+    g.setAttribute('role', 'button');
+    g.addEventListener('click', () => toggleMap(m));
+    g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleMap(m); } });
+  }
+  // on phones the Tide gauge is hidden and the season rides under the era name, so the era opens it
+  $('era-box').addEventListener('click', () => { if (phone()) toggleMap(MAPS[2]); });
+  $('maps-clear').addEventListener('click', clearMaps);
   const allLiving = () => true;
   function focusFacet(key) {
     if (focus.key === key) { clearFocus(); return; }
@@ -1224,9 +1268,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const s = eng.settings;
       return group('look', '', choice('trails', 'Trails', 'T', trailNames.map((n, i) => [i, n]), trailIdx)
         + choice('tide', 'Light map', 'G', [[0, 'Off'], [1, 'Faint'], [2, 'Full']], s.tide, 'light')
-        + (s.tide === 2 ? '<div class="ramp"><span>dark</span><i></i><span>full light</span></div>' : '')
+        + (s.tide === 2 ? rampHtml(MAPS[0]) : '')
         + (K.heat ? choice('heat', 'Heat map', 'E', [[0, 'Off'], [1, 'Shimmer'], [2, 'Full']], s.heat, 'heatmap') : '')
-        + (K.heat && s.heat === 2 ? `<div class="ramp heat"><span>${Math.round(eng.tbg - 2)}°</span><i></i><span>${Math.round(eng.tbg + 10)}°</span></div>` : '')
+        + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : '')
+        + onoff('bands', 'Tide map', 'D', s.bands > 0, 'tidemap')
+        + (s.bands ? rampHtml(MAPS[2]) : '')
         + onoff('currents', 'Currents', 'W', state.currents)
         + onoff('links', 'Bonds', 'L', s.links, 'bond')
         + onoff('nodes', 'Particles', 'N', s.nodes)
@@ -1266,7 +1312,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const s = eng.settings, P = state.perf;
       if (tab === 'display') {
         trailIdx = 1; s.trails = trailLevels[trailIdx];
-        for (const k of ['tide', 'heat', 'links', 'nodes']) s[k] = defaults[k];
+        for (const k of ['tide', 'heat', 'bands', 'links', 'nodes']) s[k] = defaults[k];
         state.currents = false; state.loupe = !isCoarse; state.songMarks = 1;
         state.auto = true; renderAuto(director.active);
       } else {
@@ -1311,6 +1357,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (id === 'trails') { trailIdx = +v; s.trails = trailLevels[trailIdx]; }
       else if (id === 'tide') s.tide = +v;
       else if (id === 'heat') s.heat = +v;
+      else if (id === 'bands') s.bands = +v;
       else if (id === 'currents') state.currents = !!+v;
       else if (id === 'links') s.links = !!+v;
       else if (id === 'nodes') s.nodes = !!+v;
@@ -1333,6 +1380,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'reset' || id === 'reset-no') { confirming = id === 'reset'; render(); return; }
       else if (id === 'reset-yes') { confirming = false; resetTab(); }
       persist();
+      renderMaps();
       render();
     }
     opts.addEventListener('click', (e) => { const b = e.target.closest('[data-o]'); if (b && !b.disabled) set(b.dataset.o, b.dataset.v); });
@@ -1486,8 +1534,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === 'n' || k === 'N') { eng.settings.nodes = !eng.settings.nodes; flash(eng.settings.nodes ? 'Particles on' : 'Particles off'); persist(); view.render(); }
     else if (k === 'b' || k === 'B') { eng.settings.bloom = eng.settings.bloom > 0 ? 0 : 0.012; flash(eng.settings.bloom ? 'Bloom on' : 'Bloom off'); persist(); view.render(); }
     else if (k === 'o' || k === 'O') { eng.settings.optics = eng.settings.optics > 0 ? 0 : 1; flash(eng.settings.optics ? 'Microscope optics on' : 'Microscope optics off'); persist(); view.render(); }
-    else if (k === 'g' || k === 'G') { eng.settings.tide = (eng.settings.tide + 1) % 3; flash(['Light map off', 'Faint light map', 'Light map'][eng.settings.tide]); persist(); view.render(); }
-    else if ((k === 'e' || k === 'E') && K.heat) { eng.settings.heat = (eng.settings.heat + 1) % 3; flash(['Heat map off', 'Heat shimmer', 'Thermal camera'][eng.settings.heat]); persist(); view.render(); }
+    else if (k === 'g' || k === 'G') { eng.settings.tide = (eng.settings.tide + 1) % 3; flash(['Light map off', 'Faint light map', 'Light map'][eng.settings.tide]); mapsChanged(); }
+    else if ((k === 'e' || k === 'E') && K.heat) { eng.settings.heat = (eng.settings.heat + 1) % 3; flash(['Heat map off', 'Heat shimmer', 'Thermal camera'][eng.settings.heat]); mapsChanged(); }
+    else if (k === 'd' || k === 'D') { eng.settings.bands = eng.settings.bands ? 0 : 1; flash(eng.settings.bands ? 'Tide map' : 'Tide map off'); mapsChanged(); }
     else if (k === 'w' || k === 'W') { state.currents = !state.currents; flash(state.currents ? 'Currents shown' : 'Currents hidden'); view.render(); }
     else if (k === 'v' || k === 'V') view.toggle();
     else if (k === 'k' || k === 'K') { closeMenus(); lab.toggle(); }
@@ -1504,6 +1553,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (view.isOpen()) view.toggle(false);
       else if (sel || spView != null) deselect();
       else if (focus.key) clearFocus();
+      else if (mapsOn().length) clearMaps();
       else if (lab.isWide() && !phone()) lab.narrow();
       else if (lab.isOpen() && phone()) lab.close();
       else handled = false;
@@ -1691,6 +1741,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       $('g-heat').classList.toggle('exc', !!exc);
       $('g-heat').setAttribute('aria-label', `${exc ? `${exc}, ` : ''}temperature ${Math.round(T)}°${arrow ? (arrow === '↑' ? ' and rising' : ' and falling') : ''}`);
     }
+    renderMaps();
     tips.check();
     // Max shows what it reaches; every other speed is exact
     setText('t-rate', state.speed > 1 && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : '');

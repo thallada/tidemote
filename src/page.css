@@ -164,7 +164,7 @@ input[type="range"] { accent-color: var(--cyan); cursor: pointer; }
 /* ------------------------------------------------------------------ HUD frame */
 .hud { position: fixed; inset: 0; pointer-events: none; transition: opacity 1s ease; z-index: 5; }
 body:not(.live) .hud { opacity: 0; }
-.hud.off > :not(.dock):not(.focus) { opacity: 0; visibility: hidden; }
+.hud.off > :not(.dock):not(.floats) { opacity: 0; visibility: hidden; }
 
 .rail {
   position: absolute; left: 0; right: 0; top: 0; height: var(--top);
@@ -319,13 +319,24 @@ body:not(.live) .hud { opacity: 0; }
 body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520px, calc(100% - 2 * var(--gut) - 620px))); }
 .caption.on a.sp { pointer-events: auto; }
 
+/* the highlight (hot) and the map (cyan) float side by side under the rail */
+.floats {
+  position: absolute; top: calc(var(--top) + 12px); left: var(--gut); right: var(--gut);
+  display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s2); pointer-events: none;
+}
 .focus {
-  position: absolute; top: calc(var(--top) + 12px); left: 50%; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 10px; padding: 3px 3px 3px 12px; pointer-events: auto;
-  background: rgba(6, 9, 10, 0.9); border: 1px solid var(--hot); max-width: calc(100% - 2 * var(--gut));
+  display: flex; align-items: center; gap: 10px; padding: 3px 3px 3px 12px; pointer-events: auto; min-width: 0;
+  background: rgba(6, 9, 10, 0.9); border: 1px solid var(--hot); max-width: 100%;
 }
 .focus .lbl { color: var(--hot); }
 .focus b { font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.focus.maps { border-color: var(--cyan); }
+.focus.maps .lbl { color: var(--cyan); }
+.focus.maps .ramp { width: 132px; font-size: 10.5px; white-space: nowrap; }
+/* the gauges open their maps (on phones the era opens the tide's) */
+.gauge { cursor: pointer; }
+.gauge.on { border-left-color: var(--cyan); }
+.gauge.on .lbl { color: var(--cyan); }
 
 .flash {
   position: fixed; left: 50%; top: 28%; transform: translate(-50%, -50%); z-index: 30;
@@ -697,6 +708,8 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .ramp i { flex: 1; height: 6px; background: linear-gradient(90deg, #080a29 0%, #006b80 48%, #4e9a7a 62%, #ffdb52 100%); }
 /* the thermal camera's ramp (heatRamp in shaders.js): deep blue, teal, amber, white */
 .ramp.heat i { background: linear-gradient(90deg, #050a2e 0%, #006b7a 35%, #ff8520 70%, #ff8520 75%, #fff2d1 100%); }
+/* the tide map's ramp (fsComposite): ink, violet, glint */
+.ramp.tide i { background: linear-gradient(90deg, #08051a 0%, #5c3399 45%, #8a8fd6 62%, #b8e6ff 100%); }
 .eras { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
 .eras li { display: grid; grid-template-columns: 4.4ch 1fr auto; gap: 10px; align-items: baseline; }
 .eras time, .eras span { color: var(--ink-3); }
@@ -796,7 +809,9 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   #vol { display: none; }
   .caption { bottom: calc(var(--bot) + 14px); }
   .caption .cap-main { font-size: 15px; }
-  .focus { top: calc(var(--top) + 8px); }
+  .floats { top: calc(var(--top) + 8px); }
+  .focus.maps .ramp { width: 120px; }
+  .era-box { cursor: pointer; }
   /* the specimen is a sheet: peeking above the dock, pulled up for everything */
   .spec { z-index: 7; overflow: hidden; left: 0; right: 0; width: auto; top: auto; bottom: var(--bot); max-height: calc(100% - var(--top) - var(--bot)); padding: 0 14px; border: 0; border-top: 1px solid var(--line-2); transition: height .28s ease; }
   .spec.dragging { transition: none; }

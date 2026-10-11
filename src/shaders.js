@@ -3599,8 +3599,11 @@ struct Post {
   tide: array<vec4f, 4>,
   tidePh: vec4f,
   waves: array<vec4f, 4>,
-  // the background water temperature, then the heat map's span
+  // the background water temperature, then the heat map's span; w: the tide map (0 off, 1 on)
   heat: vec4f,
+  // glint production (lifeMain's charge): per second at full tide in this era, then the hot springs'
+  // rate and the span over the background where they start and reach it
+  glint: vec4f,
 };
 `;
 
@@ -4187,6 +4190,30 @@ fn heatRamp(u: f32) -> vec3f {
     let w = fwidth(band);
     let contour = 1.0 - smoothstep(0.0, w * 1.2, min(fract(band), 1.0 - fract(band)));
     c += vec3f(0.22) * contour;
+  }
+  if (post.heat.w > 0.5) {
+    // the tide map: how fast silt charges into glint here, as lifeMain charges it (the Tide's bands by
+    // the season over a share of the baseline light, times the era's charge, plus hot springs in
+    // water far above the background), ink to violet to glint's pale blue up to a little over the
+    // best a band does in the richest era; outlines of the bands' shape at quarter steps (at every
+    // season, so they still show at low tide); and, dashed, where they will be in 20 s, so the way
+    // they drift shows. Over a full light map, the lines alone.
+    let S = tideAt(wp, post.world, post.simTime, post.tide, post.tidePh);
+    var rate = (S * post.season + 0.2 * post.ambient) * post.glint.x;
+    if (post.heatVis >= 0.0) { rate += post.glint.y * smoothstep(post.glint.z, post.glint.w, water.x - post.heat.x); }
+    let G = clamp(rate / ${f(DEFAULT_K.charge * 1.25 * 1.2)}, 0.0, 1.0);
+    if (post.tideVis < 1.5) {
+      let ramp = mix(mix(vec3f(0.03, 0.02, 0.10), vec3f(0.36, 0.20, 0.62), smoothstep(0.0, 0.45, G)), vec3f(0.72, 0.90, 1.0), smoothstep(0.4, 1.0, G));
+      c = mix(c, ramp, mix(0.25, 0.45, smoothstep(0.0, 0.4, G)));
+    }
+    let band = S * 4.0;
+    let w = fwidth(band);
+    let line = 1.0 - smoothstep(0.0, w * 1.2, min(fract(band), 1.0 - fract(band)));
+    c += vec3f(0.55, 0.62, 1.0) * (0.12 + 0.12 * post.season) * line * step(0.02, S) * step(S, 0.98);
+    let F = tideAt(wp, post.world, post.simTime + 20.0, post.tide, post.tidePh) - 0.5;
+    let ghost = 1.0 - smoothstep(0.0, fwidth(F) * 1.5, abs(F));
+    let dash = step(0.5, fract(dot(i.pos.xy, vec2f(0.0707, 0.0707))));
+    c += vec3f(0.72, 0.90, 1.0) * 0.4 * ghost * dash;
   }
   if (post.heatVis > 1.5) {
     // the thermal camera: false colour over the map's span (drawn as isotherms alone over a full

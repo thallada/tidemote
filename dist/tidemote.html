@@ -174,7 +174,7 @@ input[type="range"] { accent-color: var(--cyan); cursor: pointer; }
 /* ------------------------------------------------------------------ HUD frame */
 .hud { position: fixed; inset: 0; pointer-events: none; transition: opacity 1s ease; z-index: 5; }
 body:not(.live) .hud { opacity: 0; }
-.hud.off > :not(.dock):not(.focus) { opacity: 0; visibility: hidden; }
+.hud.off > :not(.dock):not(.floats) { opacity: 0; visibility: hidden; }
 
 .rail {
   position: absolute; left: 0; right: 0; top: 0; height: var(--top);
@@ -329,13 +329,24 @@ body:not(.live) .hud { opacity: 0; }
 body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520px, calc(100% - 2 * var(--gut) - 620px))); }
 .caption.on a.sp { pointer-events: auto; }
 
+/* the highlight (hot) and the map (cyan) float side by side under the rail */
+.floats {
+  position: absolute; top: calc(var(--top) + 12px); left: var(--gut); right: var(--gut);
+  display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s2); pointer-events: none;
+}
 .focus {
-  position: absolute; top: calc(var(--top) + 12px); left: 50%; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 10px; padding: 3px 3px 3px 12px; pointer-events: auto;
-  background: rgba(6, 9, 10, 0.9); border: 1px solid var(--hot); max-width: calc(100% - 2 * var(--gut));
+  display: flex; align-items: center; gap: 10px; padding: 3px 3px 3px 12px; pointer-events: auto; min-width: 0;
+  background: rgba(6, 9, 10, 0.9); border: 1px solid var(--hot); max-width: 100%;
 }
 .focus .lbl { color: var(--hot); }
 .focus b { font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.focus.maps { border-color: var(--cyan); }
+.focus.maps .lbl { color: var(--cyan); }
+.focus.maps .ramp { width: 132px; font-size: 10.5px; white-space: nowrap; }
+/* the gauges open their maps (on phones the era opens the tide's) */
+.gauge { cursor: pointer; }
+.gauge.on { border-left-color: var(--cyan); }
+.gauge.on .lbl { color: var(--cyan); }
 
 .flash {
   position: fixed; left: 50%; top: 28%; transform: translate(-50%, -50%); z-index: 30;
@@ -707,6 +718,8 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .ramp i { flex: 1; height: 6px; background: linear-gradient(90deg, #080a29 0%, #006b80 48%, #4e9a7a 62%, #ffdb52 100%); }
 /* the thermal camera's ramp (heatRamp in shaders.js): deep blue, teal, amber, white */
 .ramp.heat i { background: linear-gradient(90deg, #050a2e 0%, #006b7a 35%, #ff8520 70%, #ff8520 75%, #fff2d1 100%); }
+/* the tide map's ramp (fsComposite): ink, violet, glint */
+.ramp.tide i { background: linear-gradient(90deg, #08051a 0%, #5c3399 45%, #8a8fd6 62%, #b8e6ff 100%); }
 .eras { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
 .eras li { display: grid; grid-template-columns: 4.4ch 1fr auto; gap: 10px; align-items: baseline; }
 .eras time, .eras span { color: var(--ink-3); }
@@ -806,7 +819,9 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   #vol { display: none; }
   .caption { bottom: calc(var(--bot) + 14px); }
   .caption .cap-main { font-size: 15px; }
-  .focus { top: calc(var(--top) + 8px); }
+  .floats { top: calc(var(--top) + 8px); }
+  .focus.maps .ramp { width: 120px; }
+  .era-box { cursor: pointer; }
   /* the specimen is a sheet: peeking above the dock, pulled up for everything */
   .spec { z-index: 7; overflow: hidden; left: 0; right: 0; width: auto; top: auto; bottom: var(--bot); max-height: calc(100% - var(--top) - var(--bot)); padding: 0 14px; border: 0; border-top: 1px solid var(--line-2); transition: height .28s ease; }
   .spec.dragging { transition: none; }
@@ -910,7 +925,7 @@ svg.niche .n-dot { fill: var(--cyan); }
   <header class="rail" id="rail">
     <div class="brand" aria-label="Tidemote"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></svg><span>Tidemote</span></div>
     <div class="clock" role="timer" aria-label="Simulated time"><span class="lbl">Epoch</span><b id="epoch">0:00</b></div>
-    <div class="era-box"><span class="lbl" id="era-n">Era 01</span><b id="era">The First Tides</b><span class="era-tide" id="era-tide" aria-hidden="true"><svg viewBox="0 0 60 6" preserveAspectRatio="none"><path/></svg><i></i></span></div>
+    <div class="era-box" id="era-box"><span class="lbl" id="era-n">Era 01</span><b id="era">The First Tides</b><span class="era-tide" id="era-tide" aria-hidden="true"><svg viewBox="0 0 60 6" preserveAspectRatio="none"><path/></svg><i></i></span></div>
     <div class="gauge term" data-tip="light" tabindex="0" id="g-light"><span class="lbl">Light</span><span class="seg" id="light-seg" aria-hidden="true"></span><b id="light-v">–</b></div>
     <div class="gauge term" data-tip="water" tabindex="0" id="g-heat"><span class="lbl">Temp</span><svg class="thermo" id="thermo" viewBox="0 0 68 18" aria-hidden="true"></svg><svg class="thermo-i" id="thermo-i" viewBox="0 0 12 20" aria-hidden="true"></svg><b id="heat-v">–</b></div>
     <div class="gauge term" data-tip="season" tabindex="0" id="g-tide"><span class="lbl">Tide</span><svg id="tide-wave" viewBox="0 0 60 16" aria-hidden="true"><path class="wave" d=""/><circle class="dot" r="2.2" cx="0" cy="8"/></svg><b id="tide-v">–</b></div>
@@ -964,7 +979,11 @@ svg.niche .n-dot { fill: var(--cyan); }
     <div class="opts" id="opts"></div>
   </div>
 
-  <div class="focus" id="focus" hidden><span class="lbl">Highlight</span><b id="focus-label"></b><button type="button" class="ghost" id="focus-clear" aria-label="Clear highlight" data-hint="Clear · Esc"><svg><use href="#i-close"/></svg></button></div>
+  <!-- floating bars: the species highlight, and the map a gauge opened; each closes on its own -->
+  <div class="floats" id="floats">
+    <div class="focus" id="focus" hidden><span class="lbl">Highlight</span><b id="focus-label"></b><button type="button" class="ghost" id="focus-clear" aria-label="Clear highlight" data-hint="Clear · Esc"><svg><use href="#i-close"/></svg></button></div>
+    <div class="focus maps" id="maps" hidden><span class="lbl">Map</span><b id="maps-label"></b><div id="maps-ramp"></div><button type="button" class="ghost" id="maps-clear" aria-label="Close the map" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button></div>
+  </div>
 </div>
 
 <!-- specimen: what was picked -->
@@ -1049,12 +1068,12 @@ svg.niche .n-dot { fill: var(--cyan); }
     <dt>, . / &gt;</dt><dd>Slower · faster · real time · max</dd>
     <dt>A</dt><dd>Auto camera</dd>
     <dt>C</dt><dd>Follow the specimen</dd>
-    <dt>Esc</dt><dd>Close, then clear the highlight</dd>
+    <dt>Esc</dt><dd>Close, then clear the highlight, then the map</dd>
     <dt>K</dt><dd>Fold or open the Field Lab</dd>
     <dt>V</dt><dd>Settings</dd>
     <dt>S · − =</dt><dd>Sound · volume</dd>
     <dt>T</dt><dd>Trails</dd>
-    <dt>G · E · W</dt><dd>Light map · heat map · currents</dd>
+    <dt>G · E · D · W</dt><dd>Light map · heat map · tide map · currents</dd>
     <dt>L N B O</dt><dd>Bonds · particles · bloom · optics</dd>
     <dt>M · [ ]</dt><dd>Loupe · magnification</dd>
     <dt>0 · F · I</dt><dd>Reset zoom · fullscreen · hide readouts</dd>
@@ -4714,8 +4733,11 @@ struct Post {
   tide: array<vec4f, 4>,
   tidePh: vec4f,
   waves: array<vec4f, 4>,
-  // the background water temperature, then the heat map's span
+  // the background water temperature, then the heat map's span; w: the tide map (0 off, 1 on)
   heat: vec4f,
+  // glint production (lifeMain's charge): per second at full tide in this era, then the hot springs'
+  // rate and the span over the background where they start and reach it
+  glint: vec4f,
 };
 `
   );
@@ -5303,6 +5325,30 @@ fn heatRamp(u: f32) -> vec3f {
     let w = fwidth(band);
     let contour = 1.0 - smoothstep(0.0, w * 1.2, min(fract(band), 1.0 - fract(band)));
     c += vec3f(0.22) * contour;
+  }
+  if (post.heat.w > 0.5) {
+    // the tide map: how fast silt charges into glint here, as lifeMain charges it (the Tide's bands by
+    // the season over a share of the baseline light, times the era's charge, plus hot springs in
+    // water far above the background), ink to violet to glint's pale blue up to a little over the
+    // best a band does in the richest era; outlines of the bands' shape at quarter steps (at every
+    // season, so they still show at low tide); and, dashed, where they will be in 20 s, so the way
+    // they drift shows. Over a full light map, the lines alone.
+    let S = tideAt(wp, post.world, post.simTime, post.tide, post.tidePh);
+    var rate = (S * post.season + 0.2 * post.ambient) * post.glint.x;
+    if (post.heatVis >= 0.0) { rate += post.glint.y * smoothstep(post.glint.z, post.glint.w, water.x - post.heat.x); }
+    let G = clamp(rate / ${f(DEFAULT_K.charge * 1.25 * 1.2)}, 0.0, 1.0);
+    if (post.tideVis < 1.5) {
+      let ramp = mix(mix(vec3f(0.03, 0.02, 0.10), vec3f(0.36, 0.20, 0.62), smoothstep(0.0, 0.45, G)), vec3f(0.72, 0.90, 1.0), smoothstep(0.4, 1.0, G));
+      c = mix(c, ramp, mix(0.25, 0.45, smoothstep(0.0, 0.4, G)));
+    }
+    let band = S * 4.0;
+    let w = fwidth(band);
+    let line = 1.0 - smoothstep(0.0, w * 1.2, min(fract(band), 1.0 - fract(band)));
+    c += vec3f(0.55, 0.62, 1.0) * (0.12 + 0.12 * post.season) * line * step(0.02, S) * step(S, 0.98);
+    let F = tideAt(wp, post.world, post.simTime + 20.0, post.tide, post.tidePh) - 0.5;
+    let ghost = 1.0 - smoothstep(0.0, fwidth(F) * 1.5, abs(F));
+    let dash = step(0.5, fract(dot(i.pos.xy, vec2f(0.0707, 0.0707))));
+    c += vec3f(0.72, 0.90, 1.0) * 0.4 * ghost * dash;
   }
   if (post.heatVis > 1.5) {
     // the thermal camera: false colour over the map's span (drawn as isotherms alone over a full
@@ -13877,7 +13923,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.tidePh = Float32Array.from(TIDE_PHASE);
       this.seedValue = 1;
       this.censusEvery = 20;
-      this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1, tide: 1, heat: 1, optics: 1, specks: true, lod: true };
+      this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1, tide: 1, heat: 1, bands: 0, optics: 1, specks: true, lod: true };
       this.simData = new ArrayBuffer(256);
       this.rock = new Float32Array(4);
       this.simF = new Float32Array(this.simData);
@@ -13885,7 +13931,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.waves = new Float32Array(16);
       this.viewData = new ArrayBuffer(96);
       this.viewDataL = new ArrayBuffer(96);
-      this.postData = new Float32Array(56);
+      this.postData = new Float32Array(60);
       this.loupe = null;
       this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 4294967295, memberN: 0 };
       this.viewDataS = new ArrayBuffer(96);
@@ -13914,7 +13960,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       b.viewL = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
       b.viewS = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
       b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
-      b.post = d.createBuffer({ size: 224, usage: U.UNIFORM | U.COPY_DST });
+      b.post = d.createBuffer({ size: 240, usage: U.UNIFORM | U.COPY_DST });
       b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
       b.pickU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
       b.counts = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST });
@@ -15414,6 +15460,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
       pd[52] = tbg;
       pd[53] = tbg - 2;
       pd[54] = tbg + 10;
+      pd[55] = this.settings.bands;
+      pd[56] = this.K.charge * this.chargeMul;
+      pd[57] = this.K.hotCharge;
+      pd[58] = this.K.hotFrom;
+      pd[59] = this.K.hotTo;
       d.queue.writeBuffer(this.b.post, 0, pd);
       const mainDetail = lod && new Float32Array(this.viewData)[7] > 2.8;
       if (mainDetail || loupe || specimen) {
@@ -15660,6 +15711,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     season: "A 5-minute cycle that swings tide strength between 10% and 100%. This is the Tide percentage in the gauge and graphs: the bands keep their shape and only brighten or fade. Glint production and light in the bands follow it, which drives booms and busts.",
     era: "Every 10–18 minutes the climate turns: the baseline light, glint production and the water’s temperature change, one tide wave is replaced, and the currents shift. An era that warms the water by 5° or more is named Warm or Rising, one that cools it Bitter or Pale; otherwise the names are random labels.",
     water: "The water’s background temperature, set by the climate: it walks from era to era between 4° and 28°, swings ±2.5° with the season, and now and then a heat wave or cold snap passes. Life warms its own water above this: every cell’s spent energy becomes heat, so crowds, bodies and reefs sit in warm patches.",
+    tidemap: "How fast silt charges into glint, right now: dark where it barely does, through violet to glint’s pale blue where it charges fastest. The tide bands charge it, more at high tide and in eras rich in glint; hot springs (water far above the background) charge it even in the dark. Thin lines trace the bands’ shape at every season, so they still show at low tide, and a dashed line shows where the bands will be in 20 seconds, so you can see where glint will form next. Tap the Tide gauge (on phones, the era name) to open it.",
     heatmap: "How heat is drawn. Shimmer: warm water bends light like the air over a hot road, so plumes, colony halos and fronts waver. Full: a thermal camera, deep blue to teal to amber to white over a span from 2° below the background water to 10° above it, with a line every 2°.",
     thermal: "How well a cell works at its temperature: a rate that scales its photosynthesis, digestion and swimming. It is at its best within half a tolerance of the species’ optimum (higher the narrower its tolerance), then falls slowly on the cold side and steeply on the warm side. Away from its optimum a cell also pays extra upkeep for the stress.",
     optimum: "The temperature a species works best at (a gene, 0–45°). It drifts by mutation, so lineages can follow the climate or find a warm or cold refuge. A spark of life founds a species suited to the water it sparked in.",
@@ -15792,6 +15844,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       short: "Climate",
       html: `<p>The ${t("tide", "Tide")} is four slow waves summed over the torus; where they add up, bright bands form and drift. Inside a band it is bright; outside, it is dim but never dark. ${t("light", "Light")} is what plants feed on: it is dim everywhere and brighter in the bands. The Tide also turns silt into glint, but almost only inside the bands. So plants can live anywhere, while glint-eaters gather where the bands are.</p>
 <p>The ${t("season", "season")} is a 5-minute cycle that swings tide strength between 10% and 100%. This is the Tide percentage shown in the gauge and graphs. The bands keep their shape; only their strength changes. At high tide they are bright and full of new glint, and the water is a little warmer. At low tide they fade until they are barely brighter than the rest of the world, and little glint forms. This drives the regular booms and busts. Every 10–18 minutes an ${t("era", "era")} begins: the baseline light and glint production change, one tide wave is replaced so the bright zones form and move differently, and two current patterns are swapped. The water’s temperature walks from era to era, so each world has its own thermal history; eras that warm or cool it a lot are named for it, otherwise era names are random labels, and the event log says what actually changed.</p>
+<p>Tap a gauge to map what it reads: <b>Light</b> opens the light map, <b>Temp</b> the thermal camera and <b>Tide</b> the ${t("tidemap", "tide map")} (on phones, tap the era name). The map's name and scale float in a bar under the top rail, beside any highlight; close either one on its own, and Esc clears the highlight first, then the map.</p>
 <p><b>Settings → Light map</b> colours every point by the light a photosynthesising cell would receive there, with a contour every 10%; <b>Settings → Currents</b> draws the flow that carries silt, glint and drifting cells. The <b>Tide</b> gauge at the top follows the season: the dot rides the 5-minute wave, and the <b>Temp</b> thermometer beside it shows the background temperature, with an arrow while it changes; it breathes during a heat wave or cold snap.</p>`
     },
     {
@@ -19364,7 +19417,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       perf: { scale: prefs.scale ?? "auto", floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.v >= 2 ? prefs.fps ?? 60 : 60, particles: prefs.particles ?? null, scan: prefs.scan ?? null }
     };
     let uiHoldUntil = 0;
-    const panelSel = ".panel, .rail, .dock, .focus";
+    const panelSel = ".panel, .rail, .dock, .floats";
     document.addEventListener("pointerdown", (e) => {
       if (e.target.closest && e.target.closest(panelSel)) uiHoldUntil = Infinity;
     }, true);
@@ -19386,12 +19439,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
     let trailIdx = prefs.trails ?? 1;
     const defaults = { ...eng.settings };
     eng.settings.trails = trailLevels[trailIdx];
-    for (const k of ["links", "nodes", "bloom", "optics", "specks", "lod", "tide", "heat"]) if (prefs[k] !== void 0) eng.settings[k] = prefs[k];
+    for (const k of ["links", "nodes", "bloom", "optics", "specks", "lod", "tide", "heat", "bands"]) if (prefs[k] !== void 0) eng.settings[k] = prefs[k];
     eng.maxScan = state.perf.scan ?? K.maxScan;
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ v: 2, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
+      savePrefs({ v: 2, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
     if (prefs.loupe !== void 0 && !isCoarse) state.loupe = prefs.loupe;
@@ -19717,6 +19770,69 @@ registerProcessor("tidemote-sound", TidemoteSound);
       renderWorld();
     }
     $("focus-clear").addEventListener("click", clearFocus);
+    const MAPS = [
+      { gauge: "g-light", name: "Light", on: (s) => s.tide === 2, open: (s) => {
+        s.tide = 2;
+      }, close: (s) => {
+        s.tide = defaults.tide;
+      }, ramp: () => ["", "dark", "full light"] },
+      { gauge: "g-heat", name: "Temperature", on: (s) => s.heat === 2, open: (s) => {
+        s.heat = 2;
+      }, close: (s) => {
+        s.heat = defaults.heat;
+      }, ramp: () => ["heat", `${Math.round(eng.tbg - 2)}°`, `${Math.round(eng.tbg + 10)}°`] },
+      { gauge: "g-tide", name: "Tide", on: (s) => s.bands > 0, open: (s) => {
+        s.bands = 1;
+      }, close: (s) => {
+        s.bands = 0;
+      }, ramp: () => ["tide", "no glint", "most"] }
+    ];
+    const rampHtml = (m) => {
+      const [cls, lo, hi] = m.ramp();
+      return `<div class="ramp ${cls}"><span>${lo}</span><i></i><span>${hi}</span></div>`;
+    };
+    const mapsOn = () => MAPS.filter((m) => m.on(eng.settings));
+    function clearMaps() {
+      for (const m of mapsOn()) m.close(eng.settings);
+      mapsChanged();
+    }
+    function toggleMap(m) {
+      const only = mapsOn().length === 1 && m.on(eng.settings);
+      for (const o of mapsOn()) o.close(eng.settings);
+      if (!only) m.open(eng.settings);
+      mapsChanged();
+    }
+    function mapsChanged() {
+      persist();
+      renderMaps();
+      view.render();
+    }
+    function renderMaps() {
+      const on = mapsOn();
+      for (const m of MAPS) $(m.gauge).classList.toggle("on", on.includes(m));
+      $("maps").hidden = !on.length;
+      if (!on.length) return;
+      const html = on.length === 1 ? rampHtml(on[0]) : "";
+      const label2 = on.map((m) => m.name).join(" · ");
+      if ($("maps-label").textContent !== label2) $("maps-label").textContent = label2;
+      if ($("maps-ramp").innerHTML !== html) $("maps-ramp").innerHTML = html;
+      $("maps-ramp").hidden = !html;
+    }
+    for (const m of MAPS) {
+      const g = $(m.gauge);
+      g.setAttribute("role", "button");
+      g.addEventListener("click", () => toggleMap(m));
+      g.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          toggleMap(m);
+        }
+      });
+    }
+    $("era-box").addEventListener("click", () => {
+      if (phone()) toggleMap(MAPS[2]);
+    });
+    $("maps-clear").addEventListener("click", clearMaps);
     const allLiving = () => true;
     function focusFacet(key) {
       if (focus.key === key) {
@@ -20582,7 +20698,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const kfmt = (n) => n >= 1048576 ? `${n / 1048576}M` : `${Math.round(n / 1024)}k`;
       function display() {
         const s = eng.settings;
-        return group("look", "", choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? '<div class="ramp"><span>dark</span><i></i><span>full light</span></div>' : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? `<div class="ramp heat"><span>${Math.round(eng.tbg - 2)}°</span><i></i><span>${Math.round(eng.tbg + 10)}°</span></div>` : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe")) + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks"));
+        return group("look", "", choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "D", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe")) + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks"));
       }
       function performance_() {
         const s = eng.settings, P = state.perf;
@@ -20600,7 +20716,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (tab === "display") {
           trailIdx = 1;
           s.trails = trailLevels[trailIdx];
-          for (const k of ["tide", "heat", "links", "nodes"]) s[k] = defaults[k];
+          for (const k of ["tide", "heat", "bands", "links", "nodes"]) s[k] = defaults[k];
           state.currents = false;
           state.loupe = !isCoarse;
           state.songMarks = 1;
@@ -20655,6 +20771,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           s.trails = trailLevels[trailIdx];
         } else if (id === "tide") s.tide = +v;
         else if (id === "heat") s.heat = +v;
+        else if (id === "bands") s.bands = +v;
         else if (id === "currents") state.currents = !!+v;
         else if (id === "links") s.links = !!+v;
         else if (id === "nodes") s.nodes = !!+v;
@@ -20706,6 +20823,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           resetTab();
         }
         persist();
+        renderMaps();
         render();
       }
       opts.addEventListener("click", (e) => {
@@ -20954,13 +21072,15 @@ registerProcessor("tidemote-sound", TidemoteSound);
       } else if (k === "g" || k === "G") {
         eng.settings.tide = (eng.settings.tide + 1) % 3;
         flash(["Light map off", "Faint light map", "Light map"][eng.settings.tide]);
-        persist();
-        view.render();
+        mapsChanged();
       } else if ((k === "e" || k === "E") && K.heat) {
         eng.settings.heat = (eng.settings.heat + 1) % 3;
         flash(["Heat map off", "Heat shimmer", "Thermal camera"][eng.settings.heat]);
-        persist();
-        view.render();
+        mapsChanged();
+      } else if (k === "d" || k === "D") {
+        eng.settings.bands = eng.settings.bands ? 0 : 1;
+        flash(eng.settings.bands ? "Tide map" : "Tide map off");
+        mapsChanged();
       } else if (k === "w" || k === "W") {
         state.currents = !state.currents;
         flash(state.currents ? "Currents shown" : "Currents hidden");
@@ -20991,6 +21111,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         else if (view.isOpen()) view.toggle(false);
         else if (sel || spView != null) deselect();
         else if (focus.key) clearFocus();
+        else if (mapsOn().length) clearMaps();
         else if (lab.isWide() && !phone()) lab.narrow();
         else if (lab.isOpen() && phone()) lab.close();
         else handled = false;
@@ -21191,6 +21312,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         $("g-heat").classList.toggle("exc", !!exc);
         $("g-heat").setAttribute("aria-label", `${exc ? `${exc}, ` : ""}temperature ${Math.round(T)}°${arrow ? arrow === "↑" ? " and rising" : " and falling" : ""}`);
       }
+      renderMaps();
       tips.check();
       setText("t-rate", state.speed > 1 && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : "");
       setText("sys-n", fmt(eng.count));

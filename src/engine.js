@@ -63,7 +63,7 @@ class Engine {
     this.tidePh = Float32Array.from(TIDE_PHASE);
     this.seedValue = 1;
     this.censusEvery = 20;
-    this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 1, heat: 1, optics: 1, specks: true, lod: true };
+    this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 1, heat: 1, bands: 0, optics: 1, specks: true, lod: true };
     this.simData = new ArrayBuffer(256);
     this.rock = new Float32Array(4);
     this.simF = new Float32Array(this.simData);
@@ -71,7 +71,7 @@ class Engine {
     this.waves = new Float32Array(16);
     this.viewData = new ArrayBuffer(96);
     this.viewDataL = new ArrayBuffer(96);
-    this.postData = new Float32Array(56);
+    this.postData = new Float32Array(60);
     this.loupe = null;
     this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 0xffffffff, memberN: 0 };
     this.viewDataS = new ArrayBuffer(96);
@@ -104,7 +104,7 @@ class Engine {
     b.viewL = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
     b.viewS = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
     b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
-    b.post = d.createBuffer({ size: 224, usage: U.UNIFORM | U.COPY_DST });
+    b.post = d.createBuffer({ size: 240, usage: U.UNIFORM | U.COPY_DST });
     b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     b.pickU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
     b.counts = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST });
@@ -1420,6 +1420,9 @@ class Engine {
     // the heat map's span: from a little below the background to framboid-hot
     const tbg = this.tbg;
     pd[52] = tbg; pd[53] = tbg - 2; pd[54] = tbg + 10;
+    pd[55] = this.settings.bands;
+    // the tide map's glint production: the era's charge, then the hot springs'
+    pd[56] = this.K.charge * this.chargeMul; pd[57] = this.K.hotCharge; pd[58] = this.K.hotFrom; pd[59] = this.K.hotTo;
     d.queue.writeBuffer(this.b.post, 0, pd);
 
     // Cells fuse with their incoming bond partners, and flatten against the cells they press on, only
