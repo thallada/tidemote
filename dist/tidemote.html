@@ -702,6 +702,7 @@ body.lab-wide .lab-head .tabs button { padding: 0 10px; letter-spacing: .16em; }
 .pane-ctl { padding: var(--s3) 16px; display: flex; flex-direction: column; gap: var(--s3); border-bottom: 1px solid var(--line); }
 .qrow { display: flex; gap: 6px; }
 .qrow .filt { display: none; height: 34px; flex: none; }
+#lin-filt { display: none; height: 28px; }
 .filters { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 12px; align-items: center; }
 .filters > .lbl { color: var(--ink-3); }
 /* a segmented control: joined chips sharing their borders */
@@ -734,12 +735,11 @@ body.lab-wide .lab-head .tabs button { padding: 0 10px; letter-spacing: .16em; }
 .spnum b { font-weight: 400; font-size: 13px; }
 .spnum span { color: var(--ink-3); font-size: 11px; }
 
-.lineage svg { display: block; width: 100%; }
-.lineage svg text { font-family: var(--sans); }
-.lineage .row { cursor: pointer; }
-.lineage .row:hover .hit, .lineage .row:focus-visible .hit { fill: rgba(127, 214, 223, 0.07); }
-.lineage .row:focus { outline: none; }
-.lin-axis { position: sticky; top: -6px; z-index: 1; background: var(--panel-solid); margin-top: -6px; padding-top: 6px; box-sizing: content-box; }
+.lin-muller { position: relative; margin: 0 -4px; }
+.lin-muller canvas { display: block; width: 100%; height: 170px; touch-action: pan-y; cursor: crosshair; }
+.lin-brush { position: absolute; pointer-events: none; background: rgba(127, 214, 223, 0.14); border: 1px solid var(--line-2); border-width: 0 1px; }
+canvas.lin-tree { display: block; width: calc(100% + 8px); margin: 0 -4px; cursor: pointer; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 .bars { display: flex; flex-direction: column; gap: 2px; }
 .barrow { display: grid; grid-template-columns: 9.5em minmax(30px, 1fr) 7.5ch 5.6ch; gap: 9px; align-items: center; border: 0; padding: 5px 4px; text-align: left; font-size: 12.5px; color: var(--ink); width: 100%; }
@@ -894,7 +894,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .pane-ctl { padding: 10px 12px 8px; }
   .scroll { padding: 4px 12px 24px; }
   .splist li { grid-template-columns: 24px minmax(0, 1fr) 4.8em; }
-  .qrow .filt { display: inline-flex; }
+  .qrow .filt, #lin-filt { display: inline-flex; }
   .pane-ctl:not(.open) .filters { display: none; }
   .lin-key { display: none; }
   .splist .spark { display: none; }
@@ -15978,7 +15978,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       html: `<ul>
 <li><b>Specimen</b> (click or tap a particle): a live close-up, its energy and age, then one scroll of sections (the bar above them jumps between them): its behaviour, its body and record (its organism traced through its bonds, highlighted and followed as a whole, even after the cell you picked dies), its species and its full genome. Species names everywhere are links.</li>
 <li><b>Lab → Species</b>: every species, filtered by status, diet, movement and body. <b>Highlight these</b> dims everything outside the filter.</li>
-<li><b>Lab → Lineage</b>: every established species on a time axis, joined to the ancestor it arose from; each bar thickens with its population.</li>
+<li><b>Lab → Lineage</b>: the lineages that held the most life, as a plot of their cells over time (each nested inside the lineage it branched from, so a die-off shows as the whole stack falling) over a tree of the same lineages. A lineage follows a population through species after species; every other species counts with its nearest shown ancestor, and its pill says how many species it holds. Drag across the plot to zoom into a stretch of time, or click a pill to follow that lineage: finer lineages appear as you narrow in, down to single species.</li>
 <li><b>Lab → Census</b> (the Lab's first section, the column on the left; fold it away from its header or with K): the world broken down by matter, diet, movement, body, cell type and condition, the chart of living cells by species, and the latest log entries. Choose a row to highlight it.</li>
 <li><b>Lab → Charts</b>: population, diversity, births, deaths, meals and climate over time, and the eras so far. Point at a chart (or tap it) to read every line at that moment; point at a dot in Thermal niches to name its species, and click it to open it.</li>
 <li><b>Lab → Log</b>: every logged event, searchable.</li>
@@ -16122,10 +16122,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
   })();
   function stoneGlyph(g, k) {
     const glow = g.shadowBlur;
-    const piece = (d, tone = 0, cut = true) => {
+    const piece = (d, tone = 0, cut2 = true) => {
       const p = new Path2D(d);
       g.shadowBlur = 0;
-      if (cut) {
+      if (cut2) {
         g.globalCompositeOperation = "destination-out";
         g.stroke(p);
       }
@@ -16658,6 +16658,23 @@ registerProcessor("tidemote-sound", TidemoteSound);
       plate: ({ s }) => namePlate(s.col, s.name, `${Math.round(s.topt)}° ± ${Math.round(s.tol)}° · ${fmt(s.pop)}${s.maker ? " · heat-maker" : ""}`)
     };
   }
+  function onTap(el, fn) {
+    let down = null;
+    el.addEventListener("pointerdown", (e) => {
+      down = e.button === 0 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp } : null;
+    });
+    el.addEventListener("pointermove", (e) => {
+      if (down && e.pointerId === down.id && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) down = null;
+    });
+    el.addEventListener("pointercancel", () => {
+      down = null;
+    });
+    el.addEventListener("pointerup", (e) => {
+      const d = down;
+      down = null;
+      if (d && e.pointerId === d.id && e.timeStamp - d.t < 600) fn(e);
+    });
+  }
   var join = () => {
   };
   var namePlate = (col, name, sub) => `<i style="background:${cssCol(col)}"></i><span>${esc(name)}</span><small>${sub}</small>`;
@@ -16705,11 +16722,17 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (e.pointerType === "mouse" && hot === cv) leave();
       });
       cv.addEventListener("pointerdown", (e) => {
-        if (!cv._ch) return;
+        if (!cv._ch || e.pointerType !== "mouse") return;
+        point(cv, e);
+        const hit = cv._hot;
+        if (hit && hit.serial != null) onPick(hit.serial);
+      });
+      onTap(cv, (e) => {
+        if (e.pointerType === "mouse" || !cv._ch) return;
         const prev = point(cv, e), hit = cv._hot;
-        if (hit && hit.serial != null && (e.pointerType === "mouse" || prev === hit.key)) {
+        if (hit && hit.serial != null && prev === hit.key) {
           onPick(hit.serial);
-          if (e.pointerType !== "mouse") leave();
+          leave();
         }
       });
     }
@@ -16726,6 +16749,596 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (hot && (!hot.isConnected || !hot.offsetParent || !hot._hot)) leave();
       },
       hot: () => hot
+    };
+  }
+
+  // src/lineage/model.js
+  var SERIES_MAX = 64;
+  function record(series, t2, v) {
+    if (!Array.isArray(series.t)) {
+      series.t = Array.from(series.t);
+      series.v = Array.from(series.v);
+    }
+    const n = series.t.length;
+    if (n && series.t[n - 1] === t2) {
+      series.v[n - 1] = v;
+      return;
+    }
+    series.t.push(t2);
+    series.v.push(v);
+    if (series.t.length > SERIES_MAX) {
+      const keep = (_, i, a) => i === 0 || i === a.length - 1 || i % 2 === 0;
+      series.t = series.t.filter(keep);
+      series.v = series.v.filter(keep);
+    }
+  }
+  var seal = (series) => ({ t: Float32Array.from(series.t), v: Float32Array.from(series.v) });
+  var settled = /* @__PURE__ */ new WeakMap();
+  function lineageModel(life, T) {
+    const nodes = [], bySerial = /* @__PURE__ */ new Map();
+    for (const s of life.reg.values()) {
+      if (!s.established) continue;
+      const done = !s.alive && settled.get(s);
+      const n = done && done.end === s.extinct ? { serial: s.serial, s, name: s.name, rgb: done.rgb, born: s.born, end: done.end, alive: false, pop: 0, parent: null, kids: [], t: done.t, v: done.v, w: done.w, cw: 0, heir: null, strand: null } : {
+        serial: s.serial,
+        s,
+        name: s.name,
+        rgb: unpackUnorm(s.genome.col),
+        born: s.born,
+        end: s.alive ? T : s.extinct ?? T,
+        alive: s.alive,
+        pop: s.pop,
+        parent: null,
+        kids: [],
+        t: Float64Array.from(s.series.t),
+        v: Float32Array.from(s.series.v),
+        w: 0,
+        cw: 0,
+        heir: null,
+        strand: null
+      };
+      nodes.push(n);
+      bySerial.set(n.serial, n);
+    }
+    nodes.sort((a, b) => a.born - b.born || a.serial - b.serial);
+    for (const n of nodes) {
+      const p = n.s.ancestor != null ? bySerial.get(n.s.ancestor) : null;
+      if (p) {
+        n.parent = p;
+        p.kids.push(n);
+      }
+    }
+    for (let j = nodes.length - 1; j >= 0; j--) {
+      const n = nodes[j];
+      if (n.alive || !settled.has(n.s)) {
+        n.w = integrate(n, -Infinity, Infinity);
+        if (!n.alive && n.s.extinct != null) settled.set(n.s, { t: n.t, v: n.v, rgb: n.rgb, w: n.w, end: n.end });
+      }
+      n.cw = n.w;
+      for (const k of n.kids) {
+        n.cw += k.cw;
+        if (!n.heir || k.cw > n.heir.cw) n.heir = k;
+      }
+    }
+    const strands = [];
+    for (const n of nodes) {
+      if (n.parent && n.parent.heir === n) continue;
+      const st = { id: strands.length, nodes: [], first: n, born: n.born, end: n.end, alive: false, live: false, parent: null, kids: [] };
+      for (let c = n; c; c = c.heir) {
+        st.nodes.push(c);
+        c.strand = st;
+        if (c.end > st.end) st.end = c.end;
+        st.alive ||= c.alive;
+      }
+      strands.push(st);
+    }
+    for (const st of strands) if (st.first.parent) {
+      st.parent = st.first.parent.strand;
+      st.parent.kids.push(st);
+    }
+    for (let j = strands.length - 1; j >= 0; j--) {
+      const st = strands[j];
+      st.live = st.alive || st.kids.some((k) => k.live);
+    }
+    return { T, nodes, strands, bySerial };
+  }
+  function valAt(n, t2) {
+    const ts = n.t, len2 = ts.length;
+    if (!len2 || t2 < n.born || t2 > n.end) return 0;
+    if (t2 <= ts[0]) return n.v[0];
+    if (t2 >= ts[len2 - 1]) return n.alive ? n.pop : n.v[len2 - 1];
+    let lo = 0, hi = len2 - 1;
+    while (hi - lo > 1) {
+      const mid = lo + hi >> 1;
+      if (ts[mid] <= t2) lo = mid;
+      else hi = mid;
+    }
+    return n.v[lo] + (n.v[hi] - n.v[lo]) * ((t2 - ts[lo]) / (ts[hi] - ts[lo] || 1));
+  }
+  function integrate(n, t0, t1) {
+    const ts = n.t, len2 = ts.length;
+    let w = 0;
+    for (let i = 0; i < len2; i++) {
+      const a = Math.max(t0, ts[i]), b = Math.min(t1, i + 1 < len2 ? ts[i + 1] : n.end);
+      if (b > a) w += n.v[i] * (b - a);
+    }
+    return w;
+  }
+  function cut(m, { t0 = 0, t1 = m.T, k = 30, n = 240, root = null, live = false } = {}) {
+    let strands = m.strands;
+    if (root) {
+      const sub = [];
+      const walk = (st) => {
+        sub.push(st);
+        st.kids.forEach(walk);
+      };
+      walk(root);
+      strands = sub.sort((a, b) => a.id - b.id);
+    }
+    if (live) strands = strands.filter((st) => st.live);
+    const inSet = new Map(strands.map((st, j) => [st, j]));
+    const ww = new Float64Array(strands.length);
+    for (let j = strands.length - 1; j >= 0; j--) {
+      const st = strands[j];
+      let w = 0;
+      for (const nd of st.nodes) if (nd.end > t0 && nd.born < t1) w += nd.born >= t0 && nd.end <= t1 ? nd.w : integrate(nd, t0, t1);
+      for (const c of st.kids) {
+        const i = inSet.get(c);
+        if (i != null) w += ww[i];
+      }
+      ww[j] = w;
+    }
+    const W = (st) => ww[inSet.get(st)];
+    const ranked = [];
+    for (let j = 0; j < strands.length; j++) if (ww[j] > 0) ranked.push(j);
+    ranked.sort((a, b) => ww[b] - ww[a] || strands[a].born - strands[b].born);
+    const shown = new Set(ranked.slice(0, k).map((j) => strands[j]));
+    const ts = new Float64Array(n);
+    for (let i = 0; i < n; i++) ts[i] = t0 + (t1 - t0) * i / (n - 1);
+    const unitOf = /* @__PURE__ */ new Map(), units = [];
+    const mk = (st) => ({ strand: st, parent: null, kids: [], born: st ? st.born : Infinity, end: st ? st.end : 0, alive: st ? st.alive : false, vals: new Float32Array(n), members: st ? st.nodes : [], hidden: 0, count: 0, weight: st ? W(st) : 0, peak: 0 });
+    for (const st of strands) if (shown.has(st)) {
+      const u = mk(st);
+      unitOf.set(st, u);
+      units.push(u);
+    }
+    const other = mk(null);
+    other.other = true;
+    const owner = (st) => {
+      for (let s = st; s && inSet.has(s); s = s.parent) {
+        const u = unitOf.get(s);
+        if (u) return u;
+      }
+      return other;
+    };
+    let species = 0, lineages = 0;
+    const within = (nd) => nd.end >= t0 && nd.born <= t1;
+    for (const st of strands) {
+      const u = owner(st);
+      let k2 = 0;
+      for (const nd of st.nodes) if (within(nd)) k2++;
+      species += k2;
+      if (k2) lineages++;
+      u.count += k2;
+      if (u.strand !== st) {
+        u.hidden += k2;
+        if (st.end > u.end) u.end = st.end;
+        if (u.other && st.born < u.born) u.born = st.born;
+        u.alive ||= st.alive;
+      }
+      for (const nd of st.nodes) addOnGrid(nd, ts, u.vals);
+    }
+    const roots = [];
+    for (const u of units) {
+      const p = u.strand.parent && inSet.has(u.strand.parent) ? owner(u.strand.parent) : null;
+      u.parent = p && !p.other ? p : null;
+      (u.parent ? u.parent.kids : roots).push(u);
+    }
+    for (const u of [...units, other]) for (const v of u.vals) if (v > u.peak) u.peak = v;
+    return { t0, t1, ts, units, roots, other: other.peak > 0 ? other : null, outside: other.count, lineages, species };
+  }
+  function addOnGrid(nd, ts, out) {
+    const n = ts.length, t0 = ts[0], dt = (ts[n - 1] - t0) / (n - 1 || 1);
+    if (nd.end < t0 || nd.born > ts[n - 1] || !nd.t.length) return;
+    const i0 = Math.max(0, Math.ceil((nd.born - t0) / dt)), i1 = Math.min(n - 1, Math.floor((nd.end - t0) / dt));
+    for (let i = i0; i <= i1; i++) out[i] += valAt(nd, ts[i]);
+  }
+  function memberAt(u, t2) {
+    let best = null, bv = 0;
+    for (const nd of u.members) {
+      const v = valAt(nd, t2);
+      if (v > bv) {
+        bv = v;
+        best = nd;
+      }
+    }
+    return best;
+  }
+  function overlaps(a, b) {
+    let i = 0, j = 0;
+    while (i < a.length && j < b.length) {
+      if (a[i][1] <= b[j][0]) i++;
+      else if (b[j][1] <= a[i][0]) j++;
+      else return true;
+    }
+    return false;
+  }
+  function packBlocks(items, gap = 0) {
+    const kids = new Map(items.map((it) => [it, []])), roots = [];
+    for (const it of items) (it.parent && kids.has(it.parent) ? kids.get(it.parent) : roots).push(it);
+    const place = (block2, sub, from) => {
+      let o = from;
+      for (; ; o++) {
+        let ok = true;
+        for (let j = 0; j < sub.length && ok; j++) if (block2[o + j] && overlaps(block2[o + j], sub[j])) ok = false;
+        if (ok) break;
+      }
+      for (let j = 0; j < sub.length; j++) {
+        if (!block2[o + j]) block2[o + j] = [];
+        block2[o + j].push(...sub[j]);
+        block2[o + j].sort((p, q) => p[0] - q[0]);
+      }
+      return o;
+    };
+    const rel = /* @__PURE__ */ new Map();
+    const layout = (it) => {
+      const block2 = [[[Math.min(it.born, it.from ?? it.born), Math.max(it.end, it.reach ?? it.end) + gap]]];
+      for (const c of kids.get(it).sort((a, b) => a.born - b.born)) rel.set(c, place(block2, layout(c), 1));
+      return block2;
+    };
+    const all = [];
+    for (const r of roots.sort((a, b) => a.born - b.born)) rel.set(r, place(all, layout(r), 0));
+    const assign = (it, base) => {
+      it.lane = base + rel.get(it);
+      for (const c of kids.get(it)) assign(c, it.lane);
+    };
+    for (const r of roots) assign(r, 0);
+    return all.length;
+  }
+
+  // src/lineage/draw.js
+  var OTHER = [0.42, 0.5, 0.52];
+  var PANEL = "#070b0c";
+  var INK = "#e2f1f0";
+  var INK2 = "#a3bdbe";
+  var INK3 = "#6f8a8c";
+  var GRID2 = "rgba(130,205,214,0.07)";
+  var ERA2 = "rgba(241,227,160,0.28)";
+  var LABEL = "500 11px Saira, system-ui, sans-serif";
+  var SMALL = "500 10px Saira, system-ui, sans-serif";
+  var rgba = (c, a = 1, k = 1) => `rgba(${Math.round(c[0] * k * 255)},${Math.round(c[1] * k * 255)},${Math.round(c[2] * k * 255)},${a})`;
+  var unitKey = (c, u) => u.other ? "other" : c.units.indexOf(u);
+  function unitName(u, t2) {
+    if (u.other) return "Other lineages";
+    const n = t2 != null && memberAt(u, t2);
+    return (n || (u.alive ? u.members.findLast((x) => x.alive) || u.members.at(-1) : u.members[0])).name;
+  }
+  function colours(c, minRun) {
+    c.colours ||= /* @__PURE__ */ new Map();
+    if (c.colours.has(minRun)) return c.colours.get(minRun);
+    const col = /* @__PURE__ */ new Map(), n = c.ts.length;
+    c.colours.set(minRun, col);
+    for (const u of c.other ? [c.other, ...c.units] : c.units) {
+      const a = new Array(n);
+      if (u.other) {
+        a.fill(OTHER);
+        col.set(u, a);
+        continue;
+      }
+      const lead = new Array(n);
+      for (let i = 0; i < n; i++) lead[i] = u.vals[i] > 0 ? memberAt(u, c.ts[i]) : null;
+      if (!minRun) {
+        const w = /* @__PURE__ */ new Map();
+        for (const nd of lead) if (nd) w.set(nd, (w.get(nd) || 0) + 1);
+        let best = u.members[0], bw = 0;
+        for (const [nd, k] of w) if (k > bw) {
+          bw = k;
+          best = nd;
+        }
+        a.fill(best.rgb);
+      } else {
+        let cur = u.members[0];
+        for (let i = 0; i < n; i++) {
+          const nd = lead[i];
+          if (nd && nd !== cur) {
+            let k = 1;
+            while (k < minRun && i + k < n && lead[i + k] === nd) k++;
+            if (k >= minRun || i + k >= n) cur = nd;
+          }
+          a[i] = cur.rgb;
+        }
+      }
+      col.set(u, a);
+    }
+    return col;
+  }
+  function fillRuns(g, X, top, bot, a, b, col, alpha, k) {
+    for (let s = a; s <= b; ) {
+      let e = s;
+      while (e < b && col[e + 1] === col[s]) e++;
+      const z = Math.min(b, e + 1);
+      g.beginPath();
+      for (let j = s; j <= z; j++) g.lineTo(X(j), top(j));
+      for (let j = z; j >= s; j--) g.lineTo(X(j), bot(j));
+      g.closePath();
+      g.fillStyle = rgba(col[s], alpha, k);
+      g.fill();
+      s = e + 1;
+    }
+  }
+  function drawMuller(cv, c, eras, opts = {}) {
+    const f2 = fit(cv);
+    if (!f2) return null;
+    const { g, w, h } = f2;
+    const { ts } = c, n = ts.length;
+    const roots = c.other ? [c.other, ...c.roots] : c.roots;
+    const C = /* @__PURE__ */ new Map();
+    const clade = (u) => {
+      const a = u.vals.slice();
+      for (const k of u.kids) {
+        const b = clade(k);
+        for (let i = 0; i < n; i++) a[i] += b[i];
+      }
+      C.set(u, a);
+      return a;
+    };
+    const tot = new Float32Array(n);
+    for (const r of roots) {
+      const a = clade(r);
+      for (let i = 0; i < n; i++) tot[i] += a[i];
+    }
+    let max = 1;
+    for (const v of tot) if (v > max) max = v;
+    const ax = linearTicks(max, 2);
+    const labels = ax.ticks.map(shortNum);
+    const box = plotBox(g, w, h, labels);
+    box.l = Math.max(box.l, opts.minLeft || 0);
+    const H2 = box.b - box.t;
+    grid(g, box, ax.ticks.map((v, k) => ({ y: box.b - v / ax.top * H2, label: labels[k] })));
+    const X = (i) => box.l + i / (n - 1) * (box.r - box.l);
+    const perCell = H2 / ax.top;
+    const Y = /* @__PURE__ */ new Map();
+    for (const u of C.keys()) Y.set(u, new Float32Array(n));
+    for (let i = 0; i < n; i++) {
+      let y = box.b - tot[i] * perCell;
+      const place = (u, y0) => {
+        Y.get(u)[i] = y0;
+        let y1 = y0 + u.vals[i] * perCell / 2;
+        for (const k of u.kids) {
+          place(k, y1);
+          y1 += C.get(k)[i] * perCell;
+        }
+      };
+      for (const r of roots) {
+        place(r, y);
+        y += C.get(r)[i] * perCell;
+      }
+    }
+    const col = colours(c, 0);
+    const order = [];
+    const pre = (u) => {
+      order.push(u);
+      u.kids.forEach(pre);
+    };
+    roots.forEach(pre);
+    const hot = opts.hot;
+    for (const u of order) {
+      const a = C.get(u), y = Y.get(u);
+      let i0 = -1, i1 = -1;
+      for (let i = 0; i < n; i++) if (a[i] > 0) {
+        if (i0 < 0) i0 = i;
+        i1 = i;
+      }
+      if (i0 < 0) continue;
+      const s0 = Math.max(0, i0 - 1), s1 = Math.min(n - 1, i1 + 1);
+      const lit = hot == null || hot === unitKey(c, u);
+      fillRuns(g, X, (i) => y[i], (i) => y[i] + a[i] * perCell, s0, s1, col.get(u), lit ? 1 : 0.35, u.alive || u.other ? 1 : 0.8);
+      if (u.parent || u.other) {
+        g.strokeStyle = "rgba(7,11,12,0.6)";
+        g.lineWidth = 0.6;
+        g.beginPath();
+        for (let i = s0; i <= s1; i++) g.lineTo(X(i), y[i]);
+        for (let i = s1; i >= s0; i--) g.lineTo(X(i), y[i] + a[i] * perCell);
+        g.closePath();
+        g.stroke();
+      }
+    }
+    let lastEra = -Infinity;
+    clock(g, box, c.t0, c.t1, eras.filter((e) => {
+      const x = box.l + (e.t - c.t0) / (c.t1 - c.t0) * (box.r - box.l);
+      if (x - lastEra < 24) return false;
+      lastEra = x;
+      return true;
+    }));
+    g.font = LABEL;
+    g.textAlign = "left";
+    const boxes = [];
+    const cand = order.map((u) => {
+      let bi = -1, bv = 0;
+      for (let i = 0; i < n; i++) {
+        const v = u.vals[i] * perCell;
+        if (v > bv) {
+          bv = v;
+          bi = i;
+        }
+      }
+      return { u, bi, bv };
+    }).filter((q) => q.bv >= 15).sort((a, b) => b.bv - a.bv);
+    for (const { u, bi, bv } of cand) {
+      const name = unitName(u, ts[bi]), tw = g.measureText(name).width;
+      const x = Math.max(box.l + 2, Math.min(box.r - tw - 2, X(bi) - tw / 2));
+      const yy = Y.get(u)[bi] + Math.min(bv / 4, 12) + 4;
+      const b = [x - 2, yy - 10, x + tw + 2, yy + 3];
+      if (b[1] < box.t || boxes.some((o) => !(b[2] < o[0] || b[0] > o[2] || b[3] < o[1] || b[1] > o[3]))) continue;
+      boxes.push(b);
+      g.lineJoin = "round";
+      g.lineWidth = 3;
+      g.strokeStyle = "rgba(7,11,12,0.85)";
+      g.strokeText(name, x, yy);
+      g.fillStyle = u.alive ? INK : INK2;
+      g.fillText(name, x, yy);
+    }
+    cv._ch = {
+      redraw: () => {
+        const hot2 = cv._hot ? cv._hot.key : null;
+        drawMuller(cv, c, eras, { ...opts, hot: hot2 });
+        opts.onHot?.(hot2);
+      },
+      at(px, py) {
+        if (px < box.l || px > box.r || py > box.b) return null;
+        const i = Math.max(0, Math.min(n - 1, Math.round((px - box.l) / (box.r - box.l) * (n - 1))));
+        const find = (list) => {
+          for (const u2 of list) {
+            const y0 = Y.get(u2)[i], y1 = y0 + C.get(u2)[i] * perCell;
+            if (py >= y0 && py < y1) return find(u2.kids) || u2;
+          }
+          return null;
+        };
+        const u = find(roots);
+        if (!u) return null;
+        return { key: unitKey(c, u), u, node: u.other ? null : memberAt(u, ts[i]), t: ts[i], pop: u.vals[i] };
+      },
+      plate: (hit) => namePlate(
+        hit.node ? hit.node.s.genome.col : 4287398e3,
+        hit.node ? hit.node.name : "Other lineages",
+        `${fmt(Math.round(hit.pop))} in its lineage · ${fmtClock(hit.t)}${hit.u.count > 1 ? ` · ${fmt(hit.u.count)} species` : ""}`
+      )
+    };
+    return box;
+  }
+  var mg = null;
+  var measure = (text, font) => {
+    mg ||= document.createElement("canvas").getContext("2d");
+    mg.font = font;
+    return mg.measureText(text).width;
+  };
+  function layoutTree(c, l, r, rh = 30) {
+    const units = c.other ? [c.other, ...c.units] : c.units;
+    const perPx = (c.t1 - c.t0) / Math.max(1, r - l);
+    const items = units.map((u) => {
+      const born = Math.max(c.t0, u.born), end = Math.min(c.t1, u.end);
+      const px = measure(unitName(u, u.alive ? c.t1 : null), LABEL) + measure(pillText(u), SMALL) + 26;
+      return { u, parent: null, born, end, from: Math.min(born, c.t1 - px * perPx), reach: born + px * perPx };
+    });
+    const of = new Map(items.map((it) => [it.u, it]));
+    for (const it of items) it.parent = it.u.parent ? of.get(it.u.parent) : null;
+    const lanes = packBlocks(items, 12 * perPx);
+    return { items, lanes, h: lanes * rh + 8, rh };
+  }
+  var pillText = (u) => `${u.alive ? "" : "† "}${fmt(u.count)} sp`;
+  function drawTree(cv, c, lay, eras, opts = {}) {
+    const f2 = fit(cv);
+    if (!f2) return;
+    const { g, w, h } = f2;
+    const { ts } = c, n = ts.length, { items, rh } = lay;
+    const l = opts.l ?? 4, r = opts.r ?? w - 4;
+    const X = (t2) => l + (t2 - c.t0) / (c.t1 - c.t0) * (r - l);
+    const Xi = (i) => l + i / (n - 1) * (r - l);
+    const Y = (lane) => 4 + lane * rh + rh * 0.62;
+    g.fillStyle = GRID2;
+    for (const t2 of timeTicks(c.t0, c.t1, r - l)) g.fillRect(Math.round(X(t2)), 0, 1, h);
+    g.fillStyle = ERA2;
+    let lastEra = -Infinity;
+    for (const e of eras) {
+      if (e.t <= c.t0 || e.t >= c.t1) continue;
+      const x = Math.round(X(e.t)) + 0.5;
+      if (x - lastEra < 24) continue;
+      lastEra = x;
+      for (let y = 0; y < h; y += 4) g.fillRect(x - 0.5, y, 1, 1);
+    }
+    const hot = opts.hot;
+    const lit = (it) => hot == null || hot === unitKey(c, it.u);
+    let peak = 1;
+    for (const it of items) if (it.u.peak > peak) peak = it.u.peak;
+    const k = rh * 0.3 / Math.sqrt(peak);
+    g.strokeStyle = "rgba(163,189,190,0.3)";
+    g.lineWidth = 1;
+    g.beginPath();
+    for (const it of items) if (it.parent && it.u.born >= c.t0) {
+      const x = Math.round(X(it.u.born)) + 0.5;
+      g.moveTo(x, Y(it.parent.lane));
+      g.lineTo(x, Y(it.lane));
+    }
+    g.stroke();
+    const col = colours(c, Math.max(2, Math.round(n / (r - l) * 6)));
+    for (const it of items) {
+      const u = it.u, y = Y(it.lane), a = lit(it) ? 1 : 0.35;
+      let s0 = -1, s1 = -1;
+      for (let i = 0; i < n; i++) if (u.vals[i] > 0) {
+        if (s0 < 0) s0 = i;
+        s1 = i;
+      }
+      if (s0 >= 0) fillRuns(g, Xi, (i) => y - 0.75 - Math.sqrt(u.vals[i]) * k, (i) => y + 0.75 + Math.sqrt(u.vals[i]) * k, Math.max(0, s0 - 1), Math.min(n - 1, s1 + 1), col.get(u), (u.alive ? 0.92 : 0.6) * a, 1);
+      const c0 = u.other ? OTHER : u.members[0].rgb, x0 = X(it.born);
+      g.fillStyle = rgba(c0, (u.alive ? 1 : 0.55) * a);
+      g.fillRect(x0, y - 0.5, Math.max(2, X(it.end) - x0), 1);
+      if (u.born >= c.t0) {
+        g.beginPath();
+        g.arc(x0, y, 2.4, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.fillStyle = `rgba(226,241,240,${0.45 * a})`;
+      for (const nd of u.members.slice(1)) if (nd.born > c.t0 && nd.born < c.t1) g.fillRect(Math.round(X(nd.born)), y + 4, 1, 3);
+    }
+    for (const it of items) {
+      const u = it.u, y = Y(it.lane) - 8, a = lit(it) ? 1 : 0.45;
+      const name = unitName(u, u.alive ? c.t1 : null);
+      g.font = LABEL;
+      const tw = g.measureText(name).width;
+      const pill = pillText(u);
+      g.font = SMALL;
+      const pw = g.measureText(pill).width + 10;
+      const x = Math.max(2, Math.min(X(it.born) + 3, w - tw - pw - 10));
+      g.font = LABEL;
+      g.lineJoin = "round";
+      g.lineWidth = 3;
+      g.strokeStyle = PANEL;
+      g.strokeText(name, x, y);
+      g.globalAlpha = a;
+      g.fillStyle = u.alive ? INK : INK2;
+      g.fillText(name, x, y);
+      g.globalAlpha = 1;
+      it.pill = [x + tw + 6, y - 10, pw, 14];
+      const follow = !u.other && (u.hidden > 0 || u.kids.length > 0 || u.members.length > 1);
+      it.follow = follow;
+      g.fillStyle = PANEL;
+      g.fillRect(...it.pill);
+      if (follow) {
+        g.strokeStyle = hot === unitKey(c, u) && opts.hotPill ? "rgba(150,222,230,0.9)" : "rgba(130,205,214,0.35)";
+        g.lineWidth = 1;
+        g.strokeRect(it.pill[0] + 0.5, it.pill[1] + 0.5, it.pill[2] - 1, it.pill[3] - 1);
+      }
+      g.font = SMALL;
+      g.fillStyle = follow ? u.alive ? INK2 : INK3 : INK3;
+      g.globalAlpha = a;
+      g.fillText(pill, it.pill[0] + 5, y);
+      g.globalAlpha = 1;
+    }
+    cv._ch = {
+      redraw: () => {
+        const hot2 = cv._hot ? cv._hot.key : null;
+        drawTree(cv, c, lay, eras, { ...opts, hot: hot2, hotPill: cv._hot && cv._hot.follow });
+        opts.onHot?.(hot2);
+      },
+      at(px, py) {
+        const lane = Math.floor((py - 4) / rh);
+        const it = items.find((q) => q.lane === lane && px >= X(q.born) - 4 && px <= Math.max(X(q.end), q.pill[0] + q.pill[2]) + 4);
+        if (!it) return null;
+        const u = it.u, p = it.pill;
+        const onPill = px >= p[0] - 2 && px <= p[0] + p[2] + 2 && py >= p[1] - 3 && py <= p[1] + p[3] + 3;
+        const tt = Math.max(it.born, Math.min(it.end, c.t0 + (px - l) / (r - l) * (c.t1 - c.t0)));
+        const sp = u.other ? null : memberAt(u, tt) || u.members.findLast((nd) => nd.born <= tt) || u.members[0];
+        const i = Math.max(0, Math.min(n - 1, Math.round((tt - c.t0) / (c.t1 - c.t0) * (n - 1))));
+        if (onPill && it.follow) return { key: unitKey(c, u), u, follow: true, t: tt };
+        return { key: unitKey(c, u), u, node: sp, t: tt, pop: u.vals[i] };
+      },
+      plate(hit) {
+        const u = hit.u;
+        if (hit.follow) return namePlate(u.members[0].s.genome.col, `Follow ${unitName(u, null)}`, `its lineage: ${fmt(u.count)} species · arose ${fmtClock(u.born)}${u.alive ? "" : ` · gone ${fmtClock(u.end)}`}`);
+        if (!hit.node) return namePlate(4287398e3, "Other lineages", `${fmt(u.count)} species whose ancestors are not shown`);
+        const nd = hit.node;
+        return namePlate(nd.s.genome.col, nd.name, `${fmt(Math.round(valAt(nd, hit.t)))} · ${fmtClock(hit.t)} · arose ${fmtClock(nd.born)}${nd.alive ? "" : ` · extinct ${fmtClock(nd.end)}`}`);
+      }
     };
   }
 
@@ -16764,7 +17377,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       body: "all",
       temp: "all",
       sort: "pop",
-      linAll: false,
+      linAll: true,
+      linSpan: "all",
+      linK: 30,
+      linRoot: null,
       logType: "all",
       logQ: "",
       open_: { celltypes: false }
@@ -17009,120 +17625,169 @@ registerProcessor("tidemote-sound", TidemoteSound);
       return { ...p, update };
     }
     function buildLineage() {
-      const p = pane(`<div class="row" role="group" aria-label="Show"><span class="lbl">Show</span>${chips("linAll", [["false", "Living lineages"], ["true", "Every species"]], String(st.linAll))}</div>
-      <div class="sum"><span id="lin-sum"></span><span class="lbl lin-key">Thickness: population</span></div>`, "lineage");
-      const svgWrap = document.createElement("div");
-      p.scroll.append(svgWrap);
+      const seg = (label2, key, opts) => `<span class="lbl">${label2}</span><div class="segs" role="group" aria-label="${label2}">${chips(key, opts, String(st[key]))}</div>`;
+      const p = pane(`<div class="filters">
+      ${seg("Show", "linAll", [["true", "Every lineage"], ["false", "Living lineages"]])}
+      ${seg("Span", "linSpan", [["all", "Whole world"], ["3600", "Last hour"], ["600", "Last 10 min"]])}
+      ${seg("Rows", "linK", [["15", "15"], ["30", "30"], ["60", "60"]])}</div>
+      <div class="sum"><span><span id="lin-sum"></span><button type="button" class="link" id="lin-back" hidden>All lineages</button></span><span class="lbl lin-key">Height: cells · drag to zoom</span><button type="button" class="chip filt" id="lin-filt" aria-expanded="false">Options</button></div>
+      <div class="lin-muller"><canvas id="lin-muller" aria-label="Cells by lineage over time"></canvas><div class="lin-brush" hidden></div></div>`, "lineage");
+      const treeCv = document.createElement("canvas");
+      treeCv.className = "lin-tree";
+      treeCv.id = "lin-tree";
+      const list = document.createElement("ul");
+      list.className = "sr-only";
+      list.setAttribute("aria-label", "Lineages");
+      const empty = document.createElement("p");
+      empty.className = "note";
+      empty.textContent = "Lineages appear here once species become established.";
+      p.scroll.append(empty, treeCv, list);
+      const mCv = p.ctl.querySelector("#lin-muller"), brush = p.ctl.querySelector(".lin-brush");
+      let model = null, modelKey = "", c = null, box = null, lay = null, eras = [], lastAt = 0, lastKey = "";
+      const press = (k) => p.ctl.querySelectorAll(`[data-k="${k}"]`).forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === String(st[k]))));
       p.ctl.addEventListener("click", (e) => {
         const b = e.target.closest("[data-k]");
-        if (!b) return;
-        st.linAll = b.dataset.v === "true";
-        p.ctl.querySelectorAll("[data-k]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === String(st.linAll))));
-        update(true);
-      });
-      const open2 = (e) => {
-        const r = e.target.closest("[data-serial]");
-        if (r) api.openSpecies(+r.dataset.serial);
-      };
-      svgWrap.addEventListener("click", open2);
-      svgWrap.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          open2(e);
+        if (b) {
+          const k = b.dataset.k;
+          st[k] = k === "linAll" ? b.dataset.v === "true" : k === "linK" ? +b.dataset.v : b.dataset.v;
+          press(k);
+          update(true);
+          return;
+        }
+        const ft = e.target.closest("#lin-filt");
+        if (ft) {
+          const on = !p.ctl.classList.contains("open");
+          p.ctl.classList.toggle("open", on);
+          ft.setAttribute("aria-expanded", String(on));
+          return;
+        }
+        if (e.target.closest("#lin-back")) {
+          st.linRoot = null;
+          st.linSpan = "all";
+          press("linSpan");
+          update(true);
         }
       });
-      let lastKey = "", lastAt = 0;
+      function span2(T) {
+        if (Array.isArray(st.linSpan)) return st.linSpan;
+        if (st.linSpan !== "all") return [Math.max(0, T - +st.linSpan), T];
+        const r = rootStrand();
+        if (r) {
+          const pad2 = (Math.min(T, r.end) - r.born) * 0.02;
+          return [Math.max(0, r.born - pad2), Math.min(T, r.end + pad2)];
+        }
+        return [0, T];
+      }
+      const rootStrand = () => st.linRoot != null && model && model.bySerial.get(st.linRoot) ? model.bySerial.get(st.linRoot).strand : null;
+      const tAt = (px) => box && c ? c.t0 + Math.max(0, Math.min(1, (px - box.l) / (box.r - box.l))) * (c.t1 - c.t0) : 0;
+      let drag = null;
+      mCv.addEventListener("pointerdown", (e) => {
+        if (e.button === 0 && box) {
+          drag = { x: e.offsetX, moved: false, id: e.pointerId };
+        }
+      });
+      mCv.addEventListener("pointermove", (e) => {
+        if (!drag || e.pointerId !== drag.id) return;
+        if (!drag.moved && Math.abs(e.offsetX - drag.x) <= 8) return;
+        if (!drag.moved) {
+          drag.moved = true;
+          mCv.setPointerCapture(e.pointerId);
+        }
+        const a = Math.max(box.l, Math.min(drag.x, e.offsetX)), b = Math.min(box.r, Math.max(drag.x, e.offsetX));
+        Object.assign(brush.style, { left: `${a}px`, width: `${b - a}px`, top: `${box.t}px`, height: `${box.b - box.t}px` });
+        brush.hidden = false;
+      });
+      const endDrag = (e) => {
+        if (!drag || e.pointerId !== drag.id) return;
+        const d = drag;
+        drag = null;
+        brush.hidden = true;
+        if (d.moved && e.type === "pointerup") {
+          const t0 = tAt(Math.min(d.x, e.offsetX)), t1 = tAt(Math.max(d.x, e.offsetX));
+          if (t1 - t0 > 5) {
+            st.linSpan = [t0, t1];
+            press("linSpan");
+            update(true);
+          }
+        }
+      };
+      mCv.addEventListener("pointerup", endDrag);
+      mCv.addEventListener("pointercancel", endDrag);
+      let lastTap = null;
+      const tapped = (cv, e, act) => {
+        if (!cv._ch) return;
+        const r = cv.getBoundingClientRect(), hit = cv._ch.at(e.clientX - r.left, e.clientY - r.top);
+        const k = hit && `${cv.id}:${hit.key}:${!!hit.follow}`;
+        const go = hit && (e.pointerType === "mouse" || lastTap === k);
+        lastTap = go ? null : k;
+        if (go) act(hit);
+      };
+      onTap(mCv, (e) => tapped(mCv, e, (hit) => {
+        if (hit.node) api.openSpecies(hit.node.serial);
+      }));
+      onTap(treeCv, (e) => tapped(treeCv, e, (hit) => {
+        if (hit.follow) follow(hit.u);
+        else if (hit.node) api.openSpecies(hit.node.serial);
+      }));
+      function follow(u) {
+        st.linRoot = u.members[0].serial;
+        st.linSpan = "all";
+        press("linSpan");
+        p.scroll.scrollTop = 0;
+        update(true);
+      }
+      list.addEventListener("click", (e) => {
+        const b = e.target.closest("button");
+        if (!b || !c) return;
+        const u = c.units[+b.dataset.u];
+        if (b.dataset.do === "follow") follow(u);
+        else api.openSpecies(+b.dataset.sp);
+      });
+      const drawM = (hot) => {
+        box = drawMuller(mCv, c, eras, { hot, minLeft: 30, onHot: drawT });
+      };
+      const drawT = (hot) => {
+        if (box) drawTree(treeCv, c, lay, eras, { hot, l: box.l, r: box.r, onHot: drawM });
+      };
       function update(force) {
         const now = performance.now();
-        if (!force && (now - lastAt < (st.linAll ? 6e3 : 2500) || hovering(svgWrap))) return;
+        if (!force && (now - lastAt < (model && model.nodes.length > 5e3 ? 5e3 : 2500) || hovering(p.el))) return;
         lastAt = now;
-        const life = api.life();
-        const est = [...life.reg.values()].filter((s) => s.established);
-        const kids = /* @__PURE__ */ new Map();
-        const roots = [];
-        for (const s of est) {
-          const a = s.ancestor && life.reg.get(s.ancestor);
-          if (a && a.established) {
-            if (!kids.has(a.serial)) kids.set(a.serial, []);
-            kids.get(a.serial).push(s);
-          } else roots.push(s);
+        const life = api.life(), T = Math.max(1, api.eng.simTime);
+        const mk = `${life.reg.size}:${Math.floor(T)}`;
+        if (!model || mk !== modelKey) {
+          model = lineageModel(life, T);
+          modelKey = mk;
         }
-        const live = /* @__PURE__ */ new Map();
-        const hasLive = (s) => {
-          if (live.has(s.serial)) return live.get(s.serial);
-          const v = s.alive || (kids.get(s.serial) || []).some(hasLive);
-          live.set(s.serial, v);
-          return v;
-        };
-        const rows = [];
-        const walk = (s, d) => {
-          if (!st.linAll && !hasLive(s)) return;
-          rows.push({ s, d });
-          (kids.get(s.serial) || []).sort((a, b) => a.born - b.born).forEach((c) => walk(c, d + 1));
-        };
-        roots.sort((a, b) => a.born - b.born).forEach((s) => walk(s, 0));
-        $2("lin-sum").textContent = `${fmt(rows.length)} species · ${fmt(rows.filter((r) => r.s.alive).length)} alive`;
-        const T = Math.max(1, api.eng.simTime);
-        const W = Math.max(280, svgWrap.clientWidth);
-        const key = `${rows.length}:${W}:${Math.floor(T / 5)}:${st.linAll}:${api.focusKey()}`;
+        if (st.linRoot != null && !rootStrand()) st.linRoot = null;
+        const [t0, t1] = span2(T);
+        const W = Math.max(280, p.scroll.clientWidth - 32);
+        const key = `${mk}:${t0}:${t1}:${st.linAll}:${st.linK}:${st.linRoot}:${W}`;
         if (!force && key === lastKey) return;
         lastKey = key;
-        const RH = 32, top = 22, padL = 4, padR = 10;
-        const X = (t2) => padL + t2 / T * (W - padL - padR);
-        const H2 = rows.length * RH + 8;
-        const hist = life.history;
-        const series = /* @__PURE__ */ new Map();
-        hist.forEach((h, i) => {
-          for (const [k2, v] of h.sp) {
-            let a = series.get(k2);
-            if (!a) series.set(k2, a = new Float32Array(hist.length));
-            a[i] = v;
-          }
-        });
-        const yOf = new Map(rows.map((r, i) => [r.s.serial, i * RH + 22]));
-        const step = [60, 120, 300, 600, 900, 1800, 3600, 7200].find((s) => T / s <= 6) || 7200;
-        let axis = `<svg class="lin-axis" viewBox="0 0 ${W} ${top}" width="${W}" height="${top}" aria-hidden="true">`;
-        let svg = `<svg viewBox="0 0 ${W} ${H2}" width="${W}" height="${H2}" role="list" aria-label="Lineage of established species">`;
-        for (let t2 = 0; t2 <= T; t2 += step) {
-          axis += `<line x1="${X(t2)}" x2="${X(t2)}" y1="${top - 5}" y2="${top}" stroke="rgba(150,222,230,0.55)"/><text x="${X(t2) + 3}" y="12" font-size="10" fill="#6f8a8c" letter-spacing="1">${fmtClock(t2)}</text>`;
-          svg += `<line x1="${X(t2)}" x2="${X(t2)}" y1="0" y2="${H2}" stroke="rgba(130,205,214,0.08)"/>`;
+        eras = api.climate().history.slice(1);
+        const r = rootStrand();
+        c = cut(model, { t0, t1, k: st.linK, live: !st.linAll, root: r, n: Math.min(320, Math.round(W / 2)) });
+        $2("lin-sum").textContent = `${r ? `${r.first.name}'s line · ` : ""}${fmt(c.units.length)} of ${fmt(c.lineages)} lineages · ${fmt(c.species)} species`;
+        const back = $2("lin-back");
+        back.hidden = !r && !Array.isArray(st.linSpan);
+        back.textContent = r ? "← All lineages" : "← Whole world";
+        const any = !!(c.units.length || c.other);
+        empty.hidden = any;
+        mCv.parentElement.hidden = treeCv.hidden = !any;
+        if (!any) {
+          list.innerHTML = "";
+          return;
         }
-        axis += `<line x1="0" x2="${W}" y1="${top - 0.5}" y2="${top - 0.5}" stroke="rgba(130,205,214,0.22)"/></svg>`;
-        for (const e of api.climate().history.slice(1)) svg += `<line x1="${X(e.t)}" x2="${X(e.t)}" y1="0" y2="${H2}" stroke="rgba(241,227,160,0.3)" stroke-dasharray="1 3"/>`;
-        for (const { s } of rows) {
-          const a = s.ancestor && yOf.get(s.ancestor);
-          if (a == null) continue;
-          const x = X(s.born);
-          svg += `<path d="M${x},${a + 2} V${yOf.get(s.serial)}" stroke="rgba(163,189,190,0.35)" fill="none"/>`;
-        }
-        const hl = api.focusKey();
-        let peak = 1;
-        for (const { s } of rows) if (s.peak > peak) peak = s.peak;
-        const k = 6 / Math.sqrt(peak);
-        rows.forEach(({ s }) => {
-          const y = yOf.get(s.serial);
-          const x0 = X(s.born), x1 = Math.max(x0 + 2, X(s.alive ? T : s.extinct ?? T));
-          const col = cssCol(s.genome.col, s.alive ? 1 : 0.55);
-          let band = "";
-          if (hist.length > 1) {
-            const pts = [];
-            const vals = series.get(s.serial);
-            if (vals) hist.forEach((h, i) => {
-              if (h.t >= s.born - 1 && h.t <= (s.alive ? T : s.extinct ?? T) + 1) pts.push([X(h.t), Math.sqrt(vals[i]) * k]);
-            });
-            if (s.alive && pts.length) pts.push([X(T), Math.sqrt(s.pop) * k]);
-            if (pts.length > 1) {
-              band = `<path d="M${pts.map(([x, v]) => `${x.toFixed(1)},${(y - 0.75 - v).toFixed(1)}`).join("L")}L${pts.map(([x, v]) => `${x.toFixed(1)},${(y + 0.75 + v).toFixed(1)}`).reverse().join("L")}Z" fill="${col}" opacity="0.85"/>`;
-            }
-          }
-          const anchorEnd = x0 > W * 0.62;
-          const label2 = `${esc(s.name)}${s.alive ? "" : " †"}`;
-          const tx = anchorEnd ? Math.min(W - padR, x1) : x0 + 1;
-          const tip = `${s.name} · ${s.alive ? `${fmt(s.pop)} alive` : `extinct at ${fmtClock(s.extinct ?? 0)}`} · arose ${fmtClock(s.born)} · peak ${fmt(s.peak)}`;
-          svg += `<g class="row" data-serial="${s.serial}" tabindex="0" role="listitem" aria-label="${esc(tip)}"><rect class="hit" x="0" y="${y - 22}" width="${W}" height="${RH}" fill="${hl === `sp:${s.serial}` ? "rgba(255,95,58,0.12)" : "transparent"}"/><line x1="${x0}" x2="${x1}" y1="${y}" y2="${y}" stroke="${col}" stroke-width="1.5"/>${band}<circle cx="${x0}" cy="${y}" r="2.2" fill="${col}"/><text x="${tx}" y="${y - 8}" font-size="11.5" fill="${s.alive ? "#e2f1f0" : "#6f8a8c"}" ${anchorEnd ? 'text-anchor="end"' : ""}>${label2}</text></g>`;
-        });
-        svg += "</svg>";
-        svgWrap.innerHTML = rows.length ? axis + svg : '<p class="note">Species appear here once they become established.</p>';
+        drawM(null);
+        if (!box) return;
+        lay = layoutTree(c, box.l, box.r);
+        treeCv.style.height = `${lay.h}px`;
+        drawT(null);
+        list.innerHTML = c.units.map((u, i) => {
+          const n = u.members.findLast((x) => x.alive) || u.members.at(-1);
+          return `<li><button type="button" data-u="${i}" data-sp="${n.serial}">${esc(n.name)}: ${fmt(u.count)} species, ${u.alive ? "living" : "extinct"}</button><button type="button" data-u="${i}" data-do="follow">Follow its lineage</button></li>`;
+        }).join("");
       }
       return { ...p, update };
     }
@@ -19615,7 +20280,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     };
     const waitFrames = (n) => new Promise((res) => frameWaiters.push({ n, res }));
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    async function measure(need = 36, warm = 16) {
+    async function measure2(need = 36, warm = 16) {
       await Promise.race([waitFrames(warm), sleep(2500)]);
       perf.samples.length = 0;
       return new Promise((res) => {
@@ -19726,14 +20391,14 @@ registerProcessor("tidemote-sound", TidemoteSound);
       seedWorld(n);
       state.busy = false;
       calStep(`Measuring the GPU · ${fmt(n)} particles`, 0.2);
-      let t2 = await measure();
+      let t2 = await measure2();
       let next = clampN(n * target / t2);
       if (next > n * 1.2) {
         next = await allocDown(next);
         seedWorld(next);
         state.busy = false;
         calStep(`Measuring the GPU · ${fmt(next)} particles`, 0.6);
-        const t22 = await measure();
+        const t22 = await measure2();
         n = next;
         t2 = t22;
         next = clampN(n * target / t2);
@@ -19962,8 +20627,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
         established: false,
         extinct: null,
         founder: g.parent === 0,
-        signal: signalAt(voiceOf(g).motif) >= 0
+        signal: signalAt(voiceOf(g).motif) >= 0,
         // its song is the five tones
+        series: { t: [], v: [] }
+        // its population at each census, for the Lineage view
       };
       life.reg.set(g.serial, sp);
       return sp;
@@ -20074,6 +20741,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         sp.pop = p;
         sp.alive = true;
         if (p > sp.peak) sp.peak = p;
+        record(sp.series, t2, p);
         seen.add(g.serial);
         if (g.depth > life.maxDepth) life.maxDepth = g.depth;
         if (!sp.established && sp.peak >= life.estThreshold) {
@@ -20103,6 +20771,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
           sp.pop = 0;
           if (sp.established) {
             sp.extinct = t2;
+            record(sp.series, t2, 0);
+            sp.series = seal(sp.series);
             if (sp.peak >= life.estThreshold * 3) pushEvent(`${spLink(sp.serial, sp.name)} extinct after ${fmtDur(t2 - (sp.born || 0))} · peak ${fmt(sp.peak)}`, sp.genome.col, "ext");
           } else if (sp.heard) {
             sp.extinct = t2;
@@ -22153,6 +22823,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       eng,
       sound,
       life: () => life,
+      climate: () => climate,
       renderScale: () => renderScale,
       maxZoom,
       setSpeed,

@@ -2,7 +2,9 @@ import { GUIDE } from './guide.js';
 import { fmt, fmtClock, esc, cssCol, term, spLink, ROLE, LIVING_CSS } from './fmt.js';
 import { voiceOf } from './audio/mapping.js';
 import { sigilSVG } from './song.js';
-import { drawLines, drawNiches, sparkPath } from './charts.js';
+import { drawLines, drawNiches, sparkPath, onTap } from './charts.js';
+import { lineageModel, cut } from './lineage/model.js';
+import { drawMuller, drawTree, layoutTree } from './lineage/draw.js';
 import { HEAT_BINS, HEAT_BIN, THERMAL_LEDGER } from './shaders.js';
 import { thermalGuild } from './genome.js';
 import { block, disclosure, wireDisclosures } from './ui.js';
@@ -19,7 +21,7 @@ export function createLab(api) {
   const st = {
     open: api.startOpen, tab: 'census',
     q: '', status: 'thriving', diet: 'all', mobility: 'all', body: 'all', temp: 'all', sort: 'pop',
-    linAll: false, logType: 'all', logQ: '',
+    linAll: true, linSpan: 'all', linK: 30, linRoot: null, logType: 'all', logQ: '',
     open_: { celltypes: false }, // census disclosures
   };
   const panes = {};
@@ -217,114 +219,140 @@ export function createLab(api) {
   }
 
   // ---------------------------------------------------------- lineage
-  // Every established species as a bar from its first appearance to now or its extinction, its
-  // thickness following its population, joined to its nearest established ancestor where it arose.
+  // The world's lineages (src/lineage/): a Muller plot of the few dozen that held the most life in
+  // the span shown, every other species counted with its nearest shown ancestor, over the tree of
+  // the same lineages. Narrowing the span (drag across the plot) or following one lineage (its pill)
+  // recuts it, so finer lineages appear; every species is a few steps away.
   function buildLineage() {
-    const p = pane(`<div class="row" role="group" aria-label="Show"><span class="lbl">Show</span>${chips('linAll', [['false', 'Living lineages'], ['true', 'Every species']], String(st.linAll))}</div>
-      <div class="sum"><span id="lin-sum"></span><span class="lbl lin-key">Thickness: population</span></div>`, 'lineage');
-    const svgWrap = document.createElement('div');
-    p.scroll.append(svgWrap);
+    const seg = (label, key, opts) => `<span class="lbl">${label}</span><div class="segs" role="group" aria-label="${label}">${chips(key, opts, String(st[key]))}</div>`;
+    const p = pane(`<div class="filters">
+      ${seg('Show', 'linAll', [['true', 'Every lineage'], ['false', 'Living lineages']])}
+      ${seg('Span', 'linSpan', [['all', 'Whole world'], ['3600', 'Last hour'], ['600', 'Last 10 min']])}
+      ${seg('Rows', 'linK', [['15', '15'], ['30', '30'], ['60', '60']])}</div>
+      <div class="sum"><span><span id="lin-sum"></span><button type="button" class="link" id="lin-back" hidden>All lineages</button></span><span class="lbl lin-key">Height: cells · drag to zoom</span><button type="button" class="chip filt" id="lin-filt" aria-expanded="false">Options</button></div>
+      <div class="lin-muller"><canvas id="lin-muller" aria-label="Cells by lineage over time"></canvas><div class="lin-brush" hidden></div></div>`, 'lineage');
+    const treeCv = document.createElement('canvas');
+    treeCv.className = 'lin-tree';
+    treeCv.id = 'lin-tree';
+    const list = document.createElement('ul');
+    list.className = 'sr-only';
+    list.setAttribute('aria-label', 'Lineages');
+    const empty = document.createElement('p');
+    empty.className = 'note';
+    empty.textContent = 'Lineages appear here once species become established.';
+    p.scroll.append(empty, treeCv, list);
+    const mCv = p.ctl.querySelector('#lin-muller'), brush = p.ctl.querySelector('.lin-brush');
+    let model = null, modelKey = '', c = null, box = null, lay = null, eras = [], lastAt = 0, lastKey = '';
+    const press = (k) => p.ctl.querySelectorAll(`[data-k="${k}"]`).forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.v === String(st[k]))));
     p.ctl.addEventListener('click', (e) => {
       const b = e.target.closest('[data-k]');
-      if (!b) return;
-      st.linAll = b.dataset.v === 'true';
-      p.ctl.querySelectorAll('[data-k]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.v === String(st.linAll))));
-      update(true);
+      if (b) {
+        const k = b.dataset.k;
+        st[k] = k === 'linAll' ? b.dataset.v === 'true' : k === 'linK' ? +b.dataset.v : b.dataset.v;
+        press(k);
+        update(true);
+        return;
+      }
+      const ft = e.target.closest('#lin-filt');
+      if (ft) { const on = !p.ctl.classList.contains('open'); p.ctl.classList.toggle('open', on); ft.setAttribute('aria-expanded', String(on)); return; }
+      if (e.target.closest('#lin-back')) { st.linRoot = null; st.linSpan = 'all'; press('linSpan'); update(true); }
     });
-    const open = (e) => { const r = e.target.closest('[data-serial]'); if (r) api.openSpecies(+r.dataset.serial); };
-    svgWrap.addEventListener('click', open);
-    svgWrap.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(e); } });
-    let lastKey = '', lastAt = 0;
+    // the span on show: the whole world, the last stretch of it, a dragged window, or a followed lineage's life
+    function span(T) {
+      if (Array.isArray(st.linSpan)) return st.linSpan;
+      if (st.linSpan !== 'all') return [Math.max(0, T - +st.linSpan), T];
+      const r = rootStrand();
+      if (r) { const pad = (Math.min(T, r.end) - r.born) * 0.02; return [Math.max(0, r.born - pad), Math.min(T, r.end + pad)]; }
+      return [0, T];
+    }
+    const rootStrand = () => (st.linRoot != null && model && model.bySerial.get(st.linRoot) ? model.bySerial.get(st.linRoot).strand : null);
+    const tAt = (px) => (box && c ? c.t0 + Math.max(0, Math.min(1, (px - box.l) / (box.r - box.l))) * (c.t1 - c.t0) : 0);
+    // a drag across the plot narrows the span to it
+    let drag = null;
+    mCv.addEventListener('pointerdown', (e) => { if (e.button === 0 && box) { drag = { x: e.offsetX, moved: false, id: e.pointerId }; } });
+    mCv.addEventListener('pointermove', (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      if (!drag.moved && Math.abs(e.offsetX - drag.x) <= 8) return;
+      if (!drag.moved) { drag.moved = true; mCv.setPointerCapture(e.pointerId); }
+      const a = Math.max(box.l, Math.min(drag.x, e.offsetX)), b = Math.min(box.r, Math.max(drag.x, e.offsetX));
+      Object.assign(brush.style, { left: `${a}px`, width: `${b - a}px`, top: `${box.t}px`, height: `${box.b - box.t}px` });
+      brush.hidden = false;
+    });
+    const endDrag = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const d = drag;
+      drag = null;
+      brush.hidden = true;
+      if (d.moved && e.type === 'pointerup') {
+        const t0 = tAt(Math.min(d.x, e.offsetX)), t1 = tAt(Math.max(d.x, e.offsetX));
+        if (t1 - t0 > 5) { st.linSpan = [t0, t1]; press('linSpan'); update(true); }
+      }
+    };
+    mCv.addEventListener('pointerup', endDrag);
+    mCv.addEventListener('pointercancel', endDrag);
+    // a click acts on what is under it; on touch the first tap names it and a second tap on the same acts
+    let lastTap = null;
+    const tapped = (cv, e, act) => {
+      if (!cv._ch) return;
+      const r = cv.getBoundingClientRect(), hit = cv._ch.at(e.clientX - r.left, e.clientY - r.top);
+      const k = hit && `${cv.id}:${hit.key}:${!!hit.follow}`;
+      const go = hit && (e.pointerType === 'mouse' || lastTap === k);
+      lastTap = go ? null : k;
+      if (go) act(hit);
+    };
+    onTap(mCv, (e) => tapped(mCv, e, (hit) => { if (hit.node) api.openSpecies(hit.node.serial); }));
+    onTap(treeCv, (e) => tapped(treeCv, e, (hit) => { if (hit.follow) follow(hit.u); else if (hit.node) api.openSpecies(hit.node.serial); }));
+    function follow(u) {
+      st.linRoot = u.members[0].serial;
+      st.linSpan = 'all';
+      press('linSpan');
+      p.scroll.scrollTop = 0;
+      update(true);
+    }
+    list.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b || !c) return;
+      const u = c.units[+b.dataset.u];
+      if (b.dataset.do === 'follow') follow(u); else api.openSpecies(+b.dataset.sp);
+    });
+    // each drawing lights the lineage the pointer is on in the other
+    const drawM = (hot) => { box = drawMuller(mCv, c, eras, { hot, minLeft: 30, onHot: drawT }); };
+    const drawT = (hot) => { if (box) drawTree(treeCv, c, lay, eras, { hot, l: box.l, r: box.r, onHot: drawM }); };
     function update(force) {
       const now = performance.now();
-      if (!force && (now - lastAt < (st.linAll ? 6000 : 2500) || hovering(svgWrap))) return;
+      // a long world's records take longer to recut: refresh it less often
+      if (!force && (now - lastAt < (model && model.nodes.length > 5000 ? 5000 : 2500) || hovering(p.el))) return;
       lastAt = now;
-      const life = api.life();
-      const est = [...life.reg.values()].filter((s) => s.established);
-      const kids = new Map();
-      const roots = [];
-      for (const s of est) {
-        const a = s.ancestor && life.reg.get(s.ancestor);
-        if (a && a.established) { if (!kids.has(a.serial)) kids.set(a.serial, []); kids.get(a.serial).push(s); } else roots.push(s);
-      }
-      // keep only branches with a living species in them, unless asked for everything
-      const live = new Map();
-      const hasLive = (s) => {
-        if (live.has(s.serial)) return live.get(s.serial);
-        const v = s.alive || (kids.get(s.serial) || []).some(hasLive);
-        live.set(s.serial, v);
-        return v;
-      };
-      const rows = [];
-      const walk = (s, d) => {
-        if (!st.linAll && !hasLive(s)) return;
-        rows.push({ s, d });
-        (kids.get(s.serial) || []).sort((a, b) => a.born - b.born).forEach((c) => walk(c, d + 1));
-      };
-      roots.sort((a, b) => a.born - b.born).forEach((s) => walk(s, 0));
-      $('lin-sum').textContent = `${fmt(rows.length)} species · ${fmt(rows.filter((r) => r.s.alive).length)} alive`;
-      const T = Math.max(1, api.eng.simTime);
-      const W = Math.max(280, svgWrap.clientWidth);
-      const key = `${rows.length}:${W}:${Math.floor(T / 5)}:${st.linAll}:${api.focusKey()}`;
+      const life = api.life(), T = Math.max(1, api.eng.simTime);
+      // the model is rebuilt as the census moves on; the cut and the drawings whenever anything shown changes
+      const mk = `${life.reg.size}:${Math.floor(T)}`;
+      if (!model || mk !== modelKey) { model = lineageModel(life, T); modelKey = mk; }
+      if (st.linRoot != null && !rootStrand()) st.linRoot = null;
+      const [t0, t1] = span(T);
+      const W = Math.max(280, p.scroll.clientWidth - 32);
+      const key = `${mk}:${t0}:${t1}:${st.linAll}:${st.linK}:${st.linRoot}:${W}`;
       if (!force && key === lastKey) return;
       lastKey = key;
-      const RH = 32, top = 22, padL = 4, padR = 10;
-      const X = (t) => padL + (t / T) * (W - padL - padR);
-      const H = rows.length * RH + 8;
-      const hist = life.history;
-      // each species' population at every history sample, gathered in one pass
-      const series = new Map();
-      hist.forEach((h, i) => { for (const [k, v] of h.sp) { let a = series.get(k); if (!a) series.set(k, (a = new Float32Array(hist.length))); a[i] = v; } });
-      const yOf = new Map(rows.map((r, i) => [r.s.serial, i * RH + 22]));
-      // time axis, kept in view while the rows scroll under it
-      const step = [60, 120, 300, 600, 900, 1800, 3600, 7200].find((s) => T / s <= 6) || 7200;
-      let axis = `<svg class="lin-axis" viewBox="0 0 ${W} ${top}" width="${W}" height="${top}" aria-hidden="true">`;
-      let svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="list" aria-label="Lineage of established species">`;
-      for (let t = 0; t <= T; t += step) {
-        axis += `<line x1="${X(t)}" x2="${X(t)}" y1="${top - 5}" y2="${top}" stroke="rgba(150,222,230,0.55)"/><text x="${X(t) + 3}" y="12" font-size="10" fill="#6f8a8c" letter-spacing="1">${fmtClock(t)}</text>`;
-        svg += `<line x1="${X(t)}" x2="${X(t)}" y1="0" y2="${H}" stroke="rgba(130,205,214,0.08)"/>`;
-      }
-      axis += `<line x1="0" x2="${W}" y1="${top - 0.5}" y2="${top - 0.5}" stroke="rgba(130,205,214,0.22)"/></svg>`;
-      for (const e of api.climate().history.slice(1)) svg += `<line x1="${X(e.t)}" x2="${X(e.t)}" y1="0" y2="${H}" stroke="rgba(241,227,160,0.3)" stroke-dasharray="1 3"/>`;
-      // connectors under the bars
-      for (const { s } of rows) {
-        const a = s.ancestor && yOf.get(s.ancestor);
-        if (a == null) continue;
-        const x = X(s.born);
-        svg += `<path d="M${x},${a + 2} V${yOf.get(s.serial)}" stroke="rgba(163,189,190,0.35)" fill="none"/>`;
-      }
-      const hl = api.focusKey();
-      // one thickness scale for every bar, so a dominant species reads thicker than a minor one
-      let peak = 1;
-      for (const { s } of rows) if (s.peak > peak) peak = s.peak;
-      const k = 6 / Math.sqrt(peak);
-      rows.forEach(({ s }) => {
-        const y = yOf.get(s.serial);
-        const x0 = X(s.born), x1 = Math.max(x0 + 2, X(s.alive ? T : (s.extinct ?? T)));
-        const col = cssCol(s.genome.col, s.alive ? 1 : 0.55);
-        // population as the bar's thickness
-        let band = '';
-        if (hist.length > 1) {
-          const pts = [];
-          const vals = series.get(s.serial);
-          if (vals) hist.forEach((h, i) => { if (h.t >= s.born - 1 && h.t <= (s.alive ? T : (s.extinct ?? T)) + 1) pts.push([X(h.t), Math.sqrt(vals[i]) * k]); });
-          if (s.alive && pts.length) pts.push([X(T), Math.sqrt(s.pop) * k]);
-          if (pts.length > 1) {
-            band = `<path d="M${pts.map(([x, v]) => `${x.toFixed(1)},${(y - 0.75 - v).toFixed(1)}`).join('L')}L${pts.map(([x, v]) => `${x.toFixed(1)},${(y + 0.75 + v).toFixed(1)}`).reverse().join('L')}Z" fill="${col}" opacity="0.85"/>`;
-          }
-        }
-        const anchorEnd = x0 > W * 0.62;
-        const label = `${esc(s.name)}${s.alive ? '' : ' †'}`;
-        const tx = anchorEnd ? Math.min(W - padR, x1) : x0 + 1;
-        const tip = `${s.name} · ${s.alive ? `${fmt(s.pop)} alive` : `extinct at ${fmtClock(s.extinct ?? 0)}`} · arose ${fmtClock(s.born)} · peak ${fmt(s.peak)}`;
-        svg += `<g class="row" data-serial="${s.serial}" tabindex="0" role="listitem" aria-label="${esc(tip)}">`
-          + `<rect class="hit" x="0" y="${y - 22}" width="${W}" height="${RH}" fill="${hl === `sp:${s.serial}` ? 'rgba(255,95,58,0.12)' : 'transparent'}"/>`
-          + `<line x1="${x0}" x2="${x1}" y1="${y}" y2="${y}" stroke="${col}" stroke-width="1.5"/>${band}`
-          + `<circle cx="${x0}" cy="${y}" r="2.2" fill="${col}"/>`
-          + `<text x="${tx}" y="${y - 8}" font-size="11.5" fill="${s.alive ? '#e2f1f0' : '#6f8a8c'}" ${anchorEnd ? 'text-anchor="end"' : ''}>${label}</text></g>`;
-      });
-      svg += '</svg>';
-      svgWrap.innerHTML = rows.length ? axis + svg : '<p class="note">Species appear here once they become established.</p>';
+      eras = api.climate().history.slice(1);
+      const r = rootStrand();
+      c = cut(model, { t0, t1, k: st.linK, live: !st.linAll, root: r, n: Math.min(320, Math.round(W / 2)) });
+      $('lin-sum').textContent = `${r ? `${r.first.name}'s line · ` : ''}${fmt(c.units.length)} of ${fmt(c.lineages)} lineages · ${fmt(c.species)} species`;
+      const back = $('lin-back');
+      back.hidden = !r && !Array.isArray(st.linSpan);
+      back.textContent = r ? '← All lineages' : '← Whole world';
+      const any = !!(c.units.length || c.other);
+      empty.hidden = any;
+      mCv.parentElement.hidden = treeCv.hidden = !any;
+      if (!any) { list.innerHTML = ''; return; }
+      drawM(null);
+      if (!box) return; // not on screen
+      lay = layoutTree(c, box.l, box.r);
+      treeCv.style.height = `${lay.h}px`;
+      drawT(null);
+      list.innerHTML = c.units.map((u, i) => {
+        const n = u.members.findLast((x) => x.alive) || u.members.at(-1);
+        return `<li><button type="button" data-u="${i}" data-sp="${n.serial}">${esc(n.name)}: ${fmt(u.count)} species, ${u.alive ? 'living' : 'extinct'}</button><button type="button" data-u="${i}" data-do="follow">Follow its lineage</button></li>`;
+      }).join('');
     }
     return { ...p, update };
   }
