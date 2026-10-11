@@ -5,6 +5,7 @@
   "description": "A sealed GPU biosphere: particle life, evolution and ecology on WebGPU",
   "scripts": {
     "build": "node build.mjs",
+    "build:site": "node build.mjs && cp dist/tidemote.html site/index.html",
     "sim": "node tools/sim.mjs",
     "compare": "node tools/compare.mjs",
     "test": "node --test",

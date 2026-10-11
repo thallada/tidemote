@@ -1,0 +1,6 @@
+# The page is one unversioned file: let browsers and the edge revalidate (cheap 304s via ETag)
+# so a deploy shows up at once.
+/*
+  Cache-Control: public, max-age=0, must-revalidate
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
