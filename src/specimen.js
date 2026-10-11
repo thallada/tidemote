@@ -5,7 +5,7 @@ import { tagsOf } from './facets.js';
 import { tideAt } from './flow.js';
 import { fmt, fmtClock, fmtDur, esc, cssCol, cssRgb, term, spLink, meter, clamp, ROLE, MATTER, CAUSE, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
 import { glyphURL, MATTER_GLYPH } from './glyphs.js';
-import { sparkPath } from './charts.js';
+import { drawLines, popOf } from './charts.js';
 import { voiceOf } from './audio/mapping.js';
 import { describe, compareMotifs } from './audio/motif.js';
 import { songSVG, sigilSVG } from './song.js';
@@ -330,8 +330,7 @@ export function createSpecimen(api) {
     const src = sp || snap;
     let h = '';
     if (sp) {
-      const d = sparkPath(life.history, sp.serial, 300, 64);
-      if (d) h += `<div class="blk">${subHead('Population', `peak ${fmt(sp.peak)}`)}<svg class="popchart" viewBox="0 0 300 64" preserveAspectRatio="none" aria-label="Population over time"><path d="${d}" fill="none" stroke="${cssCol(g.col)}" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg><div class="legend-note"><span>${fmtClock(life.history[0].t)}</span><span>${fmtClock(life.history[life.history.length - 1].t)}</span></div></div>`;
+      if (life.history.length > 1) h += `<div class="blk">${subHead('Population', `peak ${fmt(sp.peak)}`)}<canvas class="popchart chart" data-chart="pop:${sp.serial}" aria-label="Population over time"></canvas></div>`;
     }
     let s = '';
     if (sp && sp.alive) {
@@ -571,8 +570,14 @@ export function createSpecimen(api) {
     for (const [id, , html] of flow) {
       if (st.flow.get(id) === html) continue;
       const el = sectionEl(id);
-      if (el) { el.querySelector('.sx-b').innerHTML = html; st.flow.set(id, html); songKey = ''; }
+      if (!el) continue;
+      // a chart that is still shown stays the same canvas, so a pointer on it keeps its place
+      const sx = el.querySelector('.sx-b'), kept = [...sx.querySelectorAll('canvas[data-chart]')];
+      sx.innerHTML = html;
+      for (const cv of kept) { const n = sx.querySelector(`canvas[data-chart="${cv.dataset.chart}"]`); if (n) n.replaceWith(cv); }
+      st.flow.set(id, html); songKey = '';
     }
+    drawPopChart();
     if (restoreTop != null) { body.scrollTop = restoreTop; restoreTop = null; }
     if (pin && performance.now() < pin.until) { const el = sectionEl(pin.id); if (el) body.scrollTop = Math.max(0, el.offsetTop - 2); mark(pin.id); return true; }
     pin = null;
@@ -580,6 +585,12 @@ export function createSpecimen(api) {
     return true;
   }
   let restoreTop = null;
+  // the species' population over the census history, on the Lab charts' axes
+  function drawPopChart() {
+    const cv = body.querySelector('canvas.popchart');
+    const sp = cv && api.life().reg.get(+cv.dataset.chart.slice(4));
+    if (sp) drawLines(cv, api.life().history, [{ label: 'cells', col: cssCol(sp.genome.col), get: popOf(sp.serial) }], null);
+  }
 
   function open() {
     if (root.hidden) {
