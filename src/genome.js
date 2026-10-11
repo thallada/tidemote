@@ -1,4 +1,4 @@
-import { DEFAULT_K, G_WORDS, BRAIN_WORD, BRAIN_WORDS, BRAIN_SENSES, BRAIN_DIRS, BRAIN_STATE, BRAIN_SCALE, BRAIN_IN, BRAIN_OUT } from './shaders.js';
+import { DEFAULT_K, G_WORDS, BRAIN_WORD, BRAIN_WORDS, BRAIN_SENSES, BRAIN_DIRS, BRAIN_STATE, BRAIN_ACTS, BRAIN_SCALE, BRAIN_IN, BRAIN_OUT } from './shaders.js';
 
 export const KIND = { SILT: 0, GLINT: 1, HUSK: 2, STONE: 3, FRAMBOID: 4 };
 
@@ -140,20 +140,21 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
 // ------------------------------------------------------------ brain
 // The brain's weights (K.brain; brainNet in shaders.js) as signed bytes, four to a word: hidden neuron h's
 // weight over sense i < 16 in byte 16h + i, over sense i >= 16 in byte 128 + 4h + i - 16; output o's over
-// hidden neuron h in byte 160 + 8o + h; output o's bias in byte 256 + o; the clock's rate in byte 268.
+// hidden neuron h in byte 160 + 8o + h; output o's bias in byte 272 + o; the clock's rate in byte 286.
 // Each byte is a weight times 127/BRAIN_SCALE.
 const SI = Object.fromEntries(BRAIN_SENSES.map((n, i) => [n, i]));
-const DI = Object.fromEntries([...BRAIN_DIRS, ...BRAIN_STATE].map((n, i) => [n, i]));
+const DI = Object.fromEntries([...BRAIN_DIRS, ...BRAIN_STATE, ...BRAIN_ACTS].map((n, i) => [n, i]));
 const hidByte = (h, i) => (i < 16 ? h * 16 + i : 128 + h * 4 + i - 16);
 const outByte = (o, h) => 160 + o * 8 + h;
-const CLOCK_BYTE = 268;
+const BIAS_BYTE = 272;
+const CLOCK_BYTE = 286;
 const byteOf = (w) => Math.round(clamp(w / BRAIN_SCALE, -1, 1) * 127) & 255;
 const weightOf = (b) => Math.max(-1, ((b << 24) >> 24) / 127) * BRAIN_SCALE;
 const setByte = (words, k, w) => { const i = k >> 2, sh = (k & 3) * 8; words[i] = ((words[i] & ~(255 << sh)) | (byteOf(w) << sh)) >>> 0; };
 const getByte = (words, k) => weightOf((words[k >> 2] >>> ((k & 3) * 8)) & 255);
 export const brainHidden = (words, h, i) => getByte(words, hidByte(h, i));
 export const brainOutput = (words, o, h) => getByte(words, outByte(o, h));
-export const brainBias = (words, o) => getByte(words, 256 + o);
+export const brainBias = (words, o) => getByte(words, BIAS_BYTE + o);
 
 /**
  * A founder's brain: reflexes like the rules a brainless world runs on (a hungry cell swims toward food,
@@ -168,7 +169,7 @@ export function founderBrain(r = Math.random) {
   for (let k = 0; k <= CLOCK_BYTE; k++) setByte(w, k, c() * 0.1);
   const hid = (h, sense, v) => setByte(w, hidByte(h, SI[sense]), v);
   const out = (dir, h, v) => setByte(w, outByte(DI[dir], h), v);
-  const bias = (dir, v) => setByte(w, 256 + DI[dir], v);
+  const bias = (dir, v) => setByte(w, BIAS_BYTE + DI[dir], v);
   const hunger = 1 + 0.6 * c(), heat = 1 + 0.6 * c(), fear = 1 + 0.6 * c();
   hid(0, 'energy', -2); hid(0, 'bias', 1.8);   // hunger
   hid(1, 'temp', 1.5);                         // too warm (+) or too cold (-)
@@ -188,6 +189,9 @@ export function founderBrain(r = Math.random) {
   bias('kin', 0.4 * c());
   bias('remember', 0.6 * c());
   bias('signal', 0.3 * c());
+  // a hungry cell is drawn harder to food; it divides at the usual mark unless it learns otherwise
+  out('appetite', 0, 0.8 * hunger);
+  bias('early', 0.4);
   setByte(w, CLOCK_BYTE, c() * BRAIN_SCALE); // the clock's rate
   return w;
 }
@@ -198,7 +202,7 @@ function mutateBrainLike(words, m, r, gauss, K) {
   const keep = 1 - m * (K.brainShrink ?? 0.5);
   for (let k = 0; k < BRAIN_WORDS * 4; k++) setByte(b, k, getByte(b, k) * keep + gauss() * mb);
   if (r() < m * 0.25) {
-    const row = Math.min(15, Math.floor(r() * 16));
+    const row = Math.min(16, Math.floor(r() * 17));
     for (let k = 0; k < 16; k++) setByte(b, row * 16 + k, (r() * 2 - 1) * 0.3 * BRAIN_SCALE);
   }
   return b;

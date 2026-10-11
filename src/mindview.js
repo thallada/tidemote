@@ -12,7 +12,8 @@ const NB_ROWS = 4; // other species shown (own kind has its own row)
 const EASE_MS = 70;
 // The brain's directions (K.brain), as the panel names them, in output order (BRAIN_DIRS).
 // Its state rows: [key, label, value from a mind reading's brain (senses 16..19, state 2)].
-const BRAIN_STATE_ROWS = [['m1', 'Memory 1', (b) => b.senses[16]], ['m2', 'Memory 2', (b) => b.senses[17]],
+const BRAIN_STATE_ROWS = [['app', 'Appetite', (b) => b.acts[0]], ['early', 'Divides early', (b) => Math.max(0, -b.acts[1])],
+  ['m1', 'Memory 1', (b) => b.senses[16]], ['m2', 'Memory 2', (b) => b.senses[17]],
   ['sig', 'Its signal', (b) => b.state[2]], ['hk', 'Hears its kind', (b) => b.senses[18]], ['ho', 'Hears others', (b) => b.senses[19]]];
 const BRAIN_LABEL = { food: 'Toward food', threat: 'Toward danger', kin: 'Toward its kind', warmth: 'Up the warmth',
   current: 'With the current', heading: 'On its heading', wander: 'Wandering', flock: 'With its kind’s heading' };

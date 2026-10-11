@@ -1110,12 +1110,12 @@ svg.niche .n-dot { fill: var(--cyan); }
   var PICK_WORDS = P_WORDS + 2;
   var PICK_PARTNERS = P_WORDS;
   var PICK_HEAD = 16 + P_BYTES;
-  var G_BYTES = 464;
-  var G_WORDS = 116;
+  var G_BYTES = 480;
+  var G_WORDS = 120;
   var BRAIN_WORD = 48;
-  var BRAIN_WORDS = 68;
+  var BRAIN_WORDS = 72;
   var BRAIN_IN = 20;
-  var BRAIN_OUT = 12;
+  var BRAIN_OUT = 14;
   var BRAIN_SCALE = 3;
   var BRAIN_SENSES = [
     "energy",
@@ -1141,8 +1141,9 @@ svg.niche .n-dot { fill: var(--cyan); }
   ];
   var BRAIN_DIRS = ["food", "threat", "kin", "warmth", "current", "heading", "wander", "flock"];
   var BRAIN_STATE = ["memory-1", "memory-2", "signal", "remember"];
+  var BRAIN_ACTS = ["appetite", "early"];
   var LITE_BYTES = 32;
-  var MIND_HEAD = 91;
+  var MIND_HEAD = 93;
   var MIND_NBR = 48;
   var MIND_NBR_WORDS = 7;
   var MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
@@ -1406,7 +1407,8 @@ const ORGANS = ${ORGANS}u;
 
 // Info: 0..3 cause, 4..5 role, 6..15 search image, 16..31 generation.
 // mem: a living cell's brain state (K.brain), 4x8 snorm: its two memories and the signal it gives off;
-// spare: with K.brain, the stroke it last chose (2x16 float), held between thoughts.
+// spare: with K.brain, what it last chose, held between thoughts (thinkMain's packAct): its stroke (angle,
+// strength), appetite and readiness to divide early, 4x8 unorm.
 struct Particle { pos: vec2f, vel: vec2f, kind: u32, energy: f32, age: f32, id: u32, col: u32, info: u32, mem: u32, spare: u32 };
 struct Genome {
   sig: array<vec4u, 3>,
@@ -1420,9 +1422,9 @@ struct Genome {
   parent: u32, serial: u32, born: f32, depth: u32,
   adhesion: f32, calcify: f32, topt: f32, tol: f32,
   // 0..7 hidden neurons' weights over senses 0..15 (15 a constant 1), 8..9 over senses 16..19 (a word
-  // per neuron), 10..15 the outputs' weights over the hidden neurons (two words each), 16 the outputs'
-  // biases (x, y, z) and the clock's rate (w, byte 0)
-  brain: array<vec4u, 17>,
+  // per neuron), 10..16 the outputs' weights over the hidden neurons (two words each), 17 the outputs'
+  // biases (x, y, z, w bytes 0..1) and the clock's rate (w, byte 2)
+  brain: array<vec4u, 18>,
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
@@ -1557,6 +1559,9 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   // (K.diag: neighbours inside this cell's core; animals within reach and twice reach)
   var overlap = 0.0;
   var preyNear = vec2f(0.0);
+  // the brain's appetite (K.brain): how hard hunger pulls it to food, 0 to 2x, as its last thought chose
+  var hunger = 1.0;
+  if (BRAIN) { hunger = actAppetite(sortedFull[i].spare); }
   var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
 
   // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam).
@@ -1611,7 +1616,7 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
         let core = select(1.0, 0.15, canHunt && qk != p.kind);
         if (x < beta) { fr = (x * invBeta - 1.0) * core; } else { fr = a * shape; }${W("mFr0 = fr;")}
         // hungry foragers are drawn toward the cells their diet favours
-        let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.brain ? K.hunt * K.brainPulls : K.hunt)}, canHunt && qk != p.kind);
+        let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.brain ? K.hunt * K.brainPulls : K.hunt)} * hunger, canHunt && qk != p.kind);
         if (x >= beta) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * invBeta * invR; }
         crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
         if (DIAG) {
@@ -1663,8 +1668,8 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
           if (r < 0.5) { stoneN += 1.0; }
         } else {
           if (hungry && qk != SILT && x >= beta) {
-            fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.brain ? K.forage * K.brainPulls : K.forage)} * shape;
-            pull += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.brain ? K.forage * K.brainPulls : K.forage)};
+            fr += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.brain ? K.forage * K.brainPulls : K.forage)} * hunger * shape;
+            pull += select(g.dHusk, g.dGlint, qk == GLINT) * eatEff * ${f(K.brain ? K.forage * K.brainPulls : K.forage)} * hunger;
           }
           if (qk == SILT) { nutr += 1.0; }
           // a cell ready to divide looks for a grain every tick, so in a coarse step a grain counts if it
@@ -1721,7 +1726,12 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   // The brain (K.brain): the stroke its last thought chose (thinkMain), held until it thinks again. Read
   // here, after the scan, so lifeMain carries nothing of the brain through it.
   var thrust = vec2f(0.0);
-  if (BRAIN && swim > 0.0) { thrust = unpack2x16float(sortedFull[i].spare); }
+  var early = 1.0;
+  if (BRAIN && swim > 0.0) {
+    let act = sortedFull[i].spare;
+    thrust = actThrust(act);
+    early = actEarly(act);
+  }
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
   // The cell and its neighbourhood are taken as two bodies sharing momentum: the reaction to this cell's
@@ -1825,6 +1835,7 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0);
   var tThrust = vec2f(0.0);
   var tMem = p.mem;
+  var tAct = packAct(vec2f(0.0), vec2f(0.0));
   if (swim > 0.0) {
     let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
     // who could eat it: flesh-eaters, and croppers too if it is a plant (Lite.kr bits 13, 14)
@@ -1914,6 +1925,7 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
       + gn.b.x * unit(flow) + gn.b.y * uVel + gn.b.z * vec2f(cos(wa), sin(wa)) + gn.b.w * unit(kinVel);
     let sl = length(steer);
     tThrust = steer * (swim * ${f(K.brainThrust)} * min(sl, 1.0) / max(sl, 1e-6));
+    tAct = packAct(tThrust, gn.d);
     // it keeps (remember + 1) / 2 of the candidates: a gate, so a memory can hold until something matters
     tMem = pack4x8snorm(vec4f(mix(ms.xy, gn.c.xy, 0.5 + 0.5 * gn.c.w), gn.c.z, 0.0));${W("mGains = gn; mSense = array<vec4f, 5>(x0, x1, x2, x3, x4); mBrain = 1u;")}
   }`
@@ -2089,6 +2101,21 @@ fn eaterBits(g: Genome) -> u32 {
   return select(0u, 1u << 13u, eatEff * g.dFlesh > 0.3)
     | select(0u, 1u << 14u, eatEff * (${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh) > 0.3);
 }
+// What a thought chose, in a word (Particle.spare): its stroke's angle and strength (up to 3 x brainThrust),
+// its appetite (0..2, 1 at a brain output of 0) and readiness to divide early (the mark x 0.7..1; 1 unless
+// the output is below 0). A newborn's word is 0: no stroke, no appetite, until it first thinks.
+const ACT_MAX = ${f(3 * K.brainThrust)};
+fn packAct(t: vec2f, d: vec2f) -> u32 {
+  let a = atan2(t.y, t.x) / TAU + 0.5;
+  return pack4x8unorm(vec4f(a, min(length(t) / ACT_MAX, 1.0), 0.5 + 0.5 * d.x, max(-d.y, 0.0)));
+}
+fn actThrust(w: u32) -> vec2f {
+  let v = unpack4x8unorm(w);
+  let a = (v.x - 0.5) * TAU;
+  return vec2f(cos(a), sin(a)) * (v.y * ACT_MAX);
+}
+fn actAppetite(w: u32) -> f32 { return 2.0 * unpack4x8unorm(w).z; }
+fn actEarly(w: u32) -> f32 { return 1.0 - 0.3 * unpack4x8unorm(w).w; }
 fn unit(v: vec2f) -> vec2f { return v * inverseSqrt(max(dot(v, v), 1e-12)); }
 fn squash(x: f32) -> f32 { return x / (x + 1.0); }
 fn tanh4(v: vec4f) -> vec4f { return tanh(clamp(v, vec4f(-9.0), vec4f(9.0))); }
@@ -2099,8 +2126,9 @@ fn neuron(w: vec4u, w4: u32, x0: vec4f, x1: vec4f, x2: vec4f, x3: vec4f, x4: vec
 fn synapse(lo: u32, hi: u32, a: vec4f, b: vec4f) -> f32 { return dot(unpack4x8snorm(lo), a) + dot(unpack4x8snorm(hi), b); }
 fn synapses(o: vec4u, a: vec4f, b: vec4f) -> vec2f { return vec2f(synapse(o.x, o.y, a, b), synapse(o.z, o.w, a, b)); }
 // A brain's outputs: a, b the gains of its eight directions (food, threat, kin, warmth; current, heading,
-// wander, flock); c its state (two memory candidates, the signal, how much of the candidates it keeps).
-struct Gains { a: vec4f, b: vec4f, c: vec4f };
+// wander, flock); c its state (two memory candidates, the signal, how much of the candidates it keeps);
+// d its acts (appetite, readiness to divide early).
+struct Gains { a: vec4f, b: vec4f, c: vec4f, d: vec2f };
 // Species k's brain on one cell's twenty senses (x0..x4; x3.w a constant 1): 20 -> 8 tanh -> 12 tanh.
 fn brainNet(k: u32, x0: vec4f, x1: vec4f, x2: vec4f, x3: vec4f, x4: vec4f) -> Gains {
   let B = &genomes[k].brain;
@@ -2108,15 +2136,17 @@ fn brainNet(k: u32, x0: vec4f, x1: vec4f, x2: vec4f, x3: vec4f, x4: vec4f) -> Ga
   let e0 = (*B)[8]; let e1 = (*B)[9];
   let hA = tanh4(S * vec4f(neuron((*B)[0], e0.x, x0, x1, x2, x3, x4), neuron((*B)[1], e0.y, x0, x1, x2, x3, x4), neuron((*B)[2], e0.z, x0, x1, x2, x3, x4), neuron((*B)[3], e0.w, x0, x1, x2, x3, x4)));
   let hB = tanh4(S * vec4f(neuron((*B)[4], e1.x, x0, x1, x2, x3, x4), neuron((*B)[5], e1.y, x0, x1, x2, x3, x4), neuron((*B)[6], e1.z, x0, x1, x2, x3, x4), neuron((*B)[7], e1.w, x0, x1, x2, x3, x4)));
-  let ob = (*B)[16];
+  let ob = (*B)[17];
   let a = vec4f(synapses((*B)[10], hA, hB), synapses((*B)[11], hA, hB));
   let b = vec4f(synapses((*B)[12], hA, hB), synapses((*B)[13], hA, hB));
   let c = vec4f(synapses((*B)[14], hA, hB), synapses((*B)[15], hA, hB));
-  return Gains(tanh4(S * (a + unpack4x8snorm(ob.x))), tanh4(S * (b + unpack4x8snorm(ob.y))), tanh4(S * (c + unpack4x8snorm(ob.z))));
+  let d = synapses((*B)[16], hA, hB) + unpack4x8snorm(ob.w).xy;
+  return Gains(tanh4(S * (a + unpack4x8snorm(ob.x))), tanh4(S * (b + unpack4x8snorm(ob.y))), tanh4(S * (c + unpack4x8snorm(ob.z))),
+    tanh(clamp(S * d, vec2f(-9.0), vec2f(9.0))));
 }
 // A brain's clock: a slow per-cell oscillation at the species' own rate (0.05 to 1.05 Hz).
 fn brainClock(k: u32, id: u32) -> f32 {
-  let rate = 0.55 + 0.5 * unpack4x8snorm(genomes[k].brain[16].w).x;
+  let rate = 0.55 + 0.5 * unpack4x8snorm(genomes[k].brain[17].w).z;
   return sin(TAU * (rate * sim.time + renderHash(id ^ 0x2545f491u)));
 }
 // A child species' brain: its parent's, every weight jittered and drawn a little toward zero (so drift alone
@@ -2128,14 +2158,14 @@ fn mutateBrain(slot: u32, parentKind: u32, m: f32, s: ptr<function, u32>) {
   let mb = m * ${f(K.brainMut)};
   let keep = 1.0 - m * ${f(K.brainShrink)};
   if (${K.brainControl ? "true" : "false"}) {
-    for (var k = 0u; k < 17u; k++) { randomRow(slot, k, s); }
+    for (var k = 0u; k < 18u; k++) { randomRow(slot, k, s); }
     return;
   }
-  for (var k = 0u; k < 17u; k++) {
+  for (var k = 0u; k < 18u; k++) {
     let w = genomes[parentKind].brain[k];
     genomes[slot].brain[k] = vec4u(mutWeights(w.x, keep, mb, s), mutWeights(w.y, keep, mb, s), mutWeights(w.z, keep, mb, s), mutWeights(w.w, keep, mb, s));
   }
-  if (rnd(s) < m * 0.25) { randomRow(slot, min(u32(rnd(s) * 16.0), 15u), s); }
+  if (rnd(s) < m * 0.25) { randomRow(slot, min(u32(rnd(s) * 17.0), 16u), s); }
 }
 fn randomRow(slot: u32, k: u32, s: ptr<function, u32>) {
   genomes[slot].brain[k] = vec4u(pack4x8snorm(r4(s) * 0.3), pack4x8snorm(r4(s) * 0.3), pack4x8snorm(r4(s) * 0.3), pack4x8snorm(r4(s) * 0.3));
@@ -2253,7 +2283,7 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   finalize(&g);
   genomes[slot] = g;
   // a random brain: whatever it does, selection keeps what works
-  for (var k = 0u; k < 17u; k++) { randomRow(slot, k, s); }
+  for (var k = 0u; k < 18u; k++) { randomRow(slot, k, s); }
 }
 
 // Bedrock: sim.rock.x outcrops, each a wandering chain of five discs of radius about sim.rock.y.
@@ -2793,7 +2823,7 @@ ${cellWGSL(K, false)}
       diagAdd(dg, 13u, 1u);
       if (isAnimal(food)) { diagAdd(dg, 14u, 1u); }
     }
-    if (E > g.reproE && silt != NONE && !th.torpid) {
+    if (E > g.reproE * early && silt != NONE && !th.torpid) {
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
         cr = sampleRole(g, role, &s);
@@ -2852,7 +2882,7 @@ ${cellWGSL(K, false)}
         * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking) * h;
       age += h;
       let tk = sim.tick - sim.ticks + k;
-      if (!born && E > g.reproE && silt != NONE && !th.torpid) {
+      if (!born && E > g.reproE * early && silt != NONE && !th.torpid) {
         born = true;
         var won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged;
         if (!won && silt2 != NONE) { won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt2], 0u, i + 1u).exchanged; }
@@ -2964,7 +2994,7 @@ fn thinkMain(@builtin(global_invocation_id) gid: vec3u) {
   if (i == NONE) { return; }
 ${thinkWGSL(K, false)}
   sortedFull[i].mem = tMem;
-  sortedFull[i].spare = pack2x16float(tThrust);
+  sortedFull[i].spare = tAct;
 }
 
 // --------------------------------------------------------------------- mind
@@ -3074,14 +3104,15 @@ ${thinkWGSL(K, true)}
   mPut(54, th.x);
   mind[55] = select(0u, 1u, th.torpid);
   // the brain (K.brain): what it steered by, and what it sensed
-  mind[90] = mBrain;
+  mind[92] = mBrain;
   for (var k = 0u; k < 4u; k++) {
     mPut(58u + k, mGains.a[k]);
     mPut(62u + k, mGains.b[k]);
     mPut(66u + k, mGains.c[k]);
   }
+  mPut2(70u, mGains.d);
   for (var k = 0u; k < 5u; k++) {
-    for (var c = 0u; c < 4u; c++) { mPut(70u + 4u * k + c, mSense[k][c]); }
+    for (var c = 0u; c < 4u; c++) { mPut(72u + 4u * k + c, mSense[k][c]); }
   }
 }
 `;
@@ -6058,10 +6089,11 @@ struct SV {
     return finalizeGenome(g, K);
   }
   var SI = Object.fromEntries(BRAIN_SENSES.map((n, i) => [n, i]));
-  var DI = Object.fromEntries([...BRAIN_DIRS, ...BRAIN_STATE].map((n, i) => [n, i]));
+  var DI = Object.fromEntries([...BRAIN_DIRS, ...BRAIN_STATE, ...BRAIN_ACTS].map((n, i) => [n, i]));
   var hidByte = (h, i) => i < 16 ? h * 16 + i : 128 + h * 4 + i - 16;
   var outByte = (o, h) => 160 + o * 8 + h;
-  var CLOCK_BYTE = 268;
+  var BIAS_BYTE = 272;
+  var CLOCK_BYTE = 286;
   var byteOf = (w) => Math.round(clamp(w / BRAIN_SCALE, -1, 1) * 127) & 255;
   var setByte = (words, k, w) => {
     const i = k >> 2, sh = (k & 3) * 8;
@@ -6073,7 +6105,7 @@ struct SV {
     for (let k = 0; k <= CLOCK_BYTE; k++) setByte(w, k, c() * 0.1);
     const hid = (h, sense, v) => setByte(w, hidByte(h, SI[sense]), v);
     const out = (dir, h, v) => setByte(w, outByte(DI[dir], h), v);
-    const bias = (dir, v) => setByte(w, 256 + DI[dir], v);
+    const bias = (dir, v) => setByte(w, BIAS_BYTE + DI[dir], v);
     const hunger = 1 + 0.6 * c(), heat = 1 + 0.6 * c(), fear = 1 + 0.6 * c();
     hid(0, "energy", -2);
     hid(0, "bias", 1.8);
@@ -6094,6 +6126,8 @@ struct SV {
     bias("kin", 0.4 * c());
     bias("remember", 0.6 * c());
     bias("signal", 0.3 * c());
+    out("appetite", 0, 0.8 * hunger);
+    bias("early", 0.4);
     setByte(w, CLOCK_BYTE, c() * BRAIN_SCALE);
     return w;
   }
@@ -17403,8 +17437,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       x: f32[54],
       torpid: !!(u32[55] & 1),
       // the brain (K.brain), if it steered this step: the gain on each direction and the senses it read
-      // (outputs: the eight direction gains, then memory candidates, signal, remember)
-      brain: u32[90] === 1 ? { gains: Array.from(f32.subarray(58, 66)), state: Array.from(f32.subarray(66, 70)), senses: Array.from(f32.subarray(70, 90)) } : null,
+      // (outputs: the eight direction gains, then memory candidates, signal, remember, then appetite, early)
+      brain: u32[92] === 1 ? { gains: Array.from(f32.subarray(58, 66)), state: Array.from(f32.subarray(66, 70)), acts: Array.from(f32.subarray(70, 72)), senses: Array.from(f32.subarray(72, 92)) } : null,
       nbrs
     };
   }
@@ -17635,6 +17669,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var NB_ROWS = 4;
   var EASE_MS = 70;
   var BRAIN_STATE_ROWS = [
+    ["app", "Appetite", (b) => b.acts[0]],
+    ["early", "Divides early", (b) => Math.max(0, -b.acts[1])],
     ["m1", "Memory 1", (b) => b.senses[16]],
     ["m2", "Memory 2", (b) => b.senses[17]],
     ["sig", "Its signal", (b) => b.state[2]],

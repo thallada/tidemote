@@ -191,6 +191,36 @@ export async function runHeadless(device, config, { print, width = 640, height =
  * with K.diag the per-guild diagnostics. Forks of one rep share their random seed, so variants compare
  * pair by pair (tools/fastforward/fork-meta.cjs, fork-diag.cjs, fork-hist.cjs).
  */
+/**
+ * K.brain's transplant test (docs/brain.md): replace the brains of the living species at a fork. 'random':
+ * each gets a fresh random brain, as a spark of life does; 'shuffle': the swimming species trade brains,
+ * each taking another's. If evolved brains suit their owners, either should cost them.
+ */
+function transplantBrains(eng, census, how, rep, E, readGenome, { BRAIN_WORD, BRAIN_WORDS, G_BYTES }) {
+  let s = (0x9e3779b9 ^ Math.imul(rep + 1, 2654435761)) >>> 0;
+  const rnd = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
+  const slots = [];
+  for (let k = E.FIRST_LIFE; k < E.MAXK; k++) {
+    if (!census.pop[k]) continue;
+    const g = readGenome(census.genomeU32, census.genomeF32, k);
+    if (g.swim * (1 - g.photo) > 0.01) slots.push([k, g.brain]);
+  }
+  const order = slots.map((x) => x[1]);
+  // a derangement-ish shuffle: rotate a random permutation by one so no species keeps its own
+  for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+  slots.forEach(([k], i) => {
+    const words = new Uint32Array(BRAIN_WORDS);
+    if (how === 'random') {
+      for (let w = 0; w < BRAIN_WORDS; w++) {
+        let v = 0;
+        for (let b = 0; b < 4; b++) v |= (Math.round((rnd() * 2 - 1) * 0.3 * 127) & 255) << (8 * b);
+        words[w] = v >>> 0;
+      }
+    } else words.set(order[(i + 1) % order.length]);
+    eng.device.queue.writeBuffer(eng.b.genomes, k * G_BYTES + BRAIN_WORD * 4, words);
+  });
+}
+
 export async function runForks(device, config, { print } = {}) {
   const errors = [];
   const onError = (e) => errors.push(e.error.message);
@@ -203,7 +233,7 @@ export async function runForks(device, config, { print } = {}) {
     const E = await import('./engine.js');
     const { readGenome, dietGuild } = await import('./genome.js');
     const { communitySample, DIETS } = await import('./ecostats.js');
-    const { ENERGY_SLOTS, P_BYTES, DIAG_SLOTS, DIAG_STRIDE, THERMAL_LEDGER, HEAT_BINS, HEAT_BIN } = await import('./shaders.js');
+    const { ENERGY_SLOTS, P_BYTES, DIAG_SLOTS, DIAG_STRIDE, THERMAL_LEDGER, HEAT_BINS, HEAT_BIN, ...layout } = await import('./shaders.js');
     const eng = await E.createEngine(device, 'rgba8unorm', { K: config.k, hasTimestamps: false });
     if (!(await eng.allocate(config.n))) throw new Error(`could not allocate ${config.n} particles`);
     eng.resize(64, 36);
@@ -267,6 +297,7 @@ export async function runForks(device, config, { print } = {}) {
         eng.seedValue = (snap.cpu.seedValue ^ Math.imul(r + 1, 2654435761)) >>> 0;
         eng.censusEvery = 1 << 30;
         const c0 = await eng.readCensus(), g0 = guilds(c0);
+        if (v.transplant) transplantBrains(eng, c0, v.transplant, r, E, readGenome, layout);
         const frames = Math.round((config.horizon * 60) / v.step), dt = v.step / 60;
         for (let f = 0; f < frames; f++) {
           eng.season = seasonAt(eng.simTime);

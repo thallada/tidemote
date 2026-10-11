@@ -5,7 +5,7 @@
 //   node tools/brain-probe.mjs run.json [more.json...]
 import fs from 'node:fs';
 import { brainHidden, brainOutput, brainBias, founderBrain, dietGuild } from '../src/genome.js';
-import { BRAIN_SENSES, BRAIN_DIRS, BRAIN_STATE, BRAIN_HID, BRAIN_OUT } from '../src/shaders.js';
+import { BRAIN_SENSES, BRAIN_DIRS, BRAIN_STATE, BRAIN_ACTS, BRAIN_HID, BRAIN_OUT } from '../src/shaders.js';
 
 const SI = Object.fromEntries(BRAIN_SENSES.map((n, i) => [n, i]));
 const BASE = { energy: 0.9, age: 0.3, food: 0, threat: 0, kin: 0.2, crowd: 0.2, temp: 0, light: 0.5, silt: 0.3,
@@ -36,7 +36,7 @@ export function brainGains(w, x) {
 }
 const profile = (w) => Object.fromEntries(Object.entries(SITUATIONS).map(([k, d]) => [k, brainGains(w, { ...BASE, ...d })]));
 const D = Object.fromEntries(BRAIN_DIRS.map((n, i) => [n, i]));
-const S = Object.fromEntries(BRAIN_STATE.map((n, i) => [n, BRAIN_DIRS.length + i]));
+const S = Object.fromEntries([...BRAIN_STATE, ...BRAIN_ACTS].map((n, i) => [n, BRAIN_DIRS.length + i]));
 // a few readings of a brain: how much hunger turns it to food, flight, thermotaxis, clock rhythm...
 function traits(w) {
   const p = profile(w);
@@ -58,10 +58,12 @@ function traits(w) {
     // memory: how much of new candidates it keeps (1 all, 0 none) and how much memory steers it
     keep: (p.calm[S.remember] + 1) / 2,
     memSteer: Math.max(...BRAIN_DIRS.map((_, i) => Math.abs(p.memHi[i] - p.memLo[i]))),
+    // acts: appetite when hungry and sated (1 is the pull a brainless cell feels), dividing early when calm
+    appHungry: 1 + p.hungry[S.appetite], appSated: 1 + p.sated[S.appetite], early: Math.max(0, -p.calm[S.early]),
   };
 }
 const template = founderBrain(() => 0.5);
-const dist = (a) => { let s = 0; for (let k = 0; k < 269; k++) s += Math.abs(brainByte(a, k) - brainByte(template, k)); return s / 269; };
+const dist = (a) => { let s = 0; for (let k = 0; k < 287; k++) s += Math.abs(brainByte(a, k) - brainByte(template, k)); return s / 287; };
 const brainByte = (w, k) => (((w[k >> 2] >>> ((k & 3) * 8)) & 255) << 24 >> 24) / 127;
 const swims = (g) => g.swim * (1 - g.photo) > 0.05;
 
@@ -71,6 +73,7 @@ if (!files.length) { console.error('usage: brain-probe.mjs run.json [...]'); pro
 const keys = Object.keys(traits(template));
 console.log(`founder reflex   ${keys.map((k) => `${k}=${fmt(traits(template)[k])}`).join(' ')}`);
 const all = [];
+const runs = [];
 for (const f of files) {
   const run = JSON.parse(fs.readFileSync(f, 'utf8'));
   if (!run.species) throw new Error(`${f}: no species (run sim.mjs with --species)`);
@@ -86,7 +89,15 @@ for (const f of files) {
   }
   console.log(`\n${f}: ${sw.length} swimming species, ${tot} cells; mean drift from the reflex ${md.toFixed(3)} per weight, mean depth ${mdepth.toFixed(1)}`);
   console.log(`  pop-weighted    ${keys.map((k) => `${k}=${fmt(mean[k])}`).join(' ')}`);
+  runs.push(mean);
   for (const s of sw.slice(0, 6).map((x) => ({ ...x, t: traits(x.genome.brain) }))) {
     console.log(`  ${String(s.pop).padStart(6)} ${dietGuild(s.genome).padEnd(9)} d${String(s.genome.depth).padEnd(4)} drift ${dist(s.genome.brain).toFixed(3)}  ${keys.map((k) => `${k}=${fmt(s.t[k])}`).join(' ')}`);
   }
+}
+
+// across the runs: each trait's mean and spread of the runs' pop-weighted means
+if (runs.length > 1) {
+  const ms = (k) => { const v = runs.map((r) => r[k]); const m = v.reduce((a, b) => a + b, 0) / v.length; return [m, Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / (v.length - 1))]; };
+  console.log(`\nacross ${runs.length} runs (mean ± sd of pop-weighted means)`);
+  for (const k of keys) { const [m, sd] = ms(k); console.log(`  ${k.padEnd(10)} ${fmt(m)} ± ${sd.toFixed(2)}`); }
 }
