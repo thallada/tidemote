@@ -653,6 +653,7 @@ body.lab-wide .lab-head .tabs button { padding: 0 10px; letter-spacing: .16em; }
 .pane-ctl { padding: var(--s3) 16px; display: flex; flex-direction: column; gap: var(--s3); border-bottom: 1px solid var(--line); }
 .qrow { display: flex; gap: 6px; }
 .qrow .filt { display: none; height: 34px; flex: none; }
+#lin-filt { display: none; height: 28px; }
 .filters { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 12px; align-items: center; }
 .filters > .lbl { color: var(--ink-3); }
 /* a segmented control: joined chips sharing their borders */
@@ -685,12 +686,11 @@ body.lab-wide .lab-head .tabs button { padding: 0 10px; letter-spacing: .16em; }
 .spnum b { font-weight: 400; font-size: 13px; }
 .spnum span { color: var(--ink-3); font-size: 11px; }
 
-.lineage svg { display: block; width: 100%; }
-.lineage svg text { font-family: var(--sans); }
-.lineage .row { cursor: pointer; }
-.lineage .row:hover .hit, .lineage .row:focus-visible .hit { fill: rgba(127, 214, 223, 0.07); }
-.lineage .row:focus { outline: none; }
-.lin-axis { position: sticky; top: -6px; z-index: 1; background: var(--panel-solid); margin-top: -6px; padding-top: 6px; box-sizing: content-box; }
+.lin-muller { position: relative; margin: 0 -4px; }
+.lin-muller canvas { display: block; width: 100%; height: 170px; touch-action: pan-y; cursor: crosshair; }
+.lin-brush { position: absolute; pointer-events: none; background: rgba(127, 214, 223, 0.14); border: 1px solid var(--line-2); border-width: 0 1px; }
+canvas.lin-tree { display: block; width: calc(100% + 8px); margin: 0 -4px; cursor: pointer; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 .bars { display: flex; flex-direction: column; gap: 2px; }
 .barrow { display: grid; grid-template-columns: 9.5em minmax(30px, 1fr) 7.5ch 5.6ch; gap: 9px; align-items: center; border: 0; padding: 5px 4px; text-align: left; font-size: 12.5px; color: var(--ink); width: 100%; }
@@ -845,7 +845,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .pane-ctl { padding: 10px 12px 8px; }
   .scroll { padding: 4px 12px 24px; }
   .splist li { grid-template-columns: 24px minmax(0, 1fr) 4.8em; }
-  .qrow .filt { display: inline-flex; }
+  .qrow .filt, #lin-filt { display: inline-flex; }
   .pane-ctl:not(.open) .filters { display: none; }
   .lin-key { display: none; }
   .splist .spark { display: none; }

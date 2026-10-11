@@ -59,7 +59,7 @@ export function fmtVal(v, unit = '', step = 0) {
 }
 // clock ticks a round interval apart, at least minGap px apart
 const CLOCK = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400];
-function timeTicks(t0, t1, px, minGap = 58) {
+export function timeTicks(t0, t1, px, minGap = 58) {
   const span = t1 - t0;
   if (!(span > 0)) return [];
   const step = CLOCK.find((s) => (s / span) * px >= minGap) || Math.ceil(span / 86400) * 86400;
@@ -72,13 +72,13 @@ function timeTicks(t0, t1, px, minGap = 58) {
  * The plot box for a canvas w × h with value labels yLabels down the left and room for the clock
  * below (bottom: px kept under the plot, top: above it): { l, t, r, b }.
  */
-function plotBox(g, w, h, yLabels, top = 6, bottom = XLAB) {
+export function plotBox(g, w, h, yLabels, top = 6, bottom = XLAB) {
   let lw = 0;
   for (const s of yLabels) lw = Math.max(lw, g.measureText(s).width);
   return { l: Math.ceil(lw) + 5, t: top, r: w - 1, b: h - bottom };
 }
 // dotted guides at the value ticks with their labels, the baseline, and the era boundaries
-function grid(g, box, ys) {
+export function grid(g, box, ys) {
   const { l, r } = box;
   g.fillStyle = GRID;
   for (const { y } of ys) { const Y = Math.round(y) + 0.5; for (let x = l; x < r; x += 4) g.fillRect(x, Y - 0.5, 1, 1); }
@@ -90,7 +90,7 @@ function grid(g, box, ys) {
   g.textBaseline = 'alphabetic';
 }
 // the clock below the plot, and dotted lines where eras began
-function clock(g, box, t0, t1, eras) {
+export function clock(g, box, t0, t1, eras) {
   const { l, r, t, b } = box;
   const X = (s) => l + ((s - t0) / (t1 - t0)) * (r - l);
   if (eras) {
@@ -321,8 +321,24 @@ export function drawNiches(cv, species, tbg, felt, binW) {
 }
 
 // ------------------------------------------------------------------ pointing
+/**
+ * Call fn(e) on a tap or click on el: the pointer pressed and lifted in about the same place within a
+ * moment, not a drag or a scroll the browser took over.
+ */
+export function onTap(el, fn) {
+  let down = null;
+  el.addEventListener('pointerdown', (e) => { down = e.button === 0 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp } : null; });
+  el.addEventListener('pointermove', (e) => { if (down && e.pointerId === down.id && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) down = null; });
+  el.addEventListener('pointercancel', () => { down = null; });
+  el.addEventListener('pointerup', (e) => {
+    const d = down;
+    down = null;
+    if (d && e.pointerId === d.id && e.timeStamp - d.t < 600) fn(e);
+  });
+}
+
 let join = () => {}; // set by chartPointer: every chart joins it as it is drawn
-const namePlate = (col, name, sub) => `<i style="background:${cssCol(col)}"></i><span>${esc(name)}</span><small>${sub}</small>`;
+export const namePlate = (col, name, sub) => `<i style="background:${cssCol(col)}"></i><span>${esc(name)}</span><small>${sub}</small>`;
 
 /**
  * The charts' pointer: a mouse names what is under it on the plate (a species' name plate, or the
@@ -368,10 +384,18 @@ export function chartPointer(plate, onPick) {
     bound.add(cv);
     cv.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' && cv._ch) point(cv, e); });
     cv.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && hot === cv) leave(); });
+    // a mouse picks as it presses; a finger only by tapping, so a scroll that starts on a chart
+    // neither names nor opens what it began on
     cv.addEventListener('pointerdown', (e) => {
-      if (!cv._ch) return;
+      if (!cv._ch || e.pointerType !== 'mouse') return;
+      point(cv, e);
+      const hit = cv._hot;
+      if (hit && hit.serial != null) onPick(hit.serial);
+    });
+    onTap(cv, (e) => {
+      if (e.pointerType === 'mouse' || !cv._ch) return;
       const prev = point(cv, e), hit = cv._hot;
-      if (hit && hit.serial != null && (e.pointerType === 'mouse' || prev === hit.key)) { onPick(hit.serial); if (e.pointerType !== 'mouse') leave(); }
+      if (hit && hit.serial != null && prev === hit.key) { onPick(hit.serial); leave(); }
     });
   }
   document.addEventListener('pointerdown', (e) => { if (hot && e.target !== hot) leave(); }, true);

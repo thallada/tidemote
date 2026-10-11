@@ -11,6 +11,7 @@ import { section, block } from './ui.js';
 import { createTips } from './tip.js';
 import { drawLiving, chartPointer } from './charts.js';
 import { genusName, speciesEpithet } from './names.js';
+import { record, seal } from './lineage/model.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
 import { PICK_WORDS, WATCH_MAX, stoneGrain } from './shaders.js';
@@ -534,6 +535,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       ancestor: parent ? (parent.established ? parent.serial : parent.ancestor) : null,
       pop: 0, peak: 0, alive: true, established: false, extinct: null, founder: g.parent === 0,
       signal: signalAt(voiceOf(g).motif) >= 0, // its song is the five tones
+      series: { t: [], v: [] }, // its population at each census, for the Lineage view
     };
     life.reg.set(g.serial, sp);
     return sp;
@@ -642,6 +644,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       sp.pop = p;
       sp.alive = true;
       if (p > sp.peak) sp.peak = p;
+      record(sp.series, t, p);
       seen.add(g.serial);
       if (g.depth > life.maxDepth) life.maxDepth = g.depth;
       if (!sp.established && sp.peak >= life.estThreshold) {
@@ -671,6 +674,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         sp.pop = 0;
         if (sp.established) {
           sp.extinct = t;
+          record(sp.series, t, 0);
+          sp.series = seal(sp.series);
           if (sp.peak >= life.estThreshold * 3) pushEvent(`${spLink(sp.serial, sp.name)} extinct after ${fmtDur(t - (sp.born || 0))} · peak ${fmt(sp.peak)}`, sp.genome.col, 'ext');
         } else if (sp.heard) { // kept, so the log's link still opens it
           sp.extinct = t;
@@ -2487,7 +2492,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     sound.away(document.hidden);
   });
   // a handle for tools/perf, which profiles the page in a real browser
-  globalThis.__tidemote = { state, cam, perf, eng, sound, life: () => life, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
+  globalThis.__tidemote = { state, cam, perf, eng, sound, life: () => life, climate: () => climate, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
     setScale(v) { state.perf.scale = v; if (v !== 'auto') renderScale = v; resetAdapt(); fit(); },
     // as the adaptive scale does it: applied when the next frame begins
     queueScale(v) { renderScale = v; resizeDue = true; },
