@@ -153,24 +153,36 @@ export const brainBias = (words, o) => getByte(words, 192 + o);
 
 /**
  * A founder's brain: reflexes like the rules a brainless world runs on (a hungry cell swims toward food,
- * one out of its warmth back toward it, every cell keeps on its heading), a mild flight from what could eat
- * it, a little wandering, and faint noise on every weight for evolution to work on.
+ * one out of its warmth back toward it, every cell keeps on its heading) and a mild flight from what could
+ * eat it, each at its own strength; a temperament of its own (its five spare neurons wired at random, and
+ * leanings to ride or fight the current, school, wander or go with the jostle); and faint noise on every
+ * weight. r() = 0.5 throughout gives the plain reflexes (tools/brain-probe.mjs compares against them).
  */
 export function founderBrain(r = Math.random) {
   const w = new Array(BRAIN_WORDS).fill(0);
-  for (let k = 0; k < 200; k++) setByte(w, k, (r() * 2 - 1) * 0.1);
+  const c = () => r() * 2 - 1;
+  for (let k = 0; k < 200; k++) setByte(w, k, c() * 0.1);
   const hid = (h, sense, v) => setByte(w, h * 16 + SI[sense], v);
   const out = (dir, h, v) => setByte(w, 128 + DI[dir] * 8 + h, v);
   const bias = (dir, v) => setByte(w, 192 + DI[dir], v);
+  const hunger = 1 + 0.6 * c(), heat = 1 + 0.6 * c(), fear = 1 + 0.6 * c();
   hid(0, 'energy', -2); hid(0, 'bias', 1.8);   // hunger
   hid(1, 'temp', 1.5);                         // too warm (+) or too cold (-)
   hid(2, 'threat', 2.4);                       // danger near
-  out('food', 0, 1.5); bias('food', 0.9);
-  out('warmth', 1, -2);
-  out('threat', 2, -1.2);
-  bias('heading', 0.9);
-  bias('wander', 0.3);
-  setByte(w, 200, (r() * 2 - 1) * BRAIN_SCALE); // the clock's rate
+  out('food', 0, 1.5 * hunger); bias('food', 0.9);
+  out('warmth', 1, -2 * heat);
+  out('threat', 2, -1.2 * fear);
+  // quirks: the spare neurons, each reading every sense and nudging every direction
+  for (let h = 3; h < 8; h++) {
+    for (let i = 0; i < 16; i++) setByte(w, h * 16 + i, c());
+    for (const dir of BRAIN_DIRS) out(dir, h, c() * 0.8);
+  }
+  bias('heading', 0.9 + 0.3 * c());
+  bias('wander', 0.3 + 0.3 * c());
+  bias('current', 0.5 * c());
+  bias('flock', 0.5 * c());
+  bias('jostle', 0.4 * c());
+  setByte(w, 200, c() * BRAIN_SCALE); // the clock's rate
   return w;
 }
 // The CPU twin of mutateBrain (shaders.js), for mutateLike. gauss: the mutation's normal source.

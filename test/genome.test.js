@@ -85,8 +85,12 @@ test('a founder brain survives packing and mutation keeps it a brain', async () 
   assert.deepEqual(back.brain, g.brain.map((w) => w >>> 0));
   // hunger: the first hidden neuron fires on low energy and drives the food gain
   assert.ok(brainHidden(back.brain, 0, BRAIN_SENSES.indexOf('energy')) < -1.9);
-  assert.ok(brainOutput(back.brain, BRAIN_DIRS.indexOf('food'), 0) > 1.4);
-  assert.ok(Math.abs(brainBias(back.brain, BRAIN_DIRS.indexOf('heading')) - 0.9) < 0.03);
+  assert.ok(brainOutput(back.brain, BRAIN_DIRS.indexOf('food'), 0) > 0.55);
+  assert.ok(Math.abs(brainBias(back.brain, BRAIN_DIRS.indexOf('heading')) - 0.9) < 0.33);
+  // founders differ in temperament, not only in faint noise
+  const other = archetypeGenome('hunter', () => 0.3).brain;
+  const diff = other.reduce((s, w, k) => s + (w !== g.brain[k] ? 1 : 0), 0);
+  assert.ok(diff > 40);
   let s = 1;
   const r = () => ((s = (s * 16807) % 2147483647) / 2147483647);
   const child = mutateLike(g, r);

@@ -5926,21 +5926,30 @@ struct SV {
   };
   function founderBrain(r = Math.random) {
     const w = new Array(BRAIN_WORDS).fill(0);
-    for (let k = 0; k < 200; k++) setByte(w, k, (r() * 2 - 1) * 0.1);
+    const c = () => r() * 2 - 1;
+    for (let k = 0; k < 200; k++) setByte(w, k, c() * 0.1);
     const hid = (h, sense, v) => setByte(w, h * 16 + SI[sense], v);
     const out = (dir, h, v) => setByte(w, 128 + DI[dir] * 8 + h, v);
     const bias = (dir, v) => setByte(w, 192 + DI[dir], v);
+    const hunger = 1 + 0.6 * c(), heat = 1 + 0.6 * c(), fear = 1 + 0.6 * c();
     hid(0, "energy", -2);
     hid(0, "bias", 1.8);
     hid(1, "temp", 1.5);
     hid(2, "threat", 2.4);
-    out("food", 0, 1.5);
+    out("food", 0, 1.5 * hunger);
     bias("food", 0.9);
-    out("warmth", 1, -2);
-    out("threat", 2, -1.2);
-    bias("heading", 0.9);
-    bias("wander", 0.3);
-    setByte(w, 200, (r() * 2 - 1) * BRAIN_SCALE);
+    out("warmth", 1, -2 * heat);
+    out("threat", 2, -1.2 * fear);
+    for (let h = 3; h < 8; h++) {
+      for (let i = 0; i < 16; i++) setByte(w, h * 16 + i, c());
+      for (const dir of BRAIN_DIRS) out(dir, h, c() * 0.8);
+    }
+    bias("heading", 0.9 + 0.3 * c());
+    bias("wander", 0.3 + 0.3 * c());
+    bias("current", 0.5 * c());
+    bias("flock", 0.5 * c());
+    bias("jostle", 0.4 * c());
+    setByte(w, 200, c() * BRAIN_SCALE);
     return w;
   }
   function finalizeGenome(g, K = DEFAULT_K) {

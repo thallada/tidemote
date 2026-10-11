@@ -48,7 +48,9 @@ charged per unit of stroke instead of always, so a brain that rests saves it and
 ## Evolution
 
 - Founders (`archetypeGenome`): reflexes like the brainless rules (hunger to food, out of its warmth back
-  toward it, on along its heading), a mild flight from danger, a little wander, faint noise. Their own
+  toward it, on along its heading) and a mild flight from danger, each at its own strength (0.4 to 1.6×),
+  plus a temperament: the five spare hidden neurons wired at random and random leanings toward the current,
+  schooling, wandering and the jostle, so no two founders behave alike. Their own
   random stream, seeded from the founder's hue, so seeded worlds keep their founders.
 - Sparks of life (`randomInto`): random brains.
 - Mutation (`mutateBrain`, CPU twin in `mutateLike`): every weight is drawn toward zero by `brainShrink × m`
