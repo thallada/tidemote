@@ -203,7 +203,7 @@ export const GUIDE = [
 <li><b>Lab → Species</b>: every species, filtered by status, diet, movement and body. <b>Highlight these</b> dims everything outside the filter.</li>
 <li><b>Lab → Lineage</b>: every established species on a time axis, joined to the ancestor it arose from; each bar thickens with its population.</li>
 <li><b>Lab → Census</b> (the Lab's first section, the column on the left; fold it away from its header or with K): the world broken down by matter, diet, movement, body, cell type and condition, the chart of living cells by species, and the latest log entries. Choose a row to highlight it.</li>
-<li><b>Lab → Charts</b>: population, diversity, births, deaths, meals and climate over time, and the eras so far.</li>
+<li><b>Lab → Charts</b>: population, diversity, births, deaths, meals and climate over time, and the eras so far. Point at a chart (or tap it) to read every line at that moment; point at a dot in Thermal niches to name its species, and click it to open it.</li>
 <li><b>Lab → Log</b>: every logged event, searchable.</li>
 <li><b>Auto</b>: the camera films the world on its own, with captions saying what it is showing; it also takes over after a minute alone (switch that off in Settings).</li>
 </ul>`,

@@ -306,7 +306,7 @@ body:not(.live) .hud { opacity: 0; }
 .nums div:first-child { border-left: 0; padding-left: 0; }
 .nums b { font-size: 18px; font-weight: 300; line-height: 1; font-stretch: 108%; }
 .nums span { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; text-decoration-color: rgba(111, 138, 140, 0.6); }
-#chart { width: 100%; height: clamp(64px, 8vh, 130px); display: block; }
+#chart { width: 100%; height: clamp(80px, 10vh, 140px); display: block; }
 .feed { list-style: none; margin: 0; padding: 0 4px 0 0; display: flex; flex-direction: column; gap: 7px; overflow-y: auto; min-height: 0; flex: 1; scrollbar-width: thin; }
 .feed li { display: grid; grid-template-columns: 3px 4.2ch 1fr; gap: 8px; font-size: 12px; line-height: 1.4; color: var(--ink-2); }
 .feed li > i { width: 3px; align-self: stretch; }
@@ -352,11 +352,15 @@ body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520p
   color: var(--ink); padding: 8px 11px; font-size: 12.5px; line-height: 1.5; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
 }
 .tip kbd { color: var(--sun); margin-left: 8px; }
-/* a species' name plate, as the world view labels a picked cell (the census chart's hover) */
+/* a species' name plate, as the world view labels a picked cell (a chart's hover); .rows: a line chart's values at a moment */
 .plate { position: fixed; z-index: 40; pointer-events: none; display: flex; align-items: baseline; gap: 8px; padding: 2px 5px 3px; background: rgba(6, 9, 10, 0.82); color: rgba(226, 241, 240, 0.95); font-size: 11px; font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase; white-space: nowrap; }
 .plate i { align-self: center; width: 7px; height: 7px; flex: none; }
 .plate small { color: var(--ink-3); font-size: 10px; letter-spacing: .06em; }
-#chart { cursor: crosshair; }
+canvas.chart { cursor: crosshair; }
+.plate.rows { display: grid; grid-template-columns: 7px auto auto; align-items: center; gap: 2px 7px; padding: 4px 7px 5px; letter-spacing: .06em; text-transform: none; font-size: 11.5px; }
+.plate.rows .pl-t { grid-column: 1 / -1; font-weight: 600; letter-spacing: .12em; color: var(--ink-2); font-size: 10.5px; }
+.plate.rows span { color: var(--ink-2); }
+.plate.rows em { font-style: normal; text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ------------------------------------------------------------------ settings, help */
 .settings {
@@ -494,7 +498,7 @@ dd { margin: 0; color: var(--ink-2); }
 .legend-note { display: flex; justify-content: space-between; color: var(--ink-3); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; }
 .note { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.55; }
 em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
-.popchart { width: 100%; height: 64px; display: block; }
+.popchart { width: 100%; height: 84px; display: block; }
 .vital.now { grid-template-columns: var(--lab-w) minmax(0, 1fr); }
 .vital.now > b { color: var(--sun); overflow: hidden; text-overflow: ellipsis; }
 .vital.now > b a.sp { color: inherit; }
@@ -694,8 +698,8 @@ body.lab-wide .lab-head .tabs button { padding: 0 10px; letter-spacing: .16em; }
 .barrow .bl { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .barrow .bn, .barrow .bp { text-align: right; white-space: nowrap; }
 .barrow .bp { color: var(--ink-3); }
-canvas.dyn { width: 100%; height: 112px; display: block; }
-canvas.niches { width: 100%; height: 150px; display: block; }
+canvas.dyn { width: 100%; height: 124px; display: block; }
+canvas.niches { width: 100%; height: 160px; display: block; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-2); font-size: 11.5px; margin-top: 4px; }
 .legend i { display: inline-block; width: 10px; height: 2px; margin-right: 6px; vertical-align: 3px; }
 .ramp { display: flex; align-items: center; gap: var(--s2); color: var(--ink-3); font-size: 11px; }
@@ -1022,8 +1026,8 @@ svg.niche .n-dot { fill: var(--cyan); }
           <div><b id="n-depth">–</b><span class="term" data-tip="deepest" tabindex="0">Depth</span></div>
         </div>
         <div class="blk">
-          <div class="sub-h"><span>Living cells by species</span><span class="sub-a" id="hist-span"></span></div>
-          <canvas id="chart" aria-label="Living cells by species over time. Point at a band to name its species; click to open it."></canvas>
+          <div class="sub-h"><span>Living cells by species</span></div>
+          <canvas id="chart" class="chart" aria-label="Living cells by species over time. Point at a band to name its species; click to open it."></canvas>
         </div>
         <div class="ov-census stack" id="ov-census"></div>
       </div>
@@ -15281,8 +15285,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const iv = new Int32Array(this.microData), fv = new Float32Array(this.microData), uv = new Uint32Array(this.microData);
       let n = 0, total = 0;
       for (let phase = 0; phase < 2; phase++) {
-        const clock = t2 / 4 + phase * 0.5;
-        const age = clock - Math.floor(clock);
+        const clock2 = t2 / 4 + phase * 0.5;
+        const age = clock2 - Math.floor(clock2);
         const weight = 1 - Math.abs(2 * age - 1);
         if (weight <= 1e-3) continue;
         const tau = age * 4;
@@ -15308,7 +15312,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           const sx0 = Math.floor(x0 - m), sy0 = Math.floor(y0 - m);
           const cols = Math.ceil(x1 + m) - sx0 + 1, rows = Math.ceil(y1 + m) - sy0 + 1;
           iv.set([sx0, sy0, cols, rows], n * 4);
-          fv.set([weight, tau, Math.floor(clock) + phase * 131, oct], 24 + n * 4);
+          fv.set([weight, tau, Math.floor(clock2) + phase * 131, oct], 24 + n * 4);
           uv[48 + n] = total;
           total += cols * rows;
           n++;
@@ -15652,8 +15656,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
     husk: "A dead cell’s remains. Starved, elderly, killed and scalded cells all leave one. Holds leftover energy for scavengers and crumbles back into silt after about half a minute: cold water keeps carcasses for the scavengers, warm water rots them fast, and a rotting pile warms its water a little.",
     living: "Cells: particles with a genome. They feed, pay upkeep, divide by building a child out of silt, and die into husks.",
     tide: "Four slow waves summed across the wrap-around world. Where they add up, bright bands form and drift. The Tide charges silt into glint and adds to the light.",
-    light: "What photosynthesising cells feed on: a dim baseline everywhere (set by the era) plus the Tide on top, scaled by the season.",
-    season: "A 5-minute cycle that swings tide strength between 10% and 100%. Glint production and peak light follow it, which drives booms and busts.",
+    light: "What plants feed on. It is dim everywhere (how dim depends on the era) and brighter inside tide bands, most of all at the height of the season.",
+    season: "A 5-minute cycle that swings tide strength between 10% and 100%. This is the Tide percentage in the gauge and graphs: the bands keep their shape and only brighten or fade. Glint production and light in the bands follow it, which drives booms and busts.",
     era: "Every 10–18 minutes the climate turns: the baseline light, glint production and the water’s temperature change, one tide wave is replaced, and the currents shift. An era that warms the water by 5° or more is named Warm or Rising, one that cools it Bitter or Pale; otherwise the names are random labels.",
     water: "The water’s background temperature, set by the climate: it walks from era to era between 4° and 28°, swings ±2.5° with the season, and now and then a heat wave or cold snap passes. Life warms its own water above this: every cell’s spent energy becomes heat, so crowds, bodies and reefs sit in warm patches.",
     heatmap: "How heat is drawn. Shimmer: warm water bends light like the air over a hot road, so plumes, colony halos and fronts waver. Full: a thermal camera, deep blue to teal to amber to white over a span from 2° below the background water to 10° above it, with a line every 2°.",
@@ -15786,8 +15790,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       id: "climate",
       title: "Tides, light, seasons and eras",
       short: "Climate",
-      html: `<p>The ${t("tide", "Tide")} is four slow waves summed over the torus; where they add up, bright bands form and drift. ${t("light", "Light")} is a dim baseline everywhere plus the Tide on top. So tide bands are rich in both glint and light, while baseline light lets plants live anywhere.</p>
-<p>The ${t("season", "season")} is a 5-minute cycle that swings tide strength between 10% and 100%; it drives the regular booms and busts. Every 10–18 minutes an ${t("era", "era")} begins: the baseline light and glint production change, one tide wave is replaced so the bright zones form and move differently, and two current patterns are swapped. The water’s temperature walks from era to era, so each world has its own thermal history; eras that warm or cool it a lot are named for it, otherwise era names are random labels, and the event log says what actually changed.</p>
+      html: `<p>The ${t("tide", "Tide")} is four slow waves summed over the torus; where they add up, bright bands form and drift. Inside a band it is bright; outside, it is dim but never dark. ${t("light", "Light")} is what plants feed on: it is dim everywhere and brighter in the bands. The Tide also turns silt into glint, but almost only inside the bands. So plants can live anywhere, while glint-eaters gather where the bands are.</p>
+<p>The ${t("season", "season")} is a 5-minute cycle that swings tide strength between 10% and 100%. This is the Tide percentage shown in the gauge and graphs. The bands keep their shape; only their strength changes. At high tide they are bright and full of new glint, and the water is a little warmer. At low tide they fade until they are barely brighter than the rest of the world, and little glint forms. This drives the regular booms and busts. Every 10–18 minutes an ${t("era", "era")} begins: the baseline light and glint production change, one tide wave is replaced so the bright zones form and move differently, and two current patterns are swapped. The water’s temperature walks from era to era, so each world has its own thermal history; eras that warm or cool it a lot are named for it, otherwise era names are random labels, and the event log says what actually changed.</p>
 <p><b>Settings → Light map</b> colours every point by the light a photosynthesising cell would receive there, with a contour every 10%; <b>Settings → Currents</b> draws the flow that carries silt, glint and drifting cells. The <b>Tide</b> gauge at the top follows the season: the dot rides the 5-minute wave, and the <b>Temp</b> thermometer beside it shows the background temperature, with an arrow while it changes; it breathes during a heat wave or cold snap.</p>`
     },
     {
@@ -15867,7 +15871,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
 <li><b>Lab → Species</b>: every species, filtered by status, diet, movement and body. <b>Highlight these</b> dims everything outside the filter.</li>
 <li><b>Lab → Lineage</b>: every established species on a time axis, joined to the ancestor it arose from; each bar thickens with its population.</li>
 <li><b>Lab → Census</b> (the Lab's first section, the column on the left; fold it away from its header or with K): the world broken down by matter, diet, movement, body, cell type and condition, the chart of living cells by species, and the latest log entries. Choose a row to highlight it.</li>
-<li><b>Lab → Charts</b>: population, diversity, births, deaths, meals and climate over time, and the eras so far.</li>
+<li><b>Lab → Charts</b>: population, diversity, births, deaths, meals and climate over time, and the eras so far. Point at a chart (or tap it) to read every line at that moment; point at a dot in Thermal niches to name its species, and click it to open it.</li>
 <li><b>Lab → Log</b>: every logged event, searchable.</li>
 <li><b>Auto</b>: the camera films the world on its own, with captions saying what it is showing; it also takes over after a minute alone (switch that off in Settings).</li>
 </ul>`
@@ -16218,8 +16222,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
 
   // src/charts.js
   var GRID = "rgba(130,205,214,0.10)";
+  var BASE = "rgba(130,205,214,0.22)";
   var AXIS = "rgba(163,189,190,0.85)";
   var ERA = "rgba(241,227,160,0.55)";
+  var CURSOR = "rgba(226,241,240,0.5)";
+  var FONT = "500 10px Saira, system-ui, sans-serif";
+  var XLAB = 13;
   function fit(cv) {
     const r = Math.min(devicePixelRatio || 1, 2);
     const w = cv.clientWidth, h = cv.clientHeight;
@@ -16231,23 +16239,87 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const g = cv.getContext("2d");
     g.setTransform(r, 0, 0, r, 0, 0);
     g.clearRect(0, 0, w, h);
+    g.font = FONT;
+    join(cv);
     return { g, w, h };
   }
-  function frame(g, w, h, top, hist, eras) {
+  function niceStep(span2, n) {
+    const raw = span2 / n, p = 10 ** Math.floor(Math.log10(raw)), m = raw / p;
+    return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p;
+  }
+  function linearTicks(max, n = 3) {
+    const step = niceStep(max > 0 ? max : 1, n);
+    const top = Math.max(step, Math.ceil(max / step - 1e-9) * step);
+    const ticks = [];
+    for (let k = 0; k * step <= top + step * 1e-6; k++) ticks.push(k * step);
+    return { top, ticks };
+  }
+  function shortNum(v, step = 1) {
+    const a = Math.abs(v);
+    if (a >= 1e6) return `${+(v / 1e6).toFixed(a >= 1e7 ? 0 : 1)}M`;
+    if (a >= 1e4) return `${+(v / 1e3).toFixed(0)}k`;
+    if (a >= 1e3) return `${+(v / 1e3).toFixed(1)}k`;
+    let d = 0;
+    while (d < 3 && Math.abs(step * 10 ** d - Math.round(step * 10 ** d)) > 1e-6) d++;
+    return String(+v.toFixed(d));
+  }
+  function fmtVal(v, unit = "", step = 0) {
+    if (unit === "%") return `${shortNum(v * 100, step ? step * 100 : Math.abs(v) < 0.1 ? 0.1 : 1)}%`;
+    if (unit === "°") return `${shortNum(v, step || 0.1)}°`;
+    if (step) return shortNum(v, step);
+    const a = Math.abs(v);
+    return a >= 100 ? fmt(Math.round(v)) : String(a >= 1 ? +v.toFixed(a >= 10 ? 1 : 2) : +v.toPrecision(2));
+  }
+  var CLOCK = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400];
+  function timeTicks(t0, t1, px, minGap = 58) {
+    const span2 = t1 - t0;
+    if (!(span2 > 0)) return [];
+    const step = CLOCK.find((s) => s / span2 * px >= minGap) || Math.ceil(span2 / 86400) * 86400;
+    const out = [];
+    for (let t2 = Math.ceil(t0 / step) * step; t2 <= t1; t2 += step) out.push(t2);
+    return out;
+  }
+  function plotBox(g, w, h, yLabels, top = 6, bottom = XLAB) {
+    let lw = 0;
+    for (const s of yLabels) lw = Math.max(lw, g.measureText(s).width);
+    return { l: Math.ceil(lw) + 5, t: top, r: w - 1, b: h - bottom };
+  }
+  function grid(g, box, ys) {
+    const { l, r } = box;
     g.fillStyle = GRID;
-    for (let k = 0; k <= 4; k++) {
-      const y = Math.round(top + (h - 1 - top) * k / 4) + 0.5;
-      for (let x = 0; x < w; x += 4) g.fillRect(x, y, 1, 1);
+    for (const { y } of ys) {
+      const Y = Math.round(y) + 0.5;
+      for (let x = l; x < r; x += 4) g.fillRect(x, Y - 0.5, 1, 1);
     }
-    if (!eras || hist.length < 2) return;
-    const t0 = hist[0].t, t1 = hist[hist.length - 1].t;
-    g.fillStyle = ERA;
-    for (const e of eras) {
-      if (e.t <= t0 || e.t > t1) continue;
-      const x = Math.round((e.t - t0) / (t1 - t0) * (w - 1)) + 0.5;
-      for (let y = top; y < h; y += 3) g.fillRect(x - 0.5, y, 1, 1.5);
+    g.fillStyle = BASE;
+    g.fillRect(l, Math.round(box.b), r - l, 1);
+    g.fillStyle = AXIS;
+    g.textAlign = "right";
+    g.textBaseline = "middle";
+    for (const { y, label: label2 } of ys) g.fillText(label2, l - 4, Math.max(5, Math.min(box.b, y)));
+    g.textBaseline = "alphabetic";
+  }
+  function clock(g, box, t0, t1, eras) {
+    const { l, r, t: t2, b } = box;
+    const X = (s) => l + (s - t0) / (t1 - t0) * (r - l);
+    if (eras) {
+      g.fillStyle = ERA;
+      for (const e of eras) {
+        if (e.t <= t0 || e.t > t1) continue;
+        const x = Math.round(X(e.t)) + 0.5;
+        for (let y = t2; y < b; y += 3) g.fillRect(x - 0.5, y, 1, 1.5);
+      }
+    }
+    g.fillStyle = AXIS;
+    g.textAlign = "center";
+    for (const s of timeTicks(t0, t1, r - l)) {
+      const x = X(s), label2 = fmtClock(s), hw = g.measureText(label2).width / 2;
+      g.fillRect(Math.round(x), b + 1, 1, 3);
+      g.fillText(label2, Math.max(l + hw, Math.min(r - hw, x)), b + XLAB - 2);
     }
   }
+  var histX = (box, n) => (i) => box.l + (n > 1 ? i / (n - 1) * (box.r - box.l) : 0);
+  var histIndex = (box, n, px) => Math.max(0, Math.min(n - 1, Math.round((px - box.l) / (box.r - box.l) * (n - 1))));
   function stack(hist) {
     let max = 1;
     for (const s of hist) if (s.living > max) max = s.living;
@@ -16262,30 +16334,39 @@ registerProcessor("tidemote-sound", TidemoteSound);
     });
     return { max, by, order: [...by.keys()].sort((a, b) => a - b) };
   }
-  function livingAt(cv, hist, px, py) {
-    const w = cv.clientWidth, h = cv.clientHeight;
-    if (hist.length < 2 || !w || !h) return null;
-    const { max, by, order } = stack(hist);
-    const i = Math.max(0, Math.min(hist.length - 1, Math.round(px / w * (hist.length - 1))));
-    const v = (h - py) / (h - 4) * max;
-    if (v < 0) return null;
-    let base = 0;
-    for (const serial of order) {
-      const p = by.get(serial).vals[i];
-      if (p > 0 && v >= base && v < base + p) return { serial, pop: p, t: hist[i].t, x: i / (hist.length - 1) * w };
-      base += p;
-    }
-    return null;
-  }
-  function drawLiving(cv, hist, reg, eras, hot = null) {
+  function drawLiving(cv, hist, reg, eras) {
     const f2 = fit(cv);
     if (!f2) return;
     const { g, w, h } = f2;
-    frame(g, w, h, 2, hist, eras);
-    if (hist.length < 2) return;
     const { max, by, order } = stack(hist);
-    const x = (i) => i / (hist.length - 1) * w;
-    const y = (v) => h - v / max * (h - 4);
+    const ax = linearTicks(max, 2);
+    const labels = ax.ticks.map((v) => shortNum(v));
+    const box = plotBox(g, w, h, labels);
+    const y = (v) => box.b - v / ax.top * (box.b - box.t);
+    grid(g, box, ax.ticks.map((v, k) => ({ y: y(v), label: labels[k] })));
+    const hot = cv._hot && cv._hot.serial;
+    cv._ch = {
+      redraw: () => drawLiving(cv, hist, reg, eras),
+      at(px, py) {
+        if (hist.length < 2) return null;
+        const i = histIndex(box, hist.length, px), v = (box.b - py) / (box.b - box.t) * ax.top;
+        if (v < 0) return null;
+        let base2 = 0;
+        for (const serial of order) {
+          const p = by.get(serial).vals[i];
+          if (p > 0 && v >= base2 && v < base2 + p) return reg.get(serial) ? { key: serial, serial, pop: p, t: hist[i].t } : null;
+          base2 += p;
+        }
+        return null;
+      },
+      plate(hit) {
+        const sp = reg.get(hit.serial);
+        return sp && namePlate(sp.genome.col, sp.name, `${fmt(hit.pop)} · ${fmtClock(hit.t)}${sp.alive ? "" : " · extinct"}`);
+      }
+    };
+    if (hist.length < 2) return;
+    clock(g, box, hist[0].t, hist[hist.length - 1].t, eras);
+    const x = histX(box, hist.length);
     const base = new Float32Array(hist.length);
     const band = (vals, fill, a = 0, b = hist.length - 1) => {
       g.beginPath();
@@ -16312,40 +16393,74 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const f2 = fit(cv);
     if (!f2) return;
     const { g, w, h } = f2;
-    const top = 16;
-    frame(g, w, h, top, hist, eras);
-    g.font = "500 10px Saira, system-ui, sans-serif";
-    g.fillStyle = AXIS;
+    const val = series.map((s) => s.get || ((p) => p[s.k] ?? 0));
+    let max = 0;
+    for (const v of val) for (const p of hist) {
+      const q = v(p);
+      if (q > max) max = q;
+    }
+    const ax = linearTicks(max, h < 90 ? 2 : 3), step = ax.ticks[1] - ax.ticks[0];
+    const labels = ax.ticks.map((v) => fmtVal(v, unit, step));
+    const box = plotBox(g, w, h, labels);
+    const Y = (v) => box.b - v / ax.top * (box.b - box.t);
+    grid(g, box, ax.ticks.map((v, k) => ({ y: Y(v), label: labels[k] })));
+    cv._ch = {
+      redraw: () => drawLines(cv, hist, series, eras, unit),
+      at: (px) => {
+        if (hist.length < 2) return null;
+        const i = histIndex(box, hist.length, px);
+        return { key: i, i };
+      },
+      plate: (hit) => {
+        const p = hist[hit.i];
+        return p && `<b class="pl-t">${fmtClock(p.t)}</b>${series.map((s, k) => `<i style="background:${s.col}"></i><span>${esc(s.label)}</span><em>${fmtVal(val[k](p), unit)}</em>`).join("")}`;
+      },
+      rows: true
+    };
     if (hist.length < 2) {
-      g.fillText("collecting samples…", 0, 11);
+      g.fillStyle = AXIS;
+      g.textAlign = "left";
+      g.fillText("collecting samples…", box.l + 4, box.t + 10);
       return;
     }
-    let max = 1e-6;
-    for (const s of series) for (const p of hist) if ((p[s.k] ?? 0) > max) max = p[s.k];
-    for (const s of series) {
+    clock(g, box, hist[0].t, hist[hist.length - 1].t, eras);
+    const X = histX(box, hist.length);
+    series.forEach((s, k) => {
       g.strokeStyle = s.col;
       g.lineWidth = 1.4;
       g.beginPath();
       hist.forEach((p, i) => {
-        const X = i / (hist.length - 1) * w;
-        const Y = h - 2 - (p[s.k] ?? 0) / max * (h - top - 4);
-        if (i) g.lineTo(X, Y);
-        else g.moveTo(X, Y);
+        if (i) g.lineTo(X(i), Y(val[k](p)));
+        else g.moveTo(X(i), Y(val[k](p)));
       });
       g.stroke();
+    });
+    const hot = cv._hot && hist[cv._hot.i] ? cv._hot.i : null;
+    if (hot != null) {
+      const x = Math.round(X(hot)) + 0.5;
+      g.fillStyle = CURSOR;
+      g.fillRect(x - 0.5, box.t, 1, box.b - box.t);
+      series.forEach((s, k) => {
+        g.fillStyle = s.col;
+        g.strokeStyle = "rgba(6,9,10,0.9)";
+        g.lineWidth = 1.5;
+        g.beginPath();
+        g.arc(x, Y(val[k](hist[hot])), 3, 0, Math.PI * 2);
+        g.stroke();
+        g.fill();
+      });
     }
-    g.fillStyle = AXIS;
-    g.textAlign = "left";
-    g.fillText(`${max >= 10 ? fmt(Math.round(max)) : max < 1.5 && max > 0.01 && unit === "%" ? `${Math.round(max * 100)}%` : max.toFixed(2)}${unit && unit !== "%" ? ` ${unit}` : ""}`, 0, 10);
-    g.textAlign = "right";
-    g.fillText(`${fmtClock(hist[0].t)} – ${fmtClock(hist[hist.length - 1].t)}`, w, 10);
   }
+  var popOf = (serial) => (s) => {
+    const e = s.sp.find((q) => q[0] === serial);
+    return e ? e[1] : 0;
+  };
   function sparkPath(hist, serial, w, h) {
     if (hist.length < 2) return "";
     let max = 1;
+    const at = popOf(serial);
     const vals = hist.map((s) => {
-      const e = s.sp.find((q) => q[0] === serial);
-      const v = e ? e[1] : 0;
+      const v = at(s);
       if (v > max) max = v;
       return v;
     });
@@ -16355,23 +16470,44 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const f2 = fit(cv);
     if (!f2) return;
     const { g, w, h } = f2;
-    const top = 16, bot = 14, X = (t2) => Math.max(0, Math.min(45, t2)) / 45 * (w - 1);
-    frame(g, w, h - bot, top, [], null);
-    g.font = "500 10px Saira, system-ui, sans-serif";
-    g.fillStyle = AXIS;
+    const pmax = Math.max(10, ...species.map((s) => s.pop));
+    const decades = Math.ceil(Math.log10(pmax) - 1e-9), every = decades > 4 ? 2 : 1;
+    const ticks = [];
+    for (let d = 0; d <= decades; d += every) ticks.push(10 ** d);
+    const labels = ticks.map((v) => shortNum(v));
+    const box = plotBox(g, w, h, labels, 18);
+    const X = (t2) => box.l + Math.max(0, Math.min(45, t2)) / 45 * (box.r - box.l);
+    const Y = (p) => box.b - 3 - Math.log10(Math.max(1, p)) / decades * (box.b - box.t - 3);
+    grid(g, box, ticks.map((v, k) => ({ y: Y(v), label: labels[k] })));
     const fmax = Math.max(1, ...felt);
     g.fillStyle = "rgba(255,138,58,0.16)";
     felt.forEach((n, b) => {
-      const bh = n / fmax * (h - bot - top);
-      g.fillRect(X(b * binW) + 1, h - bot - bh, X(binW) - X(0) - 2, bh);
+      const bh = n / fmax * (box.b - box.t);
+      g.fillRect(X(b * binW) + 1, box.b - bh, X(binW) - X(0) - 2, bh);
     });
     g.fillStyle = "rgba(255,138,58,0.8)";
-    for (let y = top; y < h - bot; y += 3) g.fillRect(Math.round(X(tbg)), y, 1, 1.5);
-    const pmax = Math.max(10, ...species.map((s) => s.pop));
-    const Y = (p) => h - bot - 3 - Math.log10(Math.max(1, p)) / Math.log10(pmax) * (h - bot - top - 6);
+    for (let y = box.t; y < box.b; y += 3) g.fillRect(Math.round(X(tbg)), y, 1, 1.5);
+    const R2 = (s) => 1.5 + s.tol / 15 * 4;
+    const hot = cv._hot && cv._hot.serial;
+    let hotS = null;
     for (const s of species) {
-      const r = 1.5 + s.tol / 15 * 4;
-      g.globalAlpha = 0.85;
+      if (s.serial === hot) {
+        hotS = s;
+        continue;
+      }
+      dot(s, hot == null ? 0.85 : 0.45);
+    }
+    if (hotS) {
+      dot(hotS, 1);
+      g.strokeStyle = "rgba(226,241,240,0.95)";
+      g.lineWidth = 1.25;
+      g.beginPath();
+      g.arc(X(hotS.topt), Y(hotS.pop), R2(hotS) + (hotS.maker ? 5 : 2.5), 0, Math.PI * 2);
+      g.stroke();
+    }
+    function dot(s, a) {
+      const r = R2(s);
+      g.globalAlpha = a;
       g.fillStyle = cssCol(s.col);
       g.beginPath();
       g.arc(X(s.topt), Y(s.pop), r, 0, Math.PI * 2);
@@ -16383,17 +16519,105 @@ registerProcessor("tidemote-sound", TidemoteSound);
         g.arc(X(s.topt), Y(s.pop), r + 2.5, 0, Math.PI * 2);
         g.stroke();
       }
+      g.globalAlpha = 1;
     }
-    g.globalAlpha = 1;
     g.fillStyle = AXIS;
-    g.textAlign = "left";
-    g.fillText(`${fmt(pmax)} cells`, 0, 10);
+    g.textAlign = "center";
     for (const t2 of [0, 10, 20, 30, 40]) {
-      g.textAlign = t2 ? "center" : "left";
-      g.fillText(`${t2}°`, X(t2), h - 2);
+      const label2 = `${t2}°`, hw = g.measureText(label2).width / 2;
+      g.fillRect(Math.round(X(t2)), box.b + 1, 1, 3);
+      g.fillText(label2, Math.max(box.l + hw, X(t2)), h - 2);
     }
+    g.textAlign = "left";
+    g.fillText("cells (log) by preferred temperature", 0, 10);
     g.textAlign = "right";
-    g.fillText(`temperature ${Math.round(tbg)}°`, w, 10);
+    g.fillText(`water ${Math.round(tbg)}°`, w, 10);
+    cv._ch = {
+      redraw: () => drawNiches(cv, species, tbg, felt, binW),
+      // the dot nearest the pointer, within a few px of its edge
+      at(px, py) {
+        let best = null, bd = Infinity;
+        for (const s of species) {
+          const d = Math.hypot(px - X(s.topt), py - Y(s.pop)) - R2(s);
+          if (d < 6 && d < bd) {
+            bd = d;
+            best = s;
+          }
+        }
+        return best && { key: best.serial, serial: best.serial, s: best };
+      },
+      plate: ({ s }) => namePlate(s.col, s.name, `${Math.round(s.topt)}° ± ${Math.round(s.tol)}° · ${fmt(s.pop)}${s.maker ? " · heat-maker" : ""}`)
+    };
+  }
+  var join = () => {
+  };
+  var namePlate = (col, name, sub) => `<i style="background:${cssCol(col)}"></i><span>${esc(name)}</span><small>${sub}</small>`;
+  function chartPointer(plate, onPick) {
+    let hot = null;
+    const bound = /* @__PURE__ */ new WeakSet();
+    function point(cv, e) {
+      const r = cv.getBoundingClientRect();
+      const hit = cv._ch && cv._ch.at(e.clientX - r.left, e.clientY - r.top);
+      const html = hit && cv._ch.plate(hit);
+      const prev = cv._hot ? cv._hot.key : null;
+      if (hot && hot !== cv) leave();
+      cv._hot = html ? hit : null;
+      hot = html ? cv : null;
+      if (html) {
+        plate.innerHTML = html;
+        plate.classList.toggle("rows", !!cv._ch.rows);
+        plate.hidden = false;
+        const pw = plate.offsetWidth, ph = plate.offsetHeight, touch = e.pointerType !== "mouse";
+        let x = e.clientX + 14;
+        if (x + pw > innerWidth - 8) x = touch ? innerWidth - pw - 8 : e.clientX - 14 - pw;
+        const y = touch ? e.clientY - ph - 28 : cv._ch.rows ? e.clientY - ph / 2 : e.clientY - 26;
+        plate.style.left = `${Math.round(Math.max(8, x))}px`;
+        plate.style.top = `${Math.round(Math.max(8, Math.min(innerHeight - ph - 8, y)))}px`;
+      } else plate.hidden = true;
+      if ((cv._hot ? cv._hot.key : null) !== prev) cv._ch.redraw();
+      return prev;
+    }
+    function leave() {
+      plate.hidden = true;
+      const cv = hot;
+      hot = null;
+      if (cv && cv._hot) {
+        cv._hot = null;
+        if (cv._ch) cv._ch.redraw();
+      }
+    }
+    function bind(cv) {
+      if (bound.has(cv)) return;
+      bound.add(cv);
+      cv.addEventListener("pointermove", (e) => {
+        if (e.pointerType === "mouse" && cv._ch) point(cv, e);
+      });
+      cv.addEventListener("pointerleave", (e) => {
+        if (e.pointerType === "mouse" && hot === cv) leave();
+      });
+      cv.addEventListener("pointerdown", (e) => {
+        if (!cv._ch) return;
+        const prev = point(cv, e), hit = cv._hot;
+        if (hit && hit.serial != null && (e.pointerType === "mouse" || prev === hit.key)) {
+          onPick(hit.serial);
+          if (e.pointerType !== "mouse") leave();
+        }
+      });
+    }
+    document.addEventListener("pointerdown", (e) => {
+      if (hot && e.target !== hot) leave();
+    }, true);
+    addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && hot) leave();
+    }, true);
+    join = bind;
+    return {
+      /** Close the plate once its chart has left the screen. */
+      check() {
+        if (hot && (!hot.isConnected || !hot.offsetParent || !hot._hot)) leave();
+      },
+      hot: () => hot
+    };
   }
 
   // src/ui.js
@@ -16858,7 +17082,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       ["Births and deaths per minute", null, [{ k: "births", label: "births", col: "#7fe0b0" }, { k: "starve", label: "starved", col: "#ff8a6b" }, { k: "old", label: "old age", col: "#c9b8ff" }, { k: "eaten", label: "eaten", col: "#ff5f3a" }]],
       ["Meals per minute", "flesh", [{ k: "graze", label: "glint", col: "#b9e6ff" }, { k: "scav", label: "husks", col: "#a87b5c" }, { k: "prey", label: "kills", col: "#ff5f3a" }, { k: "bite", label: "bites of photosynths", col: "#d9f27a" }]],
       ["New species and extinctions per minute", "mutation", [{ k: "mut", label: "new species", col: "#c9b8ff" }, { k: "ext", label: "extinctions", col: "#ff8a6b" }]],
-      ["Climate", "season", [{ k: "ambient", label: "baseline light", col: "#d9f27a" }, { k: "season", label: "tide strength", col: "#5fd4c4" }]]
+      ["Climate", "season", [{ k: "ambient", label: "baseline light", col: "#d9f27a" }, { k: "season", label: "tide strength", col: "#5fd4c4" }], "%"]
     ];
     if (api.eng.K.heat) {
       CHARTS.push(
@@ -16870,7 +17094,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     function buildCharts() {
       const p = pane("");
       p.scroll.classList.add("stack");
-      p.scroll.innerHTML = `<div class="legend"><span><i style="background:var(--sun);height:6px;width:1px"></i>dotted lines mark a new era</span></div>` + CHARTS.map(([t2, tip, s], i) => block(t2, `<canvas class="dyn" data-i="${i}" aria-label="${esc(t2)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join("")}</div>`, { tip })).join("") + (api.eng.K.heat ? block("Thermal niches", `<canvas class="niches" aria-label="Each species by the temperature it prefers and its population"></canvas><div class="legend"><span><i style="background:#ff8a3a;opacity:.4"></i>warmth the living feel</span><span><i style="background:#ff8a3a;height:6px;width:1px"></i>background temperature</span><span>dot size: tolerance · ring: ${term("heatmaker", "heat-maker")}</span></div>`, { tip: "optimum" }) : "") + block("Eras", '<ol class="eras" id="eras"></ol>');
+      p.scroll.innerHTML = `<div class="legend"><span><i style="background:var(--sun);height:6px;width:1px"></i>dotted lines mark a new era</span></div>` + CHARTS.map(([t2, tip, s], i) => block(t2, `<canvas class="dyn chart" data-i="${i}" aria-label="${esc(t2)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join("")}</div>`, { tip })).join("") + (api.eng.K.heat ? block("Thermal niches", `<canvas class="niches chart" aria-label="Each species by the temperature it prefers and its population. Point at a dot to name its species; click to open it."></canvas><div class="legend"><span><i style="background:#ff8a3a;opacity:.4"></i>warmth the living feel</span><span><i style="background:#ff8a3a;height:6px;width:1px"></i>background temperature</span><span>dot size: tolerance · ring: ${term("heatmaker", "heat-maker")}</span></div>`, { tip: "optimum" }) : "") + block("Eras", '<ol class="eras" id="eras"></ol>');
       const cvs = [...p.scroll.querySelectorAll("canvas.dyn")];
       const niches = p.scroll.querySelector("canvas.niches");
       let erasN = -1, excN = 0;
@@ -16879,7 +17103,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         cvs.forEach((cv, i) => drawLines(cv, hist, CHARTS[i][2], eras, CHARTS[i][3] || ""));
         if (niches) {
           const sp = [];
-          for (const s of life.reg.values()) if (s.alive && s.pop > 0) sp.push({ topt: s.genome.topt, tol: s.genome.tol, pop: s.pop, maker: s.genome.thermo > 0.2, col: s.genome.col });
+          for (const s of life.reg.values()) if (s.alive && s.pop > 0) sp.push({ serial: s.serial, name: s.name, topt: s.genome.topt, tol: s.genome.tol, pop: s.pop, maker: s.genome.thermo > 0.2, col: s.genome.col });
           const c = life.lastCensus, now = c ? Array.from(c.energy.slice(THERMAL_LEDGER.hist, THERMAL_LEDGER.hist + HEAT_BINS)) : null;
           if (now && (!felt0 || c.simTime - felt0.t > 60 || c.simTime < felt0.t)) felt0 = { t: c.simTime, n: felt1 ? felt1.n : now };
           if (now && (!felt1 || c.simTime - felt1.t > 30 || c.simTime < felt1.t)) felt1 = { t: c.simTime, n: now };
@@ -17822,8 +18046,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const src = sp || snap;
       let h = "";
       if (sp) {
-        const d = sparkPath(life.history, sp.serial, 300, 64);
-        if (d) h += `<div class="blk">${subHead("Population", `peak ${fmt(sp.peak)}`)}<svg class="popchart" viewBox="0 0 300 64" preserveAspectRatio="none" aria-label="Population over time"><path d="${d}" fill="none" stroke="${cssCol(g.col)}" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg><div class="legend-note"><span>${fmtClock(life.history[0].t)}</span><span>${fmtClock(life.history[life.history.length - 1].t)}</span></div></div>`;
+        if (life.history.length > 1) h += `<div class="blk">${subHead("Population", `peak ${fmt(sp.peak)}`)}<canvas class="popchart chart" data-chart="pop:${sp.serial}" aria-label="Population over time"></canvas></div>`;
       }
       let s = "";
       if (sp && sp.alive) {
@@ -18058,12 +18281,17 @@ registerProcessor("tidemote-sound", TidemoteSound);
       for (const [id, , html] of flow) {
         if (st.flow.get(id) === html) continue;
         const el = sectionEl(id);
-        if (el) {
-          el.querySelector(".sx-b").innerHTML = html;
-          st.flow.set(id, html);
-          songKey = "";
+        if (!el) continue;
+        const sx = el.querySelector(".sx-b"), kept = [...sx.querySelectorAll("canvas[data-chart]")];
+        sx.innerHTML = html;
+        for (const cv of kept) {
+          const n = sx.querySelector(`canvas[data-chart="${cv.dataset.chart}"]`);
+          if (n) n.replaceWith(cv);
         }
+        st.flow.set(id, html);
+        songKey = "";
       }
+      drawPopChart();
       if (restoreTop != null) {
         body.scrollTop = restoreTop;
         restoreTop = null;
@@ -18079,6 +18307,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
       return true;
     }
     let restoreTop = null;
+    function drawPopChart() {
+      const cv = body.querySelector("canvas.popchart");
+      const sp = cv && api.life().reg.get(+cv.dataset.chart.slice(4));
+      if (sp) drawLines(cv, api.life().history, [{ label: "cells", col: cssCol(sp.genome.col), get: popOf(sp.serial) }], null);
+    }
     function open() {
       if (root.hidden) {
         root.hidden = false;
@@ -19813,55 +20046,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     function drawWorldChart() {
       if (!lab || !lab.isOpen() || lab.tab() !== "census" || !life) return;
-      drawLiving($("chart"), life.history, life.reg, climate && climate.history, chartHot && chartHot.serial);
-      const h = life.history;
-      $("hist-span").textContent = h.length > 1 ? `${fmtClock(h[0].t)} – ${fmtClock(h[h.length - 1].t)}` : "";
+      drawLiving($("chart"), life.history, life.reg, climate && climate.history);
     }
-    let chartHot = null;
-    const chartEl = $("chart"), plateEl = $("plate");
-    function chartPoint(e) {
-      const r = chartEl.getBoundingClientRect();
-      const hit = life && livingAt(chartEl, life.history, e.clientX - r.left, e.clientY - r.top);
-      const sp = hit && life.reg.get(hit.serial);
-      const prev = chartHot && chartHot.serial;
-      chartHot = sp ? hit : null;
-      if (sp) {
-        plateEl.innerHTML = `<i style="background:${cssCol(sp.genome.col)}"></i><span>${esc(sp.name)}</span><small>${fmt(hit.pop)} · ${fmtClock(hit.t)}${sp.alive ? "" : " · extinct"}</small>`;
-        plateEl.hidden = false;
-        const pw = plateEl.offsetWidth;
-        plateEl.style.left = `${Math.round(Math.min(e.clientX + 14, innerWidth - pw - 8))}px`;
-        plateEl.style.top = `${Math.round(e.clientY - 26)}px`;
-      } else plateEl.hidden = true;
-      if ((chartHot && chartHot.serial) !== prev) drawWorldChart();
-      return prev;
-    }
-    function chartLeave() {
-      plateEl.hidden = true;
-      if (chartHot) {
-        chartHot = null;
-        drawWorldChart();
-      }
-    }
-    chartEl.addEventListener("pointermove", (e) => {
-      if (e.pointerType === "mouse") chartPoint(e);
-    });
-    chartEl.addEventListener("pointerleave", (e) => {
-      if (e.pointerType === "mouse") chartLeave();
-    });
-    chartEl.addEventListener("pointerdown", (e) => {
-      const prev = chartPoint(e);
-      if (chartHot && (e.pointerType === "mouse" || prev === chartHot.serial)) {
-        openSpecies(chartHot.serial);
-        if (e.pointerType !== "mouse") chartLeave();
-      }
-    });
-    document.addEventListener("pointerdown", (e) => {
-      if (!plateEl.hidden && e.target !== chartEl) chartLeave();
-    }, true);
-    addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !plateEl.hidden) chartLeave();
-    }, true);
-    const chartShown = () => lab && lab.isOpen() && lab.tab() === "census" && chartEl.offsetParent !== null;
+    const charts = chartPointer($("plate"), (serial) => openSpecies(serial));
     let feedKey = "";
     function renderFeed() {
       if (!life || uiHeld()) return;
@@ -20857,7 +21044,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       perf.ticksAt = 0;
       perf.stepCredit = 0;
       if (state.paused) state.paused = false;
-      clock.owed = 0;
+      clock2.owed = 0;
       perf.frameDt.length = 0;
       perf.lastAdjust = performance.now();
       flash(`Speed ${fmtSpeed(v)}`);
@@ -21010,7 +21197,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       setText("sys-fps", perf.fps ? perf.fps.toFixed(0) : "–");
       setText("sys-ms", perf.gpu ? perf.gpu.toFixed(1) : "–");
       setText("sys-res", `${Math.round(renderScale * 100)}%`);
-      if (!plateEl.hidden && !chartShown()) chartLeave();
+      charts.check();
       view.readout();
     }
     const displayMs = () => perf.rafMs || 16.7;
@@ -21609,11 +21796,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
     let frameCount = 0;
     let inflight = 0;
     let shownFrame = null;
-    const clock = { owed: 0, lastT: 0 };
+    const clock2 = { owed: 0, lastT: 0 };
     function tickClock(now) {
-      const real = clock.lastT ? Math.min(0.1, (now - clock.lastT) / 1e3) : 0;
-      clock.lastT = now;
-      if (state.phase === "running" && !state.paused && !state.busy && state.speed !== Infinity) clock.owed += real * state.speed;
+      const real = clock2.lastT ? Math.min(0.1, (now - clock2.lastT) / 1e3) : 0;
+      clock2.lastT = now;
+      if (state.phase === "running" && !state.paused && !state.busy && state.speed !== Infinity) clock2.owed += real * state.speed;
     }
     const stepCap = () => {
       const S = perf.simS || perf.stepMs, R2 = perf.simS ? perf.renderR : 0;
@@ -21636,35 +21823,35 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const dt = m * H, S = stepCost();
       perf.stepCredit = S ? Math.min(perf.stepCredit + (frameTarget() - (world ? perf.renderR : perf.presentR || 0.3)) / S, MAX_STEPS) : 4;
       const cap3 = Math.max(1, Math.floor(perf.stepCredit));
-      let steps = Math.floor(clock.owed / dt);
+      let steps = Math.floor(clock2.owed / dt);
       if (steps > cap3) {
         steps = cap3;
-        clock.owed = Math.min(clock.owed - steps * dt, 2 * dt);
-      } else clock.owed -= steps * dt;
+        clock2.owed = Math.min(clock2.owed - steps * dt, 2 * dt);
+      } else clock2.owed -= steps * dt;
       perf.stepCredit = clamp6(perf.stepCredit - steps, 0, 1);
       return { steps, dt, world };
     }
     function plan(now) {
       if (state.paused || state.phase !== "running") {
-        clock.owed = 0;
+        clock2.owed = 0;
         return { steps: 1, dt: H };
       }
       if (state.speed === Infinity) return maxPlan(now, perf.ticks);
       if (perf.held) return coarsePlan(now, perf.ticks);
       const cap3 = stepCap();
-      if (clock.owed < H * 0.2) return null;
+      if (clock2.owed < H * 0.2) return null;
       const most = H * (state.speed <= 1 ? stepTicks() : 1);
-      let n = Math.max(1, Math.ceil(clock.owed / most - 0.05));
+      let n = Math.max(1, Math.ceil(clock2.owed / most - 0.05));
       if (n > cap3) {
         n = cap3;
-        clock.owed = n * most;
+        clock2.owed = n * most;
       }
-      const dt = clock.owed / n;
-      clock.owed = 0;
+      const dt = clock2.owed / n;
+      clock2.owed = 0;
       return { steps: n, dt };
     }
     const rafDt = [];
-    function frame2(now) {
+    function frame(now) {
       const dt = Math.min(100, now - last);
       last = now;
       frameCount++;
@@ -21770,11 +21957,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
       lab.render(false);
       adaptQuality(now);
       if (state.phase === "running") updateHud(now);
-      requestAnimationFrame(frame2);
+      requestAnimationFrame(frame);
     }
     resetLife();
     resetClimate();
-    requestAnimationFrame(frame2);
+    requestAnimationFrame(frame);
     document.addEventListener("visibilitychange", () => {
       perf.frameDt.length = 0;
       perf.lastSubmit = 0;

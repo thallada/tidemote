@@ -397,7 +397,7 @@ export function createLab(api) {
     ['Births and deaths per minute', null, [{ k: 'births', label: 'births', col: '#7fe0b0' }, { k: 'starve', label: 'starved', col: '#ff8a6b' }, { k: 'old', label: 'old age', col: '#c9b8ff' }, { k: 'eaten', label: 'eaten', col: '#ff5f3a' }]],
     ['Meals per minute', 'flesh', [{ k: 'graze', label: 'glint', col: '#b9e6ff' }, { k: 'scav', label: 'husks', col: '#a87b5c' }, { k: 'prey', label: 'kills', col: '#ff5f3a' }, { k: 'bite', label: 'bites of photosynths', col: '#d9f27a' }]],
     ['New species and extinctions per minute', 'mutation', [{ k: 'mut', label: 'new species', col: '#c9b8ff' }, { k: 'ext', label: 'extinctions', col: '#ff8a6b' }]],
-    ['Climate', 'season', [{ k: 'ambient', label: 'baseline light', col: '#d9f27a' }, { k: 'season', label: 'tide strength', col: '#5fd4c4' }]],
+    ['Climate', 'season', [{ k: 'ambient', label: 'baseline light', col: '#d9f27a' }, { k: 'season', label: 'tide strength', col: '#5fd4c4' }], '%'],
   ];
   // the heat charts, while the world has a heat field
   if (api.eng.K.heat) {
@@ -411,8 +411,8 @@ export function createLab(api) {
     const p = pane('');
     p.scroll.classList.add('stack');
     p.scroll.innerHTML = `<div class="legend"><span><i style="background:var(--sun);height:6px;width:1px"></i>dotted lines mark a new era</span></div>`
-      + CHARTS.map(([t, tip, s], i) => block(t, `<canvas class="dyn" data-i="${i}" aria-label="${esc(t)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join('')}</div>`, { tip })).join('')
-      + (api.eng.K.heat ? block('Thermal niches', `<canvas class="niches" aria-label="Each species by the temperature it prefers and its population"></canvas><div class="legend"><span><i style="background:#ff8a3a;opacity:.4"></i>warmth the living feel</span><span><i style="background:#ff8a3a;height:6px;width:1px"></i>background temperature</span><span>dot size: tolerance · ring: ${term('heatmaker', 'heat-maker')}</span></div>`, { tip: 'optimum' }) : '')
+      + CHARTS.map(([t, tip, s], i) => block(t, `<canvas class="dyn chart" data-i="${i}" aria-label="${esc(t)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join('')}</div>`, { tip })).join('')
+      + (api.eng.K.heat ? block('Thermal niches', `<canvas class="niches chart" aria-label="Each species by the temperature it prefers and its population. Point at a dot to name its species; click to open it."></canvas><div class="legend"><span><i style="background:#ff8a3a;opacity:.4"></i>warmth the living feel</span><span><i style="background:#ff8a3a;height:6px;width:1px"></i>background temperature</span><span>dot size: tolerance · ring: ${term('heatmaker', 'heat-maker')}</span></div>`, { tip: 'optimum' }) : '')
       + block('Eras', '<ol class="eras" id="eras"></ol>');
     const cvs = [...p.scroll.querySelectorAll('canvas.dyn')];
     const niches = p.scroll.querySelector('canvas.niches');
@@ -422,7 +422,7 @@ export function createLab(api) {
       cvs.forEach((cv, i) => drawLines(cv, hist, CHARTS[i][2], eras, CHARTS[i][3] || ''));
       if (niches) {
         const sp = [];
-        for (const s of life.reg.values()) if (s.alive && s.pop > 0) sp.push({ topt: s.genome.topt, tol: s.genome.tol, pop: s.pop, maker: s.genome.thermo > 0.2, col: s.genome.col });
+        for (const s of life.reg.values()) if (s.alive && s.pop > 0) sp.push({ serial: s.serial, name: s.name, topt: s.genome.topt, tol: s.genome.tol, pop: s.pop, maker: s.genome.thermo > 0.2, col: s.genome.col });
         // the warmth felt over the last half minute or more (the ledger's counts are cumulative)
         const c = life.lastCensus, now = c ? Array.from(c.energy.slice(THERMAL_LEDGER.hist, THERMAL_LEDGER.hist + HEAT_BINS)) : null;
         if (now && (!felt0 || c.simTime - felt0.t > 60 || c.simTime < felt0.t)) felt0 = { t: c.simTime, n: felt1 ? felt1.n : now };

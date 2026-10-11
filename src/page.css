@@ -296,7 +296,7 @@ body:not(.live) .hud { opacity: 0; }
 .nums div:first-child { border-left: 0; padding-left: 0; }
 .nums b { font-size: 18px; font-weight: 300; line-height: 1; font-stretch: 108%; }
 .nums span { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; text-decoration-color: rgba(111, 138, 140, 0.6); }
-#chart { width: 100%; height: clamp(64px, 8vh, 130px); display: block; }
+#chart { width: 100%; height: clamp(80px, 10vh, 140px); display: block; }
 .feed { list-style: none; margin: 0; padding: 0 4px 0 0; display: flex; flex-direction: column; gap: 7px; overflow-y: auto; min-height: 0; flex: 1; scrollbar-width: thin; }
 .feed li { display: grid; grid-template-columns: 3px 4.2ch 1fr; gap: 8px; font-size: 12px; line-height: 1.4; color: var(--ink-2); }
 .feed li > i { width: 3px; align-self: stretch; }
@@ -342,11 +342,15 @@ body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520p
   color: var(--ink); padding: 8px 11px; font-size: 12.5px; line-height: 1.5; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
 }
 .tip kbd { color: var(--sun); margin-left: 8px; }
-/* a species' name plate, as the world view labels a picked cell (the census chart's hover) */
+/* a species' name plate, as the world view labels a picked cell (a chart's hover); .rows: a line chart's values at a moment */
 .plate { position: fixed; z-index: 40; pointer-events: none; display: flex; align-items: baseline; gap: 8px; padding: 2px 5px 3px; background: rgba(6, 9, 10, 0.82); color: rgba(226, 241, 240, 0.95); font-size: 11px; font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase; white-space: nowrap; }
 .plate i { align-self: center; width: 7px; height: 7px; flex: none; }
 .plate small { color: var(--ink-3); font-size: 10px; letter-spacing: .06em; }
-#chart { cursor: crosshair; }
+canvas.chart { cursor: crosshair; }
+.plate.rows { display: grid; grid-template-columns: 7px auto auto; align-items: center; gap: 2px 7px; padding: 4px 7px 5px; letter-spacing: .06em; text-transform: none; font-size: 11.5px; }
+.plate.rows .pl-t { grid-column: 1 / -1; font-weight: 600; letter-spacing: .12em; color: var(--ink-2); font-size: 10.5px; }
+.plate.rows span { color: var(--ink-2); }
+.plate.rows em { font-style: normal; text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ------------------------------------------------------------------ settings, help */
 .settings {
@@ -484,7 +488,7 @@ dd { margin: 0; color: var(--ink-2); }
 .legend-note { display: flex; justify-content: space-between; color: var(--ink-3); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; }
 .note { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.55; }
 em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
-.popchart { width: 100%; height: 64px; display: block; }
+.popchart { width: 100%; height: 84px; display: block; }
 .vital.now { grid-template-columns: var(--lab-w) minmax(0, 1fr); }
 .vital.now > b { color: var(--sun); overflow: hidden; text-overflow: ellipsis; }
 .vital.now > b a.sp { color: inherit; }
@@ -684,8 +688,8 @@ body.lab-wide .lab-head .tabs button { padding: 0 10px; letter-spacing: .16em; }
 .barrow .bl { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .barrow .bn, .barrow .bp { text-align: right; white-space: nowrap; }
 .barrow .bp { color: var(--ink-3); }
-canvas.dyn { width: 100%; height: 112px; display: block; }
-canvas.niches { width: 100%; height: 150px; display: block; }
+canvas.dyn { width: 100%; height: 124px; display: block; }
+canvas.niches { width: 100%; height: 160px; display: block; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-2); font-size: 11.5px; margin-top: 4px; }
 .legend i { display: inline-block; width: 10px; height: 2px; margin-right: 6px; vertical-align: 3px; }
 .ramp { display: flex; align-items: center; gap: var(--s2); color: var(--ink-3); font-size: 11px; }

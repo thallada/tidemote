@@ -9,7 +9,7 @@ import { createLab } from './lab.js';
 import { createSpecimen } from './specimen.js';
 import { section, block } from './ui.js';
 import { createTips } from './tip.js';
-import { drawLiving, livingAt } from './charts.js';
+import { drawLiving, chartPointer } from './charts.js';
 import { genusName, speciesEpithet } from './names.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
@@ -725,45 +725,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   function drawWorldChart() {
     if (!lab || !lab.isOpen() || lab.tab() !== 'census' || !life) return;
-    drawLiving($('chart'), life.history, life.reg, climate && climate.history, chartHot && chartHot.serial);
-    const h = life.history;
-    $('hist-span').textContent = h.length > 1 ? `${fmtClock(h[0].t)} – ${fmtClock(h[h.length - 1].t)}` : '';
+    drawLiving($('chart'), life.history, life.reg, climate && climate.history);
   }
-  // Pointing at the chart names the species under it, on the plate the world view gives a picked
-  // cell; a click (on touch, a second tap on the same species) opens it.
-  let chartHot = null;
-  const chartEl = $('chart'), plateEl = $('plate');
-  function chartPoint(e) {
-    const r = chartEl.getBoundingClientRect();
-    const hit = life && livingAt(chartEl, life.history, e.clientX - r.left, e.clientY - r.top);
-    const sp = hit && life.reg.get(hit.serial);
-    const prev = chartHot && chartHot.serial;
-    chartHot = sp ? hit : null;
-    if (sp) {
-      plateEl.innerHTML = `<i style="background:${cssCol(sp.genome.col)}"></i><span>${esc(sp.name)}</span><small>${fmt(hit.pop)} · ${fmtClock(hit.t)}${sp.alive ? '' : ' · extinct'}</small>`;
-      plateEl.hidden = false;
-      const pw = plateEl.offsetWidth;
-      plateEl.style.left = `${Math.round(Math.min(e.clientX + 14, innerWidth - pw - 8))}px`;
-      plateEl.style.top = `${Math.round(e.clientY - 26)}px`;
-    } else plateEl.hidden = true;
-    if ((chartHot && chartHot.serial) !== prev) drawWorldChart();
-    return prev;
-  }
-  function chartLeave() {
-    plateEl.hidden = true;
-    if (chartHot) { chartHot = null; drawWorldChart(); }
-  }
-  chartEl.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') chartPoint(e); });
-  chartEl.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') chartLeave(); });
-  chartEl.addEventListener('pointerdown', (e) => {
-    const prev = chartPoint(e);
-    if (chartHot && (e.pointerType === 'mouse' || prev === chartHot.serial)) { openSpecies(chartHot.serial); if (e.pointerType !== 'mouse') chartLeave(); }
-  });
-  // On touch the plate stays after the finger lifts, like a tapped term's hint: the next tap
-  // anywhere else, Esc, or the chart leaving the screen (another Lab tab, the Lab folded) closes it.
-  document.addEventListener('pointerdown', (e) => { if (!plateEl.hidden && e.target !== chartEl) chartLeave(); }, true);
-  addEventListener('keydown', (e) => { if (e.key === 'Escape' && !plateEl.hidden) chartLeave(); }, true);
-  const chartShown = () => lab && lab.isOpen() && lab.tab() === 'census' && chartEl.offsetParent !== null;
+  // Pointing at any chart names what is under it (a species on the plate the world view gives a
+  // picked cell, or the values at that moment); a click on a species (on touch, a second tap) opens it.
+  const charts = chartPointer($('plate'), (serial) => openSpecies(serial));
   let feedKey = '';
   function renderFeed() {
     if (!life || uiHeld()) return;
@@ -1733,7 +1699,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     setText('sys-fps', perf.fps ? perf.fps.toFixed(0) : '–');
     setText('sys-ms', perf.gpu ? perf.gpu.toFixed(1) : '–');
     setText('sys-res', `${Math.round(renderScale * 100)}%`);
-    if (!plateEl.hidden && !chartShown()) chartLeave();
+    charts.check();
     view.readout();
   }
 
