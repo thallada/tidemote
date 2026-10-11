@@ -1,5 +1,6 @@
 node_modules/
 *.png
+!site/*.png
 *.log
 .DS_Store
 runs/

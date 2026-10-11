@@ -753,10 +753,13 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .begin:hover { color: var(--bg); background: #fff3c0; }
 .intro.ask .begin { display: block; }
 @keyframes blink { 50% { opacity: .2; } }
-.nogpu { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; z-index: 50; background: var(--bg); }
-.nogpu div { max-width: 52ch; display: flex; flex-direction: column; gap: 14px; }
+.nogpu { position: fixed; inset: 0; display: grid; place-items: safe center; padding: 24px; z-index: 50; background: var(--bg); overflow-y: auto; }
+.nogpu-in { max-width: 60ch; display: flex; flex-direction: column; gap: 14px; }
 .nogpu h1 { font-size: 26px; font-weight: 300; letter-spacing: .06em; }
 .nogpu p { margin: 0; color: var(--ink-2); font-size: 14px; white-space: pre-wrap; }
+.nogpu .about { display: flex; flex-direction: column; gap: var(--s3); margin-top: var(--s4); padding-top: var(--s4); border-top: 1px solid var(--line); }
+.nogpu h2 { margin: 0; font-size: 15px; font-weight: 400; letter-spacing: .06em; color: var(--ink); }
+.nogpu ul { margin: 0; padding-left: 1.2em; color: var(--ink-2); font-size: 14px; display: flex; flex-direction: column; gap: var(--s1); }
 
 
 /* ------------------------------------------------------------------ medium */

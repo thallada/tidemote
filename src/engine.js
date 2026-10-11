@@ -10,7 +10,8 @@ import { TIDE_PHASE } from './flow.js';
 
 const HDR = 'rgba16float';
 const BLOOM_LEVELS = 6;
-const U = GPUBufferUsage;
+// absent in a browser without WebGPU, which must still load the page to say so
+const U = globalThis.GPUBufferUsage ?? {};
 export const PICK_MAX = 131072;
 export const FOCUS_MAX = 65536;
 const PICK_BYTES = 56 + PICK_MAX * PICK_WORDS * 4;

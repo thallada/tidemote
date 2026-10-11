@@ -3,7 +3,46 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#06090a">
-<title>Tidemote</title>
+<title>Tidemote — artificial life evolving on your GPU</title>
+<meta name="description" content="Particles become cells that graze, hunt, evolve into new species and grow multicellular bodies: an artificial-life biosphere simulated live on your GPU.">
+<meta name="author" content="Tyler Hallada">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<link rel="canonical" href="https://tidemote.com/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%2306090a'/%3E%3Cpath d='M3 15c3-5 6-5 9 0s6 5 9 0' fill='none' stroke='%237fd6df' stroke-width='2'/%3E%3Cpath d='M3 9.5c3-5 6-5 9 0s6 5 9 0' fill='none' stroke='%237fd6df' stroke-width='2' opacity='.45'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="https://tidemote.com/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Tidemote">
+<meta property="og:url" content="https://tidemote.com/">
+<meta property="og:title" content="Tidemote — artificial life evolving on your GPU">
+<meta property="og:description" content="Particles become cells that graze, hunt, evolve into new species and grow multicellular bodies: an artificial-life biosphere simulated live on your GPU.">
+<meta property="og:image" content="https://tidemote.com/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Glowing colonies of particle cells, bonded into multicellular bodies, drifting in dark water.">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Tidemote — artificial life evolving on your GPU">
+<meta name="twitter:description" content="Particles become cells that graze, hunt, evolve into new species and grow multicellular bodies: an artificial-life biosphere simulated live on your GPU.">
+<meta name="twitter:image" content="https://tidemote.com/og.jpg">
+<meta name="twitter:image:alt" content="Glowing colonies of particle cells, bonded into multicellular bodies, drifting in dark water.">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Tidemote",
+  "url": "https://tidemote.com/",
+  "description": "A sealed biosphere of hundreds of thousands of particles simulated on the GPU with WebGPU. Cells photosynthesise, graze, hunt and scavenge, mutate into new species and grow multicellular bodies while the climate turns.",
+  "image": "https://tidemote.com/og.jpg",
+  "applicationCategory": "Simulation",
+  "genre": ["Artificial life", "Evolution simulation", "Particle life"],
+  "operatingSystem": "Any",
+  "browserRequirements": "Requires WebGPU: a current Chrome or Edge, a recent Safari, or Firefox on Windows.",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Person", "name": "Tyler Hallada", "url": "https://www.hallada.net/" },
+  "codeRepository": "https://github.com/thallada/tidemote"
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira:wdth,wght@100..125,200..600&display=swap">
@@ -763,10 +802,13 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .begin:hover { color: var(--bg); background: #fff3c0; }
 .intro.ask .begin { display: block; }
 @keyframes blink { 50% { opacity: .2; } }
-.nogpu { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; z-index: 50; background: var(--bg); }
-.nogpu div { max-width: 52ch; display: flex; flex-direction: column; gap: 14px; }
+.nogpu { position: fixed; inset: 0; display: grid; place-items: safe center; padding: 24px; z-index: 50; background: var(--bg); overflow-y: auto; }
+.nogpu-in { max-width: 60ch; display: flex; flex-direction: column; gap: 14px; }
 .nogpu h1 { font-size: 26px; font-weight: 300; letter-spacing: .06em; }
 .nogpu p { margin: 0; color: var(--ink-2); font-size: 14px; white-space: pre-wrap; }
+.nogpu .about { display: flex; flex-direction: column; gap: var(--s3); margin-top: var(--s4); padding-top: var(--s4); border-top: 1px solid var(--line); }
+.nogpu h2 { margin: 0; font-size: 15px; font-weight: 400; letter-spacing: .06em; color: var(--ink); }
+.nogpu ul { margin: 0; padding-left: 1.2em; color: var(--ink-2); font-size: 14px; display: flex; flex-direction: column; gap: var(--s1); }
 
 
 /* ------------------------------------------------------------------ medium */
@@ -1095,13 +1137,27 @@ svg.niche .n-dot { fill: var(--cyan); }
   </div>
 </div>
 
+<!-- shown when the world cannot run (no WebGPU, no JavaScript): says why, then what Tidemote is -->
 <div class="nogpu" id="nogpu" hidden>
-  <div>
+  <div class="nogpu-in">
     <div class="lbl">Tidemote</div>
     <h1 id="nogpu-title">WebGPU unavailable</h1>
-    <p id="nogpu-detail"></p>
+    <p id="nogpu-detail">Tidemote simulates its world on your graphics card through WebGPU, with JavaScript turned on. Try a current Chrome, Edge or Safari, or Firefox on Windows.</p>
+    <section class="about" aria-labelledby="about-h">
+      <h2 id="about-h">Artificial life, evolving on your GPU</h2>
+      <p>Tidemote is a sealed biosphere of hundreds of thousands to millions of particles, simulated live in the browser with WebGPU. Inert silt is charged into glint by the tide. Cells photosynthesise, graze, hunt and scavenge, and build their children out of silt. Children mutate into new species, bonded species grow into multicellular bodies, and the climate turns every 10–18 minutes. Leave it running and it keeps changing.</p>
+      <p>Every rule is local: each particle reacts only to what is near it, and the ecology that appears is never steered from above.</p>
+      <ul>
+        <li>Food webs of producers, grazers, hunters and scavengers, evolving as you watch</li>
+        <li>A Field Lab of census charts, lineages and a specimen view of any cell</li>
+        <li>Climate eras of light, heat waves, cold snaps and tides</li>
+        <li>An auto camera that films the world, and a soundtrack played by the species themselves</li>
+      </ul>
+      <p><a class="sp" href="https://github.com/thallada/tidemote">Source code on GitHub</a></p>
+    </section>
   </div>
 </div>
+<noscript><style>#nogpu { display: grid !important; } #intro, #hud { display: none !important; }</style></noscript>
 
 <script type="module">
 (() => {
@@ -13879,7 +13935,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   // src/engine.js
   var HDR = "rgba16float";
   var BLOOM_LEVELS = 6;
-  var U = GPUBufferUsage;
+  var U = globalThis.GPUBufferUsage ?? {};
   var PICK_MAX = 131072;
   var FOCUS_MAX = 65536;
   var PICK_BYTES = 56 + PICK_MAX * PICK_WORDS * 4;
