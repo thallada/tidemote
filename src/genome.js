@@ -133,7 +133,8 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
   };
   // its own random stream, seeded from a trait already drawn, so founding a world takes no extra draws
   let bs = (Math.floor(g.hue * 4294967296) ^ 0x9e3779b9) >>> 0;
-  g.brain = founderBrain(() => (bs = visualHash(bs)) / 4294967296);
+  const br = () => (bs = visualHash(bs)) / 4294967296;
+  g.brain = (K.brainFounders ?? 1) ? founderBrain(br) : randomBrain(br);
   return finalizeGenome(g, K);
 }
 
@@ -193,6 +194,12 @@ export function founderBrain(r = Math.random) {
   out('appetite', 0, 0.8 * hunger);
   bias('early', 0.4);
   setByte(w, CLOCK_BYTE, c() * BRAIN_SCALE); // the clock's rate
+  return w;
+}
+/** A random brain, as a spark of life gets one (randomInto in shaders.js): every weight uniform in ±0.3. */
+export function randomBrain(r = Math.random) {
+  const w = new Array(BRAIN_WORDS).fill(0);
+  for (let k = 0; k < BRAIN_WORDS * 4; k++) setByte(w, k, (r() * 2 - 1) * 0.3 * BRAIN_SCALE);
   return w;
 }
 // The CPU twin of mutateBrain (shaders.js), for mutateLike. gauss: the mutation's normal source.

@@ -18,7 +18,7 @@ test('LOD preserves light, bonded outlines merge, and all detail views validate'
   device.addEventListener('uncapturederror', (e) => errors.push(e.error.message));
   const { createEngine } = await import('../src/engine.js');
   const { archetypeGenome, writeGenome, packUnorm, cellShape } = await import('../src/genome.js');
-  const { MAXK, G_WORDS, DRAW_WGSL, MAX_CELLS, FIRST_LIFE } = await import('../src/shaders.js');
+  const { MAXK, G_WORDS, P_WORDS, DRAW_WGSL, MAX_CELLS, FIRST_LIFE } = await import('../src/shaders.js');
   const eng = await createEngine(device, 'rgba8unorm');
   assert.ok(await eng.allocate(8));
   eng.grid = [10, 10]; eng.count = 1; eng.resize(256, 256);
@@ -33,9 +33,9 @@ test('LOD preserves light, bonded outlines merge, and all detail views validate'
     writeGenome(new Uint32Array(genome), new Float32Array(genome), FIRST_LIFE, g);
     device.queue.writeBuffer(eng.b.genomes, 0, genome);
   };
-  const particles = new ArrayBuffer(8 * 40), pf = new Float32Array(particles), pu = new Uint32Array(particles);
+  const particles = new ArrayBuffer(8 * P_WORDS * 4), pf = new Float32Array(particles), pu = new Uint32Array(particles);
   const particle = (i, x, y, kind = FIRST_LIFE) => {
-    const j = i * 10;
+    const j = i * P_WORDS;
     pf[j] = x; pf[j + 1] = y; pf[j + 2] = 0.1; pu[j + 4] = kind;
     pf[j + 5] = 0.4; pf[j + 6] = 5; pu[j + 7] = 123 + i; pu[j + 8] = packUnorm(0.4, 0.7, 0.5, 1);
   };
@@ -111,11 +111,11 @@ test('LOD preserves light, bonded outlines merge, and all detail views validate'
   // protrusions beyond the old bisector using raster coverage, not shader text.
   Object.assign(g, { serial: 1, swim: 0, calcify: 0, photo: 0.5 });
   particle(0, 5, 5); particle(1, 5.08, 5);
-  pf[2] = 0.04; pf[3] = 0.1; pf[13] = -0.04;
+  pf[2] = 0.04; pf[3] = 0.1; pf[P_WORDS + 3] = -0.04;
   eng.count = 2;
   let protrusionPixels = 0;
   for (const shape of [2, 3, 4]) for (const role of [0, 1]) {
-    g.shape = shape; pu[19] = role << 4;
+    g.shape = shape; pu[P_WORDS + 9] = role << 4;
     intent.fill(0xffffffff);
     const self = await render(500, false, 0);
     const partner = await render(500, false, 1);
@@ -148,7 +148,7 @@ test('LOD preserves light, bonded outlines merge, and all detail views validate'
       `plan ${shape}, role ${role}: uncovered protrusions survive (${unsupportedAfter / unsupportedBefore})`);
   }
   assert.ok(protrusionPixels > 20, 'tested unsupported protrusions beyond the old bisector');
-  pu[19] = 0;
+  pu[P_WORDS + 9] = 0;
 
   g.shape = 0;
   // Real indirect bridges, both partner slots, and the collapsed single-partner strip.

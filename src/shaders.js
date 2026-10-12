@@ -183,7 +183,10 @@ export const DEFAULT_K = {
   brainThrust: 1.0, // how hard a brain's full steer swims, relative to the genome's swim
   brainMut: 0.2,    // brain weight noise per mutation, relative to the mutation's strength
   brainPulls: 1,    // with a brain, how much of the hunger pulls (hunt, forage) stay as body chemistry (0 starves predators)
-  brainControl: 0,  // 1: a control for selection: every mutant gets a fresh random brain, so none is inherited
+  brainOnly: 0,     // the share of mutants (with a brain) whose body is their parent's and only their brain differs
+  brainFounders: 1, // 0: founders start with random brains, as sparks do (for selection tests), not reflexes
+  brainControl: 0,  // controls for selection (no brain inherited): 1 every mutant gets a fresh random brain,
+                    // 2 a random living species' brain (mutated as usual), so weights stay as an inherited brain's
   thinkScan: 96,     // the neighbours a thought samples at most (lifeMain's scan takes maxScan)
   brainShrink: 0.5, // ...and how far each weight is drawn toward zero, relative to it, so only selection keeps it large
   thrustShare: 0.5, // the share of swimming's upkeep (swimCost) a brain pays by its stroke, not always: resting saves it
@@ -1008,12 +1011,19 @@ fn mutWeights(v: u32, keep: f32, mb: f32, s: ptr<function, u32>) -> u32 {
 fn mutateBrain(slot: u32, parentKind: u32, m: f32, s: ptr<function, u32>) {
   let mb = m * ${f(K.brainMut)};
   let keep = 1.0 - m * ${f(K.brainShrink)};
-  if (${K.brainControl ? 'true' : 'false'}) {
+  if (${K.brainControl === 1 ? 'true' : 'false'}) {
     for (var k = 0u; k < 18u; k++) { randomRow(slot, k, s); }
     return;
   }
+  var donor = parentKind;
+  if (${K.brainControl === 2 ? 'true' : 'false'}) {
+    for (var t = 0u; t < 16u; t++) {
+      let k = FIRST_LIFE + min(u32(rnd(s) * f32(MAXK - FIRST_LIFE)), MAXK - FIRST_LIFE - 1u);
+      if (k != slot && k != parentKind && atomicLoad(&ledger[META_POP + k]) > 0u) { donor = k; break; }
+    }
+  }
   for (var k = 0u; k < 18u; k++) {
-    let w = genomes[parentKind].brain[k];
+    let w = genomes[donor].brain[k];
     genomes[slot].brain[k] = vec4u(mutWeights(w.x, keep, mb, s), mutWeights(w.y, keep, mb, s), mutWeights(w.z, keep, mb, s), mutWeights(w.w, keep, mb, s));
   }
   if (rnd(s) < m * 0.25) { randomRow(slot, min(u32(rnd(s) * 17.0), 16u), s); }
@@ -1033,6 +1043,19 @@ fn sampleRole(g: Genome, r: u32, s: ptr<function, u32>) -> u32 {
 fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   var g = genomes[parentKind];
   let m = 0.04 + 0.8 * pow(rnd(s), 3.0);
+  // K.brainOnly: a share of mutants keep their parent's body exactly and differ only in mind, so a brain
+  // competes against its parent's on equal terms (a shade of hue apart, to be told apart)
+  if (BRAIN && rnd(s) < ${f(K.brainOnly)}) {
+    g.hue = fract(g.hue + gauss(s) * 0.015 + 1.0);
+    g.parent = g.serial;
+    g.serial = atomicAdd(&ledger[1], 1u) + 1u;
+    g.born = sim.time;
+    g.depth = g.depth + 1u;
+    finalize(&g);
+    genomes[slot] = g;
+    mutateBrain(slot, parentKind, m, s);
+    return;
+  }
   for (var r = 0u; r < 3u; r++) {
     g.sig[r] = vec4u(mutSig(g.sig[r].x, m, s), mutSig(g.sig[r].y, m, s), mutSig(g.sig[r].z, m, s), mutSig(g.sig[r].w, m, s));
   }
