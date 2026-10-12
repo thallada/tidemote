@@ -671,7 +671,7 @@ function cellWGSL(K, w) {
   // heat-maker burns extra, all of it heat
   let heatMaking = ${f(K.heat ? K.thermoCost : 0)} * thermo;
   let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0))
-    * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking${K.brain ? ` + ${f(K.swimCost * K.thrustShare * K.metab / K.brainThrust)} * length(thrust)` : ''};`;
+    * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking${K.brain ? ` + ${f(K.swimCost * K.thrustShare * K.metab / Math.max(K.brainThrust, 1e-3))} * length(thrust)` : ''};`;
 }
 
 // A swimmer's thought (K.brain), shared by thinkMain and mindMain: what it senses around it (a scan of its own,
