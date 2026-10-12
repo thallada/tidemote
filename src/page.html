@@ -64,6 +64,7 @@
   <symbol id="i-close" viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-plus" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-minus" viewBox="0 0 20 20"><path d="M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
+  <symbol id="i-down" viewBox="0 0 20 20"><path d="M10 4v9m-4-4 4 4 4-4M5 16h10" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-chev" viewBox="0 0 20 20"><path d="m5 12.5 5-5 5 5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
 </svg>
 
@@ -111,6 +112,7 @@
       <div class="tabs" role="tablist" id="set-tabs" aria-label="Settings sections">
         <button type="button" role="tab" data-tab="display" aria-selected="true">Display</button>
         <button type="button" role="tab" data-tab="performance" aria-selected="false" tabindex="-1">Performance</button>
+        <button type="button" role="tab" data-tab="worlds" aria-selected="false" tabindex="-1">Worlds</button>
       </div>
       <button type="button" class="ghost" id="set-close" aria-label="Close settings"><svg><use href="#i-close"/></svg></button></div>
     <div class="readout" id="readout" hidden aria-live="off">
@@ -127,6 +129,7 @@
       <div class="w4"><b id="ro-aim">–</b><span class="term" data-tip="aimfps" tabindex="0">Aiming for</span></div>
     </div>
     <div class="opts" id="opts"></div>
+    <input type="file" id="w-file" accept=".tidemote" hidden>
   </div>
 
   <!-- floating bars: the species highlight, and the map a gauge opened; each closes on its own -->

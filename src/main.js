@@ -12,6 +12,7 @@ import { createTips } from './tip.js';
 import { drawLiving, chartPointer } from './charts.js';
 import { genusName, speciesEpithet } from './names.js';
 import { record, seal } from './lineage/model.js';
+import { createWorldStore, encodeWorld, decodeWorld } from './worlds.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
 import { PICK_WORDS, WATCH_MAX, stoneGrain } from './shaders.js';
@@ -366,6 +367,71 @@ function run(eng, device, ctx, specCtx, hasTS) {
     view.render();
     sound.overture();
     flash('A new world begins');
+  }
+
+  // ------------------------------------------------------------ saved worlds
+  // The engine's state with the page's record of the world (names, lineages, chronicle, history,
+  // eras and the camera), kept in this browser (worlds.js).
+  const worldStore = createWorldStore();
+  async function saveWorld(name) {
+    // the page's record and the GPU's copy are taken together, before anything awaits
+    const { lastCensus, ...keepLife } = life;
+    const keepClimate = Object.fromEntries(Object.entries(climate).filter(([, v]) => typeof v !== 'function'));
+    const page = { life: keepLife, climate: keepClimate, cam: { x: cam.x, y: cam.y, zoom: cam.zoomTarget } };
+    const top = [...life.reg.values()].filter((s) => s.alive && s.established).sort((a, b) => b.pop - a.pop);
+    const meta = { id: `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, savedAt: Date.now(),
+      simTime: eng.simTime, count: eng.count, thriving: life.thriving, cols: top.slice(0, 4).map((s) => s.genome.col) };
+    const bytes = await encodeWorld({ meta, ...(await eng.readState()), page });
+    await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes);
+  }
+  // a world as file bytes, read and checked before the one running is touched
+  async function openWorld(bytes) {
+    const w = await decodeWorld(bytes);
+    const want = eng.stateSizes(w.cpu.count), got = Object.entries(w.gpu);
+    if (got.length !== Object.keys(want).length || got.some(([k, b]) => want[k] !== b.byteLength)) throw new Error('This world was saved by another version of Tidemote.');
+    if (w.cpu.count > maxParticles()) throw new Error(`Its ${fmt(w.cpu.count)} particles are more than this GPU can hold.`);
+    return w;
+  }
+  // Put a world in place of this one (perf tools pass only { cpu, gpu }: its record starts afresh).
+  function applyWorld({ cpu, gpu, page }) {
+    eng.writeState({ cpu, gpu });
+    resetDirector();
+    resetLife();
+    resetClimate();
+    torpidPrev = null;
+    if (page) {
+      Object.assign(life, page.life, { lastCensus: null });
+      Object.assign(climate, page.climate);
+      // the excursion already announced is the one under way (a copy, once saved)
+      if (climate.announced && climate.excursion && climate.announced.t === climate.excursion.t) climate.announced = climate.excursion;
+      cam.x = page.cam.x; cam.y = page.cam.y;
+      cam.zoom = cam.zoomTarget = page.cam.zoom; cam.anchor = null;
+    }
+    sound.reset(); lab.reset(); specimen.reset(); deselect(); clearFocus();
+    feedKey = '';
+    renderFeed();
+    drawWorldChart();
+    renderWorld();
+  }
+  async function loadWorld(w) {
+    state.phase = 'calibrating';
+    state.busy = true;
+    try {
+      await device.queue.onSubmittedWorkDone();
+      if (eng.capacity !== w.cpu.count && !(await eng.allocate(w.cpu.count))) {
+        // this world's memory went with the attempt: start a new one
+        flash('Not enough GPU memory for that world');
+        await calibrate();
+        state.phase = 'running';
+        renderWorld();
+        return false;
+      }
+      applyWorld(w);
+    } catch (e) { fail('Could not load the world', String(e.message || e)); return false; }
+    state.busy = false;
+    state.phase = 'running';
+    flash(`${w.meta.name} loaded`);
+    return true;
   }
 
   function groups() {
@@ -1257,7 +1323,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ settings
   // Display: what is drawn. Performance: what it costs (resolution, frame rate, particles, effects),
-  // with a live readout so the effect of each choice can be seen.
+  // with a live readout so the effect of each choice can be seen. Worlds: saving this world and
+  // loading one saved.
   view = (() => {
     const el = $('settings'), opts = $('opts'), btn = $('set-open'), tabs = [...el.querySelectorAll('#set-tabs [data-tab]')];
     let tab = 'display';
@@ -1305,8 +1372,101 @@ function run(eng, device, ctx, specCtx, hasTS) {
           ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === 'auto' ? 'a measured count' : fmt(pendingN)}</button></div>` : '')
         + (hasTS ? `<div class="opt"><span class="lbl">${term('profile', 'Profile')}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ''));
     }
+    // the saves kept in this browser (null until read), the name being typed, a load or delete
+    // waiting to be confirmed ({ kind, id }), and what is under way ('save', 'load', 'open')
+    let saves = null, used = 0, wName = '', ask = null, wBusy = '';
+    const defaultName = () => `${climate.name} · ${fmtDur(eng.simTime)}`;
+    // today's saves by the time, older ones by the day
+    const when = (t) => (new Date(t).toDateString() === new Date().toDateString()
+      ? new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
+    const mb = (n) => `${(n / 1048576).toFixed(n < 10485760 ? 1 : 0)} MB`;
+    const mini = (o, v, text, cls = '') => `<button type="button" class="btn mini${cls}" data-o="${o}" data-v="${v}"${wBusy ? ' disabled' : ''}>${text}</button>`;
+    function saveRow(m) {
+      const sw = [0, 1, 2, 3].map((i) => `<i${m.cols[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ''}></i>`).join('');
+      const a = ask && ask.id === m.id ? ask.kind : null;
+      const line = a === 'load' ? '<em>Discard this world?</em>' : a === 'del' ? '<em>Delete this save?</em>'
+        : `${fmtDur(m.simTime)} · ${kfmt(m.count)} · ${m.thriving} species · ${when(m.savedAt)}`;
+      const acts = a === 'load' ? mini('w-no', m.id, 'Cancel') + mini('w-first', m.id, 'Save first') + mini('w-yes', m.id, wBusy === 'load' ? 'Loading' : 'Load', ' hot-btn')
+        : a === 'del' ? mini('w-no', m.id, 'Cancel') + mini('w-yes', m.id, 'Delete', ' hot-btn')
+        : mini('w-load', m.id, 'Load') + `<button type="button" class="ghost" data-o="w-dl" data-v="${m.id}" aria-label="Download" data-hint="Download a file to open on another device"><svg><use href="#i-down"/></svg></button>`
+          + `<button type="button" class="ghost" data-o="w-del" data-v="${m.id}" aria-label="Delete" data-hint="Delete"><svg><use href="#i-close"/></svg></button>`;
+      return `<div class="w-row"><span class="w-sw" aria-hidden="true">${sw}</span><div class="w-txt"><b>${esc(m.name)}</b><span>${line}</span></div><div class="w-act">${acts}</div></div>`;
+    }
+    function worlds_() {
+      const off = wBusy || state.phase !== 'running' ? ' disabled' : '';
+      const save = `<div class="w-save"><input type="text" id="w-name" maxlength="60" autocomplete="off" spellcheck="false" placeholder="${esc(defaultName())}" value="${esc(wName)}" aria-label="Name this save"${off}>`
+        + `<button type="button" class="btn hot-btn" data-o="w-save" data-v="0"${off}>${wBusy === 'save' ? 'Saving' : 'Save'}</button></div>`;
+      const list = saves == null ? '<p class="note">Reading the saved worlds…</p>'
+        : saves.length ? saves.map(saveRow).join('')
+        : '<p class="note">No saved worlds yet. A save keeps everything: every particle, each species and its name, the chronicle and the history.</p>';
+      return group('w-save', 'Save this world', save) + section('w-list', 'Saved worlds', block('', list, { aside: saves && saves.length ? `${saves.length} · ${mb(used)}` : '', tip: 'saves' }));
+    }
+    async function refreshSaves() {
+      try { saves = await worldStore.list(); } catch { saves = []; }
+      used = saves.reduce((a, m) => a + (m.bytes || 0), 0);
+      render();
+    }
+    function download(m, bytes) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/gzip' }));
+      a.download = `${m.name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || 'world'}.tidemote`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
+    async function worldAct(id, v) {
+      const busy = async (what, fn) => {
+        wBusy = what; render();
+        try { await fn(); } catch (e) { flash(String(e.message || e)); }
+        wBusy = ''; render();
+      };
+      if (id === 'w-save') {
+        if (wBusy || state.phase !== 'running') return;
+        await busy('save', async () => {
+          await saveWorld(wName.trim() || defaultName());
+          wName = '';
+          flash('World saved');
+          await refreshSaves();
+        });
+      } else if (id === 'w-load' || id === 'w-del') { ask = { kind: id === 'w-load' ? 'load' : 'del', id: v }; render(); }
+      else if (id === 'w-no') { ask = null; render(); }
+      else if (id === 'w-yes' && ask?.kind === 'del') {
+        ask = null;
+        await worldStore.remove(v).catch((e) => flash(String(e.message || e)));
+        await refreshSaves();
+      } else if (id === 'w-yes' || id === 'w-first') {
+        if (wBusy || state.phase !== 'running') return;
+        let loaded = false;
+        await busy('load', async () => {
+          // checked before anything is discarded: a world that cannot open leaves this one running
+          const w = await openWorld(await worldStore.get(v));
+          if (id === 'w-first') await saveWorld(defaultName());
+          ask = null;
+          loaded = await loadWorld(w);
+        });
+        if (loaded) toggle(false); else refreshSaves();
+      } else if (id === 'w-dl') {
+        const m = saves.find((x) => x.id === v);
+        if (m) download(m, await worldStore.get(v));
+      } else if (id === 'w-open') $('w-file').click();
+    }
+    // a file downloaded from here (on any device): kept with the saves, then offered to load
+    $('w-file').addEventListener('change', async (e) => {
+      const f = e.target.files[0];
+      e.target.value = '';
+      if (!f) return;
+      wBusy = 'open'; render();
+      try {
+        const bytes = await f.arrayBuffer();
+        const { meta } = await openWorld(bytes);
+        await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes);
+        ask = { kind: 'load', id: meta.id };
+      } catch (err) { flash(`Could not open ${f.name}: ${String(err.message || err)}`); }
+      wBusy = '';
+      await refreshSaves();
+    });
     // the keyboard note, and this tab's reset (which asks first)
     function foot() {
+      if (tab === 'worlds') return `<div class="set-foot"><span class="keys-note">Kept in this browser.</span><button type="button" class="link set-reset" data-o="w-open" data-v="0"${wBusy ? ' disabled' : ''}>Open a file</button></div>`;
       const reset = confirming
         ? `<span class="set-reset"><span>Reset every ${tab} setting?</span><button type="button" class="link" data-o="reset-no" data-v="0">Cancel</button><button type="button" class="btn hot-btn" data-o="reset-yes" data-v="0">Reset</button></span>`
         : `<button type="button" class="link set-reset" data-o="reset" data-v="0">Reset to defaults</button>`;
@@ -1333,7 +1493,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (el.hidden) return;
       tabs.forEach((b) => { const on = b.dataset.tab === tab; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; });
       $('readout').hidden = tab !== 'performance';
-      opts.innerHTML = (tab === 'display' ? display() : performance_()) + foot();
+      const typing = document.activeElement?.id === 'w-name';
+      opts.innerHTML = (tab === 'display' ? display() : tab === 'performance' ? performance_() : worlds_()) + foot();
+      if (typing && !$('w-name').disabled) { const i = $('w-name'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+      if (tab === 'worlds' && saves == null) refreshSaves();
       readout(true);
     }
     let roAt = 0;
@@ -1359,6 +1522,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     function set(id, v) {
       const s = eng.settings, P = state.perf;
+      if (id.startsWith('w-')) { worldAct(id, v); return; }
       if (id === 'trails') { trailIdx = +v; s.trails = trailLevels[trailIdx]; }
       else if (id === 'tide') s.tide = +v;
       else if (id === 'heat') s.heat = +v;
@@ -1389,16 +1553,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
       render();
     }
     opts.addEventListener('click', (e) => { const b = e.target.closest('[data-o]'); if (b && !b.disabled) set(b.dataset.o, b.dataset.v); });
-    tabs.forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; confirming = false; render(); }));
+    opts.addEventListener('input', (e) => { if (e.target.id === 'w-name') wName = e.target.value; });
+    opts.addEventListener('keydown', (e) => { if (e.target.id === 'w-name' && e.key === 'Enter') { e.preventDefault(); worldAct('w-save'); } });
+    tabs.forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; confirming = false; ask = null; render(); }));
     $('set-tabs').addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-      const n = tabs.find((b) => b.dataset.tab !== tab);
+      const i = tabs.findIndex((b) => b.dataset.tab === tab);
+      const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
       e.preventDefault(); n.click(); n.focus();
     });
     function toggle(on = el.hidden) {
       el.hidden = !on;
       btn.setAttribute('aria-expanded', String(on));
-      if (on) { $('help').hidden = true; if (phone()) lab.close(); render(); } else { pendingN = null; confirming = false; }
+      if (on) { $('help').hidden = true; if (phone()) lab.close(); saves = null; render(); } else { pendingN = null; confirming = false; ask = null; }
     }
     btn.addEventListener('click', () => toggle());
     $('set-close').addEventListener('click', () => toggle(false));
@@ -2497,7 +2664,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // as the adaptive scale does it: applied when the next frame begins
     queueScale(v) { renderScale = v; resizeDue = true; },
     // a world saved by eng.readState(), in place of this one
-    loadWorld(s) { eng.writeState(s); resetDirector(); resetLife(); resetClimate(); sound.reset(); lab.reset(); specimen.reset(); deselect(); clearFocus(); } };
+    loadWorld: applyWorld };
 
   calibrate().then(() => {
     state.phase = 'running';

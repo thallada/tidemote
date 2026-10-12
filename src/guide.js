@@ -56,6 +56,7 @@ export const GLOSSARY = {
   alive: 'Every species with at least one living cell, including brand-new mutants.',
   ever: 'Total number of species that have ever existed in this epoch.',
   stepms: 'GPU time one simulation step takes.',
+  saves: 'A save keeps the whole world: every particle, each species with its name and lineage, the chronicle, the history and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download one to keep it safe or to open it on another device.',
   profile: 'Times three seconds of frames on the GPU, pass by pass, and one simulation step, and copies the result with this device’s details: a report of how the page runs here.',
   aimfps: 'The frame rate the page aims for now, and why when it is lower than Target fps: frames running late, the GPU busy for nearly the whole frame, or the device under pressure (hot or busy, where the browser reports it). It first lowers the render scale; below 45 fps each step covers more simulated time, so the world keeps real time. It climbs back after a stretch with room to spare.',
   renderres: 'The share of the screen’s resolution the world is drawn at right now (Scene px). With Render scale on Auto it drops when frames run late and climbs back when there is room.',
