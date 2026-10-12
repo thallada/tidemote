@@ -17894,7 +17894,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           ["Cell types per species", "bodyplan", g.types.map((d) => ({ key: `types:${d.name}`, label: `${d.name} type${d.name === "1" ? "" : "s"}`, n: d.n, col: d.col }))]
         ];
       }
-      function update() {
+      function update(force) {
         if (!api.life()) return;
         const secs = sections();
         const k = secs.map(([t2, , r]) => t2 + r.map((x) => x.key).join()).join("|");
@@ -17923,7 +17923,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           });
         });
         box.querySelectorAll(".chip[data-focus]").forEach((b) => b.setAttribute("aria-pressed", String(fk === b.dataset.focus)));
-        api.onCensusShown();
+        if (force) api.onCensusShown();
       }
       return { el, update };
     }

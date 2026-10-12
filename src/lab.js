@@ -380,7 +380,7 @@ export function createLab(api) {
         ['Cell types per species', 'bodyplan', g.types.map((d) => ({ key: `types:${d.name}`, label: `${d.name} type${d.name === '1' ? '' : 's'}`, n: d.n, col: d.col }))],
       ];
     }
-    function update() {
+    function update(force) {
       if (!api.life()) return; // the Lab opens before the first world is seeded
       const secs = sections();
       const k = secs.map(([t, , r]) => t + r.map((x) => x.key).join()).join('|');
@@ -412,7 +412,8 @@ export function createLab(api) {
         });
       });
       box.querySelectorAll('.chip[data-focus]').forEach((b) => b.setAttribute('aria-pressed', String(fk === b.dataset.focus)));
-      api.onCensusShown();
+      // the chart changes only with a new history sample (main.js redraws it then)
+      if (force) api.onCensusShown();
     }
     return { el, update };
   }
