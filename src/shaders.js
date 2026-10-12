@@ -2071,19 +2071,39 @@ fn drawnSize(p: Particle) -> f32 { return genomes[p.kind].size * (1.0 - 0.12 * f
 // Matter heaps pile ten thousand grains into one grid cell, so scanning every particle around each
 // cell cost 190–690 ms a frame with a heap in view; here each cell searches only living neighbours, at most
 // NEAR_N of them (past that, cells overlap dozens deep and which few it flattens against can't be seen).
-// Positions are packed relative to the grid cell's centre (snorm over ±2 units: 6e-5 apart).
+// Positions are packed relative to the grid cell's centre (snorm over ±2 units: 6e-5 apart), and
+// each one's index (22 bits: at most 4M particles) with its drawn size (10 bits, to 1/256).
+// Past NEAR_FEW they are sorted into bins of NEAR_BIN units, and each cell searches outward from its
+// own bin, skipping bins farther than its sixth contact so far: compared with every one gathered,
+// colonies of a few hundred to a grid cell took 1-7 ms a frame (all within 16 KB of workgroup memory).
 const NEAR_N = 1024u;
 const NEAR_REACH = 0.6;
+const NEAR_BIN = 0.125;
+const NEAR_BINS = 18; // per side: ±1.125 units around the grid cell's centre
+const NEAR_FEW = 64u; // compared directly, unbinned
 var<workgroup> nearPos: array<u32, NEAR_N>;
-var<workgroup> nearIdx: array<u32, NEAR_N>;
-var<workgroup> nearSize: array<f32, NEAR_N>;
+var<workgroup> nearKey: array<u32, NEAR_N>;
+var<workgroup> nearSorted: array<u32, NEAR_N>;
+// each bin's start, and one past the last bin's end
+const NEAR_EDGES = 325u;
+var<workgroup> binAt: array<atomic<u32>, NEAR_EDGES>;
 var<workgroup> nearCount: atomic<u32>;
+var<workgroup> nearMaxSize: atomic<u32>;
 var<workgroup> nearUniform: u32;
 
-fn nearAdd(j: u32, d: vec2f, size: f32) {
+// a grid cell's own living cells past NEAR_N (a colony can crowd 1500 into one), so each still has a thread
+const OWN_MORE = 512u;
+var<workgroup> ownMore: array<u32, OWN_MORE>;
+
+fn nearAdd(j: u32, d: vec2f, size: f32) -> u32 {
+  let q = u32(round(clamp(size, 0.0, 3.99) * 256.0));
+  atomicMax(&nearMaxSize, q);
   let c = atomicAdd(&nearCount, 1u);
-  if (c < NEAR_N) { nearPos[c] = pack2x16snorm(d * 0.5); nearIdx[c] = j; nearSize[c] = size; }
+  if (c < NEAR_N) { nearPos[c] = pack2x16snorm(d * 0.5); nearKey[c] = (j << 10u) | q; }
+  return c;
 }
+fn nearBin(d: vec2f) -> vec2i { return clamp(vec2i(floor((d + 1.125) / NEAR_BIN)), vec2i(0), vec2i(NEAR_BINS - 1)); }
+fn nearBinOf(e: u32) -> u32 { let b = nearBin(unpack2x16snorm(nearPos[e]) * 2.0); return u32(b.y * NEAR_BINS + b.x); }
 
 // 256 threads: a crowded grid cell's few hundred cells are worked through in a few rounds
 @compute @workgroup_size(256)
@@ -2095,19 +2115,22 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
   // this grid cell (its particles were sorted into it before this step moved them)
   let at = ((views.first[wg.z].xy + vec2i(wg.xy)) % g + g) % g;
   let centre = vec2f(at) + 0.5;
-  if (l == 0u) { atomicStore(&nearCount, 0u); }
+  if (l == 0u) { atomicStore(&nearCount, 0u); atomicStore(&nearMaxSize, 0u); }
+  for (var b = l; b < NEAR_EDGES; b += 256u) { atomicStore(&binAt[b], 0u); }
   workgroupBarrier();
   for (var j = r.x + l; j < r.y; j += 256u) {
     let q = parts[j];
     if (q.kind < FIRST_LIFE) { continue; }
     var d = q.pos - centre;
     d -= world * round(d / world);
-    nearAdd(j, d, drawnSize(q));
+    let c = nearAdd(j, d, drawnSize(q));
+    if (c >= NEAR_N && c < NEAR_N + OWN_MORE) { ownMore[c - NEAR_N] = j; }
   }
   workgroupBarrier();
   if (l == 0u) { nearUniform = atomicLoad(&nearCount); }
   // no living cell here: nothing to touch
-  if (workgroupUniformLoad(&nearUniform) == 0u) { return; }
+  let own = workgroupUniformLoad(&nearUniform);
+  if (own == 0u) { return; }
   for (var dy = -1; dy <= 1; dy++) {
     for (var dx = -1; dx <= 1; dx++) {
       if (dx == 0 && dy == 0) { continue; }
@@ -2119,14 +2142,40 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
         var d = parts[j].pos - centre;
         d -= world * round(d / world);
         if (any(abs(d) > vec2f(0.5 + NEAR_REACH))) { continue; }
-        nearAdd(j, d, drawnSize(parts[j]));
+        _ = nearAdd(j, d, drawnSize(parts[j]));
       }
     }
   }
   workgroupBarrier();
   if (l == 0u) { nearUniform = min(atomicLoad(&nearCount), NEAR_N); }
   let n = workgroupUniformLoad(&nearUniform);
-  for (var i = r.x + l; i < r.y; i += 256u) {
+  // the counting sort: each one's place in its bin, the bins' starts, then the order (a few gathered
+  // are compared with each other directly: all in bin 0)
+  let binned = n > NEAR_FEW;
+  var rank: array<u32, NEAR_N / 256u>;
+  for (var t = 0u; t < NEAR_N / 256u; t++) {
+    let e = l + t * 256u;
+    if (e < n) { rank[t] = atomicAdd(&binAt[select(0u, nearBinOf(e), binned)], 1u); }
+  }
+  workgroupBarrier();
+  if (l == 0u) {
+    var at = 0u;
+    for (var b = 0u; b < select(2u, NEAR_EDGES, binned); b++) { let c = atomicLoad(&binAt[b]); atomicStore(&binAt[b], at); at += c; }
+  }
+  workgroupBarrier();
+  for (var t = 0u; t < NEAR_N / 256u; t++) {
+    let e = l + t * 256u;
+    if (e < n) { nearSorted[atomicLoad(&binAt[select(0u, nearBinOf(e), binned)]) + rank[t]] = e; }
+  }
+  workgroupBarrier();
+  let maxSize = f32(atomicLoad(&nearMaxSize)) / 256.0;
+  // This grid cell's own living cells, listed first, one a thread. A heap's few hundred are scattered
+  // through its ten thousand grains: a thread a particle left one thread in 32 searching while the
+  // rest waited, round after round (2.6 ms of one heap's view). Past NEAR_N + OWN_MORE, every particle.
+  let listed = own <= NEAR_N + OWN_MORE;
+  for (var o = l; o < select(r.y - r.x, own, listed); o += 256u) {
+    var i = r.x + o;
+    if (listed) { i = select(ownMore[min(o - NEAR_N, OWN_MORE - 1u)], nearKey[min(o, NEAR_N - 1u)] >> 10u, o < NEAR_N); }
     let p = parts[i];
     if (p.kind < FIRST_LIFE) { continue; }
     let si = drawnSize(p);
@@ -2135,17 +2184,38 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     var best: array<u32, TOUCH_N>;
     var key: array<f32, TOUCH_N>;
     for (var c = 0u; c < TOUCH_N; c++) { best[c] = NONE; key[c] = 1.0; }
-    for (var e = 0u; e < n; e++) {
-      let j = nearIdx[e];
-      if (j == i) { continue; }
-      let d = unpack2x16snorm(nearPos[e]) * 2.0 - pd;
-      // 0.085 world units per unit of size at full detail (pointSize); beyond 1.3 radii, no contact
-      let k = length(d) / (0.085 * 1.3 * (si + nearSize[e]));
-      if (k >= key[TOUCH_N - 1u]) { continue; }
-      var c = TOUCH_N - 1u;
-      for (; c > 0u && key[c - 1u] > k; c--) { key[c] = key[c - 1u]; best[c] = best[c - 1u]; }
-      key[c] = k;
-      best[c] = j;
+    // 0.085 world units per unit of size at full detail (pointSize); beyond 1.3 radii, no contact
+    let reach = 0.085 * 1.3 * (si + maxSize);
+    let home = select(vec2i(0), nearBin(pd), binned);
+    for (var ring = 0; ring < select(1, NEAR_BINS, binned); ring++) {
+      // every bin in this ring is at least ring - 1 bins away
+      if (f32(ring - 1) * NEAR_BIN >= key[TOUCH_N - 1u] * reach) { break; }
+      for (var dy = -ring; dy <= ring; dy++) {
+        let y = home.y + dy;
+        if (y < 0 || y >= NEAR_BINS) { continue; }
+        // the ring's top and bottom rows whole, its sides only at their ends
+        let step = select(2 * ring, 1, abs(dy) == ring);
+        for (var dx = -ring; dx <= ring; dx += step) {
+          let x = home.x + dx;
+          if (x < 0 || x >= NEAR_BINS) { continue; }
+          // nothing in a bin farther than its sixth contact can replace it
+          let lo = vec2f(f32(x), f32(y)) * NEAR_BIN - 1.125;
+          if (binned && length(pd - clamp(pd, lo, lo + NEAR_BIN)) >= key[TOUCH_N - 1u] * reach) { continue; }
+          let b = u32(y * NEAR_BINS + x);
+          for (var s = atomicLoad(&binAt[b]); s < atomicLoad(&binAt[b + 1u]); s++) {
+            let e = nearSorted[s];
+            let j = nearKey[e] >> 10u;
+            if (j == i) { continue; }
+            let d = unpack2x16snorm(nearPos[e]) * 2.0 - pd;
+            let k = length(d) / (0.085 * 1.3 * (si + f32(nearKey[e] & 1023u) / 256.0));
+            if (k >= key[TOUCH_N - 1u]) { continue; }
+            var c = TOUCH_N - 1u;
+            for (; c > 0u && key[c - 1u] > k; c--) { key[c] = key[c - 1u]; best[c] = best[c - 1u]; }
+            key[c] = k;
+            best[c] = j;
+          }
+        }
+      }
     }
     for (var c = 0u; c < TOUCH_N; c++) { touch[i * TOUCH_N + c] = best[c]; }
 

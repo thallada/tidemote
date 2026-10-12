@@ -108,6 +108,21 @@ faster than linearly (the level of detail is set in framebuffer pixels).
   place). The loupe over that world: 17–20 fps → 58 fps (GPU p95 124–197 ms → 13.5 ms). The step is
   unaffected (it samples `maxScan` neighbours), though the heaps make `matterMain` and `resolveCount`
   2–3 times their usual cost per particle.
+  A survey of the 40 densest spots at zoom 40 and 150 (every pass timed) found `contactGather` still
+  the only cost that moved with the view, 0.03–7.3 ms, against a steady step and drawing; with
+  sound on and the adaptation running, a heap in view held the page at 29–52 fps. Timed alone in
+  Chrome over the save's particles (both kernels on the same data, the contacts compared), three
+  things: (1) each thread took a particle of its grid cell, and a heap's few hundred cells among ten
+  thousand grains left one thread in 32 searching while the rest waited, round after round; threads
+  now take the cell's own living cells, listed first in the gather (and in `ownMore` past 1024, as a
+  colony can crowd 1500 into one grid cell). (2) Each cell compared itself with every one gathered;
+  past 64 they are now sorted into bins of 0.125 units and each cell searches outward from its own,
+  skipping any bin farther than its sixth contact so far (brute force stays faster below 64). (3)
+  Index and size share a word, so the order fits the 16 KB of workgroup memory. A heap's view
+  3.3 → 0.35 ms, the densest colony's 4.2 → 0.83 ms, the whole world 18 → 6 ms; 99% of contacts
+  identical (in a grid cell past 1024 the gathered set varies run to run, as before). Every spot and
+  zoom (fit to 600 px per unit) now runs at 8–12 ms of GPU, and the heaps plan at 58 fps throughout.
+  Dawn's npm build compiles with FXC, which fails on `INBOND_WGSL`, so time such kernels in Chrome.
 - Tried and dropped: working out each distant sprite once in a compute pass instead of at each of
   its four corners (the 4M far view's points cost the same: the vertices themselves, not their
   arithmetic), and limiting `contactGather` to the grid cells a contact can reach (within noise).
