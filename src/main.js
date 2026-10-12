@@ -1342,7 +1342,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // a group of option rows, under a heading or (text '') none
     const group = (id, text, rows) => section(id, text, block('', rows));
     let confirming = false; // the reset button asked to confirm
-    const kfmt = (n) => (n >= 1048576 ? `${n / 1048576}M` : `${Math.round(n / 1024)}k`);
+    const kfmt = (n) => (n >= 1048576 ? `${+(n / 1048576).toFixed(1)}M` : `${Math.round(n / 1024)}k`);
     function display() {
       const s = eng.settings;
       return group('look', '', choice('trails', 'Trails', 'T', trailNames.map((n, i) => [i, n]), trailIdx)

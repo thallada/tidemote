@@ -370,8 +370,9 @@ canvas.chart { cursor: crosshair; }
 }
 .settings .sec-h { gap: var(--s3); }
 .settings .sec-h h2 { white-space: nowrap; }
-.settings .tabs { margin-right: auto; }
-.settings .tabs button { height: 32px; }
+.settings .tabs { margin-right: auto; min-width: 0; }
+.settings .tabs button { height: 32px; padding: 0 8px; letter-spacing: .12em; }
+.settings .sec-h > .ghost { flex: none; margin-right: -6px; }
 .opt .chip:disabled { opacity: .35; cursor: default; }
 .hot-btn { border-color: var(--hot); color: var(--ink); background: rgba(255, 95, 58, 0.14); justify-self: start; }
 .hot-btn:hover { background: rgba(255, 95, 58, 0.26); border-color: var(--hot); }
@@ -865,6 +866,8 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .splist .spark { display: none; }
   .barrow { grid-template-columns: 7.5em minmax(24px, 1fr) 7ch 5.4ch; font-size: 12px; }
   .settings { left: 0; right: 0; width: auto; bottom: var(--bot); max-height: calc(100% - var(--top) - var(--bot)); }
+  .settings .sec-h .key { display: none; }
+  .settings .tabs button { padding: 0 6px; letter-spacing: .06em; }
   .readout b { font-size: 15px; }
   .readout { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-flow: dense; }
   .opt { grid-template-columns: 7.6em 1fr; }
@@ -888,6 +891,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 }
 @media (max-width: 380px) {
   .tabs button { padding: 0 6px; letter-spacing: .06em; }
+  .settings .sec-h h2 { display: none; }
 }
 @media (pointer: coarse) {
   .keys-note, .opt kbd { display: none; }

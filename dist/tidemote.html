@@ -419,8 +419,9 @@ canvas.chart { cursor: crosshair; }
 }
 .settings .sec-h { gap: var(--s3); }
 .settings .sec-h h2 { white-space: nowrap; }
-.settings .tabs { margin-right: auto; }
-.settings .tabs button { height: 32px; }
+.settings .tabs { margin-right: auto; min-width: 0; }
+.settings .tabs button { height: 32px; padding: 0 8px; letter-spacing: .12em; }
+.settings .sec-h > .ghost { flex: none; margin-right: -6px; }
 .opt .chip:disabled { opacity: .35; cursor: default; }
 .hot-btn { border-color: var(--hot); color: var(--ink); background: rgba(255, 95, 58, 0.14); justify-self: start; }
 .hot-btn:hover { background: rgba(255, 95, 58, 0.26); border-color: var(--hot); }
@@ -914,6 +915,8 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .splist .spark { display: none; }
   .barrow { grid-template-columns: 7.5em minmax(24px, 1fr) 7ch 5.4ch; font-size: 12px; }
   .settings { left: 0; right: 0; width: auto; bottom: var(--bot); max-height: calc(100% - var(--top) - var(--bot)); }
+  .settings .sec-h .key { display: none; }
+  .settings .tabs button { padding: 0 6px; letter-spacing: .06em; }
   .readout b { font-size: 15px; }
   .readout { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-flow: dense; }
   .opt { grid-template-columns: 7.6em 1fr; }
@@ -937,6 +940,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 }
 @media (max-width: 380px) {
   .tabs button { padding: 0 6px; letter-spacing: .06em; }
+  .settings .sec-h h2 { display: none; }
 }
 @media (pointer: coarse) {
   .keys-note, .opt kbd { display: none; }
@@ -21651,7 +21655,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const onoff = (id, title, key, on, tip) => choice(id, title, key, [[1, "On"], [0, "Off"]], on ? 1 : 0, tip);
       const group = (id, text, rows) => section(id, text, block("", rows));
       let confirming = false;
-      const kfmt = (n) => n >= 1048576 ? `${n / 1048576}M` : `${Math.round(n / 1024)}k`;
+      const kfmt = (n) => n >= 1048576 ? `${+(n / 1048576).toFixed(1)}M` : `${Math.round(n / 1024)}k`;
       function display() {
         const s = eng.settings;
         return group("look", "", choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "D", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe")) + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks"));
