@@ -15,8 +15,12 @@
 //   scale  'auto' (default) or a fixed render scale   select: pick a cell of the commonest species
 //   sound  false (default)   seconds: how long to measure (default 8)   settle: seconds before (3)
 //   mouse  'sweep': the pointer moves over the view while measuring (the loupe, if on, follows it)
-//   adapt  'keep': the frame rate and scale left to the page's adaptive quality, unreset (fps, scale unused)
+//   adapt  'keep': the frame rate and scale left to the page's adaptive quality, unreset (fps, scale unused);
+//          'off': none at all, the frame rate aimed for held however long frames take
+//   state  page state to set (e.g. { closeup: false }: no live close-up in the specimen panel)
 //   prefs  more settings (eng.settings keys: bloom, optics, specks, lod, links, nodes, trails)
+//   species  follow a cell of the named species (follow: false keeps it selected, the camera still)
+//   cpuprofile  sample the page's JavaScript while measuring (report: top functions, ms per second)
 //   lab    a Field Lab tab to hold open ('species', 'census', ...; closed by default); its updates are timed
 // Every frame's passes are timed on the GPU (eng.passProfile); the report has frame intervals,
 // GPU time per frame and per pass, the page's own CPU time per frame and the render scale.
@@ -187,6 +191,7 @@ async function measure(page, sc) {
     const T = globalThis.__tidemote, { state, cam, perf, eng } = T;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     Object.assign(eng.settings, sc.prefs || {});
+    Object.assign(state, sc.state || {});
     if (sc.adapt !== 'keep') { state.perf.fps = sc.fps ?? 0; T.setScale(sc.scale ?? 'auto'); }
     // aim at the commonest species' densest patch (findMember follows it; unfollow unless selecting)
     // ('saved' keeps the camera a .tidemote world was saved with; at: a spot of its own)
@@ -194,10 +199,12 @@ async function measure(page, sc) {
       const L = T.life();
       let top = null;
       for (const sp of L.reg.values()) if (sp.alive && (!top || sp.pop > top.pop)) top = sp;
+      // species: follow a cell of the species of that name (as picking one and pressing c does)
+      if (sc.species) { top = [...L.reg.values()].find((sp) => sp.alive && sp.name === sc.species); if (!top) throw new Error(`no living ${sc.species}`); }
       if (sc.at) { cam.x = sc.at[0]; cam.y = sc.at[1]; } else if (top) await T.findMember(top.serial);
       await sleep(300);
-      if (!sc.select) { const c = { x: cam.x, y: cam.y }; T.deselect(); Object.assign(cam, c); }
-      state.follow = !!sc.select;
+      if (!sc.select && !sc.species) { const c = { x: cam.x, y: cam.y }; T.deselect(); Object.assign(cam, c); }
+      state.follow = !!(sc.select || sc.species) && sc.follow !== false;
       // zoom 1 fits the world to the window; sc.zoom is css px per world unit
       const ppuFit = Math.max(innerWidth / eng.grid[0], innerHeight / eng.grid[1]);
       const z = sc.zoom === 'fit' || sc.zoom == null ? 1 : Math.min(T.maxZoom(), Math.max(1, sc.zoom / ppuFit));
@@ -206,6 +213,8 @@ async function measure(page, sc) {
     if (sc.lab) T.lab.open(sc.lab); else T.lab.close();
     if (sc.sound) { if (!T.sound.on) await T.sound.setOn(true); } else if (T.sound.on) await T.sound.setOn(false);
     T.setSpeed(sc.speed === 'max' ? Infinity : sc.speed ?? 1);
+    // 'off': no adaptation at all (the frame rate aimed for held, whatever the frames cost)
+    if (sc.adapt === 'off') { perf.slow = 1; perf.lastAdjust = Infinity; }
     await sleep((sc.settle ?? 3) * 1000);
     // ---- record
     const rec = { slow: [], raf: [], submits: [], encode: [], gpu: [], sim: [], steps: 0, passes: {}, passFrames: 0, scale: [], long: 0, longMs: 0 };
@@ -220,7 +229,7 @@ async function measure(page, sc) {
     rec.series = []; rec.spikes = [];
     let t0 = performance.now();
     eng.onPassTimes = (times, f) => {
-      if (rec.series.length < 90) rec.series.push([+(performance.now() - t0).toFixed(1), f.nSteps, +f.ms.toFixed(2)]);
+      if (rec.series.length < (sc.series ? 2000 : 90)) rec.series.push([+(performance.now() - t0).toFixed(1), f.nSteps, +f.ms.toFixed(2)]);
       // the passes of a frame far over budget, as they were
       if (f.ms > 40 && rec.spikes.length < 40) rec.spikes.push({ t: Math.round(performance.now() - t0), ms: +f.ms.toFixed(1), ppu: +(eng.lastCam ? eng.lastCam.ppu : 0).toFixed(1), passes: Object.fromEntries(times.filter(([, ms]) => ms > 0.5).map(([k, ms]) => [k, +ms.toFixed(2)])) });
       if (!(f.ms > 0 && f.ms < 1000)) return;
@@ -229,9 +238,9 @@ async function measure(page, sc) {
     };
     const po = new PerformanceObserver((l) => { for (const e of l.getEntries()) { rec.long++; rec.longMs += e.duration; } });
     try { po.observe({ type: 'longtask', buffered: false }); } catch { /* unsupported */ }
-    // the adaptation every second: [s, frames aimed slower, render scale, why, GPU ms (ema), fps]
+    // the adaptation every second: [s, frames aimed slower, render scale, why, GPU ms (ema), fps, its last judgement]
     rec.adapt = [];
-    const watch = setInterval(() => rec.adapt.push([Math.round((performance.now() - t0) / 1000), perf.slow, T.renderScale(), perf.why, +perf.gpu.toFixed(1), +perf.fps.toFixed(1)]), 1000);
+    const watch = setInterval(() => rec.adapt.push([Math.round((performance.now() - t0) / 1000), perf.slow, T.renderScale(), perf.why, +perf.gpu.toFixed(1), +perf.fps.toFixed(1), perf.judged]), 1000);
     let on = true;
     const tick = (t) => { if (!on) return; rec.raf.push(t); rec.scale.push(T.renderScale()); rec.slow.push(perf.slow || 1); requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
@@ -266,7 +275,7 @@ async function measure(page, sc) {
       sim: { mean: mean(rec.sim), stepsPerFrame: +(rec.steps / Math.max(1, rec.passFrames)).toFixed(2) },
       encodeMs: { mean: mean(rec.encode), p95: q(rec.encode, 0.95) },
       scale: { min: Math.min(...rec.scale), mean: mean(rec.scale), end: rec.scale.at(-1) }, slow: { mean: mean(rec.slow), end: rec.slow.at(-1), why: perf.why },
-      audio: T.sound.loadInfo, longTasks: rec.long, longMs: Math.round(rec.longMs), lab: rec.lab.length ? { n: rec.lab.length, mean: mean(rec.lab), max: q(rec.lab, 1) } : undefined, passes, dispatch, series: sc.then ? rec.series : undefined, adapt: rec.adapt, spikes: rec.spikes, dts: rec.dts,
+      audio: T.sound.loadInfo, longTasks: rec.long, longMs: Math.round(rec.longMs), lab: rec.lab.length ? { n: rec.lab.length, mean: mean(rec.lab), max: q(rec.lab, 1) } : undefined, passes, dispatch, series: sc.then || sc.series ? rec.series : undefined, adapt: rec.adapt, spikes: rec.spikes, dts: rec.dts,
     };
   }, sc);
 }
@@ -289,8 +298,20 @@ try {
           await page.waitForTimeout(16);
         }
       })();
+      // cpuprofile: the page's JavaScript sampled while measuring (the top functions by self time)
+      const cdp = sc.cpuprofile && await page.context().newCDPSession(page);
+      if (cdp) { await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', { interval: 200 }); await cdp.send('Profiler.start'); }
       const r = await measure(page, sc);
       moving = false; await mover;
+      if (cdp) {
+        const { profile } = await cdp.send('Profiler.stop');
+        await cdp.detach();
+        const dt = (profile.endTime - profile.startTime) / 1000 / profile.samples.length, self = {};
+        const byId = new Map(profile.nodes.map((n) => [n.id, n]));
+        for (const id of profile.samples) { const f = byId.get(id).callFrame; const k = `${f.functionName || '(anon)'} ${f.url.split('/').pop()}:${f.lineNumber + 1}`; self[k] = (self[k] || 0) + dt; }
+        const wall = (profile.endTime - profile.startTime) / 1000;
+        r.cpu = Object.fromEntries(Object.entries(self).sort((a, b) => b[1] - a[1]).slice(0, 25).map(([k, ms]) => [k, +(ms / wall * 1000).toFixed(2)]));
+      }
       report.scenarios.push({ world: w.name, ...r });
       if (sc.kind === 'growth') continue;
       if (sc.kind === 'step') { console.log(`${w.name}/${r.name}: step ${r.total} ms | ${JSON.stringify(r.dispatch)}`); continue; }

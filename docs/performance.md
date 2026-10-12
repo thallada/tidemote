@@ -55,6 +55,24 @@ faster than linearly (the level of detail is set in framebuffer pixels).
   costs about 1.45 times a 1/60 s one (one neighbour scan, more motion substeps), so 30 fps still cuts
   the simulation's cost by a quarter and the drawing's by half, and a slow device keeps real time:
   the mature 4M world ran at 0.67× and now runs at 1× at 32 to 36 fps.
+- **Following a cell (2026-10-12).** Following a predator in the 2.4M heaps world (plan
+  `tools/perf/plans/follow.json`) fell from 58 to 15–30 fps on an RTX 4070 Ti at 175 Hz, through
+  three faults in the pacing, none in the GPU's work. (1) At real time a frame's steps were capped
+  by `MAX_FRAME_MS`, not its own interval: six 175 Hz frames are 34.3 ms, a hair over two ticks, so
+  a late frame took three steps (24 ms of GPU), the next owed more, and the two locked into a
+  one-step, three-step cycle. (2) The display interval was the median of rAF intervals; while the GPU
+  lags, rAF fires every other vsync for seconds, so 175 Hz read as 88 Hz and the frame rate aimed
+  for became 88 fps, against which 60 fps frames were late. It is now the median of the intervals
+  near the shortest, and rises only once a longer one has held for five windows. (3) A frame rate
+  halved was judged able to return by its own frame's GPU time, but that frame's 2-tick step costs
+  1.45 times a 1/60 s one, so it never looked able to; the estimate now scales the step. Beyond
+  those, Chrome at 175 Hz starts missing vsyncs once a frame's GPU work passes about 11 ms, at any
+  frame rate, and a followed cell near a heap costs about 13 ms (`contactGather` 1.4 → 3 ms, the
+  tracking pick and the close-up). Frames a little late (under 1.5 times the interval) with the GPU
+  idle a fifth of it no longer cost frame rate, as the coarser steps of a lower one lengthen each
+  frame and made it worse (60 → 30 → 20 fps). Six follows, adaptation on: 34 fps mean → 52.
+  `perf.judged` keeps the last judgement ([mean interval, interval aimed for, GPU ms, display ms,
+  slowdown]); bench scenarios take `species` (follow one), `adapt: 'off'`, `series` and `cpuprofile`.
 - **Bounded GPU work per submit.** At most two frames in flight, and fast speeds carry only the
   fraction of a step their budget leaves (they once saved credit up to 512 steps, which came due on
   a switch to Max: 2 s of GPU in one submit). A phone's compositor shares its GPU, so a long or deep

@@ -20405,6 +20405,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       frameDt: [],
       lastSubmit: 0,
       rafMs: 0,
+      rafLonger: 0,
       goodWindows: 0,
       ceiling: 1,
       ceilingUntil: 0,
@@ -22419,7 +22420,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const displayMs = () => perf.rafMs || 16.7;
     const frameEvery = () => Math.max(1, Math.round((state.perf.fps ? 1e3 / state.perf.fps : 0) / displayMs())) * (state.speed > 1 ? 1 : perf.slow);
     const frameTarget = () => frameEvery() * displayMs();
-    const stepTicks = () => clamp6(Math.ceil(frameTarget() * 60 / 1e3 - 0.1), 1, MAX_TICKS);
+    const ticksFor = (ms) => clamp6(Math.ceil(ms * 60 / 1e3 - 0.1), 1, MAX_TICKS);
+    const stepTicks = () => ticksFor(frameTarget());
     const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
     function resetAdapt() {
       perf.frameDt.length = 0;
@@ -22448,7 +22450,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const floor = auto ? state.perf.floor : renderScale;
       const busy = perf.gpu > T * (hasTS ? 0.92 : 1);
       const behind = m > T * 1.125 || busy || stressed();
+      perf.judged = [+m.toFixed(1), +T.toFixed(1), +perf.gpu.toFixed(1), +displayMs().toFixed(2), perf.slow];
       const simBound = hasTS && perf.simS > 2 * perf.renderR;
+      const latency = hasTS && !busy && !stressed() && m < T * 1.5 && perf.gpu < T * 0.8;
       if (behind) {
         perf.why = stressed() ? "device under pressure" : busy ? "GPU busy" : "frames late";
         perf.goodWindows = 0;
@@ -22458,7 +22462,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           const want = renderScale * clamp6(Math.sqrt(T / m), 0.55, 0.9);
           renderScale = Math.max(floor, SCALES.find((s) => s <= want + 0.01) ?? floor);
           resizeDue = true;
-        } else if (perf.slow < 4) {
+        } else if (perf.slow < 4 && !latency) {
           perf.slowCeiling = perf.slow;
           perf.slow = Math.min(4, perf.slow + (m > 2 * T ? 2 : 1));
         }
@@ -22473,7 +22477,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const held = now < perf.ceilingUntil;
       if (perf.slow > 1) {
         const faster = T * (perf.slow - 1) / perf.slow;
-        if (!(held && perf.slow - 1 <= perf.slowCeiling) && (!perf.gpu || perf.gpu < faster * 0.75)) {
+        const cost = (m2) => 1 + 0.45 * (m2 - 1);
+        const est = hasTS && perf.simS && perf.renderR ? perf.renderR + perf.simS * cost(ticksFor(faster)) / cost(stepTicks()) : perf.gpu;
+        if (!(held && perf.slow - 1 <= perf.slowCeiling) && (!est || est < faster * 0.75)) {
           perf.slow--;
           perf.goodWindows = 0;
         }
@@ -23018,9 +23024,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
       clock2.lastT = now;
       if (state.phase === "running" && !state.paused && !state.busy && state.speed !== Infinity) clock2.owed += real * state.speed;
     }
-    const stepCap = () => {
+    const stepCap = (ms) => {
       const S = perf.simS || perf.stepMs, R2 = perf.simS ? perf.renderR : 0;
-      return S ? clamp6(Math.floor((MAX_FRAME_MS - R2) / S), 1, 512) : 4;
+      return S ? clamp6(Math.floor((ms - R2) / S), 1, 512) : 4;
     };
     function maxPlan(now, m) {
       const world = now - perf.worldAt >= MAX_FRAME_MS;
@@ -23054,7 +23060,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       if (state.speed === Infinity) return maxPlan(now, perf.ticks);
       if (perf.held) return coarsePlan(now, perf.ticks);
-      const cap3 = stepCap();
+      const cap3 = stepCap(state.speed > 1 ? MAX_FRAME_MS : frameTarget());
       if (clock2.owed < H * 0.2) return null;
       const most = H * (state.speed <= 1 ? stepTicks() : 1);
       let n = Math.max(1, Math.ceil(clock2.owed / most - 0.05));
@@ -23077,7 +23083,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       rafDt.push(dt);
       if (rafDt.length >= 60) {
-        perf.rafMs = median(rafDt);
+        rafDt.sort((a, b) => a - b);
+        const lo = rafDt[Math.floor(rafDt.length * 0.1)];
+        const ms = median(rafDt.filter((x) => x < lo * 1.4));
+        if (!perf.rafMs || ms < perf.rafMs * 1.2 || ++perf.rafLonger >= 5) {
+          perf.rafMs = ms;
+          perf.rafLonger = 0;
+        }
         rafDt.length = 0;
       }
       tickClock(now);

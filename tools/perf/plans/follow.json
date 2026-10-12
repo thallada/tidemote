@@ -1,0 +1,7 @@
+{ "worlds": [{ "name": "heaps", "n": 2363392, "file": "slow.tidemote", "prefs": { "labOpen": true, "auto": false } }],
+  "scenarios": [
+    { "world": "heaps", "name": "nosel", "zoom": 40, "at": [200, 150], "adapt": "keep", "settle": 2, "seconds": 10, "dispatch": false },
+    { "world": "heaps", "name": "follow0", "species": "Zodreol skevrilae", "zoom": 40, "adapt": "keep", "settle": 2, "seconds": 15, "dispatch": false, "series": true },
+    { "world": "heaps", "name": "follow1", "species": "Zodreol skevrilae", "zoom": 40, "adapt": "keep", "settle": 2, "seconds": 15, "dispatch": false, "series": true },
+    { "world": "heaps", "name": "follow-held", "species": "Zodreol skevrilae", "zoom": 40, "fps": 60, "scale": 0.5, "adapt": "off", "settle": 2, "seconds": 10, "dispatch": false, "series": true }
+  ] }

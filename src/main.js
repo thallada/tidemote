@@ -211,7 +211,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
 
   // ------------------------------------------------------------ perf
-  const perf = { samples: [], gpu: 0, fps: 0, frames: 0, fpsT: performance.now(), frameDt: [], lastSubmit: 0, rafMs: 0, goodWindows: 0, ceiling: 1, ceilingUntil: 0, lastAdjust: performance.now(),
+  const perf = { samples: [], gpu: 0, fps: 0, frames: 0, fpsT: performance.now(), frameDt: [], lastSubmit: 0, rafMs: 0, rafLonger: 0, goodWindows: 0, ceiling: 1, ceilingUntil: 0, lastAdjust: performance.now(),
     stepMs: 0, simS: 0, renderR: 0, presentR: 0, worldAt: 0, stepCredit: 0, ticks: 1, held: false, ticksAt: 0, rate: 1, rateT: performance.now(), rateSim: 0,
     slow: 1, slowCeiling: 0, why: '' };
   let calibWait = null;
@@ -1949,7 +1949,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // At real time or slower a step covers up to one frame of the rate aimed for, in whole 1/60 s ticks
   // (at most MAX_TICKS): below about 45 fps the world takes coarse steps, which cost far less than the
   // 1/60 s steps they stand for and keep its ecology (docs/fast-forward.md), so a slow device keeps real time.
-  const stepTicks = () => clamp(Math.ceil(frameTarget() * 60 / 1000 - 0.1), 1, MAX_TICKS);
+  const ticksFor = (ms) => clamp(Math.ceil(ms * 60 / 1000 - 0.1), 1, MAX_TICKS);
+  const stepTicks = () => ticksFor(frameTarget());
   // render scales the auto resolution steps between (down to the floor chosen in Settings)
   const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
   function resetAdapt() {
@@ -1980,7 +1981,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // without timestamps perf.gpu is the time from submit to done, which overstates the GPU's share
     const busy = perf.gpu > T * (hasTS ? 0.92 : 1);
     const behind = m > T * 1.125 || busy || stressed();
+    // what was judged, for tools/perf: [mean interval, interval aimed for, GPU ms, display ms, frames aimed slower]
+    perf.judged = [+m.toFixed(1), +T.toFixed(1), +perf.gpu.toFixed(1), +displayMs().toFixed(2), perf.slow];
     const simBound = hasTS && perf.simS > 2 * perf.renderR;
+    // Frames a little late with the GPU idle much of the interval: each frame's GPU work is too long
+    // for the browser to show it on time (in Chrome on a 175 Hz display, past about 11 ms its frames
+    // start to miss vsyncs at any frame rate), not too much work for the interval. A lower frame rate
+    // only makes it worse, its coarser steps lengthening each frame: 60 fps went to 30, then 20.
+    const latency = hasTS && !busy && !stressed() && m < T * 1.5 && perf.gpu < T * 0.8;
     if (behind) {
       perf.why = stressed() ? 'device under pressure' : busy ? 'GPU busy' : 'frames late';
       perf.goodWindows = 0;
@@ -1993,17 +2001,21 @@ function run(eng, device, ctx, specCtx, hasTS) {
         const want = renderScale * clamp(Math.sqrt(T / m), 0.55, 0.9);
         renderScale = Math.max(floor, SCALES.find((s) => s <= want + 0.01) ?? floor);
         resizeDue = true;
-      } else if (perf.slow < 4) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + (m > 2 * T ? 2 : 1)); }
+      } else if (perf.slow < 4 && !latency) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + (m > 2 * T ? 2 : 1)); }
       return;
     }
     if (m > T * 1.03 || stressed()) { perf.goodWindows = 0; return; }
     perf.goodWindows++;
     if (perf.goodWindows < 3) return;
     const held = now < perf.ceilingUntil;
-    // a faster frame rate costs the same GPU time per frame (a step and a drawing), in less time
+    // A faster frame rate costs a drawing and a shorter step per frame, in less time. A coarse step
+    // of m ticks costs about 1 + 0.45 (m - 1) of a 1/60 s one (docs/performance.md): judged by this
+    // frame's cost alone, 30 fps in 2-tick steps never looked able to return to 60.
     if (perf.slow > 1) {
       const faster = (T * (perf.slow - 1)) / perf.slow;
-      if (!(held && perf.slow - 1 <= perf.slowCeiling) && (!perf.gpu || perf.gpu < faster * 0.75)) { perf.slow--; perf.goodWindows = 0; }
+      const cost = (m) => 1 + 0.45 * (m - 1);
+      const est = hasTS && perf.simS && perf.renderR ? perf.renderR + perf.simS * cost(ticksFor(faster)) / cost(stepTicks()) : perf.gpu;
+      if (!(held && perf.slow - 1 <= perf.slowCeiling) && (!est || est < faster * 0.75)) { perf.slow--; perf.goodWindows = 0; }
       if (perf.slow === 1) perf.why = '';
       return;
     }
@@ -2508,10 +2520,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     clock.lastT = now;
     if (state.phase === 'running' && !state.paused && !state.busy && state.speed !== Infinity) clock.owed += real * state.speed;
   }
-  // steps a frame may take within MAX_FRAME_MS
-  const stepCap = () => {
+  // steps a frame may take within ms of GPU time
+  const stepCap = (ms) => {
     const S = perf.simS || perf.stepMs, R = perf.simS ? perf.renderR : 0;
-    return S ? clamp(Math.floor((MAX_FRAME_MS - R) / S), 1, 512) : 4;
+    return S ? clamp(Math.floor((ms - R) / S), 1, 512) : 4;
   };
   // Max: the world is drawn about every MAX_FRAME_MS, but the camera, loupe and HUD keep the display's
   // rate. Each display frame's GPU time, the whole display interval, goes to steps of m ticks, less the
@@ -2552,7 +2564,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (state.paused || state.phase !== 'running') { clock.owed = 0; return { steps: 1, dt: H }; }
     if (state.speed === Infinity) return maxPlan(now, perf.ticks);
     if (perf.held) return coarsePlan(now, perf.ticks);
-    const cap = stepCap();
+    // At real time a frame's steps fit in its own interval. A step costs about the same whatever its
+    // length, so time owed a little past two steps (six frames of a 175 Hz display are 34.3 ms) taken
+    // as three would overrun the frame, the next would owe more, and the two lock into a cycle of one
+    // step and three that holds the GPU busy (and the adaptation then halves the frame rate).
+    const cap = stepCap(state.speed > 1 ? MAX_FRAME_MS : frameTarget());
     if (clock.owed < H * 0.2) return null;
     const most = H * (state.speed <= 1 ? stepTicks() : 1);
     let n = Math.max(1, Math.ceil(clock.owed / most - 0.05));
@@ -2567,9 +2583,20 @@ function run(eng, device, ctx, specCtx, hasTS) {
     last = now;
     frameCount++;
     if (resizeDue) { resizeDue = false; fit(); }
-    // the display's own frame interval, for the "Display" target and for pacing
+    // the display's own frame interval, for the "Display" target and for pacing: the median of the
+    // intervals near the shortest, as requestAnimationFrame can skip vsyncs but never beat them, and a
+    // longer one only once it has held for several windows (a display's rate rarely changes). While
+    // the GPU or the page lags, rAF fires every other vsync for seconds at a time, and the median of
+    // them all read a 175 Hz display as 88 Hz: the frame rate aimed for became 88 fps (16.7 / 11.4
+    // rounds to one frame), and the adaptation, judging 60 fps frames late against it, cut the frame rate.
     rafDt.push(dt);
-    if (rafDt.length >= 60) { perf.rafMs = median(rafDt); rafDt.length = 0; }
+    if (rafDt.length >= 60) {
+      rafDt.sort((a, b) => a - b);
+      const lo = rafDt[Math.floor(rafDt.length * 0.1)];
+      const ms = median(rafDt.filter((x) => x < lo * 1.4));
+      if (!perf.rafMs || ms < perf.rafMs * 1.2 || ++perf.rafLonger >= 5) { perf.rafMs = ms; perf.rafLonger = 0; }
+      rafDt.length = 0;
+    }
     tickClock(now);
     updateSpeedCap(now);
     updateTicks(now);
