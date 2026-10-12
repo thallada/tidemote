@@ -221,3 +221,9 @@ uses GPU timestamps for 180 paused render frames per zoom after warmup, and save
 include `ZOOM:W:H` in `WSLENV` when using those variables through `tools/gpu-node.sh`.
 
 Comparison configs accept `k` overrides and an `eras` boolean. Runs use seeds 1 through `--seeds`, run up to `--jobs` children, save each JSON, and print means ± sample standard deviations plus per-seed results. Dawn runs limit lavapipe threads per child; Chromium's SwiftShader manages its own threads. Run the smoke test and unit tests with `npm test`; the smoke test uses Chromium when an executable is available and falls back to Dawn with `--cpu` if it is missing or cannot launch.
+
+## License
+
+Tidemote is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed WITHOUT ANY WARRANTY; see [LICENSE](LICENSE).
+
+The soundtrack's unit generators (`src/audio/ugens.js`, and the band-limited saw in `src/audio/voices.js`) are translated from [SuperCollider](https://github.com/supercollider/supercollider) 3.13.0's server plugins, Copyright (c) 2002 James McCartney and the SuperCollider contributors (MoogFF ported to C++ by Dan Stowell from Java code by Federico Fontana), licensed under the GNU GPL, version 2 or any later version. The voices themselves are translations of tidemote's own SuperCollider score.

@@ -1,3 +1,13 @@
+// Tidemote: Copyright (C) Tyler Hallada. Licensed under the GNU General Public License,
+// version 3 or (at your option) any later version; see LICENSE.
+//
+// Derived from SuperCollider 3.13.0 (https://github.com/supercollider/supercollider):
+// server/plugins/{OscUGens,LFUGens,NoiseUGens,FilterUGens,DelayUGens,PanUGens,BinaryOpUGens}.cpp
+// and include/plugin_interface/SC_RGen.h, Copyright (c) 2002 James McCartney and the
+// SuperCollider contributors; MoogFF ported to C++ by Dan Stowell (2007) from Java code
+// Copyright F. Fontana (2007). Those files are licensed under the GNU GPL, version 2 or any
+// later version. Modified: translated from C++ to JavaScript.
+//
 // Ports of the SuperCollider 3.13 unit generators the soundtrack uses, kept to their
 // server/plugins source semantics: 64-sample blocks, control-rate inputs read once per
 // block, biquad coefficients ramped over the block in 21 steps of three samples, envelope

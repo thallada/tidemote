@@ -1,3 +1,10 @@
+// Tidemote: Copyright (C) Tyler Hallada. Licensed under the GNU General Public License,
+// version 3 or (at your option) any later version; see LICENSE.
+//
+// Saw below is derived from SuperCollider 3.13.0 server/plugins/OscUGens.cpp, Copyright (c) 2002
+// James McCartney and the SuperCollider contributors, licensed under the GNU GPL, version 2 or
+// any later version. Modified: translated from C++ to JavaScript.
+//
 // The soundtrack's synth voices, effects and master bus: line-by-line translations of the
 // SuperCollider SynthDefs in the original tidemote_soundtrack.scd, built from the UGen
 // ports in ugens.js. Rates follow the SynthDefs: SynthDef arguments are control rate,
