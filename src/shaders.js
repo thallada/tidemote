@@ -2095,12 +2095,13 @@ var<workgroup> nearUniform: u32;
 const OWN_MORE = 512u;
 var<workgroup> ownMore: array<u32, OWN_MORE>;
 
-fn nearAdd(j: u32, d: vec2f, size: f32) -> u32 {
+// (returning c to its callers instead, FXC fails to compile the kernel)
+fn nearAdd(j: u32, d: vec2f, size: f32, own: bool) {
   let q = u32(round(clamp(size, 0.0, 3.99) * 256.0));
   atomicMax(&nearMaxSize, q);
   let c = atomicAdd(&nearCount, 1u);
   if (c < NEAR_N) { nearPos[c] = pack2x16snorm(d * 0.5); nearKey[c] = (j << 10u) | q; }
-  return c;
+  else if (own && c < NEAR_N + OWN_MORE) { ownMore[c - NEAR_N] = j; }
 }
 fn nearBin(d: vec2f) -> vec2i { return clamp(vec2i(floor((d + 1.125) / NEAR_BIN)), vec2i(0), vec2i(NEAR_BINS - 1)); }
 fn nearBinOf(e: u32) -> u32 { let b = nearBin(unpack2x16snorm(nearPos[e]) * 2.0); return u32(b.y * NEAR_BINS + b.x); }
@@ -2108,8 +2109,9 @@ fn nearBinOf(e: u32) -> u32 { let b = nearBin(unpack2x16snorm(nearPos[e]) * 2.0)
 // 256 threads: a crowded grid cell's few hundred cells are worked through in a few rounds
 @compute @workgroup_size(256)
 fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_index) l: u32) {
+  // no early returns: FXC (Dawn on D3D12) refuses barriers it can't prove every thread reaches, and an
+  // empty grid cell's loops simply run no rounds
   let r = cellRange(wg);
-  if (r.x == r.y) { return; }
   let g = vec2i(views.grid.xy);
   let world = vec2f(g);
   // this grid cell (its particles were sorted into it before this step moved them)
@@ -2123,27 +2125,23 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     if (q.kind < FIRST_LIFE) { continue; }
     var d = q.pos - centre;
     d -= world * round(d / world);
-    let c = nearAdd(j, d, drawnSize(q));
-    if (c >= NEAR_N && c < NEAR_N + OWN_MORE) { ownMore[c - NEAR_N] = j; }
+    nearAdd(j, d, drawnSize(q), true);
   }
   workgroupBarrier();
   if (l == 0u) { nearUniform = atomicLoad(&nearCount); }
-  // no living cell here: nothing to touch
+  // no living cell here: nothing to touch, nor to gather
   let own = workgroupUniformLoad(&nearUniform);
-  if (own == 0u) { return; }
-  for (var dy = -1; dy <= 1; dy++) {
-    for (var dx = -1; dx <= 1; dx++) {
-      if (dx == 0 && dy == 0) { continue; }
-      let c = ((at + vec2i(dx, dy)) % g + g) % g;
-      let cell = u32(c.y) * views.grid.x + u32(c.x);
-      let end = cellStart[cell + 1u];
-      for (var j = cellStart[cell] + l; j < end; j += 256u) {
-        if (parts[j].kind < FIRST_LIFE) { continue; }
-        var d = parts[j].pos - centre;
-        d -= world * round(d / world);
-        if (any(abs(d) > vec2f(0.5 + NEAR_REACH))) { continue; }
-        _ = nearAdd(j, d, drawnSize(parts[j]));
-      }
+  // the eight around, as one loop (FXC fails to compile the nested one)
+  for (var k = select(9u, 0u, own > 0u); k < 9u; k++) {
+    if (k == 4u) { continue; }
+    let c = ((at + vec2i(i32(k % 3u) - 1, i32(k / 3u) - 1)) % g + g) % g;
+    let cell = u32(c.y) * views.grid.x + u32(c.x);
+    let end = cellStart[cell + 1u];
+    for (var j = cellStart[cell] + l; j < end; j += 256u) {
+      let q = parts[j];
+      var d = q.pos - centre;
+      d -= world * round(d / world);
+      if (q.kind >= FIRST_LIFE && all(abs(d) <= vec2f(0.5 + NEAR_REACH))) { nearAdd(j, d, drawnSize(q), false); }
     }
   }
   workgroupBarrier();
