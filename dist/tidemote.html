@@ -23062,14 +23062,18 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (perf.held) return coarsePlan(now, perf.ticks);
       const cap3 = stepCap(state.speed > 1 ? MAX_FRAME_MS : frameTarget());
       if (clock2.owed < H * 0.2) return null;
-      const most = H * (state.speed <= 1 ? stepTicks() : 1);
-      let n = Math.max(1, Math.ceil(clock2.owed / most - 0.05));
-      if (n > cap3) {
-        n = cap3;
-        clock2.owed = n * most;
+      if (state.speed < 1) {
+        const n2 = Math.min(cap3, Math.ceil(clock2.owed / H - 0.05));
+        const dt2 = Math.min(clock2.owed, n2 * H) / n2;
+        clock2.owed = 0;
+        return { steps: n2, dt: dt2 };
       }
-      const dt = clock2.owed / n;
-      clock2.owed = 0;
+      const most = H * (state.speed === 1 ? stepTicks() : 1);
+      let n = Math.floor(clock2.owed / most + 0.25);
+      if (n === 0) return null;
+      n = Math.min(n, cap3);
+      const dt = clamp6(clock2.owed / n, most * 0.9, most * 1.1);
+      clock2.owed = clamp6(clock2.owed - n * dt, -0.25 * most, most);
       return { steps: n, dt };
     }
     const rafDt = [];

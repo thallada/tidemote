@@ -66,11 +66,17 @@ faster than linearly (the level of detail is set in framebuffer pixels).
   near the shortest, and rises only once a longer one has held for five windows. (3) A frame rate
   halved was judged able to return by its own frame's GPU time, but that frame's 2-tick step costs
   1.45 times a 1/60 s one, so it never looked able to; the estimate now scales the step. Beyond
-  those, Chrome at 175 Hz starts missing vsyncs once a frame's GPU work passes about 11 ms, at any
-  frame rate, and a followed cell near a heap costs about 13 ms (`contactGather` 1.4 → 3 ms, the
-  tracking pick and the close-up). Frames a little late (under 1.5 times the interval) with the GPU
-  idle a fifth of it no longer cost frame rate, as the coarser steps of a lower one lengthen each
-  frame and made it worse (60 → 30 → 20 fps). Six follows, adaptation on: 34 fps mean → 52.
+  those, frames a little late (under 1.5 times the interval) with the GPU idle a fifth of it no
+  longer cost frame rate, as the coarser steps of a lower one lengthen each frame and made it worse
+  (60 → 30 → 20 fps). Six follows, adaptation on: 34 fps mean → 52. (4) The rest was the time owed
+  split evenly into steps: a frame a vsync late (22.9 ms, 1.37 ticks) ran two steps of 0.69 ticks,
+  13 ms of GPU for one frame's time, which made the next late too; with nothing selected 36–45% of
+  frames took two steps (80 steps a second at 57 fps, so the tick-counted rules ran a third fast
+  against the headless runs). At real time and faster, steps are now whole, stretched by up to a
+  tenth to keep the motion with the clock, and the remainder carries: one step a frame, GPU 9.0–9.7
+  → 6.9–7.4 ms mean and 13–14.5 → 7.1–7.9 ms p95, followed or not. Following itself costs about
+  0.3 ms (`pickMain`, `mindMain`, the cell drawn up close); `contactGather` costs what the view holds
+  (0.1–2.8 ms), selected or not.
   `perf.judged` keeps the last judgement ([mean interval, interval aimed for, GPU ms, display ms,
   slowdown]); bench scenarios take `species` (follow one), `adapt: 'off'`, `series` and `cpuprofile`.
 - **Bounded GPU work per submit.** At most two frames in flight, and fast speeds carry only the

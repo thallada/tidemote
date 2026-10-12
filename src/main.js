@@ -2570,11 +2570,24 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // step and three that holds the GPU busy (and the adaptation then halves the frame rate).
     const cap = stepCap(state.speed > 1 ? MAX_FRAME_MS : frameTarget());
     if (clock.owed < H * 0.2) return null;
-    const most = H * (state.speed <= 1 ? stepTicks() : 1);
-    let n = Math.max(1, Math.ceil(clock.owed / most - 0.05));
-    if (n > cap) { n = cap; clock.owed = n * most; }
-    const dt = clock.owed / n;
-    clock.owed = 0;
+    // slower than real time: one short step a frame, so slow motion stays smooth
+    if (state.speed < 1) {
+      const n = Math.min(cap, Math.ceil(clock.owed / H - 0.05));
+      const dt = Math.min(clock.owed, n * H) / n;
+      clock.owed = 0;
+      return { steps: n, dt };
+    }
+    // Whole steps, the remainder carried. Split evenly, a frame a vsync late (175 Hz: 22.9 ms, 1.37
+    // ticks) took two steps of 0.69 ticks, twice the GPU time for the same time simulated; that frame
+    // ran late in turn, and a third of all frames took two (76 steps a second, the tick-counted
+    // rules running a quarter fast). A step stretches by up to a tenth to keep the world's motion
+    // with the clock (58.3 fps frames on a 60 Hz tick), and a frame takes two only when it owes 1.75.
+    const most = H * (state.speed === 1 ? stepTicks() : 1);
+    let n = Math.floor(clock.owed / most + 0.25);
+    if (n === 0) return null;
+    n = Math.min(n, cap);
+    const dt = clamp(clock.owed / n, most * 0.9, most * 1.1);
+    clock.owed = clamp(clock.owed - n * dt, -0.25 * most, most);
     return { steps: n, dt };
   }
   const rafDt = [];
