@@ -57,28 +57,20 @@ faster than linearly (the level of detail is set in framebuffer pixels).
   the mature 4M world ran at 0.67× and now runs at 1× at 32 to 36 fps.
 - **Following a cell (2026-10-12).** Following a predator in the 2.4M heaps world (plan
   `tools/perf/plans/follow.json`) fell from 58 to 15–30 fps on an RTX 4070 Ti at 175 Hz, through
-  three faults in the pacing, none in the GPU's work. (1) At real time a frame's steps were capped
-  by `MAX_FRAME_MS`, not its own interval: six 175 Hz frames are 34.3 ms, a hair over two ticks, so
-  a late frame took three steps (24 ms of GPU), the next owed more, and the two locked into a
-  one-step, three-step cycle. (2) The display interval was the median of rAF intervals; while the GPU
-  lags, rAF fires every other vsync for seconds, so 175 Hz read as 88 Hz and the frame rate aimed
-  for became 88 fps, against which 60 fps frames were late. It is now the median of the intervals
-  near the shortest, and rises only once a longer one has held for five windows. (3) A frame rate
-  halved was judged able to return by its own frame's GPU time, but that frame's 2-tick step costs
-  1.45 times a 1/60 s one, so it never looked able to; the estimate now scales the step. Beyond
-  those, frames a little late (under 1.5 times the interval) with the GPU idle a fifth of it no
-  longer cost frame rate, as the coarser steps of a lower one lengthen each frame and made it worse
-  (60 → 30 → 20 fps). Six follows, adaptation on: 34 fps mean → 52. (4) The rest was the time owed
-  split evenly into steps: a frame a vsync late (22.9 ms, 1.37 ticks) ran two steps of 0.69 ticks,
-  13 ms of GPU for one frame's time, which made the next late too; with nothing selected 36–45% of
-  frames took two steps (80 steps a second at 57 fps, so the tick-counted rules ran a third fast
-  against the headless runs). At real time and faster, steps are now whole, stretched by up to a
-  tenth to keep the motion with the clock, and the remainder carries: one step a frame, GPU 9.0–9.7
-  → 6.9–7.4 ms mean and 13–14.5 → 7.1–7.9 ms p95, followed or not. Following itself costs about
-  0.3 ms (`pickMain`, `mindMain`, the cell drawn up close); `contactGather` costs what the view holds
-  (0.1–2.8 ms), selected or not.
-  `perf.judged` keeps the last judgement ([mean interval, interval aimed for, GPU ms, display ms,
-  slowdown]); bench scenarios take `species` (follow one), `adapt: 'off'`, `series` and `cpuprofile`.
+  faults in the pacing, none in the GPU's work (following itself costs about 0.3 ms: `pickMain`,
+  `mindMain`, the cell drawn up close). (1) At real time the time owed was split evenly into steps:
+  a frame a vsync late (22.9 ms, 1.37 ticks) ran two steps of 0.69 ticks, 13 ms of GPU for one
+  frame's time, which made the next late too. 36–45% of frames took two steps, selected or not (80
+  steps a second at 57 fps, so the tick-counted rules ran a third fast against the headless runs).
+  Steps are now whole, stretched by up to a tenth to keep the motion with the clock, and the
+  remainder carries: one step a frame, GPU 9.0–9.7 → 6.9–7.4 ms mean and 13–14.5 → 7.1–7.9 ms p95.
+  (2) A frame's steps were capped by `MAX_FRAME_MS`, not its own interval, so a late frame could
+  take three. (3) The display interval was the median of rAF intervals; while the GPU lags, rAF
+  fires every other vsync for seconds, so 175 Hz read as 88 Hz and 60 fps frames looked late. It is
+  now the median of the intervals near the shortest, and rises only once a longer one has held for
+  five windows. (4) A frame rate halved was judged able to return by its own frame's GPU time, but
+  its 2-tick step costs 1.45 times a 1/60 s one, so it never looked able to; the estimate now
+  scales the step. Bench scenarios take `species` (follow one), `adapt: 'off'` and `series`.
 - **Bounded GPU work per submit.** At most two frames in flight, and fast speeds carry only the
   fraction of a step their budget leaves (they once saved credit up to 512 steps, which came due on
   a switch to Max: 2 s of GPU in one submit). A phone's compositor shares its GPU, so a long or deep

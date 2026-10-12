@@ -17,10 +17,8 @@
 //   mouse  'sweep': the pointer moves over the view while measuring (the loupe, if on, follows it)
 //   adapt  'keep': the frame rate and scale left to the page's adaptive quality, unreset (fps, scale unused);
 //          'off': none at all, the frame rate aimed for held however long frames take
-//   state  page state to set (e.g. { closeup: false }: no live close-up in the specimen panel)
 //   prefs  more settings (eng.settings keys: bloom, optics, specks, lod, links, nodes, trails)
 //   species  follow a cell of the named species (follow: false keeps it selected, the camera still)
-//   cpuprofile  sample the page's JavaScript while measuring (report: top functions, ms per second)
 //   lab    a Field Lab tab to hold open ('species', 'census', ...; closed by default); its updates are timed
 // Every frame's passes are timed on the GPU (eng.passProfile); the report has frame intervals,
 // GPU time per frame and per pass, the page's own CPU time per frame and the render scale.
@@ -191,7 +189,6 @@ async function measure(page, sc) {
     const T = globalThis.__tidemote, { state, cam, perf, eng } = T;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     Object.assign(eng.settings, sc.prefs || {});
-    Object.assign(state, sc.state || {});
     if (sc.adapt !== 'keep') { state.perf.fps = sc.fps ?? 0; T.setScale(sc.scale ?? 'auto'); }
     // aim at the commonest species' densest patch (findMember follows it; unfollow unless selecting)
     // ('saved' keeps the camera a .tidemote world was saved with; at: a spot of its own)
@@ -238,9 +235,9 @@ async function measure(page, sc) {
     };
     const po = new PerformanceObserver((l) => { for (const e of l.getEntries()) { rec.long++; rec.longMs += e.duration; } });
     try { po.observe({ type: 'longtask', buffered: false }); } catch { /* unsupported */ }
-    // the adaptation every second: [s, frames aimed slower, render scale, why, GPU ms (ema), fps, its last judgement]
+    // the adaptation every second: [s, frames aimed slower, render scale, why, GPU ms (ema), fps]
     rec.adapt = [];
-    const watch = setInterval(() => rec.adapt.push([Math.round((performance.now() - t0) / 1000), perf.slow, T.renderScale(), perf.why, +perf.gpu.toFixed(1), +perf.fps.toFixed(1), perf.judged]), 1000);
+    const watch = setInterval(() => rec.adapt.push([Math.round((performance.now() - t0) / 1000), perf.slow, T.renderScale(), perf.why, +perf.gpu.toFixed(1), +perf.fps.toFixed(1)]), 1000);
     let on = true;
     const tick = (t) => { if (!on) return; rec.raf.push(t); rec.scale.push(T.renderScale()); rec.slow.push(perf.slow || 1); requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
@@ -298,20 +295,8 @@ try {
           await page.waitForTimeout(16);
         }
       })();
-      // cpuprofile: the page's JavaScript sampled while measuring (the top functions by self time)
-      const cdp = sc.cpuprofile && await page.context().newCDPSession(page);
-      if (cdp) { await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', { interval: 200 }); await cdp.send('Profiler.start'); }
       const r = await measure(page, sc);
       moving = false; await mover;
-      if (cdp) {
-        const { profile } = await cdp.send('Profiler.stop');
-        await cdp.detach();
-        const dt = (profile.endTime - profile.startTime) / 1000 / profile.samples.length, self = {};
-        const byId = new Map(profile.nodes.map((n) => [n.id, n]));
-        for (const id of profile.samples) { const f = byId.get(id).callFrame; const k = `${f.functionName || '(anon)'} ${f.url.split('/').pop()}:${f.lineNumber + 1}`; self[k] = (self[k] || 0) + dt; }
-        const wall = (profile.endTime - profile.startTime) / 1000;
-        r.cpu = Object.fromEntries(Object.entries(self).sort((a, b) => b[1] - a[1]).slice(0, 25).map(([k, ms]) => [k, +(ms / wall * 1000).toFixed(2)]));
-      }
       report.scenarios.push({ world: w.name, ...r });
       if (sc.kind === 'growth') continue;
       if (sc.kind === 'step') { console.log(`${w.name}/${r.name}: step ${r.total} ms | ${JSON.stringify(r.dispatch)}`); continue; }

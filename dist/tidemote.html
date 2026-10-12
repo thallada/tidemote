@@ -22450,9 +22450,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const floor = auto ? state.perf.floor : renderScale;
       const busy = perf.gpu > T * (hasTS ? 0.92 : 1);
       const behind = m > T * 1.125 || busy || stressed();
-      perf.judged = [+m.toFixed(1), +T.toFixed(1), +perf.gpu.toFixed(1), +displayMs().toFixed(2), perf.slow];
       const simBound = hasTS && perf.simS > 2 * perf.renderR;
-      const latency = hasTS && !busy && !stressed() && m < T * 1.5 && perf.gpu < T * 0.8;
       if (behind) {
         perf.why = stressed() ? "device under pressure" : busy ? "GPU busy" : "frames late";
         perf.goodWindows = 0;
@@ -22462,7 +22460,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           const want = renderScale * clamp6(Math.sqrt(T / m), 0.55, 0.9);
           renderScale = Math.max(floor, SCALES.find((s) => s <= want + 0.01) ?? floor);
           resizeDue = true;
-        } else if (perf.slow < 4 && !latency) {
+        } else if (perf.slow < 4) {
           perf.slowCeiling = perf.slow;
           perf.slow = Math.min(4, perf.slow + (m > 2 * T ? 2 : 1));
         }
@@ -23064,7 +23062,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (clock2.owed < H * 0.2) return null;
       if (state.speed < 1) {
         const n2 = Math.min(cap3, Math.ceil(clock2.owed / H - 0.05));
-        const dt2 = Math.min(clock2.owed, n2 * H) / n2;
+        const dt2 = Math.min(clock2.owed / n2, H);
         clock2.owed = 0;
         return { steps: n2, dt: dt2 };
       }

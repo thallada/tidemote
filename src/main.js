@@ -1981,14 +1981,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // without timestamps perf.gpu is the time from submit to done, which overstates the GPU's share
     const busy = perf.gpu > T * (hasTS ? 0.92 : 1);
     const behind = m > T * 1.125 || busy || stressed();
-    // what was judged, for tools/perf: [mean interval, interval aimed for, GPU ms, display ms, frames aimed slower]
-    perf.judged = [+m.toFixed(1), +T.toFixed(1), +perf.gpu.toFixed(1), +displayMs().toFixed(2), perf.slow];
     const simBound = hasTS && perf.simS > 2 * perf.renderR;
-    // Frames a little late with the GPU idle much of the interval: each frame's GPU work is too long
-    // for the browser to show it on time (in Chrome on a 175 Hz display, past about 11 ms its frames
-    // start to miss vsyncs at any frame rate), not too much work for the interval. A lower frame rate
-    // only makes it worse, its coarser steps lengthening each frame: 60 fps went to 30, then 20.
-    const latency = hasTS && !busy && !stressed() && m < T * 1.5 && perf.gpu < T * 0.8;
     if (behind) {
       perf.why = stressed() ? 'device under pressure' : busy ? 'GPU busy' : 'frames late';
       perf.goodWindows = 0;
@@ -2001,7 +1994,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         const want = renderScale * clamp(Math.sqrt(T / m), 0.55, 0.9);
         renderScale = Math.max(floor, SCALES.find((s) => s <= want + 0.01) ?? floor);
         resizeDue = true;
-      } else if (perf.slow < 4 && !latency) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + (m > 2 * T ? 2 : 1)); }
+      } else if (perf.slow < 4) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + (m > 2 * T ? 2 : 1)); }
       return;
     }
     if (m > T * 1.03 || stressed()) { perf.goodWindows = 0; return; }
@@ -2564,24 +2557,20 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (state.paused || state.phase !== 'running') { clock.owed = 0; return { steps: 1, dt: H }; }
     if (state.speed === Infinity) return maxPlan(now, perf.ticks);
     if (perf.held) return coarsePlan(now, perf.ticks);
-    // At real time a frame's steps fit in its own interval. A step costs about the same whatever its
-    // length, so time owed a little past two steps (six frames of a 175 Hz display are 34.3 ms) taken
-    // as three would overrun the frame, the next would owe more, and the two lock into a cycle of one
-    // step and three that holds the GPU busy (and the adaptation then halves the frame rate).
+    // at real time or slower a frame's steps fit in its own interval, so a late frame can't overrun the next
     const cap = stepCap(state.speed > 1 ? MAX_FRAME_MS : frameTarget());
     if (clock.owed < H * 0.2) return null;
     // slower than real time: one short step a frame, so slow motion stays smooth
     if (state.speed < 1) {
       const n = Math.min(cap, Math.ceil(clock.owed / H - 0.05));
-      const dt = Math.min(clock.owed, n * H) / n;
+      const dt = Math.min(clock.owed / n, H);
       clock.owed = 0;
       return { steps: n, dt };
     }
-    // Whole steps, the remainder carried. Split evenly, a frame a vsync late (175 Hz: 22.9 ms, 1.37
-    // ticks) took two steps of 0.69 ticks, twice the GPU time for the same time simulated; that frame
-    // ran late in turn, and a third of all frames took two (76 steps a second, the tick-counted
-    // rules running a quarter fast). A step stretches by up to a tenth to keep the world's motion
-    // with the clock (58.3 fps frames on a 60 Hz tick), and a frame takes two only when it owes 1.75.
+    // Whole steps, the remainder carried: split evenly, a frame a vsync late (175 Hz: 1.37 ticks) took
+    // two steps of 0.69 ticks, twice the GPU time for the same time simulated, which made the next
+    // frame late too. A step stretches by up to a tenth to keep the motion with the clock (58.3 fps
+    // frames on a 60 Hz tick); a frame takes two only once it owes 1.75.
     const most = H * (state.speed === 1 ? stepTicks() : 1);
     let n = Math.floor(clock.owed / most + 0.25);
     if (n === 0) return null;
