@@ -82,6 +82,8 @@ class Engine {
     // Up to two particles followed every frame (the page's selection and the auto camera's subject).
     this.trackId = 0xffffffff;
     this.trackId2 = 0xffffffff;
+    // each tracking slot's last sighting, to look for it near there first
+    this.trackSeen = [null, null];
     this.onTrack = null;
     // The selected cell's mind (mindMain), replayed every `mindEvery` frames while mindId is set.
     this.mindId = 0xffffffff;
@@ -120,11 +122,18 @@ class Engine {
     // tracking has its own uniforms and output per slot, so both slots and a pick share a frame
     b.trackU = [0, 1].map(() => d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST }));
     b.trackOut = [0, 1].map(() => d.createBuffer({ size: 56 + PICK_WORDS * 4, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST }));
-    // watching: up to WATCH_MAX particles found by id every frame (the page sets this.watch to their ids)
-    b.watchU = d.createBuffer({ size: 16 + WATCH_MAX * 4, usage: U.UNIFORM | U.COPY_DST });
+    // the full scan's workgroups, none once the search near where it was expected found it (trackArgs)
+    b.trackArgs = [0, 1].map(() => d.createBuffer({ size: 12, usage: U.STORAGE | U.INDIRECT }));
+    // watching: up to WATCH_MAX particles found by id every frame (the page sets this.watch to them, each
+    // { id, x, y, vx, vy, t } where last seen, to look near there first)
+    b.watchU = d.createBuffer({ size: 16 + WATCH_MAX * 20, usage: U.UNIFORM | U.COPY_DST });
+    b.watchArgs = d.createBuffer({ size: 12, usage: U.STORAGE | U.INDIRECT | U.COPY_SRC });
     b.watchOut = d.createBuffer({ size: WATCH_MAX * 20, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
-    this.watchStage = [0, 1, 2, 3].map(() => ({ buf: d.createBuffer({ size: WATCH_MAX * 20, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
+    // (and after them, the full scan's workgroups: whether it ran)
+    this.watchStage = [0, 1, 2, 3].map(() => ({ buf: d.createBuffer({ size: WATCH_MAX * 20 + 4, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     this.watch = [];
+    // ids a full scan didn't find (died since they sang): ids aren't reused, so they aren't looked for again
+    this.watchGone = new Set();
     this.onWatch = null;
     b.mind = d.createBuffer({ size: MIND_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
     this.mindStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: MIND_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
@@ -195,8 +204,12 @@ class Engine {
       this.cp[name] = { pipe: coarse ? d.createComputePipeline({ layout: 'auto', compute: { module: this.simModule, entryPoint: name.slice(0, -6), constants: { COARSE: 1 } }, label: name }) : cp(this.simModule, name), bg: null };
     }
     this.cpPick = { pipe: cp(this.pickModule, 'pickMain'), bg: null };
+    this.cpTrackNear = cp(this.pickModule, 'trackNear');
+    this.cpTrackArgs = cp(this.pickModule, 'trackArgs');
     this.cpListen = { pipe: cp(this.listenModule, 'listenMain'), bg: null };
     this.cpWatch = { pipe: cp(this.watchModule, 'watchMain'), bg: null };
+    this.cpWatchNear = cp(this.watchModule, 'watchNear');
+    this.cpWatchArgs = cp(this.watchModule, 'watchArgs');
     this.cpSurvey = { pipe: cp(this.surveyModule, 'surveyMain'), bg: null };
 
     const additive = { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } };
@@ -314,8 +327,19 @@ class Engine {
     this.trackBG = [0, 1].map((k) => d.createBindGroup({ layout: this.cpPick.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.trackU[k] } }, { binding: 1, resource: { buffer: b.parts } },
       { binding: 2, resource: { buffer: b.trackOut[k] } }, { binding: 3, resource: { buffer: b.intent } }] }));
+    this.trackNearBG = [0, 1].map((k) => d.createBindGroup({ layout: this.cpTrackNear.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: b.trackU[k] } }, { binding: 1, resource: { buffer: b.parts } },
+      { binding: 2, resource: { buffer: b.trackOut[k] } }, { binding: 4, resource: { buffer: b.cellStart } }] }));
+    this.trackArgsBG = [0, 1].map((k) => d.createBindGroup({ layout: this.cpTrackArgs.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: b.trackU[k] } }, { binding: 2, resource: { buffer: b.trackOut[k] } },
+      { binding: 5, resource: { buffer: b.trackArgs[k] } }] }));
     this.cpWatch.bg = d.createBindGroup({ layout: this.cpWatch.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.watchU } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.watchOut } }] });
+    this.watchNearBG = d.createBindGroup({ layout: this.cpWatchNear.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: b.watchU } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.watchOut } },
+      { binding: 3, resource: { buffer: b.cellStart } }] });
+    this.watchArgsBG = d.createBindGroup({ layout: this.cpWatchArgs.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: b.watchU } }, { binding: 2, resource: { buffer: b.watchOut } }, { binding: 4, resource: { buffer: b.watchArgs } }] });
     this.cpListen.bg = d.createBindGroup({ layout: this.cpListen.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.listenU } }, { binding: 1, resource: { buffer: b.parts } },
       { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.listen } }, { binding: 4, resource: { buffer: b.thermal } }] });
@@ -902,36 +926,68 @@ class Engine {
       const st = this.trackStage.find((s) => !s.busy);
       if (!st) break;
       st.busy = true;
-      trackJobs.push({ st, id, simTime: this.simTime });
+      trackJobs.push({ st, id, k, simTime: this.simTime });
       const pu = new ArrayBuffer(48);
       const pf = new Float32Array(pu), pv = new Uint32Array(pu);
+      // where it is expected: where it was last found, carried on at its velocity
+      const seen = this.trackSeen[k]?.id === id && this.sorted ? this.trackSeen[k] : null;
+      if (seen) for (let a = 0; a < 2; a++) {
+        const g = this.grid[a];
+        pf[a] = (((seen.pos[a] + seen.vel[a] * (this.simTime - seen.simTime)) % g) + g) % g;
+      }
       pf[2] = 0; pv[3] = id; pv[4] = 0; pv[5] = N; pf[6] = this.grid[0]; pf[7] = this.grid[1]; pv[8] = 0xffffffff;
       d.queue.writeBuffer(b.trackU[k], 0, pu);
       enc.clearBuffer(b.trackOut[k], 0, 56);
       const pass = enc.beginComputePass();
+      if (seen) {
+        pass.setPipeline(this.cpTrackNear);
+        pass.setBindGroup(0, this.trackNearBG[k]);
+        pass.dispatchWorkgroups(25);
+        pass.setPipeline(this.cpTrackArgs);
+        pass.setBindGroup(0, this.trackArgsBG[k]);
+        pass.dispatchWorkgroups(1);
+      }
       pass.setPipeline(this.cpPick.pipe);
       pass.setBindGroup(0, this.trackBG[k]);
-      pass.dispatchWorkgroups(Math.ceil(N / 256));
+      if (seen) pass.dispatchWorkgroupsIndirect(b.trackArgs[k], 0);
+      else pass.dispatchWorkgroups(Math.ceil(N / 256));
       pass.end();
       enc.copyBufferToBuffer(b.trackOut[k], 0, st.buf, 0, 56);
     }
     let watchJob = null;
-    if (this.watch.length && N > 0) {
+    const watching = this.watch.filter((c) => !this.watchGone.has(c.id)).slice(0, WATCH_MAX);
+    for (const id of this.watchGone) if (!this.watch.some((c) => c.id === id)) this.watchGone.delete(id);
+    if (watching.length && N > 0) {
       const st = this.watchStage.find((s) => !s.busy);
       if (st) {
         st.busy = true;
-        const ids = this.watch.slice(0, WATCH_MAX);
-        watchJob = { st, ids, simTime: this.simTime };
-        const wu = new Uint32Array(4 + WATCH_MAX);
-        wu[0] = N; wu[1] = ids.length; wu.set(ids, 4);
+        const cells = watching, ids = cells.map((c) => c.id);
+        watchJob = { st, ids, full: !this.sorted, simTime: this.simTime };
+        const wu = new ArrayBuffer(16 + WATCH_MAX * 20), wv = new Uint32Array(wu), wf = new Float32Array(wu);
+        wv[0] = N; wv[1] = ids.length; wv[2] = this.grid[0]; wv[3] = this.grid[1]; wv.set(ids, 4);
+        // where each is expected: where it was last seen, carried on at its velocity
+        cells.forEach((c, k) => { for (let a = 0; a < 2; a++) {
+          const g = this.grid[a];
+          wf[4 + WATCH_MAX + k * 4 + a] = ((((a ? c.y : c.x) + (a ? c.vy : c.vx) * (this.simTime - c.t)) % g) + g) % g;
+        } });
         d.queue.writeBuffer(b.watchU, 0, wu);
         enc.clearBuffer(b.watchOut, 0, WATCH_MAX * 20);
         const pass = enc.beginComputePass();
+        if (this.sorted) {
+          pass.setPipeline(this.cpWatchNear);
+          pass.setBindGroup(0, this.watchNearBG);
+          pass.dispatchWorkgroups(25, ids.length);
+          pass.setPipeline(this.cpWatchArgs);
+          pass.setBindGroup(0, this.watchArgsBG);
+          pass.dispatchWorkgroups(1);
+        }
         pass.setPipeline(this.cpWatch.pipe);
         pass.setBindGroup(0, this.cpWatch.bg);
-        pass.dispatchWorkgroups(Math.ceil(N / 256));
+        if (this.sorted) pass.dispatchWorkgroupsIndirect(b.watchArgs, 0);
+        else pass.dispatchWorkgroups(Math.ceil(N / 256));
         pass.end();
         enc.copyBufferToBuffer(b.watchOut, 0, st.buf, 0, WATCH_MAX * 20);
+        if (this.sorted) enc.copyBufferToBuffer(b.watchArgs, 0, st.buf, WATCH_MAX * 20, 4);
       }
     }
     if (this.pickReq && N > 0) {
@@ -1037,16 +1093,20 @@ class Engine {
         const tracked = found ? parseParticle(u32, f32, 4) : null;
         st.buf.unmap();
         st.busy = false;
+        if (found) this.trackSeen[trackJob.k] = { id: trackJob.id, pos: [tracked.x, tracked.y], vel: [tracked.vx, tracked.vy], simTime: trackJob.simTime };
         if (generation === this.worldGeneration && this.onTrack) this.onTrack({ id: trackJob.id, found, tracked, simTime: trackJob.simTime });
       }).catch(() => { st.busy = false; });
     }
 
     if (watchJob) {
-      const { st, ids, simTime } = watchJob;
+      const { st, ids, full, simTime } = watchJob;
       st.buf.mapAsync(GPUMapMode.READ).then(() => {
         const buf = st.buf.getMappedRange(), f = new Float32Array(buf), u = new Uint32Array(buf);
-        const seen = [];
-        ids.forEach((id, k) => { if (u[WATCH_MAX * 4 + k]) seen.push({ id, x: f[k * 4], y: f[k * 4 + 1], vx: f[k * 4 + 2], vy: f[k * 4 + 3] }); });
+        const seen = [], scanned = full || u[WATCH_MAX * 5] > 0;
+        ids.forEach((id, k) => {
+          if (u[WATCH_MAX * 4 + k]) seen.push({ id, x: f[k * 4], y: f[k * 4 + 1], vx: f[k * 4 + 2], vy: f[k * 4 + 3] });
+          else if (scanned) this.watchGone.add(id);
+        });
         st.buf.unmap();
         st.busy = false;
         if (generation === this.worldGeneration && this.onWatch) this.onWatch({ simTime, seen });

@@ -2179,15 +2179,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   // which cells to find this frame: those whose marks are about to show or showing
   function watchMarks(now) {
-    const only = markSlot(), ids = [];
+    const only = markSlot(), ids = [], cells = [];
     if (only !== -2) {
       for (const e of songEvents) {
         if (!e.cell || (only >= 0 && e.slot !== only) || e.at < now - MARK_MS || e.at > now + 1500) continue;
-        if (!ids.includes(e.cell.id)) ids.push(e.cell.id);
+        if (ids.includes(e.cell.id)) continue;
+        ids.push(e.cell.id);
+        // where it was last found, else where the listening scan saw it
+        const w = watched.get(e.cell.id);
+        cells.push(w ? { id: e.cell.id, x: w.x, y: w.y, vx: w.vx, vy: w.vy, t: w.t } : e.cell);
         if (ids.length >= WATCH_MAX) break;
       }
     }
-    eng.watch = ids;
+    eng.watch = cells;
     for (const id of watched.keys()) if (!ids.includes(id)) watched.delete(id);
   }
   function drawSongMarks(now, L) {

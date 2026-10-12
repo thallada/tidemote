@@ -1715,13 +1715,35 @@ fn pickMain(@builtin(global_invocation_id) gid: vec3u) {
     }
   }
 }
+
+// Tracking a cell by id: first only the 5×5 grid cells around where it is expected (pu.center), each
+// workgroup one grid cell's range of the sorted particles; then trackArgs sizes the full pickMain
+// scan to nothing if that found it, else to every particle. Particles are sorted by where they were
+// before the last step, at most 7 · 4/60 units from where they are, so the 2 units around suffice.
+@group(0) @binding(4) var<storage, read> cellStart: array<u32>;
+@group(0) @binding(5) var<storage, read_write> fallback: array<u32, 3>;
+
+@compute @workgroup_size(256)
+fn trackNear(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_index) l: u32) {
+  let g = vec2i(pu.world);
+  let at = (vec2i(floor(pu.center)) + vec2i(i32(wg.x % 5u), i32(wg.x / 5u)) - 2 + g) % g;
+  let cell = u32(at.y * g.x + at.x);
+  for (var i = cellStart[cell] + l; i < cellStart[cell + 1u]; i += 256u) {
+    if (parts[i].id == pu.selId) { pout.tracked = parts[i]; pout.found = 1u; }
+  }
+}
+
+@compute @workgroup_size(1)
+fn trackArgs() {
+  fallback = array<u32, 3>(select((pu.count + 255u) / 256u, 0u, pout.found == 1u), 1u, 1u);
+}
 `;
 
 // Where a few particles are right now, found by id (observational): the page marks the cells
 // that sing their species' note exactly where they are, as it does the followed cell.
 export const WATCH_MAX = 16;
 export const WATCH_WGSL = COMMON + /* wgsl */ `
-struct WatchU { count: u32, n: u32, p0: u32, p1: u32, ids: array<vec4u, ${WATCH_MAX / 4}> };
+struct WatchU { count: u32, n: u32, grid: vec2u, ids: array<vec4u, ${WATCH_MAX / 4}>, near: array<vec4f, ${WATCH_MAX}> };
 struct WatchOut { at: array<vec4f, ${WATCH_MAX}>, found: array<u32, ${WATCH_MAX}> };
 @group(0) @binding(0) var<uniform> wu: WatchU;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -1736,6 +1758,31 @@ fn watchMain(@builtin(global_invocation_id) gid: vec3u) {
   for (var k = 0u; k < wu.n; k++) {
     if (wu.ids[k / 4u][k % 4u] == p.id) { wout.at[k] = vec4f(p.pos, p.vel); wout.found[k] = 1u; }
   }
+}
+
+// First only near where each is expected (as trackNear: wu.near[k].xy, 5×5 grid cells, a
+// workgroup each); watchArgs then sizes the full watchMain scan to nothing if all were found.
+@group(0) @binding(3) var<storage, read> cellStart: array<u32>;
+@group(0) @binding(4) var<storage, read_write> fallback: array<u32, 3>;
+
+@compute @workgroup_size(256)
+fn watchNear(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_index) l: u32) {
+  let k = wg.y;
+  let g = vec2i(wu.grid);
+  let at = (vec2i(floor(wu.near[k].xy)) + vec2i(i32(wg.x % 5u), i32(wg.x / 5u)) - 2 + g) % g;
+  let cell = u32(at.y * g.x + at.x);
+  let id = wu.ids[k / 4u][k % 4u];
+  for (var i = cellStart[cell] + l; i < cellStart[cell + 1u]; i += 256u) {
+    let p = parts[i];
+    if (p.id == id && p.kind >= FIRST_LIFE) { wout.at[k] = vec4f(p.pos, p.vel); wout.found[k] = 1u; }
+  }
+}
+
+@compute @workgroup_size(1)
+fn watchArgs() {
+  var all = true;
+  for (var k = 0u; k < wu.n; k++) { all = all && wout.found[k] == 1u; }
+  fallback = array<u32, 3>(select((wu.count + 255u) / 256u, 0u, all), 1u, 1u);
 }
 `;
 

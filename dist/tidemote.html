@@ -104,7 +104,8 @@ body {
 #stage { touch-action: none; cursor: crosshair; }
 #stage.lens { cursor: none; }
 #stage.grabbing { cursor: grabbing; }
-#overlay { pointer-events: none; }
+/* its own layer: drawn every frame, it would otherwise repaint the whole page with it */
+#overlay { pointer-events: none; will-change: transform; }
 body.cursor-off, body.cursor-off * { cursor: none !important; }
 
 /* ------------------------------------------------------------------ type */
@@ -587,6 +588,10 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .mv-live i { width: 5px; height: 5px; background: var(--cyan); opacity: .25; }
 .mv-live.blink i { animation: mv-blink .5s ease-out; }
 @keyframes mv-blink { from { opacity: 1; } to { opacity: .25; } }
+/* The mind view changes every frame (the compass eases, meters and rows follow the cell): each part
+   on a layer of its own repaints alone, not the specimen panel's whole scrolling record with it
+   (with the overlay's own layer, a selected cell's page work fell from about 300 to 30 ms a second). */
+.compass, .mv-drives, .mv-nb, .mv-lamps, .mv-read { will-change: transform; }
 .mv-read { display: flex; flex-direction: column; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .mv-read > div { display: grid; grid-template-columns: var(--lab-w) minmax(0, 1fr); gap: 10px; align-items: center; height: 26px; }
 /* a two-line row: the value wraps into a space always kept for it */
@@ -2952,11 +2957,33 @@ fn pickMain(@builtin(global_invocation_id) gid: vec3u) {
     }
   }
 }
+
+// Tracking a cell by id: first only the 5×5 grid cells around where it is expected (pu.center), each
+// workgroup one grid cell's range of the sorted particles; then trackArgs sizes the full pickMain
+// scan to nothing if that found it, else to every particle. Particles are sorted by where they were
+// before the last step, at most 7 · 4/60 units from where they are, so the 2 units around suffice.
+@group(0) @binding(4) var<storage, read> cellStart: array<u32>;
+@group(0) @binding(5) var<storage, read_write> fallback: array<u32, 3>;
+
+@compute @workgroup_size(256)
+fn trackNear(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_index) l: u32) {
+  let g = vec2i(pu.world);
+  let at = (vec2i(floor(pu.center)) + vec2i(i32(wg.x % 5u), i32(wg.x / 5u)) - 2 + g) % g;
+  let cell = u32(at.y * g.x + at.x);
+  for (var i = cellStart[cell] + l; i < cellStart[cell + 1u]; i += 256u) {
+    if (parts[i].id == pu.selId) { pout.tracked = parts[i]; pout.found = 1u; }
+  }
+}
+
+@compute @workgroup_size(1)
+fn trackArgs() {
+  fallback = array<u32, 3>(select((pu.count + 255u) / 256u, 0u, pout.found == 1u), 1u, 1u);
+}
 `;
   var WATCH_MAX = 16;
   var WATCH_WGSL = COMMON + /* wgsl */
   `
-struct WatchU { count: u32, n: u32, p0: u32, p1: u32, ids: array<vec4u, ${WATCH_MAX / 4}> };
+struct WatchU { count: u32, n: u32, grid: vec2u, ids: array<vec4u, ${WATCH_MAX / 4}>, near: array<vec4f, ${WATCH_MAX}> };
 struct WatchOut { at: array<vec4f, ${WATCH_MAX}>, found: array<u32, ${WATCH_MAX}> };
 @group(0) @binding(0) var<uniform> wu: WatchU;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -2971,6 +2998,31 @@ fn watchMain(@builtin(global_invocation_id) gid: vec3u) {
   for (var k = 0u; k < wu.n; k++) {
     if (wu.ids[k / 4u][k % 4u] == p.id) { wout.at[k] = vec4f(p.pos, p.vel); wout.found[k] = 1u; }
   }
+}
+
+// First only near where each is expected (as trackNear: wu.near[k].xy, 5×5 grid cells, a
+// workgroup each); watchArgs then sizes the full watchMain scan to nothing if all were found.
+@group(0) @binding(3) var<storage, read> cellStart: array<u32>;
+@group(0) @binding(4) var<storage, read_write> fallback: array<u32, 3>;
+
+@compute @workgroup_size(256)
+fn watchNear(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_index) l: u32) {
+  let k = wg.y;
+  let g = vec2i(wu.grid);
+  let at = (vec2i(floor(wu.near[k].xy)) + vec2i(i32(wg.x % 5u), i32(wg.x / 5u)) - 2 + g) % g;
+  let cell = u32(at.y * g.x + at.x);
+  let id = wu.ids[k / 4u][k % 4u];
+  for (var i = cellStart[cell] + l; i < cellStart[cell + 1u]; i += 256u) {
+    let p = parts[i];
+    if (p.id == id && p.kind >= FIRST_LIFE) { wout.at[k] = vec4f(p.pos, p.vel); wout.found[k] = 1u; }
+  }
+}
+
+@compute @workgroup_size(1)
+fn watchArgs() {
+  var all = true;
+  for (var k = 0u; k < wu.n; k++) { all = all && wout.found[k] == 1u; }
+  fallback = array<u32, 3>(select((wu.count + 255u) / 256u, 0u, all), 1u, 1u);
 }
 `;
   var LISTEN_CAP = 512;
@@ -14073,6 +14125,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.pickReq = null;
       this.trackId = 4294967295;
       this.trackId2 = 4294967295;
+      this.trackSeen = [null, null];
       this.onTrack = null;
       this.mindId = 4294967295;
       this.mindEvery = 6;
@@ -14107,10 +14160,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
       b.pickOut = d.createBuffer({ size: PICK_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
       b.trackU = [0, 1].map(() => d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST }));
       b.trackOut = [0, 1].map(() => d.createBuffer({ size: 56 + PICK_WORDS * 4, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST }));
-      b.watchU = d.createBuffer({ size: 16 + WATCH_MAX * 4, usage: U.UNIFORM | U.COPY_DST });
+      b.trackArgs = [0, 1].map(() => d.createBuffer({ size: 12, usage: U.STORAGE | U.INDIRECT }));
+      b.watchU = d.createBuffer({ size: 16 + WATCH_MAX * 20, usage: U.UNIFORM | U.COPY_DST });
+      b.watchArgs = d.createBuffer({ size: 12, usage: U.STORAGE | U.INDIRECT | U.COPY_SRC });
       b.watchOut = d.createBuffer({ size: WATCH_MAX * 20, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
-      this.watchStage = [0, 1, 2, 3].map(() => ({ buf: d.createBuffer({ size: WATCH_MAX * 20, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
+      this.watchStage = [0, 1, 2, 3].map(() => ({ buf: d.createBuffer({ size: WATCH_MAX * 20 + 4, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
       this.watch = [];
+      this.watchGone = /* @__PURE__ */ new Set();
       this.onWatch = null;
       b.mind = d.createBuffer({ size: MIND_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
       this.mindStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: MIND_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
@@ -14177,8 +14233,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
         this.cp[name] = { pipe: coarse ? d.createComputePipeline({ layout: "auto", compute: { module: this.simModule, entryPoint: name.slice(0, -6), constants: { COARSE: 1 } }, label: name }) : cp(this.simModule, name), bg: null };
       }
       this.cpPick = { pipe: cp(this.pickModule, "pickMain"), bg: null };
+      this.cpTrackNear = cp(this.pickModule, "trackNear");
+      this.cpTrackArgs = cp(this.pickModule, "trackArgs");
       this.cpListen = { pipe: cp(this.listenModule, "listenMain"), bg: null };
       this.cpWatch = { pipe: cp(this.watchModule, "watchMain"), bg: null };
+      this.cpWatchNear = cp(this.watchModule, "watchNear");
+      this.cpWatchArgs = cp(this.watchModule, "watchArgs");
       this.cpSurvey = { pipe: cp(this.surveyModule, "surveyMain"), bg: null };
       const additive = { color: { srcFactor: "one", dstFactor: "one", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one", operation: "add" } };
       const fade = { color: { srcFactor: "zero", dstFactor: "constant", operation: "add" }, alpha: { srcFactor: "zero", dstFactor: "constant", operation: "add" } };
@@ -14316,10 +14376,32 @@ registerProcessor("tidemote-sound", TidemoteSound);
         { binding: 2, resource: { buffer: b.trackOut[k] } },
         { binding: 3, resource: { buffer: b.intent } }
       ] }));
+      this.trackNearBG = [0, 1].map((k) => d.createBindGroup({ layout: this.cpTrackNear.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: { buffer: b.trackU[k] } },
+        { binding: 1, resource: { buffer: b.parts } },
+        { binding: 2, resource: { buffer: b.trackOut[k] } },
+        { binding: 4, resource: { buffer: b.cellStart } }
+      ] }));
+      this.trackArgsBG = [0, 1].map((k) => d.createBindGroup({ layout: this.cpTrackArgs.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: { buffer: b.trackU[k] } },
+        { binding: 2, resource: { buffer: b.trackOut[k] } },
+        { binding: 5, resource: { buffer: b.trackArgs[k] } }
+      ] }));
       this.cpWatch.bg = d.createBindGroup({ layout: this.cpWatch.pipe.getBindGroupLayout(0), entries: [
         { binding: 0, resource: { buffer: b.watchU } },
         { binding: 1, resource: { buffer: b.parts } },
         { binding: 2, resource: { buffer: b.watchOut } }
+      ] });
+      this.watchNearBG = d.createBindGroup({ layout: this.cpWatchNear.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: { buffer: b.watchU } },
+        { binding: 1, resource: { buffer: b.parts } },
+        { binding: 2, resource: { buffer: b.watchOut } },
+        { binding: 3, resource: { buffer: b.cellStart } }
+      ] });
+      this.watchArgsBG = d.createBindGroup({ layout: this.cpWatchArgs.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: { buffer: b.watchU } },
+        { binding: 2, resource: { buffer: b.watchOut } },
+        { binding: 4, resource: { buffer: b.watchArgs } }
       ] });
       this.cpListen.bg = d.createBindGroup({ layout: this.cpListen.pipe.getBindGroupLayout(0), entries: [
         { binding: 0, resource: { buffer: b.listenU } },
@@ -14988,9 +15070,14 @@ registerProcessor("tidemote-sound", TidemoteSound);
         const st = this.trackStage.find((s) => !s.busy);
         if (!st) break;
         st.busy = true;
-        trackJobs.push({ st, id, simTime: this.simTime });
+        trackJobs.push({ st, id, k, simTime: this.simTime });
         const pu = new ArrayBuffer(48);
         const pf = new Float32Array(pu), pv = new Uint32Array(pu);
+        const seen = this.trackSeen[k]?.id === id && this.sorted ? this.trackSeen[k] : null;
+        if (seen) for (let a = 0; a < 2; a++) {
+          const g = this.grid[a];
+          pf[a] = ((seen.pos[a] + seen.vel[a] * (this.simTime - seen.simTime)) % g + g) % g;
+        }
         pf[2] = 0;
         pv[3] = id;
         pv[4] = 0;
@@ -15001,31 +15088,60 @@ registerProcessor("tidemote-sound", TidemoteSound);
         d.queue.writeBuffer(b.trackU[k], 0, pu);
         enc.clearBuffer(b.trackOut[k], 0, 56);
         const pass = enc.beginComputePass();
+        if (seen) {
+          pass.setPipeline(this.cpTrackNear);
+          pass.setBindGroup(0, this.trackNearBG[k]);
+          pass.dispatchWorkgroups(25);
+          pass.setPipeline(this.cpTrackArgs);
+          pass.setBindGroup(0, this.trackArgsBG[k]);
+          pass.dispatchWorkgroups(1);
+        }
         pass.setPipeline(this.cpPick.pipe);
         pass.setBindGroup(0, this.trackBG[k]);
-        pass.dispatchWorkgroups(Math.ceil(N / 256));
+        if (seen) pass.dispatchWorkgroupsIndirect(b.trackArgs[k], 0);
+        else pass.dispatchWorkgroups(Math.ceil(N / 256));
         pass.end();
         enc.copyBufferToBuffer(b.trackOut[k], 0, st.buf, 0, 56);
       }
       let watchJob = null;
-      if (this.watch.length && N > 0) {
+      const watching = this.watch.filter((c) => !this.watchGone.has(c.id)).slice(0, WATCH_MAX);
+      for (const id of this.watchGone) if (!this.watch.some((c) => c.id === id)) this.watchGone.delete(id);
+      if (watching.length && N > 0) {
         const st = this.watchStage.find((s) => !s.busy);
         if (st) {
           st.busy = true;
-          const ids = this.watch.slice(0, WATCH_MAX);
-          watchJob = { st, ids, simTime: this.simTime };
-          const wu = new Uint32Array(4 + WATCH_MAX);
-          wu[0] = N;
-          wu[1] = ids.length;
-          wu.set(ids, 4);
+          const cells = watching, ids = cells.map((c) => c.id);
+          watchJob = { st, ids, full: !this.sorted, simTime: this.simTime };
+          const wu = new ArrayBuffer(16 + WATCH_MAX * 20), wv = new Uint32Array(wu), wf = new Float32Array(wu);
+          wv[0] = N;
+          wv[1] = ids.length;
+          wv[2] = this.grid[0];
+          wv[3] = this.grid[1];
+          wv.set(ids, 4);
+          cells.forEach((c, k) => {
+            for (let a = 0; a < 2; a++) {
+              const g = this.grid[a];
+              wf[4 + WATCH_MAX + k * 4 + a] = (((a ? c.y : c.x) + (a ? c.vy : c.vx) * (this.simTime - c.t)) % g + g) % g;
+            }
+          });
           d.queue.writeBuffer(b.watchU, 0, wu);
           enc.clearBuffer(b.watchOut, 0, WATCH_MAX * 20);
           const pass = enc.beginComputePass();
+          if (this.sorted) {
+            pass.setPipeline(this.cpWatchNear);
+            pass.setBindGroup(0, this.watchNearBG);
+            pass.dispatchWorkgroups(25, ids.length);
+            pass.setPipeline(this.cpWatchArgs);
+            pass.setBindGroup(0, this.watchArgsBG);
+            pass.dispatchWorkgroups(1);
+          }
           pass.setPipeline(this.cpWatch.pipe);
           pass.setBindGroup(0, this.cpWatch.bg);
-          pass.dispatchWorkgroups(Math.ceil(N / 256));
+          if (this.sorted) pass.dispatchWorkgroupsIndirect(b.watchArgs, 0);
+          else pass.dispatchWorkgroups(Math.ceil(N / 256));
           pass.end();
           enc.copyBufferToBuffer(b.watchOut, 0, st.buf, 0, WATCH_MAX * 20);
+          if (this.sorted) enc.copyBufferToBuffer(b.watchArgs, 0, st.buf, WATCH_MAX * 20, 4);
         }
       }
       if (this.pickReq && N > 0) {
@@ -15141,18 +15257,20 @@ registerProcessor("tidemote-sound", TidemoteSound);
           const tracked = found ? parseParticle(u32, f32, 4) : null;
           st.buf.unmap();
           st.busy = false;
+          if (found) this.trackSeen[trackJob.k] = { id: trackJob.id, pos: [tracked.x, tracked.y], vel: [tracked.vx, tracked.vy], simTime: trackJob.simTime };
           if (generation === this.worldGeneration && this.onTrack) this.onTrack({ id: trackJob.id, found, tracked, simTime: trackJob.simTime });
         }).catch(() => {
           st.busy = false;
         });
       }
       if (watchJob) {
-        const { st, ids, simTime } = watchJob;
+        const { st, ids, full, simTime } = watchJob;
         st.buf.mapAsync(GPUMapMode.READ).then(() => {
           const buf = st.buf.getMappedRange(), f2 = new Float32Array(buf), u = new Uint32Array(buf);
-          const seen = [];
+          const seen = [], scanned = full || u[WATCH_MAX * 5] > 0;
           ids.forEach((id, k) => {
             if (u[WATCH_MAX * 4 + k]) seen.push({ id, x: f2[k * 4], y: f2[k * 4 + 1], vx: f2[k * 4 + 2], vy: f2[k * 4 + 3] });
+            else if (scanned) this.watchGone.add(id);
           });
           st.buf.unmap();
           st.busy = false;
@@ -22646,15 +22764,18 @@ registerProcessor("tidemote-sound", TidemoteSound);
       return filmShown() ? sel.particle.kind : -2;
     }
     function watchMarks(now) {
-      const only = markSlot(), ids = [];
+      const only = markSlot(), ids = [], cells = [];
       if (only !== -2) {
         for (const e of songEvents) {
           if (!e.cell || only >= 0 && e.slot !== only || e.at < now - MARK_MS || e.at > now + 1500) continue;
-          if (!ids.includes(e.cell.id)) ids.push(e.cell.id);
+          if (ids.includes(e.cell.id)) continue;
+          ids.push(e.cell.id);
+          const w = watched.get(e.cell.id);
+          cells.push(w ? { id: e.cell.id, x: w.x, y: w.y, vx: w.vx, vy: w.vy, t: w.t } : e.cell);
           if (ids.length >= WATCH_MAX) break;
         }
       }
-      eng.watch = ids;
+      eng.watch = cells;
       for (const id of watched.keys()) if (!ids.includes(id)) watched.delete(id);
     }
     function drawSongMarks(now, L) {

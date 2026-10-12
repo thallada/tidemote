@@ -71,6 +71,18 @@ faster than linearly (the level of detail is set in framebuffer pixels).
   five windows. (4) A frame rate halved was judged able to return by its own frame's GPU time, but
   its 2-tick step costs 1.45 times a 1/60 s one, so it never looked able to; the estimate now
   scales the step. Bench scenarios take `species` (follow one), `adapt: 'off'` and `series`.
+  (5) A selected cell still dropped some runs to 40–50 fps with the GPU idle: rAF itself fell from
+  175 to 80–130 Hz. The mind view changes every frame (the compass's arrows alone 400 attribute
+  writes a second), and inside the specimen panel's scrolling record (3600 px tall) each change
+  repainted all of it; the overlay canvas, drawn every frame, repainted the whole page with it.
+  Paint, layerizing, layout and style took about 300 ms a second of the main thread, past what a
+  175 Hz vsync leaves. With the overlay and the mind view's live parts on layers of their own
+  (`will-change` in `page.css`), about 20: selected or followed, 58 fps in every run. (6) The
+  followed cell and the cells marked singing were found by id in a scan of every particle each
+  frame (0.3 ms each at 2.4M). Each is now looked for first in the 5×5 grid cells around where it
+  is expected (where last found, carried on at its velocity), and the full scan runs, sized on
+  the GPU through an indirect dispatch, only when that misses: 0.3 → 0.01 ms and 0.23 → 0.04 ms.
+  A cell a full scan didn't find has died and isn't looked for again.
 - **Bounded GPU work per submit.** At most two frames in flight, and fast speeds carry only the
   fraction of a step their budget leaves (they once saved credit up to 512 steps, which came due on
   a switch to Max: 2 s of GPU in one submit). A phone's compositor shares its GPU, so a long or deep
