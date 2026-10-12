@@ -1,0 +1,8 @@
+{ "worlds": [{ "name": "heaps", "n": 2363392, "file": "slow.tidemote" }],
+  "scenarios": [
+    { "world": "heaps", "name": "closed", "zoom": "saved", "fps": 60, "scale": 1, "settle": 3, "seconds": 10, "dispatch": false },
+    { "world": "heaps", "name": "census", "lab": "census", "zoom": "saved", "fps": 60, "scale": 1, "settle": 3, "seconds": 10, "dispatch": false },
+    { "world": "heaps", "name": "species", "lab": "species", "zoom": "saved", "fps": 60, "scale": 1, "settle": 3, "seconds": 10, "dispatch": false },
+    { "world": "heaps", "name": "charts", "lab": "charts", "zoom": "saved", "fps": 60, "scale": 1, "settle": 3, "seconds": 10, "dispatch": false },
+    { "world": "heaps", "name": "species-adapt", "lab": "species", "zoom": "saved", "adapt": "keep", "settle": 2, "seconds": 20, "dispatch": false }
+  ] }

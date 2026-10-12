@@ -434,17 +434,24 @@ function run(eng, device, ctx, specCtx, hasTS) {
     return true;
   }
 
+  // a species' facets and preferred temperature, worked out once per genome (the Lab filters and
+  // counts every species on each update; a species' genome is replaced, never changed)
+  const facetCache = new WeakMap();
+  function facetsOf(g) {
+    let f = facetCache.get(g);
+    if (!f) facetCache.set(g, (f = { ...facets(g, K), temp: thermalGuild(g).pref }));
+    return f;
+  }
   function groups() {
     const out = { diet: {}, mobility: {}, body: {}, types: {}, temp: {} };
     for (const sp of life.reg.values()) {
       if (!sp.alive) continue;
-      const f = facets(sp.genome, K);
+      const f = facetsOf(sp.genome);
       out.diet[f.diet] = (out.diet[f.diet] || 0) + sp.pop;
       out.mobility[f.mobility] = (out.mobility[f.mobility] || 0) + sp.pop;
       out.body[f.body] = (out.body[f.body] || 0) + sp.pop;
       out.types[f.types] = (out.types[f.types] || 0) + sp.pop;
-      const tp = thermalGuild(sp.genome).pref;
-      out.temp[tp] = (out.temp[tp] || 0) + sp.pop;
+      out.temp[f.temp] = (out.temp[f.temp] || 0) + sp.pop;
     }
     return {
       diet: Object.keys(DIET_COL).map((k) => ({ name: k, n: out.diet[k] || 0, col: DIET_COL[k] })),
@@ -548,11 +555,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else setFocus(key, MATTER[{ silt: 0, glint: 1, husk: 2, stone: 3, framboid: 4 }[val]].name, { matter: ['silt', 'glint', 'husk', 'stone', 'framboid'].map((m) => m === val) });
     } else if (kind === 'role') setFocus(key, `${ROLE[+val]}-cells`, { pred: allLiving, roleMask: 1 << +val });
     else if (kind === 'state') setFocus(key, ['', 'Hungry cells', 'Cells ready to divide', 'Elderly cells', 'Heat-stressed cells', 'Torpid cells'][+val], { pred: allLiving, stateMode: +val });
-    else if (kind === 'temp') setFocus(key, `Prefers: ${val}`, { pred: (g) => thermalGuild(g).pref === val });
-    else if (kind === 'diet') setFocus(key, `Diet: ${val}`, { pred: (g) => facets(g, K).diet === val });
-    else if (kind === 'mobility') setFocus(key, `Movement: ${val}`, { pred: (g) => facets(g, K).mobility === val });
-    else if (kind === 'body') setFocus(key, val === 'multicellular' ? 'Multicellular species' : 'Single-cell species', { pred: (g) => facets(g, K).body === val });
-    else if (kind === 'types') setFocus(key, `${val} cell type${val === '1' ? '' : 's'}`, { pred: (g) => String(facets(g, K).types) === val });
+    else if (kind === 'temp') setFocus(key, `Prefers: ${val}`, { pred: (g) => facetsOf(g).temp === val });
+    else if (kind === 'diet') setFocus(key, `Diet: ${val}`, { pred: (g) => facetsOf(g).diet === val });
+    else if (kind === 'mobility') setFocus(key, `Movement: ${val}`, { pred: (g) => facetsOf(g).mobility === val });
+    else if (kind === 'body') setFocus(key, val === 'multicellular' ? 'Multicellular species' : 'Single-cell species', { pred: (g) => facetsOf(g).body === val });
+    else if (kind === 'types') setFocus(key, `${val} cell type${val === '1' ? '' : 's'}`, { pred: (g) => String(facetsOf(g).types) === val });
   }
   function focusSpecies(sp) {
     const key = `sp:${sp.serial}`;
@@ -1314,7 +1321,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // keep: folded for the auto camera, not by the reader, so the preference stands
     onFold: (on, keep) => { if (!phone() && !keep) { state.labOpen = on; persist(); } drawWorldChart(); },
     onCensusShown: drawWorldChart,
-    life: () => life, facets: (g) => facets(g, K), groups, climate: () => climate,
+    life: () => life, facets: facetsOf, groups, climate: () => climate,
     openSpecies, focusFacet,
     focusKey: () => focus.key,
     focusPredicate: (label, pred) => setFocus(`pred:${label}`, label, { pred }),
@@ -2663,7 +2670,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     sound.away(document.hidden);
   });
   // a handle for tools/perf, which profiles the page in a real browser
-  globalThis.__tidemote = { state, cam, perf, eng, sound, life: () => life, climate: () => climate, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
+  globalThis.__tidemote = { state, cam, perf, eng, sound, lab, life: () => life, climate: () => climate, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
     setScale(v) { state.perf.scale = v; if (v !== 'auto') renderScale = v; resetAdapt(); fit(); },
     // as the adaptive scale does it: applied when the next frame begins
     queueScale(v) { renderScale = v; resizeDue = true; },

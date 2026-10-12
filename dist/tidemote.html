@@ -16630,20 +16630,27 @@ registerProcessor("tidemote-sound", TidemoteSound);
       });
     }
   }
-  var popOf = (serial) => (s) => {
-    const e = s.sp.find((q) => q[0] === serial);
-    return e ? e[1] : 0;
-  };
+  var spIndex = /* @__PURE__ */ new WeakMap();
+  function spOf(s) {
+    let m = spIndex.get(s);
+    if (!m) {
+      m = new Map(s.sp);
+      spIndex.set(s, m);
+    }
+    return m;
+  }
+  var popOf = (serial) => (s) => spOf(s).get(serial) ?? 0;
   function sparkPath(hist, serial, w, h) {
     if (hist.length < 2) return "";
+    const n = Math.min(hist.length, Math.max(2, Math.round(w)));
+    const at = popOf(serial), vals = new Array(n).fill(0);
     let max = 1;
-    const at = popOf(serial);
-    const vals = hist.map((s) => {
-      const v = at(s);
+    for (let i = 0; i < hist.length; i++) {
+      const k = Math.round(i / (hist.length - 1) * (n - 1)), v = at(hist[i]);
+      if (v > vals[k]) vals[k] = v;
       if (v > max) max = v;
-      return v;
-    });
-    return vals.map((v, i) => `${i ? "L" : "M"}${(i / (vals.length - 1) * w).toFixed(1)},${(h - 1 - v / max * (h - 2)).toFixed(1)}`).join("");
+    }
+    return vals.map((v, i) => `${i ? "L" : "M"}${(i / (n - 1) * w).toFixed(1)},${(h - 1 - v / max * (h - 2)).toFixed(1)}`).join("");
   }
   function drawNiches(cv, species, tbg, felt, binW) {
     const f2 = fit(cv);
@@ -17543,7 +17550,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (F.diet !== "all" && f2.diet !== F.diet) return false;
       if (F.mobility !== "all" && f2.mobility !== F.mobility) return false;
       if (F.body !== "all" && f2.body !== F.body) return false;
-      if (F.temp !== "all" && thermalGuild(sp.genome).pref !== F.temp) return false;
+      if (F.temp !== "all" && f2.temp !== F.temp) return false;
       if (F.q && !sp.name.toLowerCase().includes(F.q.toLowerCase())) return false;
       return true;
     }
@@ -20646,17 +20653,22 @@ registerProcessor("tidemote-sound", TidemoteSound);
       flash(`${w.meta.name} loaded`);
       return true;
     }
+    const facetCache = /* @__PURE__ */ new WeakMap();
+    function facetsOf(g) {
+      let f2 = facetCache.get(g);
+      if (!f2) facetCache.set(g, f2 = { ...facets2(g, K), temp: thermalGuild(g).pref });
+      return f2;
+    }
     function groups() {
       const out = { diet: {}, mobility: {}, body: {}, types: {}, temp: {} };
       for (const sp of life.reg.values()) {
         if (!sp.alive) continue;
-        const f2 = facets2(sp.genome, K);
+        const f2 = facetsOf(sp.genome);
         out.diet[f2.diet] = (out.diet[f2.diet] || 0) + sp.pop;
         out.mobility[f2.mobility] = (out.mobility[f2.mobility] || 0) + sp.pop;
         out.body[f2.body] = (out.body[f2.body] || 0) + sp.pop;
         out.types[f2.types] = (out.types[f2.types] || 0) + sp.pop;
-        const tp = thermalGuild(sp.genome).pref;
-        out.temp[tp] = (out.temp[tp] || 0) + sp.pop;
+        out.temp[f2.temp] = (out.temp[f2.temp] || 0) + sp.pop;
       }
       return {
         diet: Object.keys(DIET_COL).map((k) => ({ name: k, n: out.diet[k] || 0, col: DIET_COL[k] })),
@@ -20784,11 +20796,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
         else setFocus(key, MATTER[{ silt: 0, glint: 1, husk: 2, stone: 3, framboid: 4 }[val]].name, { matter: ["silt", "glint", "husk", "stone", "framboid"].map((m) => m === val) });
       } else if (kind === "role") setFocus(key, `${ROLE[+val]}-cells`, { pred: allLiving, roleMask: 1 << +val });
       else if (kind === "state") setFocus(key, ["", "Hungry cells", "Cells ready to divide", "Elderly cells", "Heat-stressed cells", "Torpid cells"][+val], { pred: allLiving, stateMode: +val });
-      else if (kind === "temp") setFocus(key, `Prefers: ${val}`, { pred: (g) => thermalGuild(g).pref === val });
-      else if (kind === "diet") setFocus(key, `Diet: ${val}`, { pred: (g) => facets2(g, K).diet === val });
-      else if (kind === "mobility") setFocus(key, `Movement: ${val}`, { pred: (g) => facets2(g, K).mobility === val });
-      else if (kind === "body") setFocus(key, val === "multicellular" ? "Multicellular species" : "Single-cell species", { pred: (g) => facets2(g, K).body === val });
-      else if (kind === "types") setFocus(key, `${val} cell type${val === "1" ? "" : "s"}`, { pred: (g) => String(facets2(g, K).types) === val });
+      else if (kind === "temp") setFocus(key, `Prefers: ${val}`, { pred: (g) => facetsOf(g).temp === val });
+      else if (kind === "diet") setFocus(key, `Diet: ${val}`, { pred: (g) => facetsOf(g).diet === val });
+      else if (kind === "mobility") setFocus(key, `Movement: ${val}`, { pred: (g) => facetsOf(g).mobility === val });
+      else if (kind === "body") setFocus(key, val === "multicellular" ? "Multicellular species" : "Single-cell species", { pred: (g) => facetsOf(g).body === val });
+      else if (kind === "types") setFocus(key, `${val} cell type${val === "1" ? "" : "s"}`, { pred: (g) => String(facetsOf(g).types) === val });
     }
     function focusSpecies(sp) {
       const key = `sp:${sp.serial}`;
@@ -21619,7 +21631,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       },
       onCensusShown: drawWorldChart,
       life: () => life,
-      facets: (g) => facets2(g, K),
+      facets: facetsOf,
       groups,
       climate: () => climate,
       openSpecies,
@@ -23165,6 +23177,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       perf,
       eng,
       sound,
+      lab,
       life: () => life,
       climate: () => climate,
       renderScale: () => renderScale,

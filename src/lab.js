@@ -6,7 +6,6 @@ import { drawLines, drawNiches, sparkPath, onTap } from './charts.js';
 import { lineageModel, cut } from './lineage/model.js';
 import { drawMuller, drawTree, layoutTree } from './lineage/draw.js';
 import { HEAT_BINS, HEAT_BIN, THERMAL_LEDGER } from './shaders.js';
-import { thermalGuild } from './genome.js';
 import { block, disclosure, wireDisclosures } from './ui.js';
 
 /**
@@ -103,7 +102,7 @@ export function createLab(api) {
     if (F.diet !== 'all' && f.diet !== F.diet) return false;
     if (F.mobility !== 'all' && f.mobility !== F.mobility) return false;
     if (F.body !== 'all' && f.body !== F.body) return false;
-    if (F.temp !== 'all' && thermalGuild(sp.genome).pref !== F.temp) return false;
+    if (F.temp !== 'all' && f.temp !== F.temp) return false;
     if (F.q && !sp.name.toLowerCase().includes(F.q.toLowerCase())) return false;
     return true;
   }

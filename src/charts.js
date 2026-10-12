@@ -238,15 +238,28 @@ export function drawLines(cv, hist, series, eras, unit = '') {
   }
 }
 
+// each history sample's species by serial, built once per sample (samples never change once taken)
+const spIndex = new WeakMap();
+function spOf(s) {
+  let m = spIndex.get(s);
+  if (!m) { m = new Map(s.sp); spIndex.set(s, m); }
+  return m;
+}
 /** A species' population at each history sample (0 while it was not thriving). */
-export const popOf = (serial) => (s) => { const e = s.sp.find((q) => q[0] === serial); return e ? e[1] : 0; };
+export const popOf = (serial) => (s) => spOf(s).get(serial) ?? 0;
 
 export function sparkPath(hist, serial, w, h) {
   if (hist.length < 2) return '';
+  // at most one point per pixel, each the highest of the samples it stands for (peaks survive)
+  const n = Math.min(hist.length, Math.max(2, Math.round(w)));
+  const at = popOf(serial), vals = new Array(n).fill(0);
   let max = 1;
-  const at = popOf(serial);
-  const vals = hist.map((s) => { const v = at(s); if (v > max) max = v; return v; });
-  return vals.map((v, i) => `${i ? 'L' : 'M'}${((i / (vals.length - 1)) * w).toFixed(1)},${(h - 1 - (v / max) * (h - 2)).toFixed(1)}`).join('');
+  for (let i = 0; i < hist.length; i++) {
+    const k = Math.round((i / (hist.length - 1)) * (n - 1)), v = at(hist[i]);
+    if (v > vals[k]) vals[k] = v;
+    if (v > max) max = v;
+  }
+  return vals.map((v, i) => `${i ? 'L' : 'M'}${((i / (n - 1)) * w).toFixed(1)},${(h - 1 - (v / max) * (h - 2)).toFixed(1)}`).join('');
 }
 
 // ------------------------------------------------------------------ thermal niches

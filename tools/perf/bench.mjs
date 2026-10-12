@@ -17,6 +17,7 @@
 //   mouse  'sweep': the pointer moves over the view while measuring (the loupe, if on, follows it)
 //   adapt  'keep': the frame rate and scale left to the page's adaptive quality, unreset (fps, scale unused)
 //   prefs  more settings (eng.settings keys: bloom, optics, specks, lod, links, nodes, trails)
+//   lab    a Field Lab tab to hold open ('species', 'census', ...; closed by default); its updates are timed
 // Every frame's passes are timed on the GPU (eng.passProfile); the report has frame intervals,
 // GPU time per frame and per pass, the page's own CPU time per frame and the render scale.
 import fs from 'node:fs';
@@ -202,6 +203,7 @@ async function measure(page, sc) {
       const z = sc.zoom === 'fit' || sc.zoom == null ? 1 : Math.min(T.maxZoom(), Math.max(1, sc.zoom / ppuFit));
       cam.zoom = cam.zoomTarget = z; cam.anchor = null;
     }
+    if (sc.lab) T.lab.open(sc.lab); else T.lab.close();
     if (sc.sound) { if (!T.sound.on) await T.sound.setOn(true); } else if (T.sound.on) await T.sound.setOn(false);
     T.setSpeed(sc.speed === 'max' ? Infinity : sc.speed ?? 1);
     await sleep((sc.settle ?? 3) * 1000);
@@ -211,6 +213,10 @@ async function measure(page, sc) {
     rec.dts = [];
     eng.frame = (o) => { const t = performance.now(); if (rec.dts.length < 40) rec.dts.push([+o.simDt.toFixed(4), o.steps, o.paused ? 1 : 0]); origFrame(o); rec.encode.push(performance.now() - t); rec.submits.push(t); };
     eng.passProfile = true;
+    // the Lab's updates (main-thread time each)
+    rec.lab = [];
+    const origLab = T.lab.render;
+    T.lab.render = (f) => { const t = performance.now(); origLab(f); const ms = performance.now() - t; if (ms > 0.05) rec.lab.push(ms); };
     rec.series = []; rec.spikes = [];
     let t0 = performance.now();
     eng.onPassTimes = (times, f) => {
@@ -236,7 +242,7 @@ async function measure(page, sc) {
     await sleep((sc.seconds ?? 8) * 1000);
     on = false; clearInterval(watch);
     const wall = (performance.now() - t0) / 1000, simRate = (eng.simTime - sim0) / wall;
-    eng.frame = origFrame; eng.passProfile = false; eng.onPassTimes = null; po.disconnect();
+    eng.frame = origFrame; eng.passProfile = false; eng.onPassTimes = null; po.disconnect(); T.lab.render = origLab;
     // the simulation step dispatch by dispatch (paused around it, so frames don't interleave)
     const dispatch = {};
     if (sc.dispatch !== false) {
@@ -260,7 +266,7 @@ async function measure(page, sc) {
       sim: { mean: mean(rec.sim), stepsPerFrame: +(rec.steps / Math.max(1, rec.passFrames)).toFixed(2) },
       encodeMs: { mean: mean(rec.encode), p95: q(rec.encode, 0.95) },
       scale: { min: Math.min(...rec.scale), mean: mean(rec.scale), end: rec.scale.at(-1) }, slow: { mean: mean(rec.slow), end: rec.slow.at(-1), why: perf.why },
-      audio: T.sound.loadInfo, longTasks: rec.long, longMs: Math.round(rec.longMs), passes, dispatch, series: sc.then ? rec.series : undefined, adapt: rec.adapt, spikes: rec.spikes, dts: rec.dts,
+      audio: T.sound.loadInfo, longTasks: rec.long, longMs: Math.round(rec.longMs), lab: rec.lab.length ? { n: rec.lab.length, mean: mean(rec.lab), max: q(rec.lab, 1) } : undefined, passes, dispatch, series: sc.then ? rec.series : undefined, adapt: rec.adapt, spikes: rec.spikes, dts: rec.dts,
     };
   }, sc);
 }
@@ -289,7 +295,7 @@ try {
       if (sc.kind === 'growth') continue;
       if (sc.kind === 'step') { console.log(`${w.name}/${r.name}: step ${r.total} ms | ${JSON.stringify(r.dispatch)}`); continue; }
       const top = Object.entries(r.passes).slice(0, 4).map(([k, x]) => `${k} ${x}`).join(', ');
-      console.log(`${w.name}/${r.name}: ${r.audio ? `audio ${JSON.stringify(r.audio)} ` : ''}${r.fps} fps (raf ${r.rafFps}), gpu ${r.gpu.mean} ms (p95 ${r.gpu.p95}), sim ${r.sim.mean} ms x${r.sim.stepsPerFrame}, enc ${r.encodeMs.mean} ms, scale ${r.scale.mean}, slow ${r.slow.end} ${r.slow.why || ''}, ppu ${r.ppu} | ${top}`);
+      console.log(`${w.name}/${r.name}: ${r.audio ? `audio ${JSON.stringify(r.audio)} ` : ''}${r.fps} fps (raf ${r.rafFps}), gpu ${r.gpu.mean} ms (p95 ${r.gpu.p95}), sim ${r.sim.mean} ms x${r.sim.stepsPerFrame}, enc ${r.encodeMs.mean} ms, long ${r.longTasks}/${r.longMs} ms${r.lab ? `, lab ${r.lab.n}× ${r.lab.mean} ms (max ${r.lab.max})` : ''}, scale ${r.scale.mean}, slow ${r.slow.end} ${r.slow.why || ''}, ppu ${r.ppu} | ${top}`);
       if (v.out) fs.writeFileSync(v.out, JSON.stringify(report, null, 2));
     }
     if (!v.keep) await page.close();
