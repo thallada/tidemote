@@ -194,7 +194,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
 /**
  * K.brain's transplant test (docs/brain.md): replace the brains of the living species at a fork. 'random':
  * each gets a fresh random brain, as a spark of life does; 'shuffle': the swimming species trade brains,
- * each taking another's. If evolved brains suit their owners, either should cost them.
+ * each taking another's; 'shuffle-steer', 'shuffle-acts', 'shuffle-state': they trade only those outputs. If evolved brains suit their owners, either should cost them.
  */
 function transplantBrains(eng, census, how, rep, E, readGenome, { BRAIN_WORD, BRAIN_WORDS, G_BYTES }) {
   let s = (0x9e3779b9 ^ Math.imul(rep + 1, 2654435761)) >>> 0;
@@ -216,7 +216,18 @@ function transplantBrains(eng, census, how, rep, E, readGenome, { BRAIN_WORD, BR
         for (let b = 0; b < 4; b++) v |= (Math.round((rnd() * 2 - 1) * 0.3 * 127) & 255) << (8 * b);
         words[w] = v >>> 0;
       }
-    } else words.set(order[(i + 1) % order.length]);
+    } else if (how === 'shuffle') words.set(order[(i + 1) % order.length]);
+    else {
+      // a partial shuffle: only these outputs' weights and biases come from the donor ('steer': the
+      // direction gains, 'acts': appetite and dividing early, 'state': memories and signal)
+      const [o0, o1] = { steer: [0, 8], state: [8, 12], acts: [12, 14] }[how.slice(8)];
+      const own = new Uint8Array(new Uint32Array(slots[i][1]).buffer).slice(), donor = new Uint8Array(new Uint32Array(order[(i + 1) % order.length]).buffer);
+      for (let o = o0; o < o1; o++) {
+        for (let h = 0; h < 8; h++) own[160 + o * 8 + h] = donor[160 + o * 8 + h];
+        own[272 + o] = donor[272 + o];
+      }
+      words.set(new Uint32Array(own.buffer));
+    }
     eng.device.queue.writeBuffer(eng.b.genomes, k * G_BYTES + BRAIN_WORD * 4, words);
   });
 }

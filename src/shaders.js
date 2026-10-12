@@ -187,6 +187,7 @@ export const DEFAULT_K = {
   brainFounders: 1, // 0: founders start with random brains, as sparks do (for selection tests), not reflexes
   brainControl: 0,  // controls for selection (no brain inherited): 1 every mutant gets a fresh random brain,
                     // 2 a random living species' brain (mutated as usual), so weights stay as an inherited brain's
+  smell: 0,         // with a brain, how far a thought senses (world units, up to 2); 0: its reach (radius)
   thinkScan: 96,     // the neighbours a thought samples at most (lifeMain's scan takes maxScan)
   brainShrink: 0.5, // ...and how far each weight is drawn toward zero, relative to it, so only selection keeps it large
   thrustShare: 0.5, // the share of swimming's upkeep (swimCost) a brain pays by its stroke, not always: resting saves it
@@ -678,6 +679,7 @@ function cellWGSL(K, w) {
 // stroke and state it chooses (tThrust, tMem). w as in cellWGSL.
 function thinkWGSL(K, w) {
   const W = (s) => (w ? ' ' + s : '');
+  const span = K.smell > 1 ? 2 : 1, side = 2 * span + 1; // the bins it looks through: 3×3, or 5×5 to smell
   return /* wgsl */ `  let p = sortedFull[i];
   let g = genomes[p.kind];
   let world = sim.world;
@@ -694,7 +696,8 @@ function thinkWGSL(K, w) {
     let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
     // who could eat it: flesh-eaters, and croppers too if it is a plant (Lite.kr bits 13, 14)
     let eatsMe = select(1u << 13u, (1u << 13u) | (1u << 14u), g.photo > 0.4);
-    let R = g.radius;
+    // it senses out to its reach, or with K.smell farther (up to 2: the bins within two of its own)
+    let R = max(g.radius, ${f(Math.min(K.smell ?? 0, 2))});
     let invR = 1.0 / R;
     let gw = i32(sim.grid.x);
     let gh = i32(sim.grid.y);
@@ -709,27 +712,23 @@ function thinkWGSL(K, w) {
     var kinN = 0.0;
     var crowd = 0.0;
     var nutr = 0.0;
-    var rs: array<u32, 9>;
-    var re: array<u32, 9>;
-    var nr = 0u;
     var total = 0u;
-    for (var dy = -1; dy <= 1; dy++) {
+    for (var dy = -${span}; dy <= ${span}; dy++) {
       let rowBase = ((cc.y + dy + gh) % gh) * gw;
-      for (var dx = -1; dx <= 1; dx++) {
+      for (var dx = -${span}; dx <= ${span}; dx++) {
         let c = u32(rowBase + (cc.x + dx + gw) % gw);
-        rs[nr] = cellStart[c];
-        re[nr] = cellStart[c + 1u];
-        total += re[nr] - rs[nr];
-        nr++;
+        total += cellStart[c + 1u] - cellStart[c];
       }
     }
     let stride = max(1.0, f32(total) / ${f(K.thinkScan)});
     var s = pcg(p.id ^ pcg(sim.frame * 2654435761u + (sim.seed ^ 0x68e31da4u)));
     var at = select(0.0, rnd(&s) * stride, stride > 1.0);
-    for (var k = 0u; k < nr; k++) {
-      let len = f32(re[k] - rs[k]);
+    for (var k = 0; k < ${side * side}; k++) {
+      let c = u32(((cc.y + k / ${side} - ${span} + gh) % gh) * gw + (cc.x + k % ${side} - ${span} + gw) % gw);
+      let c0 = cellStart[c];
+      let len = f32(cellStart[c + 1u] - c0);
       for (; at < len; at += stride) {
-        let q = sortedLite[rs[k] + u32(at)];
+        let q = sortedLite[c0 + u32(at)];
         var d = q.pos - p.pos;
         d -= world * round(d * invWorld);
         let r2 = dot(d, d);
