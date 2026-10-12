@@ -443,6 +443,20 @@ canvas.chart { cursor: crosshair; }
 .set-reset { margin-left: auto; }
 span.set-reset { display: inline-flex; align-items: center; gap: var(--s3); color: var(--ink-2); font-size: 12px; }
 .keys-note { color: var(--ink-3); font-size: 12px; }
+/* Worlds: a name and Save, then one fixed-height row per save (a confirmation takes the row's place) */
+.w-save { display: grid; grid-template-columns: 1fr auto; gap: var(--s2); }
+.w-save input:disabled { opacity: .5; }
+.w-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: var(--s3); align-items: center; height: 44px; border-bottom: 1px solid var(--line); }
+.w-row:last-child { border-bottom: 0; }
+.w-sw { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; width: 22px; height: 22px; }
+.w-sw i { background: var(--cyan-deep); }
+.w-txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.w-txt b, .w-txt span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.w-txt b { font-weight: 500; color: var(--ink); font-size: 13px; }
+.w-txt span { color: var(--ink-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.w-txt em { font-style: normal; color: var(--sun); }
+.w-act { display: flex; align-items: center; gap: var(--s1); }
+.w-act .btn:disabled, .set-foot .link:disabled { opacity: .45; cursor: default; }
 .keys-note kbd, dt { color: var(--sun); }
 .help { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100% - 32px)); padding: 10px 18px 18px; z-index: 35; max-height: calc(100% - 32px); overflow-y: auto; }
 .keys { display: grid; grid-template-columns: max-content 1fr; gap: 9px 18px; margin: 10px 0 0; }
@@ -956,6 +970,7 @@ svg.niche .n-dot { fill: var(--cyan); }
   <symbol id="i-close" viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-plus" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-minus" viewBox="0 0 20 20"><path d="M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
+  <symbol id="i-down" viewBox="0 0 20 20"><path d="M10 4v9m-4-4 4 4 4-4M5 16h10" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-chev" viewBox="0 0 20 20"><path d="m5 12.5 5-5 5 5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
 </svg>
 
@@ -1003,6 +1018,7 @@ svg.niche .n-dot { fill: var(--cyan); }
       <div class="tabs" role="tablist" id="set-tabs" aria-label="Settings sections">
         <button type="button" role="tab" data-tab="display" aria-selected="true">Display</button>
         <button type="button" role="tab" data-tab="performance" aria-selected="false" tabindex="-1">Performance</button>
+        <button type="button" role="tab" data-tab="worlds" aria-selected="false" tabindex="-1">Worlds</button>
       </div>
       <button type="button" class="ghost" id="set-close" aria-label="Close settings"><svg><use href="#i-close"/></svg></button></div>
     <div class="readout" id="readout" hidden aria-live="off">
@@ -1019,6 +1035,7 @@ svg.niche .n-dot { fill: var(--cyan); }
       <div class="w4"><b id="ro-aim">–</b><span class="term" data-tip="aimfps" tabindex="0">Aiming for</span></div>
     </div>
     <div class="opts" id="opts"></div>
+    <input type="file" id="w-file" accept=".tidemote" hidden>
   </div>
 
   <!-- floating bars: the species highlight, and the map a gauge opened; each closes on its own -->
@@ -14282,11 +14299,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.bgStoneS = stoneBG(b.viewS);
       const inbondRes = [null, b.intent, b.parts, b.bondsIn, b.inbondU, b.cellStart, b.touch, b.genomes, b.sway];
       const inbondUse = [[2, 3, 4, 5], [1, 2, 3, 4, 5], [2, 4, 5, 6, 7, 8]];
-      this.inbondBG = this.cpInbond.map((pipe, k) => d.createBindGroup({
-        layout: pipe.getBindGroupLayout(0),
+      this.inbondBG = this.cpInbond.map((pipe2, k) => d.createBindGroup({
+        layout: pipe2.getBindGroupLayout(0),
         entries: inbondUse[k].map((binding) => ({ binding, resource: { buffer: inbondRes[binding] } }))
       }));
-      const lineBG = (pipe, view, k) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
+      const lineBG = (pipe2, view, k) => d.createBindGroup({ layout: pipe2.getBindGroupLayout(0), entries: [
         { binding: 0, resource: { buffer: view } },
         { binding: 1, resource: { buffer: b.parts } },
         { binding: 2, resource: { buffer: b.genomes } },
@@ -14361,7 +14378,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.murkBG = d.createBindGroup({ layout: this.pMurk.getBindGroupLayout(0), entries: [{ binding: 2, resource: { buffer: this.b.post } }] });
       this.accumViews = this.accum.map((t2) => t2.createView());
       this.bloomViews = this.bloom.map((t2) => t2.createView());
-      const sbg = (pipe, view) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
+      const sbg = (pipe2, view) => d.createBindGroup({ layout: pipe2.getBindGroupLayout(0), entries: [
         { binding: 0, resource: this.sampler },
         { binding: 1, resource: view }
       ] });
@@ -14370,7 +14387,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.down0BG = this.accumViews.map((v) => sbg(this.pDown, v));
       this.upBG = [];
       for (let i = BLOOM_LEVELS - 1; i > 0; i--) this.upBG.push({ target: i - 1, bg: sbg(this.pUp, this.bloomViews[i]) });
-      const compBG = (pipe) => this.accumViews.map((v) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
+      const compBG = (pipe2) => this.accumViews.map((v) => d.createBindGroup({ layout: pipe2.getBindGroupLayout(0), entries: [
         { binding: 0, resource: this.sampler },
         { binding: 1, resource: v },
         { binding: 2, resource: { buffer: this.b.post } },
@@ -14762,7 +14779,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
         st.destroy();
         buf.destroy();
       }
-      return { cpu: { ...keep.cpu, count: this.count, grid: [...this.grid] }, gpu };
+      return { cpu: { ...keep.cpu, count: this.count, grid: [...this.grid], founders: this.founders }, gpu };
+    }
+    /** The bytes of each buffer readState() keeps, for a world of n particles. */
+    stateSizes(n) {
+      return { parts: n * P_BYTES, genomes: MAXK * G_BYTES, intent: n * 16, ledger: (META_CLAIM + n) * 4, thermal: 3 * MAX_CELLS * 4 };
     }
     /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
     writeState({ cpu, gpu }) {
@@ -14770,6 +14791,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.restore({ gpu: {}, cpu });
       this.count = cpu.count;
       this.grid = [...cpu.grid];
+      if (cpu.founders != null) this.founders = cpu.founders;
       this.sorted = false;
       this.worldGeneration++;
       this.clearAccum = true;
@@ -15813,6 +15835,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     alive: "Every species with at least one living cell, including brand-new mutants.",
     ever: "Total number of species that have ever existed in this epoch.",
     stepms: "GPU time one simulation step takes.",
+    saves: "A save keeps the whole world: every particle, each species with its name and lineage, the chronicle, the history and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download one to keep it safe or to open it on another device.",
     profile: "Times three seconds of frames on the GPU, pass by pass, and one simulation step, and copies the result with this device’s details: a report of how the page runs here.",
     aimfps: "The frame rate the page aims for now, and why when it is lower than Target fps: frames running late, the GPU busy for nearly the whole frame, or the device under pressure (hot or busy, where the browser reports it). It first lowers the render scale; below 45 fps each step covers more simulated time, so the world keeps real time. It climbs back after a stretch with room to spare.",
     renderres: "The share of the screen’s resolution the world is drawn at right now (Scene px). With Render scale on Auto it drops when frames run late and climbs back when there is room.",
@@ -19333,6 +19356,82 @@ registerProcessor("tidemote-sound", TidemoteSound);
     return word(r, 1 + (r() < 0.5 ? 1 : 0)) + pick2(r, SUFFIX);
   }
 
+  // src/worlds.js
+  var FORMAT = 1;
+  var MAGIC = [84, 77, 87, 49];
+  var TYPED = { Float32Array, Float64Array, Uint32Array, Int32Array, Uint16Array, Int16Array, Uint8Array, Int8Array };
+  var pack = (v) => JSON.stringify(v, (_, x) => x instanceof Map ? { $map: [...x] } : ArrayBuffer.isView(x) && x.constructor.name in TYPED ? { $ta: x.constructor.name, v: Array.from(x) } : x);
+  var unpack = (s) => JSON.parse(s, (_, x) => x && typeof x === "object" && !Array.isArray(x) ? x.$map ? new Map(x.$map) : x.$ta ? TYPED[x.$ta].from(x.v) : x : x);
+  var pipe = async (blob, stream) => new Uint8Array(await new Response(blob.stream().pipeThrough(stream)).arrayBuffer());
+  async function encodeWorld({ meta, cpu, gpu, page }) {
+    const sizes = Object.entries(gpu).map(([k, b]) => [k, b.byteLength]);
+    const head = new TextEncoder().encode(pack({ format: FORMAT, meta, cpu, sizes, page }));
+    const len2 = new Uint8Array(new Uint32Array([head.length]).buffer);
+    return pipe(new Blob([new Uint8Array(MAGIC), len2, head, ...Object.values(gpu)]), new CompressionStream("gzip"));
+  }
+  async function decodeWorld(data) {
+    let b;
+    try {
+      b = await pipe(new Blob([data]), new DecompressionStream("gzip"));
+    } catch {
+      throw new Error("Not a Tidemote world.");
+    }
+    if (b.length < 8 || MAGIC.some((c, i) => b[i] !== c)) throw new Error("Not a Tidemote world.");
+    const n = new DataView(b.buffer).getUint32(4, true);
+    const head = unpack(new TextDecoder().decode(b.subarray(8, 8 + n)));
+    if (head.format !== FORMAT) throw new Error("This world was saved by another version of Tidemote.");
+    const gpu = {};
+    let at = 8 + n;
+    for (const [k, size] of head.sizes) {
+      gpu[k] = b.buffer.slice(at, at + size);
+      at += size;
+    }
+    if (at > b.length) throw new Error("This world’s file is incomplete.");
+    return { meta: head.meta, cpu: head.cpu, gpu, page: head.page };
+  }
+  function createWorldStore(name = "tidemote") {
+    let db = null;
+    const open = () => db ??= new Promise((res, rej) => {
+      const r = indexedDB.open(name, 1);
+      r.onupgradeneeded = () => {
+        r.result.createObjectStore("saves", { keyPath: "id" });
+        r.result.createObjectStore("files");
+      };
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => {
+        db = null;
+        rej(r.error);
+      };
+    });
+    async function tx(stores, mode, fn) {
+      const t2 = (await open()).transaction(stores, mode);
+      const out = fn(...stores.map((s) => t2.objectStore(s)));
+      return new Promise((res, rej) => {
+        t2.oncomplete = () => res(out && "result" in out ? out.result : out);
+        t2.onerror = t2.onabort = () => rej(t2.error || new Error("The browser refused to store the world."));
+      });
+    }
+    return {
+      async list() {
+        const all = await tx(["saves"], "readonly", (s) => s.getAll());
+        return all.sort((a, b) => b.savedAt - a.savedAt);
+      },
+      async put(meta, bytes) {
+        navigator.storage?.persist?.().catch(() => {
+        });
+        await tx(["saves", "files"], "readwrite", (s, f2) => {
+          s.put(meta);
+          f2.put(bytes, meta.id);
+        });
+      },
+      get: (id) => tx(["files"], "readonly", (f2) => f2.get(id)),
+      remove: (id) => tx(["saves", "files"], "readwrite", (s, f2) => {
+        s.delete(id);
+        f2.delete(id);
+      })
+    };
+  }
+
   // src/trace.js
   function bondGraph(u32, f32, n) {
     const index = /* @__PURE__ */ new Map();
@@ -20428,6 +20527,78 @@ registerProcessor("tidemote-sound", TidemoteSound);
       sound.overture();
       flash("A new world begins");
     }
+    const worldStore = createWorldStore();
+    async function saveWorld(name) {
+      const { lastCensus, ...keepLife } = life;
+      const keepClimate = Object.fromEntries(Object.entries(climate).filter(([, v]) => typeof v !== "function"));
+      const page = { life: keepLife, climate: keepClimate, cam: { x: cam.x, y: cam.y, zoom: cam.zoomTarget } };
+      const top = [...life.reg.values()].filter((s) => s.alive && s.established).sort((a, b) => b.pop - a.pop);
+      const meta = {
+        id: `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+        name,
+        savedAt: Date.now(),
+        simTime: eng.simTime,
+        count: eng.count,
+        thriving: life.thriving,
+        cols: top.slice(0, 4).map((s) => s.genome.col)
+      };
+      const bytes = await encodeWorld({ meta, ...await eng.readState(), page });
+      await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes);
+    }
+    async function openWorld(bytes) {
+      const w = await decodeWorld(bytes);
+      const want = eng.stateSizes(w.cpu.count), got = Object.entries(w.gpu);
+      if (got.length !== Object.keys(want).length || got.some(([k, b]) => want[k] !== b.byteLength)) throw new Error("This world was saved by another version of Tidemote.");
+      if (w.cpu.count > maxParticles()) throw new Error(`Its ${fmt(w.cpu.count)} particles are more than this GPU can hold.`);
+      return w;
+    }
+    function applyWorld({ cpu, gpu, page }) {
+      eng.writeState({ cpu, gpu });
+      resetDirector();
+      resetLife();
+      resetClimate();
+      torpidPrev = null;
+      if (page) {
+        Object.assign(life, page.life, { lastCensus: null });
+        Object.assign(climate, page.climate);
+        if (climate.announced && climate.excursion && climate.announced.t === climate.excursion.t) climate.announced = climate.excursion;
+        cam.x = page.cam.x;
+        cam.y = page.cam.y;
+        cam.zoom = cam.zoomTarget = page.cam.zoom;
+        cam.anchor = null;
+      }
+      sound.reset();
+      lab.reset();
+      specimen.reset();
+      deselect();
+      clearFocus();
+      feedKey = "";
+      renderFeed();
+      drawWorldChart();
+      renderWorld();
+    }
+    async function loadWorld(w) {
+      state.phase = "calibrating";
+      state.busy = true;
+      try {
+        await device.queue.onSubmittedWorkDone();
+        if (eng.capacity !== w.cpu.count && !await eng.allocate(w.cpu.count)) {
+          flash("Not enough GPU memory for that world");
+          await calibrate();
+          state.phase = "running";
+          renderWorld();
+          return false;
+        }
+        applyWorld(w);
+      } catch (e) {
+        fail("Could not load the world", String(e.message || e));
+        return false;
+      }
+      state.busy = false;
+      state.phase = "running";
+      flash(`${w.meta.name} loaded`);
+      return true;
+    }
     function groups() {
       const out = { diet: {}, mobility: {}, body: {}, types: {}, temp: {} };
       for (const sp of life.reg.values()) {
@@ -21433,7 +21604,105 @@ registerProcessor("tidemote-sound", TidemoteSound);
         const nowN = pendingN ?? (P.particles || "auto");
         return group("res", "Resolution", choice("scale", "Render scale", "", [["auto", "Auto"], [1, "100%"], [0.75, "75%"], [0.5, "50%"], [0.35, "35%"]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", "Auto lowest", "", [[0.75, "75%"], [0.5, "50%"], [0.35, "35%"], [0.25, "25%"]], P.floor, "autofloor") : "") + choice("density", "Pixel density", "", [[1, "1×"], [1.5, "1.5×", dev < 1.5], [2, "2×", dev < 2]], P.density, "density") + choice("fps", "Target fps", "", [[30, "30"], [60, "60"], [0, "Display"]], P.fps, "targetfps")) + group("fx", "Effects", onoff("bloom", "Bloom", "B", s.bloom > 0, "bloom") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("lod", "Zoom detail", "", s.lod, "lod") + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("closeup", "Live close-up", "", state.closeup, "closeup")) + group("world", "World", choice("n", "Particles", "", [["auto", "Auto"], ...sizes.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", "Neighbours", "", [144, 192, 288].map((n) => [n, String(n)]), eng.maxScan, "neighbours") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === "auto" ? "a measured count" : fmt(pendingN)}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", "Profile")}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ""));
       }
+      let saves = null, used = 0, wName = "", ask = null, wBusy = "";
+      const defaultName = () => `${climate.name} · ${fmtDur(eng.simTime)}`;
+      const when = (t2) => new Date(t2).toDateString() === (/* @__PURE__ */ new Date()).toDateString() ? new Date(t2).toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" }) : new Date(t2).toLocaleDateString(void 0, { month: "short", day: "numeric" });
+      const mb = (n) => `${(n / 1048576).toFixed(n < 10485760 ? 1 : 0)} MB`;
+      const mini = (o, v, text, cls = "") => `<button type="button" class="btn mini${cls}" data-o="${o}" data-v="${v}"${wBusy ? " disabled" : ""}>${text}</button>`;
+      function saveRow(m) {
+        const sw = [0, 1, 2, 3].map((i) => `<i${m.cols[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ""}></i>`).join("");
+        const a = ask && ask.id === m.id ? ask.kind : null;
+        const line = a === "load" ? "<em>Discard this world?</em>" : a === "del" ? "<em>Delete this save?</em>" : `${fmtDur(m.simTime)} · ${kfmt(m.count)} · ${m.thriving} species · ${when(m.savedAt)}`;
+        const acts = a === "load" ? mini("w-no", m.id, "Cancel") + mini("w-first", m.id, "Save first") + mini("w-yes", m.id, wBusy === "load" ? "Loading" : "Load", " hot-btn") : a === "del" ? mini("w-no", m.id, "Cancel") + mini("w-yes", m.id, "Delete", " hot-btn") : mini("w-load", m.id, "Load") + `<button type="button" class="ghost" data-o="w-dl" data-v="${m.id}" aria-label="Download" data-hint="Download a file to open on another device"><svg><use href="#i-down"/></svg></button><button type="button" class="ghost" data-o="w-del" data-v="${m.id}" aria-label="Delete" data-hint="Delete"><svg><use href="#i-close"/></svg></button>`;
+        return `<div class="w-row"><span class="w-sw" aria-hidden="true">${sw}</span><div class="w-txt"><b>${esc(m.name)}</b><span>${line}</span></div><div class="w-act">${acts}</div></div>`;
+      }
+      function worlds_() {
+        const off = wBusy || state.phase !== "running" ? " disabled" : "";
+        const save2 = `<div class="w-save"><input type="text" id="w-name" maxlength="60" autocomplete="off" spellcheck="false" placeholder="${esc(defaultName())}" value="${esc(wName)}" aria-label="Name this save"${off}><button type="button" class="btn hot-btn" data-o="w-save" data-v="0"${off}>${wBusy === "save" ? "Saving" : "Save"}</button></div>`;
+        const list = saves == null ? '<p class="note">Reading the saved worlds…</p>' : saves.length ? saves.map(saveRow).join("") : '<p class="note">No saved worlds yet. A save keeps everything: every particle, each species and its name, the chronicle and the history.</p>';
+        return group("w-save", "Save this world", save2) + section("w-list", "Saved worlds", block("", list, { aside: saves && saves.length ? `${saves.length} · ${mb(used)}` : "", tip: "saves" }));
+      }
+      async function refreshSaves() {
+        try {
+          saves = await worldStore.list();
+        } catch {
+          saves = [];
+        }
+        used = saves.reduce((a, m) => a + (m.bytes || 0), 0);
+        render();
+      }
+      function download(m, bytes) {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([bytes], { type: "application/gzip" }));
+        a.download = `${m.name.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-") || "world"}.tidemote`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1e3);
+      }
+      async function worldAct(id, v) {
+        const busy = async (what, fn) => {
+          wBusy = what;
+          render();
+          try {
+            await fn();
+          } catch (e) {
+            flash(String(e.message || e));
+          }
+          wBusy = "";
+          render();
+        };
+        if (id === "w-save") {
+          if (wBusy || state.phase !== "running") return;
+          await busy("save", async () => {
+            await saveWorld(wName.trim() || defaultName());
+            wName = "";
+            flash("World saved");
+            await refreshSaves();
+          });
+        } else if (id === "w-load" || id === "w-del") {
+          ask = { kind: id === "w-load" ? "load" : "del", id: v };
+          render();
+        } else if (id === "w-no") {
+          ask = null;
+          render();
+        } else if (id === "w-yes" && ask?.kind === "del") {
+          ask = null;
+          await worldStore.remove(v).catch((e) => flash(String(e.message || e)));
+          await refreshSaves();
+        } else if (id === "w-yes" || id === "w-first") {
+          if (wBusy || state.phase !== "running") return;
+          let loaded = false;
+          await busy("load", async () => {
+            const w = await openWorld(await worldStore.get(v));
+            if (id === "w-first") await saveWorld(defaultName());
+            ask = null;
+            loaded = await loadWorld(w);
+          });
+          if (loaded) toggle(false);
+          else refreshSaves();
+        } else if (id === "w-dl") {
+          const m = saves.find((x) => x.id === v);
+          if (m) download(m, await worldStore.get(v));
+        } else if (id === "w-open") $("w-file").click();
+      }
+      $("w-file").addEventListener("change", async (e) => {
+        const f2 = e.target.files[0];
+        e.target.value = "";
+        if (!f2) return;
+        wBusy = "open";
+        render();
+        try {
+          const bytes = await f2.arrayBuffer();
+          const { meta } = await openWorld(bytes);
+          await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes);
+          ask = { kind: "load", id: meta.id };
+        } catch (err) {
+          flash(`Could not open ${f2.name}: ${String(err.message || err)}`);
+        }
+        wBusy = "";
+        await refreshSaves();
+      });
       function foot() {
+        if (tab === "worlds") return `<div class="set-foot"><span class="keys-note">Kept in this browser.</span><button type="button" class="link set-reset" data-o="w-open" data-v="0"${wBusy ? " disabled" : ""}>Open a file</button></div>`;
         const reset = confirming ? `<span class="set-reset"><span>Reset every ${tab} setting?</span><button type="button" class="link" data-o="reset-no" data-v="0">Cancel</button><button type="button" class="btn hot-btn" data-o="reset-yes" data-v="0">Reset</button></span>` : `<button type="button" class="link set-reset" data-o="reset" data-v="0">Reset to defaults</button>`;
         return `<div class="set-foot">${confirming ? "" : '<span class="keys-note">Keyboard: <kbd>?</kbd> lists every shortcut.</span>'}${reset}</div>`;
       }
@@ -21467,7 +21736,14 @@ registerProcessor("tidemote-sound", TidemoteSound);
           b.tabIndex = on ? 0 : -1;
         });
         $("readout").hidden = tab !== "performance";
-        opts.innerHTML = (tab === "display" ? display() : performance_()) + foot();
+        const typing = document.activeElement?.id === "w-name";
+        opts.innerHTML = (tab === "display" ? display() : tab === "performance" ? performance_() : worlds_()) + foot();
+        if (typing && !$("w-name").disabled) {
+          const i = $("w-name");
+          i.focus();
+          i.setSelectionRange(i.value.length, i.value.length);
+        }
+        if (tab === "worlds" && saves == null) refreshSaves();
         readout(true);
       }
       let roAt = 0;
@@ -21492,6 +21768,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       function set(id, v) {
         const s = eng.settings, P = state.perf;
+        if (id.startsWith("w-")) {
+          worldAct(id, v);
+          return;
+        }
         if (id === "trails") {
           trailIdx = +v;
           s.trails = trailLevels[trailIdx];
@@ -21556,14 +21836,25 @@ registerProcessor("tidemote-sound", TidemoteSound);
         const b = e.target.closest("[data-o]");
         if (b && !b.disabled) set(b.dataset.o, b.dataset.v);
       });
+      opts.addEventListener("input", (e) => {
+        if (e.target.id === "w-name") wName = e.target.value;
+      });
+      opts.addEventListener("keydown", (e) => {
+        if (e.target.id === "w-name" && e.key === "Enter") {
+          e.preventDefault();
+          worldAct("w-save");
+        }
+      });
       tabs.forEach((b) => b.addEventListener("click", () => {
         tab = b.dataset.tab;
         confirming = false;
+        ask = null;
         render();
       }));
       $("set-tabs").addEventListener("keydown", (e) => {
         if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-        const n = tabs.find((b) => b.dataset.tab !== tab);
+        const i = tabs.findIndex((b) => b.dataset.tab === tab);
+        const n = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
         e.preventDefault();
         n.click();
         n.focus();
@@ -21574,10 +21865,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (on) {
           $("help").hidden = true;
           if (phone()) lab.close();
+          saves = null;
           render();
         } else {
           pendingN = null;
           confirming = false;
+          ask = null;
         }
       }
       btn.addEventListener("click", () => toggle());
@@ -22841,17 +23134,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         resizeDue = true;
       },
       // a world saved by eng.readState(), in place of this one
-      loadWorld(s) {
-        eng.writeState(s);
-        resetDirector();
-        resetLife();
-        resetClimate();
-        sound.reset();
-        lab.reset();
-        specimen.reset();
-        deselect();
-        clearFocus();
-      }
+      loadWorld: applyWorld
     };
     calibrate().then(() => {
       state.phase = "running";

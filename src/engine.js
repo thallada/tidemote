@@ -756,7 +756,12 @@ class Engine {
       gpu[k] = st.getMappedRange().slice(0);
       st.destroy(); buf.destroy();
     }
-    return { cpu: { ...keep.cpu, count: this.count, grid: [...this.grid] }, gpu };
+    return { cpu: { ...keep.cpu, count: this.count, grid: [...this.grid], founders: this.founders }, gpu };
+  }
+
+  /** The bytes of each buffer readState() keeps, for a world of n particles. */
+  stateSizes(n) {
+    return { parts: n * P_BYTES, genomes: MAXK * G_BYTES, intent: n * 16, ledger: (META_CLAIM + n) * 4, thermal: 3 * MAX_CELLS * 4 };
   }
 
   /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
@@ -764,6 +769,7 @@ class Engine {
     for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, data);
     this.restore({ gpu: {}, cpu });
     this.count = cpu.count; this.grid = [...cpu.grid];
+    if (cpu.founders != null) this.founders = cpu.founders;
     this.sorted = false;
     this.worldGeneration++;
     this.clearAccum = true;
