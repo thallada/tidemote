@@ -1862,7 +1862,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
         hideIntro();
       };
       addEventListener('pointerdown', go, true); addEventListener('keydown', go, true);
-    } else setTimeout(hideIntro, 3500);
+    } else {
+      // (a world being loaded meanwhile holds it until running again)
+      const later = () => (state.phase === 'running' ? hideIntro() : setTimeout(later, 250));
+      setTimeout(later, 3500);
+    }
   }
 
   // ------------------------------------------------------------ rail
@@ -2664,7 +2668,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // as the adaptive scale does it: applied when the next frame begins
     queueScale(v) { renderScale = v; resizeDue = true; },
     // a world saved by eng.readState(), in place of this one
-    loadWorld: applyWorld };
+    loadWorld: applyWorld,
+    // a .tidemote file's bytes, as Settings → Worlds opens one
+    openWorld: async (bytes) => loadWorld(await openWorld(bytes)) };
 
   calibrate().then(() => {
     state.phase = 'running';

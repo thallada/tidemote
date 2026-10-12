@@ -6,11 +6,16 @@
 // A plan is { worlds: [{ name, n, mature }], scenarios: [{ name, world, zoom, ... }] }. A world of
 // n particles is grown once at Max for `mature` real seconds, saved to runs/perf/worlds/NAME.bin and
 // loaded again for every scenario on it (and on later runs: delete the file to grow a new one), so
-// every scenario starts from the same moment of the same world. A scenario sets:
-//   zoom   css px per world unit (cells resolve from about 35, interiors 150, fine detail 400), or 'fit'
+// every scenario starts from the same moment of the same world. A world's `file` may instead name a
+// .tidemote file (saved from Settings → Worlds) in runs/perf/worlds/. A scenario sets:
+//   zoom   css px per world unit (cells resolve from about 35, interiors 150, fine detail 400), 'fit',
+//          or 'saved' (the camera a world opened from a .tidemote file was saved with)
+//   at     [x, y] world units the view centres on (default: the commonest species' densest patch)
 //   speed  1 (default), 4, 'max' ...   fps: the target frame rate (0: the display's)
 //   scale  'auto' (default) or a fixed render scale   select: pick a cell of the commonest species
 //   sound  false (default)   seconds: how long to measure (default 8)   settle: seconds before (3)
+//   mouse  'sweep': the pointer moves over the view while measuring (the loupe, if on, follows it)
+//   adapt  'keep': the frame rate and scale left to the page's adaptive quality, unreset (fps, scale unused)
 //   prefs  more settings (eng.settings keys: bloom, optics, specks, lod, links, nodes, trails)
 // Every frame's passes are timed on the GPU (eng.passProfile); the report has frame intervals,
 // GPU time per frame and per pass, the page's own CPU time per frame and the render scale.
@@ -75,6 +80,8 @@ async function openPage(n, extra = {}, k = null, init = null, html = null) {
   page.on('pageerror', (e) => console.log(`  [page error] ${e.message}`));
   await page.goto(`${base}/${html ? `pages/${html}.html` : 'tidemote.html'}${k ? `#k=${encodeURIComponent(JSON.stringify(k))}` : ''}`);
   await page.waitForFunction(() => globalThis.__tidemote && globalThis.__tidemote.state.phase === 'running', null, { polling: 250 });
+  // the intro gone (the page as it plays: the auto camera waits for it), before a world is loaded
+  await page.waitForFunction(() => document.body.classList.contains('live'), null, { polling: 250 });
   report.browser ??= await page.evaluate(async () => {
     const a = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
     return { ua: navigator.userAgent, adapter: a.info && [a.info.vendor, a.info.architecture, a.info.description].join(' / '), wgsl: [...navigator.gpu.wgslLanguageFeatures], dpr: devicePixelRatio };
@@ -84,6 +91,14 @@ async function openPage(n, extra = {}, k = null, init = null, html = null) {
 
 // grow a world at Max, or load the saved one
 async function world(page, w) {
+  if (w.file?.endsWith('.tidemote')) {
+    // a world saved from the page (Settings → Worlds), with its camera and record
+    const t0 = Date.now();
+    const ok = await page.evaluate(async (url) => globalThis.__tidemote.openWorld(await (await fetch(url)).arrayBuffer()), `${base}/worlds/${w.file}`);
+    if (!ok) throw new Error(`world ${w.name}: could not open ${w.file}`);
+    console.log(`world ${w.name}: opened ${w.file} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+    return;
+  }
   const file = path.join(worldDir, `${w.file || w.name}.bin`);
   if (fs.existsSync(file)) {
     const t0 = Date.now();
@@ -171,20 +186,22 @@ async function measure(page, sc) {
     const T = globalThis.__tidemote, { state, cam, perf, eng } = T;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     Object.assign(eng.settings, sc.prefs || {});
-    state.perf.fps = sc.fps ?? 0;
-    T.setScale(sc.scale ?? 'auto');
+    if (sc.adapt !== 'keep') { state.perf.fps = sc.fps ?? 0; T.setScale(sc.scale ?? 'auto'); }
     // aim at the commonest species' densest patch (findMember follows it; unfollow unless selecting)
-    const L = T.life();
-    let top = null;
-    for (const sp of L.reg.values()) if (sp.alive && (!top || sp.pop > top.pop)) top = sp;
-    if (top) await T.findMember(top.serial);
-    await sleep(300);
-    if (!sc.select) { const c = { x: cam.x, y: cam.y }; T.deselect(); Object.assign(cam, c); }
-    state.follow = !!sc.select;
-    // zoom 1 fits the world to the window; sc.zoom is css px per world unit
-    const ppuFit = Math.max(innerWidth / eng.grid[0], innerHeight / eng.grid[1]);
-    const z = sc.zoom === 'fit' || sc.zoom == null ? 1 : Math.min(T.maxZoom(), Math.max(1, sc.zoom / ppuFit));
-    cam.zoom = cam.zoomTarget = z; cam.anchor = null;
+    // ('saved' keeps the camera a .tidemote world was saved with; at: a spot of its own)
+    if (sc.zoom !== 'saved') {
+      const L = T.life();
+      let top = null;
+      for (const sp of L.reg.values()) if (sp.alive && (!top || sp.pop > top.pop)) top = sp;
+      if (sc.at) { cam.x = sc.at[0]; cam.y = sc.at[1]; } else if (top) await T.findMember(top.serial);
+      await sleep(300);
+      if (!sc.select) { const c = { x: cam.x, y: cam.y }; T.deselect(); Object.assign(cam, c); }
+      state.follow = !!sc.select;
+      // zoom 1 fits the world to the window; sc.zoom is css px per world unit
+      const ppuFit = Math.max(innerWidth / eng.grid[0], innerHeight / eng.grid[1]);
+      const z = sc.zoom === 'fit' || sc.zoom == null ? 1 : Math.min(T.maxZoom(), Math.max(1, sc.zoom / ppuFit));
+      cam.zoom = cam.zoomTarget = z; cam.anchor = null;
+    }
     if (sc.sound) { if (!T.sound.on) await T.sound.setOn(true); } else if (T.sound.on) await T.sound.setOn(false);
     T.setSpeed(sc.speed === 'max' ? Infinity : sc.speed ?? 1);
     await sleep((sc.settle ?? 3) * 1000);
@@ -194,16 +211,21 @@ async function measure(page, sc) {
     rec.dts = [];
     eng.frame = (o) => { const t = performance.now(); if (rec.dts.length < 40) rec.dts.push([+o.simDt.toFixed(4), o.steps, o.paused ? 1 : 0]); origFrame(o); rec.encode.push(performance.now() - t); rec.submits.push(t); };
     eng.passProfile = true;
-    rec.series = [];
+    rec.series = []; rec.spikes = [];
     let t0 = performance.now();
     eng.onPassTimes = (times, f) => {
       if (rec.series.length < 90) rec.series.push([+(performance.now() - t0).toFixed(1), f.nSteps, +f.ms.toFixed(2)]);
+      // the passes of a frame far over budget, as they were
+      if (f.ms > 40 && rec.spikes.length < 40) rec.spikes.push({ t: Math.round(performance.now() - t0), ms: +f.ms.toFixed(1), ppu: +(eng.lastCam ? eng.lastCam.ppu : 0).toFixed(1), passes: Object.fromEntries(times.filter(([, ms]) => ms > 0.5).map(([k, ms]) => [k, +ms.toFixed(2)])) });
       if (!(f.ms > 0 && f.ms < 1000)) return;
       rec.gpu.push(f.ms); rec.sim.push(f.simMs); rec.steps += f.nSteps; rec.passFrames++;
       for (const [name, ms] of times) rec.passes[name] = (rec.passes[name] || 0) + ms;
     };
     const po = new PerformanceObserver((l) => { for (const e of l.getEntries()) { rec.long++; rec.longMs += e.duration; } });
     try { po.observe({ type: 'longtask', buffered: false }); } catch { /* unsupported */ }
+    // the adaptation every second: [s, frames aimed slower, render scale, why, GPU ms (ema), fps]
+    rec.adapt = [];
+    const watch = setInterval(() => rec.adapt.push([Math.round((performance.now() - t0) / 1000), perf.slow, T.renderScale(), perf.why, +perf.gpu.toFixed(1), +perf.fps.toFixed(1)]), 1000);
     let on = true;
     const tick = (t) => { if (!on) return; rec.raf.push(t); rec.scale.push(T.renderScale()); rec.slow.push(perf.slow || 1); requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
@@ -212,7 +234,7 @@ async function measure(page, sc) {
     // a change made as recording starts (series: each frame's [ms since, steps, GPU ms])
     if (sc.then && sc.then.speed) T.setSpeed(sc.then.speed === 'max' ? Infinity : sc.then.speed);
     await sleep((sc.seconds ?? 8) * 1000);
-    on = false;
+    on = false; clearInterval(watch);
     const wall = (performance.now() - t0) / 1000, simRate = (eng.simTime - sim0) / wall;
     eng.frame = origFrame; eng.passProfile = false; eng.onPassTimes = null; po.disconnect();
     // the simulation step dispatch by dispatch (paused around it, so frames don't interleave)
@@ -238,7 +260,7 @@ async function measure(page, sc) {
       sim: { mean: mean(rec.sim), stepsPerFrame: +(rec.steps / Math.max(1, rec.passFrames)).toFixed(2) },
       encodeMs: { mean: mean(rec.encode), p95: q(rec.encode, 0.95) },
       scale: { min: Math.min(...rec.scale), mean: mean(rec.scale), end: rec.scale.at(-1) }, slow: { mean: mean(rec.slow), end: rec.slow.at(-1), why: perf.why },
-      audio: T.sound.loadInfo, longTasks: rec.long, longMs: Math.round(rec.longMs), passes, dispatch, series: sc.then ? rec.series : undefined, dts: rec.dts,
+      audio: T.sound.loadInfo, longTasks: rec.long, longMs: Math.round(rec.longMs), passes, dispatch, series: sc.then ? rec.series : undefined, adapt: rec.adapt, spikes: rec.spikes, dts: rec.dts,
     };
   }, sc);
 }
@@ -252,7 +274,17 @@ try {
     if (!report.shown) { report.shown = true; console.log(JSON.stringify(report.browser)); }
     if (!w.fresh) await world(page, w);
     for (const sc of scs) {
+      // mouse: 'sweep' moves the pointer over the view while measuring (the loupe follows it), in a slow zigzag
+      let moving = !!sc.mouse;
+      const mover = sc.mouse && (async () => {
+        await page.waitForTimeout((sc.settle ?? 3) * 1000);
+        for (let t = 0; moving; t += 1) {
+          await page.mouse.move(W * (0.15 + 0.7 * (0.5 + 0.5 * Math.sin(t * 0.031))), H * (0.2 + 0.6 * (0.5 + 0.5 * Math.sin(t * 0.0113))));
+          await page.waitForTimeout(16);
+        }
+      })();
       const r = await measure(page, sc);
+      moving = false; await mover;
       report.scenarios.push({ world: w.name, ...r });
       if (sc.kind === 'growth') continue;
       if (sc.kind === 'step') { console.log(`${w.name}/${r.name}: step ${r.total} ms | ${JSON.stringify(r.dispatch)}`); continue; }

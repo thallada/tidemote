@@ -2019,39 +2019,86 @@ struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32 };
 
 fn drawnSize(p: Particle) -> f32 { return genomes[p.kind].size * (1.0 - 0.12 * f32(roleOf(p.info))); }
 
-@compute @workgroup_size(64)
+// The living cells a grid cell's cells could touch, gathered once for the workgroup: its own first,
+// then those within reach in the eight around it (the largest cells reach 0.085 · 1.3 · 2 · 2.6 < 0.6).
+// Matter heaps pile ten thousand grains into one grid cell, so scanning every particle around each
+// cell cost 190–690 ms a frame with a heap in view; here each cell searches only living neighbours, at most
+// NEAR_N of them (past that, cells overlap dozens deep and which few it flattens against can't be seen).
+// Positions are packed relative to the grid cell's centre (snorm over ±2 units: 6e-5 apart).
+const NEAR_N = 1024u;
+const NEAR_REACH = 0.6;
+var<workgroup> nearPos: array<u32, NEAR_N>;
+var<workgroup> nearIdx: array<u32, NEAR_N>;
+var<workgroup> nearSize: array<f32, NEAR_N>;
+var<workgroup> nearCount: atomic<u32>;
+var<workgroup> nearUniform: u32;
+
+fn nearAdd(j: u32, d: vec2f, size: f32) {
+  let c = atomicAdd(&nearCount, 1u);
+  if (c < NEAR_N) { nearPos[c] = pack2x16snorm(d * 0.5); nearIdx[c] = j; nearSize[c] = size; }
+}
+
+// 256 threads: a crowded grid cell's few hundred cells are worked through in a few rounds
+@compute @workgroup_size(256)
 fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_index) l: u32) {
   let r = cellRange(wg);
+  if (r.x == r.y) { return; }
   let g = vec2i(views.grid.xy);
   let world = vec2f(g);
-  for (var i = r.x + l; i < r.y; i += 64u) {
+  // this grid cell (its particles were sorted into it before this step moved them)
+  let at = ((views.first[wg.z].xy + vec2i(wg.xy)) % g + g) % g;
+  let centre = vec2f(at) + 0.5;
+  if (l == 0u) { atomicStore(&nearCount, 0u); }
+  workgroupBarrier();
+  for (var j = r.x + l; j < r.y; j += 256u) {
+    let q = parts[j];
+    if (q.kind < FIRST_LIFE) { continue; }
+    var d = q.pos - centre;
+    d -= world * round(d / world);
+    nearAdd(j, d, drawnSize(q));
+  }
+  workgroupBarrier();
+  if (l == 0u) { nearUniform = atomicLoad(&nearCount); }
+  // no living cell here: nothing to touch
+  if (workgroupUniformLoad(&nearUniform) == 0u) { return; }
+  for (var dy = -1; dy <= 1; dy++) {
+    for (var dx = -1; dx <= 1; dx++) {
+      if (dx == 0 && dy == 0) { continue; }
+      let c = ((at + vec2i(dx, dy)) % g + g) % g;
+      let cell = u32(c.y) * views.grid.x + u32(c.x);
+      let end = cellStart[cell + 1u];
+      for (var j = cellStart[cell] + l; j < end; j += 256u) {
+        if (parts[j].kind < FIRST_LIFE) { continue; }
+        var d = parts[j].pos - centre;
+        d -= world * round(d / world);
+        if (any(abs(d) > vec2f(0.5 + NEAR_REACH))) { continue; }
+        nearAdd(j, d, drawnSize(parts[j]));
+      }
+    }
+  }
+  workgroupBarrier();
+  if (l == 0u) { nearUniform = min(atomicLoad(&nearCount), NEAR_N); }
+  let n = workgroupUniformLoad(&nearUniform);
+  for (var i = r.x + l; i < r.y; i += 256u) {
     let p = parts[i];
     if (p.kind < FIRST_LIFE) { continue; }
     let si = drawnSize(p);
+    var pd = p.pos - centre;
+    pd -= world * round(pd / world);
     var best: array<u32, TOUCH_N>;
     var key: array<f32, TOUCH_N>;
     for (var c = 0u; c < TOUCH_N; c++) { best[c] = NONE; key[c] = 1.0; }
-    let at = vec2i(floor(p.pos));
-    for (var dy = -1; dy <= 1; dy++) {
-      for (var dx = -1; dx <= 1; dx++) {
-        let c = ((at + vec2i(dx, dy)) % g + g) % g;
-        let cell = u32(c.y) * views.grid.x + u32(c.x);
-        let end = cellStart[cell + 1u];
-        for (var j = cellStart[cell]; j < end; j++) {
-          if (j == i) { continue; }
-          let q = parts[j];
-          if (q.kind < FIRST_LIFE) { continue; }
-          var d = q.pos - p.pos;
-          d -= world * round(d / world);
-          // 0.085 world units per unit of size at full detail (pointSize); beyond 1.3 radii, no contact
-          let k = length(d) / (0.085 * 1.3 * (si + drawnSize(q)));
-          if (k >= key[TOUCH_N - 1u]) { continue; }
-          var c = TOUCH_N - 1u;
-          for (; c > 0u && key[c - 1u] > k; c--) { key[c] = key[c - 1u]; best[c] = best[c - 1u]; }
-          key[c] = k;
-          best[c] = j;
-        }
-      }
+    for (var e = 0u; e < n; e++) {
+      let j = nearIdx[e];
+      if (j == i) { continue; }
+      let d = unpack2x16snorm(nearPos[e]) * 2.0 - pd;
+      // 0.085 world units per unit of size at full detail (pointSize); beyond 1.3 radii, no contact
+      let k = length(d) / (0.085 * 1.3 * (si + nearSize[e]));
+      if (k >= key[TOUCH_N - 1u]) { continue; }
+      var c = TOUCH_N - 1u;
+      for (; c > 0u && key[c - 1u] > k; c--) { key[c] = key[c - 1u]; best[c] = best[c - 1u]; }
+      key[c] = k;
+      best[c] = j;
     }
     for (var c = 0u; c < TOUCH_N; c++) { touch[i * TOUCH_N + c] = best[c]; }
 

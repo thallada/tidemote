@@ -67,6 +67,19 @@ faster than linearly (the level of detail is set in framebuffer pixels).
 - Particles are sorted by grid cell, so a view that sees under half the world draws only the grid
   rows it covers (`CULL_WGSL`): the main view zoomed in, the loupe and the specimen close-up. A 4M
   world at 150 px per unit: scene pass 6.1 → 0.15 ms; with a cell picked the frame fell 29 → 19 ms.
+- Matter heaps (2026-10-12). Silt and glint can pile into a few grid cells: a 2.4M world (save in
+  `runs/perf/worlds/slow.tidemote`, plan `tools/perf/plans/heaps.json`) had about a hundred grid cells
+  over 3000 particles and one of 14,410, nearly all grains, with a few hundred cells among them.
+  `contactGather` (each resolved cell's six nearest contacts, for drawing) scanned every particle in
+  the 3×3 grid cells around each living cell, so a heap in view cost 190–690 ms of GPU per frame: the
+  loupe swept over the world or the auto camera closing in dropped the page to 15–20 fps, and the
+  adaptive quality then held it there. Now each grid cell's workgroup (256 threads) first gathers the
+  living cells within reach (its own, then those within 0.6 units in the eight around) into workgroup
+  memory, at most 1024, and each cell searches only those: 2–5 ms at the worst heap, 0.1–0.5 ms
+  elsewhere, and the same contacts (98–99.8% of cells identical, the rest ties in order or the sixth
+  place). The loupe over that world: 17–20 fps → 58 fps (GPU p95 124–197 ms → 13.5 ms). The step is
+  unaffected (it samples `maxScan` neighbours), though the heaps make `matterMain` and `resolveCount`
+  2–3 times their usual cost per particle.
 - Tried and dropped: working out each distant sprite once in a compute pass instead of at each of
   its four corners (the 4M far view's points cost the same: the vertices themselves, not their
   arithmetic), and limiting `contactGather` to the grid cells a contact can reach (within noise).
@@ -90,7 +103,11 @@ and never during a balance gate.
   (`profileStep`). `kind: 'step'` times only the step, repeated from one saved moment (about ±4%,
   but ±8% between page loads: compare variants in one run, alternating). `kind: 'growth'` follows a
   fresh world's step cost as life grows. A world's `page` loads a variant build from
-  `runs/perf/pages/`, `init` runs a script first, `k` overrides tunables.
+  `runs/perf/pages/`, `init` runs a script first, `k` overrides tunables. A world's `file` may name a
+  `.tidemote` save (Settings → Worlds) instead; `zoom: 'saved'` keeps its camera, `at` centres the
+  view on a fixed spot, `mouse: 'sweep'` moves the pointer (the loupe) while measuring, and `adapt: 'keep'`
+  leaves the adaptive quality to run as it would. Every report has the adaptation second by second
+  and the passes of each frame over 40 ms (`spikes`).
 - `stepbench.mjs` times a saved world's step under Dawn. Dawn's npm build compiles with FXC, not
   DXC as Chrome does, so its kernel timings differ from the browser's.
 - `shots.mjs` screenshots a saved world at several zooms (for pixel comparisons of render variants);

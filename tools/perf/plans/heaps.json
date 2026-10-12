@@ -1,0 +1,8 @@
+{ "worlds": [{ "name": "heaps", "n": 2363392, "file": "slow.tidemote", "prefs": { "labOpen": true, "auto": true } }],
+  "scenarios": [
+    { "world": "heaps", "name": "step", "kind": "step", "reps": 20 },
+    { "world": "heaps", "name": "loupe-fit", "zoom": "saved", "fps": 60, "scale": 1, "settle": 2, "seconds": 10, "dispatch": false, "mouse": "sweep" },
+    { "world": "heaps", "name": "heap-z40", "zoom": 40, "at": [346.5, 198.5], "fps": 60, "scale": 1, "settle": 2, "seconds": 5, "dispatch": false },
+    { "world": "heaps", "name": "heap-z150", "zoom": 150, "at": [346.5, 198.5], "fps": 60, "scale": 1, "settle": 2, "seconds": 5, "dispatch": false },
+    { "world": "heaps", "name": "natural", "zoom": "saved", "adapt": "keep", "sound": true, "settle": 0, "seconds": 120, "dispatch": false }
+  ] }

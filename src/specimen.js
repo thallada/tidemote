@@ -214,7 +214,7 @@ export function createSpecimen(api) {
     h += kv('Crowding', !b ? '—' : b.crowding > 0.01 ? `upkeep +${Math.round(b.crowding * 100)}%` : none, 'crowding');
     if (g && (g.adhesion || 0) > K.adhMin) h += kv('Bond share', !b ? '—' : b.thrift > 0.001 ? `upkeep −${Math.round(b.thrift * 100)}%` : none, 'bondthrift');
     if (K.heat) h += kv('Heat stress', !b ? '—' : mind.m.torpid ? `torpid: burns ${Math.round(K.torporCost * 100)}% of its upkeep` : b.stress > 0.01 ? `upkeep +${Math.round(b.stress * 100)}%` : none, 'thermal');
-    if (K.heat && (g.thermo || 0) > 0.005) h += kv('Heat-making', b ? `<span class="neg">${signed(-b.heatMaking)}/s</span>` : '—', 'heatmaker');
+    if (K.heat && g && (g.thermo || 0) > 0.005) h += kv('Heat-making', b ? `<span class="neg">${signed(-b.heatMaking)}/s</span>` : '—', 'heatmaker');
     h += kv('Saving energy', !b ? '—' : b.lean < 0.995 ? `burns ${Math.round(b.lean * 100)}% of its upkeep` : none, 'lean');
     h += kv('Net', b ? `<span class="${b.net >= 0 ? 'pos' : 'neg'}">${signed(b.net)}/s</span> between meals` : '—', 'mind-net');
     return blk('Energy budget', h, { tip: 'energy' });
