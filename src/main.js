@@ -26,6 +26,12 @@ const canvas = $('stage');
 const overlay = $('overlay');
 const octx = overlay.getContext('2d');
 const isCoarse = matchMedia('(pointer: coarse)').matches;
+// A phone or tablet: its GPU slows by a third or more once it has run hot for a few minutes (thermal
+// throttling), and shares the GPU with the screen's compositor.
+const throttles = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|Mobile/.test(navigator.userAgent) || (isCoarse && !matchMedia('(any-pointer: fine)').matches));
+// An auto particle count at or below this means a low-end GPU: it samples fewer neighbours
+// (K.maxScan 144, docs/performance.md), unless a budget was chosen in Settings.
+const LOW_END_N = 65536;
 const NONE = 0xffffffff;
 const TAU = Math.PI * 2;
 const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
@@ -88,7 +94,7 @@ const MAX_TICKS = 4;
 const SIGNAL_AFTER = 60; // seconds a species singing the five tones must live before it is heard
 const H = 1 / 60; // the simulation's step, as in the headless runs
 const fmtSpeed = (s) => (s === Infinity ? 'Max' : `×${s}`);
-const PARTICLE_SIZES = [32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
+const PARTICLE_SIZES = [16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
 
 // view preferences that outlive the page
 const PREFS_KEY = 'tidemote.view';
@@ -112,7 +118,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
     // pixels per CSS pixel, the frame rate aimed for (0: the display's; 60 by default, and for prefs
     // saved before v2, which stored the display's without anyone choosing it), and a fixed particle count
-    perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.v >= 2 ? prefs.fps ?? 60 : 60, particles: prefs.particles ?? null, scan: prefs.scan ?? null },
+    perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.v >= 2 ? prefs.fps ?? 60 : 60, particles: prefs.particles ?? null, scan: prefs.scan ?? null, lowEnd: prefs.lowEnd ?? false },
   };
   // While a pointer is held down on a panel, nothing re-renders under it: replacing the element
   // between pointerdown and pointerup swallows the click.
@@ -137,7 +143,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const defaults = { ...eng.settings }; // the engine's own, for Settings' reset
   eng.settings.trails = trailLevels[trailIdx];
   for (const k of ['links', 'nodes', 'bloom', 'optics', 'specks', 'lod', 'tide', 'heat', 'bands']) if (prefs[k] !== undefined) eng.settings[k] = prefs[k];
-  eng.maxScan = state.perf.scan ?? K.maxScan;
+  const scanDefault = () => (state.perf.lowEnd ? 144 : K.maxScan);
+  eng.maxScan = state.perf.scan ?? scanDefault();
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
@@ -148,13 +155,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ sizing
   let renderScale = state.perf.scale === 'auto' ? 1 : state.perf.scale;
+  // Auto drops the scene to 1 device pixel per CSS pixel before it lowers the render scale or the
+  // frame rate (adaptQuality): above 1 the extra pixels are the cheapest sharpness to give up.
+  let densityCap = Infinity;
+  const density = () => Math.min(devicePixelRatio || 1, 2, state.perf.density, densityCap);
   let dpr = 1;
   // The scene renders at no more than state.perf.density (1.5 by default) device pixels per CSS pixel:
   // its per-pixel shading is heavy, and a 2x display would quadruple it for little visible gain.
   // Overlay text and lines stay native.
   function fit() {
     const base = Math.min(devicePixelRatio || 1, 2);
-    dpr = Math.min(base, state.perf.density) * renderScale;
+    dpr = density() * renderScale;
     const maxDim = device.limits.maxTextureDimension2D;
     canvas.width = Math.min(maxDim, Math.max(1, Math.round(innerWidth * dpr)));
     canvas.height = Math.min(maxDim, Math.max(1, Math.round(innerHeight * dpr)));
@@ -327,9 +338,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // GPU ms a frame of the new world may take: a mature world costs about what it measures at the
     // start (life fills it within minutes, then swings ±30% with the climate), drawn at 60 fps that
     // leaves room for zooming and swings, and the adaptive frame rate covers the rest. Phones keep
-    // more in hand (their GPU is shared with the screen); without timestamps the measure overstates.
-    const target = !hasTS ? 9 : isCoarse ? 7.5 : 10;
-    const clampN = (x) => clamp(Math.round(x / 4096) * 4096, Math.min(32768, maxN), maxN);
+    // more in hand: their GPU is shared with the screen, and is measured here cool, before it
+    // throttles. Without timestamps the measure overstates.
+    const target = (!hasTS ? 9 : 10) * (throttles ? 0.55 : 1);
+    const clampN = (x) => clamp(Math.round(x / 4096) * 4096, Math.min(16384, maxN), maxN);
     let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
     seedWorld(n);
     state.busy = false;
@@ -348,6 +360,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (next > n) next = Math.min(next, clampN(n * 1.3));
     }
     const final = next === n ? n : await allocDown(next);
+    state.perf.lowEnd = final <= LOW_END_N;
+    if (state.perf.scan == null) eng.maxScan = scanDefault();
+    persist();
     seedWorld(final);
     state.busy = false;
     calStep(`${fmt(final)} particles`, 1);
@@ -1491,7 +1506,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         for (const k of ['bloom', 'optics', 'specks', 'lod']) s[k] = defaults[k];
         state.closeup = true;
         Object.assign(P, { scale: 'auto', floor: 0.5, density: 1.5, fps: 60, scan: null });
-        eng.maxScan = K.maxScan;
+        eng.maxScan = scanDefault();
         renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit();
         pendingN = P.particles ? 'auto' : null;
       }
@@ -1514,7 +1529,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       roAt = now;
       setText('ro-fps', perf.fps ? perf.fps.toFixed(0) : '–');
       setText('ro-ms', perf.gpu ? perf.gpu.toFixed(1) : '–');
-      setText('ro-res', `${Math.round(renderScale * 100)}%`);
+      setText('ro-res', `${Math.round(renderScale * 100)}%${density() !== 1 ? ` at ${+density().toFixed(2)}×` : ''}`);
       setText('ro-px', `${canvas.width}×${canvas.height}`);
       setText('ro-n', fmt(eng.count));
       const al = sound.load;
@@ -1549,7 +1564,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'floor') { P.floor = +v; renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
       else if (id === 'density') { P.density = +v; resetAdapt(); fit(); }
       else if (id === 'fps') { P.fps = +v; resetAdapt(); }
-      else if (id === 'scan') { P.scan = +v === K.maxScan ? null : +v; eng.maxScan = +v; }
+      else if (id === 'scan') { P.scan = +v === scanDefault() ? null : +v; eng.maxScan = +v; }
       else if (id === 'n') pendingN = v === 'auto' ? 'auto' : +v;
       else if (id === 'apply') { const n = pendingN; pendingN = null; setParticles(n); }
       else if (id === 'profile') { copyProfile(); return; }
@@ -1954,7 +1969,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
   function resetAdapt() {
     perf.frameDt.length = 0; perf.goodWindows = 0; perf.ceiling = 1; perf.ceilingUntil = 0; perf.lastAdjust = performance.now();
-    perf.slow = 1; perf.why = '';
+    perf.slow = 1; perf.why = ''; perf.denseUntil = 0;
+    densityCap = Infinity;
   }
   // where the browser reports it (Compute Pressure), a device under serious pressure, hot or busy,
   // backs off before its frames start to miss
@@ -1987,7 +2003,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // a level that just proved too slow is not tried again for a while, so the view doesn't keep
       // climbing back into the same stutter
       perf.ceilingUntil = now + 30000;
-      if (renderScale > floor + 0.01 && !(simBound && perf.slow < 4)) {
+      if (auto && density() > 1.01) {
+        densityCap = 1; perf.denseUntil = now + 30000;
+        resizeDue = true;
+      } else if (renderScale > floor + 0.01 && !(simBound && perf.slow < 4)) {
         perf.ceiling = renderScale;
         // the further behind, the larger the step: pixel cost scales with the square of the scale
         const want = renderScale * clamp(Math.sqrt(T / m), 0.55, 0.9);
@@ -2011,7 +2030,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const cap = held ? perf.ceiling * 0.95 : 1;
     const next = [...SCALES].reverse().find((s) => s > renderScale + 0.01 && s <= cap + 0.001);
     if (next) { renderScale = next; perf.goodWindows = 0; resizeDue = true; }
-    if (renderScale >= 1) perf.why = '';
+    // the full pixel density back last, once the full scale has held for three windows more
+    else if (renderScale >= 1 && densityCap < Infinity && now >= perf.denseUntil && !held) { densityCap = Infinity; perf.goodWindows = 0; resizeDue = true; }
+    if (renderScale >= 1 && densityCap === Infinity) perf.why = '';
   }
   // A new render scale is applied at the start of the next frame, before it takes the canvas's
   // texture: resizing the canvas after a frame is drawn into it discards that frame (a black flash).

@@ -95,7 +95,7 @@ export const GLOSSARY = {
   autoidle: 'Left alone for a minute (three with a panel open), the camera starts filming the world on its own. Drag, scroll or tap to take it back.',
   renderscale: 'The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room; a fixed value never changes.',
   autofloor: 'The lowest render scale Auto may drop to.',
-  density: 'The most device pixels drawn per CSS pixel. High-density (Retina) screens look sharper at 2× but cost up to four times the pixels of 1×. Readouts and outlines stay sharp either way.',
+  density: 'The most device pixels drawn per CSS pixel. High-density (Retina) screens look sharper at 2× but cost up to four times the pixels of 1×. Readouts and outlines stay sharp either way. While frames run late, Auto render scale drops to 1× first, before the scale or the frame rate.',
   targetfps: 'Frames per second aimed for, as a whole number of the screen’s refreshes so frames stay evenly spaced (60 on a 144 Hz screen is every second refresh, 72 fps). 30 halves the GPU’s work and saves battery; Display follows the screen’s refresh rate (120 on many phones and Macs), which costs the most. Simulated time keeps pace with real time at any rate; when the device can’t keep up the page lowers the rate itself (Aiming for).',
   bloom: 'A soft glow around bright cells. Several extra full-screen passes.',
   optics: 'Microscope optics: depth haze and a vignette over the world. One extra full-screen pass.',

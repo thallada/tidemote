@@ -1264,6 +1264,12 @@ svg.niche .n-dot { fill: var(--cyan); }
     kin: 0.8,
     maxScan: 192,
     // neighbours a cell weighs per step in a crowd, sampled evenly (each counts for those skipped)
+    // Profiling only (Settings → Performance → Copy profile on the device in question; the world goes
+    // wrong while it is set): 1 leaves mutation out of lifeMain, 2 its neighbour loop only loads its
+    // neighbours, 3 skips that loop. They show where lifeMain's time goes on a GPU we can't run here.
+    // 4 and 5 are exact (the same world): 4 reads only the grid cells within a cell's reach, 5 keeps the
+    // neighbourhood's index ranges out of an array.
+    probe: 0,
     diag: 0,
     // 1: count K.diag's diagnostics into the ledger (DIAG_SLOTS; headless forks record them)
     affScale: 0.42,
@@ -1596,15 +1602,20 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   var preyNear = vec2f(0.0);
   var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
 
-  // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam).
-  var rs: array<u32, 9>;
+  // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam). Probes 4
+  // and 5 work them out where they're used (nbrRange) rather than keep them in an array, which some
+  // mobile GPUs keep in slow memory (on desktop GPUs: +5% a step at 128k particles, -3% at 512k).
+  let interior = cc.x > 0 && cc.x < gw - 1;
+${K.probe === 4 || K.probe === 5 ? `  let nr = select(9u, 3u, interior);
+  var total = 0u;
+  for (var k = 0u; k < nr; k++) { let rr = nbrRange(cc, k, interior, gw, gh); total += rr.y - rr.x; }` : `  var rs: array<u32, 9>;
   var re: array<u32, 9>;
   var nr = 0u;
   var total = 0u;
   for (var dy = -1; dy <= 1; dy++) {
     let y = (cc.y + dy + gh) % gh;
     let rowBase = y * gw;
-    if (cc.x > 0 && cc.x < gw - 1) {
+    if (interior) {
       rs[nr] = cellStart[u32(rowBase + cc.x - 1)];
       re[nr] = cellStart[u32(rowBase + cc.x + 2)];
       total += re[nr] - rs[nr];
@@ -1619,17 +1630,32 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
         nr++;
       }
     }
-  }
+  }`}
   // Crowded neighbourhoods are sampled evenly with a random offset, each sample standing for
   // \`stride\` particles, so no direction or grid cell is favoured (scanning in order and stopping
   // at the budget left out the last row and drew dense species into grid-aligned bands).
   let stride = max(1.0, f32(total) / f32(sim.maxScan));
   var at = select(0.0, rnd(&s) * stride, stride > 1.0);
+${K.probe === 4 ? `  // (probe 4) Only the part of each range within this cell's reach is read (nbrSpan): the samples
+  // falling outside it are passed over as the full scan would pass them, so the same neighbours are
+  // sampled. Slower on desktop GPUs (2026-10-11: +4 to 9% a step), where the extra state costs occupancy.
+  let inCell = p.pos - vec2f(cc);
   for (var k = 0u; k < nr; k++) {
-    let len = f32(re[k] - rs[k]);
+    let sp = nbrSpan(cc, k, interior, gw, gh, inCell, R2);
+    let len = f32(sp.w - sp.x);
+    let lo = f32(sp.y - sp.x);
+    let hi = f32(sp.z - sp.x);
+    // at stride 1 the samples fall on whole numbers; otherwise step as the scan would, for the same rounding
+    if (stride == 1.0) { at = max(at, lo); } else { while (at < lo) { at += stride; } }
+    for (; at < hi; at += stride) {
+      let j = sp.x + u32(at);` : `  for (var k = 0u; k < nr; k++) {
+    if (PROBE == 3u) { break; }
+    let rr = ${K.probe === 5 ? "nbrRange(cc, k, interior, gw, gh)" : "vec2u(rs[k], re[k])"};
+    let len = f32(rr.y - rr.x);
     for (; at < len; at += stride) {
-      let j = rs[k] + u32(at);
+      let j = rr.x + u32(at);`}
       let q = sortedLite[j];
+      if (PROBE == 2u) { force += q.pos - p.pos + vec2f(f32(q.kr ^ q.s0 ^ q.s1 ^ q.vel ^ q.col)); continue; }
       var d = q.pos - p.pos;
       d -= world * round(d * invWorld);
       let r2 = dot(d, d);
@@ -1736,7 +1762,8 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
         wN2 += w * w;
       }
     }
-    at -= len;
+${K.probe === 4 ? `    if (stride == 1.0) { at = max(at, len); } else { while (at < len) { at += stride; } }
+` : ""}    at -= len;
   }
   overlap *= stride; preyNear *= stride;
   force *= stride; crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride;
@@ -1895,6 +1922,7 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u3
 
 const EAT_R = ${f(K.eatR)};
 const DIAG = ${K.diag ? "true" : "false"};
+const PROBE = ${K.probe | 0}u;
 const LINK_R = ${f(K.linkR)};
 const DIET_MIN = ${f(K.dietMin)};
 const HEAT_ON = ${K.heat ? "true" : "false"};
@@ -2540,6 +2568,46 @@ fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
 }
 
 // --------------------------------------------------------------------- life
+// The k-th index range of the 3x3 neighbourhood of grid cell cc: a row of three cells away from the
+// wrap seam (interior), else one cell at a time.
+fn nbrRange(cc: vec2i, k: u32, interior: bool, gw: i32, gh: i32) -> vec2u {
+  if (interior) {
+    let rowBase = ((cc.y + i32(k) - 1 + gh) % gh) * gw;
+    return vec2u(cellStart[u32(rowBase + cc.x - 1)], cellStart[u32(rowBase + cc.x + 2)]);
+  }
+  let rowBase = ((cc.y + i32(k / 3u) - 1 + gh) % gh) * gw;
+  let c = u32(rowBase + (cc.x + i32(k % 3u) - 1 + gw) % gw);
+  return vec2u(cellStart[c], cellStart[c + 1u]);
+}
+
+// Its part within reach of a cell at f in grid cell cc (f: 0..1 each way) with reach squared R2, as
+// (start, first, end of reach, end): rows and cells wholly beyond the reach are left out (a margin
+// keeps it sure of every neighbour the scan accepts, r2 < R2).
+fn nbrSpan(cc: vec2i, k: u32, interior: bool, gw: i32, gh: i32, f: vec2f, R2: f32) -> vec4u {
+  let far = R2 * 1.001 + 1e-6;
+  if (interior) {
+    let dy = i32(k) - 1;
+    let rowBase = ((cc.y + dy + gh) % gh) * gw;
+    let a = cellStart[u32(rowBase + cc.x - 1)];
+    let b = cellStart[u32(rowBase + cc.x + 2)];
+    let ey = select(select(0.0, 1.0 - f.y, dy == 1), f.y, dy == -1);
+    if (ey * ey > far) { return vec4u(a, b, b, b); }
+    let lo = select(a, cellStart[u32(rowBase + cc.x)], f.x * f.x + ey * ey > far);
+    let hi = select(b, cellStart[u32(rowBase + cc.x + 1)], (1.0 - f.x) * (1.0 - f.x) + ey * ey > far);
+    return vec4u(a, lo, hi, b);
+  }
+  let dx = i32(k % 3u) - 1;
+  let dy = i32(k / 3u) - 1;
+  let rowBase = ((cc.y + dy + gh) % gh) * gw;
+  let c = u32(rowBase + (cc.x + dx + gw) % gw);
+  let a = cellStart[c];
+  let b = cellStart[c + 1u];
+  let ex = select(select(0.0, 1.0 - f.x, dx == 1), f.x, dx == -1);
+  let ey = select(select(0.0, 1.0 - f.y, dy == 1), f.y, dy == -1);
+  if (ex * ex + ey * ey > far) { return vec4u(a, b, b, b); }
+  return vec4u(a, a, b, b);
+}
+
 fn keepBond(i: u32, j: u32, p: Particle) -> u32 {
   if (j >= sim.count || j == i) { return NONE; }
   let q = sortedFull[j];
@@ -2649,7 +2717,7 @@ ${cellWGSL(K, false)}
         if (rnd(&s) < g.mutRate) {
           let slot = allocSlot(&s);
           if (slot != NONE) {
-            mutateInto(slot, p.kind, &s);
+            if (PROBE != 1u) { mutateInto(slot, p.kind, &s); }
             ck = slot;
             atomicAdd(&ledger[3], 1u);
           }
@@ -2711,7 +2779,7 @@ ${cellWGSL(K, false)}
           if (rnd(&s) < g.mutRate) {
             let slot = allocSlot(&s);
             if (slot != NONE) {
-              mutateInto(slot, p.kind, &s);
+              if (PROBE != 1u) { mutateInto(slot, p.kind, &s); }
               ck = slot;
               atomicAdd(&ledger[3], 1u);
             }
@@ -15921,7 +15989,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     autoidle: "Left alone for a minute (three with a panel open), the camera starts filming the world on its own. Drag, scroll or tap to take it back.",
     renderscale: "The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room; a fixed value never changes.",
     autofloor: "The lowest render scale Auto may drop to.",
-    density: "The most device pixels drawn per CSS pixel. High-density (Retina) screens look sharper at 2× but cost up to four times the pixels of 1×. Readouts and outlines stay sharp either way.",
+    density: "The most device pixels drawn per CSS pixel. High-density (Retina) screens look sharper at 2× but cost up to four times the pixels of 1×. Readouts and outlines stay sharp either way. While frames run late, Auto render scale drops to 1× first, before the scale or the frame rate.",
     targetfps: "Frames per second aimed for, as a whole number of the screen’s refreshes so frames stay evenly spaced (60 on a 144 Hz screen is every second refresh, 72 fps). 30 halves the GPU’s work and saves battery; Display follows the screen’s refresh rate (120 on many phones and Macs), which costs the most. Simulated time keeps pace with real time at any rate; when the device can’t keep up the page lowers the rate itself (Aiming for).",
     bloom: "A soft glow around bright cells. Several extra full-screen passes.",
     optics: "Microscope optics: depth haze and a vignette over the world. One extra full-screen pass.",
@@ -20178,6 +20246,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var overlay = $("overlay");
   var octx = overlay.getContext("2d");
   var isCoarse = matchMedia("(pointer: coarse)").matches;
+  var throttles = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|Mobile/.test(navigator.userAgent) || isCoarse && !matchMedia("(any-pointer: fine)").matches);
+  var LOW_END_N = 65536;
   var NONE2 = 4294967295;
   var TAU2 = Math.PI * 2;
   var median = (a) => {
@@ -20247,7 +20317,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var SIGNAL_AFTER = 60;
   var H = 1 / 60;
   var fmtSpeed = (s) => s === Infinity ? "Max" : `×${s}`;
-  var PARTICLE_SIZES = [32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
+  var PARTICLE_SIZES = [16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
   var PREFS_KEY = "tidemote.view";
   var CELL_MARK = "rgba(241,227,160,0.95)";
   var loadPrefs = () => {
@@ -20288,7 +20358,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
       // pixels per CSS pixel, the frame rate aimed for (0: the display's; 60 by default, and for prefs
       // saved before v2, which stored the display's without anyone choosing it), and a fixed particle count
-      perf: { scale: prefs.scale ?? "auto", floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.v >= 2 ? prefs.fps ?? 60 : 60, particles: prefs.particles ?? null, scan: prefs.scan ?? null }
+      perf: { scale: prefs.scale ?? "auto", floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.v >= 2 ? prefs.fps ?? 60 : 60, particles: prefs.particles ?? null, scan: prefs.scan ?? null, lowEnd: prefs.lowEnd ?? false }
     };
     let uiHoldUntil = 0;
     const panelSel = ".panel, .rail, .dock, .floats";
@@ -20314,7 +20384,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const defaults = { ...eng.settings };
     eng.settings.trails = trailLevels[trailIdx];
     for (const k of ["links", "nodes", "bloom", "optics", "specks", "lod", "tide", "heat", "bands"]) if (prefs[k] !== void 0) eng.settings[k] = prefs[k];
-    eng.maxScan = state.perf.scan ?? K.maxScan;
+    const scanDefault = () => state.perf.lowEnd ? 144 : K.maxScan;
+    eng.maxScan = state.perf.scan ?? scanDefault();
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
@@ -20323,10 +20394,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
     };
     if (prefs.loupe !== void 0 && !isCoarse) state.loupe = prefs.loupe;
     let renderScale = state.perf.scale === "auto" ? 1 : state.perf.scale;
+    let densityCap = Infinity;
+    const density = () => Math.min(devicePixelRatio || 1, 2, state.perf.density, densityCap);
     let dpr = 1;
     function fit2() {
       const base = Math.min(devicePixelRatio || 1, 2);
-      dpr = Math.min(base, state.perf.density) * renderScale;
+      dpr = density() * renderScale;
       const maxDim = device.limits.maxTextureDimension2D;
       canvas.width = Math.min(maxDim, Math.max(1, Math.round(innerWidth * dpr)));
       canvas.height = Math.min(maxDim, Math.max(1, Math.round(innerHeight * dpr)));
@@ -20538,8 +20611,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         calStep(`${fmt(n2)} particles`, 1);
         return n2;
       }
-      const target = !hasTS ? 9 : isCoarse ? 7.5 : 10;
-      const clampN = (x) => clamp6(Math.round(x / 4096) * 4096, Math.min(32768, maxN), maxN);
+      const target = (!hasTS ? 9 : 10) * (throttles ? 0.55 : 1);
+      const clampN = (x) => clamp6(Math.round(x / 4096) * 4096, Math.min(16384, maxN), maxN);
       let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
       seedWorld(n);
       state.busy = false;
@@ -20558,6 +20631,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (next > n) next = Math.min(next, clampN(n * 1.3));
       }
       const final = next === n ? n : await allocDown(next);
+      state.perf.lowEnd = final <= LOW_END_N;
+      if (state.perf.scan == null) eng.maxScan = scanDefault();
+      persist();
       seedWorld(final);
       state.busy = false;
       calStep(`${fmt(final)} particles`, 1);
@@ -21780,7 +21856,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           for (const k of ["bloom", "optics", "specks", "lod"]) s[k] = defaults[k];
           state.closeup = true;
           Object.assign(P, { scale: "auto", floor: 0.5, density: 1.5, fps: 60, scan: null });
-          eng.maxScan = K.maxScan;
+          eng.maxScan = scanDefault();
           renderScale = Math.max(renderScale, P.floor);
           resetAdapt();
           fit2();
@@ -21813,7 +21889,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         roAt = now;
         setText("ro-fps", perf.fps ? perf.fps.toFixed(0) : "–");
         setText("ro-ms", perf.gpu ? perf.gpu.toFixed(1) : "–");
-        setText("ro-res", `${Math.round(renderScale * 100)}%`);
+        setText("ro-res", `${Math.round(renderScale * 100)}%${density() !== 1 ? ` at ${+density().toFixed(2)}×` : ""}`);
         setText("ro-px", `${canvas.width}×${canvas.height}`);
         setText("ro-n", fmt(eng.count));
         const al = sound.load;
@@ -21869,7 +21945,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           P.fps = +v;
           resetAdapt();
         } else if (id === "scan") {
-          P.scan = +v === K.maxScan ? null : +v;
+          P.scan = +v === scanDefault() ? null : +v;
           eng.maxScan = +v;
         } else if (id === "n") pendingN = v === "auto" ? "auto" : +v;
         else if (id === "apply") {
@@ -22416,6 +22492,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       perf.lastAdjust = performance.now();
       perf.slow = 1;
       perf.why = "";
+      perf.denseUntil = 0;
+      densityCap = Infinity;
     }
     let pressure = "nominal";
     try {
@@ -22440,7 +22518,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
         perf.why = stressed() ? "device under pressure" : busy ? "GPU busy" : "frames late";
         perf.goodWindows = 0;
         perf.ceilingUntil = now + 3e4;
-        if (renderScale > floor + 0.01 && !(simBound && perf.slow < 4)) {
+        if (auto && density() > 1.01) {
+          densityCap = 1;
+          perf.denseUntil = now + 3e4;
+          resizeDue = true;
+        } else if (renderScale > floor + 0.01 && !(simBound && perf.slow < 4)) {
           perf.ceiling = renderScale;
           const want = renderScale * clamp6(Math.sqrt(T / m), 0.55, 0.9);
           renderScale = Math.max(floor, SCALES.find((s) => s <= want + 0.01) ?? floor);
@@ -22474,8 +22556,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
         renderScale = next;
         perf.goodWindows = 0;
         resizeDue = true;
+      } else if (renderScale >= 1 && densityCap < Infinity && now >= perf.denseUntil && !held) {
+        densityCap = Infinity;
+        perf.goodWindows = 0;
+        resizeDue = true;
       }
-      if (renderScale >= 1) perf.why = "";
+      if (renderScale >= 1 && densityCap === Infinity) perf.why = "";
     }
     let resizeDue = false;
     let viewSimTime = 0;

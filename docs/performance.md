@@ -45,10 +45,12 @@ faster than linearly (the level of detail is set in framebuffer pixels).
   simulation step per refresh, 2.4 times the work of 60 at 143 Hz.
 - **Adaptive quality,** every two seconds at real time or slower. Behind (frames late, the GPU busy
   for more than 92% of the frame with timestamps or 100% of it by submit-to-done time without, or
-  Compute Pressure reporting `serious`): the render scale steps down a fixed ladder (1, 0.85, 0.7,
+  Compute Pressure reporting `serious`): with Auto render scale, a scene drawn at more than one device
+  pixel per CSS pixel (Pixel density 1.5× or 2× on a high-density screen) drops to 1× first, the
+  cheapest sharpness to give up (1.5× is 2.25 times the pixels); then the render scale steps down a fixed ladder (1, 0.85, 0.7,
   0.6, 0.5 …) to its floor, then the frame rate drops (half, a third, a quarter: 30, 20, 15 fps), or
   the frame rate first when the simulation is more than twice the drawing. With room again for
-  three windows: the frame rate back first, then the scale; a level that just proved too slow is
+  three windows: the frame rate back first, then the scale, then the pixel density; a level that just proved too slow is
   not retried for 30 s. Settings → Performance shows the rate aimed for and why.
 - **Coarse steps at low frame rates.** At real time a step covers up to a frame's worth of whole
   ticks, so below about 45 fps the world takes coarse steps (docs/fast-forward.md). A 2-tick step
@@ -61,6 +63,36 @@ faster than linearly (the level of detail is set in framebuffer pixels).
   queue of GPU work freezes the whole screen; this is the likeliest cause of the reported lockups.
 - **Hidden page:** requestAnimationFrame stops, so the GPU rests; the soundtrack fades out and its
   audio thread is suspended.
+
+- **Sizing a new world (calibrate).** Auto measures a frame of a fresh world and sizes it to 10 ms of
+  GPU (9 by submit-to-done time without timestamps), down to 16k particles. A phone or tablet aims at
+  55% of that: it is measured cool, and its GPU slows by a third or more once it runs hot, besides
+  sharing the GPU with the compositor. A count of 64k or fewer marks a low-end GPU, which samples 144
+  neighbours rather than 192 (see above) unless Settings chose a budget. 16k against 32k (32 seeds ×
+  30 min each, 2026-10-11, `runs/lowend/`): no gated metric differs (persistence, food webs, guilds,
+  monocultures); effective species fall from 83 to 59, as a world half the size holds fewer niches.
+
+## A phone (2026-10-11)
+
+Copy profile from a Pixel 11 Pro (Chrome 155) before the changes above: 32k particles (the floor then),
+10.5k living, 753×1350 (1.5× density), held at 30 fps with 2-tick steps and still late, 20.8 ms a frame:
+step 11.4 ms (lifeMain 5.4, scatterMain 1.5, resolveCount 0.5), scene 4.8, composite 2.1, stone 0.55,
+bloom 0.43. Its timestamps come in steps of about 0.066 ms. lifeMain costs about 500 ns per living cell
+there against 5 to 6 ns on the RTX cards, far more than the difference in raw throughput, while
+matterMain (no neighbours, no scattered writes) costs about as much per particle as on a desktop.
+`#k={"probe":N}` builds lifeMain variants that show where its time goes on such a device (the world
+goes wrong while one is set): 1 without mutation (the rarely taken code that copies a genome), 2 with
+the neighbour loop only loading its neighbours, 3 without the neighbour loop; 4 and 5 are exact (the
+same world) and may suit such a GPU better: 4 reads only the grid cells within a cell's reach (desktop:
++4 to 9% a step), 5 keeps the neighbourhood's index ranges out of an array (desktop: +5% at 128k, -3%
+at 512k; the gate passes against HEAD). On the RTX 2080 the neighbour loop is about two thirds of
+lifeMain and costs the same when it only loads its neighbours: memory latency, not arithmetic, so half
+floats would buy little there.
+
+The matter-heap fix below does not touch this profile: at the phone's zoom outlines have not resolved,
+so `contactGather` never ran (no inbond pass in it). At the phone's viewport on the RTX, a 32k world
+(speed 8, two alternating runs each) steps the same before and after; zoomed in, the inbond pass goes
+0.14–0.28 → 0.09–0.15 ms, about 3% of the frame.
 
 ## Culling and per-particle work
 
@@ -83,6 +115,14 @@ faster than linearly (the level of detail is set in framebuffer pixels).
 - Tried and dropped: working out each distant sprite once in a compute pass instead of at each of
   its four corners (the 4M far view's points cost the same: the vertices themselves, not their
   arithmetic), and limiting `contactGather` to the grid cells a contact can reach (within noise).
+  Also giving each `INBOND_WGSL` workgroup a run of four grid cells instead of one (a cell holds about
+  22 particles, so most of a 64-thread workgroup idles): 30–50% slower on NVIDIA, where the idle half
+  is a whole warp that exits at once and the shared 3×3 neighbourhood stays in cache.
+- Linux without a display: `bench.mjs --linux --dpr 2 --width 412 --height 915` runs Playwright's
+  Chromium headless on the GPU through Vulkan (a phone-shaped viewport here). NVIDIA lacks
+  `VK_EXT_headless_surface`: set `TIDEMOTE_VK_LAYER` to a directory with a pass-through layer whose
+  manifest advertises it. The GPU clocks down under light load (a 1× frame runs at about a third of
+  full clock), so compare variants alternately, or at a fast speed that keeps it busy.
 - Seeing most of the world with particles a pixel or so across, and at least a quarter as many
   particles as pixels, the main view splats sprites of up to 1.6 px (`splatMain`): each adds its
   sprite's light to the four nearest pixels of a buffer (atomic adds), `fsSplat` adds the buffer into

@@ -85,6 +85,12 @@ export const DEFAULT_K = {
   preyFrac: 0.7,
   kin: 0.8,
   maxScan: 192,     // neighbours a cell weighs per step in a crowd, sampled evenly (each counts for those skipped)
+  // Profiling only (Settings → Performance → Copy profile on the device in question; the world goes
+  // wrong while it is set): 1 leaves mutation out of lifeMain, 2 its neighbour loop only loads its
+  // neighbours, 3 skips that loop. They show where lifeMain's time goes on a GPU we can't run here.
+  // 4 and 5 are exact (the same world): 4 reads only the grid cells within a cell's reach, 5 keeps the
+  // neighbourhood's index ranges out of an array.
+  probe: 0,
   diag: 0,          // 1: count K.diag's diagnostics into the ledger (DIAG_SLOTS; headless forks record them)
   affScale: 0.42,
   matterPull: 0.6,
@@ -372,15 +378,20 @@ function cellWGSL(K, w) {
   var preyNear = vec2f(0.0);
   var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
 
-  // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam).
-  var rs: array<u32, 9>;
+  // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam). Probes 4
+  // and 5 work them out where they're used (nbrRange) rather than keep them in an array, which some
+  // mobile GPUs keep in slow memory (on desktop GPUs: +5% a step at 128k particles, -3% at 512k).
+  let interior = cc.x > 0 && cc.x < gw - 1;
+${K.probe === 4 || K.probe === 5 ? `  let nr = select(9u, 3u, interior);
+  var total = 0u;
+  for (var k = 0u; k < nr; k++) { let rr = nbrRange(cc, k, interior, gw, gh); total += rr.y - rr.x; }` : `  var rs: array<u32, 9>;
   var re: array<u32, 9>;
   var nr = 0u;
   var total = 0u;
   for (var dy = -1; dy <= 1; dy++) {
     let y = (cc.y + dy + gh) % gh;
     let rowBase = y * gw;
-    if (cc.x > 0 && cc.x < gw - 1) {
+    if (interior) {
       rs[nr] = cellStart[u32(rowBase + cc.x - 1)];
       re[nr] = cellStart[u32(rowBase + cc.x + 2)];
       total += re[nr] - rs[nr];
@@ -395,17 +406,32 @@ function cellWGSL(K, w) {
         nr++;
       }
     }
-  }
+  }`}
   // Crowded neighbourhoods are sampled evenly with a random offset, each sample standing for
   // \`stride\` particles, so no direction or grid cell is favoured (scanning in order and stopping
   // at the budget left out the last row and drew dense species into grid-aligned bands).
   let stride = max(1.0, f32(total) / f32(sim.maxScan));
   var at = select(0.0, rnd(&s) * stride, stride > 1.0);
+${K.probe === 4 ? `  // (probe 4) Only the part of each range within this cell's reach is read (nbrSpan): the samples
+  // falling outside it are passed over as the full scan would pass them, so the same neighbours are
+  // sampled. Slower on desktop GPUs (2026-10-11: +4 to 9% a step), where the extra state costs occupancy.
+  let inCell = p.pos - vec2f(cc);
   for (var k = 0u; k < nr; k++) {
-    let len = f32(re[k] - rs[k]);
+    let sp = nbrSpan(cc, k, interior, gw, gh, inCell, R2);
+    let len = f32(sp.w - sp.x);
+    let lo = f32(sp.y - sp.x);
+    let hi = f32(sp.z - sp.x);
+    // at stride 1 the samples fall on whole numbers; otherwise step as the scan would, for the same rounding
+    if (stride == 1.0) { at = max(at, lo); } else { while (at < lo) { at += stride; } }
+    for (; at < hi; at += stride) {
+      let j = sp.x + u32(at);` : `  for (var k = 0u; k < nr; k++) {
+    if (PROBE == 3u) { break; }
+    let rr = ${K.probe === 5 ? 'nbrRange(cc, k, interior, gw, gh)' : 'vec2u(rs[k], re[k])'};
+    let len = f32(rr.y - rr.x);
     for (; at < len; at += stride) {
-      let j = rs[k] + u32(at);
+      let j = rr.x + u32(at);`}
       let q = sortedLite[j];
+      if (PROBE == 2u) { force += q.pos - p.pos + vec2f(f32(q.kr ^ q.s0 ^ q.s1 ^ q.vel ^ q.col)); continue; }
       var d = q.pos - p.pos;
       d -= world * round(d * invWorld);
       let r2 = dot(d, d);
@@ -512,7 +538,8 @@ function cellWGSL(K, w) {
         wN2 += w * w;
       }
     }
-    at -= len;
+${K.probe === 4 ? `    if (stride == 1.0) { at = max(at, len); } else { while (at < len) { at += stride; } }
+` : ''}    at -= len;
   }
   overlap *= stride; preyNear *= stride;
   force *= stride; crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride;
@@ -671,6 +698,7 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u3
 
 const EAT_R = ${f(K.eatR)};
 const DIAG = ${K.diag ? 'true' : 'false'};
+const PROBE = ${K.probe | 0}u;
 const LINK_R = ${f(K.linkR)};
 const DIET_MIN = ${f(K.dietMin)};
 const HEAT_ON = ${K.heat ? 'true' : 'false'};
@@ -1316,6 +1344,46 @@ fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
 }
 
 // --------------------------------------------------------------------- life
+// The k-th index range of the 3x3 neighbourhood of grid cell cc: a row of three cells away from the
+// wrap seam (interior), else one cell at a time.
+fn nbrRange(cc: vec2i, k: u32, interior: bool, gw: i32, gh: i32) -> vec2u {
+  if (interior) {
+    let rowBase = ((cc.y + i32(k) - 1 + gh) % gh) * gw;
+    return vec2u(cellStart[u32(rowBase + cc.x - 1)], cellStart[u32(rowBase + cc.x + 2)]);
+  }
+  let rowBase = ((cc.y + i32(k / 3u) - 1 + gh) % gh) * gw;
+  let c = u32(rowBase + (cc.x + i32(k % 3u) - 1 + gw) % gw);
+  return vec2u(cellStart[c], cellStart[c + 1u]);
+}
+
+// Its part within reach of a cell at f in grid cell cc (f: 0..1 each way) with reach squared R2, as
+// (start, first, end of reach, end): rows and cells wholly beyond the reach are left out (a margin
+// keeps it sure of every neighbour the scan accepts, r2 < R2).
+fn nbrSpan(cc: vec2i, k: u32, interior: bool, gw: i32, gh: i32, f: vec2f, R2: f32) -> vec4u {
+  let far = R2 * 1.001 + 1e-6;
+  if (interior) {
+    let dy = i32(k) - 1;
+    let rowBase = ((cc.y + dy + gh) % gh) * gw;
+    let a = cellStart[u32(rowBase + cc.x - 1)];
+    let b = cellStart[u32(rowBase + cc.x + 2)];
+    let ey = select(select(0.0, 1.0 - f.y, dy == 1), f.y, dy == -1);
+    if (ey * ey > far) { return vec4u(a, b, b, b); }
+    let lo = select(a, cellStart[u32(rowBase + cc.x)], f.x * f.x + ey * ey > far);
+    let hi = select(b, cellStart[u32(rowBase + cc.x + 1)], (1.0 - f.x) * (1.0 - f.x) + ey * ey > far);
+    return vec4u(a, lo, hi, b);
+  }
+  let dx = i32(k % 3u) - 1;
+  let dy = i32(k / 3u) - 1;
+  let rowBase = ((cc.y + dy + gh) % gh) * gw;
+  let c = u32(rowBase + (cc.x + dx + gw) % gw);
+  let a = cellStart[c];
+  let b = cellStart[c + 1u];
+  let ex = select(select(0.0, 1.0 - f.x, dx == 1), f.x, dx == -1);
+  let ey = select(select(0.0, 1.0 - f.y, dy == 1), f.y, dy == -1);
+  if (ex * ex + ey * ey > far) { return vec4u(a, b, b, b); }
+  return vec4u(a, a, b, b);
+}
+
 fn keepBond(i: u32, j: u32, p: Particle) -> u32 {
   if (j >= sim.count || j == i) { return NONE; }
   let q = sortedFull[j];
@@ -1425,7 +1493,7 @@ ${cellWGSL(K, false)}
         if (rnd(&s) < g.mutRate) {
           let slot = allocSlot(&s);
           if (slot != NONE) {
-            mutateInto(slot, p.kind, &s);
+            if (PROBE != 1u) { mutateInto(slot, p.kind, &s); }
             ck = slot;
             atomicAdd(&ledger[3], 1u);
           }
@@ -1487,7 +1555,7 @@ ${cellWGSL(K, false)}
           if (rnd(&s) < g.mutRate) {
             let slot = allocSlot(&s);
             if (slot != NONE) {
-              mutateInto(slot, p.kind, &s);
+              if (PROBE != 1u) { mutateInto(slot, p.kind, &s); }
               ck = slot;
               atomicAdd(&ledger[3], 1u);
             }
