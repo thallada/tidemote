@@ -1455,15 +1455,14 @@ svg.niche .n-dot { fill: var(--cyan); }
     // digestion's loss, as the material of the eater's next child); stored energy keeps assimCap
     fightBack: 0,
     // living prey that hunts makes an attack fail with this × its flesh skill (dFlesh × eatEff)
+    bodySize: 0,
+    // with bodyE, 1: a body holds bodyE × the cell's size (small cells are cheap to build, big ones rich prey)
     interfere: 0
     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
     // within reach, its bond partners aside)
   };
-  var bodyCost = (K) => K.bodyE > 0 ? K.bodyE : K.buildCost;
-  var preyBody = (K) => K.bodyE > 0 ? K.bodyE * (1 - K.carcassKeep) : K.preyBase;
+  var bodyOf = (K, G) => K.bodyE > 0 ? K.bodySize ? `${f(K.bodyE)} * ${G}.size` : f(K.bodyE) : f(K.buildCost);
   var preyShare = (K) => K.bodyE > 0 ? 1 : K.preyFrac;
-  var carcassE = (K) => K.bodyE > 0 ? K.bodyE * K.carcassKeep : K.carcass;
-  var huskE = (K) => K.bodyE > 0 ? K.bodyE : K.huskBase;
   var packCol = (r, g, b) => (Math.round(r * 255) | Math.round(g * 255) << 8 | Math.round(b * 255) << 16 | 255 << 24) >>> 0;
   var f = (x) => {
     const s = String(x);
@@ -1660,7 +1659,10 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   let Tc = heat.x + ${f(K.selfWarm)} * thermo * (1.0 + 0.5 * (select(0.0, 1.0, keep1) + select(0.0, 1.0, keep2)));
   let th = cellThermal(g, Tc);
   // a torpid cell neither hunts, grazes nor divides
-  let hungry = p.energy < g.reproE * ${f(K.sated)} && eatEff > 0.1 && !th.torpid;
+  // a child's body costs bodyCost (K.bodyE, by size with K.bodySize); a cell divides past its reserve and that
+  let bodyCost = ${bodyOf(K, "g")};
+  let divE = g.reproE${K.bodyE > 0 ? " + bodyCost" : ""};
+  let hungry = p.energy < divE * ${f(K.sated)} && eatEff > 0.1 && !th.torpid;
   let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
   // food in reach is gathered by hungry cells; in a coarse step also by any that may grow hungry in it
   let seek = hungry || (coarse && eatEff > 0.1 && !th.torpid);
@@ -2425,7 +2427,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         if (p.kind >= FIRST_LIFE) {
           // a kill leaves a carcass for the scavengers
           atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
-          p.kind = HUSK; p.energy = ${f(carcassE(K))}; p.age = 0.0; p.vel *= 0.2;
+          p.kind = HUSK; p.energy = ${K.bodyE > 0 ? `${bodyOf(K, "genomes[p.kind]")} * ${f(K.carcassKeep)}` : f(K.carcass)}; p.age = 0.0; p.vel *= 0.2;
           p.info = (p.info & 0xfffffff0u) | 3u;
         } else {
           p.kind = SILT; p.energy = 0.0; p.vel = vec2f(0.0); p.age = 0.0;
@@ -2436,7 +2438,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
           p.energy -= ${f(K.bite)} * bites;
           if (p.energy <= 0.0) {
             atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
-            p.kind = HUSK; p.energy = ${f(huskE(K))}; p.age = 0.0;
+            p.kind = HUSK; p.energy = ${K.bodyE > 0 ? bodyOf(K, "genomes[p.kind]") : f(K.huskBase)}; p.age = 0.0;
             p.info = (p.info & 0xfffffff0u) | 3u;
           }
         }
@@ -3029,7 +3031,7 @@ ${cellWGSL(K, false)}
       diagAdd(dg, 13u, 1u);
       if (isAnimal(food)) { diagAdd(dg, 14u, 1u); }
     }
-    if (E > g.reproE && silt != NONE && !th.torpid) {
+    if (E > divE && silt != NONE && !th.torpid) {
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
         cr = sampleRole(g, role, &s);
@@ -3042,8 +3044,8 @@ ${cellWGSL(K, false)}
           }
         }
         ce = E * g.share;
-        E -= ce + ${f(bodyCost(K))};
-        addEnergy(dg, 6u, ce + ${f(bodyCost(K))});
+        E -= ce + bodyCost;
+        addEnergy(dg, 6u, ce + bodyCost);
         act = 2u;
       }
     // a meal opportunity every K.eatEvery ticks, in the cell's own phase
@@ -3067,7 +3069,7 @@ ${cellWGSL(K, false)}
         } else if (genomes[fp.kind].photo > 0.4) {
           gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf); act = 3u; atomicAdd(&ledger[11], 1u);
         } else {
-          gain = ${K.bodyE > 0 && K.bodyWhole ? `${f(preyBody(K))} + take(max(fp.energy, 0.0)` : `take(${f(preyBody(K))} + ${f(preyShare(K))} * max(fp.energy, 0.0)`}, spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);
+          gain = ${K.bodyE > 0 && K.bodyWhole ? `${K.bodyE > 0 ? `(${bodyOf(K, "genomes[fp.kind]")} * ${f(1 - K.carcassKeep)})` : f(K.preyBase)} + take(max(fp.energy, 0.0)` : `take(${K.bodyE > 0 ? `(${bodyOf(K, "genomes[fp.kind]")} * ${f(1 - K.carcassKeep)})` : f(K.preyBase)} + ${f(preyShare(K))} * max(fp.energy, 0.0)`}, spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);
         }
         if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
         E += gain;
@@ -3088,7 +3090,7 @@ ${cellWGSL(K, false)}
         * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking) * h;
       age += h;
       let tk = sim.tick - sim.ticks + k;
-      if (!born && E > g.reproE && silt != NONE && !th.torpid) {
+      if (!born && E > divE && silt != NONE && !th.torpid) {
         born = true;
         var won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged;
         if (!won && silt2 != NONE) { won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt2], 0u, i + 1u).exchanged; }
@@ -3104,12 +3106,12 @@ ${cellWGSL(K, false)}
             }
           }
           ce = E * g.share;
-          E -= ce + ${f(bodyCost(K))};
-          addEnergy(dg, 6u, ce + ${f(bodyCost(K))});
+          E -= ce + bodyCost;
+          addEnergy(dg, 6u, ce + bodyCost);
           act = 2u;
           continue;
         }
-      } else if ((tk + p.id) % ${K.eatEvery | 0}u == 0u && next < 4u && E < g.reproE * ${f(K.sated)} && eatEff > 0.1 && !th.torpid) {
+      } else if ((tk + p.id) % ${K.eatEvery | 0}u == 0u && next < 4u && E < divE * ${f(K.sated)} && eatEff > 0.1 && !th.torpid) {
         let mi = (tk + p.id) / ${K.eatEvery | 0}u;
         let hunt = DIAG && mi % ${K.killEvery | 0}u == 0u && (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN);
         if (hunt) {
@@ -3145,7 +3147,7 @@ ${cellWGSL(K, false)}
           } else if (plant) {
             gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[11], 1u); slot = 2u;
           } else {
-            gain = ${K.bodyE > 0 && K.bodyWhole ? `${f(preyBody(K))} + take(max(fp.energy, 0.0)` : `take(${f(preyBody(K))} + ${f(preyShare(K))} * max(fp.energy, 0.0)`}, spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);
+            gain = ${K.bodyE > 0 && K.bodyWhole ? `${K.bodyE > 0 ? `(${bodyOf(K, "genomes[fp.kind]")} * ${f(1 - K.carcassKeep)})` : f(K.preyBase)} + take(max(fp.energy, 0.0)` : `take(${K.bodyE > 0 ? `(${bodyOf(K, "genomes[fp.kind]")} * ${f(1 - K.carcassKeep)})` : f(K.preyBase)} + ${f(preyShare(K))} * max(fp.energy, 0.0)`}, spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);
           }
           if (fp.kind >= FIRST_LIFE) {
             atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
@@ -3162,18 +3164,18 @@ ${cellWGSL(K, false)}
 
   var kind = p.kind;
   if (E <= 0.0) {
-    kind = HUSK; E = ${f(huskE(K))}; age = 0.0; vel *= 0.3;
+    kind = HUSK; E = ${K.bodyE > 0 ? "bodyCost" : f(K.huskBase)}; age = 0.0; vel *= 0.3;
     info = (info & 0xffffffc0u) | 1u;
     atomicAdd(&ledger[5], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 1u], 1u);
   } else if (age > g.lifespan) {
-    kind = HUSK; E = ${f(huskE(K))} + ${f(K.huskFrac)} * E; age = 0.0; vel *= 0.3;
+    kind = HUSK; E = ${K.bodyE > 0 ? "bodyCost" : f(K.huskBase)} + ${f(K.huskFrac)} * E; age = 0.0; vel *= 0.3;
     info = (info & 0xffffffc0u) | 2u;
     atomicAdd(&ledger[6], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 2u], 1u);
   } else if (th.x > 0.8 && rnd(&s) < ${f(K.scald)} * smoothstep(0.8, 1.4, th.x) * sim.dt) {
     // scalded: far above its optimum, a cell's proteins come apart
-    kind = HUSK; E = ${f(huskE(K))}; age = 0.0; vel *= 0.3;
+    kind = HUSK; E = ${K.bodyE > 0 ? "bodyCost" : f(K.huskBase)}; age = 0.0; vel *= 0.3;
     info = (info & 0xffffffc0u) | 10u;
     atomicAdd(&ledger[META_DEATH + 20u + dg], 1u);
   }
