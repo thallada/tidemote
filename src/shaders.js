@@ -184,6 +184,7 @@ export const DEFAULT_K = {
   fightBack: 0,     // living prey that hunts makes an attack fail with this × its flesh skill (dFlesh × eatEff)
   bodyReserve: 0,   // with bodyE, 1: a cell divides once it holds reproE beyond its child's body; 0: once it holds reproE
                     // and at least 1.25 × the body (so a division never starves it)
+  foundHunt: 1,     // the largest share of a new world's 24 founding species that eat flesh (hunters, crawlers)
   bodySize: 0,      // with bodyE, 1: a body holds bodyE × the cell's size (small cells are cheap to build, big ones rich prey)
   interfere: 0,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
                     // within reach, its bond partners aside)

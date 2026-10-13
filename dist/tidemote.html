@@ -1458,6 +1458,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     bodyReserve: 0,
     // with bodyE, 1: a cell divides once it holds reproE beyond its child's body; 0: once it holds reproE
     // and at least 1.25 × the body (so a division never starves it)
+    foundHunt: 1,
+    // the largest share of a new world's 24 founding species that eat flesh (hunters, crawlers)
     bodySize: 0,
     // with bodyE, 1: a body holds bodyE × the cell's size (small cells are cheap to build, big ones rich prey)
     interfere: 0
@@ -15178,11 +15180,22 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const head = new Uint32Array(META_CLAIM);
       const weights = ARCHETYPE_TYPES.map(() => rng() ** 2);
       const total = weights.reduce((a, b) => a + b, 0);
-      const plan = Array.from({ length: 24 }, () => {
-        let pick3 = rng() * total, i = 0;
-        while (i < weights.length - 1 && pick3 >= weights[i]) pick3 -= weights[i++];
+      const draw = (w, sum) => {
+        let pick3 = rng() * sum, i = 0;
+        while (i < w.length - 1 && pick3 >= w[i]) pick3 -= w[i++];
         return ARCHETYPE_TYPES[i];
-      });
+      };
+      const plan = Array.from({ length: 24 }, () => draw(weights, total));
+      const eatsFlesh = (t2) => t2 === "hunter" || t2 === "crawler";
+      const plants = weights.map((w, i) => eatsFlesh(ARCHETYPE_TYPES[i]) ? 0 : w);
+      const plantSum = plants.reduce((a, b) => a + b, 0);
+      let hunters = plan.filter(eatsFlesh).length;
+      for (let s = 0; s < plan.length && hunters > Math.floor(this.K.foundHunt * plan.length) && plantSum > 0; s++) {
+        if (eatsFlesh(plan[s])) {
+          plan[s] = draw(plants, plantSum);
+          hunters--;
+        }
+      }
       head[0] = n;
       head[1] = plan.length;
       const warm = this.temp + 3;

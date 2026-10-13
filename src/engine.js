@@ -586,11 +586,20 @@ class Engine {
     // Each world draws its own founding mix.
     const weights = ARCHETYPE_TYPES.map(() => rng() ** 2);
     const total = weights.reduce((a, b) => a + b, 0);
-    const plan = Array.from({ length: 24 }, () => {
-      let pick = rng() * total, i = 0;
-      while (i < weights.length - 1 && pick >= weights[i]) pick -= weights[i++];
+    const draw = (w, sum) => {
+      let pick = rng() * sum, i = 0;
+      while (i < w.length - 1 && pick >= w[i]) pick -= w[i++];
       return ARCHETYPE_TYPES[i];
-    });
+    };
+    const plan = Array.from({ length: 24 }, () => draw(weights, total));
+    // a world starts as a food pyramid: at most K.foundHunt of its founders eat flesh (the rest redrawn)
+    const eatsFlesh = (t) => t === 'hunter' || t === 'crawler';
+    const plants = weights.map((w, i) => (eatsFlesh(ARCHETYPE_TYPES[i]) ? 0 : w));
+    const plantSum = plants.reduce((a, b) => a + b, 0);
+    let hunters = plan.filter(eatsFlesh).length;
+    for (let s = 0; s < plan.length && hunters > Math.floor(this.K.foundHunt * plan.length) && plantSum > 0; s++) {
+      if (eatsFlesh(plan[s])) { plan[s] = draw(plants, plantSum); hunters--; }
+    }
     head[0] = n;
     head[1] = plan.length;
     // founders suit the water they will live in: the background, warmed a little by life
