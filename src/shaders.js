@@ -179,6 +179,10 @@ export const DEFAULT_K = {
   assimilate: 1.5,  // with bodyE, an eater keeps this × its skill (specialisation × eatEff × warmth) of the energy in
   assimCap: 0.8,    // flesh, plants and husks, at most this share (glint keeps K.gain)
   carcassKeep: 0.5, // with bodyE, the share of a killed cell's body left in its carcass (the killer gets the rest)
+  bodyWhole: 0,     // with bodyE, 1: bodies are eaten whole (a kill's share of the body and a husk pass without
+                    // digestion's loss, as the material of the eater's next child); stored energy keeps assimCap
+  interfere: 0,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
+                    // within reach, its bond partners aside)
 };
 
 // Energy bookkeeping (see K.bodyE): with bodyE off, main's rules.
@@ -1671,14 +1675,16 @@ fn mealDue(fk: u32, meal: u32) -> bool {
 
 // Whether an attack on food of kind fk misses: armour, an unfamiliar quarry, too little skill, or prey
 // hiding among stone. Every roll is drawn whatever the outcome, so the random stream stays the same.
-fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, s: ptr<function, u32>) -> bool {
+fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, rivals: f32, s: ptr<function, u32>) -> bool {
   let armored = fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
   let image = (info >> 6u) & 1023u;
   let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(s) < ${f(K.searchImage)};
   let unskilled = ${f(K.catchSkill)} > 0.0 && fk >= FIRST_LIFE && rnd(s) >= min(1.0, eatEff * select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, genomes[fk].photo > 0.4) / ${f(K.catchSkill)});
   // an attack made from among stone often misses: prey hides in the crevices
   let sheltered = fk >= FIRST_LIFE && rnd(s) < min(${f(K.refugeMax)}, stoneN * ${f(K.refuge)});
-  return armored || unfamiliar || unskilled || sheltered;
+  // hunters of one species crowding the same quarry get in each other's way
+  let jostled = ${f(K.interfere)} > 0.0 && fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.interfere)} * rivals) > 1.0;
+  return armored || unfamiliar || unskilled || sheltered || jostled;
 }
 
 // K.diag: count v into a guild's slot k
@@ -1776,7 +1782,7 @@ ${cellWGSL(K, false)}
     // a meal opportunity every K.eatEvery ticks, in the cell's own phase
     } else if (food != NONE && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && mealDue(sortedFull[food].kind, (sim.tick + p.id) / ${K.eatEvery | 0}u)) {
       let fk = sortedFull[food].kind;
-      let missed = mealMissed(fk, info, g, eatEff, stoneN, &s);
+      let missed = mealMissed(fk, info, g, eatEff, stoneN, max(0.0, kinN - bonds), &s);
       let won = !missed && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged;
       if (DIAG && canHunt && isAnimal(food)) { diagAdd(dg, 15u, 1u); diagAdd(dg, select(select(17u, 18u, won), 16u, missed), 1u); }
       if (won) {
@@ -1790,11 +1796,11 @@ ${cellWGSL(K, false)}
         if (fp.kind == GLINT) {
           gain = take(fp.energy, spec(g.dGlint), true, eatEff * th.perf); atomicAdd(&ledger[9], 1u);
         } else if (fp.kind == HUSK) {
-          gain = take(fp.energy, spec(g.dHusk), false, eatEff * th.perf); atomicAdd(&ledger[10], 1u);
+          gain = ${K.bodyE > 0 && K.bodyWhole ? 'fp.energy * min(1.0, spec(g.dHusk) * eatEff * th.perf * ' + f(K.assimilate) + ')' : 'take(fp.energy, spec(g.dHusk), false, eatEff * th.perf)'}; atomicAdd(&ledger[10], 1u);
         } else if (genomes[fp.kind].photo > 0.4) {
           gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf); act = 3u; atomicAdd(&ledger[11], 1u);
         } else {
-          gain = take(${f(preyBody(K))} + ${f(preyShare(K))} * max(fp.energy, 0.0), spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);
+          gain = ${K.bodyE > 0 && K.bodyWhole ? `${f(preyBody(K))} + take(max(fp.energy, 0.0)` : `take(${f(preyBody(K))} + ${f(preyShare(K))} * max(fp.energy, 0.0)`}, spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);
         }
         if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
         E += gain;
@@ -1849,7 +1855,7 @@ ${cellWGSL(K, false)}
           let fp = sortedFull[fd];
           // handling time, or a miss (armour, an unfamiliar quarry, skill, shelter), ends this opportunity
           if (!mealDue(fp.kind, mi)) { break; }
-          if (mealMissed(fp.kind, info, g, eatEff, stoneN, &s)) { if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); } break; }
+          if (mealMissed(fp.kind, info, g, eatEff, stoneN, max(0.0, kinN - bonds), &s)) { if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); } break; }
           let plant = fp.kind >= FIRST_LIFE && genomes[fp.kind].photo > 0.4;
           var got = true;
           if (plant) {
@@ -1868,11 +1874,11 @@ ${cellWGSL(K, false)}
           if (fp.kind == GLINT) {
             gain = take(fp.energy, spec(g.dGlint), true, eatEff * th.perf); atomicAdd(&ledger[9], 1u); slot = 1u;
           } else if (fp.kind == HUSK) {
-            gain = take(fp.energy, spec(g.dHusk), false, eatEff * th.perf); atomicAdd(&ledger[10], 1u); slot = 3u;
+            gain = ${K.bodyE > 0 && K.bodyWhole ? 'fp.energy * min(1.0, spec(g.dHusk) * eatEff * th.perf * ' + f(K.assimilate) + ')' : 'take(fp.energy, spec(g.dHusk), false, eatEff * th.perf)'}; atomicAdd(&ledger[10], 1u); slot = 3u;
           } else if (plant) {
             gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[11], 1u); slot = 2u;
           } else {
-            gain = take(${f(preyBody(K))} + ${f(preyShare(K))} * max(fp.energy, 0.0), spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);
+            gain = ${K.bodyE > 0 && K.bodyWhole ? `${f(preyBody(K))} + take(max(fp.energy, 0.0)` : `take(${f(preyBody(K))} + ${f(preyShare(K))} * max(fp.energy, 0.0)`}, spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);
           }
           if (fp.kind >= FIRST_LIFE) {
             atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
