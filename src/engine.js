@@ -110,9 +110,11 @@ class Engine {
     b.post = d.createBuffer({ size: 240, usage: U.UNIFORM | U.COPY_DST });
     b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     b.pickU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
-    b.counts = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST });
+    // per grid cell: its particles (with K.liveFirst, its matter, then its living)
+    b.counts = d.createBuffer({ size: (K.liveFirst ? 2 : 1) * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST });
     b.stoneGrid = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST });
-    b.cellStart = d.createBuffer({ size: (MAX_CELLS + 1) * 4, usage: U.STORAGE });
+    // each grid cell's first particle (and one past the last); with K.liveFirst then each one's living count
+    b.cellStart = d.createBuffer({ size: ((K.liveFirst ? 2 : 1) * MAX_CELLS + 1) * 4, usage: U.STORAGE });
     b.blockSums = d.createBuffer({ size: (MAX_CELLS / 256) * 4, usage: U.STORAGE });
     b.genomes = d.createBuffer({ size: MAXK * G_BYTES, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.frameCtr = d.createBuffer({ size: 48, usage: U.STORAGE | U.INDIRECT | U.COPY_SRC | U.COPY_DST });
@@ -229,7 +231,6 @@ class Engine {
     this.pPoint = rp(this.drawModule, 'vsPoint', 'fsPoint', 'triangle-strip', additive);
     // sprites of a pixel or so, splatted into a buffer and added into the scene (splatMain, fsSplat)
     this.cpSplat = d.createComputePipeline({ layout: 'auto', compute: { module: this.drawModule, entryPoint: 'splatMain' }, label: 'splatMain' });
-    this.pSplat = rp(this.drawModule, 'vsFade', 'fsSplat', 'triangle-list', additive);
     this.pLine = rp(this.drawModule, 'vsLine', 'fsLine', 'line-list', additive);
     // stone: the highest cobble at each pixel wins the depth test and writes its colour and surface (vsStone)
     this.pStone = d.createRenderPipeline({ layout: 'auto', label: 'fsStone', primitive: { topology: 'triangle-strip' },
@@ -260,7 +261,22 @@ class Engine {
     this.pickStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: PICK_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     this.trackStage = [0, 1, 2, 3, 4, 5, 6, 7].map(() => ({ buf: d.createBuffer({ size: 56, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     b.reprojU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
-    this.pReproj = rp(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined);
+    // The main view's scene pass also gathers the living alone in a second target (fsPointLive), which
+    // the composite lays over matter and stone; its other draws leave that target be.
+    const rpLive = (mod, vs, fs, topology, blend, live) => d.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module: mod, entryPoint: vs },
+      fragment: { module: mod, entryPoint: fs, targets: [{ format: HDR, blend }, { format: HDR, blend: additive, writeMask: live ? GPUColorWrite.ALL : 0 }] },
+      primitive: { topology },
+      label: fs + '+live',
+    });
+    this.main = {
+      point: rpLive(this.drawModule, 'vsPoint', 'fsPointLive', 'triangle-strip', additive, true),
+      splat: rpLive(this.drawModule, 'vsFade', 'fsSplat', 'triangle-list', additive, false),
+      line: rpLive(this.drawModule, 'vsLine', 'fsLine', 'line-list', additive, false),
+      bridge: rpLive(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', additive, false),
+      reproj: rpLive(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, false),
+    };
     // Max and coarse speeds: the last drawn world, carried with the camera onto the display frames between draws
     b.holdU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     this.pHold = rp(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, format);
@@ -351,7 +367,7 @@ class Engine {
       { binding: 0, resource: { buffer: b.surveyU } }, { binding: 1, resource: { buffer: b.parts } },
       { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.cellStart } },
       { binding: 4, resource: { buffer: b.survey } }] });
-    const pointBG = (view, k) => d.createBindGroup({ layout: this.pPoint.getBindGroupLayout(0), entries: [
+    const pointBG = (view, k, pipe = this.pPoint) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
       { binding: 3, resource: { buffer: b.intent } },
       { binding: 5, resource: { buffer: b.focus } }, { binding: 6, resource: { buffer: b.bondsIn } },
@@ -371,13 +387,13 @@ class Engine {
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
       { binding: 3, resource: { buffer: b.intent } }, { binding: 4, resource: { buffer: b.livingList } }, { binding: 5, resource: { buffer: b.focus } },
       { binding: 11, resource: { buffer: b.thermal } }, { binding: 12, resource: { buffer: this.cull[k].segs } }] });
-    this.bgPoint = pointBG(b.view, 0);
-    this.bgLine = lineBG(this.pLine, b.view, 0);
+    this.bgPoint = pointBG(b.view, 0, this.main.point);
+    this.bgLine = lineBG(this.main.line, b.view, 0);
     this.bgPointL = pointBG(b.viewL, 1);
     this.bgLineL = lineBG(this.pLine, b.viewL, 1);
     this.bgPointS = pointBG(b.viewS, 2);
     this.bgLineS = lineBG(this.pLine, b.viewS, 2);
-    this.bgBridge = lineBG(this.pBridge, b.view, 0);
+    this.bgBridge = lineBG(this.main.bridge, b.view, 0);
     this.bgBridgeL = lineBG(this.pBridge, b.viewL, 1);
     this.bgBridgeS = lineBG(this.pBridge, b.viewS, 2);
     const verr = await d.popErrorScope();
@@ -404,7 +420,7 @@ class Engine {
       const keep = this.accum[this.accIdx];
       this.accum[1 - this.accIdx].destroy();
       if (!this.clearAccum && this.lastCam) {
-        this.carry = { tex: keep, bg: d.createBindGroup({ layout: this.pReproj.getBindGroupLayout(0), entries: [
+        this.carry = { tex: keep, bg: d.createBindGroup({ layout: this.main.reproj.getBindGroupLayout(0), entries: [
           { binding: 0, resource: this.sampler }, { binding: 1, resource: keep.createView() }, { binding: 5, resource: { buffer: this.b.reprojU } }] }) };
       } else keep.destroy();
       this.bloom.forEach((t) => t.destroy()); this.murkTex.destroy(); this.microTex.destroy();
@@ -420,6 +436,9 @@ class Engine {
     this.murkView = this.murkTex.createView();
     this.microTex = tex(w, h);
     this.microView = this.microTex.createView();
+    this.liveTex?.destroy();
+    this.liveTex = tex(w, h);
+    this.liveView = this.liveTex.createView();
     this.speckBG = d.createBindGroup({ layout: this.pSpeck.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: this.b.post } }, { binding: 1, resource: { buffer: this.b.microU } },
       { binding: 4, resource: { buffer: this.b.specks } }, { binding: 5, resource: this.sampler }, { binding: 6, resource: this.murkView }] });
@@ -437,10 +456,10 @@ class Engine {
       { binding: 0, resource: this.sampler }, { binding: 1, resource: v },
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 3, resource: this.bloomViews[0] },
       { binding: 7, resource: this.stoneView[0] }, { binding: 8, resource: this.stoneView[1] }, { binding: 9, resource: this.murkView },
-      { binding: 10, resource: this.microView }, { binding: 11, resource: { buffer: this.b.thermal } }] }));
+      { binding: 10, resource: this.microView }, { binding: 11, resource: { buffer: this.b.thermal } }, { binding: 12, resource: this.liveView }] }));
     this.compBG = compBG(this.pComp);
     this.compClearBG = compBG(this.pCompClear);
-    this.reprojBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.pReproj.getBindGroupLayout(0), entries: [
+    this.reprojBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.main.reproj.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: v }, { binding: 5, resource: { buffer: this.b.reprojU } }] }));
     this.holdTex?.destroy();
     this.holdTex = d.createTexture({ size: [w, h], format: this.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
@@ -459,7 +478,7 @@ class Engine {
     if (!b.splat || !b.parts) return;
     this.splatBG = d.createBindGroup({ layout: this.cpSplat.getBindGroupLayout(0), entries: [[0, b.view], [1, b.parts], [2, b.genomes], [3, b.intent], [5, b.focus], [11, b.thermal], [13, b.splat], [15, b.quads]]
       .map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
-    this.splatDrawBG = d.createBindGroup({ layout: this.pSplat.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: b.view } }, { binding: 14, resource: { buffer: b.splat } }] });
+    this.splatDrawBG = d.createBindGroup({ layout: this.main.splat.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: b.view } }, { binding: 14, resource: { buffer: b.splat } }] });
   }
 
   _ensureLoupeTex(L) {
@@ -688,6 +707,7 @@ class Engine {
     const cells = this.grid[0] * this.grid[1];
     this.sorted = true;
     enc.clearBuffer(b.counts, 0, cells * 4);
+    if (this.K.liveFirst) enc.clearBuffer(b.counts, MAX_CELLS * 4, cells * 4);
     enc.clearBuffer(b.stoneGrid, 0, cells * 4);
     if (this.K.heat) enc.clearBuffer(b.thermal, 2 * MAX_CELLS * 4, cells * 4);
     enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
@@ -1344,6 +1364,8 @@ class Engine {
 
   _drawScene(pass, bgLine, bgPoint, bgBridge, data, k) {
     const v = new Float32Array(data);
+    // the main view's pass carries the living target too
+    const pl = k === 0 ? this.main : { point: this.pPoint, line: this.pLine, bridge: this.pBridge };
     const detail = new Uint32Array(data)[20] === 1;
     // culled: only the particles of the grid rows in view (cullRows wrote the draws' arguments)
     const culled = new Uint32Array(data)[21] === 1 ? this.cull[k].args : null;
@@ -1353,18 +1375,18 @@ class Engine {
       // Crossfade native lines and soft strips in this same pass. The strip has zero
       // contribution at its topology switch, so subpixel line coverage cannot pop.
       if (v[7] < 30 || !detail) {
-        pass.setPipeline(this.pLine);
+        pass.setPipeline(pl.line);
         pass.setBindGroup(0, bgLine);
         if (culled) pass.drawIndirect(culled, 16); else pass.drawIndirect(this.b.frameCtr, 16);
       }
       if (v[7] > 6 && detail) {
-        pass.setPipeline(this.pBridge);
+        pass.setPipeline(pl.bridge);
         pass.setBindGroup(0, bgBridge);
         if (culled) pass.drawIndirect(culled, 32); else pass.drawIndirect(this.b.bridgeDraw, 0);
       }
     }
     if (this.settings.nodes) {
-      pass.setPipeline(this.pPoint);
+      pass.setPipeline(pl.point);
       pass.setBindGroup(0, bgPoint);
       if (culled) pass.drawIndirect(culled, 0); else if (quads) pass.drawIndirect(quads, 0); else pass.draw(4, this.count);
     }
@@ -1537,7 +1559,8 @@ class Engine {
       const srcI = this.accIdx, dstI = 1 - this.accIdx;
       this.accIdx = dstI;
       const pass = enc.beginRenderPass({
-        colorAttachments: [{ view: this.accumViews[dstI], loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }],
+        colorAttachments: [{ view: this.accumViews[dstI], loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' },
+          { view: this.liveView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }],
         timestampWrites: tsBegin(),
       });
       if (!clear) {
@@ -1548,11 +1571,11 @@ class Engine {
         // in the last frame's texture coordinates (its size differs after a resize)
         const sx = (lc.ppu * W) / (cam.ppu * lc.w), sy = (lc.ppu * H) / (cam.ppu * lc.h);
         d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([sx, sy, (wx * lc.ppu) / lc.w, (wy * lc.ppu) / lc.h, this.settings.trails, 0, 0, 0]));
-        pass.setPipeline(this.pReproj);
+        pass.setPipeline(this.main.reproj);
         pass.setBindGroup(0, carry ? carry.bg : this.reprojBG[srcI]);
         pass.draw(3);
       }
-      if (splat) { pass.setPipeline(this.pSplat); pass.setBindGroup(0, this.splatDrawBG); pass.draw(3); }
+      if (splat) { pass.setPipeline(this.main.splat); pass.setBindGroup(0, this.splatDrawBG); pass.draw(3); }
       this._drawScene(pass, this.bgLine, this.bgPoint, this.bgBridge, this.viewData, 0);
       pass.end();
     }
