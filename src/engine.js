@@ -99,7 +99,7 @@ class Engine {
     const b = this.b;
     b.sim = d.createBuffer({ size: 256, usage: U.UNIFORM | U.COPY_DST });
     // the heat field: deposits, temperatures and husks per cell, and heatMain's next temperatures (shaders.js)
-    b.thermal = d.createBuffer({ size: 3 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    b.thermal = d.createBuffer({ size: (K.scent > 0 ? 4 : 3) * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.heatNext = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
     b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
     this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
@@ -724,6 +724,7 @@ class Engine {
     if (this.K.liveFirst) enc.clearBuffer(b.counts, MAX_CELLS * 4, cells * 4);
     enc.clearBuffer(b.stoneGrid, 0, cells * 4);
     if (this.K.heat) enc.clearBuffer(b.thermal, 2 * MAX_CELLS * 4, cells * 4);
+    if (this.K.heat && this.K.scent > 0) enc.clearBuffer(b.thermal, 3 * MAX_CELLS * 4, cells * 4);
     enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
     enc.clearBuffer(b.frameCtr, 0, 4);
     enc.clearBuffer(b.frameCtr, 36, 4);

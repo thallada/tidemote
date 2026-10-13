@@ -186,6 +186,8 @@ export const DEFAULT_K = {
                     // and at least 1.25 × the body (so a division never starves it)
   bodyShare: 2,     // with tissue, rate (per second) at which energy flows along a body's bonds toward the poorer cell
   leanHunters: 1,   // 1: founding hunters and crawlers are smaller, divide sooner and form loose bodies (for bodyE)
+  scent: 0,         // a hungry flesh-eater steers up the count of animals scentR grid cells off at this × its swimming
+  scentR: 2,
   foundHunt: 0.125, // the largest share of a new world's 24 founding species that eat flesh (hunters, crawlers)
   bodySize: 1,      // with bodyE, 1: a body holds bodyE × the cell's size (small cells are cheap to build, big ones rich prey)
   interfere: 0,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
@@ -671,7 +673,15 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0);
   let flow = flowAt(p.pos) * g.advect;
   // thermotaxis: a swimmer away from its optimum steers up or down the warmth toward it
-  var taxis = vec2f(0.0);
+  var taxis = vec2f(0.0);${K.scent > 0 && K.heat ? `
+  // a hungry hunter smells animals a few grid cells off and swims up the scent
+  if (canHunt && swim > 0.0 && g.dFlesh > 0.3) {
+    let sR = ${K.scentR | 0};
+    let sx = scentAt(cc.x + sR, cc.y) - scentAt(cc.x - sR, cc.y);
+    let sy = scentAt(cc.x, cc.y + sR) - scentAt(cc.x, cc.y - sR);
+    let sl = length(vec2f(sx, sy));
+    if (sl > 1.0) { taxis += vec2f(sx, sy) * (swim * g.dFlesh * eatEff * ${f(K.scent)} / sl); }
+  }` : ''}
   let slope = length(heat.yz);
   if (swim > 0.0 && slope > 1e-3) {
     taxis = heat.yz * (sign(g.topt - Tc) * min(1.0, abs(th.x)) * swim * ${f(K.thermotaxis)} / slope);
@@ -891,7 +901,13 @@ fn heatCell(x: i32, y: i32) -> f32 {
   let gw = i32(sim.grid.x);
   let gh = i32(sim.grid.y);
   return bitcast<f32>(atomicLoad(&thermal[MAX_CELLS + u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw)]));
-}
+}${K.scent > 0 && K.heat ? `
+// animals counted in grid cell (x, y) this step (wrapping)
+fn scentAt(x: i32, y: i32) -> f32 {
+  let gw = i32(sim.grid.x);
+  let gh = i32(sim.grid.y);
+  return f32(atomicLoad(&thermal[3u * MAX_CELLS + u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw)]));
+}` : ''}
 // The water's temperature at p, bilinear between cell centres, and its gradient (degrees per cell).
 fn heatSample(p: vec2f) -> vec3f {
   if (!HEAT_ON) { return vec3f(TREF, 0.0, 0.0); }
@@ -1229,7 +1245,9 @@ ${K.liveFirst ? `    // the living and the matter are ranked apart: the living s
     aux[i] = vec2u(cell, r);`}
     if (p.kind == STONE) { atomicAdd(&stoneGrid[cell], select(0x10000u, 1u, (p.info & 15u) != 0u)); }
     // husks per grid cell: where they pile up and rot, framboids form (matterMain)
-    if (p.kind == HUSK && HEAT_ON) { atomicAdd(&thermal[2u * MAX_CELLS + cell], 1u); }
+    if (p.kind == HUSK && HEAT_ON) { atomicAdd(&thermal[2u * MAX_CELLS + cell], 1u); }${K.scent > 0 && K.heat ? `
+    // animals per grid cell: the scent hungry hunters follow (lifeMain)
+    if (p.kind >= FIRST_LIFE && genomes[p.kind].photo <= 0.4) { atomicAdd(&thermal[3u * MAX_CELLS + cell], 1u); }` : ''}
     atomicAdd(&hist[p.kind % MAXK], 1u);
     if (p.kind >= FIRST_LIFE) { atomicAdd(&roleHist[roleOf(p.info)], 1u); }
   }
