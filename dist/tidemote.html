@@ -1453,6 +1453,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     bodyWhole: 0,
     // with bodyE, 1: bodies are eaten whole (a kill's share of the body and a husk pass without
     // digestion's loss, as the material of the eater's next child); stored energy keeps assimCap
+    fightBack: 0,
+    // living prey that hunts makes an attack fail with this × its flesh skill (dFlesh × eatEff)
     interfere: 0
     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
     // within reach, its bond partners aside)
@@ -2947,7 +2949,9 @@ fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, rivals: f
   let sheltered = fk >= FIRST_LIFE && rnd(s) < min(${f(K.refugeMax)}, stoneN * ${f(K.refuge)});
   // hunters of one species crowding the same quarry get in each other's way
   let jostled = ${f(K.interfere)} > 0.0 && fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.interfere)} * rivals) > 1.0;
-  return armored || unfamiliar || unskilled || sheltered || jostled;
+  // prey that hunts fights back: the more of a hunter it is, the likelier the attack fails
+  let fought = ${f(K.fightBack)} > 0.0 && fk >= FIRST_LIFE && rnd(s) < ${f(K.fightBack)} * genomes[fk].dFlesh * (1.0 - genomes[fk].photo) * (1.0 - genomes[fk].photo);
+  return armored || unfamiliar || unskilled || sheltered || jostled || fought;
 }
 
 // K.diag: count v into a guild's slot k
