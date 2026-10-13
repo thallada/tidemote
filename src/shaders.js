@@ -182,6 +182,8 @@ export const DEFAULT_K = {
   bodyWhole: 0,     // with bodyE, 1: bodies are eaten whole (a kill's share of the body and a husk pass without
                     // digestion's loss, as the material of the eater's next child); stored energy keeps assimCap
   fightBack: 0,     // living prey that hunts makes an attack fail with this × its flesh skill (dFlesh × eatEff)
+  bodyReserve: 0,   // with bodyE, 1: a cell divides once it holds reproE beyond its child's body; 0: once it holds reproE
+                    // and at least 1.25 × the body (so a division never starves it)
   bodySize: 0,      // with bodyE, 1: a body holds bodyE × the cell's size (small cells are cheap to build, big ones rich prey)
   interfere: 0,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
                     // within reach, its bond partners aside)
@@ -395,9 +397,9 @@ function cellWGSL(K, w) {
   let Tc = heat.x + ${f(K.selfWarm)} * thermo * (1.0 + 0.5 * (select(0.0, 1.0, keep1) + select(0.0, 1.0, keep2)));
   let th = cellThermal(g, Tc);
   // a torpid cell neither hunts, grazes nor divides
-  // a child's body costs bodyCost (K.bodyE, by size with K.bodySize); a cell divides past its reserve and that
+  // a child's body costs bodyCost (K.bodyE, by size with K.bodySize); divE: the energy a cell divides at (K.bodyReserve)
   let bodyCost = ${bodyOf(K, 'g')};
-  let divE = g.reproE${K.bodyE > 0 ? ' + bodyCost' : ''};
+  let divE = ${K.bodyE > 0 ? (K.bodyReserve ? 'g.reproE + bodyCost' : 'max(g.reproE, 1.25 * bodyCost)') : 'g.reproE'};
   let hungry = p.energy < divE * ${f(K.sated)} && eatEff > 0.1 && !th.torpid;
   let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
   // food in reach is gathered by hungry cells; in a coarse step also by any that may grow hungry in it
