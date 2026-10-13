@@ -2389,7 +2389,8 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
       pos = wrapPos(center + vec2f(gauss(&s), gauss(&s)) * sim.spread);
     }
     let g = genomes[kind];
-    e = 0.4 + 0.6 * rnd(&s);
+    // founders start as healthy cells: with bodyE, part of the way to their first division
+    e = (0.4 + 0.6 * rnd(&s))${K.bodyE > 0 ? ` * (g.reproE${K.bodyReserve ? ` + ${bodyOf(K, "g")}` : ""})` : ""};
     let r = sampleRole(g, sampleRole(g, 0u, &s), &s);
     col = pack4x8unorm(vec4f(roleColor(g, r), 1.0));
     age = rnd(&s) * g.lifespan * 0.6;
