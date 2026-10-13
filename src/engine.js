@@ -199,8 +199,11 @@ class Engine {
     };
     // K.tissue: bonds pull both ways, through the cells that keep a bond to each (bondsNow holds them)
     if (K.tissue > 0) {
-      this.cpDefs.bondBackMain = [0, 2, 12, 15];
+      this.cpDefs.bondBackMain = [0, 2, 12, 20];
     }
+    // contact between living cells, in its own pass before lifeMain (contactMain)
+    this.contact = !!K.liveFirst && (K.bodyPush > 0 || K.crowdVisc > 0);
+    if (this.contact) this.cpDefs.contactMain = [0, 2, 3, 6, 12];
     // coarse steps run their own lifeMain and mindMain (COARSE in simWGSL)
     this.cpDefs.lifeMainCoarse = this.cpDefs.lifeMain;
     this.cpDefs.mindMainCoarse = this.cpDefs.mindMain;
@@ -335,7 +338,7 @@ class Engine {
       4: { buffer: b.counts }, 5: { buffer: b.counts }, 6: { buffer: b.cellStart }, 7: { buffer: b.blockSums },
       8: { buffer: b.aux }, 9: { buffer: b.intent }, 10: { buffer: b.genomes }, 11: { buffer: b.ledger },
       12: { buffer: b.livingList }, 13: { buffer: b.frameCtr }, 14: { buffer: b.stoneGrid },
-      15: { buffer: b.bondsNow }, 16: { buffer: b.stoneList }, 17: { buffer: b.mind }, 18: { buffer: b.thermal }, 19: { buffer: b.heatNext },
+      15: { buffer: b.bondsNow }, 20: { buffer: b.bondsNow }, 16: { buffer: b.stoneList }, 17: { buffer: b.mind }, 18: { buffer: b.thermal }, 19: { buffer: b.heatNext },
     };
     for (const [name, ids] of Object.entries(this.cpDefs)) {
       const c = this.cp[name];
@@ -387,13 +390,15 @@ class Engine {
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
       { binding: 3, resource: { buffer: b.intent } }, { binding: 4, resource: { buffer: b.livingList } }, { binding: 5, resource: { buffer: b.focus } },
       { binding: 11, resource: { buffer: b.thermal } }, { binding: 12, resource: { buffer: this.cull[k].segs } }] });
-    this.bgPoint = pointBG(b.view, 0, this.main.point);
-    this.bgLine = lineBG(this.main.line, b.view, 0);
+    this.bgPoint = pointBG(b.view, 0);
+    this.bgLine = lineBG(this.pLine, b.view, 0);
+    // the main view's scene pass (two targets: its pipelines' own layouts)
+    this.mainBG = { point: pointBG(b.view, 0, this.main.point), line: lineBG(this.main.line, b.view, 0), bridge: lineBG(this.main.bridge, b.view, 0) };
     this.bgPointL = pointBG(b.viewL, 1);
     this.bgLineL = lineBG(this.pLine, b.viewL, 1);
     this.bgPointS = pointBG(b.viewS, 2);
     this.bgLineS = lineBG(this.pLine, b.viewS, 2);
-    this.bgBridge = lineBG(this.main.bridge, b.view, 0);
+    this.bgBridge = lineBG(this.pBridge, b.view, 0);
     this.bgBridgeL = lineBG(this.pBridge, b.viewL, 1);
     this.bgBridgeS = lineBG(this.pBridge, b.viewS, 2);
     const verr = await d.popErrorScope();
@@ -736,6 +741,7 @@ class Engine {
     run('scatterMain', wg);
     run('censusMain', Math.ceil(MAXK / 256));
     run('matterMain', wg);
+    if (this.contact) run('contactMain', null);
     if (this.K.tissue > 0) run('bondBackMain', null);
     run(this.ticks > 1 ? 'lifeMainCoarse' : 'lifeMain', null);
     if (this.K.heat) run('heatMain', Math.ceil(cells / 64));
@@ -1362,10 +1368,9 @@ class Engine {
     pass.end();
   }
 
-  _drawScene(pass, bgLine, bgPoint, bgBridge, data, k) {
+  // pl: the pipelines (the main view's pass carries the living target too, this.main)
+  _drawScene(pass, bgLine, bgPoint, bgBridge, data, k, pl = { point: this.pPoint, line: this.pLine, bridge: this.pBridge }) {
     const v = new Float32Array(data);
-    // the main view's pass carries the living target too
-    const pl = k === 0 ? this.main : { point: this.pPoint, line: this.pLine, bridge: this.pBridge };
     const detail = new Uint32Array(data)[20] === 1;
     // culled: only the particles of the grid rows in view (cullRows wrote the draws' arguments)
     const culled = new Uint32Array(data)[21] === 1 ? this.cull[k].args : null;
@@ -1576,7 +1581,7 @@ class Engine {
         pass.draw(3);
       }
       if (splat) { pass.setPipeline(this.main.splat); pass.setBindGroup(0, this.splatDrawBG); pass.draw(3); }
-      this._drawScene(pass, this.bgLine, this.bgPoint, this.bgBridge, this.viewData, 0);
+      this._drawScene(pass, this.mainBG.line, this.mainBG.point, this.mainBG.bridge, this.viewData, 0, this.main);
       pass.end();
     }
     this._drawStone(enc, this.stoneView, this.bgStone);
