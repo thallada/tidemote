@@ -84,13 +84,9 @@ export const DEFAULT_K = {
   preyBase: 0.35,
   preyFrac: 0.7,
   kin: 0.8,
-  contact: 0,       // share of the overlap between cells' bodies undone each tick (0: off, cells may stack inside each other)
-  crowdPush: 2.0,   // with contact, how fast (units/s per unit of excess cover) a crowd past full spreads out
   bondTouch: 0,     // bonds rest at this share of their two cells' touching distance (0: at 0.55 linkR, an open lattice)
   socialN: 0,       // pair forces are averaged past this many particles within reach (0: summed however many)
   tissueSig: 1,     // with tissue, how much of their signature forces the tightest species' kin keep (contact shapes them)
-  tissueCore: 1,    // with tissue, how much firmer the tightest species' cells press apart at touching
-  cadherin: 0,      // with tissue, how hard kin of the tightest species hold on just past touching
   tightFrom: 0.5,   // with tissue, the adhesion where bodies start to close into tissue...
   tightSpan: 0.4,   // ...and how much more until they are tissue through and through
   bodyPush: 0,      // how hard overlapping cells' bodies push apart (per unit overlap, summed over all; 0: off)
@@ -318,9 +314,7 @@ function cellWGSL(K, w) {
   let R2 = R * R;
   let invR = 1.0 / R;
   let beta = g.beta;
-  let invBeta = 1.0 / beta;${K.contact > 0 ? `
-  let myR = 0.085 * g.size * (1.0 - 0.12 * f32(role));
-  var apart = vec2f(0.0);` : ''}
+  let invBeta = 1.0 / beta;
   let invOM = 1.0 / (1.0 - beta);
   // photosynthesis and eating don't mix well: a cell that does both does neither efficiently
   let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
@@ -403,36 +397,16 @@ function cellWGSL(K, w) {
   var pack = 0.0;
   // (K.diag: neighbours inside this cell's core; animals within reach and twice reach)
   var overlap = 0.0;${K.socialN > 0 ? `
-  var nIn = 0.0;${K.coreSum ? `
-  var coreF = vec2f(0.0);` : ''}` : ''}
-  ${K.bodyPush > 0 && !(K.contact > 0) ? 'let myR = 0.085 * g.size * (1.0 - 0.12 * f32(role));' : ''}${K.bodyPush > 0 ? `
-  var bodyF = vec2f(0.0);` : ''}
+  var nIn = 0.0;` : ''}${(K.socialN > 0 && K.coreSum) || K.bodyPush > 0 ? `
+  // forces of contact, summed over every neighbour (personal space with K.coreSum, bodies with K.bodyPush)
+  var coreF = vec2f(0.0);` : ''}
+  ${K.bodyPush > 0 ? 'let myR = 0.085 * g.size * (1.0 - 0.12 * f32(role));' : ''}
   var preyNear = vec2f(0.0);${K.crowdVisc > 0 ? `
   var touchV = vec2f(0.0);
-  var touchN = 0.0;` : ''}${K.tissue > 0 && K.cadherin > 0 ? `
-  var adhF = vec2f(0.0);
-  var adhV = vec2f(0.0);
-  var adhN = 0.0;` : ''}
+  var touchN = 0.0;` : ''}
   var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
 
-${K.contact > 0 ? `
-  // Crowds past what bodies can fill spread out: the share of each grid cell its living would cover at
-  // this cell's size, past CROWD_FULL, pushes down its slope, read bilinearly between grid-cell centres
-  // where the cell sits. The counts are exact: in a pile (a thousand living around, each sample standing
-  // for a dozen) the sampled pair forces and overlaps were noise in thousands, and the cells raced about.
-  let bodyArea = 3.14159265 * myR * myR;
-  var excess: array<f32, 9>;
-  for (var k = 0; k < 9; k++) {
-    let c = u32(((cc.y + k / 3 - 1 + gh) % gh) * gw + (cc.x + k % 3 - 1 + gw) % gw);
-    excess[k] = max(0.0, f32(cellStart[LIVE_AT + c]) * bodyArea - CROWD_FULL);
-  }
-  let off = p.pos - floor(p.pos) - 0.5;
-  let sx = select(-1, 1, off.x >= 0.0);
-  let sy = select(-1, 1, off.y >= 0.0);
-  let t = abs(off);
-  let e00 = excess[4]; let e10 = excess[4 + sx]; let e01 = excess[4 + 3 * sy]; let e11 = excess[4 + sx + 3 * sy];
-  let crowdGrad = vec2f(f32(sx) * mix(e10 - e00, e11 - e01, t.y), f32(sy) * mix(e01 - e00, e11 - e10, t.x));
-  let crowdPush = -crowdGrad * ${f(K.crowdPush)};` : ''}
+
 
   // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam).
   var rs: array<u32, 9>;
@@ -477,15 +451,16 @@ ${K.contact > 0 ? `
       let x = r * invR;
       let qk = q.kr & 1023u;
       let a = clamp((sdot(sg.z, q.s0) + sdot(sg.w, q.s1)) * ${f(K.affScale)}, -1.0, 1.0);${K.tissue > 0 ? `
-      // a tissue's cells keep personal space only down to touching: kin of a bonding species press
-      // membrane to membrane, and their signature forces act beyond it
-      // kin touch where their two roles' sizes meet
-      let tq = 0.085 * g.size * (2.0 - 0.12 * f32(role + ((q.kr >> 10u) & 3u)));
-      let bk = select(beta, mix(beta, min(beta, tq * invR), tight), bonding && qk == p.kind);${K.tissue > 0 && K.tissueCore > 1 ? `
-      // a tissue's cells are firm: they press apart at touching far harder than they hold on
-      let kinStiff = select(1.0, mix(1.0, ${f(K.tissueCore)}, tight), bonding && qk == p.kind);` : ''}
-      let invBk = 1.0 / bk;
-      let invOMk = 1.0 / (1.0 - bk);
+      // A tight body's kin keep personal space only down to touching (where their two roles' sizes
+      // meet), so they press membrane to membrane, and keep less of their signature forces beyond it.
+      var bk = beta; var invBk = invBeta; var invOMk = invOM; var sigK = 1.0;
+      if (tight > 0.0 && qk == p.kind) {
+        let tq = 0.085 * g.size * (2.0 - 0.12 * f32(role + ((q.kr >> 10u) & 3u)));
+        bk = mix(beta, min(beta, tq * invR), tight);
+        invBk = 1.0 / bk;
+        invOMk = 1.0 / (1.0 - bk);
+        sigK = mix(1.0, ${f(K.tissueSig)}, tight);
+      }
       let shape = 1.0 - abs(2.0 * x - 1.0 - bk) * invOMk;` : `
       let shape = 1.0 - abs(2.0 * x - 1.0 - beta) * invOM;`}
       var fr: f32;
@@ -495,19 +470,13 @@ ${K.contact > 0 ? `
       if (qk >= FIRST_LIFE) {
         // a hungry forager lets other species inside its personal space so it can reach them
         let core = select(1.0, ${f(K.huntCore)}, canHunt && qk != p.kind);
-        if (x < ${K.tissue > 0 ? 'bk' : 'beta'}) { fr = (x * ${K.tissue > 0 ? 'invBk' : 'invBeta'} - 1.0) * core${K.tissue > 0 && K.tissueCore > 1 ? ` * kinStiff` : ''}; } else { fr = a * shape${K.tissue > 0 && K.tissueSig < 1 ? ` * select(1.0, mix(1.0, ${f(K.tissueSig)}, tight), bonding && qk == p.kind)` : ''}; }${W('mFr0 = fr;')}
+        if (x < ${K.tissue > 0 ? 'bk' : 'beta'}) { fr = (x * ${K.tissue > 0 ? 'invBk' : 'invBeta'} - 1.0) * core; } else { fr = a * shape${K.tissue > 0 ? ' * sigK' : ''}; }${W('mFr0 = fr;')}
         // hungry foragers are drawn toward the cells their diet favours
         let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
         if (x >= ${K.tissue > 0 ? 'bk' : 'beta'}) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * ${K.tissue > 0 ? 'invBk' : 'invBeta'} * invR; }
-${K.tissue > 0 && K.cadherin > 0 ? `        // tissue: kin just past touching hold on to each other, membrane to membrane (summed: a contact)
-        if (bonding && qk == p.kind && r < 2.0 * tq) {
-          if (r > tq) { adhF += d * (tight * (1.0 - abs(r - 1.5 * tq) / (0.5 * tq)) / r); }
-          // and move with the cells they touch, as with their partners
-          adhV += unpack2x16float(q.vel); adhN += 1.0;
-        }
-` : ''}        ${K.bodyPush > 0 ? `// bodies do not overlap, whatever either wants of the other: a push that grows with the overlap
+        ${K.bodyPush > 0 ? `// bodies do not overlap, whatever either wants of the other: a push that grows with the overlap
         // of their drawn bodies, summed (every one pressing counts)
-        { let touch = myR + bitcast<f32>(q.pad); if (r < touch) { bodyF -= d * (${f(K.bodyPush)} * (touch - r) / (touch * r)); } }
+        { let touch = myR + bitcast<f32>(q.pad); if (r < touch) { coreF -= d * (${f(K.bodyPush)} * (touch - r) / (touch * r)); } }
         ` : ''}${K.crowdVisc > 0 ? `// cells that touch (any species) drag on each other: a crowd moves as a thick fluid
         if (r < ${f(2.0 * 0.085 * 1.25)} * (g.size + 1.0)) { touchV += unpack2x16float(q.vel); touchN += 1.0; }
         ` : ''}crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
@@ -583,12 +552,7 @@ ${K.tissue > 0 && K.cadherin > 0 ? `        // tissue: kin just past touching ho
           }
         }
       }
-      if (x >= ${K.tissue > 0 ? 'bk' : 'beta'}) { dfr = select(-2.0, 2.0, 2.0 * x < 1.0 + ${K.tissue > 0 ? 'bk' : 'beta'}) * ${K.tissue > 0 ? 'invOMk' : 'invOM'} * invR * pull; }${K.contact > 0 ? `
-      // bodies don't overlap (any species, kin or not): each takes half of its overlap with the other away
-      if (qk >= FIRST_LIFE) {
-        let touch = myR + bitcast<f32>(q.pad);
-        if (r < touch) { apart -= d * (0.5 * (touch - r) / r); }
-      }` : ''}
+      if (x >= ${K.tissue > 0 ? 'bk' : 'beta'}) { dfr = select(-2.0, 2.0, 2.0 * x < 1.0 + ${K.tissue > 0 ? 'bk' : 'beta'}) * ${K.tissue > 0 ? 'invOMk' : 'invOM'} * invR * pull; }
       ${K.socialN > 0 && K.coreSum ? `if (qk >= FIRST_LIFE && x < ${K.tissue > 0 ? 'bk' : 'beta'}) { coreF += d * (fr / r); } else { force += d * (fr / r); }` : 'force += d * (fr / r);'}${W('mPair(j, q, d, r, x < beta, qk == p.kind, mFr0, fr);')}
       if (coarse) {
         // the pair force d g(r), g = fr / r, has gradient in this cell's position -(g I + g'/r d d')
@@ -608,12 +572,10 @@ ${K.tissue > 0 && K.cadherin > 0 ? `        // tissue: kin just past touching ho
   // a cell answers its neighbours as a whole, not each one in full: past socialN within reach the pair
   // forces are averaged, so a crowd drives a cell no harder than a neighbourhood does
   let social = ${f(K.socialN)} / max(${f(K.socialN)}, nIn * stride);
-  force *= social; jF *= social;${K.coreSum ? `
-  // ...but personal space is pressed for by every neighbour inside it: a crowd pushes back the
-  // harder the more pile in, so it cannot collapse
-  force += coreF * stride;` : ''}` : ''}${K.tissue > 0 && K.cadherin > 0 ? `
-  force += adhF * (stride * ${f(K.cadherin)});` : ''}${K.bodyPush > 0 ? `
-  force += bodyF * stride;` : ''}
+  force *= social; jF *= social;` : ''}${(K.socialN > 0 && K.coreSum) || K.bodyPush > 0 ? `
+  // ...but contact is pressed for by every neighbour inside it: a crowd pushes back the harder the
+  // more pile in, so it cannot collapse
+  force += coreF * stride;` : ''}
   crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride;
 
   let heavy = 1.0 - 0.7 * g.photo;
@@ -675,10 +637,9 @@ ${K.tissue > 0 ? `  // each bond rests where its two cells touch (both agree on 
   if (nb0 != NONE) { vb0 = sortedFull[nb0].vel; }
   if (nb1 != NONE) { vb1 = sortedFull[nb1].vel; }
   if (nb2 != NONE) { vb2 = sortedFull[nb2].vel; }
-  // the body's motion around this cell: its partners' mean velocity (and, in tissue, of the kin it touches)
-${K.cadherin > 0 ? `  let nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE) + select(0.0, 1.0, nb0 != NONE) + select(0.0, 1.0, nb1 != NONE) + select(0.0, 1.0, nb2 != NONE) + adhN * stride * tight;
-  let vP = (vB1 + vB2 + vb0 + vb1 + vb2 + adhV * (stride * tight)) / max(nP, 1.0);` : `  let nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE) + select(0.0, 1.0, nb0 != NONE) + select(0.0, 1.0, nb1 != NONE) + select(0.0, 1.0, nb2 != NONE);
-  let vP = (vB1 + vB2 + vb0 + vb1 + vb2) / max(nP, 1.0);`}` : ''}
+  // the body's motion around this cell: its partners' mean velocity
+  let nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE) + select(0.0, 1.0, nb0 != NONE) + select(0.0, 1.0, nb1 != NONE) + select(0.0, 1.0, nb2 != NONE);
+  let vP = (vB1 + vB2 + vb0 + vb1 + vb2) / max(nP, 1.0);` : ''}
   var vel = p.vel;
   var pos = p.pos;
   for (var k = 0u; k < select(1u, sim.ticks, COARSE); k++) {
@@ -712,27 +673,12 @@ ${K.cadherin > 0 ? `  let nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n
     }
     vel += taxis * h;${K.crowdVisc > 0 ? `
     // a crowd's viscosity: the more cells it touches, the more it moves with them
-    if (touchN > 0.0) { vel = mix(vel, touchV / touchN, clamp(${f(K.crowdVisc)} * h * min(1.0, touchN * stride / 4.0), 0.0, 1.0)); }` : ''}${K.contact > 0 ? `
-    // nor moves further into the cells it overlaps: what of its velocity heads into them (along their
-    // sum) is lost, as in an inelastic collision; sliding past them and parting are free
-    // (only where the scan saw nearly all its neighbours: sampled, the overlaps' direction is noise)
-    if (stride <= 2.0 && dot(apart, apart) > 0.0) { let out = normalize(apart); vel -= out * min(0.0, dot(vel, out)); }
-    // nor heads further into a crowd past full
-    if (dot(crowdGrad, crowdGrad) > 0.0) { let up = normalize(crowdGrad); vel -= up * max(0.0, dot(vel, up)); }` : ''}
+    if (touchN > 0.0) { vel = mix(vel, touchV / touchN, clamp(${f(K.crowdVisc)} * h * min(1.0, touchN * stride / 4.0), 0.0, 1.0)); }` : ''}
     let sp = length(vel);
     if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
     pos += (vel + flow) * h;
   }
-${K.contact > 0 ? `  // the overlap undone in position, not by a force: a stiff push overshot among many contacts, and the
-  // crowd shook (its direction random from tick to tick); this moves it only as far as it overlaps
-  // (summed, so a cell pressed from one side moves as far as its overlaps add up to, at most 0.15 of its
-  // radius a tick, so it eases apart rather than snapping: averaged, a pile's cells barely moved)
-  let undo = apart * (1.0 - pow(1.0 - ${f(K.contact)}, f32(sim.ticks)));
-  let most = 0.15 * myR * f32(sim.ticks);
-  pos += undo * min(1.0, most / max(length(undo), 1e-9));
-  let spread = crowdPush * sim.dt;
-  pos += spread * min(1.0, most / max(length(spread), 1e-9));
-` : ''}  pos = wrapPos(pos);
+  pos = wrapPos(pos);
 
   var col = unpack4x8unorm(p.col).rgb;
   if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }
@@ -786,10 +732,6 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u3
 @group(0) @binding(6) var<storage, read_write> cellStart: array<u32>;
 @group(0) @binding(7) var<storage, read_write> blockSums: array<u32>;
 @group(0) @binding(8) var<storage, read_write> aux: array<vec2u>;
-// cellStart[LIVE_AT + c]: how many of grid cell c's particles are living (for the crowd pressure)
-const LIVE_AT = MAX_CELLS + 1u;
-// with K.contact, the share of a grid cell bodies may cover before the crowd presses outward
-const CROWD_FULL = 0.8;
 // Intent: x bits 0..1 action (0 none, 1 eat, 2 birth, 3 bite),
 // 2..11 child kind (birth) or observed target kind (eat/bite),
 // 12..13 child role, 14..30 child generation; y child energy, z/w bond neighbours.
@@ -1173,8 +1115,6 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
     let cell = cellOf(p.pos);
     let r = atomicAdd(&countsA[cell], 1u);
     aux[i] = vec2u(cell, r);
-    // each grid cell's living, counted for the crowd pressure (LIVE_AT)
-    if (p.kind >= FIRST_LIFE) { atomicAdd(&countsA[MAX_CELLS + cell], 1u); }
     if (p.kind == STONE) { atomicAdd(&stoneGrid[cell], select(0x10000u, 1u, (p.info & 15u) != 0u)); }
     // husks per grid cell: where they pile up and rot, framboids form (matterMain)
     if (p.kind == HUSK && HEAT_ON) { atomicAdd(&thermal[2u * MAX_CELLS + cell], 1u); }
@@ -1199,7 +1139,6 @@ var<workgroup> sh: array<u32, 256>;
 fn scanBlocks(@builtin(local_invocation_index) l: u32, @builtin(workgroup_id) wg: vec3u) {
   let g = wg.x * 256u + l;
   let v = countsP[g];
-  cellStart[LIVE_AT + g] = countsP[MAX_CELLS + g];
   sh[l] = v;
   workgroupBarrier();
   for (var o = 1u; o < 256u; o = o << 1u) {
@@ -1276,8 +1215,8 @@ ${K.tissue > 0 ? `    atomicStore(&bondsNow[dst * 6u], partners.x);
     let role = roleOf(p.info);
     let sig = genomes[p.kind].sig[role].xy;
     let plant = select(0u, 1u << 12u, p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4);
-    // pad: with K.contact, the cell's drawn radius (0.085 world units per unit of size, smaller in its later roles)
-    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant, p.col, pack2x16float(p.vel), sig.x, sig.y, ${K.contact > 0 || K.bodyPush > 0 ? 'bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role)))' : '0u'});
+    // pad: with K.bodyPush, the cell's drawn radius (0.085 world units per unit of size, smaller in its later roles)
+    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant, p.col, pack2x16float(p.vel), sig.x, sig.y, ${K.bodyPush > 0 ? 'bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role)))' : '0u'});
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
   }
   workgroupBarrier();
