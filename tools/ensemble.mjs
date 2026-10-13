@@ -11,7 +11,7 @@ const { values: v } = parseArgs({ options: {
   runs: { type: 'string', default: '24' }, 'first-seed': { type: 'string', default: '1' },
   minutes: { type: 'string', default: '30' }, n: { type: 'string', default: '32768' },
   jobs: { type: 'string', default: '4' }, k: { type: 'string', default: '{}' }, 'no-eras': { type: 'boolean' },
-  step: { type: 'string', default: '1' }, temp: { type: 'string' }, sample: { type: 'string', default: '5' }, resume: { type: 'boolean' },
+  step: { type: 'string', default: '1' }, temp: { type: 'string' }, sample: { type: 'string', default: '5' }, resume: { type: 'boolean' }, chrome: { type: 'boolean' },
   out: { type: 'string' }, from: { type: 'string' }, name: { type: 'string' },
   baseline: { type: 'string' }, targets: { type: 'string' }, 'save-baseline': { type: 'string' },
   alpha: { type: 'string', default: '0.05' }, help: { type: 'boolean' },
@@ -22,6 +22,7 @@ if (v.help || (!v.out && !v.from)) {
   --step 1                Each step covers step/60 s (coarse steps; the page takes up to 4)
   --temp T                Hold the water at T degrees
   --sample 5              Seconds between samples
+  --chrome                Run each seed in Chromium (sim.mjs --chrome; TIDEMOTE_VK_LAYER: on the GPU)
   --resume                Skip seeds already in --out (or claimed by another ensemble running into it)
   --from DIR              Analyse the run JSONs already in DIR instead of running
   --baseline FILE         Compare with a saved report; exit 1 if a gated metric regressed
@@ -81,6 +82,7 @@ async function runAll() {
       const args = [sim, '--n', String(config.n), '--minutes', String(config.minutes), '--seed', String(seed),
         '--k', JSON.stringify(config.k), '--print', '1e9', '--sample', v.sample, '--out', out];
       if (!config.eras) args.push('--no-eras');
+      if (v.chrome) args.push('--chrome');
       if (config.step !== 1) args.push('--step', String(config.step));
       if (config.temp != null) args.push('--temp', config.temp);
       let failure = await child(args);

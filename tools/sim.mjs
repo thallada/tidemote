@@ -64,14 +64,21 @@ async function runChrome() {
   try {
     const html = path.join(dir, 'index.html');
     fs.writeFileSync(html, '<!doctype html><meta charset="utf-8"><title>Tidemote headless</title>');
-    browser = await chromium.launch({ headless: true, executablePath, args: ['--enable-unsafe-webgpu'] });
+    // TIDEMOTE_VK_LAYER (Linux, no display): Chromium on the real GPU through Vulkan, as tools/perf/bench.mjs --linux
+    const vk = process.env.TIDEMOTE_VK_LAYER;
+    browser = await chromium.launch(vk ? {
+      headless: true, executablePath, env: { ...process.env, VK_ADD_LAYER_PATH: vk, VK_INSTANCE_LAYERS: 'VK_LAYER_TIDEMOTE_headless' },
+      ignoreDefaultArgs: ['--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader'],
+      args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-angle=vulkan', '--ignore-gpu-blocklist', '--disable-vulkan-surface'],
+    } : { headless: true, executablePath, args: ['--enable-unsafe-webgpu'] });
     const page = await browser.newPage();
     page.setDefaultTimeout(0);
     page.on('console', (message) => console.log(message.text()));
     await page.goto(pathToFileURL(html).href);
     await page.addScriptTag({ content: bundle.outputFiles[0].text });
     return await page.evaluate(async ({ config, width, height }) => {
-      const adapter = await navigator.gpu.requestAdapter();
+      // the first adapter request can come back empty
+      const adapter = (await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' })) || await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
       if (!adapter) throw new Error('No WebGPU adapter available');
       const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
       try {

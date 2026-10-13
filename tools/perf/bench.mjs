@@ -31,7 +31,7 @@ const { values: v } = parseArgs({ options: {
   plan: { type: 'string' }, out: { type: 'string' }, only: { type: 'string' },
   width: { type: 'string', default: '2560' }, height: { type: 'string', default: '1440' },
   chrome: { type: 'string', default: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' },
-  dist: { type: 'string', default: 'dist' }, keep: { type: 'boolean' },
+  dist: { type: 'string', default: 'dist' }, keep: { type: 'boolean' }, linux: { type: 'boolean' }, dpr: { type: 'string', default: '1' },
 } });
 const root = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const plan = JSON.parse(fs.readFileSync(v.plan, 'utf8'));
@@ -60,10 +60,21 @@ const base = `http://127.0.0.1:${server.address().port}`;
 
 const W = +v.width, H = +v.height;
 const userDir = fs.mkdtempSync(path.join(process.env.TEMP || process.env.TMPDIR || '/tmp', 'tidemote-perf-'));
+// On Linux without a display (--linux): Playwright's Chromium, headless, on the GPU through Vulkan.
+// Headless Chrome wants VK_EXT_headless_surface, which NVIDIA's driver lacks: point TIDEMOTE_VK_LAYER
+// at a directory holding a pass-through layer whose manifest advertises it.
+const linux = v.linux ? {
+  headless: true, executablePath: undefined, viewport: { width: W, height: H },
+  ignoreDefaultArgs: ['--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader'],
+  extra: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-angle=vulkan', '--ignore-gpu-blocklist', '--disable-vulkan-surface'],
+  env: process.env.TIDEMOTE_VK_LAYER ? { ...process.env, VK_ADD_LAYER_PATH: process.env.TIDEMOTE_VK_LAYER, VK_INSTANCE_LAYERS: 'VK_LAYER_TIDEMOTE_headless' } : process.env,
+} : null;
 const ctx = await chromium.launchPersistentContext(userDir, {
-  executablePath: v.chrome, headless: false, viewport: null,
+  executablePath: linux ? linux.executablePath : v.chrome, headless: !!linux, viewport: linux ? linux.viewport : null, ...(linux ? { deviceScaleFactor: +v.dpr } : {}),
+  ...(linux ? { ignoreDefaultArgs: linux.ignoreDefaultArgs, env: linux.env } : {}),
   args: [`--window-size=${W},${H}`, '--window-position=0,0', '--enable-webgpu-developer-features', '--autoplay-policy=no-user-gesture-required',
-    '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--no-first-run', '--no-default-browser-check'],
+    '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--no-first-run', '--no-default-browser-check',
+    ...(linux ? linux.extra : [])],
 });
 const report = { when: new Date().toISOString(), window: [W, H], worlds: {}, scenarios: [] };
 
@@ -71,6 +82,11 @@ async function openPage(n, extra = {}, k = null, init = null, html = null) {
   const page = ctx.pages()[0] || await ctx.newPage();
   page.setDefaultTimeout(0);
   if (init) await page.addInitScript(init);
+  // the first adapter asked for in a headless page can come back null: ask once more
+  if (linux) await page.addInitScript(() => {
+    const req = navigator.gpu.requestAdapter.bind(navigator.gpu);
+    navigator.gpu.requestAdapter = async (o) => (await req(o)) || req(o);
+  });
   await page.addInitScript(({ n, extra }) => {
     if (sessionStorage.getItem('tm-init')) return;
     sessionStorage.setItem('tm-init', '1');
@@ -81,6 +97,8 @@ async function openPage(n, extra = {}, k = null, init = null, html = null) {
   page.on('pageerror', (e) => console.log(`  [page error] ${e.message}`));
   await page.goto(`${base}/${html ? `pages/${html}.html` : 'tidemote.html'}${k ? `#k=${encodeURIComponent(JSON.stringify(k))}` : ''}`);
   await page.waitForFunction(() => globalThis.__tidemote && globalThis.__tidemote.state.phase === 'running', null, { polling: 250 });
+  // without a user gesture the page holds the world on its intro: a key lets it begin
+  if (linux) await page.keyboard.press('Shift');
   // the intro gone (the page as it plays: the auto camera waits for it), before a world is loaded
   await page.waitForFunction(() => document.body.classList.contains('live'), null, { polling: 250 });
   report.browser ??= await page.evaluate(async () => {
@@ -130,7 +148,7 @@ async function world(page, w) {
     await fetch(url, { method: 'PUT', body: blob });
     const L = T.life();
     return { simTime: T.eng.simTime, living: L.counts[3], species: L.alive };
-  }, `${base}/worlds/${w.name}.bin`);
+  }, `${base}/worlds/${w.file || w.name}.bin`);
   console.log(`world ${w.name}: saved at ${info.simTime.toFixed(0)} sim s, ${info.living} living, ${info.species} species`);
   report.worlds[w.name] = info;
 }
@@ -203,7 +221,7 @@ async function measure(page, sc) {
       const z = sc.zoom === 'fit' || sc.zoom == null ? 1 : Math.min(T.maxZoom(), Math.max(1, sc.zoom / ppuFit));
       cam.zoom = cam.zoomTarget = z; cam.anchor = null;
     }
-    if (sc.lab) T.lab.open(sc.lab); else T.lab.close();
+    if (sc.lab) T.lab.open(sc.lab); else T.lab?.close();
     if (sc.sound) { if (!T.sound.on) await T.sound.setOn(true); } else if (T.sound.on) await T.sound.setOn(false);
     T.setSpeed(sc.speed === 'max' ? Infinity : sc.speed ?? 1);
     await sleep((sc.settle ?? 3) * 1000);
@@ -215,8 +233,8 @@ async function measure(page, sc) {
     eng.passProfile = true;
     // the Lab's updates (main-thread time each)
     rec.lab = [];
-    const origLab = T.lab.render;
-    T.lab.render = (f) => { const t = performance.now(); origLab(f); const ms = performance.now() - t; if (ms > 0.05) rec.lab.push(ms); };
+    const origLab = T.lab?.render;
+    if (T.lab) T.lab.render = (f) => { const t = performance.now(); origLab(f); const ms = performance.now() - t; if (ms > 0.05) rec.lab.push(ms); };
     rec.series = []; rec.spikes = [];
     let t0 = performance.now();
     eng.onPassTimes = (times, f) => {
@@ -242,7 +260,7 @@ async function measure(page, sc) {
     await sleep((sc.seconds ?? 8) * 1000);
     on = false; clearInterval(watch);
     const wall = (performance.now() - t0) / 1000, simRate = (eng.simTime - sim0) / wall;
-    eng.frame = origFrame; eng.passProfile = false; eng.onPassTimes = null; po.disconnect(); T.lab.render = origLab;
+    eng.frame = origFrame; eng.passProfile = false; eng.onPassTimes = null; po.disconnect(); if (T.lab) T.lab.render = origLab;
     // the simulation step dispatch by dispatch (paused around it, so frames don't interleave)
     const dispatch = {};
     if (sc.dispatch !== false) {

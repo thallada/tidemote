@@ -30,6 +30,7 @@ GPU biosphere simulation (WebGPU, WGSL) with a browser page and headless tools. 
 
 ## Headless caveats
 
+- On Linux without a display (an NVIDIA GPU), `TIDEMOTE_VK_LAYER=DIR node tools/ensemble.mjs --chrome ...` (and `sim.mjs --chrome`, `tools/perf/bench.mjs --linux`) runs Chromium on the GPU through Vulkan; DIR is what `tools/perf/vklayer/build.sh` prints (a pass-through layer advertising `VK_EXT_headless_surface`). The 32-seed gate takes about 20 minutes there and matches the D3D12 baseline.
 - Under WSL, prefix headless tools with `tools/gpu-node.sh` (Windows Node, Dawn on D3D12, the real GPU). Plain `node` in WSL only finds llvmpipe and `sim.mjs` refuses it unless `--cpu` is passed.
 - GPU runs are not bit-reproducible per seed; compare ensembles, never single runs.
 - On machines without a GPU use `--chrome` (Playwright Chromium with SwiftShader). It is slow (about 76 ms/frame at 4k particles) but stable.
