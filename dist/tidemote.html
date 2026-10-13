@@ -2859,6 +2859,8 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
   let cs = max(1.0, max(dens * 2.5, f32(total) / 3.0) / ${f(K.contactCap)});
   var s = pcg(p.id ^ pcg(sim.frame * 2246822519u + sim.seed));
   var push = vec2f(0.0);
+  // (bodyHold is a share per 1/60 s: a step of any length undoes as much as that time would)
+  let holdShare = 1.0 - pow(1.0 - ${f(K.bodyHold)}, sim.dt * 60.0);
   var hold = vec2f(0.0);
   var holdN = 0.0;
   var touchV = vec2f(0.0);
@@ -2884,16 +2886,18 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
       if (r < touch) {
         let n = d / r;
         push -= n * (cs * (touch - r) / touch);${K.bodyHold > 0 ? `
-        // the separating speed that would undo bodyHold of the overlap this tick, half each
+        // the separating speed that would undo bodyHold of the overlap a tick (over a coarse step, as
+        // much as its ticks would), half each
         let apartV = dot(qvel - p.vel, n);
-        hold -= n * (0.5 * cs * max(0.0, ${f(K.bodyHold)} * (touch - r) * 60.0 - apartV));
+        hold -= n * (0.5 * cs * max(0.0, holdShare * (touch - r) / sim.dt - apartV));
         holdN += cs;` : ""}
       }` : ""}${K.crowdVisc > 0 ? `
       if (r < 1.25 * touchQ) { touchV += qvel * cs; touchN += cs; }` : ""}
     }
   }
   var vel = p.vel;${K.crowdVisc > 0 ? `
-  if (touchN > 0.0) { vel = mix(vel, touchV / touchN, clamp(${f(K.crowdVisc)} * sim.dt * min(1.0, touchN / 4.0), 0.0, 1.0)); }` : ""}${K.bodyPush > 0 ? `
+  // (compounded per 1/60 s, so a coarse step blends as far as its ticks would, not past it)
+  if (touchN > 0.0) { vel = mix(vel, touchV / touchN, 1.0 - pow(1.0 - clamp(${f(K.crowdVisc / 60)} * min(1.0, touchN / 4.0), 0.0, 1.0), sim.dt * 60.0)); }` : ""}${K.bodyPush > 0 ? `
   vel += push * (${f(K.bodyPush)} * sim.dt);${K.bodyHold > 0 ? `
   if (holdN > 0.0) { vel += hold / max(1.0, 0.5 * holdN); }` : ""}` : ""}
   sortedFull[i].vel = vel;
@@ -4909,6 +4913,8 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   let tangent = 3.0 * u * u * c1 + 6.0 * u * t * (c2 - c1) + 3.0 * t * t * (dq - c2);
   let normal = vec2f(-tangent.y, tangent.x) / max(length(tangent), 0.00001);
   let adhesion = min(genomes[p.kind].adhesion, genomes[q.kind].adhesion);
+  // tissue (view.tissue): its cells share a wall, which is the bond; no tube shows through them
+  if (view.tissue >= 0.0 && (adhesion - view.tissue) / ${f(DEFAULT_K.tightSpan)} > 0.5) { return o; }
   let taper = 0.55 + 0.45 * pow(2.0 * t - 1.0, 2.0);
   let tension = pow(min(1.0, rest / len), 3.0);
   // a neck is never wider than the cells it joins (cells shrink to fit dense bodies)
