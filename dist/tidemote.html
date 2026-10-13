@@ -1288,6 +1288,20 @@ svg.niche .n-dot { fill: var(--cyan); }
     // bonds rest at this share of their two cells' touching distance (0: at 0.55 linkR, an open lattice)
     socialN: 0,
     // pair forces are averaged past this many particles within reach (0: summed however many)
+    tissueSig: 1,
+    // with tissue, how much of their signature forces the tightest species' kin keep (contact shapes them)
+    tissueCore: 1,
+    // with tissue, how much firmer the tightest species' cells press apart at touching
+    cadherin: 0,
+    // with tissue, how hard kin of the tightest species hold on just past touching
+    tightFrom: 0.5,
+    // with tissue, the adhesion where bodies start to close into tissue...
+    tightSpan: 0.4,
+    // ...and how much more until they are tissue through and through
+    bodyPush: 0,
+    // how hard overlapping cells' bodies push apart (per unit overlap, summed over all; 0: off)
+    crowdVisc: 0,
+    // rate (per second) at which a cell crowded by four or more takes on the motion of those it touches
     coreSum: 0,
     // with socialN, 1: personal space (the core) is still summed over every neighbour inside it
     tissue: 0,
@@ -1617,9 +1631,12 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   }
   let mine = vec4u(n1, n2, nb0, nb1);
   // touching distance as a share of its reach
-  let kinCore = min(beta, 2.0 * 0.085 * g.size * (1.0 - 0.12 * f32(role)) * invR);` : ""}
+  // how tightly its bodies hold: the most adhesive species grow tissue, membrane to membrane; the
+  // least keep open, strung-out bodies
+  let tight = clamp((g.adhesion - ${f(K.tightFrom)}) / ${f(K.tightSpan)}, 0.0, 1.0);
+` : ""}
   // a bond's rest length: with K.bondTouch, cells of a body sit membrane to membrane (a tissue)
-  let bondRest = ${K.bondTouch > 0 ? `${f(K.bondTouch)} * 2.0 * 0.085 * g.size * (1.0 - 0.12 * f32(role))` : "LINK_R * 0.55"};
+  let bondRest = ${K.tissue > 0 ? `0.0` : K.bondTouch > 0 ? `${f(K.bondTouch)} * 2.0 * 0.085 * g.size * (1.0 - 0.12 * f32(role))` : "LINK_R * 0.55"};
   // warmth: the water here, plus a heat-maker's own (a body insulates its cells)
   let thermo = thermoOf(g);
   let heat = heatSample(p.pos);
@@ -1644,7 +1661,14 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   var overlap = 0.0;${K.socialN > 0 ? `
   var nIn = 0.0;${K.coreSum ? `
   var coreF = vec2f(0.0);` : ""}` : ""}
-  var preyNear = vec2f(0.0);
+  ${K.bodyPush > 0 && !(K.contact > 0) ? "let myR = 0.085 * g.size * (1.0 - 0.12 * f32(role));" : ""}${K.bodyPush > 0 ? `
+  var bodyF = vec2f(0.0);` : ""}
+  var preyNear = vec2f(0.0);${K.crowdVisc > 0 ? `
+  var touchV = vec2f(0.0);
+  var touchN = 0.0;` : ""}${K.tissue > 0 && K.cadherin > 0 ? `
+  var adhF = vec2f(0.0);
+  var adhV = vec2f(0.0);
+  var adhN = 0.0;` : ""}
   var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
 
 ${K.contact > 0 ? `
@@ -1711,7 +1735,11 @@ ${K.contact > 0 ? `
       let a = clamp((sdot(sg.z, q.s0) + sdot(sg.w, q.s1)) * ${f(K.affScale)}, -1.0, 1.0);${K.tissue > 0 ? `
       // a tissue's cells keep personal space only down to touching: kin of a bonding species press
       // membrane to membrane, and their signature forces act beyond it
-      let bk = select(beta, kinCore, bonding && qk == p.kind);
+      // kin touch where their two roles' sizes meet
+      let tq = 0.085 * g.size * (2.0 - 0.12 * f32(role + ((q.kr >> 10u) & 3u)));
+      let bk = select(beta, mix(beta, min(beta, tq * invR), tight), bonding && qk == p.kind);${K.tissue > 0 && K.tissueCore > 1 ? `
+      // a tissue's cells are firm: they press apart at touching far harder than they hold on
+      let kinStiff = select(1.0, mix(1.0, ${f(K.tissueCore)}, tight), bonding && qk == p.kind);` : ""}
       let invBk = 1.0 / bk;
       let invOMk = 1.0 / (1.0 - bk);
       let shape = 1.0 - abs(2.0 * x - 1.0 - bk) * invOMk;` : `
@@ -1723,11 +1751,22 @@ ${K.contact > 0 ? `
       if (qk >= FIRST_LIFE) {
         // a hungry forager lets other species inside its personal space so it can reach them
         let core = select(1.0, ${f(K.huntCore)}, canHunt && qk != p.kind);
-        if (x < ${K.tissue > 0 ? "bk" : "beta"}) { fr = (x * ${K.tissue > 0 ? "invBk" : "invBeta"} - 1.0) * core; } else { fr = a * shape; }${W("mFr0 = fr;")}
+        if (x < ${K.tissue > 0 ? "bk" : "beta"}) { fr = (x * ${K.tissue > 0 ? "invBk" : "invBeta"} - 1.0) * core${K.tissue > 0 && K.tissueCore > 1 ? ` * kinStiff` : ""}; } else { fr = a * shape${K.tissue > 0 && K.tissueSig < 1 ? ` * select(1.0, mix(1.0, ${f(K.tissueSig)}, tight), bonding && qk == p.kind)` : ""}; }${W("mFr0 = fr;")}
         // hungry foragers are drawn toward the cells their diet favours
         let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
         if (x >= ${K.tissue > 0 ? "bk" : "beta"}) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * ${K.tissue > 0 ? "invBk" : "invBeta"} * invR; }
-        crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
+${K.tissue > 0 && K.cadherin > 0 ? `        // tissue: kin just past touching hold on to each other, membrane to membrane (summed: a contact)
+        if (bonding && qk == p.kind && r < 2.0 * tq) {
+          if (r > tq) { adhF += d * (tight * (1.0 - abs(r - 1.5 * tq) / (0.5 * tq)) / r); }
+          // and move with the cells they touch, as with their partners
+          adhV += unpack2x16float(q.vel); adhN += 1.0;
+        }
+` : ""}        ${K.bodyPush > 0 ? `// bodies do not overlap, whatever either wants of the other: a push that grows with the overlap
+        // of their drawn bodies, summed (every one pressing counts)
+        { let touch = myR + bitcast<f32>(q.pad); if (r < touch) { bodyF -= d * (${f(K.bodyPush)} * (touch - r) / (touch * r)); } }
+        ` : ""}${K.crowdVisc > 0 ? `// cells that touch (any species) drag on each other: a crowd moves as a thick fluid
+        if (r < ${f(2 * 0.085 * 1.25)} * (g.size + 1.0)) { touchV += unpack2x16float(q.vel); touchN += 1.0; }
+        ` : ""}crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
         if (DIAG) {
           if (x < beta) { overlap += 1.0; }
           if (qk != p.kind && (q.kr & (1u << 12u)) == 0u && r < 2.0 * EAT_R) { preyNear += vec2f(select(0.0, 1.0, r < EAT_R), 1.0); }
@@ -1828,18 +1867,24 @@ ${K.contact > 0 ? `
   force *= social; jF *= social;${K.coreSum ? `
   // ...but personal space is pressed for by every neighbour inside it: a crowd pushes back the
   // harder the more pile in, so it cannot collapse
-  force += coreF * stride;` : ""}` : ""}
+  force += coreF * stride;` : ""}` : ""}${K.tissue > 0 && K.cadherin > 0 ? `
+  force += adhF * (stride * ${f(K.cadherin)});` : ""}${K.bodyPush > 0 ? `
+  force += bodyF * stride;` : ""}
   crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride;
 
   let heavy = 1.0 - 0.7 * g.photo;
   // Persistent bonds pull on the partners' current positions, even outside the sampled scan.
   var bondF = vec2f(0.0);
-  if (n1 != NONE) { bondF += dn1 * ((d1 - bondRest) / max(d1, 1e-4)); }
-  if (n2 != NONE) { bondF += dn2 * ((d2 - bondRest) / max(d2, 1e-4)); }${K.tissue > 0 ? `
+${K.tissue > 0 ? `  // each bond rests where its two cells touch (both agree on it: their roles' sizes summed)
+  let rs1 = restTo(n1, g.size, role, tight); let rs2 = restTo(n2, g.size, role, tight);
+  let rb0 = restTo(nb0, g.size, role, tight); let rb1 = restTo(nb1, g.size, role, tight); let rb2 = restTo(nb2, g.size, role, tight);
+` : `  let rs1 = bondRest; let rs2 = bondRest;
+`}  if (n1 != NONE) { bondF += dn1 * ((d1 - rs1) / max(d1, 1e-4)); }
+  if (n2 != NONE) { bondF += dn2 * ((d2 - rs2) / max(d2, 1e-4)); }${K.tissue > 0 ? `
   let e0 = bondTo(nb0, p); let e1 = bondTo(nb1, p); let e2 = bondTo(nb2, p);
-  if (nb0 != NONE) { bondF += e0 * ((length(e0) - bondRest) / max(length(e0), 1e-4)); }
-  if (nb1 != NONE) { bondF += e1 * ((length(e1) - bondRest) / max(length(e1), 1e-4)); }
-  if (nb2 != NONE) { bondF += e2 * ((length(e2) - bondRest) / max(length(e2), 1e-4)); }` : ""}
+  if (nb0 != NONE) { bondF += e0 * ((length(e0) - rb0) / max(length(e0), 1e-4)); }
+  if (nb1 != NONE) { bondF += e1 * ((length(e1) - rb1) / max(length(e1), 1e-4)); }
+  if (nb2 != NONE) { bondF += e2 * ((length(e2) - rb2) / max(length(e2), 1e-4)); }` : ""}
   let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0);
   let flow = flowAt(p.pos) * g.advect;
   // thermotaxis: a swimmer away from its optimum steers up or down the warmth toward it
@@ -1886,9 +1931,10 @@ ${K.contact > 0 ? `
   if (nb0 != NONE) { vb0 = sortedFull[nb0].vel; }
   if (nb1 != NONE) { vb1 = sortedFull[nb1].vel; }
   if (nb2 != NONE) { vb2 = sortedFull[nb2].vel; }
-  // the body's motion around this cell: its partners' mean velocity
-  let nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE) + select(0.0, 1.0, nb0 != NONE) + select(0.0, 1.0, nb1 != NONE) + select(0.0, 1.0, nb2 != NONE);
-  let vP = (vB1 + vB2 + vb0 + vb1 + vb2) / max(nP, 1.0);` : ""}
+  // the body's motion around this cell: its partners' mean velocity (and, in tissue, of the kin it touches)
+${K.cadherin > 0 ? `  let nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE) + select(0.0, 1.0, nb0 != NONE) + select(0.0, 1.0, nb1 != NONE) + select(0.0, 1.0, nb2 != NONE) + adhN * stride * tight;
+  let vP = (vB1 + vB2 + vb0 + vb1 + vb2 + adhV * (stride * tight)) / max(nP, 1.0);` : `  let nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE) + select(0.0, 1.0, nb0 != NONE) + select(0.0, 1.0, nb1 != NONE) + select(0.0, 1.0, nb2 != NONE);
+  let vP = (vB1 + vB2 + vb0 + vb1 + vb2) / max(nP, 1.0);`}` : ""}
   var vel = p.vel;
   var pos = p.pos;
   for (var k = 0u; k < select(1u, sim.ticks, COARSE); k++) {
@@ -1897,11 +1943,11 @@ ${K.contact > 0 ? `
       let t = f32(k) * h;
       let moved = pos - p.pos;
       fb = vec2f(0.0);
-      if (n1 != NONE) { let e = dn1 + vB1 * t - moved; let l = length(e); fb += e * ((l - bondRest) / max(l, 1e-4)); }
-      if (n2 != NONE) { let e = dn2 + vB2 * t - moved; let l = length(e); fb += e * ((l - bondRest) / max(l, 1e-4)); }${K.tissue > 0 ? `
-      if (nb0 != NONE) { let e = e0 + vb0 * t - moved; let l = length(e); fb += e * ((l - bondRest) / max(l, 1e-4)); }
-      if (nb1 != NONE) { let e = e1 + vb1 * t - moved; let l = length(e); fb += e * ((l - bondRest) / max(l, 1e-4)); }
-      if (nb2 != NONE) { let e = e2 + vb2 * t - moved; let l = length(e); fb += e * ((l - bondRest) / max(l, 1e-4)); }` : ""}
+      if (n1 != NONE) { let e = dn1 + vB1 * t - moved; let l = length(e); fb += e * ((l - rs1) / max(l, 1e-4)); }
+      if (n2 != NONE) { let e = dn2 + vB2 * t - moved; let l = length(e); fb += e * ((l - rs2) / max(l, 1e-4)); }${K.tissue > 0 ? `
+      if (nb0 != NONE) { let e = e0 + vb0 * t - moved; let l = length(e); fb += e * ((l - rb0) / max(l, 1e-4)); }
+      if (nb1 != NONE) { let e = e1 + vb1 * t - moved; let l = length(e); fb += e * ((l - rb1) / max(l, 1e-4)); }
+      if (nb2 != NONE) { let e = e2 + vb2 * t - moved; let l = length(e); fb += e * ((l - rb2) / max(l, 1e-4)); }` : ""}
     }
     vel = vel * fr0 + force * (g.force * heavy * h) + stiff * h;${W("if (k == 0u) { mVel = vel; }")}
     if (kinN > 0.0 && g.align > 0.0) {
@@ -1920,7 +1966,9 @@ ${K.contact > 0 ? `
       }
       vel += normalize(dir) * swim * h;${W("if (k == 0u) { mSwim = normalize(dir) * swim; }")}
     }
-    vel += taxis * h;${K.contact > 0 ? `
+    vel += taxis * h;${K.crowdVisc > 0 ? `
+    // a crowd's viscosity: the more cells it touches, the more it moves with them
+    if (touchN > 0.0) { vel = mix(vel, touchV / touchN, clamp(${f(K.crowdVisc)} * h * min(1.0, touchN * stride / 4.0), 0.0, 1.0)); }` : ""}${K.contact > 0 ? `
     // nor moves further into the cells it overlaps: what of its velocity heads into them (along their
     // sum) is lost, as in an inelastic collision; sliding past them and parting are free
     // (only where the scan saw nearly all its neighbours: sampled, the overlaps' direction is noise)
@@ -2485,7 +2533,7 @@ ${K.tissue > 0 ? `    atomicStore(&bondsNow[dst * 6u], partners.x);
     let sig = genomes[p.kind].sig[role].xy;
     let plant = select(0u, 1u << 12u, p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4);
     // pad: with K.contact, the cell's drawn radius (0.085 world units per unit of size, smaller in its later roles)
-    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant, p.col, pack2x16float(p.vel), sig.x, sig.y, ${K.contact > 0 ? "bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role)))" : "0u"});
+    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant, p.col, pack2x16float(p.vel), sig.x, sig.y, ${K.contact > 0 || K.bodyPush > 0 ? "bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role)))" : "0u"});
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
   }
   workgroupBarrier();
@@ -2706,6 +2754,12 @@ fn joinable(j: u32, mine: vec4u, mine4: u32) -> bool {
     }
   }
   return select(linked, free, alone);
+}
+
+// A tissue bond's rest length: open (0.55 linkR) in loose bodies, where the two cells touch in tight ones.
+fn restTo(j: u32, size: f32, role: u32, tight: f32) -> f32 {
+  if (j == NONE) { return 0.0; }
+  return mix(LINK_R * 0.55, ${f(K.bondTouch || 0.9)} * 0.085 * size * (2.0 - 0.12 * f32(role + roleOf(sortedFull[j].info))), tight);
 }
 
 // The bond's other end as seen from p (wrapped), or zero for none.
@@ -3674,6 +3728,8 @@ struct View {
   culled: u32,
   // sprites no larger than this radius in pixels are splatted (splatMain), not drawn as quads; 0: none
   splat: f32,
+  // K.tissue: the adhesion where bodies start to close into tissue (K.tightFrom); below 0, off
+  tissue: f32,
 };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -4157,6 +4213,8 @@ struct PO {
   @location(12) @interpolate(flat) squash: vec2f,
   // inflation that restores the area those planes cut off; pace through the water (0..1); bend
   @location(10) @interpolate(flat) jelly: vec3f,
+  // how far it is drawn as a tile of tissue, filling out to the walls it shares with its kin (0..1)
+  @location(13) @interpolate(flat) tile: f32,
 };
 
 @vertex fn vsPoint(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) -> PO {
@@ -4265,6 +4323,7 @@ struct PO {
       // out its free sides.
       var lost = 0.0;
       var n = 0u;
+      var kinTouch = 0.0;
       for (var c = 0u; c < 6u; c++) {
         let index = touch[ii * 6u + c];
         if (index == NONE) { break; }
@@ -4277,12 +4336,17 @@ struct PO {
         if (dist > 1.25 * (1.0 + ratio) || dist < 1e-3) { continue; }
         let r2 = 0.64 * ratio * ratio;
         let kin = other.kind == k;
+        kinTouch += select(0.0, 1.0, kin);
         let t = max(select(0.6, 0.35, kin), (dist * dist + 0.64 - r2) / (2.0 * dist) - 0.012);
         let foot = pack2x16float(offset * ((t + select(4.0, 0.0, kin)) / dist));
         if (n < 3u) { o.contact[n] = foot; } else { o.contact2[n - 3u] = foot; }
         n++;
         let x = min(t / 0.8, 1.0);
         lost += (acos(x) - x * sqrt(1.0 - x * x)) * (2.0 / TAU);
+      }
+      // a tight species' cells among their kin fill out to their shared walls: tissue
+      if (view.tissue >= 0.0 && g.adhesion > ${f(DEFAULT_K.adhMin)}) {
+        o.tile = clamp((g.adhesion - view.tissue) / ${f(DEFAULT_K.tightSpan)}, 0.0, 1.0) * min(1.0, kinTouch / 2.0);
       }
       o.jelly.x = 1.0 / sqrt(1.0 - 0.7 * min(lost, 0.45));
       extent *= o.jelly.x;
@@ -4336,6 +4400,8 @@ struct PO {
       var ratio = 1.0;
       var flags = 0u;
       if (j > 0u) {
+        // a tile of tissue meets its partners at a shared wall, not a neck
+        if (i.tile > 0.5) { break; }
         // The partner draws itself beyond our narrow union band. Owned pixels
         // need no further outlines or interior work.
         // Deep inside, the union only darkens sd further where rim, wall and relief are all spent;
@@ -4360,7 +4426,7 @@ struct PO {
       let outline = cellOutline(uv, dir, radius, cellSeed, plan,
         vec4f(g.swim, g.pulse, g.calcify, g.dFlesh), s, pace, bend);
       if (j == 0u) {
-        membraneSD = outline.sd * swell;
+        membraneSD = mix(outline.sd, length(own) - 0.97, i.tile) * swell;
         sd = membraneSD;
         q = outline.q;
       } else {
@@ -15772,6 +15838,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       vu[20] = detail ? 1 : 0;
       vu[21] = culled ? 1 : 0;
       v[22] = splat;
+      v[23] = K.tissue > 0 ? K.tightFrom : -1;
       this.device.queue.writeBuffer(buf, 0, data);
     }
     // the stone field for one view: every grain of stone adds its kernel (see vsStone)

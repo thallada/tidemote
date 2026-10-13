@@ -1330,6 +1330,7 @@ class Engine {
     vu[20] = detail ? 1 : 0;
     vu[21] = culled ? 1 : 0;
     v[22] = splat;
+    v[23] = K.tissue > 0 ? K.tightFrom : -1;
     this.device.queue.writeBuffer(buf, 0, data);
   }
 
