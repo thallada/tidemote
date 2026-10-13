@@ -72,6 +72,8 @@ With `liveScan` 96 it passed, food webs leaning rarer (56% -> 28%). With 64 (the
 56% -> 16% (Holm p 0.002), while effective species rise 89 -> 147. Predators are why: their late share is
 22% against main's 7%, kills up ~40%, and the failing worlds end as predator(+scavenger) worlds without
 producers. In main's piles about half the cells were hungry hunters stuck in them; freed, they hunt well.
+Single knobs did not restore it: `hunt` 0.08 looked like 31% over 16 seeds but gated at 16% over 32 (and
+fewer guilds); `killEvery` 12 starved the producers (13%). Balancing the ecology for these rules is open.
 
 Tools: `film.mjs` (real-time screencasts of the densest pile and the largest tight and loose bodies,
 motion and bond turnover), `jitter.mjs` (wobble from positions over 10 ticks), `pileinfo.mjs` (what a pile
