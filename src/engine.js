@@ -110,9 +110,11 @@ class Engine {
     b.post = d.createBuffer({ size: 240, usage: U.UNIFORM | U.COPY_DST });
     b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     b.pickU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
-    b.counts = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST });
+    // per grid cell: matter, then living (counted apart: each cell's living are sorted first)
+    b.counts = d.createBuffer({ size: 2 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST });
     b.stoneGrid = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST });
-    b.cellStart = d.createBuffer({ size: (MAX_CELLS + 1) * 4, usage: U.STORAGE });
+    // each grid cell's first particle (and one past the last), then each one's living count (LIVE_AT)
+    b.cellStart = d.createBuffer({ size: (2 * MAX_CELLS + 1) * 4, usage: U.STORAGE });
     b.blockSums = d.createBuffer({ size: (MAX_CELLS / 256) * 4, usage: U.STORAGE });
     b.genomes = d.createBuffer({ size: MAXK * G_BYTES, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.frameCtr = d.createBuffer({ size: 48, usage: U.STORAGE | U.INDIRECT | U.COPY_SRC | U.COPY_DST });
@@ -195,6 +197,10 @@ class Engine {
       heatMain: [0, 14, 18, 19],
       mindMain: [0, 2, 3, 6, 10, 15, 17, 18],
     };
+    // K.tissue: bonds pull both ways, through the cells that keep a bond to each (bondsNow holds them)
+    if (K.tissue > 0) {
+      this.cpDefs.bondBackMain = [0, 2, 12, 15];
+    }
     // coarse steps run their own lifeMain and mindMain (COARSE in simWGSL)
     this.cpDefs.lifeMainCoarse = this.cpDefs.lifeMain;
     this.cpDefs.mindMainCoarse = this.cpDefs.mindMain;
@@ -298,7 +304,7 @@ class Engine {
     b.sortedLite = d.createBuffer({ size: n * LITE_BYTES, usage: U.STORAGE });
     b.aux = d.createBuffer({ size: n * 8, usage: U.STORAGE });
     b.intent = d.createBuffer({ size: n * 16, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
-    b.bondsNow = d.createBuffer({ size: n * 8, usage: U.STORAGE });
+    b.bondsNow = d.createBuffer({ size: n * (this.K.tissue > 0 ? 24 : 8), usage: U.STORAGE });
     b.bondsIn = d.createBuffer({ size: n * 20, usage: U.STORAGE });
     // contacts start absent (NONE) until the first gather in view
     b.touch = d.createBuffer({ size: n * 24, usage: U.STORAGE, mappedAtCreation: true });
@@ -684,6 +690,7 @@ class Engine {
     const cells = this.grid[0] * this.grid[1];
     this.sorted = true;
     enc.clearBuffer(b.counts, 0, cells * 4);
+    enc.clearBuffer(b.counts, MAX_CELLS * 4, cells * 4);
     enc.clearBuffer(b.stoneGrid, 0, cells * 4);
     if (this.K.heat) enc.clearBuffer(b.thermal, 2 * MAX_CELLS * 4, cells * 4);
     enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
@@ -712,6 +719,7 @@ class Engine {
     run('scatterMain', wg);
     run('censusMain', Math.ceil(MAXK / 256));
     run('matterMain', wg);
+    if (this.K.tissue > 0) run('bondBackMain', null);
     run(this.ticks > 1 ? 'lifeMainCoarse' : 'lifeMain', null);
     if (this.K.heat) run('heatMain', Math.ceil(cells / 64));
     if (!prof) pass.end();

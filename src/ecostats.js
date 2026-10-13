@@ -38,6 +38,45 @@ export function communitySample(species, adhMin) {
   };
 }
 
+/**
+ * How tightly living cells sit, by their drawn size (0.085 world units per unit of size): the share deep
+ * inside at least five others (closer than half their radii summed), deep overlaps per cell, the share
+ * touching two or more (within 1.2 radii summed), and the most living in one grid cell.
+ * parts: { u32, f32 } of P_BYTES-sized particles; sizeOf(kind) a species' drawn size (role aside).
+ */
+export function packing(parts, count, grid, sizeOf, firstLife = 5) {
+  const [gw, gh] = grid, { u32: u, f32: f } = parts, W = 10;
+  const cells = new Map(), living = [];
+  for (let i = 0; i < count; i++) {
+    if (u[i * W + 4] < firstLife) continue;
+    living.push(i);
+    const c = Math.floor(f[i * W + 1]) * gw + Math.floor(f[i * W]);
+    (cells.get(c) || cells.set(c, []).get(c)).push(i);
+  }
+  const drawn = (i) => 0.085 * sizeOf(u[i * W + 4]) * (1 - 0.12 * ((u[i * W + 9] >>> 4) & 3));
+  let packed = 0, deep = 0, touching = 0;
+  for (const i of living) {
+    const x = f[i * W], y = f[i * W + 1], cx = Math.floor(x), cy = Math.floor(y), ri = drawn(i);
+    let d = 0, t = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      for (const j of cells.get(((cy + dy + gh) % gh) * gw + ((cx + dx + gw) % gw)) || []) {
+        if (j === i) continue;
+        let ex = f[j * W] - x, ey = f[j * W + 1] - y;
+        ex -= gw * Math.round(ex / gw); ey -= gh * Math.round(ey / gh);
+        const r = Math.hypot(ex, ey), sum = ri + drawn(j);
+        if (r < 0.5 * sum) d++;
+        if (r < 1.2 * sum) t++;
+      }
+    }
+    if (d >= 5) packed++;
+    if (t >= 2) touching++;
+    deep += d;
+  }
+  const n = living.length || 1;
+  let maxPile = 0; for (const l of cells.values()) maxPile = Math.max(maxPile, l.length);
+  return { packed: packed / n, deep: deep / n, touching: touching / n, maxPile };
+}
+
 const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
 /** Fixed-scale vector describing what kind of world a run became, for comparing runs with each other. */
@@ -102,6 +141,7 @@ export function summarizeRun(samples, { count, collapseAt = 0.02, monoAt = 0.5, 
       : DIETS.filter((k) => lateDiet[k] >= 0.2).join('+') || 'mixed',
     fingerprint: fingerprint(late),
     ...(late[0].thermal ? { thermal: thermalSummary(mature, late) } : {}),
+    ...(late.some((s) => s.packing) ? { packing: Object.fromEntries(['packed', 'deep', 'touching', 'maxPile'].map((k) => [k, mean(late.filter((s) => s.packing).map((s) => s.packing[k]))])) } : {}),
   };
 }
 
