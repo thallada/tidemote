@@ -1444,13 +1444,14 @@ svg.niche .n-dot { fill: var(--cyan); }
     // energy a cell's body holds (0: off, bodies are free and buildCost, preyBase, carcass and huskBase
     // make energy). On: a child's body costs this, a death leaves it as the husk, and a kill
     // passes on at most the prey's energy and body, so energy only enters as light and glint
-    assimilate: 0.8,
-    // with bodyE, the share of the energy in flesh, plants and husks an eater keeps (glint keeps K.gain)
+    assimilate: 1.5,
+    // with bodyE, an eater keeps this × its skill (specialisation × eatEff × warmth) of the energy in
+    assimCap: 0.8,
+    // flesh, plants and husks, at most this share (glint keeps K.gain)
     carcassKeep: 0.5
     // with bodyE, the share of a killed cell's body left in its carcass (the killer gets the rest)
   };
   var bodyCost = (K) => K.bodyE > 0 ? K.bodyE : K.buildCost;
-  var foodGain = (K) => K.bodyE > 0 ? K.assimilate : K.gain;
   var preyBody = (K) => K.bodyE > 0 ? K.bodyE * (1 - K.carcassKeep) : K.preyBase;
   var preyShare = (K) => K.bodyE > 0 ? 1 : K.preyFrac;
   var carcassE = (K) => K.bodyE > 0 ? K.bodyE * K.carcassKeep : K.carcass;
@@ -2153,6 +2154,13 @@ fn depositHeat(p: vec2f, e: f32) {
 
 // Specialists digest their food better than generalists: value of a food given the share of the diet devoted to it.
 fn spec(d: f32) -> f32 { let c = min(d, 1.0); return c * (${f(1 - 0.6)} + ${f(0.6)} * c); }
+// What an eater keeps of a meal holding raw energy: skill (diet specialisation) times eatEff × warmth (fit).
+// Glint is income from outside, at K.gain. With K.bodyE food that was alive passes on at most
+// K.assimCap of what it held, the share growing with skill at K.assimilate, so no loop makes energy.
+fn take(raw: f32, skill: f32, outside: bool, fit: f32) -> f32 {
+  ${K.bodyE > 0 ? `if (!outside) { return raw * min(${f(K.assimCap)}, skill * fit * ${f(K.assimilate)}); }` : ""}
+  return raw * skill * fit * ${f(K.gain)};
+}
 
 // Ledger guild order: producer, grazer, predator, scavenger, omnivore.
 fn dietGuild(g: Genome) -> u32 {
@@ -3041,17 +3049,17 @@ ${cellWGSL(K, false)}
         var gain = 0.0;
         act = 1u;
         if (fp.kind == GLINT) {
-          gain = fp.energy * spec(g.dGlint) * ${f(K.gain)}; atomicAdd(&ledger[9], 1u);
+          gain = take(fp.energy, spec(g.dGlint), true, eatEff * th.perf); atomicAdd(&ledger[9], 1u);
         } else if (fp.kind == HUSK) {
-          gain = fp.energy * spec(g.dHusk) * ${f(foodGain(K))}; atomicAdd(&ledger[10], 1u);
+          gain = take(fp.energy, spec(g.dHusk), false, eatEff * th.perf); atomicAdd(&ledger[10], 1u);
         } else if (genomes[fp.kind].photo > 0.4) {
-          gain = min(max(fp.energy, 0.0), ${f(K.bite)}) * spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh) * ${f(foodGain(K))}; act = 3u; atomicAdd(&ledger[11], 1u);
+          gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf); act = 3u; atomicAdd(&ledger[11], 1u);
         } else {
-          gain = (${f(preyBody(K))} + ${f(preyShare(K))} * max(fp.energy, 0.0)) * spec(g.dFlesh) * ${f(foodGain(K))}; atomicAdd(&ledger[7], 1u);
+          gain = take(${f(preyBody(K))} + ${f(preyShare(K))} * max(fp.energy, 0.0), spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);
         }
         if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
-        E += gain * eatEff * th.perf;
-        addEnergy(dg, select(select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), 1u, fp.kind == GLINT), gain * eatEff * th.perf);
+        E += gain;
+        addEnergy(dg, select(select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), 1u, fp.kind == GLINT), gain);
       }
     }
   } else {
@@ -3119,20 +3127,20 @@ ${cellWGSL(K, false)}
           var gain = 0.0;
           var slot = 4u;
           if (fp.kind == GLINT) {
-            gain = fp.energy * spec(g.dGlint) * ${f(K.gain)}; atomicAdd(&ledger[9], 1u); slot = 1u;
+            gain = take(fp.energy, spec(g.dGlint), true, eatEff * th.perf); atomicAdd(&ledger[9], 1u); slot = 1u;
           } else if (fp.kind == HUSK) {
-            gain = fp.energy * spec(g.dHusk) * ${f(foodGain(K))}; atomicAdd(&ledger[10], 1u); slot = 3u;
+            gain = take(fp.energy, spec(g.dHusk), false, eatEff * th.perf); atomicAdd(&ledger[10], 1u); slot = 3u;
           } else if (plant) {
-            gain = min(max(fp.energy, 0.0), ${f(K.bite)}) * spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh) * ${f(foodGain(K))}; atomicAdd(&ledger[11], 1u); slot = 2u;
+            gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[11], 1u); slot = 2u;
           } else {
-            gain = (${f(preyBody(K))} + ${f(preyShare(K))} * max(fp.energy, 0.0)) * spec(g.dFlesh) * ${f(foodGain(K))}; atomicAdd(&ledger[7], 1u);
+            gain = take(${f(preyBody(K))} + ${f(preyShare(K))} * max(fp.energy, 0.0), spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);
           }
           if (fp.kind >= FIRST_LIFE) {
             atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
             info = (info & 0xffff003fu) | (fp.kind << 6u);
           }
-          E += gain * eatEff * th.perf;
-          addEnergy(dg, slot, gain * eatEff * th.perf);
+          E += gain;
+          addEnergy(dg, slot, gain);
           break;
         }
       }
