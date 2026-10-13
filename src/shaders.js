@@ -99,10 +99,10 @@ export const DEFAULT_K = {
                     // at this rate (per second), and a free bond slot only closes a triangle within the body
   huntCore: 0.15,   // how much of other species' personal space a hungry forager respects
   liveFirst: 1,     // 1: each grid cell's living are sorted first, and a cell weighs its living neighbours...
-  liveScan: 96,     // ...exactly up to this many (sampled evenly past it), sampling only the matter
+  liveScan: 64,     // ...exactly up to this many (sampled evenly past it), sampling only the matter
   contactReach: 0.14, // contactMain: the largest radius a neighbour is taken to have (grid cells within touching are walked)...
   contactCap: 128,  // ...every living one up to this many in them, every so many past it
-  maxScan: 128,     // neighbours a cell weighs per step in a crowd, sampled evenly (each counts for those skipped)
+  maxScan: 112,     // neighbours a cell weighs per step in a crowd, sampled evenly (each counts for those skipped)
   diag: 0,          // 1: count K.diag's diagnostics into the ledger (DIAG_SLOTS; headless forks record them)
   affScale: 0.42,
   matterPull: 0.6,

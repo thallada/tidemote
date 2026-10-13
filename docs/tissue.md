@@ -58,24 +58,29 @@ On `runs/perf/worlds/slow.tidemote`, 60 simulated s after loading, at equal popu
 
 | | main | tissue set |
 |---|---|---|
-| step (RTX 4070 Ti, Chrome) | 6.6-6.7 ms | 7.3-7.7 ms (`contactMain` 1.1) |
-| wobble, px a tick at 300 px/unit | 4.6 | 0.79 |
+| step (RTX 4070 Ti, Chrome) | 6.6 ms | 6.9-7.0 ms (`contactMain` 1.1) |
+| wobble, px a tick at 300 px/unit | 4.6 | 0.87 |
 | bonds held 5 s (both alive) | 76% | 99.7% |
-| grid bias, chi-square of living x / y (19 = uniform) | 315 / 429 | 11 / 38 |
+| grid bias, chi-square of living x / y (19 = uniform) | 315 / 429 | 6 / 41 |
 
 Fresh worlds at 64k particles (`tools/sim.mjs`, packing sampled each record): main stacked 2-31% of its
 living (seed 4: 760 living in one grid cell at 18 min); the tissue set at most 0.2-3.4% over 60 minutes,
 briefly. Matched forks (`tools/fork.mjs`, 1/60 s against 4-tick steps) move within ~1-4% of each other.
 
-Balance gate (`npm run gate`, 32 seeds x 30 min at 32k, against main's `balance/baseline-32k-30m.json`):
-passes, every metric "same" after correction. Leaning worse: full food webs 56% -> 28% of runs (p 0.024
-uncorrected), late guilds 2.56 -> 2.16; effective species 89 -> 100, notable species 26 -> 30. The tissue
-set is the default; rebaseline once the ecology is rebalanced for it.
+Balance gate (`npm run gate`, 32 seeds x 30 min at 32k, against main's `balance/baseline-32k-30m.json`).
+With `liveScan` 96 it passed, food webs leaning rarer (56% -> 28%). With 64 (the default) food webs fail:
+56% -> 16% (Holm p 0.002), while effective species rise 89 -> 147. Predators are why: their late share is
+22% against main's 7%, kills up ~40%, and the failing worlds end as predator(+scavenger) worlds without
+producers. In main's piles about half the cells were hungry hunters stuck in them; freed, they hunt well.
 
 Tools: `film.mjs` (real-time screencasts of the densest pile and the largest tight and loose bodies,
 motion and bond turnover), `jitter.mjs` (wobble from positions over 10 ticks), `pileinfo.mjs` (what a pile
 holds), `gridbias.mjs`, `check.mjs` (the page starts under each tunable set: run it before long runs, as an
 unknown tunable stops the page).
+
+Cheaper settings tried (runs/perf/cost23.json): `liveScan` 96 -> 64 saves 0.5 ms in `lifeMain` for 0.77 ->
+0.87 px of wobble (taken). `contactCap` 128 -> 64 saves as much in `contactMain` but wobbles 1.1 px and
+gathers glint in grid-cell middles (chi-square 334): crowded cells must see every contact.
 
 ## What did not work
 
