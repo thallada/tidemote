@@ -185,6 +185,7 @@ export const DEFAULT_K = {
   bodyReserve: 0,   // with bodyE, 1: a cell divides once it holds reproE beyond its child's body; 0: once it holds reproE
                     // and at least 1.25 × the body (so a division never starves it)
   bodyShare: 0,     // with tissue, rate (per second) at which energy flows along a body's bonds toward the poorer cell
+  leanHunters: 0,   // 1: founding hunters and crawlers are smaller, divide sooner and form loose bodies (for bodyE)
   foundHunt: 1,     // the largest share of a new world's 24 founding species that eat flesh (hunters, crawlers)
   bodySize: 0,      // with bodyE, 1: a body holds bodyE × the cell's size (small cells are cheap to build, big ones rich prey)
   interfere: 0,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin

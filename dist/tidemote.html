@@ -1460,6 +1460,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     // and at least 1.25 × the body (so a division never starves it)
     bodyShare: 0,
     // with tissue, rate (per second) at which energy flows along a body's bonds toward the poorer cell
+    leanHunters: 0,
+    // 1: founding hunters and crawlers are smaller, divide sooner and form loose bodies (for bodyE)
     foundHunt: 1,
     // the largest share of a new world's 24 founding species that eat flesh (hunters, crawlers)
     bodySize: 0,
@@ -6474,6 +6476,11 @@ struct SV {
       return { surf, rec };
     });
     const t2 = A.t(r);
+    const lean = K.leanHunters && (type === "hunter" || type === "crawler");
+    if (lean) {
+      t2.size *= 0.7;
+      t2.reproE *= 0.6;
+    }
     const g = {
       roles,
       dev: A.dev.map((row) => row.map((v) => clamp(v + (r() - 0.5) * 0.1, 0, 1))),
@@ -6504,7 +6511,7 @@ struct SV {
       born: 0,
       depth: 0,
       archetype: type,
-      adhesion: ADHESION[type] ?? 0,
+      adhesion: lean ? Math.min(ADHESION[type], 0.35) : ADHESION[type] ?? 0,
       calcify: CALCIFY[type] ? mix(...CALCIFY[type], r()) : 0,
       topt: clamp(t0 + gaussOf(r) * 3, 0, 45),
       tol: type === "reef" ? mix(3, 6, r()) : mix(5, 10, r()),

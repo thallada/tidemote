@@ -116,6 +116,10 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
     return { surf, rec };
   });
   const t = A.t(r);
+  // K.leanHunters: founders that eat flesh built for an honest economy (bodies cost energy): smaller,
+  // dividing sooner, and loose bodies whose every cell can reach prey
+  const lean = K.leanHunters && (type === 'hunter' || type === 'crawler');
+  if (lean) { t.size *= 0.7; t.reproE *= 0.6; }
   const g = {
     roles, dev: A.dev.map((row) => row.map((v) => clamp(v + (r() - 0.5) * 0.1, 0, 1))),
     radius: t.radius, beta: t.beta ?? mix(0.2, 0.35, r()), force: t.force, drag: t.drag,
@@ -125,7 +129,7 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
     size: t.size, shape: Math.floor(r() * 12), pulse: r() < 0.3 ? mix(0.4, 0.9, r()) : r() * 0.2,
     roleHue: (r() - 0.5) * 0.35, advect: t.advect, swim: t.swim, align: t.align, photo: t.photo,
     parent: 0, serial: 0, born: 0, depth: 0, archetype: type,
-    adhesion: ADHESION[type] ?? 0,
+    adhesion: lean ? Math.min(ADHESION[type], 0.35) : ADHESION[type] ?? 0,
     calcify: CALCIFY[type] ? mix(...CALCIFY[type], r()) : 0,
     topt: clamp(t0 + gaussOf(r) * 3, 0, 45),
     tol: type === 'reef' ? mix(3, 6, r()) : mix(5, 10, r()),
