@@ -85,24 +85,24 @@ export const DEFAULT_K = {
   preyFrac: 0.7,
   kin: 0.8,
   bondTouch: 0,     // bonds rest at this share of their two cells' touching distance (0: at 0.55 linkR, an open lattice)
-  socialN: 0,       // pair forces are averaged past this many particles within reach (0: summed however many)
-  tissueSig: 1,     // with tissue, how much of their signature forces the tightest species' kin keep (contact shapes them)
+  socialN: 24,      // pair forces are averaged past this many particles within reach (0: summed however many)
+  tissueSig: 0.2,   // with tissue, how much of their signature forces the tightest species' kin keep (contact shapes them)
   tightFrom: 0.5,   // with tissue, the adhesion where bodies start to close into tissue...
   tightSpan: 0.4,   // ...and how much more until they are tissue through and through
-  budding: 0,       // 1: a daughter appears beside her mother (toward the grain she is built from), not at the grain
-  bodyHold: 0,      // with bodyPush, the share of overlap undone each tick by velocity (contact as a constraint)
-  bodyGive: 0.9,    // with bodyPush, how far cells may squash against each other first (share of touching; bonds rest at bondTouch)
-  bodyPush: 0,      // with liveFirst (contactMain): how hard overlapping cells' bodies push apart (units/s² per unit of overlap, summed; 0: off)
-  crowdVisc: 0,     // with liveFirst (contactMain): rate (per second) at which a cell crowded by four or more takes on the motion of those it touches
+  budding: 1,       // 1: a daughter appears beside her mother (toward the grain she is built from), not at the grain
+  bodyHold: 0.3,    // with bodyPush, the share of overlap undone each tick by velocity (contact as a constraint)
+  bodyGive: 0.85,   // with bodyPush, how far cells may squash against each other first (share of touching; bonds rest at bondTouch)
+  bodyPush: 30,     // with liveFirst (contactMain): how hard overlapping cells' bodies push apart (units/s² per unit of overlap, summed; 0: off)
+  crowdVisc: 20,    // with liveFirst (contactMain): rate (per second) at which a cell crowded by four or more takes on the motion of those it touches
   coreSum: 0,       // with socialN, 1: personal space (the core) is still summed over every neighbour inside it
-  tissue: 0,        // bodies as tissue (0: off): bonds pull both ways, a body's cells take on their partners' motion
+  tissue: 12,       // bodies as tissue (0: off): bonds pull both ways, a body's cells take on their partners' motion
                     // at this rate (per second), and a free bond slot only closes a triangle within the body
   huntCore: 0.15,   // how much of other species' personal space a hungry forager respects
-  liveFirst: 0,     // 1: each grid cell's living are sorted first, and a cell weighs its living neighbours...
-  liveScan: 128,    // ...exactly up to this many (sampled evenly past it), sampling only the matter
+  liveFirst: 1,     // 1: each grid cell's living are sorted first, and a cell weighs its living neighbours...
+  liveScan: 96,     // ...exactly up to this many (sampled evenly past it), sampling only the matter
   contactReach: 0.14, // contactMain: the largest radius a neighbour is taken to have (grid cells within touching are walked)...
-  contactCap: 64,   // ...every living one up to this many in them, every so many past it
-  maxScan: 192,     // neighbours a cell weighs per step in a crowd, sampled evenly (each counts for those skipped)
+  contactCap: 128,  // ...every living one up to this many in them, every so many past it
+  maxScan: 128,     // neighbours a cell weighs per step in a crowd, sampled evenly (each counts for those skipped)
   diag: 0,          // 1: count K.diag's diagnostics into the ledger (DIAG_SLOTS; headless forks record them)
   affScale: 0.42,
   matterPull: 0.6,
@@ -114,7 +114,7 @@ export const DEFAULT_K = {
   photo: 0.4,       // energy per second for a pure photosynth in full light
   shade: 0.07,      // self-shading per living neighbour
   align: 3.0,
-  bond: 8.0,        // spring strength of bonds between cells of one body
+  bond: 60,         // spring strength of bonds between cells of one body
   adhMin: 0.15,     // adhesion needed before a species forms bonds
   bite: 0.06,       // energy taken per bite from a photosynthesising cell
   eatEvery: 6,      // frames between meals
