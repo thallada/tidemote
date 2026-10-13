@@ -45,9 +45,13 @@ const results = fs.readdirSync(dir).filter((f) => /^seed\d+\.json$/.test(f)).sor
 if (!results.length) throw new Error(`no seedN.json runs in ${dir}`);
 const outcomes = results.map((r) => ({ seed: r.config.seed, ...r.outcome }));
 const ran = results[0].config;
+// Seeds can come from several machines (tools/farm.mjs): count every adapter and host seen
+const tally = (key) => results.some((r) => r.config[key] != null)
+  ? results.reduce((t, r) => { const x = r.config[key] ?? 'unknown'; t[x] = (t[x] ?? 0) + 1; return t; }, {}) : undefined;
 const report = {
   name: v.name ?? path.basename(path.resolve(dir)),
-  config: { n: ran.n, minutes: ran.minutes, k: ran.k, eras: ran.eras, step: ran.step ?? 1, temp: ran.temp, adapter: ran.adapter },
+  config: { n: ran.n, minutes: ran.minutes, k: ran.k, eras: ran.eras, step: ran.step ?? 1, temp: ran.temp, adapter: ran.adapter,
+    adapters: tally('adapter'), hosts: tally('host') },
   created: new Date().toISOString(),
   wallSecondsPerRun: results.reduce((a, r) => a + r.summary.wallSeconds, 0) / results.length,
   summary: summarizeEnsemble(outcomes),
@@ -113,6 +117,8 @@ function child(args) {
 function printSummary(r) {
   const s = r.summary;
   console.log(`\n${r.name}: ${s.runs} runs × ${r.config.minutes} min at n=${r.config.n} (${fmt(r.wallSecondsPerRun)} s wall per run)`);
+  const mixed = Object.keys(r.config.adapters ?? {}).length > 1 || Object.keys(r.config.hosts ?? {}).length > 1;
+  if (mixed) for (const key of ['hosts', 'adapters']) console.log(`  ${key}: ` + Object.entries(r.config[key]).map(([x, n]) => `${x} ×${n}`).join(', '));
   for (const [key, m] of Object.entries(s.metrics)) {
     console.log(m.rate != null
       ? `  ${key.padEnd(18)} ${(m.rate * 100).toFixed(0).padStart(3)}%  [${(m.ci[0] * 100).toFixed(0)}–${(m.ci[1] * 100).toFixed(0)}%]`

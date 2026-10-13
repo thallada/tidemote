@@ -80,6 +80,8 @@ async function runChrome() {
       // the first adapter request can come back empty
       const adapter = (await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' })) || await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
       if (!adapter) throw new Error('No WebGPU adapter available');
+      const info = adapter.info ?? {};
+      config.adapter = [info.vendor, info.architecture, info.device, info.description, 'Chromium'].filter(Boolean).join(' / ');
       const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
       try {
         return await Tidemote.runHeadless(device, config, { print: (line) => console.log(line), width, height });

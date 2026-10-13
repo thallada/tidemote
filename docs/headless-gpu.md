@@ -106,3 +106,58 @@ runs from changes the remaining seeds mid-ensemble.
 
 Use the same `--n`, `--minutes` and eras setting as the baseline; the tool warns when they differ.
 Candidate seeds can be the same as the baseline's (they share initial worlds, not trajectories).
+
+## Farming seeds out to several machines (`tools/farm.mjs`)
+
+`tools/farm.mjs` runs one ensemble's seeds on every GPU machine in a host list, then analyses and gates
+them with `ensemble.mjs --from`. The report and exit code are the same as a local gate. The host list
+lives outside the repo, at `~/.config/tidemote/farm.json` (or `--hosts FILE`, or `$TIDEMOTE_FARM`), so
+nothing about the machines is committed.
+
+```sh
+npm run gate:farm -- --out runs/NAME --k '{...}'     # 32 seeds × 30 min at 32k against the baseline
+node tools/farm.mjs --out runs/NAME --runs 8 --minutes 5 --n 4096 --only LABEL
+node tools/farm.mjs --out runs/NAME --dirty ...      # HEAD plus uncommitted changes to tracked files
+node tools/farm.mjs --clean                          # drop the farm's worktrees on every host
+```
+
+```json
+{ "hosts": {
+  "linux-box": { "hostname": "linux-box", "ssh": "user@linux-box", "repo": "~/src/tidemote", "slots": 4,
+                 "node": "node", "args": ["--chrome"], "env": { "TIDEMOTE_VK_LAYER": "~/src/tidemote/runs/vklayer" } },
+  "wsl-box":   { "hostname": "wsl-box", "ssh": "user@wsl-box", "repo": "~/src/tidemote", "slots": 4,
+                 "node": "tools/gpu-node.sh", "path": ["/mnt/c/Windows/System32"] } } }
+```
+
+Each key is a label. `hostname` is what `hostname` prints on that machine, `ssh` is how to reach it, and
+`repo` is a clone there. `slots` is how many seeds it runs at once. `node`, `args`, `env` and `path` are
+how `tools/sim.mjs` is launched there, with `~/` meaning that machine's home. List as many hosts as you
+like.
+
+- **Which commit runs.** The farm runs one commit everywhere: HEAD by default, refused if tracked files
+  have changes unless `--dirty` is passed. It pushes the commit to each host's `repo` as
+  `refs/farm/SHA` and checks it out there as a detached worktree in `~/.cache/tidemote-farm/worktrees/SHA`.
+  The branch checked out on each machine is never touched. `node_modules` is installed once per
+  `package-lock.json` hash and hard-linked into the worktree, because Windows Node cannot follow WSL
+  symlinks.
+- **Local and remote hosts.** The host whose `hostname` matches the machine the farm runs on is used
+  without ssh, so one host list works from any of them. Every other host runs over ssh with
+  `BatchMode`.
+- **How seeds are handed out.** Every host gets `slots` workers, and each worker takes the next seed
+  from one shared queue as soon as it is free, so a faster or idler GPU simply finishes more seeds. A
+  failed seed is retried on any host, up to `--attempts` times. A host that fails three times in a row
+  is dropped and its seeds go to the others. Seeds already in `--out` are kept, so rerunning the same
+  command resumes, with the commit recorded in `--out/farm.json`.
+- **Sharing a machine's GPU.** Each running seed holds an flock on `~/.cache/tidemote-farm/slots/N` on
+  its host, so farms started from several places share a machine's slots instead of overloading its
+  GPU. A plain `npm run gate` takes no slots.
+- **Stopping.** Ctrl-C kills this farm's sims on every host.
+- **Host-specific settings.** Under WSL, ssh sessions lack the Windows PATH that `gpu-node.sh` relies
+  on: add `/mnt/c/Windows/System32` with `path`. A host that sets a `TIDEMOTE_*` variable in `env`
+  refuses commits whose `sim.mjs` does not read it. For example, a Chrome host without
+  `TIDEMOTE_VK_LAYER` would run silently on SwiftShader.
+
+Each farmed seed records its host label, adapter and commit, and the report counts every host and
+adapter it saw. Different GPUs and drivers could shift the distribution of outcomes slightly, so gate a
+new kind of machine on its own against the baseline once (`--only LABEL`) before mixing it in. When
+comparing two configurations, run each across the same mix of hosts rather than one per machine.
