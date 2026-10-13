@@ -184,6 +184,7 @@ export const DEFAULT_K = {
   fightBack: 0,     // living prey that hunts makes an attack fail with this × its flesh skill (dFlesh × eatEff)
   bodyReserve: 0,   // with bodyE, 1: a cell divides once it holds reproE beyond its child's body; 0: once it holds reproE
                     // and at least 1.25 × the body (so a division never starves it)
+  bodyShare: 0,     // with tissue, rate (per second) at which energy flows along a body's bonds toward the poorer cell
   foundHunt: 1,     // the largest share of a new world's 24 founding species that eat flesh (hunters, crawlers)
   bodySize: 0,      // with bodyE, 1: a body holds bodyE × the cell's size (small cells are cheap to build, big ones rich prey)
   interfere: 0,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
@@ -714,7 +715,17 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   if (nb2 != NONE) { vb2 = sortedFull[nb2].vel; }
   // the body's motion around this cell: its partners' mean velocity
   let nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE) + select(0.0, 1.0, nb0 != NONE) + select(0.0, 1.0, nb1 != NONE) + select(0.0, 1.0, nb2 != NONE);
-  let vP = (vB1 + vB2 + vb0 + vb1 + vb2) / max(nP, 1.0);` : ''}
+  let vP = (vB1 + vB2 + vb0 + vb1 + vb2) / max(nP, 1.0);${K.bodyShare > 0 ? `
+  // a body feeds its cells: energy flows along each bond toward the poorer partner, the same amount
+  // either way (both read this step's start), so a hunter at the edge keeps the interior alive
+  let shareK = min(0.2, ${f(K.bodyShare)} * sim.dt);
+  var shareE = 0.0;
+  if (n1 != NONE) { shareE += sortedFull[n1].energy - p.energy; }
+  if (n2 != NONE) { shareE += sortedFull[n2].energy - p.energy; }
+  if (nb0 != NONE) { shareE += sortedFull[nb0].energy - p.energy; }
+  if (nb1 != NONE) { shareE += sortedFull[nb1].energy - p.energy; }
+  if (nb2 != NONE) { shareE += sortedFull[nb2].energy - p.energy; }
+  shareE *= shareK;` : ''}` : ''}
   var vel = p.vel;
   var pos = p.pos;
   for (var k = 0u; k < select(1u, sim.ticks, COARSE); k++) {
@@ -1726,7 +1737,7 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
   if (i == NONE) { return; }
 ${cellWGSL(K, false)}
-  var E = p.energy + (photoGain - upkeep) * sim.dt;
+  var E = p.energy${K.tissue > 0 && K.bodyShare > 0 ? ' + shareE' : ''} + (photoGain - upkeep) * sim.dt;
   let dg = dietGuild(g);
   // all the energy a cell spends warms its water (every eighth frame, eight frames' worth)
   if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, upkeep * sim.dt * 8.0 * ${f(K.metabHeat)}); }
@@ -1820,7 +1831,7 @@ ${cellWGSL(K, false)}
     // (upkeep following it), the cell divides once its energy crosses the mark (one birth a step), eats
     // at each of its own meal opportunities while still hungry then (the next-best target after a meal or
     // a target lost to another eater), and stops at the tick it starves or ages out.
-    E = p.energy;
+    E = p.energy${K.tissue > 0 && K.bodyShare > 0 ? ' + shareE' : ''};
     age = p.age;
     var next = 0u;
     var born = false;
