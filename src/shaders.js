@@ -182,8 +182,9 @@ export const DEFAULT_K = {
   assimilate: 1.5,  // with bodyE, an eater keeps this × its skill (specialisation × eatEff × warmth) of the energy in
   assimCap: 0.8,    // flesh, plants and husks, at most this share (glint keeps K.gain)
   carcassKeep: 0.3, // with bodyE, the share of a killed cell's body left in its carcass (the killer gets the rest)
-  bodyWhole: 1,     // with bodyE, 1: bodies are eaten whole (a kill's share of the body and a husk pass without
-                    // digestion's loss, as the material of the eater's next child); stored energy keeps assimCap
+  bodyWhole: 1,     // with bodyE, 1: bodies are eaten whole by an eater built for them (a kill's share of the body and a
+                    // husk pass without digestion's loss, as the stuff of its next child, up to skill × assimilate);
+                    // stored energy keeps assimCap
   fightBack: 0,     // living prey that hunts makes an attack fail with this × its flesh skill (dFlesh × eatEff)
   mature: 0,        // a cell divides only once older than this share of its lifespan (it grows up first; 0: at once)
   bodyReserve: 1,   // with bodyE, 1: a cell divides once it holds reproE beyond its child's body; 0: once it holds reproE
@@ -1876,7 +1877,7 @@ ${cellWGSL(K, false)}
         } else if (genomes[fp.kind].photo > 0.4) {
           gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf); act = 3u; atomicAdd(&ledger[11], 1u);
         } else {
-          gain = ${K.bodyE > 0 && K.bodyWhole ? `${K.bodyE > 0 ? `(${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)})` : f(K.preyBase)} + take(max(fp.energy, 0.0)` : `take(${K.bodyE > 0 ? `(${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)})` : f(K.preyBase)} + ${f(preyShare(K))} * max(fp.energy, 0.0)`}, spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);
+          gain = ${K.bodyE > 0 && K.bodyWhole ? `(${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0)` : `take(${K.bodyE > 0 ? `(${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)})` : f(K.preyBase)} + ${f(preyShare(K))} * max(fp.energy, 0.0)`}, spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);
         }
         if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
         E += gain;
@@ -1954,7 +1955,7 @@ ${cellWGSL(K, false)}
           } else if (plant) {
             gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[11], 1u); slot = 2u;
           } else {
-            gain = ${K.bodyE > 0 && K.bodyWhole ? `${K.bodyE > 0 ? `(${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)})` : f(K.preyBase)} + take(max(fp.energy, 0.0)` : `take(${K.bodyE > 0 ? `(${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)})` : f(K.preyBase)} + ${f(preyShare(K))} * max(fp.energy, 0.0)`}, spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);
+            gain = ${K.bodyE > 0 && K.bodyWhole ? `(${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0)` : `take(${K.bodyE > 0 ? `(${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)})` : f(K.preyBase)} + ${f(preyShare(K))} * max(fp.energy, 0.0)`}, spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);
           }
           if (fp.kind >= FIRST_LIFE) {
             atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
