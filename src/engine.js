@@ -726,6 +726,8 @@ class Engine {
     if (this.K.heat) enc.clearBuffer(b.thermal, 2 * MAX_CELLS * 4, cells * 4);
     if (this.K.heat && this.K.scent > 0) enc.clearBuffer(b.thermal, 3 * MAX_CELLS * 4, cells * 4);
     enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
+    // K.cycle: the litter on the ground, counted afresh each step (META_DEATH + 60)
+    if (this.K.cycle) enc.clearBuffer(b.ledger, (META_DEATH + 60) * 4, 4);
     enc.clearBuffer(b.frameCtr, 0, 4);
     enc.clearBuffer(b.frameCtr, 36, 4);
     enc.clearBuffer(b.ledger, 48, 12);
@@ -879,7 +881,7 @@ class Engine {
     st.unmap(); st.destroy();
     const u = new Uint32Array(copy);
     return { simTime: this.simTime, globals: u.subarray(0, 16), pop: u.subarray(META_POP, META_POP + MAXK),
-      demography: u.subarray(META_DEATH, META_DEATH + 57), energy: u.subarray(META_ENERGY, META_ENERGY + 64),
+      demography: u.subarray(META_DEATH, META_DEATH + 64), energy: u.subarray(META_ENERGY, META_ENERGY + 64),
       diag: u.subarray(META_DIAG, META_CLAIM), genomeU32: new Uint32Array(copy, LEDGER_HEAD), genomeF32: new Float32Array(copy, LEDGER_HEAD) };
   }
 
@@ -908,7 +910,7 @@ class Engine {
         this.onCensus({
           simTime: job.simTime, frameNo: job.frameNo,
           globals: u.subarray(0, 16), slots: u.subarray(META_SLOT, META_SLOT + MAXK), pop: u.subarray(META_POP, META_POP + MAXK),
-          demography: u.subarray(META_DEATH, META_DEATH + 57), energy: u.subarray(META_ENERGY, META_ENERGY + 64),
+          demography: u.subarray(META_DEATH, META_DEATH + 64), energy: u.subarray(META_ENERGY, META_ENERGY + 64),
           genomeU32: new Uint32Array(copy, LEDGER_HEAD), genomeF32: new Float32Array(copy, LEDGER_HEAD),
         });
       }

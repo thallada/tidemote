@@ -117,11 +117,15 @@ export async function runHeadless(device, config, { print, width = 640, height =
         framboids: c.pop[4],
         framboidsMade: prevE ? since(THERMAL_LEDGER.framboidsMade) * 60 / (c.simTime - prevT) : 0 };
       thermal.field = latestField;
+      // K.cycle's nutrient loop: grains exuded and husks made and eaten per simulated minute, litter lying now
+      const perMin = (i) => (prevE && c.simTime > prevT ? since(i) * 60 / (c.simTime - prevT) : 0);
+      const cycle = { exuded: perMin(59), litterMade: perMin(60), carcassMade: perMin(61), litterEaten: perMin(62),
+        carcassEaten: perMin(63), litter: c.demography[60] ?? 0 };
       eng.readThermal().then((f) => { latestField = fieldStats(f, eng.tbg); }).catch(() => {});
       // how tightly the living sit (by drawn size), read now for the next sample
       const pk = latestPacking;
       eng.readParticles().then((p) => { latestPacking = packing(p, eng.count, eng.grid, (k) => genomes[k]?.genome.size ?? 1, E.FIRST_LIFE); }).catch(() => {});
-      samples.push({ ...latest, thermal, rates, demography, meals, energy, packing: pk });
+      samples.push({ ...latest, thermal, rates, demography, meals, energy, cycle, packing: pk });
       prevG = Array.from(c.globals); prevD = Array.from(c.demography); prevE = Array.from(c.energy); prevT = lastSample = c.simTime;
     }
     // config.step: each step covers step/60 s (coarse steps), so fewer steps fill the minutes
