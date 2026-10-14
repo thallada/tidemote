@@ -1522,6 +1522,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     // chance per second a cyst wakes (about every 90 s)
     foundHunt: 0.125,
     // the largest share of a new world's 24 founding species that eat flesh (hunters, crawlers)
+    foundEach: 0,
+    // every new world founds at least this many species of each core niche (producer, grazer, hunter, scavenger)
     bodySize: 1,
     // with bodyE, 1: a body holds bodyE × the cell's size (small cells are cheap to build, big ones rich prey)
     interfere: 0.6
@@ -15380,6 +15382,21 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (eatsFlesh(plan[s])) {
           plan[s] = draw(plants, plantSum);
           hunters--;
+        }
+      }
+      if (this.K.foundEach > 0) {
+        const niches = [["reef", "plankton", "filament"], ["grazer"], ["hunter"], ["scavenger"]];
+        const nicheOf = (t2) => niches.findIndex((n2) => n2.includes(t2));
+        for (const n2 of niches) {
+          let have = plan.filter((t2) => n2.includes(t2)).length;
+          while (have < this.K.foundEach) {
+            const counts = niches.map((m) => plan.filter((t2) => m.includes(t2)).length);
+            const from = counts.indexOf(Math.max(...counts.map((c, i) => niches[i] === n2 ? -1 : c)));
+            const at = plan.findIndex((t2) => nicheOf(t2) === from);
+            if (at < 0) break;
+            plan[at] = n2[Math.floor(rng() * n2.length)];
+            have++;
+          }
         }
       }
       head[0] = n;

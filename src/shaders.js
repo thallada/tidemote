@@ -220,6 +220,7 @@ export const DEFAULT_K = {
   cystLeak: 0.002,  // energy a cyst loses per second (it dies as a husk at none)
   cystWake: 0.022,  // chance per second a cyst wakes (about every 90 s)
   foundHunt: 0.125, // the largest share of a new world's 24 founding species that eat flesh (hunters, crawlers)
+  foundEach: 0,     // every new world founds at least this many species of each core niche (producer, grazer, hunter, scavenger)
   bodySize: 1,      // with bodyE, 1: a body holds bodyE × the cell's size (small cells are cheap to build, big ones rich prey)
   interfere: 0.6,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
                     // within reach, its bond partners aside)

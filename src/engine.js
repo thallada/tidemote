@@ -600,6 +600,24 @@ class Engine {
     for (let s = 0; s < plan.length && hunters > Math.floor(this.K.foundHunt * plan.length) && plantSum > 0; s++) {
       if (eatsFlesh(plan[s])) { plan[s] = draw(plants, plantSum); hunters--; }
     }
+    // K.foundEach: every core niche founded at least this many times (producers, grazers, hunters,
+    // scavengers), taking the places of the commonest founding plans; the rest stay as drawn
+    if (this.K.foundEach > 0) {
+      const niches = [['reef', 'plankton', 'filament'], ['grazer'], ['hunter'], ['scavenger']];
+      const nicheOf = (t) => niches.findIndex((n) => n.includes(t));
+      for (const n of niches) {
+        let have = plan.filter((t) => n.includes(t)).length;
+        while (have < this.K.foundEach) {
+          // replace one founder of the niche with the most founders (never one this pass still needs)
+          const counts = niches.map((m) => plan.filter((t) => m.includes(t)).length);
+          const from = counts.indexOf(Math.max(...counts.map((c, i) => (niches[i] === n ? -1 : c))));
+          const at = plan.findIndex((t) => nicheOf(t) === from);
+          if (at < 0) break;
+          plan[at] = n[Math.floor(rng() * n.length)];
+          have++;
+        }
+      }
+    }
     head[0] = n;
     head[1] = plan.length;
     // founders suit the water they will live in: the background, warmed a little by life
