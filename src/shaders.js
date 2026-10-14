@@ -81,6 +81,7 @@ export const DEFAULT_K = {
   specPow: 2,       // >0: a diet's share d earns d^specPow of a specialist's take (0: d(0.4 + 0.6d)); steep: mixing pays little
   photoPow: 3,      // light earned grows as photo^photoPow: steep, and an animal with a little photosynthesis gets nearly none
   mutScale: 3,      // scale on every species' chance that a birth is a mutant (a new species)
+  flee: 0,          // an animal that does not hunt is pushed away from hunters within reach at this × its swimming
   recognize: 0.4,     // living prey (and plants) escape an eater whose receptors do not match their surface: up to this
                     // share of attempts on a perfectly mismatched one (coevolution, frequency-dependent predation)
   matterSkill: 0.5,   // eating a husk or glint succeeds with (eatEff × that diet) / this, certain past it (0: always)
@@ -580,7 +581,9 @@ ${K.liveFirst ? `
         if (x < ${K.tissue > 0 ? 'bk' : 'beta'}) { fr = (x * ${K.tissue > 0 ? 'invBk' : 'invBeta'} - 1.0) * core; } else { fr = a * shape${K.tissue > 0 ? ' * sigK' : ''}; }${W('mFr0 = fr;')}
         // hungry foragers are drawn toward the cells their diet favours
         let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
-        if (x >= ${K.tissue > 0 ? 'bk' : 'beta'}) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * ${K.tissue > 0 ? 'invBk' : 'invBeta'} * invR; }
+        if (x >= ${K.tissue > 0 ? 'bk' : 'beta'}) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * ${K.tissue > 0 ? 'invBk' : 'invBeta'} * invR; }${K.flee > 0 ? `
+        // an animal that is not a hunter swims away from hunters near it, the harder the closer they are
+        if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && g.dFlesh <= 0.5 && g.photo <= 0.4) { fr -= ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x); }` : ''}
         crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
         if (DIAG) {
           if (x < beta) { overlap += 1.0; }
@@ -1403,7 +1406,8 @@ ${K.tissue > 0 ? `    bondsNow[dst * 6u] = partners.x;
     let sig = genomes[p.kind].sig[role].xy;
     let plant = select(0u, 1u << 12u, (p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4)${K.cycle && !K.litterTo ? ' || (p.kind == HUSK && (p.info & LITTER) != 0u)' : ''});
     // pad: with K.bodyPush, the cell's drawn radius (0.085 world units per unit of size, smaller in its later roles)
-    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant${K.cyst ? ' | select(0u, 1u << 13u, p.kind >= FIRST_LIFE && (p.info & 15u) == CYST)' : ''}, p.col, pack2x16float(p.vel), sig.x, sig.y, ${K.bodyPush > 0 || K.crowdVisc > 0 ? 'bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role)))' : '0u'});
+    let hunter = select(0u, 1u << 14u, p.kind >= FIRST_LIFE && genomes[p.kind].dFlesh > 0.5 && genomes[p.kind].photo <= 0.4);
+    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | ${K.flee > 0 ? 'hunter' : '0u'}${K.cyst ? ' | select(0u, 1u << 13u, p.kind >= FIRST_LIFE && (p.info & 15u) == CYST)' : ''}, p.col, pack2x16float(p.vel), sig.x, sig.y, ${K.bodyPush > 0 || K.crowdVisc > 0 ? 'bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role)))' : '0u'});
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
   }
   workgroupBarrier();
