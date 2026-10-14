@@ -73,7 +73,9 @@ function story(run) {
   }
   const end = S.at(-1);
   const alive = GUILDS.filter((g) => act(end, g) >= LIVE);
-  return { lines, lost, alive, core: CORE.every((g) => act(end, g) >= LIVE), outcome: run.outcome?.outcome ?? '?' };
+  const o = run.outcome || {};
+  return { lines, lost, alive, core: CORE.every((g) => act(end, g) >= LIVE), outcome: o.outcome ?? '?',
+    eff: o.lateEffSpecies, notable: o.notableSpecies, leaders: o.leaderChanges, living: o.lateLivingFrac, fp: o.fingerprint };
 }
 
 const all = [];
@@ -89,11 +91,17 @@ for (const p of positionals) {
     }
   }
 }
-console.log('\nset                         runs  all four  ' + GUILDS.map((g) => g.slice(0, 8).padStart(9)).join('') + '   guild lost at (median min)');
+console.log('\nset                         runs  all four  ' + GUILDS.map((g) => g.slice(0, 8).padStart(9)).join('') + '   guild lost at (median min)       eff.sp notable leaders living variety');
 for (const { set, res } of all) {
   const n = res.length;
   const surv = GUILDS.map((g) => res.filter((r) => r.alive.includes(g)).length / n);
   const lostAt = GUILDS.map((g) => { const t = res.flatMap((r) => r.lost.filter((x) => x.guild === g).map((x) => x.t / 60)).sort((a, b) => a - b); return t.length ? t[t.length >> 1].toFixed(0) : '-'; });
-  console.log(`${set.padEnd(28)}${String(n).padStart(4)}  ${pct(res.filter((r) => r.core).length / n)}%     ${surv.map((x) => (pct(x) + '%').padStart(9)).join('')}   ${GUILDS.map((g, i) => ABBR[g] + lostAt[i]).join(' ')}`);
+  const mean = (f) => { const v = res.map(f).filter((x) => x != null && !isNaN(x)); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : NaN; };
+  // variety: how different the runs' late guild mixes are from each other (mean pairwise distance of fingerprints)
+  const fps = res.map((r) => r.fp).filter(Boolean);
+  let dsum = 0, dn = 0;
+  for (let a = 0; a < fps.length; a++) for (let b = a + 1; b < fps.length; b++) { dsum += Math.sqrt(fps[a].reduce((q, x, i) => q + (x - fps[b][i]) ** 2, 0)); dn++; }
+  console.log(`${set.padEnd(28)}${String(n).padStart(4)}  ${pct(res.filter((r) => r.core).length / n)}%     ${surv.map((x) => (pct(x) + '%').padStart(9)).join('')}   ${GUILDS.map((g, i) => ABBR[g] + lostAt[i]).join(' ').padEnd(28)}`
+    + `${mean((r) => r.eff).toFixed(0).padStart(6)}${mean((r) => r.notable).toFixed(1).padStart(8)}${mean((r) => r.leaders).toFixed(1).padStart(8)}${mean((r) => r.living).toFixed(2).padStart(7)}${(dn ? dsum / dn : NaN).toFixed(2).padStart(8)}`);
 }
 if (v.json) fs.writeFileSync(v.json, JSON.stringify(all, null, 1));
