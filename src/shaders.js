@@ -80,8 +80,8 @@ export const DEFAULT_K = {
   searchImage: 0.7, // chance a hunter or grazer misses living prey unlike its last catch
   specPow: 2,       // >0: a diet's share d earns d^specPow of a specialist's take (0: d(0.4 + 0.6d)); steep: mixing pays little
   photoPow: 3,      // light earned grows as photo^photoPow: steep, and an animal with a little photosynthesis gets nearly none
-  mutScale: 1,      // scale on every species' chance that a birth is a mutant (a new species)
-  recognize: 0,     // living prey (and plants) escape an eater whose receptors do not match their surface: up to this
+  mutScale: 3,      // scale on every species' chance that a birth is a mutant (a new species)
+  recognize: 0.4,     // living prey (and plants) escape an eater whose receptors do not match their surface: up to this
                     // share of attempts on a perfectly mismatched one (coevolution, frequency-dependent predation)
   matterSkill: 0.5,   // eating a husk or glint succeeds with (eatEff × that diet) / this, certain past it (0: always)
   catchSkill: 0.6,  // catch chance scales with eating skill (eatEff × preference), reaching certainty here
@@ -210,7 +210,7 @@ export const DEFAULT_K = {
   litterTo: 1,      // with cycle, who breaks down a producer's litter: 0 grazers, 1 scavengers (decomposers of all husks)
   glintFade: 1,     // scale on how fast glint loses its energy and falls back to silt (slow: the nutrient waits for a grazer)      // scale on how fast husks rot back to silt by themselves
   cyst: 1,          // 1: a seed bank: a cell short of energy with no food in reach may go dormant (a cyst) and wake later
-  cystPlants: 1,    // with cyst, 0: only animals go dormant (producers do not eat, so 'no food in reach' always holds)
+  cystPlants: 0,    // with cyst, 0: only animals go dormant (producers do not eat, so 'no food in reach' always holds)
   cystAt: 0.3,      // ...below this share of its division energy...
   cystRate: 0.2,    // ...at this chance per second
   cystLeak: 0.002,  // energy a cyst loses per second (it dies as a husk at none)

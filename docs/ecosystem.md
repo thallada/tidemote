@@ -179,6 +179,23 @@ stabiliser); interference among crowded hunters and grazers damps it. Predators 
 the others) sleep through the lean spell and wake when it passes: whole guilds are lost late, if at
 all, and all four survive in a third of worlds (main: 13%).
 
+## Dynamism: what churn costs and what restores it (30 min, 32k)
+
+The stable web breeds 5.5× more slowly than main (0.35 births a cell a minute against 1.93: bodies cost
+energy, young are provisioned), so evolution runs at a fifth of the pace: producer species led 97% of
+the time and notable species fell from 25 to 12, leader changes from 6.8 to 4.0. What did not restore it:
+softer trade-offs (`specPow` 1.5, `photoPow` 2), more mutation alone (`mutScale` 3-6: many more small
+species, no more turnover), stronger kin crowding (`kinCrowd` 0.15-0.3), strong recognition (0.8: grazers
+cannot bite producers), a 4× bigger world (131k: the same). What did: letting only animals encyst
+(`cystPlants` 0) — producer cysts were a third of all living cells, crowding animals out — and with it
+more mutation and mild recognition:
+
+| 47 seeds each | all four | predator | eff. species | notable | leader changes | variety |
+|---|---|---|---|---|---|---|
+| previous default | 33-34% | 44-60% | 46-49 | 12 | 4.0-4.4 | 0.82-0.89 |
+| `cystPlants` 0 | 34% | 64% | 55 | 17 | 5.6 | 0.92 |
+| + `mutScale` 3, `recognize` 0.4: the default | 43% | 64% | 105 | 16 | 4.3 | 0.84 |
+
 ## The seed bank (dormancy)
 
 Implemented as `cyst`: a cell short of energy (`cystAt` of its division energy) with no food in reach
