@@ -194,7 +194,7 @@ export const DEFAULT_K = {
   bodyShare: 2,     // with tissue, rate (per second) at which energy flows along a body's bonds toward the poorer cell
   sharpFounders: 0, // 1: founders are specialists: producers all light, animals none, each diet mostly its main food
   leanHunters: 1,   // 1: founding hunters and crawlers are smaller, divide sooner and form loose bodies (for bodyE);
-                    // 2: and cheaper to run (less force, slower, shorter-lived)
+                    // 2: and cheaper to run (less force, slower, shorter-lived); 3: and with 2.5× the reserve (reproE)
   scent: 0,         // a hungry flesh-eater steers up the count of animals scentR grid cells off at this × its swimming
   scentR: 2,
   cycle: 0,         // 1: a closed nutrient loop (docs/ecosystem.md): producers exude glint, a dead producer leaves

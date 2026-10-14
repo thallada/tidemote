@@ -119,8 +119,9 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
   // K.leanHunters: founders that eat flesh built for an honest economy (bodies cost energy): smaller,
   // dividing sooner, and loose bodies whose every cell can reach prey
   const lean = K.leanHunters && (type === 'hunter' || type === 'crawler');
-  if (lean) { t.size *= 0.7; t.reproE *= 0.6; }
-  // leanHunters 2: cheaper to run as well (upkeep grows with force, swimming and lifespan)
+  if (lean) { t.size *= 0.7; t.reproE *= K.leanHunters >= 3 ? 2.5 : 0.6; }
+  // leanHunters 2: cheaper to run as well (upkeep grows with force, swimming and lifespan); 3: and they
+  // divide only with a large reserve, so their young can live until a first kill (as provision, but in the gene)
   if (lean && K.leanHunters >= 2) { t.force *= 0.75; t.swim *= 0.7; t.lifespan *= 0.75; }
   // K.sharpFounders: founders built for steep trade-offs (specPow, photoPow): a producer all light, an
   // animal none, and each diet mostly its main food
