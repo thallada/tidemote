@@ -149,7 +149,8 @@ like.
   memory or GPU, for instance while something else runs there), down to one; after `--restore` minutes
   (10) without a failure the host gets a slot back, up to its `slots`. A host failing three times in a
   row with one slot rests `--cooldown` minutes (10) and then tries again; meanwhile its seeds go to the
-  others. Only failures with a single slot count against a seed's `--attempts`. Seeds already in `--out` are kept, so rerunning the same
+  others. Only failures with a single slot count against a seed's `--attempts`. The limit lives on the host (`~/.cache/tidemote-farm/limit`), so
+  every farm sharing it obeys it. Seeds already in `--out` are kept, so rerunning the same
   command resumes, with the commit recorded in `--out/farm.json`.
 - **Sharing a machine's GPU.** Each running seed holds an flock on `~/.cache/tidemote-farm/slots/N` on
   its host, so farms started from several places share a machine's slots instead of overloading its
