@@ -76,4 +76,42 @@ eaten husk becomes silt again), husks rot, glint carries energy. Tunables (`cycl
 
 ## Measurements
 
-(to come: farmed ensembles, `tools/farm.mjs`; per-run stories with `tools/story.mjs`)
+32 seeds × 30 min at 32k each, farmed over two machines (`tools/farm.mjs`), read with `tools/story.mjs`.
+"All four": producers, grazers, predators and scavengers all alive (≥1%) at the end. Lost at: the
+median minute a guild that had been there (≥3%) was last seen.
+
+| set | all four | producer | grazer | predator | scavenger | omnivore | lost at (P G H S O) |
+|---|---|---|---|---|---|---|---|
+| main (gate-ff-defaults) | 13% | 88% | 94% | 34% | 50% | 31% | 7 27 17 12 22 |
+| honest default (cyF0) | 13% | 91% | 84% | 41% | 25% | 47% | 20 12 2 10 26 |
+| cycle, litter to grazers (C1) | 0% | 91% | 94% | 22% | 0% | 28% | 18 28 9 2 25 |
+| + exude 0.5 (C2) | 0% | 59% | 100% | 34% | 0% | 44% | 18 - 23 2 25 |
+| cycle, litter to scavengers (V1) | 6% | 91% | 94% | 22% | 25% | 34% | 19 30 18 5 22 |
+| + glint fades 5× slower (V2) | 0% | 84% | 91% | 31% | 13% | 50% | 20 14 12 4 28 |
+| matterSkill 0.5, no cycle (M0) | 0% | 97% | 94% | 38% | 38% | 41% | 20 26 19 3 22 |
+| V1 + matterSkill 0.5 (M1) | 13% | 88% | 100% | 50% | 28% | 69% | 24 - 23 4 26 |
+| V2 + matterSkill 0.5 (M2) | 6% | 88% | 100% | 41% | 19% | 44% | 18 - 21 10 25 |
+
+The same configuration farmed twice differs by up to 25 points in food webs (honest default: 28% on
+one machine, 53% farmed): one 32-seed share carries about ±9 points. Decide on 64 seeds or more.
+
+What the stories show:
+
+- Splitting the dead between guilds starves the specialist that loses its share: with litter for
+  grazers, scavengers died within 2 minutes in every world (C1, C2).
+- Generalists eat the specialists' food: grazers and predators with a tenth of their diet in husks
+  ate litter and carcasses as fast as they were made while scavengers starved. `matterSkill`
+  (eating matter takes being built for it, as `catchSkill` for prey) fixes that half.
+- Scavengers that survive the start are then mostly eaten, not starved (eaten 260-980 a minute while
+  husks lie uneaten): slow and defenceless.
+- A guild lost is lost for good. Abiogenesis makes one random species every 30 s world-wide, and
+  evolution rarely rebuilds a specialist once its niche is empty, so whether all four guilds survive
+  is decided in the first minutes. Mutual dependence cannot balance a world that cannot recolonise.
+
+## Next: a seed bank (dormancy)
+
+Species leave dormant cysts (a body holding its energy, unable to act, slowly decaying) and cysts wake
+when conditions suit them: food for their diet nearby, their kind scarce around them. A guild wiped
+out in one place returns from its cysts when its niche reopens, as plankton and microbes do. It is
+local and honest (a cyst is a body; waking spends its energy), and it gives dependence time to work:
+a guild that collapses with its food comes back with it.
