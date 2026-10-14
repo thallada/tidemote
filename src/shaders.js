@@ -195,6 +195,7 @@ export const DEFAULT_K = {
   fightBack: 0,     // living prey that hunts makes an attack fail with this × its flesh skill (dFlesh × eatEff)
   provision: 60,     // a cell divides only once its child's share would cover this many seconds of its upkeep (feeding
                     // until then; 0: at divE): hunters, whose meals are far apart, raise viable young
+  provisionFlesh: 0, // 1: provision in proportion to the flesh in a cell's diet (hunters' meals are far apart; grazers' are not)
   mature: 0.2,        // a cell divides only once older than this share of its lifespan (it grows up first; 0: at once)
   bodyReserve: 1,   // with bodyE, 1: a cell divides once it holds reproE beyond its child's body; 0: once it holds reproE
                     // and at least 1.25 × the body (so a division never starves it)
@@ -445,7 +446,7 @@ function cellWGSL(K, w) {
   // a torpid cell neither hunts, grazes nor divides
   // a child's body costs bodyCost (K.bodyE, by size with K.bodySize); divE: the energy a cell divides at (K.bodyReserve)
   let bodyCost = ${bodyOf(K, 'g')};
-  let divE = ${K.bodyE > 0 ? (K.bodyReserve ? 'g.reproE + bodyCost' : 'max(g.reproE, 1.25 * bodyCost)') : 'g.reproE'}${K.provision > 0 ? ` + max(0.0, bodyCost + ${f(K.provision)} * g.metab / g.share - g.reproE - bodyCost)` : ''};
+  let divE = ${K.bodyE > 0 ? (K.bodyReserve ? 'g.reproE + bodyCost' : 'max(g.reproE, 1.25 * bodyCost)') : 'g.reproE'}${K.provision > 0 ? ` + max(0.0, bodyCost + ${f(K.provision)}${K.provisionFlesh ? ' * g.dFlesh' : ''} * g.metab / g.share - g.reproE - bodyCost)` : ''};
   let hungry = p.energy < divE * ${f(K.sated)} && eatEff > 0.1 && !th.torpid;
   let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
   // food in reach is gathered by hungry cells; in a coarse step also by any that may grow hungry in it
