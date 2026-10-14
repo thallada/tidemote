@@ -64,10 +64,10 @@ export const DEFAULT_K = {
   gain: 1.5,
   sated: 1.0,       // cells stop feeding above this × the energy needed to divide
   carcass: 0.45,    // energy left in the husk of a cell that was killed
-  killEvery: 8,     // handling time: kills only on every Nth meal opportunity
-  biteEvery: 6,     // ...and bites of plant cells on every Nth
+  killEvery: 4,     // handling time: kills only on every Nth meal opportunity
+  biteEvery: 1,     // ...and bites of plant cells on every Nth
   plantPref: 0.1,   // how much a flesh-eater values plant cells relative to a grazer
-  grazePref: 0.6,   // how much a grazer values a plant cell relative to glint
+  grazePref: 1,   // how much a grazer values a plant cell relative to glint
   forage: 0.35,     // pull of glint and husks on a hungry forager, relative to signature forces
   hunt: 0.12,       // pull of living prey on a hungry forager
   kinCrowd: 0.06,   // upkeep added per crowding same-species neighbour, excluding bond partners
@@ -78,9 +78,9 @@ export const DEFAULT_K = {
   kinShade: 0.25,   // how much a bonded body shades itself, relative to strangers
   armor: 1,         // bonded bodies resist being killed or bitten
   searchImage: 0.7, // chance a hunter or grazer misses living prey unlike its last catch
-  specPow: 0,       // >0: a diet's share d earns d^specPow of a specialist's take (0: d(0.4 + 0.6d)); steep: mixing pays little
-  photoPow: 1,      // light earned grows as photo^photoPow: steep, and an animal with a little photosynthesis gets nearly none
-  matterSkill: 0,   // eating a husk or glint succeeds with (eatEff × that diet) / this, certain past it (0: always)
+  specPow: 2,       // >0: a diet's share d earns d^specPow of a specialist's take (0: d(0.4 + 0.6d)); steep: mixing pays little
+  photoPow: 3,      // light earned grows as photo^photoPow: steep, and an animal with a little photosynthesis gets nearly none
+  matterSkill: 0.5,   // eating a husk or glint succeeds with (eatEff × that diet) / this, certain past it (0: always)
   catchSkill: 0.6,  // catch chance scales with eating skill (eatEff × preference), reaching certainty here
   nutrHalf: 8.0,    // silt grains nearby at which photosynthesis runs at half speed
   swimCost: 0.018,
@@ -114,14 +114,14 @@ export const DEFAULT_K = {
   colorMix: 0.02,
   baseMix: 0.04,
   maxSpeed: 7.0,
-  photo: 0.5,       // energy per second for a pure photosynth in full light
+  photo: 0.9,       // energy per second for a pure photosynth in full light
   shade: 0.07,      // self-shading per living neighbour
   align: 3.0,
   bond: 60,         // spring strength of bonds between cells of one body
   adhMin: 0.15,     // adhesion needed before a species forms bonds
-  bite: 0.06,       // energy taken per bite from a photosynthesising cell
+  bite: 0.1,       // energy taken per bite from a photosynthesising cell
   eatEvery: 6,      // frames between meals
-  dietMin: 0.02,    // share of the diet a food must have before a cell bothers to eat it
+  dietMin: 0.15,    // share of the diet a food must have before a cell bothers to eat it
   // Stone: calcified remains and bedrock. Immobile, solid to all but calcifiers, slowly eroding back to silt.
   calcCost: 0.012,  // upkeep of a fully calcifying cell (× metab)
   reefs: 1,         // 0: calcifying cells never leave stone (bedrock only)
@@ -186,35 +186,35 @@ export const DEFAULT_K = {
                     // husk pass without digestion's loss, as the stuff of its next child, up to skill × assimilate);
                     // stored energy keeps assimCap
   fightBack: 0,     // living prey that hunts makes an attack fail with this × its flesh skill (dFlesh × eatEff)
-  provision: 0,     // a cell divides only once its child's share would cover this many seconds of its upkeep (feeding
+  provision: 60,     // a cell divides only once its child's share would cover this many seconds of its upkeep (feeding
                     // until then; 0: at divE): hunters, whose meals are far apart, raise viable young
-  mature: 0,        // a cell divides only once older than this share of its lifespan (it grows up first; 0: at once)
+  mature: 0.2,        // a cell divides only once older than this share of its lifespan (it grows up first; 0: at once)
   bodyReserve: 1,   // with bodyE, 1: a cell divides once it holds reproE beyond its child's body; 0: once it holds reproE
                     // and at least 1.25 × the body (so a division never starves it)
   bodyShare: 2,     // with tissue, rate (per second) at which energy flows along a body's bonds toward the poorer cell
-  sharpFounders: 0, // 1: founders are specialists: producers all light, animals none, each diet mostly its main food
-  leanHunters: 1,   // 1: founding hunters and crawlers are smaller, divide sooner and form loose bodies (for bodyE);
+  sharpFounders: 1, // 1: founders are specialists: producers all light, animals none, each diet mostly its main food
+  leanHunters: 2,   // 1: founding hunters and crawlers are smaller, divide sooner and form loose bodies (for bodyE);
                     // 2: and cheaper to run (less force, slower, shorter-lived); 3: and with 2.5× the reserve (reproE)
   scent: 0,         // a hungry flesh-eater steers up the count of animals scentR grid cells off at this × its swimming
   scentR: 2,
-  cycle: 0,         // 1: a closed nutrient loop (docs/ecosystem.md): producers exude glint, a dead producer leaves
+  cycle: 1,         // 1: a closed nutrient loop (docs/ecosystem.md): producers exude glint, a dead producer leaves
                     // litter only grazers break down, other husks are carcasses for scavengers, eaten husks return
                     // to the water as silt, and glint counts as food from within (no gain)
-  exude: 0.25,      // with cycle, the share of a producer's light it leaks as glint...
+  exude: 0,      // with cycle, the share of a producer's light it leaks as glint...
   exudeE: 0.6,      // ...in grains of this much energy each
-  tideCharge: 1,    // scale on the tide's (and hot springs') charging of silt into glint
+  tideCharge: 0,    // scale on the tide's (and hot springs') charging of silt into glint
   rotScale: 1,
-  litterTo: 0,      // with cycle, who breaks down a producer's litter: 0 grazers, 1 scavengers (decomposers of all husks)
+  litterTo: 1,      // with cycle, who breaks down a producer's litter: 0 grazers, 1 scavengers (decomposers of all husks)
   glintFade: 1,     // scale on how fast glint loses its energy and falls back to silt (slow: the nutrient waits for a grazer)      // scale on how fast husks rot back to silt by themselves
-  cyst: 0,          // 1: a seed bank: a cell short of energy with no food in reach may go dormant (a cyst) and wake later
+  cyst: 1,          // 1: a seed bank: a cell short of energy with no food in reach may go dormant (a cyst) and wake later
   cystPlants: 1,    // with cyst, 0: only animals go dormant (producers do not eat, so 'no food in reach' always holds)
   cystAt: 0.3,      // ...below this share of its division energy...
   cystRate: 0.2,    // ...at this chance per second
   cystLeak: 0.002,  // energy a cyst loses per second (it dies as a husk at none)
-  cystWake: 0.011,  // chance per second a cyst wakes (about every 90 s)
+  cystWake: 0.022,  // chance per second a cyst wakes (about every 90 s)
   foundHunt: 0.125, // the largest share of a new world's 24 founding species that eat flesh (hunters, crawlers)
   bodySize: 1,      // with bodyE, 1: a body holds bodyE × the cell's size (small cells are cheap to build, big ones rich prey)
-  interfere: 0,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
+  interfere: 0.6,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
                     // within reach, its bond partners aside)
 };
 
