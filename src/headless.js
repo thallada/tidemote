@@ -121,11 +121,13 @@ export async function runHeadless(device, config, { print, width = 640, height =
       const perMin = (i) => (prevE && c.simTime > prevT ? since(i) * 60 / (c.simTime - prevT) : 0);
       const cycle = { exuded: perMin(59), litterMade: perMin(60), carcassMade: perMin(61), litterEaten: perMin(62),
         carcassEaten: perMin(63), litter: c.demography[60] ?? 0 };
+      // K.cyst: each guild's cysts now (dormant, counted among the living above)
+      const dormant = Object.fromEntries(guilds.map((g, gi) => [g, c.demography[gi < 3 ? 57 + gi : 58 + gi] ?? 0]));
       eng.readThermal().then((f) => { latestField = fieldStats(f, eng.tbg); }).catch(() => {});
       // how tightly the living sit (by drawn size), read now for the next sample
       const pk = latestPacking;
       eng.readParticles().then((p) => { latestPacking = packing(p, eng.count, eng.grid, (k) => genomes[k]?.genome.size ?? 1, E.FIRST_LIFE); }).catch(() => {});
-      samples.push({ ...latest, thermal, rates, demography, meals, energy, cycle, packing: pk });
+      samples.push({ ...latest, thermal, rates, demography, meals, energy, cycle, dormant, packing: pk });
       prevG = Array.from(c.globals); prevD = Array.from(c.demography); prevE = Array.from(c.energy); prevT = lastSample = c.simTime;
     }
     // config.step: each step covers step/60 s (coarse steps), so fewer steps fill the minutes

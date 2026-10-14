@@ -206,6 +206,11 @@ export const DEFAULT_K = {
   rotScale: 1,
   litterTo: 0,      // with cycle, who breaks down a producer's litter: 0 grazers, 1 scavengers (decomposers of all husks)
   glintFade: 1,     // scale on how fast glint loses its energy and falls back to silt (slow: the nutrient waits for a grazer)      // scale on how fast husks rot back to silt by themselves
+  cyst: 0,          // 1: a seed bank: a cell short of energy with no food in reach may go dormant (a cyst) and wake later
+  cystAt: 0.3,      // ...below this share of its division energy...
+  cystRate: 0.2,    // ...at this chance per second
+  cystLeak: 0.002,  // energy a cyst loses per second (it dies as a husk at none)
+  cystWake: 0.011,  // chance per second a cyst wakes (about every 90 s)
   foundHunt: 0.125, // the largest share of a new world's 24 founding species that eat flesh (hunters, crawlers)
   bodySize: 1,      // with bodyE, 1: a body holds bodyE × the cell's size (small cells are cheap to build, big ones rich prey)
   interfere: 0,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
@@ -269,6 +274,10 @@ const GLINT = 1u;
 const HUSK = 2u;
 // a husk left by a producer (K.cycle): plant litter, grazers' to break down; other husks are carcasses
 const LITTER = 0x8000u;
+// a dormant living cell (K.cyst): its cause code (info & 15)
+const CYST = 14u;
+// META_DEATH slots counting each guild's cysts, afresh each step (57-59, 61, 62; 60 is the litter)
+fn cystSlot(gi: u32) -> u32 { return META_DEATH + select(57u + gi, 58u + gi, gi >= 3u); }
 const STONE = 3u;
 const FRAMBOID = ${FRAMBOID}u;
 const NONE = 0xffffffffu;
@@ -592,7 +601,7 @@ ${K.liveFirst ? `
             } else if (!keep2 && r < d2) { d2 = r; n2 = j; dn2 = d; }
           }
         }
-        if (seekHunt && r < EAT_R && qk != p.kind) {
+        if (seekHunt && r < EAT_R && qk != p.kind${K.cyst ? ' && (q.kr & (1u << 13u)) == 0u' : ''}) {
           // how far its signature is from this cell's: |s - my|^2
           let far = sdot(q.s0, q.s0) + sdot(q.s1, q.s1) - 2.0 * (sdot(q.s0, sg.x) + sdot(q.s1, sg.y)) + myNorm;
           if (far > ${f(K.kin)}) {
@@ -1390,7 +1399,7 @@ ${K.tissue > 0 ? `    bondsNow[dst * 6u] = partners.x;
     let sig = genomes[p.kind].sig[role].xy;
     let plant = select(0u, 1u << 12u, (p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4)${K.cycle && !K.litterTo ? ' || (p.kind == HUSK && (p.info & LITTER) != 0u)' : ''});
     // pad: with K.bodyPush, the cell's drawn radius (0.085 world units per unit of size, smaller in its later roles)
-    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant, p.col, pack2x16float(p.vel), sig.x, sig.y, ${K.bodyPush > 0 || K.crowdVisc > 0 ? 'bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role)))' : '0u'});
+    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant${K.cyst ? ' | select(0u, 1u << 13u, p.kind >= FIRST_LIFE && (p.info & 15u) == CYST)' : ''}, p.col, pack2x16float(p.vel), sig.x, sig.y, ${K.bodyPush > 0 || K.crowdVisc > 0 ? 'bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role)))' : '0u'});
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
   }
   workgroupBarrier();
@@ -1792,10 +1801,34 @@ fn restoring(j: vec3f) -> vec3f {
   return vec3f(l1 * c * c + l2 * sn * sn, (l1 - l2) * c * sn, l1 * sn * sn + l2 * c * c);
 }
 
-@compute @workgroup_size(128)
+${K.cyst ? `// A cyst (K.cyst): a dormant cell. It drifts with the water, cannot eat, divide or be eaten, keeps its energy
+// but for a slow leak (dying as a husk when it runs out), and wakes at random to try its luck again.
+fn cystStep(i: u32) {
+  var p = sortedFull[i];
+  let g = genomes[p.kind];
+  var s = pcg(p.id ^ pcg(sim.frame * 2654435761u + sim.seed));
+  p.energy -= ${f(K.cystLeak)} * sim.dt;
+  p.age += sim.dt;
+  p.vel = vec2f(0.0);
+  p.pos = wrapPos(p.pos + flowAt(p.pos) * g.advect * sim.dt);
+  atomicAdd(&ledger[cystSlot(dietGuild(g))], 1u);
+  if (p.energy <= 0.0) {
+    p.kind = HUSK; p.energy = ${bodyOf(K, 'g')}; p.age = 0.0;
+    p.info = (p.info & 0xffff7fc0u) | 1u${litterOf(K, 'g')};
+    atomicAdd(&ledger[5], 1u);
+    atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 1u], 1u);
+  } else if (rnd(&s) < ${f(K.cystWake)} * sim.dt) {
+    p.info = (p.info & 0xfffffff0u) | 9u; p.age = 0.0;
+  }
+  intent[i] = vec4u(0u, 0u, NONE, NONE);
+  parts[i] = p;
+}
+
+` : ''}@compute @workgroup_size(128)
 fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
-  if (i == NONE) { return; }
+  if (i == NONE) { return; }${K.cyst ? `
+  if ((sortedFull[i].info & 15u) == CYST) { cystStep(i); return; }` : ''}
 ${cellWGSL(K, false)}
   var E = p.energy${K.tissue > 0 && K.bodyShare > 0 ? ' + shareE' : ''} + (photoGain - upkeep) * sim.dt;
   let dg = dietGuild(g);
@@ -1979,6 +2012,11 @@ ${K.cycle && K.exude > 0 ? `  // producers leak part of what they fix as dissolv
       act = 2u; ck = GLINT; ce = ${f(K.exudeE)}; E -= ce;
       atomicAdd(&ledger[META_ENERGY + 59u], 1u);
     }
+  }
+` : ''}${K.cyst ? `  // a cell running out with nothing to eat in reach may go dormant (after a while awake)
+  if (act == 0u && E > 0.0 && E < ${f(K.cystAt)} * divE && food == NONE && age > 10.0 && rnd(&s) < ${f(K.cystRate)} * sim.dt) {
+    info = (info & 0xffff003fu & 0xfffffff0u) | CYST;
+    age = 0.0;
   }
 ` : ''}  var kind = p.kind;
   if (E <= 0.0) {

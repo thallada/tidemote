@@ -34,18 +34,21 @@ function books(s, cycle) {
   return { inc, out };
 }
 
+// a guild's share of the living that is awake (K.cyst's dormant cells count among the living in diet)
+const act = (s, g) => Math.max(0, s.diet[g] - (s.dormant?.[g] ?? 0) / Math.max(s.living, 1));
+
 function story(run) {
-  const S = run.samples, cycle = !!run.config?.k?.cycle;
-  const pop = (s, g) => s.diet[g] * s.living;
+  const S = run.samples, cycle = !!run.config?.k?.cycle, cyst = !!run.config?.k?.cyst;
+  const pop = (s, g) => act(s, g) * s.living;
   const lines = [];
   const lost = [];
   for (const g of GUILDS) {
-    const had = S.findIndex((s) => s.t > 30 && s.diet[g] >= ONCE);
+    const had = S.findIndex((s) => s.t > 30 && act(s, g) >= ONCE);
     if (had < 0) continue;
     // the last time it was alive at all; lost if it ends below LIVE
-    if (S.at(-1).diet[g] >= LIVE) continue;
+    if (act(S.at(-1), g) >= LIVE) continue;
     let k = S.length - 1;
-    while (k > 0 && S[k].diet[g] < LIVE) k--;
+    while (k > 0 && act(S[k], g) < LIVE) k--;
     const at = S[k], before = S[Math.max(0, k - 6)];
     const food = {
       producer: `silt ${num(before.silt)} light ${(before.ambient ?? 0).toFixed?.(2) ?? '-'} grazers ${num(pop(before, 'grazer'))}`,
@@ -55,21 +58,22 @@ function story(run) {
       omnivore: `glint ${num(before.glint)} grazers ${num(pop(before, 'grazer'))}`,
     }[g];
     const d = before.demography?.[g] || {};
-    lost.push({ guild: g, t: Math.round(at.t), peak: Math.max(...S.map((s) => s.diet[g])), food,
+    lost.push({ guild: g, t: Math.round(at.t), peak: Math.max(...S.map((s) => act(s, g))), food,
       deaths: `births ${num(d.births)} starved ${num(d.starved)} eaten ${num(d.eaten)} /min` });
   }
   const every = +v.every;
   for (const s of S.filter((s, i) => i === 0 || i === S.length - 1 || Math.floor(s.t / every) !== Math.floor(S[i - 1].t / every))) {
     const b = books(s, cycle);
     const c = s.cycle || {};
-    lines.push(`  ${String(Math.round(s.t / 60)).padStart(3)}m living ${num(s.living).padStart(5)} ${GUILDS.map((g) => ABBR[g] + pct(s.diet[g])).join(' ')}`
+    lines.push(`  ${String(Math.round(s.t / 60)).padStart(3)}m living ${num(s.living).padStart(5)} ${GUILDS.map((g) => ABBR[g] + pct(act(s, g))).join(' ')}`
+      + (cyst ? ` cysts ${GUILDS.map((g) => ABBR[g] + num(s.dormant?.[g] ?? 0)).join(' ')}` : '')
       + ` | silt ${num(s.silt).padStart(5)} glint ${num(s.glint).padStart(4)} husk ${num(s.husk).padStart(4)}`
       + (cycle ? ` litter ${num(c.litter).padStart(4)} | exuded ${num(c.exuded).padStart(4)} litter ${num(c.litterMade)}→${num(c.litterEaten)} carcass ${num(c.carcassMade)}→${num(c.carcassEaten)} /min` : '')
       + ` | spent/in ${b.inc ? (b.out / b.inc).toFixed(2) : '-'}`);
   }
   const end = S.at(-1);
-  const alive = GUILDS.filter((g) => end.diet[g] >= LIVE);
-  return { lines, lost, alive, core: CORE.every((g) => end.diet[g] >= LIVE), outcome: run.outcome?.outcome ?? '?' };
+  const alive = GUILDS.filter((g) => act(end, g) >= LIVE);
+  return { lines, lost, alive, core: CORE.every((g) => act(end, g) >= LIVE), outcome: run.outcome?.outcome ?? '?' };
 }
 
 const all = [];

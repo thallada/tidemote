@@ -726,8 +726,8 @@ class Engine {
     if (this.K.heat) enc.clearBuffer(b.thermal, 2 * MAX_CELLS * 4, cells * 4);
     if (this.K.heat && this.K.scent > 0) enc.clearBuffer(b.thermal, 3 * MAX_CELLS * 4, cells * 4);
     enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
-    // K.cycle: the litter on the ground, counted afresh each step (META_DEATH + 60)
-    if (this.K.cycle) enc.clearBuffer(b.ledger, (META_DEATH + 60) * 4, 4);
+    // K.cycle's litter on the ground (META_DEATH + 60) and K.cyst's cysts per guild (57-59, 61, 62), counted afresh each step
+    if (this.K.cycle || this.K.cyst) enc.clearBuffer(b.ledger, (META_DEATH + 57) * 4, 6 * 4);
     enc.clearBuffer(b.frameCtr, 0, 4);
     enc.clearBuffer(b.frameCtr, 36, 4);
     enc.clearBuffer(b.ledger, 48, 12);
