@@ -140,6 +140,28 @@ The direction: energy enters only as light, through producers; herbivory is graz
 steep trade-offs keep each guild on its own stream (`specPow`, `photoPow`); decomposers return the dead
 (`cycle`, `litterTo` 1, `matterSkill`).
 
+## A trophic chain (in progress)
+
+Short probes (8 seeds × 8-16 min, `runs/pr*`, `runs/pv*`), each change kept when the stories showed why:
+
+- Tide off (`tideCharge` 0, `exude` 0): energy enters only as light. Grazers then need real herbivory:
+  `grazePref` 1, `biteEvery` 1, `bite` 0.1.
+- Steep trade-offs (`specPow` 2, `photoPow` 3) and specialist founders (`sharpFounders`): every guild lives
+  on its own stream (producers 100% light, grazers 99% plants, predators 100% flesh, scavengers 98% husks)
+  and bitten plants carry 14-18% of all income up the chain (2% before).
+- `dietMin` 0.15: cells ignore foods under 15% of their diet; grazers stopped killing and scavenging.
+- Bugs found: a dividing cell paid its child's body after splitting and was left with nothing (fixed);
+  a killed body passed whole whatever the killer's skill, so grazers evolved to hunt each other (now
+  scaled by skill).
+- Predators: they boom on the founders and starve (`mature`: grow up before dividing), then their young
+  starved before a first kill (born with 5-7 s of upkeep, kills 24 s apart): `provision` makes a cell
+  divide only when its child's share covers that many seconds. With `provision` 90 predators held on to
+  16 minutes in 38% of worlds and all four guilds in 13% (16 min, 8 seeds).
+
+Current probe set: `{"cycle":1,"litterTo":1,"matterSkill":0.5,"exude":0,"tideCharge":0,"bite":0.1,
+"grazePref":1,"biteEvery":1,"specPow":2,"photoPow":3,"sharpFounders":1,"dietMin":0.15,"mature":0.2,
+"leanHunters":2,"killEvery":4,"photo":0.9,"provision":90}`.
+
 ## Next: a seed bank (dormancy)
 
 Species leave dormant cysts (a body holding its energy, unable to act, slowly decaying) and cysts wake

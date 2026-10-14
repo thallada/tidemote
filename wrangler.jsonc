@@ -4,6 +4,9 @@
   "$schema": "https://unpkg.com/wrangler/config-schema.json",
   "name": "tidemote",
   "compatibility_date": "2026-10-11",
+  // preview builds (non-production branches, `npx wrangler preview`) get a Preview URL on workers.dev
+  "preview_urls": true,
+  "previews": {},
   "assets": {
     "directory": "./site",
     "html_handling": "auto-trailing-slash"
