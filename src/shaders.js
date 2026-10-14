@@ -185,6 +185,7 @@ export const DEFAULT_K = {
   bodyWhole: 1,     // with bodyE, 1: bodies are eaten whole (a kill's share of the body and a husk pass without
                     // digestion's loss, as the material of the eater's next child); stored energy keeps assimCap
   fightBack: 0,     // living prey that hunts makes an attack fail with this × its flesh skill (dFlesh × eatEff)
+  mature: 0,        // a cell divides only once older than this share of its lifespan (it grows up first; 0: at once)
   bodyReserve: 1,   // with bodyE, 1: a cell divides once it holds reproE beyond its child's body; 0: once it holds reproE
                     // and at least 1.25 × the body (so a division never starves it)
   bodyShare: 2,     // with tissue, rate (per second) at which energy flows along a body's bonds toward the poorer cell
@@ -1836,7 +1837,7 @@ ${cellWGSL(K, false)}
       diagAdd(dg, 13u, 1u);
       if (isAnimal(food)) { diagAdd(dg, 14u, 1u); }
     }
-    if (E > divE && silt != NONE && !th.torpid) {
+    if (E > divE && silt != NONE && !th.torpid${K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
         cr = sampleRole(g, role, &s);
@@ -1895,7 +1896,7 @@ ${cellWGSL(K, false)}
         * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking) * h;
       age += h;
       let tk = sim.tick - sim.ticks + k;
-      if (!born && E > divE && silt != NONE && !th.torpid) {
+      if (!born && E > divE && silt != NONE && !th.torpid${K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
         born = true;
         var won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged;
         if (!won && silt2 != NONE) { won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt2], 0u, i + 1u).exchanged; }
