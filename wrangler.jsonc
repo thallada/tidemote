@@ -12,6 +12,7 @@
     "html_handling": "auto-trailing-slash"
   },
   "routes": [
-    { "pattern": "tidemote.com", "custom_domain": true }
+    // production on tidemote.com; each preview at <branch>.tidemote.com (Cloudflare adds *.tidemote.com DNS and a certificate)
+    { "pattern": "tidemote.com", "custom_domain": true, "previews_enabled": true }
   ]
 }
