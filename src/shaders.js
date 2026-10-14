@@ -195,6 +195,8 @@ export const DEFAULT_K = {
   fightBack: 0,     // living prey that hunts makes an attack fail with this × its flesh skill (dFlesh × eatEff)
   provision: 60,     // a cell divides only once its child's share would cover this many seconds of its upkeep (feeding
                     // until then; 0: at divE): hunters, whose meals are far apart, raise viable young
+  satiety: 0,       // a fed hunter rests: attacks on animals fall off as it nears the energy to divide (1: in proportion)
+  holdfast: 1,      // scale on an anchored cell's velocity half-life (low advect): 0.1 and pushes barely move it
   provisionFlesh: 0, // 1: provision in proportion to the flesh in a cell's diet (hunters' meals are far apart; grazers' are not)
   mature: 0.2,        // a cell divides only once older than this share of its lifespan (it grows up first; 0: at once)
   bodyReserve: 1,   // with bodyE, 1: a cell divides once it holds reproE beyond its child's body; 0: once it holds reproE
@@ -720,6 +722,9 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   if (nb2 != NONE) { bondF += e2 * ((length(e2) - rb2) / max(length(e2), 1e-4)); }` : ''}
   let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0);
   let flow = flowAt(p.pos) * g.advect;
+  // a holdfast: a cell the current hardly carries (advect below 0.35, fully below 0.1) is anchored, and
+  // pushes barely move it (its velocity decays K.holdfast times as fast)
+  let drag = g.drag${K.holdfast < 1 ? ` * mix(1.0, ${f(K.holdfast)}, smoothstep(0.35, 0.1, g.advect))` : ''};
   // thermotaxis: a swimmer away from its optimum steers up or down the warmth toward it
   var taxis = vec2f(0.0);${K.scent > 0 && K.heat ? `
   // a hungry hunter smells animals a few grid cells off and swims up the scent
@@ -750,8 +755,8 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
     let a0 = force * cf + stoneF * cw;
     let vNear = vN / wN;
     let Mn = wN * wN / wN2;
-    let frT = pow(0.5, sim.dt / g.drag);
-    let G = (1.0 - frT) * g.drag / 0.69314718;
+    let frT = pow(0.5, sim.dt / drag);
+    let G = (1.0 - frT) * drag / 0.69314718;
     let kk = D * (1.0 + 1.0 / Mn);
     let rhs = (p.vel - vNear) * frT + a0 * (G * (1.0 + 1.0 / Mn));
     let m00 = 1.0 + G * sim.dt * kk.x; let m01 = G * sim.dt * kk.y; let m11 = 1.0 + G * sim.dt * kk.z;
@@ -763,7 +768,7 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   // would under its forces; bonds pull toward where the partners will be, carried on their velocities.
   // A 1/60 s step is a single substep.
   let h = sim.dt / f32(sim.ticks);
-  let fr0 = pow(0.5, h / g.drag);
+  let fr0 = pow(0.5, h / drag);
   var vB1 = vec2f(0.0);
   var vB2 = vec2f(0.0);
   if (n1 != NONE) { vB1 = sortedFull[n1].vel; }
@@ -1775,7 +1780,7 @@ fn mealDue(fk: u32, meal: u32) -> bool {
 
 // Whether an attack on food of kind fk misses: armour, an unfamiliar quarry, too little skill, or prey
 // hiding among stone. Every roll is drawn whatever the outcome, so the random stream stays the same.
-fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f32, animN: f32, rivals: f32, sg: vec4u, s: ptr<function, u32>) -> bool {
+fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f32, animN: f32, rivals: f32, sg: vec4u, full: f32, s: ptr<function, u32>) -> bool {
   let armored = fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.armor)} * ${K.plantArmor !== 1 ? `select(1.0, ${f(K.plantArmor)}, genomes[fk].photo > 0.4) * ` : ''}max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
   let image = (info >> 6u) & 1023u;
   let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(s) < ${f(K.searchImage)};
@@ -1801,7 +1806,10 @@ fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f
   }
   // rare prey is hard to find and pin down (a type III response): a hunter with few animals about mostly fails
   let scarce = ${f(K.rareRefuge)} > 0.0 && fk >= FIRST_LIFE && genomes[fk].photo <= 0.4 && rnd(s) * (animN + ${f(K.rareRefuge)}) > animN;
-  return armored || unfamiliar || unskilled || sheltered || hidden || jostled || fought || fumbled || unrecognised || scarce;
+  // a fed hunter rests: it attacks living animals as often as it is short of the energy to divide
+  // (full: E / divE), at every chance only once below 1 - K.satiety of it
+  let rested = ${f(K.satiety)} > 0.0 && fk >= FIRST_LIFE && genomes[fk].photo <= 0.4 && rnd(s) >= clamp((1.0 - full) / ${f(K.satiety)}, 0.0, 1.0);
+  return armored || unfamiliar || unskilled || sheltered || hidden || jostled || fought || fumbled || unrecognised || scarce || rested;
 }
 
 // K.diag: count v into a guild's slot k
@@ -1923,7 +1931,7 @@ ${cellWGSL(K, false)}
     // a meal opportunity every K.eatEvery ticks, in the cell's own phase
     } else if (food != NONE && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && mealDue(sortedFull[food].kind, (sim.tick + p.id) / ${K.eatEvery | 0}u)) {
       let fk = sortedFull[food].kind;
-      let missed = mealMissed(fk, info, g, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, &s);
+      let missed = mealMissed(fk, info, g, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / divE, &s);
       let won = !missed && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged;
       if (DIAG && canHunt && isAnimal(food)) { diagAdd(dg, 15u, 1u); diagAdd(dg, select(select(17u, 18u, won), 16u, missed), 1u); }
       if (won) {
@@ -1996,7 +2004,7 @@ ${cellWGSL(K, false)}
           let fp = sortedFull[fd];
           // handling time, or a miss (armour, an unfamiliar quarry, skill, shelter), ends this opportunity
           if (!mealDue(fp.kind, mi)) { break; }
-          if (mealMissed(fp.kind, info, g, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, &s)) { if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); } break; }
+          if (mealMissed(fp.kind, info, g, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / divE, &s)) { if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); } break; }
           let plant = fp.kind >= FIRST_LIFE && genomes[fp.kind].photo > 0.4;
           var got = true;
           if (plant) {
