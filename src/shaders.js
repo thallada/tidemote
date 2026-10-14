@@ -207,6 +207,7 @@ export const DEFAULT_K = {
   litterTo: 0,      // with cycle, who breaks down a producer's litter: 0 grazers, 1 scavengers (decomposers of all husks)
   glintFade: 1,     // scale on how fast glint loses its energy and falls back to silt (slow: the nutrient waits for a grazer)      // scale on how fast husks rot back to silt by themselves
   cyst: 0,          // 1: a seed bank: a cell short of energy with no food in reach may go dormant (a cyst) and wake later
+  cystPlants: 1,    // with cyst, 0: only animals go dormant (producers do not eat, so 'no food in reach' always holds)
   cystAt: 0.3,      // ...below this share of its division energy...
   cystRate: 0.2,    // ...at this chance per second
   cystLeak: 0.002,  // energy a cyst loses per second (it dies as a husk at none)
@@ -2014,7 +2015,7 @@ ${K.cycle && K.exude > 0 ? `  // producers leak part of what they fix as dissolv
     }
   }
 ` : ''}${K.cyst ? `  // a cell running out with nothing to eat in reach may go dormant (after a while awake)
-  if (act == 0u && E > 0.0 && E < ${f(K.cystAt)} * divE && food == NONE && age > 10.0 && rnd(&s) < ${f(K.cystRate)} * sim.dt) {
+  if (act == 0u && E > 0.0 && E < ${f(K.cystAt)} * divE && food == NONE && age > 10.0${K.cystPlants ? '' : ' && g.photo <= 0.4'} && rnd(&s) < ${f(K.cystRate)} * sim.dt) {
     info = (info & 0xffff003fu & 0xfffffff0u) | CYST;
     age = 0.0;
   }
