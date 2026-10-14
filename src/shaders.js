@@ -78,6 +78,8 @@ export const DEFAULT_K = {
   kinShade: 0.25,   // how much a bonded body shades itself, relative to strangers
   armor: 1,         // bonded bodies resist being killed or bitten
   searchImage: 0.7, // chance a hunter or grazer misses living prey unlike its last catch
+  specPow: 0,       // >0: a diet's share d earns d^specPow of a specialist's take (0: d(0.4 + 0.6d)); steep: mixing pays little
+  photoPow: 1,      // light earned grows as photo^photoPow: steep, and an animal with a little photosynthesis gets nearly none
   matterSkill: 0,   // eating a husk or glint succeeds with (eatEff × that diet) / this, certain past it (0: always)
   catchSkill: 0.6,  // catch chance scales with eating skill (eatEff × preference), reaching certainty here
   nutrHalf: 8.0,    // silt grains nearby at which photosynthesis runs at half speed
@@ -797,7 +799,7 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
   // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
   // water; anchored cells have fresh silt carried past them by the currents.
-  let photoGain = th.perf * g.photo * light * ${f(K.photo)} / (1.0 + crowd * ${f(K.shade)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
+  let photoGain = th.perf * ${K.photoPow > 1 ? `pow(g.photo, ${f(K.photoPow)})` : 'g.photo'} * light * ${f(K.photo)} / (1.0 + crowd * ${f(K.shade)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
     * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0));
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
   // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); a body's bond partners do not count
@@ -951,7 +953,7 @@ fn matterDiet(g: Genome, qk: u32, kr: u32) -> f32 {
   if (qk == GLINT${K.cycle && !K.litterTo ? ' || (kr & (1u << 12u)) != 0u' : ''}) { return g.dGlint; }
   return g.dHusk;
 }
-fn spec(d: f32) -> f32 { let c = min(d, 1.0); return c * (${f(1 - 0.6)} + ${f(0.6)} * c); }
+fn spec(d: f32) -> f32 { let c = min(max(d, 0.0), 1.0); return ${K.specPow > 0 ? `pow(c, ${f(K.specPow)})` : `c * (${f(1 - 0.6)} + ${f(0.6)} * c)`}; }
 // What an eater keeps of a meal holding raw energy: skill (diet specialisation) times eatEff × warmth (fit).
 // Glint is income from outside, at K.gain. With K.bodyE food that was alive passes on at most
 // K.assimCap of what it held, the share growing with skill at K.assimilate, so no loop makes energy.
