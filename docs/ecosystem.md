@@ -108,6 +108,38 @@ What the stories show:
   evolution rarely rebuilds a specialist once its niche is empty, so whether all four guilds survive
   is decided in the first minutes. Mutual dependence cannot balance a world that cannot recolonise.
 
+## Where the energy goes (20-30 min, main and the honest default alike)
+
+| | main | honest default |
+|---|---|---|
+| light, share of all income | 57% | 61% |
+| glint (the tide's charge), share of all income | 21% | 26% |
+| glint taken by grazers | 95% | 90% |
+| grazers' income from glint | 70% | 79% |
+| plants bitten, share of all income | 2% | 2% |
+| flesh taken by grazers | 6% | 21% |
+| husks taken by grazers | 2% | 8% |
+| grazers' income from light | 21% | 9% |
+| predators' income from light and glint | 21% | 29% |
+| producers + grazers, share of cells | 86% | 88% |
+
+- **Glint makes grazers a second producer guild.** The tide's charge is a quarter of all energy coming
+  in, and grazers take nearly all of it: they need neither producers nor anyone else. Producers fix most
+  of the light and almost none of it moves up (bitten plants are 2% of income): they are an energetic
+  dead end. The two biggest guilds are independent of each other, so nothing ties the web together.
+- **Every guild eats from two or three streams.** Grazers kill (21% of all flesh) and scavenge, and
+  photosynthesise; predators photosynthesise and eat glint. A 50/50 diet earns 70% of a specialist's
+  take from each of two streams (`spec`), and light pays in proportion to `photo`: mixing wins, and a
+  specialist meets generalists that also have the tide's income.
+- **Herbivory is built as a side dish.** Grazers value plants at 0.6 × their glint gene (`grazePref`),
+  bite on one meal opportunity in six (`biteEvery`) and bodies of producers are armoured (adhesion
+  0.85-0.9). With the tide off (trT1) grazers had plants in reach in 55% of samples and still died out
+  in 31 of 32 worlds, the survivors living on light.
+
+The direction: energy enters only as light, through producers; herbivory is grazers' real income;
+steep trade-offs keep each guild on its own stream (`specPow`, `photoPow`); decomposers return the dead
+(`cycle`, `litterTo` 1, `matterSkill`).
+
 ## Next: a seed bank (dormancy)
 
 Species leave dormant cysts (a body holding its energy, unable to act, slowly decaying) and cysts wake
