@@ -22,7 +22,8 @@ const { values: v } = parseArgs({ options: {
   hosts: { type: 'string', default: process.env.TIDEMOTE_FARM ?? path.join(os.homedir(), '.config/tidemote/farm.json') },
   only: { type: 'string' }, attempts: { type: 'string', default: '3' }, clean: { type: 'boolean' },
   name: { type: 'string' }, baseline: { type: 'string' }, targets: { type: 'string' }, 'save-baseline': { type: 'string' },
-  alpha: { type: 'string' }, wait: { type: 'string', default: '3' }, help: { type: 'boolean' },
+  alpha: { type: 'string' }, wait: { type: 'string', default: '3' }, restore: { type: 'string', default: '10' },
+  cooldown: { type: 'string', default: '10' }, help: { type: 'boolean' },
 } });
 if (v.help || (!v.out && !v.clean)) {
   console.log(`Usage: node tools/farm.mjs --out runs/NAME [options]
@@ -35,6 +36,9 @@ if (v.help || (!v.out && !v.clean)) {
   --attempts 3            Tries per seed before giving up on it (any host)
   --wait 3                Seconds before trying a host again whose slots another farm holds (so farms run at once
                           fill each other's tails)
+  --restore 10            A host that failed runs with one slot fewer; after this many minutes without a failure it
+                          gets one back (up to its slots), so it recovers once whatever starved it is gone
+  --cooldown 10           A host that keeps failing at one slot rests this many minutes, then tries one again
   --name --baseline --targets --save-baseline --alpha
                           Passed to ensemble.mjs --from, which writes report.json and sets the exit code
   --clean                 Remove the farm's worktrees, refs and node_modules on every host (none running)
@@ -181,13 +185,26 @@ rm -f "$P"
 if [ $code -ne 0 ]; then tail -c 2500 "$F.log" >&2; exit $(( code == 75 ? 1 : code )); fi
 cat "$F.json"; rm -f "$F.json"`;
 
+  // Each host runs at most h.limit seeds at once: a failed run takes a slot away (the host is short of
+  // memory or GPU), a stretch without failures gives one back, and a host failing even with one slot
+  // rests a while before trying again. Only failures with a single slot count against the seed itself.
+  const restoreMs = +v.restore * 60000, coolMs = +v.cooldown * 60000;
+  for (const h of hosts) Object.assign(h, { limit: h.slots, active: 0, lastFail: 0, lastChange: Date.now(), rest: 0 });
   const worker = async (h) => {
     while (!h.down && !stopping) {
+      const now = Date.now();
+      if (h.rest > now) { if (!queue.length && !inflight) return; await sleep(5000); continue; }
+      if (h.rest) { h.rest = 0; h.lastChange = now; console.log(`${h.name}: rested; trying again with one slot`); }
+      if (h.limit < h.slots && now - h.lastFail > restoreMs && now - h.lastChange > restoreMs) {
+        h.limit++; h.lastChange = now;
+        console.log(`${h.name}: no failures for ${v.restore} min; back up to ${h.limit} of ${h.slots} slots`);
+      }
+      if (h.active >= h.limit) { if (!queue.length && !inflight) return; await sleep(1000); continue; }
       const item = queue.shift();
       if (!item) { if (!inflight) return; await sleep(1000); continue; }
-      inflight++;
+      inflight++; h.active++;
       const r = await sh(h, job(h, item.seed));
-      inflight--;
+      inflight--; h.active--;
       if (stopping) return;
       if (r.code === 75) {
         if (!h.waiting) console.log(`${h.name}: every slot is taken by another farm; waiting`);
@@ -197,10 +214,18 @@ cat "$F.json"; rm -f "$F.json"`;
       let result;
       try { if (!r.code) result = JSON.parse(r.stdout); } catch (e) { r.stderr += `\nunreadable run JSON: ${e.message}`; }
       if (!result) {
-        item.tries++; h.fails++;
-        console.error(`seed ${item.seed} failed on ${h.name} (try ${item.tries}/${attempts}, exit ${r.code}):\n${r.stderr.trim().split('\n').slice(-12).join('\n')}`);
+        const atOne = h.limit <= 1;
+        if (atOne) item.tries++;
+        console.error(`seed ${item.seed} failed on ${h.name} (${atOne ? `try ${item.tries}/${attempts}` : 'not counted'}, exit ${r.code}):\n${r.stderr.trim().split('\n').slice(-12).join('\n')}`);
         if (item.tries < attempts) queue.unshift(item); else failed.push(item.seed);
-        if (h.fails >= 3) { h.down = 'three failures in a row'; console.error(`${h.name}: ${h.down}; its seeds go to the other hosts`); }
+        h.lastFail = Date.now();
+        if (!atOne) {
+          h.limit--; h.lastChange = h.lastFail;
+          console.error(`${h.name}: down to ${h.limit} of ${h.slots} slots`);
+        } else if (++h.fails >= 3) {
+          h.fails = 0; h.rest = h.lastFail + coolMs;
+          console.error(`${h.name}: three failures in a row with one slot; resting ${v.cooldown} min (its seeds go to the other hosts meanwhile)`);
+        }
         continue;
       }
       h.fails = 0;

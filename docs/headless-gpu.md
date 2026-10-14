@@ -145,8 +145,11 @@ like.
   `BatchMode`.
 - **How seeds are handed out.** Every host gets `slots` workers, and each worker takes the next seed
   from one shared queue as soon as it is free, so a faster or idler GPU simply finishes more seeds. A
-  failed seed is retried on any host, up to `--attempts` times. A host that fails three times in a row
-  is dropped and its seeds go to the others. Seeds already in `--out` are kept, so rerunning the same
+  failed seed is retried on any host. A failed run takes a slot away from its host (it is likely short of
+  memory or GPU, for instance while something else runs there), down to one; after `--restore` minutes
+  (10) without a failure the host gets a slot back, up to its `slots`. A host failing three times in a
+  row with one slot rests `--cooldown` minutes (10) and then tries again; meanwhile its seeds go to the
+  others. Only failures with a single slot count against a seed's `--attempts`. Seeds already in `--out` are kept, so rerunning the same
   command resumes, with the commit recorded in `--out/farm.json`.
 - **Sharing a machine's GPU.** Each running seed holds an flock on `~/.cache/tidemote-farm/slots/N` on
   its host, so farms started from several places share a machine's slots instead of overloading its
