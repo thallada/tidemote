@@ -1270,6 +1270,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     // how much a bonded body shades itself, relative to strangers
     armor: 1,
     // bonded bodies resist being killed or bitten
+    plantArmor: 1,
+    // scale on armor against bites of plant cells (a tissue meadow resists grazers)
     searchImage: 0.7,
     // chance a hunter or grazer misses living prey unlike its last catch
     specPow: 2,
@@ -3064,7 +3066,7 @@ fn mealDue(fk: u32, meal: u32) -> bool {
 // Whether an attack on food of kind fk misses: armour, an unfamiliar quarry, too little skill, or prey
 // hiding among stone. Every roll is drawn whatever the outcome, so the random stream stays the same.
 fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f32, animN: f32, rivals: f32, sg: vec4u, s: ptr<function, u32>) -> bool {
-  let armored = fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
+  let armored = fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.armor)} * ${K.plantArmor !== 1 ? `select(1.0, ${f(K.plantArmor)}, genomes[fk].photo > 0.4) * ` : ""}max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
   let image = (info >> 6u) & 1023u;
   let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(s) < ${f(K.searchImage)};
   let unskilled = ${f(K.catchSkill)} > 0.0 && fk >= FIRST_LIFE && rnd(s) >= min(1.0, eatEff * select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, genomes[fk].photo > 0.4) / ${f(K.catchSkill)});
