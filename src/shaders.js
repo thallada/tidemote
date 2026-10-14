@@ -1848,7 +1848,7 @@ ${cellWGSL(K, false)}
             atomicAdd(&ledger[3], 1u);
           }
         }
-        ce = E * g.share;
+        ce = ${K.bodyE > 0 ? 'max(E - bodyCost, 0.0)' : 'E'} * g.share;
         E -= ce + bodyCost;
         addEnergy(dg, 6u, ce + bodyCost);
         act = 2u;
@@ -1910,7 +1910,7 @@ ${cellWGSL(K, false)}
               atomicAdd(&ledger[3], 1u);
             }
           }
-          ce = E * g.share;
+          ce = ${K.bodyE > 0 ? 'max(E - bodyCost, 0.0)' : 'E'} * g.share;
           E -= ce + bodyCost;
           addEnergy(dg, 6u, ce + bodyCost);
           act = 2u;
