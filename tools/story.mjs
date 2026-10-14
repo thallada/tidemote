@@ -92,7 +92,12 @@ function story(run) {
   }
   const o = run.outcome || {};
   return { lines, lost, alive, core: CORE.every((g) => act(end, g) >= LIVE), outcome: o.outcome ?? '?',
-    eff: o.lateEffSpecies, notable: o.notableSpecies, leaders: o.leaderChanges, living: o.lateLivingFrac, fp: o.fingerprint, turn, allAt };
+    eff: o.lateEffSpecies, notable: o.notableSpecies, leaders: o.leaderChanges, living: o.lateLivingFrac, fp: o.fingerprint, turn, allAt,
+    // how much of the world each guild (awake) and each way of moving is, at minutes 2, 5, 10 and the end
+    shares: Object.fromEntries([2, 5, 10, Math.round(S.at(-1).t / 60)].map((m) => {
+      const s = S.reduce((a, b) => (Math.abs(b.t - m * 60) < Math.abs(a.t - m * 60) ? b : a));
+      return [m, { guild: Object.fromEntries(CORE.map((g) => [g, act(s, g)])), move: { ...s.movement } }];
+    })) };
 }
 
 const all = [];
@@ -127,6 +132,24 @@ if (all.some(({ res }) => res.some((r) => Object.keys(r.allAt).length > 2))) {
   for (const { set, res } of all) {
     const ms = [...new Set(res.flatMap((r) => Object.keys(r.allAt).map(Number)))].sort((a, b) => a - b);
     console.log(`${set.padEnd(28)}` + ms.map((m) => `${m}m ${pct(res.filter((r) => r.allAt[m]).length / res.length)}%`.padEnd(10)).join(''));
+  }
+}
+// the shape of the world: median share of the living that is each guild (awake cells) and each way of
+// moving, and how many guilds are thriving (at least THRIVE of the living, awake)
+const THRIVE = 0.05, MOVES = ['drifter', 'sessile', 'swimmer', 'crawler'];
+const med = (v) => { v = v.filter((x) => Number.isFinite(x)).sort((a, b) => a - b); return v.length ? v[v.length >> 1] : NaN; };
+console.log(`\nmedian share of the living (guilds awake only; thriving = all four guilds at ${pct(THRIVE)}%+, moves = effective number of ways of moving)`);
+for (const { set, res } of all) {
+  const ms = [...new Set(res.flatMap((r) => Object.keys(r.shares).map(Number)))].sort((a, b) => a - b);
+  for (const m of ms) {
+    const at = res.map((r) => r.shares[m]).filter(Boolean);
+    if (at.length < res.length / 2) continue;
+    const effMoves = (mv) => { const v = MOVES.map((k) => mv[k] || 0), t = v.reduce((a, b) => a + b, 0); return t > 0 ? 1 / v.reduce((q, x) => q + (x / t) ** 2, 0) : NaN; };
+    console.log(`${(m === ms.at(-1) ? set : '').padEnd(28)}${String(m).padStart(3)}m  `
+      + CORE.map((g) => `${ABBR[g]} ${pct(med(at.map((x) => x.guild[g])))}%`.padEnd(7)).join('')
+      + `thriving ${pct(at.filter((x) => CORE.every((g) => x.guild[g] >= THRIVE)).length / at.length)}%`.padEnd(14)
+      + ' | ' + MOVES.map((k) => `${k} ${pct(med(at.map((x) => x.move[k] || 0)))}%`.padEnd(13)).join('')
+      + `moves ${med(at.map((x) => effMoves(x.move))).toFixed(1)}`);
   }
 }
 // guild turnover (samples with guildTop only): leader changes / species that led, per run, by guild
