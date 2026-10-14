@@ -84,9 +84,15 @@ function story(run) {
     }
     turn[g] = { changes, led: led.size };
   }
+  // all four core guilds awake at each quarter hour the run reached
+  const allAt = {};
+  for (let m = 15; m * 60 <= S.at(-1).t + 30; m += 15) {
+    const s = S.reduce((a, b) => (Math.abs(b.t - m * 60) < Math.abs(a.t - m * 60) ? b : a));
+    allAt[m] = CORE.every((g) => act(s, g) >= LIVE);
+  }
   const o = run.outcome || {};
   return { lines, lost, alive, core: CORE.every((g) => act(end, g) >= LIVE), outcome: o.outcome ?? '?',
-    eff: o.lateEffSpecies, notable: o.notableSpecies, leaders: o.leaderChanges, living: o.lateLivingFrac, fp: o.fingerprint, turn };
+    eff: o.lateEffSpecies, notable: o.notableSpecies, leaders: o.leaderChanges, living: o.lateLivingFrac, fp: o.fingerprint, turn, allAt };
 }
 
 const all = [];
@@ -114,6 +120,14 @@ for (const { set, res } of all) {
   for (let a = 0; a < fps.length; a++) for (let b = a + 1; b < fps.length; b++) { dsum += Math.sqrt(fps[a].reduce((q, x, i) => q + (x - fps[b][i]) ** 2, 0)); dn++; }
   console.log(`${set.padEnd(28)}${String(n).padStart(4)}  ${pct(res.filter((r) => r.core).length / n)}%     ${surv.map((x) => (pct(x) + '%').padStart(9)).join('')}   ${GUILDS.map((g, i) => ABBR[g] + lostAt[i]).join(' ').padEnd(28)}`
     + `${mean((r) => r.eff).toFixed(0).padStart(6)}${mean((r) => r.notable).toFixed(1).padStart(8)}${mean((r) => r.leaders).toFixed(1).padStart(8)}${mean((r) => r.living).toFixed(2).padStart(7)}${(dn ? dsum / dn : NaN).toFixed(2).padStart(8)}`);
+}
+// all four core guilds over time (runs longer than half an hour)
+if (all.some(({ res }) => res.some((r) => Object.keys(r.allAt).length > 2))) {
+  console.log('\nall four core guilds awake, by minute');
+  for (const { set, res } of all) {
+    const ms = [...new Set(res.flatMap((r) => Object.keys(r.allAt).map(Number)))].sort((a, b) => a - b);
+    console.log(`${set.padEnd(28)}` + ms.map((m) => `${m}m ${pct(res.filter((r) => r.allAt[m]).length / res.length)}%`.padEnd(10)).join(''));
+  }
 }
 // guild turnover (samples with guildTop only): leader changes / species that led, per run, by guild
 if (all.some(({ res }) => res.some((r) => Object.values(r.turn).some((t) => t.led > 0)))) {
