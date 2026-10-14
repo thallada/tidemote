@@ -120,6 +120,8 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
   // dividing sooner, and loose bodies whose every cell can reach prey
   const lean = K.leanHunters && (type === 'hunter' || type === 'crawler');
   if (lean) { t.size *= 0.7; t.reproE *= 0.6; }
+  // leanHunters 2: cheaper to run as well (upkeep grows with force, swimming and lifespan)
+  if (lean && K.leanHunters >= 2) { t.force *= 0.75; t.swim *= 0.7; t.lifespan *= 0.75; }
   // K.sharpFounders: founders built for steep trade-offs (specPow, photoPow): a producer all light, an
   // animal none, and each diet mostly its main food
   if (K.sharpFounders) {

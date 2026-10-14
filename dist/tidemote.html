@@ -1471,7 +1471,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     sharpFounders: 0,
     // 1: founders are specialists: producers all light, animals none, each diet mostly its main food
     leanHunters: 1,
-    // 1: founding hunters and crawlers are smaller, divide sooner and form loose bodies (for bodyE)
+    // 1: founding hunters and crawlers are smaller, divide sooner and form loose bodies (for bodyE);
+    // 2: and cheaper to run (less force, slower, shorter-lived)
     scent: 0,
     // a hungry flesh-eater steers up the count of animals scentR grid cells off at this × its swimming
     scentR: 2,
@@ -6555,6 +6556,11 @@ struct SV {
     if (lean) {
       t2.size *= 0.7;
       t2.reproE *= 0.6;
+    }
+    if (lean && K.leanHunters >= 2) {
+      t2.force *= 0.75;
+      t2.swim *= 0.7;
+      t2.lifespan *= 0.75;
     }
     if (K.sharpFounders) {
       t2.photo = t2.photo > 0.4 ? Math.max(t2.photo, 0.95) : 0;
