@@ -175,7 +175,9 @@ ${Object.keys(h.env ?? {}).filter((key) => key.startsWith('TIDEMOTE_')).map((key
   // session (so a stop can kill it), print the run JSON. Paths stay relative: Windows node reads them too.
   const job = (h, seed) => `${prelude(h)}
 cd "$WT"
-got=; for i in $(seq 0 ${h.slots - 1}); do exec 9>"$FARM/slots/$i"; if flock -n 9; then got=1; break; fi; done
+# the host's current slot limit, shared by every farm using it (written when a farm sheds or restores a slot)
+L=$(cat "$FARM/limit" 2>/dev/null || true); case "$L" in ""|*[!0-9]*) L=${h.slots};; esac; [ "$L" -ge 1 ] && [ "$L" -le ${h.slots} ] || L=${h.slots}
+got=; for i in $(seq 0 $((L - 1))); do exec 9>"$FARM/slots/$i"; if flock -n 9; then got=1; break; fi; done
 [ -n "$got" ] || exit 75
 F="farm-out/${run}/seed${seed}"; P="$FARM/pids/${run}.${seed}"; mkdir -p "farm-out/${run}"
 setsid env ${Object.entries(h.env ?? {}).map(([key, x]) => `${key}=${hq(x)}`).join(' ')} ${hq(h.node)} ${[...simArgs(seed), ...(h.args ?? [])].map(q).join(' ')} --out "$F.json" </dev/null >"$F.log" 2>&1 &
@@ -190,13 +192,20 @@ cat "$F.json"; rm -f "$F.json"`;
   // rests a while before trying again. Only failures with a single slot count against the seed itself.
   const restoreMs = +v.restore * 60000, coolMs = +v.cooldown * 60000;
   for (const h of hosts) Object.assign(h, { limit: h.slots, active: 0, lastFail: 0, lastChange: Date.now(), rest: 0 });
+  // the host keeps its limit for every farm sharing it: start from what it holds (the restore brings a
+  // stale one back up), and tell it whenever this farm sheds or restores a slot
+  const setLimit = (h) => sh(h, `${FARM}; mkdir -p "$FARM"; echo ${h.limit} >"$FARM/limit"`);
+  await Promise.all(hosts.filter((h) => !h.down).map(async (h) => {
+    const held = parseInt((await sh(h, `${FARM}; cat "$FARM/limit" 2>/dev/null || true`)).stdout, 10);
+    if (held >= 1 && held < h.slots) { h.limit = held; console.log(`${h.name}: holding ${held} of ${h.slots} slots (another farm shed the rest)`); }
+  }));
   const worker = async (h) => {
     while (!h.down && !stopping) {
       const now = Date.now();
       if (h.rest > now) { if (!queue.length && !inflight) return; await sleep(5000); continue; }
       if (h.rest) { h.rest = 0; h.lastChange = now; console.log(`${h.name}: rested; trying again with one slot`); }
       if (h.limit < h.slots && now - h.lastFail > restoreMs && now - h.lastChange > restoreMs) {
-        h.limit++; h.lastChange = now;
+        h.limit++; h.lastChange = now; setLimit(h);
         console.log(`${h.name}: no failures for ${v.restore} min; back up to ${h.limit} of ${h.slots} slots`);
       }
       if (h.active >= h.limit) { if (!queue.length && !inflight) return; await sleep(1000); continue; }
@@ -220,7 +229,7 @@ cat "$F.json"; rm -f "$F.json"`;
         if (item.tries < attempts) queue.unshift(item); else failed.push(item.seed);
         h.lastFail = Date.now();
         if (!atOne) {
-          h.limit--; h.lastChange = h.lastFail;
+          h.limit--; h.lastChange = h.lastFail; setLimit(h);
           console.error(`${h.name}: down to ${h.limit} of ${h.slots} slots`);
         } else if (++h.fails >= 3) {
           h.fails = 0; h.rest = h.lastFail + coolMs;
