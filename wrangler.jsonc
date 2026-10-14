@@ -4,11 +4,15 @@
   "$schema": "https://unpkg.com/wrangler/config-schema.json",
   "name": "tidemote",
   "compatibility_date": "2026-10-11",
+  // preview builds (non-production branches, `npx wrangler preview`) get a Preview URL on workers.dev
+  "preview_urls": true,
+  "previews": {},
   "assets": {
     "directory": "./site",
     "html_handling": "auto-trailing-slash"
   },
   "routes": [
-    { "pattern": "tidemote.com", "custom_domain": true }
+    // production on tidemote.com; each preview at <branch>.tidemote.com (Cloudflare adds *.tidemote.com DNS and a certificate)
+    { "pattern": "tidemote.com", "custom_domain": true, "previews_enabled": true }
   ]
 }
