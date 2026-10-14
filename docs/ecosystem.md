@@ -162,9 +162,28 @@ Current probe set: `{"cycle":1,"litterTo":1,"matterSkill":0.5,"exude":0,"tideCha
 "grazePref":1,"biteEvery":1,"specPow":2,"photoPow":3,"sharpFounders":1,"dietMin":0.15,"mature":0.2,
 "leanHunters":2,"killEvery":4,"photo":0.9,"provision":90}`.
 
-## Next: a seed bank (dormancy)
+## Stabilisers and the seed bank (30 min, 16 seeds; awake cells only)
 
-Species leave dormant cysts (a body holding its energy, unable to act, slowly decaying) and cysts wake
+| set (trophic chain, provision 90) | all four | producer | grazer | predator | scavenger | lost at (G H S) |
+|---|---|---|---|---|---|---|
+| no stabiliser (32 seeds) | 0% | 97% | 56% | 0% | 38% | 20 10 21 |
+| interfere 0.3 | 0% | 100% | 75% | 0% | 69% | 20 7 21 |
+| interfere 0.6 | 6% | 100% | 75% | 13% | 56% | 21 4 22 |
+| armor 2 (plants defended) | 0% | 100% | 56% | 0% | 56% | 23 10 25 |
+| provision 40, interfere 0.3 | 13% | 100% | 94% | 19% | 50% | - 7 12 |
+| interfere 0.6 + cysts | 31% | 100% | 81% | 38% | 75% | 30 27 26 |
+
+Without predators to check them, grazers strip producers and crash (14 of 32 worlds collapsed with no
+stabiliser); interference among crowded hunters and grazers damps it. Predators then starve in the first
+2-5 minutes when grazers crash during the founders' swing, and never come back. With cysts they (and
+the others) sleep through the lean spell and wake when it passes: whole guilds are lost late, if at
+all, and all four survive in a third of worlds (main: 13%).
+
+## The seed bank (dormancy)
+
+Implemented as `cyst`: a cell short of energy (`cystAt` of its division energy) with no food in reach
+may go dormant; a cyst drifts, cannot eat, divide or be eaten, leaks `cystLeak` a second and wakes at
+`cystWake` a second. Originally proposed: species leave dormant cysts (a body holding its energy, unable to act, slowly decaying) and cysts wake
 when conditions suit them: food for their diet nearby, their kind scarce around them. A guild wiped
 out in one place returns from its cysts when its niche reopens, as plankton and microbes do. It is
 local and honest (a cyst is a body; waking spends its energy), and it gives dependence time to work:
