@@ -78,6 +78,7 @@ export const DEFAULT_K = {
   kinShade: 0.25,   // how much a bonded body shades itself, relative to strangers
   armor: 1,         // bonded bodies resist being killed or bitten
   searchImage: 0.7, // chance a hunter or grazer misses living prey unlike its last catch
+  matterSkill: 0,   // eating a husk or glint succeeds with (eatEff × that diet) / this, certain past it (0: always)
   catchSkill: 0.6,  // catch chance scales with eating skill (eatEff × preference), reaching certainty here
   nutrHalf: 8.0,    // silt grains nearby at which photosynthesis runs at half speed
   swimCost: 0.018,
@@ -1748,10 +1749,13 @@ fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, rivals: f
   // an attack made from among stone often misses: prey hides in the crevices
   let sheltered = fk >= FIRST_LIFE && rnd(s) < min(${f(K.refugeMax)}, stoneN * ${f(K.refuge)});
   // hunters of one species crowding the same quarry get in each other's way
+  // matter too takes being built for it: a husk or a glint grain is often lost to a cell that only dabbles in it
+  let fumbled = ${f(K.matterSkill)} > 0.0 && (fk == HUSK || fk == GLINT)
+    && rnd(s) >= min(1.0, eatEff * select(g.dHusk, g.dGlint, fk == GLINT) / ${f(K.matterSkill)});
   let jostled = ${f(K.interfere)} > 0.0 && fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.interfere)} * rivals) > 1.0;
   // prey that hunts fights back: the more of a hunter it is, the likelier the attack fails
   let fought = ${f(K.fightBack)} > 0.0 && fk >= FIRST_LIFE && rnd(s) < ${f(K.fightBack)} * genomes[fk].dFlesh * (1.0 - genomes[fk].photo) * (1.0 - genomes[fk].photo);
-  return armored || unfamiliar || unskilled || sheltered || jostled || fought;
+  return armored || unfamiliar || unskilled || sheltered || jostled || fought || fumbled;
 }
 
 // K.diag: count v into a guild's slot k
