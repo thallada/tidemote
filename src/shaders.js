@@ -194,7 +194,9 @@ export const DEFAULT_K = {
   exude: 0.25,      // with cycle, the share of a producer's light it leaks as glint...
   exudeE: 0.6,      // ...in grains of this much energy each
   tideCharge: 1,    // scale on the tide's (and hot springs') charging of silt into glint
-  rotScale: 1,      // scale on how fast husks rot back to silt by themselves
+  rotScale: 1,
+  litterTo: 0,      // with cycle, who breaks down a producer's litter: 0 grazers, 1 scavengers (decomposers of all husks)
+  glintFade: 1,     // scale on how fast glint loses its energy and falls back to silt (slow: the nutrient waits for a grazer)      // scale on how fast husks rot back to silt by themselves
   foundHunt: 0.125, // the largest share of a new world's 24 founding species that eat flesh (hunters, crawlers)
   bodySize: 1,      // with bodyE, 1: a body holds bodyE × the cell's size (small cells are cheap to build, big ones rich prey)
   interfere: 0,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
@@ -204,7 +206,7 @@ export const DEFAULT_K = {
 // Energy bookkeeping (see K.bodyE): with bodyE off, main's rules.
 // WGSL for the energy in a body of genome expression G (K.buildCost when bodies are free).
 // With K.cycle: the skill that eats a husk (litter: a grazer's; carcass: a scavenger's), and a dying cell's litter flag
-const huskSkill = (K) => (K.cycle ? 'select(g.dHusk, g.dGlint, (fp.info & LITTER) != 0u)' : 'g.dHusk');
+const huskSkill = (K) => (K.cycle && !K.litterTo ? 'select(g.dHusk, g.dGlint, (fp.info & LITTER) != 0u)' : 'g.dHusk');
 const litterOf = (K, G) => (K.cycle ? ` | select(0u, LITTER, ${G}.photo > 0.4)` : '');
 const bodyOf = (K, G) => (K.bodyE > 0 ? (K.bodySize ? `${f(K.bodyE)} * ${G}.size` : f(K.bodyE)) : f(K.buildCost));
 const preyShare = (K) => (K.bodyE > 0 ? 1 : K.preyFrac);
@@ -945,7 +947,7 @@ fn depositHeat(p: vec2f, e: f32) {
 // How much a cell of genome g wants a grain of matter qk (Lite flags kr): glint and, with K.cycle, a
 // producer's litter feed grazers; carcasses feed scavengers.
 fn matterDiet(g: Genome, qk: u32, kr: u32) -> f32 {
-  if (qk == GLINT${K.cycle ? ' || (kr & (1u << 12u)) != 0u' : ''}) { return g.dGlint; }
+  if (qk == GLINT${K.cycle && !K.litterTo ? ' || (kr & (1u << 12u)) != 0u' : ''}) { return g.dGlint; }
   return g.dHusk;
 }
 fn spec(d: f32) -> f32 { let c = min(d, 1.0); return c * (${f(1 - 0.6)} + ${f(0.6)} * c); }
@@ -1377,7 +1379,7 @@ ${K.tissue > 0 ? `    bondsNow[dst * 6u] = partners.x;
     bondsNow[dst * 6u + 2u] = 0u;` : `    bondsNow[dst] = partners;`}
     let role = roleOf(p.info);
     let sig = genomes[p.kind].sig[role].xy;
-    let plant = select(0u, 1u << 12u, (p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4)${K.cycle ? ' || (p.kind == HUSK && (p.info & LITTER) != 0u)' : ''});
+    let plant = select(0u, 1u << 12u, (p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4)${K.cycle && !K.litterTo ? ' || (p.kind == HUSK && (p.info & LITTER) != 0u)' : ''});
     // pad: with K.bodyPush, the cell's drawn radius (0.085 world units per unit of size, smaller in its later roles)
     sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant, p.col, pack2x16float(p.vel), sig.x, sig.y, ${K.bodyPush > 0 || K.crowdVisc > 0 ? 'bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role)))' : '0u'});
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
@@ -1504,7 +1506,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       p.info = (p.info & 0xffffffc0u) | 5u;
     }
   } else if (p.kind == GLINT) {
-    p.energy -= ${f(K.leak)} * pow(${f(K.glintQ10)}, warm) * sim.dt;
+    p.energy -= ${f(K.leak * K.glintFade)} * pow(${f(K.glintQ10)}, warm) * sim.dt;
     if (p.energy < ${f(K.glintMin)}) {
       p.kind = SILT; p.energy = 0.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 6u;
