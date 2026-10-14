@@ -1466,6 +1466,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     // and at least 1.25 × the body (so a division never starves it)
     bodyShare: 2,
     // with tissue, rate (per second) at which energy flows along a body's bonds toward the poorer cell
+    sharpFounders: 0,
+    // 1: founders are specialists: producers all light, animals none, each diet mostly its main food
     leanHunters: 1,
     // 1: founding hunters and crawlers are smaller, divide sooner and form loose bodies (for bodyE)
     scent: 0,
@@ -6551,6 +6553,11 @@ struct SV {
     if (lean) {
       t2.size *= 0.7;
       t2.reproE *= 0.6;
+    }
+    if (K.sharpFounders) {
+      t2.photo = t2.photo > 0.4 ? Math.max(t2.photo, 0.95) : 0;
+      const top = t2.diet.indexOf(Math.max(...t2.diet));
+      t2.diet = t2.diet.map((d, i) => i === top ? 0.9 : 0.05);
     }
     const g = {
       roles,

@@ -120,6 +120,13 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
   // dividing sooner, and loose bodies whose every cell can reach prey
   const lean = K.leanHunters && (type === 'hunter' || type === 'crawler');
   if (lean) { t.size *= 0.7; t.reproE *= 0.6; }
+  // K.sharpFounders: founders built for steep trade-offs (specPow, photoPow): a producer all light, an
+  // animal none, and each diet mostly its main food
+  if (K.sharpFounders) {
+    t.photo = t.photo > 0.4 ? Math.max(t.photo, 0.95) : 0;
+    const top = t.diet.indexOf(Math.max(...t.diet));
+    t.diet = t.diet.map((d, i) => (i === top ? 0.9 : 0.05));
+  }
   const g = {
     roles, dev: A.dev.map((row) => row.map((v) => clamp(v + (r() - 0.5) * 0.1, 0, 1))),
     radius: t.radius, beta: t.beta ?? mix(0.2, 0.35, r()), force: t.force, drag: t.drag,

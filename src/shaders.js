@@ -188,6 +188,7 @@ export const DEFAULT_K = {
   bodyReserve: 1,   // with bodyE, 1: a cell divides once it holds reproE beyond its child's body; 0: once it holds reproE
                     // and at least 1.25 × the body (so a division never starves it)
   bodyShare: 2,     // with tissue, rate (per second) at which energy flows along a body's bonds toward the poorer cell
+  sharpFounders: 0, // 1: founders are specialists: producers all light, animals none, each diet mostly its main food
   leanHunters: 1,   // 1: founding hunters and crawlers are smaller, divide sooner and form loose bodies (for bodyE)
   scent: 0,         // a hungry flesh-eater steers up the count of animals scentR grid cells off at this × its swimming
   scentR: 2,
