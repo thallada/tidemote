@@ -22,7 +22,7 @@ const { values: v } = parseArgs({ options: {
   hosts: { type: 'string', default: process.env.TIDEMOTE_FARM ?? path.join(os.homedir(), '.config/tidemote/farm.json') },
   only: { type: 'string' }, attempts: { type: 'string', default: '3' }, clean: { type: 'boolean' },
   name: { type: 'string' }, baseline: { type: 'string' }, targets: { type: 'string' }, 'save-baseline': { type: 'string' },
-  alpha: { type: 'string' }, help: { type: 'boolean' },
+  alpha: { type: 'string' }, wait: { type: 'string', default: '3' }, help: { type: 'boolean' },
 } });
 if (v.help || (!v.out && !v.clean)) {
   console.log(`Usage: node tools/farm.mjs --out runs/NAME [options]
@@ -33,6 +33,8 @@ if (v.help || (!v.out && !v.clean)) {
   --hosts FILE            Host list (default ~/.config/tidemote/farm.json or $TIDEMOTE_FARM)
   --only a,b              Use only these hosts
   --attempts 3            Tries per seed before giving up on it (any host)
+  --wait 3                Seconds before trying a host again whose slots another farm holds (so farms run at once
+                          fill each other's tails)
   --name --baseline --targets --save-baseline --alpha
                           Passed to ensemble.mjs --from, which writes report.json and sets the exit code
   --clean                 Remove the farm's worktrees, refs and node_modules on every host (none running)
@@ -58,7 +60,7 @@ const children = new Set();
 function sh(h, script) {
   return new Promise((resolve) => {
     const c = h.local ? spawn('bash', ['-s'])
-      : spawn('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=4', h.ssh, 'bash -s']);
+      : spawn('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ControlMaster=auto', '-o', `ControlPath=${path.join(os.tmpdir(), 'tidemote-farm-%C')}`, '-o', 'ControlPersist=120', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=4', h.ssh, 'bash -s']);
     children.add(c);
     const out = [];
     let err = '';
@@ -189,7 +191,7 @@ cat "$F.json"; rm -f "$F.json"`;
       if (stopping) return;
       if (r.code === 75) {
         if (!h.waiting) console.log(`${h.name}: every slot is taken by another farm; waiting`);
-        h.waiting = true; queue.unshift(item); await sleep(30000); continue;
+        h.waiting = true; queue.unshift(item); await sleep(+v.wait * 1000); continue;
       }
       h.waiting = false;
       let result;
