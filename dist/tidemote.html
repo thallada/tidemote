@@ -1278,6 +1278,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     // light earned grows as photo^photoPow: steep, and an animal with a little photosynthesis gets nearly none
     mutScale: 3,
     // scale on every species' chance that a birth is a mutant (a new species)
+    rareRefuge: 0,
+    // a hunter catches animals with chance animals near / (that + this): rare prey are hard to find (type III)
     plantRefuge: 0,
     // an attack on an animal fails with this × the producers close around (up to refugeMax): prey hide in meadows
     flee: 0,
@@ -1747,6 +1749,7 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   var stoneF = vec2f(0.0);
   var stoneN = 0.0;
   var plantN = 0.0;
+  var animN = 0.0;
   var pack = 0.0;
   // (K.diag: neighbours inside this cell's core; animals within reach and twice reach)
   var overlap = 0.0;${K.socialN > 0 ? `
@@ -1873,6 +1876,7 @@ ${K.liveFirst ? `
         if (x < ${K.tissue > 0 ? "bk" : "beta"}) { fr = (x * ${K.tissue > 0 ? "invBk" : "invBeta"} - 1.0) * core; } else { fr = a * shape${K.tissue > 0 ? " * sigK" : ""}; }${W("mFr0 = fr;")}
         // hungry foragers are drawn toward the cells their diet favours
         if ((q.kr & (1u << 12u)) != 0u && r < 0.5) { plantN += 1.0; }
+        if ((q.kr & (1u << 12u)) == 0u && qk != p.kind) { animN += 1.0; }
         let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
         if (x >= ${K.tissue > 0 ? "bk" : "beta"}) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * ${K.tissue > 0 ? "invBk" : "invBeta"} * invR; }${K.flee > 0 ? `
         // an animal that is not a hunter swims away from hunters near it, the harder the closer they are
@@ -1974,7 +1978,7 @@ ${K.liveFirst ? `
   // ...but contact is pressed for by every neighbour inside it: a crowd pushes back the harder the
   // more pile in, so it cannot collapse
   force += coreF * stride;` : ""}
-  crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride; plantN *= stride;
+  crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride; plantN *= stride; animN *= stride;
 
   let heavy = 1.0 - 0.7 * g.photo;
   // Persistent bonds pull on the partners' current positions, even outside the sampled scan.
@@ -3059,7 +3063,7 @@ fn mealDue(fk: u32, meal: u32) -> bool {
 
 // Whether an attack on food of kind fk misses: armour, an unfamiliar quarry, too little skill, or prey
 // hiding among stone. Every roll is drawn whatever the outcome, so the random stream stays the same.
-fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f32, rivals: f32, sg: vec4u, s: ptr<function, u32>) -> bool {
+fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f32, animN: f32, rivals: f32, sg: vec4u, s: ptr<function, u32>) -> bool {
   let armored = fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
   let image = (info >> 6u) & 1023u;
   let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(s) < ${f(K.searchImage)};
@@ -3083,7 +3087,9 @@ fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f
     let fit = clamp((sdot(sg.z, ps.x) + sdot(sg.w, ps.y)) * ${f(K.affScale)}, -1.0, 1.0);
     unrecognised = rnd(s) < ${f(K.recognize)} * (0.5 - 0.5 * fit);
   }
-  return armored || unfamiliar || unskilled || sheltered || hidden || jostled || fought || fumbled || unrecognised;
+  // rare prey is hard to find and pin down (a type III response): a hunter with few animals about mostly fails
+  let scarce = ${f(K.rareRefuge)} > 0.0 && fk >= FIRST_LIFE && genomes[fk].photo <= 0.4 && rnd(s) * (animN + ${f(K.rareRefuge)}) > animN;
+  return armored || unfamiliar || unskilled || sheltered || hidden || jostled || fought || fumbled || unrecognised || scarce;
 }
 
 // K.diag: count v into a guild's slot k
@@ -3205,7 +3211,7 @@ ${cellWGSL(K, false)}
     // a meal opportunity every K.eatEvery ticks, in the cell's own phase
     } else if (food != NONE && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && mealDue(sortedFull[food].kind, (sim.tick + p.id) / ${K.eatEvery | 0}u)) {
       let fk = sortedFull[food].kind;
-      let missed = mealMissed(fk, info, g, eatEff, stoneN, plantN, max(0.0, kinN - bonds), sg, &s);
+      let missed = mealMissed(fk, info, g, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, &s);
       let won = !missed && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged;
       if (DIAG && canHunt && isAnimal(food)) { diagAdd(dg, 15u, 1u); diagAdd(dg, select(select(17u, 18u, won), 16u, missed), 1u); }
       if (won) {
@@ -3278,7 +3284,7 @@ ${cellWGSL(K, false)}
           let fp = sortedFull[fd];
           // handling time, or a miss (armour, an unfamiliar quarry, skill, shelter), ends this opportunity
           if (!mealDue(fp.kind, mi)) { break; }
-          if (mealMissed(fp.kind, info, g, eatEff, stoneN, plantN, max(0.0, kinN - bonds), sg, &s)) { if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); } break; }
+          if (mealMissed(fp.kind, info, g, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, &s)) { if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); } break; }
           let plant = fp.kind >= FIRST_LIFE && genomes[fp.kind].photo > 0.4;
           var got = true;
           if (plant) {
