@@ -73,9 +73,20 @@ function story(run) {
   }
   const end = S.at(-1);
   const alive = GUILDS.filter((g) => act(end, g) >= LIVE);
+  // turnover within each guild: how often its leading species changed (after the first 2 minutes), and how many led
+  const turn = {};
+  for (const g of GUILDS) {
+    let prev = null, changes = 0; const led = new Set();
+    for (const s of S.filter((s) => s.t > 120 && s.guildTop?.[g]?.[0] && act(s, g) >= LIVE)) {
+      const lead = s.guildTop[g][0].serial; led.add(lead);
+      if (prev !== null && lead !== prev) changes++;
+      prev = lead;
+    }
+    turn[g] = { changes, led: led.size };
+  }
   const o = run.outcome || {};
   return { lines, lost, alive, core: CORE.every((g) => act(end, g) >= LIVE), outcome: o.outcome ?? '?',
-    eff: o.lateEffSpecies, notable: o.notableSpecies, leaders: o.leaderChanges, living: o.lateLivingFrac, fp: o.fingerprint };
+    eff: o.lateEffSpecies, notable: o.notableSpecies, leaders: o.leaderChanges, living: o.lateLivingFrac, fp: o.fingerprint, turn };
 }
 
 const all = [];
@@ -103,5 +114,13 @@ for (const { set, res } of all) {
   for (let a = 0; a < fps.length; a++) for (let b = a + 1; b < fps.length; b++) { dsum += Math.sqrt(fps[a].reduce((q, x, i) => q + (x - fps[b][i]) ** 2, 0)); dn++; }
   console.log(`${set.padEnd(28)}${String(n).padStart(4)}  ${pct(res.filter((r) => r.core).length / n)}%     ${surv.map((x) => (pct(x) + '%').padStart(9)).join('')}   ${GUILDS.map((g, i) => ABBR[g] + lostAt[i]).join(' ').padEnd(28)}`
     + `${mean((r) => r.eff).toFixed(0).padStart(6)}${mean((r) => r.notable).toFixed(1).padStart(8)}${mean((r) => r.leaders).toFixed(1).padStart(8)}${mean((r) => r.living).toFixed(2).padStart(7)}${(dn ? dsum / dn : NaN).toFixed(2).padStart(8)}`);
+}
+// guild turnover (samples with guildTop only): leader changes / species that led, per run, by guild
+if (all.some(({ res }) => res.some((r) => Object.values(r.turn).some((t) => t.led > 0)))) {
+  console.log('\nturnover within guilds (leader changes / species that led, mean per run)');
+  for (const { set, res } of all) console.log(`${set.padEnd(28)}` + GUILDS.map((g) => {
+    const c = res.reduce((a, r) => a + r.turn[g].changes, 0) / res.length, l = res.reduce((a, r) => a + r.turn[g].led, 0) / res.length;
+    return `${ABBR[g]} ${c.toFixed(1)}/${l.toFixed(1)}`.padEnd(13);
+  }).join(''));
 }
 if (v.json) fs.writeFileSync(v.json, JSON.stringify(all, null, 1));

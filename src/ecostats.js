@@ -18,6 +18,8 @@ export function communitySample(species, adhMin) {
   const traits = Object.fromEntries(Object.keys(TRAITS).map((k) => [k, 0]));
   for (const { pop } of species) living += pop;
   const top = [];
+  // each guild's leading species, by share of that guild (who leads the grazers, the predators...)
+  const byGuild = Object.fromEntries(DIETS.map((k) => [k, []]));
   for (const { pop, genome: g } of species) {
     const p = pop / living;
     entropy -= p * Math.log(p);
@@ -27,14 +29,19 @@ export function communitySample(species, adhMin) {
     if ((g.adhesion || 0) > adhMin) bodies += p;
     for (const [k, [lo, hi]] of Object.entries(TRAITS)) traits[k] += p * (g[k] - lo) / (hi - lo);
     if (p >= SHARE_NOTABLE) top.push({ serial: g.serial, share: p, diet: d, move: m, depth: g.depth });
+    byGuild[d].push({ serial: g.serial, pop });
   }
   top.sort((a, b) => b.share - a.share);
+  const guildTop = Object.fromEntries(DIETS.map((k) => {
+    const all = byGuild[k], n = all.reduce((a, x) => a + x.pop, 0);
+    return [k, all.sort((a, b) => b.pop - a.pop).slice(0, 3).map((x) => ({ serial: x.serial, share: n ? x.pop / n : 0 }))];
+  }));
   return {
     living, species: species.length,
     effSpecies: living ? Math.exp(entropy) : 0, // Hill number of order 1
     hill2: living ? 1 / simpson : 0, // order 2: weighted towards the commonest species
     maxShare: top[0]?.share ?? (living ? Math.max(...species.map((s) => s.pop)) / living : 0),
-    diet, movement, bodies, traits, top: top.slice(0, 8),
+    diet, movement, bodies, traits, top: top.slice(0, 8), guildTop,
   };
 }
 
