@@ -221,6 +221,7 @@ export const DEFAULT_K = {
   cystAt: 0.3,      // ...below this share of its division energy...
   cystRate: 0.2,    // ...at this chance per second
   cystLeak: 0.002,  // energy a cyst loses per second (it dies as a husk at none)
+  cystSec: 0,       // >0: a cell encysts only with less than this many seconds of base upkeep left (in place of cystAt)
   cystWake: 0.022,  // chance per second a cyst wakes (about every 90 s)
   foundHunt: 0.125, // the largest share of a new world's 24 founding species that eat flesh (hunters, crawlers)
   foundEach: 2,     // every new world founds at least this many species of each core niche (producer, grazer, hunter, scavenger)
@@ -2051,7 +2052,7 @@ ${K.cycle && K.exude > 0 ? `  // producers leak part of what they fix as dissolv
     }
   }
 ` : ''}${K.cyst ? `  // a cell running out with nothing to eat in reach may go dormant (after a while awake)
-  if (act == 0u && E > 0.0 && E < ${f(K.cystAt)} * divE && food == NONE && age > 10.0${K.cystPlants ? '' : ' && g.photo <= 0.4'} && rnd(&s) < ${f(K.cystRate)} * sim.dt) {
+  if (act == 0u && E > 0.0 && E < ${K.cystSec > 0 ? `${f(K.cystSec)} * g.metab * ${f(K.metab)}` : `${f(K.cystAt)} * divE`} && food == NONE && age > 10.0${K.cystPlants ? '' : ' && g.photo <= 0.4'} && rnd(&s) < ${f(K.cystRate)} * sim.dt) {
     info = (info & 0xffff003fu & 0xfffffff0u) | CYST;
     age = 0.0;
   }
