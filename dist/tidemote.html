@@ -1276,6 +1276,9 @@ svg.niche .n-dot { fill: var(--cyan); }
     // >0: a diet's share d earns d^specPow of a specialist's take (0: d(0.4 + 0.6d)); steep: mixing pays little
     photoPow: 3,
     // light earned grows as photo^photoPow: steep, and an animal with a little photosynthesis gets nearly none
+    recognize: 0,
+    // living prey (and plants) escape an eater whose receptors do not match their surface: up to this
+    // share of attempts on a perfectly mismatched one (coevolution, frequency-dependent predation)
     matterSkill: 0.5,
     // eating a husk or glint succeeds with (eatEff × that diet) / this, certain past it (0: always)
     catchSkill: 0.6,
@@ -3045,7 +3048,7 @@ fn mealDue(fk: u32, meal: u32) -> bool {
 
 // Whether an attack on food of kind fk misses: armour, an unfamiliar quarry, too little skill, or prey
 // hiding among stone. Every roll is drawn whatever the outcome, so the random stream stays the same.
-fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, rivals: f32, s: ptr<function, u32>) -> bool {
+fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, rivals: f32, sg: vec4u, s: ptr<function, u32>) -> bool {
   let armored = fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
   let image = (info >> 6u) & 1023u;
   let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(s) < ${f(K.searchImage)};
@@ -3059,7 +3062,15 @@ fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, rivals: f
   let jostled = ${f(K.interfere)} > 0.0 && fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.interfere)} * rivals) > 1.0;
   // prey that hunts fights back: the more of a hunter it is, the likelier the attack fails
   let fought = ${f(K.fightBack)} > 0.0 && fk >= FIRST_LIFE && rnd(s) < ${f(K.fightBack)} * genomes[fk].dFlesh * (1.0 - genomes[fk].photo) * (1.0 - genomes[fk].photo);
-  return armored || unfamiliar || unskilled || sheltered || jostled || fought || fumbled;
+  // recognition: living prey is caught as well as the eater's receptors match its surface (coevolution: prey
+  // evolve away from the receptors hunting them, hunters toward the commonest prey)
+  var unrecognised = false;
+  if (${f(K.recognize)} > 0.0 && fk >= FIRST_LIFE) {
+    let ps = genomes[fk].sig[0];
+    let fit = clamp((sdot(sg.z, ps.x) + sdot(sg.w, ps.y)) * ${f(K.affScale)}, -1.0, 1.0);
+    unrecognised = rnd(s) < ${f(K.recognize)} * (0.5 - 0.5 * fit);
+  }
+  return armored || unfamiliar || unskilled || sheltered || jostled || fought || fumbled || unrecognised;
 }
 
 // K.diag: count v into a guild's slot k
@@ -3181,7 +3192,7 @@ ${cellWGSL(K, false)}
     // a meal opportunity every K.eatEvery ticks, in the cell's own phase
     } else if (food != NONE && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && mealDue(sortedFull[food].kind, (sim.tick + p.id) / ${K.eatEvery | 0}u)) {
       let fk = sortedFull[food].kind;
-      let missed = mealMissed(fk, info, g, eatEff, stoneN, max(0.0, kinN - bonds), &s);
+      let missed = mealMissed(fk, info, g, eatEff, stoneN, max(0.0, kinN - bonds), sg, &s);
       let won = !missed && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged;
       if (DIAG && canHunt && isAnimal(food)) { diagAdd(dg, 15u, 1u); diagAdd(dg, select(select(17u, 18u, won), 16u, missed), 1u); }
       if (won) {
@@ -3254,7 +3265,7 @@ ${cellWGSL(K, false)}
           let fp = sortedFull[fd];
           // handling time, or a miss (armour, an unfamiliar quarry, skill, shelter), ends this opportunity
           if (!mealDue(fp.kind, mi)) { break; }
-          if (mealMissed(fp.kind, info, g, eatEff, stoneN, max(0.0, kinN - bonds), &s)) { if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); } break; }
+          if (mealMissed(fp.kind, info, g, eatEff, stoneN, max(0.0, kinN - bonds), sg, &s)) { if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); } break; }
           let plant = fp.kind >= FIRST_LIFE && genomes[fp.kind].photo > 0.4;
           var got = true;
           if (plant) {
