@@ -196,6 +196,22 @@ more mutation and mild recognition:
 | `cystPlants` 0 | 34% | 64% | 55 | 17 | 5.6 | 0.92 |
 | + `mutScale` 3, `recognize` 0.4: the default | 43% | 64% | 105 | 16 | 4.3 | 0.84 |
 
+## Founding every niche, and prey that hide in meadows (30 min, 32k)
+
+The stories after the dynamism round: grazers were eaten out by predators, then predators starved; and a
+third of worlds never established a predator or scavenger guild at all, their 24 founders simply lacking
+one. Ruled out on 32+ seeds: interference 0.4 (38% over 48), flee (34%), a type III response
+(`rareRefuge`, 38-41%), weaker plant armor, provisioning 40 (38% over 48). What worked: `foundEach` 2
+(every world founds each core niche twice) and `plantRefuge` 0.1 (an animal among dense producers is
+hard to catch):
+
+| | all four | producer | grazer | predator | scavenger | eff. species |
+|---|---|---|---|---|---|---|
+| default before (47 seeds) | 43% | 98% | 68% | 64% | 77% | 105 |
+| plantRefuge 0.1 (32) | 44% | 97% | 75% | 56% | 81% | 99 |
+| foundEach 2 (32) | 44% | 97% | 66% | 59% | 91% | 97 |
+| both: the default (64) | 58% | 98% | 78% | 72% | 95% | 104 |
+
 ## The seed bank (dormancy)
 
 Implemented as `cyst`: a cell short of energy (`cystAt` of its division energy) with no food in reach

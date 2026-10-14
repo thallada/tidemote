@@ -1282,7 +1282,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     // scale on every species' chance that a birth is a mutant (a new species)
     rareRefuge: 0,
     // a hunter catches animals with chance animals near / (that + this): rare prey are hard to find (type III)
-    plantRefuge: 0,
+    plantRefuge: 0.1,
     // an attack on an animal fails with this × the producers close around (up to refugeMax): prey hide in meadows
     flee: 0,
     // an animal that does not hunt is pushed away from hunters within reach at this × its swimming
@@ -1522,7 +1522,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     // chance per second a cyst wakes (about every 90 s)
     foundHunt: 0.125,
     // the largest share of a new world's 24 founding species that eat flesh (hunters, crawlers)
-    foundEach: 0,
+    foundEach: 2,
     // every new world founds at least this many species of each core niche (producer, grazer, hunter, scavenger)
     bodySize: 1,
     // with bodyE, 1: a body holds bodyE × the cell's size (small cells are cheap to build, big ones rich prey)

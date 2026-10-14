@@ -83,7 +83,7 @@ export const DEFAULT_K = {
   photoPow: 3,      // light earned grows as photo^photoPow: steep, and an animal with a little photosynthesis gets nearly none
   mutScale: 3,      // scale on every species' chance that a birth is a mutant (a new species)
   rareRefuge: 0,    // a hunter catches animals with chance animals near / (that + this): rare prey are hard to find (type III)
-  plantRefuge: 0,   // an attack on an animal fails with this × the producers close around (up to refugeMax): prey hide in meadows
+  plantRefuge: 0.1,   // an attack on an animal fails with this × the producers close around (up to refugeMax): prey hide in meadows
   flee: 0,          // an animal that does not hunt is pushed away from hunters within reach at this × its swimming
   recognize: 0.4,     // living prey (and plants) escape an eater whose receptors do not match their surface: up to this
                     // share of attempts on a perfectly mismatched one (coevolution, frequency-dependent predation)
@@ -220,7 +220,7 @@ export const DEFAULT_K = {
   cystLeak: 0.002,  // energy a cyst loses per second (it dies as a husk at none)
   cystWake: 0.022,  // chance per second a cyst wakes (about every 90 s)
   foundHunt: 0.125, // the largest share of a new world's 24 founding species that eat flesh (hunters, crawlers)
-  foundEach: 0,     // every new world founds at least this many species of each core niche (producer, grazer, hunter, scavenger)
+  foundEach: 2,     // every new world founds at least this many species of each core niche (producer, grazer, hunter, scavenger)
   bodySize: 1,      // with bodyE, 1: a body holds bodyE × the cell's size (small cells are cheap to build, big ones rich prey)
   interfere: 0.6,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
                     // within reach, its bond partners aside)
