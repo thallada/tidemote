@@ -80,6 +80,7 @@ export const DEFAULT_K = {
   searchImage: 0.7, // chance a hunter or grazer misses living prey unlike its last catch
   specPow: 2,       // >0: a diet's share d earns d^specPow of a specialist's take (0: d(0.4 + 0.6d)); steep: mixing pays little
   photoPow: 3,      // light earned grows as photo^photoPow: steep, and an animal with a little photosynthesis gets nearly none
+  mutScale: 1,      // scale on every species' chance that a birth is a mutant (a new species)
   recognize: 0,     // living prey (and plants) escape an eater whose receptors do not match their surface: up to this
                     // share of attempts on a perfectly mismatched one (coevolution, frequency-dependent predation)
   matterSkill: 0.5,   // eating a husk or glint succeeds with (eatEff × that diet) / this, certain past it (0: always)
@@ -1889,7 +1890,7 @@ ${cellWGSL(K, false)}
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
         cr = sampleRole(g, role, &s);
-        if (rnd(&s) < g.mutRate) {
+        if (rnd(&s) < g.mutRate${K.mutScale !== 1 ? ` * ${f(K.mutScale)}` : ''}) {
           let slot = allocSlot(&s);
           if (slot != NONE) {
             mutateInto(slot, p.kind, &s);
@@ -1951,7 +1952,7 @@ ${cellWGSL(K, false)}
         if (won) {
           ck = p.kind;
           cr = sampleRole(g, role, &s);
-          if (rnd(&s) < g.mutRate) {
+          if (rnd(&s) < g.mutRate${K.mutScale !== 1 ? ` * ${f(K.mutScale)}` : ''}) {
             let slot = allocSlot(&s);
             if (slot != NONE) {
               mutateInto(slot, p.kind, &s);
