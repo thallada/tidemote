@@ -25,11 +25,11 @@ AN = 'GHS'
 COST = {'G': (0.767, 0.006), 'H': (1.071, 0.009), 'S': (0.884, 0.007)}   # upkeep per unit swim, per unit lifespan
 
 
-def fitness(g, s, l, x, p, Z):
+def fitness(g, s, l, x, p, Z, R=None):
     """per-capita growth of a rare guild-g cell with swim s and lifespan l among residents at state x
     with traits Z (dict g -> (s, l))"""
     P, G, H, S, D = np.maximum(x[:5], 0)
-    inc, kills, intakeG, intakeS, silt = web.rates(x[:5], p)
+    inc, kills, intakeG, intakeS, silt = R if R is not None else web.rates(x[:5], p)
     s0, l0 = p['z0'][g]
     sG = Z['G'][0]
     fl = p.get('flee', 0)
@@ -71,12 +71,12 @@ def rhs(t, y, p):
     q['scavMul'] = p.get('scavMul', 1.0) * (1 + p['bS'] * (Z['S'][0] - p['z0']['S'][0]))
     dx = web.rhs(t, x, q)
     dz = []
-    inc, *_ = web.rates(x, q)
+    R = web.rates(x, q)          # the residents' world, once per step
     for g in AN:
         s, l = Z[g]
         hs, hl = 0.02, 2.0
-        gs = (fitness(g, s + hs, l, x, q, Z) - fitness(g, s - hs, l, x, q, Z)) / (2 * hs)
-        gl = (fitness(g, s, l + hl, x, q, Z) - fitness(g, s, l - hl, x, q, Z)) / (2 * hl)
+        gs = (fitness(g, s + hs, l, x, q, Z, R) - fitness(g, s - hs, l, x, q, Z, R)) / (2 * hs)
+        gl = (fitness(g, s, l + hl, x, q, Z, R) - fitness(g, s, l - hl, x, q, Z, R)) / (2 * hl)
         n = x[1 + AN.index(g)]
         supply = n / (n + 0.005)          # a guild of few cells mutates rarely
         dz += [p['V'][g] * supply * gs, p['V'][g] * supply * gl * p.get('lscale', 400.0)]
@@ -143,13 +143,13 @@ def resid(theta, sets):
 
 
 if __name__ == '__main__':
-    FIT = ['b25L', 'pr25L', 'defL2', 'fl5L', 'flsatL', 'flsatabL', 'iaA60', 'ts3L']
-    HOLD = ['nd2L', 'sa13L', 'sa2L', 'ndts3L']
+    FIT = ['b25L', 'defL2', 'fl5L', 'flsatabL', 'ts3L']
+    HOLD = ['nd2L', 'sa13L', 'sa2L', 'ndts3L', 'pr25L', 'iaA60']
     FIT = [s for s in FIT if times(s)]
     th0 = [f[1] for f in FREE]
     r0 = resid(th0, FIT)
     print(f'fitting {len(FREE)} parameters to {FIT}: start cost {np.sum(r0 ** 2):.3f}')
-    sol = least_squares(resid, th0, args=(FIT,), bounds=([f[2] for f in FREE], [f[3] for f in FREE]), diff_step=1e-2, max_nfev=150)
+    sol = least_squares(resid, th0, args=(FIT,), bounds=([f[2] for f in FREE], [f[3] for f in FREE]), diff_step=1e-2, max_nfev=40)
     print(f'end cost {np.sum(sol.fun ** 2):.3f}')
     for (n, *_), v in zip(FREE, sol.x):
         print(f'  {n:3s} {v:.4f}')
