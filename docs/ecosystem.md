@@ -78,6 +78,11 @@ What it and the measurements found:
 | bite 0.3, interfereAll | 15% | 8% | 10% | 66% | 28% |
 | interfereAll (64 seeds) | 16-19% | 4-5% | 12-14% | 64% | 16-38% |
 
+The default since: bite 0.25 and holdfast 0.1. Over an hour (30 seeds) all four core guilds are awake at
+60 minutes in 53% of worlds (the light-per-area default before it about 28% with interfereAll, the
+old honest default 16%), at grazers 8%, hunters 6%, scavengers 7%. Bite 0.4 starves the scavengers
+(2% at an hour: heavy grazing leaves little litter), which the model missed.
+
 Also tried: a stronger flow bonus for anchored producers (`flowFeed` 2, 4: sessile 4-7% but hunters and
 thriving fall), ebb and flood currents (`ebb`: no change to the guilds at 10 minutes), `holdfast` 0.1
 (anchored cells barely moved by pushes: no change to the guilds).

@@ -128,7 +128,7 @@ export const DEFAULT_K = {
   align: 3.0,
   bond: 60,         // spring strength of bonds between cells of one body
   adhMin: 0.15,     // adhesion needed before a species forms bonds
-  bite: 0.2,       // energy taken per bite from a photosynthesising cell
+  bite: 0.25,       // energy taken per bite from a photosynthesising cell
   eatEvery: 6,      // frames between meals
   dietMin: 0.15,    // share of the diet a food must have before a cell bothers to eat it
   // Stone: calcified remains and bedrock. Immobile, solid to all but calcifiers, slowly eroding back to silt.
@@ -200,7 +200,7 @@ export const DEFAULT_K = {
   dung: 1,          // 1: what an eater cannot assimilate (of bites and kills) fills its gut and is dropped as a husk
   dungE: 0.6,       // ...once the gut holds this much
   satiety: 0,       // a fed hunter rests: attacks on animals fall off as it nears the energy to divide (1: in proportion)
-  holdfast: 1,      // scale on an anchored cell's velocity half-life (low advect): 0.1 and pushes barely move it
+  holdfast: 0.1,      // scale on an anchored cell's velocity half-life (low advect): 0.1 and pushes barely move it
   provisionFlesh: 0, // 1: provision in proportion to the flesh in a cell's diet (hunters' meals are far apart; grazers' are not)
   mature: 0.2,        // a cell divides only once older than this share of its lifespan (it grows up first; 0: at once)
   bodyReserve: 1,   // with bodyE, 1: a cell divides once it holds reproE beyond its child's body; 0: once it holds reproE
