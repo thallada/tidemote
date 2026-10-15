@@ -202,6 +202,7 @@ export const DEFAULT_K = {
   dung: 1,          // 1: what an eater cannot assimilate (of bites and kills) fills its gut and is dropped as a husk
   dungE: 0.6,       // ...once the gut holds this much
   satiety: 1,       // a fed hunter rests: attacks on animals fall off as it nears the energy to divide (1: in proportion)
+  satietyAt: 1,     // ...counting a hunter full at this × the energy to divide (above 1: it still hunts its way to dividing)
   holdfast: 0.1,      // scale on an anchored cell's velocity half-life (low advect): 0.1 and pushes barely move it
   provisionFlesh: 0, // 1: provision in proportion to the flesh in a cell's diet (hunters' meals are far apart; grazers' are not)
   mature: 0.2,        // a cell divides only once older than this share of its lifespan (it grows up first; 0: at once)
@@ -1982,7 +1983,7 @@ ${cellWGSL(K, false)}
     // a meal opportunity every K.eatEvery ticks, in the cell's own phase
     } else if (food != NONE && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && mealDue(sortedFull[food].kind, (sim.tick + p.id) / ${K.eatEvery | 0}u)) {
       let fk = sortedFull[food].kind;
-      let missed = mealMissed(fk, info, g, eatEff, stoneN, plantN, huskN, animN, ${K.interfereAll ? 'select(max(0.0, kinN - bonds), huntN, g.dFlesh > 0.5)' : 'max(0.0, kinN - bonds)'}, sg, E / divE, &s);
+      let missed = mealMissed(fk, info, g, eatEff, stoneN, plantN, huskN, animN, ${K.interfereAll ? 'select(max(0.0, kinN - bonds), huntN, g.dFlesh > 0.5)' : 'max(0.0, kinN - bonds)'}, sg, E / (divE * ${f(K.satietyAt)}), &s);
       let won = !missed && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged;
       if (DIAG && canHunt && isAnimal(food)) { diagAdd(dg, 15u, 1u); diagAdd(dg, select(select(17u, 18u, won), 16u, missed), 1u); }
       if (won) {
@@ -2055,7 +2056,7 @@ ${cellWGSL(K, false)}
           let fp = sortedFull[fd];
           // handling time, or a miss (armour, an unfamiliar quarry, skill, shelter), ends this opportunity
           if (!mealDue(fp.kind, mi)) { break; }
-          if (mealMissed(fp.kind, info, g, eatEff, stoneN, plantN, huskN, animN, ${K.interfereAll ? 'select(max(0.0, kinN - bonds), huntN, g.dFlesh > 0.5)' : 'max(0.0, kinN - bonds)'}, sg, E / divE, &s)) { if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); } break; }
+          if (mealMissed(fp.kind, info, g, eatEff, stoneN, plantN, huskN, animN, ${K.interfereAll ? 'select(max(0.0, kinN - bonds), huntN, g.dFlesh > 0.5)' : 'max(0.0, kinN - bonds)'}, sg, E / (divE * ${f(K.satietyAt)}), &s)) { if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); } break; }
           let plant = fp.kind >= FIRST_LIFE && genomes[fp.kind].photo > 0.4;
           var got = true;
           if (plant) {
