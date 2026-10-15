@@ -202,7 +202,7 @@ export const DEFAULT_K = {
   dung: 1,          // 1: what an eater cannot assimilate (of bites and kills) fills its gut and is dropped as a husk
   dungE: 0.6,       // ...once the gut holds this much
   satiety: 1,       // a fed hunter rests: attacks on animals fall off as it nears the energy to divide (1: in proportion)
-  satietyAt: 1,     // ...counting a hunter full at this × the energy to divide (above 1: it still hunts its way to dividing)
+  satietyAt: 1.2,     // ...counting a hunter full at this × the energy to divide (above 1: it still hunts its way to dividing)
   holdfast: 0.1,      // scale on an anchored cell's velocity half-life (low advect): 0.1 and pushes barely move it
   provisionFlesh: 0, // 1: provision in proportion to the flesh in a cell's diet (hunters' meals are far apart; grazers' are not)
   mature: 0.2,        // a cell divides only once older than this share of its lifespan (it grows up first; 0: at once)

@@ -121,7 +121,8 @@ alive in 81%, 159 effective species, swimmers 25%; over 64 seeds about 67% / 47%
 fast (`tideSpeed` 3) on top: 72% / 50% (32 seeds), as good and livelier to watch: adopted. `satietyAt`
 1.3 (a hunter counts as full only at 1.3 x the energy to divide): hunters alive in 94% of worlds and 17%
 of the living, but grazers 18% and scavengers alive in 75%; 69% / 44%, a trade rather than a gain. 2: 63% /
-31% (16 seeds).
+31% (16 seeds). Bracketing it with the faster tide (32 seeds x 60 min each): 1.1 66% / 41%, 1.2 88% / 59%
+with hunters and scavengers both alive in 94% of worlds and 150 effective species: adopted.
 
 Also tried: a stronger flow bonus for anchored producers (`flowFeed` 2, 4: sessile 4-7% but hunters and
 thriving fall), ebb and flood currents (`ebb`: no change to the guilds at 10 minutes), `holdfast` 0.1
