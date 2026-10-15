@@ -218,6 +218,8 @@ export const DEFAULT_K = {
   exude: 0,      // with cycle, the share of a producer's light it leaks as glint...
   exudeE: 0.6,      // ...in grains of this much energy each
   tideCharge: 0,    // scale on the tide's (and hot springs') charging of silt into glint
+  ebb: 0,           // ebb and flood: the currents swing back and forth with this depth (1: they reverse fully)
+  ebbPeriod: 90,    // ...over this many seconds
   rotScale: 1,
   litterTo: 1,      // with cycle, who breaks down a producer's litter: 0 grazers, 1 scavengers (decomposers of all husks)
   glintFade: 1,     // scale on how fast glint loses its energy and falls back to silt (slow: the nutrient waits for a grazer)      // scale on how fast husks rot back to silt by themselves
@@ -961,7 +963,7 @@ fn flowAt(p: vec2f) -> vec2f {
     let ph = w.x * p.x + w.y * p.y + w.z * sim.time + f32(k) * 1.7;
     v += vec2f(w.y, -w.x) * (cos(ph) * w.w / max(length(w.xy), 1e-4));
   }
-  return v;
+  return v${K.ebb > 0 ? ` * mix(1.0, cos(${f(2 * Math.PI / K.ebbPeriod)} * sim.time), ${f(K.ebb)})` : ''};
 }
 
 fn wrapPos(p: vec2f) -> vec2f { return p - sim.world * floor(p / sim.world); }

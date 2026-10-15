@@ -1547,6 +1547,11 @@ class Engine {
     pd.set(this.tide, 16);
     pd.set(this.tidePh, 32);
     pd.set(this.waves, 36);
+    // ebb and flood (K.ebb) swing the currents as flowAt does, so the drawn mud moves with the water
+    if (this.K.ebb > 0) {
+      const swing = 1 + this.K.ebb * (Math.cos((2 * Math.PI / this.K.ebbPeriod) * this.simTime) - 1);
+      for (let k = 0; k < 4; k++) pd[36 + k * 4 + 3] *= swing;
+    }
     // the heat map's span: from a little below the background to framboid-hot
     const tbg = this.tbg;
     pd[52] = tbg; pd[53] = tbg - 2; pd[54] = tbg + 10;

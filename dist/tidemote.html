@@ -1518,6 +1518,10 @@ svg.niche .n-dot { fill: var(--cyan); }
     // ...in grains of this much energy each
     tideCharge: 0,
     // scale on the tide's (and hot springs') charging of silt into glint
+    ebb: 0,
+    // ebb and flood: the currents swing back and forth with this depth (1: they reverse fully)
+    ebbPeriod: 90,
+    // ...over this many seconds
     rotScale: 1,
     litterTo: 1,
     // with cycle, who breaks down a producer's litter: 0 grazers, 1 scavengers (decomposers of all husks)
@@ -2265,7 +2269,7 @@ fn flowAt(p: vec2f) -> vec2f {
     let ph = w.x * p.x + w.y * p.y + w.z * sim.time + f32(k) * 1.7;
     v += vec2f(w.y, -w.x) * (cos(ph) * w.w / max(length(w.xy), 1e-4));
   }
-  return v;
+  return v${K.ebb > 0 ? ` * mix(1.0, cos(${f(2 * Math.PI / K.ebbPeriod)} * sim.time), ${f(K.ebb)})` : ""};
 }
 
 fn wrapPos(p: vec2f) -> vec2f { return p - sim.world * floor(p / sim.world); }
@@ -16497,6 +16501,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       pd.set(this.tide, 16);
       pd.set(this.tidePh, 32);
       pd.set(this.waves, 36);
+      if (this.K.ebb > 0) {
+        const swing = 1 + this.K.ebb * (Math.cos(2 * Math.PI / this.K.ebbPeriod * this.simTime) - 1);
+        for (let k = 0; k < 4; k++) pd[36 + k * 4 + 3] *= swing;
+      }
       const tbg = this.tbg;
       pd[52] = tbg;
       pd[53] = tbg - 2;
