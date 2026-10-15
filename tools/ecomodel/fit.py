@@ -20,6 +20,7 @@ RULES = {
     'b3': dict(bite=0.3, perArea=1, dung=1), 'b25': dict(bite=0.25, perArea=1, dung=1),
     'b3ia': dict(bite=0.3, perArea=1, dung=1, ia=1), 'b25b': dict(bite=0.25, perArea=1, dung=1),
     'b25iab': dict(bite=0.25, perArea=1, dung=1, ia=1), 'b25L': dict(bite=0.25, perArea=1, dung=1),
+    'b4L': dict(bite=0.4, perArea=1, dung=1),
 }
 OLD = dict(bite=0.1, perArea=0, dung=0)
 for v in RULES.values():

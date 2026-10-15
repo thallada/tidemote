@@ -37,7 +37,7 @@ def rates(x, p):
     light = gB * nut / (1 + sP * P) if p['perArea'] else g0 * nut / (1 + s * L)
     a, h, e = p['graze']
     intakeG = p['grazeMul'] * (p['bite'] / 0.1) ** e * a * P / (1 + a * h * P)
-    prey = G + S + H
+    prey = G + S + p.get('hunterPrey', 1.0) * H   # hunters as prey, weighted (fightBack makes them poor prey)
     kmax, xh = p['hunt']
     kills = p['huntMul'] * kmax * prey / (prey + xh) / (1 + p['cH'] * H)
     # interference (K.interfere 0.6): a hunter's rivals are its kin close by (about 14 H neighbours of every
@@ -72,12 +72,13 @@ def rhs(t, x, p):
         d[g] = X * (births - starve - old)
         deadHusk += X * (starve + old)
     # deaths by being eaten: the hunters' pressure plus killing that rises with the animals about (fit.py)
-    prey = G + S + H
+    w = p.get('hunterPrey', 1.0)
+    prey = G + S + w * H
     K = kills * H
     hr = K / prey if prey > 0 else 0.0
     for g, X in (('G', G), ('S', S), ('H', H)):
         alpha, beta, gamma = p['eaten' + g]
-        d[g] -= X * (alpha * hr + beta * prey + gamma)
+        d[g] -= X * (alpha * hr * (w if g == 'H' else 1.0) + beta * (G + S + H) + gamma)
     # gray-box corrections (fit.py): cysts, guild drift, what the processes miss
     if p.get('corr'):
         for g, X in zip('PGHS', (P, G, H, S)):
