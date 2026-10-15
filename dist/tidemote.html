@@ -1286,7 +1286,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     // an attack on an animal fails with this × the producers close around (up to refugeMax): prey hide in meadows
     huskRefuge: 0,
     // ...and with this × the husks close around: detritivores hide in their litter
-    flee: 0,
+    flee: 0.5,
     // an animal that does not hunt is pushed away from hunters within reach at this × its swimming
     recognize: 0.4,
     // living prey (and plants) escape an eater whose receptors do not match their surface: up to this
@@ -1489,7 +1489,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     // 1: what an eater cannot assimilate (of bites and kills) fills its gut and is dropped as a husk
     dungE: 0.6,
     // ...once the gut holds this much
-    satiety: 0,
+    satiety: 1,
     // a fed hunter rests: attacks on animals fall off as it nears the energy to divide (1: in proportion)
     holdfast: 0.1,
     // scale on an anchored cell's velocity half-life (low advect): 0.1 and pushes barely move it
@@ -1524,7 +1524,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     // scale on the tide's (and hot springs') charging of silt into glint
     tideSpeed: 1,
     // scale on how fast the tide's bands of light travel
-    abioSilt: 0,
+    abioSilt: 1,
     // 1: abiogenesis sparks from silt in the light too (glint is rare without tideCharge), one spark per ~30 s world-wide
     ebb: 0,
     // ebb and flood: the currents swing back and forth with this depth (1: they reverse fully)

@@ -85,7 +85,7 @@ export const DEFAULT_K = {
   rareRefuge: 0,    // a hunter catches animals with chance animals near / (that + this): rare prey are hard to find (type III)
   plantRefuge: 0.25,   // an attack on an animal fails with this × the producers close around (up to refugeMax): prey hide in meadows
   huskRefuge: 0,    // ...and with this × the husks close around: detritivores hide in their litter
-  flee: 0,          // an animal that does not hunt is pushed away from hunters within reach at this × its swimming
+  flee: 0.5,          // an animal that does not hunt is pushed away from hunters within reach at this × its swimming
   recognize: 0.4,     // living prey (and plants) escape an eater whose receptors do not match their surface: up to this
                     // share of attempts on a perfectly mismatched one (coevolution, frequency-dependent predation)
   matterSkill: 0.5,   // eating a husk or glint succeeds with (eatEff × that diet) / this, certain past it (0: always)
@@ -201,7 +201,7 @@ export const DEFAULT_K = {
                     // until then; 0: at divE): hunters, whose meals are far apart, raise viable young
   dung: 1,          // 1: what an eater cannot assimilate (of bites and kills) fills its gut and is dropped as a husk
   dungE: 0.6,       // ...once the gut holds this much
-  satiety: 0,       // a fed hunter rests: attacks on animals fall off as it nears the energy to divide (1: in proportion)
+  satiety: 1,       // a fed hunter rests: attacks on animals fall off as it nears the energy to divide (1: in proportion)
   holdfast: 0.1,      // scale on an anchored cell's velocity half-life (low advect): 0.1 and pushes barely move it
   provisionFlesh: 0, // 1: provision in proportion to the flesh in a cell's diet (hunters' meals are far apart; grazers' are not)
   mature: 0.2,        // a cell divides only once older than this share of its lifespan (it grows up first; 0: at once)
@@ -221,7 +221,7 @@ export const DEFAULT_K = {
   exudeE: 0.6,      // ...in grains of this much energy each
   tideCharge: 0,    // scale on the tide's (and hot springs') charging of silt into glint
   tideSpeed: 1,     // scale on how fast the tide's bands of light travel
-  abioSilt: 0,      // 1: abiogenesis sparks from silt in the light too (glint is rare without tideCharge), one spark per ~30 s world-wide
+  abioSilt: 1,      // 1: abiogenesis sparks from silt in the light too (glint is rare without tideCharge), one spark per ~30 s world-wide
   ebb: 0,           // ebb and flood: the currents swing back and forth with this depth (1: they reverse fully)
   ebbPeriod: 90,    // ...over this many seconds
   rotScale: 1,

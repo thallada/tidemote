@@ -99,6 +99,23 @@ fleeing hunters (`flee` 0.5: all four awake 84% at 30 minutes, 53% at an hour as
 swimmers 11% at an hour against 5-7%). Whatever helps prey early costs hunters by the hour: the hour-long
 state keeps returning to about 60% / 25%.
 
+Why flee faded: hunters die mostly by being eaten by other hunters (80-92% of their deaths), and when
+prey escape (only non-hunters flee) hunters turn on each other: hunter populations boom to 16-27% of
+the living, then eat themselves out, with thousands of grazers about. Satiety (a fed hunter rests
+instead of attacking) removes that waste: flee 0.5 + satiety 1 kept all four core guilds awake at an
+hour in 72% of worlds, all four at 5%+ in 50%, swimmers 25% (32 seeds). But 3 of 32 worlds died outright
+when a cold era (water down 7-8 degrees) stopped every producer under heavy grazing, and stayed dead:
+abiogenesis sparked only on glint, which `tideCharge` 0 had removed. `abioSilt` lets life spark from silt
+in the light as well (one spark per ~30 s world-wide), and with it no world of 32 collapsed.
+
+The default since: flee 0.5, satiety 1, abioSilt 1. At an hour (32 seeds): producers 28%, grazers 28%,
+hunters 8%, scavengers 13%, all four at 5%+ in 38% (28% before), all four awake in 59% (59%), swimmers
+18% (5%), effective species 131 (103), no world collapsed; hunters are the weak guild (alive in 66% of
+worlds against 84%). Tried alongside: flee with strike (hunters reach farther: 35% at an hour), hunters
+fighting back (`fightBack` 0.5: 33%, as the model predicted: cannibalism is hunters' brake), producer
+cysts (`cystPlants`: hunters collapse), grazers cropping rather than killing (`biteShare` 0.4: worlds
+still died of the cold, thriving 33%), twice the light saturation (42-48%).
+
 Also tried: a stronger flow bonus for anchored producers (`flowFeed` 2, 4: sessile 4-7% but hunters and
 thriving fall), ebb and flood currents (`ebb`: no change to the guilds at 10 minutes), `holdfast` 0.1
 (anchored cells barely moved by pushes: no change to the guilds).
