@@ -4,6 +4,49 @@ Goal: every guild fills a niche the others need, so losing one unravels the rest
 the world balances itself and a whole guild rarely dies out. Everything stays local and honest
 (docs/energy.md): no census-driven regulators, and energy only enters as light (and the tide).
 
+## Why animals stayed few, and the fix: light per area and bigger bites (2026-10-14)
+
+A day of mechanisms (refuges, satiety, strike, scent, provisioning, dormancy) left animals near a
+quarter of the producers. The reason is an identity. At steady state a guild's awake cells are its
+income over what a cell costs (upkeep and replacing itself), so
+
+    N_animal / N_producer = r_a x (c_p / c_a)
+
+with r_a the share of light that reaches the guild's mouths and c_p / c_a the cost of a producer cell
+over an animal cell. Measured on ten run sets (`decomp` in the ensemble tools below) it holds exactly,
+and every knob left both factors where they were: producers kept half their light for their own
+upkeep, and an animal cell cost about as much as a producer cell (0.7-1.2).
+
+`tools/ecomodel/model.py` is a mean-field model of the web calibrated to the default's measured
+per-cell incomes, upkeep, energy per birth, lifetimes and bite and kill rates (scipy: exact steady states
+and their Jacobian's eigenvalues; `tools/ecomodel/.venv`). It reproduces the default (P 81% G 7% H 2%
+S 9% against 78/9/2/10 measured) and the direction of the day's experiments, and names two rules:
+
+- **Light was earned per cell.** Each neighbour shaded a producer by 7%, so a patch's light grew with
+  its producers: producers multiplied until silt ran out, each worth little, and a grazed meadow did
+  not regrow faster.
+- **Grazers were capped by the bite** (0.1): fully fed, they could take no more.
+
+Either change alone fails: per-area light changes nothing while bites are capped, and bigger bites on
+per-cell light boom and bust. Together the model predicted stable webs with animals 1.5x the producers.
+On the GPU (32 seeds x 10 min, median shares, awake cells):
+
+| | producers | grazers | predators | scavengers | thriving (all four 5%+) |
+|---|---|---|---|---|---|
+| old default | 72% | 7% | 3% | 11% | 31% |
+| light per area alone (`shadeP` 1.4, `photo` 5.3) | 69% | 11% | 3% | 11% | 16% |
+| bites 1.5x alone | 52% | 19% | 7% | 8% | 59% (the world thins to 9.5k) |
+| light per area, bites 2x | 34% | 34% | 9% | 5% | 34% |
+| light per area, bites 2x, dung: the default | 41% | 26% | 8% | 11% | 75% |
+
+At 30 minutes the default settles into a trophic cascade (P 68% G 9% H 8% S 9%, thriving 22% against
+13% before): hunters, fed at their handling cap (~2.8 kills a minute whatever the prey density), grow in
+number until grazers are held down. That is the next problem.
+
+`dung`: what an eater cannot assimilate fills its gut (the colour's spare byte) and is dropped on a grain
+of silt as a husk, so scavengers live on grazers' leavings. `story.mjs` now reports guild sizes and the
+movement mix; judge changes by those, since "survives" counted 1-2% remnants.
+
 ## Where the world stands
 
 Nothing needs anyone below the predators. Producers live on light and silt, which is everywhere.

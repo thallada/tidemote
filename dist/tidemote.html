@@ -1345,11 +1345,11 @@ svg.niche .n-dot { fill: var(--cyan); }
     colorMix: 0.02,
     baseMix: 0.04,
     maxSpeed: 7,
-    photo: 0.9,
+    photo: 5.3,
     // energy per second for a pure photosynth in full light
     shade: 0.07,
     // self-shading per living neighbour
-    shadeP: 0,
+    shadeP: 1.4,
     // >0: light per area: only photosynthesisers shade, this much per neighbour (in place of shade;
     // a patch's light saturates, so a grazed meadow regrows: docs/ecosystem.md)
     align: 3,
@@ -1357,7 +1357,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     // spring strength of bonds between cells of one body
     adhMin: 0.15,
     // adhesion needed before a species forms bonds
-    bite: 0.1,
+    bite: 0.2,
     // energy taken per bite from a photosynthesising cell
     eatEvery: 6,
     // frames between meals
@@ -1481,7 +1481,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     provision: 60,
     // a cell divides only once its child's share would cover this many seconds of its upkeep (feeding
     // until then; 0: at divE): hunters, whose meals are far apart, raise viable young
-    dung: 0,
+    dung: 1,
     // 1: what an eater cannot assimilate (of bites and kills) fills its gut and is dropped as a husk
     dungE: 0.6,
     // ...once the gut holds this much

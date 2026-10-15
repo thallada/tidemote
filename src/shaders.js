@@ -121,14 +121,14 @@ export const DEFAULT_K = {
   colorMix: 0.02,
   baseMix: 0.04,
   maxSpeed: 7.0,
-  photo: 0.9,       // energy per second for a pure photosynth in full light
+  photo: 5.3,       // energy per second for a pure photosynth in full light
   shade: 0.07,      // self-shading per living neighbour
-  shadeP: 0,        // >0: light per area: only photosynthesisers shade, this much per neighbour (in place of shade;
+  shadeP: 1.4,        // >0: light per area: only photosynthesisers shade, this much per neighbour (in place of shade;
                     // a patch's light saturates, so a grazed meadow regrows: docs/ecosystem.md)
   align: 3.0,
   bond: 60,         // spring strength of bonds between cells of one body
   adhMin: 0.15,     // adhesion needed before a species forms bonds
-  bite: 0.1,       // energy taken per bite from a photosynthesising cell
+  bite: 0.2,       // energy taken per bite from a photosynthesising cell
   eatEvery: 6,      // frames between meals
   dietMin: 0.15,    // share of the diet a food must have before a cell bothers to eat it
   // Stone: calcified remains and bedrock. Immobile, solid to all but calcifiers, slowly eroding back to silt.
@@ -197,7 +197,7 @@ export const DEFAULT_K = {
   fightBack: 0,     // living prey that hunts makes an attack fail with this × its flesh skill (dFlesh × eatEff)
   provision: 60,     // a cell divides only once its child's share would cover this many seconds of its upkeep (feeding
                     // until then; 0: at divE): hunters, whose meals are far apart, raise viable young
-  dung: 0,          // 1: what an eater cannot assimilate (of bites and kills) fills its gut and is dropped as a husk
+  dung: 1,          // 1: what an eater cannot assimilate (of bites and kills) fills its gut and is dropped as a husk
   dungE: 0.6,       // ...once the gut holds this much
   satiety: 0,       // a fed hunter rests: attacks on animals fall off as it nears the energy to divide (1: in proportion)
   holdfast: 1,      // scale on an anchored cell's velocity half-life (low advect): 0.1 and pushes barely move it

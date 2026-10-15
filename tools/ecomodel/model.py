@@ -66,7 +66,8 @@ def rhs(t, x, p):
     light = p['g0'] / (1 + p['s'] * L) if p['rule'] == 'A' else p['g0'] / (1 + p['sP'] * P)
     FG = p['FmaxG'] * P / (P + p['PhG'])
     prey = G + S + H
-    kill = p['aH'] * prey
+    # kills per hunter: type II with handling hH (killEvery's cap), and interference cH among hunters (Beddington-DeAngelis)
+    kill = p['aH'] * prey / (1 + p['aH'] * p.get('hH', 0) * prey + p.get('cH', 0) * H)
     FS = p['FmaxS'] * D / (D + p['DhS'])
     inc = dict(P=light, G=p['epsG'] * FG, H=kill * p['eK'], S=FS)
 
@@ -82,7 +83,9 @@ def rhs(t, x, p):
     if prey > 0:
         dG -= kills * G / prey; dS -= kills * S / prey; dH -= kills * H / prey
     deaths = P / p['tauP'] + G / p['tauG'] + H / p['tauH'] + S / p['tauS']
-    dD = deaths - FS * S / p['body'] - p['husk'] * D
+    # dung: what grazers could not assimilate is dropped as husks (p['dung'] 1)
+    dung = p.get('dung', 0) * (1 - p['epsG']) * FG * G / p['body']
+    dD = deaths + dung - FS * S / p['body'] - p['husk'] * D
     return np.array([dP, dG, dH, dS, dD])
 
 
@@ -150,3 +153,7 @@ if __name__ == '__main__':
         print(line(f'rule B sP {sP}', B))
         for k in (1.5, 2, 3):
             print(line(f'rule B sP {sP}, grazers bite {k}x', dict(B, FmaxG=C['FmaxG'] * k)))
+    B = rule_b(C, 20)
+    print('\nrule B sP 20 with dung')
+    for k in (1.5, 2):
+        print(line(f'rule B sP 20, grazers bite {k}x, dung', dict(B, FmaxG=C['FmaxG'] * k, dung=1)))
