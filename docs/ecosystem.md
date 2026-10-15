@@ -13,7 +13,7 @@ income over what a cell costs (upkeep and replacing itself), so
     N_animal / N_producer = r_a x (c_p / c_a)
 
 with r_a the share of light that reaches the guild's mouths and c_p / c_a the cost of a producer cell
-over an animal cell. Measured on ten run sets (`decomp` in the ensemble tools below) it holds exactly,
+over an animal cell. Measured on ten run sets (`tools/ecomodel/decomp.mjs`) it holds exactly,
 and every knob left both factors where they were: producers kept half their light for their own
 upkeep, and an animal cell cost about as much as a producer cell (0.7-1.2).
 
