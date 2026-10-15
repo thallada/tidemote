@@ -9,6 +9,8 @@ export const TRAITS = {
   adhesion: [0, 1], size: [0.45, 2.6], lifespan: [20, 500], reproE: [0.6, 4],
 };
 const SHARE_NOTABLE = 0.05;
+// raw genome traits averaged within each guild (guildTraits): how each guild evolves
+export const GUILD_TRAITS = ['swim', 'size', 'adhesion', 'advect', 'lifespan', 'reproE', 'share', 'drag', 'force', 'radius', 'photo', 'dGlint', 'dHusk', 'dFlesh', 'calcify', 'mutRate'];
 
 /** One census of the community. species: [{ pop, genome }] for every living slot. */
 export function communitySample(species, adhMin) {
@@ -20,6 +22,7 @@ export function communitySample(species, adhMin) {
   const top = [];
   // each guild's leading species, by share of that guild (who leads the grazers, the predators...)
   const byGuild = Object.fromEntries(DIETS.map((k) => [k, []]));
+  const gt = Object.fromEntries(DIETS.map((k) => [k, { n: 0, ...Object.fromEntries(GUILD_TRAITS.map((t) => [t, 0])) }]));
   for (const { pop, genome: g } of species) {
     const p = pop / living;
     entropy -= p * Math.log(p);
@@ -30,18 +33,21 @@ export function communitySample(species, adhMin) {
     for (const [k, [lo, hi]] of Object.entries(TRAITS)) traits[k] += p * (g[k] - lo) / (hi - lo);
     if (p >= SHARE_NOTABLE) top.push({ serial: g.serial, share: p, diet: d, move: m, depth: g.depth });
     byGuild[d].push({ serial: g.serial, pop });
+    gt[d].n += pop;
+    for (const t of GUILD_TRAITS) gt[d][t] += pop * (g[t] ?? 0);
   }
   top.sort((a, b) => b.share - a.share);
   const guildTop = Object.fromEntries(DIETS.map((k) => {
     const all = byGuild[k], n = all.reduce((a, x) => a + x.pop, 0);
     return [k, all.sort((a, b) => b.pop - a.pop).slice(0, 3).map((x) => ({ serial: x.serial, share: n ? x.pop / n : 0 }))];
   }));
+  const guildTraits = Object.fromEntries(DIETS.filter((k) => gt[k].n > 0).map((k) => [k, Object.fromEntries(GUILD_TRAITS.map((t) => [t, gt[k][t] / gt[k].n]))]));
   return {
     living, species: species.length,
     effSpecies: living ? Math.exp(entropy) : 0, // Hill number of order 1
     hill2: living ? 1 / simpson : 0, // order 2: weighted towards the commonest species
     maxShare: top[0]?.share ?? (living ? Math.max(...species.map((s) => s.pop)) / living : 0),
-    diet, movement, bodies, traits, top: top.slice(0, 8), guildTop,
+    diet, movement, bodies, traits, top: top.slice(0, 8), guildTop, guildTraits,
   };
 }
 
