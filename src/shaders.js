@@ -205,6 +205,7 @@ export const DEFAULT_K = {
   sharpFounders: 1, // 1: founders are specialists: producers all light, animals none, each diet mostly its main food
   leanHunters: 2,   // 1: founding hunters and crawlers are smaller, divide sooner and form loose bodies (for bodyE);
                     // 2: and cheaper to run (less force, slower, shorter-lived); 3: and with 2.5× the reserve (reproE)
+  strike: 0,        // a flesh-eater reaches animals (1 + this × dFlesh) × eatR off
   scent: 0,         // a hungry flesh-eater steers up the count of animals scentR grid cells off at this × its swimming
   scentR: 2,
   cycle: 1,         // 1: a closed nutrient loop (docs/ecosystem.md): producers exude glint, a dead producer leaves
@@ -620,7 +621,8 @@ ${K.liveFirst ? `
             } else if (!keep2 && r < d2) { d2 = r; n2 = j; dn2 = d; }
           }
         }
-        if (seekHunt && r < EAT_R && qk != p.kind${K.cyst ? ' && (q.kr & (1u << 13u)) == 0u' : ''}) {
+        // a flesh-eater strikes at animals beyond its reach for plants and matter (a lunge, a sweep of tentacles)
+        if (seekHunt && r < EAT_R${K.strike > 0 ? ` * select(1.0 + ${f(K.strike)} * g.dFlesh, 1.0, (q.kr & (1u << 12u)) != 0u)` : ''} && qk != p.kind${K.cyst ? ' && (q.kr & (1u << 13u)) == 0u' : ''}) {
           // how far its signature is from this cell's: |s - my|^2
           let far = sdot(q.s0, q.s0) + sdot(q.s1, q.s1) - 2.0 * (sdot(q.s0, sg.x) + sdot(q.s1, sg.y)) + myNorm;
           if (far > ${f(K.kin)}) {
