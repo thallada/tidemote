@@ -228,6 +228,8 @@ export const DEFAULT_K = {
   cystWake: 0.022,  // chance per second a cyst wakes (about every 90 s)
   foundHunt: 0.125, // the largest share of a new world's 24 founding species that eat flesh (hunters, crawlers)
   foundEach: 2,     // every new world founds at least this many species of each core niche (producer, grazer, hunter, scavenger)
+  foundAnimal: 1,   // share of founders drawn as animals that stay animals (the rest redrawn): fewer consumers than producers
+  foundHunter: 1,   // ...and of those drawn as hunters
   bodySize: 1,      // with bodyE, 1: a body holds bodyE × the cell's size (small cells are cheap to build, big ones rich prey)
   interfere: 0.6,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
                     // within reach, its bond partners aside)
@@ -1196,7 +1198,14 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
   } else if (u < sim.pSilt + sim.pGlint + sim.pHusk) {
     kind = HUSK; e = 0.2 + 0.3 * rnd(&s); col = pack4x8unorm(vec4f(0.5, 0.35, 0.25, 1.0));
   } else {
-    kind = FIRST_LIFE + min(u32(rnd(&s) * f32(sim.seedKinds)), sim.seedKinds - 1u);
+    kind = FIRST_LIFE + min(u32(rnd(&s) * f32(sim.seedKinds)), sim.seedKinds - 1u);${K.foundAnimal < 1 || K.foundHunter < 1 ? `
+    // a food pyramid by numbers: a founder drawn as an animal (a hunter) stays one with chance foundAnimal
+    // (foundHunter), else it draws again, so producers outnumber their grazers and those their hunters
+    for (var t = 0u; t < 8u; t++) {
+      let gk = genomes[kind];
+      if (gk.photo > 0.4 || rnd(&s) < select(${f(K.foundAnimal)}, ${f(K.foundHunter)}, gk.dFlesh > 0.55)) { break; }
+      kind = FIRST_LIFE + min(u32(rnd(&s) * f32(sim.seedKinds)), sim.seedKinds - 1u);
+    }` : ''}
     if (rnd(&s) < sim.clump) {
       // one of the species' one to four colonies
       let nc = 1u + pcg(kind ^ sim.seed) % 4u;
