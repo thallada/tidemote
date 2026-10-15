@@ -21,8 +21,8 @@ CYST = 0.06       # slots held by cysts, stone, glint and framboids
 CARCASS = 0.3     # a kill leaves a carcass (carcassKeep)
 
 
-def params(bite=0.1, perArea=0, dung=0, ia=0, **over):
-    p = dict(F, bite=bite, perArea=perArea, dung=dung, ia=ia, huntMul=1.0, cH=0.0, grazeMul=1.0, scavMul=1.0,
+def params(bite=0.1, perArea=0, dung=0, ia=0, flee=0, satiety=0, satietyAt=1.0, **over):
+    p = dict(F, bite=bite, perArea=perArea, dung=dung, ia=ia, flee=flee, satiety=satiety, satietyAt=satietyAt, huntMul=1.0, cH=0.0, grazeMul=1.0, scavMul=1.0,
              huskDecay=0.4, huskE=None)
     p.update(over)
     return p
@@ -47,8 +47,33 @@ def rates(x, p):
         kills *= (1 + 0.6 * nb / 5) / (1 + 0.6 * p['ia'] * nb)
     fmax, dh = p['scav']
     intakeS = p['scavMul'] * fmax * D / (D + dh)
+    kills *= p.get('fleeMul', 1.0) if p.get('flee', 0) else 1.0
+    attack = 1.0
+    if p.get('satiety', 0):
+        _, attack = hunterCycle(kills, p['eK'], p['uH'], p['bH'], p['satiety'], p.get('satietyAt', 1.0))
+        kills *= attack
     inc = dict(P=light, G=intakeG, H=kills * p['eK'], S=intakeS)
     return inc, kills, intakeG, intakeS, silt
+
+
+def hunterCycle(k, eK, u, b, satiety, satietyAt, e0=0.45, n=40):
+    """A hunter's energy climbs from e0 (its share after dividing, as a fraction of the energy to divide)
+    to 1, gaining p(e) * k * eK and paying u per minute; satiety makes it attack only with chance
+    p(e) = clamp((1 - e / satietyAt) / satiety). Returns (births per hunter per minute, the share of its
+    chances it attacks, averaged over its time): 1 / the climb's duration, which without satiety is
+    (k eK - u) / b, the processes' own births."""
+    if satiety <= 0:
+        sur = k * eK - u
+        return (sur / b if sur > 0 else 0.0), 1.0
+    x = (np.arange(n) + 0.5) / n
+    e = e0 + (1 - e0) * x
+    pe = np.clip((1 - e / satietyAt) / satiety, 0, 1)
+    rate = (pe * k * eK - u) / b          # progress per minute through the climb
+    if np.any(rate <= 1e-6):
+        return 0.0, float(np.mean(pe))      # stuck below the threshold: it never divides
+    dt = 1.0 / (n * rate)
+    T = dt.sum()
+    return 1.0 / T, float((pe * dt).sum() / T)
 
 
 def netGrowth(x, p):
@@ -67,6 +92,11 @@ def rhs(t, x, p):
         beta, ksl = p['birth' + g]
         sur = (inc[g] - p['u' + g]) / p['b' + g]
         births = beta * max(sur, 0) * silt / (silt + ksl)
+        if g == 'H' and p.get('satiety', 0):
+            # with satiety a hunter's births come from its energy's climb to the threshold (hunterCycle)
+            k0 = inc['H'] / p['eK'] / max(1e-9, hunterCycle(1.0, 1.0, 0.0, 1.0, p['satiety'], p.get('satietyAt', 1.0))[1])
+            bc, _ = hunterCycle(k0, p['eK'], p['uH'], p['bH'], p['satiety'], p.get('satietyAt', 1.0))
+            births = beta * bc * silt / (silt + ksl)
         starve = max(-sur, 0)
         old = p['old' + g]
         d[g] = X * (births - starve - old)
