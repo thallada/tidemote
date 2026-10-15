@@ -15,7 +15,8 @@ import numpy as np
 from scipy.optimize import least_squares
 sys.path.insert(0, 'tools/ecomodel')
 from fit import rules, RULES
-import web
+import web, web2
+MODEL = web2 if '--model' in sys.argv and sys.argv[sys.argv.index('--model') + 1] == 'web2' else web
 
 FREE = [  # (name, key path, initial, lower, upper)
     ('betaP', ('birthP', 0), None, 0.05, 3), ('betaG', ('birthG', 0), None, 0.05, 3),
@@ -26,6 +27,9 @@ FREE = [  # (name, key path, initial, lower, upper)
     ('cH', ('corr', 'H', 0), 0.0, -1, 1), ('cS', ('corr', 'S', 0), 0.0, -1, 1),
     ('decay', ('huskDecay',), 0.4, 0.01, 5),
 ]
+if MODEL is web2:
+    FREE = [f for f in FREE if not f[0].startswith('beta')] + [('satEff', ('satEff',), 0.5, 0.0, 1.0)]
+
 
 
 def trajectories(pts, sets):
@@ -58,12 +62,14 @@ def simulate_set(F, s, traj):
     if t0 is None:
         return None
     x0 = [traj[t0][k] for k in 'PGHSD']
-    p = web.params(**rules(s))
-    p.update({k: v for k, v in F.items() if k not in ('bite', 'perArea', 'dung', 'ia')})
+    p = MODEL.params(**rules(s))
+    p.update({k: v for k, v in F.items() if k not in ('bite', 'perArea', 'dung', 'ia', 'flee', 'satiety', 'satietyAt')})
     later = [t for t in ts if t > t0]
     if not later:
         return None
-    sol = web.simulate(p, x0, T=max(later) - t0 + 0.01)
+    sol = MODEL.simulate(p, x0, T=max(later) - t0 + 0.01)
+    if MODEL is web2:
+        return {t: web2.totals(sol.sol(t - t0)) for t in later}
     return {t: sol.sol(t - t0) for t in later}
 
 
@@ -100,7 +106,7 @@ def main():
     if '--hold' in sys.argv:
         hold = sys.argv[sys.argv.index('--hold') + 1].split(',')
     pts = [{k: (np.nan if v is None else v) for k, v in p.items()} for p in json.load(open('tools/ecomodel/meas/points.json'))]
-    known = [s for s in sorted(set(p['set'] for p in pts)) if s in RULES or s in ('feE2b', 'feE2', 'lgD60', 's10base')]
+    known = [s for s in sorted(set(p['set'] for p in pts)) if (s in RULES or s in ('feE2b', 'feE2', 'lgD60', 's10base')) and not (len(s) < 6 and s.startswith('rB'))]
     fitSets = [s for s in known if s not in hold]
     trajs = trajectories(pts, known)
     F0 = json.load(open('tools/ecomodel/meas/fit.json'))
@@ -118,7 +124,7 @@ def main():
     for (name, path, *_), v in zip(FREE, sol.x):
         put(F, path, float(v))
         print(f'  {name:6s} {v:+.4f}')
-    json.dump(F, open('tools/ecomodel/meas/model.json', 'w'), indent=1)
+    json.dump(F, open('tools/ecomodel/meas/' + ('model2.json' if MODEL is web2 else 'model.json'), 'w'), indent=1)
     print(f"\n{'set':10s} {'min':>4s}  {'measured':36s} {'model':36s}")
     for s in known:
         sim = simulate_set(F, s, trajs[s])

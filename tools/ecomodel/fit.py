@@ -21,11 +21,18 @@ RULES = {
     'b3ia': dict(bite=0.3, perArea=1, dung=1, ia=1), 'b25b': dict(bite=0.25, perArea=1, dung=1),
     'b25iab': dict(bite=0.25, perArea=1, dung=1, ia=1), 'b25L': dict(bite=0.25, perArea=1, dung=1),
     'b4L': dict(bite=0.4, perArea=1, dung=1),
+    'pr25L': dict(bite=0.25, perArea=1, dung=1), 'defL2': dict(bite=0.25, perArea=1, dung=1),
+    'fl5L': dict(bite=0.25, perArea=1, dung=1, flee=0.5), 'fl5': dict(bite=0.25, perArea=1, dung=1, flee=0.5),
+    'flsatL': dict(bite=0.25, perArea=1, dung=1, flee=0.5, satiety=1),
+    'flsatabL': dict(bite=0.25, perArea=1, dung=1, flee=0.5, satiety=1),
+    'nd2L': dict(bite=0.25, perArea=1, dung=1, flee=0.5, satiety=1),
+    'sa13L': dict(bite=0.25, perArea=1, dung=1, flee=0.5, satiety=1, satietyAt=1.3),
+    'sa2L': dict(bite=0.25, perArea=1, dung=1, flee=0.5, satiety=1, satietyAt=2.0),
 }
 OLD = dict(bite=0.1, perArea=0, dung=0)
 for v in RULES.values():
-    v.setdefault('ia', 0)
-OLD['ia'] = 0
+    v.setdefault('ia', 0); v.setdefault('flee', 0); v.setdefault('satiety', 0); v.setdefault('satietyAt', 1.0)
+OLD.update(ia=0, flee=0, satiety=0, satietyAt=1.0)
 
 
 def rules(s):
@@ -78,7 +85,14 @@ def main(path):
     prey = G + S + H
     def hunt(X, kmax, xh):
         return kmax * X[0] / (X[0] + xh)
-    out['hunt'], _ = fit(hunt, (prey,), A('killsH'), [3, 0.03], 'hunter kills per cell', bounds=(0, [50, 1]))
+    # fitted where hunters attack at every chance (no flee, no satiety); flee's effect is a factor on it
+    plain = (A('flee') == 0) & (A('satiety') == 0)
+    out['hunt'], _ = fit(hunt, (prey[plain],), A('killsH')[plain], [3, 0.03], 'hunter kills per cell', bounds=(0, [50, 1]))
+    fl = (A('flee') > 0) & (A('satiety') == 0)
+    if fl.any():
+        ratio = A('killsH')[fl] / hunt((prey[fl],), *out['hunt'])
+        out['fleeMul'] = float(np.nanmedian(ratio))
+        print(f"flee: hunters' kills x {out['fleeMul']:.2f}")
     out['eK'] = float(np.nanmedian(A('incH') / A('killsH')))   # energy a hunter gains per kill
 
     # scavengers' intake: type II in husk density
