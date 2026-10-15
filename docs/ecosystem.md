@@ -83,6 +83,12 @@ The default since: bite 0.25 and holdfast 0.1. Over an hour (30 seeds) all four 
 old honest default 16%), at grazers 8%, hunters 6%, scavengers 7%. Bite 0.4 starves the scavengers
 (2% at an hour: heavy grazing leaves little litter), which the model missed.
 
+Then a stronger meadow refuge (`plantRefuge` 0.25, `refugeMax` 0.6: prey among dense producers escape
+hunters more often). Over 32 seeds x 60 min: grazers alive in every world, all four core guilds awake at
+an hour in 63% (bite 0.25 alone 56%), all four at 5%+ in 22% (13%), effective species 114 (86), at
+grazers 11%, hunters 9%, scavengers 6%. Halving the cost of swimming (`swimCost` 0.009) keeps a few more
+swimmers (11% at 30 minutes against 8%), being checked at an hour.
+
 Also tried: a stronger flow bonus for anchored producers (`flowFeed` 2, 4: sessile 4-7% but hunters and
 thriving fall), ebb and flood currents (`ebb`: no change to the guilds at 10 minutes), `holdfast` 0.1
 (anchored cells barely moved by pushes: no change to the guilds).

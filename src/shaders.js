@@ -83,7 +83,7 @@ export const DEFAULT_K = {
   photoPow: 3,      // light earned grows as photo^photoPow: steep, and an animal with a little photosynthesis gets nearly none
   mutScale: 3,      // scale on every species' chance that a birth is a mutant (a new species)
   rareRefuge: 0,    // a hunter catches animals with chance animals near / (that + this): rare prey are hard to find (type III)
-  plantRefuge: 0.1,   // an attack on an animal fails with this × the producers close around (up to refugeMax): prey hide in meadows
+  plantRefuge: 0.25,   // an attack on an animal fails with this × the producers close around (up to refugeMax): prey hide in meadows
   flee: 0,          // an animal that does not hunt is pushed away from hunters within reach at this × its swimming
   recognize: 0.4,     // living prey (and plants) escape an eater whose receptors do not match their surface: up to this
                     // share of attempts on a perfectly mismatched one (coevolution, frequency-dependent predation)
@@ -147,7 +147,7 @@ export const DEFAULT_K = {
   stoneR: 0.32,     // distance within which stone pushes cells away
   stoneWall: 5.0,   // how hard stone pushes (scaled down for calcifiers, which settle on it)
   refuge: 0.12,     // chance per nearby grain of stone that an attack made from among stone misses...
-  refugeMax: 0.3,   // ...up to this (a leaky refuge: hunters at reefs still make a living)
+  refugeMax: 0.6,   // ...up to this (a leaky refuge: hunters at reefs still make a living)
   // Heat: a field on the binning grid that life writes (its spent energy) and reads (each species'
   // preferred temperature). Degrees are notional; see docs/thermal-energy-2026-10-07.md.
   heat: 1,          // 0: no field, and temperature has no effect

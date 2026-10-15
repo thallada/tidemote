@@ -1282,7 +1282,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     // scale on every species' chance that a birth is a mutant (a new species)
     rareRefuge: 0,
     // a hunter catches animals with chance animals near / (that + this): rare prey are hard to find (type III)
-    plantRefuge: 0.1,
+    plantRefuge: 0.25,
     // an attack on an animal fails with this × the producers close around (up to refugeMax): prey hide in meadows
     flee: 0,
     // an animal that does not hunt is pushed away from hunters within reach at this × its swimming
@@ -1393,7 +1393,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     // how hard stone pushes (scaled down for calcifiers, which settle on it)
     refuge: 0.12,
     // chance per nearby grain of stone that an attack made from among stone misses...
-    refugeMax: 0.3,
+    refugeMax: 0.6,
     // ...up to this (a leaky refuge: hunters at reefs still make a living)
     // Heat: a field on the binning grid that life writes (its spent energy) and reads (each species'
     // preferred temperature). Degrees are notional; see docs/thermal-energy-2026-10-07.md.
