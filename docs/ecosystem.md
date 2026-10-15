@@ -47,6 +47,41 @@ number until grazers are held down. That is the next problem.
 of silt as a husk, so scavengers live on grazers' leavings. `story.mjs` now reports guild sizes and the
 movement mix; judge changes by those, since "survives" counted 1-2% remnants.
 
+## The fitted model, and what it says about the long run (2026-10-15)
+
+`tools/ecomodel` (README there) now fits the web's processes to every ensemble's 5-minute windows
+(light per producer, grazing, hunters' kills, scavenging, births against surplus, deaths by being
+eaten), then a few parameters to ensembles' median trajectories. Held out, it follows the default on new
+seeds and `interfereAll` (whose effect it computes from the rule: rivals are every hunter close by, not
+kin) to within a few points at 12-22 minutes, and with the 60-minute ensembles in the fit it follows the
+slow erosion to an hour. A sweep of knobs takes seconds.
+
+What it and the measurements found:
+
+- **Hunters are saturated.** A hunter kills 2-3 prey a minute whatever the prey's density (half
+  saturation at ~5% of the slots): hunters live among their prey. So hunters multiply until prey is rare,
+  and grazers settle where the hunters' numbers, not their food, put them: after 10 minutes the default
+  drifts from grazers 29% to a trophic cascade (producers 69%, grazers 6%, hunters 8% at 30 minutes).
+  Hunters' traits barely evolve in that time; it is ecology, not evolution.
+- **Non-hunters kill too**: grazers and scavengers with a little taste for flesh take a third of the
+  animals eaten, more as animals crowd (self-limitation).
+- **Apparent competition**: scavengers, fed on husks and dung whatever the grazers do, keep hunters fed
+  while hunters press the grazers down.
+- **Bites set the long run.** The model's sweep put bite size first (light saturation, interference and
+  hunters' ceiling second); the GPU agrees at 30 minutes (32 seeds):
+
+| | grazers | hunters | scavengers | all four alive | all four 5%+ |
+|---|---|---|---|---|---|
+| default (bite 0.2) | 6% | 8% | 8% | 56% | 16% |
+| bite 0.25 | 9% | 7% | 11% | 69% | 34% |
+| bite 0.3 | 14% | 10% | 6% | 59% | 19% |
+| bite 0.3, interfereAll | 15% | 8% | 10% | 66% | 28% |
+| interfereAll (64 seeds) | 16-19% | 4-5% | 12-14% | 64% | 16-38% |
+
+Also tried: a stronger flow bonus for anchored producers (`flowFeed` 2, 4: sessile 4-7% but hunters and
+thriving fall), ebb and flood currents (`ebb`: no change to the guilds at 10 minutes), `holdfast` 0.1
+(anchored cells barely moved by pushes: no change to the guilds).
+
 ## Where the world stands
 
 Nothing needs anyone below the predators. Producers live on light and silt, which is everywhere.
