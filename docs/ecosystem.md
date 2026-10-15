@@ -87,7 +87,10 @@ Then a stronger meadow refuge (`plantRefuge` 0.25, `refugeMax` 0.6: prey among d
 hunters more often). Over 32 seeds x 60 min: grazers alive in every world, all four core guilds awake at
 an hour in 63% (bite 0.25 alone 56%), all four at 5%+ in 22% (13%), effective species 114 (86), at
 grazers 11%, hunters 9%, scavengers 6%. Halving the cost of swimming (`swimCost` 0.009) keeps a few more
-swimmers (11% at 30 minutes against 8%), being checked at an hour.
+swimmers (11% at 30 minutes against 8%); at an hour swimmers 10% against 7% but all four awake in 53%
+(63%): not adopted. Neither were bite 0.3 on top of the refuge (all four at an hour 50%, thriving 13%)
+nor `huskRefuge` 0.25, animals among husks hard to catch (53%, 19%): scavengers, the guild most often lost
+by an hour, are worn down by hunters with husks plentiful, and a litter refuge did not change it.
 
 Also tried: a stronger flow bonus for anchored producers (`flowFeed` 2, 4: sessile 4-7% but hunters and
 thriving fall), ebb and flood currents (`ebb`: no change to the guilds at 10 minutes), `holdfast` 0.1
