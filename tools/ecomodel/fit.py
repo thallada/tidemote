@@ -17,6 +17,9 @@ RULES = {
     'rAb15': dict(bite=0.15, perArea=0, dung=0),
     'iaA6': dict(bite=0.2, perArea=1, dung=1, ia=1), 'iaA6b': dict(bite=0.2, perArea=1, dung=1, ia=1), 'iaA60': dict(bite=0.2, perArea=1, dung=1, ia=1),
     'trD30': dict(bite=0.2, perArea=1, dung=1),
+    'b3': dict(bite=0.3, perArea=1, dung=1), 'b25': dict(bite=0.25, perArea=1, dung=1),
+    'b3ia': dict(bite=0.3, perArea=1, dung=1, ia=1), 'b25b': dict(bite=0.25, perArea=1, dung=1),
+    'b25iab': dict(bite=0.25, perArea=1, dung=1, ia=1), 'b25L': dict(bite=0.25, perArea=1, dung=1),
 }
 OLD = dict(bite=0.1, perArea=0, dung=0)
 for v in RULES.values():

@@ -16,11 +16,11 @@ pts = [{k: (np.nan if v is None else v) for k, v in p.items()} for p in json.loa
 start = [np.nanmedian([p[k] for p in pts if p['set'] == 'trD30' and p['t'] == 7]) for k in 'PGHSD']
 
 
-def outcome(bite=0.2, light=1.0, ia=0, kmax=1.0, eK=1.0, dung=1, T=(30, 60)):
+def outcome(bite=0.2, light=1.0, ia=0, kmax=1.0, eK=1.0, dung=1, shade=1.0, xh=1.0, T=(30, 60)):
     p = web.params(bite=bite, perArea=1, dung=dung, ia=ia)
     p.update({k: v for k, v in F.items() if k not in ('bite', 'perArea', 'dung', 'ia')})
-    p['light'] = list(p['light']); p['light'][3] *= light
-    p['hunt'] = [p['hunt'][0] * kmax, p['hunt'][1]]
+    p['light'] = list(p['light']); p['light'][3] *= light; p['light'][4] *= shade
+    p['hunt'] = [p['hunt'][0] * kmax, p['hunt'][1] * xh]
     p['eK'] *= eK
     sol = web.simulate(p, start, T=max(T) - 7 + 0.01)
     out = {}
@@ -36,7 +36,9 @@ def fmt(o):
 
 
 if __name__ == '__main__':
-    grid = dict(bite=[0.2, 0.25, 0.3], light=[0.8, 1.0, 1.3], ia=[0, 1], kmax=[0.6, 0.8, 1.0], eK=[1.0, 1.3])
+    grid = dict(bite=[0.2, 0.3], light=[1.0, 1.5, 2.0, 3.0], shade=[1.0, 2.0, 4.0, 8.0], ia=[0, 1])
+    if '--grid' in sys.argv:
+        grid = json.loads(sys.argv[sys.argv.index('--grid') + 1])
     rows = []
     for combo in itertools.product(*grid.values()):
         kw = dict(zip(grid, combo))
