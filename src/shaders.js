@@ -130,6 +130,7 @@ export const DEFAULT_K = {
   bond: 60,         // spring strength of bonds between cells of one body
   adhMin: 0.15,     // adhesion needed before a species forms bonds
   bite: 0.25,       // energy taken per bite from a photosynthesising cell
+  biteShare: 0,     // >0: a bite takes at most this share of the plant's energy (grazers crop plants rather than kill them)
   eatEvery: 6,      // frames between meals
   dietMin: 0.15,    // share of the diet a food must have before a cell bothers to eat it
   // Stone: calcified remains and bedrock. Immobile, solid to all but calcifiers, slowly eroding back to silt.
@@ -247,6 +248,8 @@ export const DEFAULT_K = {
 // With K.cycle: the skill that eats a husk (litter: a grazer's; carcass: a scavenger's), and a dying cell's litter flag
 const huskSkill = (K) => (K.cycle && !K.litterTo ? 'select(g.dHusk, g.dGlint, (fp.info & LITTER) != 0u)' : 'g.dHusk');
 const litterOf = (K, G) => (K.cycle ? ` | select(0u, LITTER, ${G}.photo > 0.4)` : '');
+// a grazer's bite of a plant holding energy E: K.bite, or with K.biteShare at most that share of E (cropping, not killing)
+const biteOf = (K, E) => (K.biteShare > 0 ? `min(${f(K.bite)}, ${f(K.biteShare)} * max(${E}, 0.0))` : f(K.bite));
 const bodyOf = (K, G) => (K.bodyE > 0 ? (K.bodySize ? `${f(K.bodyE)} * ${G}.size` : f(K.bodyE)) : f(K.buildCost));
 const preyShare = (K) => (K.bodyE > 0 ? 1 : K.preyFrac);
 
@@ -1293,7 +1296,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         }
       } else if (act == 3u && p.kind == ck) {
         if (p.kind >= FIRST_LIFE) {
-          p.energy -= ${f(K.bite)} * bites;
+          p.energy -= ${biteOf(K, 'p.energy')} * bites;
           if (p.energy <= 0.0) {
             atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
             p.kind = HUSK; p.energy = ${K.bodyE > 0 ? bodyOf(K, 'genomes[p.kind]') : f(K.huskBase)}; p.age = 0.0;
@@ -1980,7 +1983,7 @@ ${cellWGSL(K, false)}
         } else if (fp.kind == HUSK) {
           gain = ${K.bodyE > 0 && K.bodyWhole ? 'fp.energy * min(1.0, spec(' + huskSkill(K) + ') * eatEff * th.perf * ' + f(K.assimilate) + ')' : 'take(fp.energy, spec(' + huskSkill(K) + '), false, eatEff * th.perf)'}; atomicAdd(&ledger[10], 1u);
         } else if (genomes[fp.kind].photo > 0.4) {
-          gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf);${K.dung ? ` gut = min(gut + max(0.0, min(max(fp.energy, 0.0), ${f(K.bite)}) - gain), ${f(K.dungE)});` : ''} act = 3u; atomicAdd(&ledger[11], 1u);
+          gain = take(min(max(fp.energy, 0.0), ${biteOf(K, 'fp.energy')}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf);${K.dung ? ` gut = min(gut + max(0.0, min(max(fp.energy, 0.0), ${biteOf(K, 'fp.energy')}) - gain), ${f(K.dungE)});` : ''} act = 3u; atomicAdd(&ledger[11], 1u);
         } else {
           gain = ${K.bodyE > 0 && K.bodyWhole ? `(${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0)` : `take(${K.bodyE > 0 ? `(${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)})` : f(K.preyBase)} + ${f(preyShare(K))} * max(fp.energy, 0.0)`}, spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);${K.dung ? ` gut = min(gut + max(0.0, (${K.bodyE > 0 ? `${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}` : '0.0'} + max(fp.energy, 0.0)) - gain), ${f(K.dungE)});` : ''}
         }
@@ -2058,7 +2061,7 @@ ${cellWGSL(K, false)}
           } else if (fp.kind == HUSK) {
             gain = ${K.bodyE > 0 && K.bodyWhole ? 'fp.energy * min(1.0, spec(' + huskSkill(K) + ') * eatEff * th.perf * ' + f(K.assimilate) + ')' : 'take(fp.energy, spec(' + huskSkill(K) + '), false, eatEff * th.perf)'}; atomicAdd(&ledger[10], 1u); slot = 3u;
           } else if (plant) {
-            gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf);${K.dung ? ` gut = min(gut + max(0.0, min(max(fp.energy, 0.0), ${f(K.bite)}) - gain), ${f(K.dungE)});` : ''} atomicAdd(&ledger[11], 1u); slot = 2u;
+            gain = take(min(max(fp.energy, 0.0), ${biteOf(K, 'fp.energy')}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf);${K.dung ? ` gut = min(gut + max(0.0, min(max(fp.energy, 0.0), ${biteOf(K, 'fp.energy')}) - gain), ${f(K.dungE)});` : ''} atomicAdd(&ledger[11], 1u); slot = 2u;
           } else {
             gain = ${K.bodyE > 0 && K.bodyWhole ? `(${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0)` : `take(${K.bodyE > 0 ? `(${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)})` : f(K.preyBase)} + ${f(preyShare(K))} * max(fp.energy, 0.0)`}, spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);${K.dung ? ` gut = min(gut + max(0.0, (${K.bodyE > 0 ? `${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}` : '0.0'} + max(fp.energy, 0.0)) - gain), ${f(K.dungE)});` : ''}
           }
