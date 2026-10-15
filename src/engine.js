@@ -664,7 +664,7 @@ class Engine {
     while (a === 0 && b === 0) { a = Math.round(mix(-3, 3, rng())); b = Math.round(mix(-3, 3, rng())); }
     this.tide[k * 4] = a;
     this.tide[k * 4 + 1] = b;
-    this.tide[k * 4 + 2] = (rng() < 0.5 ? -1 : 1) * mix(0.008, 0.03, rng());
+    this.tide[k * 4 + 2] = (rng() < 0.5 ? -1 : 1) * mix(0.008, 0.03, rng()) * (this.K.tideSpeed ?? 1);
     this.tidePh[k] = rng() * Math.PI * 2;
   }
 

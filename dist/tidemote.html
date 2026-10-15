@@ -1520,6 +1520,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     // ...in grains of this much energy each
     tideCharge: 0,
     // scale on the tide's (and hot springs') charging of silt into glint
+    tideSpeed: 1,
+    // scale on how fast the tide's bands of light travel
     ebb: 0,
     // ebb and flood: the currents swing back and forth with this depth (1: they reverse fully)
     ebbPeriod: 90,
@@ -15504,7 +15506,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       this.tide[k * 4] = a;
       this.tide[k * 4 + 1] = b;
-      this.tide[k * 4 + 2] = (rng() < 0.5 ? -1 : 1) * mix2(8e-3, 0.03, rng());
+      this.tide[k * 4 + 2] = (rng() < 0.5 ? -1 : 1) * mix2(8e-3, 0.03, rng()) * (this.K.tideSpeed ?? 1);
       this.tidePh[k] = rng() * Math.PI * 2;
     }
     /** Divergence-free, torus-periodic currents. Returns the new wave table. */

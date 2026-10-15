@@ -219,6 +219,7 @@ export const DEFAULT_K = {
   exude: 0,      // with cycle, the share of a producer's light it leaks as glint...
   exudeE: 0.6,      // ...in grains of this much energy each
   tideCharge: 0,    // scale on the tide's (and hot springs') charging of silt into glint
+  tideSpeed: 1,     // scale on how fast the tide's bands of light travel
   ebb: 0,           // ebb and flood: the currents swing back and forth with this depth (1: they reverse fully)
   ebbPeriod: 90,    // ...over this many seconds
   rotScale: 1,
