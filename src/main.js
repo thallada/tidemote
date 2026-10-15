@@ -774,7 +774,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         life.top = best.serial;
       }
     }
-    eng.abio = abioRate(pop[1]);
+    eng.abio = abioRate(pop[1] + (eng.K.abioSilt ? pop[0] : 0));
     feedSound(pop, audio);
 
     if (t - life.lastHist >= life.histEvery) {

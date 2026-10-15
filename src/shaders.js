@@ -221,6 +221,7 @@ export const DEFAULT_K = {
   exudeE: 0.6,      // ...in grains of this much energy each
   tideCharge: 0,    // scale on the tide's (and hot springs') charging of silt into glint
   tideSpeed: 1,     // scale on how fast the tide's bands of light travel
+  abioSilt: 0,      // 1: abiogenesis sparks from silt in the light too (glint is rare without tideCharge), one spark per ~30 s world-wide
   ebb: 0,           // ebb and flood: the currents swing back and forth with this depth (1: they reverse fully)
   ebbPeriod: 90,    // ...over this many seconds
   rotScale: 1,
@@ -1581,7 +1582,21 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       p.kind = GLINT; p.energy = 1.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 5u;
     }
-  } else if (p.kind == GLINT) {
+${K.abioSilt ? `    // K.abioSilt: life also sparks from silt, in the light (so a world that died can begin again)
+    if (p.kind == SILT && sim.abio > 0.0 && rnd(&s) < sim.abio * 2.0 * clamp(tide, 0.0, 1.0)) {
+      let k = allocSlot(&s);
+      if (k != NONE) {
+        randomInto(k, &s, T);
+        p.kind = k; p.energy = 0.9; p.age = 0.0;
+        p.id = atomicAdd(&ledger[0], 1u);
+        p.col = genomes[k].col;
+        p.info = 8u;
+        intent[i] = vec4u(0u, 0u, NONE, NONE);
+        vel = vec2f(0.0);
+        atomicAdd(&ledger[4], 1u);
+      }
+    }
+` : ''}  } else if (p.kind == GLINT) {
     p.energy -= ${f(K.leak * K.glintFade)} * pow(${f(K.glintQ10)}, warm) * sim.dt;
     if (p.energy < ${f(K.glintMin)}) {
       p.kind = SILT; p.energy = 0.0; p.age = 0.0;

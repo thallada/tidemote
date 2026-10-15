@@ -55,7 +55,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
       const community = communitySample(species, eng.K.adhMin);
       const { living, diet } = community;
       const fraction = living / eng.count;
-      eng.abio = abioRate(pop[1]);
+      eng.abio = abioRate(pop[1] + (eng.K.abioSilt ? pop[0] : 0));
       if (t > 60) {
         minLivingFrac = Math.min(minLivingFrac ?? 1, fraction);
         if (fraction < 0.02 && !collapsed) collapses++;
@@ -215,7 +215,7 @@ export async function runForks(device, config, { print } = {}) {
     eng.seed(config.n, { aspect: 16 / 9, rng });
     eng.censusEvery = 20;
     const climate = createClimate(eng, rng);
-    eng.onCensus = (c) => { eng.abio = abioRate(c.pop[1]); };
+    eng.onCensus = (c) => { eng.abio = abioRate(c.pop[1] + (eng.K.abioSilt ? c.pop[0] : 0)); };
     const warm = Math.round(config.warm * 60);
     for (let f = 0; f < warm; f++) {
       eng.season = seasonAt(eng.simTime);
