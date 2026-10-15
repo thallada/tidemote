@@ -92,6 +92,13 @@ swimmers (11% at 30 minutes against 8%); at an hour swimmers 10% against 7% but 
 nor `huskRefuge` 0.25, animals among husks hard to catch (53%, 19%): scavengers, the guild most often lost
 by an hour, are worn down by hunters with husks plentiful, and a litter refuge did not change it.
 
+The default confirmed on fresh seeds (33-64, 60 min): all four awake at an hour in 59%, all four at 5%+
+in 28%, grazers 12%, hunters 13%, scavengers 7%. Two changes that help at 30 minutes fade by an hour:
+a faster tide (`tideSpeed` 3: all four 5%+ in 47% at 30 minutes, 24% at an hour, 62% awake) and prey
+fleeing hunters (`flee` 0.5: all four awake 84% at 30 minutes, 53% at an hour as hunters wear down;
+swimmers 11% at an hour against 5-7%). Whatever helps prey early costs hunters by the hour: the hour-long
+state keeps returning to about 60% / 25%.
+
 Also tried: a stronger flow bonus for anchored producers (`flowFeed` 2, 4: sessile 4-7% but hunters and
 thriving fall), ebb and flood currents (`ebb`: no change to the guilds at 10 minutes), `holdfast` 0.1
 (anchored cells barely moved by pushes: no change to the guilds).
