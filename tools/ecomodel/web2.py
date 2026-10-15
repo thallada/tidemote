@@ -128,7 +128,7 @@ def rhs(t, x, p):
             lo, fr = int(np.floor(k)), k - np.floor(k)
             moved = n * rate
             d -= moved
-            M, ob = jumpMatrix(round(k, 6))
+            M, ob = jumpMatrix(round(k, 2))   # quantised: costs drift as guilds evolve, and an exact key per step would grow without bound
             d += M @ moved
             overshoot_births[0] += ob @ moved
         else:
