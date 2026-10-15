@@ -105,11 +105,18 @@ def main():
     hold = []
     if '--hold' in sys.argv:
         hold = sys.argv[sys.argv.index('--hold') + 1].split(',')
-    pts = [{k: (np.nan if v is None else v) for k, v in p.items()} for p in json.load(open('tools/ecomodel/meas/points.json'))]
+    raw = json.load(open('tools/ecomodel/meas/points.json'))
+    try:
+        raw += json.load(open('tools/ecomodel/meas/points_extra.json'))
+    except FileNotFoundError:
+        pass
+    pts = [{k: (np.nan if v is None else v) for k, v in p.items()} for p in raw]
     known = [s for s in sorted(set(p['set'] for p in pts)) if (s in RULES or s in ('feE2b', 'feE2', 'lgD60', 's10base')) and not (len(s) < 6 and s.startswith('rB'))]
     fitSets = [s for s in known if s not in hold]
     trajs = trajectories(pts, known)
     F0 = json.load(open('tools/ecomodel/meas/fit.json'))
+    if '--evolve' in sys.argv:
+        F0['evolve'] = json.load(open('tools/ecomodel/meas/evolve.json'))
     F0.setdefault('corr', {g: [0.0, 0.0, 0.0] for g in 'PGHS'})
     F0.setdefault('huskDecay', 0.4)
     theta0 = [get(F0, path) if init is None else init for (name, path, init, lo, hi) in FREE]
@@ -124,7 +131,7 @@ def main():
     for (name, path, *_), v in zip(FREE, sol.x):
         put(F, path, float(v))
         print(f'  {name:6s} {v:+.4f}')
-    json.dump(F, open('tools/ecomodel/meas/' + ('model2.json' if MODEL is web2 else 'model.json'), 'w'), indent=1)
+    json.dump(F, open('tools/ecomodel/meas/' + ('model2e.json' if '--evolve' in sys.argv else 'model2.json' if MODEL is web2 else 'model.json'), 'w'), indent=1)
     print(f"\n{'set':10s} {'min':>4s}  {'measured':36s} {'model':36s}")
     for s in known:
         sim = simulate_set(F, s, trajs[s])

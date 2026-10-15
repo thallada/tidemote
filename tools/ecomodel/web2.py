@@ -87,7 +87,19 @@ def attack(p):
     return 1 - p.get('satEff', 1.0) * (1 - raw)
 
 
+def costsAt(p, t):
+    """each guild's upkeep and energy per birth at minute t of the run, as the guilds evolve
+    (meas/evolve.json: an exponential relaxation from the 7-minute value), when p['evolve'] is set"""
+    if not p.get('evolve'):
+        return p
+    q = dict(p)
+    for k, (a, b, tau) in p['evolve'].items():
+        q[k] = b + (a - b) * np.exp(-(max(t + p.get('t0', 7.0), 7.0) - 7.0) / tau)
+    return q
+
+
 def rhs(t, x, p):
+    p = costsAt(p, t)
     P, h, D = unpack(x)
     G, H, S = h['G'].sum(), h['H'].sum(), h['S'].sum()
     tot = np.array([P, G, H, S, D])

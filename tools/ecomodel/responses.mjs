@@ -29,7 +29,10 @@ for (const dir of process.argv.slice(2).filter((a, i, all) => a !== '--json' && 
       killG: m((s) => s.meals.predator.grazer) / N0, killS: m((s) => s.meals.predator.scavenger) / N0, killHH: m((s) => s.meals.predator.predator) / N0,
       // every eater's kills of every animal guild (cells per minute per slot): meals[eater][victim]
       ...Object.fromEntries(['grazer', 'predator', 'scavenger', 'omnivore'].flatMap((e) => ['grazer', 'predator', 'scavenger', 'omnivore'].map((v) => [`m_${e[0]}${v[0]}`, m((s) => s.meals?.[e]?.[v] ?? 0) / N0]))),
-      O: N('omnivore') / N0 });
+      O: N('omnivore') / N0,
+      // each guild's mean genome traits (guildTraits, logged since ff1a6a5), for adaptive dynamics
+      ...Object.fromEntries([['P', 'producer'], ['G', 'grazer'], ['H', 'predator'], ['S', 'scavenger']].flatMap(([k, g]) =>
+        ['swim', 'size', 'lifespan', 'advect', 'reproE', 'share', 'force', 'radius', 'adhesion'].map((t) => [`z${k}_${t}`, m((s) => s.guildTraits?.[g]?.[t] ?? NaN)]))) });
   }
 }
 // the measured rate of change of each awake density: from this window to the next of the same run
