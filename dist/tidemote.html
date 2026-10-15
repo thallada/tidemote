@@ -1478,6 +1478,10 @@ svg.niche .n-dot { fill: var(--cyan); }
     provision: 60,
     // a cell divides only once its child's share would cover this many seconds of its upkeep (feeding
     // until then; 0: at divE): hunters, whose meals are far apart, raise viable young
+    dung: 0,
+    // 1: what an eater cannot assimilate (of bites and kills) fills its gut and is dropped as a husk
+    dungE: 0.6,
+    // ...once the gut holds this much
     satiety: 0,
     // a fed hunter rests: attacks on animals fall off as it nears the energy to divide (1: in proportion)
     holdfast: 1,
@@ -2129,7 +2133,9 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   }
   pos = wrapPos(pos);
 
-  var col = unpack4x8unorm(p.col).rgb;
+  var col = unpack4x8unorm(p.col).rgb;${K.dung ? `
+  // the gut: what an eater could not assimilate, held in the colour's spare byte (1: empty) until dropped as dung
+  var gut = (1.0 - unpack4x8unorm(p.col).a) * ${f(K.dungE)};` : ""}
   if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }
   col = mix(col, roleColor(g, role), ${f(K.baseMix)});
 
@@ -2573,6 +2579,10 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
             atomicAdd(&ledger[META_ENERGY + 60u], 1u);` : ""}
           }
         }
+      } else if (act == 2u && ck == HUSK && p.kind == SILT) {
+        // dung: the grain beside an eater becomes a husk of what its gut held
+        p.kind = HUSK; p.energy = bitcast<f32>(intent[c - 1u].y); p.age = 0.0; p.vel *= 0.2;
+        p.info = (p.info & 0xffff7fc0u) | 3u${K.cycle ? " | LITTER" : ""};
       } else if (act == 2u && ck == GLINT && p.kind == SILT) {
         // a producer's exudate: the grain beside it charged with what it leaked
         p.kind = GLINT; p.energy = bitcast<f32>(intent[c - 1u].y); p.age = 0.0;
@@ -3248,9 +3258,9 @@ ${cellWGSL(K, false)}
         } else if (fp.kind == HUSK) {
           gain = ${K.bodyE > 0 && K.bodyWhole ? "fp.energy * min(1.0, spec(" + huskSkill(K) + ") * eatEff * th.perf * " + f(K.assimilate) + ")" : "take(fp.energy, spec(" + huskSkill(K) + "), false, eatEff * th.perf)"}; atomicAdd(&ledger[10], 1u);
         } else if (genomes[fp.kind].photo > 0.4) {
-          gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf); act = 3u; atomicAdd(&ledger[11], 1u);
+          gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf);${K.dung ? ` gut = min(gut + max(0.0, min(max(fp.energy, 0.0), ${f(K.bite)}) - gain), ${f(K.dungE)});` : ""} act = 3u; atomicAdd(&ledger[11], 1u);
         } else {
-          gain = ${K.bodyE > 0 && K.bodyWhole ? `(${bodyOf(K, "genomes[fp.kind]")} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0)` : `take(${K.bodyE > 0 ? `(${bodyOf(K, "genomes[fp.kind]")} * ${f(1 - K.carcassKeep)})` : f(K.preyBase)} + ${f(preyShare(K))} * max(fp.energy, 0.0)`}, spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);
+          gain = ${K.bodyE > 0 && K.bodyWhole ? `(${bodyOf(K, "genomes[fp.kind]")} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0)` : `take(${K.bodyE > 0 ? `(${bodyOf(K, "genomes[fp.kind]")} * ${f(1 - K.carcassKeep)})` : f(K.preyBase)} + ${f(preyShare(K))} * max(fp.energy, 0.0)`}, spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);${K.dung ? ` gut = min(gut + max(0.0, (${K.bodyE > 0 ? `${bodyOf(K, "genomes[fp.kind]")} * ${f(1 - K.carcassKeep)}` : "0.0"} + max(fp.energy, 0.0)) - gain), ${f(K.dungE)});` : ""}
         }
         if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
         E += gain;
@@ -3326,9 +3336,9 @@ ${cellWGSL(K, false)}
           } else if (fp.kind == HUSK) {
             gain = ${K.bodyE > 0 && K.bodyWhole ? "fp.energy * min(1.0, spec(" + huskSkill(K) + ") * eatEff * th.perf * " + f(K.assimilate) + ")" : "take(fp.energy, spec(" + huskSkill(K) + "), false, eatEff * th.perf)"}; atomicAdd(&ledger[10], 1u); slot = 3u;
           } else if (plant) {
-            gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[11], 1u); slot = 2u;
+            gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf);${K.dung ? ` gut = min(gut + max(0.0, min(max(fp.energy, 0.0), ${f(K.bite)}) - gain), ${f(K.dungE)});` : ""} atomicAdd(&ledger[11], 1u); slot = 2u;
           } else {
-            gain = ${K.bodyE > 0 && K.bodyWhole ? `(${bodyOf(K, "genomes[fp.kind]")} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0)` : `take(${K.bodyE > 0 ? `(${bodyOf(K, "genomes[fp.kind]")} * ${f(1 - K.carcassKeep)})` : f(K.preyBase)} + ${f(preyShare(K))} * max(fp.energy, 0.0)`}, spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);
+            gain = ${K.bodyE > 0 && K.bodyWhole ? `(${bodyOf(K, "genomes[fp.kind]")} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0)` : `take(${K.bodyE > 0 ? `(${bodyOf(K, "genomes[fp.kind]")} * ${f(1 - K.carcassKeep)})` : f(K.preyBase)} + ${f(preyShare(K))} * max(fp.energy, 0.0)`}, spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);${K.dung ? ` gut = min(gut + max(0.0, (${K.bodyE > 0 ? `${bodyOf(K, "genomes[fp.kind]")} * ${f(1 - K.carcassKeep)}` : "0.0"} + max(fp.energy, 0.0)) - gain), ${f(K.dungE)});` : ""}
           }
           if (fp.kind >= FIRST_LIFE) {
             atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
@@ -3349,6 +3359,12 @@ ${K.cycle && K.exude > 0 ? `  // producers leak part of what they fix as dissolv
     if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
       act = 2u; ck = GLINT; ce = ${f(K.exudeE)}; E -= ce;
       atomicAdd(&ledger[META_ENERGY + 59u], 1u);
+    }
+  }
+` : ""}${K.dung ? `  // a full gut is dropped as dung: the grain beside the eater becomes a husk of what it held
+  if (act == 0u && silt != NONE && gut >= ${f(0.98 * K.dungE)}) {
+    if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
+      act = 2u; ck = HUSK; ce = gut; gut = 0.0;
     }
   }
 ` : ""}${K.cyst ? `  // a cell running out with nothing to eat in reach may go dormant (after a while awake)
@@ -3382,7 +3398,7 @@ ${K.cycle ? `  if (kind == HUSK) { atomicAdd(&ledger[META_ENERGY + select(61u, 6
   let childGen = ((genOf(p.info) + 1u) & 0xffffu) << 14u;
   // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(pack, ce, act == 2u)), n1, n2);
-  parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0)), info);
+  parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), ${K.dung ? `1.0 - gut / ${f(K.dungE)}` : "1.0"})), info);
 }
 
 // --------------------------------------------------------------------- mind
