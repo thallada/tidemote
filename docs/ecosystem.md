@@ -116,6 +116,13 @@ fighting back (`fightBack` 0.5: 33%, as the model predicted: cannibalism is hunt
 cysts (`cystPlants`: hunters collapse), grazers cropping rather than killing (`biteShare` 0.4: worlds
 still died of the cold, thriving 33%), twice the light saturation (42-48%).
 
+Confirmed on fresh seeds (33-64): all four awake at an hour in 75%, all four at 5%+ in 56%, predators
+alive in 81%, 159 effective species, swimmers 25%; over 64 seeds about 67% / 47%. A tide three times as
+fast (`tideSpeed` 3) on top: 72% / 50% (32 seeds), as good and livelier to watch: adopted. `satietyAt`
+1.3 (a hunter counts as full only at 1.3 x the energy to divide): hunters alive in 94% of worlds and 17%
+of the living, but grazers 18% and scavengers alive in 75%; 69% / 44%, a trade rather than a gain. 2: 63% /
+31% (16 seeds).
+
 Also tried: a stronger flow bonus for anchored producers (`flowFeed` 2, 4: sessile 4-7% but hunters and
 thriving fall), ebb and flood currents (`ebb`: no change to the guilds at 10 minutes), `holdfast` 0.1
 (anchored cells barely moved by pushes: no change to the guilds).
