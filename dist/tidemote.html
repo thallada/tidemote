@@ -1349,6 +1349,9 @@ svg.niche .n-dot { fill: var(--cyan); }
     // energy per second for a pure photosynth in full light
     shade: 0.07,
     // self-shading per living neighbour
+    shadeP: 0,
+    // >0: light per area: only photosynthesisers shade, this much per neighbour (in place of shade;
+    // a patch's light saturates, so a grazed meadow regrows: docs/ecosystem.md)
     align: 3,
     bond: 60,
     // spring strength of bonds between cells of one body
@@ -1722,6 +1725,7 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   var kinVel = vec2f(0.0);
   var kinN = 0.0;
   var crowd = 0.0;
+  var crowdP = 0.0;
   var nutr = 0.0;
   var d1 = 1e9; var d2 = 1e9;
   var n1 = NONE; var n2 = NONE;
@@ -1816,7 +1820,7 @@ ${K.liveFirst ? `
   for (var k = 0u; k < 18u; k++) {
     if (k == 9u) {
       let toM = strideL / strideM;
-      overlap *= toM; preyNear *= toM; force *= toM; crowd *= toM; pack *= toM; kinVel *= toM; kinN *= toM; jF *= toM;${K.socialN > 0 ? " nIn *= toM;" : ""}${K.socialN > 0 && K.coreSum ? " coreF *= toM;" : ""}
+      overlap *= toM; preyNear *= toM; force *= toM; crowd *= toM; crowdP *= toM; pack *= toM; kinVel *= toM; kinN *= toM; jF *= toM;${K.socialN > 0 ? " nIn *= toM;" : ""}${K.socialN > 0 && K.coreSum ? " coreF *= toM;" : ""}
       st = strideM;
       at = select(0.0, rnd(&s) * strideM, strideM > 1.0);
     }
@@ -1903,7 +1907,8 @@ ${K.liveFirst ? `
         if (x >= ${K.tissue > 0 ? "bk" : "beta"}) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * ${K.tissue > 0 ? "invBk" : "invBeta"} * invR; }${K.flee > 0 ? `
         // an animal that is not a hunter swims away from hunters near it, the harder the closer they are
         if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && g.dFlesh <= 0.5 && g.photo <= 0.4) { fr -= ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x); }` : ""}
-        crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
+        crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);${K.shadeP > 0 ? `
+        if ((q.kr & (1u << 12u)) != 0u) { crowdP += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind); }` : ""}
         if (DIAG) {
           if (x < beta) { overlap += 1.0; }
           if (qk != p.kind && (q.kr & (1u << 12u)) == 0u && r < 2.0 * EAT_R) { preyNear += vec2f(select(0.0, 1.0, r < EAT_R), 1.0); }
@@ -2146,7 +2151,7 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
   // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
   // water; anchored cells have fresh silt carried past them by the currents.
-  let photoGain = th.perf * ${K.photoPow > 1 ? `pow(g.photo, ${f(K.photoPow)})` : "g.photo"} * light * ${f(K.photo)} / (1.0 + crowd * ${f(K.shade)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
+  let photoGain = th.perf * ${K.photoPow > 1 ? `pow(g.photo, ${f(K.photoPow)})` : "g.photo"} * light * ${f(K.photo)} / (1.0 + ${K.shadeP > 0 ? `crowdP * ${f(K.shadeP)}` : `crowd * ${f(K.shade)}`}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
     * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0));
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
   // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); a body's bond partners do not count

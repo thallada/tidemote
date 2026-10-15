@@ -6,3 +6,4 @@ node_modules/
 runs/
 site/index.html
 .wrangler/
+tools/ecomodel/.venv/
