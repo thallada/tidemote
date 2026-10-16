@@ -2,7 +2,38 @@
 
 Goal: every guild fills a niche the others need, so losing one unravels the rest, and because of that
 the world balances itself and a whole guild rarely dies out. Everything stays local and honest
-(docs/energy.md): no census-driven regulators, and energy only enters as light (and the tide).
+(docs/energy.md): no census-driven regulators, and energy only enters as light.
+
+## Where the world stands now (2026-10-15)
+
+The default, over 64 seeds x 60 min at 32k (awake cells; "thriving": all four core guilds at 5%+):
+
+| at an hour | |
+|---|---|
+| all four core guilds awake | about 77% of worlds |
+| all four thriving | about 47% |
+| producers / grazers / predators / scavengers | about 37 / 26 / 14 / 10% |
+| effective species | 133-150 |
+| worlds that collapse for good | none (life sparks from silt again) |
+
+What makes it work, each found with the fitted model (tools/ecomodel) or the GPU ensembles that test it:
+
+- light is a flux per area (`shadeP`, `photo`): producers share a patch's light, so a grazed meadow
+  regrows and a crowded one burns its light in its own upkeep;
+- grazers take bites big enough to pass energy up (`bite` 0.25), and what any eater cannot digest is
+  dropped as dung for the scavengers (`dung`);
+- prey flee hunters (`flee`) and hide among dense producers (`plantRefuge`, `refugeMax`); a fed hunter
+  rests rather than kill (`satiety`, counted full at `satietyAt` 1.2 x the energy to divide), so hunters
+  do not eat each other into crashes;
+- every world founds each core niche at least twice (`foundEach`); an animal with nothing to eat may sleep
+  as a cyst; and abiogenesis sparks from silt, so a world wiped out by a cold era begins again;
+- the tide's bands of light travel three times as fast as before (`tideSpeed`), and anchored cells hold
+  still against pushes (`holdfast`).
+
+Open: over an hour hunters are still slowly multiplying (they evolve cheaper upkeep), crawlers dominate
+the movement mix (swimmers 15-19%, sessile life near 2%), and worlds resemble each other more than main's
+did. Glint and the omnivore label are gone. The sections below are the history, newest first, then the
+original brainstorm.
 
 ## Why animals stayed few, and the fix: light per area and bigger bites (2026-10-14)
 
@@ -135,7 +166,7 @@ Also tried: a stronger flow bonus for anchored producers (`flowFeed` 2, 4: sessi
 thriving fall), ebb and flood currents (`ebb`: no change to the guilds at 10 minutes), `holdfast` 0.1
 (anchored cells barely moved by pushes: no change to the guilds).
 
-## Where the world stands
+## Where the world stood before the trophic work (historical)
 
 Nothing needs anyone below the predators. Producers live on light and silt, which is everywhere.
 Grazers live on glint, which the tide charges out of silt whether or not producers exist; they bite
