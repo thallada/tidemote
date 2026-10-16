@@ -65,6 +65,9 @@ export const DEFAULT_K = {
   biteEvery: 1,     // ...and bites of plant cells on every Nth
   plantPref: 0.1,   // how much a flesh-eater values plant cells relative to a grazer
   grazePref: 1,   // how much a grazer values a plant cell
+  lush: 0,        // a grazer is drawn to a plant cell by how full it is (0: alike; 1: wholly by its fullness), so cropped plants are left to regrow
+  grazeSat: 0,    // a grazer's pull toward plants eases by this × how full it is itself (energy / the energy to divide)
+  kinFed: 0,      // ...and its pull toward its own species grows by this × how full it is
   forage: 0.35,     // pull of husks on a hungry forager, relative to signature forces
   hunt: 0.12,       // pull of living prey on a hungry forager
   kinCrowd: 0.06,   // upkeep added per crowding same-species neighbour, excluding bond partners
@@ -439,7 +442,9 @@ function cellWGSL(K, w) {
   let bodyCost = ${bodyOf(K, 'g')};
   let divE = ${K.bodyE > 0 ? (K.bodyReserve ? 'g.reproE + bodyCost' : 'max(g.reproE, 1.25 * bodyCost)') : 'g.reproE'}${K.provision > 0 ? ` + max(0.0, bodyCost + ${f(K.provision)} * g.metab / g.share - g.reproE - bodyCost)` : ''};
   let hungry = p.energy < divE * ${f(K.sated)} && eatEff > 0.1 && !th.torpid;
-  let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
+  let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;${K.grazeSat > 0 || K.kinFed > 0 ? `
+  // a grazer filling up turns from its meadow toward its own kind
+  let fedG = select(0.0, clamp(p.energy / divE, 0.0, 1.0), g.dFlesh <= 0.5 && g.photo <= 0.4);` : ''}
   // food in reach is gathered by hungry cells; in a coarse step also by any that may grow hungry in it
   let seek = hungry || (coarse && eatEff > 0.1 && !th.torpid);
   let seekHunt = canHunt || (seek && (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN));
@@ -556,7 +561,7 @@ ${K.liveFirst ? `
       let r = sqrt(r2);
       let x = r * invR;
       let qk = q.kr & 1023u;
-      let a = clamp((sdot(sg.z, q.s0) + sdot(sg.w, q.s1)) * ${f(K.affScale)}, -1.0, 1.0);${K.tissue > 0 ? `
+      let a = clamp((sdot(sg.z, q.s0) + sdot(sg.w, q.s1)) * ${f(K.affScale)}, -1.0, 1.0)${K.kinFed > 0 ? ` * select(1.0, 1.0 + ${f(K.kinFed)} * fedG, (q.kr & 1023u) == p.kind)` : ''};${K.tissue > 0 ? `
       // A tight body's kin keep personal space only down to touching (where their two roles' sizes
       // meet), so they press membrane to membrane, and keep less of their signature forces beyond it.
       var bk = beta; var invBk = invBeta; var invOMk = invOM; var sigK = 1.0;
@@ -580,7 +585,7 @@ ${K.liveFirst ? `
         // hungry foragers are drawn toward the cells their diet favours
         if ((q.kr & (1u << 12u)) != 0u && r < 0.5) { plantN += 1.0; }
         if ((q.kr & (1u << 12u)) == 0u && qk != p.kind) { animN += 1.0; }
-        let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
+        let appetite = select(0.0, select(g.dFlesh, (${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh)${K.lush > 0 ? ` * (1.0 - ${f(K.lush)} * (1.0 - f32((q.kr >> 16u) & 15u) / 15.0))` : ''}${K.grazeSat > 0 ? ` * max(0.0, 1.0 - ${f(K.grazeSat)} * fedG)` : ''}, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
         if (x >= ${K.tissue > 0 ? 'bk' : 'beta'}) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * ${K.tissue > 0 ? 'invBk' : 'invBeta'} * invR; }${K.flee > 0 ? `
         // an animal that is not a hunter swims away from hunters near it, the harder the closer they are
         if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && g.dFlesh <= 0.5 && g.photo <= 0.4) { fr -= ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);${W(`mFl = ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);`)} }` : ''}
@@ -616,7 +621,7 @@ ${K.liveFirst ? `
             // grazers crop plant cells; flesh-eaters hunt animals (and crop plants reluctantly)
             let plant = (q.kr & (1u << 12u)) != 0u;
             let pref = select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, plant);
-            let sc = pref - r;
+            let sc = pref - r${K.lush > 0 ? ` + select(0.0, ${f(K.lush)} * 0.1 * f32((q.kr >> 16u) & 15u) / 15.0, plant)` : ''};
             if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
             if (pref > DIET_MIN && coarse) { pushFood(&fc, &fsc, j, sc); }
           }
@@ -1396,7 +1401,8 @@ ${K.tissue > 0 ? `    bondsNow[dst * 6u] = partners.x;
     let plant = select(0u, 1u << 12u, (p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4)${K.cycle && !K.litterTo ? ' || (p.kind == HUSK && (p.info & LITTER) != 0u)' : ''});
     // pad: with K.bodyPush, the cell's drawn radius (0.085 world units per unit of size, smaller in its later roles)
     let hunter = select(0u, 1u << 14u, p.kind >= FIRST_LIFE && genomes[p.kind].dFlesh > 0.5 && genomes[p.kind].photo <= 0.4);
-    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | ${K.flee > 0 ? 'hunter' : '0u'}${K.cyst ? ' | select(0u, 1u << 13u, p.kind >= FIRST_LIFE && (p.info & 15u) == CYST)' : ''}, p.col, pack2x16float(p.vel), sig.x, sig.y, ${K.bodyPush > 0 || K.crowdVisc > 0 ? 'bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role)))' : '0u'});
+    let fullness = select(0u, u32(clamp(p.energy / (genomes[p.kind].reproE + ${bodyOf(K, 'genomes[p.kind]')}), 0.0, 1.0) * 15.0 + 0.5) << 16u, plant != 0u && p.kind >= FIRST_LIFE);
+    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | fullness | ${K.flee > 0 ? 'hunter' : '0u'}${K.cyst ? ' | select(0u, 1u << 13u, p.kind >= FIRST_LIFE && (p.info & 15u) == CYST)' : ''}, p.col, pack2x16float(p.vel), sig.x, sig.y, ${K.bodyPush > 0 || K.crowdVisc > 0 ? 'bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role)))' : '0u'});
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
   }
   workgroupBarrier();
