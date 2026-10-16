@@ -1,8 +1,9 @@
 # Honest energy: bodies that hold what they cost
 
 main's food webs ran on energy made from nothing. This note says where it came from, why the tissue rules
-turned it into perpetual-motion worlds, the rules that make energy enter only as light and glint (all
-tunables in `DEFAULT_K`, behind `bodyE`), and what was measured on the way.
+turned it into perpetual-motion worlds, the rules that make energy enter only as light (all tunables in
+`DEFAULT_K`, behind `bodyE`), and what was measured on the way. How energy then flows through the food
+web, and why animals were scarce until light became a flux per area, is in docs/ecosystem.md.
 
 ## The leak
 
@@ -22,7 +23,11 @@ tunables in `DEFAULT_K`, behind `bodyE`), and what was measured on the way.
   prey's body and stored energy and no more (`carcassKeep` of the body stays in the carcass).
 - `bodyWhole`: a body is material, not fuel: it passes to its eater whole (the stuff of its next child),
   while stored energy is digested at `assimilate` × the eater's skill, at most `assimCap`.
-- Glint is income from outside (the tide charges it) and keeps `gain`; light is the other income.
+- Light is the only income. It is a flux per area (`shadeP`): photosynthesisers share a patch's light, so a
+  crowded meadow burns it in its own upkeep and a grazed one regrows. (Glint, silt charged by the tide,
+  was a second income at `gain`; it let grazers live without producers and has been removed.)
+- `dung`: what an eater cannot assimilate fills its gut and is dropped as a husk, so the undigested share
+  feeds scavengers rather than vanishing as heat.
 - `catchSkill` (0.6): catching living prey takes being built for it. At 0.3 any cell with a little flesh
   in its diet caught as surely as a predator; grazers made most of the kills and outcompeted specialists.
 - A cell divides once it holds `reproE` beyond its child's body (`bodyReserve`), and feeds until then.
@@ -57,12 +62,12 @@ The default passes the gate (every gated metric "same"; guilds lost 0.16 against
 persisted) and no world burns more than 0.83 of what it takes in. 4-tick runs match 1/60 s runs on the
 same seeds (food webs 38% both, guilds 2.50 both).
 
-## Open
+## Since
 
-Food webs are rarer than in main (28-38% against 56%): founding predators still die within 1-3 minutes in
-about half the worlds, whatever the rules (the same seeds), and must evolve again. A hungry predator has
-prey within reach at only 17% of its kill opportunities (`tools/fork.mjs` with `diag`): finding prey, not
-catching or digesting it, is what limits an honest predator.
+The open problem here (food webs rarer than in main, predators dying early) turned out to be structural:
+light earned per cell and grazers capped by the bite held animals near a quarter of the producers whatever
+the hunting rules (docs/ecosystem.md, tools/ecomodel). With light per area, bigger bites, dung, fleeing
+prey and satiated hunters, all four core guilds are awake at an hour in about three worlds in four.
 
 16-seed ensembles differ by about ±11 points in food webs from noise alone; read single rows with care.
 
