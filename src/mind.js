@@ -5,7 +5,7 @@
 import { MIND_HEAD, MIND_NBR, MIND_NBR_WORDS } from './shaders.js';
 
 const NONE = 0xffffffff;
-const GLINT = 1, HUSK = 2;
+const HUSK = 2;
 
 /** Decode a mind buffer (u32/f32 views of one readback; layout in mindMain). Null if the cell was not found. */
 export function parseMind(u32, f32) {
@@ -60,7 +60,7 @@ const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a
 
 // The mode readout: one or two words for each state, its target shown beside it.
 const MODES = {
-  divide: 'Dividing', seeksilt: 'Ready to divide', feed: 'Eating glint', scavenge: 'Scavenging', graze: 'Grazing',
+  divide: 'Dividing', seeksilt: 'Ready to divide', scavenge: 'Scavenging', graze: 'Grazing',
   hunt: 'Hunting', starve: 'Starving', flee: 'Fleeing', stalk: 'Stalking', seekgraze: 'Seeking forage',
   forage: 'Foraging', avoid: 'Avoiding', follow: 'Drawn in', bask: 'Basking', dark: 'Waiting out the dark',
   school: 'Schooling', body: 'Holding together', gather: 'Gathering', spread: 'Spreading out', jostle: 'Jostled',
@@ -148,8 +148,7 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
       : { key: 'seeksilt', matter: 'Silt, none in reach', text: 'Ready to divide', why: `It has the energy to divide (${E.toFixed(2)} of ${need.toFixed(2)}) but no grain of silt within reach to build a child from, so it waits. Full, it has stopped feeding.` };
   } else if (m.food && m.hungry) {
     const fk = m.food.kind;
-    if (fk === GLINT) st = { key: 'feed', matter: 'Glint', text: 'Eating glint', why: `Hungry (${hunger}), with charged glint in reach.` };
-    else if (fk === HUSK) st = { key: 'scavenge', matter: 'Husk', text: 'Scavenging a husk', why: `Hungry (${hunger}), with a husk in reach to pick over.` };
+    if (fk === HUSK) st = { key: 'scavenge', matter: 'Husk', text: 'Scavenging a husk', why: `Hungry (${hunger}), with a husk in reach to pick over.` };
     else {
       const gq = genomeOf(fk);
       const plant = gq && gq.photo > 0.4;
@@ -180,8 +179,7 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
     }
   }
   if (!st && m.hungry && share('forage') >= 0.25) {
-    const glint = g.dGlint * m.matterN[GLINT] >= g.dHusk * m.matterN[HUSK];
-    st = { key: 'forage', matter: glint ? 'Glint' : 'Husks', text: glint ? 'Foraging for glint' : 'Foraging for husks', why: `Hungry (${hunger}). Its diet draws it toward the ${glint ? 'glint' : 'husks'} drifting nearby.` };
+    st = { key: 'forage', matter: 'Husks', text: 'Foraging for husks', why: `Hungry (${hunger}). Its diet draws it toward the husks drifting nearby.` };
   }
   if (!st && K.heat && share('heat') >= 0.25) {
     const warmer = g.topt > m.warmth;

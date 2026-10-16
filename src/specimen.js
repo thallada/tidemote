@@ -364,7 +364,7 @@ export function createSpecimen(api) {
     let h = '';
     const diet = [
       ['Light', 'photosynth', g.photo, '#d9f27a', g.photo],
-      ['Glint', 'glint', g.dGlint, MATTER[1].css, g.dGlint * (1 - 0.6 * g.photo)],
+      ['Grazing', 'graze', g.dGlint, '#d9f27a', g.dGlint * (1 - 0.6 * g.photo)],
       ['Husk', 'husk', g.dHusk, MATTER[2].css, g.dHusk * (1 - 0.6 * g.photo)],
       ['Flesh', 'flesh', g.dFlesh, '#ff6b6b', g.dFlesh * (1 - 0.6 * g.photo)],
     ];
@@ -505,10 +505,9 @@ export function createSpecimen(api) {
           plainGlyph(16 + grain.kind, (0xff000000 | (c[2] << 16) | (c[1] << 8) | c[0]) >>> 0);
         } else plainGlyph(MATTER_GLYPH[p.kind][0], MATTER_GLYPH[p.kind][1]);
         setActs(`m${!!mem}`, mem ? '<button type="button" class="btn" data-act="relative">Watch a relative</button>' : '');
-        // in water at the background temperature (warm water wears glint and husks faster)
+        // in water at the background temperature (warm water wears husks faster)
         const q10 = (q) => (K.heat ? q ** ((eng.tbg - K.tRef) / 10) : 1);
-        if (p.kind === 1) v += vital('Charge', p.energy, 'cyan', `fades in ${fmtDur(Math.max(0, (p.energy - K.glintMin) / (K.leak * q10(K.glintQ10))))}`, 'glint');
-        else if (p.kind === 2) v += vital('Energy left', p.energy / 1.2, 'sun', `${q10(K.rotQ10) > 1.3 ? 'rotting fast · ' : ''}crumbles in ${fmtDur(Math.max(0, (p.energy - K.huskMin) / (K.decay * q10(K.rotQ10))))}`, 'husk');
+        if (p.kind === 2) v += vital('Energy left', p.energy / 1.2, 'sun', `${q10(K.rotQ10) > 1.3 ? 'rotting fast · ' : ''}crumbles in ${fmtDur(Math.max(0, (p.energy - K.huskMin) / (K.decay * q10(K.rotQ10))))}`, 'husk');
         else if (framboid) v += vital('Fuel', clamp(p.energy / K.framboidLife, 0, 1), 'warm', `burns out in about ${fmtDur(Math.max(0, p.energy / q10(2)))}`, 'framboid');
         else if (p.kind === 3) v += vital('Wears away', clamp(p.energy / 600, 0, 1), 'cyan', `in ${fmtDur(Math.max(0, p.energy))}`, 'stone');
         else v += vital('Light here', lightAt(p) / 100, 'sun', `${lightAt(p)}%`, 'lighthere');

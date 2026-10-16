@@ -1,6 +1,6 @@
 // The field mix: the soundtrack as the sound of what is happening in view. Every few frames the
 // page's GPU scan (LISTEN_WGSL) reports a sample of the living cells in view and the births,
-// deaths, kills, grazing and glint that happened since the last scan, each with its screen
+// deaths, kills and grazing that happened since the last scan, each with its screen
 // position and exact time; this turns them into notes. Runs inside the AudioWorklet next to the
 // conductor, whose harmony (era mode, root, pivot), sea and drone it shares.
 //
@@ -228,7 +228,7 @@ export class Field {
       const type = LISTEN.types[ti], slot = ev[o + 1];
       let t = now + LATENCY - ev[o + 4] / Math.max(m.speed, 1e-6);
       if (t < now + 0.01) t = now + 0.01 + 0.03 * this.rnd();
-      // from afar, every event joins the grains of its species; only life sparking from glint
+      // from afar, every event joins the grains of its species; only life sparking from silt
       // still rings out
       const rare = type === 'spark';
       if (!rare && slot >= 0) crowd(slot, comp[ti] ** 2 * toSwarm);
@@ -378,7 +378,7 @@ export class Field {
         for (let i = 0; i < 3; i++) c.at(t + i * c.step * 0.5, 'glint', { freq: midicps(d2m(base + i * 2 + piv, root, scale)) * 4, amp: g * (1 - i * 0.15), dec: 0.25, pan: o.pan, rev: o.wet(0.45), dly: 0.25 });
         return;
       }
-      case 'spark': // life from glint: a shower of sparks
+      case 'spark': // life sparking from silt: a shower of sparks
         for (let i = 0; i < 6; i++) c.at(t + i * 0.09, 'glint', { freq: midicps(d2m(i + 2, root, scale)) * 4, amp: g * (1 - i * 0.08), dec: 0.3, pan: clamp(o.pan + this.rr(-0.15, 0.15), -0.9, 0.9), rev: o.wet(0.55), dly: 0.3 });
         return;
       case 'starved': // a quiet fall
@@ -400,7 +400,7 @@ export class Field {
           atk: this.rr(0.06, 0.15), dec: this.rr(0.2, 0.45) / Math.sqrt(c.tempo), amp: g, pan: o.pan, rev: Math.min(0.9, 0.35 + 0.5 * (1 - this.z)), dly: 0.04 });
         return;
       }
-      case 'charged': // the tide charging silt into glint: a faint shimmer
+      case 'charged': // (no longer sent: the tide once charged silt into glint) a faint shimmer
         c.at(t, 'glint', { freq: midicps(d2m(o.idb % 14, root, scale)) * (o.idb & 32 ? 8 : 4), amp: g * (0.5 + 0.5 * o.td), dec: this.rr(0.04, 0.2), pan: o.pan, rev: o.wet(0.55), dly: 0.25 });
     }
   }

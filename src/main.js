@@ -255,7 +255,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     climate.onEra = (era, prevAmb, prevTemp) => {
       const lightWord = era.ambient > prevAmb + 0.05 ? 'light rises' : era.ambient < prevAmb - 0.05 ? 'light dims' : 'light holds';
       const waterWord = !K.heat ? '' : ` · water ${era.temp > prevTemp + 1 ? 'warms' : era.temp < prevTemp - 1 ? 'cools' : 'holds'} to ${Math.round(era.temp)}°`;
-      pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}%${waterWord} · glint ×${era.charge.toFixed(1)} · currents shift`, 0xffa0e3f1, 'era');
+      pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}%${waterWord} · currents shift`, 0xffa0e3f1, 'era');
       flash(climate.name, 'New era');
       sound.era(climate.name);
     };
@@ -510,7 +510,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const MAPS = [
     { gauge: 'g-light', name: 'Light', on: (s) => s.tide === 2, open: (s) => { s.tide = 2; }, close: (s) => { s.tide = defaults.tide; }, ramp: () => ['', 'dark', 'full light'] },
     { gauge: 'g-heat', name: 'Temperature', on: (s) => s.heat === 2, open: (s) => { s.heat = 2; }, close: (s) => { s.heat = defaults.heat; }, ramp: () => ['heat', `${Math.round(eng.tbg - 2)}°`, `${Math.round(eng.tbg + 10)}°`] },
-    { gauge: 'g-tide', name: 'Tide', on: (s) => s.bands > 0, open: (s) => { s.bands = 1; }, close: (s) => { s.bands = 0; }, ramp: () => ['tide', 'no glint', 'most'] },
+    { gauge: 'g-tide', name: 'Tide', on: (s) => s.bands > 0, open: (s) => { s.bands = 1; }, close: (s) => { s.bands = 0; }, ramp: () => ['light', 'dim', 'bright'] },
   ];
   const rampHtml = (m) => { const [cls, lo, hi] = m.ramp(); return `<div class="ramp ${cls}"><span>${lo}</span><i></i><span>${hi}</span></div>`; };
   const mapsOn = () => MAPS.filter((m) => m.on(eng.settings));
@@ -614,7 +614,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     return sp;
   }
   function originWord(sp) {
-    return sp.serial > eng.founders ? 'sparked from glint' : 'a founding lineage';
+    return sp.serial > eng.founders ? 'sparked from silt' : 'a founding lineage';
   }
   function pushEvent(html, col, type = 'misc') {
     const text = html.replace(/<[^>]+>/g, '');
@@ -774,7 +774,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         life.top = best.serial;
       }
     }
-    eng.abio = abioRate(pop[1] + (eng.K.abioSilt ? pop[0] : 0));
+    eng.abio = abioRate(pop[0]);
     feedSound(pop, audio);
 
     if (t - life.lastHist >= life.histEvery) {
@@ -783,9 +783,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const sp = [];
       for (const s of life.reg.values()) if (s.alive && s.established) sp.push([s.serial, s.pop]);
       life.history.push({
-        t, silt: pop[0], glint: pop[1], husk: pop[2], living, sp,
+        t, silt: pop[0], husk: pop[2], living, sp,
         alive, thriving, diversity: Math.exp(H),
-        births: rate(2), starve: rate(5), old: rate(6), eaten: rate(7), graze: rate(9), scav: rate(10), prey: rate(7), bite: rate(11),
+        births: rate(2), starve: rate(5), old: rate(6), eaten: rate(7), scav: rate(10), prey: rate(7), bite: rate(11),
         mut: rate(3), ext: rate(8), ambient: eng.ambient, season: eng.season,
         temp: eng.tbg, scald: [20, 21, 22, 23, 24].reduce((a, i) => a + (life.prevD ? c.demography[i] - life.prevD[i] : 0), 0) / Math.max(1e-6, t - life.prevT) * 60,
         torpid: torpidShare(c),
@@ -816,7 +816,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // ------------------------------------------------------------ world column
   const MIX = [
     ['Living', 3, LIVING_CSS, 'living', 'class:living'],
-    ['Glint', 1, MATTER[1].css, 'glint', 'class:glint'],
     ['Husk', 2, MATTER[2].css, 'husk', 'class:husk'],
     ['Stone', 4, MATTER[3].css, 'stone', 'class:stone'],
     ...(K.heat ? [['Framboids', 5, MATTER[4].css, 'framboid', 'class:framboid']] : []),
@@ -977,8 +976,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (a.kind === 4 && b.kind === 0) return 'The framboid was spent and crumbled into silt.';
     if (a.kind === 2 && b.kind === 4) return 'The husk rotted in a pile, and its sulfide crystallised as a framboid.';
     if (a.kind === 2 && b.kind === 0) return b.cause === 3 ? 'The husk was eaten by a scavenger.' : 'The husk crumbled into silt.';
-    if (a.kind === 0 && b.kind === 1) return 'Charged into glint by the Tide.';
-    if (a.kind === 1 && b.kind === 0) return b.cause === 3 ? 'The glint was eaten by a cell.' : 'The glint faded back into silt.';
     return `Became ${b.kind < FIRST_LIFE ? MATTER[b.kind].name.toLowerCase() : 'a living cell'}.`;
   }
 
@@ -2392,7 +2389,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // what is in view once it arrives (from the director's shot.why).
   const REASON = {
     mutations: ['where new variants are being born', 'mutants are appearing here'],
-    sparks: ['where life is sparking from glint', 'life is sparking from glint'],
+    sparks: ['where life is sparking from silt', 'life is sparking from silt'],
     kills: ['a hunting ground', 'kills are frequent'],
     births: ['a crowd of births', 'many are being born'],
     deaths: ['a die-off', 'many are dying'],

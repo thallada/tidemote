@@ -55,7 +55,6 @@ class Engine {
     this.season = 1;
     this.abio = 0;
     this.ambient = 0.17;
-    this.chargeMul = 1;
     // the water's background temperature: the climate's (temp, eased), an excursion (heat wave or cold
     // snap) on top, and the tide's season (tbg)
     this.temp = 16;
@@ -540,7 +539,7 @@ class Engine {
 
   /**
    * Create a new universe of n particles (n <= capacity). Each world draws its own tide pattern,
-   * opening light and glint charge, matter mix, and how clumped its founders start.
+   * opening light, matter mix, and how clumped its founders start.
    */
   seed(n, { aspect = 16 / 9, rng = Math.random } = {}) {
     const d = this.device;
@@ -556,12 +555,11 @@ class Engine {
     this.seedValue = (rng() * 0xffffffff) >>> 0;
     this.sorted = false;
     this.ambient = mix(0.12, 0.3, rng());
-    this.chargeMul = mix(0.8, 1.25, rng());
     this.temp = mix(10, 22, rng());
     this.excursion = 0;
     this.randomizeTide(rng);
     this.randomizeCurrents(rng);
-    const silt = mix(0.42, 0.58, rng()), glint = mix(0.06, 0.18, rng()), husk = mix(0.02, 0.06, rng());
+    const silt = mix(0.48, 0.76, rng()), husk = mix(0.02, 0.06, rng());
     // Founders: a share of each species starts in a few colonies, the rest scattered. Colony size
     // follows the world so a colony is `conc` times denser in its species than an even spread.
     // Bedrock outcrops: from none to about 8% of the area, as chains of discs a few cells across.
@@ -632,7 +630,7 @@ class Engine {
     d.queue.writeBuffer(this.b.ledger, 0, head);
     this.founders = plan.length;
 
-    this._writeSim({ seedKinds: plan.length, pSilt: silt, pGlint: glint, pHusk: husk, clump, spread });
+    this._writeSim({ seedKinds: plan.length, pSilt: silt, pHusk: husk, clump, spread });
     // the water starts at the background everywhere; framboids and crowds warm it within a minute
     const water = new Float32Array(cells).fill(this.tbg);
     d.queue.writeBuffer(this.b.thermal, MAX_CELLS * 4, water);
@@ -702,8 +700,8 @@ class Engine {
     // a coarse step keeps per-second rates: the per-step abiogenesis chance scales with its length
     f[8] = this.season; f[9] = Math.min(1, this.abio * this.ticks);
     u[10] = (this.seedValue + this.frameNo * 7919) >>> 0; f[11] = this.K.maxSpeed;
-    u[12] = extra.seedKinds || 1; f[13] = extra.pSilt || 0; f[14] = extra.pGlint || 0; f[15] = extra.pHusk || 0;
-    f[16] = this.ambient; f[17] = this.chargeMul; f[18] = extra.clump || 0; f[19] = extra.spread || 0;
+    u[12] = extra.seedKinds || 1; f[13] = extra.pSilt || 0; f[14] = 0; f[15] = extra.pHusk || 0;
+    f[16] = this.ambient; f[17] = 1; f[18] = extra.clump || 0; f[19] = extra.spread || 0;
     f.set(this.waves, 20);
     f.set(this.tide, 36);
     f.set(this.tidePh, 52);
@@ -812,7 +810,7 @@ class Engine {
     }
     d.queue.submit([enc.finish()]);
     keep.cpu = { simTime: this.simTime, frameNo: this.frameNo, tick: this.tick, season: this.season, abio: this.abio,
-      ambient: this.ambient, chargeMul: this.chargeMul, seedValue: this.seedValue, temp: this.temp, excursion: this.excursion,
+      ambient: this.ambient, seedValue: this.seedValue, temp: this.temp, excursion: this.excursion,
       tide: this.tide.slice(), tidePh: this.tidePh.slice(), waves: this.waves.slice(), rock: this.rock.slice() };
     return keep;
   }
@@ -824,7 +822,7 @@ class Engine {
     d.queue.submit([enc.finish()]);
     const c = keep.cpu;
     Object.assign(this, { simTime: c.simTime, frameNo: c.frameNo, tick: c.tick, season: c.season, abio: c.abio,
-      ambient: c.ambient, chargeMul: c.chargeMul, seedValue: c.seedValue, temp: c.temp, excursion: c.excursion });
+      ambient: c.ambient, seedValue: c.seedValue, temp: c.temp, excursion: c.excursion });
     this.tide.set(c.tide); this.tidePh.set(c.tidePh); this.waves.set(c.waves); this.rock.set(c.rock);
   }
 
@@ -1550,8 +1548,6 @@ class Engine {
     const tbg = this.tbg;
     pd[52] = tbg; pd[53] = tbg - 2; pd[54] = tbg + 10;
     pd[55] = this.settings.bands;
-    // the tide map's glint production: the era's charge, then the hot springs'
-    pd[56] = this.K.charge * this.chargeMul; pd[57] = this.K.hotCharge; pd[58] = this.K.hotFrom; pd[59] = this.K.hotTo;
     d.queue.writeBuffer(this.b.post, 0, pd);
 
     // Cells fuse with their incoming bond partners, and flatten against the cells they press on, only

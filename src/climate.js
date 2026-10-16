@@ -20,10 +20,10 @@ export function createClimate(eng, rng = Math.random) {
   function reset() {
     Object.assign(climate, {
       name: 'The First Tides', started: 0, next: climateMix(600, 900, rng()),
-      ambientTo: eng.ambient, chargeTo: eng.chargeMul, tideTo: Array.from(eng.tide.filter((_, i) => i % 4 === 3)),
+      ambientTo: eng.ambient, tideTo: Array.from(eng.tide.filter((_, i) => i % 4 === 3)),
       tempTo: eng.temp, excursion: null, announced: null,
       flow: null, index: 1,
-      history: [{ t: 0, name: 'The First Tides', ambient: eng.ambient, charge: eng.chargeMul, temp: eng.temp }],
+      history: [{ t: 0, name: 'The First Tides', ambient: eng.ambient, temp: eng.temp }],
     });
   }
   function startEra() {
@@ -38,7 +38,6 @@ export function createClimate(eng, rng = Math.random) {
     climate.tideTo[retire] = 0;
     const prevAmb = climate.ambientTo;
     climate.ambientTo = climateMix(0.1, 0.34, r());
-    climate.chargeTo = climateMix(0.6, 1.5, r());
     const newWaves = eng.randomizeCurrents(r, new Float32Array(16));
     climate.flow = { from: Float32Array.from(eng.waves), to: newWaves, t0: t, k: [Math.floor(r() * 4), Math.floor(r() * 4)] };
     climate.index++;
@@ -56,14 +55,13 @@ export function createClimate(eng, rng = Math.random) {
       t: t + climateMix(120, Math.max(150, climate.next - t - 300), r()),
       dT: (r() < 0.5 ? -1 : 1) * climateMix(5, 8, r()), dur: climateMix(120, 240, r()),
     } : null;
-    climate.history.push({ t, name: climate.name, ambient: climate.ambientTo, charge: climate.chargeTo, temp: climate.tempTo });
+    climate.history.push({ t, name: climate.name, ambient: climate.ambientTo, temp: climate.tempTo });
     climate.onEra?.(climate.history.at(-1), prevAmb, prevTemp);
   }
   function tick(dt) {
     if (eng.simTime > climate.next) startEra();
     const k = Math.min(1, dt / 60);
     eng.ambient += (climate.ambientTo - eng.ambient) * k;
-    eng.chargeMul += (climate.chargeTo - eng.chargeMul) * k;
     // the water changes slowly (about three minutes), so life can follow it
     eng.temp += (climate.tempTo - eng.temp) * Math.min(1, dt / 180);
     const x = climate.excursion;
@@ -92,6 +90,7 @@ export function createClimate(eng, rng = Math.random) {
   return climate;
 }
 
-export function abioRate(glint) {
-  return (1 / 30) / (Math.max(1, glint) * 60);
+// abiogenesis: about one spark of life every 30 s in the world, spread over its silt grains (per grain per frame)
+export function abioRate(silt) {
+  return (1 / 30) / (Math.max(1, silt) * 60);
 }

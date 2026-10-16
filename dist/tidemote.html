@@ -785,7 +785,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .ramp i { flex: 1; height: 6px; background: linear-gradient(90deg, #080a29 0%, #006b80 48%, #4e9a7a 62%, #ffdb52 100%); }
 /* the thermal camera's ramp (heatRamp in shaders.js): deep blue, teal, amber, white */
 .ramp.heat i { background: linear-gradient(90deg, #050a2e 0%, #006b7a 35%, #ff8520 70%, #ff8520 75%, #fff2d1 100%); }
-/* the tide map's ramp (fsComposite): ink, violet, glint */
+/* the tide map's ramp (fsComposite): the light, ink to violet to pale blue */
 .ramp.tide i { background: linear-gradient(90deg, #08051a 0%, #5c3399 45%, #8a8fd6 62%, #b8e6ff 100%); }
 .eras { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
 .eras li { display: grid; grid-template-columns: 4.4ch 1fr auto; gap: 10px; align-items: baseline; }
@@ -1180,7 +1180,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     <p id="nogpu-detail">Tidemote simulates its world on your graphics card through WebGPU, with JavaScript turned on. Try a current Chrome, Edge or Safari, or Firefox on Windows.</p>
     <section class="about" aria-labelledby="about-h">
       <h2 id="about-h">Artificial life, evolving on your GPU</h2>
-      <p>Tidemote is a sealed biosphere of hundreds of thousands to millions of particles, simulated live in the browser with WebGPU. Inert silt is charged into glint by the tide. Cells photosynthesise, graze, hunt and scavenge, and build their children out of silt. Children mutate into new species, bonded species grow into multicellular bodies, and the climate turns every 10–18 minutes. Leave it running and it keeps changing.</p>
+      <p>Tidemote is a sealed biosphere of hundreds of thousands to millions of particles, simulated live in the browser with WebGPU. Cells photosynthesise in the tide's moving light, graze, hunt and scavenge, and build their children out of silt. Children mutate into new species, bonded species grow into multicellular bodies, and the climate turns every 10–18 minutes. Leave it running and it keeps changing.</p>
       <p>Every rule is local: each particle reacts only to what is near it, and the ecology that appears is never steered from above.</p>
       <ul>
         <li>Food webs of producers, grazers, hunters and scavengers, evolving as you watch</li>
@@ -1226,10 +1226,6 @@ svg.niche .n-dot { fill: var(--cyan); }
   var MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
   var DEFAULT_K = {
     density: 22,
-    charge: 0.28,
-    // silt -> glint per second at full tide
-    leak: 0.03,
-    glintMin: 0.2,
     decay: 0.011,
     huskMin: 0.08,
     huskBase: 0.35,
@@ -1251,9 +1247,9 @@ svg.niche .n-dot { fill: var(--cyan); }
     plantPref: 0.1,
     // how much a flesh-eater values plant cells relative to a grazer
     grazePref: 1,
-    // how much a grazer values a plant cell relative to glint
+    // how much a grazer values a plant cell
     forage: 0.35,
-    // pull of glint and husks on a hungry forager, relative to signature forces
+    // pull of husks on a hungry forager, relative to signature forces
     hunt: 0.12,
     // pull of living prey on a hungry forager
     kinCrowd: 0.06,
@@ -1286,7 +1282,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     // living prey (and plants) escape an eater whose receptors do not match their surface: up to this
     // share of attempts on a perfectly mismatched one (coevolution, frequency-dependent predation)
     matterSkill: 0.5,
-    // eating a husk or glint succeeds with (eatEff × that diet) / this, certain past it (0: always)
+    // eating a husk succeeds with (eatEff × that diet) / this, certain past it (0: always)
     catchSkill: 0.6,
     // catch chance scales with eating skill (eatEff × preference), reaching certainty here
     nutrHalf: 8,
@@ -1423,7 +1419,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     stoneMass: 0.15,
     // heat capacity added by each grain of stone in a grid cell
     tRef: 16,
-    // the temperature at which glint and husks wear at their base rates
+    // the temperature at which husks wear at their base rates
     specBonus: 0.25,
     // extra performance at its optimum of the narrowest tolerance (2°)
     thermalFlat: 0.5,
@@ -1444,16 +1440,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     // energy per second a full heat-maker burns to warm itself and its water
     selfWarm: 4,
     // degrees a full heat-maker runs above its water (×1.5 with two bonds)
-    glintQ10: 2,
-    // glint fades this much faster per 10° above tRef
     rotQ10: 2.5,
     // husks rot this much faster per 10° above tRef
-    hotCharge: 0.6,
-    // extra chance per second that silt charges in the hottest water (hot springs)
-    hotFrom: 8,
-    // hot springs begin this many degrees over the background (framboids, heat-maker colonies;
-    hotTo: 22,
-    // a grazer huddle stays below it) and charge fully this many degrees over it
     abioHeat: 3,
     // extra weight of sparks of life in hot water
     marangoni: 0,
@@ -1461,11 +1449,11 @@ svg.niche .n-dot { fill: var(--cyan); }
     bodyE: 1.3,
     // energy a cell's body holds, by size (0: main's rules: bodies are free and buildCost, preyBase, carcass and huskBase
     // make energy). On: a child's body costs this, a death leaves it as the husk, and a kill
-    // passes on at most the prey's energy and body, so energy only enters as light and glint
+    // passes on at most the prey's energy and body, so energy only enters as light
     assimilate: 1.5,
     // with bodyE, an eater keeps this × its skill (specialisation × eatEff × warmth) of the energy in
     assimCap: 0.8,
-    // flesh, plants and husks, at most this share (glint keeps K.gain)
+    // flesh, plants and husks, at most this share
     carcassKeep: 0.3,
     // with bodyE, the share of a killed cell's body left in its carcass (the killer gets the rest)
     bodyWhole: 1,
@@ -1498,24 +1486,13 @@ svg.niche .n-dot { fill: var(--cyan); }
     // 1: founding hunters and crawlers are smaller, divide sooner and form loose bodies (for bodyE);
     // 2: and cheaper to run (less force, slower, shorter-lived); 3: and with 2.5× the reserve (reproE)
     cycle: 1,
-    // 1: a closed nutrient loop (docs/ecosystem.md): producers exude glint, a dead producer leaves
-    // litter only grazers break down, other husks are carcasses for scavengers, eaten husks return
-    // to the water as silt, and glint counts as food from within (no gain)
-    exude: 0,
-    // with cycle, the share of a producer's light it leaks as glint...
-    exudeE: 0.6,
-    // ...in grains of this much energy each
-    tideCharge: 0,
-    // scale on the tide's (and hot springs') charging of silt into glint
+    // 1: a closed nutrient loop (docs/ecosystem.md): a dead producer leaves litter, husks feed the
+    // scavengers (litterTo), and eaten husks return to the water as silt
     tideSpeed: 3,
     // scale on how fast the tide's bands of light travel
-    abioSilt: 1,
-    // 1: abiogenesis sparks from silt in the light too (glint is rare without tideCharge), one spark per ~30 s world-wide
     rotScale: 1,
     litterTo: 1,
     // with cycle, who breaks down a producer's litter: 0 grazers, 1 scavengers (decomposers of all husks)
-    glintFade: 1,
-    // scale on how fast glint loses its energy and falls back to silt (slow: the nutrient waits for a grazer)      // scale on how fast husks rot back to silt by themselves
     cyst: 1,
     // 1: a seed bank: a cell short of energy with no food in reach may go dormant (a cyst) and wake later
     cystPlants: 0,
@@ -1581,7 +1558,7 @@ const TO_LIGHT = vec2f(-0.633, -0.774);
 const MAXK = ${MAXK}u;
 const FIRST_LIFE = ${FIRST_LIFE}u;
 const SILT = 0u;
-const GLINT = 1u;
+const GLINT = 1u;  // a kind no longer made (glint): kept so the kind numbers hold
 const HUSK = 2u;
 // a husk left by a producer (K.cycle): plant litter, grazers' to break down; other husks are carcasses
 const LITTER = 0x8000u;
@@ -1593,7 +1570,7 @@ const STONE = 3u;
 const FRAMBOID = ${FRAMBOID}u;
 const NONE = 0xffffffffu;
 // A claim made by a coarse step's walk (lifeMain) says what it is for itself rather than through the
-// claimer's intent: bit 31, then a class in bits 29-30 (0 a kill, 1 glint, 2 a husk, each taken by the
+// claimer's intent: bit 31, then a class in bits 29-30 (0 a kill, 1 unused, 2 a husk, each taken by the
 // claimer in bits 0-22; 3 bites of a photosynthesiser, counted in bits 0-15, any number of eaters).
 const MEAL_CLAIM = 0x80000000u;
 const MAX_CELLS = 262144u;
@@ -2152,8 +2129,8 @@ struct Sim {
   world: vec2f, grid: vec2u,
   count: u32, frame: u32, dt: f32, time: f32,
   season: f32, abio: f32, seed: u32, maxSpeed: f32,
-  seedKinds: u32, pSilt: f32, pGlint: f32, pHusk: f32,
-  ambient: f32, chargeMul: f32, clump: f32, spread: f32,
+  seedKinds: u32, pSilt: f32, spare14: f32, pHusk: f32,
+  ambient: f32, spare17: f32, clump: f32, spread: f32,
   waves: array<vec4f, 4>,
   tide: array<vec4f, 4>,
   tidePh: vec4f,
@@ -2271,15 +2248,14 @@ fn depositHeat(p: vec2f, e: f32) {
 }
 
 // Specialists digest their food better than generalists: value of a food given the share of the diet devoted to it.
-// How much a cell of genome g wants a grain of matter qk (Lite flags kr): glint and, with K.cycle, a
-// producer's litter feed grazers; carcasses feed scavengers.
+// How much a cell of genome g wants a grain of matter qk (Lite flags kr): husks feed scavengers (with
+// K.cycle and litterTo 0, a producer's litter feeds grazers instead).
 fn matterDiet(g: Genome, qk: u32, kr: u32) -> f32 {
-  if (qk == GLINT${K.cycle && !K.litterTo ? " || (kr & (1u << 12u)) != 0u" : ""}) { return g.dGlint; }
-  return g.dHusk;
+  ${K.cycle && !K.litterTo ? "if ((kr & (1u << 12u)) != 0u) { return g.dGlint; }\n  " : ""}return g.dHusk;
 }
 fn spec(d: f32) -> f32 { let c = min(max(d, 0.0), 1.0); return ${K.specPow > 0 ? `pow(c, ${f(K.specPow)})` : `c * (${f(1 - 0.6)} + ${f(0.6)} * c)`}; }
 // What an eater keeps of a meal holding raw energy: skill (diet specialisation) times eatEff × warmth (fit).
-// Glint is income from outside, at K.gain. With K.bodyE food that was alive passes on at most
+// Without K.bodyE, a meal is income at K.gain. With K.bodyE food that was alive passes on at most
 // K.assimCap of what it held, the share growing with skill at K.assimilate, so no loop makes energy.
 fn take(raw: f32, skill: f32, outside: bool, fit: f32) -> f32 {
   ${K.bodyE > 0 ? `if (!outside) { return raw * min(${f(K.assimCap)}, skill * fit * ${f(K.assimilate)}); }` : ""}
@@ -2472,9 +2448,7 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
   var age = 0.0;
   var info = 0u;
   if (u < sim.pSilt) {
-  } else if (u < sim.pSilt + sim.pGlint) {
-    kind = GLINT; e = 0.5 + 0.5 * rnd(&s);
-  } else if (u < sim.pSilt + sim.pGlint + sim.pHusk) {
+  } else if (u < sim.pSilt + sim.pHusk) {
     kind = HUSK; e = 0.2 + 0.3 * rnd(&s); col = pack4x8unorm(vec4f(0.5, 0.35, 0.25, 1.0));
   } else {
     kind = FIRST_LIFE + min(u32(rnd(&s) * f32(sim.seedKinds)), sim.seedKinds - 1u);
@@ -2529,7 +2503,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         // a coarse step's meal: the target's kind follows from its class; bites at most one a tick
         let cls = (c >> 29u) & 3u;
         act = select(1u, 3u, cls == 3u);
-        ck = select(select(HUSK, GLINT, cls == 1u), select(NONE, p.kind, p.kind >= FIRST_LIFE), cls == 0u || cls == 3u);
+        ck = select(HUSK, select(NONE, p.kind, p.kind >= FIRST_LIFE), cls == 0u || cls == 3u);
         if (cls == 3u) { bites = f32(min(c & 0xffffu, sim.ticks)); }
       } else {
         // Only x/y are read here; other invocations may reset their own bond slots.
@@ -2565,11 +2539,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         p.kind = HUSK; p.energy = bitcast<f32>(intent[c - 1u].y); p.age = 0.0; p.vel *= 0.2;
         p.info = (p.info & 0xffff7fc0u) | 11u${K.cycle ? " | LITTER" : ""};
         p.col = pack4x8unorm(vec4f(0.36, 0.30, 0.14, 1.0));
-      } else if (act == 2u && ck == GLINT && p.kind == SILT) {
-        // a producer's exudate: the grain beside it charged with what it leaked
-        p.kind = GLINT; p.energy = bitcast<f32>(intent[c - 1u].y); p.age = 0.0;
-        p.info = (p.info & 0xffffffc0u) | 5u;
-      } else if (act == 2u && ck >= FIRST_LIFE && (p.kind == SILT || p.kind == GLINT)) {
+      } else if (act == 2u && ck >= FIRST_LIFE && p.kind == SILT) {
         let cr = (action >> 12u) & 3u;
         let gen = (action >> 14u) & 0xffffu;
         p.kind = ck;
@@ -2809,7 +2779,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     return;
   }
   var s = pcg((p.id * 1664525u) ^ pcg(sim.frame * 2654435761u + sim.seed));
-  // the water's warmth here: warm water wears glint and husks faster and shakes grains harder
+  // the water's warmth here: warm water wears husks faster and shakes grains harder
   // (read smoothly between grid cells: grains shaken harder cell by cell drifted into grid lines)
   let T = heatSample(p.pos).x;
   let warm = (T - TREF) / 10.0;
@@ -2829,15 +2799,10 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   p.age += sim.dt;
   if (p.kind == SILT) {
     let tide = tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient;
-    // a step's chance of charging; for coarse steps the exact chance of at least one event in the step.
-    // Hot springs: water far above the background charges silt even in the dark
-    let lam = tide * ${f(K.charge * K.tideCharge)} * sim.chargeMul + ${f(K.hotCharge * K.tideCharge)} * smoothstep(${f(K.hotFrom)}, ${f(K.hotTo)}, hot);
-    if (rnd(&s) < select(lam * sim.dt, 1.0 - exp(-lam * sim.dt), sim.ticks > 1u)) {
-      p.kind = GLINT; p.energy = 1.0; p.age = 0.0;
-      p.info = (p.info & 0xffffffc0u) | 5u;
-    }
-${K.abioSilt ? `    // K.abioSilt: life also sparks from silt, in the light (so a world that died can begin again)
-    if (p.kind == SILT && sim.abio > 0.0 && rnd(&s) < sim.abio * 2.0 * clamp(tide, 0.0, 1.0)) {
+    // life sparks from silt (about one spark per 30 s in the world, sim.abio per grain), in the light, and
+    // more in hot water (around framboids); a spark founds a species suited to the water here, so a world
+    // whose life died begins again
+    if (sim.abio > 0.0 && rnd(&s) < sim.abio * 2.0 * clamp(tide, 0.0, 1.0) * (1.0 + ${f(K.abioHeat)} * smoothstep(4.0, 20.0, hot))) {
       let k = allocSlot(&s);
       if (k != NONE) {
         randomInto(k, &s, T);
@@ -2848,27 +2813,6 @@ ${K.abioSilt ? `    // K.abioSilt: life also sparks from silt, in the light (so 
         intent[i] = vec4u(0u, 0u, NONE, NONE);
         vel = vec2f(0.0);
         atomicAdd(&ledger[4], 1u);
-      }
-    }
-` : ""}  } else if (p.kind == GLINT) {
-    p.energy -= ${f(K.leak * K.glintFade)} * pow(${f(K.glintQ10)}, warm) * sim.dt;
-    if (p.energy < ${f(K.glintMin)}) {
-      p.kind = SILT; p.energy = 0.0; p.age = 0.0;
-      p.info = (p.info & 0xffffffc0u) | 6u;
-    } else if (sim.abio > 0.0) {
-      // sparks favour hot water (around framboids) and found species suited to it
-      if (rnd(&s) < sim.abio * (1.0 + ${f(K.abioHeat)} * smoothstep(4.0, 20.0, hot))) {
-        let k = allocSlot(&s);
-        if (k != NONE) {
-          randomInto(k, &s, T);
-          p.kind = k; p.energy = 0.9; p.age = 0.0;
-          p.id = atomicAdd(&ledger[0], 1u);
-          p.col = genomes[k].col;
-          p.info = 8u;
-          intent[i] = vec4u(0u, 0u, NONE, NONE);
-          vel = vec2f(0.0);
-          atomicAdd(&ledger[4], 1u);
-        }
       }
     }
   } else if (p.kind == HUSK) {
@@ -3097,9 +3041,9 @@ fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f
   // an animal among dense producers hides in them (a grazer in its meadow)
   let hidden = ${f(K.plantRefuge)} > 0.0 && fk >= FIRST_LIFE && genomes[fk].photo <= 0.4 && rnd(s) < min(${f(K.refugeMax)}, plantN * ${f(K.plantRefuge)});
   // hunters of one species crowding the same quarry get in each other's way
-  // matter too takes being built for it: a husk or a glint grain is often lost to a cell that only dabbles in it
-  let fumbled = ${f(K.matterSkill)} > 0.0 && (fk == HUSK || fk == GLINT)
-    && rnd(s) >= min(1.0, eatEff * select(g.dHusk, g.dGlint, fk == GLINT) / ${f(K.matterSkill)});
+  // matter too takes being built for it: a husk is often lost to a cell that only dabbles in it
+  let fumbled = ${f(K.matterSkill)} > 0.0 && fk == HUSK
+    && rnd(s) >= min(1.0, eatEff * g.dHusk / ${f(K.matterSkill)});
   let jostled = ${f(K.interfere)} > 0.0 && fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.interfere)} * rivals) > 1.0;
   // recognition: living prey is caught as well as the eater's receptors match its surface (coevolution: prey
   // evolve away from the receptors hunting them, hunters toward the commonest prey)
@@ -3247,9 +3191,7 @@ ${cellWGSL(K, false)}
         ck = fp.kind;
         var gain = 0.0;
         act = 1u;
-        if (fp.kind == GLINT) {
-          gain = take(fp.energy, spec(g.dGlint), ${K.cycle ? "false" : "true"}, eatEff * th.perf); atomicAdd(&ledger[9], 1u);
-        } else if (fp.kind == HUSK) {
+        if (fp.kind == HUSK) {
           gain = ${K.bodyE > 0 && K.bodyWhole ? "fp.energy * min(1.0, spec(" + huskSkill(K) + ") * eatEff * th.perf * " + f(K.assimilate) + ")" : "take(fp.energy, spec(" + huskSkill(K) + "), false, eatEff * th.perf)"}; atomicAdd(&ledger[10], 1u);
         } else if (genomes[fp.kind].photo > 0.4) {
           gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf);${K.dung ? ` gut = min(gut + max(0.0, min(max(fp.energy, 0.0), ${f(K.bite)}) - gain), ${f(K.dungE)});` : ""} act = 3u; atomicAdd(&ledger[11], 1u);
@@ -3258,7 +3200,7 @@ ${cellWGSL(K, false)}
         }
         if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
         E += gain;
-        addEnergy(dg, select(select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), 1u, fp.kind == GLINT), gain);
+        addEnergy(dg, select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), gain);
       }
     }
   } else {
@@ -3317,7 +3259,7 @@ ${cellWGSL(K, false)}
             atomicOr(&ledger[META_CLAIM + fd], MEAL_CLAIM | (3u << 29u));
             atomicAdd(&ledger[META_CLAIM + fd], 1u);
           } else {
-            let cls = select(select(2u, 1u, fp.kind == GLINT), 0u, fp.kind >= FIRST_LIFE);
+            let cls = select(2u, 0u, fp.kind >= FIRST_LIFE);
             got = atomicCompareExchangeWeak(&ledger[META_CLAIM + fd], 0u, MEAL_CLAIM | (cls << 29u) | (i + 1u)).exchanged;
           }
           if (hunt && isAnimal(fd)) { diagAdd(dg, select(17u, 18u, got), 1u); }
@@ -3325,9 +3267,7 @@ ${cellWGSL(K, false)}
           if (!got) { continue; }
           var gain = 0.0;
           var slot = 4u;
-          if (fp.kind == GLINT) {
-            gain = take(fp.energy, spec(g.dGlint), ${K.cycle ? "false" : "true"}, eatEff * th.perf); atomicAdd(&ledger[9], 1u); slot = 1u;
-          } else if (fp.kind == HUSK) {
+          if (fp.kind == HUSK) {
             gain = ${K.bodyE > 0 && K.bodyWhole ? "fp.energy * min(1.0, spec(" + huskSkill(K) + ") * eatEff * th.perf * " + f(K.assimilate) + ")" : "take(fp.energy, spec(" + huskSkill(K) + "), false, eatEff * th.perf)"}; atomicAdd(&ledger[10], 1u); slot = 3u;
           } else if (plant) {
             gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf);${K.dung ? ` gut = min(gut + max(0.0, min(max(fp.energy, 0.0), ${f(K.bite)}) - gain), ${f(K.dungE)});` : ""} atomicAdd(&ledger[11], 1u); slot = 2u;
@@ -3347,15 +3287,7 @@ ${cellWGSL(K, false)}
     }
   }
 
-${K.cycle && K.exude > 0 ? `  // producers leak part of what they fix as dissolved food: a grain beside one is charged into glint
-  if (act == 0u && g.photo > 0.4 && silt != NONE && E > ${f(K.exudeE * 1.5)}
-      && rnd(&s) < ${f(K.exude / K.exudeE)} * max(photoGain, 0.0) * sim.dt) {
-    if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
-      act = 2u; ck = GLINT; ce = ${f(K.exudeE)}; E -= ce;
-      atomicAdd(&ledger[META_ENERGY + 59u], 1u);
-    }
-  }
-` : ""}${K.dung ? `  // a full gut is dropped as dung: the grain beside the eater becomes a husk of what it held
+${K.dung ? `  // a full gut is dropped as dung: the grain beside the eater becomes a husk of what it held
   if (act == 0u && silt != NONE && gut >= ${f(0.98 * K.dungE)}) {
     if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
       act = 2u; ck = HUSK; ce = gut; gut = 0.0;
@@ -3667,7 +3599,6 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
         // a scalded cell (10) dies as a starved one sounds
         if (code == 1u || code == 10u) { t = 3u; } else if (code == 2u) { t = 4u; } else if (code == 3u) { t = 5u; }
       } else if (p.kind == SILT && code == 3u) { t = 6u; }
-      else if (p.kind == GLINT && code == 5u) { t = 7u; }
     }
     if (t != NONE) {
       if (t < 8u) { atomicAdd(&wc[select(8u + t, t, inView)], 1u); }
@@ -3733,7 +3664,6 @@ fn surveyMain(@builtin(global_invocation_id) gid: vec3u) {
     } else if (p.kind == HUSK && recent) {
       if (code == 1u || code == 2u) { n[5] += 1u; } else if (code == 3u) { n[6] += 1u; }
     } else if (p.kind == SILT && recent && code == 3u) { n[6] += 1u; }
-    else if (p.kind == GLINT) { n[9] += 1u; }
   }
   let t = min(vec2u(c % su.grid.x, c / su.grid.x) / su.tile, su.tiles - 1u);
   let o = (t.y * su.tiles.x + t.x) * ${SURVEY_WORDS}u;
@@ -4470,11 +4400,6 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
   } else if (k == SILT) {
     size = 0.4;
     col = vec3f(0.30, 0.34, 0.46) * view.matterGain;
-  } else if (k == GLINT) {
-    size = 0.3;
-    shape = 13u;
-    let tw = 0.6 + 0.4 * sin(view.time * 6.0 + f32(p.id % 977u));
-    col = vec3f(0.7, 0.93, 1.0) * (0.4 + p.energy) * tw * view.matterGain * 2.0;
   } else if (k == STONE) {
     shape = 14u;
     col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 1.1;
@@ -5048,21 +4973,6 @@ fn pointColor(i: PO) -> vec4f {
       }
       f = body * facets * spriteMean(i.shape) / 0.56;
       cover = body;
-      if (p.kind == GLINT) {
-        // a crystal: steep facets, one per edge, lit by a light that tumbles slowly so they flash in turn
-        let sector = TAU / sides;
-        let facing = floor(a / sector + 0.5) * sector - seed * TAU;
-        let n = normalize(vec3f(vec2f(cos(facing), sin(facing)) * 1.4 * smoothstep(0.0, 0.25, r), 1.0));
-        let turn = view.time * (0.4 + 0.5 * seed) + seed * TAU;
-        let lit = pow(max(dot(n, normalize(vec3f(cos(turn), sin(turn), 0.8))), 0.0), 4.0);
-        let ridge = exp(-pow(fract(a / sector + 0.5) - 0.5, 2.0) * 900.0);
-        let core = exp(-r * r * 6.0);
-        // charged mineral glows once its crystal resolves, so it stands out from the grey silt around it
-        f = body * (0.45 + 1.6 * lit + 0.4 * ridge + 0.35 * core) * spriteMean(i.shape) / 0.56 * 1.8;
-        let seam = exp(-pow((v.y - v.x * 0.45) / (0.018 + aa), 2.0));
-        let spark = pow(max(0.0, sin(view.time * 2.0 + seed * 71.0)), 18.0);
-        f += body * (seam * 0.09 + spark * exp(-dot(v - vec2f(0.22, -0.18), v - vec2f(0.22, -0.18)) * 180.0) * 0.4);
-      }
       if (p.kind == STONE) {
         let seams = exp(-pow(sin(v.x * 5.0 + seed * 13.0) + 0.5 * sin(v.y * 7.0), 2.0) * 150.0);
         f *= 1.0 - 0.32 * seams;
@@ -5607,9 +5517,8 @@ struct Post {
   waves: array<vec4f, 4>,
   // the background water temperature, then the heat map's span; w: the tide map (0 off, 1 on)
   heat: vec4f,
-  // glint production (lifeMain's charge): per second at full tide in this era, then the hot springs'
-  // rate and the span over the background where they start and reach it
-  glint: vec4f,
+  // unused (once the tide map's glint production)
+  spare: vec4f,
 };
 `
   );
@@ -6207,16 +6116,12 @@ fn heatRamp(u: f32) -> vec3f {
     c += vec3f(0.22) * contour;
   }
   if (post.heat.w > 0.5) {
-    // the tide map: how fast silt charges into glint here, as lifeMain charges it (the Tide's bands by
-    // the season over a share of the baseline light, times the era's charge, plus hot springs in
-    // water far above the background), ink to violet to glint's pale blue up to a little over the
-    // best a band does in the richest era; outlines of the bands' shape at quarter steps (at every
-    // season, so they still show at low tide); and, dashed, where they will be in 20 s, so the way
-    // they drift shows. Over a full light map, the lines alone.
+    // the tide map: the light here, as lifeMain gives it to producers (the Tide's bands by the season
+    // over the baseline light), ink to violet to pale blue; outlines of the bands' shape at quarter
+    // steps (at every season, so they still show at low tide); and, dashed, where they will be in
+    // 20 s, so the way they drift shows. Over a full light map, the lines alone.
     let S = tideAt(wp, post.world, post.simTime, post.tide, post.tidePh);
-    var rate = (S * post.season + 0.2 * post.ambient) * post.glint.x;
-    if (post.heatVis >= 0.0) { rate += post.glint.y * smoothstep(post.glint.z, post.glint.w, water.x - post.heat.x); }
-    let G = clamp(rate / ${f(DEFAULT_K.charge * 1.25 * 1.2)}, 0.0, 1.0);
+    let G = clamp(post.ambient + (1.0 - post.ambient) * S * post.season, 0.0, 1.0);
     if (post.tideVis < 1.5) {
       let ramp = mix(mix(vec3f(0.03, 0.02, 0.10), vec3f(0.36, 0.20, 0.62), smoothstep(0.0, 0.45, G)), vec3f(0.72, 0.90, 1.0), smoothstep(0.4, 1.0, G));
       c = mix(c, ramp, mix(0.25, 0.45, smoothstep(0.0, 0.4, G)));
@@ -14811,7 +14716,6 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.season = 1;
       this.abio = 0;
       this.ambient = 0.17;
-      this.chargeMul = 1;
       this.temp = 16;
       this.excursion = 0;
       this.tide = new Float32Array([1, 1, 0.021, 1, 2, -1, -0.017, 1, -1, 3, 0.013, 0.7, 1, -2, 0.011, 0]);
@@ -15361,7 +15265,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     /**
      * Create a new universe of n particles (n <= capacity). Each world draws its own tide pattern,
-     * opening light and glint charge, matter mix, and how clumped its founders start.
+     * opening light, matter mix, and how clumped its founders start.
      */
     seed(n, { aspect = 16 / 9, rng = Math.random } = {}) {
       const d = this.device;
@@ -15377,12 +15281,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.seedValue = rng() * 4294967295 >>> 0;
       this.sorted = false;
       this.ambient = mix2(0.12, 0.3, rng());
-      this.chargeMul = mix2(0.8, 1.25, rng());
       this.temp = mix2(10, 22, rng());
       this.excursion = 0;
       this.randomizeTide(rng);
       this.randomizeCurrents(rng);
-      const silt = mix2(0.42, 0.58, rng()), glint = mix2(0.06, 0.18, rng()), husk = mix2(0.02, 0.06, rng());
+      const silt = mix2(0.48, 0.76, rng()), husk = mix2(0.02, 0.06, rng());
       const cells = this.grid[0] * this.grid[1];
       const rockR = mix2(1.2, 3, rng());
       const cover = rng() ** 1.5 * 0.08 * this.K.rocks;
@@ -15445,7 +15348,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       d.queue.writeBuffer(this.b.genomes, 0, gbuf);
       d.queue.writeBuffer(this.b.ledger, 0, head);
       this.founders = plan.length;
-      this._writeSim({ seedKinds: plan.length, pSilt: silt, pGlint: glint, pHusk: husk, clump, spread });
+      this._writeSim({ seedKinds: plan.length, pSilt: silt, pHusk: husk, clump, spread });
       const water = new Float32Array(cells).fill(this.tbg);
       d.queue.writeBuffer(this.b.thermal, MAX_CELLS * 4, water);
       const enc = d.createCommandEncoder();
@@ -15520,10 +15423,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       f2[11] = this.K.maxSpeed;
       u[12] = extra.seedKinds || 1;
       f2[13] = extra.pSilt || 0;
-      f2[14] = extra.pGlint || 0;
+      f2[14] = 0;
       f2[15] = extra.pHusk || 0;
       f2[16] = this.ambient;
-      f2[17] = this.chargeMul;
+      f2[17] = 1;
       f2[18] = extra.clump || 0;
       f2[19] = extra.spread || 0;
       f2.set(this.waves, 20);
@@ -15637,7 +15540,6 @@ registerProcessor("tidemote-sound", TidemoteSound);
         season: this.season,
         abio: this.abio,
         ambient: this.ambient,
-        chargeMul: this.chargeMul,
         seedValue: this.seedValue,
         temp: this.temp,
         excursion: this.excursion,
@@ -15661,7 +15563,6 @@ registerProcessor("tidemote-sound", TidemoteSound);
         season: c.season,
         abio: c.abio,
         ambient: c.ambient,
-        chargeMul: c.chargeMul,
         seedValue: c.seedValue,
         temp: c.temp,
         excursion: c.excursion
@@ -16482,10 +16383,6 @@ registerProcessor("tidemote-sound", TidemoteSound);
       pd[53] = tbg - 2;
       pd[54] = tbg + 10;
       pd[55] = this.settings.bands;
-      pd[56] = this.K.charge * this.chargeMul;
-      pd[57] = this.K.hotCharge;
-      pd[58] = this.K.hotFrom;
-      pd[59] = this.K.hotTo;
       d.queue.writeBuffer(this.b.post, 0, pd);
       const mainDetail = lod && new Float32Array(this.viewData)[7] > 2.8;
       if (mainDetail || loupe || specimen) {
@@ -16647,14 +16544,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
         started: 0,
         next: climateMix(600, 900, rng()),
         ambientTo: eng.ambient,
-        chargeTo: eng.chargeMul,
         tideTo: Array.from(eng.tide.filter((_, i) => i % 4 === 3)),
         tempTo: eng.temp,
         excursion: null,
         announced: null,
         flow: null,
         index: 1,
-        history: [{ t: 0, name: "The First Tides", ambient: eng.ambient, charge: eng.chargeMul, temp: eng.temp }]
+        history: [{ t: 0, name: "The First Tides", ambient: eng.ambient, temp: eng.temp }]
       });
     }
     function startEra() {
@@ -16669,7 +16565,6 @@ registerProcessor("tidemote-sound", TidemoteSound);
       climate.tideTo[retire] = 0;
       const prevAmb = climate.ambientTo;
       climate.ambientTo = climateMix(0.1, 0.34, r());
-      climate.chargeTo = climateMix(0.6, 1.5, r());
       const newWaves = eng.randomizeCurrents(r, new Float32Array(16));
       climate.flow = { from: Float32Array.from(eng.waves), to: newWaves, t0: t2, k: [Math.floor(r() * 4), Math.floor(r() * 4)] };
       climate.index++;
@@ -16685,14 +16580,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
         dT: (r() < 0.5 ? -1 : 1) * climateMix(5, 8, r()),
         dur: climateMix(120, 240, r())
       } : null;
-      climate.history.push({ t: t2, name: climate.name, ambient: climate.ambientTo, charge: climate.chargeTo, temp: climate.tempTo });
+      climate.history.push({ t: t2, name: climate.name, ambient: climate.ambientTo, temp: climate.tempTo });
       climate.onEra?.(climate.history.at(-1), prevAmb, prevTemp);
     }
     function tick(dt) {
       if (eng.simTime > climate.next) startEra();
       const k = Math.min(1, dt / 60);
       eng.ambient += (climate.ambientTo - eng.ambient) * k;
-      eng.chargeMul += (climate.chargeTo - eng.chargeMul) * k;
       eng.temp += (climate.tempTo - eng.temp) * Math.min(1, dt / 180);
       const x = climate.excursion;
       eng.excursion = excursionAt(x, eng.simTime);
@@ -16720,22 +16614,21 @@ registerProcessor("tidemote-sound", TidemoteSound);
     reset();
     return climate;
   }
-  function abioRate(glint) {
-    return 1 / 30 / (Math.max(1, glint) * 60);
+  function abioRate(silt) {
+    return 1 / 30 / (Math.max(1, silt) * 60);
   }
 
   // src/guide.js
   var GLOSSARY = {
-    silt: "Inert grit, most of the world’s matter. It drifts on currents, is charged into glint by the Tide, and every newborn cell is built out of one grain of it.",
-    glint: "Charged silt: free-floating food holding 1.0 energy. It forms mostly inside tide bands (and around hot springs), leaks charge, and fades back to silt after about 27 s if nothing eats it: sooner in warm water, later in cold.",
-    husk: "A dead cell’s remains. Starved, elderly, killed and scalded cells all leave one. Holds leftover energy for scavengers and crumbles back into silt after about half a minute: cold water keeps carcasses for the scavengers, warm water rots them fast, and a rotting pile warms its water a little.",
+    silt: "Inert grit, most of the world’s matter. It drifts on currents, every newborn cell is built out of one grain of it, and now and then life sparks from it in the light.",
+    husk: "A dead cell’s remains. Starved, elderly, killed and scalded cells all leave one, and eaters drop dung (smaller olive pellets). Holds leftover energy for scavengers and crumbles back into silt after about half a minute: cold water keeps carcasses for the scavengers, warm water rots them fast, and a rotting pile warms its water a little.",
     living: "Cells: particles with a genome. They feed, pay upkeep, divide by building a child out of silt, and die into husks.",
-    tide: "Four slow waves summed across the wrap-around world. Where they add up, bright bands form and drift. The Tide charges silt into glint and adds to the light.",
+    tide: "Four slow waves summed across the wrap-around world. Where they add up, bright bands form and drift. Inside them the light is brighter, so producers bloom where the bands pass.",
     light: "What plants feed on. It is dim everywhere (how dim depends on the era) and brighter inside tide bands, most of all at the height of the season.",
-    season: "A 5-minute cycle that swings tide strength between 10% and 100%. This is the Tide percentage in the gauge and graphs: the bands keep their shape and only brighten or fade. Glint production and light in the bands follow it, which drives booms and busts.",
-    era: "Every 10–18 minutes the climate turns: the baseline light, glint production and the water’s temperature change, one tide wave is replaced, and the currents shift. An era that warms the water by 5° or more is named Warm or Rising, one that cools it Bitter or Pale; otherwise the names are random labels.",
+    season: "A 5-minute cycle that swings tide strength between 10% and 100%. This is the Tide percentage in the gauge and graphs: the bands keep their shape and only brighten or fade. Light in the bands follows it, which drives booms and busts.",
+    era: "Every 10–18 minutes the climate turns: the baseline light and the water’s temperature change, one tide wave is replaced, and the currents shift. An era that warms the water by 5° or more is named Warm or Rising, one that cools it Bitter or Pale; otherwise the names are random labels.",
     water: "The water’s background temperature, set by the climate: it walks from era to era between 4° and 28°, swings ±2.5° with the season, and now and then a heat wave or cold snap passes. Life warms its own water above this: every cell’s spent energy becomes heat, so crowds, bodies and reefs sit in warm patches.",
-    tidemap: "How fast silt charges into glint, right now: dark where it barely does, through violet to glint’s pale blue where it charges fastest. The tide bands charge it, more at high tide and in eras rich in glint; hot springs (water far above the background) charge it even in the dark. Thin lines trace the bands’ shape at every season, so they still show at low tide, and a dashed line shows where the bands will be in 20 seconds, so you can see where glint will form next. Tap the Tide gauge (on phones, the era name) to open it.",
+    tidemap: "The light the Tide brings, right now: dark where it is dim, through violet to pale blue where the bands are brightest. Thin lines trace the bands’ shape at every season, so they still show at low tide, and a dashed line shows where the bands will be in 20 seconds, so you can see where the producers’ light is heading. Tap the Tide gauge (on phones, the era name) to open it.",
     heatmap: "How heat is drawn. Shimmer: warm water bends light like the air over a hot road, so plumes, colony halos and fronts waver. Full: a thermal camera, deep blue to teal to amber to white over a span from 2° below the background water to 10° above it, with a line every 2°.",
     thermal: "How well a cell works at its temperature: a rate that scales its photosynthesis, digestion and swimming. It is at its best within half a tolerance of the species’ optimum (higher the narrower its tolerance), then falls slowly on the cold side and steeply on the warm side. Away from its optimum a cell also pays extra upkeep for the stress.",
     optimum: "The temperature a species works best at (a gene, 0–45°). It drifts by mutation, so lineages can follow the climate or find a warm or cold refuge. A spark of life founds a species suited to the water it sparked in.",
@@ -16744,16 +16637,20 @@ registerProcessor("tidemote-sound", TidemoteSound);
     torpor: "Far below its optimum (more than 1.25 tolerances) a cell goes torpid: it neither feeds, swims nor divides, pays a quarter of its upkeep, dims, its pulse stops and it falls silent, until the water warms.",
     scalding: "Far above its optimum a cell begins to die of the heat: a chance each second, rising steeply. A scalded cell leaves a husk. Heat-stressed cells bleach toward pale bone first.",
     thermotaxis: "Swimmers away from their optimum steer up or down the warmth of the water toward it, harder the further off they are. Drifters and anchored cells cannot steer; heat sorts them by who survives where.",
-    framboid: "A pyrite framboid: a sphere of tiny iron sulfide crystals, a few microns across like the cells. Framboids grow where a pile of husks rots in cool water (the rot releases the sulfide), and a few lie in the mud from the start. As one oxidises it warms its water, burning faster the warmer that water is, so a crowded, hot cluster burns itself out; spent, it crumbles to silt. Their warmth charges nearby silt into glint (a hot spring), sparks of life favour it, and heat-loving species gather round them. Framboids are solid like stone.",
+    framboid: "A pyrite framboid: a sphere of tiny iron sulfide crystals, a few microns across like the cells. Framboids grow where a pile of husks rots in cool water (the rot releases the sulfide), and a few lie in the mud from the start. As one oxidises it warms its water, burning faster the warmer that water is, so a crowded, hot cluster burns itself out; spent, it crumbles to silt. Sparks of life favour their warmth, and heat-loving species gather round them. Framboids are solid like stone.",
     heatwave: "An excursion of the climate: for a few minutes the water rises (a heat wave) or falls (a cold snap) by 5–8°. Heat waves scald and bleach; cold snaps still the world except where heat-makers keep colonies warm.",
     epoch: "Simulated time since this universe began.",
-    abiogenesis: "Life sparking from glint: a completely random new species, about once every 30 simulated seconds on average.",
-    flesh: "Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Caught animal prey is killed outright and leaves a husk; this takes time, so a hunter manages at most one kill every few seconds. Plant cells are cropped a 0.06-energy bite at a time. Bonded bodies are armoured and shrug off some attacks.",
+    abiogenesis: "Life sparking from silt: a completely random new species suited to the water it sparks in, about once every 30 simulated seconds, mostly in the light and more in hot water. A world whose life has died begins again this way.",
+    flesh: "Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Caught animal prey is killed outright and leaves a husk; this takes time, so a hunter manages at most one kill every few seconds. Plant cells are cropped a 0.25-energy bite at a time. Bonded bodies are armoured and shrug off some attacks, and an animal hiding among dense producers often escapes.",
     diet: "The share of energy a species takes from each food. Food is worth its energy × share × 1.5, less for partly photosynthetic species.",
-    photosynth: "Takes energy directly from light: 0.4 × photosynthesis × local light per second. It is reduced by shade from neighbouring cells (a bonded body barely shades itself), needs minerals (silt nearby), and runs faster for anchored cells with current flowing past them. Photosynthesis makes a cell heavy: less thrust, no swimming, worse at eating.",
-    grazer: "Mostly eats glint, and crops photosynthesising cells: the herbivores of this world.",
-    scavenger: "Mostly eats husks.",
-    predator: "Mostly eats flesh: hunts animal cells, and crops plants only reluctantly.",
+    photosynth: "Takes energy directly from light. Light is shared: each photosynthesising neighbour shades a cell, so a crowded meadow divides its patch of light among many and a thinned one regrows fast (a bonded body barely shades itself). It needs minerals (silt nearby), and runs faster for anchored cells with current flowing past them. Photosynthesis makes a cell heavy: less thrust, no swimming, worse at eating.",
+    grazer: "Crops photosynthesising cells a bite at a time: the herbivores of this world.",
+    scavenger: "Mostly eats husks: carcasses, dead producers and the dung of eaters.",
+    predator: "Mostly eats flesh: hunts animal cells, and crops plants only reluctantly. A well-fed hunter rests rather than kill (satiety).",
+    dung: "What an eater cannot digest of a meal fills its gut and is dropped as a small olive pellet, a husk the scavengers live on: grazers feed the scavengers this way.",
+    cyst: "A dormant cell. An animal running out of energy with nothing to eat in reach may go dormant: it leaves its body, stops swimming and pulsing, greys and holds still unless jostled, leaking a little energy, and wakes after about a minute and a half on average. Cysts are the seed bank that carries a lineage through hard times.",
+    flee: "Animals that are not hunters swim away from hunters close by, harder the closer they are, if they can swim at all.",
+    satiety: "A hunter attacks animals less the fuller it is, until it holds a little more than it needs to divide: fed hunters rest instead of killing, which keeps them from eating each other out.",
     celltype: "α, β and γ cells of one species share a genome but each has its own surface and receptor signature, so each type is pulled toward and away from things differently. Types also differ in colour tint, size and shape.",
     bodyplan: "The long-run mix of cell types a species produces. Each child’s type is chosen by a developmental rule from its parent’s type; this is where that rule settles.",
     stone: "Bedrock, and the skeletons of calcifying cells. Stone never drifts and the living cannot pass through it. Attacks made from among stone sometimes miss, so prey shelters in reefs, and calcifying cells settle on their own reef while everything else must go around it. Bedrock lasts nearly an hour. A loose grain of reef stone crumbles within minutes, a grain packed into a reef lasts far longer, and a neighbourhood that is mostly reef wears fast, so reefs grow as separate patches and persist only while they are being built.",
@@ -16802,10 +16699,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
     affinity: "How strongly each of the species’ cell types is drawn toward (warm, +) or pushed away from (cool, −) what it meets within reach: its own cell types, other species and matter. It is read from the cell type’s receptors against the other’s surface signature; −1 to +1. A picked cell’s own type is marked. Diet adds its own pull toward food on top of this.",
     lighthere: "Light at this cell’s position right now: baseline plus tide, scaled by the season.",
     mind: "What this cell is doing, read from a replay of its latest decision. A cell has no brain: every frame it adds up the pulls and pushes of everything within reach (its receptors against their surface signatures, appetite for the foods its diet favours, schooling, bonds, stone), moves, then eats, divides or neither. The mode names which pull wins; hover it for the reasoning. The compass draws each pull as an arrow, its length the pull’s strength, with the cell’s heading dashed and its target as a diamond on the rim. The lamps light for conditions that shape what it does. Fleeing is an evolved aversion: no cell knows what a predator is, but lineages whose receptors happened to push them away from their hunters survived.",
-    "mind-food": "Appetite: a hungry cell is drawn toward the foods its diet favours. Flesh-eaters are drawn to animal cells, grazers (and, reluctantly, flesh-eaters) to plant cells, and glint- and husk-eaters to glint and husks. It lets living food inside its personal space so it can reach it. A sated cell feels no appetite.",
+    "mind-food": "Appetite: a hungry cell is drawn toward the foods its diet favours. Flesh-eaters are drawn to animal cells, grazers (and, reluctantly, flesh-eaters) to plant cells, and husk-eaters to husks. It lets living food inside its personal space so it can reach it. A sated cell feels no appetite.",
     "mind-other": "The pull or push of other species’ cells on this one: its receptors against their surface signatures. Evolved, not chosen: it is how prey comes to avoid hunters and how species come to live side by side.",
     "mind-kin": "The pull or push of its own species’ cells (beyond personal space and bonds). Attraction gathers swarms and packs bodies; repulsion spreads them out.",
-    "mind-matter": "The pull or push of silt, glint, husks and stone on its receptors (apart from appetite), plus stone’s solid push on any cell but a calcifier.",
+    "mind-matter": "The pull or push of silt, husks and stone on its receptors (apart from appetite), plus stone’s solid push on any cell but a calcifier.",
     "mind-net": "Light minus upkeep, per second. Below zero the cell is living on its reserves until it eats.",
     "mind-near": "Every species with cells within this cell’s reach, its own kind first; a species keeps its row while it stays. Cells: how many are in reach. Role: predator, a species built to catch this one; prey, one this cell is built to eat. The last column is how they pull on this cell: right, drawn toward them; left, pushed away.",
     colonial: "On average its cells attract each other. In a bonded species this packs the body tight; in a single-celled species the cells gather into swarms without ever joining.",
@@ -16847,30 +16744,30 @@ registerProcessor("tidemote-sound", TidemoteSound);
       id: "overview",
       title: "What you are looking at",
       short: "Overview",
-      html: `<p>Tidemote is a sealed world on the surface of a torus: what leaves one edge enters the opposite one. Every point is one particle, and the total number never changes. Particles only change form: inert ${t("silt", "silt")}, charged ${t("glint", "glint")}, living cells, dead ${t("husk", "husks")}, and ${t("stone", "stone")}: the world's bedrock and the reefs that calcifying cells leave behind.</p>
-<p>Energy is the only thing that enters and leaves. It arrives as ${t("light", "light")}, as glint charged by the ${t("tide", "Tide")} and as the heat of oxidising ${t("framboid", "framboids")}. The energy cells spend on ${t("upkeep", "upkeep")} becomes heat that warms their own ${t("water", "water")}, spreads, drifts on the currents and is lost to the deep; glint fades and husks rot. Everything you see grows out of a handful of local rules applied to every particle 60 times a second.</p>`
+      html: `<p>Tidemote is a sealed world on the surface of a torus: what leaves one edge enters the opposite one. Every point is one particle, and the total number never changes. Particles only change form: inert ${t("silt", "silt")}, living cells, dead ${t("husk", "husks")}, and ${t("stone", "stone")}: the world's bedrock and the reefs that calcifying cells leave behind.</p>
+<p>Energy is the only thing that enters and leaves. It arrives as ${t("light", "light")}, brightest in the bands of the ${t("tide", "Tide")}, and as the heat of oxidising ${t("framboid", "framboids")}. The energy cells spend on ${t("upkeep", "upkeep")} becomes heat that warms their own ${t("water", "water")}, spreads, drifts on the currents and is lost to the deep; husks rot. Everything you see grows out of a handful of local rules applied to every particle 60 times a second.</p>`
     },
     {
       id: "cycle",
       title: "The matter cycle",
       short: "Matter",
       html: `<ol class="steps">
-<li><b>Silt → glint.</b> Each second a grain of silt has a chance to become glint, mostly inside tide bands. Glint holds 1.0 energy, leaks 0.03 per second and turns back into silt below 0.2.</li>
-<li><b>Feeding.</b> Cells eat glint, husks, or other cells (${t("flesh", "flesh")}), according to their ${t("diet", "diet")}. Eaten glint and husks turn into silt; a killed cell becomes a husk. Photosynthetic cells drink ${t("light", "light")} instead, and are only cropped a bite at a time. Cells stop feeding once they have enough energy to divide.</li>
+<li><b>Feeding.</b> Photosynthetic cells drink ${t("light", "light")}; others eat plants a bite at a time, husks, or other cells (${t("flesh", "flesh")}), according to their ${t("diet", "diet")}. Eaten husks turn into silt; a killed cell becomes a husk, and what an eater cannot digest it drops as ${t("dung", "dung")}, another husk. Cells stop feeding once they have enough energy to divide.</li>
 <li><b>Division.</b> Once its energy passes its ${t("dividesat", "division threshold")} and a grain of silt lies within about 15 µm, a cell turns that grain into its child and hands over a ${t("childshare", "share")} of its energy. Every child is built out of silt.</li>
 <li><b>Mutation.</b> Each division has a small chance of founding a new species with a nudged genome.</li>
 <li><b>Death.</b> At zero energy (starvation) or at its ${t("lifespan", "lifespan")} a cell becomes a husk carrying leftover energy. Husks decay and crumble into silt. A settled ${t("calcify", "calcifying")} cell may leave ${t("stone", "stone")} instead, mostly beside stone already there; stone wears back into silt over minutes.</li>
-<li><b>Sparks.</b> Occasionally glint sparks into a completely random new species (${t("abiogenesis", "abiogenesis")}), so life can always restart.</li>
+<li><b>Dormancy.</b> An animal running out with no food in reach may go dormant as a ${t("cyst", "cyst")}, and wake later.</li>
+<li><b>Sparks.</b> Occasionally silt in the light sparks into a completely random new species (${t("abiogenesis", "abiogenesis")}), so life can always restart.</li>
 </ol>`
     },
     {
       id: "climate",
       title: "Tides, light, seasons and eras",
       short: "Climate",
-      html: `<p>The ${t("tide", "Tide")} is four slow waves summed over the torus; where they add up, bright bands form and drift. Inside a band it is bright; outside, it is dim but never dark. ${t("light", "Light")} is what plants feed on: it is dim everywhere and brighter in the bands. The Tide also turns silt into glint, but almost only inside the bands. So plants can live anywhere, while glint-eaters gather where the bands are.</p>
-<p>The ${t("season", "season")} is a 5-minute cycle that swings tide strength between 10% and 100%. This is the Tide percentage shown in the gauge and graphs. The bands keep their shape; only their strength changes. At high tide they are bright and full of new glint, and the water is a little warmer. At low tide they fade until they are barely brighter than the rest of the world, and little glint forms. This drives the regular booms and busts. Every 10–18 minutes an ${t("era", "era")} begins: the baseline light and glint production change, one tide wave is replaced so the bright zones form and move differently, and two current patterns are swapped. The water’s temperature walks from era to era, so each world has its own thermal history; eras that warm or cool it a lot are named for it, otherwise era names are random labels, and the event log says what actually changed.</p>
+      html: `<p>The ${t("tide", "Tide")} is four slow waves summed over the torus; where they add up, bright bands form and drift. Inside a band it is bright; outside, it is dim but never dark. ${t("light", "Light")} is what plants feed on: it is dim everywhere and brighter in the bands, and plants crowded together share it, so meadows bloom under a passing band and thin out behind it, and their grazers follow.</p>
+<p>The ${t("season", "season")} is a 5-minute cycle that swings tide strength between 10% and 100%. This is the Tide percentage shown in the gauge and graphs. The bands keep their shape; only their strength changes. At high tide they are bright and the water is a little warmer. At low tide they fade until they are barely brighter than the rest of the world. This drives the regular booms and busts. Every 10–18 minutes an ${t("era", "era")} begins: the baseline light changes, one tide wave is replaced so the bright zones form and move differently, and two current patterns are swapped. The water’s temperature walks from era to era, so each world has its own thermal history; eras that warm or cool it a lot are named for it, otherwise era names are random labels, and the event log says what actually changed.</p>
 <p>Tap a gauge to map what it reads: <b>Light</b> opens the light map, <b>Temp</b> the thermal camera and <b>Tide</b> the ${t("tidemap", "tide map")} (on phones, tap the era name). The map's name and scale float in a bar under the top rail, beside any highlight; close either one on its own, and Esc clears the highlight first, then the map.</p>
-<p><b>Settings → Light map</b> colours every point by the light a photosynthesising cell would receive there, with a contour every 10%; <b>Settings → Currents</b> draws the flow that carries silt, glint and drifting cells. The <b>Tide</b> gauge at the top follows the season: the dot rides the 5-minute wave, and the <b>Temp</b> thermometer beside it shows the background temperature, with an arrow while it changes; it breathes during a heat wave or cold snap.</p>`
+<p><b>Settings → Light map</b> colours every point by the light a photosynthesising cell would receive there, with a contour every 10%; <b>Settings → Currents</b> draws the flow that carries silt and drifting cells. The <b>Tide</b> gauge at the top follows the season: the dot rides the 5-minute wave, and the <b>Temp</b> thermometer beside it shows the background temperature, with an arrow while it changes; it breathes during a heat wave or cold snap.</p>`
     },
     {
       id: "heat",
@@ -16878,14 +16775,14 @@ registerProcessor("tidemote-sound", TidemoteSound);
       short: "Heat",
       html: `<p>The water has a temperature, and most of its warmth comes from life. Every unit of energy a cell spends on ${t("upkeep", "upkeep")} becomes heat in its water, so crowds, bodies and reefs sit in warm patches of their own making. Heat also comes from sunlight (a little), from rotting carcass piles, and from ${t("framboid", "framboids")}: grains of pyrite that crystallise in those piles and warm their water as they burn out over a few minutes, so a die-off leaves a warm oasis behind it for a while. Heat spreads a few cells, rides the currents (warm water trails downstream of a bloom) and relaxes toward the climate's ${t("water", "background")} within about half a minute. Stone holds heat: reefs and bedrock warm and cool slowly.</p>
 <p>Each species prefers a temperature (its ${t("optimum", "optimum")}) and stands only so much either side (its ${t("tolerance", "tolerance")}). How well it ${t("thermal", "works")} falls off slowly in the cold and steeply in the heat, and narrow specialists work best of all at their optimum, so small differences in warmth matter. Swimmers steer toward water that suits them (${t("thermotaxis", "thermotaxis")}). Far too cold, a cell goes ${t("torpor", "torpid")}; far too hot, it bleaches and may ${t("scalding", "scald")}.</p>
-<p>${t("heatmaker", "Heat-makers")} burn extra energy to warm themselves and their water. In a cold era their colonies are lifeboats where life keeps moving and singing while the world around it goes still; in a ${t("heatwave", "heat wave")} they overheat from the core outward. Warm water also wears glint and husks faster, so cold eras favour grazers and scavengers and warm ones recycle matter quickly.</p>
+<p>${t("heatmaker", "Heat-makers")} burn extra energy to warm themselves and their water. In a cold era their colonies are lifeboats where life keeps moving and singing while the world around it goes still; in a ${t("heatwave", "heat wave")} they overheat from the core outward. Warm water also rots husks faster, so cold eras favour scavengers and warm ones recycle matter quickly.</p>
 <p><b>Settings → Heat map</b> (E): <b>Shimmer</b> makes warm water waver as if seen through rising heat; <b>Full</b> is a thermal camera with an isotherm every 2°. Framboids show as brassy beaded spheres, faintly glowing while they burn.</p>`
     },
     {
       id: "cells",
       title: "Cells, cell types and bodies",
       short: "Cells",
-      html: `<p>Each species has one genome. A genome describes up to three ${t("celltype", "cell types")}, α, β and γ. Each type carries two 8-number signatures: a <b>surface</b> (how it appears to others) and a <b>receptor</b> (how it reacts). The pull of cell A on cell B is A’s receptor combined with B’s surface: above zero means attraction, below zero means repulsion. Silt, glint and husks have surfaces too, so a cell type can be drawn toward glint or repelled by husks.</p>
+      html: `<p>Each species has one genome. A genome describes up to three ${t("celltype", "cell types")}, α, β and γ. Each type carries two 8-number signatures: a <b>surface</b> (how it appears to others) and a <b>receptor</b> (how it reacts). The pull of cell A on cell B is A’s receptor combined with B’s surface: above zero means attraction, below zero means repulsion. Silt and husks have surfaces too, so a cell type can be drawn toward silt or repelled by husks.</p>
 <p>Zoom in to see lobose and filose cells, crooked radiates, incised desmids, horned armour, twisted spindles, slippers, chambered whorls, crescents, stalked bells, bead chains and lattice frustules. Species have their own proportions; individuals have uneven membranes and slowly shifting outlines. A nucleus pinches as division approaches, producers carry chloroplasts, eaters carry vacuoles, and swimmers grow cilia or flagella. These visual forms are cosmetic.</p>
 <p>When a cell divides, a developmental rule picks the child’s type from the parent’s type. Where that rule settles is the ${t("bodyplan", "body plan")}, for example α 60 · β 40.</p>
 <p>Species with ${t("adhesion", "adhesion")} form ${t("bond", "bonds")}: each cell keeps up to two partners of the same species. New bonds fill empty slots with nearby cells, and children start bonded to their parent, so bodies grow by division. A bond lasts until a partner dies, changes kind or stretches too far away. Bonds are what the links show, so a web of links is one ${t("organism", "organism")}. Species without adhesion are single-celled and never show links, however closely they crowd.</p>`
@@ -16909,10 +16806,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
       id: "ecology",
       title: "Ecology",
       short: "Ecology",
-      html: `<p>Producers are photosynths, anchored colonies and free-floating drifters alike, plus glint grazers. Consumers are grazers that crop photosynths, scavengers of husks, and predators. Several pressures shape which forms thrive:</p>
+      html: `<p>Producers are photosynths, anchored colonies and free-floating drifters alike. Consumers are grazers that crop them, scavengers of husks and dung, and predators. Every world founds each of these niches at least twice. Several pressures shape which forms thrive:</p>
 <ul>
 <li>Crowding: cells packed among their own kind sicken (a body’s bond partners do not count), so clonal blobs and sprawling bodies break up and species mix.</li>
-<li>Grazers crop the plants, predators thin out the grazers, and scavengers live off the husks both leave behind.</li>
+<li>Grazers crop the plants, predators thin out the grazers, and scavengers live off the husks and ${t("dung", "dung")} both leave behind. Plants share the light, so a grazed meadow regrows.</li>
+<li>Prey ${t("flee", "flee")} their hunters and hide among dense producers; well-fed hunters rest (${t("satiety", "satiety")}), so they do not eat each other out.</li>
 <li>Catching takes skill: cells catch living prey in proportion to how well they are built to eat it, so photosynthesisers and husk eaters rarely kill.</li>
 <li>Hunters and grazers get good at catching what they caught last and often miss unfamiliar prey, so booming species feed their predators and rare ones are spared.</li>
 <li>Anchored photosynths thrive where currents run strong; drifting ones where they are calm. Bonded bodies live cheaply and resist attack but disperse poorly.</li>
@@ -16934,9 +16832,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
       short: "Screen",
       html: `<ul>
 <li><b>Colour</b>: the species, tinted per cell type. Related species share hues. Brightness shows stored energy; newborns flash; some lineages pulse. Heat-stressed cells bleach toward pale bone, torpid ones dim to a cold blue and stop pulsing, and heat-makers glow faintly warm.</li>
-<li><b>Shape</b>: disc, ring, star, nucleus or diamond, a lineage marker per cell type. Husks are dim brown rings, glint is a pale sparkle, silt is faint slate.</li>
+<li><b>Shape</b>: disc, ring, star, nucleus or diamond, a lineage marker per cell type. Husks are dim brown rings, dung smaller olive pellets, silt is faint slate. A dormant ${t("cyst", "cyst")} is greyed and still.</li>
 <li><b>Links</b>: ${t("bond", "bonds")} within one multicellular body.</li>
-<li><b>Census</b>: the bar splits every particle between living cells, glint, husks, stone and silt. The chart below it stacks living cells by species in their colours (point at a band to name its species, click to open it); the pale top band is life in species too small to list, and dotted lines mark new eras.</li>
+<li><b>Census</b>: the bar splits every particle between living cells, husks, stone and silt. The chart below it stacks living cells by species in their colours (point at a band to name its species, click to open it); the pale top band is life in species too small to list, and dotted lines mark new eras.</li>
 <li><b>Scale</b>: the ticks above the controls are round lengths in ${t("scale", "micrometres")} (millimetres, zoomed out); the bar at the right says how long.</li>
 </ul>`
     },
@@ -16984,13 +16882,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
   };
   var NICE_UM = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1e3, 2e3, 5e3, 1e4, 2e4, 5e4];
   var MATTER = [
-    { name: "Silt", css: "#5d6a82", blurb: "Inert mineral grit carried on the currents. The Tide charges it into glint, and cells build their offspring out of it." },
-    { name: "Glint", css: "#b9e6ff", blurb: "Silt charged by the Tide: free-floating food. Its charge fades back to silt if nothing eats it." },
+    { name: "Silt", css: "#5d6a82", blurb: "Inert mineral grit carried on the currents. Cells build their offspring out of it, and now and then life sparks from it in the light." },
+    { name: "Glint", css: "#b9e6ff", blurb: "No longer made: once silt charged by the Tide." },
     { name: "Husk", css: "#9a6c4c", blurb: "The remains of a dead cell. Scavengers feed on what energy is left; the rest crumbles back into silt." },
     { name: "Stone", css: "#c2b8a8", blurb: "Bedrock, or the skeleton a calcifying cell left where it settled. Stone never drifts and the living cannot pass through it. Prey shelters in its crevices, and it slowly wears back into silt." },
     { name: "Framboid", css: "#ccb373", blurb: "A pyrite framboid: a sphere of tiny iron sulfide crystals, grown from the sulfide a pile of rotting husks releases in cool mud. As it oxidises it warms the water around it, faster the warmer that water is, until it is spent and crumbles to silt. Solid, like stone." }
   ];
-  var CAUSE = { 0: "", 1: "starved", 2: "died of old age", 3: "was consumed", 4: "crumbled from a husk", 5: "charged by the Tide", 6: "faded back to silt", 7: "wore away from stone", 8: "sparked into life from glint", 9: "built from silt by its parent", 10: "scalded", 12: "crystallised in a rotting pile", 13: "crumbled from a spent framboid" };
+  var CAUSE = { 0: "", 1: "starved", 2: "died of old age", 3: "was consumed", 4: "crumbled from a husk", 5: "charged by the Tide", 6: "faded back to silt", 7: "wore away from stone", 8: "sparked into life from silt", 9: "built from silt by its parent", 10: "scalded", 12: "crystallised in a rotting pile", 13: "crumbled from a spent framboid" };
   var LIVING_CSS = "#ff9a6a";
 
   // src/glyphs.js
@@ -18827,10 +18725,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       return { el, update };
     }
     const CHARTS = [
-      ["Population", null, [{ k: "living", label: "living cells", col: LIVING_CSS }, { k: "glint", label: "glint", col: "#b9e6ff" }, { k: "husk", label: "husks", col: "#9a6c4c" }]],
+      ["Population", null, [{ k: "living", label: "living cells", col: LIVING_CSS }, { k: "husk", label: "husks", col: "#9a6c4c" }]],
       ["Species", "diversity", [{ k: "alive", label: "alive", col: "#a3bdbe" }, { k: "thriving", label: "thriving", col: "#f1e3a0" }, { k: "diversity", label: "effective species", col: "#7fe0b0" }]],
       ["Births and deaths per minute", null, [{ k: "births", label: "births", col: "#7fe0b0" }, { k: "starve", label: "starved", col: "#ff8a6b" }, { k: "old", label: "old age", col: "#c9b8ff" }, { k: "eaten", label: "eaten", col: "#ff5f3a" }]],
-      ["Meals per minute", "flesh", [{ k: "graze", label: "glint", col: "#b9e6ff" }, { k: "scav", label: "husks", col: "#a87b5c" }, { k: "prey", label: "kills", col: "#ff5f3a" }, { k: "bite", label: "bites of photosynths", col: "#d9f27a" }]],
+      ["Meals per minute", "flesh", [{ k: "bite", label: "bites of producers", col: "#d9f27a" }, { k: "scav", label: "husks", col: "#a87b5c" }, { k: "prey", label: "kills", col: "#ff5f3a" }]],
       ["New species and extinctions per minute", "mutation", [{ k: "mut", label: "new species", col: "#c9b8ff" }, { k: "ext", label: "extinctions", col: "#ff8a6b" }]],
       ["Climate", "season", [{ k: "ambient", label: "baseline light", col: "#d9f27a" }, { k: "season", label: "tide strength", col: "#5fd4c4" }], "%"]
     ];
@@ -18864,7 +18762,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           erasN = eras.length;
           excN = exc;
           const water = (h) => api.eng.K.heat && h.temp != null ? ` · temperature ${Math.round(h.temp)}°${h.excursion ? ` · ${h.excursion.dT > 0 ? "heat wave" : "cold snap"} ${h.excursion.dT > 0 ? "+" : "−"}${Math.abs(h.excursion.dT).toFixed(0)}°` : ""}` : "";
-          $2("eras").innerHTML = eras.slice().reverse().map((h) => `<li><time>${fmtClock(h.t)}</time><b>${esc(h.name)}</b><span>light ${Math.round(h.ambient * 100)}% · glint ×${h.charge.toFixed(2)}${water(h)}</span></li>`).join("");
+          $2("eras").innerHTML = eras.slice().reverse().map((h) => `<li><time>${fmtClock(h.t)}</time><b>${esc(h.name)}</b><span>light ${Math.round(h.ambient * 100)}%${water(h)}</span></li>`).join("");
         }
       }
       let felt0 = null, felt1 = null;
@@ -18996,7 +18894,6 @@ registerProcessor("tidemote-sound", TidemoteSound);
   }
 
   // src/mind.js
-  var GLINT = 1;
   var HUSK = 2;
   function parseMind(u32, f32) {
     if (u32[1] !== 1) return null;
@@ -19074,7 +18971,6 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var MODES = {
     divide: "Dividing",
     seeksilt: "Ready to divide",
-    feed: "Eating glint",
     scavenge: "Scavenging",
     graze: "Grazing",
     hunt: "Hunting",
@@ -19173,8 +19069,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       st = m.siltNear ? { key: "divide", matter: "Silt", text: "Dividing", why: `Its energy (${E.toFixed(2)}) has reached the ${need.toFixed(2)} it needs, and a grain of silt is in reach to build a child from.` } : { key: "seeksilt", matter: "Silt, none in reach", text: "Ready to divide", why: `It has the energy to divide (${E.toFixed(2)} of ${need.toFixed(2)}) but no grain of silt within reach to build a child from, so it waits. Full, it has stopped feeding.` };
     } else if (m.food && m.hungry) {
       const fk = m.food.kind;
-      if (fk === GLINT) st = { key: "feed", matter: "Glint", text: "Eating glint", why: `Hungry (${hunger}), with charged glint in reach.` };
-      else if (fk === HUSK) st = { key: "scavenge", matter: "Husk", text: "Scavenging a husk", why: `Hungry (${hunger}), with a husk in reach to pick over.` };
+      if (fk === HUSK) st = { key: "scavenge", matter: "Husk", text: "Scavenging a husk", why: `Hungry (${hunger}), with a husk in reach to pick over.` };
       else {
         const gq = genomeOf(fk);
         const plant = gq && gq.photo > 0.4;
@@ -19203,8 +19098,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
     }
     if (!st && m.hungry && share("forage") >= 0.25) {
-      const glint = g.dGlint * m.matterN[GLINT] >= g.dHusk * m.matterN[HUSK];
-      st = { key: "forage", matter: glint ? "Glint" : "Husks", text: glint ? "Foraging for glint" : "Foraging for husks", why: `Hungry (${hunger}). Its diet draws it toward the ${glint ? "glint" : "husks"} drifting nearby.` };
+      st = { key: "forage", matter: "Husks", text: "Foraging for husks", why: `Hungry (${hunger}). Its diet draws it toward the husks drifting nearby.` };
     }
     if (!st && K.heat && share("heat") >= 0.25) {
       const warmer = g.topt > m.warmth;
@@ -19826,7 +19720,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       let h = "";
       const diet = [
         ["Light", "photosynth", g.photo, "#d9f27a", g.photo],
-        ["Glint", "glint", g.dGlint, MATTER[1].css, g.dGlint * (1 - 0.6 * g.photo)],
+        ["Grazing", "graze", g.dGlint, "#d9f27a", g.dGlint * (1 - 0.6 * g.photo)],
         ["Husk", "husk", g.dHusk, MATTER[2].css, g.dHusk * (1 - 0.6 * g.photo)],
         ["Flesh", "flesh", g.dFlesh, "#ff6b6b", g.dFlesh * (1 - 0.6 * g.photo)]
       ];
@@ -19957,8 +19851,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           } else plainGlyph(MATTER_GLYPH[p.kind][0], MATTER_GLYPH[p.kind][1]);
           setActs(`m${!!mem}`, mem ? '<button type="button" class="btn" data-act="relative">Watch a relative</button>' : "");
           const q10 = (q) => K.heat ? q ** ((eng.tbg - K.tRef) / 10) : 1;
-          if (p.kind === 1) v += vital("Charge", p.energy, "cyan", `fades in ${fmtDur(Math.max(0, (p.energy - K.glintMin) / (K.leak * q10(K.glintQ10))))}`, "glint");
-          else if (p.kind === 2) v += vital("Energy left", p.energy / 1.2, "sun", `${q10(K.rotQ10) > 1.3 ? "rotting fast · " : ""}crumbles in ${fmtDur(Math.max(0, (p.energy - K.huskMin) / (K.decay * q10(K.rotQ10))))}`, "husk");
+          if (p.kind === 2) v += vital("Energy left", p.energy / 1.2, "sun", `${q10(K.rotQ10) > 1.3 ? "rotting fast · " : ""}crumbles in ${fmtDur(Math.max(0, (p.energy - K.huskMin) / (K.decay * q10(K.rotQ10))))}`, "husk");
           else if (framboid) v += vital("Fuel", clamp6(p.energy / K.framboidLife, 0, 1), "warm", `burns out in about ${fmtDur(Math.max(0, p.energy / q10(2)))}`, "framboid");
           else if (p.kind === 3) v += vital("Wears away", clamp6(p.energy / 600, 0, 1), "cyan", `in ${fmtDur(Math.max(0, p.energy))}`, "stone");
           else v += vital("Light here", lightAt(p) / 100, "sun", `${lightAt(p)}%`, "lighthere");
@@ -21352,7 +21245,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       climate.onEra = (era, prevAmb, prevTemp) => {
         const lightWord = era.ambient > prevAmb + 0.05 ? "light rises" : era.ambient < prevAmb - 0.05 ? "light dims" : "light holds";
         const waterWord = !K.heat ? "" : ` · water ${era.temp > prevTemp + 1 ? "warms" : era.temp < prevTemp - 1 ? "cools" : "holds"} to ${Math.round(era.temp)}°`;
-        pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}%${waterWord} · glint ×${era.charge.toFixed(1)} · currents shift`, 4288734193, "era");
+        pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}%${waterWord} · currents shift`, 4288734193, "era");
         flash(climate.name, "New era");
         sound.era(climate.name);
       };
@@ -21636,7 +21529,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         s.bands = 1;
       }, close: (s) => {
         s.bands = 0;
-      }, ramp: () => ["tide", "no glint", "most"] }
+      }, ramp: () => ["light", "dim", "bright"] }
     ];
     const rampHtml = (m) => {
       const [cls, lo, hi] = m.ramp();
@@ -21766,7 +21659,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       return sp;
     }
     function originWord(sp) {
-      return sp.serial > eng.founders ? "sparked from glint" : "a founding lineage";
+      return sp.serial > eng.founders ? "sparked from silt" : "a founding lineage";
     }
     function pushEvent(html, col, type = "misc") {
       const text = html.replace(/<[^>]+>/g, "");
@@ -21928,7 +21821,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           life.top = best.serial;
         }
       }
-      eng.abio = abioRate(pop[1] + (eng.K.abioSilt ? pop[0] : 0));
+      eng.abio = abioRate(pop[0]);
       feedSound(pop, audio);
       if (t2 - life.lastHist >= life.histEvery) {
         const G = Array.from(c.globals);
@@ -21938,7 +21831,6 @@ registerProcessor("tidemote-sound", TidemoteSound);
         life.history.push({
           t: t2,
           silt: pop[0],
-          glint: pop[1],
           husk: pop[2],
           living,
           sp,
@@ -21949,7 +21841,6 @@ registerProcessor("tidemote-sound", TidemoteSound);
           starve: rate(5),
           old: rate(6),
           eaten: rate(7),
-          graze: rate(9),
           scav: rate(10),
           prey: rate(7),
           bite: rate(11),
@@ -21985,7 +21876,6 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     const MIX = [
       ["Living", 3, LIVING_CSS, "living", "class:living"],
-      ["Glint", 1, MATTER[1].css, "glint", "class:glint"],
       ["Husk", 2, MATTER[2].css, "husk", "class:husk"],
       ["Stone", 4, MATTER[3].css, "stone", "class:stone"],
       ...K.heat ? [["Framboids", 5, MATTER[4].css, "framboid", "class:framboid"]] : [],
@@ -22151,8 +22041,6 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (a.kind === 4 && b.kind === 0) return "The framboid was spent and crumbled into silt.";
       if (a.kind === 2 && b.kind === 4) return "The husk rotted in a pile, and its sulfide crystallised as a framboid.";
       if (a.kind === 2 && b.kind === 0) return b.cause === 3 ? "The husk was eaten by a scavenger." : "The husk crumbled into silt.";
-      if (a.kind === 0 && b.kind === 1) return "Charged into glint by the Tide.";
-      if (a.kind === 1 && b.kind === 0) return b.cause === 3 ? "The glint was eaten by a cell." : "The glint faded back into silt.";
       return `Became ${b.kind < FIRST_LIFE ? MATTER[b.kind].name.toLowerCase() : "a living cell"}.`;
     }
     function applySample(cur, t2) {
@@ -23764,7 +23652,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     renderAuto(false);
     const REASON = {
       mutations: ["where new variants are being born", "mutants are appearing here"],
-      sparks: ["where life is sparking from glint", "life is sparking from glint"],
+      sparks: ["where life is sparking from silt", "life is sparking from silt"],
       kills: ["a hunting ground", "kills are frequent"],
       births: ["a crowd of births", "many are being born"],
       deaths: ["a die-off", "many are dying"],

@@ -420,10 +420,10 @@ export function createLab(api) {
 
   // ---------------------------------------------------------- charts
   const CHARTS = [
-    ['Population', null, [{ k: 'living', label: 'living cells', col: LIVING_CSS }, { k: 'glint', label: 'glint', col: '#b9e6ff' }, { k: 'husk', label: 'husks', col: '#9a6c4c' }]],
+    ['Population', null, [{ k: 'living', label: 'living cells', col: LIVING_CSS }, { k: 'husk', label: 'husks', col: '#9a6c4c' }]],
     ['Species', 'diversity', [{ k: 'alive', label: 'alive', col: '#a3bdbe' }, { k: 'thriving', label: 'thriving', col: '#f1e3a0' }, { k: 'diversity', label: 'effective species', col: '#7fe0b0' }]],
     ['Births and deaths per minute', null, [{ k: 'births', label: 'births', col: '#7fe0b0' }, { k: 'starve', label: 'starved', col: '#ff8a6b' }, { k: 'old', label: 'old age', col: '#c9b8ff' }, { k: 'eaten', label: 'eaten', col: '#ff5f3a' }]],
-    ['Meals per minute', 'flesh', [{ k: 'graze', label: 'glint', col: '#b9e6ff' }, { k: 'scav', label: 'husks', col: '#a87b5c' }, { k: 'prey', label: 'kills', col: '#ff5f3a' }, { k: 'bite', label: 'bites of photosynths', col: '#d9f27a' }]],
+    ['Meals per minute', 'flesh', [{ k: 'bite', label: 'bites of producers', col: '#d9f27a' }, { k: 'scav', label: 'husks', col: '#a87b5c' }, { k: 'prey', label: 'kills', col: '#ff5f3a' }]],
     ['New species and extinctions per minute', 'mutation', [{ k: 'mut', label: 'new species', col: '#c9b8ff' }, { k: 'ext', label: 'extinctions', col: '#ff8a6b' }]],
     ['Climate', 'season', [{ k: 'ambient', label: 'baseline light', col: '#d9f27a' }, { k: 'season', label: 'tide strength', col: '#5fd4c4' }], '%'],
   ];
@@ -461,7 +461,7 @@ export function createLab(api) {
       if (eras.length !== erasN || exc !== excN) {
         erasN = eras.length; excN = exc;
         const water = (h) => (api.eng.K.heat && h.temp != null ? ` · temperature ${Math.round(h.temp)}°${h.excursion ? ` · ${h.excursion.dT > 0 ? 'heat wave' : 'cold snap'} ${h.excursion.dT > 0 ? '+' : '−'}${Math.abs(h.excursion.dT).toFixed(0)}°` : ''}` : '');
-        $('eras').innerHTML = eras.slice().reverse().map((h) => `<li><time>${fmtClock(h.t)}</time><b>${esc(h.name)}</b><span>light ${Math.round(h.ambient * 100)}% · glint ×${h.charge.toFixed(2)}${water(h)}</span></li>`).join('');
+        $('eras').innerHTML = eras.slice().reverse().map((h) => `<li><time>${fmtClock(h.t)}</time><b>${esc(h.name)}</b><span>light ${Math.round(h.ambient * 100)}%${water(h)}</span></li>`).join('');
       }
     }
     let felt0 = null, felt1 = null;

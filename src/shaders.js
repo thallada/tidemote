@@ -1,5 +1,5 @@
 // WGSL for the Tidemote biosphere.
-// Kinds: 0 silt, 1 glint, 2 husk, 3 stone, 4 framboid, 5..1023 living genomes.
+// Kinds: 0 silt, 1 (unused: once glint), 2 husk, 3 stone, 4 framboid, 5..1023 living genomes.
 // Each living genome has up to three cell roles with their own signatures.
 
 export const MAXK = 1024;
@@ -18,7 +18,7 @@ export const DIAG_SLOTS = ['samples', 'crowd', 'silt', 'pack', 'kin', 'speed', '
 export const DIAG_STRIDE = 24;
 export const META_DIAG = META_ENERGY + 64;
 export const META_CLAIM = META_DIAG + 5 * DIAG_STRIDE;
-// Energy ledger per diet guild, in thousandths: light, glint, plant bites, husks, kills, upkeep,
+// Energy ledger per diet guild, in thousandths: light, (glint: unused), plant bites, husks, kills, upkeep,
 // children, heat-making. META_ENERGY + 40.. holds the thermal sample (THERMAL_LEDGER).
 export const ENERGY_SLOTS = ['light', 'glint', 'plant', 'husk', 'flesh', 'upkeep', 'children', 'heat'];
 // Sampled once a second per living cell: the warmth it lives at (HEAT_BINS bins of HEAT_BIN degrees
@@ -50,9 +50,6 @@ export const MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
 
 export const DEFAULT_K = {
   density: 22,
-  charge: 0.28,     // silt -> glint per second at full tide
-  leak: 0.03,
-  glintMin: 0.2,
   decay: 0.011,
   huskMin: 0.08,
   huskBase: 0.35,
@@ -67,8 +64,8 @@ export const DEFAULT_K = {
   killEvery: 4,     // handling time: kills only on every Nth meal opportunity
   biteEvery: 1,     // ...and bites of plant cells on every Nth
   plantPref: 0.1,   // how much a flesh-eater values plant cells relative to a grazer
-  grazePref: 1,   // how much a grazer values a plant cell relative to glint
-  forage: 0.35,     // pull of glint and husks on a hungry forager, relative to signature forces
+  grazePref: 1,   // how much a grazer values a plant cell
+  forage: 0.35,     // pull of husks on a hungry forager, relative to signature forces
   hunt: 0.12,       // pull of living prey on a hungry forager
   kinCrowd: 0.06,   // upkeep added per crowding same-species neighbour, excluding bond partners
   kinFree: 4,       // same-species neighbours tolerated before crowding costs
@@ -85,7 +82,7 @@ export const DEFAULT_K = {
   flee: 0.5,          // an animal that does not hunt is pushed away from hunters within reach at this × its swimming
   recognize: 0.4,     // living prey (and plants) escape an eater whose receptors do not match their surface: up to this
                     // share of attempts on a perfectly mismatched one (coevolution, frequency-dependent predation)
-  matterSkill: 0.5,   // eating a husk or glint succeeds with (eatEff × that diet) / this, certain past it (0: always)
+  matterSkill: 0.5,   // eating a husk succeeds with (eatEff × that diet) / this, certain past it (0: always)
   catchSkill: 0.6,  // catch chance scales with eating skill (eatEff × preference), reaching certainty here
   nutrHalf: 8.0,    // silt grains nearby at which photosynthesis runs at half speed
   swimCost: 0.018,
@@ -165,7 +162,7 @@ export const DEFAULT_K = {
   framboidPile: 8,  // ...in a grid cell holding this many husks (rising from three), in water no warmer than
                     // the background (none at 6° above it: pyrite forms in cool mud)
   stoneMass: 0.15,  // heat capacity added by each grain of stone in a grid cell
-  tRef: 16,         // the temperature at which glint and husks wear at their base rates
+  tRef: 16,         // the temperature at which husks wear at their base rates
   specBonus: 0.25,  // extra performance at its optimum of the narrowest tolerance (2°)
   thermalFlat: 0.5, // tolerances either side of its optimum where a cell works at its best
   thermalWarm: 0.6, // how wide the warm side of the curve is relative to the cold side (heat kills)
@@ -176,18 +173,14 @@ export const DEFAULT_K = {
   thermotaxis: 0.6, // how hard swimmers steer toward water that suits them, relative to their swimming
   thermoCost: 0.03, // energy per second a full heat-maker burns to warm itself and its water
   selfWarm: 4,      // degrees a full heat-maker runs above its water (×1.5 with two bonds)
-  glintQ10: 2.0,    // glint fades this much faster per 10° above tRef
   rotQ10: 2.5,      // husks rot this much faster per 10° above tRef
-  hotCharge: 0.6,   // extra chance per second that silt charges in the hottest water (hot springs)
-  hotFrom: 8,       // hot springs begin this many degrees over the background (framboids, heat-maker colonies;
-  hotTo: 22,        // a grazer huddle stays below it) and charge fully this many degrees over it
   abioHeat: 3,      // extra weight of sparks of life in hot water
   marangoni: 0,     // matter drifts from warm water toward cold at this many cells/s per °/cell
   bodyE: 1.3,       // energy a cell's body holds, by size (0: main's rules: bodies are free and buildCost, preyBase, carcass and huskBase
                     // make energy). On: a child's body costs this, a death leaves it as the husk, and a kill
-                    // passes on at most the prey's energy and body, so energy only enters as light and glint
+                    // passes on at most the prey's energy and body, so energy only enters as light
   assimilate: 1.5,  // with bodyE, an eater keeps this × its skill (specialisation × eatEff × warmth) of the energy in
-  assimCap: 0.8,    // flesh, plants and husks, at most this share (glint keeps K.gain)
+  assimCap: 0.8,    // flesh, plants and husks, at most this share
   carcassKeep: 0.3, // with bodyE, the share of a killed cell's body left in its carcass (the killer gets the rest)
   bodyWhole: 1,     // with bodyE, 1: bodies are eaten whole by an eater built for them (a kill's share of the body and a
                     // husk pass without digestion's loss, as the stuff of its next child, up to skill × assimilate);
@@ -206,17 +199,11 @@ export const DEFAULT_K = {
   sharpFounders: 1, // 1: founders are specialists: producers all light, animals none, each diet mostly its main food
   leanHunters: 2,   // 1: founding hunters and crawlers are smaller, divide sooner and form loose bodies (for bodyE);
                     // 2: and cheaper to run (less force, slower, shorter-lived); 3: and with 2.5× the reserve (reproE)
-  cycle: 1,         // 1: a closed nutrient loop (docs/ecosystem.md): producers exude glint, a dead producer leaves
-                    // litter only grazers break down, other husks are carcasses for scavengers, eaten husks return
-                    // to the water as silt, and glint counts as food from within (no gain)
-  exude: 0,      // with cycle, the share of a producer's light it leaks as glint...
-  exudeE: 0.6,      // ...in grains of this much energy each
-  tideCharge: 0,    // scale on the tide's (and hot springs') charging of silt into glint
+  cycle: 1,         // 1: a closed nutrient loop (docs/ecosystem.md): a dead producer leaves litter, husks feed the
+                    // scavengers (litterTo), and eaten husks return to the water as silt
   tideSpeed: 3,     // scale on how fast the tide's bands of light travel
-  abioSilt: 1,      // 1: abiogenesis sparks from silt in the light too (glint is rare without tideCharge), one spark per ~30 s world-wide
   rotScale: 1,
   litterTo: 1,      // with cycle, who breaks down a producer's litter: 0 grazers, 1 scavengers (decomposers of all husks)
-  glintFade: 1,     // scale on how fast glint loses its energy and falls back to silt (slow: the nutrient waits for a grazer)      // scale on how fast husks rot back to silt by themselves
   cyst: 1,          // 1: a seed bank: a cell short of energy with no food in reach may go dormant (a cyst) and wake later
   cystPlants: 0,    // with cyst, 0: only animals go dormant (producers do not eat, so 'no food in reach' always holds)
   cystAt: 0.3,      // ...below this share of its division energy...
@@ -283,7 +270,7 @@ const TO_LIGHT = vec2f(-0.633, -0.774);
 const MAXK = ${MAXK}u;
 const FIRST_LIFE = ${FIRST_LIFE}u;
 const SILT = 0u;
-const GLINT = 1u;
+const GLINT = 1u;  // a kind no longer made (glint): kept so the kind numbers hold
 const HUSK = 2u;
 // a husk left by a producer (K.cycle): plant litter, grazers' to break down; other husks are carcasses
 const LITTER = 0x8000u;
@@ -295,7 +282,7 @@ const STONE = 3u;
 const FRAMBOID = ${FRAMBOID}u;
 const NONE = 0xffffffffu;
 // A claim made by a coarse step's walk (lifeMain) says what it is for itself rather than through the
-// claimer's intent: bit 31, then a class in bits 29-30 (0 a kill, 1 glint, 2 a husk, each taken by the
+// claimer's intent: bit 31, then a class in bits 29-30 (0 a kill, 1 unused, 2 a husk, each taken by the
 // claimer in bits 0-22; 3 bites of a photosynthesiser, counted in bits 0-15, any number of eaters).
 const MEAL_CLAIM = 0x80000000u;
 const MAX_CELLS = 262144u;
@@ -855,8 +842,8 @@ struct Sim {
   world: vec2f, grid: vec2u,
   count: u32, frame: u32, dt: f32, time: f32,
   season: f32, abio: f32, seed: u32, maxSpeed: f32,
-  seedKinds: u32, pSilt: f32, pGlint: f32, pHusk: f32,
-  ambient: f32, chargeMul: f32, clump: f32, spread: f32,
+  seedKinds: u32, pSilt: f32, spare14: f32, pHusk: f32,
+  ambient: f32, spare17: f32, clump: f32, spread: f32,
   waves: array<vec4f, 4>,
   tide: array<vec4f, 4>,
   tidePh: vec4f,
@@ -974,15 +961,14 @@ fn depositHeat(p: vec2f, e: f32) {
 }
 
 // Specialists digest their food better than generalists: value of a food given the share of the diet devoted to it.
-// How much a cell of genome g wants a grain of matter qk (Lite flags kr): glint and, with K.cycle, a
-// producer's litter feed grazers; carcasses feed scavengers.
+// How much a cell of genome g wants a grain of matter qk (Lite flags kr): husks feed scavengers (with
+// K.cycle and litterTo 0, a producer's litter feeds grazers instead).
 fn matterDiet(g: Genome, qk: u32, kr: u32) -> f32 {
-  if (qk == GLINT${K.cycle && !K.litterTo ? ' || (kr & (1u << 12u)) != 0u' : ''}) { return g.dGlint; }
-  return g.dHusk;
+  ${K.cycle && !K.litterTo ? 'if ((kr & (1u << 12u)) != 0u) { return g.dGlint; }\n  ' : ''}return g.dHusk;
 }
 fn spec(d: f32) -> f32 { let c = min(max(d, 0.0), 1.0); return ${K.specPow > 0 ? `pow(c, ${f(K.specPow)})` : `c * (${f(1 - 0.6)} + ${f(0.6)} * c)`}; }
 // What an eater keeps of a meal holding raw energy: skill (diet specialisation) times eatEff × warmth (fit).
-// Glint is income from outside, at K.gain. With K.bodyE food that was alive passes on at most
+// Without K.bodyE, a meal is income at K.gain. With K.bodyE food that was alive passes on at most
 // K.assimCap of what it held, the share growing with skill at K.assimilate, so no loop makes energy.
 fn take(raw: f32, skill: f32, outside: bool, fit: f32) -> f32 {
   ${K.bodyE > 0 ? `if (!outside) { return raw * min(${f(K.assimCap)}, skill * fit * ${f(K.assimilate)}); }` : ''}
@@ -1175,9 +1161,7 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
   var age = 0.0;
   var info = 0u;
   if (u < sim.pSilt) {
-  } else if (u < sim.pSilt + sim.pGlint) {
-    kind = GLINT; e = 0.5 + 0.5 * rnd(&s);
-  } else if (u < sim.pSilt + sim.pGlint + sim.pHusk) {
+  } else if (u < sim.pSilt + sim.pHusk) {
     kind = HUSK; e = 0.2 + 0.3 * rnd(&s); col = pack4x8unorm(vec4f(0.5, 0.35, 0.25, 1.0));
   } else {
     kind = FIRST_LIFE + min(u32(rnd(&s) * f32(sim.seedKinds)), sim.seedKinds - 1u);
@@ -1232,7 +1216,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         // a coarse step's meal: the target's kind follows from its class; bites at most one a tick
         let cls = (c >> 29u) & 3u;
         act = select(1u, 3u, cls == 3u);
-        ck = select(select(HUSK, GLINT, cls == 1u), select(NONE, p.kind, p.kind >= FIRST_LIFE), cls == 0u || cls == 3u);
+        ck = select(HUSK, select(NONE, p.kind, p.kind >= FIRST_LIFE), cls == 0u || cls == 3u);
         if (cls == 3u) { bites = f32(min(c & 0xffffu, sim.ticks)); }
       } else {
         // Only x/y are read here; other invocations may reset their own bond slots.
@@ -1268,11 +1252,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         p.kind = HUSK; p.energy = bitcast<f32>(intent[c - 1u].y); p.age = 0.0; p.vel *= 0.2;
         p.info = (p.info & 0xffff7fc0u) | 11u${K.cycle ? ' | LITTER' : ''};
         p.col = pack4x8unorm(vec4f(0.36, 0.30, 0.14, 1.0));
-      } else if (act == 2u && ck == GLINT && p.kind == SILT) {
-        // a producer's exudate: the grain beside it charged with what it leaked
-        p.kind = GLINT; p.energy = bitcast<f32>(intent[c - 1u].y); p.age = 0.0;
-        p.info = (p.info & 0xffffffc0u) | 5u;
-      } else if (act == 2u && ck >= FIRST_LIFE && (p.kind == SILT || p.kind == GLINT)) {
+      } else if (act == 2u && ck >= FIRST_LIFE && p.kind == SILT) {
         let cr = (action >> 12u) & 3u;
         let gen = (action >> 14u) & 0xffffu;
         p.kind = ck;
@@ -1512,7 +1492,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     return;
   }
   var s = pcg((p.id * 1664525u) ^ pcg(sim.frame * 2654435761u + sim.seed));
-  // the water's warmth here: warm water wears glint and husks faster and shakes grains harder
+  // the water's warmth here: warm water wears husks faster and shakes grains harder
   // (read smoothly between grid cells: grains shaken harder cell by cell drifted into grid lines)
   let T = heatSample(p.pos).x;
   let warm = (T - TREF) / 10.0;
@@ -1532,15 +1512,10 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   p.age += sim.dt;
   if (p.kind == SILT) {
     let tide = tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient;
-    // a step's chance of charging; for coarse steps the exact chance of at least one event in the step.
-    // Hot springs: water far above the background charges silt even in the dark
-    let lam = tide * ${f(K.charge * K.tideCharge)} * sim.chargeMul + ${f(K.hotCharge * K.tideCharge)} * smoothstep(${f(K.hotFrom)}, ${f(K.hotTo)}, hot);
-    if (rnd(&s) < select(lam * sim.dt, 1.0 - exp(-lam * sim.dt), sim.ticks > 1u)) {
-      p.kind = GLINT; p.energy = 1.0; p.age = 0.0;
-      p.info = (p.info & 0xffffffc0u) | 5u;
-    }
-${K.abioSilt ? `    // K.abioSilt: life also sparks from silt, in the light (so a world that died can begin again)
-    if (p.kind == SILT && sim.abio > 0.0 && rnd(&s) < sim.abio * 2.0 * clamp(tide, 0.0, 1.0)) {
+    // life sparks from silt (about one spark per 30 s in the world, sim.abio per grain), in the light, and
+    // more in hot water (around framboids); a spark founds a species suited to the water here, so a world
+    // whose life died begins again
+    if (sim.abio > 0.0 && rnd(&s) < sim.abio * 2.0 * clamp(tide, 0.0, 1.0) * (1.0 + ${f(K.abioHeat)} * smoothstep(4.0, 20.0, hot))) {
       let k = allocSlot(&s);
       if (k != NONE) {
         randomInto(k, &s, T);
@@ -1551,27 +1526,6 @@ ${K.abioSilt ? `    // K.abioSilt: life also sparks from silt, in the light (so 
         intent[i] = vec4u(0u, 0u, NONE, NONE);
         vel = vec2f(0.0);
         atomicAdd(&ledger[4], 1u);
-      }
-    }
-` : ''}  } else if (p.kind == GLINT) {
-    p.energy -= ${f(K.leak * K.glintFade)} * pow(${f(K.glintQ10)}, warm) * sim.dt;
-    if (p.energy < ${f(K.glintMin)}) {
-      p.kind = SILT; p.energy = 0.0; p.age = 0.0;
-      p.info = (p.info & 0xffffffc0u) | 6u;
-    } else if (sim.abio > 0.0) {
-      // sparks favour hot water (around framboids) and found species suited to it
-      if (rnd(&s) < sim.abio * (1.0 + ${f(K.abioHeat)} * smoothstep(4.0, 20.0, hot))) {
-        let k = allocSlot(&s);
-        if (k != NONE) {
-          randomInto(k, &s, T);
-          p.kind = k; p.energy = 0.9; p.age = 0.0;
-          p.id = atomicAdd(&ledger[0], 1u);
-          p.col = genomes[k].col;
-          p.info = 8u;
-          intent[i] = vec4u(0u, 0u, NONE, NONE);
-          vel = vec2f(0.0);
-          atomicAdd(&ledger[4], 1u);
-        }
       }
     }
   } else if (p.kind == HUSK) {
@@ -1800,9 +1754,9 @@ fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f
   // an animal among dense producers hides in them (a grazer in its meadow)
   let hidden = ${f(K.plantRefuge)} > 0.0 && fk >= FIRST_LIFE && genomes[fk].photo <= 0.4 && rnd(s) < min(${f(K.refugeMax)}, plantN * ${f(K.plantRefuge)});
   // hunters of one species crowding the same quarry get in each other's way
-  // matter too takes being built for it: a husk or a glint grain is often lost to a cell that only dabbles in it
-  let fumbled = ${f(K.matterSkill)} > 0.0 && (fk == HUSK || fk == GLINT)
-    && rnd(s) >= min(1.0, eatEff * select(g.dHusk, g.dGlint, fk == GLINT) / ${f(K.matterSkill)});
+  // matter too takes being built for it: a husk is often lost to a cell that only dabbles in it
+  let fumbled = ${f(K.matterSkill)} > 0.0 && fk == HUSK
+    && rnd(s) >= min(1.0, eatEff * g.dHusk / ${f(K.matterSkill)});
   let jostled = ${f(K.interfere)} > 0.0 && fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.interfere)} * rivals) > 1.0;
   // recognition: living prey is caught as well as the eater's receptors match its surface (coevolution: prey
   // evolve away from the receptors hunting them, hunters toward the commonest prey)
@@ -1950,9 +1904,7 @@ ${cellWGSL(K, false)}
         ck = fp.kind;
         var gain = 0.0;
         act = 1u;
-        if (fp.kind == GLINT) {
-          gain = take(fp.energy, spec(g.dGlint), ${K.cycle ? 'false' : 'true'}, eatEff * th.perf); atomicAdd(&ledger[9], 1u);
-        } else if (fp.kind == HUSK) {
+        if (fp.kind == HUSK) {
           gain = ${K.bodyE > 0 && K.bodyWhole ? 'fp.energy * min(1.0, spec(' + huskSkill(K) + ') * eatEff * th.perf * ' + f(K.assimilate) + ')' : 'take(fp.energy, spec(' + huskSkill(K) + '), false, eatEff * th.perf)'}; atomicAdd(&ledger[10], 1u);
         } else if (genomes[fp.kind].photo > 0.4) {
           gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf);${K.dung ? ` gut = min(gut + max(0.0, min(max(fp.energy, 0.0), ${f(K.bite)}) - gain), ${f(K.dungE)});` : ''} act = 3u; atomicAdd(&ledger[11], 1u);
@@ -1961,7 +1913,7 @@ ${cellWGSL(K, false)}
         }
         if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
         E += gain;
-        addEnergy(dg, select(select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), 1u, fp.kind == GLINT), gain);
+        addEnergy(dg, select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), gain);
       }
     }
   } else {
@@ -2020,7 +1972,7 @@ ${cellWGSL(K, false)}
             atomicOr(&ledger[META_CLAIM + fd], MEAL_CLAIM | (3u << 29u));
             atomicAdd(&ledger[META_CLAIM + fd], 1u);
           } else {
-            let cls = select(select(2u, 1u, fp.kind == GLINT), 0u, fp.kind >= FIRST_LIFE);
+            let cls = select(2u, 0u, fp.kind >= FIRST_LIFE);
             got = atomicCompareExchangeWeak(&ledger[META_CLAIM + fd], 0u, MEAL_CLAIM | (cls << 29u) | (i + 1u)).exchanged;
           }
           if (hunt && isAnimal(fd)) { diagAdd(dg, select(17u, 18u, got), 1u); }
@@ -2028,9 +1980,7 @@ ${cellWGSL(K, false)}
           if (!got) { continue; }
           var gain = 0.0;
           var slot = 4u;
-          if (fp.kind == GLINT) {
-            gain = take(fp.energy, spec(g.dGlint), ${K.cycle ? 'false' : 'true'}, eatEff * th.perf); atomicAdd(&ledger[9], 1u); slot = 1u;
-          } else if (fp.kind == HUSK) {
+          if (fp.kind == HUSK) {
             gain = ${K.bodyE > 0 && K.bodyWhole ? 'fp.energy * min(1.0, spec(' + huskSkill(K) + ') * eatEff * th.perf * ' + f(K.assimilate) + ')' : 'take(fp.energy, spec(' + huskSkill(K) + '), false, eatEff * th.perf)'}; atomicAdd(&ledger[10], 1u); slot = 3u;
           } else if (plant) {
             gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf);${K.dung ? ` gut = min(gut + max(0.0, min(max(fp.energy, 0.0), ${f(K.bite)}) - gain), ${f(K.dungE)});` : ''} atomicAdd(&ledger[11], 1u); slot = 2u;
@@ -2050,15 +2000,7 @@ ${cellWGSL(K, false)}
     }
   }
 
-${K.cycle && K.exude > 0 ? `  // producers leak part of what they fix as dissolved food: a grain beside one is charged into glint
-  if (act == 0u && g.photo > 0.4 && silt != NONE && E > ${f(K.exudeE * 1.5)}
-      && rnd(&s) < ${f(K.exude / K.exudeE)} * max(photoGain, 0.0) * sim.dt) {
-    if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
-      act = 2u; ck = GLINT; ce = ${f(K.exudeE)}; E -= ce;
-      atomicAdd(&ledger[META_ENERGY + 59u], 1u);
-    }
-  }
-` : ''}${K.dung ? `  // a full gut is dropped as dung: the grain beside the eater becomes a husk of what it held
+${K.dung ? `  // a full gut is dropped as dung: the grain beside the eater becomes a husk of what it held
   if (act == 0u && silt != NONE && gut >= ${f(0.98 * K.dungE)}) {
     if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
       act = 2u; ck = HUSK; ce = gut; gut = 0.0;
@@ -2380,7 +2322,6 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
         // a scalded cell (10) dies as a starved one sounds
         if (code == 1u || code == 10u) { t = 3u; } else if (code == 2u) { t = 4u; } else if (code == 3u) { t = 5u; }
       } else if (p.kind == SILT && code == 3u) { t = 6u; }
-      else if (p.kind == GLINT && code == 5u) { t = 7u; }
     }
     if (t != NONE) {
       if (t < 8u) { atomicAdd(&wc[select(8u + t, t, inView)], 1u); }
@@ -2416,7 +2357,7 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
 // what happened in each since the last survey. One thread per grid cell walks that cell's
 // particles (they are sorted by cell) and adds its sums to the tile's counters.
 export const SURVEY_WORDS = 10;
-export const SURVEY = { living: 0, bonded: 1, births: 2, mutations: 3, sparks: 4, deaths: 5, kills: 6, species: 7, speed: 8, glint: 9 };
+export const SURVEY = { living: 0, bonded: 1, births: 2, mutations: 3, sparks: 4, deaths: 5, kills: 6, species: 7, speed: 8, glint: 9 }; // glint: no longer counted (always 0)
 export const SURVEY_MAX_TILES = 4096;
 export const SURVEY_WGSL = COMMON + /* wgsl */ `
 struct SurveyU { grid: vec2u, tiles: vec2u, tile: u32, now: f32, window: f32, adhMin: f32 };
@@ -2449,7 +2390,6 @@ fn surveyMain(@builtin(global_invocation_id) gid: vec3u) {
     } else if (p.kind == HUSK && recent) {
       if (code == 1u || code == 2u) { n[5] += 1u; } else if (code == 3u) { n[6] += 1u; }
     } else if (p.kind == SILT && recent && code == 3u) { n[6] += 1u; }
-    else if (p.kind == GLINT) { n[9] += 1u; }
   }
   let t = min(vec2u(c % su.grid.x, c / su.grid.x) / su.tile, su.tiles - 1u);
   let o = (t.y * su.tiles.x + t.x) * ${SURVEY_WORDS}u;
@@ -3190,11 +3130,6 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
   } else if (k == SILT) {
     size = 0.4;
     col = vec3f(0.30, 0.34, 0.46) * view.matterGain;
-  } else if (k == GLINT) {
-    size = 0.3;
-    shape = 13u;
-    let tw = 0.6 + 0.4 * sin(view.time * 6.0 + f32(p.id % 977u));
-    col = vec3f(0.7, 0.93, 1.0) * (0.4 + p.energy) * tw * view.matterGain * 2.0;
   } else if (k == STONE) {
     shape = 14u;
     col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 1.1;
@@ -3768,21 +3703,6 @@ fn pointColor(i: PO) -> vec4f {
       }
       f = body * facets * spriteMean(i.shape) / 0.56;
       cover = body;
-      if (p.kind == GLINT) {
-        // a crystal: steep facets, one per edge, lit by a light that tumbles slowly so they flash in turn
-        let sector = TAU / sides;
-        let facing = floor(a / sector + 0.5) * sector - seed * TAU;
-        let n = normalize(vec3f(vec2f(cos(facing), sin(facing)) * 1.4 * smoothstep(0.0, 0.25, r), 1.0));
-        let turn = view.time * (0.4 + 0.5 * seed) + seed * TAU;
-        let lit = pow(max(dot(n, normalize(vec3f(cos(turn), sin(turn), 0.8))), 0.0), 4.0);
-        let ridge = exp(-pow(fract(a / sector + 0.5) - 0.5, 2.0) * 900.0);
-        let core = exp(-r * r * 6.0);
-        // charged mineral glows once its crystal resolves, so it stands out from the grey silt around it
-        f = body * (0.45 + 1.6 * lit + 0.4 * ridge + 0.35 * core) * spriteMean(i.shape) / 0.56 * 1.8;
-        let seam = exp(-pow((v.y - v.x * 0.45) / (0.018 + aa), 2.0));
-        let spark = pow(max(0.0, sin(view.time * 2.0 + seed * 71.0)), 18.0);
-        f += body * (seam * 0.09 + spark * exp(-dot(v - vec2f(0.22, -0.18), v - vec2f(0.22, -0.18)) * 180.0) * 0.4);
-      }
       if (p.kind == STONE) {
         let seams = exp(-pow(sin(v.x * 5.0 + seed * 13.0) + 0.5 * sin(v.y * 7.0), 2.0) * 150.0);
         f *= 1.0 - 0.32 * seams;
@@ -4327,9 +4247,8 @@ struct Post {
   waves: array<vec4f, 4>,
   // the background water temperature, then the heat map's span; w: the tide map (0 off, 1 on)
   heat: vec4f,
-  // glint production (lifeMain's charge): per second at full tide in this era, then the hot springs'
-  // rate and the span over the background where they start and reach it
-  glint: vec4f,
+  // unused (once the tide map's glint production)
+  spare: vec4f,
 };
 `;
 
@@ -4926,16 +4845,12 @@ fn heatRamp(u: f32) -> vec3f {
     c += vec3f(0.22) * contour;
   }
   if (post.heat.w > 0.5) {
-    // the tide map: how fast silt charges into glint here, as lifeMain charges it (the Tide's bands by
-    // the season over a share of the baseline light, times the era's charge, plus hot springs in
-    // water far above the background), ink to violet to glint's pale blue up to a little over the
-    // best a band does in the richest era; outlines of the bands' shape at quarter steps (at every
-    // season, so they still show at low tide); and, dashed, where they will be in 20 s, so the way
-    // they drift shows. Over a full light map, the lines alone.
+    // the tide map: the light here, as lifeMain gives it to producers (the Tide's bands by the season
+    // over the baseline light), ink to violet to pale blue; outlines of the bands' shape at quarter
+    // steps (at every season, so they still show at low tide); and, dashed, where they will be in
+    // 20 s, so the way they drift shows. Over a full light map, the lines alone.
     let S = tideAt(wp, post.world, post.simTime, post.tide, post.tidePh);
-    var rate = (S * post.season + 0.2 * post.ambient) * post.glint.x;
-    if (post.heatVis >= 0.0) { rate += post.glint.y * smoothstep(post.glint.z, post.glint.w, water.x - post.heat.x); }
-    let G = clamp(rate / ${f(DEFAULT_K.charge * 1.25 * 1.2)}, 0.0, 1.0);
+    let G = clamp(post.ambient + (1.0 - post.ambient) * S * post.season, 0.0, 1.0);
     if (post.tideVis < 1.5) {
       let ramp = mix(mix(vec3f(0.03, 0.02, 0.10), vec3f(0.36, 0.20, 0.62), smoothstep(0.0, 0.45, G)), vec3f(0.72, 0.90, 1.0), smoothstep(0.4, 1.0, G));
       c = mix(c, ramp, mix(0.25, 0.45, smoothstep(0.0, 0.4, G)));

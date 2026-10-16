@@ -68,7 +68,7 @@ export const flightTime = (S) => clamp(Math.abs(S) * 7, 9, 32);
 /**
  * What the director knows of the world: per survey tile, smoothed rates of what happens there.
  * Activity (births, deaths, kills) fades over about 15 s of wall time; novelty (new species,
- * life sparked from glint) is remembered for about a minute.
+ * life sparked from silt) is remembered for about a minute.
  */
 export class Interest {
   constructor() { this.n = 0; }
