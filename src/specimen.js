@@ -1,4 +1,4 @@
-import { roleShares, roleColor, affinity, CELL_SHAPES, cellShape, thermalPerf, thermalGuild } from './genome.js';
+import { roleShares, roleColor, affinity, CELL_SHAPES, cellShape, thermalPerf, thermalGuild, divEnergy } from './genome.js';
 import { FIRST_LIFE } from './engine.js';
 import { FRAMBOID, stoneGrain } from './shaders.js';
 import { tagsOf } from './facets.js';
@@ -215,6 +215,7 @@ export function createSpecimen(api) {
     if (g && (g.adhesion || 0) > K.adhMin) h += kv('Bond share', !b ? '—' : b.thrift > 0.001 ? `upkeep −${Math.round(b.thrift * 100)}%` : none, 'bondthrift');
     if (K.heat) h += kv('Heat stress', !b ? '—' : mind.m.torpid ? `torpid: burns ${Math.round(K.torporCost * 100)}% of its upkeep` : b.stress > 0.01 ? `upkeep +${Math.round(b.stress * 100)}%` : none, 'thermal');
     if (K.heat && g && (g.thermo || 0) > 0.005) h += kv('Heat-making', b ? `<span class="neg">${signed(-b.heatMaking)}/s</span>` : '—', 'heatmaker');
+    if (K.dung && g && (1 - g.photo) ** 2 > 0.1) h += kv('Gut', !b ? '—' : b.gut > 0.01 ? `${Math.round(b.gut * 100)}% full` : '<span class="nil">empty</span>', 'mind-gut');
     h += kv('Saving energy', !b ? '—' : b.lean < 0.995 ? `burns ${Math.round(b.lean * 100)}% of its upkeep` : none, 'lean');
     h += kv('Net', b ? `<span class="${b.net >= 0 ? 'pos' : 'neg'}">${signed(b.net)}/s</span> between meals` : '—', 'mind-net');
     return blk('Energy budget', h, { tip: 'energy' });
@@ -385,7 +386,8 @@ export function createSpecimen(api) {
     m += trait('Current pull', g.advect, 0.03, 1, `${Math.round(g.advect * 100)}%`, 'currentpull');
     h += blk('Movement', m);
     let l = trait('Lifespan', g.lifespan, 20, 500, fmtDur(g.lifespan), 'lifespan');
-    l += trait('Divides at', g.reproE, 0.6, 4, g.reproE.toFixed(2), 'dividesat');
+    const dv = divEnergy(g, K);
+    l += trait('Divides at', dv, 1, 8, dv.toFixed(2), 'dividesat');
     l += trait('Child share', g.share, 0.2, 0.7, `${Math.round(g.share * 100)}%`, 'childshare');
     l += trait('Upkeep', g.metab, 0.01, 0.15, `${g.metab.toFixed(3)}/s`, 'upkeep');
     l += trait('Mutation', g.mutRate, 0.002, 0.08, `${(g.mutRate * 100).toFixed(1)}%`, 'mutation');
@@ -535,7 +537,8 @@ export function createSpecimen(api) {
         const hl = sp && api.focusKey() === `sp:${sp.serial}`;
         setActs(`c${api.follow()}${hl}${!!sp}`, `<button type="button" class="btn" data-act="follow" aria-pressed="${api.follow()}" data-hint="Keep it in view · C">Follow</button>${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}">Highlight species</button>` : ''}`);
         if (g) {
-          v += vital('Energy', p.energy / g.reproE, 'sun', `${p.energy.toFixed(2)} / ${g.reproE.toFixed(2)}`, 'energy');
+          const dv = divEnergy(g, K);
+          v += vital('Energy', p.energy / dv, 'sun', `${p.energy.toFixed(2)} / ${dv.toFixed(2)}`, 'energy');
           v += vital('Age', p.age / g.lifespan, 'cyan', `${fmtDur(p.age)} / ${fmtDur(g.lifespan)}`, 'lifespan');
           const m = !sel.lost && sel.mind && sel.mind.m;
           if (K.heat && m) {

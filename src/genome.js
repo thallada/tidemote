@@ -257,6 +257,15 @@ export function dietGuild(g) {
   return g.dFlesh >= m ? 'predator' : g.dHusk >= m ? 'scavenger' : 'grazer';
 }
 
+// The energy a cell divides at (lifeMain's divE): its own threshold plus the child's body (K.bodyE,
+// K.bodyReserve), raised so the child is provisioned for K.provision seconds of upkeep.
+export function divEnergy(g, K = DEFAULT_K) {
+  const body = K.bodyE > 0 ? (K.bodySize ? K.bodyE * g.size : K.bodyE) : K.buildCost;
+  let e = K.bodyE > 0 ? (K.bodyReserve ? g.reproE + body : Math.max(g.reproE, 1.25 * body)) : g.reproE;
+  if (K.provision > 0) e += Math.max(0, body + K.provision * g.metab / g.share - g.reproE - body);
+  return e;
+}
+
 export function mobilityGuild(g) {
   const swim = g.swim * (1 - g.photo);
   return g.advect < 0.2 && swim < 0.2 ? 'sessile' : swim >= 0.8 ? 'swimmer'

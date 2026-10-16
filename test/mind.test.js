@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_K as K, MIND_HEAD, MIND_NBR_WORDS, MIND_BYTES } from '../src/shaders.js';
-import { parseMind, interpretMind, settleMind, catchSkill, strikeChance, slotRows, groupsFor } from '../src/mind.js';
+import { parseMind, interpretMind, settleMind, catchSkill, strikeChance, attackChance, slotRows, groupsFor } from '../src/mind.js';
+import { divEnergy } from '../src/genome.js';
 
 const NONE = 0xffffffff;
 const ME = 10, HUNTER = 11, ALGA = 12, BUG = 13;
@@ -14,7 +15,7 @@ const G = {
 const genomeOf = (k) => G[k] || null;
 
 /** A mind buffer as mindMain writes it. */
-function buffer({ hungry = false, silt = false, food = null, energy = 0.5, photoGain = 0, upkeep = 0.02, light = 0.5, drives = {}, nbrs = [], stoneN = 0, kinCost = 1, image = 0, flow = [0, 0], vel = [0, 0] } = {}) {
+function buffer({ hungry = false, silt = false, food = null, energy = 0.5, photoGain = 0, upkeep = 0.02, light = 0.5, drives = {}, nbrs = [], stoneN = 0, kinCost = 1, image = 0, flow = [0, 0], vel = [0, 0], divE = 1.2, cyst = false, mature = true, gut = 0, plantN = 0 } = {}) {
   const buf = new ArrayBuffer(MIND_BYTES);
   const u32 = new Uint32Array(buf), f32 = new Float32Array(buf);
   u32[0] = 77; u32[1] = 1;
@@ -27,10 +28,11 @@ function buffer({ hungry = false, silt = false, food = null, energy = 0.5, photo
   const order = ['space', 'kin', 'other', 'diet', 'matter', 'forage', 'align', 'bond', 'stone', 'swim'];
   order.forEach((k, i) => f32.set(drives[k] || [0, 0], 24 + 2 * i));
   f32.set(flow, 44);
+  f32[58] = divE; u32[59] = (cyst ? 1 : 0) | (mature ? 2 : 0); f32.set(drives.flee || [0, 0], 60); f32[62] = gut; f32[63] = plantN;
   nbrs.forEach((q, k) => {
     const o = MIND_HEAD + k * MIND_NBR_WORDS;
     u32[o] = q.kind; u32[o + 1] = q.inside ? 1 : 0;
-    f32[o + 2] = q.d[0]; f32[o + 3] = q.d[1]; f32[o + 4] = q.fSig; f32[o + 5] = q.fDiet || 0; u32[o + 6] = k;
+    f32[o + 2] = q.d[0]; f32[o + 3] = q.d[1]; f32[o + 4] = q.fSig; f32[o + 5] = q.fDiet || 0; u32[o + 6] = k; f32[o + 7] = q.fFlee || 0;
   });
   return parseMind(u32, f32);
 }
@@ -158,4 +160,55 @@ test('a torpid cell reads as torpid before anything else', () => {
   assert.equal(it.key, 'torpid');
   const lamp = it.flags.find((f) => f.key === 'thermal');
   assert.ok(lamp.on && lamp.tone === 'cold' && lamp.label === 'Too cold');
+});
+
+test('division waits on the energy for the child\'s body, and on age', () => {
+  // a cell past its own threshold but short of the child's body is still hungry, not ready
+  const it = interpretMind(buffer({ hungry: true, energy: 1.5, divE: 3, silt: true }), G[ME], ME, { K, genomeOf });
+  assert.notEqual(it.key, 'divide');
+  assert.equal(it.need, 3);
+  assert.equal(it.flags.find((f) => f.key === 'full').on, false);
+  assert.equal(interpretMind(buffer({ energy: 3.2, divE: 3, silt: true, mature: false }), G[ME], ME, { K, genomeOf }).key, 'young');
+  // the CPU's threshold mirrors lifeMain's divE: the child's body on top, raised to provision it
+  const g = { reproE: 1.2, size: 1, metab: 0.01, share: 0.5 };
+  assert.ok(Math.abs(divEnergy(g, K) - (1.2 + K.bodyE + Math.max(0, K.provision * 0.01 / 0.5 - 1.2))) < 1e-9);
+});
+
+test('a cyst reads as dormant, with nothing pulling on it', () => {
+  const it = interpretMind(buffer({ hungry: true, energy: 0.4, cyst: true, drives: { swim: [0.3, 0] }, food: { kind: BUG, dist: 0.2 } }), G[ME], ME, { K, genomeOf });
+  assert.equal(it.key, 'cyst');
+  assert.equal(it.mode, 'Dormant');
+  assert.ok(it.groups.every((gr) => gr.mag === 0));
+  assert.ok(it.flags.every((f) => !f.on));
+  assert.equal(it.budget.net, -K.cystLeak);
+});
+
+test('a fed hunter lets prey pass; a hungry one hunts', () => {
+  const prey = { food: { kind: BUG, dist: 0.2 }, nbrs: [{ kind: BUG, d: [0.2, 0], fSig: 0, fDiet: 0.4 }], drives: { diet: [0.4, 0] } };
+  const fed = interpretMind(buffer({ hungry: true, energy: 2.5, divE: 3, ...prey }), G[ME], ME, { K, genomeOf });
+  assert.equal(fed.key, 'rest');
+  assert.ok(Math.abs(fed.odds.attack - attackChance(2.5, 3, K)) < 1e-9);
+  assert.equal(interpretMind(buffer({ hungry: true, energy: 0.3, divE: 3, ...prey }), G[ME], ME, { K, genomeOf }).key, 'hunt');
+  // prey among producers is harder to catch
+  assert.ok(strikeChance(G[HUNTER], G[BUG], BUG, 0, 0, K, 2) < strikeChance(G[HUNTER], G[BUG], BUG, 0, 0, K));
+});
+
+test('flight from hunters is its own pull, not appetite', () => {
+  const bug = { ...G[BUG], swim: 0.5 };
+  const m = buffer({ hungry: true, drives: { flee: [-0.5, 0], diet: [0.1, 0] }, nbrs: [{ kind: HUNTER, d: [0.5, 0], fSig: 0, fFlee: 0.5 }] });
+  const it = interpretMind(m, bug, BUG, { K, genomeOf: (k) => (k === BUG ? bug : G[k] || null) });
+  assert.equal(it.key, 'flee');
+  assert.equal(it.target, HUNTER);
+  assert.ok(it.groups.find((g) => g.key === 'flee').mag > 0.49);
+});
+
+test('a full gut by a grain of silt is dropped as dung', () => {
+  assert.equal(interpretMind(buffer({ energy: 0.5, divE: 3, gut: 1, silt: true }), G[ME], ME, { K, genomeOf }).key, 'dung');
+});
+
+test('mindMain records the division energy, dormancy, flight and gut', async () => {
+  const { simWGSL } = await import('../src/shaders.js');
+  const mind = simWGSL(K).slice(simWGSL(K).indexOf('fn mindMain'));
+  assert.match(mind, /mPut\(58, divE\)/);
+  assert.match(mind, /mPut2\(60, mFlee/);
 });

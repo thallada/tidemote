@@ -3,6 +3,7 @@
 // against their surface signatures, appetite for the foods its diet favours, schooling, bonds, stone),
 // then eats, divides or neither. These helpers name the outcome; they are pure and tested.
 import { MIND_HEAD, MIND_NBR, MIND_NBR_WORDS } from './shaders.js';
+import { divEnergy } from './genome.js';
 
 const NONE = 0xffffffff;
 const HUSK = 2;
@@ -18,7 +19,7 @@ export function parseMind(u32, f32) {
   // each sample stands for `stride` particles, as in lifeMain's scan
   for (let k = 0; k < n; k++) {
     const o = MIND_HEAD + k * MIND_NBR_WORDS;
-    nbrs.push({ kind: u32[o], inside: u32[o + 1] === 1, d: v2(o + 2), fSig: f32[o + 4] * acc * stride, fDiet: f32[o + 5] * acc * stride, j: u32[o + 6] });
+    nbrs.push({ kind: u32[o], inside: u32[o + 1] === 1, d: v2(o + 2), fSig: f32[o + 4] * acc * stride, fDiet: f32[o + 5] * acc * stride, j: u32[o + 6], fFlee: f32[o + 7] * acc * stride });
   }
   return {
     hungry: !!(flags & 1), siltNear: !!(flags & 2),
@@ -29,13 +30,16 @@ export function parseMind(u32, f32) {
     vel: v2(22),
     drives: {
       space: v2(24), kin: v2(26), other: v2(28), diet: v2(30), matter: v2(32), forage: v2(34),
-      align: v2(36), bond: v2(38), stone: v2(40), swim: v2(42), heat: v2(50),
+      align: v2(36), bond: v2(38), stone: v2(40), swim: v2(42), heat: v2(50), flee: v2(60),
     },
     flow: v2(44),
     matterN: [f32[46], f32[47], f32[48], f32[49]],
     // warmth: its own temperature (body warmth included), the water's, how well it works there
     // (perf, a rate multiplier) and how many tolerances it is from its optimum (x)
     warmth: f32[21], water: f32[52], perf: f32[53], x: f32[54], torpid: !!(u32[55] & 1),
+    // the energy it divides at (with the child's body), dormant (a cyst), old enough to divide,
+    // how full its gut is (0..1, dropped as dung when full), producers around it
+    divE: f32[58], cyst: !!(u32[59] & 1), mature: !!(u32[59] & 2), gut: f32[62], plantN: f32[63],
     nbrs,
   };
 }
@@ -44,6 +48,7 @@ export function parseMind(u32, f32) {
 // so the rows never reorder. Each sums one or more of mindMain's force terms.
 const GROUPS = [
   { key: 'food', label: 'Appetite', parts: ['diet', 'forage'], tip: 'mind-food', css: '#ff8a6b', when: (g, K) => (1 - g.photo) ** 2 > 0.1 },
+  { key: 'flee', label: 'Fleeing hunters', parts: ['flee'], tip: 'mind-flee', css: '#8fc8ff', when: (g, K) => K.flee > 0 && g.dFlesh <= 0.5 && g.photo <= 0.4 && g.swim > 0.01 },
   { key: 'other', label: 'Other species', parts: ['other'], tip: 'mind-other', css: '#c79bff' },
   { key: 'kin', label: 'Own kind', parts: ['kin'], tip: 'mind-kin', css: '#f1e3a0' },
   { key: 'space', label: 'Personal space', parts: ['space'], tip: 'personalspace', css: '#8fa3a6' },
@@ -65,7 +70,7 @@ const MODES = {
   forage: 'Foraging', avoid: 'Avoiding', follow: 'Drawn in', bask: 'Basking', dark: 'Waiting out the dark',
   school: 'Schooling', body: 'Holding together', gather: 'Gathering', spread: 'Spreading out', jostle: 'Jostled',
   blocked: 'Against stone', drift: 'Drifting', cruise: 'Cruising', idle: 'Idling',
-  torpid: 'Torpid', scalding: 'Scalding', seekwarm: 'Seeking warmth', seekcool: 'Seeking cooler water', huddle: 'Keeping warm',
+  torpid: 'Torpid', cyst: 'Dormant', rest: 'Resting, fed', young: 'Growing up', dung: 'Dropping dung', scalding: 'Scalding', seekwarm: 'Seeking warmth', seekcool: 'Seeking cooler water', huddle: 'Keeping warm',
 };
 
 /** How well a hunter's build lets it catch a prey cell (0..1), as lifeMain's catch-skill roll. */
@@ -78,12 +83,20 @@ export function catchSkill(hunter, prey, K) {
   return K.catchSkill > 0 ? Math.min(1, (eatEff * pref) / K.catchSkill) : 1;
 }
 
-/** Chance one strike by `g` (at `stoneN` grains of stone, with search image `image`) lands on `prey`. */
-export function strikeChance(g, prey, preyKind, image, stoneN, K) {
+/** Chance one strike by `g` (at `stoneN` grains of stone and `plantN` producers, with search image `image`) lands on `prey`. */
+export function strikeChance(g, prey, preyKind, image, stoneN, K, plantN = 0) {
   const armor = 1 / (1 + K.armor * Math.max(0, (prey.adhesion || 0) - K.adhMin));
   const familiar = image === 0 || image === preyKind ? 1 : 1 - K.searchImage;
   const shelter = 1 - Math.min(K.refugeMax, stoneN * K.refuge);
-  return armor * familiar * catchSkill(g, prey, K) * shelter;
+  // an animal among dense producers hides in them
+  const hidden = prey.photo <= 0.4 ? 1 - Math.min(K.refugeMax, plantN * K.plantRefuge) : 1;
+  return armor * familiar * catchSkill(g, prey, K) * shelter * hidden;
+}
+
+/** How often a hunter at energy E (dividing at divE) takes a chance at living animal prey (K.satiety). */
+export function attackChance(E, divE, K) {
+  if (!(K.satiety > 0)) return 1;
+  return Math.min(1, Math.max(0, (1 - E / (divE * K.satietyAt)) / K.satiety));
 }
 
 /** Per neighbouring species: how many, how hard they pull or push, and who could eat whom. */
@@ -94,7 +107,7 @@ function neighbourSpecies(m, g, kind, genomeOf, K) {
     let s = map.get(q.kind);
     if (!s) {
       const gq = q.kind === kind ? g : genomeOf(q.kind);
-      s = { kind: q.kind, kin: q.kind === kind, n: 0, sig: 0, diet: 0, g: gq,
+      s = { kind: q.kind, kin: q.kind === kind, n: 0, sig: 0, diet: 0, flee: 0, g: gq,
         threat: q.kind === kind ? 0 : catchSkill(gq, g, K), prey: q.kind === kind ? 0 : catchSkill(g, gq, K),
         // how often one of their strikes lands on this cell (taking them to be used to its kind, and in open water)
         danger: q.kind === kind || !gq ? 0 : strikeChance(gq, g, kind, 0, 0, K) };
@@ -104,6 +117,7 @@ function neighbourSpecies(m, g, kind, genomeOf, K) {
     // personal space is jostling, not preference: count only the signature pull beyond it
     if (!q.inside) s.sig += q.fSig * scale;
     s.diet += q.fDiet * scale;
+    s.flee += (q.fFlee || 0) * scale;
   }
   return [...map.values()].sort((a, b) => b.n - a.n);
 }
@@ -113,23 +127,28 @@ function neighbourSpecies(m, g, kind, genomeOf, K) {
  * text, why and a flag's hint may hold {sp} for the target species, which the page names.
  */
 export function interpretMind(m, g, kind, { K, genomeOf }) {
-  const drives = Object.entries(m.drives).map(([key, v]) => ({ key, v, mag: len(v) }))
+  // a cyst runs no decision: nothing pulls on it (the replay's terms are what it would feel awake)
+  const drives = m.cyst ? [] : Object.entries(m.drives).map(([key, v]) => ({ key, v, mag: len(v) }))
     .filter((d) => d.mag > 1e-4).sort((a, b) => b.mag - a.mag);
   const total = drives.reduce((s, d) => s + d.mag, 0) || 1;
   const share = (key) => (drives.find((d) => d.key === key)?.mag || 0) / total;
   const groups = groupsFor(g, K).map((gr) => {
-    const v = gr.parts.reduce((a, k) => [a[0] + m.drives[k][0], a[1] + m.drives[k][1]], [0, 0]);
+    const v = m.cyst ? [0, 0] : gr.parts.reduce((a, k) => [a[0] + m.drives[k][0], a[1] + m.drives[k][1]], [0, 0]);
     return { ...gr, v, mag: len(v), share: len(v) / total };
   });
   const species = neighbourSpecies(m, g, kind, genomeOf, K);
   const others = species.filter((s) => !s.kin);
-  const E = m.energy, need = g.reproE;
+  // it divides at its own threshold plus its child's body (lifeMain's divE)
+  const E = m.energy, need = m.divE > 0 ? m.divE : divEnergy(g, K);
   const lean = 0.55 + 0.45 * Math.min(1, Math.max(0, E / need));
   const net = m.photoGain - m.upkeep;
   // thermal stress costs upkeep; a heat-maker burns extra (thermalPerf mirrors the GPU's stress)
   const heatMaking = K.heat ? K.thermoCost * (g.thermo || 0) : 0;
   const stress = K.heat ? smooth(0.3, 0.9, Math.abs(m.x)) : 0;
-  const budget = { light: m.photoGain, upkeep: m.upkeep, net, lean, crowding: m.kinCost - 1, thrift: K.bodyThrift * 0.5 * m.bonds, stress: K.stressCost * stress, heatMaking };
+  // a cyst's only cost is its slow leak
+  const budget = m.cyst
+    ? { gut: m.gut || 0, light: 0, upkeep: K.cystLeak, net: -K.cystLeak, lean: 1, crowding: 0, thrift: 0, stress: 0, heatMaking: 0 }
+    : { gut: m.gut || 0, light: m.photoGain, upkeep: m.upkeep, net, lean, crowding: m.kinCost - 1, thrift: K.bodyThrift * 0.5 * m.bonds, stress: K.stressCost * stress, heatMaking };
   const deg = (t) => `${Math.round(t)}°`;
   const range = g.topt != null ? `${deg(g.topt)} ± ${Math.round(g.tol)}°` : '';
   const pct = (x) => `${Math.round(x * 100)}%`;
@@ -140,25 +159,38 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
   const repel = others.filter((s) => s.sig < 0).sort((a, b) => a.sig - b.sig)[0];
   const draw = others.filter((s) => s.sig > 0).sort((a, b) => b.sig - a.sig)[0];
 
-  if (K.heat && m.torpid) {
+  if (m.cyst) {
+    const lasts = K.cystLeak > 0 ? E / K.cystLeak : Infinity;
+    st = { key: 'cyst', text: 'Dormant', why: `Asleep as a cyst: it has let go of its body, and neither swims, feeds, divides nor can be eaten; it moves only as the water and its neighbours push it. It leaks ${K.cystLeak}/s of its ${E.toFixed(2)} energy${lasts < 3600 ? ` (enough for about ${Math.round(lasts / 60)} min)` : ''} and wakes at random, about once every ${Math.round(1 / K.cystWake)} s on average, to try its luck again.` };
+  } else if (K.heat && m.torpid) {
     st = { key: 'torpid', text: 'Torpid in the cold', why: `At ${deg(m.warmth)} it is ${Math.round((g.topt - g.tol * K.torporAt) - m.warmth + 0.5)}° below the range it can work in (it prefers ${range}): it neither feeds, swims nor divides, and burns ${Math.round(K.torporCost * 100)}% of its upkeep until the water warms.` };
+  } else if (E >= need && !m.mature) {
+    st = { key: 'young', text: 'Growing up', why: `It has the energy to divide (${E.toFixed(2)} of ${need.toFixed(2)}) but is too young: a cell divides only once it is ${Math.round(K.mature * 100)}% through its lifespan (${Math.round(K.mature * g.lifespan)} s). Full, it has stopped feeding.` };
   } else if (E >= need) {
     st = m.siltNear
       ? { key: 'divide', matter: 'Silt', text: 'Dividing', why: `Its energy (${E.toFixed(2)}) has reached the ${need.toFixed(2)} it needs, and a grain of silt is in reach to build a child from.` }
       : { key: 'seeksilt', matter: 'Silt, none in reach', text: 'Ready to divide', why: `It has the energy to divide (${E.toFixed(2)} of ${need.toFixed(2)}) but no grain of silt within reach to build a child from, so it waits. Full, it has stopped feeding.` };
+  } else if (K.dung && m.gut >= 0.98 && m.siltNear) {
+    st = { key: 'dung', matter: 'Silt', text: 'Dropping dung', why: 'Its gut is full of what it ate but could not digest; it drops it beside a grain of silt as dung, a husk for scavengers.' };
   } else if (m.food && m.hungry) {
     const fk = m.food.kind;
     if (fk === HUSK) st = { key: 'scavenge', matter: 'Husk', text: 'Scavenging a husk', why: `Hungry (${hunger}), with a husk in reach to pick over.` };
     else {
       const gq = genomeOf(fk);
       const plant = gq && gq.photo > 0.4;
-      const p = gq ? strikeChance(g, gq, fk, m.image, m.stoneN, K) : 0;
+      const strike = gq ? strikeChance(g, gq, fk, m.image, m.stoneN, K, m.plantN) : 0;
+      // a fed hunter rests: it takes a chance at living animals only as often as it is short of food
+      const attack = plant ? 1 : attackChance(E, need, K);
+      const p = strike * attack;
       const every = K.eatEvery * (plant ? K.biteEvery : K.killEvery) * (m.dt || 1 / 60);
       const unfamiliar = m.image !== 0 && m.image !== fk && K.searchImage > 0;
-      const odds = { p, every, verb: plant ? 'bite' : 'kill', unfamiliar };
+      const hidden = !plant && gq && gq.photo <= 0.4 && m.plantN * K.plantRefuge >= 0.1;
+      const odds = { p, every, verb: plant ? 'bite' : 'kill', unfamiliar, attack };
       st = plant
         ? { key: 'graze', target: fk, odds, text: 'Grazing on {sp}', why: `Hungry (${hunger}), with a {sp} cell in reach to crop. A bite lands about ${pct(p)} of the time, one try every ${every.toFixed(1)} s.` }
-        : { key: 'hunt', target: fk, odds, text: 'Hunting {sp}', why: `Hungry (${hunger}), with {sp} in reach. A strike kills about ${pct(p)} of the time, one try every ${every.toFixed(1)} s${unfamiliar ? '; it is used to other prey, so it often misses this one' : ''}.` };
+        : attack < 0.5
+          ? { key: 'rest', target: fk, odds, text: 'Fed, letting {sp} pass', why: `Well fed (${hunger}): a fed hunter strikes only as often as it is short of food, now at about ${pct(attack)} of its chances, so {sp} in reach is mostly left alone. When it does strike, it kills about ${pct(strike)} of the time.` }
+          : { key: 'hunt', target: fk, odds, text: 'Hunting {sp}', why: `Hungry (${hunger}), with {sp} in reach. ${attack < 0.99 ? `Part fed, it takes about ${pct(attack)} of its chances; a` : 'A'} strike kills about ${pct(strike)} of the time, one try every ${every.toFixed(1)} s${unfamiliar ? '; it is used to other prey, so it often misses this one' : ''}${hidden ? '; the producers around hide some of its prey' : ''}.` };
     }
   }
   const left = net < 0 ? E / -net : Infinity;
@@ -168,7 +200,12 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
   if (!st && left < 8) {
     st = { key: 'starve', text: 'Starving', why: `Its energy (${E.toFixed(2)}) is nearly spent: about ${Math.max(1, Math.round(left))} s left at ${(-net).toFixed(3)}/s${m.hungry ? ', with nothing it eats in reach' : ''}.` };
   }
-  if (!st && threat && -threat.sig > 0.2 * total) {
+  const chaser = others.filter((s) => s.flee > 0).sort((a, b) => b.flee - a.flee)[0];
+  if (!st && chaser && share('flee') >= 0.15) {
+    st = { key: 'flee', target: chaser.kind, text: 'Fleeing {sp}', why: `{sp} is a hunter, and this cell swims away from hunters near it, the harder the closer they come${threat && threat.kind === chaser.kind ? `: about ${pct(threat.danger)} of their strikes would land` : ''}.` };
+  }
+  // a producer does not swim away: its receptors' push from a grazer is avoidance (below)
+  if (!st && threat && g.photo <= 0.4 && -threat.sig > 0.2 * total) {
     st = { key: 'flee', target: threat.kind, text: 'Fleeing {sp}', why: `{sp} hunts cells like this one: about ${pct(threat.danger)} of their strikes would land. This cell's receptors are repelled by {sp}'s surface signature, so it is pushed away from them.` };
   }
   if (!st && m.hungry && share('diet') >= 0.25) {
@@ -215,14 +252,16 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
 
   // indicator lamps: always the same set, lit or dark, each with its particulars as a hint
   const shelter = Math.min(K.refugeMax, m.stoneN * K.refuge);
+  const meadow = g.photo <= 0.4 ? Math.min(K.refugeMax, (m.plantN || 0) * K.plantRefuge) : 0;
+  const hid = 1 - (1 - shelter) * (1 - meadow);
   const flags = [
     { key: 'hungry', label: 'Hungry', on: m.hungry, hint: m.hungry ? `Hungry: ${hunger}. It is drawn to food and eats what comes in reach.` : (g.photo > 0.4 && m.eatEff <= 0.1 ? 'Lives on light alone: too committed to photosynthesis to eat.' : `Not hungry: ${hunger}.`) },
-    { key: 'full', label: 'Ready to divide', on: E >= need, hint: E >= need ? `Has the energy to divide; ${m.siltNear ? 'a grain of silt is in reach.' : 'needs a grain of silt within reach to build a child from.'}` : `Divides at ${need.toFixed(2)} energy.` },
+    { key: 'full', label: 'Ready to divide', on: E >= need && m.mature && !m.cyst, hint: E >= need ? (m.mature ? `Has the energy to divide; ${m.siltNear ? 'a grain of silt is in reach.' : 'needs a grain of silt within reach to build a child from.'}` : `Has the energy, but divides only once ${Math.round(K.mature * g.lifespan)} s old.`) : `Divides at ${need.toFixed(2)} energy: its own ${g.reproE.toFixed(2)} and its child's body.` },
     { key: 'threat', label: 'Predator in reach', on: !!threat, target: threat ? threat.kind : null, hint: threat ? `{sp}, within reach, hunts cells like this one: about ${pct(threat.danger)} of their strikes would land.` : 'Nothing within reach is built to catch cells like this one.' },
     { key: 'low', label: 'Energy running out', on: left < 30, hint: left < 30 ? `About ${Math.max(1, Math.round(left))} s of energy left without ${g.photo > 0.4 ? 'more light' : 'a meal'}.` : 'Energy reserves are not running out.' },
     { key: 'lean', label: 'Saving energy', on: lean < 0.8, hint: `A cell low on energy slows its metabolism: this one burns ${pct(lean)} of its full upkeep.` },
     { key: 'crowd', label: 'Crowded by kin', on: m.kinCost > 1.01, hint: m.kinCost > 1.01 ? `Packed among ${Math.round(m.kinN)} of its own kind: upkeep +${pct(m.kinCost - 1)}.` : `Fewer than ${K.kinFree + 1} of its own kind around (bond partners aside): no crowding cost.` },
-    { key: 'shelter', label: 'Sheltered by stone', on: m.stoneN >= 1, hint: m.stoneN >= 1 ? `Among stone: attacks made from here miss ${pct(shelter)} of the time.` : 'No stone nearby to hide among.' },
+    { key: 'shelter', label: 'Sheltered', on: hid >= 0.05, hint: hid >= 0.05 ? `${shelter > 0 && meadow > 0 ? 'Among stone and producers' : shelter > 0 ? 'Among stone' : 'Hidden among producers'}: attacks on it miss about ${pct(hid)} of the time.` : g.photo <= 0.4 ? 'No stone or producers nearby to hide among.' : 'No stone nearby to hide among.' },
   ];
   if (K.heat) {
     // one lamp for temperature: a cell is too cold or too hot, never both
@@ -230,6 +269,8 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
     flags.push({ key: 'thermal', tone: cold ? 'cold' : hot ? 'hot' : '', label: cold ? 'Too cold' : hot ? 'Too hot' : 'Comfortable', on: cold || hot,
       hint: `${deg(m.warmth)}, it prefers ${range}: ${cold ? `${pct(m.perf)} of its best${m.torpid ? '; torpid' : ''}.` : hot ? `${pct(m.perf)} of its best${m.x > 0.8 ? '; it may scald' : ''}.` : 'comfortable.'}` });
   }
+  // asleep, none of the awake cell's states hold (nothing can catch a cyst)
+  if (m.cyst) for (const f of flags) if (f.key !== 'thermal') { f.on = false; if (f.key === 'threat') f.hint = 'Nothing can catch a cyst.'; }
   return { ...st, need, mode: MODES[st.key], target: st.target ?? null, flags, groups, drives, total, species, budget };
 }
 

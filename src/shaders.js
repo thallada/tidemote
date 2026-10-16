@@ -43,9 +43,9 @@ export const G_WORDS = 48;
 export const LITE_BYTES = 32;
 // The selected cell's mind (mindMain): a header of MIND_HEAD words, then MIND_NBR living neighbours
 // of MIND_NBR_WORDS words each. See parseMind in mind.js for the layout.
-export const MIND_HEAD = 58;
+export const MIND_HEAD = 64;
 export const MIND_NBR = 48;
-export const MIND_NBR_WORDS = 7;
+export const MIND_NBR_WORDS = 8;
 export const MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
 
 export const DEFAULT_K = {
@@ -576,14 +576,14 @@ ${K.liveFirst ? `
       if (qk >= FIRST_LIFE) {
         // a hungry forager lets other species inside its personal space so it can reach them
         let core = select(1.0, ${f(K.huntCore)}, canHunt && qk != p.kind);
-        if (x < ${K.tissue > 0 ? 'bk' : 'beta'}) { fr = (x * ${K.tissue > 0 ? 'invBk' : 'invBeta'} - 1.0) * core; } else { fr = a * shape${K.tissue > 0 ? ' * sigK' : ''}; }${W('mFr0 = fr;')}
+        if (x < ${K.tissue > 0 ? 'bk' : 'beta'}) { fr = (x * ${K.tissue > 0 ? 'invBk' : 'invBeta'} - 1.0) * core; } else { fr = a * shape${K.tissue > 0 ? ' * sigK' : ''}; }${W('mFr0 = fr; mFl = 0.0;')}
         // hungry foragers are drawn toward the cells their diet favours
         if ((q.kr & (1u << 12u)) != 0u && r < 0.5) { plantN += 1.0; }
         if ((q.kr & (1u << 12u)) == 0u && qk != p.kind) { animN += 1.0; }
         let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
         if (x >= ${K.tissue > 0 ? 'bk' : 'beta'}) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * ${K.tissue > 0 ? 'invBk' : 'invBeta'} * invR; }${K.flee > 0 ? `
         // an animal that is not a hunter swims away from hunters near it, the harder the closer they are
-        if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && g.dFlesh <= 0.5 && g.photo <= 0.4) { fr -= ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x); }` : ''}
+        if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && g.dFlesh <= 0.5 && g.photo <= 0.4) { fr -= ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);${W(`mFl = ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);`)} }` : ''}
         crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);${K.shadeP > 0 ? `
         if ((q.kr & (1u << 12u)) != 0u) { crowdP += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind); }` : ''}
         if (DIAG) {
@@ -622,7 +622,7 @@ ${K.liveFirst ? `
           }
         }
       } else {
-        fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);${W('mFr0 = fr;')}
+        fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);${W('mFr0 = fr; mFl = 0.0;')}
         pull = a * ${f(K.matterPull)};
         if (qk == STONE || qk == FRAMBOID) {
           // stone (and a framboid) is solid: it pushes cells out however hard they swim, and shelters those among it
@@ -2058,13 +2058,16 @@ var<private> mOther: vec2f;
 var<private> mDiet: vec2f;
 var<private> mMatter: vec2f;
 var<private> mForage: vec2f;
+var<private> mFlee: vec2f;
+var<private> mFl: f32;
 var<private> mMatterN: vec4f;
 var<private> mN: u32;
 
 fn mPut(o: u32, v: f32) { mind[o] = bitcast<u32>(v); }
 fn mPut2(o: u32, v: vec2f) { mind[o] = bitcast<u32>(v.x); mind[o + 1u] = bitcast<u32>(v.y); }
 
-// One sampled neighbour's pull: fr0 its signature (or personal-space) term, fr with the diet's added.
+// One sampled neighbour's pull: fr0 its signature (or personal-space) term, fr with the diet's added
+// and flight from a hunter (mFl) taken away.
 fn mPair(j: u32, q: Lite, d: vec2f, r: f32, inside: bool, kin: bool, fr0: f32, fr: f32) {
   let u = d / r;
   let qk = q.kr & 1023u;
@@ -2075,15 +2078,17 @@ fn mPair(j: u32, q: Lite, d: vec2f, r: f32, inside: bool, kin: bool, fr0: f32, f
     return;
   }
   if (inside) { mSpace += u * fr0; } else if (kin) { mKin += u * fr0; } else { mOther += u * fr0; }
-  mDiet += u * (fr - fr0);
+  mDiet += u * (fr - fr0 + mFl);
+  mFlee -= u * mFl;
   if (mN < MIND_NBR) {
     let o = MIND_HEAD + mN * ${MIND_NBR_WORDS}u;
     mind[o] = qk;
     mind[o + 1u] = select(0u, 1u, inside);
     mPut2(o + 2u, d);
     mPut(o + 4u, fr0);
-    mPut(o + 5u, fr - fr0);
+    mPut(o + 5u, fr - fr0 + mFl);
     mind[o + 6u] = j;
+    mPut(o + 7u, -mFl);
   }
   mN++;
 }
@@ -2141,6 +2146,13 @@ ${cellWGSL(K, true)}
   mPut(53, th.perf);
   mPut(54, th.x);
   mind[55] = select(0u, 1u, th.torpid);
+  // the energy it divides at, whether it is dormant (a cyst: lifeMain does not run this decision for
+  // it) and old enough to divide, the push away from hunters, its gut's fill, producers around it
+  mPut(58, divE);
+  mind[59] = select(0u, 1u, (p.info & 15u) == ${K.cyst ? 'CYST' : '99u'}) | select(0u, 2u, p.age + sim.dt > ${f(K.mature)} * g.lifespan);
+  mPut2(60, mFlee * acc);
+  mPut(62, ${K.dung ? `gut / ${f(K.dungE)}` : '0.0'});
+  mPut(63, plantN);
 }
 `;
 }
