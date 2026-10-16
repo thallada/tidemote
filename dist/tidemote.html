@@ -3211,8 +3211,10 @@ fn cystStep(i: u32) {
   var s = pcg(p.id ^ pcg(sim.frame * 2654435761u + sim.seed));
   p.energy -= ${f(K.cystLeak)} * sim.dt;
   p.age += sim.dt;
-  p.vel = vec2f(0.0);
-  p.pos = wrapPos(p.pos + flowAt(p.pos) * g.advect * sim.dt);
+  // asleep, it neither swims nor feels other cells' pull: it moves only as the current carries it and as
+  // neighbours jostle it (contactMain's push, already in its velocity), and soon comes to rest
+  p.vel *= pow(0.5, sim.dt / 0.15);
+  p.pos = wrapPos(p.pos + (p.vel + flowAt(p.pos) * g.advect) * sim.dt);
   atomicAdd(&ledger[cystSlot(dietGuild(g))], 1u);
   if (p.energy <= 0.0) {
     p.kind = HUSK; p.energy = ${bodyOf(K, "g")}; p.age = 0.0;
