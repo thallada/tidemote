@@ -106,6 +106,7 @@ export const DEFAULT_K = {
   tissue: 12,       // bodies as tissue (0: off): bonds pull both ways, a body's cells take on their partners' motion
                     // at this rate (per second), and a free bond slot only closes a triangle within the body
   huntCore: 0.15,   // how much of other species' personal space a hungry forager respects
+  coreFood: 0,      // 1: ...only that of cells it eats (a grazer keeps its distance from other animals' species)
   liveFirst: 1,     // 1: each grid cell's living are sorted first, and a cell weighs its living neighbours...
   liveScan: 64,     // ...exactly up to this many (sampled evenly past it), sampling only the matter
   contactReach: 0.14, // contactMain: the largest radius a neighbour is taken to have (grid cells within touching are walked)...
@@ -580,7 +581,7 @@ ${K.liveFirst ? `
       var pull = 0.0;
       if (qk >= FIRST_LIFE) {
         // a hungry forager lets other species inside its personal space so it can reach them
-        let core = select(1.0, ${f(K.huntCore)}, canHunt && qk != p.kind);
+        let core = select(1.0, ${f(K.huntCore)}, canHunt && qk != p.kind${K.coreFood ? ` && select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) > DIET_MIN` : ''});
         if (x < ${K.tissue > 0 ? 'bk' : 'beta'}) { fr = (x * ${K.tissue > 0 ? 'invBk' : 'invBeta'} - 1.0) * core; } else { fr = a * shape${K.tissue > 0 ? ' * sigK' : ''}; }${W('mFr0 = fr; mFl = 0.0;')}
         // hungry foragers are drawn toward the cells their diet favours
         if ((q.kr & (1u << 12u)) != 0u && r < 0.5) { plantN += 1.0; }
