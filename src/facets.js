@@ -1,11 +1,11 @@
 import { roleShares, affinity, dietGuild, mobilityGuild, thermalGuild } from './genome.js';
 
-export const DIET_COL = { photosynth: '#d9f27a', grazer: '#b9e6ff', scavenger: '#a87b5c', predator: '#ff5e7a', omnivore: '#c9b8ff' };
+export const DIET_COL = { photosynth: '#d9f27a', grazer: '#b9e6ff', scavenger: '#a87b5c', predator: '#ff5e7a' };
 export const MOB_COL = { anchored: '#7fe0b0', crawler: '#ffb45e', swimmer: '#6e96ff', drifter: '#9aa3b8' };
 
 // Species classification; keep diet/mobility thresholds aligned with engine and sim.
 // These are the page's words for every species everywhere (tags, filters, census, log, captions):
-// diet photosynth · grazer · scavenger · predator · omnivore; body multicellular · single-cell;
+// diet photosynth · grazer · scavenger · predator; body multicellular · single-cell;
 // movement anchored · crawler · swimmer · drifter (the headless metrics keep the guild's 'sessile').
 export function facets(g, K) {
   const swim = g.swim * (1 - g.photo);
@@ -26,7 +26,7 @@ export function describe(g, K) {
 
 export function tagsOf(g, K) {
   const f = facets(g, K);
-  const tags = [[f.diet, f.diet === 'omnivore' ? 'diet' : f.diet]];
+  const tags = [[f.diet, f.diet]];
   const multi = f.body === 'multicellular';
   tags.push([f.body, multi ? 'adhesion' : 'singlecelled']);
   if (f.types > 1) tags.push([`${f.types} cell types`, multi ? 'bodyplan' : 'morphs']);

@@ -31,7 +31,7 @@ test('facets classify a producer, swimmer predator and drifter', () => {
 
 test('classification preserves strict thresholds and uses supplied K', () => {
   const g = genome({ photo: 0.55, dGlint: 0.55, dHusk: 0.45, advect: 0.2, adhesion: 0.3 });
-  assert.equal(facets(g, K).diet, 'omnivore');
+  assert.equal(facets(g, K).diet, 'grazer');
   assert.equal(facets(g, K).mobility, 'crawler');
   assert.equal(facets(g, K).body, 'single-cell');
   assert.equal(facets(g, { ...K, adhMin: 0.2 }).body, 'multicellular');

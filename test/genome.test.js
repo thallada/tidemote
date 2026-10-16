@@ -15,17 +15,19 @@ test('genomeSerial reads the unsigned serial of a slot and its replacement', () 
   assert.equal(genomeSerial(u32, 2), 0xffffffff);
 });
 
-test('dietGuild preserves guild order and strict diet thresholds', () => {
+test('dietGuild: producers past 0.55 photosynthesis, everyone else by strongest diet', () => {
   const base = { photo: 0, dGlint: 0.4, dHusk: 0.3, dFlesh: 0.3 };
   for (const [traits, expected] of [
     [{ photo: 0.56, dFlesh: 1 }, 'producer'],
     [{ photo: 0.55, dGlint: 0.6, dHusk: 0.2, dFlesh: 0.2 }, 'grazer'],
     [{ dGlint: 0.2, dHusk: 0.2, dFlesh: 0.6 }, 'predator'],
     [{ dGlint: 0.2, dHusk: 0.6, dFlesh: 0.2 }, 'scavenger'],
-    [{}, 'omnivore'],
-    [{ dGlint: 0.55, dHusk: 0.25, dFlesh: 0.2 }, 'omnivore'],
-    [{ dGlint: 0.25, dHusk: 0.55, dFlesh: 0.2 }, 'omnivore'],
-    [{ dGlint: 0.25, dHusk: 0.2, dFlesh: 0.55 }, 'omnivore'],
+    [{}, 'grazer'],
+    [{ dGlint: 0.55, dHusk: 0.25, dFlesh: 0.2 }, 'grazer'],
+    [{ dGlint: 0.25, dHusk: 0.55, dFlesh: 0.2 }, 'scavenger'],
+    [{ dGlint: 0.25, dHusk: 0.2, dFlesh: 0.55 }, 'predator'],
+    [{ dGlint: 0.35, dHusk: 0.35, dFlesh: 0.3 }, 'scavenger'],
+    [{ dGlint: 0.3, dHusk: 0.35, dFlesh: 0.35 }, 'predator'],
   ]) assert.equal(dietGuild({ ...base, ...traits }), expected);
 });
 

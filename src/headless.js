@@ -83,7 +83,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
       const rates = {};
       for (const [key, i] of Object.entries(ledger)) rates[key] = prevG && c.simTime > prevT ? ((c.globals[i] - prevG[i]) >>> 0) * 60 / (c.simTime - prevT) : 0;
       const demography = {}, meals = {};
-      const guilds = ['producer', 'grazer', 'predator', 'scavenger', 'omnivore'];
+      const guilds = ['producer', 'grazer', 'predator', 'scavenger'];
       for (const [g, guild] of guilds.entries()) {
         demography[guild] = {};
         for (const [e, event] of ['births', 'starved', 'oldAge', 'eaten'].entries()) {

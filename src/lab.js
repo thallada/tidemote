@@ -89,7 +89,7 @@ export function createLab(api) {
   const hovering = (el) => el.matches(':hover');
 
   // ---------------------------------------------------------- species
-  const DIETS = [['all', 'Any'], ['photosynth', 'Photosynth'], ['grazer', 'Grazer'], ['scavenger', 'Scavenger'], ['predator', 'Predator'], ['omnivore', 'Omnivore']];
+  const DIETS = [['all', 'Any'], ['photosynth', 'Photosynth'], ['grazer', 'Grazer'], ['scavenger', 'Scavenger'], ['predator', 'Predator']];
   const MOBS = [['all', 'Any'], ['anchored', 'Anchored'], ['crawler', 'Crawler'], ['swimmer', 'Swimmer'], ['drifter', 'Drifter']];
   // by preferred temperature (thermalGuild): cold-loving, temperate, warmth-loving and thermophile
   const TEMPS = [['all', 'Any'], ['cold-loving', 'Cold'], ['temperate', 'Temperate'], ['warmth-loving', 'Warm'], ['thermophile', 'Hot']];

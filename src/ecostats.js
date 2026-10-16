@@ -1,7 +1,7 @@
 // Ecology statistics for headless runs and ensembles: pure functions, no GPU.
 import { dietGuild, mobilityGuild } from './genome.js';
 
-export const DIETS = ['producer', 'grazer', 'predator', 'scavenger', 'omnivore'];
+export const DIETS = ['producer', 'grazer', 'predator', 'scavenger'];
 export const MOVES = ['sessile', 'crawler', 'swimmer', 'drifter'];
 // Traits averaged over living cells, each scaled to [0, 1] by the range mutation allows.
 export const TRAITS = {
@@ -133,7 +133,7 @@ export function summarizeRun(samples, { count, collapseAt = 0.02, monoAt = 0.5, 
   const collapsed = mature.some((s) => s.living / count < collapseAt);
   const maxShare = lm((s) => s.maxShare);
   const finalDiet = samples.at(-1).diet;
-  const lost = DIETS.filter((k) => k !== 'omnivore' && mature.some((s) => s.diet[k] >= guildAt) && finalDiet[k] === 0);
+  const lost = DIETS.filter((k) => mature.some((s) => s.diet[k] >= guildAt) && finalDiet[k] === 0);
   return {
     persisted: !collapsed && samples.at(-1).living > 0,
     lateLivingFrac: livingMean / count,

@@ -975,13 +975,14 @@ fn take(raw: f32, skill: f32, outside: bool, fit: f32) -> f32 {
   return raw * skill * fit * ${f(K.gain)};
 }
 
-// Ledger guild order: producer, grazer, predator, scavenger, omnivore.
+// Ledger guild order: producer, grazer, predator, scavenger (a fifth slot, once omnivores, is unused).
+// A producer photosynthesises past 0.55; anyone else belongs to its strongest diet (genome.js dietGuild).
 fn dietGuild(g: Genome) -> u32 {
   if (g.photo > 0.55) { return 0u; }
-  if (g.dFlesh > 0.55) { return 2u; }
-  if (g.dHusk > 0.55) { return 3u; }
-  if (g.dGlint > 0.55) { return 1u; }
-  return 4u;
+  let m = max(g.dFlesh, max(g.dHusk, g.dGlint));
+  if (g.dFlesh >= m) { return 2u; }
+  if (g.dHusk >= m) { return 3u; }
+  return 1u;
 }
 
 fn addEnergy(guild: u32, slot: u32, e: f32) {
