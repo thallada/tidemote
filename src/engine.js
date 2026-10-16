@@ -99,7 +99,7 @@ class Engine {
     const b = this.b;
     b.sim = d.createBuffer({ size: 256, usage: U.UNIFORM | U.COPY_DST });
     // the heat field: deposits, temperatures and husks per cell, and heatMain's next temperatures (shaders.js)
-    b.thermal = d.createBuffer({ size: (K.scent > 0 ? 4 : 3) * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    b.thermal = d.createBuffer({ size: 3 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.heatNext = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
     b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
     this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
@@ -742,7 +742,6 @@ class Engine {
     if (this.K.liveFirst) enc.clearBuffer(b.counts, MAX_CELLS * 4, cells * 4);
     enc.clearBuffer(b.stoneGrid, 0, cells * 4);
     if (this.K.heat) enc.clearBuffer(b.thermal, 2 * MAX_CELLS * 4, cells * 4);
-    if (this.K.heat && this.K.scent > 0) enc.clearBuffer(b.thermal, 3 * MAX_CELLS * 4, cells * 4);
     enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
     // K.cycle's litter on the ground (META_DEATH + 60) and K.cyst's cysts per guild (57-59, 61, 62), counted afresh each step
     if (this.K.cycle || this.K.cyst) enc.clearBuffer(b.ledger, (META_DEATH + 57) * 4, 6 * 4);
@@ -1547,11 +1546,6 @@ class Engine {
     pd.set(this.tide, 16);
     pd.set(this.tidePh, 32);
     pd.set(this.waves, 36);
-    // ebb and flood (K.ebb) swing the currents as flowAt does, so the drawn mud moves with the water
-    if (this.K.ebb > 0) {
-      const swing = 1 + this.K.ebb * (Math.cos((2 * Math.PI / this.K.ebbPeriod) * this.simTime) - 1);
-      for (let k = 0; k < 4; k++) pd[36 + k * 4 + 3] *= swing;
-    }
     // the heat map's span: from a little below the background to framboid-hot
     const tbg = this.tbg;
     pd[52] = tbg; pd[53] = tbg - 2; pd[54] = tbg + 10;

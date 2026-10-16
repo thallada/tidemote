@@ -47,6 +47,13 @@ number until grazers are held down. That is the next problem.
 of silt as a husk, so scavengers live on grazers' leavings. `story.mjs` now reports guild sizes and the
 movement mix; judge changes by those, since "survives" counted 1-2% remnants.
 
+## Tunables removed (2026-10-15)
+
+The experiments below that did not help were taken out of the code (the default's shaders are unchanged
+by it): `cystSec`, `strike`, `provisionFlesh`, `plantArmor`, `rareRefuge`, `fightBack`, `foundAnimal`,
+`foundHunter`, `interfereAll`, `biteShare`, `huskRefuge`, `ebb`/`ebbPeriod` and `scent`/`scentR`. The
+sections that follow keep their results; a commit before 2026-10-15 has their code.
+
 ## The fitted model, and what it says about the long run (2026-10-15)
 
 `tools/ecomodel` (README there) now fits the web's processes to every ensemble's 5-minute windows
