@@ -98,20 +98,21 @@ export function packing(parts, count, grid, sizeOf, firstLife = 5) {
  */
 export function spatial(parts, count, grid, guildOf, firstLife = 5, prev = null, dtMin = 1) {
   const [gw, gh] = grid, { u32: u, f32: f } = parts, W = 10;
-  const cells = new Map(), awake = [], pos = new Map();
+  const cells = new Map(), awake = [], pos = new Map(), nOf = new Map();
   for (let i = 0; i < count; i++) {
     const k = u[i * W + 4];
     if (k < firstLife || (u[i * W + 9] & 15) === 14) continue;
     awake.push(i);
+    nOf.set(k, (nOf.get(k) || 0) + 1);
     const c = Math.floor(f[i * W + 1]) * gw + Math.floor(f[i * W]);
     (cells.get(c) || cells.set(c, []).get(c)).push(i);
   }
   const acc = {};
   for (const i of awake) {
     const k = u[i * W + 4], g = guildOf(k), x = f[i * W], y = f[i * W + 1], id = u[i * W + 7];
-    const a = (acc[g] ??= { n: 0, nb: 0, kin: 0, plant: 0, moves: [] });
+    const a = (acc[g] ??= { n: 0, nb: 0, kin: 0, plant: 0, guild: 0, rand: 0, moves: [] });
     pos.set(id, [x, y, k]);
-    let nb = 0, kin = 0, plant = 0;
+    let nb = 0, kin = 0, plant = 0, guild = 0;
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       for (const j of cells.get(((Math.floor(y) + dy + gh) % gh) * gw + ((Math.floor(x) + dx + gw) % gw)) || []) {
         if (j === i) continue;
@@ -119,11 +120,13 @@ export function spatial(parts, count, grid, guildOf, firstLife = 5, prev = null,
         ex -= gw * Math.round(ex / gw); ey -= gh * Math.round(ey / gh);
         if (ex * ex + ey * ey > 1) continue;
         const kj = u[j * W + 4];
-        nb++; if (kj === k) kin++; if (guildOf(kj) === 'producer') plant++;
+        nb++; if (kj === k) kin++; const gj = guildOf(kj); if (gj === 'producer') plant++; if (gj === g) guild++;
       }
     }
     a.n++;
-    if (nb) { a.nb++; a.kin += kin / nb; a.plant += plant / nb; }
+    // rand: the kin share a cell would see if every awake cell were placed at random
+    a.rand += (nOf.get(k) - 1) / Math.max(awake.length - 1, 1);
+    if (nb) { a.nb++; a.kin += kin / nb; a.plant += plant / nb; a.guild += guild / nb; }
     const q = prev && prev.get(id);
     if (q && q[2] === k) {
       let ex = x - q[0], ey = y - q[1];
@@ -134,7 +137,7 @@ export function spatial(parts, count, grid, guildOf, firstLife = 5, prev = null,
   const stat = {};
   for (const [g, a] of Object.entries(acc)) {
     a.moves.sort((p, q) => p - q);
-    stat[g] = { n: a.n, kin: a.nb ? a.kin / a.nb : null, amongP: a.nb ? a.plant / a.nb : null, alone: 1 - a.nb / a.n,
+    stat[g] = { n: a.n, kin: a.nb ? a.kin / a.nb : null, amongP: a.nb ? a.plant / a.nb : null, guild: a.nb ? a.guild / a.nb : null, kinRand: a.rand / a.n, alone: 1 - a.nb / a.n,
       roam: a.moves.length ? a.moves[a.moves.length >> 1] : null, roamP90: a.moves.length ? a.moves[Math.floor(a.moves.length * 0.9)] : null };
   }
   return { stat, pos };
