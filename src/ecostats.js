@@ -90,6 +90,56 @@ export function packing(parts, count, grid, sizeOf, firstLife = 5) {
   return { packed: packed / n, deep: deep / n, touching: touching / n, maxPile };
 }
 
+/**
+ * How the living are arranged and how they move, per guild (awake cells; a cyst, cause 14, is skipped):
+ * kin, the share of neighbours within one grid unit that are its own species; amongP, the share that are
+ * producers; and roam, the median distance a cell moved since `prev` (the last call's positions by id),
+ * per minute. Returns { stat, pos } (pos to pass back next time).
+ */
+export function spatial(parts, count, grid, guildOf, firstLife = 5, prev = null, dtMin = 1) {
+  const [gw, gh] = grid, { u32: u, f32: f } = parts, W = 10;
+  const cells = new Map(), awake = [], pos = new Map();
+  for (let i = 0; i < count; i++) {
+    const k = u[i * W + 4];
+    if (k < firstLife || (u[i * W + 9] & 15) === 14) continue;
+    awake.push(i);
+    const c = Math.floor(f[i * W + 1]) * gw + Math.floor(f[i * W]);
+    (cells.get(c) || cells.set(c, []).get(c)).push(i);
+  }
+  const acc = {};
+  for (const i of awake) {
+    const k = u[i * W + 4], g = guildOf(k), x = f[i * W], y = f[i * W + 1], id = u[i * W + 7];
+    const a = (acc[g] ??= { n: 0, nb: 0, kin: 0, plant: 0, moves: [] });
+    pos.set(id, [x, y, k]);
+    let nb = 0, kin = 0, plant = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      for (const j of cells.get(((Math.floor(y) + dy + gh) % gh) * gw + ((Math.floor(x) + dx + gw) % gw)) || []) {
+        if (j === i) continue;
+        let ex = f[j * W] - x, ey = f[j * W + 1] - y;
+        ex -= gw * Math.round(ex / gw); ey -= gh * Math.round(ey / gh);
+        if (ex * ex + ey * ey > 1) continue;
+        const kj = u[j * W + 4];
+        nb++; if (kj === k) kin++; if (guildOf(kj) === 'producer') plant++;
+      }
+    }
+    a.n++;
+    if (nb) { a.nb++; a.kin += kin / nb; a.plant += plant / nb; }
+    const q = prev && prev.get(id);
+    if (q && q[2] === k) {
+      let ex = x - q[0], ey = y - q[1];
+      ex -= gw * Math.round(ex / gw); ey -= gh * Math.round(ey / gh);
+      a.moves.push(Math.hypot(ex, ey) / dtMin);
+    }
+  }
+  const stat = {};
+  for (const [g, a] of Object.entries(acc)) {
+    a.moves.sort((p, q) => p - q);
+    stat[g] = { n: a.n, kin: a.nb ? a.kin / a.nb : null, amongP: a.nb ? a.plant / a.nb : null, alone: 1 - a.nb / a.n,
+      roam: a.moves.length ? a.moves[a.moves.length >> 1] : null, roamP90: a.moves.length ? a.moves[Math.floor(a.moves.length * 0.9)] : null };
+  }
+  return { stat, pos };
+}
+
 const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
 /** Fixed-scale vector describing what kind of world a run became, for comparing runs with each other. */

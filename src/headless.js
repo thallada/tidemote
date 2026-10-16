@@ -27,7 +27,9 @@ export async function runHeadless(device, config, { print, width = 640, height =
     Math.random = rng; // Archetype initialization also uses Math.random.
     const E = await import('./engine.js');
     const { genomeSerial, readGenome } = await import('./genome.js');
-    const { communitySample, summarizeRun, packing } = await import('./ecostats.js');
+    const { communitySample, summarizeRun, packing, spatial } = await import('./ecostats.js');
+    const { dietGuild: guildOfG } = await import('./genome.js');
+    let spatialPrev = null, spatialT = 0, latestSpatial = null;
     const { ENERGY_SLOTS, THERMAL_LEDGER, HEAT_BINS, HEAT_BIN } = await import('./shaders.js');
     const eng = await E.createEngine(device, 'rgba8unorm', { K: config.k, hasTimestamps: device.features.has('timestamp-query') });
     if (!(await eng.allocate(config.n))) throw new Error(`could not allocate ${config.n} particles`);
@@ -126,8 +128,15 @@ export async function runHeadless(device, config, { print, width = 640, height =
       eng.readThermal().then((f) => { latestField = fieldStats(f, eng.tbg); }).catch(() => {});
       // how tightly the living sit (by drawn size), read now for the next sample
       const pk = latestPacking;
-      eng.readParticles().then((p) => { latestPacking = packing(p, eng.count, eng.grid, (k) => genomes[k]?.genome.size ?? 1, E.FIRST_LIFE); }).catch(() => {});
-      samples.push({ ...latest, thermal, rates, demography, meals, energy, cycle, dormant, packing: pk });
+      eng.readParticles().then((p) => {
+        latestPacking = packing(p, eng.count, eng.grid, (k) => genomes[k]?.genome.size ?? 1, E.FIRST_LIFE);
+        // arrangement and movement per guild (ecostats spatial), movement since the last readout
+        const t = eng.simTime, gOf = (k) => (genomes[k] ? guildOfG(genomes[k].genome) : 'unknown');
+        if (spatialPrev && t - spatialT < 60) return;   // roam: over a simulated minute
+        const r = spatial(p, eng.count, eng.grid, gOf, E.FIRST_LIFE, spatialPrev, Math.max(1e-6, (t - spatialT) / 60));
+        latestSpatial = spatialPrev ? r.stat : null; spatialPrev = r.pos; spatialT = t;
+      }).catch(() => {});
+      samples.push({ ...latest, thermal, rates, demography, meals, energy, cycle, dormant, packing: pk, spatial: latestSpatial });
       prevG = Array.from(c.globals); prevD = Array.from(c.demography); prevE = Array.from(c.energy); prevT = lastSample = c.simTime;
     }
     // config.step: each step covers step/60 s (coarse steps), so fewer steps fill the minutes
