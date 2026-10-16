@@ -7,3 +7,4 @@ runs/
 site/index.html
 .wrangler/
 tools/ecomodel/.venv/
+tools/ecomodel/__pycache__/
