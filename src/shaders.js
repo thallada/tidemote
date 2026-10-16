@@ -635,7 +635,7 @@ ${K.liveFirst ? `
             csum += unpack4x8unorm(q.col).rgb * w;
             wsum += w;
           }
-          if (bonding && qk == p.kind && j != n1 && j != n2${K.tissue > 0 ? ' && ((!keep1 && r < d1) || (!keep2 && r < d2)) && joinable(i, j, select(NONE, n1, keep1), select(NONE, n2, keep2))' : ''}) {
+          if (bonding && qk == p.kind && j != n1 && j != n2${K.cyst ? ' && (q.kr & (1u << 13u)) == 0u' : ''}${K.tissue > 0 ? ' && ((!keep1 && r < d1) || (!keep2 && r < d2)) && joinable(i, j, select(NONE, n1, keep1), select(NONE, n2, keep2))' : ''}) {
             if (!keep1 && r < d1) {
               if (!keep2) { d2 = d1; n2 = n1; dn2 = dn1; }
               d1 = r; n1 = j; dn1 = d;
@@ -1309,7 +1309,8 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
       } else if (act == 2u && ck == HUSK && p.kind == SILT) {
         // dung: the grain beside an eater becomes a husk of what its gut held
         p.kind = HUSK; p.energy = bitcast<f32>(intent[c - 1u].y); p.age = 0.0; p.vel *= 0.2;
-        p.info = (p.info & 0xffff7fc0u) | 3u${K.cycle ? ' | LITTER' : ''};
+        p.info = (p.info & 0xffff7fc0u) | 11u${K.cycle ? ' | LITTER' : ''};
+        p.col = pack4x8unorm(vec4f(0.36, 0.30, 0.14, 1.0));
       } else if (act == 2u && ck == GLINT && p.kind == SILT) {
         // a producer's exudate: the grain beside it charged with what it leaked
         p.kind = GLINT; p.energy = bitcast<f32>(intent[c - 1u].y); p.age = 0.0;
@@ -1668,7 +1669,9 @@ fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
 fn keepBond(i: u32, j: u32, p: Particle) -> u32 {
   if (j >= sim.count || j == i) { return NONE; }
   let q = sortedFull[j];
-  if (q.kind != p.kind) { return NONE; }
+  if (q.kind != p.kind) { return NONE; }${K.cyst ? `
+  // a cell that goes dormant leaves its body: its partners let go
+  if ((q.info & 15u) == CYST) { return NONE; }` : ''}
   var d = q.pos - p.pos;
   d -= sim.world * round(d / sim.world);
   if (dot(d, d) > LINK_R * LINK_R * ${f(K.bondBreak * K.bondBreak)}) { return NONE; }
@@ -3117,19 +3120,22 @@ fn bodyAspect(s: vec2f, swim: f32, pace: f32) -> f32 {
 fn bendShift(x: f32, bend: f32) -> f32 { return bend * abs(x) * min(abs(x), 1.0); }
 fn cellOutline(uv: vec2f, dir: vec2f, radius: f32, seed: f32,
     shape: u32, traits: vec4f, s: vec2f, pace: f32, bend: f32) -> CellOutline {
-  let aspect = bodyAspect(s, traits.x, pace);
+  // pace < 0: a dormant cell, its outline frozen
+  let awake = select(1.0, 0.0, pace < 0.0);
+  let pc = max(pace, 0.0);
+  let aspect = bodyAspect(s, traits.x, pc);
   var motion = localPoint(uv, dir) * vec2f(1.0 / aspect, aspect);
   motion.y -= bendShift(motion.x, bend);
   // Dragged through the water a cell is blunt in front and drawn out thin behind, by as much,
   // so its area holds (to second order in pace).
-  motion.y *= exp(pace * 0.35 * (smoothstep(0.0, -0.9, motion.x) - smoothstep(0.0, 0.9, motion.x)));
+  motion.y *= exp(pc * 0.35 * (smoothstep(0.0, -0.9, motion.x) - smoothstep(0.0, 0.9, motion.x)));
   // Area-preserving shears, with each cell's own phase.
-  let phase = seed * TAU + view.time * (0.18 + traits.y * 0.15) * (1.0 - traits.z * 0.7);
+  let phase = seed * TAU + awake * view.time * (0.18 + traits.y * 0.15) * (1.0 - traits.z * 0.7);
   var q = motion;
   q.x += 0.075 * sin(q.y * 4.0 + phase) + (s.y - 0.5) * 0.20 * q.y;
   q.y += 0.065 * sin(q.x * 4.5 + phase * 1.3);
   // and a moving one ripples, a wave running back along its body and growing toward the rear
-  q.y += pace * 0.075 * sin(q.x * 4.0 + seed * 40.0 + view.time * 4.5) * (0.3 + 0.7 * smoothstep(0.5, -0.8, q.x));
+  q.y += pc * 0.075 * sin(q.x * 4.0 + seed * 40.0 + view.time * 4.5) * (0.3 + 0.7 * smoothstep(0.5, -0.8, q.x));
   let a = atan2(q.y, q.x);
   let ripple = 0.018 * sin(a * 5.0 + seed * 23.0) * smoothstep(0.1, 0.4, length(q));
   let teeth = traits.w * fineLOD(radius) * 0.02 * pow(max(0.0, cos(a * 17.0 + seed * 11.0)), 6.0);
@@ -3209,17 +3215,20 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     let role = roleOf(p.info);
     size = g.size * (1.0 - 0.12 * f32(role));
     size *= packFit(ii, size);
-    swim = min(g.swim, 1.0);
+    // a dormant cell (a cyst, state 14) sleeps: no swimming, pulse or birth flash, dimmed and greyed
+    let sleeping = (p.info & 15u) == 14u;
+    swim = select(min(g.swim, 1.0), 0.0, sleeping);
     let e = clamp(p.energy / g.reproE, 0.0, 1.4);
-    var b = 0.35 + 0.65 * e;
+    var b = select(0.35 + 0.65 * e, 0.62, sleeping);
     let c = vec2u(clamp(p.pos, vec2f(0.0), view.world - 1.0));
     let thermo = thermoOf(g);
     let warmth = heatField[MAX_CELLS + c.y * u32(view.world.x) + c.x] + ${f(DEFAULT_K.selfWarm)} * thermo;
     let th = ${shownThermal('g', 'warmth')};
     // a torpid cell's pulse stops and it dims, cold blue
-    if (!th.torpid) { b *= 1.0 + g.pulse * 0.6 * sin(view.time * (0.8 + g.pulse * 4.0) + f32(p.id % 1024u) * 0.37); }
-    b *= 1.0 + 2.5 * max(0.0, 1.0 - p.age * 2.5);
+    if (!th.torpid && !sleeping) { b *= 1.0 + g.pulse * 0.6 * sin(view.time * (0.8 + g.pulse * 4.0) + f32(p.id % 1024u) * 0.37); }
+    if (!sleeping) { b *= 1.0 + 2.5 * max(0.0, 1.0 - p.age * 2.5); }
     col = unpack4x8unorm(p.col).rgb;
+    if (sleeping) { col = mix(col, vec3f(0.62, 0.66, 0.74) * dot(col, vec3f(0.3, 0.5, 0.2)) * 1.6, 0.5); }
     if (th.torpid) { col = mix(col, vec3f(0.55, 0.7, 0.95) * dot(col, vec3f(0.33)), 0.5); b *= 0.6; }
     // heat stress bleaches a cell toward pale bone; a heat-maker glows faintly warm
     col = mix(col, vec3f(1.0, 0.96, 0.9) * max(0.45, dot(col, vec3f(0.3, 0.5, 0.2))), 0.6 * smoothstep(0.3, 1.0, th.x));
@@ -3237,7 +3246,8 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     shape = 14u;
     col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 1.1;
   } else {
-    size = 0.62;
+    // a husk; dung (state 11) is a smaller pellet
+    size = select(0.62, 0.42, (p.info & 15u) == 11u);
     shape = 12u;
     let h = unpack4x8unorm(p.col).rgb;
     col = mix(h * 0.6, vec3f(0.42, 0.28, 0.16), 0.55) * (0.25 + p.energy * 0.6) * view.matterGain * 1.4;
@@ -3381,14 +3391,14 @@ struct PO {
     let give = 1.0 - 0.75 * min(genomes[k].calcify, 1.0);
     pace = (1.0 - exp(-radii * 0.25)) * give;
     let st = swayOf(p);
-    if (st.id == p.id) {
+    if ((p.info & 15u) == 14u) { pace = -1.0; } else if (st.id == p.id) {
       o.jelly.z = unpack2x16float(st.bend).x * give;
       // the squash's axis, its length the amount
       let q = unpack2x16float(st.squash) * give;
       let axis = 0.5 * atan2(q.y, q.x);
       o.squash = vec2f(cos(axis), sin(axis)) * length(q);
     }
-    extent *= (1.0 + 0.3 * pace) * (1.0 + 0.5 * abs(o.jelly.z)) * exp(length(o.squash));
+    extent *= (1.0 + 0.3 * max(pace, 0.0)) * (1.0 + 0.5 * abs(o.jelly.z)) * exp(length(o.squash));
   }
   if (any(abs(d) > view.res * 0.5 + vec2f(px * extent))) {
     o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
@@ -3512,7 +3522,7 @@ fn pointColor(i: PO) -> vec4f {
     // switch out of duplicated inline code. Partner frames die before the interior.
     // A swollen cell's own frame is shrunk to match; partners keep the shared one.
     let swell = i.jelly.x;
-    let pace = i.jelly.y;
+    let pace = i.jelly.y;          // < 0: a dormant cell, which holds still
     let bend = i.jelly.z;
     var own = i.uv / swell;
     let squashed = length(i.squash);
@@ -3580,7 +3590,7 @@ fn pointColor(i: PO) -> vec4f {
       }
     }
     let resolved = smoothstep(0.7, 1.5, i.geom.x * 0.018) * fine;
-    let swimmer = resolved > 0.0 && g.swim > 0.05;
+    let swimmer = resolved > 0.0 && g.swim > 0.05 && pace >= 0.0;
     let hairRange = membraneSD < 0.035 + 4.0 * (0.018 + aa);
     // Well clear of the membrane (contacts only cut the body back, and the partners were skipped out
     // here) and of any hairs or tail, the pixel is empty: leave before the rest. The margin keeps
@@ -3588,7 +3598,7 @@ fn pointColor(i: PO) -> vec4f {
     if (membraneSD > max(0.12, 0.035 + 4.0 * (0.018 + aa)) + 3.0 * aa) {
       var tail = false;
       if (swimmer) {
-        var motion = localPoint(i.uv / swell, i.geom.zw) * vec2f(1.0 / bodyAspect(s, g.swim, pace), bodyAspect(s, g.swim, pace));
+        var motion = localPoint(i.uv / swell, i.geom.zw) * vec2f(1.0 / bodyAspect(s, g.swim, max(pace, 0.0)), bodyAspect(s, g.swim, max(pace, 0.0)));
         motion.y -= bendShift(motion.x, bend);
         tail = motion.x > -1.9 && motion.x < -0.6 && abs(motion.y) < 0.148 + aa;
       }
@@ -3629,7 +3639,7 @@ fn pointColor(i: PO) -> vec4f {
     let lightQ = localPoint(TO_LIGHT, i.geom.zw);
     // Reconstruct motion only after the partner loop; no partner structs or
     // unneeded hair coordinates stay live across the organelle loop.
-    let aspect = bodyAspect(s, g.swim, pace);
+    let aspect = bodyAspect(s, g.swim, max(pace, 0.0));
     var tailRange = false;
     if (body <= 0.0 && swimmer && !hairRange) {
       var motion = localPoint(i.uv / swell, i.geom.zw) * vec2f(1.0 / aspect, aspect);
