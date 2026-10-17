@@ -134,7 +134,19 @@ export function spatial(parts, count, grid, guildOf, firstLife = 5, prev = null,
       a.moves.push(Math.hypot(ex, ey) / dtMin);
     }
   }
-  const stat = {};
+  // regions of about a close view's size (RS grid units square): each guild's awake cells, and the
+  // leading species and its count, so local booms, crashes and takeovers show (the world averages them away)
+  const RS = 16, nx = Math.max(1, Math.round(gw / RS)), ny = Math.max(1, Math.round(gh / RS));
+  const regions = { nx, ny, g: {}, lead: [] };
+  const kinds = Array.from({ length: nx * ny }, () => new Map());
+  for (const i of awake) {
+    const k = u[i * W + 4], g = guildOf(k);
+    const r = Math.min(ny - 1, Math.floor(f[i * W + 1] / gh * ny)) * nx + Math.min(nx - 1, Math.floor(f[i * W] / gw * nx));
+    (regions.g[g] ??= new Array(nx * ny).fill(0))[r]++;
+    kinds[r].set(k, (kinds[r].get(k) || 0) + 1);
+  }
+  regions.lead = kinds.map((m) => { let best = [0, 0]; for (const [k, n] of m) if (n > best[1]) best = [k, n]; return best; });
+  const stat = { regions };
   for (const [g, a] of Object.entries(acc)) {
     a.moves.sort((p, q) => p - q);
     stat[g] = { n: a.n, kin: a.nb ? a.kin / a.nb : null, amongP: a.nb ? a.plant / a.nb : null, guild: a.nb ? a.guild / a.nb : null, kinRand: a.rand / a.n, alone: 1 - a.nb / a.n,

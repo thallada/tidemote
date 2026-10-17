@@ -226,7 +226,7 @@ export const DEFAULT_K = {
   plagueKill: 0.05,   // ...dies of it at this chance per second...
   plagueCure: 0.05,   // ...recovers at this...
   plagueCost: 1,      // ...pays this × its upkeep extra while sick...
-  plagueSpark: 0.0005, // ...and catches it unprompted at this chance per second per same-species neighbour past kinFree
+  plagueSpark: 0.0005, // ...and catches it unprompted at this chance per second per same-species neighbour past kinFree (its body aside)
   roam: 0,          // a hungry animal with no food in reach swims up to 1 + this × its hunger as fast (it ranges wider)
   // scent: three chemical fields on the heat grid (needs heat), laid down by producers, by other animals and by
   // hunters, carried by the water, spreading and fading. A hungry grazer follows producers' scent up, a hungry
@@ -2111,7 +2111,7 @@ ${K.dung ? `  // a full gut is dropped as dung: the grain beside the eater becom
     let u = rnd(&s);
     if (u < ${f(K.plagueKill)} * sim.dt) { plagued = true; }
     else if (u < ${f(K.plagueKill + K.plagueCure)} * sim.dt) { info &= 0x7fffffffu; }
-  } else if (rnd(&s) < (${f(K.plague)} * sickN + ${f(K.plagueSpark)} * max(0.0, kinN - ${f(K.kinFree)})) * sim.dt) {
+  } else if (rnd(&s) < (${f(K.plague)} * sickN + ${f(K.plagueSpark)} * max(0.0, kinN - bonds - ${f(K.kinFree)})) * sim.dt) {
     info |= 0x80000000u;
     atomicAdd(&ledger[META_DEATH + 30u], 1u);
   }
