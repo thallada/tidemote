@@ -1,8 +1,5 @@
 // CPU climate rules shared by the page and headless simulation.
-// The tide (a 5-minute swell of light) and, with K.year, a slow year: light at midsummer at the start, dimmed
-// by up to K.yearDepth at midwinter, half a year on.
-export const yearAt = (t, K) => (K?.year > 0 ? 1 - K.yearDepth * (0.5 - 0.5 * Math.cos((t / K.year) * Math.PI * 2)) : 1);
-export const seasonAt = (t, K) => (0.55 + 0.45 * Math.sin((t / 300) * Math.PI * 2)) * yearAt(t, K);
+export const seasonAt = (t) => 0.55 + 0.45 * Math.sin((t / 300) * Math.PI * 2);
 const climateMix = (a, b, t) => a + (b - a) * t;
 const climatePick = (r, a) => a[Math.floor(r() * a.length)];
 const ERA_ADJ = ['Restless', 'Dim', 'Bright', 'Still', 'Pale', 'Warm', 'Hollow', 'Rising', 'Long', 'Bitter', 'Green', 'Silver'];

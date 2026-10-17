@@ -114,9 +114,6 @@ export async function runHeadless(device, config, { print, width = 640, height =
       const quantile = (q) => { let acc = 0; for (let b = 0; b < HEAT_BINS; b++) { acc += hist[b]; if (acc >= q * felt) return (b + 0.5) * HEAT_BIN; } return null; };
       const scalded = {};
       for (const [g, guild] of guilds.entries()) scalded[guild] = prevD && c.simTime > prevT ? ((c.demography[20 + g] - prevD[20 + g]) >>> 0) * 60 / (c.simTime - prevT) : 0;
-      // K.plague: deaths of it per guild and new infections, per simulated minute
-      const plague = { infected: prevD && c.simTime > prevT ? ((c.demography[30] - prevD[30]) >>> 0) * 60 / (c.simTime - prevT) : 0 };
-      for (const [g, guild] of guilds.entries()) plague[guild] = prevD && c.simTime > prevT ? ((c.demography[25 + g] - prevD[25 + g]) >>> 0) * 60 / (c.simTime - prevT) : 0;
       const thermal = { ...latest.thermal, felt: felt ? { p10: quantile(0.1), p50: quantile(0.5), p90: quantile(0.9) } : null,
         torpidFrac: felt ? since(THERMAL_LEDGER.torpid) / felt : 0, makerFrac: felt ? since(THERMAL_LEDGER.makers) / felt : 0, scalded,
         framboids: c.pop[4],
@@ -139,7 +136,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
         const r = spatial(p, eng.count, eng.grid, gOf, E.FIRST_LIFE, spatialPrev, Math.max(1e-6, (t - spatialT) / 60));
         latestSpatial = spatialPrev ? r.stat : null; spatialPrev = r.pos; spatialT = t;
       }).catch(() => {});
-      samples.push({ ...latest, thermal, rates, demography, meals, energy, cycle, dormant, plague, packing: pk, spatial: latestSpatial });
+      samples.push({ ...latest, thermal, rates, demography, meals, energy, cycle, dormant, packing: pk, spatial: latestSpatial });
       prevG = Array.from(c.globals); prevD = Array.from(c.demography); prevE = Array.from(c.energy); prevT = lastSample = c.simTime;
     }
     // config.step: each step covers step/60 s (coarse steps), so fewer steps fill the minutes
@@ -151,7 +148,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     for (let f = 0; f < frames; f++) {
       if (config.profile && eng.timing && f % perMinute === perMinute >> 1 && f + 30 < frames) prof = { t: eng.simTime, n: 0, passes: {} };
       if (prof) {
-        eng.season = seasonAt(eng.simTime, eng.K);
+        eng.season = seasonAt(eng.simTime);
         if (config.eras) climate.tick(dt);
         if (config.temp != null) { eng.temp = config.temp; eng.excursion = 0; }
         for (const [name, ms] of await eng.profileStep(dt)) prof.passes[name] = (prof.passes[name] || 0) + ms;
@@ -163,7 +160,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
         checkErrors();
         continue;
       }
-      eng.season = seasonAt(eng.simTime, eng.K);
+      eng.season = seasonAt(eng.simTime);
       if (config.eras) climate.tick(dt);
       if (config.temp != null) { eng.temp = config.temp; eng.excursion = 0; }
       if (f === frames - 1) eng.censusEvery = 1;
@@ -230,7 +227,7 @@ export async function runForks(device, config, { print } = {}) {
     eng.onCensus = (c) => { eng.abio = abioRate(c.pop[0]); };
     const warm = Math.round(config.warm * 60);
     for (let f = 0; f < warm; f++) {
-      eng.season = seasonAt(eng.simTime, eng.K);
+      eng.season = seasonAt(eng.simTime);
       if (config.eras) climate.tick(1 / 60);
       if (config.temp != null) { eng.temp = config.temp; eng.excursion = 0; }
       while ((eng.frameNo + 1) % eng.censusEvery === 0 && eng.censusStage.every((s) => s.busy)) await new Promise((r) => setTimeout(r, 0));
@@ -286,7 +283,7 @@ export async function runForks(device, config, { print } = {}) {
         const c0 = await eng.readCensus(), g0 = guilds(c0);
         const frames = Math.round((config.horizon * 60) / v.step), dt = v.step / 60;
         for (let f = 0; f < frames; f++) {
-          eng.season = seasonAt(eng.simTime, eng.K);
+          eng.season = seasonAt(eng.simTime);
           eng.frame({ target: null, simDt: dt, time: eng.simTime });
         }
         const c1 = await eng.readCensus(), g1 = guilds(c1);

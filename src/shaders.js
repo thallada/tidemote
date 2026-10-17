@@ -82,9 +82,10 @@ export const DEFAULT_K = {
   flee: 0.5,          // an animal that does not hunt is pushed away from hunters within reach at this × its swimming
   recognize: 0.4,     // living prey (and plants) escape an eater whose receptors do not match their surface: up to this
                     // share of attempts on a perfectly mismatched one (coevolution, frequency-dependent predation)
-  matterSkill: 0.5,   // eating a husk succeeds with (eatEff × that diet) / this, certain past it (0: always)
+  matterSkill: 1.0,   // eating a husk succeeds with (eatEff × that diet) / this, certain past it (0: always)
   catchSkill: 0.6,  // catch chance scales with eating skill (eatEff × preference), reaching certainty here
   nutrHalf: 8.0,    // silt grains nearby at which photosynthesis runs at half speed
+  allee: 0.65,      // producers grow at (1 - allee) of their rate alone, rising to full among 3 of their own species
   swimCost: 0.018,
   preyBase: 0.35,
   preyFrac: 0.7,
@@ -103,7 +104,6 @@ export const DEFAULT_K = {
   tissue: 12,       // bodies as tissue (0: off): bonds pull both ways, a body's cells take on their partners' motion
                     // at this rate (per second), and a free bond slot only closes a triangle within the body
   huntCore: 0.15,   // how much of other species' personal space a hungry forager respects
-  coreFood: 0,      // 1: ...only that of cells it eats (a grazer keeps its distance from other animals' species)
   liveFirst: 1,     // 1: each grid cell's living are sorted first, and a cell weighs its living neighbours...
   liveScan: 64,     // ...exactly up to this many (sampled evenly past it), sampling only the matter
   contactReach: 0.14, // contactMain: the largest radius a neighbour is taken to have (grid cells within touching are walked)...
@@ -124,7 +124,7 @@ export const DEFAULT_K = {
   align: 3.0,
   bond: 60,         // spring strength of bonds between cells of one body
   adhMin: 0.15,     // adhesion needed before a species forms bonds
-  bite: 0.25,       // energy taken per bite from a photosynthesising cell
+  bite: 0.5,        // energy taken per bite from a photosynthesising cell (big enough to outpace a patch's regrowth: booms and crashes)
   eatEvery: 6,      // frames between meals
   dietMin: 0.15,    // share of the diet a food must have before a cell bothers to eat it
   // Stone: calcified remains and bedrock. Immobile, solid to all but calcifiers, slowly eroding back to silt.
@@ -216,38 +216,6 @@ export const DEFAULT_K = {
   bodySize: 1,      // with bodyE, 1: a body holds bodyE × the cell's size (small cells are cheap to build, big ones rich prey)
   interfere: 0.6,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
                     // within reach, its bond partners aside)
-  // r/K: with provision, how strongly the child-share gene sets how well a cell provisions its young:
-  // provision × exp(rk × (share - 0.45) / 0.25) seconds of upkeep (and mature by as much, at most 1×).
-  // Low share: bloomers, many thin children early; high: investors, few well-fed ones (0: off)
-  rk: 0,
-  // plague: a species-specific contagion (kill-the-winner). A sick cell infects healthy cells of its own
-  // species touching it at this chance per second each (0: off)...
-  plague: 0,
-  plagueKill: 0.05,   // ...dies of it at this chance per second...
-  plagueCure: 0.05,   // ...recovers at this...
-  plagueCost: 1,      // ...pays this × its upkeep extra while sick...
-  plagueSpark: 0.0005, // ...and catches it unprompted at this chance per second per same-species neighbour past kinFree (its body aside)
-  roam: 0,          // a hungry animal with no food in reach swims up to 1 + this × its hunger as fast (it ranges wider)
-  // scent: three chemical fields on the heat grid (needs heat), laid down by producers, by other animals and by
-  // hunters, carried by the water, spreading and fading. A hungry grazer follows producers' scent up, a hungry
-  // hunter its prey's, a scavenger hunters' (to their kills), and every animal not a hunter flees hunters'
-  // (by K.flee). This is the strength of that steering relative to swimming (0: off)
-  // allelopathy: producers come in three chemistries by hue (thirds of the colour wheel), each poisoning the next
-  // (rock-paper-scissors): a producer pays this × its upkeep extra per producer of the chemistry above its own
-  // touching it, so takeover fronts sweep through meadows (0: off)
-  allelo: 0,
-  allee: 0, alleeN: 3, // >0: photosynthesis × (1 - allee + allee × min(same-species neighbours / alleeN, 1))
-  year: 0,          // a slow year: seconds from midsummer to midsummer (0: none, only the 5-minute tide)
-  yearDepth: 0.6,   // ...and how much of the light midwinter takes away
-  scent: 0,
-  scentD: 1,        // spread, cells²/s
-  scentLoss: 0.05,  // fading per second (sqrt(scentD / scentLoss): how far a scent reaches, in cells)
-  pack: 0,          // hunters of a species hunt together: each same-species hunter beside it flushes prey from cover
-                    // (stone, meadow, armour, a surface it does not know) at pack × rivals / (1 + pack × rivals)
-  sprint: 0,        // a hungry hunter closing on an animal, and an animal with a hunter near, swims 1 + this as fast...
-  sprintCost: 1,    // ...paying this × its upkeep extra meanwhile
-  swarm: 0,         // a hungry animal crowded among its own kind turns gregarious: it aligns with them at up to this rate
-                    // (per second, on top of its own) and swims up to half again as fast (locust phases: marching bands)
 };
 
 // Energy bookkeeping (see K.bodyE): with bodyE off, main's rules.
@@ -329,7 +297,7 @@ const META_CLAIM = ${META_CLAIM}u;
 const TAU = 6.28318530718;
 const ORGANS = ${ORGANS}u;
 
-// Info: 0..3 cause, 4..5 role, 6..15 search image, 16..30 generation, 31 sick (K.plague).
+// Info: 0..3 cause, 4..5 role, 6..15 search image, 16..31 generation.
 struct Particle { pos: vec2f, vel: vec2f, kind: u32, energy: f32, age: f32, id: u32, col: u32, info: u32 };
 struct Genome {
   sig: array<vec4u, 3>,
@@ -350,7 +318,7 @@ fn renderHash(id: u32) -> f32 {
   h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
   return f32((h >> 22u) ^ h) / 4294967296.0;
 }
-fn genOf(info: u32) -> u32 { return (info >> 16u) & 0x7fffu; }
+fn genOf(info: u32) -> u32 { return info >> 16u; }
 
 fn tideAt(p: vec2f, world: vec2f, t: f32, w: array<vec4f, 4>, ph: vec4f) -> f32 {
   let u = p / world * TAU;
@@ -469,10 +437,8 @@ function cellWGSL(K, w) {
   let th = cellThermal(g, Tc);
   // a torpid cell neither hunts, grazes nor divides
   // a child's body costs bodyCost (K.bodyE, by size with K.bodySize); divE: the energy a cell divides at (K.bodyReserve)
-  let bodyCost = ${bodyOf(K, 'g')};${K.rk ? `
-  // r/K: how richly it provisions its young (and how long it grows up first) by its child-share gene
-  let rkF = exp(${f(K.rk)} * (g.share - 0.45) * 4.0);` : ''}
-  let divE = ${K.bodyE > 0 ? (K.bodyReserve ? 'g.reproE + bodyCost' : 'max(g.reproE, 1.25 * bodyCost)') : 'g.reproE'}${K.provision > 0 ? ` + max(0.0, bodyCost + ${f(K.provision)}${K.rk ? ` * rkF` : ''} * g.metab / g.share - g.reproE - bodyCost)` : ''};
+  let bodyCost = ${bodyOf(K, 'g')};
+  let divE = ${K.bodyE > 0 ? (K.bodyReserve ? 'g.reproE + bodyCost' : 'max(g.reproE, 1.25 * bodyCost)') : 'g.reproE'}${K.provision > 0 ? ` + max(0.0, bodyCost + ${f(K.provision)} * g.metab / g.share - g.reproE - bodyCost)` : ''};
   let hungry = p.energy < divE * ${f(K.sated)} && eatEff > 0.1 && !th.torpid;
   let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
   // food in reach is gathered by hungry cells; in a coarse step also by any that may grow hungry in it
@@ -494,13 +460,7 @@ function cellWGSL(K, w) {
   var nIn = 0.0;` : ''}${K.socialN > 0 && K.coreSum ? `
   // personal space, summed over every neighbour inside it
   var coreF = vec2f(0.0);` : ''}
-  var preyNear = vec2f(0.0);${K.plague ? `
-  // sick cells of its own species touching it (K.plague)
-  var sickN = 0.0;` : ''}${K.sprint ? `
-  var threat = 0.0;` : ''}${K.allelo ? `
-  // producers of the chemistry that poisons this one, touching it (K.allelo)
-  var poison = 0.0;
-  let chem = u32(fract(g.hue) * 3.0) % 3u;` : ''}
+  var preyNear = vec2f(0.0);
   var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
 
 
@@ -538,7 +498,7 @@ ${K.liveFirst ? `
   for (var k = 0u; k < 18u; k++) {
     if (k == 9u) {
       let toM = strideL / strideM;
-      overlap *= toM; preyNear *= toM; force *= toM; crowd *= toM; crowdP *= toM; pack *= toM; kinVel *= toM; kinN *= toM; jF *= toM;${K.plague ? ' sickN *= toM;' : ''}${K.allelo ? ' poison *= toM;' : ''}${K.socialN > 0 ? ' nIn *= toM;' : ''}${K.socialN > 0 && K.coreSum ? ' coreF *= toM;' : ''}
+      overlap *= toM; preyNear *= toM; force *= toM; crowd *= toM; crowdP *= toM; pack *= toM; kinVel *= toM; kinN *= toM; jF *= toM;${K.socialN > 0 ? ' nIn *= toM;' : ''}${K.socialN > 0 && K.coreSum ? ' coreF *= toM;' : ''}
       st = strideM;
       at = select(0.0, rnd(&s) * strideM, strideM > 1.0);
     }
@@ -616,7 +576,7 @@ ${K.liveFirst ? `
       var pull = 0.0;
       if (qk >= FIRST_LIFE) {
         // a hungry forager lets other species inside its personal space so it can reach them
-        let core = select(1.0, ${f(K.huntCore)}, canHunt && qk != p.kind${K.coreFood ? ` && select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) > DIET_MIN` : ''});
+        let core = select(1.0, ${f(K.huntCore)}, canHunt && qk != p.kind);
         if (x < ${K.tissue > 0 ? 'bk' : 'beta'}) { fr = (x * ${K.tissue > 0 ? 'invBk' : 'invBeta'} - 1.0) * core; } else { fr = a * shape${K.tissue > 0 ? ' * sigK' : ''}; }${W('mFr0 = fr; mFl = 0.0;')}
         // hungry foragers are drawn toward the cells their diet favours
         if ((q.kr & (1u << 12u)) != 0u && r < 0.5) { plantN += 1.0; }
@@ -624,16 +584,14 @@ ${K.liveFirst ? `
         let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
         if (x >= ${K.tissue > 0 ? 'bk' : 'beta'}) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * ${K.tissue > 0 ? 'invBk' : 'invBeta'} * invR; }${K.flee > 0 ? `
         // an animal that is not a hunter swims away from hunters near it, the harder the closer they are
-        if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && g.dFlesh <= 0.5 && g.photo <= 0.4) { fr -= ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);${K.sprint ? ' threat = 1.0;' : ''}${W(`mFl = ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);`)} }` : ''}
+        if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && g.dFlesh <= 0.5 && g.photo <= 0.4) { fr -= ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);${W(`mFl = ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);`)} }` : ''}
         crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);${K.shadeP > 0 ? `
         if ((q.kr & (1u << 12u)) != 0u) { crowdP += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind); }` : ''}
         if (DIAG) {
           if (x < beta) { overlap += 1.0; }
           if (qk != p.kind && (q.kr & (1u << 12u)) == 0u && r < 2.0 * EAT_R) { preyNear += vec2f(select(0.0, 1.0, r < EAT_R), 1.0); }
         }
-        if (r < LINK_R) { let w = 1.0 - r / LINK_R; pack += w * w; }${K.allelo ? `
-        if (r < LINK_R && g.photo > 0.4 && qk != p.kind && (q.kr & (1u << 12u)) != 0u && u32(fract(genomes[qk].hue) * 3.0) % 3u == (chem + 1u) % 3u) { poison += 1.0; }` : ''}${K.plague ? `
-        if (r < LINK_R && qk == p.kind && (q.kr & (1u << 15u)) != 0u) { sickN += 1.0; }` : ''}
+        if (r < LINK_R) { let w = 1.0 - r / LINK_R; pack += w * w; }
         if (qk == p.kind) {
           kinVel += unpack2x16float(q.vel);
           kinN += 1.0;
@@ -725,7 +683,7 @@ ${K.liveFirst ? `
   // ...but contact is pressed for by every neighbour inside it: a crowd pushes back the harder the
   // more pile in, so it cannot collapse
   force += coreF * stride;` : ''}
-  crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride; plantN *= stride; animN *= stride;${K.plague ? ' sickN *= stride;' : ''}${K.allelo ? ' poison *= stride;' : ''}
+  crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride; plantN *= stride; animN *= stride;
 
   let heavy = 1.0 - 0.7 * g.photo;
   // Persistent bonds pull on the partners' current positions, even outside the sampled scan.
@@ -753,17 +711,7 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   if (nb0 != NONE) { bondF += e0 * ((length(e0) - rb0) / max(length(e0), 1e-4)); }
   if (nb1 != NONE) { bondF += e1 * ((length(e1) - rb1) / max(length(e1), 1e-4)); }
   if (nb2 != NONE) { bondF += e2 * ((length(e2) - rb2) / max(length(e2), 1e-4)); }` : ''}
-  var swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0);${K.roam ? `
-  if (hungry && food == NONE && g.photo <= 0.4) { swim *= 1.0 + ${f(K.roam)} * clamp(1.0 - p.energy / divE, 0.0, 1.0); }` : ''}${K.sprint ? `
-  // a burst: the chase, and the escape
-  let burst = select(0.0, 1.0, g.photo <= 0.4 && ((canHunt && g.dFlesh > 0.5 && isAnimal(food)) || threat > 0.0));
-  swim *= 1.0 + ${f(K.sprint)} * burst;
-  let burstCost = burst * ${f(K.sprintCost)} * g.metab${K.allelo ? ` + ${f(K.allelo)} * g.metab * poison` : ''};` : `
-  let burstCost = ${K.allelo ? `${f(K.allelo)} * g.metab * poison` : '0.0'};`}${K.swarm ? `
-  let greg = select(0.0, clamp((kinN - 2.0) * 0.25, 0.0, 1.0), hungry && g.photo <= 0.4);
-  swim *= 1.0 + 0.5 * greg;
-  let alignR = g.align * ${f(K.align)} + ${f(K.swarm)} * greg;` : `
-  let alignR = g.align * ${f(K.align)};`}
+  let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0);
   let flow = flowAt(p.pos) * g.advect;
   // a holdfast: a cell the current hardly carries (advect below 0.35, fully below 0.1) is anchored, and
   // pushes barely move it (its velocity decays K.holdfast times as fast)
@@ -773,18 +721,7 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   let slope = length(heat.yz);
   if (swim > 0.0 && slope > 1e-3) {
     taxis = heat.yz * (sign(g.topt - Tc) * min(1.0, abs(th.x)) * swim * ${f(K.thermotaxis)} / slope);
-  }${K.scent && K.heat ? `
-  // scent: the hungry follow their food's, scavengers hunters' (to their kills); prey flee hunters'
-  if (swim > 0.0 && g.photo <= 0.4) {
-    var sp = vec2f(0.0);
-    if (hungry) {
-      if (g.dFlesh > 0.5) { sp += scentPull(1u, p.pos); }
-      else if (g.dHusk > g.dGlint) { sp += scentPull(2u, p.pos); }
-      else { sp += scentPull(0u, p.pos); }
-    }
-    if (g.dFlesh <= 0.5) { sp -= scentPull(2u, p.pos) * ${f(K.flee)}; }
-    taxis += sp * swim * ${f(K.scent)};
-  }` : ''}
+  }
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
   // The cell and its neighbourhood are taken as two bodies sharing momentum: the reaction to this cell's
@@ -851,8 +788,8 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
       if (nb2 != NONE) { let e = e2 + vb2 * t - moved; let l = length(e); fb += e * ((l - rb2) / max(l, 1e-4)); }` : ''}
     }
     vel = vel * fr0 + force * (g.force * heavy * h) + stiff * h;${W('if (k == 0u) { mVel = vel; }')}
-    if (kinN > 0.0 && alignR > 0.0) {
-      vel = mix(vel, kinVel / kinN, clamp(alignR * h, 0.0, 1.0));${W('if (k == 0u) { mAlign = vel - mVel; }')}
+    if (kinN > 0.0 && g.align > 0.0) {
+      vel = mix(vel, kinVel / kinN, clamp(g.align * ${f(K.align)} * h, 0.0, 1.0));${W('if (k == 0u) { mAlign = vel - mVel; }')}
     }
     vel += fb * (g.adhesion * ${f(K.bond)} * h);${K.tissue > 0 ? `
     // a body's cells move together: each takes on its partners' motion
@@ -885,8 +822,8 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   // water; anchored cells have fresh silt carried past them by the currents.
   let photoGain = th.perf * ${K.photoPow > 1 ? `pow(g.photo, ${f(K.photoPow)})` : 'g.photo'} * light * ${f(K.photo)} / (1.0 + ${K.shadeP > 0 ? `crowdP * ${f(K.shadeP)}` : `crowd * ${f(K.shade)}`}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
     * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0))${K.allee ? `
-    // Allee effect: a producer thrives among its own kind (shared water chemistry); a lone one barely grows
-    * (1.0 - ${f(K.allee)} + ${f(K.allee)} * min(kinN / ${f(K.alleeN)}, 1.0))` : ''};
+    // Allee effect: a producer thrives among its own kind; a lone one grows slowly, so grazed-bare water stays bare a while
+    * (1.0 - ${f(K.allee)} + ${f(K.allee)} * min(kinN / 3.0, 1.0))` : ''};
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
   // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); a body's bond partners do not count
   let kinCost = 1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - bonds - ${f(K.kinFree)});
@@ -895,7 +832,7 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   // heat-maker burns extra, all of it heat
   let heatMaking = ${f(K.heat ? K.thermoCost : 0)} * thermo;
   let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0))
-    * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking + burstCost;`;
+    * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking;`;
 }
 
 // dp4a: the WGSL language feature packed_4x8_integer_dot_product is available
@@ -918,7 +855,7 @@ struct Sim {
   // tbg: the background water temperature (climate, season, excursion); maxScan: the neighbour budget
   tick: u32, ticks: u32, tbg: f32, maxScan: u32,
 };
-// kr: 0..9 kind, 10..11 role, 12 plant, 13 cyst, 14 hunter, 15 sick (K.plague).
+// kr: 0..9 kind, 10..11 role, 12 plant.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
 
 @group(0) @binding(0) var<uniform> sim: Sim;
@@ -968,9 +905,6 @@ const DIET_MIN = ${f(K.dietMin)};
 const HEAT_ON = ${K.heat ? 'true' : 'false'};
 const TREF = ${f(K.tRef)};
 const HEAT_FIX = ${f(HEAT_FIX)};
-const SCENT = ${K.scent && K.heat ? 'true' : 'false'};
-// K.scent: channel c's deposits at SCENT_AT + c * MAX_CELLS (fixed point, 1/256), its values (f32) 3 * MAX_CELLS on
-const SCENT_AT = 3u * MAX_CELLS;
 const FRAMBOID_COL = ${packCol(0.8, 0.7, 0.45)}u;
 
 fn pcg(v: u32) -> u32 {
@@ -1023,33 +957,6 @@ fn heatSample(p: vec2f) -> vec3f {
 fn cellThermal(g: Genome, t: f32) -> Thermal {
   if (!HEAT_ON) { return Thermal(1.0, 0.0, 0.0, false); }
   return thermalState(g, t, ${f(K.specBonus)}, ${f(K.torporAt)}, ${f(K.thermalFlat)}, ${f(K.thermalWarm)});
-}
-fn scentCell(ch: u32, x: i32, y: i32) -> f32 {
-  let gw = i32(sim.grid.x);
-  let gh = i32(sim.grid.y);
-  return bitcast<f32>(atomicLoad(&thermal[SCENT_AT + (3u + ch) * MAX_CELLS + u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw)]));
-}
-// Scent channel ch at p, bilinear, and its gradient (per cell).
-fn scentSample(ch: u32, p: vec2f) -> vec3f {
-  let u = p - 0.5;
-  let i = vec2i(floor(u));
-  let t = u - floor(u);
-  let a = scentCell(ch, i.x, i.y);
-  let b = scentCell(ch, i.x + 1, i.y);
-  let c = scentCell(ch, i.x, i.y + 1);
-  let d = scentCell(ch, i.x + 1, i.y + 1);
-  return vec3f(mix(mix(a, b, t.x), mix(c, d, t.x), t.y), mix(b - a, d - c, t.y), mix(c - a, d - b, t.x));
-}
-// Which way scent ch draws a cell, as a direction scaled 0..1 by how sharply it rises (relative to how
-// strong it is here: a faint trail is followed as surely as a strong one)
-fn scentPull(ch: u32, p: vec2f) -> vec2f {
-  let v = scentSample(ch, p);
-  let gl = length(v.yz);
-  if (gl < 1e-4) { return vec2f(0.0); }
-  return v.yz / gl * clamp(gl / (v.x + 2.0) * 5.0, 0.0, 1.0);
-}
-fn depositScent(ch: u32, p: vec2f, e: f32) {
-  if (SCENT && e > 0.0) { atomicAdd(&thermal[SCENT_AT + ch * MAX_CELLS + cellOf(p)], u32(e * 256.0 + 0.5)); }
 }
 // Warm the water at p by e degrees (before its heat capacity), in eighths of a frame's worth.
 fn depositHeat(p: vec2f, e: f32) {
@@ -1492,7 +1399,7 @@ ${K.tissue > 0 ? `    bondsNow[dst * 6u] = partners.x;
     let plant = select(0u, 1u << 12u, (p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4)${K.cycle && !K.litterTo ? ' || (p.kind == HUSK && (p.info & LITTER) != 0u)' : ''});
     // pad: with K.bodyPush, the cell's drawn radius (0.085 world units per unit of size, smaller in its later roles)
     let hunter = select(0u, 1u << 14u, p.kind >= FIRST_LIFE && genomes[p.kind].dFlesh > 0.5 && genomes[p.kind].photo <= 0.4);
-    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | ${K.flee > 0 ? 'hunter' : '0u'}${K.cyst ? ' | select(0u, 1u << 13u, p.kind >= FIRST_LIFE && (p.info & 15u) == CYST)' : ''}${K.plague ? ' | select(0u, 1u << 15u, p.kind >= FIRST_LIFE && (p.info & 0x80000000u) != 0u)' : ''}, p.col, pack2x16float(p.vel), sig.x, sig.y, ${K.bodyPush > 0 || K.crowdVisc > 0 ? 'bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role)))' : '0u'});
+    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | ${K.flee > 0 ? 'hunter' : '0u'}${K.cyst ? ' | select(0u, 1u << 13u, p.kind >= FIRST_LIFE && (p.info & 15u) == CYST)' : ''}, p.col, pack2x16float(p.vel), sig.x, sig.y, ${K.bodyPush > 0 || K.crowdVisc > 0 ? 'bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role)))' : '0u'});
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
   }
   workgroupBarrier();
@@ -1669,15 +1576,6 @@ fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
   let q = f32(atomicExchange(&thermal[c], 0u)) / HEAT_FIX + ${f(K.sunHeat)} * light * sim.dt;
   let t = carried + ${f(K.heatD)} * lap * sim.dt + (q - ${f(K.heatLoss)} * (carried - sim.tbg) * sim.dt) / mass;
   heatNext[c] = t;
-  if (SCENT) {
-    for (var ch = 0u; ch < 3u; ch++) {
-      let h0 = scentCell(ch, x, y);
-      let cr = scentSample(ch, centre - flowAt(centre) * sim.dt).x;
-      let lp = scentCell(ch, x + 1, y) + scentCell(ch, x - 1, y) + scentCell(ch, x, y + 1) + scentCell(ch, x, y - 1) - 4.0 * h0;
-      let dep = f32(atomicExchange(&thermal[SCENT_AT + ch * MAX_CELLS + c], 0u)) / 256.0;
-      heatNext[(1u + ch) * MAX_CELLS + c] = max(0.0, cr + ${f(K.scentD)} * min(lp * sim.dt, 4.0 * h0 + 1.0) + dep - ${f(K.scentLoss)} * cr * sim.dt);
-    }
-  }
 }
 
 // --------------------------------------------------------------------- life
@@ -1863,7 +1761,6 @@ fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f
   // matter too takes being built for it: a husk is often lost to a cell that only dabbles in it
   let fumbled = ${f(K.matterSkill)} > 0.0 && fk == HUSK
     && rnd(s) >= min(1.0, eatEff * g.dHusk / ${f(K.matterSkill)});
-  let packed = ${f(K.pack)} > 0.0 && fk >= FIRST_LIFE && genomes[fk].photo <= 0.4 && g.dFlesh > 0.5 && rnd(s) < ${f(K.pack)} * rivals / (1.0 + ${f(K.pack)} * rivals);
   let jostled = ${f(K.interfere)} > 0.0 && fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.interfere)} * rivals) > 1.0;
   // recognition: living prey is caught as well as the eater's receptors match its surface (coevolution: prey
   // evolve away from the receptors hunting them, hunters toward the commonest prey)
@@ -1876,7 +1773,7 @@ fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f
   // a fed hunter rests: it attacks living animals as often as it is short of the energy to divide
   // (full: E / divE), at every chance only once below 1 - K.satiety of it
   let rested = ${f(K.satiety)} > 0.0 && fk >= FIRST_LIFE && genomes[fk].photo <= 0.4 && rnd(s) >= clamp((1.0 - full) / ${f(K.satiety)}, 0.0, 1.0);
-  return ((armored || sheltered || hidden || unrecognised) && !packed) || unfamiliar || unskilled || jostled || fumbled || rested;
+  return armored || unfamiliar || unskilled || sheltered || hidden || jostled || fumbled || unrecognised || rested;
 }
 
 // K.diag: count v into a guild's slot k
@@ -1939,9 +1836,7 @@ ${cellWGSL(K, false)}
   var E = p.energy${K.tissue > 0 && K.bodyShare > 0 ? ' + shareE' : ''} + (photoGain - upkeep) * sim.dt;
   let dg = dietGuild(g);
   // all the energy a cell spends warms its water (every eighth frame, eight frames' worth)
-  if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, upkeep * sim.dt * 8.0 * ${f(K.metabHeat)});${K.scent ? `
-    // its scent: producers on channel 0, hunters on 2, other animals on 1
-    depositScent(select(select(1u, 2u, g.dFlesh > 0.5), 0u, g.photo > 0.4), p.pos, sim.dt * 8.0);` : ''} }
+  if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, upkeep * sim.dt * 8.0 * ${f(K.metabHeat)}); }
   // light and upkeep flow every frame; the ledger samples them once a second per cell
   if (((sim.frame + p.id) % 60u) == 0u) {
     addEnergy(dg, 0u, photoGain * sim.dt * 60.0);
@@ -1982,7 +1877,7 @@ ${cellWGSL(K, false)}
       diagAdd(dg, 13u, 1u);
       if (isAnimal(food)) { diagAdd(dg, 14u, 1u); }
     }
-    if (E > divE && silt != NONE && !th.torpid${K.mature > 0 ? ` && age > ${f(K.mature)}${K.rk ? ' * min(rkF, 1.0)' : ''} * g.lifespan` : ''}) {
+    if (E > divE && silt != NONE && !th.torpid${K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
         cr = sampleRole(g, role, &s);
@@ -2036,10 +1931,10 @@ ${cellWGSL(K, false)}
     var born = false;
     for (var k = 1u; k <= sim.ticks; k++) {
       E += (photoGain - g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(E / g.reproE, 0.0, 1.0))
-        * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking - burstCost) * h;
+        * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking) * h;
       age += h;
       let tk = sim.tick - sim.ticks + k;
-      if (!born && E > divE && silt != NONE && !th.torpid${K.mature > 0 ? ` && age > ${f(K.mature)}${K.rk ? ' * min(rkF, 1.0)' : ''} * g.lifespan` : ''}) {
+      if (!born && E > divE && silt != NONE && !th.torpid${K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
         born = true;
         var won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged;
         if (!won && silt2 != NONE) { won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt2], 0u, i + 1u).exchanged; }
@@ -2115,20 +2010,6 @@ ${K.dung ? `  // a full gut is dropped as dung: the grain beside the eater becom
       act = 2u; ck = HUSK; ce = gut; gut = 0.0;
     }
   }
-` : ''}${K.plague ? `  // plague: a sick cell pays for it, and recovers or dies of it; a healthy one catches it from sick kin
-  // touching it, or unprompted, the likelier the more crowded among its own kind it is
-  let sick = (info & 0x80000000u) != 0u;
-  var plagued = false;
-  if (sick) {
-    E -= ${f(K.plagueCost)} * g.metab * sim.dt;
-    let u = rnd(&s);
-    if (u < ${f(K.plagueKill)} * sim.dt) { plagued = true; }
-    else if (u < ${f(K.plagueKill + K.plagueCure)} * sim.dt) { info &= 0x7fffffffu; }
-  } else if (rnd(&s) < (${f(K.plague)} * sickN + ${f(K.plagueSpark)} * max(0.0, kinN - bonds - ${f(K.kinFree)})) * sim.dt) {
-    info |= 0x80000000u;
-    atomicAdd(&ledger[META_DEATH + 30u], 1u);
-  }
-  if ((info & 0x80000000u) != 0u) { col = mix(col, vec3f(0.42, 0.45, 0.2), 0.12); }
 ` : ''}${K.cyst ? `  // a cell running out with nothing to eat in reach may go dormant (after a while awake)
   if (act == 0u && E > 0.0 && E < ${f(K.cystAt)} * divE && food == NONE && age > 10.0${K.cystPlants ? '' : ' && g.photo <= 0.4'} && rnd(&s) < ${f(K.cystRate)} * sim.dt) {
     info = (info & 0xffff003fu & 0xfffffff0u) | CYST;
@@ -2145,11 +2026,7 @@ ${K.dung ? `  // a full gut is dropped as dung: the grain beside the eater becom
     info = (info & 0xffff7fc0u) | 2u${litterOf(K, 'g')};
     atomicAdd(&ledger[6], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 2u], 1u);
-  }${K.plague ? ` else if (plagued) {
-    kind = HUSK; E = ${K.bodyE > 0 ? 'bodyCost' : f(K.huskBase)} + max(E, 0.0); age = 0.0; vel *= 0.3;
-    info = (info & 0x7fff7fc0u) | 12u${litterOf(K, 'g')};
-    atomicAdd(&ledger[META_DEATH + 25u + dg], 1u);
-  }` : ''} else if (th.x > 0.8 && rnd(&s) < ${f(K.scald)} * smoothstep(0.8, 1.4, th.x) * sim.dt) {
+  } else if (th.x > 0.8 && rnd(&s) < ${f(K.scald)} * smoothstep(0.8, 1.4, th.x) * sim.dt) {
     // scalded: far above its optimum, a cell's proteins come apart
     kind = HUSK; E = ${K.bodyE > 0 ? 'bodyCost' : f(K.huskBase)}; age = 0.0; vel *= 0.3;
     info = (info & 0xffff7fc0u) | 10u${litterOf(K, 'g')};
@@ -2161,7 +2038,7 @@ ${K.cycle ? `  if (kind == HUSK) { atomicAdd(&ledger[META_ENERGY + select(61u, 6
   if (kind == HUSK && g.calcify > 0.0 && rnd(&s) < ${f(K.reefs)} * g.calcify * (1.0 - g.advect) * select(${f(K.nucleate)}, 1.0, stoneN >= 1.0)) {
     kind = STONE; E = ${f(K.stoneLife)} * (0.5 + rnd(&s)); vel = vec2f(0.0);
   }
-  let childGen = ((genOf(p.info) + 1u) & 0x7fffu) << 14u;
+  let childGen = ((genOf(p.info) + 1u) & 0xffffu) << 14u;
   // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(pack, ce, act == 2u)), n1, n2);
   parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), ${K.dung ? `1.0 - gut / ${f(K.dungE)}` : '1.0'})), info);
@@ -2275,7 +2152,7 @@ ${cellWGSL(K, true)}
   // the energy it divides at, whether it is dormant (a cyst: lifeMain does not run this decision for
   // it) and old enough to divide, the push away from hunters, its gut's fill, producers around it
   mPut(58, divE);
-  mind[59] = select(0u, 1u, (p.info & 15u) == ${K.cyst ? 'CYST' : '99u'}) | select(0u, 2u, p.age + sim.dt > ${f(K.mature)}${K.rk ? ' * min(rkF, 1.0)' : ''} * g.lifespan);
+  mind[59] = select(0u, 1u, (p.info & 15u) == ${K.cyst ? 'CYST' : '99u'}) | select(0u, 2u, p.age + sim.dt > ${f(K.mature)} * g.lifespan);
   mPut2(60, mFlee * acc);
   mPut(62, ${K.dung ? `gut / ${f(K.dungE)}` : '0.0'});
   mPut(63, plantN);
@@ -5003,15 +4880,7 @@ fn heatRamp(u: f32) -> vec3f {
     let dash = step(0.5, fract(dot(i.pos.xy, vec2f(0.0707, 0.0707))));
     c += vec3f(0.72, 0.90, 1.0) * 0.4 * ghost * dash;
   }
-  if (post.heatVis > 2.5) {
-    // K.scent: the three chemical fields, producers' green, other animals' blue, hunters' red
-    let gc = vec2i(floor(wp - post.world * floor(wp / post.world)));
-    let ci = u32(gc.y) * u32(post.world.x) + u32(gc.x);
-    let sP = heatField[${6 * MAX_CELLS}u + ci]; let sG = heatField[${7 * MAX_CELLS}u + ci]; let sH = heatField[${8 * MAX_CELLS}u + ci];
-    let sc = smoothstep(vec3f(0.2), vec3f(0.8), vec3f(sH / (sH + 6.0), sP / (sP + 100.0), sG / (sG + 27.0)));
-    c = mix(c, c * 0.5 + vec3f(sc.x + 0.1 * sc.z, sc.y * 0.8, sc.z), 0.55);
-  }
-  if (post.heatVis > 1.5 && post.heatVis < 2.5) {
+  if (post.heatVis > 1.5) {
     // the thermal camera: false colour over the map's span (drawn as isotherms alone over a full
     // light map), with an isotherm every 2°
     if (post.tideVis < 1.5) { c = mix(c, heatRamp(clamp((water.x - post.heat.y) / (post.heat.z - post.heat.y), 0.0, 1.0)), 0.4); }

@@ -1220,9 +1220,9 @@ svg.niche .n-dot { fill: var(--cyan); }
   var G_BYTES = 192;
   var G_WORDS = 48;
   var LITE_BYTES = 32;
-  var MIND_HEAD = 58;
+  var MIND_HEAD = 64;
   var MIND_NBR = 48;
-  var MIND_NBR_WORDS = 7;
+  var MIND_NBR_WORDS = 8;
   var MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
   var DEFAULT_K = {
     density: 22,
@@ -1281,12 +1281,14 @@ svg.niche .n-dot { fill: var(--cyan); }
     recognize: 0.4,
     // living prey (and plants) escape an eater whose receptors do not match their surface: up to this
     // share of attempts on a perfectly mismatched one (coevolution, frequency-dependent predation)
-    matterSkill: 0.5,
+    matterSkill: 1,
     // eating a husk succeeds with (eatEff × that diet) / this, certain past it (0: always)
     catchSkill: 0.6,
     // catch chance scales with eating skill (eatEff × preference), reaching certainty here
     nutrHalf: 8,
     // silt grains nearby at which photosynthesis runs at half speed
+    allee: 0.65,
+    // producers grow at (1 - allee) of their rate alone, rising to full among 3 of their own species
     swimCost: 0.018,
     preyBase: 0.35,
     preyFrac: 0.7,
@@ -1349,8 +1351,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     // spring strength of bonds between cells of one body
     adhMin: 0.15,
     // adhesion needed before a species forms bonds
-    bite: 0.25,
-    // energy taken per bite from a photosynthesising cell
+    bite: 0.5,
+    // energy taken per bite from a photosynthesising cell (big enough to outpace a patch's regrowth: booms and crashes)
     eatEvery: 6,
     // frames between meals
     dietMin: 0.15,
@@ -1863,14 +1865,14 @@ ${K.liveFirst ? `
       if (qk >= FIRST_LIFE) {
         // a hungry forager lets other species inside its personal space so it can reach them
         let core = select(1.0, ${f(K.huntCore)}, canHunt && qk != p.kind);
-        if (x < ${K.tissue > 0 ? "bk" : "beta"}) { fr = (x * ${K.tissue > 0 ? "invBk" : "invBeta"} - 1.0) * core; } else { fr = a * shape${K.tissue > 0 ? " * sigK" : ""}; }${W("mFr0 = fr;")}
+        if (x < ${K.tissue > 0 ? "bk" : "beta"}) { fr = (x * ${K.tissue > 0 ? "invBk" : "invBeta"} - 1.0) * core; } else { fr = a * shape${K.tissue > 0 ? " * sigK" : ""}; }${W("mFr0 = fr; mFl = 0.0;")}
         // hungry foragers are drawn toward the cells their diet favours
         if ((q.kr & (1u << 12u)) != 0u && r < 0.5) { plantN += 1.0; }
         if ((q.kr & (1u << 12u)) == 0u && qk != p.kind) { animN += 1.0; }
         let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
         if (x >= ${K.tissue > 0 ? "bk" : "beta"}) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * ${K.tissue > 0 ? "invBk" : "invBeta"} * invR; }${K.flee > 0 ? `
         // an animal that is not a hunter swims away from hunters near it, the harder the closer they are
-        if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && g.dFlesh <= 0.5 && g.photo <= 0.4) { fr -= ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x); }` : ""}
+        if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && g.dFlesh <= 0.5 && g.photo <= 0.4) { fr -= ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);${W(`mFl = ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);`)} }` : ""}
         crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);${K.shadeP > 0 ? `
         if ((q.kr & (1u << 12u)) != 0u) { crowdP += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind); }` : ""}
         if (DIAG) {
@@ -1909,7 +1911,7 @@ ${K.liveFirst ? `
           }
         }
       } else {
-        fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);${W("mFr0 = fr;")}
+        fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);${W("mFr0 = fr; mFl = 0.0;")}
         pull = a * ${f(K.matterPull)};
         if (qk == STONE || qk == FRAMBOID) {
           // stone (and a framboid) is solid: it pushes cells out however hard they swim, and shelters those among it
@@ -2107,7 +2109,9 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
   // water; anchored cells have fresh silt carried past them by the currents.
   let photoGain = th.perf * ${K.photoPow > 1 ? `pow(g.photo, ${f(K.photoPow)})` : "g.photo"} * light * ${f(K.photo)} / (1.0 + ${K.shadeP > 0 ? `crowdP * ${f(K.shadeP)}` : `crowd * ${f(K.shade)}`}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
-    * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0));
+    * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0))${K.allee ? `
+    // Allee effect: a producer thrives among its own kind; a lone one grows slowly, so grazed-bare water stays bare a while
+    * (1.0 - ${f(K.allee)} + ${f(K.allee)} * min(kinN / 3.0, 1.0))` : ""};
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
   // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); a body's bond partners do not count
   let kinCost = 1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - bonds - ${f(K.kinFree)});
@@ -3345,13 +3349,16 @@ var<private> mOther: vec2f;
 var<private> mDiet: vec2f;
 var<private> mMatter: vec2f;
 var<private> mForage: vec2f;
+var<private> mFlee: vec2f;
+var<private> mFl: f32;
 var<private> mMatterN: vec4f;
 var<private> mN: u32;
 
 fn mPut(o: u32, v: f32) { mind[o] = bitcast<u32>(v); }
 fn mPut2(o: u32, v: vec2f) { mind[o] = bitcast<u32>(v.x); mind[o + 1u] = bitcast<u32>(v.y); }
 
-// One sampled neighbour's pull: fr0 its signature (or personal-space) term, fr with the diet's added.
+// One sampled neighbour's pull: fr0 its signature (or personal-space) term, fr with the diet's added
+// and flight from a hunter (mFl) taken away.
 fn mPair(j: u32, q: Lite, d: vec2f, r: f32, inside: bool, kin: bool, fr0: f32, fr: f32) {
   let u = d / r;
   let qk = q.kr & 1023u;
@@ -3362,15 +3369,17 @@ fn mPair(j: u32, q: Lite, d: vec2f, r: f32, inside: bool, kin: bool, fr0: f32, f
     return;
   }
   if (inside) { mSpace += u * fr0; } else if (kin) { mKin += u * fr0; } else { mOther += u * fr0; }
-  mDiet += u * (fr - fr0);
+  mDiet += u * (fr - fr0 + mFl);
+  mFlee -= u * mFl;
   if (mN < MIND_NBR) {
     let o = MIND_HEAD + mN * ${MIND_NBR_WORDS}u;
     mind[o] = qk;
     mind[o + 1u] = select(0u, 1u, inside);
     mPut2(o + 2u, d);
     mPut(o + 4u, fr0);
-    mPut(o + 5u, fr - fr0);
+    mPut(o + 5u, fr - fr0 + mFl);
     mind[o + 6u] = j;
+    mPut(o + 7u, -mFl);
   }
   mN++;
 }
@@ -3428,6 +3437,13 @@ ${cellWGSL(K, true)}
   mPut(53, th.perf);
   mPut(54, th.x);
   mind[55] = select(0u, 1u, th.torpid);
+  // the energy it divides at, whether it is dormant (a cyst: lifeMain does not run this decision for
+  // it) and old enough to divide, the push away from hunters, its gut's fill, producers around it
+  mPut(58, divE);
+  mind[59] = select(0u, 1u, (p.info & 15u) == ${K.cyst ? "CYST" : "99u"}) | select(0u, 2u, p.age + sim.dt > ${f(K.mature)} * g.lifespan);
+  mPut2(60, mFlee * acc);
+  mPut(62, ${K.dung ? `gut / ${f(K.dungE)}` : "0.0"});
+  mPut(63, plantN);
 }
 `;
   }
@@ -6756,6 +6772,12 @@ struct SV {
     if (g.photo > 0.55) return "producer";
     const m = Math.max(g.dFlesh, g.dHusk, g.dGlint);
     return g.dFlesh >= m ? "predator" : g.dHusk >= m ? "scavenger" : "grazer";
+  }
+  function divEnergy(g, K = DEFAULT_K) {
+    const body = K.bodyE > 0 ? K.bodySize ? K.bodyE * g.size : K.bodyE : K.buildCost;
+    let e = K.bodyE > 0 ? K.bodyReserve ? g.reproE + body : Math.max(g.reproE, 1.25 * body) : g.reproE;
+    if (K.provision > 0) e += Math.max(0, body + K.provision * g.metab / g.share - g.reproE - body);
+    return e;
   }
   function mobilityGuild(g) {
     const swim = g.swim * (1 - g.photo);
@@ -16647,7 +16669,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     scavenger: "Mostly eats husks: carcasses, dead producers and the dung of eaters.",
     predator: "Mostly eats flesh: hunts animal cells, and crops plants only reluctantly. A well-fed hunter rests rather than kill (satiety).",
     dung: "What an eater cannot digest of a meal fills its gut and is dropped as a small olive pellet, a husk the scavengers live on: grazers feed the scavengers this way.",
-    cyst: "A dormant cell. An animal running out of energy with nothing to eat in reach may go dormant: it leaves its body, stops swimming and pulsing, greys and holds still unless jostled, leaking a little energy, and wakes after about a minute and a half on average. Cysts are the seed bank that carries a lineage through hard times.",
+    cyst: "A dormant cell. An animal running out of energy with nothing to eat in reach may go dormant: it leaves its body, stops swimming and pulsing, greys and holds still unless jostled, leaking a little energy, and wakes at random, after about 45 seconds on average. Nothing can eat a cyst. Cysts are the seed bank that carries a lineage through hard times.",
     flee: "Animals that are not hunters swim away from hunters close by, harder the closer they are, if they can swim at all.",
     satiety: "A hunter attacks animals less the fuller it is, until it holds a little more than it needs to divide: fed hunters rest instead of killing, which keeps them from eating each other out.",
     celltype: "α, β and γ cells of one species share a genome but each has its own surface and receptor signature, so each type is pulled toward and away from things differently. Types also differ in colour tint, size and shape.",
@@ -16665,7 +16687,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     glide: "How long momentum lasts (the half-life of velocity). Short glide stops quickly; long glide coasts.",
     currentpull: "How much the ocean currents carry the cell. Low values are anchored: they pay a little upkeep to hold on, but anchored photosynthesisers are fed by the water flowing past. High values drift for free.",
     lifespan: "Age at which a cell dies of old age.",
-    dividesat: "Energy a cell needs before it can divide. It also needs a grain of silt within reach to build the child from.",
+    dividesat: "Energy a cell needs before it can divide: its own threshold plus the energy in its child’s body, and enough to keep the child going for its first minute. It also needs a grain of silt within reach to build the child from, and to be past its youth (a fifth of its lifespan).",
     childshare: "Fraction of the parent’s energy handed to each child.",
     upkeep: "Energy burned per second. Grows with thrust, reach, swimming, schooling, adhesion, lifespan, size and anchoring. Starving cells burn slower. Crowding raises it: a cell packed among more than four of its own kind (not counting its bond partners) pays extra.",
     mutation: "Chance per division that the child founds a new species with a nudged genome. Rarely, a whole cell type is reinvented or copied.",
@@ -16702,6 +16724,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
     "mind-other": "The pull or push of other species’ cells on this one: its receptors against their surface signatures. Evolved, not chosen: it is how prey comes to avoid hunters and how species come to live side by side.",
     "mind-kin": "The pull or push of its own species’ cells (beyond personal space and bonds). Attraction gathers swarms and packs bodies; repulsion spreads them out.",
     "mind-matter": "The pull or push of silt, husks and stone on its receptors (apart from appetite), plus stone’s solid push on any cell but a calcifier.",
+    "mind-flee": "Flight: an animal that is not a hunter swims away from hunters near it, the harder the closer they come and the better a swimmer it is.",
+    "mind-gut": "What it ate but could not digest. When its gut is full it drops it beside a grain of silt as dung: a husk for scavengers.",
     "mind-net": "Light minus upkeep, per second. Below zero the cell is living on its reserves until it eats.",
     "mind-near": "Every species with cells within this cell’s reach, its own kind first; a species keeps its row while it stays. Cells: how many are in reach. Role: predator, a species built to catch this one; prey, one this cell is built to eat. The last column is how they pull on this cell: right, drawn toward them; left, pushed away.",
     colonial: "On average its cells attract each other. In a bonded species this packs the body tight; in a single-celled species the cells gather into swarms without ever joining.",
@@ -18903,7 +18927,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const nbrs = [];
     for (let k = 0; k < n; k++) {
       const o = MIND_HEAD + k * MIND_NBR_WORDS;
-      nbrs.push({ kind: u32[o], inside: u32[o + 1] === 1, d: v2(o + 2), fSig: f32[o + 4] * acc * stride, fDiet: f32[o + 5] * acc * stride, j: u32[o + 6] });
+      nbrs.push({ kind: u32[o], inside: u32[o + 1] === 1, d: v2(o + 2), fSig: f32[o + 4] * acc * stride, fDiet: f32[o + 5] * acc * stride, j: u32[o + 6], fFlee: f32[o + 7] * acc * stride });
     }
     return {
       hungry: !!(flags & 1),
@@ -18936,7 +18960,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         bond: v2(38),
         stone: v2(40),
         swim: v2(42),
-        heat: v2(50)
+        heat: v2(50),
+        flee: v2(60)
       },
       flow: v2(44),
       matterN: [f32[46], f32[47], f32[48], f32[49]],
@@ -18947,11 +18972,19 @@ registerProcessor("tidemote-sound", TidemoteSound);
       perf: f32[53],
       x: f32[54],
       torpid: !!(u32[55] & 1),
+      // the energy it divides at (with the child's body), dormant (a cyst), old enough to divide,
+      // how full its gut is (0..1, dropped as dung when full), producers around it
+      divE: f32[58],
+      cyst: !!(u32[59] & 1),
+      mature: !!(u32[59] & 2),
+      gut: f32[62],
+      plantN: f32[63],
       nbrs
     };
   }
   var GROUPS = [
     { key: "food", label: "Appetite", parts: ["diet", "forage"], tip: "mind-food", css: "#ff8a6b", when: (g, K) => (1 - g.photo) ** 2 > 0.1 },
+    { key: "flee", label: "Fleeing hunters", parts: ["flee"], tip: "mind-flee", css: "#8fc8ff", when: (g, K) => K.flee > 0 && g.dFlesh <= 0.5 && g.photo <= 0.4 && g.swim > 0.01 },
     { key: "other", label: "Other species", parts: ["other"], tip: "mind-other", css: "#c79bff" },
     { key: "kin", label: "Own kind", parts: ["kin"], tip: "mind-kin", css: "#f1e3a0" },
     { key: "space", label: "Personal space", parts: ["space"], tip: "personalspace", css: "#8fa3a6" },
@@ -18992,6 +19025,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
     cruise: "Cruising",
     idle: "Idling",
     torpid: "Torpid",
+    cyst: "Dormant",
+    rest: "Resting, fed",
+    young: "Growing up",
+    dung: "Dropping dung",
     scalding: "Scalding",
     seekwarm: "Seeking warmth",
     seekcool: "Seeking cooler water",
@@ -19005,11 +19042,16 @@ registerProcessor("tidemote-sound", TidemoteSound);
     if (pref <= K.dietMin) return 0;
     return K.catchSkill > 0 ? Math.min(1, eatEff * pref / K.catchSkill) : 1;
   }
-  function strikeChance(g, prey, preyKind, image, stoneN, K) {
+  function strikeChance(g, prey, preyKind, image, stoneN, K, plantN = 0) {
     const armor = 1 / (1 + K.armor * Math.max(0, (prey.adhesion || 0) - K.adhMin));
     const familiar = image === 0 || image === preyKind ? 1 : 1 - K.searchImage;
     const shelter = 1 - Math.min(K.refugeMax, stoneN * K.refuge);
-    return armor * familiar * catchSkill(g, prey, K) * shelter;
+    const hidden = prey.photo <= 0.4 ? 1 - Math.min(K.refugeMax, plantN * K.plantRefuge) : 1;
+    return armor * familiar * catchSkill(g, prey, K) * shelter * hidden;
+  }
+  function attackChance(E, divE, K) {
+    if (!(K.satiety > 0)) return 1;
+    return Math.min(1, Math.max(0, (1 - E / (divE * K.satietyAt)) / K.satiety));
   }
   function neighbourSpecies(m, g, kind, genomeOf, K) {
     const map = /* @__PURE__ */ new Map();
@@ -19024,6 +19066,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           n: 0,
           sig: 0,
           diet: 0,
+          flee: 0,
           g: gq,
           threat: q.kind === kind ? 0 : catchSkill(gq, g, K),
           prey: q.kind === kind ? 0 : catchSkill(g, gq, K),
@@ -19035,25 +19078,26 @@ registerProcessor("tidemote-sound", TidemoteSound);
       s.n += m.stride * scale;
       if (!q.inside) s.sig += q.fSig * scale;
       s.diet += q.fDiet * scale;
+      s.flee += (q.fFlee || 0) * scale;
     }
     return [...map.values()].sort((a, b) => b.n - a.n);
   }
   function interpretMind(m, g, kind, { K, genomeOf }) {
-    const drives = Object.entries(m.drives).map(([key, v]) => ({ key, v, mag: len(v) })).filter((d) => d.mag > 1e-4).sort((a, b) => b.mag - a.mag);
+    const drives = m.cyst ? [] : Object.entries(m.drives).map(([key, v]) => ({ key, v, mag: len(v) })).filter((d) => d.mag > 1e-4).sort((a, b) => b.mag - a.mag);
     const total = drives.reduce((s, d) => s + d.mag, 0) || 1;
     const share = (key) => (drives.find((d) => d.key === key)?.mag || 0) / total;
     const groups = groupsFor(g, K).map((gr) => {
-      const v = gr.parts.reduce((a, k) => [a[0] + m.drives[k][0], a[1] + m.drives[k][1]], [0, 0]);
+      const v = m.cyst ? [0, 0] : gr.parts.reduce((a, k) => [a[0] + m.drives[k][0], a[1] + m.drives[k][1]], [0, 0]);
       return { ...gr, v, mag: len(v), share: len(v) / total };
     });
     const species = neighbourSpecies(m, g, kind, genomeOf, K);
     const others = species.filter((s) => !s.kin);
-    const E = m.energy, need = g.reproE;
+    const E = m.energy, need = m.divE > 0 ? m.divE : divEnergy(g, K);
     const lean = 0.55 + 0.45 * Math.min(1, Math.max(0, E / need));
     const net = m.photoGain - m.upkeep;
     const heatMaking = K.heat ? K.thermoCost * (g.thermo || 0) : 0;
     const stress = K.heat ? smooth(0.3, 0.9, Math.abs(m.x)) : 0;
-    const budget = { light: m.photoGain, upkeep: m.upkeep, net, lean, crowding: m.kinCost - 1, thrift: K.bodyThrift * 0.5 * m.bonds, stress: K.stressCost * stress, heatMaking };
+    const budget = m.cyst ? { gut: m.gut || 0, light: 0, upkeep: K.cystLeak, net: -K.cystLeak, lean: 1, crowding: 0, thrift: 0, stress: 0, heatMaking: 0 } : { gut: m.gut || 0, light: m.photoGain, upkeep: m.upkeep, net, lean, crowding: m.kinCost - 1, thrift: K.bodyThrift * 0.5 * m.bonds, stress: K.stressCost * stress, heatMaking };
     const deg = (t2) => `${Math.round(t2)}°`;
     const range = g.topt != null ? `${deg(g.topt)} ± ${Math.round(g.tol)}°` : "";
     const pct = (x) => `${Math.round(x * 100)}%`;
@@ -19062,21 +19106,31 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const threat = others.filter((s) => s.threat >= 0.5).sort((a, b) => a.sig - b.sig)[0];
     const repel = others.filter((s) => s.sig < 0).sort((a, b) => a.sig - b.sig)[0];
     const draw = others.filter((s) => s.sig > 0).sort((a, b) => b.sig - a.sig)[0];
-    if (K.heat && m.torpid) {
+    if (m.cyst) {
+      const lasts = K.cystLeak > 0 ? E / K.cystLeak : Infinity;
+      st = { key: "cyst", text: "Dormant", why: `Asleep as a cyst: it has let go of its body, and neither swims, feeds, divides nor can be eaten; it moves only as the water and its neighbours push it. It leaks ${K.cystLeak}/s of its ${E.toFixed(2)} energy${lasts < 3600 ? ` (enough for about ${Math.round(lasts / 60)} min)` : ""} and wakes at random, about once every ${Math.round(1 / K.cystWake)} s on average, to try its luck again.` };
+    } else if (K.heat && m.torpid) {
       st = { key: "torpid", text: "Torpid in the cold", why: `At ${deg(m.warmth)} it is ${Math.round(g.topt - g.tol * K.torporAt - m.warmth + 0.5)}° below the range it can work in (it prefers ${range}): it neither feeds, swims nor divides, and burns ${Math.round(K.torporCost * 100)}% of its upkeep until the water warms.` };
+    } else if (E >= need && !m.mature) {
+      st = { key: "young", text: "Growing up", why: `It has the energy to divide (${E.toFixed(2)} of ${need.toFixed(2)}) but is too young: a cell divides only once it is ${Math.round(K.mature * 100)}% through its lifespan (${Math.round(K.mature * g.lifespan)} s). Full, it has stopped feeding.` };
     } else if (E >= need) {
       st = m.siltNear ? { key: "divide", matter: "Silt", text: "Dividing", why: `Its energy (${E.toFixed(2)}) has reached the ${need.toFixed(2)} it needs, and a grain of silt is in reach to build a child from.` } : { key: "seeksilt", matter: "Silt, none in reach", text: "Ready to divide", why: `It has the energy to divide (${E.toFixed(2)} of ${need.toFixed(2)}) but no grain of silt within reach to build a child from, so it waits. Full, it has stopped feeding.` };
+    } else if (K.dung && m.gut >= 0.98 && m.siltNear) {
+      st = { key: "dung", matter: "Silt", text: "Dropping dung", why: "Its gut is full of what it ate but could not digest; it drops it beside a grain of silt as dung, a husk for scavengers." };
     } else if (m.food && m.hungry) {
       const fk = m.food.kind;
       if (fk === HUSK) st = { key: "scavenge", matter: "Husk", text: "Scavenging a husk", why: `Hungry (${hunger}), with a husk in reach to pick over.` };
       else {
         const gq = genomeOf(fk);
         const plant = gq && gq.photo > 0.4;
-        const p = gq ? strikeChance(g, gq, fk, m.image, m.stoneN, K) : 0;
+        const strike = gq ? strikeChance(g, gq, fk, m.image, m.stoneN, K, m.plantN) : 0;
+        const attack = plant ? 1 : attackChance(E, need, K);
+        const p = strike * attack;
         const every = K.eatEvery * (plant ? K.biteEvery : K.killEvery) * (m.dt || 1 / 60);
         const unfamiliar = m.image !== 0 && m.image !== fk && K.searchImage > 0;
-        const odds = { p, every, verb: plant ? "bite" : "kill", unfamiliar };
-        st = plant ? { key: "graze", target: fk, odds, text: "Grazing on {sp}", why: `Hungry (${hunger}), with a {sp} cell in reach to crop. A bite lands about ${pct(p)} of the time, one try every ${every.toFixed(1)} s.` } : { key: "hunt", target: fk, odds, text: "Hunting {sp}", why: `Hungry (${hunger}), with {sp} in reach. A strike kills about ${pct(p)} of the time, one try every ${every.toFixed(1)} s${unfamiliar ? "; it is used to other prey, so it often misses this one" : ""}.` };
+        const hidden = !plant && gq && gq.photo <= 0.4 && m.plantN * K.plantRefuge >= 0.1;
+        const odds = { p, every, verb: plant ? "bite" : "kill", unfamiliar, attack };
+        st = plant ? { key: "graze", target: fk, odds, text: "Grazing on {sp}", why: `Hungry (${hunger}), with a {sp} cell in reach to crop. A bite lands about ${pct(p)} of the time, one try every ${every.toFixed(1)} s.` } : attack < 0.5 ? { key: "rest", target: fk, odds, text: "Fed, letting {sp} pass", why: `Well fed (${hunger}): a fed hunter strikes only as often as it is short of food, now at about ${pct(attack)} of its chances, so {sp} in reach is mostly left alone. When it does strike, it kills about ${pct(strike)} of the time.` } : { key: "hunt", target: fk, odds, text: "Hunting {sp}", why: `Hungry (${hunger}), with {sp} in reach. ${attack < 0.99 ? `Part fed, it takes about ${pct(attack)} of its chances; a` : "A"} strike kills about ${pct(strike)} of the time, one try every ${every.toFixed(1)} s${unfamiliar ? "; it is used to other prey, so it often misses this one" : ""}${hidden ? "; the producers around hide some of its prey" : ""}.` };
       }
     }
     const left = net < 0 ? E / -net : Infinity;
@@ -19086,7 +19140,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
     if (!st && left < 8) {
       st = { key: "starve", text: "Starving", why: `Its energy (${E.toFixed(2)}) is nearly spent: about ${Math.max(1, Math.round(left))} s left at ${(-net).toFixed(3)}/s${m.hungry ? ", with nothing it eats in reach" : ""}.` };
     }
-    if (!st && threat && -threat.sig > 0.2 * total) {
+    const chaser = others.filter((s) => s.flee > 0).sort((a, b) => b.flee - a.flee)[0];
+    if (!st && chaser && share("flee") >= 0.15) {
+      st = { key: "flee", target: chaser.kind, text: "Fleeing {sp}", why: `{sp} is a hunter, and this cell swims away from hunters near it, the harder the closer they come${threat && threat.kind === chaser.kind ? `: about ${pct(threat.danger)} of their strikes would land` : ""}.` };
+    }
+    if (!st && threat && g.photo <= 0.4 && -threat.sig > 0.2 * total) {
       st = { key: "flee", target: threat.kind, text: "Fleeing {sp}", why: `{sp} hunts cells like this one: about ${pct(threat.danger)} of their strikes would land. This cell's receptors are repelled by {sp}'s surface signature, so it is pushed away from them.` };
     }
     if (!st && m.hungry && share("diet") >= 0.25) {
@@ -19129,14 +19187,16 @@ registerProcessor("tidemote-sound", TidemoteSound);
       else st = { key: "idle", text: "Idling", why: m.hungry ? `Hungry (${hunger}), but nothing it eats is in sight.` : "Nothing nearby pulls on it much." };
     }
     const shelter = Math.min(K.refugeMax, m.stoneN * K.refuge);
+    const meadow = g.photo <= 0.4 ? Math.min(K.refugeMax, (m.plantN || 0) * K.plantRefuge) : 0;
+    const hid = 1 - (1 - shelter) * (1 - meadow);
     const flags = [
       { key: "hungry", label: "Hungry", on: m.hungry, hint: m.hungry ? `Hungry: ${hunger}. It is drawn to food and eats what comes in reach.` : g.photo > 0.4 && m.eatEff <= 0.1 ? "Lives on light alone: too committed to photosynthesis to eat." : `Not hungry: ${hunger}.` },
-      { key: "full", label: "Ready to divide", on: E >= need, hint: E >= need ? `Has the energy to divide; ${m.siltNear ? "a grain of silt is in reach." : "needs a grain of silt within reach to build a child from."}` : `Divides at ${need.toFixed(2)} energy.` },
+      { key: "full", label: "Ready to divide", on: E >= need && m.mature && !m.cyst, hint: E >= need ? m.mature ? `Has the energy to divide; ${m.siltNear ? "a grain of silt is in reach." : "needs a grain of silt within reach to build a child from."}` : `Has the energy, but divides only once ${Math.round(K.mature * g.lifespan)} s old.` : `Divides at ${need.toFixed(2)} energy: its own ${g.reproE.toFixed(2)} and its child's body.` },
       { key: "threat", label: "Predator in reach", on: !!threat, target: threat ? threat.kind : null, hint: threat ? `{sp}, within reach, hunts cells like this one: about ${pct(threat.danger)} of their strikes would land.` : "Nothing within reach is built to catch cells like this one." },
       { key: "low", label: "Energy running out", on: left < 30, hint: left < 30 ? `About ${Math.max(1, Math.round(left))} s of energy left without ${g.photo > 0.4 ? "more light" : "a meal"}.` : "Energy reserves are not running out." },
       { key: "lean", label: "Saving energy", on: lean < 0.8, hint: `A cell low on energy slows its metabolism: this one burns ${pct(lean)} of its full upkeep.` },
       { key: "crowd", label: "Crowded by kin", on: m.kinCost > 1.01, hint: m.kinCost > 1.01 ? `Packed among ${Math.round(m.kinN)} of its own kind: upkeep +${pct(m.kinCost - 1)}.` : `Fewer than ${K.kinFree + 1} of its own kind around (bond partners aside): no crowding cost.` },
-      { key: "shelter", label: "Sheltered by stone", on: m.stoneN >= 1, hint: m.stoneN >= 1 ? `Among stone: attacks made from here miss ${pct(shelter)} of the time.` : "No stone nearby to hide among." }
+      { key: "shelter", label: "Sheltered", on: hid >= 0.05, hint: hid >= 0.05 ? `${shelter > 0 && meadow > 0 ? "Among stone and producers" : shelter > 0 ? "Among stone" : "Hidden among producers"}: attacks on it miss about ${pct(hid)} of the time.` : g.photo <= 0.4 ? "No stone or producers nearby to hide among." : "No stone nearby to hide among." }
     ];
     if (K.heat) {
       const cold = m.x < -0.3, hot = m.x > 0.3;
@@ -19147,6 +19207,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
         on: cold || hot,
         hint: `${deg(m.warmth)}, it prefers ${range}: ${cold ? `${pct(m.perf)} of its best${m.torpid ? "; torpid" : ""}.` : hot ? `${pct(m.perf)} of its best${m.x > 0.8 ? "; it may scald" : ""}.` : "comfortable."}`
       });
+    }
+    if (m.cyst) {
+      for (const f2 of flags) if (f2.key !== "thermal") {
+        f2.on = false;
+        if (f2.key === "threat") f2.hint = "Nothing can catch a cyst.";
+      }
     }
     return { ...st, need, mode: MODES[st.key], target: st.target ?? null, flags, groups, drives, total, species, budget };
   }
@@ -19578,6 +19644,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (g && (g.adhesion || 0) > K.adhMin) h += kv("Bond share", !b ? "—" : b.thrift > 1e-3 ? `upkeep −${Math.round(b.thrift * 100)}%` : none, "bondthrift");
       if (K.heat) h += kv("Heat stress", !b ? "—" : mind.m.torpid ? `torpid: burns ${Math.round(K.torporCost * 100)}% of its upkeep` : b.stress > 0.01 ? `upkeep +${Math.round(b.stress * 100)}%` : none, "thermal");
       if (K.heat && g && (g.thermo || 0) > 5e-3) h += kv("Heat-making", b ? `<span class="neg">${signed(-b.heatMaking)}/s</span>` : "—", "heatmaker");
+      if (K.dung && g && (1 - g.photo) ** 2 > 0.1) h += kv("Gut", !b ? "—" : b.gut > 0.01 ? `${Math.round(b.gut * 100)}% full` : '<span class="nil">empty</span>', "mind-gut");
       h += kv("Saving energy", !b ? "—" : b.lean < 0.995 ? `burns ${Math.round(b.lean * 100)}% of its upkeep` : none, "lean");
       h += kv("Net", b ? `<span class="${b.net >= 0 ? "pos" : "neg"}">${signed(b.net)}/s</span> between meals` : "—", "mind-net");
       return blk("Energy budget", h, { tip: "energy" });
@@ -19740,7 +19807,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       m += trait("Current pull", g.advect, 0.03, 1, `${Math.round(g.advect * 100)}%`, "currentpull");
       h += blk("Movement", m);
       let l = trait("Lifespan", g.lifespan, 20, 500, fmtDur(g.lifespan), "lifespan");
-      l += trait("Divides at", g.reproE, 0.6, 4, g.reproE.toFixed(2), "dividesat");
+      const dv = divEnergy(g, K);
+      l += trait("Divides at", dv, 1, 8, dv.toFixed(2), "dividesat");
       l += trait("Child share", g.share, 0.2, 0.7, `${Math.round(g.share * 100)}%`, "childshare");
       l += trait("Upkeep", g.metab, 0.01, 0.15, `${g.metab.toFixed(3)}/s`, "upkeep");
       l += trait("Mutation", g.mutRate, 2e-3, 0.08, `${(g.mutRate * 100).toFixed(1)}%`, "mutation");
@@ -19882,7 +19950,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
           const hl = sp && api.focusKey() === `sp:${sp.serial}`;
           setActs(`c${api.follow()}${hl}${!!sp}`, `<button type="button" class="btn" data-act="follow" aria-pressed="${api.follow()}" data-hint="Keep it in view · C">Follow</button>${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}">Highlight species</button>` : ""}`);
           if (g) {
-            v += vital("Energy", p.energy / g.reproE, "sun", `${p.energy.toFixed(2)} / ${g.reproE.toFixed(2)}`, "energy");
+            const dv = divEnergy(g, K);
+            v += vital("Energy", p.energy / dv, "sun", `${p.energy.toFixed(2)} / ${dv.toFixed(2)}`, "energy");
             v += vital("Age", p.age / g.lifespan, "cyan", `${fmtDur(p.age)} / ${fmtDur(g.lifespan)}`, "lifespan");
             const m = !sel.lost && sel.mind && sel.mind.m;
             if (K.heat && m) {

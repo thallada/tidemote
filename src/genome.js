@@ -130,8 +130,6 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
     const top = t.diet.indexOf(Math.max(...t.diet));
     t.diet = t.diet.map((d, i) => (i === top ? 0.9 : 0.05));
   }
-  // K.rk: founders spread over the whole child-share range, bloomers to investors
-  if (K.rk) t.share = mix(0.2, 0.7, r());
   const g = {
     roles, dev: A.dev.map((row) => row.map((v) => clamp(v + (r() - 0.5) * 0.1, 0, 1))),
     radius: t.radius, beta: t.beta ?? mix(0.2, 0.35, r()), force: t.force, drag: t.drag,
@@ -248,7 +246,7 @@ export function parseParticle(u32, f32, o) {
   return {
     x: f32[o], y: f32[o + 1], vx: f32[o + 2], vy: f32[o + 3], kind: u32[o + 4],
     energy: f32[o + 5], age: f32[o + 6], id: u32[o + 7], col: u32[o + 8], info,
-    cause: info & 15, role: (info >>> 4) & 3, gen: (info >>> 16) & 0x7fff, sick: info >>> 31,
+    cause: info & 15, role: (info >>> 4) & 3, gen: info >>> 16,
   };
 }
 

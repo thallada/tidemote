@@ -4,9 +4,11 @@ Goal: every guild fills a niche the others need, so losing one unravels the rest
 the world balances itself and a whole guild rarely dies out. Everything stays local and honest
 (docs/energy.md): no census-driven regulators, and energy only enters as light.
 
-## Where the world stands now (2026-10-15)
+## Where the world stands now (2026-10-17)
 
-The default, over 64 seeds x 60 min at 32k (awake cells; "thriving": all four core guilds at 5%+):
+The default before the boom-and-bust work below, over 64 seeds x 60 min at 32k (awake cells; "thriving":
+all four core guilds at 5%+); the current default trades some of the thriving for twice the boom and bust
+(next section):
 
 | at an hour | |
 |---|---|
@@ -20,8 +22,11 @@ What makes it work, each found with the fitted model (tools/ecomodel) or the GPU
 
 - light is a flux per area (`shadeP`, `photo`): producers share a patch's light, so a grazed meadow
   regrows and a crowded one burns its light in its own upkeep;
-- grazers take bites big enough to pass energy up (`bite` 0.25), and what any eater cannot digest is
-  dropped as dung for the scavengers (`dung`);
+- grazers take bites big enough to pass energy up and to eat a patch down faster than it regrows (`bite`
+  0.5), and what any eater cannot digest is dropped as dung for the scavengers (`dung`); husks are hard
+  to eat for all but specialists (`matterSkill` 1.0), which keeps generalists out of the scavengers' niche;
+- producers grow slowly alone and fully among their own species (`allee` 0.65), so grazed-bare water
+  stays bare a while and patches boom, crash and change hands;
 - prey flee hunters (`flee`) and hide among dense producers (`plantRefuge`, `refugeMax`); a fed hunter
   rests rather than kill (`satiety`, counted full at `satietyAt` 1.2 x the energy to divide), so hunters
   do not eat each other into crashes;
@@ -34,6 +39,36 @@ Open: over an hour hunters are still slowly multiplying (they evolve cheaper upk
 the movement mix (swimmers 15-19%, sessile life near 2%), and worlds resemble each other more than main's
 did. Glint and the omnivore label are gone. The sections below are the history, newest first, then the
 original brainstorm.
+
+## Boom and bust: bigger bites and an Allee effect (2026-10-17)
+
+Tissue's worlds kept all four guilds far more often than main's, but watched over minutes to hours they
+were calmer: every region a stable mix, few blooms and crashes. Measured per region of 16 grid units
+(`spatial.regions` in `src/ecostats.js`, once a simulated minute) and per species (from the census):
+
+| 60 min, 32k | baseline (32 seeds) | `bite` 0.5, `matterSkill` 1.0 (48) | + `allee` 0.65: the default (48) | main |
+|---|---|---|---|---|
+| species booms / crashes per hour (×2 / ÷2 in 5 min) | 15 / 32 | 26-30 / 57 | 37-38 / 74-75 | |
+| regional booms / crashes per region-hour | 10 / 11 | 13-15 / 16 | 15-16 / 18-19 | 10 / 16 |
+| regional takeovers (new leading species) per region-hour | 7 | 9-10 | 10-11 | 8.5 |
+| regional producer swing (sd of ln count) | 0.56 | 0.78-0.89 | 1.21-1.23 | 1.59 |
+| all four guilds awake | 72% | about 79% | about 73% | 25% |
+| all four thriving | 62% | about 57% | about 48% | 6% |
+
+Bigger bites are what work: a grazer at 0.25 could not eat a meadow faster than light per area regrew it,
+so producers were never cleared anywhere. At 0.5 patches are eaten down and grazers follow them into the
+crash; 0.6-0.8 swing more but lose guilds. The Allee effect amplifies it (a cleared patch recovers from
+its edges, not everywhere at once); alone, strong (0.8-0.95), it freezes the world into large stable
+patches (takeovers fell to 2-4 per region-hour, hunters and scavengers starved). Coarse steps (`--step 4`)
+keep the gain and cost no more survival than they do for the baseline.
+
+What did not help (16-32 seeds each, 30-60 min; their code was removed): evolvable provisioning (`rk`),
+species-specific contagion (`plague`), hungry ranging (`roam`), gregarious marching (`swarm`), chemical
+trails followed and fled (`scent`: harmless, no dynamics), pack hunting (`pack`), chase bursts
+(`sprint`), producer rock-paper-scissors poisoning (`allelo`), a slow deep year of light (`year`: costs
+thriving), no kin crowding, no recognition or search image (scavengers starve over an hour), and grazers
+kept out of personal space by diet (`coreFood`). Easier husks (`matterSkill` 0.3) or more dung
+(`dungE` 0.3) wiped scavengers out: generalists took their food.
 
 ## Why animals stayed few, and the fix: light per area and bigger bites (2026-10-14)
 
