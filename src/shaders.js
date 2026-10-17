@@ -236,6 +236,7 @@ export const DEFAULT_K = {
   // (rock-paper-scissors): a producer pays this × its upkeep extra per producer of the chemistry above its own
   // touching it, so takeover fronts sweep through meadows (0: off)
   allelo: 0,
+  allee: 0, alleeN: 3, // >0: photosynthesis × (1 - allee + allee × min(same-species neighbours / alleeN, 1))
   year: 0,          // a slow year: seconds from midsummer to midsummer (0: none, only the 5-minute tide)
   yearDepth: 0.6,   // ...and how much of the light midwinter takes away
   scent: 0,
@@ -883,7 +884,9 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
   // water; anchored cells have fresh silt carried past them by the currents.
   let photoGain = th.perf * ${K.photoPow > 1 ? `pow(g.photo, ${f(K.photoPow)})` : 'g.photo'} * light * ${f(K.photo)} / (1.0 + ${K.shadeP > 0 ? `crowdP * ${f(K.shadeP)}` : `crowd * ${f(K.shade)}`}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
-    * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0));
+    * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0))${K.allee ? `
+    // Allee effect: a producer thrives among its own kind (shared water chemistry); a lone one barely grows
+    * (1.0 - ${f(K.allee)} + ${f(K.allee)} * min(kinN / ${f(K.alleeN)}, 1.0))` : ''};
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
   // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); a body's bond partners do not count
   let kinCost = 1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - bonds - ${f(K.kinFree)});
