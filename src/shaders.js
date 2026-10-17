@@ -5,8 +5,8 @@
 export const MAXK = 1024;
 export const FIRST_LIFE = 5;
 export const MAX_CELLS = 1 << 18;
-// K.scent's chemical fields: producers', other animals', hunters', and with scentHusk rotting husks'
-export const scentChannels = (K) => (K.scent && K.heat ? (K.scentHusk ? 4 : 3) : 0);
+// K.scent's chemical fields: producers', other animals', hunters' and rotting husks' (laid with scentHusk)
+export const scentChannels = (K) => (K.scent && K.heat ? 4 : 0);
 export const META_SLOT = 16;
 export const META_POP = META_SLOT + MAXK;
 export const META_DEATH = META_POP + MAXK;
@@ -930,7 +930,7 @@ const HEAT_FIX = ${f(HEAT_FIX)};
 const SCENT = ${K.scent && K.heat ? 'true' : 'false'};
 // K.scent: channel c's values (f32) at SCENT_AT + c * MAX_CELLS, its deposits (fixed point, 1/256) SCENT_N * MAX_CELLS on
 const SCENT_AT = 3u * MAX_CELLS;
-const SCENT_N = ${Math.max(scentChannels(K), 1)}u;
+const SCENT_N = 4u;
 const FRAMBOID_COL = ${packCol(0.8, 0.7, 0.45)}u;
 
 fn pcg(v: u32) -> u32 {
@@ -4945,12 +4945,28 @@ fn heatRamp(u: f32) -> vec3f {
     c += vec3f(0.72, 0.90, 1.0) * 0.4 * ghost * dash;
   }
   if (post.heatVis > 2.5) {
-    // K.scent: the three chemical fields, producers' green, other animals' blue, hunters' red
-    let gc = vec2i(floor(wp - post.world * floor(wp / post.world)));
-    let ci = u32(gc.y) * u32(post.world.x) + u32(gc.x);
-    let sP = heatField[${3 * MAX_CELLS}u + ci]; let sG = heatField[${4 * MAX_CELLS}u + ci]; let sH = heatField[${5 * MAX_CELLS}u + ci];
-    let sc = smoothstep(vec3f(0.2), vec3f(0.8), vec3f(sH / (sH + 6.0), sP / (sP + 100.0), sG / (sG + 27.0)));
-    c = mix(c, c * 0.5 + vec3f(sc.x + 0.1 * sc.z, sc.y * 0.8, sc.z), 0.55);
+    // K.scent: where each chemical field stands above the water around it (any world's density):
+    // producers' green, other animals' blue, hunters' red, rotting husks' yellow
+    let W = vec2i(post.world);
+    let u = wp - post.world * floor(wp / post.world) - 0.5;
+    let gc = (vec2i(floor(u)) + W) % W;
+    let t = u - floor(u);
+    let g1 = (gc + vec2i(1) + W) % W;
+    var here = vec4f(0.0);
+    var around = vec4f(0.0);
+    for (var ch = 0u; ch < 4u; ch++) {
+      let base = ${3 * MAX_CELLS}u + ch * ${MAX_CELLS}u;
+      let row0 = base + u32(gc.y) * u32(W.x);
+      let row1 = base + u32(g1.y) * u32(W.x);
+      here[ch] = mix(mix(heatField[row0 + u32(gc.x)], heatField[row0 + u32(g1.x)], t.x), mix(heatField[row1 + u32(gc.x)], heatField[row1 + u32(g1.x)], t.x), t.y);
+      for (var k = 0; k < 8; k++) {
+        let a = f32(k) * 0.785398;
+        let q = (gc + vec2i(round(vec2f(cos(a), sin(a)) * 10.0)) + W) % W;
+        around[ch] += heatField[base + u32(q.y) * u32(W.x) + u32(q.x)];
+      }
+    }
+    let sc = smoothstep(vec4f(1.15), vec4f(1.9), (here + 8.0) / (around * 0.125 + 8.0));
+    c = mix(c, c * 0.5 + vec3f(sc.z + 0.1 * sc.y + 0.8 * sc.w, sc.x * 0.8 + 0.7 * sc.w, sc.y * (1.0 - 0.5 * sc.w)), 0.55);
   }
   if (post.heatVis > 1.5 && post.heatVis < 2.5) {
     // the thermal camera: false colour over the map's span (drawn as isotherms alone over a full
