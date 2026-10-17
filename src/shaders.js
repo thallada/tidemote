@@ -4990,7 +4990,15 @@ fn heatRamp(u: f32) -> vec3f {
     let dash = step(0.5, fract(dot(i.pos.xy, vec2f(0.0707, 0.0707))));
     c += vec3f(0.72, 0.90, 1.0) * 0.4 * ghost * dash;
   }
-  if (post.heatVis > 1.5) {
+  if (post.heatVis > 2.5) {
+    // K.scent: the three chemical fields, producers' green, other animals' blue, hunters' red
+    let gc = vec2i(floor(wp - post.world * floor(wp / post.world)));
+    let ci = u32(gc.y) * u32(post.world.x) + u32(gc.x);
+    let sP = heatField[${6 * MAX_CELLS}u + ci]; let sG = heatField[${7 * MAX_CELLS}u + ci]; let sH = heatField[${8 * MAX_CELLS}u + ci];
+    let sc = smoothstep(vec3f(0.2), vec3f(0.8), vec3f(sH / (sH + 6.0), sP / (sP + 100.0), sG / (sG + 27.0)));
+    c = mix(c, c * 0.5 + vec3f(sc.x + 0.1 * sc.z, sc.y * 0.8, sc.z), 0.55);
+  }
+  if (post.heatVis > 1.5 && post.heatVis < 2.5) {
     // the thermal camera: false colour over the map's span (drawn as isotherms alone over a full
     // light map), with an isotherm every 2°
     if (post.tideVis < 1.5) { c = mix(c, heatRamp(clamp((water.x - post.heat.y) / (post.heat.z - post.heat.y), 0.0, 1.0)), 0.4); }
