@@ -90,10 +90,11 @@ export const DEFAULT_K = {
   // scent: three chemical fields on the heat grid (needs heat), laid down by producers, by other animals and by
   // hunters, carried by the water, spreading and fading. A hungry grazer follows producers' scent up, a hungry
   // hunter its prey's, a scavenger hunters' (to their kills), and every animal not a hunter flees hunters'
-  // (by K.flee). This is the strength of that steering relative to swimming (0: off)
+  // (by scentFlee). This is the strength of that steering relative to swimming (0: off)
   scent: 0,
   scentD: 1,        // spread, cells²/s
   scentLoss: 0.05,  // fading per second (sqrt(scentD / scentLoss): how far a scent reaches, in cells)
+  scentFlee: 0.5,   // how strongly animals not hunters steer away from hunters' scent
   scentHusk: 0,     // 1: a fourth field, given off by rotting husks, is what hungry scavengers follow (not hunters')
   allee: 0.65,      // producers grow at (1 - allee) of their rate alone, rising to full among 3 of their own species
   swimCost: 0.018,
@@ -740,7 +741,7 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
       else if (g.dHusk > g.dGlint) { sp += scentPull(${K.scentHusk ? '3u' : '2u'}, p.pos); }
       else { sp += scentPull(0u, p.pos); }
     }
-    if (g.dFlesh <= 0.5) { sp -= scentPull(2u, p.pos) * ${f(K.flee)}; }
+    if (g.dFlesh <= 0.5) { sp -= scentPull(2u, p.pos) * ${f(K.scentFlee)}; }
     taxis += sp * swim * ${f(K.scent)};
   }` : ''}
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
