@@ -2619,7 +2619,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       perf.frames++;
       if (perf.lastSubmit) perf.frameDt.push(Math.min(Math.max(50, frameTarget() * 2.5), now - perf.lastSubmit));
       perf.lastSubmit = now;
-      eng.season = seasonAt(eng.simTime);
+      eng.season = seasonAt(eng.simTime, eng.K);
       const step = plan(now) || { steps: 0, dt: H };
       // the census (naming and lineage) at most about five times a real second, however fast the world runs
       eng.censusEvery = Math.max(20, Math.round((step.steps * 1000) / frameTarget() / 5));

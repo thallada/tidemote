@@ -151,7 +151,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     for (let f = 0; f < frames; f++) {
       if (config.profile && eng.timing && f % perMinute === perMinute >> 1 && f + 30 < frames) prof = { t: eng.simTime, n: 0, passes: {} };
       if (prof) {
-        eng.season = seasonAt(eng.simTime);
+        eng.season = seasonAt(eng.simTime, eng.K);
         if (config.eras) climate.tick(dt);
         if (config.temp != null) { eng.temp = config.temp; eng.excursion = 0; }
         for (const [name, ms] of await eng.profileStep(dt)) prof.passes[name] = (prof.passes[name] || 0) + ms;
@@ -163,7 +163,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
         checkErrors();
         continue;
       }
-      eng.season = seasonAt(eng.simTime);
+      eng.season = seasonAt(eng.simTime, eng.K);
       if (config.eras) climate.tick(dt);
       if (config.temp != null) { eng.temp = config.temp; eng.excursion = 0; }
       if (f === frames - 1) eng.censusEvery = 1;
@@ -230,7 +230,7 @@ export async function runForks(device, config, { print } = {}) {
     eng.onCensus = (c) => { eng.abio = abioRate(c.pop[0]); };
     const warm = Math.round(config.warm * 60);
     for (let f = 0; f < warm; f++) {
-      eng.season = seasonAt(eng.simTime);
+      eng.season = seasonAt(eng.simTime, eng.K);
       if (config.eras) climate.tick(1 / 60);
       if (config.temp != null) { eng.temp = config.temp; eng.excursion = 0; }
       while ((eng.frameNo + 1) % eng.censusEvery === 0 && eng.censusStage.every((s) => s.busy)) await new Promise((r) => setTimeout(r, 0));
@@ -286,7 +286,7 @@ export async function runForks(device, config, { print } = {}) {
         const c0 = await eng.readCensus(), g0 = guilds(c0);
         const frames = Math.round((config.horizon * 60) / v.step), dt = v.step / 60;
         for (let f = 0; f < frames; f++) {
-          eng.season = seasonAt(eng.simTime);
+          eng.season = seasonAt(eng.simTime, eng.K);
           eng.frame({ target: null, simDt: dt, time: eng.simTime });
         }
         const c1 = await eng.readCensus(), g1 = guilds(c1);

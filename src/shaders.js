@@ -232,6 +232,8 @@ export const DEFAULT_K = {
   // hunters, carried by the water, spreading and fading. A hungry grazer follows producers' scent up, a hungry
   // hunter its prey's, a scavenger hunters' (to their kills), and every animal not a hunter flees hunters'
   // (by K.flee). This is the strength of that steering relative to swimming (0: off)
+  year: 0,          // a slow year: seconds from midsummer to midsummer (0: none, only the 5-minute tide)
+  yearDepth: 0.6,   // ...and how much of the light midwinter takes away
   scent: 0,
   scentD: 1,        // spread, cells²/s
   scentLoss: 0.05,  // fading per second (sqrt(scentD / scentLoss): how far a scent reaches, in cells)
