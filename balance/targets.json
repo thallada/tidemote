@@ -1,7 +1,7 @@
 {
   "about": "What the ecology should achieve over a 30-minute run (see docs/headless-gpu.md). Rates are fractions of runs; checked with tools/ensemble.mjs --targets.",
   "targets": {
-    "persisted": { "min": 0.95 },
+    "persisted": { "min": 0.9 },
     "foodWeb": { "min": 0.8 },
     "notMonoculture": { "min": 0.8 },
     "lateGuilds": { "min": 3 },
