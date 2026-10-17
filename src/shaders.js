@@ -232,6 +232,10 @@ export const DEFAULT_K = {
   // hunters, carried by the water, spreading and fading. A hungry grazer follows producers' scent up, a hungry
   // hunter its prey's, a scavenger hunters' (to their kills), and every animal not a hunter flees hunters'
   // (by K.flee). This is the strength of that steering relative to swimming (0: off)
+  // allelopathy: producers come in three chemistries by hue (thirds of the colour wheel), each poisoning the next
+  // (rock-paper-scissors): a producer pays this × its upkeep extra per producer of the chemistry above its own
+  // touching it, so takeover fronts sweep through meadows (0: off)
+  allelo: 0,
   year: 0,          // a slow year: seconds from midsummer to midsummer (0: none, only the 5-minute tide)
   yearDepth: 0.6,   // ...and how much of the light midwinter takes away
   scent: 0,
@@ -492,7 +496,10 @@ function cellWGSL(K, w) {
   var preyNear = vec2f(0.0);${K.plague ? `
   // sick cells of its own species touching it (K.plague)
   var sickN = 0.0;` : ''}${K.sprint ? `
-  var threat = 0.0;` : ''}
+  var threat = 0.0;` : ''}${K.allelo ? `
+  // producers of the chemistry that poisons this one, touching it (K.allelo)
+  var poison = 0.0;
+  let chem = u32(fract(g.hue) * 3.0) % 3u;` : ''}
   var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
 
 
@@ -530,7 +537,7 @@ ${K.liveFirst ? `
   for (var k = 0u; k < 18u; k++) {
     if (k == 9u) {
       let toM = strideL / strideM;
-      overlap *= toM; preyNear *= toM; force *= toM; crowd *= toM; crowdP *= toM; pack *= toM; kinVel *= toM; kinN *= toM; jF *= toM;${K.plague ? ' sickN *= toM;' : ''}${K.socialN > 0 ? ' nIn *= toM;' : ''}${K.socialN > 0 && K.coreSum ? ' coreF *= toM;' : ''}
+      overlap *= toM; preyNear *= toM; force *= toM; crowd *= toM; crowdP *= toM; pack *= toM; kinVel *= toM; kinN *= toM; jF *= toM;${K.plague ? ' sickN *= toM;' : ''}${K.allelo ? ' poison *= toM;' : ''}${K.socialN > 0 ? ' nIn *= toM;' : ''}${K.socialN > 0 && K.coreSum ? ' coreF *= toM;' : ''}
       st = strideM;
       at = select(0.0, rnd(&s) * strideM, strideM > 1.0);
     }
@@ -623,7 +630,8 @@ ${K.liveFirst ? `
           if (x < beta) { overlap += 1.0; }
           if (qk != p.kind && (q.kr & (1u << 12u)) == 0u && r < 2.0 * EAT_R) { preyNear += vec2f(select(0.0, 1.0, r < EAT_R), 1.0); }
         }
-        if (r < LINK_R) { let w = 1.0 - r / LINK_R; pack += w * w; }${K.plague ? `
+        if (r < LINK_R) { let w = 1.0 - r / LINK_R; pack += w * w; }${K.allelo ? `
+        if (r < LINK_R && g.photo > 0.4 && qk != p.kind && (q.kr & (1u << 12u)) != 0u && u32(fract(genomes[qk].hue) * 3.0) % 3u == (chem + 1u) % 3u) { poison += 1.0; }` : ''}${K.plague ? `
         if (r < LINK_R && qk == p.kind && (q.kr & (1u << 15u)) != 0u) { sickN += 1.0; }` : ''}
         if (qk == p.kind) {
           kinVel += unpack2x16float(q.vel);
@@ -716,7 +724,7 @@ ${K.liveFirst ? `
   // ...but contact is pressed for by every neighbour inside it: a crowd pushes back the harder the
   // more pile in, so it cannot collapse
   force += coreF * stride;` : ''}
-  crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride; plantN *= stride; animN *= stride;${K.plague ? ' sickN *= stride;' : ''}
+  crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride; plantN *= stride; animN *= stride;${K.plague ? ' sickN *= stride;' : ''}${K.allelo ? ' poison *= stride;' : ''}
 
   let heavy = 1.0 - 0.7 * g.photo;
   // Persistent bonds pull on the partners' current positions, even outside the sampled scan.
@@ -749,8 +757,8 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   // a burst: the chase, and the escape
   let burst = select(0.0, 1.0, g.photo <= 0.4 && ((canHunt && g.dFlesh > 0.5 && isAnimal(food)) || threat > 0.0));
   swim *= 1.0 + ${f(K.sprint)} * burst;
-  let burstCost = burst * ${f(K.sprintCost)} * g.metab;` : `
-  let burstCost = 0.0;`}${K.swarm ? `
+  let burstCost = burst * ${f(K.sprintCost)} * g.metab${K.allelo ? ` + ${f(K.allelo)} * g.metab * poison` : ''};` : `
+  let burstCost = ${K.allelo ? `${f(K.allelo)} * g.metab * poison` : '0.0'};`}${K.swarm ? `
   let greg = select(0.0, clamp((kinN - 2.0) * 0.25, 0.0, 1.0), hungry && g.photo <= 0.4);
   swim *= 1.0 + 0.5 * greg;
   let alignR = g.align * ${f(K.align)} + ${f(K.swarm)} * greg;` : `
