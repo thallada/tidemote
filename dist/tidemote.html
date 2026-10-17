@@ -1287,6 +1287,15 @@ svg.niche .n-dot { fill: var(--cyan); }
     // catch chance scales with eating skill (eatEff × preference), reaching certainty here
     nutrHalf: 8,
     // silt grains nearby at which photosynthesis runs at half speed
+    // scent: three chemical fields on the heat grid (needs heat), laid down by producers, by other animals and by
+    // hunters, carried by the water, spreading and fading. A hungry grazer follows producers' scent up, a hungry
+    // hunter its prey's, a scavenger hunters' (to their kills), and every animal not a hunter flees hunters'
+    // (by K.flee). This is the strength of that steering relative to swimming (0: off)
+    scent: 0,
+    scentD: 1,
+    // spread, cells²/s
+    scentLoss: 0.05,
+    // fading per second (sqrt(scentD / scentLoss): how far a scent reaches, in cells)
     allee: 0.65,
     // producers grow at (1 - allee) of their rate alone, rising to full among 3 of their own species
     swimCost: 0.018,
@@ -2009,7 +2018,18 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   let slope = length(heat.yz);
   if (swim > 0.0 && slope > 1e-3) {
     taxis = heat.yz * (sign(g.topt - Tc) * min(1.0, abs(th.x)) * swim * ${f(K.thermotaxis)} / slope);
-  }
+  }${K.scent && K.heat ? `
+  // scent: the hungry follow their food's, scavengers hunters' (to their kills); prey flee hunters'
+  if (swim > 0.0 && g.photo <= 0.4) {
+    var sp = vec2f(0.0);
+    if (hungry) {
+      if (g.dFlesh > 0.5) { sp += scentPull(1u, p.pos); }
+      else if (g.dHusk > g.dGlint) { sp += scentPull(2u, p.pos); }
+      else { sp += scentPull(0u, p.pos); }
+    }
+    if (g.dFlesh <= 0.5) { sp -= scentPull(2u, p.pos) * ${f(K.flee)}; }
+    taxis += sp * swim * ${f(K.scent)};
+  }` : ""}
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
   // The cell and its neighbourhood are taken as two bodies sharing momentum: the reaction to this cell's
@@ -2193,6 +2213,9 @@ const DIET_MIN = ${f(K.dietMin)};
 const HEAT_ON = ${K.heat ? "true" : "false"};
 const TREF = ${f(K.tRef)};
 const HEAT_FIX = ${f(HEAT_FIX)};
+const SCENT = ${K.scent && K.heat ? "true" : "false"};
+// K.scent: channel c's deposits at SCENT_AT + c * MAX_CELLS (fixed point, 1/256), its values (f32) 3 * MAX_CELLS on
+const SCENT_AT = 3u * MAX_CELLS;
 const FRAMBOID_COL = ${packCol(0.8, 0.7, 0.45)}u;
 
 fn pcg(v: u32) -> u32 {
@@ -2245,6 +2268,33 @@ fn heatSample(p: vec2f) -> vec3f {
 fn cellThermal(g: Genome, t: f32) -> Thermal {
   if (!HEAT_ON) { return Thermal(1.0, 0.0, 0.0, false); }
   return thermalState(g, t, ${f(K.specBonus)}, ${f(K.torporAt)}, ${f(K.thermalFlat)}, ${f(K.thermalWarm)});
+}
+fn scentCell(ch: u32, x: i32, y: i32) -> f32 {
+  let gw = i32(sim.grid.x);
+  let gh = i32(sim.grid.y);
+  return bitcast<f32>(atomicLoad(&thermal[SCENT_AT + (3u + ch) * MAX_CELLS + u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw)]));
+}
+// Scent channel ch at p, bilinear, and its gradient (per cell).
+fn scentSample(ch: u32, p: vec2f) -> vec3f {
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  let a = scentCell(ch, i.x, i.y);
+  let b = scentCell(ch, i.x + 1, i.y);
+  let c = scentCell(ch, i.x, i.y + 1);
+  let d = scentCell(ch, i.x + 1, i.y + 1);
+  return vec3f(mix(mix(a, b, t.x), mix(c, d, t.x), t.y), mix(b - a, d - c, t.y), mix(c - a, d - b, t.x));
+}
+// Which way scent ch draws a cell, as a direction scaled 0..1 by how sharply it rises (relative to how
+// strong it is here: a faint trail is followed as surely as a strong one)
+fn scentPull(ch: u32, p: vec2f) -> vec2f {
+  let v = scentSample(ch, p);
+  let gl = length(v.yz);
+  if (gl < 1e-4) { return vec2f(0.0); }
+  return v.yz / gl * clamp(gl / (v.x + 2.0) * 5.0, 0.0, 1.0);
+}
+fn depositScent(ch: u32, p: vec2f, e: f32) {
+  if (SCENT && e > 0.0) { atomicAdd(&thermal[SCENT_AT + ch * MAX_CELLS + cellOf(p)], u32(e * 256.0 + 0.5)); }
 }
 // Warm the water at p by e degrees (before its heat capacity), in eighths of a frame's worth.
 fn depositHeat(p: vec2f, e: f32) {
@@ -2864,6 +2914,15 @@ fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
   let q = f32(atomicExchange(&thermal[c], 0u)) / HEAT_FIX + ${f(K.sunHeat)} * light * sim.dt;
   let t = carried + ${f(K.heatD)} * lap * sim.dt + (q - ${f(K.heatLoss)} * (carried - sim.tbg) * sim.dt) / mass;
   heatNext[c] = t;
+  if (SCENT) {
+    for (var ch = 0u; ch < 3u; ch++) {
+      let h0 = scentCell(ch, x, y);
+      let cr = scentSample(ch, centre - flowAt(centre) * sim.dt).x;
+      let lp = scentCell(ch, x + 1, y) + scentCell(ch, x - 1, y) + scentCell(ch, x, y + 1) + scentCell(ch, x, y - 1) - 4.0 * h0;
+      let dep = f32(atomicExchange(&thermal[SCENT_AT + ch * MAX_CELLS + c], 0u)) / 256.0;
+      heatNext[(1u + ch) * MAX_CELLS + c] = max(0.0, cr + ${f(K.scentD)} * min(lp * sim.dt, 4.0 * h0 + 1.0) + dep - ${f(K.scentLoss)} * cr * sim.dt);
+    }
+  }
 }
 
 // --------------------------------------------------------------------- life
@@ -3124,7 +3183,9 @@ ${cellWGSL(K, false)}
   var E = p.energy${K.tissue > 0 && K.bodyShare > 0 ? " + shareE" : ""} + (photoGain - upkeep) * sim.dt;
   let dg = dietGuild(g);
   // all the energy a cell spends warms its water (every eighth frame, eight frames' worth)
-  if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, upkeep * sim.dt * 8.0 * ${f(K.metabHeat)}); }
+  if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, upkeep * sim.dt * 8.0 * ${f(K.metabHeat)});${K.scent ? `
+    // its scent: producers on channel 0, hunters on 2, other animals on 1
+    depositScent(select(select(1u, 2u, g.dFlesh > 0.5), 0u, g.photo > 0.4), p.pos, sim.dt * 8.0);` : ""} }
   // light and upkeep flow every frame; the ledger samples them once a second per cell
   if (((sim.frame + p.id) % 60u) == 0u) {
     addEnergy(dg, 0u, photoGain * sim.dt * 60.0);
@@ -6152,7 +6213,15 @@ fn heatRamp(u: f32) -> vec3f {
     let dash = step(0.5, fract(dot(i.pos.xy, vec2f(0.0707, 0.0707))));
     c += vec3f(0.72, 0.90, 1.0) * 0.4 * ghost * dash;
   }
-  if (post.heatVis > 1.5) {
+  if (post.heatVis > 2.5) {
+    // K.scent: the three chemical fields, producers' green, other animals' blue, hunters' red
+    let gc = vec2i(floor(wp - post.world * floor(wp / post.world)));
+    let ci = u32(gc.y) * u32(post.world.x) + u32(gc.x);
+    let sP = heatField[${6 * MAX_CELLS}u + ci]; let sG = heatField[${7 * MAX_CELLS}u + ci]; let sH = heatField[${8 * MAX_CELLS}u + ci];
+    let sc = smoothstep(vec3f(0.2), vec3f(0.8), vec3f(sH / (sH + 6.0), sP / (sP + 100.0), sG / (sG + 27.0)));
+    c = mix(c, c * 0.5 + vec3f(sc.x + 0.1 * sc.z, sc.y * 0.8, sc.z), 0.55);
+  }
+  if (post.heatVis > 1.5 && post.heatVis < 2.5) {
     // the thermal camera: false colour over the map's span (drawn as isotherms alone over a full
     // light map), with an isotherm every 2°
     if (post.tideVis < 1.5) { c = mix(c, heatRamp(clamp((water.x - post.heat.y) / (post.heat.z - post.heat.y), 0.0, 1.0)), 0.4); }
@@ -14773,8 +14842,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const d = device;
       const b = this.b;
       b.sim = d.createBuffer({ size: 256, usage: U.UNIFORM | U.COPY_DST });
-      b.thermal = d.createBuffer({ size: 3 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
-      b.heatNext = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
+      b.thermal = d.createBuffer({ size: (K.scent ? 9 : 3) * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+      b.heatNext = d.createBuffer({ size: (K.scent ? 4 : 1) * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
       b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
       this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
       b.view = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
@@ -15374,6 +15443,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       d.queue.writeBuffer(this.b.thermal, MAX_CELLS * 4, water);
       const enc = d.createCommandEncoder();
       enc.clearBuffer(this.b.thermal, 0, cells * 4);
+      if (this.K.scent) enc.clearBuffer(this.b.thermal, 3 * MAX_CELLS * 4, 6 * MAX_CELLS * 4);
       enc.clearBuffer(this.b.counts);
       enc.clearBuffer(this.b.ledger, LEDGER_HEAD, n * 4);
       enc.clearBuffer(this.b.frameCtr);
@@ -15520,6 +15590,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (this.K.heat) run2("heatMain", Math.ceil(cells / 64));
       if (!prof) pass.end();
       if (this.K.heat) enc.copyBufferToBuffer(b.heatNext, 0, b.thermal, MAX_CELLS * 4, cells * 4);
+      if (this.K.heat && this.K.scent) for (let c = 0; c < 3; c++) enc.copyBufferToBuffer(b.heatNext, (1 + c) * MAX_CELLS * 4, b.thermal, (6 + c) * MAX_CELLS * 4, cells * 4);
     }
     /** One simulation step with each dispatch timed on the GPU: [[name, ms], ...]. Needs timestamps. */
     async profileStep(simDt = 1 / 60) {
@@ -15610,7 +15681,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     /** The bytes of each buffer readState() keeps, for a world of n particles. */
     stateSizes(n) {
-      return { parts: n * P_BYTES, genomes: MAXK * G_BYTES, intent: n * 16, ledger: (META_CLAIM + n) * 4, thermal: 3 * MAX_CELLS * 4 };
+      return { parts: n * P_BYTES, genomes: MAXK * G_BYTES, intent: n * 16, ledger: (META_CLAIM + n) * 4, thermal: (this.K.scent ? 9 : 3) * MAX_CELLS * 4 };
     }
     /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
     writeState({ cpu, gpu }) {
@@ -22510,7 +22581,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const kfmt = (n) => n >= 1048576 ? `${+(n / 1048576).toFixed(1)}M` : `${Math.round(n / 1024)}k`;
       function display() {
         const s = eng.settings;
-        return group("look", "", choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "D", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe")) + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks"));
+        return group("look", "", choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"], ...K.scent ? [[3, "Scent"]] : []], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "D", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe")) + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks"));
       }
       function performance_() {
         const s = eng.settings, P = state.perf;
@@ -23008,8 +23079,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         flash(["Light map off", "Faint light map", "Light map"][eng.settings.tide]);
         mapsChanged();
       } else if ((k === "e" || k === "E") && K.heat) {
-        eng.settings.heat = (eng.settings.heat + 1) % 3;
-        flash(["Heat map off", "Heat shimmer", "Thermal camera"][eng.settings.heat]);
+        eng.settings.heat = (eng.settings.heat + 1) % (K.scent ? 4 : 3);
+        flash(["Heat map off", "Heat shimmer", "Thermal camera", "Scent: producers green, prey blue, hunters red"][eng.settings.heat]);
         mapsChanged();
       } else if (k === "d" || k === "D") {
         eng.settings.bands = eng.settings.bands ? 0 : 1;

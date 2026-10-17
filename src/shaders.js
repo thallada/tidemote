@@ -85,6 +85,13 @@ export const DEFAULT_K = {
   matterSkill: 1.0,   // eating a husk succeeds with (eatEff × that diet) / this, certain past it (0: always)
   catchSkill: 0.6,  // catch chance scales with eating skill (eatEff × preference), reaching certainty here
   nutrHalf: 8.0,    // silt grains nearby at which photosynthesis runs at half speed
+  // scent: three chemical fields on the heat grid (needs heat), laid down by producers, by other animals and by
+  // hunters, carried by the water, spreading and fading. A hungry grazer follows producers' scent up, a hungry
+  // hunter its prey's, a scavenger hunters' (to their kills), and every animal not a hunter flees hunters'
+  // (by K.flee). This is the strength of that steering relative to swimming (0: off)
+  scent: 0,
+  scentD: 1,        // spread, cells²/s
+  scentLoss: 0.05,  // fading per second (sqrt(scentD / scentLoss): how far a scent reaches, in cells)
   allee: 0.65,      // producers grow at (1 - allee) of their rate alone, rising to full among 3 of their own species
   swimCost: 0.018,
   preyBase: 0.35,
@@ -721,7 +728,18 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   let slope = length(heat.yz);
   if (swim > 0.0 && slope > 1e-3) {
     taxis = heat.yz * (sign(g.topt - Tc) * min(1.0, abs(th.x)) * swim * ${f(K.thermotaxis)} / slope);
-  }
+  }${K.scent && K.heat ? `
+  // scent: the hungry follow their food's, scavengers hunters' (to their kills); prey flee hunters'
+  if (swim > 0.0 && g.photo <= 0.4) {
+    var sp = vec2f(0.0);
+    if (hungry) {
+      if (g.dFlesh > 0.5) { sp += scentPull(1u, p.pos); }
+      else if (g.dHusk > g.dGlint) { sp += scentPull(2u, p.pos); }
+      else { sp += scentPull(0u, p.pos); }
+    }
+    if (g.dFlesh <= 0.5) { sp -= scentPull(2u, p.pos) * ${f(K.flee)}; }
+    taxis += sp * swim * ${f(K.scent)};
+  }` : ''}
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
   // The cell and its neighbourhood are taken as two bodies sharing momentum: the reaction to this cell's
@@ -905,6 +923,9 @@ const DIET_MIN = ${f(K.dietMin)};
 const HEAT_ON = ${K.heat ? 'true' : 'false'};
 const TREF = ${f(K.tRef)};
 const HEAT_FIX = ${f(HEAT_FIX)};
+const SCENT = ${K.scent && K.heat ? 'true' : 'false'};
+// K.scent: channel c's deposits at SCENT_AT + c * MAX_CELLS (fixed point, 1/256), its values (f32) 3 * MAX_CELLS on
+const SCENT_AT = 3u * MAX_CELLS;
 const FRAMBOID_COL = ${packCol(0.8, 0.7, 0.45)}u;
 
 fn pcg(v: u32) -> u32 {
@@ -957,6 +978,33 @@ fn heatSample(p: vec2f) -> vec3f {
 fn cellThermal(g: Genome, t: f32) -> Thermal {
   if (!HEAT_ON) { return Thermal(1.0, 0.0, 0.0, false); }
   return thermalState(g, t, ${f(K.specBonus)}, ${f(K.torporAt)}, ${f(K.thermalFlat)}, ${f(K.thermalWarm)});
+}
+fn scentCell(ch: u32, x: i32, y: i32) -> f32 {
+  let gw = i32(sim.grid.x);
+  let gh = i32(sim.grid.y);
+  return bitcast<f32>(atomicLoad(&thermal[SCENT_AT + (3u + ch) * MAX_CELLS + u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw)]));
+}
+// Scent channel ch at p, bilinear, and its gradient (per cell).
+fn scentSample(ch: u32, p: vec2f) -> vec3f {
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  let a = scentCell(ch, i.x, i.y);
+  let b = scentCell(ch, i.x + 1, i.y);
+  let c = scentCell(ch, i.x, i.y + 1);
+  let d = scentCell(ch, i.x + 1, i.y + 1);
+  return vec3f(mix(mix(a, b, t.x), mix(c, d, t.x), t.y), mix(b - a, d - c, t.y), mix(c - a, d - b, t.x));
+}
+// Which way scent ch draws a cell, as a direction scaled 0..1 by how sharply it rises (relative to how
+// strong it is here: a faint trail is followed as surely as a strong one)
+fn scentPull(ch: u32, p: vec2f) -> vec2f {
+  let v = scentSample(ch, p);
+  let gl = length(v.yz);
+  if (gl < 1e-4) { return vec2f(0.0); }
+  return v.yz / gl * clamp(gl / (v.x + 2.0) * 5.0, 0.0, 1.0);
+}
+fn depositScent(ch: u32, p: vec2f, e: f32) {
+  if (SCENT && e > 0.0) { atomicAdd(&thermal[SCENT_AT + ch * MAX_CELLS + cellOf(p)], u32(e * 256.0 + 0.5)); }
 }
 // Warm the water at p by e degrees (before its heat capacity), in eighths of a frame's worth.
 fn depositHeat(p: vec2f, e: f32) {
@@ -1576,6 +1624,15 @@ fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
   let q = f32(atomicExchange(&thermal[c], 0u)) / HEAT_FIX + ${f(K.sunHeat)} * light * sim.dt;
   let t = carried + ${f(K.heatD)} * lap * sim.dt + (q - ${f(K.heatLoss)} * (carried - sim.tbg) * sim.dt) / mass;
   heatNext[c] = t;
+  if (SCENT) {
+    for (var ch = 0u; ch < 3u; ch++) {
+      let h0 = scentCell(ch, x, y);
+      let cr = scentSample(ch, centre - flowAt(centre) * sim.dt).x;
+      let lp = scentCell(ch, x + 1, y) + scentCell(ch, x - 1, y) + scentCell(ch, x, y + 1) + scentCell(ch, x, y - 1) - 4.0 * h0;
+      let dep = f32(atomicExchange(&thermal[SCENT_AT + ch * MAX_CELLS + c], 0u)) / 256.0;
+      heatNext[(1u + ch) * MAX_CELLS + c] = max(0.0, cr + ${f(K.scentD)} * min(lp * sim.dt, 4.0 * h0 + 1.0) + dep - ${f(K.scentLoss)} * cr * sim.dt);
+    }
+  }
 }
 
 // --------------------------------------------------------------------- life
@@ -1836,7 +1893,9 @@ ${cellWGSL(K, false)}
   var E = p.energy${K.tissue > 0 && K.bodyShare > 0 ? ' + shareE' : ''} + (photoGain - upkeep) * sim.dt;
   let dg = dietGuild(g);
   // all the energy a cell spends warms its water (every eighth frame, eight frames' worth)
-  if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, upkeep * sim.dt * 8.0 * ${f(K.metabHeat)}); }
+  if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, upkeep * sim.dt * 8.0 * ${f(K.metabHeat)});${K.scent ? `
+    // its scent: producers on channel 0, hunters on 2, other animals on 1
+    depositScent(select(select(1u, 2u, g.dFlesh > 0.5), 0u, g.photo > 0.4), p.pos, sim.dt * 8.0);` : ''} }
   // light and upkeep flow every frame; the ledger samples them once a second per cell
   if (((sim.frame + p.id) % 60u) == 0u) {
     addEnergy(dg, 0u, photoGain * sim.dt * 60.0);
@@ -4880,7 +4939,15 @@ fn heatRamp(u: f32) -> vec3f {
     let dash = step(0.5, fract(dot(i.pos.xy, vec2f(0.0707, 0.0707))));
     c += vec3f(0.72, 0.90, 1.0) * 0.4 * ghost * dash;
   }
-  if (post.heatVis > 1.5) {
+  if (post.heatVis > 2.5) {
+    // K.scent: the three chemical fields, producers' green, other animals' blue, hunters' red
+    let gc = vec2i(floor(wp - post.world * floor(wp / post.world)));
+    let ci = u32(gc.y) * u32(post.world.x) + u32(gc.x);
+    let sP = heatField[${6 * MAX_CELLS}u + ci]; let sG = heatField[${7 * MAX_CELLS}u + ci]; let sH = heatField[${8 * MAX_CELLS}u + ci];
+    let sc = smoothstep(vec3f(0.2), vec3f(0.8), vec3f(sH / (sH + 6.0), sP / (sP + 100.0), sG / (sG + 27.0)));
+    c = mix(c, c * 0.5 + vec3f(sc.x + 0.1 * sc.z, sc.y * 0.8, sc.z), 0.55);
+  }
+  if (post.heatVis > 1.5 && post.heatVis < 2.5) {
     // the thermal camera: false colour over the map's span (drawn as isotherms alone over a full
     // light map), with an isotherm every 2°
     if (post.tideVis < 1.5) { c = mix(c, heatRamp(clamp((water.x - post.heat.y) / (post.heat.z - post.heat.y), 0.0, 1.0)), 0.4); }
