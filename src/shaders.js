@@ -5,6 +5,8 @@
 export const MAXK = 1024;
 export const FIRST_LIFE = 5;
 export const MAX_CELLS = 1 << 18;
+// K.scent's chemical fields: producers', other animals', hunters', and with scentHusk rotting husks'
+export const scentChannels = (K) => (K.scent && K.heat ? (K.scentHusk ? 4 : 3) : 0);
 export const META_SLOT = 16;
 export const META_POP = META_SLOT + MAXK;
 export const META_DEATH = META_POP + MAXK;
@@ -92,6 +94,7 @@ export const DEFAULT_K = {
   scent: 0,
   scentD: 1,        // spread, cells²/s
   scentLoss: 0.05,  // fading per second (sqrt(scentD / scentLoss): how far a scent reaches, in cells)
+  scentHusk: 0,     // 1: a fourth field, given off by rotting husks, is what hungry scavengers follow (not hunters')
   allee: 0.65,      // producers grow at (1 - allee) of their rate alone, rising to full among 3 of their own species
   swimCost: 0.018,
   preyBase: 0.35,
@@ -734,7 +737,7 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
     var sp = vec2f(0.0);
     if (hungry) {
       if (g.dFlesh > 0.5) { sp += scentPull(1u, p.pos); }
-      else if (g.dHusk > g.dGlint) { sp += scentPull(2u, p.pos); }
+      else if (g.dHusk > g.dGlint) { sp += scentPull(${K.scentHusk ? '3u' : '2u'}, p.pos); }
       else { sp += scentPull(0u, p.pos); }
     }
     if (g.dFlesh <= 0.5) { sp -= scentPull(2u, p.pos) * ${f(K.flee)}; }
@@ -924,8 +927,9 @@ const HEAT_ON = ${K.heat ? 'true' : 'false'};
 const TREF = ${f(K.tRef)};
 const HEAT_FIX = ${f(HEAT_FIX)};
 const SCENT = ${K.scent && K.heat ? 'true' : 'false'};
-// K.scent: channel c's deposits at SCENT_AT + c * MAX_CELLS (fixed point, 1/256), its values (f32) 3 * MAX_CELLS on
+// K.scent: channel c's values (f32) at SCENT_AT + c * MAX_CELLS, its deposits (fixed point, 1/256) SCENT_N * MAX_CELLS on
 const SCENT_AT = 3u * MAX_CELLS;
+const SCENT_N = ${Math.max(scentChannels(K), 1)}u;
 const FRAMBOID_COL = ${packCol(0.8, 0.7, 0.45)}u;
 
 fn pcg(v: u32) -> u32 {
@@ -982,7 +986,7 @@ fn cellThermal(g: Genome, t: f32) -> Thermal {
 fn scentCell(ch: u32, x: i32, y: i32) -> f32 {
   let gw = i32(sim.grid.x);
   let gh = i32(sim.grid.y);
-  return bitcast<f32>(atomicLoad(&thermal[SCENT_AT + (3u + ch) * MAX_CELLS + u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw)]));
+  return bitcast<f32>(atomicLoad(&thermal[SCENT_AT + ch * MAX_CELLS + u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw)]));
 }
 // Scent channel ch at p, bilinear, and its gradient (per cell).
 fn scentSample(ch: u32, p: vec2f) -> vec3f {
@@ -1004,7 +1008,7 @@ fn scentPull(ch: u32, p: vec2f) -> vec2f {
   return v.yz / gl * clamp(gl / (v.x + 2.0) * 5.0, 0.0, 1.0);
 }
 fn depositScent(ch: u32, p: vec2f, e: f32) {
-  if (SCENT && e > 0.0) { atomicAdd(&thermal[SCENT_AT + ch * MAX_CELLS + cellOf(p)], u32(e * 256.0 + 0.5)); }
+  if (SCENT && e > 0.0) { atomicAdd(&thermal[SCENT_AT + (SCENT_N + ch) * MAX_CELLS + cellOf(p)], u32(e * 256.0 + 0.5)); }
 }
 // Warm the water at p by e degrees (before its heat capacity), in eighths of a frame's worth.
 fn depositHeat(p: vec2f, e: f32) {
@@ -1585,7 +1589,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     // or hot water would rot husks into heat from nothing and run away
     let rot = min(${f(K.decay * K.rotScale)} * pow(${f(K.rotQ10)}, warm) * sim.dt, max(p.energy, 0.0));
     p.energy -= rot;
-    if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, rot * 8.0 * ${f(K.rotHeat)}); }
+    if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, rot * 8.0 * ${f(K.rotHeat)});${K.scentHusk ? ' depositScent(3u, p.pos, sim.dt * 8.0);' : ''} }
     if (p.energy < ${f(K.huskMin)}) {
       p.kind = SILT; p.energy = 0.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 4u;
@@ -1625,11 +1629,11 @@ fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
   let t = carried + ${f(K.heatD)} * lap * sim.dt + (q - ${f(K.heatLoss)} * (carried - sim.tbg) * sim.dt) / mass;
   heatNext[c] = t;
   if (SCENT) {
-    for (var ch = 0u; ch < 3u; ch++) {
+    for (var ch = 0u; ch < SCENT_N; ch++) {
       let h0 = scentCell(ch, x, y);
       let cr = scentSample(ch, centre - flowAt(centre) * sim.dt).x;
       let lp = scentCell(ch, x + 1, y) + scentCell(ch, x - 1, y) + scentCell(ch, x, y + 1) + scentCell(ch, x, y - 1) - 4.0 * h0;
-      let dep = f32(atomicExchange(&thermal[SCENT_AT + ch * MAX_CELLS + c], 0u)) / 256.0;
+      let dep = f32(atomicExchange(&thermal[SCENT_AT + (SCENT_N + ch) * MAX_CELLS + c], 0u)) / 256.0;
       heatNext[(1u + ch) * MAX_CELLS + c] = max(0.0, cr + ${f(K.scentD)} * min(lp * sim.dt, 4.0 * h0 + 1.0) + dep - ${f(K.scentLoss)} * cr * sim.dt);
     }
   }
@@ -4943,7 +4947,7 @@ fn heatRamp(u: f32) -> vec3f {
     // K.scent: the three chemical fields, producers' green, other animals' blue, hunters' red
     let gc = vec2i(floor(wp - post.world * floor(wp / post.world)));
     let ci = u32(gc.y) * u32(post.world.x) + u32(gc.x);
-    let sP = heatField[${6 * MAX_CELLS}u + ci]; let sG = heatField[${7 * MAX_CELLS}u + ci]; let sH = heatField[${8 * MAX_CELLS}u + ci];
+    let sP = heatField[${3 * MAX_CELLS}u + ci]; let sG = heatField[${4 * MAX_CELLS}u + ci]; let sH = heatField[${5 * MAX_CELLS}u + ci];
     let sc = smoothstep(vec3f(0.2), vec3f(0.8), vec3f(sH / (sH + 6.0), sP / (sP + 100.0), sG / (sG + 27.0)));
     c = mix(c, c * 0.5 + vec3f(sc.x + 0.1 * sc.z, sc.y * 0.8, sc.z), 0.55);
   }

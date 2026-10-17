@@ -1,6 +1,6 @@
 import {
   simWGSL, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES,
+  MAXK, FIRST_LIFE, MAX_CELLS, scentChannels, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES,
 } from './shaders.js';
 import {
   archetypeGenome, writeGenome, parseParticle,
@@ -98,9 +98,10 @@ class Engine {
     const b = this.b;
     b.sim = d.createBuffer({ size: 256, usage: U.UNIFORM | U.COPY_DST });
     // the heat field: deposits, temperatures and husks per cell, and heatMain's next temperatures (shaders.js)
-    // K.scent: three chemical fields after them (deposits, then values: shaders.js SCENT_AT)
-    b.thermal = d.createBuffer({ size: (K.scent ? 9 : 3) * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
-    b.heatNext = d.createBuffer({ size: (K.scent ? 4 : 1) * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
+    // K.scent: its chemical fields after them (values, then deposits: shaders.js SCENT_AT)
+    const sc = scentChannels(K);
+    b.thermal = d.createBuffer({ size: (3 + 2 * sc) * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    b.heatNext = d.createBuffer({ size: (1 + sc) * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
     b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
     this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
     b.view = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
@@ -637,7 +638,8 @@ class Engine {
     d.queue.writeBuffer(this.b.thermal, MAX_CELLS * 4, water);
     const enc = d.createCommandEncoder();
     enc.clearBuffer(this.b.thermal, 0, cells * 4);
-    if (this.K.scent) enc.clearBuffer(this.b.thermal, 3 * MAX_CELLS * 4, 6 * MAX_CELLS * 4);
+    const sc = scentChannels(this.K);
+    if (sc) enc.clearBuffer(this.b.thermal, 3 * MAX_CELLS * 4, 2 * sc * MAX_CELLS * 4);
     enc.clearBuffer(this.b.counts);
     enc.clearBuffer(this.b.ledger, LEDGER_HEAD, n * 4);
     enc.clearBuffer(this.b.frameCtr);
@@ -777,7 +779,8 @@ class Engine {
     if (!prof) pass.end();
     // the next temperatures become this step's
     if (this.K.heat) enc.copyBufferToBuffer(b.heatNext, 0, b.thermal, MAX_CELLS * 4, cells * 4);
-    if (this.K.heat && this.K.scent) for (let c = 0; c < 3; c++) enc.copyBufferToBuffer(b.heatNext, (1 + c) * MAX_CELLS * 4, b.thermal, (6 + c) * MAX_CELLS * 4, cells * 4);
+    const sc = scentChannels(this.K);
+    for (let c = 0; c < sc; c++) enc.copyBufferToBuffer(b.heatNext, (1 + c) * MAX_CELLS * 4, b.thermal, (3 + c) * MAX_CELLS * 4, cells * 4);
   }
 
   /** One simulation step with each dispatch timed on the GPU: [[name, ms], ...]. Needs timestamps. */
@@ -846,7 +849,7 @@ class Engine {
 
   /** The bytes of each buffer readState() keeps, for a world of n particles. */
   stateSizes(n) {
-    return { parts: n * P_BYTES, genomes: MAXK * G_BYTES, intent: n * 16, ledger: (META_CLAIM + n) * 4, thermal: (this.K.scent ? 9 : 3) * MAX_CELLS * 4 };
+    return { parts: n * P_BYTES, genomes: MAXK * G_BYTES, intent: n * 16, ledger: (META_CLAIM + n) * 4, thermal: (3 + 2 * scentChannels(this.K)) * MAX_CELLS * 4 };
   }
 
   /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
