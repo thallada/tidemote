@@ -216,6 +216,20 @@ export const DEFAULT_K = {
   bodySize: 1,      // with bodyE, 1: a body holds bodyE × the cell's size (small cells are cheap to build, big ones rich prey)
   interfere: 0.6,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
                     // within reach, its bond partners aside)
+  // r/K: with provision, how strongly the child-share gene sets how well a cell provisions its young:
+  // provision × exp(rk × (share - 0.45) / 0.25) seconds of upkeep (and mature by as much, at most 1×).
+  // Low share: bloomers, many thin children early; high: investors, few well-fed ones (0: off)
+  rk: 0,
+  // plague: a species-specific contagion (kill-the-winner). A sick cell infects healthy cells of its own
+  // species touching it at this chance per second each (0: off)...
+  plague: 0,
+  plagueKill: 0.05,   // ...dies of it at this chance per second...
+  plagueCure: 0.05,   // ...recovers at this...
+  plagueCost: 1,      // ...pays this × its upkeep extra while sick...
+  plagueSpark: 0.0005, // ...and catches it unprompted at this chance per second per same-species neighbour past kinFree
+  roam: 0,          // a hungry animal with no food in reach swims up to 1 + this × its hunger as fast (it ranges wider)
+  swarm: 0,         // a hungry animal crowded among its own kind turns gregarious: it aligns with them at up to this rate
+                    // (per second, on top of its own) and swims up to half again as fast (locust phases: marching bands)
 };
 
 // Energy bookkeeping (see K.bodyE): with bodyE off, main's rules.
@@ -297,7 +311,7 @@ const META_CLAIM = ${META_CLAIM}u;
 const TAU = 6.28318530718;
 const ORGANS = ${ORGANS}u;
 
-// Info: 0..3 cause, 4..5 role, 6..15 search image, 16..31 generation.
+// Info: 0..3 cause, 4..5 role, 6..15 search image, 16..30 generation, 31 sick (K.plague).
 struct Particle { pos: vec2f, vel: vec2f, kind: u32, energy: f32, age: f32, id: u32, col: u32, info: u32 };
 struct Genome {
   sig: array<vec4u, 3>,
@@ -318,7 +332,7 @@ fn renderHash(id: u32) -> f32 {
   h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
   return f32((h >> 22u) ^ h) / 4294967296.0;
 }
-fn genOf(info: u32) -> u32 { return info >> 16u; }
+fn genOf(info: u32) -> u32 { return (info >> 16u) & 0x7fffu; }
 
 fn tideAt(p: vec2f, world: vec2f, t: f32, w: array<vec4f, 4>, ph: vec4f) -> f32 {
   let u = p / world * TAU;
@@ -437,8 +451,10 @@ function cellWGSL(K, w) {
   let th = cellThermal(g, Tc);
   // a torpid cell neither hunts, grazes nor divides
   // a child's body costs bodyCost (K.bodyE, by size with K.bodySize); divE: the energy a cell divides at (K.bodyReserve)
-  let bodyCost = ${bodyOf(K, 'g')};
-  let divE = ${K.bodyE > 0 ? (K.bodyReserve ? 'g.reproE + bodyCost' : 'max(g.reproE, 1.25 * bodyCost)') : 'g.reproE'}${K.provision > 0 ? ` + max(0.0, bodyCost + ${f(K.provision)} * g.metab / g.share - g.reproE - bodyCost)` : ''};
+  let bodyCost = ${bodyOf(K, 'g')};${K.rk ? `
+  // r/K: how richly it provisions its young (and how long it grows up first) by its child-share gene
+  let rkF = exp(${f(K.rk)} * (g.share - 0.45) * 4.0);` : ''}
+  let divE = ${K.bodyE > 0 ? (K.bodyReserve ? 'g.reproE + bodyCost' : 'max(g.reproE, 1.25 * bodyCost)') : 'g.reproE'}${K.provision > 0 ? ` + max(0.0, bodyCost + ${f(K.provision)}${K.rk ? ` * rkF` : ''} * g.metab / g.share - g.reproE - bodyCost)` : ''};
   let hungry = p.energy < divE * ${f(K.sated)} && eatEff > 0.1 && !th.torpid;
   let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
   // food in reach is gathered by hungry cells; in a coarse step also by any that may grow hungry in it
@@ -460,7 +476,9 @@ function cellWGSL(K, w) {
   var nIn = 0.0;` : ''}${K.socialN > 0 && K.coreSum ? `
   // personal space, summed over every neighbour inside it
   var coreF = vec2f(0.0);` : ''}
-  var preyNear = vec2f(0.0);
+  var preyNear = vec2f(0.0);${K.plague ? `
+  // sick cells of its own species touching it (K.plague)
+  var sickN = 0.0;` : ''}
   var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
 
 
@@ -498,7 +516,7 @@ ${K.liveFirst ? `
   for (var k = 0u; k < 18u; k++) {
     if (k == 9u) {
       let toM = strideL / strideM;
-      overlap *= toM; preyNear *= toM; force *= toM; crowd *= toM; crowdP *= toM; pack *= toM; kinVel *= toM; kinN *= toM; jF *= toM;${K.socialN > 0 ? ' nIn *= toM;' : ''}${K.socialN > 0 && K.coreSum ? ' coreF *= toM;' : ''}
+      overlap *= toM; preyNear *= toM; force *= toM; crowd *= toM; crowdP *= toM; pack *= toM; kinVel *= toM; kinN *= toM; jF *= toM;${K.plague ? ' sickN *= toM;' : ''}${K.socialN > 0 ? ' nIn *= toM;' : ''}${K.socialN > 0 && K.coreSum ? ' coreF *= toM;' : ''}
       st = strideM;
       at = select(0.0, rnd(&s) * strideM, strideM > 1.0);
     }
@@ -591,7 +609,8 @@ ${K.liveFirst ? `
           if (x < beta) { overlap += 1.0; }
           if (qk != p.kind && (q.kr & (1u << 12u)) == 0u && r < 2.0 * EAT_R) { preyNear += vec2f(select(0.0, 1.0, r < EAT_R), 1.0); }
         }
-        if (r < LINK_R) { let w = 1.0 - r / LINK_R; pack += w * w; }
+        if (r < LINK_R) { let w = 1.0 - r / LINK_R; pack += w * w; }${K.plague ? `
+        if (r < LINK_R && qk == p.kind && (q.kr & (1u << 15u)) != 0u) { sickN += 1.0; }` : ''}
         if (qk == p.kind) {
           kinVel += unpack2x16float(q.vel);
           kinN += 1.0;
@@ -683,7 +702,7 @@ ${K.liveFirst ? `
   // ...but contact is pressed for by every neighbour inside it: a crowd pushes back the harder the
   // more pile in, so it cannot collapse
   force += coreF * stride;` : ''}
-  crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride; plantN *= stride; animN *= stride;
+  crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride; plantN *= stride; animN *= stride;${K.plague ? ' sickN *= stride;' : ''}
 
   let heavy = 1.0 - 0.7 * g.photo;
   // Persistent bonds pull on the partners' current positions, even outside the sampled scan.
@@ -711,7 +730,12 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   if (nb0 != NONE) { bondF += e0 * ((length(e0) - rb0) / max(length(e0), 1e-4)); }
   if (nb1 != NONE) { bondF += e1 * ((length(e1) - rb1) / max(length(e1), 1e-4)); }
   if (nb2 != NONE) { bondF += e2 * ((length(e2) - rb2) / max(length(e2), 1e-4)); }` : ''}
-  let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0);
+  var swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0);${K.roam ? `
+  if (hungry && food == NONE && g.photo <= 0.4) { swim *= 1.0 + ${f(K.roam)} * clamp(1.0 - p.energy / divE, 0.0, 1.0); }` : ''}${K.swarm ? `
+  let greg = select(0.0, clamp((kinN - 2.0) * 0.25, 0.0, 1.0), hungry && g.photo <= 0.4);
+  swim *= 1.0 + 0.5 * greg;
+  let alignR = g.align * ${f(K.align)} + ${f(K.swarm)} * greg;` : `
+  let alignR = g.align * ${f(K.align)};`}
   let flow = flowAt(p.pos) * g.advect;
   // a holdfast: a cell the current hardly carries (advect below 0.35, fully below 0.1) is anchored, and
   // pushes barely move it (its velocity decays K.holdfast times as fast)
@@ -788,8 +812,8 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
       if (nb2 != NONE) { let e = e2 + vb2 * t - moved; let l = length(e); fb += e * ((l - rb2) / max(l, 1e-4)); }` : ''}
     }
     vel = vel * fr0 + force * (g.force * heavy * h) + stiff * h;${W('if (k == 0u) { mVel = vel; }')}
-    if (kinN > 0.0 && g.align > 0.0) {
-      vel = mix(vel, kinVel / kinN, clamp(g.align * ${f(K.align)} * h, 0.0, 1.0));${W('if (k == 0u) { mAlign = vel - mVel; }')}
+    if (kinN > 0.0 && alignR > 0.0) {
+      vel = mix(vel, kinVel / kinN, clamp(alignR * h, 0.0, 1.0));${W('if (k == 0u) { mAlign = vel - mVel; }')}
     }
     vel += fb * (g.adhesion * ${f(K.bond)} * h);${K.tissue > 0 ? `
     // a body's cells move together: each takes on its partners' motion
@@ -853,7 +877,7 @@ struct Sim {
   // tbg: the background water temperature (climate, season, excursion); maxScan: the neighbour budget
   tick: u32, ticks: u32, tbg: f32, maxScan: u32,
 };
-// kr: 0..9 kind, 10..11 role, 12 plant.
+// kr: 0..9 kind, 10..11 role, 12 plant, 13 cyst, 14 hunter, 15 sick (K.plague).
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
 
 @group(0) @binding(0) var<uniform> sim: Sim;
@@ -1397,7 +1421,7 @@ ${K.tissue > 0 ? `    bondsNow[dst * 6u] = partners.x;
     let plant = select(0u, 1u << 12u, (p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4)${K.cycle && !K.litterTo ? ' || (p.kind == HUSK && (p.info & LITTER) != 0u)' : ''});
     // pad: with K.bodyPush, the cell's drawn radius (0.085 world units per unit of size, smaller in its later roles)
     let hunter = select(0u, 1u << 14u, p.kind >= FIRST_LIFE && genomes[p.kind].dFlesh > 0.5 && genomes[p.kind].photo <= 0.4);
-    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | ${K.flee > 0 ? 'hunter' : '0u'}${K.cyst ? ' | select(0u, 1u << 13u, p.kind >= FIRST_LIFE && (p.info & 15u) == CYST)' : ''}, p.col, pack2x16float(p.vel), sig.x, sig.y, ${K.bodyPush > 0 || K.crowdVisc > 0 ? 'bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role)))' : '0u'});
+    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | ${K.flee > 0 ? 'hunter' : '0u'}${K.cyst ? ' | select(0u, 1u << 13u, p.kind >= FIRST_LIFE && (p.info & 15u) == CYST)' : ''}${K.plague ? ' | select(0u, 1u << 15u, p.kind >= FIRST_LIFE && (p.info & 0x80000000u) != 0u)' : ''}, p.col, pack2x16float(p.vel), sig.x, sig.y, ${K.bodyPush > 0 || K.crowdVisc > 0 ? 'bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role)))' : '0u'});
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
   }
   workgroupBarrier();
@@ -1875,7 +1899,7 @@ ${cellWGSL(K, false)}
       diagAdd(dg, 13u, 1u);
       if (isAnimal(food)) { diagAdd(dg, 14u, 1u); }
     }
-    if (E > divE && silt != NONE && !th.torpid${K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
+    if (E > divE && silt != NONE && !th.torpid${K.mature > 0 ? ` && age > ${f(K.mature)}${K.rk ? ' * min(rkF, 1.0)' : ''} * g.lifespan` : ''}) {
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
         cr = sampleRole(g, role, &s);
@@ -1932,7 +1956,7 @@ ${cellWGSL(K, false)}
         * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking) * h;
       age += h;
       let tk = sim.tick - sim.ticks + k;
-      if (!born && E > divE && silt != NONE && !th.torpid${K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
+      if (!born && E > divE && silt != NONE && !th.torpid${K.mature > 0 ? ` && age > ${f(K.mature)}${K.rk ? ' * min(rkF, 1.0)' : ''} * g.lifespan` : ''}) {
         born = true;
         var won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged;
         if (!won && silt2 != NONE) { won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt2], 0u, i + 1u).exchanged; }
@@ -2008,6 +2032,20 @@ ${K.dung ? `  // a full gut is dropped as dung: the grain beside the eater becom
       act = 2u; ck = HUSK; ce = gut; gut = 0.0;
     }
   }
+` : ''}${K.plague ? `  // plague: a sick cell pays for it, and recovers or dies of it; a healthy one catches it from sick kin
+  // touching it, or unprompted, the likelier the more crowded among its own kind it is
+  let sick = (info & 0x80000000u) != 0u;
+  var plagued = false;
+  if (sick) {
+    E -= ${f(K.plagueCost)} * g.metab * sim.dt;
+    let u = rnd(&s);
+    if (u < ${f(K.plagueKill)} * sim.dt) { plagued = true; }
+    else if (u < ${f(K.plagueKill + K.plagueCure)} * sim.dt) { info &= 0x7fffffffu; }
+  } else if (rnd(&s) < (${f(K.plague)} * sickN + ${f(K.plagueSpark)} * max(0.0, kinN - ${f(K.kinFree)})) * sim.dt) {
+    info |= 0x80000000u;
+    atomicAdd(&ledger[META_DEATH + 30u], 1u);
+  }
+  if ((info & 0x80000000u) != 0u) { col = mix(col, vec3f(0.42, 0.45, 0.2), 0.12); }
 ` : ''}${K.cyst ? `  // a cell running out with nothing to eat in reach may go dormant (after a while awake)
   if (act == 0u && E > 0.0 && E < ${f(K.cystAt)} * divE && food == NONE && age > 10.0${K.cystPlants ? '' : ' && g.photo <= 0.4'} && rnd(&s) < ${f(K.cystRate)} * sim.dt) {
     info = (info & 0xffff003fu & 0xfffffff0u) | CYST;
@@ -2024,7 +2062,11 @@ ${K.dung ? `  // a full gut is dropped as dung: the grain beside the eater becom
     info = (info & 0xffff7fc0u) | 2u${litterOf(K, 'g')};
     atomicAdd(&ledger[6], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 2u], 1u);
-  } else if (th.x > 0.8 && rnd(&s) < ${f(K.scald)} * smoothstep(0.8, 1.4, th.x) * sim.dt) {
+  }${K.plague ? ` else if (plagued) {
+    kind = HUSK; E = ${K.bodyE > 0 ? 'bodyCost' : f(K.huskBase)} + max(E, 0.0); age = 0.0; vel *= 0.3;
+    info = (info & 0x7fff7fc0u) | 12u${litterOf(K, 'g')};
+    atomicAdd(&ledger[META_DEATH + 25u + dg], 1u);
+  }` : ''} else if (th.x > 0.8 && rnd(&s) < ${f(K.scald)} * smoothstep(0.8, 1.4, th.x) * sim.dt) {
     // scalded: far above its optimum, a cell's proteins come apart
     kind = HUSK; E = ${K.bodyE > 0 ? 'bodyCost' : f(K.huskBase)}; age = 0.0; vel *= 0.3;
     info = (info & 0xffff7fc0u) | 10u${litterOf(K, 'g')};
@@ -2036,7 +2078,7 @@ ${K.cycle ? `  if (kind == HUSK) { atomicAdd(&ledger[META_ENERGY + select(61u, 6
   if (kind == HUSK && g.calcify > 0.0 && rnd(&s) < ${f(K.reefs)} * g.calcify * (1.0 - g.advect) * select(${f(K.nucleate)}, 1.0, stoneN >= 1.0)) {
     kind = STONE; E = ${f(K.stoneLife)} * (0.5 + rnd(&s)); vel = vec2f(0.0);
   }
-  let childGen = ((genOf(p.info) + 1u) & 0xffffu) << 14u;
+  let childGen = ((genOf(p.info) + 1u) & 0x7fffu) << 14u;
   // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(pack, ce, act == 2u)), n1, n2);
   parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), ${K.dung ? `1.0 - gut / ${f(K.dungE)}` : '1.0'})), info);
@@ -2150,7 +2192,7 @@ ${cellWGSL(K, true)}
   // the energy it divides at, whether it is dormant (a cyst: lifeMain does not run this decision for
   // it) and old enough to divide, the push away from hunters, its gut's fill, producers around it
   mPut(58, divE);
-  mind[59] = select(0u, 1u, (p.info & 15u) == ${K.cyst ? 'CYST' : '99u'}) | select(0u, 2u, p.age + sim.dt > ${f(K.mature)} * g.lifespan);
+  mind[59] = select(0u, 1u, (p.info & 15u) == ${K.cyst ? 'CYST' : '99u'}) | select(0u, 2u, p.age + sim.dt > ${f(K.mature)}${K.rk ? ' * min(rkF, 1.0)' : ''} * g.lifespan);
   mPut2(60, mFlee * acc);
   mPut(62, ${K.dung ? `gut / ${f(K.dungE)}` : '0.0'});
   mPut(63, plantN);
