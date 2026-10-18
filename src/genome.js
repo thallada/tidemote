@@ -103,8 +103,8 @@ export const ARCHETYPE_TYPES = Object.keys(ARCHETYPES);
 // Cladophora (alternate or one-sided side branches); animals' plans are drawn at random.
 const TREES = { reef: 0.6, filament: 0.85, crawler: 0.35, hunter: 0.3, scavenger: 0.4 };
 const PLANS = {
-  reef: [null, [0.2, 0.5], [0.3, 0.7], [0.35, 0.65], [0.55, 0.8], [0.5, 1]],
-  filament: [null, [0.15, 0.45], [0.35, 0.85], [0.3, 0.7], [0, 0.4], [0.25, 0.75]],
+  reef: [null, [0.15, 0.36], [0.3, 0.7], [0.35, 0.65], [0.55, 0.8], [0.5, 1]],
+  filament: [null, [0.11, 0.33], [0.35, 0.85], [0.3, 0.7], [0, 0.4], [0.25, 0.75]],
 };
 
 // Heat-makers among the founders: a quarter of these body plans start with some heat output.
@@ -164,7 +164,7 @@ export function growPlan(g) {
   const v = g.grow;
   if (!v || !(v[0] >= 0.5) || !((g.adhesion || 0) > DEFAULT_K.adhMin)) return null;
   const e = Math.min(7, Math.round(v[2] * 255) >> 5);
-  return { angle: 0.25 + 1.35 * v[1], every: e === 1 ? 2 : e, curl: (v[3] * 2 - 1) ** 3 * 0.7,
+  return { angle: 0.25 + 1.85 * v[1], every: e === 1 ? 2 : e, curl: (v[3] * 2 - 1) ** 3 * 0.7,
     pattern: ['alternate', 'one-sided', 'opposite', 'forking', 'zigzag'][Math.min(4, Math.floor(v[4] * 5))], depth: Math.min(3, Math.floor(v[5] * 4)) };
 }
 

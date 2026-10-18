@@ -339,7 +339,7 @@ fn growOf(g: Genome) -> Grow {
   let w = unpack4x8unorm(g.dev.w);
   let every = g.dev.z >> 29u;
   let curl = w.y * 2.0 - 1.0;
-  return Grow(g.dev.x >= 0x80000000u, mix(0.25, 1.6, f32(g.dev.y >> 24u) / 255.0), select(every, 2u, every == 1u),
+  return Grow(g.dev.x >= 0x80000000u, mix(0.25, 2.1, f32(g.dev.y >> 24u) / 255.0), select(every, 2u, every == 1u),
     curl * curl * curl * 0.7, min(u32(w.z * 5.0), 4u), min(u32(w.w * 4.0), 3u));
 }
 // The angle a daughter grows at from her mother's heading, by her turn and generation.
