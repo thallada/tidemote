@@ -107,6 +107,9 @@ const PLANS = {
   filament: [null, [0.11, 0.33], [0.35, 0.85], [0.3, 0.7], [0, 0.4], [0.25, 0.75]],
 };
 
+// Founders that may beat (swimming trees): a third or so of these animals' founders start with a beat.
+const BEATERS = new Set(['crawler', 'hunter', 'scavenger']);
+
 // Heat-makers among the founders: a quarter of these body plans start with some heat output.
 const THERMO_FOUNDERS = new Set(['crawler', 'grazer', 'filament']);
 const gaussOf = (r) => (r() + r() + r() - 1.5) * 2;
@@ -154,6 +157,7 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
     topt: clamp(t0 + gaussOf(r) * 3, 0, 45),
     tol: type === 'reef' ? mix(3, 6, r()) : mix(5, 10, r()),
     thermo: THERMO_FOUNDERS.has(type) && r() < 0.25 ? unorm8(mix(0.3, 0.7, r())) : 0,
+    beat: ((on, amp) => [BEATERS.has(type) && on < 0.3 ? mix(0.15, 0.5, amp) : 0, mix(0.5, 2.5, r()), mix(0.3, 1.2, r())])(r(), r()),
     grow: [r() < (TREES[type] ?? 0) ? mix(0.55, 1, r()) : mix(0, 0.45, r()), ...[1, 2, 3, 4, 5].map((i) => (PLANS[type] ? mix(...PLANS[type][i], r()) : r()))].map(unorm8),
   };
   return finalizeGenome(g, K);
@@ -182,7 +186,8 @@ export function finalizeGenome(g, K = DEFAULT_K) {
   const s = Math.max(g.dGlint + g.dHusk + g.dFlesh, 1e-3);
   g.dGlint /= s; g.dHusk /= s; g.dFlesh /= s;
   g.metab = (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
-    + (K.anchorCost ?? 0) * (1 - g.advect) + 0.004 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 0.006 * g.align + 0.004 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0)) * K.metab;
+    + (K.anchorCost ?? 0) * (1 - g.advect) + 0.004 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 0.006 * g.align + 0.004 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0)
+    + (K.beat ? K.beatCost ?? 0 : 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g) ? 1 : 0)) * K.metab;
   g.col = packUnorm(...roleColor(g, 0));
   return g;
 }
@@ -228,6 +233,10 @@ export function mutateLike(g, r = Math.random, K = DEFAULT_K) {
   h.thermo = unorm8(thermo);
   h.grow = (h.grow || [0, 0, 0, 0, 0, 0]).map((v) => unorm8(clamp(v + gauss() * m * 0.35, 0, 1)));
   if (r() < m * 0.2) h.grow[Math.min(5, Math.floor(r() * 6))] = unorm8(r());
+  const bt = h.beat || [0, 1, 0.6];
+  let amp = clamp(bt[0] + gauss() * m * 0.1, 0, 0.6);
+  if (r() < m * 0.1) amp = amp < 0.05 ? 0.15 + 0.35 * r() : 0;
+  h.beat = [amp, clamp(bt[1] * Math.exp(gauss() * m * 0.3), 0.3, 3), clamp(bt[2] + gauss() * m * 0.2, 0.2, 1.6)];
   h.parent = g.serial; h.serial = (g.serial || 0) + 1; h.depth = (g.depth || 0) + 1;
   return finalizeGenome(h, K);
 }
@@ -251,6 +260,8 @@ export function writeGenome(u32, f32, slot, g) {
   f32[o + 45] = g.calcify || 0;
   f32[o + 46] = g.topt ?? 19;
   f32[o + 47] = g.tol ?? 7;
+  const b = g.beat || [0, 1, 0.6];
+  f32[o + 48] = b[0]; f32[o + 49] = b[1]; f32[o + 50] = b[2]; f32[o + 51] = 0;
 }
 
 export const genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
@@ -271,7 +282,7 @@ export function readGenome(u32, f32, slot) {
     shape: F(16), pulse: F(17), roleHue: F(18), advect: F(19), swim: F(20), align: F(21), photo: F(22),
     col: u32[o + 39], parent: u32[o + 40], serial: u32[o + 41], born: f32[o + 42], depth: u32[o + 43],
     adhesion: f32[o + 44], calcify: f32[o + 45],
-    topt: f32[o + 46], tol: f32[o + 47], thermo: (u32[o + 15] & 255) / 255, grow,
+    topt: f32[o + 46], tol: f32[o + 47], beat: [f32[o + 48], f32[o + 49], f32[o + 50]], thermo: (u32[o + 15] & 255) / 255, grow,
   };
 }
 

@@ -38,8 +38,8 @@ export const P_BYTES = 40;
 export const LOUPE_FIELD = 1.1;
 export const ORGANS = 12; // organelles per resolved cell (fsPoint), directions per species (organDirs)
 export const PICK_WORDS = 12; // Particle's 10 words, then two partner IDs (NONE if absent).
-export const G_BYTES = 192;
-export const G_WORDS = 48;
+export const G_BYTES = 208;
+export const G_WORDS = 52;
 export const LITE_BYTES = 32;
 // The selected cell's mind (mindMain): a header of MIND_HEAD words, then MIND_NBR living neighbours
 // of MIND_NBR_WORDS words each. See parseMind in mind.js for the layout.
@@ -102,6 +102,13 @@ export const DEFAULT_K = {
   growStiff: 2,     // how firmly a tree holds its angles (bendOn), relative to its bonds' pull
   growTip: 3,       // seconds a plant's tip waits before budding again (it is always its youngest cell: mature would stall it)
   growFeed: 1,      // with bodyShare, rate (per second) at which a tree's grown cells pass their surplus on to their daughters
+  // swimming trees: a thin body slips along its length more easily than sideways (resistive force theory),
+  // so a wave run down a tree by its beat genes (amplitude, frequency, wavelength) drives it through the water
+  sideDrag: 3,      // a tree's cell's drag across its branch, relative to along it (1: the same every way)
+  beat: 1,          // 1: trees beat as their genes say (0: never)
+  beatDrive: 12,    // a beat's push on each bend per unit of amplitude, relative to the bonds' pull
+  beatCost: 0.02,   // upkeep per unit of beat amplitude (radians) times frequency (Hz)
+  beatTest: 0,      // TEMP diagnostic: every tree beats at this amplitude, 1.5 Hz, 0.8 rad per cell
   bodyHold: 0.3,    // with bodyPush, the share of overlap undone each tick by velocity (contact as a constraint)
   bodyGive: 0.85,   // with bodyPush, how far cells may squash against each other first (share of touching; bonds rest at bondTouch)
   bodyPush: 30,     // with liveFirst (contactMain): how hard overlapping cells' bodies push apart (units/s² per unit of overlap, summed; 0: off)
@@ -316,6 +323,7 @@ struct Genome {
   swim: f32, align: f32, photo: f32, col: u32,
   parent: u32, serial: u32, born: f32, depth: u32,
   adhesion: f32, calcify: f32, topt: f32, tol: f32,
+  beat: vec4f,
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
@@ -334,13 +342,13 @@ fn orderOf(info: u32) -> u32 { return info >> 30u; }
 // each cell turns from the one before (curl: spirals and rings); the branching pattern (alternate,
 // one-sided, opposite, forking, or alternate with the curl changing side cell by cell: a zigzag); and how
 // many orders of branches branch again
-struct Grow { tree: bool, angle: f32, every: u32, curl: f32, pattern: u32, depth: u32 };
+struct Grow { tree: bool, angle: f32, every: u32, curl: f32, pattern: u32, depth: u32, beat: vec3f };
 fn growOf(g: Genome) -> Grow {
   let w = unpack4x8unorm(g.dev.w);
   let every = g.dev.z >> 29u;
   let curl = w.y * 2.0 - 1.0;
   return Grow(g.dev.x >= 0x80000000u, mix(0.25, 2.1, f32(g.dev.y >> 24u) / 255.0), select(every, 2u, every == 1u),
-    curl * curl * curl * 0.7, min(u32(w.z * 5.0), 4u), min(u32(w.w * 4.0), 3u));
+    curl * curl * curl * 0.7, min(u32(w.z * 5.0), 4u), min(u32(w.w * 4.0), 3u), vec3f(g.beat.x * sqrt(0.08 / g.drag), g.beat.y * TAU, g.beat.z));
 }
 // The angle a daughter grows at from her mother's heading, by her turn and generation.
 fn turnAngle(gr: Grow, turn: u32, gen: u32) -> f32 {
@@ -824,7 +832,14 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   // would under its forces; bonds pull toward where the partners will be, carried on their velocities.
   // A 1/60 s step is a single substep.
   let h = sim.dt / f32(sim.ticks);
-  let fr0 = pow(0.5, h / drag);
+  let fr0 = pow(0.5, h / drag);${K.grow && K.tissue > 0 && K.sideDrag != 1 ? `
+  // a tree's cell is drawn out along its branch: across it the water holds it sideDrag times as hard
+  var across = vec2f(0.0);
+  var frX = fr0;
+  if (tree) {
+    let arm = treeArm(i);
+    if (arm != NONE) { let a = treeRel(i, arm); across = vec2f(-a.y, a.x) / max(length(a), 1e-6); frX = pow(0.5, h * ${f(K.sideDrag)} / drag); }
+  }` : ''}
   var vB1 = vec2f(0.0);
   var vB2 = vec2f(0.0);
   if (n1 != NONE) { vB1 = sortedFull[n1].vel; }
@@ -870,8 +885,9 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
       if (tree) { fb += bendF; }
       if (aimOn) { fb += (vB1 * t - moved) * ${f(K.growStiff)}; }` : ''}
     }
-    vel = vel * fr0 + force * (g.force * heavy * h) + stiff * h;${W('if (k == 0u) { mVel = vel; }')}
-    if (kinN > 0.0 && g.align > 0.0) {
+    vel = vel * fr0${K.grow && K.tissue > 0 && K.sideDrag != 1 ? ' - across * (dot(vel, across) * (fr0 - frX))' : ''} + force * (g.force * heavy * h) + stiff * h;${W('if (k == 0u) { mVel = vel; }')}
+    // (a tree's cells move together through their bonds: aligning would damp its beat)
+    if (kinN > 0.0 && g.align > 0.0${K.grow && K.tissue > 0 ? ' && !tree' : ''}) {
       vel = mix(vel, kinVel / kinN, clamp(g.align * ${f(K.align)} * h, 0.0, 1.0));${W('if (k == 0u) { mAlign = vel - mVel; }')}
     }
     vel += fb * (g.adhesion * ${f(K.bond)} * h);${K.tissue > 0 ? `
@@ -1077,7 +1093,8 @@ fn addEnergy(guild: u32, slot: u32, e: f32) {
 
 fn deriveMetab(g: Genome) -> f32 {
   return (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
-        + ${f(K.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K.swimCost)} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion + ${f(K.calcCost)} * g.calcify) * ${f(K.metab)};
+        + ${f(K.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K.swimCost)} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion + ${f(K.calcCost)} * g.calcify
+        + ${f(K.beat ? K.beatCost : 0)} * g.beat.x * g.beat.y * select(0.0, 1.0, g.dev.x >= 0x80000000u && g.adhesion > ${f(K.adhMin)})) * ${f(K.metab)};
 }
 
 fn finalize(g: ptr<function, Genome>) {
@@ -1170,6 +1187,11 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
     if (k < 3u) { g.dev[k] = (g.dev[k] & 0x00ffffffu) | (v << 24u); }
     else { let sh = 8u * (k - 2u); g.dev.w = (g.dev.w & ~(255u << sh)) | (v << sh); }
   }
+  // the beat: amplitude (0 still, up to 0.6), frequency (Hz), wavelength (radians of phase per cell)
+  g.beat.x = clamp(g.beat.x + gauss(s) * m * 0.1, 0.0, 0.6);
+  if (rnd(s) < m * 0.1) { g.beat.x = select(0.0, mix(0.15, 0.5, rnd(s)), g.beat.x < 0.05); }
+  g.beat.y = clamp(g.beat.y * exp(gauss(s) * m * 0.3), 0.3, 3.0);
+  g.beat.z = clamp(g.beat.z + gauss(s) * m * 0.2, 0.2, 1.6);
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -1218,6 +1240,7 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   g.calcify = select(0.0, ca, ca > 0.7);
   g.topt = clamp(t + gauss(s) * 3.0, 0.0, 45.0);
   g.tol = mix(3.0, 10.0, rnd(s));
+  g.beat = vec4f(select(0.0, mix(0.15, 0.5, rnd(s)), rnd(s) < 0.25), mix(0.5, 2.5, rnd(s)), mix(0.3, 1.2, rnd(s)), 0.0);
   g.parent = 0u;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -1815,7 +1838,13 @@ fn bendAt(gr: Grow, m: u32, a: u32, b: u32) -> vec4f {
   let A = treeRel(m, a); let B = treeRel(m, b);
   let want = select(turnOfCell(gr, b) - turnOfCell(gr, a), 3.14159265 + turnOfCell(gr, b), a == treeMom(m));
   var e = atan2(A.x * B.y - A.y * B.x, dot(A, B)) - want;
-  e -= TAU * round(e / TAU);
+  e -= TAU * round(e / TAU);${K.beat ? `
+  // a beat: a muscle's push on each bend in turn, a wave running out from the root (phase by generation),
+  // as strong as the water is thick (amplitude scaled by the square root of the drag in growOf); a bend
+  // already folded past 1.2 radians is not pushed further
+  if (abs(e) < 1.2) {
+    e -= ${f(K.beatDrive / K.growStiff)} * ${K.beatTest ? `${f(K.beatTest)} * sqrt(0.08 / genomes[sortedFull[m].kind].drag) * sin(9.42 * sim.time - 0.8 * f32(genOf(sortedFull[b].info)))` : 'gr.beat.x * sin(gr.beat.y * sim.time - gr.beat.z * f32(genOf(sortedFull[b].info)))'};
+  }` : ''}
   let s = e * length(A) * length(B);
   return vec4f(vec2f(-A.y, A.x) * (s / max(dot(A, A), 1e-8)), vec2f(B.y, -B.x) * (s / max(dot(B, B), 1e-8)));
 }
