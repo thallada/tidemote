@@ -101,7 +101,7 @@ export const DEFAULT_K = {
   grow: 1,
   growStiff: 2,     // how firmly a tree holds its angles (bendOn), relative to its bonds' pull
   growTip: 3,       // seconds a plant's tip waits before budding again (it is always its youngest cell: mature would stall it)
-  growTipA: 3,      // the same for an animal colony that grows from its tips (beat.w)
+  growTipA: 10,     // the same for an animal colony that grows from its tips (beat.w): slower, so they stay a minority
   growFeed: 1,      // with bodyShare, rate (per second) at which a tree's grown cells pass their surplus on to their daughters
   // swimming trees: a thin body slips along its length more easily than sideways (resistive force theory),
   // so a wave run down a tree by its beat genes (amplitude, frequency, wavelength) drives it through the water
