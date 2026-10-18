@@ -3809,7 +3809,7 @@ const TOUCH_N = 6u;
 // nothing from the sort; another ID in the slot starts afresh. Half-float pairs: velocity smoothed
 // over about 0.08 s, so jitter neither turns nor knocks it; bend
 // and its rate; the squash (a nematic: amount times (cos, sin) of twice its axis) and its rate.
-struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32 };
+struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32, face: u32 };
 @group(0) @binding(8) var<storage, read_write> sway: array<Sway>;
 
 fn drawnSize(p: Particle) -> f32 { return genomes[p.kind].size * (1.0 - 0.12 * f32(roleOf(p.info))); }
@@ -3974,6 +3974,8 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     var squash = vec2f(0.0);
     var rate = vec2f(0.0);
     var vel = p.vel;
+    var face = vel / max(length(vel), 1e-6);
+    if (dot(vel, vel) < 1e-12) { let a = renderHash(p.id) * TAU; face = vec2f(cos(a), sin(a)); }
     if (was.id == p.id && dt > 0.0 && dt < 0.1) {
       let prev = unpack2x16float(was.vel);
       vel = mix(prev, p.vel, 1.0 - exp(-dt / 0.08));
@@ -3984,6 +3986,13 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
       // cell moves a radius or so a second, below which its heading is mostly jitter
       let speed = length(vel);
       let radius = 0.085 * si;
+      // the body faces where it travels, turning about a radian per radius it moves (and slowly on the
+      // spot), so a cell jostled in a crowd, its velocity flicking every way, holds its heading
+      face = unpack2x16float(was.face);
+      var swing = atan2(vel.y, vel.x) - atan2(face.y, face.x);
+      swing -= TAU * round(swing / TAU);
+      let toward = atan2(face.y, face.x) + clamp(swing, -1.0, 1.0) * min(1.0, (speed / radius + 0.3) * dt);
+      face = vec2f(cos(toward), sin(toward));
       var turn = atan2(vel.y, vel.x) - atan2(prev.y, prev.x);
       turn -= TAU * round(turn / TAU);
       let follow = clamp(0.5 * turn / (dt * max(speed, 1e-4)) * radius, -0.45, 0.45)
@@ -4004,7 +4013,7 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
       if (amount > 0.3) { squash *= 0.3 / amount; }
     }
     sway[slot] = Sway(p.id, pack2x16float(vel), pack2x16float(bend), now,
-      pack2x16float(squash), pack2x16float(rate));
+      pack2x16float(squash), pack2x16float(rate), pack2x16float(face));
   }
 }
 
@@ -4048,7 +4057,7 @@ struct View {
 // The living cells each cell presses against (INBOND_WGSL contactGather).
 @group(0) @binding(8) var<storage, read> touch: array<u32>;
 // Each cell's bend along its path and squash from knocks (INBOND_WGSL contactGather), by ID.
-struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32 };
+struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32, face: u32 };
 @group(0) @binding(9) var<storage, read> sway: array<Sway>;
 @group(0) @binding(10) var<storage, read> organDir: array<u32>;
 // The water's temperature per grid cell (heatMain), for how heat shows on a cell.
@@ -4328,10 +4337,10 @@ fn swayOf(p: Particle) -> Sway {
   if (st.id != p.id || abs(view.time - st.time) > 0.2) { var none: Sway; none.id = ~p.id; return none; }
   return st;
 }
-// Heading along the smoothed velocity once contactGather keeps one, so jitter doesn't spin the cell.
+// Heading as contactGather keeps it (turning only as the cell travels), so jostling doesn't spin the cell.
 fn cellDirection(p: Particle) -> vec2f {
   let st = swayOf(p);
-  let v = select(p.vel, unpack2x16float(st.vel), st.id == p.id);
+  let v = select(p.vel, unpack2x16float(st.face), st.id == p.id);
   let a = select(renderHash(p.id) * TAU, atan2(v.y, v.x), dot(v, v) > 0.000001);
   return vec2f(cos(a), sin(a));
 }
@@ -4561,11 +4570,12 @@ struct PO {
   var extent = 1.35 + fine * swim * 0.65;
   var pace = 0.0;
   if (k >= FIRST_LIFE) {
-    // radii per second through the water (vel excludes the flow); shells barely give
-    let radii = length(p.vel) * view.ppu / px;
+    // radii per second through the water (vel excludes the flow, smoothed once contactGather keeps it);
+    // shells barely give
+    let st = swayOf(p);
+    let radii = length(select(p.vel, unpack2x16float(st.vel), st.id == p.id)) * view.ppu / px;
     let give = 1.0 - 0.75 * min(genomes[k].calcify, 1.0);
     pace = (1.0 - exp(-radii * 0.25)) * give;
-    let st = swayOf(p);
     if ((p.info & 15u) == 14u) { pace = -1.0; } else if (st.id == p.id) {
       o.jelly.z = unpack2x16float(st.bend).x * give;
       // the squash's axis, its length the amount
@@ -14985,7 +14995,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       b.touch = d.createBuffer({ size: n * 24, usage: U.STORAGE, mappedAtCreation: true });
       new Uint32Array(b.touch.getMappedRange()).fill(4294967295);
       b.touch.unmap();
-      b.sway = d.createBuffer({ size: n * 24, usage: U.STORAGE });
+      b.sway = d.createBuffer({ size: n * 28, usage: U.STORAGE });
       b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
       b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
       b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });

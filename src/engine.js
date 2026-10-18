@@ -326,7 +326,7 @@ class Engine {
     b.touch = d.createBuffer({ size: n * 24, usage: U.STORAGE, mappedAtCreation: true });
     new Uint32Array(b.touch.getMappedRange()).fill(0xffffffff);
     b.touch.unmap();
-    b.sway = d.createBuffer({ size: n * 24, usage: U.STORAGE });
+    b.sway = d.createBuffer({ size: n * 28, usage: U.STORAGE });
     b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
     b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
