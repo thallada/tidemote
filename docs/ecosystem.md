@@ -64,7 +64,9 @@ keep the gain and cost no more survival than they do for the baseline.
 
 What did not help (16-32 seeds each, 30-60 min; their code was removed): evolvable provisioning (`rk`),
 species-specific contagion (`plague`), hungry ranging (`roam`), gregarious marching (`swarm`), chemical
-trails followed and fled (`scent`: harmless, no dynamics), pack hunting (`pack`), chase bursts
+trails followed and fled (`scent`: more swimming and producer swing, but hunters fall from ~15% to ~9%
+over 64 worlds and more worlds crash; kept on the `scent` branch, with rotting husks' scent and the
+Scent view), pack hunting (`pack`), chase bursts
 (`sprint`), producer rock-paper-scissors poisoning (`allelo`), a slow deep year of light (`year`: costs
 thriving), no kin crowding, no recognition or search image (scavengers starve over an hour), and grazers
 kept out of personal space by diet (`coreFood`). Easier husks (`matterSkill` 0.3) or more dung

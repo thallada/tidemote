@@ -1345,7 +1345,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       return group('look', '', choice('trails', 'Trails', 'T', trailNames.map((n, i) => [i, n]), trailIdx)
         + choice('tide', 'Light map', 'G', [[0, 'Off'], [1, 'Faint'], [2, 'Full']], s.tide, 'light')
         + (s.tide === 2 ? rampHtml(MAPS[0]) : '')
-        + (K.heat ? choice('heat', 'Heat map', 'E', [[0, 'Off'], [1, 'Shimmer'], [2, 'Full'], ...(K.scent ? [[3, 'Scent']] : [])], s.heat, 'heatmap') : '')
+        + (K.heat ? choice('heat', 'Heat map', 'E', [[0, 'Off'], [1, 'Shimmer'], [2, 'Full']], s.heat, 'heatmap') : '')
         + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : '')
         + onoff('bands', 'Tide map', 'D', s.bands > 0, 'tidemap')
         + (s.bands ? rampHtml(MAPS[2]) : '')
@@ -1711,7 +1711,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === 'b' || k === 'B') { eng.settings.bloom = eng.settings.bloom > 0 ? 0 : 0.012; flash(eng.settings.bloom ? 'Bloom on' : 'Bloom off'); persist(); view.render(); }
     else if (k === 'o' || k === 'O') { eng.settings.optics = eng.settings.optics > 0 ? 0 : 1; flash(eng.settings.optics ? 'Microscope optics on' : 'Microscope optics off'); persist(); view.render(); }
     else if (k === 'g' || k === 'G') { eng.settings.tide = (eng.settings.tide + 1) % 3; flash(['Light map off', 'Faint light map', 'Light map'][eng.settings.tide]); mapsChanged(); }
-    else if ((k === 'e' || k === 'E') && K.heat) { eng.settings.heat = (eng.settings.heat + 1) % (K.scent ? 4 : 3); flash(['Heat map off', 'Heat shimmer', 'Thermal camera', 'Scent: producers green, prey blue, hunters red, rot yellow'][eng.settings.heat]); mapsChanged(); }
+    else if ((k === 'e' || k === 'E') && K.heat) { eng.settings.heat = (eng.settings.heat + 1) % 3; flash(['Heat map off', 'Heat shimmer', 'Thermal camera'][eng.settings.heat]); mapsChanged(); }
     else if (k === 'd' || k === 'D') { eng.settings.bands = eng.settings.bands ? 0 : 1; flash(eng.settings.bands ? 'Tide map' : 'Tide map off'); mapsChanged(); }
     else if (k === 'w' || k === 'W') { state.currents = !state.currents; flash(state.currents ? 'Currents shown' : 'Currents hidden'); view.render(); }
     else if (k === 'v' || k === 'V') view.toggle();
