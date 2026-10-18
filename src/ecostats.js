@@ -11,6 +11,8 @@ export const TRAITS = {
 const SHARE_NOTABLE = 0.05;
 // raw genome traits averaged within each guild (guildTraits): how each guild evolves
 export const GUILD_TRAITS = ['swim', 'size', 'adhesion', 'advect', 'lifespan', 'reproE', 'share', 'drag', 'force', 'radius', 'photo', 'dGlint', 'dHusk', 'dFlesh', 'calcify', 'mutRate'];
+// body plans' shares within each guild (K.grow): trees, trees grown from the tips, beating trees, and both (tadpoles)
+export const PLAN_TRAITS = ['tree', 'tips', 'beater', 'tadpole'];
 
 /** One census of the community. species: [{ pop, genome }] for every living slot. */
 export function communitySample(species, adhMin) {
@@ -22,7 +24,7 @@ export function communitySample(species, adhMin) {
   const top = [];
   // each guild's leading species, by share of that guild (who leads the grazers, the predators...)
   const byGuild = Object.fromEntries(DIETS.map((k) => [k, []]));
-  const gt = Object.fromEntries(DIETS.map((k) => [k, { n: 0, ...Object.fromEntries(GUILD_TRAITS.map((t) => [t, 0])) }]));
+  const gt = Object.fromEntries(DIETS.map((k) => [k, { n: 0, ...Object.fromEntries([...GUILD_TRAITS, ...PLAN_TRAITS].map((t) => [t, 0])) }]));
   for (const { pop, genome: g } of species) {
     const p = pop / living;
     entropy -= p * Math.log(p);
@@ -35,13 +37,17 @@ export function communitySample(species, adhMin) {
     byGuild[d].push({ serial: g.serial, pop });
     gt[d].n += pop;
     for (const t of GUILD_TRAITS) gt[d][t] += pop * (g[t] ?? 0);
+    if ((g.grow?.[0] ?? 0) >= 0.5 && (g.adhesion || 0) > adhMin) {
+      const tips = g.photo > 0.4 || (g.beat?.[3] ?? 0) > 0.5, beats = (g.beat?.[0] ?? 0) > 0.05;
+      gt[d].tree += pop; if (tips) gt[d].tips += pop; if (beats) gt[d].beater += pop; if (tips && beats) gt[d].tadpole += pop;
+    }
   }
   top.sort((a, b) => b.share - a.share);
   const guildTop = Object.fromEntries(DIETS.map((k) => {
     const all = byGuild[k], n = all.reduce((a, x) => a + x.pop, 0);
     return [k, all.sort((a, b) => b.pop - a.pop).slice(0, 3).map((x) => ({ serial: x.serial, share: n ? x.pop / n : 0 }))];
   }));
-  const guildTraits = Object.fromEntries(DIETS.filter((k) => gt[k].n > 0).map((k) => [k, Object.fromEntries(GUILD_TRAITS.map((t) => [t, gt[k][t] / gt[k].n]))]));
+  const guildTraits = Object.fromEntries(DIETS.filter((k) => gt[k].n > 0).map((k) => [k, Object.fromEntries([...GUILD_TRAITS, ...PLAN_TRAITS].map((t) => [t, gt[k][t] / gt[k].n]))]));
   return {
     living, species: species.length,
     effSpecies: living ? Math.exp(entropy) : 0, // Hill number of order 1

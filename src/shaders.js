@@ -107,7 +107,7 @@ export const DEFAULT_K = {
   sideDrag: 3,      // a tree's cell's drag across its branch, relative to along it (1: the same every way)
   beat: 1,          // 1: trees beat as their genes say (0: never)
   beatDrive: 12,    // a beat's push on each bend per unit of amplitude, relative to the bonds' pull
-  beatCost: 0.02,   // upkeep per unit of beat amplitude (radians) times frequency (Hz)
+  beatCost: 0.005,   // upkeep per unit of beat amplitude (radians) times frequency (Hz)
   beatTest: 0,      // TEMP diagnostic: every tree beats at this amplitude, 1.5 Hz, 0.8 rad per cell
   bodyHold: 0.3,    // with bodyPush, the share of overlap undone each tick by velocity (contact as a constraint)
   bodyGive: 0.85,   // with bodyPush, how far cells may squash against each other first (share of touching; bonds rest at bondTouch)
@@ -1192,6 +1192,8 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   if (rnd(s) < m * 0.1) { g.beat.x = select(0.0, mix(0.15, 0.5, rnd(s)), g.beat.x < 0.05); }
   g.beat.y = clamp(g.beat.y * exp(gauss(s) * m * 0.3), 0.3, 3.0);
   g.beat.z = clamp(g.beat.z + gauss(s) * m * 0.2, 0.2, 1.6);
+  // an animal colony grows from its tips like a plant (beat.w past 0.5), so it can grow long: now and then it flips
+  if (rnd(s) < m * 0.1) { g.beat.w = 1.0 - g.beat.w; }
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -1240,7 +1242,7 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   g.calcify = select(0.0, ca, ca > 0.7);
   g.topt = clamp(t + gauss(s) * 3.0, 0.0, 45.0);
   g.tol = mix(3.0, 10.0, rnd(s));
-  g.beat = vec4f(select(0.0, mix(0.15, 0.5, rnd(s)), rnd(s) < 0.25), mix(0.5, 2.5, rnd(s)), mix(0.3, 1.2, rnd(s)), 0.0);
+  g.beat = vec4f(select(0.0, mix(0.15, 0.5, rnd(s)), rnd(s) < 0.25), mix(0.5, 2.5, rnd(s)), mix(0.3, 1.2, rnd(s)), select(0.0, 1.0, rnd(s) < 0.25));
   g.parent = 0u;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -2127,7 +2129,7 @@ ${cellWGSL(K, false)}
       diagAdd(dg, 13u, 1u);
       if (isAnimal(food)) { diagAdd(dg, 14u, 1u); }
     }
-    if (E > divE && silt != NONE && !th.torpid${K.grow && K.tissue > 0 ? ` && age > select(${f(K.mature)} * g.lifespan, ${f(K.growTip)}, tree && g.photo > 0.4) && (!tree || (budTurn < 3u && !budBlocked))` : K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
+    if (E > divE && silt != NONE && !th.torpid${K.grow && K.tissue > 0 ? ` && age > select(${f(K.mature)} * g.lifespan, ${f(K.growTip)}, tree && (g.photo > 0.4 || g.beat.w > 0.5)) && (!tree || (budTurn < 3u && !budBlocked))` : K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
         cr = sampleRole(g, role, &s);
@@ -2184,7 +2186,7 @@ ${cellWGSL(K, false)}
         * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking) * h;
       age += h;
       let tk = sim.tick - sim.ticks + k;
-      if (!born && E > divE && silt != NONE && !th.torpid${K.grow && K.tissue > 0 ? ` && age > select(${f(K.mature)} * g.lifespan, ${f(K.growTip)}, tree && g.photo > 0.4) && (!tree || (budTurn < 3u && !budBlocked))` : K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
+      if (!born && E > divE && silt != NONE && !th.torpid${K.grow && K.tissue > 0 ? ` && age > select(${f(K.mature)} * g.lifespan, ${f(K.growTip)}, tree && (g.photo > 0.4 || g.beat.w > 0.5)) && (!tree || (budTurn < 3u && !budBlocked))` : K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
         born = true;
         var won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged;
         if (!won && silt2 != NONE) { won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt2], 0u, i + 1u).exchanged; }

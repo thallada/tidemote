@@ -53,9 +53,9 @@ test('twelve cosmetic shapes keep the archetype random-draw count', () => {
     let draws = 0;
     const g = archetypeGenome(type, () => { draws++; return r; });
     assert.equal(g.shape, shape);
-    // + 4 for the thermal optimum and tolerance; heat-maker founders draw one (two when chosen); + 7 for the growth plan; + 4 for the beat
+    // + 4 for the thermal optimum and tolerance; heat-maker founders draw one (two when chosen); + 7 for the growth plan; + 5 for the beat
     const thermo = ['crawler', 'grazer', 'filament'].includes(type) ? (r < 0.25 ? 2 : 1) : 0;
-    assert.equal(draws, (type === 'grazer' ? 77 : type === 'filament' ? 78 : 76) + 4 + thermo + 7 + 4);
+    assert.equal(draws, (type === 'grazer' ? 77 : type === 'filament' ? 78 : 76) + 4 + thermo + 7 + 5);
     const before = JSON.stringify(g);
     for (let role = 0; role < 3; role++) assert.ok(cellShape(g, role) >= 0 && cellShape(g, role) < 12);
     assert.equal(JSON.stringify(g), before, 'cosmetic selection leaves the genome unchanged');

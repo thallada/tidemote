@@ -1322,7 +1322,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     // 1: trees beat as their genes say (0: never)
     beatDrive: 12,
     // a beat's push on each bend per unit of amplitude, relative to the bonds' pull
-    beatCost: 0.02,
+    beatCost: 5e-3,
     // upkeep per unit of beat amplitude (radians) times frequency (Hz)
     beatTest: 0,
     // TEMP diagnostic: every tree beats at this amplitude, 1.5 Hz, 0.8 rad per cell
@@ -2488,6 +2488,8 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   if (rnd(s) < m * 0.1) { g.beat.x = select(0.0, mix(0.15, 0.5, rnd(s)), g.beat.x < 0.05); }
   g.beat.y = clamp(g.beat.y * exp(gauss(s) * m * 0.3), 0.3, 3.0);
   g.beat.z = clamp(g.beat.z + gauss(s) * m * 0.2, 0.2, 1.6);
+  // an animal colony grows from its tips like a plant (beat.w past 0.5), so it can grow long: now and then it flips
+  if (rnd(s) < m * 0.1) { g.beat.w = 1.0 - g.beat.w; }
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -2536,7 +2538,7 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   g.calcify = select(0.0, ca, ca > 0.7);
   g.topt = clamp(t + gauss(s) * 3.0, 0.0, 45.0);
   g.tol = mix(3.0, 10.0, rnd(s));
-  g.beat = vec4f(select(0.0, mix(0.15, 0.5, rnd(s)), rnd(s) < 0.25), mix(0.5, 2.5, rnd(s)), mix(0.3, 1.2, rnd(s)), 0.0);
+  g.beat = vec4f(select(0.0, mix(0.15, 0.5, rnd(s)), rnd(s) < 0.25), mix(0.5, 2.5, rnd(s)), mix(0.3, 1.2, rnd(s)), select(0.0, 1.0, rnd(s) < 0.25));
   g.parent = 0u;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -3423,7 +3425,7 @@ ${cellWGSL(K, false)}
       diagAdd(dg, 13u, 1u);
       if (isAnimal(food)) { diagAdd(dg, 14u, 1u); }
     }
-    if (E > divE && silt != NONE && !th.torpid${K.grow && K.tissue > 0 ? ` && age > select(${f(K.mature)} * g.lifespan, ${f(K.growTip)}, tree && g.photo > 0.4) && (!tree || (budTurn < 3u && !budBlocked))` : K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ""}) {
+    if (E > divE && silt != NONE && !th.torpid${K.grow && K.tissue > 0 ? ` && age > select(${f(K.mature)} * g.lifespan, ${f(K.growTip)}, tree && (g.photo > 0.4 || g.beat.w > 0.5)) && (!tree || (budTurn < 3u && !budBlocked))` : K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ""}) {
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
         cr = sampleRole(g, role, &s);
@@ -3480,7 +3482,7 @@ ${cellWGSL(K, false)}
         * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking) * h;
       age += h;
       let tk = sim.tick - sim.ticks + k;
-      if (!born && E > divE && silt != NONE && !th.torpid${K.grow && K.tissue > 0 ? ` && age > select(${f(K.mature)} * g.lifespan, ${f(K.growTip)}, tree && g.photo > 0.4) && (!tree || (budTurn < 3u && !budBlocked))` : K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ""}) {
+      if (!born && E > divE && silt != NONE && !th.torpid${K.grow && K.tissue > 0 ? ` && age > select(${f(K.mature)} * g.lifespan, ${f(K.growTip)}, tree && (g.photo > 0.4 || g.beat.w > 0.5)) && (!tree || (budTurn < 3u && !budBlocked))` : K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ""}) {
         born = true;
         var won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged;
         if (!won && silt2 != NONE) { won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt2], 0u, i + 1u).exchanged; }
@@ -6931,7 +6933,7 @@ struct SV {
       topt: clamp(t0 + gaussOf(r) * 3, 0, 45),
       tol: type === "reef" ? mix(3, 6, r()) : mix(5, 10, r()),
       thermo: THERMO_FOUNDERS.has(type) && r() < 0.25 ? unorm8(mix(0.3, 0.7, r())) : 0,
-      beat: ((on, amp) => [BEATERS.has(type) && on < 0.3 ? mix(0.15, 0.5, amp) : 0, mix(0.5, 2.5, r()), mix(0.3, 1.2, r())])(r(), r()),
+      beat: ((on, amp, tip) => [BEATERS.has(type) && on < 0.3 ? mix(0.15, 0.5, amp) : 0, mix(0.5, 2.5, r()), mix(0.3, 1.2, r()), BEATERS.has(type) && tip < 0.3 ? 1 : 0])(r(), r(), r()),
       grow: [r() < (TREES[type] ?? 0) ? mix(0.55, 1, r()) : mix(0, 0.45, r()), ...[1, 2, 3, 4, 5].map((i) => PLANS[type] ? mix(...PLANS[type][i], r()) : r())].map(unorm8)
     };
     return finalizeGenome(g, K);
@@ -7013,11 +7015,11 @@ struct SV {
     f32[o + 45] = g.calcify || 0;
     f32[o + 46] = g.topt ?? 19;
     f32[o + 47] = g.tol ?? 7;
-    const b = g.beat || [0, 1, 0.6];
+    const b = g.beat || [0, 1, 0.6, 0];
     f32[o + 48] = b[0];
     f32[o + 49] = b[1];
     f32[o + 50] = b[2];
-    f32[o + 51] = 0;
+    f32[o + 51] = b[3] ?? 0;
   }
   var genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
   function readGenome(u32, f32, slot) {
@@ -7065,7 +7067,7 @@ struct SV {
       calcify: f32[o + 45],
       topt: f32[o + 46],
       tol: f32[o + 47],
-      beat: [f32[o + 48], f32[o + 49], f32[o + 50]],
+      beat: [f32[o + 48], f32[o + 49], f32[o + 50], f32[o + 51]],
       thermo: (u32[o + 15] & 255) / 255,
       grow
     };

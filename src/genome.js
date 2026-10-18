@@ -107,7 +107,8 @@ const PLANS = {
   filament: [null, [0.11, 0.33], [0.35, 0.85], [0.3, 0.7], [0, 0.4], [0.25, 0.75]],
 };
 
-// Founders that may beat (swimming trees): a third or so of these animals' founders start with a beat.
+// Founders that may beat (swimming trees): about 30% of these animals' founders start with a beat, and
+// (independently) about 30% with colonies that grow from their tips like plants, so they can grow long.
 const BEATERS = new Set(['crawler', 'hunter', 'scavenger']);
 
 // Heat-makers among the founders: a quarter of these body plans start with some heat output.
@@ -157,7 +158,7 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
     topt: clamp(t0 + gaussOf(r) * 3, 0, 45),
     tol: type === 'reef' ? mix(3, 6, r()) : mix(5, 10, r()),
     thermo: THERMO_FOUNDERS.has(type) && r() < 0.25 ? unorm8(mix(0.3, 0.7, r())) : 0,
-    beat: ((on, amp) => [BEATERS.has(type) && on < 0.3 ? mix(0.15, 0.5, amp) : 0, mix(0.5, 2.5, r()), mix(0.3, 1.2, r())])(r(), r()),
+    beat: ((on, amp, tip) => [BEATERS.has(type) && on < 0.3 ? mix(0.15, 0.5, amp) : 0, mix(0.5, 2.5, r()), mix(0.3, 1.2, r()), BEATERS.has(type) && tip < 0.3 ? 1 : 0])(r(), r(), r()),
     grow: [r() < (TREES[type] ?? 0) ? mix(0.55, 1, r()) : mix(0, 0.45, r()), ...[1, 2, 3, 4, 5].map((i) => (PLANS[type] ? mix(...PLANS[type][i], r()) : r()))].map(unorm8),
   };
   return finalizeGenome(g, K);
@@ -236,7 +237,8 @@ export function mutateLike(g, r = Math.random, K = DEFAULT_K) {
   const bt = h.beat || [0, 1, 0.6];
   let amp = clamp(bt[0] + gauss() * m * 0.1, 0, 0.6);
   if (r() < m * 0.1) amp = amp < 0.05 ? 0.15 + 0.35 * r() : 0;
-  h.beat = [amp, clamp(bt[1] * Math.exp(gauss() * m * 0.3), 0.3, 3), clamp(bt[2] + gauss() * m * 0.2, 0.2, 1.6)];
+  h.beat = [amp, clamp(bt[1] * Math.exp(gauss() * m * 0.3), 0.3, 3), clamp(bt[2] + gauss() * m * 0.2, 0.2, 1.6), (bt[3] ?? 0) > 0.5 ? 1 : 0];
+  if (r() < m * 0.1) h.beat[3] = 1 - h.beat[3];
   h.parent = g.serial; h.serial = (g.serial || 0) + 1; h.depth = (g.depth || 0) + 1;
   return finalizeGenome(h, K);
 }
@@ -260,8 +262,8 @@ export function writeGenome(u32, f32, slot, g) {
   f32[o + 45] = g.calcify || 0;
   f32[o + 46] = g.topt ?? 19;
   f32[o + 47] = g.tol ?? 7;
-  const b = g.beat || [0, 1, 0.6];
-  f32[o + 48] = b[0]; f32[o + 49] = b[1]; f32[o + 50] = b[2]; f32[o + 51] = 0;
+  const b = g.beat || [0, 1, 0.6, 0];
+  f32[o + 48] = b[0]; f32[o + 49] = b[1]; f32[o + 50] = b[2]; f32[o + 51] = b[3] ?? 0;
 }
 
 export const genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
@@ -282,7 +284,7 @@ export function readGenome(u32, f32, slot) {
     shape: F(16), pulse: F(17), roleHue: F(18), advect: F(19), swim: F(20), align: F(21), photo: F(22),
     col: u32[o + 39], parent: u32[o + 40], serial: u32[o + 41], born: f32[o + 42], depth: u32[o + 43],
     adhesion: f32[o + 44], calcify: f32[o + 45],
-    topt: f32[o + 46], tol: f32[o + 47], beat: [f32[o + 48], f32[o + 49], f32[o + 50]], thermo: (u32[o + 15] & 255) / 255, grow,
+    topt: f32[o + 46], tol: f32[o + 47], beat: [f32[o + 48], f32[o + 49], f32[o + 50], f32[o + 51]], thermo: (u32[o + 15] & 255) / 255, grow,
   };
 }
 
