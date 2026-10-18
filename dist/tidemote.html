@@ -1310,6 +1310,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     grow: 0,
     growStiff: 1,
     // how firmly a tree's cell holds the angle it grew at, relative to its bonds' pull
+    growWho: 0,
+    // (diagnostic) 1: only producers grow as trees, 2: only animals
     growTip: 3,
     // seconds a tree's tip waits before budding again (it is always its youngest cell: mature would stall it)
     growFeed: 1,
@@ -1760,7 +1762,7 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   let keep1 = n1 != NONE; let keep2 = n2 != NONE;${K.grow && K.tissue > 0 ? `
   // a tree (K.grow) grows from its tips at the angles of its plan, bonded mother to daughter only
   let gr = growOf(g);
-  let tree = bonding && gr.tree;` : ""}${K.tissue > 0 ? `
+  let tree = bonding && gr.tree${K.growWho === 1 ? " && g.photo > 0.4" : K.growWho === 2 ? " && g.photo <= 0.4" : ""};` : ""}${K.tissue > 0 ? `
   // how tightly its bodies hold: the most adhesive species grow tissue, membrane to membrane; the
   // least keep open, strung-out bodies (a tree's cells touch)
   let tight = ${K.grow ? "select(" : ""}clamp((g.adhesion - ${f(K.tightFrom)}) / ${f(K.tightSpan)}, 0.0, 1.0)${K.grow ? ", 1.0, tree)" : ""};
@@ -2666,7 +2668,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
           // buds toward the grain)
           let gr = growOf(genomes[ck]);
           let gm = intent[c - 1u].z;
-          if (gr.tree && genomes[ck].adhesion > ${f(K.adhMin)} && ck == mother.kind && gm < sim.count && parts[gm].kind == ck) {
+          if (gr.tree && genomes[ck].adhesion > ${f(K.adhMin)}${K.growWho === 1 ? " && genomes[ck].photo > 0.4" : K.growWho === 2 ? " && genomes[ck].photo <= 0.4" : ""} && ck == mother.kind && gm < sim.count && parts[gm].kind == ck) {
             var hd = mother.pos - parts[gm].pos;
             hd -= sim.world * round(hd / sim.world);
             if (dot(hd, hd) > 1e-10) { dir = rot2(normalize(hd), turnAngle(gr, bud & 3u, gen)); }
