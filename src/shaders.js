@@ -100,10 +100,9 @@ export const DEFAULT_K = {
   // from its tips at the angles its plan sets (growOf), so it branches, curls, forks and zigzags
   grow: 0,
   growStiff: 1,     // how firmly a tree's cell holds the angle it grew at, relative to its bonds' pull
-  growAnimals: 1,   // 0: animal trees share energy evenly and wait to mature like any body (only plants feed their tips)
-  growWho: 0,       // (diagnostic) 1: only producers grow as trees, 2: only animals
-  growTip: 3,       // seconds a tree's tip waits before budding again (it is always its youngest cell: mature would stall it)
-  growFeed: 1,      // with bodyShare, rate (per second) at which a tree's grown cells pass their surplus on to their daughters
+  growAnimals: 0,   // 1: an animal colony feeds its tips too (they still grow up first)
+  growTip: 3,       // seconds a plant's tip waits before budding again (it is always its youngest cell: mature would stall it)
+  growFeed: 1,      // with bodyShare, rate (per second) at which a plant's grown cells pass their surplus on to their daughters
   bodyHold: 0.3,    // with bodyPush, the share of overlap undone each tick by velocity (contact as a constraint)
   bodyGive: 0.85,   // with bodyPush, how far cells may squash against each other first (share of touching; bonds rest at bondTouch)
   bodyPush: 30,     // with liveFirst (contactMain): how hard overlapping cells' bodies push apart (units/s² per unit of overlap, summed; 0: off)
@@ -471,8 +470,9 @@ function cellWGSL(K, w) {
   let keep1 = n1 != NONE; let keep2 = n2 != NONE;${K.grow && K.tissue > 0 ? `
   // a tree (K.grow) grows from its tips at the angles of its plan, bonded mother to daughter only
   let gr = growOf(g);
-  let tree = bonding && gr.tree${K.growWho === 1 ? ' && g.photo > 0.4' : K.growWho === 2 ? ' && g.photo <= 0.4' : ''};
-  // a tree that feeds its tips, which bud again soon (growTip)
+  let tree = bonding && gr.tree;
+  // a plant's tree feeds its tips, which bud again soon (growTip); an animal colony's cells share their
+  // energy evenly and grow up first like any body's (fed colonies made hunters too strong)
   let fed = tree${K.growAnimals ? '' : ' && g.photo > 0.4'};` : ''}${K.tissue > 0 ? `
   // how tightly its bodies hold: the most adhesive species grow tissue, membrane to membrane; the
   // least keep open, strung-out bodies (a tree's cells touch)
@@ -1379,7 +1379,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
           // buds toward the grain)
           let gr = growOf(genomes[ck]);
           let gm = intent[c - 1u].z;
-          if (gr.tree && genomes[ck].adhesion > ${f(K.adhMin)}${K.growWho === 1 ? ' && genomes[ck].photo > 0.4' : K.growWho === 2 ? ' && genomes[ck].photo <= 0.4' : ''} && ck == mother.kind && gm < sim.count && parts[gm].kind == ck) {
+          if (gr.tree && genomes[ck].adhesion > ${f(K.adhMin)} && ck == mother.kind && gm < sim.count && parts[gm].kind == ck) {
             var hd = mother.pos - parts[gm].pos;
             hd -= sim.world * round(hd / sim.world);
             if (dot(hd, hd) > 1e-10) { dir = rot2(normalize(hd), turnAngle(gr, bud & 3u, gen)); }
@@ -2035,7 +2035,7 @@ ${cellWGSL(K, false)}
       diagAdd(dg, 13u, 1u);
       if (isAnimal(food)) { diagAdd(dg, 14u, 1u); }
     }
-    if (E > divE && silt != NONE && !th.torpid${K.grow && K.tissue > 0 ? ` && age > select(${f(K.mature)} * g.lifespan, ${f(K.growTip)}, fed) && (!tree || (budTurn < 3u && !budBlocked))` : K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
+    if (E > divE && silt != NONE && !th.torpid${K.grow && K.tissue > 0 ? ` && age > select(${f(K.mature)} * g.lifespan, ${f(K.growTip)}, tree && g.photo > 0.4) && (!tree || (budTurn < 3u && !budBlocked))` : K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
         cr = sampleRole(g, role, &s);
@@ -2092,7 +2092,7 @@ ${cellWGSL(K, false)}
         * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking) * h;
       age += h;
       let tk = sim.tick - sim.ticks + k;
-      if (!born && E > divE && silt != NONE && !th.torpid${K.grow && K.tissue > 0 ? ` && age > select(${f(K.mature)} * g.lifespan, ${f(K.growTip)}, fed) && (!tree || (budTurn < 3u && !budBlocked))` : K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
+      if (!born && E > divE && silt != NONE && !th.torpid${K.grow && K.tissue > 0 ? ` && age > select(${f(K.mature)} * g.lifespan, ${f(K.growTip)}, tree && g.photo > 0.4) && (!tree || (budTurn < 3u && !budBlocked))` : K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
         born = true;
         var won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged;
         if (!won && silt2 != NONE) { won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt2], 0u, i + 1u).exchanged; }
