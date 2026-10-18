@@ -98,11 +98,10 @@ export const DEFAULT_K = {
   budding: 1,       // 1: a daughter appears beside her mother (toward the grain she is built from), not at the grain
   // with tissue: a bonded species whose growth plan says so grows as a tree, bonded mother to daughter only,
   // from its tips at the angles its plan sets (growOf), so it branches, curls, forks and zigzags
-  grow: 0,
-  growStiff: 1,     // how firmly a tree's cell holds the angle it grew at, relative to its bonds' pull
-  growAnimals: 0,   // 1: an animal colony feeds its tips too (they still grow up first)
+  grow: 1,
+  growStiff: 12,    // how firmly a tree's cell holds the angle it grew at, relative to its bonds' pull
   growTip: 3,       // seconds a plant's tip waits before budding again (it is always its youngest cell: mature would stall it)
-  growFeed: 1,      // with bodyShare, rate (per second) at which a plant's grown cells pass their surplus on to their daughters
+  growFeed: 1,      // with bodyShare, rate (per second) at which a tree's grown cells pass their surplus on to their daughters
   bodyHold: 0.3,    // with bodyPush, the share of overlap undone each tick by velocity (contact as a constraint)
   bodyGive: 0.85,   // with bodyPush, how far cells may squash against each other first (share of touching; bonds rest at bondTouch)
   bodyPush: 30,     // with liveFirst (contactMain): how hard overlapping cells' bodies push apart (units/s² per unit of overlap, summed; 0: off)
@@ -470,10 +469,7 @@ function cellWGSL(K, w) {
   let keep1 = n1 != NONE; let keep2 = n2 != NONE;${K.grow && K.tissue > 0 ? `
   // a tree (K.grow) grows from its tips at the angles of its plan, bonded mother to daughter only
   let gr = growOf(g);
-  let tree = bonding && gr.tree;
-  // a plant's tree feeds its tips, which bud again soon (growTip); an animal colony's cells share their
-  // energy evenly and grow up first like any body's (fed colonies made hunters too strong)
-  let fed = tree${K.growAnimals ? '' : ' && g.photo > 0.4'};` : ''}${K.tissue > 0 ? `
+  let tree = bonding && gr.tree;` : ''}${K.tissue > 0 ? `
   // how tightly its bodies hold: the most adhesive species grow tissue, membrane to membrane; the
   // least keep open, strung-out bodies (a tree's cells touch)
   let tight = ${K.grow ? 'select(' : ''}clamp((g.adhesion - ${f(K.tightFrom)}) / ${f(K.tightSpan)}, 0.0, 1.0)${K.grow ? ', 1.0, tree)' : ''};
@@ -859,7 +855,7 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   shareE *= shareK;${K.grow ? `
   // a tree feeds its tips instead, as a plant's sugars flow to where it grows: a cell whose daughters are
   // all grown passes them its surplus over half its division energy (mother and daughter reckon it alike)
-  if (fed) {
+  if (tree) {
     let keep = 0.5 * divE;
     let rate = min(0.5, ${f(K.growFeed)} * sim.dt);
     shareE = -feedOf(i, gr, keep, rate).y;
