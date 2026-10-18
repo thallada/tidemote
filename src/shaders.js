@@ -96,6 +96,12 @@ export const DEFAULT_K = {
   tightFrom: 0.5,   // with tissue, the adhesion where bodies start to close into tissue...
   tightSpan: 0.4,   // ...and how much more until they are tissue through and through
   budding: 1,       // 1: a daughter appears beside her mother (toward the grain she is built from), not at the grain
+  // with tissue: a bonded species whose growth plan says so grows as a tree, bonded mother to daughter only,
+  // from its tips at the angles its plan sets (growOf), so it branches, curls, forks and zigzags
+  grow: 0,
+  growStiff: 1,     // how firmly a tree's cell holds the angle it grew at, relative to its bonds' pull
+  growTip: 3,       // seconds a tree's tip waits before budding again (it is always its youngest cell: mature would stall it)
+  growFeed: 1,      // with bodyShare, rate (per second) at which a tree's grown cells pass their surplus on to their daughters
   bodyHold: 0.3,    // with bodyPush, the share of overlap undone each tick by velocity (contact as a constraint)
   bodyGive: 0.85,   // with bodyPush, how far cells may squash against each other first (share of touching; bonds rest at bondTouch)
   bodyPush: 30,     // with liveFirst (contactMain): how hard overlapping cells' bodies push apart (units/s² per unit of overlap, summed; 0: off)
@@ -297,7 +303,7 @@ const META_CLAIM = ${META_CLAIM}u;
 const TAU = 6.28318530718;
 const ORGANS = ${ORGANS}u;
 
-// Info: 0..3 cause, 4..5 role, 6..15 search image, 16..31 generation.
+// Info: 0..3 cause, 4..5 role, 6..15 search image, 16..27 generation, 28..29 a tree cell's turn, 30..31 its branch order.
 struct Particle { pos: vec2f, vel: vec2f, kind: u32, energy: f32, age: f32, id: u32, col: u32, info: u32 };
 struct Genome {
   sig: array<vec4u, 3>,
@@ -318,7 +324,44 @@ fn renderHash(id: u32) -> f32 {
   h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
   return f32((h >> 22u) ^ h) / 4294967296.0;
 }
-fn genOf(info: u32) -> u32 { return info >> 16u; }
+fn genOf(info: u32) -> u32 { return (info >> 16u) & 4095u; }
+// A tree's cell (K.grow): the turn it grew at from its mother (0 straight on, 1 left, 2 right) and its
+// branch order (0: the main axis)
+fn turnOf(info: u32) -> u32 { return (info >> 28u) & 3u; }
+fn orderOf(info: u32) -> u32 { return info >> 30u; }
+// A bonded species' growth plan, six genes in the developmental matrix's spare bytes: whether it grows as a
+// tree; the angle its branches leave at; every how many cells along an axis it branches (0: never); how far
+// each cell turns from the one before (curl: spirals and rings); the branching pattern (alternate,
+// one-sided, opposite, forking, or alternate with the curl changing side cell by cell: a zigzag); and how
+// many orders of branches branch again
+struct Grow { tree: bool, angle: f32, every: u32, curl: f32, pattern: u32, depth: u32 };
+fn growOf(g: Genome) -> Grow {
+  let w = unpack4x8unorm(g.dev.w);
+  let every = g.dev.z >> 29u;
+  let curl = w.y * 2.0 - 1.0;
+  return Grow(g.dev.x >= 0x80000000u, mix(0.25, 1.6, f32(g.dev.y >> 24u) / 255.0), select(every, 2u, every == 1u),
+    curl * curl * curl * 0.7, min(u32(w.z * 5.0), 4u), min(u32(w.w * 4.0), 3u));
+}
+// The angle a daughter grows at from her mother's heading, by her turn and generation.
+fn turnAngle(gr: Grow, turn: u32, gen: u32) -> f32 {
+  let curl = select(gr.curl, -gr.curl, gr.pattern == 4u && (gen & 1u) == 1u);
+  let side = select(0.0, 1.0, turn == 1u) - select(0.0, 1.0, turn == 2u);
+  return curl + side * gr.angle * select(1.0, 0.5, gr.pattern == 3u);
+}
+// The daughters (bits by turn) a tree's cell of this generation and order grows.
+fn growWants(gr: Grow, gen: u32, order: u32) -> u32 {
+  if (gr.every == 0u || order >= gr.depth || gen % gr.every != 0u) { return 1u; }
+  switch gr.pattern {
+    case 1u: { return 3u; }
+    case 2u: { return 7u; }
+    case 3u: { return 6u; }
+    default: { return select(5u, 3u, (gen / gr.every) % 2u == 0u); }
+  }
+}
+fn rot2(v: vec2f, a: f32) -> vec2f {
+  let c = cos(a); let s = sin(a);
+  return vec2f(c * v.x - s * v.y, s * v.x + c * v.y);
+}
 
 fn tideAt(p: vec2f, world: vec2f, t: f32, w: array<vec4f, 4>, ph: vec4f) -> f32 {
   let u = p / world * TAU;
@@ -423,10 +466,13 @@ function cellWGSL(K, w) {
       d2 = length(dn2);
     }
   }
-  let keep1 = n1 != NONE; let keep2 = n2 != NONE;${K.tissue > 0 ? `
+  let keep1 = n1 != NONE; let keep2 = n2 != NONE;${K.grow && K.tissue > 0 ? `
+  // a tree (K.grow) grows from its tips at the angles of its plan, bonded mother to daughter only
+  let gr = growOf(g);
+  let tree = bonding && gr.tree;` : ''}${K.tissue > 0 ? `
   // how tightly its bodies hold: the most adhesive species grow tissue, membrane to membrane; the
-  // least keep open, strung-out bodies
-  let tight = clamp((g.adhesion - ${f(K.tightFrom)}) / ${f(K.tightSpan)}, 0.0, 1.0);
+  // least keep open, strung-out bodies (a tree's cells touch)
+  let tight = ${K.grow ? 'select(' : ''}clamp((g.adhesion - ${f(K.tightFrom)}) / ${f(K.tightSpan)}, 0.0, 1.0)${K.grow ? ', 1.0, tree)' : ''};
 ` : ''}
   // a bond's rest length: with K.bondTouch, cells of a body sit membrane to membrane (a tissue)
   let bondRest = ${K.tissue > 0 ? `0.0` : K.bondTouch > 0 ? `${f(K.bondTouch)} * 2.0 * 0.085 * g.size * (1.0 - 0.12 * f32(role))` : 'LINK_R * 0.55'};
@@ -461,7 +507,26 @@ function cellWGSL(K, w) {
   // personal space, summed over every neighbour inside it
   var coreF = vec2f(0.0);` : ''}
   var preyNear = vec2f(0.0);
-  var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
+  var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));${K.grow && K.tissue > 0 ? `
+  // a tree grows from its tips: the daughter this cell lacks (budTurn; 3: none), where she would grow
+  // (budAt, from here) and whether a cell is in the way (budBlocked)
+  var budTurn = 3u;
+  var budAt = vec2f(0.0);
+  var budBlocked = false;
+  let budGap = ${f(K.bondTouch || 0.9)} * 0.085 * g.size * (2.0 - 0.24 * f32(role));
+  if (tree) {
+    var have = 0u;
+    for (var k = 0u; k < min(backOf(i, 0u), 3u); k++) {
+      let c = backOf(i, 1u + k);
+      if (c < sim.count && sortedFull[c].kind == p.kind) { have |= 1u << turnOf(sortedFull[c].info); }
+    }
+    let miss = growWants(gr, genOf(p.info), orderOf(p.info)) & ~have;
+    if (miss != 0u) {
+      budTurn = firstTrailingBit(miss);
+      let hd = headingOf(i, gr);
+      budAt = rot2(hd.dir, turnAngle(gr, budTurn, genOf(p.info) + 1u)) * budGap;
+    }
+  }` : ''}
 
 
 
@@ -566,7 +631,9 @@ ${K.liveFirst ? `
         bk = mix(beta, min(beta, tq * invR), tight);
         invBk = 1.0 / bk;
         invOMk = 1.0 / (1.0 - bk);
-        sigK = mix(1.0, ${f(K.tissueSig)}, tight);
+        sigK = mix(1.0, ${f(K.tissueSig)}, tight);${K.grow ? `
+        // a tree's shape is its bonds': its branches neither draw together nor apart
+        if (tree) { sigK = 0.0; }` : ''}
       }
       let shape = 1.0 - abs(2.0 * x - 1.0 - bk) * invOMk;` : `
       let shape = 1.0 - abs(2.0 * x - 1.0 - beta) * invOM;`}
@@ -574,7 +641,9 @@ ${K.liveFirst ? `
       // how fr changes with distance (coarse steps' gradient), and the pull that scales shape
       var dfr = 0.0;
       var pull = 0.0;
-      if (qk >= FIRST_LIFE) {
+      if (qk >= FIRST_LIFE) {${K.grow && K.tissue > 0 ? `
+        // its own kind in the way stops it (a tree fills space without overlapping itself); strangers are shoved aside
+        if (budTurn < 3u && qk == p.kind && distance(d, budAt) < 0.7 * budGap) { budBlocked = true; }` : ''}
         // a hungry forager lets other species inside its personal space so it can reach them
         let core = select(1.0, ${f(K.huntCore)}, canHunt && qk != p.kind);
         if (x < ${K.tissue > 0 ? 'bk' : 'beta'}) { fr = (x * ${K.tissue > 0 ? 'invBk' : 'invBeta'} - 1.0) * core; } else { fr = a * shape${K.tissue > 0 ? ' * sigK' : ''}; }${W('mFr0 = fr; mFl = 0.0;')}
@@ -603,7 +672,7 @@ ${K.liveFirst ? `
             csum += unpack4x8unorm(q.col).rgb * w;
             wsum += w;
           }
-          if (bonding && qk == p.kind && j != n1 && j != n2${K.cyst ? ' && (q.kr & (1u << 13u)) == 0u' : ''}${K.tissue > 0 ? ' && ((!keep1 && r < d1) || (!keep2 && r < d2)) && joinable(i, j, select(NONE, n1, keep1), select(NONE, n2, keep2))' : ''}) {
+          if (bonding${K.grow && K.tissue > 0 ? ' && !tree' : ''} && qk == p.kind && j != n1 && j != n2${K.cyst ? ' && (q.kr & (1u << 13u)) == 0u' : ''}${K.tissue > 0 ? ' && ((!keep1 && r < d1) || (!keep2 && r < d2)) && joinable(i, j, select(NONE, n1, keep1), select(NONE, n2, keep2))' : ''}) {
             if (!keep1 && r < d1) {
               if (!keep2) { d2 = d1; n2 = n1; dn2 = dn1; }
               d1 = r; n1 = j; dn1 = d;
@@ -710,7 +779,18 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   let e0 = bondTo(nb0, p); let e1 = bondTo(nb1, p); let e2 = bondTo(nb2, p);
   if (nb0 != NONE) { bondF += e0 * ((length(e0) - rb0) / max(length(e0), 1e-4)); }
   if (nb1 != NONE) { bondF += e1 * ((length(e1) - rb1) / max(length(e1), 1e-4)); }
-  if (nb2 != NONE) { bondF += e2 * ((length(e2) - rb2) / max(length(e2), 1e-4)); }` : ''}
+  if (nb2 != NONE) { bondF += e2 * ((length(e2) - rb2) / max(length(e2), 1e-4)); }` : ''}${K.grow && K.tissue > 0 ? `
+  // a tree's cell holds the angle it grew at from its mother's heading, carried on her motion
+  var aim = vec2f(0.0);
+  var aimOn = false;
+  if (tree && n1 != NONE) {
+    let hm = headingOf(n1, gr);
+    if (hm.ok && hm.by != i) {
+      aim = dn1 + rot2(hm.dir, turnAngle(gr, turnOf(p.info), genOf(p.info))) * rs1;
+      aimOn = true;
+      bondF += aim * ${f(K.growStiff)};
+    }
+  }` : ''}
   let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0);
   let flow = flowAt(p.pos) * g.advect;
   // a holdfast: a cell the current hardly carries (advect below 0.35, fully below 0.1) is anchored, and
@@ -772,7 +852,15 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   if (nb0 != NONE) { shareE += sortedFull[nb0].energy - p.energy; }
   if (nb1 != NONE) { shareE += sortedFull[nb1].energy - p.energy; }
   if (nb2 != NONE) { shareE += sortedFull[nb2].energy - p.energy; }
-  shareE *= shareK;` : ''}` : ''}
+  shareE *= shareK;${K.grow ? `
+  // a tree feeds its tips instead, as a plant's sugars flow to where it grows: a cell whose daughters are
+  // all grown passes them its surplus over half its division energy (mother and daughter reckon it alike)
+  if (tree) {
+    let keep = 0.5 * divE;
+    let rate = min(0.5, ${f(K.growFeed)} * sim.dt);
+    shareE = -feedOf(i, gr, keep, rate).y;
+    if (n1 != NONE) { shareE += feedOf(n1, gr, keep, rate).x; }
+  }` : ''}` : ''}` : ''}
   var vel = p.vel;
   var pos = p.pos;
   for (var k = 0u; k < select(1u, sim.ticks, COARSE); k++) {
@@ -785,7 +873,8 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
       if (n2 != NONE) { let e = dn2 + vB2 * t - moved; let l = length(e); fb += e * ((l - rs2) / max(l, 1e-4)); }${K.tissue > 0 ? `
       if (nb0 != NONE) { let e = e0 + vb0 * t - moved; let l = length(e); fb += e * ((l - rb0) / max(l, 1e-4)); }
       if (nb1 != NONE) { let e = e1 + vb1 * t - moved; let l = length(e); fb += e * ((l - rb1) / max(l, 1e-4)); }
-      if (nb2 != NONE) { let e = e2 + vb2 * t - moved; let l = length(e); fb += e * ((l - rb2) / max(l, 1e-4)); }` : ''}
+      if (nb2 != NONE) { let e = e2 + vb2 * t - moved; let l = length(e); fb += e * ((l - rb2) / max(l, 1e-4)); }` : ''}${K.grow && K.tissue > 0 ? `
+      if (aimOn) { fb += (aim + vB1 * t - moved) * ${f(K.growStiff)}; }` : ''}
     }
     vel = vel * fr0 + force * (g.force * heavy * h) + stiff * h;${W('if (k == 0u) { mVel = vel; }')}
     if (kinN > 0.0 && g.align > 0.0) {
@@ -1076,7 +1165,17 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   g.tol = clamp(g.tol * exp(gauss(s) * m * 0.3), 2.0, 15.0);
   var thermo = clamp(thermoOf(g) + gauss(s) * m * 0.15, 0.0, 1.0);
   if (rnd(s) < m * 0.1) { thermo = select(0.0, mix(0.3, 0.7, rnd(s)), thermo < 0.05); }
-  g.dev.w = u32(thermo * 255.0 + 0.5);
+  // the growth plan's last three genes share a word with thermo: they drift like the rest of the
+  // plan, and now and then one of the six is redrawn
+  var gw = clamp(unpack4x8unorm(g.dev.w) + g4(s) * m * 0.35, vec4f(0.0), vec4f(1.0));
+  gw.x = thermo;
+  g.dev.w = pack4x8unorm(gw);
+  if (rnd(s) < m * 0.2) {
+    let k = min(u32(rnd(s) * 6.0), 5u);
+    let v = u32(rnd(s) * 255.0 + 0.5);
+    if (k < 3u) { g.dev[k] = (g.dev[k] & 0x00ffffffu) | (v << 24u); }
+    else { let sh = 8u * (k - 2u); g.dev.w = (g.dev.w & ~(255u << sh)) | (v << sh); }
+  }
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -1090,8 +1189,9 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   var g: Genome;
   for (var r = 0u; r < 3u; r++) {
     g.sig[r] = vec4u(pack4x8snorm(r4(s)), pack4x8snorm(r4(s)), pack4x8snorm(r4(s)), pack4x8snorm(r4(s)));
-    g.dev[r] = pack4x8unorm(vec4f(rnd(s), rnd(s), rnd(s), 0.0));
+    g.dev[r] = pack4x8unorm(vec4f(rnd(s), rnd(s), rnd(s), rnd(s)));
   }
+  g.dev.w = pack4x8unorm(vec4f(0.0, rnd(s), rnd(s), rnd(s)));
   g.radius = mix(0.5, 0.95, rnd(s));
   g.beta = mix(0.2, 0.4, rnd(s));
   g.force = mix(2.0, 10.0, rnd(s));
@@ -1258,7 +1358,8 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         p.col = pack4x8unorm(vec4f(0.36, 0.30, 0.14, 1.0));
       } else if (act == 2u && ck >= FIRST_LIFE && p.kind == SILT) {
         let cr = (action >> 12u) & 3u;
-        let gen = (action >> 14u) & 0xffffu;
+        let gen = (action >> 14u) & 4095u;
+        let bud = (action >> 26u) & 15u;
         p.kind = ck;
         p.energy = bitcast<f32>(intent[c - 1u].y);
         p.age = 0.0;
@@ -1269,14 +1370,23 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
           let mother = parts[c - 1u];
           var toward = p.pos - mother.pos;
           toward -= sim.world * round(toward / sim.world);
-          let dir = select(vec2f(1.0, 0.0), normalize(toward), dot(toward, toward) > 1e-10);
+          var dir = select(vec2f(1.0, 0.0), normalize(toward), dot(toward, toward) > 1e-10);${K.grow && K.tissue > 0 ? `
+          // a tree's daughter grows at her turn from her mother's heading (from the grandmother; a root
+          // buds toward the grain)
+          let gr = growOf(genomes[ck]);
+          let gm = intent[c - 1u].z;
+          if (gr.tree && genomes[ck].adhesion > ${f(K.adhMin)} && ck == mother.kind && gm < sim.count && parts[gm].kind == ck) {
+            var hd = mother.pos - parts[gm].pos;
+            hd -= sim.world * round(hd / sim.world);
+            if (dot(hd, hd) > 1e-10) { dir = rot2(normalize(hd), turnAngle(gr, bud & 3u, gen)); }
+          }` : ''}
           let gap = 0.085 * genomes[ck].size * (2.0 - 0.12 * f32(roleOf(mother.info) + cr)) * 0.95;
           p.pos = wrapPos(mother.pos + dir * gap);
           p.vel = mother.vel;
         }` : ''}
         p.id = atomicAdd(&ledger[0], 1u);
         p.col = pack4x8unorm(vec4f(roleColor(genomes[ck], cr), 1.0));
-        p.info = (gen << 16u) | (cr << 4u) | 9u;
+        p.info = (gen << 16u) | (bud << 28u) | (cr << 4u) | 9u;
         intent[i].z = select(NONE, c - 1u, genomes[ck].adhesion > ${f(K.adhMin)});
         intent[i].w = NONE;
         atomicAdd(&ledger[2], 1u);
@@ -1627,6 +1737,50 @@ fn restTo(j: u32, size: f32, role: u32, tight: f32) -> f32 {
   return mix(LINK_R * 0.55, ${f(K.bondTouch || 0.9)} * 0.085 * size * (2.0 - 0.12 * f32(role + roleOf(sortedFull[j].info))), tight);
 }
 
+${K.grow ? `
+// A tree's cell's heading: from its mother to it; a root's, from where its first daughter (by id) grew,
+// turned back by her turn (by: that daughter, who holds no angle to it). ok false: neither.
+struct Heading { dir: vec2f, ok: bool, by: u32 };
+fn headingOf(m: u32, gr: Grow) -> Heading {
+  let pm = sortedFull[m];
+  let gm = bondsOf(m).x;
+  if (gm < sim.count && gm != m && sortedFull[gm].kind == pm.kind) {
+    var d = pm.pos - sortedFull[gm].pos;
+    d -= sim.world * round(d / sim.world);
+    let l = length(d);
+    if (l > 1e-4 && l < LINK_R * ${f(K.bondBreak)}) { return Heading(d / l, true, NONE); }
+  }
+  var best = NONE; var bestId = NONE;
+  for (var k = 0u; k < min(backOf(m, 0u), 3u); k++) {
+    let c = backOf(m, 1u + k);
+    if (c < sim.count && sortedFull[c].kind == pm.kind && sortedFull[c].id < bestId) { best = c; bestId = sortedFull[c].id; }
+  }
+  if (best == NONE) { return Heading(vec2f(1.0, 0.0), false, NONE); }
+  let q = sortedFull[best];
+  var d = q.pos - pm.pos;
+  d -= sim.world * round(d / sim.world);
+  return Heading(rot2(d / max(length(d), 1e-4), -turnAngle(gr, turnOf(q.info), genOf(q.info))), true, best);
+}
+` : ''}
+${K.grow ? `
+// What a tree's cell m passes each daughter this step (x) and in all (y): once the daughters its plan
+// wants are all grown, rate of its surplus over keep, split among them (those keepBond would keep).
+fn feedOf(m: u32, gr: Grow, keep: f32, rate: f32) -> vec2f {
+  let q = sortedFull[m];
+  var have = 0u; var n = 0.0;
+  for (var k = 0u; k < min(backOf(m, 0u), 3u); k++) {
+    let c = backOf(m, 1u + k);
+    if (c >= sim.count || c == m) { continue; }
+    let o = sortedFull[c];
+    var d = o.pos - q.pos;
+    d -= sim.world * round(d / sim.world);
+    if (o.kind == q.kind && (o.info & 15u) != CYST && dot(d, d) <= LINK_R * LINK_R * ${f(K.bondBreak * K.bondBreak)}) { have |= 1u << turnOf(o.info); n += 1.0; }
+  }
+  if (n == 0.0 || (growWants(gr, genOf(q.info), orderOf(q.info)) & ~have) != 0u) { return vec2f(0.0); }
+  let all = rate * max(q.energy - keep, 0.0);
+  return vec2f(all / n, all);
+}
+` : ''}
 // The bond's other end as seen from p (wrapped), or zero for none.
 fn bondTo(j: u32, p: Particle) -> vec2f {
   if (j == NONE) { return vec2f(0.0); }
@@ -1877,7 +2031,7 @@ ${cellWGSL(K, false)}
       diagAdd(dg, 13u, 1u);
       if (isAnimal(food)) { diagAdd(dg, 14u, 1u); }
     }
-    if (E > divE && silt != NONE && !th.torpid${K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
+    if (E > divE && silt != NONE && !th.torpid${K.grow && K.tissue > 0 ? ` && age > select(${f(K.mature)} * g.lifespan, ${f(K.growTip)}, tree) && (!tree || (budTurn < 3u && !budBlocked))` : K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
         cr = sampleRole(g, role, &s);
@@ -1934,7 +2088,7 @@ ${cellWGSL(K, false)}
         * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking) * h;
       age += h;
       let tk = sim.tick - sim.ticks + k;
-      if (!born && E > divE && silt != NONE && !th.torpid${K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
+      if (!born && E > divE && silt != NONE && !th.torpid${K.grow && K.tissue > 0 ? ` && age > select(${f(K.mature)} * g.lifespan, ${f(K.growTip)}, tree) && (!tree || (budTurn < 3u && !budBlocked))` : K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
         born = true;
         var won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged;
         if (!won && silt2 != NONE) { won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt2], 0u, i + 1u).exchanged; }
@@ -2038,7 +2192,9 @@ ${K.cycle ? `  if (kind == HUSK) { atomicAdd(&ledger[META_ENERGY + select(61u, 6
   if (kind == HUSK && g.calcify > 0.0 && rnd(&s) < ${f(K.reefs)} * g.calcify * (1.0 - g.advect) * select(${f(K.nucleate)}, 1.0, stoneN >= 1.0)) {
     kind = STONE; E = ${f(K.stoneLife)} * (0.5 + rnd(&s)); vel = vec2f(0.0);
   }
-  let childGen = ((genOf(p.info) + 1u) & 0xffffu) << 14u;
+  // the child's generation, and in a tree her turn and branch order
+  var childGen = ((genOf(p.info) + 1u) & 4095u) << 14u;${K.grow && K.tissue > 0 ? `
+  if (tree && budTurn < 3u) { childGen |= (budTurn | (min(orderOf(p.info) + select(1u, 0u, budTurn == 0u), 3u) << 2u)) << 26u; }` : ''}
   // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(pack, ce, act == 2u)), n1, n2);
   parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), ${K.dung ? `1.0 - gut / ${f(K.dungE)}` : '1.0'})), info);

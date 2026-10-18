@@ -97,6 +97,16 @@ const ADHESION = { reef: 0.85, plankton: 0, grazer: 0, crawler: 0.75, hunter: 0.
 const CALCIFY = { reef: [0.4, 0.9], filament: [0, 0.3] };
 export const ARCHETYPE_TYPES = Object.keys(ARCHETYPES);
 
+// How often each founding body plan grows as a tree (K.grow), and the ranges its growth genes are drawn
+// from (unorm, as packed: tree, branch angle, branching interval, curl, pattern, depth; growOf in shaders.js):
+// reefs branch like corals and coralline algae (forking or alternate, a few orders deep), filaments like
+// Cladophora (alternate or one-sided side branches); animals' plans are drawn at random.
+const TREES = { reef: 0.6, filament: 0.85, crawler: 0.35, hunter: 0.3, scavenger: 0.4 };
+const PLANS = {
+  reef: [null, [0.2, 0.5], [0.3, 0.7], [0.35, 0.65], [0.55, 0.8], [0.5, 1]],
+  filament: [null, [0.15, 0.45], [0.35, 0.85], [0.3, 0.7], [0, 0.4], [0.25, 0.75]],
+};
+
 // Heat-makers among the founders: a quarter of these body plans start with some heat output.
 const THERMO_FOUNDERS = new Set(['crawler', 'grazer', 'filament']);
 const gaussOf = (r) => (r() + r() + r() - 1.5) * 2;
@@ -144,6 +154,7 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
     topt: clamp(t0 + gaussOf(r) * 3, 0, 45),
     tol: type === 'reef' ? mix(3, 6, r()) : mix(5, 10, r()),
     thermo: THERMO_FOUNDERS.has(type) && r() < 0.25 ? unorm8(mix(0.3, 0.7, r())) : 0,
+    grow: [r() < (TREES[type] ?? 0) ? mix(0.55, 1, r()) : mix(0, 0.45, r()), ...[1, 2, 3, 4, 5].map((i) => (PLANS[type] ? mix(...PLANS[type][i], r()) : r()))].map(unorm8),
   };
   return finalizeGenome(g, K);
 }
@@ -196,6 +207,8 @@ export function mutateLike(g, r = Math.random, K = DEFAULT_K) {
   let thermo = clamp((h.thermo || 0) + gauss() * m * 0.15, 0, 1);
   if (r() < m * 0.1) thermo = thermo < 0.05 ? 0.3 + 0.4 * r() : 0;
   h.thermo = unorm8(thermo);
+  h.grow = (h.grow || [0, 0, 0, 0, 0, 0]).map((v) => unorm8(clamp(v + gauss() * m * 0.35, 0, 1)));
+  if (r() < m * 0.2) h.grow[Math.min(5, Math.floor(r() * 6))] = unorm8(r());
   h.parent = g.serial; h.serial = (g.serial || 0) + 1; h.depth = (g.depth || 0) + 1;
   return finalizeGenome(h, K);
 }
@@ -206,9 +219,10 @@ export function writeGenome(u32, f32, slot, g) {
     const R = g.roles[r];
     u32[o + r * 4] = packSnorm(R.surf.slice(0, 4)); u32[o + r * 4 + 1] = packSnorm(R.surf.slice(4, 8));
     u32[o + r * 4 + 2] = packSnorm(R.rec.slice(0, 4)); u32[o + r * 4 + 3] = packSnorm(R.rec.slice(4, 8));
-    u32[o + 12 + r] = packUnorm(g.dev[r][0], g.dev[r][1], g.dev[r][2], 0);
+    u32[o + 12 + r] = packUnorm(g.dev[r][0], g.dev[r][1], g.dev[r][2], g.grow?.[r] ?? 0);
   }
-  u32[o + 15] = Math.round(clamp(g.thermo || 0, 0, 1) * 255);
+  // thermo, then the growth plan's last three genes
+  u32[o + 15] = packUnorm(g.thermo || 0, g.grow?.[3] ?? 0, g.grow?.[4] ?? 0, g.grow?.[5] ?? 0);
   const fl = ['radius', 'beta', 'force', 'drag', 'metab', 'lifespan', 'reproE', 'share',
     'dGlint', 'dHusk', 'dFlesh', 'mutRate', 'hue', 'sat', 'lum', 'size', 'shape', 'pulse', 'roleHue', 'advect', 'swim', 'align', 'photo'];
   fl.forEach((k, i) => { f32[o + 16 + i] = g[k] ?? 0; });
@@ -229,6 +243,7 @@ export function readGenome(u32, f32, slot) {
     rec: [...unpackSnorm(u32[o + r * 4 + 2]), ...unpackSnorm(u32[o + r * 4 + 3])],
   }));
   const dev = [0, 1, 2].map((r) => unpackUnorm(u32[o + 12 + r]).slice(0, 3));
+  const grow = [...[0, 1, 2].map((r) => unpackUnorm(u32[o + 12 + r])[3]), ...unpackUnorm(u32[o + 15]).slice(1)];
   const F = (i) => f32[o + 16 + i];
   return {
     slot, roles, dev,
@@ -237,7 +252,7 @@ export function readGenome(u32, f32, slot) {
     shape: F(16), pulse: F(17), roleHue: F(18), advect: F(19), swim: F(20), align: F(21), photo: F(22),
     col: u32[o + 39], parent: u32[o + 40], serial: u32[o + 41], born: f32[o + 42], depth: u32[o + 43],
     adhesion: f32[o + 44], calcify: f32[o + 45],
-    topt: f32[o + 46], tol: f32[o + 47], thermo: (u32[o + 15] & 255) / 255,
+    topt: f32[o + 46], tol: f32[o + 47], thermo: (u32[o + 15] & 255) / 255, grow,
   };
 }
 
@@ -246,7 +261,7 @@ export function parseParticle(u32, f32, o) {
   return {
     x: f32[o], y: f32[o + 1], vx: f32[o + 2], vy: f32[o + 3], kind: u32[o + 4],
     energy: f32[o + 5], age: f32[o + 6], id: u32[o + 7], col: u32[o + 8], info,
-    cause: info & 15, role: (info >>> 4) & 3, gen: info >>> 16,
+    cause: info & 15, role: (info >>> 4) & 3, gen: (info >>> 16) & 4095, turn: (info >>> 28) & 3, order: info >>> 30,
   };
 }
 
