@@ -69,12 +69,12 @@ class Engine {
     this.simF = new Float32Array(this.simData);
     this.simU = new Uint32Array(this.simData);
     this.waves = new Float32Array(16);
-    this.viewData = new ArrayBuffer(96);
-    this.viewDataL = new ArrayBuffer(96);
+    this.viewData = new ArrayBuffer(112);
+    this.viewDataL = new ArrayBuffer(112);
     this.postData = new Float32Array(60);
     this.loupe = null;
     this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 0xffffffff, memberN: 0 };
-    this.viewDataS = new ArrayBuffer(96);
+    this.viewDataS = new ArrayBuffer(112);
     this.onGpuTime = null;
     this.onCensus = null;
     this.pickReq = null;
@@ -102,9 +102,9 @@ class Engine {
     b.heatNext = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
     b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
     this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
-    b.view = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
-    b.viewL = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
-    b.viewS = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
+    b.view = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
+    b.viewL = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
+    b.viewS = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
     b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
     b.post = d.createBuffer({ size: 240, usage: U.UNIFORM | U.COPY_DST });
     b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
@@ -1381,6 +1381,7 @@ class Engine {
     vu[21] = culled ? 1 : 0;
     v[22] = splat;
     v[23] = K.tissue > 0 ? K.tightFrom : -1;
+    vu[24] = K.grow && K.tissue > 0 ? 1 : 0;
     this.device.queue.writeBuffer(buf, 0, data);
   }
 

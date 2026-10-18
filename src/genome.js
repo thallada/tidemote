@@ -159,6 +159,25 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
   return finalizeGenome(g, K);
 }
 
+/** A species' growth plan as growOf in shaders.js reads it (null: it does not grow as a tree). */
+export function growPlan(g) {
+  const v = g.grow;
+  if (!v || !(v[0] >= 0.5) || !((g.adhesion || 0) > DEFAULT_K.adhMin)) return null;
+  const e = Math.min(7, Math.round(v[2] * 255) >> 5);
+  return { angle: 0.25 + 1.35 * v[1], every: e === 1 ? 2 : e, curl: (v[3] * 2 - 1) ** 3 * 0.7,
+    pattern: ['alternate', 'one-sided', 'opposite', 'forking', 'zigzag'][Math.min(4, Math.floor(v[4] * 5))], depth: Math.min(3, Math.floor(v[5] * 4)) };
+}
+
+/** The growth plan in words, e.g. "forking every 3 cells at 40°, 2 orders deep, curling 5°". */
+export function describeGrowth(plan) {
+  if (!plan) return 'a body that packs as it meets';
+  const deg = (a) => `${Math.round(Math.abs(a) * 57.3)}°`;
+  const curl = Math.abs(plan.curl) > 0.05 ? `, ${plan.pattern === 'zigzag' ? 'zigzagging' : 'curling'} ${deg(plan.curl)}` : '';
+  if (!plan.every || !plan.depth) return `a filament${curl}`;
+  const angle = plan.pattern === 'forking' ? plan.angle / 2 : plan.angle;
+  return `${plan.pattern === 'zigzag' ? 'alternate' : plan.pattern} branches every ${plan.every} cells at ${deg(angle)}, ${plan.depth} order${plan.depth > 1 ? 's' : ''} deep${curl}`;
+}
+
 export function finalizeGenome(g, K = DEFAULT_K) {
   const s = Math.max(g.dGlint + g.dHusk + g.dFlesh, 1e-3);
   g.dGlint /= s; g.dHusk /= s; g.dFlesh /= s;

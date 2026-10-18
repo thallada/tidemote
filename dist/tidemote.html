@@ -4203,6 +4203,8 @@ struct View {
   splat: f32,
   // K.tissue: the adhesion where bodies start to close into tissue (K.tightFrom); below 0, off
   tissue: f32,
+  // 1: K.grow (a tree's cells face along their branch)
+  grow: u32, pad0: u32, pad1: u32, pad2: u32,
 };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -4503,6 +4505,18 @@ fn cellDirection(p: Particle) -> vec2f {
   let a = select(renderHash(p.id) * TAU, atan2(v.y, v.x), dot(v, v) > 0.000001);
   return vec2f(cos(a), sin(a));
 }
+// A tree's cell (K.grow) faces along its branch, away from its mother; any other faces where it swims.
+fn bodyDirection(ii: u32, p: Particle) -> vec2f {
+  if (view.grow != 0u) {
+    let g = genomes[p.kind];
+    let m = intent[ii].z;
+    if (g.dev.x >= 0x80000000u && g.adhesion > ${f(DEFAULT_K.adhMin)} && m < arrayLength(&parts) && m != ii && parts[m].kind == p.kind) {
+      let d = wrapd(p.pos - parts[m].pos);
+      if (dot(d, d) > 1e-10) { return normalize(d); }
+    }
+  }
+  return cellDirection(p);
+}
 // Match vsPoint's living-cell radius, including focus and unresolved highlights.
 // A resolved cell is drawn no larger than the room its living neighbours leave it, so a dense body
 // reads as packed tissue rather than a stack of overlapping cells. The sim records a kernel density
@@ -4753,7 +4767,7 @@ struct PO {
   let seed = renderHash(p.id);
   // cells face where they swim; matter keeps its own orientation (its motion is mostly Brownian)
   var dir = vec2f(cos(seed * TAU), sin(seed * TAU));
-  if (k >= FIRST_LIFE) { dir = cellDirection(p); }
+  if (k >= FIRST_LIFE) { dir = bodyDirection(ii, p); }
   o.geom = vec4f(px, extent, dir);
   if (k >= FIRST_LIFE) {
     let g = genomes[k];
@@ -4785,7 +4799,7 @@ struct PO {
         let offset = wrapd(partner.pos - p.pos) * view.ppu / px;
         let reach = 1.65 * (1.0 + ratio) + 0.12 * min(1.0, ratio);
         if (dot(offset, offset) > reach * reach) { continue; }
-        let dir = cellDirection(partner);
+        let dir = bodyDirection(index, partner);
         plans = (plans & ~(31u << (5u * used))) | (choosePlan(g, roleOf(partner.info)) << (5u * used));
         o.bondOffset[used] = pack2x16float(offset);
         o.bondFrame[used] = pack2x16float(vec2f(ratio, atan2(dir.y, dir.x)));
@@ -6818,6 +6832,26 @@ struct SV {
       grow: [r() < (TREES[type] ?? 0) ? mix(0.55, 1, r()) : mix(0, 0.45, r()), ...[1, 2, 3, 4, 5].map((i) => PLANS[type] ? mix(...PLANS[type][i], r()) : r())].map(unorm8)
     };
     return finalizeGenome(g, K);
+  }
+  function growPlan(g) {
+    const v = g.grow;
+    if (!v || !(v[0] >= 0.5) || !((g.adhesion || 0) > DEFAULT_K.adhMin)) return null;
+    const e = Math.min(7, Math.round(v[2] * 255) >> 5);
+    return {
+      angle: 0.25 + 1.35 * v[1],
+      every: e === 1 ? 2 : e,
+      curl: (v[3] * 2 - 1) ** 3 * 0.7,
+      pattern: ["alternate", "one-sided", "opposite", "forking", "zigzag"][Math.min(4, Math.floor(v[4] * 5))],
+      depth: Math.min(3, Math.floor(v[5] * 4))
+    };
+  }
+  function describeGrowth(plan) {
+    if (!plan) return "a body that packs as it meets";
+    const deg = (a) => `${Math.round(Math.abs(a) * 57.3)}°`;
+    const curl = Math.abs(plan.curl) > 0.05 ? `, ${plan.pattern === "zigzag" ? "zigzagging" : "curling"} ${deg(plan.curl)}` : "";
+    if (!plan.every || !plan.depth) return `a filament${curl}`;
+    const angle = plan.pattern === "forking" ? plan.angle / 2 : plan.angle;
+    return `${plan.pattern === "zigzag" ? "alternate" : plan.pattern} branches every ${plan.every} cells at ${deg(angle)}, ${plan.depth} order${plan.depth > 1 ? "s" : ""} deep${curl}`;
   }
   function finalizeGenome(g, K = DEFAULT_K) {
     const s = Math.max(g.dGlint + g.dHusk + g.dFlesh, 1e-3);
@@ -14928,12 +14962,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.simF = new Float32Array(this.simData);
       this.simU = new Uint32Array(this.simData);
       this.waves = new Float32Array(16);
-      this.viewData = new ArrayBuffer(96);
-      this.viewDataL = new ArrayBuffer(96);
+      this.viewData = new ArrayBuffer(112);
+      this.viewDataL = new ArrayBuffer(112);
       this.postData = new Float32Array(60);
       this.loupe = null;
       this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 4294967295, memberN: 0 };
-      this.viewDataS = new ArrayBuffer(96);
+      this.viewDataS = new ArrayBuffer(112);
       this.onGpuTime = null;
       this.onCensus = null;
       this.pickReq = null;
@@ -14956,9 +14990,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
       b.heatNext = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
       b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
       this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
-      b.view = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
-      b.viewL = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
-      b.viewS = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
+      b.view = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
+      b.viewL = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
+      b.viewS = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
       b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
       b.post = d.createBuffer({ size: 240, usage: U.UNIFORM | U.COPY_DST });
       b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
@@ -16400,6 +16434,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       vu[21] = culled ? 1 : 0;
       v[22] = splat;
       v[23] = K.tissue > 0 ? K.tightFrom : -1;
+      vu[24] = K.grow && K.tissue > 0 ? 1 : 0;
       this.device.queue.writeBuffer(buf, 0, data);
     }
     // the stone field for one view: every grain of stone adds its kernel (see vsStone)
@@ -16857,6 +16892,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     calcify: "How much of a skeleton a cell lays down. Calcifying costs upkeep. When a settled calcifying cell dies of hunger or old age it may leave stone instead of a husk, far more often beside stone already there, so reefs grow outward from rock and from the rare place one starts. Drifting cells seldom leave stone. Calcifiers can settle on stone; to everything else it is solid.",
     adhesion: "How strongly cells of one species bond. Above 15%, each cell keeps up to two same-species partners with springs. Empty slots find the nearest neighbours within bond range; children start bonded to their parent if they are the same species. Bonds last until a partner dies, changes kind or stretches too far away. Bonds are the links you see and they hold bodies together. Bonded cells share the cost of living (up to 15% less upkeep), shade each other less and are armoured against attack. They still pay crowding beyond their bond partners, disperse poorly and their inner cells struggle to reach silt to divide. Species without adhesion are single-celled.",
     bond: "A persistent spring between two cells of the same species. Drawn as a link. It breaks if a partner dies, changes kind or stretches beyond 1.25 times the range at which bonds form. A connected web of bonds is one organism.",
+    growth: "How a bonded species builds its body, inherited and mutated like every other gene. Some grow as trees: each new cell buds from a tip at the angle the plan sets, branching every few cells (alternate, one-sided, opposite or forking), a set number of orders deep, curling or zigzagging as they go, the way filamentous algae, branched cyanobacteria and colonial ciliates grow. The tips are fed by the cells behind them. Others pack into a body as their cells meet.",
     organism: "A body: all same-species cells connected through bonds. A species only forms bodies if its adhesion is above 15%; otherwise every cell is its own organism, even when the species has several cell types or gathers into swarms. Selecting a cell of a body follows the whole body: if the watched cell dies the watch passes to another of its cells, and if the body splits it follows the larger part.",
     swimming: "Self-propulsion: a steady push in the direction the cell is already moving. Reduced by photosynthesis.",
     schooling: "Steering toward the average velocity of nearby cells of the same species. Makes schools and coherent bodies move together.",
@@ -19973,6 +20009,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const sh = roleShares(g);
       let b = comp("Body plan", "bodyplan", sh, g, `Of every 100 cells it grows: ${[0, 1, 2].filter((r) => sh[r] > 5e-4).map((r) => `${(sh[r] * 100).toFixed(sh[r] < 0.01 ? 1 : 0)} ${ROLE[r]}`).join(", ")}.`);
       b += trait("Adhesion", g.adhesion || 0, 0, 1, `${Math.round((g.adhesion || 0) * 100)}%${(g.adhesion || 0) > K.adhMin ? " · bonds" : ""}`, "adhesion");
+      if (K.grow && K.tissue > 0 && (g.adhesion || 0) > K.adhMin) b += kv("Growth", describeGrowth(growPlan(g)), "growth");
       if (g.calcify > 5e-3) b += trait("Calcifying", g.calcify, 0, 1, `${Math.round(g.calcify * 100)}%`, "calcify");
       b += trait("Size", g.size, 0.45, 2.6, fmtLen(0.17 * g.size), "size");
       b += kv("Shape", CELL_SHAPES[cellShape(g, role)], "size");

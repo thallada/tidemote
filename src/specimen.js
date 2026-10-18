@@ -1,4 +1,4 @@
-import { roleShares, roleColor, affinity, CELL_SHAPES, cellShape, thermalPerf, thermalGuild, divEnergy } from './genome.js';
+import { roleShares, roleColor, affinity, CELL_SHAPES, cellShape, thermalPerf, thermalGuild, divEnergy, growPlan, describeGrowth } from './genome.js';
 import { FIRST_LIFE } from './engine.js';
 import { FRAMBOID, stoneGrain } from './shaders.js';
 import { tagsOf } from './facets.js';
@@ -373,6 +373,7 @@ export function createSpecimen(api) {
     const sh = roleShares(g);
     let b = comp('Body plan', 'bodyplan', sh, g, `Of every 100 cells it grows: ${[0, 1, 2].filter((r) => sh[r] > 0.0005).map((r) => `${(sh[r] * 100).toFixed(sh[r] < 0.01 ? 1 : 0)} ${ROLE[r]}`).join(', ')}.`);
     b += trait('Adhesion', g.adhesion || 0, 0, 1, `${Math.round((g.adhesion || 0) * 100)}%${(g.adhesion || 0) > K.adhMin ? ' · bonds' : ''}`, 'adhesion');
+    if (K.grow && K.tissue > 0 && (g.adhesion || 0) > K.adhMin) b += kv('Growth', describeGrowth(growPlan(g)), 'growth');
     if (g.calcify > 0.005) b += trait('Calcifying', g.calcify, 0, 1, `${Math.round(g.calcify * 100)}%`, 'calcify');
     b += trait('Size', g.size, 0.45, 2.6, fmtLen(0.17 * g.size), 'size');
     b += kv('Shape', CELL_SHAPES[cellShape(g, role)], 'size');

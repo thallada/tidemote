@@ -96,7 +96,7 @@ test('affinity scales symmetrically around zero and clamps to [-1, 1]', () => {
   assert.equal(affinity(a, 0, b, 0, { affScale: 4 }), 0);
 });
 
-test('parseParticle decodes cause, role and unsigned generation bits', () => {
+test('parseParticle decodes cause, role, generation and a tree cell\'s turn and branch order', () => {
   const buffer = new ArrayBuffer(20 * 4);
   const u32 = new Uint32Array(buffer), f32 = new Float32Array(buffer);
   const offset = 10;
@@ -108,14 +108,14 @@ test('parseParticle decodes cause, role and unsigned generation bits', () => {
   u32[offset + 8] = 0xff123456;
   for (const cause of [0, 9, 15]) {
     for (const role of [0, 1, 2, 3]) {
-      for (const gen of [0, 12345, 0xffff]) {
+      for (const [gen, turn, order] of [[0, 0, 0], [1234, 2, 1], [4095, 1, 3]]) {
         for (const image of [0, 4, 511, 512, 1023]) {
-          const info = ((gen << 16) | (image << 6) | (role << 4) | cause) >>> 0;
+          const info = ((order << 30) | (turn << 28) | (gen << 16) | (image << 6) | (role << 4) | cause) >>> 0;
           u32[offset + 9] = info;
           assert.deepEqual(parseParticle(u32, f32, offset), {
             x: 1.25, y: -2.5, vx: 0.5, vy: -0.75, kind: 7,
             energy: 3.5, age: 12, id: 123, col: 0xff123456,
-            info, cause, role, gen,
+            info, cause, role, gen, turn, order,
           });
         }
       }

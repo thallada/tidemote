@@ -2929,6 +2929,8 @@ struct View {
   splat: f32,
   // K.tissue: the adhesion where bodies start to close into tissue (K.tightFrom); below 0, off
   tissue: f32,
+  // 1: K.grow (a tree's cells face along their branch)
+  grow: u32, pad0: u32, pad1: u32, pad2: u32,
 };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -3229,6 +3231,18 @@ fn cellDirection(p: Particle) -> vec2f {
   let a = select(renderHash(p.id) * TAU, atan2(v.y, v.x), dot(v, v) > 0.000001);
   return vec2f(cos(a), sin(a));
 }
+// A tree's cell (K.grow) faces along its branch, away from its mother; any other faces where it swims.
+fn bodyDirection(ii: u32, p: Particle) -> vec2f {
+  if (view.grow != 0u) {
+    let g = genomes[p.kind];
+    let m = intent[ii].z;
+    if (g.dev.x >= 0x80000000u && g.adhesion > ${f(DEFAULT_K.adhMin)} && m < arrayLength(&parts) && m != ii && parts[m].kind == p.kind) {
+      let d = wrapd(p.pos - parts[m].pos);
+      if (dot(d, d) > 1e-10) { return normalize(d); }
+    }
+  }
+  return cellDirection(p);
+}
 // Match vsPoint's living-cell radius, including focus and unresolved highlights.
 // A resolved cell is drawn no larger than the room its living neighbours leave it, so a dense body
 // reads as packed tissue rather than a stack of overlapping cells. The sim records a kernel density
@@ -3479,7 +3493,7 @@ struct PO {
   let seed = renderHash(p.id);
   // cells face where they swim; matter keeps its own orientation (its motion is mostly Brownian)
   var dir = vec2f(cos(seed * TAU), sin(seed * TAU));
-  if (k >= FIRST_LIFE) { dir = cellDirection(p); }
+  if (k >= FIRST_LIFE) { dir = bodyDirection(ii, p); }
   o.geom = vec4f(px, extent, dir);
   if (k >= FIRST_LIFE) {
     let g = genomes[k];
@@ -3511,7 +3525,7 @@ struct PO {
         let offset = wrapd(partner.pos - p.pos) * view.ppu / px;
         let reach = 1.65 * (1.0 + ratio) + 0.12 * min(1.0, ratio);
         if (dot(offset, offset) > reach * reach) { continue; }
-        let dir = cellDirection(partner);
+        let dir = bodyDirection(index, partner);
         plans = (plans & ~(31u << (5u * used))) | (choosePlan(g, roleOf(partner.info)) << (5u * used));
         o.bondOffset[used] = pack2x16float(offset);
         o.bondFrame[used] = pack2x16float(vec2f(ratio, atan2(dir.y, dir.x)));
