@@ -95,6 +95,7 @@ export const DEFAULT_K = {
   scentD: 1,        // spread, cells²/s
   scentLoss: 0.05,  // fading per second (sqrt(scentD / scentLoss): how far a scent reaches, in cells)
   scentFlee: 0.5,   // how strongly animals not hunters steer away from hunters' scent
+  scentGraze: 1,    // how strongly hungry grazers steer up producers' scent
   scentHunt: 1,     // how strongly hungry hunters steer up their prey's scent
   scentHusk: 0,     // 1: a fourth field, given off by rotting husks, is what hungry scavengers follow (not hunters')
   allee: 0.65,      // producers grow at (1 - allee) of their rate alone, rising to full among 3 of their own species
@@ -740,7 +741,7 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
     if (hungry) {
       if (g.dFlesh > 0.5) { sp += scentPull(1u, p.pos) * ${f(K.scentHunt)}; }
       else if (g.dHusk > g.dGlint) { sp += scentPull(${K.scentHusk ? '3u' : '2u'}, p.pos); }
-      else { sp += scentPull(0u, p.pos); }
+      else { sp += scentPull(0u, p.pos) * ${f(K.scentGraze)}; }
     }
     if (g.dFlesh <= 0.5) { sp -= scentPull(2u, p.pos) * ${f(K.scentFlee)}; }
     taxis += sp * swim * ${f(K.scent)};
