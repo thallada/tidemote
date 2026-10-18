@@ -99,7 +99,7 @@ export const DEFAULT_K = {
   // with tissue: a bonded species whose growth plan says so grows as a tree, bonded mother to daughter only,
   // from its tips at the angles its plan sets (growOf), so it branches, curls, forks and zigzags
   grow: 1,
-  growStiff: 12,    // how firmly a tree's cell holds the angle it grew at, relative to its bonds' pull
+  growStiff: 2,     // how firmly a tree holds its angles (bendOn), relative to its bonds' pull
   growTip: 3,       // seconds a plant's tip waits before budding again (it is always its youngest cell: mature would stall it)
   growFeed: 1,      // with bodyShare, rate (per second) at which a tree's grown cells pass their surplus on to their daughters
   bodyHold: 0.3,    // with bodyPush, the share of overlap undone each tick by velocity (contact as a constraint)
@@ -780,17 +780,10 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   if (nb0 != NONE) { bondF += e0 * ((length(e0) - rb0) / max(length(e0), 1e-4)); }
   if (nb1 != NONE) { bondF += e1 * ((length(e1) - rb1) / max(length(e1), 1e-4)); }
   if (nb2 != NONE) { bondF += e2 * ((length(e2) - rb2) / max(length(e2), 1e-4)); }` : ''}${K.grow && K.tissue > 0 ? `
-  // a tree's cell holds the angle it grew at from its mother's heading, carried on her motion
-  var aim = vec2f(0.0);
-  var aimOn = false;
-  if (tree && n1 != NONE) {
-    let hm = headingOf(n1, gr);
-    if (hm.ok && hm.by != i) {
-      aim = dn1 + rot2(hm.dir, turnAngle(gr, turnOf(p.info), genOf(p.info))) * rs1;
-      aimOn = true;
-      bondF += aim * ${f(K.growStiff)};
-    }
-  }` : ''}
+  // a tree holds its angles (bendOn); coarse steps hold each cell's place beside its mother as they go
+  var bendF = vec2f(0.0);
+  if (tree) { bendF = bendOn(i, gr) * ${f(K.growStiff)}; bondF += bendF; }
+  let aimOn = tree && n1 != NONE;` : ''}
   let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0);
   let flow = flowAt(p.pos) * g.advect;
   // a holdfast: a cell the current hardly carries (advect below 0.35, fully below 0.1) is anchored, and
@@ -874,7 +867,8 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
       if (nb0 != NONE) { let e = e0 + vb0 * t - moved; let l = length(e); fb += e * ((l - rb0) / max(l, 1e-4)); }
       if (nb1 != NONE) { let e = e1 + vb1 * t - moved; let l = length(e); fb += e * ((l - rb1) / max(l, 1e-4)); }
       if (nb2 != NONE) { let e = e2 + vb2 * t - moved; let l = length(e); fb += e * ((l - rb2) / max(l, 1e-4)); }` : ''}${K.grow && K.tissue > 0 ? `
-      if (aimOn) { fb += (aim + vB1 * t - moved) * ${f(K.growStiff)}; }` : ''}
+      if (tree) { fb += bendF; }
+      if (aimOn) { fb += (vB1 * t - moved) * ${f(K.growStiff)}; }` : ''}
     }
     vel = vel * fr0 + force * (g.force * heavy * h) + stiff * h;${W('if (k == 0u) { mVel = vel; }')}
     if (kinN > 0.0 && g.align > 0.0) {
@@ -1779,6 +1773,79 @@ fn feedOf(m: u32, gr: Grow, keep: f32, rate: f32) -> vec2f {
   if (n == 0.0 || (growWants(gr, genOf(q.info), orderOf(q.info)) & ~have) != 0u) { return vec2f(0.0); }
   let all = rate * max(q.energy - keep, 0.0);
   return vec2f(all / n, all);
+}
+` : ''}
+${K.grow ? `
+// A tree bends like a stem: at each cell (the bend's middle) the angle from its arm (its mother, or a
+// root's first daughter by id) to each other daughter is held at the plan's. Each bend pushes its three
+// cells so that the pushes sum to nothing and turn nothing (a held angle's gradient): a tree cannot drive
+// itself, where pulling only the daughter toward her angle made long trees thrash. Every cell gathers
+// its share of each bend it is in: as the middle, as a daughter, and as the arm.
+fn treeMom(x: u32) -> u32 {
+  let m = bondsOf(x).x;
+  if (m >= sim.count || m == x || sortedFull[m].kind != sortedFull[x].kind) { return NONE; }
+  let d = treeRel(x, m);
+  if (dot(d, d) > LINK_R * LINK_R * ${f(K.bondBreak * K.bondBreak)}) { return NONE; }
+  return m;
+}
+fn treeKid(x: u32, k: u32) -> u32 {
+  if (k >= min(backOf(x, 0u), 3u)) { return NONE; }
+  let c = backOf(x, 1u + k);
+  if (c >= sim.count || c == x || treeMom(c) != x) { return NONE; }
+  return c;
+}
+fn treeRel(a: u32, b: u32) -> vec2f {
+  var d = sortedFull[b].pos - sortedFull[a].pos;
+  d -= sim.world * round(d / sim.world);
+  return d;
+}
+fn treeArm(x: u32) -> u32 {
+  let m = treeMom(x);
+  if (m != NONE) { return m; }
+  var best = NONE; var bestId = NONE;
+  for (var k = 0u; k < 3u; k++) {
+    let c = treeKid(x, k);
+    if (c != NONE && sortedFull[c].id < bestId) { best = c; bestId = sortedFull[c].id; }
+  }
+  return best;
+}
+fn turnOfCell(gr: Grow, x: u32) -> f32 { let q = sortedFull[x]; return turnAngle(gr, turnOf(q.info), genOf(q.info)); }
+// The pushes on the arm's end (xy) and the daughter (zw) of the bend at m; m takes minus both.
+fn bendAt(gr: Grow, m: u32, a: u32, b: u32) -> vec4f {
+  let A = treeRel(m, a); let B = treeRel(m, b);
+  let want = select(turnOfCell(gr, b) - turnOfCell(gr, a), 3.14159265 + turnOfCell(gr, b), a == treeMom(m));
+  var e = atan2(A.x * B.y - A.y * B.x, dot(A, B)) - want;
+  e -= TAU * round(e / TAU);
+  let s = e * length(A) * length(B);
+  return vec4f(vec2f(-A.y, A.x) * (s / max(dot(A, A), 1e-8)), vec2f(B.y, -B.x) * (s / max(dot(B, B), 1e-8)));
+}
+fn bendOn(i: u32, gr: Grow) -> vec2f {
+  var F = vec2f(0.0);
+  let arm = treeArm(i);
+  let mom = treeMom(i);
+  for (var k = 0u; k < 3u; k++) {
+    let c = treeKid(i, k);
+    if (c == NONE) { continue; }
+    // the middle of my own bends
+    if (arm != NONE && c != arm) { let f = bendAt(gr, i, arm, c); F -= f.xy + f.zw; }
+    // the arm of my daughters' bends
+    for (var k2 = 0u; k2 < 3u; k2++) {
+      let cc = treeKid(c, k2);
+      if (cc != NONE) { F += bendAt(gr, c, i, cc).xy; }
+    }
+  }
+  if (mom != NONE) {
+    let am = treeArm(mom);
+    // a daughter of my mother's bend, or (a root's first daughter) the arm of my sisters'
+    if (am != i) { F += bendAt(gr, mom, am, i).zw; }
+    else {
+      for (var k = 0u; k < 3u; k++) {
+        let s = treeKid(mom, k);
+        if (s != NONE && s != i) { F += bendAt(gr, mom, i, s).xy; }
+      }
+    }
+  }
+  return F;
 }
 ` : ''}
 // The bond's other end as seen from p (wrapped), or zero for none.

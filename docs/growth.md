@@ -31,9 +31,11 @@ and a filament reaches more water and light per cell than a ball does.
   order, in the info word's top four bits (the generation keeps twelve). A cell lacking a daughter its plan
   wants buds her at that turn from its own heading (from its mother to it; a root's from its first
   daughter), touching it. Its own kind in the way stops it; other species are shoved aside.
-- **Holding the shape.** Each cell is drawn toward where its turn puts it beside its mother
-  (`growStiff`, relative to the bond's pull), carried on her motion. Kin signature forces are off between a
-  tree's cells: the shape is its bonds'.
+- **Holding the shape.** A tree bends like a stem (`bendOn`): at each cell the angle from its arm (its
+  mother, or a root's first daughter) to each other daughter is held at the plan's, with pushes on all
+  three cells that sum to nothing and turn nothing (`growStiff`, relative to the bonds' pull). Pulling only
+  the daughter toward her angle, as the first version did, let long trees drive themselves into thrashing.
+  Kin signature forces are off between a tree's cells: the shape is its bonds'.
 - **Feeding the tips.** A tree's cells (plant or animal colony) do not even out their energy (`bodyShare`). A cell whose daughters
   are all grown passes its surplus over half its division energy on to them (`growFeed`); mother and
   daughter reckon the flow alike from the step's start, so no energy is made or lost.
@@ -64,8 +66,9 @@ Producer swing and takeovers come from the regional dynamics scorer (per region-
 | 4-tick steps (16 worlds): food web, effective species | 81%, 91 | 94%, 104 |
 
 Growth keeps the boom-and-bust (booms, crashes and turnover per region about the same) while fewer
-worlds lose a guild or crash to near empty. Stiffness matters: at `growStiff` 1 the shapes sag into blobs;
-at 12 they hold. Trees for every species with fed animal colonies at stiffness 12 but without plants'
+worlds lose a guild or crash to near empty. With the first, one-sided angle spring, `growStiff` 1 let shapes sag into blobs and 12 held them but
+made long trees thrash; the bending form at 2 holds them with about a quarter of the internal motion
+(`runs/crowd/thrash.mjs`: rms speed of cells relative to their body, 10-24-cell plant trees .17 → .04). Trees for every species with fed animal colonies at stiffness 12 but without plants'
 tips waiting less made hunters dominate (27%) and calmed producers too much (swing .67); tip speed
 (`growTip` 3-25 s) barely mattered. A tree costs about 4% more per living cell in `lifeMain`; step time
 is unchanged.
