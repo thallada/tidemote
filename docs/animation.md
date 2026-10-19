@@ -26,7 +26,7 @@ draw. The buffer has `min(n, 2^20)` slots of `SWAY_BYTES`: only cells in view ne
 | Event | How it is seen | Drawn by |
 | --- | --- | --- |
 | Birth | The daughter buds out of her mother: she starts at 0.3 of her size just inside the mother's rim, joined by a wide neck that pinches off as she grows to full size, overshooting a little (`BIRTH_T`). The far-off birth flash stays for sprites; up close a newborn only glows softly. | `budGrowth`, `drawnPos`, the neck partners in `vsPoint` |
-| New species | A mutant daughter (first seen beside her mother's species and none of her own) and life sparked from silt shimmer, and a ring of colour spreads out from them (`NOVEL_T`). | `pointColor` |
+| New species | A mutant daughter (first seen beside her mother's species and none of her own) and life sparked from silt sparkle: fine glints of light twinkle about the rim one after another, drifting out as they fade, and the membrane is a little brighter (`NOVEL_T`). | `pointColor` |
 | Death (starved, old, scalded) | The cell is drawn as its ghost: it stops flowing, its colour drains, it darkens, shrinks and its membrane wrinkles, then it fades into its husk (`WITHER_T`). | `ghostOf`, `ghostColor` |
 | Kill | It flares and swells, then tears open from the rim inward in shreds while its contents spill in droplets that drift out and dissolve, leaving the carcass (`BURST_T`). | `ghostColor` |
 | Grazed to death | Withers fast and shrinks more. | `ghostOf` |

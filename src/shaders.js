@@ -2725,7 +2725,7 @@ const BURST_T = 0.9;
 const EATEN_T = 0.6;
 // sim time is kept modulo this (f32 holds it to a millisecond)
 const SIM_WRAP = 4096.0;
-// a new species shimmers for a while: a mutant newborn, or life sparked from silt
+// a new species sparkles for a while: a mutant newborn, or life sparked from silt
 const NOVEL_T = 2.5;
 // look: the living kind (bits 0-9), its role (10-11), whether it was seen born (12), a bite's world angle
 // (13-20), whether it was seen born a new species (21)
@@ -3862,9 +3862,9 @@ struct PO {
     o.morph = species;
     o.jelly.y = pace;
     o.geom.y = bodyArea(shape, species);
-    // (a new species' shimmer, in place of sleep, which a newborn never is: negative)
+    // (a new species' sparkle, in place of sleep, which a newborn never is: negative)
     o.fx.x = select(an.sleep, -an.novel, an.novel > 0.0);
-    if (an.novel > 0.0) { extent = max(extent, 2.4); }
+    if (an.novel > 0.0) { extent = max(extent, 1.5); }
     o.tile.y = an.ate;
     if (ghost) { o.neck.w = gh.fed; }
     if (an.mark > 0.0) { o.fx.z = an.mark; o.fx.w = an.markAt - atan2(dir.y, dir.x); }
@@ -4000,24 +4000,36 @@ fn pointColor(i: PO) -> vec4f {
   if (kind < FIRST_LIFE) { return matterColor(i, p, far); }
   if (i.fx.y <= 0.0) {
     var c = cellColor(i, p, kind, far);
-    // a new species: rings of colour spread out from it, fading
+    // a new species: a few fine sparks twinkle about its rim, one after another, drifting out as they fade
     if (i.fx.x < 0.0) {
-      let novel = -i.fx.x;
-      let t = 1.0 - novel;
+      let t = 1.0 + i.fx.x;
       let lod = detailLOD(min(i.geom.x, view.pointSize));
-      let r = length(i.uv);
-      let aa = max(0.003, 0.75 / i.geom.x);
-      let at = 0.9 + 1.1 * (1.0 - (1.0 - t) * (1.0 - t));
-      let ring = exp(-pow((r - at) / (0.05 + 0.05 * t + aa), 2.0));
-      let hue = rainbow(atan2(i.uv.y, i.uv.x) / TAU + view.time * 0.3);
-      let glow = ring * novel * lod * 0.3;
-      c += vec4f(hue * glow * view.pointGain, glow * 0.5);
+      let w = max(0.065, 1.4 / i.geom.x);
+      var light = 0.0;
+      for (var j = 0u; j < 9u; j++) {
+        let h = renderHash(p.id * 9u + j + 311u);
+        let h2 = renderHash(p.id * 9u + j + 733u);
+        // each spark lives a third of the while, the first at once, the last two thirds in
+        let life = (t - 0.6 * (f32(j) + h) / 9.0) / 0.33;
+        if (life <= 0.0 || life >= 1.0) { continue; }
+        let ang = h2 * TAU + 0.4 * life;
+        let at = vec2f(cos(ang), sin(ang)) * (0.65 + 0.2 * h + 0.35 * life);
+        let d = i.uv - at;
+        // a point of light with four fine rays, twinkling
+        let core = exp(-dot(d, d) / (w * w * 0.25));
+        let ax = d.x * d.x / (w * w);
+        let ay = d.y * d.y / (w * w);
+        let rays = exp(-ax * 16.0 - ay * 0.6) + exp(-ay * 16.0 - ax * 0.6);
+        let twinkle = 0.65 + 0.35 * sin(view.time * (9.0 + 6.0 * h) + h2 * 40.0);
+        light += (core + 0.4 * rays) * sin(3.14159265 * life) * twinkle;
+      }
+      let glint = min(light, 1.5) * lod;
+      c += vec4f((i.col * 0.35 + vec3f(0.65) * view.pointGain) * glint * 1.2, min(glint, 1.0) * 0.4);
     }
     return c;
   }
   return ghostColor(i, p, kind, far);
 }
-fn rainbow(x: f32) -> vec3f { return 0.5 + 0.5 * cos(TAU * (x + vec3f(0.0, 0.333, 0.667))); }
 // A dead cell's last moments: the cell it was (cellColor, withering or flaring), what a burst one
 // spills, and its husk fading in, in the husk's own frame, as it is drawn once the ghost is gone.
 fn ghostColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
@@ -4080,7 +4092,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
     let g = genomes[kind];
     // curled up into a cyst (0..1); dead and withering (0..1); a bite out of it
     let sleep = max(i.fx.x, 0.0);
-    // a new species shimmers
+    // a new species, just born
     let novel = max(-i.fx.x, 0.0);
     let dying = select(0.0, fract(i.fx.y), i.fx.y > 0.0);
     let burst = i.fx.y >= 2.0 && i.fx.y < 3.0;
@@ -4345,7 +4357,8 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
         relief -= show * 0.25 * exp(-pow((vr - 0.9) / 0.3, 2.0)) * dot(vc / max(length(vc), 1e-4), lightQ);
         hue = mix(hue, vec3f(1.3, 1.05, 0.7), show * (1.0 - smoothstep(0.5, 1.0, vr)) * 0.6);
       }
-      if (novel > 0.0) { hue *= 1.0 + novel * 0.6 * (rainbow(a / TAU * 2.0 - r * 1.5 + view.time * 0.5) - 0.5) * (0.5 + rim); }
+      // its membrane fresh and bright
+      if (novel > 0.0) { hue *= 1.0 + 0.3 * novel * rim; }
       tissue += inside * (detail + relief) * (1.0 - 0.6 * dying);
     }
     f = body * tissue * spriteMean(myPlan) / i.geom.y;
