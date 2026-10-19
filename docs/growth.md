@@ -39,16 +39,53 @@ and a filament reaches more water and light per cell than a ball does.
 - **Feeding the tips.** A tree's cells (plant or animal colony) do not even out their energy (`bodyShare`). A cell whose daughters
   are all grown passes its surplus over half its division energy on to them (`growFeed`); mother and
   daughter reckon the flow alike from the step's start, so no energy is made or lost.
-- **Tips wait less.** A tip is always its tree's youngest cell, so `mature` (a cell divides only past a
-  share of its lifespan) would stall every tree; a plant's tip buds again after `growTip` seconds instead.
-  An animal colony's tips still grow up first, which keeps colonies smaller than plants.
+- **Tips grow up like any cell.** A tree's tip is always its youngest cell, and it waits to grow up
+  (`mature`) before budding, as every cell does before dividing. An early version let a plant's tip bud
+  every 3 s instead: trees then outgrew single cells five- to twentyfold and took 87-91% of producers.
+  With the same wait they settle near a third, a feature among mostly single cells, as in real water.
+- **Trees snap.** Each of a tree's cells lets go of its mother at `snap` per second (currents, grazers,
+  the hormogonia cyanobacteria shed), so the longer a filament the sooner it breaks, and its pieces
+  grow on.
 - **Mats remain.** Whether a species grows as a tree is a gene like the rest (at the start: most filaments,
   over half of reef plants, a third or so of animals); the others grow packed bodies as before, and a
   lineage can switch either way by mutation.
 - **Drawing.** A tree's cells face along their branch, away from their mother (`bodyDirection`), so a
   filament reads as one strand.
 
+## Swimming
+
+A thin body slips along its length more easily than sideways (about twice, for real microorganisms:
+resistive force theory). A tree's cells feel `sideDrag` times as much drag across their branch as along
+it, so a wave run down a tree pushes it through the water, head first. Three beat genes (amplitude,
+frequency, wavelength) drive the wave as a muscle's push on each bend in turn (`beatDrive`, scaled by the
+square root of the cell's drag time; a bend already folded past 1.2 radians is not pushed). Beating costs
+upkeep (`beatCost` × amplitude × frequency) and only a tree beats. A fourth gene lets an animal colony grow
+from its tips without growing up first (`growTipA` seconds), so it can grow long enough to swim: a
+two- or three-cell colony is one hinge and cannot swim at all. A tree's cells skip kin alignment, which
+damped the wave.
+
+At these settings a tadpole (tip growth and a beat) swims about as fast as a single swimmer. In 32-world
+screens, tadpoles were 30% of hunters without the push (riding on tip growth) and 38% with it, so the
+swimming itself pays; with tips budding as fast as a plant's then, tip growers took two thirds of
+hunters, and `growTipA` 10 keeps them a minority (tadpoles under a fifth of hunters, dominant in a few
+worlds).
+
 ## Measurements
+
+Now (plant tips grow up first, trees snap, swimming; 24 worlds × 30 min at 32k), against growth off:
+
+| | growth off | now |
+|---|---|---|
+| trees among producers | 0 | 32% |
+| living fraction late | .30 | .32 |
+| all four guilds at 30 min | 81% | 79% |
+| thriving (all four guilds at 5%+) | 47% | 54% |
+| leader changes per run (grazers, hunters) | 7.8, 7.7 | 9.4, 8.6 |
+| modal outcome (gate ≤ .5) | .31 | .33 |
+| tadpoles among hunters | 0 | 8% |
+
+The rest of this section is from the first version, whose plant tips budded every 3 s:
+
 
 32 worlds × 30 min at 32k unless noted, against the same seeds without growth (`grow: 0`).
 Producer swing and takeovers come from the regional dynamics scorer (per region-hour).
@@ -69,6 +106,5 @@ Growth keeps the boom-and-bust (booms, crashes and turnover per region about the
 worlds lose a guild or crash to near empty. With the first, one-sided angle spring, `growStiff` 1 let shapes sag into blobs and 12 held them but
 made long trees thrash; the bending form at 2 holds them with about a quarter of the internal motion
 (`runs/crowd/thrash.mjs`: rms speed of cells relative to their body, 10-24-cell plant trees .17 → .04). Trees for every species with fed animal colonies at stiffness 12 but without plants'
-tips waiting less made hunters dominate (27%) and calmed producers too much (swing .67); tip speed
-(`growTip` 3-25 s) barely mattered. A tree costs about 4% more per living cell in `lifeMain`; step time
+tips waiting less made hunters dominate (27%) and calmed producers too much (swing .67). A tree costs about 4% more per living cell in `lifeMain`; step time
 is unchanged.
