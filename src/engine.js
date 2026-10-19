@@ -470,7 +470,7 @@ class Engine {
     this.holdCam = null;
     this.clearAccum = !this.carry;
     this.b.splat?.destroy();
-    this.b.splat = d.createBuffer({ size: w * h * 12, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this.b.splat = d.createBuffer({ size: w * h * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this._splatBGs();
   }
 
@@ -1362,13 +1362,12 @@ class Engine {
     const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
     const perArea = K.density / (ppu * ppu);
     const overlapAll = perArea * pointSize * pointSize * 0.5;
-    const overlapLife = overlapAll * 0.4;
     const lineCov = (K.density * 0.25 * dpr) / ppu;
     const v = new Float32Array(data);
     const vu = new Uint32Array(data);
     v[0] = cam.x; v[1] = cam.y; v[2] = this.grid[0]; v[3] = this.grid[1];
     v[4] = W; v[5] = H; v[6] = ppu; v[7] = pointSize;
-    v[8] = (0.95 / (1 + overlapLife * 0.8)) * this.settings.exposure;
+    v[8] = 0.95 * this.settings.exposure;
     v[9] = (0.55 / (1 + lineCov * 0.6)) * this.settings.exposure;
     v[10] = K.linkR; v[11] = time; vu[12] = selId >>> 0;
     v[13] = (0.075 / (1 + overlapAll * 0.9)) * this.settings.exposure;
@@ -1522,7 +1521,7 @@ class Engine {
     this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0], splat);
     if (splat) {
       d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0]));
-      enc.clearBuffer(this.b.splat, 0, W * H * 12);
+      enc.clearBuffer(this.b.splat, 0, W * H * 16);
       const pass = enc.beginComputePass({ timestampWrites: tsBegin() });
       pass.setPipeline(this.cpSplat); pass.setBindGroup(0, this.splatBG); pass.dispatchWorkgroups(Math.ceil(this.count / 256));
       pass.end();

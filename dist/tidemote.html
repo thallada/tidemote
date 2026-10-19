@@ -4228,13 +4228,17 @@ struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32, f
 // The water's temperature per grid cell (heatMain), for how heat shows on a cell.
 @group(0) @binding(11) var<storage, read> heatField: array<f32>;
 @group(0) @binding(12) var<storage, read> segs: array<vec2u>;
-// the splatted sprites' light per pixel (r, g, b), in 1/SPLAT_FIX units
+// the splatted sprites' light and coverage per pixel (r, g, b, SPRITE_COVER a), in 1/SPLAT_FIX units
 @group(0) @binding(13) var<storage, read_write> splatW: array<atomic<u32>>;
 @group(0) @binding(14) var<storage, read> splatR: array<u32>;
 // the particles in view too large to splat, for the points' draw: indirect arguments, then indices
 @group(0) @binding(15) var<storage, read_write> quadW: array<atomic<u32>>;
 @group(0) @binding(16) var<storage, read> quadR: array<u32>;
 const SPLAT_FIX = 4096.0;
+// A distant sprite's coverage per unit of its profile, written to alpha like a resolved cell's, so
+// where sprites pile up (a packed mat, a small view far out, trails) their light averages instead of
+// summing to white. A lone sprite's peak (the compact profile's 1/0.7225) stays just under 1.
+const SPRITE_COVER = 0.7;
 var<workgroup> quadN: atomic<u32>;
 var<workgroup> quadBase: u32;
 
@@ -4634,7 +4638,8 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
 // Sprites of a pixel or so (the main view from afar) are added straight into the image, as their light
 // spread over the four nearest pixels, rather than drawn as quads: millions of near-pixel quads cost
 // the vertex and raster stages far more than a thread each. Each brings the light its quad would
-// (pi px^2 times its profile's mean); fsSplat adds the sum into the scene.
+// (pi px^2 times its profile's mean) and the coverage it would write (SPRITE_COVER); fsSplat adds the sums
+// into the scene.
 // The rest, too large to splat, are listed for the points' draw (quadW: its indirect arguments, then
 // the particles), so vsPoint runs only for them.
 @compute @workgroup_size(256)
@@ -4659,7 +4664,8 @@ fn splatOne(i: u32) -> u32 {
   let sp = spriteOf(p, i);
   if (sp.px > view.splat) { return atomicAdd(&quadN, 1u); }
   if (any(abs(d) > view.res * 0.5 + vec2f(1.0))) { return NONE; }
-  let light = sp.col * (3.14159265 * sp.px * sp.px * spriteMean(sp.shape) * SPLAT_FIX);
+  let area = 3.14159265 * sp.px * sp.px * spriteMean(sp.shape) * SPLAT_FIX;
+  let light = vec4f(sp.col, SPRITE_COVER) * area;
   let f = view.res * 0.5 + d - 0.5;
   let c = vec2i(floor(f));
   let t = f - floor(f);
@@ -4669,17 +4675,18 @@ fn splatOne(i: u32) -> u32 {
     let at = c + o;
     if (any(at < vec2i(0)) || any(at >= size)) { continue; }
     let w = select(1.0 - t.x, t.x, o.x == 1) * select(1.0 - t.y, t.y, o.y == 1);
-    let q = u32(at.y * size.x + at.x) * 3u;
+    let q = u32(at.y * size.x + at.x) * 4u;
     let e = light * w;
     atomicAdd(&splatW[q], u32(e.r + 0.5));
     atomicAdd(&splatW[q + 1u], u32(e.g + 0.5));
     atomicAdd(&splatW[q + 2u], u32(e.b + 0.5));
+    atomicAdd(&splatW[q + 3u], u32(e.a + 0.5));
   }
   return NONE;
 }
 @fragment fn fsSplat(@builtin(position) at: vec4f) -> @location(0) vec4f {
-  let q = (u32(at.y) * u32(view.res.x) + u32(at.x)) * 3u;
-  return vec4f(f32(splatR[q]), f32(splatR[q + 1u]), f32(splatR[q + 2u]), 0.0) / SPLAT_FIX;
+  let q = (u32(at.y) * u32(view.res.x) + u32(at.x)) * 4u;
+  return vec4f(f32(splatR[q]), f32(splatR[q + 1u]), f32(splatR[q + 2u]), f32(splatR[q + 3u])) / SPLAT_FIX;
 }
 
 struct PO {
@@ -4860,7 +4867,7 @@ struct PointOut { @location(0) all: vec4f, @location(1) live: vec4f };
 }
 fn pointColor(i: PO) -> vec4f {
   let far = spriteFalloff(i.uv, i.shape);
-  if (i.geom.x <= 2.8) { return vec4f(i.col * far, 0.0); }
+  if (i.geom.x <= 2.8) { return vec4f(i.col * far, far * SPRITE_COVER); }
   let lod = detailLOD(min(i.geom.x, view.pointSize));
   let p = parts[i.index];
   let seed = renderHash(p.id);
@@ -15432,7 +15439,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.holdCam = null;
       this.clearAccum = !this.carry;
       this.b.splat?.destroy();
-      this.b.splat = d.createBuffer({ size: w * h * 12, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      this.b.splat = d.createBuffer({ size: w * h * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
       this._splatBGs();
     }
     _splatBGs() {
@@ -16408,7 +16415,6 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
       const perArea = K.density / (ppu * ppu);
       const overlapAll = perArea * pointSize * pointSize * 0.5;
-      const overlapLife = overlapAll * 0.4;
       const lineCov = K.density * 0.25 * dpr / ppu;
       const v = new Float32Array(data);
       const vu = new Uint32Array(data);
@@ -16420,7 +16426,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       v[5] = H2;
       v[6] = ppu;
       v[7] = pointSize;
-      v[8] = 0.95 / (1 + overlapLife * 0.8) * this.settings.exposure;
+      v[8] = 0.95 * this.settings.exposure;
       v[9] = 0.55 / (1 + lineCov * 0.6) * this.settings.exposure;
       v[10] = K.linkR;
       v[11] = time;
@@ -16585,7 +16591,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this._writeView(this.b.view, this.viewData, cam, W, H2, dpr, time, selId, lod, culled[0], splat);
       if (splat) {
         d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0]));
-        enc.clearBuffer(this.b.splat, 0, W * H2 * 12);
+        enc.clearBuffer(this.b.splat, 0, W * H2 * 16);
         const pass2 = enc.beginComputePass({ timestampWrites: tsBegin() });
         pass2.setPipeline(this.cpSplat);
         pass2.setBindGroup(0, this.splatBG);
