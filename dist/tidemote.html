@@ -1310,6 +1310,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     grow: 1,
     growStiff: 2,
     // how firmly a tree holds its angles (bendOn), relative to its bonds' pull
+    treeOdds: 1,
+    // founders and sparks of life plan a tree this many times as often as by default
     treeAge: 0.25,
     // how fast a tree's cell ages once it has grown a daughter (1: as any cell)
     snap: 0,
@@ -2521,7 +2523,8 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
     g.sig[r] = vec4u(pack4x8snorm(r4(s)), pack4x8snorm(r4(s)), pack4x8snorm(r4(s)), pack4x8snorm(r4(s)));
     g.dev[r] = pack4x8unorm(vec4f(rnd(s), rnd(s), rnd(s), rnd(s)));
   }
-  g.dev.w = pack4x8unorm(vec4f(0.0, rnd(s), rnd(s), rnd(s)));
+  g.dev.w = pack4x8unorm(vec4f(0.0, rnd(s), rnd(s), rnd(s)));${K.treeOdds != 1 ? `
+  { let b = rnd(s); g.dev.x = (g.dev.x & 0x00ffffffu) | (u32(select(b * 127.0, 128.0 + b * 127.0, rnd(s) < ${f(0.5 * K.treeOdds)})) << 24u); }` : ""}
   g.radius = mix(0.5, 0.95, rnd(s));
   g.beta = mix(0.2, 0.4, rnd(s));
   g.force = mix(2.0, 10.0, rnd(s));
@@ -6956,7 +6959,7 @@ struct SV {
       thermo: THERMO_FOUNDERS.has(type) && r() < 0.25 ? unorm8(mix(0.3, 0.7, r())) : 0,
       beat: ((on, amp, tip) => [BEATERS.has(type) && on < 0.3 ? mix(0.15, 0.5, amp) : 0, mix(0.5, 2.5, r()), mix(0.3, 1.2, r()), BEATERS.has(type) && tip < 0.3 ? 1 : 0])(r(), r(), r()),
       tough: mix(-2.3, 2.3, r()),
-      grow: [r() < (TREES[type] ?? 0) ? mix(0.55, 1, r()) : mix(0, 0.45, r()), ...[1, 2, 3, 4, 5].map((i) => PLANS[type] ? mix(...PLANS[type][i], r()) : r())].map(unorm8)
+      grow: [r() < (TREES[type] ?? 0) * (K.treeOdds ?? 1) ? mix(0.55, 1, r()) : mix(0, 0.45, r()), ...[1, 2, 3, 4, 5].map((i) => PLANS[type] ? mix(...PLANS[type][i], r()) : r())].map(unorm8)
     };
     return finalizeGenome(g, K);
   }

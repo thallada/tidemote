@@ -160,7 +160,7 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
     thermo: THERMO_FOUNDERS.has(type) && r() < 0.25 ? unorm8(mix(0.3, 0.7, r())) : 0,
     beat: ((on, amp, tip) => [BEATERS.has(type) && on < 0.3 ? mix(0.15, 0.5, amp) : 0, mix(0.5, 2.5, r()), mix(0.3, 1.2, r()), BEATERS.has(type) && tip < 0.3 ? 1 : 0])(r(), r(), r()),
     tough: mix(-2.3, 2.3, r()),
-    grow: [r() < (TREES[type] ?? 0) ? mix(0.55, 1, r()) : mix(0, 0.45, r()), ...[1, 2, 3, 4, 5].map((i) => (PLANS[type] ? mix(...PLANS[type][i], r()) : r()))].map(unorm8),
+    grow: [r() < (TREES[type] ?? 0) * (K.treeOdds ?? 1) ? mix(0.55, 1, r()) : mix(0, 0.45, r()), ...[1, 2, 3, 4, 5].map((i) => (PLANS[type] ? mix(...PLANS[type][i], r()) : r()))].map(unorm8),
   };
   return finalizeGenome(g, K);
 }

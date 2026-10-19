@@ -100,6 +100,7 @@ export const DEFAULT_K = {
   // from its tips at the angles its plan sets (growOf), so it branches, curls, forks and zigzags
   grow: 1,
   growStiff: 2,     // how firmly a tree holds its angles (bendOn), relative to its bonds' pull
+  treeOdds: 1,      // founders and sparks of life plan a tree this many times as often as by default
   treeAge: 0.25,    // how fast a tree's cell ages once it has grown a daughter (1: as any cell)
   snap: 0,          // rate (per second) at which each of a tree's cells lets go of its mother (at toughness 0: form.x)
   treeCost: 0,      // upkeep of a tree's cell (holding its angles), like adhesion's
@@ -1222,7 +1223,8 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
     g.sig[r] = vec4u(pack4x8snorm(r4(s)), pack4x8snorm(r4(s)), pack4x8snorm(r4(s)), pack4x8snorm(r4(s)));
     g.dev[r] = pack4x8unorm(vec4f(rnd(s), rnd(s), rnd(s), rnd(s)));
   }
-  g.dev.w = pack4x8unorm(vec4f(0.0, rnd(s), rnd(s), rnd(s)));
+  g.dev.w = pack4x8unorm(vec4f(0.0, rnd(s), rnd(s), rnd(s)));${K.treeOdds != 1 ? `
+  { let b = rnd(s); g.dev.x = (g.dev.x & 0x00ffffffu) | (u32(select(b * 127.0, 128.0 + b * 127.0, rnd(s) < ${f(0.5 * K.treeOdds)})) << 24u); }` : ''}
   g.radius = mix(0.5, 0.95, rnd(s));
   g.beta = mix(0.2, 0.4, rnd(s));
   g.force = mix(2.0, 10.0, rnd(s));
