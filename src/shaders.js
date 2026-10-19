@@ -101,7 +101,7 @@ export const DEFAULT_K = {
   grow: 1,
   growStiff: 2,     // how firmly a tree holds its angles (bendOn), relative to its bonds' pull
   growTip: 3,       // seconds a plant's tip waits before budding again (it is always its youngest cell: mature would stall it)
-  snap: 0,          // rate (per second) at which each of a tree's cells lets go of its mother
+  snap: 0.003,      // rate (per second) at which each of a tree's cells lets go of its mother
   treeCost: 0,      // upkeep of a tree's cell (holding its angles), like adhesion's
   growTipA: 10,     // the same for an animal colony that grows from its tips (beat.w): slower, so they stay a minority
   growFeed: 1,      // with bodyShare, rate (per second) at which a tree's grown cells pass their surplus on to their daughters
