@@ -38,14 +38,20 @@ and a filament reaches more water and light per cell than a ball does.
   Kin signature forces are off between a tree's cells: the shape is its bonds'.
 - **Feeding the tips.** A tree's cells (plant or animal colony) do not even out their energy (`bodyShare`). A cell whose daughters
   are all grown passes its surplus over half its division energy on to them (`growFeed`); mother and
-  daughter reckon the flow alike from the step's start, so no energy is made or lost.
+  daughter reckon the flow alike from the step's start, so no energy is made or lost. Only a daughter
+  short of twice a division's energy is fed: without that cap a tip hoarded a hundred times what it
+  needed while the cells below it starved and were grazed through, and trees broke at the base.
+- **Grown cells age slowly.** A tree's cell that has grown its daughter ages at `treeAge` (0.25) the
+  rate of a free cell, as the old cells of a real filament live on in it. At the normal rate, old age
+  cut every tree down near ten cells.
 - **Tips grow up like any cell.** A tree's tip is always its youngest cell, and it waits to grow up
   (`mature`) before budding, as every cell does before dividing. An early version let a plant's tip bud
   every 3 s instead: trees then outgrew single cells five- to twentyfold and took 87-91% of producers.
   With the same wait they settle near a third, a feature among mostly single cells, as in real water.
-- **Trees snap.** Each of a tree's cells lets go of its mother at `snap` per second (currents, grazers,
-  the hormogonia cyanobacteria shed), so the longer a filament the sooner it breaks, and its pieces
-  grow on.
+- **Trees can snap.** `snap` (off by default) makes each of a tree's cells let go of its mother at that
+  rate per second, scaled 5x either way by a toughness gene (form.x), as cyanobacteria shed hormogonia.
+  At .003 it cut every tree to 2-8 cells. With it off, trees still break where grazers bite through
+  them or bonds stretch past `bondBreak`.
 - **Mats remain.** Whether a species grows as a tree is a gene like the rest (at the start: most filaments,
   over half of reef plants, a third or so of animals); the others grow packed bodies as before, and a
   lineage can switch either way by mutation.
@@ -72,7 +78,26 @@ worlds).
 
 ## Measurements
 
-Now (plant tips grow up first, trees snap, swimming; 24 worlds × 30 min at 32k), against growth off:
+Body types are scored by `tools/mix.mjs` against target bands for a pond-like mix (`src/bodies.js`
+classes every living cell's body; headless runs sample it each minute, `tools/bodies.mjs` reads a
+saved world): single cells 60-85%, packed bodies 5-20%, trees 5-20%, trees of 6+ cells (visible)
+2-12%, and a tree of 20+ cells in at least 30% of worlds. 24 worlds × 30 min at 32k:
+
+| | snap .003 | + feed cap | + treeAge .25 | + snap 0 (default) |
+|---|---|---|---|---|
+| single cells | 76% | 75% | 74% | 75% |
+| visible trees | 0.3% | 0.8% | 1.3% | 3.1% |
+| worlds with a 20+ cell tree | 0% | 4% | 25% | 75% |
+| largest tree (median) | 10 | 11 | 17 | 34 |
+| trees among producers | | 29% | 35% | 17% |
+| all four guilds at 30 min | 83% | 63% | 83% | 79% |
+| thriving | 54% | 42% | 54% | 50% |
+| worlds in every band | 0 | 0 | 1 | 7 |
+
+With normal aging and snap 0, tips budding at a quarter of the wait (`growTip` .25) also hit the
+tree bands but grew 52-cell median giants; with snap .001 as well, trees took 43% of producers.
+
+Before the feed cap (plant tips grow up first, trees snap, swimming), against growth off:
 
 | | growth off | now |
 |---|---|---|

@@ -100,8 +100,8 @@ export const DEFAULT_K = {
   // from its tips at the angles its plan sets (growOf), so it branches, curls, forks and zigzags
   grow: 1,
   growStiff: 2,     // how firmly a tree holds its angles (bendOn), relative to its bonds' pull
-  treeAge: 1,       // how fast a tree's cell ages once it has grown a daughter (1: as any cell)
-  snap: 0.003,      // rate (per second) at which each of a tree's cells lets go of its mother (at toughness 0: form.x)
+  treeAge: 0.25,    // how fast a tree's cell ages once it has grown a daughter (1: as any cell)
+  snap: 0,          // rate (per second) at which each of a tree's cells lets go of its mother (at toughness 0: form.x)
   treeCost: 0,      // upkeep of a tree's cell (holding its angles), like adhesion's
   growTip: 1,       // a plant tree's tip buds again past this share of the growing up every cell waits (mature)
   growTipA: 10,     // seconds an animal colony's tip waits before budding again if it grows from its tips (beat.w;
@@ -113,7 +113,6 @@ export const DEFAULT_K = {
   beat: 1,          // 1: trees beat as their genes say (0: never)
   beatDrive: 12,    // a beat's push on each bend per unit of amplitude, relative to the bonds' pull
   beatCost: 0.005,   // upkeep per unit of beat amplitude (radians) times frequency (Hz)
-  beatTest: 0,      // TEMP diagnostic: every tree beats at this amplitude, 1.5 Hz, 0.8 rad per cell
   bodyHold: 0.3,    // with bodyPush, the share of overlap undone each tick by velocity (contact as a constraint)
   bodyGive: 0.85,   // with bodyPush, how far cells may squash against each other first (share of touching; bonds rest at bondTouch)
   bodyPush: 30,     // with liveFirst (contactMain): how hard overlapping cells' bodies push apart (units/s² per unit of overlap, summed; 0: off)
@@ -1861,7 +1860,7 @@ fn bendAt(gr: Grow, m: u32, a: u32, b: u32) -> vec4f {
   // as strong as the water is thick (amplitude scaled by the square root of the drag in growOf); a bend
   // already folded past 1.2 radians is not pushed further
   if (abs(e) < 1.2) {
-    e -= ${f(K.beatDrive / K.growStiff)} * ${K.beatTest ? `${f(K.beatTest)} * sqrt(0.08 / genomes[sortedFull[m].kind].drag) * sin(9.42 * sim.time - 0.8 * f32(genOf(sortedFull[b].info)))` : 'gr.beat.x * sin(gr.beat.y * sim.time - gr.beat.z * f32(genOf(sortedFull[b].info)))'};
+    e -= ${f(K.beatDrive / K.growStiff)} * gr.beat.x * sin(gr.beat.y * sim.time - gr.beat.z * f32(genOf(sortedFull[b].info)));
   }` : ''}
   let s = e * length(A) * length(B);
   return vec4f(vec2f(-A.y, A.x) * (s / max(dot(A, A), 1e-8)), vec2f(B.y, -B.x) * (s / max(dot(B, B), 1e-8)));
