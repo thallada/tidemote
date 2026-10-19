@@ -5,6 +5,9 @@ hundreds of cells per grid cell, stacked ten deep and racing about at the speed 
 caused that, the rules that replaced it (all tunables in `DEFAULT_K`), how they were measured, and what did
 not work, for whoever takes it further.
 
+The on/off switches named below (and the alternatives they chose between) were removed when this work
+merged to main: these rules are now always on, and only their strengths remain tunable.
+
 ## What was wrong
 
 - **Forces summed without limit.** A cell added the push and pull of every neighbour, so among a thousand it

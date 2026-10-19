@@ -38,8 +38,8 @@ export const P_BYTES = 40;
 export const LOUPE_FIELD = 1.1;
 export const ORGANS = 12; // organelles per resolved cell (fsPoint), directions per species (organDirs)
 export const PICK_WORDS = 12; // Particle's 10 words, then two partner IDs (NONE if absent).
-export const G_BYTES = 224;
-export const G_WORDS = 56;
+export const G_BYTES = 208;
+export const G_WORDS = 52;
 export const LITE_BYTES = 32;
 // The selected cell's mind (mindMain): a header of MIND_HEAD words, then MIND_NBR living neighbours
 // of MIND_NBR_WORDS words each. See parseMind in mind.js for the layout.
@@ -52,15 +52,12 @@ export const DEFAULT_K = {
   density: 22,
   decay: 0.011,
   huskMin: 0.08,
-  huskBase: 0.35,
   huskFrac: 0.5,
   eatR: 0.3,
   linkR: 0.42,
   bondBreak: 1.25,  // persistent bonds break beyond 1.25 × their formation range (linkR)
-  buildCost: 0.06,
   gain: 1.5,
   sated: 1.0,       // cells stop feeding above this × the energy needed to divide
-  carcass: 0.45,    // energy left in the husk of a cell that was killed
   killEvery: 4,     // handling time: kills only on every Nth meal opportunity
   biteEvery: 1,     // ...and bites of plant cells on every Nth
   plantPref: 0.1,   // how much a flesh-eater values plant cells relative to a grazer
@@ -87,43 +84,31 @@ export const DEFAULT_K = {
   nutrHalf: 8.0,    // silt grains nearby at which photosynthesis runs at half speed
   allee: 0.65,      // producers grow at (1 - allee) of their rate alone, rising to full among 3 of their own species
   swimCost: 0.018,
-  preyBase: 0.35,
-  preyFrac: 0.7,
   kin: 0.8,
-  bondTouch: 0,     // bonds rest at this share of their two cells' touching distance (0: at 0.55 linkR, an open lattice)
-  socialN: 24,      // pair forces are averaged past this many particles within reach (0: summed however many)
-  tissueSig: 0.2,   // with tissue, how much of their signature forces the tightest species' kin keep (contact shapes them)
-  tightFrom: 0.5,   // with tissue, the adhesion where bodies start to close into tissue...
+  socialN: 24,      // pair forces are averaged past this many particles within reach
+  tissueSig: 0.2,   // how much of their signature forces the tightest species' kin keep (contact shapes them)
+  tightFrom: 0.5,   // the adhesion where bodies start to close into tissue...
   tightSpan: 0.4,   // ...and how much more until they are tissue through and through
-  budding: 1,       // 1: a daughter appears beside her mother (toward the grain she is built from), not at the grain
-  // with tissue: a bonded species whose growth plan says so grows as a tree, bonded mother to daughter only,
-  // from its tips at the angles its plan sets (growOf), so it branches, curls, forks and zigzags
-  grow: 1,
+  // a bonded species whose growth plan says so grows as a tree, bonded mother to daughter only, from its
+  // tips at the angles its plan sets (growOf), so it branches, curls, forks and zigzags
   growStiff: 2,     // how firmly a tree holds its angles (bendOn), relative to its bonds' pull
-  treeOdds: 1,      // founders and sparks of life plan a tree this many times as often as by default
   treeAge: 0.25,    // how fast a tree's cell ages once it has grown a daughter (1: as any cell)
-  snap: 0,          // rate (per second) at which each of a tree's cells lets go of its mother (at toughness 0: form.x)
-  treeCost: 0,      // upkeep of a tree's cell (holding its angles), like adhesion's
-  growTip: 1,       // a plant tree's tip buds again past this share of the growing up every cell waits (mature)
   growTipA: 10,     // seconds an animal colony's tip waits before budding again if it grows from its tips (beat.w;
                     // others grow up first, mature, as every cell does: a plant tree's tips too, or trees outgrow single cells)
   growFeed: 1,      // with bodyShare, rate (per second) at which a tree's grown cells pass their surplus on to their daughters
   // swimming trees: a thin body slips along its length more easily than sideways (resistive force theory),
   // so a wave run down a tree by its beat genes (amplitude, frequency, wavelength) drives it through the water
   sideDrag: 3,      // a tree's cell's drag across its branch, relative to along it (1: the same every way)
-  beat: 1,          // 1: trees beat as their genes say (0: never)
   beatDrive: 12,    // a beat's push on each bend per unit of amplitude, relative to the bonds' pull
   beatCost: 0.005,   // upkeep per unit of beat amplitude (radians) times frequency (Hz)
   bodyHold: 0.3,    // with bodyPush, the share of overlap undone each tick by velocity (contact as a constraint)
   bodyGive: 0.85,   // with bodyPush, how far cells may squash against each other first (share of touching; bonds rest at bondTouch)
-  bodyPush: 30,     // with liveFirst (contactMain): how hard overlapping cells' bodies push apart (units/s² per unit of overlap, summed; 0: off)
-  crowdVisc: 20,    // with liveFirst (contactMain): rate (per second) at which a cell crowded by four or more takes on the motion of those it touches
-  coreSum: 0,       // with socialN, 1: personal space (the core) is still summed over every neighbour inside it
-  tissue: 12,       // bodies as tissue (0: off): bonds pull both ways, a body's cells take on their partners' motion
+  bodyPush: 30,     // contactMain: how hard overlapping cells' bodies push apart (units/s² per unit of overlap, summed; 0: off)
+  crowdVisc: 20,    // contactMain: rate (per second) at which a cell crowded by four or more takes on the motion of those it touches
+  tissue: 12,       // bodies as tissue: bonds pull both ways, a body's cells take on their partners' motion
                     // at this rate (per second), and a free bond slot only closes a triangle within the body
   huntCore: 0.15,   // how much of other species' personal space a hungry forager respects
-  liveFirst: 1,     // 1: each grid cell's living are sorted first, and a cell weighs its living neighbours...
-  liveScan: 64,     // ...exactly up to this many (sampled evenly past it), sampling only the matter
+  liveScan: 64,     // each grid cell's living are sorted first, and a cell weighs its living neighbours exactly up to this many (sampled evenly past it), sampling only the matter
   contactReach: 0.14, // contactMain: the largest radius a neighbour is taken to have (grid cells within touching are walked)...
   contactCap: 128,  // ...every living one up to this many in them, every so many past it
   maxScan: 112,     // neighbours a cell weighs per step in a crowd, sampled evenly (each counts for those skipped)
@@ -136,9 +121,8 @@ export const DEFAULT_K = {
   baseMix: 0.04,
   maxSpeed: 7.0,
   photo: 5.3,       // energy per second for a pure photosynth in full light
-  shade: 0.07,      // self-shading per living neighbour
-  shadeP: 1.4,        // >0: light per area: only photosynthesisers shade, this much per neighbour (in place of shade;
-                    // a patch's light saturates, so a grazed meadow regrows: docs/ecosystem.md)
+  shadeP: 1.4,      // light per area: only photosynthesisers shade, this much per neighbour (a patch's light
+                    // saturates, so a grazed meadow regrows: docs/ecosystem.md)
   align: 3.0,
   bond: 60,         // spring strength of bonds between cells of one body
   adhMin: 0.15,     // adhesion needed before a species forms bonds
@@ -195,54 +179,33 @@ export const DEFAULT_K = {
   rotQ10: 2.5,      // husks rot this much faster per 10° above tRef
   abioHeat: 3,      // extra weight of sparks of life in hot water
   marangoni: 0,     // matter drifts from warm water toward cold at this many cells/s per °/cell
-  bodyE: 1.3,       // energy a cell's body holds, by size (0: main's rules: bodies are free and buildCost, preyBase, carcass and huskBase
-                    // make energy). On: a child's body costs this, a death leaves it as the husk, and a kill
+  bodyE: 1.3,       // energy a cell's body holds, by size: a child's body costs this, a death leaves it as the husk, and a kill
                     // passes on at most the prey's energy and body, so energy only enters as light
-  assimilate: 1.5,  // with bodyE, an eater keeps this × its skill (specialisation × eatEff × warmth) of the energy in
+  assimilate: 1.5,  // an eater keeps this × its skill (specialisation × eatEff × warmth) of the energy in
   assimCap: 0.8,    // flesh, plants and husks, at most this share
-  carcassKeep: 0.3, // with bodyE, the share of a killed cell's body left in its carcass (the killer gets the rest)
-  bodyWhole: 1,     // with bodyE, 1: bodies are eaten whole by an eater built for them (a kill's share of the body and a
-                    // husk pass without digestion's loss, as the stuff of its next child, up to skill × assimilate);
-                    // stored energy keeps assimCap
+  carcassKeep: 0.3, // the share of a killed cell's body left in its carcass (the killer gets the rest)
   provision: 60,     // a cell divides only once its child's share would cover this many seconds of its upkeep (feeding
                     // until then; 0: at divE): hunters, whose meals are far apart, raise viable young
-  dung: 1,          // 1: what an eater cannot assimilate (of bites and kills) fills its gut and is dropped as a husk
-  dungE: 0.6,       // ...once the gut holds this much
+  dungE: 0.6,       // what an eater cannot assimilate (of bites and kills) fills its gut and is dropped as a husk once it holds this much
   satiety: 1,       // a fed hunter rests: attacks on animals fall off as it nears the energy to divide (1: in proportion)
   satietyAt: 1.2,     // ...counting a hunter full at this × the energy to divide (above 1: it still hunts its way to dividing)
   holdfast: 0.1,      // scale on an anchored cell's velocity half-life (low advect): 0.1 and pushes barely move it
   mature: 0.2,        // a cell divides only once older than this share of its lifespan (it grows up first; 0: at once)
-  bodyReserve: 1,   // with bodyE, 1: a cell divides once it holds reproE beyond its child's body; 0: once it holds reproE
-                    // and at least 1.25 × the body (so a division never starves it)
-  bodyShare: 2,     // with tissue, rate (per second) at which energy flows along a body's bonds toward the poorer cell
-  sharpFounders: 1, // 1: founders are specialists: producers all light, animals none, each diet mostly its main food
-  leanHunters: 2,   // 1: founding hunters and crawlers are smaller, divide sooner and form loose bodies (for bodyE);
-                    // 2: and cheaper to run (less force, slower, shorter-lived); 3: and with 2.5× the reserve (reproE)
-  cycle: 1,         // 1: a closed nutrient loop (docs/ecosystem.md): a dead producer leaves litter, husks feed the
-                    // scavengers (litterTo), and eaten husks return to the water as silt
+  bodyShare: 2,     // rate (per second) at which energy flows along a body's bonds toward the poorer cell
   tideSpeed: 3,     // scale on how fast the tide's bands of light travel
-  rotScale: 1,
-  litterTo: 1,      // with cycle, who breaks down a producer's litter: 0 grazers, 1 scavengers (decomposers of all husks)
-  cyst: 1,          // 1: a seed bank: a cell short of energy with no food in reach may go dormant (a cyst) and wake later
-  cystPlants: 0,    // with cyst, 0: only animals go dormant (producers do not eat, so 'no food in reach' always holds)
-  cystAt: 0.3,      // ...below this share of its division energy...
+  cystAt: 0.3,      // a seed bank: an animal short of energy with no food in reach may go dormant (a cyst) below this share of its division energy...
   cystRate: 0.2,    // ...at this chance per second
   cystLeak: 0.002,  // energy a cyst loses per second (it dies as a husk at none)
   cystWake: 0.022,  // chance per second a cyst wakes (about every 90 s)
   foundHunt: 0.125, // the largest share of a new world's 24 founding species that eat flesh (hunters, crawlers)
   foundEach: 2,     // every new world founds at least this many species of each core niche (producer, grazer, hunter, scavenger)
-  bodySize: 1,      // with bodyE, 1: a body holds bodyE × the cell's size (small cells are cheap to build, big ones rich prey)
   interfere: 0.6,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
                     // within reach, its bond partners aside)
 };
 
-// Energy bookkeeping (see K.bodyE): with bodyE off, main's rules.
-// WGSL for the energy in a body of genome expression G (K.buildCost when bodies are free).
-// With K.cycle: the skill that eats a husk (litter: a grazer's; carcass: a scavenger's), and a dying cell's litter flag
-const huskSkill = (K) => (K.cycle && !K.litterTo ? 'select(g.dHusk, g.dGlint, (fp.info & LITTER) != 0u)' : 'g.dHusk');
-const litterOf = (K, G) => (K.cycle ? ` | select(0u, LITTER, ${G}.photo > 0.4)` : '');
-const bodyOf = (K, G) => (K.bodyE > 0 ? (K.bodySize ? `${f(K.bodyE)} * ${G}.size` : f(K.bodyE)) : f(K.buildCost));
-const preyShare = (K) => (K.bodyE > 0 ? 1 : K.preyFrac);
+// WGSL for the energy in a body of genome expression G (K.bodyE by size), and a dying cell's litter flag
+const litterOf = (G) => ` | select(0u, LITTER, ${G}.photo > 0.4)`;
+const bodyOf = (K, G) => `${f(K.bodyE)} * ${G}.size`;
 
 const packCol = (r, g, b) => (Math.round(r * 255) | (Math.round(g * 255) << 8) | (Math.round(b * 255) << 16) | (255 << 24)) >>> 0;
 const f = (x) => {
@@ -291,9 +254,9 @@ const FIRST_LIFE = ${FIRST_LIFE}u;
 const SILT = 0u;
 const GLINT = 1u;  // a kind no longer made (glint): kept so the kind numbers hold
 const HUSK = 2u;
-// a husk left by a producer (K.cycle): plant litter, grazers' to break down; other husks are carcasses
+// a husk left by a producer: plant litter, grazers' to break down; other husks are carcasses
 const LITTER = 0x8000u;
-// a dormant living cell (K.cyst): its cause code (info & 15)
+// a dormant living cell: its cause code (info & 15)
 const CYST = 14u;
 // META_DEATH slots counting each guild's cysts, afresh each step (57-59, 61, 62; 60 is the litter)
 fn cystSlot(gi: u32) -> u32 { return META_DEATH + select(57u + gi, 58u + gi, gi >= 3u); }
@@ -329,7 +292,6 @@ struct Genome {
   parent: u32, serial: u32, born: f32, depth: u32,
   adhesion: f32, calcify: f32, topt: f32, tol: f32,
   beat: vec4f,
-  form: vec4f,
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
@@ -339,7 +301,7 @@ fn renderHash(id: u32) -> f32 {
   return f32((h >> 22u) ^ h) / 4294967296.0;
 }
 fn genOf(info: u32) -> u32 { return (info >> 16u) & 4095u; }
-// A tree's cell (K.grow): the turn it grew at from its mother (0 straight on, 1 left, 2 right) and its
+// A tree's cell: the turn it grew at from its mother (0 straight on, 1 left, 2 right) and its
 // branch order (0: the main axis)
 fn turnOf(info: u32) -> u32 { return (info >> 28u) & 3u; }
 fn orderOf(info: u32) -> u32 { return info >> 30u; }
@@ -480,29 +442,24 @@ function cellWGSL(K, w) {
       d2 = length(dn2);
     }
   }
-${K.grow && K.tissue > 0 && K.snap > 0 ? `  // a tree snaps: each cell lets go of its mother now and then (currents, grazers, hormogonia), so the
-  // longer a filament the sooner it breaks, and its pieces grow on; how tough it is is a gene (form.x:
-  // each unit halves the rate)
-  if (n1 != NONE && bonding && growOf(g).tree && f32(pcg(p.id ^ pcg(sim.frame * 2246822519u + sim.seed))) / 4294967296.0 < ${f(K.snap)} * exp2(-g.form.x) * sim.dt) { n1 = NONE; }
-` : ''}  let keep1 = n1 != NONE; let keep2 = n2 != NONE;${K.grow && K.tissue > 0 ? `
-  // a tree (K.grow) grows from its tips at the angles of its plan, bonded mother to daughter only
+  let keep1 = n1 != NONE; let keep2 = n2 != NONE;
+  // a tree grows from its tips at the angles of its plan, bonded mother to daughter only
   let gr = growOf(g);
-  let tree = bonding && gr.tree;` : ''}${K.tissue > 0 ? `
+  let tree = bonding && gr.tree;
   // how tightly its bodies hold: the most adhesive species grow tissue, membrane to membrane; the
   // least keep open, strung-out bodies (a tree's cells touch)
-  let tight = ${K.grow ? 'select(' : ''}clamp((g.adhesion - ${f(K.tightFrom)}) / ${f(K.tightSpan)}, 0.0, 1.0)${K.grow ? ', 1.0, tree)' : ''};
-` : ''}
-  // a bond's rest length: with K.bondTouch, cells of a body sit membrane to membrane (a tissue)
-  let bondRest = ${K.tissue > 0 ? `0.0` : K.bondTouch > 0 ? `${f(K.bondTouch)} * 2.0 * 0.085 * g.size * (1.0 - 0.12 * f32(role))` : 'LINK_R * 0.55'};
+  let tight = select(clamp((g.adhesion - ${f(K.tightFrom)}) / ${f(K.tightSpan)}, 0.0, 1.0), 1.0, tree);
+
+  let bondRest = 0.0;
   // warmth: the water here, plus a heat-maker's own (a body insulates its cells)
   let thermo = thermoOf(g);
   let heat = heatSample(p.pos);
   let Tc = heat.x + ${f(K.selfWarm)} * thermo * (1.0 + 0.5 * (select(0.0, 1.0, keep1) + select(0.0, 1.0, keep2)));
   let th = cellThermal(g, Tc);
   // a torpid cell neither hunts, grazes nor divides
-  // a child's body costs bodyCost (K.bodyE, by size with K.bodySize); divE: the energy a cell divides at (K.bodyReserve)
+  // a child's body costs bodyCost (K.bodyE, by size); divE: the energy a cell divides at, reproE beyond it
   let bodyCost = ${bodyOf(K, 'g')};
-  let divE = ${K.bodyE > 0 ? (K.bodyReserve ? 'g.reproE + bodyCost' : 'max(g.reproE, 1.25 * bodyCost)') : 'g.reproE'}${K.provision > 0 ? ` + max(0.0, bodyCost + ${f(K.provision)} * g.metab / g.share - g.reproE - bodyCost)` : ''};
+  let divE = g.reproE + bodyCost + max(0.0, bodyCost + ${f(K.provision)} * g.metab / g.share - g.reproE - bodyCost);
   let hungry = p.energy < divE * ${f(K.sated)} && eatEff > 0.1 && !th.torpid;
   let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
   // food in reach is gathered by hungry cells; in a coarse step also by any that may grow hungry in it
@@ -520,19 +477,17 @@ ${K.grow && K.tissue > 0 && K.snap > 0 ? `  // a tree snaps: each cell lets go o
   var animN = 0.0;
   var pack = 0.0;
   // (K.diag: neighbours inside this cell's core; animals within reach and twice reach)
-  var overlap = 0.0;${K.socialN > 0 ? `
-  var nIn = 0.0;` : ''}${K.socialN > 0 && K.coreSum ? `
-  // personal space, summed over every neighbour inside it
-  var coreF = vec2f(0.0);` : ''}
+  var overlap = 0.0;
+  var nIn = 0.0;
   var preyNear = vec2f(0.0);
-  var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));${K.grow && K.tissue > 0 ? `
+  var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
   // a tree grows from its tips: the daughter this cell lacks (budTurn; 3: none), where she would grow
   // (budAt, from here) and whether a cell is in the way (budBlocked)
   var budTurn = 3u;
   var budAt = vec2f(0.0);
   var budBlocked = false;
   var hasKid = false;
-  let budGap = ${f(K.bondTouch || 0.9)} * 0.085 * g.size * (2.0 - 0.24 * f32(role));
+  let budGap = 0.9 * 0.085 * g.size * (2.0 - 0.24 * f32(role));
   if (tree) {
     var have = 0u;
     for (var k = 0u; k < min(backOf(i, 0u), 3u); k++) {
@@ -546,11 +501,8 @@ ${K.grow && K.tissue > 0 && K.snap > 0 ? `  // a tree snaps: each cell lets go o
       let hd = headingOf(i, gr);
       budAt = rot2(hd.dir, turnAngle(gr, budTurn, genOf(p.info) + 1u)) * budGap;
     }
-  }` : ''}
+  }
 
-
-
-${K.liveFirst ? `
   // The 3x3 neighbourhood as eighteen index ranges: each grid cell's living (first in it), then each
   // one's matter. The living are weighed exactly (sampled evenly past liveScan of them), the matter
   // sampled with what the budget leaves: in a heap of grains a cell still feels every cell it touches.
@@ -583,7 +535,7 @@ ${K.liveFirst ? `
   for (var k = 0u; k < 18u; k++) {
     if (k == 9u) {
       let toM = strideL / strideM;
-      overlap *= toM; preyNear *= toM; force *= toM; crowd *= toM; crowdP *= toM; pack *= toM; kinVel *= toM; kinN *= toM; jF *= toM;${K.socialN > 0 ? ' nIn *= toM;' : ''}${K.socialN > 0 && K.coreSum ? ' coreF *= toM;' : ''}
+      overlap *= toM; preyNear *= toM; force *= toM; crowd *= toM; crowdP *= toM; pack *= toM; kinVel *= toM; kinN *= toM; jF *= toM; nIn *= toM;
       st = strideM;
       at = select(0.0, rnd(&s) * strideM, strideM > 1.0);
     }
@@ -599,50 +551,13 @@ ${K.liveFirst ? `
       let q = sortedLite[j];
       var d = q.pos - p.pos;
       d -= world * round(d * invWorld);
-      let r2 = dot(d, d);` : `
-  // The 3x3 neighbourhood as up to nine index ranges (one per row away from the wrap seam).
-  var rs: array<u32, 9>;
-  var re: array<u32, 9>;
-  var nr = 0u;
-  var total = 0u;
-  for (var dy = -1; dy <= 1; dy++) {
-    let y = (cc.y + dy + gh) % gh;
-    let rowBase = y * gw;
-    if (cc.x > 0 && cc.x < gw - 1) {
-      rs[nr] = cellStart[u32(rowBase + cc.x - 1)];
-      re[nr] = cellStart[u32(rowBase + cc.x + 2)];
-      total += re[nr] - rs[nr];
-      nr++;
-    } else {
-      for (var dx = -1; dx <= 1; dx++) {
-        let x = (cc.x + dx + gw) % gw;
-        let c = u32(rowBase + x);
-        rs[nr] = cellStart[c];
-        re[nr] = cellStart[c + 1u];
-        total += re[nr] - rs[nr];
-        nr++;
-      }
-    }
-  }
-  // Crowded neighbourhoods are sampled evenly with a random offset, each sample standing for
-  // \`stride\` particles, so no direction or grid cell is favoured (scanning in order and stopping
-  // at the budget left out the last row and drew dense species into grid-aligned bands).
-  let stride = max(1.0, f32(total) / f32(sim.maxScan));
-  var at = select(0.0, rnd(&s) * stride, stride > 1.0);
-  for (var k = 0u; k < nr; k++) {
-    let len = f32(re[k] - rs[k]);
-    for (; at < len; at += stride) {
-      let j = rs[k] + u32(at);
-      let q = sortedLite[j];
-      var d = q.pos - p.pos;
-      d -= world * round(d * invWorld);
-      let r2 = dot(d, d);`}
-      if (r2 >= R2 || r2 < 1e-12) { continue; }${K.socialN > 0 ? `
-      nIn += 1.0;` : ''}
+      let r2 = dot(d, d);
+      if (r2 >= R2 || r2 < 1e-12) { continue; }
+      nIn += 1.0;
       let r = sqrt(r2);
       let x = r * invR;
       let qk = q.kr & 1023u;
-      let a = clamp((sdot(sg.z, q.s0) + sdot(sg.w, q.s1)) * ${f(K.affScale)}, -1.0, 1.0);${K.tissue > 0 ? `
+      let a = clamp((sdot(sg.z, q.s0) + sdot(sg.w, q.s1)) * ${f(K.affScale)}, -1.0, 1.0);
       // A tight body's kin keep personal space only down to touching (where their two roles' sizes
       // meet), so they press membrane to membrane, and keep less of their signature forces beyond it.
       var bk = beta; var invBk = invBeta; var invOMk = invOM; var sigK = 1.0;
@@ -651,31 +566,30 @@ ${K.liveFirst ? `
         bk = mix(beta, min(beta, tq * invR), tight);
         invBk = 1.0 / bk;
         invOMk = 1.0 / (1.0 - bk);
-        sigK = mix(1.0, ${f(K.tissueSig)}, tight);${K.grow ? `
+        sigK = mix(1.0, ${f(K.tissueSig)}, tight);
         // a tree's shape is its bonds': its branches neither draw together nor apart
-        if (tree) { sigK = 0.0; }` : ''}
+        if (tree) { sigK = 0.0; }
       }
-      let shape = 1.0 - abs(2.0 * x - 1.0 - bk) * invOMk;` : `
-      let shape = 1.0 - abs(2.0 * x - 1.0 - beta) * invOM;`}
+      let shape = 1.0 - abs(2.0 * x - 1.0 - bk) * invOMk;
       var fr: f32;
       // how fr changes with distance (coarse steps' gradient), and the pull that scales shape
       var dfr = 0.0;
       var pull = 0.0;
-      if (qk >= FIRST_LIFE) {${K.grow && K.tissue > 0 ? `
+      if (qk >= FIRST_LIFE) {
         // its own kind in the way stops it (a tree fills space without overlapping itself); strangers are shoved aside
-        if (budTurn < 3u && qk == p.kind && distance(d, budAt) < 0.7 * budGap) { budBlocked = true; }` : ''}
+        if (budTurn < 3u && qk == p.kind && distance(d, budAt) < 0.7 * budGap) { budBlocked = true; }
         // a hungry forager lets other species inside its personal space so it can reach them
         let core = select(1.0, ${f(K.huntCore)}, canHunt && qk != p.kind);
-        if (x < ${K.tissue > 0 ? 'bk' : 'beta'}) { fr = (x * ${K.tissue > 0 ? 'invBk' : 'invBeta'} - 1.0) * core; } else { fr = a * shape${K.tissue > 0 ? ' * sigK' : ''}; }${W('mFr0 = fr; mFl = 0.0;')}
+        if (x < bk) { fr = (x * invBk - 1.0) * core; } else { fr = a * shape * sigK; }${W('mFr0 = fr; mFl = 0.0;')}
         // hungry foragers are drawn toward the cells their diet favours
         if ((q.kr & (1u << 12u)) != 0u && r < 0.5) { plantN += 1.0; }
         if ((q.kr & (1u << 12u)) == 0u && qk != p.kind) { animN += 1.0; }
         let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
-        if (x >= ${K.tissue > 0 ? 'bk' : 'beta'}) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * ${K.tissue > 0 ? 'invBk' : 'invBeta'} * invR; }${K.flee > 0 ? `
+        if (x >= bk) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * invBk * invR; }
         // an animal that is not a hunter swims away from hunters near it, the harder the closer they are
-        if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && g.dFlesh <= 0.5 && g.photo <= 0.4) { fr -= ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);${W(`mFl = ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);`)} }` : ''}
-        crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);${K.shadeP > 0 ? `
-        if ((q.kr & (1u << 12u)) != 0u) { crowdP += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind); }` : ''}
+        if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && g.dFlesh <= 0.5 && g.photo <= 0.4) { fr -= ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);${W(`mFl = ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);`)} }
+        crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
+        if ((q.kr & (1u << 12u)) != 0u) { crowdP += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind); }
         if (DIAG) {
           if (x < beta) { overlap += 1.0; }
           if (qk != p.kind && (q.kr & (1u << 12u)) == 0u && r < 2.0 * EAT_R) { preyNear += vec2f(select(0.0, 1.0, r < EAT_R), 1.0); }
@@ -692,14 +606,14 @@ ${K.liveFirst ? `
             csum += unpack4x8unorm(q.col).rgb * w;
             wsum += w;
           }
-          if (bonding${K.grow && K.tissue > 0 ? ' && !tree' : ''} && qk == p.kind && j != n1 && j != n2${K.cyst ? ' && (q.kr & (1u << 13u)) == 0u' : ''}${K.tissue > 0 ? ' && ((!keep1 && r < d1) || (!keep2 && r < d2)) && joinable(i, j, select(NONE, n1, keep1), select(NONE, n2, keep2))' : ''}) {
+          if (bonding && !tree && qk == p.kind && j != n1 && j != n2 && (q.kr & (1u << 13u)) == 0u && ((!keep1 && r < d1) || (!keep2 && r < d2)) && joinable(i, j, select(NONE, n1, keep1), select(NONE, n2, keep2))) {
             if (!keep1 && r < d1) {
               if (!keep2) { d2 = d1; n2 = n1; dn2 = dn1; }
               d1 = r; n1 = j; dn1 = d;
             } else if (!keep2 && r < d2) { d2 = r; n2 = j; dn2 = d; }
           }
         }
-        if (seekHunt && r < EAT_R && qk != p.kind${K.cyst ? ' && (q.kr & (1u << 13u)) == 0u' : ''}) {
+        if (seekHunt && r < EAT_R && qk != p.kind && (q.kr & (1u << 13u)) == 0u) {
           // how far its signature is from this cell's: |s - my|^2
           let far = sdot(q.s0, q.s0) + sdot(q.s1, q.s1) - 2.0 * (sdot(q.s0, sg.x) + sdot(q.s1, sg.y)) + myNorm;
           if (far > ${f(K.kin)}) {
@@ -725,8 +639,8 @@ ${K.liveFirst ? `
           if (r < 0.5) { stoneN += 1.0; }
         } else {
           if (hungry && qk != SILT && x >= beta) {
-            fr += matterDiet(g, qk, q.kr) * eatEff * ${f(K.forage)} * shape;
-            pull += matterDiet(g, qk, q.kr) * eatEff * ${f(K.forage)};
+            fr += g.dHusk * eatEff * ${f(K.forage)} * shape;
+            pull += g.dHusk * eatEff * ${f(K.forage)};
           }
           if (qk == SILT) { nutr += 1.0; }
           // a cell ready to divide looks for a grain every tick, so in a coarse step a grain counts if it
@@ -741,15 +655,15 @@ ${K.liveFirst ? `
             if (rc < siltD) { siltD2 = siltD; silt2 = silt; siltD = rc; silt = j; }
             else if (rc < siltD2) { siltD2 = rc; silt2 = j; }
           } else if (qk != SILT && r < EAT_R && seek) {
-            let dv = matterDiet(g, qk, q.kr);
+            let dv = g.dHusk;
             let sc = dv - r;
             if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
             if (dv > DIET_MIN && coarse) { pushFood(&fc, &fsc, j, sc); }
           }
         }
       }
-      if (x >= ${K.tissue > 0 ? 'bk' : 'beta'}) { dfr = select(-2.0, 2.0, 2.0 * x < 1.0 + ${K.tissue > 0 ? 'bk' : 'beta'}) * ${K.tissue > 0 ? 'invOMk' : 'invOM'} * invR * pull; }
-      ${K.socialN > 0 && K.coreSum ? `if (qk >= FIRST_LIFE && x < ${K.tissue > 0 ? 'bk' : 'beta'}) { coreF += d * (fr / r); } else { force += d * (fr / r); }` : 'force += d * (fr / r);'}${W('mPair(j, q, d, r, x < beta, qk == p.kind, mFr0, fr);')}
+      if (x >= bk) { dfr = select(-2.0, 2.0, 2.0 * x < 1.0 + bk) * invOMk * invR * pull; }
+      force += d * (fr / r);${W('mPair(j, q, d, r, x < beta, qk == p.kind, mFr0, fr);')}
       if (coarse) {
         // the pair force d g(r), g = fr / r, has gradient in this cell's position -(g I + g'/r d d')
         let gr = fr / r;
@@ -764,20 +678,17 @@ ${K.liveFirst ? `
     at -= len;
   }
   overlap *= stride; preyNear *= stride;
-  force *= stride;${K.socialN > 0 ? `
+  force *= stride;
   // a cell answers its neighbours as a whole, not each one in full: past socialN within reach the pair
   // forces are averaged, so a crowd drives a cell no harder than a neighbourhood does
   let social = ${f(K.socialN)} / max(${f(K.socialN)}, nIn * stride);
-  force *= social; jF *= social;` : ''}${K.socialN > 0 && K.coreSum ? `
-  // ...but contact is pressed for by every neighbour inside it: a crowd pushes back the harder the
-  // more pile in, so it cannot collapse
-  force += coreF * stride;` : ''}
+  force *= social; jF *= social;
   crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride; plantN *= stride; animN *= stride;
 
   let heavy = 1.0 - 0.7 * g.photo;
   // Persistent bonds pull on the partners' current positions, even outside the sampled scan.
   var bondF = vec2f(0.0);
-${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull both ways), read now rather than held
+  // the partners that keep this cell (a tissue's bonds pull both ways), read now rather than held
   // through the scan (it is short of registers)
   var nb0 = NONE; var nb1 = NONE; var nb2 = NONE;
   if (bonding) {
@@ -793,22 +704,21 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   // each bond rests where its two cells touch (both agree on it: their roles' sizes summed)
   let rs1 = restTo(n1, g.size, role, tight); let rs2 = restTo(n2, g.size, role, tight);
   let rb0 = restTo(nb0, g.size, role, tight); let rb1 = restTo(nb1, g.size, role, tight); let rb2 = restTo(nb2, g.size, role, tight);
-` : `  let rs1 = bondRest; let rs2 = bondRest;
-`}  if (n1 != NONE) { bondF += dn1 * ((d1 - rs1) / max(d1, 1e-4)); }
-  if (n2 != NONE) { bondF += dn2 * ((d2 - rs2) / max(d2, 1e-4)); }${K.tissue > 0 ? `
+  if (n1 != NONE) { bondF += dn1 * ((d1 - rs1) / max(d1, 1e-4)); }
+  if (n2 != NONE) { bondF += dn2 * ((d2 - rs2) / max(d2, 1e-4)); }
   let e0 = bondTo(nb0, p); let e1 = bondTo(nb1, p); let e2 = bondTo(nb2, p);
   if (nb0 != NONE) { bondF += e0 * ((length(e0) - rb0) / max(length(e0), 1e-4)); }
   if (nb1 != NONE) { bondF += e1 * ((length(e1) - rb1) / max(length(e1), 1e-4)); }
-  if (nb2 != NONE) { bondF += e2 * ((length(e2) - rb2) / max(length(e2), 1e-4)); }` : ''}${K.grow && K.tissue > 0 ? `
+  if (nb2 != NONE) { bondF += e2 * ((length(e2) - rb2) / max(length(e2), 1e-4)); }
   // a tree holds its angles (bendOn); coarse steps hold each cell's place beside its mother as they go
   var bendF = vec2f(0.0);
   if (tree) { bendF = bendOn(i, gr) * ${f(K.growStiff)}; bondF += bendF; }
-  let aimOn = tree && n1 != NONE;` : ''}
+  let aimOn = tree && n1 != NONE;
   let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0);
   let flow = flowAt(p.pos) * g.advect;
   // a holdfast: a cell the current hardly carries (advect below 0.35, fully below 0.1) is anchored, and
   // pushes barely move it (its velocity decays K.holdfast times as fast)
-  let drag = g.drag${K.holdfast < 1 ? ` * mix(1.0, ${f(K.holdfast)}, smoothstep(0.35, 0.1, g.advect))` : ''};
+  let drag = g.drag * mix(1.0, ${f(K.holdfast)}, smoothstep(0.35, 0.1, g.advect));
   // thermotaxis: a swimmer away from its optimum steers up or down the warmth toward it
   var taxis = vec2f(0.0);
   let slope = length(heat.yz);
@@ -844,25 +754,25 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   // would under its forces; bonds pull toward where the partners will be, carried on their velocities.
   // A 1/60 s step is a single substep.
   let h = sim.dt / f32(sim.ticks);
-  let fr0 = pow(0.5, h / drag);${K.grow && K.tissue > 0 && K.sideDrag != 1 ? `
+  let fr0 = pow(0.5, h / drag);
   // a tree's cell is drawn out along its branch: across it the water holds it sideDrag times as hard
   var across = vec2f(0.0);
   var frX = fr0;
   if (tree) {
     let arm = treeArm(i);
     if (arm != NONE) { let a = treeRel(i, arm); across = vec2f(-a.y, a.x) / max(length(a), 1e-6); frX = pow(0.5, h * ${f(K.sideDrag)} / drag); }
-  }` : ''}
+  }
   var vB1 = vec2f(0.0);
   var vB2 = vec2f(0.0);
   if (n1 != NONE) { vB1 = sortedFull[n1].vel; }
-  if (n2 != NONE) { vB2 = sortedFull[n2].vel; }${K.tissue > 0 ? `
+  if (n2 != NONE) { vB2 = sortedFull[n2].vel; }
   var vb0 = vec2f(0.0); var vb1 = vec2f(0.0); var vb2 = vec2f(0.0);
   if (nb0 != NONE) { vb0 = sortedFull[nb0].vel; }
   if (nb1 != NONE) { vb1 = sortedFull[nb1].vel; }
   if (nb2 != NONE) { vb2 = sortedFull[nb2].vel; }
   // the body's motion around this cell: its partners' mean velocity
   let nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE) + select(0.0, 1.0, nb0 != NONE) + select(0.0, 1.0, nb1 != NONE) + select(0.0, 1.0, nb2 != NONE);
-  let vP = (vB1 + vB2 + vb0 + vb1 + vb2) / max(nP, 1.0);${K.bodyShare > 0 ? `
+  let vP = (vB1 + vB2 + vb0 + vb1 + vb2) / max(nP, 1.0);
   // a body feeds its cells: energy flows along each bond toward the poorer partner, the same amount
   // either way (both read this step's start), so a hunter at the edge keeps the interior alive
   let shareK = min(0.2, ${f(K.bodyShare)} * sim.dt);
@@ -872,7 +782,7 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   if (nb0 != NONE) { shareE += sortedFull[nb0].energy - p.energy; }
   if (nb1 != NONE) { shareE += sortedFull[nb1].energy - p.energy; }
   if (nb2 != NONE) { shareE += sortedFull[nb2].energy - p.energy; }
-  shareE *= shareK;${K.grow ? `
+  shareE *= shareK;
   // a tree feeds its tips instead, as a plant's sugars flow to where it grows: a cell whose daughters are
   // all grown passes them its surplus over half its division energy (mother and daughter reckon it alike)
   if (tree) {
@@ -880,7 +790,7 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
     let rate = min(0.5, ${f(K.growFeed)} * sim.dt);
     shareE = -feedOf(i, gr, keep, rate).y;
     if (n1 != NONE) { shareE += feedOf(n1, gr, keep, rate).x; }
-  }` : ''}` : ''}` : ''}
+  }
   var vel = p.vel;
   var pos = p.pos;
   for (var k = 0u; k < select(1u, sim.ticks, COARSE); k++) {
@@ -890,21 +800,21 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
       let moved = pos - p.pos;
       fb = vec2f(0.0);
       if (n1 != NONE) { let e = dn1 + vB1 * t - moved; let l = length(e); fb += e * ((l - rs1) / max(l, 1e-4)); }
-      if (n2 != NONE) { let e = dn2 + vB2 * t - moved; let l = length(e); fb += e * ((l - rs2) / max(l, 1e-4)); }${K.tissue > 0 ? `
+      if (n2 != NONE) { let e = dn2 + vB2 * t - moved; let l = length(e); fb += e * ((l - rs2) / max(l, 1e-4)); }
       if (nb0 != NONE) { let e = e0 + vb0 * t - moved; let l = length(e); fb += e * ((l - rb0) / max(l, 1e-4)); }
       if (nb1 != NONE) { let e = e1 + vb1 * t - moved; let l = length(e); fb += e * ((l - rb1) / max(l, 1e-4)); }
-      if (nb2 != NONE) { let e = e2 + vb2 * t - moved; let l = length(e); fb += e * ((l - rb2) / max(l, 1e-4)); }` : ''}${K.grow && K.tissue > 0 ? `
+      if (nb2 != NONE) { let e = e2 + vb2 * t - moved; let l = length(e); fb += e * ((l - rb2) / max(l, 1e-4)); }
       if (tree) { fb += bendF; }
-      if (aimOn) { fb += (vB1 * t - moved) * ${f(K.growStiff)}; }` : ''}
+      if (aimOn) { fb += (vB1 * t - moved) * ${f(K.growStiff)}; }
     }
-    vel = vel * fr0${K.grow && K.tissue > 0 && K.sideDrag != 1 ? ' - across * (dot(vel, across) * (fr0 - frX))' : ''} + force * (g.force * heavy * h) + stiff * h;${W('if (k == 0u) { mVel = vel; }')}
+    vel = vel * fr0 - across * (dot(vel, across) * (fr0 - frX)) + force * (g.force * heavy * h) + stiff * h;${W('if (k == 0u) { mVel = vel; }')}
     // (a tree's cells move together through their bonds: aligning would damp its beat)
-    if (kinN > 0.0 && g.align > 0.0${K.grow && K.tissue > 0 ? ' && !tree' : ''}) {
+    if (kinN > 0.0 && g.align > 0.0 && !tree) {
       vel = mix(vel, kinVel / kinN, clamp(g.align * ${f(K.align)} * h, 0.0, 1.0));${W('if (k == 0u) { mAlign = vel - mVel; }')}
     }
-    vel += fb * (g.adhesion * ${f(K.bond)} * h);${K.tissue > 0 ? `
+    vel += fb * (g.adhesion * ${f(K.bond)} * h);
     // a body's cells move together: each takes on its partners' motion
-    if (nP > 0.0) { vel = mix(vel, vP, clamp(${f(K.tissue)} * h, 0.0, 1.0)); }` : ''}
+    if (nP > 0.0) { vel = mix(vel, vP, clamp(${f(K.tissue)} * h, 0.0, 1.0)); }
     // stone is solid to everything but the calcifiers that build it, which settle on their own reef
     vel += stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify) * h);
     if (swim > 0.0) {
@@ -922,19 +832,19 @@ ${K.tissue > 0 ? `  // the partners that keep this cell (a tissue's bonds pull b
   }
   pos = wrapPos(pos);
 
-  var col = unpack4x8unorm(p.col).rgb;${K.dung ? `
+  var col = unpack4x8unorm(p.col).rgb;
   // the gut: what an eater could not assimilate, held in the colour's spare byte (1: empty) until dropped as dung
-  var gut = (1.0 - unpack4x8unorm(p.col).a) * ${f(K.dungE)};` : ''}
+  var gut = (1.0 - unpack4x8unorm(p.col).a) * ${f(K.dungE)};
   if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }
   col = mix(col, roleColor(g, role), ${f(K.baseMix)});
 
   let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
   // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
   // water; anchored cells have fresh silt carried past them by the currents.
-  let photoGain = th.perf * ${K.photoPow > 1 ? `pow(g.photo, ${f(K.photoPow)})` : 'g.photo'} * light * ${f(K.photo)} / (1.0 + ${K.shadeP > 0 ? `crowdP * ${f(K.shadeP)}` : `crowd * ${f(K.shade)}`}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
-    * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0))${K.allee ? `
+  let photoGain = th.perf * pow(g.photo, ${f(K.photoPow)}) * light * ${f(K.photo)} / (1.0 + crowdP * ${f(K.shadeP)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
+    * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0))
     // Allee effect: a producer thrives among its own kind; a lone one grows slowly, so grazed-bare water stays bare a while
-    * (1.0 - ${f(K.allee)} + ${f(K.allee)} * min(kinN / 3.0, 1.0))` : ''};
+    * (1.0 - ${f(K.allee)} + ${f(K.allee)} * min(kinN / 3.0, 1.0));
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
   // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); a body's bond partners do not count
   let kinCost = 1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - bonds - ${f(K.kinFree)});
@@ -978,11 +888,11 @@ struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u3
 @group(0) @binding(6) var<storage, read_write> cellStart: array<u32>;
 @group(0) @binding(7) var<storage, read_write> blockSums: array<u32>;
 @group(0) @binding(8) var<storage, read_write> aux: array<vec2u>;
-${K.liveFirst ? `// cellStart[LIVE_AT + c]: how many of grid cell c's particles are living (they come first in it)
+// cellStart[LIVE_AT + c]: how many of grid cell c's particles are living (they come first in it)
 const LIVE_AT = MAX_CELLS + 1u;
 // aux.y: a particle's rank among its grid cell's living (this bit set) or its matter
 const LIVE_BIT = 0x80000000u;
-` : ''}// Intent: x bits 0..1 action (0 none, 1 eat, 2 birth, 3 bite),
+// Intent: x bits 0..1 action (0 none, 1 eat, 2 birth, 3 bite),
 // 2..11 child kind (birth) or observed target kind (eat/bite),
 // 12..13 child role, 14..30 child generation; y child energy, z/w bond neighbours.
 @group(0) @binding(9) var<storage, read_write> intent: array<vec4u>;
@@ -995,14 +905,13 @@ const LIVE_BIT = 0x80000000u;
 @group(0) @binding(14) var<storage, read_write> stoneGrid: array<atomic<u32>>;
 // Every grain of stone, gathered while matter moves, so rendering draws stone without scanning all.
 @group(0) @binding(16) var<storage, read_write> stoneList: array<u32>;
-${K.tissue > 0 ? `// Each cell's bonds, six words a cell: the two it keeps, then (K.tissue) the cells that keep a bond to
+// Each cell's bonds, six words a cell: the two it keeps, then the cells that keep a bond to
 // it (bondBackMain): a count and up to three of them
 // read plainly (binding 15); bondBackMain appends to it through bondsAt (binding 20, the same buffer)
 @group(0) @binding(15) var<storage, read_write> bondsNow: array<u32>;
 @group(0) @binding(20) var<storage, read_write> bondsAt: array<atomic<u32>>;
 fn bondsOf(i: u32) -> vec2u { return vec2u(bondsNow[i * 6u], bondsNow[i * 6u + 1u]); }
-fn backOf(i: u32, k: u32) -> u32 { return bondsNow[i * 6u + 2u + k]; }` : `@group(0) @binding(15) var<storage, read_write> bondsNow: array<vec2u>;
-fn bondsOf(i: u32) -> vec2u { return bondsNow[i]; }`}
+fn backOf(i: u32, k: u32) -> u32 { return bondsNow[i * 6u + 2u + k]; }
 // The heat field: [0, MAX_CELLS) deposits this step (HEAT_FIX per degree), then the water's
 // temperature per grid cell (f32 bits), then husks per grid cell this step. heatMain writes the next
 // temperatures to heatNext.
@@ -1075,17 +984,11 @@ fn depositHeat(p: vec2f, e: f32) {
 }
 
 // Specialists digest their food better than generalists: value of a food given the share of the diet devoted to it.
-// How much a cell of genome g wants a grain of matter qk (Lite flags kr): husks feed scavengers (with
-// K.cycle and litterTo 0, a producer's litter feeds grazers instead).
-fn matterDiet(g: Genome, qk: u32, kr: u32) -> f32 {
-  ${K.cycle && !K.litterTo ? 'if ((kr & (1u << 12u)) != 0u) { return g.dGlint; }\n  ' : ''}return g.dHusk;
-}
-fn spec(d: f32) -> f32 { let c = min(max(d, 0.0), 1.0); return ${K.specPow > 0 ? `pow(c, ${f(K.specPow)})` : `c * (${f(1 - 0.6)} + ${f(0.6)} * c)`}; }
+fn spec(d: f32) -> f32 { let c = min(max(d, 0.0), 1.0); return pow(c, ${f(K.specPow)}); }
 // What an eater keeps of a meal holding raw energy: skill (diet specialisation) times eatEff × warmth (fit).
-// Without K.bodyE, a meal is income at K.gain. With K.bodyE food that was alive passes on at most
-// K.assimCap of what it held, the share growing with skill at K.assimilate, so no loop makes energy.
+// Food that was alive passes on at most K.assimCap of what it held, the share growing with skill at K.assimilate, so no loop makes energy.
 fn take(raw: f32, skill: f32, outside: bool, fit: f32) -> f32 {
-  ${K.bodyE > 0 ? `if (!outside) { return raw * min(${f(K.assimCap)}, skill * fit * ${f(K.assimilate)}); }` : ''}
+  if (!outside) { return raw * min(${f(K.assimCap)}, skill * fit * ${f(K.assimilate)}); }
   return raw * skill * fit * ${f(K.gain)};
 }
 
@@ -1106,7 +1009,7 @@ fn addEnergy(guild: u32, slot: u32, e: f32) {
 fn deriveMetab(g: Genome) -> f32 {
   return (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
         + ${f(K.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K.swimCost)} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion + ${f(K.calcCost)} * g.calcify
-        + (${f(K.treeCost)} + ${f(K.beat ? K.beatCost : 0)} * g.beat.x * g.beat.y) * select(0.0, 1.0, g.dev.x >= 0x80000000u && g.adhesion > ${f(K.adhMin)})) * ${f(K.metab)};
+        + ${f(K.beatCost)} * g.beat.x * g.beat.y * select(0.0, 1.0, g.dev.x >= 0x80000000u && g.adhesion > ${f(K.adhMin)})) * ${f(K.metab)};
 }
 
 fn finalize(g: ptr<function, Genome>) {
@@ -1206,8 +1109,6 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   g.beat.z = clamp(g.beat.z + gauss(s) * m * 0.2, 0.2, 1.6);
   // an animal colony grows from its tips like a plant (beat.w past 0.5), so it can grow long: now and then it flips
   if (rnd(s) < m * 0.1) { g.beat.w = 1.0 - g.beat.w; }
-  // a tree's toughness (form.x, log2 of how much less often it snaps)
-  g.form.x = clamp(g.form.x + gauss(s) * m * 0.6, -2.3, 2.3);
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -1223,8 +1124,7 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
     g.sig[r] = vec4u(pack4x8snorm(r4(s)), pack4x8snorm(r4(s)), pack4x8snorm(r4(s)), pack4x8snorm(r4(s)));
     g.dev[r] = pack4x8unorm(vec4f(rnd(s), rnd(s), rnd(s), rnd(s)));
   }
-  g.dev.w = pack4x8unorm(vec4f(0.0, rnd(s), rnd(s), rnd(s)));${K.treeOdds != 1 ? `
-  { let b = rnd(s); g.dev.x = (g.dev.x & 0x00ffffffu) | (u32(select(b * 127.0, 128.0 + b * 127.0, rnd(s) < ${f(0.5 * K.treeOdds)})) << 24u); }` : ''}
+  g.dev.w = pack4x8unorm(vec4f(0.0, rnd(s), rnd(s), rnd(s)));
   g.radius = mix(0.5, 0.95, rnd(s));
   g.beta = mix(0.2, 0.4, rnd(s));
   g.force = mix(2.0, 10.0, rnd(s));
@@ -1258,7 +1158,6 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   g.topt = clamp(t + gauss(s) * 3.0, 0.0, 45.0);
   g.tol = mix(3.0, 10.0, rnd(s));
   g.beat = vec4f(select(0.0, mix(0.15, 0.5, rnd(s)), rnd(s) < 0.25), mix(0.5, 2.5, rnd(s)), mix(0.3, 1.2, rnd(s)), select(0.0, 1.0, rnd(s) < 0.25));
-  g.form = vec4f(mix(-2.3, 2.3, rnd(s)), 0.0, 0.0, 0.0);
   g.parent = 0u;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -1367,12 +1266,12 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         if (p.kind >= FIRST_LIFE) {
           // a kill leaves a carcass for the scavengers
           atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
-          p.kind = HUSK; p.energy = ${K.bodyE > 0 ? `${bodyOf(K, 'genomes[p.kind]')} * ${f(K.carcassKeep)}` : f(K.carcass)}; p.age = 0.0; p.vel *= 0.2;
-          p.info = (p.info & 0xffff7ff0u) | 3u;${K.cycle ? `
-          atomicAdd(&ledger[META_ENERGY + 61u], 1u);` : ''}
-        } else {${K.cycle ? `
+          p.kind = HUSK; p.energy = ${bodyOf(K, 'genomes[p.kind]')} * ${f(K.carcassKeep)}; p.age = 0.0; p.vel *= 0.2;
+          p.info = (p.info & 0xffff7ff0u) | 3u;
+          atomicAdd(&ledger[META_ENERGY + 61u], 1u);
+        } else {
           // eaten matter returns to the water as silt (the nutrient): litter by grazers, carcasses by scavengers
-          if (p.kind == HUSK) { atomicAdd(&ledger[META_ENERGY + select(63u, 62u, (p.info & LITTER) != 0u)], 1u); }` : ''}
+          if (p.kind == HUSK) { atomicAdd(&ledger[META_ENERGY + select(63u, 62u, (p.info & LITTER) != 0u)], 1u); }
           p.kind = SILT; p.energy = 0.0; p.vel = vec2f(0.0); p.age = 0.0;
           p.info = (p.info & 0xffffffc0u) | 3u;
         }
@@ -1381,15 +1280,15 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
           p.energy -= ${f(K.bite)} * bites;
           if (p.energy <= 0.0) {
             atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
-            p.kind = HUSK; p.energy = ${K.bodyE > 0 ? bodyOf(K, 'genomes[p.kind]') : f(K.huskBase)}; p.age = 0.0;
-            p.info = (p.info & 0xffff7ff0u) | 3u${K.cycle ? ' | LITTER' : ''};${K.cycle ? `
-            atomicAdd(&ledger[META_ENERGY + 60u], 1u);` : ''}
+            p.kind = HUSK; p.energy = ${bodyOf(K, 'genomes[p.kind]')}; p.age = 0.0;
+            p.info = (p.info & 0xffff7ff0u) | 3u | LITTER;
+            atomicAdd(&ledger[META_ENERGY + 60u], 1u);
           }
         }
       } else if (act == 2u && ck == HUSK && p.kind == SILT) {
         // dung: the grain beside an eater becomes a husk of what its gut held
         p.kind = HUSK; p.energy = bitcast<f32>(intent[c - 1u].y); p.age = 0.0; p.vel *= 0.2;
-        p.info = (p.info & 0xffff7fc0u) | 11u${K.cycle ? ' | LITTER' : ''};
+        p.info = (p.info & 0xffff7fc0u) | 11u | LITTER;
         p.col = pack4x8unorm(vec4f(0.36, 0.30, 0.14, 1.0));
       } else if (act == 2u && ck >= FIRST_LIFE && p.kind == SILT) {
         let cr = (action >> 12u) & 3u;
@@ -1398,14 +1297,14 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         p.kind = ck;
         p.energy = bitcast<f32>(intent[c - 1u].y);
         p.age = 0.0;
-        p.vel = vec2f(0.0);${K.budding ? `
+        p.vel = vec2f(0.0);
         // budding: the daughter is built from the grain but grows out of its mother, beside her on the
         // grain's side (not wherever the grain lay, often inside another cell), and moves with her
         {
           let mother = parts[c - 1u];
           var toward = p.pos - mother.pos;
           toward -= sim.world * round(toward / sim.world);
-          var dir = select(vec2f(1.0, 0.0), normalize(toward), dot(toward, toward) > 1e-10);${K.grow && K.tissue > 0 ? `
+          var dir = select(vec2f(1.0, 0.0), normalize(toward), dot(toward, toward) > 1e-10);
           // a tree's daughter grows at her turn from her mother's heading (from the grandmother; a root
           // buds toward the grain)
           let gr = growOf(genomes[ck]);
@@ -1414,11 +1313,11 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
             var hd = mother.pos - parts[gm].pos;
             hd -= sim.world * round(hd / sim.world);
             if (dot(hd, hd) > 1e-10) { dir = rot2(normalize(hd), turnAngle(gr, bud & 3u, gen)); }
-          }` : ''}
+          }
           let gap = 0.085 * genomes[ck].size * (2.0 - 0.12 * f32(roleOf(mother.info) + cr)) * 0.95;
           p.pos = wrapPos(mother.pos + dir * gap);
           p.vel = mother.vel;
-        }` : ''}
+        }
         p.id = atomicAdd(&ledger[0], 1u);
         p.col = pack4x8unorm(vec4f(roleColor(genomes[ck], cr), 1.0));
         p.info = (gen << 16u) | (bud << 28u) | (cr << 4u) | 9u;
@@ -1430,15 +1329,14 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
       parts[i] = p;
     }
     let cell = cellOf(p.pos);
-${K.liveFirst ? `    // the living and the matter are ranked apart: the living sort first in their grid cell
+    // the living and the matter are ranked apart: the living sort first in their grid cell
     let alive = p.kind >= FIRST_LIFE;
     let r = atomicAdd(&countsA[select(cell, MAX_CELLS + cell, alive)], 1u);
-    aux[i] = vec2u(cell, select(r, r | LIVE_BIT, alive));` : `    let r = atomicAdd(&countsA[cell], 1u);
-    aux[i] = vec2u(cell, r);`}
+    aux[i] = vec2u(cell, select(r, r | LIVE_BIT, alive));
     if (p.kind == STONE) { atomicAdd(&stoneGrid[cell], select(0x10000u, 1u, (p.info & 15u) != 0u)); }
     // husks per grid cell: where they pile up and rot, framboids form (matterMain)
-    if (p.kind == HUSK && HEAT_ON) { atomicAdd(&thermal[2u * MAX_CELLS + cell], 1u); }${K.cycle ? `
-    if (p.kind == HUSK && (p.info & LITTER) != 0u) { atomicAdd(&ledger[META_DEATH + 60u], 1u); }` : ''}
+    if (p.kind == HUSK && HEAT_ON) { atomicAdd(&thermal[2u * MAX_CELLS + cell], 1u); }
+    if (p.kind == HUSK && (p.info & LITTER) != 0u) { atomicAdd(&ledger[META_DEATH + 60u], 1u); }
     atomicAdd(&hist[p.kind % MAXK], 1u);
     if (p.kind >= FIRST_LIFE) { atomicAdd(&roleHist[roleOf(p.info)], 1u); }
   }
@@ -1458,10 +1356,9 @@ var<workgroup> sh: array<u32, 256>;
 
 @compute @workgroup_size(256)
 fn scanBlocks(@builtin(local_invocation_index) l: u32, @builtin(workgroup_id) wg: vec3u) {
-  let g = wg.x * 256u + l;${K.liveFirst ? `
+  let g = wg.x * 256u + l;
   let v = countsP[g] + countsP[MAX_CELLS + g];
-  cellStart[LIVE_AT + g] = countsP[MAX_CELLS + g];` : `
-  let v = countsP[g];`}
+  cellStart[LIVE_AT + g] = countsP[MAX_CELLS + g];
   sh[l] = v;
   workgroupBarrier();
   for (var o = 1u; o < 256u; o = o << 1u) {
@@ -1508,8 +1405,8 @@ fn scanAdd(@builtin(global_invocation_id) gid: vec3u, @builtin(workgroup_id) wg:
 // ------------------------------------------------------------------ scatter
 // where a particle sorts to: its grid cell's start, then its rank (past the cell's living, for matter)
 fn sortedAt(a: vec2u) -> u32 {
-  ${K.liveFirst ? `if ((a.y & LIVE_BIT) != 0u) { return cellStart[a.x] + (a.y & ~LIVE_BIT); }
-  return cellStart[a.x] + cellStart[LIVE_AT + a.x] + a.y;` : 'return cellStart[a.x] + a.y;'}
+  if ((a.y & LIVE_BIT) != 0u) { return cellStart[a.x] + (a.y & ~LIVE_BIT); }
+  return cellStart[a.x] + cellStart[LIVE_AT + a.x] + a.y;
 }
 var<workgroup> wgCount: atomic<u32>;
 var<workgroup> wgBase: u32;
@@ -1536,15 +1433,15 @@ fn scatterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocat
         }
       }
     }
-${K.tissue > 0 ? `    bondsNow[dst * 6u] = partners.x;
+    bondsNow[dst * 6u] = partners.x;
     bondsNow[dst * 6u + 1u] = partners.y;
-    bondsNow[dst * 6u + 2u] = 0u;` : `    bondsNow[dst] = partners;`}
+    bondsNow[dst * 6u + 2u] = 0u;
     let role = roleOf(p.info);
     let sig = genomes[p.kind].sig[role].xy;
-    let plant = select(0u, 1u << 12u, (p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4)${K.cycle && !K.litterTo ? ' || (p.kind == HUSK && (p.info & LITTER) != 0u)' : ''});
+    let plant = select(0u, 1u << 12u, (p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4));
     // pad: with K.bodyPush, the cell's drawn radius (0.085 world units per unit of size, smaller in its later roles)
     let hunter = select(0u, 1u << 14u, p.kind >= FIRST_LIFE && genomes[p.kind].dFlesh > 0.5 && genomes[p.kind].photo <= 0.4);
-    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | ${K.flee > 0 ? 'hunter' : '0u'}${K.cyst ? ' | select(0u, 1u << 13u, p.kind >= FIRST_LIFE && (p.info & 15u) == CYST)' : ''}, p.col, pack2x16float(p.vel), sig.x, sig.y, ${K.bodyPush > 0 || K.crowdVisc > 0 ? 'bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role)))' : '0u'});
+    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | hunter | select(0u, 1u << 13u, p.kind >= FIRST_LIFE && (p.info & 15u) == CYST), p.col, pack2x16float(p.vel), sig.x, sig.y, bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role))));
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
   }
   workgroupBarrier();
@@ -1680,7 +1577,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   } else if (p.kind == HUSK) {
     // rot is faster in warm water, and a carcass pile steams; a husk gives off no more than it holds,
     // or hot water would rot husks into heat from nothing and run away
-    let rot = min(${f(K.decay * K.rotScale)} * pow(${f(K.rotQ10)}, warm) * sim.dt, max(p.energy, 0.0));
+    let rot = min(${f(K.decay)} * pow(${f(K.rotQ10)}, warm) * sim.dt, max(p.energy, 0.0));
     p.energy -= rot;
     if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, rot * 8.0 * ${f(K.rotHeat)}); }
     if (p.energy < ${f(K.huskMin)}) {
@@ -1727,16 +1624,16 @@ fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
 fn keepBond(i: u32, j: u32, p: Particle) -> u32 {
   if (j >= sim.count || j == i) { return NONE; }
   let q = sortedFull[j];
-  if (q.kind != p.kind) { return NONE; }${K.cyst ? `
+  if (q.kind != p.kind) { return NONE; }
   // a cell that goes dormant leaves its body: its partners let go
-  if ((q.info & 15u) == CYST) { return NONE; }` : ''}
+  if ((q.info & 15u) == CYST) { return NONE; }
   var d = q.pos - p.pos;
   d -= sim.world * round(d / sim.world);
   if (dot(d, d) > LINK_R * LINK_R * ${f(K.bondBreak * K.bondBreak)}) { return NONE; }
   return j;
 }
 
-${K.tissue > 0 ? `
+
 // Whether a cell of this one's species may take up a free bond slot to j: j is bonded to one of its
 // partners (mine: those it keeps, then those that keep it), closing a triangle in the tissue, or
 // neither has a partner yet (two free cells start a body). Strangers' bodies do not fuse.
@@ -1769,10 +1666,10 @@ fn joinable(i: u32, j: u32, k1: u32, k2: u32) -> bool {
 // A tissue bond's rest length: open (0.55 linkR) in loose bodies, where the two cells touch in tight ones.
 fn restTo(j: u32, size: f32, role: u32, tight: f32) -> f32 {
   if (j == NONE) { return 0.0; }
-  return mix(LINK_R * 0.55, ${f(K.bondTouch || 0.9)} * 0.085 * size * (2.0 - 0.12 * f32(role + roleOf(sortedFull[j].info))), tight);
+  return mix(LINK_R * 0.55, 0.9 * 0.085 * size * (2.0 - 0.12 * f32(role + roleOf(sortedFull[j].info))), tight);
 }
 
-${K.grow ? `
+
 // A tree's cell's heading: from its mother to it; a root's, from where its first daughter (by id) grew,
 // turned back by her turn (by: that daughter, who holds no angle to it). ok false: neither.
 struct Heading { dir: vec2f, ok: bool, by: u32 };
@@ -1796,8 +1693,8 @@ fn headingOf(m: u32, gr: Grow) -> Heading {
   d -= sim.world * round(d / sim.world);
   return Heading(rot2(d / max(length(d), 1e-4), -turnAngle(gr, turnOf(q.info), genOf(q.info))), true, best);
 }
-` : ''}
-${K.grow ? `
+
+
 // What a tree's cell m passes each daughter this step (x) and in all (y): once the daughters its plan
 // wants are all grown, rate of its surplus over keep, split among them (those keepBond would keep).
 fn feedOf(m: u32, gr: Grow, keep: f32, rate: f32) -> vec2f {
@@ -1816,8 +1713,8 @@ fn feedOf(m: u32, gr: Grow, keep: f32, rate: f32) -> vec2f {
   let all = rate * max(q.energy - keep, 0.0);
   return vec2f(all / n, all);
 }
-` : ''}
-${K.grow ? `
+
+
 // A tree bends like a stem: at each cell (the bend's middle) the angle from its arm (its mother, or a
 // root's first daughter by id) to each other daughter is held at the plan's. Each bend pushes its three
 // cells so that the pushes sum to nothing and turn nothing (a held angle's gradient): a tree cannot drive
@@ -1857,13 +1754,13 @@ fn bendAt(gr: Grow, m: u32, a: u32, b: u32) -> vec4f {
   let A = treeRel(m, a); let B = treeRel(m, b);
   let want = select(turnOfCell(gr, b) - turnOfCell(gr, a), 3.14159265 + turnOfCell(gr, b), a == treeMom(m));
   var e = atan2(A.x * B.y - A.y * B.x, dot(A, B)) - want;
-  e -= TAU * round(e / TAU);${K.beat ? `
+  e -= TAU * round(e / TAU);
   // a beat: a muscle's push on each bend in turn, a wave running out from the root (phase by generation),
   // as strong as the water is thick (amplitude scaled by the square root of the drag in growOf); a bend
   // already folded past 1.2 radians is not pushed further
   if (abs(e) < 1.2) {
     e -= ${f(K.beatDrive / K.growStiff)} * gr.beat.x * sin(gr.beat.y * sim.time - gr.beat.z * f32(genOf(sortedFull[b].info)));
-  }` : ''}
+  }
   let s = e * length(A) * length(B);
   return vec4f(vec2f(-A.y, A.x) * (s / max(dot(A, A), 1e-8)), vec2f(B.y, -B.x) * (s / max(dot(B, B), 1e-8)));
 }
@@ -1895,7 +1792,7 @@ fn bendOn(i: u32, gr: Grow) -> vec2f {
   }
   return F;
 }
-` : ''}
+
 // The bond's other end as seen from p (wrapped), or zero for none.
 fn bondTo(j: u32, p: Particle) -> vec2f {
   if (j == NONE) { return vec2f(0.0); }
@@ -1919,8 +1816,8 @@ fn bondBackMain(@builtin(global_invocation_id) gid: vec3u) {
     }
   }
 }
-` : ''}
-${K.liveFirst && (K.bodyPush > 0 || K.crowdVisc > 0) ? `
+
+
 // Contact, before lifeMain, in a pass of its own (its loop in lifeMain cost the whole kernel registers):
 // each living cell walks every living cell it could touch (in the grid cells within reach of it, up to
 // contactCap of them, every so many past that, each standing for those skipped) and changes its own
@@ -1988,28 +1885,28 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
       let r2 = dot(d, d);
       let touchQ = myR + bitcast<f32>(q.pad);
       if (r2 >= ${f(K.crowdVisc > 0 ? 1.5625 : 1)} * touchQ * touchQ || r2 < 1e-12) { continue; }
-      let r = sqrt(r2);${K.bodyPush > 0 ? `
+      let r = sqrt(r2);
       let touch = ${f(K.bodyGive)} * touchQ;
       if (r < touch) {
         let n = d / r;
-        push -= n * (cs * (touch - r) / touch);${K.bodyHold > 0 ? `
+        push -= n * (cs * (touch - r) / touch);
         // the separating speed that would undo bodyHold of the overlap a tick (over a coarse step, as
         // much as its ticks would), half each
         let apartV = dot(qvel - p.vel, n);
         hold -= n * (0.5 * cs * max(0.0, holdShare * (touch - r) / sim.dt - apartV));
-        holdN += cs;` : ''}
-      }` : ''}${K.crowdVisc > 0 ? `
-      if (r < 1.25 * touchQ) { touchV += qvel * cs; touchN += cs; }` : ''}
+        holdN += cs;
+      }
+      if (r < 1.25 * touchQ) { touchV += qvel * cs; touchN += cs; }
     }
   }
-  var vel = p.vel;${K.crowdVisc > 0 ? `
+  var vel = p.vel;
   // (compounded per 1/60 s, so a coarse step blends as far as its ticks would, not past it)
-  if (touchN > 0.0) { vel = mix(vel, touchV / touchN, 1.0 - pow(1.0 - clamp(${f(K.crowdVisc / 60)} * min(1.0, touchN / 4.0), 0.0, 1.0), sim.dt * 60.0)); }` : ''}${K.bodyPush > 0 ? `
-  vel += push * (${f(K.bodyPush)} * sim.dt);${K.bodyHold > 0 ? `
-  if (holdN > 0.0) { vel += hold / max(1.0, 0.5 * holdN); }` : ''}` : ''}
+  if (touchN > 0.0) { vel = mix(vel, touchV / touchN, 1.0 - pow(1.0 - clamp(${f(K.crowdVisc / 60)} * min(1.0, touchN / 4.0), 0.0, 1.0), sim.dt * 60.0)); }
+  vel += push * (${f(K.bodyPush)} * sim.dt);
+  if (holdN > 0.0) { vel += hold / max(1.0, 0.5 * holdN); }
   sortedFull[i].vel = vel;
 }
-` : ''}
+
 // Handling time: matter is eaten at every meal opportunity, living prey only at every Nth.
 fn mealDue(fk: u32, meal: u32) -> bool {
   return fk < FIRST_LIFE || meal % select(${K.killEvery | 0}u, ${K.biteEvery | 0}u, genomes[fk].photo > 0.4) == 0u;
@@ -2071,7 +1968,7 @@ fn restoring(j: vec3f) -> vec3f {
   return vec3f(l1 * c * c + l2 * sn * sn, (l1 - l2) * c * sn, l1 * sn * sn + l2 * c * c);
 }
 
-${K.cyst ? `// A cyst (K.cyst): a dormant cell. It drifts with the water, cannot eat, divide or be eaten, keeps its energy
+// A cyst: a dormant cell. It drifts with the water, cannot eat, divide or be eaten, keeps its energy
 // but for a slow leak (dying as a husk when it runs out), and wakes at random to try its luck again.
 fn cystStep(i: u32) {
   var p = sortedFull[i];
@@ -2086,7 +1983,7 @@ fn cystStep(i: u32) {
   atomicAdd(&ledger[cystSlot(dietGuild(g))], 1u);
   if (p.energy <= 0.0) {
     p.kind = HUSK; p.energy = ${bodyOf(K, 'g')}; p.age = 0.0;
-    p.info = (p.info & 0xffff7fc0u) | 1u${litterOf(K, 'g')};
+    p.info = (p.info & 0xffff7fc0u) | 1u${litterOf('g')};
     atomicAdd(&ledger[5], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 1u], 1u);
   } else if (rnd(&s) < ${f(K.cystWake)} * sim.dt) {
@@ -2096,13 +1993,13 @@ fn cystStep(i: u32) {
   parts[i] = p;
 }
 
-` : ''}@compute @workgroup_size(128)
+@compute @workgroup_size(128)
 fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
-  if (i == NONE) { return; }${K.cyst ? `
-  if ((sortedFull[i].info & 15u) == CYST) { cystStep(i); return; }` : ''}
+  if (i == NONE) { return; }
+  if ((sortedFull[i].info & 15u) == CYST) { cystStep(i); return; }
 ${cellWGSL(K, false)}
-  var E = p.energy${K.tissue > 0 && K.bodyShare > 0 ? ' + shareE' : ''} + (photoGain - upkeep) * sim.dt;
+  var E = p.energy + shareE + (photoGain - upkeep) * sim.dt;
   let dg = dietGuild(g);
   // all the energy a cell spends warms its water (every eighth frame, eight frames' worth)
   if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, upkeep * sim.dt * 8.0 * ${f(K.metabHeat)}); }
@@ -2119,7 +2016,7 @@ ${cellWGSL(K, false)}
   }
   // a tree's cell that has grown a daughter ages treeAge times as fast: a filament's cells live on in it
   // (its tips grow up as any cell does), so trees grow long without growing faster than single cells
-  let ageRate = ${K.grow && K.tissue > 0 && K.treeAge != 1 ? `select(1.0, ${f(K.treeAge)}, tree && hasKid)` : '1.0'};
+  let ageRate = select(1.0, ${f(K.treeAge)}, tree && hasKid);
   var age = p.age + sim.dt * ageRate;
   var act = 0u;
   var ck = 0u;
@@ -2149,11 +2046,11 @@ ${cellWGSL(K, false)}
       diagAdd(dg, 13u, 1u);
       if (isAnimal(food)) { diagAdd(dg, 14u, 1u); }
     }
-    if (E > divE && silt != NONE && !th.torpid${K.grow && K.tissue > 0 ? ` && age > select(${f(K.mature)} * g.lifespan, select(${f(K.growTipA)}, ${f(K.growTip * K.mature)} * g.lifespan, g.photo > 0.4), tree && (g.photo > 0.4 || g.beat.w > 0.5)) && (!tree || (budTurn < 3u && !budBlocked))` : K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
+    if (E > divE && silt != NONE && !th.torpid && age > select(${f(K.mature)} * g.lifespan, select(${f(K.growTipA)}, ${f(K.mature)} * g.lifespan, g.photo > 0.4), tree && (g.photo > 0.4 || g.beat.w > 0.5)) && (!tree || (budTurn < 3u && !budBlocked))) {
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
         cr = sampleRole(g, role, &s);
-        if (rnd(&s) < g.mutRate${K.mutScale !== 1 ? ` * ${f(K.mutScale)}` : ''}) {
+        if (rnd(&s) < g.mutRate * ${f(K.mutScale)}) {
           let slot = allocSlot(&s);
           if (slot != NONE) {
             mutateInto(slot, p.kind, &s);
@@ -2161,7 +2058,7 @@ ${cellWGSL(K, false)}
             atomicAdd(&ledger[3], 1u);
           }
         }
-        ce = ${K.bodyE > 0 ? 'max(E - bodyCost, 0.0)' : 'E'} * g.share;
+        ce = max(E - bodyCost, 0.0) * g.share;
         E -= ce + bodyCost;
         addEnergy(dg, 6u, ce + bodyCost);
         act = 2u;
@@ -2181,11 +2078,11 @@ ${cellWGSL(K, false)}
         var gain = 0.0;
         act = 1u;
         if (fp.kind == HUSK) {
-          gain = ${K.bodyE > 0 && K.bodyWhole ? 'fp.energy * min(1.0, spec(' + huskSkill(K) + ') * eatEff * th.perf * ' + f(K.assimilate) + ')' : 'take(fp.energy, spec(' + huskSkill(K) + '), false, eatEff * th.perf)'}; atomicAdd(&ledger[10], 1u);
+          gain = fp.energy * min(1.0, spec(g.dHusk) * eatEff * th.perf * ${f(K.assimilate)}); atomicAdd(&ledger[10], 1u);
         } else if (genomes[fp.kind].photo > 0.4) {
-          gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf);${K.dung ? ` gut = min(gut + max(0.0, min(max(fp.energy, 0.0), ${f(K.bite)}) - gain), ${f(K.dungE)});` : ''} act = 3u; atomicAdd(&ledger[11], 1u);
+          gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf); gut = min(gut + max(0.0, min(max(fp.energy, 0.0), ${f(K.bite)}) - gain), ${f(K.dungE)}); act = 3u; atomicAdd(&ledger[11], 1u);
         } else {
-          gain = ${K.bodyE > 0 && K.bodyWhole ? `(${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0)` : `take(${K.bodyE > 0 ? `(${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)})` : f(K.preyBase)} + ${f(preyShare(K))} * max(fp.energy, 0.0)`}, spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);${K.dung ? ` gut = min(gut + max(0.0, (${K.bodyE > 0 ? `${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}` : '0.0'} + max(fp.energy, 0.0)) - gain), ${f(K.dungE)});` : ''}
+          gain = (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0), spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u); gut = min(gut + max(0.0, (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)} + max(fp.energy, 0.0)) - gain), ${f(K.dungE)});
         }
         if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
         E += gain;
@@ -2197,7 +2094,7 @@ ${cellWGSL(K, false)}
     // (upkeep following it), the cell divides once its energy crosses the mark (one birth a step), eats
     // at each of its own meal opportunities while still hungry then (the next-best target after a meal or
     // a target lost to another eater), and stops at the tick it starves or ages out.
-    E = p.energy${K.tissue > 0 && K.bodyShare > 0 ? ' + shareE' : ''};
+    E = p.energy + shareE;
     age = p.age;
     var next = 0u;
     var born = false;
@@ -2206,14 +2103,14 @@ ${cellWGSL(K, false)}
         * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking) * h;
       age += h * ageRate;
       let tk = sim.tick - sim.ticks + k;
-      if (!born && E > divE && silt != NONE && !th.torpid${K.grow && K.tissue > 0 ? ` && age > select(${f(K.mature)} * g.lifespan, select(${f(K.growTipA)}, ${f(K.growTip * K.mature)} * g.lifespan, g.photo > 0.4), tree && (g.photo > 0.4 || g.beat.w > 0.5)) && (!tree || (budTurn < 3u && !budBlocked))` : K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ''}) {
+      if (!born && E > divE && silt != NONE && !th.torpid && age > select(${f(K.mature)} * g.lifespan, select(${f(K.growTipA)}, ${f(K.mature)} * g.lifespan, g.photo > 0.4), tree && (g.photo > 0.4 || g.beat.w > 0.5)) && (!tree || (budTurn < 3u && !budBlocked))) {
         born = true;
         var won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged;
         if (!won && silt2 != NONE) { won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt2], 0u, i + 1u).exchanged; }
         if (won) {
           ck = p.kind;
           cr = sampleRole(g, role, &s);
-          if (rnd(&s) < g.mutRate${K.mutScale !== 1 ? ` * ${f(K.mutScale)}` : ''}) {
+          if (rnd(&s) < g.mutRate * ${f(K.mutScale)}) {
             let slot = allocSlot(&s);
             if (slot != NONE) {
               mutateInto(slot, p.kind, &s);
@@ -2221,7 +2118,7 @@ ${cellWGSL(K, false)}
               atomicAdd(&ledger[3], 1u);
             }
           }
-          ce = ${K.bodyE > 0 ? 'max(E - bodyCost, 0.0)' : 'E'} * g.share;
+          ce = max(E - bodyCost, 0.0) * g.share;
           E -= ce + bodyCost;
           addEnergy(dg, 6u, ce + bodyCost);
           act = 2u;
@@ -2257,11 +2154,11 @@ ${cellWGSL(K, false)}
           var gain = 0.0;
           var slot = 4u;
           if (fp.kind == HUSK) {
-            gain = ${K.bodyE > 0 && K.bodyWhole ? 'fp.energy * min(1.0, spec(' + huskSkill(K) + ') * eatEff * th.perf * ' + f(K.assimilate) + ')' : 'take(fp.energy, spec(' + huskSkill(K) + '), false, eatEff * th.perf)'}; atomicAdd(&ledger[10], 1u); slot = 3u;
+            gain = fp.energy * min(1.0, spec(g.dHusk) * eatEff * th.perf * ${f(K.assimilate)}); atomicAdd(&ledger[10], 1u); slot = 3u;
           } else if (plant) {
-            gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf);${K.dung ? ` gut = min(gut + max(0.0, min(max(fp.energy, 0.0), ${f(K.bite)}) - gain), ${f(K.dungE)});` : ''} atomicAdd(&ledger[11], 1u); slot = 2u;
+            gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf); gut = min(gut + max(0.0, min(max(fp.energy, 0.0), ${f(K.bite)}) - gain), ${f(K.dungE)}); atomicAdd(&ledger[11], 1u); slot = 2u;
           } else {
-            gain = ${K.bodyE > 0 && K.bodyWhole ? `(${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0)` : `take(${K.bodyE > 0 ? `(${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)})` : f(K.preyBase)} + ${f(preyShare(K))} * max(fp.energy, 0.0)`}, spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u);${K.dung ? ` gut = min(gut + max(0.0, (${K.bodyE > 0 ? `${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}` : '0.0'} + max(fp.energy, 0.0)) - gain), ${f(K.dungE)});` : ''}
+            gain = (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0), spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u); gut = min(gut + max(0.0, (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)} + max(fp.energy, 0.0)) - gain), ${f(K.dungE)});
           }
           if (fp.kind >= FIRST_LIFE) {
             atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
@@ -2276,46 +2173,46 @@ ${cellWGSL(K, false)}
     }
   }
 
-${K.dung ? `  // a full gut is dropped as dung: the grain beside the eater becomes a husk of what it held
+  // a full gut is dropped as dung: the grain beside the eater becomes a husk of what it held
   if (act == 0u && silt != NONE && gut >= ${f(0.98 * K.dungE)}) {
     if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
       act = 2u; ck = HUSK; ce = gut; gut = 0.0;
     }
   }
-` : ''}${K.cyst ? `  // a cell running out with nothing to eat in reach may go dormant (after a while awake)
-  if (act == 0u && E > 0.0 && E < ${f(K.cystAt)} * divE && food == NONE && age > 10.0${K.cystPlants ? '' : ' && g.photo <= 0.4'} && rnd(&s) < ${f(K.cystRate)} * sim.dt) {
+  // a cell running out with nothing to eat in reach may go dormant (after a while awake)
+  if (act == 0u && E > 0.0 && E < ${f(K.cystAt)} * divE && food == NONE && age > 10.0 && g.photo <= 0.4 && rnd(&s) < ${f(K.cystRate)} * sim.dt) {
     info = (info & 0xffff003fu & 0xfffffff0u) | CYST;
     age = 0.0;
   }
-` : ''}  var kind = p.kind;
+  var kind = p.kind;
   if (E <= 0.0) {
-    kind = HUSK; E = ${K.bodyE > 0 ? 'bodyCost' : f(K.huskBase)}; age = 0.0; vel *= 0.3;
-    info = (info & 0xffff7fc0u) | 1u${litterOf(K, 'g')};
+    kind = HUSK; E = bodyCost; age = 0.0; vel *= 0.3;
+    info = (info & 0xffff7fc0u) | 1u${litterOf('g')};
     atomicAdd(&ledger[5], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 1u], 1u);
   } else if (age > g.lifespan) {
-    kind = HUSK; E = ${K.bodyE > 0 ? 'bodyCost' : f(K.huskBase)} + ${f(K.huskFrac)} * E; age = 0.0; vel *= 0.3;
-    info = (info & 0xffff7fc0u) | 2u${litterOf(K, 'g')};
+    kind = HUSK; E = bodyCost + ${f(K.huskFrac)} * E; age = 0.0; vel *= 0.3;
+    info = (info & 0xffff7fc0u) | 2u${litterOf('g')};
     atomicAdd(&ledger[6], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 2u], 1u);
   } else if (th.x > 0.8 && rnd(&s) < ${f(K.scald)} * smoothstep(0.8, 1.4, th.x) * sim.dt) {
     // scalded: far above its optimum, a cell's proteins come apart
-    kind = HUSK; E = ${K.bodyE > 0 ? 'bodyCost' : f(K.huskBase)}; age = 0.0; vel *= 0.3;
-    info = (info & 0xffff7fc0u) | 10u${litterOf(K, 'g')};
+    kind = HUSK; E = bodyCost; age = 0.0; vel *= 0.3;
+    info = (info & 0xffff7fc0u) | 10u${litterOf('g')};
     atomicAdd(&ledger[META_DEATH + 20u + dg], 1u);
   }
-${K.cycle ? `  if (kind == HUSK) { atomicAdd(&ledger[META_ENERGY + select(61u, 60u, g.photo > 0.4)], 1u); }
-` : ''}  // calcifying cells that settled leave their skeleton as stone, in their own colour, mostly where
+  if (kind == HUSK) { atomicAdd(&ledger[META_ENERGY + select(61u, 60u, g.photo > 0.4)], 1u); }
+  // calcifying cells that settled leave their skeleton as stone, in their own colour, mostly where
   // stone already is, so reefs grow outward from rock and from the rare place one starts
   if (kind == HUSK && g.calcify > 0.0 && rnd(&s) < ${f(K.reefs)} * g.calcify * (1.0 - g.advect) * select(${f(K.nucleate)}, 1.0, stoneN >= 1.0)) {
     kind = STONE; E = ${f(K.stoneLife)} * (0.5 + rnd(&s)); vel = vec2f(0.0);
   }
   // the child's generation, and in a tree her turn and branch order
-  var childGen = ((genOf(p.info) + 1u) & 4095u) << 14u;${K.grow && K.tissue > 0 ? `
-  if (tree && budTurn < 3u) { childGen |= (budTurn | (min(orderOf(p.info) + select(1u, 0u, budTurn == 0u), 3u) << 2u)) << 26u; }` : ''}
+  var childGen = ((genOf(p.info) + 1u) & 4095u) << 14u;
+  if (tree && budTurn < 3u) { childGen |= (budTurn | (min(orderOf(p.info) + select(1u, 0u, budTurn == 0u), 3u) << 2u)) << 26u; }
   // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(pack, ce, act == 2u)), n1, n2);
-  parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), ${K.dung ? `1.0 - gut / ${f(K.dungE)}` : '1.0'})), info);
+  parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0 - gut / ${f(K.dungE)})), info);
 }
 
 // --------------------------------------------------------------------- mind
@@ -2426,9 +2323,9 @@ ${cellWGSL(K, true)}
   // the energy it divides at, whether it is dormant (a cyst: lifeMain does not run this decision for
   // it) and old enough to divide, the push away from hunters, its gut's fill, producers around it
   mPut(58, divE);
-  mind[59] = select(0u, 1u, (p.info & 15u) == ${K.cyst ? 'CYST' : '99u'}) | select(0u, 2u, p.age + sim.dt > ${f(K.mature)} * g.lifespan);
+  mind[59] = select(0u, 1u, (p.info & 15u) == CYST) | select(0u, 2u, p.age + sim.dt > ${f(K.mature)} * g.lifespan);
   mPut2(60, mFlee * acc);
-  mPut(62, ${K.dung ? `gut / ${f(K.dungE)}` : '0.0'});
+  mPut(62, gut / ${f(K.dungE)});
   mPut(63, plantN);
 }
 `;
@@ -3045,10 +2942,9 @@ struct View {
   culled: u32,
   // sprites no larger than this radius in pixels are splatted (splatMain), not drawn as quads; 0: none
   splat: f32,
-  // K.tissue: the adhesion where bodies start to close into tissue (K.tightFrom); below 0, off
-  tissue: f32,
-  // 1: K.grow (a tree's cells face along their branch)
-  grow: u32, pad0: u32, pad1: u32, pad2: u32,
+  // the adhesion where bodies start to close into tissue (K.tightFrom)
+  tightFrom: f32,
+  pad0: u32, pad1: u32, pad2: u32, pad3: u32,
 };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -3349,15 +3245,13 @@ fn cellDirection(p: Particle) -> vec2f {
   let a = select(renderHash(p.id) * TAU, atan2(v.y, v.x), dot(v, v) > 0.000001);
   return vec2f(cos(a), sin(a));
 }
-// A tree's cell (K.grow) faces along its branch, away from its mother; any other faces where it swims.
+// A tree's cell faces along its branch, away from its mother; any other faces where it swims.
 fn bodyDirection(ii: u32, p: Particle) -> vec2f {
-  if (view.grow != 0u) {
-    let g = genomes[p.kind];
-    let m = intent[ii].z;
-    if (g.dev.x >= 0x80000000u && g.adhesion > ${f(DEFAULT_K.adhMin)} && m < arrayLength(&parts) && m != ii && parts[m].kind == p.kind) {
-      let d = wrapd(p.pos - parts[m].pos);
-      if (dot(d, d) > 1e-10) { return normalize(d); }
-    }
+  let g = genomes[p.kind];
+  let m = intent[ii].z;
+  if (g.dev.x >= 0x80000000u && g.adhesion > ${f(DEFAULT_K.adhMin)} && m < arrayLength(&parts) && m != ii && parts[m].kind == p.kind) {
+    let d = wrapd(p.pos - parts[m].pos);
+    if (dot(d, d) > 1e-10) { return normalize(d); }
   }
   return cellDirection(p);
 }
@@ -3679,8 +3573,8 @@ struct PO {
         lost += (acos(x) - x * sqrt(1.0 - x * x)) * (2.0 / TAU);
       }
       // a tight species' cells among their kin fill out to their shared walls: tissue
-      if (view.tissue >= 0.0 && g.adhesion > ${f(DEFAULT_K.adhMin)}) {
-        o.tile = clamp((g.adhesion - view.tissue) / ${f(DEFAULT_K.tightSpan)}, 0.0, 1.0) * min(1.0, kinTouch);
+      if (g.adhesion > ${f(DEFAULT_K.adhMin)}) {
+        o.tile = clamp((g.adhesion - view.tightFrom) / ${f(DEFAULT_K.tightSpan)}, 0.0, 1.0) * min(1.0, kinTouch);
       }
       o.jelly.x = 1.0 / sqrt(1.0 - 0.7 * min(lost, 0.45));
       extent *= o.jelly.x;
@@ -4115,8 +4009,8 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   let tangent = 3.0 * u * u * c1 + 6.0 * u * t * (c2 - c1) + 3.0 * t * t * (dq - c2);
   let normal = vec2f(-tangent.y, tangent.x) / max(length(tangent), 0.00001);
   let adhesion = min(genomes[p.kind].adhesion, genomes[q.kind].adhesion);
-  // tissue (view.tissue): its cells share a wall, which is the bond; no tube shows through them
-  if (view.tissue >= 0.0 && (adhesion - view.tissue) / ${f(DEFAULT_K.tightSpan)} > 0.5) { return o; }
+  // tissue: its cells share a wall, which is the bond; no tube shows through them
+  if ((adhesion - view.tightFrom) / ${f(DEFAULT_K.tightSpan)} > 0.5) { return o; }
   let taper = 0.55 + 0.45 * pow(2.0 * t - 1.0, 2.0);
   let tension = pow(min(1.0, rest / len), 3.0);
   // a neck is never wider than the cells it joins (cells shrink to fit dense bodies)

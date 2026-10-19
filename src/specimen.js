@@ -215,7 +215,7 @@ export function createSpecimen(api) {
     if (g && (g.adhesion || 0) > K.adhMin) h += kv('Bond share', !b ? '—' : b.thrift > 0.001 ? `upkeep −${Math.round(b.thrift * 100)}%` : none, 'bondthrift');
     if (K.heat) h += kv('Heat stress', !b ? '—' : mind.m.torpid ? `torpid: burns ${Math.round(K.torporCost * 100)}% of its upkeep` : b.stress > 0.01 ? `upkeep +${Math.round(b.stress * 100)}%` : none, 'thermal');
     if (K.heat && g && (g.thermo || 0) > 0.005) h += kv('Heat-making', b ? `<span class="neg">${signed(-b.heatMaking)}/s</span>` : '—', 'heatmaker');
-    if (K.dung && g && (1 - g.photo) ** 2 > 0.1) h += kv('Gut', !b ? '—' : b.gut > 0.01 ? `${Math.round(b.gut * 100)}% full` : '<span class="nil">empty</span>', 'mind-gut');
+    if (g && (1 - g.photo) ** 2 > 0.1) h += kv('Gut', !b ? '—' : b.gut > 0.01 ? `${Math.round(b.gut * 100)}% full` : '<span class="nil">empty</span>', 'mind-gut');
     h += kv('Saving energy', !b ? '—' : b.lean < 0.995 ? `burns ${Math.round(b.lean * 100)}% of its upkeep` : none, 'lean');
     h += kv('Net', b ? `<span class="${b.net >= 0 ? 'pos' : 'neg'}">${signed(b.net)}/s</span> between meals` : '—', 'mind-net');
     return blk('Energy budget', h, { tip: 'energy' });
@@ -373,7 +373,7 @@ export function createSpecimen(api) {
     const sh = roleShares(g);
     let b = comp('Body plan', 'bodyplan', sh, g, `Of every 100 cells it grows: ${[0, 1, 2].filter((r) => sh[r] > 0.0005).map((r) => `${(sh[r] * 100).toFixed(sh[r] < 0.01 ? 1 : 0)} ${ROLE[r]}`).join(', ')}.`);
     b += trait('Adhesion', g.adhesion || 0, 0, 1, `${Math.round((g.adhesion || 0) * 100)}%${(g.adhesion || 0) > K.adhMin ? ' · bonds' : ''}`, 'adhesion');
-    if (K.grow && K.tissue > 0 && (g.adhesion || 0) > K.adhMin) b += kv('Growth', describeGrowth(growPlan(g)), 'growth');
+    if ((g.adhesion || 0) > K.adhMin) b += kv('Growth', describeGrowth(growPlan(g)), 'growth');
     if (g.calcify > 0.005) b += trait('Calcifying', g.calcify, 0, 1, `${Math.round(g.calcify * 100)}%`, 'calcify');
     b += trait('Size', g.size, 0.45, 2.6, fmtLen(0.17 * g.size), 'size');
     b += kv('Shape', CELL_SHAPES[cellShape(g, role)], 'size');

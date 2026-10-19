@@ -97,7 +97,7 @@ const ADHESION = { reef: 0.85, plankton: 0, grazer: 0, crawler: 0.75, hunter: 0.
 const CALCIFY = { reef: [0.4, 0.9], filament: [0, 0.3] };
 export const ARCHETYPE_TYPES = Object.keys(ARCHETYPES);
 
-// How often each founding body plan grows as a tree (K.grow), and the ranges its growth genes are drawn
+// How often each founding body plan grows as a tree, and the ranges its growth genes are drawn
 // from (unorm, as packed: tree, branch angle, branching interval, curl, pattern, depth; growOf in shaders.js):
 // reefs branch like corals and coralline algae (forking or alternate, a few orders deep), filaments like
 // Cladophora (alternate or one-sided side branches); animals' plans are drawn at random.
@@ -130,20 +130,19 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
     return { surf, rec };
   });
   const t = A.t(r);
-  // K.leanHunters: founders that eat flesh built for an honest economy (bodies cost energy): smaller,
-  // dividing sooner, and loose bodies whose every cell can reach prey
-  const lean = K.leanHunters && (type === 'hunter' || type === 'crawler');
-  if (lean) { t.size *= 0.7; t.reproE *= K.leanHunters >= 3 ? 2.5 : 0.6; }
-  // leanHunters 2: cheaper to run as well (upkeep grows with force, swimming and lifespan); 3: and they
-  // divide only with a large reserve, so their young can live until a first kill (as provision, but in the gene)
-  if (lean && K.leanHunters >= 2) { t.force *= 0.75; t.swim *= 0.7; t.lifespan *= 0.75; }
-  // K.sharpFounders: founders built for steep trade-offs (specPow, photoPow): a producer all light, an
-  // animal none, and each diet mostly its main food
-  if (K.sharpFounders) {
-    t.photo = t.photo > 0.4 ? Math.max(t.photo, 0.95) : 0;
-    const top = t.diet.indexOf(Math.max(...t.diet));
-    t.diet = t.diet.map((d, i) => (i === top ? 0.9 : 0.05));
+  // founders that eat flesh are built for an honest economy (bodies cost energy): smaller, dividing
+  // sooner, cheaper to run (upkeep grows with force, swimming and lifespan), and loose bodies whose every
+  // cell can reach prey
+  const lean = type === 'hunter' || type === 'crawler';
+  if (lean) {
+    t.size *= 0.7; t.reproE *= 0.6;
+    t.force *= 0.75; t.swim *= 0.7; t.lifespan *= 0.75;
   }
+  // founders are built for steep trade-offs (specPow, photoPow): a producer all light, an animal none,
+  // and each diet mostly its main food
+  t.photo = t.photo > 0.4 ? Math.max(t.photo, 0.95) : 0;
+  const top = t.diet.indexOf(Math.max(...t.diet));
+  t.diet = t.diet.map((d, i) => (i === top ? 0.9 : 0.05));
   const g = {
     roles, dev: A.dev.map((row) => row.map((v) => clamp(v + (r() - 0.5) * 0.1, 0, 1))),
     radius: t.radius, beta: t.beta ?? mix(0.2, 0.35, r()), force: t.force, drag: t.drag,
@@ -159,8 +158,7 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
     tol: type === 'reef' ? mix(3, 6, r()) : mix(5, 10, r()),
     thermo: THERMO_FOUNDERS.has(type) && r() < 0.25 ? unorm8(mix(0.3, 0.7, r())) : 0,
     beat: ((on, amp, tip) => [BEATERS.has(type) && on < 0.3 ? mix(0.15, 0.5, amp) : 0, mix(0.5, 2.5, r()), mix(0.3, 1.2, r()), BEATERS.has(type) && tip < 0.3 ? 1 : 0])(r(), r(), r()),
-    tough: mix(-2.3, 2.3, r()),
-    grow: [r() < (TREES[type] ?? 0) * (K.treeOdds ?? 1) ? mix(0.55, 1, r()) : mix(0, 0.45, r()), ...[1, 2, 3, 4, 5].map((i) => (PLANS[type] ? mix(...PLANS[type][i], r()) : r()))].map(unorm8),
+    grow: [r() < (TREES[type] ?? 0) ? mix(0.55, 1, r()) : mix(0, 0.45, r()), ...[1, 2, 3, 4, 5].map((i) => (PLANS[type] ? mix(...PLANS[type][i], r()) : r()))].map(unorm8),
   };
   return finalizeGenome(g, K);
 }
@@ -189,7 +187,7 @@ export function finalizeGenome(g, K = DEFAULT_K) {
   g.dGlint /= s; g.dHusk /= s; g.dFlesh /= s;
   g.metab = (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
     + (K.anchorCost ?? 0) * (1 - g.advect) + 0.004 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 0.006 * g.align + 0.004 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0)
-    + ((K.treeCost ?? 0) + (K.beat ? K.beatCost ?? 0 : 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0)) * (growPlan(g) ? 1 : 0)) * K.metab;
+    + (K.beatCost ?? 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g) ? 1 : 0)) * K.metab;
   g.col = packUnorm(...roleColor(g, 0));
   return g;
 }
@@ -240,7 +238,6 @@ export function mutateLike(g, r = Math.random, K = DEFAULT_K) {
   if (r() < m * 0.1) amp = amp < 0.05 ? 0.15 + 0.35 * r() : 0;
   h.beat = [amp, clamp(bt[1] * Math.exp(gauss() * m * 0.3), 0.3, 3), clamp(bt[2] + gauss() * m * 0.2, 0.2, 1.6), (bt[3] ?? 0) > 0.5 ? 1 : 0];
   if (r() < m * 0.1) h.beat[3] = 1 - h.beat[3];
-  h.tough = clamp((h.tough ?? 0) + gauss() * m * 0.6, -2.3, 2.3);
   h.parent = g.serial; h.serial = (g.serial || 0) + 1; h.depth = (g.depth || 0) + 1;
   return finalizeGenome(h, K);
 }
@@ -266,7 +263,6 @@ export function writeGenome(u32, f32, slot, g) {
   f32[o + 47] = g.tol ?? 7;
   const b = g.beat || [0, 1, 0.6, 0];
   f32[o + 48] = b[0]; f32[o + 49] = b[1]; f32[o + 50] = b[2]; f32[o + 51] = b[3] ?? 0;
-  f32[o + 52] = g.tough ?? 0; f32[o + 53] = 0; f32[o + 54] = 0; f32[o + 55] = 0;
 }
 
 export const genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
@@ -287,7 +283,7 @@ export function readGenome(u32, f32, slot) {
     shape: F(16), pulse: F(17), roleHue: F(18), advect: F(19), swim: F(20), align: F(21), photo: F(22),
     col: u32[o + 39], parent: u32[o + 40], serial: u32[o + 41], born: f32[o + 42], depth: u32[o + 43],
     adhesion: f32[o + 44], calcify: f32[o + 45],
-    topt: f32[o + 46], tol: f32[o + 47], beat: [f32[o + 48], f32[o + 49], f32[o + 50], f32[o + 51]], tough: f32[o + 52], thermo: (u32[o + 15] & 255) / 255, grow,
+    topt: f32[o + 46], tol: f32[o + 47], beat: [f32[o + 48], f32[o + 49], f32[o + 50], f32[o + 51]], thermo: (u32[o + 15] & 255) / 255, grow,
   };
 }
 
@@ -307,12 +303,12 @@ export function dietGuild(g) {
   return g.dFlesh >= m ? 'predator' : g.dHusk >= m ? 'scavenger' : 'grazer';
 }
 
-// The energy a cell divides at (lifeMain's divE): its own threshold plus the child's body (K.bodyE,
-// K.bodyReserve), raised so the child is provisioned for K.provision seconds of upkeep.
+// The energy a cell divides at (lifeMain's divE): its own threshold plus the child's body (K.bodyE by
+// size), raised so the child is provisioned for K.provision seconds of upkeep.
 export function divEnergy(g, K = DEFAULT_K) {
-  const body = K.bodyE > 0 ? (K.bodySize ? K.bodyE * g.size : K.bodyE) : K.buildCost;
-  let e = K.bodyE > 0 ? (K.bodyReserve ? g.reproE + body : Math.max(g.reproE, 1.25 * body)) : g.reproE;
-  if (K.provision > 0) e += Math.max(0, body + K.provision * g.metab / g.share - g.reproE - body);
+  const body = K.bodyE * g.size;
+  let e = g.reproE + body;
+  e += Math.max(0, body + K.provision * g.metab / g.share - g.reproE - body);
   return e;
 }
 

@@ -4,6 +4,9 @@ Goal: every guild fills a niche the others need, so losing one unravels the rest
 the world balances itself and a whole guild rarely dies out. Everything stays local and honest
 (docs/energy.md): no census-driven regulators, and energy only enters as light.
 
+The on/off switches named below (and the alternatives they chose between) were removed when this work
+merged to main: these rules are now always on, and only their strengths remain tunable.
+
 ## Where the world stands now (2026-10-17)
 
 The default before the boom-and-bust work below, over 64 seeds x 60 min at 32k (awake cells; "thriving":

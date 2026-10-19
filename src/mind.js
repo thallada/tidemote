@@ -170,7 +170,7 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
     st = m.siltNear
       ? { key: 'divide', matter: 'Silt', text: 'Dividing', why: `Its energy (${E.toFixed(2)}) has reached the ${need.toFixed(2)} it needs, and a grain of silt is in reach to build a child from.` }
       : { key: 'seeksilt', matter: 'Silt, none in reach', text: 'Ready to divide', why: `It has the energy to divide (${E.toFixed(2)} of ${need.toFixed(2)}) but no grain of silt within reach to build a child from, so it waits. Full, it has stopped feeding.` };
-  } else if (K.dung && m.gut >= 0.98 && m.siltNear) {
+  } else if (m.gut >= 0.98 && m.siltNear) {
     st = { key: 'dung', matter: 'Silt', text: 'Dropping dung', why: 'Its gut is full of what it ate but could not digest; it drops it beside a grain of silt as dung, a husk for scavengers.' };
   } else if (m.food && m.hungry) {
     const fk = m.food.kind;

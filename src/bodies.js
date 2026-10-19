@@ -47,7 +47,6 @@ export function bodyCensus(cpu, gpu) {
     G.cells += b.n; G.kinds[type] = (G.kinds[type] || 0) + b.n;
     const B = (out.bodies[type] ||= { n: 0, cells: 0, max: 0 });
     B.n++; B.cells += b.n; B.max = Math.max(B.max, b.n);
-    if (type === 'mat' && b.n >= 20) out.bigMat = (out.bigMat || 0) + b.n;
   }
   return out;
 }
@@ -56,15 +55,13 @@ export function bodyCensus(cpu, gpu) {
 /**
  * The body-type mix as shares of the living: single cells, clumps (2-5, packed bodies), mats (6+),
  * chains (trees of 2-5), filaments (unbranched trees of 6+), branched trees (6+); long: trees of 20+;
- * trees6: bodies of trees with 6+ cells; maxTree: the largest tree's cells; maxMat: the largest mat's;
- * bigMat: the share of the living in mats of 20+.
+ * trees6: bodies of trees with 6+ cells; maxTree: the largest tree's cells.
  */
 export function morphMix(c) {
   const share = (pred) => Object.entries(c.bodies).filter(([t]) => pred(t)).reduce((a, [, B]) => a + B.cells, 0) / Math.max(c.living, 1);
   let trees6 = 0, maxTree = 0;
-  const maxMat = c.bodies.mat?.max ?? 0, bigMat = (c.bigMat ?? 0) / Math.max(c.living, 1);
   for (const [t, B] of Object.entries(c.bodies)) if (t.startsWith('chain') || t.startsWith('branched')) { maxTree = Math.max(maxTree, B.max); if (!t.endsWith('2-5')) trees6 += B.n; }
   return { single: share((t) => t === 'single'), clump: share((t) => t === 'clump'), mat: share((t) => t === 'mat'),
     chain: share((t) => t.startsWith('chain 2-5') || t.startsWith('branched 2-5')), filament: share((t) => t.startsWith('chain') && !t.endsWith('2-5')),
-    branched: share((t) => t.startsWith('branched') && !t.endsWith('2-5')), long: share((t) => t.endsWith('20+')), trees6, maxTree, maxMat, bigMat };
+    branched: share((t) => t.startsWith('branched') && !t.endsWith('2-5')), long: share((t) => t.endsWith('20+')), trees6, maxTree };
 }

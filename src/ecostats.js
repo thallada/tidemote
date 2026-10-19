@@ -10,9 +10,9 @@ export const TRAITS = {
 };
 const SHARE_NOTABLE = 0.05;
 // raw genome traits averaged within each guild (guildTraits): how each guild evolves
-export const GUILD_TRAITS = ['swim', 'size', 'adhesion', 'advect', 'lifespan', 'reproE', 'share', 'drag', 'force', 'radius', 'photo', 'dGlint', 'dHusk', 'dFlesh', 'calcify', 'mutRate'];
-// body plans' shares within each guild (K.grow): trees, trees grown from the tips, beating trees, and both (tadpoles)
-export const PLAN_TRAITS = ['tree', 'tips', 'beater', 'tadpole'];
+const GUILD_TRAITS = ['swim', 'size', 'adhesion', 'advect', 'lifespan', 'reproE', 'share', 'drag', 'force', 'radius', 'photo', 'dGlint', 'dHusk', 'dFlesh', 'calcify', 'mutRate'];
+// body plans' shares within each guild: trees, trees grown from the tips, beating trees, and both (tadpoles)
+const PLAN_TRAITS = ['tree', 'tips', 'beater', 'tadpole'];
 
 /** One census of the community. species: [{ pop, genome }] for every living slot. */
 export function communitySample(species, adhMin) {

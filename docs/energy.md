@@ -2,8 +2,11 @@
 
 main's food webs ran on energy made from nothing. This note says where it came from, why the tissue rules
 turned it into perpetual-motion worlds, the rules that make energy enter only as light (all tunables in
-`DEFAULT_K`, behind `bodyE`), and what was measured on the way. How energy then flows through the food
+`DEFAULT_K`), and what was measured on the way. How energy then flows through the food
 web, and why animals were scarce until light became a flux per area, is in docs/ecosystem.md.
+
+The on/off switches named below (and the alternatives they chose between) were removed when this work
+merged to main: these rules are now always on, and only their strengths remain tunable.
 
 ## The leak
 

@@ -1,10 +1,13 @@
 # Growth plans: bodies that grow as trees
 
 Bonded species used to grow as packed bodies, closing triangles wherever their cells met. A growth plan
-(`K.grow`) lets a species grow instead the way filamentous algae, branched cyanobacteria and colonial
+lets a species grow instead the way filamentous algae, branched cyanobacteria and colonial
 protists do: cell by cell from its tips, each new cell at an angle set by its genes. The plan is
 inherited and mutates like every other gene, so worlds grow filaments, fronds, forks, zigzags and the
 odd ring, and lineages drift between them.
+
+The on/off switches named below (and the alternatives they chose between) were removed when this work
+merged to main: these rules are now always on, and only their strengths remain tunable.
 
 ## Biology
 
@@ -48,10 +51,9 @@ and a filament reaches more water and light per cell than a ball does.
   (`mature`) before budding, as every cell does before dividing. An early version let a plant's tip bud
   every 3 s instead: trees then outgrew single cells five- to twentyfold and took 87-91% of producers.
   With the same wait they settle near a third, a feature among mostly single cells, as in real water.
-- **Trees can snap.** `snap` (off by default) makes each of a tree's cells let go of its mother at that
-  rate per second, scaled 5x either way by a toughness gene (form.x), as cyanobacteria shed hormogonia.
-  At .003 it cut every tree to 2-8 cells. With it off, trees still break where grazers bite through
-  them or bonds stretch past `bondBreak`.
+- **Trees break where they are bitten.** They break where grazers bite through them or a bond stretches
+  past `bondBreak`. A random snap (each cell letting go of its mother at a set rate, scaled by a
+  toughness gene, as cyanobacteria shed hormogonia) cut every tree to 2-8 cells at .003 and was removed.
 - **Mats remain.** Whether a species grows as a tree is a gene like the rest (at the start: most filaments,
   over half of reef plants, a third or so of animals); the others grow packed bodies as before, and a
   lineage can switch either way by mutation.
@@ -83,7 +85,7 @@ classes every living cell's body; headless runs sample it each minute, `tools/bo
 saved world): single cells 60-85%, packed bodies 5-20%, trees 5-20%, trees of 6+ cells (visible)
 2-12%, and a tree of 20+ cells in at least 30% of worlds. 24 worlds × 30 min at 32k:
 
-| | snap .003 | + feed cap | + treeAge .25 | + snap 0 (default) |
+| | snap .003 | + feed cap | + treeAge .25 | + no snap (default) |
 |---|---|---|---|---|
 | single cells | 76% | 75% | 74% | 75% |
 | visible trees | 0.3% | 0.8% | 1.3% | 3.1% |
@@ -94,7 +96,7 @@ saved world): single cells 60-85%, packed bodies 5-20%, trees 5-20%, trees of 6+
 | thriving | 54% | 42% | 54% | 50% |
 | worlds in every band | 0 | 0 | 1 | 7 |
 
-With normal aging and snap 0, tips budding at a quarter of the wait (`growTip` .25) also hit the
+With normal aging and snap 0, plant tips budding at a quarter of the wait also hit the
 tree bands but grew 52-cell median giants; with snap .001 as well, trees took 43% of producers.
 
 Before the feed cap (plant tips grow up first, trees snap, swimming), against growth off:

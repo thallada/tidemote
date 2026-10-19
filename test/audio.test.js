@@ -5,9 +5,7 @@ import { voiceOf, archOf, ARCH } from '../src/audio/mapping.js';
 import { Engine } from '../src/audio/voices.js';
 import { Conductor } from '../src/audio/conductor.js';
 import { LISTEN, LISTEN_REC as REC, decodeRecords, recordCells, keepFor, hearing, D_REF, digest } from '../src/audio/listen.js';
-import { LISTEN_TYPES, LISTEN_REC, DEFAULT_K } from '../src/shaders.js';
-// the founders' original body plans: these tests are about the sound, not about founding (sharpFounders)
-const K0 = { ...DEFAULT_K, sharpFounders: 0 };
+import { LISTEN_TYPES, LISTEN_REC } from '../src/shaders.js';
 import { d2m } from '../src/audio/conductor.js';
 import { tempoFor } from '../src/audio/field.js';
 import { palette, LAYERS } from '../src/audio/score.js';
@@ -205,7 +203,7 @@ test('picking a species plays its song once, then its cells ease back into the m
 
 test('after its greeting a picked species sings its real share, though the scan samples it in full', () => {
   const eng = new Engine(48000, { seed: 8 }), cond = new Conductor(eng, { seed: 8 }), f = cond.field;
-  const ga = finalizeGenome(archetypeGenome('grazer', rng(31), K0)), gb = finalizeGenome(archetypeGenome('grazer', rng(32), K0));
+  const ga = finalizeGenome(archetypeGenome('grazer', rng(33))), gb = finalizeGenome(archetypeGenome('grazer', rng(34)));
   cond.message({ type: 'slots', all: true, slots: [{ slot: 9, serial: 90, voice: voiceOf(ga), pop: 20 }, { slot: 10, serial: 100, voice: voiceOf(gb), pop: 20 }] });
   // 20 cells of each in view: all 20 of the picked species sampled, 4 of the other (keep 0.2)
   const msg = () => {

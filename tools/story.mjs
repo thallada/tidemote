@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // What happened in each run of an ensemble (or single sim.mjs JSON files): the guilds over time, the matter
-// they are made of and the nutrient loop's flows (K.cycle), the energy books, and every guild that died out
+// they are made of and the nutrient loop's flows, the energy books, and every guild that died out
 // with what it had to live on just before. Then, over the ensemble, how often each guild and the whole web
 // survived (docs/ecosystem.md).
 //   node tools/story.mjs runs/NAME [runs/OTHER ...] [--every 120] [--quiet] [--json out.json]
@@ -34,7 +34,7 @@ function books(s, cycle) {
   return { inc, out };
 }
 
-// a guild's share of the living that is awake (K.cyst's dormant cells count among the living in diet)
+// a guild's share of the living that is awake (dormant cells count among the living in diet)
 const act = (s, g) => Math.max(0, s.diet[g] - (s.dormant?.[g] ?? 0) / Math.max(s.living, 1));
 
 function story(run) {
