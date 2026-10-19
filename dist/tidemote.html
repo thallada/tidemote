@@ -1310,6 +1310,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     grow: 1,
     growStiff: 2,
     // how firmly a tree holds its angles (bendOn), relative to its bonds' pull
+    treeAge: 1,
+    // how fast a tree's cell ages once it has grown a daughter (1: as any cell)
     snap: 3e-3,
     // rate (per second) at which each of a tree's cells lets go of its mother (at toughness 0: form.x)
     treeCost: 0,
@@ -1827,6 +1829,7 @@ ${K.grow && K.tissue > 0 && K.snap > 0 ? `  // a tree snaps: each cell lets go o
   var budTurn = 3u;
   var budAt = vec2f(0.0);
   var budBlocked = false;
+  var hasKid = false;
   let budGap = ${f(K.bondTouch || 0.9)} * 0.085 * g.size * (2.0 - 0.24 * f32(role));
   if (tree) {
     var have = 0u;
@@ -1834,6 +1837,7 @@ ${K.grow && K.tissue > 0 && K.snap > 0 ? `  // a tree snaps: each cell lets go o
       let c = backOf(i, 1u + k);
       if (c < sim.count && sortedFull[c].kind == p.kind) { have |= 1u << turnOf(sortedFull[c].info); }
     }
+    hasKid = have != 0u;
     let miss = growWants(gr, genOf(p.info), orderOf(p.info)) & ~have;
     if (miss != 0u) {
       budTurn = firstTrailingBit(miss);
@@ -3409,7 +3413,10 @@ ${cellWGSL(K, false)}
       if (thermo > 0.2) { atomicAdd(&ledger[META_ENERGY + 57u], 1u); }
     }
   }
-  var age = p.age + sim.dt;
+  // a tree's cell that has grown a daughter ages treeAge times as fast: a filament's cells live on in it
+  // (its tips grow up as any cell does), so trees grow long without growing faster than single cells
+  let ageRate = ${K.grow && K.tissue > 0 && K.treeAge != 1 ? `select(1.0, ${f(K.treeAge)}, tree && hasKid)` : "1.0"};
+  var age = p.age + sim.dt * ageRate;
   var act = 0u;
   var ck = 0u;
   var cr = 0u;
@@ -3493,7 +3500,7 @@ ${cellWGSL(K, false)}
     for (var k = 1u; k <= sim.ticks; k++) {
       E += (photoGain - g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(E / g.reproE, 0.0, 1.0))
         * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking) * h;
-      age += h;
+      age += h * ageRate;
       let tk = sim.tick - sim.ticks + k;
       if (!born && E > divE && silt != NONE && !th.torpid${K.grow && K.tissue > 0 ? ` && age > select(${f(K.mature)} * g.lifespan, ${f(K.growTipA)}, tree && g.photo <= 0.4 && g.beat.w > 0.5) && (!tree || (budTurn < 3u && !budBlocked))` : K.mature > 0 ? ` && age > ${f(K.mature)} * g.lifespan` : ""}) {
         born = true;
