@@ -28,6 +28,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     const E = await import('./engine.js');
     const { genomeSerial, readGenome } = await import('./genome.js');
     const { communitySample, summarizeRun, packing, spatial } = await import('./ecostats.js');
+    const { bodyCensus, morphMix } = await import('./bodies.js');
     const { dietGuild: guildOfG } = await import('./genome.js');
     let spatialPrev = null, spatialT = 0, latestSpatial = null;
     const { ENERGY_SLOTS, THERMAL_LEDGER, HEAT_BINS, HEAT_BIN } = await import('./shaders.js');
@@ -43,6 +44,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     const ledger = { births: 2, mutants: 3, starved: 5, oldAge: 6, kills: 7, extinctions: 8, grazes: 9, scavenges: 10, bites: 11 };
     let lastSample = -Infinity, lastPrint = -Infinity, prevG, prevD, prevE, prevT, latest, latestField = null, latestPacking = null;
     let minLivingFrac = null, collapses = 0, collapsed = false;
+    let bodiesT = -Infinity, latestBodies = null;
     const established = new Set(), lost = new Set();
     const genomes = new Array(E.MAXK);
     eng.onCensus = (c) => {
@@ -136,7 +138,12 @@ export async function runHeadless(device, config, { print, width = 640, height =
         const r = spatial(p, eng.count, eng.grid, gOf, E.FIRST_LIFE, spatialPrev, Math.max(1e-6, (t - spatialT) / 60));
         latestSpatial = spatialPrev ? r.stat : null; spatialPrev = r.pos; spatialT = t;
       }).catch(() => {});
-      samples.push({ ...latest, thermal, rates, demography, meals, energy, cycle, dormant, packing: pk, spatial: latestSpatial });
+      // the body-type mix (src/bodies.js: single cells, clumps, mats, chains, filaments, branched trees), once a simulated minute
+      if (c.simTime - bodiesT >= 60) {
+        bodiesT = c.simTime;
+        eng.readState().then((st) => { latestBodies = morphMix(bodyCensus(st.cpu, st.gpu)); }).catch(() => {});
+      }
+      samples.push({ ...latest, thermal, rates, demography, meals, energy, cycle, dormant, packing: pk, spatial: latestSpatial, bodies: latestBodies });
       prevG = Array.from(c.globals); prevD = Array.from(c.demography); prevE = Array.from(c.energy); prevT = lastSample = c.simTime;
     }
     // config.step: each step covers step/60 s (coarse steps), so fewer steps fill the minutes

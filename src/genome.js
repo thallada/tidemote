@@ -159,6 +159,7 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
     tol: type === 'reef' ? mix(3, 6, r()) : mix(5, 10, r()),
     thermo: THERMO_FOUNDERS.has(type) && r() < 0.25 ? unorm8(mix(0.3, 0.7, r())) : 0,
     beat: ((on, amp, tip) => [BEATERS.has(type) && on < 0.3 ? mix(0.15, 0.5, amp) : 0, mix(0.5, 2.5, r()), mix(0.3, 1.2, r()), BEATERS.has(type) && tip < 0.3 ? 1 : 0])(r(), r(), r()),
+    tough: mix(-2.3, 2.3, r()),
     grow: [r() < (TREES[type] ?? 0) ? mix(0.55, 1, r()) : mix(0, 0.45, r()), ...[1, 2, 3, 4, 5].map((i) => (PLANS[type] ? mix(...PLANS[type][i], r()) : r()))].map(unorm8),
   };
   return finalizeGenome(g, K);
@@ -239,6 +240,7 @@ export function mutateLike(g, r = Math.random, K = DEFAULT_K) {
   if (r() < m * 0.1) amp = amp < 0.05 ? 0.15 + 0.35 * r() : 0;
   h.beat = [amp, clamp(bt[1] * Math.exp(gauss() * m * 0.3), 0.3, 3), clamp(bt[2] + gauss() * m * 0.2, 0.2, 1.6), (bt[3] ?? 0) > 0.5 ? 1 : 0];
   if (r() < m * 0.1) h.beat[3] = 1 - h.beat[3];
+  h.tough = clamp((h.tough ?? 0) + gauss() * m * 0.6, -2.3, 2.3);
   h.parent = g.serial; h.serial = (g.serial || 0) + 1; h.depth = (g.depth || 0) + 1;
   return finalizeGenome(h, K);
 }
@@ -264,6 +266,7 @@ export function writeGenome(u32, f32, slot, g) {
   f32[o + 47] = g.tol ?? 7;
   const b = g.beat || [0, 1, 0.6, 0];
   f32[o + 48] = b[0]; f32[o + 49] = b[1]; f32[o + 50] = b[2]; f32[o + 51] = b[3] ?? 0;
+  f32[o + 52] = g.tough ?? 0; f32[o + 53] = 0; f32[o + 54] = 0; f32[o + 55] = 0;
 }
 
 export const genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
@@ -284,7 +287,7 @@ export function readGenome(u32, f32, slot) {
     shape: F(16), pulse: F(17), roleHue: F(18), advect: F(19), swim: F(20), align: F(21), photo: F(22),
     col: u32[o + 39], parent: u32[o + 40], serial: u32[o + 41], born: f32[o + 42], depth: u32[o + 43],
     adhesion: f32[o + 44], calcify: f32[o + 45],
-    topt: f32[o + 46], tol: f32[o + 47], beat: [f32[o + 48], f32[o + 49], f32[o + 50], f32[o + 51]], thermo: (u32[o + 15] & 255) / 255, grow,
+    topt: f32[o + 46], tol: f32[o + 47], beat: [f32[o + 48], f32[o + 49], f32[o + 50], f32[o + 51]], tough: f32[o + 52], thermo: (u32[o + 15] & 255) / 255, grow,
   };
 }
 

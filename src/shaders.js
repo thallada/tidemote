@@ -38,8 +38,8 @@ export const P_BYTES = 40;
 export const LOUPE_FIELD = 1.1;
 export const ORGANS = 12; // organelles per resolved cell (fsPoint), directions per species (organDirs)
 export const PICK_WORDS = 12; // Particle's 10 words, then two partner IDs (NONE if absent).
-export const G_BYTES = 208;
-export const G_WORDS = 52;
+export const G_BYTES = 224;
+export const G_WORDS = 56;
 export const LITE_BYTES = 32;
 // The selected cell's mind (mindMain): a header of MIND_HEAD words, then MIND_NBR living neighbours
 // of MIND_NBR_WORDS words each. See parseMind in mind.js for the layout.
@@ -100,7 +100,7 @@ export const DEFAULT_K = {
   // from its tips at the angles its plan sets (growOf), so it branches, curls, forks and zigzags
   grow: 1,
   growStiff: 2,     // how firmly a tree holds its angles (bendOn), relative to its bonds' pull
-  snap: 0.003,      // rate (per second) at which each of a tree's cells lets go of its mother
+  snap: 0.003,      // rate (per second) at which each of a tree's cells lets go of its mother (at toughness 0: form.x)
   treeCost: 0,      // upkeep of a tree's cell (holding its angles), like adhesion's
   growTipA: 10,     // seconds an animal colony's tip waits before budding again if it grows from its tips (beat.w;
                     // others grow up first, mature, as every cell does: a plant tree's tips too, or trees outgrow single cells)
@@ -327,6 +327,7 @@ struct Genome {
   parent: u32, serial: u32, born: f32, depth: u32,
   adhesion: f32, calcify: f32, topt: f32, tol: f32,
   beat: vec4f,
+  form: vec4f,
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
@@ -478,8 +479,9 @@ function cellWGSL(K, w) {
     }
   }
 ${K.grow && K.tissue > 0 && K.snap > 0 ? `  // a tree snaps: each cell lets go of its mother now and then (currents, grazers, hormogonia), so the
-  // longer a filament the sooner it breaks, and its pieces grow on
-  if (n1 != NONE && bonding && growOf(g).tree && f32(pcg(p.id ^ pcg(sim.frame * 2246822519u + sim.seed))) / 4294967296.0 < ${f(K.snap)} * sim.dt) { n1 = NONE; }
+  // longer a filament the sooner it breaks, and its pieces grow on; how tough it is is a gene (form.x:
+  // each unit halves the rate)
+  if (n1 != NONE && bonding && growOf(g).tree && f32(pcg(p.id ^ pcg(sim.frame * 2246822519u + sim.seed))) / 4294967296.0 < ${f(K.snap)} * exp2(-g.form.x) * sim.dt) { n1 = NONE; }
 ` : ''}  let keep1 = n1 != NONE; let keep2 = n2 != NONE;${K.grow && K.tissue > 0 ? `
   // a tree (K.grow) grows from its tips at the angles of its plan, bonded mother to daughter only
   let gr = growOf(g);
@@ -1200,6 +1202,8 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   g.beat.z = clamp(g.beat.z + gauss(s) * m * 0.2, 0.2, 1.6);
   // an animal colony grows from its tips like a plant (beat.w past 0.5), so it can grow long: now and then it flips
   if (rnd(s) < m * 0.1) { g.beat.w = 1.0 - g.beat.w; }
+  // a tree's toughness (form.x, log2 of how much less often it snaps)
+  g.form.x = clamp(g.form.x + gauss(s) * m * 0.6, -2.3, 2.3);
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -1249,6 +1253,7 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   g.topt = clamp(t + gauss(s) * 3.0, 0.0, 45.0);
   g.tol = mix(3.0, 10.0, rnd(s));
   g.beat = vec4f(select(0.0, mix(0.15, 0.5, rnd(s)), rnd(s) < 0.25), mix(0.5, 2.5, rnd(s)), mix(0.3, 1.2, rnd(s)), select(0.0, 1.0, rnd(s) < 0.25));
+  g.form = vec4f(mix(-2.3, 2.3, rnd(s)), 0.0, 0.0, 0.0);
   g.parent = 0u;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
