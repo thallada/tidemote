@@ -3106,8 +3106,9 @@ fn feedOf(m: u32, gr: Grow, keep: f32, rate: f32) -> vec2f {
     let o = sortedFull[c];
     var d = o.pos - q.pos;
     d -= sim.world * round(d / sim.world);
-    if (o.kind == q.kind && (o.info & 15u) != CYST && dot(d, d) <= LINK_R * LINK_R * ${f(K.bondBreak * K.bondBreak)}) { have |= 1u << turnOf(o.info); n += 1.0; }
+    if (o.kind == q.kind && (o.info & 15u) != CYST && dot(d, d) <= LINK_R * LINK_R * ${f(K.bondBreak * K.bondBreak)}) { have |= 1u << turnOf(o.info); if (o.energy < 2.0 * keep) { n += 1.0; } }
   }
+  // (only daughters short of a division's energy take any: a tip that cannot bud yet hoards none)
   if (n == 0.0 || (growWants(gr, genOf(q.info), orderOf(q.info)) & ~have) != 0u) { return vec2f(0.0); }
   let all = rate * max(q.energy - keep, 0.0);
   return vec2f(all / n, all);
