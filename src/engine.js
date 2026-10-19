@@ -1,6 +1,6 @@
 import {
   simWGSL, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES,
+  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES,
 } from './shaders.js';
 import {
   archetypeGenome, writeGenome, parseParticle,
@@ -323,7 +323,8 @@ class Engine {
     b.touch = d.createBuffer({ size: n * 24, usage: U.STORAGE, mappedAtCreation: true });
     new Uint32Array(b.touch.getMappedRange()).fill(0xffffffff);
     b.touch.unmap();
-    b.sway = d.createBuffer({ size: n * 32, usage: U.STORAGE });
+    // each cell's drawn motion and recent events, by ID (contactGather): only cells in view need a slot
+    b.sway = d.createBuffer({ size: Math.min(n, 1 << 20) * SWAY_BYTES, usage: U.STORAGE });
     b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
     b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
@@ -1564,7 +1565,7 @@ class Engine {
       if (mainDetail) rect(0, cam.x, cam.y, W / (2 * cam.ppu), H / (2 * cam.ppu));
       else if (loupe) rect(0, loupe.cx, loupe.cy, LOUPE_FIELD * loupe.r / loupe.ppu, LOUPE_FIELD * loupe.r / loupe.ppu);
       if (specimen) rect(1, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu));
-      u[16] = gw; u[17] = gh; new Float32Array(u.buffer)[18] = time;
+      u[16] = gw; u[17] = gh; new Float32Array(u.buffer)[18] = time; new Float32Array(u.buffer)[19] = this.simTime % 4096;
       d.queue.writeBuffer(this.b.inbondU, 0, u);
       const pass = enc.beginComputePass({ timestampWrites: tsBegin() });
       for (let k = 0; k < 3; k++) {

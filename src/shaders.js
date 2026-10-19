@@ -41,6 +41,8 @@ export const PICK_WORDS = 12; // Particle's 10 words, then two partner IDs (NONE
 export const G_BYTES = 208;
 export const G_WORDS = 52;
 export const LITE_BYTES = 32;
+// a cell's drawn motion and events (ANIM_WGSL's Sway)
+export const SWAY_BYTES = 56;
 // The selected cell's mind (mindMain): a header of MIND_HEAD words, then MIND_NBR living neighbours
 // of MIND_NBR_WORDS words each. See parseMind in mind.js for the layout.
 export const MIND_HEAD = 64;
@@ -2703,7 +2705,53 @@ fn cullRows(@builtin(local_invocation_index) l: u32) {
 
 // Rendering only: each living cell's incoming bonds, so a body's cells fuse with every partner,
 // not only the (up to two) they keep themselves. Bonds are one-sided in the sim.
-export const INBOND_WGSL = COMMON + /* wgsl */ `
+// How cells are drawn through the moments that change them (observational: contactGather keeps each
+// cell's record, vsPoint and pointColor read it). Durations are in sim seconds: paused they hold, at
+// fast speeds they hurry along with the world.
+const ANIM_WGSL = /* wgsl */ `
+// a newborn buds out of its mother and grows to full size; the neck between them pinches off
+const BIRTH_T = 0.9;
+// a cell curling up into a cyst, or waking from one
+const SLEEP_T = 1.2;
+// a bite out of a producer heals; an eater swells with a meal
+const BITE_T = 1.1;
+// a meal's food vacuole drifts in from the front and is digested
+const DIGEST_T = 1.6;
+const GULP_T = 0.4;
+// a cell that starved, aged or scalded withers into its husk; one killed bursts
+const WITHER_T = 1.6;
+const BURST_T = 0.9;
+// a husk eaten (or rotted) away shrinks into the silt it leaves
+const EATEN_T = 0.6;
+// sim time is kept modulo this (f32 holds it to a millisecond)
+const SIM_WRAP = 4096.0;
+// a new species shimmers for a while: a mutant newborn, or life sparked from silt
+const NOVEL_T = 2.5;
+// look: the living kind (bits 0-9), its role (10-11), whether it was seen born (12), a bite's world angle
+// (13-20), whether it was seen born a new species (21)
+const LOOK_BORN = 0x1000u;
+const LOOK_NOVEL = 0x200000u;
+// Each living cell in view bends along the curve of its path, through a soft spring so it lags and
+// sways back as it straightens, and a knock (a sudden change of velocity) squashes it along the
+// knock through a quicker spring, so it jiggles and settles. Kept by ID (unique serials), so it needs
+// nothing from the sort; another ID in the slot starts afresh. Half-float pairs: velocity smoothed
+// over about 0.08 s, so jitter neither turns nor knocks it; bend
+// and its rate; the squash (a nematic: amount times (cos, sin) of twice its axis) and its rate; and
+// how closely packed it is (lifeMain's intent.y, sampled afresh each tick: in a crowd its estimate
+// jumps tick to tick), smoothed over about 0.3 s, so a cell in a mat keeps a steady size (packFit).
+// Then what it was and what has just happened to it: look; the sim time it was last seen (simT, modulo
+// SIM_WRAP); its fullness (energy / reproE) eased, and its energy when last seen; a newborn's offset
+// toward its mother (world units); sim seconds since it was bitten and since it ate; how far it has
+// curled up into a cyst (0..1) and the bite's size.
+struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32, face: u32, pack: f32,
+  look: u32, simT: f32, fed: u32, shift: u32, ev: u32, sleep: u32 };
+// a newborn and its mother: one species, or a mutant daughter and the species she came from
+fn budKin(a: Genome, b: Genome) -> bool { return a.serial == b.serial || a.parent == b.serial || b.parent == a.serial; }
+// a newborn's growth, 0 at birth to 1 (overshooting a little, then settling)
+fn budGrowth(age: f32) -> f32 { let t = clamp(age / BIRTH_T, 0.0, 1.0) - 1.0; return 1.0 + 2.0 * t * t * t + t * t; }
+`;
+
+export const INBOND_WGSL = COMMON + ANIM_WGSL + /* wgsl */ `
 @group(0) @binding(1) var<storage, read> intent: array<vec4u>;
 @group(0) @binding(2) var<storage, read> parts: array<Particle>;
 @group(0) @binding(3) var<storage, read_write> bondsIn: array<atomic<u32>>;
@@ -2759,15 +2807,6 @@ fn inbondGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_inde
 const TOUCH_N = 6u;
 @group(0) @binding(6) var<storage, read_write> touch: array<u32>;
 @group(0) @binding(7) var<storage, read> genomes: array<Genome>;
-// Each living cell in view bends along the curve of its path, through a soft spring so it lags and
-// sways back as it straightens, and a knock (a sudden change of velocity) squashes it along the
-// knock through a quicker spring, so it jiggles and settles. Kept by ID (unique serials), so it needs
-// nothing from the sort; another ID in the slot starts afresh. Half-float pairs: velocity smoothed
-// over about 0.08 s, so jitter neither turns nor knocks it; bend
-// and its rate; the squash (a nematic: amount times (cos, sin) of twice its axis) and its rate; and
-// how closely packed it is (lifeMain's intent.y, sampled afresh each tick: in a crowd its estimate
-// jumps tick to tick), smoothed over about 0.3 s, so a cell in a mat keeps a steady size (packFit).
-struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32, face: u32, pack: f32 };
 @group(0) @binding(8) var<storage, read_write> sway: array<Sway>;
 
 fn drawnSize(p: Particle) -> f32 { return genomes[p.kind].size * (1.0 - 0.12 * f32(roleOf(p.info))); }
@@ -2975,8 +3014,105 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
       let amount = length(squash);
       if (amount > 0.3) { squash *= 0.3 / amount; }
     }
+
+    // What has just happened to it, read from how it changed since it was last seen (in sim time).
+    let simNow = bitcast<f32>(views.grid.w);
+    let g = genomes[p.kind];
+    let same = was.id == p.id;
+    var sdt = 1e3;
+    if (same) { sdt = simNow - was.simT; if (sdt < 0.0) { sdt += SIM_WRAP; } }
+    // seen a moment ago (not a record from when it was last in view)
+    let recent = same && dt < 0.5;
+    let full = p.energy / max(g.reproE, 0.01);
+    let cause = p.info & 15u;
+    // a newborn is one seen since its birth (a cell woken from a cyst it was seen in is not)
+    // (life sparked from silt is born too, of a species new to the world)
+    var born = (cause == 9u || cause == 8u) && p.age < BIRTH_T;
+    var novel = cause == 8u && p.age < NOVEL_T;
+    if (same) { born = born && (was.look & LOOK_BORN) != 0u; novel = (was.look & LOOK_NOVEL) != 0u && p.age < NOVEL_T; }
+    var fed = full;
+    var sleep = select(0.0, 1.0, cause == CYST);
+    var ev = vec2f(99.0);
+    var markSize = 0.0;
+    var biteAt = 0u;
+    var shift = vec2f(0.0);
+    let radius = 0.085 * si;
+    // the nearest newborn of its kind it touches (perhaps its own daughter), and the nearest stranger
+    var young = NONE;
+    var stranger = NONE;
+    for (var c = 0u; c < TOUCH_N; c++) {
+      let j = best[c];
+      if (j == NONE) { break; }
+      let q = parts[j];
+      if (q.kind == p.kind || budKin(g, genomes[q.kind])) { if (young == NONE && (q.info & 15u) == 9u && q.age < 0.25) { young = j; } }
+      else if (stranger == NONE) { stranger = j; }
+    }
+    if (same) {
+      let e = unpack2x16float(was.ev);
+      ev = min(e + vec2f(sdt), vec2f(99.0));
+      let sl = unpack2x16float(was.sleep);
+      markSize = sl.y;
+      biteAt = (was.look >> 13u) & 255u;
+      if (recent) {
+        let f0 = unpack2x16float(was.fed);
+        fed = mix(f0.x, full, 1.0 - exp(-sdt / 0.4));
+        // curling up or waking takes SLEEP_T
+        sleep = clamp(sl.x + clamp(sleep - sl.x, -1.0, 1.0) * sdt / SLEEP_T, 0.0, 1.0);
+        let dE = p.energy - f0.y;
+        // a producer that lost a bite's worth at once was bitten (not by giving birth): a notch out of
+        // its side toward whoever bit it, and a flinch
+        if (dE < -${f(0.6 * DEFAULT_K.bite)} && g.photo > 0.4 && young == NONE) {
+          var toward = renderHash(p.id + u32(simNow * 60.0)) * TAU;
+          if (stranger != NONE) { let d = parts[stranger].pos - p.pos; toward = atan2(d.y, d.x); }
+          biteAt = u32(fract(toward / TAU) * 256.0) & 255u;
+          markSize = clamp(-dE / ${f(DEFAULT_K.bite)}, 0.5, 1.0);
+          ev.x = 0.0;
+          rate += 5.0 * vec2f(cos(2.0 * toward), sin(2.0 * toward));
+        }
+        // an animal that gained a meal's worth at once: a gulp, lunging forward
+        if (dE > max(0.2, 0.1 * g.reproE) && g.photo <= 0.4) {
+          ev.y = 0.0;
+          let a = atan2(face.y, face.x);
+          rate -= 6.0 * vec2f(cos(2.0 * a), sin(2.0 * a));
+        }
+        // a mother whose daughter has just budded off is drawn out toward her
+        if (dE < -0.2 * g.reproE && young != NONE && !born) {
+          let d = parts[young].pos - p.pos;
+          let a = atan2(d.y, d.x);
+          rate -= 4.0 * vec2f(cos(2.0 * a), sin(2.0 * a));
+        }
+      }
+    }
+    // A newborn is drawn budding from its mother (the nearest of its kind it touches; a mutant's, the
+    // nearest of the species she came from): it starts small, just within her rim, and moves out to
+    // where it is as it grows. A mutant, first seen beside a cell of her mother's species and none of
+    // her own, is a new species.
+    if (born) {
+      var mother = NONE;
+      var kinFound = false;
+      for (var c = 0u; c < TOUCH_N; c++) {
+        let j = best[c];
+        if (j == NONE) { break; }
+        let m = parts[j];
+        if (m.kind < FIRST_LIFE || ((m.info & 15u) == 9u && m.age < p.age)) { continue; }
+        if (m.kind == p.kind) { kinFound = true; mother = j; break; }
+        if (mother == NONE && genomes[m.kind].serial == g.parent) { mother = j; }
+      }
+      if (mother != NONE) {
+        let m = parts[mother];
+        var d = m.pos - p.pos;
+        d -= world * round(d / world);
+        let dist = length(d);
+        let inner = 0.7 * 0.085 * drawnSize(m);
+        if (dist > inner && dist < 4.0 * radius + 2.0 * inner) { shift = d / dist * (dist - inner) * (1.0 - budGrowth(p.age)); }
+        if (!same && !kinFound && cause == 9u) { novel = true; }
+      }
+    }
+    let look = p.kind | (roleOf(p.info) << 10u) | select(0u, LOOK_BORN, born) | (biteAt << 13u) | select(0u, LOOK_NOVEL, novel);
     sway[slot] = Sway(p.id, pack2x16float(vel), pack2x16float(bend), now,
-      pack2x16float(squash), pack2x16float(rate), pack2x16float(face), pack);
+      pack2x16float(squash), pack2x16float(rate), pack2x16float(face), pack,
+      look, simNow, pack2x16float(vec2f(fed, p.energy)), pack2x16float(shift),
+      pack2x16float(ev), pack2x16float(vec2f(sleep, markSize)));
   }
 }
 
@@ -2991,7 +3127,7 @@ fn organDirs(@builtin(global_invocation_id) gid: vec3u) {
 }
 `;
 
-export const DRAW_WGSL = 'diagnostic(off, derivative_uniformity);\n' + COMMON + /* wgsl */ `
+export const DRAW_WGSL = 'diagnostic(off, derivative_uniformity);\n' + COMMON + ANIM_WGSL + /* wgsl */ `
 // Unresolved views use the cheap sprite profile; resolved cells share one outline path.
 struct View {
   cam: vec2f, world: vec2f, res: vec2f,
@@ -3021,7 +3157,6 @@ struct View {
 // The living cells each cell presses against (INBOND_WGSL contactGather).
 @group(0) @binding(8) var<storage, read> touch: array<u32>;
 // Each cell's bend along its path and squash from knocks (INBOND_WGSL contactGather), by ID.
-struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32, face: u32, pack: f32 };
 @group(0) @binding(9) var<storage, read> sway: array<Sway>;
 @group(0) @binding(10) var<storage, read> organDir: array<u32>;
 // The water's temperature per grid cell (heatMain), for how heat shows on a cell.
@@ -3274,10 +3409,10 @@ fn bodyAspect(s: vec2f, swim: f32, pace: f32) -> f32 {
 // Turning, the body curves along its path (an area-preserving shear); past the body, as a tail
 // does, the curve runs on straight.
 fn bendShift(x: f32, bend: f32) -> f32 { return bend * abs(x) * min(abs(x), 1.0); }
+// rest: how still it lies (a cyst, or a dead cell: its outline stops flowing) and how far it has curled
+// up into a cyst (rounding into a disc of the same area).
 fn cellOutline(uv: vec2f, dir: vec2f, radius: f32, seed: f32,
-    shape: u32, traits: vec4f, s: vec2f, pace: f32, bend: f32) -> CellOutline {
-  // pace < 0: a dormant cell, its outline frozen
-  let awake = select(1.0, 0.0, pace < 0.0);
+    shape: u32, traits: vec4f, s: vec2f, pace: f32, bend: f32, rest: vec2f) -> CellOutline {
   let pc = max(pace, 0.0);
   let aspect = bodyAspect(s, traits.x, pc);
   var motion = localPoint(uv, dir) * vec2f(1.0 / aspect, aspect);
@@ -3285,17 +3420,20 @@ fn cellOutline(uv: vec2f, dir: vec2f, radius: f32, seed: f32,
   // Dragged through the water a cell is blunt in front and drawn out thin behind, by as much,
   // so its area holds (to second order in pace).
   motion.y *= exp(pc * 0.35 * (smoothstep(0.0, -0.9, motion.x) - smoothstep(0.0, 0.9, motion.x)));
-  // Area-preserving shears, with each cell's own phase.
-  let phase = seed * TAU + awake * view.time * (0.18 + traits.y * 0.15) * (1.0 - traits.z * 0.7);
+  // Area-preserving shears, with each cell's own phase (held where it lies still).
+  let flowing = seed * TAU + view.time * (0.18 + traits.y * 0.15) * (1.0 - traits.z * 0.7);
+  let held = seed * TAU;
   var q = motion;
-  q.x += 0.075 * sin(q.y * 4.0 + phase) + (s.y - 0.5) * 0.20 * q.y;
-  q.y += 0.065 * sin(q.x * 4.5 + phase * 1.3);
+  q.x += 0.075 * mix(sin(q.y * 4.0 + flowing), sin(q.y * 4.0 + held), rest.x) + (s.y - 0.5) * 0.20 * q.y;
+  q.y += 0.065 * mix(sin(q.x * 4.5 + flowing * 1.3), sin(q.x * 4.5 + held * 1.3), rest.x);
   // and a moving one ripples, a wave running back along its body and growing toward the rear
   q.y += pc * 0.075 * sin(q.x * 4.0 + seed * 40.0 + view.time * 4.5) * (0.3 + 0.7 * smoothstep(0.5, -0.8, q.x));
   let a = atan2(q.y, q.x);
   let ripple = 0.018 * sin(a * 5.0 + seed * 23.0) * smoothstep(0.1, 0.4, length(q));
   let teeth = traits.w * fineLOD(radius) * 0.02 * pow(max(0.0, cos(a * 17.0 + seed * 11.0)), 6.0);
-  return CellOutline(bodySD(q, shape, s) - ripple - teeth, q);
+  var sd = bodySD(q, shape, s);
+  if (rest.y > 0.0) { sd = mix(sd, length(q) - sqrt(bodyArea(shape, s)), 0.9 * smoothstep(0.0, 1.0, rest.y)); }
+  return CellOutline(sd - ripple - teeth * (1.0 - rest.y), q);
 }
 // This cell's sway, if contactGather kept it just now (the slot may hold another cell, or this one
 // from when it was last in view).
@@ -3321,26 +3459,84 @@ fn bodyDirection(ii: u32, p: Particle) -> vec2f {
   }
   return cellDirection(p);
 }
-// Match vsPoint's living-cell radius, including focus and unresolved highlights.
 // A resolved cell is drawn no larger than the room its living neighbours leave it, so a dense body
 // reads as packed tissue rather than a stack of overlapping cells. The sim records a kernel density
 // of living neighbours within LINK_R (sum of (1 - r/L)^2, i.e. pi L^2 rho / 6), smoothed by contactGather
 // (Sway.pack); a hexagonal packing of that density has spacing L * sqrt(0.6046 / pack). Distant sprites
 // keep their size.
 fn packFit(p: Particle, index: u32, size: f32) -> f32 {
-  let lod = detailLOD(view.pointSize * size);
-  if (lod <= 0.0) { return 1.0; }
+  if (detailLOD(view.pointSize * size) <= 0.0) { return 1.0; }
   let it = intent[index];
   let st = swayOf(p);
   if (st.id != p.id && (it.x & 3u) == 2u) { return 1.0; }
-  let pack = select(bitcast<f32>(it.y), st.pack, st.id == p.id);
-  if (!(pack > 0.01)) { return 1.0; }
+  return packRoom(select(bitcast<f32>(it.y), st.pack, st.id == p.id), size);
+}
+fn packRoom(pack: f32, size: f32) -> f32 {
+  let lod = detailLOD(view.pointSize * size);
+  if (lod <= 0.0 || !(pack > 0.01)) { return 1.0; }
   let room = 0.75 * view.linkR * sqrt(0.6046 / pack);
   return mix(1.0, min(1.0, room / (0.085 * size)), lod);
 }
+// What has just happened to a living cell, from its record (contactGather), or as it is with none: how
+// far a newborn has grown and its offset toward its mother, how far it has curled up into a cyst, its
+// fullness (eased, so giving birth or being bitten dims it smoothly), a bite out of its side (its size
+// and world angle) and the swell of a meal.
+struct Anim { grow: f32, shift: vec2f, sleep: f32, fed: f32, mark: f32, markAt: f32, gulp: f32, ate: f32, novel: f32, born: bool, seen: bool };
+fn animOf(p: Particle, g: Genome) -> Anim {
+  var a = Anim(1.0, vec2f(0.0), select(0.0, 1.0, (p.info & 15u) == CYST), p.energy / max(g.reproE, 0.01), 0.0, 0.0, 0.0, 99.0, 0.0, false, false);
+  let st = swayOf(p);
+  if (st.id != p.id) { return a; }
+  a.seen = true;
+  a.born = (st.look & LOOK_BORN) != 0u && p.age < BIRTH_T;
+  if (a.born) { a.grow = budGrowth(p.age); a.shift = unpack2x16float(st.shift); }
+  let sl = unpack2x16float(st.sleep);
+  a.sleep = sl.x;
+  a.fed = unpack2x16float(st.fed).x;
+  let ev = unpack2x16float(st.ev);
+  // a bite is taken at once and heals
+  a.mark = sl.y * smoothstep(0.0, 0.05, ev.x) * (1.0 - smoothstep(0.1, BITE_T, ev.x));
+  a.markAt = f32((st.look >> 13u) & 255u) / 256.0 * TAU;
+  a.gulp = select(0.0, sin(3.14159265 * ev.y / GULP_T), ev.y < GULP_T);
+  a.ate = ev.y;
+  if ((st.look & LOOK_NOVEL) != 0u) { a.novel = max(0.0, 1.0 - p.age / NOVEL_T); }
+  return a;
+}
+// a newborn starts at 0.3 of its size; a gulp swells a cell a tenth
+fn animScale(a: Anim) -> f32 { return mix(0.3, 1.0, a.grow) * (1.0 + 0.1 * a.gulp); }
+// where a cell is drawn: a newborn buds from its mother's side
+fn drawnPos(p: Particle) -> vec2f {
+  if (p.kind >= FIRST_LIFE && (p.info & 15u) == 9u && p.age < BIRTH_T) {
+    let st = swayOf(p);
+    if (st.id == p.id && (st.look & LOOK_BORN) != 0u) { return p.pos + unpack2x16float(st.shift); }
+  }
+  return p.pos;
+}
+// A dead cell's last moments, drawn from its record while its husk is fresh: what it was (kind, role),
+// how it died (0 withered: starved, aged or scalded; 1 burst: killed by a hunter; 2 grazed away) and
+// how far along it is (0..1). kind 0: none (no record, or its moment has passed).
+struct Ghost { kind: u32, role: u32, how: u32, t: f32, face: vec2f, pack: f32, fed: f32 };
+fn ghostOf(p: Particle) -> Ghost {
+  var gh = Ghost(0u, 0u, 0u, 1.0, vec2f(1.0, 0.0), 0.0, 0.0);
+  if (p.kind != HUSK || p.age >= WITHER_T || (p.info & 15u) == 11u) { return gh; }
+  let st = sway[p.id % arrayLength(&sway)];
+  let k = st.look & 1023u;
+  if (st.id != p.id || k < FIRST_LIFE) { return gh; }
+  gh.how = select(0u, select(1u, 2u, (p.info & LITTER) != 0u), (p.info & 15u) == 3u);
+  gh.t = p.age / select(select(WITHER_T, 0.6 * WITHER_T, gh.how == 2u), BURST_T, gh.how == 1u);
+  if (gh.t >= 1.0) { return gh; }
+  gh.kind = k;
+  gh.role = (st.look >> 10u) & 3u;
+  gh.face = unpack2x16float(st.face);
+  gh.pack = st.pack;
+  gh.fed = unpack2x16float(st.fed).x;
+  return gh;
+}
+// how far a ghost has given way to its husk
+fn ghostFade(how: u32, t: f32) -> f32 { return select(smoothstep(0.5, 1.0, t), smoothstep(0.25, 0.85, t), how == 1u); }
+// Match vsPoint's living-cell radius, including focus and unresolved highlights.
 fn cellRadius(p: Particle, g: Genome, index: u32) -> f32 {
   var size = g.size * (1.0 - 0.12 * f32(roleOf(p.info)));
-  size *= packFit(p, index, size);
+  size *= packFit(p, index, size) * animScale(animOf(p, g));
   let grow = 1.0 - detailLOD(view.pointSize * size);
   if (!focusPass(p)) { size *= 0.7; }
   else if (view.focusOn == 1u) { size *= 1.0 + 0.12 * grow; }
@@ -3373,36 +3569,88 @@ fn bodyArea(shape: u32, s: vec2f) -> f32 {
 
 // A particle as its distant sprite: its colour, profile and radius in pixels (and how much a resolved
 // cell swims, which sets its reach). vsPoint uses it, and splatMain for sprites too small for quads.
-struct Sprite { col: vec3f, shape: u32, px: f32, swim: f32 };
+// A dead cell's ghost (ghostOf) is drawn as the cell it was (kind) fading into its husk; live is its own
+// colour before that fade, for the resolved ghost, which fades into its husk pixel by pixel.
+struct Sprite { col: vec3f, shape: u32, px: f32, swim: f32, kind: u32, live: vec3f, anim: Anim, ghost: Ghost };
+// a husk's colour: its cell's, browned, as bright as the energy it holds
+fn huskCol(p: Particle) -> vec3f {
+  let h = unpack4x8unorm(p.col).rgb;
+  return mix(h * 0.6, vec3f(0.42, 0.28, 0.16), 0.55) * (0.25 + p.energy * 0.6) * view.matterGain * 1.4;
+}
 fn spriteOf(p: Particle, ii: u32) -> Sprite {
   let k = p.kind;
   var size = 1.0;
   var col: vec3f;
+  var live = vec3f(0.0);
   var shape = 0u;
   var swim = 0.0;
-  if (k >= FIRST_LIFE) {
-    let g = genomes[k];
-    let role = roleOf(p.info);
-    size = g.size * (1.0 - 0.12 * f32(role));
-    size *= packFit(p, ii, size);
-    // a dormant cell (a cyst, state 14) sleeps: no swimming, pulse or birth flash, dimmed and greyed
-    let sleeping = (p.info & 15u) == 14u;
-    swim = select(min(g.swim, 1.0), 0.0, sleeping);
-    let e = clamp(p.energy / g.reproE, 0.0, 1.4);
-    var b = select(0.35 + 0.65 * e, 0.62, sleeping);
+  var kind = k;
+  var a = Anim(1.0, vec2f(0.0), 0.0, 0.0, 0.0, 0.0, 0.0, 99.0, 0.0, false, false);
+  let gh = ghostOf(p);
+  let cause = p.info & 15u;
+  if (k >= FIRST_LIFE || gh.kind != 0u) {
+    let dead = gh.kind != 0u;
+    kind = select(k, gh.kind, dead);
+    let g = genomes[kind];
+    size = g.size * (1.0 - 0.12 * f32(select(roleOf(p.info), gh.role, dead)));
+    // what has just happened to it (only cells drawn in detail keep a record)
+    let close = detailLOD(view.pointSize * size);
+    a.sleep = select(0.0, 1.0, cause == CYST);
+    a.fed = p.energy / max(g.reproE, 0.01);
+    if (dead) {
+      size *= packRoom(gh.pack, size);
+      a.fed = gh.fed;
+    } else {
+      size *= packFit(p, ii, size);
+      if (close > 0.0) { a = animOf(p, g); }
+      size *= animScale(a);
+    }
+    // a dormant cell (a cyst) sleeps: no swimming or pulse, dimmed and greyed (curling up and waking by degrees)
+    let sleep = a.sleep;
+    swim = min(g.swim, 1.0) * (1.0 - sleep);
+    let e = clamp(a.fed, 0.0, 1.4);
+    var b = mix(0.35 + 0.65 * e, 0.62, sleep);
     let thermo = thermoOf(g);
     let warmth = waterTempAt(p.pos) + ${f(DEFAULT_K.selfWarm)} * thermo;
     let th = ${shownThermal('g', 'warmth')};
     // a torpid cell's pulse stops and it dims, cold blue
-    if (!th.torpid && !sleeping) { b *= 1.0 + g.pulse * 0.6 * sin(view.time * (0.8 + g.pulse * 4.0) + f32(p.id % 1024u) * 0.37); }
-    if (!sleeping) { b *= 1.0 + 2.5 * max(0.0, 1.0 - p.age * 2.5); }
+    if (!th.torpid) { b *= 1.0 + (1.0 - sleep) * (1.0 - select(0.0, gh.t, dead)) * g.pulse * 0.6 * sin(view.time * (0.8 + g.pulse * 4.0) + f32(p.id % 1024u) * 0.37); }
+    // a birth (or a waking) flashes, seen from afar; up close a newborn is seen budding and growing
+    // instead, with a soft glow, and a cell waking from a cyst it was seen in does not flash
+    if (!dead && cause == 9u) { b *= 1.0 + max(0.0, 1.0 - p.age * 2.5) * mix(2.5, select(0.0, 0.35, a.born), select(0.0, close, a.seen)); }
+    // life sparked from silt glows as it grows
+    if (!dead && cause == 8u) { b *= 1.0 + 2.0 * max(0.0, 1.0 - p.age / BIRTH_T); }
     col = unpack4x8unorm(p.col).rgb;
-    if (sleeping) { col = mix(col, vec3f(0.62, 0.66, 0.74) * dot(col, vec3f(0.3, 0.5, 0.2)) * 1.6, 0.5); }
+    col = mix(col, vec3f(0.62, 0.66, 0.74) * dot(col, vec3f(0.3, 0.5, 0.2)) * 1.6, 0.5 * sleep);
     if (th.torpid) { col = mix(col, vec3f(0.55, 0.7, 0.95) * dot(col, vec3f(0.33)), 0.5); b *= 0.6; }
     // heat stress bleaches a cell toward pale bone; a heat-maker glows faintly warm
     col = mix(col, vec3f(1.0, 0.96, 0.9) * max(0.45, dot(col, vec3f(0.3, 0.5, 0.2))), 0.6 * smoothstep(0.3, 1.0, th.x));
     col = mix(col, col * vec3f(1.25, 0.92, 0.72) + vec3f(0.12, 0.04, 0.0), 0.7 * thermo);
     col *= b * view.pointGain;
+    if (dead) {
+      let t = gh.t;
+      if (gh.how == 1u) {
+        // burst: it swells and flares, then spills
+        let flare = sin(3.14159265 * min(t / 0.3, 1.0));
+        size *= 1.0 + 0.15 * flare;
+        col *= 1.0 + 0.9 * flare;
+      } else {
+        // withered (or grazed away): the colour drains, it darkens and shrinks
+        let l = dot(col, vec3f(0.3, 0.5, 0.2));
+        col = mix(col, vec3f(l) * vec3f(1.05, 0.92, 0.75), 0.65 * smoothstep(0.0, 0.8, t)) * mix(1.0, 0.55, t);
+        size *= mix(1.0, select(0.85, 0.6, gh.how == 2u), smoothstep(0.0, 1.0, t));
+      }
+      live = col;
+      let w = ghostFade(gh.how, t);
+      col = mix(col, huskCol(p), w);
+      size = mix(size, 0.62, w);
+    }
+  } else if (k == SILT && (cause == 3u || cause == 4u) && p.age < EATEN_T) {
+    // a husk just eaten or rotted away shrinks into the grain of silt it leaves
+    let t = p.age / EATEN_T;
+    shape = 12u;
+    size = mix(0.62, 0.32, t);
+    col = mix(huskCol(p), vec3f(0.30, 0.34, 0.46) * view.matterGain, t);
   } else if (k == SILT) {
     size = 0.4;
     col = vec3f(0.30, 0.34, 0.46) * view.matterGain;
@@ -3410,11 +3658,12 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     shape = 14u;
     col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 1.1;
   } else {
-    // a husk; dung (state 11) is a smaller pellet
-    size = select(0.62, 0.42, (p.info & 15u) == 11u);
+    // a husk; dung (state 11) is a smaller pellet. One that appears with no cell seen dying there
+    // (dung, or a death out of sight a moment ago) swells into view.
+    let fresh = smoothstep(0.0, 0.3, p.age);
+    size = select(0.62, 0.42, cause == 11u) * mix(0.4, 1.0, fresh);
     shape = 12u;
-    let h = unpack4x8unorm(p.col).rgb;
-    col = mix(h * 0.6, vec3f(0.42, 0.28, 0.16), 0.55) * (0.25 + p.energy * 0.6) * view.matterGain * 1.4;
+    col = huskCol(p) * fresh;
   }
   // highlights enlarge only sprites too small to show detail; resolved cells keep their true size,
   // so resolving anatomy preserves the organism's world size
@@ -3422,18 +3671,20 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
   if (!focusPass(p)) {
     let l = dot(col, vec3f(0.3, 0.5, 0.2));
     col = mix(vec3f(l), col, 0.1) * view.mute;
+    live = mix(vec3f(dot(live, vec3f(0.3, 0.5, 0.2))), live, 0.1) * view.mute;
     size *= 0.7;
   } else if (view.focusOn == 1u) {
     col *= 1.6;
+    live *= 1.6;
     size *= 1.0 + 0.12 * grow;
   }
   if (view.memberN > 0u && k == view.memberKind && isMember(p.id)) {
     col = mix(col, vec3f(1.0, 0.97, 0.9) * max(1.0, dot(col, vec3f(0.33))), 0.35) * (1.25 + 0.2 * sin(view.time * 4.0));
     size *= 1.0 + 0.15 * grow;
   }
-  if (p.id == view.selId) { col = col * 1.5 + vec3f(0.5); size = mix(size, max(size, 1.2) * 1.5, grow); }
+  if (p.id == view.selId) { col = col * 1.5 + vec3f(0.5); live = live * 1.5 + vec3f(0.5); size = mix(size, max(size, 1.2) * 1.5, grow); }
   let px = select(max(view.pointSize * size, 0.9), max(view.ppu * 0.13, 0.9), k == STONE);
-  return Sprite(col, shape, px, swim);
+  return Sprite(col, shape, px, swim, kind, live, a, gh);
 }
 
 // Sprites of a pixel or so (the main view from afar) are added straight into the image, as their light
@@ -3513,7 +3764,14 @@ struct PO {
   // inflation that restores the area those planes cut off; pace through the water (0..1); bend
   @location(10) @interpolate(flat) jelly: vec3f,
   // how far it is drawn as a tile of tissue, filling out to the walls it shares with its kin (0..1)
-  @location(13) @interpolate(flat) tile: f32,
+  // and sim seconds since it last ate (its food vacuole drifts in from the front and is digested)
+  @location(13) @interpolate(flat) tile: vec2f,
+  // how wide the neck to each fused partner is (its blend, in units of the smaller radius: a bond's
+  // 0.12, wider while a newborn buds off); and the cell's fullness, eased
+  @location(14) @interpolate(flat) neck: vec4f,
+  // what is happening to it: how far it has curled up into a cyst; dying (0: alive, else 1 + how it
+  // died + how far along, as in ghostOf); a bite out of it (size, and angle from its heading)
+  @location(15) @interpolate(flat) fx: vec4f,
 };
 
 @vertex fn vsPoint(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) -> PO {
@@ -3524,14 +3782,20 @@ struct PO {
   let p = parts[ii];
   // stone is drawn as one field of boulders (vsStone), not grain by grain
   if (p.kind == STONE || p.kind == FRAMBOID) { o.pos = vec4f(2.0, 2.0, 0.0, 1.0); return o; }
-  let d = wrapd(p.pos - view.cam) * view.ppu;
+  // (a newborn is drawn budding from its mother's side)
+  let at = drawnPos(p);
+  let d = wrapd(at - view.cam) * view.ppu;
   // Avoid genome/partner reads for offscreen distant sprites.
   if (view.pointSize <= 6.0 && any(abs(d) > view.res * 0.5 + vec2f(60.0))) {
     o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
     return o;
   }
-  let k = p.kind;
   let sp = spriteOf(p, ii);
+  // the kind drawn: a dead cell's ghost is drawn as the cell it was
+  let k = sp.kind;
+  let alive = p.kind >= FIRST_LIFE;
+  let gh = sp.ghost;
+  let ghost = gh.kind != 0u;
   let col = sp.col;
   var shape = sp.shape;
   let swim = sp.swim;
@@ -3552,21 +3816,28 @@ struct PO {
   let fine = fineLOD(px);
   var extent = 1.35 + fine * swim * 0.65;
   var pace = 0.0;
-  if (k >= FIRST_LIFE) {
+  let an = sp.anim;
+  if (alive) {
     // radii per second through the water (vel excludes the flow, smoothed once contactGather keeps it);
-    // shells barely give
+    // shells barely give; a cyst holds still
     let st = swayOf(p);
     let radii = length(select(p.vel, unpack2x16float(st.vel), st.id == p.id)) * view.ppu / px;
     let give = 1.0 - 0.75 * min(genomes[k].calcify, 1.0);
-    pace = (1.0 - exp(-radii * 0.25)) * give;
-    if ((p.info & 15u) == 14u) { pace = -1.0; } else if (st.id == p.id) {
-      o.jelly.z = unpack2x16float(st.bend).x * give;
+    pace = (1.0 - exp(-radii * 0.25)) * give * (1.0 - an.sleep);
+    if (st.id == p.id) {
+      o.jelly.z = unpack2x16float(st.bend).x * give * (1.0 - an.sleep);
       // the squash's axis, its length the amount
       let q = unpack2x16float(st.squash) * give;
       let axis = 0.5 * atan2(q.y, q.x);
       o.squash = vec2f(cos(axis), sin(axis)) * length(q);
     }
-    extent *= (1.0 + 0.3 * max(pace, 0.0)) * (1.0 + 0.5 * abs(o.jelly.z)) * exp(length(o.squash));
+    extent *= (1.0 + 0.3 * pace) * (1.0 + 0.5 * abs(o.jelly.z)) * exp(length(o.squash));
+  }
+  if (ghost) {
+    // room for the husk it becomes, and for what a burst cell spills
+    extent = max(extent, 1.35 * max(view.pointSize * 0.62, 0.9) / px);
+    if (gh.how == 1u) { extent = max(extent, 2.4); }
+    o.fx.y = 1.0 + f32(gh.how) + min(gh.t, 0.999);
   }
   if (any(abs(d) > view.res * 0.5 + vec2f(px * extent))) {
     o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
@@ -3575,22 +3846,32 @@ struct PO {
   o.pos = toClip(d + corner * px * extent);
   o.uv = corner * extent;
   let seed = renderHash(p.id);
-  // cells face where they swim; matter keeps its own orientation (its motion is mostly Brownian)
+  // cells face where they swim (a ghost as it last did); matter keeps its own orientation (its motion
+  // is mostly Brownian)
   var dir = vec2f(cos(seed * TAU), sin(seed * TAU));
-  if (k >= FIRST_LIFE) { dir = bodyDirection(ii, p); }
+  if (alive) { dir = bodyDirection(ii, p); }
+  else if (ghost && dot(gh.face, gh.face) > 1e-6) { dir = normalize(gh.face); }
   o.geom = vec4f(px, extent, dir);
+  o.neck = vec4f(0.12, 0.12, 0.12, an.fed);
   if (k >= FIRST_LIFE) {
     let g = genomes[k];
-    shape = choosePlan(g, roleOf(p.info));
-    o.shape = shape;
+    shape = choosePlan(g, select(roleOf(p.info), gh.role, ghost));
+    // the plan, and in the bits above it the kind it is drawn as
+    o.shape = shape | (k << 8u);
     let species = vec2f(renderHash(g.serial ^ g.sig[0].y), renderHash(g.serial ^ g.sig[1].x ^ 917u));
     o.morph = species;
     o.jelly.y = pace;
     o.geom.y = bodyArea(shape, species);
+    // (a new species' shimmer, in place of sleep, which a newborn never is: negative)
+    o.fx.x = select(an.sleep, -an.novel, an.novel > 0.0);
+    if (an.novel > 0.0) { extent = max(extent, 2.4); }
+    o.tile.y = an.ate;
+    if (ghost) { o.neck.w = gh.fed; }
+    if (an.mark > 0.0) { o.fx.z = an.mark; o.fx.w = an.markAt - atan2(dir.y, dir.x); }
     // All partner storage reads and frame setup happen per vertex, never per pixel.
     var plans = 0x7fffu;
     var seeds = vec3f(0.0);
-    if (detailLOD(min(px, view.pointSize)) > 0.0) {
+    if (alive && detailLOD(min(px, view.pointSize)) > 0.0) {
       // Fuse with every body partner, either way round: the bonds this cell keeps, then those
       // other cells keep to it (gathered by INBOND_WGSL), up to three within reach.
       let it = intent[ii];
@@ -3606,7 +3887,7 @@ struct PO {
         let partner = parts[index];
         if (partner.kind != k) { continue; }
         let ratio = cellRadius(partner, g, index) / px;
-        let offset = wrapd(partner.pos - p.pos) * view.ppu / px;
+        let offset = wrapd(drawnPos(partner) - at) * view.ppu / px;
         let reach = 1.65 * (1.0 + ratio) + 0.12 * min(1.0, ratio);
         if (dot(offset, offset) > reach * reach) { continue; }
         let dir = bodyDirection(index, partner);
@@ -3616,6 +3897,40 @@ struct PO {
         seeds[used] = renderHash(partner.id);
         if (used == 0u) { picked.x = index; } else if (used == 1u) { picked.y = index; }
         used++;
+      }
+      var buds = vec3u(NONE);
+      var budN = 0u;
+      // A newborn and the cell it buds from are joined by a wide neck that pinches off as it grows:
+      // the newborn to the nearest of its kind it touches, as contactGather placed it, and a cell to any
+      // newborn of its kind touching it.
+      for (var c = 0u; c < 6u && used < 3u && px >= 6.0; c++) {
+        let index = touch[ii * 6u + c];
+        if (index == NONE) { break; }
+        if (index >= arrayLength(&parts) || index == picked.x || index == picked.y) { continue; }
+        let q = parts[index];
+        if (q.kind < FIRST_LIFE) { continue; }
+        let qg = genomes[q.kind];
+        if (!budKin(g, qg)) { continue; }
+        let qa = animOf(q, qg);
+        // two newborns side by side are sisters, not mother and daughter
+        if (an.born == qa.born) { continue; }
+        let t = select(q.age, p.age, an.born) / BIRTH_T;
+        let neck = 0.55 * (1.0 - smoothstep(0.2, 0.95, t));
+        if (neck > 0.01) {
+          let ratio = cellRadius(q, qg, index) / px;
+          let offset = wrapd(drawnPos(q) - at) * view.ppu / px;
+          let dir = bodyDirection(index, q);
+          plans = (plans & ~(31u << (5u * used))) | (choosePlan(qg, roleOf(q.info)) << (5u * used));
+          o.bondOffset[used] = pack2x16float(offset);
+          o.bondFrame[used] = pack2x16float(vec2f(ratio, atan2(dir.y, dir.x)));
+          seeds[used] = renderHash(q.id);
+          o.neck[used] = 0.12 + neck;
+          extent = max(extent, 1.2 + neck);
+          used++;
+          buds[budN] = index;
+          budN++;
+        }
+        if (an.born) { break; }
       }
       // Pressed cells meet along their radical axis, as in a foam: each is cut flat there, the cut
       // softened in fsPoint, with a hair of gap for the two membranes. The outline reaches about
@@ -3629,9 +3944,10 @@ struct PO {
         if (index == NONE) { break; }
         if (index >= arrayLength(&parts)) { continue; }
         let other = parts[index];
-        if (other.kind < FIRST_LIFE) { continue; }
+        // (a bud and its mother share the neck between them, not a wall)
+        if (other.kind < FIRST_LIFE || any(buds == vec3u(index))) { continue; }
         let ratio = cellRadius(other, genomes[other.kind], index) / px;
-        let offset = wrapd(other.pos - p.pos) * view.ppu / px;
+        let offset = wrapd(drawnPos(other) - at) * view.ppu / px;
         let dist = length(offset);
         if (dist > 1.25 * (1.0 + ratio) || dist < 1e-3) { continue; }
         let r2 = 0.64 * ratio * ratio;
@@ -3646,7 +3962,7 @@ struct PO {
       }
       // a tight species' cells among their kin fill out to their shared walls: tissue
       if (g.adhesion > ${f(DEFAULT_K.adhMin)}) {
-        o.tile = clamp((g.adhesion - view.tightFrom) / ${f(DEFAULT_K.tightSpan)}, 0.0, 1.0) * min(1.0, kinTouch);
+        o.tile.x = clamp((g.adhesion - view.tightFrom) / ${f(DEFAULT_K.tightSpan)}, 0.0, 1.0) * min(1.0, kinTouch);
       }
       o.jelly.x = 1.0 / sqrt(1.0 - 0.7 * min(lost, 0.45));
       extent *= o.jelly.x;
@@ -3654,6 +3970,8 @@ struct PO {
       o.uv = corner * extent;
     }
     o.bondSeeds = vec2u(pack2x16unorm(seeds.xy), (plans & 0xffffu) | (u32(seeds.z * 65535.0 + 0.5) << 16u));
+    // a ghost resolves as the cell it was, then fades into its husk itself (pointColor)
+    if (ghost) { o.col = sp.live; }
   }
   return o;
 }
@@ -3664,22 +3982,109 @@ struct PO {
 struct PointOut { @location(0) all: vec4f, @location(1) live: vec4f };
 @fragment fn fsPointLive(i: PO) -> PointOut {
   let c = pointColor(i);
-  return PointOut(c, select(vec4f(0.0), c, parts[i.index].kind >= FIRST_LIFE));
+  return PointOut(c, c * liveShare(i));
+}
+// How much of a point is drawn with the living (over the matter): a ghost passes to the matter's layer
+// as it becomes its husk.
+fn liveShare(i: PO) -> f32 {
+  if (i.geom.x <= 2.8) { return select(0.0, 1.0, parts[i.index].kind >= FIRST_LIFE); }
+  if ((i.shape >> 8u) < FIRST_LIFE) { return 0.0; }
+  if (i.fx.y <= 0.0) { return 1.0; }
+  return 1.0 - ghostFade(u32(i.fx.y - 1.0), fract(i.fx.y));
 }
 fn pointColor(i: PO) -> vec4f {
-  let far = spriteFalloff(i.uv, i.shape);
+  let far = spriteFalloff(i.uv, i.shape & 255u);
   if (i.geom.x <= 2.8) { return vec4f(i.col * far, far * SPRITE_COVER); }
-  let lod = detailLOD(min(i.geom.x, view.pointSize));
   let p = parts[i.index];
-  let seed = renderHash(p.id);
-  let v = localPoint(i.uv, i.geom.zw);
+  let kind = i.shape >> 8u;
+  if (kind < FIRST_LIFE) { return matterColor(i, p, far); }
+  if (i.fx.y <= 0.0) {
+    var c = cellColor(i, p, kind, far);
+    // a new species: rings of colour spread out from it, fading
+    if (i.fx.x < 0.0) {
+      let novel = -i.fx.x;
+      let t = 1.0 - novel;
+      let lod = detailLOD(min(i.geom.x, view.pointSize));
+      let r = length(i.uv);
+      let aa = max(0.003, 0.75 / i.geom.x);
+      let at = 0.9 + 1.1 * (1.0 - (1.0 - t) * (1.0 - t));
+      let ring = exp(-pow((r - at) / (0.05 + 0.05 * t + aa), 2.0));
+      let hue = rainbow(atan2(i.uv.y, i.uv.x) / TAU + view.time * 0.3);
+      let glow = ring * novel * lod * 0.3;
+      c += vec4f(hue * glow * view.pointGain, glow * 0.5);
+    }
+    return c;
+  }
+  return ghostColor(i, p, kind, far);
+}
+fn rainbow(x: f32) -> vec3f { return 0.5 + 0.5 * cos(TAU * (x + vec3f(0.0, 0.333, 0.667))); }
+// A dead cell's last moments: the cell it was (cellColor, withering or flaring), what a burst one
+// spills, and its husk fading in, in the husk's own frame, as it is drawn once the ghost is gone.
+fn ghostColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
+  let how = u32(i.fx.y - 1.0);
+  let t = fract(i.fx.y);
+  let lod = detailLOD(min(i.geom.x, view.pointSize));
   let aa = max(0.003, 0.75 / i.geom.x);
+  var c = cellColor(i, p, kind, far);
+  if (how == 1u) {
+    // burst: it tears open and comes apart from the rim inward, in shreds, as its contents spill out in
+    // soft droplets that drift away and dissolve
+    let v = localPoint(i.uv, i.geom.zw);
+    let torn = smoothstep(0.06, 0.6, t);
+    let shred = 0.55 * (cellGrain(v * 4.0, p.id + 5u) * 0.5 + 0.5) + 0.45 * (1.0 - min(length(v), 1.0));
+    c *= 1.0 - smoothstep(shred - 0.12, shred + 0.12, torn * 1.15);
+    let spread = 1.0 - pow(1.0 - min(t / 0.9, 1.0), 2.5);
+    var drop = 0.0;
+    for (var j = 0u; j < 16u; j++) {
+      let h = renderHash(p.id * 16u + j + 5u);
+      let h2 = renderHash(p.id * 16u + j + 977u);
+      let ang = (f32(j) + h) / 16.0 * TAU;
+      let at = vec2f(cos(ang), sin(ang)) * (0.3 + (0.25 + 0.9 * h2) * spread);
+      let r = (0.04 + 0.07 * h) * smoothstep(0.04, 0.2, t) * (1.0 - smoothstep(0.35, 1.0, t)) + aa;
+      let x = length(v - at) / r;
+      drop += max(0.0, 1.0 - x * x);
+    }
+    drop = min(drop, 1.0);
+    c += vec4f(i.col * drop * 0.6 * lod, drop * lod * 0.6);
+  }
+  let w = ghostFade(how, t);
+  if (w <= 0.0) { return c; }
+  let hpx = max(view.pointSize * 0.62, 0.9);
+  let huv = i.uv * i.geom.x / hpx;
+  let hseed = renderHash(p.id);
+  let hdir = vec2f(cos(hseed * TAU), sin(hseed * TAU));
+  let hcol = huskCol(p);
+  var husk = vec4f(0.0);
+  if (hpx <= 2.8) {
+    let hfar = spriteFalloff(huv, 12u);
+    husk = vec4f(hcol * hfar, hfar * SPRITE_COVER);
+  } else {
+    let hlod = detailLOD(min(hpx, view.pointSize));
+    let hf = huskLight(localPoint(huv, hdir), hseed, max(0.003, 0.75 / hpx), hdir);
+    husk = vec4f(hcol * mix(spriteFalloff(huv, 12u), max(0.0, hf.x), hlod), hlod * hf.y);
+  }
+  return mix(c, husk, w);
+}
+// A living cell (or a dead one's ghost, fx.y > 0) resolved: its outline fused with its partners and
+// pressed flat against its neighbours, its interior and its hairs and tail.
+fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
+  let lod = detailLOD(min(i.geom.x, view.pointSize));
+  let seed = renderHash(p.id);
+  let aa = max(0.003, 0.75 / i.geom.x);
+  let myPlan = i.shape & 255u;
   var f = 0.0;
   // coverage of a resolved cell or grain, written to alpha: the composite divides overlapping light
   // by it, so stacked cells and matter average into one translucent layer instead of summing
   var cover = 0.0;
-  if (p.kind >= FIRST_LIFE) {
-    let g = genomes[p.kind];
+  {
+    let g = genomes[kind];
+    // curled up into a cyst (0..1); dead and withering (0..1); a bite out of it
+    let sleep = max(i.fx.x, 0.0);
+    // a new species shimmers
+    let novel = max(-i.fx.x, 0.0);
+    let dying = select(0.0, fract(i.fx.y), i.fx.y > 0.0);
+    let burst = i.fx.y >= 2.0 && i.fx.y < 3.0;
+    let still = max(sleep, min(1.0, dying * 4.0));
     let s = i.morph;
     let inside = interiorLOD(i.geom.x);
     let fine = fineLOD(i.geom.x);
@@ -3690,8 +4095,10 @@ fn pointColor(i: PO) -> vec4f {
     // switch out of duplicated inline code. Partner frames die before the interior.
     // A swollen cell's own frame is shrunk to match; partners keep the shared one.
     let swell = i.jelly.x;
-    let pace = i.jelly.y;          // < 0: a dormant cell, which holds still
+    let pace = i.jelly.y;
     let bend = i.jelly.z;
+    // the widest neck to a partner: the outline reaches no farther past the membrane
+    let neckMax = max(0.12, max(i.neck.x, max(i.neck.y, i.neck.z)));
     var own = i.uv / swell;
     let squashed = length(i.squash);
     if (squashed > 0.0) {
@@ -3702,7 +4109,7 @@ fn pointColor(i: PO) -> vec4f {
     // A tissue cell fills out toward the walls it shares with its kin, and only there: facing open water
     // it keeps its own shape. The fill grows as a neighbour presses closer, so nothing pops.
     var fill = 0.0;
-    if (i.tile > 0.0) {
+    if (i.tile.x > 0.0) {
       let toward = own / max(length(own), 1e-4);
       for (var c = 0u; c < 6u; c++) {
         let foot = unpack2x16float(select(i.contact2[c % 3u], i.contact[c % 3u], c < 3u));
@@ -3718,23 +4125,23 @@ fn pointColor(i: PO) -> vec4f {
       var dir = i.geom.zw;
       var radius = i.geom.x;
       var cellSeed = seed;
-      var plan = i.shape;
+      var plan = myPlan;
       var ratio = 1.0;
       var flags = 0u;
       if (j > 0u) {
         // a tile of tissue meets its partners at a shared wall, not a neck
-        if (i.tile > 0.5) { break; }
+        if (i.tile.x > 0.5) { break; }
         // The partner draws itself beyond our narrow union band. Owned pixels
         // need no further outlines or interior work.
         // Deep inside, the union only darkens sd further where rim, wall and relief are all spent;
         // below 6 px (vsPoint gathers no partners) the fused neck would be under a pixel wide.
-        if (lod <= 0.0 || i.geom.x < 6.0 || membraneSD > 0.12 + aa || membraneSD < -0.45) { break; }
+        if (lod <= 0.0 || i.geom.x < 6.0 || membraneSD > neckMax + aa || membraneSD < -0.45) { break; }
         flags = (i.bondSeeds.y >> (5u * (j - 1u))) & 31u;
         if (flags == 31u) { break; }
         let offset = unpack2x16float(i.bondOffset[j - 1u]);
         let shape = unpack2x16float(i.bondFrame[j - 1u]);
         ratio = shape.x;
-        let blend = 0.12 * min(1.0, ratio);
+        let blend = i.neck[j - 1u] * min(1.0, ratio);
         if (membraneSD > blend + aa) { continue; }
         let delta = i.uv - offset;
         let bound = ratio * 1.65 + blend + 0.75 / i.geom.x;
@@ -3746,24 +4153,34 @@ fn pointColor(i: PO) -> vec4f {
         plan = flags;
       }
       let outline = cellOutline(uv, dir, radius, cellSeed, plan,
-        vec4f(g.swim, g.pulse, g.calcify, g.dFlesh), s, pace, bend);
+        vec4f(g.swim, g.pulse, g.calcify, g.dFlesh), s, pace, bend, vec2f(still, sleep));
       if (j == 0u) {
-        membraneSD = mix(outline.sd, length(own) - 0.97, i.tile * fill) * swell;
+        var osd = outline.sd;
+        let a = atan2(outline.q.y, outline.q.x);
+        // withering, the membrane loses its turgor and wrinkles
+        if (dying > 0.0 && !burst) { osd += smoothstep(0.0, 0.7, dying) * (0.04 * sin(a * 9.0 + seed * 31.0) + 0.025 * sin(a * 19.0 + seed * 7.0)); }
+        // a bite out of its side, healing
+        if (i.fx.z > 0.0) {
+          let at = vec2f(cos(i.fx.w), sin(i.fx.w)) * 0.95;
+          let r = 0.28 * i.fx.z;
+          osd = -smoothUnion(-osd, length(outline.q - at) - r, 0.08);
+        }
+        membraneSD = mix(osd, length(own) - 0.97, i.tile.x * fill) * swell;
         sd = membraneSD;
         q = outline.q;
       } else {
         let partnerSD = outline.sd * ratio;
-        let blend = 0.12 * min(1.0, ratio);
+        let blend = i.neck[j - 1u] * min(1.0, ratio);
         sd = smoothUnion(sd, partnerSD, blend);
       }
     }
     let resolved = smoothstep(0.7, 1.5, i.geom.x * 0.018) * fine;
-    let swimmer = resolved > 0.0 && g.swim > 0.05 && pace >= 0.0;
+    let swimmer = resolved > 0.0 && g.swim > 0.05 && still < 0.99;
     let hairRange = membraneSD < 0.035 + 4.0 * (0.018 + aa);
     // Well clear of the membrane (contacts only cut the body back, and the partners were skipped out
     // here) and of any hairs or tail, the pixel is empty: leave before the rest. The margin keeps
     // whole 2x2 quads together wherever the outline's derivatives are used.
-    if (membraneSD > max(0.12, 0.035 + 4.0 * (0.018 + aa)) + 3.0 * aa) {
+    if (membraneSD > max(neckMax, 0.035 + 4.0 * (0.018 + aa)) + 3.0 * aa) {
       var tail = false;
       if (swimmer) {
         var motion = localPoint(i.uv / swell, i.geom.zw) * vec2f(1.0 / bodyAspect(s, g.swim, max(pace, 0.0)), bodyAspect(s, g.swim, max(pace, 0.0)));
@@ -3824,10 +4241,10 @@ fn pointColor(i: PO) -> vec4f {
       let a = atan2(q.y, q.x);
       let r = length(q);
       let age = clamp(p.age / max(g.lifespan, 1.0), 0.0, 1.0);
-      let wallWidth = 0.025 + 0.008 * sin(a * 3.0 + seed * 13.0);
-      let rim = exp(-pow((sd + 0.025) / (wallWidth + aa), 2.0));
-      let innerRim = exp(-pow((sd + 0.10) / (0.07 + aa), 2.0));
-      var detail = (0.44 + g.calcify * 0.12) * rim - 0.21 * innerRim;
+      let wallWidth = 0.025 + 0.008 * sin(a * 3.0 + seed * 13.0) + 0.03 * sleep;
+      let rim = exp(-pow((sd + 0.025 + 0.02 * sleep) / (wallWidth + aa), 2.0));
+      let innerRim = exp(-pow((sd + 0.10 + 0.04 * sleep) / (0.07 + aa), 2.0));
+      var detail = (0.44 + g.calcify * 0.12 + 0.2 * sleep) * rim - 0.21 * innerRim;
       // cytoplasm is never an even fill: it is mottled, thicker in places (the difference of two
       // fields, so a cell's light is unchanged on average), and stained here and there by what the
       // cell has eaten or stored
@@ -3836,11 +4253,11 @@ fn pointColor(i: PO) -> vec4f {
       // relief: the dome near the membrane, then each organelle's own bulge or hollow
       // kept to the membrane's own band, clear of the outline's medial axis in narrow arms
       var relief = 0.45 * dot(outward, TO_LIGHT) * (1.0 - smoothstep(0.0, 0.13, -sd));
-      let division = smoothstep(0.55, 1.0, p.energy / max(g.reproE, 0.01));
+      let division = smoothstep(0.55, 1.0, i.neck.w);
       var centre = vec2f((s.x - 0.5) * 0.22, (seed - 0.5) * 0.26);
-      if (i.shape == 8u) { centre = vec2f(-0.43, -0.06); }
-      if (i.shape == 3u) { centre = vec2f(-0.35, 0.02); }
-      if (i.shape == 9u) { centre = vec2f(0.2, 0.0); }
+      if (myPlan == 8u) { centre = vec2f(-0.43, -0.06); }
+      if (myPlan == 3u) { centre = vec2f(-0.35, 0.02); }
+      if (myPlan == 9u) { centre = vec2f(0.2, 0.0); }
       let nq = q - centre;
       let nr = length(vec2f(abs(nq.x) - division * 0.17, nq.y + 0.03 * sin(nq.x * 15.0 + seed))
         / vec2f(0.17 + division * 0.04, 0.21 - division * 0.055));
@@ -3849,22 +4266,22 @@ fn pointColor(i: PO) -> vec4f {
         + 0.22 * exp(-pow((nr - 1.0) / (0.16 + aa), 2.0));
       let plates = sin(q.x * (8.0 + s.x * 6.0) + sin(q.y * 5.0 + s.y * 3.0));
       detail += g.calcify * 0.12 * plates * smoothstep(0.2, 0.6, r);
-      if (i.shape == 4u) {
+      if (myPlan == 4u) {
         let girdle = q.y + 0.10 * sin(q.x * 5.0 + s.y);
         detail -= 0.30 * exp(-pow(girdle / (0.035 + aa), 2.0));
       }
-      if (i.shape == 5u) {
+      if (myPlan == 5u) {
         detail += 0.13 * sin(q.y * 29.0 + q.x * 10.0 + 1.2 * sin(q.x * 4.0)) * fine;
         detail += 0.40 * exp(-dot(q - vec2f(0.5, -0.12), q - vec2f(0.5, -0.12)) * 350.0);
       }
-      if (i.shape == 6u || i.shape == 9u) {
+      if (myPlan == 6u || myPlan == 9u) {
         detail -= 0.25 * exp(-pow((q.y - 0.18 - 0.12 * sin(q.x * 4.0)) / (0.045 + aa), 2.0));
       }
-      if (i.shape == 7u) {
+      if (myPlan == 7u) {
         let whorl = sin(atan2(q.y, q.x) * 2.0 - r * 18.0 + s.y);
         detail -= 0.24 * exp(-whorl * whorl * 35.0) * smoothstep(0.1, 0.3, r);
       }
-      if (i.shape == 11u) {
+      if (myPlan == 11u) {
         let lattice = sin(q.x * 26.0 + q.y * 12.0) * sin(q.y * 23.0 - q.x * 8.0);
         detail += 0.23 * lattice * fine;
       }
@@ -3877,23 +4294,23 @@ fn pointColor(i: PO) -> vec4f {
           let dir = unpack2x16snorm(organDir[p.kind * ORGANS + j]);
           // Irregular scatter is clipped by the tissue for holes, horns and chain cells.
           var organCentre = dir * (0.22 + h * 0.51);
-          if (i.shape == 3u) {
+          if (myPlan == 3u) {
             organCentre = vec2f(select(-0.39, 0.39, j % 2u == 0u), 0.0)
               + dir * (0.12 + h * 0.18);
-          } else if (i.shape == 5u || i.shape == 6u || i.shape == 11u) {
+          } else if (myPlan == 5u || myPlan == 6u || myPlan == 11u) {
             let x = (h - 0.5) * 1.45;
             organCentre = vec2f(x, dir.y * (0.30 - abs(x) * 0.22));
-          } else if (i.shape == 7u) {
+          } else if (myPlan == 7u) {
             let t = f32(j % 6u) / 5.0;
             let chamberAngle = t * 5.3 + s.y * 0.7;
             organCentre = vec2f(cos(chamberAngle), sin(chamberAngle)) * (0.12 + t * 0.36)
               + dir * h * 0.14;
-          } else if (i.shape == 8u) {
+          } else if (myPlan == 8u) {
             organCentre = vec2f(0.16 + s.x * 0.30, 0.09)
               + dir * (0.51 + h * 0.07);
-          } else if (i.shape == 9u) {
+          } else if (myPlan == 9u) {
             organCentre = vec2f(0.2, 0.0) + dir * h * 0.39;
-          } else if (i.shape == 10u) {
+          } else if (myPlan == 10u) {
             let x = (f32(j % 4u) - 1.5) * 0.40;
             organCentre = vec2f(x, 0.14 * sin(x * 5.0 + s.y * 5.0))
               + dir * h * 0.13;
@@ -3917,9 +4334,21 @@ fn pointColor(i: PO) -> vec4f {
               - 0.10 * (1.0 - smoothstep(0.03, 0.06 + aa, vr)));
         }
       }
-      tissue += inside * (detail + relief);
+      // a dying cell's insides lose their structure
+      // a meal just taken: a food vacuole, pinched in at the front, drifting inward as it is digested
+      if (i.tile.y < DIGEST_T) {
+        let u = i.tile.y / DIGEST_T;
+        let vc = q - mix(vec2f(0.5, 0.0), vec2f(-0.05, 0.12 * (seed - 0.5)), 1.0 - (1.0 - u) * (1.0 - u));
+        let vr = length(vc) / (0.15 * (1.0 - 0.45 * u));
+        let show = smoothstep(0.0, 0.08, i.tile.y) * (1.0 - smoothstep(0.55, 1.0, u));
+        detail += show * (0.3 * exp(-pow((vr - 1.0) / 0.25, 2.0)) - 0.15 * (1.0 - smoothstep(0.6, 1.0, vr)));
+        relief -= show * 0.25 * exp(-pow((vr - 0.9) / 0.3, 2.0)) * dot(vc / max(length(vc), 1e-4), lightQ);
+        hue = mix(hue, vec3f(1.3, 1.05, 0.7), show * (1.0 - smoothstep(0.5, 1.0, vr)) * 0.6);
+      }
+      if (novel > 0.0) { hue *= 1.0 + novel * 0.6 * (rainbow(a / TAU * 2.0 - r * 1.5 + view.time * 0.5) - 0.5) * (0.5 + rim); }
+      tissue += inside * (detail + relief) * (1.0 - 0.6 * dying);
     }
-    f = body * tissue * spriteMean(i.shape) / i.geom.y;
+    f = body * tissue * spriteMean(myPlan) / i.geom.y;
     if (appendages && body < 1.0) {
       let a = atan2(q.y, q.x);
       var motion = localPoint(i.uv / swell, i.geom.zw) * vec2f(1.0 / aspect, aspect);
@@ -3932,37 +4361,55 @@ fn pointColor(i: PO) -> vec4f {
       let tailY = 0.13 * sin(motion.x * 7.0 + beat) * smoothstep(0.65, 1.6, -motion.x);
       let tail = (1.0 - smoothstep(0.009, 0.018 + aa, abs(motion.y - tailY)))
         * smoothstep(0.60, 0.9, -motion.x) * (1.0 - smoothstep(1.55, 1.9, -motion.x));
-      f += min(g.swim, 1.0) * resolved * (1.0 - body) * (0.05 * hairs + 0.08 * tail);
+      f += min(g.swim, 1.0) * resolved * (1.0 - body) * (0.05 * hairs + 0.08 * tail) * (1.0 - still);
     }
     cover = body;
     return vec4f(i.col * hue * mix(far, max(0.0, f), lod), lod * cover);
-  } else {
+  }
+}
+// A husk: a folded membrane, with missing arcs and torn ends, that retains the dead particle's colour.
+// The torn rim is a tube of membrane, crisp and lit across its section from the upper left; inside it
+// the collapsed skin is a faint film whose wrinkles catch the light. Its light and coverage at v (its
+// own frame, facing dir).
+fn huskLight(v: vec2f, seed: f32, aa: f32, dir: vec2f) -> vec2f {
+  let a = atan2(v.y, v.x) + seed * TAU;
+  let fold = length(v * vec2f(0.86, 1.55));
+  let wall = 0.64 + 0.10 * sin(a * 3.0 + seed * 21.0) + 0.06 * sin(a * 7.0);
+  let breaks = smoothstep(-0.85, -0.55, sin(a * 3.0 + seed * 37.0));
+  let lightV = localPoint(TO_LIGHT, dir);
+  let w = 0.075;
+  let t = (fold - wall) / w;
+  let tube = 1.0 - smoothstep(0.8, 1.0 + aa / w, abs(t));
+  let outward = normalize(v * vec2f(0.74, 2.4) + vec2f(1e-5));
+  let n = normalize(vec3f(outward * t, sqrt(max(1.0 - t * t, 0.05))));
+  let toLight = normalize(vec3f(lightV, 0.7));
+  let membrane = tube * breaks * (0.3 + 0.9 * max(dot(n, toLight), 0.0));
+  let wave = v.x * 9.0 + seed * 5.0 + 1.5 * sin(v.y * 6.0 + seed * 3.0);
+  let slope = cos(wave) * normalize(vec2f(1.0, cos(v.y * 6.0 + seed * 3.0)));
+  let film = (1.0 - smoothstep(wall - 0.14, wall - 0.04, fold)) * (0.14 + 0.16 * dot(slope, lightV));
+  return vec2f(max(membrane + film, 0.0) * spriteMean(12u) / 0.30,
+    clamp(tube * breaks + 0.6 * (1.0 - smoothstep(wall - 0.14, wall - 0.04, fold)), 0.0, 1.0));
+}
+// A grain of matter resolved: a silt chip, a husk (or a husk just eaten, shrinking into silt: plan 12),
+// a grain of stone.
+fn matterColor(i: PO, p: Particle, far: f32) -> vec4f {
+  let lod = detailLOD(min(i.geom.x, view.pointSize));
+  let seed = renderHash(p.id);
+  let v = localPoint(i.uv, i.geom.zw);
+  let aa = max(0.003, 0.75 / i.geom.x);
+  var f = 0.0;
+  var cover = 0.0;
+  {
     let a = atan2(v.y, v.x) + seed * TAU;
     var r = length(v);
     let sides = 4.0 + floor(seed * 4.0);
     // a broken grain: silt chips' edges wander, so no two are regular polygons
     let edge = polygonRadius(a, sides, 0.08) * select(1.0, 1.0 + 0.12 * sin(a * 2.0 + seed * 9.0) + 0.06 * sin(a * 5.0 + seed * 17.0), p.kind == SILT);
     let body = 1.0 - smoothstep(edge - aa, edge + aa, r);
-    if (p.kind == HUSK) {
-      // A folded membrane, with missing arcs and torn ends, retains the dead particle's colour.
-      let fold = length(v * vec2f(0.86, 1.55));
-      let wall = 0.64 + 0.10 * sin(a * 3.0 + seed * 21.0) + 0.06 * sin(a * 7.0);
-      let breaks = smoothstep(-0.85, -0.55, sin(a * 3.0 + seed * 37.0));
-      // The torn rim is a tube of membrane, crisp and lit across its section from the upper left;
-      // inside it the collapsed skin is a faint film whose wrinkles catch the light.
-      let lightV = localPoint(TO_LIGHT, i.geom.zw);
-      let w = 0.075;
-      let t = (fold - wall) / w;
-      let tube = 1.0 - smoothstep(0.8, 1.0 + aa / w, abs(t));
-      let outward = normalize(v * vec2f(0.74, 2.4) + vec2f(1e-5));
-      let n = normalize(vec3f(outward * t, sqrt(max(1.0 - t * t, 0.05))));
-      let toLight = normalize(vec3f(lightV, 0.7));
-      let membrane = tube * breaks * (0.3 + 0.9 * max(dot(n, toLight), 0.0));
-      let wave = v.x * 9.0 + seed * 5.0 + 1.5 * sin(v.y * 6.0 + seed * 3.0);
-      let slope = cos(wave) * normalize(vec2f(1.0, cos(v.y * 6.0 + seed * 3.0)));
-      let film = (1.0 - smoothstep(wall - 0.14, wall - 0.04, fold)) * (0.14 + 0.16 * dot(slope, lightV));
-      f = max(membrane + film, 0.0) * spriteMean(i.shape) / 0.30;
-      cover = clamp(tube * breaks + 0.6 * (1.0 - smoothstep(wall - 0.14, wall - 0.04, fold)), 0.0, 1.0);
+    if ((i.shape & 255u) == 12u) {
+      let husk = huskLight(v, seed, aa, i.geom.zw);
+      f = husk.x;
+      cover = husk.y;
     } else {
       // one lit face and a faint grain, so grains read as solid chips rather than sectors
       var facets = 0.70 + 0.16 * (v.x - v.y) + 0.06 * sin(v.x * 17.0 + v.y * 11.0 + seed * 23.0);
@@ -4059,8 +4506,10 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   let p = parts[index];
   let q = parts[n];
   if (p.kind < FIRST_LIFE || q.kind < FIRST_LIFE) { return o; }
-  let base = wrapd(p.pos - view.cam);
-  let dq = wrapd(q.pos - p.pos);
+  // (a newborn buds from its mother's side, vsPoint)
+  let at = drawnPos(p);
+  let base = wrapd(at - view.cam);
+  let dq = wrapd(drawnPos(q) - at);
   let len = length(dq);
   if (len < 0.00001) { return o; }
   let margin = view.res * 0.5 + vec2f((len + 0.1) * view.ppu);
