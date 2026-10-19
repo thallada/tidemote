@@ -323,7 +323,7 @@ class Engine {
     b.touch = d.createBuffer({ size: n * 24, usage: U.STORAGE, mappedAtCreation: true });
     new Uint32Array(b.touch.getMappedRange()).fill(0xffffffff);
     b.touch.unmap();
-    b.sway = d.createBuffer({ size: n * 28, usage: U.STORAGE });
+    b.sway = d.createBuffer({ size: n * 32, usage: U.STORAGE });
     b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
     b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
@@ -379,24 +379,25 @@ class Engine {
       [[0, view], [1, b.parts], [2, b.genomes], [5, b.focus], [7, b.stoneList], [11, b.thermal]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
     this.bgStone = stoneBG(b.view); this.bgStoneL = stoneBG(b.viewL); this.bgStoneS = stoneBG(b.viewS);
     const inbondRes = [null, b.intent, b.parts, b.bondsIn, b.inbondU, b.cellStart, b.touch, b.genomes, b.sway];
-    const inbondUse = [[2, 3, 4, 5], [1, 2, 3, 4, 5], [2, 4, 5, 6, 7, 8]];
+    const inbondUse = [[2, 3, 4, 5], [1, 2, 3, 4, 5], [1, 2, 4, 5, 6, 7, 8]];
     this.inbondBG = this.cpInbond.map((pipe, k) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0),
       entries: inbondUse[k].map((binding) => ({ binding, resource: { buffer: inbondRes[binding] } })) }));
-    const lineBG = (pipe, view, k) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
+    // (vsBridge sizes cells as vsPoint does, so it reads sway; vsLine doesn't)
+    const lineBG = (pipe, view, k, sway = false) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
       { binding: 3, resource: { buffer: b.intent } }, { binding: 4, resource: { buffer: b.livingList } }, { binding: 5, resource: { buffer: b.focus } },
-      { binding: 11, resource: { buffer: b.thermal } }, { binding: 12, resource: { buffer: this.cull[k].segs } }] });
+      ...(sway ? [{ binding: 9, resource: { buffer: b.sway } }] : []), { binding: 11, resource: { buffer: b.thermal } }, { binding: 12, resource: { buffer: this.cull[k].segs } }] });
     this.bgPoint = pointBG(b.view, 0);
     this.bgLine = lineBG(this.pLine, b.view, 0);
     // the main view's scene pass (two targets: its pipelines' own layouts)
-    this.mainBG = { point: pointBG(b.view, 0, this.main.point), line: lineBG(this.main.line, b.view, 0), bridge: lineBG(this.main.bridge, b.view, 0) };
+    this.mainBG = { point: pointBG(b.view, 0, this.main.point), line: lineBG(this.main.line, b.view, 0), bridge: lineBG(this.main.bridge, b.view, 0, true) };
     this.bgPointL = pointBG(b.viewL, 1);
     this.bgLineL = lineBG(this.pLine, b.viewL, 1);
     this.bgPointS = pointBG(b.viewS, 2);
     this.bgLineS = lineBG(this.pLine, b.viewS, 2);
-    this.bgBridge = lineBG(this.pBridge, b.view, 0);
-    this.bgBridgeL = lineBG(this.pBridge, b.viewL, 1);
-    this.bgBridgeS = lineBG(this.pBridge, b.viewS, 2);
+    this.bgBridge = lineBG(this.pBridge, b.view, 0, true);
+    this.bgBridgeL = lineBG(this.pBridge, b.viewL, 1, true);
+    this.bgBridgeS = lineBG(this.pBridge, b.viewS, 2, true);
     const verr = await d.popErrorScope();
     const oerr = await d.popErrorScope();
     if (verr || oerr) {
@@ -477,7 +478,7 @@ class Engine {
   _splatBGs() {
     const d = this.device, b = this.b;
     if (!b.splat || !b.parts) return;
-    this.splatBG = d.createBindGroup({ layout: this.cpSplat.getBindGroupLayout(0), entries: [[0, b.view], [1, b.parts], [2, b.genomes], [3, b.intent], [5, b.focus], [11, b.thermal], [13, b.splat], [15, b.quads]]
+    this.splatBG = d.createBindGroup({ layout: this.cpSplat.getBindGroupLayout(0), entries: [[0, b.view], [1, b.parts], [2, b.genomes], [3, b.intent], [5, b.focus], [9, b.sway], [11, b.thermal], [13, b.splat], [15, b.quads]]
       .map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
     this.splatDrawBG = d.createBindGroup({ layout: this.main.splat.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: b.view } }, { binding: 14, resource: { buffer: b.splat } }] });
   }

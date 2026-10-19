@@ -375,6 +375,22 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   return Thermal(select(peak * exp(-y * y), 0.0, torpid), smoothstep(0.3, 0.9, abs(x)), x, torpid);
 }
 `;
+// The water's temperature where a cell is, for passes that only show it (rendering, listening):
+// bilinear between grid-cell centres, so a cell jostling across a grid line doesn't flick between
+// its cells' temperatures (and its heat colour with them).
+const shownWater = (world) => /* wgsl */ `
+fn waterTempAt(p: vec2f) -> f32 {
+  let g = vec2i(${world});
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  let x0 = ((i.x % g.x) + g.x) % g.x; let x1 = (x0 + 1) % g.x;
+  let y0 = ((i.y % g.y) + g.y) % g.y; let y1 = (y0 + 1) % g.y;
+  let row0 = MAX_CELLS + u32(y0 * g.x); let row1 = MAX_CELLS + u32(y1 * g.x);
+  return mix(mix(heatField[row0 + u32(x0)], heatField[row0 + u32(x1)], t.x),
+             mix(heatField[row1 + u32(x0)], heatField[row1 + u32(x1)], t.x), t.y);
+}
+`;
 // The same, with the default tunables, for passes that only show it (rendering, listening).
 const shownThermal = (g, t) => `thermalState(${g}, ${t}, ${f(DEFAULT_K.specBonus)}, ${f(DEFAULT_K.torporAt)}, ${f(DEFAULT_K.thermalFlat)}, ${f(DEFAULT_K.thermalWarm)})`;
 
@@ -2500,7 +2516,7 @@ struct ListenU {
 @group(0) @binding(3) var<storage, read_write> lout: array<atomic<u32>>;
 // the water's temperature per grid cell (heatMain): torpid cells are still and silent
 @group(0) @binding(4) var<storage, read> heatField: array<f32>;
-// layout: [0,8) in-view events per type, [8,16) out of view, 16 living in view, 17 their summed
+${shownWater('lu.world')}// layout: [0,8) in-view events per type, [8,16) out of view, 16 living in view, 17 their summed
 // speed (x1000), 18 living everywhere, 19 their summed speed (x1000), 20 particles in view,
 // 21 records written, then records of 4 words from word 32.
 var<workgroup> wc: array<atomic<u32>, 21>;
@@ -2534,8 +2550,7 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     var t = NONE;
     if (life && inView) {
       let g = genomes[p.kind];
-      let c = vec2u(clamp(p.pos, vec2f(0.0), lu.world - 1.0));
-      let warmth = heatField[MAX_CELLS + c.y * u32(lu.world.x) + c.x] + ${f(DEFAULT_K.selfWarm)} * thermoOf(g);
+      let warmth = waterTempAt(p.pos) + ${f(DEFAULT_K.selfWarm)} * thermoOf(g);
       if (!${shownThermal('g', 'warmth')}.torpid) { t = 8u; }
     }
     if (p.age < lu.window) {
@@ -2749,8 +2764,10 @@ const TOUCH_N = 6u;
 // knock through a quicker spring, so it jiggles and settles. Kept by ID (unique serials), so it needs
 // nothing from the sort; another ID in the slot starts afresh. Half-float pairs: velocity smoothed
 // over about 0.08 s, so jitter neither turns nor knocks it; bend
-// and its rate; the squash (a nematic: amount times (cos, sin) of twice its axis) and its rate.
-struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32, face: u32 };
+// and its rate; the squash (a nematic: amount times (cos, sin) of twice its axis) and its rate; and
+// how closely packed it is (lifeMain's intent.y, sampled afresh each tick: in a crowd its estimate
+// jumps tick to tick), smoothed over about 0.3 s, so a cell in a mat keeps a steady size (packFit).
+struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32, face: u32, pack: f32 };
 @group(0) @binding(8) var<storage, read_write> sway: array<Sway>;
 
 fn drawnSize(p: Particle) -> f32 { return genomes[p.kind].size * (1.0 - 0.12 * f32(roleOf(p.info))); }
@@ -2917,7 +2934,12 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     var vel = p.vel;
     var face = vel / max(length(vel), 1e-6);
     if (dot(vel, vel) < 1e-12) { let a = renderHash(p.id) * TAU; face = vec2f(cos(a), sin(a)); }
+    // (on a birth tick y holds the child's energy instead)
+    let it = intent[i];
+    let birth = (it.x & 3u) == 2u;
+    var pack = select(bitcast<f32>(it.y), 0.0, birth);
     if (was.id == p.id && dt > 0.0 && dt < 0.1) {
+      pack = select(mix(was.pack, pack, 1.0 - exp(-dt / 0.3)), was.pack, birth);
       let prev = unpack2x16float(was.vel);
       vel = mix(prev, p.vel, 1.0 - exp(-dt / 0.08));
       bend = unpack2x16float(was.bend);
@@ -2954,7 +2976,7 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
       if (amount > 0.3) { squash *= 0.3 / amount; }
     }
     sway[slot] = Sway(p.id, pack2x16float(vel), pack2x16float(bend), now,
-      pack2x16float(squash), pack2x16float(rate), pack2x16float(face));
+      pack2x16float(squash), pack2x16float(rate), pack2x16float(face), pack);
   }
 }
 
@@ -2999,12 +3021,12 @@ struct View {
 // The living cells each cell presses against (INBOND_WGSL contactGather).
 @group(0) @binding(8) var<storage, read> touch: array<u32>;
 // Each cell's bend along its path and squash from knocks (INBOND_WGSL contactGather), by ID.
-struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32, face: u32 };
+struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32, face: u32, pack: f32 };
 @group(0) @binding(9) var<storage, read> sway: array<Sway>;
 @group(0) @binding(10) var<storage, read> organDir: array<u32>;
 // The water's temperature per grid cell (heatMain), for how heat shows on a cell.
 @group(0) @binding(11) var<storage, read> heatField: array<f32>;
-@group(0) @binding(12) var<storage, read> segs: array<vec2u>;
+${shownWater('view.world')}@group(0) @binding(12) var<storage, read> segs: array<vec2u>;
 // the splatted sprites' light and coverage per pixel (r, g, b, SPRITE_COVER a), in 1/SPLAT_FIX units
 @group(0) @binding(13) var<storage, read_write> splatW: array<atomic<u32>>;
 @group(0) @binding(14) var<storage, read> splatR: array<u32>;
@@ -3063,8 +3085,7 @@ fn focusPass(p: Particle) -> bool {
   if (view.stateMode == 2u) { return e > 0.85; }
   if (view.stateMode >= 4u) {
     // heat-stressed (4) or torpid (5), at the water's warmth where the cell is
-    let c = vec2u(clamp(p.pos, vec2f(0.0), view.world - 1.0));
-    let warmth = heatField[MAX_CELLS + c.y * u32(view.world.x) + c.x] + ${f(DEFAULT_K.selfWarm)} * thermoOf(g);
+    let warmth = waterTempAt(p.pos) + ${f(DEFAULT_K.selfWarm)} * thermoOf(g);
     let th = ${shownThermal('g', 'warmth')};
     return select(th.x > 0.3, th.torpid, view.stateMode == 5u);
   }
@@ -3303,19 +3324,23 @@ fn bodyDirection(ii: u32, p: Particle) -> vec2f {
 // Match vsPoint's living-cell radius, including focus and unresolved highlights.
 // A resolved cell is drawn no larger than the room its living neighbours leave it, so a dense body
 // reads as packed tissue rather than a stack of overlapping cells. The sim records a kernel density
-// of living neighbours within LINK_R (sum of (1 - r/L)^2, i.e. pi L^2 rho / 6); a hexagonal packing
-// of that density has spacing L * sqrt(0.6046 / pack). Distant sprites keep their size.
-fn packFit(index: u32, size: f32) -> f32 {
+// of living neighbours within LINK_R (sum of (1 - r/L)^2, i.e. pi L^2 rho / 6), smoothed by contactGather
+// (Sway.pack); a hexagonal packing of that density has spacing L * sqrt(0.6046 / pack). Distant sprites
+// keep their size.
+fn packFit(p: Particle, index: u32, size: f32) -> f32 {
+  let lod = detailLOD(view.pointSize * size);
+  if (lod <= 0.0) { return 1.0; }
   let it = intent[index];
-  if ((it.x & 3u) == 2u) { return 1.0; }
-  let pack = bitcast<f32>(it.y);
+  let st = swayOf(p);
+  if (st.id != p.id && (it.x & 3u) == 2u) { return 1.0; }
+  let pack = select(bitcast<f32>(it.y), st.pack, st.id == p.id);
   if (!(pack > 0.01)) { return 1.0; }
   let room = 0.75 * view.linkR * sqrt(0.6046 / pack);
-  return mix(1.0, min(1.0, room / (0.085 * size)), detailLOD(view.pointSize * size));
+  return mix(1.0, min(1.0, room / (0.085 * size)), lod);
 }
 fn cellRadius(p: Particle, g: Genome, index: u32) -> f32 {
   var size = g.size * (1.0 - 0.12 * f32(roleOf(p.info)));
-  size *= packFit(index, size);
+  size *= packFit(p, index, size);
   let grow = 1.0 - detailLOD(view.pointSize * size);
   if (!focusPass(p)) { size *= 0.7; }
   else if (view.focusOn == 1u) { size *= 1.0 + 0.12 * grow; }
@@ -3359,15 +3384,14 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     let g = genomes[k];
     let role = roleOf(p.info);
     size = g.size * (1.0 - 0.12 * f32(role));
-    size *= packFit(ii, size);
+    size *= packFit(p, ii, size);
     // a dormant cell (a cyst, state 14) sleeps: no swimming, pulse or birth flash, dimmed and greyed
     let sleeping = (p.info & 15u) == 14u;
     swim = select(min(g.swim, 1.0), 0.0, sleeping);
     let e = clamp(p.energy / g.reproE, 0.0, 1.4);
     var b = select(0.35 + 0.65 * e, 0.62, sleeping);
-    let c = vec2u(clamp(p.pos, vec2f(0.0), view.world - 1.0));
     let thermo = thermoOf(g);
-    let warmth = heatField[MAX_CELLS + c.y * u32(view.world.x) + c.x] + ${f(DEFAULT_K.selfWarm)} * thermo;
+    let warmth = waterTempAt(p.pos) + ${f(DEFAULT_K.selfWarm)} * thermo;
     let th = ${shownThermal('g', 'warmth')};
     // a torpid cell's pulse stops and it dims, cold blue
     if (!th.torpid && !sleeping) { b *= 1.0 + g.pulse * 0.6 * sin(view.time * (0.8 + g.pulse * 4.0) + f32(p.id % 1024u) * 0.37); }
