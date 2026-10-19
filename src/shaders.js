@@ -101,6 +101,8 @@ export const DEFAULT_K = {
   grow: 1,
   growStiff: 2,     // how firmly a tree holds its angles (bendOn), relative to its bonds' pull
   growTip: 3,       // seconds a plant's tip waits before budding again (it is always its youngest cell: mature would stall it)
+  snap: 0,          // rate (per second) at which each of a tree's cells lets go of its mother
+  treeCost: 0,      // upkeep of a tree's cell (holding its angles), like adhesion's
   growTipA: 10,     // the same for an animal colony that grows from its tips (beat.w): slower, so they stay a minority
   growFeed: 1,      // with bodyShare, rate (per second) at which a tree's grown cells pass their surplus on to their daughters
   // swimming trees: a thin body slips along its length more easily than sideways (resistive force theory),
@@ -475,7 +477,10 @@ function cellWGSL(K, w) {
       d2 = length(dn2);
     }
   }
-  let keep1 = n1 != NONE; let keep2 = n2 != NONE;${K.grow && K.tissue > 0 ? `
+${K.grow && K.tissue > 0 && K.snap > 0 ? `  // a tree snaps: each cell lets go of its mother now and then (currents, grazers, hormogonia), so the
+  // longer a filament the sooner it breaks, and its pieces grow on
+  if (n1 != NONE && bonding && growOf(g).tree && f32(pcg(p.id ^ pcg(sim.frame * 2246822519u + sim.seed))) / 4294967296.0 < ${f(K.snap)} * sim.dt) { n1 = NONE; }
+` : ''}  let keep1 = n1 != NONE; let keep2 = n2 != NONE;${K.grow && K.tissue > 0 ? `
   // a tree (K.grow) grows from its tips at the angles of its plan, bonded mother to daughter only
   let gr = growOf(g);
   let tree = bonding && gr.tree;` : ''}${K.tissue > 0 ? `
@@ -1095,7 +1100,7 @@ fn addEnergy(guild: u32, slot: u32, e: f32) {
 fn deriveMetab(g: Genome) -> f32 {
   return (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
         + ${f(K.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K.swimCost)} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion + ${f(K.calcCost)} * g.calcify
-        + ${f(K.beat ? K.beatCost : 0)} * g.beat.x * g.beat.y * select(0.0, 1.0, g.dev.x >= 0x80000000u && g.adhesion > ${f(K.adhMin)})) * ${f(K.metab)};
+        + (${f(K.treeCost)} + ${f(K.beat ? K.beatCost : 0)} * g.beat.x * g.beat.y) * select(0.0, 1.0, g.dev.x >= 0x80000000u && g.adhesion > ${f(K.adhMin)})) * ${f(K.metab)};
 }
 
 fn finalize(g: ptr<function, Genome>) {

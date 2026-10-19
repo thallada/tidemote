@@ -101,7 +101,7 @@ export const ARCHETYPE_TYPES = Object.keys(ARCHETYPES);
 // from (unorm, as packed: tree, branch angle, branching interval, curl, pattern, depth; growOf in shaders.js):
 // reefs branch like corals and coralline algae (forking or alternate, a few orders deep), filaments like
 // Cladophora (alternate or one-sided side branches); animals' plans are drawn at random.
-const TREES = { reef: 0.6, filament: 0.85, crawler: 0.35, hunter: 0.3, scavenger: 0.4 };
+const TREES = { reef: 0.3, filament: 0.5, crawler: 0.35, hunter: 0.3, scavenger: 0.4 };
 const PLANS = {
   reef: [null, [0.15, 0.36], [0.3, 0.7], [0.35, 0.65], [0.55, 0.8], [0.5, 1]],
   filament: [null, [0.11, 0.33], [0.35, 0.85], [0.3, 0.7], [0, 0.4], [0.25, 0.75]],
@@ -188,7 +188,7 @@ export function finalizeGenome(g, K = DEFAULT_K) {
   g.dGlint /= s; g.dHusk /= s; g.dFlesh /= s;
   g.metab = (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
     + (K.anchorCost ?? 0) * (1 - g.advect) + 0.004 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 0.006 * g.align + 0.004 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0)
-    + (K.beat ? K.beatCost ?? 0 : 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g) ? 1 : 0)) * K.metab;
+    + ((K.treeCost ?? 0) + (K.beat ? K.beatCost ?? 0 : 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0)) * (growPlan(g) ? 1 : 0)) * K.metab;
   g.col = packUnorm(...roleColor(g, 0));
   return g;
 }
