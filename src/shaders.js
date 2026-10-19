@@ -858,6 +858,9 @@ function cellWGSL(K, w) {
 
 // dp4a: the WGSL language feature packed_4x8_integer_dot_product is available
 export function simWGSL(K, { dp4a = false } = {}) {
+  // reef stone's neighbourhood: a disc of the square's area (side 2 regionR + 1), in cells, and its reach
+  const REGION_DISC = (2 * (K.regionR | 0) + 1) / Math.sqrt(Math.PI);
+  const REGION_REACH = Math.ceil(REGION_DISC + 0.5);
   return COMMON + /* wgsl */ `
 // Coarse steps (sim.ticks > 1) run lifeMain and mindMain as pipelines of their own (lifeMainCoarse):
 // a 1/60 s step's leaves out everything only a coarse step needs, which saves it registers.
@@ -901,7 +904,8 @@ const LIVE_BIT = 0x80000000u;
 @group(0) @binding(12) var<storage, read_write> livingList: array<u32>;
 // 0 living count, 1..3 life dispatch, 4..7 line draw, 8..11 stone draw (for rendering).
 @group(0) @binding(13) var<storage, read_write> frameCtr: array<atomic<u32>, 12>;
-// Grains of reef stone in each grid cell (low 16 bits) and of bedrock (high 16), counted while binning.
+// Grains of reef stone in each grid cell (low 16 bits, in REEF_FIX parts, shared with the cells around
+// each grain) and of bedrock (high 16), counted while binning.
 @group(0) @binding(14) var<storage, read_write> stoneGrid: array<atomic<u32>>;
 // Every grain of stone, gathered while matter moves, so rendering draws stone without scanning all.
 @group(0) @binding(16) var<storage, read_write> stoneList: array<u32>;
@@ -961,6 +965,18 @@ fn heatCell(x: i32, y: i32) -> f32 {
   let gw = i32(sim.grid.x);
   let gh = i32(sim.grid.y);
   return bitcast<f32>(atomicLoad(&thermal[MAX_CELLS + u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw)]));
+}
+// Grid cell (x, y), wrapping.
+fn wrapCell(x: i32, y: i32) -> u32 {
+  let gw = i32(sim.grid.x);
+  let gh = i32(sim.grid.y);
+  return u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw);
+}
+// Grains of reef stone in grid cell (x, y): each grain is shared among the four cells around it, in
+// REEF_FIX parts (so up to 1023 grains fit the low 16 bits of stoneGrid).
+const REEF_FIX = 64.0;
+fn reefCell(x: i32, y: i32) -> f32 {
+  return f32(atomicLoad(&stoneGrid[wrapCell(x, y)]) & 0xffffu) / REEF_FIX;
 }
 // The water's temperature at p, bilinear between cell centres, and its gradient (degrees per cell).
 fn heatSample(p: vec2f) -> vec3f {
@@ -1333,7 +1349,24 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
     let alive = p.kind >= FIRST_LIFE;
     let r = atomicAdd(&countsA[select(cell, MAX_CELLS + cell, alive)], 1u);
     aux[i] = vec2u(cell, select(r, r | LIVE_BIT, alive));
-    if (p.kind == STONE) { atomicAdd(&stoneGrid[cell], select(0x10000u, 1u, (p.info & 15u) != 0u)); }
+    if (p.kind == STONE) {
+      if ((p.info & 15u) != 0u) {
+        // a grain of reef counts in the four cells around it, by distance (REEF_FIX parts in all), so
+        // a reef counts the same wherever it sits across the grid
+        let u = p.pos - 0.5;
+        let i0 = vec2i(floor(u));
+        let t = u - floor(u);
+        let w00 = u32(round(REEF_FIX * (1.0 - t.x) * (1.0 - t.y)));
+        let w10 = u32(round(REEF_FIX * t.x * (1.0 - t.y)));
+        let w01 = u32(round(REEF_FIX * (1.0 - t.x) * t.y));
+        atomicAdd(&stoneGrid[wrapCell(i0.x, i0.y)], w00);
+        atomicAdd(&stoneGrid[wrapCell(i0.x + 1, i0.y)], w10);
+        atomicAdd(&stoneGrid[wrapCell(i0.x, i0.y + 1)], w01);
+        atomicAdd(&stoneGrid[wrapCell(i0.x + 1, i0.y + 1)], u32(REEF_FIX) - w00 - w10 - w01);
+      } else {
+        atomicAdd(&stoneGrid[cell], 0x10000u);
+      }
+    }
     // husks per grid cell: where they pile up and rot, framboids form (matterMain)
     if (p.kind == HUSK && HEAT_ON) { atomicAdd(&thermal[2u * MAX_CELLS + cell], 1u); }
     if (p.kind == HUSK && (p.info & LITTER) != 0u) { atomicAdd(&ledger[META_DEATH + 60u], 1u); }
@@ -1507,24 +1540,32 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       // a framboid oxidises: it warms its water while it lasts (every eighth frame, eight frames' worth)
       if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, ${f(K.framboidHeat)} * sim.dt * 8.0); }
       // and oxidises faster the warmer its water, so a crowded, hot cluster burns itself out
-      wear = pow(2.0, (heatCell(i32(p.pos.x), i32(p.pos.y)) - TREF) / 10.0);
+      wear = pow(2.0, (heatSample(p.pos).x - TREF) / 10.0);
     } else if ((p.info & 15u) != 0u) {
-      let c = vec2i(clamp(floor(p.pos), vec2f(0.0), vec2f(sim.grid) - 1.0));
-      let gw = i32(sim.grid.x);
-      let gh = i32(sim.grid.y);
-      let here = f32(atomicLoad(&stoneGrid[u32(c.y * gw + c.x)]) & 0xffffu);
+      // both read the grid smoothly around the grain itself (bilinear between cell centres, and a round
+      // neighbourhood weighted by distance), not by the grid cell it sits in: counted cell by cell, a reef
+      // lasted only when it fit inside one cell, and the square neighbourhood spaced reefs on a square
+      // lattice along the grid's axes
+      let u = p.pos - 0.5;
+      let i0 = vec2i(floor(u));
+      let t = u - floor(u);
+      let here = mix(mix(reefCell(i0.x, i0.y), reefCell(i0.x + 1, i0.y), t.x),
+        mix(reefCell(i0.x, i0.y + 1), reefCell(i0.x + 1, i0.y + 1), t.x), t.y);
       var region = 0.0;
+      var area = 0.0;
       if (${f(K.regionWear)} > 0.0) {
-        for (var dy = -${K.regionR | 0}; dy <= ${K.regionR | 0}; dy++) {
-          for (var dx = -${K.regionR | 0}; dx <= ${K.regionR | 0}; dx++) {
-            let x = (c.x + dx + gw) % gw;
-            let y = (c.y + dy + gh) % gh;
-            region += f32(atomicLoad(&stoneGrid[u32(y * gw + x)]) & 0xffffu);
+        // a disc as large as the square of side 2 regionR + 1 it replaces, its rim a cell wide
+        let rr = ${f(REGION_DISC)};
+        let c = vec2i(floor(p.pos));
+        for (var dy = -${REGION_REACH}; dy <= ${REGION_REACH}; dy++) {
+          for (var dx = -${REGION_REACH}; dx <= ${REGION_REACH}; dx++) {
+            let w = 1.0 - smoothstep(rr - 0.5, rr + 0.5, length(vec2f(c + vec2i(dx, dy)) + 0.5 - p.pos));
+            if (w > 0.0) { region += w * reefCell(c.x + dx, c.y + dy); area += w; }
           }
         }
       }
       wear = mix(${f(K.wearLoose)}, ${f(K.wearPacked)}, smoothstep(2.0, ${f(K.packedAt)}, here))
-        * (1.0 + ${f(K.regionWear)} * max(0.0, region / ${f((2 * (K.regionR | 0) + 1) ** 2)} / ${f(K.regionCap)} - 1.0));
+        * (1.0 + ${f(K.regionWear)} * max(0.0, region / max(area, 1.0) / ${f(K.regionCap)} - 1.0));
     }
     p.energy -= sim.dt * wear;
     p.age += sim.dt;
@@ -1613,7 +1654,7 @@ fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
   let carried = heatSample(centre - flowAt(centre) * sim.dt).x;
   let lap = heatCell(x + 1, y) + heatCell(x - 1, y) + heatCell(x, y + 1) + heatCell(x, y - 1) - 4.0 * here;
   let stones = atomicLoad(&stoneGrid[c]);
-  let mass = 1.0 + ${f(K.stoneMass)} * f32((stones & 0xffffu) + (stones >> 16u));
+  let mass = 1.0 + ${f(K.stoneMass)} * (f32(stones & 0xffffu) / REEF_FIX + f32(stones >> 16u));
   let light = sim.ambient + (1.0 - sim.ambient) * tideAt(centre, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season;
   let q = f32(atomicExchange(&thermal[c], 0u)) / HEAT_FIX + ${f(K.sunHeat)} * light * sim.dt;
   let t = carried + ${f(K.heatD)} * lap * sim.dt + (q - ${f(K.heatLoss)} * (carried - sim.tbg) * sim.dt) / mass;
