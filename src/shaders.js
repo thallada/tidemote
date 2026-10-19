@@ -2713,8 +2713,9 @@ const ANIM_WGSL = /* wgsl */ `
 const BIRTH_T = 0.9;
 // a cell curling up into a cyst, or waking from one
 const SLEEP_T = 1.2;
-// a bite out of a producer heals; an eater swells with a meal
-const BITE_T = 1.1;
+// a bite's wound in a producer heals in this long (and bites again and again keep it open); an eater
+// swells with a meal
+const BITE_T = 1.4;
 // a meal's food vacuole drifts in from the front and is digested
 const DIGEST_T = 1.6;
 const GULP_T = 0.4;
@@ -2742,7 +2743,7 @@ const LOOK_NOVEL = 0x200000u;
 // Then what it was and what has just happened to it: look; the sim time it was last seen (simT, modulo
 // SIM_WRAP); its fullness (energy / reproE) eased, and its energy when last seen; a newborn's offset
 // toward its mother (world units); sim seconds since it was bitten and since it ate; how far it has
-// curled up into a cyst (0..1) and the bite's size.
+// curled up into a cyst (0..1) and how deep its wound is (0..1).
 struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32, face: u32, pack: f32,
   look: u32, simT: f32, fed: u32, shift: u32, ev: u32, sleep: u32 };
 // a newborn and its mother: one species, or a mutant daughter and the species she came from
@@ -3059,15 +3060,23 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
         // curling up or waking takes SLEEP_T
         sleep = clamp(sl.x + clamp(sleep - sl.x, -1.0, 1.0) * sdt / SLEEP_T, 0.0, 1.0);
         let dE = p.energy - f0.y;
-        // a producer that lost a bite's worth at once was bitten (not by giving birth): a notch out of
-        // its side toward whoever bit it, and a flinch
+        // its wound heals steadily
+        markSize = max(0.0, markSize - sdt / BITE_T);
+        // a producer that lost a bite's worth at once was bitten (not by giving birth): the wound in its
+        // side, toward whoever bit it, deepens at once. A grazer biting again and again keeps it open
+        // (and turns it toward where it now bites from) rather than starting it afresh, and only a fresh
+        // wound makes it flinch.
         if (dE < -${f(0.6 * DEFAULT_K.bite)} && g.photo > 0.4 && young == NONE) {
-          var toward = renderHash(p.id + u32(simNow * 60.0)) * TAU;
+          let was = f32(biteAt) / 256.0 * TAU;
+          var toward = select(renderHash(p.id) * TAU, was, markSize > 0.0);
           if (stranger != NONE) { let d = parts[stranger].pos - p.pos; toward = atan2(d.y, d.x); }
+          let bitten = clamp(-dE / ${f(DEFAULT_K.bite)}, 0.5, 1.0);
+          let v = vec2f(cos(was), sin(was)) * markSize + vec2f(cos(toward), sin(toward)) * 0.6 * bitten;
+          toward = atan2(v.y, v.x);
           biteAt = u32(fract(toward / TAU) * 256.0) & 255u;
-          markSize = clamp(-dE / ${f(DEFAULT_K.bite)}, 0.5, 1.0);
+          rate += 5.0 * (1.0 - markSize) * vec2f(cos(2.0 * toward), sin(2.0 * toward));
+          markSize = min(1.0, markSize + 0.6 * bitten);
           ev.x = 0.0;
-          rate += 5.0 * vec2f(cos(2.0 * toward), sin(2.0 * toward));
         }
         // an animal that gained a meal's worth at once: a gulp, lunging forward
         if (dE > max(0.2, 0.1 * g.reproE) && g.photo <= 0.4) {
@@ -3494,7 +3503,8 @@ fn animOf(p: Particle, g: Genome) -> Anim {
   a.fed = unpack2x16float(st.fed).x;
   let ev = unpack2x16float(st.ev);
   // a bite is taken at once and heals
-  a.mark = sl.y * smoothstep(0.0, 0.05, ev.x) * (1.0 - smoothstep(0.1, BITE_T, ev.x));
+  // a wound: deepened at once by each bite, healing steadily (contactGather)
+  a.mark = sl.y;
   a.markAt = f32((st.look >> 13u) & 255u) / 256.0 * TAU;
   a.gulp = select(0.0, sin(3.14159265 * ev.y / GULP_T), ev.y < GULP_T);
   a.ate = ev.y;

@@ -5,7 +5,7 @@ const [dir, out, filter = 'all', max = 6, step = 4, n = 10, size = 200, before =
 const times = JSON.parse(fs.readFileSync(path.join(dir, 'times.json')));
 const events = JSON.parse(fs.readFileSync(path.join(dir, 'events.json')));
 const W = 1200, H = 750;
-const pick = events.filter((e) => (filter === 'all' || (filter === 'kill' ? e.state === 'husk' && e.cause === 3 && !e.litter : filter === 'wither' ? e.state === 'husk' && e.was === 'live' && e.cause !== 3 : filter === 'dung' ? e.state === 'husk' && e.cause === 11 : filter === 'wake' ? e.state === 'live' && e.was === 'cyst' : filter === 'grazed' ? e.state === 'husk' && e.cause === 3 && e.litter && e.was === 'live' : e.state === filter))
+const pick = events.filter((e) => (!process.env.ID || e.id === +process.env.ID) && (filter === 'all' || (filter === 'kill' ? e.state === 'husk' && e.cause === 3 && !e.litter : filter === 'wither' ? e.state === 'husk' && e.was === 'live' && e.cause !== 3 : filter === 'dung' ? e.state === 'husk' && e.cause === 11 : filter === 'wake' ? e.state === 'live' && e.was === 'cyst' : filter === 'grazed' ? e.state === 'husk' && e.cause === 3 && e.litter && e.was === 'live' : e.state === filter))
   && e.t - before > times[0] && e.t + (+step * +n) / 60 < times.at(-1) && e.sx > size / 2 && e.sy > size / 2 && e.sx < W - size / 2 && e.sy < H - size / 2).slice(0, +max);
 if (!pick.length) { console.log('no events'); process.exit(); }
 const rows = [];
