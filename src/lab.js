@@ -21,7 +21,7 @@ export function createLab(api) {
     open: api.startOpen, tab: 'census',
     q: '', status: 'thriving', diet: 'all', mobility: 'all', body: 'all', temp: 'all', sort: 'pop',
     linAll: true, linSpan: 'all', linK: 30, linRoot: null, logType: 'all', logQ: '',
-    open_: { celltypes: false }, // census disclosures
+    open_: { diet: true }, // census disclosures (by data-disc key), the others folded
   };
   const panes = {};
   let lastUpdate = 0;
@@ -386,11 +386,11 @@ export function createLab(api) {
       const k = secs.map(([t, , r]) => t + r.map((x) => x.key).join()).join('|');
       if (k !== shape) {
         shape = k;
-        const bars = ([title, tip, rows]) => block(title, `<div class="bars">${rows.map((r) => `<button type="button" class="barrow" data-focus="${r.key}" aria-pressed="false"><span class="bl">${r.label}</span><span class="meter" style="color:${r.col}"><i></i></span><span class="bn"></span><span class="bp"></span></button>`).join('')}</div>`, { tip });
-        // the cell-type breakdowns matter less than what life eats and how it moves: folded away by default
-        const fold = secs.length - 2; // the two cell-type breakdowns, last
-        box.innerHTML = secs.slice(0, fold).map(bars).join('')
-          + disclosure('celltypes', 'Cell types', `<div class="stack">${secs.slice(fold).map(bars).join('')}</div>`, st.open_.celltypes)
+        // each breakdown folds to its heading, which keeps a bar of the shares (Diet starts open)
+        const bars = ([title, tip, rows]) => disclosure(title.toLowerCase(), tip ? `<span class="term" data-tip="${tip}">${title}</span>` : title,
+          `<div class="bars">${rows.map((r) => `<button type="button" class="barrow" data-focus="${r.key}" aria-pressed="false"><span class="bl">${r.label}</span><span class="meter" style="color:${r.col}"><i></i></span><span class="bn"></span><span class="bp"></span></button>`).join('')}</div>`,
+          !!st.open_[title.toLowerCase()], `<span class="sharebar" aria-hidden="true">${rows.map((r) => `<i style="background:${r.col}"></i>`).join('')}</span>`);
+        box.innerHTML = secs.map(bars).join('')
           + block('Condition', `<div class="segs even" role="group" aria-label="Condition">
             <button type="button" class="chip" data-focus="state:1" aria-pressed="false" data-hint="Under 35% of the energy needed to divide">Hungry</button>
             <button type="button" class="chip" data-focus="state:2" aria-pressed="false" data-hint="Over 85% of the energy needed to divide">Ready to divide</button>
@@ -403,7 +403,9 @@ export function createLab(api) {
       secs.forEach(([, , rows], si) => {
         const max = Math.max(1, ...rows.map((r) => r.n));
         const tot = Math.max(1, rows.reduce((a, r) => a + r.n, 0));
+        const share = els[si].closest('.disc').querySelector('.sharebar').children;
         rows.forEach((r, i) => {
+          share[i].style.flexGrow = String(r.n / tot);
           const b = els[si].children[i];
           b.setAttribute('aria-pressed', String(fk === r.key));
           b.querySelector('i').style.width = `${((r.n / max) * 100).toFixed(1)}%`;

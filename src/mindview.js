@@ -41,16 +41,19 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
   function html(g, kind) {
     const groups = groupsFor(g, K);
     let h = `<div class="blk mv" data-kind="${kind}">${subHead(`<i class="ico cell"></i>${term('mind', 'Last decision')}`, '<span class="mv-live"><i></i><b>replay</b></span>')}`;
+    // the compass first, so a short screen shows it without scrolling. The key sits in the free space
+    // above the compass, so the drives column keeps every row
+    h += `<div class="mv-pulls"><div class="mv-dial"><div class="mv-key"><span><i class="dash"></i><b>heading</b></span><span><i class="dia"></i><b>target</b></span></div>${compassHTML(groups)}</div><div class="mv-drives">`;
+    h += groups.map((gr) => `<div data-k="${gr.key}"><i style="background:${gr.css}"></i><span>${term(gr.tip, gr.label)}</span><span class="meter thin" style="color:${gr.css}"><i style="width:0"></i></span><b>0%</b></div>`).join('');
+    h += '</div></div>';
     h += '<div class="mv-read">';
     h += `<div><span>Mode</span><b><span class="mv-mode term" data-hint="" tabindex="0">—</span></b></div>`;
     h += `<div><span>Target</span><b class="mv-target"><span class="mv-sig"></span><span class="mv-tname">—</span><em class="mv-tdist"></em></b></div>`;
     // two lines, always: a long detail wraps rather than being cut, and never moves what follows
     h += `<div class="two"><span>Detail</span><b class="mv-detail">—</b></div>`;
     h += '</div>';
-    // the key sits in the free space above the compass, so the drives column keeps every row
-    h += `<div class="mv-pulls"><div class="mv-dial"><div class="mv-key"><span><i class="dash"></i><b>heading</b></span><span><i class="dia"></i><b>target</b></span></div>${compassHTML(groups)}</div><div class="mv-drives">`;
-    h += groups.map((gr) => `<div data-k="${gr.key}"><i style="background:${gr.css}"></i><span>${term(gr.tip, gr.label)}</span><span class="meter thin" style="color:${gr.css}"><i style="width:0"></i></span><b>0%</b></div>`).join('');
-    h += '</div></div>';
+    // the cell's vitals (energy, age, warmth), filled in by the specimen panel (while a phone's sheet only peeks they ride in its header)
+    h += '<div class="vitals mv-vitals"></div>';
     // conditions that shape what it does: a fixed set of lamps, lit or dark, never added or removed
     h += `<div class="mv-lamps">${['hungry', 'full', 'threat', 'low', 'lean', 'crowd', 'shelter', ...(K.heat ? ['thermal'] : [])].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join('')}</div></div>`;
     h += `<div class="blk mv-nb">${subHead(`<i class="ico cell"></i>${term('mind-near', 'Neighbours')}`, 'within its reach')}`;

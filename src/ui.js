@@ -29,8 +29,9 @@ export const kv = (text, value, tip) => `<div class="kv"><span>${label(text, tip
 /** A labelled meter (v between lo and hi) and its value. */
 export const trait = (text, v, lo, hi, value, tip, cls = 'cyan thin') => `<div class="trait"><span>${label(text, tip)}</span>${meter((v - lo) / (hi - lo), cls)}<b>${value}</b></div>`;
 
-/** A block that opens from its heading (closed by default); key names it for data-disc. */
-export const disclosure = (key, text, html, open = false) => `<div class="blk disc" data-disc="${key}"><button type="button" class="sub-h disc-h" aria-expanded="${open}"><span>${text}</span><svg class="disc-i" aria-hidden="true"><use href="#i-chev"/></svg></button><div class="disc-b"${open ? '' : ' hidden'}>${html}</div></div>`;
+/** A block that opens from its heading (closed by default); key names it for data-disc. aside: shown
+ * in the heading beside the chevron (a summary that still reads while the block is closed). */
+export const disclosure = (key, text, html, open = false, aside = '') => `<div class="blk disc" data-disc="${key}"><button type="button" class="sub-h disc-h" aria-expanded="${open}"><span>${text}</span>${aside ? `<span class="sub-a">${aside}</span>` : ''}<svg class="disc-i" aria-hidden="true"><use href="#i-chev"/></svg></button><div class="disc-b"${open ? '' : ' hidden'}>${html}</div></div>`;
 
 /** Wire every disclosure inside root (once): a click on a heading opens or closes its block. */
 export function wireDisclosures(root, onToggle = () => {}) {

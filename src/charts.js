@@ -9,7 +9,7 @@ const BASE = 'rgba(130,205,214,0.22)';
 const AXIS = 'rgba(163,189,190,0.85)';
 const ERA = 'rgba(241,227,160,0.55)';
 const CURSOR = 'rgba(226,241,240,0.5)';
-const FONT = '500 10px Saira, system-ui, sans-serif';
+const FONT = '500 11px Saira, system-ui, sans-serif';
 const XLAB = 13; // the clock's strip below the plot
 
 export function fit(cv) {
@@ -132,7 +132,7 @@ function stack(hist) {
  * Living cells stacked by thriving species (in their colours), the rest of life as a pale band on
  * top. Pointing names a band's species (hit: { serial, pop, t }) and brings it forward.
  */
-export function drawLiving(cv, hist, reg, eras) {
+export function drawLiving(cv, hist, reg, eras, picked = null) {
   const f = fit(cv);
   if (!f) return;
   const { g, w, h } = f;
@@ -142,9 +142,10 @@ export function drawLiving(cv, hist, reg, eras) {
   const box = plotBox(g, w, h, labels);
   const y = (v) => box.b - (v / ax.top) * (box.b - box.t);
   grid(g, box, ax.ticks.map((v, k) => ({ y: y(v), label: labels[k] })));
-  const hot = cv._hot && cv._hot.serial;
+  // the band pointed at stands out, else the highlighted species'
+  const hot = (cv._hot && cv._hot.serial) ?? (picked != null && by.has(picked) ? picked : null);
   cv._ch = {
-    redraw: () => drawLiving(cv, hist, reg, eras),
+    redraw: () => drawLiving(cv, hist, reg, eras, picked),
     at(px, py) {
       if (hist.length < 2) return null;
       const i = histIndex(box, hist.length, px), v = ((box.b - py) / (box.b - box.t)) * ax.top;

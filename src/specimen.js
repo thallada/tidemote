@@ -21,8 +21,9 @@ export function createSpecimen(api) {
   const { eng, K } = api;
   const $ = (id) => document.getElementById(id);
   const root = $('spec'), body = $('spec-body'), tabsEl = $('spec-tabs'), acts = $('spec-acts'), vit = $('vitals');
-  const st = { active: '', mode: '', actKey: '', tabKey: '', lastVit: '', lastHead: '', at: 0, flow: new Map(), flowKey: '' };
+  const st = { active: '', mode: '', actKey: '', tabKey: '', lastVit: '', vitEl: null, lastHead: '', at: 0, flow: new Map(), flowKey: '' };
   const phone = () => matchMedia('(max-width: 720px)').matches;
+  const peek = () => phone() && !root.classList.contains('full');
 
   // ------------------------------------------------------------ sheet (phone)
   // Collapsed, the sheet shows the picked particle's name, actions and vitals; full, everything.
@@ -31,9 +32,11 @@ export function createSpecimen(api) {
   const more = $('spec-more');
   let drag = null;
   const isFull = () => root.classList.contains('full');
-  function setFull(on) {
+  function setFull(on, redraw = true) {
+    if (on === isFull()) return;
     root.classList.toggle('full', on);
     more.setAttribute('aria-expanded', String(on));
+    if (redraw) render(true); // the vitals move between the header and the scroll
   }
   more.addEventListener('click', () => setFull(true));
   root.addEventListener('pointerdown', (e) => {
@@ -545,8 +548,9 @@ export function createSpecimen(api) {
           if (K.heat && m) {
             v += warmthVital(m, g, `${Math.round(m.warmth)}°`);
           }
+          // in the header (a phone's peek) what it is doing leads; in the Behaviour section its mode and target say it
           const head = sel.mind && !sel.lost && (sel.mind.head || sel.mind);
-          if (!sel.lost) v = `<div class="vital now"><span>${term('mind', 'Now')}</span><b>${head ? withSp(head.text, head.target) : '—'}</b></div>` + v;
+          if (!sel.lost && peek()) v = `<div class="vital now"><span>${term('mind', 'Now')}</span><b>${head ? withSp(head.text, head.target) : '—'}</b></div>` + v;
         }
         // the instruments are built once per cell and update in place (mindview.js); the rest flows below
         if (g && !sel.lost) { fixedKey = `mv:${sel.id}:${p.kind}:${g.serial}`; fixedHtml = section('behaviour', 'Behaviour', mv.html(g, p.kind)); }
@@ -558,14 +562,14 @@ export function createSpecimen(api) {
         if (g) flow.push(['species', 'Species', speciesTab(g, null)], ['genome', 'Genome', genomeTab(g, p.role, p.role)]);
       }
     } else return false;
-    if (v !== st.lastVit) { vit.innerHTML = v; st.lastVit = v; }
     setTabs([...(fixedKey ? [['behaviour', 'Behaviour']] : []), ...flow.map(([id, l]) => [id, l])]);
     const flowKey = flow.map(([id]) => id).join(',');
     if (fixedKey !== st.fixedKey || flowKey !== st.flowKey || !body.firstElementChild) {
       // the same cell's panel rebuilt (the watch moved to another cell of its body) keeps its place
       const keep = body.scrollTop;
-      body.innerHTML = `<div class="spec-fixed">${fixedHtml}</div><div class="spec-flow">${flow.map(([id, l]) => section(id, l, '')).join('')}</div>`;
-      st.fixedKey = fixedKey; st.flowKey = flowKey; st.flow.clear(); songKey = '';
+      // the vitals lead the scroll (in the Behaviour section, under the compass, when there is one)
+      body.innerHTML = `<div class="spec-fixed">${fixedHtml}</div>${fixedHtml ? '' : '<div class="vitals spec-vit"></div>'}<div class="spec-flow">${flow.map(([id, l]) => section(id, l, '')).join('')}</div>`;
+      st.fixedKey = fixedKey; st.flowKey = flowKey; st.flow.clear(); songKey = ''; st.lastVit = '';
       if (fixedKey) { mv.bind(body.firstElementChild); mindUpdate(); }
       restoreTop = keep;
     }
@@ -580,6 +584,10 @@ export function createSpecimen(api) {
       for (const cv of kept) { const n = sx.querySelector(`canvas[data-chart="${cv.dataset.chart}"]`); if (n) n.replaceWith(cv); }
       st.flow.set(id, html); songKey = '';
     }
+    // the vitals: in the header while a phone's sheet only peeks, else at the top of the scroll
+    const vitEl = peek() ? vit : body.querySelector('.mv-vitals, .spec-vit');
+    if (vitEl !== st.vitEl) { if (st.vitEl) st.vitEl.innerHTML = ''; st.vitEl = vitEl; st.lastVit = ''; }
+    if (vitEl && v !== st.lastVit) { vitEl.innerHTML = v; st.lastVit = v; }
     drawPopChart();
     if (restoreTop != null) { body.scrollTop = restoreTop; restoreTop = null; }
     if (pin && performance.now() < pin.until) { const el = sectionEl(pin.id); if (el) body.scrollTop = Math.max(0, el.offsetTop - 2); mark(pin.id); return true; }
@@ -598,7 +606,7 @@ export function createSpecimen(api) {
   function open() {
     if (root.hidden) {
       root.hidden = false;
-      setFull(false);
+      setFull(false, false);
       document.body.classList.add('spec-open');
     }
     st.lastVit = ''; st.actKey = ''; st.tabKey = ''; st.lastHead = ''; st.fixedKey = null; st.flowKey = ''; st.flow.clear(); st.active = '';
@@ -606,7 +614,7 @@ export function createSpecimen(api) {
   }
   function close() {
     root.hidden = true;
-    setFull(false);
+    setFull(false, false);
     document.body.classList.remove('spec-open');
   }
   // the screen area the panel covers, so following can centre the specimen in what is left
@@ -665,7 +673,7 @@ export function createSpecimen(api) {
     g.fillStyle = 'rgba(226,241,240,0.85)';
     g.fillRect(12, h - 14, bar, 1.5);
     g.fillRect(12, h - 18, 1, 6); g.fillRect(12 + bar - 1, h - 18, 1, 6);
-    g.font = '500 10px Saira, system-ui, sans-serif';
+    g.font = '500 11px Saira, system-ui, sans-serif';
     g.fillText(fmtLen(um / UM_PER_UNIT), 18 + bar, h - 10); // not upper-cased: µ would become Μ
     g.fillStyle = 'rgba(241,227,160,0.95)';
     g.fillText(fmtClock(eng.simTime), 14, 20);

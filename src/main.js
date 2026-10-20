@@ -664,11 +664,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the GPU only listens while the soundtrack plays
     if (sound.on && !eng.listen) eng.listen = { every: 6, keep: null, vscale: V_SCALE };
     else if (!sound.on) eng.listen = null;
-    const b = $('snd'), v = $('vol');
+    const b = $('snd'), v = $('vol'), pct = Math.round(sound.volume * 100);
     b.setAttribute('aria-pressed', String(sound.on));
     v.hidden = !sound.on;
-    v.value = String(Math.round(sound.volume * 100));
-    if (view) view.render();
+    v.value = String(pct);
+    // Settings follows in place: rebuilt, its slider would drop out from under a drag
+    const sv = $('set-vol');
+    if (sv) { sv.value = String(pct); sv.nextElementSibling.textContent = `${pct}%`; }
+    for (const c of document.querySelectorAll('#opts [data-o="sound"]')) c.setAttribute('aria-pressed', String(!!+c.dataset.v === sound.on));
   }
   function feedSound(pop, species) {
     if (!sound.on) return;
@@ -855,11 +858,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   function drawWorldChart() {
     if (!lab || !lab.isOpen() || lab.tab() !== 'census' || !life) return;
-    drawLiving($('chart'), life.history, life.reg, climate && climate.history);
+    drawLiving($('chart'), life.history, life.reg, climate && climate.history, focus.key && focus.key.startsWith('sp:') ? +focus.key.slice(3) : null);
   }
   // Pointing at any chart names what is under it (a species on the plate the world view gives a
-  // picked cell, or the values at that moment); a click on a species (on touch, a second tap) opens it.
-  const charts = chartPointer($('plate'), (serial) => openSpecies(serial));
+  // picked cell, or the values at that moment); a click on a species (on touch, a second tap) opens it,
+  // and a click on the species already open closes it and its highlight.
+  const charts = chartPointer($('plate'), (serial) => {
+    if (spView !== serial) { openSpecies(serial); return; }
+    deselect();
+    if (focus.key === `sp:${serial}`) clearFocus();
+  });
   let feedKey = '';
   function renderFeed() {
     if (!life || uiHeld()) return;
@@ -1363,7 +1371,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + onoff('nodes', 'Particles', 'N', s.nodes)
         + (isCoarse ? '' : onoff('loupe', 'Loupe', 'M', state.loupe, 'loupe'))
         + onoff('auto', 'Auto when idle', '', state.auto, 'autoidle')
-        + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks'));
+        + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks'))
+        // the soundtrack's volume, here for every device (the dock's slider is only on wide screens)
+        + group('sound', 'Sound', onoff('sound', 'Soundtrack', 'S', sound.on)
+        + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>`);
     }
     function performance_() {
       const s = eng.settings, P = state.perf;
@@ -1559,6 +1570,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'n') pendingN = v === 'auto' ? 'auto' : +v;
       else if (id === 'apply') { const n = pendingN; pendingN = null; setParticles(n); }
       else if (id === 'profile') { copyProfile(); return; }
+      else if (id === 'sound') { if (!!+v !== sound.on) toggleSound(); return; }
       else if (id === 'reset' || id === 'reset-no') { confirming = id === 'reset'; render(); return; }
       else if (id === 'reset-yes') { confirming = false; resetTab(); }
       persist();
@@ -1566,7 +1578,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       render();
     }
     opts.addEventListener('click', (e) => { const b = e.target.closest('[data-o]'); if (b && !b.disabled) set(b.dataset.o, b.dataset.v); });
-    opts.addEventListener('input', (e) => { if (e.target.id === 'w-name') wName = e.target.value; });
+    opts.addEventListener('input', (e) => {
+      if (e.target.id === 'w-name') wName = e.target.value;
+      else if (e.target.id === 'set-vol') { if (!sound.on) toggleSound(); sound.setVolume(Number(e.target.value) / 100); }
+    });
     opts.addEventListener('keydown', (e) => { if (e.target.id === 'w-name' && e.key === 'Enter') { e.preventDefault(); worldAct('w-save'); } });
     tabs.forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; confirming = false; ask = null; render(); }));
     $('set-tabs').addEventListener('keydown', (e) => {
@@ -2114,7 +2129,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     octx.fillStyle = 'rgba(226,241,240,0.85)';
     octx.fillRect(x0, by, w, 1);
     octx.fillRect(x0, by - 4, 1, 5); octx.fillRect(x1 - 1, by - 4, 1, 5);
-    octx.font = '500 10px Saira, system-ui, sans-serif';
+    octx.font = '500 11px Saira, system-ui, sans-serif';
     octx.textAlign = 'right';
     octx.fillText(fmtLen(len), x0 - 8, by + 3);
     octx.textAlign = 'left';
