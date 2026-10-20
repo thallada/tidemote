@@ -5,6 +5,7 @@
 // tools/startlab-core.js.
 //   tools/gpu-node.sh tools/startlab.mjs --n 524288 --minutes 30 --seed 3 --out runs/start/x.json
 //   tools/gpu-node.sh tools/startlab.mjs --load world.tidemote --minutes 20 --rep 1 --cull 0:0.98 --out y.json
+//   ... --warm 120   (the first 2 minutes in 4-tick steps, as the page's warm-up at Max)
 //   TIDEMOTE_VK_LAYER=DIR node tools/startlab.mjs --chrome ...   (Linux + NVIDIA; no --load or --save)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,7 +18,7 @@ const { values: v } = parseArgs({ options: {
   k: { type: 'string', default: '{}' }, load: { type: 'string' }, rep: { type: 'string', default: '0' },
   cull: { type: 'string', multiple: true }, sample: { type: 'string', default: '10' }, spatialEvery: { type: 'string', default: '60' },
   'no-eras': { type: 'boolean' }, out: { type: 'string' }, save: { type: 'string', multiple: true },
-  aspect: { type: 'string', default: '2.37' }, chrome: { type: 'boolean' }, log: { type: 'string' },
+  aspect: { type: 'string', default: '2.37' }, chrome: { type: 'boolean' }, log: { type: 'string' }, warm: { type: 'string' },
 } });
 // --log FILE: progress and the summary go to FILE, never to stdio (a detached Windows Node under WSL dies at
 // its next write once the shell that started it is gone)

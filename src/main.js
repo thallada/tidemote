@@ -88,6 +88,11 @@ const MAX_TICKS = 4;
 const SIGNAL_AFTER = 60; // seconds a species singing the five tones must live before it is heard
 const H = 1 / 60; // the simulation's step, as in the headless runs
 const fmtSpeed = (s) => (s === Infinity ? 'Max' : `×${s}`);
+// A new world opens with little life, a few colonies in open water (docs/founding.md): its first WARM_UNTIL
+// seconds run at Max, with a notice saying why, then real time. A fresh world sized to its GPU gets there
+// in about 6 s, drawn or not (drawing is under a tenth of the GPU's time at Max), so it is shown, not hidden.
+// Choosing a speed ends the warm-up; a pause only holds it. A loaded world never warms up.
+const WARM_UNTIL = 120;
 const PARTICLE_SIZES = [32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
 
 // view preferences that outlive the page
@@ -102,7 +107,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let lab = null, specimen = null, view = null; // panels, created below
   let dockTop = innerHeight;
   const state = {
-    phase: 'calibrating', busy: true, paused: false, speed: 1,
+    phase: 'calibrating', busy: true, paused: false, speed: 1, warm: false,
     hud: true, follow: false, confirmReset: 0,
     loupe: !isCoarse, loupeMag: 3.5, currents: false, specCells: 3,
     // the Field Lab's column, open or folded to its header ("world": its name when it was the census)
@@ -293,6 +298,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     life.estThreshold = Math.max(30, Math.round(n * 0.00025));
     deselect();
     clearFocus();
+    warmDue = true;
   }
 
   async function allocDown(n) {
@@ -395,6 +401,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // Put a world in place of this one (perf tools pass only { cpu, gpu }: its record starts afresh).
   function applyWorld({ cpu, gpu, page }) {
     eng.writeState({ cpu, gpu });
+    warmDue = false;
+    if (state.warm) { endWarm(); applySpeed(1); }
     resetDirector();
     resetLife();
     resetClimate();
@@ -1773,17 +1781,38 @@ function run(eng, device, ctx, specCtx, hasTS) {
     $('t-speed').classList.toggle('fast', s > 1 && s !== Infinity);
     $('t-speed').classList.toggle('max', s === Infinity);
   }
-  function setSpeed(v) {
+  function applySpeed(v) {
     state.speed = v;
     perf.ticksAt = 0;
     perf.stepCredit = 0;
-    if (state.paused) state.paused = false;
     clock.owed = 0;
     perf.frameDt.length = 0;
     perf.lastAdjust = performance.now();
-    flash(`Speed ${fmtSpeed(v)}`);
     renderTime();
   }
+  // a speed chosen (it ends the warm-up)
+  function setSpeed(v) {
+    endWarm();
+    if (state.paused) state.paused = false;
+    applySpeed(v);
+    flash(`Speed ${fmtSpeed(v)}`);
+  }
+  // The warm-up (WARM_UNTIL): due once a new world is seeded, begun when it is first seen (the intro gone).
+  let warmDue = false;
+  const warmEl = $('warm');
+  function updateWarm() {
+    if (state.phase !== 'running') return;
+    if (warmDue && introHidden) {
+      warmDue = false;
+      if (eng.simTime < WARM_UNTIL) { state.warm = true; applySpeed(Infinity); warmEl.hidden = false; }
+    }
+    if (!state.warm) return;
+    if (eng.simTime >= WARM_UNTIL) { endWarm(); applySpeed(1); flash('Real time'); return; }
+    setText('warm-t', `${fmtClock(eng.simTime)} / ${fmtClock(WARM_UNTIL)}`);
+  }
+  // (a speed chosen before the warm-up begins cancels it too)
+  function endWarm() { warmDue = false; state.warm = false; warmEl.hidden = true; }
+  $('warm-end').addEventListener('click', () => setSpeed(1));
   // one notch along the speeds on offer
   function stepSpeed(d) {
     const list = speedChoices();
@@ -2602,6 +2631,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     tickClock(now);
     updateSpeedCap(now);
+    updateWarm();
     updateTicks(now);
     // a frame every frameEvery() display frames (half a display frame's slack absorbs the jitter)
     const due = !perf.lastSubmit || now - perf.lastSubmit >= frameTarget() - displayMs() / 2;

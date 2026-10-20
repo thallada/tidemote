@@ -143,18 +143,19 @@ export async function runLab(device, v, { log = console.error, saved = null, sav
 
     const culls = (v.cull || []).map((s) => { const [t, frac, ...m] = s.split(':'); return { t: +t, frac: +frac, mode: m.join(':') || 'random', done: false }; });
     const saves = (v.save || []).map((s) => { const [t, ...file] = s.split(':'); return { t: +t, file: file.join(':'), done: false }; });
-    const frames = Math.round(+v.minutes * 3600), wall0 = Date.now();
+    // v.warm: the first seconds in steps of 4 ticks, as the page's warm-up at Max takes them
+    const end = +v.minutes * 60, warm = +(v.warm || 0), wall0 = Date.now();
     let nextSpatial = 0;
-    for (let fr = 0; fr < frames; fr++) {
-      const t = eng.simTime - t0;
+    for (let fr = 0; eng.simTime - t0 < end - 1e-6; fr++) {
+      const t = eng.simTime - t0, dt = t < warm ? 4 / 60 : 1 / 60;
       for (const c of culls) if (!c.done && t >= c.t) { c.done = true; await drain(); await cull(c.frac, c.mode); }
       for (const s of saves) if (!s.done && t >= s.t) { s.done = true; await drain(); await saveWorld(s.file); }
       if (t >= nextSpatial) { nextSpatial += +v.spatialEvery; await drain(); await spatialSample(); }
       eng.season = seasonAt(eng.simTime);
-      if (!v['no-eras']) climate.tick(1 / 60);
+      if (!v['no-eras']) climate.tick(dt);
       const censusNext = (eng.frameNo + 1) % eng.censusEvery === 0;
       while (censusNext && eng.censusStage.every((s) => s.busy)) await new Promise((r) => setTimeout(r, 0));
-      eng.frame({ target: null, simDt: 1 / 60, time: eng.simTime });
+      eng.frame({ target: null, simDt: dt, time: eng.simTime });
       if (fr % 36000 === 0 && latest) log(`t=${latest.t}s living ${(100 * latest.living).toFixed(1)}% hill1 ${latest.hill1.toFixed(1)} thriving ${latest.thriving} ${JSON.stringify(latest.diet)} ${((Date.now() - wall0) / 1000).toFixed(0)}s wall`);
     }
     await drain();

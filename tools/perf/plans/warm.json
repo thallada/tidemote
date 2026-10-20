@@ -1,0 +1,12 @@
+{ "worlds": [
+    { "name": "auto", "n": null, "fresh": true },
+    { "name": "n524k", "n": 524288, "fresh": true },
+    { "name": "n1m", "n": 1048576, "fresh": true },
+    { "name": "n2m", "n": 2097152, "fresh": true }
+  ],
+  "scenarios": [
+    { "world": "auto", "name": "max-to-2min", "kind": "warm", "until": 120 },
+    { "world": "n524k", "name": "max-to-2min", "kind": "warm", "until": 120 },
+    { "world": "n1m", "name": "max-to-2min", "kind": "warm", "until": 120 },
+    { "world": "n2m", "name": "max-to-2min", "kind": "warm", "until": 120 }
+  ] }

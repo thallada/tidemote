@@ -199,10 +199,34 @@ async function growth(page, sc) {
   }, sc);
 }
 
+// warm: a fresh world run at Max from its first moment until `until` seconds of simulated time, timed in
+// real seconds, with the share of GPU time spent stepping (the rest is drawing, which hiding would save)
+async function warm(page, sc) {
+  return page.evaluate(async (sc) => {
+    const T = globalThis.__tidemote, { state, eng } = T;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    while (state.phase !== 'running') await sleep(20);
+    const g = { all: 0, sim: 0 }, out = [], sim0 = eng.simTime;
+    eng.passProfile = true;
+    eng.onPassTimes = (times, f) => { if (f.ms > 0 && f.ms < 1000) { g.all += f.ms; g.sim += f.simMs; } };
+    T.setSpeed(Infinity);
+    const t0 = performance.now();
+    while (eng.simTime - sim0 < (sc.until ?? 120)) {
+      await sleep(500);
+      out.push([+((performance.now() - t0) / 1000).toFixed(1), Math.round(eng.simTime - sim0), T.life().counts[3]]);
+    }
+    const wall = (performance.now() - t0) / 1000;
+    eng.passProfile = false; eng.onPassTimes = null;
+    T.setSpeed(1);
+    return { name: sc.name, count: eng.count, wall: +wall.toFixed(1), simShare: +(g.sim / g.all).toFixed(3), series: out };
+  }, sc);
+}
+
 // one scenario: set it up, settle, measure
 async function measure(page, sc) {
   if (sc.kind === 'step') return stepBench(page, sc);
   if (sc.kind === 'growth') return growth(page, sc);
+  if (sc.kind === 'warm') return warm(page, sc);
   return page.evaluate(async (sc) => {
     const T = globalThis.__tidemote, { state, cam, perf, eng } = T;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -317,6 +341,7 @@ try {
       moving = false; await mover;
       report.scenarios.push({ world: w.name, ...r });
       if (sc.kind === 'growth') continue;
+      if (sc.kind === 'warm') { console.log(`${w.name}/${r.name}: ${r.count} particles, ${r.wall} s to reach the time, ${Math.round(r.simShare * 100)}% of GPU time stepping`); continue; }
       if (sc.kind === 'step') { console.log(`${w.name}/${r.name}: step ${r.total} ms | ${JSON.stringify(r.dispatch)}`); continue; }
       const top = Object.entries(r.passes).slice(0, 4).map(([k, x]) => `${k} ${x}`).join(', ');
       console.log(`${w.name}/${r.name}: ${r.audio ? `audio ${JSON.stringify(r.audio)} ` : ''}${r.fps} fps (raf ${r.rafFps}), gpu ${r.gpu.mean} ms (p95 ${r.gpu.p95}), sim ${r.sim.mean} ms x${r.sim.stepsPerFrame}, enc ${r.encodeMs.mean} ms, long ${r.longTasks}/${r.longMs} ms${r.lab ? `, lab ${r.lab.n}× ${r.lab.mean} ms (max ${r.lab.max})` : ''}, scale ${r.scale.mean}, slow ${r.slow.end} ${r.slow.why || ''}, ppu ${r.ppu} | ${top}`);

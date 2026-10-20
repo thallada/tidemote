@@ -91,3 +91,25 @@ start 12%).
 Tried and dropped: dormant animal founders of every diet (grazers slept too, so predators were no better
 off); flesh-eaters founded with a tenth or a quarter of the cells (no more predators: they still starved);
 48 founders instead of 96 (no more variety); designed founders only in sparse colonies (lost predators).
+
+## The warm-up (the page)
+
+A start this sparse looks bare for its first minute, so the page runs a new world's first two minutes
+(`WARM_UNTIL` in `src/main.js`) at Max, with a notice saying why, then returns to ×1. It begins as the intro
+goes, so it is seen. Choosing a speed ends it (as does the notice's Real time button), a pause only holds
+it, and a loaded world never warms up.
+
+It is shown rather than hidden behind the loading bar because hiding would hardly save time. A fresh world
+reaching 2:00 at Max (`tools/perf/bench.mjs --plan tools/perf/plans/warm.json`, the page in Chrome, 2560×1440):
+
+| GPU | auto size | 524k | 1M | 2M | GPU time stepping (the rest is drawing) |
+| --- | --- | --- | --- | --- | --- |
+| RTX 4070 Ti | 6 s (2.6M) | 1.5 s | 3 s | 5 s | 93-95% |
+| RTX 2080 Super | 5.5 s (1.5M) | 2.5 s | 4.5 s | 7 s | 91-92% |
+
+The page sizes a world to its GPU, so about 6 s should hold on most devices.
+
+Max takes steps of 4 ticks. Reaching 2:00 that way (`tools/startlab.mjs --warm 120`) leaves the opening as it
+is in 1/60 s steps (524k, seeds 51-56, paired per seed): living, Hill 1, largest species, turnover and
+guild shares all within a few percent and no significant difference at 2-5, 5-10 or 10-15 min, except 4.5%
+(± 3.5%) fewer distinct regional leaders at 2-5 min, gone by 5 min.

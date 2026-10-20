@@ -334,6 +334,12 @@ body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520p
 .focus.maps { border-color: var(--cyan); }
 .focus.maps .lbl { color: var(--cyan); }
 .focus.maps .ramp { width: 132px; font-size: 10.5px; white-space: nowrap; }
+/* the warm-up: a new world's first minutes at Max */
+.focus.warm { border-color: var(--sun); }
+.focus.warm .lbl { color: var(--sun); white-space: nowrap; }
+@media (max-width: 720px) { .focus.warm b { display: none; } }
+.focus.warm small { color: var(--ink-2); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.focus.warm button { width: auto; padding: 0 10px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; }
 /* the gauges open their maps (on phones the era opens the tide's) */
 .gauge { cursor: pointer; }
 .gauge.on { border-left-color: var(--cyan); }

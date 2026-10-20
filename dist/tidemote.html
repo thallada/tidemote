@@ -390,6 +390,12 @@ body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520p
 .focus.maps { border-color: var(--cyan); }
 .focus.maps .lbl { color: var(--cyan); }
 .focus.maps .ramp { width: 132px; font-size: 10.5px; white-space: nowrap; }
+/* the warm-up: a new world's first minutes at Max */
+.focus.warm { border-color: var(--sun); }
+.focus.warm .lbl { color: var(--sun); white-space: nowrap; }
+@media (max-width: 720px) { .focus.warm b { display: none; } }
+.focus.warm small { color: var(--ink-2); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.focus.warm button { width: auto; padding: 0 10px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; }
 /* the gauges open their maps (on phones the era opens the tide's) */
 .gauge { cursor: pointer; }
 .gauge.on { border-left-color: var(--cyan); }
@@ -1058,6 +1064,7 @@ svg.niche .n-dot { fill: var(--cyan); }
   <!-- floating bars: the species highlight, and the map a gauge opened; each closes on its own -->
   <div class="floats" id="floats">
     <div class="focus" id="focus" hidden><span class="lbl">Highlight</span><b id="focus-label"></b><button type="button" class="ghost" id="focus-clear" aria-label="Clear highlight" data-hint="Clear · Esc"><svg><use href="#i-close"/></svg></button></div>
+    <div class="focus warm" id="warm" hidden role="status"><span class="lbl">Warming up</span><b data-hint="A new world starts with a few colonies in open water: its first two minutes run fast while they spread">The first two minutes, fast</b><small id="warm-t"></small><button type="button" class="ghost" id="warm-end" data-hint="Real time · /">Real time</button></div>
     <div class="focus maps" id="maps" hidden><span class="lbl">Map</span><b id="maps-label"></b><div id="maps-ramp"></div><button type="button" class="ghost" id="maps-clear" aria-label="Close the map" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button></div>
   </div>
 </div>
@@ -21928,6 +21935,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var SIGNAL_AFTER = 60;
   var H = 1 / 60;
   var fmtSpeed = (s) => s === Infinity ? "Max" : `×${s}`;
+  var WARM_UNTIL = 120;
   var PARTICLE_SIZES = [32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
   var PREFS_KEY = "tidemote.view";
   var CELL_MARK = "rgba(241,227,160,0.95)";
@@ -21954,6 +21962,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       busy: true,
       paused: false,
       speed: 1,
+      warm: false,
       hud: true,
       follow: false,
       confirmReset: 0,
@@ -22189,6 +22198,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       life.estThreshold = Math.max(30, Math.round(n * 25e-5));
       deselect();
       clearFocus();
+      warmDue = true;
     }
     async function allocDown(n) {
       state.busy = true;
@@ -22290,6 +22300,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     function applyWorld({ cpu, gpu, page }) {
       eng.writeState({ cpu, gpu });
+      warmDue = false;
+      if (state.warm) {
+        endWarm();
+        applySpeed(1);
+      }
       resetDirector();
       resetLife();
       resetClimate();
@@ -23915,17 +23930,48 @@ registerProcessor("tidemote-sound", TidemoteSound);
       $("t-speed").classList.toggle("fast", s > 1 && s !== Infinity);
       $("t-speed").classList.toggle("max", s === Infinity);
     }
-    function setSpeed(v) {
+    function applySpeed(v) {
       state.speed = v;
       perf.ticksAt = 0;
       perf.stepCredit = 0;
-      if (state.paused) state.paused = false;
       clock2.owed = 0;
       perf.frameDt.length = 0;
       perf.lastAdjust = performance.now();
-      flash(`Speed ${fmtSpeed(v)}`);
       renderTime();
     }
+    function setSpeed(v) {
+      endWarm();
+      if (state.paused) state.paused = false;
+      applySpeed(v);
+      flash(`Speed ${fmtSpeed(v)}`);
+    }
+    let warmDue = false;
+    const warmEl = $("warm");
+    function updateWarm() {
+      if (state.phase !== "running") return;
+      if (warmDue && introHidden) {
+        warmDue = false;
+        if (eng.simTime < WARM_UNTIL) {
+          state.warm = true;
+          applySpeed(Infinity);
+          warmEl.hidden = false;
+        }
+      }
+      if (!state.warm) return;
+      if (eng.simTime >= WARM_UNTIL) {
+        endWarm();
+        applySpeed(1);
+        flash("Real time");
+        return;
+      }
+      setText("warm-t", `${fmtClock(eng.simTime)} / ${fmtClock(WARM_UNTIL)}`);
+    }
+    function endWarm() {
+      warmDue = false;
+      state.warm = false;
+      warmEl.hidden = true;
+    }
+    $("warm-end").addEventListener("click", () => setSpeed(1));
     function stepSpeed(d) {
       const list = speedChoices();
       let i = list.indexOf(state.speed);
@@ -24762,6 +24808,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       tickClock(now);
       updateSpeedCap(now);
+      updateWarm();
       updateTicks(now);
       const due = !perf.lastSubmit || now - perf.lastSubmit >= frameTarget() - displayMs() / 2;
       if (now - perf.fpsT > 500) {
