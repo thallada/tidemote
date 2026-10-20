@@ -615,9 +615,11 @@ class Engine {
     head[1] = plan.length;
     // founders suit the water they will live in: the background, warmed a little by life
     const warm = this.temp + 3;
+    // each world draws the share of its founders that are random sparks (as abiogenesis makes) rather
+    // than designed body plans, so worlds begin differently
+    const randomShare = rng();
     plan.forEach((type, s) => {
-      // a share are random sparks, as abiogenesis makes, rather than designed body plans
-      const g = rng() < this.K.foundRandom ? randomGenome(rng, this.K, warm) : archetypeGenome(type, rng, this.K, warm);
+      const g = rng() < randomShare ? randomGenome(rng, this.K, warm) : archetypeGenome(type, rng, this.K, warm);
       g.serial = s + 1;
       writeGenome(gu, gf, FIRST_LIFE + s, g);
       head[META_SLOT + FIRST_LIFE + s] = 1;

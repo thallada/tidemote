@@ -118,7 +118,7 @@ function printSummary(r) {
   const s = r.summary;
   console.log(`\n${r.name}: ${s.runs} runs × ${r.config.minutes} min at n=${r.config.n} (${fmt(r.wallSecondsPerRun)} s wall per run)`);
   const mixed = Object.keys(r.config.adapters ?? {}).length > 1 || Object.keys(r.config.hosts ?? {}).length > 1;
-  if (mixed) for (const key of ['hosts', 'adapters']) console.log(`  ${key}: ` + Object.entries(r.config[key]).map(([x, n]) => `${x} ×${n}`).join(', '));
+  if (mixed) for (const key of ['hosts', 'adapters']) if (r.config[key]) console.log(`  ${key}: ` + Object.entries(r.config[key]).map(([x, n]) => `${x} ×${n}`).join(', '));
   for (const [key, m] of Object.entries(s.metrics)) {
     console.log(m.rate != null
       ? `  ${key.padEnd(18)} ${(m.rate * 100).toFixed(0).padStart(3)}%  [${(m.ci[0] * 100).toFixed(0)}–${(m.ci[1] * 100).toFixed(0)}%]`

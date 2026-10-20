@@ -204,11 +204,11 @@ export const DEFAULT_K = {
   // A new world starts as one recovering from a collapse (docs/founding.md): a little life in small
   // colonies in empty water, each colony a different community, so patches grow into a mosaic
   foundKinds: 96,   // founding species
-  foundRandom: 0.5, // the share of founders that are random sparks (as abiogenesis makes) rather than designed body plans
   foundLife: 0.02,  // the share of a new world's particles alive at the start
   foundColonies: 48, // founding colonies...
   foundMixed: 6,    // ...each a community of about this many founding species...
   foundPatch: 3,    // ...about this many grid units across (the spread of a gaussian)
+  foundHuntSleep: 300, // flesh-eating founders start as cysts that wake over about this many seconds, after their prey
   interfere: 0.6,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
                     // within reach, its bond partners aside)
 };
@@ -1256,6 +1256,12 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
     col = pack4x8unorm(vec4f(roleColor(g, r), 1.0));
     age = rnd(&s) * g.lifespan * 0.6;
     info = r << 4u;
+    // flesh-eaters arrive after their prey, as in a recovery: they start as cysts that cannot wake before
+    // a time drawn over the first foundHuntSleep seconds (a negative age), with the energy to last it
+    if (dietGuild(g) == 2u) {
+      let wait = rnd(&s) * ${f(K.foundHuntSleep)};
+      info |= CYST; age = -wait; e += ${f(K.cystLeak)} * wait;
+    }
   }
   if (kind == SILT && sim.rock.x > 0.0 && inRock(pos)) {
     kind = STONE; e = ${f(K.rockLife)} * (0.5 + rnd(&s)); col = pack4x8unorm(vec4f(0.46, 0.42, 0.38, 1.0));
@@ -2051,7 +2057,7 @@ fn cystStep(i: u32) {
     p.info = (p.info & 0xffff7fc0u) | 1u${litterOf('g')};
     atomicAdd(&ledger[5], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 1u], 1u);
-  } else if (rnd(&s) < ${f(K.cystWake)} * sim.dt) {
+  } else if (p.age > 0.0 && rnd(&s) < ${f(K.cystWake)} * sim.dt) {
     p.info = (p.info & 0xfffffff0u) | 9u; p.age = 0.0;
   }
   intent[i] = vec4u(0u, 0u, NONE, NONE);

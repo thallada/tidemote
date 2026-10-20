@@ -47,11 +47,14 @@ patch is won by whoever arrived there first (priority effects), and patches grow
 ## The start now (DEFAULT_K)
 
 `foundLife` 0.02 of the particles start alive, in `foundColonies` 48 colonies of spread `foundPatch` 3
-grid units, each a community of about `foundMixed` 6 of the `foundKinds` 96 founders; `foundRandom` 0.5 of
-the founders are random sparks (`randomGenome`, the CPU mirror of `randomInto`), the rest designed body
-plans; `foundHunt` and `foundEach` still shape the founding plan.
+grid units, each a community of about `foundMixed` 6 of the `foundKinds` 96 founders. Each world draws the
+share of its founders that are random sparks (`randomGenome`, the CPU mirror of `randomInto`) uniformly
+from none to all; the rest are designed body plans, shaped as before by `foundHunt` and `foundEach`.
+Flesh-eating founders start as cysts that cannot wake before a time drawn over the first `foundHuntSleep`
+300 s (a negative age; they hold the energy to last it), so they arrive once grazers have multiplied.
 
-Against the old start (524k, 6 seeds each):
+Against the old start (524k, 6 seeds each, with half the founders random, mixed colonies and no sleeping
+predators):
 
 | | old, 2-15 min | new, 2-15 min | old, 15-30 min | new, 15-30 min |
 | --- | --- | --- | --- | --- |
@@ -63,5 +66,21 @@ Against the old start (524k, 6 seeds each):
 
 The first minute looks sparse: colonies in empty water that spread outward, as a recovery does.
 
-Tried and dropped: dormant animal founders (`foundDormant`, starting as cysts so animals arrive after the
-producers) did not keep more predators; designed founders only (sparse) lost predators.
+## Variety between worlds (the gate, 32k, 32 seeds × 30 min)
+
+With half the founders always random, every world turned into much the same mix of guilds: predators
+starved in the first minutes (the producers bloom before grazers multiply) and seldom reached 20% of life,
+so 19 of 32 worlds ended "producer+grazer" (`modalOutcome` 0.59 against the target 0.5). The founders'
+mix varied plenty; what was lost was predator-led worlds. Two changes brought it back:
+
+| 32 seeds | modalOutcome | outcomes | predators ≥ 20% | predators at 30 min | foodWeb | lateEffSpecies |
+| --- | --- | --- | --- | --- | --- | --- |
+| old start (main, 2026-10-20) | 0.25 | 5.9 | 13 | 21% | 100% | 116 |
+| half random, every world | 0.59 | 3.5 | 4 | 14% | 94% | 104 |
+| each world its own random share | 0.28 | 6.1 | 7 | 12% | 91% | 114 |
+| predators sleep 300 s | 0.44 | 4.4 | 11 | 19% | 94% | 105 |
+| both (the default) | 0.375 | 5.2 | 12 | 19% | 91% | 114 |
+
+Tried and dropped: dormant animal founders of every diet (grazers slept too, so predators were no better
+off); flesh-eaters founded with a tenth or a quarter of the cells (no more predators: they still starved);
+48 founders instead of 96 (no more variety); designed founders only in sparse colonies (lost predators).
