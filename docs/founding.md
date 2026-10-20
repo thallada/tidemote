@@ -79,7 +79,14 @@ mix varied plenty; what was lost was predator-led worlds. Two changes brought it
 | half random, every world | 0.59 | 3.5 | 4 | 14% | 94% | 104 |
 | each world its own random share | 0.28 | 6.1 | 7 | 12% | 91% | 114 |
 | predators sleep 300 s | 0.44 | 4.4 | 11 | 19% | 94% | 105 |
-| both (the default) | 0.375 | 5.2 | 12 | 19% | 91% | 114 |
+| both | 0.375 | 5.2 | 12 | 19% | 91% | 114 |
+| both, as committed (final gate) | 0.344 | 4.6 | 15 | | 91% | 106 |
+
+The final gate passes every target. Its weakest metric is `lateGuilds` (3.2 against 3.5 in the baseline
+and 3.7 for the old start; p 0.044, not significant once corrected over the gated metrics). At 524k (6
+seeds, 30 min) the opening keeps everything above: Hill 1 55 at 2-15 min and 76 at 15-30 (old start 20
+and 58), turnover 7.5 and 6.5, largest species 13% and 11%; predators there were 9% at 15-30 min (old
+start 12%).
 
 Tried and dropped: dormant animal founders of every diet (grazers slept too, so predators were no better
 off); flesh-eaters founded with a tenth or a quarter of the cells (no more predators: they still starved);
