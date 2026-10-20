@@ -52,11 +52,10 @@ const MINOR = new Set(['charged', 'eaten', 'rustle']);
 // The swarm: grains per second a band plays at most (beyond that a grain stands for several, so
 // the activity stays audible as grains), and the level of one grain relative to a note.
 const SWARM_MAX = 150, GRAIN = 1.75;
-// sparks: whole showers and single grains per second at most, and the shapes a shower takes
-// (chord-tone steps for note i of n)
-const SHOWERS = 0.4, GRAINS = 2.5;
-const RINGS = 1.5; // a birth's bright overtone: rings per second at most
-const SHAPES = [(i) => i, (i, n) => n - 1 - i, (i, n) => Math.min(i, n - 1 - i) * 2, (i) => [0, 2, 1, 3, 2, 4][i], (i) => (i % 2 ? i + 1 : i - 1 + (i ? 0 : 1)), (i) => -i];
+// per second at most: sparks' whole showers and single grains, and births' bright rings; and the
+// shapes a shower takes (chord-tone steps for note i of n: rising, falling, arching, zigzagging)
+const SHOWERS = 0.4, GRAINS = 2.5, RINGS = 1.5;
+const SHAPES = [(i) => i, (i, n) => n - 1 - i, (i, n) => Math.min(i, n - 1 - i) * 2, (i) => [0, 2, 1, 3, 2, 4][i]];
 // level of the single voices fully zoomed in, relative to afar
 const CLOSE = 0.9;
 // seconds the picked species takes to ease back into the mix after its greeting
@@ -80,6 +79,7 @@ export class Field {
     this.taken = new Map(); // grid point key -> notes placed there
     this.z = 0; this.gd = 1; this.act = 0.3; this.speed = 1;
     this.gain = {}; // per-type gain overrides (tuning)
+    this.budget = {}; // sounds held to a few a second (spend)
     this.agc = 1; this.power = P_REF; this.plan = null;
     this.swarmK = -1; this.bands = null; this.heard = new Map(); // species slot -> [grains per second, their power], smoothed over scans
     this.sang = []; // notes sung since the last report to the page: [slot, seconds from now, note, line, scan, record, seconds it sounds, seconds a step]
@@ -375,10 +375,7 @@ export class Field {
       case 'birth': { // the species' note, rung with a bright overtone: a new cell (a few rings a second
         // at most: sped up, a thriving species' births would otherwise ring one pitch over and over)
         const midi = this.speciesNote(o.slot, t, g * 0.7, o);
-        const dt = c.time - (this.ringAt ?? c.time); this.ringAt = c.time;
-        this.rings = Math.min(2, (this.rings ?? 2) + dt * RINGS);
-        if (this.rings < 1) return;
-        this.rings--;
+        if (!this.spend('ring', RINGS)) return;
         const f = midicps((midi ?? d2m(Math.floor(o.hue * 7) + piv, root, scale)) + 24);
         c.at(t, 'glint', { freq: f, amp: g * 0.5, dec: 0.35, pan: o.pan, rev: o.wet(0.45), dly: 0.2 });
         return;
@@ -419,22 +416,28 @@ export class Field {
   // unhurried, never twice the same. Between showers a spark is a single soft grain, and beyond a
   // few grains a second it is not heard at all.
   spark(t, g, o) {
-    const c = this.c, now = c.time, { root, scale } = c, piv = c.pivot;
-    const dt = now - (this.sparkAt ?? now); this.sparkAt = now;
-    this.showers = Math.min(1.5, (this.showers ?? 1) + dt * SHOWERS); this.grains = Math.min(3, (this.grains ?? 3) + dt * GRAINS);
+    const c = this.c, { root, scale } = c, piv = c.pivot;
     const pan = (d) => clamp(o.pan + d, -0.9, 0.9);
-    if (this.showers >= 1) {
-      this.showers--;
+    if (this.spend('shower', SHOWERS)) {
       const n = 3 + Math.floor(this.rnd() * 4), shape = SHAPES[Math.floor(this.rnd() * SHAPES.length)], gap = this.rr(0.06, 0.13);
       const base = Math.floor(o.hue * 7), mul = this.rnd() < 0.7 ? 4 : this.rnd() < 0.5 ? 2 : 8, drift = this.rr(-0.25, 0.25);
       for (let i = 0; i < n; i++) {
         const deg = base + piv + 2 * shape(i, n); // chord tones: every other degree
         c.at(t + i * gap * this.rr(0.85, 1.15), 'glint', { freq: midicps(d2m(deg, root, scale)) * mul, amp: g * (1 - i * 0.08), dec: this.rr(0.2, 0.4), pan: pan(drift * i), rev: o.wet(0.55), dly: 0.3 });
       }
-    } else if (this.grains >= 1) {
-      this.grains--;
+    } else if (this.spend('grain', GRAINS)) {
       c.at(t, 'glint', { freq: midicps(d2m(Math.floor(this.rnd() * 7) * 2 + piv, root, scale)) * (this.rnd() < 0.5 ? 4 : 2), amp: g * 0.5, dec: this.rr(0.15, 0.35), pan: pan(this.rr(-0.2, 0.2)), rev: o.wet(0.6), dly: 0.3 });
     }
+  }
+
+  // A few of a kind of sound per second at most: one is spent if the budget, refilled at `rate` a
+  // second up to two, holds one.
+  spend(kind, rate) {
+    const b = (this.budget[kind] ||= { n: 2, t: this.c.time });
+    b.n = Math.min(2, b.n + (this.c.time - b.t) * rate); b.t = this.c.time;
+    if (b.n < 1) return false;
+    b.n--;
+    return true;
   }
 
   // The swarm: the species heard most get bands (a bigger share, more bands: successive notes of

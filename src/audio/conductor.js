@@ -120,8 +120,6 @@ export class Conductor {
   // it; the score (on `slow`) by only the square root, so sped-up time is heard in the cells' quick
   // songs while the score stays a score, neither a blur nor a bell ringing over and over.
   setTempo(tf) { if (tf > 0 && Math.abs(tf - this.tempo) > 1e-3) { this.tempo = tf; this.step = STEP / tf; this.slow = tf > 1 ? STEP / Math.sqrt(tf) : this.step; } }
-  // the pulse at real time (in the water's warmth): what the page will be back at after the warm-up
-  realStep() { return STEP / (1 + 0.06 * this.warm); }
 
   setEra(era, now = false) {
     this.era = era;
@@ -141,7 +139,7 @@ export class Conductor {
     else if (m.type === 'fieldGain') Object.assign(this.field.gain, m.gain);
     else if (m.type === 'era') this.pendingEra = m.name;
     else if (m.type === 'open') { this.pendingOpen = true; if (m.seed != null && m.seed >>> 0 !== this.ws) this.rekey(m.seed, null); }
-    else if (m.type === 'warm') { this.lapse = !!m.on; if (!m.on) this.score.lapseEnd = this.time; }
+    else if (m.type === 'warm') this.lapse = !!m.on;
     else if (m.type === 'reset') {
       this.field.slots.clear(); this.pendingEra = null; this.switchAt = null; this.pendingOpen = false; this.lapse = false;
       this.score.reset();

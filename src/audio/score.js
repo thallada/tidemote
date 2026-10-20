@@ -35,7 +35,7 @@ const vibeAmp = (f) => Math.pow(f / 440, 0.8);
 
 export const LAYERS = ['loops', 'circles', 'piano', 'dub', 'pad', 'sonar', 'arp', 'pulse', 'hymn'];
 // A world's first ensemble: one layer that moves and one that holds the space, gentle enough to open on.
-export const OPENINGS = [['loops', 'sonar'], ['hymn', 'arp'], ['circles', 'pad'], ['loops', 'arp'], ['piano', 'hymn'], ['sonar', 'circles'],
+const OPENINGS = [['loops', 'sonar'], ['hymn', 'arp'], ['circles', 'pad'], ['loops', 'arp'], ['piano', 'hymn'], ['sonar', 'circles'],
   ['pad', 'arp'], ['hymn', 'pulse'], ['dub', 'loops'], ['piano', 'sonar'], ['circles', 'hymn'], ['arp', 'sonar']];
 // the ways a world's overture unfolds (see overture)
 export const OVERTURES = ['swell', 'tape', 'bells', 'rise', 'felt', 'deep'];
@@ -77,7 +77,7 @@ export class Score {
   }
   reset() {
     this.lastInterlude = -1e9; this.duckUntil = 0; this.reign = -1; this.peaked = false;
-    this.landAt = null; this.lapseEnd = null; this.openAt = null;
+    this.landAt = null;
     this.at = null; this.barN = 0; this.s = this.c.step; this.k = 1; this.fast = false;
   }
   rr(lo, hi) { return lo + (hi - lo) * this.rnd(); }
@@ -98,8 +98,11 @@ export class Score {
     this.hymnDef = (h >>> 19) & 1 ? 'glass' : 'breath'; this.hymnV = null; this.hymnNext = null;
     this.pulseNext = null;
     this.cells = null; this.sonarNext = null;
-    this.c.eng.set('ping', { fb: this.layers.includes('dub') || this.layers.includes('arp') ? 0.62 : 0.45 });
+    this.c.eng.set('ping', { fb: this.echo() });
   }
+
+  // the delay's feedback: long for the layers that dissolve into echoes
+  echo() { return this.layers.includes('dub') || this.layers.includes('arp') ? 0.62 : 0.45; }
 
   // the reigning species' motif (scale degrees), or the world's own opening figure
   theme() { const m = this.reigning(); return m ? m.seq : this.openTheme(); }
@@ -127,12 +130,8 @@ export class Score {
     this.I += (clamp(target, 0, 1) - this.I) * 0.15;
     const I = this.I;
     if (c.switchAt != null) return; // the era is changing: the bridge plays alone
-    // the overture lands (its theme) once it has rung out and the warm-up is over
-    if (this.landAt != null && ts >= this.landAt && !c.lapse) {
-      const lapsed = this.lapseEnd != null && this.lapseEnd >= this.openAt;
-      this.landAt = null;
-      this.land(ts + 0.4, lapsed ? c.realStep() : this.s);
-    }
+    // the overture lands (its theme, at real time) once it has rung out and the warm-up is over
+    if (this.landAt != null && ts >= this.landAt && !c.lapse) { this.landAt = null; this.land(ts + 0.4); }
     // interludes: a new reign, or the height of a season, at most every three minutes
     const top = this.topSlot();
     if (top !== this.reign) {
@@ -280,7 +279,7 @@ export class Score {
 
   // ── a melodic interlude: the reigning motif, developed in one of a few ways, brought home ──
   // It keeps the motif's own rhythm, slowed to the piano's pace (its shortest note two steps).
-  // s: the step to play it at (the landing after a warm-up plays it at real time).
+  // s: the step to play it at.
   interlude(t0, theme = this.theme(), motif = this.reigning(), s = this.s) {
     const c = this.c, L = (c.era.fx.level || 1) * (1 - 0.3 * c.field.z);
     const th = theme.slice(0, Math.min(5, theme.length));
@@ -367,21 +366,21 @@ export class Score {
       c.at(ts, 'piano', { freq: midicps(c.root - 12), amp: 0.14, dec: 9, felt: 0.85, pan: -0.1, rev: 0.5, dly: 0.03 });
       [0, 2, 4, 7, 4, 9].forEach((d, k) => c.at(ts + 1.2 + k * 1.15 + this.rr(-0.05, 0.05), 'piano', { freq: midicps(d2m(d, c.root, c.scale) + 12), amp: 0.17 * (k === 3 ? 1 : 0.8), dec: 6, felt: 0.8, pan: 0.15, rev: 0.45, dly: 0.05 }));
     } else { // 'deep': chord stabs dissolving into the echoes, the sea rising under them (Deepchord, loscil)
-      c.setAt(ts, 'ping', { fb: 0.72 }); c.setAt(ts + T, 'ping', { fb: this.layers.includes('dub') || this.layers.includes('arp') ? 0.62 : 0.45 });
+      c.setAt(ts, 'ping', { fb: 0.72 }); c.setAt(ts + T, 'ping', { fb: this.echo() });
       for (const t of [ts + 0.2, ts + 3.4, ts + 5.0]) for (const d of [0, 2, 4, 6]) {
         c.at(t, 'strings', { freq: midicps(d2m(d, c.root, c.scale)), amp: 0.12, atk: 0.008, sus: 0.06, rel: 0.8, bright: 0.3, pan: (d - 3) * 0.15, rev: 0.45, dly: 0.75 });
       }
       c.at(ts + 1, 'wave', { amp: 0.3, dur: 8, bright: 0.4, pan: 0, rev: 0.5 });
       swell(ts + 4, 0.08, 0.4);
     }
-    this.openAt = ts; this.landAt = ts + T; this.lastInterlude = ts;
+    this.landAt = ts + T; this.lastInterlude = ts;
   }
-  land(ts, s) {
+  land(ts) {
     const c = this.c;
     [c.root - 12, ...this.chord(0)].forEach((m, i) => {
       c.at(ts + i * 0.2, 'strings', { freq: midicps(m), amp: 0.08, atk: 3, sus: 5, rel: 10, bright: 0.45, pan: (i - 1.5) * 0.35, rev: 0.6 });
     });
-    this.interlude(ts + 1, this.theme(), this.reigning(), s);
+    this.interlude(ts + 1, this.theme(), this.reigning(), STEP / (1 + 0.06 * c.warm)); // real time, as after the warm-up
   }
 
   // the new key arrives: its tonic chord, then the new ensemble and the reigning motif
