@@ -3,7 +3,7 @@ import {
   MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES,
 } from './shaders.js';
 import {
-  archetypeGenome, writeGenome, parseParticle,
+  archetypeGenome, randomGenome, writeGenome, parseParticle,
   packUnorm, ARCHETYPE_TYPES,
 } from './genome.js';
 import { TIDE_PHASE } from './flow.js';
@@ -538,7 +538,8 @@ class Engine {
 
   /**
    * Create a new universe of n particles (n <= capacity). Each world draws its own tide pattern,
-   * opening light, matter mix, and how clumped its founders start.
+   * opening light, husks and founding community. Life starts sparse: K.foundLife of the particles, in
+   * K.foundColonies small colonies in empty water, as a world recovering from a collapse begins again.
    */
   seed(n, { aspect = 16 / 9, rng = Math.random } = {}) {
     const d = this.device;
@@ -558,17 +559,12 @@ class Engine {
     this.excursion = 0;
     this.randomizeTide(rng);
     this.randomizeCurrents(rng);
-    const silt = mix(0.48, 0.76, rng()), husk = mix(0.02, 0.06, rng());
-    // Founders: a share of each species starts in a few colonies, the rest scattered. Colony size
-    // follows the world so a colony is `conc` times denser in its species than an even spread.
+    const husk = mix(0.02, 0.06, rng()), silt = 1 - husk - this.K.foundLife;
     // Bedrock outcrops: from none to about 8% of the area, as chains of discs a few cells across.
     const cells = this.grid[0] * this.grid[1];
     const rockR = mix(1.2, 3.0, rng());
     const cover = rng() ** 1.5 * 0.08 * this.K.rocks;
     this.rock.set([Math.min(256, Math.round((cover * cells) / (10 * rockR * rockR))), rockR, 0, 0]);
-    const clump = rng();
-    const conc = mix(3, 10, rng());
-    const spread = Math.sqrt((this.grid[0] * this.grid[1]) / (conc * 2.5 * 2 * Math.PI));
 
     const gbuf = new ArrayBuffer(MAXK * G_BYTES);
     const gu = new Uint32Array(gbuf);
@@ -588,7 +584,7 @@ class Engine {
       while (i < w.length - 1 && pick >= w[i]) pick -= w[i++];
       return ARCHETYPE_TYPES[i];
     };
-    const plan = Array.from({ length: 24 }, () => draw(weights, total));
+    const plan = Array.from({ length: Math.min(MAXK - FIRST_LIFE, Math.round(this.K.foundKinds)) }, () => draw(weights, total));
     // a world starts as a food pyramid: at most K.foundHunt of its founders eat flesh (the rest redrawn)
     const eatsFlesh = (t) => t === 'hunter' || t === 'crawler';
     const plants = weights.map((w, i) => (eatsFlesh(ARCHETYPE_TYPES[i]) ? 0 : w));
@@ -620,7 +616,8 @@ class Engine {
     // founders suit the water they will live in: the background, warmed a little by life
     const warm = this.temp + 3;
     plan.forEach((type, s) => {
-      const g = archetypeGenome(type, rng, this.K, warm);
+      // a share are random sparks, as abiogenesis makes, rather than designed body plans
+      const g = rng() < this.K.foundRandom ? randomGenome(rng, this.K, warm) : archetypeGenome(type, rng, this.K, warm);
       g.serial = s + 1;
       writeGenome(gu, gf, FIRST_LIFE + s, g);
       head[META_SLOT + FIRST_LIFE + s] = 1;
@@ -629,7 +626,7 @@ class Engine {
     d.queue.writeBuffer(this.b.ledger, 0, head);
     this.founders = plan.length;
 
-    this._writeSim({ seedKinds: plan.length, pSilt: silt, pHusk: husk, clump, spread });
+    this._writeSim({ seedKinds: plan.length, pSilt: silt, pHusk: husk });
     // the water starts at the background everywhere; framboids and crowds warm it within a minute
     const water = new Float32Array(cells).fill(this.tbg);
     d.queue.writeBuffer(this.b.thermal, MAX_CELLS * 4, water);
@@ -700,7 +697,7 @@ class Engine {
     f[8] = this.season; f[9] = Math.min(1, this.abio * this.ticks);
     u[10] = (this.seedValue + this.frameNo * 7919) >>> 0; f[11] = this.K.maxSpeed;
     u[12] = extra.seedKinds || 1; f[13] = extra.pSilt || 0; f[14] = 0; f[15] = extra.pHusk || 0;
-    f[16] = this.ambient; f[17] = 1; f[18] = extra.clump || 0; f[19] = extra.spread || 0;
+    f[16] = this.ambient; f[17] = 1; f[18] = 0; f[19] = 0;
     f.set(this.waves, 20);
     f.set(this.tide, 36);
     f.set(this.tidePh, 52);

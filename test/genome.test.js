@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { archetypeGenome, genomeSerial, readGenome, writeGenome, dietGuild, mobilityGuild, ARCHETYPE_TYPES, cellShape } from '../src/genome.js';
+import { archetypeGenome, randomGenome, genomeSerial, readGenome, writeGenome, dietGuild, mobilityGuild, ARCHETYPE_TYPES, cellShape } from '../src/genome.js';
 import { G_WORDS } from '../src/shaders.js';
 
 test('genomeSerial reads the unsigned serial of a slot and its replacement', () => {
@@ -74,4 +74,20 @@ test('thermal performance peaks at the optimum, higher for specialists, steeper 
   assert.equal(thermalPerf(g, 12).perf, 0);
   assert.equal(thermalPerf(g, 14).torpid, false);
   assert.deepEqual(thermalGuild({ topt: 40, tol: 3, thermo: 0.5 }), { pref: 'thermophile', breadth: 'specialist', maker: true });
+});
+
+// randomGenome mirrors randomInto (shaders.js): founders drawn as sparks must stay in its ranges and pack losslessly.
+test('random founders keep randomInto ranges and survive packing', () => {
+  let seed = 7;
+  const r = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32);
+  const u32 = new Uint32Array(G_WORDS * 2), f32 = new Float32Array(u32.buffer);
+  for (let i = 0; i < 200; i++) {
+    const g = randomGenome(r, undefined, 20);
+    assert.ok(g.radius >= 0.5 && g.radius <= 0.95 && g.size >= 0.6 && g.size <= 1.6 && g.lifespan >= 50 && g.lifespan <= 220);
+    assert.ok(g.photo === 0 || g.photo > 0.5);
+    assert.ok(Math.abs(g.dGlint + g.dHusk + g.dFlesh - 1) < 1e-6);
+    writeGenome(u32, f32, 1, g);
+    const back = readGenome(u32, f32, 1);
+    assert.ok(Math.abs(back.reproE - g.reproE) < 1e-6 && Math.abs(back.topt - g.topt) < 1e-5);
+  }
 });

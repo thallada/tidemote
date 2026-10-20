@@ -199,8 +199,16 @@ export const DEFAULT_K = {
   cystRate: 0.2,    // ...at this chance per second
   cystLeak: 0.002,  // energy a cyst loses per second (it dies as a husk at none)
   cystWake: 0.022,  // chance per second a cyst wakes (about every 90 s)
-  foundHunt: 0.125, // the largest share of a new world's 24 founding species that eat flesh (hunters, crawlers)
+  foundHunt: 0.125, // the largest share of a new world's founding species that eat flesh (hunters, crawlers)
   foundEach: 2,     // every new world founds at least this many species of each core niche (producer, grazer, hunter, scavenger)
+  // A new world starts as one recovering from a collapse (docs/founding.md): a little life in small
+  // colonies in empty water, each colony a different community, so patches grow into a mosaic
+  foundKinds: 96,   // founding species
+  foundRandom: 0.5, // the share of founders that are random sparks (as abiogenesis makes) rather than designed body plans
+  foundLife: 0.02,  // the share of a new world's particles alive at the start
+  foundColonies: 48, // founding colonies...
+  foundMixed: 6,    // ...each a community of about this many founding species...
+  foundPatch: 3,    // ...about this many grid units across (the spread of a gaussian)
   interfere: 0.6,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
                     // within reach, its bond partners aside)
 };
@@ -888,7 +896,7 @@ struct Sim {
   count: u32, frame: u32, dt: f32, time: f32,
   season: f32, abio: f32, seed: u32, maxSpeed: f32,
   seedKinds: u32, pSilt: f32, spare14: f32, pHusk: f32,
-  ambient: f32, spare17: f32, clump: f32, spread: f32,
+  ambient: f32, spare17: f32, spare18: f32, spare19: f32,
   waves: array<vec4f, 4>,
   tide: array<vec4f, 4>,
   tidePh: vec4f,
@@ -1236,14 +1244,12 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
   } else if (u < sim.pSilt + sim.pHusk) {
     kind = HUSK; e = 0.2 + 0.3 * rnd(&s); col = pack4x8unorm(vec4f(0.5, 0.35, 0.25, 1.0));
   } else {
-    kind = FIRST_LIFE + min(u32(rnd(&s) * f32(sim.seedKinds)), sim.seedKinds - 1u);
-    if (rnd(&s) < sim.clump) {
-      // one of the species' one to four colonies
-      let nc = 1u + pcg(kind ^ sim.seed) % 4u;
-      let h = pcg(sim.seed ^ pcg(kind * 977u + min(u32(rnd(&s) * f32(nc)), nc - 1u) * 7919u + 1u));
-      let center = vec2f(f32(h & 0xffffu), f32(h >> 16u)) / 65536.0 * sim.world;
-      pos = wrapPos(center + vec2f(gauss(&s), gauss(&s)) * sim.spread);
-    }
+    // one of the founding colonies, and one of its community of founders
+    let c = min(u32(rnd(&s) * ${f(K.foundColonies)}), ${Math.max(1, Math.round(K.foundColonies)) - 1}u);
+    let m = min(u32(rnd(&s) * ${f(K.foundMixed)}), ${Math.max(1, Math.round(K.foundMixed)) - 1}u);
+    kind = FIRST_LIFE + pcg(sim.seed ^ pcg(c * 7919u + m * 104729u + 3u)) % sim.seedKinds;
+    let h = pcg(sim.seed ^ pcg(c * 977u + 5u));
+    pos = wrapPos(vec2f(f32(h & 0xffffu), f32(h >> 16u)) / 65536.0 * sim.world + vec2f(gauss(&s), gauss(&s)) * ${f(K.foundPatch)});
     let g = genomes[kind];
     e = 0.4 + 0.6 * rnd(&s);
     let r = sampleRole(g, sampleRole(g, 0u, &s), &s);

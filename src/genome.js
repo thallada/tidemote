@@ -163,6 +163,31 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
   return finalizeGenome(g, K);
 }
 
+/**
+ * A spark of life as abiogenesis makes one (randomInto in shaders.js, mirrored on the CPU), suited to water
+ * at t degrees: every gene drawn at random from its range, no body plan designed for it.
+ */
+export function randomGenome(r = Math.random, K = DEFAULT_K, t = 19) {
+  const sig = () => Array.from({ length: 8 }, () => r() * 2 - 1);
+  const roles = [0, 1, 2].map(() => ({ surf: sig(), rec: sig() }));
+  const devs = [0, 1, 2].map(() => [r(), r(), r(), r()]);
+  const tail = [0, r(), r(), r()];
+  const g = {
+    roles, dev: devs.map((d) => d.slice(0, 3)),
+    radius: mix(0.5, 0.95, r()), beta: mix(0.2, 0.4, r()), force: mix(2, 10, r()), drag: mix(0.03, 0.15, r()),
+    lifespan: mix(50, 220, r()), reproE: mix(0.9, 2.2, r()), share: mix(0.35, 0.55, r()),
+    dGlint: r(), dHusk: r() * 0.6, dFlesh: r() ** 2, mutRate: mix(0.005, 0.025, r()),
+    hue: r(), sat: mix(0.6, 1, r()), lum: mix(0.5, 0.72, r()), size: mix(0.6, 1.6, r()), shape: Math.floor(r() * 12),
+    pulse: r() ** 2, roleHue: (r() - 0.5) * 0.3, advect: mix(0.1, 0.9, r()), swim: r() ** 2 * 1.6, align: r() * 0.8,
+    photo: ((ph) => (ph > 0.5 ? ph : 0))(r()), adhesion: ((a) => (a > 0.5 ? a : 0))(r()), calcify: ((c) => (c > 0.7 ? c : 0))(r()),
+    topt: clamp(t + gaussOf(r) * 3, 0, 45), tol: mix(3, 10, r()),
+    beat: ((on, amp, f, w, tip) => [on < 0.25 ? mix(0.15, 0.5, amp) : 0, mix(0.5, 2.5, f), mix(0.3, 1.2, w), tip < 0.25 ? 1 : 0])(r(), r(), r(), r(), r()),
+    thermo: 0, grow: [devs[0][3], devs[1][3], devs[2][3], tail[1], tail[2], tail[3]].map(unorm8),
+    parent: 0, serial: 0, born: 0, depth: 0,
+  };
+  return finalizeGenome(g, K);
+}
+
 /** A species' growth plan as growOf in shaders.js reads it (null: it does not grow as a tree). */
 export function growPlan(g) {
   const v = g.grow;
