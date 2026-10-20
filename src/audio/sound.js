@@ -140,9 +140,13 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
       if (st.starting) await st.starting;
       if (st.on) post({ type: 'audition', slot: tag, voice: voiceOf(genome), species });
     },
-    reset: () => { st.sent.clear(); post({ type: 'reset' }); },
-    // a new world begins: its era's song plays as soon as the soundtrack is heard
-    async overture() { if (st.starting) await st.starting.catch(() => {}); if (st.on) post({ type: 'open' }); },
+    // a world begins or is loaded: its music's seed (its key, ensembles and overture) and, for a
+    // loaded world, the era it is in
+    reset: (seed, era = null) => { st.sent.clear(); st.seed = seed; post({ type: 'reset', seed, era }); },
+    // a new world begins: its overture plays as soon as the soundtrack is heard
+    async overture() { if (st.starting) await st.starting.catch(() => {}); if (st.on) post({ type: 'open', seed: st.seed }); },
+    // the warm-up (a new world's first minutes at Max) begins or ends: the overture lands once it is over
+    warm: (on) => post({ type: 'warm', on }),
     wantsOn: pref.on ?? true,
   };
 }

@@ -149,12 +149,17 @@ back a little, so diving in is not a jump in level.
 Up close only a fair sample is played and each played note carries the power of the ones it stands
 for, so the audio thread never plays more than a few dozen voices. Selecting a cell brings its species forward;
 a Lab highlight pushes the others back. Songs and accents keep a pulse that follows the simulation's speed:
-slower when time is slowed, faster (up to 4×) when it runs fast.
+slower when time is slowed, faster (up to 4×) when it runs fast; the score quickens by only the square
+root of that, so sped-up time is heard without the score turning into a blur. Life sparking from silt
+rings as a short shower of chord tones, a different figure each time and only a few a second; between
+showers a spark is a single soft grain.
 
-Around the cells plays a slower score. Each climate era brings its own ensemble, two of six layers
-the previous era did not play: notes on loops of incommensurate lengths, interlocking vibraphone
-figures built from the reigning species' motif that mutate a note at a time, a felt piano breaking
-chords, dub chords dissolving into echoes, string chords swelling, or a far sonar ping. The
+Around the cells plays a slower score. Each climate era brings its own ensemble, two of nine layers
+the previous era did not play: notes on loops of incommensurate lengths that drift a step now and then,
+interlocking vibraphone figures built from the reigning species' motif that mutate a note at a time, a
+felt piano breaking chords, dub chords dissolving into echoes, string chords swelling, a far sonar ping
+going round a few calls, an echoing synth arpeggio that climbs as the tide rises, a muffled heartbeat
+under a reed haze, or a slow chorale of bowed voices each moving to the nearest note. The
 season's tide shapes them: as it strengthens they gain voices and brightness, as it slackens they
 thin out. Waves wash in more often at high tide and are heard best from afar. A new era is a
 modulation: a low piano chord sinks into a long reverb while strings swell on a chord the old and
@@ -162,11 +167,21 @@ new keys share, then resolve into the new key, and a piano interlude develops th
 species' motif in its own rhythm. Interludes also mark a new reigning species and the height of a season. Nothing
 glides: the sea and the drone change pitch by fading a new voice in over the old.
 
+Every world has its own music. A seed drawn with the world (and kept when it is saved) picks the key
+and mode it opens in, its first ensemble, the figure it opens on, and one of six overtures: a low
+chord and a string swell, long tones entering one by one, a mallet figure gathering speed, an
+arpeggio climbing into a held chord, a felt piano alone, or chord stabs dissolving into the echoes.
+With each era's name it also picks that era's key, ensemble, progression, loops and calls, so an era
+keeps its name's mode but not the same arrangement in every world. The overture plays over the
+warm-up's sped-up first minutes and lands, once real time begins, on the reigning species' motif.
+
 It runs in an AudioWorklet as a sample-level port of SuperCollider voices (see
 `tools/audio-parity/`). `tools/listen-capture.mjs` records what the soundtrack hears from a headless
 run at several zoom levels, and `tools/listen-render.mjs` renders such a capture offline and reports
 loudness and density per view, for tuning without a browser (`--repeat`, `--season` and `--era`
-stretch a capture into a long piece with seasons and era changes).
+stretch a capture into a long piece with seasons and era changes). `tools/listen-score.mjs` renders a
+capture as a new world opening at a given speed (`--warm` ends a warm-up) for several world seeds and
+reports how repetitive it is note by note and how different the worlds' openings are.
 
 ## How the simulation works
 

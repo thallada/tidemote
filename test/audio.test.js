@@ -8,7 +8,8 @@ import { LISTEN, LISTEN_REC as REC, decodeRecords, recordCells, keepFor, hearing
 import { LISTEN_TYPES, LISTEN_REC } from '../src/shaders.js';
 import { d2m } from '../src/audio/conductor.js';
 import { tempoFor } from '../src/audio/field.js';
-import { palette, LAYERS } from '../src/audio/score.js';
+import { palette, LAYERS, OVERTURES, THEMES } from '../src/audio/score.js';
+import { eraMusic, worldHash, STEP } from '../src/audio/conductor.js';
 
 const rng = (s) => () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
 
@@ -218,4 +219,66 @@ test('after its greeting a picked species sings its real share, though the scan 
   for (let k = 0; k < 400; k++) { f.plan = []; f.collect(msg()); for (const n of f.plan) if (n[0] === 'alive') count[n[3].slot] += n[3].frag || 1; f.plan = null; }
   const share = count[9] / (count[9] + count[10]);
   assert.ok(share > 0.4 && share < 0.6, `picked species' share ${share.toFixed(2)}`);
+});
+
+test('every world opens in its own key, ensemble, overture and figure, the same each time', () => {
+  const open = (ws) => { const m = eraMusic('The First Tides', null, ws); return [m.mode, m.root, palette('The First Tides', [], ws).join('+'), OVERTURES[worldHash('overture', ws) % OVERTURES.length], THEMES[worldHash('theme', ws) % THEMES.length].join()]; };
+  const seen = [new Set(), new Set(), new Set(), new Set(), new Set()];
+  for (let ws = 1; ws <= 200; ws++) { const o = open(ws); assert.deepEqual(o, open(ws)); o.forEach((x, i) => seen[i].add(x)); }
+  assert.ok(seen[0].size >= 6 && seen[1].size >= 5 && seen[2].size >= 10 && seen[3].size === OVERTURES.length && seen[4].size >= 10, seen.map((x) => x.size).join());
+  // an era keeps its name's mode in every world, but not its key and ensemble in all of them
+  const eras = new Set(), keys = new Set();
+  for (let ws = 1; ws <= 40; ws++) { const m = eraMusic('The Dim Gyre', 50, ws); assert.equal(m.mode, 'aeolian'); assert.notEqual(m.root, 50); keys.add(m.root); eras.add(palette('The Dim Gyre', [], ws).join('+')); }
+  assert.ok(keys.size >= 4 && eras.size >= 8);
+});
+
+test('a world opens with its own overture, and it lands only after the warm-up', () => {
+  for (const seed of [3, 8]) {
+    const eng = new Engine(48000, { seed: 1 }), cond = new Conductor(eng, { seed: 1 });
+    const pianos = [];
+    const spawn0 = eng.spawn.bind(eng); eng.spawn = (d, p, id) => { if (d === 'piano' && p.amp > 0.2) pianos.push(cond.time); return spawn0(d, p, id); };
+    cond.message({ type: 'reset', seed });
+    cond.score.layers = [];
+    cond.message({ type: 'open', seed }); cond.message({ type: 'warm', on: true });
+    renderBars(cond, 20); // ~58 s: the overture has rung out, but the warm-up goes on
+    cond.score.layers = [];
+    assert.equal(pianos.length, 0, 'the theme waited for the warm-up');
+    cond.message({ type: 'warm', on: false });
+    renderBars(cond, 8);
+    assert.ok(pianos.length >= 5, `the theme landed (${pianos.length} notes)`);
+  }
+});
+
+test('sparks shower in many shapes, a few times a minute, never one figure on repeat', () => {
+  const eng = new Engine(48000, { seed: 6 }), cond = new Conductor(eng, { seed: 6 });
+  const glints = [];
+  const at0 = cond.at.bind(cond); cond.at = (t, d, p, id) => { if (d === 'glint') glints.push([cond.time, Math.round(p.freq)]); return at0(t, d, p, id); };
+  const o = { pan: 0, hue: 0.3, wet: (r) => r };
+  const L = new Float32Array(64), R = new Float32Array(64);
+  // a sped-up new world: 100 sparks a second for 20 s
+  for (let b = 0; b < 15000; b++) {
+    if (b % 15 === 0) for (let i = 0; i < 5; i++) cond.field.play('spark', cond.time + 0.05, 0.05, { ...o, hue: (b * 0.37 + i * 0.13) % 1 });
+    cond.render(L, R);
+  }
+  const per = glints.length / 20;
+  assert.ok(per > 2 && per < 8, `${per.toFixed(1)} glints a second`);
+  // showers: the glints scheduled at one moment; most differ from each other
+  const showers = new Map();
+  for (const [t, f] of glints) showers.set(t, [...(showers.get(t) || []), f]);
+  const figures = [...showers.values()].filter((x) => x.length >= 3).map((x) => x.join());
+  assert.ok(figures.length >= 5 && new Set(figures).size >= figures.length * 0.7, `${new Set(figures).size} of ${figures.length} showers differ`);
+});
+
+test('sped up, the score quickens but stays a score', () => {
+  for (const layer of LAYERS) {
+    const eng = new Engine(48000, { seed: 4 }), cond = new Conductor(eng, { seed: 4 });
+    cond.score.layers = [layer];
+    let n = 0; const spawn0 = eng.spawn.bind(eng);
+    eng.spawn = (d, p, id) => { if (id == null) n++; return spawn0(d, p, id); };
+    cond.setTempo(tempoFor(1e6));
+    assert.ok(cond.step < STEP / 3.9 && cond.slow > STEP / 2.01);
+    cond.message({ type: 'world', world: { tide: 0.95, light: 0.6 } });
+    const secs = 30; renderBars(cond, (secs / (16 * cond.step)) | 0);
+    assert.ok(n / secs < 7, `${layer}: ${(n / secs).toFixed(1)} notes a second`);
+  }
 });

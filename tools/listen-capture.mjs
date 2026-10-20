@@ -1,8 +1,9 @@
 // Run the ecology headlessly in Chromium and record what the soundtrack would hear from several
 // fixed camera views: the same 'listen' and 'slots' messages the page posts to the audio thread.
-// usage: node tools/listen-capture.mjs --out capture.json [--n 4096] [--warm 40] [--each 25] [--seed 7]
+// usage: node tools/listen-capture.mjs --out capture.json [--n 4096] [--warm 40] [--each 25] [--seed 7] [--chrome PATH]
+// (under WSL: node tools/listen-capture.mjs --bundle-out cap.js, then
+//  tools/gpu-node.sh tools/listen-capture.mjs --bundle cap.js --chrome 'C:\Program Files\Google\Chrome\Application\chrome.exe' ...)
 // Render with tools/listen-render.mjs.
-import { build } from 'esbuild';
 import { chromium } from 'playwright-core';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -108,17 +109,20 @@ window.capture = async ({ N, WARM, EACH, SEED }) => {
   }
   return { info, log };
 };`;
-const bundle = await build({ stdin: { contents: entry, resolveDir: root }, bundle: true, write: false, format: 'iife', target: 'es2022' });
+// Windows Node (gpu-node.sh) can't run WSL's esbuild: bundle with Linux node first (--bundle-out), then pass --bundle
+const code = arg('bundle', null) ? fs.readFileSync(arg('bundle'), 'utf8')
+  : (await (await import('esbuild')).build({ stdin: { contents: entry, resolveDir: root }, bundle: true, write: false, format: 'iife', target: 'es2022' })).outputFiles[0].text;
+if (arg('bundle-out', null)) { fs.writeFileSync(arg('bundle-out'), code); process.exit(0); }
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tidemote-cap-'));
 fs.writeFileSync(path.join(dir, 'i.html'), '<!doctype html><meta charset="utf-8"><title>capture</title>');
-const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM || '/opt/pw-browsers/chromium', args: ['--enable-unsafe-webgpu'] });
+const browser = await chromium.launch({ headless: true, executablePath: arg('chrome', null) || process.env.PLAYWRIGHT_CHROMIUM || chromium.executablePath(), args: ['--enable-unsafe-webgpu'] });
 try {
   const page = await browser.newPage();
   page.setDefaultTimeout(0);
   page.on('console', (m) => { if (m.type() === 'error') console.error(m.text()); });
   page.on('pageerror', (e) => console.error(String(e)));
   await page.goto(pathToFileURL(path.join(dir, 'i.html')).href);
-  await page.addScriptTag({ content: bundle.outputFiles[0].text });
+  await page.addScriptTag({ content: code });
   const t0 = Date.now();
   const res = await page.evaluate(async (o) => {
     const r = await window.capture(o);

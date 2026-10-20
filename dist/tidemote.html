@@ -10665,6 +10665,10 @@ var FULL = 92;
 var MINOR = /* @__PURE__ */ new Set(["charged", "eaten", "rustle"]);
 var SWARM_MAX = 150;
 var GRAIN = 1.75;
+var SHOWERS = 0.4;
+var GRAINS = 2.5;
+var RINGS = 1.5;
+var SHAPES = [(i) => i, (i, n) => n - 1 - i, (i, n) => Math.min(i, n - 1 - i) * 2, (i) => [0, 2, 1, 3, 2, 4][i], (i) => i % 2 ? i + 1 : i - 1 + (i ? 0 : 1), (i) => -i];
 var CLOSE = 0.9;
 var FOCUS_FADE = 2.5;
 var soloShare = (z) => {
@@ -11014,6 +11018,11 @@ var Field = class {
         return;
       case "birth": {
         const midi = this.speciesNote(o.slot, t, g * 0.7, o);
+        const dt = c.time - (this.ringAt ?? c.time);
+        this.ringAt = c.time;
+        this.rings = Math.min(2, (this.rings ?? 2) + dt * RINGS);
+        if (this.rings < 1) return;
+        this.rings--;
         const f = midicps2((midi ?? d2m(Math.floor(o.hue * 7) + piv, root, scale)) + 24);
         c.at(t, "glint", { freq: f, amp: g * 0.5, dec: 0.35, pan: o.pan, rev: o.wet(0.45), dly: 0.2 });
         return;
@@ -11024,7 +11033,7 @@ var Field = class {
         return;
       }
       case "spark":
-        for (let i = 0; i < 6; i++) c.at(t + i * 0.09, "glint", { freq: midicps2(d2m(i + 2, root, scale)) * 4, amp: g * (1 - i * 0.08), dec: 0.3, pan: clamp(o.pan + this.rr(-0.15, 0.15), -0.9, 0.9), rev: o.wet(0.55), dly: 0.3 });
+        this.spark(t, g, o);
         return;
       case "starved":
         c.at(t, "wood", { freq: midicps2(d2m(-(o.idb % 4) + piv, root, scale) - 12), amp: g, dec: 0.5, bright: 0.45 * o.dim, pan: o.pan, rev: o.wet(0.3) });
@@ -11056,6 +11065,31 @@ var Field = class {
       }
       case "charged":
         c.at(t, "glint", { freq: midicps2(d2m(o.idb % 14, root, scale)) * (o.idb & 32 ? 8 : 4), amp: g * (0.5 + 0.5 * o.td), dec: this.rr(0.04, 0.2), pan: o.pan, rev: o.wet(0.55), dly: 0.25 });
+    }
+  }
+  // Life sparking from silt. A new world sparks many times a second (and many more at a fast
+  // speed), so only now and then is it a whole shower: a few notes of the chord of the moment, from
+  // where the spark's colour falls, rising, falling or turning, high or very high, quick or
+  // unhurried, never twice the same. Between showers a spark is a single soft grain, and beyond a
+  // few grains a second it is not heard at all.
+  spark(t, g, o) {
+    const c = this.c, now = c.time, { root, scale } = c, piv = c.pivot;
+    const dt = now - (this.sparkAt ?? now);
+    this.sparkAt = now;
+    this.showers = Math.min(1.5, (this.showers ?? 1) + dt * SHOWERS);
+    this.grains = Math.min(3, (this.grains ?? 3) + dt * GRAINS);
+    const pan = (d) => clamp(o.pan + d, -0.9, 0.9);
+    if (this.showers >= 1) {
+      this.showers--;
+      const n = 3 + Math.floor(this.rnd() * 4), shape = SHAPES[Math.floor(this.rnd() * SHAPES.length)], gap = this.rr(0.06, 0.13);
+      const base = Math.floor(o.hue * 7), mul = this.rnd() < 0.7 ? 4 : this.rnd() < 0.5 ? 2 : 8, drift = this.rr(-0.25, 0.25);
+      for (let i = 0; i < n; i++) {
+        const deg = base + piv + 2 * shape(i, n);
+        c.at(t + i * gap * this.rr(0.85, 1.15), "glint", { freq: midicps2(d2m(deg, root, scale)) * mul, amp: g * (1 - i * 0.08), dec: this.rr(0.2, 0.4), pan: pan(drift * i), rev: o.wet(0.55), dly: 0.3 });
+      }
+    } else if (this.grains >= 1) {
+      this.grains--;
+      c.at(t, "glint", { freq: midicps2(d2m(Math.floor(this.rnd() * 7) * 2 + piv, root, scale)) * (this.rnd() < 0.5 ? 4 : 2), amp: g * 0.5, dec: this.rr(0.15, 0.35), pan: pan(this.rr(-0.2, 0.2)), rev: o.wet(0.6), dly: 0.3 });
     }
   }
   // The swarm: the species heard most get bands (a bigger share, more bands: successive notes of
@@ -11146,17 +11180,49 @@ var Field = class {
 var midicps3 = (m) => 440 * Math.pow(2, (m - 69) / 12);
 var clamp2 = (x, a, b) => x < a ? a : x > b ? b : x;
 var vibeAmp = (f) => Math.pow(f / 440, 0.8);
-var LAYERS = ["loops", "circles", "piano", "dub", "pad", "sonar"];
-var PROGS = [[0, 5, 3, 4], [0, 3, 5, 4], [0, -2, -4, -3], [0, 2, 5, 3]];
+var LAYERS = ["loops", "circles", "piano", "dub", "pad", "sonar", "arp", "pulse", "hymn"];
+var OPENINGS = [
+  ["loops", "sonar"],
+  ["hymn", "arp"],
+  ["circles", "pad"],
+  ["loops", "arp"],
+  ["piano", "hymn"],
+  ["sonar", "circles"],
+  ["pad", "arp"],
+  ["hymn", "pulse"],
+  ["dub", "loops"],
+  ["piano", "sonar"],
+  ["circles", "hymn"],
+  ["arp", "sonar"]
+];
+var OVERTURES = ["swell", "tape", "bells", "rise", "felt", "deep"];
+var THEMES = [
+  [0, 2, 4, 1, 3],
+  [4, 2, 3, 1, 0],
+  [0, 4, 3, 2, 4],
+  [2, 0, -1, 0, 4],
+  [0, 1, 2, 4, 2],
+  [4, 5, 4, 2, 1, 0],
+  [0, -3, -1, 0, 2],
+  [7, 4, 5, 2, 3],
+  [0, 2, 0, 4, 3, 1],
+  [2, 4, 7, 6, 4],
+  [0, 3, 2, 5, 4],
+  [4, 3, 0, 1, 2]
+];
+var PROGS = [[0, 5, 3, 4], [0, 3, 5, 4], [0, -2, -4, -3], [0, 2, 5, 3], [0, 4, 5, 3], [0, -1, -3, -4], [0, 3, 1, 4], [0, 5, 1, 4], [0, 2, 3, -1], [0, -3, -2, 1]];
 var LOOP_P = [109, 131, 151, 173, 197, 223];
-var LOOP_DEG = [0, 4, 9, 5, 8, 2];
 var LOOP_PAN = [-0.5, 0.45, -0.2, 0.65, 0.1, -0.7];
+var LOOP_DEGS = [[0, 4, 9, 5, 8, 2], [0, 2, 4, 7, 9, 11], [4, 0, 7, 2, 9, 6], [0, 5, 3, 8, 10, 1], [2, 6, 4, 9, 0, 7], [0, 7, 4, 11, 2, 9]];
+var SONAR = [[4, 8], [2, 7], [4, 6], [0, 4], [7, 9], [2, 5], [6, 4], [9, 7]];
 var CIRCLES = [{ every: 2, len: 5, oct: 1, at: 0, pan: -0.35 }, { every: 3, len: 4, oct: 1, at: 0.35, pan: 0.4 }, { every: 8, len: 3, oct: -1, at: 0.6, pan: 0 }];
 var PIANO_PAT = [[[0, 0], [8, 2]], [[0, 0], [4, 1], [8, 2], [12, 1]], [[0, 0], [2, 1], [4, 2], [6, 3], [8, 2], [10, 1], [12, 2], [14, 1]]];
-var RHYTHMS = [[4, 2, 2, 8], [3, 3, 2, 8], [2, 2, 4, 8], [6, 2, 4, 4]];
-function palette(name, prev = []) {
-  if (!name || name === "The First Tides") return ["loops", "sonar"];
-  const free = LAYERS.filter((l) => !prev.includes(l)), h = hashStr(name), a = h % free.length;
+var ARP_TONE = [0, 2, 4, 7, 9];
+var ARP_PATS = [[0, 1, 2, 3], [0, 1, 2, 3, 2, 1], [0, 2, 1, 3], [0, 3, 1, 2], [0, 2, 4, 1, 3], [3, 2, 0, 1], [0, 1, 3, 2, 4, 2]];
+var RHYTHMS = [[4, 2, 2, 8], [3, 3, 2, 8], [2, 2, 4, 8], [6, 2, 4, 4], [2, 4, 2, 8], [4, 4, 2, 6], [3, 1, 4, 8], [2, 6, 2, 6]];
+function palette(name, prev = [], ws = 0) {
+  if (!name || name === "The First Tides") return OPENINGS[worldHash("ensemble", ws) % OPENINGS.length].slice();
+  const free = LAYERS.filter((l) => !prev.includes(l)), h = worldHash(name, ws), a = h % free.length;
   let b = (h >>> 8) % (free.length - 1);
   if (b >= a) b++;
   return [free[a], free[b]];
@@ -11167,30 +11233,57 @@ var Score = class {
     this.rnd = cond.rnd;
     this.I = 0.3;
     this.layers = [];
+    this.reset();
+    this.setEra(cond.era);
+  }
+  reset() {
     this.lastInterlude = -1e9;
     this.duckUntil = 0;
     this.reign = -1;
     this.peaked = false;
-    this.setEra(cond.era);
+    this.landAt = null;
+    this.lapseEnd = null;
+    this.openAt = null;
+    this.at = null;
+    this.barN = 0;
+    this.s = this.c.step;
+    this.k = 1;
+    this.fast = false;
   }
   rr(lo, hi) {
     return lo + (hi - lo) * this.rnd();
   }
+  pick(a) {
+    return a[Math.floor(this.rnd() * a.length)];
+  }
   setEra(era) {
-    const h = hashStr(era.name);
-    this.layers = palette(era.name, this.played || []);
+    const h = worldHash(era.name, this.c.ws);
+    this.layers = palette(era.name, this.played || [], this.c.ws);
     this.played = this.layers;
     this.prog = PROGS[(h >>> 4) % PROGS.length];
     this.loopDef = h >>> 12 & 1 ? "glass" : "breath";
+    this.loopDeg = LOOP_DEGS[(h >>> 7) % LOOP_DEGS.length].slice();
     this.loopAt = LOOP_P.map(() => ({ next: null }));
+    const s0 = (h >>> 11) % SONAR.length;
+    this.calls = [0, 3, 5].map((k) => SONAR[(s0 + k) % SONAR.length]);
+    this.callN = 0;
+    this.sonarP = 36 + 4 * ((h >>> 14) % 5);
+    this.arpPat = ARP_PATS[(h >>> 15) % ARP_PATS.length];
+    this.hymnDef = h >>> 19 & 1 ? "glass" : "breath";
+    this.hymnV = null;
+    this.hymnNext = null;
+    this.pulseNext = null;
     this.cells = null;
     this.sonarNext = null;
-    this.c.eng.set("ping", { fb: this.layers.includes("dub") ? 0.62 : 0.45 });
+    this.c.eng.set("ping", { fb: this.layers.includes("dub") || this.layers.includes("arp") ? 0.62 : 0.45 });
   }
-  // the reigning species' motif (scale degrees), or a plain one
+  // the reigning species' motif (scale degrees), or the world's own opening figure
   theme() {
     const m = this.reigning();
-    return m ? m.seq : [0, 2, 4, 1, 3];
+    return m ? m.seq : this.openTheme();
+  }
+  openTheme() {
+    return THEMES[worldHash("theme", this.c.ws) % THEMES.length];
   }
   reigning() {
     let best = null;
@@ -11201,22 +11294,40 @@ var Score = class {
     const c = this.c;
     return Array.from({ length: n }, (_, i) => d2m(deg + 2 * i, c.root, c.scale));
   }
-  // once per bar
-  bar(ts, barN) {
+  // Once per bar of the conductor's, which spans [ts, ts + 16 steps): the score's own bars that
+  // begin in it. The score keeps time on the slow clock (this.s), so at a fast speed its bars are
+  // longer than the conductor's: it quickens with the square root of the speed.
+  bar(ts) {
+    const c = this.c, end = ts + 16 * c.step;
+    if (this.at == null || this.at < ts - 1) this.at = ts;
+    while (this.at < end) {
+      this.s = c.slow;
+      this.sbar(this.at, this.barN++);
+      this.at += 16 * this.s;
+    }
+  }
+  sbar(ts, barN) {
     const c = this.c, W = c.world, fx = c.era.fx;
+    this.k = clamp2(this.s / STEP, 0.5, 1);
+    this.fast = this.k < 0.8;
     const target = clamp2((W.tide - 0.1) / 0.8, 0, 1) * (fx.dens || 1);
     this.I += (clamp2(target, 0, 1) - this.I) * 0.15;
     const I = this.I;
     if (c.switchAt != null) return;
+    if (this.landAt != null && ts >= this.landAt && !c.lapse) {
+      const lapsed = this.lapseEnd != null && this.lapseEnd >= this.openAt;
+      this.landAt = null;
+      this.land(ts + 0.4, lapsed ? c.realStep() : this.s);
+    }
     const top = this.topSlot();
     if (top !== this.reign) {
       const first = this.reign < 0;
       this.reign = top;
-      if (!first && top >= 0 && ts - this.lastInterlude > 180) this.interlude(ts + 2 * 16 * c.step);
+      if (!first && top >= 0 && ts - this.lastInterlude > 180) this.interlude(ts + 2 * 16 * this.s);
     }
     if (I > 0.85 && !this.peaked) {
       this.peaked = true;
-      if (ts - this.lastInterlude > 240) this.interlude(ts + 16 * c.step);
+      if (ts - this.lastInterlude > 240) this.interlude(ts + 16 * this.s);
     }
     if (I < 0.6) this.peaked = false;
     const L = (fx.level || 1) * (1 - 0.6 * c.field.z) * (ts < this.duckUntil ? 0.45 : 1);
@@ -11232,19 +11343,20 @@ var Score = class {
   }
   // ── layers ─────────────────────────────────────────────────────────────────
   loops(ts, barN, I, L) {
-    const c = this.c, s = c.step, end = ts + 16 * s, n = 2 + Math.round(4 * I);
+    const c = this.c, s = this.s, end = ts + 16 * s, n = 2 + Math.round(4 * I);
     for (let i = 0; i < n; i++) {
       const lp = this.loopAt[i], P = LOOP_P[i] * s;
       if (lp.next == null || lp.next < ts - P) lp.next = ts + this.rnd() * P;
       for (; lp.next < end; lp.next += P) {
         if (lp.next < ts) continue;
-        const f = midicps3(d2m(LOOP_DEG[i], c.root, c.scale) + 12);
+        const f = midicps3(d2m(this.loopDeg[i], c.root, c.scale) + 12);
         c.at(lp.next, this.loopDef, { freq: f, amp: (this.loopDef === "breath" ? 0.027 : 0.09) * L * (0.7 + 0.3 * I), atk: 2.5, sus: 2, rel: 7, glide: 0, bright: 0.35 + 0.35 * clamp2(c.world.light, 0, 1), pan: LOOP_PAN[i], rev: 0.6, dly: 0.12 });
+        if (this.rnd() < 0.15) this.loopDeg[i] = clamp2(this.loopDeg[i] + this.pick([-2, -1, 1, 2]), -2, 11);
       }
     }
   }
   circles(ts, barN, I, L) {
-    const c = this.c, s = c.step;
+    const c = this.c, s = this.s;
     if (!this.cells) {
       const th = this.theme();
       this.cells = CIRCLES.map((v, i) => Array.from({ length: v.len }, (_, k) => i === 2 ? [0, 4, -3][k] : i ? th[(th.length - 1 - k + th.length) % th.length] : th[k % th.length]));
@@ -11253,9 +11365,9 @@ var Score = class {
       const v = CIRCLES[i], cell = this.cells[i];
       if (I < v.at) continue;
       for (let k = 0; k < 16; k++) {
-        const g = barN * 16 + k;
-        if (g % v.every) continue;
-        const idx = g / v.every;
+        const g = barN * 16 + k, every = v.every * (this.fast && i < 2 ? 2 : 1);
+        if (g % every) continue;
+        const idx = g / every;
         if (idx % v.len === 0 && this.rnd() < 0.1) {
           const j = Math.floor(this.rnd() * v.len);
           cell[j] = clamp2(cell[j] + (this.rnd() < 0.5 ? -1 : 1), -3, 9);
@@ -11264,26 +11376,26 @@ var Score = class {
         if (i === 2) c.at(t, "strings", { freq: midicps3(d2m(deg, c.root, c.scale) - 12), amp: 0.11 * L * accent, atk: 0.12, sus: 4 * s, rel: 1.2, bright: 0.3, pan: v.pan, rev: 0.4 });
         else {
           const f = midicps3(d2m(deg, c.root, c.scale) + 12 * v.oct);
-          c.at(t, "vibe", { freq: f, amp: 0.087 * vibeAmp(f) * L * accent * (0.5 + 0.5 * I), dec: 2.2, bright: 0.35 + 0.4 * I, trem: 4.5, depth: 0.25, pan: v.pan, rev: 0.35, dly: 0.15 });
+          c.at(t, "vibe", { freq: f, amp: 0.087 * vibeAmp(f) * L * accent * (0.5 + 0.5 * I), dec: 2.2 * this.k, bright: 0.35 + 0.4 * I, trem: 4.5, depth: 0.25, pan: v.pan, rev: 0.35, dly: 0.15 });
         }
       }
     }
     if (I > 0.8 && barN % 2 === 0) c.at(ts, "strings", { freq: midicps3(d2m(c.pivot, c.root, c.scale) - 12), amp: 0.08 * L, atk: 2, sus: 16 * s, rel: 4, bright: 0.25, pan: 0, rev: 0.5 });
   }
   piano(ts, barN, I, L) {
-    const c = this.c, s = c.step, ch = c.pivot + this.prog[(barN >> 1) % 4];
+    const c = this.c, s = this.s, ch = c.pivot + this.prog[(barN >> 1) % 4];
     const tones = [0, 2, 4, 7].map((d) => d2m(ch + d, c.root, c.scale));
     const human = () => (this.rnd() - 0.5) * 0.03;
     if (barN % 2 === 0) c.at(ts + 0.01, "piano", { freq: midicps3(tones[0] - 12), amp: 0.1 * L, dec: 6, felt: 0.7, pan: -0.15, rev: 0.35, dly: 0.03 });
-    const pat = PIANO_PAT[I < 0.35 ? 0 : I < 0.65 ? 1 : 2];
-    for (const [k, tone] of pat) c.at(ts + k * s + 0.02 + human(), "piano", { freq: midicps3(tones[tone] + 12), amp: 0.17 * L * (k === 0 ? 1 : 0.8) * this.rr(0.85, 1), dec: 4, felt: 0.65, pan: 0.15, rev: 0.35, dly: 0.05 });
+    const pat = PIANO_PAT[Math.min(I < 0.35 ? 0 : I < 0.65 ? 1 : 2, this.fast ? 1 : 2)];
+    for (const [k, tone] of pat) c.at(ts + k * s + 0.02 + human(), "piano", { freq: midicps3(tones[tone] + 12), amp: 0.17 * L * (k === 0 ? 1 : 0.8) * this.rr(0.85, 1), dec: 4 * this.k, felt: 0.65, pan: 0.15, rev: 0.35, dly: 0.05 });
     if (I > 0.6) {
       const th = this.theme();
-      for (const k of [0, 8]) c.at(ts + k * s + 0.03 + human(), "piano", { freq: midicps3(d2m(th[(barN * 2 + k / 8) % th.length] + c.pivot, c.root, c.scale) + 24), amp: 0.15 * L, dec: 4, felt: 0.5, pan: 0.25, rev: 0.4, dly: 0.08 });
+      for (const k of this.fast ? [0] : [0, 8]) c.at(ts + k * s + 0.03 + human(), "piano", { freq: midicps3(d2m(th[(barN * 2 + k / 8) % th.length] + c.pivot, c.root, c.scale) + 24), amp: 0.15 * L, dec: 4 * this.k, felt: 0.5, pan: 0.25, rev: 0.4, dly: 0.08 });
     }
   }
   dub(ts, barN, I, L) {
-    const c = this.c, s = c.step;
+    const c = this.c, s = this.s;
     if (I < 0.35 && barN % 2) return;
     const steps = I < 0.7 ? [4] : [4, 10], ch = c.pivot + this.prog[(barN >> 2) % 4];
     for (const k of steps) for (const d of [0, 2, 4, 6]) {
@@ -11291,40 +11403,119 @@ var Score = class {
     }
   }
   pad(ts, barN, I, L) {
-    const c = this.c, s = c.step;
+    const c = this.c, s = this.s;
     if (barN % 4) return;
     const ch = c.pivot + this.prog[(barN >> 2) % 4], dur = 64 * s;
     const notes = [d2m(ch, c.root, c.scale) - 12, ...this.chord(ch), ...I > 0.6 ? [d2m(ch + 9, c.root, c.scale)] : []];
     notes.forEach((m, i) => c.at(ts + i * 0.15, "strings", { freq: midicps3(m), amp: 0.07 * L * (0.35 + 0.65 * I), atk: 0.35 * dur, sus: 0.35 * dur, rel: 0.5 * dur, bright: 0.2 + 0.6 * I, pan: (i - 1.5) * 0.3, rev: 0.6 }));
   }
   sonar(ts, barN, I, L) {
-    const c = this.c, s = c.step, end = ts + 16 * s, P = 36 * s;
+    const c = this.c, s = this.s, end = ts + 16 * s, P = this.sonarP * s;
     if (this.sonarNext == null || this.sonarNext < ts - P) this.sonarNext = ts;
     for (; this.sonarNext < end; this.sonarNext += P) {
-      const t = this.sonarNext;
-      const f1 = midicps3(d2m(4, c.root, c.scale) + 24), f2 = midicps3(d2m(8, c.root, c.scale) + 24);
-      c.at(t, "vibe", { freq: f1, amp: 0.06 * vibeAmp(f1) * L, dec: 4, bright: 0.3, depth: 0, pan: 0.3, rev: 0.6, dly: 0.45 });
-      if (I > 0.5) c.at(t + 24 * s, "vibe", { freq: f2, amp: 0.045 * vibeAmp(f2) * L, dec: 4, bright: 0.3, depth: 0, pan: -0.4, rev: 0.6, dly: 0.45 });
+      const t = this.sonarNext, [a, b] = this.calls[this.callN % this.calls.length], oct = this.callN % 5 === 4 ? 12 : 24;
+      this.callN++;
+      const f1 = midicps3(d2m(a + c.pivot, c.root, c.scale) + oct), f2 = midicps3(d2m(b + c.pivot, c.root, c.scale) + 24);
+      c.at(t, "vibe", { freq: f1, amp: 0.06 * vibeAmp(f1) * L, dec: 4, bright: 0.3, depth: 0, pan: this.rr(0.15, 0.45), rev: 0.6, dly: 0.45 });
+      if (I > 0.5) c.at(t + 24 * s, "vibe", { freq: f2, amp: 0.045 * vibeAmp(f2) * L, dec: 4, bright: 0.3, depth: 0, pan: -this.rr(0.25, 0.55), rev: 0.6, dly: 0.45 });
     }
   }
-  // ── a melodic interlude: the reigning motif, sequenced up, inverted, brought home ──
+  // An echoing arpeggio through the chord of the moment (Althai, Bersarin Quartett): quiet and
+  // sparse in calm water, it quickens, brightens and climbs an octave as the tide rises.
+  arp(ts, barN, I, L) {
+    const c = this.c, s = this.s, every = I < 0.4 || this.fast ? 4 : 2, pat = this.arpPat;
+    const ch = c.pivot + this.prog[(barN >> 1) % 4];
+    for (let k = 0; k < 16; k += every) {
+      const idx = (barN * 16 + k) / every;
+      if (this.rnd() < 0.12) continue;
+      const cyc = Math.floor(idx / pat.length), up = I > 0.7 && cyc % 4 >= 2 ? 12 : 0;
+      const m = d2m(ch + ARP_TONE[pat[idx % pat.length]], c.root, c.scale) + 12 + up;
+      c.at(ts + k * s, "cplx", {
+        freq: midicps3(m),
+        amp: 0.075 * L * (0.45 + 0.55 * I) * (idx % pat.length === 0 ? 1 : 0.8),
+        ratio: 2,
+        index: 0.5 + 0.9 * I,
+        fold: 0.9 + 0.8 * I,
+        dec: 0.22 + 0.35 * (1 - I),
+        bright: 0.25 + 0.6 * I,
+        pan: idx % 2 ? 0.35 : -0.35,
+        rev: 0.45,
+        dly: 0.5
+      });
+    }
+  }
+  // A muffled heartbeat (Gas, Donato Dozzy): a soft low knock on the beat, under a reed haze that
+  // swells once a phrase. Only in lively water; in calm water just the haze.
+  pulse(ts, barN, I, L) {
+    const c = this.c, s = this.s, end = ts + 16 * s, P = 4 * s;
+    if (this.pulseNext == null || this.pulseNext < ts - P) this.pulseNext = ts;
+    const f = midicps3(c.root - 12), beat = clamp2((I - 0.3) / 0.5, 0, 1);
+    for (; this.pulseNext < end; this.pulseNext += P) {
+      if (beat > 0) c.at(this.pulseNext, "wood", { freq: f, amp: 0.12 * L * beat, dec: 0.45, bright: 0.05, pan: 0, rev: 0.25 });
+    }
+    if (barN % 4 === 0) {
+      const ch = c.pivot + this.prog[(barN >> 2) % 4], dur = 64 * s;
+      [0, 4, 7].forEach((d, i) => c.at(ts + i * 0.2, "breath", { freq: midicps3(d2m(ch + d, c.root, c.scale)), amp: 0.02 * L * (0.5 + 0.5 * I), atk: 0.4 * dur, sus: 0.3 * dur, rel: 0.6 * dur, glide: 0, bright: 0.3, pan: (i - 1) * 0.5, rev: 0.7, dly: 0.3 }));
+    }
+  }
+  // A slow chorale (Biosphere, Eno): three or four bowed voices, each moving to the nearest note of
+  // the next chord, so the harmony turns without anything jumping.
+  hymn(ts, barN, I, L) {
+    const c = this.c, s = this.s, end = ts + 16 * s, P = 40 * s;
+    if (this.hymnNext == null || this.hymnNext < ts - P) this.hymnNext = ts;
+    for (; this.hymnNext < end; this.hymnNext += P) {
+      const t = this.hymnNext, k = Math.round(t / P);
+      const ch = c.pivot + this.prog[k % 4];
+      const tones = [];
+      for (let o = -1; o <= 2; o++) for (const d of [0, 2, 4]) tones.push(d2m(ch + d, c.root, c.scale) + 12 * o);
+      if (!this.hymnV) this.hymnV = [c.root, c.root + 7, c.root + 12, c.root + 16];
+      const n = I > 0.6 ? 4 : 3;
+      for (let v = 0; v < n; v++) {
+        const prev = this.hymnV[v];
+        let best = tones[0];
+        for (const m of tones) if (Math.abs(m - prev) < Math.abs(best - prev) || Math.abs(m - prev) === Math.abs(best - prev) && this.rnd() < 0.5) best = m;
+        this.hymnV[v] = best;
+        const glass = this.hymnDef === "glass";
+        c.at(t + v * 0.35, this.hymnDef, {
+          freq: midicps3(best),
+          amp: (glass ? 0.06 : 0.022) * L * (0.45 + 0.55 * I),
+          atk: 0.4 * P,
+          sus: 0.35 * P,
+          rel: 0.7 * P,
+          glide: 0,
+          bright: 0.25 + 0.35 * I,
+          pan: (v - 1.5) * 0.4,
+          rev: 0.65,
+          dly: 0.1
+        });
+      }
+    }
+  }
+  // ── a melodic interlude: the reigning motif, developed in one of a few ways, brought home ──
   // It keeps the motif's own rhythm, slowed to the piano's pace (its shortest note two steps).
-  interlude(t0, theme = this.theme(), motif = this.reigning()) {
-    const c = this.c, s = c.step, L = (c.era.fx.level || 1) * (1 - 0.3 * c.field.z);
+  // s: the step to play it at (the landing after a warm-up plays it at real time).
+  interlude(t0, theme = this.theme(), motif = this.reigning(), s = this.s) {
+    const c = this.c, L = (c.era.fx.level || 1) * (1 - 0.3 * c.field.z);
     const th = theme.slice(0, Math.min(5, theme.length));
-    let r = RHYTHMS[Math.floor(this.rnd() * RHYTHMS.length)];
+    let r = this.pick(RHYTHMS);
     if (motif && motif.notes.length >= 2) {
       const ds = motif.notes.slice(0, th.length).map((nt) => nt.dur), lo = Math.min(...ds);
       r = ds.map((d) => clamp2(Math.round(2 * d / lo), 2, 8));
     }
-    const phrases = [th, th.map((d) => d + 2), th.slice(0, 3).map((d) => 2 * th[0] - d), [th[0] + 2, th[0] + 1, th[0]]];
-    const bassDeg = [0, 3, 5, 0], dyn = [0.75, 0.9, 1, 0.7];
+    const cad = [th[0] + 2, th[0] + 1, th[0]];
+    const form = this.pick(["sequence", "answer", "canon"]);
+    const phrases = form === "answer" ? [th, [...th].reverse().map((d) => d + 1), th.slice(0, 3).map((d) => d + 4), cad] : [th, th.map((d) => d + 2), th.slice(0, 3).map((d) => 2 * th[0] - d), cad];
+    const bassDeg = form === "answer" ? [0, 4, 3, 0] : [0, 3, 5, 0], dyn = [0.75, 0.9, 1, 0.7];
     let t = t0;
     phrases.forEach((ph, pi) => {
       c.at(t, "piano", { freq: midicps3(d2m(c.pivot + bassDeg[pi], c.root, c.scale) - 12), amp: 0.13 * L * dyn[pi], dec: 7, felt: 0.7, pan: -0.2, rev: 0.4, dly: 0.03 });
       ph.forEach((d, k) => {
-        const last = k === ph.length - 1, len = last ? 8 : r[k % r.length];
-        c.at(t + (this.rnd() - 0.5) * 0.04, "piano", { freq: midicps3(d2m(d + c.pivot, c.root, c.scale) + 12), amp: 0.28 * L * dyn[pi] * (last ? 0.85 : 1), dec: last ? 6 : 4, felt: 0.55, pan: 0.15, rev: 0.4, dly: 0.08 });
+        const last = k === ph.length - 1, len = last ? 8 : r[k % r.length], m = d2m(d + c.pivot, c.root, c.scale) + 12;
+        c.at(t + (this.rnd() - 0.5) * 0.04, "piano", { freq: midicps3(m), amp: 0.28 * L * dyn[pi] * (last ? 0.85 : 1), dec: last ? 6 : 4, felt: 0.55, pan: 0.15, rev: 0.4, dly: 0.08 });
+        if (form === "canon" && pi < 3) {
+          const f = midicps3(m + 12);
+          c.at(t + 2 * s, "vibe", { freq: f, amp: 0.07 * vibeAmp(f) * L * dyn[pi], dec: 2.5, bright: 0.3, trem: 4, depth: 0.2, pan: -0.3, rev: 0.45, dly: 0.2 });
+        }
         t += len * s;
       });
     });
@@ -11336,6 +11527,7 @@ var Score = class {
   // keys share (the triad of the new key with the most notes already sounding) until the switch.
   bridge(ts, nx, root, scale, until) {
     const c = this.c, old = new Set(c.scale.map((x) => (x + c.root) % 12));
+    this.landAt = null;
     for (const [i, m] of [c.root - 24, c.root - 12, d2m(4, c.root, c.scale) - 12, d2m(1, c.root, c.scale), d2m(2, c.root, c.scale)].entries()) {
       c.at(ts + i * 0.02, "piano", { freq: midicps3(m), amp: 0.2, dec: 9, felt: 0.35, pan: (i - 2) * 0.2, rev: 0.95, dly: 0.1 });
     }
@@ -11356,19 +11548,67 @@ var Score = class {
     this.layers = [];
   }
   // ── the opening of a world ─────────────────────────────────────────────────
-  // A new world is announced as an era arrives: a low chord rings out in a long reverb, strings
-  // swell on the era's tonic chord, then the piano plays the reigning motif (or a plain one).
-  overture(ts) {
-    const c = this.c, T2 = 10;
-    [c.root - 24, c.root - 12, d2m(4, c.root, c.scale) - 12, d2m(2, c.root, c.scale)].forEach((m, i) => {
-      c.at(ts + i * 0.02, "piano", { freq: midicps3(m), amp: 0.18, dec: 9, felt: 0.35, pan: (i - 1.5) * 0.2, rev: 0.95, dly: 0.1 });
+  // A new world is announced in one of several ways (its seed picks which), timed in seconds so
+  // that it unfolds the same at any speed; it plays over the warm-up's sped-up first minutes. Once
+  // it has rung out and the warm-up is over it lands: the tonic chord, and the piano plays the
+  // reigning motif (by then a species usually reigns) at real time.
+  overture(ts, form = OVERTURES[worldHash("overture", this.c.ws) % OVERTURES.length]) {
+    const c = this.c, T2 = 10, th = this.openTheme(), tonic = [c.root - 12, ...this.chord(0)];
+    const hall = () => {
+      c.setAt(ts, "fdn", { decay: 18 });
+      c.setAt(ts + T2, "fdn", { decay: 9 });
+    };
+    const lowChord = (amp) => [c.root - 24, c.root - 12, d2m(4, c.root, c.scale) - 12, d2m(2, c.root, c.scale)].forEach((m, i) => {
+      c.at(ts + i * 0.02, "piano", { freq: midicps3(m), amp, dec: 9, felt: 0.35, pan: (i - 1.5) * 0.2, rev: 0.95, dly: 0.1 });
     });
-    c.setAt(ts, "fdn", { decay: 18 });
-    c.setAt(ts + T2, "fdn", { decay: 9 });
+    const swell = (t1, amp, bright) => tonic.forEach((m, i) => {
+      c.at(t1 + i * 0.3, "strings", { freq: midicps3(m), amp, atk: 0.7 * (ts + T2 - t1), sus: 0.3 * (ts + T2 - t1), rel: 12, bright, pan: (i - 1.5) * 0.35, rev: 0.6 });
+    });
+    const note = (k) => d2m(th[k % th.length], c.root, c.scale);
+    hall();
+    if (form === "swell") {
+      lowChord(0.18);
+      swell(ts + 1.5, 0.12, 0.6);
+    } else if (form === "tape") {
+      lowChord(0.12);
+      for (let k = 0; k < 4; k++) c.at(ts + 1 + 2.1 * k, "glass", { freq: midicps3(note(k) + 12), amp: 0.11, atk: 1.6, sus: 2.5, rel: 7, glide: 0, bright: 0.5, pan: [-0.5, 0.45, -0.15, 0.6][k], rev: 0.7, dly: 0.15 });
+      swell(ts + 4, 0.07, 0.4);
+    } else if (form === "bells") {
+      let t = ts + 0.4, dt = 0.62;
+      for (let k = 0; k < 15; k++, t += dt, dt *= 0.95) {
+        const f = midicps3(note(k) + 12 + (k >= 10 ? 12 : 0));
+        c.at(t, "vibe", { freq: f, amp: 0.095 * vibeAmp(f) * (0.45 + 0.04 * k), dec: 2.6, bright: 0.4, trem: 4.5, depth: 0.25, pan: k % 2 ? 0.35 : -0.35, rev: 0.45, dly: 0.25 });
+      }
+      swell(ts + 3, 0.09, 0.5);
+    } else if (form === "rise") {
+      for (let k = 0; k < 12; k++) {
+        const m = d2m([0, 2, 4][k % 3] + c.scale.length * Math.floor(k / 3), c.root, c.scale);
+        c.at(ts + 0.3 + k * 0.42, "cplx", { freq: midicps3(m), amp: 0.05 + 6e-3 * k, ratio: 2, index: 0.5 + 0.08 * k, fold: 1 + 0.06 * k, dec: 0.5, bright: 0.3 + 0.05 * k, pan: k % 2 ? 0.4 : -0.4, rev: 0.5, dly: 0.45 });
+      }
+      c.at(ts + 5.4, "glass", { freq: midicps3(d2m(4, c.root, c.scale) + 24), amp: 0.08, atk: 1.2, sus: 3, rel: 6, glide: 0, bright: 0.6, pan: 0, rev: 0.7, dly: 0.2 });
+      swell(ts + 2, 0.1, 0.6);
+    } else if (form === "felt") {
+      c.at(ts, "piano", { freq: midicps3(c.root - 12), amp: 0.14, dec: 9, felt: 0.85, pan: -0.1, rev: 0.5, dly: 0.03 });
+      [0, 2, 4, 7, 4, 9].forEach((d, k) => c.at(ts + 1.2 + k * 1.15 + this.rr(-0.05, 0.05), "piano", { freq: midicps3(d2m(d, c.root, c.scale) + 12), amp: 0.17 * (k === 3 ? 1 : 0.8), dec: 6, felt: 0.8, pan: 0.15, rev: 0.45, dly: 0.05 }));
+    } else {
+      c.setAt(ts, "ping", { fb: 0.72 });
+      c.setAt(ts + T2, "ping", { fb: this.layers.includes("dub") || this.layers.includes("arp") ? 0.62 : 0.45 });
+      for (const t of [ts + 0.2, ts + 3.4, ts + 5]) for (const d of [0, 2, 4, 6]) {
+        c.at(t, "strings", { freq: midicps3(d2m(d, c.root, c.scale)), amp: 0.12, atk: 8e-3, sus: 0.06, rel: 0.8, bright: 0.3, pan: (d - 3) * 0.15, rev: 0.45, dly: 0.75 });
+      }
+      c.at(ts + 1, "wave", { amp: 0.3, dur: 8, bright: 0.4, pan: 0, rev: 0.5 });
+      swell(ts + 4, 0.08, 0.4);
+    }
+    this.openAt = ts;
+    this.landAt = ts + T2;
+    this.lastInterlude = ts;
+  }
+  land(ts, s) {
+    const c = this.c;
     [c.root - 12, ...this.chord(0)].forEach((m, i) => {
-      c.at(ts + 1.5 + i * 0.3, "strings", { freq: midicps3(m), amp: 0.12, atk: 0.7 * T2, sus: 0.3 * T2, rel: 12, bright: 0.6, pan: (i - 1.5) * 0.35, rev: 0.6 });
+      c.at(ts + i * 0.2, "strings", { freq: midicps3(m), amp: 0.08, atk: 3, sus: 5, rel: 10, bright: 0.45, pan: (i - 1.5) * 0.35, rev: 0.6 });
     });
-    this.interlude(ts + T2);
+    this.interlude(ts + 1, this.theme(), this.reigning(), s);
   }
   // the new key arrives: its tonic chord, then the new ensemble and the reigning motif
   arrive(ts, era) {
@@ -11377,7 +11617,7 @@ var Score = class {
       c.at(ts + i * 0.2, "strings", { freq: midicps3(m), amp: 0.12, atk: 3, sus: 5, rel: 12, bright: 0.5, pan: (i - 1.5) * 0.35, rev: 0.6 });
     });
     this.setEra(era);
-    this.interlude(ts + 2 * 16 * c.step);
+    this.interlude(ts + 2 * 16 * this.s);
   }
 };
 
@@ -11407,16 +11647,21 @@ var NOUN = {
   Hush: { level: 0.7, dens: 0.6 }
 };
 var ROOTS = [45, 47, 48, 50, 52, 53];
+var OPEN_MODES = ["lydian", "dorian", "mixolydian", "penta", "ionian", "aeolian", "lyddom"];
 var hashStr = (s) => {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
   return h >>> 0;
 };
-function eraMusic(name, prevRoot) {
+var worldHash = (name, ws = 0) => hashStr(\`\${name}#\${ws >>> 0}\`);
+function eraMusic(name, prevRoot, ws = 0) {
   const w = String(name || "").split(" ");
-  if (!name || name === "The First Tides" || !ADJ[w[1]]) return { name: name || "The First Tides", mode: "lydian", root: 50, fx: {} };
+  if (!name || name === "The First Tides" || !ADJ[w[1]]) {
+    const h = worldHash("The First Tides", ws);
+    return { name: name || "The First Tides", mode: OPEN_MODES[h % OPEN_MODES.length], root: ROOTS[(h >>> 8) % ROOTS.length], fx: {} };
+  }
   const roots = ROOTS.filter((r) => r !== prevRoot);
-  return { name, mode: ADJ[w[1]], root: roots[hashStr(name) % roots.length], fx: NOUN[w[2]] || {} };
+  return { name, mode: ADJ[w[1]], root: roots[worldHash(name, ws) % roots.length], fx: NOUN[w[2]] || {} };
 }
 var d2m = (deg, root, scale) => {
   const sd = Math.round(deg), acc = Math.round((deg - sd) * 10 * 1e6) / 1e6;
@@ -11508,13 +11753,16 @@ var Conductor = class {
     this.nextStep = 0.1;
     this.tempo = 1;
     this.step = STEP;
+    this.slow = STEP;
+    this.ws = seed >>> 0;
+    this.lapse = false;
     this.field = new Field(this);
     this.post = null;
     this.queue = [];
     this.world = { light: 0.6, tide: 0.5, warm: 0 };
     this.warm = 0;
     this.nodeN = 0;
-    this.setEra(eraMusic("The First Tides"), true);
+    this.setEra(eraMusic("The First Tides", null, this.ws), true);
     this.score = new Score(this);
     engine.master.p.gain = 1.6;
     this.sea = this.swap(0, "sea", this.seaChord(this.root), 0);
@@ -11536,12 +11784,19 @@ var Conductor = class {
     }
     return id;
   }
-  // the music follows the simulation's speed
+  // The music follows the simulation's speed. The pulse (step: the cells, the harmony) quickens with
+  // it; the score (on \`slow\`) by only the square root, so sped-up time is heard in the cells' quick
+  // songs while the score stays a score, neither a blur nor a bell ringing over and over.
   setTempo(tf) {
     if (tf > 0 && Math.abs(tf - this.tempo) > 1e-3) {
       this.tempo = tf;
       this.step = STEP / tf;
+      this.slow = tf > 1 ? STEP / Math.sqrt(tf) : this.step;
     }
+  }
+  // the pulse at real time (in the water's warmth): what the page will be back at after the warm-up
+  realStep() {
+    return STEP / (1 + 0.06 * this.warm);
   }
   setEra(era, now = false) {
     this.era = era;
@@ -11559,16 +11814,30 @@ var Conductor = class {
     else if (m.type === "audition") this.field.audition(m);
     else if (m.type === "fieldGain") Object.assign(this.field.gain, m.gain);
     else if (m.type === "era") this.pendingEra = m.name;
-    else if (m.type === "open") this.pendingOpen = true;
-    else if (m.type === "reset") {
+    else if (m.type === "open") {
+      this.pendingOpen = true;
+      if (m.seed != null && m.seed >>> 0 !== this.ws) this.rekey(m.seed, null);
+    } else if (m.type === "warm") {
+      this.lapse = !!m.on;
+      if (!m.on) this.score.lapseEnd = this.time;
+    } else if (m.type === "reset") {
       this.field.slots.clear();
       this.pendingEra = null;
       this.switchAt = null;
       this.pendingOpen = false;
-      this.setEra(eraMusic("The First Tides"), true);
-      this.score.setEra(this.era);
-      this.sea = this.swap(this.time, "sea", this.seaChord(this.root), 10, this.sea);
+      this.lapse = false;
+      this.score.reset();
+      this.rekey(m.seed ?? this.ws, m.era);
     }
+  }
+  // a world (its seed), in an era (a loaded world's, or its opening): its key, its ensemble, its sea
+  rekey(seed, era) {
+    this.ws = seed >>> 0;
+    this.setEra(eraMusic(era || "The First Tides", null, this.ws), true);
+    this.score.played = [];
+    this.score.setEra(this.era);
+    this.sea = this.swap(this.time, "sea", this.seaChord(this.root), 10, this.sea);
+    this.droneNote = null;
   }
   // ── scheduling ─────────────────────────────────────────────────────────────
   at(t, def, params, id) {
@@ -11613,7 +11882,7 @@ var Conductor = class {
   bar(ts) {
     const W = this.world;
     if (this.pendingEra) {
-      const nx = eraMusic(this.pendingEra, this.era.root);
+      const nx = eraMusic(this.pendingEra, this.era.root, this.ws);
       this.pendingEra = null;
       this.nextEra = nx;
       this.switchAt = ts + 45;
@@ -14258,6 +14527,10 @@ var FULL = 92;
 var MINOR = /* @__PURE__ */ new Set(["charged", "eaten", "rustle"]);
 var SWARM_MAX = 150;
 var GRAIN = 1.75;
+var SHOWERS = 0.4;
+var GRAINS = 2.5;
+var RINGS = 1.5;
+var SHAPES = [(i) => i, (i, n) => n - 1 - i, (i, n) => Math.min(i, n - 1 - i) * 2, (i) => [0, 2, 1, 3, 2, 4][i], (i) => i % 2 ? i + 1 : i - 1 + (i ? 0 : 1), (i) => -i];
 var CLOSE = 0.9;
 var FOCUS_FADE = 2.5;
 var soloShare = (z) => {
@@ -14607,6 +14880,11 @@ var Field = class {
         return;
       case "birth": {
         const midi = this.speciesNote(o.slot, t, g * 0.7, o);
+        const dt = c.time - (this.ringAt ?? c.time);
+        this.ringAt = c.time;
+        this.rings = Math.min(2, (this.rings ?? 2) + dt * RINGS);
+        if (this.rings < 1) return;
+        this.rings--;
         const f = midicps2((midi ?? d2m(Math.floor(o.hue * 7) + piv, root, scale)) + 24);
         c.at(t, "glint", { freq: f, amp: g * 0.5, dec: 0.35, pan: o.pan, rev: o.wet(0.45), dly: 0.2 });
         return;
@@ -14617,7 +14895,7 @@ var Field = class {
         return;
       }
       case "spark":
-        for (let i = 0; i < 6; i++) c.at(t + i * 0.09, "glint", { freq: midicps2(d2m(i + 2, root, scale)) * 4, amp: g * (1 - i * 0.08), dec: 0.3, pan: clamp(o.pan + this.rr(-0.15, 0.15), -0.9, 0.9), rev: o.wet(0.55), dly: 0.3 });
+        this.spark(t, g, o);
         return;
       case "starved":
         c.at(t, "wood", { freq: midicps2(d2m(-(o.idb % 4) + piv, root, scale) - 12), amp: g, dec: 0.5, bright: 0.45 * o.dim, pan: o.pan, rev: o.wet(0.3) });
@@ -14649,6 +14927,31 @@ var Field = class {
       }
       case "charged":
         c.at(t, "glint", { freq: midicps2(d2m(o.idb % 14, root, scale)) * (o.idb & 32 ? 8 : 4), amp: g * (0.5 + 0.5 * o.td), dec: this.rr(0.04, 0.2), pan: o.pan, rev: o.wet(0.55), dly: 0.25 });
+    }
+  }
+  // Life sparking from silt. A new world sparks many times a second (and many more at a fast
+  // speed), so only now and then is it a whole shower: a few notes of the chord of the moment, from
+  // where the spark's colour falls, rising, falling or turning, high or very high, quick or
+  // unhurried, never twice the same. Between showers a spark is a single soft grain, and beyond a
+  // few grains a second it is not heard at all.
+  spark(t, g, o) {
+    const c = this.c, now = c.time, { root, scale } = c, piv = c.pivot;
+    const dt = now - (this.sparkAt ?? now);
+    this.sparkAt = now;
+    this.showers = Math.min(1.5, (this.showers ?? 1) + dt * SHOWERS);
+    this.grains = Math.min(3, (this.grains ?? 3) + dt * GRAINS);
+    const pan = (d) => clamp(o.pan + d, -0.9, 0.9);
+    if (this.showers >= 1) {
+      this.showers--;
+      const n = 3 + Math.floor(this.rnd() * 4), shape = SHAPES[Math.floor(this.rnd() * SHAPES.length)], gap = this.rr(0.06, 0.13);
+      const base = Math.floor(o.hue * 7), mul = this.rnd() < 0.7 ? 4 : this.rnd() < 0.5 ? 2 : 8, drift = this.rr(-0.25, 0.25);
+      for (let i = 0; i < n; i++) {
+        const deg = base + piv + 2 * shape(i, n);
+        c.at(t + i * gap * this.rr(0.85, 1.15), "glint", { freq: midicps2(d2m(deg, root, scale)) * mul, amp: g * (1 - i * 0.08), dec: this.rr(0.2, 0.4), pan: pan(drift * i), rev: o.wet(0.55), dly: 0.3 });
+      }
+    } else if (this.grains >= 1) {
+      this.grains--;
+      c.at(t, "glint", { freq: midicps2(d2m(Math.floor(this.rnd() * 7) * 2 + piv, root, scale)) * (this.rnd() < 0.5 ? 4 : 2), amp: g * 0.5, dec: this.rr(0.15, 0.35), pan: pan(this.rr(-0.2, 0.2)), rev: o.wet(0.6), dly: 0.3 });
     }
   }
   // The swarm: the species heard most get bands (a bigger share, more bands: successive notes of
@@ -14739,17 +15042,49 @@ var Field = class {
 var midicps3 = (m) => 440 * Math.pow(2, (m - 69) / 12);
 var clamp2 = (x, a, b) => x < a ? a : x > b ? b : x;
 var vibeAmp = (f) => Math.pow(f / 440, 0.8);
-var LAYERS = ["loops", "circles", "piano", "dub", "pad", "sonar"];
-var PROGS = [[0, 5, 3, 4], [0, 3, 5, 4], [0, -2, -4, -3], [0, 2, 5, 3]];
+var LAYERS = ["loops", "circles", "piano", "dub", "pad", "sonar", "arp", "pulse", "hymn"];
+var OPENINGS = [
+  ["loops", "sonar"],
+  ["hymn", "arp"],
+  ["circles", "pad"],
+  ["loops", "arp"],
+  ["piano", "hymn"],
+  ["sonar", "circles"],
+  ["pad", "arp"],
+  ["hymn", "pulse"],
+  ["dub", "loops"],
+  ["piano", "sonar"],
+  ["circles", "hymn"],
+  ["arp", "sonar"]
+];
+var OVERTURES = ["swell", "tape", "bells", "rise", "felt", "deep"];
+var THEMES = [
+  [0, 2, 4, 1, 3],
+  [4, 2, 3, 1, 0],
+  [0, 4, 3, 2, 4],
+  [2, 0, -1, 0, 4],
+  [0, 1, 2, 4, 2],
+  [4, 5, 4, 2, 1, 0],
+  [0, -3, -1, 0, 2],
+  [7, 4, 5, 2, 3],
+  [0, 2, 0, 4, 3, 1],
+  [2, 4, 7, 6, 4],
+  [0, 3, 2, 5, 4],
+  [4, 3, 0, 1, 2]
+];
+var PROGS = [[0, 5, 3, 4], [0, 3, 5, 4], [0, -2, -4, -3], [0, 2, 5, 3], [0, 4, 5, 3], [0, -1, -3, -4], [0, 3, 1, 4], [0, 5, 1, 4], [0, 2, 3, -1], [0, -3, -2, 1]];
 var LOOP_P = [109, 131, 151, 173, 197, 223];
-var LOOP_DEG = [0, 4, 9, 5, 8, 2];
 var LOOP_PAN = [-0.5, 0.45, -0.2, 0.65, 0.1, -0.7];
+var LOOP_DEGS = [[0, 4, 9, 5, 8, 2], [0, 2, 4, 7, 9, 11], [4, 0, 7, 2, 9, 6], [0, 5, 3, 8, 10, 1], [2, 6, 4, 9, 0, 7], [0, 7, 4, 11, 2, 9]];
+var SONAR = [[4, 8], [2, 7], [4, 6], [0, 4], [7, 9], [2, 5], [6, 4], [9, 7]];
 var CIRCLES = [{ every: 2, len: 5, oct: 1, at: 0, pan: -0.35 }, { every: 3, len: 4, oct: 1, at: 0.35, pan: 0.4 }, { every: 8, len: 3, oct: -1, at: 0.6, pan: 0 }];
 var PIANO_PAT = [[[0, 0], [8, 2]], [[0, 0], [4, 1], [8, 2], [12, 1]], [[0, 0], [2, 1], [4, 2], [6, 3], [8, 2], [10, 1], [12, 2], [14, 1]]];
-var RHYTHMS = [[4, 2, 2, 8], [3, 3, 2, 8], [2, 2, 4, 8], [6, 2, 4, 4]];
-function palette(name, prev = []) {
-  if (!name || name === "The First Tides") return ["loops", "sonar"];
-  const free = LAYERS.filter((l) => !prev.includes(l)), h = hashStr(name), a = h % free.length;
+var ARP_TONE = [0, 2, 4, 7, 9];
+var ARP_PATS = [[0, 1, 2, 3], [0, 1, 2, 3, 2, 1], [0, 2, 1, 3], [0, 3, 1, 2], [0, 2, 4, 1, 3], [3, 2, 0, 1], [0, 1, 3, 2, 4, 2]];
+var RHYTHMS = [[4, 2, 2, 8], [3, 3, 2, 8], [2, 2, 4, 8], [6, 2, 4, 4], [2, 4, 2, 8], [4, 4, 2, 6], [3, 1, 4, 8], [2, 6, 2, 6]];
+function palette(name, prev = [], ws = 0) {
+  if (!name || name === "The First Tides") return OPENINGS[worldHash("ensemble", ws) % OPENINGS.length].slice();
+  const free = LAYERS.filter((l) => !prev.includes(l)), h = worldHash(name, ws), a = h % free.length;
   let b = (h >>> 8) % (free.length - 1);
   if (b >= a) b++;
   return [free[a], free[b]];
@@ -14760,30 +15095,57 @@ var Score = class {
     this.rnd = cond.rnd;
     this.I = 0.3;
     this.layers = [];
+    this.reset();
+    this.setEra(cond.era);
+  }
+  reset() {
     this.lastInterlude = -1e9;
     this.duckUntil = 0;
     this.reign = -1;
     this.peaked = false;
-    this.setEra(cond.era);
+    this.landAt = null;
+    this.lapseEnd = null;
+    this.openAt = null;
+    this.at = null;
+    this.barN = 0;
+    this.s = this.c.step;
+    this.k = 1;
+    this.fast = false;
   }
   rr(lo, hi) {
     return lo + (hi - lo) * this.rnd();
   }
+  pick(a) {
+    return a[Math.floor(this.rnd() * a.length)];
+  }
   setEra(era) {
-    const h = hashStr(era.name);
-    this.layers = palette(era.name, this.played || []);
+    const h = worldHash(era.name, this.c.ws);
+    this.layers = palette(era.name, this.played || [], this.c.ws);
     this.played = this.layers;
     this.prog = PROGS[(h >>> 4) % PROGS.length];
     this.loopDef = h >>> 12 & 1 ? "glass" : "breath";
+    this.loopDeg = LOOP_DEGS[(h >>> 7) % LOOP_DEGS.length].slice();
     this.loopAt = LOOP_P.map(() => ({ next: null }));
+    const s0 = (h >>> 11) % SONAR.length;
+    this.calls = [0, 3, 5].map((k) => SONAR[(s0 + k) % SONAR.length]);
+    this.callN = 0;
+    this.sonarP = 36 + 4 * ((h >>> 14) % 5);
+    this.arpPat = ARP_PATS[(h >>> 15) % ARP_PATS.length];
+    this.hymnDef = h >>> 19 & 1 ? "glass" : "breath";
+    this.hymnV = null;
+    this.hymnNext = null;
+    this.pulseNext = null;
     this.cells = null;
     this.sonarNext = null;
-    this.c.eng.set("ping", { fb: this.layers.includes("dub") ? 0.62 : 0.45 });
+    this.c.eng.set("ping", { fb: this.layers.includes("dub") || this.layers.includes("arp") ? 0.62 : 0.45 });
   }
-  // the reigning species' motif (scale degrees), or a plain one
+  // the reigning species' motif (scale degrees), or the world's own opening figure
   theme() {
     const m = this.reigning();
-    return m ? m.seq : [0, 2, 4, 1, 3];
+    return m ? m.seq : this.openTheme();
+  }
+  openTheme() {
+    return THEMES[worldHash("theme", this.c.ws) % THEMES.length];
   }
   reigning() {
     let best = null;
@@ -14794,22 +15156,40 @@ var Score = class {
     const c = this.c;
     return Array.from({ length: n }, (_, i) => d2m(deg + 2 * i, c.root, c.scale));
   }
-  // once per bar
-  bar(ts, barN) {
+  // Once per bar of the conductor's, which spans [ts, ts + 16 steps): the score's own bars that
+  // begin in it. The score keeps time on the slow clock (this.s), so at a fast speed its bars are
+  // longer than the conductor's: it quickens with the square root of the speed.
+  bar(ts) {
+    const c = this.c, end = ts + 16 * c.step;
+    if (this.at == null || this.at < ts - 1) this.at = ts;
+    while (this.at < end) {
+      this.s = c.slow;
+      this.sbar(this.at, this.barN++);
+      this.at += 16 * this.s;
+    }
+  }
+  sbar(ts, barN) {
     const c = this.c, W = c.world, fx = c.era.fx;
+    this.k = clamp2(this.s / STEP, 0.5, 1);
+    this.fast = this.k < 0.8;
     const target = clamp2((W.tide - 0.1) / 0.8, 0, 1) * (fx.dens || 1);
     this.I += (clamp2(target, 0, 1) - this.I) * 0.15;
     const I = this.I;
     if (c.switchAt != null) return;
+    if (this.landAt != null && ts >= this.landAt && !c.lapse) {
+      const lapsed = this.lapseEnd != null && this.lapseEnd >= this.openAt;
+      this.landAt = null;
+      this.land(ts + 0.4, lapsed ? c.realStep() : this.s);
+    }
     const top = this.topSlot();
     if (top !== this.reign) {
       const first = this.reign < 0;
       this.reign = top;
-      if (!first && top >= 0 && ts - this.lastInterlude > 180) this.interlude(ts + 2 * 16 * c.step);
+      if (!first && top >= 0 && ts - this.lastInterlude > 180) this.interlude(ts + 2 * 16 * this.s);
     }
     if (I > 0.85 && !this.peaked) {
       this.peaked = true;
-      if (ts - this.lastInterlude > 240) this.interlude(ts + 16 * c.step);
+      if (ts - this.lastInterlude > 240) this.interlude(ts + 16 * this.s);
     }
     if (I < 0.6) this.peaked = false;
     const L = (fx.level || 1) * (1 - 0.6 * c.field.z) * (ts < this.duckUntil ? 0.45 : 1);
@@ -14825,19 +15205,20 @@ var Score = class {
   }
   // ── layers ─────────────────────────────────────────────────────────────────
   loops(ts, barN, I, L) {
-    const c = this.c, s = c.step, end = ts + 16 * s, n = 2 + Math.round(4 * I);
+    const c = this.c, s = this.s, end = ts + 16 * s, n = 2 + Math.round(4 * I);
     for (let i = 0; i < n; i++) {
       const lp = this.loopAt[i], P = LOOP_P[i] * s;
       if (lp.next == null || lp.next < ts - P) lp.next = ts + this.rnd() * P;
       for (; lp.next < end; lp.next += P) {
         if (lp.next < ts) continue;
-        const f = midicps3(d2m(LOOP_DEG[i], c.root, c.scale) + 12);
+        const f = midicps3(d2m(this.loopDeg[i], c.root, c.scale) + 12);
         c.at(lp.next, this.loopDef, { freq: f, amp: (this.loopDef === "breath" ? 0.027 : 0.09) * L * (0.7 + 0.3 * I), atk: 2.5, sus: 2, rel: 7, glide: 0, bright: 0.35 + 0.35 * clamp2(c.world.light, 0, 1), pan: LOOP_PAN[i], rev: 0.6, dly: 0.12 });
+        if (this.rnd() < 0.15) this.loopDeg[i] = clamp2(this.loopDeg[i] + this.pick([-2, -1, 1, 2]), -2, 11);
       }
     }
   }
   circles(ts, barN, I, L) {
-    const c = this.c, s = c.step;
+    const c = this.c, s = this.s;
     if (!this.cells) {
       const th = this.theme();
       this.cells = CIRCLES.map((v, i) => Array.from({ length: v.len }, (_, k) => i === 2 ? [0, 4, -3][k] : i ? th[(th.length - 1 - k + th.length) % th.length] : th[k % th.length]));
@@ -14846,9 +15227,9 @@ var Score = class {
       const v = CIRCLES[i], cell = this.cells[i];
       if (I < v.at) continue;
       for (let k = 0; k < 16; k++) {
-        const g = barN * 16 + k;
-        if (g % v.every) continue;
-        const idx = g / v.every;
+        const g = barN * 16 + k, every = v.every * (this.fast && i < 2 ? 2 : 1);
+        if (g % every) continue;
+        const idx = g / every;
         if (idx % v.len === 0 && this.rnd() < 0.1) {
           const j = Math.floor(this.rnd() * v.len);
           cell[j] = clamp2(cell[j] + (this.rnd() < 0.5 ? -1 : 1), -3, 9);
@@ -14857,26 +15238,26 @@ var Score = class {
         if (i === 2) c.at(t, "strings", { freq: midicps3(d2m(deg, c.root, c.scale) - 12), amp: 0.11 * L * accent, atk: 0.12, sus: 4 * s, rel: 1.2, bright: 0.3, pan: v.pan, rev: 0.4 });
         else {
           const f = midicps3(d2m(deg, c.root, c.scale) + 12 * v.oct);
-          c.at(t, "vibe", { freq: f, amp: 0.087 * vibeAmp(f) * L * accent * (0.5 + 0.5 * I), dec: 2.2, bright: 0.35 + 0.4 * I, trem: 4.5, depth: 0.25, pan: v.pan, rev: 0.35, dly: 0.15 });
+          c.at(t, "vibe", { freq: f, amp: 0.087 * vibeAmp(f) * L * accent * (0.5 + 0.5 * I), dec: 2.2 * this.k, bright: 0.35 + 0.4 * I, trem: 4.5, depth: 0.25, pan: v.pan, rev: 0.35, dly: 0.15 });
         }
       }
     }
     if (I > 0.8 && barN % 2 === 0) c.at(ts, "strings", { freq: midicps3(d2m(c.pivot, c.root, c.scale) - 12), amp: 0.08 * L, atk: 2, sus: 16 * s, rel: 4, bright: 0.25, pan: 0, rev: 0.5 });
   }
   piano(ts, barN, I, L) {
-    const c = this.c, s = c.step, ch = c.pivot + this.prog[(barN >> 1) % 4];
+    const c = this.c, s = this.s, ch = c.pivot + this.prog[(barN >> 1) % 4];
     const tones = [0, 2, 4, 7].map((d) => d2m(ch + d, c.root, c.scale));
     const human = () => (this.rnd() - 0.5) * 0.03;
     if (barN % 2 === 0) c.at(ts + 0.01, "piano", { freq: midicps3(tones[0] - 12), amp: 0.1 * L, dec: 6, felt: 0.7, pan: -0.15, rev: 0.35, dly: 0.03 });
-    const pat = PIANO_PAT[I < 0.35 ? 0 : I < 0.65 ? 1 : 2];
-    for (const [k, tone] of pat) c.at(ts + k * s + 0.02 + human(), "piano", { freq: midicps3(tones[tone] + 12), amp: 0.17 * L * (k === 0 ? 1 : 0.8) * this.rr(0.85, 1), dec: 4, felt: 0.65, pan: 0.15, rev: 0.35, dly: 0.05 });
+    const pat = PIANO_PAT[Math.min(I < 0.35 ? 0 : I < 0.65 ? 1 : 2, this.fast ? 1 : 2)];
+    for (const [k, tone] of pat) c.at(ts + k * s + 0.02 + human(), "piano", { freq: midicps3(tones[tone] + 12), amp: 0.17 * L * (k === 0 ? 1 : 0.8) * this.rr(0.85, 1), dec: 4 * this.k, felt: 0.65, pan: 0.15, rev: 0.35, dly: 0.05 });
     if (I > 0.6) {
       const th = this.theme();
-      for (const k of [0, 8]) c.at(ts + k * s + 0.03 + human(), "piano", { freq: midicps3(d2m(th[(barN * 2 + k / 8) % th.length] + c.pivot, c.root, c.scale) + 24), amp: 0.15 * L, dec: 4, felt: 0.5, pan: 0.25, rev: 0.4, dly: 0.08 });
+      for (const k of this.fast ? [0] : [0, 8]) c.at(ts + k * s + 0.03 + human(), "piano", { freq: midicps3(d2m(th[(barN * 2 + k / 8) % th.length] + c.pivot, c.root, c.scale) + 24), amp: 0.15 * L, dec: 4 * this.k, felt: 0.5, pan: 0.25, rev: 0.4, dly: 0.08 });
     }
   }
   dub(ts, barN, I, L) {
-    const c = this.c, s = c.step;
+    const c = this.c, s = this.s;
     if (I < 0.35 && barN % 2) return;
     const steps = I < 0.7 ? [4] : [4, 10], ch = c.pivot + this.prog[(barN >> 2) % 4];
     for (const k of steps) for (const d of [0, 2, 4, 6]) {
@@ -14884,40 +15265,119 @@ var Score = class {
     }
   }
   pad(ts, barN, I, L) {
-    const c = this.c, s = c.step;
+    const c = this.c, s = this.s;
     if (barN % 4) return;
     const ch = c.pivot + this.prog[(barN >> 2) % 4], dur = 64 * s;
     const notes = [d2m(ch, c.root, c.scale) - 12, ...this.chord(ch), ...I > 0.6 ? [d2m(ch + 9, c.root, c.scale)] : []];
     notes.forEach((m, i) => c.at(ts + i * 0.15, "strings", { freq: midicps3(m), amp: 0.07 * L * (0.35 + 0.65 * I), atk: 0.35 * dur, sus: 0.35 * dur, rel: 0.5 * dur, bright: 0.2 + 0.6 * I, pan: (i - 1.5) * 0.3, rev: 0.6 }));
   }
   sonar(ts, barN, I, L) {
-    const c = this.c, s = c.step, end = ts + 16 * s, P = 36 * s;
+    const c = this.c, s = this.s, end = ts + 16 * s, P = this.sonarP * s;
     if (this.sonarNext == null || this.sonarNext < ts - P) this.sonarNext = ts;
     for (; this.sonarNext < end; this.sonarNext += P) {
-      const t = this.sonarNext;
-      const f1 = midicps3(d2m(4, c.root, c.scale) + 24), f2 = midicps3(d2m(8, c.root, c.scale) + 24);
-      c.at(t, "vibe", { freq: f1, amp: 0.06 * vibeAmp(f1) * L, dec: 4, bright: 0.3, depth: 0, pan: 0.3, rev: 0.6, dly: 0.45 });
-      if (I > 0.5) c.at(t + 24 * s, "vibe", { freq: f2, amp: 0.045 * vibeAmp(f2) * L, dec: 4, bright: 0.3, depth: 0, pan: -0.4, rev: 0.6, dly: 0.45 });
+      const t = this.sonarNext, [a, b] = this.calls[this.callN % this.calls.length], oct = this.callN % 5 === 4 ? 12 : 24;
+      this.callN++;
+      const f1 = midicps3(d2m(a + c.pivot, c.root, c.scale) + oct), f2 = midicps3(d2m(b + c.pivot, c.root, c.scale) + 24);
+      c.at(t, "vibe", { freq: f1, amp: 0.06 * vibeAmp(f1) * L, dec: 4, bright: 0.3, depth: 0, pan: this.rr(0.15, 0.45), rev: 0.6, dly: 0.45 });
+      if (I > 0.5) c.at(t + 24 * s, "vibe", { freq: f2, amp: 0.045 * vibeAmp(f2) * L, dec: 4, bright: 0.3, depth: 0, pan: -this.rr(0.25, 0.55), rev: 0.6, dly: 0.45 });
     }
   }
-  // ── a melodic interlude: the reigning motif, sequenced up, inverted, brought home ──
+  // An echoing arpeggio through the chord of the moment (Althai, Bersarin Quartett): quiet and
+  // sparse in calm water, it quickens, brightens and climbs an octave as the tide rises.
+  arp(ts, barN, I, L) {
+    const c = this.c, s = this.s, every = I < 0.4 || this.fast ? 4 : 2, pat = this.arpPat;
+    const ch = c.pivot + this.prog[(barN >> 1) % 4];
+    for (let k = 0; k < 16; k += every) {
+      const idx = (barN * 16 + k) / every;
+      if (this.rnd() < 0.12) continue;
+      const cyc = Math.floor(idx / pat.length), up = I > 0.7 && cyc % 4 >= 2 ? 12 : 0;
+      const m = d2m(ch + ARP_TONE[pat[idx % pat.length]], c.root, c.scale) + 12 + up;
+      c.at(ts + k * s, "cplx", {
+        freq: midicps3(m),
+        amp: 0.075 * L * (0.45 + 0.55 * I) * (idx % pat.length === 0 ? 1 : 0.8),
+        ratio: 2,
+        index: 0.5 + 0.9 * I,
+        fold: 0.9 + 0.8 * I,
+        dec: 0.22 + 0.35 * (1 - I),
+        bright: 0.25 + 0.6 * I,
+        pan: idx % 2 ? 0.35 : -0.35,
+        rev: 0.45,
+        dly: 0.5
+      });
+    }
+  }
+  // A muffled heartbeat (Gas, Donato Dozzy): a soft low knock on the beat, under a reed haze that
+  // swells once a phrase. Only in lively water; in calm water just the haze.
+  pulse(ts, barN, I, L) {
+    const c = this.c, s = this.s, end = ts + 16 * s, P = 4 * s;
+    if (this.pulseNext == null || this.pulseNext < ts - P) this.pulseNext = ts;
+    const f = midicps3(c.root - 12), beat = clamp2((I - 0.3) / 0.5, 0, 1);
+    for (; this.pulseNext < end; this.pulseNext += P) {
+      if (beat > 0) c.at(this.pulseNext, "wood", { freq: f, amp: 0.12 * L * beat, dec: 0.45, bright: 0.05, pan: 0, rev: 0.25 });
+    }
+    if (barN % 4 === 0) {
+      const ch = c.pivot + this.prog[(barN >> 2) % 4], dur = 64 * s;
+      [0, 4, 7].forEach((d, i) => c.at(ts + i * 0.2, "breath", { freq: midicps3(d2m(ch + d, c.root, c.scale)), amp: 0.02 * L * (0.5 + 0.5 * I), atk: 0.4 * dur, sus: 0.3 * dur, rel: 0.6 * dur, glide: 0, bright: 0.3, pan: (i - 1) * 0.5, rev: 0.7, dly: 0.3 }));
+    }
+  }
+  // A slow chorale (Biosphere, Eno): three or four bowed voices, each moving to the nearest note of
+  // the next chord, so the harmony turns without anything jumping.
+  hymn(ts, barN, I, L) {
+    const c = this.c, s = this.s, end = ts + 16 * s, P = 40 * s;
+    if (this.hymnNext == null || this.hymnNext < ts - P) this.hymnNext = ts;
+    for (; this.hymnNext < end; this.hymnNext += P) {
+      const t = this.hymnNext, k = Math.round(t / P);
+      const ch = c.pivot + this.prog[k % 4];
+      const tones = [];
+      for (let o = -1; o <= 2; o++) for (const d of [0, 2, 4]) tones.push(d2m(ch + d, c.root, c.scale) + 12 * o);
+      if (!this.hymnV) this.hymnV = [c.root, c.root + 7, c.root + 12, c.root + 16];
+      const n = I > 0.6 ? 4 : 3;
+      for (let v = 0; v < n; v++) {
+        const prev = this.hymnV[v];
+        let best = tones[0];
+        for (const m of tones) if (Math.abs(m - prev) < Math.abs(best - prev) || Math.abs(m - prev) === Math.abs(best - prev) && this.rnd() < 0.5) best = m;
+        this.hymnV[v] = best;
+        const glass = this.hymnDef === "glass";
+        c.at(t + v * 0.35, this.hymnDef, {
+          freq: midicps3(best),
+          amp: (glass ? 0.06 : 0.022) * L * (0.45 + 0.55 * I),
+          atk: 0.4 * P,
+          sus: 0.35 * P,
+          rel: 0.7 * P,
+          glide: 0,
+          bright: 0.25 + 0.35 * I,
+          pan: (v - 1.5) * 0.4,
+          rev: 0.65,
+          dly: 0.1
+        });
+      }
+    }
+  }
+  // ── a melodic interlude: the reigning motif, developed in one of a few ways, brought home ──
   // It keeps the motif's own rhythm, slowed to the piano's pace (its shortest note two steps).
-  interlude(t0, theme = this.theme(), motif = this.reigning()) {
-    const c = this.c, s = c.step, L = (c.era.fx.level || 1) * (1 - 0.3 * c.field.z);
+  // s: the step to play it at (the landing after a warm-up plays it at real time).
+  interlude(t0, theme = this.theme(), motif = this.reigning(), s = this.s) {
+    const c = this.c, L = (c.era.fx.level || 1) * (1 - 0.3 * c.field.z);
     const th = theme.slice(0, Math.min(5, theme.length));
-    let r = RHYTHMS[Math.floor(this.rnd() * RHYTHMS.length)];
+    let r = this.pick(RHYTHMS);
     if (motif && motif.notes.length >= 2) {
       const ds = motif.notes.slice(0, th.length).map((nt) => nt.dur), lo = Math.min(...ds);
       r = ds.map((d) => clamp2(Math.round(2 * d / lo), 2, 8));
     }
-    const phrases = [th, th.map((d) => d + 2), th.slice(0, 3).map((d) => 2 * th[0] - d), [th[0] + 2, th[0] + 1, th[0]]];
-    const bassDeg = [0, 3, 5, 0], dyn = [0.75, 0.9, 1, 0.7];
+    const cad = [th[0] + 2, th[0] + 1, th[0]];
+    const form = this.pick(["sequence", "answer", "canon"]);
+    const phrases = form === "answer" ? [th, [...th].reverse().map((d) => d + 1), th.slice(0, 3).map((d) => d + 4), cad] : [th, th.map((d) => d + 2), th.slice(0, 3).map((d) => 2 * th[0] - d), cad];
+    const bassDeg = form === "answer" ? [0, 4, 3, 0] : [0, 3, 5, 0], dyn = [0.75, 0.9, 1, 0.7];
     let t = t0;
     phrases.forEach((ph, pi) => {
       c.at(t, "piano", { freq: midicps3(d2m(c.pivot + bassDeg[pi], c.root, c.scale) - 12), amp: 0.13 * L * dyn[pi], dec: 7, felt: 0.7, pan: -0.2, rev: 0.4, dly: 0.03 });
       ph.forEach((d, k) => {
-        const last = k === ph.length - 1, len = last ? 8 : r[k % r.length];
-        c.at(t + (this.rnd() - 0.5) * 0.04, "piano", { freq: midicps3(d2m(d + c.pivot, c.root, c.scale) + 12), amp: 0.28 * L * dyn[pi] * (last ? 0.85 : 1), dec: last ? 6 : 4, felt: 0.55, pan: 0.15, rev: 0.4, dly: 0.08 });
+        const last = k === ph.length - 1, len = last ? 8 : r[k % r.length], m = d2m(d + c.pivot, c.root, c.scale) + 12;
+        c.at(t + (this.rnd() - 0.5) * 0.04, "piano", { freq: midicps3(m), amp: 0.28 * L * dyn[pi] * (last ? 0.85 : 1), dec: last ? 6 : 4, felt: 0.55, pan: 0.15, rev: 0.4, dly: 0.08 });
+        if (form === "canon" && pi < 3) {
+          const f = midicps3(m + 12);
+          c.at(t + 2 * s, "vibe", { freq: f, amp: 0.07 * vibeAmp(f) * L * dyn[pi], dec: 2.5, bright: 0.3, trem: 4, depth: 0.2, pan: -0.3, rev: 0.45, dly: 0.2 });
+        }
         t += len * s;
       });
     });
@@ -14929,6 +15389,7 @@ var Score = class {
   // keys share (the triad of the new key with the most notes already sounding) until the switch.
   bridge(ts, nx, root, scale, until) {
     const c = this.c, old = new Set(c.scale.map((x) => (x + c.root) % 12));
+    this.landAt = null;
     for (const [i, m] of [c.root - 24, c.root - 12, d2m(4, c.root, c.scale) - 12, d2m(1, c.root, c.scale), d2m(2, c.root, c.scale)].entries()) {
       c.at(ts + i * 0.02, "piano", { freq: midicps3(m), amp: 0.2, dec: 9, felt: 0.35, pan: (i - 2) * 0.2, rev: 0.95, dly: 0.1 });
     }
@@ -14949,19 +15410,67 @@ var Score = class {
     this.layers = [];
   }
   // ── the opening of a world ─────────────────────────────────────────────────
-  // A new world is announced as an era arrives: a low chord rings out in a long reverb, strings
-  // swell on the era's tonic chord, then the piano plays the reigning motif (or a plain one).
-  overture(ts) {
-    const c = this.c, T2 = 10;
-    [c.root - 24, c.root - 12, d2m(4, c.root, c.scale) - 12, d2m(2, c.root, c.scale)].forEach((m, i) => {
-      c.at(ts + i * 0.02, "piano", { freq: midicps3(m), amp: 0.18, dec: 9, felt: 0.35, pan: (i - 1.5) * 0.2, rev: 0.95, dly: 0.1 });
+  // A new world is announced in one of several ways (its seed picks which), timed in seconds so
+  // that it unfolds the same at any speed; it plays over the warm-up's sped-up first minutes. Once
+  // it has rung out and the warm-up is over it lands: the tonic chord, and the piano plays the
+  // reigning motif (by then a species usually reigns) at real time.
+  overture(ts, form = OVERTURES[worldHash("overture", this.c.ws) % OVERTURES.length]) {
+    const c = this.c, T2 = 10, th = this.openTheme(), tonic = [c.root - 12, ...this.chord(0)];
+    const hall = () => {
+      c.setAt(ts, "fdn", { decay: 18 });
+      c.setAt(ts + T2, "fdn", { decay: 9 });
+    };
+    const lowChord = (amp) => [c.root - 24, c.root - 12, d2m(4, c.root, c.scale) - 12, d2m(2, c.root, c.scale)].forEach((m, i) => {
+      c.at(ts + i * 0.02, "piano", { freq: midicps3(m), amp, dec: 9, felt: 0.35, pan: (i - 1.5) * 0.2, rev: 0.95, dly: 0.1 });
     });
-    c.setAt(ts, "fdn", { decay: 18 });
-    c.setAt(ts + T2, "fdn", { decay: 9 });
+    const swell = (t1, amp, bright) => tonic.forEach((m, i) => {
+      c.at(t1 + i * 0.3, "strings", { freq: midicps3(m), amp, atk: 0.7 * (ts + T2 - t1), sus: 0.3 * (ts + T2 - t1), rel: 12, bright, pan: (i - 1.5) * 0.35, rev: 0.6 });
+    });
+    const note = (k) => d2m(th[k % th.length], c.root, c.scale);
+    hall();
+    if (form === "swell") {
+      lowChord(0.18);
+      swell(ts + 1.5, 0.12, 0.6);
+    } else if (form === "tape") {
+      lowChord(0.12);
+      for (let k = 0; k < 4; k++) c.at(ts + 1 + 2.1 * k, "glass", { freq: midicps3(note(k) + 12), amp: 0.11, atk: 1.6, sus: 2.5, rel: 7, glide: 0, bright: 0.5, pan: [-0.5, 0.45, -0.15, 0.6][k], rev: 0.7, dly: 0.15 });
+      swell(ts + 4, 0.07, 0.4);
+    } else if (form === "bells") {
+      let t = ts + 0.4, dt = 0.62;
+      for (let k = 0; k < 15; k++, t += dt, dt *= 0.95) {
+        const f = midicps3(note(k) + 12 + (k >= 10 ? 12 : 0));
+        c.at(t, "vibe", { freq: f, amp: 0.095 * vibeAmp(f) * (0.45 + 0.04 * k), dec: 2.6, bright: 0.4, trem: 4.5, depth: 0.25, pan: k % 2 ? 0.35 : -0.35, rev: 0.45, dly: 0.25 });
+      }
+      swell(ts + 3, 0.09, 0.5);
+    } else if (form === "rise") {
+      for (let k = 0; k < 12; k++) {
+        const m = d2m([0, 2, 4][k % 3] + c.scale.length * Math.floor(k / 3), c.root, c.scale);
+        c.at(ts + 0.3 + k * 0.42, "cplx", { freq: midicps3(m), amp: 0.05 + 6e-3 * k, ratio: 2, index: 0.5 + 0.08 * k, fold: 1 + 0.06 * k, dec: 0.5, bright: 0.3 + 0.05 * k, pan: k % 2 ? 0.4 : -0.4, rev: 0.5, dly: 0.45 });
+      }
+      c.at(ts + 5.4, "glass", { freq: midicps3(d2m(4, c.root, c.scale) + 24), amp: 0.08, atk: 1.2, sus: 3, rel: 6, glide: 0, bright: 0.6, pan: 0, rev: 0.7, dly: 0.2 });
+      swell(ts + 2, 0.1, 0.6);
+    } else if (form === "felt") {
+      c.at(ts, "piano", { freq: midicps3(c.root - 12), amp: 0.14, dec: 9, felt: 0.85, pan: -0.1, rev: 0.5, dly: 0.03 });
+      [0, 2, 4, 7, 4, 9].forEach((d, k) => c.at(ts + 1.2 + k * 1.15 + this.rr(-0.05, 0.05), "piano", { freq: midicps3(d2m(d, c.root, c.scale) + 12), amp: 0.17 * (k === 3 ? 1 : 0.8), dec: 6, felt: 0.8, pan: 0.15, rev: 0.45, dly: 0.05 }));
+    } else {
+      c.setAt(ts, "ping", { fb: 0.72 });
+      c.setAt(ts + T2, "ping", { fb: this.layers.includes("dub") || this.layers.includes("arp") ? 0.62 : 0.45 });
+      for (const t of [ts + 0.2, ts + 3.4, ts + 5]) for (const d of [0, 2, 4, 6]) {
+        c.at(t, "strings", { freq: midicps3(d2m(d, c.root, c.scale)), amp: 0.12, atk: 8e-3, sus: 0.06, rel: 0.8, bright: 0.3, pan: (d - 3) * 0.15, rev: 0.45, dly: 0.75 });
+      }
+      c.at(ts + 1, "wave", { amp: 0.3, dur: 8, bright: 0.4, pan: 0, rev: 0.5 });
+      swell(ts + 4, 0.08, 0.4);
+    }
+    this.openAt = ts;
+    this.landAt = ts + T2;
+    this.lastInterlude = ts;
+  }
+  land(ts, s) {
+    const c = this.c;
     [c.root - 12, ...this.chord(0)].forEach((m, i) => {
-      c.at(ts + 1.5 + i * 0.3, "strings", { freq: midicps3(m), amp: 0.12, atk: 0.7 * T2, sus: 0.3 * T2, rel: 12, bright: 0.6, pan: (i - 1.5) * 0.35, rev: 0.6 });
+      c.at(ts + i * 0.2, "strings", { freq: midicps3(m), amp: 0.08, atk: 3, sus: 5, rel: 10, bright: 0.45, pan: (i - 1.5) * 0.35, rev: 0.6 });
     });
-    this.interlude(ts + T2);
+    this.interlude(ts + 1, this.theme(), this.reigning(), s);
   }
   // the new key arrives: its tonic chord, then the new ensemble and the reigning motif
   arrive(ts, era) {
@@ -14970,7 +15479,7 @@ var Score = class {
       c.at(ts + i * 0.2, "strings", { freq: midicps3(m), amp: 0.12, atk: 3, sus: 5, rel: 12, bright: 0.5, pan: (i - 1.5) * 0.35, rev: 0.6 });
     });
     this.setEra(era);
-    this.interlude(ts + 2 * 16 * c.step);
+    this.interlude(ts + 2 * 16 * this.s);
   }
 };
 
@@ -15000,16 +15509,21 @@ var NOUN = {
   Hush: { level: 0.7, dens: 0.6 }
 };
 var ROOTS = [45, 47, 48, 50, 52, 53];
+var OPEN_MODES = ["lydian", "dorian", "mixolydian", "penta", "ionian", "aeolian", "lyddom"];
 var hashStr = (s) => {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
   return h >>> 0;
 };
-function eraMusic(name, prevRoot) {
+var worldHash = (name, ws = 0) => hashStr(\`\${name}#\${ws >>> 0}\`);
+function eraMusic(name, prevRoot, ws = 0) {
   const w = String(name || "").split(" ");
-  if (!name || name === "The First Tides" || !ADJ[w[1]]) return { name: name || "The First Tides", mode: "lydian", root: 50, fx: {} };
+  if (!name || name === "The First Tides" || !ADJ[w[1]]) {
+    const h = worldHash("The First Tides", ws);
+    return { name: name || "The First Tides", mode: OPEN_MODES[h % OPEN_MODES.length], root: ROOTS[(h >>> 8) % ROOTS.length], fx: {} };
+  }
   const roots = ROOTS.filter((r) => r !== prevRoot);
-  return { name, mode: ADJ[w[1]], root: roots[hashStr(name) % roots.length], fx: NOUN[w[2]] || {} };
+  return { name, mode: ADJ[w[1]], root: roots[worldHash(name, ws) % roots.length], fx: NOUN[w[2]] || {} };
 }
 var d2m = (deg, root, scale) => {
   const sd = Math.round(deg), acc = Math.round((deg - sd) * 10 * 1e6) / 1e6;
@@ -15101,13 +15615,16 @@ var Conductor = class {
     this.nextStep = 0.1;
     this.tempo = 1;
     this.step = STEP;
+    this.slow = STEP;
+    this.ws = seed >>> 0;
+    this.lapse = false;
     this.field = new Field(this);
     this.post = null;
     this.queue = [];
     this.world = { light: 0.6, tide: 0.5, warm: 0 };
     this.warm = 0;
     this.nodeN = 0;
-    this.setEra(eraMusic("The First Tides"), true);
+    this.setEra(eraMusic("The First Tides", null, this.ws), true);
     this.score = new Score(this);
     engine.master.p.gain = 1.6;
     this.sea = this.swap(0, "sea", this.seaChord(this.root), 0);
@@ -15129,12 +15646,19 @@ var Conductor = class {
     }
     return id;
   }
-  // the music follows the simulation's speed
+  // The music follows the simulation's speed. The pulse (step: the cells, the harmony) quickens with
+  // it; the score (on \`slow\`) by only the square root, so sped-up time is heard in the cells' quick
+  // songs while the score stays a score, neither a blur nor a bell ringing over and over.
   setTempo(tf) {
     if (tf > 0 && Math.abs(tf - this.tempo) > 1e-3) {
       this.tempo = tf;
       this.step = STEP / tf;
+      this.slow = tf > 1 ? STEP / Math.sqrt(tf) : this.step;
     }
+  }
+  // the pulse at real time (in the water's warmth): what the page will be back at after the warm-up
+  realStep() {
+    return STEP / (1 + 0.06 * this.warm);
   }
   setEra(era, now = false) {
     this.era = era;
@@ -15152,16 +15676,30 @@ var Conductor = class {
     else if (m.type === "audition") this.field.audition(m);
     else if (m.type === "fieldGain") Object.assign(this.field.gain, m.gain);
     else if (m.type === "era") this.pendingEra = m.name;
-    else if (m.type === "open") this.pendingOpen = true;
-    else if (m.type === "reset") {
+    else if (m.type === "open") {
+      this.pendingOpen = true;
+      if (m.seed != null && m.seed >>> 0 !== this.ws) this.rekey(m.seed, null);
+    } else if (m.type === "warm") {
+      this.lapse = !!m.on;
+      if (!m.on) this.score.lapseEnd = this.time;
+    } else if (m.type === "reset") {
       this.field.slots.clear();
       this.pendingEra = null;
       this.switchAt = null;
       this.pendingOpen = false;
-      this.setEra(eraMusic("The First Tides"), true);
-      this.score.setEra(this.era);
-      this.sea = this.swap(this.time, "sea", this.seaChord(this.root), 10, this.sea);
+      this.lapse = false;
+      this.score.reset();
+      this.rekey(m.seed ?? this.ws, m.era);
     }
+  }
+  // a world (its seed), in an era (a loaded world's, or its opening): its key, its ensemble, its sea
+  rekey(seed, era) {
+    this.ws = seed >>> 0;
+    this.setEra(eraMusic(era || "The First Tides", null, this.ws), true);
+    this.score.played = [];
+    this.score.setEra(this.era);
+    this.sea = this.swap(this.time, "sea", this.seaChord(this.root), 10, this.sea);
+    this.droneNote = null;
   }
   // ── scheduling ─────────────────────────────────────────────────────────────
   at(t, def, params, id) {
@@ -15206,7 +15744,7 @@ var Conductor = class {
   bar(ts) {
     const W = this.world;
     if (this.pendingEra) {
-      const nx = eraMusic(this.pendingEra, this.era.root);
+      const nx = eraMusic(this.pendingEra, this.era.root, this.ws);
       this.pendingEra = null;
       this.nextEra = nx;
       this.switchAt = ts + 45;
@@ -15484,16 +16022,21 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (st.starting) await st.starting;
         if (st.on) post({ type: "audition", slot: tag, voice: voiceOf(genome), species });
       },
-      reset: () => {
+      // a world begins or is loaded: its music's seed (its key, ensembles and overture) and, for a
+      // loaded world, the era it is in
+      reset: (seed, era = null) => {
         st.sent.clear();
-        post({ type: "reset" });
+        st.seed = seed;
+        post({ type: "reset", seed, era });
       },
-      // a new world begins: its era's song plays as soon as the soundtrack is heard
+      // a new world begins: its overture plays as soon as the soundtrack is heard
       async overture() {
         if (st.starting) await st.starting.catch(() => {
         });
-        if (st.on) post({ type: "open" });
+        if (st.on) post({ type: "open", seed: st.seed });
       },
+      // the warm-up (a new world's first minutes at Max) begins or ends: the overture lands once it is over
+      warm: (on) => post({ type: "warm", on }),
       wantsOn: pref.on ?? true
     };
   }
@@ -22140,6 +22683,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     let climate;
     function resetClimate() {
       climate = createClimate(eng);
+      climate.music = Math.random() * 2 ** 32 >>> 0;
       climate.onEra = (era, prevAmb, prevTemp) => {
         const lightWord = era.ambient > prevAmb + 0.05 ? "light rises" : era.ambient < prevAmb - 0.05 ? "light dims" : "light holds";
         const waterWord = !K.heat ? "" : ` · water ${era.temp > prevTemp + 1 ? "warms" : era.temp < prevTemp - 1 ? "cools" : "holds"} to ${Math.round(era.temp)}°`;
@@ -22192,7 +22736,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       resetDirector();
       resetLife();
       resetClimate();
-      sound.reset();
+      sound.reset(climate.music);
       if (lab) lab.reset();
       if (specimen) specimen.reset();
       life.estThreshold = Math.max(30, Math.round(n * 25e-5));
@@ -22318,7 +22862,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         cam.zoom = cam.zoomTarget = page.cam.zoom;
         cam.anchor = null;
       }
-      sound.reset();
+      sound.reset(climate.music, climate.name);
       lab.reset();
       specimen.reset();
       deselect();
@@ -23955,6 +24499,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           state.warm = true;
           applySpeed(Infinity);
           warmEl.hidden = false;
+          sound.warm(true);
         }
       }
       if (!state.warm) return;
@@ -23967,6 +24512,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       setText("warm-t", `${fmtClock(eng.simTime)} / ${fmtClock(WARM_UNTIL)}`);
     }
     function endWarm() {
+      if (state.warm) sound.warm(false);
       warmDue = false;
       state.warm = false;
       warmEl.hidden = true;

@@ -52,6 +52,11 @@ const MINOR = new Set(['charged', 'eaten', 'rustle']);
 // The swarm: grains per second a band plays at most (beyond that a grain stands for several, so
 // the activity stays audible as grains), and the level of one grain relative to a note.
 const SWARM_MAX = 150, GRAIN = 1.75;
+// sparks: whole showers and single grains per second at most, and the shapes a shower takes
+// (chord-tone steps for note i of n)
+const SHOWERS = 0.4, GRAINS = 2.5;
+const RINGS = 1.5; // a birth's bright overtone: rings per second at most
+const SHAPES = [(i) => i, (i, n) => n - 1 - i, (i, n) => Math.min(i, n - 1 - i) * 2, (i) => [0, 2, 1, 3, 2, 4][i], (i) => (i % 2 ? i + 1 : i - 1 + (i ? 0 : 1)), (i) => -i];
 // level of the single voices fully zoomed in, relative to afar
 const CLOSE = 0.9;
 // seconds the picked species takes to ease back into the mix after its greeting
@@ -367,8 +372,13 @@ export class Field {
     const { root, scale } = c, piv = c.pivot;
     switch (type) {
       case 'alive': this.speciesNote(o.slot, t, g, o); return;
-      case 'birth': { // the species' note, rung with a bright overtone: a new cell
+      case 'birth': { // the species' note, rung with a bright overtone: a new cell (a few rings a second
+        // at most: sped up, a thriving species' births would otherwise ring one pitch over and over)
         const midi = this.speciesNote(o.slot, t, g * 0.7, o);
+        const dt = c.time - (this.ringAt ?? c.time); this.ringAt = c.time;
+        this.rings = Math.min(2, (this.rings ?? 2) + dt * RINGS);
+        if (this.rings < 1) return;
+        this.rings--;
         const f = midicps((midi ?? d2m(Math.floor(o.hue * 7) + piv, root, scale)) + 24);
         c.at(t, 'glint', { freq: f, amp: g * 0.5, dec: 0.35, pan: o.pan, rev: o.wet(0.45), dly: 0.2 });
         return;
@@ -378,9 +388,7 @@ export class Field {
         for (let i = 0; i < 3; i++) c.at(t + i * c.step * 0.5, 'glint', { freq: midicps(d2m(base + i * 2 + piv, root, scale)) * 4, amp: g * (1 - i * 0.15), dec: 0.25, pan: o.pan, rev: o.wet(0.45), dly: 0.25 });
         return;
       }
-      case 'spark': // life sparking from silt: a shower of sparks
-        for (let i = 0; i < 6; i++) c.at(t + i * 0.09, 'glint', { freq: midicps(d2m(i + 2, root, scale)) * 4, amp: g * (1 - i * 0.08), dec: 0.3, pan: clamp(o.pan + this.rr(-0.15, 0.15), -0.9, 0.9), rev: o.wet(0.55), dly: 0.3 });
-        return;
+      case 'spark': this.spark(t, g, o); return;
       case 'starved': // a quiet fall
         c.at(t, 'wood', { freq: midicps(d2m(-(o.idb % 4) + piv, root, scale) - 12), amp: g, dec: 0.5, bright: 0.45 * o.dim, pan: o.pan, rev: o.wet(0.3) });
         return;
@@ -402,6 +410,30 @@ export class Field {
       }
       case 'charged': // (no longer sent: the tide once charged silt into glint) a faint shimmer
         c.at(t, 'glint', { freq: midicps(d2m(o.idb % 14, root, scale)) * (o.idb & 32 ? 8 : 4), amp: g * (0.5 + 0.5 * o.td), dec: this.rr(0.04, 0.2), pan: o.pan, rev: o.wet(0.55), dly: 0.25 });
+    }
+  }
+
+  // Life sparking from silt. A new world sparks many times a second (and many more at a fast
+  // speed), so only now and then is it a whole shower: a few notes of the chord of the moment, from
+  // where the spark's colour falls, rising, falling or turning, high or very high, quick or
+  // unhurried, never twice the same. Between showers a spark is a single soft grain, and beyond a
+  // few grains a second it is not heard at all.
+  spark(t, g, o) {
+    const c = this.c, now = c.time, { root, scale } = c, piv = c.pivot;
+    const dt = now - (this.sparkAt ?? now); this.sparkAt = now;
+    this.showers = Math.min(1.5, (this.showers ?? 1) + dt * SHOWERS); this.grains = Math.min(3, (this.grains ?? 3) + dt * GRAINS);
+    const pan = (d) => clamp(o.pan + d, -0.9, 0.9);
+    if (this.showers >= 1) {
+      this.showers--;
+      const n = 3 + Math.floor(this.rnd() * 4), shape = SHAPES[Math.floor(this.rnd() * SHAPES.length)], gap = this.rr(0.06, 0.13);
+      const base = Math.floor(o.hue * 7), mul = this.rnd() < 0.7 ? 4 : this.rnd() < 0.5 ? 2 : 8, drift = this.rr(-0.25, 0.25);
+      for (let i = 0; i < n; i++) {
+        const deg = base + piv + 2 * shape(i, n); // chord tones: every other degree
+        c.at(t + i * gap * this.rr(0.85, 1.15), 'glint', { freq: midicps(d2m(deg, root, scale)) * mul, amp: g * (1 - i * 0.08), dec: this.rr(0.2, 0.4), pan: pan(drift * i), rev: o.wet(0.55), dly: 0.3 });
+      }
+    } else if (this.grains >= 1) {
+      this.grains--;
+      c.at(t, 'glint', { freq: midicps(d2m(Math.floor(this.rnd() * 7) * 2 + piv, root, scale)) * (this.rnd() < 0.5 ? 4 : 2), amp: g * 0.5, dec: this.rr(0.15, 0.35), pan: pan(this.rr(-0.2, 0.2)), rev: o.wet(0.6), dly: 0.3 });
     }
   }
 

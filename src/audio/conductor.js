@@ -27,13 +27,23 @@ const NOUN = {
   Hush: { level: 0.7, dens: 0.6 },
 };
 const ROOTS = [45, 47, 48, 50, 52, 53];
+// the keys a world may open in: open, unhurried modes (never the darkest)
+const OPEN_MODES = ['lydian', 'dorian', 'mixolydian', 'penta', 'ionian', 'aeolian', 'lyddom'];
 export const hashStr = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
+// a choice that is the same for one world and one name, and differs between worlds (ws: the world's seed)
+export const worldHash = (name, ws = 0) => hashStr(`${name}#${ws >>> 0}`);
 
-export function eraMusic(name, prevRoot) {
+// An era's music: its adjective sets the mode, its noun the effects, and the world's seed (ws) with
+// the name picks the key, so an era sounds like its name but not the same in every world. A world
+// opens (The First Tides) in a key and mode of its own.
+export function eraMusic(name, prevRoot, ws = 0) {
   const w = String(name || '').split(' ');
-  if (!name || name === 'The First Tides' || !ADJ[w[1]]) return { name: name || 'The First Tides', mode: 'lydian', root: 50, fx: {} };
+  if (!name || name === 'The First Tides' || !ADJ[w[1]]) {
+    const h = worldHash('The First Tides', ws);
+    return { name: name || 'The First Tides', mode: OPEN_MODES[h % OPEN_MODES.length], root: ROOTS[(h >>> 8) % ROOTS.length], fx: {} };
+  }
   const roots = ROOTS.filter((r) => r !== prevRoot);
-  return { name, mode: ADJ[w[1]], root: roots[hashStr(name) % roots.length], fx: NOUN[w[2]] || {} };
+  return { name, mode: ADJ[w[1]], root: roots[worldHash(name, ws) % roots.length], fx: NOUN[w[2]] || {} };
 }
 
 // Scale degree → MIDI note, as SuperCollider's degreeToKey: a fractional degree carries an
@@ -80,14 +90,16 @@ export class Conductor {
     this.eng = engine; this.sr = engine.sr;
     this.rnd = mulberry32(seed >>> 0);
     this.time = 0; this.stepN = 0; this.nextStep = 0.1;
-    this.tempo = 1; this.step = STEP;
+    this.tempo = 1; this.step = STEP; this.slow = STEP;
+    this.ws = seed >>> 0; // the world's seed: keys its opening and colours its eras (a message from the page sets it)
+    this.lapse = false; // the page is running a new world's first minutes at Max (the warm-up)
     this.field = new Field(this);
     this.post = null; // messages back to the page (the worklet sets this)
     this.queue = [];
     this.world = { light: 0.6, tide: 0.5, warm: 0 };
     this.warm = 0; // the water's warmth, eased over a few bars (world.warm)
     this.nodeN = 0;
-    this.setEra(eraMusic('The First Tides'), true);
+    this.setEra(eraMusic('The First Tides', null, this.ws), true);
     this.score = new Score(this);
     engine.master.p.gain = 1.6;
     this.sea = this.swap(0, 'sea', this.seaChord(this.root), 0);
@@ -104,8 +116,12 @@ export class Conductor {
     if (old) { this.setAt(t, old, { fade: 0, fadeTime }); this.queue.push({ t: t + fadeTime * 1.2, free: old }); }
     return id;
   }
-  // the music follows the simulation's speed
-  setTempo(tf) { if (tf > 0 && Math.abs(tf - this.tempo) > 1e-3) { this.tempo = tf; this.step = STEP / tf; } }
+  // The music follows the simulation's speed. The pulse (step: the cells, the harmony) quickens with
+  // it; the score (on `slow`) by only the square root, so sped-up time is heard in the cells' quick
+  // songs while the score stays a score, neither a blur nor a bell ringing over and over.
+  setTempo(tf) { if (tf > 0 && Math.abs(tf - this.tempo) > 1e-3) { this.tempo = tf; this.step = STEP / tf; this.slow = tf > 1 ? STEP / Math.sqrt(tf) : this.step; } }
+  // the pulse at real time (in the water's warmth): what the page will be back at after the warm-up
+  realStep() { return STEP / (1 + 0.06 * this.warm); }
 
   setEra(era, now = false) {
     this.era = era;
@@ -124,12 +140,20 @@ export class Conductor {
     else if (m.type === 'audition') this.field.audition(m);
     else if (m.type === 'fieldGain') Object.assign(this.field.gain, m.gain);
     else if (m.type === 'era') this.pendingEra = m.name;
-    else if (m.type === 'open') this.pendingOpen = true;
+    else if (m.type === 'open') { this.pendingOpen = true; if (m.seed != null && m.seed >>> 0 !== this.ws) this.rekey(m.seed, null); }
+    else if (m.type === 'warm') { this.lapse = !!m.on; if (!m.on) this.score.lapseEnd = this.time; }
     else if (m.type === 'reset') {
-      this.field.slots.clear(); this.pendingEra = null; this.switchAt = null; this.pendingOpen = false;
-      this.setEra(eraMusic('The First Tides'), true); this.score.setEra(this.era);
-      this.sea = this.swap(this.time, 'sea', this.seaChord(this.root), 10, this.sea);
+      this.field.slots.clear(); this.pendingEra = null; this.switchAt = null; this.pendingOpen = false; this.lapse = false;
+      this.score.reset();
+      this.rekey(m.seed ?? this.ws, m.era);
     }
+  }
+  // a world (its seed), in an era (a loaded world's, or its opening): its key, its ensemble, its sea
+  rekey(seed, era) {
+    this.ws = seed >>> 0;
+    this.setEra(eraMusic(era || 'The First Tides', null, this.ws), true); this.score.played = []; this.score.setEra(this.era);
+    this.sea = this.swap(this.time, 'sea', this.seaChord(this.root), 10, this.sea);
+    this.droneNote = null;
   }
 
   // ── scheduling ─────────────────────────────────────────────────────────────
@@ -162,7 +186,7 @@ export class Conductor {
   bar(ts) {
     const W = this.world;
     if (this.pendingEra) { // the currents churn: a bridge to the new key
-      const nx = eraMusic(this.pendingEra, this.era.root);
+      const nx = eraMusic(this.pendingEra, this.era.root, this.ws);
       this.pendingEra = null;
       this.nextEra = nx; this.switchAt = ts + 45; this.fdnDecay = null; // the bridge takes the reverb
       this.score.bridge(ts, nx, nx.root + (nx.fx.shift || 0), MODES[nx.mode][0], this.switchAt);

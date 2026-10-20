@@ -257,6 +257,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let climate;
   function resetClimate() {
     climate = createClimate(eng);
+    climate.music = (Math.random() * 2 ** 32) >>> 0; // the world's soundtrack seed (kept with a saved world)
     climate.onEra = (era, prevAmb, prevTemp) => {
       const lightWord = era.ambient > prevAmb + 0.05 ? 'light rises' : era.ambient < prevAmb - 0.05 ? 'light dims' : 'light holds';
       const waterWord = !K.heat ? '' : ` · water ${era.temp > prevTemp + 1 ? 'warms' : era.temp < prevTemp - 1 ? 'cools' : 'holds'} to ${Math.round(era.temp)}°`;
@@ -291,7 +292,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     resetDirector();
     resetLife();
     resetClimate();
-    sound.reset();
+    sound.reset(climate.music);
     // species serials (and the names drawn from them) start over: drop what the panels built from the last world's
     if (lab) lab.reset();
     if (specimen) specimen.reset();
@@ -415,7 +416,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       cam.x = page.cam.x; cam.y = page.cam.y;
       cam.zoom = cam.zoomTarget = page.cam.zoom; cam.anchor = null;
     }
-    sound.reset(); lab.reset(); specimen.reset(); deselect(); clearFocus();
+    sound.reset(climate.music, climate.name); lab.reset(); specimen.reset(); deselect(); clearFocus();
     feedKey = '';
     renderFeed();
     drawWorldChart();
@@ -1804,14 +1805,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (state.phase !== 'running') return;
     if (warmDue && introHidden) {
       warmDue = false;
-      if (eng.simTime < WARM_UNTIL) { state.warm = true; applySpeed(Infinity); warmEl.hidden = false; }
+      if (eng.simTime < WARM_UNTIL) { state.warm = true; applySpeed(Infinity); warmEl.hidden = false; sound.warm(true); }
     }
     if (!state.warm) return;
     if (eng.simTime >= WARM_UNTIL) { endWarm(); applySpeed(1); flash('Real time'); return; }
     setText('warm-t', `${fmtClock(eng.simTime)} / ${fmtClock(WARM_UNTIL)}`);
   }
   // (a speed chosen before the warm-up begins cancels it too)
-  function endWarm() { warmDue = false; state.warm = false; warmEl.hidden = true; }
+  function endWarm() { if (state.warm) sound.warm(false); warmDue = false; state.warm = false; warmEl.hidden = true; }
   $('warm-end').addEventListener('click', () => setSpeed(1));
   // one notch along the speeds on offer
   function stepSpeed(d) {
