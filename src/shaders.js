@@ -257,6 +257,10 @@ export const DEFAULT_K = {
   graftHop: 0,      // (experiment) 1: a grafter hops to a fitting cell in reach holding half again its host's energy
   graftTrade: 0,    // (experiment) past graft 0.5 a grafter feeds and photosynthesises on its own at (2 - 2 graft)^graftTrade, and its
                     // grafts draw at 2 graft × graftTake: a line from facultative grafters to parasites that live on their hosts
+  graftSpec: 0,     // (experiment) a graft draws at its fit's excess over half graftFit (scaled to 0..1) to this power: a
+                    // parasite gains only on hosts its receptors match well, so lineages specialise
+  graftImprint: 0,  // (experiment) 1: a species born of a grafter holding a host takes only that host's species (tail.z,
+                    // kind + 1; lost now and then by mutation)
 };
 
 // WGSL for the energy in a body of genome expression G (K.bodyE by size), and a dying cell's litter flag
@@ -712,7 +716,7 @@ function cellWGSL(K, w) {
         // an animal that is not a hunter swims away from hunters near it, the harder the closer they are
         if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && g.dFlesh <= 0.5 && g.photo <= 0.4) { fr -= ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);${W(`mFl = ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);`)} }
         // a grafter free of a host looks for the best-fitting cell of another species within bond range
-        if (grafter && (host == NONE || ${K.graftHop ? 'true' : 'false'}) && j != host && qk != p.kind && (q.kr & (1u << 13u)) == 0u && r < LINK_R && a > graftBest${K.graftMax ? ` && hostedOf(j) < ${K.graftMax | 0}u` : ''}) { graftBest = a; graftCand = j; }
+        if (grafter && (host == NONE || ${K.graftHop ? 'true' : 'false'}) && j != host && qk != p.kind && (q.kr & (1u << 13u)) == 0u && r < LINK_R && a > graftBest${K.graftMax ? ` && hostedOf(j) < ${K.graftMax | 0}u` : ''}${K.graftImprint ? ' && (g.tail.z < 0.5 || qk + 1u == u32(g.tail.z))' : ''}) { graftBest = a; graftCand = j; }
         crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
         if ((q.kr & (1u << 12u)) != 0u) { crowdP += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind); }
         if (DIAG) {
@@ -960,7 +964,7 @@ function cellWGSL(K, w) {
   if (host != NONE) {
     let hE = max(sortedFull[host].energy, 0.0);
     let fl = clamp(g.sym.y, -1.0, 1.0);
-    let rateG = min(0.2, ${f(K.graftTake)} * sim.dt${K.graftTrade ? ' * 2.0 * g.sym.x' : ''});
+    let rateG = min(0.2, ${f(K.graftTake)} * sim.dt${K.graftTrade ? ' * 2.0 * g.sym.x' : ''})${K.graftSpec ? ` * pow(clamp((graftFit(sg, host) - ${f(K.graftFit * 0.5)}) / ${f(1 - K.graftFit * 0.5)}, 0.0, 1.0), ${f(K.graftSpec)})` : ''};
     graftE = (1.0 - abs(fl)) * (hE - max(p.energy, 0.0)) * rateG + max(-fl, 0.0) * rateG * ${K.graftFloor ? `max(hE - ${f(K.graftFloor)} * genomes[sortedFull[host].kind].reproE, 0.0)` : 'hE'} - max(fl, 0.0) * rateG * max(p.energy, 0.0);
     graftE = round(graftE * GRAFT_FIX) / GRAFT_FIX;
   }
@@ -1330,6 +1334,7 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   g.sym.z = clamp(g.sym.z + gauss(s) * m * 0.15, 0.0, 1.0);
   if (rnd(s) < m * 0.1) { g.sym.z = select(0.0, mix(0.2, 0.8, rnd(s)), g.sym.z < 0.05); }
   // a captured symbiont weakens or strengthens, and now and then is lost
+  if (IMPRINT && rnd(s) < m * 0.1) { g.tail.z = 0.0; }
   if (CAPTURE && g.sym.w > 0.0) { g.sym.w = select(clamp(g.sym.w + gauss(s) * m * 0.1, 0.0, 0.5), 0.0, rnd(s) < m * 0.1); }
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
@@ -1342,6 +1347,7 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
 // Endosymbiosis: a new species born to a grafter riding a producer keeps the producer within it, half its
 // photosynthesis as a symbiont (sym.w), and takes on some of its colour.
 const CAPTURE = ${K.capture ? 'true' : 'false'};
+const IMPRINT = ${K.graftImprint ? 'true' : 'false'};
 fn capture(slot: u32, hk: u32) {
   let h = genomes[hk];
   if (h.photo <= 0.4) { return; }
@@ -2471,6 +2477,7 @@ ${cellWGSL(K, false)}
           if (slot != NONE) {
             mutateInto(slot, p.kind, &s);
             if (CAPTURE && host != NONE) { capture(slot, sortedFull[host].kind); }
+            if (IMPRINT && host != NONE) { genomes[slot].tail.z = f32(sortedFull[host].kind + 1u); }
             ck = slot;
             atomicAdd(&ledger[3], 1u);
           }
@@ -2532,6 +2539,7 @@ ${cellWGSL(K, false)}
             if (slot != NONE) {
               mutateInto(slot, p.kind, &s);
               if (CAPTURE && host != NONE) { capture(slot, sortedFull[host].kind); }
+              if (IMPRINT && host != NONE) { genomes[slot].tail.z = f32(sortedFull[host].kind + 1u); }
               ck = slot;
               atomicAdd(&ledger[3], 1u);
             }
