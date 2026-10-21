@@ -90,6 +90,11 @@ function runStats(run) {
     out.graftedEnd = last.grafts && last.living ? last.grafts.grafted / last.living : 0;
     const hostShare = (g) => mean(G.map((s) => (s.grafts.grafted ? s.grafts.hosts[g] / s.grafts.grafted : 0)));
     out.hostsP = hostShare('producer'); out.hostsAnimal = 1 - out.hostsP;
+    // outbreaks: how the number grafted swings (sd of its log), and its booms and crashes per hour
+    const gx = G.map((s) => s.grafts.grafted);
+    out.graftSwing = sd(gx.map((x) => Math.log(x + 1)));
+    const w = swings(G.map((s) => s.t), gx, 300, 20);
+    out.outbreaks = hours > 0 ? w.booms / hours : null;
   }
   const N = S.filter((s) => s.genes);
   if (N.length) {
@@ -111,8 +116,8 @@ for (const dir of positionals) {
   }
   rows.push(row);
 }
-const COLS = ['n', 'regionBooms', 'regionCrashes', 'takeovers', 'producerSwing', 'speciesBooms', 'speciesCrashes', 'effSpecies', 'livingFrac', 'awake4', 'thriving4', 'grafted', 'taking', 'giving', 'graftsPerMinK', 'rejectsPerMinK', 'hostsP', 'grafterSp', 'flow', 'rejecters', 'symbionts'];
-const SHORT = { regionBooms: 'rBoom', regionCrashes: 'rCrash', takeovers: 'takeov', producerSwing: 'pSwing', speciesBooms: 'sBoom', speciesCrashes: 'sCrash', effSpecies: 'effSp', livingFrac: 'living', awake4: 'awake4', thriving4: 'thrive4', grafted: 'grafted', taking: 'taking', giving: 'giving', graftsPerMinK: 'mk/min', rejectsPerMinK: 'rej/min', hostsP: 'hostP', grafterSp: 'grafter', flow: 'flow', rejecters: 'reject', symbionts: 'symb' };
+const COLS = ['n', 'regionBooms', 'regionCrashes', 'takeovers', 'producerSwing', 'speciesBooms', 'speciesCrashes', 'effSpecies', 'livingFrac', 'awake4', 'thriving4', 'grafted', 'taking', 'giving', 'graftsPerMinK', 'rejectsPerMinK', 'hostsP', 'graftSwing', 'outbreaks', 'grafterSp', 'flow', 'rejecters', 'symbionts'];
+const SHORT = { regionBooms: 'rBoom', regionCrashes: 'rCrash', takeovers: 'takeov', producerSwing: 'pSwing', speciesBooms: 'sBoom', speciesCrashes: 'sCrash', effSpecies: 'effSp', livingFrac: 'living', awake4: 'awake4', thriving4: 'thrive4', grafted: 'grafted', taking: 'taking', giving: 'giving', graftsPerMinK: 'mk/min', rejectsPerMinK: 'rej/min', hostsP: 'hostP', graftSwing: 'gSwing', outbreaks: 'outbrk', grafterSp: 'grafter', flow: 'flow', rejecters: 'reject', symbionts: 'symb' };
 const w = Math.max(8, ...rows.map((r) => r.group.length));
 console.log('group'.padEnd(w), ...COLS.map((c) => (SHORT[c] ?? c).padStart(8)));
 for (const r of rows) {
