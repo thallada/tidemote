@@ -73,6 +73,7 @@ const MODES = {
   school: 'Schooling', body: 'Holding together', gather: 'Gathering', spread: 'Spreading out', jostle: 'Jostled',
   blocked: 'Against stone', drift: 'Drifting', cruise: 'Cruising', idle: 'Idling',
   torpid: 'Torpid', cyst: 'Dormant', rest: 'Resting, fed', young: 'Growing up', dung: 'Dropping dung', scalding: 'Scalding', seekwarm: 'Seeking warmth', seekcool: 'Seeking cooler water', huddle: 'Keeping warm',
+  drain: 'Draining', feed: 'Feeding', ride: 'Riding',
 };
 
 /** How well a hunter's build lets it catch a prey cell (0..1), as lifeMain's catch-skill roll. */
@@ -201,6 +202,15 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
   }
   if (!st && left < 8) {
     st = { key: 'starve', text: 'Starving', why: `Its energy (${E.toFixed(2)}) is nearly spent: about ${Math.max(1, Math.round(left))} s left at ${(-net).toFixed(3)}/s${m.hungry ? ', with nothing it eats in reach' : ''}.` };
+  }
+  // grafted onto another species (docs/symbiosis.md): a parasite takes from its host, a mutualist gives
+  if (!st && m.host != null) {
+    const fl = m.graftFlow || 0, rate = Math.abs(fl).toFixed(3);
+    st = fl > 1e-4
+      ? { key: 'drain', target: m.host, text: 'Draining {sp}', why: `Grafted onto a {sp} cell: its receptors fit the host's surface, and it takes ${rate}/s of the host's energy. It rides where its host goes, and attacks on it often miss in the host's body.` }
+      : fl < -1e-4
+        ? { key: 'feed', target: m.host, text: 'Feeding {sp}', why: `Grafted onto a {sp} cell, and giving it ${rate}/s of its own energy. It rides where its host goes, and attacks on it often miss in the host's body.` }
+        : { key: 'ride', target: m.host, text: 'Riding on {sp}', why: 'Grafted onto a {sp} cell, their energy about even. It rides where its host goes, and attacks on it often miss in the host\'s body.' };
   }
   const chaser = others.filter((s) => s.flee > 0).sort((a, b) => b.flee - a.flee)[0];
   if (!st && chaser && share('flee') >= 0.15) {

@@ -381,6 +381,18 @@ export function createSpecimen(api) {
     b += trait('Size', g.size, 0.45, 2.6, fmtLen(0.17 * g.size), 'size');
     b += kv('Shape', CELL_SHAPES[cellShape(g, role)], 'size');
     h += blk('Body', b);
+    // grafts (docs/symbiosis.md): onto other species, the way energy flows along them, rejecting them, a captured symbiont
+    const sy = g.sym || [0, 0, 0, 0];
+    if (sy[0] > K.graftMin || sy[2] > 0.05 || sy[3] > 0) {
+      let y = '';
+      if (sy[0] > K.graftMin) {
+        y += trait('Grafting', sy[0], 0, 1, `${Math.round(sy[0] * 100)}%`, 'graft');
+        y += trait('Along a graft', (sy[1] + 1) / 2, 0, 1, sy[1] < -0.33 ? 'takes' : sy[1] > 0.33 ? 'gives' : 'shares', 'graftflow');
+      }
+      if (sy[2] > 0.05) y += trait('Rejecting', sy[2], 0, 1, `${Math.round(sy[2] * 100)}%`, 'reject');
+      if (sy[3] > 0) y += trait('Symbiont', sy[3], 0, 0.5, `${Math.round(sy[3] * 200)}% of its host's light`, 'symbiont');
+      h += blk('Grafts', y, { tip: 'grafts' });
+    }
     let m = trait('Swimming', g.swim * (1 - g.photo), 0, 3, (g.swim * (1 - g.photo)).toFixed(2), 'swimming');
     m += trait('Schooling', g.align, 0, 1, `${Math.round(g.align * 100)}%`, 'schooling');
     m += trait('Reach', g.radius, 0.4, 1, fmtLen(g.radius), 'reach');

@@ -234,6 +234,7 @@ export const DEFAULT_K = {
   graftFit: 0.3,
   graftRate: 2,     // chance per second, times the graft gene, that a cell free of a host takes up one that fits
   graftTake: 0.5,   // rate (per second) a fully taking graft drains its host's energy at (giving: its own)
+  graftEff: 1,      // share of the energy passed along a graft that the receiving cell keeps (the rest is heat)
   graftCost: 0.004, // upkeep of the graft gene (× metab)
   graftBond: 40,    // spring strength holding a grafter to its host
   graftArmor: 0.5,  // chance an attack on a grafted cell misses (it sits in its host's body)
@@ -953,6 +954,9 @@ function cellWGSL(K, w) {
     graftE = (1.0 - abs(fl)) * (hE - max(p.energy, 0.0)) * shareK + max(-fl, 0.0) * rateG * hE - max(fl, 0.0) * rateG * max(p.energy, 0.0);
     graftE = round(graftE * GRAFT_FIX) / GRAFT_FIX;
   }
+  // what leaves the host (graftOut, positive) or reaches it (negative); the receiver keeps graftEff of what is sent
+  let graftOut = select(graftE * ${f(K.graftEff)}, graftE, graftE > 0.0);
+  graftE = select(graftE, graftE * ${f(K.graftEff)}, graftE > 0.0);
   var vel = p.vel;
   var pos = p.pos;
   // a beating tree's cells are held end to end more firmly than a body's (treeBond): its beat swings them hard
@@ -2379,7 +2383,9 @@ ${cellWGSL(K, false)}
   let dg = dietGuild(g);
   if (host != NONE) {
     // the host's side of the graft's flow, settled in the next step's resolveCount
-    if (graftE != 0.0) { atomicAdd(&ledger[graftAt() + host], bitcast<u32>(i32(round(graftE * GRAFT_FIX)))); }
+    if (graftOut != 0.0) { atomicAdd(&ledger[graftAt() + host], bitcast<u32>(i32(round(graftOut * GRAFT_FIX)))); }
+    // (what the receiver does not keep warms the water)
+    if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, abs(graftOut - graftE) * 8.0 * ${f(K.metabHeat)}); }
     atomicAdd(&ledger[META_SYM + dg], 1u);
     atomicAdd(&ledger[META_SYM + 5u + dietGuild(genomes[sortedFull[host].kind])], 1u);
     if (graftE > 0.0) { atomicAdd(&ledger[META_SYM + 10u], 1u); } else if (graftE < 0.0) { atomicAdd(&ledger[META_SYM + 11u], 1u); }

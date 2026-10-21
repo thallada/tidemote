@@ -15,7 +15,7 @@ const G = {
 const genomeOf = (k) => G[k] || null;
 
 /** A mind buffer as mindMain writes it. */
-function buffer({ hungry = false, silt = false, food = null, energy = 0.5, photoGain = 0, upkeep = 0.02, light = 0.5, drives = {}, nbrs = [], stoneN = 0, kinCost = 1, image = 0, flow = [0, 0], vel = [0, 0], divE = 1.2, cyst = false, mature = true, gut = 0, plantN = 0 } = {}) {
+function buffer({ hungry = false, silt = false, food = null, energy = 0.5, photoGain = 0, upkeep = 0.02, light = 0.5, drives = {}, nbrs = [], stoneN = 0, kinCost = 1, image = 0, flow = [0, 0], vel = [0, 0], divE = 1.2, cyst = false, mature = true, gut = 0, plantN = 0, host = null, graftFlow = 0 } = {}) {
   const buf = new ArrayBuffer(MIND_BYTES);
   const u32 = new Uint32Array(buf), f32 = new Float32Array(buf);
   u32[0] = 77; u32[1] = 1;
@@ -29,6 +29,7 @@ function buffer({ hungry = false, silt = false, food = null, energy = 0.5, photo
   order.forEach((k, i) => f32.set(drives[k] || [0, 0], 24 + 2 * i));
   f32.set(flow, 44);
   f32[58] = divE; u32[59] = (cyst ? 1 : 0) | (mature ? 2 : 0); f32.set(drives.flee || [0, 0], 60); f32[62] = gut; f32[63] = plantN;
+  u32[64] = host ?? NONE; f32[65] = graftFlow;
   nbrs.forEach((q, k) => {
     const o = MIND_HEAD + k * MIND_NBR_WORDS;
     u32[o] = q.kind; u32[o + 1] = q.inside ? 1 : 0;
@@ -49,6 +50,15 @@ test('parseMind reads the header, drives and neighbours', () => {
   assert.equal(m.nbrs[0].inside, true);
   const none = new Uint32Array(MIND_BYTES / 4);
   assert.equal(parseMind(none, new Float32Array(none.buffer)), null);
+});
+
+test('a grafter names its host and which way the energy flows', () => {
+  const take = interpretMind(buffer({ host: ALGA, graftFlow: 0.05 }), G[ME], ME, { K, genomeOf });
+  assert.equal(take.key, 'drain');
+  assert.equal(take.target, ALGA);
+  assert.equal(interpretMind(buffer({ host: ALGA, graftFlow: -0.05 }), G[ME], ME, { K, genomeOf }).key, 'feed');
+  assert.equal(interpretMind(buffer({ host: ALGA }), G[ME], ME, { K, genomeOf }).key, 'ride');
+  assert.notEqual(interpretMind(buffer({}), G[ME], ME, { K, genomeOf }).key, 'ride');
 });
 
 test('a hungry flesh-eater with prey in reach is hunting it', () => {
