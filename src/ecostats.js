@@ -225,7 +225,21 @@ export function summarizeRun(samples, { count, collapseAt = 0.02, monoAt = 0.5, 
       : DIETS.filter((k) => lateDiet[k] >= 0.2).join('+') || 'mixed',
     fingerprint: fingerprint(late),
     ...(late[0].thermal ? { thermal: thermalSummary(mature, late) } : {}),
+    ...(late.some((s) => s.grafts) ? { grafts: graftSummary(late) } : {}),
     ...(late.some((s) => s.packing) ? { packing: Object.fromEntries(['packed', 'deep', 'touching', 'maxPile'].map((k) => [k, mean(late.filter((s) => s.packing).map((s) => s.packing[k]))])) } : {}),
+  };
+}
+
+// Grafts over the late phase (docs/symbiosis.md): the share of the living grafted onto another species, the
+// share of those taking from their hosts, and grafts made and rejected per simulated minute per thousand living.
+function graftSummary(late) {
+  const xs = late.filter((s) => s.grafts);
+  const m = (f) => mean(xs.map(f));
+  return {
+    graftedFrac: m((s) => (s.living ? s.grafts.grafted / s.living : 0)),
+    takingFrac: m((s) => (s.grafts.grafted ? s.grafts.taking / s.grafts.grafted : 0)),
+    madePerK: m((s) => (s.living ? s.grafts.made * 1000 / s.living : 0)),
+    rejectedPerK: m((s) => (s.living ? s.grafts.rejected * 1000 / s.living : 0)),
   };
 }
 

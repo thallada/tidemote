@@ -1,6 +1,6 @@
 import {
   simWGSL, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES,
+  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_SYM, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES,
 } from './shaders.js';
 import {
   archetypeGenome, randomGenome, writeGenome, parseParticle,
@@ -326,7 +326,8 @@ class Engine {
     // each cell's drawn motion and recent events, by ID (contactGather): only cells in view need a slot
     b.sway = d.createBuffer({ size: Math.min(n, 1 << 20) * SWAY_BYTES, usage: U.STORAGE });
     b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
-    b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    // (the head, then a claim word and a graft debt word per particle: graftAt in shaders.js)
+    b.ledger = d.createBuffer({ size: (META_CLAIM + 2 * n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
     // the particles too large to splat (splatMain): the points' draw arguments, then their indices
     b.quads = d.createBuffer({ size: (4 + n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
@@ -635,7 +636,7 @@ class Engine {
     const enc = d.createCommandEncoder();
     enc.clearBuffer(this.b.thermal, 0, cells * 4);
     enc.clearBuffer(this.b.counts);
-    enc.clearBuffer(this.b.ledger, LEDGER_HEAD, n * 4);
+    enc.clearBuffer(this.b.ledger, LEDGER_HEAD, this.b.ledger.size - LEDGER_HEAD);
     enc.clearBuffer(this.b.frameCtr);
     const pass = enc.beginComputePass();
     pass.setPipeline(this.cp.seedMain.pipe);
@@ -741,6 +742,8 @@ class Engine {
     enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
     // litter on the ground (META_DEATH + 60) and cysts per guild (57-59, 61, 62), counted afresh each step
     enc.clearBuffer(b.ledger, (META_DEATH + 57) * 4, 6 * 4);
+    // grafts now, by guild, taking and giving (META_SYM 0-11), counted afresh each step
+    enc.clearBuffer(b.ledger, META_SYM * 4, 12 * 4);
     enc.clearBuffer(b.frameCtr, 0, 4);
     enc.clearBuffer(b.frameCtr, 36, 4);
     enc.clearBuffer(b.ledger, 48, 12);
@@ -841,7 +844,7 @@ class Engine {
 
   /** The bytes of each buffer readState() keeps, for a world of n particles. */
   stateSizes(n) {
-    return { parts: n * P_BYTES, genomes: MAXK * G_BYTES, intent: n * 16, ledger: (META_CLAIM + n) * 4, thermal: 3 * MAX_CELLS * 4 };
+    return { parts: n * P_BYTES, genomes: MAXK * G_BYTES, intent: n * 16, ledger: (META_CLAIM + 2 * n) * 4, thermal: 3 * MAX_CELLS * 4 };
   }
 
   /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
@@ -895,7 +898,7 @@ class Engine {
     const u = new Uint32Array(copy);
     return { simTime: this.simTime, globals: u.subarray(0, 16), pop: u.subarray(META_POP, META_POP + MAXK),
       demography: u.subarray(META_DEATH, META_DEATH + 64), energy: u.subarray(META_ENERGY, META_ENERGY + 64),
-      diag: u.subarray(META_DIAG, META_CLAIM), genomeU32: new Uint32Array(copy, LEDGER_HEAD), genomeF32: new Float32Array(copy, LEDGER_HEAD) };
+      diag: u.subarray(META_DIAG, META_SYM), sym: u.subarray(META_SYM, META_CLAIM), genomeU32: new Uint32Array(copy, LEDGER_HEAD), genomeF32: new Float32Array(copy, LEDGER_HEAD) };
   }
 
   /** On a census step, copy the ledger and genomes into a free staging buffer. */
@@ -924,6 +927,7 @@ class Engine {
           simTime: job.simTime, frameNo: job.frameNo,
           globals: u.subarray(0, 16), slots: u.subarray(META_SLOT, META_SLOT + MAXK), pop: u.subarray(META_POP, META_POP + MAXK),
           demography: u.subarray(META_DEATH, META_DEATH + 64), energy: u.subarray(META_ENERGY, META_ENERGY + 64),
+          sym: u.subarray(META_SYM, META_CLAIM),
           genomeU32: new Uint32Array(copy, LEDGER_HEAD), genomeF32: new Float32Array(copy, LEDGER_HEAD),
         });
       }

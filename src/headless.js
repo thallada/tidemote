@@ -42,7 +42,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     const climate = createClimate(eng, rng);
     const samples = [];
     const ledger = { births: 2, mutants: 3, starved: 5, oldAge: 6, kills: 7, extinctions: 8, grazes: 9, scavenges: 10, bites: 11 };
-    let lastSample = -Infinity, lastPrint = -Infinity, prevG, prevD, prevE, prevT, latest, latestField = null, latestPacking = null;
+    let lastSample = -Infinity, lastPrint = -Infinity, prevG, prevD, prevE, prevS, prevT, latest, latestField = null, latestPacking = null;
     let minLivingFrac = null, collapses = 0, collapsed = false;
     let bodiesT = -Infinity, latestBodies = null;
     const established = new Set(), lost = new Set();
@@ -127,6 +127,12 @@ export async function runHeadless(device, config, { print, width = 640, height =
         carcassEaten: perMin(63), litter: c.demography[60] ?? 0 };
       // each guild's cysts now (dormant, counted among the living above)
       const dormant = Object.fromEntries(guilds.map((g, gi) => [g, c.demography[gi < 3 ? 57 + gi : 58 + gi] ?? 0]));
+      // grafts (docs/symbiosis.md): grafted cells now by their own guild and their host's, how many take and
+      // give, and grafts made, rejected and otherwise lost per simulated minute
+      const sy = c.sym, symPerMin = (k) => (prevS && c.simTime > prevT ? ((sy[k] - prevS[k]) >>> 0) * 60 / (c.simTime - prevT) : 0);
+      const grafts = sy ? { grafted: sy.slice(0, 4).reduce((a, b) => a + b, 0), by: Object.fromEntries(guilds.map((g, gi) => [g, sy[gi]])),
+        hosts: Object.fromEntries(guilds.map((g, gi) => [g, sy[5 + gi]])), taking: sy[10], giving: sy[11],
+        made: symPerMin(12), rejected: symPerMin(13), lost: symPerMin(14) } : null;
       eng.readThermal().then((f) => { latestField = fieldStats(f, eng.tbg); }).catch(() => {});
       // how tightly the living sit (by drawn size), read now for the next sample
       const pk = latestPacking;
@@ -143,8 +149,8 @@ export async function runHeadless(device, config, { print, width = 640, height =
         bodiesT = c.simTime;
         eng.readState().then((st) => { latestBodies = morphMix(bodyCensus(st.cpu, st.gpu)); }).catch(() => {});
       }
-      samples.push({ ...latest, thermal, rates, demography, meals, energy, cycle, dormant, packing: pk, spatial: latestSpatial, bodies: latestBodies });
-      prevG = Array.from(c.globals); prevD = Array.from(c.demography); prevE = Array.from(c.energy); prevT = lastSample = c.simTime;
+      samples.push({ ...latest, thermal, rates, demography, meals, energy, cycle, dormant, grafts, packing: pk, spatial: latestSpatial, bodies: latestBodies });
+      prevG = Array.from(c.globals); prevD = Array.from(c.demography); prevE = Array.from(c.energy); prevS = c.sym ? Array.from(c.sym) : null; prevT = lastSample = c.simTime;
     }
     // config.step: each step covers step/60 s (coarse steps), so fewer steps fill the minutes
     const step = config.step || 1, dt = step / 60, perMinute = Math.round(3600 / step);

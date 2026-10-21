@@ -189,6 +189,7 @@ export function randomGenome(r = Math.random, K = DEFAULT_K, t = 19) {
     beat: ((on, amp, f, w, tip) => [on < 0.25 ? mix(0.15, 0.5, amp) : 0, mix(0.5, 2.5, f), mix(0.3, 1.2, w), tip < 0.25 ? 1 : 0])(r(), r(), r(), r(), r()),
     tail: ((on, odds, len) => [on < 0.2 ? mix(0.3, 1, odds) : 0, len])(r(), r(), r()),
     thermo: 0, grow: [devs[0][3], devs[1][3], devs[2][3], tail[1], tail[2], tail[3]].map(unorm8),
+    sym: ((amt, on, flow, ramt, ron) => [on < (K.graftSpark ?? 0) ? mix(0.3, 1, amt) : 0, flow * 2 - 1, ron < (K.graftSpark ?? 0) ? mix(0.2, 0.8, ramt) : 0])(r(), r(), r(), r(), r()),
     parent: 0, serial: 0, born: 0, depth: 0,
   };
   return finalizeGenome(g, K);
@@ -223,6 +224,7 @@ export function finalizeGenome(g, K = DEFAULT_K) {
   g.dGlint /= s; g.dHusk /= s; g.dFlesh /= s;
   g.metab = (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
     + (K.anchorCost ?? 0) * (1 - g.advect) + 0.004 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 0.006 * g.align + 0.004 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0)
+    + (K.graftCost ?? 0) * ((g.sym?.[0] ?? 0) > (K.graftMin ?? 0.2) ? g.sym[0] : 0) + (K.rejectCost ?? 0) * (g.sym?.[2] ?? 0)
     + (K.beatCost ?? 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g) || hasTails(g) ? 1 : 0)) * K.metab;
   g.col = packUnorm(...roleColor(g, 0));
   return g;
@@ -278,6 +280,13 @@ export function mutateLike(g, r = Math.random, K = DEFAULT_K) {
   let odds = clamp(tl[0] + gauss() * m * 0.15, 0, 1);
   if (r() < m * 0.1) odds = odds < 0.05 ? 0.3 + 0.7 * r() : 0;
   h.tail = [odds, clamp(tl[1] + gauss() * m * 0.2, 0, 1)];
+  const sy = h.sym || [0, 0, 0];
+  let graft = clamp(sy[0] + gauss() * m * 0.15, 0, 1);
+  if (r() < m * 0.1) graft = graft < (K.graftMin ?? 0.2) ? 0.3 + 0.7 * r() : 0;
+  const flow = clamp(sy[1] + gauss() * m * 0.3, -1, 1);
+  let rej = clamp(sy[2] + gauss() * m * 0.15, 0, 1);
+  if (r() < m * 0.1) rej = rej < 0.05 ? 0.2 + 0.6 * r() : 0;
+  h.sym = [graft, flow, rej];
   h.parent = g.serial; h.serial = (g.serial || 0) + 1; h.depth = (g.depth || 0) + 1;
   return finalizeGenome(h, K);
 }
@@ -305,6 +314,8 @@ export function writeGenome(u32, f32, slot, g) {
   f32[o + 48] = b[0]; f32[o + 49] = b[1]; f32[o + 50] = b[2]; f32[o + 51] = b[3] ?? 0;
   const tl = g.tail || [0, 0];
   f32[o + 52] = tl[0]; f32[o + 53] = tl[1]; f32[o + 54] = 0; f32[o + 55] = 0;
+  const sy = g.sym || [0, 0, 0];
+  f32[o + 56] = sy[0]; f32[o + 57] = sy[1]; f32[o + 58] = sy[2]; f32[o + 59] = 0;
 }
 
 export const genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
@@ -325,7 +336,7 @@ export function readGenome(u32, f32, slot) {
     shape: F(16), pulse: F(17), roleHue: F(18), advect: F(19), swim: F(20), align: F(21), photo: F(22),
     col: u32[o + 39], parent: u32[o + 40], serial: u32[o + 41], born: f32[o + 42], depth: u32[o + 43],
     adhesion: f32[o + 44], calcify: f32[o + 45],
-    topt: f32[o + 46], tol: f32[o + 47], beat: [f32[o + 48], f32[o + 49], f32[o + 50], f32[o + 51]], tail: [f32[o + 52], f32[o + 53]], thermo: (u32[o + 15] & 255) / 255, grow,
+    topt: f32[o + 46], tol: f32[o + 47], beat: [f32[o + 48], f32[o + 49], f32[o + 50], f32[o + 51]], tail: [f32[o + 52], f32[o + 53]], sym: [f32[o + 56], f32[o + 57], f32[o + 58]], thermo: (u32[o + 15] & 255) / 255, grow,
   };
 }
 
