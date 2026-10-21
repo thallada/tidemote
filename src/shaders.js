@@ -234,7 +234,8 @@ export const DEFAULT_K = {
   graftMin: 0.2,
   graftFit: 0.3,
   graftRate: 2,     // chance per second, times the graft gene, that a cell free of a host takes up one that fits
-  graftTake: 0.5,   // rate (per second) a fully taking graft drains its host's energy at (giving: its own)
+  graftTake: 0.5,   // rate (per second) a fully taking graft drains its host's energy at (giving: its own; sharing:
+                    // the two even out at this rate)
   graftEff: 1,      // share of the energy passed along a graft that the receiving cell keeps (the rest is heat)
   graftCost: 0.004, // upkeep of the graft gene (× metab)
   graftBond: 40,    // spring strength holding a grafter to its host
@@ -251,6 +252,7 @@ export const DEFAULT_K = {
   symbiont: 0.03,
   rideFeed: 0,      // (experiment) 1: a photosynthesiser riding a host has water carried past it as the host swims (flowFeed)
   graftHop: 0,      // (experiment) 1: a grafter hops to a fitting cell in reach holding half again its host's energy
+  graftTrade: 0,    // (experiment) a grafter feeds and photosynthesises on its own at (1 - graft)^graftTrade: avid grafters live on hosts
 };
 
 // WGSL for the energy in a body of genome expression G (K.bodyE by size), and a dying cell's litter flag
@@ -485,7 +487,9 @@ function cellWGSL(K, w) {
   let invBeta = 1.0 / beta;
   let invOM = 1.0 / (1.0 - beta);
   // photosynthesis and eating don't mix well: a cell that does both does neither efficiently
-  let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
+  // (an avid grafter is built to live on its hosts: it feeds and photosynthesises poorly on its own, K.graftTrade)
+  let selfFeed = ${K.graftTrade ? `select(1.0, pow(1.0 - g.sym.x, ${f(K.graftTrade)}), g.sym.x > ${f(K.graftMin)})` : '1.0'};
+  let eatEff = (1.0 - g.photo) * (1.0 - g.photo) * selfFeed;
   let bonding = g.adhesion > ${f(K.adhMin)};
   var dn1 = vec2f(0.0);
   var dn2 = vec2f(0.0);
@@ -953,7 +957,7 @@ function cellWGSL(K, w) {
     let hE = max(sortedFull[host].energy, 0.0);
     let fl = clamp(g.sym.y, -1.0, 1.0);
     let rateG = min(0.2, ${f(K.graftTake)} * sim.dt);
-    graftE = (1.0 - abs(fl)) * (hE - max(p.energy, 0.0)) * shareK + max(-fl, 0.0) * rateG * hE - max(fl, 0.0) * rateG * max(p.energy, 0.0);
+    graftE = (1.0 - abs(fl)) * (hE - max(p.energy, 0.0)) * rateG + max(-fl, 0.0) * rateG * hE - max(fl, 0.0) * rateG * max(p.energy, 0.0);
     graftE = round(graftE * GRAFT_FIX) / GRAFT_FIX;
   }
   // what leaves the host (graftOut, positive) or reaches it (negative); the receiver keeps graftEff of what is sent
@@ -1018,7 +1022,7 @@ function cellWGSL(K, w) {
   let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
   // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
   // water; anchored cells have fresh silt carried past them by the currents.
-  let photoGain = th.perf * pow(g.photo, ${f(K.photoPow)}) * light * ${f(K.photo)} / (1.0 + crowdP * ${f(K.shadeP)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
+  let photoGain = selfFeed * th.perf * pow(g.photo, ${f(K.photoPow)}) * light * ${f(K.photo)} / (1.0 + crowdP * ${f(K.shadeP)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
     * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0))
     ${K.rideFeed ? `* (1.0 + ${f(K.flowFeed)} * min(length(vH) / 0.2, 2.0))` : ''}
     // Allee effect: a producer thrives among its own kind; a lone one grows slowly, so grazed-bare water stays bare a while
