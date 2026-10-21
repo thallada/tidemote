@@ -64,19 +64,116 @@ and a filament reaches more water and light per cell than a ball does.
 
 A thin body slips along its length more easily than sideways (about twice, for real microorganisms:
 resistive force theory). A tree's cells feel `sideDrag` times as much drag across their branch as along
-it, so a wave run down a tree pushes it through the water, head first. Three beat genes (amplitude,
-frequency, wavelength) drive the wave as a muscle's push on each bend in turn (`beatDrive`, scaled by the
-square root of the cell's drag time; a bend already folded past 1.2 radians is not pushed). Beating costs
-upkeep (`beatCost` × amplitude × frequency) and only a tree beats. A fourth gene lets an animal colony grow
-from its tips without growing up first (`growTipA` seconds), so it can grow long enough to swim: a
-two- or three-cell colony is one hinge and cannot swim at all. A tree's cells skip kin alignment, which
-damped the wave.
+it, so a wave run down a tree pushes it through the water, head first, opposite to the wave. Three beat
+genes (amplitude, frequency, wavelength as phase per cell) set the wave; beating costs upkeep
+(`beatCost` x amplitude x frequency). A fourth gene lets an animal colony grow from its tips without
+growing up first (`growTipA` seconds), so it can grow long enough to swim. A tree's cells skip kin
+alignment, which damped the wave.
 
-At these settings a tadpole (tip growth and a beat) swims about as fast as a single swimmer. In 32-world
-screens, tadpoles were 30% of hunters without the push (riding on tip growth) and 38% with it, so the
-swimming itself pays; with tips budding as fast as a plant's then, tip growers took two thirds of
-hunters, and `growTipA` 10 keeps them a minority (tadpoles under a fifth of hunters, dominant in a few
-worlds).
+### Why tadpoles wiggled in place (2026-10-20)
+
+The first version drove the wave as a push on each bend (`beatDrive`). Three things held tadpoles in place:
+
+- **Long waves never formed.** A bend's push moves its three cells, which bends the bends beside it the
+  other way, so a wave is resisted in the fourth power of its length. Measured alone in still water
+  (`tools/swimlab.mjs`), a 12-cell filament with a long wave (0.6 rad of phase per cell, amplitude 0.1-0.4,
+  1.5 Hz) flapped its two ends in step and barely bent in the middle (bend swing 0.07 rad at the ends, 0.01
+  in the middle, no phase lag cell to cell): 0.004-0.065 units/s. Stiffer bends would carry it, but past
+  `growStiff` ~20 a 1/60 s step goes unstable (bending's zigzag mode is ~130 times stiffer than such a
+  wave). Short waves (1 rad per cell and up) did travel, and swam about as fast as the muscles below do.
+- **Hard beats tore bodies apart.** The push folded bends past a radian and stretched the soft bonds; in
+  coarse steps (every world's first two minutes at Max, and every fast-forward) 6-7 of the 16 strong
+  beats (amplitude 0.35-0.5) in the grid below broke the body, and on the page a 1.5 Hz filament broke into pairs within
+  seconds even at real time (`runs/swimlab/before-after.mp4`).
+- **So in worlds, beating colonies were stubs.** In four 16k worlds (15 min, from 5 min on), cells in
+  beating bodies of 2-3 cells were as common as those in bodies of 4-5; a two- or three-cell body is one
+  hinge and swims not at all (head-first speed ~0 in `runs/crowd/swim.mjs`).
+
+In the same four worlds with the muscles below, beating bodies kept together (the longest averaged 14
+cells against 11) but were rarer: 0.9% of the living against 2.5% (four worlds are few; GPU runs diverge).
+
+### Muscles on the bonds
+
+The beat is now carried bond by bond (`beatPull` in `src/shaders.js`). Each cell's lateral speed across its
+branch is a travelling cosine (amplitude: a heading swing of `beatGain` x the amplitude gene, at most
+`beatTop` units/s per unit of size); each bond's two cells are brought a share `beatMix` a step toward the
+relative velocity their two speeds ask across the bond, and otherwise toward each other's motion, in
+equal and opposite halves. The body cannot push itself: only the anisotropic drag turns the wave into
+thrust. A long wave now travels as readily as a short one (a velocity relaxed between neighbours is a
+second-order problem, not bending's fourth), the commanded phase per cell shows up exactly in the bends,
+and a beating tree's bonds pull `treeBond` (3) times as hard, since a fast beat swings the tip cells hard
+enough to stretch soft bonds. Non-beating trees are untouched (bends, tissue mixing and bonds as before).
+
+`tools/swimlab.mjs` builds one body cell by cell in an emptied world (silt heaped far off, no currents,
+tides or other life, upkeep off), runs it, and compares its speed with what resistive force theory
+predicts from the same motion (the rigid velocity that leaves zero net drag force and torque on its
+cells): a body that waves well but moves less than that loses thrust somewhere other than the water.
+
+The same genes run on both versions (filaments of 6 and 12 cells; amplitude 0.2, 0.35, 0.5; 1 and 2 Hz;
+0.4-1.3 rad per cell; `runs/swimlab/grid`) swim about as fast on average, the old faster at 1 Hz with
+short waves and the new at 2 Hz and long waves, and the new holds every body in coarse steps:
+
+| mean speed (units/s), 24 genes each | old | new | bodies broken, old / new |
+|---|---|---|---|
+| 6 cells, 1/60 s steps | 0.075 | 0.073 | 0 / 0 |
+| 6 cells, 4 ticks | 0.081 | 0.065 | 6 / 0 |
+| 12 cells, 1/60 s steps | 0.086 | 0.080 | 0 / 0 |
+| 12 cells, 4 ticks | 0.074 | 0.065 | 7 / 0 |
+
+A 12-cell filament at amplitude 0.5, 1.5 Hz, 1 rad per cell makes 0.19 units/s (0.077 body lengths a
+beat), 79% of what resistive force theory predicts from its own motion, the wave lagging 1.0 rad a cell
+as asked. How fast swimming can go is set by `beatGain` and `sideDrag`: at 5 and 5 (defaults 3 and 3) a
+12-cell filament makes 0.17-0.41 units/s and a 6-cell one 0.16-0.38, two to three times as fast, with no
+body broken at 1/60 s steps or 4 ticks (`runs/swimlab/drag.txt`); not the default yet (untested by the gate).
+
+A branched tree beats along every branch and swims a third as fast as a filament of as many cells (its
+side branches push sideways and drag). Single swimmers make 0.1-0.35 units/s.
+
+### Coarse steps
+
+A coarse step holds its partners' velocities for its ticks, so one 1/60 s step's muscle share applied
+over four ticks would overshoot the bonds' stiffest (zigzag) mode, and a bend's push held for the step
+goes unstable once the beat drives the bends. So a coarse step pulls a smaller share (`beatMixC`), asks
+for a larger swing (by how much less of the wave its ticks' drag leaves standing, fitted with the swim
+lab), bends a beating tree afresh each tick from where its partners are going, more softly
+(`beatBendC`), and lets a joint's muscle go slack once the joint is stretched past 1.3 times its rest.
+Measured at 4 ticks against 1/60 s steps (same genes): 0.17 vs 0.19, 0.08 vs 0.10, 0.10 vs 0.11 units/s;
+the fastest beaters (2.5-3 Hz, large swings) make about half their 1/60 s speed, held back so they stay
+whole.
+
+## Tails
+
+A packed body (a mat or a clump, not a tree) can grow tails, as a colonial protist grows flagella or a
+mat of cells puts out a beating filament. Two genes (`tail` in the genome): how readily a bud at the
+body's edge starts a tail, and how long one grows (3 to `tailMax` cells). A cell of a body bearing tails
+that buds with a partner held, nothing of its kind in the way ahead and no tail of its kind within
+`tailSpace`, starts one with chance `tailOdds` x the gene: the daughter is a tail's base, a tree cell of
+branch order 2 (generation 0), budded straight out. A tail grows from its tip, straight, as an animal
+colony's tips do (`growTipA`), to its length, and beats with the species' beat genes; a tailed founder
+always has a beat.
+
+The tail's base is held to the body by an ordinary bond and bend that the body's cell reckons from its
+side exactly as the base does (`tailBases`), and the body and its tails neither pull on each other by
+their signatures nor share motion as tissue, so a body cannot push itself through its tail: only the
+tail's beat in the water moves it. Thrust grows with the tail's length and beat and is spent on the
+whole body's drag, so a small body with a long fast tail travels and a large one with a stub barely
+moves. Measured in the swim lab (1.5 Hz, amplitude 0.5, 1/60 s steps; mats laid out as hexagonal
+patches with the tail at the edge):
+
+| body | tail | units/s |
+|---|---|---|
+| 7 cells | 8 cells | 0.085 |
+| 19 cells | 4 | 0.032 |
+| 19 cells | 8 | 0.049 |
+| 19 cells | 12 | 0.080 |
+| 19 cells | 16 | 0.095 |
+| 37 cells | 8 | 0.025 |
+| 37 cells | 16 | 0.059 |
+| 19 cells | two of 8, on opposite sides | 0.005 |
+
+At 2.5 Hz the same bodies are 20-60% faster. In one 16k world, bodies with tails held 7-8% of the living
+after 15 minutes, still rising; the census counts them (`tailed` in `src/bodies.js`, `tailed` among the
+guild traits in `src/ecostats.js`).
 
 ## Measurements
 

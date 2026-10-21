@@ -45,6 +45,11 @@ export function bodyCensus(cpu, gpu) {
     const tree = (g.grow?.[0] ?? 0) >= 0.5 && (g.adhesion || 0) > DEFAULT_K.adhMin;
     const type = b.n === 1 ? 'single' : !tree ? (b.tail >= 2 && b.n > b.tail ? 'tailed' : b.n < 6 ? 'clump' : 'mat')
       : `${b.branch ? 'branched' : 'chain'} ${b.n < 6 ? '2-5' : b.n < 20 ? '6-19' : '20+'}`;
+    // swimmers: bodies of a species that beats, a tree's or a tailed body's, by how many cells they have
+    if ((g.beat?.[0] ?? 0) > 0.05 && b.n > 1 && (tree || b.tail >= 2)) {
+      const S = (out.swimmers ||= { '2-3': 0, '4-5': 0, '6-9': 0, '10+': 0, max: 0 });
+      S[b.n < 4 ? '2-3' : b.n < 6 ? '4-5' : b.n < 10 ? '6-9' : '10+'] += b.n; S.max = Math.max(S.max, b.n);
+    }
     const G = (out.guilds[guild] ||= { cells: 0, kinds: {} });
     G.cells += b.n; G.kinds[type] = (G.kinds[type] || 0) + b.n;
     if (!tree) out.tailCells += b.tail;
@@ -68,5 +73,7 @@ export function morphMix(c) {
   return { single: share((t) => t === 'single'), clump: share((t) => t === 'clump'), mat: share((t) => t === 'mat'), tailed: share((t) => t === 'tailed'),
     chain: share((t) => t.startsWith('chain 2-5') || t.startsWith('branched 2-5')), filament: share((t) => t.startsWith('chain') && !t.endsWith('2-5')),
     branched: share((t) => t.startsWith('branched') && !t.endsWith('2-5')), long: share((t) => t.endsWith('20+')), trees6, maxTree,
-    tailCells: (c.tailCells || 0) / Math.max(c.living, 1) };
+    tailCells: (c.tailCells || 0) / Math.max(c.living, 1),
+    // cells in swimming bodies (beating trees and tailed bodies) by body size, as shares of the living
+    swim: Object.fromEntries(Object.entries(c.swimmers || {}).map(([k, x]) => [k, k === 'max' ? x : x / Math.max(c.living, 1)])) };
 }

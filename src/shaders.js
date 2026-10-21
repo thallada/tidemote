@@ -885,14 +885,12 @@ function cellWGSL(K, w) {
       let t = f32(k) * h;
       let moved = pos - p.pos;
       fb = vec2f(0.0);
-      // (a tree's partners swing about it as they go, rather than slide past: its bonds hold their length)
-      let own = moved - p.vel * t;
       var fb1 = vec2f(0.0);
-      if (n1 != NONE) { let e = select(dn1 + vB1 * t - moved, swing(dn1, vB1 - p.vel, t) - own, tree); let l = length(e); fb1 = e * ((l - rs1) / max(l, 1e-4)); }
-      if (n2 != NONE) { let e = select(dn2 + vB2 * t - moved, swing(dn2, vB2 - p.vel, t) - own, tree); let l = length(e); fb += e * ((l - rs2) / max(l, 1e-4)); }
-      if (nb0 != NONE) { let e = select(e0 + vb0 * t - moved, swing(e0, vb0 - p.vel, t) - own, tree); let l = length(e); fb += e * ((l - rb0) / max(l, 1e-4)); }
-      if (nb1 != NONE) { let e = select(e1 + vb1 * t - moved, swing(e1, vb1 - p.vel, t) - own, tree); let l = length(e); fb += e * ((l - rb1) / max(l, 1e-4)); }
-      if (nb2 != NONE) { let e = select(e2 + vb2 * t - moved, swing(e2, vb2 - p.vel, t) - own, tree); let l = length(e); fb += e * ((l - rb2) / max(l, 1e-4)); }
+      if (n1 != NONE) { let e = dn1 + vB1 * t - moved; let l = length(e); fb1 = e * ((l - rs1) / max(l, 1e-4)); }
+      if (n2 != NONE) { let e = dn2 + vB2 * t - moved; let l = length(e); fb += e * ((l - rs2) / max(l, 1e-4)); }
+      if (nb0 != NONE) { let e = e0 + vb0 * t - moved; let l = length(e); fb += e * ((l - rb0) / max(l, 1e-4)); }
+      if (nb1 != NONE) { let e = e1 + vb1 * t - moved; let l = length(e); fb += e * ((l - rb1) / max(l, 1e-4)); }
+      if (nb2 != NONE) { let e = e2 + vb2 * t - moved; let l = length(e); fb += e * ((l - rb2) / max(l, 1e-4)); }
       fb = (fb + select(fb1, vec2f(0.0), baseOn)) * bondK + select(vec2f(0.0), fb1, baseOn);
       if (tree || tails) {
         if (beating) { predT = t; predSelf = i; predPos = pos; fb += bendOn(i, gr) * bendK; predT = 0.0; }
@@ -2006,14 +2004,6 @@ fn beatPull(i: u32, gr: Grow, size: f32, frX: f32) -> vec2f {
     dv += (q.vel - p.vel + n * (clamp((si - sj) * gain, -top, top) * slack)) * (2.0 / max(di, treeDeg(j)));
   }
   return dv * mixW;
-}
-
-// Where a partner at d, moving at vr relative to this cell, will be after t: turned about it at the rate its
-// motion across d turns it, and drawn out or in at its motion along d.
-fn swing(d: vec2f, vr: vec2f, t: f32) -> vec2f {
-  let l2 = max(dot(d, d), 1e-8);
-  let a = (d.x * vr.y - d.y * vr.x) / l2 * t;
-  return rot2(d, a) * (1.0 + dot(d, vr) / l2 * t);
 }
 
 // A body bearing tails: its share, as the arm, of the bend at each tail's base that grows from it (the base
