@@ -19,7 +19,7 @@ export const DIAG_STRIDE = 24;
 export const META_DIAG = META_ENERGY + 64;
 // Grafts (cross-species bonds, docs/symbiosis.md), afresh each step: grafted cells by the grafter's guild (0-4) and by
 // its host's (5-9), grafters taking from their hosts (10) and giving to them (11); cumulative: grafts made (12), broken by
-// the host's rejection (13), lost otherwise (14). Then per species: its grafted cells (16 + kind, afresh each step)
+// the host's rejection (13), lost as the host died or slept (14), pulled apart from a living host (15). Then per species: its grafted cells (16 + kind, afresh each step)
 // and the species of one of their hosts (16 + MAXK + kind), for the chronicle.
 export const META_SYM = META_DIAG + 5 * DIAG_STRIDE;
 export const SYM_SLOTS = 16 + 2 * MAXK;
@@ -236,6 +236,8 @@ export const DEFAULT_K = {
   graftRate: 2,     // chance per second, times the graft gene, that a cell free of a host takes up one that fits
   graftTake: 0.5,   // rate (per second) a fully taking graft drains its host's energy at (giving: its own; sharing:
                     // the two even out at this rate)
+  graftFloor: 0,    // (experiment) a taking graft draws only its host's energy above this share of the host's reproE: it
+                    // slows its host's growth rather than killing it
   graftEff: 1,      // share of the energy passed along a graft that the receiving cell keeps (the rest is heat)
   graftCost: 0.004, // upkeep of the graft gene (× metab)
   graftBond: 40,    // spring strength holding a grafter to its host
@@ -251,8 +253,10 @@ export const DEFAULT_K = {
   capture: 0,
   symbiont: 0.03,
   rideFeed: 0,      // (experiment) 1: a photosynthesiser riding a host has water carried past it as the host swims (flowFeed)
+  graftMax: 0,      // (experiment) a host holds at most this many grafters (0: any number)
   graftHop: 0,      // (experiment) 1: a grafter hops to a fitting cell in reach holding half again its host's energy
-  graftTrade: 0,    // (experiment) a grafter feeds and photosynthesises on its own at (1 - graft)^graftTrade: avid grafters live on hosts
+  graftTrade: 0,    // (experiment) past graft 0.5 a grafter feeds and photosynthesises on its own at (2 - 2 graft)^graftTrade, and its
+                    // grafts draw at 2 graft × graftTake: a line from facultative grafters to parasites that live on their hosts
 };
 
 // WGSL for the energy in a body of genome expression G (K.bodyE by size), and a dying cell's litter flag
@@ -488,7 +492,7 @@ function cellWGSL(K, w) {
   let invOM = 1.0 / (1.0 - beta);
   // photosynthesis and eating don't mix well: a cell that does both does neither efficiently
   // (an avid grafter is built to live on its hosts: it feeds and photosynthesises poorly on its own, K.graftTrade)
-  let selfFeed = ${K.graftTrade ? `select(1.0, pow(1.0 - g.sym.x, ${f(K.graftTrade)}), g.sym.x > ${f(K.graftMin)})` : '1.0'};
+  let selfFeed = ${K.graftTrade ? `select(1.0, pow(clamp(2.0 - 2.0 * g.sym.x, 0.0, 1.0), ${f(K.graftTrade)}), g.sym.x > ${f(K.graftMin)})` : '1.0'};
   let eatEff = (1.0 - g.photo) * (1.0 - g.photo) * selfFeed;
   let bonding = g.adhesion > ${f(K.adhMin)};
   var dn1 = vec2f(0.0);
@@ -708,7 +712,7 @@ function cellWGSL(K, w) {
         // an animal that is not a hunter swims away from hunters near it, the harder the closer they are
         if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && g.dFlesh <= 0.5 && g.photo <= 0.4) { fr -= ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);${W(`mFl = ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);`)} }
         // a grafter free of a host looks for the best-fitting cell of another species within bond range
-        if (grafter && (host == NONE || ${K.graftHop ? 'true' : 'false'}) && j != host && qk != p.kind && (q.kr & (1u << 13u)) == 0u && r < LINK_R && a > graftBest) { graftBest = a; graftCand = j; }
+        if (grafter && (host == NONE || ${K.graftHop ? 'true' : 'false'}) && j != host && qk != p.kind && (q.kr & (1u << 13u)) == 0u && r < LINK_R && a > graftBest${K.graftMax ? ` && hostedOf(j) < ${K.graftMax | 0}u` : ''}) { graftBest = a; graftCand = j; }
         crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
         if ((q.kr & (1u << 12u)) != 0u) { crowdP += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind); }
         if (DIAG) {
@@ -956,8 +960,8 @@ function cellWGSL(K, w) {
   if (host != NONE) {
     let hE = max(sortedFull[host].energy, 0.0);
     let fl = clamp(g.sym.y, -1.0, 1.0);
-    let rateG = min(0.2, ${f(K.graftTake)} * sim.dt);
-    graftE = (1.0 - abs(fl)) * (hE - max(p.energy, 0.0)) * rateG + max(-fl, 0.0) * rateG * hE - max(fl, 0.0) * rateG * max(p.energy, 0.0);
+    let rateG = min(0.2, ${f(K.graftTake)} * sim.dt${K.graftTrade ? ' * 2.0 * g.sym.x' : ''});
+    graftE = (1.0 - abs(fl)) * (hE - max(p.energy, 0.0)) * rateG + max(-fl, 0.0) * rateG * ${K.graftFloor ? `max(hE - ${f(K.graftFloor)} * genomes[sortedFull[host].kind].reproE, 0.0)` : 'hE'} - max(fl, 0.0) * rateG * max(p.energy, 0.0);
     graftE = round(graftE * GRAFT_FIX) / GRAFT_FIX;
   }
   // what leaves the host (graftOut, positive) or reaches it (negative); the receiver keeps graftEff of what is sent
@@ -1099,7 +1103,10 @@ const LIVE_BIT = 0x80000000u;
 @group(0) @binding(15) var<storage, read_write> bondsNow: array<u32>;
 @group(0) @binding(20) var<storage, read_write> bondsAt: array<atomic<u32>>;
 fn bondsOf(i: u32) -> vec2u { return vec2u(bondsNow[i * 6u], bondsNow[i * 6u + 1u]); }
-fn backOf(i: u32, k: u32) -> u32 { return bondsNow[i * 6u + 2u + k]; }
+// (the count's word holds the cells that keep a bond to it in its low 16 bits, and how many grafters hold it as their
+// host in its high 16: hostedOf)
+fn backOf(i: u32, k: u32) -> u32 { let v = bondsNow[i * 6u + 2u + k]; return select(v, v & 0xffffu, k == 0u); }
+fn hostedOf(i: u32) -> u32 { return bondsNow[i * 6u + 2u] >> 16u; }
 // The heat field: [0, MAX_CELLS) deposits this step (HEAT_FIX per degree), then the water's
 // temperature per grid cell (f32 bits), then husks per grid cell this step. heatMain writes the next
 // temperatures to heatNext.
@@ -2194,8 +2201,12 @@ fn bondBackMain(@builtin(global_invocation_id) gid: vec3u) {
   for (var s = 0u; s < 2u; s++) {
     let j = b[s];
     // a bond both keep is counted once, by each as its own
+    // a grafter's host counts its grafters (hostedOf)
+    if (s == 1u && j < sim.count && j != i && sortedFull[j].kind != k && sortedFull[j].kind >= FIRST_LIFE && genomes[k].sym.x > ${f(K.graftMin)}) {
+      atomicAdd(&bondsAt[j * 6u + 2u], 1u << 16u);
+    }
     if (j < sim.count && j != i && sortedFull[j].kind == k && atomicLoad(&bondsAt[j * 6u]) != i && atomicLoad(&bondsAt[j * 6u + 1u]) != i) {
-      let c = atomicAdd(&bondsAt[j * 6u + 2u], 1u);
+      let c = atomicAdd(&bondsAt[j * 6u + 2u], 1u) & 0xffffu;
       if (c < 3u) { atomicStore(&bondsAt[j * 6u + 3u + c], i); }
     }
   }
@@ -2401,7 +2412,11 @@ ${cellWGSL(K, false)}
   }
   if (newGraft) { atomicAdd(&ledger[META_SYM + 12u], 1u); }
   if (rejected) { atomicAdd(&ledger[META_SYM + 13u], 1u); }
-  else if (hadHost && host == NONE) { atomicAdd(&ledger[META_SYM + 14u], 1u); }
+  else if (hadHost && host == NONE) {
+    // (lost with the host still alive and awake: pulled apart, 15; or the host died or slept, 14)
+    let o = sortedFull[bondsOf(i).y];
+    atomicAdd(&ledger[META_SYM + select(14u, 15u, o.kind >= FIRST_LIFE && o.kind != p.kind && (o.info & 15u) != CYST)], 1u);
+  }
   // all the energy a cell spends warms its water (every eighth frame, eight frames' worth)
   if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, upkeep * sim.dt * 8.0 * ${f(K.metabHeat)}); }
   // light and upkeep flow every frame; the ledger samples them once a second per cell

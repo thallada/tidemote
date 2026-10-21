@@ -143,7 +143,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
       const sy = c.sym, symPerMin = (k) => (prevS && c.simTime > prevT ? ((sy[k] - prevS[k]) >>> 0) * 60 / (c.simTime - prevT) : 0);
       const grafts = sy ? { grafted: sy.slice(0, 4).reduce((a, b) => a + b, 0), by: Object.fromEntries(guilds.map((g, gi) => [g, sy[gi]])),
         hosts: Object.fromEntries(guilds.map((g, gi) => [g, sy[5 + gi]])), taking: sy[10], giving: sy[11],
-        made: symPerMin(12), rejected: symPerMin(13), lost: symPerMin(14) } : null;
+        made: symPerMin(12), rejected: symPerMin(13), lost: symPerMin(14), apart: symPerMin(15) } : null;
       eng.readThermal().then((f) => { latestField = fieldStats(f, eng.tbg); }).catch(() => {});
       // how tightly the living sit (by drawn size), read now for the next sample
       const pk = latestPacking;

@@ -197,7 +197,7 @@ class Engine {
       mindMain: [0, 2, 3, 6, 10, 15, 17, 18],
     };
     // bonds pull both ways, through the cells that keep a bond to each (bondsNow holds them)
-    this.cpDefs.bondBackMain = [0, 2, 12, 20];
+    this.cpDefs.bondBackMain = [0, 2, 10, 12, 20];
     // contact between living cells, in its own pass before lifeMain (contactMain)
     this.cpDefs.contactMain = [0, 2, 3, 6, 12];
     // coarse steps run their own lifeMain and mindMain (COARSE in simWGSL)
