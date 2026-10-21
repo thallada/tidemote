@@ -128,3 +128,49 @@ that mean anything.
 - `graftMax` 1 with `graftTrade` gives the most turnover (59 booms, 62 crashes an hour), with a tenth grafted.
 - Outbreaks (the number grafted doubling within five minutes) come 7-10 times an hour in every variant: grafting
   pulses with its hosts, but no variant yet makes host-parasite cycles that move whole regions.
+
+### Rounds 6 and 7: specialists and imprinting (12 seeds × 30 min, from minute 10)
+
+Generalist parasites were the suspected cause of the lost diversity, so these rounds make parasites specialise:
+`graftSpec` scales what a graft draws by how well the grafter fits its host (its fit above half `graftFit`, scaled to
+0..1, to this power); `graftImprint` 1 gives a species born of a grafted cell its host's species as its only host
+(`tail.z`), and 2 also fixes a species on the species of its first host. Ref is `graftMax` 1 with `graftHop`, which
+every variant below builds on unless it says "free" (no cap) or "plain" (neither). Leader load is the share of grafts
+on species holding 5% of the living or more over their share of the living (above 1: parasites gather on the common;
+round 7 only).
+
+| variant | species booms/h | crashes/h | regional takeovers/h | effective species | grafted | leader load |
+|---|---|---|---|---|---|---|
+| r6-off | 43.8 | 50.5 | 29.2 | 101 | 0% | - |
+| r6-ref | 50.5 | 50.0 | 23.5 | 87 | 24% | - |
+| r6-spec1 | 46.0 | 47.0 | 23.2 | 88 | 26% | - |
+| r6-spec2 | 53.5 | 55.8 | 24.1 | 83 | 25% | - |
+| r6-spec4 | 47.5 | 51.0 | 24.7 | 97 | 19% | - |
+| r6-fit5 (`graftFit` 0.5) | 45.5 | 48.3 | 26.5 | 95 | 18% | - |
+| r6-specTrade (spec 2, trade 0.5) | 50.3 | 53.5 | 26.9 | 86 | 16% | - |
+| r6-imp (imprint 1) | 55.8 | 50.8 | 20.3 | 55 | 22% | - |
+| r6-impFree | 50.0 | 50.0 | 21.4 | 56 | 26% | - |
+| r6-impPlain | 55.5 | 56.8 | 24.1 | 63 | 18% | - |
+| r6-impSpec2 | 48.8 | 47.5 | 22.3 | 58 | 13% | - |
+| r6-impTrade | 48.8 | 48.5 | 23.3 | 57 | 14% | - |
+| r7-off | 45.0 | 48.0 | 30.0 | 107 | 0% | - |
+| r7-ref | 47.3 | 47.8 | 23.2 | 87 | 25% | 0.82 |
+| r7-imp2 (imprint 2) | 50.3 | 55.3 | 29.0 | 95 | 0.4% | 1.26 |
+| r7-imp2Free | 45.8 | 50.8 | 27.0 | 100 | 1% | 1.64 |
+| r7-imp2Plain | 46.3 | 48.0 | 28.3 | 100 | 1% | 1.09 |
+| r7-imp2Spec2 | 43.8 | 46.8 | 27.8 | 99 | 1% | 1.40 |
+| r7-imp2Common (`graftSpark` 0.4) | 49.8 | 53.8 | 29.0 | 93 | 1% | 1.27 |
+| r7-imp2Fast (`graftTake` 1) | 41.3 | 47.8 | 28.3 | 100 | 0.4% | 1.40 |
+
+- **Specialising by fit gives diversity back.** With `graftSpec` 4 or `graftFit` 0.5 a fifth of the living is still
+  grafted, yet effective species are within noise of off (95-97 against 101), where generalist grafting (ref) costs
+  14. Their species turnover is back near off's too: the extra booms and crashes came with the lost diversity.
+- **Generalist parasites gather on the rare** (ref's leader load 0.82); **specialists gather on the common** (1.1-1.6
+  under imprint 2), the density dependence that lets parasites hold a dominant species back.
+- **Fixing a species on its first host's species (imprint 2) all but ends grafting** (under 1% grafted): the first
+  host is often a passing species, and once it is gone the parasite has nothing it may take.
+- **Imprint 1 is the worst for diversity** (55-63 effective species) with the most turnover. Imprinted lineages are
+  born on their host and stay on it; why that concentrates the living into fewer species is not yet known.
+
+Round 8 (24 seeds × 60 min) confirms off, ref, `graftFit` 0.5, `graftSpec` 4 and the two together over an hour, when
+generalist grafting had spread furthest.
