@@ -250,6 +250,7 @@ export const DEFAULT_K = {
   capture: 0,
   symbiont: 0.03,
   rideFeed: 0,      // (experiment) 1: a photosynthesiser riding a host has water carried past it as the host swims (flowFeed)
+  graftHop: 0,      // (experiment) 1: a grafter hops to a fitting cell in reach holding half again its host's energy
 };
 
 // WGSL for the energy in a body of genome expression G (K.bodyE by size), and a dying cell's litter flag
@@ -703,7 +704,7 @@ function cellWGSL(K, w) {
         // an animal that is not a hunter swims away from hunters near it, the harder the closer they are
         if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && g.dFlesh <= 0.5 && g.photo <= 0.4) { fr -= ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);${W(`mFl = ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);`)} }
         // a grafter free of a host looks for the best-fitting cell of another species within bond range
-        if (grafter && host == NONE && qk != p.kind && (q.kr & (1u << 13u)) == 0u && r < LINK_R && a > graftBest) { graftBest = a; graftCand = j; }
+        if (grafter && (host == NONE || ${K.graftHop ? 'true' : 'false'}) && j != host && qk != p.kind && (q.kr & (1u << 13u)) == 0u && r < LINK_R && a > graftBest) { graftBest = a; graftCand = j; }
         crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
         if ((q.kr & (1u << 12u)) != 0u) { crowdP += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind); }
         if (DIAG) {
@@ -807,7 +808,7 @@ function cellWGSL(K, w) {
   var newGraft = false;
   var rejected = false;
   if (grafter) {
-    if (host == NONE && graftCand != NONE && rnd(&s) < g.sym.x * ${f(K.graftRate)} * sim.dt) { host = graftCand; newGraft = true; }
+    if (graftCand != NONE && (host == NONE || sortedFull[graftCand].energy > 1.5 * sortedFull[host].energy) && rnd(&s) < g.sym.x * ${f(K.graftRate)} * sim.dt) { host = graftCand; newGraft = true; }
     else if (host != NONE && rnd(&s) < ${f(K.reject)} * genomes[sortedFull[host].kind].sym.z * ${K.rejectDrain ? `clamp(-g.sym.y + 0.5 * (1.0 - abs(g.sym.y)) * select(0.0, 1.0, sortedFull[host].energy > p.energy), 0.0, 1.0)` : '(1.0 - graftFit(sg, host))'} * sim.dt) { host = NONE; rejected = true; }
   }
   crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride; plantN *= stride; animN *= stride;
