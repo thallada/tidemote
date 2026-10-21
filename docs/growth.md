@@ -63,7 +63,7 @@ and a filament reaches more water and light per cell than a ball does.
 ## Swimming
 
 A thin body slips along its length more easily than sideways (about twice, for real microorganisms:
-resistive force theory). A tree's cells feel `sideDrag` times as much drag across their branch as along
+resistive force theory). A tree's cells feel `sideDrag` (5) times as much drag across their branch as along
 it, so a wave run down a tree pushes it through the water, head first, opposite to the wave. Three beat
 genes (amplitude, frequency, wavelength as phase per cell) set the wave; beating costs upkeep
 (`beatCost` x amplitude x frequency). A fourth gene lets an animal colony grow from its tips without
@@ -122,9 +122,27 @@ short waves and the new at 2 Hz and long waves, and the new holds every body in 
 
 A 12-cell filament at amplitude 0.5, 1.5 Hz, 1 rad per cell makes 0.19 units/s (0.077 body lengths a
 beat), 79% of what resistive force theory predicts from its own motion, the wave lagging 1.0 rad a cell
-as asked. How fast swimming can go is set by `beatGain` and `sideDrag`: at 5 and 5 (defaults 3 and 3) a
-12-cell filament makes 0.17-0.41 units/s and a 6-cell one 0.16-0.38, two to three times as fast, with no
-body broken at 1/60 s steps or 4 ticks (`runs/swimlab/drag.txt`); not the default yet (untested by the gate).
+as asked (at `beatGain` 3 and `sideDrag` 3, the first settings).
+
+**Faster (2026-10-21).** How fast swimming goes is set by `beatGain` and `sideDrag`, now 6 and 5: a
+heading swing of 6 x the amplitude gene (capped by `beatTop`), and a water five times as stiff across a
+branch as along it (real microorganisms: about 2; a thicker, more snake-like water here so a beat pays).
+An 8-cell filament then makes 0.11-0.42 units/s (6- and 12-cell ones made 0.05-0.19 at 3 and 3), none broken at 1/60 s
+steps or 4 ticks; coarse steps keep 60-85% of it, the fastest beats (3 Hz) less. Gates, 64 worlds x 30 min
+at 32k on two machines (`tools/farm.mjs`), each against the old settings on the same seeds:
+
+| vs `beatGain` 3, `sideDrag` 3 | late guilds | late eff. species | food web | spread |
+|---|---|---|---|---|
+| 1/60 s steps: control | 3.39 | 102 | 0.94 | 0.66 |
+| `beatGain` 4, `sideDrag` 4 | 3.45 | 109 | 0.92 | 0.68 |
+| `beatGain` 5, `sideDrag` 5 | 3.48 | 115 | 0.94 | 0.65 |
+| `beatGain` 6, `sideDrag` 5 (default) | 3.61 | 113 | 0.92 | 0.60 |
+| 4 ticks: control | 3.38 | 110 | 0.92 | 0.65 |
+| `beatGain` 5, `sideDrag` 5 | 3.34 | 108 | 0.95 | 0.66 |
+| `beatGain` 6, `sideDrag` 5 (default) | 3.38 | 105 | 0.92 | 0.64 |
+
+Every gated metric came out the same (Holm-corrected p >= 0.49); the swimmers' shares barely moved (cells
+in beating or tailed bodies 3.8% of the living vs 3.7%; tadpoles 8.4% of predators either way).
 
 A branched tree beats along every branch and swims a third as fast as a filament of as many cells (its
 side branches push sideways and drag). Single swimmers make 0.1-0.35 units/s.

@@ -1358,13 +1358,13 @@ svg.niche .n-dot { fill: var(--cyan); }
     // with bodyShare, rate (per second) at which a tree's grown cells pass their surplus on to their daughters
     // swimming trees: a thin body slips along its length more easily than sideways (resistive force theory),
     // so a wave run down a tree by its beat genes (amplitude, frequency, wavelength) drives it through the water
-    sideDrag: 3,
+    sideDrag: 5,
     // a tree's cell's drag across its branch, relative to along it (1: the same every way)
     // a beating tree's muscles (beatPull): each bond's two cells are brought a share beatMix a step toward the
     // relative velocity the beat asks across it, a wave of heading swing beatGain x the amplitude gene, its
     // cells' lateral speed at most beatTop (world units/s per unit of size)
     beatMix: 0.25,
-    beatGain: 3,
+    beatGain: 6,
     beatTop: 4,
     beatMixC: 0.15,
     // a coarse step's share (a 1/60 s step's would overshoot over its ticks), and how firmly a beating
