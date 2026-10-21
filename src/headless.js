@@ -27,6 +27,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     Math.random = rng; // Archetype initialization also uses Math.random.
     const E = await import('./engine.js');
     const { genomeSerial, readGenome } = await import('./genome.js');
+    const { G_WORDS } = await import('./shaders.js');
     const { communitySample, summarizeRun, packing, spatial } = await import('./ecostats.js');
     const { bodyCensus, morphMix } = await import('./bodies.js');
     const { dietGuild: guildOfG } = await import('./genome.js');
@@ -54,6 +55,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
         const serial = genomeSerial(c.genomeU32, s);
         let cached = genomes[s];
         if (!cached || cached.serial !== serial) genomes[s] = cached = { serial, genome: readGenome(c.genomeU32, c.genomeF32, s) };
+        else cached.genome.tail[2] = c.genomeF32[s * G_WORDS + 54];   // an imprint (graftImprint 2) comes later
         species.push({ pop: pop[s], genome: cached.genome });
       }
       const community = communitySample(species, eng.K.adhMin);
@@ -83,7 +85,25 @@ export async function runHeadless(device, config, { print, width = 640, height =
         if (sy[2] > 0.05) rejecters += p;
         if (sy[3] > 0) symbionts += p;
       }
-      const genes = n ? { grafters: grafters / n, flow: grafters ? flow / grafters : null, rejecters: rejecters / n, symbionts: symbionts / n } : null;
+      // where grafts land: each grafting species' grafted cells this step on the species of one of their hosts
+      // (exact once grafters imprint), as the share of that load on the leading species (5% of the living or more)
+      // over their share of the living (above 1: parasites gather on the common), and how many species host
+      let imprinted = 0, leaderLoad = null, hostSpecies = 0;
+      for (const { pop: p, genome: g } of species) if ((g.sym?.[0] ?? 0) > gMin && (g.tail?.[2] ?? 0) > 0.5) imprinted += p;
+      if (c.sym && c.sym.length >= 16 + 2 * E.MAXK) {
+        const load = new Map();
+        let all = 0;
+        for (let k = E.FIRST_LIFE; k < E.MAXK; k++) {
+          const m = c.sym[16 + k], h = c.sym[16 + E.MAXK + k];
+          if (m && h < E.MAXK && pop[h]) { load.set(h, (load.get(h) || 0) + m); all += m; }
+        }
+        hostSpecies = load.size;
+        let lead = 0, leadPop = 0;
+        for (let k = E.FIRST_LIFE; k < E.MAXK; k++) if (pop[k] >= 0.05 * n) { lead += load.get(k) || 0; leadPop += pop[k]; }
+        if (all >= 20 && leadPop) leaderLoad = (lead / all) / (leadPop / n);
+      }
+      const genes = n ? { grafters: grafters / n, flow: grafters ? flow / grafters : null, rejecters: rejecters / n, symbionts: symbionts / n,
+        imprinted: grafters ? imprinted / grafters : 0, hostSpecies, leaderLoad } : null;
       latest = { t, silt: pop[0], glint: pop[1], husk: pop[2], stone: pop[3], framboid: pop[4], ...community, genes,
         ambient: eng.ambient, season: eng.season,
         era: climate.name,

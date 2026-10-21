@@ -260,7 +260,7 @@ export const DEFAULT_K = {
   graftSpec: 0,     // (experiment) a graft draws at its fit's excess over half graftFit (scaled to 0..1) to this power: a
                     // parasite gains only on hosts its receptors match well, so lineages specialise
   graftImprint: 0,  // (experiment) 1: a species born of a grafter holding a host takes only that host's species (tail.z,
-                    // kind + 1; lost now and then by mutation)
+                    // kind + 1; lost now and then by mutation); 2: also a species the first time one of it grafts
 };
 
 // WGSL for the energy in a body of genome expression G (K.bodyE by size), and a dying cell's litter flag
@@ -2416,7 +2416,11 @@ ${cellWGSL(K, false)}
     atomicStore(&ledger[META_SYM + 16u + MAXK + p.kind], sortedFull[host].kind);
     if (((sim.frame + p.id) % 60u) == 0u) { addEnergy(dg, 1u, graftE * 60.0); }
   }
-  if (newGraft) { atomicAdd(&ledger[META_SYM + 12u], 1u); }
+  if (newGraft) {
+    atomicAdd(&ledger[META_SYM + 12u], 1u);
+    // (graftImprint 2) a species that grafts for the first time takes that host's species as its only host
+    if (${K.graftImprint >= 2 ? 'true' : 'false'} && genomes[p.kind].tail.z < 0.5) { genomes[p.kind].tail.z = f32(sortedFull[host].kind + 1u); }
+  }
   if (rejected) { atomicAdd(&ledger[META_SYM + 13u], 1u); }
   else if (hadHost && host == NONE) {
     // (lost with the host still alive and awake: pulled apart, 15; or the host died or slept, 14)

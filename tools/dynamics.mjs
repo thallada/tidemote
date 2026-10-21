@@ -100,6 +100,9 @@ function runStats(run) {
   if (N.length) {
     out.grafterSp = mean(N.map((s) => s.genes.grafters)); out.flow = mean(N.map((s) => s.genes.flow ?? 0));
     out.rejecters = mean(N.map((s) => s.genes.rejecters)); out.symbionts = mean(N.map((s) => s.genes.symbionts));
+    out.imprinted = mean(N.map((s) => s.genes.imprinted ?? 0)); out.hostSpecies = mean(N.map((s) => s.genes.hostSpecies ?? 0));
+    const ll = N.map((s) => s.genes.leaderLoad).filter((x) => x != null);
+    out.leaderLoad = ll.length ? mean(ll) : null;
   }
   return out;
 }
@@ -116,8 +119,8 @@ for (const dir of positionals) {
   }
   rows.push(row);
 }
-const COLS = ['n', 'regionBooms', 'regionCrashes', 'takeovers', 'producerSwing', 'speciesBooms', 'speciesCrashes', 'effSpecies', 'livingFrac', 'awake4', 'thriving4', 'grafted', 'taking', 'giving', 'graftsPerMinK', 'rejectsPerMinK', 'hostsP', 'graftSwing', 'outbreaks', 'grafterSp', 'flow', 'rejecters', 'symbionts'];
-const SHORT = { regionBooms: 'rBoom', regionCrashes: 'rCrash', takeovers: 'takeov', producerSwing: 'pSwing', speciesBooms: 'sBoom', speciesCrashes: 'sCrash', effSpecies: 'effSp', livingFrac: 'living', awake4: 'awake4', thriving4: 'thrive4', grafted: 'grafted', taking: 'taking', giving: 'giving', graftsPerMinK: 'mk/min', rejectsPerMinK: 'rej/min', hostsP: 'hostP', graftSwing: 'gSwing', outbreaks: 'outbrk', grafterSp: 'grafter', flow: 'flow', rejecters: 'reject', symbionts: 'symb' };
+const COLS = ['n', 'regionBooms', 'regionCrashes', 'takeovers', 'producerSwing', 'speciesBooms', 'speciesCrashes', 'effSpecies', 'livingFrac', 'awake4', 'thriving4', 'grafted', 'taking', 'giving', 'graftsPerMinK', 'rejectsPerMinK', 'hostsP', 'graftSwing', 'outbreaks', 'grafterSp', 'flow', 'rejecters', 'symbionts', 'imprinted', 'hostSpecies', 'leaderLoad'];
+const SHORT = { regionBooms: 'rBoom', regionCrashes: 'rCrash', takeovers: 'takeov', producerSwing: 'pSwing', speciesBooms: 'sBoom', speciesCrashes: 'sCrash', effSpecies: 'effSp', livingFrac: 'living', awake4: 'awake4', thriving4: 'thrive4', grafted: 'grafted', taking: 'taking', giving: 'giving', graftsPerMinK: 'mk/min', rejectsPerMinK: 'rej/min', hostsP: 'hostP', graftSwing: 'gSwing', outbreaks: 'outbrk', grafterSp: 'grafter', flow: 'flow', rejecters: 'reject', symbionts: 'symb', imprinted: 'imprint', hostSpecies: 'hostSp', leaderLoad: 'leadLd' };
 const w = Math.max(8, ...rows.map((r) => r.group.length));
 console.log('group'.padEnd(w), ...COLS.map((c) => (SHORT[c] ?? c).padStart(8)));
 for (const r of rows) {
