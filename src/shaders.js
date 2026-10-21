@@ -19,9 +19,10 @@ export const DIAG_STRIDE = 24;
 export const META_DIAG = META_ENERGY + 64;
 // Grafts (cross-species bonds, docs/symbiosis.md), afresh each step: grafted cells by the grafter's guild (0-4) and by
 // its host's (5-9), grafters taking from their hosts (10) and giving to them (11); cumulative: grafts made (12), broken by
-// the host's rejection (13), lost otherwise (14).
+// the host's rejection (13), lost otherwise (14). Then per species: its grafted cells (16 + kind, afresh each step)
+// and the species of one of their hosts (16 + MAXK + kind), for the chronicle.
 export const META_SYM = META_DIAG + 5 * DIAG_STRIDE;
-export const SYM_SLOTS = 16;
+export const SYM_SLOTS = 16 + 2 * MAXK;
 export const META_CLAIM = META_SYM + SYM_SLOTS;
 // Energy ledger per diet guild, in thousandths: light, energy taken from hosts through grafts, plant bites,
 // husks, kills, upkeep, children, heat-making. META_ENERGY + 40.. holds the thermal sample (THERMAL_LEDGER).
@@ -2389,6 +2390,8 @@ ${cellWGSL(K, false)}
     atomicAdd(&ledger[META_SYM + dg], 1u);
     atomicAdd(&ledger[META_SYM + 5u + dietGuild(genomes[sortedFull[host].kind])], 1u);
     if (graftE > 0.0) { atomicAdd(&ledger[META_SYM + 10u], 1u); } else if (graftE < 0.0) { atomicAdd(&ledger[META_SYM + 11u], 1u); }
+    atomicAdd(&ledger[META_SYM + 16u + p.kind], 1u);
+    atomicStore(&ledger[META_SYM + 16u + MAXK + p.kind], sortedFull[host].kind);
     if (((sim.frame + p.id) % 60u) == 0u) { addEnergy(dg, 1u, graftE * 60.0); }
   }
   if (newGraft) { atomicAdd(&ledger[META_SYM + 12u], 1u); }

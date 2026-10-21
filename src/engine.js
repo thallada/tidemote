@@ -744,6 +744,7 @@ class Engine {
     enc.clearBuffer(b.ledger, (META_DEATH + 57) * 4, 6 * 4);
     // grafts now, by guild, taking and giving (META_SYM 0-11), counted afresh each step
     enc.clearBuffer(b.ledger, META_SYM * 4, 12 * 4);
+    enc.clearBuffer(b.ledger, (META_SYM + 16) * 4, MAXK * 4);
     enc.clearBuffer(b.frameCtr, 0, 4);
     enc.clearBuffer(b.frameCtr, 36, 4);
     enc.clearBuffer(b.ledger, 48, 12);

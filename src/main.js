@@ -779,6 +779,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (q > 0) H -= q * Math.log(q);
     }
     life.thriving = thriving;
+    // grafts (docs/symbiosis.md): a species most of whose cells ride on another's has found a way of life worth telling
+    const sym = c.sym;
+    if (sym && t > 30) {
+      for (const sp of life.reg.values()) {
+        if (!sp.alive || !sp.established || sp.pop < 20 || sym[16 + sp.slot] < 0.4 * sp.pop) continue;
+        const hk = sym[16 + MAXK + sp.slot];
+        const host = hk >= FIRST_LIFE && hk !== sp.slot ? life.reg.get(genomeSerial(c.genomeU32, hk)) : null;
+        if (!host || (sp.hosts ??= new Set()).has(host.serial)) continue;
+        sp.hosts.add(host.serial);
+        const fl = sp.genome.sym?.[1] ?? 0, a = spLink(sp.serial, sp.name), b = spLink(host.serial, host.name);
+        pushEvent(fl < -0.33 ? `${a} has become a parasite of ${b}` : fl > 0.33 ? `${a} now lives on ${b}, feeding it` : `${a} now rides with ${b}, the two sharing what they have`, sp.genome.col, 'graft');
+      }
+    }
     if (best && best.serial !== life.top) {
       const prev = life.reg.get(life.top);
       if (!prev || !prev.alive || best.pop > prev.pop * 1.25) {
