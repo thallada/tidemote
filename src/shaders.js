@@ -101,7 +101,15 @@ export const DEFAULT_K = {
   // swimming trees: a thin body slips along its length more easily than sideways (resistive force theory),
   // so a wave run down a tree by its beat genes (amplitude, frequency, wavelength) drives it through the water
   sideDrag: 3,      // a tree's cell's drag across its branch, relative to along it (1: the same every way)
-  beatDrive: 12,    // a beat's push on each bend per unit of amplitude, relative to the bonds' pull
+  // a beating tree's muscles (beatPull): each bond's two cells are brought a share beatMix a step toward the
+  // relative velocity the beat asks across it, a wave of heading swing beatGain x the amplitude gene, its
+  // cells' lateral speed at most beatTop (world units/s per unit of size)
+  beatMix: 0.25,
+  beatGain: 3,
+  beatTop: 4,
+  beatMixC: 0.15,   // a coarse step's share (a 1/60 s step's would overshoot over its ticks), and how firmly a beating
+  beatBendC: 0.25,  // tree holds its angles then, relative to growStiff (bent afresh each tick from where its partners go)
+  treeBond: 3,      // a beating tree's bonds' pull, relative to a body's (bond): its beat swings its cells hard
   beatCost: 0.005,   // upkeep per unit of beat amplitude (radians) times frequency (Hz)
   bodyHold: 0.3,    // with bodyPush, the share of overlap undone each tick by velocity (contact as a constraint)
   bodyGive: 0.85,   // with bodyPush, how far cells may squash against each other first (share of touching; bonds rest at bondTouch)
@@ -326,7 +334,7 @@ fn growOf(g: Genome) -> Grow {
   let every = g.dev.z >> 29u;
   let curl = w.y * 2.0 - 1.0;
   return Grow(g.dev.x >= 0x80000000u, mix(0.25, 2.1, f32(g.dev.y >> 24u) / 255.0), select(every, 2u, every == 1u),
-    curl * curl * curl * 0.7, min(u32(w.z * 5.0), 4u), min(u32(w.w * 4.0), 3u), vec3f(g.beat.x * sqrt(0.08 / g.drag), g.beat.y * TAU, g.beat.z));
+    curl * curl * curl * 0.7, min(u32(w.z * 5.0), 4u), min(u32(w.w * 4.0), 3u), vec3f(g.beat.x, g.beat.y * TAU, g.beat.z));
 }
 // The angle a daughter grows at from her mother's heading, by her turn and generation.
 fn turnAngle(gr: Grow, turn: u32, gen: u32) -> f32 {
@@ -739,7 +747,9 @@ function cellWGSL(K, w) {
   // a tree holds its angles (bendOn); coarse steps hold each cell's place beside its mother as they go
   var bendF = vec2f(0.0);
   if (tree) { bendF = bendOn(i, gr) * ${f(K.growStiff)}; bondF += bendF; }
-  let aimOn = tree && n1 != NONE;
+  // (a beating tree's cells move against their mother: they bend afresh each tick instead)
+  let beating = tree && gr.beat.x > 0.0;
+  let aimOn = tree && n1 != NONE && !beating;
   let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0);
   let flow = flowAt(p.pos) * g.advect;
   // a holdfast: a cell the current hardly carries (advect below 0.35, fully below 0.1) is anchored, and
@@ -788,6 +798,9 @@ function cellWGSL(K, w) {
     let arm = treeArm(i);
     if (arm != NONE) { let a = treeRel(i, arm); across = vec2f(-a.y, a.x) / max(length(a), 1e-6); frX = pow(0.5, h * ${f(K.sideDrag)} / drag); }
   }
+  // a tree's muscles and tissue (beatPull), reckoned once a step
+  var beatDv = vec2f(0.0);
+  if (beating) { beatDv = beatPull(i, gr, g.size, frX); }
   var vB1 = vec2f(0.0);
   var vB2 = vec2f(0.0);
   if (n1 != NONE) { vB1 = sortedFull[n1].vel; }
@@ -819,18 +832,26 @@ function cellWGSL(K, w) {
   }
   var vel = p.vel;
   var pos = p.pos;
+  // a beating tree's cells are held end to end more firmly than a body's (treeBond): its beat swings them hard
+  let bondK = select(1.0, ${f(K.treeBond)}, beating);
   for (var k = 0u; k < select(1u, sim.ticks, COARSE); k++) {
-    var fb = bondF;
+    var fb = (bondF - bendF) * bondK + bendF;
     if (k > 0u) {
       let t = f32(k) * h;
       let moved = pos - p.pos;
       fb = vec2f(0.0);
-      if (n1 != NONE) { let e = dn1 + vB1 * t - moved; let l = length(e); fb += e * ((l - rs1) / max(l, 1e-4)); }
-      if (n2 != NONE) { let e = dn2 + vB2 * t - moved; let l = length(e); fb += e * ((l - rs2) / max(l, 1e-4)); }
-      if (nb0 != NONE) { let e = e0 + vb0 * t - moved; let l = length(e); fb += e * ((l - rb0) / max(l, 1e-4)); }
-      if (nb1 != NONE) { let e = e1 + vb1 * t - moved; let l = length(e); fb += e * ((l - rb1) / max(l, 1e-4)); }
-      if (nb2 != NONE) { let e = e2 + vb2 * t - moved; let l = length(e); fb += e * ((l - rb2) / max(l, 1e-4)); }
-      if (tree) { fb += bendF; }
+      // (a tree's partners swing about it as they go, rather than slide past: its bonds hold their length)
+      let own = moved - p.vel * t;
+      if (n1 != NONE) { let e = select(dn1 + vB1 * t - moved, swing(dn1, vB1 - p.vel, t) - own, tree); let l = length(e); fb += e * ((l - rs1) / max(l, 1e-4)); }
+      if (n2 != NONE) { let e = select(dn2 + vB2 * t - moved, swing(dn2, vB2 - p.vel, t) - own, tree); let l = length(e); fb += e * ((l - rs2) / max(l, 1e-4)); }
+      if (nb0 != NONE) { let e = select(e0 + vb0 * t - moved, swing(e0, vb0 - p.vel, t) - own, tree); let l = length(e); fb += e * ((l - rb0) / max(l, 1e-4)); }
+      if (nb1 != NONE) { let e = select(e1 + vb1 * t - moved, swing(e1, vb1 - p.vel, t) - own, tree); let l = length(e); fb += e * ((l - rb1) / max(l, 1e-4)); }
+      if (nb2 != NONE) { let e = select(e2 + vb2 * t - moved, swing(e2, vb2 - p.vel, t) - own, tree); let l = length(e); fb += e * ((l - rb2) / max(l, 1e-4)); }
+      fb *= bondK;
+      if (tree) {
+        if (beating) { predT = t; predSelf = i; predPos = pos; fb += bendOn(i, gr) * ${f(K.growStiff * K.beatBendC)}; predT = 0.0; }
+        else { fb += bendF; }
+      }
       if (aimOn) { fb += (vB1 * t - moved) * ${f(K.growStiff)}; }
     }
     vel = vel * fr0 - across * (dot(vel, across) * (fr0 - frX)) + force * (g.force * heavy * h) + stiff * h;${W('if (k == 0u) { mVel = vel; }')}
@@ -839,8 +860,9 @@ function cellWGSL(K, w) {
       vel = mix(vel, kinVel / kinN, clamp(g.align * ${f(K.align)} * h, 0.0, 1.0));${W('if (k == 0u) { mAlign = vel - mVel; }')}
     }
     vel += fb * (g.adhesion * ${f(K.bond)} * h);
-    // a body's cells move together: each takes on its partners' motion
-    if (nP > 0.0) { vel = mix(vel, vP, clamp(${f(K.tissue)} * h, 0.0, 1.0)); }
+    // a body's cells move together: each takes on its partners' motion (a beating tree's, bond by bond, as its muscles beat)
+    if (beating) { vel += beatDv * (1.0 / f32(sim.ticks)); }
+    else if (nP > 0.0) { vel = mix(vel, vP, clamp(${f(K.tissue)} * h, 0.0, 1.0)); }
     // stone is solid to everything but the calcifiers that build it, which settle on their own reef
     vel += stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify) * h);
     if (swim > 0.0) {
@@ -1804,8 +1826,17 @@ fn treeKid(x: u32, k: u32) -> u32 {
   if (c >= sim.count || c == x || treeMom(c) != x) { return NONE; }
   return c;
 }
+// A coarse step bends a beating tree afresh each tick (its bends change too fast to hold one tick's push
+// for the step): its partners where their velocities will carry them by predT, the cell itself at predPos.
+var<private> predT: f32;
+var<private> predSelf: u32;
+var<private> predPos: vec2f;
+fn treePos(x: u32) -> vec2f {
+  if (predT > 0.0) { return select(sortedFull[x].pos + sortedFull[x].vel * predT, predPos, x == predSelf); }
+  return sortedFull[x].pos;
+}
 fn treeRel(a: u32, b: u32) -> vec2f {
-  var d = sortedFull[b].pos - sortedFull[a].pos;
+  var d = treePos(b) - treePos(a);
   d -= sim.world * round(d / sim.world);
   return d;
 }
@@ -1826,12 +1857,6 @@ fn bendAt(gr: Grow, m: u32, a: u32, b: u32) -> vec4f {
   let want = select(turnOfCell(gr, b) - turnOfCell(gr, a), 3.14159265 + turnOfCell(gr, b), a == treeMom(m));
   var e = atan2(A.x * B.y - A.y * B.x, dot(A, B)) - want;
   e -= TAU * round(e / TAU);
-  // a beat: a muscle's push on each bend in turn, a wave running out from the root (phase by generation),
-  // as strong as the water is thick (amplitude scaled by the square root of the drag in growOf); a bend
-  // already folded past 1.2 radians is not pushed further
-  if (abs(e) < 1.2) {
-    e -= ${f(K.beatDrive / K.growStiff)} * gr.beat.x * sin(gr.beat.y * sim.time - gr.beat.z * f32(genOf(sortedFull[b].info)));
-  }
   let s = e * length(A) * length(B);
   return vec4f(vec2f(-A.y, A.x) * (s / max(dot(A, A), 1e-8)), vec2f(B.y, -B.x) * (s / max(dot(B, B), 1e-8)));
 }
@@ -1862,6 +1887,67 @@ fn bendOn(i: u32, gr: Grow) -> vec2f {
     }
   }
   return F;
+}
+
+// A tree's muscles. A beat is a wave run out from the root along every branch: each cell's lateral speed,
+// across its branch, is a cosine of the time less its generation's phase (beat.z per cell), as large as a
+// swing of beatGain x the amplitude gene in heading. The muscles carry it bond by bond: each bond's two
+// cells move toward the relative velocity across it that their two speeds ask (and otherwise toward each
+// other's motion, as tissue), a share beatMix of the difference each step. Both reckon it alike and take
+// opposite halves, so the body cannot push itself; it swims only as the water holds its cells harder
+// across their branches than along them (sideDrag). Pulling bonds one by one, rather than bending the
+// stem, carries a long wave down it as fast as a short one: a bend's push reaches the cells beside it only.
+fn beatSpeed(gr: Grow, size: f32, gen: u32, t: f32) -> f32 {
+  return min(gr.beat.x * ${f(K.beatGain * 0.16)} * gr.beat.y / max(gr.beat.z, 0.05), ${f(K.beatTop)}) * size * cos(gr.beat.y * t - gr.beat.z * f32(gen));
+}
+// how many tree bonds a cell has (its mother and daughters), at least two: a bond's share is split by the busier end
+fn treeDeg(x: u32) -> f32 {
+  let m = bondsOf(x).x;
+  return max(2.0, f32(min(backOf(x, 0u), 3u)) + select(0.0, 1.0, m < sim.count && m != x));
+}
+// One pull a step, the beat reckoned at the step's middle. A coarse step pulls a smaller share (beatMixC:
+// over its several ticks the stiffest wave, each cell pulled by both its bonds as a zigzag, would
+// overshoot), and its ticks' drag leaves less of the beat standing, so the beat asks more: as much as
+// it takes for its wave (2 - 2 cos of its phase per cell, as the bonds settle it) to stand as tall as in
+// 1/60 s steps, by a 1/60 s step's and a coarse step's settling, and a fifth more a tick past the first
+// (fitted with tools/swimlab.mjs; docs/growth.md), but no faster across a bond than three beatTops.
+fn beatPull(i: u32, gr: Grow, size: f32, frX: f32) -> vec2f {
+  let p = sortedFull[i];
+  let tm = sim.time - 0.5 * sim.dt;
+  let si = beatSpeed(gr, size, genOf(p.info), tm);
+  let di = treeDeg(i);
+  var gain = 1.0;
+  var mixW = ${f(K.beatMix)};
+  if (sim.ticks > 1u) {
+    mixW = ${f(K.beatMixC)};
+    let wm = 2.0 * mixW * (2.0 - 2.0 * cos(gr.beat.z));
+    gain = (wm + 1.0 - pow(frX, f32(sim.ticks))) / (${f(2 * K.beatMix)} * (2.0 - 2.0 * cos(gr.beat.z)) + 1.0 - frX) * (1.0 + 0.2 * f32(sim.ticks - 1u)) * ${f(K.beatMix)} / mixW;
+  }
+  // (a coarse step asks no faster swing of a bond than it can follow)
+  let top = select(1e9, ${f(3 * K.beatTop)} * size, sim.ticks > 1u);
+  var dv = vec2f(0.0);
+  for (var k = 0u; k < 4u; k++) {
+    // the mother, then the daughters
+    let j = select(treeKid(i, k - 1u), treeMom(i), k == 0u);
+    if (j == NONE) { continue; }
+    let q = sortedFull[j];
+    // the bond's normal, from mother to daughter
+    let a = select(treeRel(i, j), treeRel(j, i), k == 0u);
+    let n = vec2f(-a.y, a.x) / max(length(a), 1e-6);
+    let sj = beatSpeed(gr, size, genOf(q.info), tm);
+    // a joint pulled well past its rest goes slack: its muscle lets go
+    let slack = smoothstep(1.6, 1.3, length(a) / (${f(0.153)} * size));
+    dv += (q.vel - p.vel + n * (clamp((si - sj) * gain, -top, top) * slack)) * (2.0 / max(di, treeDeg(j)));
+  }
+  return dv * mixW;
+}
+
+// Where a partner at d, moving at vr relative to this cell, will be after t: turned about it at the rate its
+// motion across d turns it, and drawn out or in at its motion along d.
+fn swing(d: vec2f, vr: vec2f, t: f32) -> vec2f {
+  let l2 = max(dot(d, d), 1e-8);
+  let a = (d.x * vr.y - d.y * vr.x) / l2 * t;
+  return rot2(d, a) * (1.0 + dot(d, vr) / l2 * t);
 }
 
 // The bond's other end as seen from p (wrapped), or zero for none.
