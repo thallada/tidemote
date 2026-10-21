@@ -1,5 +1,5 @@
 // Ecology statistics for headless runs and ensembles: pure functions, no GPU.
-import { dietGuild, mobilityGuild } from './genome.js';
+import { dietGuild, mobilityGuild, hasTails } from './genome.js';
 
 export const DIETS = ['producer', 'grazer', 'predator', 'scavenger'];
 export const MOVES = ['sessile', 'crawler', 'swimmer', 'drifter'];
@@ -11,8 +11,8 @@ export const TRAITS = {
 const SHARE_NOTABLE = 0.05;
 // raw genome traits averaged within each guild (guildTraits): how each guild evolves
 const GUILD_TRAITS = ['swim', 'size', 'adhesion', 'advect', 'lifespan', 'reproE', 'share', 'drag', 'force', 'radius', 'photo', 'dGlint', 'dHusk', 'dFlesh', 'calcify', 'mutRate'];
-// body plans' shares within each guild: trees, trees grown from the tips, beating trees, and both (tadpoles)
-const PLAN_TRAITS = ['tree', 'tips', 'beater', 'tadpole'];
+// body plans' shares within each guild: trees, trees grown from the tips, beating trees, both (tadpoles), and packed bodies with beating tails
+const PLAN_TRAITS = ['tree', 'tips', 'beater', 'tadpole', 'tailed'];
 
 /** One census of the community. species: [{ pop, genome }] for every living slot. */
 export function communitySample(species, adhMin) {
@@ -40,7 +40,7 @@ export function communitySample(species, adhMin) {
     if ((g.grow?.[0] ?? 0) >= 0.5 && (g.adhesion || 0) > adhMin) {
       const tips = g.photo > 0.4 || (g.beat?.[3] ?? 0) > 0.5, beats = (g.beat?.[0] ?? 0) > 0.05;
       gt[d].tree += pop; if (tips) gt[d].tips += pop; if (beats) gt[d].beater += pop; if (tips && beats) gt[d].tadpole += pop;
-    }
+    } else if (hasTails(g) && (g.beat?.[0] ?? 0) > 0.05) gt[d].tailed += pop;
   }
   top.sort((a, b) => b.share - a.share);
   const guildTop = Object.fromEntries(DIETS.map((k) => {

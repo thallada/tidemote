@@ -14,7 +14,7 @@ import { parseArgs } from 'node:util';
 const { values: v } = parseArgs({ options: {
   body: { type: 'string', default: 'filament:12' }, genome: { type: 'string', default: '{}' }, k: { type: 'string', default: '{}' },
   seconds: { type: 'string', default: '20' }, warm: { type: 'string', default: '4' }, step: { type: 'string', default: '1' },
-  sweep: { type: 'string' }, out: { type: 'string' }, n: { type: 'string', default: '4096' }, trace: { type: 'boolean' }, every: { type: 'string', default: '2' },
+  sweep: { type: 'string' }, out: { type: 'string' }, n: { type: 'string', default: '4096' }, trace: { type: 'boolean' }, grow: { type: 'boolean' }, every: { type: 'string', default: '2' },
 } });
 
 const { create, globals } = await import('webgpu');
@@ -26,7 +26,7 @@ const E = await import('../src/engine.js');
 const { archetypeGenome, finalizeGenome, writeGenome, growPlan } = await import('../src/genome.js');
 const { G_WORDS, P_BYTES, DEFAULT_K } = await import('../src/shaders.js');
 
-const K = { ...JSON.parse(v.k), metab: 0 };
+const K = { metab: 0, ...JSON.parse(v.k) };
 const KK = () => eng.K;
 const eng = await E.createEngine(device, 'rgba8unorm', { K });
 await eng.allocate(+v.n);
@@ -59,6 +59,30 @@ function layout(spec) {
       axis = me;
     }
   }
+  else if (kind === 'mat') {
+    // a packed body of n cells (a hexagonal patch, each cell bonded to two earlier neighbours), then
+    // tails of b cells from its edge (mat:N:TAILLEN:TAILS)
+    const tails = +spec.split(':')[3] || 1;
+    cells.length = 0;
+    const gap = 0.153, P = [];
+    for (let ring = 0, made = 0; made < n; ring++) {
+      for (let q = -ring; q <= ring && made < n; q++) for (let r = -ring; r <= ring && made < n; r++) {
+        if (Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r)) !== ring) continue;
+        P.push([gap * (q + r / 2), gap * r * 0.866]); made++;
+      }
+    }
+    P.forEach((p, i) => {
+      const near = P.slice(0, i).map((o, j) => [Math.hypot(o[0] - p[0], o[1] - p[1]), j]).sort((x, y) => x[0] - y[0]).filter((x) => x[0] < gap * 1.1);
+      cells.push({ mom: near[0]?.[1] ?? -1, mom2: near[1]?.[1] ?? -1, turn: 0, at: p, mat: true });
+    });
+    // tails from the cells farthest out, spread round
+    const out = P.map((p, i) => [Math.atan2(p[1], p[0]), Math.hypot(...p), i]).filter((x) => x[1] > 0.6 * Math.max(...P.map((p) => Math.hypot(...p)))).sort((x, y) => x[0] - y[0]);
+    for (let t = 0; t < tails; t++) {
+      const [ang, , base] = out[Math.floor(t * out.length / tails)];
+      let mom = base;
+      for (let q = 0; q < (+b || 6); q++) { cells.push({ mom, turn: 0, tail: true, gen: q, at: [P[base][0] + Math.cos(ang) * gap * (q + 1), P[base][1] + Math.sin(ang) * gap * (q + 1)] }); mom = cells.length - 1; }
+    }
+  }
   else throw new Error(`unknown body ${spec}`);
   return cells;
 }
@@ -85,7 +109,9 @@ async function run(over) {
   // everything else becomes silt heaped in a far corner, at rest
   for (let i = 0; i < N; i++) {
     const o = i * PW;
-    pf[o] = 0.5 + rng() * W * 0.2; pf[o + 1] = 0.5 + rng() * H * 0.2; pf[o + 2] = 0; pf[o + 3] = 0;
+    // (--grow: silt everywhere, so the body can bud)
+    const spread = v.grow ? 1 : 0.2;
+    pf[o] = 0.5 + rng() * (W - 1) * spread; pf[o + 1] = 0.5 + rng() * (H - 1) * spread; pf[o + 2] = 0; pf[o + 3] = 0;
     pu[o + 4] = 0; pf[o + 5] = 0; pf[o + 6] = 0; pu[o + 8] = 0; pu[o + 9] = 0;
     iu.set([0, 0, 0xffffffff, 0xffffffff], i * 4);
   }
@@ -98,6 +124,7 @@ async function run(over) {
   const gap = 0.085 * g.size * 2 * 0.95;
   const pos = [], head = [], gen = [];
   cells.forEach((c, i) => {
+    if (c.at) { pos.push([W / 2 + c.at[0], H / 2 + c.at[1]]); head.push(0); gen.push(c.gen ?? 0); return; }
     if (c.mom < 0) { pos.push([W / 2, H / 2]); head.push(0); gen.push(0); return; }
     gen.push(gen[c.mom] + 1);
     const h = (c.mom === 0 && i === 1 ? 0 : head[c.mom]) + turnAngle(plan, c.turn, gen[i]);
@@ -108,9 +135,9 @@ async function run(over) {
   cells.forEach((c, i) => {
     const o = idx[i] * PW;
     pf[o] = pos[i][0]; pf[o + 1] = pos[i][1]; pf[o + 2] = 0; pf[o + 3] = 0;
-    pu[o + 4] = E.FIRST_LIFE; pf[o + 5] = 0.9 * g.reproE; pf[o + 6] = 1; pu[o + 7] = 1000000 + i; pu[o + 8] = g.col;
-    pu[o + 9] = (gen[i] << 16) | (c.turn << 28) | 9;
-    iu.set([0, 0, c.mom < 0 ? 0xffffffff : idx[c.mom], 0xffffffff], idx[i] * 4);
+    pu[o + 4] = E.FIRST_LIFE; pf[o + 5] = (v.grow ? 12 : 0.9) * g.reproE; pf[o + 6] = v.grow ? 20 : 1; pu[o + 7] = 1000000 + i; pu[o + 8] = g.col;
+    pu[o + 9] = (gen[i] << 16) | (c.turn << 28) | (c.tail ? 2 << 30 : 0) | 9;
+    iu.set([0, 0, c.mom < 0 ? 0xffffffff : idx[c.mom], c.mom2 >= 0 ? idx[c.mom2] : 0xffffffff], idx[i] * 4);
   });
   eng.writeState(st);
   const step = +v.step, dt = step / 60;
@@ -119,8 +146,16 @@ async function run(over) {
   for (let f = 0; f < frames; f++) {
     eng.abio = 0;
     eng.frame({ target: null, cam: { x: W / 2, y: H / 2, ppu: 1 }, simDt: dt, steps: 1, time: eng.simTime });
-    if (eng.simTime < +v.warm || f % +v.every) continue;
+    if ((eng.simTime < +v.warm || f % +v.every) && !(v.grow && f % 600 === 0)) continue;
     const r = await eng.readParticles();
+    if (v.grow && f % 600 === 0) {
+      const stt = await eng.readState(); const iu2 = new Uint32Array(stt.gpu.intent), pu2 = new Uint32Array(stt.gpu.parts), pf2 = new Float32Array(stt.gpu.parts);
+      for (let i = 0; i < N; i++) { const o = i * PW; if (pu2[o + 4] !== E.FIRST_LIFE || (pu2[o + 9] >>> 30) !== 2) continue; const m = iu2[i * 4 + 2];
+        console.error('  tail', i, 'mom', m, m < N ? `kind ${pu2[m * PW + 4]} order ${pu2[m * PW + 9] >>> 30} dist ${Math.hypot(pf2[m * PW] - pf2[o], pf2[m * PW + 1] - pf2[o + 1]).toFixed(3)}` : 'none', 'w', iu2[i * 4 + 3]); }
+      let live = 0, tails = 0, orders = {};
+      for (let i = 0; i < N; i++) { const o = i * PW; if (r.u32[o + 4] !== E.FIRST_LIFE) continue; live++; const od = r.u32[o + 9] >>> 30; orders[od] = (orders[od] || 0) + 1; if (od === 2) { tails++; if (tails <= 2) console.error('  tail cell gen', (r.u32[o + 9] >> 16) & 4095, 'E', r.f32[o + 5].toFixed(2), 'age', r.f32[o + 6].toFixed(1), 'cause', r.u32[o + 9] & 15); } }
+      console.error('grown: living', live, 'tail cells', tails, JSON.stringify(orders));
+    }
     const s = { t: eng.simTime, x: cells.map(() => null), v: cells.map(() => null), alive: 0 };
     for (let i = 0; i < N; i++) {
       const o = i * PW, id = r.u32[o + 7] - 1000000;
@@ -158,7 +193,10 @@ function analyse(g, cells, samples, K, grid) {
   const c0 = com(a), c1 = com(b);
   // the head's direction, averaged over the run: from the body's centre to its root
   let hx = 0, hy = 0;
-  for (const s of ok) { const c = com(s); hx += s.x[0][0] - c[0]; hy += s.x[0][1] - c[1]; }
+  const tailed = cells.some((c) => c.tail);
+  const mean = (s, f) => { let x = 0, y = 0, m = 0; s.x.forEach((p, i) => { if (f(cells[i])) { x += p[0]; y += p[1]; m++; } }); return [x / m, y / m]; };
+  // (a mat with tails heads away from them)
+  for (const s of ok) { const c = tailed ? mean(s, (q) => q.tail) : com(s), h0 = tailed ? mean(s, (q) => !q.tail) : s.x[0]; hx += h0[0] - c[0]; hy += h0[1] - c[1]; }
   const hl = Math.hypot(hx, hy) || 1; hx /= hl; hy /= hl;
   const dx = c1[0] - c0[0], dy = c1[1] - c0[1];
   // the longest a bond got, and the share of samples with one past breaking (bondBreak x linkR)
@@ -168,19 +206,21 @@ function analyse(g, cells, samples, K, grid) {
   // the body's length (root to farthest cell, mean)
   let L = 0; for (const s of ok) { let m = 0; for (const p of s.x) m = Math.max(m, Math.hypot(p[0] - s.x[0][0], p[1] - s.x[0][1])); L += m; } L /= ok.length;
   // bend angles at each interior cell of the main axis (cells whose mother is the one before)
-  const chain = [0]; for (let i = 1; i < n; i++) if (cells[i].mom === chain.at(-1)) chain.push(i);
+  const t0 = cells.findIndex((c) => c.tail);
+  const chain = tailed ? [cells[t0].mom, t0] : [0];
+  for (let i = chain.at(-1) + 1; i < n; i++) if (cells[i].mom === chain.at(-1)) chain.push(i);
   const bends = ok.map((s) => chain.slice(1, -1).map((c, j) => {
     const p0 = s.x[chain[j]], p1 = s.x[c], p2 = s.x[chain[j + 2]];
     const ax = p1[0] - p0[0], ay = p1[1] - p0[1], bx = p2[0] - p1[0], by = p2[1] - p1[1];
     return Math.atan2(ax * by - ay * bx, ax * bx + ay * by);
   }));
   const nb = bends[0].length;
-  const mean = Array(nb).fill(0); for (const r of bends) r.forEach((x, j) => (mean[j] += x / bends.length));
-  const amp = Array(nb).fill(0); for (const r of bends) r.forEach((x, j) => (amp[j] += (x - mean[j]) ** 2 / bends.length));
+  const mean0 = Array(nb).fill(0); for (const r of bends) r.forEach((x, j) => (mean0[j] += x / bends.length));
+  const amp = Array(nb).fill(0); for (const r of bends) r.forEach((x, j) => (amp[j] += (x - mean0[j]) ** 2 / bends.length));
   const bendAmp = amp.map(Math.sqrt);
   // the wave: phase lag between neighbouring bends at the beat frequency
   const w = g.beat[1] * 2 * Math.PI;
-  const ph = Array(nb).fill(0).map((_, j) => { let c = 0, sn = 0; ok.forEach((s, t) => { const x = bends[t][j] - mean[j]; c += x * Math.cos(w * s.t); sn += x * Math.sin(w * s.t); }); return Math.atan2(sn, c); });
+  const ph = Array(nb).fill(0).map((_, j) => { let c = 0, sn = 0; ok.forEach((s, t) => { const x = bends[t][j] - mean0[j]; c += x * Math.cos(w * s.t); sn += x * Math.sin(w * s.t); }); return Math.atan2(sn, c); });
   let lag = 0, lagN = 0; for (let j = 1; j < nb; j++) { let d = ph[j - 1] - ph[j]; d -= 2 * Math.PI * Math.round(d / (2 * Math.PI)); lag += d; lagN++; }
   lag /= Math.max(1, lagN);
   // resistive force theory from the same motion: each sample, the rigid velocity (U, Ω) that, added to the
@@ -193,7 +233,7 @@ function analyse(g, cells, samples, K, grid) {
     // each cell's drag tensor: 1 along its arm, gamma across
     const tens = s.x.map((p, i) => {
       const arm = cells[i].mom >= 0 ? cells[i].mom : cells.findIndex((c2) => c2.mom === i);
-      if (arm < 0) return [1, 0, 1];
+      if (arm < 0 || cells[i].mat) return [1, 0, 1];
       let tx = s.x[arm][0] - p[0], ty = s.x[arm][1] - p[1]; const l = Math.hypot(tx, ty) || 1; tx /= l; ty /= l;
       return [tx * tx + gamma * ty * ty, (1 - gamma) * tx * ty, ty * ty + gamma * tx * tx];
     });
@@ -226,7 +266,7 @@ function analyse(g, cells, samples, K, grid) {
     rftForward: +(pred[0] * hx + pred[1] * hy).toFixed(4), rftSpeed: +Math.hypot(...pred).toFixed(4),
     meanV: +(Math.hypot(...ok.reduce((a2, s) => { let x = 0, y = 0; for (const q of s.v) { x += q[0] / n; y += q[1] / n; } return [a2[0] + x / ok.length, a2[1] + y / ok.length]; }, [0, 0]))).toFixed(4),
     dragImbalance: +Math.hypot(...dragRes).toFixed(4),
-    bendAmp: bendAmp.map((x) => +x.toFixed(3)), meanBend: mean.map((x) => +x.toFixed(3)),
+    bendAmp: bendAmp.map((x) => +x.toFixed(3)), meanBend: mean0.map((x) => +x.toFixed(3)),
     lagPerCell: +lag.toFixed(3), waveCellsPerS: +(w / Math.max(1e-6, lag)).toFixed(2),
     bodyLengthsPerBeat: +(((dx * hx + dy * hy) / T) / (L * g.beat[1])).toFixed(4),
     trace: v.trace ? ok.map((s) => [s.t, ...com(s)]) : undefined,

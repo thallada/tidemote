@@ -38,8 +38,8 @@ export const P_BYTES = 40;
 export const LOUPE_FIELD = 1.1;
 export const ORGANS = 12; // organelles per resolved cell (fsPoint), directions per species (organDirs)
 export const PICK_WORDS = 12; // Particle's 10 words, then two partner IDs (NONE if absent).
-export const G_BYTES = 208;
-export const G_WORDS = 52;
+export const G_BYTES = 224;
+export const G_WORDS = 56;
 export const LITE_BYTES = 32;
 // a cell's drawn motion and events (ANIM_WGSL's Sway)
 export const SWAY_BYTES = 56;
@@ -110,6 +110,9 @@ export const DEFAULT_K = {
   beatMixC: 0.15,   // a coarse step's share (a 1/60 s step's would overshoot over its ticks), and how firmly a beating
   beatBendC: 0.25,  // tree holds its angles then, relative to growStiff (bent afresh each tick from where its partners go)
   treeBond: 3,      // a beating tree's bonds' pull, relative to a body's (bond): its beat swings its cells hard
+  tailOdds: 1,      // a packed body's tails: the chance a bud at its edge starts one, times the tail gene, when no
+  tailSpace: 0.6,   // tail of its kind is within this (world units); a tail grows 3 to tailMax cells by its length gene
+  tailMax: 16,
   beatCost: 0.005,   // upkeep per unit of beat amplitude (radians) times frequency (Hz)
   bodyHold: 0.3,    // with bodyPush, the share of overlap undone each tick by velocity (contact as a constraint)
   bodyGive: 0.85,   // with bodyPush, how far cells may squash against each other first (share of touching; bonds rest at bondTouch)
@@ -296,7 +299,8 @@ const META_CLAIM = ${META_CLAIM}u;
 const TAU = 6.28318530718;
 const ORGANS = ${ORGANS}u;
 
-// Info: 0..3 cause, 4..5 role, 6..15 search image, 16..27 generation, 28..29 a tree cell's turn, 30..31 its branch order.
+// Info: 0..3 cause, 4..5 role, 6..15 search image, 16..27 generation, 28..29 a tree cell's turn, 30..31 its branch order
+// (a packed body's tail cell: order 2, its generation counted from the tail's base).
 struct Particle { pos: vec2f, vel: vec2f, kind: u32, energy: f32, age: f32, id: u32, col: u32, info: u32 };
 struct Genome {
   sig: array<vec4u, 3>,
@@ -310,6 +314,8 @@ struct Genome {
   parent: u32, serial: u32, born: f32, depth: u32,
   adhesion: f32, calcify: f32, topt: f32, tol: f32,
   beat: vec4f,
+  // a packed body's tails: how readily its edge buds one (x), how long one grows (y); zw spare
+  tail: vec4f,
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
@@ -336,6 +342,18 @@ fn growOf(g: Genome) -> Grow {
   return Grow(g.dev.x >= 0x80000000u, mix(0.25, 2.1, f32(g.dev.y >> 24u) / 255.0), select(every, 2u, every == 1u),
     curl * curl * curl * 0.7, min(u32(w.z * 5.0), 4u), min(u32(w.w * 4.0), 3u), vec3f(g.beat.x, g.beat.y * TAU, g.beat.z));
 }
+// A packed body's tail: a cell of a species that is no tree, bonded, of branch order 2 (tailCell) grows as
+// a straight filament from its base (a cell of the body), from its tip, and beats with the species' beat.
+fn tailCell(g: Genome, info: u32) -> bool {
+  return g.dev.x < 0x80000000u && g.adhesion > ${f(DEFAULT_K.adhMin)} && g.tail.x > 0.0 && orderOf(info) == 2u;
+}
+// A cell's growth plan: its species', or a tail's (straight, never branching)
+fn growAt(g: Genome, info: u32) -> Grow {
+  var gr = growOf(g);
+  if (tailCell(g, info)) { gr.tree = true; gr.every = 0u; gr.curl = 0.0; gr.pattern = 0u; gr.depth = 0u; }
+  return gr;
+}
+
 // The angle a daughter grows at from her mother's heading, by her turn and generation.
 fn turnAngle(gr: Grow, turn: u32, gen: u32) -> f32 {
   let curl = select(gr.curl, -gr.curl, gr.pattern == 4u && (gen & 1u) == 1u);
@@ -478,8 +496,11 @@ function cellWGSL(K, w) {
   }
   let keep1 = n1 != NONE; let keep2 = n2 != NONE;
   // a tree grows from its tips at the angles of its plan, bonded mother to daughter only
-  let gr = growOf(g);
+  let gr = growAt(g, p.info);
   let tree = bonding && gr.tree;
+  // a tail cell (a packed body's), and a cell of such a body that bears tails (tails: its species' habit)
+  let tail = tree && tailCell(g, p.info);
+  let tails = bonding && !tree && g.tail.x > 0.0;
   // how tightly its bodies hold: the most adhesive species grow tissue, membrane to membrane; the
   // least keep open, strung-out bodies (a tree's cells touch)
   let tight = select(clamp((g.adhesion - ${f(K.tightFrom)}) / ${f(K.tightSpan)}, 0.0, 1.0), 1.0, tree);
@@ -521,6 +542,8 @@ function cellWGSL(K, w) {
   var budAt = vec2f(0.0);
   var budBlocked = false;
   var hasKid = false;
+  // (a tail of its own kind within tailSpace: a body bearing tails buds no other there)
+  var tailNear = false;
   let budGap = 0.9 * 0.085 * g.size * (2.0 - 0.24 * f32(role));
   if (tree) {
     var have = 0u;
@@ -529,13 +552,17 @@ function cellWGSL(K, w) {
       if (c < sim.count && sortedFull[c].kind == p.kind) { have |= 1u << turnOf(sortedFull[c].info); }
     }
     hasKid = have != 0u;
-    let miss = growWants(gr, genOf(p.info), orderOf(p.info)) & ~have;
+    // (a tail grows to its length)
+    let miss = select(growWants(gr, genOf(p.info), orderOf(p.info)), 0u, tail && genOf(p.info) + 1u >= tailLen(g)) & ~have;
     if (miss != 0u) {
       budTurn = firstTrailingBit(miss);
       let hd = headingOf(i, gr);
       budAt = rot2(hd.dir, turnAngle(gr, budTurn, genOf(p.info) + 1u)) * budGap;
     }
   }
+  // a body bearing tails may start one at a bud, straight out from the partner it holds first (budTurn 0
+  // here only asks the scan whether a cell is in the way)
+  if (tails && n1 != NONE) { budTurn = 0u; budAt = -dn1 / max(d1, 1e-4) * budGap; }
 
   // The 3x3 neighbourhood as eighteen index ranges: each grid cell's living (first in it), then each
   // one's matter. The living are weighed exactly (sampled evenly past liveScan of them), the matter
@@ -595,14 +622,17 @@ function cellWGSL(K, w) {
       // A tight body's kin keep personal space only down to touching (where their two roles' sizes
       // meet), so they press membrane to membrane, and keep less of their signature forces beyond it.
       var bk = beta; var invBk = invBeta; var invOMk = invOM; var sigK = 1.0;
-      if (tight > 0.0 && qk == p.kind) {
+      // (a body and its tails meet as a tail's cells meet: touching, no pull, alike from either side)
+      let withTail = qk == p.kind && (tail || (q.kr & (1u << 15u)) != 0u);
+      let tightQ = select(tight, 1.0, withTail);
+      if (tightQ > 0.0 && qk == p.kind) {
         let tq = 0.085 * g.size * (2.0 - 0.12 * f32(role + ((q.kr >> 10u) & 3u)));
-        bk = mix(beta, min(beta, tq * invR), tight);
+        bk = mix(beta, min(beta, tq * invR), tightQ);
         invBk = 1.0 / bk;
         invOMk = 1.0 / (1.0 - bk);
-        sigK = mix(1.0, ${f(K.tissueSig)}, tight);
+        sigK = mix(1.0, ${f(K.tissueSig)}, tightQ);
         // a tree's shape is its bonds': its branches neither draw together nor apart
-        if (tree) { sigK = 0.0; }
+        if (tree || withTail) { sigK = 0.0; }
       }
       let shape = 1.0 - abs(2.0 * x - 1.0 - bk) * invOMk;
       var fr: f32;
@@ -632,6 +662,7 @@ function cellWGSL(K, w) {
         if (qk == p.kind) {
           kinVel += unpack2x16float(q.vel);
           kinN += 1.0;
+          if ((q.kr & (1u << 15u)) != 0u && r < ${f(K.tailSpace)}) { tailNear = true; }
         }
         if (r < LINK_R) {
           // colour only blends within a species, so mixed neighbourhoods stay visibly mixed
@@ -640,7 +671,7 @@ function cellWGSL(K, w) {
             csum += unpack4x8unorm(q.col).rgb * w;
             wsum += w;
           }
-          if (bonding && !tree && qk == p.kind && j != n1 && j != n2 && (q.kr & (1u << 13u)) == 0u && ((!keep1 && r < d1) || (!keep2 && r < d2)) && joinable(i, j, select(NONE, n1, keep1), select(NONE, n2, keep2))) {
+          if (bonding && !tree && qk == p.kind && j != n1 && j != n2 && (q.kr & ((1u << 13u) | (1u << 15u))) == 0u && ((!keep1 && r < d1) || (!keep2 && r < d2)) && joinable(i, j, select(NONE, n1, keep1), select(NONE, n2, keep2))) {
             if (!keep1 && r < d1) {
               if (!keep2) { d2 = d1; n2 = n1; dn2 = dn1; }
               d1 = r; n1 = j; dn1 = d;
@@ -717,6 +748,8 @@ function cellWGSL(K, w) {
   // forces are averaged, so a crowd drives a cell no harder than a neighbourhood does
   let social = ${f(K.socialN)} / max(${f(K.socialN)}, nIn * stride);
   force *= social; jF *= social;
+  // whether a bud of a body bearing tails, if it buds now, starts a tail (none of its kind near, room ahead)
+  let sprout = tails && budTurn == 0u && !budBlocked && !tailNear && rnd(&s) < g.tail.x * ${f(K.tailOdds)};
   crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride; plantN *= stride; animN *= stride;
 
   let heavy = 1.0 - 0.7 * g.photo;
@@ -745,10 +778,16 @@ function cellWGSL(K, w) {
   if (nb1 != NONE) { bondF += e1 * ((length(e1) - rb1) / max(length(e1), 1e-4)); }
   if (nb2 != NONE) { bondF += e2 * ((length(e2) - rb2) / max(length(e2), 1e-4)); }
   // a tree holds its angles (bendOn); coarse steps hold each cell's place beside its mother as they go
-  var bendF = vec2f(0.0);
-  if (tree) { bendF = bendOn(i, gr) * ${f(K.growStiff)}; bondF += bendF; }
-  // (a beating tree's cells move against their mother: they bend afresh each tick instead)
+  // (a beating tree's cells move against their mother: they bend afresh each tick instead, and more softly)
   let beating = tree && gr.beat.x > 0.0;
+  let bendK = ${f(K.growStiff)} * select(1.0, ${f(K.beatBendC)}, coarse && gr.beat.x > 0.0);
+  var bendF = vec2f(0.0);
+  if (tree) { bendF = bendOn(i, gr) * bendK; bondF += bendF; }
+  // a body bearing tails takes its share of the bend at each tail's base (where the base is the middle)
+  else if (tails) { bendF = tailBases(i, nb0, nb1, nb2) * bendK; bondF += bendF; }
+  // a tail's base is held to its body by an ordinary bond, as the body holds it (not treeBond)
+  let baseOn = tail && n1 != NONE && !treeCellAt(n1);
+  let baseB = select(vec2f(0.0), dn1 * ((d1 - rs1) / max(d1, 1e-4)), baseOn);
   let aimOn = tree && n1 != NONE && !beating;
   let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0);
   let flow = flowAt(p.pos) * g.advect;
@@ -810,8 +849,12 @@ function cellWGSL(K, w) {
   if (nb1 != NONE) { vb1 = sortedFull[nb1].vel; }
   if (nb2 != NONE) { vb2 = sortedFull[nb2].vel; }
   // the body's motion around this cell: its partners' mean velocity
-  let nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE) + select(0.0, 1.0, nb0 != NONE) + select(0.0, 1.0, nb1 != NONE) + select(0.0, 1.0, nb2 != NONE);
-  let vP = (vB1 + vB2 + vb0 + vb1 + vb2) / max(nP, 1.0);
+  // (a body bearing tails leaves its tails out: they move by their muscles)
+  let w0 = select(0.0, 1.0, nb0 != NONE && !(tails && orderOf(sortedFull[nb0].info) == 2u));
+  let w1 = select(0.0, 1.0, nb1 != NONE && !(tails && orderOf(sortedFull[nb1].info) == 2u));
+  let w2 = select(0.0, 1.0, nb2 != NONE && !(tails && orderOf(sortedFull[nb2].info) == 2u));
+  let nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE) + w0 + w1 + w2;
+  let vP = (vB1 + vB2 + vb0 * w0 + vb1 * w1 + vb2 * w2) / max(nP, 1.0);
   // a body feeds its cells: energy flows along each bond toward the poorer partner, the same amount
   // either way (both read this step's start), so a hunter at the edge keeps the interior alive
   let shareK = min(0.2, ${f(K.bodyShare)} * sim.dt);
@@ -828,28 +871,31 @@ function cellWGSL(K, w) {
     let keep = 0.5 * divE;
     let rate = min(0.5, ${f(K.growFeed)} * sim.dt);
     shareE = -feedOf(i, gr, keep, rate).y;
-    if (n1 != NONE) { shareE += feedOf(n1, gr, keep, rate).x; }
+    // (a tail's base shares with the body's cell it grows from as the body's cells share)
+    if (baseOn) { shareE += (sortedFull[n1].energy - p.energy) * shareK; }
+    else if (n1 != NONE) { shareE += feedOf(n1, gr, keep, rate).x; }
   }
   var vel = p.vel;
   var pos = p.pos;
   // a beating tree's cells are held end to end more firmly than a body's (treeBond): its beat swings them hard
   let bondK = select(1.0, ${f(K.treeBond)}, beating);
   for (var k = 0u; k < select(1u, sim.ticks, COARSE); k++) {
-    var fb = (bondF - bendF) * bondK + bendF;
+    var fb = (bondF - bendF - baseB) * bondK + baseB + bendF;
     if (k > 0u) {
       let t = f32(k) * h;
       let moved = pos - p.pos;
       fb = vec2f(0.0);
       // (a tree's partners swing about it as they go, rather than slide past: its bonds hold their length)
       let own = moved - p.vel * t;
-      if (n1 != NONE) { let e = select(dn1 + vB1 * t - moved, swing(dn1, vB1 - p.vel, t) - own, tree); let l = length(e); fb += e * ((l - rs1) / max(l, 1e-4)); }
+      var fb1 = vec2f(0.0);
+      if (n1 != NONE) { let e = select(dn1 + vB1 * t - moved, swing(dn1, vB1 - p.vel, t) - own, tree); let l = length(e); fb1 = e * ((l - rs1) / max(l, 1e-4)); }
       if (n2 != NONE) { let e = select(dn2 + vB2 * t - moved, swing(dn2, vB2 - p.vel, t) - own, tree); let l = length(e); fb += e * ((l - rs2) / max(l, 1e-4)); }
       if (nb0 != NONE) { let e = select(e0 + vb0 * t - moved, swing(e0, vb0 - p.vel, t) - own, tree); let l = length(e); fb += e * ((l - rb0) / max(l, 1e-4)); }
       if (nb1 != NONE) { let e = select(e1 + vb1 * t - moved, swing(e1, vb1 - p.vel, t) - own, tree); let l = length(e); fb += e * ((l - rb1) / max(l, 1e-4)); }
       if (nb2 != NONE) { let e = select(e2 + vb2 * t - moved, swing(e2, vb2 - p.vel, t) - own, tree); let l = length(e); fb += e * ((l - rb2) / max(l, 1e-4)); }
-      fb *= bondK;
-      if (tree) {
-        if (beating) { predT = t; predSelf = i; predPos = pos; fb += bendOn(i, gr) * ${f(K.growStiff * K.beatBendC)}; predT = 0.0; }
+      fb = (fb + select(fb1, vec2f(0.0), baseOn)) * bondK + select(vec2f(0.0), fb1, baseOn);
+      if (tree || tails) {
+        if (beating) { predT = t; predSelf = i; predPos = pos; fb += bendOn(i, gr) * bendK; predT = 0.0; }
         else { fb += bendF; }
       }
       if (aimOn) { fb += (vB1 * t - moved) * ${f(K.growStiff)}; }
@@ -927,7 +973,7 @@ struct Sim {
   // tbg: the background water temperature (climate, season, excursion); maxScan: the neighbour budget
   tick: u32, ticks: u32, tbg: f32, maxScan: u32,
 };
-// kr: 0..9 kind, 10..11 role, 12 plant.
+// kr: 0..9 kind, 10..11 role, 12 plant, 13 cyst, 14 hunter, 15 tail cell.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
 
 @group(0) @binding(0) var<uniform> sim: Sim;
@@ -1073,7 +1119,7 @@ fn addEnergy(guild: u32, slot: u32, e: f32) {
 fn deriveMetab(g: Genome) -> f32 {
   return (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
         + ${f(K.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K.swimCost)} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion + ${f(K.calcCost)} * g.calcify
-        + ${f(K.beatCost)} * g.beat.x * g.beat.y * select(0.0, 1.0, g.dev.x >= 0x80000000u && g.adhesion > ${f(K.adhMin)})) * ${f(K.metab)};
+        + ${f(K.beatCost)} * g.beat.x * g.beat.y * select(0.0, 1.0, (g.dev.x >= 0x80000000u || g.tail.x > 0.0) && g.adhesion > ${f(K.adhMin)})) * ${f(K.metab)};
 }
 
 fn finalize(g: ptr<function, Genome>) {
@@ -1173,6 +1219,11 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   g.beat.z = clamp(g.beat.z + gauss(s) * m * 0.2, 0.2, 1.6);
   // an animal colony grows from its tips like a plant (beat.w past 0.5), so it can grow long: now and then it flips
   if (rnd(s) < m * 0.1) { g.beat.w = 1.0 - g.beat.w; }
+  // tails (a packed body's): how readily its edge buds one drifts, and now and then the habit is gained or
+  // lost; how long they grow drifts
+  g.tail.x = clamp(g.tail.x + gauss(s) * m * 0.15, 0.0, 1.0);
+  if (rnd(s) < m * 0.1) { g.tail.x = select(0.0, mix(0.3, 1.0, rnd(s)), g.tail.x < 0.05); }
+  g.tail.y = clamp(g.tail.y + gauss(s) * m * 0.2, 0.0, 1.0);
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -1222,6 +1273,7 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   g.topt = clamp(t + gauss(s) * 3.0, 0.0, 45.0);
   g.tol = mix(3.0, 10.0, rnd(s));
   g.beat = vec4f(select(0.0, mix(0.15, 0.5, rnd(s)), rnd(s) < 0.25), mix(0.5, 2.5, rnd(s)), mix(0.3, 1.2, rnd(s)), select(0.0, 1.0, rnd(s) < 0.25));
+  g.tail = vec4f(select(0.0, mix(0.3, 1.0, rnd(s)), rnd(s) < 0.2), rnd(s), 0.0, 0.0);
   g.parent = 0u;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -1377,10 +1429,11 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
           // buds toward the grain)
           let gr = growOf(genomes[ck]);
           let gm = intent[c - 1u].z;
-          if (gr.tree && genomes[ck].adhesion > ${f(K.adhMin)} && ck == mother.kind && gm < sim.count && parts[gm].kind == ck) {
+          // (a tail grows straight on, its base straight out from the partner its body's cell holds first)
+          if ((gr.tree || (bud >> 2u) == 2u) && genomes[ck].adhesion > ${f(K.adhMin)} && ck == mother.kind && gm < sim.count && parts[gm].kind == ck) {
             var hd = mother.pos - parts[gm].pos;
             hd -= sim.world * round(hd / sim.world);
-            if (dot(hd, hd) > 1e-10) { dir = rot2(normalize(hd), turnAngle(gr, bud & 3u, gen)); }
+            if (dot(hd, hd) > 1e-10) { dir = rot2(normalize(hd), select(0.0, turnAngle(gr, bud & 3u, gen), gr.tree)); }
           }
           let gap = 0.085 * genomes[ck].size * (2.0 - 0.12 * f32(roleOf(mother.info) + cr)) * 0.95;
           p.pos = wrapPos(mother.pos + dir * gap);
@@ -1526,7 +1579,8 @@ fn scatterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocat
     let plant = select(0u, 1u << 12u, (p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4));
     // pad: with K.bodyPush, the cell's drawn radius (0.085 world units per unit of size, smaller in its later roles)
     let hunter = select(0u, 1u << 14u, p.kind >= FIRST_LIFE && genomes[p.kind].dFlesh > 0.5 && genomes[p.kind].photo <= 0.4);
-    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | hunter | select(0u, 1u << 13u, p.kind >= FIRST_LIFE && (p.info & 15u) == CYST), p.col, pack2x16float(p.vel), sig.x, sig.y, bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role))));
+    let tailBit = select(0u, 1u << 15u, p.kind >= FIRST_LIFE && tailCell(genomes[p.kind], p.info));
+    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | hunter | tailBit | select(0u, 1u << 13u, p.kind >= FIRST_LIFE && (p.info & 15u) == CYST), p.col, pack2x16float(p.vel), sig.x, sig.y, bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role))));
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
   }
   workgroupBarrier();
@@ -1757,9 +1811,11 @@ fn joinable(i: u32, j: u32, k1: u32, k2: u32) -> bool {
 }
 
 // A tissue bond's rest length: open (0.55 linkR) in loose bodies, where the two cells touch in tight ones.
+// (a bond to a tail rests where its cells touch, reckoned alike from both ends)
 fn restTo(j: u32, size: f32, role: u32, tight: f32) -> f32 {
   if (j == NONE) { return 0.0; }
-  return mix(LINK_R * 0.55, 0.9 * 0.085 * size * (2.0 - 0.12 * f32(role + roleOf(sortedFull[j].info))), tight);
+  let info = sortedFull[j].info;
+  return mix(LINK_R * 0.55, 0.9 * 0.085 * size * (2.0 - 0.12 * f32(role + roleOf(info))), select(tight, 1.0, orderOf(info) == 2u));
 }
 
 
@@ -1813,6 +1869,14 @@ fn feedOf(m: u32, gr: Grow, keep: f32, rate: f32) -> vec2f {
 // cells so that the pushes sum to nothing and turn nothing (a held angle's gradient): a tree cannot drive
 // itself, where pulling only the daughter toward her angle made long trees thrash. Every cell gathers
 // its share of each bend it is in: as the middle, as a daughter, and as the arm.
+// whether sorted cell x grows as a tree (a tree species', or a tail's)
+fn treeCellAt(x: u32) -> bool {
+  let q = sortedFull[x];
+  let g = genomes[q.kind];
+  return g.adhesion > ${f(K.adhMin)} && (g.dev.x >= 0x80000000u || tailCell(g, q.info));
+}
+// how many cells a tail grows to
+fn tailLen(g: Genome) -> u32 { return 3u + u32(g.tail.y * ${f(K.tailMax - 3)}); }
 fn treeMom(x: u32) -> u32 {
   let m = bondsOf(x).x;
   if (m >= sim.count || m == x || sortedFull[m].kind != sortedFull[x].kind) { return NONE; }
@@ -1875,7 +1939,8 @@ fn bendOn(i: u32, gr: Grow) -> vec2f {
       if (cc != NONE) { F += bendAt(gr, c, i, cc).xy; }
     }
   }
-  if (mom != NONE) {
+  // (a tail's base: the body's cell it grows from is no tree and holds no angle of its own)
+  if (mom != NONE && treeCellAt(mom)) {
     let am = treeArm(mom);
     // a daughter of my mother's bend, or (a root's first daughter) the arm of my sisters'
     if (am != i) { F += bendAt(gr, mom, am, i).zw; }
@@ -1929,7 +1994,8 @@ fn beatPull(i: u32, gr: Grow, size: f32, frX: f32) -> vec2f {
   for (var k = 0u; k < 4u; k++) {
     // the mother, then the daughters
     let j = select(treeKid(i, k - 1u), treeMom(i), k == 0u);
-    if (j == NONE) { continue; }
+    // (a tail's base is held to its body by the bond alone)
+    if (j == NONE || (k == 0u && !treeCellAt(j))) { continue; }
     let q = sortedFull[j];
     // the bond's normal, from mother to daughter
     let a = select(treeRel(i, j), treeRel(j, i), k == 0u);
@@ -1948,6 +2014,22 @@ fn swing(d: vec2f, vr: vec2f, t: f32) -> vec2f {
   let l2 = max(dot(d, d), 1e-8);
   let a = (d.x * vr.y - d.y * vr.x) / l2 * t;
   return rot2(d, a) * (1.0 + dot(d, vr) / l2 * t);
+}
+
+// A body bearing tails: its share, as the arm, of the bend at each tail's base that grows from it (the base
+// reckons the same bend, bendOn).
+fn tailBases(i: u32, nb0: u32, nb1: u32, nb2: u32) -> vec2f {
+  var F = vec2f(0.0);
+  for (var k = 0u; k < 3u; k++) {
+    let c = select(select(nb2, nb1, k == 1u), nb0, k == 0u);
+    if (c == NONE || orderOf(sortedFull[c].info) != 2u || treeMom(c) != i) { continue; }
+    let gc = growAt(genomes[sortedFull[c].kind], sortedFull[c].info);
+    for (var k2 = 0u; k2 < 3u; k2++) {
+      let cc = treeKid(c, k2);
+      if (cc != NONE) { F += bendAt(gc, c, i, cc).xy; }
+    }
+  }
+  return F;
 }
 
 // The bond's other end as seen from p (wrapped), or zero for none.
@@ -2203,7 +2285,7 @@ ${cellWGSL(K, false)}
       diagAdd(dg, 13u, 1u);
       if (isAnimal(food)) { diagAdd(dg, 14u, 1u); }
     }
-    if (E > divE && silt != NONE && !th.torpid && age > select(${f(K.mature)} * g.lifespan, select(${f(K.growTipA)}, ${f(K.mature)} * g.lifespan, g.photo > 0.4), tree && (g.photo > 0.4 || g.beat.w > 0.5)) && (!tree || (budTurn < 3u && !budBlocked))) {
+    if (E > divE && silt != NONE && !th.torpid && age > select(${f(K.mature)} * g.lifespan, select(${f(K.growTipA)}, ${f(K.mature)} * g.lifespan, g.photo > 0.4), tree && (g.photo > 0.4 || g.beat.w > 0.5 || tail)) && (!tree || (budTurn < 3u && !budBlocked))) {
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
         cr = sampleRole(g, role, &s);
@@ -2260,7 +2342,7 @@ ${cellWGSL(K, false)}
         * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking) * h;
       age += h * ageRate;
       let tk = sim.tick - sim.ticks + k;
-      if (!born && E > divE && silt != NONE && !th.torpid && age > select(${f(K.mature)} * g.lifespan, select(${f(K.growTipA)}, ${f(K.mature)} * g.lifespan, g.photo > 0.4), tree && (g.photo > 0.4 || g.beat.w > 0.5)) && (!tree || (budTurn < 3u && !budBlocked))) {
+      if (!born && E > divE && silt != NONE && !th.torpid && age > select(${f(K.mature)} * g.lifespan, select(${f(K.growTipA)}, ${f(K.mature)} * g.lifespan, g.photo > 0.4), tree && (g.photo > 0.4 || g.beat.w > 0.5 || tail)) && (!tree || (budTurn < 3u && !budBlocked))) {
         born = true;
         var won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged;
         if (!won && silt2 != NONE) { won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt2], 0u, i + 1u).exchanged; }
@@ -2367,6 +2449,8 @@ ${cellWGSL(K, false)}
   // the child's generation, and in a tree her turn and branch order
   var childGen = ((genOf(p.info) + 1u) & 4095u) << 14u;
   if (tree && budTurn < 3u) { childGen |= (budTurn | (min(orderOf(p.info) + select(1u, 0u, budTurn == 0u), 3u) << 2u)) << 26u; }
+  // a tail's base: generation 0, branch order 2 (a tail grows on as a tree's straight daughters do, order kept)
+  else if (sprout) { childGen = (2u << 2u) << 26u; }
   // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(pack, ce, act == 2u)), n1, n2);
   parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0 - gut / ${f(K.dungE)})), info);
@@ -3556,11 +3640,11 @@ fn cellDirection(p: Particle) -> vec2f {
   let a = select(renderHash(p.id) * TAU, atan2(v.y, v.x), dot(v, v) > 0.000001);
   return vec2f(cos(a), sin(a));
 }
-// A tree's cell faces along its branch, away from its mother; any other faces where it swims.
+// A tree's cell (or a tail's) faces along its branch, away from its mother; any other faces where it swims.
 fn bodyDirection(ii: u32, p: Particle) -> vec2f {
   let g = genomes[p.kind];
   let m = intent[ii].z;
-  if (g.dev.x >= 0x80000000u && g.adhesion > ${f(DEFAULT_K.adhMin)} && m < arrayLength(&parts) && m != ii && parts[m].kind == p.kind) {
+  if ((g.dev.x >= 0x80000000u || tailCell(g, p.info)) && g.adhesion > ${f(DEFAULT_K.adhMin)} && m < arrayLength(&parts) && m != ii && parts[m].kind == p.kind) {
     let d = wrapd(p.pos - parts[m].pos);
     if (dot(d, d) > 1e-10) { return normalize(d); }
   }

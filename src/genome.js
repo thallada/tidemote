@@ -160,6 +160,11 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
     beat: ((on, amp, tip) => [BEATERS.has(type) && on < 0.3 ? mix(0.15, 0.5, amp) : 0, mix(0.5, 2.5, r()), mix(0.3, 1.2, r()), BEATERS.has(type) && tip < 0.3 ? 1 : 0])(r(), r(), r()),
     grow: [r() < (TREES[type] ?? 0) ? mix(0.55, 1, r()) : mix(0, 0.45, r()), ...[1, 2, 3, 4, 5].map((i) => (PLANS[type] ? mix(...PLANS[type][i], r()) : r()))].map(unorm8),
   };
+  // a third of the animals that might beat start with tails on their packed bodies (inert on a tree), and a
+  // tail beats: a tailed founder without a beat gets one (drawn last, so every other gene's draw is as before)
+  const [tailOn, tailOdds, tailLen, tailAmp] = [r(), r(), r(), r()];
+  g.tail = BEATERS.has(type) && tailOn < 0.3 ? [mix(0.4, 1, tailOdds), tailLen] : [0, tailLen];
+  if (g.tail[0] > 0 && !g.beat[0]) g.beat[0] = mix(0.15, 0.5, tailAmp);
   return finalizeGenome(g, K);
 }
 
@@ -182,6 +187,7 @@ export function randomGenome(r = Math.random, K = DEFAULT_K, t = 19) {
     photo: ((ph) => (ph > 0.5 ? ph : 0))(r()), adhesion: ((a) => (a > 0.5 ? a : 0))(r()), calcify: ((c) => (c > 0.7 ? c : 0))(r()),
     topt: clamp(t + gaussOf(r) * 3, 0, 45), tol: mix(3, 10, r()),
     beat: ((on, amp, f, w, tip) => [on < 0.25 ? mix(0.15, 0.5, amp) : 0, mix(0.5, 2.5, f), mix(0.3, 1.2, w), tip < 0.25 ? 1 : 0])(r(), r(), r(), r(), r()),
+    tail: ((on, odds, len) => [on < 0.2 ? mix(0.3, 1, odds) : 0, len])(r(), r(), r()),
     thermo: 0, grow: [devs[0][3], devs[1][3], devs[2][3], tail[1], tail[2], tail[3]].map(unorm8),
     parent: 0, serial: 0, born: 0, depth: 0,
   };
@@ -197,9 +203,14 @@ export function growPlan(g) {
     pattern: ['alternate', 'one-sided', 'opposite', 'forking', 'zigzag'][Math.min(4, Math.floor(v[4] * 5))], depth: Math.min(3, Math.floor(v[5] * 4)) };
 }
 
+/** Whether a species grows tails: a packed body (not a tree) whose edge buds them (tail[0]). */
+export function hasTails(g) {
+  return !growPlan(g) && (g.adhesion || 0) > DEFAULT_K.adhMin && (g.tail?.[0] ?? 0) > 0;
+}
+
 /** The growth plan in words, e.g. "forking every 3 cells at 40°, 2 orders deep, curling 5°". */
-export function describeGrowth(plan) {
-  if (!plan) return 'a body that packs as it meets';
+export function describeGrowth(plan, g) {
+  if (!plan) return g && hasTails(g) ? `a body that packs as it meets, budding tails of up to ${3 + Math.floor(g.tail[1] * (DEFAULT_K.tailMax - 3))} cells` : 'a body that packs as it meets';
   const deg = (a) => `${Math.round(Math.abs(a) * 57.3)}°`;
   const curl = Math.abs(plan.curl) > 0.05 ? `, ${plan.pattern === 'zigzag' ? 'zigzagging' : 'curling'} ${deg(plan.curl)}` : '';
   if (!plan.every || !plan.depth) return `a filament${curl}`;
@@ -212,7 +223,7 @@ export function finalizeGenome(g, K = DEFAULT_K) {
   g.dGlint /= s; g.dHusk /= s; g.dFlesh /= s;
   g.metab = (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
     + (K.anchorCost ?? 0) * (1 - g.advect) + 0.004 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 0.006 * g.align + 0.004 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0)
-    + (K.beatCost ?? 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g) ? 1 : 0)) * K.metab;
+    + (K.beatCost ?? 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g) || hasTails(g) ? 1 : 0)) * K.metab;
   g.col = packUnorm(...roleColor(g, 0));
   return g;
 }
@@ -263,6 +274,10 @@ export function mutateLike(g, r = Math.random, K = DEFAULT_K) {
   if (r() < m * 0.1) amp = amp < 0.05 ? 0.15 + 0.35 * r() : 0;
   h.beat = [amp, clamp(bt[1] * Math.exp(gauss() * m * 0.3), 0.3, 3), clamp(bt[2] + gauss() * m * 0.2, 0.2, 1.6), (bt[3] ?? 0) > 0.5 ? 1 : 0];
   if (r() < m * 0.1) h.beat[3] = 1 - h.beat[3];
+  const tl = h.tail || [0, 0];
+  let odds = clamp(tl[0] + gauss() * m * 0.15, 0, 1);
+  if (r() < m * 0.1) odds = odds < 0.05 ? 0.3 + 0.7 * r() : 0;
+  h.tail = [odds, clamp(tl[1] + gauss() * m * 0.2, 0, 1)];
   h.parent = g.serial; h.serial = (g.serial || 0) + 1; h.depth = (g.depth || 0) + 1;
   return finalizeGenome(h, K);
 }
@@ -288,6 +303,8 @@ export function writeGenome(u32, f32, slot, g) {
   f32[o + 47] = g.tol ?? 7;
   const b = g.beat || [0, 1, 0.6, 0];
   f32[o + 48] = b[0]; f32[o + 49] = b[1]; f32[o + 50] = b[2]; f32[o + 51] = b[3] ?? 0;
+  const tl = g.tail || [0, 0];
+  f32[o + 52] = tl[0]; f32[o + 53] = tl[1]; f32[o + 54] = 0; f32[o + 55] = 0;
 }
 
 export const genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
@@ -308,7 +325,7 @@ export function readGenome(u32, f32, slot) {
     shape: F(16), pulse: F(17), roleHue: F(18), advect: F(19), swim: F(20), align: F(21), photo: F(22),
     col: u32[o + 39], parent: u32[o + 40], serial: u32[o + 41], born: f32[o + 42], depth: u32[o + 43],
     adhesion: f32[o + 44], calcify: f32[o + 45],
-    topt: f32[o + 46], tol: f32[o + 47], beat: [f32[o + 48], f32[o + 49], f32[o + 50], f32[o + 51]], thermo: (u32[o + 15] & 255) / 255, grow,
+    topt: f32[o + 46], tol: f32[o + 47], beat: [f32[o + 48], f32[o + 49], f32[o + 50], f32[o + 51]], tail: [f32[o + 52], f32[o + 53]], thermo: (u32[o + 15] & 255) / 255, grow,
   };
 }
 
