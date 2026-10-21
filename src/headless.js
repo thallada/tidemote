@@ -73,7 +73,18 @@ export async function runHeadless(device, config, { print, width = 640, height =
       let n = 0, sum = 0, sq = 0, makers = 0, tol = 0;
       for (const { pop: p, genome: g } of species) { n += p; sum += p * g.topt; sq += p * g.topt * g.topt; tol += p * g.tol; if (g.thermo > 0.2) makers += p; }
       const toptMean = n ? sum / n : null;
-      latest = { t, silt: pop[0], glint: pop[1], husk: pop[2], stone: pop[3], framboid: pop[4], ...community,
+      // the graft genes among the living (docs/symbiosis.md): the share of species that graft, their mean flow
+      // (-1 taking, +1 giving), the share that reject and that carry a captured symbiont
+      let grafters = 0, flow = 0, rejecters = 0, symbionts = 0;
+      const gMin = eng.K.graftMin ?? 0.2;
+      for (const { pop: p, genome: g } of species) {
+        const sy = g.sym || [0, 0, 0, 0];
+        if (sy[0] > gMin) { grafters += p; flow += p * sy[1]; }
+        if (sy[2] > 0.05) rejecters += p;
+        if (sy[3] > 0) symbionts += p;
+      }
+      const genes = n ? { grafters: grafters / n, flow: grafters ? flow / grafters : null, rejecters: rejecters / n, symbionts: symbionts / n } : null;
+      latest = { t, silt: pop[0], glint: pop[1], husk: pop[2], stone: pop[3], framboid: pop[4], ...community, genes,
         ambient: eng.ambient, season: eng.season,
         era: climate.name,
         thermal: { tbg: eng.tbg, temp: eng.temp, excursion: eng.excursion, toptMean, toptSD: n ? Math.sqrt(Math.max(0, sq / n - toptMean ** 2)) : null, makerShare: n ? makers / n : 0, tolMean: n ? tol / n : null } };

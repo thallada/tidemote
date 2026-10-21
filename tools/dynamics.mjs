@@ -91,6 +91,11 @@ function runStats(run) {
     const hostShare = (g) => mean(G.map((s) => (s.grafts.grafted ? s.grafts.hosts[g] / s.grafts.grafted : 0)));
     out.hostsP = hostShare('producer'); out.hostsAnimal = 1 - out.hostsP;
   }
+  const N = S.filter((s) => s.genes);
+  if (N.length) {
+    out.grafterSp = mean(N.map((s) => s.genes.grafters)); out.flow = mean(N.map((s) => s.genes.flow ?? 0));
+    out.rejecters = mean(N.map((s) => s.genes.rejecters)); out.symbionts = mean(N.map((s) => s.genes.symbionts));
+  }
   return out;
 }
 
@@ -106,8 +111,8 @@ for (const dir of positionals) {
   }
   rows.push(row);
 }
-const COLS = ['n', 'regionBooms', 'regionCrashes', 'takeovers', 'producerSwing', 'speciesBooms', 'speciesCrashes', 'effSpecies', 'livingFrac', 'awake4', 'thriving4', 'grafted', 'taking', 'giving', 'graftsPerMinK', 'rejectsPerMinK', 'hostsP'];
-const SHORT = { regionBooms: 'rBoom', regionCrashes: 'rCrash', takeovers: 'takeov', producerSwing: 'pSwing', speciesBooms: 'sBoom', speciesCrashes: 'sCrash', effSpecies: 'effSp', livingFrac: 'living', awake4: 'awake4', thriving4: 'thrive4', grafted: 'grafted', taking: 'taking', giving: 'giving', graftsPerMinK: 'mk/min', rejectsPerMinK: 'rej/min', hostsP: 'hostP' };
+const COLS = ['n', 'regionBooms', 'regionCrashes', 'takeovers', 'producerSwing', 'speciesBooms', 'speciesCrashes', 'effSpecies', 'livingFrac', 'awake4', 'thriving4', 'grafted', 'taking', 'giving', 'graftsPerMinK', 'rejectsPerMinK', 'hostsP', 'grafterSp', 'flow', 'rejecters', 'symbionts'];
+const SHORT = { regionBooms: 'rBoom', regionCrashes: 'rCrash', takeovers: 'takeov', producerSwing: 'pSwing', speciesBooms: 'sBoom', speciesCrashes: 'sCrash', effSpecies: 'effSp', livingFrac: 'living', awake4: 'awake4', thriving4: 'thrive4', grafted: 'grafted', taking: 'taking', giving: 'giving', graftsPerMinK: 'mk/min', rejectsPerMinK: 'rej/min', hostsP: 'hostP', grafterSp: 'grafter', flow: 'flow', rejecters: 'reject', symbionts: 'symb' };
 const w = Math.max(8, ...rows.map((r) => r.group.length));
 console.log('group'.padEnd(w), ...COLS.map((c) => (SHORT[c] ?? c).padStart(8)));
 for (const r of rows) {

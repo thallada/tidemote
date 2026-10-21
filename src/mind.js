@@ -40,6 +40,8 @@ export function parseMind(u32, f32) {
     // the energy it divides at (with the child's body), dormant (a cyst), old enough to divide,
     // how full its gut is (0..1, dropped as dung when full), producers around it
     divE: f32[58], cyst: !!(u32[59] & 1), mature: !!(u32[59] & 2), gut: f32[62], plantN: f32[63],
+    // a graft: the host's kind and the energy flowing to this cell from it a second (negative: to the host)
+    host: u32[64] === NONE ? null : u32[64], graftFlow: f32[65],
     nbrs,
   };
 }

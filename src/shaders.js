@@ -50,7 +50,7 @@ export const LITE_BYTES = 32;
 export const SWAY_BYTES = 56;
 // The selected cell's mind (mindMain): a header of MIND_HEAD words, then MIND_NBR living neighbours
 // of MIND_NBR_WORDS words each. See parseMind in mind.js for the layout.
-export const MIND_HEAD = 64;
+export const MIND_HEAD = 68;
 export const MIND_NBR = 48;
 export const MIND_NBR_WORDS = 8;
 export const MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
@@ -242,6 +242,12 @@ export const DEFAULT_K = {
   rejectCost: 0.01, // upkeep of the reject gene (× metab)
   rejectDrain: 0,   // (experiment) 1: a host rejects a grafter as much as it is drained by it, not by misfit
   graftInherit: 0,  // (experiment) 1: a grafter's daughter is born grafted onto her mother's host
+  // endosymbiosis (experiment): a grafter holding a producer that gives birth to a new species passes it the
+  // producer's photosynthesis as a symbiont (sym.w, half the host's photo), its hue drawn toward the host's;
+  // a symbiont earns symbiont × its strength × a producer's light, with no cost to eating
+  capture: 0,
+  symbiont: 0.03,
+  rideFeed: 0,      // (experiment) 1: a photosynthesiser riding a host has water carried past it as the host swims (flowFeed)
 };
 
 // WGSL for the energy in a body of genome expression G (K.bodyE by size), and a dying cell's litter flag
@@ -669,6 +675,12 @@ function cellWGSL(K, w) {
         sigK = mix(1.0, ${f(K.tissueSig)}, tightQ);
         // a tree's shape is its bonds': its branches neither draw together nor apart
         if (tree || withTail) { sigK = 0.0; }
+      } else if (qk >= FIRST_LIFE && qk != p.kind && (j == host || (q.kr & (1u << 16u)) != 0u)) {
+        // a grafter and its host (any grafter, from the host's side) press membrane to membrane, as a body's cells do
+        bk = min(beta, (0.085 * g.size * (1.0 - 0.12 * f32(role)) + bitcast<f32>(q.pad)) * invR);
+        invBk = 1.0 / bk;
+        invOMk = 1.0 / (1.0 - bk);
+        sigK = 0.0;
       }
       let shape = 1.0 - abs(2.0 * x - 1.0 - bk) * invOMk;
       var fr: f32;
@@ -1002,8 +1014,11 @@ function cellWGSL(K, w) {
   // water; anchored cells have fresh silt carried past them by the currents.
   let photoGain = th.perf * pow(g.photo, ${f(K.photoPow)}) * light * ${f(K.photo)} / (1.0 + crowdP * ${f(K.shadeP)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
     * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0))
+    ${K.rideFeed ? `* (1.0 + ${f(K.flowFeed)} * min(length(vH) / 0.2, 2.0))` : ''}
     // Allee effect: a producer thrives among its own kind; a lone one grows slowly, so grazed-bare water stays bare a while
-    * (1.0 - ${f(K.allee)} + ${f(K.allee)} * min(kinN / 3.0, 1.0));
+    * (1.0 - ${f(K.allee)} + ${f(K.allee)} * min(kinN / 3.0, 1.0))
+    // a captured symbiont's light (endosymbiosis): no trade against eating
+    ${K.capture ? `+ th.perf * g.sym.w * ${f(K.symbiont)} * light * ${f(K.photo)} / (1.0 + crowdP * ${f(K.shadeP)}) * (nutr / (nutr + ${f(K.nutrHalf)}))` : ''};
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
   // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); a body's bond partners do not count
   let kinCost = 1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - bonds - ${f(K.kinFree)});
@@ -1038,7 +1053,7 @@ struct Sim {
   // tbg: the background water temperature (climate, season, excursion); maxScan: the neighbour budget
   tick: u32, ticks: u32, tbg: f32, maxScan: u32,
 };
-// kr: 0..9 kind, 10..11 role, 12 plant, 13 cyst, 14 hunter, 15 tail cell.
+// kr: 0..9 kind, 10..11 role, 12 plant, 13 cyst, 14 hunter, 15 tail cell, 16 a grafter holding a host.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
 
 @group(0) @binding(0) var<uniform> sim: Sim;
@@ -1297,10 +1312,26 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   g.sym.y = clamp(g.sym.y + gauss(s) * m * 0.3, -1.0, 1.0);
   g.sym.z = clamp(g.sym.z + gauss(s) * m * 0.15, 0.0, 1.0);
   if (rnd(s) < m * 0.1) { g.sym.z = select(0.0, mix(0.2, 0.8, rnd(s)), g.sym.z < 0.05); }
+  // a captured symbiont weakens or strengthens, and now and then is lost
+  if (CAPTURE && g.sym.w > 0.0) { g.sym.w = select(clamp(g.sym.w + gauss(s) * m * 0.1, 0.0, 0.5), 0.0, rnd(s) < m * 0.1); }
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
   g.depth = g.depth + 1u;
+  finalize(&g);
+  genomes[slot] = g;
+}
+
+// Endosymbiosis: a new species born to a grafter riding a producer keeps the producer within it, half its
+// photosynthesis as a symbiont (sym.w), and takes on some of its colour.
+const CAPTURE = ${K.capture ? 'true' : 'false'};
+fn capture(slot: u32, hk: u32) {
+  let h = genomes[hk];
+  if (h.photo <= 0.4) { return; }
+  var g = genomes[slot];
+  g.sym.w = max(g.sym.w, 0.5 * h.photo);
+  g.hue = fract(g.hue + 0.4 * (fract(h.hue - g.hue + 1.5) - 0.5) + 1.0);
+  g.sat = mix(g.sat, h.sat, 0.4);
   finalize(&g);
   genomes[slot] = g;
 }
@@ -1660,7 +1691,8 @@ fn scatterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocat
     // pad: with K.bodyPush, the cell's drawn radius (0.085 world units per unit of size, smaller in its later roles)
     let hunter = select(0u, 1u << 14u, p.kind >= FIRST_LIFE && genomes[p.kind].dFlesh > 0.5 && genomes[p.kind].photo <= 0.4);
     let tailBit = select(0u, 1u << 15u, p.kind >= FIRST_LIFE && tailCell(genomes[p.kind], p.info));
-    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | hunter | tailBit | select(0u, 1u << 13u, p.kind >= FIRST_LIFE && (p.info & 15u) == CYST), p.col, pack2x16float(p.vel), sig.x, sig.y, bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role))));
+    let graftBit = select(0u, 1u << 16u, p.kind >= FIRST_LIFE && genomes[p.kind].sym.x > ${f(K.graftMin)} && partners.y != NONE && parts[intent[i].w].kind >= FIRST_LIFE && parts[intent[i].w].kind != p.kind);
+    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | hunter | tailBit | graftBit | select(0u, 1u << 13u, p.kind >= FIRST_LIFE && (p.info & 15u) == CYST), p.col, pack2x16float(p.vel), sig.x, sig.y, bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role))));
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
   }
   workgroupBarrier();
@@ -2409,6 +2441,7 @@ ${cellWGSL(K, false)}
           let slot = allocSlot(&s);
           if (slot != NONE) {
             mutateInto(slot, p.kind, &s);
+            if (CAPTURE && host != NONE) { capture(slot, sortedFull[host].kind); }
             ck = slot;
             atomicAdd(&ledger[3], 1u);
           }
@@ -2469,6 +2502,7 @@ ${cellWGSL(K, false)}
             let slot = allocSlot(&s);
             if (slot != NONE) {
               mutateInto(slot, p.kind, &s);
+              if (CAPTURE && host != NONE) { capture(slot, sortedFull[host].kind); }
               ck = slot;
               atomicAdd(&ledger[3], 1u);
             }
@@ -2684,6 +2718,9 @@ ${cellWGSL(K, true)}
   mPut2(60, mFlee * acc);
   mPut(62, gut / ${f(K.dungE)});
   mPut(63, plantN);
+  // a graft (docs/symbiosis.md): its host's kind (NONE: none) and the energy flowing to it from the host a second
+  mind[64] = select(NONE, sortedFull[host].kind, host != NONE);
+  mPut(65, graftE / sim.dt);
 }
 `;
 }

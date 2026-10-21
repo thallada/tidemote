@@ -28,7 +28,7 @@ if (v.help) {
   --cpu          Select Mesa lavapipe for Dawn only
   --png file.png Render the final frame with Dawn only (W, H, ZOOM, OPTICS, HEAT env supported;
                  HEAT=0,1,2: heat map off, shimmer, thermal camera; FRAMBOID=1 or STONE=1: centre on framboids or stone)
-  --aim          Centre PNGs on the living cell with the most incoming bonds
+  --aim          Centre PNGs on the living cell with the most incoming bonds (GRAFT=1: grafts from other species)
                  Fall back to the world centre if no living cells remain
   --render-bench Time 180 paused render frames per zoom with GPU timestamps
   --profile      Time each simulation pass every simulated minute (GPU timestamps)
@@ -138,8 +138,22 @@ async function writePNG(device, eng, frames) {
     const bonds = new Uint32Array(f.buffer, partBytes), incoming = new Uint32Array(eng.count);
     for (let i = 0; i < eng.count; i++) if (u[i * 10 + 4] >= FIRST_LIFE) {
       for (const n of [bonds[i * 4 + 2], bonds[i * 4 + 3]]) {
-        if (n < eng.count && u[n * 10 + 4] === u[i * 10 + 4]) incoming[n]++;
+        // (GRAFT=1: the host with the most grafters, cells of other species bonded to it)
+        if (n < eng.count && (process.env.GRAFT ? u[n * 10 + 4] >= FIRST_LIFE && u[n * 10 + 4] !== u[i * 10 + 4] : u[n * 10 + 4] === u[i * 10 + 4])) incoming[n]++;
       }
+    }
+    if (process.env.GRAFT) {
+      const ds = [];
+      for (let i = 0; i < eng.count; i++) {
+        const n = bonds[i * 4 + 3];
+        if (u[i * 10 + 4] >= FIRST_LIFE && n < eng.count && u[n * 10 + 4] >= FIRST_LIFE && u[n * 10 + 4] !== u[i * 10 + 4]) {
+          let dx = f[n * 10] - f[i * 10], dy = f[n * 10 + 1] - f[i * 10 + 1];
+          dx -= eng.grid[0] * Math.round(dx / eng.grid[0]); dy -= eng.grid[1] * Math.round(dy / eng.grid[1]);
+          ds.push(Math.hypot(dx, dy));
+        }
+      }
+      ds.sort((a, b) => a - b);
+      console.log(`grafts ${ds.length}, distance p10 ${ds[ds.length >> 3]?.toFixed(3)} median ${ds[ds.length >> 1]?.toFixed(3)} p90 ${ds[Math.floor(ds.length * 0.9)]?.toFixed(3)} max ${ds.at(-1)?.toFixed(3)}`);
     }
     let at = -1, best = -1;
     for (let i = 0; i < eng.count; i++) {

@@ -286,7 +286,7 @@ export function mutateLike(g, r = Math.random, K = DEFAULT_K) {
   const flow = clamp(sy[1] + gauss() * m * 0.3, -1, 1);
   let rej = clamp(sy[2] + gauss() * m * 0.15, 0, 1);
   if (r() < m * 0.1) rej = rej < 0.05 ? 0.2 + 0.6 * r() : 0;
-  h.sym = [graft, flow, rej];
+  h.sym = [graft, flow, rej, sy[3] ?? 0];
   h.parent = g.serial; h.serial = (g.serial || 0) + 1; h.depth = (g.depth || 0) + 1;
   return finalizeGenome(h, K);
 }
@@ -314,8 +314,8 @@ export function writeGenome(u32, f32, slot, g) {
   f32[o + 48] = b[0]; f32[o + 49] = b[1]; f32[o + 50] = b[2]; f32[o + 51] = b[3] ?? 0;
   const tl = g.tail || [0, 0];
   f32[o + 52] = tl[0]; f32[o + 53] = tl[1]; f32[o + 54] = 0; f32[o + 55] = 0;
-  const sy = g.sym || [0, 0, 0];
-  f32[o + 56] = sy[0]; f32[o + 57] = sy[1]; f32[o + 58] = sy[2]; f32[o + 59] = 0;
+  const sy = g.sym || [0, 0, 0, 0];
+  f32[o + 56] = sy[0]; f32[o + 57] = sy[1]; f32[o + 58] = sy[2]; f32[o + 59] = sy[3] ?? 0;
 }
 
 export const genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
@@ -336,7 +336,7 @@ export function readGenome(u32, f32, slot) {
     shape: F(16), pulse: F(17), roleHue: F(18), advect: F(19), swim: F(20), align: F(21), photo: F(22),
     col: u32[o + 39], parent: u32[o + 40], serial: u32[o + 41], born: f32[o + 42], depth: u32[o + 43],
     adhesion: f32[o + 44], calcify: f32[o + 45],
-    topt: f32[o + 46], tol: f32[o + 47], beat: [f32[o + 48], f32[o + 49], f32[o + 50], f32[o + 51]], tail: [f32[o + 52], f32[o + 53]], sym: [f32[o + 56], f32[o + 57], f32[o + 58]], thermo: (u32[o + 15] & 255) / 255, grow,
+    topt: f32[o + 46], tol: f32[o + 47], beat: [f32[o + 48], f32[o + 49], f32[o + 50], f32[o + 51]], tail: [f32[o + 52], f32[o + 53]], sym: [f32[o + 56], f32[o + 57], f32[o + 58], f32[o + 59]], thermo: (u32[o + 15] & 255) / 255, grow,
   };
 }
 
