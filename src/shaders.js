@@ -261,6 +261,7 @@ export const DEFAULT_K = {
   rainDark: 1,
   rainTurb: 1,
   rainDrops: 1,
+  frostCold: 1,     // a frost's cold night, as a multiple of the default (−10°)
   leafLen: [0.18, 0.32],
   leafDark: [0.75, 0.92],
   leafDur: [420, 720],
