@@ -150,3 +150,11 @@ and geography without events (12 each). Measured from 20 min on, guilds present 
 No measurable cost: diversity and numbers are within noise of the pool without geography (a little higher), and
 the guilds survive as often (scavengers, the rarest, come and go in every group: 75%, 58%, 92%, 58%). Round 2's
 defaults (full darkness) had lost predators in 4 of 12 runs; with the milder clouds none of that remains.
+
+**Balance gate** (32 seeds × 30 min, the defaults, edc2deb): every gated measure the same as the baseline
+(persisted 100%, food web 97%, late guilds 3.5, late effective species 105 against 112, p 0.25).
+
+The look was tuned on the page with `tools/shot.mjs`: raindrops are trains of fine ripples (darkfield shows a
+sloping surface as bright lines), each ring fading before it meets its own copy across the world's wrap; the
+edge's slope is read smoothly across grid cells (a slope constant within each cell had lined the grains an ice
+front pushes up along the grid); ice dendrites grow as stems along the front's normal with side arms.
