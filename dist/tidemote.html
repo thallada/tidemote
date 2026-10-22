@@ -1616,12 +1616,16 @@ svg.niche .n-dot { fill: var(--cyan); }
     droughtRefill: [90, 150],
     droughtLow: [0.35, 0.6],
     stormDur: [240, 420],
-    // rain's weather (a storm's and a drought's refill), as multiples of the defaults: cold (−4°), clouds (light
-    // × 0.4), rough water (currents × 2.6), raindrops (about one a second)
+    // rain's weather (a storm's and a drought's refill), as shares of the full weather: cold (−4°), clouds (light
+    // × 0.4 at full; at 0.35, × 0.79: full cloud starved the producers and crashed the pool, docs/catastrophes.md),
+    // rough water (currents × 2.6), raindrops (about one a second)
     rainCold: 1,
-    rainDark: 1,
+    rainDark: 0.35,
     rainTurb: 1,
     rainDrops: 1,
+    frostCold: 1,
+    // a frost's night, as shares of the full: cold (−10°) and dark (light × 0.4 at full)
+    frostDark: 0.35,
     leafLen: [0.18, 0.32],
     leafDark: [0.75, 0.92],
     leafDur: [420, 720],
@@ -18724,8 +18728,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
     } else if (ev.type === "frost") {
       const { cool, grow, hold, thaw } = ev;
       const night = Math.min(ramp(u, 0, cool), 1 - ramp(u, cool + grow + hold, cool + grow + hold + thaw + 120));
-      out.sky = 1 - 0.6 * night;
-      out.dT = -10 * night;
+      out.sky = 1 - 0.6 * (ev.dark ?? 1) * night;
+      out.dT = -10 * (ev.cold ?? 1) * night;
       if (u < cool) out.phase = "cooling";
       else if (u < cool + grow) {
         const v = (u - cool) / grow;
@@ -18750,10 +18754,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
   }
   function makeEvent(type, t2, rng, w, h, K = {}) {
     const pick3 = (r, d) => climateMix(...r || d, rng());
-    const rain = { rainCold: K.rainCold ?? 1, rainDark: K.rainDark ?? 1, rainTurb: K.rainTurb ?? 1 };
+    const rain = { rainCold: K.rainCold ?? 1, rainDark: K.rainDark ?? 0.35, rainTurb: K.rainTurb ?? 1 };
     if (type === "drought") return { type, t: t2, fall: pick3(K.droughtFall, [300, 480]), hold: pick3(K.droughtHold, [150, 300]), refill: pick3(K.droughtRefill, [90, 150]), low: pick3(K.droughtLow, [0.35, 0.6]), ...rain };
     if (type === "storm") return { type, t: t2, dur: pick3(K.stormDur, [240, 420]), ...rain };
-    if (type === "frost") return { type, t: t2, cool: 90, grow: pick3(K.frostGrow, [150, 270]), hold: pick3(K.frostHold, [120, 240]), thaw: pick3(K.frostThaw, [100, 160]), max: pick3(K.frostMax, [0.6, 0.85]) };
+    if (type === "frost") return { type, t: t2, cool: 90, grow: pick3(K.frostGrow, [150, 270]), hold: pick3(K.frostHold, [120, 240]), thaw: pick3(K.frostThaw, [100, 160]), max: pick3(K.frostMax, [0.6, 0.85]), cold: K.frostCold ?? 1, dark: K.frostDark ?? 0.35 };
     const len2 = pick3(K.leafLen, [0.18, 0.32]) * Math.min(w, h), a = rng() * Math.PI * 2, sp = climateMix(0.01, 0.04, rng());
     return {
       type,

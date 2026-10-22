@@ -255,14 +255,15 @@ export const DEFAULT_K = {
   droughtRefill: [90, 150],
   droughtLow: [0.35, 0.6],
   stormDur: [240, 420],
-  // rain's weather (a storm's and a drought's refill), as multiples of the defaults: cold (−4°), clouds (light
-  // × 0.4), rough water (currents × 2.6), raindrops (about one a second)
+  // rain's weather (a storm's and a drought's refill), as shares of the full weather: cold (−4°), clouds (light
+  // × 0.4 at full; at 0.35, × 0.79: full cloud starved the producers and crashed the pool, docs/catastrophes.md),
+  // rough water (currents × 2.6), raindrops (about one a second)
   rainCold: 1,
-  rainDark: 1,
+  rainDark: 0.35,
   rainTurb: 1,
   rainDrops: 1,
-  frostCold: 1,     // a frost's night, as multiples of the defaults: cold (−10°) and dark (light × 0.4)
-  frostDark: 1,
+  frostCold: 1,     // a frost's night, as shares of the full: cold (−10°) and dark (light × 0.4 at full)
+  frostDark: 0.35,
   leafLen: [0.18, 0.32],
   leafDark: [0.75, 0.92],
   leafDur: [420, 720],

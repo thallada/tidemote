@@ -82,4 +82,41 @@ its shots to an event while it lasts (`eventShot`): a stretch of shore, the leaf
 
 ## Results
 
-(to come)
+12 seeds a group at 32k, each event forced at 15 min (`eventPlan`), `tools/events.mjs` aligning runs on it;
+controls without events. "Low" is the fewest living after the event over those before it (controls fall to about
+0.47 in the same window: the boom-and-bust swings).
+
+**Round 1** (0a0e5c9; the events as first drawn, 60 min):
+
+| group | eff. species at +0 / +13 / +30 / +44 min | low | guilds awake at +10 / +44 |
+|---|---|---|---|
+| control | 111 / 97 / 98 / 99 | 0.47 | 3.67 / 3.67 |
+| drought | 106 / 65 / 124 / 127 | 0.23 | 3.00 / 3.67 |
+| drought, severe (20-35% wet) | 113 / 46 / 123 / 146 | 0.25 | 2.92 / 3.83 |
+| drought, mild (60-80%) | 113 / 46 / 117 / 124 | 0.27 | 3.17 / 3.67 |
+| drought, long hold (8-12 min) | 104 / 92 / 115 / 125 | 0.21 | 3.00 / 3.83 |
+| storm | 113 / 78 / 109 / 113 | 0.25 | 3.92 / 3.50 |
+| leaf | 112 / 103 / 125 / 134 | 0.49 | 3.33 / 3.67 |
+| big leaf (40-55%, 10-15 min) | 116 / 95 / 94 / 109 | 0.50 | 3.58 / 3.83 |
+| frost (round 2) | 102 / 37 / 103 / 145 | 0.17 | 3.08 / 3.50 |
+
+Every event leaves the pool more diverse 15-30 min later than the control (the intermediate-disturbance effect:
+the bust clears dominant species and the recovery is a scramble of many), and no guild is lost for good on
+average. But droughts, storms and frosts halve the living again beyond the control's own busts, and the crash
+came at the wrong moment: not while the pool dried (its cells pile at the edges and wait) but when the rain came.
+
+**What kills** (round 3, a storm with one part of its weather turned off at a time; round 4, the frost's cold):
+
+| storm | eff. at +5 / +30 | low |
+|---|---|---|
+| as drawn | 60 / 88 | 0.29 |
+| no clouds (`rainDark` 0) | 107 / 152 | 0.44 |
+| not cold (`rainCold` 0) | 36 / 112 | 0.21 |
+| calm water (`rainTurb` 0) | 38 / 132 | 0.21 |
+| no raindrops (`rainDrops` 0) | 58 / 130 | 0.24 |
+| no hatching (`rainWake` 0) | 88 / 129 | 0.35 |
+
+The clouds kill: light × 0.4 for minutes starves the producers and everything above them crashes after.
+Cold, rough water and raindrops cost nothing measurable; rain hatching cysts into the dark a little. A frost's
+cold (−10°, or a quarter of it) made no difference either (low 0.16 against 0.16), and thinner ice none; its
+night's darkness is the same culprit (life is down to 0.6 within three minutes, before the ice has grown).
