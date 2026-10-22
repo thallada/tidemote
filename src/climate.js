@@ -29,6 +29,8 @@ export function eventAt(ev, t, levelTo) {
   const out = { level: levelTo, rain: 0, sky: 1, evap: 0, turb: 1, dT: 0, leaf: null, frost: 0, freezing: 0, phase: null };
   if (!ev || t < ev.t) return out;
   const u = t - ev.t;
+  // how cold, dark and rough its rain is (rainCold, rainDark, rainTurb: multiples of the defaults)
+  const cold = ev.rainCold ?? 1, dark = ev.rainDark ?? 1, rough = ev.rainTurb ?? 1;
   if (ev.type === 'drought') {
     const { fall, hold, refill } = ev, low = ev.low;
     if (u < fall) {
@@ -41,15 +43,15 @@ export function eventAt(ev, t, levelTo) {
       // rain: it refills the pool, cold and dark under cloud, the water rough
       const v = (u - fall - hold) / refill;
       out.level = low - 0.03 + (levelTo - low + 0.03) * ease(v);
-      out.rain = Math.min(1, v * 6, (1 - v) * 4 + 0.3); out.sky = 1 - 0.55 * out.rain; out.turb = 1 + 1.2 * out.rain;
-      out.dT = 3 - 6 * ease(v * 3); out.phase = 'rain';
+      out.rain = Math.min(1, v * 6, (1 - v) * 4 + 0.3); out.sky = 1 - 0.55 * dark * out.rain; out.turb = 1 + 1.2 * rough * out.rain;
+      out.dT = 3 - (3 + 3 * cold) * ease(v * 3); out.phase = 'rain';
     } else {
       const v = (u - fall - hold - refill) / 120;
-      if (v < 1) { out.rain = 0.3 * (1 - v); out.sky = 1 - 0.2 * (1 - v); out.dT = -3 * (1 - ease(v)); out.phase = 'after'; }
+      if (v < 1) { out.rain = 0.3 * (1 - v); out.sky = 1 - 0.2 * dark * (1 - v); out.dT = -3 * cold * (1 - ease(v)); out.phase = 'after'; }
     }
   } else if (ev.type === 'storm') {
     const r = Math.min(ramp(u, 0, 40), 1 - ramp(u, ev.dur - 60, ev.dur));
-    out.rain = r; out.sky = 1 - 0.6 * r; out.turb = 1 + 1.6 * r; out.dT = -4 * Math.min(ramp(u, 0, 120), 1 - ramp(u, ev.dur, ev.dur + 240));
+    out.rain = r; out.sky = 1 - 0.6 * dark * r; out.turb = 1 + 1.6 * rough * r; out.dT = -4 * cold * Math.min(ramp(u, 0, 120), 1 - ramp(u, ev.dur, ev.dur + 240));
     out.level = Math.min(1, levelTo + 0.04 * r); out.phase = u < ev.dur ? 'storm' : u < ev.dur + 240 ? 'after' : null;
   } else if (ev.type === 'frost') {
     // night falls and the water chills; ice grows from the shallows and grain centres, holds, then thaws
@@ -74,8 +76,9 @@ export function eventAt(ev, t, levelTo) {
 /** A drawn event of `type` starting at t (sizes relative to a world of w × h units; ranges from K, DEFAULT_K's). */
 export function makeEvent(type, t, rng, w, h, K = {}) {
   const pick = (r, d) => climateMix(...(r || d), rng());
-  if (type === 'drought') return { type, t, fall: pick(K.droughtFall, [300, 480]), hold: pick(K.droughtHold, [150, 300]), refill: pick(K.droughtRefill, [90, 150]), low: pick(K.droughtLow, [0.35, 0.6]) };
-  if (type === 'storm') return { type, t, dur: pick(K.stormDur, [240, 420]) };
+  const rain = { rainCold: K.rainCold ?? 1, rainDark: K.rainDark ?? 1, rainTurb: K.rainTurb ?? 1 };
+  if (type === 'drought') return { type, t, fall: pick(K.droughtFall, [300, 480]), hold: pick(K.droughtHold, [150, 300]), refill: pick(K.droughtRefill, [90, 150]), low: pick(K.droughtLow, [0.35, 0.6]), ...rain };
+  if (type === 'storm') return { type, t, dur: pick(K.stormDur, [240, 420]), ...rain };
   if (type === 'frost') return { type, t, cool: 90, grow: pick(K.frostGrow, [150, 270]), hold: pick(K.frostHold, [120, 240]), thaw: pick(K.frostThaw, [100, 160]), max: pick(K.frostMax, [0.6, 0.85]) };
   const len = pick(K.leafLen, [0.18, 0.32]) * Math.min(w, h), a = rng() * Math.PI * 2, sp = climateMix(0.01, 0.04, rng());
   return { type, t, dur: pick(K.leafDur, [420, 720]), x: rng() * w, y: rng() * h, len, dark: pick(K.leafDark, [0.75, 0.92]),
@@ -131,7 +134,7 @@ export function createClimate(eng, rng = Math.random) {
     climate.eventTemp = e.dT;
     if (e.leaf) eng.leaf.set(e.leaf); else eng.leaf.fill(0);
     // raindrops: each a ring wave from where it fell, about one a second in full rain, four at a time at most
-    if (e.rain > 0 && rng() < e.rain * 1.2 * dt) {
+    if (e.rain > 0 && rng() < e.rain * 1.2 * (K.rainDrops ?? 1) * dt) {
       const k = climate.dropSlot = ((climate.dropSlot ?? -1) + 1) % 4;
       eng.drops.set([rng() * eng.grid[0], rng() * eng.grid[1], t, climateMix(1.0, 3.0, rng())], k * 4);
     }

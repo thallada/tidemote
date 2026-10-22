@@ -255,6 +255,12 @@ export const DEFAULT_K = {
   droughtRefill: [90, 150],
   droughtLow: [0.35, 0.6],
   stormDur: [240, 420],
+  // rain's weather (a storm's and a drought's refill), as multiples of the defaults: cold (−4°), clouds (light
+  // × 0.4), rough water (currents × 2.6), raindrops (about one a second)
+  rainCold: 1,
+  rainDark: 1,
+  rainTurb: 1,
+  rainDrops: 1,
   leafLen: [0.18, 0.32],
   leafDark: [0.75, 0.92],
   leafDur: [420, 720],
