@@ -240,11 +240,11 @@ export const DEFAULT_K = {
   dropWidth: 2.5,
   dropLife: 5,
   // the climate's events (src/climate.js): the first no sooner than eventFirst minutes, then one about every
-  // eventEvery minutes (0: none), drawn drought, storm, leaf by eventMix; eventPlan forces some ("drought@900");
+  // eventEvery minutes (0: none), drawn drought, storm, leaf, frost by eventMix; eventPlan forces some ("drought@900");
   // lowEras is the share of climate eras whose water stands low enough to show sandbars and islands
   eventEvery: 60,
   eventFirst: 25,
-  eventMix: [0.45, 0.3, 0.25],
+  eventMix: [0.35, 0.2, 0.2, 0.25],
   eventPlan: '',
   lowEras: 0.35,
   floorDrift: 0.3,  // the share of the floor's relief redrawn at each new era (moving geography: sediment shifts)
@@ -258,6 +258,11 @@ export const DEFAULT_K = {
   leafLen: [0.18, 0.32],
   leafDark: [0.75, 0.92],
   leafDur: [420, 720],
+  // a frost's growth, hold and thaw (s), and the share of the pool it freezes
+  frostGrow: [150, 270],
+  frostHold: [120, 240],
+  frostThaw: [100, 160],
+  frostMax: [0.6, 0.85],
 };
 
 // WGSL for the energy in a body of genome expression G (K.bodyE by size), and a dying cell's litter flag
@@ -1033,7 +1038,7 @@ struct Sim {
   // the pool (docs/catastrophes.md): x the water level (a relief quantile; at 1 or above nothing is dry), y rain
   // (0..1), z the sky (light ×: clouds), w how fast the water is drying (0..1)
   pond: vec4f,
-  // x the currents' strength ×; yzw spare
+  // x the currents' strength ×; y frost (the share of the pool frozen); z how fast the ice is growing (0..1); w spare
   weather: vec4f,
   // a floating leaf's shadow: centre, radius, darkness (0: none); angle, shape seed, elongation, spare
   leaf: vec4f,
@@ -1133,7 +1138,7 @@ fn flowAt(p: vec2f) -> vec2f {
     }
   }
   // the currents die away toward the water's edge and never cross it; dry ground has none
-  if (POND && sim.pond.x < 1.0) {
+  if (pondOn()) {
     let pd = pondAt(p);
     let gl = length(pd.yz);
     let dist = pd.x / max(gl, 1e-4);
@@ -1146,17 +1151,34 @@ fn flowAt(p: vec2f) -> vec2f {
 }
 // The pool's floor at p (thermal block 3, a relief quantile per grid cell, bilinear): the water's depth there (the
 // level less the floor; below 0 dry) and the floor's slope (uphill, per world unit).
+// With frost (weather.y, the share of the pool frozen) ice grows over the pool in the order of thermal block 4 (a
+// quantile per grid cell, 0 first): liquid is where that order lies above the frost. pondAt gives whichever edge,
+// the water's or the ice's, lies nearer, in the same terms: a depth (below 0: dry or frozen) and the slope toward it.
 fn reliefCell(x: i32, y: i32) -> f32 { return bitcast<f32>(atomicLoad(&thermal[3u * MAX_CELLS + wrapCell(x, y)])); }
+fn iceCell(x: i32, y: i32) -> f32 { return bitcast<f32>(atomicLoad(&thermal[4u * MAX_CELLS + wrapCell(x, y)])); }
+fn pondOn() -> bool { return POND && (sim.pond.x < 1.0 || sim.weather.y > 0.0); }
 fn pondAt(p: vec2f) -> vec3f {
-  if (!POND || sim.pond.x >= 1.0) { return vec3f(1.0, 0.0, 0.0); }
+  var e = vec3f(1.0, 0.0, 0.0);
+  if (!pondOn()) { return e; }
   let u = p - 0.5;
   let i = vec2i(floor(u));
   let t = u - floor(u);
-  let a = reliefCell(i.x, i.y);
-  let b = reliefCell(i.x + 1, i.y);
-  let c = reliefCell(i.x, i.y + 1);
-  let d = reliefCell(i.x + 1, i.y + 1);
-  return vec3f(sim.pond.x - mix(mix(a, b, t.x), mix(c, d, t.x), t.y), mix(b - a, d - c, t.y), mix(c - a, d - b, t.x));
+  if (sim.pond.x < 1.0) {
+    let a = reliefCell(i.x, i.y);
+    let b = reliefCell(i.x + 1, i.y);
+    let c = reliefCell(i.x, i.y + 1);
+    let d = reliefCell(i.x + 1, i.y + 1);
+    e = vec3f(sim.pond.x - mix(mix(a, b, t.x), mix(c, d, t.x), t.y), mix(b - a, d - c, t.y), mix(c - a, d - b, t.x));
+  }
+  if (sim.weather.y > 0.0) {
+    let a = iceCell(i.x, i.y);
+    let b = iceCell(i.x + 1, i.y);
+    let c = iceCell(i.x, i.y + 1);
+    let d = iceCell(i.x + 1, i.y + 1);
+    let ice = vec3f(mix(mix(a, b, t.x), mix(c, d, t.x), t.y) - sim.weather.y, -mix(b - a, d - c, t.y), -mix(c - a, d - b, t.x));
+    if (shoreDist(ice) < shoreDist(e)) { e = ice; }
+  }
+  return e;
 }
 // How far (world units) p lies from the water's edge, wet side positive, from pondAt's depth and slope.
 fn shoreDist(pd: vec3f) -> f32 { return pd.x / max(length(pd.yz), 1e-4); }
@@ -1815,10 +1837,12 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   // replace what evaporates there carries them to it, and strands them in a line (a coffee ring)
   let pd = pondAt(p.pos);
   let dryHere = pd.x < 0.0;
-  if (POND && sim.pond.x < 1.0) {
+  if (pondOn()) {
     let sd = shoreDist(pd);
+    // (an advancing ice front pushes grains ahead of it the same way)
+    let pull = max(sim.pond.w, sim.weather.z);
     if (dryHere) { vel = vec2f(0.0); }
-    else if (sim.pond.w > 0.0 && sd < ${f(K.filmR)}) { vel += pd.yz / max(length(pd.yz), 1e-4) * (${f(K.ringPull)} * sim.pond.w * (1.0 - sd / ${f(K.filmR)})); }
+    else if (pull > 0.0 && sd < ${f(K.filmR)}) { vel += pd.yz / max(length(pd.yz), 1e-4) * (${f(K.ringPull)} * pull * (1.0 - sd / ${f(K.filmR)})); }
   }${K.heat && K.marangoni > 0 ? `
   // surface flow: warm water's surface pulls toward cooler water, carrying matter with it
   vel -= heatSample(p.pos).yz * ${f(K.marangoni)};` : ''}
@@ -5857,13 +5881,18 @@ fn waterAt(p: vec2f) -> vec3f {
 }
 // The pool's floor at world point p (docs/catastrophes.md), as the simulation reads it (pondAt): the water's depth
 // (below 0 dry) and the floor's slope uphill.
-fn reliefPost(x: i32, y: i32) -> f32 {
+fn gridPost(base: u32, x: i32, y: i32) -> f32 {
   let g = vec2i(post.world);
-  return heatField[${3 * MAX_CELLS}u + u32(((y % g.y) + g.y) % g.y) * u32(g.x) + u32(((x % g.x) + g.x) % g.x)];
+  return heatField[base + u32(((y % g.y) + g.y) % g.y) * u32(g.x) + u32(((x % g.x) + g.x) % g.x)];
 }
 // (bicubic, Catmull-Rom, with its slope: the edge drawn smooth; the simulation's bilinear edge lies within a
 // fraction of a unit of it)
 fn pondPost(p: vec2f) -> vec3f {
+  let f = fieldPost(${3 * MAX_CELLS}u, p);
+  return vec3f(post.pond.x - f.x, f.yz);
+}
+// a field of the thermal buffer from base, bicubic at p, and its slope
+fn fieldPost(base: u32, p: vec2f) -> vec3f {
   let u = p - 0.5;
   let i = vec2i(floor(u));
   let t = u - floor(u);
@@ -5874,11 +5903,36 @@ fn pondPost(p: vec2f) -> vec3f {
   let dy = vec4f((-1.5 * ty + 2.0) * ty - 0.5, (4.5 * ty - 5.0) * ty, (-4.5 * ty + 4.0) * ty + 0.5, (1.5 * ty - 1.0) * ty);
   var h = 0.0; var gx = 0.0; var gy = 0.0;
   for (var j = 0; j < 4; j++) {
-    let row = vec4f(reliefPost(i.x - 1, i.y + j - 1), reliefPost(i.x, i.y + j - 1), reliefPost(i.x + 1, i.y + j - 1), reliefPost(i.x + 2, i.y + j - 1));
+    let row = vec4f(gridPost(base, i.x - 1, i.y + j - 1), gridPost(base, i.x, i.y + j - 1), gridPost(base, i.x + 1, i.y + j - 1), gridPost(base, i.x + 2, i.y + j - 1));
     let rv = dot(row, wx);
     h += wy[j] * rv; gx += wy[j] * dot(row, dx); gy += dy[j] * rv;
   }
-  return vec3f(post.pond.x - h, gx, gy);
+  return vec3f(h, gx, gy);
+}
+// Ice in darkfield (frost): clear, so what is frozen in it still shows, but it scatters a faint cold haze; growth
+// bands follow its advance, and near its front it grows in feathers, arms branching at sixty degrees as ice
+// dendrites do, curving as the front curves. sd: world units from the ice's front (ice negative); n: the front's
+// normal (toward the ice).
+fn iceLook(wp: vec2f, sd: f32, n: vec2f, order: f32, ppu: f32) -> vec3f {
+  let px = 1.0 / max(ppu, 1e-3);
+  let inIce = max(-sd, 0.0);
+  var c = vec3f(0.006, 0.008, 0.012) * (0.8 + 0.4 * vnoise(wp * 0.9));
+  // growth bands: where the front stood as the ice grew
+  let band = fract(order * 70.0 + 0.4 * vnoise(wp * 0.6));
+  let bw = clamp(fwidth(order * 70.0) * 1.5, 0.02, 0.5);
+  c += vec3f(0.020, 0.024, 0.030) * (1.0 - smoothstep(0.0, bw, min(band, 1.0 - band))) * (1.0 - smoothstep(4.0, 14.0, inIce));
+  // feathers: two families of fine arms at sixty degrees to the front's normal
+  let tt = vec2f(-n.y, n.x);
+  let a = dot(wp, n);
+  let b = dot(wp, tt);
+  let k = 2.6;
+  let f1 = fract((0.5 * a + 0.866 * b) * k + vnoise(wp * 0.5) * 2.0);
+  let f2 = fract((0.5 * a - 0.866 * b) * k + vnoise(wp * 0.5 + 3.0) * 2.0);
+  let lw = max(0.06, 2.0 * px * k);
+  let arms = max(1.0 - smoothstep(0.0, lw, min(f1, 1.0 - f1)), 1.0 - smoothstep(0.0, lw, min(f2, 1.0 - f2)));
+  let feather = arms * smoothstep(0.0, 0.6, inIce) * (1.0 - smoothstep(1.5, 5.0, inIce)) * smoothstep(0.35, 0.7, vnoise(wp * 1.4 + 7.0)) * smoothstep(3.0, 8.0, ppu / k);
+  c += vec3f(0.06, 0.07, 0.085) * feather;
+  return c;
 }
 // Dry ground in darkfield: the skin of mud the water left scatters the lamp's oblique light into the objective, so
 // it glows faintly, grained, warm grey. Just out of the water it is still damp, dark and smooth; farther in, where
@@ -6031,6 +6085,17 @@ fn heatRamp(u: f32) -> vec3f {
     let rise = select(0.0, exp(-sd / 0.22) * (1.0 - exp(-sd / max(1.5 * px, 0.02))), sd > 0.0);
     let sheen = select(0.0, exp(-sd / 0.9), sd > 0.0);
     c += (vec3f(0.16, 0.17, 0.18) * rim + vec3f(0.035, 0.040, 0.046) * rise * along + vec3f(0.006, 0.008, 0.010) * sheen) * (0.35 + 0.65 * behind);
+  }
+  // ice (frost): over what is frozen in it, its front a crisp bright line
+  if (post.weather.y > 0.0) {
+    let fi = fieldPost(${4 * MAX_CELLS}u, wp);
+    let gl = max(length(fi.yz), 1e-4);
+    let sdI = (fi.x - post.weather.y) / gl;
+    let px = 1.0 / post.ppu;
+    let ice = 1.0 - smoothstep(-px, px, sdI);
+    if (ice > 0.0) { c += iceLook(wp, sdI, -fi.yz / gl, fi.x, post.ppu) * ice; }
+    let front = exp(-pow(sdI / max(0.9 * px, 0.02), 2.0)) * (0.7 + 0.3 * vnoise(wp * 2.3));
+    c += vec3f(0.20, 0.23, 0.27) * front;
   }
   // a raindrop's ring crest catches the lamp
   c += vec3f(0.006, 0.007, 0.008) * max(rip.z, 0.0);

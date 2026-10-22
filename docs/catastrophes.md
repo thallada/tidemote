@@ -32,7 +32,7 @@ What the water does where it is shallow or gone (all in `src/shaders.js`, tunabl
 ## Events (src/climate.js)
 
 The climate draws an event about every `eventEvery` minutes (60; the first no sooner than `eventFirst`, 25),
-drought, storm or leaf by `eventMix`; `eventPlan` ("drought@900,leaf@2400") forces events for tests, and the page
+drought, storm, leaf or frost by `eventMix`; `eventPlan` ("drought@900,leaf@2400") forces events for tests, and the page
 console's `__tidemote.climate().force('drought')` starts one. Climate eras also set the water's resting level:
 `lowEras` of them (35%) stand low (88-98%), showing sandbars and islands (moving geography).
 
@@ -44,6 +44,12 @@ console's `__tidemote.climate().force('drought')` starts one. Climate eras also 
   the water a little higher.
 - **Leaf** (`leafDur`, 7-12 min): a leaf `leafLen` (18-32% of the world's side) floats onto the pool, drifting and
   turning slowly, and shades the water under it (light × 1 − `leafDark`, 75-92%).
+- **Frost** (`frostGrow`, `frostHold`, `frostThaw`): a cold night (light × 0.4, −10°) on a pool this thin freezes it
+  in-plane. Ice grows in the order of a second field (`makeIceOrder`, thermal block 4: grains spreading from the
+  shallows and from their centres, meeting last along the zero lines of a random field) until `frostMax` (60-85%)
+  of the pool is ice. The ice's front is an edge like the water's (`pondAt` takes whichever is nearer): it pushes
+  cells and grains ahead of it, so what lives is packed into the veins of water left between the grains (brine
+  channels), and cells caught in the ice rest as cysts or freeze. Then it thaws.
 - **Raindrops**: about one a second in full rain, each a ring wave (`dropSpeed` 7 units/s, `dropWidth`, `dropLife`)
   shoving the water outward as it passes (`flowAt`).
 
@@ -61,6 +67,9 @@ Darkfield: the lamp's light reaches the objective only where something scatters 
   surface rising to it scattering a narrowing glow on the water's side, a faint sheen of thinning film beyond.
 - **Raindrops**: each ring bends the view as it passes (the surface's slope refracts it) and its crest catches a
   little light.
+- **Ice** (`iceLook`): clear, so what is frozen in it shows through, with a faint cold haze; growth bands where its
+  front stood; near the front, feathers: two families of fine arms at sixty degrees to it, as ice dendrites branch,
+  curving with the front; the front itself a crisp bright line.
 - **A leaf**: far above the focal plane, so out of focus: it keeps the lamp from what lies under it (dimmed by 88%
   at its heart, a soft edge), and scatters a faint green-brown haze in which its veins are blurred shadows.
 

@@ -296,6 +296,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
           pushEvent('<b>A storm</b>: cold rain, raindrops ringing the surface, the water rough and the light dim', col, 'pond');
           flash('A storm', 'Weather');
         } else if (!phase) pushEvent(`The storm has passed${tally()}`, col, 'pond');
+      } else if (ev.type === 'frost') {
+        if (phase === 'cooling') {
+          begin();
+          pushEvent('<b>A frost</b>: night falls and the water chills toward freezing', col, 'pond');
+          flash('A frost', 'Night');
+        } else if (phase === 'freezing') {
+          pushEvent(`Ice grows over the pool: grains spreading from the shallows will freeze ${Math.round(ev.max * 100)}% of it, pushing cells into the veins of water between them`, col, 'pond');
+          flash('Ice', 'Frost');
+        } else if (phase === 'thaw') {
+          pushEvent('The ice thaws', col, 'pond');
+        } else if (!phase) pushEvent(`The frost has passed${tally()}`, col, 'pond');
       } else if (ev.type === 'leaf') {
         if (phase === 'leaf') {
           begin();
@@ -2439,6 +2450,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
         const k = climate.dropSlot ?? 0;
         if (eng.drops[k * 4 + 3] > 0 && Math.random() < 0.5) return { type: ev.type, phase: ph, x: eng.drops[k * 4], y: eng.drops[k * 4 + 1], w: 40 };
       }
+      if (ev.type === 'frost' && ph !== 'cooling' && eng.relief) {
+        // the ice's front, or a vein of water, near the middle of the view the director picks
+        return { type: 'frost', phase: ph, x: W * Math.random(), y: H * Math.random(), w: Math.random() < 0.5 ? 12 : 35 };
+      }
       if (ev.type === 'drought' && eng.relief) {
         // a point of the water's edge, chosen at random
         for (let tries = 0; tries < 400; tries++) {
@@ -2545,7 +2560,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const EV = { drought: { drying: ['The pool is drying', 'Cells crowd the shrinking water; the edge drags stragglers with it'],
         dry: ['Low water', 'Stranded on the mud, cells rest as cysts and spores'], rain: ['Rain', 'The water returns, and the cysts on the mud wake'] },
         storm: { storm: ['A storm', 'Raindrops ring the surface and the water runs rough'] },
-        leaf: { leaf: ['A leaf on the pool', 'In its shade the producers go hungry'] } };
+        leaf: { leaf: ['A leaf on the pool', 'In its shade the producers go hungry'] },
+        frost: { cooling: ['Nightfall', 'The water chills toward freezing'], freezing: ['Ice', 'Its fronts push cells into the veins of water between the grains'],
+          frozen: ['Frozen', 'Life waits in the veins of water between the ice grains'], thaw: ['Thaw', 'The ice gives the pool back'] } };
       const [m, sb] = (EV[w.type] || {})[w.phase] || ['The pool', ''];
       eyebrow = going ? 'Heading to' : 'Watching'; main = m; sub = going ? '' : sb;
     } else if (w.kind === 'linger') {

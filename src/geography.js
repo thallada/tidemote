@@ -88,3 +88,15 @@ export function countPools(q, gw, gh, level, min = 6) {
   }
   return { pools, largest: wet ? largest / wet : 0 };
 }
+
+/**
+ * The order in which the pool freezes (frost, docs/catastrophes.md): each grid cell's quantile, 0 the first to freeze.
+ * Ice grains grow from the shallows and from their centres outward and meet along the zero lines of a random field,
+ * which freeze last: the liquid left between grains is a network of veins (brine channels).
+ */
+export function makeIceOrder(gw, gh, seed, relief = null) {
+  const v = makeRelief(gw, gh, seed ^ 0x5bd1e995, { minL: 7, maxL: 28, modes: 24, warp: 2 });
+  const h = new Float32Array(gw * gh);
+  for (let i = 0; i < h.length; i++) h[i] = -Math.abs(v[i] - 0.5) * 2 - (relief ? 0.35 * relief[i] : 0);
+  return rankField(h);
+}

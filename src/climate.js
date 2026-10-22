@@ -17,15 +17,16 @@ export function excursionAt(x, t) {
 
 // The pool's events (docs/catastrophes.md), rare and each with a run-up: a drought (the water falls and the pool
 // parts into basins, then rain refills it), a storm (clouds, cold rain, raindrops' ring waves, rough water) and a
-// leaf (it floats onto the pool and shades the water under it for some minutes). `eventPlan` in K forces events
+// leaf (it floats onto the pool and shades the water under it for some minutes) and a frost (a cold night: ice
+// grains grow over the thin pool, pushing cells into the veins of water left between them, then thaw). `eventPlan` in K forces events
 // for tests: "drought@900,leaf@2400" (simulated seconds).
-export const EVENT_TYPES = ['drought', 'storm', 'leaf'];
+export const EVENT_TYPES = ['drought', 'storm', 'leaf', 'frost'];
 const ease = (u) => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
 const ramp = (t, a, b) => ease((t - a) / Math.max(b - a, 1e-6));
 
 /** An event's effect on the pool at time t: level (below the era's), rain, sky, drying, currents, temperature, leaf. */
 export function eventAt(ev, t, levelTo) {
-  const out = { level: levelTo, rain: 0, sky: 1, evap: 0, turb: 1, dT: 0, leaf: null, phase: null };
+  const out = { level: levelTo, rain: 0, sky: 1, evap: 0, turb: 1, dT: 0, leaf: null, frost: 0, freezing: 0, phase: null };
   if (!ev || t < ev.t) return out;
   const u = t - ev.t;
   if (ev.type === 'drought') {
@@ -50,6 +51,16 @@ export function eventAt(ev, t, levelTo) {
     const r = Math.min(ramp(u, 0, 40), 1 - ramp(u, ev.dur - 60, ev.dur));
     out.rain = r; out.sky = 1 - 0.6 * r; out.turb = 1 + 1.6 * r; out.dT = -4 * Math.min(ramp(u, 0, 120), 1 - ramp(u, ev.dur, ev.dur + 240));
     out.level = Math.min(1, levelTo + 0.04 * r); out.phase = u < ev.dur ? 'storm' : u < ev.dur + 240 ? 'after' : null;
+  } else if (ev.type === 'frost') {
+    // night falls and the water chills; ice grows from the shallows and grain centres, holds, then thaws
+    const { cool, grow, hold, thaw } = ev;
+    const night = Math.min(ramp(u, 0, cool), 1 - ramp(u, cool + grow + hold, cool + grow + hold + thaw + 120));
+    out.sky = 1 - 0.6 * night; out.dT = -10 * night;
+    if (u < cool) out.phase = 'cooling';
+    else if (u < cool + grow) { const v = (u - cool) / grow; out.frost = ev.max * ease(v); out.freezing = Math.sin(Math.PI * v); out.phase = 'freezing'; }
+    else if (u < cool + grow + hold) { out.frost = ev.max; out.phase = 'frozen'; }
+    else if (u < cool + grow + hold + thaw) { out.frost = ev.max * (1 - ease((u - cool - grow - hold) / thaw)); out.phase = 'thaw'; }
+    else if (u < cool + grow + hold + thaw + 120) out.phase = 'after';
   } else if (ev.type === 'leaf') {
     const r = Math.min(ramp(u, 0, 40), 1 - ramp(u, ev.dur - 120, ev.dur));
     if (r > 0) {
@@ -65,12 +76,14 @@ export function makeEvent(type, t, rng, w, h, K = {}) {
   const pick = (r, d) => climateMix(...(r || d), rng());
   if (type === 'drought') return { type, t, fall: pick(K.droughtFall, [300, 480]), hold: pick(K.droughtHold, [150, 300]), refill: pick(K.droughtRefill, [90, 150]), low: pick(K.droughtLow, [0.35, 0.6]) };
   if (type === 'storm') return { type, t, dur: pick(K.stormDur, [240, 420]) };
+  if (type === 'frost') return { type, t, cool: 90, grow: pick(K.frostGrow, [150, 270]), hold: pick(K.frostHold, [120, 240]), thaw: pick(K.frostThaw, [100, 160]), max: pick(K.frostMax, [0.6, 0.85]) };
   const len = pick(K.leafLen, [0.18, 0.32]) * Math.min(w, h), a = rng() * Math.PI * 2, sp = climateMix(0.01, 0.04, rng());
   return { type, t, dur: pick(K.leafDur, [420, 720]), x: rng() * w, y: rng() * h, len, dark: pick(K.leafDark, [0.75, 0.92]),
     angle: rng() * Math.PI * 2, spin: (rng() - 0.5) * 0.002, seed: rng() * 100, width: climateMix(0.35, 0.55, rng()), vx: Math.cos(a) * sp, vy: Math.sin(a) * sp };
 }
 /** How long an event lasts, run-up and aftermath included. */
-export const eventSpan = (ev) => (ev.type === 'drought' ? ev.fall + ev.hold + ev.refill + 120 : ev.type === 'storm' ? ev.dur + 240 : ev.dur);
+export const eventSpan = (ev) => (ev.type === 'drought' ? ev.fall + ev.hold + ev.refill + 120 : ev.type === 'storm' ? ev.dur + 240
+  : ev.type === 'frost' ? ev.cool + ev.grow + ev.hold + ev.thaw + 120 : ev.dur);
 
 export function createClimate(eng, rng = Math.random) {
   const climate = { tick, reset, onEra: null, onExcursion: null, onEvent: null, force };
@@ -100,7 +113,7 @@ export function createClimate(eng, rng = Math.random) {
     const t = eng.simTime;
     for (const p of climate.plan) if (!p.done && t >= p.at) { p.done = true; force(p.type); }
     if (t >= climate.nextEvent && !climate.event) {
-      const w = K.eventMix || [0.45, 0.3, 0.25];
+      const w = K.eventMix || [0.35, 0.2, 0.2, 0.25];
       let r = rng() * w.reduce((a, b) => a + b, 0), k = 0;
       while (k < w.length - 1 && r >= w[k]) { r -= w[k]; k++; }
       force(EVENT_TYPES[k]);
@@ -114,7 +127,7 @@ export function createClimate(eng, rng = Math.random) {
     if (ev && t > ev.t + eventSpan(ev)) climate.event = null;
     if (ev && e.phase !== before) climate.onEvent?.(ev, e.phase, before);
     eng.level = ev && t >= ev.t ? e.level : eng.level + (climate.levelTo - eng.level) * Math.min(1, dt / 120);
-    eng.rain = e.rain; eng.sky = e.sky; eng.evap = e.evap; eng.turb = e.turb;
+    eng.rain = e.rain; eng.sky = e.sky; eng.evap = e.evap; eng.turb = e.turb; eng.frost = e.frost; eng.freezing = e.freezing;
     climate.eventTemp = e.dT;
     if (e.leaf) eng.leaf.set(e.leaf); else eng.leaf.fill(0);
     // raindrops: each a ring wave from where it fell, about one a second in full rain, four at a time at most

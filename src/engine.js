@@ -7,7 +7,7 @@ import {
   packUnorm, ARCHETYPE_TYPES,
 } from './genome.js';
 import { TIDE_PHASE } from './flow.js';
-import { makeRelief, rankField } from './geography.js';
+import { makeRelief, rankField, makeIceOrder } from './geography.js';
 
 const HDR = 'rgba16float';
 const BLOOM_LEVELS = 6;
@@ -69,7 +69,7 @@ class Engine {
     // the pool (docs/catastrophes.md), set by the climate: the water level (a quantile of the floor's relief; 1: all
     // wet), rain (0..1), the sky (light ×), how fast it is drying (0..1), the currents' strength, a floating leaf
     // (centre, length, darkness; angle, seed, width) and up to four raindrops' ring waves (centre, time, strength)
-    this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1;
+    this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0;
     this.leaf = new Float32Array(8); this.drops = new Float32Array(16);
     this.relief = null;
     this.rock = new Float32Array(4);
@@ -106,7 +106,7 @@ class Engine {
     b.sim = d.createBuffer({ size: 384, usage: U.UNIFORM | U.COPY_DST });
     // the heat field: deposits, temperatures and husks per cell, and heatMain's next temperatures (shaders.js); then
     // the pool's floor, each cell's relief quantile (src/geography.js)
-    b.thermal = d.createBuffer({ size: 4 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    b.thermal = d.createBuffer({ size: 5 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.heatNext = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
     b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
     this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
@@ -640,11 +640,12 @@ class Engine {
     // the water starts at the background everywhere; framboids and crowds warm it within a minute
     const water = new Float32Array(cells).fill(this.tbg);
     d.queue.writeBuffer(this.b.thermal, MAX_CELLS * 4, water);
-    // the pool's floor, from the world's seed
+    // the pool's floor, from the world's seed, and the order in which it freezes
     this.relief = makeRelief(this.grid[0], this.grid[1], this.seedValue);
     this.floor = null;
     d.queue.writeBuffer(this.b.thermal, 3 * MAX_CELLS * 4, this.relief);
-    this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.leaf.fill(0); this.drops.fill(0);
+    d.queue.writeBuffer(this.b.thermal, 4 * MAX_CELLS * 4, makeIceOrder(this.grid[0], this.grid[1], this.seedValue, this.relief));
+    this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.leaf.fill(0); this.drops.fill(0);
     const enc = d.createCommandEncoder();
     enc.clearBuffer(this.b.thermal, 0, cells * 4);
     enc.clearBuffer(this.b.counts);
@@ -743,7 +744,7 @@ class Engine {
     f.set(this.rock, 56);
     u[60] = this.tick; u[61] = this.ticks; f[62] = this.tbg; u[63] = this.maxScan;
     f[64] = this.level; f[65] = this.rain; f[66] = this.sky; f[67] = this.evap;
-    f[68] = this.turb; f[69] = 0; f[70] = 0; f[71] = 0;
+    f[68] = this.turb; f[69] = this.frost; f[70] = this.freezing; f[71] = 0;
     f.set(this.leaf, 72);
     f.set(this.drops, 80);
   }
@@ -851,7 +852,7 @@ class Engine {
     keep.cpu = { simTime: this.simTime, frameNo: this.frameNo, tick: this.tick, season: this.season, abio: this.abio,
       ambient: this.ambient, seedValue: this.seedValue, temp: this.temp, excursion: this.excursion,
       tide: this.tide.slice(), tidePh: this.tidePh.slice(), waves: this.waves.slice(), rock: this.rock.slice(),
-      level: this.level, rain: this.rain, sky: this.sky, evap: this.evap, turb: this.turb, leaf: this.leaf.slice(), drops: this.drops.slice() };
+      level: this.level, rain: this.rain, sky: this.sky, evap: this.evap, turb: this.turb, frost: this.frost, freezing: this.freezing, leaf: this.leaf.slice(), drops: this.drops.slice() };
     return keep;
   }
 
@@ -863,7 +864,7 @@ class Engine {
     const c = keep.cpu;
     Object.assign(this, { simTime: c.simTime, frameNo: c.frameNo, tick: c.tick, season: c.season, abio: c.abio,
       ambient: c.ambient, seedValue: c.seedValue, temp: c.temp, excursion: c.excursion,
-      level: c.level ?? 1, rain: c.rain ?? 0, sky: c.sky ?? 1, evap: c.evap ?? 0, turb: c.turb ?? 1 });
+      level: c.level ?? 1, rain: c.rain ?? 0, sky: c.sky ?? 1, evap: c.evap ?? 0, turb: c.turb ?? 1, frost: c.frost ?? 0, freezing: c.freezing ?? 0 });
     this.tide.set(c.tide); this.tidePh.set(c.tidePh); this.waves.set(c.waves); this.rock.set(c.rock);
     this.relief = makeRelief(this.grid[0], this.grid[1], this.seedValue);
     if (c.leaf) this.leaf.set(c.leaf);
@@ -887,7 +888,7 @@ class Engine {
 
   /** The bytes of each buffer readState() keeps, for a world of n particles. */
   stateSizes(n) {
-    return { parts: n * P_BYTES, genomes: MAXK * G_BYTES, intent: n * 16, ledger: (META_CLAIM + n) * 4, thermal: 4 * MAX_CELLS * 4 };
+    return { parts: n * P_BYTES, genomes: MAXK * G_BYTES, intent: n * 16, ledger: (META_CLAIM + n) * 4, thermal: 5 * MAX_CELLS * 4 };
   }
 
   /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
@@ -1592,7 +1593,7 @@ class Engine {
     pd[52] = tbg; pd[53] = tbg - 2; pd[54] = tbg + 10;
     pd[55] = this.settings.bands;
     pd[56] = this.K.pond ? this.level : 1; pd[57] = this.rain; pd[58] = this.sky; pd[59] = this.evap;
-    pd[60] = this.turb; pd[61] = 0; pd[62] = 0; pd[63] = 0;
+    pd[60] = this.turb; pd[61] = this.K.pond ? this.frost : 0; pd[62] = this.freezing; pd[63] = 0;
     pd.set(this.leaf, 64);
     pd.set(this.drops, 72);
     d.queue.writeBuffer(this.b.post, 0, pd);
