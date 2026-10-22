@@ -1255,7 +1255,9 @@ svg.niche .n-dot { fill: var(--cyan); }
   var META_ENERGY = META_DEATH + 64;
   var DIAG_STRIDE = 24;
   var META_DIAG = META_ENERGY + 64;
-  var META_CLAIM = META_DIAG + 5 * DIAG_STRIDE;
+  var META_SYM = META_DIAG + 5 * DIAG_STRIDE;
+  var SYM_SLOTS = 16 + 2 * MAXK;
+  var META_CLAIM = META_SYM + SYM_SLOTS;
   var HEAT_BINS = 16;
   var HEAT_BIN = 3;
   var THERMAL_LEDGER = { hist: 40, torpid: 56, makers: 57, framboidsMade: 58 };
@@ -1266,11 +1268,11 @@ svg.niche .n-dot { fill: var(--cyan); }
   var LOUPE_FIELD = 1.1;
   var ORGANS = 12;
   var PICK_WORDS = 12;
-  var G_BYTES = 224;
-  var G_WORDS = 56;
+  var G_BYTES = 240;
+  var G_WORDS = 60;
   var LITE_BYTES = 32;
   var SWAY_BYTES = 56;
-  var MIND_HEAD = 64;
+  var MIND_HEAD = 68;
   var MIND_NBR = 48;
   var MIND_NBR_WORDS = 8;
   var MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
@@ -1568,9 +1570,62 @@ svg.niche .n-dot { fill: var(--cyan); }
     // ...about this many grid units across (the spread of a gaussian)
     foundHuntSleep: 300,
     // flesh-eating founders start as cysts that wake over about this many seconds, after their prey
-    interfere: 0.6
+    interfere: 0.6,
     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
     // within reach, its bond partners aside)
+    // Grafts (docs/symbiosis.md): a cell whose graft gene passes graftMin holds one cell of another species whose
+    // surface its receptors fit past graftFit, in its second bond slot. Energy flows along the graft as its flow
+    // gene says: taking (a parasite), equalising (a holobiont) or giving (a mutualist). The host may reject it.
+    graftMin: 0.2,
+    graftFit: 0.3,
+    graftRate: 2,
+    // chance per second, times the graft gene, that a cell free of a host takes up one that fits
+    graftTake: 0.5,
+    // rate (per second) a fully taking graft drains its host's energy at (giving: its own; sharing:
+    // the two even out at this rate)
+    graftFloor: 0,
+    // (experiment) a taking graft draws only its host's energy above this share of the host's reproE: it
+    // slows its host's growth rather than killing it
+    graftEff: 1,
+    // share of the energy passed along a graft that the receiving cell keeps (the rest is heat)
+    graftCost: 4e-3,
+    // upkeep of the graft gene (× metab)
+    graftBond: 40,
+    // spring strength holding a grafter to its host
+    graftArmor: 0.5,
+    // chance an attack on a grafted cell misses (it sits in its host's body)
+    graftSpark: 0.15,
+    // share of abiogenesis sparks born grafting
+    reject: 1,
+    // chance per second, times the host's reject gene and the grafter's misfit (1 - fit), that a graft breaks
+    rejectCost: 0.01,
+    // upkeep of the reject gene (× metab)
+    rejectDrain: 0,
+    // (experiment) 1: a host rejects a grafter as much as it is drained by it, not by misfit
+    graftInherit: 0,
+    // (experiment) 1: a grafter's daughter is born grafted onto her mother's host
+    // endosymbiosis (experiment): a grafter holding a producer that gives birth to a new species passes it the
+    // producer's photosynthesis as a symbiont (sym.w, half the host's photo), its hue drawn toward the host's;
+    // a symbiont earns symbiont × its strength × a producer's light, with no cost to eating
+    capture: 0,
+    symbiont: 0.03,
+    rideFeed: 0,
+    // (experiment) 1: a photosynthesiser riding a host has water carried past it as the host swims (flowFeed)
+    graftMax: 1,
+    // (experiment) a host holds at most this many grafters (0: any number)
+    graftHop: 1,
+    // (experiment) 1: a grafter hops to a fitting cell in reach holding half again its host's energy
+    graftTrade: 0,
+    // (experiment) past graft 0.5 a grafter feeds and photosynthesises on its own at (2 - 2 graft)^graftTrade, and its
+    // grafts draw at 2 graft × graftTake: a line from facultative grafters to parasites that live on their hosts
+    graftSpec: 0,
+    // (experiment) a graft draws at its fit's excess over half graftFit (scaled to 0..1) to this power: a
+    // parasite gains only on hosts its receptors match well, so lineages specialise
+    graftImprint: 2,
+    // (experiment) 1: a species born of a grafter holding a host takes only that host's species (tail.z,
+    // kind + 1; lost now and then by mutation); 2: also a species the first time one of it grafts
+    graftSwitch: 1e-3
+    // (experiment) chance per second that an imprinted grafter with none of its host's species in reach frees its species
   };
   var litterOf = (G) => ` | select(0u, LITTER, ${G}.photo > 0.4)`;
   var bodyOf = (K, G) => `${f(K.bodyE)} * ${G}.size`;
@@ -1636,6 +1691,7 @@ const META_ENERGY = ${META_ENERGY}u;
 const META_DIAG = ${META_DIAG}u;
 const DIAG_STRIDE = ${DIAG_STRIDE}u;
 const META_CLAIM = ${META_CLAIM}u;
+const META_SYM = ${META_SYM}u;
 const TAU = 6.28318530718;
 const ORGANS = ${ORGANS}u;
 
@@ -1656,6 +1712,9 @@ struct Genome {
   beat: vec4f,
   // a packed body's tails: how readily its edge buds one (x), how long one grows (y); zw spare
   tail: vec4f,
+  // grafts (docs/symbiosis.md): x how avidly it grafts onto other species (off below graftMin), y the flow along
+  // its grafts (-1 takes from the host, 0 equalises, +1 gives), z how readily it rejects grafts on itself; w spare
+  sym: vec4f,
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
@@ -1791,7 +1850,9 @@ fn waterTempAt(p: vec2f) -> f32 {
   let invBeta = 1.0 / beta;
   let invOM = 1.0 / (1.0 - beta);
   // photosynthesis and eating don't mix well: a cell that does both does neither efficiently
-  let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
+  // (an avid grafter is built to live on its hosts: it feeds and photosynthesises poorly on its own, K.graftTrade)
+  let selfFeed = ${K.graftTrade ? `select(1.0, pow(clamp(2.0 - 2.0 * g.sym.x, 0.0, 1.0), ${f(K.graftTrade)}), g.sym.x > ${f(K.graftMin)})` : "1.0"};
+  let eatEff = (1.0 - g.photo) * (1.0 - g.photo) * selfFeed;
   let bonding = g.adhesion > ${f(K.adhMin)};
   var dn1 = vec2f(0.0);
   var dn2 = vec2f(0.0);
@@ -1833,7 +1894,19 @@ fn waterTempAt(p: vec2f) -> f32 {
       d2 = length(dn2);
     }
   }
-  let keep1 = n1 != NONE; let keep2 = n2 != NONE;
+  // a grafter (docs/symbiosis.md) holds its host, a cell of another species, in its second bond slot instead
+  let grafter = g.sym.x > ${f(K.graftMin)};
+  var host = NONE;
+  var hadHost = false;
+  if (grafter) {
+    n2 = NONE;
+    let hj = bondsOf(i).y;
+    hadHost = hj < sim.count && hj != i;
+    host = keepGraft(i, hj, p, sg);
+  }
+  var graftCand = NONE;
+  var graftBest = ${f(K.graftFit)};
+  let keep1 = n1 != NONE; let keep2 = n2 != NONE || grafter;
   // a tree grows from its tips at the angles of its plan, bonded mother to daughter only
   let gr = growAt(g, p.info);
   let tree = bonding && gr.tree;
@@ -1972,6 +2045,12 @@ fn waterTempAt(p: vec2f) -> f32 {
         sigK = mix(1.0, ${f(K.tissueSig)}, tightQ);
         // a tree's shape is its bonds': its branches neither draw together nor apart
         if (tree || withTail) { sigK = 0.0; }
+      } else if (qk >= FIRST_LIFE && qk != p.kind && (j == host || (q.kr & (1u << 16u)) != 0u)) {
+        // a grafter and its host (any grafter, from the host's side) press membrane to membrane, as a body's cells do
+        bk = min(beta, (0.085 * g.size * (1.0 - 0.12 * f32(role)) + bitcast<f32>(q.pad)) * invR);
+        invBk = 1.0 / bk;
+        invOMk = 1.0 / (1.0 - bk);
+        sigK = 0.0;
       }
       let shape = 1.0 - abs(2.0 * x - 1.0 - bk) * invOMk;
       var fr: f32;
@@ -1991,6 +2070,8 @@ fn waterTempAt(p: vec2f) -> f32 {
         if (x >= bk) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * invBk * invR; }
         // an animal that is not a hunter swims away from hunters near it, the harder the closer they are
         if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && g.dFlesh <= 0.5 && g.photo <= 0.4) { fr -= ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);${W(`mFl = ${f(K.flee)} * min(g.swim, 1.0) * (1.0 - x);`)} }
+        // a grafter free of a host looks for the best-fitting cell of another species within bond range
+        if (grafter && (host == NONE || ${K.graftHop ? "true" : "false"}) && j != host && qk != p.kind && (q.kr & (1u << 13u)) == 0u && r < LINK_R && a > graftBest${K.graftMax ? ` && hostedOf(j) < ${K.graftMax | 0}u` : ""}${K.graftImprint ? " && (g.tail.z < 0.5 || qk + 1u == u32(g.tail.z))" : ""}) { graftBest = a; graftCand = j; }
         crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
         if ((q.kr & (1u << 12u)) != 0u) { crowdP += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind); }
         if (DIAG) {
@@ -2089,6 +2170,14 @@ fn waterTempAt(p: vec2f) -> f32 {
   force *= social; jF *= social;
   // whether a bud of a body bearing tails, if it buds now, starts a tail (none of its kind near, room ahead)
   let sprout = tails && budTurn == 0u && !budBlocked && !tailNear && rnd(&s) < g.tail.x * ${f(K.tailOdds)};
+  // a grafter free of a host takes up the best fit in reach (at a rate set by how avid it is); a host may
+  // reject its grafter, the more readily the worse the grafter fits it
+  var newGraft = false;
+  var rejected = false;
+  if (grafter) {
+    if (graftCand != NONE && (host == NONE || sortedFull[graftCand].energy > 1.5 * sortedFull[host].energy) && rnd(&s) < g.sym.x * ${f(K.graftRate)} * sim.dt) { host = graftCand; newGraft = true; }
+    else if (host != NONE && rnd(&s) < ${f(K.reject)} * genomes[sortedFull[host].kind].sym.z * ${K.rejectDrain ? `clamp(-g.sym.y + 0.5 * (1.0 - abs(g.sym.y)) * select(0.0, 1.0, sortedFull[host].energy > p.energy), 0.0, 1.0)` : "(1.0 - graftFit(sg, host))"} * sim.dt) { host = NONE; rejected = true; }
+  }
   crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride; plantN *= stride; animN *= stride;
 
   let heavy = 1.0 - 0.7 * g.photo;
@@ -2113,6 +2202,11 @@ fn waterTempAt(p: vec2f) -> f32 {
   if (n1 != NONE) { bondF += dn1 * ((d1 - rs1) / max(d1, 1e-4)); }
   if (n2 != NONE) { bondF += dn2 * ((d2 - rs2) / max(d2, 1e-4)); }
   let e0 = bondTo(nb0, p); let e1 = bondTo(nb1, p); let e2 = bondTo(nb2, p);
+  // a grafter is held to its host where their membranes touch (its own spring, whatever its adhesion)
+  let eH = bondTo(host, p);
+  var rH = 0.0;
+  if (host != NONE) { rH = 0.9 * 0.085 * (g.size * (1.0 - 0.12 * f32(role)) + genomes[sortedFull[host].kind].size * (1.0 - 0.12 * f32(roleOf(sortedFull[host].info)))); }
+  var graftF = select(vec2f(0.0), eH * ((length(eH) - rH) / max(length(eH), 1e-4)), host != NONE);
   if (nb0 != NONE) { bondF += e0 * ((length(e0) - rb0) / max(length(e0), 1e-4)); }
   if (nb1 != NONE) { bondF += e1 * ((length(e1) - rb1) / max(length(e1), 1e-4)); }
   if (nb2 != NONE) { bondF += e2 * ((length(e2) - rb2) / max(length(e2), 1e-4)); }
@@ -2184,6 +2278,8 @@ fn waterTempAt(p: vec2f) -> f32 {
   if (n1 != NONE) { vB1 = sortedFull[n1].vel; }
   if (n2 != NONE) { vB2 = sortedFull[n2].vel; }
   var vb0 = vec2f(0.0); var vb1 = vec2f(0.0); var vb2 = vec2f(0.0);
+  var vH = vec2f(0.0);
+  if (host != NONE) { vH = sortedFull[host].vel; }
   if (nb0 != NONE) { vb0 = sortedFull[nb0].vel; }
   if (nb1 != NONE) { vb1 = sortedFull[nb1].vel; }
   if (nb2 != NONE) { vb2 = sortedFull[nb2].vel; }
@@ -2192,8 +2288,10 @@ fn waterTempAt(p: vec2f) -> f32 {
   let w0 = select(0.0, 1.0, nb0 != NONE && !(tails && orderOf(sortedFull[nb0].info) == 2u));
   let w1 = select(0.0, 1.0, nb1 != NONE && !(tails && orderOf(sortedFull[nb1].info) == 2u));
   let w2 = select(0.0, 1.0, nb2 != NONE && !(tails && orderOf(sortedFull[nb2].info) == 2u));
-  let nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE) + w0 + w1 + w2;
-  let vP = (vB1 + vB2 + vb0 * w0 + vb1 * w1 + vb2 * w2) / max(nP, 1.0);
+  // (a grafter rides with its host)
+  let wH = select(0.0, 1.0, host != NONE);
+  let nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE) + w0 + w1 + w2 + wH;
+  let vP = (vB1 + vB2 + vb0 * w0 + vb1 * w1 + vb2 * w2 + vH * wH) / max(nP, 1.0);
   // a body feeds its cells: energy flows along each bond toward the poorer partner, the same amount
   // either way (both read this step's start), so a hunter at the edge keeps the interior alive
   let shareK = min(0.2, ${f(K.bodyShare)} * sim.dt);
@@ -2214,6 +2312,20 @@ fn waterTempAt(p: vec2f) -> f32 {
     if (baseOn) { shareE += (sortedFull[n1].energy - p.energy) * shareK; }
     else if (n1 != NONE) { shareE += feedOf(n1, gr, keep, rate).x; }
   }
+  // Energy along a graft, as its flow gene says: at -1 the grafter drains its host (graftTake of the host's
+  // energy a second), at +1 it gives as much of its own, at 0 the two even out as a body's cells do. The host
+  // pays (or is paid) the same amount, settled through the ledger (graftAt), so none is made or lost.
+  var graftE = 0.0;
+  if (host != NONE) {
+    let hE = max(sortedFull[host].energy, 0.0);
+    let fl = clamp(g.sym.y, -1.0, 1.0);
+    let rateG = min(0.2, ${f(K.graftTake)} * sim.dt${K.graftTrade ? " * 2.0 * g.sym.x" : ""})${K.graftSpec ? ` * pow(clamp((graftFit(sg, host) - ${f(K.graftFit * 0.5)}) / ${f(1 - K.graftFit * 0.5)}, 0.0, 1.0), ${f(K.graftSpec)})` : ""};
+    graftE = (1.0 - abs(fl)) * (hE - max(p.energy, 0.0)) * rateG + max(-fl, 0.0) * rateG * ${K.graftFloor ? `max(hE - ${f(K.graftFloor)} * genomes[sortedFull[host].kind].reproE, 0.0)` : "hE"} - max(fl, 0.0) * rateG * max(p.energy, 0.0);
+    graftE = round(graftE * GRAFT_FIX) / GRAFT_FIX;
+  }
+  // what leaves the host (graftOut, positive) or reaches it (negative); the receiver keeps graftEff of what is sent
+  let graftOut = select(graftE * ${f(K.graftEff)}, graftE, graftE > 0.0);
+  graftE = select(graftE, graftE * ${f(K.graftEff)}, graftE > 0.0);
   var vel = p.vel;
   var pos = p.pos;
   // a beating tree's cells are held end to end more firmly than a body's (treeBond): its beat swings them hard
@@ -2236,13 +2348,14 @@ fn waterTempAt(p: vec2f) -> f32 {
         else { fb += bendF; }
       }
       if (aimOn) { fb += (vB1 * t - moved) * ${f(K.growStiff)}; }
+      if (host != NONE) { let e = eH + vH * t - moved; let l = length(e); graftF = e * ((l - rH) / max(l, 1e-4)); }
     }
     vel = vel * fr0 - across * (dot(vel, across) * (fr0 - frX)) + force * (g.force * heavy * h) + stiff * h;${W("if (k == 0u) { mVel = vel; }")}
     // (a tree's cells move together through their bonds: aligning would damp its beat)
     if (kinN > 0.0 && g.align > 0.0 && !tree) {
       vel = mix(vel, kinVel / kinN, clamp(g.align * ${f(K.align)} * h, 0.0, 1.0));${W("if (k == 0u) { mAlign = vel - mVel; }")}
     }
-    vel += fb * (g.adhesion * ${f(K.bond)} * h);
+    vel += fb * (g.adhesion * ${f(K.bond)} * h) + graftF * (${f(K.graftBond)} * h);
     // a body's cells move together: each takes on its partners' motion (a beating tree's, bond by bond, as its muscles beat)
     if (beating) { vel += beatDv * (1.0 / f32(sim.ticks)); }
     else if (nP > 0.0) { vel = mix(vel, vP, clamp(${f(K.tissue)} * h, 0.0, 1.0)); }
@@ -2272,10 +2385,13 @@ fn waterTempAt(p: vec2f) -> f32 {
   let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
   // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
   // water; anchored cells have fresh silt carried past them by the currents.
-  let photoGain = th.perf * pow(g.photo, ${f(K.photoPow)}) * light * ${f(K.photo)} / (1.0 + crowdP * ${f(K.shadeP)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
+  let photoGain = selfFeed * th.perf * pow(g.photo, ${f(K.photoPow)}) * light * ${f(K.photo)} / (1.0 + crowdP * ${f(K.shadeP)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
     * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0))
+    ${K.rideFeed ? `* (1.0 + ${f(K.flowFeed)} * min(length(vH) / 0.2, 2.0))` : ""}
     // Allee effect: a producer thrives among its own kind; a lone one grows slowly, so grazed-bare water stays bare a while
-    * (1.0 - ${f(K.allee)} + ${f(K.allee)} * min(kinN / 3.0, 1.0));
+    * (1.0 - ${f(K.allee)} + ${f(K.allee)} * min(kinN / 3.0, 1.0))
+    // a captured symbiont's light (endosymbiosis): no trade against eating
+    ${K.capture ? `+ th.perf * g.sym.w * ${f(K.symbiont)} * light * ${f(K.photo)} / (1.0 + crowdP * ${f(K.shadeP)}) * (nutr / (nutr + ${f(K.nutrHalf)}))` : ""};
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
   // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); a body's bond partners do not count
   let kinCost = 1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - bonds - ${f(K.kinFree)});
@@ -2309,7 +2425,7 @@ struct Sim {
   // tbg: the background water temperature (climate, season, excursion); maxScan: the neighbour budget
   tick: u32, ticks: u32, tbg: f32, maxScan: u32,
 };
-// kr: 0..9 kind, 10..11 role, 12 plant, 13 cyst, 14 hunter, 15 tail cell.
+// kr: 0..9 kind, 10..11 role, 12 plant, 13 cyst, 14 hunter, 15 tail cell, 16 a grafter holding a host.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
 
 @group(0) @binding(0) var<uniform> sim: Sim;
@@ -2345,7 +2461,10 @@ const LIVE_BIT = 0x80000000u;
 @group(0) @binding(15) var<storage, read_write> bondsNow: array<u32>;
 @group(0) @binding(20) var<storage, read_write> bondsAt: array<atomic<u32>>;
 fn bondsOf(i: u32) -> vec2u { return vec2u(bondsNow[i * 6u], bondsNow[i * 6u + 1u]); }
-fn backOf(i: u32, k: u32) -> u32 { return bondsNow[i * 6u + 2u + k]; }
+// (the count's word holds the cells that keep a bond to it in its low 16 bits, and how many grafters hold it as their
+// host in its high 16: hostedOf)
+fn backOf(i: u32, k: u32) -> u32 { let v = bondsNow[i * 6u + 2u + k]; return select(v, v & 0xffffu, k == 0u); }
+fn hostedOf(i: u32) -> u32 { return bondsNow[i * 6u + 2u] >> 16u; }
 // The heat field: [0, MAX_CELLS) deposits this step (HEAT_FIX per degree), then the water's
 // temperature per grid cell (f32 bits), then husks per grid cell this step. heatMain writes the next
 // temperatures to heatNext.
@@ -2455,6 +2574,7 @@ fn addEnergy(guild: u32, slot: u32, e: f32) {
 fn deriveMetab(g: Genome) -> f32 {
   return (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
         + ${f(K.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K.swimCost)} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion + ${f(K.calcCost)} * g.calcify
+        + ${f(K.graftCost)} * select(0.0, g.sym.x, g.sym.x > ${f(K.graftMin)}) + ${f(K.rejectCost)} * g.sym.z
         + ${f(K.beatCost)} * g.beat.x * g.beat.y * select(0.0, 1.0, (g.dev.x >= 0x80000000u || g.tail.x > 0.0) && g.adhesion > ${f(K.adhMin)})) * ${f(K.metab)};
 }
 
@@ -2560,10 +2680,35 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   g.tail.x = clamp(g.tail.x + gauss(s) * m * 0.15, 0.0, 1.0);
   if (rnd(s) < m * 0.1) { g.tail.x = select(0.0, mix(0.3, 1.0, rnd(s)), g.tail.x < 0.05); }
   g.tail.y = clamp(g.tail.y + gauss(s) * m * 0.2, 0.0, 1.0);
+  // grafting drifts and now and then is gained or lost; the flow along grafts drifts (a parasite's line can turn
+  // mutualist, or back); rejection drifts and now and then is gained or lost
+  g.sym.x = clamp(g.sym.x + gauss(s) * m * 0.15, 0.0, 1.0);
+  if (rnd(s) < m * 0.1) { g.sym.x = select(0.0, mix(0.3, 1.0, rnd(s)), g.sym.x < ${f(K.graftMin)}); }
+  g.sym.y = clamp(g.sym.y + gauss(s) * m * 0.3, -1.0, 1.0);
+  g.sym.z = clamp(g.sym.z + gauss(s) * m * 0.15, 0.0, 1.0);
+  if (rnd(s) < m * 0.1) { g.sym.z = select(0.0, mix(0.2, 0.8, rnd(s)), g.sym.z < 0.05); }
+  // a captured symbiont weakens or strengthens, and now and then is lost
+  if (IMPRINT && rnd(s) < m * 0.1) { g.tail.z = 0.0; }
+  if (CAPTURE && g.sym.w > 0.0) { g.sym.w = select(clamp(g.sym.w + gauss(s) * m * 0.1, 0.0, 0.5), 0.0, rnd(s) < m * 0.1); }
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
   g.depth = g.depth + 1u;
+  finalize(&g);
+  genomes[slot] = g;
+}
+
+// Endosymbiosis: a new species born to a grafter riding a producer keeps the producer within it, half its
+// photosynthesis as a symbiont (sym.w), and takes on some of its colour.
+const CAPTURE = ${K.capture ? "true" : "false"};
+const IMPRINT = ${K.graftImprint ? "true" : "false"};
+fn capture(slot: u32, hk: u32) {
+  let h = genomes[hk];
+  if (h.photo <= 0.4) { return; }
+  var g = genomes[slot];
+  g.sym.w = max(g.sym.w, 0.5 * h.photo);
+  g.hue = fract(g.hue + 0.4 * (fract(h.hue - g.hue + 1.5) - 0.5) + 1.0);
+  g.sat = mix(g.sat, h.sat, 0.4);
   finalize(&g);
   genomes[slot] = g;
 }
@@ -2610,6 +2755,7 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   g.tol = mix(3.0, 10.0, rnd(s));
   g.beat = vec4f(select(0.0, mix(0.15, 0.5, rnd(s)), rnd(s) < 0.25), mix(0.5, 2.5, rnd(s)), mix(0.3, 1.2, rnd(s)), select(0.0, 1.0, rnd(s) < 0.25));
   g.tail = vec4f(select(0.0, mix(0.3, 1.0, rnd(s)), rnd(s) < 0.2), rnd(s), 0.0, 0.0);
+  g.sym = vec4f(select(0.0, mix(0.3, 1.0, rnd(s)), rnd(s) < ${f(K.graftSpark)}), rnd(s) * 2.0 - 1.0, select(0.0, mix(0.2, 0.8, rnd(s)), rnd(s) < ${f(K.graftSpark)}), 0.0);
   g.parent = 0u;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -2699,6 +2845,12 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
     var p = parts[i];
     // Matter has no bonds, even if this index held a living cell before the last sort.
     if (p.kind < FIRST_LIFE) { intent[i].z = NONE; intent[i].w = NONE; }
+    // what grafters took from (or gave to) this cell last step (a husk it has become pays it from its body)
+    let debt = bitcast<i32>(atomicExchange(&ledger[graftAt() + i], 0u));
+    if (debt != 0 && (p.kind >= FIRST_LIFE || p.kind == HUSK)) {
+      p.energy -= f32(debt) / GRAFT_FIX;
+      parts[i].energy = p.energy;
+    }
     let c = atomicLoad(&ledger[META_CLAIM + i]);
     if (c != 0u) {
       atomicStore(&ledger[META_CLAIM + i], 0u);
@@ -2779,7 +2931,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         p.col = pack4x8unorm(vec4f(roleColor(genomes[ck], cr), 1.0));
         p.info = (gen << 16u) | (bud << 28u) | (cr << 4u) | 9u;
         intent[i].z = select(NONE, c - 1u, genomes[ck].adhesion > ${f(K.adhMin)});
-        intent[i].w = NONE;
+        intent[i].w = ${K.graftInherit ? `select(NONE, intent[c - 1u].w, ck == parts[c - 1u].kind && genomes[ck].sym.x > ${f(K.graftMin)})` : "NONE"};
         atomicAdd(&ledger[2], 1u);
         atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[ck])], 1u);
       }
@@ -2916,7 +3068,8 @@ fn scatterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocat
     // pad: with K.bodyPush, the cell's drawn radius (0.085 world units per unit of size, smaller in its later roles)
     let hunter = select(0u, 1u << 14u, p.kind >= FIRST_LIFE && genomes[p.kind].dFlesh > 0.5 && genomes[p.kind].photo <= 0.4);
     let tailBit = select(0u, 1u << 15u, p.kind >= FIRST_LIFE && tailCell(genomes[p.kind], p.info));
-    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | hunter | tailBit | select(0u, 1u << 13u, p.kind >= FIRST_LIFE && (p.info & 15u) == CYST), p.col, pack2x16float(p.vel), sig.x, sig.y, bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role))));
+    let graftBit = select(0u, 1u << 16u, p.kind >= FIRST_LIFE && genomes[p.kind].sym.x > ${f(K.graftMin)} && partners.y != NONE && parts[intent[i].w].kind >= FIRST_LIFE && parts[intent[i].w].kind != p.kind);
+    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | hunter | tailBit | graftBit | select(0u, 1u << 13u, p.kind >= FIRST_LIFE && (p.info & 15u) == CYST), p.col, pack2x16float(p.vel), sig.x, sig.y, bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role))));
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
   }
   workgroupBarrier();
@@ -3116,6 +3269,36 @@ fn keepBond(i: u32, j: u32, p: Particle) -> u32 {
   return j;
 }
 
+// Grafts (docs/symbiosis.md). The cell a grafter's second bond slot holds, if it is still its host: alive, awake,
+// of another species, within bond range, and still fit by the grafter's receptors (a host whose surface drifts away
+// slips free).
+fn keepGraft(i: u32, j: u32, p: Particle, sg: vec4u) -> u32 {
+  if (j >= sim.count || j == i) { return NONE; }
+  let q = sortedFull[j];
+  if (q.kind == p.kind || q.kind < FIRST_LIFE || (q.info & 15u) == CYST) { return NONE; }
+  var d = q.pos - p.pos;
+  d -= sim.world * round(d / sim.world);
+  if (dot(d, d) > LINK_R * LINK_R * ${f(K.bondBreak * K.bondBreak)}) { return NONE; }
+  if (graftFit(sg, j) < ${f(K.graftFit * 0.5)}) { return NONE; }
+  return j;
+}
+// How well a cell with signature sg fits sorted cell j's surface (its receptors against j's surface, as recognition)
+fn graftFit(sg: vec4u, j: u32) -> f32 {
+  let q = sortedLite[j];
+  return clamp((sdot(sg.z, q.s0) + sdot(sg.w, q.s1)) * ${f(K.affScale)}, -1.0, 1.0);
+}
+// Whether sorted cell j holds a host (it rides in another species' body)
+fn graftedAt(j: u32) -> bool {
+  if (j >= sim.count) { return false; }
+  let k = sortedFull[j].kind;
+  let h = bondsOf(j).y;
+  return k >= FIRST_LIFE && genomes[k].sym.x > ${f(K.graftMin)} && h < sim.count && h != j && sortedFull[h].kind != k && sortedFull[h].kind >= FIRST_LIFE;
+}
+// The debts grafters run up on their hosts this step (fixed point, GRAFT_FIX per unit of energy), settled in the
+// next step's resolveCount: the ledger's second block of one word per particle, after the claims
+fn graftAt() -> u32 { return (arrayLength(&ledger) + META_CLAIM) / 2u; }
+const GRAFT_FIX = 1048576.0;
+
 
 // Whether a cell of this one's species may take up a free bond slot to j: j is bonded to one of its
 // partners (mine: those it keeps, then those that keep it), closing a triangle in the tissue, or
@@ -3138,7 +3321,8 @@ fn joinable(i: u32, j: u32, k1: u32, k2: u32) -> bool {
   var linked = false;
   for (var k = 0u; k < 5u; k++) {
     let q = js[k];
-    if (q < sim.count && q != j) {
+    // (a grafter's host is no partner in its body)
+    if (q < sim.count && q != j && sortedFull[q].kind == sortedFull[j].kind) {
       free = false;
       linked = linked || q == mine.x || q == mine.y || q == mine.z || q == mine.w || q == mine4;
     }
@@ -3377,8 +3561,12 @@ fn bondBackMain(@builtin(global_invocation_id) gid: vec3u) {
   for (var s = 0u; s < 2u; s++) {
     let j = b[s];
     // a bond both keep is counted once, by each as its own
+    // a grafter's host counts its grafters (hostedOf)
+    if (s == 1u && j < sim.count && j != i && sortedFull[j].kind != k && sortedFull[j].kind >= FIRST_LIFE && genomes[k].sym.x > ${f(K.graftMin)}) {
+      atomicAdd(&bondsAt[j * 6u + 2u], 1u << 16u);
+    }
     if (j < sim.count && j != i && sortedFull[j].kind == k && atomicLoad(&bondsAt[j * 6u]) != i && atomicLoad(&bondsAt[j * 6u + 1u]) != i) {
-      let c = atomicAdd(&bondsAt[j * 6u + 2u], 1u);
+      let c = atomicAdd(&bondsAt[j * 6u + 2u], 1u) & 0xffffu;
       if (c < 3u) { atomicStore(&bondsAt[j * 6u + 3u + c], i); }
     }
   }
@@ -3481,7 +3669,7 @@ fn mealDue(fk: u32, meal: u32) -> bool {
 
 // Whether an attack on food of kind fk misses: armour, an unfamiliar quarry, too little skill, or prey
 // hiding among stone. Every roll is drawn whatever the outcome, so the random stream stays the same.
-fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f32, animN: f32, rivals: f32, sg: vec4u, full: f32, s: ptr<function, u32>) -> bool {
+fn mealMissed(fj: u32, fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f32, animN: f32, rivals: f32, sg: vec4u, full: f32, s: ptr<function, u32>) -> bool {
   let armored = fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
   let image = (info >> 6u) & 1023u;
   let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(s) < ${f(K.searchImage)};
@@ -3506,7 +3694,9 @@ fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f
   // a fed hunter rests: it attacks living animals as often as it is short of the energy to divide
   // (full: E / divE), at every chance only once below 1 - K.satiety of it
   let rested = ${f(K.satiety)} > 0.0 && fk >= FIRST_LIFE && genomes[fk].photo <= 0.4 && rnd(s) >= clamp((1.0 - full) / ${f(K.satiety)}, 0.0, 1.0);
-  return armored || unfamiliar || unskilled || sheltered || hidden || jostled || fumbled || unrecognised || rested;
+  // a grafter sits in its host's body: harder to pick out
+  let shielded = ${f(K.graftArmor)} > 0.0 && fk >= FIRST_LIFE && rnd(s) < ${f(K.graftArmor)} && graftedAt(fj);
+  return armored || unfamiliar || unskilled || sheltered || hidden || jostled || fumbled || unrecognised || rested || shielded;
 }
 
 // K.diag: count v into a guild's slot k
@@ -3566,8 +3756,34 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   if (i == NONE) { return; }
   if ((sortedFull[i].info & 15u) == CYST) { cystStep(i); return; }
 ${cellWGSL(K, false)}
-  var E = p.energy + shareE + (photoGain - upkeep) * sim.dt;
+  var E = p.energy + shareE + graftE + (photoGain - upkeep) * sim.dt;
   let dg = dietGuild(g);
+  if (host != NONE) {
+    // the host's side of the graft's flow, settled in the next step's resolveCount
+    if (graftOut != 0.0) { atomicAdd(&ledger[graftAt() + host], bitcast<u32>(i32(round(graftOut * GRAFT_FIX)))); }
+    // (what the receiver does not keep warms the water)
+    if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, abs(graftOut - graftE) * 8.0 * ${f(K.metabHeat)}); }
+    atomicAdd(&ledger[META_SYM + dg], 1u);
+    atomicAdd(&ledger[META_SYM + 5u + dietGuild(genomes[sortedFull[host].kind])], 1u);
+    if (graftE > 0.0) { atomicAdd(&ledger[META_SYM + 10u], 1u); } else if (graftE < 0.0) { atomicAdd(&ledger[META_SYM + 11u], 1u); }
+    atomicAdd(&ledger[META_SYM + 16u + p.kind], 1u);
+    atomicStore(&ledger[META_SYM + 16u + MAXK + p.kind], sortedFull[host].kind);
+    if (((sim.frame + p.id) % 60u) == 0u) { addEnergy(dg, 1u, graftE * 60.0); }
+  }
+  if (newGraft) {
+    atomicAdd(&ledger[META_SYM + 12u], 1u);
+    // (graftImprint 2) a species that grafts for the first time takes that host's species as its only host
+    if (${K.graftImprint >= 2 ? "true" : "false"} && genomes[p.kind].tail.z < 0.5) { genomes[p.kind].tail.z = f32(sortedFull[host].kind + 1u); }
+  }
+  // (graftSwitch) an imprinted grafter with no host and none of its host's species in reach may free its species to
+  // fix anew (with graftImprint 2, on the next species one of it grafts): parasites switch hosts when theirs grow scarce
+  if (${K.graftImprint && K.graftSwitch ? "true" : "false"} && grafter && host == NONE && graftCand == NONE && g.tail.z > 0.5 && rnd(&s) < ${f(K.graftSwitch)} * sim.dt) { genomes[p.kind].tail.z = 0.0; }
+  if (rejected) { atomicAdd(&ledger[META_SYM + 13u], 1u); }
+  else if (hadHost && host == NONE) {
+    // (lost with the host still alive and awake: pulled apart, 15; or the host died or slept, 14)
+    let o = sortedFull[bondsOf(i).y];
+    atomicAdd(&ledger[META_SYM + select(14u, 15u, o.kind >= FIRST_LIFE && o.kind != p.kind && (o.info & 15u) != CYST)], 1u);
+  }
   // all the energy a cell spends warms its water (every eighth frame, eight frames' worth)
   if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, upkeep * sim.dt * 8.0 * ${f(K.metabHeat)}); }
   // light and upkeep flow every frame; the ledger samples them once a second per cell
@@ -3621,6 +3837,8 @@ ${cellWGSL(K, false)}
           let slot = allocSlot(&s);
           if (slot != NONE) {
             mutateInto(slot, p.kind, &s);
+            if (CAPTURE && host != NONE) { capture(slot, sortedFull[host].kind); }
+            if (IMPRINT && host != NONE) { genomes[slot].tail.z = f32(sortedFull[host].kind + 1u); }
             ck = slot;
             atomicAdd(&ledger[3], 1u);
           }
@@ -3633,7 +3851,7 @@ ${cellWGSL(K, false)}
     // a meal opportunity every K.eatEvery ticks, in the cell's own phase
     } else if (food != NONE && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && mealDue(sortedFull[food].kind, (sim.tick + p.id) / ${K.eatEvery | 0}u)) {
       let fk = sortedFull[food].kind;
-      let missed = mealMissed(fk, info, g, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s);
+      let missed = mealMissed(food, fk, info, g, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s);
       let won = !missed && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged;
       if (DIAG && canHunt && isAnimal(food)) { diagAdd(dg, 15u, 1u); diagAdd(dg, select(select(17u, 18u, won), 16u, missed), 1u); }
       if (won) {
@@ -3661,7 +3879,7 @@ ${cellWGSL(K, false)}
     // (upkeep following it), the cell divides once its energy crosses the mark (one birth a step), eats
     // at each of its own meal opportunities while still hungry then (the next-best target after a meal or
     // a target lost to another eater), and stops at the tick it starves or ages out.
-    E = p.energy + shareE;
+    E = p.energy + shareE + graftE;
     age = p.age;
     var next = 0u;
     var born = false;
@@ -3681,6 +3899,8 @@ ${cellWGSL(K, false)}
             let slot = allocSlot(&s);
             if (slot != NONE) {
               mutateInto(slot, p.kind, &s);
+              if (CAPTURE && host != NONE) { capture(slot, sortedFull[host].kind); }
+              if (IMPRINT && host != NONE) { genomes[slot].tail.z = f32(sortedFull[host].kind + 1u); }
               ck = slot;
               atomicAdd(&ledger[3], 1u);
             }
@@ -3704,7 +3924,7 @@ ${cellWGSL(K, false)}
           let fp = sortedFull[fd];
           // handling time, or a miss (armour, an unfamiliar quarry, skill, shelter), ends this opportunity
           if (!mealDue(fp.kind, mi)) { break; }
-          if (mealMissed(fp.kind, info, g, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s)) { if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); } break; }
+          if (mealMissed(fd, fp.kind, info, g, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s)) { if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); } break; }
           let plant = fp.kind >= FIRST_LIFE && genomes[fp.kind].photo > 0.4;
           var got = true;
           if (plant) {
@@ -3780,7 +4000,7 @@ ${cellWGSL(K, false)}
   // a tail's base: generation 0, branch order 2 (a tail grows on as a tree's straight daughters do, order kept)
   else if (sprout) { childGen = (2u << 2u) << 26u; }
   // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
-  intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(pack, ce, act == 2u)), n1, n2);
+  intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(pack, ce, act == 2u)), n1, select(n2, host, grafter));
   parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0 - gut / ${f(K.dungE)})), info);
 }
 
@@ -3896,6 +4116,9 @@ ${cellWGSL(K, true)}
   mPut2(60, mFlee * acc);
   mPut(62, gut / ${f(K.dungE)});
   mPut(63, plantN);
+  // a graft (docs/symbiosis.md): its host's kind (NONE: none) and the energy flowing to it from the host a second
+  mind[64] = select(NONE, sortedFull[host].kind, host != NONE);
+  mPut(65, graftE / sim.dt);
 }
 `;
   }
@@ -7646,6 +7869,7 @@ struct SV {
       tail: ((on, odds, len2) => [on < 0.2 ? mix(0.3, 1, odds) : 0, len2])(r(), r(), r()),
       thermo: 0,
       grow: [devs[0][3], devs[1][3], devs[2][3], tail[1], tail[2], tail[3]].map(unorm8),
+      sym: ((amt, on, flow, ramt, ron) => [on < (K.graftSpark ?? 0) ? mix(0.3, 1, amt) : 0, flow * 2 - 1, ron < (K.graftSpark ?? 0) ? mix(0.2, 0.8, ramt) : 0])(r(), r(), r(), r(), r()),
       parent: 0,
       serial: 0,
       born: 0,
@@ -7681,7 +7905,7 @@ struct SV {
     g.dGlint /= s;
     g.dHusk /= s;
     g.dFlesh /= s;
-    g.metab = (0.012 + 32e-4 * g.force + 0.012 * g.radius + 12e-5 * g.lifespan + (K.anchorCost ?? 0) * (1 - g.advect) + 4e-3 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 6e-3 * g.align + 4e-3 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0) + (K.beatCost ?? 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g) || hasTails(g) ? 1 : 0)) * K.metab;
+    g.metab = (0.012 + 32e-4 * g.force + 0.012 * g.radius + 12e-5 * g.lifespan + (K.anchorCost ?? 0) * (1 - g.advect) + 4e-3 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 6e-3 * g.align + 4e-3 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0) + (K.graftCost ?? 0) * ((g.sym?.[0] ?? 0) > (K.graftMin ?? 0.2) ? g.sym[0] : 0) + (K.rejectCost ?? 0) * (g.sym?.[2] ?? 0) + (K.beatCost ?? 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g) || hasTails(g) ? 1 : 0)) * K.metab;
     g.col = packUnorm(...roleColor(g, 0));
     return g;
   }
@@ -7743,6 +7967,11 @@ struct SV {
     f32[o + 53] = tl[1];
     f32[o + 54] = 0;
     f32[o + 55] = 0;
+    const sy = g.sym || [0, 0, 0, 0];
+    f32[o + 56] = sy[0];
+    f32[o + 57] = sy[1];
+    f32[o + 58] = sy[2];
+    f32[o + 59] = sy[3] ?? 0;
   }
   var genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
   function readGenome(u32, f32, slot) {
@@ -7791,7 +8020,8 @@ struct SV {
       topt: f32[o + 46],
       tol: f32[o + 47],
       beat: [f32[o + 48], f32[o + 49], f32[o + 50], f32[o + 51]],
-      tail: [f32[o + 52], f32[o + 53]],
+      tail: [f32[o + 52], f32[o + 53], f32[o + 54]],
+      sym: [f32[o + 56], f32[o + 57], f32[o + 58], f32[o + 59]],
       thermo: (u32[o + 15] & 255) / 255,
       grow
     };
@@ -16441,7 +16671,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         heatMain: [0, 14, 18, 19],
         mindMain: [0, 2, 3, 6, 10, 15, 17, 18]
       };
-      this.cpDefs.bondBackMain = [0, 2, 12, 20];
+      this.cpDefs.bondBackMain = [0, 2, 10, 12, 20];
       this.cpDefs.contactMain = [0, 2, 3, 6, 12];
       this.cpDefs.lifeMainCoarse = this.cpDefs.lifeMain;
       this.cpDefs.mindMainCoarse = this.cpDefs.mindMain;
@@ -16565,7 +16795,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       b.touch.unmap();
       b.sway = d.createBuffer({ size: Math.min(n, 1 << 20) * SWAY_BYTES, usage: U.STORAGE });
       b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
-      b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+      b.ledger = d.createBuffer({ size: (META_CLAIM + 2 * n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
       b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
       b.quads = d.createBuffer({ size: (4 + n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
       const res = {
@@ -16953,7 +17183,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const enc = d.createCommandEncoder();
       enc.clearBuffer(this.b.thermal, 0, cells * 4);
       enc.clearBuffer(this.b.counts);
-      enc.clearBuffer(this.b.ledger, LEDGER_HEAD, n * 4);
+      enc.clearBuffer(this.b.ledger, LEDGER_HEAD, this.b.ledger.size - LEDGER_HEAD);
       enc.clearBuffer(this.b.frameCtr);
       const pass = enc.beginComputePass();
       pass.setPipeline(this.cp.seedMain.pipe);
@@ -17069,6 +17299,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (this.K.heat) enc.clearBuffer(b.thermal, 2 * MAX_CELLS * 4, cells * 4);
       enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
       enc.clearBuffer(b.ledger, (META_DEATH + 57) * 4, 6 * 4);
+      enc.clearBuffer(b.ledger, META_SYM * 4, 12 * 4);
+      enc.clearBuffer(b.ledger, (META_SYM + 16) * 4, MAXK * 4);
       enc.clearBuffer(b.frameCtr, 0, 4);
       enc.clearBuffer(b.frameCtr, 36, 4);
       enc.clearBuffer(b.ledger, 48, 12);
@@ -17188,7 +17420,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     /** The bytes of each buffer readState() keeps, for a world of n particles. */
     stateSizes(n) {
-      return { parts: n * P_BYTES, genomes: MAXK * G_BYTES, intent: n * 16, ledger: (META_CLAIM + n) * 4, thermal: 3 * MAX_CELLS * 4 };
+      return { parts: n * P_BYTES, genomes: MAXK * G_BYTES, intent: n * 16, ledger: (META_CLAIM + 2 * n) * 4, thermal: 3 * MAX_CELLS * 4 };
     }
     /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
     writeState({ cpu, gpu }) {
@@ -17246,7 +17478,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         pop: u.subarray(META_POP, META_POP + MAXK),
         demography: u.subarray(META_DEATH, META_DEATH + 64),
         energy: u.subarray(META_ENERGY, META_ENERGY + 64),
-        diag: u.subarray(META_DIAG, META_CLAIM),
+        diag: u.subarray(META_DIAG, META_SYM),
+        sym: u.subarray(META_SYM, META_CLAIM),
         genomeU32: new Uint32Array(copy, LEDGER_HEAD),
         genomeF32: new Float32Array(copy, LEDGER_HEAD)
       };
@@ -17280,6 +17513,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
             pop: u.subarray(META_POP, META_POP + MAXK),
             demography: u.subarray(META_DEATH, META_DEATH + 64),
             energy: u.subarray(META_ENERGY, META_ENERGY + 64),
+            sym: u.subarray(META_SYM, META_CLAIM),
             genomeU32: new Uint32Array(copy, LEDGER_HEAD),
             genomeF32: new Float32Array(copy, LEDGER_HEAD)
           });
@@ -18253,6 +18487,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
     celltype: "α, β and γ cells of one species share a genome but each has its own surface and receptor signature, so each type is pulled toward and away from things differently. Types also differ in colour tint, size and shape.",
     bodyplan: "The long-run mix of cell types a species produces. Each child’s type is chosen by a developmental rule from its parent’s type; this is where that rule settles.",
     stone: "Bedrock, and the skeletons of calcifying cells. Stone never drifts and the living cannot pass through it. Attacks made from among stone sometimes miss, so prey shelters in reefs, and calcifying cells settle on their own reef while everything else must go around it. Bedrock lasts nearly an hour. A loose grain of reef stone crumbles within minutes, a grain packed into a reef lasts far longer, and a neighbourhood that is mostly reef wears fast, so reefs grow as separate patches and persist only while they are being built.",
+    grafts: "A cell may graft onto a cell of another species whose surface its receptors fit, and ride with it. Energy flows along a graft as the grafter’s genes say: a parasite takes from its host, a mutualist gives, others share. A host may throw grafters off.",
+    graft: "How readily a cell grafts onto a cell of another species: it holds the best-fitting one in reach with one of its bonds and rides with it. Grafted cells are hard to pick out of their host’s body, so attacks on them often miss. Costs a little upkeep.",
+    graftflow: "Which way energy flows along this species’ grafts: it takes from its host (a parasite), gives its own (a mutualist), or the two even out as a body’s cells do.",
+    reject: "How readily a cell throws off cells grafted onto it, the more so the worse they fit it. Costs upkeep, and throws off partners that give as readily as parasites that take.",
+    symbiont: "A producer kept inside: an ancestor rode a producer when this species began, and its descendants photosynthesise a little without giving up eating.",
     calcify: "How much of a skeleton a cell lays down. Calcifying costs upkeep. When a settled calcifying cell dies of hunger or old age it may leave stone instead of a husk, far more often beside stone already there, so reefs grow outward from rock and from the rare place one starts. Drifting cells seldom leave stone. Calcifiers can settle on stone; to everything else it is solid.",
     adhesion: "How strongly cells of one species bond. Above 15%, each cell keeps up to two same-species partners with springs. Empty slots find the nearest neighbours within bond range; children start bonded to their parent if they are the same species. Bonds last until a partner dies, changes kind or stretches too far away. Bonds are the links you see and they hold bodies together. Bonded cells share the cost of living (up to 15% less upkeep), shade each other less and are armoured against attack. They still pay crowding beyond their bond partners, disperse poorly and their inner cells struggle to reach silt to divide. Species without adhesion are single-celled.",
     bond: "A persistent spring between two cells of the same species. Drawn as a link. It breaks if a partner dies, changes kind or stretches beyond 1.25 times the range at which bonds form. A connected web of bonds is one organism.",
@@ -20377,7 +20616,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       let felt0 = null, felt1 = null;
       return { ...p, update };
     }
-    const TYPES = [["all", "All"], ["est", "New species"], ["genus", "New genera"], ["ext", "Extinctions"], ["top", "Dominance"], ["era", "Eras"], ...api.eng.K.heat ? [["heat", "Heat"]] : []];
+    const TYPES = [["all", "All"], ["est", "New species"], ["genus", "New genera"], ["ext", "Extinctions"], ["top", "Dominance"], ["graft", "Grafts"], ["era", "Eras"], ...api.eng.K.heat ? [["heat", "Heat"]] : []];
     function buildLog() {
       const p = pane(`<input type="search" id="log-q" placeholder="Search the log" aria-label="Search the log" autocomplete="off">
       <div class="row" role="group" aria-label="Show">${chips("logType", TYPES, st.logType)}</div>`);
@@ -20503,6 +20742,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   }
 
   // src/mind.js
+  var NONE = 4294967295;
   var HUSK = 2;
   function parseMind(u32, f32) {
     if (u32[1] !== 1) return null;
@@ -20565,6 +20805,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
       mature: !!(u32[59] & 2),
       gut: f32[62],
       plantN: f32[63],
+      // a graft: the host's kind and the energy flowing to this cell from it a second (negative: to the host)
+      host: u32[64] === NONE ? null : u32[64],
+      graftFlow: f32[65],
       nbrs
     };
   }
@@ -20618,7 +20861,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
     scalding: "Scalding",
     seekwarm: "Seeking warmth",
     seekcool: "Seeking cooler water",
-    huddle: "Keeping warm"
+    huddle: "Keeping warm",
+    drain: "Draining",
+    feed: "Feeding",
+    ride: "Riding"
   };
   function catchSkill(hunter, prey, K) {
     if (!hunter || !prey) return 0;
@@ -20725,6 +20971,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     if (!st && left < 8) {
       st = { key: "starve", text: "Starving", why: `Its energy (${E.toFixed(2)}) is nearly spent: about ${Math.max(1, Math.round(left))} s left at ${(-net).toFixed(3)}/s${m.hungry ? ", with nothing it eats in reach" : ""}.` };
+    }
+    if (!st && m.host != null) {
+      const fl = m.graftFlow || 0, rate = Math.abs(fl).toFixed(3);
+      st = fl > 1e-4 ? { key: "drain", target: m.host, text: "Draining {sp}", why: `Grafted onto a {sp} cell: its receptors fit the host's surface, and it takes ${rate}/s of the host's energy. It rides where its host goes, and attacks on it often miss in the host's body.` } : fl < -1e-4 ? { key: "feed", target: m.host, text: "Feeding {sp}", why: `Grafted onto a {sp} cell, and giving it ${rate}/s of its own energy. It rides where its host goes, and attacks on it often miss in the host's body.` } : { key: "ride", target: m.host, text: "Riding on {sp}", why: "Grafted onto a {sp} cell, their energy about even. It rides where its host goes, and attacks on it often miss in the host's body." };
     }
     const chaser = others.filter((s) => s.flee > 0).sort((a, b) => b.flee - a.flee)[0];
     if (!st && chaser && share("flee") >= 0.15) {
@@ -21389,6 +21639,17 @@ registerProcessor("tidemote-sound", TidemoteSound);
       b += trait("Size", g.size, 0.45, 2.6, fmtLen(0.17 * g.size), "size");
       b += kv("Shape", CELL_SHAPES[cellShape(g, role)], "size");
       h += blk("Body", b);
+      const sy = g.sym || [0, 0, 0, 0];
+      if (sy[0] > K.graftMin || sy[2] > 0.05 || sy[3] > 0) {
+        let y = "";
+        if (sy[0] > K.graftMin) {
+          y += trait("Grafting", sy[0], 0, 1, `${Math.round(sy[0] * 100)}%`, "graft");
+          y += trait("Along a graft", (sy[1] + 1) / 2, 0, 1, sy[1] < -0.33 ? "takes" : sy[1] > 0.33 ? "gives" : "shares", "graftflow");
+        }
+        if (sy[2] > 0.05) y += trait("Rejecting", sy[2], 0, 1, `${Math.round(sy[2] * 100)}%`, "reject");
+        if (sy[3] > 0) y += trait("Symbiont", sy[3], 0, 0.5, `${Math.round(sy[3] * 200)}% of its host's light`, "symbiont");
+        h += blk("Grafts", y, { tip: "grafts" });
+      }
       let m = trait("Swimming", g.swim * (1 - g.photo), 0, 3, (g.swim * (1 - g.photo)).toFixed(2), "swimming");
       m += trait("Schooling", g.align, 0, 1, `${Math.round(g.align * 100)}%`, "schooling");
       m += trait("Reach", g.radius, 0.4, 1, fmtLen(g.radius), "reach");
@@ -22056,7 +22317,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   }
 
   // src/director.js
-  var NONE = 4294967295;
+  var NONE2 = 4294967295;
   var clamp7 = (x, a, b) => x < a ? a : x > b ? b : x;
   var lerp2 = (a, b, t2) => a + (b - a) * t2;
   var wrapD = (d, W) => d - W * Math.round(d / W);
@@ -22216,7 +22477,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.rng = rng;
       this.interest = new Interest();
       this.active = false;
-      this.trackId = NONE;
+      this.trackId = NONE2;
       this.spotlights = [];
       this.visited = [];
       this.history = [];
@@ -22255,7 +22516,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.active = false;
       this.shot = null;
       this.planning = null;
-      this.trackId = NONE;
+      this.trackId = NONE2;
       this.lastRig = null;
       this.gen = (this.gen || 0) + 1;
     }
@@ -22278,7 +22539,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     rehome(sh, fate) {
       if (sh.rehoming) return;
       sh.rehoming = true;
-      this.trackId = NONE;
+      this.trackId = NONE2;
       const old = sh.subject.p;
       const [x, y] = this.io.predict(old, sh.subject.t);
       const [W, H2] = this.io.world();
@@ -22307,7 +22568,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       let best = -1, bs = Infinity;
       for (let i = 0; i < count; i++) {
         const o = i * PICK_WORDS;
-        if (u32[o + 7] === skip || bonded && u32[o + 10] === NONE && u32[o + 11] === NONE) continue;
+        if (u32[o + 7] === skip || bonded && u32[o + 10] === NONE2 && u32[o + 11] === NONE2) continue;
         const d = Math.hypot(wrapD(f32[o] - x, W), wrapD(f32[o + 1] - y, H2));
         const s = d + 2 * f32[o + 6] / (this.io.lifespan(u32[o + 4]) || 100);
         if (s < bs) {
@@ -22322,7 +22583,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     lose(fate) {
       const sh = this.shot;
       if (!sh || sh.type !== "follow") return;
-      this.trackId = NONE;
+      this.trackId = NONE2;
       const lost = { slot: sh.subject.p.kind, serial: sh.why.serial, cells: sh.why.cells, fate };
       if (sh.t < sh.flight - 2) {
         const [x, y] = this.io.predict(sh.subject.p, sh.subject.t);
@@ -22482,7 +22743,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (gen !== this.gen || !this.active) return;
         this.planning = null;
         this.shot = shot;
-        this.trackId = shot.subject ? shot.subject.id : NONE;
+        this.trackId = shot.subject ? shot.subject.id : NONE2;
         this.history.push(type);
         if (this.history.length > 12) this.history.shift();
         this.visited.push({ x: shot.target.x, y: shot.target.y, t: this.io.now() });
@@ -22568,7 +22829,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       for (let i = 0; i < count; i++) {
         const o = i * PICK_WORDS;
         if (u32[o + 4] < FIRST_LIFE) continue;
-        const bonded = u32[o + 10] !== NONE || u32[o + 11] !== NONE;
+        const bonded = u32[o + 10] !== NONE2 || u32[o + 11] !== NONE2;
         const young = clamp7(1 - f32[o + 6] / (this.io.lifespan(u32[o + 4]) || 100), 0.05, 1);
         const s = (bonded ? 2.5 : 1) * young * (0.25 + Math.min(1.5, Math.hypot(f32[o + 2], f32[o + 3]))) * (0.4 + this.rng());
         if (s > bs) {
@@ -22577,7 +22838,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         }
       }
       if (best < 0) return null;
-      return this.subjectShot(res, best, u32[best * PICK_WORDS + 10] !== NONE ? [5, 12] : [3, 7], { reasons: h.reasons });
+      return this.subjectShot(res, best, u32[best * PICK_WORDS + 10] !== NONE2 ? [5, 12] : [3, 7], { reasons: h.reasons });
     }
     // Visit a newly established species: a cell where its members are densest.
     async spotlightShot(spot) {
@@ -22605,7 +22866,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       for (let i = 0; i < count; i++) {
         const o = i * PICK_WORDS;
         if (Math.hypot(wrapD(f32[o] - cx, W), wrapD(f32[o + 1] - cy, H2)) > 2.5) continue;
-        const bonded = u32[o + 10] !== NONE || u32[o + 11] !== NONE;
+        const bonded = u32[o + 10] !== NONE2 || u32[o + 11] !== NONE2;
         const s = (bonded ? 1 : 0) - f32[o + 6] / (this.io.lifespan(u32[o + 4]) || 100);
         if (s > ps) {
           ps = s;
@@ -22618,7 +22879,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const { u32, f32, count } = res.raw;
       const o = i * PICK_WORDS;
       const p = { x: f32[o], y: f32[o + 1], vx: f32[o + 2], vy: f32[o + 3], kind: u32[o + 4], energy: f32[o + 5], age: f32[o + 6], id: u32[o + 7] };
-      const tb = u32[o + 10] !== NONE || u32[o + 11] !== NONE ? traceBody(u32, f32, count, p.id) : null;
+      const tb = u32[o + 10] !== NONE2 || u32[o + 11] !== NONE2 ? traceBody(u32, f32, count, p.id) : null;
       const r = this.rng;
       return this.makeShot("follow", { x: p.x, y: p.y, w: lerp2(w0, w1, r()) }, {
         hold: lerp2(28, 55, r()),
@@ -22636,7 +22897,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var overlay = $("overlay");
   var octx = overlay.getContext("2d");
   var isCoarse = matchMedia("(pointer: coarse)").matches;
-  var NONE2 = 4294967295;
+  var NONE3 = 4294967295;
   var TAU2 = Math.PI * 2;
   var median = (a) => {
     const s = [...a].sort((x, y) => x - y);
@@ -23148,7 +23409,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     const focus = { key: null, label: "", pred: null, roleMask: 7, stateMode: 0, matter: [false, false, false, false, false] };
     let members = null;
-    let memberKind = NONE2;
+    let memberKind = NONE3;
     function pushFocus() {
       let kinds = null;
       if (focus.key) {
@@ -23277,7 +23538,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     function setMembers(ids, kind) {
       members = ids && ids.length ? ids : null;
       if (!members && sel) sel.box = null;
-      memberKind = members ? kind : NONE2;
+      memberKind = members ? kind : NONE3;
       pushFocus();
     }
     function gdist(a, b) {
@@ -23494,6 +23755,18 @@ registerProcessor("tidemote-sound", TidemoteSound);
         if (q > 0) H2 -= q * Math.log(q);
       }
       life.thriving = thriving;
+      const sym = c.sym;
+      if (sym && t2 > 30) {
+        for (const sp of life.reg.values()) {
+          if (!sp.alive || !sp.established || sp.pop < 20 || sym[16 + sp.slot] < 0.4 * sp.pop) continue;
+          const hk = sym[16 + MAXK + sp.slot];
+          const host = hk >= FIRST_LIFE && hk !== sp.slot ? life.reg.get(genomeSerial(c.genomeU32, hk)) : null;
+          if (!host || (sp.hosts ??= /* @__PURE__ */ new Set()).has(host.serial)) continue;
+          sp.hosts.add(host.serial);
+          const fl = sp.genome.sym?.[1] ?? 0, a = spLink(sp.serial, sp.name), b = spLink(host.serial, host.name);
+          pushEvent(fl < -0.33 ? `${a} has become a parasite of ${b}` : fl > 0.33 ? `${a} now lives on ${b}, feeding it` : `${a} now rides with ${b}, the two sharing what they have`, sp.genome.col, "graft");
+        }
+      }
       if (best && best.serial !== life.top) {
         const prev = life.reg.get(life.top);
         if (!prev || !prev.alive || best.pop > prev.pop * 1.25) {
@@ -23614,7 +23887,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     function deselect() {
       sel = null;
       spView = null;
-      eng.trackId = NONE2;
+      eng.trackId = NONE3;
       state.follow = false;
       if (specimen) specimen.close();
       setMembers(null);
@@ -23645,7 +23918,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const [wx, wy] = world || toWorld(sx, sy);
       const p = pxPerWorld || cssPPU();
       const radius = Math.max(3, 40 / p);
-      const res = await eng.requestPick([wx, wy], radius, NONE2);
+      const res = await eng.requestPick([wx, wy], radius, NONE3);
       if (!res) return;
       const [W, H2] = eng.grid;
       let bestLife = null, bl = Infinity, bestAny = null, ba = Infinity;
@@ -23766,7 +24039,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (!sel || r.id !== sel.id || sel.lost) return;
       if (!r.found) {
         sel.lost = true;
-        eng.trackId = NONE2;
+        eng.trackId = NONE3;
         setMembers(null);
         story(sel.particle && sel.particle.kind === 0 ? "Built into a new cell by a parent nearby. Lost track." : "Lost track.");
         return;
@@ -24010,7 +24283,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         return;
       }
       sel = null;
-      eng.trackId = NONE2;
+      eng.trackId = NONE3;
       state.follow = false;
       setMembers(null);
       spView = serial;
@@ -24022,7 +24295,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const sp = life.reg.get(serial);
       if (!sp || !sp.alive) return;
       const [W, H2] = eng.grid;
-      const res = await eng.requestPick([W / 2, H2 / 2], Math.hypot(W, H2), NONE2, { kind: sp.slot, maxOut: sp.pop * 1.25 + 2048, raw: true });
+      const res = await eng.requestPick([W / 2, H2 / 2], Math.hypot(W, H2), NONE3, { kind: sp.slot, maxOut: sp.pop * 1.25 + 2048, raw: true });
       if (!res || !res.raw.count) {
         flash("No living cells found");
         return;
@@ -25320,7 +25593,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const director = new Director({
       world: () => eng.grid,
       widths: viewWidths,
-      pick: (center, radius, opts) => eng.requestPick(center, radius, NONE2, opts),
+      pick: (center, radius, opts) => eng.requestPick(center, radius, NONE3, opts),
       predict: predictAt,
       species: (slot) => {
         const c = life.lastCensus;
@@ -25648,10 +25921,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
         wrapCam();
         const L = loupeGeom();
         canvas.classList.toggle("lens", !!L);
-        eng.trackId = sel && !sel.lost ? sel.id : NONE2;
-        eng.trackId2 = director.active ? director.trackId : NONE2;
+        eng.trackId = sel && !sel.lost ? sel.id : NONE3;
+        eng.trackId2 = director.active ? director.trackId : NONE3;
         watchMarks(performance.now());
-        eng.mindId = sel && !sel.lost && !sel.film && sel.particle.kind >= FIRST_LIFE && specimen.isOpen() ? sel.id : NONE2;
+        eng.mindId = sel && !sel.lost && !sel.film && sel.particle.kind >= FIRST_LIFE && specimen.isOpen() ? sel.id : NONE3;
         const cur = { x: cam.x, y: cam.y, zoom: cam.zoom, t: viewSimTime };
         const seen = inflight && shownFrame ? shownFrame : cur;
         Object.assign(cam, { x: seen.x, y: seen.y, zoom: seen.zoom });
@@ -25670,7 +25943,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
           steps: step.steps,
           time: now / 1e3,
           dpr,
-          selId: sel ? sel.id : NONE2,
+          selId: sel ? sel.id : NONE3,
           loupe: L ? { x: L.sx * dpr, y: L.sy * dpr, r: L.R * dpr, ppu: L.cssPPU * dpr, cx: L.cx, cy: L.cy } : null,
           // the close-up only when the world is drawn: a canvas not given a new texture keeps its last image
           specimen: hold === false ? null : specimenParams(),

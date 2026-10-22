@@ -210,3 +210,6 @@ swing is the sd of ln(cells grafted) over a run (how much grafting rises and fal
   off. Grafting there comes and goes most (outbreaks 8-9 an hour, the largest swing).
 - **Generalist grafting damps regions**: ref's regional booms are 21 an hour against off's 28 (round 8: 22 against
   30); grafters ride and armour each other through the busts. Specialists leave regional booms as they were.
+
+**Defaults on this branch** (after round 9): `graftMax` 1, `graftHop` 1, `graftImprint` 2, `graftSwitch` 0.001, the
+slow-switching specialists. `#k={"graftImprint":0,"graftMax":0,"graftHop":0}` gives the plain rule's generalists back, `#k={"graftMin":2}` no grafting.

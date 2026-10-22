@@ -253,15 +253,15 @@ export const DEFAULT_K = {
   capture: 0,
   symbiont: 0.03,
   rideFeed: 0,      // (experiment) 1: a photosynthesiser riding a host has water carried past it as the host swims (flowFeed)
-  graftMax: 0,      // (experiment) a host holds at most this many grafters (0: any number)
-  graftHop: 0,      // (experiment) 1: a grafter hops to a fitting cell in reach holding half again its host's energy
+  graftMax: 1,      // (experiment) a host holds at most this many grafters (0: any number)
+  graftHop: 1,      // (experiment) 1: a grafter hops to a fitting cell in reach holding half again its host's energy
   graftTrade: 0,    // (experiment) past graft 0.5 a grafter feeds and photosynthesises on its own at (2 - 2 graft)^graftTrade, and its
                     // grafts draw at 2 graft × graftTake: a line from facultative grafters to parasites that live on their hosts
   graftSpec: 0,     // (experiment) a graft draws at its fit's excess over half graftFit (scaled to 0..1) to this power: a
                     // parasite gains only on hosts its receptors match well, so lineages specialise
-  graftImprint: 0,  // (experiment) 1: a species born of a grafter holding a host takes only that host's species (tail.z,
+  graftImprint: 2,  // (experiment) 1: a species born of a grafter holding a host takes only that host's species (tail.z,
                     // kind + 1; lost now and then by mutation); 2: also a species the first time one of it grafts
-  graftSwitch: 0,   // (experiment) chance per second that an imprinted grafter with none of its host's species in reach frees its species
+  graftSwitch: 0.001, // (experiment) chance per second that an imprinted grafter with none of its host's species in reach frees its species
 };
 
 // WGSL for the energy in a body of genome expression G (K.bodyE by size), and a dying cell's litter flag
