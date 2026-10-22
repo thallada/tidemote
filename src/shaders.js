@@ -6265,9 +6265,7 @@ fn dryGround(wp: vec2f, away: f32, rel: vec3f, ppu: f32) -> vec3f {
   return mix(plate, floorc, gap * open);
 }
 // The surface of the water, seen through. It lies above the focal plane, so its waves are never sharp in
-// themselves; they show by bending what lies beneath (a slope displaces the view) and, above all, by focusing the
-// lamp's light on the floor in caustics, as sunlight on a pool's bottom: where the surface curves like a lens the
-// light gathers in bright lines, sharp where they cross the focal plane. A raindrop's impact sends out capillary
+// themselves; they show only by bending what lies beneath (a slope displaces the view). A raindrop's impact sends out capillary
 // waves, which disperse: the short ones run fastest, so a ring is a packet whose crests crowd toward its leading edge
 // and broaden toward its centre, damped where they are shortest; it is uneven around its circle, and the drop's
 // splash throws a few droplets which ring too. In rain the whole surface is roughened by drops falling out of view.
@@ -6344,15 +6342,6 @@ fn ripples(wp: vec2f) -> Surf {
   if (post.pond.y > 0.0) { chop(wp, post.pond.y, &o); }
   return o;
 }
-// The light the floor receives under the surface s, as a share of the calm water's: the surface maps each point of
-// it to a point of the floor a depth D below, and the light is concentrated by how much that map squeezes area;
-// where the map folds over, it gathers in the bright lines of a caustic network.
-const CAUSTIC_D = 6.0;
-fn caustic(s: Surf) -> f32 {
-  let D = CAUSTIC_D;
-  let det = (1.0 + D * s.hess.x) * (1.0 + D * s.hess.z) - D * D * s.hess.y * s.hess.y;
-  return min(1.0 / sqrt(det * det + 0.0025), 9.0);
-}
 // A thermal camera's false colour: deep blue, teal, amber, white.
 fn heatRamp(u: f32) -> vec3f {
   let a = mix(vec3f(0.02, 0.04, 0.18), vec3f(0.0, 0.42, 0.48), smoothstep(0.0, 0.35, u));
@@ -6367,13 +6356,7 @@ fn heatRamp(u: f32) -> vec3f {
   var water = vec3f(post.heat.x, 0.0, 0.0);
   var uv = i.uv;
   // rain: the rings raindrops send across the water bend the view as they pass
-  var light = 1.0;
-  if (post.pond.y > 0.0) {
-    let rip = ripples(wp);
-    uv += rip.slope * 1.2 * post.ppu / post.res;
-    // the light reaching the floor here came through the surface a little upstream of the slope there
-    light = caustic(ripples(wp - CAUSTIC_D * rip.slope));
-  }
+  if (post.pond.y > 0.0) { uv += ripples(wp).slope * 1.2 * post.ppu / post.res; }
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
     // schlieren: with the heat map on Shimmer, warm water bends the light passing through it like the
@@ -6454,8 +6437,6 @@ fn heatRamp(u: f32) -> vec3f {
   if (post.pond.x < 1.0) {
     let pd = pondPost(wp);
     let sd = pd.x / max(length(pd.yz), 1e-4);
-    // no water, no waves: the rain's caustics end at the edge
-    light = mix(1.0, light, smoothstep(0.0, 0.4, sd));
     let px = 1.0 / post.ppu;
     let dry = 1.0 - smoothstep(-px, px, sd);
     if (dry > 0.0) { c += dryGround(wp, max(-sd, 0.0), vec3f(post.pond.x - pd.x, pd.yz), post.ppu) * dry * behind * mix(1.0, 0.8, k); }
@@ -6478,8 +6459,6 @@ fn heatRamp(u: f32) -> vec3f {
     if (sdI < 1.6) { c += iceLook(wp, sdI, -fi.yz / gl, post.ppu, grow) * (0.35 + 0.65 * behind); }
     if (sdI > 0.0 && sdI < 9.0 && grow > 0.0) { c += frazil(wp, sdI, post.ppu) * (0.35 + 0.65 * behind); }
   }
-  // raindrops' ripples: the light the surface gathers on the floor lights what lies there, and the floor itself
-  c = c * mix(1.0, light, 0.5) + vec3f(0.005, 0.0056, 0.0064) * max(light - 1.5, 0.0) * (0.6 + 0.8 * vnoise(wp * 0.4));
   // a leaf floating on the pool, far above the focal plane: it keeps the lamp's light from what lies under it, and
   // scatters a little of it as a faint green-brown haze, its veins blurred shadows in it
   if (post.leaf.w > 0.0) {

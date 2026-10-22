@@ -72,10 +72,10 @@ whole pool is a millimetre or two across and everything is drawn at that scale (
   along the floor's contours where the edge paused (a coffee ring), cut by the cracks.
 - **The water's edge**: an uneven bright contact line (the meniscus pins and slips on grains), its width and
   brightness varying along it, the curved surface rising to it scattering a narrowing glow on the water's side.
-- **Rain** (`ripples`, `caustic`): the surface lies above the focal plane, so its waves are never sharp in
-  themselves; they show by bending what lies beneath (a slope displaces the view) and by focusing the lamp's light
-  on the floor in caustics, as sunlight on a pool's bottom (the light the floor receives is one over the determinant
-  of the map the curved surface makes from the surface to a floor below it). A raindrop's ring is a dispersive
+- **Rain** (`ripples`): the surface lies above the focal plane, so its waves are never sharp in themselves; they
+  show only by bending what lies beneath (a slope displaces the view). Caustics (the lamp's light focused on the floor
+  by the curved surface) were tried and dropped: they lit the dry mud and the ice as much as the water, and read as
+  an overlay rather than something in the pool. A raindrop's ring is a dispersive
   capillary packet, short crests crowding its leading edge and broadening toward its centre, uneven in amplitude and
   radius around its circle, with up to two splash droplets ringing beside it. The rain falling out of view roughens
   the whole surface with wavelets from every direction, in groups.
