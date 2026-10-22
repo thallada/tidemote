@@ -188,3 +188,16 @@ as paling, rain as defocused caustics rather than lines, ice as dendrites on cry
 edge's slope is read smoothly across grid cells (a slope constant within each cell had lined the grains an ice front
 pushes up along the grid); rings fade before they meet their own copy across the world's wrap. The looks cost at
 most about 0.35 ms a frame at 1280×800 on a desktop GPU, and only while an event shows them.
+
+**Round 7** (4dba903; the frost's night chilling the water to 0.5° instead of −10°, 12 seeds × 45 min, frost at 15 min):
+
+| group | eff. species at +0 / +15 / +30 min | low | guilds at +5 / +30 |
+|---|---|---|---|
+| no events | 114 / 106 / 116 | 0.55 | 3.58 / 3.67 |
+| frost, chilled to 0.5° (default) | 108 / 56 / 109 | 0.20 | 2.50 / 3.83 |
+| half the chill | 114 / 72 / 127 | 0.22 | 2.75 / 3.58 |
+| no chill | 114 / 85 / 104 | 0.32 | 3.25 / 3.50 |
+
+Near-freezing water sends much of life torpid while the ice stands (guilds awake fall to 2.5) and costs more at the
+low, but it comes back as fast: diversity is back level with the control by +30 min.
+
