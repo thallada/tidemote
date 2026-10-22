@@ -31,18 +31,38 @@ export function makeRelief(gw, gh, seed, { minL = 10, maxL = 70, modes = 28, war
   });
   const H = waves(modes, minL, Math.min(maxL, Math.max(gw, gh)), 1.1);
   const WX = waves(6, minL * 1.5, maxL, 0.5), WY = waves(6, minL * 1.5, maxL, 0.5);
-  const sum = (ws, x, y) => { let s = 0, n = 0; for (const w of ws) { s += w.amp * Math.cos(w.ax * x + w.ay * y + w.ph); n += w.amp; } return s / n; };
-  const n = gw * gh, h = new Float32Array(n);
-  for (let y = 0; y < gh; y++) {
-    for (let x = 0; x < gw; x++) {
-      const cx = x + 0.5, cy = y + 0.5;
-      h[y * gw + x] = sum(H, cx + warp * sum(WX, cx, cy) * 2, cy + warp * sum(WY, cx, cy) * 2);
+  // a sum of waves at the cell centres, separably: cos(ax x + ay y + ph) = cos(ax x) cos(ay y + ph) - sin(ax x) sin(ay y + ph)
+  const field = (ws) => {
+    const out = new Float32Array(gw * gh), norm = ws.reduce((a, w) => a + w.amp, 0);
+    const cx = new Float32Array(gw), sx = new Float32Array(gw), cy = new Float32Array(gh), sy = new Float32Array(gh);
+    for (const w of ws) {
+      for (let x = 0; x < gw; x++) { cx[x] = Math.cos(w.ax * (x + 0.5)); sx[x] = Math.sin(w.ax * (x + 0.5)); }
+      for (let y = 0; y < gh; y++) { cy[y] = Math.cos(w.ay * (y + 0.5) + w.ph) * w.amp / norm; sy[y] = Math.sin(w.ay * (y + 0.5) + w.ph) * w.amp / norm; }
+      for (let y = 0; y < gh; y++) { const c = cy[y], sn = sy[y], row = y * gw; for (let x = 0; x < gw; x++) out[row + x] += cx[x] * c - sx[x] * sn; }
     }
+    return out;
+  };
+  const base = field(H), wx = field(WX), wy = field(WY);
+  // warped: each cell reads the smooth field at a displaced point (bilinear, across the wraps)
+  const at = (x, y) => {
+    const fx = Math.floor(x), fy = Math.floor(y), tx = x - fx, ty = y - fy;
+    const x0 = ((fx % gw) + gw) % gw, y0 = ((fy % gh) + gh) % gh, x1 = (x0 + 1) % gw, y1 = (y0 + 1) % gh;
+    return (base[y0 * gw + x0] * (1 - tx) + base[y0 * gw + x1] * tx) * (1 - ty) + (base[y1 * gw + x0] * (1 - tx) + base[y1 * gw + x1] * tx) * ty;
+  };
+  const h = new Float32Array(gw * gh);
+  for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) { const i = y * gw + x; h[i] = at(x + warp * 2 * wx[i], y + warp * 2 * wy[i]); }
+  return rankField(h);
+}
+
+/** A field ranked into quantiles: each cell's share of the field lying lower than it. */
+export function rankField(h) {
+  const n = h.length, sorted = Float32Array.from(h).sort(), q = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    let lo = 0, hi = n;
+    const v = h[i];
+    while (lo < hi) { const m = (lo + hi) >> 1; if (sorted[m] < v) lo = m + 1; else hi = m; }
+    q[i] = (lo + 0.5) / n;
   }
-  // ranked: each cell's share of the floor lying lower than it
-  const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => h[a] - h[b]);
-  const q = new Float32Array(n);
-  order.forEach((i, r) => { q[i] = (r + 0.5) / n; });
   return q;
 }
 

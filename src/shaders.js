@@ -247,6 +247,7 @@ export const DEFAULT_K = {
   eventMix: [0.45, 0.3, 0.25],
   eventPlan: '',
   lowEras: 0.35,
+  floorDrift: 0.3,  // the share of the floor's relief redrawn at each new era (moving geography: sediment shifts)
   // each event's draw (ranges): a drought's fall, hold and refill (s) and how low the water falls (the share of the
   // floor left wet); a storm's length (s); a leaf's length (share of the world's side), darkness and stay (s)
   droughtFall: [300, 480],

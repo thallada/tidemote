@@ -7,7 +7,7 @@ import {
   packUnorm, ARCHETYPE_TYPES,
 } from './genome.js';
 import { TIDE_PHASE } from './flow.js';
-import { makeRelief } from './geography.js';
+import { makeRelief, rankField } from './geography.js';
 
 const HDR = 'rgba16float';
 const BLOOM_LEVELS = 6;
@@ -642,6 +642,7 @@ class Engine {
     d.queue.writeBuffer(this.b.thermal, MAX_CELLS * 4, water);
     // the pool's floor, from the world's seed
     this.relief = makeRelief(this.grid[0], this.grid[1], this.seedValue);
+    this.floor = null;
     d.queue.writeBuffer(this.b.thermal, 3 * MAX_CELLS * 4, this.relief);
     this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.leaf.fill(0); this.drops.fill(0);
     const enc = d.createCommandEncoder();
@@ -656,6 +657,30 @@ class Engine {
     pass.end();
     d.queue.submit([enc.finish()]);
     this.clearAccum = true;
+  }
+
+  /**
+   * The floor shifts (moving geography, docs/catastrophes.md): toward the floor of epoch `k` (a share `drift` of it
+   * redrawn from the seed and k), easing there over `secs` simulated seconds (stepFloor uploads it as it goes).
+   */
+  shiftFloor(k, drift, secs = 120) {
+    if (!this.relief || !(drift > 0)) return;
+    const [gw, gh] = this.grid;
+    if (!this.reliefBase || this.reliefBase.length !== gw * gh || this.reliefSeed !== this.seedValue) { this.reliefBase = makeRelief(gw, gh, this.seedValue); this.reliefSeed = this.seedValue; }
+    const a = this.reliefBase, b = makeRelief(gw, gh, (this.seedValue ^ Math.imul(k + 1, 0x9e3779b1)) >>> 0);
+    const to = rankField(a.map((x, i) => x * (1 - drift) + b[i] * drift));
+    this.floor = { from: this.relief.slice(), to, t0: this.simTime, secs, last: -1 };
+  }
+  stepFloor() {
+    const f = this.floor;
+    if (!f) return;
+    const u = Math.min(1, (this.simTime - f.t0) / f.secs);
+    if (u < 1 && u - f.last < 0.02) return;
+    f.last = u;
+    const e = u * u * (3 - 2 * u);
+    for (let i = 0; i < f.to.length; i++) this.relief[i] = f.from[i] + (f.to[i] - f.from[i]) * e;
+    this.device.queue.writeBuffer(this.b.thermal, 3 * MAX_CELLS * 4, this.relief);
+    if (u >= 1) this.floor = null;
   }
 
   /** Three active tide waves (the fourth is left idle for the first climate era to raise) with random phases. */

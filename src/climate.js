@@ -154,6 +154,8 @@ export function createClimate(eng, rng = Math.random) {
     } : null;
     // the pool's floor shows in some eras: low water leaves sandbars and islands (moving geography)
     climate.levelTo = r() < (K.lowEras ?? 0.35) ? climateMix(0.88, 0.98, r()) : 1;
+    // and the floor itself shifts a little as sediment moves, so each low water shows new bars and islands
+    if (K.pond ?? 1) eng.shiftFloor?.(climate.index, K.floorDrift ?? 0.3);
     climate.history.push({ t, name: climate.name, ambient: climate.ambientTo, temp: climate.tempTo, level: climate.levelTo });
     climate.onEra?.(climate.history.at(-1), prevAmb, prevTemp);
   }
@@ -164,7 +166,7 @@ export function createClimate(eng, rng = Math.random) {
     // the water changes slowly (about three minutes), so life can follow it
     eng.temp += (climate.tempTo - eng.temp) * Math.min(1, dt / 180);
     const x = climate.excursion;
-    if (K.pond ?? 1) eventTick(dt);
+    if ((K.pond ?? 1) && eng.leaf) { eventTick(dt); eng.stepFloor?.(); }
     eng.excursion = excursionAt(x, eng.simTime) + (climate.eventTemp || 0);
     if (x && eng.simTime >= x.t && climate.announced !== x) {
       climate.announced = x;
