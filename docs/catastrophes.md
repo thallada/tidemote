@@ -58,18 +58,36 @@ grew a fourth block (the relief). Saves from before do not load.
 
 ## How it looks
 
-Darkfield: the lamp's light reaches the objective only where something scatters it.
+Darkfield: the lamp's light reaches the objective only where something scatters it. A world unit is 10 µm, so the
+whole pool is a millimetre or two across and everything is drawn at that scale (all in `POST_WGSL`, observational).
 
-- **Dry ground** (`dryGround`): the skin of mud the water left glows faintly, warm grey and grained; just out of the
-  water it is still damp and dark; where it has dried longest it has shrunk into plates whose cracks catch the
-  light, and salt crystals glint.
-- **The water's edge**: a thin, uneven, bright contact line (the meniscus pins and slips on grains), the curved
-  surface rising to it scattering a narrowing glow on the water's side, a faint sheen of thinning film beyond.
-- **Raindrops**: each ring bends the view as it passes (the surface's slope refracts it) and its crest catches a
-  little light.
-- **Ice** (`iceLook`): clear, so what is frozen in it shows through, with a faint cold haze; growth bands where its
-  front stood; near the front, feathers: two families of fine arms at sixty degrees to it, as ice dendrites branch,
-  curving with the front; the front itself a crisp bright line.
+- **Dry ground** (`dryGround`): the film of silt and clay the water left. Wet, water fills the spaces between its
+  grains and it scatters little, dark and smooth; as it dries air takes their place and it pales to a grainy buff
+  glow, patchily. Silt and fine sand show as points of light, rimmed where they are large enough to resolve (quartz
+  pale, iron-stained grains ochre, organic flecks dark), with here and there a diatom's empty frustule (a glass boat
+  with its central rib and fine ribs across). Drying, the film shrinks and cracks: a coarse network (cells ~7.5 units)
+  opening first, then finer cracks through the driest plates. The cracks are dark gaps, nothing in them to scatter;
+  each plate's broken rim is bright and curls up, its middle sagging a shade darker. Tide lines of fine matter lie
+  along the floor's contours where the edge paused (a coffee ring), cut by the cracks.
+- **The water's edge**: an uneven bright contact line (the meniscus pins and slips on grains), its width and
+  brightness varying along it, the curved surface rising to it scattering a narrowing glow on the water's side.
+- **Rain** (`ripples`, `caustic`): the surface lies above the focal plane, so its waves are never sharp in
+  themselves; they show by bending what lies beneath (a slope displaces the view) and by focusing the lamp's light
+  on the floor in caustics, as sunlight on a pool's bottom (the light the floor receives is one over the determinant
+  of the map the curved surface makes from the surface to a floor below it). A raindrop's ring is a dispersive
+  capillary packet, short crests crowding its leading edge and broadening toward its centre, uneven in amplitude and
+  radius around its circle, with up to two splash droplets ringing beside it. The rain falling out of view roughens
+  the whole surface with wavelets from every direction, in groups.
+- **Ice** (`iceLook`, `frazil`): ice and water bend light almost alike, so the ice is nearly invisible; what shows
+  is where it scatters. Each grain (a Voronoi cell, ~11 units) is one crystal. Its front advances as fern dendrites:
+  stems along whichever of its six axes points most nearly into the water, reaching ahead of the simulated front by
+  their own lengths (some lagging, crowded out); secondary branches at sixty degrees, longer the longer they have
+  grown; fine needles off those, parallel to the stem. Lines finer than a pixel spread to a pixel and dim, and
+  branches closer than a few pixels blur into a glow along their stem, so the fern resolves as the view closes in.
+  Behind the front the filigree fades as the gaps freeze (faster once the ice stops growing), leaving a faint mosaic
+  of grains (each scatters a little differently), bright seams with grooves where grains meet, and chains of air
+  bubbles (bright rims, dark hearts) along the way the ice grew. Ahead of a growing front, small stellar crystals
+  (frazil: six uneven, branched arms around a hexagonal plate) grow in the supercooled water.
 - **A leaf**: far above the focal plane, so out of focus: it keeps the lamp from what lies under it (dimmed by 88%
   at its heart, a soft edge), and scatters a faint green-brown haze in which its veins are blurred shadows.
 
@@ -77,7 +95,10 @@ The page announces each event and its turns (the chronicle's "The pool" filter i
 drought leaves (`countPools`), and tallies life and species lost once it has passed. The auto camera gives most of
 its shots to an event while it lasts (`eventShot`): a stretch of shore, the leaf, the last raindrop.
 
-`tools/shot.mjs` photographs the built page through an event (`--eval 'T.climate().force("drought")' --at shore`);
+`tools/shot.mjs` photographs the built page through an event (`--eval 'T.climate().force("drought")' --at shore`;
+`--clip` records it). `tools/looklab.mjs` grows one world and then swaps in each new composite shader as it is
+written, photographing staged scenes (a water level, ice, raindrops of given ages) or live ones, so the looks can be
+tuned in seconds rather than a world's growth each time;
 `tools/events.mjs` aligns runs on their first event and reports diversity, life and guilds at minutes from it.
 
 ## Results
@@ -154,7 +175,9 @@ defaults (full darkness) had lost predators in 4 of 12 runs; with the milder clo
 **Balance gate** (32 seeds × 30 min, the defaults, edc2deb): every gated measure the same as the baseline
 (persisted 100%, food web 97%, late guilds 3.5, late effective species 105 against 112, p 0.25).
 
-The look was tuned on the page with `tools/shot.mjs`: raindrops are trains of fine ripples (darkfield shows a
-sloping surface as bright lines), each ring fading before it meets its own copy across the world's wrap; the
-edge's slope is read smoothly across grid cells (a slope constant within each cell had lined the grains an ice
-front pushes up along the grid); ice dendrites grow as stems along the front's normal with side arms.
+The first look (bright crisp ripple lines, bright cracks, feathers along the front's normal) read as drawn; the
+second pass (`tools/looklab.mjs`) rebuilt each from what darkfield shows at this scale: cracks as dark gaps, drying
+as paling, rain as defocused caustics rather than lines, ice as dendrites on crystal axes and a grain mosaic. The
+edge's slope is read smoothly across grid cells (a slope constant within each cell had lined the grains an ice front
+pushes up along the grid); rings fade before they meet their own copy across the world's wrap. The looks cost at
+most about 0.35 ms a frame at 1280×800 on a desktop GPU, and only while an event shows them.
