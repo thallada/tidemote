@@ -92,7 +92,7 @@ for (;;) {
       }
       const fit = Math.max(innerWidth / g[0], innerHeight / g[1]), z = s.zoom ?? 'fit';
       T.cam.x = x; T.cam.y = y; T.cam.anchor = null;
-      T.cam.zoom = T.cam.zoomTarget = z === 'fit' ? Math.min(innerWidth / g[0], innerHeight / g[1]) / fit : z / fit;
+      T.cam.zoom = T.cam.zoomTarget = z === 'fit' ? Math.min(innerWidth / g[0], innerHeight / g[1]) / fit : Math.max(z / fit, 1);
     }, s);
     await page.waitForTimeout(s.wait ?? 700);
     await page.screenshot({ path: path.join(v.dir, `${s.name}.png`) });

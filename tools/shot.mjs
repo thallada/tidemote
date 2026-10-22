@@ -61,7 +61,8 @@ for (const dt of String(v.times).split(',').map(Number)) {
         }
       } else if (at) [x, y] = at.split(',').map(Number);
       T.cam.x = x; T.cam.y = y; T.cam.anchor = null;
-      T.cam.zoom = T.cam.zoomTarget = z === 'fit' ? Math.min(innerWidth / g[0], innerHeight / g[1]) / fit : +z / fit;
+      // (never wider than the page lets a viewer see: below fit the view would show past the world's edges)
+      T.cam.zoom = T.cam.zoomTarget = z === 'fit' ? Math.min(innerWidth / g[0], innerHeight / g[1]) / fit : Math.max(+z / fit, 1);
     }, [z, v.at]);
     if (+v.clip > 0) {
       const dir = path.join(v.out, `clip_t${String(Math.round(dt)).padStart(4, '0')}_z${z}`);

@@ -438,9 +438,10 @@ canvas.chart { cursor: crosshair; }
   position: absolute; right: calc(var(--gut) + var(--safe-r)); bottom: calc(var(--bot) + 10px); width: 430px;
   padding: var(--s2) 14px var(--s3); z-index: 5; max-height: calc(100% - var(--top) - var(--bot) - 20px); overflow-y: auto;
 }
-.settings .sec-h { gap: var(--s3); }
-.settings .sec-h h2 { white-space: nowrap; }
-.settings .tabs { margin-right: auto; min-width: 0; }
+.settings .sec-h { gap: 0 var(--s3); flex-wrap: wrap; }
+.settings .sec-h h2 { white-space: nowrap; margin-right: auto; }
+/* the tabs on a row of their own under the title, so four fit at any width */
+.settings .tabs { order: 3; flex-basis: 100%; min-width: 0; margin-left: -8px; }
 .settings .tabs button { height: 32px; padding: 0 8px; letter-spacing: .12em; }
 .settings .sec-h > .ghost { flex: none; margin-right: -6px; }
 .opt .chip:disabled { opacity: .35; cursor: default; }
@@ -1630,7 +1631,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     rainTurb: 1,
     rainDrops: 1,
     frostCold: 1,
-    // a frost's night, as shares of the full: cold (−10°) and dark (light × 0.4 at full)
+    // a frost's night, as shares of the full: cold (the water chilled to 0.5°) and dark (light × 0.4 at full)
     frostDark: 0.35,
     leafLen: [0.18, 0.32],
     leafDark: [0.75, 0.92],

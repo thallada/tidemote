@@ -44,7 +44,8 @@ console's `__tidemote.climate().force('drought')` starts one. Climate eras also 
   the water a little higher.
 - **Leaf** (`leafDur`, 7-12 min): a leaf `leafLen` (18-32% of the world's side) floats onto the pool, drifting and
   turning slowly, and shades the water under it (light × 1 − `leafDark`, 75-92%).
-- **Frost** (`frostGrow`, `frostHold`, `frostThaw`): a cold night (light × 0.4, −10°) on a pool this thin freezes it
+- **Frost** (`frostGrow`, `frostHold`, `frostThaw`): a cold night (light × 0.4, the background water chilled to 0.5°
+  whatever the era's warmth, `FROST_WATER` in `src/climate.js`, × `frostCold`) on a pool this thin freezes it
   in-plane. Ice grows in the order of a second field (`makeIceOrder`, thermal block 4: grains spreading from the
   shallows and from their centres, meeting last along the zero lines of a random field) until `frostMax` (60-85%)
   of the pool is ice. The ice's front is an edge like the water's (`pondAt` takes whichever is nearer): it pushes
@@ -88,10 +89,16 @@ whole pool is a millimetre or two across and everything is drawn at that scale (
   of grains (each scatters a little differently), bright seams with grooves where grains meet, and chains of air
   bubbles (bright rims, dark hearts) along the way the ice grew. Ahead of a growing front, small stellar crystals
   (frazil: six uneven, branched arms around a hexagonal plate) grow in the supercooled water.
+- **Trapped cells** (`DRAW_WGSL`): a cell on dry ground shrivels a little and its colour drains to a dull brown,
+  darkened; a cell in the ice drains to a pale frosted blue-white. Both read the same relief and ice fields as the
+  simulation (the view uniform carries the level and the frost). Most rest as cysts: a cyst loses `cystLeak` energy a
+  second, does not age out, and does not wake on dry ground or in ice; awake stranded cells pay `dryCost` on top of
+  their upkeep and still die of age.
 - **A leaf**: far above the focal plane, so out of focus: it keeps the lamp from what lies under it (dimmed by 88%
   at its heart, a soft edge), and scatters a faint green-brown haze in which its veins are blurred shadows.
 
-The page announces each event and its turns (the chronicle's "The pool" filter in the Field Lab), counts the pools a
+**Settings → Climate** turns the events off, or each kind on its own (the climate's `allowed`, kept with the page's
+preferences; an event of a kind turned off ends at once), and starts one now. The page announces each event and its turns (the chronicle's "The pool" filter in the Field Lab), counts the pools a
 drought leaves (`countPools`), and tallies life and species lost once it has passed. The auto camera gives most of
 its shots to an event while it lasts (`eventShot`): a stretch of shore, the leaf, the last raindrop.
 
