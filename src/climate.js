@@ -57,7 +57,7 @@ export function eventAt(ev, t, levelTo) {
     // night falls and the water chills; ice grows from the shallows and grain centres, holds, then thaws
     const { cool, grow, hold, thaw } = ev;
     const night = Math.min(ramp(u, 0, cool), 1 - ramp(u, cool + grow + hold, cool + grow + hold + thaw + 120));
-    out.sky = 1 - 0.6 * night; out.dT = -10 * (ev.cold ?? 1) * night;
+    out.sky = 1 - 0.6 * (ev.dark ?? 1) * night; out.dT = -10 * (ev.cold ?? 1) * night;
     if (u < cool) out.phase = 'cooling';
     else if (u < cool + grow) { const v = (u - cool) / grow; out.frost = ev.max * ease(v); out.freezing = Math.sin(Math.PI * v); out.phase = 'freezing'; }
     else if (u < cool + grow + hold) { out.frost = ev.max; out.phase = 'frozen'; }
@@ -79,7 +79,7 @@ export function makeEvent(type, t, rng, w, h, K = {}) {
   const rain = { rainCold: K.rainCold ?? 1, rainDark: K.rainDark ?? 1, rainTurb: K.rainTurb ?? 1 };
   if (type === 'drought') return { type, t, fall: pick(K.droughtFall, [300, 480]), hold: pick(K.droughtHold, [150, 300]), refill: pick(K.droughtRefill, [90, 150]), low: pick(K.droughtLow, [0.35, 0.6]), ...rain };
   if (type === 'storm') return { type, t, dur: pick(K.stormDur, [240, 420]), ...rain };
-  if (type === 'frost') return { type, t, cool: 90, grow: pick(K.frostGrow, [150, 270]), hold: pick(K.frostHold, [120, 240]), thaw: pick(K.frostThaw, [100, 160]), max: pick(K.frostMax, [0.6, 0.85]), cold: K.frostCold ?? 1 };
+  if (type === 'frost') return { type, t, cool: 90, grow: pick(K.frostGrow, [150, 270]), hold: pick(K.frostHold, [120, 240]), thaw: pick(K.frostThaw, [100, 160]), max: pick(K.frostMax, [0.6, 0.85]), cold: K.frostCold ?? 1, dark: K.frostDark ?? 1 };
   const len = pick(K.leafLen, [0.18, 0.32]) * Math.min(w, h), a = rng() * Math.PI * 2, sp = climateMix(0.01, 0.04, rng());
   return { type, t, dur: pick(K.leafDur, [420, 720]), x: rng() * w, y: rng() * h, len, dark: pick(K.leafDark, [0.75, 0.92]),
     angle: rng() * Math.PI * 2, spin: (rng() - 0.5) * 0.002, seed: rng() * 100, width: climateMix(0.35, 0.55, rng()), vx: Math.cos(a) * sp, vy: Math.sin(a) * sp };
