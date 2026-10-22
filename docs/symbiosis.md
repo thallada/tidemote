@@ -211,5 +211,25 @@ swing is the sd of ln(cells grafted) over a run (how much grafting rises and fal
 - **Generalist grafting damps regions**: ref's regional booms are 21 an hour against off's 28 (round 8: 22 against
   30); grafters ride and armour each other through the busts. Specialists leave regional booms as they were.
 
+### Round 10: virulence (16 seeds × 60 min, from minute 10)
+
+Every variant is the branch default (ref, `graftImprint` 2) with `graftSwitch` 0.001 unless named sw0003; take is
+`graftTake`, common `graftSpark` 0.4, noMax drops `graftMax`.
+
+| variant | species booms/h | regional booms/h | effective species | grafted | leader load | outbreaks/h |
+|---|---|---|---|---|---|---|
+| r10-off | 41.4 | 29.8 | 113 ± 8 | 0% | - | - |
+| r10-sw001 | 41.6 | 29.2 | 111 ± 9 | 5% | 1.32 | 8.5 |
+| r10-sw001take1 | 40.0 | 29.3 | 111 ± 7 | 5% | 1.32 | 8.6 |
+| r10-sw001take2 | 40.9 | 25.7 | 102 ± 7 | 6% | 1.29 | 8.3 |
+| r10-sw0003take2 | 38.3 | 27.7 | 107 ± 9 | 4% | 1.43 | 8.7 |
+| r10-sw001common | 41.2 | 29.0 | 109 ± 8 | 6% | 1.38 | 8.0 |
+| r10-sw001noMax | 38.8 | 29.4 | 110 ± 7 | 9% | 1.21 | 8.5 |
+
+Slow-switching specialists leave the world as it was: every measure is within noise of off, whatever their
+virulence. Parasites are there, aimed at the common, and come and go, but too few cells are grafted (5-9%) to move
+their hosts' numbers. Making them matter needs more of them: a way to spread through a host population faster
+than a free cell finds a host (infection), rather than a harder bite.
+
 **Defaults on this branch** (after round 9): `graftMax` 1, `graftHop` 1, `graftImprint` 2, `graftSwitch` 0.001, the
 slow-switching specialists. `#k={"graftImprint":0,"graftMax":0,"graftHop":0}` gives the plain rule's generalists back, `#k={"graftMin":2}` no grafting.
