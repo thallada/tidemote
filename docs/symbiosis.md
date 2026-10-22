@@ -187,3 +187,26 @@ load is 0.83 in all of them. Specialising by receptor fit slows grafting's sprea
 surfaces are shared widely enough across species that a good fit is not one host species. Only imprinting has aimed
 parasites at the common, which led to `graftSwitch`: an imprinted species, while its grafters find none of its host
 species in reach, may lose its imprint (at this rate per such grafter per second) and fix on the next species it grafts.
+
+### Round 9: switching hosts (16 seeds × 60 min, from minute 10)
+
+All imprint variants are ref (`graftMax` 1, `graftHop`) with `graftImprint` 2; swN is `graftSwitch` N. Grafting
+swing is the sd of ln(cells grafted) over a run (how much grafting rises and falls).
+
+| variant | species booms/h | regional booms/h | effective species | grafted | leader load | outbreaks/h | grafting swing |
+|---|---|---|---|---|---|---|---|
+| r9-off | 39.5 | 28.1 | 110 ± 8 | 0% | - | - | - |
+| r9-ref | 46.4 | 21.1 | 93 ± 5 | 31% | 0.84 | 5.4 | 0.67 |
+| r9-imp2 (no switching) | 45.8 | 29.9 | 100 ± 7 | 1% | 1.28 | 8.0 | 1.15 |
+| r9-sw0003 | 43.6 | 28.1 | 115 ± 10 | 3% | 1.50 | 8.9 | 1.09 |
+| r9-sw001 | 44.6 | 29.1 | 104 ± 6 | 6% | 1.43 | 8.1 | 1.35 |
+| r9-sw003 | 41.4 | 26.4 | 95 ± 8 | 9% | 1.19 | 7.7 | 1.10 |
+| r9-sw01 | 45.5 | 28.0 | 85 ± 5 | 11% | 1.02 | 7.2 | 0.97 |
+
+- **One dial from specialist to generalist.** The faster a parasite species may switch, the more of the living is
+  grafted, the less its load leans on the common, and the more diversity it costs; diversity follows the leader load.
+- **Slow switching keeps parasites and diversity both**: at 0.0003-0.001 a few percent of the living is grafted, the
+  load falls half again as heavily on the leading species as their numbers, and effective species are within noise of
+  off. Grafting there comes and goes most (outbreaks 8-9 an hour, the largest swing).
+- **Generalist grafting damps regions**: ref's regional booms are 21 an hour against off's 28 (round 8: 22 against
+  30); grafters ride and armour each other through the busts. Specialists leave regional booms as they were.
