@@ -222,6 +222,41 @@ export const DEFAULT_K = {
   foundHuntSleep: 300, // flesh-eating founders start as cysts that wake over about this many seconds, after their prey
   interfere: 0.6,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
                     // within reach, its bond partners aside)
+  // The pool (docs/catastrophes.md): its floor's relief (src/geography.js) and the water level the climate sets
+  // decide where it is dry. The water's edge drags stranded cells back with it; cells left on dry ground dry out
+  // or rest as cysts until rain wets them again; grains and husks lie where the water left them.
+  pond: 1,          // 0: the floor is never dry (no relief)
+  filmR: 1.2,       // world units from the water's edge over which the film of water pulls stranded cells back
+  meniscus: 2.5,    // how hard (units/s² at the edge, fading over filmR) the edge pulls a stranded cell toward the water
+  dryDrag: 6,       // rate (per second) a stranded cell's motion dies away (it is stuck in the drying film)
+  dryCyst: 0.25,    // chance per second a stranded cell rests as a cyst (any guild; a producer as a spore)
+  dryCost: 0.08,    // energy per second a stranded cell that has not encysted loses as it dries
+  dryRot: 0.15,     // how fast husks rot on dry ground, relative to in water
+  rainWake: 12,     // cysts wake this much faster (× the rain) while rain falls: rain hatches the resting bank
+  ringPull: 1.2,    // units/s at which matter near a receding edge is carried to it (× how fast it recedes):
+                    // a drying edge strands grains in lines, as a coffee ring
+  shoreCalm: 1.0,   // world units from the edge over which the currents die away
+  dropSpeed: 7,     // a raindrop's ring wave: speed (units/s), width (units) and how long it lasts (s)
+  dropWidth: 2.5,
+  dropLife: 5,
+  // the climate's events (src/climate.js): the first no sooner than eventFirst minutes, then one about every
+  // eventEvery minutes (0: none), drawn drought, storm, leaf by eventMix; eventPlan forces some ("drought@900");
+  // lowEras is the share of climate eras whose water stands low enough to show sandbars and islands
+  eventEvery: 60,
+  eventFirst: 25,
+  eventMix: [0.45, 0.3, 0.25],
+  eventPlan: '',
+  lowEras: 0.35,
+  // each event's draw (ranges): a drought's fall, hold and refill (s) and how low the water falls (the share of the
+  // floor left wet); a storm's length (s); a leaf's length (share of the world's side), darkness and stay (s)
+  droughtFall: [300, 480],
+  droughtHold: [150, 300],
+  droughtRefill: [90, 150],
+  droughtLow: [0.35, 0.6],
+  stormDur: [240, 420],
+  leafLen: [0.18, 0.32],
+  leafDark: [0.75, 0.92],
+  leafDur: [420, 720],
 };
 
 // WGSL for the energy in a body of genome expression G (K.bodyE by size), and a dying cell's litter flag
@@ -384,6 +419,21 @@ fn tideAt(p: vec2f, world: vec2f, t: f32, w: array<vec4f, 4>, ph: vec4f) -> f32 
     n += w[k].w;
   }
   return smoothstep(0.35, 1.9, s * 2.7 / max(n, 1e-3));
+}
+
+// A leaf floating on the pool shades the water under it (docs/catastrophes.md): 0..1 at p, for a leaf centred at
+// lf.xy, lf.z long from base to tip, its darkness lf.w (0: no leaf), turned lb.x, its outline drawn by seed lb.y
+// and lb.z wide (relative to its length). Its edge is soft: it floats far above the focal plane.
+fn leafShade(p: vec2f, lf: vec4f, lb: vec4f, world: vec2f) -> f32 {
+  if (lf.w <= 0.0) { return 0.0; }
+  var d = p - lf.xy;
+  d -= world * round(d / world);
+  let q = rot2(d, -lb.x) / lf.z;
+  // ovate: widest a little toward the base, tapering to a point at the tip, the margin toothed
+  let x = clamp(q.x, -1.0, 1.0);
+  let hw = lb.z * pow(max(1.0 - x * x, 0.0), 0.7) * (1.0 - 0.25 * x) * (1.0 + 0.03 * sin(q.x * 31.0 + lb.y) + 0.02 * sin(q.x * 67.0 + lb.y * 3.1));
+  let out = max(abs(q.y) - hw, abs(q.x) - 1.0) * lf.z;
+  return lf.w * (1.0 - smoothstep(-1.5, 1.5, out));
 }
 
 fn hsl2rgb(h: f32, s: f32, l: f32) -> vec3f {
@@ -789,7 +839,11 @@ function cellWGSL(K, w) {
   let baseOn = tail && n1 != NONE && !treeCellAt(n1);
   let baseB = select(vec2f(0.0), dn1 * ((d1 - rs1) / max(d1, 1e-4)), baseOn);
   let aimOn = tree && n1 != NONE && !beating;
-  let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0);
+  // the water's edge: a cell on dry ground is stranded (it cannot swim, and the film pulls it back toward the water)
+  let pond = pondAt(p.pos);
+  let shore = shoreDist(pond);
+  let stranded = pond.x < 0.0;
+  let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0) * select(1.0, 0.0, stranded);
   let flow = flowAt(p.pos) * g.advect;
   // a holdfast: a cell the current hardly carries (advect below 0.35, fully below 0.1) is anchored, and
   // pushes barely move it (its velocity decays K.holdfast times as fast)
@@ -918,6 +972,9 @@ function cellWGSL(K, w) {
       vel += normalize(dir) * swim * h;${W('if (k == 0u) { mSwim = normalize(dir) * swim; }')}
     }
     vel += taxis * h;
+    if (stranded) {
+      vel = vel * exp(-${f(K.dryDrag)} * h) - pond.yz / max(length(pond.yz), 1e-4) * (${f(K.meniscus)} * (1.0 - smoothstep(0.0, ${f(K.filmR)}, -shore)) * h);
+    }
     let sp = length(vel);
     if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
     pos += (vel + flow) * h;
@@ -930,13 +987,15 @@ function cellWGSL(K, w) {
   if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }
   col = mix(col, roleColor(g, role), ${f(K.baseMix)});
 
-  let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
+  let light = lightAt(p.pos);
   // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
   // water; anchored cells have fresh silt carried past them by the currents.
   let photoGain = th.perf * pow(g.photo, ${f(K.photoPow)}) * light * ${f(K.photo)} / (1.0 + crowdP * ${f(K.shadeP)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
     * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0))
     // Allee effect: a producer thrives among its own kind; a lone one grows slowly, so grazed-bare water stays bare a while
-    * (1.0 - ${f(K.allee)} + ${f(K.allee)} * min(kinN / 3.0, 1.0));
+    * (1.0 - ${f(K.allee)} + ${f(K.allee)} * min(kinN / 3.0, 1.0))
+    // no light reaches a stranded cell's chloroplasts through a drying film
+    * select(1.0, 0.0, stranded);
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
   // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); a body's bond partners do not count
   let kinCost = 1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - bonds - ${f(K.kinFree)});
@@ -970,6 +1029,16 @@ struct Sim {
   // tick: 1/60 s ticks simulated up to the end of this step; ticks: how many this step covers;
   // tbg: the background water temperature (climate, season, excursion); maxScan: the neighbour budget
   tick: u32, ticks: u32, tbg: f32, maxScan: u32,
+  // the pool (docs/catastrophes.md): x the water level (a relief quantile; at 1 or above nothing is dry), y rain
+  // (0..1), z the sky (light ×: clouds), w how fast the water is drying (0..1)
+  pond: vec4f,
+  // x the currents' strength ×; yzw spare
+  weather: vec4f,
+  // a floating leaf's shadow: centre, radius, darkness (0: none); angle, shape seed, elongation, spare
+  leaf: vec4f,
+  leafB: vec4f,
+  // raindrops' ring waves: centre, the time it fell, strength (0: none)
+  drops: array<vec4f, 4>,
 };
 // kr: 0..9 kind, 10..11 role, 12 plant, 13 cyst, 14 hunter, 15 tail cell.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
@@ -1019,6 +1088,7 @@ const DIAG = ${K.diag ? 'true' : 'false'};
 const LINK_R = ${f(K.linkR)};
 const DIET_MIN = ${f(K.dietMin)};
 const HEAT_ON = ${K.heat ? 'true' : 'false'};
+const POND = ${K.pond ? 'true' : 'false'};
 const TREF = ${f(K.tRef)};
 const HEAT_FIX = ${f(HEAT_FIX)};
 const FRAMBOID_COL = ${packCol(0.8, 0.7, 0.45)}u;
@@ -1048,7 +1118,50 @@ fn flowAt(p: vec2f) -> vec2f {
     let ph = w.x * p.x + w.y * p.y + w.z * sim.time + f32(k) * 1.7;
     v += vec2f(w.y, -w.x) * (cos(ph) * w.w / max(length(w.xy), 1e-4));
   }
+  v *= sim.weather.x;
+  // raindrops: each sends a ring wave out from where it fell, shoving the water outward as it passes
+  for (var k = 0u; k < 4u; k++) {
+    let dr = sim.drops[k];
+    let age = sim.time - dr.z;
+    if (dr.w > 0.0 && age > 0.0 && age < ${f(K.dropLife)}) {
+      var d = p - dr.xy;
+      d -= sim.world * round(d / sim.world);
+      let r = length(d);
+      let x = (r - age * ${f(K.dropSpeed)}) / ${f(K.dropWidth)};
+      v += d / max(r, 1e-3) * (dr.w * exp(-x * x) * (1.0 - age / ${f(K.dropLife)}));
+    }
+  }
+  // the currents die away toward the water's edge and never cross it; dry ground has none
+  if (POND && sim.pond.x < 1.0) {
+    let pd = pondAt(p);
+    let gl = length(pd.yz);
+    let dist = pd.x / max(gl, 1e-4);
+    let n = pd.yz / max(gl, 1e-4);
+    let calm = smoothstep(0.0, ${f(K.shoreCalm)}, dist);
+    v -= n * (max(dot(v, n), 0.0) * (1.0 - calm));
+    v *= select(0.0, mix(0.3, 1.0, calm), dist > 0.0);
+  }
   return v;
+}
+// The pool's floor at p (thermal block 3, a relief quantile per grid cell, bilinear): the water's depth there (the
+// level less the floor; below 0 dry) and the floor's slope (uphill, per world unit).
+fn reliefCell(x: i32, y: i32) -> f32 { return bitcast<f32>(atomicLoad(&thermal[3u * MAX_CELLS + wrapCell(x, y)])); }
+fn pondAt(p: vec2f) -> vec3f {
+  if (!POND || sim.pond.x >= 1.0) { return vec3f(1.0, 0.0, 0.0); }
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  let a = reliefCell(i.x, i.y);
+  let b = reliefCell(i.x + 1, i.y);
+  let c = reliefCell(i.x, i.y + 1);
+  let d = reliefCell(i.x + 1, i.y + 1);
+  return vec3f(sim.pond.x - mix(mix(a, b, t.x), mix(c, d, t.x), t.y), mix(b - a, d - c, t.y), mix(c - a, d - b, t.x));
+}
+// How far (world units) p lies from the water's edge, wet side positive, from pondAt's depth and slope.
+fn shoreDist(pd: vec3f) -> f32 { return pd.x / max(length(pd.yz), 1e-4); }
+// The light at p: the baseline and the tide's bands by the season, under the sky (clouds) and any leaf's shadow.
+fn lightAt(p: vec2f) -> f32 {
+  return (sim.ambient + (1.0 - sim.ambient) * tideAt(p, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season) * sim.pond.z * (1.0 - leafShade(p, sim.leaf, sim.leafB, sim.world));
 }
 
 fn wrapPos(p: vec2f) -> vec2f { return p - sim.world * floor(p / sim.world); }
@@ -1696,17 +1809,26 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   // a fresh husk still carries its cell's velocity; cap it to the jitter's own scale so it doesn't coast
   let w = p.vel - flowAt(p.pos);
   let jit = w * (keep * min(1.0, 0.05 / max(length(w), 1e-6))) + kick;
-  var vel = flowAt(p.pos) + jit;${K.heat && K.marangoni > 0 ? `
+  var vel = flowAt(p.pos) + jit;
+  // on dry ground grains and husks lie where the water left them; near a receding edge the water flowing out to
+  // replace what evaporates there carries them to it, and strands them in a line (a coffee ring)
+  let pd = pondAt(p.pos);
+  let dryHere = pd.x < 0.0;
+  if (POND && sim.pond.x < 1.0) {
+    let sd = shoreDist(pd);
+    if (dryHere) { vel = vec2f(0.0); }
+    else if (sim.pond.w > 0.0 && sd < ${f(K.filmR)}) { vel += pd.yz / max(length(pd.yz), 1e-4) * (${f(K.ringPull)} * sim.pond.w * (1.0 - sd / ${f(K.filmR)})); }
+  }${K.heat && K.marangoni > 0 ? `
   // surface flow: warm water's surface pulls toward cooler water, carrying matter with it
   vel -= heatSample(p.pos).yz * ${f(K.marangoni)};` : ''}
   let pos = wrapPos(p.pos + vel * sim.dt);
   p.age += sim.dt;
   if (p.kind == SILT) {
-    let tide = tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient;
+    let tide = (tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient) * sim.pond.z * (1.0 - leafShade(pos, sim.leaf, sim.leafB, sim.world));
     // life sparks from silt (about one spark per 30 s in the world, sim.abio per grain), in the light, and
     // more in hot water (around framboids); a spark founds a species suited to the water here, so a world
     // whose life died begins again
-    if (sim.abio > 0.0 && rnd(&s) < sim.abio * 2.0 * clamp(tide, 0.0, 1.0) * (1.0 + ${f(K.abioHeat)} * smoothstep(4.0, 20.0, hot))) {
+    if (sim.abio > 0.0 && !dryHere && rnd(&s) < sim.abio * 2.0 * clamp(tide, 0.0, 1.0) * (1.0 + ${f(K.abioHeat)} * smoothstep(4.0, 20.0, hot))) {
       let k = allocSlot(&s);
       if (k != NONE) {
         randomInto(k, &s, T);
@@ -1722,7 +1844,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   } else if (p.kind == HUSK) {
     // rot is faster in warm water, and a carcass pile steams; a husk gives off no more than it holds,
     // or hot water would rot husks into heat from nothing and run away
-    let rot = min(${f(K.decay)} * pow(${f(K.rotQ10)}, warm) * sim.dt, max(p.energy, 0.0));
+    let rot = min(${f(K.decay)} * pow(${f(K.rotQ10)}, warm) * select(1.0, ${f(K.dryRot)}, dryHere) * sim.dt, max(p.energy, 0.0));
     p.energy -= rot;
     if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, rot * 8.0 * ${f(K.rotHeat)}); }
     if (p.energy < ${f(K.huskMin)}) {
@@ -1759,7 +1881,7 @@ fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
   let lap = heatCell(x + 1, y) + heatCell(x - 1, y) + heatCell(x, y + 1) + heatCell(x, y - 1) - 4.0 * here;
   let stones = atomicLoad(&stoneGrid[c]);
   let mass = 1.0 + ${f(K.stoneMass)} * (f32(stones & 0xffffu) / REEF_FIX + f32(stones >> 16u));
-  let light = sim.ambient + (1.0 - sim.ambient) * tideAt(centre, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season;
+  let light = lightAt(centre);
   let q = f32(atomicExchange(&thermal[c], 0u)) / HEAT_FIX + ${f(K.sunHeat)} * light * sim.dt;
   let t = carried + ${f(K.heatD)} * lap * sim.dt + (q - ${f(K.heatLoss)} * (carried - sim.tbg) * sim.dt) / mass;
   heatNext[c] = t;
@@ -2208,6 +2330,8 @@ fn cystStep(i: u32) {
   // asleep, it neither swims nor feels other cells' pull: it moves only as the current carries it and as
   // neighbours jostle it (contactMain's push, already in its velocity), and soon comes to rest
   p.vel *= pow(0.5, sim.dt / 0.15);
+  let dry = pondAt(p.pos).x < 0.0;
+  if (dry) { p.vel = vec2f(0.0); }
   p.pos = wrapPos(p.pos + (p.vel + flowAt(p.pos) * g.advect) * sim.dt);
   atomicAdd(&ledger[cystSlot(dietGuild(g))], 1u);
   if (p.energy <= 0.0) {
@@ -2215,7 +2339,7 @@ fn cystStep(i: u32) {
     p.info = (p.info & 0xffff7fc0u) | 1u${litterOf('g')};
     atomicAdd(&ledger[5], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 1u], 1u);
-  } else if (p.age > 0.0 && rnd(&s) < ${f(K.cystWake)} * sim.dt) {
+  } else if (p.age > 0.0 && !dry && rnd(&s) < ${f(K.cystWake)} * (1.0 + ${f(K.rainWake)} * sim.pond.y) * sim.dt) {
     p.info = (p.info & 0xfffffff0u) | 9u; p.age = 0.0;
   }
   intent[i] = vec4u(0u, 0u, NONE, NONE);
@@ -2412,6 +2536,11 @@ ${cellWGSL(K, false)}
   if (act == 0u && E > 0.0 && E < ${f(K.cystAt)} * divE && food == NONE && age > 10.0 && g.photo <= 0.4 && rnd(&s) < ${f(K.cystRate)} * sim.dt) {
     info = (info & 0xffff003fu & 0xfffffff0u) | CYST;
     age = 0.0;
+  }
+  // stranded on dry ground a cell dries out, unless it rests as a cyst (or a spore) first
+  if (stranded && E > 0.0) {
+    if (act == 0u && rnd(&s) < ${f(K.dryCyst)} * smoothstep(0.5, 1.0, -shore / ${f(K.filmR)}) * sim.dt) { info = (info & 0xffff003fu & 0xfffffff0u) | CYST; age = 0.0; act = 0u; }
+    else { E -= ${f(K.dryCost)} * sim.dt; }
   }
   var kind = p.kind;
   if (E <= 0.0) {
@@ -5171,8 +5300,12 @@ struct Post {
   waves: array<vec4f, 4>,
   // the background water temperature, then the heat map's span; w: the tide map (0 off, 1 on)
   heat: vec4f,
-  // unused (once the tide map's glint production)
-  spare: vec4f,
+  // the pool (docs/catastrophes.md): water level, rain, sky, drying; currents' strength; a floating leaf; raindrops
+  pond: vec4f,
+  weather: vec4f,
+  leaf: vec4f,
+  leafB: vec4f,
+  drops: array<vec4f, 4>,
 };
 `;
 
@@ -5721,6 +5854,73 @@ fn waterAt(p: vec2f) -> vec3f {
   let d = waterCell(i.x + 1, i.y + 1);
   return vec3f(mix(mix(a, b, t.x), mix(c, d, t.x), t.y), mix(b - a, d - c, t.y), mix(c - a, d - b, t.x));
 }
+// The pool's floor at world point p (docs/catastrophes.md), as the simulation reads it (pondAt): the water's depth
+// (below 0 dry) and the floor's slope uphill.
+fn reliefPost(x: i32, y: i32) -> f32 {
+  let g = vec2i(post.world);
+  return heatField[${3 * MAX_CELLS}u + u32(((y % g.y) + g.y) % g.y) * u32(g.x) + u32(((x % g.x) + g.x) % g.x)];
+}
+// (bicubic, Catmull-Rom, with its slope: the edge drawn smooth; the simulation's bilinear edge lies within a
+// fraction of a unit of it)
+fn pondPost(p: vec2f) -> vec3f {
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  let tx = t.x; let ty = t.y;
+  let wx = vec4f(((-0.5 * tx + 1.0) * tx - 0.5) * tx, (1.5 * tx - 2.5) * tx * tx + 1.0, ((-1.5 * tx + 2.0) * tx + 0.5) * tx, (0.5 * tx - 0.5) * tx * tx);
+  let dx = vec4f((-1.5 * tx + 2.0) * tx - 0.5, (4.5 * tx - 5.0) * tx, (-4.5 * tx + 4.0) * tx + 0.5, (1.5 * tx - 1.0) * tx);
+  let wy = vec4f(((-0.5 * ty + 1.0) * ty - 0.5) * ty, (1.5 * ty - 2.5) * ty * ty + 1.0, ((-1.5 * ty + 2.0) * ty + 0.5) * ty, (0.5 * ty - 0.5) * ty * ty);
+  let dy = vec4f((-1.5 * ty + 2.0) * ty - 0.5, (4.5 * ty - 5.0) * ty, (-4.5 * ty + 4.0) * ty + 0.5, (1.5 * ty - 1.0) * ty);
+  var h = 0.0; var gx = 0.0; var gy = 0.0;
+  for (var j = 0; j < 4; j++) {
+    let row = vec4f(reliefPost(i.x - 1, i.y + j - 1), reliefPost(i.x, i.y + j - 1), reliefPost(i.x + 1, i.y + j - 1), reliefPost(i.x + 2, i.y + j - 1));
+    let rv = dot(row, wx);
+    h += wy[j] * rv; gx += wy[j] * dot(row, dx); gy += dy[j] * rv;
+  }
+  return vec3f(post.pond.x - h, gx, gy);
+}
+// Dry ground in darkfield: the skin of mud the water left scatters the lamp's oblique light into the objective, so
+// it glows faintly, grained, warm grey. Just out of the water it is still damp, dark and smooth; farther in, where
+// it has dried longest, it has shrunk into plates whose cracks catch the light, and salts left by the last of the
+// water glint. away: world units onto dry ground.
+fn dryGround(wp: vec2f, away: f32, ppu: f32) -> vec3f {
+  let grain = 0.55 + 0.3 * vnoise(wp * 2.3) + 0.2 * vnoise(wp * 9.0 + 3.1) + 0.12 * vnoise(wp * 31.0 + 7.7) * smoothstep(8.0, 40.0, ppu);
+  var c = vec3f(0.024, 0.020, 0.0145) * grain;
+  c *= mix(0.4, 1.0, smoothstep(0.0, 3.5, away));
+  // the plates: cellular, a few units across, their margins warped so they are not a lattice
+  let q = wp * 0.42 + (vec2f(vnoise(wp * 0.7), vnoise(wp * 0.7 + 5.3)) - 0.5) * 0.9;
+  let w = worley(q);
+  let edge = (w.y - w.x) / 0.42;
+  let px = 1.0 / max(ppu, 1e-3);
+  let crack = (1.0 - smoothstep(0.03, 0.03 + 1.2 * px + 0.04, edge)) * smoothstep(2.5, 9.0, away);
+  // each plate curls a little as it dries: brighter toward its rim
+  let curl = smoothstep(0.35, 0.05, edge) * 0.25 * smoothstep(2.5, 9.0, away);
+  c *= 1.0 + curl;
+  c += vec3f(0.11, 0.095, 0.075) * crack * (0.6 + 0.4 * vnoise(wp * 5.0));
+  // salt crystals, here and there, catch the lamp
+  let sc = worley(wp * 3.0);
+  let salt = (1.0 - smoothstep(0.0, 0.06 + 2.0 * px, sc.x)) * step(0.93, hash12(floor(wp * 3.0 + sc.zw) + 41.0)) * smoothstep(4.0, 12.0, away);
+  c += vec3f(0.30, 0.31, 0.33) * salt;
+  return c;
+}
+// Raindrops' ring waves seen through the water's surface: where a ring passes, the slope of the surface bends the
+// view (a displacement in world units) and its crest gathers a little of the lamp's light (w).
+fn ripples(wp: vec2f) -> vec3f {
+  var o = vec3f(0.0);
+  for (var k = 0u; k < 4u; k++) {
+    let dr = post.drops[k];
+    let age = post.simTime - dr.z;
+    if (dr.w > 0.0 && age > 0.0 && age < ${f(DEFAULT_K.dropLife)}) {
+      var d = wp - dr.xy;
+      d -= post.world * round(d / post.world);
+      let r = length(d);
+      let x = (r - age * ${f(DEFAULT_K.dropSpeed)}) / ${f(DEFAULT_K.dropWidth)};
+      let a = dr.w * (1.0 - age / ${f(DEFAULT_K.dropLife)});
+      o += vec3f(d / max(r, 1e-3) * (-2.0 * x * exp(-x * x) * a * 0.25), (2.0 * x * x - 1.0) * exp(-x * x) * a);
+    }
+  }
+  return o;
+}
 // A thermal camera's false colour: deep blue, teal, amber, white.
 fn heatRamp(u: f32) -> vec3f {
   let a = mix(vec3f(0.02, 0.04, 0.18), vec3f(0.0, 0.42, 0.48), smoothstep(0.0, 0.35, u));
@@ -5734,6 +5934,12 @@ fn heatRamp(u: f32) -> vec3f {
   let wp = post.cam + (i.pos.xy - post.res * 0.5) / post.ppu;
   var water = vec3f(post.heat.x, 0.0, 0.0);
   var uv = i.uv;
+  // rain: the rings raindrops send across the water bend the view as they pass
+  var rip = vec3f(0.0);
+  if (post.pond.y > 0.0) {
+    rip = ripples(wp);
+    uv += rip.xy * post.ppu / post.res;
+  }
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
     // schlieren: with the heat map on Shimmer, warm water bends the light passing through it like the
@@ -5809,6 +6015,26 @@ fn heatRamp(u: f32) -> vec3f {
   bg = mix(bg, bg * mix(vec3f(0.85, 0.88, 0.94), vec3f(1.12, 1.06, 1.0), lamp), k) + vec3f(0.0045, 0.004, 0.0015) * m * behind;
   c = c * mix(0.72, 1.0, v) * mix(1.0, mix(0.88, 1.05, lamp), k) + bg;
   c = pondSpecks(c, hdr, i.pos.xy, min(1.0, live.a));
+  // the pool's edge and dry floor (docs/catastrophes.md), behind what lies on them; the water's edge itself, a
+  // meniscus, is a bright thin line, and the thinning film just inside it a faint sheen
+  if (post.pond.x < 1.0) {
+    let pd = pondPost(wp);
+    let sd = pd.x / max(length(pd.yz), 1e-4);
+    let px = 1.0 / post.ppu;
+    let dry = 1.0 - smoothstep(-px, px, sd);
+    if (dry > 0.0) { c += dryGround(wp, max(-sd, 0.0), post.ppu) * dry * behind * mix(1.0, 0.8, k); }
+    // the meniscus: a thin bright contact line, uneven along its length (it pins and slips on the grains), and on
+    // the water's side the curved surface rising to it, scattering a narrowing glow
+    let along = 0.55 + 0.45 * vnoise(wp * 1.7) + 0.25 * (vnoise(wp * 6.3 + 2.0) - 0.5);
+    let rim = exp(-pow(sd / max(0.9 * px, 0.025), 2.0)) * along;
+    let rise = select(0.0, exp(-sd / 0.22) * (1.0 - exp(-sd / max(1.5 * px, 0.02))), sd > 0.0);
+    let sheen = select(0.0, exp(-sd / 0.9), sd > 0.0);
+    c += (vec3f(0.16, 0.17, 0.18) * rim + vec3f(0.035, 0.040, 0.046) * rise * along + vec3f(0.006, 0.008, 0.010) * sheen) * (0.35 + 0.65 * behind);
+  }
+  // a raindrop's ring crest catches the lamp
+  c += vec3f(0.006, 0.007, 0.008) * max(rip.z, 0.0);
+  // a leaf floating on the pool blocks the lamp's light from what lies under it
+  c *= 1.0 - 0.88 * leafShade(wp, post.leaf, post.leafB, post.world);
   // the round field stop of the eyepiece clips the corners of the camera's frame
   let corner = length(vec2f(post.res.x / post.res.y, 1.0));
   c *= mix(1.0, 1.0 - 0.85 * smoothstep(corner * 0.78, corner * 1.02, length(q)), k);
