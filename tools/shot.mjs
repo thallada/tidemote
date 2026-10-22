@@ -2,13 +2,16 @@
 // start an event, say), then screenshot at given moments, at given zooms around given spots (docs/catastrophes.md).
 //   tools/gpu-node.sh tools/shot.mjs --out runs/shots/NAME [--k '{}'] [--n 262144] [--mature 120]
 //     [--eval 'T.climate().force("drought")'] [--times 0,60,120] [--speed 8] [--zoom fit,40] [--at x,y] [--frames 1]
+//     [--clip 20 --clipspeed 1]
+// --clip records that many seconds of the page running at --clipspeed (the screencast, as numbered JPEGs in a folder
+// per moment and zoom, with their times in frames.json) instead of stills; join them with ffmpeg.
 // --times are simulated seconds after the eval, run at --speed (Infinity: Max); --zoom is pixels per world unit, or
 // fit (the whole world); --at the spot (world units, default the world's centre).
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http'; import os from 'node:os';
 import { chromium } from 'playwright-core';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : '1']] : a), []));
-const v = { out: 'runs/shots/x', k: '{}', n: 262144, mature: 120, eval: '', times: '0', speed: 8, zoom: 'fit', at: '', frames: 1, w: 1280, h: 800, html: 'dist/tidemote.html', ...args };
+const v = { clip: 0, clipspeed: 1, out: 'runs/shots/x', k: '{}', n: 262144, mature: 120, eval: '', times: '0', speed: 8, zoom: 'fit', at: '', frames: 1, w: 1280, h: 800, html: 'dist/tidemote.html', ...args };
 fs.mkdirSync(v.out, { recursive: true });
 const html = path.resolve(v.html);
 const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); fs.createReadStream(html).pipe(res); });
@@ -60,6 +63,24 @@ for (const dt of String(v.times).split(',').map(Number)) {
       T.cam.x = x; T.cam.y = y; T.cam.anchor = null;
       T.cam.zoom = T.cam.zoomTarget = z === 'fit' ? Math.min(innerWidth / g[0], innerHeight / g[1]) / fit : +z / fit;
     }, [z, v.at]);
+    if (+v.clip > 0) {
+      const dir = path.join(v.out, `clip_t${String(Math.round(dt)).padStart(4, '0')}_z${z}`);
+      fs.mkdirSync(dir, { recursive: true });
+      const cdp = await ctx.newCDPSession(page), times = [];
+      cdp.on('Page.screencastFrame', async (f) => {
+        times.push(f.metadata.timestamp);
+        fs.writeFileSync(path.join(dir, `f${String(times.length).padStart(5, '0')}.jpg`), Buffer.from(f.data, 'base64'));
+        await cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {});
+      });
+      await page.evaluate((s) => globalThis.__tidemote.setSpeed(s), v.clipspeed === 'max' ? Infinity : +v.clipspeed);
+      await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 88, everyNthFrame: 1 });
+      await page.waitForTimeout(+v.clip * 1000);
+      await cdp.send('Page.stopScreencast');
+      await page.evaluate(() => globalThis.__tidemote.setSpeed(0));
+      fs.writeFileSync(path.join(dir, 'frames.json'), JSON.stringify(times));
+      console.log(dir, times.length, 'frames', (await simTime()).toFixed(0));
+      continue;
+    }
     for (let fi = 0; fi < +v.frames; fi++) {
       await page.evaluate(() => globalThis.__tidemote.setSpeed(1));
       await page.waitForTimeout(900);
