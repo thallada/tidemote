@@ -135,3 +135,18 @@ night's darkness is the same culprit (life is down to 0.6 within three minutes, 
 A storm now barely dents the pool and leaves it more diverse; a drought and a frost still crash it (the
 drought's stranding and the frost's ice do the killing now), but less, every guild comes back within minutes and
 diversity ends higher than the control's.
+
+**The pool as it comes** (round 6, a87e630, 90 min): the defaults (events about hourly, the first after 25 min;
+low-water eras; the floor shifting) against no geography at all, 24 seeds each; and events three times as often,
+and geography without events (12 each). Measured from 20 min on, guilds present (≥1%) at the end:
+
+| group | eff. species | living | fewest living | producers/grazers/predators/scavengers |
+|---|---|---|---|---|
+| none | 117 ± 7 | 11745 | 2951 | 24/24/23/18 of 24 |
+| defaults | 123 ± 7 | 12731 | 3837 | 24/24/22/14 of 24 |
+| events every 20 min | 114 ± 7 | 11564 | 3160 | 12/12/12/11 of 12 |
+| geography, no events | 114 ± 6 | 11589 | 3439 | 12/12/12/7 of 12 |
+
+No measurable cost: diversity and numbers are within noise of the pool without geography (a little higher), and
+the guilds survive as often (scavengers, the rarest, come and go in every group: 75%, 58%, 92%, 58%). Round 2's
+defaults (full darkness) had lost predators in 4 of 12 runs; with the milder clouds none of that remains.
