@@ -7381,26 +7381,26 @@ fn ridge(x: f32, w: f32, px: f32, g: vec2f, L: vec2f) -> vec2f {
   let k = w / we;
   return vec2f(exp(-pow((x - o) / we, 2.0)), exp(-pow((x + o) / we, 2.0))) * k;
 }
-// Ice in darkfield (frost). Ice and water bend light almost alike, so the ice is faint; what shows is where it
-// scatters, and the lamp's oblique light shows its relief. The ice is a crowd of small crystals, each its own
-// orientation; each grows ahead as dendrites along whichever of its six axes points most nearly into the water, side
-// branches leaving each stem at sixty degrees, bent and broken and uneven, longer the longer they have grown, so the
-// front is a ragged edge of crystal tips, and that edge, where ice meets water, catches the light as a fine bright
-// line. Behind it the spaces between the branches freeze, the filigree fades, and what is left is a mosaic of grains,
-// each tilted a little so it catches the light differently, their boundaries grooved, with air the water could not
-// hold trapped as bubbles. sd: world units from the ice's front (ice negative); n: the front's normal (toward the
-// ice); grow: 1 while the ice grows, less as it stops and thaws.
+// Ice in darkfield (frost). Ice under the microscope is a packed mass of small crystals: each grain one crystal,
+// tens of µm across, its own orientation, its surface tilted a little so it catches the lamp's oblique light more or
+// less and shades across its face like a facet, the grains parted by grooved boundaries that meet at triple
+// junctions, faint growth lines inside them along their axes, air trapped as bubbles. Ahead of the mass the crystals
+// grow into the water as small dendrites, each along whichever of its six axes points most nearly into the water,
+// side branches at sixty degrees, rough and broken, so the front is a ragged edge of crystal tips, and that edge, ice
+// against water, catches the light as a fine bright line. sd: world units from the ice's front (ice negative); n:
+// the front's normal (toward the ice); grow: 1 while the ice grows, less as it stops and thaws.
 fn iceLook(wp: vec2f, sd: f32, n: vec2f, ppu: f32, grow: f32) -> vec3f {
   let px = 1.0 / max(ppu, 1e-3);
   let L = normalize(vec2f(-0.55, -0.83));
-  // the grain this point lies in, its boundaries ragged
-  let gs = 4.2;
-  let gq = wp / gs + (vec2f(vnoise(wp * 0.2), vnoise(wp * 0.2 + 4.1)) - 0.5) * 0.5 + (vec2f(vnoise(wp * 1.7), vnoise(wp * 1.7 + 2.3)) - 0.5) * 0.06;
+  // the grains: small, irregular, boundaries a little ragged
+  let gs = 1.5;
+  let gq = wp / gs + (vec2f(vnoise(wp * 0.35), vnoise(wp * 0.35 + 4.1)) - 0.5) * 0.45 + (vec2f(vnoise(wp * 3.1), vnoise(wp * 3.1 + 2.3)) - 0.5) * 0.08;
   let vb = vborder(gq);
   let gid = vb.y;
   let edgeD = vb.x * gs;
+  let toC = vb.zw * gs;
   // the crystal's axes; the one nearest the growth direction (out of the ice)
-  let th = gid * 1.0472;
+  let th = gid * 1.0472 * 7.0;
   let ga = atan2(-n.y, -n.x);
   let kk = round((ga - th) / 1.0472);
   let aa = th + kk * 1.0472;
@@ -7408,83 +7408,79 @@ fn iceLook(wp: vec2f, sd: f32, n: vec2f, ppu: f32, grow: f32) -> vec3f {
   let pp = vec2f(-ax.y, ax.x);
   let ua = dot(wp, ax);
   let v = dot(wp, pp);
-  // stems a unit or two apart, wandering, each reaching its own length ahead of the front (some crowded out)
-  let F = 1.1 + 1.0 * hash12(vec2f(gid, 7.0));
-  let fq = v / F + hash12(vec2f(gid, 8.0)) + 0.35 * (vnoise(vec2f(ua * 0.5, gid * 9.0)) - 0.5);
+  // dendrites at the front: stems a fraction of a unit to a unit apart, each reaching its own length ahead
+  let F = 0.55 + 0.5 * hash12(vec2f(gid, 7.0));
+  let fq = v / F + hash12(vec2f(gid, 8.0)) + 0.35 * (vnoise(vec2f(ua * 0.8, gid * 9.0)) - 0.5);
   let Fi = floor(fq);
   let fh = hash12(vec2f(Fi, gid * 5.0));
-  let Lf = select(0.3 + 1.7 * pow(fh, 1.3), -0.5 - 1.5 * fh, fh < 0.15) * (0.4 + 0.6 * grow);
+  let Lf = select(0.1 + 0.7 * pow(fh, 1.5), -0.2 - 0.6 * fh, fh < 0.15) * (0.4 + 0.6 * grow);
   let vS = (fract(fq) - 0.5) * F;
   let av = abs(vS);
   let side = select(0.0, 0.5, vS < 0.0);
   let dtS = -sd + Lf;
-  // each tip rounded (a paraboloid, as a dendrite's is), its flanks roughened by the side branches' ends
-  let prot = max(max(Lf, 0.0) - 3.5 * av * av / F, 0.0) + 0.06 * F * (vnoise(vec2f(ua * 3.0, v * 3.0)) - 0.5);
+  let prot = max(max(Lf, 0.0) - 6.0 * av * av / F, 0.0) + 0.06 * F * (vnoise(vec2f(ua * 5.0, v * 5.0)) - 0.5);
   let inIce = -sd + prot;
-  let rough = 0.45 + 1.1 * vnoise(vec2f(ua * 2.3, Fi * 3.0 + gid));
-  let wP = mix(0.01, 0.03, smoothstep(0.0, 2.0, dtS)) * rough;
-  let sp = ridge(vS, wP, px, pp, L) * smoothstep(-0.02, 0.08, dtS);
-  // secondaries: at sixty degrees, curving a little forward, uneven, some broken off
-  let s2 = 0.17 + 0.09 * hash12(vec2f(gid, 5.0));
-  let ua0 = ua - 0.577 * av - 0.25 * av * av;
+  let rough = 0.45 + 1.1 * vnoise(vec2f(ua * 3.5, Fi * 3.0 + gid));
+  let wP = mix(0.008, 0.022, smoothstep(0.0, 1.5, dtS)) * rough;
+  let sp = ridge(vS, wP, px, pp, L) * smoothstep(-0.02, 0.06, dtS);
+  let s2 = 0.11 + 0.06 * hash12(vec2f(gid, 5.0));
+  let ua0 = ua - 0.577 * av - 0.4 * av * av;
   let bj = round(ua0 / s2);
   let bh = hash12(vec2f(bj, Fi * 7.0 + gid * 31.0 + side));
   let base = dtS + 0.577 * av + (ua0 - bj * s2);
-  let blen = min(base * (0.4 + 0.5 * bh), 0.5 * F) * select(0.15 + 0.7 * bh, 1.0, bh > 0.65);
+  let blen = min(base * (0.4 + 0.5 * bh), 0.5 * F) * select(0.15 + 0.7 * bh, 1.0, bh > 0.6);
   let t = av * 1.1547;
-  let broken = step(0.12, fract(bh * 13.7)) * (1.0 - step(0.55, fract(bh * 7.3)) * step(0.4 * blen, t) * step(t, 0.55 * blen));
-  let wB = mix(0.006, 0.016, smoothstep(0.0, 1.5, base)) * (1.0 - 0.5 * t / max(blen, 1e-3)) * rough;
-  let gB = (ax - (0.577 + 0.5 * av) * sign(vS) * pp) * 0.866;
-  let sb = ridge((ua0 - bj * s2) * 0.866, wB, px, gB, L) * (1.0 - smoothstep(blen - 0.03, blen, t)) * step(0.0, base) * broken * (0.5 + 1.0 * bh);
+  let broken = step(0.12, fract(bh * 13.7));
+  let wB = mix(0.005, 0.012, smoothstep(0.0, 1.0, base)) * (1.0 - 0.5 * t / max(blen, 1e-3)) * rough;
+  let gB = (ax - (0.577 + 0.8 * av) * sign(vS) * pp) * 0.866;
+  let sb = ridge((ua0 - bj * s2) * 0.866, wB, px, gB, L) * (1.0 - smoothstep(blen - 0.02, blen, t)) * step(0.0, base) * broken * (0.5 + 1.0 * bh);
   let blod = smoothstep(2.0, 5.0, s2 * ppu);
-  let reach = (1.0 - smoothstep(0.6 * blen, blen + 0.05, t)) * step(0.0, base);
+  let reach = (1.0 - smoothstep(0.6 * blen, blen + 0.03, t)) * step(0.0, base);
   let fineB = mix(vec2f(0.03 * reach, 0.0), sb, blod);
-  // the dendrites scatter where water still lies between them; as it freezes they fade, and the ice clears
-  let fresh = 1.0 - smoothstep(0.2, mix(1.0, 4.0, grow), inIce + 0.8 * (vnoise(wp * 0.5) - 0.5));
+  let fresh = 1.0 - smoothstep(0.15, mix(0.7, 2.5, grow), inIce + 0.5 * (vnoise(wp * 0.8) - 0.5));
   let lit = (sp + fineB) * (0.05 + 0.95 * fresh);
-  let tint = vec3f(0.2, 0.225, 0.26) * (0.6 + 0.8 * vnoise(wp * 0.7 + 3.0));
+  let tint = vec3f(0.2, 0.225, 0.26) * (0.6 + 0.8 * vnoise(wp * 0.9 + 3.0));
   var c = vec3f(0.0);
-  // the ice: faint, but paler than the water; each grain tilted a little, catching more or less of the light
-  let haze = smoothstep(-0.2, 0.3, inIce);
+  // the mass of grains: each a facet tilted its own way, brighter where it faces the lamp, shading across its face
+  let haze = smoothstep(-0.1, 0.25, inIce) * mix(0.3, 1.0, smoothstep(0.0, 0.5, -sd));
   let tilt = vec2f(hash12(vec2f(gid, 11.0)), hash12(vec2f(gid, 12.0))) - 0.5;
-  let tone = clamp(1.0 + 3.0 * dot(tilt, L), 0.15, 2.6);
-  c += vec3f(0.0045, 0.0053, 0.0068) * haze * (0.7 + 0.6 * fbm3(wp * 0.6)) * mix(tone, 1.4, fresh);
-  // grain boundaries, grooved: the groove's wall facing the light bright, the other in shadow, a fine seam between
-  let met = smoothstep(0.6, 2.5, -sd);
+  let tone = clamp(0.8 + 5.5 * dot(tilt, L) + 0.8 * (hash12(vec2f(gid, 14.0)) - 0.5), 0.05, 4.0);
+  let shade = clamp(1.0 - dot(toC, tilt) * 2.4, 0.3, 2.0);
+  let lodG = smoothstep(4.0, 12.0, gs * ppu);
+  let face = mix(1.0, tone * shade, 0.35 + 0.65 * lodG) * (0.75 + 0.5 * fbm3(wp * 1.3));
+  c += vec3f(0.0075, 0.0086, 0.0105) * haze * mix(face, 1.2, fresh * 0.6);
+  // faint growth lines inside each grain along its axes
+  let gl = abs(fract(dot(wp, vec2f(cos(th), sin(th))) / 0.16 + gid * 7.0) - 0.5);
+  c += vec3f(0.006, 0.007, 0.008) * exp(-pow(gl / max(0.08, 0.6 * px / 0.16), 2.0)) * step(0.7, hash12(vec2f(gid, 13.0))) * haze * smoothstep(3.0, 8.0, 0.16 * ppu);
+  // the boundaries, grooved: a fine bright seam, the groove's wall toward the lamp lit, the other in shadow
+  let met = smoothstep(0.15, 0.9, inIce) * (1.0 - fresh * 0.7);
   let outw = -normalize(vb.zw + 1e-5);
-  let face = dot(outw, L);
-  let sw = max(0.03, 0.8 * px);
-  let seam = exp(-pow(edgeD / sw, 2.0)) * min(1.0, 3.0 * 0.03 / sw + 0.5);
-  let wall = exp(-pow(edgeD / max(0.18, 2.5 * px), 2.0));
-  c += vec3f(0.06, 0.067, 0.078) * seam * met * (0.4 + 0.6 * vnoise(wp * 0.9));
-  c += vec3f(0.03, 0.034, 0.04) * wall * met * max(face, 0.0);
-  c *= 1.0 - 0.6 * wall * met * max(-face, 0.0);
+  let fc = dot(outw, L);
+  let sw = max(0.02, 0.7 * px);
+  let seam = exp(-pow(edgeD / sw, 2.0)) * min(1.0, 0.02 / sw + 0.35);
+  let wall = exp(-pow(edgeD / max(0.11, 1.6 * px), 2.0)) * min(1.0, 0.11 / max(0.11, 1.6 * px) + 0.2);
+  c += vec3f(0.07, 0.078, 0.09) * seam * met * (0.5 + 0.5 * vnoise(wp * 1.5));
+  c += vec3f(0.045, 0.05, 0.058) * wall * met * max(fc, 0.0);
+  c *= 1.0 - 0.6 * wall * met * max(-fc, 0.0);
   // the dendrites over it, in relief
   c = c * (1.0 - 0.55 * min(lit.y, 1.0)) + tint * lit.x;
-  // the edge of the ice against the water, ragged with its tips: a fine bright line, water-dark just outside it
-  let ew = max(0.035, 0.9 * px);
+  // the edge of the ice against the water, ragged with its tips: a fine bright line
+  let ew = max(0.03, 0.8 * px);
   let edge = exp(-pow((inIce - 0.5 * ew) / ew, 2.0));
-  c += vec3f(0.1, 0.112, 0.13) * edge * (0.55 + 0.6 * vnoise(wp * 1.1 + 7.0)) * (0.5 + 0.5 * grow);
-  // bubbles: air trapped in chains along the way the ice grew; a bright rim (light bent at the air's surface) around
-  // a dark heart, and a glint on the side toward the light
-  let cu = 0.7;
-  let cv = 0.45;
-  let bc = floor(vec2f(ua / cu, v / cv));
-  let chain = hash12(vec2f(bc.y, gid * 3.0 + 1.0));
-  if (chain < 0.25 && hash12(bc + gid) < 0.55 && -sd > 0.6) {
-    let br = 0.025 + 0.05 * pow(hash12(bc + 9.0), 2.0);
-    let el = 1.0 + 0.8 * hash12(bc + 2.0);
-    let mu = 0.5 * cu - br * el - 0.02;
-    let mv = 0.5 * cv - br - 0.02;
-    let ctr = vec2f((bc.x + 0.5) * cu + (hash12(bc + 4.0) - 0.5) * 2.0 * mu, (bc.y + 0.5) * cv + (hash12(bc + 6.0) - 0.5) * 2.0 * mv);
-    let q = vec2f((ua - ctr.x) / el, v - ctr.y);
+  c += vec3f(0.1, 0.112, 0.13) * edge * (0.55 + 0.6 * vnoise(wp * 1.6 + 7.0)) * (0.5 + 0.5 * grow);
+  // bubbles, here and there in a grain: a bright rim around a dark heart, a glint toward the lamp
+  if (hash12(vec2f(gid, 21.0)) < 0.3 && inIce > 0.4) {
+    let bc = -toC + (vec2f(hash12(vec2f(gid, 22.0)), hash12(vec2f(gid, 23.0))) - 0.5) * 0.5 * gs;
+    let br = 0.03 + 0.06 * pow(hash12(vec2f(gid, 24.0)), 2.0);
+    let el = 1.0 + 0.7 * hash12(vec2f(gid, 25.0));
+    let q = vec2f(dot(bc, ax) / el, dot(bc, pp));
     let bd = length(q);
     let rw = max(0.012, 0.7 * px);
     let rim = exp(-pow((bd - br * 0.9) / rw, 2.0)) * min(1.0, br / (2.0 * rw));
     let heart = 1.0 - smoothstep(br * 0.4, br, bd);
     let lq = vec2f(dot(L, ax), dot(L, pp));
-    let glint = exp(-pow(length(q - lq * br * 0.45) / max(br * 0.25, rw), 2.0));
-    c = c * (1.0 - 0.6 * heart) + vec3f(0.09, 0.10, 0.11) * rim * smoothstep(0.6, 2.0, -sd) + vec3f(0.08) * glint * step(0.04, br);
+    let glint = exp(-pow(length(q + lq * br * 0.45) / max(br * 0.25, rw), 2.0));
+    c = c * (1.0 - 0.6 * heart) + vec3f(0.09, 0.10, 0.11) * rim + vec3f(0.08) * glint;
   }
   return c;
 }
@@ -7788,7 +7784,7 @@ fn heatRamp(u: f32) -> vec3f {
     let sdI = (fi.x - post.weather.y) / gl;
     let px = 1.0 / post.ppu;
     let grow = smoothstep(0.0, 0.3, post.weather.z);
-    if (sdI < 2.6) { c += iceLook(wp, sdI, -fi.yz / gl, post.ppu, grow) * (0.35 + 0.65 * behind); }
+    if (sdI < 1.6) { c += iceLook(wp, sdI, -fi.yz / gl, post.ppu, grow) * (0.35 + 0.65 * behind); }
     if (sdI > 0.0 && sdI < 9.0 && grow > 0.0) { c += frazil(wp, sdI, post.ppu) * (0.35 + 0.65 * behind); }
   }
   // raindrops' ripples: the light the surface gathers on the floor lights what lies there, and the floor itself
