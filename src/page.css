@@ -387,7 +387,7 @@ canvas.chart { cursor: crosshair; }
 /* the tabs on a row of their own under the title, so four fit at any width */
 .settings .tabs { order: 3; flex-basis: 100%; min-width: 0; margin-left: -8px; }
 .settings .tabs button { height: 32px; padding: 0 8px; letter-spacing: .12em; }
-.settings .sec-h > .ghost { flex: none; margin-right: -6px; }
+.settings .sec-h > .ghost { flex: none; margin: 0 -6px 0 auto; }
 .opt .chip:disabled { opacity: .35; cursor: default; }
 .hot-btn { border-color: var(--hot); color: var(--ink); background: rgba(255, 95, 58, 0.14); justify-self: start; }
 .hot-btn:hover { background: rgba(255, 95, 58, 0.26); border-color: var(--hot); }
