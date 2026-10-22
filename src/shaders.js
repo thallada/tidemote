@@ -261,6 +261,7 @@ export const DEFAULT_K = {
                     // parasite gains only on hosts its receptors match well, so lineages specialise
   graftImprint: 0,  // (experiment) 1: a species born of a grafter holding a host takes only that host's species (tail.z,
                     // kind + 1; lost now and then by mutation); 2: also a species the first time one of it grafts
+  graftSwitch: 0,   // (experiment) chance per second that an imprinted grafter with none of its host's species in reach frees its species
 };
 
 // WGSL for the energy in a body of genome expression G (K.bodyE by size), and a dying cell's litter flag
@@ -2421,6 +2422,9 @@ ${cellWGSL(K, false)}
     // (graftImprint 2) a species that grafts for the first time takes that host's species as its only host
     if (${K.graftImprint >= 2 ? 'true' : 'false'} && genomes[p.kind].tail.z < 0.5) { genomes[p.kind].tail.z = f32(sortedFull[host].kind + 1u); }
   }
+  // (graftSwitch) an imprinted grafter with no host and none of its host's species in reach may free its species to
+  // fix anew (with graftImprint 2, on the next species one of it grafts): parasites switch hosts when theirs grow scarce
+  if (${K.graftImprint && K.graftSwitch ? 'true' : 'false'} && grafter && host == NONE && graftCand == NONE && g.tail.z > 0.5 && rnd(&s) < ${f(K.graftSwitch)} * sim.dt) { genomes[p.kind].tail.z = 0.0; }
   if (rejected) { atomicAdd(&ledger[META_SYM + 13u], 1u); }
   else if (hadHost && host == NONE) {
     // (lost with the host still alive and awake: pulled apart, 15; or the host died or slept, 14)
