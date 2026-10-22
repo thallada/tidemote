@@ -42,7 +42,10 @@ function fail(title, detail) {
   $('lab').hidden = true;
 }
 
-async function boot() {
+// A reload can begin before the GPU has let go of the last page's world (Android's browsers especially): the new
+// device is then lost while the shaders compile ("Instance dropped"). Boot tries again on a fresh device a few
+// times before saying anything; a real shader error is reported at once.
+async function boot(tries = 4) {
   if (!navigator.gpu) {
     fail('This browser has no WebGPU', 'Tidemote simulates its world on your graphics card through WebGPU. Try a current Chrome, Edge or Safari, or Firefox on Windows.');
     return;
@@ -59,7 +62,8 @@ async function boot() {
       maxStorageBuffersPerShaderStage: Math.min(lim.maxStorageBuffersPerShaderStage, 10),
     },
   });
-  device.lost.then((info) => { if (info.reason !== 'destroyed') fail('The GPU device was lost', `${info.message || 'The driver reset the device.'} Reload the page to start a new world.`); });
+  let started = false;
+  device.lost.then((info) => { if (started && info.reason !== 'destroyed') fail('The GPU device was lost', `${info.message || 'The driver reset the device.'} Reload the page to start a new world.`); });
   device.addEventListener('uncapturederror', (e) => console.error('[tidemote]', e.error.message));
 
   const format = navigator.gpu.getPreferredCanvasFormat();
@@ -72,8 +76,22 @@ async function boot() {
   const kHash = /[#&]k=([^&]*)/.exec(location.hash);
   if (kHash) { try { K = JSON.parse(decodeURIComponent(kHash[1])); } catch { console.warn('[tidemote] ignoring a #k= that is not JSON'); } }
   let eng;
-  try { eng = await createEngine(device, format, { hasTimestamps: hasTS, K }); }
-  catch (e) { fail('The simulation failed to compile', String(e.message || e)); return; }
+  // a device lost mid-compile may leave getCompilationInfo waiting forever
+  const lostWhile = device.lost.then((info) => { throw new Error(`device lost while compiling: ${info.message || info.reason}`); });
+  lostWhile.catch(() => {});
+  try { eng = await Promise.race([createEngine(device, format, { hasTimestamps: hasTS, K }), lostWhile]); }
+  catch (e) {
+    const msg = String(e.message || e);
+    if (tries > 1 && !/^(Shader compile failed|unknown tunables)/.test(msg)) {
+      console.warn('[tidemote] starting the GPU again:', msg);
+      device.destroy();
+      await new Promise((r) => setTimeout(r, 600));
+      return boot(tries - 1);
+    }
+    fail('The simulation failed to compile', msg);
+    return;
+  }
+  started = true;
   run(eng, device, ctx, specCtx, hasTS);
 }
 

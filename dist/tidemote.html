@@ -852,7 +852,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .intro.ask .begin { display: block; }
 @keyframes blink { 50% { opacity: .2; } }
 .nogpu { position: fixed; inset: 0; display: grid; place-items: safe center; padding: 24px; z-index: 50; background: var(--bg); overflow-y: auto; }
-.nogpu-in { max-width: 60ch; display: flex; flex-direction: column; gap: 14px; }
+.nogpu-in { max-width: 60ch; display: flex; flex-direction: column; gap: 14px; user-select: text; -webkit-user-select: text; }
 .nogpu h1 { font-size: 26px; font-weight: 300; letter-spacing: .06em; }
 .nogpu p { margin: 0; color: var(--ink-2); font-size: 14px; white-space: pre-wrap; }
 .nogpu .about { display: flex; flex-direction: column; gap: var(--s3); margin-top: var(--s4); padding-top: var(--s4); border-top: 1px solid var(--line); }
@@ -7603,9 +7603,7 @@ fn dryGround(wp: vec2f, away: f32, rel: vec3f, ppu: f32) -> vec3f {
   return mix(plate, floorc, gap * open);
 }
 // The surface of the water, seen through. It lies above the focal plane, so its waves are never sharp in
-// themselves; they show by bending what lies beneath (a slope displaces the view) and, above all, by focusing the
-// lamp's light on the floor in caustics, as sunlight on a pool's bottom: where the surface curves like a lens the
-// light gathers in bright lines, sharp where they cross the focal plane. A raindrop's impact sends out capillary
+// themselves; they show only by bending what lies beneath (a slope displaces the view). A raindrop's impact sends out capillary
 // waves, which disperse: the short ones run fastest, so a ring is a packet whose crests crowd toward its leading edge
 // and broaden toward its centre, damped where they are shortest; it is uneven around its circle, and the drop's
 // splash throws a few droplets which ring too. In rain the whole surface is roughened by drops falling out of view.
@@ -23754,7 +23752,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     $("spec").hidden = true;
     $("lab").hidden = true;
   }
-  async function boot() {
+  async function boot(tries = 4) {
     if (!navigator.gpu) {
       fail("This browser has no WebGPU", "Tidemote simulates its world on your graphics card through WebGPU. Try a current Chrome, Edge or Safari, or Firefox on Windows.");
       return;
@@ -23774,8 +23772,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
         maxStorageBuffersPerShaderStage: Math.min(lim.maxStorageBuffersPerShaderStage, 10)
       }
     });
+    let started = false;
     device.lost.then((info) => {
-      if (info.reason !== "destroyed") fail("The GPU device was lost", `${info.message || "The driver reset the device."} Reload the page to start a new world.`);
+      if (started && info.reason !== "destroyed") fail("The GPU device was lost", `${info.message || "The driver reset the device."} Reload the page to start a new world.`);
     });
     device.addEventListener("uncapturederror", (e) => console.error("[tidemote]", e.error.message));
     const format = navigator.gpu.getPreferredCanvasFormat();
@@ -23793,12 +23792,25 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
     }
     let eng;
+    const lostWhile = device.lost.then((info) => {
+      throw new Error(`device lost while compiling: ${info.message || info.reason}`);
+    });
+    lostWhile.catch(() => {
+    });
     try {
-      eng = await createEngine(device, format, { hasTimestamps: hasTS, K });
+      eng = await Promise.race([createEngine(device, format, { hasTimestamps: hasTS, K }), lostWhile]);
     } catch (e) {
-      fail("The simulation failed to compile", String(e.message || e));
+      const msg = String(e.message || e);
+      if (tries > 1 && !/^(Shader compile failed|unknown tunables)/.test(msg)) {
+        console.warn("[tidemote] starting the GPU again:", msg);
+        device.destroy();
+        await new Promise((r) => setTimeout(r, 600));
+        return boot(tries - 1);
+      }
+      fail("The simulation failed to compile", msg);
       return;
     }
+    started = true;
     run(eng, device, ctx, specCtx, hasTS);
   }
   var SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8, 16, 32, 64, Infinity];
