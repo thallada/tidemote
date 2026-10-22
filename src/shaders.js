@@ -6231,15 +6231,16 @@ fn ringWave(d: vec2f, t: f32, amp: f32, seed: f32, s: ptr<function, Surf>) {
 // the chop: wavelets from every direction, long and short, the short running faster (capillary waves), each
 // adding its slope and curvature
 fn chop(p: vec2f, rain: f32, s: ptr<function, Surf>) {
-  for (var i = 0; i < 9; i++) {
+  for (var i = 0; i < 14; i++) {
     let fi = f32(i);
-    let a = fi * 2.39996 + 0.4;
+    let a = fi * 2.39996 + 0.4 + 0.5 * hash12(vec2f(fi, 1.0));
     let dir = vec2f(cos(a), sin(a));
-    let lam = 2.0 + 6.0 * pow(fract(fi * 0.618 + 0.3), 1.5);
+    let lam = 2.0 + 4.0 * hash12(vec2f(fi, 2.0));
     let k = 6.2832 / lam;
     let th = k * dot(dir, p) - 3.0 * sqrt(k) * post.simTime + fi * 1.7;
-    // in groups: each wavelet stronger here, weaker there
-    let A = 0.038 * rain / k * (0.2 + 1.6 * vnoise(p * 0.045 + vec2f(fi * 3.1, post.simTime * 0.05)));
+    // in groups: each wavelet stronger here, weaker there, the groups drifting
+    let g = vnoise(p * (0.06 + 0.05 * hash12(vec2f(fi, 3.0))) + vec2f(fi * 3.1, 0.0) - dir * post.simTime * 0.6);
+    let A = 0.065 * rain / (k * k) * (0.2 + 1.6 * g * g);
     (*s).slope += dir * (A * k * cos(th));
     let hk = -A * k * k * sin(th);
     (*s).hess += vec3f(hk * dir.x * dir.x, hk * dir.x * dir.y, hk * dir.y * dir.y);
