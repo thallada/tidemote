@@ -5,6 +5,7 @@ import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS } from './engine.js';
 import { genomeSerial, readGenome, parseParticle, thermalGuild } from './genome.js';
 import { seasonAt, createClimate, abioRate } from './climate.js';
+import { countPools } from './geography.js';
 import { createLab } from './lab.js';
 import { createSpecimen } from './specimen.js';
 import { section, block } from './ui.js';
@@ -264,6 +265,44 @@ function run(eng, device, ctx, specCtx, hasTS) {
       pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}%${waterWord} · currents shift`, 0xffa0e3f1, 'era');
       flash(climate.name, 'New era');
       sound.era(climate.name);
+    };
+    // the pool's events (docs/catastrophes.md): announced as they begin and turn, and tallied once they have passed
+    climate.onEvent = (ev, phase) => {
+      const tally = () => {
+        const was = ev.before;
+        if (!was) return '';
+        const kept = was.cells ? life.counts[3] / was.cells : 1;
+        const lost = [...was.species].filter((k) => !life.reg.get(k)?.alive).length;
+        return ` · ${Math.round(Math.min(kept, 9.99) * 100)}% as much life as before${lost ? `, ${lost} species lost` : ''}`;
+      };
+      const begin = () => { ev.before = { cells: life.counts[3], species: new Set([...life.reg.entries()].filter(([, s]) => s.alive && s.established).map(([k]) => k)) }; };
+      const col = 0xff9ad6e8;
+      if (ev.type === 'drought') {
+        if (phase === 'drying') {
+          begin();
+          pushEvent(`<b>The pool is drying</b>: over ${fmtDur(ev.fall)} the water will fall until ${Math.round((1 - ev.low) * 100)}% of the floor lies dry`, col, 'pond');
+          flash('The pool is drying', 'Drought');
+        } else if (phase === 'dry') {
+          const p = eng.relief ? countPools(eng.relief, eng.grid[0], eng.grid[1], eng.level) : null;
+          pushEvent(`The water has fallen${p && p.pools > 1 ? `: the pool has parted into <b>${p.pools} pools</b>` : ''}; stranded cells rest as cysts and spores`, col, 'pond');
+          flash(p && p.pools > 1 ? `${p.pools} pools` : 'Low water', 'Drought');
+        } else if (phase === 'rain') {
+          pushEvent('<b>Rain</b>: the pool refills, cold under the cloud, and the cysts on the drying mud wake', col, 'pond');
+          flash('Rain', 'The drought breaks');
+        } else if (!phase) pushEvent(`The drought has passed${tally()}`, col, 'pond');
+      } else if (ev.type === 'storm') {
+        if (phase === 'storm') {
+          begin();
+          pushEvent('<b>A storm</b>: cold rain, raindrops ringing the surface, the water rough and the light dim', col, 'pond');
+          flash('A storm', 'Weather');
+        } else if (!phase) pushEvent(`The storm has passed${tally()}`, col, 'pond');
+      } else if (ev.type === 'leaf') {
+        if (phase === 'leaf') {
+          begin();
+          pushEvent('<b>A leaf has fallen on the pool</b>: the water under it lies in its shade', col, 'pond');
+          flash('A leaf falls on the pool', 'Shade');
+        } else if (!phase) pushEvent(`The leaf has sunk${tally()}`, col, 'pond');
+      }
     };
     climate.onExcursion = (x) => {
       if (!K.heat) return;
@@ -2389,6 +2428,26 @@ function run(eng, device, ctx, specCtx, hasTS) {
     },
     lifespan: (slot) => { const g = genomeFor(slot); return g ? g.lifespan : 0; },
     now: () => performance.now() / 1000,
+    // where the pool's event shows best (docs/catastrophes.md): a stretch of shore while the water falls or returns,
+    // the leaf, the last raindrop
+    event: () => {
+      const ev = climate && climate.event, ph = climate && climate.phase;
+      if (!ev || !ph || ph === 'after') return null;
+      const [W, H] = eng.grid;
+      if (ev.type === 'leaf') return { type: 'leaf', phase: ph, x: eng.leaf[0], y: eng.leaf[1], w: eng.leaf[2] * (Math.random() < 0.5 ? 2.6 : 1.2) };
+      if (ev.type === 'storm' || ph === 'rain') {
+        const k = climate.dropSlot ?? 0;
+        if (eng.drops[k * 4 + 3] > 0 && Math.random() < 0.5) return { type: ev.type, phase: ph, x: eng.drops[k * 4], y: eng.drops[k * 4 + 1], w: 40 };
+      }
+      if (ev.type === 'drought' && eng.relief) {
+        // a point of the water's edge, chosen at random
+        for (let tries = 0; tries < 400; tries++) {
+          const i = Math.floor(Math.random() * W), j = Math.floor(Math.random() * H);
+          if (Math.abs(eng.relief[j * W + i] - eng.level) < 0.006) return { type: 'drought', phase: ph, x: i + 0.5, y: j + 0.5, w: Math.random() < 0.6 ? 14 : 40 };
+        }
+      }
+      return { type: ev.type, phase: ph, x: W * Math.random(), y: H * Math.random(), w: Math.min(W, H) * 0.6 };
+    },
   });
   let surveyT = 0;
   eng.onSurvey = (s) => {
@@ -2482,6 +2541,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (w.signal) { eyebrow = 'Answering a signal'; main = upper(organism(w)); sub = spDesc(w.serial); }
       else if (w.spotlight) { eyebrow = 'Following a new species'; main = upper(organism(w)); sub = spDesc(w.serial); }
       else { eyebrow = 'Following'; main = upper(organism(w)); sub = spDesc(w.serial); }
+    } else if (w.kind === 'event') {
+      const EV = { drought: { drying: ['The pool is drying', 'Cells crowd the shrinking water; the edge drags stragglers with it'],
+        dry: ['Low water', 'Stranded on the mud, cells rest as cysts and spores'], rain: ['Rain', 'The water returns, and the cysts on the mud wake'] },
+        storm: { storm: ['A storm', 'Raindrops ring the surface and the water runs rough'] },
+        leaf: { leaf: ['A leaf on the pool', 'In its shade the producers go hungry'] } };
+      const [m, sb] = (EV[w.type] || {})[w.phase] || ['The pool', ''];
+      eyebrow = going ? 'Heading to' : 'Watching'; main = m; sub = going ? '' : sb;
     } else if (w.kind === 'linger') {
       const [verb, after] = fateOf(w.fate);
       eyebrow = 'Lingering';

@@ -471,7 +471,7 @@ export function createLab(api) {
   }
 
   // ---------------------------------------------------------- log
-  const TYPES = [['all', 'All'], ['est', 'New species'], ['genus', 'New genera'], ['ext', 'Extinctions'], ['top', 'Dominance'], ['era', 'Eras'], ...(api.eng.K.heat ? [['heat', 'Heat']] : [])];
+  const TYPES = [['all', 'All'], ['est', 'New species'], ['genus', 'New genera'], ['ext', 'Extinctions'], ['top', 'Dominance'], ['era', 'Eras'], ['pond', 'The pool'], ...(api.eng.K.heat ? [['heat', 'Heat']] : [])];
   function buildLog() {
     const p = pane(`<input type="search" id="log-q" placeholder="Search the log" aria-label="Search the log" autocomplete="off">
       <div class="row" role="group" aria-label="Show">${chips('logType', TYPES, st.logType)}</div>`);

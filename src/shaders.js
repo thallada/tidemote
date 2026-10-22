@@ -6033,8 +6033,23 @@ fn heatRamp(u: f32) -> vec3f {
   }
   // a raindrop's ring crest catches the lamp
   c += vec3f(0.006, 0.007, 0.008) * max(rip.z, 0.0);
-  // a leaf floating on the pool blocks the lamp's light from what lies under it
-  c *= 1.0 - 0.88 * leafShade(wp, post.leaf, post.leafB, post.world);
+  // a leaf floating on the pool, far above the focal plane: it keeps the lamp's light from what lies under it, and
+  // scatters a little of it as a faint green-brown haze, its veins blurred shadows in it
+  if (post.leaf.w > 0.0) {
+    let sh = leafShade(wp, post.leaf, post.leafB, post.world);
+    if (sh > 0.0) {
+      var d = wp - post.leaf.xy;
+      d -= post.world * round(d / post.world);
+      let q = rot2(d, -post.leafB.x) / post.leaf.z;
+      let L = post.leaf.z;
+      let midrib = exp(-pow(q.y * L / 0.9, 2.0)) * (1.0 - smoothstep(0.6, 1.0, abs(q.x)));
+      let ph = (q.x + abs(q.y) * 1.3 - 0.5 * q.y * q.y) * 7.0 + post.leafB.y + 0.35 * (vnoise(vec2f(q.y * 3.0, post.leafB.y)) - 0.5);
+      let lateral = exp(-pow((fract(ph) - 0.5) / 0.12, 2.0)) * smoothstep(0.02, 0.12, abs(q.y)) * (1.0 - smoothstep(0.7, 1.0, abs(q.x)));
+      let veins = clamp(midrib + 0.6 * lateral, 0.0, 1.0);
+      let blot = 0.75 + 0.5 * vnoise(q * L * 0.35 + post.leafB.y);
+      c = c * (1.0 - 0.88 * sh) + vec3f(0.010, 0.012, 0.0055) * sh * blot * (1.0 - 0.55 * veins) * mix(0.6, 1.0, k);
+    }
+  }
   // the round field stop of the eyepiece clips the corners of the camera's frame
   let corner = length(vec2f(post.res.x / post.res.y, 1.0));
   c *= mix(1.0, 1.0 - 0.85 * smoothstep(corner * 0.78, corner * 1.02, length(q)), k);

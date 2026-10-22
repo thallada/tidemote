@@ -45,3 +45,26 @@ export function makeRelief(gw, gh, seed, { minL = 10, maxL = 70, modes = 28, war
   order.forEach((i, r) => { q[i] = (r + 0.5) / n; });
   return q;
 }
+
+/** How many separate pools the water stands in at `level` (wet grid cells joined side to side, across the wraps),
+ * counting those of at least `min` cells; and the largest one's share of the wet floor. */
+export function countPools(q, gw, gh, level, min = 6) {
+  const seen = new Uint8Array(gw * gh), stack = [];
+  let pools = 0, wet = 0, largest = 0;
+  for (let s = 0; s < gw * gh; s++) {
+    if (seen[s] || q[s] > level) continue;
+    let size = 0;
+    seen[s] = 1; stack.push(s);
+    while (stack.length) {
+      const c = stack.pop(), x = c % gw, y = (c - x) / gw;
+      size++;
+      for (const n of [y * gw + (x + 1) % gw, y * gw + (x + gw - 1) % gw, ((y + 1) % gh) * gw + x, ((y + gh - 1) % gh) * gw + x]) {
+        if (!seen[n] && q[n] <= level) { seen[n] = 1; stack.push(n); }
+      }
+    }
+    wet += size;
+    if (size >= min) pools++;
+    largest = Math.max(largest, size);
+  }
+  return { pools, largest: wet ? largest / wet : 0 };
+}
