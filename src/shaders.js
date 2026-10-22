@@ -1162,9 +1162,19 @@ fn flowAt(p: vec2f) -> vec2f {
 // With frost (weather.y, the share of the pool frozen) ice grows over the pool in the order of thermal block 4 (a
 // quantile per grid cell, 0 first): liquid is where that order lies above the frost. pondAt gives whichever edge,
 // the water's or the ice's, lies nearer, in the same terms: a depth (below 0: dry or frozen) and the slope toward it.
-fn reliefCell(x: i32, y: i32) -> f32 { return bitcast<f32>(atomicLoad(&thermal[3u * MAX_CELLS + wrapCell(x, y)])); }
-fn iceCell(x: i32, y: i32) -> f32 { return bitcast<f32>(atomicLoad(&thermal[4u * MAX_CELLS + wrapCell(x, y)])); }
 fn pondOn() -> bool { return POND && (sim.pond.x < 1.0 || sim.weather.y > 0.0); }
+fn blockCell(block: u32, x: i32, y: i32) -> f32 { return bitcast<f32>(atomicLoad(&thermal[block * MAX_CELLS + wrapCell(x, y)])); }
+// A thermal block's field at grid cell i + t: its value read bilinearly, and its slope from central differences
+// at the four corners read bilinearly too, so the slope's direction turns smoothly across cell edges (a slope
+// constant within each cell sent what it pushes into lines along the grid)
+fn smoothField(block: u32, i: vec2i, t: vec2f) -> vec3f {
+  var v: array<f32, 16>;
+  for (var y = 0; y < 4; y++) { for (var x = 0; x < 4; x++) { v[y * 4 + x] = blockCell(block, i.x - 1 + x, i.y - 1 + y); } }
+  let val = mix(mix(v[5], v[6], t.x), mix(v[9], v[10], t.x), t.y);
+  let gx = mix(mix(v[6] - v[4], v[7] - v[5], t.x), mix(v[10] - v[8], v[11] - v[9], t.x), t.y) * 0.5;
+  let gy = mix(mix(v[9] - v[1], v[10] - v[2], t.x), mix(v[13] - v[5], v[14] - v[6], t.x), t.y) * 0.5;
+  return vec3f(val, gx, gy);
+}
 fn pondAt(p: vec2f) -> vec3f {
   var e = vec3f(1.0, 0.0, 0.0);
   if (!pondOn()) { return e; }
@@ -1172,18 +1182,12 @@ fn pondAt(p: vec2f) -> vec3f {
   let i = vec2i(floor(u));
   let t = u - floor(u);
   if (sim.pond.x < 1.0) {
-    let a = reliefCell(i.x, i.y);
-    let b = reliefCell(i.x + 1, i.y);
-    let c = reliefCell(i.x, i.y + 1);
-    let d = reliefCell(i.x + 1, i.y + 1);
-    e = vec3f(sim.pond.x - mix(mix(a, b, t.x), mix(c, d, t.x), t.y), mix(b - a, d - c, t.y), mix(c - a, d - b, t.x));
+    let r = smoothField(3u, i, t);
+    e = vec3f(sim.pond.x - r.x, r.yz);
   }
   if (sim.weather.y > 0.0) {
-    let a = iceCell(i.x, i.y);
-    let b = iceCell(i.x + 1, i.y);
-    let c = iceCell(i.x, i.y + 1);
-    let d = iceCell(i.x + 1, i.y + 1);
-    let ice = vec3f(mix(mix(a, b, t.x), mix(c, d, t.x), t.y) - sim.weather.y, -mix(b - a, d - c, t.y), -mix(c - a, d - b, t.x));
+    let o = smoothField(4u, i, t);
+    let ice = vec3f(o.x - sim.weather.y, -o.yz);
     if (shoreDist(ice) < shoreDist(e)) { e = ice; }
   }
   return e;
@@ -5933,17 +5937,24 @@ fn iceLook(wp: vec2f, sd: f32, n: vec2f, order: f32, ppu: f32) -> vec3f {
   let gq = worley(wp * 0.16 + (vec2f(vnoise(wp * 0.3), vnoise(wp * 0.3 + 4.1)) - 0.5) * 0.5);
   let seam = 1.0 - smoothstep(0.0, 0.03 + 1.5 * px * 0.16, (gq.y - gq.x));
   c += vec3f(0.035, 0.040, 0.048) * seam * smoothstep(1.0, 3.0, inIce);
-  // feathers: two families of fine arms at sixty degrees to the front's normal
+  // dendrites near the front: stems grown along the front's normal, each with fine side arms at sixty degrees to
+  // it, as ice branches (fern frost), the stems wandering a little and ending at different lengths
   let tt = vec2f(-n.y, n.x);
   let a = dot(wp, n);
   let b = dot(wp, tt);
-  let k = 2.6;
-  let f1 = fract((0.5 * a + 0.866 * b) * k + vnoise(wp * 0.5) * 2.0);
-  let f2 = fract((0.5 * a - 0.866 * b) * k + vnoise(wp * 0.5 + 3.0) * 2.0);
-  let lw = max(0.06, 2.0 * px * k);
-  let arms = max(1.0 - smoothstep(0.0, lw, min(f1, 1.0 - f1)), 1.0 - smoothstep(0.0, lw, min(f2, 1.0 - f2)));
-  let feather = arms * smoothstep(0.0, 0.6, inIce) * (1.0 - smoothstep(1.5, 5.0, inIce)) * smoothstep(0.35, 0.7, vnoise(wp * 1.4 + 7.0)) * smoothstep(3.0, 8.0, ppu / k);
-  c += vec3f(0.06, 0.07, 0.085) * feather;
+  let sk = 0.75;
+  let sb = b * sk + 0.5 * vnoise(vec2f(a * 0.35, b * 0.15));
+  let stemId = floor(sb);
+  let fb = fract(sb) - 0.5;
+  let along = abs(fb) / sk;
+  let stemLen = 0.8 + 2.2 * hash12(vec2f(stemId, 3.7));
+  let stem = 1.0 - smoothstep(0.0, max(0.035, 1.2 * px), along);
+  let k = 3.2;
+  let f1 = fract((0.5 * a + 0.866 * along) * k + 0.15 * vnoise(wp * 0.8));
+  let arm = (1.0 - smoothstep(0.0, max(0.07, 2.0 * px * k), min(f1, 1.0 - f1))) * (1.0 - smoothstep(0.1, 0.5, along * 1.3 + 0.12 * inIce));
+  let arms = max(stem, arm * 0.7) * (1.0 - smoothstep(stemLen * 0.7, stemLen, inIce));
+  let feather = arms * smoothstep(0.0, 0.4, inIce) * smoothstep(0.3, 0.6, vnoise(wp * 0.9 + 7.0)) * smoothstep(3.0, 8.0, ppu / k);
+  c += vec3f(0.04, 0.047, 0.057) * feather;
   return c;
 }
 // Dry ground in darkfield: the skin of mud the water left scatters the lamp's oblique light into the objective, so
