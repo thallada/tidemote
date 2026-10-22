@@ -1140,7 +1140,9 @@ fn flowAt(p: vec2f) -> vec2f {
       d -= sim.world * round(d / sim.world);
       let r = length(d);
       let x = (r - age * ${f(K.dropSpeed)}) / ${f(K.dropWidth)};
-      v += d / max(r, 1e-3) * (dr.w * exp(-x * x) * (1.0 - age / ${f(K.dropLife)}));
+      // (the ring dies out before it meets its own copy across the world's wrap)
+      let fade = 1.0 - smoothstep(0.3, 0.45, r / min(sim.world.x, sim.world.y));
+      v += d / max(r, 1e-3) * (dr.w * exp(-x * x) * (1.0 - age / ${f(K.dropLife)}) * fade);
     }
   }
   // the currents die away toward the water's edge and never cross it; dry ground has none
@@ -5971,6 +5973,8 @@ fn dryGround(wp: vec2f, away: f32, ppu: f32) -> vec3f {
 // Raindrops' ring waves seen through the water's surface: where a ring passes, the slope of the surface bends the
 // view (a displacement in world units) and its crest gathers a little of the lamp's light (w).
 fn ripples(wp: vec2f) -> vec3f {
+  // each raindrop sends out a train of capillary ripples: a few fine crests behind the leading one, fading with
+  // distance and age; z: how much light their sloping flanks scatter (thin bright lines), xy: how they bend the view
   var o = vec3f(0.0);
   for (var k = 0u; k < 4u; k++) {
     let dr = post.drops[k];
@@ -5979,9 +5983,15 @@ fn ripples(wp: vec2f) -> vec3f {
       var d = wp - dr.xy;
       d -= post.world * round(d / post.world);
       let r = length(d);
-      let x = (r - age * ${f(DEFAULT_K.dropSpeed)}) / ${f(DEFAULT_K.dropWidth)};
-      let a = dr.w * (1.0 - age / ${f(DEFAULT_K.dropLife)});
-      o += vec3f(d / max(r, 1e-3) * (-2.0 * x * exp(-x * x) * a * 0.25), (2.0 * x * x - 1.0) * exp(-x * x) * a);
+      // the film's thickness varies, so the ring runs a little unevenly
+      let x = r - age * ${f(DEFAULT_K.dropSpeed)} + 0.3 * (vnoise(dr.xy + d / max(r, 1e-3) * 1.6) - 0.5) * min(r, 1.0);
+      // behind the front (x < 0) the train, ahead of it calm water
+      let env = exp(-pow(max(x, 0.0) / 0.25, 2.0)) * exp(min(x, 0.0) / 0.9) * smoothstep(-4.0, -2.5, x);
+      let a = dr.w * (1.0 - age / ${f(DEFAULT_K.dropLife)}) * env / sqrt(1.0 + r * 0.3) * (1.0 - smoothstep(0.3, 0.45, r / min(post.world.x, post.world.y)));
+      // crests shorten behind the front (the train disperses)
+      let ph = x * (6.2832 / (0.9 + 0.12 * x));
+      // lines a few pixels wide however close the view
+      o += vec3f(d / max(r, 1e-3) * (cos(ph) * a * 0.05), pow(abs(sin(ph)), clamp(post.ppu * 0.4, 8.0, 48.0)) * a);
     }
   }
   return o;
@@ -6107,8 +6117,9 @@ fn heatRamp(u: f32) -> vec3f {
     let front = exp(-pow(sdI / max(0.9 * px, 0.02), 2.0)) * (0.7 + 0.3 * vnoise(wp * 2.3));
     c += vec3f(0.20, 0.23, 0.27) * front;
   }
-  // a raindrop's ring crest catches the lamp
-  c += vec3f(0.006, 0.007, 0.008) * max(rip.z, 0.0);
+  // raindrops' ripples: in darkfield a sloping surface scatters the lamp into the objective, so each crest's flanks
+  // show as thin bright lines, uneven where the film is
+  c += vec3f(0.05, 0.056, 0.064) * rip.z * (0.7 + 0.6 * vnoise(wp * 1.7));
   // a leaf floating on the pool, far above the focal plane: it keeps the lamp's light from what lies under it, and
   // scatters a little of it as a faint green-brown haze, its veins blurred shadows in it
   if (post.leaf.w > 0.0) {
