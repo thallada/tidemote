@@ -172,5 +172,18 @@ round 7 only).
 - **Imprint 1 is the worst for diversity** (55-63 effective species) with the most turnover. Imprinted lineages are
   born on their host and stay on it; why that concentrates the living into fewer species is not yet known.
 
-Round 8 (24 seeds × 60 min) confirms off, ref, `graftFit` 0.5, `graftSpec` 4 and the two together over an hour, when
-generalist grafting had spread furthest.
+### Round 8: an hour (24 seeds × 60 min, from minute 10)
+
+| variant | species booms/h | effective species | grafted | living in grafting species | leader load |
+|---|---|---|---|---|---|
+| r8-off | 38.7 | 121 ± 7 | 0% | - | - |
+| r8-ref | 46.0 | 94 ± 4 | 28% | 82% | 0.83 |
+| r8-spec4 | 45.3 | 94 ± 6 | 26% | 65% | 0.83 |
+| r8-fit5 | 42.9 | 103 ± 4 | 21% | 73% | 0.84 |
+| r8-fit5spec4 | 44.4 | 98 ± 5 | 19% | 57% | 0.85 |
+
+Over an hour the 30-minute recovery does not hold: every grafting variant costs 18-27 effective species, and the leader
+load is 0.83 in all of them. Specialising by receptor fit slows grafting's spread but does not change whom it falls on;
+surfaces are shared widely enough across species that a good fit is not one host species. Only imprinting has aimed
+parasites at the common, which led to `graftSwitch`: an imprinted species, while its grafters find none of its host
+species in reach, may lose its imprint (at this rate per such grafter per second) and fix on the next species it grafts.
