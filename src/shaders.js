@@ -5916,11 +5916,15 @@ fn fieldPost(base: u32, p: vec2f) -> vec3f {
 fn iceLook(wp: vec2f, sd: f32, n: vec2f, order: f32, ppu: f32) -> vec3f {
   let px = 1.0 / max(ppu, 1e-3);
   let inIce = max(-sd, 0.0);
-  var c = vec3f(0.006, 0.008, 0.012) * (0.8 + 0.4 * vnoise(wp * 0.9));
-  // growth bands: where the front stood as the ice grew
-  let band = fract(order * 70.0 + 0.4 * vnoise(wp * 0.6));
-  let bw = clamp(fwidth(order * 70.0) * 1.5, 0.02, 0.5);
-  c += vec3f(0.020, 0.024, 0.030) * (1.0 - smoothstep(0.0, bw, min(band, 1.0 - band))) * (1.0 - smoothstep(4.0, 14.0, inIce));
+  var c = vec3f(0.0035, 0.0045, 0.0065) * (0.7 + 0.6 * vnoise(wp * 0.9));
+  // a few faint growth rings where the front paused
+  let band = fract(order * 9.0 + 0.5 * vnoise(wp * 0.4));
+  let bw = max(fwidth(order * 9.0) * 1.5, 0.015);
+  c += vec3f(0.008, 0.010, 0.013) * (1.0 - smoothstep(0.0, bw, min(band, 1.0 - band))) * smoothstep(0.03, 0.006, fwidth(order * 9.0));
+  // grain boundaries: where crystals of different orientation meet, a thin bright seam
+  let gq = worley(wp * 0.16 + (vec2f(vnoise(wp * 0.3), vnoise(wp * 0.3 + 4.1)) - 0.5) * 0.5);
+  let seam = 1.0 - smoothstep(0.0, 0.03 + 1.5 * px * 0.16, (gq.y - gq.x));
+  c += vec3f(0.035, 0.040, 0.048) * seam * smoothstep(1.0, 3.0, inIce);
   // feathers: two families of fine arms at sixty degrees to the front's normal
   let tt = vec2f(-n.y, n.x);
   let a = dot(wp, n);
