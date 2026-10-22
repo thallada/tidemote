@@ -265,7 +265,7 @@ export const DEFAULT_K = {
   rainDark: 0.35,
   rainTurb: 1,
   rainDrops: 1,
-  frostCold: 1,     // a frost's night, as shares of the full: cold (−10°) and dark (light × 0.4 at full)
+  frostCold: 1,     // a frost's night, as shares of the full: cold (the water chilled to 0.5°) and dark (light × 0.4 at full)
   frostDark: 0.35,
   leafLen: [0.18, 0.32],
   leafDark: [0.75, 0.92],
@@ -483,6 +483,18 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
 // bilinear between grid-cell centres, so a cell jostling across a grid line doesn't flick between
 // its cells' temperatures (and its heat colour with them).
 const shownWater = (world) => /* wgsl */ `
+// a thermal block's field at p, bilinear
+fn blockAt(base: u32, p: vec2f) -> f32 {
+  let g = vec2i(${world});
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  let x0 = ((i.x % g.x) + g.x) % g.x; let x1 = (x0 + 1) % g.x;
+  let y0 = ((i.y % g.y) + g.y) % g.y; let y1 = (y0 + 1) % g.y;
+  let row0 = base + u32(y0 * g.x); let row1 = base + u32(y1 * g.x);
+  return mix(mix(heatField[row0 + u32(x0)], heatField[row0 + u32(x1)], t.x),
+             mix(heatField[row1 + u32(x0)], heatField[row1 + u32(x1)], t.x), t.y);
+}
 fn waterTempAt(p: vec2f) -> f32 {
   let g = vec2i(${world});
   let u = p - 0.5;
@@ -3511,7 +3523,8 @@ struct View {
   splat: f32,
   // the adhesion where bodies start to close into tissue (K.tightFrom)
   tightFrom: f32,
-  pad0: u32, pad1: u32, pad2: u32, pad3: u32,
+  // the pool (docs/catastrophes.md): its water level and the share of it frozen, to show cells stranded or frozen
+  level: f32, frost: f32, pad2: u32, pad3: u32,
 };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -3991,6 +4004,20 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     if (!dead && cause == 8u) { b *= 1.0 + 2.0 * max(0.0, 1.0 - p.age / BIRTH_T); }
     col = unpack4x8unorm(p.col).rgb;
     col = mix(col, vec3f(0.62, 0.66, 0.74) * dot(col, vec3f(0.3, 0.5, 0.2)) * 1.6, 0.5 * sleep);
+    // stranded on the drying mud a cell desiccates: it shrivels, its colour drains to a dull brown and it darkens;
+    // caught in the ice it is frozen: still, its colour drained toward a pale frosted blue-white, a little rimed
+    if (view.level < 1.0 || view.frost > 0.0) {
+      var dryN = 0.0;
+      if (view.level < 1.0) { dryN = smoothstep(0.0, 0.012, blockAt(${3 * MAX_CELLS}u, p.pos) - view.level); }
+      var iceN = 0.0;
+      if (view.frost > 0.0) { iceN = smoothstep(0.0, 0.01, view.frost - blockAt(${4 * MAX_CELLS}u, p.pos)); }
+      let l = dot(col, vec3f(0.3, 0.5, 0.2));
+      col = mix(col, vec3f(0.55, 0.38, 0.22) * (0.45 + 0.6 * l), 0.85 * dryN);
+      b *= 1.0 - 0.5 * dryN;
+      size *= 1.0 - 0.22 * dryN;
+      col = mix(col, vec3f(0.8, 0.9, 1.0) * (0.85 + 0.5 * l), 0.8 * iceN);
+      b *= 1.0 + 0.15 * iceN;
+    }
     if (th.torpid) { col = mix(col, vec3f(0.55, 0.7, 0.95) * dot(col, vec3f(0.33)), 0.5); b *= 0.6; }
     // heat stress bleaches a cell toward pale bone; a heat-maker glows faintly warm
     col = mix(col, vec3f(1.0, 0.96, 0.9) * max(0.45, dot(col, vec3f(0.3, 0.5, 0.2))), 0.6 * smoothstep(0.3, 1.0, th.x));

@@ -1083,6 +1083,7 @@ svg.niche .n-dot { fill: var(--cyan); }
       <div class="tabs" role="tablist" id="set-tabs" aria-label="Settings sections">
         <button type="button" role="tab" data-tab="display" aria-selected="true">Display</button>
         <button type="button" role="tab" data-tab="performance" aria-selected="false" tabindex="-1">Performance</button>
+        <button type="button" role="tab" data-tab="climate" aria-selected="false" tabindex="-1">Climate</button>
         <button type="button" role="tab" data-tab="worlds" aria-selected="false" tabindex="-1">Worlds</button>
       </div>
       <button type="button" class="ghost" id="set-close" aria-label="Close settings"><svg><use href="#i-close"/></svg></button></div>
@@ -1838,6 +1839,18 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   var shownWater = (world) => (
     /* wgsl */
     `
+// a thermal block's field at p, bilinear
+fn blockAt(base: u32, p: vec2f) -> f32 {
+  let g = vec2i(${world});
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  let x0 = ((i.x % g.x) + g.x) % g.x; let x1 = (x0 + 1) % g.x;
+  let y0 = ((i.y % g.y) + g.y) % g.y; let y1 = (y0 + 1) % g.y;
+  let row0 = base + u32(y0 * g.x); let row1 = base + u32(y1 * g.x);
+  return mix(mix(heatField[row0 + u32(x0)], heatField[row0 + u32(x1)], t.x),
+             mix(heatField[row1 + u32(x0)], heatField[row1 + u32(x1)], t.x), t.y);
+}
 fn waterTempAt(p: vec2f) -> f32 {
   let g = vec2i(${world});
   let u = p - 0.5;
@@ -4846,7 +4859,8 @@ struct View {
   splat: f32,
   // the adhesion where bodies start to close into tissue (K.tightFrom)
   tightFrom: f32,
-  pad0: u32, pad1: u32, pad2: u32, pad3: u32,
+  // the pool (docs/catastrophes.md): its water level and the share of it frozen, to show cells stranded or frozen
+  level: f32, frost: f32, pad2: u32, pad3: u32,
 };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -5326,6 +5340,20 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     if (!dead && cause == 8u) { b *= 1.0 + 2.0 * max(0.0, 1.0 - p.age / BIRTH_T); }
     col = unpack4x8unorm(p.col).rgb;
     col = mix(col, vec3f(0.62, 0.66, 0.74) * dot(col, vec3f(0.3, 0.5, 0.2)) * 1.6, 0.5 * sleep);
+    // stranded on the drying mud a cell desiccates: it shrivels, its colour drains to a dull brown and it darkens;
+    // caught in the ice it is frozen: still, its colour drained toward a pale frosted blue-white, a little rimed
+    if (view.level < 1.0 || view.frost > 0.0) {
+      var dryN = 0.0;
+      if (view.level < 1.0) { dryN = smoothstep(0.0, 0.012, blockAt(${3 * MAX_CELLS}u, p.pos) - view.level); }
+      var iceN = 0.0;
+      if (view.frost > 0.0) { iceN = smoothstep(0.0, 0.01, view.frost - blockAt(${4 * MAX_CELLS}u, p.pos)); }
+      let l = dot(col, vec3f(0.3, 0.5, 0.2));
+      col = mix(col, vec3f(0.55, 0.38, 0.22) * (0.45 + 0.6 * l), 0.85 * dryN);
+      b *= 1.0 - 0.5 * dryN;
+      size *= 1.0 - 0.22 * dryN;
+      col = mix(col, vec3f(0.8, 0.9, 1.0) * (0.85 + 0.5 * l), 0.8 * iceN);
+      b *= 1.0 + 0.15 * iceN;
+    }
     if (th.torpid) { col = mix(col, vec3f(0.55, 0.7, 0.95) * dot(col, vec3f(0.33)), 0.5); b *= 0.6; }
     // heat stress bleaches a cell toward pale bone; a heat-maker glows faintly warm
     col = mix(col, vec3f(1.0, 0.96, 0.9) * max(0.45, dot(col, vec3f(0.3, 0.5, 0.2))), 0.6 * smoothstep(0.3, 1.0, th.x));
@@ -18670,6 +18698,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       vu[21] = culled ? 1 : 0;
       v[22] = splat;
       v[23] = K.tightFrom;
+      v[24] = K.pond ? this.level : 1;
+      v[25] = K.pond ? this.frost : 0;
       this.device.queue.writeBuffer(buf, 0, data);
     }
     // the stone field for one view: every grain of stone adds its kernel (see vsStone)
@@ -19013,6 +19043,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var TEMPERATE = ERA_ADJ.filter((a) => !WARMING.includes(a) && !COOLING.includes(a));
   var TEMP_MIN = 4;
   var TEMP_MAX = 28;
+  var FROST_WATER = 0.5;
   function excursionAt(x, t2) {
     if (!x || t2 < x.t || t2 > x.t + x.dur) return 0;
     return x.dT * Math.sin(Math.PI * (t2 - x.t) / x.dur) ** 2;
@@ -19021,7 +19052,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var ease = (u) => u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u);
   var ramp = (t2, a, b) => ease((t2 - a) / Math.max(b - a, 1e-6));
   function eventAt(ev, t2, levelTo) {
-    const out = { level: levelTo, rain: 0, sky: 1, evap: 0, turb: 1, dT: 0, leaf: null, frost: 0, freezing: 0, phase: null };
+    const out = { level: levelTo, rain: 0, sky: 1, evap: 0, turb: 1, dT: 0, chill: 0, leaf: null, frost: 0, freezing: 0, phase: null };
     if (!ev || t2 < ev.t) return out;
     const u = t2 - ev.t;
     const cold = ev.rainCold ?? 1, dark = ev.rainDark ?? 1, rough = ev.rainTurb ?? 1;
@@ -19068,7 +19099,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const { cool, grow, hold, thaw } = ev;
       const night = Math.min(ramp(u, 0, cool), 1 - ramp(u, cool + grow + hold, cool + grow + hold + thaw + 120));
       out.sky = 1 - 0.6 * (ev.dark ?? 1) * night;
-      out.dT = -10 * (ev.cold ?? 1) * night;
+      out.chill = (ev.cold ?? 1) * night;
       if (u < cool) out.phase = "cooling";
       else if (u < cool + grow) {
         const v = (u - cool) / grow;
@@ -19116,7 +19147,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   }
   var eventSpan = (ev) => ev.type === "drought" ? ev.fall + ev.hold + ev.refill + 120 : ev.type === "storm" ? ev.dur + 240 : ev.type === "frost" ? ev.cool + ev.grow + ev.hold + ev.thaw + 120 : ev.dur;
   function createClimate(eng, rng = Math.random) {
-    const climate = { tick, reset, onEra: null, onExcursion: null, onEvent: null, force };
+    const climate = { tick, reset, onEra: null, onExcursion: null, onEvent: null, force, allowed: new Set(EVENT_TYPES) };
     const K = eng.K || {};
     const plan = () => String(K.eventPlan || "").split(",").filter(Boolean).map((x) => {
       const [type, at] = x.split("@");
@@ -19156,8 +19187,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
         p.done = true;
         force(p.type);
       }
+      if (climate.event && !climate.allowed.has(climate.event.type) && !climate.plan.length) climate.event = null;
+      if (t2 >= climate.nextEvent && !climate.event && !EVENT_TYPES.some((x) => climate.allowed.has(x))) climate.nextEvent = t2 + gap();
       if (t2 >= climate.nextEvent && !climate.event) {
-        const w = K.eventMix || [0.35, 0.2, 0.2, 0.25];
+        const w = (K.eventMix || [0.35, 0.2, 0.2, 0.25]).map((x, i) => climate.allowed.has(EVENT_TYPES[i]) ? x : 0);
         let r = rng() * w.reduce((a, b) => a + b, 0), k = 0;
         while (k < w.length - 1 && r >= w[k]) {
           r -= w[k];
@@ -19180,6 +19213,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       eng.frost = e.frost;
       eng.freezing = e.freezing;
       climate.eventTemp = e.dT;
+      climate.eventChill = e.chill;
       if (e.leaf) eng.leaf.set(e.leaf);
       else eng.leaf.fill(0);
       if (e.rain > 0 && rng() < e.rain * 1.2 * (K.rainDrops ?? 1) * dt) {
@@ -19229,7 +19263,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
         eventTick(dt);
         eng.stepFloor?.();
       }
-      eng.excursion = excursionAt(x, eng.simTime) + (climate.eventTemp || 0);
+      const ex = excursionAt(x, eng.simTime);
+      const base = eng.tbg != null ? eng.tbg - eng.excursion : eng.temp;
+      eng.excursion = ex + (climate.eventTemp || 0) + (climate.eventChill || 0) * (FROST_WATER - base - ex);
       if (x && eng.simTime >= x.t && climate.announced !== x) {
         climate.announced = x;
         climate.history.at(-1).excursion = x;
@@ -19278,6 +19314,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
     scalding: "Far above its optimum a cell begins to die of the heat: a chance each second, rising steeply. A scalded cell leaves a husk. Heat-stressed cells bleach toward pale bone first.",
     thermotaxis: "Swimmers away from their optimum steer up or down the warmth of the water toward it, harder the further off they are. Drifters and anchored cells cannot steer; heat sorts them by who survives where.",
     framboid: "A pyrite framboid: a sphere of tiny iron sulfide crystals, a few microns across like the cells. Framboids grow where a pile of husks rots in cool water (the rot releases the sulfide), and a few lie in the mud from the start. As one oxidises it warms its water, burning faster the warmer that water is, so a crowded, hot cluster burns itself out; spent, it crumbles to silt. Sparks of life favour their warmth, and heat-loving species gather round them. Framboids are solid like stone.",
+    poolevents: "Now and then (about once an hour of world time) the pool suffers an event: a drought, a storm, a fallen leaf or a frost. Each lasts a few minutes, is announced in the log, and is survived by life resting as cysts. Turn them all off here, or each kind on its own.",
+    evdrought: "A drought: the water falls over several minutes until a third to two thirds of the floor lies dry, parting the pool into separate pools. Cells stranded on the mud shrivel; most rest as cysts. Then rain refills it, cold and dim, and the cysts wake.",
+    evstorm: "A storm: cold rain for a few minutes. Raindrops ring the surface and shove the water outward, currents run rough and the light dims under the cloud.",
+    evleaf: "A fallen leaf floats on the pool for several minutes, drifting and turning slowly. The water under it lies in deep shade, so producers there starve while it stays.",
+    evfrost: "A frost: a cold night chills the water to near 0° and ice grows over most of the pool from the shallows, pushing cells into the veins of water between its crystals. Cells caught in the ice freeze as cysts or die. Then it thaws.",
+    evstart: "Start an event of that kind now, to watch it. Only the kinds turned on above.",
+    cystdry: "A cell stranded on the mud or caught in the ice cannot move or feed. It shows dried (shrivelled, dull brown) or frozen (pale, frosted); most rest as cysts, losing energy very slowly until the water returns, and the rest starve.",
     heatwave: "An excursion of the climate: for a few minutes the water rises (a heat wave) or falls (a cold snap) by 5–8°. Heat waves scald and bleach; cold snaps still the world except where heat-makers keep colonies warm.",
     epoch: "Simulated time since this universe began.",
     abiogenesis: "Life sparking from silt: a completely random new species suited to the water it sparks in, about once every 30 simulated seconds, mostly in the light and more in hot water. A world whose life has died begins again this way.",
@@ -19420,6 +19463,20 @@ registerProcessor("tidemote-sound", TidemoteSound);
 <p>Each species prefers a temperature (its ${t("optimum", "optimum")}) and stands only so much either side (its ${t("tolerance", "tolerance")}). How well it ${t("thermal", "works")} falls off slowly in the cold and steeply in the heat, and narrow specialists work best of all at their optimum, so small differences in warmth matter. Swimmers steer toward water that suits them (${t("thermotaxis", "thermotaxis")}). Far too cold, a cell goes ${t("torpor", "torpid")}; far too hot, it bleaches and may ${t("scalding", "scald")}.</p>
 <p>${t("heatmaker", "Heat-makers")} burn extra energy to warm themselves and their water. In a cold era their colonies are lifeboats where life keeps moving and singing while the world around it goes still; in a ${t("heatwave", "heat wave")} they overheat from the core outward. Warm water also rots husks faster, so cold eras favour scavengers and warm ones recycle matter quickly.</p>
 <p><b>Settings → Heat map</b> (E): <b>Shimmer</b> makes warm water waver as if seen through rising heat; <b>Full</b> is a thermal camera with an isotherm every 2°. Framboids show as brassy beaded spheres, faintly glowing while they burn.</p>`
+    },
+    {
+      id: "pool",
+      title: "The pool and its events",
+      short: "Pool",
+      html: `<p>The world is a shallow pool under a microscope, a millimetre or two across. Its floor has relief: some eras the water stands low and the highest ground shows as islands and sandbars. Now and then, about once an hour of world time, the pool suffers an ${t("poolevents", "event")}, announced in the log and on screen:</p>
+<ul>
+<li><b>${t("evdrought", "Drought")}.</b> The water falls until much of the floor lies dry and the pool parts into separate pools. The receding edge sweeps cells along and piles them at the waterline; the mud pales and cracks into plates as it dries. Then rain refills it, and the resting cells hatch.</li>
+<li><b>${t("evstorm", "Storm")}.</b> Cold rain under cloud. Raindrops ring the surface (seen as rings and a moving web of light on the floor) and shove the water and what floats in it.</li>
+<li><b>${t("evleaf", "Fallen leaf")}.</b> A leaf floats out of focus far above, drifting slowly and shading the water under it.</li>
+<li><b>${t("evfrost", "Frost")}.</b> A cold night chills the water to near 0° and ice grows over the pool as a mass of small crystals, from the shallows and from scattered seeds, pushing cells into the veins of water between them; then it thaws.</li>
+</ul>
+<p>Cells stranded on dry mud or caught in ice cannot swim or feed. They show ${t("cystdry", "dried or frozen")}; most rest as ${t("cyst", "cysts")} and wait, losing energy very slowly, and the rest starve. The water's edge pulls cells near it back in. After each event the log tallies how much life and how many species it cost. Rain wakes cysts fast, so a drought ends in a burst of hatching.</p>
+<p><b>Settings → Climate</b> turns the events off, or each kind on its own, and can start one now.</p>`
     },
     {
       id: "cells",
@@ -23806,6 +23863,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       // the Field Lab's column, open or folded to its header ("world": its name when it was the census)
       labOpen: prefs.labOpen ?? prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
       closeup: prefs.closeup ?? true,
+      // the pool's events (docs/catastrophes.md): all on, or off, or some of them
+      events: { on: true, drought: true, storm: true, leaf: true, frost: true, ...prefs.events },
       songMarks: prefs.songMarks ?? 1,
       // mark the cells that sing: 0 off, 1 the picked species, 2 all
       // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
@@ -23841,7 +23900,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ v: 2, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
+      savePrefs({ v: 2, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, events: state.events, ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
     if (prefs.loupe !== void 0 && !isCoarse) state.loupe = prefs.loupe;
@@ -23971,8 +24030,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
       });
     }
     let climate;
+    function applyEvents() {
+      if (climate) climate.allowed = new Set(state.events.on ? EVENT_TYPES.filter((x) => state.events[x]) : []);
+    }
     function resetClimate() {
       climate = createClimate(eng);
+      applyEvents();
       climate.music = Math.random() * 2 ** 32 >>> 0;
       climate.onEra = (era, prevAmb, prevTemp) => {
         const lightWord = era.ambient > prevAmb + 0.05 ? "light rises" : era.ambient < prevAmb - 0.05 ? "light dims" : "light holds";
@@ -25251,6 +25314,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
         const nowN = pendingN ?? (P.particles || "auto");
         return group("res", "Resolution", choice("scale", "Render scale", "", [["auto", "Auto"], [1, "100%"], [0.75, "75%"], [0.5, "50%"], [0.35, "35%"]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", "Auto lowest", "", [[0.75, "75%"], [0.5, "50%"], [0.35, "35%"], [0.25, "25%"]], P.floor, "autofloor") : "") + choice("density", "Pixel density", "", [[1, "1×"], [1.5, "1.5×", dev < 1.5], [2, "2×", dev < 2]], P.density, "density") + choice("fps", "Target fps", "", [[30, "30"], [60, "60"], [0, "Display"]], P.fps, "targetfps")) + group("fx", "Effects", onoff("bloom", "Bloom", "B", s.bloom > 0, "bloom") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("lod", "Zoom detail", "", s.lod, "lod") + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("closeup", "Live close-up", "", state.closeup, "closeup")) + group("world", "World", choice("n", "Particles", "", [["auto", "Auto"], ...sizes.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", "Neighbours", "", [144, 192, 288].map((n) => [n, String(n)]), eng.maxScan, "neighbours") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === "auto" ? "a measured count" : fmt(pendingN)}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", "Profile")}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ""));
       }
+      const EVENT_NAMES = { drought: "Drought", storm: "Storm", leaf: "Fallen leaf", frost: "Frost" };
+      function climate_() {
+        const E = state.events;
+        const kinds = E.on ? EVENT_TYPES.map((x) => onoff(`ev-${x}`, EVENT_NAMES[x], "", E[x], `ev${x}`)).join("") : "";
+        const now = !K.pond ? "" : state.phase === "running" && !climate.event && E.on && EVENT_TYPES.some((x) => E[x]) ? `<div class="opt"><span class="lbl">${term("evstart", "Start one now")}</span><div class="row segs">${EVENT_TYPES.filter((x) => E.on && E[x]).map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAMES[x]}</button>`).join("")}</div></div>` : climate?.event ? `<div class="opt"><span class="lbl">Under way</span><span class="note">${EVENT_NAMES[climate.event.type]}${climate.phase ? ` · ${climate.phase}` : ""}</span></div>` : "";
+        return group("events", "Pool events", onoff("ev-on", "Events", "", E.on, "poolevents") + kinds + now);
+      }
       let saves = null, used = 0, wName = "", ask = null, wBusy = "";
       const defaultName = () => `${climate.name} · ${fmtDur(eng.simTime)}`;
       const when = (t2) => new Date(t2).toDateString() === (/* @__PURE__ */ new Date()).toDateString() ? new Date(t2).toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" }) : new Date(t2).toLocaleDateString(void 0, { month: "short", day: "numeric" });
@@ -25355,7 +25425,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }
       function resetTab() {
         const s = eng.settings, P = state.perf;
-        if (tab === "display") {
+        if (tab === "climate") {
+          state.events = { on: true, drought: true, storm: true, leaf: true, frost: true };
+          applyEvents();
+        } else if (tab === "display") {
           trailIdx = 1;
           s.trails = trailLevels[trailIdx];
           for (const k of ["tide", "heat", "bands", "links", "nodes"]) s[k] = defaults[k];
@@ -25384,7 +25457,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         });
         $("readout").hidden = tab !== "performance";
         const typing = document.activeElement?.id === "w-name";
-        opts.innerHTML = (tab === "display" ? display() : tab === "performance" ? performance_() : worlds_()) + foot();
+        opts.innerHTML = (tab === "display" ? display() : tab === "performance" ? performance_() : tab === "climate" ? climate_() : worlds_()) + foot();
         if (typing && !$("w-name").disabled) {
           const i = $("w-name");
           i.focus();
@@ -25434,7 +25507,17 @@ registerProcessor("tidemote-sound", TidemoteSound);
         else if (id === "lod") s.lod = !!+v;
         else if (id === "closeup") state.closeup = !!+v;
         else if (id === "songmarks") state.songMarks = +v;
-        else if (id === "loupe") state.loupe = !!+v;
+        else if (id === "ev-on") {
+          state.events.on = !!+v;
+          applyEvents();
+        } else if (id.startsWith("ev-") && id !== "ev-start") {
+          state.events[id.slice(3)] = !!+v;
+          applyEvents();
+        } else if (id === "ev-start") {
+          if (!climate.event) climate.force(v);
+          toggle(false);
+          return;
+        } else if (id === "loupe") state.loupe = !!+v;
         else if (id === "auto") {
           state.auto = !!+v;
           renderAuto(director.active);

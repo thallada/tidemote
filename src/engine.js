@@ -1437,6 +1437,7 @@ class Engine {
     vu[21] = culled ? 1 : 0;
     v[22] = splat;
     v[23] = K.tightFrom;
+    v[24] = K.pond ? this.level : 1; v[25] = K.pond ? this.frost : 0;
     this.device.queue.writeBuffer(buf, 0, data);
   }
 

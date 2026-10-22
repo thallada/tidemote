@@ -19,6 +19,13 @@ export const GLOSSARY = {
   scalding: 'Far above its optimum a cell begins to die of the heat: a chance each second, rising steeply. A scalded cell leaves a husk. Heat-stressed cells bleach toward pale bone first.',
   thermotaxis: 'Swimmers away from their optimum steer up or down the warmth of the water toward it, harder the further off they are. Drifters and anchored cells cannot steer; heat sorts them by who survives where.',
   framboid: 'A pyrite framboid: a sphere of tiny iron sulfide crystals, a few microns across like the cells. Framboids grow where a pile of husks rots in cool water (the rot releases the sulfide), and a few lie in the mud from the start. As one oxidises it warms its water, burning faster the warmer that water is, so a crowded, hot cluster burns itself out; spent, it crumbles to silt. Sparks of life favour their warmth, and heat-loving species gather round them. Framboids are solid like stone.',
+  poolevents: 'Now and then (about once an hour of world time) the pool suffers an event: a drought, a storm, a fallen leaf or a frost. Each lasts a few minutes, is announced in the log, and is survived by life resting as cysts. Turn them all off here, or each kind on its own.',
+  evdrought: 'A drought: the water falls over several minutes until a third to two thirds of the floor lies dry, parting the pool into separate pools. Cells stranded on the mud shrivel; most rest as cysts. Then rain refills it, cold and dim, and the cysts wake.',
+  evstorm: 'A storm: cold rain for a few minutes. Raindrops ring the surface and shove the water outward, currents run rough and the light dims under the cloud.',
+  evleaf: 'A fallen leaf floats on the pool for several minutes, drifting and turning slowly. The water under it lies in deep shade, so producers there starve while it stays.',
+  evfrost: 'A frost: a cold night chills the water to near 0° and ice grows over most of the pool from the shallows, pushing cells into the veins of water between its crystals. Cells caught in the ice freeze as cysts or die. Then it thaws.',
+  evstart: 'Start an event of that kind now, to watch it. Only the kinds turned on above.',
+  cystdry: 'A cell stranded on the mud or caught in the ice cannot move or feed. It shows dried (shrivelled, dull brown) or frozen (pale, frosted); most rest as cysts, losing energy very slowly until the water returns, and the rest starve.',
   heatwave: 'An excursion of the climate: for a few minutes the water rises (a heat wave) or falls (a cold snap) by 5–8°. Heat waves scald and bleach; cold snaps still the world except where heat-makers keep colonies warm.',
   epoch: 'Simulated time since this universe began.',
   abiogenesis: 'Life sparking from silt: a completely random new species suited to the water it sparks in, about once every 30 simulated seconds, mostly in the light and more in hot water. A world whose life has died begins again this way.',
@@ -155,6 +162,18 @@ export const GUIDE = [
 <p>Each species prefers a temperature (its ${t('optimum', 'optimum')}) and stands only so much either side (its ${t('tolerance', 'tolerance')}). How well it ${t('thermal', 'works')} falls off slowly in the cold and steeply in the heat, and narrow specialists work best of all at their optimum, so small differences in warmth matter. Swimmers steer toward water that suits them (${t('thermotaxis', 'thermotaxis')}). Far too cold, a cell goes ${t('torpor', 'torpid')}; far too hot, it bleaches and may ${t('scalding', 'scald')}.</p>
 <p>${t('heatmaker', 'Heat-makers')} burn extra energy to warm themselves and their water. In a cold era their colonies are lifeboats where life keeps moving and singing while the world around it goes still; in a ${t('heatwave', 'heat wave')} they overheat from the core outward. Warm water also rots husks faster, so cold eras favour scavengers and warm ones recycle matter quickly.</p>
 <p><b>Settings → Heat map</b> (E): <b>Shimmer</b> makes warm water waver as if seen through rising heat; <b>Full</b> is a thermal camera with an isotherm every 2°. Framboids show as brassy beaded spheres, faintly glowing while they burn.</p>`,
+  },
+  {
+    id: 'pool', title: 'The pool and its events', short: 'Pool',
+    html: `<p>The world is a shallow pool under a microscope, a millimetre or two across. Its floor has relief: some eras the water stands low and the highest ground shows as islands and sandbars. Now and then, about once an hour of world time, the pool suffers an ${t('poolevents', 'event')}, announced in the log and on screen:</p>
+<ul>
+<li><b>${t('evdrought', 'Drought')}.</b> The water falls until much of the floor lies dry and the pool parts into separate pools. The receding edge sweeps cells along and piles them at the waterline; the mud pales and cracks into plates as it dries. Then rain refills it, and the resting cells hatch.</li>
+<li><b>${t('evstorm', 'Storm')}.</b> Cold rain under cloud. Raindrops ring the surface (seen as rings and a moving web of light on the floor) and shove the water and what floats in it.</li>
+<li><b>${t('evleaf', 'Fallen leaf')}.</b> A leaf floats out of focus far above, drifting slowly and shading the water under it.</li>
+<li><b>${t('evfrost', 'Frost')}.</b> A cold night chills the water to near 0° and ice grows over the pool as a mass of small crystals, from the shallows and from scattered seeds, pushing cells into the veins of water between them; then it thaws.</li>
+</ul>
+<p>Cells stranded on dry mud or caught in ice cannot swim or feed. They show ${t('cystdry', 'dried or frozen')}; most rest as ${t('cyst', 'cysts')} and wait, losing energy very slowly, and the rest starve. The water's edge pulls cells near it back in. After each event the log tallies how much life and how many species it cost. Rain wakes cysts fast, so a drought ends in a burst of hatching.</p>
+<p><b>Settings → Climate</b> turns the events off, or each kind on its own, and can start one now.</p>`,
   },
   {
     id: 'cells', title: 'Cells, cell types and bodies', short: 'Cells',

@@ -4,7 +4,7 @@ import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS } from './engine.js';
 import { genomeSerial, readGenome, parseParticle, thermalGuild } from './genome.js';
-import { seasonAt, createClimate, abioRate } from './climate.js';
+import { seasonAt, createClimate, abioRate, EVENT_TYPES } from './climate.js';
 import { countPools } from './geography.js';
 import { createLab } from './lab.js';
 import { createSpecimen } from './specimen.js';
@@ -114,6 +114,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the Field Lab's column, open or folded to its header ("world": its name when it was the census)
     labOpen: prefs.labOpen ?? prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
     closeup: prefs.closeup ?? true,
+    // the pool's events (docs/catastrophes.md): all on, or off, or some of them
+    events: { on: true, drought: true, storm: true, leaf: true, frost: true, ...prefs.events },
     songMarks: prefs.songMarks ?? 1, // mark the cells that sing: 0 off, 1 the picked species, 2 all
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
     // pixels per CSS pixel, the frame rate aimed for (0: the display's; 60 by default, and for prefs
@@ -147,7 +149,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: 2, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
+    savePrefs({ v: 2, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, events: state.events, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   if (prefs.loupe !== undefined && !isCoarse) state.loupe = prefs.loupe;
@@ -256,8 +258,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ climate eras
   let climate;
+  // the pool's events the climate may draw (Settings → Climate)
+  function applyEvents() {
+    if (climate) climate.allowed = new Set(state.events.on ? EVENT_TYPES.filter((x) => state.events[x]) : []);
+  }
   function resetClimate() {
     climate = createClimate(eng);
+    applyEvents();
     climate.music = (Math.random() * 2 ** 32) >>> 0; // the world's soundtrack seed (kept with a saved world)
     climate.onEra = (era, prevAmb, prevTemp) => {
       const lightWord = era.ambient > prevAmb + 0.05 ? 'light rises' : era.ambient < prevAmb - 0.05 ? 'light dims' : 'light holds';
@@ -1446,6 +1453,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
           ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === 'auto' ? 'a measured count' : fmt(pendingN)}</button></div>` : '')
         + (hasTS ? `<div class="opt"><span class="lbl">${term('profile', 'Profile')}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ''));
     }
+    // the pool's events: on or off, each kind on or off, and one started now
+    const EVENT_NAMES = { drought: 'Drought', storm: 'Storm', leaf: 'Fallen leaf', frost: 'Frost' };
+    function climate_() {
+      const E = state.events;
+      const kinds = E.on ? EVENT_TYPES.map((x) => onoff(`ev-${x}`, EVENT_NAMES[x], '', E[x], `ev${x}`)).join('') : '';
+      const now = !K.pond ? '' : state.phase === 'running' && !climate.event && E.on && EVENT_TYPES.some((x) => E[x])
+        ? `<div class="opt"><span class="lbl">${term('evstart', 'Start one now')}</span><div class="row segs">${EVENT_TYPES.filter((x) => E.on && E[x]).map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAMES[x]}</button>`).join('')}</div></div>`
+        : climate?.event ? `<div class="opt"><span class="lbl">Under way</span><span class="note">${EVENT_NAMES[climate.event.type]}${climate.phase ? ` · ${climate.phase}` : ''}</span></div>` : '';
+      return group('events', 'Pool events', onoff('ev-on', 'Events', '', E.on, 'poolevents') + kinds + now);
+    }
     // the saves kept in this browser (null until read), the name being typed, a load or delete
     // waiting to be confirmed ({ kind, id }), and what is under way ('save', 'load', 'open')
     let saves = null, used = 0, wName = '', ask = null, wBusy = '';
@@ -1549,7 +1566,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // this tab's settings as a fresh page opens them (a particle count waits for its own new world)
     function resetTab() {
       const s = eng.settings, P = state.perf;
-      if (tab === 'display') {
+      if (tab === 'climate') {
+        state.events = { on: true, drought: true, storm: true, leaf: true, frost: true };
+        applyEvents();
+      } else if (tab === 'display') {
         trailIdx = 1; s.trails = trailLevels[trailIdx];
         for (const k of ['tide', 'heat', 'bands', 'links', 'nodes']) s[k] = defaults[k];
         state.currents = false; state.loupe = !isCoarse; state.songMarks = 1;
@@ -1568,7 +1588,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       tabs.forEach((b) => { const on = b.dataset.tab === tab; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; });
       $('readout').hidden = tab !== 'performance';
       const typing = document.activeElement?.id === 'w-name';
-      opts.innerHTML = (tab === 'display' ? display() : tab === 'performance' ? performance_() : worlds_()) + foot();
+      opts.innerHTML = (tab === 'display' ? display() : tab === 'performance' ? performance_() : tab === 'climate' ? climate_() : worlds_()) + foot();
       if (typing && !$('w-name').disabled) { const i = $('w-name'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
       if (tab === 'worlds' && saves == null) refreshSaves();
       readout(true);
@@ -1610,6 +1630,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'lod') s.lod = !!+v;
       else if (id === 'closeup') state.closeup = !!+v;
       else if (id === 'songmarks') state.songMarks = +v;
+      else if (id === 'ev-on') { state.events.on = !!+v; applyEvents(); }
+      else if (id.startsWith('ev-') && id !== 'ev-start') { state.events[id.slice(3)] = !!+v; applyEvents(); }
+      else if (id === 'ev-start') { if (!climate.event) climate.force(v); toggle(false); return; }
       else if (id === 'loupe') state.loupe = !!+v;
       else if (id === 'auto') { state.auto = !!+v; renderAuto(director.active); }
       else if (id === 'scale') { P.scale = v === 'auto' ? 'auto' : +v; if (P.scale !== 'auto') renderScale = P.scale; else renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
