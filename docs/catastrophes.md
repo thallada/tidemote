@@ -120,3 +120,18 @@ The clouds kill: light × 0.4 for minutes starves the producers and everything a
 Cold, rough water and raindrops cost nothing measurable; rain hatching cysts into the dark a little. A frost's
 cold (−10°, or a quarter of it) made no difference either (low 0.16 against 0.16), and thinner ice none; its
 night's darkness is the same culprit (life is down to 0.6 within three minutes, before the ice has grown).
+
+**Milder darkness** (round 5, 45 min, its own control): clouds and the frost's night at 35% of their darkness
+(light × 0.79 rather than × 0.4), now the defaults (`rainDark`, `frostDark`):
+
+| group | eff. at +13 / +30 | low | guilds awake at +10 / +30 |
+|---|---|---|---|
+| control | 109 / 113 | 0.56 | 3.92 / 3.75 |
+| storm, 35% dark | 106 / 140 | 0.38 | 3.75 / 3.75 |
+| drought, full dark | 61 / 135 | 0.21 | 3.17 / 3.75 |
+| drought, 35% dark | 64 / 109 | 0.33 | 3.50 / 3.92 |
+| frost, 35% dark | 62 / 130 | 0.24 | 3.58 / 3.67 |
+
+A storm now barely dents the pool and leaves it more diverse; a drought and a frost still crash it (the
+drought's stranding and the frost's ice do the killing now), but less, every guild comes back within minutes and
+diversity ends higher than the control's.
