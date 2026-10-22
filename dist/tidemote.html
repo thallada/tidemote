@@ -7258,91 +7258,364 @@ fn fieldPost(base: u32, p: vec2f) -> vec3f {
   }
   return vec3f(h, gx, gy);
 }
-// Ice in darkfield (frost): clear, so what is frozen in it still shows, but it scatters a faint cold haze; growth
-// bands follow its advance, and near its front it grows in feathers, arms branching at sixty degrees as ice
-// dendrites do, curving as the front curves. sd: world units from the ice's front (ice negative); n: the front's
-// normal (toward the ice).
-fn iceLook(wp: vec2f, sd: f32, n: vec2f, order: f32, ppu: f32) -> vec3f {
+// Value noise summed over three octaves, 0..1.
+fn fbm3(p: vec2f) -> f32 {
+  return (vnoise(p) * 0.5 + vnoise(p * 2.03 + 1.7) * 0.3 + vnoise(p * 4.07 + 3.1) * 0.2);
+}
+// A Voronoi tiling's cell point near lattice cell g.
+fn vjit(g: vec2f) -> vec2f { return vec2f(hash12(g), hash12(g + 17.3)) * 0.8 + 0.1; }
+// The distance from x to the nearest border of a Voronoi tiling (exact, so lines drawn by it keep their width), a
+// hash naming the cell x lies in, and the offset from x to that cell's point.
+fn vborder(x: vec2f) -> vec4f {
+  let n = floor(x);
+  let f = x - n;
+  var mg = vec2f(0.0); var mr = vec2f(0.0); var md = 8.0;
+  for (var j = -1; j <= 1; j++) {
+    for (var i = -1; i <= 1; i++) {
+      let g = vec2f(f32(i), f32(j));
+      let r = g + vjit(n + g) - f;
+      let d = dot(r, r);
+      if (d < md) { md = d; mr = r; mg = g; }
+    }
+  }
+  md = 8.0;
+  for (var j = -2; j <= 2; j++) {
+    for (var i = -2; i <= 2; i++) {
+      let g = mg + vec2f(f32(i), f32(j));
+      let r = g + vjit(n + g) - f;
+      if (dot(mr - r, mr - r) > 1e-5) { md = min(md, dot(0.5 * (mr + r), normalize(r - mr))); }
+    }
+  }
+  return vec4f(md, hash12(n + mg + 0.37), mr);
+}
+// Grains on a jittered lattice (s per world unit), present in a share of its cells: each up to rmax lattice cells
+// across, irregular; in darkfield a clear grain shows mostly by its rim. xyz: colour, w: coverage.
+fn specks(wp: vec2f, s: f32, rmax: f32, ppu: f32, seed: f32, share: f32) -> vec4f {
+  let p = wp * s + seed;
+  let c = floor(p);
+  let h = hash12(c + 3.3);
+  if (hash12(c + 12.9) > share) { return vec4f(0.0); }
+  let o = vec2f(hash12(c + 9.1), hash12(c + 5.7)) * 0.6 + 0.2;
+  let r = rmax * (0.3 + 0.7 * hash12(c + 1.9));
+  let aa = s / max(ppu, 1e-3);
+  let dv = p - c - o;
+  let an = atan2(dv.y, dv.x);
+  let d = length(dv) * (1.0 + 0.1 * sin(2.0 * an + h * 40.0) + 0.08 * sin(3.0 * an + h * 17.0) + 0.05 * sin(5.0 * an + h * 7.0));
+  let cov = 1.0 - smoothstep(r - aa, r + aa, d);
+  let rim = exp(-pow((d - r * 0.85) / max(r * 0.14, aa), 2.0));
+  // quartz and feldspar pale, iron-stained grains ochre, organic flecks dark
+  let col = select(select(vec3f(1.0, 0.94, 0.84), vec3f(1.0, 0.72, 0.42), h > 0.6), vec3f(0.5, 0.42, 0.33), h > 0.88);
+  return vec4f(col * (0.35 + 1.4 * pow(hash12(c + 7.7), 2.5)) * mix(1.0, 0.55 + 0.9 * rim, step(0.12, r) * step(h, 0.6)), cov);
+}
+// Diatoms' empty shells in the sediment: long boats of glass, their outline and central rib bright, fine ribs across
+// them, here and there.
+fn frustules(wp: vec2f, ppu: f32) -> f32 {
   let px = 1.0 / max(ppu, 1e-3);
-  let inIce = max(-sd, 0.0);
-  var c = vec3f(0.0035, 0.0045, 0.0065) * (0.7 + 0.6 * vnoise(wp * 0.9));
-  // a few faint growth rings where the front paused
-  let band = fract(order * 9.0 + 0.5 * vnoise(wp * 0.4));
-  let bw = max(fwidth(order * 9.0) * 1.5, 0.015);
-  c += vec3f(0.008, 0.010, 0.013) * (1.0 - smoothstep(0.0, bw, min(band, 1.0 - band))) * smoothstep(0.03, 0.006, fwidth(order * 9.0));
-  // grain boundaries: where crystals of different orientation meet, a thin bright seam
-  let gq = worley(wp * 0.16 + (vec2f(vnoise(wp * 0.3), vnoise(wp * 0.3 + 4.1)) - 0.5) * 0.5);
-  let seam = 1.0 - smoothstep(0.0, 0.03 + 1.5 * px * 0.16, (gq.y - gq.x));
-  c += vec3f(0.035, 0.040, 0.048) * seam * smoothstep(1.0, 3.0, inIce);
-  // dendrites near the front: stems grown along the front's normal, each with fine side arms at sixty degrees to
-  // it, as ice branches (fern frost), the stems wandering a little and ending at different lengths
-  let tt = vec2f(-n.y, n.x);
-  let a = dot(wp, n);
-  let b = dot(wp, tt);
-  let sk = 0.75;
-  let sb = b * sk + 0.5 * vnoise(vec2f(a * 0.35, b * 0.15));
-  let stemId = floor(sb);
-  let fb = fract(sb) - 0.5;
-  let along = abs(fb) / sk;
-  let stemLen = 0.8 + 2.2 * hash12(vec2f(stemId, 3.7));
-  let stem = 1.0 - smoothstep(0.0, max(0.035, 1.2 * px), along);
-  let k = 3.2;
-  let f1 = fract((0.5 * a + 0.866 * along) * k + 0.15 * vnoise(wp * 0.8));
-  let arm = (1.0 - smoothstep(0.0, max(0.07, 2.0 * px * k), min(f1, 1.0 - f1))) * (1.0 - smoothstep(0.1, 0.5, along * 1.3 + 0.12 * inIce));
-  let arms = max(stem, arm * 0.7) * (1.0 - smoothstep(stemLen * 0.7, stemLen, inIce));
-  let feather = arms * smoothstep(0.0, 0.4, inIce) * smoothstep(0.3, 0.6, vnoise(wp * 0.9 + 7.0)) * smoothstep(3.0, 8.0, ppu / k);
-  c += vec3f(0.04, 0.047, 0.057) * feather;
+  let sp = 11.0;
+  let cell = floor(wp / sp);
+  if (hash12(cell + 21.0) > 0.25) { return 0.0; }
+  let ctr = (cell + vjit(cell + 23.0)) * sp;
+  let L = 0.8 + 1.4 * hash12(cell + 25.0);
+  let W = L * (0.13 + 0.09 * hash12(cell + 27.0));
+  let q = rot2(wp - ctr, hash12(cell + 29.0) * 3.1416);
+  let u = q.x / L; let w = q.y / W;
+  // the valve's outline: pointed at both ends
+  let half = sqrt(max(1.0 - u * u, 0.0)) * (0.8 + 0.2 * (1.0 - u * u));
+  let e = (abs(w) - half) * W;
+  let outline = exp(-pow(e / max(0.03, 0.9 * px), 2.0)) * step(abs(u), 1.0);
+  let inside = step(abs(w), half) * step(abs(u), 1.0);
+  let raphe = exp(-pow(q.y / max(0.02, 0.8 * px), 2.0)) * step(abs(u), 0.85) * step(0.07, abs(u));
+  let striae = pow(0.5 + 0.5 * cos(q.x * 6.2832 / 0.12), 4.0) * smoothstep(0.08, 0.02, 0.12 * px * 6.0) * inside;
+  return (outline + 0.5 * raphe + 0.2 * striae + 0.03 * inside) * smoothstep(3.0, 10.0, ppu);
+}
+// Ice in darkfield (frost). Ice and water bend light almost alike, so the ice itself is nearly invisible: what
+// shows is where it scatters. Each grain is one crystal; ahead of its front it grows dendrites along whichever of
+// its six crystal axes points most nearly into the water, side branches leaving each stem at sixty degrees along the
+// neighbouring axes, longer the longer they have grown, so the front is a serried edge of needle tips. Behind it the
+// spaces between the branches freeze, the filigree fades, and what is left is clear ice parted by grain boundaries,
+// with air the water could not hold trapped in it as bubbles in chains along the way it grew. sd: world units from
+// the ice's front (ice negative); n: the front's normal (toward the ice); grow: 1 while the ice grows, less as it
+// stops and thaws.
+fn iceLook(wp: vec2f, sd: f32, n: vec2f, ppu: f32, grow: f32) -> vec3f {
+  let px = 1.0 / max(ppu, 1e-3);
+  // the grain this point lies in, its boundaries gently curved
+  let gs = 11.0;
+  let gq = wp / gs + (vec2f(vnoise(wp * 0.09), vnoise(wp * 0.09 + 4.1)) - 0.5) * 0.6;
+  let vb = vborder(gq);
+  let gid = vb.y;
+  let edgeD = vb.x * gs;
+  // the crystal's axes; the one nearest the growth direction (out of the ice)
+  let th = gid * 1.0472;
+  let ga = atan2(-n.y, -n.x);
+  let kk = round((ga - th) / 1.0472);
+  let aa = th + kk * 1.0472;
+  let ax = vec2f(cos(aa), sin(aa));
+  let ua = dot(wp, ax);
+  let v = dot(wp, vec2f(-ax.y, ax.x));
+  // The front advances as dendrites, a fern's branching: primary stems a few units apart reach ahead of it along
+  // the crystal's axis, each to its own length; secondary branches leave them at sixty degrees, along the next axes,
+  // longer the longer they have grown, until they meet the next stem's; and from those, fine needles grow forward,
+  // parallel to the stem. Lines finer than a pixel spread to a pixel and dim as they do, and branches closer than a
+  // few pixels blur into a glow along their stem, so the fern resolves as the view closes in.
+  let F = 2.6 + 2.2 * hash12(vec2f(gid, 7.0));
+  let fq = v / F + hash12(vec2f(gid, 8.0)) + 0.2 * (vnoise(vec2f(ua * 0.25, gid * 9.0)) - 0.5);
+  let Fi = floor(fq);
+  let fh = hash12(vec2f(Fi, gid * 5.0));
+  let Lf = select(0.6 + 3.4 * pow(fh, 1.3), -1.0 - 2.0 * fh, fh < 0.12) * (0.5 + 0.5 * grow);
+  let vS = (fract(fq) - 0.5) * F;
+  let av = abs(vS);
+  let side = select(0.0, 0.5, vS < 0.0);
+  let dtS = -sd + Lf;
+  let prot = max(Lf, 0.0) * pow(max(1.0 - 2.0 * av / F, 0.0), 1.2);
+  let inIce = -sd + prot;
+  let wP = mix(0.008, 0.028, smoothstep(0.0, 3.0, dtS));
+  let wPe = max(wP, 0.55 * px);
+  let spine = exp(-pow(vS / wPe, 2.0)) * (wP / wPe) * smoothstep(-0.02, 0.1, dtS);
+  // secondaries
+  let s2 = 0.28 + 0.14 * hash12(vec2f(gid, 5.0));
+  let ua0 = ua - 0.577 * av;
+  let bj = round(ua0 / s2);
+  let bh = hash12(vec2f(bj, Fi * 7.0 + gid * 31.0 + side));
+  let base = dtS + 0.577 * av + (ua0 - bj * s2);
+  let blen = min(base * (0.45 + 0.4 * bh), 0.5 * F) * select(0.2 + 0.6 * bh, 1.0, bh > 0.6);
+  let t = av * 1.1547;
+  let wB = mix(0.005, 0.014, smoothstep(0.0, 2.5, base)) * (1.0 - 0.5 * t / max(blen, 1e-3));
+  let wBe = max(wB, 0.55 * px);
+  let sec = exp(-pow((ua0 - bj * s2) * 0.866 / wBe, 2.0)) * (wB / wBe) * (1.0 - smoothstep(blen - 0.03, blen, t)) * step(0.0, base);
+  let blod = smoothstep(2.5, 6.0, s2 * ppu);
+  // needles off the secondary behind this point, forward and parallel to the stem
+  let jb = floor(ua0 / s2);
+  let bhb = hash12(vec2f(jb, Fi * 7.0 + gid * 31.0 + side));
+  let baseb = dtS + 0.577 * av + (ua0 - jb * s2);
+  let blenb = min(baseb * (0.45 + 0.4 * bhb), 0.5 * F) * select(0.2 + 0.6 * bhb, 1.0, bhb > 0.6);
+  let s3 = 0.075;
+  let kn = round(av / (0.866 * s3));
+  let avk = kn * 0.866 * s3;
+  let along = ua - (jb * s2 + 0.577 * avk);
+  let nh = hash12(vec2f(kn, jb * 3.0 + Fi + side));
+  let Ln = min(0.8 * s2, max(baseb - 0.3, 0.0) * 0.3) * (0.2 + 0.8 * nh);
+  let wN = 0.004;
+  let wNe = max(wN, 0.55 * px);
+  let needle = exp(-pow((av - avk) / wNe, 2.0)) * (wN / wNe) * step(0.0, along) * (1.0 - smoothstep(Ln - 0.02, Ln, along)) * step(avk * 1.1547, blenb);
+  let nlod = smoothstep(1.5, 3.5, s3 * ppu);
+  // the glow of what is too fine to resolve, along the stem as far as its branches reach
+  let reach = 1.0 - smoothstep(0.6 * blen, blen + 0.05, t);
+  let fine = mix(0.02 * reach * step(0.0, base), sec * (0.4 + 1.2 * bh) + mix(0.015 * (1.0 - smoothstep(0.0, 0.5 * F, av)) * step(0.0, baseb), needle * 0.7, nlod), blod);
+  let tips = exp(-pow((inIce + 0.05) / max(0.2, 1.3 * px), 2.0)) * 0.12 * (0.2 + 1.2 * pow(vnoise(wp * 1.3 + 5.0), 2.0)) * grow * (1.0 - blod);
+  // the dendrites scatter where water still lies between them; as it freezes they fade, and the ice clears
+  let fresh = 1.0 - smoothstep(0.3, mix(1.5, 6.0, grow), inIce + 1.2 * (vnoise(wp * 0.3) - 0.5));
+  let dend = (spine * (0.5 + 0.9 * vnoise(vec2f(ua * 0.6, Fi * 3.0))) + fine + tips) * (0.03 + 0.97 * fresh);
+  var c = vec3f(0.2, 0.225, 0.26) * dend * (0.6 + 0.8 * vnoise(wp * 0.7 + 3.0));
+  // and a glow, the dendrites too fine to resolve
+  let fresh0 = 1.0 - smoothstep(0.3, mix(1.5, 6.0, grow), -sd + 1.2 * (vnoise(wp * 0.3) - 0.5));
+  c += vec3f(0.0018, 0.0021, 0.0026) * fresh0 * smoothstep(-0.1, 0.6, -sd) * (0.6 + 0.8 * vnoise(wp * 0.5 + 1.0));
+  // the ice itself: all but invisible, a trace of cold haze
+  let haze = smoothstep(-0.2, 0.5, -sd);
+  // each crystal scatters a little differently, so the grains show faintly as a mosaic
+  let tone = 0.15 + 2.2 * pow(hash12(vec2f(gid, 11.0)), 1.5);
+  c += vec3f(0.0028, 0.0034, 0.0046) * haze * (0.6 + 0.8 * fbm3(wp * 0.35)) * (tone * (1.0 - fresh0) + 1.2 * fresh0);
+  // grain boundaries, once the grains have met: a fine bright seam with a groove of shadow either side
+  let met = smoothstep(1.0, 4.0, -sd);
+  let sw = max(0.035, 0.9 * px);
+  let seam = exp(-pow(edgeD / sw, 2.0)) * min(1.0, 3.0 * 0.035 / sw + 0.5);
+  let groove = exp(-pow(edgeD / max(0.3, 3.0 * px), 2.0)) - seam;
+  c += vec3f(0.09, 0.1, 0.115) * seam * met * (0.45 + 0.55 * vnoise(wp * 0.6));
+  c *= 1.0 - 0.6 * groove * met;
+  // bubbles: air the water could not hold, trapped in chains along the way the ice grew; round to drawn out, a
+  // bright rim (light bent at the air's surface) around a dark heart
+  let cu = 0.9;
+  let cv = 0.6;
+  let bc = floor(vec2f(ua / cu, v / cv));
+  let chain = hash12(vec2f(bc.y, gid * 3.0 + 1.0));
+  if (chain < 0.2 && hash12(bc + gid) < 0.55 && -sd > 0.6) {
+    let br = 0.025 + 0.06 * pow(hash12(bc + 9.0), 2.0);
+    let el = 1.0 + 0.8 * hash12(bc + 2.0);
+    let mu = 0.5 * cu - br * el - 0.02;
+    let mv = 0.5 * cv - br - 0.02;
+    let ctr = vec2f((bc.x + 0.5) * cu + (hash12(bc + 4.0) - 0.5) * 2.0 * mu, (bc.y + 0.5) * cv + (hash12(bc + 6.0) - 0.5) * 2.0 * mv);
+    let q = vec2f((ua - ctr.x) / el, v - ctr.y);
+    let bd = length(q);
+    let rw = max(0.012, 0.7 * px);
+    let rim = exp(-pow((bd - br * 0.9) / rw, 2.0)) * min(1.0, br / (2.0 * rw));
+    let heart = 1.0 - smoothstep(br * 0.4, br, bd);
+    c = c * (1.0 - 0.6 * heart) + vec3f(0.09, 0.10, 0.11) * rim * smoothstep(0.6, 2.0, -sd) + vec3f(0.05) * exp(-pow(bd / rw, 2.0)) * step(0.05, br);
+  }
   return c;
 }
-// Dry ground in darkfield: the skin of mud the water left scatters the lamp's oblique light into the objective, so
-// it glows faintly, grained, warm grey. Just out of the water it is still damp, dark and smooth; farther in, where
-// it has dried longest, it has shrunk into plates whose cracks catch the light, and salts left by the last of the
-// water glint. away: world units onto dry ground.
-fn dryGround(wp: vec2f, away: f32, ppu: f32) -> vec3f {
-  let grain = 0.55 + 0.3 * vnoise(wp * 2.3) + 0.2 * vnoise(wp * 9.0 + 3.1) + 0.12 * vnoise(wp * 31.0 + 7.7) * smoothstep(8.0, 40.0, ppu);
-  var c = vec3f(0.024, 0.020, 0.0145) * grain;
-  c *= mix(0.4, 1.0, smoothstep(0.0, 3.5, away));
-  // the plates: cellular, a few units across, their margins warped so they are not a lattice
-  let q = wp * 0.42 + (vec2f(vnoise(wp * 0.7), vnoise(wp * 0.7 + 5.3)) - 0.5) * 0.9;
-  let w = worley(q);
-  let edge = (w.y - w.x) / 0.42;
+// Crystals in the cold water ahead of the ice: here and there a nucleus has frozen on its own and grows as a small
+// six-armed star, its arms uneven, branched, larger the nearer the front has come. sd: world units ahead of it.
+fn frazil(wp: vec2f, sd: f32, ppu: f32) -> vec3f {
   let px = 1.0 / max(ppu, 1e-3);
-  let crack = (1.0 - smoothstep(0.03, 0.03 + 1.2 * px + 0.04, edge)) * smoothstep(2.5, 9.0, away);
-  // each plate curls a little as it dries: brighter toward its rim
-  let curl = smoothstep(0.35, 0.05, edge) * 0.25 * smoothstep(2.5, 9.0, away);
-  c *= 1.0 + curl;
-  c += vec3f(0.11, 0.095, 0.075) * crack * (0.6 + 0.4 * vnoise(wp * 5.0));
-  // salt crystals, here and there, catch the lamp
-  let sc = worley(wp * 3.0);
-  let salt = (1.0 - smoothstep(0.0, 0.06 + 2.0 * px, sc.x)) * step(0.93, hash12(floor(wp * 3.0 + sc.zw) + 41.0)) * smoothstep(4.0, 12.0, away);
-  c += vec3f(0.30, 0.31, 0.33) * salt;
-  return c;
+  let sp = 6.0;
+  let cell = floor(wp / sp);
+  if (hash12(cell + 0.5) > 0.12) { return vec3f(0.0); }
+  let ctr = (cell + vjit(cell + 2.0)) * sp;
+  let R = (0.25 + 0.75 * hash12(cell + 4.0)) * smoothstep(8.0, 1.0, sd) * smoothstep(0.0, 0.3, post.weather.z);
+  let d = wp - ctr;
+  let r = length(d);
+  if (r > R + 0.15 || R < 0.05) { return vec3f(0.0); }
+  let a = atan2(d.y, d.x) - hash12(cell + 6.0) * 1.0472;
+  let k = round(a / 1.0472);
+  let ar = (a - k * 1.0472);
+  let s = r * cos(ar);
+  let p = abs(r * sin(ar));
+  let ah = hash12(cell + k + 11.0);
+  let len = R * select(0.3 + 0.7 * ah, 0.15, ah < 0.15);
+  let w = mix(0.025, 0.01, s / max(len, 1e-3)) + 0.6 * px;
+  var arm = exp(-pow(p / w, 2.0)) * (1.0 - smoothstep(len - 0.03, len, s));
+  let s0 = s - 0.577 * p;
+  let sp2 = 0.15;
+  let j = round(s0 / sp2);
+  let bl = max(0.0, (len - j * sp2) * 0.4) * (0.2 + 0.8 * hash12(vec2f(j, k + cell.x * 3.0 + cell.y)));
+  let br = exp(-pow((s0 - j * sp2) * 0.866 / (0.008 + 0.6 * px), 2.0)) * (1.0 - smoothstep(bl - 0.02, bl, p * 1.1547)) * step(0.2 * R, s0);
+  arm = max(arm, br * 0.7);
+  let hexd = r * cos(ar) / 0.866;
+  let pedge = exp(-pow((hexd - 0.14 * R) / max(0.015, 0.7 * px), 2.0));
+  return vec3f(0.035, 0.04, 0.047) * (arm + 0.5 * pedge) * smoothstep(1.0, 3.0, ppu * R);
 }
-// Raindrops' ring waves seen through the water's surface: where a ring passes, the slope of the surface bends the
-// view (a displacement in world units) and its crest gathers a little of the lamp's light (w).
-fn ripples(wp: vec2f) -> vec3f {
-  // each raindrop sends out a train of capillary ripples: a few fine crests behind the leading one, fading with
-  // distance and age; z: how much light their sloping flanks scatter (thin bright lines), xy: how they bend the view
-  var o = vec3f(0.0);
+// Dry ground in darkfield: the film of silt and clay the water left. Wet, water fills the spaces between its grains
+// and it scatters little, dark and smooth with a gloss; as it dries air takes their place and it pales to a grainy
+// buff glow, patchily, as the film drains unevenly. Drying, it shrinks and cracks into plates, first a coarse network
+// and then, where it has dried longest, finer cracks parting the plates; the cracks are dark gaps (nothing in them
+// scatters), each plate's broken rim bright and curling up from the floor. Where the water's edge paused as it fell it
+// left tide lines of the finest matter it carried (a coffee ring), which the cracks cut across. away: world units
+// onto dry ground; rel: the floor's height (quantile) and its slope.
+fn dryGround(wp: vec2f, away: f32, rel: vec3f, ppu: f32) -> vec3f {
+  let px = 1.0 / max(ppu, 1e-3);
+  let dryness = smoothstep(0.3, 7.0, away + 4.0 * (fbm3(wp * 0.18) - 0.45));
+  // patches richer in clay, in organic matter, in silt
+  let mott = fbm3(wp * 0.07 + 3.0);
+  let fine = vnoise(wp * 0.9);
+  var c = mix(vec3f(0.010, 0.0085, 0.0062), vec3f(0.050, 0.041, 0.030), dryness) * (0.6 + 0.7 * mott) * (0.85 + 0.3 * fine);
+  c *= mix(vec3f(1.0), vec3f(0.85, 0.95, 0.9), smoothstep(0.55, 0.8, mott) * (1.0 - dryness));
+  // tide lines: the floor's contours where the edge paused, some faint, some strong, uneven along their length
+  let tn = 40.0;
+  let tl = rel.x * tn + 0.6 * (vnoise(wp * 0.15) - 0.5);
+  let tf = fract(tl);
+  let tdist = min(tf, 1.0 - tf) / max(tn * length(rel.yz), 1e-4);
+  let th = hash12(vec2f(round(tl), 3.0));
+  let tw = 0.04 + 0.12 * th;
+  let tide = exp(-pow(tdist / max(tw, px), 2.0)) * step(0.8, th) * smoothstep(0.35, 0.7, vnoise(wp * 0.25 + th * 9.0)) * (0.5 + 0.5 * vnoise(wp * 1.5)) * smoothstep(0.5, 2.5, away);
+  c += vec3f(0.05, 0.046, 0.039) * tide * (0.5 + dryness);
+  // grains: silt and fine sand, each a point of light where it is resolved, a fine glitter where it is not
+  let near = smoothstep(8.0, 30.0, ppu);
+  let g1 = specks(wp, 2.4, 0.26, ppu, 0.0, 0.8);
+  let g2 = specks(wp, 6.0, 0.3, ppu, 17.0, 0.9);
+  let g3 = specks(wp, 0.8, 0.22, ppu, 41.0, 0.25);
+  let gr = g1.xyz * g1.w * 0.06 + g2.xyz * g2.w * 0.04 * near + g3.xyz * g3.w * 0.09;
+  c += gr * mix(0.3, 1.0, dryness);
+  c += vec3f(0.07, 0.074, 0.07) * frustules(wp, ppu) * mix(0.4, 1.0, dryness);
+  // the cracks: a coarse network, then finer cracks through the driest plates, their lines jagged
+  let warp = (vec2f(fbm3(wp * 0.09), fbm3(wp * 0.09 + 5.2)) - 0.5) * 2.4 + (vec2f(vnoise(wp * 1.1), vnoise(wp * 1.1 + 2.7)) - 0.5) * 0.35
+    + (vec2f(vnoise(wp * 3.7), vnoise(wp * 3.7 + 6.1)) - 0.5) * 0.1;
+  let q = wp + warp;
+  let s1 = 7.5;
+  let v1 = vborder(q / s1);
+  let e1 = v1.x * s1;
+  let s2 = 2.8;
+  let v2 = vborder((q + 31.7) / s2);
+  let e2 = v2.x * s2;
+  let open = smoothstep(1.5, 5.0, away + 3.0 * (fbm3(wp * 0.18) - 0.45));
+  let w1 = open * (0.1 + 0.08 * vnoise(q * 0.3));
+  let sub = smoothstep(0.4, 0.7, hash12(vec2f(v1.y, 4.0)) + 0.35 * dryness) * smoothstep(4.0, 9.0, away);
+  let w2 = sub * (0.035 + 0.035 * vnoise(q * 0.6 + 4.0));
+  let de = min(e1 - w1, select(1e3, e2 - w2, sub > 0.01));
+  let gap = 1.0 - smoothstep(-px * 0.7, px * 0.7, de);
+  // each plate curls up at its rim as it dries: brighter toward it, and its broken edge catches the light
+  let curl = exp(-max(de, 0.0) / 0.45) * open;
+  let lip = exp(-pow(max(de, 0.0) / max(0.035, 0.9 * px), 2.0)) * smoothstep(0.01, 0.05, max(w1, w2)) * open;
+  var plate = c * (1.0 + 0.8 * curl) + vec3f(0.11, 0.096, 0.075) * lip * (0.5 + 0.7 * vnoise(wp * 3.0));
+  // the plate's middle sags a little, and is a shade darker
+  plate *= 1.0 - 0.15 * smoothstep(0.6, 2.5, de) * open;
+  // in the gap: the bare floor below, dim, a few grains fallen into it
+  let floorc = c * 0.2 + g2.xyz * g2.w * 0.015;
+  return mix(plate, floorc, gap * open);
+}
+// The surface of the water, seen through. It lies above the focal plane, so its waves are never sharp in
+// themselves; they show by bending what lies beneath (a slope displaces the view) and, above all, by focusing the
+// lamp's light on the floor in caustics, as sunlight on a pool's bottom: where the surface curves like a lens the
+// light gathers in bright lines, sharp where they cross the focal plane. A raindrop's impact sends out capillary
+// waves, which disperse: the short ones run fastest, so a ring is a packet whose crests crowd toward its leading edge
+// and broaden toward its centre, damped where they are shortest; it is uneven around its circle, and the drop's
+// splash throws a few droplets which ring too. In rain the whole surface is roughened by drops falling out of view.
+struct Surf { slope: vec2f, hess: vec3f };
+// one ring: its slope and its curvature (xx, xy, yy)
+fn ringWave(d: vec2f, t: f32, amp: f32, seed: f32, s: ptr<function, Surf>) {
+  let r = length(d);
+  let dir = d / max(r, 1e-4);
+  let V = ${f(DEFAULT_K.dropSpeed)};
+  let R = V * t;
+  // the ring runs unevenly: the film's depth, currents and the splash itself distort it
+  let rr = r * (1.0 + 0.07 * (vnoise(dir * 1.5 + seed) - 0.5)) + 0.5 * (vnoise(dir * 4.0 + seed * 1.7) - 0.5) * min(r / 6.0, 1.0)
+    + 0.12 * (vnoise(d * 0.8 + seed) - 0.5);
+  let psi = rr / max(R, 1e-3);
+  if (psi > 1.4) { return; }
+  let lf = 1.7;
+  let ph = 6.2832 * psi * psi * rr / (3.0 * lf);
+  let kk = 6.2832 * psi * psi / lf;
+  let env = smoothstep(0.12, 0.6, psi) * exp(-pow(max(psi - 0.92, 0.0) / 0.13, 2.0)) * (0.15 + 1.6 * pow(vnoise(dir * 2.5 + seed + 3.0), 1.5))
+    * amp / sqrt(1.0 + r * 0.25) * (1.0 - smoothstep(0.3, 0.45, r / min(post.world.x, post.world.y)));
+  let S = 0.06 * env;
+  let hr = -S * sin(ph);
+  let hrr = -S * kk * cos(ph);
+  let ht = hr / max(r, 0.5);
+  (*s).slope += dir * hr;
+  (*s).hess += vec3f(hrr * dir.x * dir.x + ht * dir.y * dir.y, (hrr - ht) * dir.x * dir.y, hrr * dir.y * dir.y + ht * dir.x * dir.x);
+}
+// the chop: wavelets from every direction, long and short, the short running faster (capillary waves), each
+// adding its slope and curvature
+fn chop(p: vec2f, rain: f32, s: ptr<function, Surf>) {
+  for (var i = 0; i < 9; i++) {
+    let fi = f32(i);
+    let a = fi * 2.39996 + 0.4;
+    let dir = vec2f(cos(a), sin(a));
+    let lam = 2.0 + 6.0 * pow(fract(fi * 0.618 + 0.3), 1.5);
+    let k = 6.2832 / lam;
+    let th = k * dot(dir, p) - 3.0 * sqrt(k) * post.simTime + fi * 1.7;
+    // in groups: each wavelet stronger here, weaker there
+    let A = 0.038 * rain / k * (0.2 + 1.6 * vnoise(p * 0.045 + vec2f(fi * 3.1, post.simTime * 0.05)));
+    (*s).slope += dir * (A * k * cos(th));
+    let hk = -A * k * k * sin(th);
+    (*s).hess += vec3f(hk * dir.x * dir.x, hk * dir.x * dir.y, hk * dir.y * dir.y);
+  }
+}
+fn ripples(wp: vec2f) -> Surf {
+  var o: Surf;
+  o.slope = vec2f(0.0); o.hess = vec3f(0.0);
   for (var k = 0u; k < 4u; k++) {
     let dr = post.drops[k];
     let age = post.simTime - dr.z;
     if (dr.w > 0.0 && age > 0.0 && age < ${f(DEFAULT_K.dropLife)}) {
-      var d = wp - dr.xy;
-      d -= post.world * round(d / post.world);
-      let r = length(d);
-      // the film's thickness varies, so the ring runs a little unevenly
-      let x = r - age * ${f(DEFAULT_K.dropSpeed)} + 0.3 * (vnoise(dr.xy + d / max(r, 1e-3) * 1.6) - 0.5) * min(r, 1.0);
-      // behind the front (x < 0) the train, ahead of it calm water
-      let env = exp(-pow(max(x, 0.0) / 0.25, 2.0)) * exp(min(x, 0.0) / 0.9) * smoothstep(-4.0, -2.5, x);
-      let a = dr.w * (1.0 - age / ${f(DEFAULT_K.dropLife)}) * env / sqrt(1.0 + r * 0.3) * (1.0 - smoothstep(0.3, 0.45, r / min(post.world.x, post.world.y)));
-      // crests shorten behind the front (the train disperses)
-      let ph = x * (6.2832 / (0.9 + 0.12 * x));
-      // lines a few pixels wide however close the view
-      o += vec3f(d / max(r, 1e-3) * (cos(ph) * a * 0.05), pow(abs(sin(ph)), clamp(post.ppu * 0.4, 8.0, 48.0)) * a);
+      let fade = 1.0 - age / ${f(DEFAULT_K.dropLife)};
+      for (var s = 0u; s < 3u; s++) {
+        let hs = hash12(dr.xy + f32(s) * 7.13);
+        var c = dr.xy;
+        var t = age;
+        var a = dr.w * fade;
+        if (s > 0u) {
+          let an = hs * 6.2832;
+          c += vec2f(cos(an), sin(an)) * (1.5 + 5.0 * hash12(dr.xy + f32(s) * 3.7));
+          t -= 0.2 + 0.7 * hs;
+          a *= 0.2 + 0.3 * hash12(dr.xy + f32(s) * 1.3);
+        }
+        if (t > 0.0) {
+          var d = wp - c;
+          d -= post.world * round(d / post.world);
+          ringWave(d, t, a, dr.x * 0.37 + f32(s) * 5.1, &o);
+        }
+      }
     }
   }
+  // the rain falling out of view: a choppy surface everywhere
+  if (post.pond.y > 0.0) { chop(wp, post.pond.y, &o); }
   return o;
+}
+// The light the floor receives under the surface s, as a share of the calm water's: the surface maps each point of
+// it to a point of the floor a depth below, and the light is concentrated by how much that map squeezes area.
+fn caustic(s: Surf) -> f32 {
+  let D = 3.0;
+  let det = (1.0 + D * s.hess.x) * (1.0 + D * s.hess.z) - D * D * s.hess.y * s.hess.y;
+  return min(1.0 / max(abs(det), 0.1), 6.0);
 }
 // A thermal camera's false colour: deep blue, teal, amber, white.
 fn heatRamp(u: f32) -> vec3f {
@@ -7358,10 +7631,11 @@ fn heatRamp(u: f32) -> vec3f {
   var water = vec3f(post.heat.x, 0.0, 0.0);
   var uv = i.uv;
   // rain: the rings raindrops send across the water bend the view as they pass
-  var rip = vec3f(0.0);
+  var light = 1.0;
   if (post.pond.y > 0.0) {
-    rip = ripples(wp);
-    uv += rip.xy * post.ppu / post.res;
+    let rip = ripples(wp);
+    uv += rip.slope * 1.2 * post.ppu / post.res;
+    light = caustic(rip);
   }
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
@@ -7445,11 +7719,12 @@ fn heatRamp(u: f32) -> vec3f {
     let sd = pd.x / max(length(pd.yz), 1e-4);
     let px = 1.0 / post.ppu;
     let dry = 1.0 - smoothstep(-px, px, sd);
-    if (dry > 0.0) { c += dryGround(wp, max(-sd, 0.0), post.ppu) * dry * behind * mix(1.0, 0.8, k); }
+    if (dry > 0.0) { c += dryGround(wp, max(-sd, 0.0), vec3f(post.pond.x - pd.x, pd.yz), post.ppu) * dry * behind * mix(1.0, 0.8, k); }
     // the meniscus: a thin bright contact line, uneven along its length (it pins and slips on the grains), and on
     // the water's side the curved surface rising to it, scattering a narrowing glow
-    let along = 0.55 + 0.45 * vnoise(wp * 1.7) + 0.25 * (vnoise(wp * 6.3 + 2.0) - 0.5);
-    let rim = exp(-pow(sd / max(0.9 * px, 0.025), 2.0)) * along;
+    let along = pow(0.25 + 0.75 * vnoise(wp * 0.9) + 0.3 * (vnoise(wp * 5.3 + 2.0) - 0.5), 2.0) * 1.3;
+    let rim = exp(-pow(sd / (max(0.9 * px, 0.025) * (0.6 + 1.6 * vnoise(wp * 0.7 + 9.0))), 2.0)) * along
+      + 0.15 * exp(-pow((sd - 0.12 - 0.25 * vnoise(wp * 0.5)) / max(0.9 * px, 0.03), 2.0)) * vnoise(wp * 1.9 + 4.0);
     let rise = select(0.0, exp(-sd / 0.22) * (1.0 - exp(-sd / max(1.5 * px, 0.02))), sd > 0.0);
     let sheen = select(0.0, exp(-sd / 0.9), sd > 0.0);
     c += (vec3f(0.16, 0.17, 0.18) * rim + vec3f(0.035, 0.040, 0.046) * rise * along + vec3f(0.006, 0.008, 0.010) * sheen) * (0.35 + 0.65 * behind);
@@ -7460,14 +7735,12 @@ fn heatRamp(u: f32) -> vec3f {
     let gl = max(length(fi.yz), 1e-4);
     let sdI = (fi.x - post.weather.y) / gl;
     let px = 1.0 / post.ppu;
-    let ice = 1.0 - smoothstep(-px, px, sdI);
-    if (ice > 0.0) { c += iceLook(wp, sdI, -fi.yz / gl, fi.x, post.ppu) * ice; }
-    let front = exp(-pow(sdI / max(0.9 * px, 0.02), 2.0)) * (0.7 + 0.3 * vnoise(wp * 2.3));
-    c += vec3f(0.20, 0.23, 0.27) * front;
+    let grow = smoothstep(0.0, 0.3, post.weather.z);
+    if (sdI < 4.5) { c += iceLook(wp, sdI, -fi.yz / gl, post.ppu, grow) * (0.35 + 0.65 * behind); }
+    if (sdI > 0.0 && sdI < 9.0 && grow > 0.0) { c += frazil(wp, sdI, post.ppu) * (0.35 + 0.65 * behind); }
   }
-  // raindrops' ripples: in darkfield a sloping surface scatters the lamp into the objective, so each crest's flanks
-  // show as thin bright lines, uneven where the film is
-  c += vec3f(0.05, 0.056, 0.064) * rip.z * (0.7 + 0.6 * vnoise(wp * 1.7));
+  // raindrops' ripples: the light the surface gathers on the floor lights what lies there, and the floor itself
+  c = c * mix(1.0, light, 0.6) + vec3f(0.0075, 0.0083, 0.0095) * max(light - 1.3, 0.0) * (0.6 + 0.8 * vnoise(wp * 0.4));
   // a leaf floating on the pool, far above the focal plane: it keeps the lamp's light from what lies under it, and
   // scatters a little of it as a faint green-brown haze, its veins blurred shadows in it
   if (post.leaf.w > 0.0) {
@@ -17175,6 +17448,23 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this._splatBGs();
       return true;
     }
+    // the look lab (tools/looklab.mjs) swaps in a new composite shader while the page runs
+    hotComposite(code) {
+      const d = this.device;
+      const mod = d.createShaderModule({ code, label: "post" });
+      const rp = (constants) => d.createRenderPipeline({
+        layout: "auto",
+        label: "fsComposite",
+        primitive: { topology: "triangle-list" },
+        vertex: { module: mod, entryPoint: "vsFull" },
+        fragment: { module: mod, entryPoint: "fsComposite", targets: [{ format: this.format }], constants }
+      });
+      this.pComp = rp({});
+      this.pCompClear = rp({ MICRO_SUSPENSION: 0 });
+      this.compBG = this.compBGOf(this.pComp);
+      this.compClearBG = this.compBGOf(this.pCompClear);
+      return mod.getCompilationInfo().then((i) => i.messages.filter((m) => m.type === "error").map((m) => `${m.lineNum}:${m.linePos} ${m.message}`));
+    }
     resize(w, h) {
       w = Math.max(1, w | 0);
       h = Math.max(1, h | 0);
@@ -17244,6 +17534,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       ] }));
       this.compBG = compBG(this.pComp);
       this.compClearBG = compBG(this.pCompClear);
+      this.compBGOf = compBG;
       this.reprojBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.main.reproj.getBindGroupLayout(0), entries: [
         { binding: 0, resource: this.sampler },
         { binding: 1, resource: v },
@@ -17418,7 +17709,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.relief = makeRelief(this.grid[0], this.grid[1], this.seedValue);
       this.floor = null;
       d.queue.writeBuffer(this.b.thermal, 3 * MAX_CELLS * 4, this.relief);
-      d.queue.writeBuffer(this.b.thermal, 4 * MAX_CELLS * 4, makeIceOrder(this.grid[0], this.grid[1], this.seedValue, this.relief));
+      d.queue.writeBuffer(this.b.thermal, 4 * MAX_CELLS * 4, this.iceOrder = makeIceOrder(this.grid[0], this.grid[1], this.seedValue, this.relief));
       this.level = 1;
       this.rain = 0;
       this.sky = 1;

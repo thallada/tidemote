@@ -418,6 +418,17 @@ class Engine {
     return true;
   }
 
+  // the look lab (tools/looklab.mjs) swaps in a new composite shader while the page runs
+  hotComposite(code) {
+    const d = this.device;
+    const mod = d.createShaderModule({ code, label: 'post' });
+    const rp = (constants) => d.createRenderPipeline({ layout: 'auto', label: 'fsComposite', primitive: { topology: 'triangle-list' },
+      vertex: { module: mod, entryPoint: 'vsFull' }, fragment: { module: mod, entryPoint: 'fsComposite', targets: [{ format: this.format }], constants } });
+    this.pComp = rp({}); this.pCompClear = rp({ MICRO_SUSPENSION: 0 });
+    this.compBG = this.compBGOf(this.pComp); this.compClearBG = this.compBGOf(this.pCompClear);
+    return mod.getCompilationInfo().then((i) => i.messages.filter((m) => m.type === 'error').map((m) => `${m.lineNum}:${m.linePos} ${m.message}`));
+  }
+
   resize(w, h) {
     w = Math.max(1, w | 0); h = Math.max(1, h | 0);
     if (this.size[0] === w && this.size[1] === h) return;
@@ -470,6 +481,7 @@ class Engine {
       { binding: 10, resource: this.microView }, { binding: 11, resource: { buffer: this.b.thermal } }, { binding: 12, resource: this.liveView }] }));
     this.compBG = compBG(this.pComp);
     this.compClearBG = compBG(this.pCompClear);
+    this.compBGOf = compBG;
     this.reprojBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.main.reproj.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: v }, { binding: 5, resource: { buffer: this.b.reprojU } }] }));
     this.holdTex?.destroy();
@@ -644,7 +656,7 @@ class Engine {
     this.relief = makeRelief(this.grid[0], this.grid[1], this.seedValue);
     this.floor = null;
     d.queue.writeBuffer(this.b.thermal, 3 * MAX_CELLS * 4, this.relief);
-    d.queue.writeBuffer(this.b.thermal, 4 * MAX_CELLS * 4, makeIceOrder(this.grid[0], this.grid[1], this.seedValue, this.relief));
+    d.queue.writeBuffer(this.b.thermal, 4 * MAX_CELLS * 4, (this.iceOrder = makeIceOrder(this.grid[0], this.grid[1], this.seedValue, this.relief)));
     this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.leaf.fill(0); this.drops.fill(0);
     const enc = d.createCommandEncoder();
     enc.clearBuffer(this.b.thermal, 0, cells * 4);
