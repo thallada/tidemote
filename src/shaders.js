@@ -6265,13 +6265,16 @@ fn dryGround(wp: vec2f, away: f32, rel: vec3f, ppu: f32) -> vec3f {
   let floorc = c * 0.2 + g2.xyz * g2.w * 0.015;
   return mix(plate, floorc, gap * open);
 }
-// Rain on the dry mud as a drought ends: each drop lands as a bead of water, its meniscus a bright ring, sinks in
-// within a second or two and leaves a dark wet stain that spreads as the mud draws the water in, its front darkest;
-// the stains gather and merge until the mud is wet all over before the water returns. One layer of drops in cells of
-// S units (radius rmin..rmax, arrivals at a mean interval of tau s per cell); t is the seconds since the rain began.
-// x how wet, y the wetting front, z a bead's rim.
-fn mudDrops(wp: vec2f, t: f32, S: f32, rmin: f32, rmax: f32, tau: f32, seed: f32) -> vec3f {
-  var o = vec3f(0.0);
+// Rain on the dry mud as a drought ends. Each drop lands as a low bead of water whose edge pins unevenly on the
+// grains; seen from above it is a small lens: the mud shows through its middle, dimmed, its steep edge a dark band,
+// with a crisp glint toward the lamp and a broken bright arc on its far side where the light it gathered comes out. It sinks in within a second or so,
+// leaving a dark wet stain that creeps outward as the mud wicks the water in, its front darkest; a large drop throws
+// a few tiny droplets around it as it lands, each a speck of stain of its own. The stains gather and merge until the
+// mud is wet all over before the water returns. One layer of drops in cells of S units (radius rmin..rmax, arrivals
+// at a mean interval of tau s per cell, up to spat splash droplets each); t is the seconds since the rain began.
+// x how wet, y the wetting front, z light the beads give, w how much a bead covers.
+fn mudDrops(wp: vec2f, t: f32, S: f32, rmin: f32, rmax: f32, tau: f32, seed: f32, spat: i32) -> vec4f {
+  var o = vec4f(0.0);
   let cell = floor(wp / S);
   for (var j = -1; j <= 1; j++) {
     for (var i = -1; i <= 1; i++) {
@@ -6282,17 +6285,41 @@ fn mudDrops(wp: vec2f, t: f32, S: f32, rmin: f32, rmax: f32, tau: f32, seed: f32
         if (age <= 0.0) { continue; }
         let r0 = mix(rmin, rmax, pow(hash12(h + 1.7), 2.0));
         let d = wp - (id + vec2f(hash12(h + 2.9), hash12(h + 4.3))) * S;
-        // the bead spreads a little, then the stain creeps out as the mud wicks the water in; ragged where it meets
-        // drier or more open grains
+        let dl = length(d);
+        let dir = d / max(dl, 1e-4);
+        // the stain: ragged where it meets drier or more open grains, creeping out as the mud wicks the water in
         let R = r0 * (1.0 + 0.5 * (1.0 - exp(-age / 7.0)));
-        let rr = length(d) / R * (1.0 + 0.22 * (vnoise(d / r0 * 1.8 + h * 13.0) - 0.5) + 0.08 * (vnoise(d / r0 * 6.0 + h) - 0.5));
+        let rag = 1.0 + 0.22 * (vnoise(d / r0 * 1.8 + h * 13.0) - 0.5) + 0.08 * (vnoise(d / r0 * 6.0 + h) - 0.5);
+        let rr = dl / R * rag;
         o.x = max(o.x, (1.0 - smoothstep(0.85, 1.0, rr)) * smoothstep(0.0, 1.2, age));
         o.y = max(o.y, smoothstep(0.55, 0.95, rr) * (1.0 - smoothstep(0.95, 1.02, rr)) * smoothstep(0.5, 2.0, age));
-        // the bead: a low dome of water, its rim bright and uneven where the meniscus pins on grains, its middle a
-        // faint lens, gone as it sinks in
-        let rb = length(d) / (r0 * (1.0 + 0.1 * age)) * (1.0 + 0.1 * (vnoise(d / r0 * 2.0 + h * 5.0) - 0.5));
-        let along = 0.35 + 0.9 * vnoise(d / max(length(d), 1e-3) * 2.5 + h * 3.0);
-        o.z = max(o.z, (exp(-pow((rb - 0.97) / 0.06, 2.0)) * along + 0.12 * (1.0 - smoothstep(0.7, 0.97, rb))) * exp(-age / 0.45));
+        // the bead, its outline lobed where its edge pinned, sinking (and so dimming) over a second or so
+        let life = exp(-age / mix(0.35, 1.1, hash12(h + 6.1)));
+        if (life > 0.01) {
+          let rb = dl / (r0 * 0.9) * rag * (1.0 + 0.18 * (vnoise(dir * 1.4 + h * 2.3) - 0.5) + 0.07 * (vnoise(dir * 6.0 + h * 4.1) - 0.5)
+            + 0.04 * (vnoise(d / r0 * 9.0 + h) - 0.5));
+          let inside = 1.0 - smoothstep(0.9, 1.0, rb);
+          let q = d / (r0 * 0.9) - RIPPLE_L * 0.45 + 0.12 * (vec2f(hash12(h + 9.1), hash12(h + 9.7)) - 0.5);
+          let glint = exp(-dot(q, q) / mix(0.0012, 0.004, hash12(h + 8.2)));
+          // the light out of its far side: broken, thin, uneven along the edge, never a whole ring
+          let seg = smoothstep(0.35, 0.8, vnoise(dir * 5.0 + h * 7.0)) * (0.5 + 0.7 * vnoise(d / r0 * 12.0 + h));
+          let arc = exp(-pow((rb - 0.86) / 0.05, 2.0)) * pow(max(dot(dir, -RIPPLE_L), 0.0), 1.5) * seg;
+          o.z = max(o.z, (1.3 * glint + 0.45 * arc) * inside * life);
+          // through its middle the mud shows, a little dimmed; toward its edge the surface steepens and bends the
+          // light away, a dark band
+          o.w = max(o.w, inside * (0.25 + 0.75 * smoothstep(0.5, 0.93, rb)) * min(life * 2.0, 1.0));
+        }
+        // the splash: a few tiny droplets thrown out, each landing a moment later as a speck of stain
+        for (var m = 0; m < spat; m++) {
+          let hm = h + vec2f(f32(m) * 1.93, 11.0);
+          if (hash12(hm) < 0.35) { continue; }
+          let an = hash12(hm + 0.7) * 6.2832;
+          let ds = d - vec2f(cos(an), sin(an)) * r0 * (1.3 + 1.4 * hash12(hm + 1.1));
+          let rs = r0 * mix(0.08, 0.2, hash12(hm + 2.3)) * (1.0 + 0.4 * (1.0 - exp(-age / 5.0)));
+          let us = length(ds) / rs * (1.0 + 0.3 * (vnoise(ds / rs * 1.5 + hm) - 0.5));
+          o.x = max(o.x, (1.0 - smoothstep(0.7, 1.0, us)) * smoothstep(0.1, 0.8, age));
+          o.z = max(o.z, exp(-dot(ds / rs - RIPPLE_L * 0.4, ds / rs - RIPPLE_L * 0.4) / 0.06) * exp(-age / 0.3) * 0.7);
+        }
       }
     }
   }
@@ -6483,11 +6510,13 @@ fn heatRamp(u: f32) -> vec3f {
       var mud = dryGround(wp, max(-sd, 0.0), vec3f(post.pond.x - pd.x, pd.yz), post.ppu);
       // the drought's rain: wet mud is darker, its front darker still; a fresh bead shines at its rim
       if (post.weather.w > 0.0) {
-        let a = mudDrops(wp, post.weather.w, 6.0, 1.2, 3.5, 75.0, 0.0);
-        let b = mudDrops(wp, post.weather.w, 18.0, 4.0, 10.0, 130.0, 51.0);
+        let a = mudDrops(wp, post.weather.w, 6.0, 1.2, 3.5, 75.0, 0.0, 0);
+        let b = mudDrops(wp, post.weather.w, 18.0, 4.0, 10.0, 130.0, 51.0, 5);
         let wetM = max(a.x, b.x);
         mud *= mix(vec3f(1.0), vec3f(0.36, 0.38, 0.42), wetM) * (1.0 - 0.3 * max(a.y, b.y));
-        mud += vec3f(0.012, 0.013, 0.014) * wetM * pow(vnoise(wp * 2.3), 8.0) + vec3f(0.14, 0.15, 0.16) * max(a.z, b.z);
+        // under a bead the mud is seen through a lens, out of focus and dimmer
+        mud *= 1.0 - 0.65 * max(a.w, b.w);
+        mud += vec3f(0.012, 0.013, 0.014) * wetM * pow(vnoise(wp * 2.3), 8.0) + vec3f(0.16, 0.165, 0.17) * max(a.z, b.z);
       }
       c += mud * dry * behind * mix(1.0, 0.8, k);
     }
