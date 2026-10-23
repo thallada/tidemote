@@ -23961,7 +23961,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var H = 1 / 60;
   var fmtSpeed = (s) => s === Infinity ? "Max" : `×${s}`;
   var WARM_UNTIL = 120;
-  var PARTICLE_SIZES = [32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
+  var PARTICLE_SIZES = [16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
   var EVENTS_ON = () => ({ on: true, ...Object.fromEntries(EVENT_TYPES.map((x) => [x, true])) });
   var PREFS_KEY = "tidemote.view";
   var CELL_MARK = "rgba(241,227,160,0.95)";
@@ -24316,7 +24316,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         return n2;
       }
       const target = (!hasTS ? 9 : 10) * (throttles ? 0.55 : 1);
-      const clampN = (x) => clamp6(Math.round(x / 4096) * 4096, Math.min(32768, maxN), maxN);
+      const clampN = (x) => clamp6(Math.round(x / 4096) * 4096, Math.min(16384, maxN), maxN);
       let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
       seedWorld(n);
       state.busy = false;

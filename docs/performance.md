@@ -92,10 +92,16 @@ faster than linearly (the level of detail is set in framebuffer pixels).
 - **Hidden page:** requestAnimationFrame stops, so the GPU rests; the soundtrack fades out and its
   audio thread is suspended.
 - **Sizing a new world (calibrate).** Auto measures a frame of a fresh world and sizes it to 10 ms of
-  GPU (9 by submit-to-done time without timestamps). A phone or tablet aims at 55% of that: it is
+  GPU (9 by submit-to-done time without timestamps), down to 16k particles. A phone or tablet aims at 55% of that: it is
   measured cool, and its GPU slows by a third or more once it runs hot, besides sharing the GPU with
   the compositor (a Pixel 11 Pro, 2026-10-11, held at 30 fps and was still late in a 32k world at 1.5×
-  density: step 11.4 ms, scene and composite about 7 ms).
+  density: step 11.4 ms, scene and composite about 7 ms). 16k against 32k (32 seeds × 30 min each,
+  2026-10-23, `runs/lowend/`): no other gated metric differs (persistence, food webs, guilds,
+  monocultures); effective species fall from 111 to 81, as a world half the size holds fewer niches,
+  and the living swing a little more (CV 0.24 → 0.31). Sampling 144 neighbours instead of 192 in such
+  a world was tried and left out: on an RTX 4070 Ti it saves about 4% of a 16k step (`lifeMain` −10%),
+  and its 32 seeds leaned worse (3 collapses against none, effective species 81 → 68, Hill-2 31 → 25;
+  none significant alone).
 
 ## Culling and per-particle work
 

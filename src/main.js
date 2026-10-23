@@ -115,7 +115,7 @@ const fmtSpeed = (s) => (s === Infinity ? 'Max' : `×${s}`);
 // in about 6 s, drawn or not (drawing is under a tenth of the GPU's time at Max), so it is shown, not hidden.
 // Choosing a speed ends the warm-up; a pause only holds it. A loaded world never warms up.
 const WARM_UNTIL = 120;
-const PARTICLE_SIZES = [32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
+const PARTICLE_SIZES = [16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
 // the pool's events as a fresh page has them (Settings → Climate): all on
 const EVENTS_ON = () => ({ on: true, ...Object.fromEntries(EVENT_TYPES.map((x) => [x, true])) });
 
@@ -421,7 +421,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // more in hand: their GPU is shared with the screen, and is measured here cool, before it
     // throttles. Without timestamps the measure overstates.
     const target = (!hasTS ? 9 : 10) * (throttles ? 0.55 : 1);
-    const clampN = (x) => clamp(Math.round(x / 4096) * 4096, Math.min(32768, maxN), maxN);
+    const clampN = (x) => clamp(Math.round(x / 4096) * 4096, Math.min(16384, maxN), maxN);
     let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
     seedWorld(n);
     state.busy = false;
