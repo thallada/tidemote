@@ -423,7 +423,7 @@ export class Director {
     if (this.shot.type === 'settle' && this.quick) type = r() < 0.5 ? 'wide' : 'scene';
     else if (this.shot.type === 'settle' && r() < 0.5) type = 'wide';
     else if (spot && last !== 'spotlight') type = 'spotlight';
-    // while the pool's events play out (a drought, a storm, a leaf), most shots go to them
+    // while the pool's events play out (a drought, a storm, duckweed), most shots go to them
     else if (this.io.event?.() && (last !== 'event' || r() < 0.4) && r() < 0.75) type = 'event';
     else if (sinceWide >= 3 + (r() < 0.5 ? 1 : 0) && last !== 'wide') type = 'wide';
     else {
@@ -479,7 +479,7 @@ export class Director {
     return { x: x + (this.rng() - 0.5) * I.tile * 0.6, y: y + (this.rng() - 0.5) * I.tile * 0.6, tile: I.tile, ...I.reasons(pick, parts) };
   }
 
-  // The pool's event, where the page says it shows (a stretch of shore, the leaf, a raindrop's rings), at about the
+  // The pool's event, where the page says it shows (a stretch of shore, the duckweed, a raindrop's rings), at about the
   // width it suggests.
   eventShot() {
     const e = this.io.event?.();

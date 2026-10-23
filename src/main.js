@@ -133,7 +133,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     labOpen: prefs.labOpen ?? prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
     closeup: prefs.closeup ?? true,
     // the pool's events (docs/catastrophes.md): all on, or off, or some of them
-    events: { on: true, drought: true, storm: true, leaf: true, frost: true, ...prefs.events },
+    events: { on: true, drought: true, storm: true, duckweed: true, frost: true, ...prefs.events },
     songMarks: prefs.songMarks ?? 1, // mark the cells that sing: 0 off, 1 the picked species, 2 all
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
     // pixels per CSS pixel, the frame rate aimed for (0: the display's; 60 by default, and for prefs
@@ -332,12 +332,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
         } else if (phase === 'thaw') {
           pushEvent('The ice thaws', col, 'pond');
         } else if (!phase) pushEvent(`The frost has passed${tally()}`, col, 'pond');
-      } else if (ev.type === 'leaf') {
-        if (phase === 'leaf') {
+      } else if (ev.type === 'duckweed') {
+        if (phase === 'duckweed') {
           begin();
-          pushEvent('<b>A leaf has fallen on the pool</b>: the water under it lies in its shade', col, 'pond');
-          flash('A leaf falls on the pool', 'Shade');
-        } else if (!phase) pushEvent(`The leaf has sunk${tally()}`, col, 'pond');
+          pushEvent(`<b>Duckweed drifts onto the pool</b>: ${ev.buds + 1} fronds, the water under them in their shade, their roots trailing below`, col, 'pond');
+          flash('Duckweed', 'Shade');
+        } else if (!phase) pushEvent(`The duckweed has drifted off${tally()}`, col, 'pond');
       }
     };
     climate.onExcursion = (x) => {
@@ -1472,7 +1472,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + (hasTS ? `<div class="opt"><span class="lbl">${term('profile', 'Profile')}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ''));
     }
     // the pool's events: on or off, each kind on or off, and one started now
-    const EVENT_NAMES = { drought: 'Drought', storm: 'Storm', leaf: 'Fallen leaf', frost: 'Frost' };
+    const EVENT_NAMES = { drought: 'Drought', storm: 'Storm', duckweed: 'Duckweed', frost: 'Frost' };
     function climate_() {
       const E = state.events;
       const kinds = E.on ? EVENT_TYPES.map((x) => onoff(`ev-${x}`, EVENT_NAMES[x], '', E[x], `ev${x}`)).join('') : '';
@@ -1585,7 +1585,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     function resetTab() {
       const s = eng.settings, P = state.perf;
       if (tab === 'climate') {
-        state.events = { on: true, drought: true, storm: true, leaf: true, frost: true };
+        state.events = { on: true, drought: true, storm: true, duckweed: true, frost: true };
         applyEvents();
       } else if (tab === 'display') {
         trailIdx = 1; s.trails = trailLevels[trailIdx];
@@ -2481,12 +2481,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     lifespan: (slot) => { const g = genomeFor(slot); return g ? g.lifespan : 0; },
     now: () => performance.now() / 1000,
     // where the pool's event shows best (docs/catastrophes.md): a stretch of shore while the water falls or returns,
-    // the leaf, the last raindrop
+    // the duckweed, the last raindrop
     event: () => {
       const ev = climate && climate.event, ph = climate && climate.phase;
       if (!ev || !ph || ph === 'after') return null;
       const [W, H] = eng.grid;
-      if (ev.type === 'leaf') return { type: 'leaf', phase: ph, x: eng.leaf[0], y: eng.leaf[1], w: eng.leaf[2] * (Math.random() < 0.5 ? 2.6 : 1.2) };
+      if (ev.type === 'duckweed') return { type: 'duckweed', phase: ph, x: eng.duck[0], y: eng.duck[1], w: eng.duck[2] * (Math.random() < 0.5 ? 3.2 : 1.5) };
       if (ev.type === 'storm' || ph === 'rain') {
         const k = climate.dropSlot ?? 0;
         if (eng.drops[k * 4 + 3] > 0 && Math.random() < 0.5) return { type: ev.type, phase: ph, x: eng.drops[k * 4], y: eng.drops[k * 4 + 1], w: 40 };
@@ -2601,7 +2601,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const EV = { drought: { drying: ['The pool is drying', 'Cells crowd the shrinking water; the edge drags stragglers with it'],
         dry: ['Low water', 'Stranded on the mud, cells rest as cysts and spores'], rain: ['Rain', 'The water returns, and the cysts on the mud wake'] },
         storm: { storm: ['A storm', 'Raindrops ring the surface and the water runs rough'] },
-        leaf: { leaf: ['A leaf on the pool', 'In its shade the producers go hungry'] },
+        duckweed: { duckweed: ['Duckweed', 'In the shade of its fronds the producers go hungry'] },
         frost: { cooling: ['Nightfall', 'The water chills toward freezing'], freezing: ['Ice', 'Its fronts push cells into the veins of water between the grains'],
           frozen: ['Frozen', 'Life waits in the veins of water between the ice grains'], thaw: ['Thaw', 'The ice gives the pool back'] } };
       const [m, sb] = (EV[w.type] || {})[w.phase] || ['The pool', ''];

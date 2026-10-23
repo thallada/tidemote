@@ -30,7 +30,7 @@ test('low water parts the pool; full water is one pool', () => {
   assert.equal(ice.length, q.length);
 });
 
-test('a drought falls, holds, rains and refills; a frost freezes and thaws; a leaf comes and goes', () => {
+test('a drought falls, holds, rains and refills; a frost freezes and thaws; duckweed comes and goes', () => {
   const r = rng(3);
   const d = makeEvent('drought', 100, r, 100, 100);
   const at = (u) => eventAt(d, 100 + u, 1);
@@ -45,14 +45,14 @@ test('a drought falls, holds, rains and refills; a frost freezes and thaws; a le
   const f = makeEvent('frost', 0, r, 100, 100);
   assert.equal(eventAt(f, f.cool + f.grow + 1, 1).frost, f.max);
   assert.ok(eventAt(f, f.cool + f.grow + f.hold + f.thaw + 1, 1).frost === 0);
-  const l = makeEvent('leaf', 0, r, 100, 100);
-  assert.ok(eventAt(l, l.dur / 2, 1).leaf[3] > 0.7);
-  assert.equal(eventAt(l, l.dur + 1, 1).leaf, null);
+  const l = makeEvent('duckweed', 0, r, 100, 100);
+  assert.ok(eventAt(l, l.dur / 2, 1).duck[3] > 0.7);
+  assert.equal(eventAt(l, l.dur + 1, 1).duck, null);
 });
 
 test('the climate draws events by its plan and drives the pool', () => {
   const eng = { K: { eventPlan: 'storm@10' }, simTime: 0, ambient: 0.2, temp: 16, excursion: 0, tide: new Float32Array(16), waves: new Float32Array(16), grid: [50, 50],
-    level: 1, rain: 0, sky: 1, evap: 0, turb: 1, frost: 0, freezing: 0, leaf: new Float32Array(8), drops: new Float32Array(16),
+    level: 1, rain: 0, sky: 1, evap: 0, turb: 1, frost: 0, freezing: 0, duck: new Float32Array(8), drops: new Float32Array(16),
     newTideWave() {}, randomizeCurrents: (r, into) => into };
   const c = createClimate(eng, rng(5));
   for (let i = 0; i < 60 * 60; i++) { eng.simTime += 1 / 60; c.tick(1 / 60); }

@@ -243,7 +243,7 @@ export const DEFAULT_K = {
   dropWidth: 2.5,
   dropLife: 5,
   // the climate's events (src/climate.js): the first no sooner than eventFirst minutes, then one about every
-  // eventEvery minutes (0: none), drawn drought, storm, leaf, frost by eventMix; eventPlan forces some ("drought@900");
+  // eventEvery minutes (0: none), drawn drought, storm, duckweed, frost by eventMix; eventPlan forces some ("drought@900");
   // lowEras is the share of climate eras whose water stands low enough to show sandbars and islands
   eventEvery: 60,
   eventFirst: 25,
@@ -252,7 +252,7 @@ export const DEFAULT_K = {
   lowEras: 0.35,
   floorDrift: 0.3,  // the share of the floor's relief redrawn at each new era (moving geography: sediment shifts)
   // each event's draw (ranges): a drought's fall, hold and refill (s) and how low the water falls (the share of the
-  // floor left wet); a storm's length (s); a leaf's length (share of the world's side), darkness and stay (s)
+  // floor left wet); a storm's length (s)
   droughtFall: [300, 480],
   droughtHold: [150, 300],
   droughtRefill: [90, 150],
@@ -267,9 +267,10 @@ export const DEFAULT_K = {
   rainDrops: 1,
   frostCold: 1,     // a frost's night, as shares of the full: cold (the water chilled to 0.5°) and dark (light × 0.4 at full)
   frostDark: 0.35,
-  leafLen: [0.18, 0.32],
-  leafDark: [0.75, 0.92],
-  leafDur: [420, 720],
+  // duckweed: its mother frond's half-length (share of the world's shorter side), its fronds' darkness and its stay (s)
+  duckLen: [0.12, 0.2],
+  duckDark: [0.75, 0.92],
+  duckDur: [420, 720],
   // a frost's growth, hold and thaw (s), and the share of the pool it freezes
   frostGrow: [150, 270],
   frostHold: [120, 240],
@@ -439,19 +440,47 @@ fn tideAt(p: vec2f, world: vec2f, t: f32, w: array<vec4f, 4>, ph: vec4f) -> f32 
   return smoothstep(0.35, 1.9, s * 2.7 / max(n, 1e-3));
 }
 
-// A leaf floating on the pool shades the water under it (docs/catastrophes.md): 0..1 at p, for a leaf centred at
-// lf.xy, lf.z long from base to tip, its darkness lf.w (0: no leaf), turned lb.x, its outline drawn by seed lb.y
-// and lb.z wide (relative to its length). Its edge is soft: it floats far above the focal plane.
-fn leafShade(p: vec2f, lf: vec4f, lb: vec4f, world: vec2f) -> f32 {
-  if (lf.w <= 0.0) { return 0.0; }
-  var d = p - lf.xy;
+// Duckweed floating on the pool shades the water under it (docs/catastrophes.md). A colony of Lemna: a mother frond
+// centred at lf.xy, lf.z its half-length, its darkness lf.w (0: none), turned lb.x, lb.z wide (relative to its
+// length), and lb.w daughters (their sizes and angles drawn from the seed lb.y) budding from the pouches either side
+// of its node, near its base, each pointing out and back from it. Frond k: centre, axis (base to tip), half-length,
+// half-width.
+struct Frond { c: vec2f, ax: vec2f, L: f32, W: f32 };
+fn duckHash(x: f32) -> f32 { return fract(sin(x * 12.9898 + 4.1414) * 43758.5453); }
+fn frondOf(lf: vec4f, lb: vec4f, k: i32) -> Frond {
+  let ax = vec2f(cos(lb.x), sin(lb.x));
+  var f = Frond(lf.xy, ax, lf.z, lf.z * lb.z);
+  if (k == 0) { return f; }
+  let node = lf.xy - ax * 0.7 * lf.z;
+  let fk = f32(k);
+  // the first two to either side, a third, younger, beside the first
+  let side = select(1.0, -1.0, k == 2);
+  let back = side * (0.5 + 0.6 * duckHash(lb.y + fk * 3.1) + select(0.0, 0.5, k == 3));
+  let dax = rot2(-ax, back);
+  let L = lf.z * select(mix(0.45, 0.85, duckHash(lb.y + fk * 5.7)), mix(0.25, 0.4, duckHash(lb.y + 9.3)), k == 3);
+  f.ax = dax; f.L = L; f.W = L * lb.z * mix(0.9, 1.05, duckHash(lb.y + fk * 7.9));
+  f.c = node + dax * 0.72 * L;
+  return f;
+}
+// where p lies against frond f: x along its axis, y across (both in half-lengths), and the distance out of its edge
+fn frondAt(p: vec2f, f: Frond, world: vec2f) -> vec3f {
+  var d = p - f.c;
   d -= world * round(d / world);
-  let q = rot2(d, -lb.x) / lf.z;
-  // ovate: widest a little toward the base, tapering to a point at the tip, the margin toothed
-  let x = clamp(q.x, -1.0, 1.0);
-  let hw = lb.z * pow(max(1.0 - x * x, 0.0), 0.7) * (1.0 - 0.25 * x) * (1.0 + 0.03 * sin(q.x * 31.0 + lb.y) + 0.02 * sin(q.x * 67.0 + lb.y * 3.1));
-  let out = max(abs(q.y) - hw, abs(q.x) - 1.0) * lf.z;
-  return lf.w * (1.0 - smoothstep(-1.5, 1.5, out));
+  let x = dot(d, f.ax) / f.L;
+  let y = (f.ax.x * d.y - f.ax.y * d.x) / f.L;
+  // elliptic, a little narrower toward the node
+  let r = length(vec2f(x, y * f.L / (f.W * (1.0 + 0.12 * clamp(x, -1.0, 1.0)))));
+  return vec3f(x, y, (r - 1.0) * f.W);
+}
+// 0..1 at p: the shade of the colony's fronds, their edges soft (they float far above the focal plane)
+fn duckShade(p: vec2f, lf: vec4f, lb: vec4f, world: vec2f) -> f32 {
+  if (lf.w <= 0.0) { return 0.0; }
+  var sh = 0.0;
+  for (var k = 0; k <= i32(lb.w); k++) {
+    let a = frondAt(p, frondOf(lf, lb, k), world);
+    sh = max(sh, 1.0 - smoothstep(-1.2, 1.2, a.z));
+  }
+  return lf.w * sh;
 }
 
 fn hsl2rgb(h: f32, s: f32, l: f32) -> vec3f {
@@ -1065,9 +1094,9 @@ struct Sim {
   // x the currents' strength ×; y frost (the share of the pool frozen); z how fast the ice is growing (0..1);
   // w seconds since a drought's rain began (0: none; raindrops wetting the mud, drawn only)
   weather: vec4f,
-  // a floating leaf's shadow: centre, radius, darkness (0: none); angle, shape seed, elongation, spare
-  leaf: vec4f,
-  leafB: vec4f,
+  // floating duckweed: its mother frond's centre, half-length, darkness (0: none); its angle, seed, width, daughters
+  duck: vec4f,
+  duckB: vec4f,
   // raindrops' ring waves: centre, the time it fell, strength (0: none)
   drops: array<vec4f, 4>,
 };
@@ -1228,9 +1257,9 @@ fn pondAt(p: vec2f) -> vec3f {
 }
 // How far (world units) p lies from the water's edge, wet side positive, from pondAt's depth and slope.
 fn shoreDist(pd: vec3f) -> f32 { return pd.x / max(length(pd.yz), 1e-4); }
-// The light at p: the baseline and the tide's bands by the season, under the sky (clouds) and any leaf's shadow.
+// The light at p: the baseline and the tide's bands by the season, under the sky (clouds) and any duckweed's shade.
 fn lightAt(p: vec2f) -> f32 {
-  return (sim.ambient + (1.0 - sim.ambient) * tideAt(p, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season) * sim.pond.z * (1.0 - leafShade(p, sim.leaf, sim.leafB, sim.world));
+  return (sim.ambient + (1.0 - sim.ambient) * tideAt(p, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season) * sim.pond.z * (1.0 - duckShade(p, sim.duck, sim.duckB, sim.world));
 }
 
 fn wrapPos(p: vec2f) -> vec2f { return p - sim.world * floor(p / sim.world); }
@@ -1895,7 +1924,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   let pos = wrapPos(p.pos + vel * sim.dt);
   p.age += sim.dt;
   if (p.kind == SILT) {
-    let tide = (tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient) * sim.pond.z * (1.0 - leafShade(pos, sim.leaf, sim.leafB, sim.world));
+    let tide = (tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient) * sim.pond.z * (1.0 - duckShade(pos, sim.duck, sim.duckB, sim.world));
     // life sparks from silt (about one spark per 30 s in the world, sim.abio per grain), in the light, and
     // more in hot water (around framboids); a spark founds a species suited to the water here, so a world
     // whose life died begins again
@@ -5386,11 +5415,11 @@ struct Post {
   waves: array<vec4f, 4>,
   // the background water temperature, then the heat map's span; w: the tide map (0 off, 1 on)
   heat: vec4f,
-  // the pool (docs/catastrophes.md): water level, rain, sky, drying; currents' strength; a floating leaf; raindrops
+  // the pool (docs/catastrophes.md): water level, rain, sky, drying; currents' strength; floating duckweed; raindrops
   pond: vec4f,
   weather: vec4f,
-  leaf: vec4f,
-  leafB: vec4f,
+  duck: vec4f,
+  duckB: vec4f,
   drops: array<vec4f, 4>,
 };
 `;
@@ -6413,6 +6442,33 @@ fn heatRamp(u: f32) -> vec3f {
   return mix(b, vec3f(1.0, 0.95, 0.82), smoothstep(0.75, 1.0, u));
 }
 
+// A duckweed root (Lemna's single root), from the frond's node at o trailing along dir, len long as seen from above,
+// wr its half-width: it hangs from the frond far above down through the water, so it is out of focus near its
+// start and sharp toward its tip, where it nears the focal plane; a clear cylinder, its walls bright, its cells
+// faint bands along it, its tip in a rounded sheath (the root cap's pocket). It sways, the tip most. x its light,
+// y how much it covers.
+fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32) -> vec2f {
+  var d = p - o;
+  d -= post.world * round(d / post.world);
+  let along = dot(d, dir) / len;
+  if (along < -0.1 || along > 1.15) { return vec2f(0.0); }
+  let s = clamp(along, 0.0, 1.0);
+  let perp = vec2f(-dir.y, dir.x);
+  let bend = len * (0.07 * sin(post.simTime * 0.37 + seed) * s * s + 0.05 * (vnoise(vec2f(s * 2.5 - post.simTime * 0.08, seed)) - 0.5) * s);
+  let off = dot(d, perp) - bend;
+  let focus = smoothstep(0.05, 0.8, s);
+  let blur = mix(0.6, 0.04, focus) + 0.7 / post.ppu;
+  // the sheath at the tip, a little wider, closing round
+  let w = wr * (1.0 + 0.2 * smoothstep(0.86, 0.95, along)) * (1.0 - 0.15 * smoothstep(0.97, 1.1, along));
+  let endD = max(along - 1.0, 0.0) * len * 0.45;
+  let r = length(vec2f(off, endD)) / w;
+  let walls = exp(-pow((r - 0.85) / (0.12 + blur / w), 2.0));
+  let inner = 1.0 - smoothstep(0.8, 1.0 + blur / w, r);
+  let bands = 0.5 + 0.5 * smoothstep(0.75, 0.95, abs(fract(along * len / 1.8 + 0.3 * vnoise(vec2f(off, seed))) * 2.0 - 1.0));
+  let sheath = exp(-pow((r - 0.95) / (0.1 + blur / w), 2.0)) * smoothstep(0.86, 0.95, along) * 0.6;
+  let light = (walls * (0.6 + 0.4 * vnoise(vec2f(along * len * 0.7, seed))) + inner * 0.18 * bands + sheath) * mix(0.06, 1.0, pow(focus, 1.5));
+  return vec2f(light, inner * mix(0.1, 1.0, focus));
+}
 @fragment fn fsComposite(i: VO) -> @location(0) vec4f {
   let k = post.optics;
   let q = (i.pos.xy - post.res * 0.5) / (post.res.y * 0.5);
@@ -6548,21 +6604,43 @@ fn heatRamp(u: f32) -> vec3f {
     let sl = length(surf) * wet;
     c = c * (1.0 - RIPPLE_DIM * max(-tilt, 0.0)) + RIPPLE_SHEEN * (max(tilt, 0.0) + 0.35 * sl) * (0.4 + 0.6 * behind);
   }
-  // a leaf floating on the pool, far above the focal plane: it keeps the lamp's light from what lies under it, and
-  // scatters a little of it as a faint green-brown haze, its veins blurred shadows in it
-  if (post.leaf.w > 0.0) {
-    let sh = leafShade(wp, post.leaf, post.leafB, post.world);
-    if (sh > 0.0) {
-      var d = wp - post.leaf.xy;
-      d -= post.world * round(d / post.world);
-      let q = rot2(d, -post.leafB.x) / post.leaf.z;
-      let L = post.leaf.z;
-      let midrib = exp(-pow(q.y * L / 0.9, 2.0)) * (1.0 - smoothstep(0.6, 1.0, abs(q.x)));
-      let ph = (q.x + abs(q.y) * 1.3 - 0.5 * q.y * q.y) * 7.0 + post.leafB.y + 0.35 * (vnoise(vec2f(q.y * 3.0, post.leafB.y)) - 0.5);
-      let lateral = exp(-pow((fract(ph) - 0.5) / 0.12, 2.0)) * smoothstep(0.02, 0.12, abs(q.y)) * (1.0 - smoothstep(0.7, 1.0, abs(q.x)));
-      let veins = clamp(midrib + 0.6 * lateral, 0.0, 1.0);
-      let blot = 0.75 + 0.5 * vnoise(q * L * 0.35 + post.leafB.y);
-      c = c * (1.0 - 0.88 * sh) + vec3f(0.010, 0.012, 0.0055) * sh * blot * (1.0 - 0.55 * veins) * mix(0.6, 1.0, k);
+  // duckweed floating on the pool, far above the focal plane: its fronds keep the lamp's light from what lies under
+  // them and pass a little of it, green, mottled by the air chambers inside them; each hangs a root down into the
+  // water, out of focus near its frond, sharp where it reaches the focal plane
+  if (post.duck.w > 0.0) {
+    let sh = duckShade(wp, post.duck, post.duckB, post.world);
+    {
+      var tex = 0.0;
+      for (var f = 0; f <= i32(post.duckB.w); f++) {
+        let fr = frondOf(post.duck, post.duckB, f);
+        let a = frondAt(wp, fr, post.world);
+        if (a.z < 2.5) {
+          // air chambers, a blurred net; the node, where the root and buds come from, a darker spot; a midrib faintly
+          let q = vec2f(a.x * fr.L, a.y * fr.L);
+          let cells = smoothstep(0.0, 0.5, vborder(q / 2.2 + f32(f) * 7.0 + post.duckB.y).x);
+          let nd = a.xy - vec2f(-0.7, 0.0);
+          let node = exp(-dot(nd, nd) / 0.02);
+          let rib = exp(-pow(a.y / 0.05, 2.0)) * smoothstep(-0.7, -0.3, a.x) * (1.0 - smoothstep(0.4, 0.9, a.x));
+          // and round its edge the water's surface curves up onto it, a meniscus catching the lamp, blurred
+          let rim = exp(-pow((a.z + 0.4) / 1.3, 2.0));
+          tex = max(tex, (0.45 + 0.55 * cells) * (1.0 - 0.55 * node) * (1.0 - 0.25 * rib) * (1.0 - smoothstep(-1.2, 1.2, a.z)) + 0.9 * rim);
+        }
+      }
+      let blot = 0.8 + 0.4 * vnoise(wp * 0.08 + post.duckB.y);
+      c = c * (1.0 - 0.88 * sh) + vec3f(0.012, 0.026, 0.008) * tex * blot * post.duck.w * mix(0.6, 1.0, k);
+    }
+    // the roots trail together, with the current, swaying
+    let trail = post.duckB.y * 0.37 + 0.35 * sin(post.simTime * 0.031 + post.duckB.y);
+    for (var f = 0; f <= i32(post.duckB.w); f++) {
+      let fr = frondOf(post.duck, post.duckB, f);
+      let o = fr.c - fr.ax * 0.7 * fr.L;
+      let rl = post.duck.z * mix(2.2, 4.5, duckHash(post.duckB.y + f32(f) * 2.3)) * select(1.0, 0.35, f == 3);
+      let rd = rot2(vec2f(1.0, 0.0), trail + 1.4 * (duckHash(post.duckB.y + f32(f) * 4.4) - 0.5));
+      let rt = duckRoot(wp, o, rd, rl, 0.75, post.duckB.y + f32(f) * 3.3);
+      if (rt.y > 0.0) {
+        let lit = 1.0 - 0.75 * duckShade(wp, post.duck, post.duckB, post.world);
+        c = c * (1.0 - 0.3 * rt.y * post.duck.w) + vec3f(0.085, 0.10, 0.08) * rt.x * lit * post.duck.w * (0.4 + 0.6 * behind);
+      }
     }
   }
   // the round field stop of the eyepiece clips the corners of the camera's frame

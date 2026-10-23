@@ -67,10 +67,10 @@ class Engine {
     this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 1, heat: 1, bands: 0, optics: 1, specks: true, lod: true };
     this.simData = new ArrayBuffer(384);
     // the pool (docs/catastrophes.md), set by the climate: the water level (a quantile of the floor's relief; 1: all
-    // wet), rain (0..1), the sky (light ×), how fast it is drying (0..1), the currents' strength, a floating leaf
+    // wet), rain (0..1), the sky (light ×), how fast it is drying (0..1), the currents' strength, floating duckweed
     // (centre, length, darkness; angle, seed, width) and up to four raindrops' ring waves (centre, time, strength)
     this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.mudRain = 0;
-    this.leaf = new Float32Array(8); this.drops = new Float32Array(16);
+    this.duck = new Float32Array(8); this.drops = new Float32Array(16);
     this.relief = null;
     this.rock = new Float32Array(4);
     this.simF = new Float32Array(this.simData);
@@ -657,7 +657,7 @@ class Engine {
     this.floor = null;
     d.queue.writeBuffer(this.b.thermal, 3 * MAX_CELLS * 4, this.relief);
     d.queue.writeBuffer(this.b.thermal, 4 * MAX_CELLS * 4, (this.iceOrder = makeIceOrder(this.grid[0], this.grid[1], this.seedValue, this.relief)));
-    this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.mudRain = 0; this.leaf.fill(0); this.drops.fill(0);
+    this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.mudRain = 0; this.duck.fill(0); this.drops.fill(0);
     const enc = d.createCommandEncoder();
     enc.clearBuffer(this.b.thermal, 0, cells * 4);
     enc.clearBuffer(this.b.counts);
@@ -757,7 +757,7 @@ class Engine {
     u[60] = this.tick; u[61] = this.ticks; f[62] = this.tbg; u[63] = this.maxScan;
     f[64] = this.level; f[65] = this.rain; f[66] = this.sky; f[67] = this.evap;
     f[68] = this.turb; f[69] = this.frost; f[70] = this.freezing; f[71] = 0;
-    f.set(this.leaf, 72);
+    f.set(this.duck, 72);
     f.set(this.drops, 80);
   }
 
@@ -864,7 +864,7 @@ class Engine {
     keep.cpu = { simTime: this.simTime, frameNo: this.frameNo, tick: this.tick, season: this.season, abio: this.abio,
       ambient: this.ambient, seedValue: this.seedValue, temp: this.temp, excursion: this.excursion,
       tide: this.tide.slice(), tidePh: this.tidePh.slice(), waves: this.waves.slice(), rock: this.rock.slice(),
-      level: this.level, rain: this.rain, sky: this.sky, evap: this.evap, turb: this.turb, frost: this.frost, freezing: this.freezing, leaf: this.leaf.slice(), drops: this.drops.slice() };
+      level: this.level, rain: this.rain, sky: this.sky, evap: this.evap, turb: this.turb, frost: this.frost, freezing: this.freezing, duck: this.duck.slice(), drops: this.drops.slice() };
     return keep;
   }
 
@@ -879,7 +879,7 @@ class Engine {
       level: c.level ?? 1, rain: c.rain ?? 0, sky: c.sky ?? 1, evap: c.evap ?? 0, turb: c.turb ?? 1, frost: c.frost ?? 0, freezing: c.freezing ?? 0 });
     this.tide.set(c.tide); this.tidePh.set(c.tidePh); this.waves.set(c.waves); this.rock.set(c.rock);
     this.relief = makeRelief(this.grid[0], this.grid[1], this.seedValue);
-    if (c.leaf) this.leaf.set(c.leaf);
+    if (c.duck) this.duck.set(c.duck);
     if (c.drops) this.drops.set(c.drops);
   }
 
@@ -1607,7 +1607,7 @@ class Engine {
     pd[55] = this.settings.bands;
     pd[56] = this.K.pond ? this.level : 1; pd[57] = this.rain; pd[58] = this.sky; pd[59] = this.evap;
     pd[60] = this.turb; pd[61] = this.K.pond ? this.frost : 0; pd[62] = this.freezing; pd[63] = this.K.pond ? this.mudRain : 0;
-    pd.set(this.leaf, 64);
+    pd.set(this.duck, 64);
     pd.set(this.drops, 72);
     d.queue.writeBuffer(this.b.post, 0, pd);
 

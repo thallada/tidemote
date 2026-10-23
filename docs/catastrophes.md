@@ -2,7 +2,7 @@
 
 docs/next-level-2026-10-20.md §4.4 as a shallow pool under a microscope. The world is a puddle seen through
 darkfield optics, so its catastrophes are a puddle's: it dries out and parts into pools, rain refills it, a storm
-rings and stirs its surface, a leaf falls on it and shades what lies beneath. Each is a local rule acting on cells
+rings and stirs its surface, duckweed drifts onto it and shades what lies beneath. Each is a local rule acting on cells
 (no census steers anything), rare, and announced.
 
 ## The floor and the water level
@@ -32,7 +32,7 @@ What the water does where it is shallow or gone (all in `src/shaders.js`, tunabl
 ## Events (src/climate.js)
 
 The climate draws an event about every `eventEvery` minutes (60; the first no sooner than `eventFirst`, 25),
-drought, storm, leaf or frost by `eventMix`; `eventPlan` ("drought@900,leaf@2400") forces events for tests, and the page
+drought, storm, duckweed or frost by `eventMix`; `eventPlan` ("drought@900,duckweed@2400") forces events for tests, and the page
 console's `__tidemote.climate().force('drought')` starts one. Climate eras also set the water's resting level:
 `lowEras` of them (35%) stand low (88-98%), showing sandbars and islands (moving geography).
 
@@ -42,8 +42,11 @@ console's `__tidemote.climate().force('drought')` starts one. Climate eras also 
   × 2.2), raindrops, cysts hatching.
 - **Storm** (`stormDur`, 4-7 min): clouds (light × 0.4), cold rain (−4°), rough water (currents × 2.6), raindrops,
   the water a little higher.
-- **Leaf** (`leafDur`, 7-12 min): a leaf `leafLen` (18-32% of the world's side) floats onto the pool, drifting and
-  turning slowly, and shades the water under it (light × 1 − `leafDark`, 75-92%).
+- **Duckweed** (`duckDur`, 7-12 min): a colony of Lemna drifts onto the pool, turning slowly: a mother frond (half
+  its length `duckLen`, 12-20% of the world's shorter side; 1-5 mm long at the page's sizes, as real fronds are) and
+  one to three daughters budding from the pouches beside its node. It shades the water under it (light × 1 −
+  `duckDark`, 75-92%), about as much of the pool as the leaf it replaced (a leaf of the same pool would have been
+  wider than the pool; see the leaf rows of the round 1 table, which barely moved the pool).
 - **Frost** (`frostGrow`, `frostHold`, `frostThaw`): a cold night (light × 0.4, the background water chilled to 0.5°
   whatever the era's warmth, `FROST_WATER` in `src/climate.js`, × `frostCold`) on a pool this thin freezes it
   in-plane. Ice grows in the order of a second field (`makeIceOrder`, thermal block 4: grains spreading from the
@@ -54,13 +57,13 @@ console's `__tidemote.climate().force('drought')` starts one. Climate eras also 
 - **Raindrops**: about one a second in full rain, each a ring wave (`dropSpeed` 7 units/s, `dropWidth`, `dropLife`)
   shoving the water outward as it passes (`flowAt`).
 
-Sim uniforms grew to 384 bytes (`pond`, `weather`, `leaf`, `leafB`, `drops`), the post uniforms likewise; thermal
+Sim uniforms grew to 384 bytes (`pond`, `weather`, `duck`, `duckB`, `drops`), the post uniforms likewise; thermal
 grew a fourth block (the relief). Saves from before do not load.
 
 ## How it looks
 
-Darkfield: the lamp's light reaches the objective only where something scatters it. A world unit is 10 µm, so the
-whole pool is a millimetre or two across and everything is drawn at that scale (all in `POST_WGSL`, observational).
+Darkfield: the lamp's light reaches the objective only where something scatters it. A world unit is 59 µm (a cell of
+size 1 is 10 µm; `UM_PER_UNIT`), so the pool is 6-25 mm across at the page's sizes and everything is drawn at that scale (all in `POST_WGSL`, observational).
 
 - **Dry ground** (`dryGround`): the film of silt and clay the water left. Wet, water fills the spaces between its
   grains and it scatters little, dark and smooth; as it dries air takes their place and it pales to a grainy buff
@@ -72,8 +75,8 @@ whole pool is a millimetre or two across and everything is drawn at that scale (
   along the floor's contours where the edge paused (a coffee ring), cut by the cracks.
 - **Rain on the mud** (`mudDrops`, the post uniform's `weather.w`: seconds since a drought's rain began): each drop
   lands as a low bead of water, its rim bright and uneven, and sinks in within a second, leaving a dark wet stain
-  that creeps outward as the mud wicks the water in, its front darkest. Small drops (radius 12–35 µm) and larger
-  ones (40–100 µm) arrive at random, more each second, and their stains merge until the mud is dark and wet before
+  that creeps outward as the mud wicks the water in, its front darkest. Small drops (0.14-0.4 mm across) and larger
+  ones (0.5-1.2 mm, drizzle and rain) arrive at random, more each second, and their stains merge until the mud is dark and wet before
   the water returns over it. Drawn only: the cells on the mud wake as before, when the water reaches them.
 - **The water's edge**: an uneven bright contact line (the meniscus pins and slips on grains), its width and
   brightness varying along it, the curved surface rising to it scattering a narrowing glow on the water's side.
@@ -101,13 +104,18 @@ whole pool is a millimetre or two across and everything is drawn at that scale (
   simulation (the view uniform carries the level and the frost). Most rest as cysts: a cyst loses `cystLeak` energy a
   second, does not age out, and does not wake on dry ground or in ice; awake stranded cells pay `dryCost` on top of
   their upkeep and still die of age.
-- **A leaf**: far above the focal plane, so out of focus: it keeps the lamp from what lies under it (dimmed by 88%
-  at its heart, a soft edge), and scatters a faint green-brown haze in which its veins are blurred shadows.
+- **Duckweed** (`duckShade`, `frondOf`, `duckRoot`): the fronds float far above the focal plane, so out of focus:
+  they keep the lamp from what lies under them (dimmed by 88% at their hearts, soft edges) and pass a little of it,
+  green, mottled by the air chambers inside them, a darker spot at each node and a blurred meniscus round each edge.
+  Each frond hangs its single root down into the water, all trailing together with the current and swaying, the
+  tips most: out of focus and faint near the frond, sharp toward the tip, where it nears the focal plane; a clear
+  cylinder with bright walls and faint cell bands, its tip in a pointed sheath (the root cap's pocket). Drawn
+  only: cells pass through the roots.
 
 **Settings → Climate** turns the events off, or each kind on its own (the climate's `allowed`, kept with the page's
 preferences; an event of a kind turned off ends at once), and starts one now. The page announces each event and its turns (the chronicle's "The pool" filter in the Field Lab), counts the pools a
 drought leaves (`countPools`), and tallies life and species lost once it has passed. The auto camera gives most of
-its shots to an event while it lasts (`eventShot`): a stretch of shore, the leaf, the last raindrop.
+its shots to an event while it lasts (`eventShot`): a stretch of shore, the duckweed, the last raindrop.
 
 `tools/shot.mjs` photographs the built page through an event (`--eval 'T.climate().force("drought")' --at shore`;
 `--clip` records it). `tools/looklab.mjs` grows one world and then swaps in each new composite shader as it is

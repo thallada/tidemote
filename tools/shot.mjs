@@ -50,7 +50,7 @@ for (const dt of String(v.times).split(',').map(Number)) {
   for (const z of zooms) {
     await page.evaluate(([z, at]) => {
       const T = globalThis.__tidemote, g = T.eng.grid, fit = Math.max(innerWidth / g[0], innerHeight / g[1]);
-      // at: "x,y"; "event" (the current event's centre, a leaf's); "shore" (a point of the water's edge near the middle); "ice" (a point of the ice front)
+      // at: "x,y"; "event" (the current event's centre, the duckweed's); "shore" (a point of the water's edge near the middle); "ice" (a point of the ice front)
       let [x, y] = [g[0] / 2, g[1] / 2];
       if (at === 'event') { const ev = T.climate().event; if (ev?.x != null) [x, y] = [ev.x, ev.y]; }
       else if (at === 'shore' && T.eng.relief) {
