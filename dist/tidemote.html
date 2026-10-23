@@ -19523,7 +19523,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     autoidle: "Left alone for a minute (three with a panel open), the camera starts filming the world on its own. Drag, scroll or tap to take it back.",
     renderscale: "The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room; a fixed value never changes.",
     autofloor: "The lowest render scale Auto may drop to.",
-    density: "The most device pixels drawn per CSS pixel. High-density (Retina) screens look sharper at 2× but cost up to four times the pixels of 1×. Readouts and outlines stay sharp either way.",
+    density: "The most device pixels drawn per CSS pixel. High-density (Retina) screens look sharper at 2× but cost up to four times the pixels of 1×. Readouts and outlines stay sharp either way. While frames run late, Auto render scale drops to 1× first, before the scale or the frame rate.",
     targetfps: "Frames per second aimed for, as a whole number of the screen’s refreshes so frames stay evenly spaced (60 on a 144 Hz screen is every second refresh, 72 fps). 30 halves the GPU’s work and saves battery; Display follows the screen’s refresh rate (120 on many phones and Macs), which costs the most. Simulated time keeps pace with real time at any rate; when the device can’t keep up the page lowers the rate itself (Aiming for).",
     bloom: "A soft glow around bright cells. Several extra full-screen passes.",
     optics: "Microscope optics: depth haze and a vignette over the world. One extra full-screen pass.",
@@ -23876,6 +23876,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var overlay = $("overlay");
   var octx = overlay.getContext("2d");
   var isCoarse = matchMedia("(pointer: coarse)").matches;
+  var throttles = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|Mobile/.test(navigator.userAgent) || isCoarse && !matchMedia("(any-pointer: fine)").matches);
   var NONE2 = 4294967295;
   var TAU2 = Math.PI * 2;
   var median = (a) => {
@@ -24040,10 +24041,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
     };
     if (prefs.loupe !== void 0 && !isCoarse) state.loupe = prefs.loupe;
     let renderScale = state.perf.scale === "auto" ? 1 : state.perf.scale;
+    let densityCap = Infinity;
+    const density = () => Math.min(devicePixelRatio || 1, 2, state.perf.density, densityCap);
     let dpr = 1;
     function fit2() {
       const base = Math.min(devicePixelRatio || 1, 2);
-      dpr = Math.min(base, state.perf.density) * renderScale;
+      dpr = density() * renderScale;
       const maxDim = device.limits.maxTextureDimension2D;
       canvas.width = Math.min(maxDim, Math.max(1, Math.round(innerWidth * dpr)));
       canvas.height = Math.min(maxDim, Math.max(1, Math.round(innerHeight * dpr)));
@@ -24312,7 +24315,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         calStep(`${fmt(n2)} particles`, 1);
         return n2;
       }
-      const target = !hasTS ? 9 : isCoarse ? 7.5 : 10;
+      const target = (!hasTS ? 9 : 10) * (throttles ? 0.55 : 1);
       const clampN = (x) => clamp6(Math.round(x / 4096) * 4096, Math.min(32768, maxN), maxN);
       let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
       seedWorld(n);
@@ -25609,7 +25612,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         roAt = now;
         setText("ro-fps", perf.fps ? perf.fps.toFixed(0) : "–");
         setText("ro-ms", perf.gpu ? perf.gpu.toFixed(1) : "–");
-        setText("ro-res", `${Math.round(renderScale * 100)}%`);
+        setText("ro-res", `${Math.round(renderScale * 100)}%${density() !== 1 ? ` at ${+density().toFixed(2)}×` : ""}`);
         setText("ro-px", `${canvas.width}×${canvas.height}`);
         setText("ro-n", fmt(eng.count));
         const al = sound.load;
@@ -26260,6 +26263,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       perf.lastAdjust = performance.now();
       perf.slow = 1;
       perf.why = "";
+      perf.denseUntil = 0;
+      densityCap = Infinity;
     }
     let pressure = "nominal";
     try {
@@ -26284,7 +26289,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
         perf.why = stressed() ? "device under pressure" : busy ? "GPU busy" : "frames late";
         perf.goodWindows = 0;
         perf.ceilingUntil = now + 3e4;
-        if (renderScale > floor + 0.01 && !(simBound && perf.slow < 4)) {
+        if (auto && density() > 1.01) {
+          densityCap = 1;
+          perf.denseUntil = now + 3e4;
+          resizeDue = true;
+        } else if (renderScale > floor + 0.01 && !(simBound && perf.slow < 4)) {
           perf.ceiling = renderScale;
           const want = renderScale * clamp6(Math.sqrt(T / m), 0.55, 0.9);
           renderScale = Math.max(floor, SCALES.find((s) => s <= want + 0.01) ?? floor);
@@ -26320,8 +26329,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
         renderScale = next;
         perf.goodWindows = 0;
         resizeDue = true;
+      } else if (renderScale >= 1 && densityCap < Infinity && now >= perf.denseUntil && !held) {
+        densityCap = Infinity;
+        perf.goodWindows = 0;
+        resizeDue = true;
       }
-      if (renderScale >= 1) perf.why = "";
+      if (renderScale >= 1 && densityCap === Infinity) perf.why = "";
     }
     let resizeDue = false;
     let viewSimTime = 0;

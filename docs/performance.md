@@ -45,10 +45,12 @@ faster than linearly (the level of detail is set in framebuffer pixels).
   simulation step per refresh, 2.4 times the work of 60 at 143 Hz.
 - **Adaptive quality,** every two seconds at real time or slower. Behind (frames late, the GPU busy
   for more than 92% of the frame with timestamps or 100% of it by submit-to-done time without, or
-  Compute Pressure reporting `serious`): the render scale steps down a fixed ladder (1, 0.85, 0.7,
+  Compute Pressure reporting `serious`): with Auto render scale, a scene drawn at more than one device
+  pixel per CSS pixel (Pixel density 1.5× or 2× on a high-density screen) drops to 1× first, the
+  cheapest sharpness to give up (1.5× is 2.25 times the pixels); then the render scale steps down a fixed ladder (1, 0.85, 0.7,
   0.6, 0.5 …) to its floor, then the frame rate drops (half, a third, a quarter: 30, 20, 15 fps), or
   the frame rate first when the simulation is more than twice the drawing. With room again for
-  three windows: the frame rate back first, then the scale; a level that just proved too slow is
+  three windows: the frame rate back first, then the scale, then the pixel density; a level that just proved too slow is
   not retried for 30 s. Settings → Performance shows the rate aimed for and why.
 - **Coarse steps at low frame rates.** At real time a step covers up to a frame's worth of whole
   ticks, so below about 45 fps the world takes coarse steps (docs/fast-forward.md). A 2-tick step
@@ -89,6 +91,11 @@ faster than linearly (the level of detail is set in framebuffer pixels).
   queue of GPU work freezes the whole screen; this is the likeliest cause of the reported lockups.
 - **Hidden page:** requestAnimationFrame stops, so the GPU rests; the soundtrack fades out and its
   audio thread is suspended.
+- **Sizing a new world (calibrate).** Auto measures a frame of a fresh world and sizes it to 10 ms of
+  GPU (9 by submit-to-done time without timestamps). A phone or tablet aims at 55% of that: it is
+  measured cool, and its GPU slows by a third or more once it runs hot, besides sharing the GPU with
+  the compositor (a Pixel 11 Pro, 2026-10-11, held at 30 fps and was still late in a 32k world at 1.5×
+  density: step 11.4 ms, scene and composite about 7 ms).
 
 ## Culling and per-particle work
 

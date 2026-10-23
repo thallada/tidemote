@@ -27,6 +27,9 @@ const canvas = $('stage');
 const overlay = $('overlay');
 const octx = overlay.getContext('2d');
 const isCoarse = matchMedia('(pointer: coarse)').matches;
+// A phone or tablet: its GPU slows by a third or more once it has run hot for a few minutes (thermal
+// throttling), and shares the GPU with the screen's compositor.
+const throttles = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|Mobile/.test(navigator.userAgent) || (isCoarse && !matchMedia('(any-pointer: fine)').matches));
 const NONE = 0xffffffff;
 const TAU = Math.PI * 2;
 const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
@@ -176,13 +179,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ sizing
   let renderScale = state.perf.scale === 'auto' ? 1 : state.perf.scale;
+  // Auto drops the scene to 1 device pixel per CSS pixel before it lowers the render scale or the
+  // frame rate (adaptQuality): above 1 the extra pixels are the cheapest sharpness to give up.
+  let densityCap = Infinity;
+  const density = () => Math.min(devicePixelRatio || 1, 2, state.perf.density, densityCap);
   let dpr = 1;
   // The scene renders at no more than state.perf.density (1.5 by default) device pixels per CSS pixel:
   // its per-pixel shading is heavy, and a 2x display would quadruple it for little visible gain.
   // Overlay text and lines stay native.
   function fit() {
     const base = Math.min(devicePixelRatio || 1, 2);
-    dpr = Math.min(base, state.perf.density) * renderScale;
+    dpr = density() * renderScale;
     const maxDim = device.limits.maxTextureDimension2D;
     canvas.width = Math.min(maxDim, Math.max(1, Math.round(innerWidth * dpr)));
     canvas.height = Math.min(maxDim, Math.max(1, Math.round(innerHeight * dpr)));
@@ -411,8 +418,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // GPU ms a frame of the new world may take: a mature world costs about what it measures at the
     // start (life fills it within minutes, then swings ±30% with the climate), drawn at 60 fps that
     // leaves room for zooming and swings, and the adaptive frame rate covers the rest. Phones keep
-    // more in hand (their GPU is shared with the screen); without timestamps the measure overstates.
-    const target = !hasTS ? 9 : isCoarse ? 7.5 : 10;
+    // more in hand: their GPU is shared with the screen, and is measured here cool, before it
+    // throttles. Without timestamps the measure overstates.
+    const target = (!hasTS ? 9 : 10) * (throttles ? 0.55 : 1);
     const clampN = (x) => clamp(Math.round(x / 4096) * 4096, Math.min(32768, maxN), maxN);
     let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
     seedWorld(n);
@@ -1621,7 +1629,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       roAt = now;
       setText('ro-fps', perf.fps ? perf.fps.toFixed(0) : '–');
       setText('ro-ms', perf.gpu ? perf.gpu.toFixed(1) : '–');
-      setText('ro-res', `${Math.round(renderScale * 100)}%`);
+      setText('ro-res', `${Math.round(renderScale * 100)}%${density() !== 1 ? ` at ${+density().toFixed(2)}×` : ''}`);
       setText('ro-px', `${canvas.width}×${canvas.height}`);
       setText('ro-n', fmt(eng.count));
       const al = sound.load;
@@ -2089,7 +2097,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
   function resetAdapt() {
     perf.frameDt.length = 0; perf.goodWindows = 0; perf.ceiling = 1; perf.ceilingUntil = 0; perf.lastAdjust = performance.now();
-    perf.slow = 1; perf.why = '';
+    perf.slow = 1; perf.why = ''; perf.denseUntil = 0;
+    densityCap = Infinity;
   }
   // where the browser reports it (Compute Pressure), a device under serious pressure, hot or busy,
   // backs off before its frames start to miss
@@ -2100,7 +2109,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // (running fast spends the frame on simulation on purpose). Behind (frames late, or with GPU
   // timestamps the GPU busy for nearly the whole interval, or the device under pressure): a lower
   // render scale, then a lower frame rate, or the frame rate first when the simulation is most of the
-  // cost (resolution would barely help). With room again: the frame rate back first, then the scale.
+  // cost (resolution would barely help); with Auto render scale, a scene drawn at more than 1 device
+  // pixel per CSS pixel drops to 1 before either. With room again: the frame rate back first, then
+  // the scale, then the pixel density.
   function adaptQuality(now) {
     if (state.phase !== 'running' || state.speed > 1 || state.paused || now - perf.lastAdjust < 2000 || perf.frameDt.length < 6) return;
     // Judged by the interval between submitted frames, not requestAnimationFrame's: while the GPU
@@ -2122,7 +2133,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // a level that just proved too slow is not tried again for a while, so the view doesn't keep
       // climbing back into the same stutter
       perf.ceilingUntil = now + 30000;
-      if (renderScale > floor + 0.01 && !(simBound && perf.slow < 4)) {
+      if (auto && density() > 1.01) {
+        densityCap = 1; perf.denseUntil = now + 30000;
+        resizeDue = true;
+      } else if (renderScale > floor + 0.01 && !(simBound && perf.slow < 4)) {
         perf.ceiling = renderScale;
         // the further behind, the larger the step: pixel cost scales with the square of the scale
         const want = renderScale * clamp(Math.sqrt(T / m), 0.55, 0.9);
@@ -2150,7 +2164,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const cap = held ? perf.ceiling * 0.95 : 1;
     const next = [...SCALES].reverse().find((s) => s > renderScale + 0.01 && s <= cap + 0.001);
     if (next) { renderScale = next; perf.goodWindows = 0; resizeDue = true; }
-    if (renderScale >= 1) perf.why = '';
+    // the full pixel density back last, once the full scale has held for three windows more
+    else if (renderScale >= 1 && densityCap < Infinity && now >= perf.denseUntil && !held) { densityCap = Infinity; perf.goodWindows = 0; resizeDue = true; }
+    if (renderScale >= 1 && densityCap === Infinity) perf.why = '';
   }
   // A new render scale is applied at the start of the next frame, before it takes the canvas's
   // texture: resizing the canvas after a frame is drawn into it discards that frame (a black flash).
