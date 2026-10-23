@@ -1607,7 +1607,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     dropWidth: 2.5,
     dropLife: 5,
     // the climate's events (src/climate.js): the first no sooner than eventFirst minutes, then one about every
-    // eventEvery minutes (0: none), drawn drought, storm, leaf, frost by eventMix; eventPlan forces some ("drought@900");
+    // eventEvery minutes (0: none), drawn drought, storm, duckweed, frost by eventMix; eventPlan forces some ("drought@900");
     // lowEras is the share of climate eras whose water stands low enough to show sandbars and islands
     eventEvery: 60,
     eventFirst: 25,
@@ -1617,7 +1617,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     floorDrift: 0.3,
     // the share of the floor's relief redrawn at each new era (moving geography: sediment shifts)
     // each event's draw (ranges): a drought's fall, hold and refill (s) and how low the water falls (the share of the
-    // floor left wet); a storm's length (s); a leaf's length (share of the world's side), darkness and stay (s)
+    // floor left wet); a storm's length (s)
     droughtFall: [300, 480],
     droughtHold: [150, 300],
     droughtRefill: [90, 150],
@@ -1633,9 +1633,10 @@ svg.niche .n-dot { fill: var(--cyan); }
     frostCold: 1,
     // a frost's night, as shares of the full: cold (the water chilled to 0.5°) and dark (light × 0.4 at full)
     frostDark: 0.35,
-    leafLen: [0.18, 0.32],
-    leafDark: [0.75, 0.92],
-    leafDur: [420, 720],
+    // duckweed: its mother frond's half-length (share of the world's shorter side), its fronds' darkness and its stay (s)
+    duckLen: [0.12, 0.2],
+    duckDark: [0.75, 0.92],
+    duckDur: [420, 720],
     // a frost's growth, hold and thaw (s), and the share of the pool it freezes
     frostGrow: [150, 270],
     frostHold: [120, 240],
@@ -1796,19 +1797,47 @@ fn tideAt(p: vec2f, world: vec2f, t: f32, w: array<vec4f, 4>, ph: vec4f) -> f32 
   return smoothstep(0.35, 1.9, s * 2.7 / max(n, 1e-3));
 }
 
-// A leaf floating on the pool shades the water under it (docs/catastrophes.md): 0..1 at p, for a leaf centred at
-// lf.xy, lf.z long from base to tip, its darkness lf.w (0: no leaf), turned lb.x, its outline drawn by seed lb.y
-// and lb.z wide (relative to its length). Its edge is soft: it floats far above the focal plane.
-fn leafShade(p: vec2f, lf: vec4f, lb: vec4f, world: vec2f) -> f32 {
-  if (lf.w <= 0.0) { return 0.0; }
-  var d = p - lf.xy;
+// Duckweed floating on the pool shades the water under it (docs/catastrophes.md). A colony of Lemna: a mother frond
+// centred at lf.xy, lf.z its half-length, its darkness lf.w (0: none), turned lb.x, lb.z wide (relative to its
+// length), and lb.w daughters (their sizes and angles drawn from the seed lb.y) budding from the pouches either side
+// of its node, near its base, each pointing out and back from it. Frond k: centre, axis (base to tip), half-length,
+// half-width.
+struct Frond { c: vec2f, ax: vec2f, L: f32, W: f32 };
+fn duckHash(x: f32) -> f32 { return fract(sin(x * 12.9898 + 4.1414) * 43758.5453); }
+fn frondOf(lf: vec4f, lb: vec4f, k: i32) -> Frond {
+  let ax = vec2f(cos(lb.x), sin(lb.x));
+  var f = Frond(lf.xy, ax, lf.z, lf.z * lb.z);
+  if (k == 0) { return f; }
+  let node = lf.xy - ax * 0.7 * lf.z;
+  let fk = f32(k);
+  // the first two to either side, a third, younger, beside the first
+  let side = select(1.0, -1.0, k == 2);
+  let back = side * (0.5 + 0.6 * duckHash(lb.y + fk * 3.1) + select(0.0, 0.5, k == 3));
+  let dax = rot2(-ax, back);
+  let L = lf.z * select(mix(0.45, 0.85, duckHash(lb.y + fk * 5.7)), mix(0.25, 0.4, duckHash(lb.y + 9.3)), k == 3);
+  f.ax = dax; f.L = L; f.W = L * lb.z * mix(0.9, 1.05, duckHash(lb.y + fk * 7.9));
+  f.c = node + dax * 0.72 * L;
+  return f;
+}
+// where p lies against frond f: x along its axis, y across (both in half-lengths), and the distance out of its edge
+fn frondAt(p: vec2f, f: Frond, world: vec2f) -> vec3f {
+  var d = p - f.c;
   d -= world * round(d / world);
-  let q = rot2(d, -lb.x) / lf.z;
-  // ovate: widest a little toward the base, tapering to a point at the tip, the margin toothed
-  let x = clamp(q.x, -1.0, 1.0);
-  let hw = lb.z * pow(max(1.0 - x * x, 0.0), 0.7) * (1.0 - 0.25 * x) * (1.0 + 0.03 * sin(q.x * 31.0 + lb.y) + 0.02 * sin(q.x * 67.0 + lb.y * 3.1));
-  let out = max(abs(q.y) - hw, abs(q.x) - 1.0) * lf.z;
-  return lf.w * (1.0 - smoothstep(-1.5, 1.5, out));
+  let x = dot(d, f.ax) / f.L;
+  let y = (f.ax.x * d.y - f.ax.y * d.x) / f.L;
+  // elliptic, a little narrower toward the node
+  let r = length(vec2f(x, y * f.L / (f.W * (1.0 + 0.12 * clamp(x, -1.0, 1.0)))));
+  return vec3f(x, y, (r - 1.0) * f.W);
+}
+// 0..1 at p: the shade of the colony's fronds, their edges soft (they float far above the focal plane)
+fn duckShade(p: vec2f, lf: vec4f, lb: vec4f, world: vec2f) -> f32 {
+  if (lf.w <= 0.0) { return 0.0; }
+  var sh = 0.0;
+  for (var k = 0; k <= i32(lb.w); k++) {
+    let a = frondAt(p, frondOf(lf, lb, k), world);
+    sh = max(sh, 1.0 - smoothstep(-1.2, 1.2, a.z));
+  }
+  return lf.w * sh;
 }
 
 fn hsl2rgb(h: f32, s: f32, l: f32) -> vec3f {
@@ -2420,9 +2449,9 @@ struct Sim {
   // x the currents' strength ×; y frost (the share of the pool frozen); z how fast the ice is growing (0..1);
   // w seconds since a drought's rain began (0: none; raindrops wetting the mud, drawn only)
   weather: vec4f,
-  // a floating leaf's shadow: centre, radius, darkness (0: none); angle, shape seed, elongation, spare
-  leaf: vec4f,
-  leafB: vec4f,
+  // floating duckweed: its mother frond's centre, half-length, darkness (0: none); its angle, seed, width, daughters
+  duck: vec4f,
+  duckB: vec4f,
   // raindrops' ring waves: centre, the time it fell, strength (0: none)
   drops: array<vec4f, 4>,
 };
@@ -2583,9 +2612,9 @@ fn pondAt(p: vec2f) -> vec3f {
 }
 // How far (world units) p lies from the water's edge, wet side positive, from pondAt's depth and slope.
 fn shoreDist(pd: vec3f) -> f32 { return pd.x / max(length(pd.yz), 1e-4); }
-// The light at p: the baseline and the tide's bands by the season, under the sky (clouds) and any leaf's shadow.
+// The light at p: the baseline and the tide's bands by the season, under the sky (clouds) and any duckweed's shade.
 fn lightAt(p: vec2f) -> f32 {
-  return (sim.ambient + (1.0 - sim.ambient) * tideAt(p, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season) * sim.pond.z * (1.0 - leafShade(p, sim.leaf, sim.leafB, sim.world));
+  return (sim.ambient + (1.0 - sim.ambient) * tideAt(p, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season) * sim.pond.z * (1.0 - duckShade(p, sim.duck, sim.duckB, sim.world));
 }
 
 fn wrapPos(p: vec2f) -> vec2f { return p - sim.world * floor(p / sim.world); }
@@ -3250,7 +3279,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   let pos = wrapPos(p.pos + vel * sim.dt);
   p.age += sim.dt;
   if (p.kind == SILT) {
-    let tide = (tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient) * sim.pond.z * (1.0 - leafShade(pos, sim.leaf, sim.leafB, sim.world));
+    let tide = (tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient) * sim.pond.z * (1.0 - duckShade(pos, sim.duck, sim.duckB, sim.world));
     // life sparks from silt (about one spark per 30 s in the world, sim.abio per grain), in the light, and
     // more in hot water (around framboids); a spark founds a species suited to the water here, so a world
     // whose life died begins again
@@ -6723,11 +6752,11 @@ struct Post {
   waves: array<vec4f, 4>,
   // the background water temperature, then the heat map's span; w: the tide map (0 off, 1 on)
   heat: vec4f,
-  // the pool (docs/catastrophes.md): water level, rain, sky, drying; currents' strength; a floating leaf; raindrops
+  // the pool (docs/catastrophes.md): water level, rain, sky, drying; currents' strength; floating duckweed; raindrops
   pond: vec4f,
   weather: vec4f,
-  leaf: vec4f,
-  leafB: vec4f,
+  duck: vec4f,
+  duckB: vec4f,
   drops: array<vec4f, 4>,
 };
 `
@@ -7751,6 +7780,33 @@ fn heatRamp(u: f32) -> vec3f {
   return mix(b, vec3f(1.0, 0.95, 0.82), smoothstep(0.75, 1.0, u));
 }
 
+// A duckweed root (Lemna's single root), from the frond's node at o trailing along dir, len long as seen from above,
+// wr its half-width: it hangs from the frond far above down through the water, so it is out of focus near its
+// start and sharp toward its tip, where it nears the focal plane; a clear cylinder, its walls bright, its cells
+// faint bands along it, its tip in a rounded sheath (the root cap's pocket). It sways, the tip most. x its light,
+// y how much it covers.
+fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32) -> vec2f {
+  var d = p - o;
+  d -= post.world * round(d / post.world);
+  let along = dot(d, dir) / len;
+  if (along < -0.1 || along > 1.15) { return vec2f(0.0); }
+  let s = clamp(along, 0.0, 1.0);
+  let perp = vec2f(-dir.y, dir.x);
+  let bend = len * (0.07 * sin(post.simTime * 0.37 + seed) * s * s + 0.05 * (vnoise(vec2f(s * 2.5 - post.simTime * 0.08, seed)) - 0.5) * s);
+  let off = dot(d, perp) - bend;
+  let focus = smoothstep(0.05, 0.8, s);
+  let blur = mix(0.6, 0.04, focus) + 0.7 / post.ppu;
+  // the sheath at the tip, a little wider, closing round
+  let w = wr * (1.0 + 0.2 * smoothstep(0.86, 0.95, along)) * (1.0 - 0.15 * smoothstep(0.97, 1.1, along));
+  let endD = max(along - 1.0, 0.0) * len * 0.45;
+  let r = length(vec2f(off, endD)) / w;
+  let walls = exp(-pow((r - 0.85) / (0.12 + blur / w), 2.0));
+  let inner = 1.0 - smoothstep(0.8, 1.0 + blur / w, r);
+  let bands = 0.5 + 0.5 * smoothstep(0.75, 0.95, abs(fract(along * len / 1.8 + 0.3 * vnoise(vec2f(off, seed))) * 2.0 - 1.0));
+  let sheath = exp(-pow((r - 0.95) / (0.1 + blur / w), 2.0)) * smoothstep(0.86, 0.95, along) * 0.6;
+  let light = (walls * (0.6 + 0.4 * vnoise(vec2f(along * len * 0.7, seed))) + inner * 0.18 * bands + sheath) * mix(0.06, 1.0, pow(focus, 1.5));
+  return vec2f(light, inner * mix(0.1, 1.0, focus));
+}
 @fragment fn fsComposite(i: VO) -> @location(0) vec4f {
   let k = post.optics;
   let q = (i.pos.xy - post.res * 0.5) / (post.res.y * 0.5);
@@ -7886,21 +7942,43 @@ fn heatRamp(u: f32) -> vec3f {
     let sl = length(surf) * wet;
     c = c * (1.0 - RIPPLE_DIM * max(-tilt, 0.0)) + RIPPLE_SHEEN * (max(tilt, 0.0) + 0.35 * sl) * (0.4 + 0.6 * behind);
   }
-  // a leaf floating on the pool, far above the focal plane: it keeps the lamp's light from what lies under it, and
-  // scatters a little of it as a faint green-brown haze, its veins blurred shadows in it
-  if (post.leaf.w > 0.0) {
-    let sh = leafShade(wp, post.leaf, post.leafB, post.world);
-    if (sh > 0.0) {
-      var d = wp - post.leaf.xy;
-      d -= post.world * round(d / post.world);
-      let q = rot2(d, -post.leafB.x) / post.leaf.z;
-      let L = post.leaf.z;
-      let midrib = exp(-pow(q.y * L / 0.9, 2.0)) * (1.0 - smoothstep(0.6, 1.0, abs(q.x)));
-      let ph = (q.x + abs(q.y) * 1.3 - 0.5 * q.y * q.y) * 7.0 + post.leafB.y + 0.35 * (vnoise(vec2f(q.y * 3.0, post.leafB.y)) - 0.5);
-      let lateral = exp(-pow((fract(ph) - 0.5) / 0.12, 2.0)) * smoothstep(0.02, 0.12, abs(q.y)) * (1.0 - smoothstep(0.7, 1.0, abs(q.x)));
-      let veins = clamp(midrib + 0.6 * lateral, 0.0, 1.0);
-      let blot = 0.75 + 0.5 * vnoise(q * L * 0.35 + post.leafB.y);
-      c = c * (1.0 - 0.88 * sh) + vec3f(0.010, 0.012, 0.0055) * sh * blot * (1.0 - 0.55 * veins) * mix(0.6, 1.0, k);
+  // duckweed floating on the pool, far above the focal plane: its fronds keep the lamp's light from what lies under
+  // them and pass a little of it, green, mottled by the air chambers inside them; each hangs a root down into the
+  // water, out of focus near its frond, sharp where it reaches the focal plane
+  if (post.duck.w > 0.0) {
+    let sh = duckShade(wp, post.duck, post.duckB, post.world);
+    {
+      var tex = 0.0;
+      for (var f = 0; f <= i32(post.duckB.w); f++) {
+        let fr = frondOf(post.duck, post.duckB, f);
+        let a = frondAt(wp, fr, post.world);
+        if (a.z < 2.5) {
+          // air chambers, a blurred net; the node, where the root and buds come from, a darker spot; a midrib faintly
+          let q = vec2f(a.x * fr.L, a.y * fr.L);
+          let cells = smoothstep(0.0, 0.5, vborder(q / 2.2 + f32(f) * 7.0 + post.duckB.y).x);
+          let nd = a.xy - vec2f(-0.7, 0.0);
+          let node = exp(-dot(nd, nd) / 0.02);
+          let rib = exp(-pow(a.y / 0.05, 2.0)) * smoothstep(-0.7, -0.3, a.x) * (1.0 - smoothstep(0.4, 0.9, a.x));
+          // and round its edge the water's surface curves up onto it, a meniscus catching the lamp, blurred
+          let rim = exp(-pow((a.z + 0.4) / 1.3, 2.0));
+          tex = max(tex, (0.45 + 0.55 * cells) * (1.0 - 0.55 * node) * (1.0 - 0.25 * rib) * (1.0 - smoothstep(-1.2, 1.2, a.z)) + 0.9 * rim);
+        }
+      }
+      let blot = 0.8 + 0.4 * vnoise(wp * 0.08 + post.duckB.y);
+      c = c * (1.0 - 0.88 * sh) + vec3f(0.012, 0.026, 0.008) * tex * blot * post.duck.w * mix(0.6, 1.0, k);
+    }
+    // the roots trail together, with the current, swaying
+    let trail = post.duckB.y * 0.37 + 0.35 * sin(post.simTime * 0.031 + post.duckB.y);
+    for (var f = 0; f <= i32(post.duckB.w); f++) {
+      let fr = frondOf(post.duck, post.duckB, f);
+      let o = fr.c - fr.ax * 0.7 * fr.L;
+      let rl = post.duck.z * mix(2.2, 4.5, duckHash(post.duckB.y + f32(f) * 2.3)) * select(1.0, 0.35, f == 3);
+      let rd = rot2(vec2f(1.0, 0.0), trail + 1.4 * (duckHash(post.duckB.y + f32(f) * 4.4) - 0.5));
+      let rt = duckRoot(wp, o, rd, rl, 0.75, post.duckB.y + f32(f) * 3.3);
+      if (rt.y > 0.0) {
+        let lit = 1.0 - 0.75 * duckShade(wp, post.duck, post.duckB, post.world);
+        c = c * (1.0 - 0.3 * rt.y * post.duck.w) + vec3f(0.085, 0.10, 0.08) * rt.x * lit * post.duck.w * (0.4 + 0.6 * behind);
+      }
     }
   }
   // the round field stop of the eyepiece clips the corners of the camera's frame
@@ -17207,7 +17285,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.frost = 0;
       this.freezing = 0;
       this.mudRain = 0;
-      this.leaf = new Float32Array(8);
+      this.duck = new Float32Array(8);
       this.drops = new Float32Array(16);
       this.relief = null;
       this.rock = new Float32Array(4);
@@ -17864,7 +17942,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.frost = 0;
       this.freezing = 0;
       this.mudRain = 0;
-      this.leaf.fill(0);
+      this.duck.fill(0);
       this.drops.fill(0);
       const enc = d.createCommandEncoder();
       enc.clearBuffer(this.b.thermal, 0, cells * 4);
@@ -17986,7 +18064,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       f2[69] = this.frost;
       f2[70] = this.freezing;
       f2[71] = 0;
-      f2.set(this.leaf, 72);
+      f2.set(this.duck, 72);
       f2.set(this.drops, 80);
     }
     requestPick(center, radius, selId, { kind = 4294967295, maxOut = 4096, raw = false } = {}) {
@@ -18105,7 +18183,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         turb: this.turb,
         frost: this.frost,
         freezing: this.freezing,
-        leaf: this.leaf.slice(),
+        duck: this.duck.slice(),
         drops: this.drops.slice()
       };
       return keep;
@@ -18139,7 +18217,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.waves.set(c.waves);
       this.rock.set(c.rock);
       this.relief = makeRelief(this.grid[0], this.grid[1], this.seedValue);
-      if (c.leaf) this.leaf.set(c.leaf);
+      if (c.duck) this.duck.set(c.duck);
       if (c.drops) this.drops.set(c.drops);
     }
     /** What snapshot() keeps, as bytes (tools/perf saves worlds to profile them again): { cpu, gpu: {name: ArrayBuffer} }. */
@@ -18962,7 +19040,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       pd[61] = this.K.pond ? this.frost : 0;
       pd[62] = this.freezing;
       pd[63] = this.K.pond ? this.mudRain : 0;
-      pd.set(this.leaf, 64);
+      pd.set(this.duck, 64);
       pd.set(this.drops, 72);
       d.queue.writeBuffer(this.b.post, 0, pd);
       const mainDetail = lod && new Float32Array(this.viewData)[7] > 2.8;
@@ -19119,11 +19197,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
     if (!x || t2 < x.t || t2 > x.t + x.dur) return 0;
     return x.dT * Math.sin(Math.PI * (t2 - x.t) / x.dur) ** 2;
   }
-  var EVENT_TYPES = ["drought", "storm", "leaf", "frost"];
+  var EVENT_TYPES = ["drought", "storm", "duckweed", "frost"];
   var ease = (u) => u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u);
   var ramp = (t2, a, b) => ease((t2 - a) / Math.max(b - a, 1e-6));
   function eventAt(ev, t2, levelTo) {
-    const out = { level: levelTo, rain: 0, sky: 1, evap: 0, turb: 1, dT: 0, chill: 0, leaf: null, frost: 0, freezing: 0, phase: null };
+    const out = { level: levelTo, rain: 0, sky: 1, evap: 0, turb: 1, dT: 0, chill: 0, duck: null, frost: 0, freezing: 0, phase: null };
     if (!ev || t2 < ev.t) return out;
     const u = t2 - ev.t;
     const cold = ev.rainCold ?? 1, dark = ev.rainDark ?? 1, rough = ev.rainTurb ?? 1;
@@ -19184,11 +19262,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
         out.frost = ev.max * (1 - ease((u - cool - grow - hold) / thaw));
         out.phase = "thaw";
       } else if (u < cool + grow + hold + thaw + 120) out.phase = "after";
-    } else if (ev.type === "leaf") {
+    } else if (ev.type === "duckweed") {
       const r = Math.min(ramp(u, 0, 40), 1 - ramp(u, ev.dur - 120, ev.dur));
       if (r > 0) {
-        out.leaf = [ev.x + ev.vx * u, ev.y + ev.vy * u, ev.len, ev.dark * r, ev.angle + ev.spin * u, ev.seed, ev.width, 0];
-        out.phase = "leaf";
+        out.duck = [ev.x + ev.vx * u, ev.y + ev.vy * u, ev.len, ev.dark * r, ev.angle + ev.spin * u, ev.seed, ev.width, ev.buds];
+        out.phase = "duckweed";
       }
     }
     return out;
@@ -19199,19 +19277,20 @@ registerProcessor("tidemote-sound", TidemoteSound);
     if (type === "drought") return { type, t: t2, fall: pick3(K.droughtFall, [300, 480]), hold: pick3(K.droughtHold, [150, 300]), refill: pick3(K.droughtRefill, [90, 150]), low: pick3(K.droughtLow, [0.35, 0.6]), ...rain };
     if (type === "storm") return { type, t: t2, dur: pick3(K.stormDur, [240, 420]), ...rain };
     if (type === "frost") return { type, t: t2, cool: 90, grow: pick3(K.frostGrow, [150, 270]), hold: pick3(K.frostHold, [120, 240]), thaw: pick3(K.frostThaw, [100, 160]), max: pick3(K.frostMax, [0.6, 0.85]), cold: K.frostCold ?? 1, dark: K.frostDark ?? 0.35 };
-    const len2 = pick3(K.leafLen, [0.18, 0.32]) * Math.min(w, h), a = rng() * Math.PI * 2, sp = climateMix(0.01, 0.04, rng());
+    const len2 = pick3(K.duckLen, [0.12, 0.2]) * Math.min(w, h), a = rng() * Math.PI * 2, sp = climateMix(0.01, 0.04, rng());
     return {
       type,
       t: t2,
-      dur: pick3(K.leafDur, [420, 720]),
+      dur: pick3(K.duckDur, [420, 720]),
       x: rng() * w,
       y: rng() * h,
       len: len2,
-      dark: pick3(K.leafDark, [0.75, 0.92]),
+      dark: pick3(K.duckDark, [0.75, 0.92]),
       angle: rng() * Math.PI * 2,
-      spin: (rng() - 0.5) * 2e-3,
+      spin: (rng() - 0.5) * 4e-3,
       seed: rng() * 100,
-      width: climateMix(0.35, 0.55, rng()),
+      width: climateMix(0.55, 0.72, rng()),
+      buds: 1 + Math.floor(rng() * 3),
       vx: Math.cos(a) * sp,
       vy: Math.sin(a) * sp
     };
@@ -19287,8 +19366,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       climate.eventChill = e.chill;
       const rainAt = ev?.type === "drought" ? ev.t + ev.fall + ev.hold : Infinity;
       eng.mudRain = t2 >= rainAt ? t2 - rainAt : 0;
-      if (e.leaf) eng.leaf.set(e.leaf);
-      else eng.leaf.fill(0);
+      if (e.duck) eng.duck.set(e.duck);
+      else eng.duck.fill(0);
       if (e.rain > 0 && rng() < e.rain * 1.2 * (K.rainDrops ?? 1) * dt) {
         const k = climate.dropSlot = ((climate.dropSlot ?? -1) + 1) % 4;
         eng.drops.set([rng() * eng.grid[0], rng() * eng.grid[1], t2, climateMix(1, 3, rng())], k * 4);
@@ -19332,7 +19411,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       eng.ambient += (climate.ambientTo - eng.ambient) * k;
       eng.temp += (climate.tempTo - eng.temp) * Math.min(1, dt / 180);
       const x = climate.excursion;
-      if ((K.pond ?? 1) && eng.leaf) {
+      if ((K.pond ?? 1) && eng.duck) {
         eventTick(dt);
         eng.stepFloor?.();
       }
@@ -19387,10 +19466,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
     scalding: "Far above its optimum a cell begins to die of the heat: a chance each second, rising steeply. A scalded cell leaves a husk. Heat-stressed cells bleach toward pale bone first.",
     thermotaxis: "Swimmers away from their optimum steer up or down the warmth of the water toward it, harder the further off they are. Drifters and anchored cells cannot steer; heat sorts them by who survives where.",
     framboid: "A pyrite framboid: a sphere of tiny iron sulfide crystals, a few microns across like the cells. Framboids grow where a pile of husks rots in cool water (the rot releases the sulfide), and a few lie in the mud from the start. As one oxidises it warms its water, burning faster the warmer that water is, so a crowded, hot cluster burns itself out; spent, it crumbles to silt. Sparks of life favour their warmth, and heat-loving species gather round them. Framboids are solid like stone.",
-    poolevents: "Now and then (about once an hour of world time) the pool suffers an event: a drought, a storm, a fallen leaf or a frost. Each lasts a few minutes, is announced in the log, and is survived by life resting as cysts. Turn them all off here, or each kind on its own.",
+    poolevents: "Now and then (about once an hour of world time) the pool suffers an event: a drought, a storm, duckweed or a frost. Each lasts a few minutes, is announced in the log, and is survived by life resting as cysts. Turn them all off here, or each kind on its own.",
     evdrought: "A drought: the water falls over several minutes until a third to two thirds of the floor lies dry, parting the pool into separate pools. Cells stranded on the mud shrivel; most rest as cysts. Then rain refills it, cold and dim, and the cysts wake.",
     evstorm: "A storm: cold rain for a few minutes. Raindrops ring the surface and shove the water outward, currents run rough and the light dims under the cloud.",
-    evleaf: "A fallen leaf floats on the pool for several minutes, drifting and turning slowly. The water under it lies in deep shade, so producers there starve while it stays.",
+    evduckweed: "Duckweed (Lemna, among the smallest flowering plants): a few fronds, each 1 to 5 mm long, drift onto the pool for several minutes, turning slowly. Their shade starves the producers under them; each frond hangs a single root down into the water, sharp where it reaches the focal plane.",
     evfrost: "A frost: a cold night chills the water to near 0° and ice grows over most of the pool from the shallows, pushing cells into the veins of water between its crystals. Cells caught in the ice freeze as cysts or die. Then it thaws.",
     evstart: "Start an event of that kind now, to watch it. Only the kinds turned on above.",
     cystdry: "A cell stranded on the mud or caught in the ice cannot move or feed. It shows dried (shrivelled, dull brown) or frozen (pale, frosted); most rest as cysts, losing energy very slowly until the water returns, and the rest starve.",
@@ -19545,7 +19624,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
 <ul>
 <li><b>${t("evdrought", "Drought")}.</b> The water falls until much of the floor lies dry and the pool parts into separate pools. The receding edge sweeps cells along and piles them at the waterline; the mud pales and cracks into plates as it dries. Then rain falls, staining the mud dark drop by drop until it is wet all over, refills the pool, and the resting cells hatch.</li>
 <li><b>${t("evstorm", "Storm")}.</b> Cold rain under cloud. Raindrops ring the surface (seen as rings and a moving web of light on the floor) and shove the water and what floats in it.</li>
-<li><b>${t("evleaf", "Fallen leaf")}.</b> A leaf floats out of focus far above, drifting slowly and shading the water under it.</li>
+<li><b>${t("evduckweed", "Duckweed")}.</b> A few fronds of duckweed float out of focus far above, a mother and the daughters budding from it, drifting slowly and shading the water under them. Each hangs a root down through the water, blurred near its frond and sharp at its tip.</li>
 <li><b>${t("evfrost", "Frost")}.</b> A cold night chills the water to near 0° and ice grows over the pool as a mass of small crystals, from the shallows and from scattered seeds, pushing cells into the veins of water between them; then it thaws.</li>
 </ul>
 <p>Cells stranded on dry mud or caught in ice cannot swim or feed. They show ${t("cystdry", "dried or frozen")}; most rest as ${t("cyst", "cysts")} and wait, losing energy very slowly, and the rest starve. The water's edge pulls cells near it back in. After each event the log tallies how much life and how many species it cost. Rain wakes cysts fast, so a drought ends in a burst of hatching.</p>
@@ -23718,7 +23797,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const [x, y] = I.center(pick3);
       return { x: x + (this.rng() - 0.5) * I.tile * 0.6, y: y + (this.rng() - 0.5) * I.tile * 0.6, tile: I.tile, ...I.reasons(pick3, parts) };
     }
-    // The pool's event, where the page says it shows (a stretch of shore, the leaf, a raindrop's rings), at about the
+    // The pool's event, where the page says it shows (a stretch of shore, the duckweed, a raindrop's rings), at about the
     // width it suggests.
     eventShot() {
       const e = this.io.event?.();
@@ -23951,7 +24030,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       labOpen: prefs.labOpen ?? prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
       closeup: prefs.closeup ?? true,
       // the pool's events (docs/catastrophes.md): all on, or off, or some of them
-      events: { on: true, drought: true, storm: true, leaf: true, frost: true, ...prefs.events },
+      events: { on: true, drought: true, storm: true, duckweed: true, frost: true, ...prefs.events },
       songMarks: prefs.songMarks ?? 1,
       // mark the cells that sing: 0 off, 1 the picked species, 2 all
       // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
@@ -24173,12 +24252,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
           } else if (phase === "thaw") {
             pushEvent("The ice thaws", col, "pond");
           } else if (!phase) pushEvent(`The frost has passed${tally()}`, col, "pond");
-        } else if (ev.type === "leaf") {
-          if (phase === "leaf") {
+        } else if (ev.type === "duckweed") {
+          if (phase === "duckweed") {
             begin2();
-            pushEvent("<b>A leaf has fallen on the pool</b>: the water under it lies in its shade", col, "pond");
-            flash("A leaf falls on the pool", "Shade");
-          } else if (!phase) pushEvent(`The leaf has sunk${tally()}`, col, "pond");
+            pushEvent(`<b>Duckweed drifts onto the pool</b>: ${ev.buds + 1} fronds, the water under them in their shade, their roots trailing below`, col, "pond");
+            flash("Duckweed", "Shade");
+          } else if (!phase) pushEvent(`The duckweed has drifted off${tally()}`, col, "pond");
         }
       };
       climate.onExcursion = (x) => {
@@ -25401,7 +25480,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         const nowN = pendingN ?? (P.particles || "auto");
         return group("res", "Resolution", choice("scale", "Render scale", "", [["auto", "Auto"], [1, "100%"], [0.75, "75%"], [0.5, "50%"], [0.35, "35%"]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", "Auto lowest", "", [[0.75, "75%"], [0.5, "50%"], [0.35, "35%"], [0.25, "25%"]], P.floor, "autofloor") : "") + choice("density", "Pixel density", "", [[1, "1×"], [1.5, "1.5×", dev < 1.5], [2, "2×", dev < 2]], P.density, "density") + choice("fps", "Target fps", "", [[30, "30"], [60, "60"], [0, "Display"]], P.fps, "targetfps")) + group("fx", "Effects", onoff("bloom", "Bloom", "B", s.bloom > 0, "bloom") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("lod", "Zoom detail", "", s.lod, "lod") + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("closeup", "Live close-up", "", state.closeup, "closeup")) + group("world", "World", choice("n", "Particles", "", [["auto", "Auto"], ...sizes.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", "Neighbours", "", [144, 192, 288].map((n) => [n, String(n)]), eng.maxScan, "neighbours") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === "auto" ? "a measured count" : fmt(pendingN)}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", "Profile")}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ""));
       }
-      const EVENT_NAMES = { drought: "Drought", storm: "Storm", leaf: "Fallen leaf", frost: "Frost" };
+      const EVENT_NAMES = { drought: "Drought", storm: "Storm", duckweed: "Duckweed", frost: "Frost" };
       function climate_() {
         const E = state.events;
         const kinds = E.on ? EVENT_TYPES.map((x) => onoff(`ev-${x}`, EVENT_NAMES[x], "", E[x], `ev${x}`)).join("") : "";
@@ -25513,7 +25592,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       function resetTab() {
         const s = eng.settings, P = state.perf;
         if (tab === "climate") {
-          state.events = { on: true, drought: true, storm: true, leaf: true, frost: true };
+          state.events = { on: true, drought: true, storm: true, duckweed: true, frost: true };
           applyEvents();
         } else if (tab === "display") {
           trailIdx = 1;
@@ -26616,12 +26695,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
       },
       now: () => performance.now() / 1e3,
       // where the pool's event shows best (docs/catastrophes.md): a stretch of shore while the water falls or returns,
-      // the leaf, the last raindrop
+      // the duckweed, the last raindrop
       event: () => {
         const ev = climate && climate.event, ph = climate && climate.phase;
         if (!ev || !ph || ph === "after") return null;
         const [W, H2] = eng.grid;
-        if (ev.type === "leaf") return { type: "leaf", phase: ph, x: eng.leaf[0], y: eng.leaf[1], w: eng.leaf[2] * (Math.random() < 0.5 ? 2.6 : 1.2) };
+        if (ev.type === "duckweed") return { type: "duckweed", phase: ph, x: eng.duck[0], y: eng.duck[1], w: eng.duck[2] * (Math.random() < 0.5 ? 3.2 : 1.5) };
         if (ev.type === "storm" || ph === "rain") {
           const k = climate.dropSlot ?? 0;
           if (eng.drops[k * 4 + 3] > 0 && Math.random() < 0.5) return { type: ev.type, phase: ph, x: eng.drops[k * 4], y: eng.drops[k * 4 + 1], w: 40 };
@@ -26772,7 +26851,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
             rain: ["Rain", "The water returns, and the cysts on the mud wake"]
           },
           storm: { storm: ["A storm", "Raindrops ring the surface and the water runs rough"] },
-          leaf: { leaf: ["A leaf on the pool", "In its shade the producers go hungry"] },
+          duckweed: { duckweed: ["Duckweed", "In the shade of its fronds the producers go hungry"] },
           frost: {
             cooling: ["Nightfall", "The water chills toward freezing"],
             freezing: ["Ice", "Its fronts push cells into the veins of water between the grains"],
