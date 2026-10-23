@@ -18,6 +18,7 @@ import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
 import { PICK_WORDS, WATCH_MAX, stoneGrain } from './shaders.js';
 import { flowAt } from './flow.js';
+import { startLoader } from './loader.js';
 import { Director } from './director.js';
 import { parseMind, interpretMind, settleMind } from './mind.js';
 import { fmt, fmtClock, fmtDur, esc, cssCol, clamp, term, spLink, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
@@ -34,6 +35,8 @@ const NONE = 0xffffffff;
 const TAU = Math.PI * 2;
 const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
 const phone = () => innerWidth <= 720;
+// the intro's animation while the shaders compile and the GPU is measured (drawn on the CPU)
+const stopLoader = startLoader($('intro-anim'));
 
 function fail(title, detail) {
   $('nogpu-title').textContent = title;
@@ -41,6 +44,7 @@ function fail(title, detail) {
   $('nogpu').hidden = false;
   $('hud').hidden = true;
   $('intro').hidden = true;
+  stopLoader();
   $('spec').hidden = true;
   $('lab').hidden = true;
 }
@@ -1996,7 +2000,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   renderTime();
 
   let introHidden = false;
-  function hideIntro() { if (introHidden || state.phase !== 'running') return; introHidden = true; $('intro').classList.add('gone'); document.body.classList.add('live'); }
+  function hideIntro() { if (introHidden || state.phase !== 'running') return; introHidden = true; $('intro').classList.add('gone'); setTimeout(stopLoader, 1300); document.body.classList.add('live'); }
   // The browser blocks the soundtrack until a gesture: hold the new world still until one, so its
   // first moments are heard.
   function begin() {

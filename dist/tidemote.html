@@ -840,6 +840,8 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .intro.gone { opacity: 0; pointer-events: none; }
 .intro-in { display: flex; flex-direction: column; align-items: center; gap: 18px; text-align: center; max-width: 640px; }
 .intro h1 { font-size: clamp(30px, 8vw, 84px); font-weight: 200; letter-spacing: .34em; margin-right: -.34em; text-transform: uppercase; font-stretch: 125%; line-height: 1; }
+.intro-anim { width: min(560px, 88vw); height: clamp(150px, 26vh, 200px); display: block; }
+@media (max-height: 460px) { .intro-anim { display: none; } }
 .intro-rule { width: min(520px, 80vw); height: 9px; position: relative; border-left: 1px solid var(--line-2); border-right: 1px solid var(--line-2); }
 .intro-rule::before { content: ''; position: absolute; left: 0; right: 0; top: 4px; height: 1px; background: var(--line); }
 .intro-rule i { position: absolute; left: 0; top: 3px; height: 3px; width: 0; background: var(--cyan); transition: width .8s ease; }
@@ -1215,6 +1217,7 @@ svg.niche .n-dot { fill: var(--cyan); }
 
 <div class="intro" id="intro">
   <div class="intro-in">
+    <canvas class="intro-anim" id="intro-anim" aria-hidden="true"></canvas>
     <h1>Tidemote</h1>
     <div class="intro-rule" aria-hidden="true"><i></i></div>
     <p>A simulated emergent ecology of particles and mutating organisms.</p>
@@ -8833,25 +8836,25 @@ struct SV {
     const n = F.n;
     const start = Math.round(u01(A.rec[0]) * 4);
     const lo = start - Math.floor(range / 2), hi = lo + range;
-    let line = [start];
+    let line2 = [start];
     let prev = 0;
     for (let i = 1; i < n; i++) {
       let iv = fromTable(tab, A.surf[(i - 1) % 8]);
       if (dev.inv) iv = -iv;
       if (Math.abs(prev) >= 3 && Math.sign(iv) === Math.sign(prev) && c.prey < 0.7) iv = -Math.sign(iv) * Math.min(2, Math.abs(iv));
-      let d = line[i - 1] + iv;
-      if (d > hi || d < lo) d = line[i - 1] - iv;
-      line.push(clamp2(d, lo, hi));
+      let d = line2[i - 1] + iv;
+      if (d > hi || d < lo) d = line2[i - 1] - iv;
+      line2.push(clamp2(d, lo, hi));
       prev = iv;
     }
     if (arch === "reef") {
       const ch = CHORDS[Math.floor(u01(A.rec[2]) * 4)];
-      line = line.map((_, i) => ch[Math.floor(u01(A.surf[i % 8]) * 3)]);
+      line2 = line2.map((_, i) => ch[Math.floor(u01(A.surf[i % 8]) * 3)]);
     }
-    if (dev.retro) line.reverse();
-    const last = line.length - 1;
-    if (c.light > 0.5 || arch === "reef" || arch === "plankton" || arch === "filament") line[last] = nearest(line[last], CHORD_TONES);
-    else if (c.prey > 0.5 && [0, 4, 7, -3].includes(line[last])) line[last] += A.surf[3] > 0 ? 1 : -1;
+    if (dev.retro) line2.reverse();
+    const last = line2.length - 1;
+    if (c.light > 0.5 || arch === "reef" || arch === "plankton" || arch === "filament") line2[last] = nearest(line2[last], CHORD_TONES);
+    else if (c.prey > 0.5 && [0, 4, 7, -3].includes(line2[last])) line2[last] += A.surf[3] > 0 ? 1 : -1;
     const leg = clamp2(1.2 - 0.75 * c.prey - 0.35 * c.kin + 0.4 * c.light + 0.35 * c.drift, 0.25, 1.6);
     const notes = [];
     let t2 = 0, li = 0, longest = 0;
@@ -8859,7 +8862,7 @@ struct SV {
       const d = cell[i];
       if (d > 0) {
         const after = i === 0 || cell[i - 1] < 0 || cell[i - 1] >= 3;
-        notes.push({ deg: line[li++], at: t2 * unit, dur: d * unit, acc: after ? 1 : 0.72, leg });
+        notes.push({ deg: line2[li++], at: t2 * unit, dur: d * unit, acc: after ? 1 : 0.72, leg });
         if (d > cell[longest]) longest = i;
       }
       t2 += Math.abs(d);
@@ -16977,10 +16980,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
     function sang(notes) {
       if (!onSang) return;
       const lat = st.ctx ? (st.ctx.outputLatency || 0) + (st.ctx.baseLatency || 0) : 0, now = performance.now();
-      onSang(notes.map(([slot, dt, k, line, scan, rec, dur, step]) => {
+      onSang(notes.map(([slot, dt, k, line2, scan, rec, dur, step]) => {
         const S = st.scans.get(scan);
         const c = S && rec >= 0 ? S.cells.subarray(rec * 5, rec * 5 + 5) : null;
-        return { at: now + (dt + lat) * 1e3, dur: (dur || 0) * 1e3, step: (step || 0) * 1e3, whole: scan === -1, slot, k, line, cell: c && c.length === 5 ? { x: c[0], y: c[1], vx: c[2], vy: c[3], id: c[4], t: S.sim } : null };
+        return { at: now + (dt + lat) * 1e3, dur: (dur || 0) * 1e3, step: (step || 0) * 1e3, whole: scan === -1, slot, k, line: line2, cell: c && c.length === 5 ? { x: c[0], y: c[1], vx: c[2], vy: c[3], id: c[4], t: S.sim } : null };
       }));
     }
     function listen(data, { selSlot = -1, lit = null } = {}) {
@@ -17109,14 +17112,14 @@ registerProcessor("tidemote-sound", TidemoteSound);
     };
   }
   function makeRelief(gw, gh, seed, { minL = 10, maxL = 70, modes = 28, warp = 6 } = {}) {
-    const rng = seededRng(seed ^ 2654435769);
+    const rng2 = seededRng(seed ^ 2654435769);
     const waves = (n, lo, hi, pow) => Array.from({ length: n }, () => {
-      const L = lo * (hi / lo) ** rng();
-      const th = rng() * Math.PI * 2;
+      const L = lo * (hi / lo) ** rng2();
+      const th = rng2() * Math.PI * 2;
       let kx = Math.round(gw / L * Math.cos(th)), ky = Math.round(gh / L * Math.sin(th));
       if (kx === 0 && ky === 0) kx = 1;
       const len2 = Math.hypot(kx / gw, ky / gh);
-      return { ax: 2 * Math.PI * kx / gw, ay: 2 * Math.PI * ky / gh, ph: rng() * Math.PI * 2, amp: len2 ** -pow };
+      return { ax: 2 * Math.PI * kx / gw, ay: 2 * Math.PI * ky / gh, ph: rng2() * Math.PI * 2, amp: len2 ** -pow };
     });
     const H2 = waves(modes, minL, Math.min(maxL, Math.max(gw, gh)), 1.1);
     const WX = waves(6, minL * 1.5, maxL, 0.5), WY = waves(6, minL * 1.5, maxL, 0.5);
@@ -17334,8 +17337,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this._surveyFrames = 0;
       this._surveySim = null;
       this._pipes = [];
-      const track = (pr, label2) => {
-        this._pipes.push({ pr, w: COMPILE_COST[label2] ?? 1.5 });
+      const track = (pr, label3) => {
+        this._pipes.push({ pr, w: COMPILE_COST[label3] ?? 1.5 });
         return pr;
       };
       const cPipe = (desc) => track(d.createComputePipelineAsync(desc), desc.label);
@@ -17862,7 +17865,7 @@ ${e.message}` : String(e?.message || e));
      * opening light, husks and founding community. Life starts sparse: K.foundLife of the particles, in
      * K.foundColonies small colonies in empty water, as a world recovering from a collapse begins again.
      */
-    seed(n, { aspect = 16 / 9, rng = Math.random } = {}) {
+    seed(n, { aspect = 16 / 9, rng: rng2 = Math.random } = {}) {
       const d = this.device;
       this.worldGeneration++;
       this.abio = 0;
@@ -17873,32 +17876,32 @@ ${e.message}` : String(e?.message || e));
       this.simTime = 0;
       this.frameNo = 0;
       this.tick = 0;
-      this.seedValue = rng() * 4294967295 >>> 0;
+      this.seedValue = rng2() * 4294967295 >>> 0;
       this.sorted = false;
-      this.ambient = mix2(0.12, 0.3, rng());
-      this.temp = mix2(10, 22, rng());
+      this.ambient = mix2(0.12, 0.3, rng2());
+      this.temp = mix2(10, 22, rng2());
       this.excursion = 0;
-      this.randomizeTide(rng);
-      this.randomizeCurrents(rng);
-      const husk = mix2(0.02, 0.06, rng()), silt = 1 - husk - this.K.foundLife;
+      this.randomizeTide(rng2);
+      this.randomizeCurrents(rng2);
+      const husk = mix2(0.02, 0.06, rng2()), silt = 1 - husk - this.K.foundLife;
       const cells = this.grid[0] * this.grid[1];
-      const rockR = mix2(1.2, 3, rng());
-      const cover = rng() ** 1.5 * 0.08 * this.K.rocks;
+      const rockR = mix2(1.2, 3, rng2());
+      const cover = rng2() ** 1.5 * 0.08 * this.K.rocks;
       this.rock.set([Math.min(256, Math.round(cover * cells / (10 * rockR * rockR))), rockR, 0, 0]);
       const gbuf = new ArrayBuffer(MAXK * G_BYTES);
       const gu = new Uint32Array(gbuf);
       const gf = new Float32Array(gbuf);
       const matterCols = [[0.3, 0.34, 0.46], [0.7, 0.93, 1], [0.5, 0.35, 0.25], [0.62, 0.57, 0.5], [0.8, 0.7, 0.45]];
       for (let m = 0; m < FIRST_LIFE; m++) {
-        const g = archetypeGenome("plankton", rng, this.K);
+        const g = archetypeGenome("plankton", rng2, this.K);
         g.col = packUnorm(...matterCols[m]);
         writeGenome(gu, gf, m, g);
       }
       const head = new Uint32Array(META_CLAIM);
-      const weights = ARCHETYPE_TYPES.map(() => rng() ** 2);
+      const weights = ARCHETYPE_TYPES.map(() => rng2() ** 2);
       const total = weights.reduce((a, b) => a + b, 0);
       const draw = (w, sum) => {
-        let pick3 = rng() * sum, i = 0;
+        let pick3 = rng2() * sum, i = 0;
         while (i < w.length - 1 && pick3 >= w[i]) pick3 -= w[i++];
         return ARCHETYPE_TYPES[i];
       };
@@ -17923,7 +17926,7 @@ ${e.message}` : String(e?.message || e));
             const from = counts.indexOf(Math.max(...counts.map((c, i) => niches[i] === n2 ? -1 : c)));
             const at = plan.findIndex((t2) => nicheOf(t2) === from);
             if (at < 0) break;
-            plan[at] = n2[Math.floor(rng() * n2.length)];
+            plan[at] = n2[Math.floor(rng2() * n2.length)];
             have++;
           }
         }
@@ -17931,9 +17934,9 @@ ${e.message}` : String(e?.message || e));
       head[0] = n;
       head[1] = plan.length;
       const warm = this.temp + 3;
-      const randomShare = rng();
+      const randomShare = rng2();
       plan.forEach((type, s) => {
-        const g = rng() < randomShare ? randomGenome(rng, this.K, warm) : archetypeGenome(type, rng, this.K, warm);
+        const g = rng2() < randomShare ? randomGenome(rng2, this.K, warm) : archetypeGenome(type, rng2, this.K, warm);
         g.serial = s + 1;
         writeGenome(gu, gf, FIRST_LIFE + s, g);
         head[META_SLOT + FIRST_LIFE + s] = 1;
@@ -17998,37 +18001,37 @@ ${e.message}` : String(e?.message || e));
       if (u >= 1) this.floor = null;
     }
     /** Three active tide waves (the fourth is left idle for the first climate era to raise) with random phases. */
-    randomizeTide(rng = Math.random) {
+    randomizeTide(rng2 = Math.random) {
       for (let k = 0; k < 4; k++) {
-        this.newTideWave(k, rng);
-        this.tide[k * 4 + 3] = k < 3 ? mix2(0.6, 1.1, rng()) : 0;
+        this.newTideWave(k, rng2);
+        this.tide[k * 4 + 3] = k < 3 ? mix2(0.6, 1.1, rng2()) : 0;
       }
     }
     /** A torus-periodic tide wave in slot k (amplitude untouched): integer wave numbers, a slow drift, a phase. */
-    newTideWave(k, rng = Math.random) {
+    newTideWave(k, rng2 = Math.random) {
       let a = 0, b = 0;
       while (a === 0 && b === 0) {
-        a = Math.round(mix2(-3, 3, rng()));
-        b = Math.round(mix2(-3, 3, rng()));
+        a = Math.round(mix2(-3, 3, rng2()));
+        b = Math.round(mix2(-3, 3, rng2()));
       }
       this.tide[k * 4] = a;
       this.tide[k * 4 + 1] = b;
-      this.tide[k * 4 + 2] = (rng() < 0.5 ? -1 : 1) * mix2(8e-3, 0.03, rng()) * (this.K.tideSpeed ?? 1);
-      this.tidePh[k] = rng() * Math.PI * 2;
+      this.tide[k * 4 + 2] = (rng2() < 0.5 ? -1 : 1) * mix2(8e-3, 0.03, rng2()) * (this.K.tideSpeed ?? 1);
+      this.tidePh[k] = rng2() * Math.PI * 2;
     }
     /** Divergence-free, torus-periodic currents. Returns the new wave table. */
-    randomizeCurrents(rng = Math.random, into = this.waves) {
+    randomizeCurrents(rng2 = Math.random, into = this.waves) {
       const [W, H2] = this.grid;
       for (let k = 0; k < 4; k++) {
-        const L = mix2(14, 34, rng());
-        const th = rng() * Math.PI * 2;
+        const L = mix2(14, 34, rng2());
+        const th = rng2() * Math.PI * 2;
         let kx = Math.round(W / L * Math.cos(th));
         const ky = Math.round(H2 / L * Math.sin(th));
         if (kx === 0 && ky === 0) kx = 1;
         into[k * 4] = Math.PI * 2 * kx / W;
         into[k * 4 + 1] = Math.PI * 2 * ky / H2;
-        into[k * 4 + 2] = (rng() < 0.5 ? -1 : 1) * mix2(0.04, 0.12, rng());
-        into[k * 4 + 3] = mix2(0.08, 0.16, rng());
+        into[k * 4 + 2] = (rng2() < 0.5 ? -1 : 1) * mix2(0.04, 0.12, rng2());
+        into[k * 4 + 3] = mix2(0.08, 0.16, rng2());
       }
       return into;
     }
@@ -18933,11 +18936,11 @@ ${e.message}` : String(e?.message || e));
           const th = 0.618033989 + oct * 2.39996323, ax = Math.cos(th), ay = Math.sin(th);
           const r0 = [Math.round(ax * wx / spacing), Math.round(ay * wy / spacing)];
           const r12 = [Math.round((-ay + ax * 0.37) * wx / spacing), Math.round((ax + ay * 0.37) * wy / spacing)];
-          const pad2 = tau * vmax * depth;
+          const pad3 = tau * vmax * depth;
           const cx = cam.x * depth, cy = cam.y * depth;
           let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
           for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
-            const ux = (cx + sx * (hw + pad2)) / wx, uy = (cy + sy * (hh + pad2)) / wy;
+            const ux = (cx + sx * (hw + pad3)) / wx, uy = (cy + sy * (hh + pad3)) / wy;
             const px = r0[0] * ux + r0[1] * uy + oct * 17.3, py = r12[0] * ux + r12[1] * uy + oct * 9.7;
             x0 = Math.min(x0, px);
             x1 = Math.max(x1, px);
@@ -19290,44 +19293,44 @@ ${e.message}` : String(e?.message || e));
     }
     return out;
   }
-  function makeEvent(type, t2, rng, w, h, K = DEFAULT_K) {
-    const pick3 = (r) => climateMix(...r, rng());
+  function makeEvent(type, t2, rng2, w, h, K = DEFAULT_K) {
+    const pick3 = (r) => climateMix(...r, rng2());
     const rain = { rainCold: K.rainCold, rainDark: K.rainDark, rainTurb: K.rainTurb };
     if (type === "drought") return { type, t: t2, fall: pick3(K.droughtFall), hold: pick3(K.droughtHold), refill: pick3(K.droughtRefill), low: pick3(K.droughtLow), ...rain };
     if (type === "storm") return { type, t: t2, dur: pick3(K.stormDur), ...rain };
     if (type === "frost") return { type, t: t2, cool: 90, grow: pick3(K.frostGrow), hold: pick3(K.frostHold), thaw: pick3(K.frostThaw), max: pick3(K.frostMax), cold: K.frostCold, dark: K.frostDark };
-    const len2 = pick3(K.duckLen) * Math.min(w, h), a = rng() * Math.PI * 2, sp = climateMix(0.01, 0.04, rng());
+    const len2 = pick3(K.duckLen) * Math.min(w, h), a = rng2() * Math.PI * 2, sp = climateMix(0.01, 0.04, rng2());
     return {
       type,
       t: t2,
       dur: pick3(K.duckDur),
-      x: rng() * w,
-      y: rng() * h,
+      x: rng2() * w,
+      y: rng2() * h,
       len: len2,
       dark: pick3(K.duckDark),
-      angle: rng() * Math.PI * 2,
-      spin: (rng() - 0.5) * 4e-3,
-      seed: rng() * 100,
-      width: climateMix(0.55, 0.72, rng()),
-      buds: 1 + Math.floor(rng() * 3),
+      angle: rng2() * Math.PI * 2,
+      spin: (rng2() - 0.5) * 4e-3,
+      seed: rng2() * 100,
+      width: climateMix(0.55, 0.72, rng2()),
+      buds: 1 + Math.floor(rng2() * 3),
       vx: Math.cos(a) * sp,
       vy: Math.sin(a) * sp
     };
   }
   var eventSpan = (ev) => ev.type === "drought" ? ev.fall + ev.hold + ev.refill + 120 : ev.type === "storm" ? ev.dur + 240 : ev.type === "frost" ? ev.cool + ev.grow + ev.hold + ev.thaw + 120 : ev.dur;
-  function createClimate(eng, rng = Math.random) {
+  function createClimate(eng, rng2 = Math.random) {
     const climate = { tick, reset, onEra: null, onExcursion: null, onEvent: null, force, allowed: new Set(EVENT_TYPES) };
     const K = { ...DEFAULT_K, ...eng.K };
     const plan = () => String(K.eventPlan || "").split(",").filter(Boolean).map((x) => {
       const [type, at] = x.split("@");
       return { type, at: +at };
     });
-    const gap = () => climateMix(0.5, 1.5, rng()) * K.eventEvery * 60;
+    const gap = () => climateMix(0.5, 1.5, rng2()) * K.eventEvery * 60;
     function reset() {
       Object.assign(climate, {
         name: "The First Tides",
         started: 0,
-        next: climateMix(600, 900, rng()),
+        next: climateMix(600, 900, rng2()),
         ambientTo: eng.ambient,
         tideTo: Array.from(eng.tide.filter((_, i) => i % 4 === 3)),
         tempTo: eng.temp,
@@ -19345,7 +19348,7 @@ ${e.message}` : String(e?.message || e));
       });
     }
     function force(type, delay = 0) {
-      climate.event = makeEvent(type, eng.simTime + delay, rng, eng.grid[0], eng.grid[1], K);
+      climate.event = makeEvent(type, eng.simTime + delay, rng2, eng.grid[0], eng.grid[1], K);
       climate.event.startLevel = climate.levelTo;
       climate.events.push(climate.event);
       return climate.event;
@@ -19360,7 +19363,7 @@ ${e.message}` : String(e?.message || e));
       if (t2 >= climate.nextEvent && !climate.event && !EVENT_TYPES.some((x) => climate.allowed.has(x))) climate.nextEvent = t2 + gap();
       if (t2 >= climate.nextEvent && !climate.event) {
         const w = K.eventMix.map((x, i) => climate.allowed.has(EVENT_TYPES[i]) ? x : 0);
-        let r = rng() * w.reduce((a, b) => a + b, 0), k = 0;
+        let r = rng2() * w.reduce((a, b) => a + b, 0), k = 0;
         while (k < w.length - 1 && r >= w[k]) {
           r -= w[k];
           k++;
@@ -19387,14 +19390,14 @@ ${e.message}` : String(e?.message || e));
       eng.mudRain = t2 >= rainAt ? t2 - rainAt : 0;
       if (e.duck) eng.duck.set(e.duck);
       else eng.duck.fill(0);
-      if (e.rain > 0 && rng() < e.rain * 1.2 * K.rainDrops * dt) {
+      if (e.rain > 0 && rng2() < e.rain * 1.2 * K.rainDrops * dt) {
         const k = climate.dropSlot = ((climate.dropSlot ?? -1) + 1) % 4;
-        eng.drops.set([rng() * eng.grid[0], rng() * eng.grid[1], t2, climateMix(1, 3, rng())], k * 4);
+        eng.drops.set([rng2() * eng.grid[0], rng2() * eng.grid[1], t2, climateMix(1, 3, rng2())], k * 4);
       }
     }
     function startEra() {
       const t2 = eng.simTime;
-      const r = rng;
+      const r = rng2;
       const amps = [0, 1, 2, 3].map((k) => eng.tide[k * 4 + 3]);
       const idle = amps.indexOf(Math.min(...amps));
       const active = [0, 1, 2, 3].filter((k) => k !== idle);
@@ -19595,7 +19598,7 @@ ${e.message}` : String(e?.message || e));
     songmarks: "A faint ring spreads from a cell each time it sings its species’ note: for the picked species only, or for every species. Needs sound on.",
     diversity: "Effective number of species: exp of the Shannon entropy of species populations. A world of 10 equally common species scores 10."
   };
-  var t = (term2, label2) => `<span class="term" data-tip="${term2}">${label2}</span>`;
+  var t = (term2, label3) => `<span class="term" data-tip="${term2}">${label3}</span>`;
   var GUIDE = [
     {
       id: "overview",
@@ -19740,7 +19743,7 @@ ${e.message}` : String(e?.message || e));
   var esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   var cssRgb = (c, k = 1) => `rgb(${c.slice(0, 3).map((v) => Math.round(clamp6(v * k, 0, 1) * 255)).join(",")})`;
   var cssCol = (u, k = 1) => cssRgb(unpackUnorm(u), k);
-  var term = (key, label2) => `<span class="term" data-tip="${key}" tabindex="0">${label2}</span>`;
+  var term = (key, label3) => `<span class="term" data-tip="${key}" tabindex="0">${label3}</span>`;
   var spLink = (serial, name) => `<a href="#" class="sp" data-serial="${serial}">${esc(name)}</a>`;
   var meter = (frac, cls = "") => `<span class="meter ${cls}"><i style="width:${(clamp6(frac, 0, 1) * 100).toFixed(1)}%"></i></span>`;
   var ROLE = ["α", "β", "γ"];
@@ -19948,17 +19951,17 @@ ${e.message}` : String(e?.message || e));
     }
     return [lo, hi];
   }
-  function songSVG(m, { w = 300, h = 68, col = "#7fd6df", col2 = col, ghost = null, label: label2 = "Its song" } = {}) {
+  function songSVG(m, { w = 300, h = 68, col = "#7fd6df", col2 = col, ghost = null, label: label3 = "Its song" } = {}) {
     const lines = [m.notes, m.voice2 || [], ...ghost ? [ghost.notes] : []];
     const [lo, hi] = span(lines);
-    const rows = hi - lo + 1, pad2 = 8, base = h - 7;
-    const rowH = Math.min(8, (base - pad2 - 2) / rows);
-    const top = pad2 + (base - pad2 - 2 - rowH * rows) / 2;
+    const rows = hi - lo + 1, pad3 = 8, base = h - 7;
+    const rowH = Math.min(8, (base - pad3 - 2) / rows);
+    const top = pad3 + (base - pad3 - 2 - rowH * rows) / 2;
     const y = (d) => top + (hi - d + 0.5) * rowH;
     const cyc = Math.max(m.cycle, ghost ? ghost.cycle : 0);
-    const sx = (w - 2 * pad2) / cyc, x = (t2) => pad2 + t2 * sx;
+    const sx = (w - 2 * pad3) / cyc, x = (t2) => pad3 + t2 * sx;
     const bh = Math.max(2, rowH * 0.5);
-    let s = `<svg class="song-roll" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${label2}" data-x0="${pad2}" data-sx="${sx}" data-cycle="${m.cycle}">`;
+    let s = `<svg class="song-roll" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${label3}" data-x0="${pad3}" data-sx="${sx}" data-cycle="${m.cycle}">`;
     const c = 6;
     s += `<path class="brk" d="M.5 ${c}V.5H${c}M${w - c} .5H${w - 0.5}V${c}M.5 ${h - c}V${h - 0.5}H${c}M${w - c} ${h - 0.5}H${w - 0.5}V${h - c}"/>`;
     let ticks = "";
@@ -19966,9 +19969,9 @@ ${e.message}` : String(e?.message || e));
       const L = t2 % 16 === 0 ? 5 : t2 % 4 === 0 ? 3 : 1.5;
       ticks += `M${r1(x(t2))} ${base}v${L}`;
     }
-    s += `<path class="tick" d="M${pad2} ${base}H${w - pad2}${ticks}"/>`;
-    for (let d = lo; d <= hi; d++) s += `<line class="rail${(d % 7 + 7) % 7 === 0 ? " tonic" : ""}" x1="${pad2}" x2="${w - pad2}" y1="${r1(y(d))}" y2="${r1(y(d))}"/>`;
-    if (m.cycle < cyc - 1e-6 || ghost) s += `<line class="bar" x1="${r1(x(m.cycle))}" x2="${r1(x(m.cycle))}" y1="${pad2}" y2="${h - pad2}"/>`;
+    s += `<path class="tick" d="M${pad3} ${base}H${w - pad3}${ticks}"/>`;
+    for (let d = lo; d <= hi; d++) s += `<line class="rail${(d % 7 + 7) % 7 === 0 ? " tonic" : ""}" x1="${pad3}" x2="${w - pad3}" y1="${r1(y(d))}" y2="${r1(y(d))}"/>`;
+    if (m.cycle < cyc - 1e-6 || ghost) s += `<line class="bar" x1="${r1(x(m.cycle))}" x2="${r1(x(m.cycle))}" y1="${pad3}" y2="${h - pad3}"/>`;
     const barLen = (nt) => Math.max(2, Math.min(nt.dur * Math.min(1, nt.leg ?? 1), cyc - nt.at) * sx - 1);
     const bar = (nt, cls, extra = "") => {
       const len2 = barLen(nt);
@@ -19996,7 +19999,7 @@ ${e.message}` : String(e?.message || e));
       s += `<path class="on" d="M${r1(x(nt.at))} ${r1(y(nt.deg) - bh / 2 - 2)}v${r1(bh + 4)}" style="stroke:${col}"/>`;
       if (Math.round(nt.deg) !== nt.deg) s += `<path class="chrom" d="M${r1(x(nt.at))} ${r1(y(nt.deg) - bh / 2 - 2.5)}h3"/>`;
     });
-    s += `<line class="ph" x1="0" x2="0" y1="${pad2 - 4}" y2="${base}"/>`;
+    s += `<line class="ph" x1="0" x2="0" y1="${pad3 - 4}" y2="${base}"/>`;
     return s + "</svg>";
   }
   var rgb = (c) => `rgb(${c.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255)).join(",")})`;
@@ -20018,7 +20021,7 @@ ${e.message}` : String(e?.message || e));
     }
     return out;
   }
-  function sigilSVG(v, g, { size = 26, label: label2 = "" } = {}) {
+  function sigilSVG(v, g, { size = 26, label: label3 = "" } = {}) {
     const m = v.motif, roles = noteRoles(m, g);
     const cells = [...m.notes.map((nt, i) => ({ nt, role: roles[i], line: 0 })), ...(m.voice2 || []).map((nt) => ({ nt, role: 1, line: 1 }))].sort((a, b) => a.nt.at - b.nt.at || a.line - b.line);
     const maxDur = Math.max(...cells.map((c) => c.nt.dur));
@@ -20039,7 +20042,7 @@ ${e.message}` : String(e?.message || e));
     const k = size * 0.94 / Math.max(x1 - x0, y1 - y0);
     const cx = size / 2 - (x0 + x1) / 2 * k, cy = size / 2 - (y0 + y1) / 2 * k;
     const X = (c) => r1(cx + c.x * k), Y = (c) => r1(cy + c.y * k), cellR = Math.min(k * 0.42, size * 0.22);
-    let s = `<svg class="sigil" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}"${label2 ? ` role="img" aria-label="${label2}"` : ' aria-hidden="true"'}>`;
+    let s = `<svg class="sigil" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}"${label3 ? ` role="img" aria-label="${label3}"` : ' aria-hidden="true"'}>`;
     if ((g.adhesion || 0) > DEFAULT_K.adhMin) {
       const deg = /* @__PURE__ */ new Map(), pairs = [];
       cells.forEach((c, i) => {
@@ -20143,7 +20146,7 @@ ${e.message}` : String(e?.message || e));
     g.fillStyle = AXIS;
     g.textAlign = "right";
     g.textBaseline = "middle";
-    for (const { y, label: label2 } of ys) g.fillText(label2, l - 4, Math.max(5, Math.min(box.b, y)));
+    for (const { y, label: label3 } of ys) g.fillText(label3, l - 4, Math.max(5, Math.min(box.b, y)));
     g.textBaseline = "alphabetic";
   }
   function clock(g, box, t0, t1, eras) {
@@ -20160,9 +20163,9 @@ ${e.message}` : String(e?.message || e));
     g.fillStyle = AXIS;
     g.textAlign = "center";
     for (const s of timeTicks(t0, t1, r - l)) {
-      const x = X(s), label2 = fmtClock(s), hw = g.measureText(label2).width / 2;
+      const x = X(s), label3 = fmtClock(s), hw = g.measureText(label3).width / 2;
       g.fillRect(Math.round(x), b + 1, 1, 3);
-      g.fillText(label2, Math.max(l + hw, Math.min(r - hw, x)), b + XLAB - 2);
+      g.fillText(label3, Math.max(l + hw, Math.min(r - hw, x)), b + XLAB - 2);
     }
   }
   var histX = (box, n) => (i) => box.l + (n > 1 ? i / (n - 1) * (box.r - box.l) : 0);
@@ -20378,9 +20381,9 @@ ${e.message}` : String(e?.message || e));
     g.fillStyle = AXIS;
     g.textAlign = "center";
     for (const t2 of [0, 10, 20, 30, 40]) {
-      const label2 = `${t2}°`, hw = g.measureText(label2).width / 2;
+      const label3 = `${t2}°`, hw = g.measureText(label3).width / 2;
       g.fillRect(Math.round(X(t2)), box.b + 1, 1, 3);
-      g.fillText(label2, Math.max(box.l + hw, X(t2)), h - 2);
+      g.fillText(label3, Math.max(box.l + hw, X(t2)), h - 2);
     }
     g.textAlign = "left";
     g.fillText("cells (log) by preferred temperature", 0, 10);
@@ -20817,14 +20820,14 @@ ${e.message}` : String(e?.message || e));
     const { g, w, h } = f2;
     const { ts } = c, n = ts.length;
     const roots = c.other ? [c.other, ...c.roots] : c.roots;
-    const C = /* @__PURE__ */ new Map();
+    const C2 = /* @__PURE__ */ new Map();
     const clade = (u) => {
       const a = u.vals.slice();
       for (const k of u.kids) {
         const b = clade(k);
         for (let i = 0; i < n; i++) a[i] += b[i];
       }
-      C.set(u, a);
+      C2.set(u, a);
       return a;
     };
     const tot = new Float32Array(n);
@@ -20843,7 +20846,7 @@ ${e.message}` : String(e?.message || e));
     const X = (i) => box.l + i / (n - 1) * (box.r - box.l);
     const perCell = H2 / ax.top;
     const Y = /* @__PURE__ */ new Map();
-    for (const u of C.keys()) Y.set(u, new Float32Array(n));
+    for (const u of C2.keys()) Y.set(u, new Float32Array(n));
     for (let i = 0; i < n; i++) {
       let y = box.b - tot[i] * perCell;
       const place = (u, y0) => {
@@ -20851,12 +20854,12 @@ ${e.message}` : String(e?.message || e));
         let y1 = y0 + u.vals[i] * perCell / 2;
         for (const k of u.kids) {
           place(k, y1);
-          y1 += C.get(k)[i] * perCell;
+          y1 += C2.get(k)[i] * perCell;
         }
       };
       for (const r of roots) {
         place(r, y);
-        y += C.get(r)[i] * perCell;
+        y += C2.get(r)[i] * perCell;
       }
     }
     const col = colours(c, 0);
@@ -20868,7 +20871,7 @@ ${e.message}` : String(e?.message || e));
     roots.forEach(pre);
     const hot = opts.hot;
     for (const u of order) {
-      const a = C.get(u), y = Y.get(u);
+      const a = C2.get(u), y = Y.get(u);
       let i0 = -1, i1 = -1;
       for (let i = 0; i < n; i++) if (a[i] > 0) {
         if (i0 < 0) i0 = i;
@@ -20934,7 +20937,7 @@ ${e.message}` : String(e?.message || e));
         const i = Math.max(0, Math.min(n - 1, Math.round((px - box.l) / (box.r - box.l) * (n - 1))));
         const find = (list) => {
           for (const u2 of list) {
-            const y0 = Y.get(u2)[i], y1 = y0 + C.get(u2)[i] * perCell;
+            const y0 = Y.get(u2)[i], y1 = y0 + C2.get(u2)[i] * perCell;
             if (py >= y0 && py < y1) return find(u2.kids) || u2;
           }
           return null;
@@ -21233,7 +21236,7 @@ ${e.message}` : String(e?.message || e));
       warm: (a, b) => b.genome.topt - a.genome.topt
     };
     function buildSpecies() {
-      const seg = (label2, key, opts) => `<span class="lbl">${label2}</span><div class="segs" role="group" aria-label="${key}">${chips(key, opts, st[key])}</div>`;
+      const seg = (label3, key, opts) => `<span class="lbl">${label3}</span><div class="segs" role="group" aria-label="${key}">${chips(key, opts, st[key])}</div>`;
       const p = pane(`<div class="qrow"><input type="search" id="lab-q" placeholder="Search by name" aria-label="Search species by name" autocomplete="off"><button type="button" class="chip filt" id="sp-filt" aria-expanded="false" aria-controls="sp-filters">Filters</button></div><div class="filters" id="sp-filters">
       ${seg("Status", "status", [["thriving", "Thriving"], ["alive", "Living"], ["extinct", "Extinct"], ["all", "Any"]])}
       ${seg(term("diet", "Diet"), "diet", DIETS)}
@@ -21370,7 +21373,7 @@ ${e.message}` : String(e?.message || e));
       return { ...p, update };
     }
     function buildLineage() {
-      const seg = (label2, key, opts) => `<span class="lbl">${label2}</span><div class="segs" role="group" aria-label="${label2}">${chips(key, opts, String(st[key]))}</div>`;
+      const seg = (label3, key, opts) => `<span class="lbl">${label3}</span><div class="segs" role="group" aria-label="${label3}">${chips(key, opts, String(st[key]))}</div>`;
       const p = pane(`<div class="filters">
       ${seg("Show", "linAll", [["true", "Every lineage"], ["false", "Living lineages"]])}
       ${seg("Span", "linSpan", [["all", "Whole world"], ["3600", "Last hour"], ["600", "Last 10 min"]])}
@@ -21418,8 +21421,8 @@ ${e.message}` : String(e?.message || e));
         if (st.linSpan !== "all") return [Math.max(0, T - +st.linSpan), T];
         const r = rootStrand();
         if (r) {
-          const pad2 = (Math.min(T, r.end) - r.born) * 0.02;
-          return [Math.max(0, r.born - pad2), Math.min(T, r.end + pad2)];
+          const pad3 = (Math.min(T, r.end) - r.born) * 0.02;
+          return [Math.max(0, r.born - pad3), Math.min(T, r.end + pad3)];
         }
         return [0, T];
       }
@@ -22426,12 +22429,12 @@ ${e.message}` : String(e?.message || e));
       st.actKey = "";
       render(true);
     });
-    const comp = (label2, tip, shares, g, hint) => {
+    const comp = (label3, tip, shares, g, hint) => {
       const types = [0, 1, 2].filter((r) => shares[r] > 5e-4);
       const pct = (v) => v < 0.01 ? "<1" : String(Math.round(v * 100));
       const seg = types.map((r) => `<i style="flex:${Math.max(shares[r], 0.015)};color:${cssRgb(roleColor(g, r))}"></i>`).join("");
       const val = types.map((r) => `<s><em class="greek" style="color:${cssRgb(roleColor(g, r))}">${ROLE[r]}</em>${pct(shares[r])}</s>`).join("");
-      return `<div class="trait mixrow"><span>${term(tip, label2)}</span><span class="mixbar">${seg}</span><b class="term" tabindex="0" data-hint="${esc(hint)}">${val}</b></div>`;
+      return `<div class="trait mixrow"><span>${term(tip, label3)}</span><span class="mixbar">${seg}</span><b class="term" tabindex="0" data-hint="${esc(hint)}">${val}</b></div>`;
     };
     const tagsEl = $2("spec-tags");
     function setTags(g) {
@@ -22452,7 +22455,7 @@ ${e.message}` : String(e?.message || e));
       }
     }
     const blk = (title, html, opts) => block(title, html, opts);
-    const vital = (label2, frac, cls, text, tip) => `<div class="vital"><span>${tip ? term(tip, label2) : label2}</span>${meter(frac, cls)}<b>${text}</b></div>`;
+    const vital = (label3, frac, cls, text, tip) => `<div class="vital"><span>${tip ? term(tip, label3) : label3}</span>${meter(frac, cls)}<b>${text}</b></div>`;
     const warmthVital = (m, g, text) => {
       const at = (t2) => (clamp6((t2 - (g.topt - 2 * g.tol)) / (4 * g.tol), 0, 1) * 100).toFixed(1);
       const lo = at(g.topt - K.thermalFlat * g.tol), hi = at(g.topt + K.thermalFlat * g.tol);
@@ -22553,8 +22556,8 @@ ${e.message}` : String(e?.message || e));
       const av = anc ? songOf(anc.genome).v : null;
       const diff = av ? compareMotifs(av.motif, v.motif) : null;
       const slot = (sp ? sp.alive : true) && g.slot != null ? g.slot : -1;
-      const m = v.motif, pad2 = (n) => String(n).padStart(2, "0");
-      let h = subHead("Song", `<span class="song-read"><span><b>${pad2(m.notes.length)}</b> notes</span><span><b>${(m.cycle * 0.18).toFixed(1)}</b> s</span>${m.voice2 ? "<span><b>2</b> voices</span>" : ""}</span><button type="button" class="btn mini" data-song="${g.serial}" data-hint="Hear it alone">Play</button>`, "song");
+      const m = v.motif, pad22 = (n) => String(n).padStart(2, "0");
+      let h = subHead("Song", `<span class="song-read"><span><b>${pad22(m.notes.length)}</b> notes</span><span><b>${(m.cycle * 0.18).toFixed(1)}</b> s</span>${m.voice2 ? "<span><b>2</b> voices</span>" : ""}</span><button type="button" class="btn mini" data-song="${g.serial}" data-hint="Hear it alone">Play</button>`, "song");
       h += `<div class="song-wrap">${songSVG(v.motif, { col: cssCol(g.col), col2: cssRgb(roleColor(g, 1)), ghost: compact ? null : av && av.motif, h: compact ? 46 : 68, label: `${d.tags.join(", ")}: ${d.line}` })}</div>`;
       h += `<div class="song-tags">${d.tags.map((t2, i) => `<span class="term" data-tip="${["instrument", "register", "tempo"][i]}" tabindex="0">${esc(t2)}</span>`).join("<i>·</i>")}</div>`;
       if (!compact) {
@@ -22946,7 +22949,7 @@ ${e.message}` : String(e?.message || e));
       g.stroke();
       const sel = api.sel();
       const pxPerCell = h / api.state.specCells;
-      const brackets = (l, t2, r2, b, c2) => {
+      const brackets2 = (l, t2, r2, b, c2) => {
         g.beginPath();
         for (const [x, y, dx, dy] of [[l, t2, 1, 1], [r2, t2, -1, 1], [l, b, 1, -1], [r2, b, -1, -1]]) {
           g.moveTo(x, y + dy * c2);
@@ -22958,16 +22961,16 @@ ${e.message}` : String(e?.message || e));
       g.lineWidth = 1.25;
       if (box) {
         const R2 = Math.max(6, cellRadius(sel.particle, api.genomeFor(sel.particle.kind), pxPerCell) * 1.4 + 3), c2 = Math.max(3, Math.min(10, R2 * 0.45));
-        const pad2 = R2 + 6, e = m + 2;
-        const l = clamp6(w / 2 + box[0] * pxPerCell - pad2, e, w / 2 - R2 - 4), t2 = clamp6(h / 2 + box[1] * pxPerCell - pad2, e, h / 2 - R2 - 4);
-        const r2 = clamp6(w / 2 + box[2] * pxPerCell + pad2, w / 2 + R2 + 4, w - e), b = clamp6(h / 2 + box[3] * pxPerCell + pad2, h / 2 + R2 + 4, h - e);
+        const pad3 = R2 + 6, e = m + 2;
+        const l = clamp6(w / 2 + box[0] * pxPerCell - pad3, e, w / 2 - R2 - 4), t2 = clamp6(h / 2 + box[1] * pxPerCell - pad3, e, h / 2 - R2 - 4);
+        const r2 = clamp6(w / 2 + box[2] * pxPerCell + pad3, w / 2 + R2 + 4, w - e), b = clamp6(h / 2 + box[3] * pxPerCell + pad3, h / 2 + R2 + 4, h - e);
         g.strokeStyle = "rgba(255,95,58,0.9)";
-        brackets(l, t2, r2, b, Math.min(10, (r2 - l) / 3, (b - t2) / 3));
+        brackets2(l, t2, r2, b, Math.min(10, (r2 - l) / 3, (b - t2) / 3));
         g.strokeStyle = "rgba(241,227,160,0.95)";
-        brackets(w / 2 - R2, h / 2 - R2, w / 2 + R2, h / 2 + R2, c2);
+        brackets2(w / 2 - R2, h / 2 - R2, w / 2 + R2, h / 2 + R2, c2);
       } else {
         g.strokeStyle = sel && sel.lost ? "rgba(255,255,255,0.3)" : "rgba(255,95,58,0.9)";
-        brackets(w / 2 - 9, h / 2 - 9, w / 2 + 9, h / 2 + 9, 4);
+        brackets2(w / 2 - 9, h / 2 - 9, w / 2 + 9, h / 2 + 9, 4);
       }
       g.lineWidth = 1;
       const um = [...NICE_UM].reverse().find((u) => u / UM_PER_UNIT * pxPerCell <= w * 0.34) || 1;
@@ -23324,14 +23327,280 @@ ${e.message}` : String(e?.message || e));
     return members;
   }
 
+  // src/loader.js
+  var C = {
+    line: "rgba(130, 205, 214, 0.22)",
+    line2: "rgba(150, 222, 230, 0.55)",
+    ink2: "#a3bdbe",
+    ink3: "#6f8a8c",
+    sun: "#f1e3a0",
+    sunLine: "rgba(241, 227, 160, 0.5)"
+  };
+  var KINDS = [["#cfe86a", "photosynth"], ["#7fd6df", "grazer"], ["#ff8a6a", "predator"], ["#c3a2f0", "scavenger"]];
+  var TAU2 = Math.PI * 2;
+  var SWEEP = 1.2;
+  var clamp7 = (x, a, b) => Math.max(a, Math.min(b, x));
+  var pad2 = (n, w) => String(Math.max(0, Math.round(n))).padStart(w, "0");
+  function rng(seed) {
+    let s = seed >>> 0 || 1;
+    return () => {
+      s ^= s << 13;
+      s >>>= 0;
+      s ^= s >> 17;
+      s ^= s << 5;
+      s >>>= 0;
+      return s / 4294967296;
+    };
+  }
+  function label2(ctx, text, x, y, { color = C.ink3, align = "left" } = {}) {
+    ctx.font = "500 9px Saira, 'Bahnschrift', sans-serif";
+    ctx.letterSpacing = "1.6px";
+    ctx.textAlign = align;
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = color;
+    ctx.fillText(text.toUpperCase().replace(/Μ/g, "µ"), x, y);
+  }
+  function line(ctx, x0, y0, x1, y1, color = C.line) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+  }
+  function brackets(ctx, x, y, w, h, len2, color) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (const [cx, cy, dx, dy] of [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]]) {
+      ctx.moveTo(cx + dx * len2, cy);
+      ctx.lineTo(cx, cy);
+      ctx.lineTo(cx, cy + dy * len2);
+    }
+    ctx.stroke();
+  }
+  function reticle(W, H2) {
+    const R2 = H2 / 2 - 16;
+    const both = W >= 2 * R2 + 220;
+    const cx = both ? W / 2 : Math.min(W / 2, R2 + 14), cy = H2 / 2;
+    const rnd = rng(Math.random() * 2 ** 32 >>> 0);
+    const T = KINDS.length;
+    const KIN = [0.5, 1], OTHER2 = [-1, 0.35];
+    const M = Array.from({ length: T }, (_, a) => Array.from({ length: T }, (_2, b) => {
+      const [lo, hi] = a === b ? KIN : OTHER2;
+      return lo + rnd() * (hi - lo);
+    }));
+    const P = Array.from({ length: 120 }, (_, i) => {
+      const a = rnd() * TAU2, r = Math.sqrt(rnd()) * R2 * 0.9;
+      return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, vx: 0, vy: 0, t: i % T };
+    });
+    let lock = null, lockAt = -9, serial = Math.floor(rnd() * 900) + 100, mutAt = 0;
+    const kinOf = (p) => P.filter((q) => q.t === p.t && Math.hypot(q.x - p.x, q.y - p.y) < 16);
+    const step = (dt) => {
+      const rr = 26;
+      for (const p of P) {
+        let fx = 0, fy = 0;
+        for (const q of P) {
+          if (q === p) continue;
+          const dx2 = q.x - p.x, dy2 = q.y - p.y, d2 = Math.hypot(dx2, dy2);
+          if (d2 > rr || d2 < 1e-3) continue;
+          const x = d2 / rr;
+          const f2 = x < 0.25 ? x / 0.25 - 1 : M[p.t][q.t] * (1 - Math.abs(2 * x - 1.25) / 0.75);
+          fx += dx2 / d2 * f2;
+          fy += dy2 / d2 * f2;
+        }
+        const dx = p.x - cx, dy = p.y - cy, d = Math.hypot(dx, dy);
+        if (d > R2 * 0.8) {
+          const k = (d - R2 * 0.8) / (R2 * 0.1);
+          fx -= dx / d * k * k * 2;
+          fy -= dy / d * k * k * 2;
+        }
+        fx += -dy / R2 * 0.25;
+        fy += dx / R2 * 0.25;
+        p.vx = p.vx * 0.86 + fx * 16 * dt;
+        p.vy = p.vy * 0.86 + fy * 16 * dt;
+      }
+      for (const p of P) {
+        p.x += p.vx;
+        p.y += p.vy;
+        const dx = p.x - cx, dy = p.y - cy, d = Math.hypot(dx, dy), max = R2 * 0.94;
+        if (d > max) {
+          p.x = cx + dx / d * max;
+          p.y = cy + dy / d * max;
+          p.vx *= 0.5;
+          p.vy *= 0.5;
+        }
+      }
+    };
+    return (ctx, t2, dt) => {
+      step(Math.min(dt, 0.05));
+      if (t2 - mutAt > 2.5) {
+        mutAt = t2;
+        const a = Math.floor(rnd() * T), b = Math.floor(rnd() * T), [lo, hi] = a === b ? KIN : OTHER2;
+        M[a][b] = clamp7(M[a][b] + (rnd() - 0.5) * 0.8, lo, hi);
+      }
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R2);
+      g.addColorStop(0, "rgba(127, 214, 223, 0.05)");
+      g.addColorStop(1, "rgba(127, 214, 223, 0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R2, 0, TAU2);
+      ctx.fill();
+      const sa = t2 * 0.9;
+      if (ctx.createConicGradient) {
+        const cg = ctx.createConicGradient(sa - SWEEP, cx, cy);
+        cg.addColorStop(0, "rgba(127, 214, 223, 0)");
+        cg.addColorStop(SWEEP / TAU2, "rgba(127, 214, 223, 0.13)");
+        cg.addColorStop(SWEEP / TAU2 + 1e-3, "rgba(127, 214, 223, 0)");
+        ctx.fillStyle = cg;
+        ctx.beginPath();
+        ctx.arc(cx, cy, R2, 0, TAU2);
+        ctx.fill();
+      }
+      line(ctx, cx, cy, cx + Math.cos(sa) * R2, cy + Math.sin(sa) * R2, "rgba(127, 214, 223, 0.45)");
+      ctx.strokeStyle = C.line2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R2, 0, TAU2);
+      ctx.stroke();
+      ctx.strokeStyle = C.line;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R2 * 0.5, 0, TAU2);
+      ctx.stroke();
+      ctx.setLineDash([2, 4]);
+      ctx.beginPath();
+      ctx.arc(cx, cy, R2 + 9, -t2 * 0.15, -t2 * 0.15 + TAU2 * 0.7);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      for (let i = 0; i < 72; i++) {
+        const a = i / 72 * TAU2, long = i % 6 === 0, r12 = R2 + (long ? 6 : 3);
+        line(ctx, cx + Math.cos(a) * R2, cy + Math.sin(a) * R2, cx + Math.cos(a) * r12, cy + Math.sin(a) * r12, long ? C.line2 : C.line);
+      }
+      line(ctx, cx - 5, cy, cx + 5, cy, C.line2);
+      line(ctx, cx, cy - 5, cx, cy + 5, C.line2);
+      for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) {
+        const p = P[i], q = P[j];
+        if (p.t !== q.t || Math.abs(p.x - q.x) > 11) continue;
+        if (Math.hypot(p.x - q.x, p.y - q.y) < 11) {
+          ctx.strokeStyle = KINDS[p.t][0] + "55";
+          ctx.beginPath();
+          ctx.moveTo(p.x, p.y);
+          ctx.lineTo(q.x, q.y);
+          ctx.stroke();
+        }
+      }
+      for (const p of P) {
+        const behind = ((sa - Math.atan2(p.y - cy, p.x - cx)) % TAU2 + TAU2) % TAU2;
+        ctx.globalAlpha = 0.55 + 0.45 * (behind < SWEEP ? 1 - behind / SWEEP : 0);
+        ctx.fillStyle = KINDS[p.t][0];
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 1.7, 0, TAU2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      if (t2 - lockAt > 3.2 || lock && lock.x < cx - R2 * 0.35) {
+        let best = null, bn = 1;
+        for (const p of P) {
+          if (p.x < cx - R2 * 0.15) continue;
+          const n2 = kinOf(p).length;
+          if (n2 > bn) {
+            bn = n2;
+            best = p;
+          }
+        }
+        if (best) {
+          lock = best;
+          lockAt = t2;
+          serial += 1 + Math.floor(rnd() * 40);
+        }
+      }
+      const rx = cx + R2 + 22, ry = cy - 22;
+      if (lock) {
+        const kin = kinOf(lock);
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (const q of kin) {
+          x0 = Math.min(x0, q.x);
+          y0 = Math.min(y0, q.y);
+          x1 = Math.max(x1, q.x);
+          y1 = Math.max(y1, q.y);
+        }
+        const k = clamp7((t2 - lockAt) / 0.5, 0, 1), m = 4 + (1 - k) * 14;
+        brackets(ctx, x0 - m, y0 - m, x1 - x0 + 2 * m, y1 - y0 + 2 * m, 4, C.sun);
+        const ex = x1 + m, ey = (y0 + y1) / 2, bx = cx + R2 + 12;
+        ctx.strokeStyle = C.sunLine;
+        ctx.beginPath();
+        ctx.moveTo(ex, ey);
+        ctx.lineTo(bx, ry);
+        ctx.lineTo(rx + 76, ry);
+        ctx.stroke();
+        label2(ctx, k < 1 ? "acquiring" : `specimen ${pad2(serial, 4)}`, rx, ry - 5, { color: C.sun });
+        label2(ctx, `cells ${pad2(kin.length, 2)}`, rx, ry + 14);
+        label2(ctx, KINDS[lock.t][1], rx, ry + 28);
+        label2(ctx, `${pad2(Math.hypot(x1 - x0, y1 - y0) * 6.6 + 12, 3)} µm`, rx, ry + 42);
+      }
+      const n = `n ${P.length}`, temp = `${(14.6 + Math.sin(t2 * 0.3) * 0.4).toFixed(1)}°`, lux = `lux ${pad2(18 + Math.sin(t2 * 0.2) * 3, 2)}%`;
+      if (both) {
+        const lx = cx - R2 - 22;
+        label2(ctx, "field 01", lx, ry - 5, { align: "right", color: C.ink2 });
+        line(ctx, lx - 72, ry, lx + 8, ry);
+        label2(ctx, n, lx, ry + 14, { align: "right" });
+        label2(ctx, temp, lx, ry + 28, { align: "right" });
+        label2(ctx, lux, lx, ry + 42, { align: "right" });
+      } else {
+        label2(ctx, `${n} · ${temp}`, rx, ry + 62);
+      }
+    };
+  }
+  function startLoader(canvas2) {
+    const ctx = canvas2?.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return () => {
+    };
+    let W = 0, H2 = 0, draw = null, raf = 0, last = 0, prev = 0, t0 = null;
+    const fit2 = () => {
+      const r = canvas2.getBoundingClientRect();
+      if (Math.round(r.width) === W && Math.round(r.height) === H2 && draw) return;
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      W = Math.round(r.width);
+      H2 = Math.round(r.height);
+      canvas2.width = Math.max(1, Math.round(W * dpr));
+      canvas2.height = Math.max(1, Math.round(H2 * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      draw = reticle(W, H2);
+    };
+    const frame = (now) => {
+      raf = requestAnimationFrame(frame);
+      if (now - last < 1e3 / 30 - 2) return;
+      last = now;
+      t0 ??= now;
+      fit2();
+      const t2 = (now - t0) / 1e3, dt = Math.min(0.1, t2 - prev);
+      prev = t2;
+      if (W < 120 || H2 < 80) return;
+      ctx.clearRect(0, 0, W, H2);
+      draw(ctx, t2, dt);
+    };
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      fit2();
+      if (W < 120 || H2 < 80) return () => {
+      };
+      for (let i = 0; i <= 150; i++) {
+        ctx.clearRect(0, 0, W, H2);
+        draw(ctx, i / 30, 1 / 30);
+      }
+      return () => {
+      };
+    }
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }
+
   // src/director.js
   var NONE = 4294967295;
-  var clamp7 = (x, a, b) => x < a ? a : x > b ? b : x;
+  var clamp8 = (x, a, b) => x < a ? a : x > b ? b : x;
   var lerp2 = (a, b, t2) => a + (b - a) * t2;
   var wrapD = (d, W) => d - W * Math.round(d / W);
-  var ease2 = (t2) => (1 - Math.cos(Math.PI * clamp7(t2, 0, 1))) / 2;
+  var ease2 = (t2) => (1 - Math.cos(Math.PI * clamp8(t2, 0, 1))) / 2;
   var smooth2 = (a, b, x) => {
-    const t2 = clamp7((x - a) / (b - a), 0, 1);
+    const t2 = clamp8((x - a) / (b - a), 0, 1);
     return t2 * t2 * (3 - 2 * t2);
   };
   var RATES = ["births", "deaths", "kills", "mutations", "sparks"];
@@ -23364,7 +23633,7 @@ ${e.message}` : String(e?.message || e));
       }
     };
   }
-  var flightTime = (S) => clamp7(Math.abs(S) * 7, 9, 32);
+  var flightTime = (S) => clamp8(Math.abs(S) * 7, 9, 32);
   var Interest = class {
     constructor() {
       this.n = 0;
@@ -23480,9 +23749,9 @@ ${e.message}` : String(e?.message || e));
     }
   };
   var Director = class {
-    constructor(io, rng = Math.random) {
+    constructor(io, rng2 = Math.random) {
       this.io = io;
-      this.rng = rng;
+      this.rng = rng2;
       this.interest = new Interest();
       this.active = false;
       this.trackId = NONE;
@@ -23620,7 +23889,7 @@ ${e.message}` : String(e?.message || e));
       const from = this.lastRig || this.view();
       const [wMin, wMax] = this.io.widths();
       const [W, H2] = this.io.world();
-      const target = { x: from.x + wrapD(to.x - from.x, W), y: from.y + wrapD(to.y - from.y, H2), w: clamp7(to.w, wMin, wMax) };
+      const target = { x: from.x + wrapD(to.x - from.x, W), y: from.y + wrapD(to.y - from.y, H2), w: clamp8(to.w, wMin, wMax) };
       const path = zoomPath(from, target);
       const flight = fly ? flightTime(path.S) : 0;
       const a = this.rng() * Math.PI * 2;
@@ -23663,7 +23932,7 @@ ${e.message}` : String(e?.message || e));
       c.y += c.vy * dt;
       c.lw += c.vw * dt;
       const [wMin, wMax] = this.io.widths();
-      c.lw = clamp7(c.lw, Math.log(wMin), Math.log(wMax));
+      c.lw = clamp8(c.lw, Math.log(wMin), Math.log(wMax));
       return this.view();
     }
     // Where the shot wants the view now.
@@ -23701,7 +23970,7 @@ ${e.message}` : String(e?.message || e));
       sh.off.y += sh.dy * w * ramp2 * dt;
       sh.wMul *= Math.exp(sh.zr * ramp2 * dt);
       if (base.w * sh.wMul > wMax || base.w * sh.wMul < wMin) sh.zr = -sh.zr * 0.5;
-      return { x: base.x + sh.off.x, y: base.y + sh.off.y, w: clamp7(base.w * sh.wMul, wMin, wMax) };
+      return { x: base.x + sh.off.x, y: base.y + sh.off.y, w: clamp8(base.w * sh.wMul, wMin, wMax) };
     }
     // A scene arriving: which species are in view, most numerous first.
     look(sh) {
@@ -23823,7 +24092,7 @@ ${e.message}` : String(e?.message || e));
       if (!e) return null;
       const [wMin, wMax] = this.io.widths();
       const r = this.rng;
-      const w = clamp7(e.w * lerp2(0.8, 1.25, r()), wMin * 4, wMax);
+      const w = clamp8(e.w * lerp2(0.8, 1.25, r()), wMin * 4, wMax);
       return this.makeShot("event", { x: e.x, y: e.y, w }, {
         hold: lerp2(22, 34, r()),
         drift: lerp2(4e-3, 0.01, r()),
@@ -23841,7 +24110,7 @@ ${e.message}` : String(e?.message || e));
       const [wMin, wMax] = this.io.widths();
       const h = this.hotspot();
       const r = this.rng;
-      const w = clamp7(lerp2(10, 30, r() ** 1.5), wMin * 4, wMax * 0.6);
+      const w = clamp8(lerp2(10, 30, r() ** 1.5), wMin * 4, wMax * 0.6);
       return this.makeShot("scene", { x: h.x, y: h.y, w }, {
         hold: lerp2(20, 36, r()),
         drift: lerp2(6e-3, 0.014, r()),
@@ -23860,7 +24129,7 @@ ${e.message}` : String(e?.message || e));
         const o = i * PICK_WORDS;
         if (u32[o + 4] < FIRST_LIFE) continue;
         const bonded = u32[o + 10] !== NONE || u32[o + 11] !== NONE;
-        const young = clamp7(1 - f32[o + 6] / (this.io.lifespan(u32[o + 4]) || 100), 0.05, 1);
+        const young = clamp8(1 - f32[o + 6] / (this.io.lifespan(u32[o + 4]) || 100), 0.05, 1);
         const s = (bonded ? 2.5 : 1) * young * (0.25 + Math.min(1.5, Math.hypot(f32[o + 2], f32[o + 3]))) * (0.4 + this.rng());
         if (s > bs) {
           bs = s;
@@ -23929,18 +24198,20 @@ ${e.message}` : String(e?.message || e));
   var isCoarse = matchMedia("(pointer: coarse)").matches;
   var throttles = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|Mobile/.test(navigator.userAgent) || isCoarse && !matchMedia("(any-pointer: fine)").matches);
   var NONE2 = 4294967295;
-  var TAU2 = Math.PI * 2;
+  var TAU3 = Math.PI * 2;
   var median = (a) => {
     const s = [...a].sort((x, y) => x - y);
     return s[s.length >> 1];
   };
   var phone = () => innerWidth <= 720;
+  var stopLoader = startLoader($("intro-anim"));
   function fail(title, detail) {
     $("nogpu-title").textContent = title;
     $("nogpu-detail").textContent = detail;
     $("nogpu").hidden = false;
     $("hud").hidden = true;
     $("intro").hidden = true;
+    stopLoader();
     $("spec").hidden = true;
     $("lab").hidden = true;
   }
@@ -24538,8 +24809,8 @@ ${e.message}` : String(e?.message || e));
       $("focus").hidden = !focus.key;
       $("focus-label").textContent = focus.label;
     }
-    function setFocus(key, label2, { pred = null, roleMask = 7, stateMode = 0, matter = [false, false, false, false, false] } = {}) {
-      Object.assign(focus, { key, label: label2, pred, roleMask, stateMode, matter });
+    function setFocus(key, label3, { pred = null, roleMask = 7, stateMode = 0, matter = [false, false, false, false, false] } = {}) {
+      Object.assign(focus, { key, label: label3, pred, roleMask, stateMode, matter });
       pushFocus();
       afterFocus();
     }
@@ -24602,8 +24873,8 @@ ${e.message}` : String(e?.message || e));
       $("maps").hidden = !on.length;
       if (!on.length) return;
       const html = on.length === 1 ? rampHtml(on[0]) : "";
-      const label2 = on.map((m) => m.name).join(" · ");
-      if ($("maps-label").textContent !== label2) $("maps-label").textContent = label2;
+      const label3 = on.map((m) => m.name).join(" · ");
+      if ($("maps-label").textContent !== label3) $("maps-label").textContent = label3;
       if ($("maps-ramp").innerHTML !== html) $("maps-ramp").innerHTML = html;
       $("maps-ramp").hidden = !html;
     }
@@ -24932,7 +25203,7 @@ ${e.message}` : String(e?.message || e));
       ["Silt", 0, MATTER[0].css, "silt", "class:silt"]
     ];
     const mixEl = $("mix");
-    mixEl.innerHTML = `<div class="mix-bar" aria-hidden="true">${MIX.map(([, , col]) => `<i style="background:${col}"></i>`).join("")}</div>` + MIX.map(([label2, , col, tip, key]) => `<button type="button" class="mix-row" data-focus="${key}" aria-pressed="false"><i style="background:${col}"></i><span><span class="term" data-tip="${tip}">${label2}</span></span><b></b><em></em></button>`).join("");
+    mixEl.innerHTML = `<div class="mix-bar" aria-hidden="true">${MIX.map(([, , col]) => `<i style="background:${col}"></i>`).join("")}</div>` + MIX.map(([label3, , col, tip, key]) => `<button type="button" class="mix-row" data-focus="${key}" aria-pressed="false"><i style="background:${col}"></i><span><span class="term" data-tip="${tip}">${label3}</span></span><b></b><em></em></button>`).join("");
     mixEl.addEventListener("click", (e) => {
       const b = e.target.closest("[data-focus]");
       if (b) focusFacet(b.dataset.focus);
@@ -25482,7 +25753,7 @@ ${e.message}` : String(e?.message || e));
       openSpecies,
       focusFacet,
       focusKey: () => focus.key,
-      focusPredicate: (label2, pred) => setFocus(`pred:${label2}`, label2, { pred })
+      focusPredicate: (label3, pred) => setFocus(`pred:${label3}`, label3, { pred })
     });
     $("lab-open").addEventListener("click", () => {
       closeMenus();
@@ -25523,9 +25794,9 @@ ${e.message}` : String(e?.message || e));
       function saveRow(m) {
         const sw = [0, 1, 2, 3].map((i) => `<i${m.cols[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ""}></i>`).join("");
         const a = ask && ask.id === m.id ? ask.kind : null;
-        const line = a === "load" ? "<em>Discard this world?</em>" : a === "del" ? "<em>Delete this save?</em>" : `${fmtDur(m.simTime)} · ${kfmt(m.count)} · ${m.thriving} species · ${when(m.savedAt)}`;
+        const line2 = a === "load" ? "<em>Discard this world?</em>" : a === "del" ? "<em>Delete this save?</em>" : `${fmtDur(m.simTime)} · ${kfmt(m.count)} · ${m.thriving} species · ${when(m.savedAt)}`;
         const acts = a === "load" ? mini("w-no", m.id, "Cancel") + mini("w-first", m.id, "Save first") + mini("w-yes", m.id, wBusy === "load" ? "Loading" : "Load", " hot-btn") : a === "del" ? mini("w-no", m.id, "Cancel") + mini("w-yes", m.id, "Delete", " hot-btn") : mini("w-load", m.id, "Load") + `<button type="button" class="ghost" data-o="w-dl" data-v="${m.id}" aria-label="Download" data-hint="Download a file to open on another device"><svg><use href="#i-down"/></svg></button><button type="button" class="ghost" data-o="w-del" data-v="${m.id}" aria-label="Delete" data-hint="Delete"><svg><use href="#i-close"/></svg></button>`;
-        return `<div class="w-row"><span class="w-sw" aria-hidden="true">${sw}</span><div class="w-txt"><b>${esc(m.name)}</b><span>${line}</span></div><div class="w-act">${acts}</div></div>`;
+        return `<div class="w-row"><span class="w-sw" aria-hidden="true">${sw}</span><div class="w-txt"><b>${esc(m.name)}</b><span>${line2}</span></div><div class="w-act">${acts}</div></div>`;
       }
       function worlds_() {
         const off = wBusy || state.phase !== "running" ? " disabled" : "";
@@ -26218,6 +26489,7 @@ ${e.message}` : String(e?.message || e));
       if (introHidden || state.phase !== "running") return;
       introHidden = true;
       $("intro").classList.add("gone");
+      setTimeout(stopLoader, 1300);
       document.body.classList.add("live");
     }
     function begin() {
@@ -26255,9 +26527,9 @@ ${e.message}` : String(e?.message || e));
     const heatBars = [...$("thermo").querySelectorAll(".bar")], heatBulbs = [...document.querySelectorAll("#g-heat .bulb")], heatLvl = $("thermo-i").querySelector(".lvl");
     $("g-heat").hidden = !K.heat;
     const wave = $("tide-wave");
-    wave.querySelector(".wave").setAttribute("d", Array.from({ length: 31 }, (_, i) => `${i ? "L" : "M"}${i * 2},${(8 - 6 * Math.sin(i / 30 * TAU2)).toFixed(2)}`).join(""));
+    wave.querySelector(".wave").setAttribute("d", Array.from({ length: 31 }, (_, i) => `${i ? "L" : "M"}${i * 2},${(8 - 6 * Math.sin(i / 30 * TAU3)).toFixed(2)}`).join(""));
     const eraTide = $("era-tide");
-    eraTide.querySelector("path").setAttribute("d", Array.from({ length: 61 }, (_, i) => `${i ? "L" : "M"}${i},${(3 - 2.6 * Math.sin(i / 60 * TAU2)).toFixed(2)}`).join(""));
+    eraTide.querySelector("path").setAttribute("d", Array.from({ length: 61 }, (_, i) => `${i ? "L" : "M"}${i},${(3 - 2.6 * Math.sin(i / 60 * TAU3)).toFixed(2)}`).join(""));
     let hudT = 0;
     const setText = (id, v) => {
       const el = $(id);
@@ -26275,9 +26547,9 @@ ${e.message}` : String(e?.message || e));
       const ph = (eng.simTime % 300 + 300) % 300 / 300;
       const dot = wave.querySelector(".dot");
       dot.setAttribute("cx", (ph * 60).toFixed(1));
-      dot.setAttribute("cy", (8 - 6 * Math.sin(ph * TAU2)).toFixed(2));
+      dot.setAttribute("cy", (8 - 6 * Math.sin(ph * TAU3)).toFixed(2));
       eraTide.style.setProperty("--x", ph.toFixed(3));
-      eraTide.style.setProperty("--y", Math.sin(ph * TAU2).toFixed(3));
+      eraTide.style.setProperty("--y", Math.sin(ph * TAU3).toFixed(3));
       setText("tide-v", `${Math.round(eng.season * 100)}%`);
       $("g-tide").setAttribute("aria-label", `Tide ${Math.round(eng.season * 100)}%, ${seasonAt(eng.simTime + 5) >= seasonAt(eng.simTime) ? "rising" : "ebbing"}`);
       $("g-light").setAttribute("aria-label", `Light ${L}%`);
@@ -26515,7 +26787,7 @@ ${e.message}` : String(e?.message || e));
         }
         octx.fillStyle = "rgba(255,255,255,0.95)";
         octx.beginPath();
-        octx.arc(sx, sy, 1.2, 0, TAU2);
+        octx.arc(sx, sy, 1.2, 0, TAU3);
         octx.fill();
         octx.lineCap = "butt";
       }
@@ -26612,12 +26884,12 @@ ${e.message}` : String(e?.message || e));
         octx.strokeStyle = cssCol(g.col);
         octx.globalAlpha = 0.5 * (1 - u) * (1 - u);
         octx.beginPath();
-        octx.arc(sx, sy, R2, 0, TAU2);
+        octx.arc(sx, sy, R2, 0, TAU3);
         octx.stroke();
       }
       octx.globalAlpha = 1;
     }
-    function brackets(g, l, t2, r, b, col, minC = 2.5, frac = 0.16) {
+    function brackets2(g, l, t2, r, b, col, minC = 2.5, frac = 0.16) {
       const m = Math.min(r - l, b - t2);
       const c = Math.min(clamp6(m * frac, minC, 64), (r - l) / 3, (b - t2) / 3);
       const w = 1.25 + 1.25 * clamp6((m - 120) / 480, 0, 1);
@@ -26648,14 +26920,14 @@ ${e.message}` : String(e?.message || e));
         if (!sel.boxD) sel.boxD = sel.box.slice();
         const k = 1 - Math.exp(-dt / 150);
         for (let i = 0; i < 4; i++) sel.boxD[i] += (sel.box[i] - sel.boxD[i]) * k;
-        const p2 = cssPPU(), pad2 = Math.max(6, 0.12 * p2, cr + 6);
-        l = Math.min(l, sx + sel.boxD[0] * p2 - pad2);
-        t2 = Math.min(t2, sy + sel.boxD[1] * p2 - pad2);
-        r = Math.max(r, sx + sel.boxD[2] * p2 + pad2);
-        b = Math.max(b, sy + sel.boxD[3] * p2 + pad2);
+        const p2 = cssPPU(), pad3 = Math.max(6, 0.12 * p2, cr + 6);
+        l = Math.min(l, sx + sel.boxD[0] * p2 - pad3);
+        t2 = Math.min(t2, sy + sel.boxD[1] * p2 - pad3);
+        r = Math.max(r, sx + sel.boxD[2] * p2 + pad3);
+        b = Math.max(b, sy + sel.boxD[3] * p2 + pad3);
       } else sel.boxD = null;
-      brackets(octx, l, t2, r, b, lost ? "rgba(255,255,255,0.35)" : "rgba(255,95,58,0.95)", 10);
-      if (sel.boxD && !lost) brackets(octx, sx - cr, sy - cr, sx + cr, sy + cr, CELL_MARK, 2.5, 0.225);
+      brackets2(octx, l, t2, r, b, lost ? "rgba(255,255,255,0.35)" : "rgba(255,95,58,0.95)", 10);
+      if (sel.boxD && !lost) brackets2(octx, sx - cr, sy - cr, sx + cr, sy + cr, CELL_MARK, 2.5, 0.225);
       if (inLens || lost) return true;
       const p = sel.particle;
       const g = p.kind >= FIRST_LIFE ? genomeFor(p.kind) : null;
@@ -26663,9 +26935,9 @@ ${e.message}` : String(e?.message || e));
       const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : p.kind === 3 ? stoneGrain(p.id, p.info).name : p.kind < FIRST_LIFE ? MATTER[p.kind].name : "";
       if (!name) return true;
       octx.font = "500 11px Saira, system-ui, sans-serif";
-      const label2 = name.toUpperCase();
+      const label3 = name.toUpperCase();
       octx.letterSpacing = "1.5px";
-      const tw = octx.measureText(label2).width;
+      const tw = octx.measureText(label3).width;
       const lo = lab.isOpen() && !phone() ? $("lab").getBoundingClientRect().right : 0;
       const hi = innerWidth - specimen.inset().right;
       const left = r + 38 + tw > hi - 8 && l - 38 - tw >= lo + 8;
@@ -26681,7 +26953,7 @@ ${e.message}` : String(e?.message || e));
       octx.fillStyle = "rgba(6,9,10,0.7)";
       octx.fillRect(tx - 4, ey - 9, tw + 8, 16);
       octx.fillStyle = "rgba(226,241,240,0.95)";
-      octx.fillText(label2, tx, ey + 3.5);
+      octx.fillText(label3, tx, ey + 3.5);
       octx.letterSpacing = "0px";
       return true;
     }

@@ -784,6 +784,8 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .intro.gone { opacity: 0; pointer-events: none; }
 .intro-in { display: flex; flex-direction: column; align-items: center; gap: 18px; text-align: center; max-width: 640px; }
 .intro h1 { font-size: clamp(30px, 8vw, 84px); font-weight: 200; letter-spacing: .34em; margin-right: -.34em; text-transform: uppercase; font-stretch: 125%; line-height: 1; }
+.intro-anim { width: min(560px, 88vw); height: clamp(150px, 26vh, 200px); display: block; }
+@media (max-height: 460px) { .intro-anim { display: none; } }
 .intro-rule { width: min(520px, 80vw); height: 9px; position: relative; border-left: 1px solid var(--line-2); border-right: 1px solid var(--line-2); }
 .intro-rule::before { content: ''; position: absolute; left: 0; right: 0; top: 4px; height: 1px; background: var(--line); }
 .intro-rule i { position: absolute; left: 0; top: 3px; height: 3px; width: 0; background: var(--cyan); transition: width .8s ease; }
