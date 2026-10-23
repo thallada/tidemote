@@ -69,7 +69,7 @@ class Engine {
     // the pool (docs/catastrophes.md), set by the climate: the water level (a quantile of the floor's relief; 1: all
     // wet), rain (0..1), the sky (light ×), how fast it is drying (0..1), the currents' strength, a floating leaf
     // (centre, length, darkness; angle, seed, width) and up to four raindrops' ring waves (centre, time, strength)
-    this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0;
+    this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.mudRain = 0;
     this.leaf = new Float32Array(8); this.drops = new Float32Array(16);
     this.relief = null;
     this.rock = new Float32Array(4);
@@ -657,7 +657,7 @@ class Engine {
     this.floor = null;
     d.queue.writeBuffer(this.b.thermal, 3 * MAX_CELLS * 4, this.relief);
     d.queue.writeBuffer(this.b.thermal, 4 * MAX_CELLS * 4, (this.iceOrder = makeIceOrder(this.grid[0], this.grid[1], this.seedValue, this.relief)));
-    this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.leaf.fill(0); this.drops.fill(0);
+    this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.mudRain = 0; this.leaf.fill(0); this.drops.fill(0);
     const enc = d.createCommandEncoder();
     enc.clearBuffer(this.b.thermal, 0, cells * 4);
     enc.clearBuffer(this.b.counts);
@@ -1606,7 +1606,7 @@ class Engine {
     pd[52] = tbg; pd[53] = tbg - 2; pd[54] = tbg + 10;
     pd[55] = this.settings.bands;
     pd[56] = this.K.pond ? this.level : 1; pd[57] = this.rain; pd[58] = this.sky; pd[59] = this.evap;
-    pd[60] = this.turb; pd[61] = this.K.pond ? this.frost : 0; pd[62] = this.freezing; pd[63] = 0;
+    pd[60] = this.turb; pd[61] = this.K.pond ? this.frost : 0; pd[62] = this.freezing; pd[63] = this.K.pond ? this.mudRain : 0;
     pd.set(this.leaf, 64);
     pd.set(this.drops, 72);
     d.queue.writeBuffer(this.b.post, 0, pd);

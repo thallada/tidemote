@@ -70,6 +70,11 @@ whole pool is a millimetre or two across and everything is drawn at that scale (
   opening first, then finer cracks through the driest plates. The cracks are dark gaps, nothing in them to scatter;
   each plate's broken rim is bright and curls up, its middle sagging a shade darker. Tide lines of fine matter lie
   along the floor's contours where the edge paused (a coffee ring), cut by the cracks.
+- **Rain on the mud** (`mudDrops`, the post uniform's `weather.w`: seconds since a drought's rain began): each drop
+  lands as a low bead of water, its rim bright and uneven, and sinks in within a second, leaving a dark wet stain
+  that creeps outward as the mud wicks the water in, its front darkest. Small drops (radius 12–35 µm) and larger
+  ones (40–100 µm) arrive at random, more each second, and their stains merge until the mud is dark and wet before
+  the water returns over it. Drawn only: the cells on the mud wake as before, when the water reaches them.
 - **The water's edge**: an uneven bright contact line (the meniscus pins and slips on grains), its width and
   brightness varying along it, the curved surface rising to it scattering a narrowing glow on the water's side.
 - **Rain** (`ripples`): the surface lies above the focal plane, so its waves are never sharp in themselves; they

@@ -1062,7 +1062,8 @@ struct Sim {
   // the pool (docs/catastrophes.md): x the water level (a relief quantile; at 1 or above nothing is dry), y rain
   // (0..1), z the sky (light ×: clouds), w how fast the water is drying (0..1)
   pond: vec4f,
-  // x the currents' strength ×; y frost (the share of the pool frozen); z how fast the ice is growing (0..1); w spare
+  // x the currents' strength ×; y frost (the share of the pool frozen); z how fast the ice is growing (0..1);
+  // w seconds since a drought's rain began (0: none; raindrops wetting the mud, drawn only)
   weather: vec4f,
   // a floating leaf's shadow: centre, radius, darkness (0: none); angle, shape seed, elongation, spare
   leaf: vec4f,
@@ -6264,6 +6265,39 @@ fn dryGround(wp: vec2f, away: f32, rel: vec3f, ppu: f32) -> vec3f {
   let floorc = c * 0.2 + g2.xyz * g2.w * 0.015;
   return mix(plate, floorc, gap * open);
 }
+// Rain on the dry mud as a drought ends: each drop lands as a bead of water, its meniscus a bright ring, sinks in
+// within a second or two and leaves a dark wet stain that spreads as the mud draws the water in, its front darkest;
+// the stains gather and merge until the mud is wet all over before the water returns. One layer of drops in cells of
+// S units (radius rmin..rmax, arrivals at a mean interval of tau s per cell); t is the seconds since the rain began.
+// x how wet, y the wetting front, z a bead's rim.
+fn mudDrops(wp: vec2f, t: f32, S: f32, rmin: f32, rmax: f32, tau: f32, seed: f32) -> vec3f {
+  var o = vec3f(0.0);
+  let cell = floor(wp / S);
+  for (var j = -1; j <= 1; j++) {
+    for (var i = -1; i <= 1; i++) {
+      let id = cell + vec2f(f32(i), f32(j));
+      for (var k = 0; k < 3; k++) {
+        let h = id + vec2f(seed + f32(k) * 7.31, f32(k) * 3.17);
+        let age = t + tau * log(max(hash12(h), 1e-4)) * (1.0 + f32(k));
+        if (age <= 0.0) { continue; }
+        let r0 = mix(rmin, rmax, pow(hash12(h + 1.7), 2.0));
+        let d = wp - (id + vec2f(hash12(h + 2.9), hash12(h + 4.3))) * S;
+        // the bead spreads a little, then the stain creeps out as the mud wicks the water in; ragged where it meets
+        // drier or more open grains
+        let R = r0 * (1.0 + 0.5 * (1.0 - exp(-age / 7.0)));
+        let rr = length(d) / R * (1.0 + 0.22 * (vnoise(d / r0 * 1.8 + h * 13.0) - 0.5) + 0.08 * (vnoise(d / r0 * 6.0 + h) - 0.5));
+        o.x = max(o.x, (1.0 - smoothstep(0.85, 1.0, rr)) * smoothstep(0.0, 1.2, age));
+        o.y = max(o.y, smoothstep(0.55, 0.95, rr) * (1.0 - smoothstep(0.95, 1.02, rr)) * smoothstep(0.5, 2.0, age));
+        // the bead: a low dome of water, its rim bright and uneven where the meniscus pins on grains, its middle a
+        // faint lens, gone as it sinks in
+        let rb = length(d) / (r0 * (1.0 + 0.1 * age)) * (1.0 + 0.1 * (vnoise(d / r0 * 2.0 + h * 5.0) - 0.5));
+        let along = 0.35 + 0.9 * vnoise(d / max(length(d), 1e-3) * 2.5 + h * 3.0);
+        o.z = max(o.z, (exp(-pow((rb - 0.97) / 0.06, 2.0)) * along + 0.12 * (1.0 - smoothstep(0.7, 0.97, rb))) * exp(-age / 0.45));
+      }
+    }
+  }
+  return o;
+}
 // The surface of the water, seen through. It lies above the focal plane, so its waves are never sharp in
 // themselves; they show only by bending what lies beneath (a slope displaces the view). A raindrop's impact sends out capillary
 // waves, which disperse: the short ones run fastest, so a ring is a packet whose crests crowd toward its leading edge
@@ -6445,7 +6479,18 @@ fn heatRamp(u: f32) -> vec3f {
     let px = 1.0 / post.ppu;
     let dry = 1.0 - smoothstep(-px, px, sd);
     wet *= smoothstep(0.0, 0.4, sd);
-    if (dry > 0.0) { c += dryGround(wp, max(-sd, 0.0), vec3f(post.pond.x - pd.x, pd.yz), post.ppu) * dry * behind * mix(1.0, 0.8, k); }
+    if (dry > 0.0) {
+      var mud = dryGround(wp, max(-sd, 0.0), vec3f(post.pond.x - pd.x, pd.yz), post.ppu);
+      // the drought's rain: wet mud is darker, its front darker still; a fresh bead shines at its rim
+      if (post.weather.w > 0.0) {
+        let a = mudDrops(wp, post.weather.w, 6.0, 1.2, 3.5, 75.0, 0.0);
+        let b = mudDrops(wp, post.weather.w, 18.0, 4.0, 10.0, 130.0, 51.0);
+        let wetM = max(a.x, b.x);
+        mud *= mix(vec3f(1.0), vec3f(0.36, 0.38, 0.42), wetM) * (1.0 - 0.3 * max(a.y, b.y));
+        mud += vec3f(0.012, 0.013, 0.014) * wetM * pow(vnoise(wp * 2.3), 8.0) + vec3f(0.14, 0.15, 0.16) * max(a.z, b.z);
+      }
+      c += mud * dry * behind * mix(1.0, 0.8, k);
+    }
     // the meniscus: a thin bright contact line, uneven along its length (it pins and slips on the grains), and on
     // the water's side the curved surface rising to it, scattering a narrowing glow
     let along = pow(0.25 + 0.75 * vnoise(wp * 0.9) + 0.3 * (vnoise(wp * 5.3 + 2.0) - 0.5), 2.0) * 1.3;

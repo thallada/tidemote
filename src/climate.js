@@ -138,6 +138,9 @@ export function createClimate(eng, rng = Math.random) {
     eng.level = ev && t >= ev.t ? e.level : eng.level + (climate.levelTo - eng.level) * Math.min(1, dt / 120);
     eng.rain = e.rain; eng.sky = e.sky; eng.evap = e.evap; eng.turb = e.turb; eng.frost = e.frost; eng.freezing = e.freezing;
     climate.eventTemp = e.dT; climate.eventChill = e.chill;
+    // the seconds since a drought's rain began (raindrops wetting its mud), 0 outside one
+    const rainAt = ev?.type === 'drought' ? ev.t + ev.fall + ev.hold : Infinity;
+    eng.mudRain = t >= rainAt ? t - rainAt : 0;
     if (e.leaf) eng.leaf.set(e.leaf); else eng.leaf.fill(0);
     // raindrops: each a ring wave from where it fell, about one a second in full rain, four at a time at most
     if (e.rain > 0 && rng() < e.rain * 1.2 * (K.rainDrops ?? 1) * dt) {
