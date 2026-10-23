@@ -12,6 +12,9 @@ const C = {
 const KINDS = [['#cfe86a', 'photosynth', 'photo'], ['#7fd6df', 'grazer', 'grazer'], ['#ff8a6a', 'predator', 'pred'], ['#c3a2f0', 'scavenger', 'scav']];
 const TAU = Math.PI * 2;
 const SWEEP = 1.2; // radians of afterglow behind the sweep
+// how the cells move: force to velocity (per second), velocity kept per frame, the most force a cell's
+// neighbours add up to (a crowded colony otherwise kicks), and the fastest a cell goes (px a frame)
+const GAIN = 10, DAMP = 0.88, FMAX = 0.7, VMAX = 1.6;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const pad = (n, w) => String(Math.max(0, Math.round(n))).padStart(w, '0');
 
@@ -39,7 +42,7 @@ function brackets(ctx, x, y, w, h, len, color) {
   ctx.stroke();
 }
 
-function reticle(W, H, ctx) {
+export function reticle(W, H, ctx) {
   // The lens is centred with readouts either side. Narrow screens (phones) stack them a word to a line,
   // in columns as wide as their longest, and the lens gives up what room they still lack.
   const wide = W >= 2 * (H / 2 - 16) + 220;
@@ -51,11 +54,19 @@ function reticle(W, H, ctx) {
   const rnd = rng((Math.random() * 2 ** 32) >>> 0);
   const T = KINDS.length;
   // kin cling (colonies); other kinds are drawn more weakly, or pushed away, so colonies keep their kind
-  const KIN = [0.5, 1], OTHER = [-1, 0.35];
+  const KIN = [0.5, 1], OTHER = [-0.6, 0.2];
+  // and mostly alike both ways (MUTUAL): one kind drawn to another that flees it sets colonies chasing
+  // each other across the lens
+  const MUTUAL = 0.6;
   const M = Array.from({ length: T }, (_, a) => Array.from({ length: T }, (_, b) => {
     const [lo, hi] = a === b ? KIN : OTHER;
     return lo + rnd() * (hi - lo);
   }));
+  for (let a = 0; a < T; a++) for (let b = 0; b < a; b++) {
+    const m = (M[a][b] + M[b][a]) / 2;
+    M[a][b] += (m - M[a][b]) * MUTUAL; M[b][a] += (m - M[b][a]) * MUTUAL;
+  }
+  const Mt = M.map((r) => [...r]);
   const P = Array.from({ length: 120 }, (_, i) => {
     const a = rnd() * TAU, r = Math.sqrt(rnd()) * R * 0.9;
     return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, vx: 0, vy: 0, t: i % T };
@@ -75,26 +86,35 @@ function reticle(W, H, ctx) {
         const f = x < 0.25 ? x / 0.25 - 1 : M[p.t][q.t] * (1 - Math.abs(2 * x - 1.25) / 0.75);
         fx += (dx / d) * f; fy += (dy / d) * f;
       }
+      const fm = Math.hypot(fx, fy);
+      if (fm > FMAX) { fx *= FMAX / fm; fy *= FMAX / fm; }
       const dx = p.x - cx, dy = p.y - cy, d = Math.hypot(dx, dy);
       // the lens holds them: a wall that stiffens past its edge
       if (d > R * 0.8) { const k = (d - R * 0.8) / (R * 0.1); fx -= (dx / d) * k * k * 2; fy -= (dy / d) * k * k * 2; }
       // a slow current around the field
-      fx += (-dy / R) * 0.25; fy += (dx / R) * 0.25;
-      p.vx = p.vx * 0.86 + fx * 16 * dt; p.vy = p.vy * 0.86 + fy * 16 * dt;
+      fx += (-dy / R) * 0.2; fy += (dx / R) * 0.2;
+      p.vx = p.vx * DAMP + fx * GAIN * dt; p.vy = p.vy * DAMP + fy * GAIN * dt;
+      const v = Math.hypot(p.vx, p.vy);
+      if (v > VMAX) { p.vx *= VMAX / v; p.vy *= VMAX / v; }
     }
+    // the rules ease toward their mutated values rather than jump
+    for (let a = 0; a < T; a++) for (let b = 0; b < T; b++) M[a][b] += (Mt[a][b] - M[a][b]) * Math.min(1, dt * 0.6);
     for (const p of P) {
       p.x += p.vx; p.y += p.vy;
       const dx = p.x - cx, dy = p.y - cy, d = Math.hypot(dx, dy), max = R * 0.94;
       if (d > max) { p.x = cx + (dx / d) * max; p.y = cy + (dy / d) * max; p.vx *= 0.5; p.vy *= 0.5; }
     }
   };
-  return (ctx, t, dt) => {
+  // (cells: for tools that measure how it moves)
+  return Object.assign((ctx, t, dt) => {
     step(Math.min(dt, 0.05));
     // now and then the rules mutate a little, so colonies keep re-forming
     if (t - mutAt > 2.5) {
       mutAt = t;
       const a = Math.floor(rnd() * T), b = Math.floor(rnd() * T), [lo, hi] = a === b ? KIN : OTHER;
-      M[a][b] = clamp(M[a][b] + (rnd() - 0.5) * 0.8, lo, hi);
+      const dm = (rnd() - 0.5) * 0.6;
+      Mt[a][b] = clamp(Mt[a][b] + dm, lo, hi);
+      if (a !== b) Mt[b][a] = clamp(Mt[b][a] + dm * MUTUAL, lo, hi);
     }
     // the lens, its sweep and afterglow
     const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
@@ -171,7 +191,7 @@ function reticle(W, H, ctx) {
     label(ctx, `n ${P.length}`, lx, ry + 14, { align: 'right' });
     label(ctx, `${(14.6 + Math.sin(t * 0.3) * 0.4).toFixed(1)}°`, lx, ry + 28, { align: 'right' });
     label(ctx, `lux ${pad(18 + Math.sin(t * 0.2) * 3, 2)}%`, lx, ry + 42, { align: 'right' });
-  };
+  }, { cells: P });
 }
 
 /** Starts the animation on canvas; returns stop(). Reduced motion: one still frame, a few seconds in. */

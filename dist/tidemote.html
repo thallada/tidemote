@@ -23339,6 +23339,10 @@ ${e.message}` : String(e?.message || e));
   var KINDS = [["#cfe86a", "photosynth", "photo"], ["#7fd6df", "grazer", "grazer"], ["#ff8a6a", "predator", "pred"], ["#c3a2f0", "scavenger", "scav"]];
   var TAU2 = Math.PI * 2;
   var SWEEP = 1.2;
+  var GAIN = 10;
+  var DAMP = 0.88;
+  var FMAX = 0.7;
+  var VMAX = 1.6;
   var clamp7 = (x, a, b) => Math.max(a, Math.min(b, x));
   var pad2 = (n, w) => String(Math.max(0, Math.round(n))).padStart(w, "0");
   function rng(seed) {
@@ -23391,11 +23395,18 @@ ${e.message}` : String(e?.message || e));
     const cx = W / 2, cy = H2 / 2;
     const rnd = rng(Math.random() * 2 ** 32 >>> 0);
     const T = KINDS.length;
-    const KIN = [0.5, 1], OTHER2 = [-1, 0.35];
+    const KIN = [0.5, 1], OTHER2 = [-0.6, 0.2];
+    const MUTUAL = 0.6;
     const M = Array.from({ length: T }, (_, a) => Array.from({ length: T }, (_2, b) => {
       const [lo, hi] = a === b ? KIN : OTHER2;
       return lo + rnd() * (hi - lo);
     }));
+    for (let a = 0; a < T; a++) for (let b = 0; b < a; b++) {
+      const m = (M[a][b] + M[b][a]) / 2;
+      M[a][b] += (m - M[a][b]) * MUTUAL;
+      M[b][a] += (m - M[b][a]) * MUTUAL;
+    }
+    const Mt = M.map((r) => [...r]);
     const P = Array.from({ length: 120 }, (_, i) => {
       const a = rnd() * TAU2, r = Math.sqrt(rnd()) * R2 * 0.9;
       return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, vx: 0, vy: 0, t: i % T };
@@ -23415,17 +23426,28 @@ ${e.message}` : String(e?.message || e));
           fx += dx2 / d2 * f2;
           fy += dy2 / d2 * f2;
         }
+        const fm = Math.hypot(fx, fy);
+        if (fm > FMAX) {
+          fx *= FMAX / fm;
+          fy *= FMAX / fm;
+        }
         const dx = p.x - cx, dy = p.y - cy, d = Math.hypot(dx, dy);
         if (d > R2 * 0.8) {
           const k = (d - R2 * 0.8) / (R2 * 0.1);
           fx -= dx / d * k * k * 2;
           fy -= dy / d * k * k * 2;
         }
-        fx += -dy / R2 * 0.25;
-        fy += dx / R2 * 0.25;
-        p.vx = p.vx * 0.86 + fx * 16 * dt;
-        p.vy = p.vy * 0.86 + fy * 16 * dt;
+        fx += -dy / R2 * 0.2;
+        fy += dx / R2 * 0.2;
+        p.vx = p.vx * DAMP + fx * GAIN * dt;
+        p.vy = p.vy * DAMP + fy * GAIN * dt;
+        const v = Math.hypot(p.vx, p.vy);
+        if (v > VMAX) {
+          p.vx *= VMAX / v;
+          p.vy *= VMAX / v;
+        }
       }
+      for (let a = 0; a < T; a++) for (let b = 0; b < T; b++) M[a][b] += (Mt[a][b] - M[a][b]) * Math.min(1, dt * 0.6);
       for (const p of P) {
         p.x += p.vx;
         p.y += p.vy;
@@ -23438,12 +23460,14 @@ ${e.message}` : String(e?.message || e));
         }
       }
     };
-    return (ctx2, t2, dt) => {
+    return Object.assign((ctx2, t2, dt) => {
       step(Math.min(dt, 0.05));
       if (t2 - mutAt > 2.5) {
         mutAt = t2;
         const a = Math.floor(rnd() * T), b = Math.floor(rnd() * T), [lo, hi] = a === b ? KIN : OTHER2;
-        M[a][b] = clamp7(M[a][b] + (rnd() - 0.5) * 0.8, lo, hi);
+        const dm = (rnd() - 0.5) * 0.6;
+        Mt[a][b] = clamp7(Mt[a][b] + dm, lo, hi);
+        if (a !== b) Mt[b][a] = clamp7(Mt[b][a] + dm * MUTUAL, lo, hi);
       }
       const g = ctx2.createRadialGradient(cx, cy, 0, cx, cy, R2);
       g.addColorStop(0, "rgba(127, 214, 223, 0.05)");
@@ -23558,7 +23582,7 @@ ${e.message}` : String(e?.message || e));
       label2(ctx2, `n ${P.length}`, lx, ry + 14, { align: "right" });
       label2(ctx2, `${(14.6 + Math.sin(t2 * 0.3) * 0.4).toFixed(1)}°`, lx, ry + 28, { align: "right" });
       label2(ctx2, `lux ${pad2(18 + Math.sin(t2 * 0.2) * 3, 2)}%`, lx, ry + 42, { align: "right" });
-    };
+    }, { cells: P });
   }
   function startLoader(canvas2) {
     const ctx = canvas2?.getContext("2d", { willReadFrequently: true });
