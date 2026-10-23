@@ -165,10 +165,10 @@ export const GUIDE = [
   },
   {
     id: 'pool', title: 'The pool and its events', short: 'Pool',
-    html: `<p>The world is a shallow pool under a microscope, a millimetre or two across. Its floor has relief: some eras the water stands low and the highest ground shows as islands and sandbars. Now and then, about once an hour of world time, the pool suffers an ${t('poolevents', 'event')}, announced in the log and on screen:</p>
+    html: `<p>The world is a shallow pool under a microscope, a few millimetres to a couple of centimetres across. Its floor has relief: some eras the water stands low and the highest ground shows as islands and sandbars. Now and then, about once an hour of world time, the pool suffers an ${t('poolevents', 'event')}, announced in the log and on screen:</p>
 <ul>
 <li><b>${t('evdrought', 'Drought')}.</b> The water falls until much of the floor lies dry and the pool parts into separate pools. The receding edge sweeps cells along and piles them at the waterline; the mud pales and cracks into plates as it dries. Then rain falls, staining the mud dark drop by drop until it is wet all over, refills the pool, and the resting cells hatch.</li>
-<li><b>${t('evstorm', 'Storm')}.</b> Cold rain under cloud. Raindrops ring the surface (seen as rings and a moving web of light on the floor) and shove the water and what floats in it.</li>
+<li><b>${t('evstorm', 'Storm')}.</b> Cold rain under cloud. Raindrops ring the surface, their ripples bending the view of what lies beneath, and shove the water and what floats in it.</li>
 <li><b>${t('evduckweed', 'Duckweed')}.</b> A few fronds of duckweed float out of focus far above, a mother and the daughters budding from it, drifting slowly and shading the water under them. Each hangs a root down through the water, blurred near its frond and sharp at its tip.</li>
 <li><b>${t('evfrost', 'Frost')}.</b> A cold night chills the water to near 0° and ice grows over the pool as a mass of small crystals, from the shallows and from scattered seeds, pushing cells into the veins of water between them; then it thaws.</li>
 </ul>

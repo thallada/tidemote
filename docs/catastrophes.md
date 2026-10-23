@@ -118,7 +118,7 @@ drought leaves (`countPools`), and tallies life and species lost once it has pas
 its shots to an event while it lasts (`eventShot`): a stretch of shore, the duckweed, the last raindrop.
 
 `tools/shot.mjs` photographs the built page through an event (`--eval 'T.climate().force("drought")' --at shore`;
-`--clip` records it). `tools/looklab.mjs` grows one world and then swaps in each new composite shader as it is
+`--clip` records it). `tools/looklab.mjs` (both open the page through `tools/pagelab.mjs`) grows one world and then swaps in each new composite shader as it is
 written, photographing staged scenes (a water level, ice, raindrops of given ages) or live ones, so the looks can be
 tuned in seconds rather than a world's growth each time;
 `tools/events.mjs` aligns runs on their first event and reports diversity, life and guilds at minutes from it.
@@ -199,7 +199,7 @@ defaults (full darkness) had lost predators in 4 of 12 runs; with the milder clo
 
 The first look (bright crisp ripple lines, bright cracks, feathers along the front's normal) read as drawn; the
 second pass (`tools/looklab.mjs`) rebuilt each from what darkfield shows at this scale: cracks as dark gaps, drying
-as paling, rain as defocused caustics rather than lines, ice as dendrites on crystal axes and a grain mosaic. The
+as paling, rain as defocused caustics rather than lines (later dropped: they lit the mud and ice too; the ripples show alone), ice as dendrites on crystal axes and a grain mosaic. The
 edge's slope is read smoothly across grid cells (a slope constant within each cell had lined the grains an ice front
 pushes up along the grid); rings fade before they meet their own copy across the world's wrap. The looks cost at
 most about 0.35 ms a frame at 1280×800 on a desktop GPU, and only while an event shows them.

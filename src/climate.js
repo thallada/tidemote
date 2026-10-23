@@ -1,4 +1,6 @@
 // CPU climate rules shared by the page and headless simulation.
+import { DEFAULT_K } from './shaders.js';
+
 export const seasonAt = (t) => 0.55 + 0.45 * Math.sin((t / 300) * Math.PI * 2);
 const climateMix = (a, b, t) => a + (b - a) * t;
 const climatePick = (r, a) => a[Math.floor(r() * a.length)];
@@ -32,7 +34,7 @@ export function eventAt(ev, t, levelTo) {
   if (!ev || t < ev.t) return out;
   const u = t - ev.t;
   // how cold, dark and rough its rain is (rainCold, rainDark, rainTurb: multiples of the defaults)
-  const cold = ev.rainCold ?? 1, dark = ev.rainDark ?? 1, rough = ev.rainTurb ?? 1;
+  const cold = ev.rainCold, dark = ev.rainDark, rough = ev.rainTurb;
   if (ev.type === 'drought') {
     const { fall, hold, refill } = ev, low = ev.low;
     if (u < fall) {
@@ -59,7 +61,7 @@ export function eventAt(ev, t, levelTo) {
     // night falls and the water chills; ice grows from the shallows and grain centres, holds, then thaws
     const { cool, grow, hold, thaw } = ev;
     const night = Math.min(ramp(u, 0, cool), 1 - ramp(u, cool + grow + hold, cool + grow + hold + thaw + 120));
-    out.sky = 1 - 0.6 * (ev.dark ?? 1) * night; out.chill = (ev.cold ?? 1) * night;
+    out.sky = 1 - 0.6 * ev.dark * night; out.chill = ev.cold * night;
     if (u < cool) out.phase = 'cooling';
     else if (u < cool + grow) { const v = (u - cool) / grow; out.frost = ev.max * ease(v); out.freezing = Math.sin(Math.PI * v); out.phase = 'freezing'; }
     else if (u < cool + grow + hold) { out.frost = ev.max; out.phase = 'frozen'; }
@@ -75,16 +77,16 @@ export function eventAt(ev, t, levelTo) {
   return out;
 }
 
-/** A drawn event of `type` starting at t (sizes relative to a world of w × h units; ranges from K, DEFAULT_K's). */
-export function makeEvent(type, t, rng, w, h, K = {}) {
-  const pick = (r, d) => climateMix(...(r || d), rng());
-  const rain = { rainCold: K.rainCold ?? 1, rainDark: K.rainDark ?? 0.35, rainTurb: K.rainTurb ?? 1 };
-  if (type === 'drought') return { type, t, fall: pick(K.droughtFall, [300, 480]), hold: pick(K.droughtHold, [150, 300]), refill: pick(K.droughtRefill, [90, 150]), low: pick(K.droughtLow, [0.35, 0.6]), ...rain };
-  if (type === 'storm') return { type, t, dur: pick(K.stormDur, [240, 420]), ...rain };
-  if (type === 'frost') return { type, t, cool: 90, grow: pick(K.frostGrow, [150, 270]), hold: pick(K.frostHold, [120, 240]), thaw: pick(K.frostThaw, [100, 160]), max: pick(K.frostMax, [0.6, 0.85]), cold: K.frostCold ?? 1, dark: K.frostDark ?? 0.35 };
+/** A drawn event of `type` starting at t (sizes relative to a world of w × h units; ranges from K). */
+export function makeEvent(type, t, rng, w, h, K = DEFAULT_K) {
+  const pick = (r) => climateMix(...r, rng());
+  const rain = { rainCold: K.rainCold, rainDark: K.rainDark, rainTurb: K.rainTurb };
+  if (type === 'drought') return { type, t, fall: pick(K.droughtFall), hold: pick(K.droughtHold), refill: pick(K.droughtRefill), low: pick(K.droughtLow), ...rain };
+  if (type === 'storm') return { type, t, dur: pick(K.stormDur), ...rain };
+  if (type === 'frost') return { type, t, cool: 90, grow: pick(K.frostGrow), hold: pick(K.frostHold), thaw: pick(K.frostThaw), max: pick(K.frostMax), cold: K.frostCold, dark: K.frostDark };
   // duckweed: a mother frond (len: half its length) and one to three daughters budding from its node
-  const len = pick(K.duckLen, [0.12, 0.2]) * Math.min(w, h), a = rng() * Math.PI * 2, sp = climateMix(0.01, 0.04, rng());
-  return { type, t, dur: pick(K.duckDur, [420, 720]), x: rng() * w, y: rng() * h, len, dark: pick(K.duckDark, [0.75, 0.92]),
+  const len = pick(K.duckLen) * Math.min(w, h), a = rng() * Math.PI * 2, sp = climateMix(0.01, 0.04, rng());
+  return { type, t, dur: pick(K.duckDur), x: rng() * w, y: rng() * h, len, dark: pick(K.duckDark),
     angle: rng() * Math.PI * 2, spin: (rng() - 0.5) * 0.004, seed: rng() * 100, width: climateMix(0.55, 0.72, rng()), buds: 1 + Math.floor(rng() * 3),
     vx: Math.cos(a) * sp, vy: Math.sin(a) * sp };
 }
@@ -95,10 +97,10 @@ export const eventSpan = (ev) => (ev.type === 'drought' ? ev.fall + ev.hold + ev
 export function createClimate(eng, rng = Math.random) {
   // allowed: the event types the climate may draw (the page's Settings → Climate), all of them by default
   const climate = { tick, reset, onEra: null, onExcursion: null, onEvent: null, force, allowed: new Set(EVENT_TYPES) };
-  const K = eng.K || {};
+  const K = { ...DEFAULT_K, ...eng.K };
   const plan = () => String(K.eventPlan || '').split(',').filter(Boolean).map((x) => { const [type, at] = x.split('@'); return { type, at: +at }; });
   // the first event comes no sooner than eventFirst minutes, then one about every eventEvery (0: none)
-  const gap = () => climateMix(0.5, 1.5, rng()) * (K.eventEvery ?? 60) * 60;
+  const gap = () => climateMix(0.5, 1.5, rng()) * K.eventEvery * 60;
   function reset() {
     Object.assign(climate, {
       name: 'The First Tides', started: 0, next: climateMix(600, 900, rng()),
@@ -107,7 +109,7 @@ export function createClimate(eng, rng = Math.random) {
       flow: null, index: 1,
       history: [{ t: 0, name: 'The First Tides', ambient: eng.ambient, temp: eng.temp }],
       levelTo: 1, event: null, events: [], phase: null, plan: plan(),
-      nextEvent: (K.eventEvery ?? 60) > 0 && !K.eventPlan ? (K.eventFirst ?? 25) * 60 + gap() * 0.5 : Infinity,
+      nextEvent: K.eventEvery > 0 && !K.eventPlan ? K.eventFirst * 60 + gap() * 0.5 : Infinity,
     });
   }
   /** Start an event of `type` now (or in `delay` s), as the climate would (the page's tools and tests). */
@@ -124,7 +126,7 @@ export function createClimate(eng, rng = Math.random) {
     if (climate.event && !climate.allowed.has(climate.event.type) && !climate.plan.length) climate.event = null;
     if (t >= climate.nextEvent && !climate.event && !EVENT_TYPES.some((x) => climate.allowed.has(x))) climate.nextEvent = t + gap();
     if (t >= climate.nextEvent && !climate.event) {
-      const w = (K.eventMix || [0.35, 0.2, 0.2, 0.25]).map((x, i) => (climate.allowed.has(EVENT_TYPES[i]) ? x : 0));
+      const w = K.eventMix.map((x, i) => (climate.allowed.has(EVENT_TYPES[i]) ? x : 0));
       let r = rng() * w.reduce((a, b) => a + b, 0), k = 0;
       while (k < w.length - 1 && r >= w[k]) { r -= w[k]; k++; }
       force(EVENT_TYPES[k]);
@@ -145,7 +147,7 @@ export function createClimate(eng, rng = Math.random) {
     eng.mudRain = t >= rainAt ? t - rainAt : 0;
     if (e.duck) eng.duck.set(e.duck); else eng.duck.fill(0);
     // raindrops: each a ring wave from where it fell, about one a second in full rain, four at a time at most
-    if (e.rain > 0 && rng() < e.rain * 1.2 * (K.rainDrops ?? 1) * dt) {
+    if (e.rain > 0 && rng() < e.rain * 1.2 * K.rainDrops * dt) {
       const k = climate.dropSlot = ((climate.dropSlot ?? -1) + 1) % 4;
       eng.drops.set([rng() * eng.grid[0], rng() * eng.grid[1], t, climateMix(1.0, 3.0, rng())], k * 4);
     }
@@ -180,9 +182,9 @@ export function createClimate(eng, rng = Math.random) {
       dT: (r() < 0.5 ? -1 : 1) * climateMix(5, 8, r()), dur: climateMix(120, 240, r()),
     } : null;
     // the pool's floor shows in some eras: low water leaves sandbars and islands (moving geography)
-    climate.levelTo = r() < (K.lowEras ?? 0.35) ? climateMix(0.88, 0.98, r()) : 1;
+    climate.levelTo = r() < K.lowEras ? climateMix(0.88, 0.98, r()) : 1;
     // and the floor itself shifts a little as sediment moves, so each low water shows new bars and islands
-    if (K.pond ?? 1) eng.shiftFloor?.(climate.index, K.floorDrift ?? 0.3);
+    if (K.pond) eng.shiftFloor?.(climate.index, K.floorDrift);
     climate.history.push({ t, name: climate.name, ambient: climate.ambientTo, temp: climate.tempTo, level: climate.levelTo });
     climate.onEra?.(climate.history.at(-1), prevAmb, prevTemp);
   }
@@ -193,7 +195,7 @@ export function createClimate(eng, rng = Math.random) {
     // the water changes slowly (about three minutes), so life can follow it
     eng.temp += (climate.tempTo - eng.temp) * Math.min(1, dt / 180);
     const x = climate.excursion;
-    if ((K.pond ?? 1) && eng.duck) { eventTick(dt); eng.stepFloor?.(); }
+    if (K.pond && eng.duck) { eventTick(dt); eng.stepFloor?.(); }
     const ex = excursionAt(x, eng.simTime);
     // a frost's night chills the water toward freezing (FROST_WATER) whatever the era's warmth
     const base = eng.tbg != null ? eng.tbg - eng.excursion : eng.temp;

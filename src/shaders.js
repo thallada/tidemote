@@ -511,6 +511,37 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
 // The water's temperature where a cell is, for passes that only show it (rendering, listening):
 // bilinear between grid-cell centres, so a cell jostling across a grid line doesn't flick between
 // its cells' temperatures (and its heat colour with them).
+// The pool's moving water (docs/catastrophes.md), as the simulation has it and the composite draws it: u the
+// uniforms (sim or post), t their time, K the tunables. dropFlow: raindrops' ring waves, each shoving the water
+// outward as it passes; edgeSway: how far the water's edge stands out from where the floor alone would put it (world
+// units), the currents (flow) pushing the meniscus out over the floor or drawing it back, wavering as it pins and
+// slips; n uphill (toward the dry).
+const pondFlowWGSL = (u, t, K) => /* wgsl */ `
+fn dropFlow(p: vec2f) -> vec2f {
+  var v = vec2f(0.0);
+  for (var k = 0u; k < 4u; k++) {
+    let dr = ${u}.drops[k];
+    let age = ${t} - dr.z;
+    if (dr.w > 0.0 && age > 0.0 && age < ${f(K.dropLife)}) {
+      var d = p - dr.xy;
+      d -= ${u}.world * round(d / ${u}.world);
+      let r = length(d);
+      let x = (r - age * ${f(K.dropSpeed)}) / ${f(K.dropWidth)};
+      // (the ring dies out before it meets its own copy across the world's wrap)
+      let fade = 1.0 - smoothstep(0.3, 0.45, r / min(${u}.world.x, ${u}.world.y));
+      v += d / max(r, 1e-3) * (dr.w * exp(-x * x) * (1.0 - age / ${f(K.dropLife)}) * fade);
+    }
+  }
+  return v;
+}
+fn edgeSway(p: vec2f, n: vec2f, flow: vec2f) -> f32 {
+  let t = ${t};
+  let push = clamp(dot(flow, n) * ${f(K.edgeSway)}, -0.9, 0.9);
+  let wob = sin(dot(p, vec2f(0.83, 0.56)) * 0.9 + t * 0.7) * sin(dot(p, vec2f(-0.42, 0.91)) * 0.6 - t * 0.45)
+    + 0.5 * sin(dot(p, vec2f(0.29, -0.96)) * 2.1 + t * 1.3);
+  return push + ${f(K.edgeWobble)} * wob;
+}
+`;
 const shownWater = (world) => /* wgsl */ `
 // a thermal block's field at p, bilinear
 fn blockAt(base: u32, p: vec2f) -> f32 {
@@ -1179,32 +1210,9 @@ fn openFlow(p: vec2f) -> vec2f {
     let ph = w.x * p.x + w.y * p.y + w.z * sim.time + f32(k) * 1.7;
     v += vec2f(w.y, -w.x) * (cos(ph) * w.w / max(length(w.xy), 1e-4));
   }
-  v *= sim.weather.x;
-  // raindrops: each sends a ring wave out from where it fell, shoving the water outward as it passes
-  for (var k = 0u; k < 4u; k++) {
-    let dr = sim.drops[k];
-    let age = sim.time - dr.z;
-    if (dr.w > 0.0 && age > 0.0 && age < ${f(K.dropLife)}) {
-      var d = p - dr.xy;
-      d -= sim.world * round(d / sim.world);
-      let r = length(d);
-      let x = (r - age * ${f(K.dropSpeed)}) / ${f(K.dropWidth)};
-      // (the ring dies out before it meets its own copy across the world's wrap)
-      let fade = 1.0 - smoothstep(0.3, 0.45, r / min(sim.world.x, sim.world.y));
-      v += d / max(r, 1e-3) * (dr.w * exp(-x * x) * (1.0 - age / ${f(K.dropLife)}) * fade);
-    }
-  }
-  return v;
+  return v * sim.weather.x + dropFlow(p);
 }
-// How far the water's edge stands out from where the floor alone would put it (world units): the currents push the
-// meniscus out over the floor or draw it back, and it wavers as it pins and slips. n: uphill (toward the dry).
-fn edgeSway(p: vec2f, n: vec2f, t: f32, flow: vec2f) -> f32 {
-  let push = clamp(dot(flow, n) * ${f(K.edgeSway)}, -0.9, 0.9);
-  let wob = sin(dot(p, vec2f(0.83, 0.56)) * 0.9 + t * 0.7) * sin(dot(p, vec2f(-0.42, 0.91)) * 0.6 - t * 0.45)
-    + 0.5 * sin(dot(p, vec2f(0.29, -0.96)) * 2.1 + t * 1.3);
-  return push + ${f(K.edgeWobble)} * wob;
-}
-fn flowAt(p: vec2f) -> vec2f {
+${pondFlowWGSL('sim', 'sim.time', K)}fn flowAt(p: vec2f) -> vec2f {
   var v = openFlow(p);
   // the currents die away toward the water's edge and never cross it; dry ground has none
   if (pondOn()) {
@@ -1246,7 +1254,7 @@ fn pondAt(p: vec2f) -> vec3f {
     let r = smoothField(3u, i, t);
     e = vec3f(sim.pond.x - r.x, r.yz);
     let gl = length(r.yz);
-    if (gl > 1e-5) { e.x += edgeSway(p, r.yz / gl, sim.time, openFlow(p)) * gl; }
+    if (gl > 1e-5) { e.x += edgeSway(p, r.yz / gl, openFlow(p)) * gl; }
   }
   if (sim.weather.y > 0.0) {
     let o = smoothField(4u, i, t);
@@ -5981,31 +5989,10 @@ fn pondPost(p: vec2f) -> vec3f {
   let f = fieldPost(${3 * MAX_CELLS}u, p);
   var e = vec3f(post.pond.x - f.x, f.yz);
   let gl = length(f.yz);
-  if (gl > 1e-5) { e.x += postEdgeSway(p, f.yz / gl) * gl; }
+  if (gl > 1e-5) { e.x += edgeSway(p, f.yz / gl, postFlowAt(p, post.simTime) * post.weather.x + dropFlow(p)) * gl; }
   return e;
 }
-// the water's edge pushed out or drawn back by the currents, as the simulation has it (edgeSway in simWGSL)
-fn postEdgeSway(p: vec2f, n: vec2f) -> f32 {
-  var v = postFlowAt(p, post.simTime) * post.weather.x;
-  for (var k = 0u; k < 4u; k++) {
-    let dr = post.drops[k];
-    let age = post.simTime - dr.z;
-    if (dr.w > 0.0 && age > 0.0 && age < ${f(DEFAULT_K.dropLife)}) {
-      var d = p - dr.xy;
-      d -= post.world * round(d / post.world);
-      let r = length(d);
-      let x = (r - age * ${f(DEFAULT_K.dropSpeed)}) / ${f(DEFAULT_K.dropWidth)};
-      let fade = 1.0 - smoothstep(0.3, 0.45, r / min(post.world.x, post.world.y));
-      v += d / max(r, 1e-3) * (dr.w * exp(-x * x) * (1.0 - age / ${f(DEFAULT_K.dropLife)}) * fade);
-    }
-  }
-  let t = post.simTime;
-  let push = clamp(dot(v, n) * ${f(DEFAULT_K.edgeSway)}, -0.9, 0.9);
-  let wob = sin(dot(p, vec2f(0.83, 0.56)) * 0.9 + t * 0.7) * sin(dot(p, vec2f(-0.42, 0.91)) * 0.6 - t * 0.45)
-    + 0.5 * sin(dot(p, vec2f(0.29, -0.96)) * 2.1 + t * 1.3);
-  return push + ${f(DEFAULT_K.edgeWobble)} * wob;
-}
-// a field of the thermal buffer from base, bicubic at p, and its slope
+${pondFlowWGSL('post', 'post.simTime', DEFAULT_K)}// a field of the thermal buffer from base, bicubic at p, and its slope
 fn fieldPost(base: u32, p: vec2f) -> vec3f {
   let u = p - 0.5;
   let i = vec2i(floor(u));
@@ -6093,6 +6080,8 @@ fn frustules(wp: vec2f, ppu: f32) -> f32 {
   let striae = pow(0.5 + 0.5 * cos(q.x * 6.2832 / 0.12), 4.0) * smoothstep(0.08, 0.02, 0.12 * px * 6.0) * inside;
   return (outline + 0.5 * raphe + 0.2 * striae + 0.03 * inside) * smoothstep(3.0, 10.0, ppu);
 }
+// The lamp's oblique light, as it falls across the floor (unit)
+const LAMP_L = vec2f(-0.5524, -0.8336);
 // A raised line lit from one side, as oblique light shows relief: x its signed distance across the line, w its
 // half-width, g the direction x grows in and L the light's. x: the lit flank's brightness, y: the far flank's shadow;
 // lines finer than a pixel spread to one and dim as they do.
@@ -6112,7 +6101,7 @@ fn ridge(x: f32, w: f32, px: f32, g: vec2f, L: vec2f) -> vec2f {
 // the front's normal (toward the ice); grow: 1 while the ice grows, less as it stops and thaws.
 fn iceLook(wp: vec2f, sd: f32, n: vec2f, ppu: f32, grow: f32) -> vec3f {
   let px = 1.0 / max(ppu, 1e-3);
-  let L = normalize(vec2f(-0.55, -0.83));
+  let L = LAMP_L;
   // the grains: small, irregular, boundaries a little ragged
   let gs = 1.5;
   let gq = wp / gs + (vec2f(vnoise(wp * 0.35), vnoise(wp * 0.35 + 4.1)) - 0.5) * 0.45 + (vec2f(vnoise(wp * 3.1), vnoise(wp * 3.1 + 2.3)) - 0.5) * 0.08;
@@ -6328,11 +6317,11 @@ fn mudDrops(wp: vec2f, t: f32, S: f32, rmin: f32, rmax: f32, tau: f32, seed: f32
           let rb = dl / (r0 * 0.9) * rag * (1.0 + 0.18 * (vnoise(dir * 1.4 + h * 2.3) - 0.5) + 0.07 * (vnoise(dir * 6.0 + h * 4.1) - 0.5)
             + 0.04 * (vnoise(d / r0 * 9.0 + h) - 0.5));
           let inside = 1.0 - smoothstep(0.9, 1.0, rb);
-          let q = d / (r0 * 0.9) - RIPPLE_L * 0.45 + 0.12 * (vec2f(hash12(h + 9.1), hash12(h + 9.7)) - 0.5);
+          let q = d / (r0 * 0.9) - LAMP_L * 0.45 + 0.12 * (vec2f(hash12(h + 9.1), hash12(h + 9.7)) - 0.5);
           let glint = exp(-dot(q, q) / mix(0.0012, 0.004, hash12(h + 8.2)));
           // the light out of its far side: broken, thin, uneven along the edge, never a whole ring
           let seg = smoothstep(0.35, 0.8, vnoise(dir * 5.0 + h * 7.0)) * (0.5 + 0.7 * vnoise(d / r0 * 12.0 + h));
-          let arc = exp(-pow((rb - 0.86) / 0.05, 2.0)) * pow(max(dot(dir, -RIPPLE_L), 0.0), 1.5) * seg;
+          let arc = exp(-pow((rb - 0.86) / 0.05, 2.0)) * pow(max(dot(dir, -LAMP_L), 0.0), 1.5) * seg;
           o.z = max(o.z, (1.3 * glint + 0.45 * arc) * inside * life);
           // through its middle the mud shows, a little dimmed; toward its edge the surface steepens and bends the
           // light away, a dark band
@@ -6347,7 +6336,7 @@ fn mudDrops(wp: vec2f, t: f32, S: f32, rmin: f32, rmax: f32, tau: f32, seed: f32
           let rs = r0 * mix(0.08, 0.2, hash12(hm + 2.3)) * (1.0 + 0.4 * (1.0 - exp(-age / 5.0)));
           let us = length(ds) / rs * (1.0 + 0.3 * (vnoise(ds / rs * 1.5 + hm) - 0.5));
           o.x = max(o.x, (1.0 - smoothstep(0.7, 1.0, us)) * smoothstep(0.1, 0.8, age));
-          o.z = max(o.z, exp(-dot(ds / rs - RIPPLE_L * 0.4, ds / rs - RIPPLE_L * 0.4) / 0.06) * exp(-age / 0.3) * 0.7);
+          o.z = max(o.z, exp(-dot(ds / rs - LAMP_L * 0.4, ds / rs - LAMP_L * 0.4) / 0.06) * exp(-age / 0.3) * 0.7);
         }
       }
     }
@@ -6359,12 +6348,10 @@ fn mudDrops(wp: vec2f, t: f32, S: f32, rmin: f32, rmax: f32, tau: f32, seed: f32
 // waves, which disperse: the short ones run fastest, so a ring is a packet whose crests crowd toward its leading edge
 // and broaden toward its centre, damped where they are shortest; it is uneven around its circle, and the drop's
 // splash throws a few droplets which ring too. In rain the whole surface is roughened by drops falling out of view.
-struct Surf { slope: vec2f, hess: vec3f };
-const RIPPLE_L = vec2f(-0.55, -0.83);
 const RIPPLE_SHEEN = vec3f(0.11, 0.123, 0.14);
 const RIPPLE_DIM = 0.45;
-// one ring: its slope and its curvature (xx, xy, yy)
-fn ringWave(d: vec2f, t: f32, amp: f32, seed: f32, s: ptr<function, Surf>) {
+// one ring's slope, added to s
+fn ringWave(d: vec2f, t: f32, amp: f32, seed: f32, s: ptr<function, vec2f>) {
   let r = length(d);
   let dir = d / max(r, 1e-4);
   let V = ${f(DEFAULT_K.dropSpeed)};
@@ -6376,19 +6363,13 @@ fn ringWave(d: vec2f, t: f32, amp: f32, seed: f32, s: ptr<function, Surf>) {
   if (psi > 1.4) { return; }
   let lf = 1.7;
   let ph = 6.2832 * psi * psi * rr / (3.0 * lf);
-  let kk = 6.2832 * psi * psi / lf;
   let env = smoothstep(0.12, 0.6, psi) * exp(-pow(max(psi - 0.92, 0.0) / 0.13, 2.0)) * (0.15 + 1.6 * pow(vnoise(dir * 2.5 + seed + 3.0), 1.5))
     * amp / sqrt(1.0 + r * 0.25) * (1.0 - smoothstep(0.3, 0.45, r / min(post.world.x, post.world.y)));
-  let S = 0.06 * env;
-  let hr = -S * sin(ph);
-  let hrr = -S * kk * cos(ph);
-  let ht = hr / max(r, 0.5);
-  (*s).slope += dir * hr;
-  (*s).hess += vec3f(hrr * dir.x * dir.x + ht * dir.y * dir.y, (hrr - ht) * dir.x * dir.y, hrr * dir.y * dir.y + ht * dir.x * dir.x) * 0.5;
+  *s += dir * (-0.06 * env * sin(ph));
 }
 // the chop: wavelets from every direction, long and short, the short running faster (capillary waves), each
-// adding its slope and curvature
-fn chop(p: vec2f, rain: f32, s: ptr<function, Surf>) {
+// adding its slope
+fn chop(p: vec2f, rain: f32, s: ptr<function, vec2f>) {
   for (var i = 0; i < 14; i++) {
     let fi = f32(i);
     let a = fi * 2.39996 + 0.4 + 0.5 * hash12(vec2f(fi, 1.0));
@@ -6399,14 +6380,12 @@ fn chop(p: vec2f, rain: f32, s: ptr<function, Surf>) {
     // in groups: each wavelet stronger here, weaker there, the groups drifting
     let g = vnoise(p * (0.06 + 0.05 * hash12(vec2f(fi, 3.0))) + vec2f(fi * 3.1, 0.0) - dir * post.simTime * 0.6);
     let A = 0.045 * rain / (k * k) * (0.2 + 1.6 * g * g);
-    (*s).slope += dir * (A * k * cos(th));
-    let hk = -A * k * k * sin(th);
-    (*s).hess += vec3f(hk * dir.x * dir.x, hk * dir.x * dir.y, hk * dir.y * dir.y);
+    *s += dir * (A * k * cos(th));
   }
 }
-fn ripples(wp: vec2f) -> Surf {
-  var o: Surf;
-  o.slope = vec2f(0.0); o.hess = vec3f(0.0);
+// the water's surface slope at wp
+fn ripples(wp: vec2f) -> vec2f {
+  var o = vec2f(0.0);
   for (var k = 0u; k < 4u; k++) {
     let dr = post.drops[k];
     let age = post.simTime - dr.z;
@@ -6477,7 +6456,7 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32) -> vec
   var uv = i.uv;
   // rain: the rings raindrops send across the water bend the view as they pass
   var surf = vec2f(0.0);
-  if (post.pond.y > 0.0) { surf = ripples(wp).slope; uv += surf * 1.2 * post.ppu / post.res; }
+  if (post.pond.y > 0.0) { surf = ripples(wp); uv += surf * 1.2 * post.ppu / post.res; }
   var wet = 1.0;
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
@@ -6600,7 +6579,7 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32) -> vec
   // into the objective, a pale sheen on the crests' near flanks, while the far flanks bend light away and dim what
   // lies under them; steep water of any tilt scatters a little more
   if (dot(surf, surf) > 0.0) {
-    let tilt = dot(surf, RIPPLE_L) * wet;
+    let tilt = dot(surf, LAMP_L) * wet;
     let sl = length(surf) * wet;
     c = c * (1.0 - RIPPLE_DIM * max(-tilt, 0.0)) + RIPPLE_SHEEN * (max(tilt, 0.0) + 0.35 * sl) * (0.4 + 0.6 * behind);
   }
@@ -6609,39 +6588,30 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32) -> vec
   // water, out of focus near its frond, sharp where it reaches the focal plane
   if (post.duck.w > 0.0) {
     let sh = duckShade(wp, post.duck, post.duckB, post.world);
-    {
-      var tex = 0.0;
-      for (var f = 0; f <= i32(post.duckB.w); f++) {
-        let fr = frondOf(post.duck, post.duckB, f);
-        let a = frondAt(wp, fr, post.world);
-        if (a.z < 2.5) {
-          // air chambers, a blurred net; the node, where the root and buds come from, a darker spot; a midrib faintly
-          let q = vec2f(a.x * fr.L, a.y * fr.L);
-          let cells = smoothstep(0.0, 0.5, vborder(q / 2.2 + f32(f) * 7.0 + post.duckB.y).x);
-          let nd = a.xy - vec2f(-0.7, 0.0);
-          let node = exp(-dot(nd, nd) / 0.02);
-          let rib = exp(-pow(a.y / 0.05, 2.0)) * smoothstep(-0.7, -0.3, a.x) * (1.0 - smoothstep(0.4, 0.9, a.x));
-          // and round its edge the water's surface curves up onto it, a meniscus catching the lamp, blurred
-          let rim = exp(-pow((a.z + 0.4) / 1.3, 2.0));
-          tex = max(tex, (0.45 + 0.55 * cells) * (1.0 - 0.55 * node) * (1.0 - 0.25 * rib) * (1.0 - smoothstep(-1.2, 1.2, a.z)) + 0.9 * rim);
-        }
-      }
-      let blot = 0.8 + 0.4 * vnoise(wp * 0.08 + post.duckB.y);
-      c = c * (1.0 - 0.88 * sh) + vec3f(0.012, 0.026, 0.008) * tex * blot * post.duck.w * mix(0.6, 1.0, k);
-    }
     // the roots trail together, with the current, swaying
     let trail = post.duckB.y * 0.37 + 0.35 * sin(post.simTime * 0.031 + post.duckB.y);
+    var tex = 0.0;
+    var root = vec2f(0.0);
     for (var f = 0; f <= i32(post.duckB.w); f++) {
       let fr = frondOf(post.duck, post.duckB, f);
-      let o = fr.c - fr.ax * 0.7 * fr.L;
+      let a = frondAt(wp, fr, post.world);
+      if (a.z < 2.5) {
+        // air chambers, a blurred net; the node, where the root and buds come from, a darker spot; a midrib faintly;
+        // and round its edge the water's surface curving up onto it, a meniscus catching the lamp, blurred
+        let cells = smoothstep(0.0, 0.5, vborder(a.xy * fr.L / 2.2 + f32(f) * 7.0 + post.duckB.y).x);
+        let nd = a.xy - vec2f(-0.7, 0.0);
+        let node = exp(-dot(nd, nd) / 0.02);
+        let rib = exp(-pow(a.y / 0.05, 2.0)) * smoothstep(-0.7, -0.3, a.x) * (1.0 - smoothstep(0.4, 0.9, a.x));
+        let rim = exp(-pow((a.z + 0.4) / 1.3, 2.0));
+        tex = max(tex, (0.45 + 0.55 * cells) * (1.0 - 0.55 * node) * (1.0 - 0.25 * rib) * (1.0 - smoothstep(-1.2, 1.2, a.z)) + 0.9 * rim);
+      }
       let rl = post.duck.z * mix(2.2, 4.5, duckHash(post.duckB.y + f32(f) * 2.3)) * select(1.0, 0.35, f == 3);
       let rd = rot2(vec2f(1.0, 0.0), trail + 1.4 * (duckHash(post.duckB.y + f32(f) * 4.4) - 0.5));
-      let rt = duckRoot(wp, o, rd, rl, 0.75, post.duckB.y + f32(f) * 3.3);
-      if (rt.y > 0.0) {
-        let lit = 1.0 - 0.75 * duckShade(wp, post.duck, post.duckB, post.world);
-        c = c * (1.0 - 0.3 * rt.y * post.duck.w) + vec3f(0.085, 0.10, 0.08) * rt.x * lit * post.duck.w * (0.4 + 0.6 * behind);
-      }
+      root = max(root, duckRoot(wp, fr.c - fr.ax * 0.7 * fr.L, rd, rl, 0.75, post.duckB.y + f32(f) * 3.3));
     }
+    let blot = 0.8 + 0.4 * vnoise(wp * 0.08 + post.duckB.y);
+    c = c * (1.0 - 0.88 * sh) + vec3f(0.012, 0.026, 0.008) * tex * blot * post.duck.w * mix(0.6, 1.0, k);
+    c = c * (1.0 - 0.3 * root.y * post.duck.w) + vec3f(0.085, 0.10, 0.08) * root.x * (1.0 - 0.75 * sh) * post.duck.w * (0.4 + 0.6 * behind);
   }
   // the round field stop of the eyepiece clips the corners of the camera's frame
   let corner = length(vec2f(post.res.x / post.res.y, 1.0));

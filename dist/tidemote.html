@@ -1866,6 +1866,35 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
 }
 `
   );
+  var pondFlowWGSL = (u, t2, K) => (
+    /* wgsl */
+    `
+fn dropFlow(p: vec2f) -> vec2f {
+  var v = vec2f(0.0);
+  for (var k = 0u; k < 4u; k++) {
+    let dr = ${u}.drops[k];
+    let age = ${t2} - dr.z;
+    if (dr.w > 0.0 && age > 0.0 && age < ${f(K.dropLife)}) {
+      var d = p - dr.xy;
+      d -= ${u}.world * round(d / ${u}.world);
+      let r = length(d);
+      let x = (r - age * ${f(K.dropSpeed)}) / ${f(K.dropWidth)};
+      // (the ring dies out before it meets its own copy across the world's wrap)
+      let fade = 1.0 - smoothstep(0.3, 0.45, r / min(${u}.world.x, ${u}.world.y));
+      v += d / max(r, 1e-3) * (dr.w * exp(-x * x) * (1.0 - age / ${f(K.dropLife)}) * fade);
+    }
+  }
+  return v;
+}
+fn edgeSway(p: vec2f, n: vec2f, flow: vec2f) -> f32 {
+  let t = ${t2};
+  let push = clamp(dot(flow, n) * ${f(K.edgeSway)}, -0.9, 0.9);
+  let wob = sin(dot(p, vec2f(0.83, 0.56)) * 0.9 + t * 0.7) * sin(dot(p, vec2f(-0.42, 0.91)) * 0.6 - t * 0.45)
+    + 0.5 * sin(dot(p, vec2f(0.29, -0.96)) * 2.1 + t * 1.3);
+  return push + ${f(K.edgeWobble)} * wob;
+}
+`
+  );
   var shownWater = (world) => (
     /* wgsl */
     `
@@ -2534,32 +2563,9 @@ fn openFlow(p: vec2f) -> vec2f {
     let ph = w.x * p.x + w.y * p.y + w.z * sim.time + f32(k) * 1.7;
     v += vec2f(w.y, -w.x) * (cos(ph) * w.w / max(length(w.xy), 1e-4));
   }
-  v *= sim.weather.x;
-  // raindrops: each sends a ring wave out from where it fell, shoving the water outward as it passes
-  for (var k = 0u; k < 4u; k++) {
-    let dr = sim.drops[k];
-    let age = sim.time - dr.z;
-    if (dr.w > 0.0 && age > 0.0 && age < ${f(K.dropLife)}) {
-      var d = p - dr.xy;
-      d -= sim.world * round(d / sim.world);
-      let r = length(d);
-      let x = (r - age * ${f(K.dropSpeed)}) / ${f(K.dropWidth)};
-      // (the ring dies out before it meets its own copy across the world's wrap)
-      let fade = 1.0 - smoothstep(0.3, 0.45, r / min(sim.world.x, sim.world.y));
-      v += d / max(r, 1e-3) * (dr.w * exp(-x * x) * (1.0 - age / ${f(K.dropLife)}) * fade);
-    }
-  }
-  return v;
+  return v * sim.weather.x + dropFlow(p);
 }
-// How far the water's edge stands out from where the floor alone would put it (world units): the currents push the
-// meniscus out over the floor or draw it back, and it wavers as it pins and slips. n: uphill (toward the dry).
-fn edgeSway(p: vec2f, n: vec2f, t: f32, flow: vec2f) -> f32 {
-  let push = clamp(dot(flow, n) * ${f(K.edgeSway)}, -0.9, 0.9);
-  let wob = sin(dot(p, vec2f(0.83, 0.56)) * 0.9 + t * 0.7) * sin(dot(p, vec2f(-0.42, 0.91)) * 0.6 - t * 0.45)
-    + 0.5 * sin(dot(p, vec2f(0.29, -0.96)) * 2.1 + t * 1.3);
-  return push + ${f(K.edgeWobble)} * wob;
-}
-fn flowAt(p: vec2f) -> vec2f {
+${pondFlowWGSL("sim", "sim.time", K)}fn flowAt(p: vec2f) -> vec2f {
   var v = openFlow(p);
   // the currents die away toward the water's edge and never cross it; dry ground has none
   if (pondOn()) {
@@ -2601,7 +2607,7 @@ fn pondAt(p: vec2f) -> vec3f {
     let r = smoothField(3u, i, t);
     e = vec3f(sim.pond.x - r.x, r.yz);
     let gl = length(r.yz);
-    if (gl > 1e-5) { e.x += edgeSway(p, r.yz / gl, sim.time, openFlow(p)) * gl; }
+    if (gl > 1e-5) { e.x += edgeSway(p, r.yz / gl, openFlow(p)) * gl; }
   }
   if (sim.weather.y > 0.0) {
     let o = smoothField(4u, i, t);
@@ -7319,31 +7325,10 @@ fn pondPost(p: vec2f) -> vec3f {
   let f = fieldPost(${3 * MAX_CELLS}u, p);
   var e = vec3f(post.pond.x - f.x, f.yz);
   let gl = length(f.yz);
-  if (gl > 1e-5) { e.x += postEdgeSway(p, f.yz / gl) * gl; }
+  if (gl > 1e-5) { e.x += edgeSway(p, f.yz / gl, postFlowAt(p, post.simTime) * post.weather.x + dropFlow(p)) * gl; }
   return e;
 }
-// the water's edge pushed out or drawn back by the currents, as the simulation has it (edgeSway in simWGSL)
-fn postEdgeSway(p: vec2f, n: vec2f) -> f32 {
-  var v = postFlowAt(p, post.simTime) * post.weather.x;
-  for (var k = 0u; k < 4u; k++) {
-    let dr = post.drops[k];
-    let age = post.simTime - dr.z;
-    if (dr.w > 0.0 && age > 0.0 && age < ${f(DEFAULT_K.dropLife)}) {
-      var d = p - dr.xy;
-      d -= post.world * round(d / post.world);
-      let r = length(d);
-      let x = (r - age * ${f(DEFAULT_K.dropSpeed)}) / ${f(DEFAULT_K.dropWidth)};
-      let fade = 1.0 - smoothstep(0.3, 0.45, r / min(post.world.x, post.world.y));
-      v += d / max(r, 1e-3) * (dr.w * exp(-x * x) * (1.0 - age / ${f(DEFAULT_K.dropLife)}) * fade);
-    }
-  }
-  let t = post.simTime;
-  let push = clamp(dot(v, n) * ${f(DEFAULT_K.edgeSway)}, -0.9, 0.9);
-  let wob = sin(dot(p, vec2f(0.83, 0.56)) * 0.9 + t * 0.7) * sin(dot(p, vec2f(-0.42, 0.91)) * 0.6 - t * 0.45)
-    + 0.5 * sin(dot(p, vec2f(0.29, -0.96)) * 2.1 + t * 1.3);
-  return push + ${f(DEFAULT_K.edgeWobble)} * wob;
-}
-// a field of the thermal buffer from base, bicubic at p, and its slope
+${pondFlowWGSL("post", "post.simTime", DEFAULT_K)}// a field of the thermal buffer from base, bicubic at p, and its slope
 fn fieldPost(base: u32, p: vec2f) -> vec3f {
   let u = p - 0.5;
   let i = vec2i(floor(u));
@@ -7431,6 +7416,8 @@ fn frustules(wp: vec2f, ppu: f32) -> f32 {
   let striae = pow(0.5 + 0.5 * cos(q.x * 6.2832 / 0.12), 4.0) * smoothstep(0.08, 0.02, 0.12 * px * 6.0) * inside;
   return (outline + 0.5 * raphe + 0.2 * striae + 0.03 * inside) * smoothstep(3.0, 10.0, ppu);
 }
+// The lamp's oblique light, as it falls across the floor (unit)
+const LAMP_L = vec2f(-0.5524, -0.8336);
 // A raised line lit from one side, as oblique light shows relief: x its signed distance across the line, w its
 // half-width, g the direction x grows in and L the light's. x: the lit flank's brightness, y: the far flank's shadow;
 // lines finer than a pixel spread to one and dim as they do.
@@ -7450,7 +7437,7 @@ fn ridge(x: f32, w: f32, px: f32, g: vec2f, L: vec2f) -> vec2f {
 // the front's normal (toward the ice); grow: 1 while the ice grows, less as it stops and thaws.
 fn iceLook(wp: vec2f, sd: f32, n: vec2f, ppu: f32, grow: f32) -> vec3f {
   let px = 1.0 / max(ppu, 1e-3);
-  let L = normalize(vec2f(-0.55, -0.83));
+  let L = LAMP_L;
   // the grains: small, irregular, boundaries a little ragged
   let gs = 1.5;
   let gq = wp / gs + (vec2f(vnoise(wp * 0.35), vnoise(wp * 0.35 + 4.1)) - 0.5) * 0.45 + (vec2f(vnoise(wp * 3.1), vnoise(wp * 3.1 + 2.3)) - 0.5) * 0.08;
@@ -7666,11 +7653,11 @@ fn mudDrops(wp: vec2f, t: f32, S: f32, rmin: f32, rmax: f32, tau: f32, seed: f32
           let rb = dl / (r0 * 0.9) * rag * (1.0 + 0.18 * (vnoise(dir * 1.4 + h * 2.3) - 0.5) + 0.07 * (vnoise(dir * 6.0 + h * 4.1) - 0.5)
             + 0.04 * (vnoise(d / r0 * 9.0 + h) - 0.5));
           let inside = 1.0 - smoothstep(0.9, 1.0, rb);
-          let q = d / (r0 * 0.9) - RIPPLE_L * 0.45 + 0.12 * (vec2f(hash12(h + 9.1), hash12(h + 9.7)) - 0.5);
+          let q = d / (r0 * 0.9) - LAMP_L * 0.45 + 0.12 * (vec2f(hash12(h + 9.1), hash12(h + 9.7)) - 0.5);
           let glint = exp(-dot(q, q) / mix(0.0012, 0.004, hash12(h + 8.2)));
           // the light out of its far side: broken, thin, uneven along the edge, never a whole ring
           let seg = smoothstep(0.35, 0.8, vnoise(dir * 5.0 + h * 7.0)) * (0.5 + 0.7 * vnoise(d / r0 * 12.0 + h));
-          let arc = exp(-pow((rb - 0.86) / 0.05, 2.0)) * pow(max(dot(dir, -RIPPLE_L), 0.0), 1.5) * seg;
+          let arc = exp(-pow((rb - 0.86) / 0.05, 2.0)) * pow(max(dot(dir, -LAMP_L), 0.0), 1.5) * seg;
           o.z = max(o.z, (1.3 * glint + 0.45 * arc) * inside * life);
           // through its middle the mud shows, a little dimmed; toward its edge the surface steepens and bends the
           // light away, a dark band
@@ -7685,7 +7672,7 @@ fn mudDrops(wp: vec2f, t: f32, S: f32, rmin: f32, rmax: f32, tau: f32, seed: f32
           let rs = r0 * mix(0.08, 0.2, hash12(hm + 2.3)) * (1.0 + 0.4 * (1.0 - exp(-age / 5.0)));
           let us = length(ds) / rs * (1.0 + 0.3 * (vnoise(ds / rs * 1.5 + hm) - 0.5));
           o.x = max(o.x, (1.0 - smoothstep(0.7, 1.0, us)) * smoothstep(0.1, 0.8, age));
-          o.z = max(o.z, exp(-dot(ds / rs - RIPPLE_L * 0.4, ds / rs - RIPPLE_L * 0.4) / 0.06) * exp(-age / 0.3) * 0.7);
+          o.z = max(o.z, exp(-dot(ds / rs - LAMP_L * 0.4, ds / rs - LAMP_L * 0.4) / 0.06) * exp(-age / 0.3) * 0.7);
         }
       }
     }
@@ -7697,12 +7684,10 @@ fn mudDrops(wp: vec2f, t: f32, S: f32, rmin: f32, rmax: f32, tau: f32, seed: f32
 // waves, which disperse: the short ones run fastest, so a ring is a packet whose crests crowd toward its leading edge
 // and broaden toward its centre, damped where they are shortest; it is uneven around its circle, and the drop's
 // splash throws a few droplets which ring too. In rain the whole surface is roughened by drops falling out of view.
-struct Surf { slope: vec2f, hess: vec3f };
-const RIPPLE_L = vec2f(-0.55, -0.83);
 const RIPPLE_SHEEN = vec3f(0.11, 0.123, 0.14);
 const RIPPLE_DIM = 0.45;
-// one ring: its slope and its curvature (xx, xy, yy)
-fn ringWave(d: vec2f, t: f32, amp: f32, seed: f32, s: ptr<function, Surf>) {
+// one ring's slope, added to s
+fn ringWave(d: vec2f, t: f32, amp: f32, seed: f32, s: ptr<function, vec2f>) {
   let r = length(d);
   let dir = d / max(r, 1e-4);
   let V = ${f(DEFAULT_K.dropSpeed)};
@@ -7714,19 +7699,13 @@ fn ringWave(d: vec2f, t: f32, amp: f32, seed: f32, s: ptr<function, Surf>) {
   if (psi > 1.4) { return; }
   let lf = 1.7;
   let ph = 6.2832 * psi * psi * rr / (3.0 * lf);
-  let kk = 6.2832 * psi * psi / lf;
   let env = smoothstep(0.12, 0.6, psi) * exp(-pow(max(psi - 0.92, 0.0) / 0.13, 2.0)) * (0.15 + 1.6 * pow(vnoise(dir * 2.5 + seed + 3.0), 1.5))
     * amp / sqrt(1.0 + r * 0.25) * (1.0 - smoothstep(0.3, 0.45, r / min(post.world.x, post.world.y)));
-  let S = 0.06 * env;
-  let hr = -S * sin(ph);
-  let hrr = -S * kk * cos(ph);
-  let ht = hr / max(r, 0.5);
-  (*s).slope += dir * hr;
-  (*s).hess += vec3f(hrr * dir.x * dir.x + ht * dir.y * dir.y, (hrr - ht) * dir.x * dir.y, hrr * dir.y * dir.y + ht * dir.x * dir.x) * 0.5;
+  *s += dir * (-0.06 * env * sin(ph));
 }
 // the chop: wavelets from every direction, long and short, the short running faster (capillary waves), each
-// adding its slope and curvature
-fn chop(p: vec2f, rain: f32, s: ptr<function, Surf>) {
+// adding its slope
+fn chop(p: vec2f, rain: f32, s: ptr<function, vec2f>) {
   for (var i = 0; i < 14; i++) {
     let fi = f32(i);
     let a = fi * 2.39996 + 0.4 + 0.5 * hash12(vec2f(fi, 1.0));
@@ -7737,14 +7716,12 @@ fn chop(p: vec2f, rain: f32, s: ptr<function, Surf>) {
     // in groups: each wavelet stronger here, weaker there, the groups drifting
     let g = vnoise(p * (0.06 + 0.05 * hash12(vec2f(fi, 3.0))) + vec2f(fi * 3.1, 0.0) - dir * post.simTime * 0.6);
     let A = 0.045 * rain / (k * k) * (0.2 + 1.6 * g * g);
-    (*s).slope += dir * (A * k * cos(th));
-    let hk = -A * k * k * sin(th);
-    (*s).hess += vec3f(hk * dir.x * dir.x, hk * dir.x * dir.y, hk * dir.y * dir.y);
+    *s += dir * (A * k * cos(th));
   }
 }
-fn ripples(wp: vec2f) -> Surf {
-  var o: Surf;
-  o.slope = vec2f(0.0); o.hess = vec3f(0.0);
+// the water's surface slope at wp
+fn ripples(wp: vec2f) -> vec2f {
+  var o = vec2f(0.0);
   for (var k = 0u; k < 4u; k++) {
     let dr = post.drops[k];
     let age = post.simTime - dr.z;
@@ -7815,7 +7792,7 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32) -> vec
   var uv = i.uv;
   // rain: the rings raindrops send across the water bend the view as they pass
   var surf = vec2f(0.0);
-  if (post.pond.y > 0.0) { surf = ripples(wp).slope; uv += surf * 1.2 * post.ppu / post.res; }
+  if (post.pond.y > 0.0) { surf = ripples(wp); uv += surf * 1.2 * post.ppu / post.res; }
   var wet = 1.0;
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
@@ -7938,7 +7915,7 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32) -> vec
   // into the objective, a pale sheen on the crests' near flanks, while the far flanks bend light away and dim what
   // lies under them; steep water of any tilt scatters a little more
   if (dot(surf, surf) > 0.0) {
-    let tilt = dot(surf, RIPPLE_L) * wet;
+    let tilt = dot(surf, LAMP_L) * wet;
     let sl = length(surf) * wet;
     c = c * (1.0 - RIPPLE_DIM * max(-tilt, 0.0)) + RIPPLE_SHEEN * (max(tilt, 0.0) + 0.35 * sl) * (0.4 + 0.6 * behind);
   }
@@ -7947,39 +7924,30 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32) -> vec
   // water, out of focus near its frond, sharp where it reaches the focal plane
   if (post.duck.w > 0.0) {
     let sh = duckShade(wp, post.duck, post.duckB, post.world);
-    {
-      var tex = 0.0;
-      for (var f = 0; f <= i32(post.duckB.w); f++) {
-        let fr = frondOf(post.duck, post.duckB, f);
-        let a = frondAt(wp, fr, post.world);
-        if (a.z < 2.5) {
-          // air chambers, a blurred net; the node, where the root and buds come from, a darker spot; a midrib faintly
-          let q = vec2f(a.x * fr.L, a.y * fr.L);
-          let cells = smoothstep(0.0, 0.5, vborder(q / 2.2 + f32(f) * 7.0 + post.duckB.y).x);
-          let nd = a.xy - vec2f(-0.7, 0.0);
-          let node = exp(-dot(nd, nd) / 0.02);
-          let rib = exp(-pow(a.y / 0.05, 2.0)) * smoothstep(-0.7, -0.3, a.x) * (1.0 - smoothstep(0.4, 0.9, a.x));
-          // and round its edge the water's surface curves up onto it, a meniscus catching the lamp, blurred
-          let rim = exp(-pow((a.z + 0.4) / 1.3, 2.0));
-          tex = max(tex, (0.45 + 0.55 * cells) * (1.0 - 0.55 * node) * (1.0 - 0.25 * rib) * (1.0 - smoothstep(-1.2, 1.2, a.z)) + 0.9 * rim);
-        }
-      }
-      let blot = 0.8 + 0.4 * vnoise(wp * 0.08 + post.duckB.y);
-      c = c * (1.0 - 0.88 * sh) + vec3f(0.012, 0.026, 0.008) * tex * blot * post.duck.w * mix(0.6, 1.0, k);
-    }
     // the roots trail together, with the current, swaying
     let trail = post.duckB.y * 0.37 + 0.35 * sin(post.simTime * 0.031 + post.duckB.y);
+    var tex = 0.0;
+    var root = vec2f(0.0);
     for (var f = 0; f <= i32(post.duckB.w); f++) {
       let fr = frondOf(post.duck, post.duckB, f);
-      let o = fr.c - fr.ax * 0.7 * fr.L;
+      let a = frondAt(wp, fr, post.world);
+      if (a.z < 2.5) {
+        // air chambers, a blurred net; the node, where the root and buds come from, a darker spot; a midrib faintly;
+        // and round its edge the water's surface curving up onto it, a meniscus catching the lamp, blurred
+        let cells = smoothstep(0.0, 0.5, vborder(a.xy * fr.L / 2.2 + f32(f) * 7.0 + post.duckB.y).x);
+        let nd = a.xy - vec2f(-0.7, 0.0);
+        let node = exp(-dot(nd, nd) / 0.02);
+        let rib = exp(-pow(a.y / 0.05, 2.0)) * smoothstep(-0.7, -0.3, a.x) * (1.0 - smoothstep(0.4, 0.9, a.x));
+        let rim = exp(-pow((a.z + 0.4) / 1.3, 2.0));
+        tex = max(tex, (0.45 + 0.55 * cells) * (1.0 - 0.55 * node) * (1.0 - 0.25 * rib) * (1.0 - smoothstep(-1.2, 1.2, a.z)) + 0.9 * rim);
+      }
       let rl = post.duck.z * mix(2.2, 4.5, duckHash(post.duckB.y + f32(f) * 2.3)) * select(1.0, 0.35, f == 3);
       let rd = rot2(vec2f(1.0, 0.0), trail + 1.4 * (duckHash(post.duckB.y + f32(f) * 4.4) - 0.5));
-      let rt = duckRoot(wp, o, rd, rl, 0.75, post.duckB.y + f32(f) * 3.3);
-      if (rt.y > 0.0) {
-        let lit = 1.0 - 0.75 * duckShade(wp, post.duck, post.duckB, post.world);
-        c = c * (1.0 - 0.3 * rt.y * post.duck.w) + vec3f(0.085, 0.10, 0.08) * rt.x * lit * post.duck.w * (0.4 + 0.6 * behind);
-      }
+      root = max(root, duckRoot(wp, fr.c - fr.ax * 0.7 * fr.L, rd, rl, 0.75, post.duckB.y + f32(f) * 3.3));
     }
+    let blot = 0.8 + 0.4 * vnoise(wp * 0.08 + post.duckB.y);
+    c = c * (1.0 - 0.88 * sh) + vec3f(0.012, 0.026, 0.008) * tex * blot * post.duck.w * mix(0.6, 1.0, k);
+    c = c * (1.0 - 0.3 * root.y * post.duck.w) + vec3f(0.085, 0.10, 0.08) * root.x * (1.0 - 0.75 * sh) * post.duck.w * (0.4 + 0.6 * behind);
   }
   // the round field stop of the eyepiece clips the corners of the camera's frame
   let corner = length(vec2f(post.res.x / post.res.y, 1.0));
@@ -19204,7 +19172,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const out = { level: levelTo, rain: 0, sky: 1, evap: 0, turb: 1, dT: 0, chill: 0, duck: null, frost: 0, freezing: 0, phase: null };
     if (!ev || t2 < ev.t) return out;
     const u = t2 - ev.t;
-    const cold = ev.rainCold ?? 1, dark = ev.rainDark ?? 1, rough = ev.rainTurb ?? 1;
+    const cold = ev.rainCold, dark = ev.rainDark, rough = ev.rainTurb;
     if (ev.type === "drought") {
       const { fall, hold, refill } = ev, low = ev.low;
       if (u < fall) {
@@ -19247,8 +19215,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
     } else if (ev.type === "frost") {
       const { cool, grow, hold, thaw } = ev;
       const night = Math.min(ramp(u, 0, cool), 1 - ramp(u, cool + grow + hold, cool + grow + hold + thaw + 120));
-      out.sky = 1 - 0.6 * (ev.dark ?? 1) * night;
-      out.chill = (ev.cold ?? 1) * night;
+      out.sky = 1 - 0.6 * ev.dark * night;
+      out.chill = ev.cold * night;
       if (u < cool) out.phase = "cooling";
       else if (u < cool + grow) {
         const v = (u - cool) / grow;
@@ -19271,21 +19239,21 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     return out;
   }
-  function makeEvent(type, t2, rng, w, h, K = {}) {
-    const pick3 = (r, d) => climateMix(...r || d, rng());
-    const rain = { rainCold: K.rainCold ?? 1, rainDark: K.rainDark ?? 0.35, rainTurb: K.rainTurb ?? 1 };
-    if (type === "drought") return { type, t: t2, fall: pick3(K.droughtFall, [300, 480]), hold: pick3(K.droughtHold, [150, 300]), refill: pick3(K.droughtRefill, [90, 150]), low: pick3(K.droughtLow, [0.35, 0.6]), ...rain };
-    if (type === "storm") return { type, t: t2, dur: pick3(K.stormDur, [240, 420]), ...rain };
-    if (type === "frost") return { type, t: t2, cool: 90, grow: pick3(K.frostGrow, [150, 270]), hold: pick3(K.frostHold, [120, 240]), thaw: pick3(K.frostThaw, [100, 160]), max: pick3(K.frostMax, [0.6, 0.85]), cold: K.frostCold ?? 1, dark: K.frostDark ?? 0.35 };
-    const len2 = pick3(K.duckLen, [0.12, 0.2]) * Math.min(w, h), a = rng() * Math.PI * 2, sp = climateMix(0.01, 0.04, rng());
+  function makeEvent(type, t2, rng, w, h, K = DEFAULT_K) {
+    const pick3 = (r) => climateMix(...r, rng());
+    const rain = { rainCold: K.rainCold, rainDark: K.rainDark, rainTurb: K.rainTurb };
+    if (type === "drought") return { type, t: t2, fall: pick3(K.droughtFall), hold: pick3(K.droughtHold), refill: pick3(K.droughtRefill), low: pick3(K.droughtLow), ...rain };
+    if (type === "storm") return { type, t: t2, dur: pick3(K.stormDur), ...rain };
+    if (type === "frost") return { type, t: t2, cool: 90, grow: pick3(K.frostGrow), hold: pick3(K.frostHold), thaw: pick3(K.frostThaw), max: pick3(K.frostMax), cold: K.frostCold, dark: K.frostDark };
+    const len2 = pick3(K.duckLen) * Math.min(w, h), a = rng() * Math.PI * 2, sp = climateMix(0.01, 0.04, rng());
     return {
       type,
       t: t2,
-      dur: pick3(K.duckDur, [420, 720]),
+      dur: pick3(K.duckDur),
       x: rng() * w,
       y: rng() * h,
       len: len2,
-      dark: pick3(K.duckDark, [0.75, 0.92]),
+      dark: pick3(K.duckDark),
       angle: rng() * Math.PI * 2,
       spin: (rng() - 0.5) * 4e-3,
       seed: rng() * 100,
@@ -19298,12 +19266,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var eventSpan = (ev) => ev.type === "drought" ? ev.fall + ev.hold + ev.refill + 120 : ev.type === "storm" ? ev.dur + 240 : ev.type === "frost" ? ev.cool + ev.grow + ev.hold + ev.thaw + 120 : ev.dur;
   function createClimate(eng, rng = Math.random) {
     const climate = { tick, reset, onEra: null, onExcursion: null, onEvent: null, force, allowed: new Set(EVENT_TYPES) };
-    const K = eng.K || {};
+    const K = { ...DEFAULT_K, ...eng.K };
     const plan = () => String(K.eventPlan || "").split(",").filter(Boolean).map((x) => {
       const [type, at] = x.split("@");
       return { type, at: +at };
     });
-    const gap = () => climateMix(0.5, 1.5, rng()) * (K.eventEvery ?? 60) * 60;
+    const gap = () => climateMix(0.5, 1.5, rng()) * K.eventEvery * 60;
     function reset() {
       Object.assign(climate, {
         name: "The First Tides",
@@ -19322,7 +19290,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         events: [],
         phase: null,
         plan: plan(),
-        nextEvent: (K.eventEvery ?? 60) > 0 && !K.eventPlan ? (K.eventFirst ?? 25) * 60 + gap() * 0.5 : Infinity
+        nextEvent: K.eventEvery > 0 && !K.eventPlan ? K.eventFirst * 60 + gap() * 0.5 : Infinity
       });
     }
     function force(type, delay = 0) {
@@ -19340,7 +19308,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (climate.event && !climate.allowed.has(climate.event.type) && !climate.plan.length) climate.event = null;
       if (t2 >= climate.nextEvent && !climate.event && !EVENT_TYPES.some((x) => climate.allowed.has(x))) climate.nextEvent = t2 + gap();
       if (t2 >= climate.nextEvent && !climate.event) {
-        const w = (K.eventMix || [0.35, 0.2, 0.2, 0.25]).map((x, i) => climate.allowed.has(EVENT_TYPES[i]) ? x : 0);
+        const w = K.eventMix.map((x, i) => climate.allowed.has(EVENT_TYPES[i]) ? x : 0);
         let r = rng() * w.reduce((a, b) => a + b, 0), k = 0;
         while (k < w.length - 1 && r >= w[k]) {
           r -= w[k];
@@ -19368,7 +19336,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       eng.mudRain = t2 >= rainAt ? t2 - rainAt : 0;
       if (e.duck) eng.duck.set(e.duck);
       else eng.duck.fill(0);
-      if (e.rain > 0 && rng() < e.rain * 1.2 * (K.rainDrops ?? 1) * dt) {
+      if (e.rain > 0 && rng() < e.rain * 1.2 * K.rainDrops * dt) {
         const k = climate.dropSlot = ((climate.dropSlot ?? -1) + 1) % 4;
         eng.drops.set([rng() * eng.grid[0], rng() * eng.grid[1], t2, climateMix(1, 3, rng())], k * 4);
       }
@@ -19400,8 +19368,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
         dT: (r() < 0.5 ? -1 : 1) * climateMix(5, 8, r()),
         dur: climateMix(120, 240, r())
       } : null;
-      climate.levelTo = r() < (K.lowEras ?? 0.35) ? climateMix(0.88, 0.98, r()) : 1;
-      if (K.pond ?? 1) eng.shiftFloor?.(climate.index, K.floorDrift ?? 0.3);
+      climate.levelTo = r() < K.lowEras ? climateMix(0.88, 0.98, r()) : 1;
+      if (K.pond) eng.shiftFloor?.(climate.index, K.floorDrift);
       climate.history.push({ t: t2, name: climate.name, ambient: climate.ambientTo, temp: climate.tempTo, level: climate.levelTo });
       climate.onEra?.(climate.history.at(-1), prevAmb, prevTemp);
     }
@@ -19411,7 +19379,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       eng.ambient += (climate.ambientTo - eng.ambient) * k;
       eng.temp += (climate.tempTo - eng.temp) * Math.min(1, dt / 180);
       const x = climate.excursion;
-      if ((K.pond ?? 1) && eng.duck) {
+      if (K.pond && eng.duck) {
         eventTick(dt);
         eng.stepFloor?.();
       }
@@ -19620,10 +19588,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       id: "pool",
       title: "The pool and its events",
       short: "Pool",
-      html: `<p>The world is a shallow pool under a microscope, a millimetre or two across. Its floor has relief: some eras the water stands low and the highest ground shows as islands and sandbars. Now and then, about once an hour of world time, the pool suffers an ${t("poolevents", "event")}, announced in the log and on screen:</p>
+      html: `<p>The world is a shallow pool under a microscope, a few millimetres to a couple of centimetres across. Its floor has relief: some eras the water stands low and the highest ground shows as islands and sandbars. Now and then, about once an hour of world time, the pool suffers an ${t("poolevents", "event")}, announced in the log and on screen:</p>
 <ul>
 <li><b>${t("evdrought", "Drought")}.</b> The water falls until much of the floor lies dry and the pool parts into separate pools. The receding edge sweeps cells along and piles them at the waterline; the mud pales and cracks into plates as it dries. Then rain falls, staining the mud dark drop by drop until it is wet all over, refills the pool, and the resting cells hatch.</li>
-<li><b>${t("evstorm", "Storm")}.</b> Cold rain under cloud. Raindrops ring the surface (seen as rings and a moving web of light on the floor) and shove the water and what floats in it.</li>
+<li><b>${t("evstorm", "Storm")}.</b> Cold rain under cloud. Raindrops ring the surface, their ripples bending the view of what lies beneath, and shove the water and what floats in it.</li>
 <li><b>${t("evduckweed", "Duckweed")}.</b> A few fronds of duckweed float out of focus far above, a mother and the daughters budding from it, drifting slowly and shading the water under them. Each hangs a root down through the water, blurred near its frond and sharp at its tip.</li>
 <li><b>${t("evfrost", "Frost")}.</b> A cold night chills the water to near 0° and ice grows over the pool as a mass of small crystals, from the shallows and from scattered seeds, pushing cells into the veins of water between them; then it thaws.</li>
 </ul>
@@ -23993,6 +23961,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var fmtSpeed = (s) => s === Infinity ? "Max" : `×${s}`;
   var WARM_UNTIL = 120;
   var PARTICLE_SIZES = [32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
+  var EVENTS_ON = () => ({ on: true, ...Object.fromEntries(EVENT_TYPES.map((x) => [x, true])) });
   var PREFS_KEY = "tidemote.view";
   var CELL_MARK = "rgba(241,227,160,0.95)";
   var loadPrefs = () => {
@@ -24030,7 +23999,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       labOpen: prefs.labOpen ?? prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
       closeup: prefs.closeup ?? true,
       // the pool's events (docs/catastrophes.md): all on, or off, or some of them
-      events: { on: true, drought: true, storm: true, duckweed: true, frost: true, ...prefs.events },
+      events: { ...EVENTS_ON(), ...prefs.events },
       songMarks: prefs.songMarks ?? 1,
       // mark the cells that sing: 0 off, 1 the picked species, 2 all
       // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
@@ -25484,7 +25453,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       function climate_() {
         const E = state.events;
         const kinds = E.on ? EVENT_TYPES.map((x) => onoff(`ev-${x}`, EVENT_NAMES[x], "", E[x], `ev${x}`)).join("") : "";
-        const now = !K.pond ? "" : state.phase === "running" && !climate.event && E.on && EVENT_TYPES.some((x) => E[x]) ? `<div class="opt"><span class="lbl">${term("evstart", "Start one now")}</span><div class="row segs">${EVENT_TYPES.filter((x) => E.on && E[x]).map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAMES[x]}</button>`).join("")}</div></div>` : climate?.event ? `<div class="opt"><span class="lbl">Under way</span><span class="note">${EVENT_NAMES[climate.event.type]}${climate.phase ? ` · ${climate.phase}` : ""}</span></div>` : "";
+        const now = !K.pond ? "" : state.phase === "running" && !climate.event && E.on && EVENT_TYPES.some((x) => E[x]) ? `<div class="opt"><span class="lbl">${term("evstart", "Start one now")}</span><div class="row segs">${EVENT_TYPES.filter((x) => E.on && E[x]).map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAMES[x]}</button>`).join("")}</div></div>` : climate?.event ? `<div class="opt"><span class="lbl">Under way</span><span class="note">${EVENT_NAMES[climate.event.type]}${climate.phase && climate.phase !== climate.event.type ? ` · ${climate.phase}` : ""}</span></div>` : "";
         return group("events", "Pool events", onoff("ev-on", "Events", "", E.on, "poolevents") + kinds + now);
       }
       let saves = null, used = 0, wName = "", ask = null, wBusy = "";
@@ -25592,7 +25561,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       function resetTab() {
         const s = eng.settings, P = state.perf;
         if (tab === "climate") {
-          state.events = { on: true, drought: true, storm: true, duckweed: true, frost: true };
+          state.events = EVENTS_ON();
           applyEvents();
         } else if (tab === "display") {
           trailIdx = 1;
@@ -25673,16 +25642,13 @@ registerProcessor("tidemote-sound", TidemoteSound);
         else if (id === "lod") s.lod = !!+v;
         else if (id === "closeup") state.closeup = !!+v;
         else if (id === "songmarks") state.songMarks = +v;
-        else if (id === "ev-on") {
-          state.events.on = !!+v;
-          applyEvents();
-        } else if (id.startsWith("ev-") && id !== "ev-start") {
-          state.events[id.slice(3)] = !!+v;
-          applyEvents();
-        } else if (id === "ev-start") {
+        else if (id === "ev-start") {
           if (!climate.event) climate.force(v);
           toggle(false);
           return;
+        } else if (id.startsWith("ev-")) {
+          state.events[id.slice(3)] = !!+v;
+          applyEvents();
         } else if (id === "loupe") state.loupe = !!+v;
         else if (id === "auto") {
           state.auto = !!+v;

@@ -6,70 +6,20 @@
 // --clip records that many seconds of the page running at --clipspeed (the screencast, as numbered JPEGs in a folder
 // per moment and zoom, with their times in frames.json) instead of stills; join them with ffmpeg.
 // --times are simulated seconds after the eval, run at --speed (Infinity: Max); --zoom is pixels per world unit, or
-// fit (the whole world); --at the spot (world units, default the world's centre).
-import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http'; import os from 'node:os';
-import { chromium } from 'playwright-core';
+// fit (the whole world); --at the spot: x,y (world units), event, shore or ice (default the world's centre).
+import fs from 'node:fs'; import path from 'node:path';
+import { cliArgs, openPage, aim } from './pagelab.mjs';
 
-const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : '1']] : a), []));
-const v = { clip: 0, clipspeed: 1, out: 'runs/shots/x', k: '{}', n: 262144, mature: 120, eval: '', times: '0', speed: 8, zoom: 'fit', at: '', frames: 1, w: 1280, h: 800, html: 'dist/tidemote.html', ...args };
+const v = { clip: 0, clipspeed: 1, out: 'runs/shots/x', k: '{}', n: 262144, mature: 120, eval: '', times: '0', speed: 8, zoom: 'fit', at: '', frames: 1, w: 1280, h: 800, html: 'dist/tidemote.html', ...cliArgs() };
 fs.mkdirSync(v.out, { recursive: true });
-const html = path.resolve(v.html);
-const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); fs.createReadStream(html).pipe(res); });
-await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(process.env.TEMP || os.tmpdir(), 'shot-')), {
-  executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: false, viewport: null,
-  args: [`--window-size=${v.w},${v.h}`, '--window-position=0,0', '--no-first-run', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'] });
-const page = ctx.pages()[0];
-page.setDefaultTimeout(0);
-page.on('pageerror', (e) => console.log(`[page error] ${e.message}`));
-page.on('console', (m) => { if (m.type() === 'error') console.log(`[console] ${m.text()}`); });
-await page.addInitScript((n) => {
-  if (sessionStorage.getItem('tm-init')) return;
-  sessionStorage.setItem('tm-init', '1');
-  localStorage.setItem('tidemote.view', JSON.stringify({ v: 2, particles: n, auto: false, labOpen: false, trails: 0 }));
-  localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0 }));
-}, +v.n);
-await page.goto(`http://127.0.0.1:${server.address().port}/#k=${encodeURIComponent(v.k)}`);
-await page.waitForFunction(() => globalThis.__tidemote?.state.phase === 'running', null, { polling: 250 });
-await page.keyboard.press('Shift');
-await page.waitForFunction(() => document.body.classList.contains('live'), null, { polling: 250 });
-await page.mouse.move(v.w / 2, v.h / 2); await page.mouse.wheel(0, 100);
-await page.addStyleTag({ content: '#dock,#floats,#hud,#flash,#caption,#feed,#lab,.rail{display:none!important}' }); await page.mouse.move(v.w - 2, 2);
-const simTime = () => page.evaluate(() => globalThis.__tidemote.eng.simTime);
-async function runTo(t, speed) {
-  await page.evaluate((s) => globalThis.__tidemote.setSpeed(s), speed);
-  while (await simTime() < t) await page.waitForTimeout(250);
-  await page.evaluate(() => globalThis.__tidemote.setSpeed(0));
-}
-await runTo(+v.mature, Infinity);
-if (v.eval) console.log('eval:', JSON.stringify(await page.evaluate((code) => { const T = globalThis.__tidemote; return eval(code); }, v.eval)));
+const { ctx, page, simTime, setSpeed, runTo, evalCode, close } = await openPage({ ...v, tmp: 'shot-' });
+if (v.eval) console.log('eval:', JSON.stringify(await evalCode(v.eval)));
 const t0 = await simTime();
 const zooms = String(v.zoom).split(',');
 for (const dt of String(v.times).split(',').map(Number)) {
   await runTo(t0 + dt, v.speed === 'max' ? Infinity : +v.speed);
   for (const z of zooms) {
-    await page.evaluate(([z, at]) => {
-      const T = globalThis.__tidemote, g = T.eng.grid, fit = Math.max(innerWidth / g[0], innerHeight / g[1]);
-      // at: "x,y"; "event" (the current event's centre, the duckweed's); "shore" (a point of the water's edge near the middle); "ice" (a point of the ice front)
-      let [x, y] = [g[0] / 2, g[1] / 2];
-      if (at === 'event') { const ev = T.climate().event; if (ev?.x != null) [x, y] = [ev.x, ev.y]; }
-      else if (at === 'shore' && T.eng.relief) {
-        let best = Infinity;
-        for (let j = 0; j < g[1]; j++) for (let i = 0; i < g[0]; i++) {
-          const d = Math.abs(T.eng.relief[j * g[0] + i] - T.eng.level), r = Math.hypot(i - g[0] / 2, j - g[1] / 2);
-          if (d < 0.004 && r < best) { best = r; [x, y] = [i + 0.5, j + 0.5]; }
-        }
-      } else if (at === 'ice' && T.eng.iceOrder) {
-        let best = Infinity;
-        for (let j = 0; j < g[1]; j++) for (let i = 0; i < g[0]; i++) {
-          const d = Math.abs(T.eng.iceOrder[j * g[0] + i] - T.eng.frost), r = Math.hypot(i - g[0] / 2, j - g[1] / 2);
-          if (d < 0.006 && r < best) { best = r; [x, y] = [i + 0.5, j + 0.5]; }
-        }
-      } else if (at) [x, y] = at.split(',').map(Number);
-      T.cam.x = x; T.cam.y = y; T.cam.anchor = null;
-      // (never wider than the page lets a viewer see: below fit the view would show past the world's edges)
-      T.cam.zoom = T.cam.zoomTarget = z === 'fit' ? Math.min(innerWidth / g[0], innerHeight / g[1]) / fit : Math.max(+z / fit, 1);
-    }, [z, v.at]);
+    await aim(page, /^[-\d.]+,[-\d.]+$/.test(v.at) ? v.at.split(',').map(Number) : v.at, z);
     if (+v.clip > 0) {
       const dir = path.join(v.out, `clip_t${String(Math.round(dt)).padStart(4, '0')}_z${z}`);
       fs.mkdirSync(dir, { recursive: true });
@@ -79,23 +29,23 @@ for (const dt of String(v.times).split(',').map(Number)) {
         fs.writeFileSync(path.join(dir, `f${String(times.length).padStart(5, '0')}.jpg`), Buffer.from(f.data, 'base64'));
         await cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {});
       });
-      await page.evaluate((s) => globalThis.__tidemote.setSpeed(s), v.clipspeed === 'max' ? Infinity : +v.clipspeed);
+      await setSpeed(v.clipspeed === 'max' ? Infinity : +v.clipspeed);
       await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 88, everyNthFrame: 1 });
       await page.waitForTimeout(+v.clip * 1000);
       await cdp.send('Page.stopScreencast');
-      await page.evaluate(() => globalThis.__tidemote.setSpeed(0));
+      await setSpeed(0);
       fs.writeFileSync(path.join(dir, 'frames.json'), JSON.stringify(times));
       console.log(dir, times.length, 'frames', (await simTime()).toFixed(0));
       continue;
     }
     for (let fi = 0; fi < +v.frames; fi++) {
-      await page.evaluate(() => globalThis.__tidemote.setSpeed(1));
+      await setSpeed(1);
       await page.waitForTimeout(900);
-      await page.evaluate(() => globalThis.__tidemote.setSpeed(0));
+      await setSpeed(0);
       const name = `t${String(Math.round(dt)).padStart(4, '0')}_z${z}_${fi}.png`;
       await page.screenshot({ path: path.join(v.out, name) });
       console.log(name, (await simTime()).toFixed(0));
     }
   }
 }
-await ctx.close(); server.close();
+await close();

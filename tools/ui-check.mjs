@@ -43,6 +43,8 @@ for (const touch of [false, true]) {
   const sv = await page.$('#set-vol');
   check(`${tag} Settings shows a volume slider`, !!sv && await sv.isVisible());
   if (sv) {
+    // (the panel scrolls: on a short laptop screen the slider lies below its fold)
+    await sv.scrollIntoViewIfNeeded();
     const box = await sv.boundingBox();
     check(`${tag} the slider is big enough to touch`, box.width >= 120 && box.height >= 24, `${Math.round(box.width)}×${Math.round(box.height)}`);
     // drag to about a quarter

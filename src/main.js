@@ -113,6 +113,8 @@ const fmtSpeed = (s) => (s === Infinity ? 'Max' : `×${s}`);
 // Choosing a speed ends the warm-up; a pause only holds it. A loaded world never warms up.
 const WARM_UNTIL = 120;
 const PARTICLE_SIZES = [32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
+// the pool's events as a fresh page has them (Settings → Climate): all on
+const EVENTS_ON = () => ({ on: true, ...Object.fromEntries(EVENT_TYPES.map((x) => [x, true])) });
 
 // view preferences that outlive the page
 const PREFS_KEY = 'tidemote.view';
@@ -133,7 +135,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     labOpen: prefs.labOpen ?? prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
     closeup: prefs.closeup ?? true,
     // the pool's events (docs/catastrophes.md): all on, or off, or some of them
-    events: { on: true, drought: true, storm: true, duckweed: true, frost: true, ...prefs.events },
+    events: { ...EVENTS_ON(), ...prefs.events },
     songMarks: prefs.songMarks ?? 1, // mark the cells that sing: 0 off, 1 the picked species, 2 all
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
     // pixels per CSS pixel, the frame rate aimed for (0: the display's; 60 by default, and for prefs
@@ -1478,7 +1480,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const kinds = E.on ? EVENT_TYPES.map((x) => onoff(`ev-${x}`, EVENT_NAMES[x], '', E[x], `ev${x}`)).join('') : '';
       const now = !K.pond ? '' : state.phase === 'running' && !climate.event && E.on && EVENT_TYPES.some((x) => E[x])
         ? `<div class="opt"><span class="lbl">${term('evstart', 'Start one now')}</span><div class="row segs">${EVENT_TYPES.filter((x) => E.on && E[x]).map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAMES[x]}</button>`).join('')}</div></div>`
-        : climate?.event ? `<div class="opt"><span class="lbl">Under way</span><span class="note">${EVENT_NAMES[climate.event.type]}${climate.phase ? ` · ${climate.phase}` : ''}</span></div>` : '';
+        : climate?.event ? `<div class="opt"><span class="lbl">Under way</span><span class="note">${EVENT_NAMES[climate.event.type]}${climate.phase && climate.phase !== climate.event.type ? ` · ${climate.phase}` : ''}</span></div>` : '';
       return group('events', 'Pool events', onoff('ev-on', 'Events', '', E.on, 'poolevents') + kinds + now);
     }
     // the saves kept in this browser (null until read), the name being typed, a load or delete
@@ -1585,7 +1587,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     function resetTab() {
       const s = eng.settings, P = state.perf;
       if (tab === 'climate') {
-        state.events = { on: true, drought: true, storm: true, duckweed: true, frost: true };
+        state.events = EVENTS_ON();
         applyEvents();
       } else if (tab === 'display') {
         trailIdx = 1; s.trails = trailLevels[trailIdx];
@@ -1648,9 +1650,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'lod') s.lod = !!+v;
       else if (id === 'closeup') state.closeup = !!+v;
       else if (id === 'songmarks') state.songMarks = +v;
-      else if (id === 'ev-on') { state.events.on = !!+v; applyEvents(); }
-      else if (id.startsWith('ev-') && id !== 'ev-start') { state.events[id.slice(3)] = !!+v; applyEvents(); }
       else if (id === 'ev-start') { if (!climate.event) climate.force(v); toggle(false); return; }
+      else if (id.startsWith('ev-')) { state.events[id.slice(3)] = !!+v; applyEvents(); }
       else if (id === 'loupe') state.loupe = !!+v;
       else if (id === 'auto') { state.auto = !!+v; renderAuto(director.active); }
       else if (id === 'scale') { P.scale = v === 'auto' ? 'auto' : +v; if (P.scale !== 'auto') renderScale = P.scale; else renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
