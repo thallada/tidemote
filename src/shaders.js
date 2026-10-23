@@ -4911,6 +4911,9 @@ struct LO { @builtin(position) pos: vec4f, @location(0) col: vec3f };
   let fade = select(view.mute, 1.0, focusPass(p));
   o.col = unpack4x8unorm(select(p.col, q.col, isEnd)).rgb * ((0.35 + 0.65 * t) * view.lineGain * fade);
   if (view.pointSize > 6.0) { o.col *= 1.0 - bondLOD(view.pointSize); }
+  // tissue shows no bond once its cells take shape (vsBridge): its line goes as they resolve
+  let adhesion = min(genomes[p.kind].adhesion, genomes[q.kind].adhesion);
+  if ((adhesion - view.tightFrom) / ${f(DEFAULT_K.tightSpan)} > 0.5) { o.col *= 1.0 - detailLOD(view.pointSize); }
   return o;
 }
 
