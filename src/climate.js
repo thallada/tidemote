@@ -30,7 +30,7 @@ const ramp = (t, a, b) => ease((t - a) / Math.max(b - a, 1e-6));
 
 /** An event's effect on the pool at time t: level (below the era's), rain, sky, drying, currents, temperature, duckweed. */
 export function eventAt(ev, t, levelTo) {
-  const out = { level: levelTo, rain: 0, sky: 1, evap: 0, turb: 1, dT: 0, chill: 0, duck: null, frost: 0, freezing: 0, phase: null };
+  const out = { level: levelTo, rain: 0, sky: 1, evap: 0, turb: 1, dT: 0, chill: 0, duck: null, frost: 0, freezing: 0, parch: 0, phase: null };
   if (!ev || t < ev.t) return out;
   const u = t - ev.t;
   // how cold, dark and rough its rain is (rainCold, rainDark, rainTurb: multiples of the defaults)
@@ -41,17 +41,19 @@ export function eventAt(ev, t, levelTo) {
       // the water falls, slowly at first, in warm dry weather
       out.level = levelTo + (low - levelTo) * ease(u / fall); out.evap = Math.sin(Math.PI * u / fall);
       out.dT = 3 * ease(u / fall); out.sky = 1 + 0.1 * ease(u / fall); out.phase = 'drying';
+      // the bared floor bakes as it goes (drawn: pale, then cracked; a low-water era's bars stay damp)
+      out.parch = ease(u / fall);
     } else if (u < fall + hold) {
-      out.level = low - 0.03 * (u - fall) / hold; out.evap = 0.25; out.dT = 3; out.sky = 1.1; out.phase = 'dry';
+      out.level = low - 0.03 * (u - fall) / hold; out.evap = 0.25; out.dT = 3; out.sky = 1.1; out.parch = 1; out.phase = 'dry';
     } else if (u < fall + hold + refill) {
       // rain: it refills the pool, cold and dark under cloud, the water rough
       const v = (u - fall - hold) / refill;
       out.level = low - 0.03 + (levelTo - low + 0.03) * ease(v);
       out.rain = Math.min(1, v * 6, (1 - v) * 4 + 0.3); out.sky = 1 - 0.55 * dark * out.rain; out.turb = 1 + 1.2 * rough * out.rain;
-      out.dT = 3 - (3 + 3 * cold) * ease(v * 3); out.phase = 'rain';
+      out.dT = 3 - (3 + 3 * cold) * ease(v * 3); out.parch = 1; out.phase = 'rain';
     } else {
       const v = (u - fall - hold - refill) / 120;
-      if (v < 1) { out.rain = 0.3 * (1 - v); out.sky = 1 - 0.2 * dark * (1 - v); out.dT = -3 * cold * (1 - ease(v)); out.phase = 'after'; }
+      if (v < 1) { out.rain = 0.3 * (1 - v); out.sky = 1 - 0.2 * dark * (1 - v); out.dT = -3 * cold * (1 - ease(v)); out.parch = 1 - ease(v); out.phase = 'after'; }
     }
   } else if (ev.type === 'storm') {
     const r = Math.min(ramp(u, 0, 40), 1 - ramp(u, ev.dur - 60, ev.dur));
@@ -63,9 +65,12 @@ export function eventAt(ev, t, levelTo) {
     const night = Math.min(ramp(u, 0, cool), 1 - ramp(u, cool + grow + hold, cool + grow + hold + thaw + 120));
     out.sky = 1 - 0.6 * ev.dark * night; out.chill = ev.cold * night;
     if (u < cool) out.phase = 'cooling';
-    else if (u < cool + grow) { const v = (u - cool) / grow; out.frost = ev.max * ease(v); out.freezing = Math.sin(Math.PI * v); out.phase = 'freezing'; }
+    // (eased twice: the frozen share is the frost, so a patch's radius goes as its square root, and a once-eased
+    // frost would still open each patch at speed; twice, every patch grows from nothing and gathers pace, and on
+    // the thaw shrinks back to nothing the same way)
+    else if (u < cool + grow) { const v = (u - cool) / grow; out.frost = ev.max * ease(v) ** 2; out.freezing = Math.sin(Math.PI * v); out.phase = 'freezing'; }
     else if (u < cool + grow + hold) { out.frost = ev.max; out.phase = 'frozen'; }
-    else if (u < cool + grow + hold + thaw) { out.frost = ev.max * (1 - ease((u - cool - grow - hold) / thaw)); out.phase = 'thaw'; }
+    else if (u < cool + grow + hold + thaw) { out.frost = ev.max * (1 - ease((u - cool - grow - hold) / thaw)) ** 2; out.phase = 'thaw'; }
     else if (u < cool + grow + hold + thaw + 120) out.phase = 'after';
   } else if (ev.type === 'duckweed') {
     const r = Math.min(ramp(u, 0, 40), 1 - ramp(u, ev.dur - 120, ev.dur));
@@ -85,7 +90,7 @@ export function makeEvent(type, t, rng, w, h, K = DEFAULT_K) {
   if (type === 'storm') return { type, t, dur: pick(K.stormDur), ...rain };
   if (type === 'frost') return { type, t, cool: 90, grow: pick(K.frostGrow), hold: pick(K.frostHold), thaw: pick(K.frostThaw), max: pick(K.frostMax), cold: K.frostCold, dark: K.frostDark };
   // duckweed: a mother frond (len: half its length) and one to three daughters budding from its node
-  const len = pick(K.duckLen) * Math.min(w, h), a = rng() * Math.PI * 2, sp = climateMix(0.01, 0.04, rng());
+  const len = pick(K.duckLen) * Math.min(w, h), a = rng() * Math.PI * 2, sp = climateMix(K.duckDrift[0], K.duckDrift[1], rng());
   return { type, t, dur: pick(K.duckDur), x: rng() * w, y: rng() * h, len, dark: pick(K.duckDark),
     angle: rng() * Math.PI * 2, spin: (rng() - 0.5) * 0.004, seed: rng() * 100, width: climateMix(0.55, 0.72, rng()), buds: 1 + Math.floor(rng() * 3),
     vx: Math.cos(a) * sp, vy: Math.sin(a) * sp };
@@ -139,12 +144,20 @@ export function createClimate(eng, rng = Math.random) {
     climate.phase = e.phase;
     if (ev && t > ev.t + eventSpan(ev)) climate.event = null;
     if (ev && e.phase !== before) climate.onEvent?.(ev, e.phase, before);
-    eng.level = ev && t >= ev.t ? e.level : eng.level + (climate.levelTo - eng.level) * Math.min(1, dt / 120);
+    // between events the level eases to the era's through two lags (about two minutes in all), so it sets off
+    // gently and the first islands grow from nothing rather than opening at speed
+    if (ev && t >= ev.t) { eng.level = e.level; climate.levelMid = e.level; } else {
+      const k = Math.min(1, dt / 60);
+      climate.levelMid ??= eng.level;
+      climate.levelMid += (climate.levelTo - climate.levelMid) * k;
+      eng.level += (climate.levelMid - eng.level) * k;
+    }
     eng.rain = e.rain; eng.sky = e.sky; eng.evap = e.evap; eng.turb = e.turb; eng.frost = e.frost; eng.freezing = e.freezing;
     climate.eventTemp = e.dT; climate.eventChill = e.chill;
     // the seconds since a drought's rain began (raindrops wetting its mud), 0 outside one
     const rainAt = ev?.type === 'drought' ? ev.t + ev.fall + ev.hold : Infinity;
     eng.mudRain = t >= rainAt ? t - rainAt : 0;
+    eng.parch = e.parch;
     if (e.duck) eng.duck.set(e.duck); else eng.duck.fill(0);
     // raindrops: each a ring wave from where it fell, about one a second in full rain, four at a time at most
     if (e.rain > 0 && rng() < e.rain * 1.2 * K.rainDrops * dt) {
@@ -182,7 +195,7 @@ export function createClimate(eng, rng = Math.random) {
       dT: (r() < 0.5 ? -1 : 1) * climateMix(5, 8, r()), dur: climateMix(120, 240, r()),
     } : null;
     // the pool's floor shows in some eras: low water leaves sandbars and islands (moving geography)
-    climate.levelTo = r() < K.lowEras ? climateMix(0.88, 0.98, r()) : 1;
+    climate.levelTo = r() < K.lowEras ? climateMix(K.lowLevel[0], K.lowLevel[1], r()) : 1;
     // and the floor itself shifts a little as sediment moves, so each low water shows new bars and islands
     if (K.pond) eng.shiftFloor?.(climate.index, K.floorDrift);
     climate.history.push({ t, name: climate.name, ambient: climate.ambientTo, temp: climate.tempTo, level: climate.levelTo });

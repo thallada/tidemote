@@ -34,7 +34,11 @@ What the water does where it is shallow or gone (all in `src/shaders.js`, tunabl
 The climate draws an event about every `eventEvery` minutes (60; the first no sooner than `eventFirst`, 25),
 drought, storm, duckweed or frost by `eventMix`; `eventPlan` ("drought@900,duckweed@2400") forces events for tests, and the page
 console's `__tidemote.climate().force('drought')` starts one. Climate eras also set the water's resting level:
-`lowEras` of them (35%) stand low (88-98%), showing sandbars and islands (moving geography).
+`lowEras` of them (35%) stand low (`lowLevel`, 96-99% of the floor wet; first 88-98%, which bared too much), showing
+sandbars and islands (moving geography); between events the level eases to the era's through two lags, so it sets
+off gently and new islands grow from nothing. The page reads the floor and the ice's order through a cubic B-spline
+(`fieldPost`), never below the lowest cell around a point: a cubic through the cells dipped beside steep sides, and
+ice showed at once over patches the simulation had not frozen.
 
 - **Drought**: the water falls over `droughtFall` (5-8 min, warm and bright: +3°) until `droughtLow` (35-60%) of the
   floor is wet, the pool parting into separate pools; holds `droughtHold` (2.5-5 min), still sinking a little; then
@@ -46,14 +50,19 @@ console's `__tidemote.climate().force('drought')` starts one. Climate eras also 
   its length `duckLen`, 12-20% of the world's shorter side; 1-5 mm long at the page's sizes, as real fronds are) and
   one to three daughters budding from the pouches beside its node. It shades the water under it (light × 1 −
   `duckDark`, 75-92%), about as much of the pool as the leaf it replaced (a leaf of the same pool would have been
-  wider than the pool; see the leaf rows of the round 1 table, which barely moved the pool).
+  wider than the pool; see the leaf rows of the round 1 table, which barely moved the pool). It drifts at `duckDrift` (0.0175-0.07
+  units/s; first 0.01-0.04, which read as still).
 - **Frost** (`frostGrow`, `frostHold`, `frostThaw`): a cold night (light × 0.4, the background water chilled to 0.5°
   whatever the era's warmth, `FROST_WATER` in `src/climate.js`, × `frostCold`) on a pool this thin freezes it
   in-plane. Ice grows in the order of a second field (`makeIceOrder`, thermal block 4: grains spreading from the
   shallows and from their centres, meeting last along the zero lines of a random field) until `frostMax` (60-85%)
-  of the pool is ice. The ice's front is an edge like the water's (`pondAt` takes whichever is nearer): it pushes
-  cells and grains ahead of it, so what lives is packed into the veins of water left between the grains (brine
-  channels), and cells caught in the ice rest as cysts or freeze. Then it thaws.
+  of the pool is ice. The frozen share is the frost (the field is ranked), so a patch's radius goes as the frost's
+  square root: the frost is eased twice (growth and thaw), so every patch starts from nothing at no speed and
+  gathers pace, and on the thaw shrinks back to nothing the same way (eased once, the first patches opened at speed
+  and read as popping in). The ice's front is an edge like the water's (`pondAt` takes whichever is nearer): it pushes
+  cells ahead of it, so what lives is packed into the veins of water left between the grains (brine channels), and
+  cells caught in the ice rest as cysts or freeze; silt and husks freeze where it finds them (carried to the front,
+  as a drought's edge carries them, they gathered in strings down the valleys of the ice's order). Then it thaws.
 - **Raindrops**: about one a second in full rain, each a ring wave (`dropSpeed` 7 units/s, `dropWidth`, `dropLife`)
   shoving the water outward as it passes (`flowAt`).
 
@@ -64,6 +73,11 @@ grew a fourth block (the relief). Saves from before do not load.
 
 Darkfield: the lamp's light reaches the objective only where something scatters it. A world unit is 59 µm (a cell of
 size 1 is 10 µm; `UM_PER_UNIT`), so the pool is 6-25 mm across at the page's sizes and everything is drawn at that scale (all in `POST_WGSL`, observational).
+The pool's looks (`poolOver`, shared by the main view and the loupe) are drawn from the world's own wrapped
+coordinates, with noise that tiles the world (`vnoiseT`, `fbm3T`, `vborderT`: each lattice stretched a little so a
+whole number of its cells spans the world), so the mud, its stains and the ice look the same wherever the view's
+wrap puts them and show no seam at the world's edges. Raindrop ripples bend the view on open water only
+(`openWater`); the light map shows the light as producers get it, clouds and duckweed's shade included.
 
 - **Dry ground** (`dryGround`): the film of silt and clay the water left. Wet, water fills the spaces between its
   grains and it scatters little, dark and smooth; as it dries air takes their place and it pales to a grainy buff
@@ -72,7 +86,10 @@ size 1 is 10 µm; `UM_PER_UNIT`), so the pool is 6-25 mm across at the page's si
   with its central rib and fine ribs across). Drying, the film shrinks and cracks: a coarse network (cells ~7.5 units)
   opening first, then finer cracks through the driest plates. The cracks are dark gaps, nothing in them to scatter;
   each plate's broken rim is bright and curls up, its middle sagging a shade darker. Tide lines of fine matter lie
-  along the floor's contours where the edge paused (a coffee ring), cut by the cracks.
+  along the floor's contours where the edge paused (a coffee ring), cut by the cracks. Only a drought bakes it so
+  (the post uniform's `parch`, from `eventAt`: rising as its water falls, 1 through its hold and rain, fading over
+  the two minutes after): the floor a low-water era bares stays a damp bar, dark and smooth with a gloss, its grains
+  glistening out of the film and shallow puddles standing in its hollows, each rimmed by a fine bright waterline.
 - **Rain on the mud** (`mudDrops`, the post uniform's `weather.w`: seconds since a drought's rain began): each drop
   lands as a low bead of water, its rim bright and uneven, and sinks in within a second, leaving a dark wet stain
   that creeps outward as the mud wicks the water in, its front darkest. Small drops (0.14-0.4 mm across) and larger
@@ -89,16 +106,26 @@ size 1 is 10 µm; `UM_PER_UNIT`), so the pool is 6-25 mm across at the page's si
   capillary packet, short crests crowding its leading edge and broadening toward its centre, uneven in amplitude and
   radius around its circle, with up to two splash droplets ringing beside it. The rain falling out of view roughens
   the whole surface with wavelets from every direction, in groups.
-- **Ice** (`iceLook`, `frazil`): ice and water bend light almost alike, so the ice is nearly invisible; what shows
-  is where it scatters. Each grain (a Voronoi cell, ~11 units) is one crystal. Its front advances as fern dendrites:
-  stems along whichever of its six axes points most nearly into the water, reaching ahead of the simulated front by
-  their own lengths (some lagging, crowded out); secondary branches at sixty degrees, longer the longer they have
-  grown; fine needles off those, parallel to the stem. Lines finer than a pixel spread to a pixel and dim, and
-  branches closer than a few pixels blur into a glow along their stem, so the fern resolves as the view closes in.
-  Behind the front the filigree fades as the gaps freeze (faster once the ice stops growing), leaving a faint mosaic
-  of grains (each scatters a little differently), bright seams with grooves where grains meet, and chains of air
-  bubbles (bright rims, dark hearts) along the way the ice grew. Ahead of a growing front, small stellar crystals
-  (frazil: six uneven, branched arms around a hexagonal plate) grow in the supercooled water.
+- **Ice** (`iceLook`, `iceGrain`, `frazil`): ice and water bend light almost alike, so the ice is nearly invisible;
+  what shows is where it scatters. It is drawn as a growth-time field fixed in the world, so ice once formed stays
+  put and the front only grows outward (a thaw draws it back the same way): a point is ice once the simulated front
+  (thermal block 4 against the frost) has come within `lead` of it, `lead` being how far ahead of that front the
+  dendrites reach there; that reach grows with the ice (none at the start, full once a quarter of the pool is
+  frozen: at full from the start, every spot the ice begins from showed a whole star at once), and the distance is
+  measured by the field's slope floored at about half its usual (where ice starts, at the field's minima, the slope
+  vanishes and the reach would open a ring at once). Grains (`ICE_GS`, 1.5 units) sit on a jittered lattice that tiles the world; each grows
+  parallel stems along whichever of its six axes points most nearly the way the ice grows at its centre, each a
+  needle reaching its own length ahead (up to `ICE_LEAD`, a few stunted), widening behind its tip, with fine side
+  branches at sixty degrees of uneven lengths. Every grain of the 3 × 3 around a point offers its dendrites' lead,
+  less the farther it lies from the grain's centre (`ICE_OWN`, `ICE_FALL`), and the farthest reach wins: grains
+  compete as real ones do, so a stem is never cut off (an earlier version drew the dendrites afresh each frame
+  relative to the moving front, from the grain each pixel lay in, and stems popped and were cut at grain borders
+  out in the water). Lines finer than a pixel spread to a pixel and dim, so the fern resolves as the view closes
+  in. Behind the front the dendrites fade as the gaps freeze, into a mosaic of grains with smooth boundaries (a
+  warped Voronoi tiling, each grain scattering a little differently), bright seams with grooves where grains meet,
+  faint growth lines and air bubbles (bright rims, dark hearts); deeper than any dendrite reaches only that is
+  drawn. Ahead of a growing front, small stellar crystals (frazil: six uneven, branched arms around a hexagonal
+  plate) grow in the supercooled water.
 - **Trapped cells** (`DRAW_WGSL`): a cell on dry ground shrivels a little and its colour drains to a dull brown,
   darkened; a cell in the ice drains to a pale frosted blue-white. Both read the same relief and ice fields as the
   simulation (the view uniform carries the level and the frost). Most rest as cysts: a cyst loses `cystLeak` energy a

@@ -1,13 +1,15 @@
 // Hover, focus and tap hints. Glossary terms carry data-tip (a GLOSSARY key); controls carry
-// data-hint ("Label · key"). No element carries a title attribute, so nothing competes with these.
+// data-hint ("Label · key"). No element carries a title attribute, so nothing competes with these. A term may also
+// carry data-live, a note on what it shows right now, put before its glossary entry.
 import { GLOSSARY } from './guide.js';
 
 export function createTips(tip) {
   let owner = null;
+  let shown = '';
   let via = '';
   let rect = null; // what opened the hint: 'hover', 'tap' or 'focus'; each closes its own way
   const textFor = (el) => {
-    if (el.dataset.tip) return GLOSSARY[el.dataset.tip] ? { text: GLOSSARY[el.dataset.tip] } : null;
+    if (el.dataset.tip) return GLOSSARY[el.dataset.tip] ? { text: (el.dataset.live ? `${el.dataset.live} ` : '') + GLOSSARY[el.dataset.tip] } : null;
     const h = el.dataset.hint;
     if (!h) return null;
     // a term with a live explanation (no shortcut key to split off)
@@ -21,6 +23,7 @@ export function createTips(tip) {
     owner = el;
     via = how;
     tip.textContent = t.text;
+    shown = t.text;
     if (t.key) { const k = document.createElement('kbd'); k.textContent = t.key; tip.append(k); }
     tip.hidden = false;
     const r = el.getBoundingClientRect();
@@ -65,8 +68,14 @@ export function createTips(tip) {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && owner) hide(); }, true);
   // Live panels re-render the element a hint belongs to: move the hint to its replacement (the same
   // term, where the old one was) instead of closing it.
+  // A term whose live note changed (data-live) has its open hint rewritten.
   function check() {
-    if (!owner || owner.isConnected) return;
+    if (!owner) return;
+    if (owner.isConnected) {
+      const t = textFor(owner);
+      if (t && t.text !== shown) show(owner, via);
+      return;
+    }
     const key = owner.dataset.tip ? `[data-tip="${owner.dataset.tip}"]` : `[data-hint="${CSS.escape(owner.dataset.hint || '')}"]`;
     const old = rect;
     let best = null, bd = 24;

@@ -4,7 +4,7 @@ import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS } from './engine.js';
 import { genomeSerial, readGenome, parseParticle, thermalGuild } from './genome.js';
-import { seasonAt, createClimate, abioRate, EVENT_TYPES } from './climate.js';
+import { seasonAt, createClimate, abioRate, EVENT_TYPES, excursionAt } from './climate.js';
 import { countPools } from './geography.js';
 import { createLab } from './lab.js';
 import { createSpecimen } from './specimen.js';
@@ -2042,6 +2042,49 @@ function run(eng, device, ctx, specCtx, hasTS) {
   wave.querySelector('.wave').setAttribute('d', Array.from({ length: 31 }, (_, i) => `${i ? 'L' : 'M'}${i * 2},${(8 - 6 * Math.sin((i / 30) * TAU)).toFixed(2)}`).join(''));
   const eraTide = $('era-tide');
   eraTide.querySelector('path').setAttribute('d', Array.from({ length: 61 }, (_, i) => `${i ? 'L' : 'M'}${i},${(3 - 2.6 * Math.sin((i / 60) * TAU)).toFixed(2)}`).join(''));
+  // Why the water stands off the era's usual temperature (more than half a degree), or '' if it doesn't: an era's
+  // heat wave or cold snap, and an event's own warmth or chill (a storm's lingers a few minutes after its rain).
+  function heatCause() {
+    const d = eng.excursion;
+    if (!(Math.abs(d) > 0.5)) return '';
+    const ex = excursionAt(climate.excursion, eng.simTime), ev = d - ex, causes = [];
+    if (Math.abs(ex) > 0.5) causes.push(ex > 0 ? 'a heat wave' : 'a cold snap');
+    if (Math.abs(ev) > 0.5) {
+      const e = climate.event;
+      causes.push(e?.type === 'storm' ? 'the storm’s cold rain, lingering a few minutes after it stops'
+        : e?.type === 'drought' ? (ev > 0 ? 'the drought’s warm, dry weather' : 'the cold rain that ends the drought')
+          : e?.type === 'frost' ? 'the frost’s night, chilling the water toward freezing'
+            : ev > 0 ? 'passing warmth' : 'a passing chill');
+    }
+    return `The water is ${Math.abs(d).toFixed(1)}° ${d > 0 ? 'warmer' : 'colder'} than the era’s usual: ${causes.join(', and ')}.`;
+  }
+  // The rail's event chip: the pool's event under way (with its turn), else the climate's heat wave or cold snap;
+  // hidden when there is none (and on phones, by the stylesheet). Phases go by the climate's names but for these.
+  const PHASE_NAMES = { storm: 'raining', thaw: 'thawing', after: 'passing', duckweed: '' };
+  function updateEventChip() {
+    const chip = $('g-event'), ev = climate.event, t = eng.simTime, x = climate.excursion;
+    const ex = x && t >= x.t && t <= x.t + x.dur ? (x.dT > 0 ? 'heat wave' : 'cold snap') : '';
+    let name = '', extra = '', icon = '', tip = '', tone = '', label = '';
+    if (ev && t >= ev.t) {
+      name = ev.type[0].toUpperCase() + ev.type.slice(1); icon = `#i-ev-${ev.type}`; tip = `ev${ev.type}`;
+      label = PHASE_NAMES[climate.phase] ?? climate.phase ?? '';
+      if (ex) extra = ` · ${ex}`;
+    } else if (ex) {
+      tone = x.dT > 0 ? 'hot' : 'cold';
+      name = ex[0].toUpperCase() + ex.slice(1); icon = tone === 'hot' ? '#i-ev-heat' : '#i-ev-cold'; tip = 'heatwave';
+    }
+    chip.hidden = !name;
+    if (!name) return;
+    setText('event-v', name);
+    setText('event-x', extra);
+    setText('event-l', label || (tone ? 'Climate' : 'Event'));
+    const use = $('event-i');
+    if (use.getAttribute('href') !== icon) use.setAttribute('href', icon);
+    if (chip.dataset.tip !== tip) chip.dataset.tip = tip;
+    chip.classList.toggle('hot', tone === 'hot');
+    chip.classList.toggle('cold', tone === 'cold');
+    chip.setAttribute('aria-label', `${name}${extra}${label ? `, ${label}` : ''}`);
+  }
   let hudT = 0;
   const setText = (id, v) => { const el = $(id); if (el.textContent !== v) el.textContent = v; };
   function updateHud(now) {
@@ -2069,10 +2112,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
       heatBars.forEach((s, i) => s.classList.toggle('on', i < Math.round(frac * 10)));
       heatBulbs.forEach((b) => b.style.setProperty('fill', c));
       heatLvl.setAttribute('y', (2 + 10 * (1 - frac)).toFixed(2)); heatLvl.setAttribute('height', (10 * frac + 3).toFixed(2)); heatLvl.style.setProperty('fill', c);
-      const exc = eng.excursion > 0.5 ? 'heat wave' : eng.excursion < -0.5 ? 'cold snap' : '';
-      $('g-heat').classList.toggle('exc', !!exc);
-      $('g-heat').setAttribute('aria-label', `${exc ? `${exc}, ` : ''}temperature ${Math.round(T)}°${arrow ? (arrow === '↑' ? ' and rising' : ' and falling') : ''}`);
+      // the water pushed off the era's usual: the gauge flashes, hot or cold, and its hint says why
+      const why = heatCause();
+      const g = $('g-heat');
+      g.classList.toggle('exc', !!why);
+      g.classList.toggle('cold', eng.excursion < 0);
+      if (why) g.dataset.live = why; else delete g.dataset.live;
+      g.setAttribute('aria-label', `${why ? `${why} ` : ''}Temperature ${Math.round(T)}°${arrow ? (arrow === '↑' ? ' and rising' : ' and falling') : ''}`);
     }
+    updateEventChip();
     renderMaps();
     tips.check();
     // Max shows what it reaches; every other speed is exact

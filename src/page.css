@@ -12,6 +12,7 @@
   --cyan: #7fd6df;
   --cyan-deep: rgba(127, 214, 223, 0.14);
   --hot: #ff5f3a;
+  --cold: #5aa8ff;
   --sun: #f1e3a0;
   --sans: 'Saira', 'Bahnschrift', 'DIN Alternate', 'Segoe UI', system-ui, sans-serif;
   --gut: 14px;
@@ -210,12 +211,25 @@ body:not(.live) .hud { opacity: 0; }
 .thermo-i { display: none; width: 12px; height: 20px; }
 .thermo-i .tube, .thermo-i .bulb-o { stroke-width: .8; }
 #g-heat b { color: var(--ink); }
-/* a heat wave or cold snap: the gauge breathes, its rule lit hot */
+/* the water pushed off the era's usual (a heat wave, a cold snap, an event's warmth or chill): the gauge breathes,
+   its rule and figure lit hot, or cold */
 #g-heat.exc { border-left-color: var(--hot); }
 #g-heat.exc .bar.on, #g-heat.exc .bulb { animation: exc 1.6s ease-in-out infinite; }
 #g-heat.exc b { color: var(--hot); }
+#g-heat.exc.cold { border-left-color: var(--cold); }
+#g-heat.exc.cold b { color: var(--cold); }
 @keyframes exc { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { #g-heat.exc .bar.on, #g-heat.exc .bulb { animation: none; } }
+/* the event chip: the pool's event under way (or the climate's heat wave or cold snap), while it lasts; not on
+   phones, where the rail has no room */
+.ev-chip { cursor: default; border-left-color: var(--cyan); }
+.ev-chip .ev-ico { width: 18px; height: 18px; color: var(--cyan); flex: none; }
+.ev-chip b { white-space: nowrap; min-width: 0; }
+.ev-chip.hot { border-left-color: var(--hot); } .ev-chip.hot .ev-ico, .ev-chip.hot b { color: var(--hot); }
+.ev-chip.cold { border-left-color: var(--cold); } .ev-chip.cold .ev-ico, .ev-chip.cold b { color: var(--cold); }
+/* narrower desktops: the name alone, then the icon alone (its hint says the rest) */
+@media (max-width: 1180px) { .ev-chip .lbl, .ev-chip .ev-x { display: none; } }
+@media (max-width: 980px) { .ev-chip b { display: none; } }
 #tide-wave { width: 60px; height: 16px; overflow: visible; }
 #tide-wave .wave { fill: none; stroke: var(--line-2); stroke-width: 1; }
 #tide-wave .dot { fill: var(--cyan); }
@@ -850,6 +864,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 /* ------------------------------------------------------------------ phone */
 @media (max-width: 720px) {
   :root { --gut: 10px; --rail-h: 48px; --dock-h: 62px; }
+  .ev-chip { display: none; }
   .rail { gap: 9px; }
   .brand { display: none; }
   .clock { border-left: 0; padding-left: 0; }

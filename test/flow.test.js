@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tideAt, flowAt } from '../src/flow.js';
+import { tideAt, flowAt, duckShade } from '../src/flow.js';
 
 const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-12, `${actual} != ${expected}`);
 
@@ -21,4 +21,12 @@ test('flow is perpendicular to the wave vector, with finite zero-wave output', (
   const [vx, vy] = flowAt(0, 0, 0, w);
   near(vx, 1.6); near(vy, -1.2); near(3 * vx + 4 * vy, 0);
   assert.deepEqual(flowAt(1, 2, 3, Array(16).fill(0)), [0, 0]);
+});
+
+test('duckShade shades under the mother frond, across the wrap, and nowhere without duckweed', () => {
+  const d = [5, 50, 12, 0.9, 0.3, 41.7, 0.65, 2];
+  assert.ok(Math.abs(duckShade(5, 50, d, 150, 80) - 0.9) < 1e-9);
+  assert.ok(Math.abs(duckShade(155, 50, d, 150, 80) - 0.9) < 1e-9);
+  assert.equal(duckShade(80, 10, d, 150, 80), 0);
+  assert.equal(duckShade(5, 50, [5, 50, 12, 0, 0.3, 41.7, 0.65, 2], 150, 80), 0);
 });

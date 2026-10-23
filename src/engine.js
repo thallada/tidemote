@@ -81,7 +81,7 @@ class Engine {
     // the pool (docs/catastrophes.md), set by the climate: the water level (a quantile of the floor's relief; 1: all
     // wet), rain (0..1), the sky (light ×), how fast it is drying (0..1), the currents' strength, floating duckweed
     // (centre, length, darkness; angle, seed, width) and up to four raindrops' ring waves (centre, time, strength)
-    this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.mudRain = 0;
+    this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.mudRain = 0; this.parch = 0;
     this.duck = new Float32Array(8); this.drops = new Float32Array(16);
     this.relief = null;
     this.rock = new Float32Array(4);
@@ -90,7 +90,7 @@ class Engine {
     this.waves = new Float32Array(16);
     this.viewData = new ArrayBuffer(112);
     this.viewDataL = new ArrayBuffer(112);
-    this.postData = new Float32Array(88);
+    this.postData = new Float32Array(92);
     this.loupe = null;
     this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 0xffffffff, memberN: 0 };
     this.viewDataS = new ArrayBuffer(112);
@@ -126,7 +126,7 @@ class Engine {
     b.viewL = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
     b.viewS = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
     b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
-    b.post = d.createBuffer({ size: 352, usage: U.UNIFORM | U.COPY_DST });
+    b.post = d.createBuffer({ size: 368, usage: U.UNIFORM | U.COPY_DST });
     b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     b.pickU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
     // per grid cell: its matter, then its living
@@ -567,7 +567,8 @@ class Engine {
     this.loupeBG = this.device.createBindGroup({ layout: this.pLoupe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: this.loupeView },
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 4, resource: { buffer: this.b.loupeU } },
-      { binding: 6, resource: { buffer: this.b.viewL } }, { binding: 7, resource: this.loupeStoneView[0] }, { binding: 8, resource: this.loupeStoneView[1] }] });
+      { binding: 6, resource: { buffer: this.b.viewL } }, { binding: 7, resource: this.loupeStoneView[0] }, { binding: 8, resource: this.loupeStoneView[1] },
+      { binding: 11, resource: { buffer: this.b.thermal } }] });
   }
 
   /**
@@ -708,7 +709,7 @@ class Engine {
     this.floor = null;
     d.queue.writeBuffer(this.b.thermal, 3 * MAX_CELLS * 4, this.relief);
     d.queue.writeBuffer(this.b.thermal, 4 * MAX_CELLS * 4, (this.iceOrder = makeIceOrder(this.grid[0], this.grid[1], this.seedValue, this.relief)));
-    this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.mudRain = 0; this.duck.fill(0); this.drops.fill(0);
+    this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.mudRain = 0; this.parch = 0; this.duck.fill(0); this.drops.fill(0);
     const enc = d.createCommandEncoder();
     enc.clearBuffer(this.b.thermal, 0, cells * 4);
     enc.clearBuffer(this.b.counts);
@@ -1663,6 +1664,7 @@ class Engine {
     pd[60] = this.turb; pd[61] = this.K.pond ? this.frost : 0; pd[62] = this.freezing; pd[63] = this.K.pond ? this.mudRain : 0;
     pd.set(this.duck, 64);
     pd.set(this.drops, 72);
+    pd[88] = this.K.pond ? this.parch : 0;
     d.queue.writeBuffer(this.b.post, 0, pd);
 
     // Cells fuse with their incoming bond partners, and flatten against the cells they press on, only

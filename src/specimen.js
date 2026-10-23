@@ -2,7 +2,7 @@ import { roleShares, roleColor, affinity, CELL_SHAPES, cellShape, thermalPerf, t
 import { FIRST_LIFE } from './engine.js';
 import { FRAMBOID, stoneGrain } from './shaders.js';
 import { tagsOf } from './facets.js';
-import { tideAt } from './flow.js';
+import { tideAt, duckShade } from './flow.js';
 import { fmt, fmtClock, fmtDur, esc, cssCol, cssRgb, term, spLink, meter, clamp, ROLE, MATTER, CAUSE, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
 import { glyphURL, MATTER_GLYPH } from './glyphs.js';
 import { drawLines, popOf } from './charts.js';
@@ -169,7 +169,8 @@ export function createSpecimen(api) {
     const lo = at(g.topt - K.thermalFlat * g.tol), hi = at(g.topt + K.thermalFlat * g.tol);
     return `<div class="vital"><span>${term('thermal', 'Warmth')}</span><span class="tgauge${m.x > 0.8 || m.torpid ? ' alarm' : ''}"><em style="left:${lo}%;width:${(hi - lo).toFixed(1)}%"></em><i style="left:${at(m.warmth)}%"></i></span><b>${text}</b></div>`;
   };
-  const lightAt = (p) => { const [W, H] = eng.grid; return Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H, eng.simTime, eng.tide, eng.tidePh) * eng.season) * 100); };
+  // as lifeMain has it (lightAt): the baseline and the Tide's bands by the season, under the sky and any duckweed
+  const lightAt = (p) => { const [W, H] = eng.grid; return Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H, eng.simTime, eng.tide, eng.tidePh) * eng.season) * eng.sky * (1 - duckShade(p.x, p.y, eng.duck, W, H)) * 100); };
 
   // ------------------------------------------------------------ behaviour (mind.js, mindview.js)
   function spName(kind) {
