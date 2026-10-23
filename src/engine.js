@@ -1715,7 +1715,10 @@ class Engine {
         const wx = dx - gx * Math.round(dx / gx), wy = dy - gy * Math.round(dy / gy);
         // in the last frame's texture coordinates (its size differs after a resize)
         const sx = (lc.ppu * W) / (cam.ppu * lc.w), sy = (lc.ppu * H) / (cam.ppu * lc.h);
-        d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([sx, sy, (wx * lc.ppu) / lc.w, (wy * lc.ppu) / lc.h, this.settings.trails, 0, 0, 0]));
+        // trails is the fraction kept per 60 Hz frame; raised to the frames elapsed, the fade lasts the
+        // same time at any frame rate (and across the gaps between held frames)
+        const keep = Math.pow(this.settings.trails, 60 * Math.min(0.5, Math.max(0, time - lc.t)));
+        d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([sx, sy, (wx * lc.ppu) / lc.w, (wy * lc.ppu) / lc.h, keep, 0, 0, 0]));
         pass.setPipeline(this.main.reproj);
         pass.setBindGroup(0, carry ? carry.bg : this.reprojBG[srcI]);
         pass.draw(3);
@@ -1725,7 +1728,7 @@ class Engine {
       pass.end();
     }
     this._drawStone(enc, this.stoneView, this.bgStone);
-    this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu, w: W, h: H };
+    this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu, w: W, h: H, t: time };
     const cur = this.accIdx;
 
     if (loupe) {

@@ -19118,7 +19118,8 @@ ${e.message}` : String(e?.message || e));
           const gx = this.grid[0], gy = this.grid[1];
           const wx = dx - gx * Math.round(dx / gx), wy = dy - gy * Math.round(dy / gy);
           const sx = lc.ppu * W / (cam.ppu * lc.w), sy = lc.ppu * H2 / (cam.ppu * lc.h);
-          d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([sx, sy, wx * lc.ppu / lc.w, wy * lc.ppu / lc.h, this.settings.trails, 0, 0, 0]));
+          const keep = Math.pow(this.settings.trails, 60 * Math.min(0.5, Math.max(0, time - lc.t)));
+          d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([sx, sy, wx * lc.ppu / lc.w, wy * lc.ppu / lc.h, keep, 0, 0, 0]));
           pass2.setPipeline(this.main.reproj);
           pass2.setBindGroup(0, carry ? carry.bg : this.reprojBG[srcI]);
           pass2.draw(3);
@@ -19132,7 +19133,7 @@ ${e.message}` : String(e?.message || e));
         pass2.end();
       }
       this._drawStone(enc, this.stoneView, this.bgStone);
-      this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu, w: W, h: H2 };
+      this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu, w: W, h: H2, t: time };
       const cur = this.accIdx;
       if (loupe) {
         const span2 = loupe.r * 2 * LOUPE_FIELD;
