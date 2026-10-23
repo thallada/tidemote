@@ -41,3 +41,10 @@ GPU biosphere simulation (WebGPU, WGSL) with a browser page and headless tools. 
 - On machines without a GPU use `--chrome` (Playwright Chromium with SwiftShader). It is slow (about 76 ms/frame at 4k particles) but stable.
 - The Dawn path (`webgpu` npm, `--cpu` for lavapipe) is for real GPUs. On Mesa lavapipe it aborts after a few thousand frames whenever async readbacks are used; do not try to work around it with pacing tricks.
 - Every ecological rule is local (see README "How the simulation works"); do not add census-driven regulators back.
+
+## Waiting on long runs (gates, farms, ensembles, sims)
+
+- Never wait with `pgrep -f`/`pkill -f` on a pattern like `farm.mjs`, `sim.mjs` or `until`: the waiting loop's own command line (and other sessions' loops) contains the pattern, so `pgrep -f` never comes back empty (a finished run looks unfinished forever) and `pkill -f` kills the waiter itself and other sessions' waiters.
+- Start the run itself with `run_in_background` (its log redirected into its `--out` dir) and let its exit be the notification; no separate wait loop. If one is needed, wait on the PID (`while kill -0 PID; do sleep 30; done`), and stop a run only with `kill PID` (SIGINT for `farm.mjs`, which stops its sims on every host).
+- A run is done when its log prints the summary (`NAME: 32 runs × 30 min at n=...`, then `Against baseline` when gated), not when processes vanish. Check that line, or count the run JSONs in `--out`.
+- Start several farms one after another, a few seconds apart: started together, they race to push the same `refs/farm/SHA` and the losers drop that host.
