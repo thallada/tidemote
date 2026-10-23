@@ -7608,6 +7608,9 @@ fn dryGround(wp: vec2f, away: f32, rel: vec3f, ppu: f32) -> vec3f {
 // and broaden toward its centre, damped where they are shortest; it is uneven around its circle, and the drop's
 // splash throws a few droplets which ring too. In rain the whole surface is roughened by drops falling out of view.
 struct Surf { slope: vec2f, hess: vec3f };
+const RIPPLE_L = vec2f(-0.55, -0.83);
+const RIPPLE_SHEEN = vec3f(0.11, 0.123, 0.14);
+const RIPPLE_DIM = 0.45;
 // one ring: its slope and its curvature (xx, xy, yy)
 fn ringWave(d: vec2f, t: f32, amp: f32, seed: f32, s: ptr<function, Surf>) {
   let r = length(d);
@@ -7694,7 +7697,9 @@ fn heatRamp(u: f32) -> vec3f {
   var water = vec3f(post.heat.x, 0.0, 0.0);
   var uv = i.uv;
   // rain: the rings raindrops send across the water bend the view as they pass
-  if (post.pond.y > 0.0) { uv += ripples(wp).slope * 1.2 * post.ppu / post.res; }
+  var surf = vec2f(0.0);
+  if (post.pond.y > 0.0) { surf = ripples(wp).slope; uv += surf * 1.2 * post.ppu / post.res; }
+  var wet = 1.0;
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
     // schlieren: with the heat map on Shimmer, warm water bends the light passing through it like the
@@ -7777,6 +7782,7 @@ fn heatRamp(u: f32) -> vec3f {
     let sd = pd.x / max(length(pd.yz), 1e-4);
     let px = 1.0 / post.ppu;
     let dry = 1.0 - smoothstep(-px, px, sd);
+    wet *= smoothstep(0.0, 0.4, sd);
     if (dry > 0.0) { c += dryGround(wp, max(-sd, 0.0), vec3f(post.pond.x - pd.x, pd.yz), post.ppu) * dry * behind * mix(1.0, 0.8, k); }
     // the meniscus: a thin bright contact line, uneven along its length (it pins and slips on the grains), and on
     // the water's side the curved surface rising to it, scattering a narrowing glow
@@ -7794,8 +7800,17 @@ fn heatRamp(u: f32) -> vec3f {
     let sdI = (fi.x - post.weather.y) / gl;
     let px = 1.0 / post.ppu;
     let grow = smoothstep(0.0, 0.3, post.weather.z);
+    wet *= smoothstep(0.0, 0.4, sdI);
     if (sdI < 1.6) { c += iceLook(wp, sdI, -fi.yz / gl, post.ppu, grow) * (0.35 + 0.65 * behind); }
     if (sdI > 0.0 && sdI < 9.0 && grow > 0.0) { c += frazil(wp, sdI, post.ppu) * (0.35 + 0.65 * behind); }
+  }
+  // the waves seen in themselves, on open water only: a surface tilted toward the lamp throws a little of its light
+  // into the objective, a pale sheen on the crests' near flanks, while the far flanks bend light away and dim what
+  // lies under them; steep water of any tilt scatters a little more
+  if (dot(surf, surf) > 0.0) {
+    let tilt = dot(surf, RIPPLE_L) * wet;
+    let sl = length(surf) * wet;
+    c = c * (1.0 - RIPPLE_DIM * max(-tilt, 0.0)) + RIPPLE_SHEEN * (max(tilt, 0.0) + 0.35 * sl) * (0.4 + 0.6 * behind);
   }
   // a leaf floating on the pool, far above the focal plane: it keeps the lamp's light from what lies under it, and
   // scatters a little of it as a faint green-brown haze, its veins blurred shadows in it

@@ -73,7 +73,9 @@ whole pool is a millimetre or two across and everything is drawn at that scale (
 - **The water's edge**: an uneven bright contact line (the meniscus pins and slips on grains), its width and
   brightness varying along it, the curved surface rising to it scattering a narrowing glow on the water's side.
 - **Rain** (`ripples`): the surface lies above the focal plane, so its waves are never sharp in themselves; they
-  show only by bending what lies beneath (a slope displaces the view). Caustics (the lamp's light focused on the floor
+  show by bending what lies beneath (a slope displaces the view) and, on open water only, by a soft shading of their
+  slopes: the flanks tilted toward the lamp throw a little of its light into the objective, the far flanks dim what
+  lies under them (`RIPPLE_SHEEN`, `RIPPLE_DIM`). Caustics (the lamp's light focused on the floor
   by the curved surface) were tried and dropped: they lit the dry mud and the ice as much as the water, and read as
   an overlay rather than something in the pool. A raindrop's ring is a dispersive
   capillary packet, short crests crowding its leading edge and broadening toward its centre, uneven in amplitude and
