@@ -50,7 +50,7 @@ for (const dt of String(v.times).split(',').map(Number)) {
   for (const z of zooms) {
     await page.evaluate(([z, at]) => {
       const T = globalThis.__tidemote, g = T.eng.grid, fit = Math.max(innerWidth / g[0], innerHeight / g[1]);
-      // at: "x,y"; "event" (the current event's centre, a leaf's); "shore" (a point of the water's edge near the middle)
+      // at: "x,y"; "event" (the current event's centre, a leaf's); "shore" (a point of the water's edge near the middle); "ice" (a point of the ice front)
       let [x, y] = [g[0] / 2, g[1] / 2];
       if (at === 'event') { const ev = T.climate().event; if (ev?.x != null) [x, y] = [ev.x, ev.y]; }
       else if (at === 'shore' && T.eng.relief) {
@@ -58,6 +58,12 @@ for (const dt of String(v.times).split(',').map(Number)) {
         for (let j = 0; j < g[1]; j++) for (let i = 0; i < g[0]; i++) {
           const d = Math.abs(T.eng.relief[j * g[0] + i] - T.eng.level), r = Math.hypot(i - g[0] / 2, j - g[1] / 2);
           if (d < 0.004 && r < best) { best = r; [x, y] = [i + 0.5, j + 0.5]; }
+        }
+      } else if (at === 'ice' && T.eng.iceOrder) {
+        let best = Infinity;
+        for (let j = 0; j < g[1]; j++) for (let i = 0; i < g[0]; i++) {
+          const d = Math.abs(T.eng.iceOrder[j * g[0] + i] - T.eng.frost), r = Math.hypot(i - g[0] / 2, j - g[1] / 2);
+          if (d < 0.006 && r < best) { best = r; [x, y] = [i + 0.5, j + 0.5]; }
         }
       } else if (at) [x, y] = at.split(',').map(Number);
       T.cam.x = x; T.cam.y = y; T.cam.anchor = null;
