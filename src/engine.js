@@ -29,17 +29,29 @@ const SPLAT_PX = 1.6;
 export const MAX_STEPS = 512;
 
 // --------------------------------------------------------------------- engine
-export async function createEngine(device, format, { hasTimestamps = false, K = {} } = {}) {
+// onProgress(f): the share of the shaders' compile work done (0..1), as each pipeline is ready
+// late: return before the pipelines a new world can do without (LATE) are ready; until then coarse
+// steps are taken as fine ones and the watched cell's mind waits (the page; headless runs wait for all)
+export async function createEngine(device, format, { hasTimestamps = false, K = {}, onProgress = null, late = false } = {}) {
   const unknown = Object.keys(K).filter((k) => !(k in DEFAULT_K));
   if (unknown.length) throw new Error(`unknown tunables: ${unknown.join(', ')} (see DEFAULT_K in shaders.js)`);
-  const e = new Engine(device, format, hasTimestamps, { ...DEFAULT_K, ...K });
+  const e = new Engine(device, format, hasTimestamps, { ...DEFAULT_K, ...K }, late);
   const errs = await e.compileErrors();
   if (errs.length) throw new Error('Shader compile failed:\n' + errs.join('\n'));
+  await e.pipelinesReady(onProgress);
   return e;
 }
 
+// Pipelines are created async: the browser compiles them in parallel, where created one by one it
+// compiles them in turn (an uncached start, 2026-10-23, RTX 4070 Ti on D3D12: 20.7 s in turn, 4.7 s
+// in parallel). Their rough compile costs there, in units of about 100 ms, weigh the progress shown.
+// The longest to compile, and not needed to start a world: coarse steps (fast speeds, low frame rates)
+// and the replay of a watched cell's decision.
+const LATE = new Set(['lifeMainCoarse', 'mindMain', 'mindMainCoarse']);
+const COMPILE_COST = { lifeMainCoarse: 38, lifeMain: 26, mindMainCoarse: 21, mindMain: 14, fsPoint: 15, 'fsPointLive+live': 13, fsComposite: 11, fsLoupe: 8, matterMain: 5 };
+
 class Engine {
-  constructor(device, format, hasTimestamps, K) {
+  constructor(device, format, hasTimestamps, K, late = false) {
     this.device = device;
     this.format = format;
     this.K = K;
@@ -163,6 +175,11 @@ class Engine {
     this._surveyFrames = 0;
     this._surveySim = null;
 
+    // every pipeline below is a promise until pipelinesReady() puts the pipeline in its place
+    this._pipes = [];
+    const track = (pr, label) => { this._pipes.push({ pr, w: COMPILE_COST[label] ?? 1.5 }); return pr; };
+    const cPipe = (desc) => track(d.createComputePipelineAsync(desc), desc.label);
+    const rPipe = (desc) => track(d.createRenderPipelineAsync(desc), desc.label);
     const dp4a = !!globalThis.navigator?.gpu?.wgslLanguageFeatures?.has('packed_4x8_integer_dot_product');
     this.simModule = d.createShaderModule({ code: simWGSL(K, { dp4a }), label: 'sim' });
     this.pickModule = d.createShaderModule({ code: PICK_WGSL, label: 'pick' });
@@ -172,25 +189,23 @@ class Engine {
     this.drawModule = d.createShaderModule({ code: DRAW_WGSL, label: 'draw' });
     // culling for the main view, the loupe and the specimen (CULL_WGSL): uniforms, segments, draw arguments
     const cullModule = d.createShaderModule({ code: CULL_WGSL, label: 'cull' });
-    this.cpCull = d.createComputePipeline({ layout: 'auto', compute: { module: cullModule, entryPoint: 'cullRows' }, label: 'cullRows' });
+    this.cpCull = cPipe({ layout: 'auto', compute: { module: cullModule, entryPoint: 'cullRows' }, label: 'cullRows' });
     this.cull = [0, 1, 2].map(() => {
       const u = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
       const segs = d.createBuffer({ size: CULL_SEGS * 8, usage: U.STORAGE });
       const args = d.createBuffer({ size: 48, usage: U.STORAGE | U.INDIRECT });
-      return { u, segs, args, bg: d.createBindGroup({ layout: this.cpCull.getBindGroupLayout(0), entries: [
-        { binding: 0, resource: { buffer: u } }, { binding: 1, resource: { buffer: b.cellStart } },
-        { binding: 2, resource: { buffer: segs } }, { binding: 3, resource: { buffer: args } }] }) };
+      return { u, segs, args, bg: null };
     });
     // particles are in grid-cell order (cellStart valid) once a step has sorted them
     this.sorted = false;
     b.inbondU = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
     const inbond = d.createShaderModule({ code: INBOND_WGSL, label: 'inbond' });
-    this.cpInbond = ['inbondReset', 'inbondGather', 'contactGather'].map((entryPoint) => d.createComputePipeline({ layout: 'auto', compute: { module: inbond, entryPoint }, label: entryPoint }));
-    this.cpOrgans = d.createComputePipeline({ layout: 'auto', compute: { module: inbond, entryPoint: 'organDirs' }, label: 'organDirs' });
+    this.cpInbond = ['inbondReset', 'inbondGather', 'contactGather'].map((entryPoint) => cPipe({ layout: 'auto', compute: { module: inbond, entryPoint }, label: entryPoint }));
+    this.cpOrgans = cPipe({ layout: 'auto', compute: { module: inbond, entryPoint: 'organDirs' }, label: 'organDirs' });
     b.organDir = d.createBuffer({ size: MAXK * ORGANS * 4, usage: U.STORAGE });
     this.postModule = d.createShaderModule({ code: POST_WGSL, label: 'post' });
 
-    const cp = (mod, entryPoint) => d.createComputePipeline({ layout: 'auto', compute: { module: mod, entryPoint }, label: entryPoint });
+    const cp = (mod, entryPoint) => cPipe({ layout: 'auto', compute: { module: mod, entryPoint }, label: entryPoint });
     this.cpDefs = {
       seedMain: [0, 1, 9, 10, 11],
       resolveCount: [0, 1, 4, 8, 9, 10, 11, 14, 18],
@@ -214,7 +229,13 @@ class Engine {
     this.cp = {};
     for (const name of Object.keys(this.cpDefs)) {
       const coarse = name.endsWith('Coarse');
-      this.cp[name] = { pipe: coarse ? d.createComputePipeline({ layout: 'auto', compute: { module: this.simModule, entryPoint: name.slice(0, -6), constants: { COARSE: 1 } }, label: name }) : cp(this.simModule, name), bg: null };
+      const desc = { layout: 'auto', compute: { module: this.simModule, entryPoint: coarse ? name.slice(0, -6) : name, ...(coarse ? { constants: { COARSE: 1 } } : {}) }, label: name };
+      if (late && LATE.has(name)) {
+        // compiles on after the engine is returned: in place (with its bind group, once particles are allocated) when ready
+        const c = (this.cp[name] = { pipe: null, bg: null });
+        d.createComputePipelineAsync(desc).then((p) => { c.pipe = p; if (this._cpRes) this._cpBind(name); })
+          .catch((e) => console.error('[tidemote] pipeline', name, e?.message || e));
+      } else this.cp[name] = { pipe: cPipe(desc), bg: null };
     }
     this.cpPick = { pipe: cp(this.pickModule, 'pickMain'), bg: null };
     this.cpTrackNear = cp(this.pickModule, 'trackNear');
@@ -228,7 +249,7 @@ class Engine {
     const additive = { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } };
     const fade = { color: { srcFactor: 'zero', dstFactor: 'constant', operation: 'add' }, alpha: { srcFactor: 'zero', dstFactor: 'constant', operation: 'add' } };
     const over = { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } };
-    const rp = (mod, vs, fs, topology, blend, fmt = HDR, constants = {}) => d.createRenderPipeline({
+    const rp = (mod, vs, fs, topology, blend, fmt = HDR, constants = {}) => rPipe({
       layout: 'auto',
       vertex: { module: mod, entryPoint: vs },
       fragment: { module: mod, entryPoint: fs, targets: [{ format: fmt, blend }], constants },
@@ -237,10 +258,10 @@ class Engine {
     });
     this.pPoint = rp(this.drawModule, 'vsPoint', 'fsPoint', 'triangle-strip', additive);
     // sprites of a pixel or so, splatted into a buffer and added into the scene (splatMain, fsSplat)
-    this.cpSplat = d.createComputePipeline({ layout: 'auto', compute: { module: this.drawModule, entryPoint: 'splatMain' }, label: 'splatMain' });
+    this.cpSplat = cPipe({ layout: 'auto', compute: { module: this.drawModule, entryPoint: 'splatMain' }, label: 'splatMain' });
     this.pLine = rp(this.drawModule, 'vsLine', 'fsLine', 'line-list', additive);
     // stone: the highest cobble at each pixel wins the depth test and writes its colour and surface (vsStone)
-    this.pStone = d.createRenderPipeline({ layout: 'auto', label: 'fsStone', primitive: { topology: 'triangle-strip' },
+    this.pStone = rPipe({ layout: 'auto', label: 'fsStone', primitive: { topology: 'triangle-strip' },
       depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'greater' },
       vertex: { module: this.drawModule, entryPoint: 'vsStone' },
       fragment: { module: this.drawModule, entryPoint: 'fsStone', targets: [{ format: HDR }, { format: HDR }] } });
@@ -270,7 +291,7 @@ class Engine {
     b.reprojU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     // The main view's scene pass also gathers the living alone in a second target (fsPointLive), which
     // the composite lays over matter and stone; its other draws leave that target be.
-    const rpLive = (mod, vs, fs, topology, blend, live) => d.createRenderPipeline({
+    const rpLive = (mod, vs, fs, topology, blend, live) => rPipe({
       layout: 'auto',
       vertex: { module: mod, entryPoint: vs },
       fragment: { module: mod, entryPoint: fs, targets: [{ format: HDR, blend }, { format: HDR, blend: additive, writeMask: live ? GPUColorWrite.ALL : 0 }] },
@@ -290,15 +311,47 @@ class Engine {
 
     // the main view's micro-suspension: specks found per frame, then drawn as quads (MICRO_WGSL)
     this.microModule = d.createShaderModule({ code: MICRO_WGSL, label: 'micro' });
-    this.cpMicro = d.createComputePipeline({ layout: 'auto', compute: { module: this.microModule, entryPoint: 'microSpecks' }, label: 'microSpecks' });
+    this.cpMicro = cPipe({ layout: 'auto', compute: { module: this.microModule, entryPoint: 'microSpecks' }, label: 'microSpecks' });
     this.pSpeck = rp(this.microModule, 'vsSpeck', 'fsSpeck', 'triangle-strip', additive);
     b.microU = d.createBuffer({ size: 256, usage: U.UNIFORM | U.COPY_DST });
     b.specks = d.createBuffer({ size: MICRO_SPECKS * 64, usage: U.STORAGE });
     b.microArgs = d.createBuffer({ size: 16, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
     this.microData = new ArrayBuffer(256);
+  }
+
+  // Waits for every pipeline the constructor started, puts each in its place (fields, arrays and
+  // objects one or two deep that hold a promise), then makes the bind groups that need their layouts.
+  async pipelinesReady(onProgress) {
+    const total = this._pipes.reduce((a, p) => a + p.w, 0);
+    let done = 0;
+    onProgress?.(0);
+    try {
+      await Promise.all(this._pipes.map((p) => p.pr.then(() => { done += p.w; onProgress?.(done / total); })));
+    } catch (e) {
+      // a pipeline that fails validation is a shader error; anything else (a lost device) may pass on a retry
+      throw new Error(e?.reason === 'validation' ? `Shader compile failed:\n${e.message}` : String(e?.message || e));
+    }
+    this._pipes = null;
+    const plain = (v) => v && (Array.isArray(v) || Object.getPrototypeOf(v) === Object.prototype);
+    const settle = async (o, depth) => {
+      for (const k of Object.keys(o)) {
+        if (o[k] instanceof Promise) o[k] = await o[k];
+        else if (depth > 0 && plain(o[k])) await settle(o[k], depth - 1);
+      }
+    };
+    await settle(this, 2);
+    const d = this.device, b = this.b;
+    for (const c of this.cull) c.bg = d.createBindGroup({ layout: this.cpCull.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: c.u } }, { binding: 1, resource: { buffer: b.cellStart } },
+      { binding: 2, resource: { buffer: c.segs } }, { binding: 3, resource: { buffer: c.args } }] });
     this.cpMicroBG = d.createBindGroup({ layout: this.cpMicro.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.post } }, { binding: 1, resource: { buffer: b.microU } },
       { binding: 2, resource: { buffer: b.specks } }, { binding: 3, resource: { buffer: b.microArgs } }] });
+  }
+
+  _cpBind(name) {
+    const c = this.cp[name], res = this._cpRes;
+    c.bg = this.device.createBindGroup({ layout: c.pipe.getBindGroupLayout(0), entries: this.cpDefs[name].map((id) => ({ binding: id, resource: res[id] })) });
   }
 
   async compileErrors() {
@@ -345,10 +398,8 @@ class Engine {
       12: { buffer: b.livingList }, 13: { buffer: b.frameCtr }, 14: { buffer: b.stoneGrid },
       15: { buffer: b.bondsNow }, 20: { buffer: b.bondsNow }, 16: { buffer: b.stoneList }, 17: { buffer: b.mind }, 18: { buffer: b.thermal }, 19: { buffer: b.heatNext },
     };
-    for (const [name, ids] of Object.entries(this.cpDefs)) {
-      const c = this.cp[name];
-      c.bg = d.createBindGroup({ layout: c.pipe.getBindGroupLayout(0), entries: ids.map((id) => ({ binding: id, resource: res[id] })) });
-    }
+    this._cpRes = res;
+    for (const name of Object.keys(this.cpDefs)) if (this.cp[name].pipe) this._cpBind(name);
     this.cpPick.bg = d.createBindGroup({ layout: this.cpPick.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.pickU } }, { binding: 1, resource: { buffer: b.parts } },
       { binding: 2, resource: { buffer: b.pickOut } }, { binding: 3, resource: { buffer: b.intent } }] });
@@ -1002,6 +1053,9 @@ class Engine {
     const N = this.count;
     const t0 = performance.now();
     const stepping = !paused && N > 0;
+    // until coarse steps have compiled (late), a coarse step is taken as that many fine ones
+    const coarse = Math.round(simDt * 60);
+    if (coarse > 1 && !this.cp.lifeMainCoarse.bg) { steps *= coarse; simDt /= coarse; }
     const nSteps = stepping ? Math.min(MAX_STEPS, Math.max(1, steps | 0)) : 0;
     const tm = this.timing;
     // profiling times every pass instead (_profileEncoder)
@@ -1293,15 +1347,15 @@ class Engine {
   _mindCopy(enc) {
     const N = this.count;
     if (this.mindId === 0xffffffff || !N || !this.frameNo || ++this._mindFrames < this.mindEvery) return null;
+    const mind = this.cp[this.ticks > 1 ? 'mindMainCoarse' : 'mindMain'];
     const st = this.mindStage.find((s) => !s.busy);
-    if (!st) return null;
+    if (!st || !mind.bg) return null;
     this._mindFrames = 0;
     st.busy = true;
     const b = this.b;
     this.device.queue.writeBuffer(b.mind, 0, new Uint32Array([this.mindId]));
     enc.clearBuffer(b.mind, 4, 4);
     const pass = enc.beginComputePass();
-    const mind = this.cp[this.ticks > 1 ? 'mindMainCoarse' : 'mindMain'];
     pass.setPipeline(mind.pipe);
     pass.setBindGroup(0, mind.bg);
     pass.dispatchWorkgroups(Math.ceil(N / 256));

@@ -38,6 +38,20 @@ Drawing: zoomed out, the cost is the points' vertex work (4M particles: 4.6 ms, 
 render scale); zoomed in it is the resolved cells' fragment work, which the render scale reduces
 faster than linearly (the level of detail is set in framebuffer pixels).
 
+## Starting up (compiling the shaders)
+
+"Starting the GPU" is the shaders' compile: 49 pipelines, from which `lifeMain` and `mindMain` (each
+also built for coarse steps) and the scene's point and composite shaders take most of the time. The
+browser keeps compiled shaders on disk, so a reload of the same build starts in about 0.4 s; any change
+to the shader text (a new build, a `#k=` override) compiles afresh. Measured 2026-10-23 on an RTX 4070
+Ti (Chrome, D3D12, `runs/boot/boot-time.mjs`): created one by one, the pipelines compiled in turn,
+27 s from an empty cache (about 20 s with the driver's own cache warm). Created async (`createEngine`
+waits on `create*PipelineAsync`) they compile in parallel: 10 s. The three a new world can do without
+(`LATE` in engine.js: coarse steps and the watched cell's replay) compile on after it starts: 5.8 s,
+those three ready about 2.5 s later, while coarse steps asked for meanwhile run as fine ones and the
+mind view waits. The compile fills the first half of the loading bar, weighted by each pipeline's
+rough cost (`COMPILE_COST`). Headless runs wait for every pipeline.
+
 ## What keeps the frame rate (main.js `adaptQuality`)
 
 - **Frame pacing.** The frame rate aimed for (60 by default) is a whole number of display frames,

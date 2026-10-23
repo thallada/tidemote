@@ -82,7 +82,10 @@ async function boot(tries = 4) {
   // a device lost mid-compile may leave getCompilationInfo waiting forever
   const lostWhile = device.lost.then((info) => { throw new Error(`device lost while compiling: ${info.message || info.reason}`); });
   lostWhile.catch(() => {});
-  try { eng = await Promise.race([createEngine(device, format, { hasTimestamps: hasTS, K }), lostWhile]); }
+  // the shaders' compile fills the first half of the loading bar (calibrate the rest)
+  const bar = document.querySelector('.intro-rule i');
+  const onProgress = (f) => { $('calib').textContent = 'Compiling shaders'; bar.style.width = `${Math.round(f * 50)}%`; };
+  try { eng = await Promise.race([createEngine(device, format, { hasTimestamps: hasTS, K, onProgress, late: true }), lostWhile]); }
   catch (e) {
     const msg = String(e.message || e);
     if (tries > 1 && !/^(Shader compile failed|unknown tunables)/.test(msg)) {
@@ -425,14 +428,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
     let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
     seedWorld(n);
     state.busy = false;
-    calStep(`Measuring the GPU · ${fmt(n)} particles`, 0.2);
+    calStep(`Measuring the GPU · ${fmt(n)} particles`, 0.6);
     let t = await measure();
     let next = clampN((n * target) / t);
     if (next > n * 1.2) {
       next = await allocDown(next);
       seedWorld(next);
       state.busy = false;
-      calStep(`Measuring the GPU · ${fmt(next)} particles`, 0.6);
+      calStep(`Measuring the GPU · ${fmt(next)} particles`, 0.8);
       const t2 = await measure();
       n = next;
       t = t2;
