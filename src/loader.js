@@ -9,7 +9,7 @@ const C = {
   ink2: '#a3bdbe', ink3: '#6f8a8c', sun: '#f1e3a0', sunLine: 'rgba(241, 227, 160, 0.5)',
 };
 // the guilds' tints, muted (photosynth, grazer, predator, scavenger)
-const KINDS = [['#cfe86a', 'photosynth'], ['#7fd6df', 'grazer'], ['#ff8a6a', 'predator'], ['#c3a2f0', 'scavenger']];
+const KINDS = [['#cfe86a', 'photosynth', 'photo'], ['#7fd6df', 'grazer', 'grazer'], ['#ff8a6a', 'predator', 'pred'], ['#c3a2f0', 'scavenger', 'scav']];
 const TAU = Math.PI * 2;
 const SWEEP = 1.2; // radians of afterglow behind the sweep
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -19,9 +19,9 @@ function rng(seed) {
   let s = seed >>> 0 || 1;
   return () => { s ^= s << 13; s >>>= 0; s ^= s >> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; };
 }
+const font = (ctx) => { ctx.font = "500 9px Saira, 'Bahnschrift', sans-serif"; ctx.letterSpacing = '1.6px'; };
 function label(ctx, text, x, y, { color = C.ink3, align = 'left' } = {}) {
-  ctx.font = "500 9px Saira, 'Bahnschrift', sans-serif";
-  ctx.letterSpacing = '1.6px';
+  font(ctx);
   ctx.textAlign = align; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = color;
   // (µ stays as it is: uppercased it would read as an M)
   ctx.fillText(text.toUpperCase().replace(/Μ/g, 'µ'), x, y);
@@ -39,11 +39,15 @@ function brackets(ctx, x, y, w, h, len, color) {
   ctx.stroke();
 }
 
-function reticle(W, H) {
-  const R = H / 2 - 16;
-  // readouts either side of the lens, or (narrow screens) the lens to the left and readouts on its right
-  const both = W >= 2 * R + 220;
-  const cx = both ? W / 2 : Math.min(W / 2, R + 14), cy = H / 2;
+function reticle(W, H, ctx) {
+  // The lens is centred with readouts either side. Narrow screens (phones) stack them a word to a line,
+  // in columns as wide as their longest, and the lens gives up what room they still lack.
+  const wide = W >= 2 * (H / 2 - 16) + 220;
+  font(ctx);
+  const colW = Math.max(...['acquiring', 'specimen', 'cells 00', 'grazer', '000 µm', 'field 01', 'lux 00%', '00.0°'].map((x) => ctx.measureText(x.toUpperCase()).width));
+  const gap = 16;
+  const R = wide ? H / 2 - 16 : Math.max(36, Math.min(H / 2 - 16, W / 2 - gap - colW - 4));
+  const cx = W / 2, cy = H / 2;
   const rnd = rng((Math.random() * 2 ** 32) >>> 0);
   const T = KINDS.length;
   // kin cling (colonies); other kinds are drawn more weakly, or pushed away, so colonies keep their kind
@@ -135,7 +139,7 @@ function reticle(W, H) {
       }
       if (best) { lock = best; lockAt = t; serial += 1 + Math.floor(rnd() * 40); }
     }
-    const rx = cx + R + 22, ry = cy - 22;
+    const rx = cx + R + (wide ? 22 : gap), ry = cy - 22, lead = wide ? 76 : colW;
     if (lock) {
       const kin = kinOf(lock);
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -145,22 +149,28 @@ function reticle(W, H) {
       brackets(ctx, x0 - m, y0 - m, x1 - x0 + 2 * m, y1 - y0 + 2 * m, 4, C.sun);
       // the leader: from the brackets' right edge out past the bezel, then along to the readout
       const ex = x1 + m, ey = (y0 + y1) / 2, bx = cx + R + 12;
-      ctx.strokeStyle = C.sunLine; ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(bx, ry); ctx.lineTo(rx + 76, ry); ctx.stroke();
-      label(ctx, k < 1 ? 'acquiring' : `specimen ${pad(serial, 4)}`, rx, ry - 5, { color: C.sun });
-      label(ctx, `cells ${pad(kin.length, 2)}`, rx, ry + 14);
-      label(ctx, KINDS[lock.t][1], rx, ry + 28);
-      label(ctx, `${pad(Math.hypot(x1 - x0, y1 - y0) * 6.6 + 12, 3)} µm`, rx, ry + 42);
+      ctx.strokeStyle = C.sunLine; ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(Math.min(bx, rx - 2), ry); ctx.lineTo(rx + lead, ry); ctx.stroke();
+      const size = `${pad(Math.hypot(x1 - x0, y1 - y0) * 6.6 + 12, 3)} µm`;
+      if (wide) {
+        label(ctx, k < 1 ? 'acquiring' : `specimen ${pad(serial, 4)}`, rx, ry - 5, { color: C.sun });
+        label(ctx, `cells ${pad(kin.length, 2)}`, rx, ry + 14);
+        label(ctx, KINDS[lock.t][1], rx, ry + 28);
+        label(ctx, size, rx, ry + 42);
+      } else {
+        label(ctx, k < 1 ? 'acquiring' : 'specimen', rx, ry - 5, { color: C.sun });
+        if (k >= 1) label(ctx, `no ${pad(serial, 4)}`, rx, ry + 14, { color: C.sun });
+        label(ctx, `cells ${pad(kin.length, 2)}`, rx, ry + 28);
+        label(ctx, KINDS[lock.t][2], rx, ry + 42);
+        label(ctx, size, rx, ry + 56);
+      }
     }
-    // the field's readouts (narrow screens: under the specimen's)
-    const n = `n ${P.length}`, temp = `${(14.6 + Math.sin(t * 0.3) * 0.4).toFixed(1)}°`, lux = `lux ${pad(18 + Math.sin(t * 0.2) * 3, 2)}%`;
-    if (both) {
-      const lx = cx - R - 22;
-      label(ctx, 'field 01', lx, ry - 5, { align: 'right', color: C.ink2 });
-      line(ctx, lx - 72, ry, lx + 8, ry);
-      label(ctx, n, lx, ry + 14, { align: 'right' }); label(ctx, temp, lx, ry + 28, { align: 'right' }); label(ctx, lux, lx, ry + 42, { align: 'right' });
-    } else {
-      label(ctx, `${n} · ${temp}`, rx, ry + 62);
-    }
+    // the field's readouts, mirroring the specimen's
+    const lx = cx - R - (wide ? 22 : gap);
+    label(ctx, 'field 01', lx, ry - 5, { align: 'right', color: C.ink2 });
+    line(ctx, lx - (wide ? 72 : colW), ry, lx + (wide ? 8 : 2), ry);
+    label(ctx, `n ${P.length}`, lx, ry + 14, { align: 'right' });
+    label(ctx, `${(14.6 + Math.sin(t * 0.3) * 0.4).toFixed(1)}°`, lx, ry + 28, { align: 'right' });
+    label(ctx, `lux ${pad(18 + Math.sin(t * 0.2) * 3, 2)}%`, lx, ry + 42, { align: 'right' });
   };
 }
 
@@ -177,7 +187,7 @@ export function startLoader(canvas) {
     W = Math.round(r.width); H = Math.round(r.height);
     canvas.width = Math.max(1, Math.round(W * dpr)); canvas.height = Math.max(1, Math.round(H * dpr));
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    draw = reticle(W, H);
+    draw = reticle(W, H, ctx);
   };
   const frame = (now) => {
     raf = requestAnimationFrame(frame);
@@ -198,6 +208,8 @@ export function startLoader(canvas) {
     for (let i = 0; i <= 150; i++) { ctx.clearRect(0, 0, W, H); draw(ctx, i / 30, 1 / 30); }
     return () => {};
   }
+  // the columns are measured in the page's font: lay out again once it has loaded
+  document.fonts?.ready.then(() => { W = 0; });
   raf = requestAnimationFrame(frame);
   return () => cancelAnimationFrame(raf);
 }

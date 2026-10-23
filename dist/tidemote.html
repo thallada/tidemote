@@ -20955,9 +20955,9 @@ ${e.message}` : String(e?.message || e));
     return box;
   }
   var mg = null;
-  var measure = (text, font) => {
+  var measure = (text, font2) => {
     mg ||= document.createElement("canvas").getContext("2d");
-    mg.font = font;
+    mg.font = font2;
     return mg.measureText(text).width;
   };
   function layoutTree(c, l, r, rh = 30) {
@@ -23336,7 +23336,7 @@ ${e.message}` : String(e?.message || e));
     sun: "#f1e3a0",
     sunLine: "rgba(241, 227, 160, 0.5)"
   };
-  var KINDS = [["#cfe86a", "photosynth"], ["#7fd6df", "grazer"], ["#ff8a6a", "predator"], ["#c3a2f0", "scavenger"]];
+  var KINDS = [["#cfe86a", "photosynth", "photo"], ["#7fd6df", "grazer", "grazer"], ["#ff8a6a", "predator", "pred"], ["#c3a2f0", "scavenger", "scav"]];
   var TAU2 = Math.PI * 2;
   var SWEEP = 1.2;
   var clamp7 = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -23352,9 +23352,12 @@ ${e.message}` : String(e?.message || e));
       return s / 4294967296;
     };
   }
-  function label2(ctx, text, x, y, { color = C.ink3, align = "left" } = {}) {
+  var font = (ctx) => {
     ctx.font = "500 9px Saira, 'Bahnschrift', sans-serif";
     ctx.letterSpacing = "1.6px";
+  };
+  function label2(ctx, text, x, y, { color = C.ink3, align = "left" } = {}) {
+    font(ctx);
     ctx.textAlign = align;
     ctx.textBaseline = "alphabetic";
     ctx.fillStyle = color;
@@ -23379,10 +23382,13 @@ ${e.message}` : String(e?.message || e));
     }
     ctx.stroke();
   }
-  function reticle(W, H2) {
-    const R2 = H2 / 2 - 16;
-    const both = W >= 2 * R2 + 220;
-    const cx = both ? W / 2 : Math.min(W / 2, R2 + 14), cy = H2 / 2;
+  function reticle(W, H2, ctx) {
+    const wide = W >= 2 * (H2 / 2 - 16) + 220;
+    font(ctx);
+    const colW = Math.max(...["acquiring", "specimen", "cells 00", "grazer", "000 µm", "field 01", "lux 00%", "00.0°"].map((x) => ctx.measureText(x.toUpperCase()).width));
+    const gap = 16;
+    const R2 = wide ? H2 / 2 - 16 : Math.max(36, Math.min(H2 / 2 - 16, W / 2 - gap - colW - 4));
+    const cx = W / 2, cy = H2 / 2;
     const rnd = rng(Math.random() * 2 ** 32 >>> 0);
     const T = KINDS.length;
     const KIN = [0.5, 1], OTHER2 = [-1, 0.35];
@@ -23432,78 +23438,78 @@ ${e.message}` : String(e?.message || e));
         }
       }
     };
-    return (ctx, t2, dt) => {
+    return (ctx2, t2, dt) => {
       step(Math.min(dt, 0.05));
       if (t2 - mutAt > 2.5) {
         mutAt = t2;
         const a = Math.floor(rnd() * T), b = Math.floor(rnd() * T), [lo, hi] = a === b ? KIN : OTHER2;
         M[a][b] = clamp7(M[a][b] + (rnd() - 0.5) * 0.8, lo, hi);
       }
-      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R2);
+      const g = ctx2.createRadialGradient(cx, cy, 0, cx, cy, R2);
       g.addColorStop(0, "rgba(127, 214, 223, 0.05)");
       g.addColorStop(1, "rgba(127, 214, 223, 0)");
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(cx, cy, R2, 0, TAU2);
-      ctx.fill();
+      ctx2.fillStyle = g;
+      ctx2.beginPath();
+      ctx2.arc(cx, cy, R2, 0, TAU2);
+      ctx2.fill();
       const sa = t2 * 0.9;
-      if (ctx.createConicGradient) {
-        const cg = ctx.createConicGradient(sa - SWEEP, cx, cy);
+      if (ctx2.createConicGradient) {
+        const cg = ctx2.createConicGradient(sa - SWEEP, cx, cy);
         cg.addColorStop(0, "rgba(127, 214, 223, 0)");
         cg.addColorStop(SWEEP / TAU2, "rgba(127, 214, 223, 0.13)");
         cg.addColorStop(SWEEP / TAU2 + 1e-3, "rgba(127, 214, 223, 0)");
-        ctx.fillStyle = cg;
-        ctx.beginPath();
-        ctx.arc(cx, cy, R2, 0, TAU2);
-        ctx.fill();
+        ctx2.fillStyle = cg;
+        ctx2.beginPath();
+        ctx2.arc(cx, cy, R2, 0, TAU2);
+        ctx2.fill();
       }
-      line(ctx, cx, cy, cx + Math.cos(sa) * R2, cy + Math.sin(sa) * R2, "rgba(127, 214, 223, 0.45)");
-      ctx.strokeStyle = C.line2;
-      ctx.beginPath();
-      ctx.arc(cx, cy, R2, 0, TAU2);
-      ctx.stroke();
-      ctx.strokeStyle = C.line;
-      ctx.beginPath();
-      ctx.arc(cx, cy, R2 * 0.5, 0, TAU2);
-      ctx.stroke();
-      ctx.setLineDash([2, 4]);
-      ctx.beginPath();
-      ctx.arc(cx, cy, R2 + 9, -t2 * 0.15, -t2 * 0.15 + TAU2 * 0.7);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      line(ctx2, cx, cy, cx + Math.cos(sa) * R2, cy + Math.sin(sa) * R2, "rgba(127, 214, 223, 0.45)");
+      ctx2.strokeStyle = C.line2;
+      ctx2.beginPath();
+      ctx2.arc(cx, cy, R2, 0, TAU2);
+      ctx2.stroke();
+      ctx2.strokeStyle = C.line;
+      ctx2.beginPath();
+      ctx2.arc(cx, cy, R2 * 0.5, 0, TAU2);
+      ctx2.stroke();
+      ctx2.setLineDash([2, 4]);
+      ctx2.beginPath();
+      ctx2.arc(cx, cy, R2 + 9, -t2 * 0.15, -t2 * 0.15 + TAU2 * 0.7);
+      ctx2.stroke();
+      ctx2.setLineDash([]);
       for (let i = 0; i < 72; i++) {
         const a = i / 72 * TAU2, long = i % 6 === 0, r12 = R2 + (long ? 6 : 3);
-        line(ctx, cx + Math.cos(a) * R2, cy + Math.sin(a) * R2, cx + Math.cos(a) * r12, cy + Math.sin(a) * r12, long ? C.line2 : C.line);
+        line(ctx2, cx + Math.cos(a) * R2, cy + Math.sin(a) * R2, cx + Math.cos(a) * r12, cy + Math.sin(a) * r12, long ? C.line2 : C.line);
       }
-      line(ctx, cx - 5, cy, cx + 5, cy, C.line2);
-      line(ctx, cx, cy - 5, cx, cy + 5, C.line2);
+      line(ctx2, cx - 5, cy, cx + 5, cy, C.line2);
+      line(ctx2, cx, cy - 5, cx, cy + 5, C.line2);
       for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) {
         const p = P[i], q = P[j];
         if (p.t !== q.t || Math.abs(p.x - q.x) > 11) continue;
         if (Math.hypot(p.x - q.x, p.y - q.y) < 11) {
-          ctx.strokeStyle = KINDS[p.t][0] + "55";
-          ctx.beginPath();
-          ctx.moveTo(p.x, p.y);
-          ctx.lineTo(q.x, q.y);
-          ctx.stroke();
+          ctx2.strokeStyle = KINDS[p.t][0] + "55";
+          ctx2.beginPath();
+          ctx2.moveTo(p.x, p.y);
+          ctx2.lineTo(q.x, q.y);
+          ctx2.stroke();
         }
       }
       for (const p of P) {
         const behind = ((sa - Math.atan2(p.y - cy, p.x - cx)) % TAU2 + TAU2) % TAU2;
-        ctx.globalAlpha = 0.55 + 0.45 * (behind < SWEEP ? 1 - behind / SWEEP : 0);
-        ctx.fillStyle = KINDS[p.t][0];
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 1.7, 0, TAU2);
-        ctx.fill();
+        ctx2.globalAlpha = 0.55 + 0.45 * (behind < SWEEP ? 1 - behind / SWEEP : 0);
+        ctx2.fillStyle = KINDS[p.t][0];
+        ctx2.beginPath();
+        ctx2.arc(p.x, p.y, 1.7, 0, TAU2);
+        ctx2.fill();
       }
-      ctx.globalAlpha = 1;
+      ctx2.globalAlpha = 1;
       if (t2 - lockAt > 3.2 || lock && lock.x < cx - R2 * 0.35) {
         let best = null, bn = 1;
         for (const p of P) {
           if (p.x < cx - R2 * 0.15) continue;
-          const n2 = kinOf(p).length;
-          if (n2 > bn) {
-            bn = n2;
+          const n = kinOf(p).length;
+          if (n > bn) {
+            bn = n;
             best = p;
           }
         }
@@ -23513,7 +23519,7 @@ ${e.message}` : String(e?.message || e));
           serial += 1 + Math.floor(rnd() * 40);
         }
       }
-      const rx = cx + R2 + 22, ry = cy - 22;
+      const rx = cx + R2 + (wide ? 22 : gap), ry = cy - 22, lead = wide ? 76 : colW;
       if (lock) {
         const kin = kinOf(lock);
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -23524,30 +23530,34 @@ ${e.message}` : String(e?.message || e));
           y1 = Math.max(y1, q.y);
         }
         const k = clamp7((t2 - lockAt) / 0.5, 0, 1), m = 4 + (1 - k) * 14;
-        brackets(ctx, x0 - m, y0 - m, x1 - x0 + 2 * m, y1 - y0 + 2 * m, 4, C.sun);
+        brackets(ctx2, x0 - m, y0 - m, x1 - x0 + 2 * m, y1 - y0 + 2 * m, 4, C.sun);
         const ex = x1 + m, ey = (y0 + y1) / 2, bx = cx + R2 + 12;
-        ctx.strokeStyle = C.sunLine;
-        ctx.beginPath();
-        ctx.moveTo(ex, ey);
-        ctx.lineTo(bx, ry);
-        ctx.lineTo(rx + 76, ry);
-        ctx.stroke();
-        label2(ctx, k < 1 ? "acquiring" : `specimen ${pad2(serial, 4)}`, rx, ry - 5, { color: C.sun });
-        label2(ctx, `cells ${pad2(kin.length, 2)}`, rx, ry + 14);
-        label2(ctx, KINDS[lock.t][1], rx, ry + 28);
-        label2(ctx, `${pad2(Math.hypot(x1 - x0, y1 - y0) * 6.6 + 12, 3)} µm`, rx, ry + 42);
+        ctx2.strokeStyle = C.sunLine;
+        ctx2.beginPath();
+        ctx2.moveTo(ex, ey);
+        ctx2.lineTo(Math.min(bx, rx - 2), ry);
+        ctx2.lineTo(rx + lead, ry);
+        ctx2.stroke();
+        const size = `${pad2(Math.hypot(x1 - x0, y1 - y0) * 6.6 + 12, 3)} µm`;
+        if (wide) {
+          label2(ctx2, k < 1 ? "acquiring" : `specimen ${pad2(serial, 4)}`, rx, ry - 5, { color: C.sun });
+          label2(ctx2, `cells ${pad2(kin.length, 2)}`, rx, ry + 14);
+          label2(ctx2, KINDS[lock.t][1], rx, ry + 28);
+          label2(ctx2, size, rx, ry + 42);
+        } else {
+          label2(ctx2, k < 1 ? "acquiring" : "specimen", rx, ry - 5, { color: C.sun });
+          if (k >= 1) label2(ctx2, `no ${pad2(serial, 4)}`, rx, ry + 14, { color: C.sun });
+          label2(ctx2, `cells ${pad2(kin.length, 2)}`, rx, ry + 28);
+          label2(ctx2, KINDS[lock.t][2], rx, ry + 42);
+          label2(ctx2, size, rx, ry + 56);
+        }
       }
-      const n = `n ${P.length}`, temp = `${(14.6 + Math.sin(t2 * 0.3) * 0.4).toFixed(1)}°`, lux = `lux ${pad2(18 + Math.sin(t2 * 0.2) * 3, 2)}%`;
-      if (both) {
-        const lx = cx - R2 - 22;
-        label2(ctx, "field 01", lx, ry - 5, { align: "right", color: C.ink2 });
-        line(ctx, lx - 72, ry, lx + 8, ry);
-        label2(ctx, n, lx, ry + 14, { align: "right" });
-        label2(ctx, temp, lx, ry + 28, { align: "right" });
-        label2(ctx, lux, lx, ry + 42, { align: "right" });
-      } else {
-        label2(ctx, `${n} · ${temp}`, rx, ry + 62);
-      }
+      const lx = cx - R2 - (wide ? 22 : gap);
+      label2(ctx2, "field 01", lx, ry - 5, { align: "right", color: C.ink2 });
+      line(ctx2, lx - (wide ? 72 : colW), ry, lx + (wide ? 8 : 2), ry);
+      label2(ctx2, `n ${P.length}`, lx, ry + 14, { align: "right" });
+      label2(ctx2, `${(14.6 + Math.sin(t2 * 0.3) * 0.4).toFixed(1)}°`, lx, ry + 28, { align: "right" });
+      label2(ctx2, `lux ${pad2(18 + Math.sin(t2 * 0.2) * 3, 2)}%`, lx, ry + 42, { align: "right" });
     };
   }
   function startLoader(canvas2) {
@@ -23564,7 +23574,7 @@ ${e.message}` : String(e?.message || e));
       canvas2.width = Math.max(1, Math.round(W * dpr));
       canvas2.height = Math.max(1, Math.round(H2 * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      draw = reticle(W, H2);
+      draw = reticle(W, H2, ctx);
     };
     const frame = (now) => {
       raf = requestAnimationFrame(frame);
@@ -23589,6 +23599,9 @@ ${e.message}` : String(e?.message || e));
       return () => {
       };
     }
+    document.fonts?.ready.then(() => {
+      W = 0;
+    });
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
   }
