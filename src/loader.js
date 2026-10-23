@@ -2,7 +2,7 @@
 // a small attraction matrix (each kind clinging to its own), so scattered motes gather into colonies
 // as the world will, while a sweep passes over them and the HUD locks onto one. Drawn on a software 2D
 // canvas at 30 fps (under about 1 ms a frame), so the GPU stays free to compile the shaders and measure.
-// The designs weighed against it (lineage, tide, budding): runs/loader/ (2026-10-23).
+// Chosen over a lineage tree, the pool's contours under a scan line and a budding filament (2026-10-23).
 
 const C = {
   line: 'rgba(130, 205, 214, 0.22)', line2: 'rgba(150, 222, 230, 0.55)',
@@ -18,10 +18,6 @@ const GAIN = 10, DAMP = 0.88, FMAX = 0.7, VMAX = 1.6;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const pad = (n, w) => String(Math.max(0, Math.round(n))).padStart(w, '0');
 
-function rng(seed) {
-  let s = seed >>> 0 || 1;
-  return () => { s ^= s << 13; s >>>= 0; s ^= s >> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; };
-}
 const font = (ctx) => { ctx.font = "500 9px Saira, 'Bahnschrift', sans-serif"; ctx.letterSpacing = '1.6px'; };
 function label(ctx, text, x, y, { color = C.ink3, align = 'left' } = {}) {
   font(ctx);
@@ -42,7 +38,7 @@ function brackets(ctx, x, y, w, h, len, color) {
   ctx.stroke();
 }
 
-export function reticle(W, H, ctx) {
+function reticle(W, H, ctx) {
   // The lens is centred with readouts either side. Narrow screens (phones) stack them a word to a line,
   // in columns as wide as their longest, and the lens gives up what room they still lack.
   const wide = W >= 2 * (H / 2 - 16) + 220;
@@ -51,7 +47,7 @@ export function reticle(W, H, ctx) {
   const gap = 16;
   const R = wide ? H / 2 - 16 : Math.max(36, Math.min(H / 2 - 16, W / 2 - gap - colW - 4));
   const cx = W / 2, cy = H / 2;
-  const rnd = rng((Math.random() * 2 ** 32) >>> 0);
+  const rnd = Math.random;
   const T = KINDS.length;
   // kin cling (colonies); other kinds are drawn more weakly, or pushed away, so colonies keep their kind
   const KIN = [0.5, 1], OTHER = [-0.6, 0.2];
@@ -105,8 +101,7 @@ export function reticle(W, H, ctx) {
       if (d > max) { p.x = cx + (dx / d) * max; p.y = cy + (dy / d) * max; p.vx *= 0.5; p.vy *= 0.5; }
     }
   };
-  // (cells: for tools that measure how it moves)
-  return Object.assign((ctx, t, dt) => {
+  return (t, dt) => {
     step(Math.min(dt, 0.05));
     // now and then the rules mutate a little, so colonies keep re-forming
     if (t - mutAt > 2.5) {
@@ -121,11 +116,9 @@ export function reticle(W, H, ctx) {
     g.addColorStop(0, 'rgba(127, 214, 223, 0.05)'); g.addColorStop(1, 'rgba(127, 214, 223, 0)');
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
     const sa = t * 0.9;
-    if (ctx.createConicGradient) {
-      const cg = ctx.createConicGradient(sa - SWEEP, cx, cy);
-      cg.addColorStop(0, 'rgba(127, 214, 223, 0)'); cg.addColorStop(SWEEP / TAU, 'rgba(127, 214, 223, 0.13)'); cg.addColorStop(SWEEP / TAU + 0.001, 'rgba(127, 214, 223, 0)');
-      ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
-    }
+    const cg = ctx.createConicGradient(sa - SWEEP, cx, cy);
+    cg.addColorStop(0, 'rgba(127, 214, 223, 0)'); cg.addColorStop(SWEEP / TAU, 'rgba(127, 214, 223, 0.13)'); cg.addColorStop(SWEEP / TAU + 0.001, 'rgba(127, 214, 223, 0)');
+    ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
     line(ctx, cx, cy, cx + Math.cos(sa) * R, cy + Math.sin(sa) * R, 'rgba(127, 214, 223, 0.45)');
     // rings, a turning dashed arc, the bezel's ticks, the centre mark
     ctx.strokeStyle = C.line2; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke();
@@ -170,28 +163,19 @@ export function reticle(W, H, ctx) {
       // the leader: from the brackets' right edge out past the bezel, then along to the readout
       const ex = x1 + m, ey = (y0 + y1) / 2, bx = cx + R + 12;
       ctx.strokeStyle = C.sunLine; ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(Math.min(bx, rx - 2), ry); ctx.lineTo(rx + lead, ry); ctx.stroke();
-      const size = `${pad(Math.hypot(x1 - x0, y1 - y0) * 6.6 + 12, 3)} µm`;
-      if (wide) {
-        label(ctx, k < 1 ? 'acquiring' : `specimen ${pad(serial, 4)}`, rx, ry - 5, { color: C.sun });
-        label(ctx, `cells ${pad(kin.length, 2)}`, rx, ry + 14);
-        label(ctx, KINDS[lock.t][1], rx, ry + 28);
-        label(ctx, size, rx, ry + 42);
-      } else {
-        label(ctx, k < 1 ? 'acquiring' : 'specimen', rx, ry - 5, { color: C.sun });
-        if (k >= 1) label(ctx, `no ${pad(serial, 4)}`, rx, ry + 14, { color: C.sun });
-        label(ctx, `cells ${pad(kin.length, 2)}`, rx, ry + 28);
-        label(ctx, KINDS[lock.t][2], rx, ry + 42);
-        label(ctx, size, rx, ry + 56);
-      }
+      // its title above the leader, the rest below it a row apart
+      const no = pad(serial, 4), rest = [`cells ${pad(kin.length, 2)}`, KINDS[lock.t][wide ? 1 : 2], `${pad(Math.hypot(x1 - x0, y1 - y0) * 6.6 + 12, 3)} µm`];
+      label(ctx, k < 1 ? 'acquiring' : wide ? `specimen ${no}` : 'specimen', rx, ry - 5, { color: C.sun });
+      if (!wide && k >= 1) label(ctx, `no ${no}`, rx, ry + 14, { color: C.sun });
+      rest.forEach((s, i) => label(ctx, s, rx, ry + 14 * (i + (wide ? 1 : 2))));
     }
     // the field's readouts, mirroring the specimen's
     const lx = cx - R - (wide ? 22 : gap);
     label(ctx, 'field 01', lx, ry - 5, { align: 'right', color: C.ink2 });
     line(ctx, lx - (wide ? 72 : colW), ry, lx + (wide ? 8 : 2), ry);
-    label(ctx, `n ${P.length}`, lx, ry + 14, { align: 'right' });
-    label(ctx, `${(14.6 + Math.sin(t * 0.3) * 0.4).toFixed(1)}°`, lx, ry + 28, { align: 'right' });
-    label(ctx, `lux ${pad(18 + Math.sin(t * 0.2) * 3, 2)}%`, lx, ry + 42, { align: 'right' });
-  }, { cells: P });
+    [`n ${P.length}`, `${(14.6 + Math.sin(t * 0.3) * 0.4).toFixed(1)}°`, `lux ${pad(18 + Math.sin(t * 0.2) * 3, 2)}%`]
+      .forEach((s, i) => label(ctx, s, lx, ry + 14 * (i + 1), { align: 'right' }));
+  };
 }
 
 /** Starts the animation on canvas; returns stop(). Reduced motion: one still frame, a few seconds in. */
@@ -200,32 +184,31 @@ export function startLoader(canvas) {
   const ctx = canvas?.getContext('2d', { willReadFrequently: true });
   if (!ctx) return () => {};
   let W = 0, H = 0, draw = null, raf = 0, last = 0, prev = 0, t0 = null;
+  // false while hidden (a short screen) or not laid out yet
   const fit = () => {
     const r = canvas.getBoundingClientRect();
-    if (Math.round(r.width) === W && Math.round(r.height) === H && draw) return;
-    const dpr = Math.min(devicePixelRatio || 1, 2);
+    if (Math.round(r.width) === W && Math.round(r.height) === H && draw) return true;
     W = Math.round(r.width); H = Math.round(r.height);
+    if (W < 120 || H < 80) return false;
+    const dpr = Math.min(devicePixelRatio || 1, 2);
     canvas.width = Math.max(1, Math.round(W * dpr)); canvas.height = Math.max(1, Math.round(H * dpr));
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     draw = reticle(W, H, ctx);
+    return true;
   };
   const frame = (now) => {
     raf = requestAnimationFrame(frame);
     if (now - last < 1000 / 30 - 2) return;
     last = now;
     t0 ??= now;
-    fit();
     const t = (now - t0) / 1000, dt = Math.min(0.1, t - prev);
     prev = t;
-    // hidden (a short screen) or not laid out yet
-    if (W < 120 || H < 80) return;
+    if (!fit()) return;
     ctx.clearRect(0, 0, W, H);
-    draw(ctx, t, dt);
+    draw(t, dt);
   };
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    fit();
-    if (W < 120 || H < 80) return () => {};
-    for (let i = 0; i <= 150; i++) { ctx.clearRect(0, 0, W, H); draw(ctx, i / 30, 1 / 30); }
+    if (fit()) for (let i = 0; i <= 150; i++) { ctx.clearRect(0, 0, W, H); draw(i / 30, 1 / 30); }
     return () => {};
   }
   // the columns are measured in the page's font: lay out again once it has loaded

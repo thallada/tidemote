@@ -48,7 +48,7 @@ export async function createEngine(device, format, { hasTimestamps = false, K = 
 // The longest to compile, and not needed to start a world: coarse steps (fast speeds, low frame rates)
 // and the replay of a watched cell's decision.
 const LATE = new Set(['lifeMainCoarse', 'mindMain', 'mindMainCoarse']);
-const COMPILE_COST = { lifeMainCoarse: 38, lifeMain: 26, mindMainCoarse: 21, mindMain: 14, fsPoint: 15, 'fsPointLive+live': 13, fsComposite: 11, fsLoupe: 8, matterMain: 5 };
+const COMPILE_COST = { lifeMain: 26, fsPoint: 15, 'fsPointLive+live': 13, fsComposite: 11, fsLoupe: 8, matterMain: 5 };
 
 class Engine {
   constructor(device, format, hasTimestamps, K, late = false) {

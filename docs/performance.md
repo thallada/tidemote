@@ -44,7 +44,7 @@ faster than linearly (the level of detail is set in framebuffer pixels).
 also built for coarse steps) and the scene's point and composite shaders take most of the time. The
 browser keeps compiled shaders on disk, so a reload of the same build starts in about 0.4 s; any change
 to the shader text (a new build, a `#k=` override) compiles afresh. Measured 2026-10-23 on an RTX 4070
-Ti (Chrome, D3D12, `runs/boot/boot-time.mjs`): created one by one, the pipelines compiled in turn,
+Ti (Chrome, D3D12): created one by one, the pipelines compiled in turn,
 27 s from an empty cache (about 20 s with the driver's own cache warm). Created async (`createEngine`
 waits on `create*PipelineAsync`) they compile in parallel: 10 s. The three a new world can do without
 (`LATE` in engine.js: coarse steps and the watched cell's replay) compile on after it starts: 5.8 s,
