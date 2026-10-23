@@ -70,6 +70,7 @@
   --hot: #ff5f3a;
   --cold: #5aa8ff;
   --sun: #f1e3a0;
+  --story: #e8dcc0; /* the chronicler's voice in the log */
   --sans: 'Saira', 'Bahnschrift', 'DIN Alternate', 'Segoe UI', system-ui, sans-serif;
   --gut: 14px;
   /* one spacing scale for every panel: within a row, between rows, after a heading, between
@@ -381,6 +382,9 @@ body:not(.live) .hud { opacity: 0; }
 .feed time { color: var(--ink-3); font-size: 11px; padding-top: 1px; }
 .feed li.quiet { display: block; color: var(--ink-3); }
 .feed b { color: var(--ink); font-weight: 500; }
+/* the chronicler's stories: told in a warmer voice, its bar a dotted rule */
+.feed li.story > span, .log li.story > span { color: var(--story); }
+.feed li.story > i, .log li.story > i { background: repeating-linear-gradient(to bottom, var(--story) 0 2px, transparent 2px 5px) !important; }
 
 /* ------------------------------------------------------------------ caption, focus, flash, tip */
 .caption {
@@ -499,6 +503,28 @@ span.set-reset { display: inline-flex; align-items: center; gap: var(--s3); colo
 .w-act .btn:disabled, .set-foot .link:disabled { opacity: .45; cursor: default; }
 .keys-note kbd, dt { color: var(--sun); }
 .help { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100% - 32px)); padding: 10px 18px 18px; z-index: 35; max-height: calc(100% - 32px); overflow-y: auto; }
+/* a species card: the canvas it is drawn on, scaled to the dialog, then the name and the saves */
+/* the card beside its controls; the card as tall as the window allows */
+.card-dlg { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: max-content; max-width: calc(100% - 32px); padding: 10px 18px 16px; z-index: 36; max-height: calc(100% - 24px); overflow-y: auto;
+  display: grid; grid-template-columns: auto minmax(220px, 260px); grid-template-rows: auto auto auto 1fr; column-gap: var(--s4); }
+.card-dlg:focus { outline: none; }
+.card-dlg .sec-h { grid-column: 1 / -1; }
+.card-cv { grid-row: 2 / 5; display: block; height: min(640px, calc(100vh - 110px)); width: auto; aspect-ratio: 750 / 1050; margin-top: var(--s2); border: 1px solid var(--line); background: #06090a; }
+.card-dlg .card-row { grid-column: 2; align-self: start; flex-direction: column; align-items: stretch; }
+.card-dlg .card-row input { min-width: 0; }
+.card-row { display: flex; align-items: center; gap: var(--s3); margin-top: var(--s3); flex-wrap: wrap; }
+.card-row .lbl { flex: none; }
+.card-row input { flex: 1; min-width: 160px; height: 34px; padding: 0 10px; background: rgba(6, 10, 11, 0.6); border: 1px solid var(--line); color: var(--ink); font: inherit; font-size: 14px; }
+.card-row input:focus { outline: none; border-color: var(--line-2); }
+.card-btns .note { color: var(--ink-3); font-size: 12px; }
+.card-btns .btn:disabled { opacity: .5; cursor: default; }
+/* filming: the button counts down, its dot red */
+#film .rec { opacity: 0; }
+#film.armed .rec { opacity: .7; animation: rec-blink 1.2s steps(2) infinite; color: var(--hot); }
+#film.rolling { color: var(--ink); border-color: var(--hot); }
+#film.rolling .rec { opacity: 1; color: var(--hot); }
+#film-v { font-variant-numeric: tabular-nums; min-width: 2.6em; }
+@keyframes rec-blink { 50% { opacity: 0; } }
 .help-src { margin: var(--s4) 0 0; padding-top: var(--s2); border-top: 1px solid var(--line); color: var(--ink-3); font-size: 12px; }
 .keys { display: grid; grid-template-columns: max-content 1fr; gap: 9px 18px; margin: 10px 0 0; }
 dd { margin: 0; color: var(--ink-2); }
@@ -1001,6 +1027,10 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .opts .ramp { margin-left: calc(7.6em + var(--s3)); }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }
+  #film { display: none !important; }
+  .card-dlg { top: calc(var(--top) + 8px); transform: translateX(-50%); width: calc(100% - 16px); padding: 8px 12px 12px; max-height: calc(100% - var(--top) - var(--bot) - 16px); display: block; }
+  .card-cv { height: auto; width: min(100%, 360px); margin: var(--s2) auto 0; }
+  .card-dlg .card-row { flex-direction: row; align-items: center; }
 }
 @media (max-width: 380px) {
   .act { width: 44px; }
@@ -1050,6 +1080,7 @@ svg.niche .n-dot { fill: var(--cyan); }
   <symbol id="i-gear" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2"><path d="M3 5.5h8M14.5 5.5H17M3 10h2.5M9 10h8M3 14.5h6M12.5 14.5H17"/><circle cx="12.75" cy="5.5" r="1.75"/><circle cx="7.25" cy="10" r="1.75"/><circle cx="10.75" cy="14.5" r="1.75"/></g></symbol>
   <symbol id="i-full" viewBox="0 0 20 20"><path d="M3 7.5V3h4.5M12.5 3H17v4.5M17 12.5V17h-4.5M7.5 17H3v-4.5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-unfull" viewBox="0 0 20 20"><path d="M7.5 3v4.5H3M17 7.5h-4.5V3M12.5 17v-4.5H17M3 12.5h4.5V17" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+  <symbol id="i-film" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><rect x="2.5" y="5" width="11" height="10" rx="1"/><path d="m13.5 8.5 4-2.5v8l-4-2.5"/><circle class="rec" cx="6" cy="8.5" r="1.3" fill="currentColor" stroke="none"/></g></symbol>
   <symbol id="i-close" viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-plus" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-minus" viewBox="0 0 20 20"><path d="M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
@@ -1096,6 +1127,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     </div>
     <div class="grp acts">
       <button type="button" class="act" id="auto-play" aria-label="Auto camera" aria-pressed="false" data-hint="Auto camera · A"><svg><use href="#i-auto"/></svg><span>Auto</span></button>
+      <button type="button" class="act" id="film" aria-label="Film thirty seconds" aria-pressed="false" data-hint="Film 30 s · R" hidden><svg><use href="#i-film"/></svg><span id="film-v">Film</span></button>
       <span class="snd-wrap"><button type="button" class="act" id="snd" aria-label="Sound" aria-pressed="false" data-hint="Sound · S"><svg><use href="#i-sound"/></svg><span>Sound</span></button><input id="vol" type="range" min="0" max="100" step="1" value="70" aria-label="Volume" hidden></span>
       <button type="button" class="act" id="set-open" aria-label="Settings" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span>Settings</span></button>
       <button type="button" class="act primary" id="lab-open" aria-label="Field Lab" aria-expanded="false" aria-controls="lab" data-hint="Field Lab · K"><svg><use href="#i-lab"/></svg><span>Lab</span></button>
@@ -1219,6 +1251,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     <dt>Space</dt><dd>Pause</dd>
     <dt>, . / &gt;</dt><dd>Slower · faster · real time · max</dd>
     <dt>A</dt><dd>Auto camera</dd>
+    <dt>R</dt><dd>Film thirty seconds (with the auto camera on, its next scene)</dd>
     <dt>C</dt><dd>Follow the specimen</dd>
     <dt>Esc</dt><dd>Close, then clear the highlight, then the map</dd>
     <dt>K</dt><dd>Fold or open the Field Lab</dd>
@@ -1232,6 +1265,21 @@ svg.niche .n-dot { fill: var(--cyan); }
     <dt>⇧R ⇧R</dt><dd>Discard this world and begin again</dd>
   </dl>
   <p class="help-src">Free software under the <a class="sp" target="_blank" rel="noopener" href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0</a>, sound after <a class="sp" target="_blank" rel="noopener" href="https://supercollider.github.io/">SuperCollider</a> · <a class="sp" target="_blank" rel="noopener" href="https://github.com/thallada/tidemote">Source code</a></p>
+</div>
+
+<!-- a species card: its portrait, sigil, song and story on one canvas, to save and share -->
+<div class="card-dlg panel float" id="card" hidden tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="card-h">
+  <div class="sec-h"><h2 id="card-h"><span>Species</span> Card</h2><button type="button" class="ghost" id="card-close" aria-label="Close the card" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button></div>
+  <canvas class="card-cv" id="card-cv" width="750" height="1050" role="img" aria-label="The species card"></canvas>
+  <div class="card-row">
+    <label class="lbl" for="card-name">Your name for it</label>
+    <input type="text" id="card-name" maxlength="48" autocomplete="off" spellcheck="false" data-hint="Named, it keeps your name in this world and its saves; clear it to restore its own">
+  </div>
+  <div class="card-row card-btns">
+    <button type="button" class="btn" id="card-png" data-hint="The card as a PNG image">Save image</button>
+    <button type="button" class="btn" id="card-song">Save song</button>
+    <span class="note" id="card-note" role="status"></span>
+  </div>
 </div>
 
 <div class="tip" id="tip" hidden role="tooltip"></div>
@@ -1284,6 +1332,14 @@ svg.niche .n-dot { fill: var(--cyan); }
   var DIAG_STRIDE = 24;
   var META_DIAG = META_ENERGY + 64;
   var META_CLAIM = META_DIAG + 5 * DIAG_STRIDE;
+  var SPL_WATCH = 64;
+  var SPL_CAUSES = ["born", "starved", "old", "eaten", "scalded", "stranded", "cyst", "woke"];
+  var SPL_MAP = 1;
+  var SPL_CAUSE = SPL_MAP + MAXK;
+  var SPL_PAIR = SPL_CAUSE + MAXK * SPL_CAUSES.length;
+  var SPL_RANGE = SPL_PAIR + SPL_WATCH * SPL_WATCH * 2;
+  var SPL_WORDS = SPL_RANGE + MAXK * 5;
+  var SPL_RANGE_SAMPLES = 32768;
   var HEAT_BINS = 16;
   var HEAT_BIN = 3;
   var THERMAL_LEDGER = { hist: 40, torpid: 56, makers: 57, framboidsMade: 58 };
@@ -2537,6 +2593,28 @@ const LIVE_BIT = 0x80000000u;
 @group(0) @binding(9) var<storage, read_write> intent: array<vec4u>;
 @group(0) @binding(10) var<storage, read_write> genomes: array<Genome>;
 @group(0) @binding(11) var<storage, read_write> ledger: array<atomic<u32>>;
+
+// The species ledger at the ledger's end (SPL_* in shaders.js): observational counts for the chronicler.
+const SPL_WORDS = ${SPL_WORDS}u;
+const SPL_MAP = ${SPL_MAP}u;
+const SPL_CAUSE = ${SPL_CAUSE}u;
+const SPL_NC = ${SPL_CAUSES.length}u;
+const SPL_PAIR = ${SPL_PAIR}u;
+const SPL_RANGE = ${SPL_RANGE}u;
+const SPL_WATCH = ${SPL_WATCH}u;
+fn splBase() -> u32 { return arrayLength(&ledger) - SPL_WORDS; }
+// one of species k's events: 0 born, 1 starved, 2 died old, 3 eaten, 4 scalded, 5 stranded (dried or frozen), 6 encysted, 7 woke
+fn splCause(k: u32, c: u32) { atomicAdd(&ledger[splBase() + SPL_CAUSE + k * SPL_NC + c], 1u); }
+// a cell of species h tried to eat one of species q (won: and ate it, or bit it), counted when both are watched
+fn splPair(h: u32, q: u32, won: bool) {
+  let b = splBase();
+  let wh = atomicLoad(&ledger[b + SPL_MAP + h]);
+  let wq = atomicLoad(&ledger[b + SPL_MAP + q]);
+  if (wh == 0u || wq == 0u) { return; }
+  let o = b + SPL_PAIR + ((wh - 1u) * SPL_WATCH + wq - 1u) * 2u;
+  atomicAdd(&ledger[o], 1u);
+  if (won) { atomicAdd(&ledger[o + 1u], 1u); }
+}
 @group(0) @binding(12) var<storage, read_write> livingList: array<u32>;
 // 0 living count, 1..3 life dispatch, 4..7 line draw, 8..11 stone draw (for rendering).
 @group(0) @binding(13) var<storage, read_write> frameCtr: array<atomic<u32>, 12>;
@@ -2737,7 +2815,12 @@ fn allocSlot(s: ptr<function, u32>) -> u32 {
     *s = pcg(*s);
     let k = FIRST_LIFE + (*s % (MAXK - FIRST_LIFE));
     let r = atomicCompareExchangeWeak(&ledger[META_SLOT + k], 0u, 1u);
-    if (r.exchanged) { return k; }
+    if (r.exchanged) {
+      // a new species: its counts in the species ledger start afresh
+      let o = splBase() + SPL_CAUSE + k * SPL_NC;
+      for (var c = 0u; c < SPL_NC; c++) { atomicStore(&ledger[o + c], 0u); }
+      return k;
+    }
   }
   return NONE;
 }
@@ -2987,6 +3070,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         if (p.kind >= FIRST_LIFE) {
           // a kill leaves a carcass for the scavengers
           atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
+          splCause(p.kind, 3u);
           p.kind = HUSK; p.energy = ${bodyOf(K, "genomes[p.kind]")} * ${f(K.carcassKeep)}; p.age = 0.0; p.vel *= 0.2;
           p.info = (p.info & 0xffff7ff0u) | 3u;
           atomicAdd(&ledger[META_ENERGY + 61u], 1u);
@@ -3001,6 +3085,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
           p.energy -= ${f(K.bite)} * bites;
           if (p.energy <= 0.0) {
             atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
+            splCause(p.kind, 3u);
             p.kind = HUSK; p.energy = ${bodyOf(K, "genomes[p.kind]")}; p.age = 0.0;
             p.info = (p.info & 0xffff7ff0u) | 3u | LITTER;
             atomicAdd(&ledger[META_ENERGY + 60u], 1u);
@@ -3047,6 +3132,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         intent[i].w = NONE;
         atomicAdd(&ledger[2], 1u);
         atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[ck])], 1u);
+        splCause(ck, 0u);
       }
       parts[i] = p;
     }
@@ -3188,6 +3274,26 @@ fn scatterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocat
   if (l == 0u) { wgBase = atomicAdd(&frameCtr[0], atomicLoad(&wgCount)); }
   let base = workgroupUniformLoad(&wgBase);
   if (slot != NONE) { livingList[base + slot] = dst; }
+}
+
+// ------------------------------------------------------------------- species ranges (observational)
+// Where each species lives, for the chronicler: every stride-th particle from a rotating start adds the
+// cosine and sine of its x and y around the torus (a circular mean: where its cells gather, and how
+// tightly) to its slot. At most SPL_RANGE_SAMPLES particles; run only before a census that reads it.
+@compute @workgroup_size(256)
+fn rangeMain(@builtin(global_invocation_id) gid: vec3u) {
+  let stride = max(1u, (sim.count + ${SPL_RANGE_SAMPLES - 1}u) / ${SPL_RANGE_SAMPLES}u);
+  let i = gid.x * stride + sim.frame % stride;
+  if (i >= sim.count) { return; }
+  let p = parts[i];
+  if (p.kind < FIRST_LIFE) { return; }
+  let a = p.pos / sim.world * TAU;
+  let o = splBase() + SPL_RANGE + p.kind * 5u;
+  atomicAdd(&ledger[o], u32((cos(a.x) + 1.0) * 127.0 + 0.5));
+  atomicAdd(&ledger[o + 1u], u32((sin(a.x) + 1.0) * 127.0 + 0.5));
+  atomicAdd(&ledger[o + 2u], u32((cos(a.y) + 1.0) * 127.0 + 0.5));
+  atomicAdd(&ledger[o + 3u], u32((sin(a.y) + 1.0) * 127.0 + 0.5));
+  atomicAdd(&ledger[o + 4u], 1u);
 }
 
 // ------------------------------------------------------------------- census
@@ -3828,12 +3934,14 @@ fn cystStep(i: u32) {
   p.pos = wrapPos(p.pos + (p.vel + flowAt(p.pos) * g.advect) * sim.dt);
   atomicAdd(&ledger[cystSlot(dietGuild(g))], 1u);
   if (p.energy <= 0.0) {
+    splCause(p.kind, select(1u, 5u, dry));
     p.kind = HUSK; p.energy = ${bodyOf(K, "g")}; p.age = 0.0;
     p.info = (p.info & 0xffff7fc0u) | 1u${litterOf("g")};
     atomicAdd(&ledger[5], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 1u], 1u);
   } else if (p.age > 0.0 && !dry && rnd(&s) < ${f(K.cystWake)} * (1.0 + ${f(K.rainWake)} * sim.pond.y) * sim.dt) {
     p.info = (p.info & 0xfffffff0u) | 9u; p.age = 0.0;
+    splCause(p.kind, 7u);
   }
   intent[i] = vec4u(0u, 0u, NONE, NONE);
   parts[i] = p;
@@ -3915,6 +4023,7 @@ ${cellWGSL(K, false)}
       let missed = mealMissed(fk, info, g, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s);
       let won = !missed && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged;
       if (DIAG && canHunt && isAnimal(food)) { diagAdd(dg, 15u, 1u); diagAdd(dg, select(select(17u, 18u, won), 16u, missed), 1u); }
+      if (fk >= FIRST_LIFE) { splPair(p.kind, fk, won); }
       if (won) {
         let fp = sortedFull[food];
         if (fp.kind >= FIRST_LIFE) {
@@ -3983,7 +4092,11 @@ ${cellWGSL(K, false)}
           let fp = sortedFull[fd];
           // handling time, or a miss (armour, an unfamiliar quarry, skill, shelter), ends this opportunity
           if (!mealDue(fp.kind, mi)) { break; }
-          if (mealMissed(fp.kind, info, g, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s)) { if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); } break; }
+          if (mealMissed(fp.kind, info, g, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s)) {
+            if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); }
+            if (fp.kind >= FIRST_LIFE) { splPair(p.kind, fp.kind, false); }
+            break;
+          }
           let plant = fp.kind >= FIRST_LIFE && genomes[fp.kind].photo > 0.4;
           var got = true;
           if (plant) {
@@ -3995,6 +4108,7 @@ ${cellWGSL(K, false)}
             got = atomicCompareExchangeWeak(&ledger[META_CLAIM + fd], 0u, MEAL_CLAIM | (cls << 29u) | (i + 1u)).exchanged;
           }
           if (hunt && isAnimal(fd)) { diagAdd(dg, select(17u, 18u, got), 1u); }
+          if (fp.kind >= FIRST_LIFE) { splPair(p.kind, fp.kind, got); }
           next++;
           if (!got) { continue; }
           var gain = 0.0;
@@ -4029,10 +4143,11 @@ ${cellWGSL(K, false)}
   if (act == 0u && E > 0.0 && E < ${f(K.cystAt)} * divE && food == NONE && age > 10.0 && g.photo <= 0.4 && rnd(&s) < ${f(K.cystRate)} * sim.dt) {
     info = (info & 0xffff003fu & 0xfffffff0u) | CYST;
     age = 0.0;
+    splCause(p.kind, 6u);
   }
   // stranded on dry ground a cell dries out, unless it rests as a cyst (or a spore) first
   if (stranded && E > 0.0) {
-    if (act == 0u && rnd(&s) < ${f(K.dryCyst)} * smoothstep(0.5, 1.0, -shore / ${f(K.filmR)}) * sim.dt) { info = (info & 0xffff003fu & 0xfffffff0u) | CYST; age = 0.0; act = 0u; }
+    if (act == 0u && rnd(&s) < ${f(K.dryCyst)} * smoothstep(0.5, 1.0, -shore / ${f(K.filmR)}) * sim.dt) { info = (info & 0xffff003fu & 0xfffffff0u) | CYST; age = 0.0; act = 0u; splCause(p.kind, 6u); }
     else { E -= ${f(K.dryCost)} * sim.dt; }
   }
   var kind = p.kind;
@@ -4041,16 +4156,19 @@ ${cellWGSL(K, false)}
     info = (info & 0xffff7fc0u) | 1u${litterOf("g")};
     atomicAdd(&ledger[5], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 1u], 1u);
+    splCause(p.kind, select(1u, 5u, stranded));
   } else if (age > g.lifespan) {
     kind = HUSK; E = bodyCost + ${f(K.huskFrac)} * E; age = 0.0; vel *= 0.3;
     info = (info & 0xffff7fc0u) | 2u${litterOf("g")};
     atomicAdd(&ledger[6], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 2u], 1u);
+    splCause(p.kind, 2u);
   } else if (th.x > 0.8 && rnd(&s) < ${f(K.scald)} * smoothstep(0.8, 1.4, th.x) * sim.dt) {
     // scalded: far above its optimum, a cell's proteins come apart
     kind = HUSK; E = bodyCost; age = 0.0; vel *= 0.3;
     info = (info & 0xffff7fc0u) | 10u${litterOf("g")};
     atomicAdd(&ledger[META_DEATH + 20u + dg], 1u);
+    splCause(p.kind, 4u);
   }
   if (kind == HUSK) { atomicAdd(&ledger[META_ENERGY + select(61u, 60u, g.photo > 0.4)], 1u); }
   // calcifying cells that settled leave their skeleton as stone, in their own colour, mostly where
@@ -9444,19 +9562,8 @@ struct SV {
     }
   };
   var clamp4 = (x, a, b) => Math.max(a, Math.min(b, x));
-  function createSound({ onChange = () => {
-  }, onError = () => {
-  }, onSang = null } = {}) {
-    const pref = load();
-    const st = { on: false, volume: clamp4(pref.volume ?? 0.7, 0, 1), starting: null, ctx: null, node: null, gain: null, sent: /* @__PURE__ */ new Map(), speed: 1, lastScan: 0, seq: 0, scans: /* @__PURE__ */ new Map() };
-    const persist = () => save({ volume: st.volume, on: st.on });
-    const notify = () => onChange({ on: st.on, volume: st.volume });
-    async function boot2() {
-      const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
-      if (!AC) throw new Error("Web Audio is not available in this browser");
-      const ctx = new AC({ latencyHint: "playback" });
-      st.ctx = ctx;
-      const url = URL.createObjectURL(new Blob([`// src/audio/ugens.js
+  async function loadWorklet(ctx) {
+    const url = URL.createObjectURL(new Blob([`// src/audio/ugens.js
 var BS = 64;
 var LOOPS = BS / 3 | 0;
 var REMAIN = BS % 3;
@@ -13248,6 +13355,7 @@ var TidemoteSound = class extends AudioWorkletProcessor {
     this.load = 0;
     this.lastPost = 0;
     this.eng.maxVoices = VOICES[1];
+    this.script = (options.processorOptions && options.processorOptions.script || []).slice().sort((x, y) => x[0] - y[0]);
     this.port.onmessage = (e) => {
       try {
         this.cond.message(e.data);
@@ -13271,6 +13379,7 @@ var TidemoteSound = class extends AudioWorkletProcessor {
     }
     const t0 = Date.now();
     try {
+      while (this.script.length && this.script[0][0] <= currentTime) this.cond.message(this.script.shift()[1]);
       let o = 0;
       while (o < n) {
         if (this.have === 0) {
@@ -13310,10 +13419,10 @@ var TidemoteSound = class extends AudioWorkletProcessor {
 var VOICES = [16, 72, 96];
 registerProcessor("tidemote-sound", TidemoteSound);
 `], { type: "text/javascript" }));
-      try {
-        await ctx.audioWorklet.addModule(url);
-      } catch {
-        await ctx.audioWorklet.addModule(`data:text/javascript;charset=utf-8,${encodeURIComponent(`// src/audio/ugens.js
+    try {
+      await ctx.audioWorklet.addModule(url);
+    } catch {
+      await ctx.audioWorklet.addModule(`data:text/javascript;charset=utf-8,${encodeURIComponent(`// src/audio/ugens.js
 var BS = 64;
 var LOOPS = BS / 3 | 0;
 var REMAIN = BS % 3;
@@ -17105,6 +17214,7 @@ var TidemoteSound = class extends AudioWorkletProcessor {
     this.load = 0;
     this.lastPost = 0;
     this.eng.maxVoices = VOICES[1];
+    this.script = (options.processorOptions && options.processorOptions.script || []).slice().sort((x, y) => x[0] - y[0]);
     this.port.onmessage = (e) => {
       try {
         this.cond.message(e.data);
@@ -17128,6 +17238,7 @@ var TidemoteSound = class extends AudioWorkletProcessor {
     }
     const t0 = Date.now();
     try {
+      while (this.script.length && this.script[0][0] <= currentTime) this.cond.message(this.script.shift()[1]);
       let o = 0;
       while (o < n) {
         if (this.have === 0) {
@@ -17167,9 +17278,74 @@ var TidemoteSound = class extends AudioWorkletProcessor {
 var VOICES = [16, 72, 96];
 registerProcessor("tidemote-sound", TidemoteSound);
 `)}`);
-      } finally {
-        URL.revokeObjectURL(url);
-      }
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+  async function songClip(genome, { seed = 1, era = null, seconds = 9, sr = 44100 } = {}) {
+    const OAC = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
+    if (!OAC || !globalThis.AudioWorkletNode) return null;
+    const ctx = new OAC(2, Math.round(seconds * sr), sr);
+    await loadWorklet(ctx);
+    const voice = voiceOf(genome);
+    const len2 = voice.motif.cycle * 0.18;
+    const script = [[0, { type: "reset", seed, era }], [0, { type: "world", world: { light: 0.9, tide: 0.5, warm: 0 } }]];
+    for (let t2 = 0.4; t2 + len2 < seconds - 1.2; t2 += Math.max(2.2, len2 + 0.9)) script.push([t2, { type: "audition", slot: "card", voice, species: -1 }]);
+    const node = new AudioWorkletNode(ctx, "tidemote-sound", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { seed: seed | 0, script } });
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0, 0);
+    gain.gain.linearRampToValueAtTime(1, 0.25);
+    gain.gain.setValueAtTime(1, seconds - 1.5);
+    gain.gain.linearRampToValueAtTime(0, seconds);
+    node.connect(gain).connect(ctx.destination);
+    const buf = await ctx.startRendering();
+    let peak = 0;
+    for (let c = 0; c < buf.numberOfChannels; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
+    }
+    const k = peak > 0 ? Math.min(8, 0.7 / peak) : 1;
+    if (k !== 1) for (let c = 0; c < buf.numberOfChannels; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < d.length; i++) d[i] *= k;
+    }
+    return wavBlob(buf);
+  }
+  function wavBlob(buf) {
+    const ch = Math.min(2, buf.numberOfChannels), n = buf.length, sr = buf.sampleRate;
+    const out = new DataView(new ArrayBuffer(44 + n * ch * 2));
+    const str = (o, s) => {
+      for (let i = 0; i < s.length; i++) out.setUint8(o + i, s.charCodeAt(i));
+    };
+    str(0, "RIFF");
+    out.setUint32(4, 36 + n * ch * 2, true);
+    str(8, "WAVEfmt ");
+    out.setUint32(16, 16, true);
+    out.setUint16(20, 1, true);
+    out.setUint16(22, ch, true);
+    out.setUint32(24, sr, true);
+    out.setUint32(28, sr * ch * 2, true);
+    out.setUint16(32, ch * 2, true);
+    out.setUint16(34, 16, true);
+    str(36, "data");
+    out.setUint32(40, n * ch * 2, true);
+    const data = [...Array(ch)].map((_, c) => buf.getChannelData(c));
+    for (let i = 0, o = 44; i < n; i++) for (let c = 0; c < ch; c++, o += 2) out.setInt16(o, Math.max(-1, Math.min(1, data[c][i])) * 32767, true);
+    return new Blob([out.buffer], { type: "audio/wav" });
+  }
+  function createSound({ onChange = () => {
+  }, onError = () => {
+  }, onSang = null } = {}) {
+    const pref = load();
+    const st = { on: false, volume: clamp4(pref.volume ?? 0.7, 0, 1), starting: null, ctx: null, node: null, gain: null, sent: /* @__PURE__ */ new Map(), speed: 1, lastScan: 0, seq: 0, scans: /* @__PURE__ */ new Map() };
+    const persist = () => save({ volume: st.volume, on: st.on });
+    const notify = () => onChange({ on: st.on, volume: st.volume });
+    async function boot2() {
+      const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
+      if (!AC) throw new Error("Web Audio is not available in this browser");
+      const ctx = new AC({ latencyHint: "playback" });
+      st.ctx = ctx;
+      await loadWorklet(ctx);
       const node = new AudioWorkletNode(ctx, "tidemote-sound", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { seed: Math.random() * 2 ** 31 | 0 } });
       node.port.onmessage = (e) => {
         if (!e.data) return;
@@ -17186,6 +17362,14 @@ registerProcessor("tidemote-sound", TidemoteSound);
       gain.gain.value = 0;
       node.connect(gain).connect(ctx.destination);
       Object.assign(st, { node, gain });
+    }
+    function stream() {
+      if (!st.ctx || !st.gain) return null;
+      if (!st.tap) {
+        st.tap = st.ctx.createMediaStreamDestination();
+        st.gain.connect(st.tap);
+      }
+      return st.tap.stream;
     }
     const level = (v) => v <= 0 ? 0 : Math.pow(v, 2);
     const ramp2 = (to, sec) => {
@@ -17270,6 +17454,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       return keep;
     }
     return {
+      stream,
       get on() {
         return st.on;
       },
@@ -17509,6 +17694,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var PICK_BYTES = 56 + PICK_MAX * PICK_WORDS * 4;
   var LEDGER_HEAD = META_CLAIM * 4;
   var CENSUS_BYTES = LEDGER_HEAD + MAXK * G_BYTES;
+  var SPL_EVERY = 3;
   var LISTEN_BYTES = (LISTEN_HEAD + LISTEN_REC * LISTEN_CAP) * 4;
   var SURVEY_BYTES = SURVEY_MAX_TILES * SURVEY_WORDS * 4;
   var mix3 = (a, b, t2) => a + (b - a) * t2;
@@ -17524,7 +17710,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     await e.pipelinesReady(onProgress);
     return e;
   }
-  var LATE = /* @__PURE__ */ new Set(["lifeMainCoarse", "mindMain", "mindMainCoarse"]);
+  var LATE = /* @__PURE__ */ new Set(["lifeMainCoarse", "mindMain", "mindMainCoarse", "rangeMain"]);
   var COMPILE_COST = { lifeMain: 26, fsPoint: 15, "fsPointLive+live": 13, fsComposite: 11, fsLoupe: 8, matterMain: 5 };
   var Engine = class {
     constructor(device, format, hasTimestamps, K, late = false) {
@@ -17675,6 +17861,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         scanAdd: [6, 7],
         scatterMain: [0, 1, 2, 3, 6, 8, 9, 10, 12, 13, 15],
         censusMain: [11, 12, 13],
+        rangeMain: [0, 1, 11],
         matterMain: [0, 1, 2, 9, 10, 11, 13, 14, 16, 18],
         lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12, 15, 18],
         heatMain: [0, 14, 18, 19],
@@ -17744,7 +17931,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
           reads: [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: 24, usage: U.COPY_DST | U.MAP_READ }), busy: false }))
         };
       }
-      this.censusStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: CENSUS_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
+      this.censusStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: CENSUS_BYTES + SPL_WORDS * 4, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
+      this.censusN = 0;
       this.pickStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: PICK_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
       this.trackStage = [0, 1, 2, 3, 4, 5, 6, 7].map(() => ({ buf: d.createBuffer({ size: 56, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
       b.reprojU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
@@ -17847,7 +18035,7 @@ ${e.message}` : String(e?.message || e));
       b.touch.unmap();
       b.sway = d.createBuffer({ size: Math.min(n, 1 << 20) * SWAY_BYTES, usage: U.STORAGE });
       b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
-      b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+      b.ledger = d.createBuffer({ size: (META_CLAIM + n + SPL_WORDS) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
       b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
       b.quads = d.createBuffer({ size: (4 + n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
       const res = {
@@ -18268,6 +18456,7 @@ ${e.message}` : String(e?.message || e));
       enc.clearBuffer(this.b.thermal, 0, cells * 4);
       enc.clearBuffer(this.b.counts);
       enc.clearBuffer(this.b.ledger, LEDGER_HEAD, n * 4);
+      enc.clearBuffer(this.b.ledger, (META_CLAIM + this.capacity) * 4, SPL_WORDS * 4);
       enc.clearBuffer(this.b.frameCtr);
       const pass = enc.beginComputePass();
       pass.setPipeline(this.cp.seedMain.pipe);
@@ -18478,8 +18667,9 @@ ${e.message}` : String(e?.message || e));
       const enc = d.createCommandEncoder();
       const keep = { gpu: {} };
       for (const k of ["parts", "genomes", "intent", "ledger", "thermal"]) {
-        keep.gpu[k] = d.createBuffer({ size: b[k].size, usage: U2.COPY_SRC | U2.COPY_DST });
-        enc.copyBufferToBuffer(b[k], 0, keep.gpu[k], 0, b[k].size);
+        const size = k === "ledger" ? (META_CLAIM + this.capacity) * 4 : b[k].size;
+        keep.gpu[k] = d.createBuffer({ size, usage: U2.COPY_SRC | U2.COPY_DST });
+        enc.copyBufferToBuffer(b[k], 0, keep.gpu[k], 0, size);
       }
       d.queue.submit([enc.finish()]);
       keep.cpu = {
@@ -18562,6 +18752,9 @@ ${e.message}` : String(e?.message || e));
     /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
     writeState({ cpu, gpu }) {
       for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, data);
+      const enc = this.device.createCommandEncoder();
+      enc.clearBuffer(this.b.ledger, (META_CLAIM + this.capacity) * 4, SPL_WORDS * 4);
+      this.device.queue.submit([enc.finish()]);
       this.restore({ gpu: {}, cpu });
       this.count = cpu.count;
       this.grid = [...cpu.grid];
@@ -18620,7 +18813,17 @@ ${e.message}` : String(e?.message || e));
         genomeF32: new Float32Array(copy, LEDGER_HEAD)
       };
     }
-    /** On a census step, copy the ledger and genomes into a free staging buffer. */
+    /**
+     * The page's watch map for the species ledger: map[slot] = watched index + 1 (0: not watched), at
+     * most SPL_WATCH species. version comes back with every census that carries the species ledger.
+     */
+    setWatch(version, map) {
+      const w = new Uint32Array(1 + MAXK);
+      w[0] = version >>> 0;
+      w.set(map.subarray(0, MAXK), 1);
+      this.device.queue.writeBuffer(this.b.ledger, (META_CLAIM + this.capacity) * 4, w);
+    }
+    /** On a census step, copy the ledger and genomes into a free staging buffer (every SPL_EVERY-th, the species ledger too). */
     _censusCopy(enc) {
       if (this.frameNo % this.censusEvery !== 0) return null;
       const st = this.censusStage.find((s) => !s.busy);
@@ -18628,7 +18831,19 @@ ${e.message}` : String(e?.message || e));
       st.busy = true;
       enc.copyBufferToBuffer(this.b.ledger, 0, st.buf, 0, LEDGER_HEAD);
       enc.copyBufferToBuffer(this.b.genomes, 0, st.buf, LEDGER_HEAD, MAXK * G_BYTES);
-      return { st, simTime: this.simTime, frameNo: this.frameNo };
+      const range = this.cp.rangeMain;
+      const spl = this.censusN++ % SPL_EVERY === 0 && !!range.pipe && !!range.bg && this.count > 0;
+      if (spl) {
+        const base = (META_CLAIM + this.capacity) * 4;
+        enc.clearBuffer(this.b.ledger, base + SPL_RANGE * 4, (SPL_WORDS - SPL_RANGE) * 4);
+        const pass = enc.beginComputePass();
+        pass.setPipeline(range.pipe);
+        pass.setBindGroup(0, range.bg);
+        pass.dispatchWorkgroups(Math.ceil(Math.min(this.count, SPL_RANGE_SAMPLES) / 256) + 1);
+        pass.end();
+        enc.copyBufferToBuffer(this.b.ledger, base, st.buf, CENSUS_BYTES, SPL_WORDS * 4);
+      }
+      return { st, simTime: this.simTime, frameNo: this.frameNo, spl };
     }
     /** Read a census back after its submit. */
     _censusRead(job, generation) {
@@ -18649,8 +18864,9 @@ ${e.message}` : String(e?.message || e));
             pop: u.subarray(META_POP, META_POP + MAXK),
             demography: u.subarray(META_DEATH, META_DEATH + 64),
             energy: u.subarray(META_ENERGY, META_ENERGY + 64),
-            genomeU32: new Uint32Array(copy, LEDGER_HEAD),
-            genomeF32: new Float32Array(copy, LEDGER_HEAD)
+            genomeU32: new Uint32Array(copy, LEDGER_HEAD, MAXK * G_BYTES / 4),
+            genomeF32: new Float32Array(copy, LEDGER_HEAD, MAXK * G_BYTES / 4),
+            spl: job.spl ? new Uint32Array(copy, CENSUS_BYTES, SPL_WORDS) : null
           });
         }
       }).catch(() => {
@@ -18934,7 +19150,7 @@ ${e.message}` : String(e?.message || e));
         stage: []
       };
       const names = [];
-      const wrap = (begin) => (desc = {}) => {
+      const wrap2 = (begin) => (desc = {}) => {
         if (names.length * 2 + 2 > CAP) return begin(desc);
         const k = names.push("clear") - 1;
         const pass = begin({ ...desc, timestampWrites: { querySet: P.qs, beginningOfPassWriteIndex: 2 * k, endOfPassWriteIndex: 2 * k + 1 } });
@@ -18948,8 +19164,8 @@ ${e.message}` : String(e?.message || e));
         };
         return pass;
       };
-      enc.beginComputePass = wrap(enc.beginComputePass.bind(enc));
-      enc.beginRenderPass = wrap(enc.beginRenderPass.bind(enc));
+      enc.beginComputePass = wrap2(enc.beginComputePass.bind(enc));
+      enc.beginRenderPass = wrap2(enc.beginRenderPass.bind(enc));
       let job = null;
       return {
         finish: (nSteps, drew, generation) => {
@@ -19892,6 +20108,9 @@ ${e.message}` : String(e?.message || e));
     drifting: "Carried by the currents.",
     focus: "A highlight: everything outside the chosen filter is dimmed in the simulation.",
     links: "Bonds between cells of one multicellular body. Single-celled species never show links.",
+    chronicler: "The chronicler reads the census and a ledger of who ate whom, how each species died and where it lives, and now and then writes what happened in the log: a death worth remembering and its cause, an arms race, hunters and hunted cycling, a lineage following the water, the last of a guild, what an era or an event did. It speaks only when something notable has happened, a few times an hour at most. Lab → Log → Chronicler shows its entries alone.",
+    card: "A species card: its portrait, sigil, song, lineage and natural history on one image, with the chronicler’s latest line about it. Save it as a PNG, and its song as a short clip. You can give the species a name of your own there.",
+    film: "Records thirty seconds of the view, with the auto camera’s captions and the soundtrack, and downloads it as a video. With the auto camera on it waits for the camera’s next scene and films from its start.",
     autoidle: "Left alone for a minute (three with a panel open), the camera starts filming the world on its own. Drag, scroll or tap to take it back.",
     renderscale: "The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room; a fixed value never changes.",
     autofloor: "The lowest render scale Auto may drop to.",
@@ -20040,7 +20259,9 @@ ${e.message}` : String(e?.message || e));
 <li><b>Lab → Lineage</b>: the lineages that held the most life, as a plot of their cells over time (each nested inside the lineage it branched from, so a die-off shows as the whole stack falling) over a tree of the same lineages. A lineage follows a population through species after species; every other species counts with its nearest shown ancestor, and its pill says how many species it holds. Drag across the plot to zoom into a stretch of time, or click a pill to follow that lineage: finer lineages appear as you narrow in, down to single species.</li>
 <li><b>Lab → Census</b> (the Lab's first section, the column on the left; fold it away from its header or with K): the world broken down by matter, diet, movement, body, cell type and condition, the chart of living cells by species, and the latest log entries. Choose a row to highlight it.</li>
 <li><b>Lab → Charts</b>: population, diversity, births, deaths, meals and climate over time, and the eras so far. Point at a chart (or tap it) to read every line at that moment; point at a dot in Thermal niches to name its species, and click it to open it.</li>
-<li><b>Lab → Log</b>: every logged event, searchable.</li>
+<li><b>Lab → Log</b>: every logged event, searchable. The ${t("chronicler", "chronicler")}’s stories, written now and then when something notable has happened, show in a warmer colour; Chronicler shows them alone.</li>
+<li><b>Card</b> (in the specimen panel): a ${t("card", "species card")} to save and share, where you can also name the species.</li>
+<li><b>Film</b> (R): ${t("film", "thirty seconds")} of the view as a video, captions and soundtrack included.</li>
 <li><b>Auto</b>: the camera films the world on its own, with captions saying what it is showing; it also takes over after a minute alone (switch that off in Settings).</li>
 </ul>`
     }
@@ -21138,14 +21359,14 @@ ${e.message}` : String(e?.message || e));
     const { g, w, h } = f2;
     const { ts } = c, n = ts.length;
     const roots = c.other ? [c.other, ...c.roots] : c.roots;
-    const C2 = /* @__PURE__ */ new Map();
+    const C3 = /* @__PURE__ */ new Map();
     const clade = (u) => {
       const a = u.vals.slice();
       for (const k of u.kids) {
         const b = clade(k);
         for (let i = 0; i < n; i++) a[i] += b[i];
       }
-      C2.set(u, a);
+      C3.set(u, a);
       return a;
     };
     const tot = new Float32Array(n);
@@ -21164,7 +21385,7 @@ ${e.message}` : String(e?.message || e));
     const X = (i) => box.l + i / (n - 1) * (box.r - box.l);
     const perCell = H2 / ax.top;
     const Y = /* @__PURE__ */ new Map();
-    for (const u of C2.keys()) Y.set(u, new Float32Array(n));
+    for (const u of C3.keys()) Y.set(u, new Float32Array(n));
     for (let i = 0; i < n; i++) {
       let y = box.b - tot[i] * perCell;
       const place = (u, y0) => {
@@ -21172,12 +21393,12 @@ ${e.message}` : String(e?.message || e));
         let y1 = y0 + u.vals[i] * perCell / 2;
         for (const k of u.kids) {
           place(k, y1);
-          y1 += C2.get(k)[i] * perCell;
+          y1 += C3.get(k)[i] * perCell;
         }
       };
       for (const r of roots) {
         place(r, y);
-        y += C2.get(r)[i] * perCell;
+        y += C3.get(r)[i] * perCell;
       }
     }
     const col = colours(c, 0);
@@ -21189,7 +21410,7 @@ ${e.message}` : String(e?.message || e));
     roots.forEach(pre);
     const hot = opts.hot;
     for (const u of order) {
-      const a = C2.get(u), y = Y.get(u);
+      const a = C3.get(u), y = Y.get(u);
       let i0 = -1, i1 = -1;
       for (let i = 0; i < n; i++) if (a[i] > 0) {
         if (i0 < 0) i0 = i;
@@ -21255,7 +21476,7 @@ ${e.message}` : String(e?.message || e));
         const i = Math.max(0, Math.min(n - 1, Math.round((px - box.l) / (box.r - box.l) * (n - 1))));
         const find = (list) => {
           for (const u2 of list) {
-            const y0 = Y.get(u2)[i], y1 = y0 + C2.get(u2)[i] * perCell;
+            const y0 = Y.get(u2)[i], y1 = y0 + C3.get(u2)[i] * perCell;
             if (py >= y0 && py < y1) return find(u2.kids) || u2;
           }
           return null;
@@ -21967,10 +22188,10 @@ ${e.message}` : String(e?.message || e));
       let felt0 = null, felt1 = null;
       return { ...p, update };
     }
-    const TYPES = [["all", "All"], ["est", "New species"], ["genus", "New genera"], ["ext", "Extinctions"], ["top", "Dominance"], ["era", "Eras"], ["pond", "The pool"], ...api.eng.K.heat ? [["heat", "Heat"]] : []];
+    const TYPES2 = [["all", "All"], ["story", "Chronicler"], ["est", "New species"], ["genus", "New genera"], ["ext", "Extinctions"], ["top", "Dominance"], ["era", "Eras"], ["pond", "The pool"], ...api.eng.K.heat ? [["heat", "Heat"]] : []];
     function buildLog() {
       const p = pane(`<input type="search" id="log-q" placeholder="Search the log" aria-label="Search the log" autocomplete="off">
-      <div class="row" role="group" aria-label="Show">${chips("logType", TYPES, st.logType)}</div>`);
+      <div class="row" role="group" aria-label="Show">${chips("logType", TYPES2, st.logType)}</div>`);
       const list = document.createElement("ol");
       list.className = "log";
       p.scroll.append(list);
@@ -21996,7 +22217,8 @@ ${e.message}` : String(e?.message || e));
         lastKey = key;
         const ev = ch.filter((e) => (st.logType === "all" || e.type === st.logType) && (!st.logQ || e.text.toLowerCase().includes(st.logQ.toLowerCase())));
         const before = list.scrollHeight, top = p.scroll.scrollTop;
-        list.innerHTML = ev.length ? ev.slice(0, 400).map((e) => `<li><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join("") : '<li style="display:block;border:0" class="note">Nothing yet.</li>';
+        list.innerHTML = ev.length ? ev.slice(0, 400).map((e) => `<li${e.type === "story" ? ' class="story"' : ""}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join("") : `<li style="display:block;border:0" class="note">${st.logType === "story" ? "The chronicler speaks rarely, only when something notable has happened: a death worth remembering, an arms race, a cycle of boom and bust, a lineage following the water. Nothing yet." : "Nothing yet."}</li>`;
+        api.relabel?.(list);
         if (top > 0 && !force) p.scroll.scrollTop = top + (list.scrollHeight - before);
       }
       return { ...p, update };
@@ -22744,6 +22966,10 @@ ${e.message}` : String(e?.message || e));
       else if (a === "relative") api.onRelative();
       else if (a === "find") api.onFind();
       else if (a === "hl") api.onHighlight();
+      else if (a === "card") {
+        api.onCard?.();
+        return;
+      }
       st.actKey = "";
       render(true);
     });
@@ -23075,7 +23301,8 @@ ${e.message}` : String(e?.message || e));
         );
         speciesGlyph(g);
         const hl = api.focusKey() === `sp:${sp.serial}`;
-        setActs(`sp${sp.alive}${hl}`, sp.alive ? `<button type="button" class="btn" data-act="find">Find one</button><button type="button" class="btn" data-act="hl" aria-pressed="${hl}">Highlight</button>` : "");
+        const card = '<button type="button" class="btn" data-act="card" data-hint="Its card, to save and share; name it there">Card</button>';
+        setActs(`sp${sp.alive}${hl}`, sp.alive ? `<button type="button" class="btn" data-act="find">Find one</button><button type="button" class="btn" data-act="hl" aria-pressed="${hl}">Highlight</button>${card}` : card);
         if (sp.alive) v += vital("Share", sp.pop / Math.max(1, life.counts[3]), "sun", `${(sp.pop / Math.max(1, life.counts[3]) * 100).toFixed(1)}% of life`, "share");
         setTags(g);
         flow.push(["species", "Species", speciesTab(g, null)], ["genome", "Genome", genomeTab(g, 0)]);
@@ -23129,7 +23356,7 @@ ${e.message}` : String(e?.message || e));
           else plainGlyph(0, p.col);
           setTags(g);
           const hl = sp && api.focusKey() === `sp:${sp.serial}`;
-          setActs(`c${api.follow()}${hl}${!!sp}`, `<button type="button" class="btn" data-act="follow" aria-pressed="${api.follow()}" data-hint="Keep it in view · C">Follow</button>${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}">Highlight species</button>` : ""}`);
+          setActs(`c${api.follow()}${hl}${!!sp}`, `<button type="button" class="btn" data-act="follow" aria-pressed="${api.follow()}" data-hint="Keep it in view · C">Follow</button>${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}">Highlight species</button>` : ""}${sp ? '<button type="button" class="btn" data-act="card" data-hint="Its species’ card, to save and share">Card</button>' : ""}`);
           if (g) {
             const dv = divEnergy(g, K);
             v += vital("Energy", p.energy / dv, "sun", `${p.energy.toFixed(2)} / ${dv.toFixed(2)}`, "energy");
@@ -23606,7 +23833,7 @@ ${e.message}` : String(e?.message || e));
     const gw = Math.max(1, Math.floor(W / r)), gh = Math.max(1, Math.floor(H2 / r));
     const cw = W / gw, ch = H2 / gh;
     const key = (x, y) => (Math.floor(y / ch) % gh + gh) % gh * gw + (Math.floor(x / cw) % gw + gw) % gw;
-    const wrap = (d, w) => d - w * Math.round(d / w);
+    const wrap2 = (d, w) => d - w * Math.round(d / w);
     const pending = /* @__PURE__ */ new Map();
     for (const c of candidates) {
       const k = key(X[c], Y[c]);
@@ -23625,7 +23852,7 @@ ${e.message}` : String(e?.message || e));
           if (!l) continue;
           for (let n = l.length - 1; n >= 0; n--) {
             const c = l[n];
-            if (Math.hypot(wrap(X[i] - X[c], W), wrap(Y[i] - Y[c], H2)) >= r) continue;
+            if (Math.hypot(wrap2(X[i] - X[c], W), wrap2(Y[i] - Y[c], H2)) >= r) continue;
             out.add(c);
             queue.push(c);
             l[n] = l[l.length - 1];
@@ -23890,7 +24117,7 @@ ${e.message}` : String(e?.message || e));
     if (!ctx) return () => {
     };
     let W = 0, H2 = 0, draw = null, raf = 0, last = 0, prev = 0, t0 = null;
-    const fit2 = () => {
+    const fit3 = () => {
       const r = canvas2.getBoundingClientRect();
       if (Math.round(r.width) === W && Math.round(r.height) === H2 && draw) return true;
       W = Math.round(r.width);
@@ -23910,12 +24137,12 @@ ${e.message}` : String(e?.message || e));
       t0 ??= now;
       const t2 = (now - t0) / 1e3, dt = Math.min(0.1, t2 - prev);
       prev = t2;
-      if (!fit2()) return;
+      if (!fit3()) return;
       ctx.clearRect(0, 0, W, H2);
       draw(t2, dt);
     };
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      if (fit2()) for (let i = 0; i <= 150; i++) {
+      if (fit3()) for (let i = 0; i <= 150; i++) {
         ctx.clearRect(0, 0, W, H2);
         draw(i / 30, 1 / 30);
       }
@@ -24526,6 +24753,1846 @@ ${e.message}` : String(e?.message || e));
     }
   };
 
+  // src/chronicler.js
+  var NC = SPL_CAUSES.length;
+  var C2 = Object.fromEntries(SPL_CAUSES.map((k, i) => [k, i]));
+  var MIN = 60;
+  var trim = (arr, t0) => {
+    let k = 0;
+    while (k < arr.length && arr[k][0] < t0) k++;
+    if (k) arr.splice(0, k);
+  };
+  var wrap01 = (d) => d - Math.round(d);
+  var TUNE = {
+    storyEvery: 10 * MIN,
+    // simulated seconds per story in the budget
+    storyCap: 2,
+    // stories it may hold in hand
+    gapReal: 3e4,
+    // ms of real time between stories, however fast the world runs
+    gapSim: 90,
+    // simulated seconds between stories, however slow
+    warm: 8 * MIN,
+    // a new world's first minutes settle without comment (a collapse aside)
+    need: 0.6,
+    // the score a story needs while the budget holds one
+    borrow: 0.85,
+    // the score that may borrow against the next story
+    wait: 5 * MIN,
+    // how long a story that lost its turn may wait for the next
+    kindGap: 8 * MIN,
+    // the same kind of story at most this often
+    subjectGap: 15 * MIN,
+    // the same species at most this often
+    sample: 10,
+    // simulated seconds between samples of a species
+    short: 20 * MIN,
+    // how far back the fine samples reach
+    long: 4 * 3600
+    // and the coarse ones (one a minute)
+  };
+  var GUILD = {
+    producer: { one: "producer", many: "producers", none: "nothing in the pool lives on light", eat: "graze" },
+    grazer: { one: "grazer", many: "grazers", none: "nothing grazes the producers", eat: "graze" },
+    scavenger: { one: "scavenger", many: "scavengers", none: "nothing eats the dead", eat: "scavenge" },
+    predator: { one: "hunter", many: "hunters", none: "nothing hunts", eat: "hunt" }
+  };
+  var NUM2 = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
+  var numWord = (n) => n >= 0 && n < NUM2.length ? NUM2[n] : fmt(n);
+  var Cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  function durWords(s) {
+    s = Math.max(0, s);
+    if (s < 90) return `${Math.max(1, Math.round(s / 5) * 5)} seconds`;
+    const m = Math.round(s / 60);
+    if (m < 60) return `${m} minutes`;
+    const h = Math.floor(m / 60), r = m % 60;
+    return `${h === 1 ? "an hour" : `${h} hours`}${r ? ` ${r} minute${r === 1 ? "" : "s"}` : ""}`;
+  }
+  function shareWords(f2) {
+    return f2 >= 0.9 ? "nearly all" : f2 >= 0.72 ? "three quarters" : f2 >= 0.6 ? "two thirds" : f2 >= 0.45 ? "half" : f2 >= 0.3 ? "a third" : f2 >= 0.2 ? "a quarter" : "a few";
+  }
+  var andList = (xs) => xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
+  var compass = (x, y) => {
+    const ns = y < 0.33 ? "north" : y > 0.67 ? "south" : "", ew = x < 0.33 ? "west" : x > 0.67 ? "east" : "";
+    return ns && ew ? `${ns}-${ew}` : ns || ew || "middle";
+  };
+  var heading = (dx, dy) => {
+    const a = Math.atan2(dy, dx) * 180 / Math.PI;
+    return ["east", "south-east", "south", "south-west", "west", "north-west", "north", "north-east"][(Math.round(a / 45) % 8 + 8) % 8];
+  };
+  var lenWords = (u) => {
+    const mm = u * UM_PER_UNIT / 1e3;
+    return mm >= 1 ? `${mm.toFixed(mm >= 10 ? 0 : 1)} mm` : `${Math.round(mm * 1e3)} µm`;
+  };
+  function fitOf(h, q, K = DEFAULT_K) {
+    const sh = roleShares(h);
+    let f2 = 0;
+    for (let r = 0; r < 3; r++) if (sh[r] > 1e-3) f2 += sh[r] * affinity(h, r, q, 0, K);
+    return f2;
+  }
+  function firstsOf(g, K = DEFAULT_K) {
+    const out = [];
+    const guild = dietGuild(g);
+    out.push([`guild:${guild}`, { producer: "to live on light", grazer: "to graze", scavenger: "to live on the dead", predator: "to hunt living prey" }[guild]]);
+    const multi = (g.adhesion || 0) > K.adhMin;
+    if (multi) out.push(["multi", "to live as a many-celled body"]);
+    if (multi && growPlan(g)) out.push(["tree", "to grow as a branching tree"]);
+    if (multi && g.swim * (1 - g.photo) >= 0.8) out.push(["swimbody", "many-celled body that swims"]);
+    if ((g.calcify || 0) > 0.1) out.push(["calcify", "to build reef stone"]);
+    if ((g.thermo || 0) > 0.2) out.push(["heat", "heat-maker, warming the water around it"]);
+    if (K.heat && (g.topt ?? 19) > 38) out.push(["thermophile", "thermophile, at home above 38°"]);
+    if (K.heat && (g.topt ?? 19) < 10) out.push(["cold", "cold-lover, at home below 10°"]);
+    if (roleShares(g).filter((v) => v > 0.1).length === 3) out.push(["types3", "to grow three kinds of cell"]);
+    return out;
+  }
+  var FIRST_LEAD = { multi: "many-celled organism", swimbody: "many-celled body that swims", heat: "heat-maker, warming the water around it", thermophile: "thermophile, at home in water above 38°", cold: "cold-lover, at home in water below 10°" };
+  function circ(sc, ss, n) {
+    const c = sc / n / 127 - 1, s = ss / n / 127 - 1;
+    const R2 = Math.hypot(c, s);
+    return [(Math.atan2(s, c) / (2 * Math.PI) + 1) % 1, R2];
+  }
+  function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune = {} } = {}) {
+    const T = { ...TUNE, ...tune };
+    let S;
+    function reset() {
+      S = {
+        sp: /* @__PURE__ */ new Map(),
+        // serial -> stats
+        pairs: /* @__PURE__ */ new Map(),
+        // h · 2^26 + q -> { h, q, bins: [[t, tries, meals]] } (one bin a minute, the last hour)
+        watch: { version: 0, serials: new Array(SPL_WATCH).fill(0) },
+        versions: /* @__PURE__ */ new Map(),
+        // watch map version -> serials by index
+        prevPairs: null,
+        prevVer: -1,
+        prevSlot: null,
+        prevCause: null,
+        tokens: T.storyCap,
+        lastStory: -1e9,
+        lastReal: -1e9,
+        lastTick: -1e9,
+        slowAt: {},
+        slowNext: 0,
+        told: /* @__PURE__ */ new Map(),
+        // kind -> t, "kind:key" -> t, "sp:serial" -> t
+        pending: null,
+        latest: /* @__PURE__ */ new Map(),
+        // serial -> { t, text }
+        top: { serial: 0, since: 0 },
+        guilds: null,
+        guildGone: {},
+        firsts: null,
+        maxLiving: 0,
+        collapsed: false,
+        record: 0,
+        eraMark: null,
+        eventMark: null,
+        excursion: null,
+        genusMarks: [],
+        stoneMarks: [],
+        ext: []
+        // [t, serial] of established species lost, for waves of extinction
+      };
+    }
+    reset();
+    function statsOf(sp, t2) {
+      let st = S.sp.get(sp.serial);
+      if (!st) {
+        st = { serial: sp.serial, s: [], l: [], acc: new Array(NC).fill(0), cum: new Array(NC).fill(0), rng: [], diet: /* @__PURE__ */ new Map(), eaters: /* @__PURE__ */ new Map(), firstT: t2, lastS: -1e9, lastL: -1e9, reign: 0, low: null };
+        S.sp.set(sp.serial, st);
+      }
+      return st;
+    }
+    function popAgo(st, t2, ago) {
+      const want = t2 - ago;
+      const arr = ago <= T.short ? st.s : st.l;
+      let best = null;
+      for (const x of arr) if (x[0] <= want + T.sample) best = x;
+      else break;
+      return best ? best[1] : null;
+    }
+    function causesIn(st, t0, t1 = Infinity) {
+      const out = new Array(NC).fill(0);
+      for (const x of st.s) if (x[0] > t0 && x[0] <= t1) for (let i = 0; i < NC; i++) out[i] += x[2][i];
+      return out;
+    }
+    function peakIn(st, t0) {
+      let p = null;
+      for (const x of st.s) if (x[0] >= t0 && (!p || x[1] > p[1])) p = x;
+      return p;
+    }
+    function pairOf(h, q) {
+      const key = h * 67108864 + q;
+      let p = S.pairs.get(key);
+      if (!p) S.pairs.set(key, p = { h, q, bins: [], fit: null });
+      return p;
+    }
+    function pairSum(p, t0, t1 = Infinity) {
+      let tries = 0, meals = 0;
+      for (const b of p.bins) if (b[0] > t0 && b[0] <= t1) {
+        tries += b[1];
+        meals += b[2];
+      }
+      return [tries, meals];
+    }
+    function chooseWatch(reg) {
+      const W = S.watch;
+      const alive = [];
+      for (const sp of reg.values()) if (sp.alive && sp.established) alive.push(sp);
+      const rank = new Map(alive.map((sp) => [sp, sp.pop * (dietGuild(sp.genome) === "producer" ? 1 : 3)]));
+      alive.sort((a, b) => rank.get(b) - rank.get(a));
+      const keepTo = new Set(alive.slice(0, SPL_WATCH + 32).map((sp) => sp.serial));
+      const want = alive.slice(0, SPL_WATCH).map((sp) => sp.serial);
+      const next = W.serials.map((s) => s && keepTo.has(s) ? s : 0);
+      const have = new Set(next.filter(Boolean));
+      let i = 0;
+      for (const s of want) {
+        if (have.has(s)) continue;
+        while (i < next.length && next[i]) i++;
+        if (i >= next.length) break;
+        next[i] = s;
+        have.add(s);
+      }
+      if (next.some((s, k) => s !== W.serials[k])) {
+        W.version = W.version + 1 >>> 0 || 1;
+        W.serials = next;
+        S.versions.set(W.version, next.slice());
+        for (const v of S.versions.keys()) if (S.versions.size > 6 && v !== W.version) S.versions.delete(v);
+      }
+    }
+    function ingestSpl(spl, slotSerial, t2) {
+      const cause = spl.subarray(SPL_CAUSE, SPL_CAUSE + MAXK * NC);
+      if (S.prevCause) {
+        for (let k = FIRST_LIFE; k < MAXK; k++) {
+          const serial = slotSerial[k];
+          if (!serial) continue;
+          const st = S.sp.get(serial);
+          if (!st) continue;
+          const same = S.prevSlot[k] === serial;
+          for (let i = 0; i < NC; i++) {
+            const d = same ? cause[k * NC + i] - S.prevCause[k * NC + i] >>> 0 : cause[k * NC + i];
+            if (d < 1e8) st.acc[i] += d;
+          }
+        }
+      }
+      S.prevCause = cause.slice();
+      S.prevSlot = slotSerial.slice();
+      const ver = spl[0], ser = S.versions.get(ver);
+      const pairs = spl.subarray(SPL_PAIR, SPL_PAIR + SPL_WATCH * SPL_WATCH * 2);
+      const prevSer = S.versions.get(S.prevVer);
+      if (S.prevPairs && ser && prevSer) {
+        const bin = Math.floor(t2 / MIN) * MIN;
+        for (let a = 0; a < SPL_WATCH; a++) {
+          const h = ser[a];
+          if (!h || prevSer[a] !== h) continue;
+          for (let b = 0; b < SPL_WATCH; b++) {
+            const q = ser[b];
+            if (!q || prevSer[b] !== q || q === h) continue;
+            const o = (a * SPL_WATCH + b) * 2;
+            const dt = pairs[o] - S.prevPairs[o] >>> 0, dm = pairs[o + 1] - S.prevPairs[o + 1] >>> 0;
+            if (!dt || dt > 1e8) continue;
+            const p = pairOf(h, q);
+            const last = p.bins[p.bins.length - 1];
+            if (last && last[0] === bin) {
+              last[1] += dt;
+              last[2] += dm;
+            } else p.bins.push([bin, dt, dm]);
+            const hs = S.sp.get(h), qs = S.sp.get(q);
+            if (hs && dm) hs.diet.set(q, (hs.diet.get(q) || 0) + dm);
+            if (qs && dm) qs.eaters.set(h, (qs.eaters.get(h) || 0) + dm);
+          }
+        }
+      }
+      S.prevPairs = pairs.slice();
+      S.prevVer = ser ? ver : -1;
+      for (let k = FIRST_LIFE; k < MAXK; k++) {
+        const o = SPL_RANGE + k * 5, n = spl[o + 4];
+        if (n < 12) continue;
+        const st = S.sp.get(slotSerial[k]);
+        if (!st) continue;
+        const [x, Rx] = circ(spl[o], spl[o + 1], n), [y, Ry] = circ(spl[o + 2], spl[o + 3], n);
+        st.where = [t2, x, y, Rx, Ry];
+      }
+    }
+    function observe(obs) {
+      const t0 = T.prof ? performance.now() : 0;
+      const out = observe_(obs);
+      if (T.prof) T.prof.total = (T.prof.total || 0) + performance.now() - t0;
+      return out;
+    }
+    function observe_(obs) {
+      const { t: t2, reg } = obs;
+      const fresh = t2 - S.lastTick >= T.sample;
+      if (!fresh && !obs.spl) return [];
+      if (obs.living == null) {
+        let living = 0;
+        for (const sp of reg.values()) if (sp.alive) living += sp.pop;
+        obs.living = living;
+      }
+      const mark = (k, t1) => {
+        if (T.prof) T.prof[k] = (T.prof[k] || 0) + performance.now() - t1;
+        return T.prof ? performance.now() : 0;
+      };
+      let tm = T.prof ? performance.now() : 0;
+      for (const sp of reg.values()) {
+        if (!sp.established || !sp.alive && !S.sp.has(sp.serial)) continue;
+        statsOf(sp, t2);
+      }
+      tm = mark("sync", tm);
+      if (obs.spl && obs.slotSerial) {
+        const t1 = T.prof ? performance.now() : 0;
+        ingestSpl(obs.spl, obs.slotSerial, t2);
+        if (T.prof) T.prof.ingest = (T.prof.ingest || 0) + performance.now() - t1;
+      }
+      if (!S.eraMark && obs.era) S.eraMark = { t: t2, name: obs.era, snap: snapshot(reg, obs.living) };
+      tm = T.prof ? performance.now() : 0;
+      if (obs.spl || !S.watch.version) chooseWatch(reg);
+      tm = mark("watch", tm);
+      if (!fresh) return [];
+      S.lastTick = t2;
+      for (const st of S.sp.values()) {
+        const sp = reg.get(st.serial);
+        const pop = sp && sp.alive ? sp.pop : 0;
+        st.s.push([t2, pop, st.acc]);
+        for (let i = 0; i < NC; i++) st.cum[i] += st.acc[i];
+        st.acc = new Array(NC).fill(0);
+        trim(st.s, t2 - T.short);
+        if (t2 - st.lastL >= MIN) {
+          st.l.push([t2, pop]);
+          st.lastL = t2;
+          trim(st.l, t2 - T.long);
+        }
+        if (st.where && t2 - (st.rng.at(-1)?.[0] ?? -1e9) >= MIN) {
+          st.rng.push(st.where);
+          trim(st.rng, t2 - 40 * MIN);
+        }
+      }
+      for (const p of S.pairs.values()) if (p.bins.length && p.bins[0][0] < t2 - 60 * MIN) trim(p.bins, t2 - 60 * MIN);
+      tm = mark("sample", tm);
+      const cands = [];
+      const add = (c) => {
+        if (c && c.score > 0) cands.push(c);
+      };
+      const ctx = { ...obs, living: obs.living };
+      tm = T.prof ? performance.now() : 0;
+      const run2 = T.prof ? (f2, ...a) => {
+        const t0 = performance.now();
+        const r = f2(...a);
+        T.prof[f2.name] = (T.prof[f2.name] || 0) + performance.now() - t0;
+        return r;
+      } : (f2, ...a) => f2(...a);
+      run2(detectCollapse, ctx, add);
+      run2(detectGuilds, ctx, add);
+      run2(detectExtinctions, ctx, add);
+      run2(detectReign, ctx, add);
+      run2(detectSwings, ctx, add);
+      run2(detectFirsts, ctx, add);
+      if (S.eraMark?.pending) add(run2(eraStory, ctx));
+      if (S.eventMark?.done) add(run2(eventStory, ctx));
+      if (S.excursion && t2 > S.excursion.end) add(run2(excursionStory, ctx));
+      const slow = SLOW[S.slowNext % SLOW.length];
+      if (t2 - (S.slowAt[slow.name] ?? -1e9) >= MIN) {
+        S.slowAt[slow.name] = t2;
+        S.slowNext++;
+        run2(slow, ctx, add);
+      } else S.slowNext++;
+      tm = T.prof ? performance.now() : 0;
+      for (const [serial] of S.sp) {
+        const sp = reg.get(serial);
+        if (!sp || !sp.alive && t2 - (sp.extinct ?? t2) > 30 * MIN) S.sp.delete(serial);
+      }
+      for (const [k, p] of S.pairs) if (!p.bins.length) S.pairs.delete(k);
+      tm = mark("cleanup", tm);
+      const out = choose(cands, obs);
+      mark("choose", tm);
+      return out;
+    }
+    const toldAt = (key) => S.told.get(key) ?? -1e9;
+    function choose(cands, obs) {
+      const { t: t2 } = obs;
+      const now = obs.now ?? 0;
+      S.tokens = Math.min(T.storyCap, S.tokens + (t2 - (S.lastBudget ?? t2)) / T.storyEvery);
+      S.lastBudget = t2;
+      if (S.pending && t2 > S.pending.until) S.pending = null;
+      if (S.pending) cands.push(S.pending);
+      for (const c of cands) {
+        c.rank = c.score;
+        for (const s of c.subjects || []) {
+          const sp = obs.reg.get(s);
+          if (sp && sp.given) c.rank += 0.15;
+          if (obs.focus === s) c.rank += 0.05;
+        }
+      }
+      const subjectGap = (c) => c.final ? T.subjectGap / 3 : c.rank >= 0.7 ? T.subjectGap / 3 : T.subjectGap;
+      const ok = (c) => (c.force || t2 - toldAt(c.kind) >= T.kindGap) && (c.force || !(c.subjects || []).some((s) => t2 - toldAt(`sp:${s}`) < subjectGap(c))) && (!c.key || t2 - toldAt(c.key) >= (c.keyGap ?? 30 * MIN));
+      const live = cands.filter(ok).sort((a, b) => b.rank - a.rank);
+      T.debug?.(t2, cands, live);
+      if (!live.length) return [];
+      const best = live[0];
+      const settling = t2 < T.warm && !best.force;
+      const gapOk = now - S.lastReal >= T.gapReal && t2 - S.lastStory >= T.gapSim;
+      const afford = S.tokens >= 1 ? best.rank >= T.need : best.rank >= T.borrow && S.tokens > -1;
+      if (settling || !afford) return [];
+      if (!gapOk) {
+        if (best.rank >= 0.6 && best !== S.pending && (!S.pending || best.rank > S.pending.rank)) S.pending = { ...best, until: t2 + T.wait };
+        return [];
+      }
+      S.pending = null;
+      S.tokens -= 1;
+      S.lastStory = t2;
+      S.lastReal = now;
+      S.told.set(best.kind, t2);
+      if (best.key) S.told.set(best.key, t2);
+      for (const s of best.subjects || []) {
+        S.told.set(`sp:${s}`, t2);
+        S.told.set(`last:${s}`, best.kind);
+      }
+      const text = best.html.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"');
+      for (const s of best.subjects || []) S.latest.set(s, { t: t2, text, html: best.html });
+      best.onTold?.();
+      return [{ html: best.html, text, col: best.col, kind: best.kind, subjects: best.subjects || [], score: best.score }];
+    }
+    const L = (reg, serial) => {
+      const sp = reg.get(serial);
+      return sp ? link(serial, sp.name) : "an unrecorded species";
+    };
+    const guildOf = (sp) => dietGuild(sp.genome);
+    const descendants = (reg, serial) => {
+      const out = [];
+      for (const sp of reg.values()) {
+        if (!sp.alive || !sp.established || sp.serial === serial) continue;
+        let a = sp.ancestor, n = 0;
+        while (a && n++ < 200) {
+          if (a === serial) {
+            out.push(sp);
+            break;
+          }
+          a = reg.get(a)?.ancestor;
+        }
+      }
+      return out.sort((a, b) => b.pop - a.pop);
+    };
+    const genusAlive = (reg, genus) => {
+      for (const sp of reg.values()) if (sp.alive && sp.genus === genus) return true;
+      return false;
+    };
+    const genusCount = (reg, genus) => {
+      let n = 0;
+      for (const sp of reg.values()) if (sp.genus === genus && sp.established) n++;
+      return n;
+    };
+    const topBy = (m) => {
+      let k = null, v = 0, sum = 0;
+      for (const [a, b] of m) {
+        sum += b;
+        if (b > v) {
+          v = b;
+          k = a;
+        }
+      }
+      return [k, v, sum];
+    };
+    function whyDeclined(ctx, sp, st, t0) {
+      const { reg, t: t2 } = ctx;
+      const c = causesIn(st, t0, t2);
+      const deaths = c[C2.starved] + c[C2.old] + c[C2.eaten] + c[C2.scalded] + c[C2.stranded];
+      if (deaths < 8) return null;
+      const share = (i) => c[i] / deaths;
+      const births = c[C2.born];
+      const before = causesIn(st, t0 - (t2 - t0), t0)[C2.born];
+      const guild = guildOf(sp);
+      const ev = ctx.event;
+      const eaters = /* @__PURE__ */ new Map();
+      for (const p of S.pairs.values()) if (p.q === sp.serial) {
+        const [, m] = pairSum(p, t0, t2);
+        if (m) eaters.set(p.h, m);
+      }
+      const [eater, em, esum] = topBy(eaters);
+      if (share(C2.eaten) >= 0.45) {
+        if (eater && em >= 0.4 * esum && reg.get(eater)) {
+          const eg = guildOf(reg.get(eater));
+          const verb = guild === "producer" ? "grazed down" : eg === "predator" ? "hunted down" : "eaten";
+          return { cause: "eaten", by: eater, phrase: `was ${verb} by ${L(reg, eater)}` };
+        }
+        return { cause: "eaten", phrase: guild === "producer" ? "was grazed away by many mouths" : "was eaten by many hunters at once" };
+      }
+      if (share(C2.stranded) >= 0.35) {
+        return { cause: "stranded", phrase: ev?.type === "frost" ? "froze into the ice" : ev?.type === "drought" ? "was stranded on the mud as the pool dried" : "was stranded in the shallows" };
+      }
+      if (share(C2.scalded) >= 0.35) {
+        const g = sp.genome;
+        return { cause: "scalded", phrase: ctx.excursion && ctx.excursion.dT > 0 ? "was scalded in the heat wave" : `was scalded, the water at ${Math.round(ctx.temp)}° and it at its best near ${Math.round(g.topt)}°` };
+      }
+      if (share(C2.starved) >= 0.4) {
+        if (guild === "producer") {
+          if (ev?.type === "duckweed") return { cause: "starved", phrase: "starved in the duckweed’s shade" };
+          if (ev?.type === "storm" || ev?.type === "frost") return { cause: "starved", phrase: "starved under the dark sky" };
+          if ((ctx.light ?? 1) < 0.16) return { cause: "starved", phrase: "starved in the dim light" };
+          return { cause: "starved", phrase: "starved, crowded out of the light" };
+        }
+        const [food, fm, fsum] = topBy(st.diet);
+        const fsp = food && reg.get(food);
+        if (fsp && fm >= 0.35 * fsum) {
+          if (!fsp.alive) return { cause: "starved", by: food, phrase: `starved after ${L(reg, food)}, its food, died out` };
+          const fst = S.sp.get(food);
+          const was = fst && popAgo(fst, t2, t2 - t0 + 5 * MIN);
+          if (was && fsp.pop < 0.5 * was) return { cause: "starved", by: food, phrase: `starved as ${L(reg, food)}, its food, dwindled` };
+          return { cause: "starved", by: food, phrase: `starved though ${L(reg, food)}, its food, held on` };
+        }
+        return { cause: "starved", phrase: guild === "grazer" ? "starved as the meadows thinned" : guild === "scavenger" ? "starved for want of the dead" : "starved for want of prey" };
+      }
+      if (share(C2.old) >= 0.4 && births < 0.4 * Math.max(1, before)) {
+        let rival = null, gain = 0;
+        for (const o of reg.values()) {
+          if (!o.alive || !o.established || o.serial === sp.serial || guildOf(o) !== guild) continue;
+          const ost = S.sp.get(o.serial);
+          const was = ost && popAgo(ost, t2, t2 - t0);
+          if (was != null && o.pop - was > gain && o.pop > 2 * was) {
+            gain = o.pop - was;
+            rival = o;
+          }
+        }
+        return { cause: "old", by: rival?.serial, phrase: rival ? `was outbred, it seems, by ${L(reg, rival.serial)}: it stopped dividing, and its cells died of age` : "stopped dividing, and its cells died of age" };
+      }
+      return null;
+    }
+    function detectCollapse(ctx, add) {
+      const { t: t2, living } = ctx;
+      if (living > S.maxLiving) {
+        S.maxLiving = living;
+        S.maxAt = t2;
+      }
+      if (!S.collapsed && S.maxLiving >= 2e3 && living < 0.03 * S.maxLiving) {
+        S.collapsed = { t: t2, low: living };
+        add({
+          kind: "collapse",
+          force: true,
+          score: 1,
+          col: 4285164287,
+          html: `<b>Life has all but failed</b>: ${fmt(living)} cells remain of the ${fmt(S.maxLiving)} alive at ${fmtClock(S.maxAt)}. Whatever survives, or sparks anew from the silt, will make the next world.`
+        });
+      } else if (S.collapsed) {
+        S.collapsed.low = Math.min(S.collapsed.low, living);
+        if (living >= 0.25 * S.maxLiving) {
+          const top = [...ctx.reg.values()].filter((s) => s.alive && s.established).sort((a, b) => b.pop - a.pop)[0];
+          const since = S.collapsed.t;
+          S.collapsed = false;
+          add({
+            kind: "collapse",
+            force: true,
+            score: 0.8,
+            col: 4286570672,
+            subjects: top ? [top.serial] : [],
+            html: `<b>Life has come back</b>: ${fmt(living)} cells, ${durWords(t2 - since)} after it fell to almost nothing${top ? `, ${L(ctx.reg, top.serial)} the most numerous` : ""}.`
+          });
+        }
+      }
+    }
+    function detectGuilds(ctx, add) {
+      const { reg, t: t2, living } = ctx;
+      const cells = { producer: 0, grazer: 0, scavenger: 0, predator: 0 }, last = {};
+      for (const sp of reg.values()) {
+        if (!sp.alive) continue;
+        const g = guildOf(sp);
+        cells[g] += sp.pop;
+        if (sp.established && (!last[g] || sp.pop > last[g].pop)) last[g] = sp;
+      }
+      const prev = S.guilds;
+      S.guilds = { cells, t: t2, last, peak: prev ? Object.fromEntries(Object.keys(cells).map((g) => [g, Math.max(cells[g], (prev.peak[g] || 0) * (t2 - prev.t > 600 ? 0.9 : 1))])) : cells };
+      if (!prev) return;
+      for (const g of Object.keys(cells)) {
+        const had = S.guilds.peak[g] >= Math.max(50, 5e-3 * living);
+        if (prev.cells[g] > 0 && cells[g] === 0 && had && !S.guildGone[g]) {
+          S.guildGone[g] = t2;
+          const lastSp = prev.last[g];
+          add({
+            kind: "guild",
+            force: true,
+            score: 0.95,
+            col: 4294925946,
+            subjects: lastSp ? [lastSp.serial] : [],
+            html: `<b>The last ${GUILD[g].one} is gone</b>${lastSp ? `: with ${L(reg, lastSp.serial)} dead, ${GUILD[g].none}` : `: ${GUILD[g].none}`}.`
+          });
+        } else if (S.guildGone[g] && last[g] && cells[g] > 0) {
+          const since = S.guildGone[g];
+          delete S.guildGone[g];
+          if (t2 - since < 5 * MIN) continue;
+          const sp = last[g], anc = sp.ancestor && reg.get(sp.ancestor);
+          const origin = sp.founder ? "sparked from silt" : anc ? `descended from ${L(reg, anc.serial)}, ${/^[aeiou]/.test(GUILD[guildOf(anc)].one) ? "an" : "a"} ${GUILD[guildOf(anc)].one}` : "of unrecorded ancestry";
+          add({
+            kind: "guild",
+            score: 0.75,
+            col: 4286570672,
+            subjects: [sp.serial],
+            html: `<b>${Cap(GUILD[g].many)} are back</b>: ${L(reg, sp.serial)}, ${origin}, is the first ${GUILD[g].one} since ${fmtClock(since)}.`
+          });
+        }
+      }
+    }
+    function detectExtinctions(ctx, add) {
+      const { reg, t: t2 } = ctx;
+      for (const [serial, st] of S.sp) {
+        const sp = reg.get(serial);
+        if (!sp || sp.alive || st.gone) continue;
+        st.gone = t2;
+        const life = (sp.extinct ?? t2) - (sp.born || 0);
+        const peakShare = st.peakShare || 0;
+        const reigned = st.reign || 0;
+        const gen = ctx.genera?.get(sp.genus);
+        const genusEnds = !genusAlive(reg, sp.genus) && genusCount(reg, sp.genus) >= 4 && t2 - (gen?.born ?? t2) >= 30 * MIN;
+        if (sp.peak >= 3 * ctx.est && peakShare >= 0.02) S.ext.push([t2, serial]);
+        const notable = sp.peak >= 3 * ctx.est && (peakShare >= 0.02 && life >= 20 * MIN || peakShare >= 0.08 && life >= 12 * MIN || reigned >= 5 * MIN || sp.given || genusEnds);
+        if (!notable) continue;
+        const pk = peakIn(st, t2 - 20 * MIN);
+        const t0 = Math.min(pk ? pk[0] : t2 - 10 * MIN, t2 - 3 * MIN);
+        const why = whyDeclined(ctx, sp, st, t0);
+        const bits = [];
+        if (why) bits.push(`It ${why.phrase}.`);
+        const [hunter, hm, hsum] = topBy(st.eaters);
+        const hsp = hunter && reg.get(hunter);
+        if (hsp && !hsp.alive && hm >= 0.25 * hsum && hsp.extinct && hsp.extinct < t2 - MIN && why?.by !== hunter) {
+          bits.push(`${L(reg, hunter)} had hunted it, and died before it.`);
+        }
+        const kids = descendants(reg, serial);
+        if (genusEnds) bits.push(`With it the genus <b>${esc(sp.genus)}</b> ends, after ${numWord(genusCount(reg, sp.genus))} species.`);
+        else if (kids.length) bits.push(`Its line lives on in ${L(reg, kids[0].serial)}${kids.length > 1 ? ` and ${numWord(kids.length - 1)} other${kids.length > 2 ? "s" : ""}` : ""}.`);
+        const head = `${L(reg, serial)} is gone after ${durWords(life)}${reigned >= 10 * MIN ? `, ${durWords(reigned)} of them the most numerous species in the pool` : ""}.`;
+        const lately = t2 - toldAt(`sp:${serial}`) < 20 * MIN && S.told.get(`last:${serial}`) === "crash";
+        const score = 0.5 + (reigned >= 10 * MIN ? 0.2 : 0) + 0.15 * Math.min(1, life / 3600) + 0.15 * Math.min(1, peakShare / 0.2) + (genusEnds ? 0.1 : 0) + (why ? 0.05 : -0.1) - (lately ? 0.25 : 0);
+        add({
+          kind: "obit",
+          score,
+          col: sp.genome.col,
+          subjects: [serial],
+          key: `obit:${serial}`,
+          final: true,
+          html: `${head} ${bits.join(" ")}`.trim()
+        });
+      }
+      S.ext = S.ext.filter(([x]) => x > t2 - 70 * MIN);
+      const recent = S.ext.filter(([x]) => x > t2 - 10 * MIN), lost = recent.length;
+      const base = (S.ext.length - lost) / 6;
+      let weighty = 0;
+      for (const sp of reg.values()) if (sp.alive && sp.established && (S.sp.get(sp.serial)?.peakShare || 0) >= 0.02) weighty++;
+      if (t2 >= 30 * MIN && lost >= Math.max(5, 0.3 * (weighty + lost), 3 * base) && t2 - toldAt("mass") >= 20 * MIN) {
+        const named = recent.map(([, s]) => reg.get(s)).filter(Boolean).sort((a, b) => b.peak - a.peak).slice(0, 2).map((sp) => L(reg, sp.serial));
+        const ev = ctx.event || (S.eventMark && t2 - (S.eventMark.end ?? t2) < 10 * MIN ? S.eventMark : null);
+        const what = ev ? { drought: "The drought", storm: "The storm", frost: "The frost", duckweed: "The duckweed’s shade" }[ev.type] : null;
+        add({
+          kind: "mass",
+          score: 0.9,
+          col: 4294925946,
+          subjects: [],
+          force: true,
+          html: `${what ? `${what} has taken` : "<b>A wave of extinctions</b>:"} ${numWord(lost)} species in ten minutes${named.length ? `, among them ${andList(named)}` : ""}.`
+        });
+      }
+    }
+    function detectReign(ctx, add) {
+      const { reg, t: t2, living } = ctx;
+      let best = null;
+      for (const sp of reg.values()) if (sp.alive && sp.established && (!best || sp.pop > best.pop)) best = sp;
+      for (const sp of reg.values()) {
+        if (!sp.alive || !sp.established) continue;
+        const st2 = S.sp.get(sp.serial);
+        if (st2 && living > 0) st2.peakShare = Math.max(st2.peakShare || 0, sp.pop / living);
+      }
+      const R2 = S.top;
+      const cur = reg.get(R2.serial);
+      if (!best) return;
+      if (!cur || !cur.alive || best.serial !== R2.serial && best.pop > cur.pop * 1.25) {
+        const was = cur && R2.serial ? { serial: R2.serial, len: t2 - R2.since } : null;
+        S.top = { serial: best.serial, since: t2, marks: 0 };
+        if (was && was.len >= 20 * MIN && t2 > T.warm) {
+          const wst = S.sp.get(was.serial);
+          const why = cur && cur.alive && wst ? whyDeclined(ctx, cur, wst, t2 - 10 * MIN) : null;
+          add({
+            kind: "reign",
+            score: 0.55 + Math.min(0.3, was.len / 7200),
+            col: best.genome.col,
+            subjects: [was.serial, best.serial],
+            html: `${L(reg, was.serial)}’s reign is over after ${durWords(was.len)}${why ? `; it ${why.phrase}` : ""}. ${L(reg, best.serial)}, ${describeShort(best)}, now has the most cells.`
+          });
+        }
+        return;
+      }
+      const st = S.sp.get(R2.serial);
+      if (st) st.reign = t2 - R2.since;
+      const len2 = t2 - R2.since, marks = [3600, 7200, 14400, 28800];
+      const m = marks.findIndex((x) => len2 < x);
+      const passed = m < 0 ? marks.length : m;
+      if (passed > (R2.marks || 0)) {
+        R2.marks = passed;
+        add({
+          kind: "reign",
+          score: 0.35 + 0.05 * passed,
+          col: cur.genome.col,
+          subjects: [R2.serial],
+          key: `reign:${R2.serial}:${passed}`,
+          html: `${L(reg, R2.serial)} has been the most numerous species for ${durWords(len2)}: ${shareWords(cur.pop / Math.max(1, living)) === "a few" ? `${fmt(cur.pop)} cells` : `${shareWords(cur.pop / Math.max(1, living))} of the living`}.`
+        });
+      }
+    }
+    const describeShort = (sp) => {
+      const g = sp.genome, guild = GUILD[dietGuild(g)].one, mob = mobilityGuild(g);
+      const multi = (g.adhesion || 0) > K.adhMin;
+      const how = mob === "sessile" ? "anchored" : mob === "swimmer" ? "swimming" : mob === "drifter" ? "drifting" : "crawling";
+      const w = `${how} ${multi ? "many-celled " : ""}${guild}`;
+      return `${/^[aeiou]/.test(w) ? "an" : "a"} ${w}`;
+    };
+    function detectSwings(ctx, add) {
+      const { reg, t: t2, living, est } = ctx;
+      if (t2 < T.warm) return;
+      for (const st of S.sp.values()) {
+        const sp = reg.get(st.serial);
+        if (!sp || !sp.alive || !sp.established) continue;
+        if ((st.peakShare || 0) < 0.015 && sp.pop < 0.01 * living && !st.low) continue;
+        const pk = peakIn(st, t2 - 15 * MIN);
+        if (!pk) continue;
+        const high = st.l.reduce((m, x) => x[0] >= t2 - 60 * MIN ? Math.max(m, x[1]) : m, 0);
+        if (pk[1] >= Math.max(4 * est, 0.02 * living) && pk[1] >= 0.8 * high && sp.pop <= 0.25 * pk[1] && t2 - pk[0] <= 10 * MIN && st.crashed !== pk[0]) {
+          st.crashed = pk[0];
+          const why = whyDeclined(ctx, sp, st, pk[0]);
+          const share = pk[1] / Math.max(1, living);
+          add({
+            kind: "crash",
+            score: 0.4 + 0.25 * Math.min(1, share / 0.2) + (why ? 0.05 : 0) - (guildOf(sp) === "producer" ? 0.05 : 0),
+            col: sp.genome.col,
+            subjects: [sp.serial],
+            key: `crash:${sp.serial}`,
+            keyGap: 60 * MIN,
+            html: `${L(reg, sp.serial)} has crashed, from ${fmt(pk[1])} cells to ${fmt(sp.pop)} in ${durWords(t2 - pk[0])}.${why ? ` It ${why.phrase}.` : ""}`
+          });
+        }
+        if (st.low && t2 - st.low.t > 40 * MIN) st.low = null;
+        if (pk[1] >= Math.max(4 * est, 0.015 * living) && sp.pop <= Math.max(3, 0.05 * pk[1]) && (!st.low || sp.pop < st.low.n)) st.low = { n: sp.pop, t: t2, peak: pk[1] };
+        if (st.low && sp.pop >= 0.5 * st.low.peak && sp.pop >= 3 * est && t2 - st.low.t >= 2 * MIN) {
+          const c = causesIn(st, st.low.t - 2 * MIN, t2);
+          const slept = c[C2.woke] > 0.3 * sp.pop;
+          add({
+            kind: "comeback",
+            score: 0.65,
+            col: sp.genome.col,
+            subjects: [sp.serial],
+            key: `back:${sp.serial}`,
+            keyGap: 40 * MIN,
+            html: `<b>Back from the brink</b>: ${L(reg, sp.serial)} fell to ${fmt(st.low.n)} cell${st.low.n === 1 ? "" : "s"} at ${fmtClock(st.low.t)} and now numbers ${fmt(sp.pop)}${slept ? ", its cysts waking to carry it" : ""}.`
+          });
+          st.low = null;
+        }
+        const was = popAgo(st, t2, 10 * MIN);
+        const hist = st.l.reduce((m, x) => x[0] < t2 - 10 * MIN ? Math.max(m, x[1]) : m, 0);
+        if (was != null && was > 0 && sp.pop >= 5 * was && sp.pop >= 0.05 * living && sp.pop >= 10 * est && sp.pop > 1.5 * hist) {
+          const [food, fm, fsum] = topBy(st.diet);
+          const on = food && fm >= 0.4 * fsum && reg.get(food) ? `, feeding on ${L(reg, food)}` : "";
+          add({
+            kind: "boom",
+            score: 0.45 + 0.2 * Math.min(1, sp.pop / living / 0.25),
+            col: sp.genome.col,
+            subjects: [sp.serial],
+            key: `boom:${sp.serial}`,
+            html: `${L(reg, sp.serial)} is booming${on}: ${fmt(was)} cells ten minutes ago, ${fmt(sp.pop)} now.`
+          });
+        }
+      }
+    }
+    function detectFirsts(ctx, add) {
+      const { reg, t: t2 } = ctx;
+      if (!S.firsts) S.firsts = /* @__PURE__ */ new Set();
+      for (const sp of reg.values()) {
+        if (!sp.established || !sp.alive) continue;
+        const st = S.sp.get(sp.serial);
+        if (!st || st.firstsDone) continue;
+        st.firstsDone = true;
+        for (const [key, words] of firstsOf(sp.genome, K)) {
+          if (S.firsts.has(key)) continue;
+          S.firsts.add(key);
+          if (t2 < 3 * MIN) continue;
+          add({
+            kind: "first",
+            score: key === "multi" || key === "guild:predator" ? 0.75 : 0.65,
+            col: sp.genome.col,
+            subjects: [sp.serial],
+            key: `first:${key}`,
+            keyGap: Infinity,
+            html: `<b>A first for this world</b>: ${L(reg, sp.serial)} is the first ${FIRST_LEAD[key] || `species ${words}`}.`
+          });
+        }
+      }
+    }
+    function detectArms(ctx, add) {
+      const { reg, t: t2 } = ctx;
+      if (t2 < 25 * MIN) return;
+      const G = /* @__PURE__ */ new Map();
+      for (const p of S.pairs.values()) {
+        const h = reg.get(p.h), q = reg.get(p.q);
+        if (!h || !q || h.genus === q.genus) continue;
+        const key = `${h.genus}|${q.genus}`;
+        let g = G.get(key);
+        if (!g) G.set(key, g = { hg: h.genus, qg: q.genus, a: [0, 0, 0], b: [0, 0, 0], hb: /* @__PURE__ */ new Map(), qb: /* @__PURE__ */ new Map(), hguild: guildOf(h), qguild: guildOf(q) });
+        const fit3 = p.fit ?? (p.fit = fitOf(h.genome, q.genome, K));
+        const [ta, ma] = pairSum(p, t2 - 20 * MIN, t2 - 10 * MIN), [tb, mb] = pairSum(p, t2 - 6 * MIN, t2);
+        g.a[0] += ta;
+        g.a[1] += ma;
+        g.a[2] += ta * fit3;
+        g.b[0] += tb;
+        g.b[1] += mb;
+        g.b[2] += tb * fit3;
+        if (tb) {
+          g.hb.set(p.h, (g.hb.get(p.h) || 0) + tb);
+          g.qb.set(p.q, (g.qb.get(p.q) || 0) + tb);
+        }
+      }
+      for (const g of G.values()) {
+        if (g.a[0] < 150 || g.b[0] < 150 || g.hguild === "scavenger") continue;
+        const ra = g.a[1] / g.a[0], rb = g.b[1] / g.b[0];
+        const fa = g.a[2] / g.a[0], fb = g.b[2] / g.b[0];
+        const losing = ra >= 0.12 && rb <= 0.55 * ra && fb <= fa - 0.15;
+        const winning = rb >= 0.12 && rb >= 1.8 * ra && fb >= fa + 0.15;
+        if (!losing && !winning) continue;
+        const [qs] = topBy(g.qb), [hs] = topBy(g.hb);
+        const oneIn = (r) => `one in ${numWord(Math.max(1, Math.round(1 / Math.max(r, 1e-3))))}`;
+        const verb = g.qguild === "producer" ? "bites land on" : "catch";
+        const hgB = `<b>${esc(g.hg)}</b>`, qgB = `<b>${esc(g.qg)}</b>`;
+        const html = losing ? `${qgB} is slipping from the grip of the ${hgB}: their ${GUILD[g.hguild].many} now ${verb === "catch" ? "catch" : "land bites on"} ${oneIn(rb)} they try for, against ${oneIn(ra)} ten minutes ago, as newer ${qgB} like ${L(reg, qs)} wear surfaces ${L(reg, hs)}’s receptors barely fit.` : `The ${hgB} have the measure of ${qgB}: ${oneIn(rb)} of their attempts now succeeds, where it was ${oneIn(ra)}, their newer receptors, as ${L(reg, hs)}’s, fitting ${qgB}’s surface better.`;
+        add({ kind: "arms", score: 0.7, col: reg.get(hs)?.genome.col ?? 4294967295, subjects: [hs, qs], key: `arms:${g.hg}|${g.qg}`, keyGap: 40 * MIN, html });
+      }
+    }
+    function detectDiets(ctx, add) {
+      const { reg, t: t2 } = ctx;
+      if (t2 < T.warm) return;
+      const recent = /* @__PURE__ */ new Map();
+      for (const p of S.pairs.values()) {
+        const [, m] = pairSum(p, t2 - 10 * MIN, t2);
+        if (!m) continue;
+        if (!recent.has(p.h)) recent.set(p.h, /* @__PURE__ */ new Map());
+        recent.get(p.h).set(p.q, m);
+      }
+      for (const [h, m] of recent) {
+        const [q, qm, sum] = topBy(m);
+        const hsp = reg.get(h), qsp = reg.get(q);
+        if (!hsp || !qsp || !hsp.alive || sum < 80 || qm < 0.75 * sum || hsp.genus === qsp.genus) continue;
+        if (hsp.pop < 0.01 * ctx.living) continue;
+        add({
+          kind: "diet",
+          score: 0.4,
+          col: hsp.genome.col,
+          subjects: [h, q],
+          key: `diet:${h}:${q}`,
+          keyGap: Infinity,
+          html: `${L(reg, h)} now lives almost entirely on ${L(reg, q)}: ${shareWords(qm / sum)} of its meals.`
+        });
+        const qst = S.sp.get(q), pk = qst && peakIn(qst, t2 - 15 * MIN);
+        if (qsp.alive && pk && qsp.pop <= 0.4 * pk[1] && pk[1] >= Math.max(3 * ctx.est, 0.01 * ctx.living)) {
+          add({
+            kind: "diet",
+            score: 0.55 + 0.1 * Math.min(1, hsp.pop / ctx.living / 0.05),
+            col: qsp.genome.col,
+            subjects: [q, h],
+            key: `food:${h}:${q}`,
+            keyGap: 30 * MIN,
+            html: `${L(reg, q)}, ${shareWords(qm / sum)} of what ${L(reg, h)} eats, has fallen from ${fmt(pk[1])} cells to ${fmt(qsp.pop)}; ${L(reg, h)} may follow.`
+          });
+        }
+      }
+    }
+    function peaksOf(series, rel = 0.35) {
+      const out = [];
+      if (series.length < 5) return out;
+      let dir = 0, ext = series[0];
+      for (const x of series) {
+        if (dir >= 0) {
+          if (x[1] >= ext[1]) ext = x;
+          else if (x[1] <= ext[1] * (1 - rel)) {
+            if (dir === 1 || out.length || ext !== series[0]) out.push(["peak", ...ext]);
+            dir = -1;
+            ext = x;
+          }
+        } else {
+          if (x[1] <= ext[1]) ext = x;
+          else if (x[1] >= Math.max(1, ext[1]) * (1 + rel / (1 - rel))) {
+            out.push(["low", ...ext]);
+            dir = 1;
+            ext = x;
+          }
+        }
+      }
+      return out.filter((p) => p[0] === "peak").map((p) => p[1]);
+    }
+    function detectCycles(ctx, add) {
+      const { reg, t: t2 } = ctx;
+      if (t2 < 40 * MIN) return;
+      const byH = /* @__PURE__ */ new Map();
+      for (const p of S.pairs.values()) {
+        const [, m] = pairSum(p, t2 - 60 * MIN, t2);
+        if (m < 60) continue;
+        if (!byH.has(p.h)) byH.set(p.h, []);
+        byH.get(p.h).push([p.q, m]);
+      }
+      for (const [h, list] of byH) {
+        const sum = list.reduce((a, b) => a + b[1], 0);
+        for (const [q, m] of list) {
+          if (m < 0.4 * sum) continue;
+          const hs = S.sp.get(h), qs = S.sp.get(q), hsp = reg.get(h), qsp = reg.get(q);
+          if (!hs || !qs || !hsp?.alive || !qsp?.alive) continue;
+          const pq = peaksOf(qs.l.filter((x) => x[0] > t2 - 90 * MIN)), ph = peaksOf(hs.l.filter((x) => x[0] > t2 - 90 * MIN));
+          let n = 0, lag = 0;
+          for (let i = 0; i < pq.length; i++) {
+            const next = pq[i + 1] ?? Infinity;
+            const f2 = ph.find((x) => x > pq[i] + 30 && x < Math.min(next, pq[i] + 15 * MIN));
+            if (f2 != null) {
+              n++;
+              lag += f2 - pq[i];
+            }
+          }
+          if (n < 3) continue;
+          add({
+            kind: "cycle",
+            score: 0.7,
+            col: hsp.genome.col,
+            subjects: [h, q],
+            key: `cycle:${h}:${q}`,
+            keyGap: 90 * MIN,
+            html: `${L(reg, h)} and ${L(reg, q)} are locked in a cycle: ${numWord(n)} times now ${L(reg, q)} has boomed, ${L(reg, h)} has followed about ${durWords(lag / n)} later, and both have crashed.`
+          });
+        }
+      }
+    }
+    function detectRanges(ctx, add) {
+      const { reg, t: t2, living, world } = ctx;
+      if (t2 < T.warm || !world) return;
+      for (const st of S.sp.values()) {
+        const sp = reg.get(st.serial);
+        if (!sp?.alive || !sp.established || sp.pop < 0.03 * living || st.rng.length < 3) continue;
+        const now = st.rng[st.rng.length - 1], then = st.rng.find((x) => x[0] >= t2 - 12 * MIN && x[0] <= t2 - 8 * MIN);
+        if (!then || now[0] < t2 - 2 * MIN) continue;
+        const tight = (r) => Math.min(r[3], r[4]), loose = (r) => Math.max(r[3], r[4]);
+        if (tight(now) >= 0.45 && tight(then) >= 0.45) {
+          const dx = wrap01(now[1] - then[1]), dy = wrap01(now[2] - then[2]);
+          const d = Math.hypot(dx * world[0], dy * world[1]);
+          if (d >= 0.2 * Math.min(world[0], world[1])) {
+            const [food, fm, fsum] = topBy(st.diet);
+            const fst = food && fm >= 0.4 * fsum && S.sp.get(food);
+            const fn = fst?.rng.at(-1), ft = fst?.rng.find((x) => x[0] >= t2 - 12 * MIN && x[0] <= t2 - 8 * MIN);
+            const chase = fn && ft && Math.min(fn[3], fn[4]) >= 0.35 && wrap01(fn[1] - ft[1]) * dx + wrap01(fn[2] - ft[2]) * dy > 0.5 * (dx * dx + dy * dy);
+            add({
+              kind: "range",
+              score: chase ? 0.6 : 0.45,
+              col: sp.genome.col,
+              subjects: chase ? [sp.serial, food] : [sp.serial],
+              key: `move:${sp.serial}`,
+              keyGap: 30 * MIN,
+              html: chase ? `${L(reg, sp.serial)} has followed ${L(reg, food)}, its food, ${heading(dx, dy)} across the pool: ${lenWords(d)} in ${durWords(now[0] - then[0])}.` : `${L(reg, sp.serial)} is on the move: its cells have shifted ${lenWords(d)} ${heading(dx, dy)} in ${durWords(now[0] - then[0])}, to the ${compass(now[1], now[2])} of the pool.`
+            });
+          }
+        }
+        const was = popAgo(st, t2, 10 * MIN);
+        if (tight(then) >= 0.6 && loose(now) <= 0.25 && was != null && sp.pop >= 2 * was) {
+          add({
+            kind: "range",
+            score: 0.55,
+            col: sp.genome.col,
+            subjects: [sp.serial],
+            key: `spread:${sp.serial}`,
+            keyGap: 60 * MIN,
+            html: `${L(reg, sp.serial)} has broken out of its pocket in the ${compass(then[1], then[2])} and spread across the pool: ${fmt(was)} cells ten minutes ago, ${fmt(sp.pop)} now.`
+          });
+        } else if (loose(then) <= 0.25 && tight(now) >= 0.6 && was != null && sp.pop <= 0.5 * was) {
+          add({
+            kind: "range",
+            score: 0.5,
+            col: sp.genome.col,
+            subjects: [sp.serial],
+            key: `pocket:${sp.serial}`,
+            keyGap: 60 * MIN,
+            html: `${L(reg, sp.serial)}, once everywhere, is down to a pocket in the ${compass(now[1], now[2])} of the pool.`
+          });
+        }
+      }
+    }
+    function detectRadiation(ctx, add) {
+      const { reg, t: t2 } = ctx;
+      if (t2 < T.warm) return;
+      const fresh = /* @__PURE__ */ new Map();
+      for (const sp of reg.values()) {
+        if (!sp.established || (sp.establishedAt ?? 0) < t2 - 15 * MIN) continue;
+        if (!fresh.has(sp.genus)) fresh.set(sp.genus, []);
+        fresh.get(sp.genus).push(sp);
+      }
+      for (const [genus, list] of fresh) {
+        const alive = list.filter((sp) => sp.alive);
+        if (list.length < 6 || alive.length < 4) continue;
+        const kinds = new Set(list.map((sp) => describeShort(sp)));
+        if (kinds.size < 3) continue;
+        const sorted = [...kinds];
+        const range = `, from ${sorted[0].replace(/^an? /, "")}s to ${sorted[sorted.length - 1].replace(/^an? /, "")}s`;
+        const lead = alive.sort((a, b) => b.pop - a.pop)[0];
+        add({
+          kind: "radiation",
+          score: Math.min(0.75, 0.45 + 0.05 * kinds.size),
+          col: lead.genome.col,
+          subjects: [lead.serial],
+          key: `rad:${genus}`,
+          keyGap: 40 * MIN,
+          html: `The <b>${esc(genus)}</b> are radiating: ${numWord(list.length)} new species in ${durWords(t2 - Math.min(...list.map((sp) => sp.establishedAt ?? t2)))}${range}, led by ${L(reg, lead.serial)}.`
+        });
+      }
+    }
+    function detectTrends(ctx, add) {
+      const { reg, t: t2 } = ctx;
+      if (t2 - (S.genusMarks.at(-1)?.t ?? -1e9) >= 5 * MIN) {
+        const mark = { t: t2, temp: ctx.temp, g: /* @__PURE__ */ new Map() };
+        for (const sp of reg.values()) {
+          if (!sp.alive || !sp.established) continue;
+          let m = mark.g.get(sp.genus);
+          if (!m) mark.g.set(sp.genus, m = { n: 0, topt: 0, size: 0, swim: 0, multi: 0, pop: 0 });
+          const g = sp.genome, w = sp.pop;
+          m.pop += w;
+          m.n++;
+          m.topt += w * (g.topt ?? 19);
+          m.size += w * g.size;
+          m.swim += w * g.swim * (1 - g.photo);
+          m.multi += w * ((g.adhesion || 0) > K.adhMin ? 1 : 0);
+        }
+        for (const m of mark.g.values()) for (const k of ["topt", "size", "swim", "multi"]) m[k] /= Math.max(1, m.pop);
+        S.genusMarks.push(mark);
+        while (S.genusMarks.length && S.genusMarks[0].t < t2 - 2 * 3600) S.genusMarks.shift();
+      }
+      if (t2 < 40 * MIN) return;
+      const now = S.genusMarks.at(-1);
+      const then = S.genusMarks.find((m) => m.t >= t2 - 50 * MIN && m.t <= t2 - 30 * MIN);
+      if (!now || !then) return;
+      for (const [genus, a] of now.g) {
+        const b = then.g.get(genus);
+        if (!b || a.pop < 0.02 * ctx.living || b.pop < 3 * ctx.est || genusCount(reg, genus) < 3) continue;
+        const lead = [...reg.values()].filter((sp) => sp.alive && sp.genus === genus).sort((x, y) => y.pop - x.pop)[0];
+        if (!lead) continue;
+        const ago = durWords(now.t - then.t);
+        const dT = a.topt - b.topt, dW = now.temp - then.temp;
+        if (K.heat && Math.abs(dT) >= 5 && Math.abs(dW) >= 4 && Math.sign(dT) === Math.sign(dW)) {
+          add({
+            kind: "trend",
+            score: 0.6,
+            col: lead.genome.col,
+            subjects: [lead.serial],
+            key: `temp:${genus}`,
+            keyGap: 60 * MIN,
+            html: `The <b>${esc(genus)}</b> have followed the water as it ${dW > 0 ? "warmed" : "cooled"}: their cells now do best near ${Math.round(a.topt)}°, ${dT > 0 ? "up" : "down"} from ${Math.round(b.topt)}° ${ago} ago.`
+          });
+        } else if (a.size >= 1.3 * b.size || a.size <= b.size / 1.3) {
+          const up = a.size > b.size, r = up ? a.size / b.size : b.size / a.size;
+          const by = r >= 1.9 ? `${up ? "twice" : "half"} the size they were` : r >= 1.45 ? `${up ? "half again as large as" : "a third smaller than"} they were` : `a ${up ? "third larger" : "quarter smaller"} than they were`;
+          add({
+            kind: "trend",
+            score: 0.5,
+            col: lead.genome.col,
+            subjects: [lead.serial],
+            key: `size:${genus}`,
+            keyGap: 60 * MIN,
+            html: `The <b>${esc(genus)}</b> have ${up ? "grown" : "shrunk"} over ${ago}: their cells are now ${by}, ${L(reg, lead.serial)} the most numerous of them.`
+          });
+        } else if (a.swim - b.swim >= 0.35) {
+          add({
+            kind: "trend",
+            score: 0.5,
+            col: lead.genome.col,
+            subjects: [lead.serial],
+            key: `swim:${genus}`,
+            keyGap: 60 * MIN,
+            html: `The <b>${esc(genus)}</b> have taken to swimming over ${ago}: ${L(reg, lead.serial)} and its kin now swim ${a.swim / Math.max(0.05, b.swim) >= 2 ? "twice" : "much"} as hard as their forebears.`
+          });
+        } else if (a.multi >= 0.6 && b.multi <= 0.2) {
+          add({
+            kind: "trend",
+            score: 0.55,
+            col: lead.genome.col,
+            subjects: [lead.serial],
+            key: `multi:${genus}`,
+            keyGap: 90 * MIN,
+            html: `The <b>${esc(genus)}</b> have taken to living in bodies: over ${ago} their single cells gave way to many-celled kin like ${L(reg, lead.serial)}.`
+          });
+        }
+      }
+    }
+    function detectMisc(ctx, add) {
+      const { reg, t: t2, living } = ctx;
+      if (t2 < T.warm) return;
+      let oldest = null, thriving = 0;
+      for (const sp of reg.values()) {
+        if (!sp.alive || !sp.established) continue;
+        thriving++;
+        if (!oldest || sp.born < oldest.born) oldest = sp;
+      }
+      if (oldest) {
+        const age = t2 - oldest.born, marks = [7200, 14400, 28800];
+        const m = marks.filter((x) => age >= x).length;
+        const st = S.sp.get(oldest.serial);
+        if (st && m > (st.elder || 0)) {
+          st.elder = m;
+          const kin = genusCount(reg, oldest.genus) - 1;
+          add({
+            kind: "elder",
+            score: 0.4 + 0.05 * m,
+            col: oldest.genome.col,
+            subjects: [oldest.serial],
+            key: `elder:${oldest.serial}:${m}`,
+            keyGap: Infinity,
+            html: `${L(reg, oldest.serial)} has lived ${durWords(age)}, the oldest species in the pool${kin >= 3 ? `; ${numWord(kin)} species of its genus have come and gone or still live beside it` : ""}.`
+          });
+        }
+      }
+      if (t2 >= 20 * MIN && thriving > Math.max(8, S.record * 1.15)) {
+        if (S.record) add({
+          kind: "record",
+          score: 0.45,
+          col: 4286570672,
+          subjects: [],
+          key: "record",
+          keyGap: 30 * MIN,
+          html: `The pool has never been so diverse: ${numWord(thriving)} species thrive at once.`
+        });
+        S.record = thriving;
+      } else if (thriving > S.record) S.record = thriving;
+      if (ctx.stone != null) {
+        S.stoneMarks.push([t2, ctx.stone]);
+        while (S.stoneMarks.length && S.stoneMarks[0][0] < t2 - 20 * MIN) S.stoneMarks.shift();
+        const then = S.stoneMarks.find((x) => x[0] >= t2 - 16 * MIN);
+        if (then && t2 - then[0] >= 12 * MIN && ctx.stone >= 1.5 * then[1] && ctx.stone - then[1] >= 5e-3 * (ctx.count || 1)) {
+          const builder = [...reg.values()].filter((sp) => sp.alive && sp.established && (sp.genome.calcify || 0) > 0.05).sort((a, b) => b.pop * b.genome.calcify - a.pop * a.genome.calcify)[0];
+          if (builder) add({
+            kind: "reef",
+            score: 0.5,
+            col: builder.genome.col,
+            subjects: [builder.serial],
+            key: "reef",
+            keyGap: 45 * MIN,
+            html: `Reef stone is spreading: ${ctx.stone >= 2 * then[1] ? "twice" : "half again"} as much as ${durWords(t2 - then[0])} ago, laid down by ${L(reg, builder.serial)} and its like.`
+          });
+        }
+      }
+      for (const sp of reg.values()) {
+        if (!sp.alive || !sp.established) continue;
+        if (sp.founder && sp.serial > (ctx.founders ?? Infinity) && sp.pop >= 0.1 * living && living > 500) {
+          add({
+            kind: "spark",
+            score: 0.6,
+            col: sp.genome.col,
+            subjects: [sp.serial],
+            key: `spark:${sp.serial}`,
+            keyGap: Infinity,
+            html: `New life from the silt: ${L(reg, sp.serial)}, which sparked from a grain of silt at ${fmtClock(sp.born)}, now holds ${shareWords(sp.pop / living) === "a few" ? "a tenth" : shareWords(sp.pop / living)} of the pool.`
+          });
+        }
+        const anc = sp.ancestor && reg.get(sp.ancestor);
+        if (anc && anc.alive && anc.established && sp.pop >= 3 * anc.pop && sp.pop >= 0.03 * living) {
+          const a = S.sp.get(anc.serial), b = S.sp.get(sp.serial);
+          const aw = a && popAgo(a, t2, 10 * MIN), bw = b && popAgo(b, t2, 10 * MIN);
+          if (aw != null && bw != null && aw >= 2 * bw) {
+            add({
+              kind: "succession",
+              score: 0.45,
+              col: sp.genome.col,
+              subjects: [sp.serial, anc.serial],
+              key: `succ:${sp.serial}`,
+              keyGap: Infinity,
+              html: `${L(reg, sp.serial)} has overtaken ${L(reg, anc.serial)}, the species it descends from: ${fmt(sp.pop)} cells to ${fmt(anc.pop)}, where ten minutes ago it had ${fmt(bw)} to ${fmt(aw)}.`
+            });
+          }
+        }
+      }
+    }
+    const SLOW = [detectArms, detectDiets, detectCycles, detectRanges, detectRadiation, detectTrends, detectMisc];
+    function snapshot(reg, living) {
+      const pops = /* @__PURE__ */ new Map(), cum = /* @__PURE__ */ new Map(), guilds = { producer: 0, grazer: 0, scavenger: 0, predator: 0 }, genera = /* @__PURE__ */ new Set(), generaPop = /* @__PURE__ */ new Map();
+      for (const sp of reg.values()) {
+        if (!sp.alive) continue;
+        guilds[guildOf(sp)] += sp.pop;
+        genera.add(sp.genus);
+        generaPop.set(sp.genus, (generaPop.get(sp.genus) || 0) + sp.pop);
+        if (!sp.established) continue;
+        pops.set(sp.serial, sp.pop);
+        const st = S.sp.get(sp.serial);
+        if (st) cum.set(sp.serial, st.cum.slice());
+      }
+      return { pops, cum, guilds, genera, generaPop, living };
+    }
+    function note(kind, d) {
+      if (kind === "era") {
+        const was = S.eraMark;
+        S.eraMark = { t: d.t, name: d.name, snap: snapshot(d.reg, d.living) };
+        if (was) S.eraMark.pending = { from: was, name: d.prev ?? was.name, newName: d.name };
+      } else if (kind === "event") {
+        const m = S.eventMark;
+        if (d.phase && (!m || m.end != null || m.type !== d.type)) S.eventMark = { type: d.type, t: d.t, snap: snapshot(d.reg, d.living) };
+        else if (!d.phase && m && m.type === d.type && m.end == null) {
+          m.end = d.t;
+          m.done = true;
+        }
+      } else if (kind === "excursion") {
+        S.excursion = { t: d.t, dT: d.dT, end: d.t + d.dur, snap: snapshot(d.reg, d.living) };
+      }
+    }
+    function eraStory(ctx) {
+      const { reg, t: t2, living } = ctx;
+      const pend = S.eraMark.pending;
+      S.eraMark.pending = null;
+      const from = pend.from.snap, to = S.eraMark.snap;
+      if (t2 - pend.from.t < 5 * MIN) return null;
+      let rise = null, fall = null;
+      for (const [serial, p1] of to.pops) {
+        const p0 = from.pops.get(serial) || 0;
+        if (p1 >= 0.05 * to.living && p1 >= 2 * Math.max(1, p0) && (!rise || p1 - p0 > rise[2])) rise = [serial, p0, p1 - p0];
+      }
+      for (const [serial, p0] of from.pops) {
+        const p1 = to.pops.get(serial) || 0;
+        if (p0 >= 0.05 * from.living && p1 <= 0.4 * p0 && (!fall || p0 - p1 > fall[2])) fall = [serial, p0, p0 - p1, p1];
+      }
+      const lostGenera = [...from.generaPop].filter(([g, n]) => !to.genera.has(g) && n >= 0.02 * from.living).map(([g]) => g);
+      const lost = [...from.pops.keys()].filter((s) => !to.pops.has(s)).length;
+      const born = [...to.pops.keys()].filter((s) => !from.pops.has(s)).length;
+      const share = (snap, g) => snap.guilds[g] / Math.max(1, Object.values(snap.guilds).reduce((a, b) => a + b, 0));
+      let best = null, bd = 0;
+      for (const g of Object.keys(GUILD)) {
+        const dd = share(to, g) - share(from, g);
+        if (dd > bd) {
+          bd = dd;
+          best = g;
+        }
+      }
+      const character2 = bd >= 0.1 ? `${/^[aeiou]/.test(GUILD[best].one) ? "an" : "a"} ${GUILD[best].one}s’ era` : lost >= 8 ? "an era of losses" : born >= 10 ? "an era of new species" : living >= 1.5 * from.living ? "a flourishing era" : living <= 0.5 * from.living ? "a lean era" : null;
+      const bits = [];
+      if (rise && reg.get(rise[0])) bits.push(`${L(reg, rise[0])} rose to ${fmt(to.pops.get(rise[0]))} cells`);
+      if (fall && reg.get(fall[0])) bits.push(fall[3] ? `${L(reg, fall[0])} fell from ${fmt(fall[1])} to ${fmt(fall[3])}` : `${L(reg, fall[0])} was lost`);
+      if (lostGenera.length) bits.push(lostGenera.length <= 2 ? `the ${andList(lostGenera.map((g) => `<b>${esc(g)}</b>`))} died out` : `${numWord(lostGenera.length)} genera of note died out`);
+      const score = 0.2 + (rise ? 0.12 : 0) + (fall ? 0.15 : 0) + (lostGenera.length ? 0.08 : 0) + (bd >= 0.1 ? 0.2 : character2 ? 0.05 : 0);
+      if (!bits.length) return null;
+      const subj = [rise?.[0], fall?.[0]].filter((s) => s && reg.get(s));
+      return {
+        kind: "era",
+        score,
+        col: 4288734193,
+        subjects: subj,
+        force: score >= 0.7,
+        key: "era",
+        keyGap: 30 * MIN,
+        html: `<b>${esc(pend.name)}</b> is over${character2 ? `, ${character2}` : ""}: ${andList(bits)}.`
+      };
+    }
+    function eventStory(ctx) {
+      const { reg, living } = ctx;
+      const ev = S.eventMark;
+      ev.done = false;
+      const from = ev.snap;
+      const lost = [...from.pops].filter(([s, p0]) => p0 >= 0.01 * from.living && !reg.get(s)?.alive).map(([s]) => reg.get(s)).filter(Boolean).sort((a, b) => b.peak - a.peak);
+      let win = null, slept = null, sank = null;
+      for (const [serial, p0] of from.pops) {
+        const sp = reg.get(serial);
+        if (!sp?.alive) continue;
+        if (sp.pop >= 2 * Math.max(1, p0) && sp.pop - p0 >= 0.01 * living && (!win || sp.pop - p0 > win[1])) win = [serial, sp.pop - p0, p0];
+        const st = S.sp.get(serial), c0 = from.cum.get(serial);
+        if (st && c0) {
+          const c = st.cum.map((x, i) => x - c0[i]);
+          if (c[C2.cyst] + c[C2.woke] >= 0.3 * Math.max(10, p0) && p0 >= 3 * ctx.est && (!slept || p0 > slept[1])) slept = [serial, p0];
+          if (p0 >= 0.03 * from.living && sp.pop <= 0.3 * p0 && (!sank || p0 - sp.pop > sank[1])) sank = [serial, p0 - sp.pop, p0];
+        }
+      }
+      const name = { drought: "the drought", storm: "the storm", frost: "the frost", duckweed: "the duckweed’s shade" }[ev.type] || "the event";
+      const bits = [];
+      if (slept) bits.push(`${L(reg, slept[0])} ${ev.type === "drought" ? "rested as cysts on the mud and woke with the rain" : ev.type === "frost" ? "slept in the ice as cysts and woke with the thaw" : "rode it out as cysts"}`);
+      if (win) bits.push(`${L(reg, win[0])} flourished, from ${fmt(win[2])} cells to ${fmt(reg.get(win[0]).pop)}`);
+      if (sank && sank[0] !== slept?.[0]) bits.push(`${L(reg, sank[0])} lost ${shareWords(sank[1] / sank[2])} of its cells`);
+      if (lost.length) bits.push(lost.length <= 2 ? `${andList(lost.map((sp) => L(reg, sp.serial)))} did not survive` : `${numWord(lost.length)} species did not survive, ${L(reg, lost[0].serial)} the largest`);
+      if (!bits.length) return null;
+      const score = 0.45 + 0.1 * bits.length + (lost.length >= 3 ? 0.1 : 0);
+      return {
+        kind: "aftermath",
+        score,
+        col: 4288337640,
+        subjects: [slept?.[0], win?.[0], sank?.[0], lost[0]?.serial].filter(Boolean).slice(0, 3),
+        force: true,
+        html: `Through ${name}: ${bits.join("; ")}.`
+      };
+    }
+    function excursionStory(ctx) {
+      const { reg } = ctx;
+      const x = S.excursion;
+      S.excursion = null;
+      let total = 0, worst = null, slept = null;
+      for (const [serial, c0] of x.snap.cum) {
+        const st = S.sp.get(serial), sp = reg.get(serial);
+        if (!st || !sp) continue;
+        const scald = st.cum[C2.scalded] - c0[C2.scalded], cyst = st.cum[C2.cyst] - c0[C2.cyst];
+        total += scald;
+        if (scald > (worst?.[1] ?? 0)) worst = [serial, scald];
+        if (cyst > (slept?.[1] ?? 0) && cyst >= 0.3 * (x.snap.pops.get(serial) || 1)) slept = [serial, cyst];
+      }
+      if (x.dT > 0 && worst && total >= 0.03 * Math.max(1, x.snap.living)) {
+        const g = reg.get(worst[0]).genome;
+        return {
+          kind: "heat",
+          score: 0.5 + Math.min(0.2, total / x.snap.living),
+          col: 4282026751,
+          subjects: [worst[0]],
+          html: `The heat wave scalded ${fmt(total)} cells, ${worst[1] >= 0.5 * total ? "most" : "many"} of them ${L(reg, worst[0])}, at its best near ${Math.round(g.topt)}°.`
+        };
+      }
+      if (x.dT < 0 && slept) {
+        return {
+          kind: "heat",
+          score: 0.45,
+          col: 4292250173,
+          subjects: [slept[0]],
+          html: `In the cold snap ${L(reg, slept[0])} curled into ${fmt(slept[1])} cysts to wait it out.`
+        };
+      }
+      return null;
+    }
+    return {
+      observe,
+      note,
+      reset,
+      /** Its tunables, live (tools set .prof = {} to time the detectors). */
+      tune: T,
+      /** The species ledger's watch list: { version, serials (SPL_WATCH, 0 free) }. */
+      watch: () => S.watch,
+      /** What a species eats most and what eats it most, among the watched (serials, or null), from the meals counted. */
+      relations(serial) {
+        const st = S.sp.get(serial);
+        if (!st) return { food: null, eater: null };
+        const top = (m) => {
+          let k = null, v = 0, sum = 0;
+          for (const [a, b] of m) {
+            sum += b;
+            if (b > v) {
+              v = b;
+              k = a;
+            }
+          }
+          return k && v >= 0.25 * sum && v >= 5 ? k : null;
+        };
+        return { food: top(st.diet), eater: top(st.eaters) };
+      },
+      /** The latest story told about a species, or null: { t, text, html }. */
+      latest: (serial) => S.latest.get(serial) || null,
+      /** What a saved world keeps of the chronicler (the stories' memory, not the ledger's baselines). */
+      save() {
+        const keep = { ...S, prevPairs: null, prevVer: -1, prevSlot: null, prevCause: null, pending: null, versions: /* @__PURE__ */ new Map(), lastReal: -1e9 };
+        keep.firsts = S.firsts ? [...S.firsts] : null;
+        keep.eraMark = S.eraMark ? { ...S.eraMark, snap: null, pending: null } : null;
+        keep.eventMark = null;
+        keep.excursion = null;
+        return keep;
+      },
+      load(o) {
+        reset();
+        if (!o) return;
+        Object.assign(S, o, { firsts: o.firsts ? new Set(o.firsts) : null, versions: /* @__PURE__ */ new Map(), watch: { version: (o.watch?.version || 0) + 1, serials: new Array(SPL_WATCH).fill(0) }, lastReal: -1e9 });
+        if (S.eraMark && !S.eraMark.snap) S.eraMark = null;
+      }
+    };
+  }
+  function watchMap(watch, reg, out = new Uint32Array(MAXK)) {
+    out.fill(0);
+    watch.serials.forEach((s, i) => {
+      const sp = s && reg.get(s);
+      if (sp && sp.alive && sp.slot >= FIRST_LIFE && sp.slot < MAXK) out[sp.slot] = i + 1;
+    });
+    return out;
+  }
+
+  // src/card.js
+  var CARD_W = 750;
+  var CARD_H = 1050;
+  var CARD_SCALE = 2;
+  function cardData(sp, { reg, genera, K, story = null, simTime = 0, era = "", founders = 0, living = 0, relations = null }) {
+    const g = sp.genome, f2 = facets2(g, K), th = thermalGuild(g);
+    const lineage = [];
+    let a = sp.ancestor && reg.get(sp.ancestor);
+    while (a && lineage.length < 4) {
+      lineage.push(a.name);
+      a = a.ancestor && reg.get(a.ancestor);
+    }
+    const more = !!a;
+    const origin = sp.founder ? sp.serial > founders ? `sparked from silt at ${fmtClock(sp.born || 0)}` : "a founding lineage" : `arose at ${fmtClock(sp.born || 0)}`;
+    const gen = genera?.get(sp.genus);
+    const multi = f2.body === "multicellular";
+    const plan = multi ? describeGrowth(growPlan(g), g) : null;
+    const sh = roleShares(g).filter((v) => v > 0.1).length;
+    const facts = [
+      ["Diet", f2.diet === "photosynth" ? "lives on light" : f2.diet],
+      ["Body", `${multi ? "many-celled" : "single cells"}${sh > 1 ? `, ${sh} cell types` : ""}`],
+      ["Moves", f2.schooling ? `${f2.mobility}, schooling` : f2.mobility],
+      ...plan ? [["Grows", plan]] : [],
+      // whom it eats and who eats it most, as the chronicler counted their meals
+      ...relations?.food && reg.get(relations.food) ? [["Eats", `mostly ${reg.get(relations.food).name}`]] : [],
+      ...relations?.eater && reg.get(relations.eater) ? [["Eaten by", `mostly ${reg.get(relations.eater).name}`]] : [],
+      ...K.heat ? [["Water", `${[th.pref, th.breadth, th.maker ? "heat-maker" : ""].filter(Boolean).join(", ")}, best near ${Math.round(g.topt ?? 19)}° ± ${Math.round(g.tol ?? 7)}°`]] : []
+    ];
+    const status = sp.alive ? `${fmt(sp.pop)} cells${living ? ` · ${(sp.pop / living * 100).toFixed(sp.pop / living < 0.01 ? 2 : 1)}% of life` : ""}` : `extinct at ${fmtClock(sp.extinct ?? 0)} after ${fmtDur((sp.extinct ?? simTime) - (sp.born || 0))}`;
+    return {
+      serial: sp.serial,
+      name: sp.name,
+      binomial: sp.binomial || sp.name,
+      given: !!sp.given,
+      genus: sp.genus,
+      genusFrom: gen?.from || null,
+      desc: describe2(g, K),
+      facts,
+      lineage,
+      more,
+      origin,
+      status,
+      peak: sp.peak,
+      alive: sp.alive,
+      depth: g.depth,
+      story: story ? story.text : null,
+      when: `${fmtClock(simTime)}${era ? ` · ${era}` : ""}`,
+      col: cssRgb(roleColor(g, 0)),
+      col2: cssRgb(roleColor(g, 1))
+    };
+  }
+  var SVG_CSS = `.brk{fill:none;stroke:rgba(150,222,230,.55);stroke-width:1}.tick{fill:none;stroke:rgba(150,222,230,.55);stroke-width:.6}
+.on{stroke-width:.8;opacity:.9}.rail{stroke:rgba(130,205,214,.22);stroke-width:.6}.rail.tonic{stroke:rgba(150,222,230,.55);stroke-width:.7}
+.bar{stroke:rgba(150,222,230,.55);stroke-dasharray:2 2;stroke-width:.6}.contour{fill:none;stroke-width:.8;opacity:.4}.v2{fill:none;stroke-width:1;opacity:.75}
+.ghost{display:none}.chrom{stroke:#f1e3a0;stroke-width:1}.ph{display:none}.bonds line{opacity:.6;stroke-linecap:round}`;
+  function svgImage(svg) {
+    const src = svg.replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ').replace(/(<svg[^>]*>)/, `$1<style>${SVG_CSS}</style>`);
+    return new Promise((res) => {
+      const img = new Image();
+      img.onload = () => res(img);
+      img.onerror = () => res(null);
+      img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(src)}`;
+    });
+  }
+  function wrap(ctx, text, w) {
+    const out = [];
+    let line2 = "";
+    for (const word2 of text.split(/\s+/)) {
+      const next = line2 ? `${line2} ${word2}` : word2;
+      if (ctx.measureText(next).width > w && line2) {
+        out.push(line2);
+        line2 = word2;
+      } else line2 = next;
+    }
+    if (line2) out.push(line2);
+    return out;
+  }
+  var fit2 = (ctx, text, w) => {
+    if (ctx.measureText(text).width <= w) return text;
+    let s = text;
+    while (s.length > 1 && ctx.measureText(`${s}…`).width > w) s = s.slice(0, -1);
+    return `${s.trimEnd()}…`;
+  };
+  function drawCard(ctx, d, art = {}) {
+    const W = CARD_W, H2 = CARD_H, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif';
+    const M = 34, R2 = W - M, w = R2 - M;
+    ctx.save();
+    ctx.fillStyle = "#06090a";
+    ctx.fillRect(0, 0, W, H2);
+    ctx.strokeStyle = d.col;
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(12, 12, W - 24, H2 - 24);
+    ctx.globalAlpha = 1;
+    let y = 56;
+    ctx.fillStyle = "#6f8a8c";
+    ctx.font = `500 14px ${F}`;
+    ctx.fillText("TIDEMOTE · SPECIES CARD", M, y);
+    ctx.textAlign = "right";
+    ctx.fillText(`SP ${fmt(d.serial)} · Δ${d.depth}`, R2, y);
+    ctx.textAlign = "left";
+    y += 46;
+    const nameW = w - 84;
+    ctx.fillStyle = "#e2f1f0";
+    ctx.font = `500 38px ${F}`;
+    let size = 38;
+    while (size > 26 && ctx.measureText(d.name).width > nameW) {
+      size -= 2;
+      ctx.font = `500 ${size}px ${F}`;
+    }
+    ctx.fillText(fit2(ctx, d.name, nameW), M, y);
+    ctx.font = `400 16px ${F}`;
+    ctx.fillStyle = "#a3bdbe";
+    const sub = d.given ? `${d.binomial} · named by its watcher` : `genus ${d.genus}${d.genusFrom ? `, split from ${d.genusFrom}` : ""}`;
+    ctx.fillText(fit2(ctx, sub, nameW), M, y + 28);
+    if (art.sigil) ctx.drawImage(art.sigil, R2 - 72, y - 34, 72, 72);
+    const LW = 86;
+    ctx.font = `400 15px ${F}`;
+    const lin = d.lineage.length ? `from ${d.lineage.join(" ← ")}${d.more ? " ← …" : ""}` : d.origin;
+    const linLines = wrap(ctx, lin, w - LW).slice(0, 2);
+    ctx.font = `italic 400 15px ${F}`;
+    const story = d.story ? wrap(ctx, `“${d.story}”`, w) : [];
+    const songH = art.song ? (w - LW) * 68 / 420 + 4 : 0;
+    const lower = 46 + d.facts.length * 26 + songH + 16 + linLines.length * 20 + (story.length ? 24 + Math.min(5, story.length) * 20 : 0);
+    const AX = M, AY = 162, AW = w, AH = clamp6(H2 - 64 - AY - lower, 280, 540);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(AX, AY, AW, AH);
+    ctx.clip();
+    if (art.portrait) {
+      const pw = art.portrait.width, ph = art.portrait.height, k = Math.max(AW / pw, AH / ph);
+      const sw = AW / k, sh = AH / k;
+      ctx.drawImage(art.portrait, (pw - sw) / 2, (ph - sh) / 2, sw, sh, AX, AY, AW, AH);
+      const r = Math.min((art.portrait.subject || 0.2) * (pw / 2) * k + 6, AH / 2 - 16), cb = Math.min(14, r / 2.5), ox = AX + AW / 2, oy = AY + AH / 2;
+      ctx.strokeStyle = "rgba(255,95,58,0.9)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (const [x, yy, sx, sy] of [[ox - r, oy - r, 1, 1], [ox + r, oy - r, -1, 1], [ox - r, oy + r, 1, -1], [ox + r, oy + r, -1, -1]]) {
+        ctx.moveTo(x, yy + sy * cb);
+        ctx.lineTo(x, yy);
+        ctx.lineTo(x + sx * cb, yy);
+      }
+      ctx.stroke();
+    } else {
+      const gr = ctx.createRadialGradient(AX + AW / 2, AY + AH / 2, 10, AX + AW / 2, AY + AH / 2, AH * 0.75);
+      gr.addColorStop(0, "rgba(127,214,223,0.10)");
+      gr.addColorStop(1, "rgba(6,9,10,1)");
+      ctx.fillStyle = gr;
+      ctx.fillRect(AX, AY, AW, AH);
+      const S = AH * 0.78;
+      if (art.sigil) ctx.drawImage(art.sigil, AX + (AW - S) / 2, AY + (AH - S) / 2, S, S);
+    }
+    ctx.restore();
+    ctx.strokeStyle = "rgba(130,205,214,0.22)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(AX + 0.5, AY + 0.5, AW - 1, AH - 1);
+    ctx.strokeStyle = "rgba(150,222,230,0.55)";
+    ctx.lineWidth = 1.5;
+    const c = 18, m = 10;
+    ctx.beginPath();
+    for (const [x, yy, sx, sy] of [[AX + m, AY + m, 1, 1], [AX + AW - m, AY + m, -1, 1], [AX + m, AY + AH - m, 1, -1], [AX + AW - m, AY + AH - m, -1, -1]]) {
+      ctx.moveTo(x, yy + sy * c);
+      ctx.lineTo(x, yy);
+      ctx.lineTo(x + sx * c, yy);
+    }
+    ctx.stroke();
+    ctx.fillStyle = "rgba(226,241,240,0.8)";
+    ctx.font = `500 13px ${F}`;
+    ctx.fillText(art.portrait ? d.alive ? "A living member, close up" : "Last seen, close up" : "Its sigil: its song drawn as its body", AX + m + 6, AY + AH - m - 8);
+    y = AY + AH + 14;
+    ctx.fillStyle = d.col;
+    ctx.fillRect(M, y, 56, 3);
+    ctx.fillStyle = d.col2;
+    ctx.fillRect(M + 60, y, 18, 3);
+    y += 32;
+    for (const [k, v] of d.facts) {
+      ctx.fillStyle = "#6f8a8c";
+      ctx.font = `500 13px ${F}`;
+      ctx.fillText(k.toUpperCase(), M, y);
+      ctx.fillStyle = "#e2f1f0";
+      ctx.font = `400 17px ${F}`;
+      ctx.fillText(fit2(ctx, v, w - LW), M + LW, y);
+      y += 26;
+    }
+    ctx.font = `500 13px ${F}`;
+    if (art.song) {
+      const sw = w - LW, sh = sw * 68 / 420;
+      ctx.fillStyle = "#6f8a8c";
+      ctx.fillText("SONG", M, y + 14);
+      ctx.drawImage(art.song, M + LW, y - 6, sw, sh);
+      y += sh + 4;
+    }
+    ctx.fillStyle = "#6f8a8c";
+    ctx.fillText("LINEAGE", M, y + 10);
+    ctx.fillStyle = "#a3bdbe";
+    ctx.font = `400 15px ${F}`;
+    linLines.forEach((l, i) => ctx.fillText(l, M + LW, y + 10 + i * 20));
+    y += 10 + linLines.length * 20 + 6;
+    if (story.length) {
+      ctx.fillStyle = "rgba(130,205,214,0.22)";
+      ctx.fillRect(M, y, w, 1);
+      y += 24;
+      ctx.fillStyle = "#e8dcc0";
+      ctx.font = `italic 400 15px ${F}`;
+      const lines = story;
+      const room = Math.max(0, Math.floor((H2 - 72 - y) / 20) + 1);
+      lines.slice(0, room).forEach((l, i) => ctx.fillText(i === room - 1 && lines.length > room ? fit2(ctx, `${l} …`, w) : l, M, y + i * 20));
+    }
+    ctx.fillStyle = "rgba(130,205,214,0.22)";
+    ctx.fillRect(M, H2 - 62, w, 1);
+    ctx.font = `400 14px ${F}`;
+    ctx.fillStyle = "#a3bdbe";
+    ctx.fillText(fit2(ctx, `${d.status} · peak ${fmt(d.peak)}`, w), M, H2 - 38);
+    ctx.fillStyle = "#6f8a8c";
+    ctx.fillText(fit2(ctx, d.when, w), M, H2 - 18 - 2);
+    ctx.restore();
+  }
+  function createCards(api) {
+    const $2 = (id) => document.getElementById(id);
+    const root = $2("card"), cv = $2("card-cv"), nameIn = $2("card-name"), note = $2("card-note");
+    const portraits = /* @__PURE__ */ new Map();
+    let cur = null, art = {}, drawn = 0;
+    const reg = () => api.life().reg;
+    function data(sp) {
+      const L = api.life();
+      return cardData(sp, { reg: L.reg, genera: L.genera, K: api.K, story: api.chron.latest(sp.serial), relations: api.chron.relations(sp.serial), simTime: api.eng.simTime, era: api.climate().name, founders: api.eng.founders, living: L.counts[3] });
+    }
+    function redraw() {
+      const sp = cur && reg().get(cur);
+      if (!sp) return;
+      const ctx = cv.getContext("2d");
+      ctx.setTransform(CARD_SCALE, 0, 0, CARD_SCALE, 0, 0);
+      drawCard(ctx, data(sp), art);
+      drawn = performance.now();
+    }
+    async function open(serial) {
+      const sp = reg().get(serial);
+      if (!sp) return;
+      cur = serial;
+      root.hidden = false;
+      document.body.classList.add("card-open");
+      nameIn.value = sp.given ? sp.name : "";
+      nameIn.placeholder = sp.binomial || sp.name;
+      cv.width = CARD_W * CARD_SCALE;
+      cv.height = CARD_H * CARD_SCALE;
+      const v = voiceOf(sp.genome);
+      const [sigil, song] = await Promise.all([svgImage(sigilSVG(v, sp.genome, { size: 240 })), svgImage(songSVG(v.motif, { w: 420, h: 68, col: cssRgb(roleColor(sp.genome, 0)), col2: cssRgb(roleColor(sp.genome, 1)) }))]);
+      if (cur !== serial) return;
+      art = { sigil, song, portrait: portraits.get(serial) || null };
+      if (document.fonts?.load) await document.fonts.load("500 40px Saira").catch(() => {
+      });
+      redraw();
+      note.textContent = sp.alive ? "Taking its portrait…" : art.portrait ? "" : "Extinct, and never portrayed: its sigil stands in.";
+      root.focus({ preventScroll: true });
+      if (sp.alive) {
+        const p = await api.portrait(serial).catch(() => null);
+        if (cur !== serial) return;
+        if (p) {
+          portraits.set(serial, p);
+          if (portraits.size > 48) portraits.delete(portraits.keys().next().value);
+          art.portrait = p;
+          redraw();
+        }
+        note.textContent = p ? "" : "No member could be found to portray: its sigil stands in.";
+      }
+      const desc = describe(v);
+      $2("card-song").dataset.hint = `Its song: ${desc.tags.join(", ")}. A short clip, in this world's key`;
+    }
+    function close() {
+      if (root.hidden) return;
+      root.hidden = true;
+      cur = null;
+      document.body.classList.remove("card-open");
+      api.onClose?.();
+    }
+    const fileName = (ext) => {
+      const sp = reg().get(cur);
+      return `${(sp ? sp.name : "species").replace(/[^\p{L}\p{N}]+/gu, "-").toLowerCase()}-tidemote.${ext}`;
+    };
+    const download = (blob, name) => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4e3);
+    };
+    function rename() {
+      const sp = reg().get(cur);
+      if (!sp) return;
+      const v = nameIn.value.trim().replace(/\s+/g, " ").slice(0, 48);
+      if ((v || "") === (sp.given ? sp.name : "")) return;
+      api.rename(cur, v);
+      redraw();
+    }
+    nameIn.addEventListener("change", rename);
+    nameIn.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        rename();
+        nameIn.blur();
+      }
+    });
+    nameIn.addEventListener("input", () => {
+      const sp = reg().get(cur);
+      if (!sp || performance.now() - drawn < 60) return;
+      const d = data(sp), v = nameIn.value.trim();
+      if (v) {
+        d.name = v;
+        d.given = true;
+      } else {
+        d.name = sp.binomial || sp.name;
+        d.given = false;
+      }
+      const ctx = cv.getContext("2d");
+      ctx.setTransform(CARD_SCALE, 0, 0, CARD_SCALE, 0, 0);
+      drawCard(ctx, d, art);
+    });
+    $2("card-png").addEventListener("click", () => {
+      rename();
+      cv.toBlob((b) => {
+        if (b) download(b, fileName("png"));
+        else api.flash("Could not make the image");
+      }, "image/png");
+    });
+    $2("card-song").addEventListener("click", async () => {
+      const sp = reg().get(cur), btn = $2("card-song");
+      if (!sp) return;
+      btn.disabled = true;
+      note.textContent = "Rendering its song…";
+      try {
+        const b = await api.songClip(sp.genome);
+        if (b) {
+          download(b, fileName("wav"));
+          note.textContent = "";
+        } else note.textContent = "This browser cannot render sound offline.";
+      } catch (e) {
+        note.textContent = `Could not render its song: ${String(e.message || e).slice(0, 80)}`;
+      }
+      btn.disabled = false;
+    });
+    $2("card-close").addEventListener("click", close);
+    root.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        close();
+      }
+    });
+    function reset() {
+      portraits.clear();
+      close();
+    }
+    return { open, close, reset, isOpen: () => !root.hidden, refresh: () => {
+      if (cur != null && !root.hidden) redraw();
+    } };
+  }
+
+  // src/film.js
+  var TYPES = [["video/webm;codecs=vp9,opus", "webm"], ["video/webm;codecs=vp8,opus", "webm"], ["video/webm", "webm"], ["video/mp4;codecs=avc1,mp4a", "mp4"], ["video/mp4", "mp4"]];
+  function filmFormat() {
+    const MR = globalThis.MediaRecorder;
+    if (!MR || !globalThis.HTMLCanvasElement?.prototype.captureStream) return null;
+    return TYPES.find(([t2]) => MR.isTypeSupported?.(t2)) || null;
+  }
+  function filmSize(w, h, maxW = 1920, maxH = 1080) {
+    const k = Math.min(1, maxW / w, maxH / h);
+    return [Math.max(2, Math.round(w * k / 2) * 2), Math.max(2, Math.round(h * k / 2) * 2)];
+  }
+  function createFilm({ canvas: canvas2, overlay: overlay2 = null, caption = null, audio = () => null, title = () => "", name = () => "tidemote", onChange = () => {
+  }, onSaved = null }) {
+    const fmt2 = filmFormat();
+    const st = { state: "idle", rec: null, chunks: [], until: 0, cv: null, ctx: null, cap: { html: "", a: 0 } };
+    const set = (s) => {
+      st.state = s;
+      onChange(s);
+    };
+    function start(seconds = 30) {
+      if (!fmt2 || st.state === "recording") return false;
+      const [w, h] = filmSize(canvas2.width, canvas2.height);
+      st.cv = st.cv || document.createElement("canvas");
+      st.cv.width = w;
+      st.cv.height = h;
+      st.ctx = st.cv.getContext("2d", { alpha: false });
+      st.ctx.fillStyle = "#000";
+      st.ctx.fillRect(0, 0, w, h);
+      const stream = st.cv.captureStream(30);
+      const snd = audio();
+      if (snd) for (const tr of snd.getAudioTracks()) stream.addTrack(tr);
+      st.chunks = [];
+      let rec;
+      try {
+        rec = new MediaRecorder(stream, { mimeType: fmt2[0], videoBitsPerSecond: Math.round(Math.min(12e6, w * h * 30 * 0.12)), audioBitsPerSecond: 128e3 });
+      } catch {
+        try {
+          rec = new MediaRecorder(stream);
+        } catch {
+          return false;
+        }
+      }
+      rec.ondataavailable = (e) => {
+        if (e.data && e.data.size) st.chunks.push(e.data);
+      };
+      rec.onstop = () => {
+        const blob = new Blob(st.chunks, { type: rec.mimeType || fmt2[0] });
+        st.chunks = [];
+        for (const tr of stream.getVideoTracks()) tr.stop();
+        st.rec = null;
+        set("idle");
+        if (blob.size) onSaved?.(blob, `${name()}.${fmt2[1]}`);
+      };
+      rec.start(1e3);
+      st.rec = rec;
+      st.until = performance.now() + seconds * 1e3;
+      set("recording");
+      frame();
+      return true;
+    }
+    function stop() {
+      if (st.state === "armed") {
+        set("idle");
+        return;
+      }
+      if (st.rec && st.rec.state !== "inactive") st.rec.stop();
+    }
+    const arm = () => {
+      if (fmt2 && st.state === "idle") set("armed");
+    };
+    function drawCaption(ctx, w, h) {
+      if (!caption) return;
+      const on = caption.classList.contains("on");
+      const html = caption.innerHTML;
+      if (html !== st.cap.html && !on) st.cap.html = html;
+      if (on) st.cap.html = html;
+      st.cap.a += ((on ? 1 : 0) - st.cap.a) * 0.08;
+      if (st.cap.a < 0.02 || !st.cap.html) return;
+      const part = (cls) => caption.querySelector(`.${cls}`)?.textContent || "";
+      const eye = part("cap-eye"), main = part("cap-main"), sub = part("cap-sub");
+      const s = h / 1080, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif';
+      ctx.save();
+      ctx.globalAlpha = st.cap.a;
+      ctx.textAlign = "center";
+      const y = h - 96 * s;
+      const g = ctx.createLinearGradient(0, y - 90 * s, 0, h);
+      g.addColorStop(0, "rgba(0,0,0,0)");
+      g.addColorStop(1, "rgba(0,0,0,0.55)");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, y - 90 * s, w, h - y + 90 * s);
+      ctx.fillStyle = "#7fd6df";
+      ctx.font = `500 ${Math.round(18 * s)}px ${F}`;
+      ctx.fillText(eye.toUpperCase(), w / 2, y - 44 * s);
+      ctx.fillStyle = "rgba(150,222,230,0.55)";
+      ctx.fillRect(w / 2 - 24 * s, y - 34 * s, 48 * s, Math.max(1, s));
+      ctx.fillStyle = "#e2f1f0";
+      ctx.font = `400 ${Math.round(32 * s)}px ${F}`;
+      ctx.fillText(main, w / 2, y);
+      if (sub) {
+        ctx.fillStyle = "#a3bdbe";
+        ctx.font = `400 ${Math.round(20 * s)}px ${F}`;
+        ctx.fillText(sub, w / 2, y + 32 * s);
+      }
+      ctx.restore();
+    }
+    function frame() {
+      if (st.state !== "recording" || !st.ctx) return;
+      const ctx = st.ctx, { width: w, height: h } = st.cv;
+      ctx.drawImage(canvas2, 0, 0, w, h);
+      if (overlay2 && overlay2.width) ctx.drawImage(overlay2, 0, 0, w, h);
+      drawCaption(ctx, w, h);
+      const s = h / 1080;
+      ctx.save();
+      ctx.font = `500 ${Math.round(15 * s)}px Saira, system-ui, sans-serif`;
+      ctx.textAlign = "right";
+      ctx.fillStyle = "rgba(226,241,240,0.6)";
+      ctx.fillText(title(), w - 24 * s, 34 * s);
+      ctx.restore();
+      if (performance.now() >= st.until) stop();
+    }
+    return {
+      supported: !!fmt2,
+      start,
+      stop,
+      arm,
+      frame,
+      get state() {
+        return st.state;
+      },
+      /** Seconds left of the take (recording), else 0. */
+      left: () => st.state === "recording" ? Math.max(0, (st.until - performance.now()) / 1e3) : 0
+    };
+  }
+
   // src/main.js
   var $ = (id) => document.getElementById(id);
   var canvas = $("stage");
@@ -24707,7 +26774,7 @@ ${e.message}` : String(e?.message || e));
     let densityCap = Infinity;
     const density = () => Math.min(devicePixelRatio || 1, 2, state.perf.density, densityCap);
     let dpr = 1;
-    function fit2() {
+    function fit3() {
       const base = Math.min(devicePixelRatio || 1, 2);
       dpr = density() * renderScale;
       const maxDim = device.limits.maxTextureDimension2D;
@@ -24718,9 +26785,9 @@ ${e.message}` : String(e?.message || e));
       eng.resize(canvas.width, canvas.height);
       dockTop = $("dock").getBoundingClientRect().top;
     }
-    fit2();
+    fit3();
     addEventListener("resize", () => {
-      fit2();
+      fit3();
       if (lab) drawWorldChart();
     });
     const cam = { x: 0, y: 0, zoom: 1, zoomTarget: 1, anchor: null };
@@ -24842,10 +26909,13 @@ ${e.message}` : String(e?.message || e));
         const lightWord = era.ambient > prevAmb + 0.05 ? "light rises" : era.ambient < prevAmb - 0.05 ? "light dims" : "light holds";
         const waterWord = !K.heat ? "" : ` · water ${era.temp > prevTemp + 1 ? "warms" : era.temp < prevTemp - 1 ? "cools" : "holds"} to ${Math.round(era.temp)}°`;
         pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}%${waterWord} · currents shift`, 4288734193, "era");
+        const prev = climate.history.at(-2);
+        chron.note("era", { t: eng.simTime, name: climate.name, prev: prev && prev.name, reg: life.reg, living: life.counts[3] });
         flash(climate.name, "New era");
         sound.era(climate.name);
       };
       climate.onEvent = (ev, phase) => {
+        chron.note("event", { t: eng.simTime, type: ev.type, phase, reg: life.reg, living: life.counts[3] });
         const tally = () => {
           const was = ev.before;
           if (!was) return "";
@@ -24897,12 +26967,16 @@ ${e.message}` : String(e?.message || e));
       };
       climate.onExcursion = (x) => {
         if (!K.heat) return;
+        chron.note("excursion", { t: eng.simTime, dT: x.dT, dur: x.dur, reg: life.reg, living: life.counts[3] });
         const wave2 = x.dT > 0;
         pushEvent(`${wave2 ? "A heat wave" : "A cold snap"}: the water ${wave2 ? "rises" : "falls"} ${Math.abs(x.dT).toFixed(0)}° for ${fmtDur(x.dur)}`, wave2 ? 4282026751 : 4292250173, "heat");
         flash(wave2 ? "A heat wave" : "A cold snap", "Climate");
       };
     }
     let life;
+    const chron = createChronicler({ K, link: spLink, tune: { debug: (t2, all, live) => all.length && globalThis.__tidemote?.chronDebug?.push({ t: t2, all: all.map((c) => [c.kind, +c.rank.toFixed(2), c.html.replace(/<[^>]+>/g, "").slice(0, 90)]), live: live.length }) } });
+    let watchVer = -1;
+    const watchSlots = new Uint32Array(MAXK);
     function resetLife() {
       life = {
         reg: /* @__PURE__ */ new Map(),
@@ -24928,6 +27002,8 @@ ${e.message}` : String(e?.message || e));
         prevT: 0
       };
       feedKey = "";
+      chron.reset();
+      watchVer = -1;
       renderFeed();
     }
     function seedWorld(n) {
@@ -24943,6 +27019,7 @@ ${e.message}` : String(e?.message || e));
       sound.reset(climate.music);
       if (lab) lab.reset();
       if (specimen) specimen.reset();
+      cards.reset();
       life.estThreshold = Math.max(30, Math.round(n * 25e-5));
       deselect();
       clearFocus();
@@ -25025,7 +27102,7 @@ ${e.message}` : String(e?.message || e));
     async function saveWorld(name) {
       const { lastCensus, ...keepLife } = life;
       const keepClimate = Object.fromEntries(Object.entries(climate).filter(([, v]) => typeof v !== "function"));
-      const page = { life: keepLife, climate: keepClimate, cam: { x: cam.x, y: cam.y, zoom: cam.zoomTarget } };
+      const page = { life: keepLife, climate: keepClimate, cam: { x: cam.x, y: cam.y, zoom: cam.zoomTarget }, chron: chron.save() };
       const top = [...life.reg.values()].filter((s) => s.alive && s.established).sort((a, b) => b.pop - a.pop);
       const meta = {
         id: `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
@@ -25060,6 +27137,7 @@ ${e.message}` : String(e?.message || e));
       if (page) {
         Object.assign(life, page.life, { lastCensus: null });
         Object.assign(climate, page.climate);
+        chron.load(page.chron);
         if (climate.announced && climate.excursion && climate.announced.t === climate.excursion.t) climate.announced = climate.excursion;
         cam.x = page.cam.x;
         cam.y = page.cam.y;
@@ -25069,6 +27147,7 @@ ${e.message}` : String(e?.message || e));
       sound.reset(climate.music, climate.name);
       lab.reset();
       specimen.reset();
+      cards.reset();
       deselect();
       clearFocus();
       feedKey = "";
@@ -25519,11 +27598,47 @@ ${e.message}` : String(e?.message || e));
         }
         drawWorldChart();
       }
+      tellStories(c);
       if (focus.key && focus.pred) pushFocus();
       renderWorld();
       lab.render(false);
       if (sel || spView != null) dirty = true;
     };
+    const slotSerial = new Uint32Array(MAXK);
+    function tellStories(c) {
+      if (c.spl) for (let s = FIRST_LIFE; s < MAXK; s++) slotSerial[s] = c.pop[s] ? genomeSerial(c.genomeU32, s) : 0;
+      const x = climate.excursion, t2 = c.simTime;
+      const told = chron.observe({
+        t: t2,
+        now: performance.now(),
+        reg: life.reg,
+        genera: life.genera,
+        living: life.counts[3],
+        stone: life.counts[4],
+        count: eng.count,
+        est: life.estThreshold,
+        founders: eng.founders,
+        slotSerial: c.spl ? slotSerial : null,
+        spl: c.spl || null,
+        temp: eng.tbg,
+        light: eng.ambient,
+        world: eng.grid,
+        era: climate.name,
+        event: climate.event && climate.phase ? { type: climate.event.type, phase: climate.phase } : null,
+        excursion: x && t2 >= x.t && t2 <= x.t + x.dur ? x : null,
+        focus: spView != null ? spView : sel && sel.particle && sel.particle.kind >= FIRST_LIFE ? genomeFor(sel.particle.kind)?.serial : null
+      });
+      for (const s of told) {
+        pushEvent(s.html, s.col, "story");
+        const sp = s.subjects.map((k) => life.reg.get(k)).find((k) => k && k.alive);
+        if (sp) director.spotlight(sp.slot, sp.serial, { story: s.text });
+      }
+      const w = chron.watch();
+      if (w.version !== watchVer) {
+        watchVer = w.version;
+        eng.setWatch(w.version, watchMap(w, life.reg, watchSlots));
+      }
+    }
     let torpidPrev = null;
     function torpidShare(c) {
       const e = c.energy, now = [e[56], e.slice(40, 56).reduce((a, b) => a + b, 0)];
@@ -25582,7 +27697,9 @@ ${e.message}` : String(e?.message || e));
       const key = `${ch.length}:${ch[0] ? ch[0].t : 0}`;
       if (key === feedKey) return;
       feedKey = key;
-      $("feed").innerHTML = ch.length ? ch.slice(0, 40).map((e) => `<li><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join("") : '<li class="quiet">New species, extinctions and eras are logged here.</li>';
+      const feedEl = $("feed");
+      feedEl.innerHTML = ch.length ? ch.slice(0, 40).map((e) => `<li${e.type === "story" ? ' class="story"' : ""}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join("") : '<li class="quiet">New species, extinctions and eras are logged here, and now and then the chronicler’s stories.</li>';
+      relabel(feedEl);
     }
     $("feed-all").addEventListener("click", () => lab.open("log"));
     let sel = null;
@@ -25647,12 +27764,12 @@ ${e.message}` : String(e?.message || e));
       beginTracking(chosen, res);
       closeMenus();
     }
-    function beginTracking(p, res, keepStory, film = false) {
+    function beginTracking(p, res, keepStory, film2 = false) {
       const oldStory = keepStory && sel ? sel.story : [];
       spView = null;
-      sel = { id: p.id, particle: p, sampleT: res.simTime ?? eng.simTime, nbr: res, disp: [p.x, p.y], err: [0, 0], dispT: null, box: null, boxD: null, lost: false, story: oldStory, memory: null, org: null, orgFirst: null, orgNear: null, members: null, rehome: null, diedAt: null, lastOrg: -1e9, lastNbr: -1e9, film, filmFor: film ? p.id : null };
+      sel = { id: p.id, particle: p, sampleT: res.simTime ?? eng.simTime, nbr: res, disp: [p.x, p.y], err: [0, 0], dispT: null, box: null, boxD: null, lost: false, story: oldStory, memory: null, org: null, orgFirst: null, orgNear: null, members: null, rehome: null, diedAt: null, lastOrg: -1e9, lastNbr: -1e9, film: film2, filmFor: film2 ? p.id : null };
       eng.trackId = p.id;
-      if (film) specimen.close();
+      if (film2) specimen.close();
       else specimen.open();
       setMembers(null);
       if (p.kind >= FIRST_LIFE) {
@@ -25973,7 +28090,129 @@ ${e.message}` : String(e?.message || e));
         else focusSpecies(sp);
       },
       onClose: deselect,
-      onPlaySong: playSong
+      onPlaySong: playSong,
+      onCard: () => {
+        const serial = spView != null ? spView : sel && sel.particle && sel.particle.kind >= FIRST_LIFE ? genomeFor(sel.particle.kind)?.serial : null;
+        if (serial != null && life.reg.has(serial)) cards.open(serial);
+      }
+    });
+    let portraitJob = null, portraitHold = false;
+    const PORTRAIT = 1024;
+    async function takePortrait(serial) {
+      const sp = life.reg.get(serial);
+      if (!sp || !sp.alive) return null;
+      portraitHold = true;
+      setTimeout(() => {
+        if (!portraitJob) portraitHold = false;
+      }, 5e3);
+      const m = await bestMember(sp).catch(() => null);
+      if (!m) {
+        portraitHold = false;
+        return null;
+      }
+      const [W, H2] = eng.grid, { best, res } = m;
+      let cx = best.x, cy = best.y;
+      if (m.body && m.body.length > 1) {
+        let sx = 0, sy = 0;
+        for (const k of m.body) {
+          sx += wrapD2(res.raw.f32[k * PICK_WORDS] - best.x, W);
+          sy += wrapD2(res.raw.f32[k * PICK_WORDS + 1] - best.y, H2);
+        }
+        cx += sx / m.body.length;
+        cy += sy / m.body.length;
+      }
+      const span2 = clamp6(m.span * 2.6 + 0.6, 1.6, 9);
+      if (portraitJob) portraitJob.resolve(null);
+      const subject = clamp6(((m.body ? m.span : 0) + 0.12 * sp.genome.size + 0.08) / (span2 / 2), 0.08, 0.95);
+      return new Promise((resolve) => {
+        portraitJob = { cx, cy, vx: m.body ? 0 : best.vx, vy: m.body ? 0 : best.vy, t: res.simTime, ppu: PORTRAIT / span2, subject, resolve, at: performance.now() };
+      });
+    }
+    function portraitParams() {
+      const j = portraitJob;
+      if (!j || j.drawn) return null;
+      if (performance.now() - j.at > 4e3) {
+        portraitJob = null;
+        portraitHold = false;
+        j.resolve(null);
+        return null;
+      }
+      const d = device;
+      j.tex ??= d.createTexture({ size: [PORTRAIT, PORTRAIT], format: eng.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+      const dt = Math.min(2, Math.max(0, eng.simTime - j.t));
+      const [W, H2] = eng.grid;
+      j.drawn = true;
+      return { target: j.tex.createView(), w: PORTRAIT, h: PORTRAIT, cx: ((j.cx + j.vx * dt) % W + W) % W, cy: ((j.cy + j.vy * dt) % H2 + H2) % H2, ppu: j.ppu, dpr: 1 };
+    }
+    async function readPortrait() {
+      const j = portraitJob;
+      if (!j || !j.drawn || j.reading) return;
+      j.reading = true;
+      const d = device, row = PORTRAIT * 4;
+      const buf = d.createBuffer({ size: row * PORTRAIT, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+      const enc = d.createCommandEncoder();
+      enc.copyTextureToBuffer({ texture: j.tex }, { buffer: buf, bytesPerRow: row }, [PORTRAIT, PORTRAIT]);
+      d.queue.submit([enc.finish()]);
+      try {
+        await buf.mapAsync(GPUMapMode.READ);
+        const px = new Uint8ClampedArray(buf.getMappedRange().slice(0));
+        buf.unmap();
+        if (eng.format.startsWith("bgra")) for (let i = 0; i < px.length; i += 4) {
+          const b = px[i];
+          px[i] = px[i + 2];
+          px[i + 2] = b;
+        }
+        for (let i = 3; i < px.length; i += 4) px[i] = 255;
+        const cv = document.createElement("canvas");
+        cv.width = cv.height = PORTRAIT;
+        cv.getContext("2d").putImageData(new ImageData(px, PORTRAIT, PORTRAIT), 0, 0);
+        cv.subject = j.subject;
+        j.resolve(cv);
+      } catch {
+        j.resolve(null);
+      }
+      buf.destroy();
+      j.tex.destroy();
+      if (portraitJob === j) {
+        portraitJob = null;
+        portraitHold = false;
+      }
+    }
+    function renameSpecies(serial, name) {
+      const sp = life.reg.get(serial);
+      if (!sp) return;
+      sp.binomial ??= sp.name;
+      sp.name = name || sp.binomial;
+      sp.given = !!name;
+      life.renamed ??= /* @__PURE__ */ new Map();
+      life.renamed.set(serial, true);
+      specimen.invalidate();
+      dirty = true;
+      feedKey = "";
+      renderFeed();
+      lab.render(true);
+      flash(name ? `Named ${name}` : `${sp.name} again`);
+    }
+    function relabel(root) {
+      if (!life.renamed || !life.renamed.size) return;
+      for (const a of root.querySelectorAll("a.sp[data-serial]")) {
+        const serial = +a.dataset.serial;
+        if (life.renamed.has(serial)) {
+          const sp = life.reg.get(serial);
+          if (sp && a.textContent !== sp.name) a.textContent = sp.name;
+        }
+      }
+    }
+    const cards = createCards({
+      life: () => life,
+      K,
+      chron,
+      climate: () => climate,
+      eng,
+      flash,
+      portrait: takePortrait,
+      rename: renameSpecies,
+      songClip: (g) => songClip(g, { seed: climate.music, era: climate.name })
     });
     function renderSpecimen(force) {
       if (!sel && spView == null || sel && sel.film) return;
@@ -25995,17 +28234,12 @@ ${e.message}` : String(e?.message || e));
       if (sp.alive) focusSpecies(sp);
       renderSpecimen(true);
     }
-    async function findMember(serial) {
-      const sp = life.reg.get(serial);
-      if (!sp || !sp.alive) return;
+    async function bestMember(sp) {
       const [W, H2] = eng.grid;
       const res = await eng.requestPick([W / 2, H2 / 2], Math.hypot(W, H2), NONE2, { kind: sp.slot, maxOut: sp.pop * 1.25 + 2048, raw: true });
-      if (!res || !res.raw.count) {
-        flash("No living cells found");
-        return;
-      }
+      if (!res || !res.raw.count) return null;
       const { u32, f32, count: n } = res.raw;
-      let bestI = 0;
+      let bestI = 0, body = null;
       if ((sp.genome.adhesion || 0) > K.adhMin) {
         const claimed = new Uint8Array(n);
         let bestN = 0;
@@ -26019,6 +28253,7 @@ ${e.message}` : String(e?.message || e));
           if (tb.body.length > bestN) {
             bestN = tb.body.length;
             bestI = i;
+            body = tb.body;
           }
         }
       } else {
@@ -26034,6 +28269,19 @@ ${e.message}` : String(e?.message || e));
         }
       }
       const best = parseParticle(u32, f32, bestI * PICK_WORDS);
+      let span2 = 0;
+      if (body) for (const k of body) span2 = Math.max(span2, Math.hypot(wrapD2(f32[k * PICK_WORDS] - best.x, W), wrapD2(f32[k * PICK_WORDS + 1] - best.y, H2)));
+      return { best, res, span: span2, body };
+    }
+    async function findMember(serial) {
+      const sp = life.reg.get(serial);
+      if (!sp || !sp.alive) return;
+      const m = await bestMember(sp);
+      if (!m) {
+        flash("No living cells found");
+        return;
+      }
+      const { best, res } = m;
       takeOver();
       if (cssPPU() < 18) {
         cam.zoomTarget = clamp6(18 * dpr / fitPPU(), 1, maxZoom());
@@ -26089,7 +28337,8 @@ ${e.message}` : String(e?.message || e));
       openSpecies,
       focusFacet,
       focusKey: () => focus.key,
-      focusPredicate: (label3, pred) => setFocus(`pred:${label3}`, label3, { pred })
+      focusPredicate: (label3, pred) => setFocus(`pred:${label3}`, label3, { pred }),
+      relabel: (el) => relabel(el)
     });
     $("lab-open").addEventListener("click", () => {
       closeMenus();
@@ -26106,7 +28355,7 @@ ${e.message}` : String(e?.message || e));
       const kfmt = (n) => n >= 1048576 ? `${+(n / 1048576).toFixed(1)}M` : `${Math.round(n / 1024)}k`;
       function display() {
         const s = eng.settings;
-        return group("look", "", choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "D", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe")) + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks")) + group("sound", "Sound", onoff("sound", "Soundtrack", "S", sound.on) + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>`);
+        return group("look", "", choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "D", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe")) + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", "Film")} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === "idle" ? '<button type="button" class="chip" data-o="film" data-v="now">30 s now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : "")) + group("sound", "Sound", onoff("sound", "Soundtrack", "S", sound.on) + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>`);
       }
       function performance_() {
         const s = eng.settings, P = state.perf;
@@ -26245,7 +28494,7 @@ ${e.message}` : String(e?.message || e));
           eng.maxScan = K.maxScan;
           renderScale = Math.max(renderScale, P.floor);
           resetAdapt();
-          fit2();
+          fit3();
           pendingN = P.particles ? "auto" : null;
         }
       }
@@ -26312,6 +28561,10 @@ ${e.message}` : String(e?.message || e));
           if (!climate.event) climate.force(v);
           toggle(false);
           return;
+        } else if (id === "film") {
+          toggle(false);
+          filmAct(v === "stop" ? void 0 : v);
+          return;
         } else if (id.startsWith("ev-")) {
           state.events[id.slice(3)] = !!+v;
           applyEvents();
@@ -26324,16 +28577,16 @@ ${e.message}` : String(e?.message || e));
           if (P.scale !== "auto") renderScale = P.scale;
           else renderScale = Math.max(renderScale, P.floor);
           resetAdapt();
-          fit2();
+          fit3();
         } else if (id === "floor") {
           P.floor = +v;
           renderScale = Math.max(renderScale, P.floor);
           resetAdapt();
-          fit2();
+          fit3();
         } else if (id === "density") {
           P.density = +v;
           resetAdapt();
-          fit2();
+          fit3();
         } else if (id === "fps") {
           P.fps = +v;
           resetAdapt();
@@ -26657,11 +28910,13 @@ ${e.message}` : String(e?.message || e));
       } else if (k === "c" || k === "C") {
         if (sel) toggleFollow();
       } else if (k === "a" || k === "A") playAuto();
+      else if (k === "r" || k === "R") filmAct();
       else if (k === "s" || k === "S") toggleSound();
       else if (k === "-" || k === "_") nudgeVolume(-0.1);
       else if (k === "=" || k === "+") nudgeVolume(0.1);
       else if (k === "Escape") {
-        if (!$("help").hidden) toggleHelp(false);
+        if (cards.isOpen()) cards.close();
+        else if (!$("help").hidden) toggleHelp(false);
         else if (view.isOpen()) view.toggle(false);
         else if (sel || spView != null) deselect();
         else if (focus.key) clearFocus();
@@ -27481,6 +29736,10 @@ ${e.message}` : String(e?.message || e));
       if (f2.kind === 3) return [f2.cause === 2 ? "died of old age" : "starved", "its skeleton is now stone"];
       return [f2.cause === 2 ? "died of old age" : f2.cause === 3 ? "was killed" : "starved", "its body is now a husk"];
     }
+    const storyLine = (text) => {
+      const first = text.match(/^.*?\.(?=\s|$)/)?.[0] || text;
+      return first.length <= 140 ? first : `${first.slice(0, first.lastIndexOf(" ", 136))}…`;
+    };
     function captionHtml(w, going) {
       const r = (w.reasons || []).map((x) => REASON[x.key]);
       const note = (x) => upper(typeof x[1] === "function" ? x[1](w.div) : x[1]);
@@ -27514,6 +29773,9 @@ ${e.message}` : String(e?.message || e));
         if (!w.seen && w.signal) {
           eyebrow = "Searching";
           main = "For the source of a signal";
+        } else if (!w.seen && w.story) {
+          eyebrow = "Searching";
+          main = "For a species in the chronicle";
         } else if (!w.seen) {
           eyebrow = w.spotlight ? "Searching" : "Exploring";
           main = w.spotlight ? "For a new species" : "Moving to a new area";
@@ -27522,6 +29784,10 @@ ${e.message}` : String(e?.message || e));
           eyebrow = "Answering a signal";
           main = upper(organism(w));
           sub = spDesc(w.serial);
+        } else if (w.story) {
+          eyebrow = "From the chronicle";
+          main = upper(organism(w));
+          sub = esc(storyLine(w.story));
         } else if (w.spotlight) {
           eyebrow = "Following a new species";
           main = upper(organism(w));
@@ -27608,6 +29874,68 @@ ${e.message}` : String(e?.message || e));
       cam.zoom = cam.zoomTarget = clamp6(wMax / v.w, 1, maxZoom());
       cam.anchor = null;
     }
+    const filmBtn = $("film");
+    const film = createFilm({
+      canvas,
+      overlay,
+      caption: capEl,
+      audio: () => sound.playing ? sound.stream() : null,
+      title: () => `TIDEMOTE · ${fmtClock(eng.simTime)} · ${climate.name}`,
+      name: () => `tidemote-${fmtClock(eng.simTime).replace(/:/g, "-")}`,
+      onChange: renderFilm,
+      onSaved: (blob, name) => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        document.body.append(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1e4);
+        flash("Film saved");
+      }
+    });
+    let filmArmedShot = null;
+    function filmAct(how = director.active ? "scene" : "now") {
+      if (!film.supported) {
+        flash("This browser cannot record the view");
+        return;
+      }
+      if (film.state !== "idle") {
+        film.stop();
+        flash(film.state === "idle" ? "Filming called off" : "Film stopped");
+        return;
+      }
+      if (how === "scene") {
+        if (!director.active) startAuto(false);
+        filmArmedShot = director.shot ? director.shot.id : null;
+        film.arm();
+        flash("Filming the camera’s next scene");
+      } else if (film.start(30)) flash("Filming 30 seconds");
+    }
+    function renderFilm() {
+      if (!filmBtn) return;
+      const s = film.state;
+      filmBtn.classList.toggle("armed", s === "armed");
+      filmBtn.classList.toggle("rolling", s === "recording");
+      filmBtn.setAttribute("aria-pressed", String(s !== "idle"));
+      filmBtn.setAttribute("aria-label", s === "idle" ? "Film thirty seconds" : s === "armed" ? "Waiting for the next scene: stop" : "Filming: stop");
+      filmBtn.dataset.hint = s === "idle" ? director.active ? "Film the next scene · R" : "Film 30 s · R" : "Stop · R";
+      $("film-v").textContent = s === "recording" ? `0:${String(Math.ceil(film.left())).padStart(2, "0")}` : s === "armed" ? "Wait" : "Film";
+    }
+    if (film.supported && filmBtn) {
+      filmBtn.hidden = false;
+      filmBtn.addEventListener("click", () => filmAct());
+      renderFilm();
+    }
+    function filmTick() {
+      if (film.state === "armed") {
+        const sh = director.active ? director.shot : null;
+        if (!director.active) {
+          film.start(30);
+        } else if (sh && sh.id !== filmArmedShot && sh.type !== "settle") film.start(30);
+      }
+      if (film.state === "recording") renderFilm();
+    }
     let last = performance.now();
     let frameCount = 0;
     let inflight = 0;
@@ -27677,7 +30005,7 @@ ${e.message}` : String(e?.message || e));
       frameCount++;
       if (resizeDue) {
         resizeDue = false;
-        fit2();
+        fit3();
       }
       rafDt.push(dt);
       if (rafDt.length >= 60) {
@@ -27715,7 +30043,7 @@ ${e.message}` : String(e?.message || e));
         if (perf.lastSubmit) perf.frameDt.push(Math.min(Math.max(50, frameTarget() * 2.5), now - perf.lastSubmit));
         perf.lastSubmit = now;
         eng.season = seasonAt(eng.simTime);
-        const step = plan(now) || { steps: 0, dt: H };
+        const step = !portraitHold && plan(now) || { steps: 0, dt: H };
         eng.censusEvery = Math.max(20, Math.round(step.steps * 1e3 / frameTarget() / 5));
         viewSimTime = eng.simTime + (state.paused ? 0 : step.steps * step.dt);
         if (state.phase === "running" && !state.paused) climate.tick(step.steps * step.dt);
@@ -27753,7 +30081,7 @@ ${e.message}` : String(e?.message || e));
         viewSimTime = cur.t;
         specimen.drawViewerUI(now);
         specimen.mindTick(now);
-        const hold = (state.speed === Infinity || perf.held) && !state.paused && state.phase === "running" ? !!step.world : null;
+        const hold = (state.speed === Infinity || perf.held) && !state.paused && !portraitHold && state.phase === "running" ? !!step.world : null;
         eng.frame({
           target: ctx.getCurrentTexture().createView(),
           cam: { x: cam.x, y: cam.y, ppu: ppu() },
@@ -27765,9 +30093,12 @@ ${e.message}` : String(e?.message || e));
           selId: sel ? sel.id : NONE2,
           loupe: L ? { x: L.sx * dpr, y: L.sy * dpr, r: L.R * dpr, ppu: L.cssPPU * dpr, cx: L.cx, cy: L.cy } : null,
           // the close-up only when the world is drawn: a canvas not given a new texture keeps its last image
-          specimen: hold === false ? null : specimenParams(),
+          // (a species card's portrait takes the close-up's place for one frame)
+          specimen: hold === false ? null : portraitParams() || specimenParams(),
           hold
         });
+        if (portraitJob && portraitJob.drawn) readPortrait();
+        film.frame();
         inflight++;
         const sent = cur;
         device.queue.onSubmittedWorkDone().then(() => {
@@ -27779,6 +30110,7 @@ ${e.message}` : String(e?.message || e));
         if (sel && frameCount % 10 === 0 && !state.paused) gatherTick(false);
       }
       if (dirty && (sel || spView != null)) renderSpecimen(false);
+      filmTick();
       if (specimen.isOpen()) specimen.songTick(performance.now(), songEvents);
       renderFeed();
       lab.render(false);
@@ -27809,11 +30141,16 @@ ${e.message}` : String(e?.message || e));
       setSpeed,
       findMember,
       deselect,
+      chron,
+      cards,
+      film,
+      filmAct,
+      openSpecies,
       setScale(v) {
         state.perf.scale = v;
         if (v !== "auto") renderScale = v;
         resetAdapt();
-        fit2();
+        fit3();
       },
       // as the adaptive scale does it: applied when the next frame begins
       queueScale(v) {

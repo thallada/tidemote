@@ -38,9 +38,13 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
 const axe = fs.readFileSync(path.resolve('node_modules/axe-core/axe.min.js'), 'utf8');
 
+// on Linux without a display: headless Playwright Chromium on the GPU through Vulkan (TIDEMOTE_VK_LAYER, docs/headless-gpu.md)
+const vk = process.env.TIDEMOTE_VK_LAYER;
 const browser = await chromium.launch({
-  executablePath: chrome, headless: false,
-  args: ['--enable-unsafe-webgpu', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--no-first-run'],
+  executablePath: chrome, headless: !!vk,
+  ...(vk ? { ignoreDefaultArgs: ['--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader'], env: { ...process.env, VK_ADD_LAYER_PATH: vk, VK_INSTANCE_LAYERS: 'VK_LAYER_TIDEMOTE_headless' } } : {}),
+  args: ['--enable-unsafe-webgpu', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--no-first-run',
+    ...(vk ? ['--enable-features=Vulkan', '--use-angle=vulkan', '--ignore-gpu-blocklist', '--disable-vulkan-surface'] : [])],
 });
 
 // measured in the page: everything the reader sees and presses
@@ -130,11 +134,16 @@ for (const s of SIZES) {
     localStorage.clear();
     localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0.7 }));
   });
+  // the first adapter asked for in a headless page can come back null: ask once more
+  if (vk) await ctx.addInitScript(() => { const req = navigator.gpu.requestAdapter.bind(navigator.gpu); navigator.gpu.requestAdapter = async (o) => (await req(o)) || req(o); });
   const page = await ctx.newPage();
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text().slice(0, 200)); });
   await page.goto(`${base}/tidemote.html`);
+  await page.waitForFunction(() => globalThis.__tidemote?.state.phase === 'running', null, { polling: 250, timeout: 120000 });
+  // without a user gesture (headless) the page holds the world on its intro: a key lets it begin
+  if (vk) await page.keyboard.press('Shift');
   await page.waitForFunction(() => globalThis.__tidemote?.state.phase === 'running' && document.body.classList.contains('live'), null, { polling: 250, timeout: 120000 });
   await page.waitForTimeout(settle * 1000);
   const rec = report.sizes[s.id] = { ...s, states: {}, errors: errs };
@@ -166,7 +175,19 @@ for (const s of SIZES) {
   } else {
     rec.axeCell = await axeRun(page);
   }
+  // the species card of the cell's species (its portrait taken), then the chronicler's log
+  // (an older build, --page, may have no cards)
+  if (await page.evaluate(() => !!globalThis.__tidemote.cards)) {
+    await page.evaluate(() => { const T = globalThis.__tidemote, life = T.life(); const sp = [...life.reg.values()].filter((x) => x.alive).sort((a, b) => b.pop - a.pop)[0]; if (sp) T.cards.open(sp.serial); });
+    await page.waitForTimeout(2500);
+    await snap('card');
+    if (!s.touch) rec.axeCard = await axeRun(page);
+    await page.evaluate(() => globalThis.__tidemote.cards.close());
+  }
   await page.evaluate(() => globalThis.__tidemote.deselect());
+  await page.evaluate(() => { globalThis.__tidemote.lab.open('log'); document.querySelector('[data-k="logType"][data-v="story"]')?.click(); });
+  await snap('log');
+  if (s.touch) await page.evaluate(() => globalThis.__tidemote.lab.close()); else await page.evaluate(() => globalThis.__tidemote.lab.narrow());
   await open('#set-btn, [aria-controls="settings"]');
   await snap('settings');
   await ctx.close();
@@ -183,6 +204,6 @@ for (const [id, r] of Object.entries(report.sizes)) {
       + `  hscroll: ${m.hscroll ? 'YES' : 'no'}  offscreen: ${m.offscreen.map((o) => o.id).join(',') || '-'}  clipped: ${m.clipped.length}`
       + (m.boxes.specBody ? `  spec scroll h: ${m.boxes.specBody.h}` : '') + (m.compass ? `  compass: ${m.compass.ok ? 'ok' : `HIDDEN (${m.compass.compassBottom} > ${m.compass.visibleBottom})`}` : ''));
   }
-  for (const a of [...(r.axe || []), ...(r.axeCell || [])]) console.log(`  axe ${a.impact} ${a.id} ×${a.n}: ${a.help}`);
+  for (const a of [...(r.axe || []), ...(r.axeCell || []), ...(r.axeCard || [])]) console.log(`  axe ${a.impact} ${a.id} ×${a.n}: ${a.help}`);
 }
 console.log(`\n${out}`);

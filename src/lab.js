@@ -471,7 +471,7 @@ export function createLab(api) {
   }
 
   // ---------------------------------------------------------- log
-  const TYPES = [['all', 'All'], ['est', 'New species'], ['genus', 'New genera'], ['ext', 'Extinctions'], ['top', 'Dominance'], ['era', 'Eras'], ['pond', 'The pool'], ...(api.eng.K.heat ? [['heat', 'Heat']] : [])];
+  const TYPES = [['all', 'All'], ['story', 'Chronicler'], ['est', 'New species'], ['genus', 'New genera'], ['ext', 'Extinctions'], ['top', 'Dominance'], ['era', 'Eras'], ['pond', 'The pool'], ...(api.eng.K.heat ? [['heat', 'Heat']] : [])];
   function buildLog() {
     const p = pane(`<input type="search" id="log-q" placeholder="Search the log" aria-label="Search the log" autocomplete="off">
       <div class="row" role="group" aria-label="Show">${chips('logType', TYPES, st.logType)}</div>`);
@@ -494,7 +494,9 @@ export function createLab(api) {
       const ev = ch.filter((e) => (st.logType === 'all' || e.type === st.logType) && (!st.logQ || e.text.toLowerCase().includes(st.logQ.toLowerCase())));
       // keep what the reader is looking at in place as new entries arrive on top
       const before = list.scrollHeight, top = p.scroll.scrollTop;
-      list.innerHTML = ev.length ? ev.slice(0, 400).map((e) => `<li><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join('') : '<li style="display:block;border:0" class="note">Nothing yet.</li>';
+      list.innerHTML = ev.length ? ev.slice(0, 400).map((e) => `<li${e.type === 'story' ? ' class="story"' : ''}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join('')
+        : `<li style="display:block;border:0" class="note">${st.logType === 'story' ? 'The chronicler speaks rarely, only when something notable has happened: a death worth remembering, an arms race, a cycle of boom and bust, a lineage following the water. Nothing yet.' : 'Nothing yet.'}</li>`;
+      api.relabel?.(list);
       if (top > 0 && !force) p.scroll.scrollTop = top + (list.scrollHeight - before);
     }
     return { ...p, update };

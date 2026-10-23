@@ -1,0 +1,33 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { cardData, CARD_W, CARD_H } from '../src/card.js';
+import { archetypeGenome, finalizeGenome } from '../src/genome.js';
+import { DEFAULT_K } from '../src/shaders.js';
+
+const rng = (s) => () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
+const sp = (serial, type, extra = {}) => {
+  const g = finalizeGenome(archetypeGenome(type, rng(serial)));
+  g.serial = serial;
+  return { serial, genome: g, name: `Thax ${type}`, genus: 'Thax', pop: 400, peak: 900, alive: true, established: true, born: 60, ancestor: null, founder: false, ...extra };
+};
+
+test('a card is shaped like a trading card', () => {
+  assert.ok(Math.abs(CARD_W / CARD_H - 5 / 7) < 0.01);
+});
+
+test('a card says how a species lives, where it came from and what the chronicler said', () => {
+  const a = sp(30, 'grazer', { founder: true }), b = sp(31, 'grazer', { ancestor: 30 }), c = sp(40, 'hunter', { ancestor: 31, name: 'Little Wanderer', binomial: 'Thax hunter', given: true });
+  const reg = new Map([[30, a], [31, b], [40, c]]);
+  const d = cardData(c, { reg, genera: new Map(), K: { ...DEFAULT_K, heat: 1 }, story: { text: 'It was hunted down.' }, simTime: 3600, era: 'The Bitter Hush', founders: 24, living: 4000 });
+  assert.equal(d.name, 'Little Wanderer');
+  assert.equal(d.binomial, 'Thax hunter');
+  assert.ok(d.given);
+  assert.deepEqual(d.lineage, ['Thax grazer', 'Thax grazer']);
+  assert.equal(d.story, 'It was hunted down.');
+  assert.ok(d.facts.some(([k]) => k === 'Diet') && d.facts.some(([k]) => k === 'Water'));
+  assert.match(d.status, /400 cells · 10\.0% of life/);
+  assert.match(d.when, /1:00:00 · The Bitter Hush/);
+  const gone = cardData({ ...a, alive: false, extinct: 600 }, { reg, genera: new Map(), K: DEFAULT_K, founders: 24 });
+  assert.match(gone.status, /extinct at 10:00/);
+  assert.match(gone.origin, /sparked from silt/);
+});

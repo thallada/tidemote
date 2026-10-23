@@ -6,15 +6,23 @@ import fs from 'node:fs'; import path from 'node:path'; import http from 'node:h
 import { chromium } from 'playwright-core';
 const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); fs.createReadStream(path.resolve('dist/tidemote.html')).pipe(res); });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const browser = await chromium.launch({ executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: false, args: ['--enable-unsafe-webgpu'] });
+// on Linux without a display: headless Playwright Chromium on the GPU through Vulkan (TIDEMOTE_VK_LAYER, docs/headless-gpu.md)
+const vk = process.env.TIDEMOTE_VK_LAYER;
+const browser = await chromium.launch(vk ? {
+  headless: true, ignoreDefaultArgs: ['--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader'], env: { ...process.env, VK_ADD_LAYER_PATH: vk, VK_INSTANCE_LAYERS: 'VK_LAYER_TIDEMOTE_headless' },
+  args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-angle=vulkan', '--ignore-gpu-blocklist', '--disable-vulkan-surface'],
+} : { executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: false, args: ['--enable-unsafe-webgpu'] });
 let bad = 0;
 const check = (name, ok, extra = '') => { if (!ok) bad++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name} ${extra}`); };
 for (const touch of [false, true]) {
   const ctx = await browser.newContext(touch ? { viewport: { width: 390, height: 700 }, hasTouch: true, isMobile: true, deviceScaleFactor: 3 } : { viewport: { width: 1366, height: 657 } });
   await ctx.addInitScript(() => { if (sessionStorage.getItem('i')) return; sessionStorage.setItem('i', '1'); localStorage.clear(); localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0.7 })); });
+  if (vk) await ctx.addInitScript(() => { const req = navigator.gpu.requestAdapter.bind(navigator.gpu); navigator.gpu.requestAdapter = async (o) => (await req(o)) || req(o); });
   const page = await ctx.newPage();
   const errs = []; page.on('pageerror', (e) => errs.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
+  await page.waitForFunction(() => globalThis.__tidemote?.state.phase === 'running', null, { polling: 250, timeout: 120000 });
+  if (vk) await page.keyboard.press('Shift'); // headless, the intro waits for a key
   await page.waitForFunction(() => globalThis.__tidemote?.state.phase === 'running' && document.body.classList.contains('live'), null, { polling: 250, timeout: 120000 });
   await page.waitForTimeout(10000);
   const tag = touch ? '[phone]' : '[laptop]';
@@ -35,6 +43,35 @@ for (const touch of [false, true]) {
       await page.waitForTimeout(600);
       const b = await page.evaluate(() => ({ spec: !document.getElementById('spec').hidden, focus: !document.getElementById('focus').hidden }));
       check(`${tag} second click on the same species clears both`, !b.spec && !b.focus, JSON.stringify(b));
+    }
+  }
+  if (!touch) {
+    // a species card from the specimen panel: named with Enter, the name everywhere; Esc closes it
+    await page.evaluate(() => { const T = globalThis.__tidemote, sp = [...T.life().reg.values()].filter((x) => x.alive && x.established).sort((a, b) => b.pop - a.pop)[0]; T.openSpecies(sp.serial); });
+    await page.waitForTimeout(500);
+    await page.click('#spec-acts [data-act="card"]');
+    await page.waitForTimeout(2500);
+    check(`${tag} Card opens the species card`, await page.evaluate(() => !document.getElementById('card').hidden));
+    await page.fill('#card-name', 'Tester’s Swimmer');
+    await page.press('#card-name', 'Enter');
+    await page.waitForTimeout(800);
+    const nm = await page.evaluate(() => ({ head: document.getElementById('spec-name').textContent, given: [...globalThis.__tidemote.life().reg.values()].some((x) => x.given && x.name === 'Tester’s Swimmer') }));
+    check(`${tag} a name given on the card renames the species`, nm.given && nm.head === 'Tester’s Swimmer', JSON.stringify(nm));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    check(`${tag} Esc closes the card`, await page.evaluate(() => document.getElementById('card').hidden));
+    await page.keyboard.press('Escape');
+    // Film: R starts thirty seconds, R again stops and saves
+    const film = await page.$('#film');
+    if (film && await film.isVisible()) {
+      await page.keyboard.press('r');
+      await page.waitForTimeout(1500);
+      const st = await page.evaluate(() => ({ s: globalThis.__tidemote.film.state, pressed: document.getElementById('film').getAttribute('aria-pressed') }));
+      check(`${tag} R starts filming`, st.s === 'recording' && st.pressed === 'true', JSON.stringify(st));
+      const dl = page.waitForEvent('download', { timeout: 10000 }).catch(() => null);
+      await page.keyboard.press('r');
+      const d = await dl;
+      check(`${tag} R again stops and saves the film`, !!d && /\.(webm|mp4)$/.test(d.suggestedFilename()), d ? d.suggestedFilename() : 'no download');
     }
   }
   // Settings → Sound → Volume

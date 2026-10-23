@@ -1,6 +1,6 @@
 import {
   simWGSL, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES,
+  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES,
 } from './shaders.js';
 import {
   archetypeGenome, randomGenome, writeGenome, parseParticle,
@@ -18,6 +18,8 @@ export const FOCUS_MAX = 65536;
 const PICK_BYTES = 56 + PICK_MAX * PICK_WORDS * 4;
 const LEDGER_HEAD = META_CLAIM * 4;
 const CENSUS_BYTES = LEDGER_HEAD + MAXK * G_BYTES;
+// every SPL_EVERY-th census also carries the species ledger (SPL_* in shaders.js), for the chronicler
+const SPL_EVERY = 3;
 const LISTEN_BYTES = (LISTEN_HEAD + LISTEN_REC * LISTEN_CAP) * 4;
 const SURVEY_BYTES = SURVEY_MAX_TILES * SURVEY_WORDS * 4;
 export { MAXK, FIRST_LIFE, DEFAULT_K };
@@ -47,7 +49,7 @@ export async function createEngine(device, format, { hasTimestamps = false, K = 
 // in parallel). Their rough compile costs there, in units of about 100 ms, weigh the progress shown.
 // The longest to compile, and not needed to start a world: coarse steps (fast speeds, low frame rates)
 // and the replay of a watched cell's decision.
-const LATE = new Set(['lifeMainCoarse', 'mindMain', 'mindMainCoarse']);
+const LATE = new Set(['lifeMainCoarse', 'mindMain', 'mindMainCoarse', 'rangeMain']);
 const COMPILE_COST = { lifeMain: 26, fsPoint: 15, 'fsPointLive+live': 13, fsComposite: 11, fsLoupe: 8, matterMain: 5 };
 
 class Engine {
@@ -214,6 +216,7 @@ class Engine {
       scanAdd: [6, 7],
       scatterMain: [0, 1, 2, 3, 6, 8, 9, 10, 12, 13, 15],
       censusMain: [11, 12, 13],
+      rangeMain: [0, 1, 11],
       matterMain: [0, 1, 2, 9, 10, 11, 13, 14, 16, 18],
       lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12, 15, 18],
       heatMain: [0, 14, 18, 19],
@@ -285,7 +288,8 @@ class Engine {
         reads: [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: 24, usage: U.COPY_DST | U.MAP_READ }), busy: false })),
       };
     }
-    this.censusStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: CENSUS_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
+    this.censusStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: CENSUS_BYTES + SPL_WORDS * 4, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
+    this.censusN = 0;
     this.pickStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: PICK_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     this.trackStage = [0, 1, 2, 3, 4, 5, 6, 7].map(() => ({ buf: d.createBuffer({ size: 56, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     b.reprojU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
@@ -387,7 +391,8 @@ class Engine {
     // each cell's drawn motion and recent events, by ID (contactGather): only cells in view need a slot
     b.sway = d.createBuffer({ size: Math.min(n, 1 << 20) * SWAY_BYTES, usage: U.STORAGE });
     b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
-    b.ledger = d.createBuffer({ size: (META_CLAIM + n) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    // the claims, then the species ledger (observational, never saved)
+    b.ledger = d.createBuffer({ size: (META_CLAIM + n + SPL_WORDS) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
     // the particles too large to splat (splatMain): the points' draw arguments, then their indices
     b.quads = d.createBuffer({ size: (4 + n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
@@ -714,6 +719,7 @@ class Engine {
     enc.clearBuffer(this.b.thermal, 0, cells * 4);
     enc.clearBuffer(this.b.counts);
     enc.clearBuffer(this.b.ledger, LEDGER_HEAD, n * 4);
+    enc.clearBuffer(this.b.ledger, (META_CLAIM + this.capacity) * 4, SPL_WORDS * 4);
     enc.clearBuffer(this.b.frameCtr);
     const pass = enc.beginComputePass();
     pass.setPipeline(this.cp.seedMain.pipe);
@@ -909,8 +915,10 @@ class Engine {
     const enc = d.createCommandEncoder();
     const keep = { gpu: {} };
     for (const k of ['parts', 'genomes', 'intent', 'ledger', 'thermal']) {
-      keep.gpu[k] = d.createBuffer({ size: b[k].size, usage: U.COPY_SRC | U.COPY_DST });
-      enc.copyBufferToBuffer(b[k], 0, keep.gpu[k], 0, b[k].size);
+      // the ledger without the species ledger at its end (observational: a world's record does not keep it)
+      const size = k === 'ledger' ? (META_CLAIM + this.capacity) * 4 : b[k].size;
+      keep.gpu[k] = d.createBuffer({ size, usage: U.COPY_SRC | U.COPY_DST });
+      enc.copyBufferToBuffer(b[k], 0, keep.gpu[k], 0, size);
     }
     d.queue.submit([enc.finish()]);
     keep.cpu = { simTime: this.simTime, frameNo: this.frameNo, tick: this.tick, season: this.season, abio: this.abio,
@@ -958,6 +966,10 @@ class Engine {
   /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
   writeState({ cpu, gpu }) {
     for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, data);
+    // the species ledger starts afresh with the world put in place
+    const enc = this.device.createCommandEncoder();
+    enc.clearBuffer(this.b.ledger, (META_CLAIM + this.capacity) * 4, SPL_WORDS * 4);
+    this.device.queue.submit([enc.finish()]);
     this.restore({ gpu: {}, cpu });
     this.count = cpu.count; this.grid = [...cpu.grid];
     if (cpu.founders != null) this.founders = cpu.founders;
@@ -1009,7 +1021,18 @@ class Engine {
       diag: u.subarray(META_DIAG, META_CLAIM), genomeU32: new Uint32Array(copy, LEDGER_HEAD), genomeF32: new Float32Array(copy, LEDGER_HEAD) };
   }
 
-  /** On a census step, copy the ledger and genomes into a free staging buffer. */
+  /**
+   * The page's watch map for the species ledger: map[slot] = watched index + 1 (0: not watched), at
+   * most SPL_WATCH species. version comes back with every census that carries the species ledger.
+   */
+  setWatch(version, map) {
+    const w = new Uint32Array(1 + MAXK);
+    w[0] = version >>> 0;
+    w.set(map.subarray(0, MAXK), 1);
+    this.device.queue.writeBuffer(this.b.ledger, (META_CLAIM + this.capacity) * 4, w);
+  }
+
+  /** On a census step, copy the ledger and genomes into a free staging buffer (every SPL_EVERY-th, the species ledger too). */
   _censusCopy(enc) {
     if (this.frameNo % this.censusEvery !== 0) return null;
     const st = this.censusStage.find((s) => !s.busy);
@@ -1017,7 +1040,20 @@ class Engine {
     st.busy = true;
     enc.copyBufferToBuffer(this.b.ledger, 0, st.buf, 0, LEDGER_HEAD);
     enc.copyBufferToBuffer(this.b.genomes, 0, st.buf, LEDGER_HEAD, MAXK * G_BYTES);
-    return { st, simTime: this.simTime, frameNo: this.frameNo };
+    const range = this.cp.rangeMain;
+    const spl = this.censusN++ % SPL_EVERY === 0 && !!range.pipe && !!range.bg && this.count > 0;
+    if (spl) {
+      const base = (META_CLAIM + this.capacity) * 4;
+      // where each species is: sampled afresh (rangeMain)
+      enc.clearBuffer(this.b.ledger, base + SPL_RANGE * 4, (SPL_WORDS - SPL_RANGE) * 4);
+      const pass = enc.beginComputePass();
+      pass.setPipeline(range.pipe);
+      pass.setBindGroup(0, range.bg);
+      pass.dispatchWorkgroups(Math.ceil(Math.min(this.count, SPL_RANGE_SAMPLES) / 256) + 1);
+      pass.end();
+      enc.copyBufferToBuffer(this.b.ledger, base, st.buf, CENSUS_BYTES, SPL_WORDS * 4);
+    }
+    return { st, simTime: this.simTime, frameNo: this.frameNo, spl };
   }
 
   /** Read a census back after its submit. */
@@ -1035,7 +1071,8 @@ class Engine {
           simTime: job.simTime, frameNo: job.frameNo,
           globals: u.subarray(0, 16), slots: u.subarray(META_SLOT, META_SLOT + MAXK), pop: u.subarray(META_POP, META_POP + MAXK),
           demography: u.subarray(META_DEATH, META_DEATH + 64), energy: u.subarray(META_ENERGY, META_ENERGY + 64),
-          genomeU32: new Uint32Array(copy, LEDGER_HEAD), genomeF32: new Float32Array(copy, LEDGER_HEAD),
+          genomeU32: new Uint32Array(copy, LEDGER_HEAD, MAXK * G_BYTES / 4), genomeF32: new Float32Array(copy, LEDGER_HEAD, MAXK * G_BYTES / 4),
+          spl: job.spl ? new Uint32Array(copy, CENSUS_BYTES, SPL_WORDS) : null,
         });
       }
     }).catch(() => { st.busy = false; });

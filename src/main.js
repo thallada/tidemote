@@ -1,4 +1,4 @@
-import { createSound } from './audio/sound.js';
+import { createSound, songClip } from './audio/sound.js';
 import { voiceOf } from './audio/mapping.js';
 import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
@@ -20,6 +20,9 @@ import { PICK_WORDS, WATCH_MAX, stoneGrain } from './shaders.js';
 import { flowAt } from './flow.js';
 import { startLoader } from './loader.js';
 import { Director } from './director.js';
+import { createChronicler, watchMap } from './chronicler.js';
+import { createCards } from './card.js';
+import { createFilm } from './film.js';
 import { parseMind, interpretMind, settleMind } from './mind.js';
 import { fmt, fmtClock, fmtDur, esc, cssCol, clamp, term, spLink, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
 
@@ -304,11 +307,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const lightWord = era.ambient > prevAmb + 0.05 ? 'light rises' : era.ambient < prevAmb - 0.05 ? 'light dims' : 'light holds';
       const waterWord = !K.heat ? '' : ` · water ${era.temp > prevTemp + 1 ? 'warms' : era.temp < prevTemp - 1 ? 'cools' : 'holds'} to ${Math.round(era.temp)}°`;
       pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}%${waterWord} · currents shift`, 0xffa0e3f1, 'era');
+      const prev = climate.history.at(-2);
+      chron.note('era', { t: eng.simTime, name: climate.name, prev: prev && prev.name, reg: life.reg, living: life.counts[3] });
       flash(climate.name, 'New era');
       sound.era(climate.name);
     };
     // the pool's events (docs/catastrophes.md): announced as they begin and turn, and tallied once they have passed
     climate.onEvent = (ev, phase) => {
+      chron.note('event', { t: eng.simTime, type: ev.type, phase, reg: life.reg, living: life.counts[3] });
       const tally = () => {
         const was = ev.before;
         if (!was) return '';
@@ -358,6 +364,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     };
     climate.onExcursion = (x) => {
       if (!K.heat) return;
+      chron.note('excursion', { t: eng.simTime, dT: x.dT, dur: x.dur, reg: life.reg, living: life.counts[3] });
       const wave = x.dT > 0;
       pushEvent(`${wave ? 'A heat wave' : 'A cold snap'}: the water ${wave ? 'rises' : 'falls'} ${Math.abs(x.dT).toFixed(0)}° for ${fmtDur(x.dur)}`, wave ? 0xff3a8aff : 0xffd68a3d, 'heat');
       flash(wave ? 'A heat wave' : 'A cold snap', 'Climate');
@@ -366,6 +373,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ world + life bookkeeping
   let life;
+  // the chronicler (chronicler.js): natural history from the census and the species ledger, told rarely
+  const chron = createChronicler({ K, link: spLink, tune: { debug: (t, all, live) => all.length && globalThis.__tidemote?.chronDebug?.push({ t, all: all.map((c) => [c.kind, +c.rank.toFixed(2), c.html.replace(/<[^>]+>/g, '').slice(0, 90)]), live: live.length }) } });
+  let watchVer = -1;
+  const watchSlots = new Uint32Array(MAXK);
   function resetLife() {
     life = {
       reg: new Map(), genera: new Map(), orphan: new Map(), chronicle: [], history: [], histEvery: 3, lastHist: -1e9,
@@ -373,6 +384,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       estThreshold: 30, births: 0, prevG: null, prevD: null, prevT: 0,
     };
     feedKey = '';
+    chron.reset();
+    watchVer = -1;
     renderFeed();
   }
 
@@ -387,6 +400,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // species serials (and the names drawn from them) start over: drop what the panels built from the last world's
     if (lab) lab.reset();
     if (specimen) specimen.reset();
+    cards.reset();
     life.estThreshold = Math.max(30, Math.round(n * 0.00025));
     deselect();
     clearFocus();
@@ -476,7 +490,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the page's record and the GPU's copy are taken together, before anything awaits
     const { lastCensus, ...keepLife } = life;
     const keepClimate = Object.fromEntries(Object.entries(climate).filter(([, v]) => typeof v !== 'function'));
-    const page = { life: keepLife, climate: keepClimate, cam: { x: cam.x, y: cam.y, zoom: cam.zoomTarget } };
+    const page = { life: keepLife, climate: keepClimate, cam: { x: cam.x, y: cam.y, zoom: cam.zoomTarget }, chron: chron.save() };
     const top = [...life.reg.values()].filter((s) => s.alive && s.established).sort((a, b) => b.pop - a.pop);
     const meta = { id: `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, savedAt: Date.now(),
       simTime: eng.simTime, count: eng.count, thriving: life.thriving, cols: top.slice(0, 4).map((s) => s.genome.col) };
@@ -503,12 +517,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (page) {
       Object.assign(life, page.life, { lastCensus: null });
       Object.assign(climate, page.climate);
+      chron.load(page.chron);
       // the excursion already announced is the one under way (a copy, once saved)
       if (climate.announced && climate.excursion && climate.announced.t === climate.excursion.t) climate.announced = climate.excursion;
       cam.x = page.cam.x; cam.y = page.cam.y;
       cam.zoom = cam.zoomTarget = page.cam.zoom; cam.anchor = null;
     }
-    sound.reset(climate.music, climate.name); lab.reset(); specimen.reset(); deselect(); clearFocus();
+    sound.reset(climate.music, climate.name); lab.reset(); specimen.reset(); cards.reset(); deselect(); clearFocus();
     feedKey = '';
     renderFeed();
     drawWorldChart();
@@ -901,11 +916,36 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (life.history.length > 480) { life.history = life.history.filter((_, i) => i % 2 === 0); life.histEvery *= 2; }
       drawWorldChart();
     }
+    tellStories(c);
     if (focus.key && focus.pred) pushFocus();
     renderWorld();
     lab.render(false);
     if (sel || spView != null) dirty = true;
   };
+
+  // The chronicler reads every census (every third carries the species ledger) and now and then
+  // writes a story into the log; the auto camera goes to see its subject. Its watch list (the species
+  // whose meals the ledger counts) goes to the GPU when it changes.
+  const slotSerial = new Uint32Array(MAXK);
+  function tellStories(c) {
+    if (c.spl) for (let s = FIRST_LIFE; s < MAXK; s++) slotSerial[s] = c.pop[s] ? genomeSerial(c.genomeU32, s) : 0;
+    const x = climate.excursion, t = c.simTime;
+    const told = chron.observe({
+      t, now: performance.now(), reg: life.reg, genera: life.genera, living: life.counts[3], stone: life.counts[4], count: eng.count,
+      est: life.estThreshold, founders: eng.founders, slotSerial: c.spl ? slotSerial : null, spl: c.spl || null,
+      temp: eng.tbg, light: eng.ambient, world: eng.grid, era: climate.name,
+      event: climate.event && climate.phase ? { type: climate.event.type, phase: climate.phase } : null,
+      excursion: x && t >= x.t && t <= x.t + x.dur ? x : null,
+      focus: spView != null ? spView : sel && sel.particle && sel.particle.kind >= FIRST_LIFE ? genomeFor(sel.particle.kind)?.serial : null,
+    });
+    for (const s of told) {
+      pushEvent(s.html, s.col, 'story');
+      const sp = s.subjects.map((k) => life.reg.get(k)).find((k) => k && k.alive);
+      if (sp) director.spotlight(sp.slot, sp.serial, { story: s.text });
+    }
+    const w = chron.watch();
+    if (w.version !== watchVer) { watchVer = w.version; eng.setWatch(w.version, watchMap(w, life.reg, watchSlots)); }
+  }
 
   // the share of the living that were torpid since the last census that read it (the ledger samples
   // each living cell once a second)
@@ -967,7 +1007,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const key = `${ch.length}:${ch[0] ? ch[0].t : 0}`;
     if (key === feedKey) return;
     feedKey = key;
-    $('feed').innerHTML = ch.length ? ch.slice(0, 40).map((e) => `<li><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join('') : '<li class="quiet">New species, extinctions and eras are logged here.</li>';
+    const feedEl = $('feed');
+    feedEl.innerHTML = ch.length ? ch.slice(0, 40).map((e) => `<li${e.type === 'story' ? ' class="story"' : ''}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join('') : '<li class="quiet">New species, extinctions and eras are logged here, and now and then the chronicler’s stories.</li>';
+    relabel(feedEl);
   }
   $('feed-all').addEventListener('click', () => lab.open('log'));
 
@@ -1336,7 +1378,99 @@ function run(eng, device, ctx, specCtx, hasTS) {
     },
     onClose: deselect,
     onPlaySong: playSong,
+    onCard: () => {
+      const serial = spView != null ? spView : sel && sel.particle && sel.particle.kind >= FIRST_LIFE ? genomeFor(sel.particle.kind)?.serial : null;
+      if (serial != null && life.reg.has(serial)) cards.open(serial);
+    },
   });
+
+  // ------------------------------------------------------------ species cards
+  // A card's portrait: one frame of the close-up renderer (the specimen viewer's), aimed at the
+  // species' largest body or densest crowd, read back from an offscreen texture.
+  let portraitJob = null, portraitHold = false;
+  const PORTRAIT = 1024; // a row of its pixels a multiple of 256 bytes, as a texture copy needs
+  async function takePortrait(serial) {
+    const sp = life.reg.get(serial);
+    if (!sp || !sp.alive) return null;
+    portraitHold = true;
+    setTimeout(() => { if (!portraitJob) portraitHold = false; }, 5000);
+    const m = await bestMember(sp).catch(() => null);
+    if (!m) { portraitHold = false; return null; }
+    const [W, H] = eng.grid, { best, res } = m;
+    let cx = best.x, cy = best.y;
+    if (m.body && m.body.length > 1) {
+      let sx = 0, sy = 0;
+      for (const k of m.body) { sx += wrapD(res.raw.f32[k * PICK_WORDS] - best.x, W); sy += wrapD(res.raw.f32[k * PICK_WORDS + 1] - best.y, H); }
+      cx += sx / m.body.length; cy += sy / m.body.length;
+    }
+    // a body fills most of the frame; free cells show a dozen or so across
+    const span = clamp(m.span * 2.6 + 0.6, 1.6, 9);
+    if (portraitJob) portraitJob.resolve(null);
+    // the subject's reach from the centre, as a share of the frame's half-width (the card brackets it)
+    const subject = clamp(((m.body ? m.span : 0) + 0.12 * sp.genome.size + 0.08) / (span / 2), 0.08, 0.95);
+    return new Promise((resolve) => { portraitJob = { cx, cy, vx: m.body ? 0 : best.vx, vy: m.body ? 0 : best.vy, t: res.simTime, ppu: PORTRAIT / span, subject, resolve, at: performance.now() }; });
+  }
+  // the job's frame: drawn in place of the close-up (the frame loop), then copied out once the GPU is done
+  function portraitParams() {
+    const j = portraitJob;
+    if (!j || j.drawn) return null;
+    if (performance.now() - j.at > 4000) { portraitJob = null; portraitHold = false; j.resolve(null); return null; }
+    const d = device;
+    j.tex ??= d.createTexture({ size: [PORTRAIT, PORTRAIT], format: eng.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+    const dt = Math.min(2, Math.max(0, eng.simTime - j.t));
+    const [W, H] = eng.grid;
+    j.drawn = true;
+    return { target: j.tex.createView(), w: PORTRAIT, h: PORTRAIT, cx: ((j.cx + j.vx * dt) % W + W) % W, cy: ((j.cy + j.vy * dt) % H + H) % H, ppu: j.ppu, dpr: 1 };
+  }
+  async function readPortrait() {
+    const j = portraitJob;
+    if (!j || !j.drawn || j.reading) return;
+    j.reading = true;
+    const d = device, row = PORTRAIT * 4;
+    const buf = d.createBuffer({ size: row * PORTRAIT, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const enc = d.createCommandEncoder();
+    enc.copyTextureToBuffer({ texture: j.tex }, { buffer: buf, bytesPerRow: row }, [PORTRAIT, PORTRAIT]);
+    d.queue.submit([enc.finish()]);
+    try {
+      await buf.mapAsync(GPUMapMode.READ);
+      const px = new Uint8ClampedArray(buf.getMappedRange().slice(0));
+      buf.unmap();
+      if (eng.format.startsWith('bgra')) for (let i = 0; i < px.length; i += 4) { const b = px[i]; px[i] = px[i + 2]; px[i + 2] = b; }
+      for (let i = 3; i < px.length; i += 4) px[i] = 255;
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = PORTRAIT;
+      cv.getContext('2d').putImageData(new ImageData(px, PORTRAIT, PORTRAIT), 0, 0);
+      cv.subject = j.subject;
+      j.resolve(cv);
+    } catch { j.resolve(null); }
+    buf.destroy(); j.tex.destroy();
+    if (portraitJob === j) { portraitJob = null; portraitHold = false; }
+  }
+  // a name of the viewer's own (cleared: its own again); the log's older entries follow (relabel)
+  function renameSpecies(serial, name) {
+    const sp = life.reg.get(serial);
+    if (!sp) return;
+    sp.binomial ??= sp.name;
+    sp.name = name || sp.binomial;
+    sp.given = !!name;
+    life.renamed ??= new Map();
+    life.renamed.set(serial, true);
+    specimen.invalidate(); dirty = true; feedKey = ''; renderFeed(); lab.render(true);
+    flash(name ? `Named ${name}` : `${sp.name} again`);
+  }
+  function relabel(root) {
+    if (!life.renamed || !life.renamed.size) return;
+    for (const a of root.querySelectorAll('a.sp[data-serial]')) {
+      const serial = +a.dataset.serial;
+      if (life.renamed.has(serial)) { const sp = life.reg.get(serial); if (sp && a.textContent !== sp.name) a.textContent = sp.name; }
+    }
+  }
+  const cards = createCards({
+    life: () => life, K, chron, climate: () => climate, eng, flash,
+    portrait: takePortrait, rename: renameSpecies,
+    songClip: (g) => songClip(g, { seed: climate.music, era: climate.name }),
+  });
+
   function renderSpecimen(force) {
     if ((!sel && spView == null) || (sel && sel.film)) return;
     dirty = !specimen.render(force);
@@ -1356,15 +1490,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
     renderSpecimen(true);
   }
 
-  // Jump to a living member: for a bonded species, a cell of its largest body; otherwise one in its densest patch.
-  async function findMember(serial) {
-    const sp = life.reg.get(serial);
-    if (!sp || !sp.alive) return;
+  // A living member worth looking at: for a bonded species, a cell of its largest body (and that body's
+  // extent), otherwise one in its densest patch. null if none was found.
+  async function bestMember(sp) {
     const [W, H] = eng.grid;
     const res = await eng.requestPick([W / 2, H / 2], Math.hypot(W, H), NONE, { kind: sp.slot, maxOut: sp.pop * 1.25 + 2048, raw: true });
-    if (!res || !res.raw.count) { flash('No living cells found'); return; }
+    if (!res || !res.raw.count) return null;
     const { u32, f32, count: n } = res.raw;
-    let bestI = 0;
+    let bestI = 0, body = null;
     if ((sp.genome.adhesion || 0) > K.adhMin) {
       const claimed = new Uint8Array(n);
       let bestN = 0;
@@ -1375,7 +1508,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         const tb = traceBody(u32, f32, n, u32[i * PICK_WORDS + 7]);
         if (!tb) continue;
         for (const k of tb.body) claimed[k] = 1;
-        if (tb.body.length > bestN) { bestN = tb.body.length; bestI = i; }
+        if (tb.body.length > bestN) { bestN = tb.body.length; bestI = i; body = tb.body; }
       }
     } else {
       const step = Math.max(1, Math.floor(n / 200));
@@ -1387,6 +1520,18 @@ function run(eng, device, ctx, specCtx, hasTS) {
       }
     }
     const best = parseParticle(u32, f32, bestI * PICK_WORDS);
+    // how far its body reaches from it (world units), for framing
+    let span = 0;
+    if (body) for (const k of body) span = Math.max(span, Math.hypot(wrapD(f32[k * PICK_WORDS] - best.x, W), wrapD(f32[k * PICK_WORDS + 1] - best.y, H)));
+    return { best, res, span, body };
+  }
+  // Jump to a living member: for a bonded species, a cell of its largest body; otherwise one in its densest patch.
+  async function findMember(serial) {
+    const sp = life.reg.get(serial);
+    if (!sp || !sp.alive) return;
+    const m = await bestMember(sp);
+    if (!m) { flash('No living cells found'); return; }
+    const { best, res } = m;
     takeOver();
     if (cssPPU() < 18) { cam.zoomTarget = clamp((18 * dpr) / fitPPU(), 1, maxZoom()); cam.anchor = null; }
     beginTracking(best, { entries: [], simTime: res.simTime });
@@ -1431,6 +1576,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     openSpecies, focusFacet,
     focusKey: () => focus.key,
     focusPredicate: (label, pred) => setFocus(`pred:${label}`, label, { pred }),
+    relabel: (el) => relabel(el),
   });
   $('lab-open').addEventListener('click', () => { closeMenus(); lab.toggle(); });
 
@@ -1463,7 +1609,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + onoff('nodes', 'Particles', 'N', s.nodes)
         + (isCoarse ? '' : onoff('loupe', 'Loupe', 'M', state.loupe, 'loupe'))
         + onoff('auto', 'Auto when idle', '', state.auto, 'autoidle')
-        + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks'))
+        + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks')
+        + (film.supported ? `<div class="opt"><span class="lbl">${term('film', 'Film')} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === 'idle' ? '<button type="button" class="chip" data-o="film" data-v="now">30 s now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ''))
         // the soundtrack's volume, here for every device (the dock's slider is only on wide screens)
         + group('sound', 'Sound', onoff('sound', 'Soundtrack', 'S', sound.on)
         + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>`);
@@ -1666,6 +1813,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'closeup') state.closeup = !!+v;
       else if (id === 'songmarks') state.songMarks = +v;
       else if (id === 'ev-start') { if (!climate.event) climate.force(v); toggle(false); return; }
+      else if (id === 'film') { toggle(false); filmAct(v === 'stop' ? undefined : v); return; }
       else if (id.startsWith('ev-')) { state.events[id.slice(3)] = !!+v; applyEvents(); }
       else if (id === 'loupe') state.loupe = !!+v;
       else if (id === 'auto') { state.auto = !!+v; renderAuto(director.active); }
@@ -1852,11 +2000,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === ']') { state.loupeMag = clamp(state.loupeMag * 1.25, 1.5, 20); flash(`Loupe ×${state.loupeMag.toFixed(1)}`); }
     else if (k === 'c' || k === 'C') { if (sel) toggleFollow(); }
     else if (k === 'a' || k === 'A') playAuto();
+    else if (k === 'r' || k === 'R') filmAct();
     else if (k === 's' || k === 'S') toggleSound();
     else if (k === '-' || k === '_') nudgeVolume(-0.1);
     else if (k === '=' || k === '+') nudgeVolume(0.1);
     else if (k === 'Escape') {
-      if (!$('help').hidden) toggleHelp(false);
+      if (cards.isOpen()) cards.close();
+      else if (!$('help').hidden) toggleHelp(false);
       else if (view.isOpen()) view.toggle(false);
       else if (sel || spView != null) deselect();
       else if (focus.key) clearFocus();
@@ -2643,6 +2793,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (f.kind === 3) return [f.cause === 2 ? 'died of old age' : 'starved', 'its skeleton is now stone'];
     return [f.cause === 2 ? 'died of old age' : f.cause === 3 ? 'was killed' : 'starved', 'its body is now a husk'];
   }
+  // a chronicler's story as a caption's line: its first sentence, cut at a word near 140 characters
+  const storyLine = (text) => {
+    const first = text.match(/^.*?\.(?=\s|$)/)?.[0] || text;
+    return first.length <= 140 ? first : `${first.slice(0, first.lastIndexOf(' ', 136))}…`;
+  };
   function captionHtml(w, going) {
     const r = (w.reasons || []).map((x) => REASON[x.key]);
     const note = (x) => upper(typeof x[1] === 'function' ? x[1](w.div) : x[1]);
@@ -2665,8 +2820,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     } else if (w.kind === 'follow') {
       // named only once it is in view (w.seen): on the way, where the camera is going
       if (!w.seen && w.signal) { eyebrow = 'Searching'; main = 'For the source of a signal'; }
+      else if (!w.seen && w.story) { eyebrow = 'Searching'; main = 'For a species in the chronicle'; }
       else if (!w.seen) { eyebrow = w.spotlight ? 'Searching' : 'Exploring'; main = w.spotlight ? 'For a new species' : 'Moving to a new area'; sub = w.spotlight ? '' : 'To discover the life there'; }
       else if (w.signal) { eyebrow = 'Answering a signal'; main = upper(organism(w)); sub = spDesc(w.serial); }
+      else if (w.story) { eyebrow = 'From the chronicle'; main = upper(organism(w)); sub = esc(storyLine(w.story)); }
       else if (w.spotlight) { eyebrow = 'Following a new species'; main = upper(organism(w)); sub = spDesc(w.serial); }
       else { eyebrow = 'Following'; main = upper(organism(w)); sub = spDesc(w.serial); }
     } else if (w.kind === 'event') {
@@ -2735,6 +2892,55 @@ function run(eng, device, ctx, specCtx, hasTS) {
     cam.x = v.x; cam.y = v.y;
     cam.zoom = cam.zoomTarget = clamp(wMax / v.w, 1, maxZoom());
     cam.anchor = null;
+  }
+
+  // ------------------------------------------------------------ film
+  const filmBtn = $('film');
+  const film = createFilm({
+    canvas, overlay, caption: capEl,
+    audio: () => (sound.playing ? sound.stream() : null),
+    title: () => `TIDEMOTE · ${fmtClock(eng.simTime)} · ${climate.name}`,
+    name: () => `tidemote-${fmtClock(eng.simTime).replace(/:/g, '-')}`,
+    onChange: renderFilm,
+    onSaved: (blob, name) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      flash('Film saved');
+    },
+  });
+  let filmArmedShot = null;
+  // record now, or (the auto camera on) from the start of its next shot; again: stop
+  function filmAct(how = director.active ? 'scene' : 'now') {
+    if (!film.supported) { flash('This browser cannot record the view'); return; }
+    if (film.state !== 'idle') { film.stop(); flash(film.state === 'idle' ? 'Filming called off' : 'Film stopped'); return; }
+    if (how === 'scene') {
+      if (!director.active) startAuto(false);
+      filmArmedShot = director.shot ? director.shot.id : null;
+      film.arm();
+      flash('Filming the camera’s next scene');
+    } else if (film.start(30)) flash('Filming 30 seconds');
+  }
+  function renderFilm() {
+    if (!filmBtn) return;
+    const s = film.state;
+    filmBtn.classList.toggle('armed', s === 'armed');
+    filmBtn.classList.toggle('rolling', s === 'recording');
+    filmBtn.setAttribute('aria-pressed', String(s !== 'idle'));
+    filmBtn.setAttribute('aria-label', s === 'idle' ? 'Film thirty seconds' : s === 'armed' ? 'Waiting for the next scene: stop' : 'Filming: stop');
+    filmBtn.dataset.hint = s === 'idle' ? (director.active ? 'Film the next scene · R' : 'Film 30 s · R') : 'Stop · R';
+    $('film-v').textContent = s === 'recording' ? `0:${String(Math.ceil(film.left())).padStart(2, '0')}` : s === 'armed' ? 'Wait' : 'Film';
+  }
+  if (film.supported && filmBtn) { filmBtn.hidden = false; filmBtn.addEventListener('click', () => filmAct()); renderFilm(); }
+  // each frame: an armed film starts with the camera's next shot, and a rolling one counts down
+  function filmTick() {
+    if (film.state === 'armed') {
+      const sh = director.active ? director.shot : null;
+      if (!director.active) { film.start(30); }
+      else if (sh && sh.id !== filmArmedShot && sh.type !== 'settle') film.start(30);
+    }
+    if (film.state === 'recording') renderFilm();
   }
 
   // ------------------------------------------------------------ loop
@@ -2862,7 +3068,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (perf.lastSubmit) perf.frameDt.push(Math.min(Math.max(50, frameTarget() * 2.5), now - perf.lastSubmit));
       perf.lastSubmit = now;
       eng.season = seasonAt(eng.simTime);
-      const step = plan(now) || { steps: 0, dt: H };
+      // a species card's portrait holds the world still between finding its subject and drawing it
+      const step = (!portraitHold && plan(now)) || { steps: 0, dt: H };
       // the census (naming and lineage) at most about five times a real second, however fast the world runs
       eng.censusEvery = Math.max(20, Math.round((step.steps * 1000) / frameTarget() / 5));
       viewSimTime = eng.simTime + (state.paused ? 0 : step.steps * step.dt);
@@ -2903,7 +3110,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       specimen.drawViewerUI(now);
       specimen.mindTick(now);
       // Max and coarse speeds draw the world only when due (step.world), carrying it with the camera between
-      const hold = (state.speed === Infinity || perf.held) && !state.paused && state.phase === 'running' ? !!step.world : null;
+      const hold = (state.speed === Infinity || perf.held) && !state.paused && !portraitHold && state.phase === 'running' ? !!step.world : null;
       eng.frame({
         target: ctx.getCurrentTexture().createView(),
         cam: { x: cam.x, y: cam.y, ppu: ppu() },
@@ -2915,15 +3122,20 @@ function run(eng, device, ctx, specCtx, hasTS) {
         selId: sel ? sel.id : NONE,
         loupe: L ? { x: L.sx * dpr, y: L.sy * dpr, r: L.R * dpr, ppu: L.cssPPU * dpr, cx: L.cx, cy: L.cy } : null,
         // the close-up only when the world is drawn: a canvas not given a new texture keeps its last image
-        specimen: hold === false ? null : specimenParams(),
+        // (a species card's portrait takes the close-up's place for one frame)
+        specimen: hold === false ? null : portraitParams() || specimenParams(),
         hold,
       });
+      if (portraitJob && portraitJob.drawn) readPortrait();
+      // a film copies the world's canvas while its texture is current
+      film.frame();
       inflight++;
       const sent = cur;
       device.queue.onSubmittedWorkDone().then(() => { inflight--; shownFrame = sent; }, () => { inflight--; });
       if (sel && frameCount % 10 === 0 && !state.paused) gatherTick(false);
     }
     if (dirty && (sel || spView != null)) renderSpecimen(false);
+    filmTick();
     if (specimen.isOpen()) specimen.songTick(performance.now(), songEvents); // every display frame, whatever the GPU's pace
     renderFeed();
     lab.render(false);
@@ -2943,6 +3155,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   });
   // a handle for tools/perf, which profiles the page in a real browser
   globalThis.__tidemote = { state, cam, perf, eng, sound, lab, life: () => life, climate: () => climate, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
+    chron, cards, film, filmAct, openSpecies,
     setScale(v) { state.perf.scale = v; if (v !== 'auto') renderScale = v; resetAdapt(); fit(); },
     // as the adaptive scale does it: applied when the next frame begins
     queueScale(v) { renderScale = v; resizeDue = true; },
