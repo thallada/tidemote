@@ -16,6 +16,7 @@
 //   { kind: 'settle' } | { kind: 'wide' }
 //   { kind: 'scene', reasons: [{ key, v }], div, species?: [{ slot, serial, cells }], lost?: { serial, cells, fate } }
 //   { kind: 'follow', slot, serial, cells, reasons, spotlight?, signal? } | { kind: 'linger', serial, cells, fate }
+//   { kind: 'event', type, phase }: the pool's event (docs/catastrophes.md) where it shows best (io.event())
 // Reasons are ranked; keys: 'mutations', 'sparks', 'kills', 'births', 'deaths', 'diverse',
 // 'bodies', 'swift', 'dense'. A scene learns which species are in view once it arrives (whyVer
 // counts such updates). fate is the particle the subject became, or null if it vanished.
@@ -422,6 +423,8 @@ export class Director {
     if (this.shot.type === 'settle' && this.quick) type = r() < 0.5 ? 'wide' : 'scene';
     else if (this.shot.type === 'settle' && r() < 0.5) type = 'wide';
     else if (spot && last !== 'spotlight') type = 'spotlight';
+    // while the pool's events play out (a drought, a storm, duckweed), most shots go to them
+    else if (this.io.event?.() && (last !== 'event' || r() < 0.4) && r() < 0.75) type = 'event';
     else if (sinceWide >= 3 + (r() < 0.5 ? 1 : 0) && last !== 'wide') type = 'wide';
     else {
       const u = r();
@@ -440,6 +443,7 @@ export class Director {
     };
     const fallback = () => { if (gen === this.gen) { type = 'scene'; begin(this.scene()); } };
     if (type === 'wide') { begin(this.wide()); return; }
+    if (type === 'event') { const sh = this.eventShot(); if (sh) begin(sh); else fallback(); return; }
     if (type === 'scene') { begin(this.scene()); return; }
     if (type === 'spotlight') {
       this.spotlights = this.spotlights.filter((s) => s !== spot);
@@ -473,6 +477,18 @@ export class Director {
     for (let i = 0; i < wts.length; i++) { u -= wts[i]; if (u <= 0) { pick = i; break; } }
     const [x, y] = I.center(pick);
     return { x: x + (this.rng() - 0.5) * I.tile * 0.6, y: y + (this.rng() - 0.5) * I.tile * 0.6, tile: I.tile, ...I.reasons(pick, parts) };
+  }
+
+  // The pool's event, where the page says it shows (a stretch of shore, the duckweed, a raindrop's rings), at about the
+  // width it suggests.
+  eventShot() {
+    const e = this.io.event?.();
+    if (!e) return null;
+    const [wMin, wMax] = this.io.widths();
+    const r = this.rng;
+    const w = clamp(e.w * lerp(0.8, 1.25, r()), wMin * 4, wMax);
+    return this.makeShot('event', { x: e.x, y: e.y, w }, { hold: lerp(22, 34, r()), drift: lerp(0.004, 0.01, r()), zr: r() < 0.5 ? -0.006 : 0.004,
+      why: { kind: 'event', type: e.type, phase: e.phase } });
   }
 
   wide() {

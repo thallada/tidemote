@@ -75,6 +75,8 @@ export async function runHeadless(device, config, { print, width = 640, height =
       const toptMean = n ? sum / n : null;
       latest = { t, silt: pop[0], glint: pop[1], husk: pop[2], stone: pop[3], framboid: pop[4], ...community,
         ambient: eng.ambient, season: eng.season,
+        // the pool (docs/catastrophes.md): its water level (the dry share of the floor is 1 - level), rain, the event's phase
+        pond: { level: eng.level, rain: eng.rain, sky: eng.sky, phase: climate.phase ?? null },
         era: climate.name,
         thermal: { tbg: eng.tbg, temp: eng.temp, excursion: eng.excursion, toptMean, toptSD: n ? Math.sqrt(Math.max(0, sq / n - toptMean ** 2)) : null, makerShare: n ? makers / n : 0, tolMean: n ? tol / n : null } };
       if (t - lastSample >= config.sample - 1e-6 || c.frameNo === frames) record(c);
@@ -197,7 +199,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
       frames, msPerFrame: wallSeconds * 1000 / frames, wallSeconds, ...(profile.length ? { profile } : {}) };
     if (snapshot) await snapshot(eng, frames);
     checkErrors();
-    return { config, samples, eras: climate.history, summary, outcome: summarizeRun(samples, { count: eng.count }) };
+    return { config, samples, eras: climate.history, events: climate.events, summary, outcome: summarizeRun(samples, { count: eng.count }) };
   } finally {
     Math.random = originalRandom;
     device.removeEventListener('uncapturederror', onError);

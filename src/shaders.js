@@ -222,6 +222,60 @@ export const DEFAULT_K = {
   foundHuntSleep: 300, // flesh-eating founders start as cysts that wake over about this many seconds, after their prey
   interfere: 0.6,     // a hunter misses living prey more among its own kind: catch chance / (1 + this × kin
                     // within reach, its bond partners aside)
+  // The pool (docs/catastrophes.md): its floor's relief (src/geography.js) and the water level the climate sets
+  // decide where it is dry. The water's edge drags stranded cells back with it; cells left on dry ground dry out
+  // or rest as cysts until rain wets them again; grains and husks lie where the water left them.
+  pond: 1,          // 0: the floor is never dry (no relief)
+  filmR: 1.2,       // world units from the water's edge over which the film of water pulls stranded cells back
+  meniscus: 2.5,    // how hard (units/s² at the edge, fading over filmR) the edge pulls a stranded cell toward the water
+  dryDrag: 6,       // rate (per second) a stranded cell's motion dies away (it is stuck in the drying film)
+  dryCyst: 0.25,    // chance per second a stranded cell rests as a cyst (any guild; a producer as a spore)
+  dryCost: 0.08,    // energy per second a stranded cell that has not encysted loses as it dries
+  dryRot: 0.15,     // how fast husks rot on dry ground, relative to in water
+  rainWake: 12,     // cysts wake this much faster (× the rain) while rain falls: rain hatches the resting bank
+  ringPull: 1.2,    // units/s at which matter near a receding edge is carried to it (× how fast it recedes):
+                    // a drying edge strands grains in lines, as a coffee ring
+  shoreCalm: 1.0,   // world units from the edge over which the currents die away
+  edgeSway: 0.5,    // how far (units per unit/s of current toward or away from it) the water's edge creeps out or draws
+                    // back as the currents push it, a meniscus on a film; raindrops' rings surge it too
+  edgeWobble: 0.12, // and how far it wavers on its own, pinning and slipping on the grains (units)
+  dropSpeed: 7,     // a raindrop's ring wave: speed (units/s), width (units) and how long it lasts (s)
+  dropWidth: 2.5,
+  dropLife: 5,
+  // the climate's events (src/climate.js): the first no sooner than eventFirst minutes, then one about every
+  // eventEvery minutes (0: none), drawn drought, storm, duckweed, frost by eventMix; eventPlan forces some ("drought@900");
+  // lowEras is the share of climate eras whose water stands low enough to show sandbars and islands
+  eventEvery: 60,
+  eventFirst: 25,
+  eventMix: [0.35, 0.2, 0.2, 0.25],
+  eventPlan: '',
+  lowEras: 0.35,
+  floorDrift: 0.3,  // the share of the floor's relief redrawn at each new era (moving geography: sediment shifts)
+  // each event's draw (ranges): a drought's fall, hold and refill (s) and how low the water falls (the share of the
+  // floor left wet); a storm's length (s)
+  droughtFall: [300, 480],
+  droughtHold: [150, 300],
+  droughtRefill: [90, 150],
+  droughtLow: [0.35, 0.6],
+  stormDur: [240, 420],
+  // rain's weather (a storm's and a drought's refill), as shares of the full weather: cold (−4°), clouds (light
+  // × 0.4 at full; at 0.35, × 0.79: full cloud starved the producers and crashed the pool, docs/catastrophes.md),
+  // rough water (currents × 2.6), raindrops (about one a second)
+  rainCold: 1,
+  rainDark: 0.35,
+  rainTurb: 1,
+  rainDrops: 1,
+  frostCold: 1,     // a frost's night, as shares of the full: cold (the water chilled to 0.5°) and dark (light × 0.4 at full)
+  frostDark: 0.35,
+  // duckweed: its mother frond's half-length (share of the world's shorter side), its fronds' darkness and its stay (s)
+  duckLen: [0.12, 0.2],
+  duckDark: [0.75, 0.92],
+  duckDur: [420, 720],
+  // a frost's growth, hold and thaw (s), and the share of the pool it freezes
+  frostGrow: [150, 270],
+  frostHold: [120, 240],
+  frostThaw: [100, 160],
+  frostMax: [0.6, 0.85],
 };
 
 // WGSL for the energy in a body of genome expression G (K.bodyE by size), and a dying cell's litter flag
@@ -386,6 +440,49 @@ fn tideAt(p: vec2f, world: vec2f, t: f32, w: array<vec4f, 4>, ph: vec4f) -> f32 
   return smoothstep(0.35, 1.9, s * 2.7 / max(n, 1e-3));
 }
 
+// Duckweed floating on the pool shades the water under it (docs/catastrophes.md). A colony of Lemna: a mother frond
+// centred at lf.xy, lf.z its half-length, its darkness lf.w (0: none), turned lb.x, lb.z wide (relative to its
+// length), and lb.w daughters (their sizes and angles drawn from the seed lb.y) budding from the pouches either side
+// of its node, near its base, each pointing out and back from it. Frond k: centre, axis (base to tip), half-length,
+// half-width.
+struct Frond { c: vec2f, ax: vec2f, L: f32, W: f32 };
+fn duckHash(x: f32) -> f32 { return fract(sin(x * 12.9898 + 4.1414) * 43758.5453); }
+fn frondOf(lf: vec4f, lb: vec4f, k: i32) -> Frond {
+  let ax = vec2f(cos(lb.x), sin(lb.x));
+  var f = Frond(lf.xy, ax, lf.z, lf.z * lb.z);
+  if (k == 0) { return f; }
+  let node = lf.xy - ax * 0.7 * lf.z;
+  let fk = f32(k);
+  // the first two to either side, a third, younger, beside the first
+  let side = select(1.0, -1.0, k == 2);
+  let back = side * (0.5 + 0.6 * duckHash(lb.y + fk * 3.1) + select(0.0, 0.5, k == 3));
+  let dax = rot2(-ax, back);
+  let L = lf.z * select(mix(0.45, 0.85, duckHash(lb.y + fk * 5.7)), mix(0.25, 0.4, duckHash(lb.y + 9.3)), k == 3);
+  f.ax = dax; f.L = L; f.W = L * lb.z * mix(0.9, 1.05, duckHash(lb.y + fk * 7.9));
+  f.c = node + dax * 0.72 * L;
+  return f;
+}
+// where p lies against frond f: x along its axis, y across (both in half-lengths), and the distance out of its edge
+fn frondAt(p: vec2f, f: Frond, world: vec2f) -> vec3f {
+  var d = p - f.c;
+  d -= world * round(d / world);
+  let x = dot(d, f.ax) / f.L;
+  let y = (f.ax.x * d.y - f.ax.y * d.x) / f.L;
+  // elliptic, a little narrower toward the node
+  let r = length(vec2f(x, y * f.L / (f.W * (1.0 + 0.12 * clamp(x, -1.0, 1.0)))));
+  return vec3f(x, y, (r - 1.0) * f.W);
+}
+// 0..1 at p: the shade of the colony's fronds, their edges soft (they float far above the focal plane)
+fn duckShade(p: vec2f, lf: vec4f, lb: vec4f, world: vec2f) -> f32 {
+  if (lf.w <= 0.0) { return 0.0; }
+  var sh = 0.0;
+  for (var k = 0; k <= i32(lb.w); k++) {
+    let a = frondAt(p, frondOf(lf, lb, k), world);
+    sh = max(sh, 1.0 - smoothstep(-1.2, 1.2, a.z));
+  }
+  return lf.w * sh;
+}
+
 fn hsl2rgb(h: f32, s: f32, l: f32) -> vec3f {
   let k = (vec3f(0.0, 8.0, 4.0) + vec3f(h * 12.0)) % vec3f(12.0);
   let a = s * min(l, 1.0 - l);
@@ -414,7 +511,50 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
 // The water's temperature where a cell is, for passes that only show it (rendering, listening):
 // bilinear between grid-cell centres, so a cell jostling across a grid line doesn't flick between
 // its cells' temperatures (and its heat colour with them).
+// The pool's moving water (docs/catastrophes.md), as the simulation has it and the composite draws it: u the
+// uniforms (sim or post), t their time, K the tunables. dropFlow: raindrops' ring waves, each shoving the water
+// outward as it passes; edgeSway: how far the water's edge stands out from where the floor alone would put it (world
+// units), the currents (flow) pushing the meniscus out over the floor or drawing it back, wavering as it pins and
+// slips; n uphill (toward the dry).
+const pondFlowWGSL = (u, t, K) => /* wgsl */ `
+fn dropFlow(p: vec2f) -> vec2f {
+  var v = vec2f(0.0);
+  for (var k = 0u; k < 4u; k++) {
+    let dr = ${u}.drops[k];
+    let age = ${t} - dr.z;
+    if (dr.w > 0.0 && age > 0.0 && age < ${f(K.dropLife)}) {
+      var d = p - dr.xy;
+      d -= ${u}.world * round(d / ${u}.world);
+      let r = length(d);
+      let x = (r - age * ${f(K.dropSpeed)}) / ${f(K.dropWidth)};
+      // (the ring dies out before it meets its own copy across the world's wrap)
+      let fade = 1.0 - smoothstep(0.3, 0.45, r / min(${u}.world.x, ${u}.world.y));
+      v += d / max(r, 1e-3) * (dr.w * exp(-x * x) * (1.0 - age / ${f(K.dropLife)}) * fade);
+    }
+  }
+  return v;
+}
+fn edgeSway(p: vec2f, n: vec2f, flow: vec2f) -> f32 {
+  let t = ${t};
+  let push = clamp(dot(flow, n) * ${f(K.edgeSway)}, -0.9, 0.9);
+  let wob = sin(dot(p, vec2f(0.83, 0.56)) * 0.9 + t * 0.7) * sin(dot(p, vec2f(-0.42, 0.91)) * 0.6 - t * 0.45)
+    + 0.5 * sin(dot(p, vec2f(0.29, -0.96)) * 2.1 + t * 1.3);
+  return push + ${f(K.edgeWobble)} * wob;
+}
+`;
 const shownWater = (world) => /* wgsl */ `
+// a thermal block's field at p, bilinear
+fn blockAt(base: u32, p: vec2f) -> f32 {
+  let g = vec2i(${world});
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  let x0 = ((i.x % g.x) + g.x) % g.x; let x1 = (x0 + 1) % g.x;
+  let y0 = ((i.y % g.y) + g.y) % g.y; let y1 = (y0 + 1) % g.y;
+  let row0 = base + u32(y0 * g.x); let row1 = base + u32(y1 * g.x);
+  return mix(mix(heatField[row0 + u32(x0)], heatField[row0 + u32(x1)], t.x),
+             mix(heatField[row1 + u32(x0)], heatField[row1 + u32(x1)], t.x), t.y);
+}
 fn waterTempAt(p: vec2f) -> f32 {
   let g = vec2i(${world});
   let u = p - 0.5;
@@ -789,7 +929,11 @@ function cellWGSL(K, w) {
   let baseOn = tail && n1 != NONE && !treeCellAt(n1);
   let baseB = select(vec2f(0.0), dn1 * ((d1 - rs1) / max(d1, 1e-4)), baseOn);
   let aimOn = tree && n1 != NONE && !beating;
-  let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0);
+  // the water's edge: a cell on dry ground is stranded (it cannot swim, and the film pulls it back toward the water)
+  let pond = pondAt(p.pos);
+  let shore = shoreDist(pond);
+  let stranded = pond.x < 0.0;
+  let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0) * select(1.0, 0.0, stranded);
   let flow = flowAt(p.pos) * g.advect;
   // a holdfast: a cell the current hardly carries (advect below 0.35, fully below 0.1) is anchored, and
   // pushes barely move it (its velocity decays K.holdfast times as fast)
@@ -918,6 +1062,9 @@ function cellWGSL(K, w) {
       vel += normalize(dir) * swim * h;${W('if (k == 0u) { mSwim = normalize(dir) * swim; }')}
     }
     vel += taxis * h;
+    if (stranded) {
+      vel = vel * exp(-${f(K.dryDrag)} * h) - pond.yz / max(length(pond.yz), 1e-4) * (${f(K.meniscus)} * (1.0 - smoothstep(0.0, ${f(K.filmR)}, -shore)) * h);
+    }
     let sp = length(vel);
     if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
     pos += (vel + flow) * h;
@@ -930,13 +1077,15 @@ function cellWGSL(K, w) {
   if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }
   col = mix(col, roleColor(g, role), ${f(K.baseMix)});
 
-  let light = sim.ambient + (1.0 - sim.ambient) * tideAt(p.pos, world, sim.time, sim.tide, sim.tidePh) * sim.season;
+  let light = lightAt(p.pos);
   // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
   // water; anchored cells have fresh silt carried past them by the currents.
   let photoGain = th.perf * pow(g.photo, ${f(K.photoPow)}) * light * ${f(K.photo)} / (1.0 + crowdP * ${f(K.shadeP)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
     * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0))
     // Allee effect: a producer thrives among its own kind; a lone one grows slowly, so grazed-bare water stays bare a while
-    * (1.0 - ${f(K.allee)} + ${f(K.allee)} * min(kinN / 3.0, 1.0));
+    * (1.0 - ${f(K.allee)} + ${f(K.allee)} * min(kinN / 3.0, 1.0))
+    // no light reaches a stranded cell's chloroplasts through a drying film
+    * select(1.0, 0.0, stranded);
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
   // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); a body's bond partners do not count
   let kinCost = 1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - bonds - ${f(K.kinFree)});
@@ -970,6 +1119,17 @@ struct Sim {
   // tick: 1/60 s ticks simulated up to the end of this step; ticks: how many this step covers;
   // tbg: the background water temperature (climate, season, excursion); maxScan: the neighbour budget
   tick: u32, ticks: u32, tbg: f32, maxScan: u32,
+  // the pool (docs/catastrophes.md): x the water level (a relief quantile; at 1 or above nothing is dry), y rain
+  // (0..1), z the sky (light ×: clouds), w how fast the water is drying (0..1)
+  pond: vec4f,
+  // x the currents' strength ×; y frost (the share of the pool frozen); z how fast the ice is growing (0..1);
+  // w seconds since a drought's rain began (0: none; raindrops wetting the mud, drawn only)
+  weather: vec4f,
+  // floating duckweed: its mother frond's centre, half-length, darkness (0: none); its angle, seed, width, daughters
+  duck: vec4f,
+  duckB: vec4f,
+  // raindrops' ring waves: centre, the time it fell, strength (0: none)
+  drops: array<vec4f, 4>,
 };
 // kr: 0..9 kind, 10..11 role, 12 plant, 13 cyst, 14 hunter, 15 tail cell.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
@@ -1019,6 +1179,7 @@ const DIAG = ${K.diag ? 'true' : 'false'};
 const LINK_R = ${f(K.linkR)};
 const DIET_MIN = ${f(K.dietMin)};
 const HEAT_ON = ${K.heat ? 'true' : 'false'};
+const POND = ${K.pond ? 'true' : 'false'};
 const TREF = ${f(K.tRef)};
 const HEAT_FIX = ${f(HEAT_FIX)};
 const FRAMBOID_COL = ${packCol(0.8, 0.7, 0.45)}u;
@@ -1041,14 +1202,72 @@ fn cellOf(p: vec2f) -> u32 {
   return u32(c.y) * sim.grid.x + u32(c.x);
 }
 
-fn flowAt(p: vec2f) -> vec2f {
+// The open water's currents at p, as if no shore were near: the four waves and raindrops' rings.
+fn openFlow(p: vec2f) -> vec2f {
   var v = vec2f(0.0);
   for (var k = 0u; k < 4u; k++) {
     let w = sim.waves[k];
     let ph = w.x * p.x + w.y * p.y + w.z * sim.time + f32(k) * 1.7;
     v += vec2f(w.y, -w.x) * (cos(ph) * w.w / max(length(w.xy), 1e-4));
   }
+  return v * sim.weather.x + dropFlow(p);
+}
+${pondFlowWGSL('sim', 'sim.time', K)}fn flowAt(p: vec2f) -> vec2f {
+  var v = openFlow(p);
+  // the currents die away toward the water's edge and never cross it; dry ground has none
+  if (pondOn()) {
+    let pd = pondAt(p);
+    let gl = length(pd.yz);
+    let dist = pd.x / max(gl, 1e-4);
+    let n = pd.yz / max(gl, 1e-4);
+    let calm = smoothstep(0.0, ${f(K.shoreCalm)}, dist);
+    v -= n * (max(dot(v, n), 0.0) * (1.0 - calm));
+    v *= select(0.0, mix(0.3, 1.0, calm), dist > 0.0);
+  }
   return v;
+}
+// The pool's floor at p (thermal block 3, a relief quantile per grid cell, bilinear): the water's depth there (the
+// level less the floor; below 0 dry) and the floor's slope (uphill, per world unit).
+// With frost (weather.y, the share of the pool frozen) ice grows over the pool in the order of thermal block 4 (a
+// quantile per grid cell, 0 first): liquid is where that order lies above the frost. pondAt gives whichever edge,
+// the water's or the ice's, lies nearer, in the same terms: a depth (below 0: dry or frozen) and the slope toward it.
+fn pondOn() -> bool { return POND && (sim.pond.x < 1.0 || sim.weather.y > 0.0); }
+fn blockCell(block: u32, x: i32, y: i32) -> f32 { return bitcast<f32>(atomicLoad(&thermal[block * MAX_CELLS + wrapCell(x, y)])); }
+// A thermal block's field at grid cell i + t: its value read bilinearly, and its slope from central differences
+// at the four corners read bilinearly too, so the slope's direction turns smoothly across cell edges (a slope
+// constant within each cell sent what it pushes into lines along the grid)
+fn smoothField(block: u32, i: vec2i, t: vec2f) -> vec3f {
+  var v: array<f32, 16>;
+  for (var y = 0; y < 4; y++) { for (var x = 0; x < 4; x++) { v[y * 4 + x] = blockCell(block, i.x - 1 + x, i.y - 1 + y); } }
+  let val = mix(mix(v[5], v[6], t.x), mix(v[9], v[10], t.x), t.y);
+  let gx = mix(mix(v[6] - v[4], v[7] - v[5], t.x), mix(v[10] - v[8], v[11] - v[9], t.x), t.y) * 0.5;
+  let gy = mix(mix(v[9] - v[1], v[10] - v[2], t.x), mix(v[13] - v[5], v[14] - v[6], t.x), t.y) * 0.5;
+  return vec3f(val, gx, gy);
+}
+fn pondAt(p: vec2f) -> vec3f {
+  var e = vec3f(1.0, 0.0, 0.0);
+  if (!pondOn()) { return e; }
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  if (sim.pond.x < 1.0) {
+    let r = smoothField(3u, i, t);
+    e = vec3f(sim.pond.x - r.x, r.yz);
+    let gl = length(r.yz);
+    if (gl > 1e-5) { e.x += edgeSway(p, r.yz / gl, openFlow(p)) * gl; }
+  }
+  if (sim.weather.y > 0.0) {
+    let o = smoothField(4u, i, t);
+    let ice = vec3f(o.x - sim.weather.y, -o.yz);
+    if (shoreDist(ice) < shoreDist(e)) { e = ice; }
+  }
+  return e;
+}
+// How far (world units) p lies from the water's edge, wet side positive, from pondAt's depth and slope.
+fn shoreDist(pd: vec3f) -> f32 { return pd.x / max(length(pd.yz), 1e-4); }
+// The light at p: the baseline and the tide's bands by the season, under the sky (clouds) and any duckweed's shade.
+fn lightAt(p: vec2f) -> f32 {
+  return (sim.ambient + (1.0 - sim.ambient) * tideAt(p, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season) * sim.pond.z * (1.0 - duckShade(p, sim.duck, sim.duckB, sim.world));
 }
 
 fn wrapPos(p: vec2f) -> vec2f { return p - sim.world * floor(p / sim.world); }
@@ -1696,17 +1915,28 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   // a fresh husk still carries its cell's velocity; cap it to the jitter's own scale so it doesn't coast
   let w = p.vel - flowAt(p.pos);
   let jit = w * (keep * min(1.0, 0.05 / max(length(w), 1e-6))) + kick;
-  var vel = flowAt(p.pos) + jit;${K.heat && K.marangoni > 0 ? `
+  var vel = flowAt(p.pos) + jit;
+  // on dry ground grains and husks lie where the water left them; near a receding edge the water flowing out to
+  // replace what evaporates there carries them to it, and strands them in a line (a coffee ring)
+  let pd = pondAt(p.pos);
+  let dryHere = pd.x < 0.0;
+  if (pondOn()) {
+    let sd = shoreDist(pd);
+    // (an advancing ice front pushes grains ahead of it the same way)
+    let pull = max(sim.pond.w, sim.weather.z);
+    if (dryHere) { vel = vec2f(0.0); }
+    else if (pull > 0.0 && sd < ${f(K.filmR)}) { vel += pd.yz / max(length(pd.yz), 1e-4) * (${f(K.ringPull)} * pull * (1.0 - sd / ${f(K.filmR)})); }
+  }${K.heat && K.marangoni > 0 ? `
   // surface flow: warm water's surface pulls toward cooler water, carrying matter with it
   vel -= heatSample(p.pos).yz * ${f(K.marangoni)};` : ''}
   let pos = wrapPos(p.pos + vel * sim.dt);
   p.age += sim.dt;
   if (p.kind == SILT) {
-    let tide = tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient;
+    let tide = (tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient) * sim.pond.z * (1.0 - duckShade(pos, sim.duck, sim.duckB, sim.world));
     // life sparks from silt (about one spark per 30 s in the world, sim.abio per grain), in the light, and
     // more in hot water (around framboids); a spark founds a species suited to the water here, so a world
     // whose life died begins again
-    if (sim.abio > 0.0 && rnd(&s) < sim.abio * 2.0 * clamp(tide, 0.0, 1.0) * (1.0 + ${f(K.abioHeat)} * smoothstep(4.0, 20.0, hot))) {
+    if (sim.abio > 0.0 && !dryHere && rnd(&s) < sim.abio * 2.0 * clamp(tide, 0.0, 1.0) * (1.0 + ${f(K.abioHeat)} * smoothstep(4.0, 20.0, hot))) {
       let k = allocSlot(&s);
       if (k != NONE) {
         randomInto(k, &s, T);
@@ -1722,7 +1952,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   } else if (p.kind == HUSK) {
     // rot is faster in warm water, and a carcass pile steams; a husk gives off no more than it holds,
     // or hot water would rot husks into heat from nothing and run away
-    let rot = min(${f(K.decay)} * pow(${f(K.rotQ10)}, warm) * sim.dt, max(p.energy, 0.0));
+    let rot = min(${f(K.decay)} * pow(${f(K.rotQ10)}, warm) * select(1.0, ${f(K.dryRot)}, dryHere) * sim.dt, max(p.energy, 0.0));
     p.energy -= rot;
     if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, rot * 8.0 * ${f(K.rotHeat)}); }
     if (p.energy < ${f(K.huskMin)}) {
@@ -1759,7 +1989,7 @@ fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
   let lap = heatCell(x + 1, y) + heatCell(x - 1, y) + heatCell(x, y + 1) + heatCell(x, y - 1) - 4.0 * here;
   let stones = atomicLoad(&stoneGrid[c]);
   let mass = 1.0 + ${f(K.stoneMass)} * (f32(stones & 0xffffu) / REEF_FIX + f32(stones >> 16u));
-  let light = sim.ambient + (1.0 - sim.ambient) * tideAt(centre, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season;
+  let light = lightAt(centre);
   let q = f32(atomicExchange(&thermal[c], 0u)) / HEAT_FIX + ${f(K.sunHeat)} * light * sim.dt;
   let t = carried + ${f(K.heatD)} * lap * sim.dt + (q - ${f(K.heatLoss)} * (carried - sim.tbg) * sim.dt) / mass;
   heatNext[c] = t;
@@ -2208,6 +2438,8 @@ fn cystStep(i: u32) {
   // asleep, it neither swims nor feels other cells' pull: it moves only as the current carries it and as
   // neighbours jostle it (contactMain's push, already in its velocity), and soon comes to rest
   p.vel *= pow(0.5, sim.dt / 0.15);
+  let dry = pondAt(p.pos).x < 0.0;
+  if (dry) { p.vel = vec2f(0.0); }
   p.pos = wrapPos(p.pos + (p.vel + flowAt(p.pos) * g.advect) * sim.dt);
   atomicAdd(&ledger[cystSlot(dietGuild(g))], 1u);
   if (p.energy <= 0.0) {
@@ -2215,7 +2447,7 @@ fn cystStep(i: u32) {
     p.info = (p.info & 0xffff7fc0u) | 1u${litterOf('g')};
     atomicAdd(&ledger[5], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 1u], 1u);
-  } else if (p.age > 0.0 && rnd(&s) < ${f(K.cystWake)} * sim.dt) {
+  } else if (p.age > 0.0 && !dry && rnd(&s) < ${f(K.cystWake)} * (1.0 + ${f(K.rainWake)} * sim.pond.y) * sim.dt) {
     p.info = (p.info & 0xfffffff0u) | 9u; p.age = 0.0;
   }
   intent[i] = vec4u(0u, 0u, NONE, NONE);
@@ -2412,6 +2644,11 @@ ${cellWGSL(K, false)}
   if (act == 0u && E > 0.0 && E < ${f(K.cystAt)} * divE && food == NONE && age > 10.0 && g.photo <= 0.4 && rnd(&s) < ${f(K.cystRate)} * sim.dt) {
     info = (info & 0xffff003fu & 0xfffffff0u) | CYST;
     age = 0.0;
+  }
+  // stranded on dry ground a cell dries out, unless it rests as a cyst (or a spore) first
+  if (stranded && E > 0.0) {
+    if (act == 0u && rnd(&s) < ${f(K.dryCyst)} * smoothstep(0.5, 1.0, -shore / ${f(K.filmR)}) * sim.dt) { info = (info & 0xffff003fu & 0xfffffff0u) | CYST; age = 0.0; act = 0u; }
+    else { E -= ${f(K.dryCost)} * sim.dt; }
   }
   var kind = p.kind;
   if (E <= 0.0) {
@@ -3324,7 +3561,8 @@ struct View {
   splat: f32,
   // the adhesion where bodies start to close into tissue (K.tightFrom)
   tightFrom: f32,
-  pad0: u32, pad1: u32, pad2: u32, pad3: u32,
+  // the pool (docs/catastrophes.md): its water level and the share of it frozen, to show cells stranded or frozen
+  level: f32, frost: f32, pad2: u32, pad3: u32,
 };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -3804,6 +4042,20 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     if (!dead && cause == 8u) { b *= 1.0 + 2.0 * max(0.0, 1.0 - p.age / BIRTH_T); }
     col = unpack4x8unorm(p.col).rgb;
     col = mix(col, vec3f(0.62, 0.66, 0.74) * dot(col, vec3f(0.3, 0.5, 0.2)) * 1.6, 0.5 * sleep);
+    // stranded on the drying mud a cell desiccates: it shrivels, its colour drains to a dull brown and it darkens;
+    // caught in the ice it is frozen: still, its colour drained toward a pale frosted blue-white, a little rimed
+    if (view.level < 1.0 || view.frost > 0.0) {
+      var dryN = 0.0;
+      if (view.level < 1.0) { dryN = smoothstep(0.0, 0.012, blockAt(${3 * MAX_CELLS}u, p.pos) - view.level); }
+      var iceN = 0.0;
+      if (view.frost > 0.0) { iceN = smoothstep(0.0, 0.01, view.frost - blockAt(${4 * MAX_CELLS}u, p.pos)); }
+      let l = dot(col, vec3f(0.3, 0.5, 0.2));
+      col = mix(col, vec3f(0.55, 0.38, 0.22) * (0.45 + 0.6 * l), 0.85 * dryN);
+      b *= 1.0 - 0.5 * dryN;
+      size *= 1.0 - 0.22 * dryN;
+      col = mix(col, vec3f(0.8, 0.9, 1.0) * (0.85 + 0.5 * l), 0.8 * iceN);
+      b *= 1.0 + 0.15 * iceN;
+    }
     if (th.torpid) { col = mix(col, vec3f(0.55, 0.7, 0.95) * dot(col, vec3f(0.33)), 0.5); b *= 0.6; }
     // heat stress bleaches a cell toward pale bone; a heat-maker glows faintly warm
     col = mix(col, vec3f(1.0, 0.96, 0.9) * max(0.45, dot(col, vec3f(0.3, 0.5, 0.2))), 0.6 * smoothstep(0.3, 1.0, th.x));
@@ -5171,8 +5423,12 @@ struct Post {
   waves: array<vec4f, 4>,
   // the background water temperature, then the heat map's span; w: the tide map (0 off, 1 on)
   heat: vec4f,
-  // unused (once the tide map's glint production)
-  spare: vec4f,
+  // the pool (docs/catastrophes.md): water level, rain, sky, drying; currents' strength; floating duckweed; raindrops
+  pond: vec4f,
+  weather: vec4f,
+  duck: vec4f,
+  duckB: vec4f,
+  drops: array<vec4f, 4>,
 };
 `;
 
@@ -5721,6 +5977,443 @@ fn waterAt(p: vec2f) -> vec3f {
   let d = waterCell(i.x + 1, i.y + 1);
   return vec3f(mix(mix(a, b, t.x), mix(c, d, t.x), t.y), mix(b - a, d - c, t.y), mix(c - a, d - b, t.x));
 }
+// The pool's floor at world point p (docs/catastrophes.md), as the simulation reads it (pondAt): the water's depth
+// (below 0 dry) and the floor's slope uphill.
+fn gridPost(base: u32, x: i32, y: i32) -> f32 {
+  let g = vec2i(post.world);
+  return heatField[base + u32(((y % g.y) + g.y) % g.y) * u32(g.x) + u32(((x % g.x) + g.x) % g.x)];
+}
+// (bicubic, Catmull-Rom, with its slope: the edge drawn smooth; the simulation's bilinear edge lies within a
+// fraction of a unit of it)
+fn pondPost(p: vec2f) -> vec3f {
+  let f = fieldPost(${3 * MAX_CELLS}u, p);
+  var e = vec3f(post.pond.x - f.x, f.yz);
+  let gl = length(f.yz);
+  if (gl > 1e-5) { e.x += edgeSway(p, f.yz / gl, postFlowAt(p, post.simTime) * post.weather.x + dropFlow(p)) * gl; }
+  return e;
+}
+${pondFlowWGSL('post', 'post.simTime', DEFAULT_K)}// a field of the thermal buffer from base, bicubic at p, and its slope
+fn fieldPost(base: u32, p: vec2f) -> vec3f {
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  let tx = t.x; let ty = t.y;
+  let wx = vec4f(((-0.5 * tx + 1.0) * tx - 0.5) * tx, (1.5 * tx - 2.5) * tx * tx + 1.0, ((-1.5 * tx + 2.0) * tx + 0.5) * tx, (0.5 * tx - 0.5) * tx * tx);
+  let dx = vec4f((-1.5 * tx + 2.0) * tx - 0.5, (4.5 * tx - 5.0) * tx, (-4.5 * tx + 4.0) * tx + 0.5, (1.5 * tx - 1.0) * tx);
+  let wy = vec4f(((-0.5 * ty + 1.0) * ty - 0.5) * ty, (1.5 * ty - 2.5) * ty * ty + 1.0, ((-1.5 * ty + 2.0) * ty + 0.5) * ty, (0.5 * ty - 0.5) * ty * ty);
+  let dy = vec4f((-1.5 * ty + 2.0) * ty - 0.5, (4.5 * ty - 5.0) * ty, (-4.5 * ty + 4.0) * ty + 0.5, (1.5 * ty - 1.0) * ty);
+  var h = 0.0; var gx = 0.0; var gy = 0.0;
+  for (var j = 0; j < 4; j++) {
+    let row = vec4f(gridPost(base, i.x - 1, i.y + j - 1), gridPost(base, i.x, i.y + j - 1), gridPost(base, i.x + 1, i.y + j - 1), gridPost(base, i.x + 2, i.y + j - 1));
+    let rv = dot(row, wx);
+    h += wy[j] * rv; gx += wy[j] * dot(row, dx); gy += dy[j] * rv;
+  }
+  return vec3f(h, gx, gy);
+}
+// Value noise summed over three octaves, 0..1.
+fn fbm3(p: vec2f) -> f32 {
+  return (vnoise(p) * 0.5 + vnoise(p * 2.03 + 1.7) * 0.3 + vnoise(p * 4.07 + 3.1) * 0.2);
+}
+// A Voronoi tiling's cell point near lattice cell g.
+fn vjit(g: vec2f) -> vec2f { return vec2f(hash12(g), hash12(g + 17.3)) * 0.8 + 0.1; }
+// The distance from x to the nearest border of a Voronoi tiling (exact, so lines drawn by it keep their width), a
+// hash naming the cell x lies in, and the offset from x to that cell's point.
+fn vborder(x: vec2f) -> vec4f {
+  let n = floor(x);
+  let f = x - n;
+  var mg = vec2f(0.0); var mr = vec2f(0.0); var md = 8.0;
+  for (var j = -1; j <= 1; j++) {
+    for (var i = -1; i <= 1; i++) {
+      let g = vec2f(f32(i), f32(j));
+      let r = g + vjit(n + g) - f;
+      let d = dot(r, r);
+      if (d < md) { md = d; mr = r; mg = g; }
+    }
+  }
+  md = 8.0;
+  for (var j = -2; j <= 2; j++) {
+    for (var i = -2; i <= 2; i++) {
+      let g = mg + vec2f(f32(i), f32(j));
+      let r = g + vjit(n + g) - f;
+      if (dot(mr - r, mr - r) > 1e-5) { md = min(md, dot(0.5 * (mr + r), normalize(r - mr))); }
+    }
+  }
+  return vec4f(md, hash12(n + mg + 0.37), mr);
+}
+// Grains on a jittered lattice (s per world unit), present in a share of its cells: each up to rmax lattice cells
+// across, irregular; in darkfield a clear grain shows mostly by its rim. xyz: colour, w: coverage.
+fn specks(wp: vec2f, s: f32, rmax: f32, ppu: f32, seed: f32, share: f32) -> vec4f {
+  let p = wp * s + seed;
+  let c = floor(p);
+  let h = hash12(c + 3.3);
+  if (hash12(c + 12.9) > share) { return vec4f(0.0); }
+  let o = vec2f(hash12(c + 9.1), hash12(c + 5.7)) * 0.6 + 0.2;
+  let r = rmax * (0.3 + 0.7 * hash12(c + 1.9));
+  let aa = s / max(ppu, 1e-3);
+  let dv = p - c - o;
+  let an = atan2(dv.y, dv.x);
+  let d = length(dv) * (1.0 + 0.1 * sin(2.0 * an + h * 40.0) + 0.08 * sin(3.0 * an + h * 17.0) + 0.05 * sin(5.0 * an + h * 7.0));
+  let cov = 1.0 - smoothstep(r - aa, r + aa, d);
+  let rim = exp(-pow((d - r * 0.85) / max(r * 0.14, aa), 2.0));
+  // quartz and feldspar pale, iron-stained grains ochre, organic flecks dark
+  let col = select(select(vec3f(1.0, 0.94, 0.84), vec3f(1.0, 0.72, 0.42), h > 0.6), vec3f(0.5, 0.42, 0.33), h > 0.88);
+  return vec4f(col * (0.35 + 1.4 * pow(hash12(c + 7.7), 2.5)) * mix(1.0, 0.55 + 0.9 * rim, step(0.12, r) * step(h, 0.6)), cov);
+}
+// Diatoms' empty shells in the sediment: long boats of glass, their outline and central rib bright, fine ribs across
+// them, here and there.
+fn frustules(wp: vec2f, ppu: f32) -> f32 {
+  let px = 1.0 / max(ppu, 1e-3);
+  let sp = 11.0;
+  let cell = floor(wp / sp);
+  if (hash12(cell + 21.0) > 0.25) { return 0.0; }
+  let ctr = (cell + vjit(cell + 23.0)) * sp;
+  let L = 0.8 + 1.4 * hash12(cell + 25.0);
+  let W = L * (0.13 + 0.09 * hash12(cell + 27.0));
+  let q = rot2(wp - ctr, hash12(cell + 29.0) * 3.1416);
+  let u = q.x / L; let w = q.y / W;
+  // the valve's outline: pointed at both ends
+  let half = sqrt(max(1.0 - u * u, 0.0)) * (0.8 + 0.2 * (1.0 - u * u));
+  let e = (abs(w) - half) * W;
+  let outline = exp(-pow(e / max(0.03, 0.9 * px), 2.0)) * step(abs(u), 1.0);
+  let inside = step(abs(w), half) * step(abs(u), 1.0);
+  let raphe = exp(-pow(q.y / max(0.02, 0.8 * px), 2.0)) * step(abs(u), 0.85) * step(0.07, abs(u));
+  let striae = pow(0.5 + 0.5 * cos(q.x * 6.2832 / 0.12), 4.0) * smoothstep(0.08, 0.02, 0.12 * px * 6.0) * inside;
+  return (outline + 0.5 * raphe + 0.2 * striae + 0.03 * inside) * smoothstep(3.0, 10.0, ppu);
+}
+// The lamp's oblique light, as it falls across the floor (unit)
+const LAMP_L = vec2f(-0.5524, -0.8336);
+// A raised line lit from one side, as oblique light shows relief: x its signed distance across the line, w its
+// half-width, g the direction x grows in and L the light's. x: the lit flank's brightness, y: the far flank's shadow;
+// lines finer than a pixel spread to one and dim as they do.
+fn ridge(x: f32, w: f32, px: f32, g: vec2f, L: vec2f) -> vec2f {
+  let we = max(w, 0.55 * px);
+  let o = 0.6 * we * sign(dot(g, L) + 1e-4);
+  let k = w / we;
+  return vec2f(exp(-pow((x - o) / we, 2.0)), exp(-pow((x + o) / we, 2.0))) * k;
+}
+// Ice in darkfield (frost). Ice under the microscope is a packed mass of small crystals: each grain one crystal,
+// tens of µm across, its own orientation, its surface tilted a little so it catches the lamp's oblique light more or
+// less and shades across its face like a facet, the grains parted by grooved boundaries that meet at triple
+// junctions, faint growth lines inside them along their axes, air trapped as bubbles. Ahead of the mass the crystals
+// grow into the water as small dendrites, each along whichever of its six axes points most nearly into the water,
+// side branches at sixty degrees, rough and broken, so the front is a ragged edge of crystal tips, and that edge, ice
+// against water, catches the light as a fine bright line. sd: world units from the ice's front (ice negative); n:
+// the front's normal (toward the ice); grow: 1 while the ice grows, less as it stops and thaws.
+fn iceLook(wp: vec2f, sd: f32, n: vec2f, ppu: f32, grow: f32) -> vec3f {
+  let px = 1.0 / max(ppu, 1e-3);
+  let L = LAMP_L;
+  // the grains: small, irregular, boundaries a little ragged
+  let gs = 1.5;
+  let gq = wp / gs + (vec2f(vnoise(wp * 0.35), vnoise(wp * 0.35 + 4.1)) - 0.5) * 0.45 + (vec2f(vnoise(wp * 3.1), vnoise(wp * 3.1 + 2.3)) - 0.5) * 0.08;
+  let vb = vborder(gq);
+  let gid = vb.y;
+  let edgeD = vb.x * gs;
+  let toC = vb.zw * gs;
+  // the crystal's axes; the one nearest the growth direction (out of the ice)
+  let th = gid * 1.0472 * 7.0;
+  let ga = atan2(-n.y, -n.x);
+  let kk = round((ga - th) / 1.0472);
+  let aa = th + kk * 1.0472;
+  let ax = vec2f(cos(aa), sin(aa));
+  let pp = vec2f(-ax.y, ax.x);
+  let ua = dot(wp, ax);
+  let v = dot(wp, pp);
+  // dendrites at the front: stems a fraction of a unit to a unit apart, each reaching its own length ahead
+  let F = 0.55 + 0.5 * hash12(vec2f(gid, 7.0));
+  let fq = v / F + hash12(vec2f(gid, 8.0)) + 0.35 * (vnoise(vec2f(ua * 0.8, gid * 9.0)) - 0.5);
+  let Fi = floor(fq);
+  let fh = hash12(vec2f(Fi, gid * 5.0));
+  let Lf = select(0.1 + 0.7 * pow(fh, 1.5), -0.2 - 0.6 * fh, fh < 0.15) * (0.4 + 0.6 * grow);
+  let vS = (fract(fq) - 0.5) * F;
+  let av = abs(vS);
+  let side = select(0.0, 0.5, vS < 0.0);
+  let dtS = -sd + Lf;
+  let prot = max(max(Lf, 0.0) - 6.0 * av * av / F, 0.0) + 0.06 * F * (vnoise(vec2f(ua * 5.0, v * 5.0)) - 0.5);
+  let inIce = -sd + prot;
+  let rough = 0.45 + 1.1 * vnoise(vec2f(ua * 3.5, Fi * 3.0 + gid));
+  let wP = mix(0.008, 0.022, smoothstep(0.0, 1.5, dtS)) * rough;
+  let sp = ridge(vS, wP, px, pp, L) * smoothstep(-0.02, 0.06, dtS);
+  let s2 = 0.11 + 0.06 * hash12(vec2f(gid, 5.0));
+  let ua0 = ua - 0.577 * av - 0.4 * av * av;
+  let bj = round(ua0 / s2);
+  let bh = hash12(vec2f(bj, Fi * 7.0 + gid * 31.0 + side));
+  let base = dtS + 0.577 * av + (ua0 - bj * s2);
+  let blen = min(base * (0.4 + 0.5 * bh), 0.5 * F) * select(0.15 + 0.7 * bh, 1.0, bh > 0.6);
+  let t = av * 1.1547;
+  let broken = step(0.12, fract(bh * 13.7));
+  let wB = mix(0.005, 0.012, smoothstep(0.0, 1.0, base)) * (1.0 - 0.5 * t / max(blen, 1e-3)) * rough;
+  let gB = (ax - (0.577 + 0.8 * av) * sign(vS) * pp) * 0.866;
+  let sb = ridge((ua0 - bj * s2) * 0.866, wB, px, gB, L) * (1.0 - smoothstep(blen - 0.02, blen, t)) * step(0.0, base) * broken * (0.5 + 1.0 * bh);
+  let blod = smoothstep(2.0, 5.0, s2 * ppu);
+  let reach = (1.0 - smoothstep(0.6 * blen, blen + 0.03, t)) * step(0.0, base);
+  let fineB = mix(vec2f(0.03 * reach, 0.0), sb, blod);
+  let fresh = 1.0 - smoothstep(0.15, mix(0.7, 2.5, grow), inIce + 0.5 * (vnoise(wp * 0.8) - 0.5));
+  let lit = (sp + fineB) * (0.05 + 0.95 * fresh);
+  let tint = vec3f(0.2, 0.225, 0.26) * (0.6 + 0.8 * vnoise(wp * 0.9 + 3.0));
+  var c = vec3f(0.0);
+  // the mass of grains: each a facet tilted its own way, brighter where it faces the lamp, shading across its face
+  let haze = smoothstep(-0.1, 0.25, inIce) * mix(0.3, 1.0, smoothstep(0.0, 0.5, -sd));
+  let tilt = vec2f(hash12(vec2f(gid, 11.0)), hash12(vec2f(gid, 12.0))) - 0.5;
+  let tone = clamp(0.8 + 5.5 * dot(tilt, L) + 0.8 * (hash12(vec2f(gid, 14.0)) - 0.5), 0.05, 4.0);
+  let shade = clamp(1.0 - dot(toC, tilt) * 2.4, 0.3, 2.0);
+  let lodG = smoothstep(4.0, 12.0, gs * ppu);
+  let face = mix(1.0, tone * shade, 0.35 + 0.65 * lodG) * (0.75 + 0.5 * fbm3(wp * 1.3));
+  c += vec3f(0.0075, 0.0086, 0.0105) * haze * mix(face, 1.2, fresh * 0.6);
+  // faint growth lines inside each grain along its axes
+  let gl = abs(fract(dot(wp, vec2f(cos(th), sin(th))) / 0.16 + gid * 7.0) - 0.5);
+  c += vec3f(0.006, 0.007, 0.008) * exp(-pow(gl / max(0.08, 0.6 * px / 0.16), 2.0)) * step(0.7, hash12(vec2f(gid, 13.0))) * haze * smoothstep(3.0, 8.0, 0.16 * ppu);
+  // the boundaries, grooved: a fine bright seam, the groove's wall toward the lamp lit, the other in shadow
+  let met = smoothstep(0.15, 0.9, inIce) * (1.0 - fresh * 0.7);
+  let outw = -normalize(vb.zw + 1e-5);
+  let fc = dot(outw, L);
+  let sw = max(0.02, 0.7 * px);
+  let seam = exp(-pow(edgeD / sw, 2.0)) * min(1.0, 0.02 / sw + 0.35);
+  let wall = exp(-pow(edgeD / max(0.11, 1.6 * px), 2.0)) * min(1.0, 0.11 / max(0.11, 1.6 * px) + 0.2);
+  c += vec3f(0.07, 0.078, 0.09) * seam * met * (0.5 + 0.5 * vnoise(wp * 1.5));
+  c += vec3f(0.045, 0.05, 0.058) * wall * met * max(fc, 0.0);
+  c *= 1.0 - 0.6 * wall * met * max(-fc, 0.0);
+  // the dendrites over it, in relief
+  c = c * (1.0 - 0.55 * min(lit.y, 1.0)) + tint * lit.x;
+  // the edge of the ice against the water, ragged with its tips: a fine bright line
+  let ew = max(0.03, 0.8 * px);
+  let edge = exp(-pow((inIce - 0.5 * ew) / ew, 2.0));
+  c += vec3f(0.1, 0.112, 0.13) * edge * (0.55 + 0.6 * vnoise(wp * 1.6 + 7.0)) * (0.5 + 0.5 * grow);
+  // bubbles, here and there in a grain: a bright rim around a dark heart, a glint toward the lamp
+  if (hash12(vec2f(gid, 21.0)) < 0.3 && inIce > 0.4) {
+    let bc = -toC + (vec2f(hash12(vec2f(gid, 22.0)), hash12(vec2f(gid, 23.0))) - 0.5) * 0.5 * gs;
+    let br = 0.03 + 0.06 * pow(hash12(vec2f(gid, 24.0)), 2.0);
+    let el = 1.0 + 0.7 * hash12(vec2f(gid, 25.0));
+    let q = vec2f(dot(bc, ax) / el, dot(bc, pp));
+    let bd = length(q);
+    let rw = max(0.012, 0.7 * px);
+    let rim = exp(-pow((bd - br * 0.9) / rw, 2.0)) * min(1.0, br / (2.0 * rw));
+    let heart = 1.0 - smoothstep(br * 0.4, br, bd);
+    let lq = vec2f(dot(L, ax), dot(L, pp));
+    let glint = exp(-pow(length(q + lq * br * 0.45) / max(br * 0.25, rw), 2.0));
+    c = c * (1.0 - 0.6 * heart) + vec3f(0.09, 0.10, 0.11) * rim + vec3f(0.08) * glint;
+  }
+  return c;
+}
+// Crystals in the cold water ahead of the ice: here and there a nucleus has frozen on its own and grows as a small
+// six-armed star, its arms uneven, branched, larger the nearer the front has come. sd: world units ahead of it.
+fn frazil(wp: vec2f, sd: f32, ppu: f32) -> vec3f {
+  let px = 1.0 / max(ppu, 1e-3);
+  let sp = 3.5;
+  let cell = floor(wp / sp);
+  if (hash12(cell + 0.5) > 0.3) { return vec3f(0.0); }
+  let ctr = (cell + vjit(cell + 2.0)) * sp;
+  let R = (0.25 + 0.75 * hash12(cell + 4.0)) * smoothstep(8.0, 1.0, sd) * smoothstep(0.0, 0.3, post.weather.z);
+  let d = wp - ctr;
+  let r = length(d);
+  if (r > R + 0.15 || R < 0.05) { return vec3f(0.0); }
+  let a = atan2(d.y, d.x) - hash12(cell + 6.0) * 1.0472;
+  let k = round(a / 1.0472);
+  let ar = (a - k * 1.0472);
+  let s = r * cos(ar);
+  let p = abs(r * sin(ar));
+  let ah = hash12(cell + k + 11.0);
+  let len = R * select(0.3 + 0.7 * ah, 0.15, ah < 0.15);
+  let w = mix(0.025, 0.01, s / max(len, 1e-3)) + 0.6 * px;
+  var arm = exp(-pow(p / w, 2.0)) * (1.0 - smoothstep(len - 0.03, len, s));
+  let s0 = s - 0.577 * p;
+  let sp2 = 0.15;
+  let j = round(s0 / sp2);
+  let bl = max(0.0, (len - j * sp2) * 0.4) * (0.2 + 0.8 * hash12(vec2f(j, k + cell.x * 3.0 + cell.y)));
+  let br = exp(-pow((s0 - j * sp2) * 0.866 / (0.008 + 0.6 * px), 2.0)) * (1.0 - smoothstep(bl - 0.02, bl, p * 1.1547)) * step(0.2 * R, s0);
+  arm = max(arm, br * 0.7);
+  let hexd = r * cos(ar) / 0.866;
+  let pedge = exp(-pow((hexd - 0.14 * R) / max(0.015, 0.7 * px), 2.0));
+  return vec3f(0.035, 0.04, 0.047) * (arm + 0.5 * pedge) * smoothstep(1.0, 3.0, ppu * R);
+}
+// Dry ground in darkfield: the film of silt and clay the water left. Wet, water fills the spaces between its grains
+// and it scatters little, dark and smooth with a gloss; as it dries air takes their place and it pales to a grainy
+// buff glow, patchily, as the film drains unevenly. Drying, it shrinks and cracks into plates, first a coarse network
+// and then, where it has dried longest, finer cracks parting the plates; the cracks are dark gaps (nothing in them
+// scatters), each plate's broken rim bright and curling up from the floor. Where the water's edge paused as it fell it
+// left tide lines of the finest matter it carried (a coffee ring), which the cracks cut across. away: world units
+// onto dry ground; rel: the floor's height (quantile) and its slope.
+fn dryGround(wp: vec2f, away: f32, rel: vec3f, ppu: f32) -> vec3f {
+  let px = 1.0 / max(ppu, 1e-3);
+  let dryness = smoothstep(0.3, 7.0, away + 4.0 * (fbm3(wp * 0.18) - 0.45));
+  // patches richer in clay, in organic matter, in silt
+  let mott = fbm3(wp * 0.07 + 3.0);
+  let fine = vnoise(wp * 0.9);
+  var c = mix(vec3f(0.010, 0.0085, 0.0062), vec3f(0.050, 0.041, 0.030), dryness) * (0.6 + 0.7 * mott) * (0.85 + 0.3 * fine);
+  c *= mix(vec3f(1.0), vec3f(0.85, 0.95, 0.9), smoothstep(0.55, 0.8, mott) * (1.0 - dryness));
+  // tide lines: the floor's contours where the edge paused, some faint, some strong, uneven along their length
+  let tn = 40.0;
+  let tl = rel.x * tn + 0.6 * (vnoise(wp * 0.15) - 0.5);
+  let tf = fract(tl);
+  let tdist = min(tf, 1.0 - tf) / max(tn * length(rel.yz), 1e-4);
+  let th = hash12(vec2f(round(tl), 3.0));
+  let tw = 0.04 + 0.12 * th;
+  let tide = exp(-pow(tdist / max(tw, px), 2.0)) * step(0.8, th) * smoothstep(0.35, 0.7, vnoise(wp * 0.25 + th * 9.0)) * (0.5 + 0.5 * vnoise(wp * 1.5)) * smoothstep(0.5, 2.5, away);
+  c += vec3f(0.05, 0.046, 0.039) * tide * (0.5 + dryness);
+  // grains: silt and fine sand, each a point of light where it is resolved, a fine glitter where it is not
+  let near = smoothstep(8.0, 30.0, ppu);
+  let g1 = specks(wp, 2.4, 0.26, ppu, 0.0, 0.8);
+  let g2 = specks(wp, 6.0, 0.3, ppu, 17.0, 0.9);
+  let g3 = specks(wp, 0.8, 0.22, ppu, 41.0, 0.25);
+  let gr = g1.xyz * g1.w * 0.06 + g2.xyz * g2.w * 0.04 * near + g3.xyz * g3.w * 0.09;
+  c += gr * mix(0.3, 1.0, dryness);
+  c += vec3f(0.07, 0.074, 0.07) * frustules(wp, ppu) * mix(0.4, 1.0, dryness);
+  // the cracks: a coarse network, then finer cracks through the driest plates, their lines jagged
+  let warp = (vec2f(fbm3(wp * 0.09), fbm3(wp * 0.09 + 5.2)) - 0.5) * 2.4 + (vec2f(vnoise(wp * 1.1), vnoise(wp * 1.1 + 2.7)) - 0.5) * 0.35
+    + (vec2f(vnoise(wp * 3.7), vnoise(wp * 3.7 + 6.1)) - 0.5) * 0.1;
+  let q = wp + warp;
+  let s1 = 7.5;
+  let v1 = vborder(q / s1);
+  let e1 = v1.x * s1;
+  let s2 = 2.8;
+  let v2 = vborder((q + 31.7) / s2);
+  let e2 = v2.x * s2;
+  let open = smoothstep(1.5, 5.0, away + 3.0 * (fbm3(wp * 0.18) - 0.45));
+  let w1 = open * (0.1 + 0.08 * vnoise(q * 0.3));
+  let sub = smoothstep(0.4, 0.7, hash12(vec2f(v1.y, 4.0)) + 0.35 * dryness) * smoothstep(4.0, 9.0, away);
+  let w2 = sub * (0.035 + 0.035 * vnoise(q * 0.6 + 4.0));
+  let de = min(e1 - w1, select(1e3, e2 - w2, sub > 0.01));
+  let gap = 1.0 - smoothstep(-px * 0.7, px * 0.7, de);
+  // each plate curls up at its rim as it dries: brighter toward it, and its broken edge catches the light
+  let curl = exp(-max(de, 0.0) / 0.45) * open;
+  let lip = exp(-pow(max(de, 0.0) / max(0.035, 0.9 * px), 2.0)) * smoothstep(0.01, 0.05, max(w1, w2)) * open;
+  var plate = c * (1.0 + 0.8 * curl) + vec3f(0.11, 0.096, 0.075) * lip * (0.5 + 0.7 * vnoise(wp * 3.0));
+  // the plate's middle sags a little, and is a shade darker
+  plate *= 1.0 - 0.15 * smoothstep(0.6, 2.5, de) * open;
+  // in the gap: the bare floor below, dim, a few grains fallen into it
+  let floorc = c * 0.2 + g2.xyz * g2.w * 0.015;
+  return mix(plate, floorc, gap * open);
+}
+// Rain on the dry mud as a drought ends. Each drop lands as a low bead of water whose edge pins unevenly on the
+// grains; seen from above it is a small lens: the mud shows through its middle, dimmed, its steep edge a dark band,
+// with a crisp glint toward the lamp and a broken bright arc on its far side where the light it gathered comes out. It sinks in within a second or so,
+// leaving a dark wet stain that creeps outward as the mud wicks the water in, its front darkest; a large drop throws
+// a few tiny droplets around it as it lands, each a speck of stain of its own. The stains gather and merge until the
+// mud is wet all over before the water returns. One layer of drops in cells of S units (radius rmin..rmax, arrivals
+// at a mean interval of tau s per cell, up to spat splash droplets each); t is the seconds since the rain began.
+// x how wet, y the wetting front, z light the beads give, w how much a bead covers.
+fn mudDrops(wp: vec2f, t: f32, S: f32, rmin: f32, rmax: f32, tau: f32, seed: f32, spat: i32) -> vec4f {
+  var o = vec4f(0.0);
+  let cell = floor(wp / S);
+  for (var j = -1; j <= 1; j++) {
+    for (var i = -1; i <= 1; i++) {
+      let id = cell + vec2f(f32(i), f32(j));
+      for (var k = 0; k < 3; k++) {
+        let h = id + vec2f(seed + f32(k) * 7.31, f32(k) * 3.17);
+        let age = t + tau * log(max(hash12(h), 1e-4)) * (1.0 + f32(k));
+        if (age <= 0.0) { continue; }
+        let r0 = mix(rmin, rmax, pow(hash12(h + 1.7), 2.0));
+        let d = wp - (id + vec2f(hash12(h + 2.9), hash12(h + 4.3))) * S;
+        let dl = length(d);
+        let dir = d / max(dl, 1e-4);
+        // the stain: ragged where it meets drier or more open grains, creeping out as the mud wicks the water in
+        let R = r0 * (1.0 + 0.5 * (1.0 - exp(-age / 7.0)));
+        let rag = 1.0 + 0.22 * (vnoise(d / r0 * 1.8 + h * 13.0) - 0.5) + 0.08 * (vnoise(d / r0 * 6.0 + h) - 0.5);
+        let rr = dl / R * rag;
+        o.x = max(o.x, (1.0 - smoothstep(0.85, 1.0, rr)) * smoothstep(0.0, 1.2, age));
+        o.y = max(o.y, smoothstep(0.55, 0.95, rr) * (1.0 - smoothstep(0.95, 1.02, rr)) * smoothstep(0.5, 2.0, age));
+        // the bead, its outline lobed where its edge pinned, sinking (and so dimming) over a second or so
+        let life = exp(-age / mix(0.35, 1.1, hash12(h + 6.1)));
+        if (life > 0.01) {
+          let rb = dl / (r0 * 0.9) * rag * (1.0 + 0.18 * (vnoise(dir * 1.4 + h * 2.3) - 0.5) + 0.07 * (vnoise(dir * 6.0 + h * 4.1) - 0.5)
+            + 0.04 * (vnoise(d / r0 * 9.0 + h) - 0.5));
+          let inside = 1.0 - smoothstep(0.9, 1.0, rb);
+          let q = d / (r0 * 0.9) - LAMP_L * 0.45 + 0.12 * (vec2f(hash12(h + 9.1), hash12(h + 9.7)) - 0.5);
+          let glint = exp(-dot(q, q) / mix(0.0012, 0.004, hash12(h + 8.2)));
+          // the light out of its far side: broken, thin, uneven along the edge, never a whole ring
+          let seg = smoothstep(0.35, 0.8, vnoise(dir * 5.0 + h * 7.0)) * (0.5 + 0.7 * vnoise(d / r0 * 12.0 + h));
+          let arc = exp(-pow((rb - 0.86) / 0.05, 2.0)) * pow(max(dot(dir, -LAMP_L), 0.0), 1.5) * seg;
+          o.z = max(o.z, (1.3 * glint + 0.45 * arc) * inside * life);
+          // through its middle the mud shows, a little dimmed; toward its edge the surface steepens and bends the
+          // light away, a dark band
+          o.w = max(o.w, inside * (0.25 + 0.75 * smoothstep(0.5, 0.93, rb)) * min(life * 2.0, 1.0));
+        }
+        // the splash: a few tiny droplets thrown out, each landing a moment later as a speck of stain
+        for (var m = 0; m < spat; m++) {
+          let hm = h + vec2f(f32(m) * 1.93, 11.0);
+          if (hash12(hm) < 0.35) { continue; }
+          let an = hash12(hm + 0.7) * 6.2832;
+          let ds = d - vec2f(cos(an), sin(an)) * r0 * (1.3 + 1.4 * hash12(hm + 1.1));
+          let rs = r0 * mix(0.08, 0.2, hash12(hm + 2.3)) * (1.0 + 0.4 * (1.0 - exp(-age / 5.0)));
+          let us = length(ds) / rs * (1.0 + 0.3 * (vnoise(ds / rs * 1.5 + hm) - 0.5));
+          o.x = max(o.x, (1.0 - smoothstep(0.7, 1.0, us)) * smoothstep(0.1, 0.8, age));
+          o.z = max(o.z, exp(-dot(ds / rs - LAMP_L * 0.4, ds / rs - LAMP_L * 0.4) / 0.06) * exp(-age / 0.3) * 0.7);
+        }
+      }
+    }
+  }
+  return o;
+}
+// The surface of the water, seen through. It lies above the focal plane, so its waves are never sharp in
+// themselves; they show only by bending what lies beneath (a slope displaces the view). A raindrop's impact sends out capillary
+// waves, which disperse: the short ones run fastest, so a ring is a packet whose crests crowd toward its leading edge
+// and broaden toward its centre, damped where they are shortest; it is uneven around its circle, and the drop's
+// splash throws a few droplets which ring too. In rain the whole surface is roughened by drops falling out of view.
+const RIPPLE_SHEEN = vec3f(0.11, 0.123, 0.14);
+const RIPPLE_DIM = 0.45;
+// one ring's slope, added to s
+fn ringWave(d: vec2f, t: f32, amp: f32, seed: f32, s: ptr<function, vec2f>) {
+  let r = length(d);
+  let dir = d / max(r, 1e-4);
+  let V = ${f(DEFAULT_K.dropSpeed)};
+  let R = V * t;
+  // the ring runs unevenly: the film's depth, currents and the splash itself distort it
+  let rr = r * (1.0 + 0.07 * (vnoise(dir * 1.5 + seed) - 0.5)) + 0.5 * (vnoise(dir * 4.0 + seed * 1.7) - 0.5) * min(r / 6.0, 1.0)
+    + 0.12 * (vnoise(d * 0.8 + seed) - 0.5);
+  let psi = rr / max(R, 1e-3);
+  if (psi > 1.4) { return; }
+  let lf = 1.7;
+  let ph = 6.2832 * psi * psi * rr / (3.0 * lf);
+  let env = smoothstep(0.12, 0.6, psi) * exp(-pow(max(psi - 0.92, 0.0) / 0.13, 2.0)) * (0.15 + 1.6 * pow(vnoise(dir * 2.5 + seed + 3.0), 1.5))
+    * amp / sqrt(1.0 + r * 0.25) * (1.0 - smoothstep(0.3, 0.45, r / min(post.world.x, post.world.y)));
+  *s += dir * (-0.06 * env * sin(ph));
+}
+// the chop: wavelets from every direction, long and short, the short running faster (capillary waves), each
+// adding its slope
+fn chop(p: vec2f, rain: f32, s: ptr<function, vec2f>) {
+  for (var i = 0; i < 14; i++) {
+    let fi = f32(i);
+    let a = fi * 2.39996 + 0.4 + 0.5 * hash12(vec2f(fi, 1.0));
+    let dir = vec2f(cos(a), sin(a));
+    let lam = 2.0 + 4.0 * hash12(vec2f(fi, 2.0));
+    let k = 6.2832 / lam;
+    let th = k * dot(dir, p) - 3.0 * sqrt(k) * post.simTime + fi * 1.7;
+    // in groups: each wavelet stronger here, weaker there, the groups drifting
+    let g = vnoise(p * (0.06 + 0.05 * hash12(vec2f(fi, 3.0))) + vec2f(fi * 3.1, 0.0) - dir * post.simTime * 0.6);
+    let A = 0.045 * rain / (k * k) * (0.2 + 1.6 * g * g);
+    *s += dir * (A * k * cos(th));
+  }
+}
+// the water's surface slope at wp
+fn ripples(wp: vec2f) -> vec2f {
+  var o = vec2f(0.0);
+  for (var k = 0u; k < 4u; k++) {
+    let dr = post.drops[k];
+    let age = post.simTime - dr.z;
+    if (dr.w > 0.0 && age > 0.0 && age < ${f(DEFAULT_K.dropLife)}) {
+      let fade = 1.0 - age / ${f(DEFAULT_K.dropLife)};
+      for (var s = 0u; s < 3u; s++) {
+        let hs = hash12(dr.xy + f32(s) * 7.13);
+        var c = dr.xy;
+        var t = age;
+        var a = dr.w * fade;
+        if (s > 0u) {
+          let an = hs * 6.2832;
+          c += vec2f(cos(an), sin(an)) * (1.5 + 5.0 * hash12(dr.xy + f32(s) * 3.7));
+          t -= 0.2 + 0.7 * hs;
+          a *= 0.2 + 0.3 * hash12(dr.xy + f32(s) * 1.3);
+        }
+        if (t > 0.0) {
+          var d = wp - c;
+          d -= post.world * round(d / post.world);
+          ringWave(d, t, a, dr.x * 0.37 + f32(s) * 5.1, &o);
+        }
+      }
+    }
+  }
+  // the rain falling out of view: a choppy surface everywhere
+  if (post.pond.y > 0.0) { chop(wp, post.pond.y, &o); }
+  return o;
+}
 // A thermal camera's false colour: deep blue, teal, amber, white.
 fn heatRamp(u: f32) -> vec3f {
   let a = mix(vec3f(0.02, 0.04, 0.18), vec3f(0.0, 0.42, 0.48), smoothstep(0.0, 0.35, u));
@@ -5728,12 +6421,43 @@ fn heatRamp(u: f32) -> vec3f {
   return mix(b, vec3f(1.0, 0.95, 0.82), smoothstep(0.75, 1.0, u));
 }
 
+// A duckweed root (Lemna's single root), from the frond's node at o trailing along dir, len long as seen from above,
+// wr its half-width: it hangs from the frond far above down through the water, so it is out of focus near its
+// start and sharp toward its tip, where it nears the focal plane; a clear cylinder, its walls bright, its cells
+// faint bands along it, its tip in a rounded sheath (the root cap's pocket). It sways, the tip most. x its light,
+// y how much it covers.
+fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32) -> vec2f {
+  var d = p - o;
+  d -= post.world * round(d / post.world);
+  let along = dot(d, dir) / len;
+  if (along < -0.1 || along > 1.15) { return vec2f(0.0); }
+  let s = clamp(along, 0.0, 1.0);
+  let perp = vec2f(-dir.y, dir.x);
+  let bend = len * (0.07 * sin(post.simTime * 0.37 + seed) * s * s + 0.05 * (vnoise(vec2f(s * 2.5 - post.simTime * 0.08, seed)) - 0.5) * s);
+  let off = dot(d, perp) - bend;
+  let focus = smoothstep(0.05, 0.8, s);
+  let blur = mix(0.6, 0.04, focus) + 0.7 / post.ppu;
+  // the sheath at the tip, a little wider, closing round
+  let w = wr * (1.0 + 0.2 * smoothstep(0.86, 0.95, along)) * (1.0 - 0.15 * smoothstep(0.97, 1.1, along));
+  let endD = max(along - 1.0, 0.0) * len * 0.45;
+  let r = length(vec2f(off, endD)) / w;
+  let walls = exp(-pow((r - 0.85) / (0.12 + blur / w), 2.0));
+  let inner = 1.0 - smoothstep(0.8, 1.0 + blur / w, r);
+  let bands = 0.5 + 0.5 * smoothstep(0.75, 0.95, abs(fract(along * len / 1.8 + 0.3 * vnoise(vec2f(off, seed))) * 2.0 - 1.0));
+  let sheath = exp(-pow((r - 0.95) / (0.1 + blur / w), 2.0)) * smoothstep(0.86, 0.95, along) * 0.6;
+  let light = (walls * (0.6 + 0.4 * vnoise(vec2f(along * len * 0.7, seed))) + inner * 0.18 * bands + sheath) * mix(0.06, 1.0, pow(focus, 1.5));
+  return vec2f(light, inner * mix(0.1, 1.0, focus));
+}
 @fragment fn fsComposite(i: VO) -> @location(0) vec4f {
   let k = post.optics;
   let q = (i.pos.xy - post.res * 0.5) / (post.res.y * 0.5);
   let wp = post.cam + (i.pos.xy - post.res * 0.5) / post.ppu;
   var water = vec3f(post.heat.x, 0.0, 0.0);
   var uv = i.uv;
+  // rain: the rings raindrops send across the water bend the view as they pass
+  var surf = vec2f(0.0);
+  if (post.pond.y > 0.0) { surf = ripples(wp); uv += surf * 1.2 * post.ppu / post.res; }
+  var wet = 1.0;
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
     // schlieren: with the heat map on Shimmer, warm water bends the light passing through it like the
@@ -5809,6 +6533,86 @@ fn heatRamp(u: f32) -> vec3f {
   bg = mix(bg, bg * mix(vec3f(0.85, 0.88, 0.94), vec3f(1.12, 1.06, 1.0), lamp), k) + vec3f(0.0045, 0.004, 0.0015) * m * behind;
   c = c * mix(0.72, 1.0, v) * mix(1.0, mix(0.88, 1.05, lamp), k) + bg;
   c = pondSpecks(c, hdr, i.pos.xy, min(1.0, live.a));
+  // the pool's edge and dry floor (docs/catastrophes.md), behind what lies on them; the water's edge itself, a
+  // meniscus, is a bright thin line, and the thinning film just inside it a faint sheen
+  if (post.pond.x < 1.0) {
+    let pd = pondPost(wp);
+    let sd = pd.x / max(length(pd.yz), 1e-4);
+    let px = 1.0 / post.ppu;
+    let dry = 1.0 - smoothstep(-px, px, sd);
+    wet *= smoothstep(0.0, 0.4, sd);
+    if (dry > 0.0) {
+      var mud = dryGround(wp, max(-sd, 0.0), vec3f(post.pond.x - pd.x, pd.yz), post.ppu);
+      // the drought's rain: wet mud is darker, its front darker still; a fresh bead shines at its rim
+      if (post.weather.w > 0.0) {
+        let a = mudDrops(wp, post.weather.w, 6.0, 1.2, 3.5, 75.0, 0.0, 0);
+        let b = mudDrops(wp, post.weather.w, 18.0, 4.0, 10.0, 130.0, 51.0, 5);
+        let wetM = max(a.x, b.x);
+        mud *= mix(vec3f(1.0), vec3f(0.36, 0.38, 0.42), wetM) * (1.0 - 0.3 * max(a.y, b.y));
+        // under a bead the mud is seen through a lens, out of focus and dimmer
+        mud *= 1.0 - 0.65 * max(a.w, b.w);
+        mud += vec3f(0.012, 0.013, 0.014) * wetM * pow(vnoise(wp * 2.3), 8.0) + vec3f(0.16, 0.165, 0.17) * max(a.z, b.z);
+      }
+      c += mud * dry * behind * mix(1.0, 0.8, k);
+    }
+    // the meniscus: a thin bright contact line, uneven along its length (it pins and slips on the grains), and on
+    // the water's side the curved surface rising to it, scattering a narrowing glow
+    let along = pow(0.25 + 0.75 * vnoise(wp * 0.9) + 0.3 * (vnoise(wp * 5.3 + 2.0) - 0.5), 2.0) * 1.3;
+    let rim = exp(-pow(sd / (max(0.9 * px, 0.025) * (0.6 + 1.6 * vnoise(wp * 0.7 + 9.0))), 2.0)) * along
+      + 0.15 * exp(-pow((sd - 0.12 - 0.25 * vnoise(wp * 0.5)) / max(0.9 * px, 0.03), 2.0)) * vnoise(wp * 1.9 + 4.0);
+    let rise = select(0.0, exp(-sd / 0.22) * (1.0 - exp(-sd / max(1.5 * px, 0.02))), sd > 0.0);
+    let sheen = select(0.0, exp(-sd / 0.9), sd > 0.0);
+    c += (vec3f(0.16, 0.17, 0.18) * rim + vec3f(0.035, 0.040, 0.046) * rise * along + vec3f(0.006, 0.008, 0.010) * sheen) * (0.35 + 0.65 * behind);
+  }
+  // ice (frost): over what is frozen in it, its front a crisp bright line
+  if (post.weather.y > 0.0) {
+    let fi = fieldPost(${4 * MAX_CELLS}u, wp);
+    let gl = max(length(fi.yz), 1e-4);
+    let sdI = (fi.x - post.weather.y) / gl;
+    let px = 1.0 / post.ppu;
+    let grow = smoothstep(0.0, 0.3, post.weather.z);
+    wet *= smoothstep(0.0, 0.4, sdI);
+    if (sdI < 1.6) { c += iceLook(wp, sdI, -fi.yz / gl, post.ppu, grow) * (0.35 + 0.65 * behind); }
+    if (sdI > 0.0 && sdI < 9.0 && grow > 0.0) { c += frazil(wp, sdI, post.ppu) * (0.35 + 0.65 * behind); }
+  }
+  // the waves seen in themselves, on open water only: a surface tilted toward the lamp throws a little of its light
+  // into the objective, a pale sheen on the crests' near flanks, while the far flanks bend light away and dim what
+  // lies under them; steep water of any tilt scatters a little more
+  if (dot(surf, surf) > 0.0) {
+    let tilt = dot(surf, LAMP_L) * wet;
+    let sl = length(surf) * wet;
+    c = c * (1.0 - RIPPLE_DIM * max(-tilt, 0.0)) + RIPPLE_SHEEN * (max(tilt, 0.0) + 0.35 * sl) * (0.4 + 0.6 * behind);
+  }
+  // duckweed floating on the pool, far above the focal plane: its fronds keep the lamp's light from what lies under
+  // them and pass a little of it, green, mottled by the air chambers inside them; each hangs a root down into the
+  // water, out of focus near its frond, sharp where it reaches the focal plane
+  if (post.duck.w > 0.0) {
+    let sh = duckShade(wp, post.duck, post.duckB, post.world);
+    // the roots trail together, with the current, swaying
+    let trail = post.duckB.y * 0.37 + 0.35 * sin(post.simTime * 0.031 + post.duckB.y);
+    var tex = 0.0;
+    var root = vec2f(0.0);
+    for (var f = 0; f <= i32(post.duckB.w); f++) {
+      let fr = frondOf(post.duck, post.duckB, f);
+      let a = frondAt(wp, fr, post.world);
+      if (a.z < 2.5) {
+        // air chambers, a blurred net; the node, where the root and buds come from, a darker spot; a midrib faintly;
+        // and round its edge the water's surface curving up onto it, a meniscus catching the lamp, blurred
+        let cells = smoothstep(0.0, 0.5, vborder(a.xy * fr.L / 2.2 + f32(f) * 7.0 + post.duckB.y).x);
+        let nd = a.xy - vec2f(-0.7, 0.0);
+        let node = exp(-dot(nd, nd) / 0.02);
+        let rib = exp(-pow(a.y / 0.05, 2.0)) * smoothstep(-0.7, -0.3, a.x) * (1.0 - smoothstep(0.4, 0.9, a.x));
+        let rim = exp(-pow((a.z + 0.4) / 1.3, 2.0));
+        tex = max(tex, (0.45 + 0.55 * cells) * (1.0 - 0.55 * node) * (1.0 - 0.25 * rib) * (1.0 - smoothstep(-1.2, 1.2, a.z)) + 0.9 * rim);
+      }
+      let rl = post.duck.z * mix(2.2, 4.5, duckHash(post.duckB.y + f32(f) * 2.3)) * select(1.0, 0.35, f == 3);
+      let rd = rot2(vec2f(1.0, 0.0), trail + 1.4 * (duckHash(post.duckB.y + f32(f) * 4.4) - 0.5));
+      root = max(root, duckRoot(wp, fr.c - fr.ax * 0.7 * fr.L, rd, rl, 0.75, post.duckB.y + f32(f) * 3.3));
+    }
+    let blot = 0.8 + 0.4 * vnoise(wp * 0.08 + post.duckB.y);
+    c = c * (1.0 - 0.88 * sh) + vec3f(0.012, 0.026, 0.008) * tex * blot * post.duck.w * mix(0.6, 1.0, k);
+    c = c * (1.0 - 0.3 * root.y * post.duck.w) + vec3f(0.085, 0.10, 0.08) * root.x * (1.0 - 0.75 * sh) * post.duck.w * (0.4 + 0.6 * behind);
+  }
   // the round field stop of the eyepiece clips the corners of the camera's frame
   let corner = length(vec2f(post.res.x / post.res.y, 1.0));
   c *= mix(1.0, 1.0 - 0.85 * smoothstep(corner * 0.78, corner * 1.02, length(q)), k);

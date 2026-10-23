@@ -4,7 +4,8 @@ import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS } from './engine.js';
 import { genomeSerial, readGenome, parseParticle, thermalGuild } from './genome.js';
-import { seasonAt, createClimate, abioRate } from './climate.js';
+import { seasonAt, createClimate, abioRate, EVENT_TYPES } from './climate.js';
+import { countPools } from './geography.js';
 import { createLab } from './lab.js';
 import { createSpecimen } from './specimen.js';
 import { section, block } from './ui.js';
@@ -41,7 +42,10 @@ function fail(title, detail) {
   $('lab').hidden = true;
 }
 
-async function boot() {
+// A reload can begin before the GPU has let go of the last page's world (Android's browsers especially): the new
+// device is then lost while the shaders compile ("Instance dropped"). Boot tries again on a fresh device a few
+// times before saying anything; a real shader error is reported at once.
+async function boot(tries = 4) {
   if (!navigator.gpu) {
     fail('This browser has no WebGPU', 'Tidemote simulates its world on your graphics card through WebGPU. Try a current Chrome, Edge or Safari, or Firefox on Windows.');
     return;
@@ -58,7 +62,8 @@ async function boot() {
       maxStorageBuffersPerShaderStage: Math.min(lim.maxStorageBuffersPerShaderStage, 10),
     },
   });
-  device.lost.then((info) => { if (info.reason !== 'destroyed') fail('The GPU device was lost', `${info.message || 'The driver reset the device.'} Reload the page to start a new world.`); });
+  let started = false;
+  device.lost.then((info) => { if (started && info.reason !== 'destroyed') fail('The GPU device was lost', `${info.message || 'The driver reset the device.'} Reload the page to start a new world.`); });
   device.addEventListener('uncapturederror', (e) => console.error('[tidemote]', e.error.message));
 
   const format = navigator.gpu.getPreferredCanvasFormat();
@@ -71,8 +76,22 @@ async function boot() {
   const kHash = /[#&]k=([^&]*)/.exec(location.hash);
   if (kHash) { try { K = JSON.parse(decodeURIComponent(kHash[1])); } catch { console.warn('[tidemote] ignoring a #k= that is not JSON'); } }
   let eng;
-  try { eng = await createEngine(device, format, { hasTimestamps: hasTS, K }); }
-  catch (e) { fail('The simulation failed to compile', String(e.message || e)); return; }
+  // a device lost mid-compile may leave getCompilationInfo waiting forever
+  const lostWhile = device.lost.then((info) => { throw new Error(`device lost while compiling: ${info.message || info.reason}`); });
+  lostWhile.catch(() => {});
+  try { eng = await Promise.race([createEngine(device, format, { hasTimestamps: hasTS, K }), lostWhile]); }
+  catch (e) {
+    const msg = String(e.message || e);
+    if (tries > 1 && !/^(Shader compile failed|unknown tunables)/.test(msg)) {
+      console.warn('[tidemote] starting the GPU again:', msg);
+      device.destroy();
+      await new Promise((r) => setTimeout(r, 600));
+      return boot(tries - 1);
+    }
+    fail('The simulation failed to compile', msg);
+    return;
+  }
+  started = true;
   run(eng, device, ctx, specCtx, hasTS);
 }
 
@@ -94,6 +113,8 @@ const fmtSpeed = (s) => (s === Infinity ? 'Max' : `×${s}`);
 // Choosing a speed ends the warm-up; a pause only holds it. A loaded world never warms up.
 const WARM_UNTIL = 120;
 const PARTICLE_SIZES = [32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
+// the pool's events as a fresh page has them (Settings → Climate): all on
+const EVENTS_ON = () => ({ on: true, ...Object.fromEntries(EVENT_TYPES.map((x) => [x, true])) });
 
 // view preferences that outlive the page
 const PREFS_KEY = 'tidemote.view';
@@ -113,6 +134,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the Field Lab's column, open or folded to its header ("world": its name when it was the census)
     labOpen: prefs.labOpen ?? prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
     closeup: prefs.closeup ?? true,
+    // the pool's events (docs/catastrophes.md): all on, or off, or some of them
+    events: { ...EVENTS_ON(), ...prefs.events },
     songMarks: prefs.songMarks ?? 1, // mark the cells that sing: 0 off, 1 the picked species, 2 all
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
     // pixels per CSS pixel, the frame rate aimed for (0: the display's; 60 by default, and for prefs
@@ -146,7 +169,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: 2, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, ...state.perf });
+    savePrefs({ v: 2, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, events: state.events, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   if (prefs.loupe !== undefined && !isCoarse) state.loupe = prefs.loupe;
@@ -255,8 +278,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ climate eras
   let climate;
+  // the pool's events the climate may draw (Settings → Climate)
+  function applyEvents() {
+    if (climate) climate.allowed = new Set(state.events.on ? EVENT_TYPES.filter((x) => state.events[x]) : []);
+  }
   function resetClimate() {
     climate = createClimate(eng);
+    applyEvents();
     climate.music = (Math.random() * 2 ** 32) >>> 0; // the world's soundtrack seed (kept with a saved world)
     climate.onEra = (era, prevAmb, prevTemp) => {
       const lightWord = era.ambient > prevAmb + 0.05 ? 'light rises' : era.ambient < prevAmb - 0.05 ? 'light dims' : 'light holds';
@@ -264,6 +292,55 @@ function run(eng, device, ctx, specCtx, hasTS) {
       pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}%${waterWord} · currents shift`, 0xffa0e3f1, 'era');
       flash(climate.name, 'New era');
       sound.era(climate.name);
+    };
+    // the pool's events (docs/catastrophes.md): announced as they begin and turn, and tallied once they have passed
+    climate.onEvent = (ev, phase) => {
+      const tally = () => {
+        const was = ev.before;
+        if (!was) return '';
+        const kept = was.cells ? life.counts[3] / was.cells : 1;
+        const lost = [...was.species].filter((k) => !life.reg.get(k)?.alive).length;
+        return ` · ${Math.round(Math.min(kept, 9.99) * 100)}% as much life as before${lost ? `, ${lost} species lost` : ''}`;
+      };
+      const begin = () => { ev.before = { cells: life.counts[3], species: new Set([...life.reg.entries()].filter(([, s]) => s.alive && s.established).map(([k]) => k)) }; };
+      const col = 0xff9ad6e8;
+      if (ev.type === 'drought') {
+        if (phase === 'drying') {
+          begin();
+          pushEvent(`<b>The pool is drying</b>: over ${fmtDur(ev.fall)} the water will fall until ${Math.round((1 - ev.low) * 100)}% of the floor lies dry`, col, 'pond');
+          flash('The pool is drying', 'Drought');
+        } else if (phase === 'dry') {
+          const p = eng.relief ? countPools(eng.relief, eng.grid[0], eng.grid[1], eng.level) : null;
+          pushEvent(`The water has fallen${p && p.pools > 1 ? `: the pool has parted into <b>${p.pools} pools</b>` : ''}; stranded cells rest as cysts and spores`, col, 'pond');
+          flash(p && p.pools > 1 ? `${p.pools} pools` : 'Low water', 'Drought');
+        } else if (phase === 'rain') {
+          pushEvent('<b>Rain</b>: the pool refills, cold under the cloud, and the cysts on the drying mud wake', col, 'pond');
+          flash('Rain', 'The drought breaks');
+        } else if (!phase) pushEvent(`The drought has passed${tally()}`, col, 'pond');
+      } else if (ev.type === 'storm') {
+        if (phase === 'storm') {
+          begin();
+          pushEvent('<b>A storm</b>: cold rain, raindrops ringing the surface, the water rough and the light dim', col, 'pond');
+          flash('A storm', 'Weather');
+        } else if (!phase) pushEvent(`The storm has passed${tally()}`, col, 'pond');
+      } else if (ev.type === 'frost') {
+        if (phase === 'cooling') {
+          begin();
+          pushEvent('<b>A frost</b>: night falls and the water chills toward freezing', col, 'pond');
+          flash('A frost', 'Night');
+        } else if (phase === 'freezing') {
+          pushEvent(`Ice grows over the pool: grains spreading from the shallows will freeze ${Math.round(ev.max * 100)}% of it, pushing cells into the veins of water between them`, col, 'pond');
+          flash('Ice', 'Frost');
+        } else if (phase === 'thaw') {
+          pushEvent('The ice thaws', col, 'pond');
+        } else if (!phase) pushEvent(`The frost has passed${tally()}`, col, 'pond');
+      } else if (ev.type === 'duckweed') {
+        if (phase === 'duckweed') {
+          begin();
+          pushEvent(`<b>Duckweed drifts onto the pool</b>: ${ev.buds + 1} fronds, the water under them in their shade, their roots trailing below`, col, 'pond');
+          flash('Duckweed', 'Shade');
+        } else if (!phase) pushEvent(`The duckweed has drifted off${tally()}`, col, 'pond');
+      }
     };
     climate.onExcursion = (x) => {
       if (!K.heat) return;
@@ -1396,6 +1473,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
           ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === 'auto' ? 'a measured count' : fmt(pendingN)}</button></div>` : '')
         + (hasTS ? `<div class="opt"><span class="lbl">${term('profile', 'Profile')}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ''));
     }
+    // the pool's events: on or off, each kind on or off, and one started now
+    const EVENT_NAMES = { drought: 'Drought', storm: 'Storm', duckweed: 'Duckweed', frost: 'Frost' };
+    function climate_() {
+      const E = state.events;
+      const kinds = E.on ? EVENT_TYPES.map((x) => onoff(`ev-${x}`, EVENT_NAMES[x], '', E[x], `ev${x}`)).join('') : '';
+      const now = !K.pond ? '' : state.phase === 'running' && !climate.event && E.on && EVENT_TYPES.some((x) => E[x])
+        ? `<div class="opt"><span class="lbl">${term('evstart', 'Start one now')}</span><div class="row segs">${EVENT_TYPES.filter((x) => E.on && E[x]).map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAMES[x]}</button>`).join('')}</div></div>`
+        : climate?.event ? `<div class="opt"><span class="lbl">Under way</span><span class="note">${EVENT_NAMES[climate.event.type]}${climate.phase && climate.phase !== climate.event.type ? ` · ${climate.phase}` : ''}</span></div>` : '';
+      return group('events', 'Pool events', onoff('ev-on', 'Events', '', E.on, 'poolevents') + kinds + now);
+    }
     // the saves kept in this browser (null until read), the name being typed, a load or delete
     // waiting to be confirmed ({ kind, id }), and what is under way ('save', 'load', 'open')
     let saves = null, used = 0, wName = '', ask = null, wBusy = '';
@@ -1499,7 +1586,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // this tab's settings as a fresh page opens them (a particle count waits for its own new world)
     function resetTab() {
       const s = eng.settings, P = state.perf;
-      if (tab === 'display') {
+      if (tab === 'climate') {
+        state.events = EVENTS_ON();
+        applyEvents();
+      } else if (tab === 'display') {
         trailIdx = 1; s.trails = trailLevels[trailIdx];
         for (const k of ['tide', 'heat', 'bands', 'links', 'nodes']) s[k] = defaults[k];
         state.currents = false; state.loupe = !isCoarse; state.songMarks = 1;
@@ -1518,7 +1608,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       tabs.forEach((b) => { const on = b.dataset.tab === tab; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; });
       $('readout').hidden = tab !== 'performance';
       const typing = document.activeElement?.id === 'w-name';
-      opts.innerHTML = (tab === 'display' ? display() : tab === 'performance' ? performance_() : worlds_()) + foot();
+      opts.innerHTML = (tab === 'display' ? display() : tab === 'performance' ? performance_() : tab === 'climate' ? climate_() : worlds_()) + foot();
       if (typing && !$('w-name').disabled) { const i = $('w-name'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
       if (tab === 'worlds' && saves == null) refreshSaves();
       readout(true);
@@ -1560,6 +1650,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'lod') s.lod = !!+v;
       else if (id === 'closeup') state.closeup = !!+v;
       else if (id === 'songmarks') state.songMarks = +v;
+      else if (id === 'ev-start') { if (!climate.event) climate.force(v); toggle(false); return; }
+      else if (id.startsWith('ev-')) { state.events[id.slice(3)] = !!+v; applyEvents(); }
       else if (id === 'loupe') state.loupe = !!+v;
       else if (id === 'auto') { state.auto = !!+v; renderAuto(director.active); }
       else if (id === 'scale') { P.scale = v === 'auto' ? 'auto' : +v; if (P.scale !== 'auto') renderScale = P.scale; else renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
@@ -2389,6 +2481,30 @@ function run(eng, device, ctx, specCtx, hasTS) {
     },
     lifespan: (slot) => { const g = genomeFor(slot); return g ? g.lifespan : 0; },
     now: () => performance.now() / 1000,
+    // where the pool's event shows best (docs/catastrophes.md): a stretch of shore while the water falls or returns,
+    // the duckweed, the last raindrop
+    event: () => {
+      const ev = climate && climate.event, ph = climate && climate.phase;
+      if (!ev || !ph || ph === 'after') return null;
+      const [W, H] = eng.grid;
+      if (ev.type === 'duckweed') return { type: 'duckweed', phase: ph, x: eng.duck[0], y: eng.duck[1], w: eng.duck[2] * (Math.random() < 0.5 ? 3.2 : 1.5) };
+      if (ev.type === 'storm' || ph === 'rain') {
+        const k = climate.dropSlot ?? 0;
+        if (eng.drops[k * 4 + 3] > 0 && Math.random() < 0.5) return { type: ev.type, phase: ph, x: eng.drops[k * 4], y: eng.drops[k * 4 + 1], w: 40 };
+      }
+      if (ev.type === 'frost' && ph !== 'cooling' && eng.relief) {
+        // the ice's front, or a vein of water, near the middle of the view the director picks
+        return { type: 'frost', phase: ph, x: W * Math.random(), y: H * Math.random(), w: Math.random() < 0.5 ? 12 : 35 };
+      }
+      if (ev.type === 'drought' && eng.relief) {
+        // a point of the water's edge, chosen at random
+        for (let tries = 0; tries < 400; tries++) {
+          const i = Math.floor(Math.random() * W), j = Math.floor(Math.random() * H);
+          if (Math.abs(eng.relief[j * W + i] - eng.level) < 0.006) return { type: 'drought', phase: ph, x: i + 0.5, y: j + 0.5, w: Math.random() < 0.6 ? 14 : 40 };
+        }
+      }
+      return { type: ev.type, phase: ph, x: W * Math.random(), y: H * Math.random(), w: Math.min(W, H) * 0.6 };
+    },
   });
   let surveyT = 0;
   eng.onSurvey = (s) => {
@@ -2482,6 +2598,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (w.signal) { eyebrow = 'Answering a signal'; main = upper(organism(w)); sub = spDesc(w.serial); }
       else if (w.spotlight) { eyebrow = 'Following a new species'; main = upper(organism(w)); sub = spDesc(w.serial); }
       else { eyebrow = 'Following'; main = upper(organism(w)); sub = spDesc(w.serial); }
+    } else if (w.kind === 'event') {
+      const EV = { drought: { drying: ['The pool is drying', 'Cells crowd the shrinking water; the edge drags stragglers with it'],
+        dry: ['Low water', 'Stranded on the mud, cells rest as cysts and spores'], rain: ['Rain', 'The water returns, and the cysts on the mud wake'] },
+        storm: { storm: ['A storm', 'Raindrops ring the surface and the water runs rough'] },
+        duckweed: { duckweed: ['Duckweed', 'In the shade of its fronds the producers go hungry'] },
+        frost: { cooling: ['Nightfall', 'The water chills toward freezing'], freezing: ['Ice', 'Its fronts push cells into the veins of water between the grains'],
+          frozen: ['Frozen', 'Life waits in the veins of water between the ice grains'], thaw: ['Thaw', 'The ice gives the pool back'] } };
+      const [m, sb] = (EV[w.type] || {})[w.phase] || ['The pool', ''];
+      eyebrow = going ? 'Heading to' : 'Watching'; main = m; sub = going ? '' : sb;
     } else if (w.kind === 'linger') {
       const [verb, after] = fateOf(w.fate);
       eyebrow = 'Lingering';
