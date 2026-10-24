@@ -63,6 +63,15 @@ past its optimum), starved (a producer in the duckweed's shade, under the storm'
 it; a consumer after its food died out or dwindled), or old age with births collapsing ("outbred, it seems, by" the
 rival of its guild that rose most).
 
+## Its voice
+
+The chronicler speaks as a narrator who has seen many worlds rise and fall, after Dumas in *The Count of Monte Cristo*:
+grave, a little theatrical, given to a maxim ("How swiftly fortune turns", "All wisdom is in two words: wait, and
+hope", "a whole house extinguished"), and always exact about the facts it tells (names, numbers, durations, causes).
+Genera are *houses*; a reigning species is *sovereign of the pool*; a species' food is *its daily bread*. Stories of
+the same kind take their opening turns of phrase in rotation (`vary`), so a long world does not hear one phrase over
+and over. A story's first sentence must stand alone: the auto camera's caption shows only that.
+
 ## How rarely
 
 A story is told only if its score clears the bar and the budget allows (`TUNE` in `src/chronicler.js`):
@@ -90,8 +99,8 @@ as its caption ("From the chronicle").
 
 ## Cards
 
-`src/card.js`: `cardData` (pure, the words and numbers) and `drawCard`. A card is shaped like a trading card (5:7, 750 ×
-1050, drawn and saved at 2×) and laid out like a baseball card: the name and its way of life in a line; a portrait; a
+`src/card.js`: `cardData` (pure, the words and numbers) and `drawCard`. A card is shaped like a playing card (660 × 1050, about a
+bridge card's proportions, drawn and saved at 2×) and laid out like a baseball card: the name and its way of life in a line; a portrait; a
 strip of four numbers (population, share of life, peak, age; or for the extinct, when it died, how long it lived, its
 peak); its numbers over its life (a sparkline from the census history, ending at its count now); then two columns, *How
 it lives* (diet, body, movement, growth, what it eats most and what eats it most from the chronicler's meal counts, its

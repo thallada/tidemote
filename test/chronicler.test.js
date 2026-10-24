@@ -138,7 +138,7 @@ test('a hunted species gets a post-mortem naming its hunter', () => {
   });
   const obit = told.find((s) => s.kind === 'obit');
   assert.ok(obit, `an obituary: ${told.map((x) => x.text).join(' | ')}`);
-  assert.match(obit.text, new RegExp(`${prey.name} is gone`));
+  assert.match(obit.text, new RegExp(`${prey.name} is no more`));
   assert.match(obit.text, new RegExp(`hunted down by ${hunter.name}`));
 });
 
@@ -173,7 +173,7 @@ test('an arms race: the prey genus slips the hunters’ receptors', () => {
   });
   const arms = told.find((s) => s.kind === 'arms');
   assert.ok(arms, told.map((x) => x.text).join(' | '));
-  assert.match(arms.text, /slipping from the grip/);
+  assert.match(arms.text, /slipping from the grasp/);
 });
 
 test('hunter and hunted in a cycle', () => {
@@ -191,7 +191,7 @@ test('hunter and hunted in a cycle', () => {
   });
   const cyc = told.find((s) => s.kind === 'cycle');
   assert.ok(cyc, told.map((x) => x.text).join(' | '));
-  assert.match(cyc.text, /locked in a cycle/);
+  assert.match(cyc.text, /bound together as hunter and hunted/);
 });
 
 test('an event’s aftermath names who slept through it and who was lost', () => {
@@ -212,8 +212,8 @@ test('an event’s aftermath names who slept through it and who was lost', () =>
   const told = run(ch, w, 30, 10);
   const after = told.find((s) => s.kind === 'aftermath');
   assert.ok(after, told.map((x) => x.text).join(' | '));
-  assert.match(after.text, new RegExp(`^Through the drought: ${sleeper.name} rested as cysts`));
-  assert.match(after.text, new RegExp(`${victim.name} did not survive`));
+  assert.match(after.text, new RegExp(`^The drought is past\\. ${sleeper.name} lay sleeping as cysts`));
+  assert.match(after.text, new RegExp(`${victim.name} did not live to see it end`));
 });
 
 test('the budget keeps a turbulent world from flooding the log', () => {

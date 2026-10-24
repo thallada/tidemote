@@ -14,7 +14,7 @@ import { describe as describeSong } from './audio/motif.js';
 import { songSVG, sigilSVG } from './song.js';
 import { fmt, fmtClock, fmtDur, fmtLen, cssRgb } from './fmt.js';
 
-export const CARD_W = 750, CARD_H = 1050; // a trading card's 5:7
+export const CARD_W = 660, CARD_H = 1050; // about a bridge card's shape
 export const CARD_SCALE = 2; // drawn (and saved) at twice that, for sharp text
 
 /** What a card says about a species (sp, a registry record), in words. */
@@ -24,7 +24,7 @@ export function cardData(sp, { reg, genera, K, story = null, simTime = 0, era = 
   let a = sp.ancestor && reg.get(sp.ancestor);
   while (a && lineage.length < 4) { lineage.push(a.name); a = a.ancestor && reg.get(a.ancestor); }
   const more = !!a;
-  const origin = sp.founder ? (sp.serial > founders ? `sparked from silt at ${fmtClock(sp.born || 0)}` : 'a founding lineage') : `arose at ${fmtClock(sp.born || 0)}`;
+  const origin = sp.founder ? (sp.serial > founders ? `sparked from silt at ${fmtClock(sp.born || 0)}` : 'a founding lineage') : 'an ancestor too rare to be named';
   const gen = genera?.get(sp.genus);
   const multi = f.body === 'multicellular';
   const plan = multi ? describeGrowth(growPlan(g), g) : null;
@@ -115,7 +115,7 @@ const fit = (ctx, text, w) => { if (ctx.measureText(text).width <= w) return tex
  */
 export function drawCard(ctx, d, art = {}) {
   const W = CARD_W, H = CARD_H, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif';
-  const M = 30, R = W - M, w = R - M;
+  const M = 26, R = W - M, w = R - M;
   const INK = '#e2f1f0', INK2 = '#a3bdbe', INK3 = '#6f8a8c', LINE = 'rgba(130,205,214,0.22)';
   const rule = (y) => { ctx.fillStyle = LINE; ctx.fillRect(M, y, w, 1); };
   const label = (t, x, y) => { ctx.fillStyle = INK3; ctx.font = `500 11px ${F}`; ctx.fillText(t.toUpperCase(), x, y); };
@@ -141,14 +141,14 @@ export function drawCard(ctx, d, art = {}) {
   if (art.sigil) ctx.drawImage(art.sigil, R - 66, 52, 66, 66);
 
   // what goes under the portrait, measured first: the portrait takes what room is left (within bounds)
-  const gap = 26, colW = (w - gap) / 2, LW = 76;
+  const gap = 22, colW = (w - gap) / 2, LW = 70;
   ctx.font = `400 14px ${F}`;
   const colH = (rows) => 26 + rows.reduce((h, [, v]) => h + 6 + Math.min(2, wrap(ctx, v, colW - LW).length) * 17, 0);
   const linText = d.lineage.length ? `${d.lineage.join(' ← ')}${d.more ? ' ← …' : ''}` : d.origin;
   const linN = Math.min(2, wrap(ctx, linText, w - 110).length);
   ctx.font = `italic 400 14px ${F}`;
   const storyN = d.story ? Math.min(4, wrap(ctx, `“${d.story}”`, w).length) : 0;
-  const lower = 26 + 60 + (d.series ? 84 : 22) + Math.max(colH(d.facts), colH(d.record)) + 4
+  const lower = 26 + 60 + (d.series ? 94 : 26) + Math.max(colH(d.facts), colH(d.record)) + 4
     + (art.song ? (w - 50) * 60 / 680 + 6 : 0) + 16 + linN * 18 + (storyN ? 22 + storyN * 18 : 0);
   // the portrait: cropped to its box, the species lit and the rest dimmed; without one, its sigil large
   const AX = M, AY = 126, AW = w, AH = Math.max(220, Math.min(380, H - 64 - AY - lower));
@@ -189,7 +189,7 @@ export function drawCard(ctx, d, art = {}) {
     const x = M + i * cw;
     if (i) { ctx.fillStyle = LINE; ctx.fillRect(x, y, 1, 48); }
     label(k, x + (i ? 12 : 0), y + 14);
-    ctx.fillStyle = INK; ctx.font = `400 24px ${F}`;
+    ctx.fillStyle = INK; ctx.font = `400 22px ${F}`;
     ctx.fillText(fit(ctx, v, cw - 16), x + (i ? 12 : 0), y + 44);
   });
   y += 60;
@@ -210,8 +210,8 @@ export function drawCard(ctx, d, art = {}) {
     ctx.fillText(fmtClock(t0), sx, y + sh + 14);
     ctx.textAlign = 'right'; ctx.fillText(fmtClock(t1), sx + sw, y + sh + 14); ctx.textAlign = 'center';
     ctx.fillText('ITS NUMBERS OVER ITS LIFE', sx + sw / 2, y + sh + 14); ctx.textAlign = 'left';
-    y += sh + 40;
-  } else { rule(y); y += 22; }
+    y += sh + 50;
+  } else { rule(y); y += 26; }
 
   // two columns: how it lives, and its record
   const column = (x, title, rows, y0) => {

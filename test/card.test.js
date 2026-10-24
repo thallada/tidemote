@@ -11,8 +11,8 @@ const sp = (serial, type, extra = {}) => {
   return { serial, genome: g, name: `Thax ${type}`, genus: 'Thax', pop: 400, peak: 900, alive: true, established: true, born: 60, ancestor: null, founder: false, ...extra };
 };
 
-test('a card is shaped like a trading card', () => {
-  assert.ok(Math.abs(CARD_W / CARD_H - 5 / 7) < 0.01);
+test('a card is shaped like a playing card, taller than it is wide', () => {
+  assert.ok(CARD_W / CARD_H > 0.6 && CARD_W / CARD_H < 0.66);
 });
 
 test('a card says how a species lives, where it came from and what the chronicler said', () => {
