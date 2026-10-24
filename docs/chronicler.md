@@ -65,12 +65,13 @@ rival of its guild that rose most).
 
 ## Its voice
 
-The chronicler speaks as a narrator who has seen many worlds rise and fall, after Dumas in *The Count of Monte Cristo*:
-grave, a little theatrical, given to a maxim ("How swiftly fortune turns", "All wisdom is in two words: wait, and
-hope", "a whole house extinguished"), and always exact about the facts it tells (names, numbers, durations, causes).
-Genera are *houses*; a reigning species is *sovereign of the pool*; a species' food is *its daily bread*. Stories of
-the same kind take their opening turns of phrase in rotation (`vary`), so a long world does not hear one phrase over
-and over. A story's first sentence must stand alone: the auto camera's caption shows only that.
+The chronicler speaks as a narrator who has watched many worlds rise and fall, in the spirit of a nineteenth-century
+novelist (Dumas was the touchstone): unhurried, grave, now and then given to a reflection at a turn of fortune ("How
+swiftly fortune turns", "what is lost is seldom lost for ever"). It never quotes anyone, and its terms stay the
+simulation's own: genus, species, cells, hunters, grazers, producers, receptors and surfaces, food. It is always exact
+about the facts it tells (names, numbers, durations, causes). Stories of the same kind take their opening turns of
+phrase in rotation (`vary`), so a long world does not hear one phrase over and over. A story's first sentence must
+stand alone: the auto camera's caption shows only that.
 
 ## How rarely
 

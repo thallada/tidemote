@@ -25220,7 +25220,7 @@ ${e.message}` : String(e?.message || e));
           const verb = guild === "producer" ? "grazed down" : eg === "predator" ? "hunted down" : "eaten";
           return { cause: "eaten", by: eater, phrase: `was ${verb} by ${L(reg, eater)}, which pursued it without rest` };
         }
-        return { cause: "eaten", phrase: guild === "producer" ? "was grazed away by a thousand mouths" : "was devoured by a host of enemies at once" };
+        return { cause: "eaten", phrase: guild === "producer" ? "was grazed away by many mouths at once" : "was devoured by many hunters at once" };
       }
       if (share(C2.stranded) >= 0.35) {
         return { cause: "stranded", phrase: ev?.type === "frost" ? "was taken by the ice" : ev?.type === "drought" ? "was left to perish upon the mud as the water fled" : "was stranded in the shallows" };
@@ -25239,7 +25239,7 @@ ${e.message}` : String(e?.message || e));
         const [food, fm, fsum] = topBy(st.diet);
         const fsp = food && reg.get(food);
         if (fsp && fm >= 0.35 * fsum) {
-          if (!fsp.alive) return { cause: "starved", by: food, phrase: `starved when ${L(reg, food)}, its daily bread, vanished from the world` };
+          if (!fsp.alive) return { cause: "starved", by: food, phrase: `starved when ${L(reg, food)}, the food it lived on, vanished from the pool` };
           const fst = S.sp.get(food);
           const was = fst && popAgo(fst, t2, t2 - t0 + 5 * MIN);
           if (was && fsp.pop < 0.5 * was) return { cause: "starved", by: food, phrase: `starved as ${L(reg, food)}, upon which it fed, dwindled away` };
@@ -25275,7 +25275,7 @@ ${e.message}` : String(e?.message || e));
           force: true,
           score: 1,
           col: 4285164287,
-          html: `<b>Life has all but failed.</b> Of the ${fmt(S.maxLiving)} cells that lived at ${fmtClock(S.maxAt)}, ${fmt(living)} remain; from these few, or from the silt itself, the next world must be made, as every world before it was.`
+          html: `<b>Life has all but failed.</b> Of the ${fmt(S.maxLiving)} cells that lived at ${fmtClock(S.maxAt)}, ${fmt(living)} remain; from these few, or from the silt itself, whatever comes next must be made.`
         });
       } else if (S.collapsed) {
         S.collapsed.low = Math.min(S.collapsed.low, living);
@@ -25360,9 +25360,9 @@ ${e.message}` : String(e?.message || e));
           bits.push(`${L(reg, hunter)} had hunted it, and went before it to the grave.`);
         }
         const kids = descendants(reg, serial);
-        if (genusEnds) bits.push(`With it ends the house of <b>${esc(sp.genus)}</b>, after ${numWord(genusCount(reg, sp.genus))} species.`);
+        if (genusEnds) bits.push(`With it the genus <b>${esc(sp.genus)}</b> comes to an end, after ${numWord(genusCount(reg, sp.genus))} species.`);
         else if (kids.length) bits.push(`Yet its line endures in ${L(reg, kids[0].serial)}${kids.length > 1 ? ` and ${numWord(kids.length - 1)} other${kids.length > 2 ? "s" : ""}` : ""}.`);
-        const head = `${L(reg, serial)} is no more, after ${durWords(life)} of life${reigned >= 10 * MIN ? `, ${durWords(reigned)} of them as sovereign of the pool` : ""}.`;
+        const head = `${L(reg, serial)} is no more, after ${durWords(life)} of life${reigned >= 10 * MIN ? `, ${durWords(reigned)} of them as the most numerous species in the pool` : ""}.`;
         const lately = t2 - toldAt(`sp:${serial}`) < 20 * MIN && S.told.get(`last:${serial}`) === "crash";
         const score = 0.5 + (reigned >= 10 * MIN ? 0.2 : 0) + 0.15 * Math.min(1, life / 3600) + 0.15 * Math.min(1, peakShare / 0.2) + (genusEnds ? 0.1 : 0) + (why ? 0.05 : -0.1) - (lately ? 0.25 : 0);
         add({
@@ -25467,7 +25467,7 @@ ${e.message}` : String(e?.message || e));
             subjects: [sp.serial],
             key: `crash:${sp.serial}`,
             keyGap: 60 * MIN,
-            html: `${vary("crash", ["How swiftly fortune turns:", "So fall the mighty:", "Pride goes before the fall:"])} in ${durWords(t2 - pk[0])} ${L(reg, sp.serial)} has gone from ${fmt(pk[1])} cells to ${fmt(sp.pop)}.${why ? ` It ${why.phrase}.` : ""}`
+            html: `${vary("crash", ["How swiftly fortune turns:", "Greatness is a brief thing here:", "The pool gives, and the pool takes:"])} in ${durWords(t2 - pk[0])} ${L(reg, sp.serial)} has gone from ${fmt(pk[1])} cells to ${fmt(sp.pop)}.${why ? ` It ${why.phrase}.` : ""}`
           });
         }
         if (st.low && t2 - st.low.t > 40 * MIN) st.low = null;
@@ -25482,7 +25482,7 @@ ${e.message}` : String(e?.message || e));
             subjects: [sp.serial],
             key: `back:${sp.serial}`,
             keyGap: 40 * MIN,
-            html: `<b>Back from the brink.</b> ${L(reg, sp.serial)}, brought down to ${fmt(st.low.n)} cell${st.low.n === 1 ? "" : "s"} at ${fmtClock(st.low.t)}, now numbers ${fmt(sp.pop)}${slept ? ", its sleeping cysts having woken to save it" : ""}. ${vary("comeback", ["All wisdom is in two words: wait, and hope.", "Patience is the courage of the humble.", "The grave had been dug, and stood empty."])}`
+            html: `<b>Back from the brink.</b> ${L(reg, sp.serial)}, brought down to ${fmt(st.low.n)} cell${st.low.n === 1 ? "" : "s"} at ${fmtClock(st.low.t)}, now numbers ${fmt(sp.pop)}${slept ? ", its sleeping cysts having woken to save it" : ""}. ${vary("comeback", ["Those who can wait are seldom wholly lost.", "It was given up for gone, and was not.", "Patience has served it well."])}`
           });
           st.low = null;
         }
@@ -25497,7 +25497,7 @@ ${e.message}` : String(e?.message || e));
             col: sp.genome.col,
             subjects: [sp.serial],
             key: `boom:${sp.serial}`,
-            html: `${vary("boom", ["Fortune smiles upon", "The tide has turned for", "Providence favours"])} ${L(reg, sp.serial)}${on}: ${fmt(was)} cells ten minutes ago, ${fmt(sp.pop)} now.`
+            html: `${vary("boom", ["Fortune smiles upon", "The tide has turned for", "These are good days for"])} ${L(reg, sp.serial)}${on}: ${fmt(was)} cells ten minutes ago, ${fmt(sp.pop)} now.`
           });
         }
       }
@@ -25560,7 +25560,7 @@ ${e.message}` : String(e?.message || e));
         const oneIn = (r) => `one in ${numWord(Math.max(1, Math.round(1 / Math.max(r, 1e-3))))}`;
         const verb = g.qguild === "producer" ? "bites land on" : "catch";
         const hgB = `<b>${esc(g.hg)}</b>`, qgB = `<b>${esc(g.qg)}</b>`;
-        const html = losing ? `The ${qgB} are slipping from the grasp of the ${hgB}. Their ${GUILD[g.hguild].many} now ${verb === "catch" ? "take" : "land bites on"} ${oneIn(rb)} of those they pursue, where ten minutes since it was ${oneIn(ra)}; for the newer ${qgB}, such as ${L(reg, qs)}, wear a face that ${L(reg, hs)} scarcely knows.` : `The ${hgB} have taken the measure of the ${qgB}: ${oneIn(rb)} of their attempts now succeeds, where it was ${oneIn(ra)}, for their newer kind, as ${L(reg, hs)}, know the face of the ${qgB} all too well.`;
+        const html = losing ? `The ${qgB} are slipping from the grasp of the ${hgB}. Their ${GUILD[g.hguild].many} now ${verb === "catch" ? "take" : "land bites on"} ${oneIn(rb)} of those they pursue, where ten minutes since it was ${oneIn(ra)}; for the newer ${qgB}, such as ${L(reg, qs)}, wear surfaces that the receptors of ${L(reg, hs)} scarcely fit.` : `The ${hgB} have taken the measure of the ${qgB}: ${oneIn(rb)} of their attempts now succeeds, where it was ${oneIn(ra)}, for their newer species, such as ${L(reg, hs)}, carry receptors that fit the surfaces of the ${qgB} all too well.`;
         add({ kind: "arms", score: 0.7, col: reg.get(hs)?.genome.col ?? 4294967295, subjects: [hs, qs], key: `arms:${g.hg}|${g.qg}`, keyGap: 40 * MIN, html });
       }
     }
@@ -25740,7 +25740,7 @@ ${e.message}` : String(e?.message || e));
           subjects: [lead.serial],
           key: `rad:${genus}`,
           keyGap: 40 * MIN,
-          html: `The house of <b>${esc(genus)}</b> flourishes: ${numWord(list.length)} new species in ${durWords(t2 - Math.min(...list.map((sp) => sp.establishedAt ?? t2)))}${range}, with ${L(reg, lead.serial)} at their head.`
+          html: `The genus <b>${esc(genus)}</b> flourishes: ${numWord(list.length)} new species in ${durWords(t2 - Math.min(...list.map((sp) => sp.establishedAt ?? t2)))}${range}, with ${L(reg, lead.serial)} at their head.`
         });
       }
     }
@@ -25843,7 +25843,7 @@ ${e.message}` : String(e?.message || e));
             subjects: [oldest.serial],
             key: `elder:${oldest.serial}:${m}`,
             keyGap: Infinity,
-            html: `${L(reg, oldest.serial)} has lived ${durWords(age)}, the eldest in all the pool${kin >= 3 ? `; it has seen ${numWord(kin)} species of its own house arise, and many of them perish` : ""}.`
+            html: `${L(reg, oldest.serial)} has lived ${durWords(age)}, the eldest in all the pool${kin >= 3 ? `; it has seen ${numWord(kin)} species of its own genus arise, and many of them perish` : ""}.`
           });
         }
       }
@@ -25872,7 +25872,7 @@ ${e.message}` : String(e?.message || e));
             subjects: [builder.serial],
             key: "reef",
             keyGap: 45 * MIN,
-            html: `The reefs are rising: ${ctx.stone >= 2 * then[1] ? "twice" : "half again"} the stone there was ${durWords(t2 - then[0])} ago, laid down grain upon patient grain by ${L(reg, builder.serial)} and its like.`
+            html: `The reefs are rising: ${ctx.stone >= 2 * then[1] ? "twice" : "half again"} the stone there was ${durWords(t2 - then[0])} ago, laid down grain by grain by ${L(reg, builder.serial)} and its like.`
           });
         }
       }
@@ -25886,7 +25886,7 @@ ${e.message}` : String(e?.message || e));
             subjects: [sp.serial],
             key: `spark:${sp.serial}`,
             keyGap: Infinity,
-            html: `From a grain of silt, a dynasty: ${L(reg, sp.serial)}, sparked into life at ${fmtClock(sp.born)}, now holds ${shareWords(sp.pop / living) === "a few" ? "a tenth" : shareWords(sp.pop / living)} of the pool.`
+            html: `From a single grain of silt, all this: ${L(reg, sp.serial)}, sparked into life at ${fmtClock(sp.born)}, now holds ${shareWords(sp.pop / living) === "a few" ? "a tenth" : shareWords(sp.pop / living)} of the pool.`
           });
         }
         const anc = sp.ancestor && reg.get(sp.ancestor);
@@ -25901,7 +25901,7 @@ ${e.message}` : String(e?.message || e));
               subjects: [sp.serial, anc.serial],
               key: `succ:${sp.serial}`,
               keyGap: Infinity,
-              html: `The child has eclipsed the parent: ${L(reg, sp.serial)} now outnumbers ${L(reg, anc.serial)}, from which it descends, ${fmt(sp.pop)} cells to ${fmt(anc.pop)}, where ten minutes ago it had ${fmt(bw)} to ${fmt(aw)}.`
+              html: `The descendant has overtaken its ancestor: ${L(reg, sp.serial)} now outnumbers ${L(reg, anc.serial)}, from which it descends, ${fmt(sp.pop)} cells to ${fmt(anc.pop)}, where ten minutes ago it had ${fmt(bw)} to ${fmt(aw)}.`
             });
           }
         }
@@ -25969,7 +25969,7 @@ ${e.message}` : String(e?.message || e));
       const bits = [];
       if (rise && reg.get(rise[0])) bits.push(`${L(reg, rise[0])} rose to ${fmt(to.pops.get(rise[0]))} cells`);
       if (fall && reg.get(fall[0])) bits.push(fall[3] ? `${L(reg, fall[0])} fell from ${fmt(fall[1])} to ${fmt(fall[3])}` : `${L(reg, fall[0])} was lost`);
-      if (lostGenera.length) bits.push(lostGenera.length <= 2 ? `the house${lostGenera.length > 1 ? "s" : ""} of ${andList(lostGenera.map((g) => `<b>${esc(g)}</b>`))} died out` : `${numWord(lostGenera.length)} genera of note died out`);
+      if (lostGenera.length) bits.push(lostGenera.length <= 2 ? `the genus${lostGenera.length > 1 ? "es" : ""} ${andList(lostGenera.map((g) => `<b>${esc(g)}</b>`))} died out` : `${numWord(lostGenera.length)} genera of note died out`);
       const score = 0.2 + (rise ? 0.12 : 0) + (fall ? 0.15 : 0) + (lostGenera.length ? 0.08 : 0) + (bd >= 0.1 ? 0.2 : character2 ? 0.05 : 0);
       if (!bits.length) return null;
       const subj = [rise?.[0], fall?.[0]].filter((s) => s && reg.get(s));
@@ -26039,7 +26039,7 @@ ${e.message}` : String(e?.message || e));
           score: 0.5 + Math.min(0.2, total / x.snap.living),
           col: 4282026751,
           subjects: [worst[0]],
-          html: `The heat wave has scalded ${fmt(total)} cells, ${worst[1] >= 0.5 * total ? "most" : "many"} of them ${L(reg, worst[0])}, a creature made for ${Math.round(g.topt)}°.`
+          html: `The heat wave has scalded ${fmt(total)} cells, ${worst[1] >= 0.5 * total ? "most" : "many"} of them ${L(reg, worst[0])}, a species at its best near ${Math.round(g.topt)}°.`
         };
       }
       if (x.dT < 0 && slept) {

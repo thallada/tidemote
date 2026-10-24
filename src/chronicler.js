@@ -438,7 +438,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
         const verb = guild === 'producer' ? 'grazed down' : eg === 'predator' ? 'hunted down' : 'eaten';
         return { cause: 'eaten', by: eater, phrase: `was ${verb} by ${L(reg, eater)}, which pursued it without rest` };
       }
-      return { cause: 'eaten', phrase: guild === 'producer' ? 'was grazed away by a thousand mouths' : 'was devoured by a host of enemies at once' };
+      return { cause: 'eaten', phrase: guild === 'producer' ? 'was grazed away by many mouths at once' : 'was devoured by many hunters at once' };
     }
     if (share(C.stranded) >= 0.35) {
       return { cause: 'stranded', phrase: ev?.type === 'frost' ? 'was taken by the ice' : ev?.type === 'drought' ? 'was left to perish upon the mud as the water fled' : 'was stranded in the shallows' };
@@ -458,7 +458,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       const [food, fm, fsum] = topBy(st.diet);
       const fsp = food && reg.get(food);
       if (fsp && fm >= 0.35 * fsum) {
-        if (!fsp.alive) return { cause: 'starved', by: food, phrase: `starved when ${L(reg, food)}, its daily bread, vanished from the world` };
+        if (!fsp.alive) return { cause: 'starved', by: food, phrase: `starved when ${L(reg, food)}, the food it lived on, vanished from the pool` };
         const fst = S.sp.get(food);
         const was = fst && popAgo(fst, t, t - t0 + 5 * MIN);
         if (was && fsp.pop < 0.5 * was) return { cause: 'starved', by: food, phrase: `starved as ${L(reg, food)}, upon which it fed, dwindled away` };
@@ -488,7 +488,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     if (!S.collapsed && S.maxLiving >= 2000 && living < 0.03 * S.maxLiving) {
       S.collapsed = { t, low: living };
       add({ kind: 'collapse', force: true, score: 1, col: 0xff6a6aff,
-        html: `<b>Life has all but failed.</b> Of the ${fmt(S.maxLiving)} cells that lived at ${fmtClock(S.maxAt)}, ${fmt(living)} remain; from these few, or from the silt itself, the next world must be made, as every world before it was.` });
+        html: `<b>Life has all but failed.</b> Of the ${fmt(S.maxLiving)} cells that lived at ${fmtClock(S.maxAt)}, ${fmt(living)} remain; from these few, or from the silt itself, whatever comes next must be made.` });
     } else if (S.collapsed) {
       S.collapsed.low = Math.min(S.collapsed.low, living);
       if (living >= 0.25 * S.maxLiving) {
@@ -563,9 +563,9 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
         bits.push(`${L(reg, hunter)} had hunted it, and went before it to the grave.`);
       }
       const kids = descendants(reg, serial);
-      if (genusEnds) bits.push(`With it ends the house of <b>${esc(sp.genus)}</b>, after ${numWord(genusCount(reg, sp.genus))} species.`);
+      if (genusEnds) bits.push(`With it the genus <b>${esc(sp.genus)}</b> comes to an end, after ${numWord(genusCount(reg, sp.genus))} species.`);
       else if (kids.length) bits.push(`Yet its line endures in ${L(reg, kids[0].serial)}${kids.length > 1 ? ` and ${numWord(kids.length - 1)} other${kids.length > 2 ? 's' : ''}` : ''}.`);
-      const head = `${L(reg, serial)} is no more, after ${durWords(life)} of life${reigned >= 10 * MIN ? `, ${durWords(reigned)} of them as sovereign of the pool` : ''}.`;
+      const head = `${L(reg, serial)} is no more, after ${durWords(life)} of life${reigned >= 10 * MIN ? `, ${durWords(reigned)} of them as the most numerous species in the pool` : ''}.`;
       // its crash told lately, its death adds little
       const lately = t - toldAt(`sp:${serial}`) < 20 * MIN && S.told.get(`last:${serial}`) === 'crash';
       const score = 0.5 + (reigned >= 10 * MIN ? 0.2 : 0) + 0.15 * Math.min(1, life / 3600) + 0.15 * Math.min(1, peakShare / 0.2) + (genusEnds ? 0.1 : 0) + (why ? 0.05 : -0.1) - (lately ? 0.25 : 0);
@@ -650,7 +650,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
         // meadows boom and bust as grazers find them: only the great ones are news
         const share = pk[1] / Math.max(1, living);
         add({ kind: 'crash', score: 0.4 + 0.25 * Math.min(1, share / 0.2) + (why ? 0.05 : 0) - (guildOf(sp) === 'producer' ? 0.05 : 0), col: sp.genome.col, subjects: [sp.serial], key: `crash:${sp.serial}`, keyGap: 60 * MIN,
-          html: `${vary('crash', ['How swiftly fortune turns:', 'So fall the mighty:', 'Pride goes before the fall:'])} in ${durWords(t - pk[0])} ${L(reg, sp.serial)} has gone from ${fmt(pk[1])} cells to ${fmt(sp.pop)}.${why ? ` It ${why.phrase}.` : ''}` });
+          html: `${vary('crash', ['How swiftly fortune turns:', 'Greatness is a brief thing here:', 'The pool gives, and the pool takes:'])} in ${durWords(t - pk[0])} ${L(reg, sp.serial)} has gone from ${fmt(pk[1])} cells to ${fmt(sp.pop)}.${why ? ` It ${why.phrase}.` : ''}` });
       }
       // near extinction: remember the low, and its recovery
       if (st.low && t - st.low.t > 40 * MIN) st.low = null;
@@ -659,7 +659,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
         const c = causesIn(st, st.low.t - 2 * MIN, t);
         const slept = c[C.woke] > 0.3 * sp.pop;
         add({ kind: 'comeback', score: 0.65, col: sp.genome.col, subjects: [sp.serial], key: `back:${sp.serial}`, keyGap: 40 * MIN,
-          html: `<b>Back from the brink.</b> ${L(reg, sp.serial)}, brought down to ${fmt(st.low.n)} cell${st.low.n === 1 ? '' : 's'} at ${fmtClock(st.low.t)}, now numbers ${fmt(sp.pop)}${slept ? ', its sleeping cysts having woken to save it' : ''}. ${vary('comeback', ['All wisdom is in two words: wait, and hope.', 'Patience is the courage of the humble.', 'The grave had been dug, and stood empty.'])}` });
+          html: `<b>Back from the brink.</b> ${L(reg, sp.serial)}, brought down to ${fmt(st.low.n)} cell${st.low.n === 1 ? '' : 's'} at ${fmtClock(st.low.t)}, now numbers ${fmt(sp.pop)}${slept ? ', its sleeping cysts having woken to save it' : ''}. ${vary('comeback', ['Those who can wait are seldom wholly lost.', 'It was given up for gone, and was not.', 'Patience has served it well.'])}` });
         st.low = null;
       }
       // a boom: five times its numbers ten minutes ago, to a new height and a twentieth of the living
@@ -669,7 +669,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
         const [food, fm, fsum] = topBy(st.diet);
         const on = food && fm >= 0.4 * fsum && reg.get(food) ? `, which feasts upon ${L(reg, food)}` : '';
         add({ kind: 'boom', score: 0.45 + 0.2 * Math.min(1, sp.pop / living / 0.25), col: sp.genome.col, subjects: [sp.serial], key: `boom:${sp.serial}`,
-          html: `${vary('boom', ['Fortune smiles upon', 'The tide has turned for', 'Providence favours'])} ${L(reg, sp.serial)}${on}: ${fmt(was)} cells ten minutes ago, ${fmt(sp.pop)} now.` });
+          html: `${vary('boom', ['Fortune smiles upon', 'The tide has turned for', 'These are good days for'])} ${L(reg, sp.serial)}${on}: ${fmt(was)} cells ten minutes ago, ${fmt(sp.pop)} now.` });
       }
     }
   }
@@ -723,8 +723,8 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       const verb = g.qguild === 'producer' ? 'bites land on' : 'catch';
       const hgB = `<b>${esc(g.hg)}</b>`, qgB = `<b>${esc(g.qg)}</b>`;
       const html = losing
-        ? `The ${qgB} are slipping from the grasp of the ${hgB}. Their ${GUILD[g.hguild].many} now ${verb === 'catch' ? 'take' : 'land bites on'} ${oneIn(rb)} of those they pursue, where ten minutes since it was ${oneIn(ra)}; for the newer ${qgB}, such as ${L(reg, qs)}, wear a face that ${L(reg, hs)} scarcely knows.`
-        : `The ${hgB} have taken the measure of the ${qgB}: ${oneIn(rb)} of their attempts now succeeds, where it was ${oneIn(ra)}, for their newer kind, as ${L(reg, hs)}, know the face of the ${qgB} all too well.`;
+        ? `The ${qgB} are slipping from the grasp of the ${hgB}. Their ${GUILD[g.hguild].many} now ${verb === 'catch' ? 'take' : 'land bites on'} ${oneIn(rb)} of those they pursue, where ten minutes since it was ${oneIn(ra)}; for the newer ${qgB}, such as ${L(reg, qs)}, wear surfaces that the receptors of ${L(reg, hs)} scarcely fit.`
+        : `The ${hgB} have taken the measure of the ${qgB}: ${oneIn(rb)} of their attempts now succeeds, where it was ${oneIn(ra)}, for their newer species, such as ${L(reg, hs)}, carry receptors that fit the surfaces of the ${qgB} all too well.`;
       add({ kind: 'arms', score: 0.7, col: reg.get(hs)?.genome.col ?? 0xffffffff, subjects: [hs, qs], key: `arms:${g.hg}|${g.qg}`, keyGap: 40 * MIN, html });
     }
   }
@@ -858,7 +858,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       const range = `, from ${sorted[0].replace(/^an? /, '')}s to ${sorted[sorted.length - 1].replace(/^an? /, '')}s`;
       const lead = alive.sort((a, b) => b.pop - a.pop)[0];
       add({ kind: 'radiation', score: Math.min(0.75, 0.45 + 0.05 * kinds.size), col: lead.genome.col, subjects: [lead.serial], key: `rad:${genus}`, keyGap: 40 * MIN,
-        html: `The house of <b>${esc(genus)}</b> flourishes: ${numWord(list.length)} new species in ${durWords(t - Math.min(...list.map((sp) => sp.establishedAt ?? t)))}${range}, with ${L(reg, lead.serial)} at their head.` });
+        html: `The genus <b>${esc(genus)}</b> flourishes: ${numWord(list.length)} new species in ${durWords(t - Math.min(...list.map((sp) => sp.establishedAt ?? t)))}${range}, with ${L(reg, lead.serial)} at their head.` });
     }
   }
 
@@ -926,7 +926,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
         st.elder = m;
         const kin = genusCount(reg, oldest.genus) - 1;
         add({ kind: 'elder', score: 0.4 + 0.05 * m, col: oldest.genome.col, subjects: [oldest.serial], key: `elder:${oldest.serial}:${m}`, keyGap: Infinity,
-          html: `${L(reg, oldest.serial)} has lived ${durWords(age)}, the eldest in all the pool${kin >= 3 ? `; it has seen ${numWord(kin)} species of its own house arise, and many of them perish` : ''}.` });
+          html: `${L(reg, oldest.serial)} has lived ${durWords(age)}, the eldest in all the pool${kin >= 3 ? `; it has seen ${numWord(kin)} species of its own genus arise, and many of them perish` : ''}.` });
       }
     }
     // diversity at a new height
@@ -943,7 +943,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       if (then && t - then[0] >= 12 * MIN && ctx.stone >= 1.5 * then[1] && ctx.stone - then[1] >= 0.005 * (ctx.count || 1)) {
         const builder = [...reg.values()].filter((sp) => sp.alive && sp.established && (sp.genome.calcify || 0) > 0.05).sort((a, b) => b.pop * b.genome.calcify - a.pop * a.genome.calcify)[0];
         if (builder) add({ kind: 'reef', score: 0.5, col: builder.genome.col, subjects: [builder.serial], key: 'reef', keyGap: 45 * MIN,
-          html: `The reefs are rising: ${ctx.stone >= 2 * then[1] ? 'twice' : 'half again'} the stone there was ${durWords(t - then[0])} ago, laid down grain upon patient grain by ${L(reg, builder.serial)} and its like.` });
+          html: `The reefs are rising: ${ctx.stone >= 2 * then[1] ? 'twice' : 'half again'} the stone there was ${durWords(t - then[0])} ago, laid down grain by grain by ${L(reg, builder.serial)} and its like.` });
       }
     }
     for (const sp of reg.values()) {
@@ -951,7 +951,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       // life from the silt, taking a tenth of the pool
       if (sp.founder && sp.serial > (ctx.founders ?? Infinity) && sp.pop >= 0.1 * living && living > 500) {
         add({ kind: 'spark', score: 0.6, col: sp.genome.col, subjects: [sp.serial], key: `spark:${sp.serial}`, keyGap: Infinity,
-          html: `From a grain of silt, a dynasty: ${L(reg, sp.serial)}, sparked into life at ${fmtClock(sp.born)}, now holds ${shareWords(sp.pop / living) === 'a few' ? 'a tenth' : shareWords(sp.pop / living)} of the pool.` });
+          html: `From a single grain of silt, all this: ${L(reg, sp.serial)}, sparked into life at ${fmtClock(sp.born)}, now holds ${shareWords(sp.pop / living) === 'a few' ? 'a tenth' : shareWords(sp.pop / living)} of the pool.` });
       }
       // a daughter overtaking the species it came from
       const anc = sp.ancestor && reg.get(sp.ancestor);
@@ -960,7 +960,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
         const aw = a && popAgo(a, t, 10 * MIN), bw = b && popAgo(b, t, 10 * MIN);
         if (aw != null && bw != null && aw >= 2 * bw) {
           add({ kind: 'succession', score: 0.45, col: sp.genome.col, subjects: [sp.serial, anc.serial], key: `succ:${sp.serial}`, keyGap: Infinity,
-            html: `The child has eclipsed the parent: ${L(reg, sp.serial)} now outnumbers ${L(reg, anc.serial)}, from which it descends, ${fmt(sp.pop)} cells to ${fmt(anc.pop)}, where ten minutes ago it had ${fmt(bw)} to ${fmt(aw)}.` });
+            html: `The descendant has overtaken its ancestor: ${L(reg, sp.serial)} now outnumbers ${L(reg, anc.serial)}, from which it descends, ${fmt(sp.pop)} cells to ${fmt(anc.pop)}, where ten minutes ago it had ${fmt(bw)} to ${fmt(aw)}.` });
         }
       }
     }
@@ -1031,7 +1031,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     const bits = [];
     if (rise && reg.get(rise[0])) bits.push(`${L(reg, rise[0])} rose to ${fmt(to.pops.get(rise[0]))} cells`);
     if (fall && reg.get(fall[0])) bits.push(fall[3] ? `${L(reg, fall[0])} fell from ${fmt(fall[1])} to ${fmt(fall[3])}` : `${L(reg, fall[0])} was lost`);
-    if (lostGenera.length) bits.push(lostGenera.length <= 2 ? `the house${lostGenera.length > 1 ? 's' : ''} of ${andList(lostGenera.map((g) => `<b>${esc(g)}</b>`))} died out` : `${numWord(lostGenera.length)} genera of note died out`);
+    if (lostGenera.length) bits.push(lostGenera.length <= 2 ? `the genus${lostGenera.length > 1 ? 'es' : ''} ${andList(lostGenera.map((g) => `<b>${esc(g)}</b>`))} died out` : `${numWord(lostGenera.length)} genera of note died out`);
     const score = 0.2 + (rise ? 0.12 : 0) + (fall ? 0.15 : 0) + (lostGenera.length ? 0.08 : 0) + (bd >= 0.1 ? 0.2 : character ? 0.05 : 0);
     if (!bits.length) return null;
     const subj = [rise?.[0], fall?.[0]].filter((s) => s && reg.get(s));
@@ -1088,7 +1088,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     if (x.dT > 0 && worst && total >= 0.03 * Math.max(1, x.snap.living)) {
       const g = reg.get(worst[0]).genome;
       return { kind: 'heat', score: 0.5 + Math.min(0.2, total / x.snap.living), col: 0xff3a8aff, subjects: [worst[0]],
-        html: `The heat wave has scalded ${fmt(total)} cells, ${worst[1] >= 0.5 * total ? 'most' : 'many'} of them ${L(reg, worst[0])}, a creature made for ${Math.round(g.topt)}°.` };
+        html: `The heat wave has scalded ${fmt(total)} cells, ${worst[1] >= 0.5 * total ? 'most' : 'many'} of them ${L(reg, worst[0])}, a species at its best near ${Math.round(g.topt)}°.` };
     }
     if (x.dT < 0 && slept) {
       return { kind: 'heat', score: 0.45, col: 0xffd68a3d, subjects: [slept[0]],
