@@ -105,6 +105,9 @@ export const GLOSSARY = {
   drifting: 'Carried by the currents.',
   focus: 'A highlight: everything outside the chosen filter is dimmed in the simulation.',
   links: 'Bonds between cells of one multicellular body. Single-celled species never show links.',
+  chronicler: 'The chronicler reads the census and a ledger of who ate whom, how each species died and where it lives, and now and then writes what happened in the log: a death worth remembering and its cause, an arms race, hunters and hunted cycling, a lineage following the water, the last of a guild, what an era or an event did. It speaks only when something notable has happened, a few times an hour at most. Lab → Log → Chronicler shows its entries alone.',
+  card: 'A species card: its portrait, sigil, song, lineage and natural history on one image, with the chronicler’s latest line about it. Save it as a PNG, and its song as a short clip. You can give the species a name of your own there.',
+  film: 'Records thirty seconds of the view, with the auto camera’s captions and the soundtrack, and downloads it as a video. With the auto camera on it waits for the camera’s next scene and films from its start.',
   autoidle: 'Left alone for a minute (three with a panel open), the camera starts filming the world on its own. Drag, scroll or tap to take it back.',
   renderscale: 'The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room; a fixed value never changes.',
   autofloor: 'The lowest render scale Auto may drop to.',
@@ -233,7 +236,9 @@ export const GUIDE = [
 <li><b>Lab → Lineage</b>: the lineages that held the most life, as a plot of their cells over time (each nested inside the lineage it branched from, so a die-off shows as the whole stack falling) over a tree of the same lineages. A lineage follows a population through species after species; every other species counts with its nearest shown ancestor, and its pill says how many species it holds. Drag across the plot to zoom into a stretch of time, or click a pill to follow that lineage: finer lineages appear as you narrow in, down to single species.</li>
 <li><b>Lab → Census</b> (the Lab's first section, the column on the left; fold it away from its header or with K): the world broken down by matter, diet, movement, body, cell type and condition, the chart of living cells by species, and the latest log entries. Choose a row to highlight it.</li>
 <li><b>Lab → Charts</b>: population, diversity, births, deaths, meals and climate over time, and the eras so far. Point at a chart (or tap it) to read every line at that moment; point at a dot in Thermal niches to name its species, and click it to open it.</li>
-<li><b>Lab → Log</b>: every logged event, searchable.</li>
+<li><b>Lab → Log</b>: every logged event, searchable. The ${t('chronicler', 'chronicler')}’s stories, written now and then when something notable has happened, show in a warmer colour; Chronicler shows them alone.</li>
+<li><b>Card</b> (in the specimen panel): a ${t('card', 'species card')} to save and share, where you can also name the species.</li>
+<li><b>Film</b> (R): ${t('film', 'thirty seconds')} of the view as a video, captions and soundtrack included.</li>
 <li><b>Auto</b>: the camera films the world on its own, with captions saying what it is showing; it also takes over after a minute alone (switch that off in Settings).</li>
 </ul>`,
   },

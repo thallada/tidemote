@@ -20,6 +20,8 @@ class TidemoteSound extends AudioWorkletProcessor {
     this.failed = false;
     this.busy = 0; this.span = 0; this.load = 0; this.lastPost = 0;
     this.eng.maxVoices = VOICES[1];
+    // an offline render (a species card's song clip, sound.js songClip): messages to play at set times
+    this.script = (options.processorOptions && options.processorOptions.script || []).slice().sort((x, y) => x[0] - y[0]);
     this.port.onmessage = (e) => {
       try { this.cond.message(e.data); } catch (err) { this.report(err); }
     };
@@ -30,6 +32,7 @@ class TidemoteSound extends AudioWorkletProcessor {
     if (this.failed) { l.fill(0); r.fill(0); return true; }
     const t0 = Date.now(); // Date's millisecond steps average out: P(a step lands inside a call) ∝ its length
     try {
+      while (this.script.length && this.script[0][0] <= currentTime) this.cond.message(this.script.shift()[1]);
       let o = 0;
       while (o < n) {
         if (this.have === 0) { this.cond.render(this.L, this.R); this.have = BS; }

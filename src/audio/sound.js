@@ -12,6 +12,56 @@ const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; }
 const save = (s) => { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* storage unavailable */ } };
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 
+// Blob URLs are refused for worklets on file:// pages in Chromium; a data: URL works there.
+async function loadWorklet(ctx) {
+  const url = URL.createObjectURL(new Blob([__TIDEMOTE_WORKLET__], { type: 'text/javascript' }));
+  try { await ctx.audioWorklet.addModule(url); }
+  catch { await ctx.audioWorklet.addModule(`data:text/javascript;charset=utf-8,${encodeURIComponent(__TIDEMOTE_WORKLET__)}`); }
+  finally { URL.revokeObjectURL(url); }
+}
+
+/**
+ * A species' song as a short clip (a species card's): its motif sung a few times over the world's
+ * sea, in the world's key (seed, era), rendered offline by the soundtrack's own audio thread code.
+ * Returns a WAV Blob (16-bit stereo), or null where Web Audio cannot render offline.
+ */
+export async function songClip(genome, { seed = 1, era = null, seconds = 9, sr = 44100 } = {}) {
+  const OAC = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
+  if (!OAC || !globalThis.AudioWorkletNode) return null;
+  const ctx = new OAC(2, Math.round(seconds * sr), sr);
+  await loadWorklet(ctx);
+  const voice = voiceOf(genome);
+  const len = voice.motif.cycle * 0.18;
+  const script = [[0, { type: 'reset', seed, era }], [0, { type: 'world', world: { light: 0.9, tide: 0.5, warm: 0 } }]];
+  for (let t = 0.4; t + len < seconds - 1.2; t += Math.max(2.2, len + 0.9)) script.push([t, { type: 'audition', slot: 'card', voice, species: -1 }]);
+  const node = new AudioWorkletNode(ctx, 'tidemote-sound', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { seed: seed | 0, script } });
+  // the clip fades in and out
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0, 0); gain.gain.linearRampToValueAtTime(1, 0.25);
+  gain.gain.setValueAtTime(1, seconds - 1.5); gain.gain.linearRampToValueAtTime(0, seconds);
+  node.connect(gain).connect(ctx.destination);
+  const buf = await ctx.startRendering();
+  // brought up to a few decibels under full scale: a clip is heard on its own, not under the world
+  let peak = 0;
+  for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c); for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i])); }
+  const k = peak > 0 ? Math.min(8, 0.7 / peak) : 1;
+  if (k !== 1) for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c); for (let i = 0; i < d.length; i++) d[i] *= k; }
+  return wavBlob(buf);
+}
+
+/** An AudioBuffer as a 16-bit PCM WAV Blob. */
+function wavBlob(buf) {
+  const ch = Math.min(2, buf.numberOfChannels), n = buf.length, sr = buf.sampleRate;
+  const out = new DataView(new ArrayBuffer(44 + n * ch * 2));
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) out.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); out.setUint32(4, 36 + n * ch * 2, true); str(8, 'WAVEfmt '); out.setUint32(16, 16, true); out.setUint16(20, 1, true);
+  out.setUint16(22, ch, true); out.setUint32(24, sr, true); out.setUint32(28, sr * ch * 2, true); out.setUint16(32, ch * 2, true); out.setUint16(34, 16, true);
+  str(36, 'data'); out.setUint32(40, n * ch * 2, true);
+  const data = [...Array(ch)].map((_, c) => buf.getChannelData(c));
+  for (let i = 0, o = 44; i < n; i++) for (let c = 0; c < ch; c++, o += 2) out.setInt16(o, Math.max(-1, Math.min(1, data[c][i])) * 32767, true);
+  return new Blob([out.buffer], { type: 'audio/wav' });
+}
+
 export function createSound({ onChange = () => {}, onError = () => {}, onSang = null } = {}) {
   const pref = load();
   const st = { on: false, volume: clamp(pref.volume ?? 0.7, 0, 1), starting: null, ctx: null, node: null, gain: null, sent: new Map(), speed: 1, lastScan: 0, seq: 0, scans: new Map() };
@@ -25,11 +75,7 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
     // resumes it from the first gesture.
     const ctx = new AC({ latencyHint: 'playback' });
     st.ctx = ctx;
-    // Blob URLs are refused for worklets on file:// pages in Chromium; a data: URL works there.
-    const url = URL.createObjectURL(new Blob([__TIDEMOTE_WORKLET__], { type: 'text/javascript' }));
-    try { await ctx.audioWorklet.addModule(url); }
-    catch { await ctx.audioWorklet.addModule(`data:text/javascript;charset=utf-8,${encodeURIComponent(__TIDEMOTE_WORKLET__)}`); }
-    finally { URL.revokeObjectURL(url); }
+    await loadWorklet(ctx);
     const node = new AudioWorkletNode(ctx, 'tidemote-sound', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { seed: (Math.random() * 2 ** 31) | 0 } });
     node.port.onmessage = (e) => {
       if (!e.data) return;
@@ -40,6 +86,12 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
     const gain = ctx.createGain(); gain.gain.value = 0;
     node.connect(gain).connect(ctx.destination);
     Object.assign(st, { node, gain });
+  }
+  // what is heard, as a stream (a film's soundtrack): the gain's output, so it follows the volume and is silent when off
+  function stream() {
+    if (!st.ctx || !st.gain) return null;
+    if (!st.tap) { st.tap = st.ctx.createMediaStreamDestination(); st.gain.connect(st.tap); }
+    return st.tap.stream;
   }
   const level = (v) => (v <= 0 ? 0 : Math.pow(v, 2)); // slider position -> gain (perceptual taper)
   const ramp = (to, sec) => { const g = st.gain.gain, t = st.ctx.currentTime; g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(to, t + sec); };
@@ -114,6 +166,7 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
     return keep;
   }
   return {
+    stream,
     get on() { return st.on; }, get volume() { return st.volume; },
     // the audio thread's load: the share of real time it spends rendering (null when off)
     get load() { return st.on ? st.load ?? null : null; },

@@ -14,6 +14,7 @@
   --hot: #ff5f3a;
   --cold: #5aa8ff;
   --sun: #f1e3a0;
+  --story: #e8dcc0; /* the chronicler's voice in the log */
   --sans: 'Saira', 'Bahnschrift', 'DIN Alternate', 'Segoe UI', system-ui, sans-serif;
   --gut: 14px;
   /* one spacing scale for every panel: within a row, between rows, after a heading, between
@@ -325,6 +326,9 @@ body:not(.live) .hud { opacity: 0; }
 .feed time { color: var(--ink-3); font-size: 11px; padding-top: 1px; }
 .feed li.quiet { display: block; color: var(--ink-3); }
 .feed b { color: var(--ink); font-weight: 500; }
+/* the chronicler's stories: told in a warmer voice, its bar a dotted rule */
+.feed li.story > span, .log li.story > span { color: var(--story); }
+.feed li.story > i, .log li.story > i { background: repeating-linear-gradient(to bottom, var(--story) 0 2px, transparent 2px 5px) !important; }
 
 /* ------------------------------------------------------------------ caption, focus, flash, tip */
 .caption {
@@ -443,6 +447,27 @@ span.set-reset { display: inline-flex; align-items: center; gap: var(--s3); colo
 .w-act .btn:disabled, .set-foot .link:disabled { opacity: .45; cursor: default; }
 .keys-note kbd, dt { color: var(--sun); }
 .help { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100% - 32px)); padding: 10px 18px 18px; z-index: 35; max-height: calc(100% - 32px); overflow-y: auto; }
+/* a species card: its canvas as tall as the window allows, the name and the saves beside it */
+.card-dlg { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: max-content; max-width: calc(100% - 32px); padding: 10px 18px 16px; z-index: 36; max-height: calc(100% - 24px); overflow-y: auto;
+  display: grid; grid-template-columns: auto minmax(220px, 260px); grid-template-rows: auto auto auto 1fr; column-gap: var(--s4); }
+.card-dlg:focus { outline: none; }
+.card-dlg .sec-h { grid-column: 1 / -1; }
+.card-cv { grid-row: 2 / 5; display: block; height: min(640px, calc(100vh - 110px)); width: auto; aspect-ratio: 660 / 1050; margin-top: var(--s2); border: 1px solid var(--line); background: #06090a; }
+.card-dlg .card-row { grid-column: 2; align-self: start; flex-direction: column; align-items: stretch; }
+.card-dlg .card-row input { min-width: 0; }
+.card-row { display: flex; align-items: center; gap: var(--s3); margin-top: var(--s3); flex-wrap: wrap; }
+.card-row .lbl { flex: none; }
+.card-row input { flex: 1; min-width: 160px; height: 34px; padding: 0 10px; background: rgba(6, 10, 11, 0.6); border: 1px solid var(--line); color: var(--ink); font: inherit; font-size: 14px; }
+.card-row input:focus { outline: none; border-color: var(--line-2); }
+.card-btns .note { color: var(--ink-3); font-size: 12px; }
+.card-btns .btn:disabled { opacity: .5; cursor: default; }
+/* filming: the button counts down, its dot red */
+#film .rec { opacity: 0; }
+#film.armed .rec { opacity: .7; animation: rec-blink 1.2s steps(2) infinite; color: var(--hot); }
+#film.rolling { color: var(--ink); border-color: var(--hot); }
+#film.rolling .rec { opacity: 1; color: var(--hot); }
+#film-v { font-variant-numeric: tabular-nums; min-width: 2.6em; }
+@keyframes rec-blink { 50% { opacity: 0; } }
 .help-src { margin: var(--s4) 0 0; padding-top: var(--s2); border-top: 1px solid var(--line); color: var(--ink-3); font-size: 12px; }
 .keys { display: grid; grid-template-columns: max-content 1fr; gap: 9px 18px; margin: 10px 0 0; }
 dd { margin: 0; color: var(--ink-2); }
@@ -945,6 +970,10 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .opts .ramp { margin-left: calc(7.6em + var(--s3)); }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }
+  #film { display: none !important; }
+  .card-dlg { top: calc(var(--top) + 8px); transform: translateX(-50%); width: calc(100% - 16px); padding: 8px 12px 12px; max-height: calc(100% - var(--top) - var(--bot) - 16px); display: block; }
+  .card-cv { height: auto; width: min(100%, 360px); margin: var(--s2) auto 0; }
+  .card-dlg .card-row { flex-direction: row; align-items: center; }
 }
 @media (max-width: 380px) {
   .act { width: 44px; }

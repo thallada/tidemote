@@ -18,6 +18,22 @@ export const DIAG_SLOTS = ['samples', 'crowd', 'silt', 'pack', 'kin', 'speed', '
 export const DIAG_STRIDE = 24;
 export const META_DIAG = META_ENERGY + 64;
 export const META_CLAIM = META_DIAG + 5 * DIAG_STRIDE;
+// The species ledger, observational (it feeds the chronicler, src/chronicler.js; nothing reads it back):
+// SPL_WORDS more words at the ledger's end, after the claims, never saved with a world. Word 0 is the
+// watch map's version and words SPL_MAP.. the map itself (a slot's watched index + 1, 0 if not
+// watched), both written by the page. Then per slot, cumulative, SPL_CAUSES counters (zeroed when a
+// mutant or a spark claims the slot); per pair of watched species (eater, eaten) its tries and its
+// meals; and per slot a sample of where its cells are (sums of the cosines and sines of x and y around
+// the torus, each (v + 1) * 127, and a count), taken afresh before each census that reads it (rangeMain).
+export const SPL_WATCH = 64;
+export const SPL_CAUSES = ['born', 'starved', 'old', 'eaten', 'scalded', 'stranded', 'cyst', 'woke'];
+export const SPL_MAP = 1;
+export const SPL_CAUSE = SPL_MAP + MAXK;
+export const SPL_PAIR = SPL_CAUSE + MAXK * SPL_CAUSES.length;
+export const SPL_RANGE = SPL_PAIR + SPL_WATCH * SPL_WATCH * 2;
+export const SPL_WORDS = SPL_RANGE + MAXK * 5;
+// rangeMain samples at most about this many particles (every stride-th, from a rotating start)
+export const SPL_RANGE_SAMPLES = 32768;
 // Energy ledger per diet guild, in thousandths: light, (glint: unused), plant bites, husks, kills, upkeep,
 // children, heat-making. META_ENERGY + 40.. holds the thermal sample (THERMAL_LEDGER).
 export const ENERGY_SLOTS = ['light', 'glint', 'plant', 'husk', 'flesh', 'upkeep', 'children', 'heat'];
@@ -1157,6 +1173,28 @@ const LIVE_BIT = 0x80000000u;
 @group(0) @binding(9) var<storage, read_write> intent: array<vec4u>;
 @group(0) @binding(10) var<storage, read_write> genomes: array<Genome>;
 @group(0) @binding(11) var<storage, read_write> ledger: array<atomic<u32>>;
+
+// The species ledger at the ledger's end (SPL_* in shaders.js): observational counts for the chronicler.
+const SPL_WORDS = ${SPL_WORDS}u;
+const SPL_MAP = ${SPL_MAP}u;
+const SPL_CAUSE = ${SPL_CAUSE}u;
+const SPL_NC = ${SPL_CAUSES.length}u;
+const SPL_PAIR = ${SPL_PAIR}u;
+const SPL_RANGE = ${SPL_RANGE}u;
+const SPL_WATCH = ${SPL_WATCH}u;
+fn splBase() -> u32 { return arrayLength(&ledger) - SPL_WORDS; }
+// one of species k's events: 0 born, 1 starved, 2 died old, 3 eaten, 4 scalded, 5 stranded (dried or frozen), 6 encysted, 7 woke
+fn splCause(k: u32, c: u32) { atomicAdd(&ledger[splBase() + SPL_CAUSE + k * SPL_NC + c], 1u); }
+// a cell of species h tried to eat one of species q (won: and ate it, or bit it), counted when both are watched
+fn splPair(h: u32, q: u32, won: bool) {
+  let b = splBase();
+  let wh = atomicLoad(&ledger[b + SPL_MAP + h]);
+  let wq = atomicLoad(&ledger[b + SPL_MAP + q]);
+  if (wh == 0u || wq == 0u) { return; }
+  let o = b + SPL_PAIR + ((wh - 1u) * SPL_WATCH + wq - 1u) * 2u;
+  atomicAdd(&ledger[o], 1u);
+  if (won) { atomicAdd(&ledger[o + 1u], 1u); }
+}
 @group(0) @binding(12) var<storage, read_write> livingList: array<u32>;
 // 0 living count, 1..3 life dispatch, 4..7 line draw, 8..11 stone draw (for rendering).
 @group(0) @binding(13) var<storage, read_write> frameCtr: array<atomic<u32>, 12>;
@@ -1357,7 +1395,12 @@ fn allocSlot(s: ptr<function, u32>) -> u32 {
     *s = pcg(*s);
     let k = FIRST_LIFE + (*s % (MAXK - FIRST_LIFE));
     let r = atomicCompareExchangeWeak(&ledger[META_SLOT + k], 0u, 1u);
-    if (r.exchanged) { return k; }
+    if (r.exchanged) {
+      // a new species: its counts in the species ledger start afresh
+      let o = splBase() + SPL_CAUSE + k * SPL_NC;
+      for (var c = 0u; c < SPL_NC; c++) { atomicStore(&ledger[o + c], 0u); }
+      return k;
+    }
   }
   return NONE;
 }
@@ -1607,6 +1650,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         if (p.kind >= FIRST_LIFE) {
           // a kill leaves a carcass for the scavengers
           atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
+          splCause(p.kind, 3u);
           p.kind = HUSK; p.energy = ${bodyOf(K, 'genomes[p.kind]')} * ${f(K.carcassKeep)}; p.age = 0.0; p.vel *= 0.2;
           p.info = (p.info & 0xffff7ff0u) | 3u;
           atomicAdd(&ledger[META_ENERGY + 61u], 1u);
@@ -1621,6 +1665,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
           p.energy -= ${f(K.bite)} * bites;
           if (p.energy <= 0.0) {
             atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
+            splCause(p.kind, 3u);
             p.kind = HUSK; p.energy = ${bodyOf(K, 'genomes[p.kind]')}; p.age = 0.0;
             p.info = (p.info & 0xffff7ff0u) | 3u | LITTER;
             atomicAdd(&ledger[META_ENERGY + 60u], 1u);
@@ -1667,6 +1712,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         intent[i].w = NONE;
         atomicAdd(&ledger[2], 1u);
         atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[ck])], 1u);
+        splCause(ck, 0u);
       }
       parts[i] = p;
     }
@@ -1808,6 +1854,26 @@ fn scatterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocat
   if (l == 0u) { wgBase = atomicAdd(&frameCtr[0], atomicLoad(&wgCount)); }
   let base = workgroupUniformLoad(&wgBase);
   if (slot != NONE) { livingList[base + slot] = dst; }
+}
+
+// ------------------------------------------------------------------- species ranges (observational)
+// Where each species lives, for the chronicler: every stride-th particle from a rotating start adds the
+// cosine and sine of its x and y around the torus (a circular mean: where its cells gather, and how
+// tightly) to its slot. At most SPL_RANGE_SAMPLES particles; run only before a census that reads it.
+@compute @workgroup_size(256)
+fn rangeMain(@builtin(global_invocation_id) gid: vec3u) {
+  let stride = max(1u, (sim.count + ${SPL_RANGE_SAMPLES - 1}u) / ${SPL_RANGE_SAMPLES}u);
+  let i = gid.x * stride + sim.frame % stride;
+  if (i >= sim.count) { return; }
+  let p = parts[i];
+  if (p.kind < FIRST_LIFE) { return; }
+  let a = p.pos / sim.world * TAU;
+  let o = splBase() + SPL_RANGE + p.kind * 5u;
+  atomicAdd(&ledger[o], u32((cos(a.x) + 1.0) * 127.0 + 0.5));
+  atomicAdd(&ledger[o + 1u], u32((sin(a.x) + 1.0) * 127.0 + 0.5));
+  atomicAdd(&ledger[o + 2u], u32((cos(a.y) + 1.0) * 127.0 + 0.5));
+  atomicAdd(&ledger[o + 3u], u32((sin(a.y) + 1.0) * 127.0 + 0.5));
+  atomicAdd(&ledger[o + 4u], 1u);
 }
 
 // ------------------------------------------------------------------- census
@@ -2448,12 +2514,14 @@ fn cystStep(i: u32) {
   p.pos = wrapPos(p.pos + (p.vel + flowAt(p.pos) * g.advect) * sim.dt);
   atomicAdd(&ledger[cystSlot(dietGuild(g))], 1u);
   if (p.energy <= 0.0) {
+    splCause(p.kind, select(1u, 5u, dry));
     p.kind = HUSK; p.energy = ${bodyOf(K, 'g')}; p.age = 0.0;
     p.info = (p.info & 0xffff7fc0u) | 1u${litterOf('g')};
     atomicAdd(&ledger[5], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 1u], 1u);
   } else if (p.age > 0.0 && !dry && rnd(&s) < ${f(K.cystWake)} * (1.0 + ${f(K.rainWake)} * sim.pond.y) * sim.dt) {
     p.info = (p.info & 0xfffffff0u) | 9u; p.age = 0.0;
+    splCause(p.kind, 7u);
   }
   intent[i] = vec4u(0u, 0u, NONE, NONE);
   parts[i] = p;
@@ -2535,6 +2603,7 @@ ${cellWGSL(K, false)}
       let missed = mealMissed(fk, info, g, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s);
       let won = !missed && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged;
       if (DIAG && canHunt && isAnimal(food)) { diagAdd(dg, 15u, 1u); diagAdd(dg, select(select(17u, 18u, won), 16u, missed), 1u); }
+      if (fk >= FIRST_LIFE) { splPair(p.kind, fk, won); }
       if (won) {
         let fp = sortedFull[food];
         if (fp.kind >= FIRST_LIFE) {
@@ -2603,7 +2672,11 @@ ${cellWGSL(K, false)}
           let fp = sortedFull[fd];
           // handling time, or a miss (armour, an unfamiliar quarry, skill, shelter), ends this opportunity
           if (!mealDue(fp.kind, mi)) { break; }
-          if (mealMissed(fp.kind, info, g, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s)) { if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); } break; }
+          if (mealMissed(fp.kind, info, g, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s)) {
+            if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); }
+            if (fp.kind >= FIRST_LIFE) { splPair(p.kind, fp.kind, false); }
+            break;
+          }
           let plant = fp.kind >= FIRST_LIFE && genomes[fp.kind].photo > 0.4;
           var got = true;
           if (plant) {
@@ -2615,6 +2688,7 @@ ${cellWGSL(K, false)}
             got = atomicCompareExchangeWeak(&ledger[META_CLAIM + fd], 0u, MEAL_CLAIM | (cls << 29u) | (i + 1u)).exchanged;
           }
           if (hunt && isAnimal(fd)) { diagAdd(dg, select(17u, 18u, got), 1u); }
+          if (fp.kind >= FIRST_LIFE) { splPair(p.kind, fp.kind, got); }
           next++;
           if (!got) { continue; }
           var gain = 0.0;
@@ -2649,10 +2723,11 @@ ${cellWGSL(K, false)}
   if (act == 0u && E > 0.0 && E < ${f(K.cystAt)} * divE && food == NONE && age > 10.0 && g.photo <= 0.4 && rnd(&s) < ${f(K.cystRate)} * sim.dt) {
     info = (info & 0xffff003fu & 0xfffffff0u) | CYST;
     age = 0.0;
+    splCause(p.kind, 6u);
   }
   // stranded on dry ground a cell dries out, unless it rests as a cyst (or a spore) first
   if (stranded && E > 0.0) {
-    if (act == 0u && rnd(&s) < ${f(K.dryCyst)} * smoothstep(0.5, 1.0, -shore / ${f(K.filmR)}) * sim.dt) { info = (info & 0xffff003fu & 0xfffffff0u) | CYST; age = 0.0; act = 0u; }
+    if (act == 0u && rnd(&s) < ${f(K.dryCyst)} * smoothstep(0.5, 1.0, -shore / ${f(K.filmR)}) * sim.dt) { info = (info & 0xffff003fu & 0xfffffff0u) | CYST; age = 0.0; act = 0u; splCause(p.kind, 6u); }
     else { E -= ${f(K.dryCost)} * sim.dt; }
   }
   var kind = p.kind;
@@ -2661,16 +2736,19 @@ ${cellWGSL(K, false)}
     info = (info & 0xffff7fc0u) | 1u${litterOf('g')};
     atomicAdd(&ledger[5], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 1u], 1u);
+    splCause(p.kind, select(1u, 5u, stranded));
   } else if (age > g.lifespan) {
     kind = HUSK; E = bodyCost + ${f(K.huskFrac)} * E; age = 0.0; vel *= 0.3;
     info = (info & 0xffff7fc0u) | 2u${litterOf('g')};
     atomicAdd(&ledger[6], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 2u], 1u);
+    splCause(p.kind, 2u);
   } else if (th.x > 0.8 && rnd(&s) < ${f(K.scald)} * smoothstep(0.8, 1.4, th.x) * sim.dt) {
     // scalded: far above its optimum, a cell's proteins come apart
     kind = HUSK; E = bodyCost; age = 0.0; vel *= 0.3;
     info = (info & 0xffff7fc0u) | 10u${litterOf('g')};
     atomicAdd(&ledger[META_DEATH + 20u + dg], 1u);
+    splCause(p.kind, 4u);
   }
   if (kind == HUSK) { atomicAdd(&ledger[META_ENERGY + select(61u, 60u, g.photo > 0.4)], 1u); }
   // calcifying cells that settled leave their skeleton as stone, in their own colour, mostly where

@@ -12,6 +12,14 @@ export const cssRgb = (c, k = 1) => `rgb(${c.slice(0, 3).map((v) => Math.round(c
 export const cssCol = (u, k = 1) => cssRgb(unpackUnorm(u), k);
 export const term = (key, label) => `<span class="term" data-tip="${key}" tabindex="0">${label}</span>`;
 export const spLink = (serial, name) => `<a href="#" class="sp" data-serial="${serial}">${esc(name)}</a>`;
+/** Hand a file to the browser to download. */
+export function saveFile(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
 export const meter = (frac, cls = '') => `<span class="meter ${cls}"><i style="width:${(clamp(frac, 0, 1) * 100).toFixed(1)}%"></i></span>`;
 export const ROLE = ['α', 'β', 'γ'];
 // A living cell's drawn radius at `ppu` pixels per world unit (vsPoint: 0.085 world units per unit of size).

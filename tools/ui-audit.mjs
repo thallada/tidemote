@@ -6,6 +6,7 @@
 // Chrome on the GPU (tools/gpu-node.sh); elsewhere pass --chrome PATH or use Playwright's Chromium.
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http';
 import { chromium } from 'playwright-core';
+import { vkLayer as vk, vkLaunch, retryAdapter } from './vk.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : '1']] : a), []));
 const out = path.resolve(args.out || 'runs/ui/audit');
@@ -38,10 +39,9 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
 const axe = fs.readFileSync(path.resolve('node_modules/axe-core/axe.min.js'), 'utf8');
 
-const browser = await chromium.launch({
-  executablePath: chrome, headless: false,
-  args: ['--enable-unsafe-webgpu', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--no-first-run'],
-});
+// on Linux without a display (TIDEMOTE_VK_LAYER): headless, on the GPU through Vulkan
+const flags = ['--enable-unsafe-webgpu', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--no-first-run'];
+const browser = await chromium.launch({ executablePath: chrome, ...(vk ? vkLaunch(flags) : { headless: false, args: flags }) });
 
 // measured in the page: everything the reader sees and presses
 function measure({ MIN_TEXT, MIN_TARGET, MIN_TOUCH, touch }) {
@@ -130,11 +130,15 @@ for (const s of SIZES) {
     localStorage.clear();
     localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0.7 }));
   });
+  if (vk) await ctx.addInitScript(retryAdapter);
   const page = await ctx.newPage();
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text().slice(0, 200)); });
   await page.goto(`${base}/tidemote.html`);
+  await page.waitForFunction(() => globalThis.__tidemote?.state.phase === 'running', null, { polling: 250, timeout: 120000 });
+  // without a user gesture (headless) the page holds the world on its intro: a key lets it begin
+  if (vk) await page.keyboard.press('Shift');
   await page.waitForFunction(() => globalThis.__tidemote?.state.phase === 'running' && document.body.classList.contains('live'), null, { polling: 250, timeout: 120000 });
   await page.waitForTimeout(settle * 1000);
   const rec = report.sizes[s.id] = { ...s, states: {}, errors: errs };
@@ -166,7 +170,19 @@ for (const s of SIZES) {
   } else {
     rec.axeCell = await axeRun(page);
   }
+  // the species card of the cell's species (its portrait taken), then the chronicler's log
+  // (an older build, --page, may have no cards)
+  if (await page.evaluate(() => !!globalThis.__tidemote.cards)) {
+    await page.evaluate(() => { const T = globalThis.__tidemote, life = T.life(); const sp = [...life.reg.values()].filter((x) => x.alive).sort((a, b) => b.pop - a.pop)[0]; if (sp) T.cards.open(sp.serial); });
+    await page.waitForTimeout(2500);
+    await snap('card');
+    if (!s.touch) rec.axeCard = await axeRun(page);
+    await page.evaluate(() => globalThis.__tidemote.cards.close());
+  }
   await page.evaluate(() => globalThis.__tidemote.deselect());
+  await page.evaluate(() => { globalThis.__tidemote.lab.open('log'); document.querySelector('[data-k="logType"][data-v="story"]')?.click(); });
+  await snap('log');
+  if (s.touch) await page.evaluate(() => globalThis.__tidemote.lab.close()); else await page.evaluate(() => globalThis.__tidemote.lab.narrow());
   await open('#set-btn, [aria-controls="settings"]');
   await snap('settings');
   await ctx.close();
@@ -183,6 +199,6 @@ for (const [id, r] of Object.entries(report.sizes)) {
       + `  hscroll: ${m.hscroll ? 'YES' : 'no'}  offscreen: ${m.offscreen.map((o) => o.id).join(',') || '-'}  clipped: ${m.clipped.length}`
       + (m.boxes.specBody ? `  spec scroll h: ${m.boxes.specBody.h}` : '') + (m.compass ? `  compass: ${m.compass.ok ? 'ok' : `HIDDEN (${m.compass.compassBottom} > ${m.compass.visibleBottom})`}` : ''));
   }
-  for (const a of [...(r.axe || []), ...(r.axeCell || [])]) console.log(`  axe ${a.impact} ${a.id} ×${a.n}: ${a.help}`);
+  for (const a of [...(r.axe || []), ...(r.axeCell || []), ...(r.axeCard || [])]) console.log(`  axe ${a.impact} ${a.id} ×${a.n}: ${a.help}`);
 }
 console.log(`\n${out}`);

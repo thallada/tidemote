@@ -68,6 +68,7 @@
   <symbol id="i-gear" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2"><path d="M3 5.5h8M14.5 5.5H17M3 10h2.5M9 10h8M3 14.5h6M12.5 14.5H17"/><circle cx="12.75" cy="5.5" r="1.75"/><circle cx="7.25" cy="10" r="1.75"/><circle cx="10.75" cy="14.5" r="1.75"/></g></symbol>
   <symbol id="i-full" viewBox="0 0 20 20"><path d="M3 7.5V3h4.5M12.5 3H17v4.5M17 12.5V17h-4.5M7.5 17H3v-4.5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-unfull" viewBox="0 0 20 20"><path d="M7.5 3v4.5H3M17 7.5h-4.5V3M12.5 17v-4.5H17M3 12.5h4.5V17" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+  <symbol id="i-film" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><rect x="2.5" y="5" width="11" height="10" rx="1"/><path d="m13.5 8.5 4-2.5v8l-4-2.5"/><circle class="rec" cx="6" cy="8.5" r="1.3" fill="currentColor" stroke="none"/></g></symbol>
   <symbol id="i-close" viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-plus" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-minus" viewBox="0 0 20 20"><path d="M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
@@ -114,6 +115,7 @@
     </div>
     <div class="grp acts">
       <button type="button" class="act" id="auto-play" aria-label="Auto camera" aria-pressed="false" data-hint="Auto camera · A"><svg><use href="#i-auto"/></svg><span>Auto</span></button>
+      <button type="button" class="act" id="film" aria-label="Film thirty seconds" aria-pressed="false" data-hint="Film 30 s · R" hidden><svg><use href="#i-film"/></svg><span id="film-v">Film</span></button>
       <span class="snd-wrap"><button type="button" class="act" id="snd" aria-label="Sound" aria-pressed="false" data-hint="Sound · S"><svg><use href="#i-sound"/></svg><span>Sound</span></button><input id="vol" type="range" min="0" max="100" step="1" value="70" aria-label="Volume" hidden></span>
       <button type="button" class="act" id="set-open" aria-label="Settings" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span>Settings</span></button>
       <button type="button" class="act primary" id="lab-open" aria-label="Field Lab" aria-expanded="false" aria-controls="lab" data-hint="Field Lab · K"><svg><use href="#i-lab"/></svg><span>Lab</span></button>
@@ -237,6 +239,7 @@
     <dt>Space</dt><dd>Pause</dd>
     <dt>, . / &gt;</dt><dd>Slower · faster · real time · max</dd>
     <dt>A</dt><dd>Auto camera</dd>
+    <dt>R</dt><dd>Film thirty seconds (with the auto camera on, its next scene)</dd>
     <dt>C</dt><dd>Follow the specimen</dd>
     <dt>Esc</dt><dd>Close, then clear the highlight, then the map</dd>
     <dt>K</dt><dd>Fold or open the Field Lab</dd>
@@ -250,6 +253,21 @@
     <dt>⇧R ⇧R</dt><dd>Discard this world and begin again</dd>
   </dl>
   <p class="help-src">Free software under the <a class="sp" target="_blank" rel="noopener" href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0</a>, sound after <a class="sp" target="_blank" rel="noopener" href="https://supercollider.github.io/">SuperCollider</a> · <a class="sp" target="_blank" rel="noopener" href="https://github.com/thallada/tidemote">Source code</a></p>
+</div>
+
+<!-- a species card: its portrait, sigil, song and story on one canvas, to save and share -->
+<div class="card-dlg panel float" id="card" hidden tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="card-h">
+  <div class="sec-h"><h2 id="card-h"><span>Species</span> Card</h2><button type="button" class="ghost" id="card-close" aria-label="Close the card" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button></div>
+  <canvas class="card-cv" id="card-cv" width="660" height="1050" role="img" aria-label="The species card"></canvas>
+  <div class="card-row">
+    <label class="lbl" for="card-name">Your name for it</label>
+    <input type="text" id="card-name" maxlength="48" autocomplete="off" spellcheck="false" data-hint="Named, it keeps your name in this world and its saves; clear it to restore its own">
+  </div>
+  <div class="card-row card-btns">
+    <button type="button" class="btn" id="card-png" data-hint="The card as a PNG image">Save image</button>
+    <button type="button" class="btn" id="card-song">Save song</button>
+    <span class="note" id="card-note" role="status"></span>
+  </div>
 </div>
 
 <div class="tip" id="tip" hidden role="tooltip"></div>
