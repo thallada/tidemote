@@ -1,8 +1,8 @@
 # Tidemote
 
-A sealed biosphere of up to millions of particles, and all of them live, eat, breed, and die in your browser simulated on the GPU with WebGPU. Some cells drink the moving light of the tide. Others graze on the photosynths, and others hunt the grazers. Scavengers break down the dead and return them to the water as silt, and from that silt the next generation builds its children. Children mutate into new species. Species that bond grow into bodies: filaments, branched fronds, spirals, packed tissues. Some of these bodies grow beating tails and swim. Every 10 to 18 minutes the climate turns, and the world has to begin again in its own way. Leave it running and it keeps changing for hours.
+A sealed biosphere of up to millions of particles, and all of them live, eat, breed, and die in your browser, simulated on the GPU with WebGPU. Some cells drink the moving light of the tide. Others graze on the photosynthesizers, and others hunt the grazers. Scavengers break down the dead and return them to the water as silt, and from that silt the next generation builds its children. Children mutate into new species. Species that bond grow into bodies: filaments, branched fronds, spirals, packed tissues. Some of these bodies grow beating tails and swim. Every 10 to 18 minutes the climate turns, and the world has to begin again in its own way. It makes its own music, too: each cell sings its species' song, over a chorus of the births, kills, and deaths in view. Leave the simulation running and it keeps changing for hours.
 
-It grew out of [proximity-structures](https://github.com/thallada/proximity-structures): simple elements that only react to what is near them, scaled up until complex structure appears.
+No hand steers any of this: every ecological rule is local. The complex interacting colonies emerge from simple rules acting on the mutating genome each cell carries.
 
 ## Running it
 
