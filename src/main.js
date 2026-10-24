@@ -1408,7 +1408,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (portraitJob) portraitJob.resolve(null);
     // the subject's reach from the centre, as a share of the frame's half-width (the card brackets it)
     const subject = clamp(((m.body ? m.span : 0) + 0.12 * sp.genome.size + 0.08) / (span / 2), 0.08, 0.95);
-    return new Promise((resolve) => { portraitJob = { cx, cy, vx: m.body ? 0 : best.vx, vy: m.body ? 0 : best.vy, t: res.simTime, ppu: PORTRAIT / span, subject, resolve, at: performance.now() }; });
+    return new Promise((resolve) => { portraitJob = { slot: sp.slot, cx, cy, vx: m.body ? 0 : best.vx, vy: m.body ? 0 : best.vy, t: res.simTime, ppu: PORTRAIT / span, subject, resolve, at: performance.now() }; });
   }
   // the job's frame: drawn in place of the close-up (the frame loop), then copied out once the GPU is done
   function portraitParams() {
@@ -1420,6 +1420,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const dt = Math.min(2, Math.max(0, eng.simTime - j.t));
     const [W, H] = eng.grid;
     j.drawn = true;
+    // its kind lit, the rest dimmed (the highlight), for this frame only: the viewer's own comes back after it
+    const kinds = new Uint32Array(MAXK / 32);
+    kinds[j.slot >> 5] |= (1 << (j.slot & 31)) >>> 0;
+    eng.setFocus({ kinds, mute: 0.09 });
+    j.relight = true;
     return { target: j.tex.createView(), w: PORTRAIT, h: PORTRAIT, cx: ((j.cx + j.vx * dt) % W + W) % W, cy: ((j.cy + j.vy * dt) % H + H) % H, ppu: j.ppu, dpr: 1 };
   }
   async function readPortrait() {
@@ -3126,7 +3131,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         specimen: hold === false ? null : portraitParams() || specimenParams(),
         hold,
       });
-      if (portraitJob && portraitJob.drawn) readPortrait();
+      if (portraitJob && portraitJob.drawn) { if (portraitJob.relight) { portraitJob.relight = false; pushFocus(); } readPortrait(); }
       // a film copies the world's canvas while its texture is current
       film.frame();
       inflight++;

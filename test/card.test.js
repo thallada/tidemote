@@ -27,6 +27,11 @@ test('a card says how a species lives, where it came from and what the chronicle
   assert.ok(d.facts.some(([k]) => k === 'Diet') && d.facts.some(([k]) => k === 'Water'));
   assert.match(d.status, /400 cells · 10\.0% of life/);
   assert.match(d.when, /1:00:00 · The Bitter Hush/);
+  // its numbers from the census history, ending at its count now
+  const history = [0, 600, 1200, 1800, 2400, 3000].map((t, i) => ({ t, sp: [[40, 100 * i], [30, 5]] }));
+  const h = cardData(c, { reg, genera: new Map(), K: DEFAULT_K, history, simTime: 3600, living: 4000 });
+  assert.deepEqual(h.series.v, [100, 200, 300, 400, 500, 400]); // from its birth (60 s)
+  assert.equal(h.series.t.at(-1), 3600);
   const gone = cardData({ ...a, alive: false, extinct: 600 }, { reg, genera: new Map(), K: DEFAULT_K, founders: 24 });
   assert.match(gone.status, /extinct at 10:00/);
   assert.match(gone.origin, /sparked from silt/);

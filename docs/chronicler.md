@@ -90,14 +90,24 @@ as its caption ("From the chronicle").
 
 ## Cards
 
-`src/card.js`: `cardData` (pure, the words) and `drawCard` (a card shaped like a trading card, 5:7, 750 × 1050 drawn
-and saved at 2×: name, the portrait as its art, way of life, song, lineage, story). The
-portrait is one frame of the specimen viewer's renderer pointed at the species' largest body or densest patch
-(`bestMember` in `src/main.js`, as Find one picks) and drawn into an offscreen 1024 × 1024 texture in place of the close-up
-for that frame, then read back; its subject is bracketed. An extinct species keeps the last portrait taken this
-session, or shows its sigil. The song clip (`songClip` in `src/audio/sound.js`) is the soundtrack's own worklet in an
-OfflineAudioContext: the world's key and era (`reset`), its motif auditioned three or four times over nine seconds
-(the worklet's `processorOptions.script` plays messages at set times), normalised to −3 dBFS, as a 16-bit WAV.
+`src/card.js`: `cardData` (pure, the words and numbers) and `drawCard`. A card is shaped like a trading card (5:7, 750 ×
+1050, drawn and saved at 2×) and laid out like a baseball card: the name and its way of life in a line; a portrait; a
+strip of four numbers (population, share of life, peak, age; or for the extinct, when it died, how long it lived, its
+peak); its numbers over its life (a sparkline from the census history, ending at its count now); then two columns, *How
+it lives* (diet, body, movement, growth, what it eats most and what eats it most from the chronicler's meal counts, its
+thermal niche, swimming) and *Its record* (when and how it arose, genus, mutations from its founder, offspring species,
+cell size, lifespan, what it divides at): the specimen panel's Species section and the genome's essentials; then its
+song, its line of descent and the chronicler's latest word on it. The portrait takes whatever height that leaves (220 to
+380).
+
+The portrait is one frame of the specimen viewer's renderer pointed at the species' largest body or densest patch
+(`bestMember` in `src/main.js`, as Find one picks), drawn into an offscreen 1024 × 1024 texture in place of the close-up
+for that frame with the page's highlight set to the species alone (its cells lit, the rest dimmed; the viewer's own
+highlight comes back the next frame), and read back; the world holds still between finding the subject and drawing it,
+and the subject is bracketed. An extinct species keeps the last portrait taken this session, or shows its sigil. The song
+clip (`songClip` in `src/audio/sound.js`) is the soundtrack's own worklet in an OfflineAudioContext: the world's key and
+era (`reset`), its motif auditioned three or four times over nine seconds (the worklet's `processorOptions.script` plays
+messages at set times), normalised to −3 dBFS, as a 16-bit WAV.
 
 A name given on the card replaces the species' name everywhere (`sp.name`, its binomial kept in `sp.binomial`,
 `sp.given` set); older log entries follow it (`relabel`), and saves keep it. Clearing the field restores the binomial.
@@ -119,7 +129,9 @@ Measured on this repo's Linux box (RTX 2080 SUPER, headless Chromium on Vulkan):
 - **GPU.** A handful of atomics where a cell is born, dies, encysts, wakes or tries a meal (the meal's two loads of the
   watch map and one or two adds, only for watched pairs), and `rangeMain` (at most 32k threads, five atomics each)
   before every third census. `tools/sim.mjs --chrome --n 262144 --minutes 8` against main, same seeds: 3.98 and 2.42
-  ms a frame before, 4.03 and 2.30 after (within run-to-run noise; the worlds followed the same trajectories).
+  ms a frame before, 4.03 and 2.30 after (within run-to-run noise; the worlds followed the same trajectories). The
+  balance gate (32 seeds × 30 min at 32k, Linux Vulkan) against `balance/baseline-32k-30m.json`: every metric "same"
+  (lateEffSpecies 112 → 109, p = 0.36; foodWeb 0.97 → 0.91, p = 0.30): the species ledger only counts.
 - **CPU.** The chronicler reads the species ledger as it arrives (about 1.7 times a real second) and samples species
   and runs its detectors once per 10 simulated seconds; its seven minute-scale detectors take turns, one a tick, so no
   census pays for them all. At real time, in a 262k world 40 minutes old (some 1,300 species on record): 155 ms of
