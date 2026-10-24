@@ -11,14 +11,14 @@
 const TYPES = [['video/webm;codecs=vp9,opus', 'webm'], ['video/webm;codecs=vp8,opus', 'webm'], ['video/webm', 'webm'], ['video/mp4;codecs=avc1,mp4a', 'mp4'], ['video/mp4', 'mp4']];
 
 /** The recording format this browser offers: [mimeType, extension], or null. */
-export function filmFormat() {
+function filmFormat() {
   const MR = globalThis.MediaRecorder;
   if (!MR || !globalThis.HTMLCanvasElement?.prototype.captureStream) return null;
   return TYPES.find(([t]) => MR.isTypeSupported?.(t)) || null;
 }
 
 /** The film's size: the source's aspect, at most maxW × maxH, even (encoders want even sizes). */
-export function filmSize(w, h, maxW = 1920, maxH = 1080) {
+function filmSize(w, h, maxW = 1920, maxH = 1080) {
   const k = Math.min(1, maxW / w, maxH / h);
   return [Math.max(2, Math.round((w * k) / 2) * 2), Math.max(2, Math.round((h * k) / 2) * 2)];
 }
@@ -30,7 +30,7 @@ export function filmSize(w, h, maxW = 1920, maxH = 1080) {
  */
 export function createFilm({ canvas, overlay = null, caption = null, audio = () => null, title = () => '', name = () => 'tidemote', onChange = () => {}, onSaved = null }) {
   const fmt = filmFormat();
-  const st = { state: 'idle', rec: null, chunks: [], until: 0, cv: null, ctx: null, cap: { html: '', a: 0 } };
+  const st = { state: 'idle', rec: null, chunks: [], until: 0, cv: null, ctx: null, capA: 0 };
   const set = (s) => { st.state = s; onChange(s); };
 
   function start(seconds = 30) {
@@ -72,17 +72,13 @@ export function createFilm({ canvas, overlay = null, caption = null, audio = () 
   // the caption, as the page shows it: its three lines, faded in and out with it
   function drawCaption(ctx, w, h) {
     if (!caption) return;
-    const on = caption.classList.contains('on');
-    const html = caption.innerHTML;
-    if (html !== st.cap.html && !on) st.cap.html = html;
-    if (on) st.cap.html = html;
-    st.cap.a += ((on ? 1 : 0) - st.cap.a) * 0.08;
-    if (st.cap.a < 0.02 || !st.cap.html) return;
+    st.capA += ((caption.classList.contains('on') ? 1 : 0) - st.capA) * 0.08;
     const part = (cls) => caption.querySelector(`.${cls}`)?.textContent || '';
     const eye = part('cap-eye'), main = part('cap-main'), sub = part('cap-sub');
+    if (st.capA < 0.02 || !main) return;
     const s = h / 1080, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif';
     ctx.save();
-    ctx.globalAlpha = st.cap.a;
+    ctx.globalAlpha = st.capA;
     ctx.textAlign = 'center';
     const y = h - 96 * s;
     const g = ctx.createLinearGradient(0, y - 90 * s, 0, h);

@@ -503,8 +503,7 @@ span.set-reset { display: inline-flex; align-items: center; gap: var(--s3); colo
 .w-act .btn:disabled, .set-foot .link:disabled { opacity: .45; cursor: default; }
 .keys-note kbd, dt { color: var(--sun); }
 .help { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100% - 32px)); padding: 10px 18px 18px; z-index: 35; max-height: calc(100% - 32px); overflow-y: auto; }
-/* a species card: the canvas it is drawn on, scaled to the dialog, then the name and the saves */
-/* the card beside its controls; the card as tall as the window allows */
+/* a species card: its canvas as tall as the window allows, the name and the saves beside it */
 .card-dlg { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: max-content; max-width: calc(100% - 32px); padding: 10px 18px 16px; z-index: 36; max-height: calc(100% - 24px); overflow-y: auto;
   display: grid; grid-template-columns: auto minmax(220px, 260px); grid-template-rows: auto auto auto 1fr; column-gap: var(--s4); }
 .card-dlg:focus { outline: none; }
@@ -18456,7 +18455,7 @@ ${e.message}` : String(e?.message || e));
       enc.clearBuffer(this.b.thermal, 0, cells * 4);
       enc.clearBuffer(this.b.counts);
       enc.clearBuffer(this.b.ledger, LEDGER_HEAD, n * 4);
-      enc.clearBuffer(this.b.ledger, (META_CLAIM + this.capacity) * 4, SPL_WORDS * 4);
+      enc.clearBuffer(this.b.ledger, this._splAt(), SPL_WORDS * 4);
       enc.clearBuffer(this.b.frameCtr);
       const pass = enc.beginComputePass();
       pass.setPipeline(this.cp.seedMain.pipe);
@@ -18667,7 +18666,7 @@ ${e.message}` : String(e?.message || e));
       const enc = d.createCommandEncoder();
       const keep = { gpu: {} };
       for (const k of ["parts", "genomes", "intent", "ledger", "thermal"]) {
-        const size = k === "ledger" ? (META_CLAIM + this.capacity) * 4 : b[k].size;
+        const size = k === "ledger" ? this._splAt() : b[k].size;
         keep.gpu[k] = d.createBuffer({ size, usage: U2.COPY_SRC | U2.COPY_DST });
         enc.copyBufferToBuffer(b[k], 0, keep.gpu[k], 0, size);
       }
@@ -18753,7 +18752,7 @@ ${e.message}` : String(e?.message || e));
     writeState({ cpu, gpu }) {
       for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, data);
       const enc = this.device.createCommandEncoder();
-      enc.clearBuffer(this.b.ledger, (META_CLAIM + this.capacity) * 4, SPL_WORDS * 4);
+      enc.clearBuffer(this.b.ledger, this._splAt(), SPL_WORDS * 4);
       this.device.queue.submit([enc.finish()]);
       this.restore({ gpu: {}, cpu });
       this.count = cpu.count;
@@ -18813,6 +18812,10 @@ ${e.message}` : String(e?.message || e));
         genomeF32: new Float32Array(copy, LEDGER_HEAD)
       };
     }
+    /** Where the species ledger starts in the ledger buffer (bytes): after the claims. */
+    _splAt() {
+      return (META_CLAIM + this.capacity) * 4;
+    }
     /**
      * The page's watch map for the species ledger: map[slot] = watched index + 1 (0: not watched), at
      * most SPL_WATCH species. version comes back with every census that carries the species ledger.
@@ -18821,7 +18824,7 @@ ${e.message}` : String(e?.message || e));
       const w = new Uint32Array(1 + MAXK);
       w[0] = version >>> 0;
       w.set(map.subarray(0, MAXK), 1);
-      this.device.queue.writeBuffer(this.b.ledger, (META_CLAIM + this.capacity) * 4, w);
+      this.device.queue.writeBuffer(this.b.ledger, this._splAt(), w);
     }
     /** On a census step, copy the ledger and genomes into a free staging buffer (every SPL_EVERY-th, the species ledger too). */
     _censusCopy(enc) {
@@ -18834,7 +18837,7 @@ ${e.message}` : String(e?.message || e));
       const range = this.cp.rangeMain;
       const spl = this.censusN++ % SPL_EVERY === 0 && !!range.pipe && !!range.bg && this.count > 0;
       if (spl) {
-        const base = (META_CLAIM + this.capacity) * 4;
+        const base = this._splAt();
         enc.clearBuffer(this.b.ledger, base + SPL_RANGE * 4, (SPL_WORDS - SPL_RANGE) * 4);
         const pass = enc.beginComputePass();
         pass.setPipeline(range.pipe);
@@ -20284,6 +20287,15 @@ ${e.message}` : String(e?.message || e));
   var cssCol = (u, k = 1) => cssRgb(unpackUnorm(u), k);
   var term = (key, label3) => `<span class="term" data-tip="${key}" tabindex="0">${label3}</span>`;
   var spLink = (serial, name) => `<a href="#" class="sp" data-serial="${serial}">${esc(name)}</a>`;
+  function saveFile(blob, name) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1e4);
+  }
   var meter = (frac, cls = "") => `<span class="meter ${cls}"><i style="width:${(clamp6(frac, 0, 1) * 100).toFixed(1)}%"></i></span>`;
   var ROLE = ["α", "β", "γ"];
   var cellRadius = (p, g, ppu) => 0.085 * (g ? g.size : 1) * (1 - 0.12 * (p.role || 0)) * ppu;
@@ -24833,19 +24845,18 @@ ${e.message}` : String(e?.message || e));
   function firstsOf(g, K = DEFAULT_K) {
     const out = [];
     const guild = dietGuild(g);
-    out.push([`guild:${guild}`, { producer: "to live on light", grazer: "to graze", scavenger: "to live on the dead", predator: "to hunt living prey" }[guild]]);
+    out.push([`guild:${guild}`, `species ${{ producer: "to live on light", grazer: "to graze", scavenger: "to live on the dead", predator: "to hunt living prey" }[guild]}`]);
     const multi = (g.adhesion || 0) > K.adhMin;
-    if (multi) out.push(["multi", "to live as a many-celled body"]);
-    if (multi && growPlan(g)) out.push(["tree", "to grow as a branching tree"]);
+    if (multi) out.push(["multi", "many-celled organism"]);
+    if (multi && growPlan(g)) out.push(["tree", "species to grow as a branching tree"]);
     if (multi && g.swim * (1 - g.photo) >= 0.8) out.push(["swimbody", "many-celled body that swims"]);
-    if ((g.calcify || 0) > 0.1) out.push(["calcify", "to build reef stone"]);
+    if ((g.calcify || 0) > 0.1) out.push(["calcify", "species to build reef stone"]);
     if ((g.thermo || 0) > 0.2) out.push(["heat", "heat-maker, warming the water around it"]);
-    if (K.heat && (g.topt ?? 19) > 38) out.push(["thermophile", "thermophile, at home above 38°"]);
-    if (K.heat && (g.topt ?? 19) < 10) out.push(["cold", "cold-lover, at home below 10°"]);
-    if (roleShares(g).filter((v) => v > 0.1).length === 3) out.push(["types3", "to grow three kinds of cell"]);
+    if (K.heat && (g.topt ?? 19) > 38) out.push(["thermophile", "thermophile, at home in water above 38°"]);
+    if (K.heat && (g.topt ?? 19) < 10) out.push(["cold", "cold-lover, at home in water below 10°"]);
+    if (roleShares(g).filter((v) => v > 0.1).length === 3) out.push(["types3", "species to grow three kinds of cell"]);
     return out;
   }
-  var FIRST_LEAD = { multi: "many-celled organism", swimbody: "many-celled body that swims", heat: "heat-maker, warming the water around it", thermophile: "thermophile, at home in water above 38°", cold: "cold-lover, at home in water below 10°" };
   function circ(sc, ss, n) {
     const c = sc / n / 127 - 1, s = ss / n / 127 - 1;
     const R2 = Math.hypot(c, s);
@@ -24871,7 +24882,6 @@ ${e.message}` : String(e?.message || e));
         lastStory: -1e9,
         lastReal: -1e9,
         lastTick: -1e9,
-        slowAt: {},
         slowNext: 0,
         told: /* @__PURE__ */ new Map(),
         // kind -> t, "kind:key" -> t, "sp:serial" -> t
@@ -24881,7 +24891,7 @@ ${e.message}` : String(e?.message || e));
         top: { serial: 0, since: 0 },
         guilds: null,
         guildGone: {},
-        firsts: null,
+        firsts: /* @__PURE__ */ new Set(),
         maxLiving: 0,
         collapsed: false,
         record: 0,
@@ -24897,13 +24907,10 @@ ${e.message}` : String(e?.message || e));
       };
     }
     reset();
-    function statsOf(sp, t2) {
-      let st = S.sp.get(sp.serial);
-      if (!st) {
-        st = { serial: sp.serial, s: [], l: [], acc: new Array(NC).fill(0), cum: new Array(NC).fill(0), rng: [], diet: /* @__PURE__ */ new Map(), eaters: /* @__PURE__ */ new Map(), firstT: t2, lastS: -1e9, lastL: -1e9, reign: 0, low: null };
-        S.sp.set(sp.serial, st);
+    function track(sp) {
+      if (!S.sp.has(sp.serial)) {
+        S.sp.set(sp.serial, { serial: sp.serial, s: [], l: [], acc: new Array(NC).fill(0), cum: new Array(NC).fill(0), rng: [], diet: /* @__PURE__ */ new Map(), eaters: /* @__PURE__ */ new Map(), lastL: -1e9, reign: 0, low: null });
       }
-      return st;
     }
     function popAgo(st, t2, ago) {
       const want = t2 - ago;
@@ -25017,12 +25024,6 @@ ${e.message}` : String(e?.message || e));
       }
     }
     function observe(obs) {
-      const t0 = T.prof ? performance.now() : 0;
-      const out = observe_(obs);
-      if (T.prof) T.prof.total = (T.prof.total || 0) + performance.now() - t0;
-      return out;
-    }
-    function observe_(obs) {
       const { t: t2, reg } = obs;
       const fresh = t2 - S.lastTick >= T.sample;
       if (!fresh && !obs.spl) return [];
@@ -25031,25 +25032,10 @@ ${e.message}` : String(e?.message || e));
         for (const sp of reg.values()) if (sp.alive) living += sp.pop;
         obs.living = living;
       }
-      const mark = (k, t1) => {
-        if (T.prof) T.prof[k] = (T.prof[k] || 0) + performance.now() - t1;
-        return T.prof ? performance.now() : 0;
-      };
-      let tm = T.prof ? performance.now() : 0;
-      for (const sp of reg.values()) {
-        if (!sp.established || !sp.alive && !S.sp.has(sp.serial)) continue;
-        statsOf(sp, t2);
-      }
-      tm = mark("sync", tm);
-      if (obs.spl && obs.slotSerial) {
-        const t1 = T.prof ? performance.now() : 0;
-        ingestSpl(obs.spl, obs.slotSerial, t2);
-        if (T.prof) T.prof.ingest = (T.prof.ingest || 0) + performance.now() - t1;
-      }
+      for (const sp of reg.values()) if (sp.established && (sp.alive || S.sp.has(sp.serial))) track(sp);
+      if (obs.spl && obs.slotSerial) ingestSpl(obs.spl, obs.slotSerial, t2);
       if (!S.eraMark && obs.era) S.eraMark = { t: t2, name: obs.era, snap: snapshot(reg, obs.living) };
-      tm = T.prof ? performance.now() : 0;
       if (obs.spl || !S.watch.version) chooseWatch(reg);
-      tm = mark("watch", tm);
       if (!fresh) return [];
       S.lastTick = t2;
       for (const st of S.sp.values()) {
@@ -25070,44 +25056,21 @@ ${e.message}` : String(e?.message || e));
         }
       }
       for (const p of S.pairs.values()) if (p.bins.length && p.bins[0][0] < t2 - 60 * MIN) trim(p.bins, t2 - 60 * MIN);
-      tm = mark("sample", tm);
       const cands = [];
       const add = (c) => {
         if (c && c.score > 0) cands.push(c);
       };
-      const ctx = { ...obs, living: obs.living };
-      tm = T.prof ? performance.now() : 0;
-      const run2 = T.prof ? (f2, ...a) => {
-        const t0 = performance.now();
-        const r = f2(...a);
-        T.prof[f2.name] = (T.prof[f2.name] || 0) + performance.now() - t0;
-        return r;
-      } : (f2, ...a) => f2(...a);
-      run2(detectCollapse, ctx, add);
-      run2(detectGuilds, ctx, add);
-      run2(detectExtinctions, ctx, add);
-      run2(detectReign, ctx, add);
-      run2(detectSwings, ctx, add);
-      run2(detectFirsts, ctx, add);
-      if (S.eraMark?.pending) add(run2(eraStory, ctx));
-      if (S.eventMark?.done) add(run2(eventStory, ctx));
-      if (S.excursion && t2 > S.excursion.end) add(run2(excursionStory, ctx));
-      const slow = SLOW[S.slowNext % SLOW.length];
-      if (t2 - (S.slowAt[slow.name] ?? -1e9) >= MIN) {
-        S.slowAt[slow.name] = t2;
-        S.slowNext++;
-        run2(slow, ctx, add);
-      } else S.slowNext++;
-      tm = T.prof ? performance.now() : 0;
+      for (const detect of FAST) detect(obs, add);
+      if (S.eraMark?.pending) add(eraStory(obs));
+      if (S.eventMark?.done) add(eventStory(obs));
+      if (S.excursion && t2 > S.excursion.end) add(excursionStory(obs));
+      SLOW[S.slowNext++ % SLOW.length](obs, add);
       for (const [serial] of S.sp) {
         const sp = reg.get(serial);
         if (!sp || !sp.alive && t2 - (sp.extinct ?? t2) > 30 * MIN) S.sp.delete(serial);
       }
       for (const [k, p] of S.pairs) if (!p.bins.length) S.pairs.delete(k);
-      tm = mark("cleanup", tm);
-      const out = choose(cands, obs);
-      mark("choose", tm);
-      return out;
+      return choose(cands, obs);
     }
     const toldAt = (key) => S.told.get(key) ?? -1e9;
     function choose(cands, obs) {
@@ -25504,7 +25467,6 @@ ${e.message}` : String(e?.message || e));
     }
     function detectFirsts(ctx, add) {
       const { reg, t: t2 } = ctx;
-      if (!S.firsts) S.firsts = /* @__PURE__ */ new Set();
       for (const sp of reg.values()) {
         if (!sp.established || !sp.alive) continue;
         const st = S.sp.get(sp.serial);
@@ -25521,7 +25483,7 @@ ${e.message}` : String(e?.message || e));
             subjects: [sp.serial],
             key: `first:${key}`,
             keyGap: Infinity,
-            html: `<b>Never before in this world:</b> ${L(reg, sp.serial)} is the first ${FIRST_LEAD[key] || `species ${words}`}.`
+            html: `<b>Never before in this world:</b> ${L(reg, sp.serial)} is the first ${words}.`
           });
         }
       }
@@ -25907,6 +25869,7 @@ ${e.message}` : String(e?.message || e));
         }
       }
     }
+    const FAST = [detectCollapse, detectGuilds, detectExtinctions, detectReign, detectSwings, detectFirsts];
     const SLOW = [detectArms, detectDiets, detectCycles, detectRanges, detectRadiation, detectTrends, detectMisc];
     function snapshot(reg, living) {
       const pops = /* @__PURE__ */ new Map(), cum = /* @__PURE__ */ new Map(), guilds = { producer: 0, grazer: 0, scavenger: 0, predator: 0 }, genera = /* @__PURE__ */ new Set(), generaPop = /* @__PURE__ */ new Map();
@@ -26057,8 +26020,6 @@ ${e.message}` : String(e?.message || e));
       observe,
       note,
       reset,
-      /** Its tunables, live (tools set .prof = {} to time the detectors). */
-      tune: T,
       /** The species ledger's watch list: { version, serials (SPL_WATCH, 0 free) }. */
       watch: () => S.watch,
       /** What a species eats most and what eats it most, among the watched (serials, or null), from the meals counted. */
@@ -26066,14 +26027,7 @@ ${e.message}` : String(e?.message || e));
         const st = S.sp.get(serial);
         if (!st) return { food: null, eater: null };
         const top = (m) => {
-          let k = null, v = 0, sum = 0;
-          for (const [a, b] of m) {
-            sum += b;
-            if (b > v) {
-              v = b;
-              k = a;
-            }
-          }
+          const [k, v, sum] = topBy(m);
           return k && v >= 0.25 * sum && v >= 5 ? k : null;
         };
         return { food: top(st.diet), eater: top(st.eaters) };
@@ -26083,7 +26037,7 @@ ${e.message}` : String(e?.message || e));
       /** What a saved world keeps of the chronicler (the stories' memory, not the ledger's baselines). */
       save() {
         const keep = { ...S, prevPairs: null, prevVer: -1, prevSlot: null, prevCause: null, pending: null, versions: /* @__PURE__ */ new Map(), lastReal: -1e9 };
-        keep.firsts = S.firsts ? [...S.firsts] : null;
+        keep.firsts = [...S.firsts];
         keep.eraMark = S.eraMark ? { ...S.eraMark, snap: null, pending: null } : null;
         keep.eventMark = null;
         keep.excursion = null;
@@ -26092,7 +26046,7 @@ ${e.message}` : String(e?.message || e));
       load(o) {
         reset();
         if (!o) return;
-        Object.assign(S, o, { firsts: o.firsts ? new Set(o.firsts) : null, versions: /* @__PURE__ */ new Map(), watch: { version: (o.watch?.version || 0) + 1, serials: new Array(SPL_WATCH).fill(0) }, lastReal: -1e9 });
+        Object.assign(S, o, { firsts: new Set(o.firsts || []), versions: /* @__PURE__ */ new Map(), watch: { version: (o.watch?.version || 0) + 1, serials: new Array(SPL_WATCH).fill(0) }, lastReal: -1e9 });
         if (S.eraMark && !S.eraMark.snap) S.eraMark = null;
       }
     };
@@ -26163,14 +26117,11 @@ ${e.message}` : String(e?.message || e));
       series.t.push(simTime);
       series.v.push(sp.pop);
     }
-    const status = sp.alive ? `${fmt(sp.pop)} cells${living ? ` · ${(sp.pop / living * 100).toFixed(sp.pop / living < 0.01 ? 2 : 1)}% of life` : ""}` : `extinct at ${fmtClock(sp.extinct ?? 0)} after ${fmtDur((sp.extinct ?? simTime) - (sp.born || 0))}`;
     return {
       serial: sp.serial,
       name: sp.name,
       binomial: sp.binomial || sp.name,
       given: !!sp.given,
-      genus: sp.genus,
-      genusFrom: gen?.from || null,
       desc: describe2(g, K),
       facts,
       record: record2,
@@ -26179,8 +26130,6 @@ ${e.message}` : String(e?.message || e));
       lineage,
       more,
       origin,
-      status,
-      peak: sp.peak,
       alive: sp.alive,
       depth: g.depth,
       story: story ? story.text : null,
@@ -26214,6 +26163,15 @@ ${e.message}` : String(e?.message || e));
     }
     if (line2) out.push(line2);
     return out;
+  }
+  function corners(ctx, x0, y0, x1, y1, arm) {
+    ctx.beginPath();
+    for (const [x, y, sx, sy] of [[x0, y0, 1, 1], [x1, y0, -1, 1], [x0, y1, 1, -1], [x1, y1, -1, -1]]) {
+      ctx.moveTo(x, y + sy * arm);
+      ctx.lineTo(x, y);
+      ctx.lineTo(x + sx * arm, y);
+    }
+    ctx.stroke();
   }
   var fit2 = (ctx, text, w) => {
     if (ctx.measureText(text).width <= w) return text;
@@ -26277,16 +26235,10 @@ ${e.message}` : String(e?.message || e));
       const pw = art.portrait.width, ph = art.portrait.height, k = Math.max(AW / pw, AH / ph);
       const sw = AW / k, sh = AH / k;
       ctx.drawImage(art.portrait, (pw - sw) / 2, (ph - sh) / 2, sw, sh, AX, AY, AW, AH);
-      const r = Math.min((art.portrait.subject || 0.2) * (pw / 2) * k + 6, AH / 2 - 14), cb = Math.min(12, r / 2.5), ox = AX + AW / 2, oy = AY + AH / 2;
+      const r = Math.min((art.portrait.subject || 0.2) * (pw / 2) * k + 6, AH / 2 - 14), ox = AX + AW / 2, oy = AY + AH / 2;
       ctx.strokeStyle = "rgba(255,95,58,0.9)";
       ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      for (const [x, yy, sx, sy] of [[ox - r, oy - r, 1, 1], [ox + r, oy - r, -1, 1], [ox - r, oy + r, 1, -1], [ox + r, oy + r, -1, -1]]) {
-        ctx.moveTo(x, yy + sy * cb);
-        ctx.lineTo(x, yy);
-        ctx.lineTo(x + sx * cb, yy);
-      }
-      ctx.stroke();
+      corners(ctx, ox - r, oy - r, ox + r, oy + r, Math.min(12, r / 2.5));
     } else {
       const gr = ctx.createRadialGradient(AX + AW / 2, AY + AH / 2, 10, AX + AW / 2, AY + AH / 2, AH * 0.8);
       gr.addColorStop(0, "rgba(127,214,223,0.10)");
@@ -26302,14 +26254,8 @@ ${e.message}` : String(e?.message || e));
     ctx.strokeRect(AX + 0.5, AY + 0.5, AW - 1, AH - 1);
     ctx.strokeStyle = "rgba(150,222,230,0.55)";
     ctx.lineWidth = 1.5;
-    const c = 14, m = 8;
-    ctx.beginPath();
-    for (const [x, yy, sx, sy] of [[AX + m, AY + m, 1, 1], [AX + AW - m, AY + m, -1, 1], [AX + m, AY + AH - m, 1, -1], [AX + AW - m, AY + AH - m, -1, -1]]) {
-      ctx.moveTo(x, yy + sy * c);
-      ctx.lineTo(x, yy);
-      ctx.lineTo(x + sx * c, yy);
-    }
-    ctx.stroke();
+    const m = 8;
+    corners(ctx, AX + m, AY + m, AX + AW - m, AY + AH - m, 14);
     ctx.fillStyle = "rgba(226,241,240,0.8)";
     ctx.font = `500 12px ${F}`;
     ctx.fillText(art.portrait ? d.alive ? "A living member, its kind lit" : "Last seen, close up" : "Its sigil: its song drawn as its body", AX + m + 6, AY + AH - m - 6);
@@ -26376,8 +26322,8 @@ ${e.message}` : String(e?.message || e));
         label3(k, x, yy);
         ctx.fillStyle = INK4;
         ctx.font = `400 14px ${F}`;
-        const lines = wrap(ctx, v, colW - LW).slice(0, 2);
-        lines.forEach((l, i) => ctx.fillText(i === 1 && wrap(ctx, v, colW - LW).length > 2 ? fit2(ctx, `${l} …`, colW - LW) : l, x + LW, yy + i * 17));
+        const all = wrap(ctx, v, colW - LW), lines = all.slice(0, 2);
+        lines.forEach((l, i) => ctx.fillText(i === 1 && all.length > 2 ? fit2(ctx, `${l} …`, colW - LW) : l, x + LW, yy + i * 17));
         yy += 6 + lines.length * 17;
       }
       return yy;
@@ -26423,20 +26369,21 @@ ${e.message}` : String(e?.message || e));
       const L = api.life();
       return cardData(sp, { reg: L.reg, genera: L.genera, K: api.K, story: api.chron.latest(sp.serial), relations: api.chron.relations(sp.serial), history: L.history, simTime: api.eng.simTime, era: api.climate().name, founders: api.eng.founders, living: L.counts[3] });
     }
-    function redraw() {
-      const sp = cur && reg().get(cur);
-      if (!sp) return;
+    function paint(d) {
       const ctx = cv.getContext("2d");
       ctx.setTransform(CARD_SCALE, 0, 0, CARD_SCALE, 0, 0);
-      drawCard(ctx, data(sp), art);
+      drawCard(ctx, d, art);
       drawn = performance.now();
+    }
+    function redraw() {
+      const sp = cur && reg().get(cur);
+      if (sp) paint(data(sp));
     }
     async function open(serial) {
       const sp = reg().get(serial);
       if (!sp) return;
       cur = serial;
       root.hidden = false;
-      document.body.classList.add("card-open");
       nameIn.value = sp.given ? sp.name : "";
       nameIn.placeholder = sp.binomial || sp.name;
       cv.width = CARD_W * CARD_SCALE;
@@ -26468,21 +26415,10 @@ ${e.message}` : String(e?.message || e));
       if (root.hidden) return;
       root.hidden = true;
       cur = null;
-      document.body.classList.remove("card-open");
-      api.onClose?.();
     }
     const fileName = (ext) => {
       const sp = reg().get(cur);
       return `${(sp ? sp.name : "species").replace(/[^\p{L}\p{N}]+/gu, "-").toLowerCase()}-tidemote.${ext}`;
-    };
-    const download = (blob, name) => {
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = name;
-      document.body.append(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 4e3);
     };
     function rename() {
       const sp = reg().get(cur);
@@ -26508,17 +26444,15 @@ ${e.message}` : String(e?.message || e));
         d.name = v;
         d.given = true;
       } else {
-        d.name = sp.binomial || sp.name;
+        d.name = d.binomial;
         d.given = false;
       }
-      const ctx = cv.getContext("2d");
-      ctx.setTransform(CARD_SCALE, 0, 0, CARD_SCALE, 0, 0);
-      drawCard(ctx, d, art);
+      paint(d);
     });
     $2("card-png").addEventListener("click", () => {
       rename();
       cv.toBlob((b) => {
-        if (b) download(b, fileName("png"));
+        if (b) saveFile(b, fileName("png"));
         else api.flash("Could not make the image");
       }, "image/png");
     });
@@ -26530,7 +26464,7 @@ ${e.message}` : String(e?.message || e));
       try {
         const b = await api.songClip(sp.genome);
         if (b) {
-          download(b, fileName("wav"));
+          saveFile(b, fileName("wav"));
           note.textContent = "";
         } else note.textContent = "This browser cannot render sound offline.";
       } catch (e) {
@@ -26550,9 +26484,7 @@ ${e.message}` : String(e?.message || e));
       portraits.clear();
       close();
     }
-    return { open, close, reset, isOpen: () => !root.hidden, refresh: () => {
-      if (cur != null && !root.hidden) redraw();
-    } };
+    return { open, close, reset, isOpen: () => !root.hidden };
   }
 
   // src/film.js
@@ -26569,7 +26501,7 @@ ${e.message}` : String(e?.message || e));
   function createFilm({ canvas: canvas2, overlay: overlay2 = null, caption = null, audio = () => null, title = () => "", name = () => "tidemote", onChange = () => {
   }, onSaved = null }) {
     const fmt2 = filmFormat();
-    const st = { state: "idle", rec: null, chunks: [], until: 0, cv: null, ctx: null, cap: { html: "", a: 0 } };
+    const st = { state: "idle", rec: null, chunks: [], until: 0, cv: null, ctx: null, capA: 0 };
     const set = (s) => {
       st.state = s;
       onChange(s);
@@ -26627,17 +26559,13 @@ ${e.message}` : String(e?.message || e));
     };
     function drawCaption(ctx, w, h) {
       if (!caption) return;
-      const on = caption.classList.contains("on");
-      const html = caption.innerHTML;
-      if (html !== st.cap.html && !on) st.cap.html = html;
-      if (on) st.cap.html = html;
-      st.cap.a += ((on ? 1 : 0) - st.cap.a) * 0.08;
-      if (st.cap.a < 0.02 || !st.cap.html) return;
+      st.capA += ((caption.classList.contains("on") ? 1 : 0) - st.capA) * 0.08;
       const part = (cls) => caption.querySelector(`.${cls}`)?.textContent || "";
       const eye = part("cap-eye"), main = part("cap-main"), sub = part("cap-sub");
+      if (st.capA < 0.02 || !main) return;
       const s = h / 1080, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif';
       ctx.save();
-      ctx.globalAlpha = st.cap.a;
+      ctx.globalAlpha = st.capA;
       ctx.textAlign = "center";
       const y = h - 96 * s;
       const g = ctx.createLinearGradient(0, y - 90 * s, 0, h);
@@ -27701,6 +27629,7 @@ ${e.message}` : String(e?.message || e));
       if (sel || spView != null) dirty = true;
     };
     const slotSerial = new Uint32Array(MAXK);
+    const viewedSerial = () => spView != null ? spView : sel && sel.particle && sel.particle.kind >= FIRST_LIFE ? genomeFor(sel.particle.kind)?.serial : null;
     function tellStories(c) {
       if (c.spl) for (let s = FIRST_LIFE; s < MAXK; s++) slotSerial[s] = c.pop[s] ? genomeSerial(c.genomeU32, s) : 0;
       const x = climate.excursion, t2 = c.simTime;
@@ -27722,7 +27651,7 @@ ${e.message}` : String(e?.message || e));
         era: climate.name,
         event: climate.event && climate.phase ? { type: climate.event.type, phase: climate.phase } : null,
         excursion: x && t2 >= x.t && t2 <= x.t + x.dur ? x : null,
-        focus: spView != null ? spView : sel && sel.particle && sel.particle.kind >= FIRST_LIFE ? genomeFor(sel.particle.kind)?.serial : null
+        focus: viewedSerial()
       });
       for (const s of told) {
         pushEvent(s.html, s.col, "story");
@@ -28188,7 +28117,7 @@ ${e.message}` : String(e?.message || e));
       onClose: deselect,
       onPlaySong: playSong,
       onCard: () => {
-        const serial = spView != null ? spView : sel && sel.particle && sel.particle.kind >= FIRST_LIFE ? genomeFor(sel.particle.kind)?.serial : null;
+        const serial = viewedSerial();
         if (serial != null && life.reg.has(serial)) cards.open(serial);
       }
     });
@@ -28233,8 +28162,7 @@ ${e.message}` : String(e?.message || e));
         j.resolve(null);
         return null;
       }
-      const d = device;
-      j.tex ??= d.createTexture({ size: [PORTRAIT, PORTRAIT], format: eng.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+      j.tex ??= device.createTexture({ size: [PORTRAIT, PORTRAIT], format: eng.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
       const dt = Math.min(2, Math.max(0, eng.simTime - j.t));
       const [W, H2] = eng.grid;
       j.drawn = true;
@@ -28284,8 +28212,6 @@ ${e.message}` : String(e?.message || e));
       sp.binomial ??= sp.name;
       sp.name = name || sp.binomial;
       sp.given = !!name;
-      life.renamed ??= /* @__PURE__ */ new Map();
-      life.renamed.set(serial, true);
       specimen.invalidate();
       dirty = true;
       feedKey = "";
@@ -28294,13 +28220,9 @@ ${e.message}` : String(e?.message || e));
       flash(name ? `Named ${name}` : `${sp.name} again`);
     }
     function relabel(root) {
-      if (!life.renamed || !life.renamed.size) return;
       for (const a of root.querySelectorAll("a.sp[data-serial]")) {
-        const serial = +a.dataset.serial;
-        if (life.renamed.has(serial)) {
-          const sp = life.reg.get(serial);
-          if (sp && a.textContent !== sp.name) a.textContent = sp.name;
-        }
+        const sp = life.reg.get(+a.dataset.serial);
+        if (sp && sp.binomial && a.textContent !== sp.name) a.textContent = sp.name;
       }
     }
     const cards = createCards({
@@ -28438,7 +28360,7 @@ ${e.message}` : String(e?.message || e));
       focusFacet,
       focusKey: () => focus.key,
       focusPredicate: (label3, pred) => setFocus(`pred:${label3}`, label3, { pred }),
-      relabel: (el) => relabel(el)
+      relabel
     });
     $("lab-open").addEventListener("click", () => {
       closeMenus();
@@ -28498,13 +28420,7 @@ ${e.message}` : String(e?.message || e));
         used = saves.reduce((a, m) => a + (m.bytes || 0), 0);
         render();
       }
-      function download(m, bytes) {
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(new Blob([bytes], { type: "application/gzip" }));
-        a.download = `${m.name.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-") || "world"}.tidemote`;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(a.href), 1e3);
-      }
+      const download = (m, bytes) => saveFile(new Blob([bytes], { type: "application/gzip" }), `${m.name.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-") || "world"}.tidemote`);
       async function worldAct(id, v) {
         const busy = async (what, fn) => {
           wBusy = what;
@@ -29984,13 +29900,7 @@ ${e.message}` : String(e?.message || e));
       name: () => `tidemote-${fmtClock(eng.simTime).replace(/:/g, "-")}`,
       onChange: renderFilm,
       onSaved: (blob, name) => {
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = name;
-        document.body.append(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(a.href), 1e4);
+        saveFile(blob, name);
         flash("Film saved");
       }
     });
@@ -30030,9 +29940,7 @@ ${e.message}` : String(e?.message || e));
     function filmTick() {
       if (film.state === "armed") {
         const sh = director.active ? director.shot : null;
-        if (!director.active) {
-          film.start(30);
-        } else if (sh && sh.id !== filmArmedShot && sh.type !== "settle") film.start(30);
+        if (!director.active || sh && sh.id !== filmArmedShot && sh.type !== "settle") film.start(30);
       }
       if (film.state === "recording") renderFilm();
     }

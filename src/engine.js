@@ -719,7 +719,7 @@ class Engine {
     enc.clearBuffer(this.b.thermal, 0, cells * 4);
     enc.clearBuffer(this.b.counts);
     enc.clearBuffer(this.b.ledger, LEDGER_HEAD, n * 4);
-    enc.clearBuffer(this.b.ledger, (META_CLAIM + this.capacity) * 4, SPL_WORDS * 4);
+    enc.clearBuffer(this.b.ledger, this._splAt(), SPL_WORDS * 4);
     enc.clearBuffer(this.b.frameCtr);
     const pass = enc.beginComputePass();
     pass.setPipeline(this.cp.seedMain.pipe);
@@ -916,7 +916,7 @@ class Engine {
     const keep = { gpu: {} };
     for (const k of ['parts', 'genomes', 'intent', 'ledger', 'thermal']) {
       // the ledger without the species ledger at its end (observational: a world's record does not keep it)
-      const size = k === 'ledger' ? (META_CLAIM + this.capacity) * 4 : b[k].size;
+      const size = k === 'ledger' ? this._splAt() : b[k].size;
       keep.gpu[k] = d.createBuffer({ size, usage: U.COPY_SRC | U.COPY_DST });
       enc.copyBufferToBuffer(b[k], 0, keep.gpu[k], 0, size);
     }
@@ -968,7 +968,7 @@ class Engine {
     for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, data);
     // the species ledger starts afresh with the world put in place
     const enc = this.device.createCommandEncoder();
-    enc.clearBuffer(this.b.ledger, (META_CLAIM + this.capacity) * 4, SPL_WORDS * 4);
+    enc.clearBuffer(this.b.ledger, this._splAt(), SPL_WORDS * 4);
     this.device.queue.submit([enc.finish()]);
     this.restore({ gpu: {}, cpu });
     this.count = cpu.count; this.grid = [...cpu.grid];
@@ -1021,6 +1021,9 @@ class Engine {
       diag: u.subarray(META_DIAG, META_CLAIM), genomeU32: new Uint32Array(copy, LEDGER_HEAD), genomeF32: new Float32Array(copy, LEDGER_HEAD) };
   }
 
+  /** Where the species ledger starts in the ledger buffer (bytes): after the claims. */
+  _splAt() { return (META_CLAIM + this.capacity) * 4; }
+
   /**
    * The page's watch map for the species ledger: map[slot] = watched index + 1 (0: not watched), at
    * most SPL_WATCH species. version comes back with every census that carries the species ledger.
@@ -1029,7 +1032,7 @@ class Engine {
     const w = new Uint32Array(1 + MAXK);
     w[0] = version >>> 0;
     w.set(map.subarray(0, MAXK), 1);
-    this.device.queue.writeBuffer(this.b.ledger, (META_CLAIM + this.capacity) * 4, w);
+    this.device.queue.writeBuffer(this.b.ledger, this._splAt(), w);
   }
 
   /** On a census step, copy the ledger and genomes into a free staging buffer (every SPL_EVERY-th, the species ledger too). */
@@ -1043,7 +1046,7 @@ class Engine {
     const range = this.cp.rangeMain;
     const spl = this.censusN++ % SPL_EVERY === 0 && !!range.pipe && !!range.bg && this.count > 0;
     if (spl) {
-      const base = (META_CLAIM + this.capacity) * 4;
+      const base = this._splAt();
       // where each species is: sampled afresh (rangeMain)
       enc.clearBuffer(this.b.ledger, base + SPL_RANGE * 4, (SPL_WORDS - SPL_RANGE) * 4);
       const pass = enc.beginComputePass();

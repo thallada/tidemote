@@ -6,6 +6,7 @@
 // Chrome on the GPU (tools/gpu-node.sh); elsewhere pass --chrome PATH or use Playwright's Chromium.
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http';
 import { chromium } from 'playwright-core';
+import { vkLayer as vk, vkLaunch, retryAdapter } from './vk.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : '1']] : a), []));
 const out = path.resolve(args.out || 'runs/ui/audit');
@@ -38,14 +39,9 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
 const axe = fs.readFileSync(path.resolve('node_modules/axe-core/axe.min.js'), 'utf8');
 
-// on Linux without a display: headless Playwright Chromium on the GPU through Vulkan (TIDEMOTE_VK_LAYER, docs/headless-gpu.md)
-const vk = process.env.TIDEMOTE_VK_LAYER;
-const browser = await chromium.launch({
-  executablePath: chrome, headless: !!vk,
-  ...(vk ? { ignoreDefaultArgs: ['--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader'], env: { ...process.env, VK_ADD_LAYER_PATH: vk, VK_INSTANCE_LAYERS: 'VK_LAYER_TIDEMOTE_headless' } } : {}),
-  args: ['--enable-unsafe-webgpu', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--no-first-run',
-    ...(vk ? ['--enable-features=Vulkan', '--use-angle=vulkan', '--ignore-gpu-blocklist', '--disable-vulkan-surface'] : [])],
-});
+// on Linux without a display (TIDEMOTE_VK_LAYER): headless, on the GPU through Vulkan
+const flags = ['--enable-unsafe-webgpu', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--no-first-run'];
+const browser = await chromium.launch({ executablePath: chrome, ...(vk ? vkLaunch(flags) : { headless: false, args: flags }) });
 
 // measured in the page: everything the reader sees and presses
 function measure({ MIN_TEXT, MIN_TARGET, MIN_TOUCH, touch }) {
@@ -134,8 +130,7 @@ for (const s of SIZES) {
     localStorage.clear();
     localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0.7 }));
   });
-  // the first adapter asked for in a headless page can come back null: ask once more
-  if (vk) await ctx.addInitScript(() => { const req = navigator.gpu.requestAdapter.bind(navigator.gpu); navigator.gpu.requestAdapter = async (o) => (await req(o)) || req(o); });
+  if (vk) await ctx.addInitScript(retryAdapter);
   const page = await ctx.newPage();
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));

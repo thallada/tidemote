@@ -147,7 +147,6 @@ Measured on this repo's Linux box (RTX 2080 SUPER, headless Chromium on Vulkan):
   census pays for them all. At real time, in a 262k world 40 minutes old (some 1,300 species on record): 155 ms of
   main-thread time in 90 s (0.2%), most calls under 0.1 ms, frames steady at 16.7 ms (p99 16.8). At Max, where every
   census is a tick: 1.2 s in a simulated hour (about 1% of the main thread), median 0.8 ms a call, p95 6 ms.
-  `createChronicler().tune.prof = {}` times each detector (tools set it through `__tidemote.chron`).
 - **Cards and film** cost nothing until asked: a card's portrait is one extra close-up frame (the world held still for
   the two or three frames between finding its subject and drawing it), its song an offline render of nine seconds;
   a film one scaled canvas copy a frame and the browser's encoder.

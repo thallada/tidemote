@@ -4,20 +4,18 @@
 //   npm run build && tools/gpu-node.sh tools/ui-check.mjs
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http';
 import { chromium } from 'playwright-core';
+import { vkLayer as vk, vkLaunch, retryAdapter } from './vk.mjs';
 const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); fs.createReadStream(path.resolve('dist/tidemote.html')).pipe(res); });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-// on Linux without a display: headless Playwright Chromium on the GPU through Vulkan (TIDEMOTE_VK_LAYER, docs/headless-gpu.md)
-const vk = process.env.TIDEMOTE_VK_LAYER;
-const browser = await chromium.launch(vk ? {
-  headless: true, ignoreDefaultArgs: ['--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader'], env: { ...process.env, VK_ADD_LAYER_PATH: vk, VK_INSTANCE_LAYERS: 'VK_LAYER_TIDEMOTE_headless' },
-  args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-angle=vulkan', '--ignore-gpu-blocklist', '--disable-vulkan-surface'],
-} : { executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: false, args: ['--enable-unsafe-webgpu'] });
+// on Linux without a display (TIDEMOTE_VK_LAYER): headless, on the GPU through Vulkan
+const browser = await chromium.launch(vk ? vkLaunch(['--enable-unsafe-webgpu'])
+  : { executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: false, args: ['--enable-unsafe-webgpu'] });
 let bad = 0;
 const check = (name, ok, extra = '') => { if (!ok) bad++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name} ${extra}`); };
 for (const touch of [false, true]) {
   const ctx = await browser.newContext(touch ? { viewport: { width: 390, height: 700 }, hasTouch: true, isMobile: true, deviceScaleFactor: 3 } : { viewport: { width: 1366, height: 657 } });
   await ctx.addInitScript(() => { if (sessionStorage.getItem('i')) return; sessionStorage.setItem('i', '1'); localStorage.clear(); localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0.7 })); });
-  if (vk) await ctx.addInitScript(() => { const req = navigator.gpu.requestAdapter.bind(navigator.gpu); navigator.gpu.requestAdapter = async (o) => (await req(o)) || req(o); });
+  if (vk) await ctx.addInitScript(retryAdapter);
   const page = await ctx.newPage();
   const errs = []; page.on('pageerror', (e) => errs.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);

@@ -12,7 +12,7 @@ import { thermalGuild, growPlan, describeGrowth, roleColor, roleShares, divEnerg
 import { voiceOf } from './audio/mapping.js';
 import { describe as describeSong } from './audio/motif.js';
 import { songSVG, sigilSVG } from './song.js';
-import { fmt, fmtClock, fmtDur, fmtLen, cssRgb } from './fmt.js';
+import { fmt, fmtClock, fmtDur, fmtLen, cssRgb, saveFile } from './fmt.js';
 
 export const CARD_W = 660, CARD_H = 1050; // about a bridge card's shape
 export const CARD_SCALE = 2; // drawn (and saved) at twice that, for sharp text
@@ -69,11 +69,9 @@ export function cardData(sp, { reg, genera, K, story = null, simTime = 0, era = 
   if (!series && sp.series && sp.series.t && sp.series.t.length > 1) series = { t: Array.from(sp.series.t), v: Array.from(sp.series.v) };
   // ending at its count now, as the strip above it says
   if (series && sp.alive && simTime > series.t[series.t.length - 1]) { series.t.push(simTime); series.v.push(sp.pop); }
-  const status = sp.alive ? `${fmt(sp.pop)} cells${living ? ` · ${((sp.pop / living) * 100).toFixed(sp.pop / living < 0.01 ? 2 : 1)}% of life` : ''}` : `extinct at ${fmtClock(sp.extinct ?? 0)} after ${fmtDur((sp.extinct ?? simTime) - (sp.born || 0))}`;
   return {
     serial: sp.serial, name: sp.name, binomial: sp.binomial || sp.name, given: !!sp.given,
-    genus: sp.genus, genusFrom: gen?.from || null, desc: describe(g, K), facts, record, stats, series, lineage, more, origin, status,
-    peak: sp.peak, alive: sp.alive, depth: g.depth, story: story ? story.text : null, when: `${fmtClock(simTime)}${era ? ` · ${era}` : ''}`,
+    desc: describe(g, K), facts, record, stats, series, lineage, more, origin, alive: sp.alive, depth: g.depth, story: story ? story.text : null, when: `${fmtClock(simTime)}${era ? ` · ${era}` : ''}`,
     col: cssRgb(roleColor(g, 0)), col2: cssRgb(roleColor(g, 1)),
   };
 }
@@ -83,7 +81,7 @@ const SVG_CSS = `.brk{fill:none;stroke:rgba(150,222,230,.55);stroke-width:1}.tic
 .on{stroke-width:.8;opacity:.9}.rail{stroke:rgba(130,205,214,.22);stroke-width:.6}.rail.tonic{stroke:rgba(150,222,230,.55);stroke-width:.7}
 .bar{stroke:rgba(150,222,230,.55);stroke-dasharray:2 2;stroke-width:.6}.contour{fill:none;stroke-width:.8;opacity:.4}.v2{fill:none;stroke-width:1;opacity:.75}
 .ghost{display:none}.chrom{stroke:#f1e3a0;stroke-width:1}.ph{display:none}.bonds line{opacity:.6;stroke-linecap:round}`;
-export function svgImage(svg) {
+function svgImage(svg) {
   const src = svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ').replace(/(<svg[^>]*>)/, `$1<style>${SVG_CSS}</style>`);
   return new Promise((res) => {
     const img = new Image();
@@ -103,6 +101,12 @@ function wrap(ctx, text, w) {
   }
   if (line) out.push(line);
   return out;
+}
+// an L at each corner of the box x0..x1 × y0..y1, arm long
+function corners(ctx, x0, y0, x1, y1, arm) {
+  ctx.beginPath();
+  for (const [x, y, sx, sy] of [[x0, y0, 1, 1], [x1, y0, -1, 1], [x0, y1, 1, -1], [x1, y1, -1, -1]]) { ctx.moveTo(x, y + sy * arm); ctx.lineTo(x, y); ctx.lineTo(x + sx * arm, y); }
+  ctx.stroke();
 }
 const fit = (ctx, text, w) => { if (ctx.measureText(text).width <= w) return text; let s = text; while (s.length > 1 && ctx.measureText(`${s}…`).width > w) s = s.slice(0, -1); return `${s.trimEnd()}…`; };
 
@@ -158,11 +162,10 @@ export function drawCard(ctx, d, art = {}) {
     const pw = art.portrait.width, ph = art.portrait.height, k = Math.max(AW / pw, AH / ph);
     const sw = AW / k, sh = AH / k;
     ctx.drawImage(art.portrait, (pw - sw) / 2, (ph - sh) / 2, sw, sh, AX, AY, AW, AH);
-    const r = Math.min((art.portrait.subject || 0.2) * (pw / 2) * k + 6, AH / 2 - 14), cb = Math.min(12, r / 2.5), ox = AX + AW / 2, oy = AY + AH / 2;
+    // brackets around its subject
+    const r = Math.min((art.portrait.subject || 0.2) * (pw / 2) * k + 6, AH / 2 - 14), ox = AX + AW / 2, oy = AY + AH / 2;
     ctx.strokeStyle = 'rgba(255,95,58,0.9)'; ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    for (const [x, yy, sx, sy] of [[ox - r, oy - r, 1, 1], [ox + r, oy - r, -1, 1], [ox - r, oy + r, 1, -1], [ox + r, oy + r, -1, -1]]) { ctx.moveTo(x, yy + sy * cb); ctx.lineTo(x, yy); ctx.lineTo(x + sx * cb, yy); }
-    ctx.stroke();
+    corners(ctx, ox - r, oy - r, ox + r, oy + r, Math.min(12, r / 2.5));
   } else {
     const gr = ctx.createRadialGradient(AX + AW / 2, AY + AH / 2, 10, AX + AW / 2, AY + AH / 2, AH * 0.8);
     gr.addColorStop(0, 'rgba(127,214,223,0.10)'); gr.addColorStop(1, 'rgba(6,9,10,1)');
@@ -173,10 +176,8 @@ export function drawCard(ctx, d, art = {}) {
   ctx.restore();
   ctx.strokeStyle = LINE; ctx.lineWidth = 1; ctx.strokeRect(AX + 0.5, AY + 0.5, AW - 1, AH - 1);
   ctx.strokeStyle = 'rgba(150,222,230,0.55)'; ctx.lineWidth = 1.5;
-  const c = 14, m = 8;
-  ctx.beginPath();
-  for (const [x, yy, sx, sy] of [[AX + m, AY + m, 1, 1], [AX + AW - m, AY + m, -1, 1], [AX + m, AY + AH - m, 1, -1], [AX + AW - m, AY + AH - m, -1, -1]]) { ctx.moveTo(x, yy + sy * c); ctx.lineTo(x, yy); ctx.lineTo(x + sx * c, yy); }
-  ctx.stroke();
+  const m = 8;
+  corners(ctx, AX + m, AY + m, AX + AW - m, AY + AH - m, 14);
   ctx.fillStyle = 'rgba(226,241,240,0.8)'; ctx.font = `500 12px ${F}`;
   ctx.fillText(art.portrait ? (d.alive ? 'A living member, its kind lit' : 'Last seen, close up') : 'Its sigil: its song drawn as its body', AX + m + 6, AY + AH - m - 6);
 
@@ -222,8 +223,8 @@ export function drawCard(ctx, d, art = {}) {
     for (const [k, v] of rows) {
       label(k, x, yy);
       ctx.fillStyle = INK; ctx.font = `400 14px ${F}`;
-      const lines = wrap(ctx, v, colW - LW).slice(0, 2);
-      lines.forEach((l, i) => ctx.fillText(i === 1 && wrap(ctx, v, colW - LW).length > 2 ? fit(ctx, `${l} …`, colW - LW) : l, x + LW, yy + i * 17));
+      const all = wrap(ctx, v, colW - LW), lines = all.slice(0, 2);
+      lines.forEach((l, i) => ctx.fillText(i === 1 && all.length > 2 ? fit(ctx, `${l} …`, colW - LW) : l, x + LW, yy + i * 17));
       yy += 6 + lines.length * 17;
     }
     return yy;
@@ -262,7 +263,7 @@ export function drawCard(ctx, d, art = {}) {
 
 /**
  * The card dialog. api: { life(), K, chron, climate(), eng, portrait(serial) -> Promise<canvas|null>,
- *   rename(serial, name), songClip(genome) -> Promise<Blob|null>, flash(msg), onClose() }
+ *   rename(serial, name), songClip(genome) -> Promise<Blob|null>, flash(msg) }
  */
 export function createCards(api) {
   const $ = (id) => document.getElementById(id);
@@ -275,20 +276,21 @@ export function createCards(api) {
     const L = api.life();
     return cardData(sp, { reg: L.reg, genera: L.genera, K: api.K, story: api.chron.latest(sp.serial), relations: api.chron.relations(sp.serial), history: L.history, simTime: api.eng.simTime, era: api.climate().name, founders: api.eng.founders, living: L.counts[3] });
   }
-  function redraw() {
-    const sp = cur && reg().get(cur);
-    if (!sp) return;
+  function paint(d) {
     const ctx = cv.getContext('2d');
     ctx.setTransform(CARD_SCALE, 0, 0, CARD_SCALE, 0, 0);
-    drawCard(ctx, data(sp), art);
+    drawCard(ctx, d, art);
     drawn = performance.now();
+  }
+  function redraw() {
+    const sp = cur && reg().get(cur);
+    if (sp) paint(data(sp));
   }
   async function open(serial) {
     const sp = reg().get(serial);
     if (!sp) return;
     cur = serial;
     root.hidden = false;
-    document.body.classList.add('card-open');
     nameIn.value = sp.given ? sp.name : '';
     nameIn.placeholder = sp.binomial || sp.name;
     cv.width = CARD_W * CARD_SCALE; cv.height = CARD_H * CARD_SCALE;
@@ -313,19 +315,10 @@ export function createCards(api) {
     if (root.hidden) return;
     root.hidden = true;
     cur = null;
-    document.body.classList.remove('card-open');
-    api.onClose?.();
   }
   const fileName = (ext) => {
     const sp = reg().get(cur);
     return `${(sp ? sp.name : 'species').replace(/[^\p{L}\p{N}]+/gu, '-').toLowerCase()}-tidemote.${ext}`;
-  };
-  const download = (blob, name) => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    document.body.append(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   };
   // the name: given as typed (and kept), cleared back to its binomial
   function rename() {
@@ -343,14 +336,12 @@ export function createCards(api) {
     const sp = reg().get(cur);
     if (!sp || performance.now() - drawn < 60) return;
     const d = data(sp), v = nameIn.value.trim();
-    if (v) { d.name = v; d.given = true; } else { d.name = sp.binomial || sp.name; d.given = false; }
-    const ctx = cv.getContext('2d');
-    ctx.setTransform(CARD_SCALE, 0, 0, CARD_SCALE, 0, 0);
-    drawCard(ctx, d, art);
+    if (v) { d.name = v; d.given = true; } else { d.name = d.binomial; d.given = false; }
+    paint(d);
   });
   $('card-png').addEventListener('click', () => {
     rename();
-    cv.toBlob((b) => { if (b) download(b, fileName('png')); else api.flash('Could not make the image'); }, 'image/png');
+    cv.toBlob((b) => { if (b) saveFile(b, fileName('png')); else api.flash('Could not make the image'); }, 'image/png');
   });
   $('card-song').addEventListener('click', async () => {
     const sp = reg().get(cur), btn = $('card-song');
@@ -358,7 +349,7 @@ export function createCards(api) {
     btn.disabled = true; note.textContent = 'Rendering its song…';
     try {
       const b = await api.songClip(sp.genome);
-      if (b) { download(b, fileName('wav')); note.textContent = ''; } else note.textContent = 'This browser cannot render sound offline.';
+      if (b) { saveFile(b, fileName('wav')); note.textContent = ''; } else note.textContent = 'This browser cannot render sound offline.';
     } catch (e) { note.textContent = `Could not render its song: ${String(e.message || e).slice(0, 80)}`; }
     btn.disabled = false;
   });
@@ -366,6 +357,6 @@ export function createCards(api) {
   root.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } });
   // a new world reuses serials: its portraits go
   function reset() { portraits.clear(); close(); }
-  return { open, close, reset, isOpen: () => !root.hidden, refresh: () => { if (cur != null && !root.hidden) redraw(); } };
+  return { open, close, reset, isOpen: () => !root.hidden };
 }
 

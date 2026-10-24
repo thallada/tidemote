@@ -447,8 +447,7 @@ span.set-reset { display: inline-flex; align-items: center; gap: var(--s3); colo
 .w-act .btn:disabled, .set-foot .link:disabled { opacity: .45; cursor: default; }
 .keys-note kbd, dt { color: var(--sun); }
 .help { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100% - 32px)); padding: 10px 18px 18px; z-index: 35; max-height: calc(100% - 32px); overflow-y: auto; }
-/* a species card: the canvas it is drawn on, scaled to the dialog, then the name and the saves */
-/* the card beside its controls; the card as tall as the window allows */
+/* a species card: its canvas as tall as the window allows, the name and the saves beside it */
 .card-dlg { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: max-content; max-width: calc(100% - 32px); padding: 10px 18px 16px; z-index: 36; max-height: calc(100% - 24px); overflow-y: auto;
   display: grid; grid-template-columns: auto minmax(220px, 260px); grid-template-rows: auto auto auto 1fr; column-gap: var(--s4); }
 .card-dlg:focus { outline: none; }

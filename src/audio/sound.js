@@ -50,7 +50,7 @@ export async function songClip(genome, { seed = 1, era = null, seconds = 9, sr =
 }
 
 /** An AudioBuffer as a 16-bit PCM WAV Blob. */
-export function wavBlob(buf) {
+function wavBlob(buf) {
   const ch = Math.min(2, buf.numberOfChannels), n = buf.length, sr = buf.sampleRate;
   const out = new DataView(new ArrayBuffer(44 + n * ch * 2));
   const str = (o, s) => { for (let i = 0; i < s.length; i++) out.setUint8(o + i, s.charCodeAt(i)); };

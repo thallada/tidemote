@@ -24,7 +24,7 @@ import { createChronicler, watchMap } from './chronicler.js';
 import { createCards } from './card.js';
 import { createFilm } from './film.js';
 import { parseMind, interpretMind, settleMind } from './mind.js';
-import { fmt, fmtClock, fmtDur, esc, cssCol, clamp, term, spLink, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
+import { fmt, fmtClock, fmtDur, esc, cssCol, clamp, term, spLink, saveFile, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('stage');
@@ -927,6 +927,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // writes a story into the log; the auto camera goes to see its subject. Its watch list (the species
   // whose meals the ledger counts) goes to the GPU when it changes.
   const slotSerial = new Uint32Array(MAXK);
+  // the species the specimen panel shows (its own, or the selected cell's), or null
+  const viewedSerial = () => (spView != null ? spView : sel && sel.particle && sel.particle.kind >= FIRST_LIFE ? genomeFor(sel.particle.kind)?.serial : null);
   function tellStories(c) {
     if (c.spl) for (let s = FIRST_LIFE; s < MAXK; s++) slotSerial[s] = c.pop[s] ? genomeSerial(c.genomeU32, s) : 0;
     const x = climate.excursion, t = c.simTime;
@@ -936,7 +938,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       temp: eng.tbg, light: eng.ambient, world: eng.grid, era: climate.name,
       event: climate.event && climate.phase ? { type: climate.event.type, phase: climate.phase } : null,
       excursion: x && t >= x.t && t <= x.t + x.dur ? x : null,
-      focus: spView != null ? spView : sel && sel.particle && sel.particle.kind >= FIRST_LIFE ? genomeFor(sel.particle.kind)?.serial : null,
+      focus: viewedSerial(),
     });
     for (const s of told) {
       pushEvent(s.html, s.col, 'story');
@@ -1379,7 +1381,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     onClose: deselect,
     onPlaySong: playSong,
     onCard: () => {
-      const serial = spView != null ? spView : sel && sel.particle && sel.particle.kind >= FIRST_LIFE ? genomeFor(sel.particle.kind)?.serial : null;
+      const serial = viewedSerial();
       if (serial != null && life.reg.has(serial)) cards.open(serial);
     },
   });
@@ -1415,8 +1417,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const j = portraitJob;
     if (!j || j.drawn) return null;
     if (performance.now() - j.at > 4000) { portraitJob = null; portraitHold = false; j.resolve(null); return null; }
-    const d = device;
-    j.tex ??= d.createTexture({ size: [PORTRAIT, PORTRAIT], format: eng.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+    j.tex ??= device.createTexture({ size: [PORTRAIT, PORTRAIT], format: eng.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
     const dt = Math.min(2, Math.max(0, eng.simTime - j.t));
     const [W, H] = eng.grid;
     j.drawn = true;
@@ -1458,16 +1459,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     sp.binomial ??= sp.name;
     sp.name = name || sp.binomial;
     sp.given = !!name;
-    life.renamed ??= new Map();
-    life.renamed.set(serial, true);
     specimen.invalidate(); dirty = true; feedKey = ''; renderFeed(); lab.render(true);
     flash(name ? `Named ${name}` : `${sp.name} again`);
   }
   function relabel(root) {
-    if (!life.renamed || !life.renamed.size) return;
     for (const a of root.querySelectorAll('a.sp[data-serial]')) {
-      const serial = +a.dataset.serial;
-      if (life.renamed.has(serial)) { const sp = life.reg.get(serial); if (sp && a.textContent !== sp.name) a.textContent = sp.name; }
+      const sp = life.reg.get(+a.dataset.serial);
+      if (sp && sp.binomial && a.textContent !== sp.name) a.textContent = sp.name;
     }
   }
   const cards = createCards({
@@ -1581,7 +1579,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     openSpecies, focusFacet,
     focusKey: () => focus.key,
     focusPredicate: (label, pred) => setFocus(`pred:${label}`, label, { pred }),
-    relabel: (el) => relabel(el),
+    relabel,
   });
   $('lab-open').addEventListener('click', () => { closeMenus(); lab.toggle(); });
 
@@ -1684,13 +1682,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       used = saves.reduce((a, m) => a + (m.bytes || 0), 0);
       render();
     }
-    function download(m, bytes) {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/gzip' }));
-      a.download = `${m.name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || 'world'}.tidemote`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    }
+    const download = (m, bytes) => saveFile(new Blob([bytes], { type: 'application/gzip' }), `${m.name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || 'world'}.tidemote`);
     async function worldAct(id, v) {
       const busy = async (what, fn) => {
         wBusy = what; render();
@@ -2907,13 +2899,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     title: () => `TIDEMOTE · ${fmtClock(eng.simTime)} · ${climate.name}`,
     name: () => `tidemote-${fmtClock(eng.simTime).replace(/:/g, '-')}`,
     onChange: renderFilm,
-    onSaved: (blob, name) => {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob); a.download = name;
-      document.body.append(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-      flash('Film saved');
-    },
+    onSaved: (blob, name) => { saveFile(blob, name); flash('Film saved'); },
   });
   let filmArmedShot = null;
   // record now, or (the auto camera on) from the start of its next shot; again: stop
@@ -2942,8 +2928,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function filmTick() {
     if (film.state === 'armed') {
       const sh = director.active ? director.shot : null;
-      if (!director.active) { film.start(30); }
-      else if (sh && sh.id !== filmArmedShot && sh.type !== 'settle') film.start(30);
+      if (!director.active || (sh && sh.id !== filmArmedShot && sh.type !== 'settle')) film.start(30);
     }
     if (film.state === 'recording') renderFilm();
   }

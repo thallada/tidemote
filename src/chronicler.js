@@ -8,7 +8,7 @@
 // an event or an era did. It only reads; nothing it does touches the simulation.
 //
 // It speaks rarely. Every candidate story carries a score (how notable it is), and a budget refilled
-// in simulated time (STORY_EVERY seconds a story, at most STORY_CAP in hand), a gap in real time (so a
+// in simulated time (TUNE.storyEvery seconds a story, at most TUNE.storyCap in hand), a gap in real time (so a
 // fast world does not flood the log) and cooldowns per kind and per species decide which, if any, is
 // told. A story that loses its turn may wait a few minutes for the next.
 //
@@ -51,7 +51,7 @@ const GUILD = {
   predator: { one: 'hunter', many: 'hunters', none: 'nothing hunts, and the hunted may at last rest', eat: 'hunt' },
 };
 const NUM = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
-export const numWord = (n) => (n >= 0 && n < NUM.length ? NUM[n] : fmt(n));
+const numWord = (n) => (n >= 0 && n < NUM.length ? NUM[n] : fmt(n));
 const Cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 /** A span of simulated time in words: "40 seconds", "12 minutes", "1 hour 5 minutes". */
 export function durWords(s) {
@@ -90,23 +90,22 @@ export function fitOf(h, q, K = DEFAULT_K) {
   return f;
 }
 
-/** The world's firsts a species may bring (key, words), from its genome. */
+/** The world's firsts a species may bring, from its genome: [key, words after "the first"]. */
 export function firstsOf(g, K = DEFAULT_K) {
   const out = [];
   const guild = dietGuild(g);
-  out.push([`guild:${guild}`, { producer: 'to live on light', grazer: 'to graze', scavenger: 'to live on the dead', predator: 'to hunt living prey' }[guild]]);
+  out.push([`guild:${guild}`, `species ${{ producer: 'to live on light', grazer: 'to graze', scavenger: 'to live on the dead', predator: 'to hunt living prey' }[guild]}`]);
   const multi = (g.adhesion || 0) > K.adhMin;
-  if (multi) out.push(['multi', 'to live as a many-celled body']);
-  if (multi && growPlan(g)) out.push(['tree', 'to grow as a branching tree']);
+  if (multi) out.push(['multi', 'many-celled organism']);
+  if (multi && growPlan(g)) out.push(['tree', 'species to grow as a branching tree']);
   if (multi && g.swim * (1 - g.photo) >= 0.8) out.push(['swimbody', 'many-celled body that swims']);
-  if ((g.calcify || 0) > 0.1) out.push(['calcify', 'to build reef stone']);
+  if ((g.calcify || 0) > 0.1) out.push(['calcify', 'species to build reef stone']);
   if ((g.thermo || 0) > 0.2) out.push(['heat', 'heat-maker, warming the water around it']);
-  if (K.heat && (g.topt ?? 19) > 38) out.push(['thermophile', 'thermophile, at home above 38°']);
-  if (K.heat && (g.topt ?? 19) < 10) out.push(['cold', 'cold-lover, at home below 10°']);
-  if (roleShares(g).filter((v) => v > 0.1).length === 3) out.push(['types3', 'to grow three kinds of cell']);
+  if (K.heat && (g.topt ?? 19) > 38) out.push(['thermophile', 'thermophile, at home in water above 38°']);
+  if (K.heat && (g.topt ?? 19) < 10) out.push(['cold', 'cold-lover, at home in water below 10°']);
+  if (roleShares(g).filter((v) => v > 0.1).length === 3) out.push(['types3', 'species to grow three kinds of cell']);
   return out;
 }
-const FIRST_LEAD = { multi: 'many-celled organism', swimbody: 'many-celled body that swims', heat: 'heat-maker, warming the water around it', thermophile: 'thermophile, at home in water above 38°', cold: 'cold-lover, at home in water below 10°' };
 
 /** A circular mean on the torus from summed (cos + 1) * 127 terms: [position 0..1, concentration 0..1]. */
 function circ(sc, ss, n) {
@@ -116,9 +115,9 @@ function circ(sc, ss, n) {
 }
 
 /**
- * createChronicler({ K, link, founders }):
- *   link(serial, name) -> html for a species' name (the page's spLink); name(serial) its current name
- * Returns { observe, note, watch, latest, save, load, reset }.
+ * createChronicler({ K, link, tune }):
+ *   link(serial, name) -> html for a species' name (the page's spLink); tune overrides TUNE
+ * Returns { observe, note, reset, watch, relations, latest, save, load }.
  */
 export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune = {} } = {}) {
   const T = { ...TUNE, ...tune };
@@ -130,11 +129,11 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       watch: { version: 0, serials: new Array(SPL_WATCH).fill(0) },
       versions: new Map(), // watch map version -> serials by index
       prevPairs: null, prevVer: -1, prevSlot: null, prevCause: null,
-      tokens: T.storyCap, lastStory: -1e9, lastReal: -1e9, lastTick: -1e9, slowAt: {}, slowNext: 0,
+      tokens: T.storyCap, lastStory: -1e9, lastReal: -1e9, lastTick: -1e9, slowNext: 0,
       told: new Map(), // kind -> t, "kind:key" -> t, "sp:serial" -> t
       pending: null, latest: new Map(), // serial -> { t, text }
       top: { serial: 0, since: 0 }, guilds: null, guildGone: {},
-      firsts: null, maxLiving: 0, collapsed: false, record: 0,
+      firsts: new Set(), maxLiving: 0, collapsed: false, record: 0,
       eraMark: null, eventMark: null, excursion: null, genusMarks: [], stoneMarks: [],
       ext: [], // [t, serial] of established species lost, for waves of extinction
       voice: {}, // per kind, how many times it has spoken (vary: its turns of phrase take turns)
@@ -143,13 +142,10 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
   reset();
 
   // ------------------------------------------------------------------ bookkeeping
-  function statsOf(sp, t) {
-    let st = S.sp.get(sp.serial);
-    if (!st) {
-      st = { serial: sp.serial, s: [], l: [], acc: new Array(NC).fill(0), cum: new Array(NC).fill(0), rng: [], diet: new Map(), eaters: new Map(), firstT: t, lastS: -1e9, lastL: -1e9, reign: 0, low: null };
-      S.sp.set(sp.serial, st);
+  function track(sp) {
+    if (!S.sp.has(sp.serial)) {
+      S.sp.set(sp.serial, { serial: sp.serial, s: [], l: [], acc: new Array(NC).fill(0), cum: new Array(NC).fill(0), rng: [], diet: new Map(), eaters: new Map(), lastL: -1e9, reign: 0, low: null });
     }
-    return st;
   }
   // the sample nearest to t - ago (fine samples first, then coarse)
   function popAgo(st, t, ago) {
@@ -276,31 +272,17 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
    * Returns the stories to log now: [{ html, text, col, kind, subjects, score }].
    */
   function observe(obs) {
-    const t0 = T.prof ? performance.now() : 0;
-    const out = observe_(obs);
-    if (T.prof) T.prof.total = (T.prof.total || 0) + performance.now() - t0;
-    return out;
-  }
-  function observe_(obs) {
     const { t, reg } = obs;
     // species: their numbers, sampled every T.sample simulated seconds; between samples only the
     // species ledger is read (a census at real time costs next to nothing)
     const fresh = t - S.lastTick >= T.sample;
     if (!fresh && !obs.spl) return [];
     if (obs.living == null) { let living = 0; for (const sp of reg.values()) if (sp.alive) living += sp.pop; obs.living = living; }
-    const mark = (k, t1) => { if (T.prof) T.prof[k] = (T.prof[k] || 0) + performance.now() - t1; return T.prof ? performance.now() : 0; };
-    let tm = T.prof ? performance.now() : 0;
-    for (const sp of reg.values()) {
-      if (!sp.established || (!sp.alive && !S.sp.has(sp.serial))) continue;
-      statsOf(sp, t);
-    }
-    tm = mark('sync', tm);
-    if (obs.spl && obs.slotSerial) { const t1 = T.prof ? performance.now() : 0; ingestSpl(obs.spl, obs.slotSerial, t); if (T.prof) T.prof.ingest = (T.prof.ingest || 0) + performance.now() - t1; }
+    for (const sp of reg.values()) if (sp.established && (sp.alive || S.sp.has(sp.serial))) track(sp);
+    if (obs.spl && obs.slotSerial) ingestSpl(obs.spl, obs.slotSerial, t);
     if (!S.eraMark && obs.era) S.eraMark = { t, name: obs.era, snap: snapshot(reg, obs.living) };
-    tm = T.prof ? performance.now() : 0;
     // the watch list matters for the next copy of the species ledger: chosen as one arrives
     if (obs.spl || !S.watch.version) chooseWatch(reg);
-    tm = mark('watch', tm);
     if (!fresh) return [];
     S.lastTick = t;
     for (const st of S.sp.values()) {
@@ -314,41 +296,22 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       if (st.where && t - (st.rng.at(-1)?.[0] ?? -1e9) >= MIN) { st.rng.push(st.where); trim(st.rng, t - 40 * MIN); }
     }
     for (const p of S.pairs.values()) if (p.bins.length && p.bins[0][0] < t - 60 * MIN) trim(p.bins, t - 60 * MIN);
-    tm = mark('sample', tm);
     // the candidates
     const cands = [];
     const add = (c) => { if (c && c.score > 0) cands.push(c); };
-    const ctx = { ...obs, living: obs.living };
-    tm = T.prof ? performance.now() : 0;
-    // T.prof (tools): milliseconds spent in each detector
-    const run = T.prof ? (f, ...a) => { const t0 = performance.now(); const r = f(...a); T.prof[f.name] = (T.prof[f.name] || 0) + performance.now() - t0; return r; } : (f, ...a) => f(...a);
-    run(detectCollapse, ctx, add);
-    run(detectGuilds, ctx, add);
-    run(detectExtinctions, ctx, add);
-    run(detectReign, ctx, add);
-    run(detectSwings, ctx, add);
-    run(detectFirsts, ctx, add);
-    if (S.eraMark?.pending) add(run(eraStory, ctx));
-    if (S.eventMark?.done) add(run(eventStory, ctx));
-    if (S.excursion && t > S.excursion.end) add(run(excursionStory, ctx));
-    // the slow detectors (minute-scale stories) take turns, one a tick, so no census pays for them all
-    const slow = SLOW[S.slowNext % SLOW.length];
-    if (t - (S.slowAt[slow.name] ?? -1e9) >= MIN) {
-      S.slowAt[slow.name] = t;
-      S.slowNext++;
-      run(slow, ctx, add);
-    } else S.slowNext++;
+    for (const detect of FAST) detect(obs, add);
+    if (S.eraMark?.pending) add(eraStory(obs));
+    if (S.eventMark?.done) add(eventStory(obs));
+    if (S.excursion && t > S.excursion.end) add(excursionStory(obs));
+    // the slow detectors (minute-scale stories) take turns, one a sample, so no census pays for them all
+    SLOW[S.slowNext++ % SLOW.length](obs, add);
     // forget the long dead
-    tm = T.prof ? performance.now() : 0;
     for (const [serial] of S.sp) {
       const sp = reg.get(serial);
       if (!sp || (!sp.alive && t - (sp.extinct ?? t) > 30 * MIN)) S.sp.delete(serial);
     }
     for (const [k, p] of S.pairs) if (!p.bins.length) S.pairs.delete(k);
-    tm = mark('cleanup', tm);
-    const out = choose(cands, obs);
-    mark('choose', tm);
-    return out;
+    return choose(cands, obs);
   }
 
   // ------------------------------------------------------------------ telling
@@ -677,7 +640,6 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
   // The world's firsts.
   function detectFirsts(ctx, add) {
     const { reg, t } = ctx;
-    if (!S.firsts) S.firsts = new Set();
     for (const sp of reg.values()) {
       if (!sp.established || !sp.alive) continue;
       const st = S.sp.get(sp.serial);
@@ -689,7 +651,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
         // a world's first minutes set what it starts with
         if (t < 3 * MIN) continue;
         add({ kind: 'first', score: key === 'multi' || key === 'guild:predator' ? 0.75 : 0.65, col: sp.genome.col, subjects: [sp.serial], key: `first:${key}`, keyGap: Infinity,
-          html: `<b>Never before in this world:</b> ${L(reg, sp.serial)} is the first ${FIRST_LEAD[key] || `species ${words}`}.` });
+          html: `<b>Never before in this world:</b> ${L(reg, sp.serial)} is the first ${words}.` });
       }
     }
   }
@@ -966,6 +928,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     }
   }
 
+  const FAST = [detectCollapse, detectGuilds, detectExtinctions, detectReign, detectSwings, detectFirsts];
   const SLOW = [detectArms, detectDiets, detectCycles, detectRanges, detectRadiation, detectTrends, detectMisc];
 
   // ------------------------------------------------------------------ the climate's news
@@ -1100,15 +1063,13 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
   // ------------------------------------------------------------------ the page's API
   return {
     observe, note, reset,
-    /** Its tunables, live (tools set .prof = {} to time the detectors). */
-    tune: T,
     /** The species ledger's watch list: { version, serials (SPL_WATCH, 0 free) }. */
     watch: () => S.watch,
     /** What a species eats most and what eats it most, among the watched (serials, or null), from the meals counted. */
     relations(serial) {
       const st = S.sp.get(serial);
       if (!st) return { food: null, eater: null };
-      const top = (m) => { let k = null, v = 0, sum = 0; for (const [a, b] of m) { sum += b; if (b > v) { v = b; k = a; } } return k && v >= 0.25 * sum && v >= 5 ? k : null; };
+      const top = (m) => { const [k, v, sum] = topBy(m); return k && v >= 0.25 * sum && v >= 5 ? k : null; };
       return { food: top(st.diet), eater: top(st.eaters) };
     },
     /** The latest story told about a species, or null: { t, text, html }. */
@@ -1116,7 +1077,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     /** What a saved world keeps of the chronicler (the stories' memory, not the ledger's baselines). */
     save() {
       const keep = { ...S, prevPairs: null, prevVer: -1, prevSlot: null, prevCause: null, pending: null, versions: new Map(), lastReal: -1e9 };
-      keep.firsts = S.firsts ? [...S.firsts] : null;
+      keep.firsts = [...S.firsts];
       keep.eraMark = S.eraMark ? { ...S.eraMark, snap: null, pending: null } : null;
       keep.eventMark = null; keep.excursion = null;
       return keep;
@@ -1124,7 +1085,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     load(o) {
       reset();
       if (!o) return;
-      Object.assign(S, o, { firsts: o.firsts ? new Set(o.firsts) : null, versions: new Map(), watch: { version: (o.watch?.version || 0) + 1, serials: new Array(SPL_WATCH).fill(0) }, lastReal: -1e9 });
+      Object.assign(S, o, { firsts: new Set(o.firsts || []), versions: new Map(), watch: { version: (o.watch?.version || 0) + 1, serials: new Array(SPL_WATCH).fill(0) }, lastReal: -1e9 });
       if (S.eraMark && !S.eraMark.snap) S.eraMark = null;
     },
   };
