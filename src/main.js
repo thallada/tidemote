@@ -1997,6 +1997,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === ']') { state.loupeMag = clamp(state.loupeMag * 1.25, 1.5, 20); flash(`Loupe ×${state.loupeMag.toFixed(1)}`); }
     else if (k === 'c' || k === 'C') { if (sel) toggleFollow(); }
     else if (k === 'a' || k === 'A') playAuto();
+    else if ((k === 'x' || k === 'X') && director.active) nextScene();
     else if (k === 'r' || k === 'R') filmAct();
     else if (k === 's' || k === 'S') toggleSound();
     else if (k === '-' || k === '_') nudgeVolume(-0.1);
@@ -2740,6 +2741,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const b = $('auto-play');
     b.setAttribute('aria-pressed', String(!!live));
     b.setAttribute('aria-label', live ? 'Stop the auto camera' : 'Start the auto camera');
+    $('auto-next').hidden = !live;
   }
   // the user takes the camera back where it is
   function takeOver() {
@@ -2762,7 +2764,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (director.active) { takeOver(); flash('Auto camera off'); }
     else if (state.phase === 'running') { startAuto(false); flash('Auto camera'); }
   }
+  // the camera leaves what it is showing for a new scene
+  function nextScene() {
+    if (director.next()) flash('Next scene');
+  }
   $('auto-play').addEventListener('click', playAuto);
+  $('auto-next').addEventListener('click', nextScene);
   renderAuto(false);
   // What the auto camera is showing and why, as a caption: where it is heading while it flies,
   // what is in view once it arrives (from the director's shot.why).
@@ -3145,7 +3152,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   });
   // a handle for tools/perf, which profiles the page in a real browser
   globalThis.__tidemote = { state, cam, perf, eng, sound, lab, life: () => life, climate: () => climate, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
-    chron, cards, film, filmAct, openSpecies,
+    chron, cards, film, filmAct, openSpecies, director,
     setScale(v) { state.perf.scale = v; if (v !== 'auto') renderScale = v; resetAdapt(); fit(); },
     // as the adaptive scale does it: applied when the next frame begins
     queueScale(v) { renderScale = v; resizeDue = true; },

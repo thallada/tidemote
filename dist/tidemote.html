@@ -322,6 +322,7 @@ body:not(.live) .hud { opacity: 0; }
 .act { height: 38px; padding: 0 13px 0 10px; display: flex; align-items: center; gap: 8px; }
 .act[aria-pressed="true"], .act[aria-expanded="true"] { color: var(--ink); background: var(--cyan-deep); border-color: var(--line-2); }
 #auto-play[aria-pressed="true"] { color: var(--bg); background: var(--hot); border-color: var(--hot); }
+#auto-next { aspect-ratio: 1; padding: 0; justify-content: center; }
 #snd[aria-pressed="false"] .w1, #snd[aria-pressed="false"] .w2 { opacity: .25; }
 .snd-wrap { display: flex; align-items: center; gap: 8px; }
 #vol { width: 74px; }
@@ -1026,7 +1027,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .opts .ramp { margin-left: calc(7.6em + var(--s3)); }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }
-  #film { display: none !important; }
+  #film, #auto-next { display: none !important; }
   .card-dlg { top: calc(var(--top) + 8px); transform: translateX(-50%); width: calc(100% - 16px); padding: 8px 12px 12px; max-height: calc(100% - var(--top) - var(--bot) - 16px); display: block; }
   .card-cv { height: auto; width: min(100%, 360px); margin: var(--s2) auto 0; }
   .card-dlg .card-row { flex-direction: row; align-items: center; }
@@ -1079,6 +1080,7 @@ svg.niche .n-dot { fill: var(--cyan); }
   <symbol id="i-gear" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2"><path d="M3 5.5h8M14.5 5.5H17M3 10h2.5M9 10h8M3 14.5h6M12.5 14.5H17"/><circle cx="12.75" cy="5.5" r="1.75"/><circle cx="7.25" cy="10" r="1.75"/><circle cx="10.75" cy="14.5" r="1.75"/></g></symbol>
   <symbol id="i-full" viewBox="0 0 20 20"><path d="M3 7.5V3h4.5M12.5 3H17v4.5M17 12.5V17h-4.5M7.5 17H3v-4.5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-unfull" viewBox="0 0 20 20"><path d="M7.5 3v4.5H3M17 7.5h-4.5V3M12.5 17v-4.5H17M3 12.5h4.5V17" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+  <symbol id="i-next" viewBox="0 0 20 20"><path d="m4 4.5 5.5 5.5L4 15.5M10.5 4.5 16 10l-5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-film" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><rect x="2.5" y="5" width="11" height="10" rx="1"/><path d="m13.5 8.5 4-2.5v8l-4-2.5"/><circle class="rec" cx="6" cy="8.5" r="1.3" fill="currentColor" stroke="none"/></g></symbol>
   <symbol id="i-close" viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-plus" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
@@ -1126,6 +1128,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     </div>
     <div class="grp acts">
       <button type="button" class="act" id="auto-play" aria-label="Auto camera" aria-pressed="false" data-hint="Auto camera · A"><svg><use href="#i-auto"/></svg><span>Auto</span></button>
+      <button type="button" class="act" id="auto-next" aria-label="Next scene" data-hint="Next scene · X" hidden><svg><use href="#i-next"/></svg></button>
       <button type="button" class="act" id="film" aria-label="Film thirty seconds" aria-pressed="false" data-hint="Film 30 s · R" hidden><svg><use href="#i-film"/></svg><span id="film-v">Film</span></button>
       <span class="snd-wrap"><button type="button" class="act" id="snd" aria-label="Sound" aria-pressed="false" data-hint="Sound · S"><svg><use href="#i-sound"/></svg><span>Sound</span></button><input id="vol" type="range" min="0" max="100" step="1" value="70" aria-label="Volume" hidden></span>
       <button type="button" class="act" id="set-open" aria-label="Settings" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span>Settings</span></button>
@@ -1249,7 +1252,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     <dt>Drag · Wheel</dt><dd>Pan · zoom</dd>
     <dt>Space</dt><dd>Pause</dd>
     <dt>, . / &gt;</dt><dd>Slower · faster · real time · max</dd>
-    <dt>A</dt><dd>Auto camera</dd>
+    <dt>A · X</dt><dd>Auto camera · on to its next scene</dd>
     <dt>R</dt><dd>Film thirty seconds (with the auto camera on, its next scene)</dd>
     <dt>C</dt><dd>Follow the specimen</dd>
     <dt>Esc</dt><dd>Close, then clear the highlight, then the map</dd>
@@ -24372,6 +24375,12 @@ ${e.message}` : String(e?.message || e));
       this.lastRig = null;
       this.gen = (this.gen || 0) + 1;
     }
+    /** Asked to move on (the Next button): the next shot is planned now, flown to from where this one has the view. */
+    next() {
+      if (!this.active || this.planning) return false;
+      this.plan();
+      return true;
+    }
     /** Engine track samples for the followed cell. */
     onTrack(r) {
       const sh = this.shot;
@@ -28926,6 +28935,7 @@ ${e.message}` : String(e?.message || e));
       } else if (k === "c" || k === "C") {
         if (sel) toggleFollow();
       } else if (k === "a" || k === "A") playAuto();
+      else if ((k === "x" || k === "X") && director.active) nextScene();
       else if (k === "r" || k === "R") filmAct();
       else if (k === "s" || k === "S") toggleSound();
       else if (k === "-" || k === "_") nudgeVolume(-0.1);
@@ -29692,6 +29702,7 @@ ${e.message}` : String(e?.message || e));
       const b = $("auto-play");
       b.setAttribute("aria-pressed", String(!!live));
       b.setAttribute("aria-label", live ? "Stop the auto camera" : "Start the auto camera");
+      $("auto-next").hidden = !live;
     }
     function takeOver() {
       poke();
@@ -29718,7 +29729,11 @@ ${e.message}` : String(e?.message || e));
         flash("Auto camera");
       }
     }
+    function nextScene() {
+      if (director.next()) flash("Next scene");
+    }
     $("auto-play").addEventListener("click", playAuto);
+    $("auto-next").addEventListener("click", nextScene);
     renderAuto(false);
     const REASON = {
       mutations: ["where new variants are being born", "mutants are appearing here"],
@@ -30160,6 +30175,7 @@ ${e.message}` : String(e?.message || e));
       film,
       filmAct,
       openSpecies,
+      director,
       setScale(v) {
         state.perf.scale = v;
         if (v !== "auto") renderScale = v;

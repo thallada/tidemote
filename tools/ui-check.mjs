@@ -72,6 +72,31 @@ for (const touch of [false, true]) {
       check(`${tag} R again stops and saves the film`, !!d && /\.(webm|mp4)$/.test(d.suggestedFilename()), d ? d.suggestedFilename() : 'no download');
     }
   }
+  // the auto camera's Next button (laptop only) and X: on to a new shot
+  {
+    const nx = () => page.evaluate(() => ({ shown: getComputedStyle(document.getElementById('auto-next')).display !== 'none', active: globalThis.__tidemote.director.active }));
+    check(`${tag} Next is hidden while the auto camera is off`, !(await nx()).shown);
+    await page.keyboard.press('a');
+    await page.waitForTimeout(3000);
+    const on = await nx();
+    check(`${tag} Next ${touch ? 'stays hidden on a phone' : 'shows beside Auto'} with the auto camera on`, on.active && on.shown === !touch, JSON.stringify(on));
+    const shotId = () => page.evaluate(() => globalThis.__tidemote.director.shot?.id);
+    let id = await shotId();
+    if (!touch) {
+      const box = await page.locator('#auto-next').boundingBox(), auto = await page.locator('#auto-play').boundingBox();
+      check(`${tag} Next sits right of Auto, a square target`, box.x > auto.x + auto.width - 1 && box.x - (auto.x + auto.width) < 12 && Math.abs(box.width - box.height) < 1 && box.width >= 24, JSON.stringify(box));
+      await page.click('#auto-next');
+      await page.waitForTimeout(1500);
+      check(`${tag} clicking Next moves the camera on`, (await shotId()) !== id && (await nx()).active);
+      id = await shotId();
+    }
+    await page.keyboard.press('x');
+    await page.waitForTimeout(1500);
+    check(`${tag} X moves the camera on`, (await shotId()) !== id && (await nx()).active);
+    await page.keyboard.press('a');
+    await page.waitForTimeout(300);
+    check(`${tag} Next hides once the auto camera stops`, !(await nx()).shown);
+  }
   // Settings → Sound → Volume
   await page.click('#set-open');
   await page.waitForTimeout(300);

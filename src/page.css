@@ -266,6 +266,7 @@ body:not(.live) .hud { opacity: 0; }
 .act { height: 38px; padding: 0 13px 0 10px; display: flex; align-items: center; gap: 8px; }
 .act[aria-pressed="true"], .act[aria-expanded="true"] { color: var(--ink); background: var(--cyan-deep); border-color: var(--line-2); }
 #auto-play[aria-pressed="true"] { color: var(--bg); background: var(--hot); border-color: var(--hot); }
+#auto-next { aspect-ratio: 1; padding: 0; justify-content: center; }
 #snd[aria-pressed="false"] .w1, #snd[aria-pressed="false"] .w2 { opacity: .25; }
 .snd-wrap { display: flex; align-items: center; gap: 8px; }
 #vol { width: 74px; }
@@ -970,7 +971,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .opts .ramp { margin-left: calc(7.6em + var(--s3)); }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }
-  #film { display: none !important; }
+  #film, #auto-next { display: none !important; }
   .card-dlg { top: calc(var(--top) + 8px); transform: translateX(-50%); width: calc(100% - 16px); padding: 8px 12px 12px; max-height: calc(100% - var(--top) - var(--bot) - 16px); display: block; }
   .card-cv { height: auto; width: min(100%, 360px); margin: var(--s2) auto 0; }
   .card-dlg .card-row { flex-direction: row; align-items: center; }

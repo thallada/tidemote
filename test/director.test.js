@@ -130,6 +130,27 @@ test('a lost subject is lingered on (or flown to, if lost on the way), then the 
   assert.notEqual(d.shot.type, 'linger');
 });
 
+test('asked to, the director moves on to a new shot at once, from where the camera is', async () => {
+  const clock = { t: 0 };
+  const io = fakeIO(clock);
+  const d = new Director(io, rng(7));
+  d.survey(fakeSurvey(24, 14, 5, 100), 1);
+  assert.equal(d.next(), false, 'not while stopped');
+  d.start({ x: 60, y: 35, w: 120 });
+  const dt = 1 / 60;
+  for (let n = 0; n < 6; n++) {
+    for (let f = 0; f < 60 * 3; f++) { clock.t += dt; d.update(dt); await null; }
+    const sh = d.shot, prev = d.view();
+    assert.ok(sh.t < sh.dur - 2, 'the shot was not ending anyway');
+    assert.equal(d.next(), true);
+    // a follow waits on its pick; the current shot holds meanwhile, and a second ask is ignored
+    if (d.planning) { assert.equal(d.next(), false); await d.planning; }
+    assert.notEqual(d.shot, sh, 'a new shot');
+    const v = d.update(dt);
+    assert.ok(Math.hypot(v.x - prev.x, v.y - prev.y) / prev.w < 0.01, 'no jump');
+  }
+});
+
 test('a hotspot says why: new variants first, then what dominates', () => {
   const I = new Interest();
   const hot = 3 * 10 + 6;

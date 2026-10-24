@@ -234,6 +234,13 @@ export class Director {
     this.gen = (this.gen || 0) + 1;
   }
 
+  /** Asked to move on (the Next button): the next shot is planned now, flown to from where this one has the view. */
+  next() {
+    if (!this.active || this.planning) return false;
+    this.plan();
+    return true;
+  }
+
   /** Engine track samples for the followed cell. */
   onTrack(r) {
     const sh = this.shot;
