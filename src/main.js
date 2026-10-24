@@ -306,8 +306,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     climate.onEra = (era, prevAmb, prevTemp) => {
       const lightWord = era.ambient > prevAmb + 0.05 ? 'light rises' : era.ambient < prevAmb - 0.05 ? 'light dims' : 'light holds';
       const waterWord = !K.heat ? '' : ` · water ${era.temp > prevTemp + 1 ? 'warms' : era.temp < prevTemp - 1 ? 'cools' : 'holds'} to ${Math.round(era.temp)}°`;
-      pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}%${waterWord} · currents shift`, 0xffa0e3f1, 'era');
-      const prev = climate.history.at(-2);
+      // the era's water level: low eras bare the highest ground as islands and sandbars (the first era is full)
+      const prev = climate.history.at(-2), wasLow = (prev?.level ?? 1) < 1, low = era.level < 1;
+      const levelWord = !K.pond || (!low && !wasLow) ? '' : !low ? ' · the water rises over the islands'
+        : ` · the water ${wasLow ? 'stays low' : 'falls'}: ${Math.round((1 - era.level) * 100)}% of the floor lies bare`;
+      pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}%${waterWord}${levelWord} · currents shift`, 0xffa0e3f1, 'era');
       chron.note('era', { t: eng.simTime, name: climate.name, prev: prev && prev.name, reg: life.reg, living: life.counts[3] });
       flash(climate.name, 'New era');
       sound.era(climate.name);

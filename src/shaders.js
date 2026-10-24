@@ -267,7 +267,7 @@ export const DEFAULT_K = {
   eventFirst: 25,
   eventMix: [0.35, 0.2, 0.2, 0.25],
   eventPlan: '',
-  lowEras: 0.35,
+  lowEras: 0.17,    // about one era in six (at 0.35, runs of low eras left islands showing for an hour or more)
   lowLevel: [0.96, 0.99], // a low era's water level (the share of the floor still wet)
   floorDrift: 0.3,  // the share of the floor's relief redrawn at each new era (moving geography: sediment shifts)
   // each event's draw (ranges): a drought's fall, hold and refill (s) and how low the water falls (the share of the

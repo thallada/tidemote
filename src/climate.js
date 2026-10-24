@@ -113,7 +113,7 @@ export function createClimate(eng, rng = Math.random) {
       tempTo: eng.temp, excursion: null, announced: null,
       flow: null, index: 1,
       history: [{ t: 0, name: 'The First Tides', ambient: eng.ambient, temp: eng.temp }],
-      levelTo: 1, event: null, events: [], phase: null, plan: plan(),
+      levelTo: 1, levelMid: undefined, event: null, events: [], phase: null, plan: plan(),
       nextEvent: K.eventEvery > 0 && !K.eventPlan ? K.eventFirst * 60 + gap() * 0.5 : Infinity,
     });
   }

@@ -34,9 +34,10 @@ What the water does where it is shallow or gone (all in `src/shaders.js`, tunabl
 The climate draws an event about every `eventEvery` minutes (60; the first no sooner than `eventFirst`, 25),
 drought, storm, duckweed or frost by `eventMix`; `eventPlan` ("drought@900,duckweed@2400") forces events for tests, and the page
 console's `__tidemote.climate().force('drought')` starts one. Climate eras also set the water's resting level:
-`lowEras` of them (35%) stand low (`lowLevel`, 96-99% of the floor wet; first 88-98%, which bared too much), showing
-sandbars and islands (moving geography); between events the level eases to the era's through two lags, so it sets
-off gently and new islands grow from nothing. The page reads the floor and the ice's order through a cubic B-spline
+`lowEras` of them (17%, about one in six; at 35% runs of low eras left islands showing for an hour or more) stand
+low (`lowLevel`, 96-99% of the floor wet; first 88-98%, which bared too much), showing sandbars and islands (moving
+geography); between events the level eases to the era's through two lags, so it sets off gently and new islands grow
+from nothing. The page reads the floor and the ice's order through a cubic B-spline
 (`fieldPost`), never below the lowest cell around a point: a cubic through the cells dipped beside steep sides, and
 ice showed at once over patches the simulation had not frozen.
 
