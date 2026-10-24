@@ -100,9 +100,10 @@ export function packing(parts, count, grid, sizeOf, firstLife = 5) {
  * How the living are arranged and how they move, per guild (awake cells; a cyst, cause 14, is skipped):
  * kin, the share of neighbours within one grid unit that are its own species; amongP, the share that are
  * producers; and roam, the median distance a cell moved since `prev` (the last call's positions by id),
- * per minute. Returns { stat, pos } (pos to pass back next time).
+ * per minute; with lightOf(x, y) (the tide's bands, 0..1), lit, the mean light where its cells are (stat.litWorld:
+ * over the whole world). Returns { stat, pos } (pos to pass back next time).
  */
-export function spatial(parts, count, grid, guildOf, firstLife = 5, prev = null, dtMin = 1) {
+export function spatial(parts, count, grid, guildOf, firstLife = 5, prev = null, dtMin = 1, lightOf = null) {
   const [gw, gh] = grid, { u32: u, f32: f } = parts, W = 10;
   const cells = new Map(), awake = [], pos = new Map(), nOf = new Map();
   for (let i = 0; i < count; i++) {
@@ -116,7 +117,8 @@ export function spatial(parts, count, grid, guildOf, firstLife = 5, prev = null,
   const acc = {};
   for (const i of awake) {
     const k = u[i * W + 4], g = guildOf(k), x = f[i * W], y = f[i * W + 1], id = u[i * W + 7];
-    const a = (acc[g] ??= { n: 0, nb: 0, kin: 0, plant: 0, guild: 0, rand: 0, moves: [] });
+    const a = (acc[g] ??= { n: 0, nb: 0, kin: 0, plant: 0, guild: 0, rand: 0, lit: 0, moves: [] });
+    if (lightOf) a.lit += lightOf(x, y);
     pos.set(id, [x, y, k]);
     let nb = 0, kin = 0, plant = 0, guild = 0;
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
@@ -153,10 +155,16 @@ export function spatial(parts, count, grid, guildOf, firstLife = 5, prev = null,
   }
   regions.lead = kinds.map((m) => { let best = [0, 0]; for (const [k, n] of m) if (n > best[1]) best = [k, n]; return best; });
   const stat = { regions };
+  if (lightOf) {
+    let sum = 0;
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) sum += lightOf((x + 0.5) / 32 * gw, (y + 0.5) / 32 * gh);
+    stat.litWorld = sum / 1024;
+  }
   for (const [g, a] of Object.entries(acc)) {
     a.moves.sort((p, q) => p - q);
     stat[g] = { n: a.n, kin: a.nb ? a.kin / a.nb : null, amongP: a.nb ? a.plant / a.nb : null, guild: a.nb ? a.guild / a.nb : null, kinRand: a.rand / a.n, alone: 1 - a.nb / a.n,
-      roam: a.moves.length ? a.moves[a.moves.length >> 1] : null, roamP90: a.moves.length ? a.moves[Math.floor(a.moves.length * 0.9)] : null };
+      roam: a.moves.length ? a.moves[a.moves.length >> 1] : null, roamP90: a.moves.length ? a.moves[Math.floor(a.moves.length * 0.9)] : null,
+      ...(lightOf ? { lit: a.lit / a.n } : {}) };
   }
   return { stat, pos };
 }

@@ -1356,7 +1356,7 @@ svg.niche .n-dot { fill: var(--cyan); }
   var G_WORDS = 56;
   var LITE_BYTES = 32;
   var SWAY_BYTES = 56;
-  var MIND_HEAD = 64;
+  var MIND_HEAD = 68;
   var MIND_NBR = 48;
   var MIND_NBR_WORDS = 8;
   var MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
@@ -1592,6 +1592,10 @@ svg.niche .n-dot { fill: var(--cyan); }
     // chance per second of dying at full heat stress
     thermotaxis: 0.6,
     // how hard swimmers steer toward water that suits them, relative to their swimming
+    phototaxis: 6,
+    // a cell's push up the light's slope at a full phototaxis gene (down it, negative): a motility of its own,
+    phototaxisCost: 0.012,
+    // so a drifting producer can follow the light; its upkeep per second at a full gene (either sign)
     thermoCost: 0.03,
     // energy per second a full heat-maker burns to warm itself and its water
     selfWarm: 4,
@@ -1813,7 +1817,8 @@ struct Genome {
   parent: u32, serial: u32, born: f32, depth: u32,
   adhesion: f32, calcify: f32, topt: f32, tol: f32,
   beat: vec4f,
-  // a packed body's tails: how readily its edge buds one (x), how long one grows (y); zw spare
+  // a packed body's tails: how readily its edge buds one (x), how long one grows (y); z phototaxis
+  // (-1..1: toward the light, or away from it, negative); w spare
   tail: vec4f,
 };
 
@@ -2387,6 +2392,12 @@ fn waterTempAt(p: vec2f) -> f32 {
   if (swim > 0.0 && slope > 1e-3) {
     taxis = heat.yz * (sign(g.topt - Tc) * min(1.0, abs(th.x)) * swim * ${f(K.thermotaxis)} / slope);
   }
+  // phototaxis: a cell with the gene pushes itself up the light's slope (down it, if the gene is negative),
+  // by a motility of its own rather than its swimming, so a drifting producer can follow the bands
+  if (g.tail.z != 0.0 && !stranded) {
+    let lt = lightSlope(p.pos) * (g.tail.z * ${f(K.phototaxis)} * min(th.perf, 1.0));${W("mPhoto = lt;")}
+    taxis += lt;
+  }
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
   // The cell and its neighbourhood are taken as two bodies sharing momentum: the reaction to this cell's
@@ -2734,6 +2745,27 @@ fn lightAt(p: vec2f) -> f32 {
   return (sim.ambient + (1.0 - sim.ambient) * tideAt(p, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season) * sim.pond.z * (1.0 - duckShade(p, sim.duck, sim.duckB, sim.world));
 }
 
+// Which way the light grows at p, for phototaxis: the slope of the tide's waves, taken before their bands are
+// cut off so that it reaches into the dark and across a band's bright middle (a unit vector, or 0), and
+// away from any duckweed's shade (under a frond the waves' slope fades, and its edge pushes outward).
+fn lightSlope(p: vec2f) -> vec2f {
+  let u = p / sim.world * TAU;
+  var gs = vec2f(0.0);
+  for (var k = 0u; k < 4u; k++) {
+    let w = sim.tide[k];
+    gs += w.w * cos(w.x * u.x + w.y * u.y + w.z * sim.time + sim.tidePh[k]) * w.xy / sim.world;
+  }
+  var dir = gs / max(length(gs), 1e-9);
+  if (sim.duck.w > 0.0) {
+    let e = vec2f(0.5, 0.0);
+    let sh = duckShade(p, sim.duck, sim.duckB, sim.world);
+    let ds = vec2f(duckShade(p + e.xy, sim.duck, sim.duckB, sim.world) - duckShade(p - e.xy, sim.duck, sim.duckB, sim.world),
+      duckShade(p + e.yx, sim.duck, sim.duckB, sim.world) - duckShade(p - e.yx, sim.duck, sim.duckB, sim.world));
+    dir = dir * (1.0 - sh) - ds * 4.0;
+  }
+  return dir / max(length(dir), 1.0);
+}
+
 fn wrapPos(p: vec2f) -> vec2f { return p - sim.world * floor(p / sim.world); }
 
 fn heatCell(x: i32, y: i32) -> f32 {
@@ -2800,6 +2832,7 @@ fn addEnergy(guild: u32, slot: u32, e: f32) {
 fn deriveMetab(g: Genome) -> f32 {
   return (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
         + ${f(K.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K.swimCost)} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion + ${f(K.calcCost)} * g.calcify
+        + ${f(K.phototaxisCost)} * abs(g.tail.z)
         + ${f(K.beatCost)} * g.beat.x * g.beat.y * select(0.0, 1.0, (g.dev.x >= 0x80000000u || g.tail.x > 0.0) && g.adhesion > ${f(K.adhMin)})) * ${f(K.metab)};
 }
 
@@ -2910,6 +2943,9 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   g.tail.x = clamp(g.tail.x + gauss(s) * m * 0.15, 0.0, 1.0);
   if (rnd(s) < m * 0.1) { g.tail.x = select(0.0, mix(0.3, 1.0, rnd(s)), g.tail.x < 0.05); }
   g.tail.y = clamp(g.tail.y + gauss(s) * m * 0.2, 0.0, 1.0);
+  // phototaxis drifts, and now and then the habit is gained (mostly toward the light) or lost
+  g.tail.z = clamp(g.tail.z + gauss(s) * m * 0.15, -1.0, 1.0);
+  if (rnd(s) < m * 0.1) { g.tail.z = select(0.0, mix(-0.6, 1.0, rnd(s)), abs(g.tail.z) < 0.05); }
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -2959,7 +2995,7 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   g.topt = clamp(t + gauss(s) * 3.0, 0.0, 45.0);
   g.tol = mix(3.0, 10.0, rnd(s));
   g.beat = vec4f(select(0.0, mix(0.15, 0.5, rnd(s)), rnd(s) < 0.25), mix(0.5, 2.5, rnd(s)), mix(0.3, 1.2, rnd(s)), select(0.0, 1.0, rnd(s) < 0.25));
-  g.tail = vec4f(select(0.0, mix(0.3, 1.0, rnd(s)), rnd(s) < 0.2), rnd(s), 0.0, 0.0);
+  g.tail = vec4f(select(0.0, mix(0.3, 1.0, rnd(s)), rnd(s) < 0.2), rnd(s), select(0.0, mix(-0.6, 1.0, rnd(s)), rnd(s) < 0.3), 0.0);
   g.parent = 0u;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -4206,6 +4242,7 @@ var<private> mDiet: vec2f;
 var<private> mMatter: vec2f;
 var<private> mForage: vec2f;
 var<private> mFlee: vec2f;
+var<private> mPhoto: vec2f;
 var<private> mFl: f32;
 var<private> mMatterN: vec4f;
 var<private> mN: u32;
@@ -4288,7 +4325,7 @@ ${cellWGSL(K, true)}
   for (var k = 0u; k < 4u; k++) { mPut(46u + k, mMatterN[k] * stride); }
   // warmth: its own temperature, the steer toward its optimum, the water, how well it works there
   mPut(21, Tc);
-  mPut2(50, taxis);
+  mPut2(50, taxis - mPhoto);
   mPut(52, heat.x);
   mPut(53, th.perf);
   mPut(54, th.x);
@@ -4300,6 +4337,8 @@ ${cellWGSL(K, true)}
   mPut2(60, mFlee * acc);
   mPut(62, gut / ${f(K.dungE)});
   mPut(63, plantN);
+  // phototaxis: its push up (or down) the light's slope
+  mPut2(64, mPhoto);
 }
 `;
   }
@@ -8747,6 +8786,9 @@ struct SV {
   };
   var BEATERS = /* @__PURE__ */ new Set(["crawler", "hunter", "scavenger"]);
   var THERMO_FOUNDERS = /* @__PURE__ */ new Set(["crawler", "grazer", "filament"]);
+  var PHOTO_P = [0.35, 0.3, 0.9];
+  var PHOTO_A = [0.25, -0.5, 0.9];
+  var PHOTOTAXIS = { plankton: PHOTO_P, filament: PHOTO_P, grazer: PHOTO_A, crawler: PHOTO_A, hunter: PHOTO_A, scavenger: PHOTO_A };
   var gaussOf = (r) => (r() + r() + r() - 1.5) * 2;
   var unorm8 = (v) => Math.round(clamp(v, 0, 1) * 255) / 255;
   function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
@@ -8814,6 +8856,8 @@ struct SV {
     const [tailOn, tailOdds, tailLen, tailAmp] = [r(), r(), r(), r()];
     g.tail = BEATERS.has(type) && tailOn < 0.3 ? [mix(0.4, 1, tailOdds), tailLen] : [0, tailLen];
     if (g.tail[0] > 0 && !g.beat[0]) g.beat[0] = mix(0.15, 0.5, tailAmp);
+    const [ptOn, pt] = [r(), r()], [odds, lo, hi] = PHOTOTAXIS[type] || [0];
+    g.phototaxis = ptOn < odds ? mix(lo, hi, pt) : 0;
     return finalizeGenome(g, K);
   }
   function randomGenome(r = Math.random, K = DEFAULT_K, t2 = 19) {
@@ -8852,6 +8896,7 @@ struct SV {
       tol: mix(3, 10, r()),
       beat: ((on, amp, f2, w, tip) => [on < 0.25 ? mix(0.15, 0.5, amp) : 0, mix(0.5, 2.5, f2), mix(0.3, 1.2, w), tip < 0.25 ? 1 : 0])(r(), r(), r(), r(), r()),
       tail: ((on, odds, len2) => [on < 0.2 ? mix(0.3, 1, odds) : 0, len2])(r(), r(), r()),
+      phototaxis: ((on, v) => on < 0.3 ? mix(-0.6, 1, v) : 0)(r(), r()),
       thermo: 0,
       grow: [devs[0][3], devs[1][3], devs[2][3], tail[1], tail[2], tail[3]].map(unorm8),
       parent: 0,
@@ -8889,7 +8934,7 @@ struct SV {
     g.dGlint /= s;
     g.dHusk /= s;
     g.dFlesh /= s;
-    g.metab = (0.012 + 32e-4 * g.force + 0.012 * g.radius + 12e-5 * g.lifespan + (K.anchorCost ?? 0) * (1 - g.advect) + 4e-3 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 6e-3 * g.align + 4e-3 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0) + (K.beatCost ?? 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g) || hasTails(g) ? 1 : 0)) * K.metab;
+    g.metab = (0.012 + 32e-4 * g.force + 0.012 * g.radius + 12e-5 * g.lifespan + (K.anchorCost ?? 0) * (1 - g.advect) + 4e-3 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 6e-3 * g.align + 4e-3 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0) + (K.phototaxisCost ?? 0) * Math.abs(g.phototaxis || 0) + (K.beatCost ?? 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g) || hasTails(g) ? 1 : 0)) * K.metab;
     g.col = packUnorm(...roleColor(g, 0));
     return g;
   }
@@ -8949,7 +8994,7 @@ struct SV {
     const tl = g.tail || [0, 0];
     f32[o + 52] = tl[0];
     f32[o + 53] = tl[1];
-    f32[o + 54] = 0;
+    f32[o + 54] = g.phototaxis || 0;
     f32[o + 55] = 0;
   }
   var genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
@@ -9000,6 +9045,7 @@ struct SV {
       tol: f32[o + 47],
       beat: [f32[o + 48], f32[o + 49], f32[o + 50], f32[o + 51]],
       tail: [f32[o + 52], f32[o + 53]],
+      phototaxis: f32[o + 54],
       thermo: (u32[o + 15] & 255) / 255,
       grow
     };
@@ -20026,6 +20072,7 @@ ${e.message}` : String(e?.message || e));
     heatmaker: "A species that burns extra energy (up to 0.03 per second) as heat. Its cells run warmer than the water, more so in a body, and its colonies warm the water around them: lifeboats for itself and for warmth-lovers in a cold snap, overheating traps in a heat wave.",
     torpor: "Far below its optimum (more than 1.25 tolerances) a cell goes torpid: it neither feeds, swims nor divides, pays a quarter of its upkeep, dims, its pulse stops and it falls silent, until the water warms.",
     scalding: "Far above its optimum a cell begins to die of the heat: a chance each second, rising steeply. A scalded cell leaves a husk. Heat-stressed cells bleach toward pale bone first.",
+    phototaxis: "Some species sense which way the light grows and push themselves toward it, or, shunning it, away into the dim water. It is a motility of its own, paid for in upkeep, so even a drifting producer can follow the bands of light as they travel; grazers and hunters that follow the light find the meadows there.",
     thermotaxis: "Swimmers away from their optimum steer up or down the warmth of the water toward it, harder the further off they are. Drifters and anchored cells cannot steer; heat sorts them by who survives where.",
     framboid: "A pyrite framboid: a sphere of tiny iron sulfide crystals, a few microns across like the cells. Framboids grow where a pile of husks rots in cool water (the rot releases the sulfide), and a few lie in the mud from the start. As one oxidises it warms its water, burning faster the warmer that water is, so a crowded, hot cluster burns itself out; spent, it crumbles to silt. Sparks of life favour their warmth, and heat-loving species gather round them. Framboids are solid like stone.",
     poolevents: "Now and then (about once an hour of world time) the pool suffers an event: a drought, a storm, duckweed or a frost. Each lasts a few minutes, is announced in the log, and is survived by life resting as cysts. Turn them all off here, or each kind on its own.",
@@ -20214,10 +20261,11 @@ ${e.message}` : String(e?.message || e));
 <li><b>Bond springs</b> toward its two bonded neighbours.</li>
 <li><b>${t("swimming", "Swimming")}</b>: a steady push in the direction it is already moving.</li>
 <li><b>${t("schooling", "Schooling")}</b>: steering toward the average velocity of its own kind.</li>
+<li><b>${t("phototaxis", "Phototaxis")}</b>: in species that have it, a push up the light's slope (or down it).</li>
 <li><b>${t("glide", "Glide")}</b>: how long momentum lasts.</li>
 <li><b>Currents</b>, scaled by ${t("currentpull", "current pull")}.</li>
 </ul>
-<p>There is no pathfinding and no sense beyond about 60 µm, six cell widths. Roamers are swimmers that travel until forces bend their path. Self-propelled bodies come from chases between cell types: if β is drawn to α while α pushes β away, β chases α forever and the body drives itself forward. Evolution keeps whichever pulls lead to food.</p>`
+<p>There is no pathfinding and no sense beyond about 60 µm, six cell widths, except for which way the light and the warmth grow. Roamers are swimmers that travel until forces bend their path. Self-propelled bodies come from chases between cell types: if β is drawn to α while α pushes β away, β chases α forever and the body drives itself forward. Evolution keeps whichever pulls lead to food.</p>`
     },
     {
       id: "ecology",
@@ -22374,7 +22422,8 @@ ${e.message}` : String(e?.message || e));
         stone: v2(40),
         swim: v2(42),
         heat: v2(50),
-        flee: v2(60)
+        flee: v2(60),
+        light: v2(64)
       },
       flow: v2(44),
       matterN: [f32[46], f32[47], f32[48], f32[49]],
@@ -22405,7 +22454,8 @@ ${e.message}` : String(e?.message || e));
     { key: "bond", label: "Bonds", parts: ["bond"], tip: "bond", css: "#ffb36b", when: (g, K) => (g.adhesion || 0) > K.adhMin },
     { key: "align", label: "Schooling", parts: ["align"], tip: "schooling", css: "#7fe0c0", when: (g) => g.align > 0.02 },
     { key: "swim", label: "Swimming", parts: ["swim"], tip: "swimming", css: "#e2f1f0", when: (g) => g.swim * (1 - g.photo) > 0.01 },
-    { key: "heat", label: "Warmth", parts: ["heat"], tip: "thermotaxis", css: "#ff8a3a", when: (g, K) => K.heat && g.swim * (1 - g.photo) > 0.01 }
+    { key: "heat", label: "Warmth", parts: ["heat"], tip: "thermotaxis", css: "#ff8a3a", when: (g, K) => K.heat && g.swim * (1 - g.photo) > 0.01 },
+    { key: "light", label: "Light", parts: ["light"], tip: "phototaxis", css: "#ffe27a", when: (g, K) => K.phototaxis > 0 && Math.abs(g.phototaxis || 0) > 5e-3 }
   ];
   var groupsFor = (g, K) => GROUPS.filter((gr) => !gr.when || gr.when(g, K));
   var len = (v) => Math.hypot(v[0], v[1]);
@@ -22445,7 +22495,9 @@ ${e.message}` : String(e?.message || e));
     scalding: "Scalding",
     seekwarm: "Seeking warmth",
     seekcool: "Seeking cooler water",
-    huddle: "Keeping warm"
+    huddle: "Keeping warm",
+    seeklight: "Following the light",
+    shunlight: "Seeking shade"
   };
   function catchSkill(hunter, prey, K) {
     if (!hunter || !prey) return 0;
@@ -22573,6 +22625,10 @@ ${e.message}` : String(e?.message || e));
     if (!st && K.heat && share("heat") >= 0.25) {
       const warmer = g.topt > m.warmth;
       st = { key: warmer ? "seekwarm" : "seekcool", text: warmer ? "Seeking warmth" : "Seeking cooler water", why: `At ${deg(m.warmth)} it is ${warmer ? "colder" : "warmer"} than the ${deg(g.topt)} it prefers, so it swims ${warmer ? "up" : "down"} the warmth of the water around it.` };
+    }
+    if (!st && share("light") >= 0.25) {
+      const up = (g.phototaxis || 0) > 0;
+      st = up ? { key: "seeklight", text: "Following the light", why: `At ${pct(m.light)} light, it pushes itself up the light's slope toward the brightest water${g.photo > 0.4 ? ", where it photosynthesises best" : ", where producers bloom"}.` } : { key: "shunlight", text: "Seeking shade", why: `At ${pct(m.light)} light, it pushes itself down the light's slope, away from the bright bands where producers bloom and their grazers and hunters gather.` };
     }
     if (!st && K.heat && (g.thermo || 0) > 0.2 && m.bonds > 0 && m.x < 0 && m.water < g.topt - 1) {
       st = { key: "huddle", text: "Keeping warm", why: `A heat-maker in a body: it burns ${heatMaking.toFixed(3)}/s to run ${deg(m.warmth - m.water)} above the ${deg(m.water)} water, and its body holds the warmth in.` };
@@ -23222,6 +23278,8 @@ ${e.message}` : String(e?.message || e));
       h += blk("Body", b);
       let m = trait("Swimming", g.swim * (1 - g.photo), 0, 3, (g.swim * (1 - g.photo)).toFixed(2), "swimming");
       m += trait("Schooling", g.align, 0, 1, `${Math.round(g.align * 100)}%`, "schooling");
+      const pt = g.phototaxis || 0;
+      if (K.phototaxis > 0) m += trait("Phototaxis", Math.abs(pt), 0, 1, Math.abs(pt) > 5e-3 ? `${Math.round(Math.abs(pt) * 100)}% ${pt > 0 ? "toward" : "away from"} light` : "none", "phototaxis");
       m += trait("Reach", g.radius, 0.4, 1, fmtLen(g.radius), "reach");
       m += trait("Personal space", g.beta, 0.12, 0.5, `${Math.round(g.beta * 100)}% of reach`, "personalspace");
       m += trait("Thrust", g.force, 1, 16, g.force.toFixed(1), "thrust");
@@ -26090,7 +26148,7 @@ ${e.message}` : String(e?.message || e));
     const facts = [
       ["Diet", `${f2.diet === "photosynth" ? "lives on light" : f2.diet}${g.photo > 0.25 && g.photo <= 0.55 ? ", part photosynth" : ""}`],
       ["Body", `${multi ? "many-celled" : "single cells"}${sh > 1 ? `, ${sh} cell types` : ""}`],
-      ["Moves", f2.schooling ? `${f2.mobility}, schooling` : f2.mobility],
+      ["Moves", [f2.mobility, f2.schooling ? "schooling" : "", K.phototaxis > 0 && Math.abs(g.phototaxis || 0) > 0.2 ? g.phototaxis > 0 ? "seeks light" : "shuns light" : ""].filter(Boolean).join(", ")],
       ...plan ? [["Grows", plan]] : [],
       // whom it eats and who eats it most, as the chronicler counted their meals
       ...relations?.food && reg.get(relations.food) ? [["Eats", `mostly ${reg.get(relations.food).name}`]] : [],

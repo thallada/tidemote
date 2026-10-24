@@ -242,6 +242,13 @@ the bands and the whole chain follows the tide in caravans: meadows chasing the 
 meadows, hunters chasing grazers. A day's work, and a visible gain at every zoom. (The ecology ideas
 doc listed "mobile producers that follow light" under smaller ones; it was never built.)
 
+*Built (2026-10-23, docs/phototaxis.md), differently:* the gene runs -1..1 and nothing ties its sign to the
+diet, so evolution chooses who seeks and who shuns the light. It is a push of its own, not a share of
+swimming (producers barely swim), so drifting producers can steer too, and it costs upkeep. The slope
+is analytic (the tide waves' gradient, four cosines). Producers sort into the bands at 32k but only
+weakly in page-sized worlds, where the bands are wider and faster than they can swim; the animals sort
+there, and the tide shows as a wave passing through the mix rather than as caravans.
+
 **The ambitious half.** Give the world an up and a down. The torus becomes a cylinder: wrapping in x,
 a surface at the top and a floor at the bottom.
 

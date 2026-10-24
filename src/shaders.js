@@ -61,7 +61,7 @@ export const LITE_BYTES = 32;
 export const SWAY_BYTES = 56;
 // The selected cell's mind (mindMain): a header of MIND_HEAD words, then MIND_NBR living neighbours
 // of MIND_NBR_WORDS words each. See parseMind in mind.js for the layout.
-export const MIND_HEAD = 64;
+export const MIND_HEAD = 68;
 export const MIND_NBR = 48;
 export const MIND_NBR_WORDS = 8;
 export const MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
@@ -203,6 +203,8 @@ export const DEFAULT_K = {
   torporCost: 0.25, // ...and the share of its upkeep it then pays
   scald: 0.03,      // chance per second of dying at full heat stress
   thermotaxis: 0.6, // how hard swimmers steer toward water that suits them, relative to their swimming
+  phototaxis: 6,    // a cell's push up the light's slope at a full phototaxis gene (down it, negative): a motility of its own,
+  phototaxisCost: 0.012, // so a drifting producer can follow the light; its upkeep per second at a full gene (either sign)
   thermoCost: 0.03, // energy per second a full heat-maker burns to warm itself and its water
   selfWarm: 4,      // degrees a full heat-maker runs above its water (×1.5 with two bonds)
   rotQ10: 2.5,      // husks rot this much faster per 10° above tRef
@@ -387,7 +389,8 @@ struct Genome {
   parent: u32, serial: u32, born: f32, depth: u32,
   adhesion: f32, calcify: f32, topt: f32, tol: f32,
   beat: vec4f,
-  // a packed body's tails: how readily its edge buds one (x), how long one grows (y); zw spare
+  // a packed body's tails: how readily its edge buds one (x), how long one grows (y); z phototaxis
+  // (-1..1: toward the light, or away from it, negative); w spare
   tail: vec4f,
 };
 
@@ -964,6 +967,12 @@ function cellWGSL(K, w) {
   if (swim > 0.0 && slope > 1e-3) {
     taxis = heat.yz * (sign(g.topt - Tc) * min(1.0, abs(th.x)) * swim * ${f(K.thermotaxis)} / slope);
   }
+  // phototaxis: a cell with the gene pushes itself up the light's slope (down it, if the gene is negative),
+  // by a motility of its own rather than its swimming, so a drifting producer can follow the bands
+  if (g.tail.z != 0.0 && !stranded) {
+    let lt = lightSlope(p.pos) * (g.tail.z * ${f(K.phototaxis)} * min(th.perf, 1.0));${W('mPhoto = lt;')}
+    taxis += lt;
+  }
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
   // The cell and its neighbourhood are taken as two bodies sharing momentum: the reaction to this cell's
@@ -1312,6 +1321,27 @@ fn lightAt(p: vec2f) -> f32 {
   return (sim.ambient + (1.0 - sim.ambient) * tideAt(p, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season) * sim.pond.z * (1.0 - duckShade(p, sim.duck, sim.duckB, sim.world));
 }
 
+// Which way the light grows at p, for phototaxis: the slope of the tide's waves, taken before their bands are
+// cut off so that it reaches into the dark and across a band's bright middle (a unit vector, or 0), and
+// away from any duckweed's shade (under a frond the waves' slope fades, and its edge pushes outward).
+fn lightSlope(p: vec2f) -> vec2f {
+  let u = p / sim.world * TAU;
+  var gs = vec2f(0.0);
+  for (var k = 0u; k < 4u; k++) {
+    let w = sim.tide[k];
+    gs += w.w * cos(w.x * u.x + w.y * u.y + w.z * sim.time + sim.tidePh[k]) * w.xy / sim.world;
+  }
+  var dir = gs / max(length(gs), 1e-9);
+  if (sim.duck.w > 0.0) {
+    let e = vec2f(0.5, 0.0);
+    let sh = duckShade(p, sim.duck, sim.duckB, sim.world);
+    let ds = vec2f(duckShade(p + e.xy, sim.duck, sim.duckB, sim.world) - duckShade(p - e.xy, sim.duck, sim.duckB, sim.world),
+      duckShade(p + e.yx, sim.duck, sim.duckB, sim.world) - duckShade(p - e.yx, sim.duck, sim.duckB, sim.world));
+    dir = dir * (1.0 - sh) - ds * 4.0;
+  }
+  return dir / max(length(dir), 1.0);
+}
+
 fn wrapPos(p: vec2f) -> vec2f { return p - sim.world * floor(p / sim.world); }
 
 fn heatCell(x: i32, y: i32) -> f32 {
@@ -1378,6 +1408,7 @@ fn addEnergy(guild: u32, slot: u32, e: f32) {
 fn deriveMetab(g: Genome) -> f32 {
   return (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
         + ${f(K.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K.swimCost)} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion + ${f(K.calcCost)} * g.calcify
+        + ${f(K.phototaxisCost)} * abs(g.tail.z)
         + ${f(K.beatCost)} * g.beat.x * g.beat.y * select(0.0, 1.0, (g.dev.x >= 0x80000000u || g.tail.x > 0.0) && g.adhesion > ${f(K.adhMin)})) * ${f(K.metab)};
 }
 
@@ -1488,6 +1519,9 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   g.tail.x = clamp(g.tail.x + gauss(s) * m * 0.15, 0.0, 1.0);
   if (rnd(s) < m * 0.1) { g.tail.x = select(0.0, mix(0.3, 1.0, rnd(s)), g.tail.x < 0.05); }
   g.tail.y = clamp(g.tail.y + gauss(s) * m * 0.2, 0.0, 1.0);
+  // phototaxis drifts, and now and then the habit is gained (mostly toward the light) or lost
+  g.tail.z = clamp(g.tail.z + gauss(s) * m * 0.15, -1.0, 1.0);
+  if (rnd(s) < m * 0.1) { g.tail.z = select(0.0, mix(-0.6, 1.0, rnd(s)), abs(g.tail.z) < 0.05); }
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -1537,7 +1571,7 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   g.topt = clamp(t + gauss(s) * 3.0, 0.0, 45.0);
   g.tol = mix(3.0, 10.0, rnd(s));
   g.beat = vec4f(select(0.0, mix(0.15, 0.5, rnd(s)), rnd(s) < 0.25), mix(0.5, 2.5, rnd(s)), mix(0.3, 1.2, rnd(s)), select(0.0, 1.0, rnd(s) < 0.25));
-  g.tail = vec4f(select(0.0, mix(0.3, 1.0, rnd(s)), rnd(s) < 0.2), rnd(s), 0.0, 0.0);
+  g.tail = vec4f(select(0.0, mix(0.3, 1.0, rnd(s)), rnd(s) < 0.2), rnd(s), select(0.0, mix(-0.6, 1.0, rnd(s)), rnd(s) < 0.3), 0.0);
   g.parent = 0u;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -2784,6 +2818,7 @@ var<private> mDiet: vec2f;
 var<private> mMatter: vec2f;
 var<private> mForage: vec2f;
 var<private> mFlee: vec2f;
+var<private> mPhoto: vec2f;
 var<private> mFl: f32;
 var<private> mMatterN: vec4f;
 var<private> mN: u32;
@@ -2866,7 +2901,7 @@ ${cellWGSL(K, true)}
   for (var k = 0u; k < 4u; k++) { mPut(46u + k, mMatterN[k] * stride); }
   // warmth: its own temperature, the steer toward its optimum, the water, how well it works there
   mPut(21, Tc);
-  mPut2(50, taxis);
+  mPut2(50, taxis - mPhoto);
   mPut(52, heat.x);
   mPut(53, th.perf);
   mPut(54, th.x);
@@ -2878,6 +2913,8 @@ ${cellWGSL(K, true)}
   mPut2(60, mFlee * acc);
   mPut(62, gut / ${f(K.dungE)});
   mPut(63, plantN);
+  // phototaxis: its push up (or down) the light's slope
+  mPut2(64, mPhoto);
 }
 `;
 }

@@ -385,6 +385,8 @@ export function createSpecimen(api) {
     h += blk('Body', b);
     let m = trait('Swimming', g.swim * (1 - g.photo), 0, 3, (g.swim * (1 - g.photo)).toFixed(2), 'swimming');
     m += trait('Schooling', g.align, 0, 1, `${Math.round(g.align * 100)}%`, 'schooling');
+    const pt = g.phototaxis || 0;
+    if (K.phototaxis > 0) m += trait('Phototaxis', Math.abs(pt), 0, 1, Math.abs(pt) > 0.005 ? `${Math.round(Math.abs(pt) * 100)}% ${pt > 0 ? 'toward' : 'away from'} light` : 'none', 'phototaxis');
     m += trait('Reach', g.radius, 0.4, 1, fmtLen(g.radius), 'reach');
     m += trait('Personal space', g.beta, 0.12, 0.5, `${Math.round(g.beta * 100)}% of reach`, 'personalspace');
     m += trait('Thrust', g.force, 1, 16, g.force.toFixed(1), 'thrust');

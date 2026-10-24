@@ -1,5 +1,6 @@
 // Browser-compatible ecology runner; the caller owns the WebGPU device.
 import { createClimate, seasonAt, abioRate } from './climate.js';
+import { tideAt } from './flow.js';
 
 // The water's temperature field against the background: mean, spread and extremes of the departure
 // (degrees), and the shares of grid cells more than 2° warmer or 1° cooler than the background.
@@ -73,11 +74,18 @@ export async function runHeadless(device, config, { print, width = 640, height =
       let n = 0, sum = 0, sq = 0, makers = 0, tol = 0;
       for (const { pop: p, genome: g } of species) { n += p; sum += p * g.topt; sq += p * g.topt * g.topt; tol += p * g.tol; if (g.thermo > 0.2) makers += p; }
       const toptMean = n ? sum / n : null;
+      // phototaxis per guild, population-weighted: the mean gene (negative shuns light) and the share carrying it
+      const photoTaxis = {};
+      for (const { pop: p, genome: g } of species) {
+        const a = (photoTaxis[guildOfG(g)] ??= { n: 0, mean: 0, share: 0 });
+        a.n += p; a.mean += p * (g.phototaxis || 0); if (Math.abs(g.phototaxis || 0) > 0.05) a.share += p;
+      }
+      for (const a of Object.values(photoTaxis)) { a.mean /= a.n || 1; a.share /= a.n || 1; delete a.n; }
       latest = { t, silt: pop[0], glint: pop[1], husk: pop[2], stone: pop[3], framboid: pop[4], ...community,
         ambient: eng.ambient, season: eng.season,
         // the pool (docs/catastrophes.md): its water level (the dry share of the floor is 1 - level), rain, the event's phase
         pond: { level: eng.level, rain: eng.rain, sky: eng.sky, phase: climate.phase ?? null },
-        era: climate.name,
+        era: climate.name, photoTaxis,
         thermal: { tbg: eng.tbg, temp: eng.temp, excursion: eng.excursion, toptMean, toptSD: n ? Math.sqrt(Math.max(0, sq / n - toptMean ** 2)) : null, makerShare: n ? makers / n : 0, tolMean: n ? tol / n : null } };
       if (t - lastSample >= config.sample - 1e-6 || c.frameNo === frames) record(c);
       if (t - lastPrint >= config.print - 1e-6) {
@@ -137,7 +145,8 @@ export async function runHeadless(device, config, { print, width = 640, height =
         // arrangement and movement per guild (ecostats spatial), movement since the last readout
         const t = eng.simTime, gOf = (k) => (genomes[k] ? guildOfG(genomes[k].genome) : 'unknown');
         if (spatialPrev && t - spatialT < 60) return;   // roam: over a simulated minute
-        const r = spatial(p, eng.count, eng.grid, gOf, E.FIRST_LIFE, spatialPrev, Math.max(1e-6, (t - spatialT) / 60));
+        const lightOf = (x, y) => tideAt(x, y, eng.grid[0], eng.grid[1], t, eng.tide, eng.tidePh);
+        const r = spatial(p, eng.count, eng.grid, gOf, E.FIRST_LIFE, spatialPrev, Math.max(1e-6, (t - spatialT) / 60), lightOf);
         latestSpatial = spatialPrev ? r.stat : null; spatialPrev = r.pos; spatialT = t;
       }).catch(() => {});
       // the body-type mix (src/bodies.js: single cells, clumps, mats, chains, filaments, branched trees), once a simulated minute

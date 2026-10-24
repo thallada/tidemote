@@ -17,6 +17,7 @@ export const GLOSSARY = {
   heatmaker: 'A species that burns extra energy (up to 0.03 per second) as heat. Its cells run warmer than the water, more so in a body, and its colonies warm the water around them: lifeboats for itself and for warmth-lovers in a cold snap, overheating traps in a heat wave.',
   torpor: 'Far below its optimum (more than 1.25 tolerances) a cell goes torpid: it neither feeds, swims nor divides, pays a quarter of its upkeep, dims, its pulse stops and it falls silent, until the water warms.',
   scalding: 'Far above its optimum a cell begins to die of the heat: a chance each second, rising steeply. A scalded cell leaves a husk. Heat-stressed cells bleach toward pale bone first.',
+  phototaxis: 'Some species sense which way the light grows and push themselves toward it, or, shunning it, away into the dim water. It is a motility of its own, paid for in upkeep, so even a drifting producer can follow the bands of light as they travel; grazers and hunters that follow the light find the meadows there.',
   thermotaxis: 'Swimmers away from their optimum steer up or down the warmth of the water toward it, harder the further off they are. Drifters and anchored cells cannot steer; heat sorts them by who survives where.',
   framboid: 'A pyrite framboid: a sphere of tiny iron sulfide crystals, a few microns across like the cells. Framboids grow where a pile of husks rots in cool water (the rot releases the sulfide), and a few lie in the mud from the start. As one oxidises it warms its water, burning faster the warmer that water is, so a crowded, hot cluster burns itself out; spent, it crumbles to silt. Sparks of life favour their warmth, and heat-loving species gather round them. Framboids are solid like stone.',
   poolevents: 'Now and then (about once an hour of world time) the pool suffers an event: a drought, a storm, duckweed or a frost. Each lasts a few minutes, is announced in the log, and is survived by life resting as cysts. Turn them all off here, or each kind on its own.',
@@ -193,10 +194,11 @@ export const GUIDE = [
 <li><b>Bond springs</b> toward its two bonded neighbours.</li>
 <li><b>${t('swimming', 'Swimming')}</b>: a steady push in the direction it is already moving.</li>
 <li><b>${t('schooling', 'Schooling')}</b>: steering toward the average velocity of its own kind.</li>
+<li><b>${t('phototaxis', 'Phototaxis')}</b>: in species that have it, a push up the light's slope (or down it).</li>
 <li><b>${t('glide', 'Glide')}</b>: how long momentum lasts.</li>
 <li><b>Currents</b>, scaled by ${t('currentpull', 'current pull')}.</li>
 </ul>
-<p>There is no pathfinding and no sense beyond about 60 µm, six cell widths. Roamers are swimmers that travel until forces bend their path. Self-propelled bodies come from chases between cell types: if β is drawn to α while α pushes β away, β chases α forever and the body drives itself forward. Evolution keeps whichever pulls lead to food.</p>`,
+<p>There is no pathfinding and no sense beyond about 60 µm, six cell widths, except for which way the light and the warmth grow. Roamers are swimmers that travel until forces bend their path. Self-propelled bodies come from chases between cell types: if β is drawn to α while α pushes β away, β chases α forever and the body drives itself forward. Evolution keeps whichever pulls lead to food.</p>`,
   },
   {
     id: 'ecology', title: 'Ecology', short: 'Ecology',

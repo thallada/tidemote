@@ -30,7 +30,7 @@ export function parseMind(u32, f32) {
     vel: v2(22),
     drives: {
       space: v2(24), kin: v2(26), other: v2(28), diet: v2(30), matter: v2(32), forage: v2(34),
-      align: v2(36), bond: v2(38), stone: v2(40), swim: v2(42), heat: v2(50), flee: v2(60),
+      align: v2(36), bond: v2(38), stone: v2(40), swim: v2(42), heat: v2(50), flee: v2(60), light: v2(64),
     },
     flow: v2(44),
     matterN: [f32[46], f32[47], f32[48], f32[49]],
@@ -57,6 +57,7 @@ const GROUPS = [
   { key: 'align', label: 'Schooling', parts: ['align'], tip: 'schooling', css: '#7fe0c0', when: (g) => g.align > 0.02 },
   { key: 'swim', label: 'Swimming', parts: ['swim'], tip: 'swimming', css: '#e2f1f0', when: (g) => g.swim * (1 - g.photo) > 0.01 },
   { key: 'heat', label: 'Warmth', parts: ['heat'], tip: 'thermotaxis', css: '#ff8a3a', when: (g, K) => K.heat && g.swim * (1 - g.photo) > 0.01 },
+  { key: 'light', label: 'Light', parts: ['light'], tip: 'phototaxis', css: '#ffe27a', when: (g, K) => K.phototaxis > 0 && Math.abs(g.phototaxis || 0) > 0.005 },
 ];
 export const groupsFor = (g, K) => GROUPS.filter((gr) => !gr.when || gr.when(g, K));
 
@@ -71,6 +72,7 @@ const MODES = {
   school: 'Schooling', body: 'Holding together', gather: 'Gathering', spread: 'Spreading out', jostle: 'Jostled',
   blocked: 'Against stone', drift: 'Drifting', cruise: 'Cruising', idle: 'Idling',
   torpid: 'Torpid', cyst: 'Dormant', rest: 'Resting, fed', young: 'Growing up', dung: 'Dropping dung', scalding: 'Scalding', seekwarm: 'Seeking warmth', seekcool: 'Seeking cooler water', huddle: 'Keeping warm',
+  seeklight: 'Following the light', shunlight: 'Seeking shade',
 };
 
 /** How well a hunter's build lets it catch a prey cell (0..1), as lifeMain's catch-skill roll. */
@@ -221,6 +223,12 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
   if (!st && K.heat && share('heat') >= 0.25) {
     const warmer = g.topt > m.warmth;
     st = { key: warmer ? 'seekwarm' : 'seekcool', text: warmer ? 'Seeking warmth' : 'Seeking cooler water', why: `At ${deg(m.warmth)} it is ${warmer ? 'colder' : 'warmer'} than the ${deg(g.topt)} it prefers, so it swims ${warmer ? 'up' : 'down'} the warmth of the water around it.` };
+  }
+  if (!st && share('light') >= 0.25) {
+    const up = (g.phototaxis || 0) > 0;
+    st = up
+      ? { key: 'seeklight', text: 'Following the light', why: `At ${pct(m.light)} light, it pushes itself up the light's slope toward the brightest water${g.photo > 0.4 ? ', where it photosynthesises best' : ', where producers bloom'}.` }
+      : { key: 'shunlight', text: 'Seeking shade', why: `At ${pct(m.light)} light, it pushes itself down the light's slope, away from the bright bands where producers bloom and their grazers and hunters gather.` };
   }
   if (!st && K.heat && (g.thermo || 0) > 0.2 && m.bonds > 0 && m.x < 0 && m.water < g.topt - 1) {
     st = { key: 'huddle', text: 'Keeping warm', why: `A heat-maker in a body: it burns ${heatMaking.toFixed(3)}/s to run ${deg(m.warmth - m.water)} above the ${deg(m.water)} water, and its body holds the warmth in.` };

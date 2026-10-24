@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { archetypeGenome, randomGenome, genomeSerial, readGenome, writeGenome, dietGuild, mobilityGuild, ARCHETYPE_TYPES, cellShape } from '../src/genome.js';
+import { archetypeGenome, randomGenome, genomeSerial, readGenome, writeGenome, dietGuild, mobilityGuild, ARCHETYPE_TYPES, cellShape, finalizeGenome } from '../src/genome.js';
 import { G_WORDS } from '../src/shaders.js';
 
 test('genomeSerial reads the unsigned serial of a slot and its replacement', () => {
@@ -53,9 +53,9 @@ test('twelve cosmetic shapes keep the archetype random-draw count', () => {
     let draws = 0;
     const g = archetypeGenome(type, () => { draws++; return r; });
     assert.equal(g.shape, shape);
-    // + 4 for the thermal optimum and tolerance; heat-maker founders draw one (two when chosen); + 7 for the growth plan; + 5 for the beat; + 4 for the tails
+    // + 4 for the thermal optimum and tolerance; heat-maker founders draw one (two when chosen); + 7 for the growth plan; + 5 for the beat; + 4 for the tails; + 2 for phototaxis
     const thermo = ['crawler', 'grazer', 'filament'].includes(type) ? (r < 0.25 ? 2 : 1) : 0;
-    assert.equal(draws, (type === 'grazer' ? 77 : type === 'filament' ? 78 : 76) + 4 + thermo + 7 + 5 + 4);
+    assert.equal(draws, (type === 'grazer' ? 77 : type === 'filament' ? 78 : 76) + 4 + thermo + 7 + 5 + 4 + 2);
     const before = JSON.stringify(g);
     for (let role = 0; role < 3; role++) assert.ok(cellShape(g, role) >= 0 && cellShape(g, role) < 12);
     assert.equal(JSON.stringify(g), before, 'cosmetic selection leaves the genome unchanged');
@@ -90,4 +90,16 @@ test('random founders keep randomInto ranges and survive packing', () => {
     const back = readGenome(u32, f32, 1);
     assert.ok(Math.abs(back.reproE - g.reproE) < 1e-6 && Math.abs(back.topt - g.topt) < 1e-5);
   }
+});
+
+test('phototaxis round-trips through the genome buffer and costs upkeep', () => {
+  const u32 = new Uint32Array(G_WORDS), f32 = new Float32Array(u32.buffer);
+  const g = archetypeGenome('plankton', () => 0.1);
+  assert.ok(g.phototaxis > 0, 'a plankton founder drawn low starts with phototaxis');
+  writeGenome(u32, f32, 0, g);
+  assert.ok(Math.abs(readGenome(u32, f32, 0).phototaxis - g.phototaxis) < 1e-6);
+  const off = finalizeGenome({ ...structuredClone(g), phototaxis: 0 });
+  assert.ok(g.metab > off.metab);
+  const shun = finalizeGenome({ ...structuredClone(g), phototaxis: -g.phototaxis });
+  assert.ok(Math.abs(shun.metab - g.metab) < 1e-9, 'shunning light costs as much as seeking it');
 });

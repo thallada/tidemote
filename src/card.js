@@ -32,7 +32,7 @@ export function cardData(sp, { reg, genera, K, story = null, simTime = 0, era = 
   const facts = [
     ['Diet', `${f.diet === 'photosynth' ? 'lives on light' : f.diet}${g.photo > 0.25 && g.photo <= 0.55 ? ', part photosynth' : ''}`],
     ['Body', `${multi ? 'many-celled' : 'single cells'}${sh > 1 ? `, ${sh} cell types` : ''}`],
-    ['Moves', f.schooling ? `${f.mobility}, schooling` : f.mobility],
+    ['Moves', [f.mobility, f.schooling ? 'schooling' : '', K.phototaxis > 0 && Math.abs(g.phototaxis || 0) > 0.2 ? (g.phototaxis > 0 ? 'seeks light' : 'shuns light') : ''].filter(Boolean).join(', ')],
     ...(plan ? [['Grows', plan]] : []),
     // whom it eats and who eats it most, as the chronicler counted their meals
     ...(relations?.food && reg.get(relations.food) ? [['Eats', `mostly ${reg.get(relations.food).name}`]] : []),
