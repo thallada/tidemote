@@ -13,6 +13,9 @@ up and a down) is not part of this.
   band's saturated middle: four cosines per cell, only for cells with the gene. While duckweed floats, its shade
   (a finite difference of `duckShade`) pushes cells out from under the fronds and the waves' slope fades beneath them.
   Stranded cells cannot steer; cysts do not run this code.
+- The push is full strength wherever the waves slope steeply and fades with the slope below `K.photoSoft` (0.3) of the
+  steepest the waves can be (the sum of each wave's amplitude times its wave number), so it dies away near a crest.
+  See "Lines on the crests" below.
 - It is a motility of its own, not a share of swimming. Swimming is scaled by `1 - photo`, so a producer could never
   steer with it; flagellate algae swim to the light, and here a drifting producer can follow the bands.
 - It costs upkeep: `K.phototaxisCost × |phototaxis|` in `deriveMetab` (and `finalizeGenome`), either sign.
@@ -74,6 +77,32 @@ otherwise) nothing differs at p < 0.05: late effective species 102 / 100, Hill-2
 food webs 94% / 84%, the living share 0.34 / 0.28. Hunters persisted to the end in 10 runs of 32 before and 4
 after: not significant on its own, but worth watching if predators come up again. The short runs' gain in
 species (above) does not last to 30 minutes; the species stay as many, and they mix and turn over more.
+
+## Lines on the crests (2026-10-25)
+
+As first written, `lightSlope` normalized the slope to a unit vector right up to the crest. Every seeker was pushed at
+full strength until it crossed the crest, then pushed back at full strength. That makes the crest's zero-slope line
+an attractor that every seeker in the band collapses onto, whatever its gene's strength, held apart only by packing.
+At the peak of the tide the light-seekers stood in ruled lines along the crests, running through the bright patches
+and the saddles between them. `K.photoSoft` (0 brings the old rule back) lets the push fade with the slope near a
+crest, so seekers settle in a crowd about the crest rather than on it.
+
+262k particles, three worlds grown 10 min under the old rule, each run forward 90 s under each setting from the same
+saved state (`runs/photoline`, 5 moments each). These are cells inside a lit band (raw wave sum over 0.35 of its
+amplitude), and "on the crest" means the slope is under 8% of its steepest:
+
+| `photoSoft` | seekers on the crest | gene-less on the crest | excess |
+| --- | --- | --- | --- |
+| 0 (old) | 9.0% | 4.1% | 2.2× |
+| 0.15 | 7.4% | 4.1% | 1.8× |
+| 0.3 (default) | 6.5% | 4.4% | 1.5× |
+
+Seekers still gather in the bright bands (they should: the crest is the brightest place). They gather in a broader
+crowd there rather than a line. The far field is unchanged, so the bands still sweep seekers along and through the mix.
+
+The balance gate (`runs/photosoft-gate`, 32 seeds × 30 min at 32k, photoSoft 0.3) passes, every metric the same:
+late effective species 115 (112 baseline), food webs 91%, hunters in the outcome in 8 runs of 32 (4 in the gate
+above).
 
 ## Where it shows
 

@@ -1601,6 +1601,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     // a cell's push up the light's slope at a full phototaxis gene (down it, negative): a motility of its own,
     phototaxisCost: 0.012,
     // so a drifting producer can follow the light; its upkeep per second at a full gene (either sign)
+    photoSoft: 0.3,
+    // the share of the waves' steepest slope below which the push fades with it (0: a full push up to the crest)
     thermoCost: 0.03,
     // energy per second a full heat-maker burns to warm itself and its water
     selfWarm: 4,
@@ -2753,16 +2755,19 @@ fn lightAt(p: vec2f) -> f32 {
 }
 
 // Which way the light grows at p, for phototaxis: the slope of the tide's waves, taken before their bands are
-// cut off so that it reaches into the dark and across a band's bright middle (a unit vector, or 0), and
-// away from any duckweed's shade (under a frond the waves' slope fades, and its edge pushes outward).
+// cut off so that it reaches into the dark and across a band's bright middle, and away from any duckweed's shade
+// (under a frond the waves' slope fades, and its edge pushes outward). Its length fades with the slope below
+// K.photoSoft of the steepest the waves can be, so seekers crowd about a crest rather than collapse onto its line.
 fn lightSlope(p: vec2f) -> vec2f {
   let u = p / sim.world * TAU;
   var gs = vec2f(0.0);
+  var gm = 0.0;
   for (var k = 0u; k < 4u; k++) {
     let w = sim.tide[k];
     gs += w.w * cos(w.x * u.x + w.y * u.y + w.z * sim.time + sim.tidePh[k]) * w.xy / sim.world;
+    gm += w.w * length(w.xy / sim.world);
   }
-  var dir = gs / max(length(gs), 1e-9);
+  var dir = gs / max(length(gs), max(gm * ${f(K.photoSoft)}, 1e-9));
   if (sim.duck.w > 0.0) {
     let e = vec2f(0.5, 0.0);
     let sh = duckShade(p, sim.duck, sim.duckB, sim.world);
