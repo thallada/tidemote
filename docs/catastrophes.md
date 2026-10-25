@@ -56,7 +56,7 @@ ice showed at once over patches the simulation had not frozen.
 - **Frost** (`frostGrow`, `frostHold`, `frostThaw`): a cold night (light × 0.4, the background water chilled to 0.5°
   whatever the era's warmth, `FROST_WATER` in `src/climate.js`, × `frostCold`) on a pool this thin freezes it
   in-plane. Ice grows in the order of a second field (`makeIceOrder`, thermal block 4: grains spreading from the
-  shallows and from their centres, meeting last along the zero lines of a random field) until `frostMax` (60-85%)
+  shallows and from their centers, meeting last along the zero lines of a random field) until `frostMax` (60-85%)
   of the pool is ice. The frozen share is the frost (the field is ranked), so a patch's radius goes as the frost's
   square root: the frost is eased twice (growth and thaw), so every patch starts from nothing at no speed and
   gathers pace, and on the thaw shrinks back to nothing the same way (eased once, the first patches opened at speed
@@ -104,7 +104,7 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   lies under them (`RIPPLE_SHEEN`, `RIPPLE_DIM`). Caustics (the lamp's light focused on the floor
   by the curved surface) were tried and dropped: they lit the dry mud and the ice as much as the water, and read as
   an overlay rather than something in the pool. A raindrop's ring is a dispersive
-  capillary packet, short crests crowding its leading edge and broadening toward its centre, uneven in amplitude and
+  capillary packet, short crests crowding its leading edge and broadening toward its center, uneven in amplitude and
   radius around its circle, with up to two splash droplets ringing beside it. The rain falling out of view roughens
   the whole surface with wavelets from every direction, in groups.
 - **Ice** (`iceLook`, `iceGrain`, `frazil`): ice and water bend light almost alike, so the ice is nearly invisible;
@@ -115,10 +115,10 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   frozen: at full from the start, every spot the ice begins from showed a whole star at once), and the distance is
   measured by the field's slope floored at about half its usual (where ice starts, at the field's minima, the slope
   vanishes and the reach would open a ring at once). Grains (`ICE_GS`, 1.5 units) sit on a jittered lattice that tiles the world; each grows
-  parallel stems along whichever of its six axes points most nearly the way the ice grows at its centre, each a
+  parallel stems along whichever of its six axes points most nearly the way the ice grows at its center, each a
   needle reaching its own length ahead (up to `ICE_LEAD`, a few stunted), widening behind its tip, with fine side
   branches at sixty degrees of uneven lengths. Every grain of the 3 × 3 around a point offers its dendrites' lead,
-  less the farther it lies from the grain's centre (`ICE_OWN`, `ICE_FALL`), and the farthest reach wins: grains
+  less the farther it lies from the grain's center (`ICE_OWN`, `ICE_FALL`), and the farthest reach wins: grains
   compete as real ones do, so a stem is never cut off (an earlier version drew the dendrites afresh each frame
   relative to the moving front, from the grain each pixel lay in, and stems popped and were cut at grain borders
   out in the water). Lines finer than a pixel spread to a pixel and dim, so the fern resolves as the view closes
@@ -127,7 +127,7 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   faint growth lines and air bubbles (bright rims, dark hearts); deeper than any dendrite reaches only that is
   drawn. Ahead of a growing front, small stellar crystals (frazil: six uneven, branched arms around a hexagonal
   plate) grow in the supercooled water.
-- **Trapped cells** (`DRAW_WGSL`): a cell on dry ground shrivels a little and its colour drains to a dull brown,
+- **Trapped cells** (`DRAW_WGSL`): a cell on dry ground shrivels a little and its color drains to a dull brown,
   darkened; a cell in the ice drains to a pale frosted blue-white. Both read the same relief and ice fields as the
   simulation (the view uniform carries the level and the frost). Most rest as cysts: a cyst loses `cystLeak` energy a
   second, does not age out, and does not wake on dry ground or in ice; awake stranded cells pay `dryCost` on top of

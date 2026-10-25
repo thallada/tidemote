@@ -27,7 +27,7 @@ export function layout(spec) {
     }
   }
   else if (kind === 'mat') {
-    // a packed body of n cells (a hexagonal patch, each cell bonded to two earlier neighbours), then
+    // a packed body of n cells (a hexagonal patch, each cell bonded to two earlier neighbors), then
     // tails of b cells from its edge (mat:N:TAILLEN:TAILS)
     const tails = +spec.split(':')[3] || 1;
     cells.length = 0;

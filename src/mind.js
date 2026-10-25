@@ -1,6 +1,6 @@
 // What the selected cell is doing and why: reads the mindMain replay (shaders.js) of its last decision.
 // A cell has no brain. Each frame it sums pulls and pushes from everything within reach (its receptors
-// against their surface signatures, appetite for the foods its diet favours, schooling, bonds, stone),
+// against their surface signatures, appetite for the foods its diet favors, schooling, bonds, stone),
 // then eats, divides or neither. These helpers name the outcome; they are pure and tested.
 import { MIND_HEAD, MIND_NBR, MIND_NBR_WORDS } from './shaders.js';
 import { divEnergy } from './genome.js';
@@ -101,8 +101,8 @@ export function attackChance(E, divE, K) {
   return Math.min(1, Math.max(0, (1 - E / (divE * K.satietyAt)) / K.satiety));
 }
 
-/** Per neighbouring species: how many, how hard they pull or push, and who could eat whom. */
-function neighbourSpecies(m, g, kind, genomeOf, K) {
+/** Per neighboring species: how many, how hard they pull or push, and who could eat whom. */
+function neighborSpecies(m, g, kind, genomeOf, K) {
   const map = new Map();
   const scale = m.sampled ? m.seen / m.sampled : 1;
   for (const q of m.nbrs) {
@@ -138,7 +138,7 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
     const v = m.cyst ? [0, 0] : gr.parts.reduce((a, k) => [a[0] + m.drives[k][0], a[1] + m.drives[k][1]], [0, 0]);
     return { ...gr, v, mag: len(v), share: len(v) / total };
   });
-  const species = neighbourSpecies(m, g, kind, genomeOf, K);
+  const species = neighborSpecies(m, g, kind, genomeOf, K);
   const others = species.filter((s) => !s.kin);
   // it divides at its own threshold plus its child's body (lifeMain's divE)
   const E = m.energy, need = m.divE > 0 ? m.divE : divEnergy(g, K);
@@ -163,7 +163,7 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
 
   if (m.cyst) {
     const lasts = K.cystLeak > 0 ? E / K.cystLeak : Infinity;
-    st = { key: 'cyst', text: 'Dormant', why: `Asleep as a cyst: it has let go of its body, and neither swims, feeds, divides nor can be eaten; it moves only as the water and its neighbours push it. It leaks ${K.cystLeak}/s of its ${E.toFixed(2)} energy${lasts < 3600 ? ` (enough for about ${Math.round(lasts / 60)} min)` : ''} and wakes at random, about once every ${Math.round(1 / K.cystWake)} s on average, to try its luck again.` };
+    st = { key: 'cyst', text: 'Dormant', why: `Asleep as a cyst: it has let go of its body, and neither swims, feeds, divides nor can be eaten; it moves only as the water and its neighbors push it. It leaks ${K.cystLeak}/s of its ${E.toFixed(2)} energy${lasts < 3600 ? ` (enough for about ${Math.round(lasts / 60)} min)` : ''} and wakes at random, about once every ${Math.round(1 / K.cystWake)} s on average, to try its luck again.` };
   } else if (K.heat && m.torpid) {
     st = { key: 'torpid', text: 'Torpid in the cold', why: `At ${deg(m.warmth)} it is ${Math.round((g.topt - g.tol * K.torporAt) - m.warmth + 0.5)}° below the range it can work in (it prefers ${range}): it neither feeds, swims nor divides, and burns ${Math.round(K.torporCost * 100)}% of its upkeep until the water warms.` };
   } else if (E >= need && !m.mature) {
@@ -227,7 +227,7 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
   if (!st && share('light') >= 0.25) {
     const up = (g.phototaxis || 0) > 0;
     st = up
-      ? { key: 'seeklight', text: 'Following the light', why: `At ${pct(m.light)} light, it pushes itself up the light's slope toward the brightest water${g.photo > 0.4 ? ', where it photosynthesises best' : ', where producers bloom'}.` }
+      ? { key: 'seeklight', text: 'Following the light', why: `At ${pct(m.light)} light, it pushes itself up the light's slope toward the brightest water${g.photo > 0.4 ? ', where it photosynthesizes best' : ', where producers bloom'}.` }
       : { key: 'shunlight', text: 'Seeking shade', why: `At ${pct(m.light)} light, it pushes itself down the light's slope, away from the bright bands where producers bloom and their grazers and hunters gather.` };
   }
   if (!st && K.heat && (g.thermo || 0) > 0.2 && m.bonds > 0 && m.x < 0 && m.water < g.topt - 1) {
@@ -241,8 +241,8 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
   }
   if (!st && g.photo > 0.4) {
     st = net >= 0
-      ? { key: 'bask', text: 'Basking', why: `Photosynthesising: ${m.photoGain.toFixed(3)}/s from ${pct(m.light)} light${K.heat && m.perf > 1.05 ? ` in warm water that suits it (${pct(m.perf)})` : ''}, more than its ${m.upkeep.toFixed(3)}/s upkeep.` }
-      : { key: 'dark', text: 'Waiting out the dark', why: `Photosynthesising ${m.photoGain.toFixed(3)}/s from ${pct(m.light)} light${m.nutr < 3 ? ' with little silt nearby for minerals' : ''}: less than its ${m.upkeep.toFixed(3)}/s upkeep, so it is living on its reserves.` };
+      ? { key: 'bask', text: 'Basking', why: `Photosynthesizing: ${m.photoGain.toFixed(3)}/s from ${pct(m.light)} light${K.heat && m.perf > 1.05 ? ` in warm water that suits it (${pct(m.perf)})` : ''}, more than its ${m.upkeep.toFixed(3)}/s upkeep.` }
+      : { key: 'dark', text: 'Waiting out the dark', why: `Photosynthesizing ${m.photoGain.toFixed(3)}/s from ${pct(m.light)} light${m.nutr < 3 ? ' with little silt nearby for minerals' : ''}: less than its ${m.upkeep.toFixed(3)}/s upkeep, so it is living on its reserves.` };
   }
   if (!st) {
     const top = drives[0];
@@ -283,7 +283,7 @@ export function interpretMind(m, g, kind, { K, genomeOf }) {
 }
 
 /**
- * Keep each neighbouring species in the row it had: rows[i] is a kind or null. A kind keeps its row
+ * Keep each neighboring species in the row it had: rows[i] is a kind or null. A kind keeps its row
  * while present; a new one takes the first free row. Returns the new rows (n of them).
  */
 export function slotRows(rows, kinds, n) {

@@ -159,7 +159,7 @@ def run(p, x0, T=60, dt=0.05, seed=0, tideSpeed=3.0):
                 base = base * (1 + p['roam'] * hunger)[None]
             if food[g] is not None:
                 F = food[g]
-                for k, Fn in enumerate(web3.neighbours(F)):
+                for k, Fn in enumerate(web3.neighbors(F)):
                     base[k] += p['tax' + g] * np.maximum(Fn - F, 0) / (Fn + F + 1e-3)
             fr = np.minimum(base * dt, 0.2)
             moved = np.zeros((4,) + X.shape)

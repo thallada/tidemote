@@ -37,7 +37,7 @@ function buffer({ hungry = false, silt = false, food = null, energy = 0.5, photo
   return parseMind(u32, f32);
 }
 
-test('parseMind reads the header, drives and neighbours', () => {
+test('parseMind reads the header, drives and neighbors', () => {
   const m = buffer({ hungry: true, silt: true, food: { kind: 1, dist: 0.2 }, drives: { diet: [0.5, 0] }, nbrs: [{ kind: HUNTER, d: [0.3, 0], fSig: -0.2, inside: true }] });
   assert.equal(m.hungry, true);
   assert.equal(m.siltNear, true);
@@ -81,7 +81,7 @@ test('division waits on a grain of silt', () => {
   assert.equal(interpretMind(buffer({ energy: 1.5 }), G[ME], ME, { K, genomeOf }).key, 'seeksilt');
 });
 
-test('photosynthesisers bask or wait out the dark, and starvation is noted', () => {
+test('photosynthesizers bask or wait out the dark, and starvation is noted', () => {
   assert.equal(interpretMind(buffer({ photoGain: 0.1, upkeep: 0.03 }), G[ALGA], ALGA, { K, genomeOf }).key, 'bask');
   const dark = interpretMind(buffer({ energy: 0.3, photoGain: 0.001, upkeep: 0.03 }), G[ALGA], ALGA, { K, genomeOf });
   assert.equal(dark.key, 'dark');
@@ -96,7 +96,7 @@ test('catch skill and strike chance follow lifeMain', () => {
   // grazers crop plants at grazePref; armour, unfamiliarity and stone each cut a strike's odds
   assert.ok(Math.abs(catchSkill(G[BUG], G[ALGA], K) - Math.min(1, K.grazePref / K.catchSkill)) < 1e-9);
   const base = strikeChance(G[HUNTER], G[BUG], BUG, 0, 0, K);
-  assert.ok(base < 1, 'bonded prey is armoured');
+  assert.ok(base < 1, 'bonded prey is armored');
   assert.ok(strikeChance(G[HUNTER], G[BUG], BUG, 99, 0, K) < base);
   assert.ok(strikeChance(G[HUNTER], G[BUG], BUG, 0, 2, K) < base);
 });
@@ -128,7 +128,7 @@ test('lifeMain carries none of mindMain\'s recording hooks', async () => {
   assert.match(code.slice(code.indexOf('fn mindMain')), /mPair\(j, q, d, r/);
 });
 
-test('neighbouring species keep their rows', () => {
+test('neighboring species keep their rows', () => {
   let rows = slotRows(null, [5, 6], 4);
   assert.deepEqual(rows, [5, 6, null, null]);
   rows = slotRows(rows, [7, 6], 4);

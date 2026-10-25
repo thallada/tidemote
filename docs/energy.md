@@ -26,7 +26,7 @@ merged to main: these rules are now always on, and only their strengths remain t
   prey's body and stored energy and no more (`carcassKeep` of the body stays in the carcass).
 - `bodyWhole`: a body is material, not fuel: it passes to its eater whole (the stuff of its next child),
   while stored energy is digested at `assimilate` × the eater's skill, at most `assimCap`.
-- Light is the only income. It is a flux per area (`shadeP`): photosynthesisers share a patch's light, so a
+- Light is the only income. It is a flux per area (`shadeP`): photosynthesizers share a patch's light, so a
   crowded meadow burns it in its own upkeep and a grazed one regrows. (Glint, silt charged by the tide,
   was a second income at `gain`; it let grazers live without producers and has been removed.)
 - `dung`: what an eater cannot assimilate fills its gut and is dropped as a husk, so the undigested share

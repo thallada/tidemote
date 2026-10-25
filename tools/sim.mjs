@@ -27,9 +27,9 @@ if (v.help) {
                  Override the executable with PLAYWRIGHT_CHROMIUM
   --cpu          Select Mesa lavapipe for Dawn only
   --png file.png Render the final frame with Dawn only (W, H, ZOOM, OPTICS, HEAT env supported;
-                 HEAT=0,1,2: heat map off, shimmer, thermal camera; FRAMBOID=1 or STONE=1: centre on framboids or stone)
-  --aim          Centre PNGs on the living cell with the most incoming bonds
-                 Fall back to the world centre if no living cells remain
+                 HEAT=0,1,2: heat map off, shimmer, thermal camera; FRAMBOID=1 or STONE=1: center on framboids or stone)
+  --aim          Center PNGs on the living cell with the most incoming bonds
+                 Fall back to the world center if no living cells remain
   --render-bench Time 180 paused render frames per zoom with GPU timestamps
   --profile      Time each simulation pass every simulated minute (GPU timestamps)
   --help         Show this help`);
@@ -149,7 +149,7 @@ async function writePNG(device, eng, frames) {
     console.log(`PNG camera: ${x}, ${y}; incoming bonds ${Math.max(0, best)}`);
     buf.unmap(); buf.destroy();
   }
-  // FRAMBOID=1 (or STONE=1) centres the PNG on the densest cluster of pyrite framboids (or stone)
+  // FRAMBOID=1 (or STONE=1) centers the PNG on the densest cluster of pyrite framboids (or stone)
   const aimKind = process.env.FRAMBOID ? FRAMBOID : process.env.STONE ? 3 : -1;
   if (aimKind >= 0) {
     const buf = device.createBuffer({ size: eng.count * P_BYTES, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
@@ -172,7 +172,7 @@ async function writePNG(device, eng, frames) {
   for (const z of (process.env.ZOOM || '1').split(',').map(Number)) {
     eng.clearAccum = true;
     const ppu = Math.max(W / eng.grid[0], H / eng.grid[1]) * z;
-    // LOUPE=mag puts a page-sized loupe of that magnification at the centre
+    // LOUPE=mag puts a page-sized loupe of that magnification at the center
     const mag = +process.env.LOUPE || 0, R = Math.round(Math.min(Math.max(Math.min(W, H) * 0.2, 90), 170));
     const loupe = mag ? { x: W / 2, y: H / 2, r: R, ppu: ppu * mag, cx: x, cy: y } : null;
     const render = () => eng.frame({ target: tex.createView(), cam: { x, y, ppu }, paused: true, time: frames / 60, loupe });

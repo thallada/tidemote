@@ -91,7 +91,7 @@ export class Conductor {
     this.rnd = mulberry32(seed >>> 0);
     this.time = 0; this.stepN = 0; this.nextStep = 0.1;
     this.tempo = 1; this.step = STEP; this.slow = STEP;
-    this.ws = seed >>> 0; // the world's seed: keys its opening and colours its eras (a message from the page sets it)
+    this.ws = seed >>> 0; // the world's seed: keys its opening and colors its eras (a message from the page sets it)
     this.lapse = false; // the page is running a new world's first minutes at Max (the warm-up)
     this.field = new Field(this);
     this.post = null; // messages back to the page (the worklet sets this)

@@ -4,7 +4,7 @@ import { tideAt, flowAt, duckShade } from '../src/flow.js';
 
 const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-12, `${actual} != ${expected}`);
 
-test('tide matches the shader smoothstep, normalisation and torus coordinates', () => {
+test('tide matches the shader smoothstep, normalization and torus coordinates', () => {
   const w = [1, 0, 1, 2, ...Array(12).fill(0)];
   const s = (2.7 * Math.sin(0.5) - 0.35) / (1.9 - 0.35);
   near(tideAt(0, 0, 100, 80, 0.5, w), s * s * (3 - 2 * s));

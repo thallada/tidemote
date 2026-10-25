@@ -284,7 +284,7 @@ export class Field {
   speciesNote(slot, t, g, o) {
     const c = this.c, e = this.slots.get(slot), v = e && e.v;
     const { root, scale } = c, piv = c.pivot;
-    if (!v) { // a species the census has not described yet: a plain note from its colour
+    if (!v) { // a species the census has not described yet: a plain note from its color
       c.at(t, 'tine', { freq: midicps(d2m((Math.floor(o.hue * 10) % 8) + piv, root, scale) + 12), amp: g * 0.8, dec: 0.9, bright: 0.5 * o.dim, pan: o.pan, rev: o.wet(0.3), dly: 0.1 });
       return null;
     }
@@ -380,7 +380,7 @@ export class Field {
         c.at(t, 'glint', { freq: f, amp: g * 0.5, dec: 0.35, pan: o.pan, rev: o.wet(0.45), dly: 0.2 });
         return;
       }
-      case 'mutation': { // a new species: a quick rising figure from its colour
+      case 'mutation': { // a new species: a quick rising figure from its color
         const base = Math.floor(o.hue * 7);
         for (let i = 0; i < 3; i++) c.at(t + i * c.step * 0.5, 'glint', { freq: midicps(d2m(base + i * 2 + piv, root, scale)) * 4, amp: g * (1 - i * 0.15), dec: 0.25, pan: o.pan, rev: o.wet(0.45), dly: 0.25 });
         return;
@@ -412,7 +412,7 @@ export class Field {
 
   // Life sparking from silt. A new world sparks many times a second (and many more at a fast
   // speed), so only now and then is it a whole shower: a few notes of the chord of the moment, from
-  // where the spark's colour falls, rising, falling or turning, high or very high, quick or
+  // where the spark's color falls, rising, falling or turning, high or very high, quick or
   // unhurried, never twice the same. Between showers a spark is a single soft grain, and beyond a
   // few grains a second it is not heard at all.
   spark(t, g, o) {

@@ -10,7 +10,7 @@
 // .tidemote file (saved from Settings → Worlds) in runs/perf/worlds/. A scenario sets:
 //   zoom   css px per world unit (cells resolve from about 35, interiors 150, fine detail 400), 'fit',
 //          or 'saved' (the camera a world opened from a .tidemote file was saved with)
-//   at     [x, y] world units the view centres on (default: the commonest species' densest patch)
+//   at     [x, y] world units the view centers on (default: the commonest species' densest patch)
 //   speed  1 (default), 4, 'max' ...   fps: the target frame rate (0: the display's)
 //   scale  'auto' (default) or a fixed render scale   select: pick a cell of the commonest species
 //   sound  false (default)   seconds: how long to measure (default 8)   settle: seconds before (3)
@@ -299,7 +299,7 @@ async function measure(page, sc) {
       state.paused = was;
       for (const k in dispatch) dispatch[k] = +dispatch[k].toFixed(3);
     }
-    // ---- summarise
+    // ---- summarize
     const q = (a, p) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return +s[Math.min(s.length - 1, Math.floor(p * s.length))].toFixed(3); };
     const mean = (a) => (a.length ? +(a.reduce((x, y) => x + y, 0) / a.length).toFixed(3) : null);
     const gaps = (a) => a.slice(1).map((x, i) => x - a[i]);

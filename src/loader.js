@@ -13,7 +13,7 @@ const KINDS = [['#cfe86a', 'photosynth', 'photo'], ['#7fd6df', 'grazer', 'grazer
 const TAU = Math.PI * 2;
 const SWEEP = 1.2; // radians of afterglow behind the sweep
 // how the cells move: force to velocity (per second), velocity kept per frame, the most force a cell's
-// neighbours add up to (a crowded colony otherwise kicks), and the fastest a cell goes (px a frame)
+// neighbors add up to (a crowded colony otherwise kicks), and the fastest a cell goes (px a frame)
 const GAIN = 10, DAMP = 0.88, FMAX = 0.7, VMAX = 1.6;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const pad = (n, w) => String(Math.max(0, Math.round(n))).padStart(w, '0');
@@ -39,7 +39,7 @@ function brackets(ctx, x, y, w, h, len, color) {
 }
 
 function reticle(W, H, ctx) {
-  // The lens is centred with readouts either side. Narrow screens (phones) stack them a word to a line,
+  // The lens is centered with readouts either side. Narrow screens (phones) stack them a word to a line,
   // in columns as wide as their longest, and the lens gives up what room they still lack.
   const wide = W >= 2 * (H / 2 - 16) + 220;
   font(ctx);
@@ -120,7 +120,7 @@ function reticle(W, H, ctx) {
     cg.addColorStop(0, 'rgba(127, 214, 223, 0)'); cg.addColorStop(SWEEP / TAU, 'rgba(127, 214, 223, 0.13)'); cg.addColorStop(SWEEP / TAU + 0.001, 'rgba(127, 214, 223, 0)');
     ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
     line(ctx, cx, cy, cx + Math.cos(sa) * R, cy + Math.sin(sa) * R, 'rgba(127, 214, 223, 0.45)');
-    // rings, a turning dashed arc, the bezel's ticks, the centre mark
+    // rings, a turning dashed arc, the bezel's ticks, the center mark
     ctx.strokeStyle = C.line2; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke();
     ctx.strokeStyle = C.line; ctx.beginPath(); ctx.arc(cx, cy, R * 0.5, 0, TAU); ctx.stroke();
     ctx.setLineDash([2, 4]); ctx.beginPath(); ctx.arc(cx, cy, R + 9, -t * 0.15, -t * 0.15 + TAU * 0.7); ctx.stroke(); ctx.setLineDash([]);

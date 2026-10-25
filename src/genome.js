@@ -349,7 +349,7 @@ export function parseParticle(u32, f32, o) {
   };
 }
 
-// A producer photosynthesises past 0.55; anyone else belongs to its strongest diet (ties: flesh, then husks).
+// A producer photosynthesizes past 0.55; anyone else belongs to its strongest diet (ties: flesh, then husks).
 export function dietGuild(g) {
   if (g.photo > 0.55) return 'producer';
   const m = Math.max(g.dFlesh, g.dHusk, g.dGlint);

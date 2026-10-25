@@ -100,7 +100,7 @@ svg.song-roll{width:100%;height:auto;display:block}
 @media (max-width:560px){.sp{grid-template-columns:1fr}.por img{width:160px}}
 </style>
 <h1>Sigil studies</h1>
-<p class="lede">A species' sigil is its song drawn as the organism that sings it. Each note is one of its cells, in the shape and colour of the cell type that sings it (α the melody, β a colony's second voice; a free-living species with several cell types deals its notes among them by its body plan), as large as the note is long and turned by its pitch. The cells are packed on a sunflower spiral in the order they sing, as a colony grows, and <b>bonded only for species that bond</b>, as in the sim. Portraits are from ${shots.length ? 'a short trial world' : 'a trial world (skipped this time)'}: each species where its cells were densest, the others dimmed.</p>
+<p class="lede">A species' sigil is its song drawn as the organism that sings it. Each note is one of its cells, in the shape and color of the cell type that sings it (α the melody, β a colony's second voice; a free-living species with several cell types deals its notes among them by its body plan), as large as the note is long and turned by its pitch. The cells are packed on a sunflower spiral in the order they sing, as a colony grows, and <b>bonded only for species that bond</b>, as in the sim. Portraits are from ${shots.length ? 'a short trial world' : 'a trial world (skipped this time)'}: each species where its cells were densest, the others dimmed.</p>
 <h2>Every species at the Lab list's size</h2>${strip}
 <h2>Species</h2>${cards.join('\n')}`;
 fs.writeFileSync(path.join(OUT, 'index.html'), page);

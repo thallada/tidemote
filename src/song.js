@@ -72,11 +72,11 @@ export function songSVG(m, { w = 300, h = 68, col = '#7fd6df', col2 = col, ghost
 }
 
 // ── the sigil: the song as its organism ──────────────────────────────────────
-// Each note is one cell, drawn in the shape and colour of the cell type that sings it (α the
+// Each note is one cell, drawn in the shape and color of the cell type that sings it (α the
 // melody, β a colony's second voice; a single-celled species with several cell types deals its
 // notes among them by its body plan), as large as the note is long and turned by its pitch. The
 // cells are packed on the sunflower spiral in the order they sing, as a colony grows, and bonded
-// to their nearest earlier neighbours (two partners at most, as in the sim) only where the
+// to their nearest earlier neighbors (two partners at most, as in the sim) only where the
 // species bonds; single-celled ones float apart.
 const rgb = (c) => `rgb(${c.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255)).join(',')})`;
 

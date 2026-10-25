@@ -1,7 +1,7 @@
 // Swim lab: one body alone in still water, measured. The world is cleared to silt heaped far away (no
 // currents, tides, other life or food, upkeep off so nothing grows, starves or ages out), a body is built
 // cell by cell from a genome and a layout, and run forward; its cells are read back every step.
-// Reports the body's speed (its centre's travel, along its head: root first), the beat's kinematics
+// Reports the body's speed (its center's travel, along its head: root first), the beat's kinematics
 // (bend amplitude, wave speed), and what resistive force theory predicts from those same kinematics
 // (the rigid motion that leaves the sum of drag forces and torques on its cells at zero, with drag
 // sideDrag times as hard across each cell's branch as along it). A body that waves well but moves less
@@ -100,7 +100,7 @@ async function run(over) {
     }
     samples.push(s);
   }
-  return analyse(g, cells, samples, eng.K, [W, H]);
+  return analyze(g, cells, samples, eng.K, [W, H]);
 }
 
 // unwrap positions against the first sample's, cell by cell
@@ -113,7 +113,7 @@ function unwrap(samples, [W, H]) {
   });
 }
 
-function analyse(g, cells, samples, K, grid) {
+function analyze(g, cells, samples, K, grid) {
   unwrap(samples, grid);
   const n = cells.length;
   const ok = samples.filter((s) => s.alive === n);
@@ -121,7 +121,7 @@ function analyse(g, cells, samples, K, grid) {
   const com = (s) => { let x = 0, y = 0; for (const p of s.x) { x += p[0]; y += p[1]; } return [x / n, y / n]; };
   const a = ok[0], b = ok.at(-1), T = b.t - a.t;
   const c0 = com(a), c1 = com(b);
-  // the head's direction, averaged over the run: from the body's centre to its root
+  // the head's direction, averaged over the run: from the body's center to its root
   let hx = 0, hy = 0;
   const tailed = cells.some((c) => c.tail);
   const mean = (s, f) => { let x = 0, y = 0, m = 0; s.x.forEach((p, i) => { if (f(cells[i])) { x += p[0]; y += p[1]; m++; } }); return [x / m, y / m]; };
@@ -148,7 +148,7 @@ function analyse(g, cells, samples, K, grid) {
   const mean0 = Array(nb).fill(0); for (const r of bends) r.forEach((x, j) => (mean0[j] += x / bends.length));
   const amp = Array(nb).fill(0); for (const r of bends) r.forEach((x, j) => (amp[j] += (x - mean0[j]) ** 2 / bends.length));
   const bendAmp = amp.map(Math.sqrt);
-  // the wave: phase lag between neighbouring bends at the beat frequency
+  // the wave: phase lag between neighboring bends at the beat frequency
   const w = g.beat[1] * 2 * Math.PI;
   const ph = Array(nb).fill(0).map((_, j) => { let c = 0, sn = 0; ok.forEach((s, t) => { const x = bends[t][j] - mean0[j]; c += x * Math.cos(w * s.t); sn += x * Math.sin(w * s.t); }); return Math.atan2(sn, c); });
   let lag = 0, lagN = 0; for (let j = 1; j < nb; j++) { let d = ph[j - 1] - ph[j]; d -= 2 * Math.PI * Math.round(d / (2 * Math.PI)); lag += d; lagN++; }
@@ -189,7 +189,7 @@ function analyse(g, cells, samples, K, grid) {
     pred[0] += vx + sol[0]; pred[1] += vy + sol[1]; spin += sol[2];
   }
   pred = pred.map((x) => x / ok.length); dragRes = dragRes.map((x) => x / ok.length);
-  // predicted velocity is instantaneous; the body's centre velocity over the run is dx/T
+  // predicted velocity is instantaneous; the body's center velocity over the run is dx/T
   return {
     cells: n, seconds: +T.toFixed(2), length: +L.toFixed(3), maxBond: +maxBond.toFixed(3), brokenShare: +(broken / ok.length).toFixed(3),
     speed: +(Math.hypot(dx, dy) / T).toFixed(4), forward: +((dx * hx + dy * hy) / T).toFixed(4),

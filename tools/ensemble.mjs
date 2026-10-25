@@ -24,7 +24,7 @@ if (v.help || (!v.out && !v.from)) {
   --sample 5              Seconds between samples
   --chrome                Run each seed in Chromium (sim.mjs --chrome; TIDEMOTE_VK_LAYER: on the GPU)
   --resume                Skip seeds already in --out (or claimed by another ensemble running into it)
-  --from DIR              Analyse the run JSONs already in DIR instead of running
+  --from DIR              Analyze the run JSONs already in DIR instead of running
   --baseline FILE         Compare with a saved report; exit 1 if a gated metric regressed
   --targets FILE          Check target bounds (balance/targets.json); exit 1 if any fails
   --save-baseline FILE    Write this ensemble's report as a baseline

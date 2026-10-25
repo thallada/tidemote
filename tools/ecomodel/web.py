@@ -40,7 +40,7 @@ def rates(x, p):
     prey = G + S + p.get('hunterPrey', 1.0) * H   # hunters as prey, weighted (fightBack makes them poor prey)
     kmax, xh = p['hunt']
     kills = p['huntMul'] * kmax * prey / (prey + xh) / (1 + p['cH'] * H)
-    # interference (K.interfere 0.6): a hunter's rivals are its kin close by (about 14 H neighbours of every
+    # interference (K.interfere 0.6): a hunter's rivals are its kin close by (about 14 H neighbors of every
     # kind, over ~5 hunter species) or, with interfereAll (ia), every hunter close by
     if p.get('ia', 0):
         nb = 14.0 * H

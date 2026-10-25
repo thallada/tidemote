@@ -20,7 +20,7 @@ Plus two abiogenesis boosts: x90 for 25 s after each climate era and x90 while l
 particles ("crisis").
 
 The owner's goal is a few simple, understandable, local rules whose combination produces complex
-emergent behaviour, and no global "crutches". The questions were: which regulators actually matter, and
+emergent behavior, and no global "crutches". The questions were: which regulators actually matter, and
 what happens without them.
 
 ## 2. Tools built for this (all in the repo)
@@ -173,7 +173,7 @@ spechunt-s1  t=60  living=2289 eff= 7.3 prod=0.09 graz=0.24 pred=0.52 scav=0.15 
   (abiogenesis is now a constant: about one new lineage per 30 simulated seconds). The census no longer
   steers the ecology; it only names species and tracks lineages. `DEFAULT_K` lost `blight`, `blightAt`,
   `guildCap`, `guildBlight`, `turbid`, `turbidAt`, `immigEvery`.
-- Added `dietMin` (default 0.02, the previous hidden constant) so the specialisation threshold can be
+- Added `dietMin` (default 0.02, the previous hidden constant) so the specialization threshold can be
   tested without editing WGSL. Not changed by default because study B did not show a clear win.
 - Unrelated but found on the way: the prefix scan dispatched over all 262144 possible grid cells every
   frame regardless of world size (two 1024-workgroup dispatches). It now scans only the cells in use.
@@ -193,13 +193,13 @@ spechunt-s1  t=60  living=2289 eff= 7.3 prod=0.09 graz=0.24 pred=0.52 scav=0.15 
    whether predators starve or are out-bred.
 2. **Re-run study A's `bare` and `base` at 32k-64k particles for 20 minutes, 4 seeds**, so at least one
    climate era occurs and spatial refugia exist. If scavengers and producers persist at that scale, the
-   small-world extinctions were an artefact and the current rules may be fine as they are.
+   small-world extinctions were an artifact and the current rules may be fine as they are.
 3. **Candidate local rules, in order of plausibility** (test one at a time, 4 seeds, against `new`):
    - Herbivory that does not kill: cap how much a bite can take relative to the plant's energy, or let
      a plant below some energy be unpalatable, so grazers cannot crop producers to extinction.
    - Handling time scaled with prey energy, or a weaker `hunt` than 0.3 (try 0.18-0.2) with `eatR` for
      flesh raised to ~0.45, aiming for predators that catch prey without overshooting.
-   - Scavenger defence: armour or a predator aversion for husk specialists, or a cheaper metabolism for
+   - Scavenger defense: armour or a predator aversion for husk specialists, or a cheaper metabolism for
      slow drifters, if the per-guild death data shows they are eaten rather than starved.
    - Keep `dietMin` at 0.25 if the death data confirms it helps husks reach scavengers.
 4. **Decide about immigration.** It was the one regulator doing real work. If the owner would rather

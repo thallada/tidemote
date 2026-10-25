@@ -26,7 +26,7 @@ export function record(series, t, v) {
 /** A finished record (its species gone) as compact typed arrays. */
 export const seal = (series) => ({ t: Float32Array.from(series.t), v: Float32Array.from(series.v) });
 
-// what never changes once a species is gone (its record, colour and life), kept from build to build
+// what never changes once a species is gone (its record, color and life), kept from build to build
 const settled = new WeakMap();
 
 /**

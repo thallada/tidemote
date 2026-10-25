@@ -52,12 +52,24 @@ export async function createEngine(device, format, { hasTimestamps = false, K = 
 const LATE = new Set(['lifeMainCoarse', 'mindMain', 'mindMainCoarse', 'rangeMain']);
 const COMPILE_COST = { lifeMain: 26, fsPoint: 15, 'fsPointLive+live': 13, fsComposite: 11, fsLoupe: 8, matterMain: 5 };
 
+/**
+ * A saved heat field (five blocks of grid cells) in this build's layout: saves from before the grid
+ * held 2^19 cells keep their blocks MAX_CELLS / 2 apart. Any world's grid fits in either.
+ */
+export function restrideThermal(buf) {
+  const from = buf.byteLength / 20;
+  if (from === MAX_CELLS) return buf;
+  const src = new Uint32Array(buf), out = new Uint32Array(5 * MAX_CELLS), m = Math.min(from, MAX_CELLS);
+  for (let k = 0; k < 5; k++) out.set(src.subarray(k * from, k * from + m), k * MAX_CELLS);
+  return out.buffer;
+}
+
 class Engine {
   constructor(device, format, hasTimestamps, K, late = false) {
     this.device = device;
     this.format = format;
     this.K = K;
-    // particles a cell weighs in a crowd per step (the page's Neighbours setting); a uniform, so it changes live
+    // particles a cell weighs in a crowd per step (the page's Neighbors setting); a uniform, so it changes live
     this.maxScan = K.maxScan;
     this.capacity = 0;
     this.count = 0;
@@ -82,7 +94,7 @@ class Engine {
     this.simData = new ArrayBuffer(384);
     // the pool (docs/catastrophes.md), set by the climate: the water level (a quantile of the floor's relief; 1: all
     // wet), rain (0..1), the sky (light ×), how fast it is drying (0..1), the currents' strength, floating duckweed
-    // (centre, length, darkness; angle, seed, width) and up to four raindrops' ring waves (centre, time, strength)
+    // (center, length, darkness; angle, seed, width) and up to four raindrops' ring waves (center, time, strength)
     this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.mudRain = 0; this.parch = 0;
     this.duck = new Float32Array(8); this.drops = new Float32Array(16);
     this.relief = null;
@@ -263,7 +275,7 @@ class Engine {
     // sprites of a pixel or so, splatted into a buffer and added into the scene (splatMain, fsSplat)
     this.cpSplat = cPipe({ layout: 'auto', compute: { module: this.drawModule, entryPoint: 'splatMain' }, label: 'splatMain' });
     this.pLine = rp(this.drawModule, 'vsLine', 'fsLine', 'line-list', additive);
-    // stone: the highest cobble at each pixel wins the depth test and writes its colour and surface (vsStone)
+    // stone: the highest cobble at each pixel wins the depth test and writes its color and surface (vsStone)
     this.pStone = rPipe({ layout: 'auto', label: 'fsStone', primitive: { topology: 'triangle-strip' },
       depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'greater' },
       vertex: { module: this.drawModule, entryPoint: 'vsStone' },
@@ -965,7 +977,7 @@ class Engine {
 
   /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
   writeState({ cpu, gpu }) {
-    for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, data);
+    for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, k === 'thermal' ? restrideThermal(data) : data);
     // the species ledger starts afresh with the world put in place
     const enc = this.device.createCommandEncoder();
     enc.clearBuffer(this.b.ledger, this._splAt(), SPL_WORDS * 4);
@@ -1641,10 +1653,10 @@ class Engine {
     pass.end();
   }
 
-  // Whether view k (main, loupe, specimen), centred on (cx, cy) and reaching hw, hh world units either
+  // Whether view k (main, loupe, specimen), centered on (cx, cy) and reaching hw, hh world units either
   // way, sees little enough of the world to draw only the grid rows it covers; if so, its uniforms for
   // cullRows. Two cells of margin: a cell drifts less than half of one in a step, and its outline
-  // reaches about one beyond its centre.
+  // reaches about one beyond its center.
   _cullView(k, cx, cy, hw, hh) {
     const [gw, gh] = this.grid, m = 2;
     const nx = Math.min(gw, Math.ceil(2 * hw) + 2 * m + 1), ny = Math.min(gh, Math.ceil(2 * hh) + 2 * m + 1);

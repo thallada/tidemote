@@ -1,7 +1,7 @@
 # Linear stability of coarse-step motion schemes, mode by mode (docs/fast-forward.md, item 3): a lattice mode of
 # eigenvalue lam in [0, 2D] (D a cell's own stiffness), 4 ticks a step, against 4 explicit 1/60 s ticks.
 # python3 tools/fastforward/stiff-modes.py
-# Mode-by-mode analysis on a lattice: cell own stiffness D, mode eigenvalue lam in [0, 2D], neighbours'
+# Mode-by-mode analysis on a lattice: cell own stiffness D, mode eigenvalue lam in [0, 2D], neighbors'
 # mean velocity vNear = (1 - lam/D) v (chain). Reference: 4 explicit 1/60 s ticks, force recomputed.
 import numpy as np
 h = 1/60; n = 4; dt = n*h
@@ -26,7 +26,7 @@ def B(c, micro=20):
     def f(x, v, lam, D, gam):
         S = c*D; x0 = x; vN = (1-lam/D)*v; a0 = -lam*x
         hh = h/micro; fr = np.exp(-gam*hh); t = 0.0
-        for _ in range(n*micro):   # own linear motion against neighbours drifting at vN, fine integration
+        for _ in range(n*micro):   # own linear motion against neighbors drifting at vN, fine integration
             acc = a0 - S*(x - x0 - vN*t)
             v = v*fr + acc*hh; x = x + v*hh; t += hh
         return x, v
@@ -92,7 +92,7 @@ def Av(theta, c, alpha, Dlam=None):
             v = v*fr + acc*h; x = x + v*h
         return x, v
     return f
-print('\n\nA, neighbour drift scaled by alpha: max rho over lam in [0,2D] / rho at 0.05D / 0.2D / 1.0D')
+print('\n\nA, neighbor drift scaled by alpha: max rho over lam in [0,2D] / rho at 0.05D / 0.2D / 1.0D')
 for alpha in [1.0, 0.5, 0.0]:
   for c in [1, 2]:
     print(f'alpha={alpha} c={c}')
@@ -130,7 +130,7 @@ for alpha in [0.0, 0.5, 1.0]:
 def Cb(c, beta, held=True):
     def f(x, v, lam, D, gam):
         frT = np.exp(-gam*dt); G = (1-frT)/gam; vN = (1-lam/D)*v; a0 = -lam*x
-        vrel = beta*(v - vN)      # velocity against the local mean (self weighted with the neighbours)
+        vrel = beta*(v - vN)      # velocity against the local mean (self weighted with the neighbors)
         # BE in the relative velocity: the pair force at the end, a0 - c D dt vrel_new, vrel_new = beta (vnew - vN)
         vnew = (frT*v + G*(a0 + c*D*dt*beta*vN))/(1 + c*D*dt*G*beta)
         if not held:
@@ -166,7 +166,7 @@ def Cr(c, held=True, rmin=-1.0):
             v = v*fr + aeff*h; x = x + v*h
         return x, v
     return f
-print('\n\nCr (neighbours keep the mode shape): max rho at D = 200 800 1500 3000 5000 7000 | per-mode at D=800 for lam/D .05 .2 .5 1 1.5 2 | drift')
+print('\n\nCr (neighbors keep the mode shape): max rho at D = 200 800 1500 3000 5000 7000 | per-mode at D=800 for lam/D .05 .2 .5 1 1.5 2 | drift')
 for c in [1.0, 0.5]:
   for held in [True, False]:
     st = Cr(c, held)
@@ -196,7 +196,7 @@ for Mn in [1, 2, 6, 20]:
     row = [f'{max(rho(run(st, r*D, D, gam)) for r in lams):5.2f}' for D in [200, 800, 1500, 3000, 7000]]
     pm = ' '.join(f'{rho(run(st, r*800, 800, gam)):4.2f}' for r in [0.05,0.2,0.5,1,1.5,2])
     print(f'Mn={Mn:3d}: ' + ' '.join(row) + f' | {pm} | {drift(st,800):5.3f}')
-# a pair (swimmer hits resting neighbour): two cells, stiffness k between, exact 1/60 reference vs scheme with Mn = 1
+# a pair (swimmer hits resting neighbor): two cells, stiffness k between, exact 1/60 reference vs scheme with Mn = 1
 def pair_ref(k, steps=8):
     gamm = gam; fr = np.exp(-gamm*h); x1, x2, v1, v2 = 0.0, 0.0, 1.0, 0.0
     out = []

@@ -6,7 +6,7 @@
 // --clip records that many seconds of the page running at --clipspeed (the screencast, as numbered JPEGs in a folder
 // per moment and zoom, with their times in frames.json) instead of stills; join them with ffmpeg.
 // --times are simulated seconds after the eval, run at --speed (Infinity: Max); --zoom is pixels per world unit, or
-// fit (the whole world); --at the spot: x,y (world units), event, shore or ice (default the world's centre).
+// fit (the whole world); --at the spot: x,y (world units), event, shore or ice (default the world's center).
 import fs from 'node:fs'; import path from 'node:path';
 import { cliArgs, openPage, aim } from './pagelab.mjs';
 

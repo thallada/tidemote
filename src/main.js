@@ -2,7 +2,7 @@ import { createSound, songClip } from './audio/sound.js';
 import { voiceOf } from './audio/mapping.js';
 import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
-import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS } from './engine.js';
+import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS, restrideThermal } from './engine.js';
 import { genomeSerial, readGenome, parseParticle, thermalGuild } from './genome.js';
 import { seasonAt, createClimate, abioRate, EVENT_TYPES, excursionAt } from './climate.js';
 import { countPools } from './geography.js';
@@ -16,7 +16,7 @@ import { record, seal } from './lineage/model.js';
 import { createWorldStore, encodeWorld, decodeWorld } from './worlds.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
-import { PICK_WORDS, WATCH_MAX, stoneGrain } from './shaders.js';
+import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS } from './shaders.js';
 import { flowAt } from './flow.js';
 import { startLoader } from './loader.js';
 import { Director } from './director.js';
@@ -125,7 +125,7 @@ const fmtSpeed = (s) => (s === Infinity ? 'Max' : `×${s}`);
 // in about 6 s, drawn or not (drawing is under a tenth of the GPU's time at Max), so it is shown, not hidden.
 // Choosing a speed ends the warm-up; a pause only holds it. A loaded world never warms up.
 const WARM_UNTIL = 120;
-const PARTICLE_SIZES = [16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304];
+const PARTICLE_SIZES = [16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304, 8388608];
 // the pool's events as a fresh page has them (Settings → Climate): all on
 const EVENTS_ON = () => ({ on: true, ...Object.fromEntries(EVENT_TYPES.map((x) => [x, true])) });
 
@@ -151,9 +151,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     events: { ...EVENTS_ON(), ...prefs.events },
     songMarks: prefs.songMarks ?? 1, // mark the cells that sing: 0 off, 1 the picked species, 2 all
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
-    // pixels per CSS pixel, the frame rate aimed for (0: the display's; 60 by default, and for prefs
-    // saved before v2, which stored the display's without anyone choosing it), and a fixed particle count
-    perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: prefs.density ?? 1.5, fps: prefs.v >= 2 ? prefs.fps ?? 60 : 60, particles: prefs.particles ?? null, scan: prefs.scan ?? null },
+    // pixels per CSS pixel ('auto' by default, and for prefs saved before v3, which stored the old
+    // default 1.5 without anyone choosing it), the frame rate aimed for (0: the display's; 60 by default,
+    // and for prefs saved before v2, which stored the display's without anyone choosing it), and a fixed
+    // particle count
+    perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: !(prefs.v >= 3) && prefs.density === 1.5 ? 'auto' : prefs.density ?? 'auto',
+      fps: prefs.v >= 2 ? prefs.fps ?? 60 : 60, particles: prefs.particles ?? null, scan: prefs.scan ?? null },
   };
   // While a pointer is held down on a panel, nothing re-renders under it: replacing the element
   // between pointerdown and pointerup swallows the click.
@@ -182,19 +185,20 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: 2, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, events: state.events, ...state.perf });
+    savePrefs({ v: 3, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, events: state.events, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   if (prefs.loupe !== undefined && !isCoarse) state.loupe = prefs.loupe;
 
   // ------------------------------------------------------------ sizing
   let renderScale = state.perf.scale === 'auto' ? 1 : state.perf.scale;
-  // Auto drops the scene to 1 device pixel per CSS pixel before it lowers the render scale or the
-  // frame rate (adaptQuality): above 1 the extra pixels are the cheapest sharpness to give up.
+  // Auto pixel density drops the scene to 1 device pixel per CSS pixel before anything else is
+  // lowered, the render scale or the frame rate (adaptQuality): above 1 the extra pixels are the
+  // cheapest sharpness to give up.
   let densityCap = Infinity;
-  const density = () => Math.min(devicePixelRatio || 1, 2, state.perf.density, densityCap);
+  const density = () => Math.min(devicePixelRatio || 1, 2, state.perf.density === 'auto' ? Math.min(1.5, densityCap) : state.perf.density);
   let dpr = 1;
-  // The scene renders at no more than state.perf.density (1.5 by default) device pixels per CSS pixel:
+  // The scene renders at no more than state.perf.density (Auto: 1.5) device pixels per CSS pixel:
   // its per-pixel shading is heavy, and a 2x display would quadruple it for little visible gain.
   // Overlay text and lines stay native.
   function fit() {
@@ -427,7 +431,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function maxParticles() {
     const lim = device.limits;
     const hardCap = Math.floor(Math.min(lim.maxStorageBufferBindingSize, lim.maxBufferSize) / 40 / 4096) * 4096;
-    return Math.min(hardCap, 4194304, Math.floor(262144 * K.density * 0.95), window.__MC_MAX || Infinity);
+    return Math.min(hardCap, 8388608, Math.floor(MAX_CELLS * K.density * 0.95), window.__MC_MAX || Infinity);
   }
   async function calibrate() {
     const maxN = maxParticles();
@@ -503,6 +507,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // a world as file bytes, read and checked before the one running is touched
   async function openWorld(bytes) {
     const w = await decodeWorld(bytes);
+    if (w.gpu.thermal) w.gpu.thermal = restrideThermal(w.gpu.thermal);
     const want = eng.stateSizes(w.cpu.count), got = Object.entries(w.gpu);
     if (got.length !== Object.keys(want).length || got.some(([k, b]) => want[k] !== b.byteLength)) throw new Error('This world was saved by another version of Tidemote.');
     if (w.cpu.count > maxParticles()) throw new Error(`Its ${fmt(w.cpu.count)} particles are more than this GPU can hold.`);
@@ -1130,7 +1135,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (a.kind >= FIRST_LIFE && b.kind === 3) return `Died: ${b.cause === 2 ? 'old age' : 'starved'} at age ${fmtDur(a.age)}. Its skeleton is now stone.`;
     if (a.kind === 3 && b.kind === 0) return 'The stone wore away into silt.';
     if (a.kind === 4 && b.kind === 0) return 'The framboid was spent and crumbled into silt.';
-    if (a.kind === 2 && b.kind === 4) return 'The husk rotted in a pile, and its sulfide crystallised as a framboid.';
+    if (a.kind === 2 && b.kind === 4) return 'The husk rotted in a pile, and its sulfide crystallized as a framboid.';
     if (a.kind === 2 && b.kind === 0) return b.cause === 3 ? 'The husk was eaten by a scavenger.' : 'The husk crumbled into silt.';
     return `Became ${b.kind < FIRST_LIFE ? MATTER[b.kind].name.toLowerCase() : 'a living cell'}.`;
   }
@@ -1300,7 +1305,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     for (let k = 0; k < cells.length; k++) span = Math.max(span, Math.hypot(rel[k * 2] - cx, rel[k * 2 + 1] - cy));
 
     if (sel.rehome || !members.has(sel.id)) {
-      // Watch the traced cell nearest the body's middle, favouring young ones so the watch lasts.
+      // Watch the traced cell nearest the body's middle, favoring young ones so the watch lasts.
       const g = genomeFor(sel.particle.kind);
       const lifespan = g ? g.lifespan : 100;
       let best = -1, bs = Infinity;
@@ -1411,7 +1416,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // a body fills most of the frame; free cells show a dozen or so across
     const span = clamp(m.span * 2.6 + 0.6, 1.6, 9);
     if (portraitJob) portraitJob.resolve(null);
-    // the subject's reach from the centre, as a share of the frame's half-width (the card brackets it)
+    // the subject's reach from the center, as a share of the frame's half-width (the card brackets it)
     const subject = clamp(((m.body ? m.span : 0) + 0.12 * sp.genome.size + 0.08) / (span / 2), 0.08, 0.95);
     return new Promise((resolve) => { portraitJob = { slot: sp.slot, cx, cy, vx: m.body ? 0 : best.vx, vy: m.body ? 0 : best.vy, t: res.simTime, ppu: PORTRAIT / span, subject, resolve, at: performance.now() }; });
   }
@@ -1594,8 +1599,30 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const el = $('settings'), opts = $('opts'), btn = $('set-open'), tabs = [...el.querySelectorAll('#set-tabs [data-tab]')];
     let tab = 'display';
     let pendingN = null;
-    // one row per option: its name and key on the left, the choices on the right
-    const choice = (id, title, key, items, cur, tip) => `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ''}</span><div class="row segs" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? ' disabled' : ''}>${l}</button>`).join('')}</div></div>`;
+    // one row per option: its name and key on the left, the choices on the right. With Auto chosen
+    // (and autoNow(id) known), the Auto chip shows what it is using now and the choice nearest it is
+    // marked; readout() keeps both current in place.
+    const choice = (id, title, key, items, cur, tip) => {
+      const now = String(cur) === 'auto' ? autoNow(id) : null;
+      const label = (v, l) => (v === 'auto' && now ? `${l} <span class="auto-now" data-auto="${id}">${now.text}</span>` : l);
+      return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ''}</span><div class="row segs" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? ' auto-pick' : ''}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? ' disabled' : ''}>${label(v, l)}</button>`).join('')}</div></div>`;
+    };
+    // what an Auto option is using now ({ text, pick: the data-v of the choice it matches, if any }):
+    // the render scale, the pixel density, and a measured world's particle count
+    function autoNow(id) {
+      if (id === 'scale') return { text: `${Math.round(renderScale * 100)}%`, pick: String(+renderScale.toFixed(2)) };
+      if (id === 'density') { const d = +density().toFixed(2); return { text: `${d}×`, pick: String(d) }; }
+      if (id === 'n' && !state.perf.particles) return { text: kfmt(eng.count), pick: String(eng.count) };
+      return null;
+    }
+    const autoLive = () => {
+      for (const sp of opts.querySelectorAll('[data-auto]')) {
+        const now = autoNow(sp.dataset.auto);
+        if (!now) continue;
+        if (sp.textContent !== now.text) sp.textContent = now.text;
+        for (const b of sp.closest('.segs').children) b.classList.toggle('auto-pick', b.dataset.v === now.pick);
+      }
+    };
     const onoff = (id, title, key, on, tip) => choice(id, title, key, [[1, 'On'], [0, 'Off']], on ? 1 : 0, tip);
     // a group of option rows, under a heading or (text '') none
     const group = (id, text, rows) => section(id, text, block('', rows));
@@ -1621,6 +1648,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + group('sound', 'Sound', onoff('sound', 'Soundtrack', 'S', sound.on)
         + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>`);
     }
+    // the neighbor budgets offered: about ¾, 1, 1½ and 2 times the default (and one chosen before, if
+    // it is none of those)
+    const scanChoices = () => [...new Set([0.75, 1, 1.5, 2].map((f) => Math.round((K.maxScan * f) / 8) * 8).concat(eng.maxScan))].sort((a, b) => a - b);
     function performance_() {
       const s = eng.settings, P = state.perf;
       const dev = Math.min(devicePixelRatio || 1, 2);
@@ -1628,7 +1658,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const nowN = pendingN ?? (P.particles || 'auto');
       return group('res', 'Resolution', choice('scale', 'Render scale', '', [['auto', 'Auto'], [1, '100%'], [0.75, '75%'], [0.5, '50%'], [0.35, '35%']], P.scale, 'renderscale')
         + (P.scale === 'auto' ? choice('floor', 'Auto lowest', '', [[0.75, '75%'], [0.5, '50%'], [0.35, '35%'], [0.25, '25%']], P.floor, 'autofloor') : '')
-        + choice('density', 'Pixel density', '', [[1, '1×'], [1.5, '1.5×', dev < 1.5], [2, '2×', dev < 2]], P.density, 'density')
+        + choice('density', 'Pixel density', '', [['auto', 'Auto'], [1, '1×'], [1.5, '1.5×', dev < 1.5], [2, '2×', dev < 2]], P.density, 'density')
         + choice('fps', 'Target fps', '', [[30, '30'], [60, '60'], [0, 'Display']], P.fps, 'targetfps'))
         + group('fx', 'Effects', onoff('bloom', 'Bloom', 'B', s.bloom > 0, 'bloom')
         + onoff('optics', 'Optics', 'O', s.optics > 0, 'optics')
@@ -1636,7 +1666,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + onoff('specks', 'Suspension', '', s.specks, 'specks')
         + onoff('closeup', 'Live close-up', '', state.closeup, 'closeup'))
         + group('world', 'World', choice('n', 'Particles', '', [['auto', 'Auto'], ...sizes.map((n) => [n, kfmt(n)])], nowN, 'particles')
-        + choice('scan', 'Neighbours', '', [144, 192, 288].map((n) => [n, String(n)]), eng.maxScan, 'neighbours')
+        + choice('scan', 'Neighbors', '', scanChoices().map((n) => [n, n === K.maxScan ? `${n} <span class="chip-note">default</span>` : String(n)]), eng.maxScan, 'neighbors')
         + (pendingN != null && String(pendingN) !== String(P.particles || 'auto')
           ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === 'auto' ? 'a measured count' : fmt(pendingN)}</button></div>` : '')
         + (hasTS ? `<div class="opt"><span class="lbl">${term('profile', 'Profile')}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ''));
@@ -1759,7 +1789,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       } else {
         for (const k of ['bloom', 'optics', 'specks', 'lod']) s[k] = defaults[k];
         state.closeup = true;
-        Object.assign(P, { scale: 'auto', floor: 0.5, density: 1.5, fps: 60, scan: null });
+        Object.assign(P, { scale: 'auto', floor: 0.5, density: 'auto', fps: 60, scan: null });
         eng.maxScan = K.maxScan;
         renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit();
         pendingN = P.particles ? 'auto' : null;
@@ -1784,6 +1814,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       setText('ro-fps', perf.fps ? perf.fps.toFixed(0) : '–');
       setText('ro-ms', perf.gpu ? perf.gpu.toFixed(1) : '–');
       setText('ro-res', `${Math.round(renderScale * 100)}%${density() !== 1 ? ` at ${+density().toFixed(2)}×` : ''}`);
+      autoLive();
       setText('ro-px', `${canvas.width}×${canvas.height}`);
       setText('ro-n', fmt(eng.count));
       const al = sound.load;
@@ -1819,7 +1850,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'auto') { state.auto = !!+v; renderAuto(director.active); }
       else if (id === 'scale') { P.scale = v === 'auto' ? 'auto' : +v; if (P.scale !== 'auto') renderScale = P.scale; else renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
       else if (id === 'floor') { P.floor = +v; renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
-      else if (id === 'density') { P.density = +v; resetAdapt(); fit(); }
+      else if (id === 'density') { P.density = v === 'auto' ? 'auto' : +v; resetAdapt(); fit(); }
       else if (id === 'fps') { P.fps = +v; resetAdapt(); }
       else if (id === 'scan') { P.scan = +v === K.maxScan ? null : +v; eng.maxScan = +v; }
       else if (id === 'n') pendingN = v === 'auto' ? 'auto' : +v;
@@ -1868,7 +1899,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const step = Object.fromEntries((await eng.profileStep(1 / 60)).map(([k, ms]) => [k, +ms.toFixed(3)]));
     const a = device.adapterInfo || {};
     const json = JSON.stringify({ ua: navigator.userAgent, gpu: [a.vendor, a.architecture, a.description].filter(Boolean).join(' / '),
-      canvas: [canvas.width, canvas.height], dpr: devicePixelRatio, scale: renderScale, particles: eng.count, neighbours: eng.maxScan, living: life.counts[3],
+      canvas: [canvas.width, canvas.height], dpr: devicePixelRatio, scale: renderScale, particles: eng.count, neighbors: eng.maxScan, living: life.counts[3],
       cssPPU: +cssPPU().toFixed(1), speed: state.speed, fps: +perf.fps.toFixed(1), aim: Math.round(1000 / frameTarget()), why: perf.why, audio: sound.load,
       frameMs: per(gpu), passes: Object.fromEntries(Object.entries(passes).sort((x, y) => y[1] - x[1]).map(([k, x]) => [k, per(x)])), step });
     try { await navigator.clipboard.writeText(json); flash('Profile copied'); } catch { prompt('The profile, to copy:', json); }
@@ -2094,7 +2125,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (i < 0) i = list.findIndex((v) => v > state.speed) - (d > 0 ? 1 : 0);
     setSpeed(list[clamp(i + d, 0, list.length - 1)]);
   }
-  // A step's GPU cost (a coarse step costs about what a 1/60 s one does: one scan of the neighbours)
+  // A step's GPU cost (a coarse step costs about what a 1/60 s one does: one scan of the neighbors)
   const stepCost = () => perf.simS || perf.stepMs;
   // GPU ms a second of real time takes at speed s in steps of m ticks: the steps, plus drawing the
   // world every display frame, or (held) about every MAX_FRAME_MS, carrying the image between.
@@ -2181,7 +2212,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   segs.innerHTML = '<i></i>'.repeat(10);
   // the water gauge: a thermometer of ten segments from the climate's coldest (4°) to its warmest (28°)
   // the temperature gauge: a thermometer whose tube fills with ten bars from the climate's coldest
-  // (4°) to its warmest (28°), each lit in its own temperature's colour, the bulb in the current one;
+  // (4°) to its warmest (28°), each lit in its own temperature's color, the bulb in the current one;
   // on phones a small upright thermometer whose level rises
   const THERMO = ['#3d6fd6', '#3f86d8', '#3fa0d0', '#41b7c2', '#62c6a8', '#9bcd86', '#d2c865', '#f0b04a', '#ff8a3a', '#ff5f3a'];
   // a big bulb joined to a slim tube, as a real thermometer is
@@ -2315,8 +2346,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // (running fast spends the frame on simulation on purpose). Behind (frames late, or with GPU
   // timestamps the GPU busy for nearly the whole interval, or the device under pressure): a lower
   // render scale, then a lower frame rate, or the frame rate first when the simulation is most of the
-  // cost (resolution would barely help); with Auto render scale, a scene drawn at more than 1 device
-  // pixel per CSS pixel drops to 1 before either. With room again: the frame rate back first, then
+  // cost (resolution would barely help); with Auto pixel density, a scene drawn at more than 1 device
+  // pixel per CSS pixel drops to 1 before any of them. With room again: the frame rate back first, then
   // the scale, then the pixel density.
   function adaptQuality(now) {
     if (state.phase !== 'running' || state.speed > 1 || state.paused || now - perf.lastAdjust < 2000 || perf.frameDt.length < 6) return;
@@ -2327,7 +2358,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const m = perf.frameDt.reduce((a, b) => a + b, 0) / perf.frameDt.length;
     perf.frameDt.length = 0;
     perf.lastAdjust = now;
-    const T = frameTarget(), auto = state.perf.scale === 'auto';
+    const T = frameTarget(), auto = state.perf.scale === 'auto', autoD = state.perf.density === 'auto';
     const floor = auto ? state.perf.floor : renderScale;
     // without timestamps perf.gpu is the time from submit to done, which overstates the GPU's share
     const busy = perf.gpu > T * (hasTS ? 0.92 : 1);
@@ -2339,7 +2370,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // a level that just proved too slow is not tried again for a while, so the view doesn't keep
       // climbing back into the same stutter
       perf.ceilingUntil = now + 30000;
-      if (auto && density() > 1.01) {
+      if (autoD && density() > 1.01) {
         densityCap = 1; perf.denseUntil = now + 30000;
         resizeDue = true;
       } else if (renderScale > floor + 0.01 && !(simBound && perf.slow < 4)) {
@@ -2366,13 +2397,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (perf.slow === 1) perf.why = '';
       return;
     }
-    if (!auto) return;
+    if (!auto && !autoD) return;
     const cap = held ? perf.ceiling * 0.95 : 1;
-    const next = [...SCALES].reverse().find((s) => s > renderScale + 0.01 && s <= cap + 0.001);
+    const next = auto && [...SCALES].reverse().find((s) => s > renderScale + 0.01 && s <= cap + 0.001);
+    const full = !auto || renderScale >= 1;
     if (next) { renderScale = next; perf.goodWindows = 0; resizeDue = true; }
     // the full pixel density back last, once the full scale has held for three windows more
-    else if (renderScale >= 1 && densityCap < Infinity && now >= perf.denseUntil && !held) { densityCap = Infinity; perf.goodWindows = 0; resizeDue = true; }
-    if (renderScale >= 1 && densityCap === Infinity) perf.why = '';
+    else if (full && autoD && densityCap < Infinity && now >= perf.denseUntil && !held) { densityCap = Infinity; perf.goodWindows = 0; resizeDue = true; }
+    if (full && densityCap === Infinity) perf.why = '';
   }
   // A new render scale is applied at the start of the next frame, before it takes the canvas's
   // texture: resizing the canvas after a frame is drawn into it discards that frame (a black flash).
@@ -2641,7 +2673,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       r = Math.max(r, sx + sel.boxD[2] * p + pad); b = Math.max(b, sy + sel.boxD[3] * p + pad);
     } else sel.boxD = null;
     brackets(octx, l, t, r, b, lost ? 'rgba(255,255,255,0.35)' : 'rgba(255,95,58,0.95)', 10);
-    // framing a body, the brackets are the organism's; the watched cell gets its own, in the panel's cell colour
+    // framing a body, the brackets are the organism's; the watched cell gets its own, in the panel's cell color
     if (sel.boxD && !lost) brackets(octx, sx - cr, sy - cr, sx + cr, sy + cr, CELL_MARK, 2.5, 0.225);
     if (inLens || lost) return true;
     const p = sel.particle;
@@ -2872,7 +2904,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       cap.swapped = true;
     }
     capEl.classList.toggle('on', !!(sh && cap.html && sh.t < sh.dur - 2.5));
-    // centred in the part of the view the panels leave open
+    // centered in the part of the view the panels leave open
     const l = lab.isOpen() && !phone() ? $('lab').getBoundingClientRect().right : 0;
     const r = specimen.inset().right;
     const x = `${Math.round((l + innerWidth - r) / 2)}px`;

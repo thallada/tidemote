@@ -76,7 +76,7 @@ export function cardData(sp, { reg, genera, K, story = null, simTime = 0, era = 
   };
 }
 
-// the song roll and the sigil as images: their page styles, inlined with literal colours
+// the song roll and the sigil as images: their page styles, inlined with literal colors
 const SVG_CSS = `.brk{fill:none;stroke:rgba(150,222,230,.55);stroke-width:1}.tick{fill:none;stroke:rgba(150,222,230,.55);stroke-width:.6}
 .on{stroke-width:.8;opacity:.9}.rail{stroke:rgba(130,205,214,.22);stroke-width:.6}.rail.tonic{stroke:rgba(150,222,230,.55);stroke-width:.7}
 .bar{stroke:rgba(150,222,230,.55);stroke-dasharray:2 2;stroke-width:.6}.contour{fill:none;stroke-width:.8;opacity:.4}.v2{fill:none;stroke-width:1;opacity:.75}
@@ -126,7 +126,7 @@ export function drawCard(ctx, d, art = {}) {
   ctx.save();
   ctx.fillStyle = '#06090a';
   ctx.fillRect(0, 0, W, H);
-  // a border inside the edge, in the species' colour
+  // a border inside the edge, in the species' color
   ctx.strokeStyle = d.col; ctx.globalAlpha = 0.55; ctx.lineWidth = 2;
   ctx.strokeRect(11, 11, W - 22, H - 22);
   ctx.globalAlpha = 1;

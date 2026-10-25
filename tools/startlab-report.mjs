@@ -1,6 +1,6 @@
 // Compare groups of start-lab runs (tools/startlab.mjs JSON) over a window of their time:
 //   node tools/startlab-report.mjs --from 1500 --to 2400 ctl='runs/B/ctl-*.json' cull='runs/B/cull-*.json'
-// Each metric is averaged over the window per run, then summarised per group as mean ± 95% CI over runs
+// Each metric is averaged over the window per run, then summarized per group as mean ± 95% CI over runs
 // (t-based), with the share of runs that are monocultures (one species > 50%) or lack a guild (< 5%).
 import fs from 'node:fs';
 import path from 'node:path';

@@ -2,7 +2,7 @@
 
 The page's soundtrack (`src/audio/`) is a sample-level port of a SuperCollider 3.13 score: the
 UGens in `ugens.js` follow scsynth's block structure (64-sample blocks, control-rate ramps,
-biquad slope ramping, EnvGen and Decay2 start-up behaviour), and `voices.js` translates each
+biquad slope ramping, EnvGen and Decay2 start-up behavior), and `voices.js` translates each
 SynthDef in `voices.scd` line for line. These scripts render the same events in both and compare.
 
 Requires SuperCollider 3.13 (`sclang`, run headless with `QT_QPA_PLATFORM=offscreen`), Python

@@ -1,4 +1,4 @@
-// Strips of the hunt's jumps: one row per jump, the view's centre from the jump on.
+// Strips of the hunt's jumps: one row per jump, the view's center from the jump on.
 //   node tools/anim/hcrop.mjs HUNTDIR OUT.png [MAX=5] [STEP=8] [N=10] [SIZE=260] [SKIP=0]
 import fs from 'node:fs'; import path from 'node:path'; import { execFileSync } from 'node:child_process';
 const [dir, out, max = 5, step = 8, n = 10, size = 260, skip = 0] = process.argv.slice(2);

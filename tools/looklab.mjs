@@ -3,7 +3,7 @@
 // as it is written, without growing the world again (docs/catastrophes.md).
 //   tools/gpu-node.sh tools/looklab.mjs --dir runs/look [--n 262144] [--mature 90] [--k '{}']
 // It waits for DIR/cmd.json ({ id, wgsl?: path to a composite shader, scenes: [...] }); each scene:
-//   { name, level: 1, frost: 0, rain: 0, drops: [[dx, dy, age, strength], ...] (from the scene's centre), at: [x, y] | 'shore' | 'ice',
+//   { name, level: 1, frost: 0, rain: 0, drops: [[dx, dy, age, strength], ...] (from the scene's center), at: [x, y] | 'shore' | 'ice',
 //     zoom: pixels per world unit | 'fit', run: simulated seconds to run first (at speed 1) }
 // and writes DIR/NAME.png for each, then DIR/done.json ({ id, errors }). `node tools/looklab.mjs --dump FILE` writes
 // the current POST_WGSL to FILE (run it under WSL's node; the lab reads the file).

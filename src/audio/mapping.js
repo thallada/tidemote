@@ -1,6 +1,6 @@
 // Genome → voice. Everything a species sounds like is read from its genome, so a mutant
 // plays a variation of its parent: the archetype picks the instrument family and register, the
-// colour the instrument and its timbre, and motif.js the song itself.
+// color the instrument and its timbre, and motif.js the song itself.
 
 import { dietGuild, mobilityGuild } from '../genome.js';
 import { motifOf } from './motif.js';
@@ -24,7 +24,7 @@ export const ARCH = {
 export function archOf(g) {
   const bonded = (g.adhesion || 0) > 0.15;
   let guild = dietGuild(g);
-  // musically, how a cell lives matters more than its strict diet: a cell that photosynthesises
+  // musically, how a cell lives matters more than its strict diet: a cell that photosynthesizes
   // substantially and does not actively swim plays as a producer (mixotrophs included)
   if (guild !== 'producer' && g.photo > 0.4 && mobilityGuild(g) !== 'swimmer') guild = 'producer';
   if (guild === 'producer') {

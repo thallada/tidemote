@@ -5,7 +5,7 @@ D husks. Energy is in the ledger's units per minute per cell. Every rate is take
 steady state of the default (runs/feE2b, 32 seeds x 30 min): per-cell incomes, upkeep, energy per birth,
 lifetimes, kill and bite rates.
 
-  producers  earn light. Rule A (now): g0 / (1 + s * living), every living neighbour shading a little,
+  producers  earn light. Rule A (now): g0 / (1 + s * living), every living neighbor shading a little,
              so a patch's light grows with its producers. Rule B: light per area, shared by the
              producers in a patch: g0 / (1 + sP * P) with a strong sP (a patch's total saturates at g0 / sP).
   grazers    bite producers, type II and nearly saturated at the measured density (they are fully fed:

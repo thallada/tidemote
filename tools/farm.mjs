@@ -1,4 +1,4 @@
-// Farm one ensemble's seeds out to several machines (this one and others over ssh), then analyse and gate
+// Farm one ensemble's seeds out to several machines (this one and others over ssh), then analyze and gate
 // them with ensemble.mjs --from. Every host runs the same commit from its own worktree
 // (~/.cache/tidemote-farm/worktrees/SHA), never the checkout that is there, so branches can differ between
 // machines and editing src/ never changes a running farm. Hosts live outside the repo, in
@@ -252,7 +252,7 @@ cat "$F.json"; rm -f "$F.json"`;
   failed.push(...queue.map((item) => item.seed));
 }
 
-// Analyse (and gate) everything in --out exactly as ensemble.mjs does
+// Analyze (and gate) everything in --out exactly as ensemble.mjs does
 const ensemble = fileURLToPath(new URL('./ensemble.mjs', import.meta.url));
 const pass = ['name', 'baseline', 'targets', 'save-baseline', 'alpha'].flatMap((key) => v[key] != null ? [`--${key}`, v[key]] : []);
 const code = await new Promise((resolve) => spawn(process.execPath, [ensemble, '--from', out, ...pass], { stdio: 'inherit' }).on('close', resolve));

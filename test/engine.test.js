@@ -44,7 +44,7 @@ for (const type of ARCHETYPE_TYPES) {
   });
 }
 
-test('finalizeGenome normalises diet and calculates metabolism', () => {
+test('finalizeGenome normalizes diet and calculates metabolism', () => {
   const genome = archetypeGenome('hunter', () => 0.5);
   Object.assign(genome, {
     dGlint: 2, dHusk: 3, dFlesh: 5, force: 4, radius: 0.5,
@@ -64,7 +64,7 @@ test('roleShares returns a probability distribution', () => {
   assert.deepEqual(roleShares({ dev: [[1, 0, 0], [1, 0, 0], [1, 0, 0]] }), [1, 0, 0]);
 });
 
-test('hsl2rgb converts known colours', () => {
+test('hsl2rgb converts known colors', () => {
   for (const [hsl, expected] of [
     [[0, 1, 0.5], [1, 0, 0]],
     [[1 / 3, 1, 0.5], [0, 1, 0]],

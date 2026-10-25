@@ -129,7 +129,7 @@ function stack(hist) {
 }
 
 /**
- * Living cells stacked by thriving species (in their colours), the rest of life as a pale band on
+ * Living cells stacked by thriving species (in their colors), the rest of life as a pale band on
  * top. Pointing names a band's species (hit: { serial, pop, t }) and brings it forward.
  */
 export function drawLiving(cv, hist, reg, eras, picked = null) {

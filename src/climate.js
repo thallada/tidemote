@@ -60,7 +60,7 @@ export function eventAt(ev, t, levelTo) {
     out.rain = r; out.sky = 1 - 0.6 * dark * r; out.turb = 1 + 1.6 * rough * r; out.dT = -4 * cold * Math.min(ramp(u, 0, 120), 1 - ramp(u, ev.dur, ev.dur + 240));
     out.level = Math.min(1, levelTo + 0.04 * r); out.phase = u < ev.dur ? 'storm' : u < ev.dur + 240 ? 'after' : null;
   } else if (ev.type === 'frost') {
-    // night falls and the water chills; ice grows from the shallows and grain centres, holds, then thaws
+    // night falls and the water chills; ice grows from the shallows and grain centers, holds, then thaws
     const { cool, grow, hold, thaw } = ev;
     const night = Math.min(ramp(u, 0, cool), 1 - ramp(u, cool + grow + hold, cool + grow + hold + thaw + 120));
     out.sky = 1 - 0.6 * ev.dark * night; out.chill = ev.cold * night;

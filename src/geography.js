@@ -31,7 +31,7 @@ export function makeRelief(gw, gh, seed, { minL = 10, maxL = 70, modes = 28, war
   });
   const H = waves(modes, minL, Math.min(maxL, Math.max(gw, gh)), 1.1);
   const WX = waves(6, minL * 1.5, maxL, 0.5), WY = waves(6, minL * 1.5, maxL, 0.5);
-  // a sum of waves at the cell centres, separably: cos(ax x + ay y + ph) = cos(ax x) cos(ay y + ph) - sin(ax x) sin(ay y + ph)
+  // a sum of waves at the cell centers, separably: cos(ax x + ay y + ph) = cos(ax x) cos(ay y + ph) - sin(ax x) sin(ay y + ph)
   const field = (ws) => {
     const out = new Float32Array(gw * gh), norm = ws.reduce((a, w) => a + w.amp, 0);
     const cx = new Float32Array(gw), sx = new Float32Array(gw), cy = new Float32Array(gh), sy = new Float32Array(gh);
@@ -91,7 +91,7 @@ export function countPools(q, gw, gh, level, min = 6) {
 
 /**
  * The order in which the pool freezes (frost, docs/catastrophes.md): each grid cell's quantile, 0 the first to freeze.
- * Ice grains grow from the shallows and from their centres outward and meet along the zero lines of a random field,
+ * Ice grains grow from the shallows and from their centers outward and meet along the zero lines of a random field,
  * which freeze last: the liquid left between grains is a network of veins (brine channels).
  */
 export function makeIceOrder(gw, gh, seed, relief = null) {

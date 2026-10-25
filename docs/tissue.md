@@ -10,7 +10,7 @@ merged to main: these rules are now always on, and only their strengths remain t
 
 ## What was wrong
 
-- **Forces summed without limit.** A cell added the push and pull of every neighbour, so among a thousand it
+- **Forces summed without limit.** A cell added the push and pull of every neighbor, so among a thousand it
   was driven a hundred times harder than in open water and ran at `maxSpeed` (82 radii a second in piles).
 - **A soft, capped core.** Personal space pushed at most 1 per pair, so a clump with net attraction (often
   hungry hunters, which lower it to `huntCore`) collapsed with no limit on its members.
@@ -22,7 +22,7 @@ merged to main: these rules are now always on, and only their strengths remain t
 ## The rules
 
 - `socialN`: past this many particles within reach the pair forces are averaged, not summed: a crowd
-  drives a cell no harder than a neighbourhood does.
+  drives a cell no harder than a neighborhood does.
 - `tissue` (rate): bonds pull both ways (`bondBackMain` gathers the cells that keep a bond to each into
   `bondsNow`, six words a cell; only that pass uses atomics, through a second binding), a body cell takes on
   its partners' motion at this rate, and a free bond slot only closes a triangle inside the body
@@ -32,8 +32,8 @@ merged to main: these rules are now always on, and only their strengths remain t
   and they keep `tissueSig` of their long-range signature forces, so contact shapes them. Loose species keep
   open, strung-out bodies.
 - `liveFirst`: each grid cell's living sort first (`resolveCount` ranks living and matter apart; `LIVE_AT`
-  holds the counts), and a cell weighs its living neighbours exactly up to `liveScan`, sampling the matter
-  with what `maxScan` leaves. Strides follow the crowd interpolated between grid-cell centres (floored at a
+  holds the counts), and a cell weighs its living neighbors exactly up to `liveScan`, sampling the matter
+  with what `maxScan` leaves. Strides follow the crowd interpolated between grid-cell centers (floored at a
   third of the totals' stride beside a heap), so nothing jumps at a grid line.
 - `contactMain`, a pass of its own before `lifeMain` (in `lifeMain` its loop cost the whole kernel registers
   even when idle): each living cell walks every living cell it could touch (grid cells within

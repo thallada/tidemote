@@ -22,7 +22,7 @@ them.
 at least X% of runs, for an hour") about a stochastic system with 10^4 to 10^6 interacting particles and
 open-ended genomes. There is no mathematics that proves persistence for even much simpler spatial,
 evolving predator-prey models; it is an open research area. The program is also float32 on a GPU with
-racing atomics, so a proof would be about an idealised model rather than the code, and it would have to
+racing atomics, so a proof would be about an idealized model rather than the code, and it would have to
 be redone at every new feature, which is exactly when it is wanted.
 
 **For a coarse model, yes, but the useful part is not the proof.** A mean-field model of guild
@@ -30,7 +30,7 @@ biomass (producers, grazers, predators, scavengers, glint, husks, silt) is a Lot
 For those there are known, checkable conditions: an interior equilibrium is globally stable if the
 interaction matrix is diagonally stable (a Lyapunov function exists; Goh 1977), and the system is
 *permanent* if an average Lyapunov function exists (Hofbauer and Sigmund), which reduces to a linear
-program. These can be checked numerically in milliseconds. Formalising them in Lean would certify
+program. These can be checked numerically in milliseconds. Formalizing them in Lean would certify
 textbook mathematics and say nothing about how well the model matches the simulation, which is the
 real risk. If a proof assistant is ever worth it here, it is for small engine invariants (particle
 count is conserved; energy enters only through the tide and light), and property tests cover those
@@ -55,8 +55,8 @@ runs.
 Modern coexistence theory (Chesson 2000) gives a test that is both rigorous and measurable: a set of
 species or guilds coexists robustly when **each can invade when rare**, with a positive per-capita
 growth rate when it is scarce and the others are at their usual abundance. Coexistence needs
-*stabilising* mechanisms, ones that make a species' growth fall with its own abundance faster than
-with its competitors'. Fitness differences without stabilisation give competitive exclusion: one
+*stabilizing* mechanisms, ones that make a species' growth fall with its own abundance faster than
+with its competitors'. Fitness differences without stabilization give competitive exclusion: one
 winner.
 
 That translates into local rules of a few known kinds:
@@ -118,7 +118,7 @@ Two smaller observations:
   similarity (as eating already does with `kin`) would close that. Slot exhaustion also caps mutation
   globally once all slots are used, a hidden regulator to keep in mind.
 - "Grazer" and "omnivore" monocultures are mostly mixotrophs at `photo` ≈ 0.5, just under the producer
-  threshold of 0.55: bonded bodies that photosynthesise and eat.
+  threshold of 0.55: bonded bodies that photosynthesize and eat.
 
 ## 5. Plan
 
@@ -126,14 +126,14 @@ Two smaller observations:
    rate of `tools/ensemble.mjs --baseline`. (Result in section 6.)
 2. **Fix the dominant trait first,** one local rule at a time, each gated against the baseline:
    bonded cells pay crowding too (within a body it should count strangers-of-kind, not body mates;
-   or count kin beyond the two bonded neighbours); armour costs reproduction (bigger `buildCost` or
+   or count kin beyond the two bonded neighbors); armour costs reproduction (bigger `buildCost` or
    lower `share` with adhesion); key crowding on signature similarity so mutants do not escape it.
-3. **Then add stabilisation:** predator search images (kill the winner), non-lethal herbivory.
+3. **Then add stabilization:** predator search images (kill the winner), non-lethal herbivory.
 4. **Add the invasion test** as a tool (`--invade guild`), and per-guild death causes in the ledger
    (starved / eaten / old age), recommended by the previous study.
 5. **Tune with search, not by hand, once the rules are right.** A Morris screening of `DEFAULT_K`
-   (which knobs matter) costs a few thousand 10-minute runs: an overnight job. Robust optimisation
-   (CMA-ES or Bayesian optimisation) of a lower quantile of a per-run health score across seeds, on
+   (which knobs matter) costs a few thousand 10-minute runs: an overnight job. Robust optimization
+   (CMA-ES or Bayesian optimization) of a lower quantile of a per-run health score across seeds, on
    held-out seeds, avoids tuning to luck. Keep looking at the worlds: metrics can be gamed.
 6. **For every future feature:** run the gate before merging. Tiers: a quick screen (16 runs × 10
    min, about 3 minutes), the gate (32 × 30 min, about 16 minutes), and occasional long checks (1 hour,
@@ -162,12 +162,12 @@ Taking the free lunch away from bodies breaks the monocultures, and diversity wi
 explodes, but consumers still do not hold on: the commonest world is a lush, varied plant community
 with nothing eating it. The gate flags it, rightly: by species counts it looks like a big win, by
 trophic structure it is worse. It supports the plan's order. The dominant trait was real, but the
-consumer side needs stabilising mechanisms of its own (prey switching, non-lethal herbivory,
+consumer side needs stabilizing mechanisms of its own (prey switching, non-lethal herbivory,
 handling time) before the food web can persist.
 
 ## 7. First round of rule changes, 2026-10-02
 
-Four local mechanisms were added behind knobs that defaulted to the old behaviour, then tested alone
+Four local mechanisms were added behind knobs that defaulted to the old behavior, then tested alone
 and in combinations, each 32 seeds × 30 min at 32k. Per-guild births and deaths (starved, old age,
 eaten) are now recorded in every sample (`sample.demography`), which answered the previous study's
 open question: consumers die mostly by **being eaten**, not by starving (scavengers: eaten 5.2, starved
@@ -202,7 +202,7 @@ What it shows:
   and the most varied set of outcomes seen (6.0 distinct, the commonest only 31%), with no loss on any
   metric. Adopted at 0.7.
 - **Look-alike crowding** made things worse and was deleted.
-- **A grazing floor** is the strongest stabiliser of the food web (up to 66%) but every variant that
+- **A grazing floor** is the strongest stabilizer of the food web (up to 66%) but every variant that
   includes it makes runs converge (lower spread, fewer distinct outcomes, fewer leader changes): the
   stability-versus-uniqueness tension, measured. Rejected for now and deleted; it is in git history
   (commit fc048b5) should a later change need it.
@@ -266,12 +266,12 @@ efficiency (1 − photo)² ≈ 0.15) and husk eaters with a small flesh share ki
 almost nothing from. An inefficient eater still killed its victim outright.
 
 **Catching takes skill** (`catchSkill`). An attempt on a living cell succeeds with probability
-`min(1, eatEff × preference / catchSkill)`, where preference is the same diet weight the neighbour scan
-uses. A pure predator or grazer catches as before; a photosynthesiser or a side-line hunter mostly
+`min(1, eatEff × preference / catchSkill)`, where preference is the same diet weight the neighbor scan
+uses. A pure predator or grazer catches as before; a photosynthesizer or a side-line hunter mostly
 fails. One line next to the armour and search-image tests. Predators went from 2-8% of late life to
 20-30%; notable species and leader changes rose significantly. The cost: producers lost ground (with
 `catchSkill` 0.5 they persisted in 56% of runs), because the "producer" guild had partly lived off its
-neighbours. Lowering `plantPref` (how much a flesh-eater values a plant cell) from 0.35 to 0.1 gave
+neighbors. Lowering `plantPref` (how much a flesh-eater values a plant cell) from 0.35 to 0.1 gave
 plants back to the grazers:
 
 | `catchSkill`, `plantPref`, `dietMin` | food web | producers | mono | guilds | eff. species | notable | leaders | spread | modal |
@@ -418,7 +418,7 @@ Every rule is local. Against the original rules of section 4:
 - 1024 genome slots (was 512).
 
 Rejected, deleted, in git history: look-alike crowding (`crowdSig`), a grazing floor (`biteFloor`,
-stabilises food webs but makes runs converge), a hard diet threshold (`dietMin` 0.15, starved producers in
+stabilizes food webs but makes runs converge), a hard diet threshold (`dietMin` 0.15, starved producers in
 big worlds; superseded by the catch rule).
 
 ## 12. Open issues

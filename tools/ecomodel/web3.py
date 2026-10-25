@@ -1,11 +1,11 @@
 """The food web in space: a grid of patches (NX x NY over the torus world), each running the mean-field
-web (web.py) on its own counts, with its own silt, husks and light, and cells moving between neighbours.
+web (web.py) on its own counts, with its own silt, husks and light, and cells moving between neighbors.
 
   light      the tide's moving bands (tideAt's shape: a few integer-wavenumber waves drifting at the
              world's speed) over the per-area rule, so meadows bloom and fade patch by patch
   hunting    local: kills per hunter = aH x prey / (1 + aH hH prey) on the patch's own prey, so hunters
              saturate only where prey is dense; satiety's attack share as in web.py
-  movement   every guild spreads to the four neighbours at its own rate; grazers drift toward
+  movement   every guild spreads to the four neighbors at its own rate; grazers drift toward
              producers, scavengers toward husks, hunters toward prey (clustering emerges)
   chance     with noise, births, deaths and moves are whole cells drawn at random per patch (tau-leaping),
              so a run is one world and many runs give the share of worlds where each guild lives;
@@ -50,7 +50,7 @@ def tide_field(rng, speed=1.0):
     return at
 
 
-def neighbours(X):
+def neighbors(X):
     return [np.roll(X, 1, 0), np.roll(X, -1, 0), np.roll(X, 1, 1), np.roll(X, -1, 1)]
 
 
@@ -110,14 +110,14 @@ def step(n, p, light_rel, dt, rng=None):
     huskE = p['huskE'] or 7.0
     dD = deadHusk + 0.3 * kills * n['H'] + p['dung'] * 0.25 * intakeG * n['G'] / huskE - intakeS * n['S'] / huskE - p['huskDecay'] * n['D']
     out['D'] = np.maximum(n['D'] + dD * dt, 0)
-    # movement: diffusion to the four neighbours, plus drift toward each guild's food
+    # movement: diffusion to the four neighbors, plus drift toward each guild's food
     food = {'G': c['P'], 'H': c['G'] + c['S'] + c['H'], 'S': c['D'], 'P': None}
     for g in 'PGHS':
         X = out[g]
         rate_out = np.full((4, NX, NY), p['move'] / 4)
         if food[g] is not None:
             F = food[g]
-            for k, Fn in enumerate(neighbours(F)):
+            for k, Fn in enumerate(neighbors(F)):
                 rate_out[k] += p['tax' + g] * np.maximum(Fn - F, 0) / (Fn + F + 1e-3)
         frac = np.minimum(rate_out * dt, 0.25)
         if rng is None:
@@ -129,7 +129,7 @@ def step(n, p, light_rel, dt, rng=None):
                 moved[k] = rng.binomial(left.astype(np.int64), np.clip(frac[k] / np.maximum(1 - frac[:k].sum(0), 1e-9), 0, 1))
                 left = left - moved[k]
         X = X - moved.sum(0)
-        # a cell leaving toward neighbour k arrives there: roll back the other way
+        # a cell leaving toward neighbor k arrives there: roll back the other way
         X = X + np.roll(moved[0], -1, 0) + np.roll(moved[1], 1, 0) + np.roll(moved[2], -1, 1) + np.roll(moved[3], 1, 1)
         out[g] = X
     # abiogenesis: a few cells a minute, somewhere in the light

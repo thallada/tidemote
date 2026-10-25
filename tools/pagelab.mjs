@@ -44,8 +44,8 @@ export async function openPage({ html = 'dist/tidemote.html', k = '{}', n = 2621
 }
 
 /**
- * Point the camera: at [x, y] (world units), 'event' (the current event's centre), 'shore' (a point of the water's
- * edge) or 'ice' (a point of the ice front), the nearest such to the world's centre, plus `off`; zoom in pixels per
+ * Point the camera: at [x, y] (world units), 'event' (the current event's center), 'shore' (a point of the water's
+ * edge) or 'ice' (a point of the ice front), the nearest such to the world's center, plus `off`; zoom in pixels per
  * world unit, or 'fit' (the whole world), never wider than the page lets a viewer see. Returns the spot.
  */
 export const aim = (page, at, zoom = 'fit', off = [0, 0]) => page.evaluate(([at, z, off]) => {

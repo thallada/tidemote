@@ -1,4 +1,4 @@
-// Per-guild neighbourhood, motion, light and hunger (forks run with K.diag record `diag`: means over each
+// Per-guild neighborhood, motion, light and hunger (forks run with K.diag record `diag`: means over each
 // cell's once-a-second samples) across fork worlds: each variant against the first (or mX:tag against
 // m1:tag), the paired relative difference per world, then the mean over worlds and worlds up/down.
 // Usage: fork-diag.cjs file.json... [--guilds producer,grazer]

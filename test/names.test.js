@@ -14,7 +14,7 @@ test('names preserve the original seeded outputs', () => {
   for (let i = 0; i < 20; i++) assert.equal(a(), b());
 });
 
-test('words have capitalised syllables and genus retries do not mutate existing names', () => {
+test('words have capitalized syllables and genus retries do not mutate existing names', () => {
   // The syllable grammar checks pronounceable structure, not just alphabetic output.
   const syllables = /^(?:V|Th|K|Z|Qu|R|M|S|N|X|Ph|Dr|Gh|L|Y|Sk|Tr|H|B|C|Vr|Ch)[aoeiuy](?:e|u|a|o)?(?:(?:v|th|k|z|qu|r|m|s|n|x|ph|dr|gh|l|y|sk|tr|h|b|c|vr|ch)[aoeiuy](?:e|u|a|o)?)*(?:n|r|th|x|s|l|m|k|sh|rn)?$/;
   for (let seed = 0; seed < 100; seed++) {

@@ -84,7 +84,7 @@ const info = await page.evaluate(async ({ genomes, plans, words, PW, width, gap 
 }, { genomes, plans: plans.map((p) => ({ cells: p.cells, pos: p.pos, gen: p.gen })), words, PW: P_BYTES / 4, width: +v.width, gap: +v.gap });
 console.log(JSON.stringify(info));
 await page.waitForTimeout(800);
-// each frame's simulated time, and each body's centre (its cells' mean, by id)
+// each frame's simulated time, and each body's center (its cells' mean, by id)
 const log = [];
 for (let f = 0; f < +v.frames; f++) {
   const t0 = Date.now();

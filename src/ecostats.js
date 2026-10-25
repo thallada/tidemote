@@ -98,7 +98,7 @@ export function packing(parts, count, grid, sizeOf, firstLife = 5) {
 
 /**
  * How the living are arranged and how they move, per guild (awake cells; a cyst, cause 14, is skipped):
- * kin, the share of neighbours within one grid unit that are its own species; amongP, the share that are
+ * kin, the share of neighbors within one grid unit that are its own species; amongP, the share that are
  * producers; and roam, the median distance a cell moved since `prev` (the last call's positions by id),
  * per minute; with lightOf(x, y) (the tide's bands, 0..1), lit, the mean light where its cells are (stat.litWorld:
  * over the whole world). Returns { stat, pos } (pos to pass back next time).

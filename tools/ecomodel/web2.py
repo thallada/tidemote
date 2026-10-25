@@ -108,7 +108,7 @@ def rhs(t, x, p):
     dh = {}
     deadHusk = 0.0
     att = attack(p)
-    realised = (h['H'] * att).sum() / H * kills if H > 0 else 0.0   # kills per hunter per minute, on average
+    realized = (h['H'] * att).sum() / H * kills if H > 0 else 0.0   # kills per hunter per minute, on average
     for g in ANIMALS:
         n = h[g]
         span = p['b' + g] / (1 - E0)                      # energy from 0 to the threshold
@@ -146,7 +146,7 @@ def rhs(t, x, p):
         alpha, beta_, gamma = p['eaten' + g]
         w = p.get('hunterPrey', 1.0)
         prey = G + S + w * H
-        hr = realised * H / prey if prey > 0 else 0.0
+        hr = realized * H / prey if prey > 0 else 0.0
         eaten = alpha * hr * (w if g == 'H' else 1.0) + beta_ * (G + S + H) + gamma
         old = p['old' + g]
         corr = p['corr'][g][0] if p.get('corr') else 0.0
@@ -162,7 +162,7 @@ def rhs(t, x, p):
         dP += P * p['corr']['P'][0]
     deadHusk += P * p['oldP']
     huskE = p['huskE'] or 7.0
-    dD = deadHusk + 0.3 * realised * H + p['dung'] * 0.25 * intakeG * G / huskE - intakeS * S / huskE - p['huskDecay'] * D
+    dD = deadHusk + 0.3 * realized * H + p['dung'] * 0.25 * intakeG * G / huskE - intakeS * S / huskE - p['huskDecay'] * D
     return pack(dP, dh, dD)
 
 

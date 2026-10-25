@@ -149,7 +149,7 @@ export class Interest {
     return { reasons, div: Math.round(div) };
   }
 
-  /** Tile scores in [0, 1], each blurred over its neighbours, since a shot frames several tiles. */
+  /** Tile scores in [0, 1], each blurred over its neighbors, since a shot frames several tiles. */
   scores(parts = this.parts()) {
     if (!this.n) return null;
     const n = this.n, raw = parts.total;
@@ -165,7 +165,7 @@ export class Interest {
     return out;
   }
 
-  /** World position of a tile's centre (tiles at the world's edge may be partial). */
+  /** World position of a tile's center (tiles at the world's edge may be partial). */
   center(i) {
     const [tx] = this.tiles, t = this.tile;
     const x = i % tx, y = Math.floor(i / tx);

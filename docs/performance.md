@@ -5,7 +5,7 @@ on saved worlds grown at Max: `w1m` (1M particles, about 540k living) and `w4m` 
 
 ## Where the GPU time goes
 
-The simulation step dominates. In a mature world `lifeMain` (every living cell's neighbour scan,
+The simulation step dominates. In a mature world `lifeMain` (every living cell's neighbor scan,
 forces and budget) is about 80% of a step, and a step costs 5 to 6 ns per living cell:
 
 | world | step | lifeMain | scatter | resolveCount | matter |
@@ -18,12 +18,13 @@ so the cost the page calibrates against at start is close to the mature one; it 
 the climate by ±30%.
 
 `lifeMain` is limited by registers (occupancy), not arithmetic: cutting state it carries through the
-neighbour loop is what pays. The neighbour loop is about 93% of it; its cost scales with the sample
+neighbor loop is what pays. The neighbor loop is about 93% of it; its cost scales with the sample
 budget `maxScan`: 192 since 2026-10-09 (288 before), which took about 25% off `lifeMain` (1M world
 2.30 → 1.67 ms, 4M 9.9 → 7.8 ms). It passed the 32-seed gate against 288 and against heat-framboids,
 and 128 seeds at 4-tick steps matched 288 or bettered it (effective species 79.5 ± 4.4 against
 72.0 ± 3.9; reports in `balance/maxscan/`). It is a uniform (`sim.maxScan`), so Settings → Performance →
-Neighbours changes it live (144, 192, 288; no measurable cost against a compiled constant).
+Neighbors changes it live (no measurable cost against a compiled constant); since 2026-10-25 it offers about
+¾, 1, 1½ and 2 times the default `maxScan` (now 112: 88, 112, 168, 224), the default marked.
 
 144 against 192 (2026-10-10, after the hot-springs change): the step is 8% faster in the 1M world and
 14% in the 4M one (`lifeMain` 11% and 15%; 288 is 20% slower). Ecology is unchanged: the gate passes
@@ -59,16 +60,19 @@ rough cost (`COMPILE_COST`). Headless runs wait for every pipeline.
   simulation step per refresh, 2.4 times the work of 60 at 143 Hz.
 - **Adaptive quality,** every two seconds at real time or slower. Behind (frames late, the GPU busy
   for more than 92% of the frame with timestamps or 100% of it by submit-to-done time without, or
-  Compute Pressure reporting `serious`): with Auto render scale, a scene drawn at more than one device
-  pixel per CSS pixel (Pixel density 1.5× or 2× on a high-density screen) drops to 1× first, the
+  Compute Pressure reporting `serious`): with Auto pixel density (1.5× on a high-density screen), a
+  scene drawn at more than one device pixel per CSS pixel drops to 1× first, the
   cheapest sharpness to give up (1.5× is 2.25 times the pixels); then the render scale steps down a fixed ladder (1, 0.85, 0.7,
   0.6, 0.5 …) to its floor, then the frame rate drops (half, a third, a quarter: 30, 20, 15 fps), or
   the frame rate first when the simulation is more than twice the drawing. With room again for
   three windows: the frame rate back first, then the scale, then the pixel density; a level that just proved too slow is
-  not retried for 30 s. Settings → Performance shows the rate aimed for and why.
+  not retried for 30 s. Settings → Performance shows the rate aimed for and why, and each Auto choice
+  (render scale, pixel density, particles) shows what it is using now, with the matching fixed choice
+  underlined. A fixed pixel density never changes; prefs saved before v3 holding the old default 1.5
+  open as Auto.
 - **Coarse steps at low frame rates.** At real time a step covers up to a frame's worth of whole
   ticks, so below about 45 fps the world takes coarse steps (docs/fast-forward.md). A 2-tick step
-  costs about 1.45 times a 1/60 s one (one neighbour scan, more motion substeps), so 30 fps still cuts
+  costs about 1.45 times a 1/60 s one (one neighbor scan, more motion substeps), so 30 fps still cuts
   the simulation's cost by a quarter and the drawing's by half, and a slow device keeps real time:
   the mature 4M world ran at 0.67× and now runs at 1× at 32 to 36 fps.
 - **Following a cell (2026-10-12).** Following a predator in the 2.4M heaps world (plan
@@ -112,7 +116,7 @@ rough cost (`COMPILE_COST`). Headless runs wait for every pipeline.
   density: step 11.4 ms, scene and composite about 7 ms). 16k against 32k (32 seeds × 30 min each,
   2026-10-23, `runs/lowend/`): no other gated metric differs (persistence, food webs, guilds,
   monocultures); effective species fall from 111 to 81, as a world half the size holds fewer niches,
-  and the living swing a little more (CV 0.24 → 0.31). Sampling 144 neighbours instead of 192 in such
+  and the living swing a little more (CV 0.24 → 0.31). Sampling 144 neighbors instead of 192 in such
   a world was tried and left out: on an RTX 4070 Ti it saves about 4% of a 16k step (`lifeMain` −10%),
   and its 32 seeds leaned worse (3 collapses against none, effective species 81 → 68, Hill-2 31 → 25;
   none significant alone).
@@ -133,7 +137,7 @@ rough cost (`COMPILE_COST`). Headless runs wait for every pipeline.
   memory, at most 1024, and each cell searches only those: 2–5 ms at the worst heap, 0.1–0.5 ms
   elsewhere, and the same contacts (98–99.8% of cells identical, the rest ties in order or the sixth
   place). The loupe over that world: 17–20 fps → 58 fps (GPU p95 124–197 ms → 13.5 ms). The step is
-  unaffected (it samples `maxScan` neighbours), though the heaps make `matterMain` and `resolveCount`
+  unaffected (it samples `maxScan` neighbors), though the heaps make `matterMain` and `resolveCount`
   2–3 times their usual cost per particle.
   A survey of the 40 densest spots at zoom 40 and 150 (every pass timed) found `contactGather` still
   the only cost that moved with the view, 0.03–7.3 ms, against a steady step and drawing; with
@@ -174,7 +178,7 @@ and never during a balance gate.
   but ±8% between page loads: compare variants in one run, alternating). `kind: 'growth'` follows a
   fresh world's step cost as life grows. A world's `page` loads a variant build from
   `runs/perf/pages/`, `init` runs a script first, `k` overrides tunables. A world's `file` may name a
-  `.tidemote` save (Settings → Worlds) instead; `zoom: 'saved'` keeps its camera, `at` centres the
+  `.tidemote` save (Settings → Worlds) instead; `zoom: 'saved'` keeps its camera, `at` centers the
   view on a fixed spot, `mouse: 'sweep'` moves the pointer (the loupe) while measuring, and `adapt: 'keep'`
   leaves the adaptive quality to run as it would. Every report has the adaptation second by second
   and the passes of each frame over 40 ms (`spikes`).

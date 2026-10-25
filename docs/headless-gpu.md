@@ -37,7 +37,7 @@ comparison is statistical.
 
 ## Run metrics (`src/ecostats.js`)
 
-Each census is summarised by `communitySample`: effective species (Hill order 1, exp Shannon), Hill
+Each census is summarized by `communitySample`: effective species (Hill order 1, exp Shannon), Hill
 order 2 (inverse Simpson, dominated by the commonest species), the largest species' share, diet and
 movement guild shares, bodies share, population-weighted trait means scaled to [0, 1], and every
 species above 5% of life. `summarizeRun` reduces a run to an `outcome` over its late window (the last
@@ -78,7 +78,7 @@ tools/gpu-node.sh tools/ensemble.mjs --runs 32 --minutes 30 --n 32768 --jobs 4 -
 # A candidate against the committed baseline: exits 1 if a gated metric regressed
 tools/gpu-node.sh tools/ensemble.mjs --runs 32 --minutes 30 --n 32768 --k '{"hunt":0.2}' --out runs/hunt02 \
   --baseline balance/baseline-32k-30m.json --targets balance/targets.json
-# Re-analyse runs already on disk
+# Re-analyze runs already on disk
 tools/gpu-node.sh tools/ensemble.mjs --from runs/hunt02 --baseline balance/baseline-32k-30m.json
 ```
 

@@ -18,8 +18,8 @@ too. Grazers are 1-8% of life late in most runs.
 
 **Producers die of starvation, not predation.** In the consumer-dominated phases, producers starve at
 5-10 times the rate they are eaten (e.g. seed 2 at 57 minutes: 34k starved, 5k eaten per minute,
-4k births). With silt at 7% of matter, a photosynthesiser gets about 0.4 of its silt factor at the
-start, and dense neighbours shade it to about half again. A brighter era raises the *ambient* floor
+4k births). With silt at 7% of matter, a photosynthesizer gets about 0.4 of its silt factor at the
+start, and dense neighbors shade it to about half again. A brighter era raises the *ambient* floor
 (10-34%) but light is not what limits producers then; nutrients and shade are. That is why the
 producers did not come back when the light rose.
 
@@ -38,7 +38,7 @@ spec × gain 1.5`, and leaves a husk worth `carcass 0.45`, which a scavenger eat
 starved cell leaves a `huskBase 0.35` husk however empty it was. For a specialist predator and
 scavenger, killing a cell holding energy E hands out about `1.4 + 0.9 E`: every death injects roughly
 one unit of energy that no producer captured. A kill opportunity every second or two is worth more
-than a photosynthesiser earns in that time. So consumers do not need producers: they can live on each
+than a photosynthesizer earns in that time. So consumers do not need producers: they can live on each
 other, and they keep the world's matter locked in their bodies while they do. This is the deepest
 reason the guilds swing the way they do.
 
@@ -85,7 +85,7 @@ subsidy; gate it as a set.
 Seed founders in proportion to their trophic level: producers hold most of the opening biomass,
 grazers and scavengers less, predators least (say 60/20/10/10 by cells rather than by species count),
 and give founders energy near half their division threshold. Keep the per-world random archetype
-weights for variety. This removes the opening starvation crash that is an artefact of the start, not of
+weights for variety. This removes the opening starvation crash that is an artifact of the start, not of
 the rules.
 
 ### 2.3 Calcified reefs: a fourth kind of matter
@@ -96,8 +96,8 @@ Kind 3 is unused. Let a sessile cell that dies of old age (or any anchored cell,
 - Stone never drifts, slowly erodes back to silt (minutes), and repels moving particles like a wall, so
   swimmers and crawlers flow around and over it.
 - Anchored cells next to stone pay no anchoring cost (they have a holdfast).
-- Living cells inside stone-rich neighbourhoods are harder to catch (a refuge: predators miss in
-  crevices). Refuges are the classic stabiliser of predator-prey systems: prey that can hide is never
+- Living cells inside stone-rich neighborhoods are harder to catch (a refuge: predators miss in
+  crevices). Refuges are the classic stabilizer of predator-prey systems: prey that can hide is never
   driven extinct, so predators keep a food source.
 - Stone holds matter out of circulation, so reef building competes with everything else for silt, and
   erosion returns it: a slow, self-limiting cycle.
@@ -125,10 +125,10 @@ then win exactly when a specialist's food crashes, which is a natural buffer aga
 ## 3. Already fixed in this round
 
 - **Grid-aligned bands** (species with Reach 1.00 in dense bodies settling into horizontal and vertical
-  stripes). The neighbour scan read at most 288 particles from the 3×3 cells in a fixed order, top row
-  first, and stopped. In dense places every cell in a grid square lost the same bottom-row neighbours,
+  stripes). The neighbor scan read at most 288 particles from the 3×3 cells in a fixed order, top row
+  first, and stopped. In dense places every cell in a grid square lost the same bottom-row neighbors,
   so forces, crowding and shade were biased along grid lines; large radii felt it most. Crowded
-  neighbourhoods are now sampled evenly from a random offset, each sample weighted by the stride.
+  neighborhoods are now sampled evenly from a random offset, each sample weighted by the stride.
 - **The same light map in every world.** The tide table was reset to fixed constants and fixed phases
   on every seed. Each world now draws its tide waves (directions, wave numbers, drift, phases), and a new
   era's wave gets its own phase.
@@ -166,7 +166,7 @@ not reopen that path.
 | + pyramid founders | 25% | 31% | 56% |
 
 None improved worlds on average. A predator's search image being reset by its occasional plant bite looks
-like a bug but acts as a brake that keeps hunters from overshooting one prey; pace-based upkeep favoured
+like a bug but acts as a brake that keeps hunters from overshooting one prey; pace-based upkeep favored
 producers (74% of life) and halved leader changes. The code is on `exp/energy`.
 
 **Kept:** an energy ledger per diet guild (light, glint, plant bites, husks and kills in; upkeep and
@@ -184,7 +184,7 @@ scales the area, up to about 4%), lasting about 50 minutes per grain. A new evol
 costs upkeep; a settled calcifying cell that dies of hunger or old age leaves stone instead of a husk,
 mostly beside stone already there (`nucleate` 0.03 elsewhere), so reefs accrete from rock and the rare
 spontaneous start, and each reef grain lasts about 5 minutes. Attacks made from among stone often miss (a
-refuge). Stone keeps its builder's colour and is drawn with a real size in the world.
+refuge). Stone keeps its builder's color and is drawn with a real size in the world.
 
 Screened (16-32 seeds × 30 min at 32k unless noted, against the 64-run baseline): none of about 20
 configurations was a gated regression; all were within noise of today's rules. Holdfast (stone sheltering
@@ -236,7 +236,7 @@ matter and the worst 55%, highest in sessile-heavy worlds. Tried, on 131k × 60 
 - **Packing** (a loose grain wears 3× faster than `stoneLife`, a grain with 8 others in its grid cell 0.3×)
   clears rubble and keeps reefs solid, but on its own it is bistable: reefs never start, or run away (87%
   of matter in 20 minutes in one world).
-- **Plus a regional brake** (reef stone wears faster when its 9×9-cell neighbourhood holds more than 2
+- **Plus a regional brake** (reef stone wears faster when its 9×9-cell neighborhood holds more than 2
   reef grains per cell on average): short-range help and long-range inhibition, the recipe for patterns
   with a characteristic size. Reefs grow as separate patches. With the brake at ×4 it was too soft (worst
   peak 48%); at ×30 it holds.

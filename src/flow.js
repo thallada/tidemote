@@ -29,7 +29,7 @@ export function flowAt(x, y, t, w) {
 
 
 // CPU counterpart of duckShade in shaders.js: the shade (0..1) a colony of duckweed casts at (x, y). d: the engine's
-// duck (the uniforms' duck and duckB: centre, half-length, darkness; turn, seed, width, daughters).
+// duck (the uniforms' duck and duckB: center, half-length, darkness; turn, seed, width, daughters).
 const fract = (x) => x - Math.floor(x);
 const duckHash = (x) => { let p = fract(x * 0.1031); p *= p + 33.33; p *= p + p; return fract(p); };
 const mix = (a, b, t) => a + (b - a) * t;

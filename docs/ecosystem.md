@@ -93,7 +93,7 @@ per-cell incomes, upkeep, energy per birth, lifetimes and bite and kill rates (s
 and their Jacobian's eigenvalues; `tools/ecomodel/.venv`). It reproduces the default (P 81% G 7% H 2%
 S 9% against 78/9/2/10 measured) and the direction of the day's experiments, and names two rules:
 
-- **Light was earned per cell.** Each neighbour shaded a producer by 7%, so a patch's light grew with
+- **Light was earned per cell.** Each neighbor shaded a producer by 7%, so a patch's light grew with
   its producers: producers multiplied until silt ran out, each worth little, and a grazed meadow did
   not regrow faster.
 - **Grazers were capped by the bite** (0.1): fully fed, they could take no more.
@@ -114,7 +114,7 @@ At 30 minutes the default settles into a trophic cascade (P 68% G 9% H 8% S 9%, 
 13% before): hunters, fed at their handling cap (~2.8 kills a minute whatever the prey density), grow in
 number until grazers are held down. That is the next problem.
 
-`dung`: what an eater cannot assimilate fills its gut (the colour's spare byte) and is dropped on a grain
+`dung`: what an eater cannot assimilate fills its gut (the color's spare byte) and is dropped on a grain
 of silt as a husk, so scavengers live on grazers' leavings. `story.mjs` now reports guild sizes and the
 movement mix; judge changes by those, since "survives" counted 1-2% remnants.
 
@@ -227,8 +227,8 @@ worlds), and losing a guild costs the others nothing.
 3. **Producers feed grazers by exudation.** Glint comes from producers (photosynthesis leaks a share as
    dissolved food, charging silt nearby), not from the tide, so grazers need producers. The tide stays
    as a small outside source or none.
-4. **Excretion and fertilising.** Animals return part of every meal as a silt grain where they are, so
-   grazers moving through a meadow fertilise it and moderate grazing helps producers.
+4. **Excretion and fertilizing.** Animals return part of every meal as a silt grain where they are, so
+   grazers moving through a meadow fertilize it and moderate grazing helps producers.
 5. **Two nutrients (stoichiometry).** Producers need a mineral only decomposers release; animals need
    one only producers concentrate. Each side is limited by the other.
 
@@ -242,9 +242,9 @@ worlds), and losing a guild costs the others nothing.
    follows from 3 once grazers depend on producers.
 9. **Hosts and parasites, kill-the-winner.** Dense single-species patches pick up infection (a local
    death rate rising with kin density), so the commonest species is always the most hit and no guild
-   or species can monopolise.
+   or species can monopolize.
 
-### Stabilisers (keeping the dependence from swinging into collapse)
+### Stabilizers (keeping the dependence from swinging into collapse)
 
 10. **Prey refuges** in tissue, reefs and stone (partly exists), so prey never runs out entirely.
 11. **Predator satiation and switching** (search images exist): hunters turn to the common prey.
@@ -305,7 +305,7 @@ What the stories show:
   ate litter and carcasses as fast as they were made while scavengers starved. `matterSkill`
   (eating matter takes being built for it, as `catchSkill` for prey) fixes that half.
 - Scavengers that survive the start are then mostly eaten, not starved (eaten 260-980 a minute while
-  husks lie uneaten): slow and defenceless.
+  husks lie uneaten): slow and defenseless.
 - A guild lost is lost for good. Abiogenesis makes one random species every 30 s world-wide, and
   evolution rarely rebuilds a specialist once its niche is empty, so whether all four guilds survive
   is decided in the first minutes. Mutual dependence cannot balance a world that cannot recolonise.
@@ -330,11 +330,11 @@ What the stories show:
   of the light and almost none of it moves up (bitten plants are 2% of income): they are an energetic
   dead end. The two biggest guilds are independent of each other, so nothing ties the web together.
 - **Every guild eats from two or three streams.** Grazers kill (21% of all flesh) and scavenge, and
-  photosynthesise; predators photosynthesise and eat glint. A 50/50 diet earns 70% of a specialist's
+  photosynthesize; predators photosynthesize and eat glint. A 50/50 diet earns 70% of a specialist's
   take from each of two streams (`spec`), and light pays in proportion to `photo`: mixing wins, and a
   specialist meets generalists that also have the tide's income.
 - **Herbivory is built as a side dish.** Grazers value plants at 0.6 × their glint gene (`grazePref`),
-  bite on one meal opportunity in six (`biteEvery`) and bodies of producers are armoured (adhesion
+  bite on one meal opportunity in six (`biteEvery`) and bodies of producers are armored (adhesion
   0.85-0.9). With the tide off (trT1) grazers had plants in reach in 55% of samples and still died out
   in 31 of 32 worlds, the survivors living on light.
 
@@ -364,11 +364,11 @@ Current probe set: `{"cycle":1,"litterTo":1,"matterSkill":0.5,"exude":0,"tideCha
 "grazePref":1,"biteEvery":1,"specPow":2,"photoPow":3,"sharpFounders":1,"dietMin":0.15,"mature":0.2,
 "leanHunters":2,"killEvery":4,"photo":0.9,"provision":90}`.
 
-## Stabilisers and the seed bank (30 min, 16 seeds; awake cells only)
+## Stabilizers and the seed bank (30 min, 16 seeds; awake cells only)
 
 | set (trophic chain, provision 90) | all four | producer | grazer | predator | scavenger | lost at (G H S) |
 |---|---|---|---|---|---|---|
-| no stabiliser (32 seeds) | 0% | 97% | 56% | 0% | 38% | 20 10 21 |
+| no stabilizer (32 seeds) | 0% | 97% | 56% | 0% | 38% | 20 10 21 |
 | interfere 0.3 | 0% | 100% | 75% | 0% | 69% | 20 7 21 |
 | interfere 0.6 | 6% | 100% | 75% | 13% | 56% | 21 4 22 |
 | armor 2 (plants defended) | 0% | 100% | 56% | 0% | 56% | 23 10 25 |
@@ -376,7 +376,7 @@ Current probe set: `{"cycle":1,"litterTo":1,"matterSkill":0.5,"exude":0,"tideCha
 | interfere 0.6 + cysts | 31% | 100% | 81% | 38% | 75% | 30 27 26 |
 
 Without predators to check them, grazers strip producers and crash (14 of 32 worlds collapsed with no
-stabiliser); interference among crowded hunters and grazers damps it. Predators then starve in the first
+stabilizer); interference among crowded hunters and grazers damps it. Predators then starve in the first
 2-5 minutes when grazers crash during the founders' swing, and never come back. With cysts they (and
 the others) sleep through the lean spell and wake when it passes: whole guilds are lost late, if at
 all, and all four survive in a third of worlds (main: 13%).

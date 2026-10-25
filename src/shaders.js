@@ -4,13 +4,14 @@
 
 export const MAXK = 1024;
 export const FIRST_LIFE = 5;
-export const MAX_CELLS = 1 << 18;
+// grid cells at most: K.density particles to a cell, 2^19 holds 8M particles with room
+export const MAX_CELLS = 1 << 19;
 export const META_SLOT = 16;
 export const META_POP = META_SLOT + MAXK;
 export const META_DEATH = META_POP + MAXK;
 export const META_ENERGY = META_DEATH + 64;
 // K.diag's counters, DIAG_STRIDE per diet guild (headless forks record them, tools/fastforward/fork-diag.cjs):
-// once a second per cell its neighbourhood, motion, light, hunger, energy and overlap (cells inside its
+// once a second per cell its neighborhood, motion, light, hunger, energy and overlap (cells inside its
 // core); at hunters' kill opportunities the kill funnel; and their contact density (animals within reach
 // and twice reach).
 export const DIAG_SLOTS = ['samples', 'crowd', 'silt', 'pack', 'kin', 'speed', 'photo', 'light', 'hungry', 'hungryFood', 'force', 'energy', 'overlap',
@@ -59,7 +60,7 @@ export const G_WORDS = 56;
 export const LITE_BYTES = 32;
 // a cell's drawn motion and events (ANIM_WGSL's Sway)
 export const SWAY_BYTES = 56;
-// The selected cell's mind (mindMain): a header of MIND_HEAD words, then MIND_NBR living neighbours
+// The selected cell's mind (mindMain): a header of MIND_HEAD words, then MIND_NBR living neighbors
 // of MIND_NBR_WORDS words each. See parseMind in mind.js for the layout.
 export const MIND_HEAD = 68;
 export const MIND_NBR = 48;
@@ -82,10 +83,10 @@ export const DEFAULT_K = {
   grazePref: 1,   // how much a grazer values a plant cell
   forage: 0.35,     // pull of husks on a hungry forager, relative to signature forces
   hunt: 0.12,       // pull of living prey on a hungry forager
-  kinCrowd: 0.06,   // upkeep added per crowding same-species neighbour, excluding bond partners
-  kinFree: 4,       // same-species neighbours tolerated before crowding costs
+  kinCrowd: 0.06,   // upkeep added per crowding same-species neighbor, excluding bond partners
+  kinFree: 4,       // same-species neighbors tolerated before crowding costs
   anchorCost: 0.003, // upkeep for resisting the currents
-  flowFeed: 0.8,    // anchored photosynthesisers gain this much per 0.2 cells/s of current flowing past
+  flowFeed: 0.8,    // anchored photosynthesizers gain this much per 0.2 cells/s of current flowing past
   bodyThrift: 0.15, // upkeep saved by a cell with two bonds: bodies share the cost of living
   kinShade: 0.25,   // how much a bonded body shades itself, relative to strangers
   armor: 1,         // bonded bodies resist being killed or bitten
@@ -137,10 +138,10 @@ export const DEFAULT_K = {
   tissue: 12,       // bodies as tissue: bonds pull both ways, a body's cells take on their partners' motion
                     // at this rate (per second), and a free bond slot only closes a triangle within the body
   huntCore: 0.15,   // how much of other species' personal space a hungry forager respects
-  liveScan: 64,     // each grid cell's living are sorted first, and a cell weighs its living neighbours exactly up to this many (sampled evenly past it), sampling only the matter
-  contactReach: 0.14, // contactMain: the largest radius a neighbour is taken to have (grid cells within touching are walked)...
+  liveScan: 64,     // each grid cell's living are sorted first, and a cell weighs its living neighbors exactly up to this many (sampled evenly past it), sampling only the matter
+  contactReach: 0.14, // contactMain: the largest radius a neighbor is taken to have (grid cells within touching are walked)...
   contactCap: 128,  // ...every living one up to this many in them, every so many past it
-  maxScan: 112,     // neighbours a cell weighs per step in a crowd, sampled evenly (each counts for those skipped)
+  maxScan: 112,     // neighbors a cell weighs per step in a crowd, sampled evenly (each counts for those skipped)
   diag: 0,          // 1: count K.diag's diagnostics into the ledger (DIAG_SLOTS; headless forks record them)
   affScale: 0.42,
   matterPull: 0.6,
@@ -150,12 +151,12 @@ export const DEFAULT_K = {
   baseMix: 0.04,
   maxSpeed: 7.0,
   photo: 5.3,       // energy per second for a pure photosynth in full light
-  shadeP: 1.4,      // light per area: only photosynthesisers shade, this much per neighbour (a patch's light
+  shadeP: 1.4,      // light per area: only photosynthesizers shade, this much per neighbor (a patch's light
                     // saturates, so a grazed meadow regrows: docs/ecosystem.md)
   align: 3.0,
   bond: 60,         // spring strength of bonds between cells of one body
   adhMin: 0.15,     // adhesion needed before a species forms bonds
-  bite: 0.5,        // energy taken per bite from a photosynthesising cell (big enough to outpace a patch's regrowth: booms and crashes)
+  bite: 0.5,        // energy taken per bite from a photosynthesizing cell (big enough to outpace a patch's regrowth: booms and crashes)
   eatEvery: 6,      // frames between meals
   dietMin: 0.15,    // share of the diet a food must have before a cell bothers to eat it
   // Stone: calcified remains and bedrock. Immobile, solid to all but calcifiers, slowly eroding back to silt.
@@ -167,7 +168,7 @@ export const DEFAULT_K = {
   wearLoose: 3,     // how fast a loose grain of reef stone wears, relative to stoneLife...
   wearPacked: 0.3,  // ...and a grain packed into a reef...
   packedAt: 8,      // ...with this many grains in its grid cell
-  regionWear: 30,   // extra wear on reef stone whose neighbourhood (cells within regionR) holds more than...
+  regionWear: 30,   // extra wear on reef stone whose neighborhood (cells within regionR) holds more than...
   regionR: 4,
   regionCap: 2.0,   // ...this many reef grains per cell on average: reefs grow as separate patches
   rocks: 0.5,       // scales each world's bedrock outcrops (0: none)
@@ -179,14 +180,14 @@ export const DEFAULT_K = {
   // preferred temperature). Degrees are notional; see docs/thermal-energy-2026-10-07.md.
   heat: 1,          // 0: no field, and temperature has no effect
   // heatD and heatLoss set how far a hot spot spreads, sqrt(heatD / heatLoss) ≈ 2.8 cells: about a
-  // colony's own neighbourhood, so warm patches stay distinct rather than blurring into one haze
+  // colony's own neighborhood, so warm patches stay distinct rather than blurring into one haze
   heatD: 0.25,      // diffusion, cells²/s
   heatLoss: 0.033,  // relaxation toward the background temperature, per second
   metabHeat: 0.18,  // degrees per unit of energy spent on upkeep
   sunHeat: 0.04,    // degrees per second in full light
   rotHeat: 0.3,     // degrees per unit of energy a husk loses as it rots
   // Pyrite framboids: raspberry clusters of iron sulfide that form where carcasses rot (their sulfide)
-  // and warm their water as they oxidise, until they are spent and crumble to silt.
+  // and warm their water as they oxidize, until they are spent and crumble to silt.
   framboids: 0.02,  // share of the silt in a world's mud patches that starts as framboids
   framboidLife: 300, // seconds a framboid burns on average at tRef (twice as fast per 10° warmer)
   framboidHeat: 1.5, // degrees per second it warms its grid cell (before stone's heat capacity)
@@ -212,7 +213,7 @@ export const DEFAULT_K = {
   marangoni: 0,     // matter drifts from warm water toward cold at this many cells/s per °/cell
   bodyE: 1.3,       // energy a cell's body holds, by size: a child's body costs this, a death leaves it as the husk, and a kill
                     // passes on at most the prey's energy and body, so energy only enters as light
-  assimilate: 1.5,  // an eater keeps this × its skill (specialisation × eatEff × warmth) of the energy in
+  assimilate: 1.5,  // an eater keeps this × its skill (specialization × eatEff × warmth) of the energy in
   assimCap: 0.8,    // flesh, plants and husks, at most this share
   carcassKeep: 0.3, // the share of a killed cell's body left in its carcass (the killer gets the rest)
   provision: 60,     // a cell divides only once its child's share would cover this many seconds of its upkeep (feeding
@@ -310,7 +311,7 @@ const f = (x) => {
 };
 
 // The kinds of sediment grain, shared by the stone pass (vsStone, mineralSurf) and the specimen panel:
-// each kind's colour variants (a name and colour, from a share of grains on), and how bedrock and reef
+// each kind's color variants (a name and color, from a share of grains on), and how bedrock and reef
 // stone (laid down by calcifiers) mix them, as [kind, cumulative share].
 export const STONE_KINDS = [
   [{ name: 'Quartz', col: [0.74, 0.75, 0.73] }, { from: 0.6, name: 'Smoky quartz', col: [0.56, 0.48, 0.41] }, { from: 0.9, name: 'Rose quartz', col: [0.82, 0.62, 0.64] }],
@@ -337,7 +338,7 @@ export function stoneGrain(id, info) {
   const v = STONE_KINDS[kind].filter((x) => !x.from || h2 > x.from).at(-1);
   return { kind, name: v.name, col: v.col };
 }
-// The same choices in WGSL: a nested select over the mix, and each kind's colour over its variants.
+// The same choices in WGSL: a nested select over the mix, and each kind's color over its variants.
 const v3 = (c) => `vec3f(${c.map(f).join(', ')})`;
 const mixWGSL = (mix) => mix.slice(0, -1).reduceRight((e, [k, upTo]) => `select(${e}, ${k}u, h < ${f(upTo)})`, `${mix.at(-1)[0]}u`);
 const STONE_COL_WGSL = STONE_KINDS.map((vs, k) => `      case ${k}u: { mc = ${vs.slice(1).reduce((e, x) => `select(${e}, ${v3(x.col)}, h2 > ${f(x.from)})`, v3(vs[0].col))}; }`).join('\n');
@@ -361,9 +362,10 @@ const FRAMBOID = ${FRAMBOID}u;
 const NONE = 0xffffffffu;
 // A claim made by a coarse step's walk (lifeMain) says what it is for itself rather than through the
 // claimer's intent: bit 31, then a class in bits 29-30 (0 a kill, 1 unused, 2 a husk, each taken by the
-// claimer in bits 0-22; 3 bites of a photosynthesiser, counted in bits 0-15, any number of eaters).
+// claimer + 1 in bits 0-23; 3 bites of a photosynthesizer, counted in bits 0-15, any number of eaters).
 const MEAL_CLAIM = 0x80000000u;
-const MAX_CELLS = 262144u;
+const MAX_CELLS = ${MAX_CELLS}u;
+const SUMS_PER = ${MAX_CELLS / 65536}u;
 const META_SLOT = ${META_SLOT}u;
 const META_POP = ${META_POP}u;
 const META_DEATH = ${META_DEATH}u;
@@ -463,9 +465,9 @@ fn tideAt(p: vec2f, world: vec2f, t: f32, w: array<vec4f, 4>, ph: vec4f) -> f32 
 }
 
 // Duckweed floating on the pool shades the water under it (docs/catastrophes.md). A colony of Lemna: a mother frond
-// centred at lf.xy, lf.z its half-length, its darkness lf.w (0: none), turned lb.x, lb.z wide (relative to its
+// centered at lf.xy, lf.z its half-length, its darkness lf.w (0: none), turned lb.x, lb.z wide (relative to its
 // length), and lb.w daughters (their sizes and angles drawn from the seed lb.y) budding from the pouches either side
-// of its node, near its base, each pointing out and back from it. Frond k: centre, axis (base to tip), half-length,
+// of its node, near its base, each pointing out and back from it. Frond k: center, axis (base to tip), half-length,
 // half-width.
 struct Frond { c: vec2f, ax: vec2f, L: f32, W: f32 };
 // (no sin: the page's CPU copy, duckShade in src/flow.js, must draw the same fronds)
@@ -532,8 +534,8 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
 }
 `;
 // The water's temperature where a cell is, for passes that only show it (rendering, listening):
-// bilinear between grid-cell centres, so a cell jostling across a grid line doesn't flick between
-// its cells' temperatures (and its heat colour with them).
+// bilinear between grid-cell centers, so a cell jostling across a grid line doesn't flick between
+// its cells' temperatures (and its heat color with them).
 // The pool's moving water (docs/catastrophes.md), as the simulation has it and the composite draws it: u the
 // uniforms (sim or post), t their time, K the tunables. dropFlow: raindrops' ring waves, each shoving the water
 // outward as it passes; edgeSway: how far the water's edge stands out from where the floor alone would put it (world
@@ -624,7 +626,7 @@ function cellWGSL(K, w) {
   // a coarse step, in lifeMainCoarse (COARSE: a 1/60 s step's pipeline leaves all of it out)
   let coarse = COARSE && sim.ticks > 1u;
   // Coarse steps also gather how the pair and stone forces change as this cell moves
-  // (their gradients jF, jS: xx, xy, yy) and its neighbours' velocity weighted by how stiffly each holds
+  // (their gradients jF, jS: xx, xy, yy) and its neighbors' velocity weighted by how stiffly each holds
   // it (vN / wN, with wN2 for their number): see the motion below.
   var jF = vec3f(0.0);
   var jS = vec3f(0.0);
@@ -694,7 +696,7 @@ function cellWGSL(K, w) {
   var plantN = 0.0;
   var animN = 0.0;
   var pack = 0.0;
-  // (K.diag: neighbours inside this cell's core; animals within reach and twice reach)
+  // (K.diag: neighbors inside this cell's core; animals within reach and twice reach)
   var overlap = 0.0;
   var nIn = 0.0;
   var preyNear = vec2f(0.0);
@@ -727,12 +729,12 @@ function cellWGSL(K, w) {
   // here only asks the scan whether a cell is in the way)
   if (tails && n1 != NONE) { budTurn = 0u; budAt = -dn1 / max(d1, 1e-4) * budGap; }
 
-  // The 3x3 neighbourhood as eighteen index ranges: each grid cell's living (first in it), then each
+  // The 3x3 neighborhood as eighteen index ranges: each grid cell's living (first in it), then each
   // one's matter. The living are weighed exactly (sampled evenly past liveScan of them), the matter
   // sampled with what the budget leaves: in a heap of grains a cell still feels every cell it touches.
   // (each range is read from cellStart again as the scan reaches it: kept in arrays they cost registers)
   // How sparsely to sample is set by the crowd as it varies smoothly over the water (the grid cells'
-  // counts interpolated between their centres, at this cell), not by the nine cells' totals, which jump
+  // counts interpolated between their centers, at this cell), not by the nine cells' totals, which jump
   // as the cell crosses a grid line: those jumps showed as cells gathering in grid-cell middles.
   var totL = 0.0;
   var totM = 0.0;
@@ -808,7 +810,7 @@ function cellWGSL(K, w) {
         // a hungry forager lets other species inside its personal space so it can reach them
         let core = select(1.0, ${f(K.huntCore)}, canHunt && qk != p.kind);
         if (x < bk) { fr = (x * invBk - 1.0) * core; } else { fr = a * shape * sigK; }${W('mFr0 = fr; mFl = 0.0;')}
-        // hungry foragers are drawn toward the cells their diet favours
+        // hungry foragers are drawn toward the cells their diet favors
         if ((q.kr & (1u << 12u)) != 0u && r < 0.5) { plantN += 1.0; }
         if ((q.kr & (1u << 12u)) == 0u && qk != p.kind) { animN += 1.0; }
         let appetite = select(0.0, select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
@@ -828,7 +830,7 @@ function cellWGSL(K, w) {
           if ((q.kr & (1u << 15u)) != 0u && r < ${f(K.tailSpace)}) { tailNear = true; }
         }
         if (r < LINK_R) {
-          // colour only blends within a species, so mixed neighbourhoods stay visibly mixed
+          // color only blends within a species, so mixed neighborhoods stay visibly mixed
           if (qk == p.kind) {
             let w = 1.0 - r / LINK_R;
             csum += unpack4x8unorm(q.col).rgb * w;
@@ -907,8 +909,8 @@ function cellWGSL(K, w) {
   }
   overlap *= stride; preyNear *= stride;
   force *= stride;
-  // a cell answers its neighbours as a whole, not each one in full: past socialN within reach the pair
-  // forces are averaged, so a crowd drives a cell no harder than a neighbourhood does
+  // a cell answers its neighbors as a whole, not each one in full: past socialN within reach the pair
+  // forces are averaged, so a crowd drives a cell no harder than a neighborhood does
   let social = ${f(K.socialN)} / max(${f(K.socialN)}, nIn * stride);
   force *= social; jF *= social;
   // whether a bud of a body bearing tails, if it buds now, starts a tail (none of its kind near, room ahead)
@@ -975,8 +977,8 @@ function cellWGSL(K, w) {
   }
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
-  // The cell and its neighbourhood are taken as two bodies sharing momentum: the reaction to this cell's
-  // forces is spread over Mn neighbours (the participation number of the stiffness weights), their centre
+  // The cell and its neighborhood are taken as two bodies sharing momentum: the reaction to this cell's
+  // forces is spread over Mn neighbors (the participation number of the stiffness weights), their center
   // (v + Mn vNear) / (1 + Mn) keeps its velocity under drag, and only the relative velocity v - vNear
   // meets the restoring stiffness D (1 + 1/Mn), backward Euler in its end value. A clump drifting together
   // is untouched and a collision too stiff to resolve shares its momentum; stable for every mode of a
@@ -1101,7 +1103,7 @@ function cellWGSL(K, w) {
   pos = wrapPos(pos);
 
   var col = unpack4x8unorm(p.col).rgb;
-  // the gut: what an eater could not assimilate, held in the colour's spare byte (1: empty) until dropped as dung
+  // the gut: what an eater could not assimilate, held in the color's spare byte (1: empty) until dropped as dung
   var gut = (1.0 - unpack4x8unorm(p.col).a) * ${f(K.dungE)};
   if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }
   col = mix(col, roleColor(g, role), ${f(K.baseMix)});
@@ -1128,7 +1130,7 @@ function cellWGSL(K, w) {
 
 // dp4a: the WGSL language feature packed_4x8_integer_dot_product is available
 export function simWGSL(K, { dp4a = false } = {}) {
-  // reef stone's neighbourhood: a disc of the square's area (side 2 regionR + 1), in cells, and its reach
+  // reef stone's neighborhood: a disc of the square's area (side 2 regionR + 1), in cells, and its reach
   const REGION_DISC = (2 * (K.regionR | 0) + 1) / Math.sqrt(Math.PI);
   const REGION_REACH = Math.ceil(REGION_DISC + 0.5);
   return COMMON + /* wgsl */ `
@@ -1146,7 +1148,7 @@ struct Sim {
   tidePh: vec4f,
   rock: vec4f,
   // tick: 1/60 s ticks simulated up to the end of this step; ticks: how many this step covers;
-  // tbg: the background water temperature (climate, season, excursion); maxScan: the neighbour budget
+  // tbg: the background water temperature (climate, season, excursion); maxScan: the neighbor budget
   tick: u32, ticks: u32, tbg: f32, maxScan: u32,
   // the pool (docs/catastrophes.md): x the water level (a relief quantile; at 1 or above nothing is dry), y rain
   // (0..1), z the sky (light ×: clouds), w how fast the water is drying (0..1)
@@ -1154,10 +1156,10 @@ struct Sim {
   // x the currents' strength ×; y frost (the share of the pool frozen); z how fast the ice is growing (0..1);
   // w seconds since a drought's rain began (0: none; raindrops wetting the mud, drawn only)
   weather: vec4f,
-  // floating duckweed: its mother frond's centre, half-length, darkness (0: none); its angle, seed, width, daughters
+  // floating duckweed: its mother frond's center, half-length, darkness (0: none); its angle, seed, width, daughters
   duck: vec4f,
   duckB: vec4f,
-  // raindrops' ring waves: centre, the time it fell, strength (0: none)
+  // raindrops' ring waves: center, the time it fell, strength (0: none)
   drops: array<vec4f, 4>,
 };
 // kr: 0..9 kind, 10..11 role, 12 plant, 13 cyst, 14 hunter, 15 tail cell.
@@ -1178,7 +1180,7 @@ const LIVE_AT = MAX_CELLS + 1u;
 const LIVE_BIT = 0x80000000u;
 // Intent: x bits 0..1 action (0 none, 1 eat, 2 birth, 3 bite),
 // 2..11 child kind (birth) or observed target kind (eat/bite),
-// 12..13 child role, 14..30 child generation; y child energy, z/w bond neighbours.
+// 12..13 child role, 14..30 child generation; y child energy, z/w bond neighbors.
 @group(0) @binding(9) var<storage, read_write> intent: array<vec4u>;
 @group(0) @binding(10) var<storage, read_write> genomes: array<Genome>;
 @group(0) @binding(11) var<storage, read_write> ledger: array<atomic<u32>>;
@@ -1361,7 +1363,7 @@ const REEF_FIX = 64.0;
 fn reefCell(x: i32, y: i32) -> f32 {
   return f32(atomicLoad(&stoneGrid[wrapCell(x, y)]) & 0xffffu) / REEF_FIX;
 }
-// The water's temperature at p, bilinear between cell centres, and its gradient (degrees per cell).
+// The water's temperature at p, bilinear between cell centers, and its gradient (degrees per cell).
 fn heatSample(p: vec2f) -> vec3f {
   if (!HEAT_ON) { return vec3f(TREF, 0.0, 0.0); }
   let u = p - 0.5;
@@ -1384,7 +1386,7 @@ fn depositHeat(p: vec2f, e: f32) {
 
 // Specialists digest their food better than generalists: value of a food given the share of the diet devoted to it.
 fn spec(d: f32) -> f32 { let c = min(max(d, 0.0), 1.0); return pow(c, ${f(K.specPow)}); }
-// What an eater keeps of a meal holding raw energy: skill (diet specialisation) times eatEff × warmth (fit).
+// What an eater keeps of a meal holding raw energy: skill (diet specialization) times eatEff × warmth (fit).
 // Food that was alive passes on at most K.assimCap of what it held, the share growing with skill at K.assimilate, so no loop makes energy.
 fn take(raw: f32, skill: f32, outside: bool, fit: f32) -> f32 {
   if (!outside) { return raw * min(${f(K.assimCap)}, skill * fit * ${f(K.assimilate)}); }
@@ -1392,7 +1394,7 @@ fn take(raw: f32, skill: f32, outside: bool, fit: f32) -> f32 {
 }
 
 // Ledger guild order: producer, grazer, predator, scavenger (a fifth slot, once omnivores, is unused).
-// A producer photosynthesises past 0.55; anyone else belongs to its strongest diet (genome.js dietGuild).
+// A producer photosynthesizes past 0.55; anyone else belongs to its strongest diet (genome.js dietGuild).
 fn dietGuild(g: Genome) -> u32 {
   if (g.photo > 0.55) { return 0u; }
   let m = max(g.dFlesh, max(g.dHusk, g.dGlint));
@@ -1813,12 +1815,10 @@ fn scanBlocks(@builtin(local_invocation_index) l: u32, @builtin(workgroup_id) wg
 
 @compute @workgroup_size(256)
 fn scanSums(@builtin(local_invocation_index) l: u32) {
-  let b = l * 4u;
-  let a0 = blockSums[b];
-  let a1 = blockSums[b + 1u];
-  let a2 = blockSums[b + 2u];
-  let a3 = blockSums[b + 3u];
-  let s = a0 + a1 + a2 + a3;
+  // MAX_CELLS / 256 block sums, SUMS_PER of them a thread
+  let b = l * SUMS_PER;
+  var s = 0u;
+  for (var k = 0u; k < SUMS_PER; k++) { s += blockSums[b + k]; }
   sh[l] = s;
   workgroupBarrier();
   for (var o = 1u; o < 256u; o = o << 1u) {
@@ -1828,11 +1828,8 @@ fn scanSums(@builtin(local_invocation_index) l: u32) {
     sh[l] = sh[l] + t;
     workgroupBarrier();
   }
-  let ex = sh[l] - s;
-  blockSums[b] = ex;
-  blockSums[b + 1u] = ex + a0;
-  blockSums[b + 2u] = ex + a0 + a1;
-  blockSums[b + 3u] = ex + a0 + a1 + a2;
+  var ex = sh[l] - s;
+  for (var k = 0u; k < SUMS_PER; k++) { let a = blockSums[b + k]; blockSums[b + k] = ex; ex += a; }
   if (l == 255u) { cellStart[MAX_CELLS] = sh[255]; }
 }
 
@@ -1959,19 +1956,19 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   if (p.kind == STONE || p.kind == FRAMBOID) {
     // stone stays put and wears away; its energy is the time it has left. Reef stone (bedrock has cause 0)
     // wears by its surroundings: loose grains fast and grains packed into a reef slowly, so rubble clears
-    // and reefs stay solid, but a neighbourhood that is mostly reef wears fast (waves and borers on a reef
-    // flat), so reefs grow as separate patches about as wide as that neighbourhood.
+    // and reefs stay solid, but a neighborhood that is mostly reef wears fast (waves and borers on a reef
+    // flat), so reefs grow as separate patches about as wide as that neighborhood.
     var wear = 1.0;
     let framboid = p.kind == FRAMBOID;
     if (framboid) {
-      // a framboid oxidises: it warms its water while it lasts (every eighth frame, eight frames' worth)
+      // a framboid oxidizes: it warms its water while it lasts (every eighth frame, eight frames' worth)
       if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, ${f(K.framboidHeat)} * sim.dt * 8.0); }
-      // and oxidises faster the warmer its water, so a crowded, hot cluster burns itself out
+      // and oxidizes faster the warmer its water, so a crowded, hot cluster burns itself out
       wear = pow(2.0, (heatSample(p.pos).x - TREF) / 10.0);
     } else if ((p.info & 15u) != 0u) {
-      // both read the grid smoothly around the grain itself (bilinear between cell centres, and a round
-      // neighbourhood weighted by distance), not by the grid cell it sits in: counted cell by cell, a reef
-      // lasted only when it fit inside one cell, and the square neighbourhood spaced reefs on a square
+      // both read the grid smoothly around the grain itself (bilinear between cell centers, and a round
+      // neighborhood weighted by distance), not by the grid cell it sits in: counted cell by cell, a reef
+      // lasted only when it fit inside one cell, and the square neighborhood spaced reefs on a square
       // lattice along the grid's axes
       let u = p.pos - 0.5;
       let i0 = vec2i(floor(u));
@@ -2063,7 +2060,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     if (p.energy < ${f(K.huskMin)}) {
       p.kind = SILT; p.energy = 0.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 4u;
-      // in a pile of rotting husks the sulfide they release may crystallise as a framboid
+      // in a pile of rotting husks the sulfide they release may crystallize as a framboid
       let pile = f32(atomicLoad(&thermal[2u * MAX_CELLS + cellOf(p.pos)]));
       if (HEAT_ON && rnd(&s) < ${f(K.framboidForm)} * smoothstep(3.0, ${f(K.framboidPile)}, pile) * (1.0 - smoothstep(0.0, 6.0, hot))) {
         p.kind = FRAMBOID; p.energy = ${f(K.framboidLife)} * (0.5 + rnd(&s)); p.col = FRAMBOID_COL;
@@ -2088,13 +2085,13 @@ fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
   if (c >= sim.grid.x * sim.grid.y) { return; }
   let x = i32(c % sim.grid.x);
   let y = i32(c / sim.grid.x);
-  let centre = vec2f(f32(x), f32(y)) + 0.5;
+  let center = vec2f(f32(x), f32(y)) + 0.5;
   let here = heatCell(x, y);
-  let carried = heatSample(centre - flowAt(centre) * sim.dt).x;
+  let carried = heatSample(center - flowAt(center) * sim.dt).x;
   let lap = heatCell(x + 1, y) + heatCell(x - 1, y) + heatCell(x, y + 1) + heatCell(x, y - 1) - 4.0 * here;
   let stones = atomicLoad(&stoneGrid[c]);
   let mass = 1.0 + ${f(K.stoneMass)} * (f32(stones & 0xffffu) / REEF_FIX + f32(stones >> 16u));
-  let light = lightAt(centre);
+  let light = lightAt(center);
   let q = f32(atomicExchange(&thermal[c], 0u)) / HEAT_FIX + ${f(K.sunHeat)} * light * sim.dt;
   let t = carried + ${f(K.heatD)} * lap * sim.dt + (q - ${f(K.heatLoss)} * (carried - sim.tbg) * sim.dt) / mass;
   heatNext[c] = t;
@@ -2404,7 +2401,7 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
   let reach = ${f(K.crowdVisc > 0 ? 1.25 : 1)} * (myR + ${f(K.contactReach)});
   var mask = 0u;
   // the living crowd here, varying smoothly over the water (the grid cells' counts interpolated between
-  // their centres): the walk's step follows it, not the count in the grid cells it walks, which jumps
+  // their centers): the walk's step follows it, not the count in the grid cells it walks, which jumps
   // as cells cross grid lines and drew them into grid-cell middles
   var dens = 0.0;
   var total = 0u;
@@ -2494,16 +2491,16 @@ fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f
   let jostled = ${f(K.interfere)} > 0.0 && fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.interfere)} * rivals) > 1.0;
   // recognition: living prey is caught as well as the eater's receptors match its surface (coevolution: prey
   // evolve away from the receptors hunting them, hunters toward the commonest prey)
-  var unrecognised = false;
+  var unrecognized = false;
   if (${f(K.recognize)} > 0.0 && fk >= FIRST_LIFE) {
     let ps = genomes[fk].sig[0];
     let fit = clamp((sdot(sg.z, ps.x) + sdot(sg.w, ps.y)) * ${f(K.affScale)}, -1.0, 1.0);
-    unrecognised = rnd(s) < ${f(K.recognize)} * (0.5 - 0.5 * fit);
+    unrecognized = rnd(s) < ${f(K.recognize)} * (0.5 - 0.5 * fit);
   }
   // a fed hunter rests: it attacks living animals as often as it is short of the energy to divide
   // (full: E / divE), at every chance only once below 1 - K.satiety of it
   let rested = ${f(K.satiety)} > 0.0 && fk >= FIRST_LIFE && genomes[fk].photo <= 0.4 && rnd(s) >= clamp((1.0 - full) / ${f(K.satiety)}, 0.0, 1.0);
-  return armored || unfamiliar || unskilled || sheltered || hidden || jostled || fumbled || unrecognised || rested;
+  return armored || unfamiliar || unskilled || sheltered || hidden || jostled || fumbled || unrecognized || rested;
 }
 
 // K.diag: count v into a guild's slot k
@@ -2541,7 +2538,7 @@ fn cystStep(i: u32) {
   p.energy -= ${f(K.cystLeak)} * sim.dt;
   p.age += sim.dt;
   // asleep, it neither swims nor feels other cells' pull: it moves only as the current carries it and as
-  // neighbours jostle it (contactMain's push, already in its velocity), and soon comes to rest
+  // neighbors jostle it (contactMain's push, already in its velocity), and soon comes to rest
   p.vel *= pow(0.5, sim.dt / 0.15);
   let dry = pondAt(p.pos).x < 0.0;
   if (dry) { p.vel = vec2f(0.0); }
@@ -2785,7 +2782,7 @@ ${cellWGSL(K, false)}
     splCause(p.kind, 4u);
   }
   if (kind == HUSK) { atomicAdd(&ledger[META_ENERGY + select(61u, 60u, g.photo > 0.4)], 1u); }
-  // calcifying cells that settled leave their skeleton as stone, in their own colour, mostly where
+  // calcifying cells that settled leave their skeleton as stone, in their own color, mostly where
   // stone already is, so reefs grow outward from rock and from the rare place one starts
   if (kind == HUSK && g.calcify > 0.0 && rnd(&s) < ${f(K.reefs)} * g.calcify * (1.0 - g.advect) * select(${f(K.nucleate)}, 1.0, stoneN >= 1.0)) {
     kind = STONE; E = ${f(K.stoneLife)} * (0.5 + rnd(&s)); vel = vec2f(0.0);
@@ -2826,7 +2823,7 @@ var<private> mN: u32;
 fn mPut(o: u32, v: f32) { mind[o] = bitcast<u32>(v); }
 fn mPut2(o: u32, v: vec2f) { mind[o] = bitcast<u32>(v.x); mind[o + 1u] = bitcast<u32>(v.y); }
 
-// One sampled neighbour's pull: fr0 its signature (or personal-space) term, fr with the diet's added
+// One sampled neighbor's pull: fr0 its signature (or personal-space) term, fr with the diet's added
 // and flight from a hunter (mFl) taken away.
 fn mPair(j: u32, q: Lite, d: vec2f, r: f32, inside: bool, kin: bool, fr0: f32, fr: f32) {
   let u = d / r;
@@ -3344,17 +3341,17 @@ fn drawnSize(p: Particle) -> f32 { return genomes[p.kind].size * (1.0 - 0.12 * f
 // The living cells a grid cell's cells could touch, gathered once for the workgroup: its own first,
 // then those within reach in the eight around it (the largest cells reach 0.085 · 1.3 · 2 · 2.6 < 0.6).
 // Matter heaps pile ten thousand grains into one grid cell, so scanning every particle around each
-// cell cost 190–690 ms a frame with a heap in view; here each cell searches only living neighbours, at most
+// cell cost 190–690 ms a frame with a heap in view; here each cell searches only living neighbors, at most
 // NEAR_N of them (past that, cells overlap dozens deep and which few it flattens against can't be seen).
-// Positions are packed relative to the grid cell's centre (snorm over ±2 units: 6e-5 apart), and
-// each one's index (22 bits: at most 4M particles) with its drawn size (10 bits, to 1/256).
+// Positions are packed relative to the grid cell's center (snorm over ±2 units: 6e-5 apart), and
+// each one's index (23 bits: at most 8M particles) with its drawn size (9 bits, to 1/128).
 // Past NEAR_FEW they are sorted into bins of NEAR_BIN units, and each cell searches outward from its
 // own bin, skipping bins farther than its sixth contact so far: compared with every one gathered,
 // colonies of a few hundred to a grid cell took 1-7 ms a frame (all within 16 KB of workgroup memory).
 const NEAR_N = 1024u;
 const NEAR_REACH = 0.6;
 const NEAR_BIN = 0.125;
-const NEAR_BINS = 18; // per side: ±1.125 units around the grid cell's centre
+const NEAR_BINS = 18; // per side: ±1.125 units around the grid cell's center
 const NEAR_FEW = 64u; // compared directly, unbinned
 var<workgroup> nearPos: array<u32, NEAR_N>;
 var<workgroup> nearKey: array<u32, NEAR_N>;
@@ -3372,10 +3369,10 @@ var<workgroup> ownMore: array<u32, OWN_MORE>;
 
 // (returning c to its callers instead, FXC fails to compile the kernel)
 fn nearAdd(j: u32, d: vec2f, size: f32, own: bool) {
-  let q = u32(round(clamp(size, 0.0, 3.99) * 256.0));
+  let q = u32(round(clamp(size, 0.0, 3.99) * 128.0));
   atomicMax(&nearMaxSize, q);
   let c = atomicAdd(&nearCount, 1u);
-  if (c < NEAR_N) { nearPos[c] = pack2x16snorm(d * 0.5); nearKey[c] = (j << 10u) | q; }
+  if (c < NEAR_N) { nearPos[c] = pack2x16snorm(d * 0.5); nearKey[c] = (j << 9u) | q; }
   else if (own && c < NEAR_N + OWN_MORE) { ownMore[c - NEAR_N] = j; }
 }
 fn nearBin(d: vec2f) -> vec2i { return clamp(vec2i(floor((d + 1.125) / NEAR_BIN)), vec2i(0), vec2i(NEAR_BINS - 1)); }
@@ -3391,14 +3388,14 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
   let world = vec2f(g);
   // this grid cell (its particles were sorted into it before this step moved them)
   let at = ((views.first[wg.z].xy + vec2i(wg.xy)) % g + g) % g;
-  let centre = vec2f(at) + 0.5;
+  let center = vec2f(at) + 0.5;
   if (l == 0u) { atomicStore(&nearCount, 0u); atomicStore(&nearMaxSize, 0u); }
   for (var b = l; b < NEAR_EDGES; b += 256u) { atomicStore(&binAt[b], 0u); }
   workgroupBarrier();
   for (var j = r.x + l; j < r.y; j += 256u) {
     let q = parts[j];
     if (q.kind < FIRST_LIFE) { continue; }
-    var d = q.pos - centre;
+    var d = q.pos - center;
     d -= world * round(d / world);
     nearAdd(j, d, drawnSize(q), true);
   }
@@ -3414,7 +3411,7 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     let end = cellStart[cell + 1u];
     for (var j = cellStart[cell] + l; j < end; j += 256u) {
       let q = parts[j];
-      var d = q.pos - centre;
+      var d = q.pos - center;
       d -= world * round(d / world);
       if (q.kind >= FIRST_LIFE && all(abs(d) <= vec2f(0.5 + NEAR_REACH))) { nearAdd(j, d, drawnSize(q), false); }
     }
@@ -3441,18 +3438,18 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     if (e < n) { nearSorted[atomicLoad(&binAt[select(0u, nearBinOf(e), binned)]) + rank[t]] = e; }
   }
   workgroupBarrier();
-  let maxSize = f32(atomicLoad(&nearMaxSize)) / 256.0;
+  let maxSize = f32(atomicLoad(&nearMaxSize)) / 128.0;
   // This grid cell's own living cells, listed first, one a thread. A heap's few hundred are scattered
   // through its ten thousand grains: a thread a particle left one thread in 32 searching while the
   // rest waited, round after round (2.6 ms of one heap's view). Past NEAR_N + OWN_MORE, every particle.
   let listed = own <= NEAR_N + OWN_MORE;
   for (var o = l; o < select(r.y - r.x, own, listed); o += 256u) {
     var i = r.x + o;
-    if (listed) { i = select(ownMore[min(o - NEAR_N, OWN_MORE - 1u)], nearKey[min(o, NEAR_N - 1u)] >> 10u, o < NEAR_N); }
+    if (listed) { i = select(ownMore[min(o - NEAR_N, OWN_MORE - 1u)], nearKey[min(o, NEAR_N - 1u)] >> 9u, o < NEAR_N); }
     let p = parts[i];
     if (p.kind < FIRST_LIFE) { continue; }
     let si = drawnSize(p);
-    var pd = p.pos - centre;
+    var pd = p.pos - center;
     pd -= world * round(pd / world);
     var best: array<u32, TOUCH_N>;
     var key: array<f32, TOUCH_N>;
@@ -3477,10 +3474,10 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
           let b = u32(y * NEAR_BINS + x);
           for (var s = atomicLoad(&binAt[b]); s < atomicLoad(&binAt[b + 1u]); s++) {
             let e = nearSorted[s];
-            let j = nearKey[e] >> 10u;
+            let j = nearKey[e] >> 9u;
             if (j == i) { continue; }
             let d = unpack2x16snorm(nearPos[e]) * 2.0 - pd;
-            let k = length(d) / (0.085 * 1.3 * (si + f32(nearKey[e] & 1023u) / 256.0));
+            let k = length(d) / (0.085 * 1.3 * (si + f32(nearKey[e] & 511u) / 128.0));
             if (k >= key[TOUCH_N - 1u]) { continue; }
             var c = TOUCH_N - 1u;
             for (; c > 0u && key[c - 1u] > k; c--) { key[c] = key[c - 1u]; best[c] = best[c - 1u]; }
@@ -3897,8 +3894,8 @@ fn spiralSD(q: vec2f, s: vec2f) -> f32 {
 fn vacuolateSD(q: vec2f, s: vec2f) -> f32 {
   let a = atan2(q.y, q.x);
   let outer = facetSD(q, 0.80 + 0.045 * sin(a * 5.0 + s.y * 5.0), 9.0, 0.18);
-  let centre = vec2f(0.16 + s.x * 0.30, 0.09);
-  let hole = facetSD((q - centre) * vec2f(1.0, 1.12), 0.35 + s.x * 0.10, 7.0, 0.3);
+  let center = vec2f(0.16 + s.x * 0.30, 0.09);
+  let hole = facetSD((q - center) * vec2f(1.0, 1.12), 0.35 + s.x * 0.10, 7.0, 0.3);
   return max(outer, -hole);
 }
 fn bellSD(q: vec2f, s: vec2f) -> f32 {
@@ -3998,9 +3995,9 @@ fn bodyDirection(ii: u32, p: Particle) -> vec2f {
   }
   return cellDirection(p);
 }
-// A resolved cell is drawn no larger than the room its living neighbours leave it, so a dense body
+// A resolved cell is drawn no larger than the room its living neighbors leave it, so a dense body
 // reads as packed tissue rather than a stack of overlapping cells. The sim records a kernel density
-// of living neighbours within LINK_R (sum of (1 - r/L)^2, i.e. pi L^2 rho / 6), smoothed by contactGather
+// of living neighbors within LINK_R (sum of (1 - r/L)^2, i.e. pi L^2 rho / 6), smoothed by contactGather
 // (Sway.pack); a hexagonal packing of that density has spacing L * sqrt(0.6046 / pack). Distant sprites
 // keep their size.
 fn packFit(p: Particle, index: u32, size: f32) -> f32 {
@@ -4107,12 +4104,12 @@ fn bodyArea(shape: u32, s: vec2f) -> f32 {
   }
 }
 
-// A particle as its distant sprite: its colour, profile and radius in pixels (and how much a resolved
+// A particle as its distant sprite: its color, profile and radius in pixels (and how much a resolved
 // cell swims, which sets its reach). vsPoint uses it, and splatMain for sprites too small for quads.
 // A dead cell's ghost (ghostOf) is drawn as the cell it was (kind) fading into its husk; live is its own
-// colour before that fade, for the resolved ghost, which fades into its husk pixel by pixel.
+// color before that fade, for the resolved ghost, which fades into its husk pixel by pixel.
 struct Sprite { col: vec3f, shape: u32, px: f32, swim: f32, kind: u32, live: vec3f, anim: Anim, ghost: Ghost };
-// a husk's colour: its cell's, browned, as bright as the energy it holds
+// a husk's color: its cell's, browned, as bright as the energy it holds
 fn huskCol(p: Particle) -> vec3f {
   let h = unpack4x8unorm(p.col).rgb;
   return mix(h * 0.6, vec3f(0.42, 0.28, 0.16), 0.55) * (0.25 + p.energy * 0.6) * view.matterGain * 1.4;
@@ -4145,7 +4142,7 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
       if (close > 0.0) { a = animOf(p, g); }
       size *= animScale(a);
     }
-    // a dormant cell (a cyst) sleeps: no swimming or pulse, dimmed and greyed (curling up and waking by degrees)
+    // a dormant cell (a cyst) sleeps: no swimming or pulse, dimmed and grayed (curling up and waking by degrees)
     let sleep = a.sleep;
     swim = min(g.swim, 1.0) * (1.0 - sleep);
     let e = clamp(a.fed, 0.0, 1.4);
@@ -4162,8 +4159,8 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     if (!dead && cause == 8u) { b *= 1.0 + 2.0 * max(0.0, 1.0 - p.age / BIRTH_T); }
     col = unpack4x8unorm(p.col).rgb;
     col = mix(col, vec3f(0.62, 0.66, 0.74) * dot(col, vec3f(0.3, 0.5, 0.2)) * 1.6, 0.5 * sleep);
-    // stranded on the drying mud a cell desiccates: it shrivels, its colour drains to a dull brown and it darkens;
-    // caught in the ice it is frozen: still, its colour drained toward a pale frosted blue-white, a little rimed
+    // stranded on the drying mud a cell desiccates: it shrivels, its color drains to a dull brown and it darkens;
+    // caught in the ice it is frozen: still, its color drained toward a pale frosted blue-white, a little rimed
     if (view.level < 1.0 || view.frost > 0.0) {
       var dryN = 0.0;
       if (view.level < 1.0) { dryN = smoothstep(0.0, 0.012, blockAt(${3 * MAX_CELLS}u, p.pos) - view.level); }
@@ -4189,7 +4186,7 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
         size *= 1.0 + 0.15 * flare;
         col *= 1.0 + 0.9 * flare;
       } else {
-        // withered (or grazed away): the colour drains, it darkens and shrinks
+        // withered (or grazed away): the color drains, it darkens and shrinks
         let l = dot(col, vec3f(0.3, 0.5, 0.2));
         col = mix(col, vec3f(l) * vec3f(1.05, 0.92, 0.75), 0.65 * smoothstep(0.0, 0.8, t)) * mix(1.0, 0.55, t);
         size *= mix(1.0, select(0.85, 0.6, gh.how == 2u), smoothstep(0.0, 1.0, t));
@@ -4310,7 +4307,7 @@ struct PO {
   @location(6) @interpolate(flat) bondOffset: vec3u,
   @location(7) @interpolate(flat) bondFrame: vec3u,
   @location(8) @interpolate(flat) bondSeeds: vec2u,
-  // up to six planes the cell is pressed flat against, each its point nearest the centre in
+  // up to six planes the cell is pressed flat against, each its point nearest the center in
   // units of own radius, packed as half floats (zero: none), pushed 4 further out for another
   // species: it only dents the cell, softly, where kin share a crisp wall
   @location(9) @interpolate(flat) contact: vec3u,
@@ -4634,7 +4631,7 @@ fn ghostColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
   return mix(c, husk, w);
 }
 // A living cell (or a dead one's ghost, fx.y > 0) resolved: its outline fused with its partners and
-// pressed flat against its neighbours, its interior and its hairs and tail.
+// pressed flat against its neighbors, its interior and its hairs and tail.
 fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
   let lod = detailLOD(min(i.geom.x, view.pointSize));
   let seed = renderHash(p.id);
@@ -4675,7 +4672,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       own = (own - axis * along) * exp(-squashed) + axis * along * exp(squashed);
     }
     // A tissue cell fills out toward the walls it shares with its kin, and only there: facing open water
-    // it keeps its own shape. The fill grows as a neighbour presses closer, so nothing pops.
+    // it keeps its own shape. The fill grows as a neighbor presses closer, so nothing pops.
     var fill = 0.0;
     if (i.tile.x > 0.0) {
       let toward = own / max(length(own), 1e-4);
@@ -4802,7 +4799,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
     let appendages = swimmer && (body > 0.0 || hairRange || tailRange);
     if (body <= 0.0 && !appendages) { return vec4f(i.col * far * (1.0 - lod), 0.0); }
     // Flat cytoplasm is cheap at silhouette LOD. Detail is a small modulation of
-    // that same normalised light, so there is no bright jump when the nucleus appears.
+    // that same normalized light, so there is no bright jump when the nucleus appears.
     var tissue = 1.0;
     var hue = vec3f(1.0);
     if (inside > 0.0 && body > 0.0) {
@@ -4822,11 +4819,11 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       // kept to the membrane's own band, clear of the outline's medial axis in narrow arms
       var relief = 0.45 * dot(outward, TO_LIGHT) * (1.0 - smoothstep(0.0, 0.13, -sd));
       let division = smoothstep(0.55, 1.0, i.neck.w);
-      var centre = vec2f((s.x - 0.5) * 0.22, (seed - 0.5) * 0.26);
-      if (myPlan == 8u) { centre = vec2f(-0.43, -0.06); }
-      if (myPlan == 3u) { centre = vec2f(-0.35, 0.02); }
-      if (myPlan == 9u) { centre = vec2f(0.2, 0.0); }
-      let nq = q - centre;
+      var center = vec2f((s.x - 0.5) * 0.22, (seed - 0.5) * 0.26);
+      if (myPlan == 8u) { center = vec2f(-0.43, -0.06); }
+      if (myPlan == 3u) { center = vec2f(-0.35, 0.02); }
+      if (myPlan == 9u) { center = vec2f(0.2, 0.0); }
+      let nq = q - center;
       let nr = length(vec2f(abs(nq.x) - division * 0.17, nq.y + 0.03 * sin(nq.x * 15.0 + seed))
         / vec2f(0.17 + division * 0.04, 0.21 - division * 0.055));
       relief += 0.3 * exp(-pow((nr - 0.8) / 0.3, 2.0)) * dot(nq / max(length(nq), 1e-4), lightQ);
@@ -4861,29 +4858,29 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
           // the species' own scatter direction for this organelle (organDirs, INBOND_WGSL)
           let dir = unpack2x16snorm(organDir[p.kind * ORGANS + j]);
           // Irregular scatter is clipped by the tissue for holes, horns and chain cells.
-          var organCentre = dir * (0.22 + h * 0.51);
+          var organCenter = dir * (0.22 + h * 0.51);
           if (myPlan == 3u) {
-            organCentre = vec2f(select(-0.39, 0.39, j % 2u == 0u), 0.0)
+            organCenter = vec2f(select(-0.39, 0.39, j % 2u == 0u), 0.0)
               + dir * (0.12 + h * 0.18);
           } else if (myPlan == 5u || myPlan == 6u || myPlan == 11u) {
             let x = (h - 0.5) * 1.45;
-            organCentre = vec2f(x, dir.y * (0.30 - abs(x) * 0.22));
+            organCenter = vec2f(x, dir.y * (0.30 - abs(x) * 0.22));
           } else if (myPlan == 7u) {
             let t = f32(j % 6u) / 5.0;
             let chamberAngle = t * 5.3 + s.y * 0.7;
-            organCentre = vec2f(cos(chamberAngle), sin(chamberAngle)) * (0.12 + t * 0.36)
+            organCenter = vec2f(cos(chamberAngle), sin(chamberAngle)) * (0.12 + t * 0.36)
               + dir * h * 0.14;
           } else if (myPlan == 8u) {
-            organCentre = vec2f(0.16 + s.x * 0.30, 0.09)
+            organCenter = vec2f(0.16 + s.x * 0.30, 0.09)
               + dir * (0.51 + h * 0.07);
           } else if (myPlan == 9u) {
-            organCentre = vec2f(0.2, 0.0) + dir * h * 0.39;
+            organCenter = vec2f(0.2, 0.0) + dir * h * 0.39;
           } else if (myPlan == 10u) {
             let x = (f32(j % 4u) - 1.5) * 0.40;
-            organCentre = vec2f(x, 0.14 * sin(x * 5.0 + s.y * 5.0))
+            organCenter = vec2f(x, 0.14 * sin(x * 5.0 + s.y * 5.0))
               + dir * h * 0.13;
           }
-          let oq = q - organCentre;
+          let oq = q - organCenter;
           let photo = smoothstep(f32(j), f32(j) + 1.0, clamp(g.photo, 0.0, 1.0) * 12.0);
           let eat = (1.0 - g.photo * 0.65) * clamp(g.dGlint + g.dHusk + g.dFlesh, 0.0, 1.0);
           let stored = smoothstep(h - 0.05, h + 0.05, eat * 0.7);
@@ -4936,7 +4933,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
     return vec4f(i.col * hue * mix(far, max(0.0, f), lod), lod * cover);
   }
 }
-// A husk: a folded membrane, with missing arcs and torn ends, that retains the dead particle's colour.
+// A husk: a folded membrane, with missing arcs and torn ends, that retains the dead particle's color.
 // The torn rim is a tube of membrane, crisp and lit across its section from the upper left; inside it
 // the collapsed skin is a faint film whose wrinkles catch the light. Its light and coverage at v (its
 // own frame, facing dir).
@@ -4985,7 +4982,7 @@ fn matterColor(i: PO, p: Particle, far: f32) -> vec4f {
       if (p.kind == SILT) {
         // a mineral chip: a flat top and bevelled sides, each facet lit by its own angle, one may glint
         let sector = TAU / sides;
-        // one bevel per polygon edge (edges are centred on multiples of the sector); a tilted top
+        // one bevel per polygon edge (edges are centered on multiples of the sector); a tilted top
         let k = floor(a / sector + 0.5);
         let facing = k * sector - seed * TAU;
         let side = smoothstep(0.5 - aa, 0.5 + aa, r / edge);
@@ -5098,7 +5095,7 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   let c1 = t0;
   let c2 = dq - t1;
   let u = 1.0 - t;
-  let centre = 3.0 * u * u * t * c1 + 3.0 * u * t * t * c2 + t * t * t * dq;
+  let center = 3.0 * u * u * t * c1 + 3.0 * u * t * t * c2 + t * t * t * dq;
   let tangent = 3.0 * u * u * c1 + 6.0 * u * t * (c2 - c1) + 3.0 * t * t * (dq - c2);
   let normal = vec2f(-tangent.y, tangent.x) / max(length(tangent), 0.00001);
   let adhesion = min(genomes[p.kind].adhesion, genomes[q.kind].adhesion);
@@ -5109,11 +5106,11 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   // a neck is never wider than the cells it joins (cells shrink to fit dense bodies)
   let ends = min(cellRadius(p, genomes[p.kind], index), cellRadius(q, genomes[q.kind], n));
   let neck = min(view.ppu * (0.012 + adhesion * 0.025), 0.3 * ends);
-  // up close a bond between neighbouring cells reads as a neck; one reaching across a crowd past
+  // up close a bond between neighboring cells reads as a neck; one reaching across a crowd past
   // several cell widths stays the thin thread it is from afar, so zooming never hides a bond
   let neckness = lod * (1.0 - smoothstep(3.5, 5.0, len * view.ppu / ends));
   let halfWidth = mix(0.5, max(0.5, neck * taper * tension), neckness);
-  o.pos = toClip((base + centre) * view.ppu + normal * side * halfWidth);
+  o.pos = toClip((base + center) * view.ppu + normal * side * halfWidth);
   let strength = clamp(1.0 - len / view.linkR, 0.0, 1.0);
   let fade = select(view.mute, 1.0, focusPass(p));
   // Thin bridges carry the old line's light (soft-edge integral 0.8); resolved ones are shaded as
@@ -5142,8 +5139,8 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
 }
 
 // Reef stone and bedrock. Each grain is a cobble, an irregular dome; where cobbles overlap the higher
-// lies over its neighbours, so a seam runs exactly where grains meet and a rock is the union of its
-// cobbles. The cobble on top writes its colour and its own (analytic) slope; the composite (boulder)
+// lies over its neighbors, so a seam runs exactly where grains meet and a rock is the union of its
+// cobbles. The cobble on top writes its color and its own (analytic) slope; the composite (boulder)
 // lights it.
 const STONE_R = 0.2; // a grain's radius in world units (uv 1); cobbles span ~0.12-0.17
 const STONE_QUAD = 1.35; // the quad reaches this far in uv, so a stretched or ragged grain is never cut off
@@ -5168,7 +5165,7 @@ struct SO {
   if (any(abs(d) > view.res * 0.5 + vec2f(r * STONE_QUAD))) { return o; }
   o.seed = vec2f(f32(pcgR(p.id) & 0xffffu), f32(pcgR(p.id) >> 16u)) / 65536.0;
   // sediment seen under a microscope: each grain is one of a few kinds (its own outline, detail and
-  // material, mineralSurf and boulder), coloured as that kind is. Bedrock is mostly mineral grains;
+  // material, mineralSurf and boulder), colored as that kind is. Bedrock is mostly mineral grains;
   // reef stone, laid down by calcifiers, mostly the skeletons of small organisms, and keeps a little
   // of its builder's tint. A framboid is brassy pyrite.
   var base = unpack4x8unorm(p.col).rgb;
@@ -5193,7 +5190,7 @@ ${STONE_COL_WGSL}
   o.fuel = select(0.0, clamp(p.energy / ${f(DEFAULT_K.framboidLife)}, 0.0, 1.0), framboid);
   let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
   o.pos = toClip(d + corner * r * STONE_QUAD);
-  // the cobble's peak height orders it: the higher lies over its neighbours, and depth is per cobble,
+  // the cobble's peak height orders it: the higher lies over its neighbors, and depth is per cobble,
   // not per pixel, so the GPU can reject hidden cobbles before shading them
   o.pos.z = select(select((0.45 + 0.55 * o.seed.x) * (0.62 + 0.18 * o.seed.y) * 0.95, 0.97, framboid), 0.99, p.id == view.selId); // a selected grain sits on top
   o.uv = corner * STONE_QUAD;
@@ -5412,7 +5409,7 @@ fn mineralSurf(i: SO) -> StoneOut {
       alb *= 1.0 + 0.06 * st * det;
     }
     if (shell) {
-      // growth lines curving about the hinge (beyond the shard), radial ribs, and broad colour bands
+      // growth lines curving about the hinge (beyond the shard), radial ribs, and broad color bands
       let ha = grainHash(H, 71.0) * TAU;
       let hc = vec2f(cos(ha), sin(ha)) * r0 * (1.5 + grainHash(H, 72.0));
       let hv = w - hc;
@@ -5517,7 +5514,7 @@ fn mineralSurf(i: SO) -> StoneOut {
   var o: StoneOut;
   let slope = (ls.x / stretch) * ax + ls.y * ay;
   o.col = vec4f(i.col * alb, 1.0 - smoothstep(-aa, aa, sd));
-  // .z: how near its own edge (where it meets its neighbours) the pixel lies
+  // .z: how near its own edge (where it meets its neighbors) the pixel lies
   o.surf = vec4f(slope, edge, f32(i.flags));
   return o;
 }
@@ -5653,7 +5650,7 @@ fn microBody(local: vec2f, h: vec4f, spacing: f32, ppu: f32, depth: f32, abundan
     sdf = min(head, hair);
     width = r * 0.7;
   } else if (family == 4u) {
-    // Long, bent mucilage / fibre with uneven thickness.
+    // Long, bent mucilage / fiber with uneven thickness.
     let bend = 0.032 * sin(q.x * 21.0 + h.x * TAU) + 0.01 * sin(q.x * 53.0 + t * 0.2);
     sdf = max(abs(q.y - bend) - r * (0.18 + 0.05 * cos(q.x * 37.0)), abs(q.x) - 0.20);
     width = r * 0.2;
@@ -5760,7 +5757,7 @@ fn worley(p: vec2f) -> vec4f {
   return vec4f(f1, f2, off);
 }
 // Rock from the stone targets (DRAW_WGSL vsStone): the cobble on top at each pixel, lit from its own
-// slope, darkening toward its edge where it tucks under its neighbours. Bedrock is speckled like
+// slope, darkening toward its edge where it tucks under its neighbors. Bedrock is speckled like
 // granite; reef stone, laid down by calcifiers, is pitted like limestone. The selected grain glows.
 fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
   let c = textureSampleLevel(stoneTex, samp, uv, 0.0);
@@ -5773,7 +5770,7 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
   let flags = u32(floor(sw + 0.01));
   let fine = smoothstep(120.0, 400.0, ppu);
   if ((flags & 4u) != 0u) {
-    // pyrite: metallic, so mostly a brassy glint off each crystal; and while it oxidises a dull warm
+    // pyrite: metallic, so mostly a brassy glint off each crystal; and while it oxidizes a dull warm
     // glow from within, brightest in the gaps between crystals, fading as it is spent
     let fuel = (sw - f32(flags)) / 0.45;
     let n = normalize(vec3f(-s.xy, 1.0));
@@ -5864,7 +5861,7 @@ fn hash12(p: vec2f) -> f32 {
 }
 
 ${MICRO_FNS}
-// Random 0–3 objects per slot, full-extent centres and a 2x2 nearest-slot
+// Random 0–3 objects per slot, full-extent centers and a 2x2 nearest-slot
 // lookup. Rotation, shear, continuous sizes and clumpy domain warping erase
 // the grid. Integer torus winding vectors preserve the irrational-angle
 // lattice across world wraps; inverse mapping canonicalises hash addresses.
@@ -5904,7 +5901,7 @@ fn microGrain(wp: vec2f, spacing: f32, ppu: f32, octave: f32, depth: f32, cycle:
 
 // mud: the murk lying between the focal plane and the soft plane, which it veils
 fn pondMicro(c: vec3f, hdr: vec3f, cam: vec2f, offset: vec2f, renderPPU: f32, ppu: f32, mud: f32) -> vec3f {
-  // The main view specialises this away below the reveal threshold, avoiding
+  // The main view specializes this away below the reveal threshold, avoiding
   // register/stack overhead from the deep-zoom shader even on software GPUs.
   if (!MICRO_SUSPENSION) { return c; }
   // Uniform early-out: no hashes, shapes or time work at ordinary zoom. The
@@ -6010,7 +6007,7 @@ fn opticDust(q: vec2f) -> f32 {
 // above pondMicro's soft plane: they pan at MUD_DEPTH of the focal plane's speed. The currents carry
 // and shear them; each generation gathers out of a blur, sharpens and dissolves again while the next
 // gathers elsewhere (two crossfaded generations, as in pondMicro). delta is the world offset from
-// the view's centre.
+// the view's center.
 const MUD_DEPTH = 0.85;
 fn murk(cam: vec2f, delta: vec2f) -> f32 {
   let world = post.world * MUD_DEPTH;
@@ -6039,7 +6036,7 @@ fn murk(cam: vec2f, delta: vec2f) -> f32 {
 }
 
 // The camera's sensor: read noise in the dark, shot noise growing with light, a little of it in
-// colour. Display space, after the gamma curve.
+// color. Display space, after the gamma curve.
 fn sensor(c: vec3f, pos: vec2f, k: f32) -> vec3f {
   let t = fract(post.time) * 91.7;
   let n = vec3f(hash12(pos + t), hash12(pos.yx + t * 1.37 + 11.3), hash12(pos + t * 0.71 + 27.1)) - 0.5;
@@ -6089,7 +6086,7 @@ fn flowNoise(wp: vec2f, scale: f32) -> vec2f {
   return n;
 }
 
-// The water's temperature at world point p, bilinear between cell centres, and its gradient.
+// The water's temperature at world point p, bilinear between cell centers, and its gradient.
 fn waterCell(x: i32, y: i32) -> f32 {
   let g = vec2i(post.world);
   return heatField[${MAX_CELLS}u + u32(((y % g.y) + g.y) % g.y) * u32(g.x) + u32(((x % g.x) + g.x) % g.x)];
@@ -6218,7 +6215,7 @@ fn vborderT(q: vec2f, S: f32, o: vec2f) -> vec4f {
   return vec4f(md * 0.5 * (Sv.x + Sv.y), hash12(wrapStep(nw + mg, N) + 0.37), mr * Sv);
 }
 // Grains on a jittered lattice (s per world unit), present in a share of its cells: each up to rmax lattice cells
-// across, irregular; in darkfield a clear grain shows mostly by its rim. xyz: colour, w: coverage.
+// across, irregular; in darkfield a clear grain shows mostly by its rim. xyz: color, w: coverage.
 fn specks(wp: vec2f, s0: f32, rmax: f32, ppu: f32, seed: f32, share: f32) -> vec4f {
   let N = tileN(1.0 / s0);
   let s = 0.5 * (N.x / post.world.x + N.y / post.world.y);
@@ -6284,12 +6281,12 @@ fn ridge(x: f32, w: f32, px: f32, g: vec2f, L: vec2f) -> vec2f {
 // grows outward from it (and on a thaw draws back the same way): a point is ice once the frost's own front (the
 // field the simulation freezes by; sd world units away, ice negative) has come within lead of it, lead being how
 // far ahead of that front the dendrites reach there. Every grain near the point offers its own dendrites' lead, less
-// the farther the point lies from the grain's centre; the farthest reach wins and owns the point. So grains compete
-// as real ones do: a stem is never cut off, a neighbour's ice simply catches up with it, and where two grains' ice
+// the farther the point lies from the grain's center; the farthest reach wins and owns the point. So grains compete
+// as real ones do: a stem is never cut off, a neighbor's ice simply catches up with it, and where two grains' ice
 // meets is their boundary.
 const ICE_GS = 1.5;    // grain spacing (world units)
 const ICE_LEAD = 1.4;  // how far the longest stems run ahead
-const ICE_OWN = 0.45;  // lead a grain gains at its centre ...
+const ICE_OWN = 0.45;  // lead a grain gains at its center ...
 const ICE_FALL = 0.55; // ... and loses per unit away from it
 // The frost field's slope at p, bilinear: the way the ice grows there.
 fn iceSlope(p: vec2f) -> vec2f {
@@ -6311,7 +6308,7 @@ fn iceGrain(wp: vec2f, cu: vec2f, N: vec2f, Sv: vec2f, near: f32) -> IceGrain {
   let cell = wrapL(cu, N);
   g.id = hash12(cell + 0.37);
   let ctr = (cu + vjit(cell + 31.0)) * Sv;
-  // its six axes; the stems grow along the one nearest the way the ice grows at its centre
+  // its six axes; the stems grow along the one nearest the way the ice grows at its center
   let th = g.id * 6.2832;
   let gr = iceSlope(ctr);
   let aa = th + round((atan2(gr.y, gr.x) - th) / 1.0472) * 1.0472;
@@ -6339,7 +6336,7 @@ fn iceGrain(wp: vec2f, cu: vec2f, N: vec2f, Sv: vec2f, near: f32) -> IceGrain {
   g.bx = (u0 - j * S2) * 0.866;
   g.bt = t / max(blen, 1e-3);
   let branch = L - 0.7 * t - 6.0 * abs(g.bx) - 12.0 * max(t - blen, 0.0) - select(0.0, 9.0, bh < 0.15);
-  // the farther from its centre, the less it reaches; past near hardly at all (so the 3 × 3 grains around a point
+  // the farther from its center, the less it reaches; past near hardly at all (so the 3 × 3 grains around a point
   // are all that can win it)
   let dl = length(d);
   g.lead = max(stem, branch) + ICE_OWN - ICE_FALL * dl - 10.0 * max(dl - near, 0.0);
@@ -6622,7 +6619,7 @@ fn mudDrops(wp: vec2f, t: f32, S0: f32, rmin: f32, rmax: f32, tau: f32, seed: f3
 // The surface of the water, seen through. It lies above the focal plane, so its waves are never sharp in
 // themselves; they show only by bending what lies beneath (a slope displaces the view). A raindrop's impact sends out capillary
 // waves, which disperse: the short ones run fastest, so a ring is a packet whose crests crowd toward its leading edge
-// and broaden toward its centre, damped where they are shortest; it is uneven around its circle, and the drop's
+// and broaden toward its center, damped where they are shortest; it is uneven around its circle, and the drop's
 // splash throws a few droplets which ring too. In rain the whole surface is roughened by drops falling out of view.
 const RIPPLE_SHEEN = vec3f(0.11, 0.123, 0.14);
 const RIPPLE_DIM = 0.45;
@@ -6693,7 +6690,7 @@ fn ripples(wp: vec2f) -> vec2f {
   if (post.pond.y > 0.0) { chop(wp, post.pond.y, &o); }
   return o;
 }
-// A thermal camera's false colour: deep blue, teal, amber, white.
+// A thermal camera's false color: deep blue, teal, amber, white.
 fn heatRamp(u: f32) -> vec3f {
   let a = mix(vec3f(0.02, 0.04, 0.18), vec3f(0.0, 0.42, 0.48), smoothstep(0.0, 0.35, u));
   let b = mix(a, vec3f(1.0, 0.52, 0.12), smoothstep(0.35, 0.7, u));
@@ -6809,7 +6806,7 @@ fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
     c += vec3f(0.72, 0.90, 1.0) * 0.4 * ghost * dash;
   }
   if (post.heatVis > 1.5) {
-    // the thermal camera: false colour over the map's span (drawn as isotherms alone over a full
+    // the thermal camera: false color over the map's span (drawn as isotherms alone over a full
     // light map), with an isotherm every 2°
     if (post.tideVis < 1.5) { c = mix(c, heatRamp(clamp((water - post.heat.y) / (post.heat.z - post.heat.y), 0.0, 1.0)), 0.4); }
     let band = water * 0.5;
@@ -6946,7 +6943,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   let uq = i.uv - 0.5;
   let v = clamp(1.0 - dot(uq, uq) * 1.1, 0.0, 1.0);
   var bg = mix(vec3f(0.0015, 0.0012, 0.0035), vec3f(0.0055, 0.0045, 0.011), v);
-  // the lamp is never quite centred: brighter and warmer toward a hotspot off the axis
+  // the lamp is never quite centered: brighter and warmer toward a hotspot off the axis
   let hs = q - vec2f(0.35, -0.2);
   let lamp = exp(-dot(hs, hs) * 0.3);
   let m = textureSampleLevel(murkTex, samp, i.uv, 0.0).r * k;
@@ -6996,7 +6993,7 @@ fn loupeScene(r: vec2f) -> vec3f {
     let ds = length(i.uv + TO_LIGHT * 0.06);
     return vec4f(0.0, 0.0, 0.0, 0.45 * k * (1.0 - smoothstep(0.98, 1.2, ds)) * loupe.strength);
   }
-  // a magnifier's barrel distortion: true scale at the centre, the field squeezed toward the rim,
+  // a magnifier's barrel distortion: true scale at the center, the field squeezed toward the rim,
   // where red and blue bend apart and the image softens
   let d2 = d * d;
   var r = i.uv * (1.0 + k * (LOUPE_FIELD - 1.0) * d2) / LOUPE_FIELD;
@@ -7063,7 +7060,7 @@ fn loupeScene(r: vec2f) -> vec3f {
 }
 `;
 
-// The main view's micro-suspension, speck by speck. pondMicro searches every pixel's neighbouring
+// The main view's micro-suspension, speck by speck. pondMicro searches every pixel's neighboring
 // lattice slots in each octave and phase; here a compute pass visits each slot near the view once,
 // keeps the objects pondMicro would draw and places each on screen, and every speck is then one
 // tight quad whose fragments run only microBody, additively into microTex. The same bodies, in the

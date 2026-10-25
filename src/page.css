@@ -20,7 +20,7 @@
   /* one spacing scale for every panel: within a row, between rows, after a heading, between
      blocks, between sections */
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 20px; --s5: 32px;
-  --lab-w: 7.6em; /* the label column of every labelled row */
+  --lab-w: 7.6em; /* the label column of every labeled row */
   /* the two side columns: the Field Lab on the left, the specimen on the right (narrower on laptops) */
   --lab-pw: 384px;
   --spec-pw: 386px;
@@ -131,7 +131,7 @@ input[type="range"] { accent-color: var(--cyan); cursor: pointer; }
 .sec-h::after { content: ''; position: absolute; right: -1px; bottom: -3px; width: 5px; height: 5px; border-right: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2); }
 .sec-h h2 { color: var(--ink); }
 /* ------------------------------------------------------------------ components (ui.js)
-   sect-h: a section's heading (cyan, with a rule). sub-h: a block's heading (grey capitals) with
+   sect-h: a section's heading (cyan, with a rule). sub-h: a block's heading (gray capitals) with
    an optional aside. blk: a block, its rows a step apart. sx-b / stack: blocks a block apart. */
 .sect-h { display: flex; align-items: center; gap: var(--s3); margin: 0; color: var(--cyan); font-size: 11px; font-weight: 500; line-height: 1.2; letter-spacing: .22em; text-transform: uppercase; font-stretch: 112%; }
 .sect-h::after { content: ''; flex: 1; height: 1px; background: var(--line-2); }
@@ -196,7 +196,7 @@ body:not(.live) .hud { opacity: 0; }
 .era-box b { font-size: 13px; font-weight: 400; letter-spacing: .1em; text-transform: uppercase; font-stretch: 110%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gauge { flex-direction: row; align-items: center; gap: 9px; text-decoration: none; }
 .gauge b { font-size: 13px; font-weight: 400; min-width: 3.4ch; }
-/* the graphics centre on the text's ink, which sits above its line box's middle (room for descenders) */
+/* the graphics center on the text's ink, which sits above its line box's middle (room for descenders) */
 .gauge > svg { transform: translateY(-1px); }
 .gauge > .seg { transform: translateY(-2px); }
 .gauge > .thermo { transform: translateY(-1.5px); }
@@ -204,7 +204,7 @@ body:not(.live) .hud { opacity: 0; }
 .seg i { width: 3px; height: 12px; background: rgba(130, 205, 214, 0.18); }
 .seg i.on { background: var(--sun); }
 /* the temperature gauge: a thermometer whose tube fills with bars, each lit in its own temperature's
-   colour (main.js THERMO); a small upright one on phones */
+   color (main.js THERMO); a small upright one on phones */
 .thermo { width: 68px; height: 18px; overflow: visible; }
 .thermo .tube, .thermo .bulb-o, .thermo-i .tube, .thermo-i .bulb-o { fill: rgba(6, 10, 11, 0.6); stroke: var(--line-2); stroke-width: 1; }
 .thermo .bar { fill: rgba(130, 205, 214, 0.18); }
@@ -408,6 +408,11 @@ canvas.chart { cursor: crosshair; }
 .settings .tabs button { height: 32px; padding: 0 8px; letter-spacing: .12em; }
 .settings .sec-h > .ghost { flex: none; margin: 0 -6px 0 auto; }
 .opt .chip:disabled { opacity: .35; cursor: default; }
+/* an Auto choice shows what it is using now, at a fixed width so the row never reflows as it changes;
+   the choice it matches is underlined in the same color */
+.opt .auto-now { color: var(--sun); min-width: 4ch; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
+.opt .chip.auto-pick:not([aria-pressed="true"]) { box-shadow: inset 0 -2px 0 var(--sun); }
+.opt .chip-note { color: var(--ink-3); letter-spacing: .08em; }
 .hot-btn { border-color: var(--hot); color: var(--ink); background: rgba(255, 95, 58, 0.14); justify-self: start; }
 .hot-btn:hover { background: rgba(255, 95, 58, 0.26); border-color: var(--hot); }
 /* hairline cells drawn by the gaps between them, so any count of figures lines up */
@@ -581,8 +586,8 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .vital.now { grid-template-columns: var(--lab-w) minmax(0, 1fr); }
 .vital.now > b { color: var(--sun); overflow: hidden; text-overflow: ellipsis; }
 .vital.now > b a.sp { color: inherit; }
-/* The behaviour instrument (mindview.js): fixed rows whose values change in place. */
-/* Corner brackets: the colour that marks the watched cell (sun) or its organism (hot) in the views. */
+/* The behavior instrument (mindview.js): fixed rows whose values change in place. */
+/* Corner brackets: the color that marks the watched cell (sun) or its organism (hot) in the views. */
 .ico { display: inline-block; width: 10px; height: 10px; margin-right: 7px; vertical-align: -1px; background-repeat: no-repeat;
   background-image: linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor);
   background-size: 4px 1.25px, 1.25px 4px, 4px 1.25px, 1.25px 4px, 4px 1.25px, 1.25px 4px, 4px 1.25px, 1.25px 4px;
@@ -628,7 +633,7 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .mv-drives b { font-weight: 400; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 11px; }
 .mv-drives .meter > i { transition: width .12s linear; }
 .mv-dial { display: flex; flex-direction: column; align-items: center; gap: 5px; align-self: stretch; }
-.mv-dial .compass { margin: auto 0; } /* the key at the top, the compass centred in what is left */
+.mv-dial .compass { margin: auto 0; } /* the key at the top, the compass centered in what is left */
 /* the key's two rows keep the drives' pitch, so they line up with the first two drives */
 .mv-key { display: flex; flex-direction: column; gap: 5px; color: var(--ink-3); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; }
 .mv-key span { display: grid; grid-template-columns: 12px auto; align-items: center; justify-items: center; gap: 6px; height: 17px; }

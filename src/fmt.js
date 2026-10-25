@@ -25,10 +25,10 @@ export const ROLE = ['α', 'β', 'γ'];
 // A living cell's drawn radius at `ppu` pixels per world unit (vsPoint: 0.085 world units per unit of size).
 export const cellRadius = (p, g, ppu) => 0.085 * (g ? g.size : 1) * (1 - 0.12 * (p.role || 0)) * ppu;
 
-// Lengths as the page shows them, in micrometres: a cell of size 1 (0.17 world units across) is
+// Lengths as the page shows them, in micrometers: a cell of size 1 (0.17 world units across) is
 // taken to be 10 µm, about the size of a protist.
 export const UM_PER_UNIT = 10 / 0.17;
-// a world length (or speed, with unit '/s') in µm, or mm from a millimetre up
+// a world length (or speed, with unit '/s') in µm, or mm from a millimeter up
 export const fmtLen = (u, unit = '') => {
   const um = Math.abs(u) * UM_PER_UNIT;
   const v = um >= 1000 ? `${(um / 1000).toFixed(um >= 10000 ? 1 : 2)} mm` : `${um >= 10 ? Math.round(um) : um.toFixed(1)} µm`;
@@ -42,7 +42,7 @@ export const MATTER = [
   { name: 'Glint', css: '#b9e6ff', blurb: 'No longer made: once silt charged by the Tide.' },
   { name: 'Husk', css: '#9a6c4c', blurb: 'The remains of a dead cell. Scavengers feed on what energy is left; the rest crumbles back into silt.' },
   { name: 'Stone', css: '#c2b8a8', blurb: 'Bedrock, or the skeleton a calcifying cell left where it settled. Stone never drifts and the living cannot pass through it. Prey shelters in its crevices, and it slowly wears back into silt.' },
-  { name: 'Framboid', css: '#ccb373', blurb: 'A pyrite framboid: a sphere of tiny iron sulfide crystals, grown from the sulfide a pile of rotting husks releases in cool mud. As it oxidises it warms the water around it, faster the warmer that water is, until it is spent and crumbles to silt. Solid, like stone.' },
+  { name: 'Framboid', css: '#ccb373', blurb: 'A pyrite framboid: a sphere of tiny iron sulfide crystals, grown from the sulfide a pile of rotting husks releases in cool mud. As it oxidizes it warms the water around it, faster the warmer that water is, until it is spent and crumbles to silt. Solid, like stone.' },
 ];
-export const CAUSE = { 0: '', 1: 'starved', 2: 'died of old age', 3: 'was consumed', 4: 'crumbled from a husk', 5: 'charged by the Tide', 6: 'faded back to silt', 7: 'wore away from stone', 8: 'sparked into life from silt', 9: 'built from silt by its parent', 10: 'scalded', 12: 'crystallised in a rotting pile', 13: 'crumbled from a spent framboid' };
+export const CAUSE = { 0: '', 1: 'starved', 2: 'died of old age', 3: 'was consumed', 4: 'crumbled from a husk', 5: 'charged by the Tide', 6: 'faded back to silt', 7: 'wore away from stone', 8: 'sparked into life from silt', 9: 'built from silt by its parent', 10: 'scalded', 12: 'crystallized in a rotting pile', 13: 'crumbled from a spent framboid' };
 export const LIVING_CSS = '#ff9a6a';

@@ -12,7 +12,7 @@ test('the floor is a field of quantiles, the same for a seed and different betwe
   assert.notDeepEqual(a, c);
   const sorted = Float32Array.from(a).sort();
   for (let i = 0; i < sorted.length; i += 97) assert.ok(Math.abs(sorted[i] - (i + 0.5) / 1200) < 1e-6);
-  // smooth: neighbours mostly lie close in rank
+  // smooth: neighbors mostly lie close in rank
   let jumps = 0;
   for (let y = 0; y < 30; y++) for (let x = 0; x < 39; x++) if (Math.abs(a[y * 40 + x] - a[y * 40 + x + 1]) > 0.25) jumps++;
   assert.ok(jumps < 30, `jumps ${jumps}`);

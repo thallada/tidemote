@@ -99,7 +99,7 @@ branch is a travelling cosine (amplitude: a heading swing of `beatGain` x the am
 `beatTop` units/s per unit of size); each bond's two cells are brought a share `beatMix` a step toward the
 relative velocity their two speeds ask across the bond, and otherwise toward each other's motion, in
 equal and opposite halves. The body cannot push itself: only the anisotropic drag turns the wave into
-thrust. A long wave now travels as readily as a short one (a velocity relaxed between neighbours is a
+thrust. A long wave now travels as readily as a short one (a velocity relaxed between neighbors is a
 second-order problem, not bending's fourth), the commanded phase per cell shows up exactly in the bends,
 and a beating tree's bonds pull `treeBond` (3) times as hard, since a fast beat swings the tip cells hard
 enough to stretch soft bonds. Non-beating trees are untouched (bends, tissue mixing and bonds as before).

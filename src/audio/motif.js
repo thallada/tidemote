@@ -2,7 +2,7 @@
 //
 // A motif is a short phrase: a rhythm, a line of scale degrees, how each note is played and,
 // for colonies, a second voice. Different parts of the genome shape different parts of it, so a
-// species sounds like the way it lives, and a mutant's song is a recognisable variation:
+// species sounds like the way it lives, and a mutant's song is a recognizable variation:
 //   identity     the α cell type's surface signature (the genes that also decide who sticks to
 //                and eats whom) chooses each interval of the line: the family resemblance
 //   character    how the species lives (speed, diet, light, drift, schooling, size, lifespan)
@@ -80,7 +80,7 @@ export function character(g) {
 }
 
 // The rhythm a character asks for, and the closest cells. Of the four closest, the species'
-// shape gene (which mutates rarely) chooses one, so neighbours in character still differ.
+// shape gene (which mutates rarely) chooses one, so neighbors in character still differ.
 function chooseCell(c, g) {
   const want = {
     dens: lerp(0.25, 1.15, clamp(0.75 * c.kin + 0.35 * c.graze + 0.2 * c.prey - 0.45 * c.light - 0.35 * c.drift + 0.15, 0, 1)),

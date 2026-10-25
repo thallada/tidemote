@@ -58,9 +58,9 @@ Read as a critic:
 **Evolution can tune but cannot invent.** The genome is a fixed vector. Lineages drift through diet,
 speed, size, shape and temperature, but no lineage can acquire a capability that was not designed in.
 There is one major transition (bonding into bodies) and half of a second: the three cell types differ
-only in signatures, colour and drawn size. Diet, photosynthesis, swimming, calcification and the
+only in signatures, color and drawn size. Diet, photosynthesis, swimming, calcification and the
 right to divide are per species, so a body is a clone whose cells all do the same thing. Nothing a body
-does is beyond a single cell except being armoured and cheaper to run. Twelve shape families, three
+does is beyond a single cell except being armored and cheaper to run. Twelve shape families, three
 types, five branching patterns: the space of forms is enumerable in advance.
 
 **Interactions come in few kinds.** Eat, be eaten, bond with kin, shade, push, warm. Absent: parasitism,
@@ -83,7 +83,7 @@ never moves.
 guild's energy books; the registry keeps every lineage; the survey knows where births, kills and
 mutations happen. The chronicle logs eight kinds of event (era, excursion, species established, new
 genus, extinction, fallen silent, most numerous, and the five-tone joke). Nobody narrates causes, arcs
-or losses. A lay viewer sees colour and motion, not a history, and emergence that goes unnoticed
+or losses. A lay viewer sees color and motion, not a history, and emergence that goes unnoticed
 cannot surprise.
 
 **Nothing persists or is shared.** Each viewer has a private world that dies with the tab. The only
@@ -99,18 +99,18 @@ Each in a line or two. "Strong" marks the ones developed in section 4.
 | | Option | Note |
 | --- | --- | --- |
 | **Evolution and the organism** | | |
-| 1 | Division of labour inside bodies: per-type expression of diet, photosynthesis, swimming, calcification, and which types divide | **strong** (4.2) |
+| 1 | Division of labor inside bodies: per-type expression of diet, photosynthesis, swimming, calcification, and which types divide | **strong** (4.2) |
 | 2 | Cross-species bonds with an evolvable direction of energy flow: parasites, mutualists, holobionts from one rule | **strong** (4.1) |
-| 3 | Endosymbiosis: an eater that keeps a producer it failed to digest becomes a mixotroph carrying the symbiont's colour | second stage of 4.1 |
+| 3 | Endosymbiosis: an eater that keeps a producer it failed to digest becomes a mixotroph carrying the symbiont's color | second stage of 4.1 |
 | 4 | Horizontal gene transfer by contact: tricks jump between lineages, the tree of life becomes a web | interesting; hard on the registry and the lineage view |
 | 5 | A small evolvable nerve net per type (senses to actions) with one or two state floats as hormones | powerful, a large kernel change; see 4.7 |
 | 6 | Toxins and mimicry on the existing recognition machinery: a costly toxin, an aversion image in the eater, mimics that copy the surface without the cost | cheap and emergent; 4.7 |
 | 7 | Size-structured predation: catch chance falls with the prey's size relative to the hunter's | small change, large meaning; folded into 4.2 |
 | 8 | Life cycles: a cell type chosen by age, so a swimming larva settles into a sessile adult | solves sessile dispersal (sessile life is near 2%) |
-| **Senses and behaviour** | | |
+| **Senses and behavior** | | |
 | 9 | Phototaxis, a light-seeking gene mirroring thermotaxis | **strong**, nearly free (4.3) |
-| 10 | An evolvable chemical channel on the heat grid: emitted signals whose "colour" is a gene, receptors that respond; alarm calls, lures, deception | 4.7 |
-| 11 | Rhythms: oscillator genes phased to the tide; migrations, synchronised spawning | later |
+| 10 | An evolvable chemical channel on the heat grid: emitted signals whose "color" is a gene, receptors that respond; alarm calls, lures, deception | 4.7 |
+| 11 | Rhythms: oscillator genes phased to the tide; migrations, synchronized spawning | later |
 | **World and geography** | | |
 | 12 | A water column: light from above falling with depth, sinking husks, a floor | **strong** (4.3) |
 | 13 | Dynamic geography: a sea level that walks with the eras, ridges that split the world into basins and reconnect them | **strong** (4.4) |
@@ -151,7 +151,7 @@ signatures, recognition. It only forbids the bond across species.
   together.
 - A second gene `graftFlow` (−1..1) biases the energy flow on a graft: at −1 the grafter takes (energy
   flows to it whatever the host's state, at `bodyShare` × the host's excess over hunger), at +1 it
-  gives, at 0 the flow is the ordinary equalising one. Evolution decides which it is.
+  gives, at 0 the flow is the ordinary equalizing one. Evolution decides which it is.
 - The host can resist. A graft breaks when the host's surface drifts out of fit (which mutation does
   anyway) or when the host's `reject` gene (a small upkeep cost, like calcification) passes a check
   each second against the grafter's fit. Hosts therefore evolve away from their parasites exactly as
@@ -178,7 +178,7 @@ bond (`keepBond`, the bond-back pass, drawing).
 **Tunables.** `graftMin`, `graftFit`, `graftTake` (the rate a taking graft drains at), `rejectCost`,
 `graftArmor`. Founders: a few percent of random sparks with `graft` on; designed founders none.
 
-**Watch for.** Mixed-colour bodies; the Lab's body breakdown gaining "with passengers"; the chronicle
+**Watch for.** Mixed-color bodies; the Lab's body breakdown gaining "with passengers"; the chronicle
 saying "X has become a parasite of Y" (a graft lineage whose flow is negative on a host guild) or "Y
 and Z now live as one" (positive flow both ways over minutes). The mind view already lists every
 species in reach with its role; "host" and "passenger" are two more.
@@ -188,11 +188,11 @@ calculus shifting; grafts fusing strangers' bodies into one blob (the bond-back 
 to close triangles across species). Gate it as a set, and measure parasite load per guild as the thermal
 block measures torpor.
 
-### 4.2 Division of labour inside bodies
+### 4.2 Division of labor inside bodies
 
-**Why.** Multicellularity mattered on Earth because cells specialised: a germ line and a soma,
+**Why.** Multicellularity mattered on Earth because cells specialized: a germ line and a soma,
 photosynthetic fronds and anchoring holdfasts, mouths and tails. Here every cell of a body does what
-every other does, so the only reasons to pay for a body are armour, thrift and shade. With specialised
+every other does, so the only reasons to pay for a body are armour, thrift and shade. With specialized
 types, a body becomes an organism whose parts need each other, which is the project's own theme
 (docs/ecosystem.md: "every guild fills a niche the others need") brought inside the skin.
 
@@ -229,7 +229,7 @@ bump.
 
 **Risk.** Registers in `lifeMain` (the mask is four multiplies, but the kernel is already at its limit on
 some drivers: keep the mask in the `Lite` struct the scan reads, not in the inner loop). Bodies that
-specialise into a producer and a predator half, farming their own prey: that is a feature, and 4.1 covers
+specialize into a producer and a predator half, farming their own prey: that is a feature, and 4.1 covers
 the cross-species form of it. The gate: expect the body share to rise; set a target.
 
 ### 4.3 Phototaxis now, the water column later
@@ -397,7 +397,7 @@ are not reproducible, so a fork compares two futures of one past, never a replay
   evolve. Screen with a knob at 0.
 - **A nerve** (option 5). A per-type matrix of about 8 senses (light, its gradient, warmth, hunger,
   kin density, prey density, hunter density, flow) to 4 gains (swim, turn, align, appetite), plus one
-  state float with a decay as a hormone. It is the only option here that makes behaviour open-ended,
+  state float with a decay as a hormone. It is the only option here that makes behavior open-ended,
   and the mind view is already built to display exactly such a decomposition. It is also the largest
   change to the kernel and the hardest to balance; prototype on the `scent` branch's lessons.
 
@@ -432,7 +432,7 @@ channel would carry it. Build it after that channel exists.
 - **Deep time** (4.4 catastrophes and geography, 4.5 the chronicler, cards and film): cheapest, most
   story-rich, no new kernel state. Start here. The chronicler should land first, because every later
   mechanism is judged by whether it tells.
-- **The organism** (4.1 grafts, 4.2 division of labour with size-limited predation): one genome format
+- **The organism** (4.1 grafts, 4.2 division of labor with size-limited predation): one genome format
   bump for both, one gate as a set, one release.
 - **The light** (4.3): phototaxis at once; the water column as a second world kind when there is a
   month to spend on it.
@@ -460,6 +460,6 @@ The gate is the floor. The objective needs its own instruments, most of which ex
   whether it is beautiful" (docs/balance-strategy-2026-10-01.md) is still true.
 
 The thesis that joins all of this is the one the project already lives by: life is what happens when
-local rules make their own conditions. Symbiosis, labour, geography, catastrophe and the tape each add
+local rules make their own conditions. Symbiosis, labor, geography, catastrophe and the tape each add
 a way for life to make, lose and remake its own world; the chronicler is how a viewer gets to witness
 it, and the fork is how they get to ask whether it had to happen that way.

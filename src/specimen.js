@@ -134,7 +134,7 @@ export function createSpecimen(api) {
 
   // ------------------------------------------------------------ pieces
   // A mix of cell types on one row, like the traits around it: a dotted meter split into each type's
-  // share in its colour, and the shares as α54 β41 γ5 (a sliver under 1% reads <1). hint: the
+  // share in its color, and the shares as α54 β41 γ5 (a sliver under 1% reads <1). hint: the
   // full figures, on hover.
   const comp = (label, tip, shares, g, hint) => {
     const types = [0, 1, 2].filter((r) => shares[r] > 0.0005);
@@ -173,7 +173,7 @@ export function createSpecimen(api) {
   // as lifeMain has it (lightAt): the baseline and the Tide's bands by the season, under the sky and any duckweed
   const lightAt = (p) => { const [W, H] = eng.grid; return Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p.x, p.y, W, H, eng.simTime, eng.tide, eng.tidePh) * eng.season) * eng.sky * (1 - duckShade(p.x, p.y, eng.duck, W, H)) * 100); };
 
-  // ------------------------------------------------------------ behaviour (mind.js, mindview.js)
+  // ------------------------------------------------------------ behavior (mind.js, mindview.js)
   function spName(kind) {
     const g = api.genomeFor(kind);
     const sp = g && api.life().reg.get(g.serial);
@@ -242,7 +242,7 @@ export function createSpecimen(api) {
       const tot = o.roles[0] + o.roles[1] + o.roles[2] || 1;
       h += comp('Cell types', 'celltype', o.roles.map((c) => c / tot), g, `Of its ${fmt(tot)} cells: ${[0, 1, 2].filter((r) => o.roles[r]).map((r) => `${fmt(o.roles[r])} ${ROLE[r]}`).join(', ')}.`);
     }
-    // a free cell's neighbours are listed under Neighbours; a body's contacts are its own
+    // a free cell's neighbors are listed under Neighbors; a body's contacts are its own
     if ((g.adhesion || 0) > K.adhMin) h += kv('Touching', o.touching ? `${o.touching} other species` : 'no other species', 'touching');
     return blk(past ? 'Its organism, last seen' : `<i class="ico org"></i>${term('organism', 'Organism')}`, h);
   }
@@ -509,7 +509,7 @@ export function createSpecimen(api) {
         setHead(mem ? `Now ${m.name} · once` : m.name, mem && mem.sp ? spLink(mem.sp.serial, mem.sp.name) : grain ? grain.name : m.name,
           sel.lost ? 'Lost track of it' : (mem && sel.diedAt != null ? code('Died', `${fmtDur(eng.simTime - sel.diedAt)} ago`) : '') + code('ID', fmt(p.id)));
         if (grain) {
-          // its colour (reef stone keeps a little of its builder's tint), dark grains lifted so the emblem reads
+          // its color (reef stone keeps a little of its builder's tint), dark grains lifted so the emblem reads
           const t = (p.info & 15) !== 0 ? 0.3 : 0, rgb = grain.col.map((x, i) => x + t * (((p.col >>> (8 * i)) & 255) / 255 - x));
           const lift = Math.max(0, 0.45 - (0.3 * rgb[0] + 0.5 * rgb[1] + 0.2 * rgb[2]));
           const c = rgb.map((x) => Math.round(255 * Math.min(1, x + lift)));
@@ -553,12 +553,12 @@ export function createSpecimen(api) {
           if (K.heat && m) {
             v += warmthVital(m, g, `${Math.round(m.warmth)}°`);
           }
-          // in the header (a phone's peek) what it is doing leads; in the Behaviour section its mode and target say it
+          // in the header (a phone's peek) what it is doing leads; in the Behavior section its mode and target say it
           const head = sel.mind && !sel.lost && (sel.mind.head || sel.mind);
           if (!sel.lost && peek()) v = `<div class="vital now"><span>${term('mind', 'Now')}</span><b>${head ? withSp(head.text, head.target) : '—'}</b></div>` + v;
         }
         // the instruments are built once per cell and update in place (mindview.js); the rest flows below
-        if (g && !sel.lost) { fixedKey = `mv:${sel.id}:${p.kind}:${g.serial}`; fixedHtml = section('behaviour', 'Behaviour', mv.html(g, p.kind)); }
+        if (g && !sel.lost) { fixedKey = `mv:${sel.id}:${p.kind}:${g.serial}`; fixedHtml = section('behavior', 'Behavior', mv.html(g, p.kind)); }
         // a bonded species' organism first, a free cell's own record first: fixed by the genome, so
         // the order never flips as a trace comes in
         const cb = cellBlock(p, g, false, sel.lost ? null : sel.mind), ob = organismBlock(o, g, false, sel), bb = sel.lost ? '' : budgetBlock(p, g, sel.mind);
@@ -567,12 +567,12 @@ export function createSpecimen(api) {
         if (g) flow.push(['species', 'Species', speciesTab(g, null)], ['genome', 'Genome', genomeTab(g, p.role, p.role)]);
       }
     } else return false;
-    setTabs([...(fixedKey ? [['behaviour', 'Behaviour']] : []), ...flow.map(([id, l]) => [id, l])]);
+    setTabs([...(fixedKey ? [['behavior', 'Behavior']] : []), ...flow.map(([id, l]) => [id, l])]);
     const flowKey = flow.map(([id]) => id).join(',');
     if (fixedKey !== st.fixedKey || flowKey !== st.flowKey || !body.firstElementChild) {
       // the same cell's panel rebuilt (the watch moved to another cell of its body) keeps its place
       const keep = body.scrollTop;
-      // the vitals lead the scroll (in the Behaviour section, under the compass, when there is one)
+      // the vitals lead the scroll (in the Behavior section, under the compass, when there is one)
       body.innerHTML = `<div class="spec-fixed">${fixedHtml}</div>${fixedHtml ? '' : '<div class="vitals spec-vit"></div>'}<div class="spec-flow">${flow.map(([id, l]) => section(id, l, '')).join('')}</div>`;
       st.fixedKey = fixedKey; st.flowKey = flowKey; st.flow.clear(); songKey = ''; st.lastVit = '';
       if (fixedKey) { mv.bind(body.firstElementChild); mindUpdate(); }
@@ -622,7 +622,7 @@ export function createSpecimen(api) {
     setFull(false, false);
     document.body.classList.remove('spec-open');
   }
-  // the screen area the panel covers, so following can centre the specimen in what is left
+  // the screen area the panel covers, so following can center the specimen in what is left
   function inset() {
     if (root.hidden) return { right: 0, bottom: 0 };
     const r = root.getBoundingClientRect();
@@ -657,7 +657,7 @@ export function createSpecimen(api) {
     const brackets = (l, t, r, b, c) => { g.beginPath(); for (const [x, y, dx, dy] of [[l, t, 1, 1], [r, t, -1, 1], [l, b, 1, -1], [r, b, -1, -1]]) { g.moveTo(x, y + dy * c); g.lineTo(x, y); g.lineTo(x + dx * c, y); } g.stroke(); };
     g.lineWidth = 1.25;
     if (box) {
-      // a body: the organism in the world view's orange, the watched cell (centred) in the panel's cell colour
+      // a body: the organism in the world view's orange, the watched cell (centered) in the panel's cell color
       // the watched cell's brackets first: the organism's frame leaves room for them around every cell
       const R = Math.max(6, cellRadius(sel.particle, api.genomeFor(sel.particle.kind), pxPerCell) * 1.4 + 3), c = Math.max(3, Math.min(10, R * 0.45));
       const pad = R + 6, e = m + 2;

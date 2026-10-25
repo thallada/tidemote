@@ -1,4 +1,4 @@
-// The specimen panel's Behaviour instrument and Neighbours table, for the selected living cell.
+// The specimen panel's Behavior instrument and Neighbors table, for the selected living cell.
 // Built once per selection (fixed rows, fixed size), then updated in place: readings (mind.js)
 // arrive about ten times a second and only values change, so nothing reflows. The compass's arrows
 // are eased every frame, so they slide between readings instead of jumping.
@@ -13,7 +13,7 @@ const EASE_MS = 70;
 export function createMindView({ K, genomeFor, nameOf, sigil }) {
   let el = null; // the bound container
   let parts = null;
-  let rows = null; // neighbour row kinds
+  let rows = null; // neighbor row kinds
   let ease = null; // { groups: Map(key -> {cur, to}), hdg, tgt }
   let last = 0;
 
@@ -56,7 +56,7 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
     h += '<div class="vitals mv-vitals"></div>';
     // conditions that shape what it does: a fixed set of lamps, lit or dark, never added or removed
     h += `<div class="mv-lamps">${['hungry', 'full', 'threat', 'low', 'lean', 'crowd', 'shelter', ...(K.heat ? ['thermal'] : [])].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join('')}</div></div>`;
-    h += `<div class="blk mv-nb">${subHead(`<i class="ico cell"></i>${term('mind-near', 'Neighbours')}`, 'within its reach')}`;
+    h += `<div class="blk mv-nb">${subHead(`<i class="ico cell"></i>${term('mind-near', 'Neighbors')}`, 'within its reach')}`;
     h += `<div class="nb-row nb-head"><span></span><span>Species</span><span>Cells</span><span>Role</span><span class="nb-pull term" data-hint="How each species moves this cell: pushes it away (left) or pulls it toward them (right)." tabindex="0"><i>push</i><i>pull</i></span></div>`;
     for (let i = 0; i <= NB_ROWS; i++) h += `<div class="nb-row empty" data-i="${i}"><span class="nb-sig"></span><span class="nb-name">—</span><b class="nb-n"></b><em class="nb-role"></em><span class="dbar"><i></i></span></div>`;
     return h + '</div>';
@@ -116,7 +116,7 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
     }
     const hu = unit(m.vel);
     ease.hdg.to = len(m.vel) > 0.02 ? [hu[0] * R, hu[1] * R] : [0, 0];
-    // a living target is found among its neighbours; matter (a husk, silt) by the food it is after
+    // a living target is found among its neighbors; matter (a husk, silt) by the food it is after
     const matterTarget = tk == null && food && head.matter && head.key !== 'forage';
     ease.tgt.to = q ? unit(q.d) : matterTarget && len(food.d) > 0 ? unit(food.d) : null;
     if (ease.tgt.to && !ease.tgt.cur) ease.tgt.cur = ease.tgt.to.slice();
@@ -132,7 +132,7 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
     parts.live.classList.remove('blink');
     void parts.live.offsetWidth; // restart the blink
     parts.live.classList.add('blink');
-    // ---- neighbours: own kind first, then other species in the rows they had
+    // ---- neighbors: own kind first, then other species in the rows they had
     const others = mind.species.filter((s) => !s.kin);
     const byKind = new Map(mind.species.map((s) => [s.kind, s]));
     rows = slotRows(rows, others.map((s) => s.kind), NB_ROWS);

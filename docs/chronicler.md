@@ -117,7 +117,7 @@ highlight comes back the next frame), and read back; the world holds still betwe
 and the subject is bracketed. An extinct species keeps the last portrait taken this session, or shows its sigil. The song
 clip (`songClip` in `src/audio/sound.js`) is the soundtrack's own worklet in an OfflineAudioContext: the world's key and
 era (`reset`), its motif auditioned three or four times over nine seconds (the worklet's `processorOptions.script` plays
-messages at set times), normalised to −3 dBFS, as a 16-bit WAV.
+messages at set times), normalized to −3 dBFS, as a 16-bit WAV.
 
 A name given on the card replaces the species' name everywhere (`sp.name`, its binomial kept in `sp.binomial`,
 `sp.given` set); older log entries follow it (`relabel`), and saves keep it. Clearing the field restores the binomial.

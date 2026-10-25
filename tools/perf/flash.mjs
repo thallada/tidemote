@@ -42,7 +42,7 @@ for (const mode of process.argv[3] ? process.argv[3].split(',') : ['immediate', 
     for (let i = 0; i < 30; i++) await raf();
     return marks;
   }, mode);
-  // a frame much darker than the median of its neighbours is a flash
+  // a frame much darker than the median of its neighbors is a flash
   const bs = frames.map((f) => f.b), med = [...bs].sort((a, b) => a - b)[bs.length >> 1];
   out[mode] = { frames: frames.length, median: +med.toFixed(1), dark: frames.filter((f) => f.b < med * 0.6).length, min: +Math.min(...bs).toFixed(1) };
 }

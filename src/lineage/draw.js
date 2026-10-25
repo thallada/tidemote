@@ -19,15 +19,15 @@ function unitName(u, t) {
   const n = t != null && memberAt(u, t);
   return (n || (u.alive ? u.members.findLast((x) => x.alive) || u.members.at(-1) : u.members[0])).name;
 }
-// the colour each unit wears at every sample of the cut: its strand's most numerous species there,
-// held until the next one has led for at least minRun samples (or, minRun 0, one colour throughout:
+// the color each unit wears at every sample of the cut: its strand's most numerous species there,
+// held until the next one has led for at least minRun samples (or, minRun 0, one color throughout:
 // its most numerous species over the span)
 // (kept with the cut: pointing redraws the same cut many times)
-function colours(c, minRun) {
-  c.colours ||= new Map();
-  if (c.colours.has(minRun)) return c.colours.get(minRun);
+function colors(c, minRun) {
+  c.colors ||= new Map();
+  if (c.colors.has(minRun)) return c.colors.get(minRun);
   const col = new Map(), n = c.ts.length;
-  c.colours.set(minRun, col);
+  c.colors.set(minRun, col);
   for (const u of c.other ? [c.other, ...c.units] : c.units) {
     const a = new Array(n);
     if (u.other) { a.fill(OTHER); col.set(u, a); continue; }
@@ -51,7 +51,7 @@ function colours(c, minRun) {
   }
   return col;
 }
-// fill the polygon top[i]..bottom[i] over samples a..b, split where the colour changes (each run
+// fill the polygon top[i]..bottom[i] over samples a..b, split where the color changes (each run
 // reaches into the next one's first sample, so no seam shows)
 function fillRuns(g, X, top, bot, a, b, col, alpha, k) {
   for (let s = a; s <= b;) {
@@ -101,7 +101,7 @@ export function drawMuller(cv, c, eras, opts = {}) {
     const place = (u, y0) => { Y.get(u)[i] = y0; let y1 = y0 + (u.vals[i] * perCell) / 2; for (const k of u.kids) { place(k, y1); y1 += C.get(k)[i] * perCell; } };
     for (const r of roots) { place(r, y); y += C.get(r)[i] * perCell; }
   }
-  const col = colours(c, 0);
+  const col = colors(c, 0);
   const order = [];
   const pre = (u) => { order.push(u); u.kids.forEach(pre); };
   roots.forEach(pre);
@@ -184,7 +184,7 @@ const pillText = (u) => `${u.alive ? '' : '† '}${fmt(u.count)} sp`;
 
 /**
  * The tree of cut c on cv (its CSS height set to lay.h): each lineage a band as thick as its cells,
- * in the colour of its most numerous species, with a tick where its strand passed from one species
+ * in the color of its most numerous species, with a tick where its strand passed from one species
  * to the next, hung from the lineage it branched from. A pill after each name counts the species it
  * holds and follows the lineage (hit.follow). opts: { hot, l, r (the Muller's plot box edges), onHot }.
  */
@@ -218,7 +218,7 @@ export function drawTree(cv, c, lay, eras, opts = {}) {
   g.beginPath();
   for (const it of items) if (it.parent && it.u.born >= c.t0) { const x = Math.round(X(it.u.born)) + 0.5; g.moveTo(x, Y(it.parent.lane)); g.lineTo(x, Y(it.lane)); }
   g.stroke();
-  const col = colours(c, Math.max(2, Math.round((n / (r - l)) * 6)));
+  const col = colors(c, Math.max(2, Math.round((n / (r - l)) * 6)));
   for (const it of items) {
     const u = it.u, y = Y(it.lane), a = lit(it) ? 1 : 0.35;
     let s0 = -1, s1 = -1;

@@ -14,7 +14,7 @@ normal steps, how to measure that, and what did not work, for whoever takes it f
 3. coarse steps of 2..`MAX_TICKS` (4) ticks, also drawn about every 30 ms.
 
 Max always takes `MAX_TICKS`. The speeds on offer are those the GPU fits within `GPU_BUDGET` in the
-coarsest steps. A coarse step costs about what a 1/60 s step does (one scan of the neighbours), so 4 ticks
+coarsest steps. A coarse step costs about what a 1/60 s step does (one scan of the neighbors), so 4 ticks
 are about 4x faster. The census runs at most about five times a real second. Settings, Performance shows
 Step ms, Draw ms, Stride (ticks a step) and Now (the speed reached).
 
@@ -29,9 +29,9 @@ guarded by `sim.ticks > 1`, so 1/60 s steps are unchanged.
 - **Motion** integrates in 1/60 s substeps under the forces gathered at the step's start (`cellWGSL`);
   bonds pull toward where the partners will be, carried on their velocities.
 - **Stiffness correction.** Holding forces across the step makes a dense clump numerically unstable (see
-  below), so the pair and stone forces carry an implicit correction. The cell and its neighbourhood are
-  taken as two bodies sharing momentum: the reaction to its forces is spread over Mn neighbours (the
-  participation number of the stiffness weights), their centre `(v + Mn vNear) / (1 + Mn)` keeps its
+  below), so the pair and stone forces carry an implicit correction. The cell and its neighborhood are
+  taken as two bodies sharing momentum: the reaction to its forces is spread over Mn neighbors (the
+  participation number of the stiffness weights), their center `(v + Mn vNear) / (1 + Mn)` keeps its
   velocity under drag, and only the relative velocity `v - vNear` meets the restoring stiffness
   `D (1 + 1/Mn)`, backward Euler in its end value. `D` comes from the gradient of the pair and stone
   forces gathered in the scan (`jF`, `jS`, eigenvalues clamped to the restoring side).
@@ -41,25 +41,25 @@ guarded by `sim.ticks > 1`, so 1/60 s steps are unchanged.
   best targets gathered at the step's start (food is gathered whatever the starting hunger), the next one
   after a meal or a claim lost to another eater; death at the tick it starves or ages out.
 - **Claims.** A walk's meal claim names its target class itself (`MEAL_CLAIM`). Bites of a
-  photosynthesiser are counted rather than exclusive, and `resolveCount` applies at most one a tick.
+  photosynthesizer are counted rather than exclusive, and `resolveCount` applies at most one a tick.
 
 ### Why the correction
 
-A dense core is a stiff spring network. A predator with ~90 neighbours inside its core, each of stiffness
+A dense core is a stiff spring network. A predator with ~90 neighbors inside its core, each of stiffness
 about `force / (beta R)` ~ 36/s², has omega ~ 40 rad/s: omega dt ~ 0.65 at 1/60 s, but ~2.6 with forces held
 over 4 ticks, past the explicit limit of 2. Without the correction the clump heats and loosens until enough
-neighbours leave the core: at 4 ticks predators moved 2.8x faster than at 1/60 s, grazers +38%, and core
+neighbors leave the core: at 4 ticks predators moved 2.8x faster than at 1/60 s, grazers +38%, and core
 overlap fell 10-33%, which also hid a deficit in kills (hot predators find prey more easily).
 
 `tools/fastforward/stiff-modes.py` checks a scheme mode by mode on a lattice (mode eigenvalue lam in
 [0, 2D], D a cell's own stiffness) against 4 explicit 1/60 s ticks. What it showed:
 
-- each cell integrating its own linearized motion against neighbours held still amplifies a pair's
+- each cell integrating its own linearized motion against neighbors held still amplifies a pair's
   relative mode by up to 3x a step once omega dt > pi/2;
-- backward Euler in the predicted displacement against neighbours drifting at `vNear` goes unstable on
+- backward Euler in the predicted displacement against neighbors drifting at `vNear` goes unstable on
   the top modes past D ~ 400-800 /s², exactly where dense soups live;
-- dropping the neighbours' drift is stable but drags clumps that drift together; neighbours keeping the
-  mode's shape is stable but stops a cell that hits a resting neighbour (momentum lost, every guild slow);
+- dropping the neighbors' drift is stable but drags clumps that drift together; neighbors keeping the
+  mode's shape is stable but stops a cell that hits a resting neighbor (momentum lost, every guild slow);
 - the two-body form is stable for every mode up to and past where 1/60 s itself fails (D ~ 2/h² ~ 7200),
   leaves a common drift exact and shares momentum (unresolved collisions become inelastic).
 
@@ -136,9 +136,9 @@ Tested after heat (docs/thermal-energy-2026-10-07.md), on the pinned code, data 
 - A force-gradient model (forces following the predicted displacement, explicit or implicit per cell),
   restoring-only versions, and thermostats (an extra drag, on all or on the fluctuation): each fixed some
   worlds and not others; the mode analysis above says why.
-- Substep passes over neighbour lists: ~37% of a scan each, lists too small for dense cores (48 of ~90
-  neighbours) and too big for 2M particles.
-- Sampling fewer neighbours at coarse steps (1.5x faster but biased: silt and food in reach are seen
+- Substep passes over neighbor lists: ~37% of a scan each, lists too small for dense cores (48 of ~90
+  neighbors) and too big for 2M particles.
+- Sampling fewer neighbors at coarse steps (1.5x faster but biased: silt and food in reach are seen
   only when sampled, and light is convex in noisy crowding); a tiled scan in workgroup memory (no faster
   than the cache).
 - On the event side, none of these mattered beyond ~1%: judging hunger at the meal's tick, denying meals
@@ -156,6 +156,6 @@ speed swings from -26% to +51% between worlds. Batching events alone (with 1/60 
 prey-within-reach loss. Stronger damping, switching off alignment, bonds or the hunt and forage pulls, and
 birth placement change nothing; backward Euler at 1/60 s leaves packing unchanged, so 1/60 s packing is not
 an integration artifact. The likely limit: a fast predator moves 0.1-0.2 a 6-tick step, about a core radius,
-so neighbours enter and leave cores within the step, beyond any linearization about its start. More force
+so neighbors enter and leave cores within the step, beyond any linearization about its start. More force
 evaluations a step would cost about what the longer step saves, so 4 ticks is the page's limit. A cheaper
 full-quality scan would be the remaining speed lever.

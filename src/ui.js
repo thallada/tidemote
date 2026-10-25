@@ -3,8 +3,8 @@
 // "components"). Reach for one of these before inventing another header or row.
 //
 //   section   a top-level division of a panel's scroll, under a sectHead (cyan, with a rule)
-//   block     a group of rows under a subHead (small grey capitals, with an optional aside)
-//   kv/trait  a labelled value; a labelled meter with its value
+//   block     a group of rows under a subHead (small gray capitals, with an optional aside)
+//   kv/trait  a labeled value; a labeled meter with its value
 //   disclosure a block that opens and closes from its heading
 import { term, meter } from './fmt.js';
 
@@ -23,10 +23,10 @@ export const subHead = (text, aside = '', tip) => `<div class="sub-h"><span>${la
  * aside goes to the heading's right. */
 export const block = (text, html, { aside = '', tip, cls = '' } = {}) => `<div class="blk${cls ? ` ${cls}` : ''}">${text ? subHead(text, aside, tip) : ''}${html}</div>`;
 
-/** A labelled value. */
+/** A labeled value. */
 export const kv = (text, value, tip) => `<div class="kv"><span>${label(text, tip)}</span><b>${value}</b></div>`;
 
-/** A labelled meter (v between lo and hi) and its value. */
+/** A labeled meter (v between lo and hi) and its value. */
 export const trait = (text, v, lo, hi, value, tip, cls = 'cyan thin') => `<div class="trait"><span>${label(text, tip)}</span>${meter((v - lo) / (hi - lo), cls)}<b>${value}</b></div>`;
 
 /** A block that opens from its heading (closed by default); key names it for data-disc. aside: shown

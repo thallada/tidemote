@@ -13,7 +13,7 @@ describes the recommended design. Sections 6-12 cover the rules in detail, every
 it touches, the soundtrack, cost, how to judge it, and the build order.
 
 **Goal.** Worlds that are more fascinating to watch and investigate: more spatial structure, more
-behaviour, more interactions between species, more stories. Coexistence metrics (the gate) are a floor
+behavior, more interactions between species, more stories. Coexistence metrics (the gate) are a floor
 the design must not break, not the objective.
 
 **Recommendation in one paragraph.** Make heat a **medium that life writes into and reads from**.
@@ -28,7 +28,7 @@ the design must not break, not the objective.
   become nurse species for warmth-lovers and push cold-lovers out. Their colonies are lifeboats through
   cold snaps and overheat in warm eras.
 - **Seeds and screens.** A few **hydrothermal vents** add fixed landmarks and seed thermophile lineages.
-  Warmth also makes glint and husks fade faster, so eras favour different guilds. One experimental
+  Warmth also makes glint and husks fade faster, so eras favor different guilds. One experimental
   coupling, **heat-driven surface flow**, sweeps matter from warm patches toward cold seams and could form
   convection-like patterns; it is screened behind a knob.
 - **Locality.** Every rule is local, and no census value steers anything.
@@ -92,7 +92,7 @@ on that grid.
   cold (the Marangoni effect). This moves matter, not heat. Section 5.4.
 
 With `heatD = 1` and `heatLoss = 1/90 s⁻¹`, a hot spot spreads over `L = √(D/λ) ≈ 9.5` cells. That is
-about the scale of a bedrock outcrop or a large body's neighbourhood, and smaller than the current cells
+about the scale of a bedrock outcrop or a large body's neighborhood, and smaller than the current cells
 (14-34 cells). Currents run at about 0.1-0.4 cells/s, so the Péclet number `uL/D` is 1-4: plumes and
 warm patches are visibly bent and carried by the flow without being torn apart.
 
@@ -135,7 +135,7 @@ Sunlight is now weaker than metabolism.
 | | Brownian motion grows with temperature | `jitter × √(T+10)/√(tRef+10)` | yes, cosmetic in scale |
 | | Stone thermal mass | heat capacity as in 1.2 | **core** |
 | | Thermal fatigue of stone | wear grows where temperature swings | later |
-| Origins | Sparks favour hot water and found thermophiles | `randomInto` draws `topt` from the local water | **core** |
+| Origins | Sparks favor hot water and found thermophiles | `randomInto` draws `topt` from the local water | **core** |
 | Climate | Background temperature per era (a random walk), seasons, heat waves and cold snaps | section 6.6 | **core** |
 | Energy | Thermosynthesis at fronts | gain ∝ `|∇T|` (a heat engine needs a gradient) | later, only if fronts prove under-used |
 
@@ -147,7 +147,7 @@ Sunlight is now weaker than metabolism.
 
 A heat field fed by metabolism, decay and sunlight, drawn and heard, **with no ecological effect**. It
 costs one grid pass and carries no risk: the gate cannot move. It shows energy flows but adds no
-behaviour. **Phase 0 of the plan**, and its first use is to **look** before coupling anything (section 11).
+behavior. **Phase 0 of the plan**, and its first use is to **look** before coupling anything (section 11).
 
 ### B. Thermal tolerance with rate effects
 
@@ -186,7 +186,7 @@ and on the edges of warm colonies. Speculative. **Later**, if fronts turn out to
 | | A | B | **C** | D | E | F |
 | --- | --- | --- | --- | --- | --- | --- |
 | Spatial structure made by life | glow only | little | **thermal territories, fronts, halos** | vent rings | **convection nets, patch spacing** | front-dwellers |
-| Behaviour to watch | none | torpor, steering | **steering, huddled colonies, torpor, bleaching** | vent rings | indirect | none |
+| Behavior to watch | none | torpor, steering | **steering, huddled colonies, torpor, bleaching** | vent rings | indirect | none |
 | Interactions between species | none | none (each responds to the climate) | **facilitation and interference through heat** | via glint | via matter | none |
 | Stories | none | era turnover | **lifeboats, overheating collapses, thaw blooms, moving warm patches** | oases in dim eras | patterns forming and coarsening | — |
 | Makes eras bite | no | yes | yes (kept matter rates) | partly | no | no |
@@ -262,19 +262,19 @@ A third gene, `thermo` (0-1), is packed into `dev.w` (word 15, unused: `mutateIn
   bonds)`, with `selfWarm` 4°. A free cell at `thermo` 0.7 runs about 3° above the water and a cell with
   two bonds about 6°. Being part of a body is insulation, so bodies keep their warmth better than free
   cells. This is computed each frame from things the cell already knows, with nothing stored.
-- **Neighbourhood warmth.** A colony of heat-makers raises its water by about +10°, with a halo a few
+- **Neighborhood warmth.** A colony of heat-makers raises its water by about +10°, with a halo a few
   degrees warm that reaches about `L` ≈ 10 cells.
 
 What this sets up:
 
 | In a cold era or cold snap | In a warm era or heat wave |
 | --- | --- |
-| Heat-makers stay active while cold-stressed neighbours go torpid. **Colonies become lifeboats**, and warmth-lovers huddle in their halo | Their extra warmth tips them, and warmth-lovers around them, past the optimum. **Colonies overheat**, scald, and bleach from the core outward |
+| Heat-makers stay active while cold-stressed neighbors go torpid. **Colonies become lifeboats**, and warmth-lovers huddle in their halo | Their extra warmth tips them, and warmth-lovers around them, past the optimum. **Colonies overheat**, scald, and bleach from the core outward |
 | Warm halos become nurse grounds: the heat-maker pays, others benefit (facilitation) | Cold-lovers and cheap non-heat-makers take over the space they free |
 
 This is a **trade-off that flips with the climate**, the cyclic kind the balance strategy (§3, point 3)
 says keeps spatial worlds diverse and never settled. It is also a trade-off between species: a heat-maker
-helps warmth-loving neighbours of other species and harms cold-loving ones. That gives the community a
+helps warmth-loving neighbors of other species and harms cold-loving ones. That gives the community a
 structure of nurse species, followers and the excluded.
 
 **Evolution.** Mutation moves `thermo` a little, and rarely switches it on or off (like `adhesion` and
@@ -285,7 +285,7 @@ grazer and filament founders, and 0 for reefs (whose metabolic heat is their own
 
 - **Glint** leak `× glintQ10^((T−tRef)/10)`, with `glintQ10` 2: glint lasts in cold water.
 - **Husks** decay `× rotQ10^((T−tRef)/10)`, with `rotQ10` 2.5: cold keeps carcasses for scavengers; warm
-  recycles silt to producers. These two make eras bite: cold eras favour grazers and scavengers, warm
+  recycles silt to producers. These two make eras bite: cold eras favor grazers and scavengers, warm
   eras recycle nutrients.
 - **Thermal motion**: `jitter × √(max(T,0) + 10) / √(tRef + 10)`. Grains shiver visibly more in warm
   water at deep zoom.
@@ -308,7 +308,7 @@ cells. The flow converges on cool water (`∇·u < 0` at temperature minima), so
 - Cool seams between warm patches collect silt, glint and husks, so grazers and scavengers concentrate
   there.
 - Several warm patches should space themselves out, and matter should gather into a net between them, as
-  in Bénard convection. Over time the pattern may coarsen or keep reorganising as patches move with the
+  in Bénard convection. Over time the pattern may coarsen or keep reorganizing as patches move with the
   currents.
 
 At `marangoni` 0.05 and a gradient of about 1°/cell at a colony's edge, the drift is 0.05 cells/s:
@@ -319,7 +319,7 @@ result can tell (section 10).
 ### 5.5 Vents
 
 - **Number**: `seed()` draws `rock.z ∈ {0, 0, 1, 1, 2, 3}` vents, capped by the number of outcrops. The
-  first `rock.z` outcrops of `inRock` host one at their first disc's centre.
+  first `rock.z` outcrops of `inRock` host one at their first disc's center.
 - **Pulse**: `pulse_v(t) = 0.55 + 0.45·sin(2πt/P_v + φ_v)`, with `P_v` 90-240 s. A surge (×3 for about 20
   s) happens with probability 0.05 per 30-second window, hashed from `floor(t/30)` and the vent index, so
   no state is stored.
@@ -378,7 +378,7 @@ These are hypotheses for the screens to confirm or refute, not promises.
 `heatMain` is a new compute entry with one thread per grid cell, run after `lifeMain` in `_step`:
 
 ```
-c      = this cell's centre
+c      = this cell's center
 T*     = bilinear(Tᵢ, c − flowAt(c)·dt)                 // carried with the water
 lap    = Tᵢ[E] + Tᵢ[W] + Tᵢ[N] + Tᵢ[S] − 4·Tᵢ[c]
 C      = 1 + stoneMass · stones(c)
@@ -584,7 +584,7 @@ only names and tracks lineages.
   - **Shimmer** (default): a schlieren-style haze. `fsComposite` offsets the scene's UV by `∇T ×
     noise(time, position)`, so plumes, colony halos and fronts waver like hot air above a road. It reads
     as microscope optics, since a density gradient bends light. It follows **Optics**.
-  - **Full**: a false-colour thermal camera at 40% opacity (deep blue → teal → amber → white over the
+  - **Full**: a false-color thermal camera at 40% opacity (deep blue → teal → amber → white over the
     world's p2-p98 range) with isotherms every 2°. The `.ramp` legend shows the numbers. Make the CSS
     gradient match the shader ramp; the light legend's does not today.
   - With both the light map and the heat map at Full, the heat map draws isotherms only.
@@ -593,9 +593,9 @@ only names and tracks lineages.
 
 | Cue | Where | Rule |
 | --- | --- | --- |
-| **Bleaching** | `vsPoint` | colour mixed toward pale grey-white with heat stress, up to 60% |
+| **Bleaching** | `vsPoint` | color mixed toward pale gray-white with heat stress, up to 60% |
 | **Torpor** | `vsPoint`, `fsPoint` | brightness × 0.6, pulse frozen, a faint frosted rim at resolved zoom |
-| **Heat-makers glow** | `vsPoint`, `fsPoint` | a faint warm rim and inner glow, scaled by `thermo` and body warmth; at resolved zoom, organelles cluster toward the centre |
+| **Heat-makers glow** | `vsPoint`, `fsPoint` | a faint warm rim and inner glow, scaled by `thermo` and body warmth; at resolved zoom, organelles cluster toward the center |
 | **Pulse follows performance** | `vsPoint` | the existing pulse rate × `(0.6 + 0.8·perf)`: heart rate follows performance |
 | **Vent orifices** | `fsStone` | an emissive amber core flickering with `pulse_v` |
 | **Thermal motion** | `matterMain` (6.4) | grains shiver more in warm water |
@@ -681,7 +681,7 @@ only names and tracks lineages.
 ### 8.9 Auto camera (`src/director.js`) and captions
 
 - **`PARTS`** gains `vent`, `front` (strong `|∇T|` with different `topt` on each side, from the survey's Σ
-  `topt`), `lifeboat` (active heat-makers in a torpid neighbourhood) and `bleach`.
+  `topt`), `lifeboat` (active heat-makers in a torpid neighborhood) and `bleach`.
 - **Shots**:
   - a slow push-in on a vent ring;
   - a follow along a thermal front;
@@ -721,11 +721,11 @@ listening scan, blended toward the world mean as the view widens (the `z`/`far` 
 | Reverb (`eng.set('fdn', {damp, decay})`) | damp 7000 Hz, decay 11 s: icy halls | damp 3500 Hz, decay 8 s: close, humid air (the bridge's `decay 18` still wins in modulations) |
 | `pluck` `coef` | −0.08: longer and brighter | +0.06: duller |
 | `glass`, `tine` `dec` | ×1.4 | ×0.9 |
-| Shimmer: `strings` vibrato depth, `vibe` `depth`, `glass` wobble, and the `cplx`/`swell` stereo detune constants (×1.0023 / ×1.003 become a `det` parameter) | ×0.5, still | ×2: heat haze. Pitch centres never move, so the "never glide" rule holds |
+| Shimmer: `strings` vibrato depth, `vibe` `depth`, `glass` wobble, and the `cplx`/`swell` stereo detune constants (×1.0023 / ×1.003 become a `det` parameter) | ×0.5, still | ×2: heat haze. Pitch centers never move, so the "never glide" rule holds |
 | Swarm (`swarm` Formlet detune, `ring`, `cut`) | narrow detune, ring ×1.3, cut +1500 | detune ×2.5 (a hazy murmur), ring ×0.8 |
 | `sea` | thinner, slower swell | fuller and lower |
 | `drone` FM index | −0.15 | +0.25 |
-| `palette` | favours `sonar`, `circles`, `loops` on `glass` | favours `dub`, `piano`, `pad`, `loops` on `breath` |
+| `palette` | favors `sonar`, `circles`, `loops` on `glass` | favors `dub`, `piano`, `pad`, `loops` on `breath` |
 
 **Modes need no audio change.** Climate-chosen adjectives (6.6) already map to modes in `ADJ`
 (`conductor.js`): Warm is ionian, Rising lydian, Bitter phrygian, Pale lyddom. Warming eras modulate
@@ -805,11 +805,11 @@ Each phase is judged three ways.
 | Metric | Definition | Higher means |
 | --- | --- | --- |
 | `patchiness` | Population-weighted Moran's I of each common species' tile counts at lag 1 | species form patches |
-| `segregation` | Bray-Curtis dissimilarity of neighbouring tiles' composition over that of random tile pairs | a mosaic of distinct communities |
+| `segregation` | Bray-Curtis dissimilarity of neighboring tiles' composition over that of random tile pairs | a mosaic of distinct communities |
 | `thermalSorting` | Correlation of tile water temperature with the tile's mean `topt` | life is in thermal territories |
 | `fronts` | Share of living tiles on a strong gradient with different mean `topt` on each side | more thermal frontiers |
 | `facilitation` | Co-occurrence of warmth-loving non-heat-makers with heat-makers over chance | nurse colonies exist |
-| `repertoire` | Entropy of the state mix (torpid, steering, scalding, feeding, dividing, idle) | more kinds of behaviour at once |
+| `repertoire` | Entropy of the state mix (torpid, steering, scalding, feeding, dividing, idle) | more kinds of behavior at once |
 | `eraGuildShift` | Mean L1 distance between guild shares of consecutive eras' late windows | eras bite |
 | `toptSpread` | Population-weighted standard deviation of `topt` | thermal diversity holds |
 | `structureTurnover` | How fast the `patchiness` map decorrelates (time to half) | patterns keep changing rather than freezing |
@@ -940,14 +940,14 @@ The vents (a landscape-scale feature: a mouth in the seabed, a gas column) never
 where a cobble is a few microns; that work is kept on the `heat-vents` branch. Heat in water at this
 scale spreads over a field of view in a fraction of a second, so warm spots need small, steady,
 short-lived sources. Framboids are those: raspberry spheres of iron sulfide crystals, about cell-sized,
-common in tidal mud, that oxidise exothermically. (The heat is exaggerated; the chemistry is real.)
+common in tidal mud, that oxidize exothermically. (The heat is exaggerated; the chemistry is real.)
 
 - **A framboid is a grain of stone** with its own cause code (`FRAMBOID`): immobile and solid like stone,
   its energy the fuel it has left. It warms its grid cell by `framboidHeat` while it lasts and burns twice
   as fast per 10° warmer, so a crowded, hot cluster burns itself out; spent, it crumbles to silt.
 - **It forms where carcasses rot**: a husk rotting out in a grid cell holding three to `framboidPile`
   husks may leave a framboid instead of silt (`framboidForm`), but only in water no warmer than the
-  background (pyrite crystallises in cool mud; this also breaks the loop heat → deaths → husks →
+  background (pyrite crystallizes in cool mud; this also breaks the loop heat → deaths → husks →
   framboids → heat, which ran away to 1,000+ framboids and 46° water at first). Husks are counted per
   grid cell while binning (a third section of `b.thermal`). A few framboids lie in the world's mud
   patches from the start, part burnt.
@@ -958,7 +958,7 @@ common in tidal mud, that oxidise exothermically. (The heat is exaggerated; the 
   crowd toward its limb), jittered, with dark seams, a metallic glint per crystal and a faint warm glow in
   the seams that dims with its fuel. The specimen panel names it and shows its fuel.
 - **Removed**: vents (CPU placement and pulse, `ventHeat`, the era's vent strength, their uniforms, heat
-  source and rendering, `VENT=` in `sim.mjs`); `ventCharge` is now `hotCharge`. `FRAMBOID=1` centres a PNG
+  source and rendering, `VENT=` in `sim.mjs`); `ventCharge` is now `hotCharge`. `FRAMBOID=1` centers a PNG
   on the densest cluster. Each sample's `thermal` block counts framboids.
 
 **Gate** (32 × 30 min at 32k): passes; every gated metric "same". foodWeb 0.56 → 0.25 (p 0.009, Holm
@@ -981,11 +981,11 @@ changed every world's random draws), not the framboids. notableSpecies 26 → 35
   the simulation and are drawn in the stone pass, but are counted, named and highlighted as Framboids:
   a census row, their own glyph and specimen entry. A spent one crumbles to silt with its own cause.
 - **Panels**: the rail's gauge is "Temp", a thermometer whose tube fills with bars lit in their own
-  temperature's colour (a dial with a needle was mocked and set aside: less legible at rail size, and a
+  temperature's color (a dial with a needle was mocked and set aside: less legible at rail size, and a
   third kind of instrument beside the light bars and tide wave); phones show a small upright thermometer.
   The Census tab gains a Temperature facet group and Heat-stressed and Torpid condition chips; Species
   gains a Temp filter and a Warmest sort; the specimen's energy budget has Water here, Heat stress and
-  Heat-making rows; the behaviour panel's heading/target key sits above the compass, and one lamp
+  Heat-making rows; the behavior panel's heading/target key sits above the compass, and one lamp
   (Too cold / Too hot) replaces two. Charts: "Temperature".
 - **Minerals**: stone grains are drawn as irregular faceted fragments (five to eight facets, a chip broken
   off some, each face its own lightness, bedrock in mixed mineral tints) instead of round cobbles;
@@ -1009,10 +1009,10 @@ notableSpecies 26 → 35 and leaderChanges 5.9 → 8.9 improved; foodWeb 0.56 �
   old table shading's slope sign (which lit bevels and domes as if sunken) is fixed. Render-only; about
   +0.6 ms per 1600×1000 frame when stones fill the screen. The specimen panel names a selected stone by
   its kind (`stoneGrain`, from the same table as the stone pass, `STONE_KINDS`) and draws an emblem of it.
-- **Panels**: the rail's gauge graphics centre on their labels' ink; on phones the Tide gauge gives way to
+- **Panels**: the rail's gauge graphics center on their labels' ink; on phones the Tide gauge gives way to
   a season track under the era name (it also stays at 360 px, where the gauge was hidden); the census
   condition chips sit under their own heading as one block (life cycle in a row of three, temperature
-  in a row of two); the behaviour compass's key keeps the drives' row pitch and is centred over the
+  in a row of two); the behavior compass's key keeps the drives' row pitch and is centered over the
   compass, with room before the lamps.
 - **Husk rot is capped by what a husk holds.** Rot speeds up in warm water (`rotQ10`), but its heat was
   the uncapped amount: in water ~100° over the background a husk gave off thousands of times its energy,
