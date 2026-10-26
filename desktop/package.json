@@ -1,0 +1,20 @@
+{
+  "name": "tidemote-desktop",
+  "productName": "Tidemote",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tidemote as a desktop app: the built page in Electron, for Steam",
+  "license": "GPL-3.0-or-later",
+  "author": "Tyler Hallada",
+  "main": "main.js",
+  "scripts": {
+    "stage": "node scripts/stage.mjs",
+    "start": "node scripts/stage.mjs && electron .",
+    "package": "node scripts/stage.mjs && node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "44.9.3"
+  }
+}
