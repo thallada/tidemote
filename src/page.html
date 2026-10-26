@@ -90,7 +90,7 @@
 <div class="hud" id="hud">
   <!-- status rail: when and under what sky -->
   <header class="rail" id="rail">
-    <div class="brand"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></svg><span>Tidemote</span></div>
+    <button type="button" class="brand" id="brand" aria-label="About Tidemote" data-hint="About Tidemote"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></svg><span>Tidemote</span></button>
     <div class="clock" role="timer" aria-label="Simulated time"><span class="lbl">Epoch</span><b id="epoch">0:00</b></div>
     <div class="era-box" id="era-box"><span class="lbl" id="era-n">Era 01</span><b id="era">The First Tides</b><span class="era-tide" id="era-tide" aria-hidden="true"><svg viewBox="0 0 60 6" preserveAspectRatio="none"><path/></svg><i></i></span></div>
     <div class="gauge term" data-tip="light" tabindex="0" id="g-light"><span class="lbl">Light</span><span class="seg" id="light-seg" aria-hidden="true"></span><b id="light-v">–</b></div>
@@ -130,9 +130,10 @@
     <div class="sec-h"><h2><kbd class="key">V</kbd>Settings</h2>
       <div class="tabs" role="tablist" id="set-tabs" aria-label="Settings sections">
         <button type="button" role="tab" data-tab="display" aria-selected="true">Display</button>
-        <button type="button" role="tab" data-tab="performance" aria-selected="false" tabindex="-1">Performance</button>
+        <button type="button" role="tab" data-tab="performance" aria-selected="false" tabindex="-1">Perf</button>
         <button type="button" role="tab" data-tab="climate" aria-selected="false" tabindex="-1">Climate</button>
         <button type="button" role="tab" data-tab="worlds" aria-selected="false" tabindex="-1">Worlds</button>
+        <button type="button" role="tab" data-tab="about" aria-selected="false" tabindex="-1">About</button>
       </div>
       <button type="button" class="ghost" id="set-close" aria-label="Close settings"><svg><use href="#i-close"/></svg></button></div>
     <div class="readout" id="readout" hidden aria-live="off">

@@ -8,7 +8,7 @@ import { seasonAt, createClimate, abioRate, EVENT_TYPES, excursionAt } from './c
 import { countPools } from './geography.js';
 import { createLab } from './lab.js';
 import { createSpecimen } from './specimen.js';
-import { section, block } from './ui.js';
+import { section, block, wireTabRow } from './ui.js';
 import { createTips } from './tip.js';
 import { drawLiving, chartPointer } from './charts.js';
 import { genusName, speciesEpithet } from './names.js';
@@ -1594,7 +1594,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // ------------------------------------------------------------ settings
   // Display: what is drawn. Performance: what it costs (resolution, frame rate, particles, effects),
   // with a live readout so the effect of each choice can be seen. Worlds: saving this world and
-  // loading one saved.
+  // loading one saved. About: what this is and who made it (the rail's wordmark opens it).
   view = (() => {
     const el = $('settings'), opts = $('opts'), btn = $('set-open'), tabs = [...el.querySelectorAll('#set-tabs [data-tab]')];
     let tab = 'display';
@@ -1768,13 +1768,23 @@ function run(eng, device, ctx, specCtx, hasTS) {
       wBusy = '';
       await refreshSaves();
     });
+    const ext = (href, text) => `<a class="sp" target="_blank" rel="noopener" href="${href}">${text}</a>`;
+    function about_() {
+      return group('intro', '', `<div class="about"><p>A sealed biosphere of up to millions of particles, and all of them live, eat, breed, and die in your browser, simulated on the GPU with WebGPU. Some cells drink the moving light of the tide. Others graze on the photosynthesizers, and others hunt the grazers. Scavengers break down the dead and return them to the water as silt, and from that silt the next generation builds its children. Children mutate into new species. Species that bond grow into bodies: filaments, branched fronds, spirals, packed tissues. Some of these bodies grow beating tails and swim. Every 10 to 18 minutes the climate turns, and the world has to begin again in its own way. It makes its own music, too: each cell sings its species' song, over a chorus of the births, kills, and deaths in view.</p>
+<p>No hand steers any of this: every ecological rule is local. The complex interacting colonies emerge from simple rules acting on the mutating genome each cell carries. The Field Lab's <button type="button" class="link" data-o="guide" data-v="0">Guide</button> explains how it works.</p></div>`)
+        + group('made', 'Made by', `<div class="about"><p>Directed by ${ext('https://www.hallada.net', 'Tyler Hallada')} and implemented mostly by ${ext('https://www.anthropic.com/claude', 'Claude')}, Anthropic's AI model. The soundtrack is a port of ${ext('https://supercollider.github.io/', 'SuperCollider')}'s synthesis to the browser.</p></div>`)
+        + group('src', 'Source', `<div class="about"><p>Free software under the ${ext('https://www.gnu.org/licenses/gpl-3.0.html', 'GPL-3.0')}: the code, the design notes and the headless tools used to balance the ecology are on ${ext('https://github.com/thallada/tidemote', 'GitHub')}, where bugs and ideas are welcome as issues.</p>
+<p>Everything runs on this device: there is no account and no analytics, and saved worlds stay in this browser.</p></div>`);
+    }
     // the keyboard note, and this tab's reset (which asks first)
+    const keysNote = '<span class="keys-note">Keyboard: <kbd>?</kbd> lists every shortcut.</span>';
     function foot() {
+      if (tab === 'about') return `<div class="set-foot">${keysNote}</div>`;
       if (tab === 'worlds') return `<div class="set-foot"><span class="keys-note">Kept in this browser.</span><button type="button" class="link set-reset" data-o="w-open" data-v="0"${wBusy ? ' disabled' : ''}>Open a file</button></div>`;
       const reset = confirming
         ? `<span class="set-reset"><span>Reset every ${tab} setting?</span><button type="button" class="link" data-o="reset-no" data-v="0">Cancel</button><button type="button" class="btn hot-btn" data-o="reset-yes" data-v="0">Reset</button></span>`
         : `<button type="button" class="link set-reset" data-o="reset" data-v="0">Reset to defaults</button>`;
-      return `<div class="set-foot">${confirming ? '' : '<span class="keys-note">Keyboard: <kbd>?</kbd> lists every shortcut.</span>'}${reset}</div>`;
+      return `<div class="set-foot">${confirming ? '' : keysNote}${reset}</div>`;
     }
     // this tab's settings as a fresh page opens them (a particle count waits for its own new world)
     function resetTab() {
@@ -1801,7 +1811,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       tabs.forEach((b) => { const on = b.dataset.tab === tab; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; });
       $('readout').hidden = tab !== 'performance';
       const typing = document.activeElement?.id === 'w-name';
-      opts.innerHTML = (tab === 'display' ? display() : tab === 'performance' ? performance_() : tab === 'climate' ? climate_() : worlds_()) + foot();
+      opts.innerHTML = (tab === 'display' ? display() : tab === 'performance' ? performance_() : tab === 'climate' ? climate_() : tab === 'about' ? about_() : worlds_()) + foot();
       if (typing && !$('w-name').disabled) { const i = $('w-name'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
       if (tab === 'worlds' && saves == null) refreshSaves();
       readout(true);
@@ -1858,6 +1868,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'apply') { const n = pendingN; pendingN = null; setParticles(n); }
       else if (id === 'profile') { copyProfile(); return; }
       else if (id === 'sound') { if (!!+v !== sound.on) toggleSound(); return; }
+      else if (id === 'guide') { toggle(false); lab.open('guide'); return; }
       else if (id === 'reset' || id === 'reset-no') { confirming = id === 'reset'; render(); return; }
       else if (id === 'reset-yes') { confirming = false; resetTab(); }
       persist();
@@ -1877,12 +1888,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
       e.preventDefault(); n.click(); n.focus();
     });
-    function toggle(on = el.hidden) {
+    // open on a tab (the wordmark opens About), or close if that tab is already showing
+    function toggle(on = el.hidden, to) {
+      if (to) { on = el.hidden || tab !== to; if (on) { tab = to; confirming = false; ask = null; } }
       el.hidden = !on;
       btn.setAttribute('aria-expanded', String(on));
       if (on) { $('help').hidden = true; if (phone()) lab.close(); saves = null; render(); } else { pendingN = null; confirming = false; ask = null; }
     }
     btn.addEventListener('click', () => toggle());
+    $('brand').addEventListener('click', () => toggle(true, 'about'));
     $('set-close').addEventListener('click', () => toggle(false));
     return { render, toggle, readout, isOpen: () => !el.hidden };
   })();
@@ -1920,6 +1934,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     fsBtn.dataset.hint = on ? 'Exit full screen · F' : 'Full screen · F';
     fsBtn.innerHTML = `<svg><use href="#i-${on ? 'unfull' : 'full'}"/></svg>`;
   });
+  for (const row of document.querySelectorAll('.tabs')) wireTabRow(row);
   function toggleHelp(on = $('help').hidden) { $('help').hidden = !on; if (on) view.toggle(false); }
   $('help-close').addEventListener('click', () => toggleHelp(false));
   function closeMenus() { view.toggle(false); toggleHelp(false); }

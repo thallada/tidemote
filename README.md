@@ -244,6 +244,14 @@ include `ZOOM:W:H` in `WSLENV` when using those variables through `tools/gpu-nod
 
 Comparison configs accept `k` overrides and an `eras` boolean. Runs use seeds 1 through `--seeds`, run up to `--jobs` children, save each JSON, and print means ± sample standard deviations plus per-seed results. Dawn runs limit lavapipe threads per child; Chromium's SwiftShader manages its own threads. Run the smoke test and unit tests with `npm test`; the smoke test uses Chromium when an executable is available and falls back to Dawn with `--cpu` if it is missing or cannot launch.
 
+## Inspiration
+
+- [Particle Life • Sandbox Science](https://sandbox-science.com/particle-life)
+- [Falling-sand game - Wikipedia](https://en.wikipedia.org/wiki/Falling-sand_game)
+- [Mote: An Interactive Ecosystem Simulation — Peter Whidden - YouTube](https://www.youtube.com/watch?v=Hju0H3NHxVI)
+- [Proximity Structures: Playing around with PixiJS](https://www.hallada.net/2017/08/07/proximity-structures.html)
+- [Oblivion GFX — GMUNK](https://gmunk.com/Oblivion-GFX)
+
 ## License
 
 Tidemote is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed WITHOUT ANY WARRANTY; see [LICENSE](LICENSE).

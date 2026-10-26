@@ -126,8 +126,8 @@ b { font-weight: 500; }
 .num { font-variant-numeric: tabular-nums; }
 .term { text-decoration: underline dotted rgba(163, 189, 190, 0.55); text-underline-offset: 3px; cursor: help; }
 .term:focus-visible { outline: 1px solid var(--cyan); outline-offset: 2px; }
-a.sp { color: var(--ink); text-decoration: underline solid rgba(127, 214, 223, 0.45); text-underline-offset: 3px; cursor: pointer; font-weight: 500; }
-a.sp:hover, a.sp:focus-visible { color: var(--sun); text-decoration-color: var(--sun); outline: none; }
+a.sp, .about button.link { color: var(--ink); text-decoration: underline solid rgba(127, 214, 223, 0.45); text-underline-offset: 3px; cursor: pointer; font-weight: 500; }
+a.sp:hover, a.sp:focus-visible, .about button.link:hover, .about button.link:focus-visible { color: var(--sun); text-decoration-color: var(--sun); outline: none; }
 
 /* ------------------------------------------------------------------ controls */
 button {
@@ -243,7 +243,8 @@ body:not(.live) .hud { opacity: 0; }
 .rail::before, .rail::after { content: ''; position: absolute; bottom: -4px; width: 1px; height: 7px; background: var(--line-2); }
 .rail::before { left: var(--gut); }
 .rail::after { right: var(--gut); }
-.brand { display: flex; align-items: center; gap: 9px; color: var(--ink); }
+.brand { display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--ink); min-width: 34px; height: 34px; padding: 0; border: 0; background: none; cursor: pointer; }
+.brand:hover .mark, .brand:focus-visible .mark { color: var(--sun); }
 .brand .mark { width: 22px; height: 22px; color: var(--cyan); }
 .brand span { font-size: 15px; font-weight: 300; letter-spacing: .32em; text-transform: uppercase; font-stretch: 125%; }
 .clock, .era-box, .gauge { padding-left: 16px; border-left: 1px solid var(--line); height: 30px; }
@@ -459,7 +460,7 @@ canvas.chart { cursor: crosshair; }
 }
 .settings .sec-h { gap: 0 var(--s3); flex-wrap: wrap; }
 .settings .sec-h h2 { white-space: nowrap; margin-right: auto; }
-/* the tabs on a row of their own under the title, so four fit at any width */
+/* the tabs on a row of their own under the title */
 .settings .tabs { order: 3; flex-basis: 100%; min-width: 0; margin-left: -8px; }
 .settings .tabs button { height: 32px; padding: 0 8px; letter-spacing: .12em; }
 .settings .sec-h > .ghost { flex: none; margin: 0 -6px 0 auto; }
@@ -489,6 +490,10 @@ canvas.chart { cursor: crosshair; }
 .vol-row { display: flex; align-items: center; gap: var(--s3); height: 32px; }
 .vol-row input { flex: 1; min-width: 0; height: 24px; }
 .vol-row b { width: 4ch; text-align: right; font-weight: 400; color: var(--ink-2); }
+/* Settings → About: a few paragraphs of prose */
+.about p { margin: 0 0 var(--s3); color: var(--ink-2); line-height: 1.6; font-size: 13.5px; }
+.about p:last-child { margin-bottom: 0; }
+.about button.link { font: inherit; font-weight: 500; letter-spacing: inherit; text-transform: none; padding: 0; min-height: 0; }
 .set-foot { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); min-height: 34px; margin-top: var(--s4); padding-top: var(--s2); border-top: 1px solid var(--line); }
 .set-reset { margin-left: auto; }
 span.set-reset { display: inline-flex; align-items: center; gap: var(--s3); color: var(--ink-2); font-size: 12px; }
@@ -535,8 +540,13 @@ span.set-reset { display: inline-flex; align-items: center; gap: var(--s3); colo
 dd { margin: 0; color: var(--ink-2); }
 
 /* ------------------------------------------------------------------ tabs */
-.tabs { display: flex; gap: 2px; }
-.tabs button { border: 0; border-bottom: 1px solid transparent; height: 34px; padding: 0 10px; color: var(--ink-3); white-space: nowrap; }
+/* a row too wide for its panel scrolls (wireTabRow): a fade marks each clipped edge */
+.tabs { --fade-l: #000; --fade-r: #000; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs.fade-l { --fade-l: transparent; }
+.tabs.fade-r { --fade-r: transparent; }
+.tabs.fade-l, .tabs.fade-r { mask-image: linear-gradient(90deg, var(--fade-l), #000 32px, #000 calc(100% - 32px), var(--fade-r)); -webkit-mask-image: linear-gradient(90deg, var(--fade-l), #000 32px, #000 calc(100% - 32px), var(--fade-r)); }
+.tabs button { flex: none; border: 0; border-bottom: 1px solid transparent; height: 34px; padding: 0 10px; color: var(--ink-3); white-space: nowrap; }
 .tabs button:hover { color: var(--ink); }
 .tabs button[aria-selected="true"] { color: var(--ink); border-bottom: 2px solid var(--hot); background: linear-gradient(transparent 40%, rgba(255, 95, 58, 0.08)); }
 
@@ -784,11 +794,10 @@ body.hud-off .lab.closed, body.hud-off .lab[data-tab="census"] { opacity: 0; vis
 .lab-title:hover h2, .lab-title:hover .lab-fold { color: var(--ink); }
 .lab-head h2 { display: flex; gap: .5em; font-size: 11px; letter-spacing: .16em; text-transform: uppercase; font-weight: 500; font-stretch: 112%; white-space: nowrap; }
 .lab-fold { margin-left: auto; }
-.lab-head .tabs { overflow-x: auto; scrollbar-width: none; padding: 0 6px; justify-content: space-between; border-top: 1px solid rgba(130, 205, 214, 0.1); }
+.lab-head .tabs { padding: 0 6px; justify-content: space-between; border-top: 1px solid rgba(130, 205, 214, 0.1); }
 body.lab-wide .lab-head .tabs { justify-content: flex-start; padding: 0 8px; }
 .lab-head .tabs button { padding: 0 6px; letter-spacing: .1em; }
 body.lab-wide .lab-head .tabs button { padding: 0 10px; letter-spacing: .16em; }
-.lab-head .tabs::-webkit-scrollbar { display: none; }
 /* the Lab opens from its own header; the dock keeps a button only on a phone, where the Lab covers the world */
 #lab-open { display: none; }
 .lab-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -944,6 +953,8 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .clock, .era-box, .gauge { padding-left: 12px; }
   .brand span { display: none; }
   :root { --lab-pw: 316px; }
+  .lab-head .tabs { gap: 0; }
+  .lab-head .tabs button { letter-spacing: .04em; }
   .act span { display: none; }
   .act { padding: 0 10px; }
 }
@@ -1014,7 +1025,6 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .lab-fold svg { transform: rotate(180deg); }
   .lab-head .tabs, body.lab-wide .lab-head .tabs { justify-content: flex-start; padding: 0 6px; }
   .tabs button { height: 40px; padding: 0 8px; letter-spacing: .1em; }
-  .lab-head .tabs { mask-image: linear-gradient(90deg, #000 85%, transparent); -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); }
   .pane-ctl { padding: 10px 12px 8px; }
   .scroll { padding: 4px 12px 24px; }
   .splist li { grid-template-columns: 24px minmax(0, 1fr) 4.8em; }
@@ -1107,7 +1117,7 @@ svg.niche .n-dot { fill: var(--cyan); }
 <div class="hud" id="hud">
   <!-- status rail: when and under what sky -->
   <header class="rail" id="rail">
-    <div class="brand"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></svg><span>Tidemote</span></div>
+    <button type="button" class="brand" id="brand" aria-label="About Tidemote" data-hint="About Tidemote"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></svg><span>Tidemote</span></button>
     <div class="clock" role="timer" aria-label="Simulated time"><span class="lbl">Epoch</span><b id="epoch">0:00</b></div>
     <div class="era-box" id="era-box"><span class="lbl" id="era-n">Era 01</span><b id="era">The First Tides</b><span class="era-tide" id="era-tide" aria-hidden="true"><svg viewBox="0 0 60 6" preserveAspectRatio="none"><path/></svg><i></i></span></div>
     <div class="gauge term" data-tip="light" tabindex="0" id="g-light"><span class="lbl">Light</span><span class="seg" id="light-seg" aria-hidden="true"></span><b id="light-v">–</b></div>
@@ -1147,9 +1157,10 @@ svg.niche .n-dot { fill: var(--cyan); }
     <div class="sec-h"><h2><kbd class="key">V</kbd>Settings</h2>
       <div class="tabs" role="tablist" id="set-tabs" aria-label="Settings sections">
         <button type="button" role="tab" data-tab="display" aria-selected="true">Display</button>
-        <button type="button" role="tab" data-tab="performance" aria-selected="false" tabindex="-1">Performance</button>
+        <button type="button" role="tab" data-tab="performance" aria-selected="false" tabindex="-1">Perf</button>
         <button type="button" role="tab" data-tab="climate" aria-selected="false" tabindex="-1">Climate</button>
         <button type="button" role="tab" data-tab="worlds" aria-selected="false" tabindex="-1">Worlds</button>
+        <button type="button" role="tab" data-tab="about" aria-selected="false" tabindex="-1">About</button>
       </div>
       <button type="button" class="ghost" id="set-close" aria-label="Close settings"><svg><use href="#i-close"/></svg></button></div>
     <div class="readout" id="readout" hidden aria-live="off">
@@ -21719,6 +21730,23 @@ ${e.message}` : String(e?.message || e));
   var kv = (text, value, tip) => `<div class="kv"><span>${label(text, tip)}</span><b>${value}</b></div>`;
   var trait = (text, v, lo, hi, value, tip, cls = "cyan thin") => `<div class="trait"><span>${label(text, tip)}</span>${meter((v - lo) / (hi - lo), cls)}<b>${value}</b></div>`;
   var disclosure = (key, text, html, open = false, aside = "") => `<div class="blk disc" data-disc="${key}"><button type="button" class="sub-h disc-h" aria-expanded="${open}"><span>${text}</span>${aside ? `<span class="sub-a">${aside}</span>` : ""}<svg class="disc-i" aria-hidden="true"><use href="#i-chev"/></svg></button><div class="disc-b"${open ? "" : " hidden"}>${html}</div></div>`;
+  function wireTabRow(row) {
+    const edge = () => {
+      const max = row.scrollWidth - row.clientWidth;
+      row.classList.toggle("fade-l", max > 1 && row.scrollLeft > 1);
+      row.classList.toggle("fade-r", max > 1 && row.scrollLeft < max - 1);
+    };
+    row.addEventListener("scroll", edge, { passive: true });
+    row.addEventListener("wheel", (e) => {
+      if (row.scrollWidth <= row.clientWidth || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+      row.scrollLeft += e.deltaY;
+      e.preventDefault();
+    }, { passive: false });
+    row.addEventListener("click", (e) => e.target.closest('[role="tab"]')?.scrollIntoView({ block: "nearest", inline: "nearest" }));
+    new ResizeObserver(edge).observe(row);
+    new MutationObserver(edge).observe(row, { childList: true });
+    edge();
+  }
   function wireDisclosures(root, onToggle = () => {
   }) {
     root.addEventListener("click", (e) => {
@@ -28606,10 +28634,18 @@ ${e.message}` : String(e?.message || e));
         wBusy = "";
         await refreshSaves();
       });
+      const ext = (href, text) => `<a class="sp" target="_blank" rel="noopener" href="${href}">${text}</a>`;
+      function about_() {
+        return group("intro", "", `<div class="about"><p>A sealed biosphere of up to millions of particles, and all of them live, eat, breed, and die in your browser, simulated on the GPU with WebGPU. Some cells drink the moving light of the tide. Others graze on the photosynthesizers, and others hunt the grazers. Scavengers break down the dead and return them to the water as silt, and from that silt the next generation builds its children. Children mutate into new species. Species that bond grow into bodies: filaments, branched fronds, spirals, packed tissues. Some of these bodies grow beating tails and swim. Every 10 to 18 minutes the climate turns, and the world has to begin again in its own way. It makes its own music, too: each cell sings its species' song, over a chorus of the births, kills, and deaths in view.</p>
+<p>No hand steers any of this: every ecological rule is local. The complex interacting colonies emerge from simple rules acting on the mutating genome each cell carries. The Field Lab's <button type="button" class="link" data-o="guide" data-v="0">Guide</button> explains how it works.</p></div>`) + group("made", "Made by", `<div class="about"><p>Directed by ${ext("https://www.hallada.net", "Tyler Hallada")} and implemented mostly by ${ext("https://www.anthropic.com/claude", "Claude")}, Anthropic's AI model. The soundtrack is a port of ${ext("https://supercollider.github.io/", "SuperCollider")}'s synthesis to the browser.</p></div>`) + group("src", "Source", `<div class="about"><p>Free software under the ${ext("https://www.gnu.org/licenses/gpl-3.0.html", "GPL-3.0")}: the code, the design notes and the headless tools used to balance the ecology are on ${ext("https://github.com/thallada/tidemote", "GitHub")}, where bugs and ideas are welcome as issues.</p>
+<p>Everything runs on this device: there is no account and no analytics, and saved worlds stay in this browser.</p></div>`);
+      }
+      const keysNote = '<span class="keys-note">Keyboard: <kbd>?</kbd> lists every shortcut.</span>';
       function foot() {
+        if (tab === "about") return `<div class="set-foot">${keysNote}</div>`;
         if (tab === "worlds") return `<div class="set-foot"><span class="keys-note">Kept in this browser.</span><button type="button" class="link set-reset" data-o="w-open" data-v="0"${wBusy ? " disabled" : ""}>Open a file</button></div>`;
         const reset = confirming ? `<span class="set-reset"><span>Reset every ${tab} setting?</span><button type="button" class="link" data-o="reset-no" data-v="0">Cancel</button><button type="button" class="btn hot-btn" data-o="reset-yes" data-v="0">Reset</button></span>` : `<button type="button" class="link set-reset" data-o="reset" data-v="0">Reset to defaults</button>`;
-        return `<div class="set-foot">${confirming ? "" : '<span class="keys-note">Keyboard: <kbd>?</kbd> lists every shortcut.</span>'}${reset}</div>`;
+        return `<div class="set-foot">${confirming ? "" : keysNote}${reset}</div>`;
       }
       function resetTab() {
         const s = eng.settings, P = state.perf;
@@ -28645,7 +28681,7 @@ ${e.message}` : String(e?.message || e));
         });
         $("readout").hidden = tab !== "performance";
         const typing = document.activeElement?.id === "w-name";
-        opts.innerHTML = (tab === "display" ? display() : tab === "performance" ? performance_() : tab === "climate" ? climate_() : worlds_()) + foot();
+        opts.innerHTML = (tab === "display" ? display() : tab === "performance" ? performance_() : tab === "climate" ? climate_() : tab === "about" ? about_() : worlds_()) + foot();
         if (typing && !$("w-name").disabled) {
           const i = $("w-name");
           i.focus();
@@ -28743,6 +28779,10 @@ ${e.message}` : String(e?.message || e));
         } else if (id === "sound") {
           if (!!+v !== sound.on) toggleSound();
           return;
+        } else if (id === "guide") {
+          toggle(false);
+          lab.open("guide");
+          return;
         } else if (id === "reset" || id === "reset-no") {
           confirming = id === "reset";
           render();
@@ -28786,7 +28826,15 @@ ${e.message}` : String(e?.message || e));
         n.click();
         n.focus();
       });
-      function toggle(on = el.hidden) {
+      function toggle(on = el.hidden, to) {
+        if (to) {
+          on = el.hidden || tab !== to;
+          if (on) {
+            tab = to;
+            confirming = false;
+            ask = null;
+          }
+        }
         el.hidden = !on;
         btn.setAttribute("aria-expanded", String(on));
         if (on) {
@@ -28801,6 +28849,7 @@ ${e.message}` : String(e?.message || e));
         }
       }
       btn.addEventListener("click", () => toggle());
+      $("brand").addEventListener("click", () => toggle(true, "about"));
       $("set-close").addEventListener("click", () => toggle(false));
       return { render, toggle, readout, isOpen: () => !el.hidden };
     })();
@@ -28861,6 +28910,7 @@ ${e.message}` : String(e?.message || e));
       fsBtn.dataset.hint = on ? "Exit full screen · F" : "Full screen · F";
       fsBtn.innerHTML = `<svg><use href="#i-${on ? "unfull" : "full"}"/></svg>`;
     });
+    for (const row of document.querySelectorAll(".tabs")) wireTabRow(row);
     function toggleHelp(on = $("help").hidden) {
       $("help").hidden = !on;
       if (on) view.toggle(false);
