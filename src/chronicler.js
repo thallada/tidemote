@@ -269,7 +269,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
    *   founders, slotSerial (Uint32Array by slot, or null), spl (the species ledger, or null),
    *   temp (the water's background), light (ambient), world: [W, H], event: { type, phase } | null,
    *   excursion (the heat wave or cold snap under way, or null), focus (a serial the viewer is looking at) }
-   * Returns the stories to log now: [{ html, text, col, kind, subjects, score }].
+   * Returns the stories to log now: [{ html, text, col, kind, key, moment, subjects, score }] (key and moment, where a story has them, tell it apart from others of its kind: 'first:multi', 'back').
    */
   function observe(obs) {
     const { t, reg } = obs;
@@ -358,7 +358,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     const text = best.html.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
     for (const s of best.subjects || []) S.latest.set(s, { t, text, html: best.html });
     best.onTold?.();
-    return [{ html: best.html, text, col: best.col, kind: best.kind, subjects: best.subjects || [], score: best.score }];
+    return [{ html: best.html, text, col: best.col, kind: best.kind, key: best.key, moment: best.moment, subjects: best.subjects || [], score: best.score }];
   }
 
   // ------------------------------------------------------------------ helpers for the stories
@@ -458,7 +458,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
         const top = [...ctx.reg.values()].filter((s) => s.alive && s.established).sort((a, b) => b.pop - a.pop)[0];
         const since = S.collapsed.t;
         S.collapsed = false;
-        add({ kind: 'collapse', force: true, score: 0.8, col: 0xff7fe0b0, subjects: top ? [top.serial] : [],
+        add({ kind: 'collapse', force: true, score: 0.8, moment: 'back', col: 0xff7fe0b0, subjects: top ? [top.serial] : [],
           html: `<b>Life has returned</b>, as it returns to all who wait: ${fmt(living)} cells, ${durWords(t - since)} after it fell to almost nothing${top ? `, and ${L(ctx.reg, top.serial)} the first among them` : ''}.` });
       }
     }
@@ -490,7 +490,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
         if (t - since < 5 * MIN) continue;
         const sp = last[g], anc = sp.ancestor && reg.get(sp.ancestor);
         const origin = sp.founder ? 'sparked from silt' : anc ? `descended from ${L(reg, anc.serial)}, ${/^[aeiou]/.test(GUILD[guildOf(anc)].one) ? 'an' : 'a'} ${GUILD[guildOf(anc)].one}` : 'of unrecorded ancestry';
-        add({ kind: 'guild', score: 0.75, col: 0xff7fe0b0, subjects: [sp.serial],
+        add({ kind: 'guild', score: 0.75, moment: 'back', col: 0xff7fe0b0, subjects: [sp.serial],
           html: `<b>${Cap(GUILD[g].many)} are back.</b> ${L(reg, sp.serial)}, ${origin}, is the first ${GUILD[g].one} the pool has known since ${fmtClock(since)}; what is lost is seldom lost for ever.` });
       }
     }

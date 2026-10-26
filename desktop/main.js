@@ -1,11 +1,16 @@
 // Tidemote's desktop shell: the built page (dist/tidemote.html, staged as page/index.html) in its own
 // window. The page is served from app://tidemote/ rather than file://, so it has an origin of its own
-// for IndexedDB (saved worlds) and localStorage (settings), kept in Electron's userData directory.
-import { app, BrowserWindow, Menu, net, protocol, shell } from 'electron';
+// for localStorage (settings), kept in Electron's userData directory. Saved worlds are files there
+// (worlds.js), which Steam Cloud syncs; Steam (steam.js) adds achievements and the Workshop. The page
+// reaches both through preload.cjs.
+import { app, BrowserWindow, ipcMain, Menu, net, protocol, shell } from 'electron';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { startSteam, status, achieve } from './steam.js';
+import { worlds, workshop } from './worlds.js';
 
-const PAGE_DIR = join(fileURLToPath(new URL('.', import.meta.url)), 'page');
+const HERE = fileURLToPath(new URL('.', import.meta.url));
+const PAGE_DIR = join(HERE, 'page');
 const ORIGIN = 'app://tidemote';
 
 // The page is local and never loads remote content, so WebGPU can skip Chrome's GPU blocklist. On
@@ -32,7 +37,7 @@ const open = () => {
   const win = new BrowserWindow({
     width: 1600, height: 900, minWidth: 640, minHeight: 400,
     show: false, backgroundColor: '#06090a', title: 'Tidemote',
-    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false },
+    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, preload: join(HERE, 'preload.cjs') },
   });
   win.once('ready-to-show', () => win.show());
   // Links leave for the system browser; the window itself never navigates away from the page.
@@ -53,6 +58,23 @@ const open = () => {
   const k = process.argv.indexOf('--k');
   win.loadURL(`${ORIGIN}/${k > 0 ? `#k=${encodeURIComponent(process.argv[k + 1])}` : ''}`);
 };
+
+// Only the page itself may call the shell.
+const handle = (ch, fn) => ipcMain.handle(ch, (e, ...a) => {
+  if (!e.senderFrame?.url.startsWith(ORIGIN)) throw new Error('not the page');
+  return fn(...a);
+});
+handle('worlds:list', worlds.list);
+handle('worlds:put', worlds.put);
+handle('worlds:get', worlds.get);
+handle('worlds:remove', worlds.remove);
+handle('steam:status', status);
+handle('steam:achieve', achieve);
+handle('workshop:share', workshop.share);
+handle('workshop:browse', workshop.browse);
+handle('workshop:open', workshop.open);
+
+if (startSteam() === 'restart') app.exit(0);
 
 app.whenReady().then(() => {
   protocol.handle('app', serve);

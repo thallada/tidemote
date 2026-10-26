@@ -16,8 +16,9 @@ const paths = await packager({
   platform: arg('platform', process.platform),
   arch: arg('arch', process.arch),
   overwrite: true,
-  asar: true,
-  ignore: [/^\/out($|\/)/, /^\/scripts($|\/)/, /^\/node_modules($|\/)/],
+  // steamworks.js's native addon and the Steam API library load from real files, not the archive
+  asar: { unpack: '**/node_modules/steamworks.js/dist/**' },
+  ignore: [/^\/out($|\/)/, /^\/scripts($|\/)/, /^\/\.gitignore$/],
   appCopyright: 'Copyright Tyler Hallada. GPL-3.0-or-later.',
   win32metadata: { CompanyName: 'Tyler Hallada', ProductName: 'Tidemote', FileDescription: 'Tidemote' },
 });

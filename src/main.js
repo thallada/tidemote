@@ -21,7 +21,8 @@ import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS } from './shaders.js';
 import { flowAt } from './flow.js';
 import { startLoader } from './loader.js';
 import { Director } from './director.js';
-import { createChronicler, watchMap } from './chronicler.js';
+import { createChronicler, watchMap, durWords } from './chronicler.js';
+import { earned } from './achievements.js';
 import { createCards } from './card.js';
 import { createFilm } from './film.js';
 import { parseMind, interpretMind, settleMind } from './mind.js';
@@ -491,10 +492,28 @@ function run(eng, device, ctx, specCtx, hasTS) {
     flash('A new world begins');
   }
 
+  // ------------------------------------------------------------ the desktop app
+  // In the desktop app (desktop/preload.cjs), saves are files Steam Cloud keeps, Steam is there for
+  // achievements and the Workshop (docs/desktop.md); in a browser, desk is null.
+  const desk = globalThis.tidemoteDesktop || null;
+  let steamOn = { on: false };
+  desk?.steam().then((x) => { steamOn = x; if (view?.isOpen()) view.render(); }).catch(() => {});
+  // achievements earned (each asked of Steam once a session), and the stories read in all
+  const unlocked = new Set();
+  function unlock(ids) {
+    if (!desk) return;
+    for (const id of ids) if (!unlocked.has(id)) { unlocked.add(id); desk.achieve(id).catch(() => {}); }
+  }
+  function storiesRead() {
+    let n = 0;
+    try { n = (+localStorage.getItem('tidemote.storiesRead') || 0) + 1; localStorage.setItem('tidemote.storiesRead', String(n)); } catch { /* storage unavailable */ }
+    return n;
+  }
+
   // ------------------------------------------------------------ saved worlds
   // The engine's state with the page's record of the world (names, lineages, chronicle, history,
-  // eras and the camera), kept in this browser (worlds.js).
-  const worldStore = createWorldStore();
+  // eras and the camera), kept in this browser (worlds.js) or, in the desktop app, as files.
+  const worldStore = desk ? desk.worlds : createWorldStore();
   async function saveWorld(name) {
     // the page's record and the GPU's copy are taken together, before anything awaits
     const { lastCensus, ...keepLife } = life;
@@ -504,7 +523,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const meta = { id: `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, savedAt: Date.now(),
       simTime: eng.simTime, count: eng.count, thriving: life.thriving, cols: top.slice(0, 4).map((s) => s.genome.col) };
     const bytes = await encodeWorld({ meta, ...(await eng.readState()), page });
-    await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes);
+    // in the desktop app, a picture of the view for the Workshop
+    const preview = desk ? await takeView().then((cv) => cv && new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.88))).then((b) => b && b.arrayBuffer()).catch(() => null) : null;
+    await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes, preview ? new Uint8Array(preview) : undefined);
   }
   // a world as file bytes, read and checked before the one running is touched
   async function openWorld(bytes) {
@@ -952,6 +973,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     });
     for (const s of told) {
       pushEvent(s.html, s.col, 'story');
+      if (desk) unlock(earned(s, storiesRead()));
       const sp = s.subjects.map((k) => life.reg.get(k)).find((k) => k && k.alive);
       if (sp) director.spotlight(sp.slot, sp.serial, { story: s.text });
     }
@@ -1422,6 +1444,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const subject = clamp(((m.body ? m.span : 0) + 0.12 * sp.genome.size + 0.08) / (span / 2), 0.08, 0.95);
     return new Promise((resolve) => { portraitJob = { slot: sp.slot, cx, cy, vx: m.body ? 0 : best.vx, vy: m.body ? 0 : best.vy, t: res.simTime, ppu: PORTRAIT / span, subject, resolve, at: performance.now() }; });
   }
+  // A picture of what the view shows (the screen's shorter side, square), nothing lit: a save's preview.
+  function takeView() {
+    if (portraitJob) portraitJob.resolve(null);
+    portraitHold = true;
+    const span = Math.min(innerWidth, innerHeight) / cssPPU();
+    return new Promise((resolve) => { portraitJob = { slot: null, cx: cam.x, cy: cam.y, vx: 0, vy: 0, t: eng.simTime, ppu: PORTRAIT / span, resolve, at: performance.now() }; });
+  }
   // the job's frame: drawn in place of the close-up (the frame loop), then copied out once the GPU is done
   function portraitParams() {
     const j = portraitJob;
@@ -1432,10 +1461,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const [W, H] = eng.grid;
     j.drawn = true;
     // its kind lit, the rest dimmed (the highlight), for this frame only: the viewer's own comes back after it
-    const kinds = new Uint32Array(MAXK / 32);
-    kinds[j.slot >> 5] |= (1 << (j.slot & 31)) >>> 0;
-    eng.setFocus({ kinds, mute: 0.09 });
-    j.relight = true;
+    if (j.slot != null) {
+      const kinds = new Uint32Array(MAXK / 32);
+      kinds[j.slot >> 5] |= (1 << (j.slot & 31)) >>> 0;
+      eng.setFocus({ kinds, mute: 0.09 });
+      j.relight = true;
+    }
     return { target: j.tex.createView(), w: PORTRAIT, h: PORTRAIT, cx: ((j.cx + j.vx * dt) % W + W) % W, cy: ((j.cy + j.vy * dt) % H + H) % H, ppu: j.ppu, dpr: 1 };
   }
   async function readPortrait() {
@@ -1469,6 +1500,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     sp.binomial ??= sp.name;
     sp.name = name || sp.binomial;
     sp.given = !!name;
+    if (name) unlock(['NAMED']);
     specimen.invalidate(); dirty = true; feedKey = ''; renderFeed(); lab.render(true);
     flash(name ? `Named ${name}` : `${sp.name} again`);
   }
@@ -1684,40 +1716,57 @@ function run(eng, device, ctx, specCtx, hasTS) {
         : climate?.event ? `<div class="opt"><span class="lbl">Under way</span><span class="note">${EVENT_NAMES[climate.event.type]}${climate.phase && climate.phase !== climate.event.type ? ` · ${climate.phase}` : ''}</span></div>` : '';
       return group('events', 'Pool events', onoff('ev-on', 'Events', '', E.on, 'poolevents') + kinds + now);
     }
-    // the saves kept in this browser (null until read), the name being typed, a load or delete
-    // waiting to be confirmed ({ kind, id }), and what is under way ('save', 'load', 'open')
-    let saves = null, used = 0, wName = '', ask = null, wBusy = '';
+    // the saves kept in this browser (null until read; in the desktop app, with the Workshop's worlds
+    // subscribed to, m.from 'workshop'), the name being typed, a load, delete or share waiting to be
+    // confirmed ({ kind, id }), and what is under way ('save', 'load', 'open', 'share')
+    let saves = null, used = 0, wName = '', ask = null, wBusy = '', wPoll = 0;
     const defaultName = () => `${climate.name} · ${fmtDur(eng.simTime)}`;
     // today's saves by the time, older ones by the day
     const when = (t) => (new Date(t).toDateString() === new Date().toDateString()
       ? new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
     const mb = (n) => `${(n / 1048576).toFixed(n < 10485760 ? 1 : 0)} MB`;
     const mini = (o, v, text, cls = '') => `<button type="button" class="btn mini${cls}" data-o="${o}" data-v="${v}"${wBusy ? ' disabled' : ''}>${text}</button>`;
+    const ghost = (o, v, icon, label, hint) => `<button type="button" class="ghost" data-o="${o}" data-v="${v}" aria-label="${label}" data-hint="${hint}"${wBusy ? ' disabled' : ''}><svg><use href="#i-${icon}"/></svg></button>`;
     function saveRow(m) {
       const sw = [0, 1, 2, 3].map((i) => `<i${m.cols[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ''}></i>`).join('');
-      const a = ask && ask.id === m.id ? ask.kind : null;
-      const line = a === 'load' ? '<em>Discard this world?</em>' : a === 'del' ? '<em>Delete this save?</em>'
+      const a = ask && ask.id === m.id ? ask.kind : null, ws = m.from === 'workshop';
+      const line = a === 'load' ? '<em>Discard this world?</em>' : a === 'del' ? `<em>${ws ? 'Unsubscribe from it?' : 'Delete this save?'}</em>`
+        : a === 'share' ? `<em>${m.workshop ? 'Update it on the Steam Workshop?' : 'Share it on the Steam Workshop for anyone to see?'}</em>`
+        : m.downloading != null ? `Downloading · ${Math.round(m.downloading * 100)}%`
         : `${fmtDur(m.simTime)} · ${kfmt(m.count)} · ${m.thriving} species · ${when(m.savedAt)}`;
       const acts = a === 'load' ? mini('w-no', m.id, 'Cancel') + mini('w-first', m.id, 'Save first') + mini('w-yes', m.id, wBusy === 'load' ? 'Loading' : 'Load', ' hot-btn')
-        : a === 'del' ? mini('w-no', m.id, 'Cancel') + mini('w-yes', m.id, 'Delete', ' hot-btn')
-        : mini('w-load', m.id, 'Load') + `<button type="button" class="ghost" data-o="w-dl" data-v="${m.id}" aria-label="Download" data-hint="Download a file to open on another device"><svg><use href="#i-down"/></svg></button>`
-          + `<button type="button" class="ghost" data-o="w-del" data-v="${m.id}" aria-label="Delete" data-hint="Delete"><svg><use href="#i-close"/></svg></button>`;
+        : a === 'del' ? mini('w-no', m.id, 'Cancel') + mini('w-yes', m.id, ws ? 'Unsubscribe' : 'Delete', ' hot-btn')
+        : a === 'share' ? mini('w-no', m.id, 'Cancel') + mini('w-yes', m.id, wBusy === 'share' ? 'Sharing' : m.workshop ? 'Update' : 'Share', ' hot-btn')
+        : ws ? (m.downloading != null ? '' : mini('w-load', m.id, 'Load')) + ghost('w-page', m.id, 'share', 'On Steam', 'Its page on the Steam Workshop')
+          + ghost('w-del', m.id, 'close', 'Unsubscribe', 'Unsubscribe')
+        : mini('w-load', m.id, 'Load') + (steamOn.on ? ghost('w-share', m.id, 'share', 'Share', m.workshop ? 'Update it on the Steam Workshop' : 'Share on the Steam Workshop') : '')
+          + ghost('w-dl', m.id, 'down', 'Download', desk ? 'Save a copy as a file' : 'Download a file to open on another device')
+          + ghost('w-del', m.id, 'close', 'Delete', 'Delete');
       return `<div class="w-row"><span class="w-sw" aria-hidden="true">${sw}</span><div class="w-txt"><b>${esc(m.name)}</b><span>${line}</span></div><div class="w-act">${acts}</div></div>`;
     }
     function worlds_() {
       const off = wBusy || state.phase !== 'running' ? ' disabled' : '';
       const save = `<div class="w-save"><input type="text" id="w-name" maxlength="60" autocomplete="off" spellcheck="false" placeholder="${esc(defaultName())}" value="${esc(wName)}" aria-label="Name this save"${off}>`
         + `<button type="button" class="btn hot-btn" data-o="w-save" data-v="0"${off}>${wBusy === 'save' ? 'Saving' : 'Save'}</button></div>`;
+      const own = saves && saves.filter((m) => m.from !== 'workshop'), ws = saves && saves.filter((m) => m.from === 'workshop');
       const list = saves == null ? '<p class="note">Reading the saved worlds…</p>'
-        : saves.length ? saves.map(saveRow).join('')
+        : own.length ? own.map(saveRow).join('')
         : '<p class="note">No saved worlds yet. A save keeps everything: every particle, each species and its name, the chronicle and the history.</p>';
-      return group('w-save', 'Save this world', save) + section('w-list', 'Saved worlds', block('', list, { aside: saves && saves.length ? `${saves.length} · ${mb(used)}` : '', tip: 'saves' }));
+      const browse = '<div class="w-more"><button type="button" class="link" data-o="w-browse" data-v="0">Browse the Workshop</button></div>';
+      const wsList = !steamOn.on || saves == null ? '' : section('w-ws', 'From the Workshop', block('', (ws.length ? ws.map(saveRow).join('')
+        : '<p class="note">Worlds others have shared. Subscribe to one on the Steam Workshop and it appears here, ready to load.</p>') + browse));
+      return group('w-save', 'Save this world', save) + section('w-list', 'Saved worlds', block('', list, { aside: own && own.length ? `${own.length} · ${mb(used)}` : '', tip: 'saves' })) + wsList;
     }
     async function refreshSaves() {
       try { saves = await worldStore.list(); } catch { saves = []; }
-      used = saves.reduce((a, m) => a + (m.bytes || 0), 0);
+      used = saves.reduce((a, m) => a + (m.from !== 'workshop' && m.bytes || 0), 0);
       render();
+      // the Workshop's downloads, followed while the tab is open
+      clearTimeout(wPoll);
+      if (saves.some((m) => m.downloading != null)) wPoll = setTimeout(() => { if (!el.hidden && tab === 'worlds') refreshSaves(); }, 2000);
     }
+    // a shared world's words on the Workshop (the sharer may change them there)
+    const wsDescription = (m) => `A Tidemote world after ${durWords(m.simTime)}: ${kfmt(m.count)} particles, ${m.thriving} species thriving.`;
     const download = (m, bytes) => saveFile(new Blob([bytes], { type: 'application/gzip' }), `${m.name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || 'world'}.tidemote`);
     async function worldAct(id, v) {
       const busy = async (what, fn) => {
@@ -1733,8 +1782,21 @@ function run(eng, device, ctx, specCtx, hasTS) {
           flash('World saved');
           await refreshSaves();
         });
-      } else if (id === 'w-load' || id === 'w-del') { ask = { kind: id === 'w-load' ? 'load' : 'del', id: v }; render(); }
+      } else if (id === 'w-load' || id === 'w-del' || id === 'w-share') { ask = { kind: { 'w-load': 'load', 'w-del': 'del', 'w-share': 'share' }[id], id: v }; render(); }
       else if (id === 'w-no') { ask = null; render(); }
+      else if (id === 'w-yes' && ask?.kind === 'share') {
+        const m = saves.find((x) => x.id === v);
+        ask = null;
+        if (!m || wBusy) return;
+        await busy('share', async () => {
+          const r = await desk.workshop.share(v, { title: m.name, description: wsDescription(m) });
+          unlock(['SHARED']);
+          flash(r.agreement ? 'Accept the Workshop agreement on Steam to make it public' : m.workshop ? 'Updated on the Workshop' : 'Shared on the Workshop');
+          desk.workshop.open(r.id);
+          await refreshSaves();
+        });
+      } else if (id === 'w-page') { const m = saves.find((x) => x.id === v); if (m) desk.workshop.open(m.workshop); }
+      else if (id === 'w-browse') desk?.workshop.browse();
       else if (id === 'w-yes' && ask?.kind === 'del') {
         ask = null;
         await worldStore.remove(v).catch((e) => flash(String(e.message || e)));
@@ -1782,7 +1844,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const keysNote = '<span class="keys-note">Keyboard: <kbd>?</kbd> lists every shortcut.</span>';
     function foot() {
       if (tab === 'about') return `<div class="set-foot">${keysNote}</div>`;
-      if (tab === 'worlds') return `<div class="set-foot"><span class="keys-note">Kept in this browser.</span><button type="button" class="link set-reset" data-o="w-open" data-v="0"${wBusy ? ' disabled' : ''}>Open a file</button></div>`;
+      const kept = !desk ? 'Kept in this browser.' : steamOn.cloud ? 'Kept on this computer and in Steam Cloud.' : 'Kept on this computer.';
+      if (tab === 'worlds') return `<div class="set-foot"><span class="keys-note">${kept}</span><button type="button" class="link set-reset" data-o="w-open" data-v="0"${wBusy ? ' disabled' : ''}>Open a file</button></div>`;
       const reset = confirming
         ? `<span class="set-reset"><span>Reset every ${tab} setting?</span><button type="button" class="link" data-o="reset-no" data-v="0">Cancel</button><button type="button" class="btn hot-btn" data-o="reset-yes" data-v="0">Reset</button></span>`
         : `<button type="button" class="link set-reset" data-o="reset" data-v="0">Reset to defaults</button>`;

@@ -4,6 +4,7 @@ import { createChronicler, watchMap, durWords, shareWords, fitOf, firstsOf, TUNE
 import { archetypeGenome, finalizeGenome, dietGuild } from '../src/genome.js';
 import { MAXK, FIRST_LIFE, SPL_WORDS, SPL_WATCH, SPL_CAUSE, SPL_CAUSES, SPL_PAIR, SPL_RANGE, DEFAULT_K } from '../src/shaders.js';
 import { pack, unpack } from '../src/worlds.js';
+import { earned } from '../src/achievements.js';
 
 const NC = SPL_CAUSES.length;
 const C = Object.fromEntries(SPL_CAUSES.map((k, i) => [k, i]));
@@ -154,6 +155,24 @@ test('the last hunter’s death is told at once', () => {
   assert.ok(g, told.map((x) => x.text).join(' | '));
   assert.match(g.text, /last hunter is gone/);
   assert.match(g.text, new RegExp(h.name));
+});
+
+test('life failing and returning are told apart, and earn their achievements', () => {
+  const ch = createChronicler();
+  const w = world(9);
+  const a = w.add('plankton', { genus: 'Mo', pop: 3000 });
+  const b = w.add('grazer', { genus: 'Thax', pop: 1000 });
+  run(ch, w, 60, 10);
+  const fell = run(ch, w, 3, 10, (w2, i) => { if (i === 0) { w2.set(a, 40); w2.set(b, 10); } });
+  const down = fell.find((s) => s.kind === 'collapse');
+  assert.ok(down, fell.map((x) => x.text).join(' | '));
+  assert.equal(down.moment, undefined);
+  assert.deepEqual(earned(down), ['COLLAPSE']);
+  const rose = run(ch, w, 40, 10, (w2, i) => { if (i === 0) w2.set(a, 2000); });
+  const up = rose.find((s) => s.kind === 'collapse');
+  assert.ok(up, rose.map((x) => x.text).join(' | '));
+  assert.equal(up.moment, 'back');
+  assert.deepEqual(earned(up), ['RETURN']);
 });
 
 test('an arms race: the prey genus slips the hunters’ receptors', () => {
