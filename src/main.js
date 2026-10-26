@@ -14,7 +14,7 @@ import { createTips } from './tip.js';
 import { drawLiving, chartPointer } from './charts.js';
 import { genusName, speciesEpithet } from './names.js';
 import { record, seal } from './lineage/model.js';
-import { createWorldStore, encodeWorld, decodeWorld } from './worlds.js';
+import { createWorldStore, encodeWorld, decodeWorld, SAVE_VERSION, openable } from './worlds.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
 import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS } from './shaders.js';
@@ -524,7 +524,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const keepClimate = Object.fromEntries(Object.entries(climate).filter(([, v]) => typeof v !== 'function'));
     const page = { life: keepLife, climate: keepClimate, cam: { x: cam.x, y: cam.y, zoom: cam.zoomTarget }, chron: chron.save() };
     const top = [...life.reg.values()].filter((s) => s.alive && s.established).sort((a, b) => b.pop - a.pop);
-    const meta = { id: `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, savedAt: Date.now(),
+    const meta = { id: `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, savedAt: Date.now(), version: SAVE_VERSION,
       simTime: eng.simTime, count: eng.count, thriving: life.thriving, cols: top.slice(0, 4).map((s) => s.genome.col) };
     const st = await eng.readState();
     const bytes = await encodeWorld({ meta, cpu: st.cpu, ...compactState(st), page });
@@ -536,8 +536,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
   async function openWorld(bytes) {
     const w = await decodeWorld(bytes);
     if (w.gpu.thermal) w.gpu.thermal = restrideThermal(w.gpu.thermal);
-    const want = eng.stateSizes(w.cpu.count), got = Object.entries(w.gpu);
-    if (got.length !== Object.keys(want).length || got.some(([k, b]) => want[k] !== b.byteLength)) throw new Error('This world was saved by another version of Tidemote.');
+    // the buffers this version keeps, each its size (a buffer it does not know, from a newer minor
+    // version, is left out; decodeWorld has already refused another major)
+    const want = eng.stateSizes(w.cpu.count);
+    if (Object.entries(want).some(([k, size]) => w.gpu[k]?.byteLength !== size)) throw new Error('This world’s file does not match its version.');
+    w.gpu = Object.fromEntries(Object.keys(want).map((k) => [k, w.gpu[k]]));
     if (w.cpu.count > maxParticles()) throw new Error(`Its ${fmt(w.cpu.count)} particles are more than this GPU can hold.`);
     return w;
   }
@@ -1735,16 +1738,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
     function saveRow(m) {
       const sw = [0, 1, 2, 3].map((i) => `<i${m.cols[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ''}></i>`).join('');
       const a = ask && ask.id === m.id ? ask.kind : null, ws = m.from === 'workshop';
-      const line = a === 'load' ? '<em>Discard this world?</em>' : a === 'del' ? `<em>${ws ? 'Unsubscribe from it?' : 'Delete this save?'}</em>`
+      // a save of another major version lists, but does not open (worlds.js SAVE_VERSION)
+      const can = m.downloading != null ? 'ok' : openable(m.version);
+      const line = a === 'load' ? '<em>Discard this world?</em>'
+        : can !== 'ok' ? `<em>${can === 'newer' ? 'Needs a newer Tidemote' : 'From an older Tidemote'}</em> · ${when(m.savedAt)}` : a === 'del' ? `<em>${ws ? 'Unsubscribe from it?' : 'Delete this save?'}</em>`
         : a === 'share' ? `<em>${m.workshop ? 'Update it on the Steam Workshop?' : 'Share it on the Steam Workshop for anyone to see?'}</em>`
         : m.downloading != null ? `Downloading · ${Math.round(m.downloading * 100)}%`
         : `${fmtDur(m.simTime)} · ${kfmt(m.count)} · ${m.thriving} species · ${when(m.savedAt)}`;
       const acts = a === 'load' ? mini('w-no', m.id, 'Cancel') + mini('w-first', m.id, 'Save first') + mini('w-yes', m.id, wBusy === 'load' ? 'Loading' : 'Load', ' hot-btn')
         : a === 'del' ? mini('w-no', m.id, 'Cancel') + mini('w-yes', m.id, ws ? 'Unsubscribe' : 'Delete', ' hot-btn')
         : a === 'share' ? mini('w-no', m.id, 'Cancel') + mini('w-yes', m.id, wBusy === 'share' ? 'Sharing' : m.workshop ? 'Update' : 'Share', ' hot-btn')
-        : ws ? (m.downloading != null ? '' : mini('w-load', m.id, 'Load')) + ghost('w-page', m.id, 'share', 'On Steam', 'Its page on the Steam Workshop')
+        : ws ? (m.downloading != null || can !== 'ok' ? '' : mini('w-load', m.id, 'Load')) + ghost('w-page', m.id, 'share', 'On Steam', 'Its page on the Steam Workshop')
           + ghost('w-del', m.id, 'close', 'Unsubscribe', 'Unsubscribe')
-        : mini('w-load', m.id, 'Load') + (steamOn.on ? ghost('w-share', m.id, 'share', 'Share', m.workshop ? 'Update it on the Steam Workshop' : 'Share on the Steam Workshop') : '')
+        : (can !== 'ok' ? '' : mini('w-load', m.id, 'Load') + (steamOn.on ? ghost('w-share', m.id, 'share', 'Share', m.workshop ? 'Update it on the Steam Workshop' : 'Share on the Steam Workshop') : ''))
           + ghost('w-dl', m.id, 'down', 'Download', desk ? 'Save a copy as a file' : 'Download a file to open on another device')
           + ghost('w-del', m.id, 'close', 'Delete', 'Delete');
       return `<div class="w-row"><span class="w-sw" aria-hidden="true">${sw}</span><div class="w-txt"><b>${esc(m.name)}</b><span>${line}</span></div><div class="w-act">${acts}</div></div>`;

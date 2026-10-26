@@ -4,8 +4,9 @@
 // gzipped file. The page keeps them in this browser's IndexedDB; a file downloaded from there opens
 // on any device with WebGPU.
 //
-// The file: 'TMW2', a u32 length, a JSON head ({ format, meta, cpu, sizes, cols, page }), then each GPU
-// buffer's bytes in the order of sizes. The head keeps Maps and typed arrays (see pack).
+// The file: 'TMWS', a u32 length, a JSON head ({ version, meta, cpu, sizes, cols, page }), then each GPU
+// buffer's bytes in the order of sizes. The head keeps Maps and typed arrays (see pack). Files before
+// versions ('TMW1', 'TMW2') are worlds of an older format.
 //
 // A buffer of fixed-size records (the particles, their intents) is kept by columns: each word of
 // every record together, and where cols says so, a column's bytes in planes (every record's first
@@ -13,8 +14,32 @@
 // may lose low mantissa bits on the way (encodeWorld's layout), invisible in a world that is never
 // bit-reproducible anyway, and the zeros compress. docs/desktop.md has the sizes.
 
-export const FORMAT = 2;
-const MAGIC = [0x54, 0x4d, 0x57, 0x32]; // TMW2
+/**
+ * The save format's version, MAJOR.MINOR.PATCH (semver), kept in each file's head and its meta.
+ *   major: a change older versions cannot read, or this one can no longer read older saves by (a
+ *     buffer's layout, what readState keeps, how a column is coded, what the page's record means).
+ *     A save opens only in a version of its own major.
+ *   minor: something added that a version of the same major can do without (a head field, a buffer it
+ *     does not know, both ignored); a save opens in any version of its major, older or newer.
+ *   patch: a fix that changes nothing a reader sees.
+ * Bump it with every change to the format (docs/desktop.md).
+ */
+export const SAVE_VERSION = '3.0.0';
+const MAGIC = [0x54, 0x4d, 0x57, 0x53]; // TMWS, for every version
+const major = (v) => (typeof v === 'string' && /^\d+\.\d+\.\d+$/.test(v) ? +v.split('.')[0] : null);
+
+/**
+ * Whether this version opens a save of version v (meta.version, or the head's): 'ok', 'newer' (a later
+ * major: the save needs a newer Tidemote) or 'older' (an earlier major, or a save from before versions).
+ */
+export function openable(v) {
+  const m = major(v), mine = major(SAVE_VERSION);
+  return m == null || m < mine ? 'older' : m > mine ? 'newer' : 'ok';
+}
+export const WHY_NOT = {
+  newer: 'This world was saved by a newer version of Tidemote. Update Tidemote to open it.',
+  older: 'This world was saved by an older version of Tidemote, which this one can no longer open.',
+};
 const TYPED = { Float32Array, Float64Array, Uint32Array, Int32Array, Uint16Array, Int16Array, Uint8Array, Int8Array };
 
 /** JSON that keeps Maps and typed arrays (shared references come back as copies). */
@@ -61,21 +86,25 @@ export async function encodeWorld({ meta, cpu, gpu, page, layout = {} }) {
   const sizes = Object.entries(gpu).map(([k, b]) => [k, b.byteLength]);
   const cols = Object.fromEntries(Object.entries(layout).filter(([k]) => gpu[k]).map(([k, l]) => [k, { words: l.words, planes: l.planes || [] }]));
   const bufs = Object.entries(gpu).map(([k, b]) => (layout[k] ? toColumns(b, layout[k]) : b));
-  const head = new TextEncoder().encode(pack({ format: FORMAT, meta, cpu, sizes, cols, page }));
+  const head = new TextEncoder().encode(pack({ version: SAVE_VERSION, meta: { ...meta, version: SAVE_VERSION }, cpu, sizes, cols, page }));
   const len = new Uint8Array(new Uint32Array([head.length]).buffer);
   return pipe(new Blob([new Uint8Array(MAGIC), len, head, ...bufs]), new CompressionStream('gzip'));
 }
 
-/** decodeWorld(encodeWorld(w)) is w, its GPU buffers as ArrayBuffers. Throws on a file that is not a world. */
+/**
+ * decodeWorld(encodeWorld(w)) is w (its floats as cut), its GPU buffers as ArrayBuffers. Throws on a
+ * file that is not a world, or one of a version this one cannot open (WHY_NOT).
+ */
 export async function decodeWorld(data) {
   let b; // a fresh buffer: offsets into it are offsets into b
   try { b = await pipe(new Blob([data]), new DecompressionStream('gzip')); } catch { throw new Error('Not a Tidemote world.'); }
   if (b.length < 8 || MAGIC.slice(0, 3).some((c, i) => b[i] !== c)) throw new Error('Not a Tidemote world.');
-  // TMW and another version's digit: a world, but not one this version reads
-  if (b[3] !== MAGIC[3]) throw new Error('This world was saved by another version of Tidemote.');
+  // TMW1 and TMW2: the formats before versions
+  if (b[3] !== MAGIC[3]) throw new Error(WHY_NOT.older);
   const n = new DataView(b.buffer).getUint32(4, true);
   const head = unpack(new TextDecoder().decode(b.subarray(8, 8 + n)));
-  if (head.format !== FORMAT) throw new Error('This world was saved by another version of Tidemote.');
+  const can = openable(head.version);
+  if (can !== 'ok') throw new Error(WHY_NOT[can]);
   const gpu = {};
   let at = 8 + n;
   for (const [k, size] of head.sizes) {

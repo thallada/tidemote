@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pack, unpack, encodeWorld, decodeWorld, toColumns, fromColumns } from '../src/worlds.js';
+import { pack, unpack, encodeWorld, decodeWorld, toColumns, fromColumns, SAVE_VERSION, openable } from '../src/worlds.js';
 import { compactState } from '../src/engine.js';
 import { META_CLAIM, P_BYTES } from '../src/shaders.js';
 
@@ -27,7 +27,7 @@ test('a world comes back as it was saved', async () => {
   const bytes = await encodeWorld(w);
   assert.equal(bytes[0], 0x1f, 'gzipped');
   const back = await decodeWorld(bytes);
-  assert.deepEqual(back.meta, w.meta);
+  assert.deepEqual(back.meta, { ...w.meta, version: SAVE_VERSION });
   assert.deepEqual(back.cpu.grid, [12, 7]);
   assert.deepEqual([...back.cpu.tide], [1, 2, 3]);
   assert.deepEqual(new Uint8Array(back.gpu.parts), parts);
@@ -57,9 +57,30 @@ test('records kept by columns come back, floats cut only as far as asked', async
   assert.deepEqual([...new Uint8Array(w.gpu.other)], [9, 8]);
 });
 
-test('an older world file is told apart from a file that is not a world', async () => {
-  const old = new Uint8Array(await new Response(new Blob([Uint8Array.of(0x54, 0x4d, 0x57, 0x31, 0, 0, 0, 0)]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
-  await assert.rejects(decodeWorld(old), /another version/);
+const gzip = async (...parts) => new Uint8Array(await new Response(new Blob(parts).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+// a file as another version would write it: its head as given, then the buffers
+const fileOf = async (head, ...bufs) => {
+  const h = new TextEncoder().encode(pack(head));
+  return gzip(Uint8Array.of(0x54, 0x4d, 0x57, 0x53), new Uint8Array(new Uint32Array([h.length]).buffer), h, ...bufs);
+};
+
+test('a save opens in versions of its own major only', async () => {
+  const [M, m] = SAVE_VERSION.split('.').map(Number);
+  assert.equal(openable(SAVE_VERSION), 'ok');
+  assert.equal(openable(`${M}.${m + 1}.0`), 'ok', 'a newer minor');
+  assert.equal(openable(`${M}.0.7`), 'ok', 'an older minor or patch');
+  assert.equal(openable(`${M + 1}.0.0`), 'newer');
+  assert.equal(openable(`${M - 1}.9.9`), 'older');
+  assert.equal(openable(undefined), 'older', 'a save from before versions');
+  // older formats, before versions
+  for (const d of [0x31, 0x32]) await assert.rejects(decodeWorld(await gzip(Uint8Array.of(0x54, 0x4d, 0x57, d, 0, 0, 0, 0))), /older version/);
+  await assert.rejects(decodeWorld(await fileOf({ version: `${M + 1}.0.0`, meta: {}, cpu: {}, sizes: [], page: {} })), /newer version/);
+  // a newer minor: what it adds comes along, for the page to ignore
+  const w = await decodeWorld(await fileOf({ version: `${M}.${m + 1}.0`, meta: { name: 'x' }, cpu: {}, sizes: [['parts', 4], ['novel', 2]], page: {}, extra: 1 }, Uint8Array.of(1, 2, 3, 4), Uint8Array.of(5, 6)));
+  assert.deepEqual([...new Uint8Array(w.gpu.parts)], [1, 2, 3, 4]);
+  assert.deepEqual([...new Uint8Array(w.gpu.novel)], [5, 6]);
+  // a save's meta carries its version, for a list to tell
+  assert.equal((await decodeWorld(await encodeWorld({ meta: {}, cpu: {}, gpu: {}, page: {} }))).meta.version, SAVE_VERSION);
 });
 
 test('a kept world drops the action words no pending claim will read', () => {
@@ -81,3 +102,4 @@ test('a kept world drops the action words no pending claim will read', () => {
   assert.equal(intent[0], 1, 'the state read is left as it was');
   assert.equal(layout.parts.keep[0], 18);
 });
+

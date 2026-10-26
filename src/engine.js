@@ -989,6 +989,8 @@ class Engine {
     this.sorted = false;
     this.worldGeneration++;
     this.clearAccum = true;
+    // the scans' windows start afresh: the last scan's time belongs to the world before
+    this._listenSim = this._surveySim = null;
   }
 
   /** Read every particle now (headless forks): { u32, f32 } views over count records of P_BYTES. */

@@ -29,6 +29,30 @@ At 3.4M particles a young world is about 40 MB (75–80 MB before); `runs/perf/w
 gzip). Paired forks (`tools/fork.mjs`, a `kept` variant: 24 × 60 s at 32k) found a saved world runs
 on like the original, every guild's rates within noise.
 
+What did not pay (measured on a young 3.4M world, 38–41 MB): a particle's id is about 21 bits of
+randomness against its place in the array, 9 MB of the save, but every sprite (silt grains and
+stones included) draws its outline, turn and wobble from it, so a world opened with new ids would
+look different up close; sorting particles by id makes ids nearly free and positions cost as much
+more. Living cells' colors are state (blended with kin, the gut in the alpha byte). Zeroing settled
+silt's color and age (read only for seconds after a grain is made) saved 2%; ids as deltas, bonds as
+offsets and other orders a few percent at most. Cutting positions and velocities further is the lever
+left, at a cost to how exactly a save keeps a world.
+
+## Save versions
+
+`SAVE_VERSION` in `src/worlds.js` is semver, kept in every file's head and in its meta (so a list
+can tell before reading the world). A save opens only in a version of its own major:
+
+- major: anything older versions cannot read, or that makes older saves unreadable (a buffer's
+  layout or `P_BYTES`, what `readState` keeps, `compactState`'s columns, what the page's record means).
+- minor: additions a version of the same major can do without (a head field, a buffer it does not
+  know; `openWorld` keeps only the buffers it knows). A newer version must give old saves of its
+  major a default for what it added.
+- patch: fixes that change nothing a reader sees.
+
+Settings → Worlds lists a save of another major as "Needs a newer Tidemote" or "From an older
+Tidemote", without Load or Share. Files from before versions ('TMW1', 'TMW2') count as older.
+
 Steam Cloud keeps that folder by Auto-Cloud, with no API calls. In Steamworks → Application →
 Steam Cloud, set a quota (a few GB, a few hundred files: saves are large) and, under Auto-Cloud,
 one root per OS, subdirectory `Tidemote/worlds`, patterns `*.tidemote`, `*.json`, `*.jpg`:
