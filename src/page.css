@@ -171,6 +171,15 @@ input[type="range"] { accent-color: var(--cyan); cursor: pointer; }
 .tgauge.alarm i { background: var(--hot); box-shadow: 0 0 5px rgba(255, 95, 58, 0.8); }
 .meter.thin { height: 5px; }
 
+/* ruled: a live readout, labeled rows of fixed height between rules, padded off them by the scale */
+.ruled { display: flex; flex-direction: column; padding: var(--s2) 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.ruled > div { display: grid; grid-template-columns: var(--lab-w) minmax(0, 1fr); gap: 10px; align-items: center; height: 26px; }
+.ruled > div + div { border-top: 1px dashed rgba(130, 205, 214, 0.12); }
+.ruled > div > b { font-weight: 400; font-size: 12.5px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 6px; }
+/* a two-line row: the value wraps into a space always kept for it */
+.ruled > div.two { height: 42px; align-items: start; padding-top: 5px; }
+.ruled > div.two > b { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.4; }
+
 /* ------------------------------------------------------------------ HUD frame */
 .hud { position: fixed; inset: 0; pointer-events: none; transition: opacity 1s ease; z-index: 5; }
 body:not(.live) .hud { opacity: 0; }
@@ -522,7 +531,7 @@ dd { margin: 0; color: var(--ink-2); }
 .vitals { display: flex; flex-direction: column; gap: var(--s2); }
 .vitals:empty { display: none; }
 .vital { display: grid; grid-template-columns: var(--lab-w) 1fr auto; gap: 10px; align-items: center; min-height: 18px; }
-.vital > span { color: var(--ink-3); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; font-weight: 500; font-stretch: 108%; }
+.vital > span, .ruled > div > span { color: var(--ink-3); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; font-weight: 500; font-stretch: 108%; }
 .vital > b { font-weight: 400; font-size: 12.5px; white-space: nowrap; }
 .spec .tabs { border-bottom: 1px solid var(--line); flex: none; }
 .spec .tabs:empty { display: none; }
@@ -612,16 +621,9 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
    on a layer of its own repaints alone, not the specimen panel's whole scrolling record with it
    (with the overlay's own layer, a selected cell's page work fell from about 300 to 30 ms a second). */
 .compass, .mv-drives, .mv-nb, .mv-lamps, .mv-read { will-change: transform; }
-.mv-read { display: flex; flex-direction: column; margin-top: var(--s1); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.mv-read > div { display: grid; grid-template-columns: var(--lab-w) minmax(0, 1fr); gap: 10px; align-items: center; height: 26px; }
-/* a two-line row: the value wraps into a space always kept for it */
-.mv-read > div.two { height: 42px; align-items: start; padding-top: 5px; }
-.mv-read > div.two > b { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.4; }
-.mv-read > div + div { border-top: 1px dashed rgba(130, 205, 214, 0.12); }
-.mv-read > div > span { color: var(--ink-3); font-size: 11px; letter-spacing: .16em; text-transform: uppercase; font-weight: 500; }
-.mv-read b { font-weight: 400; font-size: 12.5px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 6px; }
-.mv-read .mv-mode { color: var(--sun); letter-spacing: .06em; text-transform: uppercase; }
-.mv-read b.mv-target > span { overflow: hidden; text-overflow: ellipsis; }
+.mv-read { margin-top: var(--s1); }
+.mv-mode { color: var(--sun); letter-spacing: .06em; text-transform: uppercase; }
+.mv-target > span { overflow: hidden; text-overflow: ellipsis; }
 .mv-sig:empty { display: none; }
 .mv-sig .sigil, .nb-sig .sigil { display: block; }
 .mv-tdist { font-style: normal; color: var(--ink-3); font-size: 11px; margin-left: auto; }

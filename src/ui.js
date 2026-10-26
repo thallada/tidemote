@@ -5,6 +5,7 @@
 //   section   a top-level division of a panel's scroll, under a sectHead (cyan, with a rule)
 //   block     a group of rows under a subHead (small gray capitals, with an optional aside)
 //   kv/trait  a labeled value; a labeled meter with its value
+//   ruled     a live readout: fixed-height labeled rows between rules
 //   disclosure a block that opens and closes from its heading
 import { term, meter } from './fmt.js';
 
@@ -22,6 +23,10 @@ export const subHead = (text, aside = '', tip) => `<div class="sub-h"><span>${la
 /** A block: a heading and what it heads. cls adds classes ('inline': heading and content on one row);
  * aside goes to the heading's right. */
 export const block = (text, html, { aside = '', tip, cls = '' } = {}) => `<div class="blk${cls ? ` ${cls}` : ''}">${text ? subHead(text, aside, tip) : ''}${html}</div>`;
+
+/** A live readout: labeled rows of fixed height between rules, so a value changing in place never
+ * moves what is below. rows: [label, value markup (a <b>), row class ('two': two lines high)]. */
+export const ruled = (rows, cls = '') => `<div class="ruled${cls ? ` ${cls}` : ''}">${rows.map(([text, value, rc]) => `<div${rc ? ` class="${rc}"` : ''}><span>${text}</span>${value}</div>`).join('')}</div>`;
 
 /** A labeled value. */
 export const kv = (text, value, tip) => `<div class="kv"><span>${label(text, tip)}</span><b>${value}</b></div>`;

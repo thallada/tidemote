@@ -4,7 +4,7 @@
 // are eased every frame, so they slide between readings instead of jumping.
 import { groupsFor, slotRows } from './mind.js';
 import { term, spLink, fmtLen } from './fmt.js';
-import { subHead } from './ui.js';
+import { subHead, ruled } from './ui.js';
 
 const R = 40; // compass radius, in a -50..50 viewBox
 const NB_ROWS = 4; // other species shown (own kind has its own row)
@@ -46,12 +46,12 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
     h += `<div class="mv-pulls"><div class="mv-dial"><div class="mv-key"><span><i class="dash"></i><b>heading</b></span><span><i class="dia"></i><b>target</b></span></div>${compassHTML(groups)}</div><div class="mv-drives">`;
     h += groups.map((gr) => `<div data-k="${gr.key}"><i style="background:${gr.css}"></i><span>${term(gr.tip, gr.label)}</span><span class="meter thin" style="color:${gr.css}"><i style="width:0"></i></span><b>0%</b></div>`).join('');
     h += '</div></div>';
-    h += '<div class="mv-read">';
-    h += `<div><span>Mode</span><b><span class="mv-mode term" data-hint="" tabindex="0">—</span></b></div>`;
-    h += `<div><span>Target</span><b class="mv-target"><span class="mv-sig"></span><span class="mv-tname">—</span><em class="mv-tdist"></em></b></div>`;
-    // two lines, always: a long detail wraps rather than being cut, and never moves what follows
-    h += `<div class="two"><span>Detail</span><b class="mv-detail">—</b></div>`;
-    h += '</div>';
+    // the detail is two lines, always: a long one wraps rather than being cut, and never moves what follows
+    h += ruled([
+      ['Mode', '<b><span class="mv-mode term" data-hint="" tabindex="0">—</span></b>'],
+      ['Target', '<b class="mv-target"><span class="mv-sig"></span><span class="mv-tname">—</span><em class="mv-tdist"></em></b>'],
+      ['Detail', '<b class="mv-detail">—</b>', 'two'],
+    ], 'mv-read');
     // the cell's vitals (energy, age, warmth), filled in by the specimen panel (while a phone's sheet only peeks they ride in its header)
     h += '<div class="vitals mv-vitals"></div>';
     // conditions that shape what it does: a fixed set of lamps, lit or dark, never added or removed
