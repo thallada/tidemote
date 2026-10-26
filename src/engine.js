@@ -1850,3 +1850,24 @@ class Engine {
     pass.end();
   }
 }
+
+/**
+ * readState() made smaller to keep as a file (worlds.js encodeWorld): { gpu, layout }. An intent's
+ * action words (x, y) are read only by the next step's resolveCount, through a claim pending in the
+ * ledger, so only claimers keep theirs; bonds (z, w) stay. The particles go by columns, positions cut
+ * to within 2^-10 of a unit (0.06 µm; a cell is about 10 µm across), velocity, energy and age to 10
+ * mantissa bits (a thousandth of themselves); intents exact.
+ */
+export function compactState({ cpu, gpu }) {
+  const intent = new Uint32Array(gpu.intent.slice(0)), n = intent.length / 4;
+  const claims = new Uint32Array(gpu.ledger, META_CLAIM * 4, Math.min(n, gpu.ledger.byteLength / 4 - META_CLAIM));
+  const claimer = new Uint8Array(n);
+  for (const c of claims) if (c && !(c & 0x80000000) && c <= n) claimer[c - 1] = 1;
+  for (let i = 0; i < n; i++) if (!claimer[i]) { intent[i * 4] = 0; intent[i * 4 + 1] = 0; }
+  const pos = Math.min(23, Math.ceil(Math.log2(Math.max(...cpu.grid))) + 9);
+  const layout = {
+    parts: { words: P_BYTES / 4, keep: [pos, pos, 10, 10, 32, 10, 10, 32, 32, 32], planes: [1, 1, 1, 1, 1, 1, 1, 1, 0, 1] },
+    intent: { words: 4 },
+  };
+  return { gpu: { ...gpu, intent: intent.buffer }, layout };
+}

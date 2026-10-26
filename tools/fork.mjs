@@ -1,6 +1,7 @@
 // Matched-start forks (src/headless.js runForks): one world grown in 1/60 s steps, then the same moment run
 // forward under several step lengths and tunables, pair by pair. See docs/fast-forward.md.
 //   tools/gpu-node.sh tools/fork.mjs --n 32768 --warm 600 --horizon 30 --reps 16 --k '{"diag":1}' --variants '[{"name":"m1","step":1},{"name":"m4","step":4}]'
+// A variant may also be { kept: true }: the moment saved to a file and opened again before it runs.
 import fs from 'node:fs';
 import { parseArgs } from 'node:util';
 import { runForks } from '../src/headless.js';

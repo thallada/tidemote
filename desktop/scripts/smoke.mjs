@@ -67,6 +67,18 @@ async function checkShell(page) {
   r.rowShare = await page.locator(`[data-o="w-share"][data-v="${m.id}"]`).count();
   await page.screenshot({ path: join(out, 'worlds.png') });
   if (process.env.APPDATA) await copyFile(join(process.env.APPDATA, 'Tidemote', 'worlds', `${m.id}.jpg`), join(out, 'preview.jpg')).catch(() => {});
+  // opened again: the clock goes back to the save's and runs on from there
+  const living = () => page.evaluate(() => ({ t: globalThis.__tidemote.eng.simTime, living: globalThis.__tidemote.life().counts[3], fps: +globalThis.__tidemote.perf.fps.toFixed(1), scale: globalThis.__tidemote.renderScale() }));
+  r.load = { saved: { t: m.simTime }, before: await living() };
+  await page.click(`[data-o="w-load"][data-v="${m.id}"]`);
+  await page.click(`[data-o="w-yes"][data-v="${m.id}"]`);
+  await page.waitForSelector('#settings', { state: 'hidden', timeout: 120000 });
+  r.load.opened = await living();
+  await page.waitForTimeout(10000);
+  r.load.later = await living();
+  await page.waitForTimeout(30000);
+  r.load.settled = await living();
+  await page.screenshot({ path: join(out, 'loaded.png') });
   await page.evaluate((id) => globalThis.tidemoteDesktop.worlds.remove(id), m.id);
   r.save.removed = !(await page.evaluate(() => globalThis.tidemoteDesktop.worlds.list())).some((x) => x.id === m.id);
   // an id Spacewar does not have: the call goes through and is refused

@@ -18,7 +18,16 @@ process) and is otherwise the same page as on the web:
 Each save is three files in `userData/worlds/`: `ID.tidemote` (the world, as `encodeWorld` writes it),
 `ID.jpg` (a 1024² picture of the view, drawn offscreen by the card portrait's renderer, `takeView`
 in `src/main.js`) and `ID.json` (its meta, written last so a list never shows a save half written).
-Each is written to `.part` and renamed. A save at 3.4M particles is about 75–80 MB.
+Each is written to `.part` and renamed.
+
+A save is about half what it was (`compactState` in `src/engine.js`, `toColumns` in `src/worlds.js`):
+the particles and intents go by columns (most in byte planes), positions are cut to 2^-10 of a unit
+and velocity, energy and age to 10 mantissa bits, intents keep their action words only for cells
+with a claim pending, and genera with no species left in the registry drop their founder's genome.
+At 3.4M particles a young world is about 40 MB (75–80 MB before); `runs/perf/worlds/slow.tidemote`
+(2.36M particles, 20k genera) went from 93.6 to 47.7 MB, and encodes and decodes faster (less to
+gzip). Paired forks (`tools/fork.mjs`, a `kept` variant: 24 × 60 s at 32k) found a saved world runs
+on like the original, every guild's rates within noise.
 
 Steam Cloud keeps that folder by Auto-Cloud, with no API calls. In Steamworks → Application →
 Steam Cloud, set a quota (a few GB, a few hundred files: saves are large) and, under Auto-Cloud,

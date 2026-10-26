@@ -2,7 +2,7 @@ import { createSound, songClip } from './audio/sound.js';
 import { voiceOf } from './audio/mapping.js';
 import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
-import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS, restrideThermal } from './engine.js';
+import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS, restrideThermal, compactState } from './engine.js';
 import { genomeSerial, readGenome, parseParticle, thermalGuild } from './genome.js';
 import { seasonAt, createClimate, abioRate, EVENT_TYPES, excursionAt } from './climate.js';
 import { countPools } from './geography.js';
@@ -516,13 +516,18 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const worldStore = desk ? desk.worlds : createWorldStore();
   async function saveWorld(name) {
     // the page's record and the GPU's copy are taken together, before anything awaits
-    const { lastCensus, ...keepLife } = life;
+    const { lastCensus, genera, ...keepLife } = life;
+    // a genus none of whose species is still in the registry no longer needs its founder's genome
+    // (register() compares a newcomer only with its parent's genus); most genera of an old world
+    const listed = new Set([...life.reg.values()].map((s) => s.genus));
+    keepLife.genera = new Map([...genera].map(([k, g]) => [k, listed.has(k) ? g : { ...g, founder: null }]));
     const keepClimate = Object.fromEntries(Object.entries(climate).filter(([, v]) => typeof v !== 'function'));
     const page = { life: keepLife, climate: keepClimate, cam: { x: cam.x, y: cam.y, zoom: cam.zoomTarget }, chron: chron.save() };
     const top = [...life.reg.values()].filter((s) => s.alive && s.established).sort((a, b) => b.pop - a.pop);
     const meta = { id: `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, savedAt: Date.now(),
       simTime: eng.simTime, count: eng.count, thriving: life.thriving, cols: top.slice(0, 4).map((s) => s.genome.col) };
-    const bytes = await encodeWorld({ meta, ...(await eng.readState()), page });
+    const st = await eng.readState();
+    const bytes = await encodeWorld({ meta, cpu: st.cpu, ...compactState(st), page });
     // in the desktop app, a picture of the view for the Workshop
     const preview = desk ? await takeView().then((cv) => cv && new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.88))).then((b) => b && b.arrayBuffer()).catch(() => null) : null;
     await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes, preview ? new Uint8Array(preview) : undefined);
@@ -739,7 +744,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const parent = life.reg.get(g.parent);
     if (parent) {
       const gen = life.genera.get(parent.genus);
-      genus = gen && gdist(g, gen.founder) < 0.5 ? parent.genus : null;
+      genus = gen && (!gen.founder || gdist(g, gen.founder) < 0.5) ? parent.genus : null;
       if (!genus) genus = newGenus(g, parent.genus);
     } else if (g.parent === 0) {
       genus = newGenus(g, null);

@@ -291,11 +291,20 @@ export async function runForks(device, config, { print } = {}) {
       });
       return out;
     };
+    // a variant { kept: true } starts from the moment sent through a save file and back, as the page
+    // keeps and opens one (engine.js compactState, worlds.js)
+    const { encodeWorld, decodeWorld } = await import('./worlds.js');
+    const keep = async (e) => {
+      const st = await e.readState();
+      const w = await decodeWorld(await encodeWorld({ meta: {}, cpu: st.cpu, ...E.compactState(st), page: {} }));
+      e.writeState({ cpu: st.cpu, gpu: w.gpu });
+    };
     const forks = [];
     for (let r = 0; r < config.reps; r++) {
       for (const v of config.variants) {
         const eng = engines.get(JSON.stringify(v.k || {}));
         eng.restore(snap);
+        if (v.kept) await keep(eng);
         eng.seedValue = (snap.cpu.seedValue ^ Math.imul(r + 1, 2654435761)) >>> 0;
         eng.censusEvery = 1 << 30;
         const c0 = await eng.readCensus(), g0 = guilds(c0);
