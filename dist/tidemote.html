@@ -668,7 +668,7 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
    on a layer of its own repaints alone, not the specimen panel's whole scrolling record with it
    (with the overlay's own layer, a selected cell's page work fell from about 300 to 30 ms a second). */
 .compass, .mv-drives, .mv-nb, .mv-lamps, .mv-read { will-change: transform; }
-.mv-read { display: flex; flex-direction: column; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.mv-read { display: flex; flex-direction: column; margin-top: var(--s1); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .mv-read > div { display: grid; grid-template-columns: var(--lab-w) minmax(0, 1fr); gap: 10px; align-items: center; height: 26px; }
 /* a two-line row: the value wraps into a space always kept for it */
 .mv-read > div.two { height: 42px; align-items: start; padding-top: 5px; }
