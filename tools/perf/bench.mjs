@@ -20,6 +20,9 @@
 //   prefs  more settings (eng.settings keys: bloom, optics, specks, lod, links, nodes, trails)
 //   species  follow a cell of the named species (follow: false keeps it selected, the camera still)
 //   lab    a Field Lab tab to hold open ('species', 'census', ...; closed by default); its updates are timed
+// --electron EXE runs the packaged desktop app (desktop/) instead, launched afresh for each world, its
+// page as it ships (app://tidemote/) and the window's content --width x --height: compare it with Chrome
+// at the same content size (Chrome's --width/--height are its window's, the report has its canvas).
 // Every frame's passes are timed on the GPU (eng.passProfile); the report has frame intervals,
 // GPU time per frame and per pass, the page's own CPU time per frame and the render scale.
 import fs from 'node:fs';
@@ -28,13 +31,13 @@ import http from 'node:http';
 import { vkLaunch } from '../vk.mjs';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright-core';
+import { chromium, _electron } from 'playwright-core';
 
 const { values: v } = parseArgs({ options: {
   plan: { type: 'string' }, out: { type: 'string' }, only: { type: 'string' },
   width: { type: 'string', default: '2560' }, height: { type: 'string', default: '1440' },
   chrome: { type: 'string', default: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' },
-  dist: { type: 'string', default: 'dist' }, keep: { type: 'boolean' }, linux: { type: 'boolean' }, dpr: { type: 'string', default: '1' },
+  dist: { type: 'string', default: 'dist' }, electron: { type: 'string' }, keep: { type: 'boolean' }, linux: { type: 'boolean' }, dpr: { type: 'string', default: '1' },
 } });
 const root = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const plan = JSON.parse(fs.readFileSync(v.plan, 'utf8'));
@@ -55,7 +58,8 @@ const server = http.createServer((req, res) => {
   const file = url.startsWith('/worlds/') ? path.join(worldDir, path.basename(url))
     : url.startsWith('/pages/') ? path.join(root, 'runs/perf/pages', path.basename(url)) : path.join(dist, url === '/' ? 'tidemote.html' : url);
   if (!fs.existsSync(file)) { res.writeHead(404); res.end(); return; }
-  res.writeHead(200, { 'content-type': file.endsWith('.html') ? 'text/html' : 'application/octet-stream', 'cache-control': 'no-store' });
+  // the desktop app's page (app://tidemote) fetches worlds from here too
+  res.writeHead(200, { 'content-type': file.endsWith('.html') ? 'text/html' : 'application/octet-stream', 'cache-control': 'no-store', 'access-control-allow-origin': '*' });
   fs.createReadStream(file).pipe(res);
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -63,20 +67,33 @@ const base = `http://127.0.0.1:${server.address().port}`;
 
 const W = +v.width, H = +v.height;
 const userDir = fs.mkdtempSync(path.join(process.env.TEMP || process.env.TMPDIR || '/tmp', 'tidemote-perf-'));
+// the flags that keep a page in the background from being throttled, for Chrome and the desktop app alike
+const UNTHROTTLED = ['--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'];
 const args = [`--window-size=${W},${H}`, '--window-position=0,0', '--enable-webgpu-developer-features', '--autoplay-policy=no-user-gesture-required',
-  '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--no-first-run', '--no-default-browser-check'];
-// On Linux without a display (--linux): Playwright's Chromium, headless, on the GPU through Vulkan (tools/vk.mjs)
-const ctx = await chromium.launchPersistentContext(userDir, v.linux
-  ? { ...vkLaunch([...args, '--enable-unsafe-webgpu']), viewport: { width: W, height: H }, deviceScaleFactor: +v.dpr }
-  : { executablePath: v.chrome, headless: false, viewport: null, args });
+  ...UNTHROTTLED, '--no-first-run', '--no-default-browser-check'];
+let ctx = null, desk = null;
+async function launch() {
+  if (v.electron) {
+    desk = await _electron.launch({ executablePath: v.electron, args: UNTHROTTLED, env: { ...process.env, TIDEMOTE_STEAM_APPID: '' } });
+    await desk.firstWindow();
+    await desk.evaluate(({ BrowserWindow }, [w, h]) => { const win = BrowserWindow.getAllWindows()[0]; win.setPosition(0, 0); win.setContentSize(w, h); }, [W, H]);
+    ctx = desk.context();
+    return;
+  }
+  // On Linux without a display (--linux): Playwright's Chromium, headless, on the GPU through Vulkan (tools/vk.mjs)
+  ctx ??= await chromium.launchPersistentContext(userDir, v.linux
+    ? { ...vkLaunch([...args, '--enable-unsafe-webgpu']), viewport: { width: W, height: H }, deviceScaleFactor: +v.dpr }
+    : { executablePath: v.chrome, headless: false, viewport: null, args });
+}
 const report = { when: new Date().toISOString(), window: [W, H], worlds: {}, scenarios: [] };
 
 async function openPage(n, extra = {}, k = null, init = null, html = null) {
+  await launch();
   const page = ctx.pages()[0] || await ctx.newPage();
   page.setDefaultTimeout(0);
   if (init) await page.addInitScript(init);
   // the first adapter asked for in a headless page can come back null: ask once more
-  if (linux) await page.addInitScript(() => {
+  if (v.linux) await page.addInitScript(() => {
     const req = navigator.gpu.requestAdapter.bind(navigator.gpu);
     navigator.gpu.requestAdapter = async (o) => (await req(o)) || req(o);
   });
@@ -88,10 +105,12 @@ async function openPage(n, extra = {}, k = null, init = null, html = null) {
   }, { n, extra });
   page.on('console', (m) => { if (m.type() === 'error' || /tidemote|perf/.test(m.text())) console.log(`  [page] ${m.text()}`); });
   page.on('pageerror', (e) => console.log(`  [page error] ${e.message}`));
-  await page.goto(`${base}/${html ? `pages/${html}.html` : 'tidemote.html'}${k ? `#k=${encodeURIComponent(JSON.stringify(k))}` : ''}`);
+  const hash = k ? `#k=${encodeURIComponent(JSON.stringify(k))}` : '';
+  if (desk) { if (html) throw new Error('--electron runs the packaged page only'); await page.goto(`app://tidemote/${hash}`); await page.reload(); }
+  else await page.goto(`${base}/${html ? `pages/${html}.html` : 'tidemote.html'}${hash}`);
   await page.waitForFunction(() => globalThis.__tidemote && globalThis.__tidemote.state.phase === 'running', null, { polling: 250 });
   // without a user gesture the page holds the world on its intro: a key lets it begin
-  if (linux) await page.keyboard.press('Shift');
+  if (v.linux) await page.keyboard.press('Shift');
   // the intro gone (the page as it plays: the auto camera waits for it), before a world is loaded
   await page.waitForFunction(() => document.body.classList.contains('live'), null, { polling: 250 });
   report.browser ??= await page.evaluate(async () => {
@@ -124,7 +143,11 @@ async function world(page, w) {
       for (const [k, size] of meta.sizes) { gpu[k] = buf.slice(at, at + size); at += size; }
       T.loadWorld({ cpu: meta.cpu, gpu });
     }, `${base}/worlds/${w.file || w.name}.bin`);
-    console.log(`world ${w.name}: loaded in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+    // a .bin is raw buffers, unchecked: one saved before a layout change loads as noise, lifeless
+    await page.waitForTimeout(2000);
+    const living = await page.evaluate(() => globalThis.__tidemote.life().counts[3]);
+    if (!living) throw new Error(`world ${w.name}: nothing lives in ${file} (saved before a buffer layout changed?): delete it to grow a new one`);
+    console.log(`world ${w.name}: loaded in ${((Date.now() - t0) / 1000).toFixed(1)} s, ${living} living`);
     return;
   }
   console.log(`world ${w.name}: growing ${w.n} particles at Max for ${w.mature} s`);
@@ -338,11 +361,11 @@ try {
       console.log(`${w.name}/${r.name}: ${r.audio ? `audio ${JSON.stringify(r.audio)} ` : ''}${r.fps} fps (raf ${r.rafFps}), gpu ${r.gpu.mean} ms (p95 ${r.gpu.p95}), sim ${r.sim.mean} ms x${r.sim.stepsPerFrame}, enc ${r.encodeMs.mean} ms, long ${r.longTasks}/${r.longMs} ms${r.lab ? `, lab ${r.lab.n}× ${r.lab.mean} ms (max ${r.lab.max})` : ''}, scale ${r.scale.mean}, slow ${r.slow.end} ${r.slow.why || ''}, ppu ${r.ppu} | ${top}`);
       if (v.out) fs.writeFileSync(v.out, JSON.stringify(report, null, 2));
     }
-    if (!v.keep) await page.close();
+    if (desk) { await desk.close(); desk = null; } else if (!v.keep) await page.close();
   }
 } finally {
   if (v.out) fs.writeFileSync(v.out, JSON.stringify(report, null, 2));
-  await ctx.close();
+  await (desk || ctx)?.close();
   server.close();
   fs.rmSync(userDir, { recursive: true, force: true });
 }

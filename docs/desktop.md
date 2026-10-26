@@ -142,4 +142,9 @@ version, its own switches, real fullscreen and saves the browser cannot evict.
   with its preview, read back and deleted, the achievement call refused for an id Spacewar lacks.
   Not yet run: a Workshop upload or download, an achievement Steam accepts (both need Tidemote's
   own app id and its Steamworks setup above).
-- Not yet: an icon, timing against Chrome with `tools/perf/bench.mjs`.
+- Timed against Chrome (2026-10-26, `tools/perf/bench.mjs --electron EXE`, the baseline plan, three
+  alternating rounds each on an RTX 4070 Ti at the same canvas size): the same within noise, frame
+  rates, GPU time, the step and every pass, in both the 1M and 4M worlds. The desktop app neither gains
+  nor loses anything over the browser. One load in three of the 4M world, in either, runs a step half
+  as slow again (`matterMain` 1.8 → 6.8 ms, `lifeMain` 6 → 7.7), whatever the climate: not yet traced.
+- Not yet: an icon.
