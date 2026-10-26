@@ -24,7 +24,7 @@
  *   patch: a fix that changes nothing a reader sees.
  * Bump it with every change to the format (docs/desktop.md).
  */
-export const SAVE_VERSION = '3.0.0';
+export const SAVE_VERSION = '4.0.0';
 const MAGIC = [0x54, 0x4d, 0x57, 0x53]; // TMWS, for every version
 const major = (v) => (typeof v === 'string' && /^\d+\.\d+\.\d+$/.test(v) ? +v.split('.')[0] : null);
 
@@ -51,11 +51,47 @@ export const unpack = (s) => JSON.parse(s, (_, x) => (x && typeof x === 'object'
 const pipe = async (blob, stream) => new Uint8Array(await new Response(blob.stream().pipeThrough(stream)).arrayBuffer());
 
 /**
- * Records of `words` u32 words as columns: word by word, each column cut to keep[w] mantissa bits (23
- * or more: as it is) and, where planes[w], laid out byte by byte. fromColumns undoes all but the cut.
+ * Positions (the first two words of each record, floats in a grid of gw x gh units) as the unit cell
+ * each lies in, kept as the change from the record before (records lying mostly sorted by cell, it
+ * is nearly always 0), and the place within the cell to 2^-bits of a unit, x and y in one word.
  */
-export function toColumns(buf, { words, keep = [], planes = [] }) {
-  const u = new Uint32Array(buf), n = u.length / words, out = new Uint8Array(buf.byteLength);
+function toCells(u, words, { grid: [gw, gh], bits }) {
+  const f = new Float32Array(u.buffer), n = u.length / words, s = 1 << bits, X = gw * s, Y = gh * s;
+  // a place comes back exactly as a float only while the grid in fixed point fits its 24 bits
+  if (bits > 16 || Math.max(X, Y) > 2 ** 24) throw new Error(`positions of a ${gw} x ${gh} grid do not fit ${bits} bits`);
+  let prev = 0;
+  for (let i = 0; i < n; i++) {
+    const o = i * words;
+    let x = Math.round(f[o] * s) % X, y = Math.round(f[o + 1] * s) % Y;
+    if (!(x >= 0)) x = x < 0 ? x + X : 0;
+    if (!(y >= 0)) y = y < 0 ? y + Y : 0;
+    const c = (y >> bits) * gw + (x >> bits);
+    u[o] = (c - prev) >>> 0;
+    u[o + 1] = ((x & (s - 1)) | ((y & (s - 1)) << 16)) >>> 0;
+    prev = c;
+  }
+}
+function fromCells(u, words, { grid: [gw], bits }) {
+  const f = new Float32Array(u.buffer), n = u.length / words, s = 1 << bits;
+  let c = 0;
+  for (let i = 0; i < n; i++) {
+    const o = i * words, at = u[o + 1];
+    c = (c + (u[o] | 0)) | 0;
+    const cx = c % gw, cy = (c - cx) / gw;
+    f[o] = (cx * s + (at & 0xffff)) / s;
+    f[o + 1] = (cy * s + (at >>> 16)) / s;
+  }
+}
+
+/**
+ * Records of `words` u32 words as columns: word by word, each column cut to keep[w] mantissa bits (23
+ * or more: as it is) and, where planes[w], laid out byte by byte; with cell, the first two words a
+ * position kept by its cell (toCells). fromColumns undoes all but the cuts.
+ */
+export function toColumns(buf, { words, keep = [], planes = [], cell = null }) {
+  let u = new Uint32Array(buf);
+  const n = u.length / words, out = new Uint8Array(buf.byteLength);
+  if (cell) { u = u.slice(); toCells(u, words, cell); }
   const col = new Uint32Array(n), cb = new Uint8Array(col.buffer);
   for (let w = 0; w < words; w++) {
     const k = keep[w] ?? 32, mask = k >= 23 ? 0xffffffff : (0xffffffff << (23 - k)) >>> 0;
@@ -66,7 +102,7 @@ export function toColumns(buf, { words, keep = [], planes = [] }) {
   }
   return out;
 }
-export function fromColumns(bytes, { words, planes = [] }) {
+export function fromColumns(bytes, { words, planes = [], cell = null }) {
   const n = bytes.byteLength / 4 / words, u = new Uint32Array(n * words);
   const col = new Uint32Array(n), cb = new Uint8Array(col.buffer);
   for (let w = 0; w < words; w++) {
@@ -75,6 +111,7 @@ export function fromColumns(bytes, { words, planes = [] }) {
     else cb.set(bytes.subarray(at, at + n * 4));
     for (let i = 0; i < n; i++) u[i * words + w] = col[i];
   }
+  if (cell) fromCells(u, words, cell);
   return u.buffer;
 }
 
@@ -84,7 +121,7 @@ export function fromColumns(bytes, { words, planes = [] }) {
  */
 export async function encodeWorld({ meta, cpu, gpu, page, layout = {} }) {
   const sizes = Object.entries(gpu).map(([k, b]) => [k, b.byteLength]);
-  const cols = Object.fromEntries(Object.entries(layout).filter(([k]) => gpu[k]).map(([k, l]) => [k, { words: l.words, planes: l.planes || [] }]));
+  const cols = Object.fromEntries(Object.entries(layout).filter(([k]) => gpu[k]).map(([k, l]) => [k, { words: l.words, planes: l.planes || [], ...(l.cell ? { cell: l.cell } : {}) }]));
   const bufs = Object.entries(gpu).map(([k, b]) => (layout[k] ? toColumns(b, layout[k]) : b));
   const head = new TextEncoder().encode(pack({ version: SAVE_VERSION, meta: { ...meta, version: SAVE_VERSION }, cpu, sizes, cols, page }));
   const len = new Uint8Array(new Uint32Array([head.length]).buffer);

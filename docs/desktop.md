@@ -20,23 +20,29 @@ Each save is three files in `userData/worlds/`: `ID.tidemote` (the world, as `en
 in `src/main.js`) and `ID.json` (its meta, written last so a list never shows a save half written).
 Each is written to `.part` and renamed.
 
-A save is about half what it was (`compactState` in `src/engine.js`, `toColumns` in `src/worlds.js`):
-the particles and intents go by columns (most in byte planes), positions are cut to 2^-10 of a unit
-and velocity, energy and age to 10 mantissa bits, intents keep their action words only for cells
-with a claim pending, and genera with no species left in the registry drop their founder's genome.
-At 3.4M particles a young world is about 40 MB (75–80 MB before); `runs/perf/worlds/slow.tidemote`
-(2.36M particles, 20k genera) went from 93.6 to 47.7 MB, and encodes and decodes faster (less to
-gzip). Paired forks (`tools/fork.mjs`, a `kept` variant: 24 × 60 s at 32k) found a saved world runs
-on like the original, every guild's rates within noise.
+A save keeps about 8.5 bytes a particle, a third of what the plain buffers gzip to (`compactState`
+in `src/engine.js`, `toColumns` in `src/worlds.js`):
 
-What did not pay (measured on a young 3.4M world, 38–41 MB): a particle's id is about 21 bits of
-randomness against its place in the array, 9 MB of the save, but every sprite (silt grains and
-stones included) draws its outline, turn and wobble from it, so a world opened with new ids would
-look different up close; sorting particles by id makes ids nearly free and positions cost as much
-more. Living cells' colors are state (blended with kin, the gut in the alpha byte). Zeroing settled
-silt's color and age (read only for seconds after a grain is made) saved 2%; ids as deltas, bonds as
-offsets and other orders a few percent at most. Cutting positions and velocities further is the lever
-left, at a cost to how exactly a save keeps a world.
+- Particles and intents go by columns, most in byte planes.
+- Positions are kept as the grid cell each lies in (the change from the particle before: particles
+  lie sorted by cell, so it is nearly always 0) and the place within it to 2^-10 of a unit (0.06 µm;
+  a cell is about 10 µm across). Velocity, energy and age are cut to 10 mantissa bits.
+- Silt takes new ids, in the order it lies, after every id given so far. An id seeds only a grain's
+  random draws and how it is drawn up close, so an opened world is the same but for the outlines and
+  turns of its silt grains at full zoom (`runs/idlook/compare-close.png`); ids in order cost almost
+  nothing where 3 million in no order cost 9 MB. Each load uses up as many ids as there is silt
+  (the u32 counter lasts about 15 simulated days of births at 3.4M particles).
+- Intents keep their action words only for cells with a claim pending; genera with no species left
+  in the registry drop their founder's genome.
+- Of the heat buffer, temperatures and relief (which eras move) are kept; deposits and husk piles
+  last a step, and the ice order is built again from the seed (`writeState`, which also takes the
+  CPU's relief from the save).
+
+A young 3.4M world: 75–80 MB at first, 39 MB by columns, 27.5–28.8 MB now. 48 paired forks
+(`tools/fork.mjs`, a `kept` variant, 60 s at 32k) found a saved world runs on like the original
+(1 of 72 rates past its 95% interval, none of the guilds' populations). Left in a save is mostly
+randomness: velocities (Brownian, about 11 MB) and the places within cells (about 8 MB). zstd-19
+would take 5% more off at ten times the time, and browsers do not read it.
 
 ## Save versions
 
@@ -45,6 +51,7 @@ can tell before reading the world). A save opens only in a version of its own ma
 
 - major: anything older versions cannot read, or that makes older saves unreadable (a buffer's
   layout or `P_BYTES`, what `readState` keeps, `compactState`'s columns, what the page's record means).
+  4.0.0: positions by cell, silt ids, the heat buffer trimmed.
 - minor: additions a version of the same major can do without (a head field, a buffer it does not
   know; `openWorld` keeps only the buffers it knows). A newer version must give old saves of its
   major a default for what it added.

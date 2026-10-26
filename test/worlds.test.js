@@ -100,6 +100,43 @@ test('a kept world drops the action words no pending claim will read', () => {
     assert.equal(it[i * 4 + 3], intent[i * 4 + 3]);
   }
   assert.equal(intent[0], 1, 'the state read is left as it was');
-  assert.equal(layout.parts.keep[0], 18);
+  assert.deepEqual(layout.parts.cell, { grid: [506, 212], bits: 10 });
 });
 
+
+test('positions kept by their cell come back within half a step, wrapped into the world', () => {
+  const words = 3, n = 500, grid = [37, 21], bits = 10;
+  const u = new Uint32Array(n * words), f = new Float32Array(u.buffer);
+  let r = 7; const rnd = () => ((r = (Math.imul(r, 1664525) + 1013904223) >>> 0) / 4294967296);
+  // mostly sorted by cell, as the engine leaves them, with a few out of order and the world's edges
+  for (let i = 0; i < n; i++) { f[i * 3] = (i % 37) + rnd(); f[i * 3 + 1] = Math.floor(i / 37) % 21 + rnd(); u[i * 3 + 2] = i * 977; }
+  f[0] = 36.9999999; f[1] = 20.99999; f[3] = 0; f[4] = 0; f[6] = 12.5; f[7] = 3.25;
+  const layout = { words, planes: [1, 1, 0], cell: { grid, bits } };
+  const back = new Float32Array(fromColumns(toColumns(u.buffer, layout), layout)), bu = new Uint32Array(back.buffer);
+  const wrapd = (d, W) => d - W * Math.round(d / W);
+  for (let i = 0; i < n; i++) {
+    for (const [k, W] of [[0, 37], [1, 21]]) {
+      const v = back[i * 3 + k];
+      assert.ok(v >= 0 && v < W, `inside the world: ${v}`);
+      assert.ok(Math.abs(wrapd(v - f[i * 3 + k], W)) <= 2 ** -(bits + 1) + 1e-6, `record ${i} word ${k}: ${f[i * 3 + k]} came back ${v}`);
+    }
+    assert.equal(bu[i * 3 + 2], u[i * 3 + 2]);
+  }
+  assert.equal(back[6], 12.5); assert.equal(back[7], 3.25);
+  assert.equal(u[0], new Uint32Array(Float32Array.of(36.9999999).buffer)[0], 'the records given are left as they were');
+});
+
+test('a kept world gives its silt new ids in order and keeps only the heat that lasts', () => {
+  const n = 5, W = P_BYTES / 4;
+  const pu = new Uint32Array(n * W);
+  [0, 7, 0, 2, 0].forEach((kind, i) => { pu[i * W + 4] = kind; pu[i * W + 7] = [900, 12, 4, 33, 77][i]; });
+  const ledger = new Uint32Array(META_CLAIM + n); ledger[0] = 1000;
+  const thermal = new Float32Array(5 * 8).map((_, i) => i + 1);
+  const { gpu } = compactState({ cpu: { grid: [4, 2] }, gpu: { parts: pu.buffer, intent: new Uint32Array(n * 4).buffer, ledger: ledger.buffer, thermal: thermal.buffer } });
+  const qu = new Uint32Array(gpu.parts);
+  assert.deepEqual([0, 1, 2, 3, 4].map((i) => qu[i * W + 7]), [1000, 12, 1001, 33, 1002], 'silt in order after every id given; the rest as they were');
+  assert.equal(new Uint32Array(gpu.ledger)[0], 1003, 'the next id given comes after them');
+  assert.equal(ledger[0], 1000, 'the state read is left as it was');
+  const t = new Float32Array(gpu.thermal);
+  for (let b = 0; b < 5; b++) for (let i = 0; i < 8; i++) assert.equal(t[b * 8 + i], b === 1 || b === 3 ? thermal[b * 8 + i] : 0, `heat block ${b}`);
+});

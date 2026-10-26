@@ -986,6 +986,15 @@ class Engine {
     this.restore({ gpu: {}, cpu });
     this.count = cpu.count; this.grid = [...cpu.grid];
     if (cpu.founders != null) this.founders = cpu.founders;
+    if (gpu.thermal) {
+      // the floor as the world left it (eras move it), and the order it freezes in, which a save does
+      // not keep (compactState): built again from the seed, as seed() builds it
+      const [gw, gh] = this.grid, t = new Float32Array(restrideThermal(gpu.thermal));
+      this.relief = t.slice(3 * MAX_CELLS, 3 * MAX_CELLS + gw * gh);
+      this.floor = null;
+      this.iceOrder = makeIceOrder(gw, gh, this.seedValue, makeRelief(gw, gh, this.seedValue));
+      this.device.queue.writeBuffer(this.b.thermal, 4 * MAX_CELLS * 4, this.iceOrder);
+    }
     this.sorted = false;
     this.worldGeneration++;
     this.clearAccum = true;
@@ -1854,22 +1863,35 @@ class Engine {
 }
 
 /**
- * readState() made smaller to keep as a file (worlds.js encodeWorld): { gpu, layout }. An intent's
- * action words (x, y) are read only by the next step's resolveCount, through a claim pending in the
- * ledger, so only claimers keep theirs; bonds (z, w) stay. The particles go by columns, positions cut
- * to within 2^-10 of a unit (0.06 µm; a cell is about 10 µm across), velocity, energy and age to 10
- * mantissa bits (a thousandth of themselves); intents exact.
+ * readState() made smaller to keep as a file (worlds.js encodeWorld): { gpu, layout }.
+ * - An intent's action words (x, y) are read only by the next step's resolveCount, through a claim
+ *   pending in the ledger, so only claimers keep theirs; bonds (z, w) stay.
+ * - Silt takes new ids, in the order it lies, after every id given so far (ledger[0] counts them):
+ *   an id seeds only a grain's random draws and how it is drawn up close (its outline and turn), and
+ *   ids in order cost almost nothing where 3 million in no order cost 9 MB.
+ * - Of the heat buffer, deposits and husk piles are emptied and refilled within each step and the
+ *   ice order is built from the seed (writeState builds it again): temperatures and relief are kept.
+ * - The particles go by columns: positions as their grid cell (the change from the particle before;
+ *   particles lie sorted by cell) and the place within it to 2^-10 of a unit (0.06 µm; a cell is
+ *   about 10 µm across); velocity, energy and age cut to 10 mantissa bits (a thousandth of
+ *   themselves); intents exact.
  */
 export function compactState({ cpu, gpu }) {
   const intent = new Uint32Array(gpu.intent.slice(0)), n = intent.length / 4;
+  const pu = new Uint32Array(gpu.parts.slice(0)), W = P_BYTES / 4;
+  const ledger = new Uint32Array(gpu.ledger.slice(0));
+  let next = ledger[0];
+  for (let i = 0; i < n; i++) if (pu[i * W + 4] === 0) pu[i * W + 7] = next++;
+  ledger[0] = next;
+  const thermal = gpu.thermal && new Uint32Array(gpu.thermal.slice(0)), per = thermal ? thermal.length / 5 : 0;
+  if (thermal) { thermal.fill(0, 0, per); thermal.fill(0, 2 * per, 3 * per); thermal.fill(0, 4 * per); }
   const claims = new Uint32Array(gpu.ledger, META_CLAIM * 4, Math.min(n, gpu.ledger.byteLength / 4 - META_CLAIM));
   const claimer = new Uint8Array(n);
   for (const c of claims) if (c && !(c & 0x80000000) && c <= n) claimer[c - 1] = 1;
   for (let i = 0; i < n; i++) if (!claimer[i]) { intent[i * 4] = 0; intent[i * 4 + 1] = 0; }
-  const pos = Math.min(23, Math.ceil(Math.log2(Math.max(...cpu.grid))) + 9);
   const layout = {
-    parts: { words: P_BYTES / 4, keep: [pos, pos, 10, 10, 32, 10, 10, 32, 32, 32], planes: [1, 1, 1, 1, 1, 1, 1, 1, 0, 1] },
+    parts: { words: W, keep: [32, 32, 10, 10, 32, 10, 10, 32, 32, 32], planes: [1, 1, 1, 1, 1, 1, 1, 1, 0, 1], cell: { grid: [...cpu.grid], bits: 10 } },
     intent: { words: 4 },
   };
-  return { gpu: { ...gpu, intent: intent.buffer }, layout };
+  return { gpu: { ...gpu, parts: pu.buffer, intent: intent.buffer, ledger: ledger.buffer, ...(thermal ? { thermal: thermal.buffer } : {}) }, layout };
 }
