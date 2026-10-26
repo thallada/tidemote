@@ -5532,7 +5532,6 @@ fn mineralSurf(i: SO) -> StoneOut {
   let uv = vec2f(f32((vi << 1u) & 2u), f32(vi & 2u));
   return vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
 }
-@fragment fn fsFade() -> @location(0) vec4f { return vec4f(0.0); }
 `;
 
 // The uniforms POST_WGSL and MICRO_WGSL share (engine _render fills them).

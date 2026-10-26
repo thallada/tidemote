@@ -152,11 +152,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     songMarks: prefs.songMarks ?? 1, // mark the cells that sing: 0 off, 1 the picked species, 2 all
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
     // pixels per CSS pixel ('auto' by default, and for prefs saved before v3, which stored the old
-    // default 1.5 without anyone choosing it), the frame rate aimed for (0: the display's; 60 by default,
-    // and for prefs saved before v2, which stored the display's without anyone choosing it), and a fixed
+    // default 1.5 without anyone choosing it), the frame rate aimed for ('auto' by default, and for
+    // prefs saved before v4 with the old default 60 or before v2; 0: the display's), and a fixed
     // particle count
     perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: !(prefs.v >= 3) && prefs.density === 1.5 ? 'auto' : prefs.density ?? 'auto',
-      fps: prefs.v >= 2 ? prefs.fps ?? 60 : 60, particles: prefs.particles ?? null, scan: prefs.scan ?? null },
+      fps: prefs.v >= 4 || (prefs.v >= 2 && prefs.fps !== 60) ? prefs.fps ?? 'auto' : 'auto', particles: prefs.particles ?? null, scan: prefs.scan ?? null },
   };
   // While a pointer is held down on a panel, nothing re-renders under it: replacing the element
   // between pointerdown and pointerup swallows the click.
@@ -185,7 +185,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: 3, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, events: state.events, ...state.perf });
+    savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, events: state.events, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   if (prefs.loupe !== undefined && !isCoarse) state.loupe = prefs.loupe;
@@ -1608,8 +1608,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ''}</span><div class="row segs" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? ' auto-pick' : ''}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? ' disabled' : ''}>${label(v, l)}</button>`).join('')}</div></div>`;
     };
     // what an Auto option is using now ({ text, pick: the data-v of the choice it matches, if any }):
-    // the render scale, the pixel density, and a measured world's particle count
+    // the render scale, the pixel density, the frame rate aimed for, and a measured world's particle count
     function autoNow(id) {
+      if (id === 'fps') { const f = Math.round(1000 / frameTarget()); return { text: String(f), pick: String([30, 60].find((v) => Math.abs(v - f) <= 3) ?? '') }; }
       if (id === 'scale') return { text: `${Math.round(renderScale * 100)}%`, pick: String(+renderScale.toFixed(2)) };
       if (id === 'density') { const d = +density().toFixed(2); return { text: `${d}×`, pick: String(d) }; }
       if (id === 'n' && !state.perf.particles) return { text: kfmt(eng.count), pick: String(eng.count) };
@@ -1659,7 +1660,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       return group('res', 'Resolution', choice('scale', 'Render scale', '', [['auto', 'Auto'], [1, '100%'], [0.75, '75%'], [0.5, '50%'], [0.35, '35%']], P.scale, 'renderscale')
         + (P.scale === 'auto' ? choice('floor', 'Auto lowest', '', [[0.75, '75%'], [0.5, '50%'], [0.35, '35%'], [0.25, '25%']], P.floor, 'autofloor') : '')
         + choice('density', 'Pixel density', '', [['auto', 'Auto'], [1, '1×'], [1.5, '1.5×', dev < 1.5], [2, '2×', dev < 2]], P.density, 'density')
-        + choice('fps', 'Target fps', '', [[30, '30'], [60, '60'], [0, 'Display']], P.fps, 'targetfps'))
+        + choice('fps', 'Target fps', '', [['auto', 'Auto'], [30, '30'], [60, '60'], [0, 'Display']], P.fps, 'targetfps'))
         + group('fx', 'Effects', onoff('bloom', 'Bloom', 'B', s.bloom > 0, 'bloom')
         + onoff('optics', 'Optics', 'O', s.optics > 0, 'optics')
         + onoff('lod', 'Zoom detail', '', s.lod, 'lod')
@@ -1789,7 +1790,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       } else {
         for (const k of ['bloom', 'optics', 'specks', 'lod']) s[k] = defaults[k];
         state.closeup = true;
-        Object.assign(P, { scale: 'auto', floor: 0.5, density: 'auto', fps: 60, scan: null });
+        Object.assign(P, { scale: 'auto', floor: 0.5, density: 'auto', fps: 'auto', scan: null });
         eng.maxScan = K.maxScan;
         renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit();
         pendingN = P.particles ? 'auto' : null;
@@ -1851,7 +1852,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'scale') { P.scale = v === 'auto' ? 'auto' : +v; if (P.scale !== 'auto') renderScale = P.scale; else renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
       else if (id === 'floor') { P.floor = +v; renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
       else if (id === 'density') { P.density = v === 'auto' ? 'auto' : +v; resetAdapt(); fit(); }
-      else if (id === 'fps') { P.fps = +v; resetAdapt(); }
+      else if (id === 'fps') { P.fps = v === 'auto' ? 'auto' : +v; resetAdapt(); }
       else if (id === 'scan') { P.scan = +v === K.maxScan ? null : +v; eng.maxScan = +v; }
       else if (id === 'n') pendingN = v === 'auto' ? 'auto' : +v;
       else if (id === 'apply') { const n = pendingN; pendingN = null; setParticles(n); }
@@ -2319,11 +2320,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // The frame rate aimed for, as the interval between submitted frames in ms: a whole number of the
   // display's frames (measured from requestAnimationFrame), so frames stay evenly spaced. The target
   // (60 by default) is met as closely as that allows: every second frame of a 144 Hz display (72 fps),
-  // every third of a 175 Hz one (58). While the device can't keep up, frames take perf.slow times
-  // longer (30, 20, 15 fps), and at real time steps grow to match (stepTicks).
+  // every third of a 175 Hz one (58). With Auto (60), while the device can't keep up frames take
+  // perf.slow times longer (30, 20, 15 fps); a rate chosen is held. At real time steps grow to match
+  // (stepTicks).
   const displayMs = () => perf.rafMs || 16.7;
   // (Fast speeds fill whatever time a frame has with steps: they keep the full rate.)
-  const frameEvery = () => Math.max(1, Math.round((state.perf.fps ? 1000 / state.perf.fps : 0) / displayMs())) * (state.speed > 1 ? 1 : perf.slow);
+  const aimFps = () => (state.perf.fps === 'auto' ? 60 : state.perf.fps);
+  const frameEvery = () => Math.max(1, Math.round((aimFps() ? 1000 / aimFps() : 0) / displayMs())) * (state.speed > 1 ? 1 : perf.slow);
   const frameTarget = () => frameEvery() * displayMs();
   // At real time or slower a step covers up to one frame of the rate aimed for, in whole 1/60 s ticks
   // (at most MAX_TICKS): below about 45 fps the world takes coarse steps, which cost far less than the
@@ -2358,7 +2361,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const m = perf.frameDt.reduce((a, b) => a + b, 0) / perf.frameDt.length;
     perf.frameDt.length = 0;
     perf.lastAdjust = now;
-    const T = frameTarget(), auto = state.perf.scale === 'auto', autoD = state.perf.density === 'auto';
+    const T = frameTarget(), auto = state.perf.scale === 'auto', autoD = state.perf.density === 'auto', autoF = state.perf.fps === 'auto';
     const floor = auto ? state.perf.floor : renderScale;
     // without timestamps perf.gpu is the time from submit to done, which overstates the GPU's share
     const busy = perf.gpu > T * (hasTS ? 0.92 : 1);
@@ -2373,13 +2376,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (autoD && density() > 1.01) {
         densityCap = 1; perf.denseUntil = now + 30000;
         resizeDue = true;
-      } else if (renderScale > floor + 0.01 && !(simBound && perf.slow < 4)) {
+      } else if (renderScale > floor + 0.01 && !(autoF && simBound && perf.slow < 4)) {
         perf.ceiling = renderScale;
         // the further behind, the larger the step: pixel cost scales with the square of the scale
         const want = renderScale * clamp(Math.sqrt(T / m), 0.55, 0.9);
         renderScale = Math.max(floor, SCALES.find((s) => s <= want + 0.01) ?? floor);
         resizeDue = true;
-      } else if (perf.slow < 4) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + (m > 2 * T ? 2 : 1)); }
+      } else if (autoF && perf.slow < 4) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + (m > 2 * T ? 2 : 1)); }
       return;
     }
     if (m > T * 1.03 || stressed()) { perf.goodWindows = 0; return; }

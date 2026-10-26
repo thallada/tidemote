@@ -6944,7 +6944,6 @@ fn mineralSurf(i: SO) -> StoneOut {
   let uv = vec2f(f32((vi << 1u) & 2u), f32(vi & 2u));
   return vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
 }
-@fragment fn fsFade() -> @location(0) vec4f { return vec4f(0.0); }
 `;
   var POST_STRUCT = (
     /* wgsl */
@@ -17954,7 +17953,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.cpWatchArgs = cp(this.watchModule, "watchArgs");
       this.cpSurvey = { pipe: cp(this.surveyModule, "surveyMain"), bg: null };
       const additive = { color: { srcFactor: "one", dstFactor: "one", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one", operation: "add" } };
-      const fade = { color: { srcFactor: "zero", dstFactor: "constant", operation: "add" }, alpha: { srcFactor: "zero", dstFactor: "constant", operation: "add" } };
+      const trail = { color: { srcFactor: "constant", dstFactor: "one", operation: "add" }, alpha: { srcFactor: "constant", dstFactor: "one", operation: "add" } };
       const over = { color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" } };
       const rp = (mod, vs, fs, topology, blend, fmt2 = HDR, constants = {}) => rPipe({
         layout: "auto",
@@ -17975,7 +17974,6 @@ registerProcessor("tidemote-sound", TidemoteSound);
         fragment: { module: this.drawModule, entryPoint: "fsStone", targets: [{ format: HDR }, { format: HDR }] }
       });
       this.pBridge = rp(this.drawModule, "vsBridge", "fsBridge", "triangle-strip", additive);
-      this.pFade = rp(this.drawModule, "vsFade", "fsFade", "triangle-list", fade);
       this.pDown = rp(this.postModule, "vsFull", "fsDown", "triangle-list", void 0);
       this.pUp = rp(this.postModule, "vsFull", "fsUp", "triangle-list", additive);
       this.pMurk = rp(this.postModule, "vsFull", "fsMurk", "triangle-list", void 0);
@@ -18006,10 +18004,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
         label: fs + "+live"
       });
       this.main = {
-        point: rpLive(this.drawModule, "vsPoint", "fsPointLive", "triangle-strip", additive, true),
-        splat: rpLive(this.drawModule, "vsFade", "fsSplat", "triangle-list", additive, false),
-        line: rpLive(this.drawModule, "vsLine", "fsLine", "line-list", additive, false),
-        bridge: rpLive(this.drawModule, "vsBridge", "fsBridge", "triangle-strip", additive, false),
+        point: rpLive(this.drawModule, "vsPoint", "fsPointLive", "triangle-strip", trail, true),
+        splat: rpLive(this.drawModule, "vsFade", "fsSplat", "triangle-list", trail, false),
+        line: rpLive(this.drawModule, "vsLine", "fsLine", "line-list", trail, false),
+        bridge: rpLive(this.drawModule, "vsBridge", "fsBridge", "triangle-strip", trail, false),
         reproj: rpLive(this.postModule, "vsFull", "fsReproj", "triangle-list", void 0, false)
       };
       b.holdU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
@@ -18530,7 +18528,8 @@ ${e.message}` : String(e?.message || e));
     }
     /**
      * The floor shifts (moving geography, docs/catastrophes.md): toward the floor of epoch `k` (a share `drift` of it
-     * redrawn from the seed and k), easing there over `secs` simulated seconds (stepFloor uploads it as it goes).
+     * redrawn from the seed and k), easing there over `secs` simulated seconds (stepFloor uploads it each frame
+     * the time moves, so the shore creeps rather than jumps).
      */
     shiftFloor(k, drift, secs = 120) {
       if (!this.relief || !(drift > 0)) return;
@@ -18547,7 +18546,7 @@ ${e.message}` : String(e?.message || e));
       const f2 = this.floor;
       if (!f2) return;
       const u = Math.min(1, (this.simTime - f2.t0) / f2.secs);
-      if (u < 1 && u - f2.last < 0.02) return;
+      if (u === f2.last) return;
       f2.last = u;
       const e = u * u * (3 - 2 * u);
       for (let i = 0; i < f2.to.length; i++) this.relief[i] = f2.from[i] + (f2.to[i] - f2.from[i]) * e;
@@ -19698,18 +19697,22 @@ ${e.message}` : String(e?.message || e));
           ],
           timestampWrites: tsBegin()
         });
+        let gain = 1;
         if (!clear) {
           const lc = this.lastCam;
           const dx = cam.x - lc.x, dy = cam.y - lc.y;
           const gx = this.grid[0], gy = this.grid[1];
           const wx = dx - gx * Math.round(dx / gx), wy = dy - gy * Math.round(dy / gy);
           const sx = lc.ppu * W / (cam.ppu * lc.w), sy = lc.ppu * H2 / (cam.ppu * lc.h);
-          const keep = Math.pow(this.settings.trails, 60 * Math.min(0.5, Math.max(0, time - lc.t)));
+          const t2 = this.settings.trails;
+          const keep = Math.pow(t2, 60 * (time > lc.t ? Math.min(0.5, time - lc.t) : 1 / 60));
+          gain = (1 - keep) / (1 - t2);
           d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([sx, sy, wx * lc.ppu / lc.w, wy * lc.ppu / lc.h, keep, 0, 0, 0]));
           pass2.setPipeline(this.main.reproj);
           pass2.setBindGroup(0, carry ? carry.bg : this.reprojBG[srcI]);
           pass2.draw(3);
         }
+        pass2.setBlendConstant([gain, gain, gain, gain]);
         if (splat) {
           pass2.setPipeline(this.main.splat);
           pass2.setBindGroup(0, this.splatDrawBG);
@@ -20183,7 +20186,7 @@ ${e.message}` : String(e?.message || e));
     renderscale: "The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room, and shows the scale it is using now (the choice nearest it is underlined); a fixed value never changes.",
     autofloor: "The lowest render scale Auto may drop to.",
     density: "The most device pixels drawn per CSS pixel. High-density (Retina) screens look sharper at 2× but cost up to four times the pixels of 1×. Readouts and outlines stay sharp either way. Auto draws at 1.5× and, while frames run late, drops to 1× first, before the render scale or the frame rate are lowered, and returns to 1.5× last; it shows the density it is using now. A fixed value never changes.",
-    targetfps: "Frames per second aimed for, as a whole number of the screen’s refreshes so frames stay evenly spaced (60 on a 144 Hz screen is every second refresh, 72 fps). 30 halves the GPU’s work and saves battery; Display follows the screen’s refresh rate (120 on many phones and Macs), which costs the most. Simulated time keeps pace with real time at any rate; when the device can’t keep up the page lowers the rate itself (Aiming for).",
+    targetfps: "Frames per second aimed for, as a whole number of the screen’s refreshes so frames stay evenly spaced (60 on a 144 Hz screen is every second refresh, 72 fps). 30 halves the GPU’s work and saves battery; Display follows the screen’s refresh rate (120 on many phones and Macs), which costs the most. Simulated time keeps pace with real time at any rate. Auto aims for 60 and, when the device can’t keep up, lowers the rate itself (to 30, 20 or 15; shown beside Auto and under Aiming for); a rate chosen is held even then.",
     bloom: "A soft glow around bright cells. Several extra full-screen passes.",
     optics: "Microscope optics: depth haze and a vignette over the world. One extra full-screen pass.",
     lod: "Zoomed in, cells resolve into membranes, organelles and fused bodies, and bonds into soft strands. Off, every cell stays the glowing point it is from afar, at any zoom: far cheaper, so the page can run more particles. The loupe and the live close-up still show the detail.",
@@ -26841,14 +26844,14 @@ ${e.message}` : String(e?.message || e));
       // mark the cells that sing: 0 off, 1 the picked species, 2 all
       // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
       // pixels per CSS pixel ('auto' by default, and for prefs saved before v3, which stored the old
-      // default 1.5 without anyone choosing it), the frame rate aimed for (0: the display's; 60 by default,
-      // and for prefs saved before v2, which stored the display's without anyone choosing it), and a fixed
+      // default 1.5 without anyone choosing it), the frame rate aimed for ('auto' by default, and for
+      // prefs saved before v4 with the old default 60 or before v2; 0: the display's), and a fixed
       // particle count
       perf: {
         scale: prefs.scale ?? "auto",
         floor: prefs.floor ?? 0.5,
         density: !(prefs.v >= 3) && prefs.density === 1.5 ? "auto" : prefs.density ?? "auto",
-        fps: prefs.v >= 2 ? prefs.fps ?? 60 : 60,
+        fps: prefs.v >= 4 || prefs.v >= 2 && prefs.fps !== 60 ? prefs.fps ?? "auto" : "auto",
         particles: prefs.particles ?? null,
         scan: prefs.scan ?? null
       }
@@ -26881,7 +26884,7 @@ ${e.message}` : String(e?.message || e));
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ v: 3, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, events: state.events, ...state.perf });
+      savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, events: state.events, ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
     if (prefs.loupe !== void 0 && !isCoarse) state.loupe = prefs.loupe;
@@ -28469,6 +28472,10 @@ ${e.message}` : String(e?.message || e));
         return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ""}</span><div class="row segs" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? " auto-pick" : ""}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? " disabled" : ""}>${label3(v, l)}</button>`).join("")}</div></div>`;
       };
       function autoNow(id) {
+        if (id === "fps") {
+          const f2 = Math.round(1e3 / frameTarget());
+          return { text: String(f2), pick: String([30, 60].find((v) => Math.abs(v - f2) <= 3) ?? "") };
+        }
         if (id === "scale") return { text: `${Math.round(renderScale * 100)}%`, pick: String(+renderScale.toFixed(2)) };
         if (id === "density") {
           const d = +density().toFixed(2);
@@ -28499,7 +28506,7 @@ ${e.message}` : String(e?.message || e));
         const dev = Math.min(devicePixelRatio || 1, 2);
         const sizes = PARTICLE_SIZES.filter((n) => n <= maxParticles());
         const nowN = pendingN ?? (P.particles || "auto");
-        return group("res", "Resolution", choice("scale", "Render scale", "", [["auto", "Auto"], [1, "100%"], [0.75, "75%"], [0.5, "50%"], [0.35, "35%"]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", "Auto lowest", "", [[0.75, "75%"], [0.5, "50%"], [0.35, "35%"], [0.25, "25%"]], P.floor, "autofloor") : "") + choice("density", "Pixel density", "", [["auto", "Auto"], [1, "1×"], [1.5, "1.5×", dev < 1.5], [2, "2×", dev < 2]], P.density, "density") + choice("fps", "Target fps", "", [[30, "30"], [60, "60"], [0, "Display"]], P.fps, "targetfps")) + group("fx", "Effects", onoff("bloom", "Bloom", "B", s.bloom > 0, "bloom") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("lod", "Zoom detail", "", s.lod, "lod") + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("closeup", "Live close-up", "", state.closeup, "closeup")) + group("world", "World", choice("n", "Particles", "", [["auto", "Auto"], ...sizes.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", "Neighbors", "", scanChoices().map((n) => [n, n === K.maxScan ? `${n} <span class="chip-note">default</span>` : String(n)]), eng.maxScan, "neighbors") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === "auto" ? "a measured count" : fmt(pendingN)}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", "Profile")}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ""));
+        return group("res", "Resolution", choice("scale", "Render scale", "", [["auto", "Auto"], [1, "100%"], [0.75, "75%"], [0.5, "50%"], [0.35, "35%"]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", "Auto lowest", "", [[0.75, "75%"], [0.5, "50%"], [0.35, "35%"], [0.25, "25%"]], P.floor, "autofloor") : "") + choice("density", "Pixel density", "", [["auto", "Auto"], [1, "1×"], [1.5, "1.5×", dev < 1.5], [2, "2×", dev < 2]], P.density, "density") + choice("fps", "Target fps", "", [["auto", "Auto"], [30, "30"], [60, "60"], [0, "Display"]], P.fps, "targetfps")) + group("fx", "Effects", onoff("bloom", "Bloom", "B", s.bloom > 0, "bloom") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("lod", "Zoom detail", "", s.lod, "lod") + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("closeup", "Live close-up", "", state.closeup, "closeup")) + group("world", "World", choice("n", "Particles", "", [["auto", "Auto"], ...sizes.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", "Neighbors", "", scanChoices().map((n) => [n, n === K.maxScan ? `${n} <span class="chip-note">default</span>` : String(n)]), eng.maxScan, "neighbors") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === "auto" ? "a measured count" : fmt(pendingN)}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", "Profile")}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ""));
       }
       const EVENT_NAMES = { drought: "Drought", storm: "Storm", duckweed: "Duckweed", frost: "Frost" };
       function climate_() {
@@ -28621,7 +28628,7 @@ ${e.message}` : String(e?.message || e));
         } else {
           for (const k of ["bloom", "optics", "specks", "lod"]) s[k] = defaults[k];
           state.closeup = true;
-          Object.assign(P, { scale: "auto", floor: 0.5, density: "auto", fps: 60, scan: null });
+          Object.assign(P, { scale: "auto", floor: 0.5, density: "auto", fps: "auto", scan: null });
           eng.maxScan = K.maxScan;
           renderScale = Math.max(renderScale, P.floor);
           resetAdapt();
@@ -28720,7 +28727,7 @@ ${e.message}` : String(e?.message || e));
           resetAdapt();
           fit3();
         } else if (id === "fps") {
-          P.fps = +v;
+          P.fps = v === "auto" ? "auto" : +v;
           resetAdapt();
         } else if (id === "scan") {
           P.scan = +v === K.maxScan ? null : +v;
@@ -29347,7 +29354,8 @@ ${e.message}` : String(e?.message || e));
       view.readout();
     }
     const displayMs = () => perf.rafMs || 16.7;
-    const frameEvery = () => Math.max(1, Math.round((state.perf.fps ? 1e3 / state.perf.fps : 0) / displayMs())) * (state.speed > 1 ? 1 : perf.slow);
+    const aimFps = () => state.perf.fps === "auto" ? 60 : state.perf.fps;
+    const frameEvery = () => Math.max(1, Math.round((aimFps() ? 1e3 / aimFps() : 0) / displayMs())) * (state.speed > 1 ? 1 : perf.slow);
     const frameTarget = () => frameEvery() * displayMs();
     const ticksFor = (ms) => clamp6(Math.ceil(ms * 60 / 1e3 - 0.1), 1, MAX_TICKS);
     const stepTicks = () => ticksFor(frameTarget());
@@ -29377,7 +29385,7 @@ ${e.message}` : String(e?.message || e));
       const m = perf.frameDt.reduce((a, b) => a + b, 0) / perf.frameDt.length;
       perf.frameDt.length = 0;
       perf.lastAdjust = now;
-      const T = frameTarget(), auto = state.perf.scale === "auto", autoD = state.perf.density === "auto";
+      const T = frameTarget(), auto = state.perf.scale === "auto", autoD = state.perf.density === "auto", autoF = state.perf.fps === "auto";
       const floor = auto ? state.perf.floor : renderScale;
       const busy = perf.gpu > T * (hasTS ? 0.92 : 1);
       const behind = m > T * 1.125 || busy || stressed();
@@ -29390,12 +29398,12 @@ ${e.message}` : String(e?.message || e));
           densityCap = 1;
           perf.denseUntil = now + 3e4;
           resizeDue = true;
-        } else if (renderScale > floor + 0.01 && !(simBound && perf.slow < 4)) {
+        } else if (renderScale > floor + 0.01 && !(autoF && simBound && perf.slow < 4)) {
           perf.ceiling = renderScale;
           const want = renderScale * clamp6(Math.sqrt(T / m), 0.55, 0.9);
           renderScale = Math.max(floor, SCALES.find((s) => s <= want + 0.01) ?? floor);
           resizeDue = true;
-        } else if (perf.slow < 4) {
+        } else if (autoF && perf.slow < 4) {
           perf.slowCeiling = perf.slow;
           perf.slow = Math.min(4, perf.slow + (m > 2 * T ? 2 : 1));
         }

@@ -262,7 +262,8 @@ class Engine {
     this.cpSurvey = { pipe: cp(this.surveyModule, 'surveyMain'), bg: null };
 
     const additive = { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } };
-    const fade = { color: { srcFactor: 'zero', dstFactor: 'constant', operation: 'add' }, alpha: { srcFactor: 'zero', dstFactor: 'constant', operation: 'add' } };
+    // the main view's draws into the trails: additive, weighted per frame by the blend constant (_render)
+    const trail = { color: { srcFactor: 'constant', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'constant', dstFactor: 'one', operation: 'add' } };
     const over = { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } };
     const rp = (mod, vs, fs, topology, blend, fmt = HDR, constants = {}) => rPipe({
       layout: 'auto',
@@ -281,7 +282,6 @@ class Engine {
       vertex: { module: this.drawModule, entryPoint: 'vsStone' },
       fragment: { module: this.drawModule, entryPoint: 'fsStone', targets: [{ format: HDR }, { format: HDR }] } });
     this.pBridge = rp(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', additive);
-    this.pFade = rp(this.drawModule, 'vsFade', 'fsFade', 'triangle-list', fade);
     this.pDown = rp(this.postModule, 'vsFull', 'fsDown', 'triangle-list', undefined);
     this.pUp = rp(this.postModule, 'vsFull', 'fsUp', 'triangle-list', additive);
     this.pMurk = rp(this.postModule, 'vsFull', 'fsMurk', 'triangle-list', undefined);
@@ -315,10 +315,10 @@ class Engine {
       label: fs + '+live',
     });
     this.main = {
-      point: rpLive(this.drawModule, 'vsPoint', 'fsPointLive', 'triangle-strip', additive, true),
-      splat: rpLive(this.drawModule, 'vsFade', 'fsSplat', 'triangle-list', additive, false),
-      line: rpLive(this.drawModule, 'vsLine', 'fsLine', 'line-list', additive, false),
-      bridge: rpLive(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', additive, false),
+      point: rpLive(this.drawModule, 'vsPoint', 'fsPointLive', 'triangle-strip', trail, true),
+      splat: rpLive(this.drawModule, 'vsFade', 'fsSplat', 'triangle-list', trail, false),
+      line: rpLive(this.drawModule, 'vsLine', 'fsLine', 'line-list', trail, false),
+      bridge: rpLive(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', trail, false),
       reproj: rpLive(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, false),
     };
     // Max and coarse speeds: the last drawn world, carried with the camera onto the display frames between draws
@@ -1763,6 +1763,7 @@ class Engine {
           { view: this.liveView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }],
         timestampWrites: tsBegin(),
       });
+      let gain = 1; // the light a new frame adds; a cleared image starts from one frame
       if (!clear) {
         const lc = this.lastCam;
         const dx = cam.x - lc.x, dy = cam.y - lc.y;
@@ -1771,13 +1772,19 @@ class Engine {
         // in the last frame's texture coordinates (its size differs after a resize)
         const sx = (lc.ppu * W) / (cam.ppu * lc.w), sy = (lc.ppu * H) / (cam.ppu * lc.h);
         // trails is the fraction kept per 60 Hz frame; raised to the frames elapsed, the fade lasts the
-        // same time at any frame rate (and across the gaps between held frames)
-        const keep = Math.pow(this.settings.trails, 60 * Math.min(0.5, Math.max(0, time - lc.t)));
+        // same time at any frame rate (and across the gaps between held frames). Each new frame adds
+        // (1 - keep) / (1 - trails) of its light, so the image's brightness stays the same however
+        // unevenly frames arrive (a busy GPU's 17, 25, 33 ms gaps made it pulse). A repeated draw at
+        // the same moment counts as a 60 Hz frame.
+        const t = this.settings.trails;
+        const keep = Math.pow(t, 60 * (time > lc.t ? Math.min(0.5, time - lc.t) : 1 / 60));
+        gain = (1 - keep) / (1 - t);
         d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([sx, sy, (wx * lc.ppu) / lc.w, (wy * lc.ppu) / lc.h, keep, 0, 0, 0]));
         pass.setPipeline(this.main.reproj);
         pass.setBindGroup(0, carry ? carry.bg : this.reprojBG[srcI]);
         pass.draw(3);
       }
+      pass.setBlendConstant([gain, gain, gain, gain]);
       if (splat) { pass.setPipeline(this.main.splat); pass.setBindGroup(0, this.splatDrawBG); pass.draw(3); }
       this._drawScene(pass, this.mainBG.line, this.mainBG.point, this.mainBG.bridge, this.viewData, 0, this.main);
       pass.end();
