@@ -744,7 +744,8 @@ class Engine {
 
   /**
    * The floor shifts (moving geography, docs/catastrophes.md): toward the floor of epoch `k` (a share `drift` of it
-   * redrawn from the seed and k), easing there over `secs` simulated seconds (stepFloor uploads it as it goes).
+   * redrawn from the seed and k), easing there over `secs` simulated seconds (stepFloor uploads it each frame
+   * the time moves, so the shore creeps rather than jumps).
    */
   shiftFloor(k, drift, secs = 120) {
     if (!this.relief || !(drift > 0)) return;
@@ -758,7 +759,7 @@ class Engine {
     const f = this.floor;
     if (!f) return;
     const u = Math.min(1, (this.simTime - f.t0) / f.secs);
-    if (u < 1 && u - f.last < 0.02) return;
+    if (u === f.last) return;
     f.last = u;
     const e = u * u * (3 - 2 * u);
     for (let i = 0; i < f.to.length; i++) this.relief[i] = f.from[i] + (f.to[i] - f.from[i]) * e;
