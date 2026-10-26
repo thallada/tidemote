@@ -35,7 +35,7 @@ version, its own switches, real fullscreen and saves the browser cannot evict.
 
 ## Status (2026-10-26)
 
-- Windows x64: packaged with Electron 44.9.3 (Chrome 152) and run on the RTX 4070 Ti: WebGPU on
+- Windows x64: packaged with Electron 45.0.0 (Chrome 156) and run on the RTX 4070 Ti: WebGPU on
   NVIDIA, 3.35M particles by the page's own calibration, no console errors. The unpacked app is
   about 370 MB (the executable alone 236 MB); Steam compresses depots.
 - Linux and macOS: not yet built or run. Linux needs a test on a real Steam Deck (AMD, RADV), as a
