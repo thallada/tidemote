@@ -34,9 +34,8 @@ in `src/engine.js`, `toColumns` in `src/worlds.js`):
   (the u32 counter lasts about 15 simulated days of births at 3.4M particles).
 - Intents keep their action words only for cells with a claim pending; genera with no species left
   in the registry drop their founder's genome.
-- Of the heat buffer, temperatures and relief (which eras move) are kept; deposits and husk piles
-  last a step, and the ice order is built again from the seed (`writeState`, which also takes the
-  CPU's relief from the save).
+- Of the heat buffer, temperatures and relief (which eras move) are kept; the ice order is built
+  again from the seed (`writeState`, which also takes the CPU's relief from the save).
 
 A young 3.4M world: 75–80 MB at first, 39 MB by columns, 27.5–28.8 MB now. 48 paired forks
 (`tools/fork.mjs`, a `kept` variant, 60 s at 32k) found a saved world runs on like the original
@@ -52,6 +51,7 @@ can tell before reading the world). A save opens only in a version of its own ma
 - major: anything older versions cannot read, or that makes older saves unreadable (a buffer's
   layout or `P_BYTES`, what `readState` keeps, `compactState`'s columns, what the page's record means).
   4.0.0: positions by cell, silt ids, the heat buffer trimmed.
+  5.0.0: the heat buffer's two unused blocks gone (temperature, floor, ice order).
 - minor: additions a version of the same major can do without (a head field, a buffer it does not
   know; `openWorld` keeps only the buffers it knows). A newer version must give old saves of its
   major a default for what it added.

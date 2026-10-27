@@ -1,6 +1,6 @@
 // The pool's floor (docs/catastrophes.md): each world's relief, a smooth periodic height field on the binning grid,
 // stored as each grid cell's quantile (0 the deepest, 1 the highest), so a water level L leaves the share 1 - L of the
-// floor dry. Shared by the page and headless runs; the GPU reads it bilinearly (thermal block 3).
+// floor dry. Shared by the page and headless runs; the GPU reads it bilinearly (thermal block 1).
 
 // A small seeded generator (mulberry32), so a world's floor depends only on its seed.
 export function seededRng(seed) {

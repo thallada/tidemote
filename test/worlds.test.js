@@ -131,12 +131,12 @@ test('a kept world gives its silt new ids in order and keeps only the heat that 
   const pu = new Uint32Array(n * W);
   [0, 7, 0, 2, 0].forEach((kind, i) => { pu[i * W + 4] = kind; pu[i * W + 7] = [900, 12, 4, 33, 77][i]; });
   const ledger = new Uint32Array(META_CLAIM + n); ledger[0] = 1000;
-  const thermal = new Float32Array(5 * 8).map((_, i) => i + 1);
+  const thermal = new Float32Array(3 * 8).map((_, i) => i + 1);
   const { gpu } = compactState({ cpu: { grid: [4, 2] }, gpu: { parts: pu.buffer, intent: new Uint32Array(n * 4).buffer, ledger: ledger.buffer, thermal: thermal.buffer } });
   const qu = new Uint32Array(gpu.parts);
   assert.deepEqual([0, 1, 2, 3, 4].map((i) => qu[i * W + 7]), [1000, 12, 1001, 33, 1002], 'silt in order after every id given; the rest as they were');
   assert.equal(new Uint32Array(gpu.ledger)[0], 1003, 'the next id given comes after them');
   assert.equal(ledger[0], 1000, 'the state read is left as it was');
   const t = new Float32Array(gpu.thermal);
-  for (let b = 0; b < 5; b++) for (let i = 0; i < 8; i++) assert.equal(t[b * 8 + i], b === 1 || b === 3 ? thermal[b * 8 + i] : 0, `heat block ${b}`);
+  for (let b = 0; b < 3; b++) for (let i = 0; i < 8; i++) assert.equal(t[b * 8 + i], b < 2 ? thermal[b * 8 + i] : 0, `heat block ${b}`);
 });

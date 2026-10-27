@@ -581,17 +581,7 @@ fn blockAt(base: u32, p: vec2f) -> f32 {
   return mix(mix(heatField[row0 + u32(x0)], heatField[row0 + u32(x1)], t.x),
              mix(heatField[row1 + u32(x0)], heatField[row1 + u32(x1)], t.x), t.y);
 }
-fn waterTempAt(p: vec2f) -> f32 {
-  let g = vec2i(${world});
-  let u = p - 0.5;
-  let i = vec2i(floor(u));
-  let t = u - floor(u);
-  let x0 = ((i.x % g.x) + g.x) % g.x; let x1 = (x0 + 1) % g.x;
-  let y0 = ((i.y % g.y) + g.y) % g.y; let y1 = (y0 + 1) % g.y;
-  let row0 = MAX_CELLS + u32(y0 * g.x); let row1 = MAX_CELLS + u32(y1 * g.x);
-  return mix(mix(heatField[row0 + u32(x0)], heatField[row0 + u32(x1)], t.x),
-             mix(heatField[row1 + u32(x0)], heatField[row1 + u32(x1)], t.x), t.y);
-}
+fn waterTempAt(p: vec2f) -> f32 { return blockAt(0u, p); }
 `;
 // The same, with the default tunables, for passes that only show it (rendering, listening).
 const shownThermal = (g, t) => `thermalState(${g}, ${t}, ${f(DEFAULT_K.specBonus)}, ${f(DEFAULT_K.torporAt)}, ${f(DEFAULT_K.thermalFlat)}, ${f(DEFAULT_K.thermalWarm)})`;
@@ -1233,8 +1223,8 @@ fn splPair(h: u32, q: u32, won: bool) {
 @group(0) @binding(20) var<storage, read_write> bondsAt: array<atomic<u32>>;
 fn bondsOf(i: u32) -> vec2u { return vec2u(bondsNow[i * 6u], bondsNow[i * 6u + 1u]); }
 fn backOf(i: u32, k: u32) -> u32 { return bondsNow[i * 6u + 2u + k]; }
-// The heat field, by blocks of MAX_CELLS: (0 unused), the water's temperature per grid cell, (2 unused),
-// the pool's floor, the order it freezes in; read only (the step writes none of it: heatMain writes the next
+// The heat field, by blocks of MAX_CELLS: the water's temperature per grid cell, the pool's floor, the order
+// it freezes in; read only (the step writes none of it: heatMain writes the next
 // temperatures to heatNext, copied in after). What the step adds up goes to the ledger's end (heatAccAt).
 @group(0) @binding(18) var<storage, read> thermal: array<f32>;
 @group(0) @binding(19) var<storage, read_write> heatNext: array<f32>;
@@ -1296,9 +1286,9 @@ fn flowWith(open: vec2f, pd: vec3f) -> vec2f {
   }
   return v;
 }
-// The pool's floor at p (thermal block 3, a relief quantile per grid cell, bilinear): the water's depth there (the
+// The pool's floor at p (thermal block 1, a relief quantile per grid cell, bilinear): the water's depth there (the
 // level less the floor; below 0 dry) and the floor's slope (uphill, per world unit).
-// With frost (weather.y, the share of the pool frozen) ice grows over the pool in the order of thermal block 4 (a
+// With frost (weather.y, the share of the pool frozen) ice grows over the pool in the order of thermal block 2 (a
 // quantile per grid cell, 0 first): liquid is where that order lies above the frost. pondWith gives whichever edge,
 // the water's or the ice's, lies nearer, in the same terms: a depth (below 0: dry or frozen) and the slope toward it.
 fn pondOn() -> bool { return POND && (sim.pond.x < 1.0 || sim.weather.y > 0.0); }
@@ -1322,13 +1312,13 @@ fn pondWith(p: vec2f, open: vec2f) -> vec3f {
   let i = vec2i(floor(u));
   let t = u - floor(u);
   if (sim.pond.x < 1.0) {
-    let r = smoothField(3u, i, t);
+    let r = smoothField(1u, i, t);
     e = vec3f(sim.pond.x - r.x, r.yz);
     let gl = length(r.yz);
     if (gl > 1e-5) { e.x += edgeSway(p, r.yz / gl, open) * gl; }
   }
   if (sim.weather.y > 0.0) {
-    let o = smoothField(4u, i, t);
+    let o = smoothField(2u, i, t);
     let ice = vec3f(o.x - sim.weather.y, -o.yz);
     if (shoreDist(ice) < shoreDist(e)) { e = ice; }
   }
@@ -1370,7 +1360,7 @@ fn wrapPos(p: vec2f) -> vec2f { return p - sim.world * floor(p / sim.world); }
 fn heatCell(x: i32, y: i32) -> f32 {
   let gw = i32(sim.grid.x);
   let gh = i32(sim.grid.y);
-  return thermal[MAX_CELLS + u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw)];
+  return thermal[u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw)];
 }
 // Grid cell (x, y), wrapping.
 fn wrapCell(x: i32, y: i32) -> u32 {
@@ -4193,9 +4183,9 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     // caught in the ice it is frozen: still, its color drained toward a pale frosted blue-white, a little rimed
     if (view.level < 1.0 || view.frost > 0.0) {
       var dryN = 0.0;
-      if (view.level < 1.0) { dryN = smoothstep(0.0, 0.012, blockAt(${3 * MAX_CELLS}u, p.pos) - view.level); }
+      if (view.level < 1.0) { dryN = smoothstep(0.0, 0.012, blockAt(${MAX_CELLS}u, p.pos) - view.level); }
       var iceN = 0.0;
-      if (view.frost > 0.0) { iceN = smoothstep(0.0, 0.01, view.frost - blockAt(${4 * MAX_CELLS}u, p.pos)); }
+      if (view.frost > 0.0) { iceN = smoothstep(0.0, 0.01, view.frost - blockAt(${2 * MAX_CELLS}u, p.pos)); }
       let l = dot(col, vec3f(0.3, 0.5, 0.2));
       col = mix(col, vec3f(0.55, 0.38, 0.22) * (0.45 + 0.6 * l), 0.85 * dryN);
       b *= 1.0 - 0.5 * dryN;
@@ -6118,7 +6108,7 @@ fn flowNoise(wp: vec2f, scale: f32) -> vec2f {
 // The water's temperature at world point p, bilinear between cell centers, and its gradient.
 fn waterCell(x: i32, y: i32) -> f32 {
   let g = vec2i(post.world);
-  return heatField[${MAX_CELLS}u + u32(((y % g.y) + g.y) % g.y) * u32(g.x) + u32(((x % g.x) + g.x) % g.x)];
+  return heatField[u32(((y % g.y) + g.y) % g.y) * u32(g.x) + u32(((x % g.x) + g.x) % g.x)];
 }
 fn waterAt(p: vec2f) -> vec3f {
   let u = p - 0.5;
@@ -6140,7 +6130,7 @@ fn gridPost(base: u32, x: i32, y: i32) -> f32 {
 // through the cells (Catmull-Rom) would dip beside steep sides, the ice or dry floor showing at once over a patch
 // where the simulation, bilinear, has none; its edge lies within a fraction of a unit of this one)
 fn pondPost(p: vec2f) -> vec3f {
-  let f = fieldPost(${3 * MAX_CELLS}u, p);
+  let f = fieldPost(${MAX_CELLS}u, p);
   var e = vec3f(post.pond.x - f.x, f.yz);
   let gl = length(f.yz);
   if (gl > 1e-5) { e.x += edgeSway(p, f.yz / gl, postFlowAt(p, post.simTime) * post.weather.x + dropFlow(p)) * gl; }
@@ -6322,10 +6312,10 @@ fn iceSlope(p: vec2f) -> vec2f {
   let u = p - 0.5;
   let i = vec2i(floor(u));
   let t = u - floor(u);
-  let a = gridPost(${4 * MAX_CELLS}u, i.x, i.y);
-  let b = gridPost(${4 * MAX_CELLS}u, i.x + 1, i.y);
-  let c = gridPost(${4 * MAX_CELLS}u, i.x, i.y + 1);
-  let d = gridPost(${4 * MAX_CELLS}u, i.x + 1, i.y + 1);
+  let a = gridPost(${2 * MAX_CELLS}u, i.x, i.y);
+  let b = gridPost(${2 * MAX_CELLS}u, i.x + 1, i.y);
+  let c = gridPost(${2 * MAX_CELLS}u, i.x, i.y + 1);
+  let d = gridPost(${2 * MAX_CELLS}u, i.x + 1, i.y + 1);
   return vec2f(mix(b - a, d - c, t.y), mix(c - a, d - b, t.x));
 }
 // One grain's offer at wp. lead: how far ahead of the front its ice reaches here; slope: how steeply lead falls
@@ -6764,7 +6754,7 @@ fn openWater(wpIn: vec2f) -> f32 {
     wet *= smoothstep(0.0, 0.4, pd.x / max(length(pd.yz), 1e-4));
   }
   if (post.weather.y > 0.0) {
-    let fi = fieldPost(${4 * MAX_CELLS}u, wp);
+    let fi = fieldPost(${2 * MAX_CELLS}u, wp);
     wet *= smoothstep(0.0, 0.4, (fi.x - post.weather.y) / max(length(fi.yz), 1e-4));
   }
   return wet;
@@ -6887,7 +6877,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   }
   // ice (frost): over what is frozen in it, its front a crisp bright line
   if (post.weather.y > 0.0) {
-    let fi = fieldPost(${4 * MAX_CELLS}u, wp);
+    let fi = fieldPost(${2 * MAX_CELLS}u, wp);
     // (the distance from the front, by the field's slope; at least about half its usual slope, since where ice
     // starts, at the field's minima, the slope vanishes and the distance with it would leap: the dendrites' reach
     // ahead would cover a whole disc at once instead of growing from a point)

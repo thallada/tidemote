@@ -28,7 +28,7 @@ test('LOD preserves light, bonded outlines merge, and all detail views validate'
   });
   const genome = new ArrayBuffer(MAXK * G_WORDS * 4);
   // water at the cell's optimum, so heat neither dims nor bleaches it
-  device.queue.writeBuffer(eng.b.thermal, MAX_CELLS * 4, new Float32Array(100).fill(g.topt));
+  device.queue.writeBuffer(eng.b.thermal, 0, new Float32Array(100).fill(g.topt));
   const updateGenome = () => {
     writeGenome(new Uint32Array(genome), new Float32Array(genome), FIRST_LIFE, g);
     device.queue.writeBuffer(eng.b.genomes, 0, genome);

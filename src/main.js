@@ -2,7 +2,7 @@ import { createSound, songClip } from './audio/sound.js';
 import { voiceOf } from './audio/mapping.js';
 import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
-import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS, restrideThermal, compactState } from './engine.js';
+import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS, compactState } from './engine.js';
 import { genomeSerial, readGenome, parseParticle, thermalGuild } from './genome.js';
 import { seasonAt, createClimate, abioRate, EVENT_TYPES, excursionAt } from './climate.js';
 import { countPools } from './geography.js';
@@ -535,7 +535,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // a world as file bytes, read and checked before the one running is touched
   async function openWorld(bytes) {
     const w = await decodeWorld(bytes);
-    if (w.gpu.thermal) w.gpu.thermal = restrideThermal(w.gpu.thermal);
     // the buffers this version keeps, each its size (a buffer it does not know, from a newer minor
     // version, is left out; decodeWorld has already refused another major)
     const want = eng.stateSizes(w.cpu.count);

@@ -11,7 +11,7 @@ Each world has a floor (`src/geography.js`, `makeRelief`): a smooth torus-period
 grid, a red sum of waves with wavelengths from about 10 to 70 world units, its coordinates warped so basins and
 ridges are organic, stored as each grid cell's **quantile** (0 the deepest, 1 the highest). The climate sets a
 water level `L` (Sim `pond.x`); the floor above it is dry, so the share `1 - L` of it is dry whatever the world's
-size. The GPU reads the relief bilinearly from thermal block 3 (`pondWith`: depth `L - relief` and the slope);
+size. The GPU reads the relief bilinearly from thermal block 1 (`pondWith`: depth `L - relief` and the slope);
 the page draws it bicubically (`pondPost`), so the drawn edge is smooth and the simulated one lies within a
 fraction of a unit of it.
 
@@ -55,7 +55,7 @@ ice showed at once over patches the simulation had not frozen.
   units/s; first 0.01-0.04, which read as still).
 - **Frost** (`frostGrow`, `frostHold`, `frostThaw`): a cold night (light × 0.4, the background water chilled to 0.5°
   whatever the era's warmth, `FROST_WATER` in `src/climate.js`, × `frostCold`) on a pool this thin freezes it
-  in-plane. Ice grows in the order of a second field (`makeIceOrder`, thermal block 4: grains spreading from the
+  in-plane. Ice grows in the order of a second field (`makeIceOrder`, thermal block 2: grains spreading from the
   shallows and from their centers, meeting last along the zero lines of a random field) until `frostMax` (60-85%)
   of the pool is ice. The frozen share is the frost (the field is ranked), so a patch's radius goes as the frost's
   square root: the frost is eased twice (growth and thaw), so every patch starts from nothing at no speed and

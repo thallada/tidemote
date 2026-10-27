@@ -52,18 +52,6 @@ export async function createEngine(device, format, { hasTimestamps = false, K = 
 const LATE = new Set(['lifeMainCoarse', 'mindMain', 'mindMainCoarse', 'rangeMain']);
 const COMPILE_COST = { lifeMain: 26, fsPoint: 15, 'fsPointLive+live': 13, fsComposite: 11, fsLoupe: 8, matterMain: 5 };
 
-/**
- * A saved heat field (five blocks of grid cells) in this build's layout: saves from before the grid
- * held 2^19 cells keep their blocks MAX_CELLS / 2 apart. Any world's grid fits in either.
- */
-export function restrideThermal(buf) {
-  const from = buf.byteLength / 20;
-  if (from === MAX_CELLS) return buf;
-  const src = new Uint32Array(buf), out = new Uint32Array(5 * MAX_CELLS), m = Math.min(from, MAX_CELLS);
-  for (let k = 0; k < 5; k++) out.set(src.subarray(k * from, k * from + m), k * MAX_CELLS);
-  return out.buffer;
-}
-
 class Engine {
   constructor(device, format, hasTimestamps, K, late = false) {
     this.device = device;
@@ -132,7 +120,7 @@ class Engine {
     b.sim = d.createBuffer({ size: 384, usage: U.UNIFORM | U.COPY_DST });
     // the heat field: deposits, temperatures and husks per cell, and heatMain's next temperatures (shaders.js); then
     // the pool's floor, each cell's relief quantile (src/geography.js)
-    b.thermal = d.createBuffer({ size: 5 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    b.thermal = d.createBuffer({ size: 3 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.heatNext = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
     b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
     this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
@@ -723,12 +711,12 @@ class Engine {
     this._writeSim({ seedKinds: plan.length, pSilt: silt, pHusk: husk });
     // the water starts at the background everywhere; framboids and crowds warm it within a minute
     const water = new Float32Array(cells).fill(this.tbg);
-    d.queue.writeBuffer(this.b.thermal, MAX_CELLS * 4, water);
+    d.queue.writeBuffer(this.b.thermal, 0, water);
     // the pool's floor, from the world's seed, and the order in which it freezes
     this.relief = makeRelief(this.grid[0], this.grid[1], this.seedValue);
     this.floor = null;
-    d.queue.writeBuffer(this.b.thermal, 3 * MAX_CELLS * 4, this.relief);
-    d.queue.writeBuffer(this.b.thermal, 4 * MAX_CELLS * 4, (this.iceOrder = makeIceOrder(this.grid[0], this.grid[1], this.seedValue, this.relief)));
+    d.queue.writeBuffer(this.b.thermal, MAX_CELLS * 4, this.relief);
+    d.queue.writeBuffer(this.b.thermal, 2 * MAX_CELLS * 4, (this.iceOrder = makeIceOrder(this.grid[0], this.grid[1], this.seedValue, this.relief)));
     this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.mudRain = 0; this.parch = 0; this.duck.fill(0); this.drops.fill(0);
     const enc = d.createCommandEncoder();
     enc.clearBuffer(this.b.ledger, this._heatAccAt(), cells * 4);
@@ -768,7 +756,7 @@ class Engine {
     f.at = this.simTime;
     const e = u * u * (3 - 2 * u);
     for (let i = 0; i < f.to.length; i++) this.relief[i] = f.from[i] + (f.to[i] - f.from[i]) * e;
-    this.device.queue.writeBuffer(this.b.thermal, 3 * MAX_CELLS * 4, this.relief);
+    this.device.queue.writeBuffer(this.b.thermal, MAX_CELLS * 4, this.relief);
     if (u >= 1) this.floor = null;
   }
 
@@ -902,7 +890,7 @@ class Engine {
     if (this.K.heat) run('heatMain', Math.ceil(cells / 64));
     if (!prof) pass.end();
     // the next temperatures become this step's
-    if (this.K.heat) enc.copyBufferToBuffer(b.heatNext, 0, b.thermal, MAX_CELLS * 4, cells * 4);
+    if (this.K.heat) enc.copyBufferToBuffer(b.heatNext, 0, b.thermal, 0, cells * 4);
   }
 
   /** One simulation step with each dispatch timed on the GPU: [[name, ms], ...]. Needs timestamps. */
@@ -978,12 +966,12 @@ class Engine {
 
   /** The bytes of each buffer readState() keeps, for a world of n particles. */
   stateSizes(n) {
-    return { parts: n * P_BYTES, genomes: MAXK * G_BYTES, intent: n * 16, ledger: (META_CLAIM + n) * 4, thermal: 5 * MAX_CELLS * 4 };
+    return { parts: n * P_BYTES, genomes: MAXK * G_BYTES, intent: n * 16, ledger: (META_CLAIM + n) * 4, thermal: 3 * MAX_CELLS * 4 };
   }
 
   /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
   writeState({ cpu, gpu }) {
-    for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, k === 'thermal' ? restrideThermal(data) : data);
+    for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, data);
     // the species ledger starts afresh with the world put in place
     const enc = this.device.createCommandEncoder();
     enc.clearBuffer(this.b.ledger, this._splAt(), SPL_WORDS * 4);
@@ -994,11 +982,11 @@ class Engine {
     if (gpu.thermal) {
       // the floor as the world left it (eras move it), and the order it freezes in, which a save does
       // not keep (compactState): built again from the seed, as seed() builds it
-      const [gw, gh] = this.grid, t = new Float32Array(restrideThermal(gpu.thermal));
-      this.relief = t.slice(3 * MAX_CELLS, 3 * MAX_CELLS + gw * gh);
+      const [gw, gh] = this.grid, t = new Float32Array(gpu.thermal);
+      this.relief = t.slice(MAX_CELLS, MAX_CELLS + gw * gh);
       this.floor = null;
       this.iceOrder = makeIceOrder(gw, gh, this.seedValue, makeRelief(gw, gh, this.seedValue));
-      this.device.queue.writeBuffer(this.b.thermal, 4 * MAX_CELLS * 4, this.iceOrder);
+      this.device.queue.writeBuffer(this.b.thermal, 2 * MAX_CELLS * 4, this.iceOrder);
     }
     this.sorted = false;
     this.worldGeneration++;
@@ -1025,7 +1013,7 @@ class Engine {
     const d = this.device, U = GPUBufferUsage, n = this.grid[0] * this.grid[1];
     const st = d.createBuffer({ size: n * 4, usage: U.COPY_DST | U.MAP_READ });
     const enc = d.createCommandEncoder();
-    enc.copyBufferToBuffer(this.b.thermal, MAX_CELLS * 4, st, 0, n * 4);
+    enc.copyBufferToBuffer(this.b.thermal, 0, st, 0, n * 4);
     d.queue.submit([enc.finish()]);
     await st.mapAsync(GPUMapMode.READ);
     const out = new Float32Array(st.getMappedRange().slice(0));
@@ -1875,8 +1863,8 @@ class Engine {
  * - Silt takes new ids, in the order it lies, after every id given so far (ledger[0] counts them):
  *   an id seeds only a grain's random draws and how it is drawn up close (its outline and turn), and
  *   ids in order cost almost nothing where 3 million in no order cost 9 MB.
- * - Of the heat buffer, deposits and husk piles are emptied and refilled within each step and the
- *   ice order is built from the seed (writeState builds it again): temperatures and relief are kept.
+ * - Of the heat buffer, the ice order is built from the seed (writeState builds it again): temperatures
+ *   and relief are kept.
  * - The particles go by columns: positions as their grid cell (the change from the particle before;
  *   particles lie sorted by cell) and the place within it to 2^-10 of a unit (0.06 µm; a cell is
  *   about 10 µm across); velocity, energy and age cut to 10 mantissa bits (a thousandth of
@@ -1889,8 +1877,8 @@ export function compactState({ cpu, gpu }) {
   let next = ledger[0];
   for (let i = 0; i < n; i++) if (pu[i * W + 4] === 0) pu[i * W + 7] = next++;
   ledger[0] = next;
-  const thermal = gpu.thermal && new Uint32Array(gpu.thermal.slice(0)), per = thermal ? thermal.length / 5 : 0;
-  if (thermal) { thermal.fill(0, 0, per); thermal.fill(0, 2 * per, 3 * per); thermal.fill(0, 4 * per); }
+  const thermal = gpu.thermal && new Uint32Array(gpu.thermal.slice(0)), per = thermal ? thermal.length / 3 : 0;
+  if (thermal) thermal.fill(0, 2 * per);
   const claims = new Uint32Array(gpu.ledger, META_CLAIM * 4, Math.min(n, gpu.ledger.byteLength / 4 - META_CLAIM));
   const claimer = new Uint8Array(n);
   for (const c of claims) if (c && !(c & 0x80000000) && c <= n) claimer[c - 1] = 1;
