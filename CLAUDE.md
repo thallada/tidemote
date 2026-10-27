@@ -14,7 +14,7 @@ GPU biosphere simulation (WebGPU, WGSL) with a browser page and headless tools. 
 - `tools/gpu-node.sh tools/perf/bench.mjs --plan tools/perf/plans/baseline.json --out runs/perf/x.json` profiles the built page in Windows Chrome on the GPU (saved worlds, every pass timed); see docs/performance.md. Settings → Performance → Copy profile does the same on any device.
 - `tools/gpu-node.sh tools/ui-audit.mjs --out runs/ui/NAME` screenshots the built page at laptop and phone sizes and audits it (text under 11px, targets under 24px, the specimen compass above the fold, axe-core); `--page FILE` audits an older build. `tools/ui-check.mjs` drives the census-chart toggle and the Settings volume slider. Run both after UI changes.
 - `tools/gpu-node.sh tools/swimlab.mjs --body filament:12 --sweep '[{"beat":[0.5,1.5,1,1]}]'` builds one body (`filament:N`, `branch:N:EVERY:LEN`, `mat:N:TAILLEN:TAILS`) alone in still water and measures its swimming against resistive force theory (`--step 4` for coarse steps, `--grow` to let it bud); docs/growth.md. Check beat or tail changes with it at 1 and 4 ticks.
-- `node tools/chronicle.mjs --n 131072 --minutes 60 --speed 16` runs the built page headless to a simulated time and prints the chronicler's stories, how many an hour, and every candidate it weighed (docs/chronicler.md). Check story changes with it: a few an hour, each one notable. `tools/ui-audit.mjs` and `tools/ui-check.mjs` also run headless on Linux with `TIDEMOTE_VK_LAYER`.
+- `node tools/chronicle.mjs --n 131072 --minutes 60 --speed 16` runs the built page headless to a simulated time and prints the chronicler's stories, how many an hour, and every candidate it weighed (docs/chronicler.md). Check story changes with it: a few an hour, each one notable. `tools/ui-audit.mjs` and `tools/ui-check.mjs` also run headless on Linux with `TIDEMOTE_VK=1`.
 - Fast speeds take coarse steps of up to 4/60 s (docs/fast-forward.md). An ecology change that touches `lifeMain`, `cellWGSL` or `resolveCount` should also keep 4-tick long runs (`ensemble.mjs --runs 128 --step 4`, `tools/fastforward/pool.mjs`) in line with normal ones.
 
 ## Layout
@@ -37,7 +37,7 @@ GPU biosphere simulation (WebGPU, WGSL) with a browser page and headless tools. 
 
 ## Headless caveats
 
-- On Linux without a display (an NVIDIA GPU), `TIDEMOTE_VK_LAYER=DIR node tools/ensemble.mjs --chrome ...` (and `sim.mjs --chrome`, `tools/perf/bench.mjs --linux`) runs Chromium on the GPU through Vulkan; DIR is what `tools/perf/vklayer/build.sh` prints (a pass-through layer advertising `VK_EXT_headless_surface`). The 32-seed gate takes about 20 minutes there and matches the D3D12 baseline.
+- On Linux without a display (an NVIDIA GPU), `TIDEMOTE_VK=1 node tools/ensemble.mjs --chrome ...` (and `sim.mjs --chrome`, `tools/perf/bench.mjs --linux`) runs Chromium on the GPU through Vulkan (`tools/vk.mjs`). It needs NVIDIA driver 595 or later (Ubuntu 26.04), whose Vulkan has `VK_EXT_headless_surface`. The 32-seed gate takes about 20 minutes there and matches the D3D12 baseline.
 - Under WSL, prefix headless tools with `tools/gpu-node.sh` (Windows Node, Dawn on D3D12, the real GPU). Plain `node` in WSL only finds llvmpipe and `sim.mjs` refuses it unless `--cpu` is passed.
 - GPU runs are not bit-reproducible per seed; compare ensembles, never single runs.
 - On machines without a GPU use `--chrome` (Playwright Chromium with SwiftShader). It is slow (about 76 ms/frame at 4k particles) but stable.

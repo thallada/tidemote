@@ -1,7 +1,7 @@
 // Runs the built page on the GPU as fast as it goes and saves its lineage records (the established
 // species with their population records, the history, the climate's eras) every few minutes, for
 // checking the Lab's Lineage view on long worlds (tools/lineage/page-shots.mjs).
-//   node tools/lineage/capture.mjs --out runs/lineage/w1 --minutes 60 --every 5 [--n 65536] [--k '{...}'] [--layer DIR]
+//   node tools/lineage/capture.mjs --out runs/lineage/w1 --minutes 60 --every 5 [--n 65536] [--k '{...}']
 import fs from 'node:fs';
 import path from 'node:path';
 import { root, start, open } from './browser.mjs';
@@ -11,7 +11,7 @@ const out = path.resolve(root, arg('out', 'runs/lineage/w'));
 const minutes = +arg('minutes', 30), every = +arg('every', 5), n = arg('n') ? +arg('n') : null, k = arg('k', '');
 fs.mkdirSync(out, { recursive: true });
 
-const env = await start(arg('layer'));
+const env = await start();
 const page = await open(env, { particles: n, hash: k ? `#k=${encodeURIComponent(k)}` : '' });
 await page.evaluate(() => globalThis.__tidemote.setSpeed(Infinity));
 

@@ -25,6 +25,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
+import { vkLaunch } from '../vk.mjs';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
@@ -62,22 +63,12 @@ const base = `http://127.0.0.1:${server.address().port}`;
 
 const W = +v.width, H = +v.height;
 const userDir = fs.mkdtempSync(path.join(process.env.TEMP || process.env.TMPDIR || '/tmp', 'tidemote-perf-'));
-// On Linux without a display (--linux): Playwright's Chromium, headless, on the GPU through Vulkan.
-// Headless Chrome wants VK_EXT_headless_surface, which NVIDIA's driver lacks: point TIDEMOTE_VK_LAYER
-// at a directory holding a pass-through layer whose manifest advertises it.
-const linux = v.linux ? {
-  headless: true, executablePath: undefined, viewport: { width: W, height: H },
-  ignoreDefaultArgs: ['--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader'],
-  extra: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-angle=vulkan', '--ignore-gpu-blocklist', '--disable-vulkan-surface'],
-  env: process.env.TIDEMOTE_VK_LAYER ? { ...process.env, VK_ADD_LAYER_PATH: process.env.TIDEMOTE_VK_LAYER, VK_INSTANCE_LAYERS: 'VK_LAYER_TIDEMOTE_headless' } : process.env,
-} : null;
-const ctx = await chromium.launchPersistentContext(userDir, {
-  executablePath: linux ? linux.executablePath : v.chrome, headless: !!linux, viewport: linux ? linux.viewport : null, ...(linux ? { deviceScaleFactor: +v.dpr } : {}),
-  ...(linux ? { ignoreDefaultArgs: linux.ignoreDefaultArgs, env: linux.env } : {}),
-  args: [`--window-size=${W},${H}`, '--window-position=0,0', '--enable-webgpu-developer-features', '--autoplay-policy=no-user-gesture-required',
-    '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--no-first-run', '--no-default-browser-check',
-    ...(linux ? linux.extra : [])],
-});
+const args = [`--window-size=${W},${H}`, '--window-position=0,0', '--enable-webgpu-developer-features', '--autoplay-policy=no-user-gesture-required',
+  '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--no-first-run', '--no-default-browser-check'];
+// On Linux without a display (--linux): Playwright's Chromium, headless, on the GPU through Vulkan (tools/vk.mjs)
+const ctx = await chromium.launchPersistentContext(userDir, v.linux
+  ? { ...vkLaunch([...args, '--enable-unsafe-webgpu']), viewport: { width: W, height: H }, deviceScaleFactor: +v.dpr }
+  : { executablePath: v.chrome, headless: false, viewport: null, args });
 const report = { when: new Date().toISOString(), window: [W, H], worlds: {}, scenarios: [] };
 
 async function openPage(n, extra = {}, k = null, init = null, html = null) {

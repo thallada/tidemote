@@ -160,7 +160,7 @@ if [ ! -e "$WT/.farm-ready" ]; then
   touch "$WT/.farm-ready"
 fi
 ${Object.keys(h.env ?? {}).filter((key) => key.startsWith('TIDEMOTE_')).map((key) =>
-  `grep -q ${key} "$WT/tools/sim.mjs" || { echo "sim.mjs at $SHA does not read ${key}" >&2; exit 3; }`).join('\n')}`);
+  `grep -qs ${key} "$WT/tools/sim.mjs" "$WT/tools/vk.mjs" || { echo "sim.mjs at $SHA does not read ${key}" >&2; exit 3; }`).join('\n')}`);
     if (r.code) h.down = `setup failed: ${r.stderr.trim()}`;
   }));
   for (const h of hosts) if (h.down) console.log(`${h.name}: ${h.down}`);

@@ -1,15 +1,15 @@
-// The built page in headless Chromium on the GPU, for capture.mjs and page-shots.mjs. On Linux +
-// NVIDIA pass the headless Vulkan layer's directory (--layer DIR or VK_ADD_LAYER_PATH).
+// The built page in headless Chromium on the GPU through Vulkan (tools/vk.mjs), for capture.mjs and page-shots.mjs.
 import { chromium } from 'playwright-core';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { vkLaunch, retryAdapter } from '../vk.mjs';
 
 export const root = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 
 /** Serve dist/tidemote.html at / (and repo files by path) and launch Chromium: { url, browser, close }. */
-export async function start(layer = process.env.VK_ADD_LAYER_PATH) {
+export async function start() {
   const server = http.createServer((req, res) => {
     const f = req.url === '/' || req.url.startsWith('/#') ? path.join(root, 'dist/tidemote.html') : path.join(root, decodeURIComponent(req.url));
     if (!f.startsWith(root) || !fs.existsSync(f)) { res.writeHead(404); return res.end(); }
@@ -17,13 +17,7 @@ export async function start(layer = process.env.VK_ADD_LAYER_PATH) {
     fs.createReadStream(f).pipe(res);
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const env = { ...process.env };
-  if (layer) { env.VK_ADD_LAYER_PATH = layer; env.VK_INSTANCE_LAYERS = 'VK_LAYER_TIDEMOTE_headless'; }
-  const browser = await chromium.launch({
-    executablePath: process.env.PLAYWRIGHT_CHROMIUM || chromium.executablePath(), headless: true, env,
-    ignoreDefaultArgs: ['--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader'],
-    args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-angle=vulkan', '--ignore-gpu-blocklist', '--disable-vulkan-surface'],
-  });
+  const browser = await chromium.launch({ ...vkLaunch(['--enable-unsafe-webgpu']), executablePath: process.env.PLAYWRIGHT_CHROMIUM || chromium.executablePath() });
   return { url: `http://127.0.0.1:${server.address().port}/`, browser, close: async () => { await browser.close(); server.close(); } };
 }
 
@@ -34,10 +28,8 @@ export async function open(env, { viewport = { width: 1280, height: 800 }, mobil
   await page.addInitScript((particles) => {
     localStorage.setItem('tidemote.view', JSON.stringify({ v: 2, auto: false, labOpen: false, ...(particles ? { particles } : {}) }));
     localStorage.setItem('tidemote.sound', '{"on":false}');
-    // the first adapter request can come back empty
-    const req = navigator.gpu.requestAdapter.bind(navigator.gpu);
-    navigator.gpu.requestAdapter = async (o) => (await req(o)) || req(o);
   }, particles);
+  await page.addInitScript(retryAdapter);
   await page.goto(env.url + hash);
   await page.waitForFunction(() => globalThis.__tidemote?.state.phase === 'running', null, { timeout: 120000 });
   await page.keyboard.press('Shift');

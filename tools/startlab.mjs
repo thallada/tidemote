@@ -6,12 +6,13 @@
 //   tools/gpu-node.sh tools/startlab.mjs --n 524288 --minutes 30 --seed 3 --out runs/start/x.json
 //   tools/gpu-node.sh tools/startlab.mjs --load world.tidemote --minutes 20 --rep 1 --cull 0:0.98 --out y.json
 //   ... --warm 120   (the first 2 minutes in 4-tick steps, as the page's warm-up at Max)
-//   TIDEMOTE_VK_LAYER=DIR node tools/startlab.mjs --chrome ...   (Linux + NVIDIA; no --load or --save)
+//   TIDEMOTE_VK=1 node tools/startlab.mjs --chrome ...   (Linux + NVIDIA; no --load or --save)
 import fs from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
+import { vkOn, vkLaunch } from './vk.mjs';
 
 const { values: v } = parseArgs({ options: {
   n: { type: 'string', default: '524288' }, minutes: { type: 'string', default: '30' }, seed: { type: 'string', default: '1' },
@@ -54,13 +55,8 @@ async function runChrome() {
   const { chromium } = await import('playwright-core');
   const bundle = await build({ entryPoints: [fileURLToPath(new URL('./startlab-core.js', import.meta.url))], bundle: true, format: 'iife', globalName: 'Lab', write: false });
   const dir = fs.mkdtempSync(path.join(tmpdir(), 'tidemote-lab-'));
-  const vk = process.env.TIDEMOTE_VK_LAYER;
   const executablePath = process.env.PLAYWRIGHT_CHROMIUM || chromium.executablePath();
-  const browser = await chromium.launch(vk ? {
-    headless: true, executablePath, env: { ...process.env, VK_ADD_LAYER_PATH: vk, VK_INSTANCE_LAYERS: 'VK_LAYER_TIDEMOTE_headless' },
-    ignoreDefaultArgs: ['--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader'],
-    args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-angle=vulkan', '--ignore-gpu-blocklist', '--disable-vulkan-surface'],
-  } : { headless: true, executablePath, args: ['--enable-unsafe-webgpu'] });
+  const browser = await chromium.launch(vkOn ? { ...vkLaunch(['--enable-unsafe-webgpu']), executablePath } : { headless: true, executablePath, args: ['--enable-unsafe-webgpu'] });
   try {
     const page = await browser.newPage();
     page.setDefaultTimeout(0);

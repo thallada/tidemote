@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { runHeadless } from '../src/headless.js';
+import { vkOn, vkLaunch } from './vk.mjs';
 import { P_BYTES, FIRST_LIFE, FRAMBOID } from '../src/shaders.js';
 
 const { values: v } = parseArgs({ options: {
@@ -64,13 +65,8 @@ async function runChrome() {
   try {
     const html = path.join(dir, 'index.html');
     fs.writeFileSync(html, '<!doctype html><meta charset="utf-8"><title>Tidemote headless</title>');
-    // TIDEMOTE_VK_LAYER (Linux, no display): Chromium on the real GPU through Vulkan, as tools/perf/bench.mjs --linux
-    const vk = process.env.TIDEMOTE_VK_LAYER;
-    browser = await chromium.launch(vk ? {
-      headless: true, executablePath, env: { ...process.env, VK_ADD_LAYER_PATH: vk, VK_INSTANCE_LAYERS: 'VK_LAYER_TIDEMOTE_headless' },
-      ignoreDefaultArgs: ['--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader'],
-      args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-angle=vulkan', '--ignore-gpu-blocklist', '--disable-vulkan-surface'],
-    } : { headless: true, executablePath, args: ['--enable-unsafe-webgpu'] });
+    // TIDEMOTE_VK (Linux, no display): Chromium on the real GPU through Vulkan (tools/vk.mjs)
+    browser = await chromium.launch(vkOn ? { ...vkLaunch(['--enable-unsafe-webgpu']), executablePath } : { headless: true, executablePath, args: ['--enable-unsafe-webgpu'] });
     const page = await browser.newPage();
     page.setDefaultTimeout(0);
     page.on('console', (message) => console.log(message.text()));

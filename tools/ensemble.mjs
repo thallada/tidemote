@@ -22,7 +22,7 @@ if (v.help || (!v.out && !v.from)) {
   --step 1                Each step covers step/60 s (coarse steps; the page takes up to 4)
   --temp T                Hold the water at T degrees
   --sample 5              Seconds between samples
-  --chrome                Run each seed in Chromium (sim.mjs --chrome; TIDEMOTE_VK_LAYER: on the GPU)
+  --chrome                Run each seed in Chromium (sim.mjs --chrome; TIDEMOTE_VK=1: on the GPU)
   --resume                Skip seeds already in --out (or claimed by another ensemble running into it)
   --from DIR              Analyze the run JSONs already in DIR instead of running
   --baseline FILE         Compare with a saved report; exit 1 if a gated metric regressed

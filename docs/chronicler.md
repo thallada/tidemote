@@ -153,8 +153,8 @@ Measured on this repo's Linux box (RTX 2080 SUPER, headless Chromium on Vulkan):
 
 ## Tools
 
-- `node tools/chronicle.mjs --n 131072 --minutes 60 --speed 16` (with `TIDEMOTE_VK_LAYER` on Linux): the built page run
+- `node tools/chronicle.mjs --n 131072 --minutes 60 --speed 16` (with `TIDEMOTE_VK=1` on Linux): the built page run
   to a simulated time, its stories, how many an hour, and every candidate it weighed by kind with its best score.
 - `tools/ui-audit.mjs` screenshots the card and the Chronicler log filter; `tools/ui-check.mjs` opens a card from the
   specimen panel, names the species with Enter, closes it with Esc, and films with R. Both run headless on Linux with
-  `TIDEMOTE_VK_LAYER`.
+  `TIDEMOTE_VK=1`.

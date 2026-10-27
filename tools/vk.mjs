@@ -1,12 +1,11 @@
-// Playwright Chromium on the real GPU through Vulkan, on Linux without a display: TIDEMOTE_VK_LAYER names
-// the pass-through layer tools/perf/vklayer/build.sh builds (docs/headless-gpu.md).
-export const vkLayer = process.env.TIDEMOTE_VK_LAYER;
+// Playwright Chromium on the real GPU through Vulkan, on Linux without a display (docs/headless-gpu.md):
+// TIDEMOTE_VK=1 turns it on. Headless Chrome needs the driver's VK_EXT_headless_surface (NVIDIA 595 and later).
+export const vkOn = !!process.env.TIDEMOTE_VK;
 
 /** Launch options for headless Chromium on the GPU (args: the tool's own, before the Vulkan ones). */
 export const vkLaunch = (args = []) => ({
   headless: true,
   ignoreDefaultArgs: ['--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader'],
-  env: { ...process.env, VK_ADD_LAYER_PATH: vkLayer, VK_INSTANCE_LAYERS: 'VK_LAYER_TIDEMOTE_headless' },
   args: [...args, '--enable-features=Vulkan', '--use-angle=vulkan', '--ignore-gpu-blocklist', '--disable-vulkan-surface'],
 });
 

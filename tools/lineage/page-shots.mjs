@@ -1,7 +1,7 @@
 // Screenshots of the built page's Lab → Lineage pane holding a saved world's records
 // (tools/lineage/capture.mjs): the page runs on the GPU, is paused, and is handed the records in
 // place of its own, then each scenario (hover, a dragged span, a followed lineage, a phone) is shot.
-//   node tools/lineage/page-shots.mjs [--layer DIR] --out runs/lineage/page runs/lineage/wB/t00678m.json ...
+//   node tools/lineage/page-shots.mjs --out runs/lineage/page runs/lineage/wB/t00678m.json ...
 import fs from 'node:fs';
 import path from 'node:path';
 import { root, start, open as openPage } from './browser.mjs';
@@ -9,7 +9,7 @@ import { root, start, open as openPage } from './browser.mjs';
 const args = process.argv.slice(2);
 const arg = (k, d) => { const i = args.indexOf(`--${k}`); if (i < 0) return d; const v = args[i + 1]; args.splice(i, 2); return v; };
 const out = path.resolve(root, arg('out', 'runs/lineage/page'));
-const env = await start(arg('layer'));
+const env = await start();
 const only = arg('only', '');
 fs.mkdirSync(out, { recursive: true });
 const open = async (viewport, mobile = false) => {

@@ -124,7 +124,7 @@ node tools/farm.mjs --clean                          # drop the farm's worktrees
 ```json
 { "hosts": {
   "linux-box": { "hostname": "linux-box", "ssh": "user@linux-box", "repo": "~/src/tidemote", "slots": 4,
-                 "node": "node", "args": ["--chrome"], "env": { "TIDEMOTE_VK_LAYER": "~/src/tidemote/runs/vklayer" } },
+                 "node": "node", "args": ["--chrome"], "env": { "TIDEMOTE_VK": "1" } },
   "wsl-box":   { "hostname": "wsl-box", "ssh": "user@wsl-box", "repo": "~/src/tidemote", "slots": 4,
                  "node": "tools/gpu-node.sh", "path": ["/mnt/c/Windows/System32"] } } }
 ```
@@ -158,8 +158,8 @@ like.
 - **Stopping.** Ctrl-C kills this farm's sims on every host.
 - **Host-specific settings.** Under WSL, ssh sessions lack the Windows PATH that `gpu-node.sh` relies
   on: add `/mnt/c/Windows/System32` with `path`. A host that sets a `TIDEMOTE_*` variable in `env`
-  refuses commits whose `sim.mjs` does not read it. For example, a Chrome host without
-  `TIDEMOTE_VK_LAYER` would run silently on SwiftShader.
+  refuses commits whose `sim.mjs` (or `tools/vk.mjs`) does not read it. For example, a Chrome host without
+  `TIDEMOTE_VK` would run silently on SwiftShader.
 
 Each farmed seed records its host label, adapter and commit, and the report counts every host and
 adapter it saw. Different GPUs and drivers could shift the distribution of outcomes slightly, so gate a
