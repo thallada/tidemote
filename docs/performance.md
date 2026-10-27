@@ -19,7 +19,8 @@ About 3.2 ns of `lifeMain` per living cell (4.3 on 2026-10-09). Its neighbor wal
 part: a build whose walk visits nothing takes 1.1 ms off its 5 ms at 4M, and one that reads every
 neighbor but does nothing with them costs the same as no walk, so the walk's reads are cheap and the
 rest of the kernel (each cell's own rules) is the bulk. `contactMain` is mostly its walk: `contactCap`
-32 instead of 128 takes 0.7 ms off it at 4M, 8 takes 1.0 (an ecology change, not made). `scatterMain`
+32 instead of 128 takes 0.7 ms off it at 4M, 8 takes 1.0. Settings → Neighbors scales it with `maxScan`
+(`contactCap` at the default, 88 → about 100), so the one setting trades both walks for speed. `scatterMain`
 moves about 140 bytes a particle, near the card's bandwidth (1.2 ms of its 1.65 at 4M).
 
 **Low water and atomics (2026-10-26).** A step at 4M had grown to 12 ms at full water and 19 ms in a

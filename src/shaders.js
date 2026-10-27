@@ -140,7 +140,7 @@ export const DEFAULT_K = {
   huntCore: 0.15,   // how much of other species' personal space a hungry forager respects
   liveScan: 64,     // each grid cell's living are sorted first, and a cell weighs its living neighbors exactly up to this many (sampled evenly past it), sampling only the matter
   contactReach: 0.14, // contactMain: the largest radius a neighbor is taken to have (grid cells within touching are walked)...
-  contactCap: 128,  // ...every living one up to this many in them, every so many past it
+  contactCap: 128,  // ...every living one up to this many in them, every so many past it (at the default maxScan: Settings → Neighbors scales it)
   maxScan: 112,     // neighbors a cell weighs per step in a crowd, sampled evenly (each counts for those skipped)
   diag: 0,          // 1: count K.diag's diagnostics into the ledger (DIAG_SLOTS; headless forks record them)
   affScale: 0.42,
@@ -1299,7 +1299,7 @@ fn flowWith(open: vec2f, pd: vec3f) -> vec2f {
 // The pool's floor at p (thermal block 3, a relief quantile per grid cell, bilinear): the water's depth there (the
 // level less the floor; below 0 dry) and the floor's slope (uphill, per world unit).
 // With frost (weather.y, the share of the pool frozen) ice grows over the pool in the order of thermal block 4 (a
-// quantile per grid cell, 0 first): liquid is where that order lies above the frost. pondAt gives whichever edge,
+// quantile per grid cell, 0 first): liquid is where that order lies above the frost. pondWith gives whichever edge,
 // the water's or the ice's, lies nearer, in the same terms: a depth (below 0: dry or frozen) and the slope toward it.
 fn pondOn() -> bool { return POND && (sim.pond.x < 1.0 || sim.weather.y > 0.0); }
 fn blockCell(block: u32, x: i32, y: i32) -> f32 { return thermal[block * MAX_CELLS + wrapCell(x, y)]; }
@@ -1314,11 +1314,7 @@ fn smoothField(block: u32, i: vec2i, t: vec2f) -> vec3f {
   let gy = mix(mix(v[9] - v[1], v[10] - v[2], t.x), mix(v[13] - v[5], v[14] - v[6], t.x), t.y) * 0.5;
   return vec3f(val, gx, gy);
 }
-fn pondAt(p: vec2f) -> vec3f {
-  if (!pondOn()) { return vec3f(1.0, 0.0, 0.0); }
-  return pondWith(p, openFlow(p));
-}
-// pondAt given the open water's flow at p (openFlow)
+// The pond at p given the open water's flow there (openFlow)
 fn pondWith(p: vec2f, open: vec2f) -> vec3f {
   var e = vec3f(1.0, 0.0, 0.0);
   if (!pondOn()) { return e; }
@@ -1338,7 +1334,7 @@ fn pondWith(p: vec2f, open: vec2f) -> vec3f {
   }
   return e;
 }
-// How far (world units) p lies from the water's edge, wet side positive, from pondAt's depth and slope.
+// How far (world units) p lies from the water's edge, wet side positive, from pondWith's depth and slope.
 fn shoreDist(pd: vec3f) -> f32 { return pd.x / max(length(pd.yz), 1e-4); }
 // The light at p: the baseline and the tide's bands by the season, under the sky (clouds) and any duckweed's shade.
 fn lightAt(p: vec2f) -> f32 {
@@ -2452,7 +2448,8 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
   }
   // (about 2.5 grid cells are within reach, on average; and beside a heap, never under a third of the
   // step the walked cells' own count asks)
-  let cs = max(1.0, max(dens * 2.5, f32(total) / 3.0) / ${f(K.contactCap)});
+  // (Settings → Neighbors scales the cap with the neighbor budget: contactCap at the default maxScan)
+  let cs = max(1.0, max(dens * 2.5, f32(total) / 3.0) / (${f(K.contactCap)} * f32(sim.maxScan) / ${f(K.maxScan)}));
   var s = pcg(p.id ^ pcg(sim.frame * 2246822519u + sim.seed));
   var push = vec2f(0.0);
   // (bodyHold is a share per 1/60 s: a step of any length undoes as much as that time would)
@@ -2927,7 +2924,7 @@ ${cellWGSL(K, true)}
   mPut2(38, bondF * (g.adhesion * ${f(K.bond)}));
   mPut2(40, stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify)));
   mPut2(42, mSwim);
-  mPut2(44, flowAt(p.pos) * g.advect);
+  mPut2(44, flow);
   for (var k = 0u; k < 4u; k++) { mPut(46u + k, mMatterN[k] * stride); }
   // warmth: its own temperature, the steer toward its optimum, the water, how well it works there
   mPut(21, Tc);
@@ -6133,7 +6130,7 @@ fn waterAt(p: vec2f) -> vec3f {
   let d = waterCell(i.x + 1, i.y + 1);
   return vec3f(mix(mix(a, b, t.x), mix(c, d, t.x), t.y), mix(b - a, d - c, t.y), mix(c - a, d - b, t.x));
 }
-// The pool's floor at world point p (docs/catastrophes.md), as the simulation reads it (pondAt): the water's depth
+// The pool's floor at world point p (docs/catastrophes.md), as the simulation reads it (pondWith): the water's depth
 // (below 0 dry) and the floor's slope uphill.
 fn gridPost(base: u32, x: i32, y: i32) -> f32 {
   let g = vec2i(post.world);

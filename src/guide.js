@@ -121,7 +121,7 @@ export const GLOSSARY = {
   specks: 'The fine suspension that drifts between cells when zoomed far in. Drawn speck by speck; off saves a compute pass and a full-screen pass.',
   closeup: 'The live close-up in the specimen panel: a second, small view of the world drawn every frame.',
   particles: 'Every grain, husk and cell is one particle; their number is fixed for a world’s whole life. Auto measures the GPU and picks the most it can run smoothly, and shows the count it picked for this world. Changing it starts a new world.',
-  neighbors: 'In a crowd, the most nearby particles a cell weighs each step. It samples them evenly and counts each for the ones it skips, so crowding and pushes stay right on average; it only picks food and bond partners from those it saw. Fewer runs faster in dense colonies and makes no difference in open water. The default is marked. Takes effect at once.',
+  neighbors: 'In a crowd, the most nearby particles a cell weighs each step. It samples them evenly and counts each for the ones it skips, so crowding and pushes stay right on average; it only picks food and bond partners from those it saw. The cells it touches (bodies parting, a crowd’s drag) are sampled in proportion. Fewer runs faster in dense colonies and makes no difference in open water. The default is marked. Takes effect at once.',
   interface: 'Off hides every panel, readout and caption, leaving only the world and the loupe; the auto camera keeps filming. U or Esc brings it back.',
   loupe: 'A magnifier that follows the mouse when zoomed out. Clicks inside it select what is under the crosshair.',
   speed: 'Current speed, in micrometers (µm) per second.',

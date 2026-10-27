@@ -11,7 +11,7 @@ Each world has a floor (`src/geography.js`, `makeRelief`): a smooth torus-period
 grid, a red sum of waves with wavelengths from about 10 to 70 world units, its coordinates warped so basins and
 ridges are organic, stored as each grid cell's **quantile** (0 the deepest, 1 the highest). The climate sets a
 water level `L` (Sim `pond.x`); the floor above it is dry, so the share `1 - L` of it is dry whatever the world's
-size. The GPU reads the relief bilinearly from thermal block 3 (`pondAt`: depth `L - relief` and the slope);
+size. The GPU reads the relief bilinearly from thermal block 3 (`pondWith`: depth `L - relief` and the slope);
 the page draws it bicubically (`pondPost`), so the drawn edge is smooth and the simulated one lies within a
 fraction of a unit of it.
 
@@ -60,7 +60,7 @@ ice showed at once over patches the simulation had not frozen.
   of the pool is ice. The frozen share is the frost (the field is ranked), so a patch's radius goes as the frost's
   square root: the frost is eased twice (growth and thaw), so every patch starts from nothing at no speed and
   gathers pace, and on the thaw shrinks back to nothing the same way (eased once, the first patches opened at speed
-  and read as popping in). The ice's front is an edge like the water's (`pondAt` takes whichever is nearer): it pushes
+  and read as popping in). The ice's front is an edge like the water's (`pondWith` takes whichever is nearer): it pushes
   cells ahead of it, so what lives is packed into the veins of water left between the grains (brine channels), and
   cells caught in the ice rest as cysts or freeze; silt and husks freeze where it finds them (carried to the front,
   as a drought's edge carries them, they gathered in strings down the valleys of the ice's order). Then it thaws.
