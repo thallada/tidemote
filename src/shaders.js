@@ -2002,7 +2002,10 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
         mix(reefCell(i0.x, i0.y + 1), reefCell(i0.x + 1, i0.y + 1), t.x), t.y);
       var region = 0.0;
       var area = 0.0;
-      if (${f(K.regionWear)} > 0.0) {
+      // the neighborhood is walked every eighth frame, its wear eight frames' worth: by runs of 64
+      // particles, so whole warps skip the walk together
+      let regionDue = ((sim.frame + (i >> 6u)) & 7u) == 0u;
+      if (${f(K.regionWear)} > 0.0 && regionDue) {
         // a disc as large as the square of side 2 regionR + 1 it replaces, its rim a cell wide
         let rr = ${f(REGION_DISC)};
         let c = vec2i(floor(p.pos));
@@ -2014,7 +2017,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
         }
       }
       wear = mix(${f(K.wearLoose)}, ${f(K.wearPacked)}, smoothstep(2.0, ${f(K.packedAt)}, here))
-        * (1.0 + ${f(K.regionWear)} * max(0.0, region / max(area, 1.0) / ${f(K.regionCap)} - 1.0));
+        * (1.0 + 8.0 * ${f(K.regionWear)} * max(0.0, region / max(area, 1.0) / ${f(K.regionCap)} - 1.0));
     }
     p.energy -= sim.dt * wear;
     p.age += sim.dt;

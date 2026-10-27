@@ -3456,7 +3456,10 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
         mix(reefCell(i0.x, i0.y + 1), reefCell(i0.x + 1, i0.y + 1), t.x), t.y);
       var region = 0.0;
       var area = 0.0;
-      if (${f(K.regionWear)} > 0.0) {
+      // the neighborhood is walked every eighth frame, its wear eight frames' worth: by runs of 64
+      // particles, so whole warps skip the walk together
+      let regionDue = ((sim.frame + (i >> 6u)) & 7u) == 0u;
+      if (${f(K.regionWear)} > 0.0 && regionDue) {
         // a disc as large as the square of side 2 regionR + 1 it replaces, its rim a cell wide
         let rr = ${f(REGION_DISC)};
         let c = vec2i(floor(p.pos));
@@ -3468,7 +3471,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
         }
       }
       wear = mix(${f(K.wearLoose)}, ${f(K.wearPacked)}, smoothstep(2.0, ${f(K.packedAt)}, here))
-        * (1.0 + ${f(K.regionWear)} * max(0.0, region / max(area, 1.0) / ${f(K.regionCap)} - 1.0));
+        * (1.0 + 8.0 * ${f(K.regionWear)} * max(0.0, region / max(area, 1.0) / ${f(K.regionCap)} - 1.0));
     }
     p.energy -= sim.dt * wear;
     p.age += sim.dt;
@@ -28981,6 +28984,19 @@ ${e.message}` : String(e?.message || e));
       const per = (x) => +(x / Math.max(1, frames)).toFixed(3);
       const step = Object.fromEntries((await eng.profileStep(1 / 60)).map(([k, ms]) => [k, +ms.toFixed(3)]));
       const a = device.adapterInfo || {};
+      const ev = climate?.event;
+      const world = {
+        simTime: Math.round(eng.simTime),
+        ticks: eng.ticks,
+        grid: eng.grid,
+        level: +eng.level.toFixed(4),
+        frost: +eng.frost.toFixed(3),
+        rain: +eng.rain.toFixed(3),
+        temp: +eng.temp.toFixed(1),
+        era: climate?.name,
+        eraLevel: climate?.levelTo,
+        event: ev ? { type: ev.type, phase: climate.phase, since: Math.round(eng.simTime - ev.t) } : null
+      };
       const json = JSON.stringify({
         ua: navigator.userAgent,
         gpu: [a.vendor, a.architecture, a.description].filter(Boolean).join(" / "),
@@ -28996,6 +29012,7 @@ ${e.message}` : String(e?.message || e));
         aim: Math.round(1e3 / frameTarget()),
         why: perf.why,
         audio: sound.load,
+        world,
         frameMs: per(gpu),
         passes: Object.fromEntries(Object.entries(passes).sort((x, y) => y[1] - x[1]).map(([k, x]) => [k, per(x)])),
         step

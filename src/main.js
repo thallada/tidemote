@@ -1992,10 +1992,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const per = (x) => +(x / Math.max(1, frames)).toFixed(3);
     const step = Object.fromEntries((await eng.profileStep(1 / 60)).map(([k, ms]) => [k, +ms.toFixed(3)]));
     const a = device.adapterInfo || {};
+    // the state that picks which work a step does: a pool below full (level < 1) or frost runs the shore's
+    // work for every particle, an event its own, a coarse step several ticks' worth
+    const ev = climate?.event;
+    const world = { simTime: Math.round(eng.simTime), ticks: eng.ticks, grid: eng.grid, level: +eng.level.toFixed(4), frost: +eng.frost.toFixed(3),
+      rain: +eng.rain.toFixed(3), temp: +eng.temp.toFixed(1), era: climate?.name, eraLevel: climate?.levelTo,
+      event: ev ? { type: ev.type, phase: climate.phase, since: Math.round(eng.simTime - ev.t) } : null };
     const json = JSON.stringify({ ua: navigator.userAgent, gpu: [a.vendor, a.architecture, a.description].filter(Boolean).join(' / '),
       canvas: [canvas.width, canvas.height], dpr: devicePixelRatio, scale: renderScale, particles: eng.count, neighbors: eng.maxScan, living: life.counts[3],
       cssPPU: +cssPPU().toFixed(1), speed: state.speed, fps: +perf.fps.toFixed(1), aim: Math.round(1000 / frameTarget()), why: perf.why, audio: sound.load,
-      frameMs: per(gpu), passes: Object.fromEntries(Object.entries(passes).sort((x, y) => y[1] - x[1]).map(([k, x]) => [k, per(x)])), step });
+      world, frameMs: per(gpu), passes: Object.fromEntries(Object.entries(passes).sort((x, y) => y[1] - x[1]).map(([k, x]) => [k, per(x)])), step });
     try { await navigator.clipboard.writeText(json); flash('Profile copied'); } catch { prompt('The profile, to copy:', json); }
   }
   function toggleFullscreen() {
