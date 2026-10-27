@@ -2608,7 +2608,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const now = performance.now();
     const marking = markSlot() !== -2 && songEvents.some((e) => now - e.at < MARK_MS);
     const key = state.currents || (sel && sel.particle) || L || marking ? null
-      : `${state.hud}|${director.active}|${cssPPU()}|${cam.x}|${dockTop}|${innerWidth}|${overlay.width}|${specimen.isOpen() && specimen.inset().right}|${document.fonts.status}`;
+      : `${state.hud}|${state.ui}|${director.active}|${cssPPU()}|${cam.x}|${dockTop}|${innerWidth}|${overlay.width}|${specimen.isOpen() && specimen.inset().right}|${document.fonts.status}`;
     if (key !== null && key === overlayKey) return;
     overlayKey = key;
     octx.setTransform(1, 0, 0, 1, 0, 0);

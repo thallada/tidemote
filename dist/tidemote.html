@@ -529,6 +529,7 @@ span.set-reset { display: inline-flex; align-items: center; gap: var(--s3); colo
 .w-txt span { color: var(--ink-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .w-txt em { font-style: normal; color: var(--sun); }
 .w-act { display: flex; align-items: center; gap: var(--s1); }
+.w-more { display: flex; justify-content: flex-end; padding-top: var(--s2); }
 .w-act .btn:disabled, .set-foot .link:disabled { opacity: .45; cursor: default; }
 .keys-note kbd, dt { color: var(--sun); }
 .help { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100% - 32px)); padding: 10px 18px 18px; z-index: 35; max-height: calc(100% - 32px); overflow-y: auto; }
@@ -1112,6 +1113,7 @@ svg.niche .n-dot { fill: var(--cyan); }
   <symbol id="i-plus" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-minus" viewBox="0 0 20 20"><path d="M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-down" viewBox="0 0 20 20"><path d="M10 4v9m-4-4 4 4 4-4M5 16h10" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+  <symbol id="i-share" viewBox="0 0 20 20"><path d="M10 13V4M6 8l4-4 4 4M4 11v5h12v-5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-chev" viewBox="0 0 20 20"><path d="m5 12.5 5-5 5 5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
   <!-- the pool's events and the climate's excursions (the rail's event chip) -->
   <symbol id="i-ev-drought" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="10" cy="7" r="2.8"/><path d="M10 1.8v1.4M4.8 7H3.4M16.6 7h-1.4M6.3 3.3l1 1M13.7 3.3l-1 1M2.5 12.5h15M5 15.5l2-3 2 3.5 2-3.5M13 12.5l1.2 3"/></g></symbol>
@@ -1512,7 +1514,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     contactReach: 0.14,
     // contactMain: the largest radius a neighbor is taken to have (grid cells within touching are walked)...
     contactCap: 128,
-    // ...every living one up to this many in them, every so many past it
+    // ...every living one up to this many in them, every so many past it (at the default maxScan: Settings → Neighbors scales it)
     maxScan: 112,
     // neighbors a cell weighs per step in a crowd, sampled evenly (each counts for those skipped)
     diag: 0,
@@ -2037,17 +2039,7 @@ fn blockAt(base: u32, p: vec2f) -> f32 {
   return mix(mix(heatField[row0 + u32(x0)], heatField[row0 + u32(x1)], t.x),
              mix(heatField[row1 + u32(x0)], heatField[row1 + u32(x1)], t.x), t.y);
 }
-fn waterTempAt(p: vec2f) -> f32 {
-  let g = vec2i(${world});
-  let u = p - 0.5;
-  let i = vec2i(floor(u));
-  let t = u - floor(u);
-  let x0 = ((i.x % g.x) + g.x) % g.x; let x1 = (x0 + 1) % g.x;
-  let y0 = ((i.y % g.y) + g.y) % g.y; let y1 = (y0 + 1) % g.y;
-  let row0 = MAX_CELLS + u32(y0 * g.x); let row1 = MAX_CELLS + u32(y1 * g.x);
-  return mix(mix(heatField[row0 + u32(x0)], heatField[row0 + u32(x1)], t.x),
-             mix(heatField[row1 + u32(x0)], heatField[row1 + u32(x1)], t.x), t.y);
-}
+fn waterTempAt(p: vec2f) -> f32 { return blockAt(0u, p); }
 `
   );
   var shownThermal = (g, t2) => `thermalState(${g}, ${t2}, ${f(DEFAULT_K.specBonus)}, ${f(DEFAULT_K.torporAt)}, ${f(DEFAULT_K.thermalFlat)}, ${f(DEFAULT_K.thermalWarm)})`;
@@ -2687,8 +2679,8 @@ fn splPair(h: u32, q: u32, won: bool) {
 @group(0) @binding(20) var<storage, read_write> bondsAt: array<atomic<u32>>;
 fn bondsOf(i: u32) -> vec2u { return vec2u(bondsNow[i * 6u], bondsNow[i * 6u + 1u]); }
 fn backOf(i: u32, k: u32) -> u32 { return bondsNow[i * 6u + 2u + k]; }
-// The heat field, by blocks of MAX_CELLS: (0 unused), the water's temperature per grid cell, (2 unused),
-// the pool's floor, the order it freezes in; read only (the step writes none of it: heatMain writes the next
+// The heat field, by blocks of MAX_CELLS: the water's temperature per grid cell, the pool's floor, the order
+// it freezes in; read only (the step writes none of it: heatMain writes the next
 // temperatures to heatNext, copied in after). What the step adds up goes to the ledger's end (heatAccAt).
 @group(0) @binding(18) var<storage, read> thermal: array<f32>;
 @group(0) @binding(19) var<storage, read_write> heatNext: array<f32>;
@@ -2750,10 +2742,10 @@ fn flowWith(open: vec2f, pd: vec3f) -> vec2f {
   }
   return v;
 }
-// The pool's floor at p (thermal block 3, a relief quantile per grid cell, bilinear): the water's depth there (the
+// The pool's floor at p (thermal block 1, a relief quantile per grid cell, bilinear): the water's depth there (the
 // level less the floor; below 0 dry) and the floor's slope (uphill, per world unit).
-// With frost (weather.y, the share of the pool frozen) ice grows over the pool in the order of thermal block 4 (a
-// quantile per grid cell, 0 first): liquid is where that order lies above the frost. pondAt gives whichever edge,
+// With frost (weather.y, the share of the pool frozen) ice grows over the pool in the order of thermal block 2 (a
+// quantile per grid cell, 0 first): liquid is where that order lies above the frost. pondWith gives whichever edge,
 // the water's or the ice's, lies nearer, in the same terms: a depth (below 0: dry or frozen) and the slope toward it.
 fn pondOn() -> bool { return POND && (sim.pond.x < 1.0 || sim.weather.y > 0.0); }
 fn blockCell(block: u32, x: i32, y: i32) -> f32 { return thermal[block * MAX_CELLS + wrapCell(x, y)]; }
@@ -2768,11 +2760,7 @@ fn smoothField(block: u32, i: vec2i, t: vec2f) -> vec3f {
   let gy = mix(mix(v[9] - v[1], v[10] - v[2], t.x), mix(v[13] - v[5], v[14] - v[6], t.x), t.y) * 0.5;
   return vec3f(val, gx, gy);
 }
-fn pondAt(p: vec2f) -> vec3f {
-  if (!pondOn()) { return vec3f(1.0, 0.0, 0.0); }
-  return pondWith(p, openFlow(p));
-}
-// pondAt given the open water's flow at p (openFlow)
+// The pond at p given the open water's flow there (openFlow)
 fn pondWith(p: vec2f, open: vec2f) -> vec3f {
   var e = vec3f(1.0, 0.0, 0.0);
   if (!pondOn()) { return e; }
@@ -2780,19 +2768,19 @@ fn pondWith(p: vec2f, open: vec2f) -> vec3f {
   let i = vec2i(floor(u));
   let t = u - floor(u);
   if (sim.pond.x < 1.0) {
-    let r = smoothField(3u, i, t);
+    let r = smoothField(1u, i, t);
     e = vec3f(sim.pond.x - r.x, r.yz);
     let gl = length(r.yz);
     if (gl > 1e-5) { e.x += edgeSway(p, r.yz / gl, open) * gl; }
   }
   if (sim.weather.y > 0.0) {
-    let o = smoothField(4u, i, t);
+    let o = smoothField(2u, i, t);
     let ice = vec3f(o.x - sim.weather.y, -o.yz);
     if (shoreDist(ice) < shoreDist(e)) { e = ice; }
   }
   return e;
 }
-// How far (world units) p lies from the water's edge, wet side positive, from pondAt's depth and slope.
+// How far (world units) p lies from the water's edge, wet side positive, from pondWith's depth and slope.
 fn shoreDist(pd: vec3f) -> f32 { return pd.x / max(length(pd.yz), 1e-4); }
 // The light at p: the baseline and the tide's bands by the season, under the sky (clouds) and any duckweed's shade.
 fn lightAt(p: vec2f) -> f32 {
@@ -2828,7 +2816,7 @@ fn wrapPos(p: vec2f) -> vec2f { return p - sim.world * floor(p / sim.world); }
 fn heatCell(x: i32, y: i32) -> f32 {
   let gw = i32(sim.grid.x);
   let gh = i32(sim.grid.y);
-  return thermal[MAX_CELLS + u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw)];
+  return thermal[u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw)];
 }
 // Grid cell (x, y), wrapping.
 fn wrapCell(x: i32, y: i32) -> u32 {
@@ -3906,7 +3894,8 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
   }
   // (about 2.5 grid cells are within reach, on average; and beside a heap, never under a third of the
   // step the walked cells' own count asks)
-  let cs = max(1.0, max(dens * 2.5, f32(total) / 3.0) / ${f(K.contactCap)});
+  // (Settings → Neighbors scales the cap with the neighbor budget: contactCap at the default maxScan)
+  let cs = max(1.0, max(dens * 2.5, f32(total) / 3.0) / (${f(K.contactCap)} * f32(sim.maxScan) / ${f(K.maxScan)}));
   var s = pcg(p.id ^ pcg(sim.frame * 2246822519u + sim.seed));
   var push = vec2f(0.0);
   // (bodyHold is a share per 1/60 s: a step of any length undoes as much as that time would)
@@ -4381,7 +4370,7 @@ ${cellWGSL(K, true)}
   mPut2(38, bondF * (g.adhesion * ${f(K.bond)}));
   mPut2(40, stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify)));
   mPut2(42, mSwim);
-  mPut2(44, flowAt(p.pos) * g.advect);
+  mPut2(44, flow);
   for (var k = 0u; k < 4u; k++) { mPut(46u + k, mMatterN[k] * stride); }
   // warmth: its own temperature, the steer toward its optimum, the water, how well it works there
   mPut(21, Tc);
@@ -5632,9 +5621,9 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     // caught in the ice it is frozen: still, its color drained toward a pale frosted blue-white, a little rimed
     if (view.level < 1.0 || view.frost > 0.0) {
       var dryN = 0.0;
-      if (view.level < 1.0) { dryN = smoothstep(0.0, 0.012, blockAt(${3 * MAX_CELLS}u, p.pos) - view.level); }
+      if (view.level < 1.0) { dryN = smoothstep(0.0, 0.012, blockAt(${MAX_CELLS}u, p.pos) - view.level); }
       var iceN = 0.0;
-      if (view.frost > 0.0) { iceN = smoothstep(0.0, 0.01, view.frost - blockAt(${4 * MAX_CELLS}u, p.pos)); }
+      if (view.frost > 0.0) { iceN = smoothstep(0.0, 0.01, view.frost - blockAt(${2 * MAX_CELLS}u, p.pos)); }
       let l = dot(col, vec3f(0.3, 0.5, 0.2));
       col = mix(col, vec3f(0.55, 0.38, 0.22) * (0.45 + 0.6 * l), 0.85 * dryN);
       b *= 1.0 - 0.5 * dryN;
@@ -7558,7 +7547,7 @@ fn flowNoise(wp: vec2f, scale: f32) -> vec2f {
 // The water's temperature at world point p, bilinear between cell centers, and its gradient.
 fn waterCell(x: i32, y: i32) -> f32 {
   let g = vec2i(post.world);
-  return heatField[${MAX_CELLS}u + u32(((y % g.y) + g.y) % g.y) * u32(g.x) + u32(((x % g.x) + g.x) % g.x)];
+  return heatField[u32(((y % g.y) + g.y) % g.y) * u32(g.x) + u32(((x % g.x) + g.x) % g.x)];
 }
 fn waterAt(p: vec2f) -> vec3f {
   let u = p - 0.5;
@@ -7570,7 +7559,7 @@ fn waterAt(p: vec2f) -> vec3f {
   let d = waterCell(i.x + 1, i.y + 1);
   return vec3f(mix(mix(a, b, t.x), mix(c, d, t.x), t.y), mix(b - a, d - c, t.y), mix(c - a, d - b, t.x));
 }
-// The pool's floor at world point p (docs/catastrophes.md), as the simulation reads it (pondAt): the water's depth
+// The pool's floor at world point p (docs/catastrophes.md), as the simulation reads it (pondWith): the water's depth
 // (below 0 dry) and the floor's slope uphill.
 fn gridPost(base: u32, x: i32, y: i32) -> f32 {
   let g = vec2i(post.world);
@@ -7580,7 +7569,7 @@ fn gridPost(base: u32, x: i32, y: i32) -> f32 {
 // through the cells (Catmull-Rom) would dip beside steep sides, the ice or dry floor showing at once over a patch
 // where the simulation, bilinear, has none; its edge lies within a fraction of a unit of this one)
 fn pondPost(p: vec2f) -> vec3f {
-  let f = fieldPost(${3 * MAX_CELLS}u, p);
+  let f = fieldPost(${MAX_CELLS}u, p);
   var e = vec3f(post.pond.x - f.x, f.yz);
   let gl = length(f.yz);
   if (gl > 1e-5) { e.x += edgeSway(p, f.yz / gl, postFlowAt(p, post.simTime) * post.weather.x + dropFlow(p)) * gl; }
@@ -7762,10 +7751,10 @@ fn iceSlope(p: vec2f) -> vec2f {
   let u = p - 0.5;
   let i = vec2i(floor(u));
   let t = u - floor(u);
-  let a = gridPost(${4 * MAX_CELLS}u, i.x, i.y);
-  let b = gridPost(${4 * MAX_CELLS}u, i.x + 1, i.y);
-  let c = gridPost(${4 * MAX_CELLS}u, i.x, i.y + 1);
-  let d = gridPost(${4 * MAX_CELLS}u, i.x + 1, i.y + 1);
+  let a = gridPost(${2 * MAX_CELLS}u, i.x, i.y);
+  let b = gridPost(${2 * MAX_CELLS}u, i.x + 1, i.y);
+  let c = gridPost(${2 * MAX_CELLS}u, i.x, i.y + 1);
+  let d = gridPost(${2 * MAX_CELLS}u, i.x + 1, i.y + 1);
   return vec2f(mix(b - a, d - c, t.y), mix(c - a, d - b, t.x));
 }
 // One grain's offer at wp. lead: how far ahead of the front its ice reaches here; slope: how steeply lead falls
@@ -8204,7 +8193,7 @@ fn openWater(wpIn: vec2f) -> f32 {
     wet *= smoothstep(0.0, 0.4, pd.x / max(length(pd.yz), 1e-4));
   }
   if (post.weather.y > 0.0) {
-    let fi = fieldPost(${4 * MAX_CELLS}u, wp);
+    let fi = fieldPost(${2 * MAX_CELLS}u, wp);
     wet *= smoothstep(0.0, 0.4, (fi.x - post.weather.y) / max(length(fi.yz), 1e-4));
   }
   return wet;
@@ -8327,7 +8316,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   }
   // ice (frost): over what is frozen in it, its front a crisp bright line
   if (post.weather.y > 0.0) {
-    let fi = fieldPost(${4 * MAX_CELLS}u, wp);
+    let fi = fieldPost(${2 * MAX_CELLS}u, wp);
     // (the distance from the front, by the field's slope; at least about half its usual slope, since where ice
     // starts, at the field's minima, the slope vanishes and the distance with it would leap: the dendrites' reach
     // ahead would cover a whole disc at once instead of growing from a point)
@@ -17819,13 +17808,6 @@ registerProcessor("tidemote-sound", TidemoteSound);
   }
   var LATE = /* @__PURE__ */ new Set(["lifeMainCoarse", "mindMain", "mindMainCoarse", "rangeMain"]);
   var COMPILE_COST = { lifeMain: 26, fsPoint: 15, "fsPointLive+live": 13, fsComposite: 11, fsLoupe: 8, matterMain: 5 };
-  function restrideThermal(buf) {
-    const from = buf.byteLength / 20;
-    if (from === MAX_CELLS) return buf;
-    const src = new Uint32Array(buf), out = new Uint32Array(5 * MAX_CELLS), m = Math.min(from, MAX_CELLS);
-    for (let k = 0; k < 5; k++) out.set(src.subarray(k * from, k * from + m), k * MAX_CELLS);
-    return out.buffer;
-  }
   var Engine = class {
     constructor(device, format, hasTimestamps, K, late = false) {
       this.device = device;
@@ -17891,7 +17873,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const d = device;
       const b = this.b;
       b.sim = d.createBuffer({ size: 384, usage: U.UNIFORM | U.COPY_DST });
-      b.thermal = d.createBuffer({ size: 5 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+      b.thermal = d.createBuffer({ size: 3 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
       b.heatNext = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
       b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
       this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
@@ -18551,11 +18533,11 @@ ${e.message}` : String(e?.message || e));
       this.founders = plan.length;
       this._writeSim({ seedKinds: plan.length, pSilt: silt, pHusk: husk });
       const water = new Float32Array(cells).fill(this.tbg);
-      d.queue.writeBuffer(this.b.thermal, MAX_CELLS * 4, water);
+      d.queue.writeBuffer(this.b.thermal, 0, water);
       this.relief = makeRelief(this.grid[0], this.grid[1], this.seedValue);
       this.floor = null;
-      d.queue.writeBuffer(this.b.thermal, 3 * MAX_CELLS * 4, this.relief);
-      d.queue.writeBuffer(this.b.thermal, 4 * MAX_CELLS * 4, this.iceOrder = makeIceOrder(this.grid[0], this.grid[1], this.seedValue, this.relief));
+      d.queue.writeBuffer(this.b.thermal, MAX_CELLS * 4, this.relief);
+      d.queue.writeBuffer(this.b.thermal, 2 * MAX_CELLS * 4, this.iceOrder = makeIceOrder(this.grid[0], this.grid[1], this.seedValue, this.relief));
       this.level = 1;
       this.rain = 0;
       this.sky = 1;
@@ -18605,7 +18587,7 @@ ${e.message}` : String(e?.message || e));
       f2.at = this.simTime;
       const e = u * u * (3 - 2 * u);
       for (let i = 0; i < f2.to.length; i++) this.relief[i] = f2.from[i] + (f2.to[i] - f2.from[i]) * e;
-      this.device.queue.writeBuffer(this.b.thermal, 3 * MAX_CELLS * 4, this.relief);
+      this.device.queue.writeBuffer(this.b.thermal, MAX_CELLS * 4, this.relief);
       if (u >= 1) this.floor = null;
     }
     /** Three active tide waves (the fourth is left idle for the first climate era to raise) with random phases. */
@@ -18752,7 +18734,7 @@ ${e.message}` : String(e?.message || e));
       run2(this.ticks > 1 ? "lifeMainCoarse" : "lifeMain", null);
       if (this.K.heat) run2("heatMain", Math.ceil(cells / 64));
       if (!prof) pass.end();
-      if (this.K.heat) enc.copyBufferToBuffer(b.heatNext, 0, b.thermal, MAX_CELLS * 4, cells * 4);
+      if (this.K.heat) enc.copyBufferToBuffer(b.heatNext, 0, b.thermal, 0, cells * 4);
     }
     /** One simulation step with each dispatch timed on the GPU: [[name, ms], ...]. Needs timestamps. */
     async profileStep(simDt = 1 / 60) {
@@ -18863,11 +18845,11 @@ ${e.message}` : String(e?.message || e));
     }
     /** The bytes of each buffer readState() keeps, for a world of n particles. */
     stateSizes(n) {
-      return { parts: n * P_BYTES, genomes: MAXK * G_BYTES, intent: n * 16, ledger: (META_CLAIM + n) * 4, thermal: 5 * MAX_CELLS * 4 };
+      return { parts: n * P_BYTES, genomes: MAXK * G_BYTES, intent: n * 16, ledger: (META_CLAIM + n) * 4, thermal: 3 * MAX_CELLS * 4 };
     }
     /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
     writeState({ cpu, gpu }) {
-      for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, k === "thermal" ? restrideThermal(data) : data);
+      for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, data);
       const enc = this.device.createCommandEncoder();
       enc.clearBuffer(this.b.ledger, this._splAt(), SPL_WORDS * 4);
       this.device.queue.submit([enc.finish()]);
@@ -18875,9 +18857,17 @@ ${e.message}` : String(e?.message || e));
       this.count = cpu.count;
       this.grid = [...cpu.grid];
       if (cpu.founders != null) this.founders = cpu.founders;
+      if (gpu.thermal) {
+        const [gw, gh] = this.grid, t2 = new Float32Array(gpu.thermal);
+        this.relief = t2.slice(MAX_CELLS, MAX_CELLS + gw * gh);
+        this.floor = null;
+        this.iceOrder = makeIceOrder(gw, gh, this.seedValue, makeRelief(gw, gh, this.seedValue));
+        this.device.queue.writeBuffer(this.b.thermal, 2 * MAX_CELLS * 4, this.iceOrder);
+      }
       this.sorted = false;
       this.worldGeneration++;
       this.clearAccum = true;
+      this._listenSim = this._surveySim = null;
     }
     /** Read every particle now (headless forks): { u32, f32 } views over count records of P_BYTES. */
     async readParticles() {
@@ -18897,7 +18887,7 @@ ${e.message}` : String(e?.message || e));
       const d = this.device, U2 = GPUBufferUsage, n = this.grid[0] * this.grid[1];
       const st = d.createBuffer({ size: n * 4, usage: U2.COPY_DST | U2.MAP_READ });
       const enc = d.createCommandEncoder();
-      enc.copyBufferToBuffer(this.b.thermal, MAX_CELLS * 4, st, 0, n * 4);
+      enc.copyBufferToBuffer(this.b.thermal, 0, st, 0, n * 4);
       d.queue.submit([enc.finish()]);
       await st.mapAsync(GPUMapMode.READ);
       const out = new Float32Array(st.getMappedRange().slice(0));
@@ -19850,6 +19840,28 @@ ${e.message}` : String(e?.message || e));
       pass.end();
     }
   };
+  function compactState({ cpu, gpu }) {
+    const intent = new Uint32Array(gpu.intent.slice(0)), n = intent.length / 4;
+    const pu = new Uint32Array(gpu.parts.slice(0)), W = P_BYTES / 4;
+    const ledger = new Uint32Array(gpu.ledger.slice(0));
+    let next = ledger[0];
+    for (let i = 0; i < n; i++) if (pu[i * W + 4] === 0) pu[i * W + 7] = next++;
+    ledger[0] = next;
+    const thermal = gpu.thermal && new Uint32Array(gpu.thermal.slice(0)), per = thermal ? thermal.length / 3 : 0;
+    if (thermal) thermal.fill(0, 2 * per);
+    const claims = new Uint32Array(gpu.ledger, META_CLAIM * 4, Math.min(n, gpu.ledger.byteLength / 4 - META_CLAIM));
+    const claimer = new Uint8Array(n);
+    for (const c of claims) if (c && !(c & 2147483648) && c <= n) claimer[c - 1] = 1;
+    for (let i = 0; i < n; i++) if (!claimer[i]) {
+      intent[i * 4] = 0;
+      intent[i * 4 + 1] = 0;
+    }
+    const layout = {
+      parts: { words: W, keep: [32, 32, 10, 10, 32, 10, 10, 32, 32, 32], planes: [1, 1, 1, 1, 1, 1, 1, 1, 0, 1], cell: { grid: [...cpu.grid], bits: 10 } },
+      intent: { words: 4 }
+    };
+    return { gpu: { ...gpu, parts: pu.buffer, intent: intent.buffer, ledger: ledger.buffer, ...thermal ? { thermal: thermal.buffer } : {} }, layout };
+  }
 
   // src/climate.js
   var seasonAt = (t2) => 0.55 + 0.45 * Math.sin(t2 / 300 * Math.PI * 2);
@@ -20253,7 +20265,7 @@ ${e.message}` : String(e?.message || e));
     specks: "The fine suspension that drifts between cells when zoomed far in. Drawn speck by speck; off saves a compute pass and a full-screen pass.",
     closeup: "The live close-up in the specimen panel: a second, small view of the world drawn every frame.",
     particles: "Every grain, husk and cell is one particle; their number is fixed for a world’s whole life. Auto measures the GPU and picks the most it can run smoothly, and shows the count it picked for this world. Changing it starts a new world.",
-    neighbors: "In a crowd, the most nearby particles a cell weighs each step. It samples them evenly and counts each for the ones it skips, so crowding and pushes stay right on average; it only picks food and bond partners from those it saw. Fewer runs faster in dense colonies and makes no difference in open water. The default is marked. Takes effect at once.",
+    neighbors: "In a crowd, the most nearby particles a cell weighs each step. It samples them evenly and counts each for the ones it skips, so crowding and pushes stay right on average; it only picks food and bond partners from those it saw. The cells it touches (bodies parting, a crowd’s drag) are sampled in proportion. Fewer runs faster in dense colonies and makes no difference in open water. The default is marked. Takes effect at once.",
     interface: "Off hides every panel, readout and caption, leaving only the world and the loupe; the auto camera keeps filming. U or Esc brings it back.",
     loupe: "A magnifier that follows the mouse when zoomed out. Clicks inside it select what is under the crosshair.",
     speed: "Current speed, in micrometers (µm) per second.",
@@ -23917,17 +23929,89 @@ ${e.message}` : String(e?.message || e));
   }
 
   // src/worlds.js
-  var FORMAT = 1;
-  var MAGIC = [84, 77, 87, 49];
+  var SAVE_VERSION = "5.0.0";
+  var MAGIC = [84, 77, 87, 83];
+  var major = (v) => typeof v === "string" && /^\d+\.\d+\.\d+$/.test(v) ? +v.split(".")[0] : null;
+  function openable(v) {
+    const m = major(v), mine = major(SAVE_VERSION);
+    return m == null || m < mine ? "older" : m > mine ? "newer" : "ok";
+  }
+  var WHY_NOT = {
+    newer: "This world was saved by a newer version of Tidemote. Update Tidemote to open it.",
+    older: "This world was saved by an older version of Tidemote, which this one can no longer open."
+  };
   var TYPED = { Float32Array, Float64Array, Uint32Array, Int32Array, Uint16Array, Int16Array, Uint8Array, Int8Array };
   var pack = (v) => JSON.stringify(v, (_, x) => x instanceof Map ? { $map: [...x] } : ArrayBuffer.isView(x) && x.constructor.name in TYPED ? { $ta: x.constructor.name, v: Array.from(x) } : x);
   var unpack = (s) => JSON.parse(s, (_, x) => x && typeof x === "object" && !Array.isArray(x) ? x.$map ? new Map(x.$map) : x.$ta ? TYPED[x.$ta].from(x.v) : x : x);
   var pipe = async (blob, stream) => new Uint8Array(await new Response(blob.stream().pipeThrough(stream)).arrayBuffer());
-  async function encodeWorld({ meta, cpu, gpu, page }) {
+  function toCells(u, words, { grid: [gw, gh], bits }) {
+    const f2 = new Float32Array(u.buffer), n = u.length / words, s = 1 << bits, X = gw * s, Y = gh * s;
+    if (bits > 16 || Math.max(X, Y) > 2 ** 24) throw new Error(`positions of a ${gw} x ${gh} grid do not fit ${bits} bits`);
+    let prev = 0;
+    for (let i = 0; i < n; i++) {
+      const o = i * words;
+      let x = Math.round(f2[o] * s) % X, y = Math.round(f2[o + 1] * s) % Y;
+      if (!(x >= 0)) x = x < 0 ? x + X : 0;
+      if (!(y >= 0)) y = y < 0 ? y + Y : 0;
+      const c = (y >> bits) * gw + (x >> bits);
+      u[o] = c - prev >>> 0;
+      u[o + 1] = (x & s - 1 | (y & s - 1) << 16) >>> 0;
+      prev = c;
+    }
+  }
+  function fromCells(u, words, { grid: [gw], bits }) {
+    const f2 = new Float32Array(u.buffer), n = u.length / words, s = 1 << bits;
+    let c = 0;
+    for (let i = 0; i < n; i++) {
+      const o = i * words, at = u[o + 1];
+      c = c + (u[o] | 0) | 0;
+      const cx = c % gw, cy = (c - cx) / gw;
+      f2[o] = (cx * s + (at & 65535)) / s;
+      f2[o + 1] = (cy * s + (at >>> 16)) / s;
+    }
+  }
+  function toColumns(buf, { words, keep = [], planes = [], cell = null }) {
+    let u = new Uint32Array(buf);
+    const n = u.length / words, out = new Uint8Array(buf.byteLength);
+    if (cell) {
+      u = u.slice();
+      toCells(u, words, cell);
+    }
+    const col = new Uint32Array(n), cb = new Uint8Array(col.buffer);
+    for (let w = 0; w < words; w++) {
+      const k = keep[w] ?? 32, mask = k >= 23 ? 4294967295 : 4294967295 << 23 - k >>> 0;
+      for (let i = 0; i < n; i++) col[i] = u[i * words + w] & mask;
+      const at = w * n * 4;
+      if (planes[w]) for (let j = 0; j < 4; j++) {
+        const o = at + j * n;
+        for (let i = 0; i < n; i++) out[o + i] = cb[i * 4 + j];
+      }
+      else out.set(cb, at);
+    }
+    return out;
+  }
+  function fromColumns(bytes, { words, planes = [], cell = null }) {
+    const n = bytes.byteLength / 4 / words, u = new Uint32Array(n * words);
+    const col = new Uint32Array(n), cb = new Uint8Array(col.buffer);
+    for (let w = 0; w < words; w++) {
+      const at = w * n * 4;
+      if (planes[w]) for (let j = 0; j < 4; j++) {
+        const o = at + j * n;
+        for (let i = 0; i < n; i++) cb[i * 4 + j] = bytes[o + i];
+      }
+      else cb.set(bytes.subarray(at, at + n * 4));
+      for (let i = 0; i < n; i++) u[i * words + w] = col[i];
+    }
+    if (cell) fromCells(u, words, cell);
+    return u.buffer;
+  }
+  async function encodeWorld({ meta, cpu, gpu, page, layout = {} }) {
     const sizes = Object.entries(gpu).map(([k, b]) => [k, b.byteLength]);
-    const head = new TextEncoder().encode(pack({ format: FORMAT, meta, cpu, sizes, page }));
+    const cols = Object.fromEntries(Object.entries(layout).filter(([k]) => gpu[k]).map(([k, l]) => [k, { words: l.words, planes: l.planes || [], ...l.cell ? { cell: l.cell } : {} }]));
+    const bufs = Object.entries(gpu).map(([k, b]) => layout[k] ? toColumns(b, layout[k]) : b);
+    const head = new TextEncoder().encode(pack({ version: SAVE_VERSION, meta: { ...meta, version: SAVE_VERSION }, cpu, sizes, cols, page }));
     const len2 = new Uint8Array(new Uint32Array([head.length]).buffer);
-    return pipe(new Blob([new Uint8Array(MAGIC), len2, head, ...Object.values(gpu)]), new CompressionStream("gzip"));
+    return pipe(new Blob([new Uint8Array(MAGIC), len2, head, ...bufs]), new CompressionStream("gzip"));
   }
   async function decodeWorld(data) {
     let b;
@@ -23936,17 +24020,19 @@ ${e.message}` : String(e?.message || e));
     } catch {
       throw new Error("Not a Tidemote world.");
     }
-    if (b.length < 8 || MAGIC.some((c, i) => b[i] !== c)) throw new Error("Not a Tidemote world.");
+    if (b.length < 8 || MAGIC.slice(0, 3).some((c, i) => b[i] !== c)) throw new Error("Not a Tidemote world.");
+    if (b[3] !== MAGIC[3]) throw new Error(WHY_NOT.older);
     const n = new DataView(b.buffer).getUint32(4, true);
     const head = unpack(new TextDecoder().decode(b.subarray(8, 8 + n)));
-    if (head.format !== FORMAT) throw new Error("This world was saved by another version of Tidemote.");
+    const can = openable(head.version);
+    if (can !== "ok") throw new Error(WHY_NOT[can]);
     const gpu = {};
     let at = 8 + n;
     for (const [k, size] of head.sizes) {
-      gpu[k] = b.buffer.slice(at, at + size);
+      if (at + size > b.length) throw new Error("This world’s file is incomplete.");
+      gpu[k] = head.cols?.[k] ? fromColumns(b.subarray(at, at + size), head.cols[k]) : b.buffer.slice(at, at + size);
       at += size;
     }
-    if (at > b.length) throw new Error("This world’s file is incomplete.");
     return { meta: head.meta, cpu: head.cpu, gpu, page: head.page };
   }
   function createWorldStore(name = "tidemote") {
@@ -25333,7 +25419,7 @@ ${e.message}` : String(e?.message || e));
       const text = best.html.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"');
       for (const s of best.subjects || []) S.latest.set(s, { t: t2, text, html: best.html });
       best.onTold?.();
-      return [{ html: best.html, text, col: best.col, kind: best.kind, subjects: best.subjects || [], score: best.score }];
+      return [{ html: best.html, text, col: best.col, kind: best.kind, key: best.key, moment: best.moment, subjects: best.subjects || [], score: best.score }];
     }
     const vary = (kind, list) => {
       const n = S.voice[kind] = (S.voice[kind] || 0) + 1;
@@ -25468,6 +25554,7 @@ ${e.message}` : String(e?.message || e));
             kind: "collapse",
             force: true,
             score: 0.8,
+            moment: "back",
             col: 4286570672,
             subjects: top ? [top.serial] : [],
             html: `<b>Life has returned</b>, as it returns to all who wait: ${fmt(living)} cells, ${durWords(t2 - since)} after it fell to almost nothing${top ? `, and ${L(ctx.reg, top.serial)} the first among them` : ""}.`
@@ -25509,6 +25596,7 @@ ${e.message}` : String(e?.message || e));
           add({
             kind: "guild",
             score: 0.75,
+            moment: "back",
             col: 4286570672,
             subjects: [sp.serial],
             html: `<b>${Cap(GUILD[g].many)} are back.</b> ${L(reg, sp.serial)}, ${origin}, is the first ${GUILD[g].one} the pool has known since ${fmtClock(since)}; what is lost is seldom lost for ever.`
@@ -26276,6 +26364,40 @@ ${e.message}` : String(e?.message || e));
       if (sp && sp.alive && sp.slot >= FIRST_LIFE && sp.slot < MAXK) out[sp.slot] = i + 1;
     });
     return out;
+  }
+
+  // src/achievements.js
+  var ACHIEVEMENTS = [
+    // the chronicler's firsts (detectFirsts: told at most once a world, after its first minutes)
+    { id: "FIRST_MULTI", name: "Many Hands", desc: "Witness the first many-celled organism in a world.", story: (s) => s.key === "first:multi" },
+    { id: "FIRST_TREE", name: "Branching Out", desc: "Witness the first species to grow as a branching tree.", story: (s) => s.key === "first:tree" },
+    { id: "FIRST_SWIMMER", name: "Open Water", desc: "Witness the first many-celled body that swims.", story: (s) => s.key === "first:swimbody" },
+    { id: "FIRST_HUNTER", name: "Tooth and Claw", desc: "Witness the first species to hunt living prey.", story: (s) => s.key === "first:guild:predator" },
+    { id: "FIRST_THREE_TYPES", name: "Division of Labor", desc: "Witness the first species to grow three kinds of cell.", story: (s) => s.key === "first:types3" },
+    { id: "FIRST_THERMOPHILE", name: "Hot Springs", desc: "Witness the first thermophile, at home in water above 38°.", story: (s) => s.key === "first:thermophile" },
+    { id: "FIRST_COLD", name: "Cold Blood", desc: "Witness the first cold-lover, at home in water below 10°.", story: (s) => s.key === "first:cold" },
+    { id: "REEF", name: "Reef Builders", desc: "Witness the first reef stone laid, or a reef rising.", story: (s) => s.key === "first:calcify" || s.kind === "reef" },
+    // the pool's dramas
+    { id: "ARMS_RACE", name: "Red Queen", desc: "Witness an arms race between hunter and prey.", story: (s) => s.kind === "arms" },
+    { id: "CYCLE", name: "Boom and Bust", desc: "Witness hunter and hunted rise and fall in turn.", story: (s) => s.kind === "cycle" },
+    { id: "RADIATION", name: "Adaptive Radiation", desc: "Witness a genus burst into many species.", story: (s) => s.kind === "radiation" },
+    { id: "REIGN", name: "Long Live the King", desc: "Witness a reign end, or one long held.", story: (s) => s.kind === "reign" },
+    { id: "COMEBACK", name: "Lazarus", desc: "Witness a species come back from the brink.", story: (s) => s.kind === "comeback" },
+    { id: "SPARK", name: "From the Silt", desc: "Witness life sparked from silt take a tenth of the pool.", story: (s) => s.kind === "spark" },
+    { id: "ELDER", name: "Old Growth", desc: "Witness a species hold on for hours.", story: (s) => s.kind === "elder" },
+    { id: "MASS_EXTINCTION", name: "The Great Dying", desc: "Witness a mass extinction.", story: (s) => s.kind === "mass" },
+    { id: "GUILD_LOST", name: "The Last of Its Kind", desc: "Witness the last of a guild perish.", story: (s) => s.kind === "guild" && s.moment !== "back" },
+    { id: "COLLAPSE", name: "Near Silence", desc: "Witness life all but fail.", story: (s) => s.kind === "collapse" && s.moment !== "back" },
+    { id: "RETURN", name: "Life Finds a Way", desc: "Witness life return after it all but failed.", story: (s) => s.kind === "collapse" && s.moment === "back" },
+    { id: "AFTERMATH", name: "Weathered", desc: "Witness the aftermath of one of the pool’s events.", story: (s) => s.kind === "aftermath" },
+    { id: "ERA", name: "Turning of the Ages", desc: "Witness the chronicler tell what an era did.", story: (s) => s.kind === "era" },
+    // the viewer's own
+    { id: "STORIES_50", name: "Natural Historian", desc: "Read fifty of the chronicler’s stories.", stories: 50 },
+    { id: "NAMED", name: "Taxonomist", desc: "Give a species a name of your own." },
+    { id: "SHARED", name: "Show and Tell", desc: "Share a world on the Steam Workshop." }
+  ];
+  function earned(story, told = 0) {
+    return ACHIEVEMENTS.filter((a) => a.story ? a.story(story) : a.stories ? told >= a.stories : false).map((a) => a.id);
   }
 
   // src/card.js
@@ -27355,9 +27477,36 @@ ${e.message}` : String(e?.message || e));
       sound.overture();
       flash("A new world begins");
     }
-    const worldStore = createWorldStore();
+    const desk = globalThis.tidemoteDesktop || null;
+    let steamOn = { on: false };
+    desk?.steam().then((x) => {
+      steamOn = x;
+      if (view?.isOpen()) view.render();
+    }).catch(() => {
+    });
+    const unlocked = /* @__PURE__ */ new Set();
+    function unlock(ids) {
+      if (!desk) return;
+      for (const id of ids) if (!unlocked.has(id)) {
+        unlocked.add(id);
+        desk.achieve(id).catch(() => {
+        });
+      }
+    }
+    function storiesRead() {
+      let n = 0;
+      try {
+        n = (+localStorage.getItem("tidemote.storiesRead") || 0) + 1;
+        localStorage.setItem("tidemote.storiesRead", String(n));
+      } catch {
+      }
+      return n;
+    }
+    const worldStore = desk ? desk.worlds : createWorldStore();
     async function saveWorld(name) {
-      const { lastCensus, ...keepLife } = life;
+      const { lastCensus, genera, ...keepLife } = life;
+      const listed = new Set([...life.reg.values()].map((s) => s.genus));
+      keepLife.genera = new Map([...genera].map(([k, g]) => [k, listed.has(k) ? g : { ...g, founder: null }]));
       const keepClimate = Object.fromEntries(Object.entries(climate).filter(([, v]) => typeof v !== "function"));
       const page = { life: keepLife, climate: keepClimate, cam: { x: cam.x, y: cam.y, zoom: cam.zoomTarget }, chron: chron.save() };
       const top = [...life.reg.values()].filter((s) => s.alive && s.established).sort((a, b) => b.pop - a.pop);
@@ -27365,19 +27514,22 @@ ${e.message}` : String(e?.message || e));
         id: `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
         name,
         savedAt: Date.now(),
+        version: SAVE_VERSION,
         simTime: eng.simTime,
         count: eng.count,
         thriving: life.thriving,
         cols: top.slice(0, 4).map((s) => s.genome.col)
       };
-      const bytes = await encodeWorld({ meta, ...await eng.readState(), page });
-      await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes);
+      const st = await eng.readState();
+      const bytes = await encodeWorld({ meta, cpu: st.cpu, ...compactState(st), page });
+      const preview = desk ? await takeView().then((cv) => cv && new Promise((res) => cv.toBlob(res, "image/jpeg", 0.88))).then((b) => b && b.arrayBuffer()).catch(() => null) : null;
+      await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes, preview ? new Uint8Array(preview) : void 0);
     }
     async function openWorld(bytes) {
       const w = await decodeWorld(bytes);
-      if (w.gpu.thermal) w.gpu.thermal = restrideThermal(w.gpu.thermal);
-      const want = eng.stateSizes(w.cpu.count), got = Object.entries(w.gpu);
-      if (got.length !== Object.keys(want).length || got.some(([k, b]) => want[k] !== b.byteLength)) throw new Error("This world was saved by another version of Tidemote.");
+      const want = eng.stateSizes(w.cpu.count);
+      if (Object.entries(want).some(([k, size]) => w.gpu[k]?.byteLength !== size)) throw new Error("This world’s file does not match its version.");
+      w.gpu = Object.fromEntries(Object.keys(want).map((k) => [k, w.gpu[k]]));
       if (w.cpu.count > maxParticles()) throw new Error(`Its ${fmt(w.cpu.count)} particles are more than this GPU can hold.`);
       return w;
     }
@@ -27613,7 +27765,7 @@ ${e.message}` : String(e?.message || e));
       const parent = life.reg.get(g.parent);
       if (parent) {
         const gen = life.genera.get(parent.genus);
-        genus = gen && gdist(g, gen.founder) < 0.5 ? parent.genus : null;
+        genus = gen && (!gen.founder || gdist(g, gen.founder) < 0.5) ? parent.genus : null;
         if (!genus) genus = newGenus(g, parent.genus);
       } else if (g.parent === 0) {
         genus = newGenus(g, null);
@@ -27889,6 +28041,7 @@ ${e.message}` : String(e?.message || e));
       });
       for (const s of told) {
         pushEvent(s.html, s.col, "story");
+        if (desk) unlock(earned(s, storiesRead()));
         const sp = s.subjects.map((k) => life.reg.get(k)).find((k) => k && k.alive);
         if (sp) director.spotlight(sp.slot, sp.serial, { story: s.text });
       }
@@ -28387,6 +28540,14 @@ ${e.message}` : String(e?.message || e));
         portraitJob = { slot: sp.slot, cx, cy, vx: m.body ? 0 : best.vx, vy: m.body ? 0 : best.vy, t: res.simTime, ppu: PORTRAIT / span2, subject, resolve, at: performance.now() };
       });
     }
+    function takeView() {
+      if (portraitJob) portraitJob.resolve(null);
+      portraitHold = true;
+      const span2 = Math.min(innerWidth, innerHeight) / cssPPU();
+      return new Promise((resolve) => {
+        portraitJob = { slot: null, cx: cam.x, cy: cam.y, vx: 0, vy: 0, t: eng.simTime, ppu: PORTRAIT / span2, resolve, at: performance.now() };
+      });
+    }
     function portraitParams() {
       const j = portraitJob;
       if (!j || j.drawn) return null;
@@ -28400,10 +28561,12 @@ ${e.message}` : String(e?.message || e));
       const dt = Math.min(2, Math.max(0, eng.simTime - j.t));
       const [W, H2] = eng.grid;
       j.drawn = true;
-      const kinds = new Uint32Array(MAXK / 32);
-      kinds[j.slot >> 5] |= 1 << (j.slot & 31) >>> 0;
-      eng.setFocus({ kinds, mute: 0.09 });
-      j.relight = true;
+      if (j.slot != null) {
+        const kinds = new Uint32Array(MAXK / 32);
+        kinds[j.slot >> 5] |= 1 << (j.slot & 31) >>> 0;
+        eng.setFocus({ kinds, mute: 0.09 });
+        j.relight = true;
+      }
       return { target: j.tex.createView(), w: PORTRAIT, h: PORTRAIT, cx: ((j.cx + j.vx * dt) % W + W) % W, cy: ((j.cy + j.vy * dt) % H2 + H2) % H2, ppu: j.ppu, dpr: 1 };
     }
     async function readPortrait() {
@@ -28446,6 +28609,7 @@ ${e.message}` : String(e?.message || e));
       sp.binomial ??= sp.name;
       sp.name = name || sp.binomial;
       sp.given = !!name;
+      if (name) unlock(["NAMED"]);
       specimen.invalidate();
       dirty = true;
       feedKey = "";
@@ -28653,23 +28817,28 @@ ${e.message}` : String(e?.message || e));
         const now = !K.pond ? "" : state.phase === "running" && !climate.event && E.on && EVENT_TYPES.some((x) => E[x]) ? `<div class="opt"><span class="lbl">${term("evstart", "Start one now")}</span><div class="row segs">${EVENT_TYPES.filter((x) => E.on && E[x]).map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAMES[x]}</button>`).join("")}</div></div>` : climate?.event ? `<div class="opt"><span class="lbl">Under way</span><span class="note">${EVENT_NAMES[climate.event.type]}${climate.phase && climate.phase !== climate.event.type ? ` · ${climate.phase}` : ""}</span></div>` : "";
         return group("events", "Pool events", onoff("ev-on", "Events", "", E.on, "poolevents") + kinds + now);
       }
-      let saves = null, used = 0, wName = "", ask = null, wBusy = "";
+      let saves = null, used = 0, wName = "", ask = null, wBusy = "", wPoll = 0;
       const defaultName = () => `${climate.name} · ${fmtDur(eng.simTime)}`;
       const when = (t2) => new Date(t2).toDateString() === (/* @__PURE__ */ new Date()).toDateString() ? new Date(t2).toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" }) : new Date(t2).toLocaleDateString(void 0, { month: "short", day: "numeric" });
       const mb = (n) => `${(n / 1048576).toFixed(n < 10485760 ? 1 : 0)} MB`;
       const mini = (o, v, text, cls = "") => `<button type="button" class="btn mini${cls}" data-o="${o}" data-v="${v}"${wBusy ? " disabled" : ""}>${text}</button>`;
+      const ghost = (o, v, icon, label3, hint) => `<button type="button" class="ghost" data-o="${o}" data-v="${v}" aria-label="${label3}" data-hint="${hint}"${wBusy ? " disabled" : ""}><svg><use href="#i-${icon}"/></svg></button>`;
       function saveRow(m) {
         const sw = [0, 1, 2, 3].map((i) => `<i${m.cols[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ""}></i>`).join("");
-        const a = ask && ask.id === m.id ? ask.kind : null;
-        const line2 = a === "load" ? "<em>Discard this world?</em>" : a === "del" ? "<em>Delete this save?</em>" : `${fmtDur(m.simTime)} · ${kfmt(m.count)} · ${m.thriving} species · ${when(m.savedAt)}`;
-        const acts = a === "load" ? mini("w-no", m.id, "Cancel") + mini("w-first", m.id, "Save first") + mini("w-yes", m.id, wBusy === "load" ? "Loading" : "Load", " hot-btn") : a === "del" ? mini("w-no", m.id, "Cancel") + mini("w-yes", m.id, "Delete", " hot-btn") : mini("w-load", m.id, "Load") + `<button type="button" class="ghost" data-o="w-dl" data-v="${m.id}" aria-label="Download" data-hint="Download a file to open on another device"><svg><use href="#i-down"/></svg></button><button type="button" class="ghost" data-o="w-del" data-v="${m.id}" aria-label="Delete" data-hint="Delete"><svg><use href="#i-close"/></svg></button>`;
+        const a = ask && ask.id === m.id ? ask.kind : null, ws = m.from === "workshop";
+        const can = m.downloading != null ? "ok" : openable(m.version);
+        const line2 = a === "load" ? "<em>Discard this world?</em>" : can !== "ok" ? `<em>${can === "newer" ? "Needs a newer Tidemote" : "From an older Tidemote"}</em> · ${when(m.savedAt)}` : a === "del" ? `<em>${ws ? "Unsubscribe from it?" : "Delete this save?"}</em>` : a === "share" ? `<em>${m.workshop ? "Update it on the Steam Workshop?" : "Share it on the Steam Workshop for anyone to see?"}</em>` : m.downloading != null ? `Downloading · ${Math.round(m.downloading * 100)}%` : `${fmtDur(m.simTime)} · ${kfmt(m.count)} · ${m.thriving} species · ${when(m.savedAt)}`;
+        const acts = a === "load" ? mini("w-no", m.id, "Cancel") + mini("w-first", m.id, "Save first") + mini("w-yes", m.id, wBusy === "load" ? "Loading" : "Load", " hot-btn") : a === "del" ? mini("w-no", m.id, "Cancel") + mini("w-yes", m.id, ws ? "Unsubscribe" : "Delete", " hot-btn") : a === "share" ? mini("w-no", m.id, "Cancel") + mini("w-yes", m.id, wBusy === "share" ? "Sharing" : m.workshop ? "Update" : "Share", " hot-btn") : ws ? (m.downloading != null || can !== "ok" ? "" : mini("w-load", m.id, "Load")) + ghost("w-page", m.id, "share", "On Steam", "Its page on the Steam Workshop") + ghost("w-del", m.id, "close", "Unsubscribe", "Unsubscribe") : (can !== "ok" ? "" : mini("w-load", m.id, "Load") + (steamOn.on ? ghost("w-share", m.id, "share", "Share", m.workshop ? "Update it on the Steam Workshop" : "Share on the Steam Workshop") : "")) + ghost("w-dl", m.id, "down", "Download", desk ? "Save a copy as a file" : "Download a file to open on another device") + ghost("w-del", m.id, "close", "Delete", "Delete");
         return `<div class="w-row"><span class="w-sw" aria-hidden="true">${sw}</span><div class="w-txt"><b>${esc(m.name)}</b><span>${line2}</span></div><div class="w-act">${acts}</div></div>`;
       }
       function worlds_() {
         const off = wBusy || state.phase !== "running" ? " disabled" : "";
         const save2 = `<div class="w-save"><input type="text" id="w-name" maxlength="60" autocomplete="off" spellcheck="false" placeholder="${esc(defaultName())}" value="${esc(wName)}" aria-label="Name this save"${off}><button type="button" class="btn hot-btn" data-o="w-save" data-v="0"${off}>${wBusy === "save" ? "Saving" : "Save"}</button></div>`;
-        const list = saves == null ? '<p class="note">Reading the saved worlds…</p>' : saves.length ? saves.map(saveRow).join("") : '<p class="note">No saved worlds yet. A save keeps everything: every particle, each species and its name, the chronicle and the history.</p>';
-        return group("w-save", "Save this world", save2) + section("w-list", "Saved worlds", block("", list, { aside: saves && saves.length ? `${saves.length} · ${mb(used)}` : "", tip: "saves" }));
+        const own = saves && saves.filter((m) => m.from !== "workshop"), ws = saves && saves.filter((m) => m.from === "workshop");
+        const list = saves == null ? '<p class="note">Reading the saved worlds…</p>' : own.length ? own.map(saveRow).join("") : '<p class="note">No saved worlds yet. A save keeps everything: every particle, each species and its name, the chronicle and the history.</p>';
+        const browse = '<div class="w-more"><button type="button" class="link" data-o="w-browse" data-v="0">Browse the Workshop</button></div>';
+        const wsList = !steamOn.on || saves == null ? "" : section("w-ws", "From the Workshop", block("", (ws.length ? ws.map(saveRow).join("") : '<p class="note">Worlds others have shared. Subscribe to one on the Steam Workshop and it appears here, ready to load.</p>') + browse));
+        return group("w-save", "Save this world", save2) + section("w-list", "Saved worlds", block("", list, { aside: own && own.length ? `${own.length} · ${mb(used)}` : "", tip: "saves" })) + wsList;
       }
       async function refreshSaves() {
         try {
@@ -28677,9 +28846,14 @@ ${e.message}` : String(e?.message || e));
         } catch {
           saves = [];
         }
-        used = saves.reduce((a, m) => a + (m.bytes || 0), 0);
+        used = saves.reduce((a, m) => a + (m.from !== "workshop" && m.bytes || 0), 0);
         render();
+        clearTimeout(wPoll);
+        if (saves.some((m) => m.downloading != null)) wPoll = setTimeout(() => {
+          if (!el.hidden && tab === "worlds") refreshSaves();
+        }, 2e3);
       }
+      const wsDescription = (m) => `A Tidemote world after ${durWords(m.simTime)}: ${kfmt(m.count)} particles, ${m.thriving} species thriving.`;
       const download = (m, bytes) => saveFile(new Blob([bytes], { type: "application/gzip" }), `${m.name.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-") || "world"}.tidemote`);
       async function worldAct(id, v) {
         const busy = async (what, fn) => {
@@ -28701,13 +28875,28 @@ ${e.message}` : String(e?.message || e));
             flash("World saved");
             await refreshSaves();
           });
-        } else if (id === "w-load" || id === "w-del") {
-          ask = { kind: id === "w-load" ? "load" : "del", id: v };
+        } else if (id === "w-load" || id === "w-del" || id === "w-share") {
+          ask = { kind: { "w-load": "load", "w-del": "del", "w-share": "share" }[id], id: v };
           render();
         } else if (id === "w-no") {
           ask = null;
           render();
-        } else if (id === "w-yes" && ask?.kind === "del") {
+        } else if (id === "w-yes" && ask?.kind === "share") {
+          const m = saves.find((x) => x.id === v);
+          ask = null;
+          if (!m || wBusy) return;
+          await busy("share", async () => {
+            const r = await desk.workshop.share(v, { title: m.name, description: wsDescription(m) });
+            unlock(["SHARED"]);
+            flash(r.agreement ? "Accept the Workshop agreement on Steam to make it public" : m.workshop ? "Updated on the Workshop" : "Shared on the Workshop");
+            desk.workshop.open(r.id);
+            await refreshSaves();
+          });
+        } else if (id === "w-page") {
+          const m = saves.find((x) => x.id === v);
+          if (m) desk.workshop.open(m.workshop);
+        } else if (id === "w-browse") desk?.workshop.browse();
+        else if (id === "w-yes" && ask?.kind === "del") {
           ask = null;
           await worldStore.remove(v).catch((e) => flash(String(e.message || e)));
           await refreshSaves();
@@ -28753,7 +28942,8 @@ ${e.message}` : String(e?.message || e));
       const keysNote = '<span class="keys-note">Keyboard: <kbd>?</kbd> lists every shortcut.</span>';
       function foot() {
         if (tab === "about") return `<div class="set-foot">${keysNote}</div>`;
-        if (tab === "worlds") return `<div class="set-foot"><span class="keys-note">Kept in this browser.</span><button type="button" class="link set-reset" data-o="w-open" data-v="0"${wBusy ? " disabled" : ""}>Open a file</button></div>`;
+        const kept = !desk ? "Kept in this browser." : steamOn.cloud ? "Kept on this computer and in Steam Cloud." : "Kept on this computer.";
+        if (tab === "worlds") return `<div class="set-foot"><span class="keys-note">${kept}</span><button type="button" class="link set-reset" data-o="w-open" data-v="0"${wBusy ? " disabled" : ""}>Open a file</button></div>`;
         const reset = confirming ? `<span class="set-reset"><span>Reset every ${tab} setting?</span><button type="button" class="link" data-o="reset-no" data-v="0">Cancel</button><button type="button" class="btn hot-btn" data-o="reset-yes" data-v="0">Reset</button></span>` : `<button type="button" class="link set-reset" data-o="reset" data-v="0">Reset to defaults</button>`;
         return `<div class="set-foot">${confirming ? "" : keysNote}${reset}</div>`;
       }
@@ -29694,8 +29884,8 @@ ${e.message}` : String(e?.message || e));
       for (let wx = first, i = 0; i < 400; wx += unit, i++) {
         const sx = innerWidth / 2 + (wx - cam.x) * p;
         if (sx > innerWidth) break;
-        const major = Math.abs(Math.round(wx / (unit * 5)) * unit * 5 - wx) < unit * 0.01;
-        octx.fillRect(Math.round(sx), y - (major ? 6 : 3), 1, major ? 6 : 3);
+        const major2 = Math.abs(Math.round(wx / (unit * 5)) * unit * 5 - wx) < unit * 0.01;
+        octx.fillRect(Math.round(sx), y - (major2 ? 6 : 3), 1, major2 ? 6 : 3);
       }
       if (phone()) return;
       const len2 = (NICE_UM.find((u) => u / UM_PER_UNIT * p >= 50) || 5e4) / UM_PER_UNIT;
@@ -29713,7 +29903,7 @@ ${e.message}` : String(e?.message || e));
     function drawOverlay(dt, L) {
       const now = performance.now();
       const marking = markSlot() !== -2 && songEvents.some((e) => now - e.at < MARK_MS);
-      const key = state.currents || sel && sel.particle || L || marking ? null : `${state.hud}|${director.active}|${cssPPU()}|${cam.x}|${dockTop}|${innerWidth}|${overlay.width}|${specimen.isOpen() && specimen.inset().right}|${document.fonts.status}`;
+      const key = state.currents || sel && sel.particle || L || marking ? null : `${state.hud}|${state.ui}|${director.active}|${cssPPU()}|${cam.x}|${dockTop}|${innerWidth}|${overlay.width}|${specimen.isOpen() && specimen.inset().right}|${document.fonts.status}`;
       if (key !== null && key === overlayKey) return;
       overlayKey = key;
       octx.setTransform(1, 0, 0, 1, 0, 0);
