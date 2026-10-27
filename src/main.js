@@ -2602,7 +2602,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
     octx.textAlign = 'left';
   }
 
+  // the overlay as last drawn when it held only the scale: redrawn only when that changes (a canvas drawn
+  // afresh each frame is rasterized and composited afresh, the whole window of it)
+  let overlayKey = null;
   function drawOverlay(dt, L) {
+    const now = performance.now();
+    const marking = markSlot() !== -2 && songEvents.some((e) => now - e.at < MARK_MS);
+    const key = state.currents || (sel && sel.particle) || L || marking ? null
+      : `${state.hud}|${director.active}|${cssPPU()}|${cam.x}|${dockTop}|${innerWidth}|${overlay.width}|${specimen.isOpen() && specimen.inset().right}|${document.fonts.status}`;
+    if (key !== null && key === overlayKey) return;
+    overlayKey = key;
     octx.setTransform(1, 0, 0, 1, 0, 0);
     octx.clearRect(0, 0, overlay.width, overlay.height);
     const r = overlay.width / innerWidth;
@@ -2655,7 +2664,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       octx.beginPath(); octx.arc(sx, sy, 1.2, 0, TAU); octx.fill();
       octx.lineCap = 'butt';
     }
-    drawSongMarks(performance.now(), L);
+    drawSongMarks(now, L);
   }
   // Song marks: a faint ring spreads from each cell as it sings its species' note (the picked
   // species', or every species'). Like the followed cell's brackets, a mark sits where its cell

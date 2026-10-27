@@ -756,14 +756,16 @@ class Engine {
     if (!this.reliefBase || this.reliefBase.length !== gw * gh || this.reliefSeed !== this.seedValue) { this.reliefBase = makeRelief(gw, gh, this.seedValue); this.reliefSeed = this.seedValue; }
     const a = this.reliefBase, b = makeRelief(gw, gh, (this.seedValue ^ Math.imul(k + 1, 0x9e3779b1)) >>> 0);
     const to = rankField(a.map((x, i) => x * (1 - drift) + b[i] * drift));
-    this.floor = { from: this.relief.slice(), to, t0: this.simTime, secs, last: -1 };
+    this.floor = { from: this.relief.slice(), to, t0: this.simTime, secs, at: -Infinity };
   }
   stepFloor() {
     const f = this.floor;
     if (!f) return;
-    const u = Math.min(1, (this.simTime - f.t0) / f.secs);
-    if (u === f.last) return;
-    f.last = u;
+    // under a full pool nothing reads or draws the floor: it takes its new shape at once. Easing, it is
+    // uploaded (the whole field) four times a simulated second, creep enough for the shore
+    const u = this.level < 1 ? Math.min(1, (this.simTime - f.t0) / f.secs) : 1;
+    if (u < 1 && this.simTime - f.at < 0.25) return;
+    f.at = this.simTime;
     const e = u * u * (3 - 2 * u);
     for (let i = 0; i < f.to.length; i++) this.relief[i] = f.from[i] + (f.to[i] - f.from[i]) * e;
     this.device.queue.writeBuffer(this.b.thermal, 3 * MAX_CELLS * 4, this.relief);

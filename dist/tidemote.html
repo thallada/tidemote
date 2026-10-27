@@ -18595,14 +18595,14 @@ ${e.message}` : String(e?.message || e));
       }
       const a = this.reliefBase, b = makeRelief(gw, gh, (this.seedValue ^ Math.imul(k + 1, 2654435761)) >>> 0);
       const to = rankField(a.map((x, i) => x * (1 - drift) + b[i] * drift));
-      this.floor = { from: this.relief.slice(), to, t0: this.simTime, secs, last: -1 };
+      this.floor = { from: this.relief.slice(), to, t0: this.simTime, secs, at: -Infinity };
     }
     stepFloor() {
       const f2 = this.floor;
       if (!f2) return;
-      const u = Math.min(1, (this.simTime - f2.t0) / f2.secs);
-      if (u === f2.last) return;
-      f2.last = u;
+      const u = this.level < 1 ? Math.min(1, (this.simTime - f2.t0) / f2.secs) : 1;
+      if (u < 1 && this.simTime - f2.at < 0.25) return;
+      f2.at = this.simTime;
       const e = u * u * (3 - 2 * u);
       for (let i = 0; i < f2.to.length; i++) this.relief[i] = f2.from[i] + (f2.to[i] - f2.from[i]) * e;
       this.device.queue.writeBuffer(this.b.thermal, 3 * MAX_CELLS * 4, this.relief);
@@ -29709,7 +29709,13 @@ ${e.message}` : String(e?.message || e));
       octx.fillText(fmtLen(len2), x0 - 8, by + 3);
       octx.textAlign = "left";
     }
+    let overlayKey = null;
     function drawOverlay(dt, L) {
+      const now = performance.now();
+      const marking = markSlot() !== -2 && songEvents.some((e) => now - e.at < MARK_MS);
+      const key = state.currents || sel && sel.particle || L || marking ? null : `${state.hud}|${director.active}|${cssPPU()}|${cam.x}|${dockTop}|${innerWidth}|${overlay.width}|${specimen.isOpen() && specimen.inset().right}|${document.fonts.status}`;
+      if (key !== null && key === overlayKey) return;
+      overlayKey = key;
       octx.setTransform(1, 0, 0, 1, 0, 0);
       octx.clearRect(0, 0, overlay.width, overlay.height);
       const r = overlay.width / innerWidth;
@@ -29767,7 +29773,7 @@ ${e.message}` : String(e?.message || e));
         octx.fill();
         octx.lineCap = "butt";
       }
-      drawSongMarks(performance.now(), L);
+      drawSongMarks(now, L);
     }
     const MARK_MS = 650;
     const watched = /* @__PURE__ */ new Map();
