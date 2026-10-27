@@ -634,7 +634,11 @@ function cellWGSL(K, w) {
   var vN = vec2f(0.0);
   var wN = 0.0;
   var wN2 = 0.0;
-  let selfVel = p.vel + flowAt(p.pos) * g.advect;
+  // the currents and the pond here, read once for all the cell's uses
+  let openHere = openFlow(p.pos);
+  let pond = pondWith(p.pos, openHere);
+  let flowHere = flowWith(openHere, pond);
+  let selfVel = p.vel + flowHere * g.advect;
   var csum = vec3f(0.0);
   var wsum = 0.0;
   var kinVel = vec2f(0.0);
@@ -956,11 +960,10 @@ function cellWGSL(K, w) {
   let baseB = select(vec2f(0.0), dn1 * ((d1 - rs1) / max(d1, 1e-4)), baseOn);
   let aimOn = tree && n1 != NONE && !beating;
   // the water's edge: a cell on dry ground is stranded (it cannot swim, and the film pulls it back toward the water)
-  let pond = pondAt(p.pos);
   let shore = shoreDist(pond);
   let stranded = pond.x < 0.0;
   let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0) * select(1.0, 0.0, stranded);
-  let flow = flowAt(p.pos) * g.advect;
+  let flow = flowHere * g.advect;
   // a holdfast: a cell the current hardly carries (advect below 0.35, fully below 0.1) is anchored, and
   // pushes barely move it (its velocity decays K.holdfast times as fast)
   let drag = g.drag * mix(1.0, ${f(K.holdfast)}, smoothstep(0.35, 0.1, g.advect));
@@ -1113,7 +1116,7 @@ function cellWGSL(K, w) {
   // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
   // water; anchored cells have fresh silt carried past them by the currents.
   let photoGain = th.perf * pow(g.photo, ${f(K.photoPow)}) * light * ${f(K.photo)} / (1.0 + crowdP * ${f(K.shadeP)}) * (nutr / (nutr + ${f(K.nutrHalf)})) * (1.0 + ${f(K.nutrHalf)} / 20.0)
-    * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowAt(p.pos)) / 0.2, 2.0))
+    * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowHere) / 0.2, 2.0))
     // Allee effect: a producer thrives among its own kind; a lone one grows slowly, so grazed-bare water stays bare a while
     * (1.0 - ${f(K.allee)} + ${f(K.allee)} * min(kinN / 3.0, 1.0))
     // no light reaches a stranded cell's chloroplasts through a drying film
@@ -1194,7 +1197,12 @@ const SPL_NC = ${SPL_CAUSES.length}u;
 const SPL_PAIR = ${SPL_PAIR}u;
 const SPL_RANGE = ${SPL_RANGE}u;
 const SPL_WATCH = ${SPL_WATCH}u;
-fn splBase() -> u32 { return arrayLength(&ledger) - SPL_WORDS; }
+fn splBase() -> u32 { return arrayLength(&ledger) - SPL_WORDS - HEAT_ACC_WORDS; }
+// After it, what a step adds up into the heat field (the step's own scratch, never saved): heat deposited this
+// step per grid cell (HEAT_FIX per degree), then husks per grid cell. In the ledger, which every kernel that
+// adds to them binds already, rather than a buffer of their own (the per-stage limit on storage buffers).
+const HEAT_ACC_WORDS = 2u * MAX_CELLS;
+fn heatAccAt() -> u32 { return arrayLength(&ledger) - HEAT_ACC_WORDS; }
 // one of species k's events: 0 born, 1 starved, 2 died old, 3 eaten, 4 scalded, 5 stranded (dried or frozen), 6 encysted, 7 woke
 fn splCause(k: u32, c: u32) { atomicAdd(&ledger[splBase() + SPL_CAUSE + k * SPL_NC + c], 1u); }
 // a cell of species h tried to eat one of species q (won: and ate it, or bit it), counted when both are watched
@@ -1211,8 +1219,11 @@ fn splPair(h: u32, q: u32, won: bool) {
 // 0 living count, 1..3 life dispatch, 4..7 line draw, 8..11 stone draw (for rendering).
 @group(0) @binding(13) var<storage, read_write> frameCtr: array<atomic<u32>, 12>;
 // Grains of reef stone in each grid cell (low 16 bits, in REEF_FIX parts, shared with the cells around
-// each grain) and of bedrock (high 16), counted while binning.
+// each grain) and of bedrock (high 16), counted while binning (resolveCount) through stoneGrid, and read
+// after it through stoneCells (binding 22, the same buffer): plain loads, where an atomic load on D3D12
+// is a read-modify-write that every particle in a cell would queue on.
 @group(0) @binding(14) var<storage, read_write> stoneGrid: array<atomic<u32>>;
+@group(0) @binding(22) var<storage, read> stoneCells: array<u32>;
 // Every grain of stone, gathered while matter moves, so rendering draws stone without scanning all.
 @group(0) @binding(16) var<storage, read_write> stoneList: array<u32>;
 // Each cell's bonds, six words a cell: the two it keeps, then the cells that keep a bond to
@@ -1222,10 +1233,10 @@ fn splPair(h: u32, q: u32, won: bool) {
 @group(0) @binding(20) var<storage, read_write> bondsAt: array<atomic<u32>>;
 fn bondsOf(i: u32) -> vec2u { return vec2u(bondsNow[i * 6u], bondsNow[i * 6u + 1u]); }
 fn backOf(i: u32, k: u32) -> u32 { return bondsNow[i * 6u + 2u + k]; }
-// The heat field: [0, MAX_CELLS) deposits this step (HEAT_FIX per degree), then the water's
-// temperature per grid cell (f32 bits), then husks per grid cell this step. heatMain writes the next
-// temperatures to heatNext.
-@group(0) @binding(18) var<storage, read_write> thermal: array<atomic<u32>>;
+// The heat field, by blocks of MAX_CELLS: (0 unused), the water's temperature per grid cell, (2 unused),
+// the pool's floor, the order it freezes in; read only (the step writes none of it: heatMain writes the next
+// temperatures to heatNext, copied in after). What the step adds up goes to the ledger's end (heatAccAt).
+@group(0) @binding(18) var<storage, read> thermal: array<f32>;
 @group(0) @binding(19) var<storage, read_write> heatNext: array<f32>;
 
 const EAT_R = ${f(K.eatR)};
@@ -1267,10 +1278,15 @@ fn openFlow(p: vec2f) -> vec2f {
   return v * sim.weather.x + dropFlow(p);
 }
 ${pondFlowWGSL('sim', 'sim.time', K)}fn flowAt(p: vec2f) -> vec2f {
-  var v = openFlow(p);
+  let open = openFlow(p);
+  return flowWith(open, pondWith(p, open));
+}
+// The currents at a point given the open water's flow there and the pond there (pondWith): a kernel that
+// needs both reads each once.
+fn flowWith(open: vec2f, pd: vec3f) -> vec2f {
+  var v = open;
   // the currents die away toward the water's edge and never cross it; dry ground has none
   if (pondOn()) {
-    let pd = pondAt(p);
     let gl = length(pd.yz);
     let dist = pd.x / max(gl, 1e-4);
     let n = pd.yz / max(gl, 1e-4);
@@ -1286,7 +1302,7 @@ ${pondFlowWGSL('sim', 'sim.time', K)}fn flowAt(p: vec2f) -> vec2f {
 // quantile per grid cell, 0 first): liquid is where that order lies above the frost. pondAt gives whichever edge,
 // the water's or the ice's, lies nearer, in the same terms: a depth (below 0: dry or frozen) and the slope toward it.
 fn pondOn() -> bool { return POND && (sim.pond.x < 1.0 || sim.weather.y > 0.0); }
-fn blockCell(block: u32, x: i32, y: i32) -> f32 { return bitcast<f32>(atomicLoad(&thermal[block * MAX_CELLS + wrapCell(x, y)])); }
+fn blockCell(block: u32, x: i32, y: i32) -> f32 { return thermal[block * MAX_CELLS + wrapCell(x, y)]; }
 // A thermal block's field at grid cell i + t: its value read bilinearly, and its slope from central differences
 // at the four corners read bilinearly too, so the slope's direction turns smoothly across cell edges (a slope
 // constant within each cell sent what it pushes into lines along the grid)
@@ -1299,6 +1315,11 @@ fn smoothField(block: u32, i: vec2i, t: vec2f) -> vec3f {
   return vec3f(val, gx, gy);
 }
 fn pondAt(p: vec2f) -> vec3f {
+  if (!pondOn()) { return vec3f(1.0, 0.0, 0.0); }
+  return pondWith(p, openFlow(p));
+}
+// pondAt given the open water's flow at p (openFlow)
+fn pondWith(p: vec2f, open: vec2f) -> vec3f {
   var e = vec3f(1.0, 0.0, 0.0);
   if (!pondOn()) { return e; }
   let u = p - 0.5;
@@ -1308,7 +1329,7 @@ fn pondAt(p: vec2f) -> vec3f {
     let r = smoothField(3u, i, t);
     e = vec3f(sim.pond.x - r.x, r.yz);
     let gl = length(r.yz);
-    if (gl > 1e-5) { e.x += edgeSway(p, r.yz / gl, openFlow(p)) * gl; }
+    if (gl > 1e-5) { e.x += edgeSway(p, r.yz / gl, open) * gl; }
   }
   if (sim.weather.y > 0.0) {
     let o = smoothField(4u, i, t);
@@ -1353,7 +1374,7 @@ fn wrapPos(p: vec2f) -> vec2f { return p - sim.world * floor(p / sim.world); }
 fn heatCell(x: i32, y: i32) -> f32 {
   let gw = i32(sim.grid.x);
   let gh = i32(sim.grid.y);
-  return bitcast<f32>(atomicLoad(&thermal[MAX_CELLS + u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw)]));
+  return thermal[MAX_CELLS + u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw)];
 }
 // Grid cell (x, y), wrapping.
 fn wrapCell(x: i32, y: i32) -> u32 {
@@ -1365,7 +1386,7 @@ fn wrapCell(x: i32, y: i32) -> u32 {
 // REEF_FIX parts (so up to 1023 grains fit the low 16 bits of stoneGrid).
 const REEF_FIX = 64.0;
 fn reefCell(x: i32, y: i32) -> f32 {
-  return f32(atomicLoad(&stoneGrid[wrapCell(x, y)]) & 0xffffu) / REEF_FIX;
+  return f32(stoneCells[wrapCell(x, y)] & 0xffffu) / REEF_FIX;
 }
 // The water's temperature at p, bilinear between cell centers, and its gradient (degrees per cell).
 fn heatSample(p: vec2f) -> vec3f {
@@ -1385,7 +1406,7 @@ fn cellThermal(g: Genome, t: f32) -> Thermal {
 }
 // Warm the water at p by e degrees (before its heat capacity), in eighths of a frame's worth.
 fn depositHeat(p: vec2f, e: f32) {
-  if (HEAT_ON && e > 0.0) { atomicAdd(&thermal[cellOf(p)], u32(e * HEAT_FIX + 0.5)); }
+  if (HEAT_ON && e > 0.0) { atomicAdd(&ledger[heatAccAt() + cellOf(p)], u32(e * HEAT_FIX + 0.5)); }
 }
 
 // Specialists digest their food better than generalists: value of a food given the share of the diet devoted to it.
@@ -1780,7 +1801,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
       }
     }
     // husks per grid cell: where they pile up and rot, framboids form (matterMain)
-    if (p.kind == HUSK && HEAT_ON) { atomicAdd(&thermal[2u * MAX_CELLS + cell], 1u); }
+    if (p.kind == HUSK && HEAT_ON) { atomicAdd(&ledger[heatAccAt() + MAX_CELLS + cell], 1u); }
     if (p.kind == HUSK && (p.info & LITTER) != 0u) { atomicAdd(&ledger[META_DEATH + 60u], 1u); }
     atomicAdd(&hist[p.kind % MAXK], 1u);
     if (p.kind >= FIRST_LIFE) { atomicAdd(&roleHist[roleOf(p.info)], 1u); }
@@ -2009,7 +2030,8 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   var s = pcg((p.id * 1664525u) ^ pcg(sim.frame * 2654435761u + sim.seed));
   // the water's warmth here: warm water wears husks faster and shakes grains harder
   // (read smoothly between grid cells: grains shaken harder cell by cell drifted into grid lines)
-  let T = heatSample(p.pos).x;
+  let heatHere = heatSample(p.pos);
+  let T = heatHere.x;
   let warm = (T - TREF) / 10.0;
   let hot = T - sim.tbg;
   // Brownian drift as a smooth random velocity that persists ~0.5 s (Ornstein-Uhlenbeck), scaled so
@@ -2018,12 +2040,14 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   let kick = vec2f(rnd(&s) - 0.5, rnd(&s) - 0.5) * (${f(K.jitter)} * sqrt((1.0 - keep * keep) * sim.dt / (2.0 * 0.5))
     * select(1.0, sqrt(max(T, 0.0) + 10.0) / ${f(Math.sqrt(K.tRef + 10))}, HEAT_ON));
   // a fresh husk still carries its cell's velocity; cap it to the jitter's own scale so it doesn't coast
-  let w = p.vel - flowAt(p.pos);
+  let open = openFlow(p.pos);
+  let pd = pondWith(p.pos, open);
+  let flow = flowWith(open, pd);
+  let w = p.vel - flow;
   let jit = w * (keep * min(1.0, 0.05 / max(length(w), 1e-6))) + kick;
-  var vel = flowAt(p.pos) + jit;
+  var vel = flow + jit;
   // on dry ground grains and husks lie where the water left them; near a receding edge the water flowing out to
   // replace what evaporates there carries them to it, and strands them in a line (a coffee ring)
-  let pd = pondAt(p.pos);
   let dryHere = pd.x < 0.0;
   if (pondOn()) {
     let sd = shoreDist(pd);
@@ -2034,7 +2058,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     else if (pull > 0.0 && sd < ${f(K.filmR)}) { vel += pd.yz / max(length(pd.yz), 1e-4) * (${f(K.ringPull)} * pull * (1.0 - sd / ${f(K.filmR)})); }
   }${K.heat && K.marangoni > 0 ? `
   // surface flow: warm water's surface pulls toward cooler water, carrying matter with it
-  vel -= heatSample(p.pos).yz * ${f(K.marangoni)};` : ''}
+  vel -= heatHere.yz * ${f(K.marangoni)};` : ''}
   let pos = wrapPos(p.pos + vel * sim.dt);
   p.age += sim.dt;
   if (p.kind == SILT) {
@@ -2065,7 +2089,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       p.kind = SILT; p.energy = 0.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 4u;
       // in a pile of rotting husks the sulfide they release may crystallize as a framboid
-      let pile = f32(atomicLoad(&thermal[2u * MAX_CELLS + cellOf(p.pos)]));
+      let pile = f32(atomicLoad(&ledger[heatAccAt() + MAX_CELLS + cellOf(p.pos)]));
       if (HEAT_ON && rnd(&s) < ${f(K.framboidForm)} * smoothstep(3.0, ${f(K.framboidPile)}, pile) * (1.0 - smoothstep(0.0, 6.0, hot))) {
         p.kind = FRAMBOID; p.energy = ${f(K.framboidLife)} * (0.5 + rnd(&s)); p.col = FRAMBOID_COL;
         p.info = (p.info & 0xffffffc0u) | ${FRAMBOID_GROWN}u;
@@ -2093,10 +2117,10 @@ fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
   let here = heatCell(x, y);
   let carried = heatSample(center - flowAt(center) * sim.dt).x;
   let lap = heatCell(x + 1, y) + heatCell(x - 1, y) + heatCell(x, y + 1) + heatCell(x, y - 1) - 4.0 * here;
-  let stones = atomicLoad(&stoneGrid[c]);
+  let stones = stoneCells[c];
   let mass = 1.0 + ${f(K.stoneMass)} * (f32(stones & 0xffffu) / REEF_FIX + f32(stones >> 16u));
   let light = lightAt(center);
-  let q = f32(atomicExchange(&thermal[c], 0u)) / HEAT_FIX + ${f(K.sunHeat)} * light * sim.dt;
+  let q = f32(atomicExchange(&ledger[heatAccAt() + c], 0u)) / HEAT_FIX + ${f(K.sunHeat)} * light * sim.dt;
   let t = carried + ${f(K.heatD)} * lap * sim.dt + (q - ${f(K.heatLoss)} * (carried - sim.tbg) * sim.dt) / mass;
   heatNext[c] = t;
 }
@@ -2544,9 +2568,11 @@ fn cystStep(i: u32) {
   // asleep, it neither swims nor feels other cells' pull: it moves only as the current carries it and as
   // neighbors jostle it (contactMain's push, already in its velocity), and soon comes to rest
   p.vel *= pow(0.5, sim.dt / 0.15);
-  let dry = pondAt(p.pos).x < 0.0;
+  let open = openFlow(p.pos);
+  let pd = pondWith(p.pos, open);
+  let dry = pd.x < 0.0;
   if (dry) { p.vel = vec2f(0.0); }
-  p.pos = wrapPos(p.pos + (p.vel + flowAt(p.pos) * g.advect) * sim.dt);
+  p.pos = wrapPos(p.pos + (p.vel + flowWith(open, pd) * g.advect) * sim.dt);
   atomicAdd(&ledger[cystSlot(dietGuild(g))], 1u);
   if (p.energy <= 0.0) {
     splCause(p.kind, select(1u, 5u, dry));

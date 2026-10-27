@@ -187,7 +187,7 @@ async function stepBench(page, sc) {
     state.paused = false;
     const med = (a) => { const s = [...a].sort((x, y) => x - y); return +s[s.length >> 1].toFixed(4); };
     const dispatch = Object.fromEntries(Object.entries(per).map(([k, a]) => [k, med(a)]));
-    return { name: sc.name, count: eng.count, living: T.life().counts[3], total: +Object.values(dispatch).reduce((a, b) => a + b, 0).toFixed(3), dispatch };
+    return { name: sc.name, count: eng.count, living: T.life().counts[3], level: eng.level, frost: eng.frost, total: +Object.values(dispatch).reduce((a, b) => a + b, 0).toFixed(3), dispatch };
   }, sc);
 }
 
@@ -356,7 +356,7 @@ try {
       report.scenarios.push({ world: w.name, ...r });
       if (sc.kind === 'growth') continue;
       if (sc.kind === 'warm') { console.log(`${w.name}/${r.name}: ${r.count} particles, ${r.wall} s to reach the time, ${Math.round(r.simShare * 100)}% of GPU time stepping`); continue; }
-      if (sc.kind === 'step') { console.log(`${w.name}/${r.name}: step ${r.total} ms | ${JSON.stringify(r.dispatch)}`); continue; }
+      if (sc.kind === 'step') { console.log(`${w.name}/${r.name}: step ${r.total} ms (level ${+r.level.toFixed(5)}) | ${JSON.stringify(r.dispatch)}`); continue; }
       const top = Object.entries(r.passes).slice(0, 4).map(([k, x]) => `${k} ${x}`).join(', ');
       console.log(`${w.name}/${r.name}: ${r.audio ? `audio ${JSON.stringify(r.audio)} ` : ''}${r.fps} fps (raf ${r.rafFps}), gpu ${r.gpu.mean} ms (p95 ${r.gpu.p95}), sim ${r.sim.mean} ms x${r.sim.stepsPerFrame}, enc ${r.encodeMs.mean} ms, long ${r.longTasks}/${r.longMs} ms${r.lab ? `, lab ${r.lab.n}× ${r.lab.mean} ms (max ${r.lab.max})` : ''}, scale ${r.scale.mean}, slow ${r.slow.end} ${r.slow.why || ''}, ppu ${r.ppu} | ${top}`);
       if (v.out) fs.writeFileSync(v.out, JSON.stringify(report, null, 2));

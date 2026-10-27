@@ -151,6 +151,9 @@ export function createClimate(eng, rng = Math.random) {
       climate.levelMid ??= eng.level;
       climate.levelMid += (climate.levelTo - climate.levelMid) * k;
       eng.level += (climate.levelMid - eng.level) * k;
+      // arrived: the lags would only creep closer for minutes, and a pool a hair below full still runs the
+      // shore's work for every particle (pondOn)
+      if (Math.abs(climate.levelMid - climate.levelTo) < 1e-4 && Math.abs(eng.level - climate.levelTo) < 1e-4) eng.level = climate.levelMid = climate.levelTo;
     }
     eng.rain = e.rain; eng.sky = e.sky; eng.evap = e.evap; eng.turb = e.turb; eng.frost = e.frost; eng.freezing = e.freezing;
     climate.eventTemp = e.dT; climate.eventChill = e.chill;

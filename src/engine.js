@@ -222,16 +222,16 @@ class Engine {
     const cp = (mod, entryPoint) => cPipe({ layout: 'auto', compute: { module: mod, entryPoint }, label: entryPoint });
     this.cpDefs = {
       seedMain: [0, 1, 9, 10, 11],
-      resolveCount: [0, 1, 4, 8, 9, 10, 11, 14, 18],
+      resolveCount: [0, 1, 4, 8, 9, 10, 11, 14],
       scanBlocks: [5, 6, 7],
       scanSums: [6, 7],
       scanAdd: [6, 7],
       scatterMain: [0, 1, 2, 3, 6, 8, 9, 10, 12, 13, 15],
       censusMain: [11, 12, 13],
       rangeMain: [0, 1, 11],
-      matterMain: [0, 1, 2, 9, 10, 11, 13, 14, 16, 18],
+      matterMain: [0, 1, 2, 9, 10, 11, 13, 16, 18, 22],
       lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12, 15, 18],
-      heatMain: [0, 14, 18, 19],
+      heatMain: [0, 11, 18, 19, 22],
       mindMain: [0, 2, 3, 6, 10, 15, 17, 18],
     };
     // bonds pull both ways, through the cells that keep a bond to each (bondsNow holds them)
@@ -403,8 +403,9 @@ class Engine {
     // each cell's drawn motion and recent events, by ID (contactGather): only cells in view need a slot
     b.sway = d.createBuffer({ size: Math.min(n, 1 << 20) * SWAY_BYTES, usage: U.STORAGE });
     b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
-    // the claims, then the species ledger (observational, never saved)
-    b.ledger = d.createBuffer({ size: (META_CLAIM + n + SPL_WORDS) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    // the claims, then the species ledger (observational), then the step's heat deposits and husk piles
+    // (heatAccAt in SIM_WGSL); only the head and the claims are saved
+    b.ledger = d.createBuffer({ size: (META_CLAIM + n + SPL_WORDS + 2 * MAX_CELLS) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
     // the particles too large to splat (splatMain): the points' draw arguments, then their indices
     b.quads = d.createBuffer({ size: (4 + n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
@@ -414,6 +415,7 @@ class Engine {
       8: { buffer: b.aux }, 9: { buffer: b.intent }, 10: { buffer: b.genomes }, 11: { buffer: b.ledger },
       12: { buffer: b.livingList }, 13: { buffer: b.frameCtr }, 14: { buffer: b.stoneGrid },
       15: { buffer: b.bondsNow }, 20: { buffer: b.bondsNow }, 16: { buffer: b.stoneList }, 17: { buffer: b.mind }, 18: { buffer: b.thermal }, 19: { buffer: b.heatNext },
+      22: { buffer: b.stoneGrid },
     };
     this._cpRes = res;
     for (const name of Object.keys(this.cpDefs)) if (this.cp[name].pipe) this._cpBind(name);
@@ -478,6 +480,7 @@ class Engine {
     const verr = await d.popErrorScope();
     const oerr = await d.popErrorScope();
     if (verr || oerr) {
+      if (verr) console.warn(`allocate: ${verr.message}`);
       for (const k of names) { b[k]?.destroy(); b[k] = null; }
       return false;
     }
@@ -728,7 +731,7 @@ class Engine {
     d.queue.writeBuffer(this.b.thermal, 4 * MAX_CELLS * 4, (this.iceOrder = makeIceOrder(this.grid[0], this.grid[1], this.seedValue, this.relief)));
     this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.mudRain = 0; this.parch = 0; this.duck.fill(0); this.drops.fill(0);
     const enc = d.createCommandEncoder();
-    enc.clearBuffer(this.b.thermal, 0, cells * 4);
+    enc.clearBuffer(this.b.ledger, this._heatAccAt(), cells * 4);
     enc.clearBuffer(this.b.counts);
     enc.clearBuffer(this.b.ledger, LEDGER_HEAD, n * 4);
     enc.clearBuffer(this.b.ledger, this._splAt(), SPL_WORDS * 4);
@@ -862,7 +865,7 @@ class Engine {
     enc.clearBuffer(b.counts, 0, cells * 4);
     enc.clearBuffer(b.counts, MAX_CELLS * 4, cells * 4);
     enc.clearBuffer(b.stoneGrid, 0, cells * 4);
-    if (this.K.heat) enc.clearBuffer(b.thermal, 2 * MAX_CELLS * 4, cells * 4);
+    if (this.K.heat) enc.clearBuffer(b.ledger, this._heatAccAt() + MAX_CELLS * 4, cells * 4);
     enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
     // litter on the ground (META_DEATH + 60) and cysts per guild (57-59, 61, 62), counted afresh each step
     enc.clearBuffer(b.ledger, (META_DEATH + 57) * 4, 6 * 4);
@@ -1047,6 +1050,7 @@ class Engine {
 
   /** Where the species ledger starts in the ledger buffer (bytes): after the claims. */
   _splAt() { return (META_CLAIM + this.capacity) * 4; }
+  _heatAccAt() { return this._splAt() + SPL_WORDS * 4; }
 
   /**
    * The page's watch map for the species ledger: map[slot] = watched index + 1 (0: not watched), at
