@@ -395,6 +395,9 @@ body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520p
 }
 .flash.on { opacity: 1; }
 
+/* the interface hidden (U): only the world */
+body.ui-off :is(#hud, #spec, #lab, #help, #card, #tip, #plate) { visibility: hidden !important; opacity: 0 !important; }
+
 .tip {
   position: fixed; z-index: 40; pointer-events: none; max-width: 300px;
   background: var(--panel-solid); border: 1px solid var(--line-2); border-left: 2px solid var(--cyan);
@@ -430,11 +433,12 @@ canvas.chart { cursor: crosshair; }
 .opt .chip-note { color: var(--ink-3); letter-spacing: .08em; }
 .hot-btn { border-color: var(--hot); color: var(--ink); background: rgba(255, 95, 58, 0.14); justify-self: start; }
 .hot-btn:hover { background: rgba(255, 95, 58, 0.26); border-color: var(--hot); }
+/* a button that is a row's value (Start a new world with ...) may wrap: it grows, padded, rather than crowd its lines */
+.opt > .btn { height: auto; min-height: 34px; padding: var(--s2) 12px; line-height: 1.35; text-align: left; }
 /* hairline cells drawn by the gaps between them, so any count of figures lines up */
 .readout { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-top: var(--s3); background: var(--line); border: 1px solid var(--line); }
 .readout div { display: flex; flex-direction: column; gap: var(--s1); padding: var(--s2); min-width: 0; background: var(--panel-solid); }
 .readout div.w2 { grid-column: span 2; }
-.readout div.w4 { grid-column: 1 / -1; }
 .readout b { font-size: 17px; font-weight: 300; line-height: 1; color: var(--sun); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .readout span { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
 .opts { display: flex; flex-direction: column; margin-top: var(--s4); }
@@ -632,7 +636,7 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .mv-sig .sigil, .nb-sig .sigil { display: block; }
 .mv-tdist { font-style: normal; color: var(--ink-3); font-size: 11px; margin-left: auto; }
 .mv-detail { color: var(--ink-2); }
-.mv-pulls { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; align-items: center; }
+.mv-pulls { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; align-items: start; }
 .compass { width: 112px; height: 112px; display: block; overflow: visible; }
 .c-ring { fill: none; stroke: var(--line-2); stroke-width: .8; }
 .c-ring.faint { stroke: var(--line); stroke-dasharray: 1.5 2.5; }
@@ -649,7 +653,7 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .mv-drives b { font-weight: 400; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 11px; }
 .mv-drives .meter > i { transition: width .12s linear; }
 .mv-dial { display: flex; flex-direction: column; align-items: center; gap: 5px; align-self: stretch; }
-.mv-dial .compass { margin: auto 0; } /* the key at the top, the compass centered in what is left */
+.mv-dial .compass { margin-top: var(--s1); } /* right under the key, wherever the drives end: it never moves from cell to cell */
 /* the key's two rows keep the drives' pitch, so they line up with the first two drives */
 .mv-key { display: flex; flex-direction: column; gap: 5px; }
 .mv-key span { display: grid; grid-template-columns: 12px auto; align-items: center; justify-items: center; gap: 6px; height: 17px; }

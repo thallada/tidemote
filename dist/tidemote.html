@@ -451,6 +451,9 @@ body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520p
 }
 .flash.on { opacity: 1; }
 
+/* the interface hidden (U): only the world */
+body.ui-off :is(#hud, #spec, #lab, #help, #card, #tip, #plate) { visibility: hidden !important; opacity: 0 !important; }
+
 .tip {
   position: fixed; z-index: 40; pointer-events: none; max-width: 300px;
   background: var(--panel-solid); border: 1px solid var(--line-2); border-left: 2px solid var(--cyan);
@@ -486,11 +489,12 @@ canvas.chart { cursor: crosshair; }
 .opt .chip-note { color: var(--ink-3); letter-spacing: .08em; }
 .hot-btn { border-color: var(--hot); color: var(--ink); background: rgba(255, 95, 58, 0.14); justify-self: start; }
 .hot-btn:hover { background: rgba(255, 95, 58, 0.26); border-color: var(--hot); }
+/* a button that is a row's value (Start a new world with ...) may wrap: it grows, padded, rather than crowd its lines */
+.opt > .btn { height: auto; min-height: 34px; padding: var(--s2) 12px; line-height: 1.35; text-align: left; }
 /* hairline cells drawn by the gaps between them, so any count of figures lines up */
 .readout { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-top: var(--s3); background: var(--line); border: 1px solid var(--line); }
 .readout div { display: flex; flex-direction: column; gap: var(--s1); padding: var(--s2); min-width: 0; background: var(--panel-solid); }
 .readout div.w2 { grid-column: span 2; }
-.readout div.w4 { grid-column: 1 / -1; }
 .readout b { font-size: 17px; font-weight: 300; line-height: 1; color: var(--sun); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .readout span { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
 .opts { display: flex; flex-direction: column; margin-top: var(--s4); }
@@ -688,7 +692,7 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .mv-sig .sigil, .nb-sig .sigil { display: block; }
 .mv-tdist { font-style: normal; color: var(--ink-3); font-size: 11px; margin-left: auto; }
 .mv-detail { color: var(--ink-2); }
-.mv-pulls { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; align-items: center; }
+.mv-pulls { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; align-items: start; }
 .compass { width: 112px; height: 112px; display: block; overflow: visible; }
 .c-ring { fill: none; stroke: var(--line-2); stroke-width: .8; }
 .c-ring.faint { stroke: var(--line); stroke-dasharray: 1.5 2.5; }
@@ -705,7 +709,7 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .mv-drives b { font-weight: 400; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 11px; }
 .mv-drives .meter > i { transition: width .12s linear; }
 .mv-dial { display: flex; flex-direction: column; align-items: center; gap: 5px; align-self: stretch; }
-.mv-dial .compass { margin: auto 0; } /* the key at the top, the compass centered in what is left */
+.mv-dial .compass { margin-top: var(--s1); } /* right under the key, wherever the drives end: it never moves from cell to cell */
 /* the key's two rows keep the drives' pitch, so they line up with the first two drives */
 .mv-key { display: flex; flex-direction: column; gap: 5px; }
 .mv-key span { display: grid; grid-template-columns: 12px auto; align-items: center; justify-items: center; gap: 6px; height: 17px; }
@@ -1124,16 +1128,16 @@ svg.niche .n-dot { fill: var(--cyan); }
 <div class="hud" id="hud">
   <!-- status rail: when and under what sky -->
   <header class="rail" id="rail">
-    <button type="button" class="brand" id="brand" aria-label="About Tidemote" data-hint="About Tidemote"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></svg><span>Tidemote</span></button>
-    <div class="clock" role="timer" aria-label="Simulated time"><span class="lbl">Epoch</span><b id="epoch">0:00</b></div>
+    <button type="button" class="brand" id="brand" aria-label="About Tidemote" data-hint="About Tidemote"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></svg><span translate="no">Tidemote</span></button>
+    <div class="clock" role="timer" aria-label="Simulated time"><span class="lbl">Epoch</span><b id="epoch" translate="no">0:00</b></div>
     <div class="era-box" id="era-box"><span class="lbl" id="era-n">Era 01</span><b id="era">The First Tides</b><span class="era-tide" id="era-tide" aria-hidden="true"><svg viewBox="0 0 60 6" preserveAspectRatio="none"><path/></svg><i></i></span></div>
-    <div class="gauge term" data-tip="light" tabindex="0" id="g-light"><span class="lbl">Light</span><span class="seg" id="light-seg" aria-hidden="true"></span><b id="light-v">–</b></div>
-    <div class="gauge term" data-tip="water" tabindex="0" id="g-heat"><span class="lbl">Temp</span><svg class="thermo" id="thermo" viewBox="0 0 68 18" aria-hidden="true"></svg><svg class="thermo-i" id="thermo-i" viewBox="0 0 12 20" aria-hidden="true"></svg><b id="heat-v">–</b></div>
-    <div class="gauge term" data-tip="season" tabindex="0" id="g-tide"><span class="lbl">Tide</span><svg id="tide-wave" viewBox="0 0 60 16" aria-hidden="true"><path class="wave" d=""/><circle class="dot" r="2.2" cx="0" cy="8"/></svg><b id="tide-v">–</b></div>
+    <div class="gauge term" data-tip="light" tabindex="0" id="g-light"><span class="lbl">Light</span><span class="seg" id="light-seg" aria-hidden="true"></span><b id="light-v" translate="no">–</b></div>
+    <div class="gauge term" data-tip="water" tabindex="0" id="g-heat"><span class="lbl">Temp</span><svg class="thermo" id="thermo" viewBox="0 0 68 18" aria-hidden="true"></svg><svg class="thermo-i" id="thermo-i" viewBox="0 0 12 20" aria-hidden="true"></svg><b id="heat-v" translate="no">–</b></div>
+    <div class="gauge term" data-tip="season" tabindex="0" id="g-tide"><span class="lbl">Tide</span><svg id="tide-wave" viewBox="0 0 60 16" aria-hidden="true"><path class="wave" d=""/><circle class="dot" r="2.2" cx="0" cy="8"/></svg><b id="tide-v" translate="no">–</b></div>
     <div class="gauge term ev-chip" tabindex="0" id="g-event" hidden><span class="lbl" id="event-l">Event</span><svg class="ev-ico" aria-hidden="true"><use id="event-i" href="#i-ev-storm"/></svg><b><span id="event-v">–</span><span class="ev-x" id="event-x"></span></b></div>
     <div class="rail-right">
-      <div class="stat"><span class="lbl">Living</span><b id="r-living">–</b></div>
-      <div class="stat"><span class="lbl">Species</span><b id="r-species">–</b></div>
+      <div class="stat"><span class="lbl">Living</span><b id="r-living" translate="no">–</b></div>
+      <div class="stat"><span class="lbl">Species</span><b id="r-species" translate="no">–</b></div>
       <button type="button" class="ghost fs" id="fs" aria-label="Full screen" aria-pressed="false" data-hint="Full screen · F" hidden><svg><use href="#i-full"/></svg></button>
     </div>
   </header>
@@ -1156,7 +1160,7 @@ svg.niche .n-dot { fill: var(--cyan); }
       <button type="button" class="act" id="set-open" aria-label="Settings" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span>Settings</span></button>
       <button type="button" class="act primary" id="lab-open" aria-label="Field Lab" aria-expanded="false" aria-controls="lab" data-hint="Field Lab · K"><svg><use href="#i-lab"/></svg><span>Lab</span></button>
     </div>
-    <div class="sys" id="sys" aria-hidden="true"><span><b id="sys-n" class="w-n">–</b> particles</span><span><b id="sys-fps" class="w-3">–</b> fps</span><span><b id="sys-ms" class="w-4">–</b> ms</span><span><b id="sys-res" class="w-4">–</b> res</span></div>
+    <div class="sys" id="sys" aria-hidden="true"><span><b id="sys-n" translate="no" class="w-n">–</b> particles</span><span><b id="sys-fps" translate="no" class="w-3">–</b> fps</span><span><b id="sys-ms" translate="no" class="w-4">–</b> ms</span><span><b id="sys-res" translate="no" class="w-4">–</b> res</span></div>
   </nav>
 
   <!-- settings: what is shown, and what it costs -->
@@ -1171,17 +1175,19 @@ svg.niche .n-dot { fill: var(--cyan); }
       </div>
       <button type="button" class="ghost" id="set-close" aria-label="Close settings"><svg><use href="#i-close"/></svg></button></div>
     <div class="readout" id="readout" hidden aria-live="off">
-      <div><b id="ro-fps">–</b><span>fps</span></div>
-      <div><b id="ro-ms">–</b><span>GPU ms</span></div>
-      <div><b id="ro-step">–</b><span class="term" data-tip="stepms" tabindex="0">Step ms</span></div>
-      <div><b id="ro-draw">–</b><span class="term" data-tip="drawms" tabindex="0">Draw ms</span></div>
-      <div><b id="ro-res">–</b><span class="term" data-tip="renderres" tabindex="0">Render</span></div>
-      <div class="w2"><b id="ro-px">–</b><span>Scene px</span></div>
-      <div><b id="ro-audio">–</b><span class="term" data-tip="audioload" tabindex="0">Audio</span></div>
-      <div class="w2"><b id="ro-n">–</b><span>Particles</span></div>
-      <div><b id="ro-ceil">–</b><span class="term" data-tip="stride" tabindex="0">Stride</span></div>
-      <div><b id="ro-rate">–</b><span class="term" data-tip="simrate" tabindex="0">Now</span></div>
-      <div class="w4"><b id="ro-aim">–</b><span class="term" data-tip="aimfps" tabindex="0">Aiming for</span></div>
+      <div><b id="ro-fps" translate="no">–</b><span>fps</span></div>
+      <div><b id="ro-aim" translate="no">–</b><span class="term" data-tip="aimfps" tabindex="0">Aiming for</span></div>
+      <div><b id="ro-ms" translate="no">–</b><span>GPU ms</span></div>
+      <div><b id="ro-step" translate="no">–</b><span class="term" data-tip="stepms" tabindex="0">Step ms</span></div>
+      <div><b id="ro-draw" translate="no">–</b><span class="term" data-tip="drawms" tabindex="0">Draw ms</span></div>
+      <div><b id="ro-res" translate="no">–</b><span class="term" data-tip="renderres" tabindex="0">Render</span></div>
+      <div><b id="ro-dens" translate="no">–</b><span class="term" data-tip="density" tabindex="0">Density</span></div>
+      <div><b id="ro-audio" translate="no">–</b><span class="term" data-tip="audioload" tabindex="0">Audio</span></div>
+      <div class="w2"><b id="ro-px" translate="no">–</b><span>Scene px</span></div>
+      <div class="w2"><b id="ro-n" translate="no">–</b><span>Particles</span></div>
+      <div><b id="ro-ceil" translate="no">–</b><span class="term" data-tip="stride" tabindex="0">Stride</span></div>
+      <div><b id="ro-rate" translate="no">–</b><span class="term" data-tip="simrate" tabindex="0">Now</span></div>
+      <div class="w2"><b id="ro-why">–</b><span class="term" data-tip="adapting" tabindex="0">Adapting</span></div>
     </div>
     <div class="opts" id="opts"></div>
     <input type="file" id="w-file" accept=".tidemote" hidden>
@@ -1248,10 +1254,10 @@ svg.niche .n-dot { fill: var(--cyan); }
           <div class="mix" id="mix" role="group" aria-label="Matter: choose one to highlight it"></div>
         </div>
         <div class="nums">
-          <div><b id="n-alive">–</b><span class="term" data-tip="alive" tabindex="0">Species</span></div>
-          <div><b id="n-thriving">–</b><span class="term" data-tip="thriving" tabindex="0">Thriving</span></div>
-          <div><b id="n-ever">–</b><span class="term" data-tip="ever" tabindex="0">Ever</span></div>
-          <div><b id="n-depth">–</b><span class="term" data-tip="deepest" tabindex="0">Depth</span></div>
+          <div><b id="n-alive" translate="no">–</b><span class="term" data-tip="alive" tabindex="0">Species</span></div>
+          <div><b id="n-thriving" translate="no">–</b><span class="term" data-tip="thriving" tabindex="0">Thriving</span></div>
+          <div><b id="n-ever" translate="no">–</b><span class="term" data-tip="ever" tabindex="0">Ever</span></div>
+          <div><b id="n-depth" translate="no">–</b><span class="term" data-tip="deepest" tabindex="0">Depth</span></div>
         </div>
         <div class="blk">
           <div class="sub-h"><span>Living cells by species</span></div>
@@ -1286,7 +1292,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     <dt>G · E · D · W</dt><dd>Light map · heat map · tide map · currents</dd>
     <dt>L N B O</dt><dd>Bonds · particles · bloom · optics</dd>
     <dt>M · [ ]</dt><dd>Loupe · magnification</dd>
-    <dt>0 · F · I</dt><dd>Reset zoom · fullscreen · hide readouts</dd>
+    <dt>0 · F · I · U</dt><dd>Reset zoom · fullscreen · hide readouts · hide everything</dd>
     <dt>⇧R ⇧R</dt><dd>Discard this world and begin again</dd>
   </dl>
   <p class="help-src">Free software under the <a class="sp" target="_blank" rel="noopener" href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0</a>, sound after <a class="sp" target="_blank" rel="noopener" href="https://supercollider.github.io/">SuperCollider</a> · <a class="sp" target="_blank" rel="noopener" href="https://github.com/thallada/tidemote">Source code</a></p>
@@ -1314,7 +1320,7 @@ svg.niche .n-dot { fill: var(--cyan); }
 <div class="intro" id="intro">
   <div class="intro-in">
     <canvas class="intro-anim" id="intro-anim" aria-hidden="true"></canvas>
-    <h1>Tidemote</h1>
+    <h1 translate="no">Tidemote</h1>
     <div class="intro-rule" aria-hidden="true"><i></i></div>
     <p>A simulated emergent ecology of particles and mutating organisms.</p>
     <div class="calib" id="calib" role="status">Starting the GPU</div>
@@ -1325,7 +1331,7 @@ svg.niche .n-dot { fill: var(--cyan); }
 <!-- shown when the world cannot run (no WebGPU, no JavaScript): says why, then what Tidemote is -->
 <div class="nogpu" id="nogpu" hidden>
   <div class="nogpu-in">
-    <div class="lbl">Tidemote</div>
+    <div class="lbl" translate="no">Tidemote</div>
     <h1 id="nogpu-title">WebGPU unavailable</h1>
     <p id="nogpu-detail">Tidemote simulates its world on your graphics card through WebGPU, with JavaScript turned on. Try a current Chrome, Edge or Safari, or Firefox on Windows.</p>
     <section class="about" aria-labelledby="about-h">
@@ -20161,8 +20167,9 @@ ${e.message}` : String(e?.message || e));
     stepms: "GPU time one simulation step takes.",
     saves: "A save keeps the whole world: every particle, each species with its name and lineage, the chronicle, the history and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download one to keep it safe or to open it on another device.",
     profile: "Times three seconds of frames on the GPU, pass by pass, and one simulation step, and copies the result with this device’s details: a report of how the page runs here.",
-    aimfps: "The frame rate the page aims for now, and why when it is lower than Target fps: frames running late, the GPU busy for nearly the whole frame, or the device under pressure (hot or busy, where the browser reports it). It first lowers the render scale; below 45 fps each step covers more simulated time, so the world keeps real time. It climbs back after a stretch with room to spare.",
-    renderres: "The share of the screen’s resolution the world is drawn at right now (Scene px). With Render scale on Auto it drops when frames run late and climbs back when there is room.",
+    aimfps: "The frame rate the page aims for now (Max: running fast, every frame filled with steps). Below 45 fps each step covers more simulated time, so the world keeps real time.",
+    adapting: "Why the page is drawing less than it could, if it is: frames running late, the GPU busy for nearly the whole frame, or the device under pressure (hot or busy, where the browser reports it). It lowers the pixel density first, then the render scale, then (with Target fps on Auto) the frame rate; when the simulation is most of the cost, the frame rate before the render scale. It climbs back after a stretch with room to spare. Running fast it does not adapt.",
+    renderres: "The render scale the world is drawn at right now, on top of the pixel density (Density; Scene px is the two together). With Render scale on Auto it drops when frames run late and climbs back when there is room.",
     drawms: "GPU time drawing the world once takes: cells, stone, bloom and the final image. At high speeds it is drawn about thirty times a second.",
     stride: "How much simulated time each step moves the world forward. Normally a step is 1/60 s, the most exact. When you ask for a speed the GPU can’t reach in steps that small, it takes bigger ones instead, up to 4/60 s. Bigger steps are a little coarser, but births, deaths and the variety of species stay the same over long runs.",
     simrate: "How fast the world is running right now, as a multiple of real time.",
@@ -20212,6 +20219,7 @@ ${e.message}` : String(e?.message || e));
     closeup: "The live close-up in the specimen panel: a second, small view of the world drawn every frame.",
     particles: "Every grain, husk and cell is one particle; their number is fixed for a world’s whole life. Auto measures the GPU and picks the most it can run smoothly, and shows the count it picked for this world. Changing it starts a new world.",
     neighbors: "In a crowd, the most nearby particles a cell weighs each step. It samples them evenly and counts each for the ones it skips, so crowding and pushes stay right on average; it only picks food and bond partners from those it saw. Fewer runs faster in dense colonies and makes no difference in open water. The default is marked. Takes effect at once.",
+    interface: "Off hides every panel, readout and caption, leaving only the world and the loupe; the auto camera keeps filming. U or Esc brings it back.",
     loupe: "A magnifier that follows the mouse when zoomed out. Clicks inside it select what is under the crosshair.",
     speed: "Current speed, in micrometers (µm) per second.",
     scale: "Lengths are in micrometers (µm, a thousandth of a millimeter), taking a cell of ordinary size to be 10 µm across, about the size of a protist. A cell senses and pulls on others at most about 60 µm away.",
@@ -20373,7 +20381,7 @@ ${e.message}` : String(e?.message || e));
   var cssRgb = (c, k = 1) => `rgb(${c.slice(0, 3).map((v) => Math.round(clamp6(v * k, 0, 1) * 255)).join(",")})`;
   var cssCol = (u, k = 1) => cssRgb(unpackUnorm(u), k);
   var term = (key, label3) => `<span class="term" data-tip="${key}" tabindex="0">${label3}</span>`;
-  var spLink = (serial, name) => `<a href="#" class="sp" data-serial="${serial}">${esc(name)}</a>`;
+  var spLink = (serial, name) => `<a href="#" class="sp" translate="no" data-serial="${serial}">${esc(name)}</a>`;
   function saveFile(blob, name) {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -21767,6 +21775,60 @@ ${e.message}` : String(e?.message || e));
     });
   }
 
+  // src/live.js
+  var wrote = /* @__PURE__ */ new WeakMap();
+  function setText(el, text) {
+    const w = wrote.get(el);
+    if (w && w.text === text) return false;
+    el.textContent = text;
+    wrote.set(el, { text });
+    return true;
+  }
+  var parse = (html) => {
+    const t2 = document.createElement("template");
+    t2.innerHTML = html;
+    return t2.content;
+  };
+  function setHTML(el, html) {
+    const w = wrote.get(el);
+    if (w && w.html === html) return false;
+    const frag = parse(html);
+    if (w && w.frag) morph(el, w.frag, frag);
+    else el.replaceChildren(frag.cloneNode(true));
+    wrote.set(el, { html, frag });
+    return true;
+  }
+  function morph(live, a, b) {
+    const L = [...live.childNodes], A = a.childNodes, B = b.childNodes;
+    if (L.length !== A.length) {
+      live.replaceChildren(...[...B].map((n) => n.cloneNode(true)));
+      return;
+    }
+    let s = 0, e = 0;
+    while (s < A.length && s < B.length && A[s].isEqualNode(B[s])) s++;
+    while (e < A.length - s && e < B.length - s && A[A.length - 1 - e].isEqualNode(B[B.length - 1 - e])) e++;
+    if (A.length === B.length) {
+      for (let i = s; i < B.length - e; i++) morphNode(L[i], A[i], B[i]);
+      return;
+    }
+    const at = L[L.length - e] || null;
+    for (let i = s; i < L.length - e; i++) L[i].remove();
+    for (let i = s; i < B.length - e; i++) live.insertBefore(B[i].cloneNode(true), at);
+  }
+  function morphNode(l, p, n) {
+    if (p.isEqualNode(n)) return;
+    if (p.nodeType === 1 && n.nodeType === 1 && l.nodeType === 1 && p.nodeName === n.nodeName && l.nodeName === n.nodeName) {
+      for (const { name } of [...p.attributes]) if (!n.hasAttribute(name)) l.removeAttribute(name);
+      for (const { name, value } of [...n.attributes]) {
+        if (p.getAttribute(name) === value) continue;
+        l.setAttribute(name, value);
+        if (name === "value" && "value" in l) l.value = value;
+      }
+      morph(l, p, n);
+    } else if (p.nodeType === 3 && n.nodeType === 3 && l.nodeType === 3) l.data = n.data;
+    else l.replaceWith(n.cloneNode(true));
+  }
+
   // src/lab.js
   function createLab(api) {
     const $2 = (id) => document.getElementById(id);
@@ -21983,9 +22045,9 @@ ${e.message}` : String(e?.message || e));
         const all = [...life.reg.values()].filter((sp) => matches(sp, st)).sort(BY[st.sort]);
         const shown = all.slice(0, 150);
         const tot = all.reduce((a, s) => a + s.pop, 0);
-        $2("sp-sum").textContent = `${fmt(all.length)} species · ${fmt(tot)} cells · ${(tot / living * 100).toFixed(1)}% of life`;
+        setText($2("sp-sum"), `${fmt(all.length)} species · ${fmt(tot)} cells · ${(tot / living * 100).toFixed(1)}% of life`);
         const nf2 = ["status", "diet", "mobility", "body"].filter((k) => st[k] !== (k === "status" ? "thriving" : "all")).length;
-        $2("sp-filt").textContent = nf2 ? `Filters · ${nf2}` : "Filters";
+        setText($2("sp-filt"), nf2 ? `Filters · ${nf2}` : "Filters");
         $2("sp-reset").hidden = !nf2;
         const now = performance.now();
         const sparks = force || now - sparkAt > 3e3;
@@ -22008,8 +22070,8 @@ ${e.message}` : String(e?.message || e));
           const k = `${sp.pop}|${share}`;
           if (k !== r.key) {
             r.key = k;
-            r.b.textContent = sp.alive ? fmt(sp.pop) : "–";
-            r.s.textContent = share;
+            setText(r.b, sp.alive ? fmt(sp.pop) : "–");
+            setText(r.s, share);
           }
           r.li.classList.toggle("gone", !sp.alive);
           r.li.classList.toggle("hl", hl === `sp:${sp.serial}`);
@@ -22021,7 +22083,7 @@ ${e.message}` : String(e?.message || e));
           }
         }
         if (!keep) {
-          more.textContent = all.length > 150 ? `${fmt(all.length - 150)} more; narrow the filters to see them.` : all.length ? "" : "No species match these filters.";
+          setText(more, all.length > 150 ? `${fmt(all.length - 150)} more; narrow the filters to see them.` : all.length ? "" : "No species match these filters.");
           if (more.textContent) list.append(more);
           else more.remove();
         }
@@ -22172,15 +22234,15 @@ ${e.message}` : String(e?.message || e));
         eras = api.climate().history.slice(1);
         const r = rootStrand();
         c = cut(model, { t0, t1, k: st.linK, live: !st.linAll, root: r, n: Math.min(320, Math.round(W / 2)) });
-        $2("lin-sum").textContent = `${r ? `${r.first.name}'s line · ` : ""}${fmt(c.units.length)} of ${fmt(c.lineages)} lineages · ${fmt(c.species)} species`;
+        setText($2("lin-sum"), `${r ? `${r.first.name}'s line · ` : ""}${fmt(c.units.length)} of ${fmt(c.lineages)} lineages · ${fmt(c.species)} species`);
         const back = $2("lin-back");
         back.hidden = !r && !Array.isArray(st.linSpan);
-        back.textContent = r ? "← All lineages" : "← Whole world";
+        setText(back, r ? "← All lineages" : "← Whole world");
         const any = !!(c.units.length || c.other);
         empty.hidden = any;
         mCv.parentElement.hidden = treeCv.hidden = !any;
         if (!any) {
-          list.innerHTML = "";
+          setHTML(list, "");
           return;
         }
         drawM(null);
@@ -22188,10 +22250,10 @@ ${e.message}` : String(e?.message || e));
         lay = layoutTree(c, box.l, box.r);
         treeCv.style.height = `${lay.h}px`;
         drawT(null);
-        list.innerHTML = c.units.map((u, i) => {
+        setHTML(list, c.units.map((u, i) => {
           const n = u.members.findLast((x) => x.alive) || u.members.at(-1);
           return `<li><button type="button" data-u="${i}" data-sp="${n.serial}">${esc(n.name)}: ${fmt(u.count)} species, ${u.alive ? "living" : "extinct"}</button><button type="button" data-u="${i}" data-do="follow">Follow its lineage</button></li>`;
-        }).join("");
+        }).join(""));
       }
       return { ...p, update };
     }
@@ -22252,8 +22314,8 @@ ${e.message}` : String(e?.message || e));
             const b = els[si].children[i];
             b.setAttribute("aria-pressed", String(fk === r.key));
             b.querySelector("i").style.width = `${(r.n / max * 100).toFixed(1)}%`;
-            b.querySelector(".bn").textContent = fmt(r.n);
-            b.querySelector(".bp").textContent = `${(r.n / tot * 100).toFixed(1)}%`;
+            setText(b.querySelector(".bn"), fmt(r.n));
+            setText(b.querySelector(".bp"), `${(r.n / tot * 100).toFixed(1)}%`);
           });
         });
         box.querySelectorAll(".chip[data-focus]").forEach((b) => b.setAttribute("aria-pressed", String(fk === b.dataset.focus)));
@@ -22299,7 +22361,7 @@ ${e.message}` : String(e?.message || e));
           erasN = eras.length;
           excN = exc;
           const water = (h) => api.eng.K.heat && h.temp != null ? ` · temperature ${Math.round(h.temp)}°${h.excursion ? ` · ${h.excursion.dT > 0 ? "heat wave" : "cold snap"} ${h.excursion.dT > 0 ? "+" : "−"}${Math.abs(h.excursion.dT).toFixed(0)}°` : ""}` : "";
-          $2("eras").innerHTML = eras.slice().reverse().map((h) => `<li><time>${fmtClock(h.t)}</time><b>${esc(h.name)}</b><span>light ${Math.round(h.ambient * 100)}%${water(h)}</span></li>`).join("");
+          setHTML($2("eras"), eras.slice().reverse().map((h) => `<li><time>${fmtClock(h.t)}</time><b>${esc(h.name)}</b><span>light ${Math.round(h.ambient * 100)}%${water(h)}</span></li>`).join(""));
         }
       }
       let felt0 = null, felt1 = null;
@@ -22334,7 +22396,7 @@ ${e.message}` : String(e?.message || e));
         lastKey = key;
         const ev = ch.filter((e) => (st.logType === "all" || e.type === st.logType) && (!st.logQ || e.text.toLowerCase().includes(st.logQ.toLowerCase())));
         const before = list.scrollHeight, top = p.scroll.scrollTop;
-        list.innerHTML = ev.length ? ev.slice(0, 400).map((e) => `<li${e.type === "story" ? ' class="story"' : ""}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join("") : `<li style="display:block;border:0" class="note">${st.logType === "story" ? "The chronicler speaks rarely, only when something notable has happened: a death worth remembering, an arms race, a cycle of boom and bust, a lineage following the water. Nothing yet." : "Nothing yet."}</li>`;
+        setHTML(list, ev.length ? ev.slice(0, 400).map((e) => `<li${e.type === "story" ? ' class="story"' : ""}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join("") : `<li style="display:block;border:0" class="note">${st.logType === "story" ? "The chronicler speaks rarely, only when something notable has happened: a death worth remembering, an arms race, a cycle of boom and bust, a lineage following the water. Nothing yet." : "Nothing yet."}</li>`);
         api.relabel?.(list);
         if (top > 0 && !force) p.scroll.scrollTop = top + (list.scrollHeight - before);
       }
@@ -22842,21 +22904,21 @@ ${e.message}` : String(e?.message || e));
     function update(mind, kind) {
       if (!bound() || !mind) return;
       const head = mind.head || mind;
-      parts.mode.textContent = head.mode || "—";
+      setText(parts.mode, head.mode || "—");
       parts.mode.dataset.hint = plain(head.why, head.target);
       const tk = head.target;
       if (tk !== parts.tkind) {
         parts.tkind = tk;
         const g = tk != null ? genomeFor(tk) : null;
-        parts.sig.innerHTML = g ? sigil(g, 16) : "";
-        parts.tname.innerHTML = tk != null ? linkName(tk) : "—";
+        setHTML(parts.sig, g ? sigil(g, 16) : "");
+        setHTML(parts.tname, tk != null ? linkName(tk) : "—");
       }
-      if (tk == null) parts.tname.textContent = head.matter || "—";
+      if (tk == null) setText(parts.tname, head.matter || "—");
       const m = mind.m, food = m.food;
       const q = tk == null ? null : m.nbrs.find((n) => food && n.j === food.j) || m.nbrs.filter((n) => n.kind === tk).sort((a, b) => len2(a.d) - len2(b.d))[0];
       const tdist = q ? len2(q.d) : food && head.matter && head.key !== "forage" ? food.dist : null;
-      parts.tdist.textContent = tdist != null ? `${fmtLen(tdist)} away` : "";
-      parts.detail.textContent = detail(head, mind);
+      setText(parts.tdist, tdist != null ? `${fmtLen(tdist)} away` : "");
+      setText(parts.detail, detail(head, mind));
       const max = Math.max(1e-6, ...mind.groups.map((g) => g.mag));
       if (!ease3) ease3 = { groups: /* @__PURE__ */ new Map(), hdg: { cur: [0, 0], to: [0, 0] }, tgt: { cur: null, to: null } };
       for (const gr of mind.groups) {
@@ -22868,7 +22930,7 @@ ${e.message}` : String(e?.message || e));
         const d = parts.drives.get(gr.key);
         if (d) {
           d.bar.style.width = `${gr.mag / max * 100}%`;
-          d.val.textContent = pct(gr.share);
+          setText(d.val, pct(gr.share));
         }
       }
       const hu = unit(m.vel);
@@ -22881,7 +22943,7 @@ ${e.message}` : String(e?.message || e));
         if (!n) continue;
         n.el.classList.toggle("on", !!f2.on);
         if (f2.tone !== void 0 && n.el.dataset.tone !== f2.tone) n.el.dataset.tone = f2.tone;
-        if (n.label.textContent !== f2.label) n.label.textContent = f2.label;
+        setText(n.label, f2.label);
         n.label.dataset.hint = plain(f2.hint, f2.target);
       }
       parts.live.classList.remove("blink");
@@ -22896,13 +22958,13 @@ ${e.message}` : String(e?.message || e));
         if (r.kind !== k) {
           r.kind = k;
           const g = k != null ? genomeFor(k) : null;
-          r.sig.innerHTML = g ? sigil(g, 16) : "";
-          r.name.innerHTML = k == null ? "—" : i === 0 ? "its own kind" : linkName(k);
+          setHTML(r.sig, g ? sigil(g, 16) : "");
+          setHTML(r.name, k == null ? "—" : i === 0 ? "its own kind" : linkName(k));
         }
         r.row.classList.toggle("empty", !s);
-        r.n.textContent = s ? String(Math.max(1, Math.round(s.n))) : i === 0 ? "0" : "";
+        setText(r.n, s ? String(Math.max(1, Math.round(s.n))) : i === 0 ? "0" : "");
         const role = !s || s.kin ? "" : s.threat >= 0.5 && s.prey >= 0.1 ? "both" : s.threat >= 0.5 ? "predator" : s.prey >= 0.1 ? "prey" : "";
-        r.role.textContent = role;
+        setText(r.role, role);
         r.role.className = `nb-role ${role}`;
         const pull = s ? (s.sig + s.diet) / (mind.total || 1) : 0;
         const w = Math.min(1, Math.abs(pull)) * 50;
@@ -23399,9 +23461,9 @@ ${e.message}` : String(e?.message || e));
       const k = kind + nameHtml + sub;
       if (k === st.lastHead) return;
       st.lastHead = k;
-      $2("spec-kind").innerHTML = kind;
-      $2("spec-name").innerHTML = nameHtml;
-      $2("spec-sub").innerHTML = sub;
+      setHTML($2("spec-kind"), kind);
+      setHTML($2("spec-name"), nameHtml);
+      setHTML($2("spec-sub"), sub);
     }
     const CODE_TIP = { SP: "serial", "Δ": "depth", ID: "pid", Pop: "share", Died: "origin" };
     const code = (l, v) => `<span class="term" data-tip="${CODE_TIP[l]}" tabindex="0">${l} <b>${v}</b></span>`;
@@ -23476,7 +23538,7 @@ ${e.message}` : String(e?.message || e));
           const gr = `<span class="greek">${ROLE[p.role]}</span>`;
           setHead(
             inBody ? `${gr}-cell of a ${o.partial ? "≥ " : ""}${fmt(o.cells)}-cell body` : `${gr}-cell`,
-            sp ? esc(sp.name) : "Unnamed species",
+            sp ? `<span translate="no">${esc(sp.name)}</span>` : "Unnamed species",
             sel.lost ? "Lost track of it" : (g ? code("SP", fmt(g.serial)) + code("Δ", g.depth) : "sequencing…") + code("ID", fmt(p.id))
           );
           if (g) speciesGlyph(g);
@@ -23526,22 +23588,22 @@ ${e.message}` : String(e?.message || e));
         const el = sectionEl(id);
         if (!el) continue;
         const sx = el.querySelector(".sx-b"), kept = [...sx.querySelectorAll("canvas[data-chart]")];
-        sx.innerHTML = html;
+        setHTML(sx, html);
         for (const cv of kept) {
           const n = sx.querySelector(`canvas[data-chart="${cv.dataset.chart}"]`);
-          if (n) n.replaceWith(cv);
+          if (n && n !== cv) n.replaceWith(cv);
         }
         st.flow.set(id, html);
         songKey = "";
       }
       const vitEl = peek() ? vit : body.querySelector(".mv-vitals, .spec-vit");
       if (vitEl !== st.vitEl) {
-        if (st.vitEl) st.vitEl.innerHTML = "";
+        if (st.vitEl) setHTML(st.vitEl, "");
         st.vitEl = vitEl;
         st.lastVit = "";
       }
       if (vitEl && v !== st.lastVit) {
-        vitEl.innerHTML = v;
+        setHTML(vitEl, v);
         st.lastVit = v;
       }
       drawPopChart();
@@ -23587,7 +23649,7 @@ ${e.message}` : String(e?.message || e));
       document.body.classList.remove("spec-open");
     }
     function inset() {
-      if (root.hidden) return { right: 0, bottom: 0 };
+      if (root.hidden || document.body.classList.contains("ui-off")) return { right: 0, bottom: 0 };
       const r = root.getBoundingClientRect();
       if (phone2()) return { right: 0, bottom: innerHeight - r.top };
       return { right: innerWidth - r.left, bottom: 0 };
@@ -26867,6 +26929,8 @@ ${e.message}` : String(e?.message || e));
       hud: true,
       follow: false,
       confirmReset: 0,
+      ui: isCoarse || (prefs.ui ?? true),
+      // the interface shown (U hides everything but the world and the loupe)
       loupe: !isCoarse,
       loupeMag: 3.5,
       currents: false,
@@ -26920,7 +26984,7 @@ ${e.message}` : String(e?.message || e));
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, events: state.events, ...state.perf });
+      savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, events: state.events, ui: state.ui, ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
     if (prefs.loupe !== void 0 && !isCoarse) state.loupe = prefs.loupe;
@@ -26971,7 +27035,7 @@ ${e.message}` : String(e?.message || e));
     function viewOffset() {
       const ins = specimen.inset();
       const top = phone() ? 48 : 52, bot = phone() ? 62 : 56;
-      const left = lab && lab.isOpen() && !phone() ? $("lab").getBoundingClientRect().right : 0;
+      const left = lab && lab.isOpen() && !phone() && state.ui ? $("lab").getBoundingClientRect().right : 0;
       const cx = (left + innerWidth - ins.right) / 2, cy = (top + innerHeight - Math.max(bot, ins.bottom)) / 2;
       const p = cssPPU();
       return [(innerWidth / 2 - cx) / p, (innerHeight / 2 - cy) / p];
@@ -26997,6 +27061,7 @@ ${e.message}` : String(e?.message || e));
       lastSubmit: 0,
       rafMs: 0,
       rafLonger: 0,
+      mainMs: 0,
       goodWindows: 0,
       ceiling: 1,
       ceilingUntil: 0,
@@ -27015,7 +27080,9 @@ ${e.message}` : String(e?.message || e));
       rateSim: 0,
       slow: 1,
       slowCeiling: 0,
-      why: ""
+      why: "",
+      raisedAt: 0,
+      hold: 0
     };
     let calibWait = null;
     const frameWaiters = [];
@@ -27378,7 +27445,7 @@ ${e.message}` : String(e?.message || e));
       }
       eng.setFocus({ kinds, roleMask: focus.roleMask, stateMode: focus.stateMode, mute: 0.045, members, memberKind });
       $("focus").hidden = !focus.key;
-      $("focus-label").textContent = focus.label;
+      setText($("focus-label"), focus.label);
     }
     function setFocus(key, label3, { pred = null, roleMask = 7, stateMode = 0, matter = [false, false, false, false, false] } = {}) {
       Object.assign(focus, { key, label: label3, pred, roleMask, stateMode, matter });
@@ -27445,8 +27512,8 @@ ${e.message}` : String(e?.message || e));
       if (!on.length) return;
       const html = on.length === 1 ? rampHtml(on[0]) : "";
       const label3 = on.map((m) => m.name).join(" · ");
-      if ($("maps-label").textContent !== label3) $("maps-label").textContent = label3;
-      if ($("maps-ramp").innerHTML !== html) $("maps-ramp").innerHTML = html;
+      setText($("maps-label"), label3);
+      setHTML($("maps-ramp"), html);
       $("maps-ramp").hidden = !html;
     }
     for (const m of MAPS) {
@@ -27824,16 +27891,16 @@ ${e.message}` : String(e?.message || e));
         const v = life.counts[i];
         segs2[k].style.flex = String(Math.max(v, N * 4e-3));
         rows[k].setAttribute("aria-pressed", String(focus.key === key));
-        rows[k].children[2].textContent = fmt(v);
-        rows[k].children[3].textContent = `${(v / N * 100).toFixed(1)}%`;
+        setText(rows[k].children[2], fmt(v));
+        setText(rows[k].children[3], `${(v / N * 100).toFixed(1)}%`);
       });
-      $("n-alive").textContent = fmt(life.alive);
-      $("n-thriving").textContent = fmt(life.thriving);
-      $("n-ever").textContent = fmt(life.arisen);
-      $("n-depth").textContent = fmt(life.maxDepth);
-      $("r-living").textContent = fmt(life.counts[3]);
-      $("r-species").textContent = fmt(life.alive);
-      $("world-sum").textContent = `${fmt(life.counts[3])} living · ${fmt(life.alive)} species`;
+      setText2("n-alive", fmt(life.alive));
+      setText2("n-thriving", fmt(life.thriving));
+      setText2("n-ever", fmt(life.arisen));
+      setText2("n-depth", fmt(life.maxDepth));
+      setText2("r-living", fmt(life.counts[3]));
+      setText2("r-species", fmt(life.alive));
+      setText2("world-sum", `${fmt(life.counts[3])} living · ${fmt(life.alive)} species`);
     }
     function drawWorldChart() {
       if (!lab || !lab.isOpen() || lab.tab() !== "census" || !life) return;
@@ -27855,7 +27922,7 @@ ${e.message}` : String(e?.message || e));
       if (key === feedKey) return;
       feedKey = key;
       const feedEl = $("feed");
-      feedEl.innerHTML = ch.length ? ch.slice(0, 40).map((e) => `<li${e.type === "story" ? ' class="story"' : ""}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join("") : '<li class="quiet">New species, extinctions and eras are logged here, and now and then the chronicler’s stories.</li>';
+      setHTML(feedEl, ch.length ? ch.slice(0, 40).map((e) => `<li${e.type === "story" ? ' class="story"' : ""}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join("") : '<li class="quiet">New species, extinctions and eras are logged here, and now and then the chronicler’s stories.</li>');
       relabel(feedEl);
     }
     $("feed-all").addEventListener("click", () => lab.open("log"));
@@ -28453,7 +28520,7 @@ ${e.message}` : String(e?.message || e));
     });
     const spec = $("specimen");
     function specimenParams() {
-      if (!sel || !specimen.isOpen() || spView != null || !state.closeup) return null;
+      if (!sel || !specimen.isOpen() || !state.ui || spView != null || !state.closeup) return null;
       const r = Math.min(devicePixelRatio || 1, 2);
       const w = Math.round(spec.clientWidth * r), h = Math.round(spec.clientHeight * r);
       if (!w || !h) return null;
@@ -28524,7 +28591,7 @@ ${e.message}` : String(e?.message || e));
         for (const sp of opts.querySelectorAll("[data-auto]")) {
           const now = autoNow(sp.dataset.auto);
           if (!now) continue;
-          if (sp.textContent !== now.text) sp.textContent = now.text;
+          setText(sp, now.text);
           for (const b of sp.closest(".segs").children) b.classList.toggle("auto-pick", b.dataset.v === now.pick);
         }
       };
@@ -28534,7 +28601,7 @@ ${e.message}` : String(e?.message || e));
       const kfmt = (n) => n >= 1048576 ? `${+(n / 1048576).toFixed(1)}M` : `${Math.round(n / 1024)}k`;
       function display() {
         const s = eng.settings;
-        return group("look", "", choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "D", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe")) + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", "Film")} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === "idle" ? '<button type="button" class="chip" data-o="film" data-v="now">30 s now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : "")) + group("sound", "Sound", onoff("sound", "Soundtrack", "S", sound.on) + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>`);
+        return group("look", "", choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "D", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe") + onoff("ui", "Interface", "U", state.ui, "interface")) + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", "Film")} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === "idle" ? '<button type="button" class="chip" data-o="film" data-v="now">30 s now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : "")) + group("sound", "Sound", onoff("sound", "Soundtrack", "S", sound.on) + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>`);
       }
       const scanChoices = () => [...new Set([0.75, 1, 1.5, 2].map((f2) => Math.round(K.maxScan * f2 / 8) * 8).concat(eng.maxScan))].sort((a, b) => a - b);
       function performance_() {
@@ -28689,7 +28756,7 @@ ${e.message}` : String(e?.message || e));
         });
         $("readout").hidden = tab !== "performance";
         const typing = document.activeElement?.id === "w-name";
-        opts.innerHTML = (tab === "display" ? display() : tab === "performance" ? performance_() : tab === "climate" ? climate_() : tab === "about" ? about_() : worlds_()) + foot();
+        setHTML(opts, (tab === "display" ? display() : tab === "performance" ? performance_() : tab === "climate" ? climate_() : tab === "about" ? about_() : worlds_()) + foot());
         if (typing && !$("w-name").disabled) {
           const i = $("w-name");
           i.focus();
@@ -28704,20 +28771,22 @@ ${e.message}` : String(e?.message || e));
         const now = performance.now();
         if (!force && now - roAt < 500) return;
         roAt = now;
-        setText("ro-fps", perf.fps ? perf.fps.toFixed(0) : "–");
-        setText("ro-ms", perf.gpu ? perf.gpu.toFixed(1) : "–");
-        setText("ro-res", `${Math.round(renderScale * 100)}%${density() !== 1 ? ` at ${+density().toFixed(2)}×` : ""}`);
+        setText2("ro-fps", perf.fps ? perf.fps.toFixed(0) : "–");
+        setText2("ro-ms", perf.gpu ? perf.gpu.toFixed(1) : "–");
+        setText2("ro-res", `${Math.round(renderScale * 100)}%`);
+        setText2("ro-dens", `${+density().toFixed(2)}×`);
         autoLive();
-        setText("ro-px", `${canvas.width}×${canvas.height}`);
-        setText("ro-n", fmt(eng.count));
+        setText2("ro-px", `${canvas.width}×${canvas.height}`);
+        setText2("ro-n", fmt(eng.count));
         const al = sound.load;
-        setText("ro-audio", al != null ? `${Math.round(al * 100)}%` : "–");
+        setText2("ro-audio", al != null ? `${Math.round(al * 100)}%` : "–");
         const S = perf.simS || perf.stepMs;
-        setText("ro-step", S ? S.toFixed(S < 1 ? 3 : 2) : "–");
-        setText("ro-draw", perf.simS ? perf.renderR.toFixed(1) : "–");
-        setText("ro-ceil", state.paused ? "–" : `${perf.ticks}/60 s`);
-        setText("ro-rate", state.phase === "running" && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : "–");
-        setText("ro-aim", state.speed > 1 ? "as fast as it goes" : `${Math.round(1e3 / frameTarget())} fps${perf.why ? ` · ${perf.why}` : ""}`);
+        setText2("ro-step", S ? S.toFixed(S < 1 ? 3 : 2) : "–");
+        setText2("ro-draw", perf.simS ? perf.renderR.toFixed(1) : "–");
+        setText2("ro-ceil", state.paused ? "–" : `${perf.ticks}/60 s`);
+        setText2("ro-rate", state.phase === "running" && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : "–");
+        setText2("ro-aim", state.speed > 1 ? "Max" : String(Math.round(1e3 / frameTarget())));
+        setText2("ro-why", state.speed > 1 ? "running fast" : perf.why || "–");
       }
       function set(id, v) {
         const s = eng.settings, P = state.perf;
@@ -28752,7 +28821,10 @@ ${e.message}` : String(e?.message || e));
           state.events[id.slice(3)] = !!+v;
           applyEvents();
         } else if (id === "loupe") state.loupe = !!+v;
-        else if (id === "auto") {
+        else if (id === "ui") {
+          setInterface(!!+v);
+          return;
+        } else if (id === "auto") {
           state.auto = !!+v;
           renderAuto(director.active);
         } else if (id === "scale") {
@@ -28928,6 +29000,20 @@ ${e.message}` : String(e?.message || e));
       view.toggle(false);
       toggleHelp(false);
     }
+    const UI_PARTS = ["hud", "spec", "lab", "help", "card", "tip", "plate"];
+    function setInterface(on, say = true) {
+      state.ui = on;
+      document.body.classList.toggle("ui-off", !on);
+      for (const id of UI_PARTS) $(id).inert = !on;
+      if (!on) {
+        if (cards.isOpen()) cards.close();
+        closeMenus();
+        document.activeElement?.blur?.();
+      }
+      if (say) flash(on ? "Interface shown" : "Interface hidden · U");
+      persist();
+    }
+    if (!state.ui) setInterface(false, false);
     $("snd").addEventListener("click", toggleSound);
     $("vol").addEventListener("input", (e) => sound.setVolume(Number(e.target.value) / 100));
     renderSound();
@@ -29112,8 +29198,10 @@ ${e.message}` : String(e?.message || e));
       else if (k === "s" || k === "S") toggleSound();
       else if (k === "-" || k === "_") nudgeVolume(-0.1);
       else if (k === "=" || k === "+") nudgeVolume(0.1);
+      else if (k === "u" || k === "U") setInterface(!state.ui);
       else if (k === "Escape") {
-        if (cards.isOpen()) cards.close();
+        if (!state.ui) setInterface(true);
+        else if (cards.isOpen()) cards.close();
         else if (!$("help").hidden) toggleHelp(false);
         else if (view.isOpen()) view.toggle(false);
         else if (sel || spView != null) deselect();
@@ -29160,7 +29248,7 @@ ${e.message}` : String(e?.message || e));
       play.innerHTML = `<svg><use href="#i-${state.paused ? "play" : "pause"}"/></svg>`;
       play.setAttribute("aria-label", state.paused ? "Resume" : "Pause");
       play.dataset.hint = state.paused ? "Resume · Space" : "Pause · Space";
-      $("t-speed-v").textContent = state.paused ? "Paused" : fmtSpeed(s);
+      setText($("t-speed-v"), state.paused ? "Paused" : fmtSpeed(s));
       $("t-speed").setAttribute("aria-label", `Speed ${fmtSpeed(s)}${s !== 1 ? ", back to real time" : ""}`);
       $("t-slower").disabled = s === list[0];
       $("t-faster").disabled = s === Infinity;
@@ -29202,7 +29290,7 @@ ${e.message}` : String(e?.message || e));
         flash("Real time");
         return;
       }
-      setText("warm-t", `${fmtClock(eng.simTime)} / ${fmtClock(WARM_UNTIL)}`);
+      setText2("warm-t", `${fmtClock(eng.simTime)} / ${fmtClock(WARM_UNTIL)}`);
     }
     function endWarm() {
       if (state.warm) sound.warm(false);
@@ -29349,9 +29437,9 @@ ${e.message}` : String(e?.message || e));
       }
       chip.hidden = !name;
       if (!name) return;
-      setText("event-v", name);
-      setText("event-x", extra);
-      setText("event-l", label3 || (tone ? "Climate" : "Event"));
+      setText2("event-v", name);
+      setText2("event-x", extra);
+      setText2("event-l", label3 || (tone ? "Climate" : "Event"));
       const use = $("event-i");
       if (use.getAttribute("href") !== icon) use.setAttribute("href", icon);
       if (chip.dataset.tip !== tip) chip.dataset.tip = tip;
@@ -29360,18 +29448,15 @@ ${e.message}` : String(e?.message || e));
       chip.setAttribute("aria-label", `${name}${extra}${label3 ? `, ${label3}` : ""}`);
     }
     let hudT = 0;
-    const setText = (id, v) => {
-      const el = $(id);
-      if (el.textContent !== v) el.textContent = v;
-    };
+    const setText2 = (id, v) => setText($(id), v);
     function updateHud(now) {
       if (now - hudT < 250) return;
       hudT = now;
-      setText("epoch", fmtClock(eng.simTime));
-      setText("era", climate.name);
-      setText("era-n", `Era ${String(climate.index).padStart(2, "0")}`);
+      setText2("epoch", fmtClock(eng.simTime));
+      setText2("era", climate.name);
+      setText2("era-n", `Era ${String(climate.index).padStart(2, "0")}`);
       const L = Math.round(eng.ambient * 100);
-      setText("light-v", `${L}%`);
+      setText2("light-v", `${L}%`);
       [...segs.children].forEach((s, i) => s.classList.toggle("on", i < Math.round(eng.ambient * 20)));
       const ph = (eng.simTime % 300 + 300) % 300 / 300;
       const dot = wave.querySelector(".dot");
@@ -29379,13 +29464,13 @@ ${e.message}` : String(e?.message || e));
       dot.setAttribute("cy", (8 - 6 * Math.sin(ph * TAU3)).toFixed(2));
       eraTide.style.setProperty("--x", ph.toFixed(3));
       eraTide.style.setProperty("--y", Math.sin(ph * TAU3).toFixed(3));
-      setText("tide-v", `${Math.round(eng.season * 100)}%`);
+      setText2("tide-v", `${Math.round(eng.season * 100)}%`);
       $("g-tide").setAttribute("aria-label", `Tide ${Math.round(eng.season * 100)}%, ${seasonAt(eng.simTime + 5) >= seasonAt(eng.simTime) ? "rising" : "ebbing"}`);
       $("g-light").setAttribute("aria-label", `Light ${L}%`);
       if (K.heat) {
         const T = eng.tbg, trend = climate.tempTo - eng.temp + (climate.excursion && eng.excursion ? Math.sign(climate.excursion.dT) * (eng.simTime < climate.excursion.t + climate.excursion.dur / 2 ? 1 : -1) : 0);
         const arrow = trend > 0.4 ? "↑" : trend < -0.4 ? "↓" : "";
-        setText("heat-v", `${Math.round(T)}°${arrow}`);
+        setText2("heat-v", `${Math.round(T)}°${arrow}`);
         const frac = clamp6((T - 4) / 24, 0, 1), c = THERMO[Math.min(9, Math.floor(frac * 10))];
         heatBars.forEach((s, i) => s.classList.toggle("on", i < Math.round(frac * 10)));
         heatBulbs.forEach((b) => b.style.setProperty("fill", c));
@@ -29403,11 +29488,11 @@ ${e.message}` : String(e?.message || e));
       updateEventChip();
       renderMaps();
       tips.check();
-      setText("t-rate", state.speed > 1 && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : "");
-      setText("sys-n", fmt(eng.count));
-      setText("sys-fps", perf.fps ? perf.fps.toFixed(0) : "–");
-      setText("sys-ms", perf.gpu ? perf.gpu.toFixed(1) : "–");
-      setText("sys-res", `${Math.round(renderScale * 100)}%`);
+      setText2("t-rate", state.speed > 1 && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : "");
+      setText2("sys-n", fmt(eng.count));
+      setText2("sys-fps", perf.fps ? perf.fps.toFixed(0) : "–");
+      setText2("sys-ms", perf.gpu ? perf.gpu.toFixed(1) : "–");
+      setText2("sys-res", `${Math.round(renderScale * 100)}%`);
       charts.check();
       view.readout();
     }
@@ -29427,6 +29512,8 @@ ${e.message}` : String(e?.message || e));
       perf.slow = 1;
       perf.why = "";
       perf.denseUntil = 0;
+      perf.raisedAt = 0;
+      perf.hold = 0;
       densityCap = Infinity;
     }
     let pressure = "nominal";
@@ -29439,7 +29526,7 @@ ${e.message}` : String(e?.message || e));
     }
     const stressed = () => pressure === "serious" || pressure === "critical";
     function adaptQuality(now) {
-      if (state.phase !== "running" || state.speed > 1 || state.paused || now - perf.lastAdjust < 2e3 || perf.frameDt.length < 6) return;
+      if (state.phase !== "running" || state.speed > 1 || now - perf.lastAdjust < 2e3 || perf.frameDt.length < 6) return;
       const m = perf.frameDt.reduce((a, b) => a + b, 0) / perf.frameDt.length;
       perf.frameDt.length = 0;
       perf.lastAdjust = now;
@@ -29447,14 +29534,15 @@ ${e.message}` : String(e?.message || e));
       const floor = auto ? state.perf.floor : renderScale;
       const busy = perf.gpu > T * (hasTS ? 0.92 : 1);
       const behind = m > T * 1.125 || busy || stressed();
-      const simBound = hasTS && perf.simS > 2 * perf.renderR;
+      const simBound = hasTS && !state.paused && perf.simS > 2 * perf.renderR;
       if (behind) {
-        perf.why = stressed() ? "device under pressure" : busy ? "GPU busy" : "frames late";
+        perf.why = stressed() ? "under pressure" : busy ? "GPU busy" : "frames late";
         perf.goodWindows = 0;
-        perf.ceilingUntil = now + 3e4;
+        perf.hold = now - perf.raisedAt < 6e3 ? Math.min(24e4, (perf.hold || 3e4) * 2) : 3e4;
+        perf.ceilingUntil = now + perf.hold;
         if (autoD && density() > 1.01) {
           densityCap = 1;
-          perf.denseUntil = now + 3e4;
+          perf.denseUntil = now + perf.hold;
           resizeDue = true;
         } else if (renderScale > floor + 0.01 && !(autoF && simBound && perf.slow < 4)) {
           perf.ceiling = renderScale;
@@ -29481,6 +29569,7 @@ ${e.message}` : String(e?.message || e));
         if (!(held && perf.slow - 1 <= perf.slowCeiling) && (!est || est < faster * 0.75)) {
           perf.slow--;
           perf.goodWindows = 0;
+          perf.raisedAt = now;
         }
         if (perf.slow === 1) perf.why = "";
         return;
@@ -29492,10 +29581,12 @@ ${e.message}` : String(e?.message || e));
       if (next) {
         renderScale = next;
         perf.goodWindows = 0;
+        perf.raisedAt = now;
         resizeDue = true;
       } else if (full && autoD && densityCap < Infinity && now >= perf.denseUntil && !held) {
         densityCap = Infinity;
         perf.goodWindows = 0;
+        perf.raisedAt = now;
         resizeDue = true;
       }
       if (full && densityCap === Infinity) perf.why = "";
@@ -29544,7 +29635,7 @@ ${e.message}` : String(e?.message || e));
       }
     }
     function drawScale() {
-      if (!state.hud || director.active && !phone()) return;
+      if (!state.hud || !state.ui || director.active && !phone()) return;
       const p = cssPPU();
       const y = dockTop - 1;
       const unit = (NICE_UM.find((u) => u / UM_PER_UNIT * p >= 14) || 5e4) / UM_PER_UNIT;
@@ -29606,7 +29697,7 @@ ${e.message}` : String(e?.message || e));
           if (sel.org && sel.org.cells && !sel.org.pending) sh.why.cells = sel.org.cells;
           sh.whyVer++;
         }
-        filmMarked = !!(visible && (!sh || sh.why.seen) && drawMarker(sx, sy, inLens, dt)) && !!sh;
+        filmMarked = !!(visible && (!sh || sh.why.seen) && (!state.ui || drawMarker(sx, sy, inLens, dt))) && !!sh;
       }
       if (L) {
         const { sx, sy } = L;
@@ -30054,7 +30145,7 @@ ${e.message}` : String(e?.message || e));
         cap2.swapped = true;
       }
       capEl.classList.toggle("on", !!(sh && cap2.html && sh.t < sh.dur - 2.5));
-      const l = lab.isOpen() && !phone() ? $("lab").getBoundingClientRect().right : 0;
+      const l = lab.isOpen() && !phone() && state.ui ? $("lab").getBoundingClientRect().right : 0;
       const r = specimen.inset().right;
       const x = `${Math.round((l + innerWidth - r) / 2)}px`;
       if (capEl.style.left !== x) capEl.style.left = x;
@@ -30119,7 +30210,7 @@ ${e.message}` : String(e?.message || e));
       filmBtn.setAttribute("aria-pressed", String(s !== "idle"));
       filmBtn.setAttribute("aria-label", s === "idle" ? "Film thirty seconds" : s === "armed" ? "Waiting for the next scene: stop" : "Filming: stop");
       filmBtn.dataset.hint = s === "idle" ? director.active ? "Film the next scene · R" : "Film 30 s · R" : "Stop · R";
-      $("film-v").textContent = s === "recording" ? `0:${String(Math.ceil(film.left())).padStart(2, "0")}` : s === "armed" ? "Wait" : "Film";
+      setText($("film-v"), s === "recording" ? `0:${String(Math.ceil(film.left())).padStart(2, "0")}` : s === "armed" ? "Wait" : "Film");
     }
     if (film.supported && filmBtn) {
       filmBtn.hidden = false;
@@ -30197,6 +30288,7 @@ ${e.message}` : String(e?.message || e));
     }
     const rafDt = [];
     function frame(now) {
+      const t0 = performance.now();
       const dt = Math.min(100, now - last);
       last = now;
       frameCount++;
@@ -30209,7 +30301,12 @@ ${e.message}` : String(e?.message || e));
         rafDt.sort((a, b) => a - b);
         const lo = rafDt[Math.floor(rafDt.length * 0.1)];
         const ms = median(rafDt.filter((x) => x < lo * 1.4));
-        if (!perf.rafMs || ms < perf.rafMs * 1.2 || ++perf.rafLonger >= 5) {
+        const loaded = state.speed > 1 || perf.gpu > ms * 0.75 || perf.mainMs > ms * 0.75;
+        if (!perf.rafMs || ms < perf.rafMs * 1.2) {
+          perf.rafMs = ms;
+          perf.rafLonger = 0;
+        } else if (loaded) perf.rafLonger = 0;
+        else if (++perf.rafLonger >= 5) {
           perf.rafMs = ms;
           perf.rafLonger = 0;
         }
@@ -30268,7 +30365,7 @@ ${e.message}` : String(e?.message || e));
         eng.trackId = sel && !sel.lost ? sel.id : NONE2;
         eng.trackId2 = director.active ? director.trackId : NONE2;
         watchMarks(performance.now());
-        eng.mindId = sel && !sel.lost && !sel.film && sel.particle.kind >= FIRST_LIFE && specimen.isOpen() ? sel.id : NONE2;
+        eng.mindId = sel && !sel.lost && !sel.film && sel.particle.kind >= FIRST_LIFE && specimen.isOpen() && state.ui ? sel.id : NONE2;
         const cur = { x: cam.x, y: cam.y, zoom: cam.zoom, t: viewSimTime };
         const seen = inflight && shownFrame ? shownFrame : cur;
         Object.assign(cam, { x: seen.x, y: seen.y, zoom: seen.zoom });
@@ -30319,6 +30416,7 @@ ${e.message}` : String(e?.message || e));
       lab.render(false);
       adaptQuality(now);
       if (state.phase === "running") updateHud(now);
+      perf.mainMs += (performance.now() - t0 - perf.mainMs) * 0.1;
       requestAnimationFrame(frame);
     }
     resetLife();

@@ -9,6 +9,7 @@ import { countPools } from './geography.js';
 import { createLab } from './lab.js';
 import { createSpecimen } from './specimen.js';
 import { section, block, wireTabRow } from './ui.js';
+import { setText as setLive, setHTML } from './live.js';
 import { createTips } from './tip.js';
 import { drawLiving, chartPointer } from './charts.js';
 import { genusName, speciesEpithet } from './names.js';
@@ -143,6 +144,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const state = {
     phase: 'calibrating', busy: true, paused: false, speed: 1, warm: false,
     hud: true, follow: false, confirmReset: 0,
+    ui: isCoarse || (prefs.ui ?? true), // the interface shown (U hides everything but the world and the loupe)
     loupe: !isCoarse, loupeMag: 3.5, currents: false, specCells: 3,
     // the Field Lab's column, open or folded to its header ("world": its name when it was the census)
     labOpen: prefs.labOpen ?? prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
@@ -185,7 +187,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, events: state.events, ...state.perf });
+    savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, events: state.events, ui: state.ui, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   if (prefs.loupe !== undefined && !isCoarse) state.loupe = prefs.loupe;
@@ -238,7 +240,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function viewOffset() {
     const ins = specimen.inset();
     const top = phone() ? 48 : 52, bot = phone() ? 62 : 56;
-    const left = lab && lab.isOpen() && !phone() ? $('lab').getBoundingClientRect().right : 0;
+    const left = lab && lab.isOpen() && !phone() && state.ui ? $('lab').getBoundingClientRect().right : 0;
     const cx = (left + innerWidth - ins.right) / 2, cy = (top + innerHeight - Math.max(bot, ins.bottom)) / 2;
     const p = cssPPU();
     return [(innerWidth / 2 - cx) / p, (innerHeight / 2 - cy) / p];
@@ -260,9 +262,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
 
   // ------------------------------------------------------------ perf
-  const perf = { samples: [], gpu: 0, fps: 0, frames: 0, fpsT: performance.now(), frameDt: [], lastSubmit: 0, rafMs: 0, rafLonger: 0, goodWindows: 0, ceiling: 1, ceilingUntil: 0, lastAdjust: performance.now(),
+  const perf = { samples: [], gpu: 0, fps: 0, frames: 0, fpsT: performance.now(), frameDt: [], lastSubmit: 0, rafMs: 0, rafLonger: 0, mainMs: 0, goodWindows: 0, ceiling: 1, ceilingUntil: 0, lastAdjust: performance.now(),
     stepMs: 0, simS: 0, renderR: 0, presentR: 0, worldAt: 0, stepCredit: 0, ticks: 1, held: false, ticksAt: 0, rate: 1, rateT: performance.now(), rateSim: 0,
-    slow: 1, slowCeiling: 0, why: '' };
+    slow: 1, slowCeiling: 0, why: '', raisedAt: 0, hold: 0 };
   let calibWait = null;
   const frameWaiters = [];
   const ema = (a, v, k) => (a ? a + (v - a) * k : v);
@@ -607,7 +609,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     eng.setFocus({ kinds, roleMask: focus.roleMask, stateMode: focus.stateMode, mute: 0.045, members, memberKind });
     $('focus').hidden = !focus.key;
-    $('focus-label').textContent = focus.label;
+    setLive($('focus-label'), focus.label);
   }
   function setFocus(key, label, { pred = null, roleMask = 7, stateMode = 0, matter = [false, false, false, false, false] } = {}) {
     Object.assign(focus, { key, label, pred, roleMask, stateMode, matter });
@@ -657,8 +659,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (!on.length) return;
     const html = on.length === 1 ? rampHtml(on[0]) : '';
     const label = on.map((m) => m.name).join(' · ');
-    if ($('maps-label').textContent !== label) $('maps-label').textContent = label;
-    if ($('maps-ramp').innerHTML !== html) $('maps-ramp').innerHTML = html;
+    setLive($('maps-label'), label);
+    setHTML($('maps-ramp'), html);
     $('maps-ramp').hidden = !html;
   }
   for (const m of MAPS) {
@@ -987,16 +989,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const v = life.counts[i];
       segs[k].style.flex = String(Math.max(v, N * 0.004));
       rows[k].setAttribute('aria-pressed', String(focus.key === key));
-      rows[k].children[2].textContent = fmt(v);
-      rows[k].children[3].textContent = `${((v / N) * 100).toFixed(1)}%`;
+      setLive(rows[k].children[2], fmt(v));
+      setLive(rows[k].children[3], `${((v / N) * 100).toFixed(1)}%`);
     });
-    $('n-alive').textContent = fmt(life.alive);
-    $('n-thriving').textContent = fmt(life.thriving);
-    $('n-ever').textContent = fmt(life.arisen);
-    $('n-depth').textContent = fmt(life.maxDepth);
-    $('r-living').textContent = fmt(life.counts[3]);
-    $('r-species').textContent = fmt(life.alive);
-    $('world-sum').textContent = `${fmt(life.counts[3])} living · ${fmt(life.alive)} species`;
+    setText('n-alive', fmt(life.alive));
+    setText('n-thriving', fmt(life.thriving));
+    setText('n-ever', fmt(life.arisen));
+    setText('n-depth', fmt(life.maxDepth));
+    setText('r-living', fmt(life.counts[3]));
+    setText('r-species', fmt(life.alive));
+    setText('world-sum', `${fmt(life.counts[3])} living · ${fmt(life.alive)} species`);
   }
   function drawWorldChart() {
     if (!lab || !lab.isOpen() || lab.tab() !== 'census' || !life) return;
@@ -1018,7 +1020,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (key === feedKey) return;
     feedKey = key;
     const feedEl = $('feed');
-    feedEl.innerHTML = ch.length ? ch.slice(0, 40).map((e) => `<li${e.type === 'story' ? ' class="story"' : ''}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join('') : '<li class="quiet">New species, extinctions and eras are logged here, and now and then the chronicler’s stories.</li>';
+    setHTML(feedEl, ch.length ? ch.slice(0, 40).map((e) => `<li${e.type === 'story' ? ' class="story"' : ''}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join('') : '<li class="quiet">New species, extinctions and eras are logged here, and now and then the chronicler’s stories.</li>');
     relabel(feedEl);
   }
   $('feed-all').addEventListener('click', () => lab.open('log'));
@@ -1559,7 +1561,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   const spec = $('specimen');
   function specimenParams() {
-    if (!sel || !specimen.isOpen() || spView != null || !state.closeup) return null;
+    if (!sel || !specimen.isOpen() || !state.ui || spView != null || !state.closeup) return null;
     const r = Math.min(devicePixelRatio || 1, 2);
     const w = Math.round(spec.clientWidth * r), h = Math.round(spec.clientHeight * r);
     if (!w || !h) return null;
@@ -1620,7 +1622,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       for (const sp of opts.querySelectorAll('[data-auto]')) {
         const now = autoNow(sp.dataset.auto);
         if (!now) continue;
-        if (sp.textContent !== now.text) sp.textContent = now.text;
+        setLive(sp, now.text);
         for (const b of sp.closest('.segs').children) b.classList.toggle('auto-pick', b.dataset.v === now.pick);
       }
     };
@@ -1641,7 +1643,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + onoff('currents', 'Currents', 'W', state.currents)
         + onoff('links', 'Bonds', 'L', s.links, 'bond')
         + onoff('nodes', 'Particles', 'N', s.nodes)
-        + (isCoarse ? '' : onoff('loupe', 'Loupe', 'M', state.loupe, 'loupe'))
+        + (isCoarse ? '' : onoff('loupe', 'Loupe', 'M', state.loupe, 'loupe') + onoff('ui', 'Interface', 'U', state.ui, 'interface'))
         + onoff('auto', 'Auto when idle', '', state.auto, 'autoidle')
         + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks')
         + (film.supported ? `<div class="opt"><span class="lbl">${term('film', 'Film')} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === 'idle' ? '<button type="button" class="chip" data-o="film" data-v="now">30 s now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ''))
@@ -1811,7 +1813,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       tabs.forEach((b) => { const on = b.dataset.tab === tab; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; });
       $('readout').hidden = tab !== 'performance';
       const typing = document.activeElement?.id === 'w-name';
-      opts.innerHTML = (tab === 'display' ? display() : tab === 'performance' ? performance_() : tab === 'climate' ? climate_() : tab === 'about' ? about_() : worlds_()) + foot();
+      setHTML(opts, (tab === 'display' ? display() : tab === 'performance' ? performance_() : tab === 'climate' ? climate_() : tab === 'about' ? about_() : worlds_()) + foot());
       if (typing && !$('w-name').disabled) { const i = $('w-name'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
       if (tab === 'worlds' && saves == null) refreshSaves();
       readout(true);
@@ -1824,7 +1826,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       roAt = now;
       setText('ro-fps', perf.fps ? perf.fps.toFixed(0) : '–');
       setText('ro-ms', perf.gpu ? perf.gpu.toFixed(1) : '–');
-      setText('ro-res', `${Math.round(renderScale * 100)}%${density() !== 1 ? ` at ${+density().toFixed(2)}×` : ''}`);
+      setText('ro-res', `${Math.round(renderScale * 100)}%`);
+      setText('ro-dens', `${+density().toFixed(2)}×`);
       autoLive();
       setText('ro-px', `${canvas.width}×${canvas.height}`);
       setText('ro-n', fmt(eng.count));
@@ -1836,7 +1839,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       setText('ro-draw', perf.simS ? perf.renderR.toFixed(1) : '–');
       setText('ro-ceil', state.paused ? '–' : `${perf.ticks}/60 s`);
       setText('ro-rate', state.phase === 'running' && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : '–');
-      setText('ro-aim', state.speed > 1 ? 'as fast as it goes' : `${Math.round(1000 / frameTarget())} fps${perf.why ? ` · ${perf.why}` : ''}`);
+      setText('ro-aim', state.speed > 1 ? 'Max' : String(Math.round(1000 / frameTarget())));
+      setText('ro-why', state.speed > 1 ? 'running fast' : perf.why || '–');
     }
     function set(id, v) {
       const s = eng.settings, P = state.perf;
@@ -1858,6 +1862,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'film') { toggle(false); filmAct(v === 'stop' ? undefined : v); return; }
       else if (id.startsWith('ev-')) { state.events[id.slice(3)] = !!+v; applyEvents(); }
       else if (id === 'loupe') state.loupe = !!+v;
+      else if (id === 'ui') { setInterface(!!+v); return; }
       else if (id === 'auto') { state.auto = !!+v; renderAuto(director.active); }
       else if (id === 'scale') { P.scale = v === 'auto' ? 'auto' : +v; if (P.scale !== 'auto') renderScale = P.scale; else renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
       else if (id === 'floor') { P.floor = +v; renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
@@ -1938,6 +1943,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function toggleHelp(on = $('help').hidden) { $('help').hidden = !on; if (on) view.toggle(false); }
   $('help-close').addEventListener('click', () => toggleHelp(false));
   function closeMenus() { view.toggle(false); toggleHelp(false); }
+  // The interface hidden (U, or Display → Interface; U or Esc brings it back): only the world shows.
+  // The loupe still follows the mouse (it has its own setting) and the auto camera still films, without
+  // its captions. Not on a touch screen, which has no key to bring it back.
+  const UI_PARTS = ['hud', 'spec', 'lab', 'help', 'card', 'tip', 'plate'];
+  function setInterface(on, say = true) {
+    state.ui = on;
+    document.body.classList.toggle('ui-off', !on);
+    for (const id of UI_PARTS) $(id).inert = !on;
+    if (!on) { if (cards.isOpen()) cards.close(); closeMenus(); document.activeElement?.blur?.(); }
+    if (say) flash(on ? 'Interface shown' : 'Interface hidden · U');
+    persist();
+  }
+  if (!state.ui) setInterface(false, false);
 
   $('snd').addEventListener('click', toggleSound);
   $('vol').addEventListener('input', (e) => sound.setVolume(Number(e.target.value) / 100));
@@ -2052,8 +2070,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === 's' || k === 'S') toggleSound();
     else if (k === '-' || k === '_') nudgeVolume(-0.1);
     else if (k === '=' || k === '+') nudgeVolume(0.1);
+    else if (k === 'u' || k === 'U') setInterface(!state.ui);
     else if (k === 'Escape') {
-      if (cards.isOpen()) cards.close();
+      if (!state.ui) setInterface(true);
+      else if (cards.isOpen()) cards.close();
       else if (!$('help').hidden) toggleHelp(false);
       else if (view.isOpen()) view.toggle(false);
       else if (sel || spView != null) deselect();
@@ -2095,7 +2115,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     play.innerHTML = `<svg><use href="#i-${state.paused ? 'play' : 'pause'}"/></svg>`;
     play.setAttribute('aria-label', state.paused ? 'Resume' : 'Pause');
     play.dataset.hint = state.paused ? 'Resume · Space' : 'Pause · Space';
-    $('t-speed-v').textContent = state.paused ? 'Paused' : fmtSpeed(s);
+    setLive($('t-speed-v'), state.paused ? 'Paused' : fmtSpeed(s));
     $('t-speed').setAttribute('aria-label', `Speed ${fmtSpeed(s)}${s !== 1 ? ', back to real time' : ''}`);
     $('t-slower').disabled = s === list[0];
     $('t-faster').disabled = s === Infinity;
@@ -2284,7 +2304,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     chip.setAttribute('aria-label', `${name}${extra}${label ? `, ${label}` : ''}`);
   }
   let hudT = 0;
-  const setText = (id, v) => { const el = $(id); if (el.textContent !== v) el.textContent = v; };
+  // (compared with what was last written, not with what the element holds: a translator changes that)
+  const setText = (id, v) => setLive($(id), v);
   function updateHud(now) {
     if (now - hudT < 250) return;
     hudT = now;
@@ -2352,7 +2373,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
   function resetAdapt() {
     perf.frameDt.length = 0; perf.goodWindows = 0; perf.ceiling = 1; perf.ceilingUntil = 0; perf.lastAdjust = performance.now();
-    perf.slow = 1; perf.why = ''; perf.denseUntil = 0;
+    perf.slow = 1; perf.why = ''; perf.denseUntil = 0; perf.raisedAt = 0; perf.hold = 0;
     densityCap = Infinity;
   }
   // where the browser reports it (Compute Pressure), a device under serious pressure, hot or busy,
@@ -2360,15 +2381,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let pressure = 'nominal';
   try { new PressureObserver((r) => { pressure = r.at(-1).state; }).observe('cpu').catch(() => {}); } catch { /* unsupported */ }
   const stressed = () => pressure === 'serious' || pressure === 'critical';
-  // Adapt what a frame costs to what the device sustains, every two seconds at real time or slower
-  // (running fast spends the frame on simulation on purpose). Behind (frames late, or with GPU
+  // Adapt what a frame costs to what the device sustains, every two seconds at real time or slower,
+  // paused too (running fast spends the frame on simulation on purpose). Behind (frames late, or with GPU
   // timestamps the GPU busy for nearly the whole interval, or the device under pressure): a lower
   // render scale, then a lower frame rate, or the frame rate first when the simulation is most of the
   // cost (resolution would barely help); with Auto pixel density, a scene drawn at more than 1 device
   // pixel per CSS pixel drops to 1 before any of them. With room again: the frame rate back first, then
   // the scale, then the pixel density.
   function adaptQuality(now) {
-    if (state.phase !== 'running' || state.speed > 1 || state.paused || now - perf.lastAdjust < 2000 || perf.frameDt.length < 6) return;
+    if (state.phase !== 'running' || state.speed > 1 || now - perf.lastAdjust < 2000 || perf.frameDt.length < 6) return;
     // Judged by the interval between submitted frames, not requestAnimationFrame's: while the GPU
     // lags, rAF keeps its cadence and the frames are skipped (inflight), so rAF alone looks smooth.
     // The mean, not the median: on a 60 Hz display each interval is 16.7 or 33.3 ms, and the median
@@ -2381,15 +2402,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // without timestamps perf.gpu is the time from submit to done, which overstates the GPU's share
     const busy = perf.gpu > T * (hasTS ? 0.92 : 1);
     const behind = m > T * 1.125 || busy || stressed();
-    const simBound = hasTS && perf.simS > 2 * perf.renderR;
+    // (paused, a frame is all drawing)
+    const simBound = hasTS && !state.paused && perf.simS > 2 * perf.renderR;
     if (behind) {
-      perf.why = stressed() ? 'device under pressure' : busy ? 'GPU busy' : 'frames late';
+      perf.why = stressed() ? 'under pressure' : busy ? 'GPU busy' : 'frames late';
       perf.goodWindows = 0;
       // a level that just proved too slow is not tried again for a while, so the view doesn't keep
-      // climbing back into the same stutter
-      perf.ceilingUntil = now + 30000;
+      // climbing back into the same stutter: 30 s, twice as long each time a climb back fails at once
+      perf.hold = now - perf.raisedAt < 6000 ? Math.min(240000, (perf.hold || 30000) * 2) : 30000;
+      perf.ceilingUntil = now + perf.hold;
       if (autoD && density() > 1.01) {
-        densityCap = 1; perf.denseUntil = now + 30000;
+        densityCap = 1; perf.denseUntil = now + perf.hold;
         resizeDue = true;
       } else if (renderScale > floor + 0.01 && !(autoF && simBound && perf.slow < 4)) {
         perf.ceiling = renderScale;
@@ -2411,7 +2434,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const faster = (T * (perf.slow - 1)) / perf.slow;
       const cost = (m) => 1 + 0.45 * (m - 1);
       const est = hasTS && perf.simS && perf.renderR ? perf.renderR + perf.simS * cost(ticksFor(faster)) / cost(stepTicks()) : perf.gpu;
-      if (!(held && perf.slow - 1 <= perf.slowCeiling) && (!est || est < faster * 0.75)) { perf.slow--; perf.goodWindows = 0; }
+      if (!(held && perf.slow - 1 <= perf.slowCeiling) && (!est || est < faster * 0.75)) { perf.slow--; perf.goodWindows = 0; perf.raisedAt = now; }
       if (perf.slow === 1) perf.why = '';
       return;
     }
@@ -2419,9 +2442,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const cap = held ? perf.ceiling * 0.95 : 1;
     const next = auto && [...SCALES].reverse().find((s) => s > renderScale + 0.01 && s <= cap + 0.001);
     const full = !auto || renderScale >= 1;
-    if (next) { renderScale = next; perf.goodWindows = 0; resizeDue = true; }
+    if (next) { renderScale = next; perf.goodWindows = 0; perf.raisedAt = now; resizeDue = true; }
     // the full pixel density back last, once the full scale has held for three windows more
-    else if (full && autoD && densityCap < Infinity && now >= perf.denseUntil && !held) { densityCap = Infinity; perf.goodWindows = 0; resizeDue = true; }
+    else if (full && autoD && densityCap < Infinity && now >= perf.denseUntil && !held) { densityCap = Infinity; perf.goodWindows = 0; perf.raisedAt = now; resizeDue = true; }
     if (full && densityCap === Infinity) perf.why = '';
   }
   // A new render scale is applied at the start of the next frame, before it takes the canvas's
@@ -2473,7 +2496,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // a scale bar and ticks along the bottom of the view: how long things are right now, in µm or mm
   function drawScale() {
-    if (!state.hud || director.active && !phone()) return;
+    if (!state.hud || !state.ui || director.active && !phone()) return;
     const p = cssPPU();
     const y = dockTop - 1;
     // ticks at round lengths along the dock's top edge
@@ -2535,7 +2558,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         if (sel.org && sel.org.cells && !sel.org.pending) sh.why.cells = sel.org.cells;
         sh.whyVer++;
       }
-      filmMarked = !!(visible && (!sh || sh.why.seen) && drawMarker(sx, sy, inLens, dt)) && !!sh;
+      // (with the interface hidden the subject is not marked, but its song marks still show)
+      filmMarked = !!(visible && (!sh || sh.why.seen) && (!state.ui || drawMarker(sx, sy, inLens, dt))) && !!sh;
     }
     if (L) {
       const { sx, sy } = L;
@@ -2923,7 +2947,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     capEl.classList.toggle('on', !!(sh && cap.html && sh.t < sh.dur - 2.5));
     // centered in the part of the view the panels leave open
-    const l = lab.isOpen() && !phone() ? $('lab').getBoundingClientRect().right : 0;
+    const l = lab.isOpen() && !phone() && state.ui ? $('lab').getBoundingClientRect().right : 0;
     const r = specimen.inset().right;
     const x = `${Math.round((l + innerWidth - r) / 2)}px`;
     if (capEl.style.left !== x) capEl.style.left = x;
@@ -2981,7 +3005,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     filmBtn.setAttribute('aria-pressed', String(s !== 'idle'));
     filmBtn.setAttribute('aria-label', s === 'idle' ? 'Film thirty seconds' : s === 'armed' ? 'Waiting for the next scene: stop' : 'Filming: stop');
     filmBtn.dataset.hint = s === 'idle' ? (director.active ? 'Film the next scene · R' : 'Film 30 s · R') : 'Stop · R';
-    $('film-v').textContent = s === 'recording' ? `0:${String(Math.ceil(film.left())).padStart(2, '0')}` : s === 'armed' ? 'Wait' : 'Film';
+    setLive($('film-v'), s === 'recording' ? `0:${String(Math.ceil(film.left())).padStart(2, '0')}` : s === 'armed' ? 'Wait' : 'Film');
   }
   if (film.supported && filmBtn) { filmBtn.hidden = false; filmBtn.addEventListener('click', () => filmAct()); renderFilm(); }
   // each frame: an armed film starts with the camera's next shot, and a rolling one counts down
@@ -3079,6 +3103,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   const rafDt = [];
   function frame(now) {
+    const t0 = performance.now();
     const dt = Math.min(100, now - last);
     last = now;
     frameCount++;
@@ -3094,7 +3119,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
       rafDt.sort((a, b) => a - b);
       const lo = rafDt[Math.floor(rafDt.length * 0.1)];
       const ms = median(rafDt.filter((x) => x < lo * 1.4));
-      if (!perf.rafMs || ms < perf.rafMs * 1.2 || ++perf.rafLonger >= 5) { perf.rafMs = ms; perf.rafLonger = 0; }
+      // A longer interval is the display's only while the page could have kept the shorter one: when
+      // the GPU, or this page's own work on the main thread, fills most of it, the browser slows
+      // requestAnimationFrame to the page's pace, and taken for the display's rate that pace became
+      // the rate aimed for (a 60 Hz display read as 20 Hz after the warm-up's fast steps aimed for 20 fps,
+      // and 20 fps at full resolution never looked late). Fast speeds fill every frame on purpose.
+      const loaded = state.speed > 1 || perf.gpu > ms * 0.75 || perf.mainMs > ms * 0.75;
+      if (!perf.rafMs || ms < perf.rafMs * 1.2) { perf.rafMs = ms; perf.rafLonger = 0; }
+      else if (loaded) perf.rafLonger = 0;
+      else if (++perf.rafLonger >= 5) { perf.rafMs = ms; perf.rafLonger = 0; }
       rafDt.length = 0;
     }
     tickClock(now);
@@ -3148,7 +3181,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       eng.trackId = sel && !sel.lost ? sel.id : NONE;
       eng.trackId2 = director.active ? director.trackId : NONE;
       watchMarks(performance.now());
-      eng.mindId = sel && !sel.lost && !sel.film && sel.particle.kind >= FIRST_LIFE && specimen.isOpen() ? sel.id : NONE;
+      eng.mindId = sel && !sel.lost && !sel.film && sel.particle.kind >= FIRST_LIFE && specimen.isOpen() && state.ui ? sel.id : NONE;
       // The overlay is drawn now, but the world it marks reaches the screen only when the GPU has drawn
       // it, frames behind while frames queue (and the camera may be moving, following a cell). So while
       // frames are in flight it is drawn with the camera and moment of the world frame last finished.
@@ -3191,6 +3224,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     lab.render(false);
     adaptQuality(now);
     if (state.phase === 'running') updateHud(now);
+    perf.mainMs += (performance.now() - t0 - perf.mainMs) * 0.1;
     requestAnimationFrame(frame);
   }
 

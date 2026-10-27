@@ -11,6 +11,7 @@ import { describe, compareMotifs } from './audio/motif.js';
 import { songSVG, sigilSVG } from './song.js';
 import { createMindView } from './mindview.js';
 import { block, kv, trait, section, subHead } from './ui.js';
+import { setHTML } from './live.js';
 
 /**
  * The specimen panel: whatever was picked in the world (a cell, a grain) or opened by name (a species).
@@ -467,9 +468,9 @@ export function createSpecimen(api) {
     const k = kind + nameHtml + sub;
     if (k === st.lastHead) return;
     st.lastHead = k;
-    $('spec-kind').innerHTML = kind;
-    $('spec-name').innerHTML = nameHtml;
-    $('spec-sub').innerHTML = sub;
+    setHTML($('spec-kind'), kind);
+    setHTML($('spec-name'), nameHtml);
+    setHTML($('spec-sub'), sub);
   }
   const CODE_TIP = { SP: 'serial', 'Δ': 'depth', ID: 'pid', Pop: 'share', Died: 'origin' };
   const code = (l, v) => `<span class="term" data-tip="${CODE_TIP[l]}" tabindex="0">${l} <b>${v}</b></span>`;
@@ -539,7 +540,7 @@ export function createSpecimen(api) {
         const o = sel.org;
         const inBody = !!(o && !o.pending && o.cells > 1 && g && (g.adhesion || 0) > K.adhMin);
         const gr = `<span class="greek">${ROLE[p.role]}</span>`;
-        setHead(inBody ? `${gr}-cell of a ${o.partial ? '≥ ' : ''}${fmt(o.cells)}-cell body` : `${gr}-cell`, sp ? esc(sp.name) : 'Unnamed species',
+        setHead(inBody ? `${gr}-cell of a ${o.partial ? '≥ ' : ''}${fmt(o.cells)}-cell body` : `${gr}-cell`, sp ? `<span translate="no">${esc(sp.name)}</span>` : 'Unnamed species',
           sel.lost ? 'Lost track of it' : (g ? code('SP', fmt(g.serial)) + code('Δ', g.depth) : 'sequencing…') + code('ID', fmt(p.id)));
         if (g) speciesGlyph(g); else plainGlyph(0, p.col);
         setTags(g);
@@ -585,14 +586,15 @@ export function createSpecimen(api) {
       if (!el) continue;
       // a chart that is still shown stays the same canvas, so a pointer on it keeps its place
       const sx = el.querySelector('.sx-b'), kept = [...sx.querySelectorAll('canvas[data-chart]')];
-      sx.innerHTML = html;
-      for (const cv of kept) { const n = sx.querySelector(`canvas[data-chart="${cv.dataset.chart}"]`); if (n) n.replaceWith(cv); }
+      // (only what changed: a translated page keeps its translation of the rest)
+      setHTML(sx, html);
+      for (const cv of kept) { const n = sx.querySelector(`canvas[data-chart="${cv.dataset.chart}"]`); if (n && n !== cv) n.replaceWith(cv); }
       st.flow.set(id, html); songKey = '';
     }
     // the vitals: in the header while a phone's sheet only peeks, else at the top of the scroll
     const vitEl = peek() ? vit : body.querySelector('.mv-vitals, .spec-vit');
-    if (vitEl !== st.vitEl) { if (st.vitEl) st.vitEl.innerHTML = ''; st.vitEl = vitEl; st.lastVit = ''; }
-    if (vitEl && v !== st.lastVit) { vitEl.innerHTML = v; st.lastVit = v; }
+    if (vitEl !== st.vitEl) { if (st.vitEl) setHTML(st.vitEl, ''); st.vitEl = vitEl; st.lastVit = ''; }
+    if (vitEl && v !== st.lastVit) { setHTML(vitEl, v); st.lastVit = v; }
     drawPopChart();
     if (restoreTop != null) { body.scrollTop = restoreTop; restoreTop = null; }
     if (pin && performance.now() < pin.until) { const el = sectionEl(pin.id); if (el) body.scrollTop = Math.max(0, el.offsetTop - 2); mark(pin.id); return true; }
@@ -624,7 +626,7 @@ export function createSpecimen(api) {
   }
   // the screen area the panel covers, so following can center the specimen in what is left
   function inset() {
-    if (root.hidden) return { right: 0, bottom: 0 };
+    if (root.hidden || document.body.classList.contains('ui-off')) return { right: 0, bottom: 0 };
     const r = root.getBoundingClientRect();
     if (phone()) return { right: 0, bottom: innerHeight - r.top };
     return { right: innerWidth - r.left, bottom: 0 };

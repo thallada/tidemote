@@ -90,16 +90,16 @@
 <div class="hud" id="hud">
   <!-- status rail: when and under what sky -->
   <header class="rail" id="rail">
-    <button type="button" class="brand" id="brand" aria-label="About Tidemote" data-hint="About Tidemote"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></svg><span>Tidemote</span></button>
-    <div class="clock" role="timer" aria-label="Simulated time"><span class="lbl">Epoch</span><b id="epoch">0:00</b></div>
+    <button type="button" class="brand" id="brand" aria-label="About Tidemote" data-hint="About Tidemote"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></svg><span translate="no">Tidemote</span></button>
+    <div class="clock" role="timer" aria-label="Simulated time"><span class="lbl">Epoch</span><b id="epoch" translate="no">0:00</b></div>
     <div class="era-box" id="era-box"><span class="lbl" id="era-n">Era 01</span><b id="era">The First Tides</b><span class="era-tide" id="era-tide" aria-hidden="true"><svg viewBox="0 0 60 6" preserveAspectRatio="none"><path/></svg><i></i></span></div>
-    <div class="gauge term" data-tip="light" tabindex="0" id="g-light"><span class="lbl">Light</span><span class="seg" id="light-seg" aria-hidden="true"></span><b id="light-v">–</b></div>
-    <div class="gauge term" data-tip="water" tabindex="0" id="g-heat"><span class="lbl">Temp</span><svg class="thermo" id="thermo" viewBox="0 0 68 18" aria-hidden="true"></svg><svg class="thermo-i" id="thermo-i" viewBox="0 0 12 20" aria-hidden="true"></svg><b id="heat-v">–</b></div>
-    <div class="gauge term" data-tip="season" tabindex="0" id="g-tide"><span class="lbl">Tide</span><svg id="tide-wave" viewBox="0 0 60 16" aria-hidden="true"><path class="wave" d=""/><circle class="dot" r="2.2" cx="0" cy="8"/></svg><b id="tide-v">–</b></div>
+    <div class="gauge term" data-tip="light" tabindex="0" id="g-light"><span class="lbl">Light</span><span class="seg" id="light-seg" aria-hidden="true"></span><b id="light-v" translate="no">–</b></div>
+    <div class="gauge term" data-tip="water" tabindex="0" id="g-heat"><span class="lbl">Temp</span><svg class="thermo" id="thermo" viewBox="0 0 68 18" aria-hidden="true"></svg><svg class="thermo-i" id="thermo-i" viewBox="0 0 12 20" aria-hidden="true"></svg><b id="heat-v" translate="no">–</b></div>
+    <div class="gauge term" data-tip="season" tabindex="0" id="g-tide"><span class="lbl">Tide</span><svg id="tide-wave" viewBox="0 0 60 16" aria-hidden="true"><path class="wave" d=""/><circle class="dot" r="2.2" cx="0" cy="8"/></svg><b id="tide-v" translate="no">–</b></div>
     <div class="gauge term ev-chip" tabindex="0" id="g-event" hidden><span class="lbl" id="event-l">Event</span><svg class="ev-ico" aria-hidden="true"><use id="event-i" href="#i-ev-storm"/></svg><b><span id="event-v">–</span><span class="ev-x" id="event-x"></span></b></div>
     <div class="rail-right">
-      <div class="stat"><span class="lbl">Living</span><b id="r-living">–</b></div>
-      <div class="stat"><span class="lbl">Species</span><b id="r-species">–</b></div>
+      <div class="stat"><span class="lbl">Living</span><b id="r-living" translate="no">–</b></div>
+      <div class="stat"><span class="lbl">Species</span><b id="r-species" translate="no">–</b></div>
       <button type="button" class="ghost fs" id="fs" aria-label="Full screen" aria-pressed="false" data-hint="Full screen · F" hidden><svg><use href="#i-full"/></svg></button>
     </div>
   </header>
@@ -122,7 +122,7 @@
       <button type="button" class="act" id="set-open" aria-label="Settings" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span>Settings</span></button>
       <button type="button" class="act primary" id="lab-open" aria-label="Field Lab" aria-expanded="false" aria-controls="lab" data-hint="Field Lab · K"><svg><use href="#i-lab"/></svg><span>Lab</span></button>
     </div>
-    <div class="sys" id="sys" aria-hidden="true"><span><b id="sys-n" class="w-n">–</b> particles</span><span><b id="sys-fps" class="w-3">–</b> fps</span><span><b id="sys-ms" class="w-4">–</b> ms</span><span><b id="sys-res" class="w-4">–</b> res</span></div>
+    <div class="sys" id="sys" aria-hidden="true"><span><b id="sys-n" translate="no" class="w-n">–</b> particles</span><span><b id="sys-fps" translate="no" class="w-3">–</b> fps</span><span><b id="sys-ms" translate="no" class="w-4">–</b> ms</span><span><b id="sys-res" translate="no" class="w-4">–</b> res</span></div>
   </nav>
 
   <!-- settings: what is shown, and what it costs -->
@@ -137,17 +137,19 @@
       </div>
       <button type="button" class="ghost" id="set-close" aria-label="Close settings"><svg><use href="#i-close"/></svg></button></div>
     <div class="readout" id="readout" hidden aria-live="off">
-      <div><b id="ro-fps">–</b><span>fps</span></div>
-      <div><b id="ro-ms">–</b><span>GPU ms</span></div>
-      <div><b id="ro-step">–</b><span class="term" data-tip="stepms" tabindex="0">Step ms</span></div>
-      <div><b id="ro-draw">–</b><span class="term" data-tip="drawms" tabindex="0">Draw ms</span></div>
-      <div><b id="ro-res">–</b><span class="term" data-tip="renderres" tabindex="0">Render</span></div>
-      <div class="w2"><b id="ro-px">–</b><span>Scene px</span></div>
-      <div><b id="ro-audio">–</b><span class="term" data-tip="audioload" tabindex="0">Audio</span></div>
-      <div class="w2"><b id="ro-n">–</b><span>Particles</span></div>
-      <div><b id="ro-ceil">–</b><span class="term" data-tip="stride" tabindex="0">Stride</span></div>
-      <div><b id="ro-rate">–</b><span class="term" data-tip="simrate" tabindex="0">Now</span></div>
-      <div class="w4"><b id="ro-aim">–</b><span class="term" data-tip="aimfps" tabindex="0">Aiming for</span></div>
+      <div><b id="ro-fps" translate="no">–</b><span>fps</span></div>
+      <div><b id="ro-aim" translate="no">–</b><span class="term" data-tip="aimfps" tabindex="0">Aiming for</span></div>
+      <div><b id="ro-ms" translate="no">–</b><span>GPU ms</span></div>
+      <div><b id="ro-step" translate="no">–</b><span class="term" data-tip="stepms" tabindex="0">Step ms</span></div>
+      <div><b id="ro-draw" translate="no">–</b><span class="term" data-tip="drawms" tabindex="0">Draw ms</span></div>
+      <div><b id="ro-res" translate="no">–</b><span class="term" data-tip="renderres" tabindex="0">Render</span></div>
+      <div><b id="ro-dens" translate="no">–</b><span class="term" data-tip="density" tabindex="0">Density</span></div>
+      <div><b id="ro-audio" translate="no">–</b><span class="term" data-tip="audioload" tabindex="0">Audio</span></div>
+      <div class="w2"><b id="ro-px" translate="no">–</b><span>Scene px</span></div>
+      <div class="w2"><b id="ro-n" translate="no">–</b><span>Particles</span></div>
+      <div><b id="ro-ceil" translate="no">–</b><span class="term" data-tip="stride" tabindex="0">Stride</span></div>
+      <div><b id="ro-rate" translate="no">–</b><span class="term" data-tip="simrate" tabindex="0">Now</span></div>
+      <div class="w2"><b id="ro-why">–</b><span class="term" data-tip="adapting" tabindex="0">Adapting</span></div>
     </div>
     <div class="opts" id="opts"></div>
     <input type="file" id="w-file" accept=".tidemote" hidden>
@@ -214,10 +216,10 @@
           <div class="mix" id="mix" role="group" aria-label="Matter: choose one to highlight it"></div>
         </div>
         <div class="nums">
-          <div><b id="n-alive">–</b><span class="term" data-tip="alive" tabindex="0">Species</span></div>
-          <div><b id="n-thriving">–</b><span class="term" data-tip="thriving" tabindex="0">Thriving</span></div>
-          <div><b id="n-ever">–</b><span class="term" data-tip="ever" tabindex="0">Ever</span></div>
-          <div><b id="n-depth">–</b><span class="term" data-tip="deepest" tabindex="0">Depth</span></div>
+          <div><b id="n-alive" translate="no">–</b><span class="term" data-tip="alive" tabindex="0">Species</span></div>
+          <div><b id="n-thriving" translate="no">–</b><span class="term" data-tip="thriving" tabindex="0">Thriving</span></div>
+          <div><b id="n-ever" translate="no">–</b><span class="term" data-tip="ever" tabindex="0">Ever</span></div>
+          <div><b id="n-depth" translate="no">–</b><span class="term" data-tip="deepest" tabindex="0">Depth</span></div>
         </div>
         <div class="blk">
           <div class="sub-h"><span>Living cells by species</span></div>
@@ -252,7 +254,7 @@
     <dt>G · E · D · W</dt><dd>Light map · heat map · tide map · currents</dd>
     <dt>L N B O</dt><dd>Bonds · particles · bloom · optics</dd>
     <dt>M · [ ]</dt><dd>Loupe · magnification</dd>
-    <dt>0 · F · I</dt><dd>Reset zoom · fullscreen · hide readouts</dd>
+    <dt>0 · F · I · U</dt><dd>Reset zoom · fullscreen · hide readouts · hide everything</dd>
     <dt>⇧R ⇧R</dt><dd>Discard this world and begin again</dd>
   </dl>
   <p class="help-src">Free software under the <a class="sp" target="_blank" rel="noopener" href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0</a>, sound after <a class="sp" target="_blank" rel="noopener" href="https://supercollider.github.io/">SuperCollider</a> · <a class="sp" target="_blank" rel="noopener" href="https://github.com/thallada/tidemote">Source code</a></p>
@@ -280,7 +282,7 @@
 <div class="intro" id="intro">
   <div class="intro-in">
     <canvas class="intro-anim" id="intro-anim" aria-hidden="true"></canvas>
-    <h1>Tidemote</h1>
+    <h1 translate="no">Tidemote</h1>
     <div class="intro-rule" aria-hidden="true"><i></i></div>
     <p>A simulated emergent ecology of particles and mutating organisms.</p>
     <div class="calib" id="calib" role="status">Starting the GPU</div>
@@ -291,7 +293,7 @@
 <!-- shown when the world cannot run (no WebGPU, no JavaScript): says why, then what Tidemote is -->
 <div class="nogpu" id="nogpu" hidden>
   <div class="nogpu-in">
-    <div class="lbl">Tidemote</div>
+    <div class="lbl" translate="no">Tidemote</div>
     <h1 id="nogpu-title">WebGPU unavailable</h1>
     <p id="nogpu-detail">Tidemote simulates its world on your graphics card through WebGPU, with JavaScript turned on. Try a current Chrome, Edge or Safari, or Firefox on Windows.</p>
     <section class="about" aria-labelledby="about-h">

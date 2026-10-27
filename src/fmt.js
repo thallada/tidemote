@@ -11,7 +11,8 @@ export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '
 export const cssRgb = (c, k = 1) => `rgb(${c.slice(0, 3).map((v) => Math.round(clamp(v * k, 0, 1) * 255)).join(',')})`;
 export const cssCol = (u, k = 1) => cssRgb(unpackUnorm(u), k);
 export const term = (key, label) => `<span class="term" data-tip="${key}" tabindex="0">${label}</span>`;
-export const spLink = (serial, name) => `<a href="#" class="sp" data-serial="${serial}">${esc(name)}</a>`;
+// (translate="no": a species name is a name, not words to translate)
+export const spLink = (serial, name) => `<a href="#" class="sp" translate="no" data-serial="${serial}">${esc(name)}</a>`;
 /** Hand a file to the browser to download. */
 export function saveFile(blob, name) {
   const a = document.createElement('a');

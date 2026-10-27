@@ -7,6 +7,7 @@ import { lineageModel, cut } from './lineage/model.js';
 import { drawMuller, drawTree, layoutTree } from './lineage/draw.js';
 import { HEAT_BINS, HEAT_BIN, THERMAL_LEDGER } from './shaders.js';
 import { block, disclosure, wireDisclosures } from './ui.js';
+import { setText, setHTML } from './live.js';
 
 /**
  * The Field Lab: the left column. Its Census is what the world is made of and what has happened;
@@ -179,9 +180,9 @@ export function createLab(api) {
       const all = [...life.reg.values()].filter((sp) => matches(sp, st)).sort(BY[st.sort]);
       const shown = all.slice(0, 150);
       const tot = all.reduce((a, s) => a + s.pop, 0);
-      $('sp-sum').textContent = `${fmt(all.length)} species · ${fmt(tot)} cells · ${((tot / living) * 100).toFixed(1)}% of life`;
+      setText($('sp-sum'), `${fmt(all.length)} species · ${fmt(tot)} cells · ${((tot / living) * 100).toFixed(1)}% of life`);
       const nf = ['status', 'diet', 'mobility', 'body'].filter((k) => st[k] !== (k === 'status' ? 'thriving' : 'all')).length;
-      $('sp-filt').textContent = nf ? `Filters · ${nf}` : 'Filters';
+      setText($('sp-filt'), nf ? `Filters · ${nf}` : 'Filters');
       $('sp-reset').hidden = !nf;
       const now = performance.now();
       const sparks = force || now - sparkAt > 3000;
@@ -199,7 +200,7 @@ export function createLab(api) {
         const r = row(sp);
         const share = sp.alive ? `${((sp.pop / living) * 100).toFixed(1)}%` : `ended ${fmtClock(sp.extinct ?? 0)}`;
         const k = `${sp.pop}|${share}`;
-        if (k !== r.key) { r.key = k; r.b.textContent = sp.alive ? fmt(sp.pop) : '–'; r.s.textContent = share; }
+        if (k !== r.key) { r.key = k; setText(r.b, sp.alive ? fmt(sp.pop) : '–'); setText(r.s, share); }
         r.li.classList.toggle('gone', !sp.alive);
         r.li.classList.toggle('hl', hl === `sp:${sp.serial}`);
         if (sparks || !known) r.path.setAttribute('d', sparkPath(life.history, sp.serial, 78, 22));
@@ -210,7 +211,7 @@ export function createLab(api) {
         }
       }
       if (!keep) {
-        more.textContent = all.length > 150 ? `${fmt(all.length - 150)} more; narrow the filters to see them.` : all.length ? '' : 'No species match these filters.';
+        setText(more, all.length > 150 ? `${fmt(all.length - 150)} more; narrow the filters to see them.` : all.length ? '' : 'No species match these filters.');
         if (more.textContent) list.append(more); else more.remove();
       }
     }
@@ -335,23 +336,23 @@ export function createLab(api) {
       eras = api.climate().history.slice(1);
       const r = rootStrand();
       c = cut(model, { t0, t1, k: st.linK, live: !st.linAll, root: r, n: Math.min(320, Math.round(W / 2)) });
-      $('lin-sum').textContent = `${r ? `${r.first.name}'s line · ` : ''}${fmt(c.units.length)} of ${fmt(c.lineages)} lineages · ${fmt(c.species)} species`;
+      setText($('lin-sum'), `${r ? `${r.first.name}'s line · ` : ''}${fmt(c.units.length)} of ${fmt(c.lineages)} lineages · ${fmt(c.species)} species`);
       const back = $('lin-back');
       back.hidden = !r && !Array.isArray(st.linSpan);
-      back.textContent = r ? '← All lineages' : '← Whole world';
+      setText(back, r ? '← All lineages' : '← Whole world');
       const any = !!(c.units.length || c.other);
       empty.hidden = any;
       mCv.parentElement.hidden = treeCv.hidden = !any;
-      if (!any) { list.innerHTML = ''; return; }
+      if (!any) { setHTML(list, ''); return; }
       drawM(null);
       if (!box) return; // not on screen
       lay = layoutTree(c, box.l, box.r);
       treeCv.style.height = `${lay.h}px`;
       drawT(null);
-      list.innerHTML = c.units.map((u, i) => {
+      setHTML(list, c.units.map((u, i) => {
         const n = u.members.findLast((x) => x.alive) || u.members.at(-1);
         return `<li><button type="button" data-u="${i}" data-sp="${n.serial}">${esc(n.name)}: ${fmt(u.count)} species, ${u.alive ? 'living' : 'extinct'}</button><button type="button" data-u="${i}" data-do="follow">Follow its lineage</button></li>`;
-      }).join('');
+      }).join(''));
     }
     return { ...p, update };
   }
@@ -409,8 +410,8 @@ export function createLab(api) {
           const b = els[si].children[i];
           b.setAttribute('aria-pressed', String(fk === r.key));
           b.querySelector('i').style.width = `${((r.n / max) * 100).toFixed(1)}%`;
-          b.querySelector('.bn').textContent = fmt(r.n);
-          b.querySelector('.bp').textContent = `${((r.n / tot) * 100).toFixed(1)}%`;
+          setText(b.querySelector('.bn'), fmt(r.n));
+          setText(b.querySelector('.bp'), `${((r.n / tot) * 100).toFixed(1)}%`);
         });
       });
       box.querySelectorAll('.chip[data-focus]').forEach((b) => b.setAttribute('aria-pressed', String(fk === b.dataset.focus)));
@@ -463,7 +464,7 @@ export function createLab(api) {
       if (eras.length !== erasN || exc !== excN) {
         erasN = eras.length; excN = exc;
         const water = (h) => (api.eng.K.heat && h.temp != null ? ` · temperature ${Math.round(h.temp)}°${h.excursion ? ` · ${h.excursion.dT > 0 ? 'heat wave' : 'cold snap'} ${h.excursion.dT > 0 ? '+' : '−'}${Math.abs(h.excursion.dT).toFixed(0)}°` : ''}` : '');
-        $('eras').innerHTML = eras.slice().reverse().map((h) => `<li><time>${fmtClock(h.t)}</time><b>${esc(h.name)}</b><span>light ${Math.round(h.ambient * 100)}%${water(h)}</span></li>`).join('');
+        setHTML($('eras'), eras.slice().reverse().map((h) => `<li><time>${fmtClock(h.t)}</time><b>${esc(h.name)}</b><span>light ${Math.round(h.ambient * 100)}%${water(h)}</span></li>`).join(''));
       }
     }
     let felt0 = null, felt1 = null;
@@ -494,8 +495,8 @@ export function createLab(api) {
       const ev = ch.filter((e) => (st.logType === 'all' || e.type === st.logType) && (!st.logQ || e.text.toLowerCase().includes(st.logQ.toLowerCase())));
       // keep what the reader is looking at in place as new entries arrive on top
       const before = list.scrollHeight, top = p.scroll.scrollTop;
-      list.innerHTML = ev.length ? ev.slice(0, 400).map((e) => `<li${e.type === 'story' ? ' class="story"' : ''}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join('')
-        : `<li style="display:block;border:0" class="note">${st.logType === 'story' ? 'The chronicler speaks rarely, only when something notable has happened: a death worth remembering, an arms race, a cycle of boom and bust, a lineage following the water. Nothing yet.' : 'Nothing yet.'}</li>`;
+      setHTML(list, ev.length ? ev.slice(0, 400).map((e) => `<li${e.type === 'story' ? ' class="story"' : ''}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join('')
+        : `<li style="display:block;border:0" class="note">${st.logType === 'story' ? 'The chronicler speaks rarely, only when something notable has happened: a death worth remembering, an arms race, a cycle of boom and bust, a lineage following the water. Nothing yet.' : 'Nothing yet.'}</li>`);
       api.relabel?.(list);
       if (top > 0 && !force) p.scroll.scrollTop = top + (list.scrollHeight - before);
     }

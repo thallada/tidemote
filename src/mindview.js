@@ -5,6 +5,7 @@
 import { groupsFor, slotRows } from './mind.js';
 import { term, spLink, fmtLen } from './fmt.js';
 import { subHead, ruled } from './ui.js';
+import { setText, setHTML } from './live.js';
 
 const R = 40; // compass radius, in a -50..50 viewBox
 const NB_ROWS = 4; // other species shown (own kind has its own row)
@@ -87,22 +88,22 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
     if (!bound() || !mind) return;
     const head = mind.head || mind;
     // ---- readout
-    parts.mode.textContent = head.mode || '—';
+    setText(parts.mode, head.mode || '—');
     parts.mode.dataset.hint = plain(head.why, head.target);
     const tk = head.target;
     if (tk !== parts.tkind) {
       parts.tkind = tk;
       const g = tk != null ? genomeFor(tk) : null;
-      parts.sig.innerHTML = g ? sigil(g, 16) : '';
-      parts.tname.innerHTML = tk != null ? linkName(tk) : '—';
+      setHTML(parts.sig, g ? sigil(g, 16) : '');
+      setHTML(parts.tname, tk != null ? linkName(tk) : '—');
     }
-    if (tk == null) parts.tname.textContent = head.matter || '—';
+    if (tk == null) setText(parts.tname, head.matter || '—');
     // where the shown mode's target lies in the latest reading: the food in reach, else its nearest cell
     const m = mind.m, food = m.food;
     const q = tk == null ? null : m.nbrs.find((n) => food && n.j === food.j) || m.nbrs.filter((n) => n.kind === tk).sort((a, b) => len(a.d) - len(b.d))[0];
     const tdist = q ? len(q.d) : food && head.matter && head.key !== 'forage' ? food.dist : null;
-    parts.tdist.textContent = tdist != null ? `${fmtLen(tdist)} away` : '';
-    parts.detail.textContent = detail(head, mind);
+    setText(parts.tdist, tdist != null ? `${fmtLen(tdist)} away` : '');
+    setText(parts.detail, detail(head, mind));
     // ---- pulls
     const max = Math.max(1e-6, ...mind.groups.map((g) => g.mag));
     if (!ease) ease = { groups: new Map(), hdg: { cur: [0, 0], to: [0, 0] }, tgt: { cur: null, to: null } };
@@ -112,7 +113,7 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
       const e = ease.groups.get(gr.key);
       if (e) e.to = to; else ease.groups.set(gr.key, { cur: to.slice(), to });
       const d = parts.drives.get(gr.key);
-      if (d) { d.bar.style.width = `${(gr.mag / max) * 100}%`; d.val.textContent = pct(gr.share); }
+      if (d) { d.bar.style.width = `${(gr.mag / max) * 100}%`; setText(d.val, pct(gr.share)); }
     }
     const hu = unit(m.vel);
     ease.hdg.to = len(m.vel) > 0.02 ? [hu[0] * R, hu[1] * R] : [0, 0];
@@ -126,7 +127,7 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
       if (!n) continue;
       n.el.classList.toggle('on', !!f.on);
       if (f.tone !== undefined && n.el.dataset.tone !== f.tone) n.el.dataset.tone = f.tone;
-      if (n.label.textContent !== f.label) n.label.textContent = f.label;
+      setText(n.label, f.label);
       n.label.dataset.hint = plain(f.hint, f.target);
     }
     parts.live.classList.remove('blink');
@@ -142,13 +143,13 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
       if (r.kind !== k) {
         r.kind = k;
         const g = k != null ? genomeFor(k) : null;
-        r.sig.innerHTML = g ? sigil(g, 16) : '';
-        r.name.innerHTML = k == null ? '—' : i === 0 ? 'its own kind' : linkName(k);
+        setHTML(r.sig, g ? sigil(g, 16) : '');
+        setHTML(r.name, k == null ? '—' : i === 0 ? 'its own kind' : linkName(k));
       }
       r.row.classList.toggle('empty', !s);
-      r.n.textContent = s ? String(Math.max(1, Math.round(s.n))) : i === 0 ? '0' : '';
+      setText(r.n, s ? String(Math.max(1, Math.round(s.n))) : i === 0 ? '0' : '');
       const role = !s || s.kin ? '' : s.threat >= 0.5 && s.prey >= 0.1 ? 'both' : s.threat >= 0.5 ? 'predator' : s.prey >= 0.1 ? 'prey' : '';
-      r.role.textContent = role;
+      setText(r.role, role);
       r.role.className = `nb-role ${role}`;
       const pull = s ? (s.sig + s.diet) / (mind.total || 1) : 0;
       const w = Math.min(1, Math.abs(pull)) * 50;
