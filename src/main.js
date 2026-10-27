@@ -548,6 +548,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     eng.writeState({ cpu, gpu });
     warmDue = false;
     if (state.warm) { endWarm(); applySpeed(1); }
+    // a new world, a fresh judgment of what the device sustains: a frame rate cut for the last one's moment is not kept
+    resetAdapt();
     resetDirector();
     resetLife();
     resetClimate();
@@ -2502,7 +2504,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
       } else if (autoF && perf.slow < 4) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + (m > 2 * T ? 2 : 1)); }
       return;
     }
-    if (m > T * 1.03 || stressed()) { perf.goodWindows = 0; return; }
+    // A frame rate or scale cut is won back by frames on time; frames a little late (the browser's pace, as
+    // a fast display delivers the page's frames unevenly) count as on time while the page's own work, the
+    // GPU's and the script's, fills under a quarter of the interval: no cut could help them, and judged
+    // against 1.03 they held the slowest rung forever (15 fps, its frames 4% late on a 175 Hz display).
+    const cheap = perf.gpu + perf.mainMs * frameEvery() < T / 4;
+    if ((m > T * 1.03 && !cheap) || stressed()) { perf.goodWindows = 0; return; }
     perf.goodWindows++;
     if (perf.goodWindows < 3) return;
     const held = now < perf.ceilingUntil;
@@ -3108,6 +3115,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // ------------------------------------------------------------ loop
   let last = performance.now();
   let frameCount = 0;
+  let lastPanels = 0;
   let inflight = 0;
   let shownFrame = null; // the camera and moment of the world frame the GPU finished last
   // The simulation clock, after Glenn Fiedler's "Fix Your Timestep!": real time, from the vsync-aligned
@@ -3305,13 +3313,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
       device.queue.onSubmittedWorkDone().then(() => { inflight--; shownFrame = sent; }, () => { inflight--; });
       if (sel && frameCount % 10 === 0 && !state.paused) gatherTick(false);
     }
-    if (dirty && (sel || spView != null)) renderSpecimen(false);
     filmTick();
-    if (specimen.isOpen()) specimen.songTick(performance.now(), songEvents); // every display frame, whatever the GPU's pace
-    renderFeed();
-    lab.render(false);
+    // The panels at most 60 times a second, whatever the GPU's pace: on a fast display (144, 175 Hz) each
+    // update had the browser restyle, lay out, repaint and composite the page three times a frame of the
+    // world, which on some machines delayed the display's frames enough to hold the frame rate at 15 fps.
+    if (now - lastPanels >= 15) {
+      lastPanels = now;
+      if (dirty && (sel || spView != null)) renderSpecimen(false);
+      if (specimen.isOpen()) specimen.songTick(performance.now(), songEvents);
+      renderFeed();
+      lab.render(false);
+      if (state.phase === 'running') updateHud(now);
+    }
     adaptQuality(now);
-    if (state.phase === 'running') updateHud(now);
     perf.mainMs += (performance.now() - t0 - perf.mainMs) * 0.1;
     requestAnimationFrame(frame);
   }

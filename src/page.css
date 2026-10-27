@@ -652,7 +652,6 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .mv-drives > div > i { width: 8px; height: 2px; }
 .mv-drives span:not(.meter) { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mv-drives b { font-weight: 400; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 11px; }
-.mv-drives .meter > i { transition: width .12s linear; }
 .mv-dial { display: flex; flex-direction: column; align-items: center; gap: 5px; align-self: stretch; }
 .mv-dial .compass { margin-top: var(--s1); } /* right under the key, wherever the drives end: it never moves from cell to cell */
 /* the key's two rows keep the drives' pitch, so they line up with the first two drives */
@@ -685,7 +684,6 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .nb-role.predator { color: var(--hot); }
 .nb-role.prey { color: var(--cyan); }
 .nb-role.both { color: var(--sun); }
-.nb-row .dbar i { transition: left .12s linear, width .12s linear; }
 @media (max-width: 720px) {
   .mv-pulls { grid-template-columns: 96px minmax(0, 1fr); gap: 10px; }
   .compass { width: 96px; height: 96px; }
