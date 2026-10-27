@@ -1,24 +1,45 @@
 # Performance: how the page keeps its frame rate, and how to measure it
 
-Measured on an RTX 4070 Ti (Chrome 154, D3D12, 2560×1440 at 143 Hz) with `tools/perf/` (below),
-on saved worlds grown at Max: `w1m` (1M particles, about 540k living) and `w4m` (4M, about 1.8M living).
+Measured on an RTX 4070 Ti (Chrome 155, D3D12, 2560×1440 at 175 Hz) with `tools/perf/` (below),
+on saved worlds grown at Max: `w1m` (1M particles, about 540k living) and `w4m` (4M, about 1.6M living),
+regrown 2026-10-26 (the 2026-10-09 worlds had loaded lifeless since the layouts changed; `bench.mjs`
+now refuses a world that loads with nothing living). A `.bin` world carries no climate, so pin it
+(`k: {lowEras: 0, eventPlan: 'none@1000000000'}` for full water) or each load draws its own era.
 
 ## Where the GPU time goes
 
-The simulation step dominates. In a mature world `lifeMain` (every living cell's neighbor scan,
-forces and budget) is about 80% of a step, and a step costs 5 to 6 ns per living cell:
+The simulation step dominates. Per pass, `kind: 'step'` (2026-10-26, full water):
 
-| world | step | lifeMain | scatter | resolveCount | matter |
-| --- | --- | --- | --- | --- | --- |
-| 1M, 540k living | 2.9 ms | 2.2 ms | 0.31 | 0.18 | 0.19 |
-| 4M, 1.8M living | 12.8 ms | 9.5 ms | 1.3 | 1.0 | 0.82 |
+| world | step | lifeMain | scatter | contact | resolveCount | matter | bondBack |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1M, 540k living | 3.3 ms | 1.9 ms | 0.35 | 0.47 | 0.19 | 0.19 | 0.10 |
+| 4M, 1.6M living | 10.3 ms | 5.1 ms | 1.65 | 1.5 | 0.77 | 0.66 | 0.43 |
+
+About 3.2 ns of `lifeMain` per living cell (4.3 on 2026-10-09). Its neighbor walk is now the smaller
+part: a build whose walk visits nothing takes 1.1 ms off its 5 ms at 4M, and one that reads every
+neighbor but does nothing with them costs the same as no walk, so the walk's reads are cheap and the
+rest of the kernel (each cell's own rules) is the bulk. `contactMain` is mostly its walk: `contactCap`
+32 instead of 128 takes 0.7 ms off it at 4M, 8 takes 1.0 (an ecology change, not made). `scatterMain`
+moves about 140 bytes a particle, near the card's bandwidth (1.2 ms of its 1.65 at 4M).
+
+**Low water and atomics (2026-10-26).** A step at 4M had grown to 12 ms at full water and 19 ms in a
+low era (any level below 1, or frost, runs the shore's work for every particle). The cost was reads of
+the heat field, the pond's floor and stone through `atomicLoad`, which Dawn's D3D12 backend compiles to
+an interlocked read-modify-write: thousands of threads reading the same grid cells serialize. Read-only
+bindings of those buffers (`thermal` read-only with the heat accumulators moved to the ledger's end,
+`stoneCells` an alias of `stoneGrid`) and the pond and flow sampled once per particle brought `matterMain`
+at low water from 6.9 to 1.4 ms and the step to 10.6 ms either way. Never `atomicLoad` a field many
+threads read: bind it read-only. And the level now settles exactly at 1 after a low era (it crept
+toward it for minutes before, keeping the shore's work on). Reef wear walks its 9×9 neighborhood every
+eighth frame by runs of 64 particles (whole warps skip it together), eight frames' worth: `matterMain`
+1.15 → 0.66 ms at 4M.
 
 Life fills a world within a couple of simulated minutes (30 to 70% of particles living after that),
 so the cost the page calibrates against at start is close to the mature one; it then swings with
 the climate by ±30%.
 
 `lifeMain` is limited by registers (occupancy), not arithmetic: cutting state it carries through the
-neighbor loop is what pays. The neighbor loop is about 93% of it; its cost scales with the sample
+neighbor loop is what pays. On 2026-10-09 the neighbor loop was about 93% of it; its cost scales with the sample
 budget `maxScan`: 192 since 2026-10-09 (288 before), which took about 25% off `lifeMain` (1M world
 2.30 → 1.67 ms, 4M 9.9 → 7.8 ms). It passed the 32-seed gate against 288 and against heat-framboids,
 and 128 seeds at 4-tick steps matched 288 or bettered it (effective species 79.5 ± 4.4 against
@@ -35,9 +56,10 @@ change is the noise of a crowded cell's forces: in matched-start forks (16 world
 force on a crowded cell by about 20% over 192 and its speed by 7–8% (288 lowers them as much), and a
 hungry cell finds food in reach 2–3% less often. That evens out over a run but colonies jostle more.
 
-Drawing: zoomed out, the cost is the points' vertex work (4M particles: 4.6 ms, the same at half the
-render scale); zoomed in it is the resolved cells' fragment work, which the render scale reduces
-faster than linearly (the level of detail is set in framebuffer pixels).
+Drawing (2026-10-26, a frame's GPU time less the step's): the 4M world seen whole costs about 5 ms
+(`splatMain` 2.0, adding the splats into the scene 1.3, `fsStone` 1.05), zoomed in about 1.8 ms; the 1M
+world seen whole about 2.9 ms. Zoomed in, the cost is the resolved cells' fragment work, which the render
+scale reduces faster than linearly (the level of detail is set in framebuffer pixels).
 
 ## Starting up (compiling the shaders)
 
@@ -188,4 +210,6 @@ and never during a balance gate.
   `flash.mjs` measures every composited frame's brightness around render-scale changes.
 - In the page, Settings → Performance → **Copy profile** (where the GPU gives timestamps) times three
   seconds of frames pass by pass and a step dispatch by dispatch on that device, and copies it as
-  JSON: the way to see how a phone spends its time.
+  JSON: the way to see how a phone spends its time. Its `world` records what picks a step's work (the
+  water's level and the era's, frost, an event and its phase, coarse ticks), so a slow profile says
+  whether the shore's work was on.
