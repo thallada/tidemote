@@ -2431,6 +2431,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         else if (c) cards.openSaved({ ...c, genome: genomeOfWords(c.words) });
       },
       drop: (key, x, y) => { const sp = pipSp(key); if (sp) dropNext(x, y, pipette.all(sp)); },
+      save: (key) => { const sp = pipSp(key); if (sp && !sp.stranger && life.reg.has(sp.serial)) saveCard(sp.serial); else flash(sp ? `${sp.name} is a card already` : ''); },
+      cabinet: () => lab.open('cabinet'),
       arm: () => { pull.armed = !pull.armed; },
     } });
   // The hand's acts for the chronicler, told as weather: the species within an act's reach counted (the pick pass)

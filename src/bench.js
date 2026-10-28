@@ -19,7 +19,8 @@ export const reachStep = (r, d) => Math.min(REACH.max, Math.max(REACH.min, r * 1
  * hand: the page's hand (src/hand.js); pick(id) takes up a tool; reach(r) sets the reach; onToggle(open) as the
  * drawer opens or closes. pip: the pipette's strip: view() -> { count, limit, keys, armed }, cards(flat) -> its
  * mini-cards' markup, toTip(key), open(key) (its full card), drop(key, x, y) (a card dragged out onto the world),
- * arm() (Pull: the next touch draws up).
+ * save(key) (dragged onto the Lab: its card into the cabinet), cabinet() (opens it), arm() (Pull: the next touch
+ * draws up).
  */
 export function createBench({ hand, pick, reach, onToggle = () => {}, pip }) {
   const drawer = $('bench'), btn = $('bench-open'), held = $('held'), dock = $('tools');
@@ -51,9 +52,10 @@ export function createBench({ hand, pick, reach, onToggle = () => {}, pip }) {
   // down there
   const drags = [strip, hstrip].map((row) => wireCardDrag(row, {
     tap: (key, double) => { if (double) pip.open(key); else { pip.toTip(key); render(); } },
-    drop: (key, x, y, el) => { if (el?.id === 'stage') pip.drop(key, x, y); },
+    drop: (key, x, y, el) => { if (el?.id === 'stage') pip.drop(key, x, y); else if (el?.closest('#lab, #lab-open')) pip.save(key); },
   }));
   btn.addEventListener('click', () => toggle());
+  strip.addEventListener('click', (e) => { if (e.target.closest('[data-cabinet]')) pip.cabinet(); });
 
   function toggle(on = drawer.hidden) {
     drawer.hidden = !on;
@@ -95,7 +97,7 @@ export function createBench({ hand, pick, reach, onToggle = () => {}, pip }) {
     pipKey = key;
     $('pip-n').textContent = v.count ? `${v.count.toLocaleString('en-US')} / ${v.limit.toLocaleString('en-US')}${v.count >= v.limit ? ' · full' : ''} · tip first` : 'empty';
     strip.innerHTML = v.keys.length ? pip.cards(false)
-      : '<div class="pip-empty"><b>Nothing in the pipette.</b><span>Draw cells up from the world with the pipette (8): its right button, or any while it is empty.</span></div>';
+      : '<div class="pip-empty"><b>Nothing in the pipette.</b><span>Draw cells up from the world with the pipette (8), or bring cards from the cabinet.</span><button type="button" class="link" data-cabinet>Open the cabinet</button></div>';
     hstrip.innerHTML = inHand ? pip.cards(true) : '';
   }
   addEventListener('resize', render);

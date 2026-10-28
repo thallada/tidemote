@@ -1,7 +1,8 @@
 // The page's layout at the screen sizes people use: screenshots of its main states and an audit of
 // what is too small to read or press, what spills off screen, and what axe-core finds.
 //   npm run build && tools/gpu-node.sh tools/ui-audit.mjs --out runs/ui/before [--sizes l1366,p390] [--settle 25]
-// --page FILE audits another build of the page (a copy of dist/tidemote.html kept from before a change).
+// --page FILE audits another build of the page (a copy of dist/tidemote.html kept from before a change); --particles N
+// runs a world of N particles instead of what the page picks for the GPU (a machine short of memory).
 // Writes <out>/<size>-<state>.png and <out>/audit.json, and prints a summary. Under WSL it drives Windows
 // Chrome on the GPU (tools/gpu-node.sh); elsewhere pass --chrome PATH or use Playwright's Chromium.
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http';
@@ -131,12 +132,13 @@ const report = { when: new Date().toISOString(), base, sizes: {} };
 for (const s of SIZES) {
   console.log(`— ${s.id} ${s.w}×${s.h} (${s.note})`);
   const ctx = await browser.newContext({ viewport: { width: s.w, height: s.h }, deviceScaleFactor: s.dpr, hasTouch: !!s.touch, isMobile: !!s.touch });
-  await ctx.addInitScript(() => {
+  await ctx.addInitScript((n) => {
     if (sessionStorage.getItem('ui-init')) return;
     sessionStorage.setItem('ui-init', '1');
     localStorage.clear();
     localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0.7 }));
-  });
+    if (n) localStorage.setItem('tidemote.view', JSON.stringify({ v: 4, particles: n }));
+  }, +(args.particles || 0));
   if (vk) await ctx.addInitScript(retryAdapter);
   const page = await ctx.newPage();
   const errs = [];

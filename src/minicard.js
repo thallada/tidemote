@@ -11,7 +11,7 @@ import { esc, fmt } from './fmt.js';
  */
 export function miniCard(g, K, { key, name, home = '', n = 0, bodies = 0, tip = false, flat = false }) {
   const f = facets(g, K);
-  const count = n ? `<span class="mc-n">${tip ? '<i>Tip</i>' : ''}<b>×${fmt(n)}</b>${bodies > 1 ? `<small>${fmt(bodies)} bodies</small>` : ''}</span>` : '';
+  const count = n ? `<span class="mc-n">${tip ? '<i>Tip</i>' : ''}<b>×${fmt(n)}${bodies > 1 && !flat ? `<small> · ${fmt(bodies)} bodies</small>` : ''}</b></span>` : '';
   return `<button type="button" class="mini${flat ? ' flat' : ''}${tip ? ' at-tip' : ''}" data-key="${esc(key)}" aria-label="${esc(name)}${n ? `, ${n} cells` : ''}">`
     + `${count}<span class="mc-sig">${sigilSVG(voiceOf(g), g, { size: flat ? 22 : 30 })}</span>`
     + `<span class="mc-name" translate="no">${esc(name)}</span><span class="mc-kind">${f.diet} · ${f.mobility}</span>${home && !flat ? `<span class="mc-home">${esc(home)}</span>` : ''}</button>`;

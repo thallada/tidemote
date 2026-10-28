@@ -355,7 +355,7 @@ body.spec-open .bench { right: var(--spec-pw); }
 .pip-empty { flex: 1; min-height: 96px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: var(--s1); padding: var(--s3); border: 1px dashed var(--line); color: var(--ink-3); text-align: center; font-size: 12px; }
 .pip-empty b { color: var(--ink-2); font-weight: 400; font-size: 13px; }
 /* a mini-card: sigil, name, kind, home water; bracketed at its corners */
-.mini { --c: var(--line-2); position: relative; flex: 0 0 104px; min-height: 104px; padding: 8px 6px 6px; display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; touch-action: none;
+.mini { --c: var(--line-2); position: relative; flex: 0 0 112px; min-height: 104px; padding: 8px 6px 6px; display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; touch-action: none;
   background: linear-gradient(var(--c), var(--c)) left top / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) left top / 1px 7px no-repeat,
     linear-gradient(var(--c), var(--c)) right top / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) right top / 1px 7px no-repeat,
     linear-gradient(var(--c), var(--c)) left bottom / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) left bottom / 1px 7px no-repeat,
@@ -369,7 +369,7 @@ body.spec-open .bench { right: var(--spec-pw); }
 .mc-n i { font-style: normal; color: var(--sun); letter-spacing: .14em; text-transform: uppercase; font-weight: 600; }
 .mc-n b { margin-left: auto; font-weight: 500; }
 .mini.at-tip .mc-n b { color: var(--sun); }
-.mc-n small { display: none; }
+.mc-n small { font-size: 11px; color: var(--ink-3); font-weight: 400; }
 .mini { padding-top: 18px; }
 .mini.flat { flex: 0 0 160px; min-height: 50px; display: grid; grid-template-columns: 24px 1fr; grid-template-rows: auto auto; column-gap: 8px; align-items: center; text-align: left; padding: 6px 8px; }
 .mini.flat .mc-sig { grid-row: 1 / 3; width: 24px; height: 24px; }
