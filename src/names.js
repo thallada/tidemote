@@ -37,3 +37,10 @@ export function speciesEpithet(serial) {
   const r = prng(Math.imul(serial ^ 0x9e3779b9, 40503));
   return word(r, 1 + (r() < 0.5 ? 1 : 0)) + pick(r, SUFFIX);
 }
+
+/** n in Roman numerals (a genus name taken twice over gets one: "Vela II"). */
+export function roman(n) {
+  let s = '';
+  for (const [v, r] of [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']]) while (n >= v) { s += r; n -= v; }
+  return s;
+}

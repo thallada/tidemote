@@ -12,12 +12,12 @@ import { section, block, wireTabRow } from './ui.js';
 import { setText as setLive, setHTML } from './live.js';
 import { createTips } from './tip.js';
 import { drawLiving, chartPointer } from './charts.js';
-import { genusName, speciesEpithet } from './names.js';
+import { genusName, speciesEpithet, roman } from './names.js';
 import { record, seal } from './lineage/model.js';
 import { createWorldStore, encodeWorld, decodeWorld, SAVE_VERSION, openable } from './worlds.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
-import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS } from './shaders.js';
+import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK } from './shaders.js';
 import { flowAt } from './flow.js';
 import { startLoader } from './loader.js';
 import { Director } from './director.js';
@@ -70,6 +70,9 @@ function fail(title, detail, actions = []) {
 // A reload can begin before the GPU has let go of the last page's world (Android's browsers especially): the new
 // device is then lost while the shaders compile ("Instance dropped"). Boot tries again on a fresh device a few
 // times before saying anything; a real shader error is reported at once.
+// how long the page took to start, in ms from navigation: the GPU device, the engine (its shaders
+// compiled, or found in the browser's shader cache), and the world running (Settings → Performance → Copy profile)
+const bootTimes = {};
 async function boot(tries = 4) {
   if (!navigator.gpu) {
     fail('This browser has no WebGPU', 'Tidemote simulates its world on your graphics card through WebGPU. Try a current Chrome, Edge or Safari, or Firefox on Windows.');
@@ -87,6 +90,7 @@ async function boot(tries = 4) {
       maxStorageBuffersPerShaderStage: Math.min(lim.maxStorageBuffersPerShaderStage, 10),
     },
   });
+  bootTimes.device = Math.round(performance.now());
   let started = false;
   device.lost.then((info) => { if (started && info.reason !== 'destroyed') fail('The GPU device was lost', `${info.message || 'The driver reset the device.'} The world was on it and is gone; reload the page to start a new one.`, [RELOAD]); });
   device.addEventListener('uncapturederror', (e) => console.error('[tidemote]', e.error.message));
@@ -120,6 +124,7 @@ async function boot(tries = 4) {
     return;
   }
   started = true;
+  bootTimes.engine = Math.round(performance.now());
   run(eng, device, ctx, specCtx, hasTS);
 }
 
@@ -404,7 +409,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     life = {
       reg: new Map(), genera: new Map(), orphan: new Map(), chronicle: [], history: [], histEvery: 3, lastHist: -1e9,
       counts: [0, 0, 0, 0, 0], roles: [0, 0, 0], alive: 0, thriving: 0, arisen: 0, maxDepth: 0, top: 0, lastCensus: null, matter: [],
-      estThreshold: 30, births: 0, prevG: null, prevD: null, prevT: 0,
+      estThreshold: 30, births: 0, prevG: null, prevD: null, prevT: 0, prunedAt: 0, chartSp: new Map(),
     };
     feedKey = '';
     chron.reset();
@@ -758,7 +763,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     return d + Math.min(dh, 1 - dh);
   }
   function newGenus(g, from) {
-    const name = genusName(g.serial, life.genera);
+    let name = genusName(g.serial, life.genera);
+    // its tries all taken (likely only after weeks of a world): a numbered name, never another genus's record
+    for (let n = 2; life.genera.has(name); n++) name = `${name.replace(/ [IVXLCDM]+$/, '')} ${roman(n)}`;
     life.genera.set(name, { name, founder: g, from, born: g.born, announced: false });
     return name;
   }
@@ -787,6 +794,46 @@ function run(eng, device, ctx, specCtx, hasTS) {
     };
     life.reg.set(g.serial, sp);
     return sp;
+  }
+  // A world left running for days keeps making species and genera; kept forever they grew without end (at
+  // 32k particles 5,500 genera and 460 species a simulated hour, each with its genome: the heap, every save
+  // and every census's scans over them grew with it). Every PRUNE_EVERY simulated seconds the records keep
+  // what can still be shown or reached: the living; species the viewer named, the log links to or a panel
+  // shows; the extinct of the last PRUNE_KEEP seconds; and the established ancestors
+  // of what is kept, PRUNE_LINEAGE generations back (the specimen panel shows six, a card four: a whole
+  // lineage lengthens as long as the world runs). Genera and orphan lines none of them belongs to go too. The
+  // history chart's samples span the whole world, so the species it stacks are many and keep turning over:
+  // of those it keeps only what the chart draws (life.chartSp: name and color).
+  const PRUNE_EVERY = 600, PRUNE_KEEP = 6 * 3600, PRUNE_LINEAGE = 8;
+  const pruned = { at: 0, kept: 0, removed: 0, why: {} }; // the last pass, for tools (__tidemote.pruned)
+  // the species the history chart stacks: those on record, else what pruning kept of them for it
+  const chartReg = { get: (serial) => life.reg.get(serial) || life.chartSp.get(serial) };
+  function pruneRecords(t) {
+    if (t - life.prunedAt < PRUNE_EVERY && t >= life.prunedAt) return;
+    life.prunedAt = t;
+    const keep = new Set(), why = { living: 0, named: 0, recent: 0, log: 0, shown: 0, lineage: 0 };
+    const add = (serial, k) => { if (!keep.has(serial) && life.reg.has(serial)) { keep.add(serial); why[k]++; } };
+    for (const sp of life.reg.values()) if (sp.alive) add(sp.serial, 'living'); else if (sp.given) add(sp.serial, 'named'); else if (sp.extinct != null && t - sp.extinct < PRUNE_KEEP) add(sp.serial, 'recent');
+    for (const e of life.chronicle) for (const m of e.html.matchAll(/data-serial="(\d+)"/g)) add(+m[1], 'log');
+    if (spView != null) add(spView, 'shown');
+    for (const s of [...keep]) {
+      let a = life.reg.get(s)?.ancestor;
+      for (let n = 0; a != null && n < PRUNE_LINEAGE; n++) { add(a, 'lineage'); a = life.reg.get(a)?.ancestor; }
+    }
+    const charted = new Set();
+    for (const h of life.history) for (const [serial] of h.sp || []) charted.add(serial);
+    for (const serial of [...life.chartSp.keys()]) if (!charted.has(serial)) life.chartSp.delete(serial);
+    const before = life.reg.size;
+    for (const [serial, sp] of life.reg) {
+      if (keep.has(serial)) continue;
+      if (charted.has(serial)) life.chartSp.set(serial, { name: sp.name, genome: { col: sp.genome.col }, alive: false });
+      life.reg.delete(serial);
+    }
+    Object.assign(pruned, { at: t, kept: life.reg.size, removed: before - life.reg.size, why });
+    const used = new Set();
+    for (const sp of life.reg.values()) used.add(sp.genus);
+    for (const [parent, genus] of life.orphan) if (!used.has(genus)) life.orphan.delete(parent);
+    for (const name of life.genera.keys()) if (!used.has(name)) life.genera.delete(name);
   }
   function originWord(sp) {
     return sp.serial > eng.founders ? 'sparked from silt' : 'a founding lineage';
@@ -882,7 +929,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
       alive++;
       let sp = life.reg.get(genomeSerial(c.genomeU32, s));
       const g = sp ? sp.genome : readGenome(c.genomeU32, c.genomeF32, s);
-      if (!sp) sp = register(g);
+      if (!sp) {
+        // its birth as the GPU keeps it, modulo SIM_CLOCK (shaders.js): the latest such moment not after now
+        const at = Math.floor(t / SIM_CLOCK) * SIM_CLOCK + g.born;
+        g.born = at > t + 1 ? at - SIM_CLOCK : at;
+        sp = register(g);
+      }
       // heard only once its singer has lived a minute, as most mutants do not (about one signal in 7 hours)
       if (sp.signal && !sp.heard && t - (sp.born || 0) >= SIGNAL_AFTER) {
         sp.heard = true;
@@ -936,6 +988,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         }
       }
     }
+    pruneRecords(t);
     let thriving = 0;
     let H = 0;
     for (const sp of life.reg.values()) {
@@ -957,7 +1010,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
     if (t - life.lastHist >= life.histEvery) {
       const G = Array.from(c.globals);
-      const rate = (i) => (life.prevG && t > life.prevT ? ((G[i] - life.prevG[i]) / (t - life.prevT)) * 60 : 0);
+      // the GPU's counters are u32 and wrap (births at 3.4M particles about every 15 simulated days): differences mod 2^32
+      const rate = (i) => (life.prevG && t > life.prevT ? (((G[i] - life.prevG[i]) >>> 0) / (t - life.prevT)) * 60 : 0);
       const sp = [];
       for (const s of life.reg.values()) if (s.alive && s.established) sp.push([s.serial, s.pop]);
       life.history.push({
@@ -965,7 +1019,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         alive, thriving, diversity: Math.exp(H),
         births: rate(2), starve: rate(5), old: rate(6), eaten: rate(7), scav: rate(10), prey: rate(7), bite: rate(11),
         mut: rate(3), ext: rate(8), ambient: eng.ambient, season: eng.season,
-        temp: eng.tbg, scald: [20, 21, 22, 23, 24].reduce((a, i) => a + (life.prevD ? c.demography[i] - life.prevD[i] : 0), 0) / Math.max(1e-6, t - life.prevT) * 60,
+        temp: eng.tbg, scald: [20, 21, 22, 23, 24].reduce((a, i) => a + (life.prevD ? (c.demography[i] - life.prevD[i]) >>> 0 : 0), 0) / Math.max(1e-6, t - life.prevT) * 60,
         torpid: torpidShare(c),
       });
       life.prevD = Array.from(c.demography);
@@ -1013,10 +1067,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // each living cell once a second)
   let torpidPrev = null;
   function torpidShare(c) {
-    const e = c.energy, now = [e[56], e.slice(40, 56).reduce((a, b) => a + b, 0)];
-    const prev = torpidPrev;
+    const now = Array.from(c.energy.slice(40, 57)), prev = torpidPrev;
     torpidPrev = now;
-    return prev && now[1] > prev[1] ? (now[0] - prev[0]) / (now[1] - prev[1]) : 0;
+    if (!prev) return 0;
+    // u32 counters, each differenced mod 2^32 (they wrap in long worlds)
+    let all = 0;
+    for (let k = 0; k < 16; k++) all += (now[k] - prev[k]) >>> 0;
+    return all > 0 ? ((now[16] - prev[16]) >>> 0) / all : 0;
   }
 
   // ------------------------------------------------------------ world column
@@ -1052,7 +1109,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   function drawWorldChart() {
     if (!lab || !lab.isOpen() || lab.tab() !== 'census' || !life) return;
-    drawLiving($('chart'), life.history, life.reg, climate && climate.history, focus.key && focus.key.startsWith('sp:') ? +focus.key.slice(3) : null);
+    drawLiving($('chart'), life.history, chartReg, climate && climate.history, focus.key && focus.key.startsWith('sp:') ? +focus.key.slice(3) : null);
   }
   // Pointing at any chart names what is under it (a species on the plate the world view gives a
   // picked cell, or the values at that moment); a click on a species (on touch, a second tap) opens it,
@@ -1933,7 +1990,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       setText('ro-draw', perf.simS ? perf.renderR.toFixed(1) : '–');
       setText('ro-ceil', state.paused ? '–' : `${perf.ticks}/60 s`);
       setText('ro-rate', state.phase === 'running' && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : '–');
-      setText('ro-aim', state.speed > 1 ? 'Max' : String(Math.round(1000 / frameTarget())));
+      // the frames aimed for; at Max and held fast speeds the world itself is redrawn only every
+      // MAX_FRAME_MS, on the first frame due after it (the camera and loupe keep the full rate)
+      const ft = frameTarget(), fps = Math.round(1000 / ft);
+      setText('ro-aim', (state.speed === Infinity || perf.held) && !state.paused ? `${fps} · world ${Math.round(1000 / (Math.ceil(MAX_FRAME_MS / ft - 1e-6) * ft))}` : String(fps));
       setText('ro-why', state.speed > 1 ? 'running fast' : perf.why || '–');
     }
     function set(id, v) {
@@ -2020,7 +2080,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       event: ev ? { type: ev.type, phase: climate.phase, since: Math.round(eng.simTime - ev.t) } : null };
     const json = JSON.stringify({ ua: navigator.userAgent, gpu: [a.vendor, a.architecture, a.description].filter(Boolean).join(' / '),
       canvas: [canvas.width, canvas.height], dpr: devicePixelRatio, scale: renderScale, particles: eng.count, neighbors: eng.maxScan, living: life.counts[3],
-      cssPPU: +cssPPU().toFixed(1), speed: state.speed, fps: +perf.fps.toFixed(1), aim: Math.round(1000 / frameTarget()), why: perf.why, audio: sound.load,
+      cssPPU: +cssPPU().toFixed(1), speed: state.speed, boot: bootTimes, fps: +perf.fps.toFixed(1), aim: Math.round(1000 / frameTarget()), why: perf.why, audio: sound.load,
       world, frameMs: per(gpu), passes: Object.fromEntries(Object.entries(passes).sort((x, y) => y[1] - x[1]).map(([k, x]) => [k, per(x)])), step });
     try { await navigator.clipboard.writeText(json); flash('Profile copied'); } catch { prompt('The profile, to copy:', json); }
   }
@@ -2489,7 +2549,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // pixel per CSS pixel drops to 1 before any of them. With room again: the frame rate back first, then
   // the scale, then the pixel density.
   function adaptQuality(now) {
-    if (state.phase !== 'running' || state.speed > 1 || now - perf.lastAdjust < 2000 || perf.frameDt.length < 6) return;
+    // fast speeds are never judged, so their frames are not kept (a day held at ×64 kept millions)
+    if (state.phase !== 'running' || state.speed > 1) { perf.frameDt.length = 0; return; }
+    if (now - perf.lastAdjust < 2000 || perf.frameDt.length < 6) return;
     // Judged by the interval between submitted frames, not requestAnimationFrame's: while the GPU
     // lags, rAF keeps its cadence and the frames are skipped (inflight), so rAF alone looks smooth.
     // The mean, not the median: on a 60 Hz display each interval is 16.7 or 33.3 ms, and the median
@@ -3384,7 +3446,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   });
   // a handle for tools/perf, which profiles the page in a real browser
   globalThis.__tidemote = { state, cam, perf, eng, sound, lab, life: () => life, climate: () => climate, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
-    chron, cards, film, filmAct, openSpecies, director, saveWorld, worlds: worldStore,
+    chron, cards, film, filmAct, openSpecies, director, saveWorld, worlds: worldStore, boot: bootTimes, pruned,
     setScale(v) { state.perf.scale = v; if (v !== 'auto') renderScale = v; resetAdapt(); fit(); },
     // as the adaptive scale does it: applied when the next frame begins
     queueScale(v) { renderScale = v; resizeDue = true; },
@@ -3395,6 +3457,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   calibrate().then(() => {
     state.phase = 'running';
+    bootTimes.running = Math.round(performance.now());
     renderWorld();
     updateHud(performance.now() + 1000);
     $('intro').classList.add('ready');

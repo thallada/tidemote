@@ -53,6 +53,7 @@ can tell before reading the world). A save opens only in a version of its own ma
   4.0.0: positions by cell, silt ids, the heat buffer trimmed.
   5.0.0: the heat buffer's two unused blocks gone (temperature, floor, ice order).
   6.0.0: the head keeps Sets, Infinity/NaN/-0, undefined and shared objects exactly (pack refuses what it cannot keep); a Set saved as {} had frozen loaded worlds at their next climate event.
+  7.0.0: a genome's born is on the GPU's clock (simulated time modulo SIM_CLOCK, shaders.js), raindrops' times kept in f64.
 - minor: additions a version of the same major can do without (a head field, a buffer it does not
   know; `openWorld` keeps only the buffers it knows). A newer version must give old saves of its
   major a default for what it added.
@@ -123,6 +124,23 @@ as in Chrome. Tauri uses the system webview, and WebKitGTK has no WebGPU, which 
 the Steam Deck. The simulation runs no faster than in Chrome; what the shell adds is a fixed browser
 version, its own switches, real fullscreen and saves the browser cannot evict.
 
+## Shader cache
+
+Chromium keeps compiled WebGPU pipelines per profile (`DawnWebGPUCache` in userData), so a launch after
+the first starts the world in about 0.8 s instead of 4.4 (measured 2026-10-27, RTX 4070 Ti; the page's own
+`boot` times, in Settings → Performance → Copy profile). But once one version's pipelines are in it, a
+changed page's largest ones (`lifeMain`, `mindMain`, `matterMain`, each changed by a tunable or an update)
+are never stored beside them: every launch after an update compiled them again (2.9–4.3 s), and a larger
+`--gpu-disk-cache-size-kb` did not help. So `main.js` empties `DawnWebGPUCache` when the page's hash
+differs from the last launch's (`shader-cache-page` in userData), before Chromium opens it: the first
+launch of each version compiles, the rest find everything.
+
+Chrome does the same for the web version, where the page cannot clear it: after a site update, loads
+take about 3 s (down slowly with repeat visits) where a cached version takes 0.6. Measure with
+`runs/perf/cpu/compile-cache.mjs` (Chrome, one profile, `HASH=#k=...` for a changed page) and
+`runs/perf/cpu/boot-read.mjs` (an app started with `--remote-debugging-port`, read after it started:
+Playwright's own launch attaches DevTools early and changes the cache's keys).
+
 ## Switches
 
 - `enable-unsafe-webgpu` everywhere: the page is local and never loads remote content, so WebGPU
@@ -134,7 +152,7 @@ version, its own switches, real fullscreen and saves the browser cannot evict.
 
 ## Status (2026-10-26)
 
-- Windows x64: packaged with Electron 45.0.0 (Chrome 156) and run on the RTX 4070 Ti: WebGPU on
+- Windows x64: packaged with Electron 45.1.0 (Chrome 156) and run on the RTX 4070 Ti: WebGPU on
   NVIDIA, 3.35M particles by the page's own calibration, no console errors. The unpacked app is
   about 370 MB (the executable alone 236 MB); Steam compresses depots.
 - Linux and macOS: not yet built or run. Linux needs a test on a real Steam Deck (AMD, RADV), as a

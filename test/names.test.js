@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { prng, word, cap, genusName, speciesEpithet } from '../src/names.js';
+import { prng, word, cap, genusName, speciesEpithet, roman } from '../src/names.js';
 
 test('names preserve the original seeded outputs', () => {
   for (const [seed, genus, epithet] of [
@@ -31,4 +31,8 @@ test('words have capitalized syllables and genus retries do not mutate existing 
   let attempts = 0;
   assert.match(genusName(42, { has: () => { attempts++; return true; } }), syllables);
   assert.equal(attempts, 8);
+});
+
+test('roman numbers a genus name taken twice over', () => {
+  assert.deepEqual([2, 3, 4, 9, 14, 40, 1994].map(roman), ['II', 'III', 'IV', 'IX', 'XIV', 'XL', 'MCMXCIV']);
 });

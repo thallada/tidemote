@@ -4,6 +4,8 @@
 // (worlds.js), which Steam Cloud syncs; Steam (steam.js) adds achievements and the Workshop. The page
 // reaches both through preload.cjs.
 import { app, BrowserWindow, ipcMain, Menu, net, protocol, shell } from 'electron';
+import { createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startSteam, status, achieve } from './steam.js';
@@ -12,6 +14,22 @@ import { worlds, workshop } from './worlds.js';
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const PAGE_DIR = join(HERE, 'page');
 const ORIGIN = 'app://tidemote';
+
+// Chromium keeps the page's compiled WebGPU pipelines in userData/DawnWebGPUCache, so a launch after the
+// first finds them (the world starts in about 0.5 s rather than 4). But once one version's set is in it,
+// the large pipelines of a changed page (lifeMain, each about a third of the compile) are never stored
+// beside them, and every launch after an update compiled them again. So when the page changes, its old
+// shaders go before Chromium opens the cache: the first launch of each version compiles, the rest don't.
+{
+  const stamp = join(app.getPath('userData'), 'shader-cache-page');
+  const page = createHash('sha256').update(readFileSync(join(PAGE_DIR, 'index.html'))).digest('hex');
+  let was = '';
+  try { was = readFileSync(stamp, 'utf8'); } catch { /* first launch */ }
+  if (was !== page) {
+    rmSync(join(app.getPath('userData'), 'DawnWebGPUCache'), { recursive: true, force: true });
+    try { mkdirSync(app.getPath('userData'), { recursive: true }); writeFileSync(stamp, page); } catch (e) { console.warn('[tidemote] shader cache stamp:', e.message); }
+  }
+}
 
 // The page is local and never loads remote content, so WebGPU can skip Chrome's GPU blocklist. On
 // Linux, Chrome has not turned WebGPU on by default for every GPU; Vulkan is the backend it runs on

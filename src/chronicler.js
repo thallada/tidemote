@@ -167,9 +167,9 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     return p;
   }
   // meals between species, by minute
-  // keyed by both serials in one number (serials stay far below 2^26)
+  // keyed by both serials (as text: a world running for weeks takes serials past what one number holds)
   function pairOf(h, q) {
-    const key = h * 67108864 + q;
+    const key = `${h}:${q}`;
     let p = S.pairs.get(key);
     if (!p) S.pairs.set(key, (p = { h, q, bins: [], fit: null }));
     return p;

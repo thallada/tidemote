@@ -1,5 +1,5 @@
 import {
-  simWGSL, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
+  simWGSL, SIM_CLOCK, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
   MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES,
 } from './shaders.js';
 import {
@@ -52,6 +52,9 @@ export async function createEngine(device, format, { hasTimestamps = false, K = 
 const LATE = new Set(['lifeMainCoarse', 'mindMain', 'mindMainCoarse', 'rangeMain']);
 const COMPILE_COST = { lifeMain: 26, fsPoint: 15, 'fsPointLive+live': 13, fsComposite: 11, fsLoupe: 8, matterMain: 5 };
 
+// the real-time clock's period on the GPU (= SIM_WRAP in ANIM_WGSL, which the sway pass corrects for)
+const REAL_WRAP = 4096;
+
 class Engine {
   constructor(device, format, hasTimestamps, K, late = false) {
     this.device = device;
@@ -84,7 +87,7 @@ class Engine {
     // wet), rain (0..1), the sky (light ×), how fast it is drying (0..1), the currents' strength, floating duckweed
     // (center, length, darkness; angle, seed, width) and up to four raindrops' ring waves (center, time, strength)
     this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.mudRain = 0; this.parch = 0;
-    this.duck = new Float32Array(8); this.drops = new Float32Array(16);
+    this.duck = new Float32Array(8); this.drops = new Float64Array(16); // their times absolute (the GPU's are on its wrapped clock)
     this.relief = null;
     this.rock = new Float32Array(4);
     this.simF = new Float32Array(this.simData);
@@ -798,31 +801,45 @@ class Engine {
   /** The background water temperature: the climate's, the tide's season (±2.5°) and any excursion. */
   get tbg() { return this.temp + (2.5 * (this.season - 0.55)) / 0.45 + this.excursion; }
 
+  // The GPU's clock: simulated time modulo SIM_CLOCK (shaders.js), and what it wraps off folded into the
+  // tide's and the currents' phases here, in f64, so the light and the flow are continuous across a wrap.
+  // Raindrops' times go relative to it. The real-time clock (drawing) wraps at REAL_WRAP.
+  _clock() {
+    const base = Math.floor(this.simTime / SIM_CLOCK) * SIM_CLOCK, c = (this._clk ??= { tidePh: new Float32Array(4), wavePh: new Float32Array(4), drops: new Float32Array(16) });
+    for (let k = 0; k < 4; k++) {
+      c.tidePh[k] = (this.tidePh[k] + this.tide[k * 4 + 2] * base) % (2 * Math.PI);
+      c.wavePh[k] = (k * 1.7 + this.waves[k * 4 + 2] * base) % (2 * Math.PI);
+      c.drops.set([this.drops[k * 4], this.drops[k * 4 + 1], this.drops[k * 4 + 2] - base, this.drops[k * 4 + 3]], k * 4);
+    }
+    c.t = this.simTime - base;
+    return c;
+  }
+
   _writeSim(extra = {}) {
     this._fillSim(extra);
     this.device.queue.writeBuffer(this.b.sim, 0, this.simData);
   }
 
   _fillSim(extra = {}) {
-    const f = this.simF, u = this.simU;
+    const f = this.simF, u = this.simU, clk = this._clock();
     f[0] = this.grid[0]; f[1] = this.grid[1];
     u[2] = this.grid[0]; u[3] = this.grid[1];
     u[4] = this.count; u[5] = this.frameNo;
-    f[6] = this.dt || 1 / 60; f[7] = this.simTime;
+    f[6] = this.dt || 1 / 60; f[7] = clk.t;
     // a coarse step keeps per-second rates: the per-step abiogenesis chance scales with its length
     f[8] = this.season; f[9] = Math.min(1, this.abio * this.ticks);
     u[10] = (this.seedValue + this.frameNo * 7919) >>> 0; f[11] = this.K.maxSpeed;
-    u[12] = extra.seedKinds || 1; f[13] = extra.pSilt || 0; f[14] = 0; f[15] = extra.pHusk || 0;
-    f[16] = this.ambient; f[17] = 1; f[18] = 0; f[19] = 0;
+    u[12] = extra.seedKinds || 1; f[13] = extra.pSilt || 0; f[14] = clk.wavePh[0]; f[15] = extra.pHusk || 0;
+    f[16] = this.ambient; f[17] = clk.wavePh[1]; f[18] = clk.wavePh[2]; f[19] = clk.wavePh[3];
     f.set(this.waves, 20);
     f.set(this.tide, 36);
-    f.set(this.tidePh, 52);
+    f.set(clk.tidePh, 52);
     f.set(this.rock, 56);
     u[60] = this.tick; u[61] = this.ticks; f[62] = this.tbg; u[63] = this.maxScan;
     f[64] = this.level; f[65] = this.rain; f[66] = this.sky; f[67] = this.evap;
     f[68] = this.turb; f[69] = this.frost; f[70] = this.freezing; f[71] = 0;
     f.set(this.duck, 72);
-    f.set(this.drops, 80);
+    f.set(clk.drops, 80);
   }
 
   requestPick(center, radius, selId, { kind = 0xffffffff, maxOut = 4096, raw = false } = {}) {
@@ -1454,7 +1471,7 @@ class Engine {
     this._surveySim = this.simTime;
     const u = new ArrayBuffer(32), f = new Float32Array(u), w = new Uint32Array(u);
     w[0] = gw; w[1] = gh; w[2] = tiles[0]; w[3] = tiles[1]; w[4] = tile;
-    f[5] = this.simTime; f[6] = window; f[7] = this.K.adhMin;
+    f[5] = this._clock().t; f[6] = window; f[7] = this.K.adhMin;
     this.device.queue.writeBuffer(b.surveyU, 0, u);
     const bytes = tiles[0] * tiles[1] * SURVEY_WORDS * 4;
     enc.clearBuffer(b.survey, 0, bytes);
@@ -1496,7 +1513,7 @@ class Engine {
     const u = new ArrayBuffer(96), f = new Float32Array(u), w = new Uint32Array(u);
     f[0] = view.x; f[1] = view.y; f[2] = view.hx; f[3] = view.hy; f[4] = this.grid[0]; f[5] = this.grid[1];
     w[6] = this.count; w[7] = (Math.random() * 4294967295) >>> 0;
-    f[8] = this.simTime; f[9] = window; f[10] = L.vscale || 1; w[11] = L.selKind ?? 0xffffffff;
+    f[8] = this._clock().t; f[9] = window; f[10] = L.vscale || 1; w[11] = L.selKind ?? 0xffffffff;
     for (let t = 0; t < 9; t++) f[12 + t] = L.keep ? L.keep[t] : t === 8 ? 0.05 : 1;
     this.device.queue.writeBuffer(b.listenU, 0, u);
     enc.clearBuffer(b.listen, 0, LISTEN_HEAD * 4);
@@ -1673,8 +1690,10 @@ class Engine {
     return on;
   }
 
-  _render(enc, { target, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd }) {
+  _render(enc, { target, cam, time: realT, dpr, selId, loupe, specimen, tsBegin, tsEnd }) {
     const d = this.device;
+    // real time as the GPU holds it: modulo REAL_WRAP, as an f32 of days of seconds steps by 1/32 s or more
+    const time = realT % REAL_WRAP;
     const [W, H] = this.size;
     // the views that see little of the world draw only the rows they cover (CULL_WGSL)
     const culled = [this._cullView(0, cam.x, cam.y, W / (2 * cam.ppu), H / (2 * cam.ppu)),
@@ -1710,9 +1729,10 @@ class Engine {
     pd[0] = W; pd[1] = H; pd[2] = this.settings.bloom; pd[3] = 1.0;
     pd[4] = time; pd[5] = this.season; pd[6] = this.settings.tide; pd[7] = cam.ppu;
     pd[8] = cam.x; pd[9] = cam.y; pd[10] = this.grid[0]; pd[11] = this.grid[1];
-    pd[12] = this.simTime; pd[13] = this.ambient; pd[14] = this.settings.optics; pd[15] = this.K.heat ? this.settings.heat : -1;
+    const clk = this._clock();
+    pd[12] = clk.t; pd[13] = this.ambient; pd[14] = this.settings.optics; pd[15] = this.K.heat ? this.settings.heat : -1;
     pd.set(this.tide, 16);
-    pd.set(this.tidePh, 32);
+    pd.set(clk.tidePh, 32);
     pd.set(this.waves, 36);
     // the heat map's span: from a little below the background to framboid-hot
     const tbg = this.tbg;
@@ -1721,7 +1741,7 @@ class Engine {
     pd[56] = this.K.pond ? this.level : 1; pd[57] = this.rain; pd[58] = this.sky; pd[59] = this.evap;
     pd[60] = this.turb; pd[61] = this.K.pond ? this.frost : 0; pd[62] = this.freezing; pd[63] = this.K.pond ? this.mudRain : 0;
     pd.set(this.duck, 64);
-    pd.set(this.drops, 72);
+    pd.set(clk.drops, 72);
     pd[88] = this.K.pond ? this.parch : 0;
     d.queue.writeBuffer(this.b.post, 0, pd);
 
@@ -1782,7 +1802,7 @@ class Engine {
         // unevenly frames arrive (a busy GPU's 17, 25, 33 ms gaps made it pulse). A repeated draw at
         // the same moment counts as a 60 Hz frame.
         const t = this.settings.trails;
-        const keep = Math.pow(t, 60 * (time > lc.t ? Math.min(0.5, time - lc.t) : 1 / 60));
+        const keep = Math.pow(t, 60 * (realT > lc.t ? Math.min(0.5, realT - lc.t) : 1 / 60));
         gain = (1 - keep) / (1 - t);
         d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([sx, sy, (wx * lc.ppu) / lc.w, (wy * lc.ppu) / lc.h, keep, 0, 0, 0]));
         pass.setPipeline(this.main.reproj);
@@ -1795,7 +1815,7 @@ class Engine {
       pass.end();
     }
     this._drawStone(enc, this.stoneView, this.bgStone);
-    this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu, w: W, h: H, t: time };
+    this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu, w: W, h: H, t: realT };
     const cur = this.accIdx;
 
     if (loupe) {
@@ -1874,8 +1894,13 @@ export function compactState({ cpu, gpu }) {
   const intent = new Uint32Array(gpu.intent.slice(0)), n = intent.length / 4;
   const pu = new Uint32Array(gpu.parts.slice(0)), W = P_BYTES / 4;
   const ledger = new Uint32Array(gpu.ledger.slice(0));
+  // the counter is a u32 (newId in the WGSL): it wraps, and skips 0xffffffff (NONE)
   let next = ledger[0];
-  for (let i = 0; i < n; i++) if (pu[i * W + 4] === 0) pu[i * W + 7] = next++;
+  for (let i = 0; i < n; i++) if (pu[i * W + 4] === 0) {
+    if (next === 0xffffffff) next = 0;
+    pu[i * W + 7] = next;
+    next = (next + 1) >>> 0;
+  }
   ledger[0] = next;
   const thermal = gpu.thermal && new Uint32Array(gpu.thermal.slice(0)), per = thermal ? thermal.length / 3 : 0;
   if (thermal) thermal.fill(0, 2 * per);

@@ -458,7 +458,7 @@ export function createLab(api) {
         const c = life.lastCensus, now = c ? Array.from(c.energy.slice(THERMAL_LEDGER.hist, THERMAL_LEDGER.hist + HEAT_BINS)) : null;
         if (now && (!felt0 || c.simTime - felt0.t > 60 || c.simTime < felt0.t)) felt0 = { t: c.simTime, n: felt1 ? felt1.n : now };
         if (now && (!felt1 || c.simTime - felt1.t > 30 || c.simTime < felt1.t)) felt1 = { t: c.simTime, n: now };
-        drawNiches(niches, sp, api.eng.tbg, now ? now.map((v, b) => v - felt0.n[b]) : [], HEAT_BIN);
+        drawNiches(niches, sp, api.eng.tbg, now ? now.map((v, b) => (v - felt0.n[b]) >>> 0) : [], HEAT_BIN);
       }
       const exc = eras.filter((h) => h.excursion).length;
       if (eras.length !== erasN || exc !== excN) {

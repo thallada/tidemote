@@ -344,6 +344,11 @@ const v3 = (c) => `vec3f(${c.map(f).join(', ')})`;
 const mixWGSL = (mix) => mix.slice(0, -1).reduceRight((e, [k, upTo]) => `select(${e}, ${k}u, h < ${f(upTo)})`, `${mix.at(-1)[0]}u`);
 const STONE_COL_WGSL = STONE_KINDS.map((vs, k) => `      case ${k}u: { mc = ${vs.slice(1).reduce((e, x) => `select(${e}, ${v3(x.col)}, h2 > ${f(x.from)})`, v3(vs[0].col))}; }`).join('\n');
 
+// Simulated time reaches the GPU modulo SIM_CLOCK seconds (9.1 hours): an f32 holds that to about 2 ms,
+// where the whole of a long world's time (145 simulated hours: 1/16 s steps) lost the swimming beat, the
+// raindrops' rings and the founders' births. The engine folds what is wrapped off into the tide's and the
+// currents' phases (in f64), so light and flow run on unbroken; a genome's born is kept modulo it too.
+export const SIM_CLOCK = 32768;
 const COMMON = /* wgsl */ `
 // Relief, as in DIC microscopy: one light from the upper left (screen y down) for every resolved shape.
 const TO_LIGHT = vec2f(-0.633, -0.774);
@@ -361,6 +366,9 @@ fn cystSlot(gi: u32) -> u32 { return META_DEATH + select(57u + gi, 58u + gi, gi 
 const STONE = 3u;
 const FRAMBOID = ${FRAMBOID}u;
 const NONE = 0xffffffffu;
+const SIM_CLOCK = ${SIM_CLOCK}.0;
+// the seconds from b to a on the GPU's clock (modulo SIM_CLOCK), between -SIM_CLOCK/2 and SIM_CLOCK/2
+fn clockDiff(a: f32, b: f32) -> f32 { let d = a - b; return d - SIM_CLOCK * round(d / SIM_CLOCK); }
 // A claim made by a coarse step's walk (lifeMain) says what it is for itself rather than through the
 // claimer's intent: bit 31, then a class in bits 29-30 (0 a kill, 1 unused, 2 a husk, each taken by the
 // claimer + 1 in bits 0-23; 3 bites of a photosynthesizer, counted in bits 0-15, any number of eaters).
@@ -1135,8 +1143,9 @@ struct Sim {
   world: vec2f, grid: vec2u,
   count: u32, frame: u32, dt: f32, time: f32,
   season: f32, abio: f32, seed: u32, maxSpeed: f32,
-  seedKinds: u32, pSilt: f32, spare14: f32, pHusk: f32,
-  ambient: f32, spare17: f32, spare18: f32, spare19: f32,
+  // wph0..3: the four currents' phases (the time wrapped off the clock folded in; openFlow)
+  seedKinds: u32, pSilt: f32, wph0: f32, pHusk: f32,
+  ambient: f32, wph1: f32, wph2: f32, wph3: f32,
   waves: array<vec4f, 4>,
   tide: array<vec4f, 4>,
   tidePh: vec4f,
@@ -1260,9 +1269,10 @@ fn cellOf(p: vec2f) -> u32 {
 // The open water's currents at p, as if no shore were near: the four waves and raindrops' rings.
 fn openFlow(p: vec2f) -> vec2f {
   var v = vec2f(0.0);
+  var wph = array<f32, 4>(sim.wph0, sim.wph1, sim.wph2, sim.wph3);
   for (var k = 0u; k < 4u; k++) {
     let w = sim.waves[k];
-    let ph = w.x * p.x + w.y * p.y + w.z * sim.time + f32(k) * 1.7;
+    let ph = w.x * p.x + w.y * p.y + w.z * sim.time + wph[k];
     v += vec2f(w.y, -w.x) * (cos(ph) * w.w / max(length(w.xy), 1e-4));
   }
   return v * sim.weather.x + dropFlow(p);
@@ -1594,6 +1604,13 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
 }
 
 // Bedrock: sim.rock.x outcrops, each a wandering chain of five discs of radius about sim.rock.y.
+// A new particle's id. The counter is a u32 and wraps after 2^32 births (days at Max in a big world);
+// NONE (the page's "no particle") is skipped.
+fn newId() -> u32 {
+  var id = atomicAdd(&ledger[0], 1u);
+  if (id == NONE) { id = atomicAdd(&ledger[0], 1u); }
+  return id;
+}
 fn inRock(p: vec2f) -> bool {
   for (var b = 0u; b < u32(sim.rock.x); b++) {
     var s = pcg(sim.seed ^ pcg(b * 7919u + 17u));
@@ -1752,7 +1769,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
           p.pos = wrapPos(mother.pos + dir * gap);
           p.vel = mother.vel;
         }
-        p.id = atomicAdd(&ledger[0], 1u);
+        p.id = newId();
         p.col = pack4x8unorm(vec4f(roleColor(genomes[ck], cr), 1.0));
         p.info = (gen << 16u) | (bud << 28u) | (cr << 4u) | 9u;
         intent[i].z = select(NONE, c - 1u, genomes[ck].adhesion > ${f(K.adhMin)});
@@ -2060,7 +2077,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       if (k != NONE) {
         randomInto(k, &s, T);
         p.kind = k; p.energy = 0.9; p.age = 0.0;
-        p.id = atomicAdd(&ledger[0], 1u);
+        p.id = newId();
         p.col = genomes[k].col;
         p.info = 8u;
         intent[i] = vec4u(0u, 0u, NONE, NONE);
@@ -3107,7 +3124,7 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
         if (code == 9u) {
           t = 0u;
           let g = genomes[p.kind];
-          if (g.depth > 0u && abs(g.born - (lu.now - p.age)) < 0.05) { t = 1u; }
+          if (g.depth > 0u && abs(clockDiff(g.born, lu.now - p.age)) < 0.05) { t = 1u; }
         } else if (code == 8u) { t = 2u; }
       } else if (p.kind == HUSK) {
         // a scalded cell (10) dies as a starved one sounds
@@ -3176,7 +3193,7 @@ fn surveyMain(@builtin(global_invocation_id) gid: vec3u) {
       mask |= 1u << (p.kind & 31u);
       if (recent && code == 9u) {
         n[2] += 1u;
-        if (g.depth > 0u && abs(g.born - (su.now - p.age)) < 0.05) { n[3] += 1u; }
+        if (g.depth > 0u && abs(clockDiff(g.born, su.now - p.age)) < 0.05) { n[3] += 1u; }
       } else if (recent && code == 8u) { n[4] += 1u; }
     } else if (p.kind == HUSK && recent) {
       if (code == 1u || code == 2u) { n[5] += 1u; } else if (code == 3u) { n[6] += 1u; }
@@ -3270,7 +3287,7 @@ const WITHER_T = 1.6;
 const BURST_T = 0.9;
 // a husk eaten (or rotted) away shrinks into the silt it leaves
 const EATEN_T = 0.6;
-// sim time is kept modulo this (f32 holds it to a millisecond)
+// sim time is kept modulo this (f32 holds it to a millisecond), and real time (View.time) too
 const SIM_WRAP = 4096.0;
 // a new species sparkles for a while: a mutant newborn, or life sparked from silt
 const NOVEL_T = 2.5;
@@ -3512,7 +3529,8 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     let now = bitcast<f32>(views.grid.z);
     let slot = p.id % arrayLength(&sway);
     let was = sway[slot];
-    let dt = now - was.time;
+    var dt = now - was.time;
+    if (dt < 0.0) { dt += SIM_WRAP; } // real time reaches the GPU modulo SIM_WRAP too
     if (was.id == p.id && dt == 0.0) { continue; }
     var bend = vec2f(0.0);
     var squash = vec2f(0.0);
@@ -3995,7 +4013,7 @@ fn cellOutline(uv: vec2f, dir: vec2f, radius: f32, seed: f32,
 // from when it was last in view).
 fn swayOf(p: Particle) -> Sway {
   let st = sway[p.id % arrayLength(&sway)];
-  if (st.id != p.id || abs(view.time - st.time) > 0.2) { var none: Sway; none.id = ~p.id; return none; }
+  if (st.id != p.id || abs(fract((view.time - st.time) / SIM_WRAP + 0.5) - 0.5) * SIM_WRAP > 0.2) { var none: Sway; none.id = ~p.id; return none; }
   return st;
 }
 // Heading as contactGather keeps it (turning only as the cell travels), so jostling doesn't spin the cell.

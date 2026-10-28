@@ -15,7 +15,7 @@
   },
   "devDependencies": {
     "@electron/packager": "20.3.0",
-    "electron": "45.0.0"
+    "electron": "45.1.0"
   },
   "dependencies": {
     "steamworks.js": "0.4.0"
