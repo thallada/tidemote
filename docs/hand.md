@@ -18,15 +18,15 @@ hand.
 | Tool | Key | What it does | In the step |
 | --- | --- | --- | --- |
 | Loupe | 1 (M) | Looks; a click examines. Again in hand: the lens on or off | none |
-| Touch | 2 | A tap rings the water from a raindrop slot; a drag drags the water as fast as the finger, in the world's seconds (at ×2 the same stroke is half as fast), and it runs on and slows when let go | `stirFlow` in `openFlow` |
-| Lamp, Shade | 3, 4 | Held, light added (up to 0.6, the noon sun is about 1) or taken (up to 90%) in a Gaussian of the reach; it comes up in a second and fades over about ten | `lampLight` in `lightAt` (photosynthesis, sparks, the sun's heat), the phototaxis slope |
-| Warm, Cold | 5, 6 | Held, 1° a second added or taken at the center of the reach | `heatMain` |
-| Needle | 7 | A click pricks the cell nearest the tip (it bursts as a hunter's kill does, its carcass left); a drag cuts every bond whose cells lie on the stroke | `resolveCount`; `cutAt` in `keepBond` |
-| Pipette | 8 | Draws organisms up and sets them down (below) | the draw in `cellWGSL`; the take in `resolveCount`; `inject*` |
+| Touch | 2 | A tap rings the water from a raindrop slot; a drag drags the water within the reach as fast as the finger (up to 12 units a second), in the world's seconds (at ×2 the same stroke is half as fast), and it runs on and slows when let go | `stirFlow` in `openFlow` |
+| Lamp, Shade | 3, 4 | Over the world a quarter of it follows the pointer; pressed, all of it: light added (up to 0.6, the noon sun is about 1) or taken (up to 90%) over the reticle's disc. It goes where the pointer goes and off the world with it: nothing is left behind | `lampLight` in `lightAt` (photosynthesis, sparks, the sun's heat), the phototaxis slope |
+| Warm, Cold | 5, 6 | The same quarter and all: the water under the disc drawn toward a boil (`STAGE.hot`, 60°) or below ice (`STAGE.cold`, −3°), 80% of the way a second pressed. The water it leaves keeps its heat and gives it up as any water does. Near a boil bubbles rise and the view roils; near ice, far colder than the water around, crystals grow | `heatMain`; `extremes`, `shimmer` in the composite |
+| Needle | 7 | A click pricks the cell nearest the tip (it bursts as a hunter's kill does, its carcass left); a drag cuts every bond whose cells lie within 0.32 of the stroke and pushes them out to that distance on either side, so the halves do not bond again at once (a body heals over seconds) | `resolveCount`; `cutAt` in `keepBond`; `scrape` in `cellWGSL` |
+| Pipette | 8 | Draws up and sets down (below) | `suckFlow` in `cellWGSL`; the take in `resolveCount`; `inject*` |
 
 Reach (`[` `]`, ⇧ wheel, the slider) is a world distance shared by every tool but the needle, 35 µm to 470 µm. The
 composite shows the lamp (the lit water brighter and amber) and the shade, and Warm and Cold a thermal lens inside
-their reach (`lensAt`: the thermal camera over a span of 10° below the background to 16° above), so warming shows as
+their reach (`lensAt`: the thermal camera from `STAGE.cold` to `STAGE.hot`, isotherms every 5°), so warming shows as
 it happens.
 
 ## Riding
@@ -40,25 +40,29 @@ it dies, to the nearest of its kind.
 
 ## The pipette
 
-Drawing up: the right button (any, while it is empty; a phone's Pull arms the next touch) finds the living cell
-nearest the tip and traces its whole body (the pick pass, `traceBody`). Its cells are drawn toward the tip
-(`setDrawn`: their IDs, sorted, in the ledger's hand region; `hand.suck`: the tip, the reach, 10 units/s²) and, within
-0.3 of it, taken (`resolveCount` copies each out and leaves the grain it was built of as silt about the tip). A bond
-the draw stretches past `bondBreak` breaks as any bond does, so a loose body tears and only the near part comes,
-while a tight one comes whole. The organism is kept once all of it is in, or once nothing has come for 1.5 s: each
-cell's offset in the body's shape as it was, its energy, age, color and info, and the bonds among the cells that came.
+Drawing up: a press (a click is a quarter-second pulse) draws every living cell within the reach toward the tip, as
+a current would, at 4 units a second and up to 16 as it is held for a second and a half (`hand.suck`: the tip, the
+reach, the speed; `suckFlow` moves a cell after its speed is capped, so the draw is not bounded by its swimming).
+Within 0.3 of the tip a cell is taken (`resolveCount` copies it out, its partners by ID, and leaves the grain it was
+built of as silt about the tip). Let go, it stops, but for the cells bonded to one already taken: their IDs go to
+the engine (`setDrawn`), and they follow the tip in at 6 units a second while it stays within 2 units of its reach
+(pulled away faster, it lets them go). A bond stretched past `bondBreak` breaks as any bond does, so a loose body
+tears and a tight one comes whole. What came in is kept once nothing more is coming: each species' cells, as bodies
+(`bodiesOf`: the bonds among them), each in the order it will leave, every cell after one it touches.
 
-Setting down: the left button sets down the tip species' last organism in, in its shape; held, another, sooner each
-time. It is made of the silt within reach of the pointer, as a spark makes life of silt (`injectSlots`: the species
-takes back its own slot if it still holds it, or a free one; `injectCells`: each grain within reach becomes the next
-cell; `injectBonds`). The disc holds four times the grains needed at the world's mean (silt lies unevenly), and what
-too little silt left is tried once more from twice as far; the cells are set in their own shape wherever their grains
-came from. What still cannot be made stays in the pipette. So the pipette moves and makes nothing,
-but for a card's colony, made when it is set down.
+Setting down: ⇧ and a press (on a phone, Set down and a touch) squeezes the tip species out a cell at a time, now
+and then two or three together, pushed on their way; every 110 ms and down to 16 as it is held. A click sets down one
+body, or a card's colonies, whole; held, one after another. Each cell keeps the bonds it kept: to cells leaving with
+it, and to cells already out by the IDs they were given (`setDownJob`: up to `PIPE_IDS` earlier cells, found by
+`injectCells`; `injectBonds` restores each keeper's slot), so a tree comes out a tree. A cell is made of a grain of
+silt within reach of the tip (`injectSlots`: the species takes back its own slot if it still holds it, or a free
+one), as a spark makes life of silt: the pipette moves and makes nothing, and a card's colony is made, of silt, as it
+leaves. Short of silt, it tries again from twice as far, and says so by the tip.
 
-The contents are the world's (`life.pipette`, kept in saves): species in the order their first cells came in, the
-strip reading tip first. A tap brings a species to the tip, a double tap opens its card, a drag onto the world sets
-all of it down there. It holds 2,048 cells; a body that would not fit is left whole.
+The contents are the world's (`life.pipette`, kept in saves): each species once, in the strip's order (the first at
+the tip). A tap opens its card, a drag along the strip moves it (the others make way), onto the world sets all of it
+down there, onto the Lab keeps its card (or, kept already, shows it in the cabinet). A mark in its corner says its
+card is in the cabinet. It holds 2,048 cells.
 
 ## The cabinet
 
@@ -105,3 +109,9 @@ bodies by its own draw against their bonds rather than by a walk of the bond gra
 tears follow from the body's tissue; set-downs are made of the silt within reach rather than of grains picked ahead,
 so a grain eaten meanwhile can never be overwritten. A card's colony that does not fit is refused rather than pushing
 the oldest cells out. The ring, the dish, the witness, the controls and mud and stone are not built.
+
+**The species card** is a trading card: its name and where it comes from, its sigil as the emblem in the corner,
+its portrait large, three words for what it is, its peak, age and when it arose in big figures over its numbers
+through its life, its body and diet as segmented gauges, its water on a thermometer from ice to 45°, and at its
+foot whom it eats and who eats it, the chronicler's latest word, its home water and its QR code. Every word is at
+least 17 of the card's 660 units, so it reads on a phone; the dialog shows it as tall as the window allows.

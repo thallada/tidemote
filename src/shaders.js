@@ -6940,13 +6940,13 @@ fn frazil(wp: vec2f, sd: f32, ppu: f32, grow: f32) -> vec3f {
 // freezing, far colder than the water around, crystals grow in it and it rimes pale; near boiling bubbles rise
 // in it, each a bright ring that swells and bursts (and it roils: shimmer). T: the water's temperature at wp.
 fn extremes(c: vec3f, wpIn: vec2f, ppu: f32, T: f32, behind: f32) -> vec3f {
-  let cold = smoothstep(2.0, -1.0, T) * smoothstep(2.0, 5.0, post.heat.x - T);
+  let cold = smoothstep(4.0, 0.0, T) * smoothstep(2.0, 5.0, post.heat.x - T);
   let boil = boilAt(T);
   if (cold <= 0.0 && boil <= 0.0) { return c; }
   let wp = wpIn - post.world * floor(wpIn / post.world);
   let k = 0.35 + 0.65 * behind;
-  var o = c + vec3f(0.018, 0.024, 0.03) * cold * k + vec3f(0.02, 0.011, 0.004) * boil * k;
-  if (cold > 0.0) { o += frazil(wp, mix(8.0, 1.0, cold), ppu, 1.0) * 1.6 * k; }
+  var o = c + vec3f(0.03, 0.04, 0.05) * cold * k + vec3f(0.02, 0.011, 0.004) * boil * k;
+  if (cold > 0.0) { o += frazil(wp, mix(8.0, 0.5, cold), ppu, 1.0) * 2.0 * k; }
   if (boil > 0.0) {
     let g = wp * 3.0;
     let cell = floor(g);
@@ -7400,7 +7400,7 @@ fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
     let band = water * mix(0.5, 0.2, lens);
     let w = fwidth(band);
     let iso = 1.0 - smoothstep(0.0, w * 1.2, min(fract(band), 1.0 - fract(band)));
-    c += vec3f(1.0, 0.7, 0.4) * 0.16 * iso * max(full, lens);
+    c += vec3f(1.0, 0.7, 0.4) * iso * max(0.16 * full, 0.08 * lens);
   }
   return c;
 }

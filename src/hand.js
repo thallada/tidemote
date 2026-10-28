@@ -23,7 +23,7 @@ const SHADE = 0.9; // the share of the light a shade takes
 const STAGE = 0.8; // the share a second of the way to a boil (or to ice) the stage takes the water under it
 const HOVER = 0.25; // the lamp, shade, stage and probe over the world, not pressed: this much of their full strength
 const STIR_MAX = 12; // the fastest the finger drags the water, world units a second
-const CUT = 0.25; // the needle's half-width: it cuts bonds and parts cells this far to either side (past LINK_R apart)
+const CUT = 0.32; // the needle's half-width: it cuts bonds and parts cells this far to either side (past LINK_R apart)
 // how the lamp and stage come up while held and go when let go (time constants, real seconds)
 const EASE = { lamp: [0.35, 0.3], stage: [0.25, 0.25], stir: [0.08, 0.8] };
 const NONE = 0xffffffff;

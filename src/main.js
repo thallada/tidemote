@@ -222,7 +222,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // what it draws up (startPull: pressed, what it took, the cells bonded to those still coming, a word by the tip),
   // Set down armed (phones: touches set down), and what it sets down (startSpit)
   const pull = { on: false, at: 0, until: 0, tip: [0, 0], got: [], taken: new Set(), drawn: new Set(), last: 0, quiet: 0, armed: false, shake: 0, note: null };
-  const spit = { on: false, held: false, busy: false, sp: null, org: null, at: 0, next: 0, fails: 0, dir: 0, pt: null };
+  const spit = { on: false, held: false, busy: false, sp: null, org: null, at: 0, next: 0, fails: 0, dir: 0, pt: null, tip: [0, 0] };
   // riding the specimen (toggleRide): where a held pointer steers it (at), the arrow keys held
   const ride = { on: false, arrows: new Set(), at: null, warned: false };
   // While a pointer is held down on a panel, nothing re-renders under it: replacing the element
@@ -2568,11 +2568,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // that species, there)
   function startSpit(sx, sy, sp = null) {
     if (!pipette.count) return;
-    Object.assign(spit, { on: true, held: !sp, sp, org: null, at: performance.now(), next: 0, fails: 0, pt: sp ? toWorld(sx, sy) : null });
+    // (org true: a whole to come out, whichever comes first)
+    Object.assign(spit, { on: true, held: !sp, sp, org: true, at: performance.now(), next: 0, fails: 0, pt: sp ? toWorld(sx, sy) : null, tip: toWorld(sx, sy) });
   }
   async function spitNext(now, R) {
     const sp = spit.sp || pipette.tip;
-    // (a click's body comes out whole; held, one after another)
+    // (held, one after another)
     if (!sp || (!spit.held && !spit.sp && !spit.org)) { spit.on = false; return; }
     // (a stranger's first cells found its lineage here: the rest waits for the census to name its serial, a few
     // seconds at most: cells all dead before a census was ever taken found none)
@@ -2583,9 +2584,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const u = pressed(spit.at, now), r = Math.random();
     const it = pipette.next(sp, 1 + Math.floor(u * 2) + (r < 0.07 ? 2 : r < 0.25 ? 1 : 0));
     if (!it) { spit.on = false; return; }
-    if (it.org && it.org !== spit.org) { spit.org = it.org; spit.dir = Math.random() * TAU; }
-    const at = spit.pt || (R ? toWorld(R.sx, R.sy) : null);
-    if (!at) return;
+    // (a click's body, or a card's colonies, come out whole)
+    const whole = it.org || sp;
+    if (whole !== spit.org) { spit.org = whole; spit.dir = Math.random() * TAU; }
+    // (at the pointer, or with none over the world, where it last was)
+    if (R) spit.tip = toWorld(R.sx, R.sy);
+    const at = spit.pt || spit.tip;
     // each cell squeezed out at the tip, pushed on its way
     const placed = () => { const a = spit.dir + (Math.random() - 0.5) * 0.9, v = 1.2 + Math.random() * 0.6; return [Math.cos(a) * 0.05, Math.sin(a) * 0.05, Math.cos(a) * v, Math.sin(a) * v]; };
     const job = setDownJob(it, placed, newborn), n = job.cells.length;
@@ -2599,7 +2603,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (sp.stranger) { life.carried[sp.slot] = { name: sp.name, home: sp.home }; Object.assign(sp, { pending: sp.slot, pendingAt: eng.simTime }); }
       pipette.left(it, got, res.ids);
       hand.note('setdown', ...at, eng.simTime, got);
-      if (it.org && it.org.out >= it.org.cells.length) spit.org = null;
+      if (it.org ? it.org.out >= it.org.cells.length : !sp.made) spit.org = null;
       spit.fails = 0;
     } else if (++spit.fails > 2) {
       // (nothing to make them of here: a word by the tip, and a click's or a card's work ends)

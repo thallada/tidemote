@@ -114,9 +114,10 @@ for (const touch of [false, true]) {
     const held = () => T(() => globalThis.__tidemote.life().pipette.species.reduce((n, x) => n + (x.made || 0) + x.orgs.reduce((m, o) => m + o.cells.length, 0), 0));
     const n0 = await held();
     check(`${tag} a card loads a colony into the pipette`, n0 >= 12, String(n0));
-    if (touch) { await page.tap('#bench-open'); await page.waitForTimeout(300); await page.tap('.tile[data-tool="pipette"]'); await page.touchscreen.tap(...at); await page.waitForTimeout(200); await page.touchscreen.tap(...at); }
-    else { await page.keyboard.press('8'); await page.mouse.click(...at); }
-    await page.waitForTimeout(2000);
+    // (a click sets down a whole colony, a cell at a time: with ⇧, or on a phone once Set down is on)
+    if (touch) { await page.tap('#bench-open'); await page.waitForTimeout(300); await page.tap('.tile[data-tool="pipette"]'); await page.touchscreen.tap(...at); await page.waitForTimeout(300); await page.tap('#held-pull'); await page.touchscreen.tap(...at); }
+    else { await page.keyboard.press('8'); await page.keyboard.down('Shift'); await page.mouse.click(...at); await page.keyboard.up('Shift'); }
+    await page.waitForTimeout(8000);
     check(`${tag} the pipette sets the colony down`, (await held()) === 0, String(await held()));
     if (touch) await page.tap('#held-down'); else await page.keyboard.press('Escape');
   }

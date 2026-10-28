@@ -1,64 +1,55 @@
-// Species cards (docs/next-level-2026-10-20.md §4.5): the unit of sharing. One species on one canvas:
-// its portrait (a close-up of a living member, drawn by the engine as the specimen viewer draws one),
-// its sigil and song, its lineage back to its founder or spark, its diet, body plan and thermal niche
-// in words, and the chronicler's latest sentence about it. Saved as a PNG, with a clip of its song as
+// Species cards (docs/next-level-2026-10-20.md §4.5): the unit of sharing. One species on one canvas, laid out
+// as a trading card: its portrait (a close-up of a living member, drawn by the engine as the specimen viewer draws
+// one), its sigil (its song drawn), its numbers, its body, diet and thermal niche as gauges, and the chronicler's
+// latest sentence about it. Saved as a PNG, with a clip of its song as
 // a WAV (sound.js songClip). The viewer may give the species a name of their own here; it is kept in
 // the registry, so saved worlds keep it, and the log and the panels use it from then on.
 //
 // cardData is pure (tested); drawCard draws on any 2D context; createCards is the page's dialog.
 
-import { describe, facets } from './facets.js';
-import { thermalGuild, growPlan, describeGrowth, roleColor, roleShares, divEnergy } from './genome.js';
+import { facets } from './facets.js';
+import { thermalGuild, roleColor, divEnergy } from './genome.js';
 import { voiceOf } from './audio/mapping.js';
 import { describe as describeSong } from './audio/motif.js';
-import { songSVG, sigilSVG } from './song.js';
+import { sigilSVG } from './song.js';
 import { fmt, fmtClock, fmtDur, fmtLen, cssRgb, saveFile } from './fmt.js';
 import { qr } from './qr.js';
-import { G_WORDS } from './shaders.js';
 
 export const CARD_W = 660, CARD_H = 1050; // about a bridge card's shape
 export const CARD_SCALE = 2; // drawn (and saved) at twice that, for sharp text
 
-/** What a card says about a species (sp, a registry record), in words. */
-export function cardData(sp, { reg, genera, K, story = null, simTime = 0, era = '', founders = 0, living = 0, relations = null, history = null }) {
+// a gauge's share of its range: where v lies between lo and hi (on a log scale if log)
+const share = (v, lo, hi, log = false) => Math.max(0, Math.min(1, log ? Math.log(v / lo) / Math.log(hi / lo) : (v - lo) / (hi - lo)));
+
+/** What a card says about a species (sp, a registry record): its numbers, its gauges, and a few words. */
+export function cardData(sp, { reg, genera, K, story = null, simTime = 0, era = '', founders = 0, relations = null, history = null }) {
   const g = sp.genome, f = facets(g, K), th = thermalGuild(g);
   const lineage = [];
   let a = sp.ancestor && reg.get(sp.ancestor);
   while (a && lineage.length < 4) { lineage.push(a.name); a = a.ancestor && reg.get(a.ancestor); }
-  const more = !!a;
   const origin = sp.founder ? (sp.serial > founders ? `sparked from silt at ${fmtClock(sp.born || 0)}` : 'a founding lineage') : 'an ancestor too rare to be named';
-  const gen = genera?.get(sp.genus);
-  const multi = f.body === 'multicellular';
-  const plan = multi ? describeGrowth(growPlan(g), g) : null;
-  const sh = roleShares(g).filter((v) => v > 0.1).length;
-  const facts = [
-    ['Diet', `${f.diet === 'photosynth' ? 'lives on light' : f.diet}${g.photo > 0.25 && g.photo <= 0.55 ? ', part photosynth' : ''}`],
-    ['Body', `${multi ? 'many-celled' : 'single cells'}${sh > 1 ? `, ${sh} cell types` : ''}`],
-    ['Moves', [f.mobility, f.schooling ? 'schooling' : '', K.phototaxis > 0 && Math.abs(g.phototaxis || 0) > 0.2 ? (g.phototaxis > 0 ? 'seeks light' : 'shuns light') : ''].filter(Boolean).join(', ')],
-    ...(plan ? [['Grows', plan]] : []),
-    // whom it eats and who eats it most, as the chronicler counted their meals
-    ...(relations?.food && reg.get(relations.food) ? [['Eats', `mostly ${reg.get(relations.food).name}`]] : []),
-    ...(relations?.eater && reg.get(relations.eater) ? [['Eaten by', `mostly ${reg.get(relations.eater).name}`]] : []),
-    ...(K.heat ? [['Water', `${[th.pref, th.breadth, th.maker ? 'heat-maker' : ''].filter(Boolean).join(', ')}, best near ${Math.round(g.topt ?? 19)}° ± ${Math.round(g.tol ?? 7)}°`]] : []),
-    ['Swims', g.swim * (1 - g.photo) < 0.05 ? 'not at all' : `${(g.swim * (1 - g.photo)).toFixed(2)}${g.align > 0.5 ? ', in schools' : ''}`],
+  const swim = g.swim * (1 - g.photo), div = divEnergy(g, K);
+  // what it is, in a word or two each: its diet, how it moves, its body
+  const tags = [f.diet === 'photosynth' ? 'photosynth' : f.diet, f.schooling ? 'schooling' : f.mobility, f.body === 'multicellular' ? `${f.types > 1 ? `${f.types} cell types` : 'many-celled'}` : 'single cells'];
+  // its body as gauges against the ranges species take (the archetypes' and sparks')
+  const body = [
+    ['Speed', share(swim, 0, 2.2), swim < 0.05 ? 'still' : swim.toFixed(2)],
+    ['Size', share(g.size, 0.4, 1.8), fmtLen(0.17 * g.size)],
+    ['Lifespan', share(g.lifespan, 40, 480, true), fmtDur(g.lifespan)],
+    ['Division', 1 - share(div, 1, 8, true), `${div.toFixed(1)} E`],
   ];
-  // its record, as the specimen panel's Species section keeps it
-  const kids = [...reg.values()].filter((o) => o.ancestor === sp.serial && o.established).sort((x, y) => (y.alive - x.alive) || y.peak - x.peak);
-  const record = [
-    ['Arose', `${fmtClock(sp.born || 0)} · ${sp.founder ? (sp.serial > founders ? 'sparked from silt' : 'a founder') : 'a mutant'}`],
-    ['Genus', `${sp.genus}${gen?.from ? `, from ${gen.from}` : ''}`],
-    ['Mutations', `${g.depth} from its founder`],
-    ['Offspring', kids.length ? `${kids.length} species, ${kids[0].name}${kids.length > 1 ? '…' : ''}` : 'none established'],
-    ['Cell size', fmtLen(0.17 * g.size)],
-    ['Lifespan', fmtDur(g.lifespan)],
-    ['Divides at', `${divEnergy(g, K).toFixed(2)} energy, ${Math.round(g.share * 100)}% to the child`],
-  ];
+  // what it lives on: the light, and each of grazing (glint), carrion (husks) and hunting (flesh)
+  const eat = 1 - g.photo, dw = (g.dGlint || 0) + (g.dHusk || 0) + (g.dFlesh || 0) || 1;
+  const diet = [['Light', g.photo], ['Grazing', (eat * (g.dGlint || 0)) / dw], ['Carrion', (eat * (g.dHusk || 0)) / dw], ['Hunting', (eat * (g.dFlesh || 0)) / dw]]
+    .map(([k, v]) => [k, v, `${Math.round(v * 100)}%`]);
+  const water = K.heat ? { opt: g.topt ?? 19, tol: g.tol ?? 7, maker: !!th.maker, pref: th.pref } : null;
+  const food = relations?.food && reg.get(relations.food), eater = relations?.eater && reg.get(relations.eater);
   const end = sp.alive ? simTime : (sp.extinct ?? simTime);
+  // its record, as a card's back gives a player's: not how many live this moment, but what it has done
   const stats = [
-    sp.alive ? ['Population', fmt(sp.pop)] : ['Extinct at', fmtClock(sp.extinct ?? 0)],
-    sp.alive ? ['Share of life', living ? `${((sp.pop / living) * 100).toFixed(sp.pop / living < 0.01 ? 2 : 1)}%` : '–'] : ['Lived', fmtDur(end - (sp.born || 0))],
     ['Peak', fmt(sp.peak)],
-    [sp.alive ? 'Age' : 'Thriving', sp.alive ? fmtDur(end - (sp.born || 0)) : sp.established ? 'yes' : 'never'],
+    [sp.alive ? 'Age' : 'Lived', fmtDur(end - (sp.born || 0))],
+    sp.alive ? ['Arose', fmtClock(sp.born || 0)] : ['Extinct at', fmtClock(sp.extinct ?? 0)],
   ];
   // its numbers over its life: from the census history (evenly spaced, unlike the lineage view's record, which
   // keeps its older points ever more sparsely), else that record
@@ -72,13 +63,14 @@ export function cardData(sp, { reg, genera, K, story = null, simTime = 0, era = 
   // ending at its count now, as the strip above it says
   if (series && sp.alive && simTime > series.t[series.t.length - 1]) { series.t.push(simTime); series.v.push(sp.pop); }
   return {
-    serial: sp.serial, name: sp.name, binomial: sp.binomial || sp.name, given: !!sp.given,
-    desc: describe(g, K), facts, record, stats, series, lineage, more, origin, alive: sp.alive, depth: g.depth, story: story ? story.text : null, when: `${fmtClock(simTime)}${era ? ` · ${era}` : ''}`,
+    serial: sp.serial, name: sp.name, binomial: sp.binomial || sp.name, given: !!sp.given, genus: sp.genus, kin: genera?.get(sp.genus)?.from || null,
+    tags, body, diet, water, stats, series, lineage, origin, alive: sp.alive, depth: g.depth, story: story ? story.text : null,
+    eats: food ? food.name : null, eatenBy: eater ? eater.name : null, when: `${fmtClock(simTime)}${era ? ` · ${era}` : ''}`,
     col: cssRgb(roleColor(g, 0)), col2: cssRgb(roleColor(g, 1)),
   };
 }
 
-// the song roll and the sigil as images: their page styles, inlined with literal colors
+// the sigil as an image: its page styles, inlined with literal colors
 const SVG_CSS = `.brk{fill:none;stroke:rgba(150,222,230,.55);stroke-width:1}.tick{fill:none;stroke:rgba(150,222,230,.55);stroke-width:.6}
 .on{stroke-width:.8;opacity:.9}.rail{stroke:rgba(130,205,214,.22);stroke-width:.6}.rail.tonic{stroke:rgba(150,222,230,.55);stroke-width:.7}
 .bar{stroke:rgba(150,222,230,.55);stroke-dasharray:2 2;stroke-width:.6}.contour{fill:none;stroke-width:.8;opacity:.4}.v2{fill:none;stroke-width:1;opacity:.75}
@@ -112,63 +104,52 @@ function corners(ctx, x0, y0, x1, y1, arm) {
 }
 const fit = (ctx, text, w) => { if (ctx.measureText(text).width <= w) return text; let s = text; while (s.length > 1 && ctx.measureText(`${s}…`).width > w) s = s.slice(0, -1); return `${s.trimEnd()}…`; };
 
-const FOOT = 140; // the footer's height: its home water, its genome, its QR code
 /**
- * Draw a card (cardData's d) at CARD_W × CARD_H on ctx, shaped like a trading card (5:7) and laid out like
- * a baseball card: its name, its portrait (its own cells lit, the rest dimmed), a strip of its numbers and
- * its population over its life, then how it lives and its record in two columns, its song, its line of
- * descent and the chronicler's latest word on it. art: { portrait (a square image or canvas, or null;
- * .subject: its subject's reach as a share of the half-width), sigil (image), song (image, 680 × 60) }.
+ * Draw a card (cardData's d) at CARD_W × CARD_H on ctx, shaped and laid out like a trading card: its name banner
+ * with its numbers alive in the corner, its portrait large (its own cells lit, the rest dimmed) with its sigil
+ * inset, what it is in three words, its record in big figures over its numbers through its life, its body and its
+ * diet as gauges, the water it likes on a thermometer, and at its foot the chronicler's latest word and the QR
+ * code that carries it to any world. Every word at least 17 units tall, so it reads at a third of its size.
+ * art: { portrait (a square image or canvas, or null; .subject: its subject's reach as a share of the half-width),
+ * sigil (image) }.
  */
 export function drawCard(ctx, d, art = {}) {
   const W = CARD_W, H = CARD_H, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif';
-  const M = 26, R = W - M, w = R - M;
-  const INK = '#e2f1f0', INK2 = '#a3bdbe', INK3 = '#6f8a8c', LINE = 'rgba(130,205,214,0.22)';
-  const rule = (y) => { ctx.fillStyle = LINE; ctx.fillRect(M, y, w, 1); };
-  const label = (t, x, y) => { ctx.fillStyle = INK3; ctx.font = `500 11px ${F}`; ctx.fillText(t.toUpperCase(), x, y); };
+  const M = 30, R = W - M, w = R - M;
+  const INK = '#e2f1f0', INK2 = '#a3bdbe', INK3 = '#7d999b', LINE = 'rgba(130,205,214,0.22)', TICK = 'rgba(150,222,230,0.55)', SUN = '#f1e3a0';
+  const label = (t, x, y, col = INK3, size = 17) => { ctx.fillStyle = col; ctx.font = `600 ${size}px ${F}`; ctx.letterSpacing = '0.08em'; ctx.fillText(t.toUpperCase(), x, y); ctx.letterSpacing = '0px'; };
+  const text = (t, x, y, size, col = INK, weight = 400, maxW = Infinity) => { ctx.fillStyle = col; ctx.font = `${weight} ${size}px ${F}`; ctx.fillText(fit(ctx, t, maxW), x, y); };
   ctx.save();
   ctx.fillStyle = '#06090a';
   ctx.fillRect(0, 0, W, H);
-  // a border inside the edge, in the species' color
-  ctx.strokeStyle = d.col; ctx.globalAlpha = 0.55; ctx.lineWidth = 2;
-  ctx.strokeRect(11, 11, W - 22, H - 22);
-  ctx.globalAlpha = 1;
+  // the frame: a hairline inside the edge in the species' color, bracketed at the corners
+  ctx.strokeStyle = d.col; ctx.globalAlpha = 0.45; ctx.lineWidth = 2;
+  ctx.strokeRect(12, 12, W - 24, H - 24);
+  ctx.globalAlpha = 1; ctx.lineWidth = 3;
+  corners(ctx, 12, 12, W - 12, H - 12, 34);
 
-  // the head: its name, and the sigil beside it
-  label('Tidemote · species card', M, 44);
-  ctx.textAlign = 'right'; ctx.fillText(`SP ${fmt(d.serial)} · Δ${d.depth}`, R, 44); ctx.textAlign = 'left';
-  const nameW = w - 76;
-  let size = 36;
+  // the banner: its name, where it comes from; its sigil in the corner, as a card's emblem
+  const SG = 90;
+  if (art.sigil) ctx.drawImage(art.sigil, R - SG + 6, 18, SG, SG);
+  const nameW = w - SG - 16;
+  let size = 42;
   ctx.font = `500 ${size}px ${F}`;
-  while (size > 24 && ctx.measureText(d.name).width > nameW) { size -= 2; ctx.font = `500 ${size}px ${F}`; }
-  ctx.fillStyle = INK; ctx.fillText(fit(ctx, d.name, nameW), M, 84);
-  ctx.font = `400 15px ${F}`; ctx.fillStyle = INK2;
-  const sub = d.given ? `${d.binomial} · named by its watcher` : d.desc;
-  ctx.fillText(fit(ctx, sub, nameW), M, 108);
-  if (art.sigil) ctx.drawImage(art.sigil, R - 66, 52, 66, 66);
+  while (size > 26 && ctx.measureText(d.name).width > nameW) { size -= 2; ctx.font = `500 ${size}px ${F}`; }
+  text(d.name, M, 74, size, INK, 500, nameW);
+  const from = d.given ? d.binomial : d.lineage.length ? `from ${d.lineage[0]}` : d.origin;
+  text(from, M, 100, 19, INK2, 400, nameW);
 
-  // what goes under the portrait, measured first: the portrait takes what room is left (within bounds)
-  const gap = 22, colW = (w - gap) / 2, LW = 70;
-  ctx.font = `400 14px ${F}`;
-  const colH = (rows) => 26 + rows.reduce((h, [, v]) => h + 6 + Math.min(2, wrap(ctx, v, colW - LW).length) * 17, 0);
-  const linText = d.lineage.length ? `${d.lineage.join(' ← ')}${d.more ? ' ← …' : ''}` : d.origin;
-  const linN = Math.min(2, wrap(ctx, linText, w - 110).length);
-  ctx.font = `italic 400 14px ${F}`;
-  const storyN = d.story ? Math.min(4, wrap(ctx, `“${d.story}”`, w).length) : 0;
-  const lower = 26 + 60 + (d.series ? 94 : 26) + Math.max(colH(d.facts), colH(d.record)) + 4
-    + (art.song ? (w - 50) * 60 / 680 + 6 : 0) + 16 + linN * 18 + (storyN ? 22 + storyN * 18 : 0);
-  // the portrait: cropped to its box, the species lit and the rest dimmed; without one, its sigil large
-  const AX = M, AY = 126, AW = w, AH = Math.max(220, Math.min(380, H - FOOT - 14 - AY - lower));
+  // the portrait: its box, the species lit and the rest dimmed; without one, its sigil large
+  const AX = M, AY = 118, AW = w, AH = 340;
   ctx.save();
   ctx.beginPath(); ctx.rect(AX, AY, AW, AH); ctx.clip();
   if (art.portrait) {
     const pw = art.portrait.width, ph = art.portrait.height, k = Math.max(AW / pw, AH / ph);
     const sw = AW / k, sh = AH / k;
     ctx.drawImage(art.portrait, (pw - sw) / 2, (ph - sh) / 2, sw, sh, AX, AY, AW, AH);
-    // brackets around its subject
     const r = Math.min((art.portrait.subject || 0.2) * (pw / 2) * k + 6, AH / 2 - 14), ox = AX + AW / 2, oy = AY + AH / 2;
     ctx.strokeStyle = 'rgba(255,95,58,0.9)'; ctx.lineWidth = 1.5;
-    corners(ctx, ox - r, oy - r, ox + r, oy + r, Math.min(12, r / 2.5));
+    corners(ctx, ox - r, oy - r, ox + r, oy + r, Math.min(14, r / 2.5));
   } else {
     const gr = ctx.createRadialGradient(AX + AW / 2, AY + AH / 2, 10, AX + AW / 2, AY + AH / 2, AH * 0.8);
     gr.addColorStop(0, 'rgba(127,214,223,0.10)'); gr.addColorStop(1, 'rgba(6,9,10,1)');
@@ -176,106 +157,102 @@ export function drawCard(ctx, d, art = {}) {
     const S = AH * 0.8;
     if (art.sigil) ctx.drawImage(art.sigil, AX + (AW - S) / 2, AY + (AH - S) / 2, S, S);
   }
+  // its serial and mutations in the portrait's corner
+  ctx.fillStyle = 'rgba(6,9,10,0.72)'; ctx.fillRect(AX, AY + AH - 36, 230, 36);
+  label(`SP ${fmt(d.serial)} · Δ${d.depth}`, AX + 14, AY + AH - 12, INK2);
   ctx.restore();
   ctx.strokeStyle = LINE; ctx.lineWidth = 1; ctx.strokeRect(AX + 0.5, AY + 0.5, AW - 1, AH - 1);
-  ctx.strokeStyle = 'rgba(150,222,230,0.55)'; ctx.lineWidth = 1.5;
-  const m = 8;
-  corners(ctx, AX + m, AY + m, AX + AW - m, AY + AH - m, 14);
-  ctx.fillStyle = 'rgba(226,241,240,0.8)'; ctx.font = `500 12px ${F}`;
-  ctx.fillText(art.portrait ? (d.alive ? 'A living member, its kind lit' : 'Last seen, close up') : 'Its sigil: its song drawn as its body', AX + m + 6, AY + AH - m - 6);
 
-  // the numbers: a strip of four, as on the back of a baseball card
-  let y = AY + AH + 12;
-  ctx.fillStyle = d.col; ctx.fillRect(M, y, 56, 3); ctx.fillStyle = d.col2; ctx.fillRect(M + 60, y, 18, 3);
-  y += 14;
-  const cw = w / 4;
-  d.stats.forEach(([k, v], i) => {
-    const x = M + i * cw;
-    if (i) { ctx.fillStyle = LINE; ctx.fillRect(x, y, 1, 48); }
-    label(k, x + (i ? 12 : 0), y + 14);
-    ctx.fillStyle = INK; ctx.font = `400 22px ${F}`;
-    ctx.fillText(fit(ctx, v, cw - 16), x + (i ? 12 : 0), y + 44);
+  // what it is: three chips in its colors
+  let y = AY + AH + 16, cx = M;
+  ctx.font = `600 18px ${F}`; ctx.letterSpacing = '0.08em';
+  d.tags.forEach((t, i) => {
+    const s = t.toUpperCase(), tw = ctx.measureText(s).width + 26;
+    ctx.fillStyle = i ? 'rgba(130,205,214,0.07)' : d.col; ctx.globalAlpha = i ? 1 : 0.16; ctx.fillRect(cx, y, tw, 34); ctx.globalAlpha = 1;
+    ctx.strokeStyle = i ? LINE : d.col; ctx.strokeRect(cx + 0.5, y + 0.5, tw - 1, 33);
+    ctx.fillStyle = i ? INK2 : INK; ctx.fillText(s, cx + 13, y + 24);
+    cx += tw + 10;
   });
-  y += 60;
-  // its population over its life
+  ctx.letterSpacing = '0px';
+
+  // its record in big figures, and its numbers over its life beneath
+  y += 52;
+  const st = d.stats, cw = w / st.length;
+  st.forEach(([k, v], i) => {
+    const x = M + i * cw + (i ? 18 : 0);
+    if (i) { ctx.fillStyle = LINE; ctx.fillRect(M + i * cw, y, 1, 64); }
+    label(k, x, y + 18);
+    text(v, x, y + 56, 32, INK, 400, cw - 24);
+  });
+  y += 76;
   if (d.series) {
-    const sx = M, sw = w, sh = 44, t0 = d.series.t[0], t1 = d.series.t[d.series.t.length - 1] || t0 + 1;
-    const vmax = Math.max(1, ...d.series.v);
-    const X = (t) => sx + ((t - t0) / Math.max(1e-6, t1 - t0)) * sw, Y = (v) => y + sh - (v / vmax) * (sh - 4);
+    const sh = 40, t0 = d.series.t[0], t1 = d.series.t[d.series.t.length - 1] || t0 + 1, vmax = Math.max(1, ...d.series.v);
+    const X = (t) => M + ((t - t0) / Math.max(1e-6, t1 - t0)) * w, Y = (v) => y + sh - (v / vmax) * (sh - 4);
     ctx.beginPath(); ctx.moveTo(X(t0), y + sh);
     d.series.t.forEach((t, i) => ctx.lineTo(X(t), Y(d.series.v[i])));
     ctx.lineTo(X(t1), y + sh); ctx.closePath();
-    ctx.globalAlpha = 0.18; ctx.fillStyle = d.col; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.globalAlpha = 0.2; ctx.fillStyle = d.col; ctx.fill(); ctx.globalAlpha = 1;
     ctx.beginPath();
     d.series.t.forEach((t, i) => (i ? ctx.lineTo(X(t), Y(d.series.v[i])) : ctx.moveTo(X(t), Y(d.series.v[i]))));
-    ctx.strokeStyle = d.col; ctx.lineWidth = 1.5; ctx.stroke();
-    rule(y + sh);
-    ctx.font = `400 11px ${F}`; ctx.fillStyle = INK3;
-    ctx.fillText(fmtClock(t0), sx, y + sh + 14);
-    ctx.textAlign = 'right'; ctx.fillText(fmtClock(t1), sx + sw, y + sh + 14); ctx.textAlign = 'center';
-    ctx.fillText('ITS NUMBERS OVER ITS LIFE', sx + sw / 2, y + sh + 14); ctx.textAlign = 'left';
-    y += sh + 50;
-  } else { rule(y); y += 26; }
+    ctx.strokeStyle = d.col; ctx.lineWidth = 2; ctx.stroke();
+  }
+  ctx.fillStyle = LINE; ctx.fillRect(M, y + 40, w, 1);
+  y += 66;
 
-  // two columns: how it lives, and its record
-  const column = (x, title, rows, y0) => {
-    let yy = y0;
-    ctx.fillStyle = INK2; ctx.font = `500 12px ${F}`; ctx.fillText(title.toUpperCase(), x, yy);
-    ctx.fillStyle = LINE; ctx.fillRect(x, yy + 7, colW, 1);
-    yy += 26;
-    for (const [k, v] of rows) {
-      label(k, x, yy);
-      ctx.fillStyle = INK; ctx.font = `400 14px ${F}`;
-      const all = wrap(ctx, v, colW - LW), lines = all.slice(0, 2);
-      lines.forEach((l, i) => ctx.fillText(i === 1 && all.length > 2 ? fit(ctx, `${l} …`, colW - LW) : l, x + LW, yy + i * 17));
-      yy += 6 + lines.length * 17;
-    }
-    return yy;
+  // its body and its diet as gauges: segmented bars, the species' color filling its share
+  const gap = 28, colW = (w - gap) / 2, LW = 100, VW = 80;
+  const gauges = (x, title, rows) => {
+    label(title, x, y, INK2);
+    rows.forEach(([k, v, val], i) => {
+      const yy = y + 30 + i * 36, bx = x + LW, bw = colW - LW - VW, n = 10, sw = bw / n;
+      label(k, x, yy + 6, INK3, 17);
+      for (let s = 0; s < n; s++) {
+        const on = Math.min(1, Math.max(0, v * n - s));
+        ctx.fillStyle = LINE; ctx.fillRect(bx + s * sw, yy - 10, sw - 3, 16);
+        if (on > 0) { ctx.fillStyle = d.col; ctx.fillRect(bx + s * sw, yy - 10, (sw - 3) * on, 16); }
+      }
+      ctx.textAlign = 'right'; text(val, x + colW, yy + 6, 18, INK, 500, VW - 6); ctx.textAlign = 'left';
+    });
   };
-  const yl = column(M, 'How it lives', d.facts, y);
-  const yr = column(M + colW + gap, 'Its record', d.record, y);
-  y = Math.max(yl, yr) + 4;
+  gauges(M, 'Body', d.body);
+  gauges(M + colW + gap, 'Lives on', d.diet);
+  y += 30 + 4 * 36 + 10;
 
-  // its song, across the card
-  if (art.song) {
-    label('Song', M, y + 12);
-    ctx.drawImage(art.song, M + 50, y, w - 50, (w - 50) * 60 / 680);
-    y += (w - 50) * 60 / 680 + 6;
+  // the water it likes: a thermometer from ice to 45°, its band and its best
+  if (d.water) {
+    const T0 = 0, T1 = 45, bx = M + LW, bw = w - LW - 150, X = (t) => bx + ((Math.max(T0, Math.min(T1, t)) - T0) / (T1 - T0)) * bw;
+    label('Water', M, y + 6, INK2);
+    const g = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+    g.addColorStop(0, '#2d6fb8'); g.addColorStop(0.45, '#2f8f7c'); g.addColorStop(0.75, '#c08a2e'); g.addColorStop(1, '#c4462e');
+    ctx.globalAlpha = 0.3; ctx.fillStyle = g; ctx.fillRect(bx, y - 10, bw, 16); ctx.globalAlpha = 1;
+    ctx.fillStyle = g; ctx.fillRect(X(d.water.opt - d.water.tol), y - 10, X(d.water.opt + d.water.tol) - X(d.water.opt - d.water.tol), 16);
+    ctx.fillStyle = INK; ctx.fillRect(X(d.water.opt) - 1.5, y - 16, 3, 28);
+    ctx.textAlign = 'right'; text(`${Math.round(d.water.opt)}° ± ${Math.round(d.water.tol)}°${d.water.maker ? ' · warms' : ''}`, R, y + 6, 18, INK, 500, 146); ctx.textAlign = 'left';
+    y += 34;
   }
-  // its line of descent
-  label('Descends from', M, y + 12);
-  ctx.fillStyle = INK2; ctx.font = `400 14px ${F}`;
-  const linLines = wrap(ctx, linText, w - 110).slice(0, 2);
-  linLines.forEach((l, i) => ctx.fillText(l, M + 110, y + 12 + i * 18));
-  y += 12 + linLines.length * 18 + 4;
-  // the chronicler's latest word on it, as much as fits above the footer
-  if (d.story) {
-    rule(y); y += 22;
-    ctx.fillStyle = '#e8dcc0'; ctx.font = `italic 400 14px ${F}`;
-    const lines = wrap(ctx, `“${d.story}”`, w);
-    const room = Math.max(0, Math.floor((H - FOOT - 12 - y) / 18) + 1);
-    lines.slice(0, room).forEach((l, i) => ctx.fillText(i === room - 1 && lines.length > room ? fit(ctx, `${l} …`, w) : l, M, y + i * 18));
-  }
-  // the footer: its home water and whether its world was touched, its genome, the moment it was drawn; and in the
-  // corner its QR code, a link that carries it to any world (cabinet.js), light on dark in a bracketed frame
-  rule(H - FOOT);
-  const Q = 112, qx = R - Q, qy = H - FOOT + 8;
+
+  // the foot: whom it eats and who eats it, the chronicler's latest word on it; its home water; its QR code
+  // (without the chronicler's word, its line of descent)
+  const Q = 112, fw = w - Q - 24, qx = R - Q, qy = H - 34 - Q, FY = qy - 14;
+  ctx.fillStyle = LINE; ctx.fillRect(M, FY, w, 1);
+  const ties = [d.eats ? `eats ${d.eats}` : '', d.eatenBy ? `eaten by ${d.eatenBy}` : ''].filter(Boolean).join(' · ').replace(/^./, (c) => c.toUpperCase());
+  let ly = FY + 32;
+  if (ties) { text(ties, M, ly, 18, INK2, 400, fw); ly += 26; }
+  ctx.font = `italic 400 18px ${F}`;
+  const line = d.story ? `“${d.story}”` : d.lineage.length > 1 ? `Descends from ${d.lineage.slice(0, 3).join(' ← ')}${d.lineage.length > 3 ? ' ← …' : ''}` : '';
+  const lines = line ? wrap(ctx, line, fw) : [], room = ties ? 2 : 3;
+  lines.slice(0, room).forEach((l, i) => text(i === room - 1 && lines.length > room ? `${l} …` : l, M, ly + i * 26, 18, d.story ? '#e8dcc0' : INK3, d.story ? 'italic 400' : 400, fw));
+  ctx.font = `600 17px ${F}`;
+  label(fit(ctx, [d.home, d.touched ? 'touched' : 'wild', d.bred ? 'bred' : ''].filter(Boolean).join(' · '), fw - 20), M, H - 36, d.touched ? SUN : INK3);
   if (d.qr) {
     // whole device pixels a module (crisp edges read best), a quiet zone of two modules inside the frame
     const k = Math.max(1, Math.floor((Q * CARD_SCALE) / (d.qr.size + 4))) / CARD_SCALE, side = (d.qr.size + 4) * k;
     const ox = Math.round((qx + (Q - side) / 2 + 2 * k) * CARD_SCALE) / CARD_SCALE, oy = Math.round((qy + (Q - side) / 2 + 2 * k) * CARD_SCALE) / CARD_SCALE;
     ctx.fillStyle = '#7fd6df';
     for (let yy = 0; yy < d.qr.size; yy++) for (let xx = 0; xx < d.qr.size; xx++) if (d.qr.at(xx, yy)) ctx.fillRect(ox + xx * k, oy + yy * k, k, k);
-    ctx.strokeStyle = 'rgba(150,222,230,0.55)'; ctx.lineWidth = 1;
+    ctx.strokeStyle = TICK; ctx.lineWidth = 1;
     corners(ctx, qx - 2, qy - 2, qx + Q + 2, qy + Q + 2, 9);
   }
-  const fw = w - (d.qr ? Q + 24 : 0);
-  label(fit(ctx, [d.home, d.touched ? 'touched' : 'wild', d.bred ? 'bred' : ''].filter(Boolean).join(' · '), fw), M, H - FOOT + 26);
-  ctx.font = `400 13px ${F}`; ctx.fillStyle = INK3;
-  ctx.fillText(fit(ctx, `Drawn at ${d.when}`, fw), M, H - FOOT + 50);
-  ctx.fillText(fit(ctx, `Genome TM·G1 · ${d.words} words`, fw), M, H - FOOT + 70);
-  ctx.fillStyle = d.touched ? '#f1e3a0' : INK3;
-  ctx.fillText(d.touched ? 'From a touched world' : 'tidemote.com', M, H - FOOT + 90);
   ctx.restore();
 }
 
@@ -298,8 +275,8 @@ export function createCards(api) {
   function data(sp) {
     const L = api.life(), c = api.carry(sp.serial);
     if (!qrs.has(c.link)) { qrs.clear(); qrs.set(c.link, qr(new TextEncoder().encode(c.link))); }
-    return { ...cardData(sp, { reg: L.reg, genera: L.genera, K: api.K, story: api.chron.latest(sp.serial), relations: api.chron.relations(sp.serial), history: L.history, simTime: api.eng.simTime, era: api.climate().name, founders: api.eng.founders, living: L.counts[3] }),
-      home: c.home, touched: c.touched, bred: c.bred, words: G_WORDS, qr: qrs.get(c.link) };
+    return { ...cardData(sp, { reg: L.reg, genera: L.genera, K: api.K, story: api.chron.latest(sp.serial), relations: api.chron.relations(sp.serial), history: L.history, simTime: api.eng.simTime, era: api.climate().name, founders: api.eng.founders }),
+      home: c.home, touched: c.touched, bred: c.bred, qr: qrs.get(c.link) };
   }
   function paint(d) {
     const ctx = cv.getContext('2d');
@@ -311,12 +288,11 @@ export function createCards(api) {
     const sp = cur && reg().get(cur);
     if (sp) paint(data(sp));
   }
-  // its sigil and song as images, and the card's font loaded
+  // its sigil as an image, and the card's font loaded
   async function artOf(sp) {
-    const v = voiceOf(sp.genome);
-    const [sigil, song] = await Promise.all([svgImage(sigilSVG(v, sp.genome, { size: 240 })), svgImage(songSVG(v.motif, { w: 680, h: 60, col: cssRgb(roleColor(sp.genome, 0)), col2: cssRgb(roleColor(sp.genome, 1)) }))]);
+    const sigil = await svgImage(sigilSVG(voiceOf(sp.genome), sp.genome, { size: 240 }));
     if (document.fonts?.load) await document.fonts.load('500 40px Saira').catch(() => {});
-    return { sigil, song, portrait: portraits.get(sp.serial) || null };
+    return { sigil, portrait: portraits.get(sp.serial) || null };
   }
   /** A species' card drawn off screen, its portrait taken if it lives: a canvas (to save to the cabinet). */
   async function render(serial) {
@@ -340,9 +316,8 @@ export function createCards(api) {
     const d = cardData(sp, { reg: new Map(), K: api.K });
     const g = card.genome;
     Object.assign(d, {
-      stats: [['Home water', card.home], ['Cell size', fmtLen(0.17 * g.size)], ['Lifespan', fmtDur(g.lifespan)], ['Mutations', String(g.depth)]],
-      record: d.record.filter(([k]) => ['Cell size', 'Lifespan', 'Divides at'].includes(k)), origin: `carried from ${card.home}`, when: card.home,
-      home: card.home, touched: card.touched, bred: card.bred, words: G_WORDS, qr: qr(new TextEncoder().encode(link)),
+      stats: [['Home water', card.home], ['Genus', d.genus], ['Mutations', String(g.depth)]], lineage: [], origin: `carried from ${card.home}`, when: card.home,
+      home: card.home, touched: card.touched, bred: card.bred, qr: qr(new TextEncoder().encode(link)),
     });
     const a = await artOf(sp);
     const c = document.createElement('canvas');
