@@ -981,6 +981,8 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     touch: { did: 'Something stirred', who: 'the water', up: 'gathered there after' },
     needle: { did: 'A needle went through', who: 'the needle', up: 'moved in after' },
     ride: { did: 'A cell was steered to', who: 'the reins', up: 'gathered where it went' },
+    pipette: { did: (n) => `Something drew up ${numWord(n)} cell${n === 1 ? '' : 's'} from`, who: 'the pipette', up: 'took the room they left' },
+    setdown: { did: (n) => `${Cap(numWord(n))} cell${n === 1 ? '' : 's'} from elsewhere ${n === 1 ? 'was' : 'were'} set down in`, who: 'the pipette', up: 'took hold there' },
   };
   function handStory(ctx) {
     const { reg, t } = ctx;
@@ -1005,14 +1007,14 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     const bits = [];
     if (up) bits.push(`${L(reg, up[0])} ${words.up}, from ${up[1] ? fmt(up[1]) : 'none'} to ${fmt(up[2])} cells`);
     if (down && down[0] !== up?.[0]) bits.push(`${L(reg, down[0])} ${down[2] ? `fell from ${fmt(down[1])} to ${fmt(down[2])}` : 'was gone from it'}`);
-    // (an act that changed nothing there goes untold, but for a needle's work)
-    const pricks = a.tool === 'needle' && a.n >= 3;
+    // (an act that changed nothing there goes untold, but for a needle's or a pipette's work)
+    const pricks = (a.tool === 'needle' && a.n >= 3) || ((a.tool === 'pipette' || a.tool === 'setdown') && a.n >= 10);
     if (!bits.length && !pricks) return null;
     const again = S.handTold.some(([t0, tool]) => tool === a.tool && t - t0 < 2 * 3600);
     const wry = again && t - S.wry >= 3600 && !S.handTold.at(-1)?.[2];
     const lead = wry ? `Someone has been at ${words.who} again. ` : '';
     return { kind: 'hand', score: 0.48 + 0.14 * bits.length + (pricks ? 0.14 : 0), col: 0xffa0e3f1, subjects: [up?.[0], down?.[0]].filter(Boolean),
-      html: `${lead}${words.did} ${how}${bits.length ? `; ${andList(bits)}` : ''}.`,
+      html: `${lead}${typeof words.did === 'function' ? words.did(a.n) : words.did} ${how}${bits.length ? `; ${andList(bits)}` : ''}.`,
       onTold: () => { if (wry) S.wry = t; S.handTold.push([t, a.tool, wry]); if (S.handTold.length > 20) S.handTold.shift(); } };
   }
 

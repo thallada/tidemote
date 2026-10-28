@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHand, TOOLS, keyOf } from '../src/hand.js';
 
 const make = () => {
-  const words = new Float32Array(24), ids = new Uint32Array(words.buffer);
+  const words = new Float32Array(28), ids = new Uint32Array(words.buffer);
   ids.fill(0xffffffff, 20, 22);
   return { words, ids, hand: createHand(words, ids, { reach: 3 }) };
 };
@@ -109,4 +109,12 @@ test('a held act lasts until it is let go', () => {
   assert.equal(hand.acts[0].end, 40);
   hand.set('warm'); hand.down(1, 1, 50); hand.set('cold', 55);
   assert.equal(hand.acts[1].end, 55, 'taking another tool lets go');
+});
+
+test('the pipette draws at its tip while the page says so', () => {
+  const { hand, words } = make();
+  hand.suck = [3, 4, 2, 10]; hand.update(1 / 60);
+  assert.deepEqual([...words.subarray(24, 28)], [3, 4, 2, 10]);
+  hand.suck = null; hand.update(1 / 60);
+  assert.deepEqual([...words.subarray(24, 28)], [0, 0, 0, 0]);
 });

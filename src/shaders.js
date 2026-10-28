@@ -37,6 +37,19 @@ export const SPL_RANGE = SPL_PAIR + SPL_WATCH * SPL_WATCH * 2;
 export const SPL_WORDS = SPL_RANGE + MAXK * 5;
 // rangeMain samples at most about this many particles (every stride-th, from a rotating start)
 export const SPL_RANGE_SAMPLES = 32768;
+// The pipette's working words (docs/hand.md), in the ledger after the species ledger: the cells it draws toward its
+// tip (their IDs, sorted), those taken there (12 words each: the particle, then its partners' IDs), and what it
+// sets down (a header, the species' genomes, the cells) with what came of it (how many grains were taken, each
+// species' slot, each cell's index). Never saved.
+export const PIPE_MAX = 2048; // cells drawn, or set down, at once
+export const PIPE_TAKE = 256; // cells taken at the tip in a frame
+export const PIPE_SP = 64; // species set down at once
+export const H_TAKEN = PIPE_MAX;
+export const H_IN = H_TAKEN + 1 + PIPE_TAKE * 12;
+export const H_SP = H_IN + 8;
+export const H_CELLS = H_SP + PIPE_SP * 58;
+export const H_OUT = H_CELLS + PIPE_MAX * 8;
+export const HAND_WORDS = H_OUT + 1 + PIPE_SP + PIPE_MAX;
 // Energy ledger per diet guild, in thousandths: light, (glint: unused), plant bites, husks, kills, upkeep,
 // children, heat-making. META_ENERGY + 40.. holds the thermal sample (THERMAL_LEDGER).
 export const ENERGY_SLOTS = ['light', 'glint', 'plant', 'husk', 'flesh', 'upkeep', 'children', 'heat'];
@@ -1012,6 +1025,14 @@ function cellWGSL(K, w) {
     will = wd / max(length(wd), 0.25) * (swim * ws * ${f(K.will)});
     willCost = ws * ${f(K.willCost)} * g.metab;
   }
+  // the pipette's draw: the cells of the organism it is drawing up are pulled toward its tip (a bond it stretches too
+  // far breaks, as any bond does: a loose body tears, a tight one comes whole)
+  var drawTo = vec2f(0.0);
+  let sk = sim.hand.suck;
+  if (sk.w > 0.0) {
+    let sd = handD(sk.xy, p.pos);
+    if (dot(sd, sd) < 9.0 * sk.z * sk.z && drawn(p.id)) { drawTo = sd / max(length(sd), 0.05) * sk.w; }
+  }
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
   // The cell and its neighborhood are taken as two bodies sharing momentum: the reaction to this cell's
@@ -1131,7 +1152,7 @@ function cellWGSL(K, w) {
       }
       vel += normalize(dir) * swim * h;${W('if (k == 0u) { mSwim = normalize(dir) * swim; }')}
     }
-    vel += (taxis + will) * h;
+    vel += (taxis + will + drawTo) * h;
     if (stranded) {
       vel = vel * exp(-${f(K.dryDrag)} * h) - pond.yz / max(length(pond.yz), 1e-4) * (${f(K.meniscus)} * (1.0 - smoothstep(0.0, ${f(K.filmR)}, -shore)) * h);
     }
@@ -1211,7 +1232,9 @@ struct Hand {
   stir: vec4f,  // center, the water's velocity there (world units a second)
   cut: vec4f,   // the needle's stroke this step, from xy to zw
   more: vec4f,  // x the stir's reach, y the cut's half-width (0: no cut), zw where the ridden cell is steered
-  ids: vec4u,   // x the cell the needle pricks, y the ridden cell (NONE: none), z the will's strength (f32 bits)
+  ids: vec4u,   // x the cell the needle pricks, y the ridden cell (NONE: none), z the will's strength (f32 bits),
+                // w how many cells the pipette draws (their IDs in the ledger's hand region)
+  suck: vec4f,  // the pipette's tip, its reach, how hard it draws (world units a second², 0: not drawing)
 };
 // kr: 0..9 kind, 10..11 role, 12 plant, 13 cyst, 14 hunter, 15 tail cell.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
@@ -1244,7 +1267,25 @@ const SPL_NC = ${SPL_CAUSES.length}u;
 const SPL_PAIR = ${SPL_PAIR}u;
 const SPL_RANGE = ${SPL_RANGE}u;
 const SPL_WATCH = ${SPL_WATCH}u;
-fn splBase() -> u32 { return arrayLength(&ledger) - SPL_WORDS - HEAT_ACC_WORDS; }
+fn splBase() -> u32 { return arrayLength(&ledger) - SPL_WORDS - HAND_WORDS - HEAT_ACC_WORDS; }
+// The pipette's words (PIPE_* in shaders.js), between the species ledger and the heat deposits
+const HAND_WORDS = ${HAND_WORDS}u;
+const PIPE_TAKE = ${PIPE_TAKE}u;
+const PIPE_SP = ${PIPE_SP}u;
+const H_TAKEN = ${H_TAKEN}u;
+const H_IN = ${H_IN}u;
+const H_SP = ${H_SP}u;
+const H_CELLS = ${H_CELLS}u;
+const H_OUT = ${H_OUT}u;
+fn handAt() -> u32 { return arrayLength(&ledger) - HAND_WORDS - HEAT_ACC_WORDS; }
+// whether the pipette draws cell id (its IDs sorted: a binary search)
+fn drawn(id: u32) -> bool {
+  let n = sim.hand.ids.w;
+  let b = handAt();
+  var lo = 0u; var hi = n;
+  while (lo < hi) { let mid = (lo + hi) / 2u; if (atomicLoad(&ledger[b + mid]) < id) { lo = mid + 1u; } else { hi = mid; } }
+  return lo < n && atomicLoad(&ledger[b + lo]) == id;
+}
 // After it, what a step adds up into the heat field (the step's own scratch, never saved): heat deposited this
 // step per grid cell (HEAT_FIX per degree), then husks per grid cell. In the ledger, which every kernel that
 // adds to them binds already, rather than a buffer of their own (the per-stage limit on storage buffers).
@@ -1789,6 +1830,24 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
       p.info = (p.info & 0xffff7ff0u) | 3u;
       atomicAdd(&ledger[META_ENERGY + 61u], 1u);
       parts[i] = p;
+    }
+    // the pipette's tip: a cell it draws taken in (copied out for the page, its partners by ID), the grain it was
+    // built of left as silt, settling about the tip
+    else if (sim.hand.suck.w > 0.0 && length(handD(p.pos, sim.hand.suck.xy)) < 0.3 && drawn(p.id)) {
+      let b = handAt();
+      let k = atomicAdd(&ledger[b + H_TAKEN], 1u);
+      if (k < PIPE_TAKE) {
+        let o = b + H_TAKEN + 1u + k * 12u;
+        let w = array<u32, 10>(bitcast<u32>(p.pos.x), bitcast<u32>(p.pos.y), bitcast<u32>(p.vel.x), bitcast<u32>(p.vel.y), p.kind, bitcast<u32>(p.energy), bitcast<u32>(p.age), p.id, p.col, p.info);
+        for (var q = 0u; q < 10u; q++) { atomicStore(&ledger[o + q], w[q]); }
+        for (var q = 0u; q < 2u; q++) { let j = intent[i][q + 2u]; atomicStore(&ledger[o + 10u + q], select(NONE, parts[min(j, sim.count - 1u)].id, j < sim.count)); }
+        var s = pcg(p.id ^ sim.seed);
+        let a = rnd(&s) * TAU;
+        p.pos = wrapPos(sim.hand.suck.xy + vec2f(cos(a), sin(a)) * sim.hand.suck.z * sqrt(rnd(&s)));
+        p.kind = SILT; p.energy = 0.0; p.vel = vec2f(0.0); p.age = 0.0; p.info = p.info & 0xffffffc0u;
+        intent[i].z = NONE; intent[i].w = NONE;
+        parts[i] = p;
+      }
     }
     let c = atomicLoad(&ledger[META_CLAIM + i]);
     if (c != 0u) {
@@ -2970,6 +3029,91 @@ ${cellWGSL(K, false)}
   // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(pack, ce, act == 2u)), n1, n2);
   parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0 - gut / ${f(K.dungE)})), info);
+}
+
+// --------------------------------------------------------------------- the pipette sets down
+// What the pipette sets down (the ledger's hand region: a header of how many cells and species, the reach and
+// center to set them in; each species' genome words with the slot it had and whether it is a stranger here; each
+// cell's species, offset, energy, age, color, info and bonds) becomes cells made of the silt there, as a spark
+// turns silt into life: each species takes back its own slot if it still has it, or a free one (a stranger a
+// serial of this world); then each grain of silt within reach, in turn, becomes the next cell; then the bonds.
+// Between steps, only when there is something to set down.
+@group(0) @binding(23) var<storage, read_write> genomeWords: array<u32>;
+const G_WORDS = ${G_WORDS}u;
+@compute @workgroup_size(64)
+fn injectSlots(@builtin(global_invocation_id) gid: vec3u) {
+  let j = gid.x;
+  let b = handAt();
+  if (j >= atomicLoad(&ledger[b + H_IN + 1u])) { return; }
+  let o = b + H_SP + j * 58u;
+  let want = atomicLoad(&ledger[o + 56u]);
+  let stranger = atomicLoad(&ledger[o + 57u]) != 0u;
+  let serial = atomicLoad(&ledger[o + 41u]);
+  var slot = NONE;
+  // its own slot, if it still holds it (living there, or freed and not yet taken)
+  if (!stranger && want >= FIRST_LIFE && want < MAXK && genomeWords[want * G_WORDS + 41u] == serial) {
+    let r = atomicCompareExchangeWeak(&ledger[META_SLOT + want], 0u, 1u);
+    if (r.exchanged || r.old_value == 1u) { slot = want; }
+  }
+  if (slot == NONE) {
+    var s = pcg(serial ^ sim.seed ^ (j * 7919u));
+    slot = allocSlot(&s);
+    if (slot != NONE) {
+      for (var w = 0u; w < G_WORDS; w++) { genomeWords[slot * G_WORDS + w] = atomicLoad(&ledger[o + w]); }
+      // a stranger founds a lineage here, as a spark does
+      if (stranger) {
+        genomeWords[slot * G_WORDS + 40u] = 0u;
+        genomeWords[slot * G_WORDS + 41u] = atomicAdd(&ledger[1], 1u) + 1u;
+        genomeWords[slot * G_WORDS + 42u] = bitcast<u32>(sim.time);
+        genomeWords[slot * G_WORDS + 43u] = 0u;
+      }
+    }
+  }
+  atomicStore(&ledger[b + H_OUT + 1u + j], slot);
+}
+@compute @workgroup_size(256)
+fn injectCells(@builtin(global_invocation_id) gid: vec3u) {
+  let i = gid.x;
+  if (i >= sim.count) { return; }
+  var p = parts[i];
+  if (p.kind != SILT) { return; }
+  let b = handAt();
+  let n = atomicLoad(&ledger[b + H_IN]);
+  let at = vec2f(bitcast<f32>(atomicLoad(&ledger[b + H_IN + 3u])), bitcast<f32>(atomicLoad(&ledger[b + H_IN + 4u])));
+  let R = bitcast<f32>(atomicLoad(&ledger[b + H_IN + 2u]));
+  if (length(handD(p.pos, at)) > R) { return; }
+  let k = atomicAdd(&ledger[b + H_OUT], 1u);
+  if (k >= n) { return; }
+  let c = b + H_CELLS + k * 8u;
+  let slot = atomicLoad(&ledger[b + H_OUT + 1u + atomicLoad(&ledger[c])]);
+  atomicStore(&ledger[b + H_OUT + 1u + PIPE_SP + k], select(i, NONE, slot == NONE));
+  if (slot == NONE) { return; }
+  p.pos = wrapPos(at + vec2f(bitcast<f32>(atomicLoad(&ledger[c + 1u])), bitcast<f32>(atomicLoad(&ledger[c + 2u]))));
+  p.vel = vec2f(0.0);
+  p.kind = slot;
+  p.energy = bitcast<f32>(atomicLoad(&ledger[c + 3u]));
+  p.age = bitcast<f32>(atomicLoad(&ledger[c + 4u]));
+  p.col = atomicLoad(&ledger[c + 5u]);
+  p.info = atomicLoad(&ledger[c + 6u]);
+  p.id = newId();
+  parts[i] = p;
+}
+@compute @workgroup_size(64)
+fn injectBonds(@builtin(global_invocation_id) gid: vec3u) {
+  let k = gid.x;
+  let b = handAt();
+  let n = min(atomicLoad(&ledger[b + H_IN]), atomicLoad(&ledger[b + H_OUT]));
+  if (k >= n) { return; }
+  let i = atomicLoad(&ledger[b + H_OUT + 1u + PIPE_SP + k]);
+  if (i == NONE) { return; }
+  let bw = atomicLoad(&ledger[b + H_CELLS + k * 8u + 7u]);
+  var to = vec2u(NONE);
+  for (var q = 0u; q < 2u; q++) {
+    let m = (bw >> (16u * q)) & 0xffffu;
+    if (m < n) { to[q] = atomicLoad(&ledger[b + H_OUT + 1u + PIPE_SP + m]); }
+  }
+  intent[i].z = to.x;
+  intent[i].w = to.y;
 }
 
 // --------------------------------------------------------------------- mind

@@ -36,8 +36,8 @@ export function createHand(words, ids, { reach = REACH.def } = {}) {
   const h = {
     tool: 'loupe', reach, held: false, last: null, vel: [0, 0], cut: null,
     lamp: { x: 0, y: 0, r: reach, v: 0 }, stage: { x: 0, y: 0, r: reach, v: 0 }, stir: { x: 0, y: 0, vx: 0, vy: 0 },
-    // the ridden cell and where it is steered: [x, y, strength]
-    rider: NONE, will: null,
+    // the ridden cell and where it is steered: [x, y, strength]; the pipette's draw: [x, y, reach, pull] (the page's)
+    rider: NONE, will: null, suck: null,
     // the record: one entry per act (a tool held, or a run of taps and pricks in one place), its times simulated
     acts: [],
     get touched() { return h.acts.length > 0; },
@@ -45,7 +45,7 @@ export function createHand(words, ids, { reach = REACH.def } = {}) {
     get acting() { return h.lamp.v !== 0 || h.stage.v !== 0 || h.stir.vx !== 0 || h.stir.vy !== 0; },
     /** A world begun or put in place: its record of acts (kept with it), nothing of the last world's still acting. */
     reset(acts = []) {
-      h.up(); h.acts = acts; h.cut = null; h.rider = NONE; h.will = null;
+      h.up(); h.acts = acts; h.cut = null; h.rider = NONE; h.will = null; h.suck = null;
       h.lamp.v = h.stage.v = h.stir.vx = h.stir.vy = 0;
     },
     /** The tool in hand (an id of TOOLS); taking one lets go of the last. */
@@ -79,6 +79,8 @@ export function createHand(words, ids, { reach = REACH.def } = {}) {
       drops.set([x, y, t, 2.5], k * 4);
       act(t, x, y, 1);
     },
+    /** An act the page does with a tool (the pipette drawing up or setting down n cells at (x, y)). */
+    note(tool, x, y, t, n = 0) { act(t, x, y, n, tool); },
     /** The needle pricked cell id at (x, y). */
     prick(id, x, y, t) { ids[20] = id >>> 0; act(t, x, y, 1); },
     /** Steer the ridden cell id toward (x, y) at strength s (0..1), at simulated time t; steer(NONE) lets it go. */
@@ -109,6 +111,7 @@ export function createHand(words, ids, { reach = REACH.def } = {}) {
         h.stir.x, h.stir.y, h.stir.vx, h.stir.vy, ...(h.cut || [0, 0, 0, 0]), h.reach, h.cut ? CUT : 0, w[0], w[1]]);
       ids[21] = h.rider;
       words[22] = w[2];
+      words.set(h.suck || [0, 0, 0, 0], 24);
       // (a stroke cuts once: the next frame's runs on from here)
       h.cut = null;
     },

@@ -57,6 +57,8 @@ can tell before reading the world). A save opens only in a version of its own ma
 - minor: additions a version of the same major can do without (a head field, a buffer it does not
   know; `openWorld` keeps only the buffers it knows). A newer version must give old saves of its
   major a default for what it added.
+  7.1.0: the page's record keeps the hand's acts and the pipette's contents (`life.hand`, `life.pipette`; empty
+  when absent) and a save's meta whether its world was touched.
 - patch: fixes that change nothing a reader sees.
 
 Settings → Worlds lists a save of another major as "Needs a newer Tidemote" or "From an older

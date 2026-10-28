@@ -348,9 +348,52 @@ body.spec-open .bench { right: var(--spec-pw); }
 .reach input::-webkit-slider-thumb { -webkit-appearance: none; width: 7px; height: 20px; background: var(--panel-solid); border: 1px solid var(--sun); box-shadow: inset 0 0 0 1px var(--panel-solid), inset 0 0 0 2px rgba(241, 227, 160, 0.5); }
 .reach input::-moz-range-thumb { width: 7px; height: 20px; border-radius: 0; background: var(--panel-solid); border: 1px solid var(--sun); }
 
-/* the held strip (phones): the tool in hand, its reach, Put down */
-.held { position: fixed; z-index: 5; left: 0; right: 0; bottom: var(--bot); height: 46px; padding: 0 calc(10px + var(--safe-r)) 0 calc(10px + var(--safe-l));
-  display: flex; align-items: center; gap: var(--s2); border-top: 1px solid var(--sun); }
+/* the pipette's section: a strip of mini-cards, tip first, fading at its right edge when there are more */
+.bench-pip { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: var(--s2); padding-left: var(--s4); border-left: 1px solid var(--line); }
+.strip { flex: none; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); }
+.strip::-webkit-scrollbar { display: none; }
+.pip-empty { flex: 1; min-height: 96px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: var(--s1); padding: var(--s3); border: 1px dashed var(--line); color: var(--ink-3); text-align: center; font-size: 12px; }
+.pip-empty b { color: var(--ink-2); font-weight: 400; font-size: 13px; }
+/* a mini-card: sigil, name, kind, home water; bracketed at its corners */
+.mini { --c: var(--line-2); position: relative; flex: 0 0 104px; min-height: 104px; padding: 8px 6px 6px; display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; touch-action: none;
+  background: linear-gradient(var(--c), var(--c)) left top / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) left top / 1px 7px no-repeat,
+    linear-gradient(var(--c), var(--c)) right top / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) right top / 1px 7px no-repeat,
+    linear-gradient(var(--c), var(--c)) left bottom / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) left bottom / 1px 7px no-repeat,
+    linear-gradient(var(--c), var(--c)) right bottom / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) right bottom / 1px 7px no-repeat, rgba(6, 10, 11, 0.6); }
+.mini.tip { --c: var(--sun); border-color: rgba(241, 227, 160, 0.5); }
+.mc-sig { width: 30px; height: 30px; display: grid; place-items: center; }
+.mc-name { color: var(--ink); font-size: 12px; line-height: 1.2; font-weight: 500; overflow-wrap: anywhere; }
+.mc-kind { color: var(--cyan); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; font-stretch: 106%; line-height: 1.25; }
+.mc-home { color: var(--ink-3); font-size: 11px; margin-top: auto; }
+.mc-n { position: absolute; top: 3px; left: 6px; right: 6px; display: flex; justify-content: space-between; gap: 4px; font-size: 11px; color: var(--ink-2); pointer-events: none; }
+.mc-n i { font-style: normal; color: var(--sun); letter-spacing: .14em; text-transform: uppercase; font-weight: 600; }
+.mc-n b { margin-left: auto; font-weight: 500; }
+.mini.tip .mc-n b { color: var(--sun); }
+.mc-n small { display: none; }
+.mini.tip, .mini { padding-top: 18px; }
+.mini.flat { flex: 0 0 160px; min-height: 50px; display: grid; grid-template-columns: 24px 1fr; grid-template-rows: auto auto; column-gap: 8px; align-items: center; text-align: left; padding: 6px 8px; }
+.mini.flat .mc-sig { grid-row: 1 / 3; width: 24px; height: 24px; }
+.mini.flat .mc-n { top: 2px; }
+.mini.flat .mc-n b { position: absolute; right: 0; top: 30px; }
+/* the cabinet: its mini-cards in a grid, three or more a row */
+.cab-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.cab-grid .mini { min-height: 124px; padding-top: 10px; }
+.cab-grid .pip-empty { grid-column: 1 / -1; }
+/* a card saved: it presents itself at the center, then shrinks to the Lab */
+.card-fly { position: fixed; left: 50%; top: 50%; z-index: 40; width: min(330px, 70vw); pointer-events: none; transform: translate(-50%, -50%); box-shadow: 0 12px 48px rgba(0, 0, 0, 0.7); }
+body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-card [data-tool="pipette"] { outline: 1px dashed var(--sun); outline-offset: 2px; }
+/* a card dragged out of the strip */
+.ghost-card { position: fixed; left: 0; top: 0; z-index: 30; pointer-events: none; opacity: .92; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); }
+/* the dock's pipette carries its count */
+.dock .tools .tool[data-tool="pipette"]::after { content: attr(data-count); position: absolute; left: 3px; top: 1px; font-size: 9px; color: var(--sun); letter-spacing: 0; }
+
+/* the held strip (phones): the tool in hand, its reach, Put down; with the pipette, its contents below */
+.held { position: fixed; z-index: 5; left: 0; right: 0; bottom: var(--bot); min-height: 46px; padding: 0 calc(10px + var(--safe-r)) 0 calc(10px + var(--safe-l));
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); border-top: 1px solid var(--sun); }
+.held.pip { padding-bottom: var(--s2); }
+.held .strip.flat { flex-basis: 100%; }
+.held .strip.flat:empty { display: none; }
+.held > .btn { padding: 0 10px; }
 .held kbd { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--sun); color: var(--sun); font-size: 11px; letter-spacing: 0; }
 .held > b { color: var(--sun); font-size: 12px; letter-spacing: .16em; text-transform: uppercase; font-weight: 500; flex: 1; }
 .held-reach { display: flex; align-items: center; }
@@ -1086,6 +1129,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .bench-hint { white-space: normal; }
   .reach { grid-template-columns: 4.6em 1fr 4.6em; }
   .ladder { width: 220px; }
+  .bench-pip { padding-left: 0; border-left: 0; flex-basis: auto; }
   .hand-chip { padding-left: 9px; height: 26px; }
   .hand-chip .lbl, .hand-chip b { display: none; }
   .rung { height: 36px; }

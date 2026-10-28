@@ -130,11 +130,16 @@ export function createSpecimen(api) {
     else if (a === 'find') api.onFind();
     else if (a === 'hl') api.onHighlight();
     else if (a === 'card') { api.onCard?.(); return; }
+    else if (a === 'save') { api.onSave?.(); return; }
     st.actKey = '';
     render(true);
   });
 
   // ------------------------------------------------------------ pieces
+  // its card: Save keeps it in the cabinet (to carry to any world); once kept, Card opens it (to name it, share it)
+  const cardBtn = (serial) => (api.saved(serial)
+    ? '<button type="button" class="btn" data-act="card" data-hint="Its card: name it, share it, load the pipette with it">Card</button>'
+    : '<button type="button" class="btn" data-act="save" data-hint="Save its card to the cabinet, to carry it to any world">Save</button>');
   // A mix of cell types on one row, like the traits around it: a dotted meter split into each type's
   // share in its color, and the shares as α54 β41 γ5 (a sliver under 1% reads <1). hint: the
   // full figures, on hover.
@@ -494,8 +499,8 @@ export function createSpecimen(api) {
         code('SP', fmt(sp.serial)) + code('Δ', g.depth) + (sp.alive ? code('Pop', fmt(sp.pop)) : ''));
       speciesGlyph(g);
       const hl = api.focusKey() === `sp:${sp.serial}`;
-      const card = '<button type="button" class="btn" data-act="card" data-hint="Its card, to save and share; name it there">Card</button>';
-      setActs(`sp${sp.alive}${hl}`, sp.alive ? `<button type="button" class="btn" data-act="find">Find one</button><button type="button" class="btn" data-act="hl" aria-pressed="${hl}">Highlight</button>${card}` : card);
+      const card = cardBtn(sp.serial);
+      setActs(`sp${sp.alive}${hl}${card.length}`, sp.alive ? `<button type="button" class="btn" data-act="find">Find one</button><button type="button" class="btn" data-act="hl" aria-pressed="${hl}">Highlight</button>${card}` : card);
       if (sp.alive) v += vital('Share', sp.pop / Math.max(1, life.counts[3]), 'sun', `${((sp.pop / Math.max(1, life.counts[3])) * 100).toFixed(1)}% of life`, 'share');
       setTags(g);
       flow.push(['species', 'Species', speciesTab(g, null)], ['genome', 'Genome', genomeTab(g, 0)]);
@@ -547,7 +552,8 @@ export function createSpecimen(api) {
         setTags(g);
         const hl = sp && api.focusKey() === `sp:${sp.serial}`;
         const ride = api.riding();
-        setActs(`c${api.follow()}${hl}${!!sp}${ride}`, `<button type="button" class="btn" data-act="follow" aria-pressed="${api.follow()}" data-hint="Keep it in view · C">Follow</button><button type="button" class="btn ride" data-act="ride" aria-pressed="${ride}" data-hint="${ride ? 'Get off · Enter' : 'Ride it: steer with a held click, a finger or the arrows · Enter'}">Ride</button>${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}">Highlight species</button>` : ''}${sp ? '<button type="button" class="btn" data-act="card" data-hint="Its species’ card, to save and share">Card</button>' : ''}`);
+        const cardB = sp ? cardBtn(sp.serial) : '';
+        setActs(`c${api.follow()}${hl}${!!sp}${ride}${cardB.length}`, `<button type="button" class="btn" data-act="follow" aria-pressed="${api.follow()}" data-hint="Keep it in view · C">Follow</button><button type="button" class="btn ride" data-act="ride" aria-pressed="${ride}" data-hint="${ride ? 'Get off · Enter' : 'Ride it: steer with a held click, a finger or the arrows · Enter'}">Ride</button>${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}">Highlight species</button>` : ''}${cardB}`);
         if (g) {
           const dv = divEnergy(g, K);
           v += vital('Energy', p.energy / dv, 'sun', `${p.energy.toFixed(2)} / ${dv.toFixed(2)}`, 'energy');

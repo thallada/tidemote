@@ -8,6 +8,8 @@ import { drawMuller, drawTree, layoutTree } from './lineage/draw.js';
 import { HEAT_BINS, HEAT_BIN, THERMAL_LEDGER } from './shaders.js';
 import { block, disclosure, wireDisclosures } from './ui.js';
 import { setText, setHTML } from './live.js';
+import { filterCards } from './cabinet.js';
+import { wireCardDrag } from './minicard.js';
 
 /**
  * The Field Lab: the left column. Its Census is what the world is made of and what has happened;
@@ -22,6 +24,7 @@ export function createLab(api) {
     open: api.startOpen, tab: 'census',
     q: '', status: 'thriving', diet: 'all', mobility: 'all', body: 'all', temp: 'all', sort: 'pop',
     linAll: true, linSpan: 'all', linK: 30, linRoot: null, logType: 'all', logQ: '',
+    cabQ: '', cabFrom: 'any', cabDiet: 'all', cabBody: 'all',
     open_: { diet: true }, // census disclosures (by data-disc key), the others folded
   };
   const panes = {};
@@ -514,7 +517,50 @@ export function createLab(api) {
     return { ...p, update() {} };
   }
 
-  const builders = { species: buildSpecies, lineage: buildLineage, census: buildCensus, charts: buildCharts, log: buildLog, guide: buildGuide };
+  // ---------------------------------------------------------- cabinet: every card saved, in every world (cabinet.js)
+  // api.cabinet: { cards(), world(), facets(card), mini(card), open(card), load(card, el) }: a card tapped opens it,
+  // dragged onto the bench (its button, the pipette's tool or strip) loads the pipette
+  function buildCabinet() {
+    const seg = (label, key, opts) => `<span class="lbl">${label}</span><div class="segs" role="group" aria-label="${key}">${chips(key, opts, st[key])}</div>`;
+    const p = pane(`<div class="qrow"><input type="search" id="cab-q" placeholder="Search the cabinet" aria-label="Search the cabinet" autocomplete="off"><button type="button" class="chip filt" id="cab-filt" aria-expanded="false" aria-controls="cab-filters">Filters</button></div><div class="filters" id="cab-filters">
+      ${seg('From', 'cabFrom', [['any', 'Any'], ['this', 'This world'], ['other', 'Other waters'], ['bred', 'Bred']])}
+      ${seg(term('diet', 'Diet'), 'cabDiet', DIETS)}
+      ${seg(term('organism', 'Body'), 'cabBody', [['all', 'Any'], ['multicellular', 'Multicellular'], ['single-cell', 'Single-cell']])}</div>
+      <div class="sum"><span id="cab-sum"></span><span class="lbl">Newest first</span></div>`, 'cabinet');
+    const grid = document.createElement('div');
+    grid.className = 'cab-grid';
+    p.scroll.append(grid);
+    const q = p.ctl.querySelector('#cab-q');
+    q.addEventListener('input', () => { st.cabQ = q.value; update(true); });
+    p.ctl.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-k]');
+      if (b) { st[b.dataset.k] = b.dataset.v; pressChips(p.ctl, b.dataset.k); update(true); return; }
+      const ft = e.target.closest('#cab-filt');
+      if (ft) { const on = !p.ctl.classList.contains('open'); p.ctl.classList.toggle('open', on); ft.setAttribute('aria-expanded', String(on)); }
+    });
+    const byId = (id) => api.cabinet.cards().find((c) => c.id === id);
+    const drag = wireCardDrag(grid, {
+      tap: (id) => { const c = byId(id); if (c) api.cabinet.open(c); },
+      drop: (id, x, y, el) => { const c = byId(id); if (c && el?.closest('#bench-open, #bench, #held, [data-tool="pipette"]')) api.cabinet.load(c); },
+    });
+    let key = '';
+    function update(force) {
+      const all = api.cabinet.cards(), world = api.cabinet.world();
+      const shown = filterCards(all, { q: st.cabQ, from: st.cabFrom, world, test: (c) => {
+        const f = api.cabinet.facets(c);
+        return (st.cabDiet === 'all' || f.diet === st.cabDiet) && (st.cabBody === 'all' || f.body === st.cabBody);
+      } });
+      setText(p.ctl.querySelector('#cab-sum'), `${fmt(all.length)} card${all.length === 1 ? '' : 's'} · ${fmt(all.filter((c) => c.world === world).length)} from this world`);
+      const k = shown.map((c) => c.id).join(',');
+      if ((k === key && !force) || drag.dragging()) return;
+      key = k;
+      grid.innerHTML = shown.length ? shown.map((c) => api.cabinet.mini(c)).join('')
+        : `<div class="pip-empty"><b>${all.length ? 'No card matches.' : 'The cabinet is empty.'}</b><span>${all.length ? 'Try other filters.' : 'Save a species from the specimen panel (Save), or drop a species card’s PNG on the page: its card comes here, to be carried to any world.'}</span></div>`;
+    }
+    return { ...p, update };
+  }
+
+  const builders = { cabinet: buildCabinet, species: buildSpecies, lineage: buildLineage, census: buildCensus, charts: buildCharts, log: buildLog, guide: buildGuide };
 
   apply();
   if (st.open) show();

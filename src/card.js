@@ -13,6 +13,8 @@ import { voiceOf } from './audio/mapping.js';
 import { describe as describeSong } from './audio/motif.js';
 import { songSVG, sigilSVG } from './song.js';
 import { fmt, fmtClock, fmtDur, fmtLen, cssRgb, saveFile } from './fmt.js';
+import { qr } from './qr.js';
+import { G_WORDS } from './shaders.js';
 
 export const CARD_W = 660, CARD_H = 1050; // about a bridge card's shape
 export const CARD_SCALE = 2; // drawn (and saved) at twice that, for sharp text
@@ -110,6 +112,7 @@ function corners(ctx, x0, y0, x1, y1, arm) {
 }
 const fit = (ctx, text, w) => { if (ctx.measureText(text).width <= w) return text; let s = text; while (s.length > 1 && ctx.measureText(`${s}…`).width > w) s = s.slice(0, -1); return `${s.trimEnd()}…`; };
 
+const FOOT = 140; // the footer's height: its home water, its genome, its QR code
 /**
  * Draw a card (cardData's d) at CARD_W × CARD_H on ctx, shaped like a trading card (5:7) and laid out like
  * a baseball card: its name, its portrait (its own cells lit, the rest dimmed), a strip of its numbers and
@@ -155,7 +158,7 @@ export function drawCard(ctx, d, art = {}) {
   const lower = 26 + 60 + (d.series ? 94 : 26) + Math.max(colH(d.facts), colH(d.record)) + 4
     + (art.song ? (w - 50) * 60 / 680 + 6 : 0) + 16 + linN * 18 + (storyN ? 22 + storyN * 18 : 0);
   // the portrait: cropped to its box, the species lit and the rest dimmed; without one, its sigil large
-  const AX = M, AY = 126, AW = w, AH = Math.max(220, Math.min(380, H - 64 - AY - lower));
+  const AX = M, AY = 126, AW = w, AH = Math.max(220, Math.min(380, H - FOOT - 14 - AY - lower));
   ctx.save();
   ctx.beginPath(); ctx.rect(AX, AY, AW, AH); ctx.clip();
   if (art.portrait) {
@@ -250,20 +253,38 @@ export function drawCard(ctx, d, art = {}) {
     rule(y); y += 22;
     ctx.fillStyle = '#e8dcc0'; ctx.font = `italic 400 14px ${F}`;
     const lines = wrap(ctx, `“${d.story}”`, w);
-    const room = Math.max(0, Math.floor((H - 62 - y) / 18) + 1);
+    const room = Math.max(0, Math.floor((H - FOOT - 12 - y) / 18) + 1);
     lines.slice(0, room).forEach((l, i) => ctx.fillText(i === room - 1 && lines.length > room ? fit(ctx, `${l} …`, w) : l, M, y + i * 18));
   }
-  // the footer: the moment it was drawn
-  rule(H - 50);
+  // the footer: its home water and whether its world was touched, its genome, the moment it was drawn; and in the
+  // corner its QR code, a link that carries it to any world (cabinet.js), light on dark in a bracketed frame
+  rule(H - FOOT);
+  const Q = 112, qx = R - Q, qy = H - FOOT + 8;
+  if (d.qr) {
+    // whole device pixels a module (crisp edges read best), a quiet zone of two modules inside the frame
+    const k = Math.max(1, Math.floor((Q * CARD_SCALE) / (d.qr.size + 4))) / CARD_SCALE, side = (d.qr.size + 4) * k;
+    const ox = Math.round((qx + (Q - side) / 2 + 2 * k) * CARD_SCALE) / CARD_SCALE, oy = Math.round((qy + (Q - side) / 2 + 2 * k) * CARD_SCALE) / CARD_SCALE;
+    ctx.fillStyle = '#7fd6df';
+    for (let yy = 0; yy < d.qr.size; yy++) for (let xx = 0; xx < d.qr.size; xx++) if (d.qr.at(xx, yy)) ctx.fillRect(ox + xx * k, oy + yy * k, k, k);
+    ctx.strokeStyle = 'rgba(150,222,230,0.55)'; ctx.lineWidth = 1;
+    corners(ctx, qx - 2, qy - 2, qx + Q + 2, qy + Q + 2, 9);
+  }
+  const fw = w - (d.qr ? Q + 24 : 0);
+  label(fit(ctx, [d.home, d.touched ? 'touched' : 'wild', d.bred ? 'bred' : ''].filter(Boolean).join(' · '), fw), M, H - FOOT + 26);
   ctx.font = `400 13px ${F}`; ctx.fillStyle = INK3;
-  ctx.fillText(fit(ctx, `Drawn at ${d.when}`, w * 0.7), M, H - 28);
-  ctx.textAlign = 'right'; ctx.fillText('tidemote.com', R, H - 28);
+  ctx.fillText(fit(ctx, `Drawn at ${d.when}`, fw), M, H - FOOT + 50);
+  ctx.fillText(fit(ctx, `Genome TM·G1 · ${d.words} words`, fw), M, H - FOOT + 70);
+  ctx.fillStyle = d.touched ? '#f1e3a0' : INK3;
+  ctx.fillText(d.touched ? 'From a touched world' : 'tidemote.com', M, H - FOOT + 90);
   ctx.restore();
 }
 
 /**
  * The card dialog. api: { life(), K, chron, climate(), eng, portrait(serial) -> Promise<canvas|null>,
- *   rename(serial, name), songClip(genome) -> Promise<Blob|null>, flash(msg) }
+ *   rename(serial, name), songClip(genome) -> Promise<Blob|null>, flash(msg),
+ *   carry(serial) -> { home, touched, bred, link } (where it lives, and the link its QR code holds),
+ *   saved(serial) -> its card in the cabinet or null, save(serial), load(serial | card) (into the pipette),
+ *   remove(card) (from the cabinet) }
  */
 export function createCards(api) {
   const $ = (id) => document.getElementById(id);
@@ -272,9 +293,13 @@ export function createCards(api) {
   let cur = null, art = {}, drawn = 0;
   const reg = () => api.life().reg;
 
+  // a species' QR code, made once (its link holds its genome, which does not change)
+  const qrs = new Map();
   function data(sp) {
-    const L = api.life();
-    return cardData(sp, { reg: L.reg, genera: L.genera, K: api.K, story: api.chron.latest(sp.serial), relations: api.chron.relations(sp.serial), history: L.history, simTime: api.eng.simTime, era: api.climate().name, founders: api.eng.founders, living: L.counts[3] });
+    const L = api.life(), c = api.carry(sp.serial);
+    if (!qrs.has(c.link)) { qrs.clear(); qrs.set(c.link, qr(new TextEncoder().encode(c.link))); }
+    return { ...cardData(sp, { reg: L.reg, genera: L.genera, K: api.K, story: api.chron.latest(sp.serial), relations: api.chron.relations(sp.serial), history: L.history, simTime: api.eng.simTime, era: api.climate().name, founders: api.eng.founders, living: L.counts[3] }),
+      home: c.home, touched: c.touched, bred: c.bred, words: G_WORDS, qr: qrs.get(c.link) };
   }
   function paint(d) {
     const ctx = cv.getContext('2d');
@@ -286,20 +311,62 @@ export function createCards(api) {
     const sp = cur && reg().get(cur);
     if (sp) paint(data(sp));
   }
+  // its sigil and song as images, and the card's font loaded
+  async function artOf(sp) {
+    const v = voiceOf(sp.genome);
+    const [sigil, song] = await Promise.all([svgImage(sigilSVG(v, sp.genome, { size: 240 })), svgImage(songSVG(v.motif, { w: 680, h: 60, col: cssRgb(roleColor(sp.genome, 0)), col2: cssRgb(roleColor(sp.genome, 1)) }))]);
+    if (document.fonts?.load) await document.fonts.load('500 40px Saira').catch(() => {});
+    return { sigil, song, portrait: portraits.get(sp.serial) || null };
+  }
+  /** A species' card drawn off screen, its portrait taken if it lives: a canvas (to save to the cabinet). */
+  async function render(serial) {
+    const sp = reg().get(serial);
+    if (!sp) return null;
+    const a = await artOf(sp);
+    if (sp.alive && !a.portrait) { const p = await api.portrait(serial).catch(() => null); if (p) { portraits.set(serial, p); a.portrait = p; } }
+    const c = document.createElement('canvas');
+    c.width = CARD_W * CARD_SCALE; c.height = CARD_H * CARD_SCALE;
+    const ctx = c.getContext('2d');
+    ctx.setTransform(CARD_SCALE, 0, 0, CARD_SCALE, 0, 0);
+    drawCard(ctx, data(sp), a);
+    return c;
+  }
+  /**
+   * A card that came from another world by its link alone (cabinet.js: its genome, name and home water): drawn
+   * from what its genome says, its home water for its record. card.genome: the genome read from its words.
+   */
+  async function renderStranger(card, link) {
+    const sp = { serial: 0, name: card.name, binomial: card.name, genome: card.genome, alive: false, founder: true, born: 0, peak: 0, pop: 0, genus: card.name.split(' ')[0], established: true };
+    const d = cardData(sp, { reg: new Map(), K: api.K });
+    const g = card.genome;
+    Object.assign(d, {
+      stats: [['Home water', card.home], ['Cell size', fmtLen(0.17 * g.size)], ['Lifespan', fmtDur(g.lifespan)], ['Mutations', String(g.depth)]],
+      record: d.record.filter(([k]) => ['Cell size', 'Lifespan', 'Divides at'].includes(k)), origin: `carried from ${card.home}`, when: card.home,
+      home: card.home, touched: card.touched, bred: card.bred, words: G_WORDS, qr: qr(new TextEncoder().encode(link)),
+    });
+    const a = await artOf(sp);
+    const c = document.createElement('canvas');
+    c.width = CARD_W * CARD_SCALE; c.height = CARD_H * CARD_SCALE;
+    const ctx = c.getContext('2d');
+    ctx.setTransform(CARD_SCALE, 0, 0, CARD_SCALE, 0, 0);
+    drawCard(ctx, d, a);
+    return c;
+  }
   async function open(serial) {
     const sp = reg().get(serial);
     if (!sp) return;
-    cur = serial;
+    cur = serial; saved = null;
+    showing(false);
     root.hidden = false;
     nameIn.value = sp.given ? sp.name : '';
     nameIn.placeholder = sp.binomial || sp.name;
     cv.width = CARD_W * CARD_SCALE; cv.height = CARD_H * CARD_SCALE;
-    const v = voiceOf(sp.genome);
-    const [sigil, song] = await Promise.all([svgImage(sigilSVG(v, sp.genome, { size: 240 })), svgImage(songSVG(v.motif, { w: 680, h: 60, col: cssRgb(roleColor(sp.genome, 0)), col2: cssRgb(roleColor(sp.genome, 1)) }))]);
+    const a = await artOf(sp);
     if (cur !== serial) return;
-    art = { sigil, song, portrait: portraits.get(serial) || null };
-    if (document.fonts?.load) await document.fonts.load('500 40px Saira').catch(() => {});
+    art = a;
     redraw();
+    acts();
+    const v = voiceOf(sp.genome);
     note.textContent = sp.alive ? 'Taking its portrait…' : art.portrait ? '' : 'Extinct, and never portrayed: its sigil stands in.';
     root.focus({ preventScroll: true });
     if (sp.alive) {
@@ -311,14 +378,43 @@ export function createCards(api) {
     const desc = describeSong(v);
     $('card-song').dataset.hint = `Its song: ${desc.tags.join(', ')}. A short clip, in this world's key`;
   }
+  // A card from the cabinet: as it was drawn when saved (its PNG), here or in another world.
+  let saved = null, savedUrl = null;
+  const img = $('card-img');
+  function showing(isSaved) {
+    cv.hidden = isSaved; img.hidden = !isSaved;
+    $('card-name-row').hidden = isSaved;
+    $('card-remove').hidden = !isSaved;
+    if (savedUrl && !isSaved) { URL.revokeObjectURL(savedUrl); savedUrl = null; }
+  }
+  function openSaved(card) {
+    cur = null; saved = card;
+    showing(true);
+    if (savedUrl) URL.revokeObjectURL(savedUrl);
+    savedUrl = URL.createObjectURL(new Blob([card.png], { type: 'image/png' }));
+    img.src = savedUrl;
+    img.alt = `The card of ${card.name}`;
+    note.textContent = card.world === api.world() ? '' : `Carried from ${card.home}`;
+    root.hidden = false;
+    acts();
+    root.focus({ preventScroll: true });
+  }
+  // the buttons for what is showing: saved or not, loading the pipette
+  function acts() {
+    const card = saved || (cur != null && api.saved(cur));
+    const sv = $('card-save');
+    sv.hidden = !!saved;
+    sv.disabled = !!card;
+    sv.textContent = card ? `Saved · ${card.home}` : 'Save to cabinet';
+  }
   function close() {
     if (root.hidden) return;
     root.hidden = true;
-    cur = null;
+    cur = null; saved = null;
   }
   const fileName = (ext) => {
-    const sp = reg().get(cur);
-    return `${(sp ? sp.name : 'species').replace(/[^\p{L}\p{N}]+/gu, '-').toLowerCase()}-tidemote.${ext}`;
+    const name = saved ? saved.name : reg().get(cur)?.name || 'species';
+    return `${name.replace(/[^\p{L}\p{N}]+/gu, '-').toLowerCase()}-tidemote.${ext}`;
   };
   // the name: given as typed (and kept), cleared back to its binomial
   function rename() {
@@ -339,12 +435,17 @@ export function createCards(api) {
     if (v) { d.name = v; d.given = true; } else { d.name = d.binomial; d.given = false; }
     paint(d);
   });
-  $('card-png').addEventListener('click', () => {
+  $('card-png').addEventListener('click', async () => {
+    if (saved) { saveFile(new Blob([saved.png], { type: 'image/png' }), fileName('png')); return; }
     rename();
-    cv.toBlob((b) => { if (b) saveFile(b, fileName('png')); else api.flash('Could not make the image'); }, 'image/png');
+    const b = await api.png(cv, cur);
+    if (b) saveFile(b, fileName('png')); else api.flash('Could not make the image');
   });
+  $('card-save').addEventListener('click', async () => { if (cur != null) { await api.save(cur, cv); acts(); } });
+  $('card-load').addEventListener('click', () => { api.load(saved || cur); close(); });
+  $('card-remove').addEventListener('click', () => { if (saved) { api.remove(saved); close(); } });
   $('card-song').addEventListener('click', async () => {
-    const sp = reg().get(cur), btn = $('card-song');
+    const sp = saved ? { genome: saved.genome } : reg().get(cur), btn = $('card-song');
     if (!sp) return;
     btn.disabled = true; note.textContent = 'Rendering its song…';
     try {
@@ -357,6 +458,6 @@ export function createCards(api) {
   root.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } });
   // a new world reuses serials: its portraits go
   function reset() { portraits.clear(); close(); }
-  return { open, close, reset, isOpen: () => !root.hidden };
+  return { open, openSaved, render, renderStranger, close, reset, refresh: () => { if (!root.hidden) acts(); }, isOpen: () => !root.hidden };
 }
 
