@@ -20253,7 +20253,7 @@ ${e.message}` : String(e?.message || e));
     saves: "A save keeps the whole world: every particle, each species with its name and lineage, the chronicle, the history and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download one to keep it safe or to open it on another device.",
     profile: "Times three seconds of frames on the GPU, pass by pass, and one simulation step, and copies the result with this device’s details: a report of how the page runs here.",
     worldfps: "How many times a second the world itself is redrawn. Normally that is every frame. Running fast (Max, or a fast speed the device can only just keep), it is redrawn about 30 times a second so the GPU’s time goes to steps, while the camera, the loupe and the panels keep the full frame rate.",
-    adapting: "Why the page is drawing less than it could, if it is: frames running late, the GPU busy for nearly the whole frame, or the device under pressure (hot or busy, where the browser reports it). It lowers the pixel density first, then the render scale, then (with Target fps on Auto) the frame rate; when the simulation is most of the cost, the frame rate before the render scale. It climbs back after a stretch with room to spare. Running fast it does not adapt.",
+    adapting: "Why the page is drawing less than it could, if it is: frames running late, the GPU busy for nearly the whole frame, the device under pressure (hot or busy, where the browser reports it), or the browser’s own pace (it hands out frames more slowly than the screen refreshes while the page has little to do: only the frame rate is lowered then). It lowers the pixel density first, then the render scale, then (with Target fps on Auto) the frame rate; when the simulation is most of the cost, the frame rate before the render scale. It climbs back after a stretch with room to spare. Running fast it does not adapt.",
     renderres: "The render scale the world is drawn at right now, on top of the pixel density (Density; Scene px is the two together). With Render scale on Auto it drops when frames run late and climbs back when there is room.",
     drawms: "GPU time drawing the world once takes: cells, stone, bloom and the final image. At high speeds it is drawn about thirty times a second.",
     stride: "How much simulated time each step moves the world forward. Normally a step is 1/60 s, the most exact. When you ask for a speed the GPU can’t reach in steps that small, it takes bigger ones instead, up to 4/60 s. Bigger steps are a little coarser, but births, deaths and the variety of species stay the same over long runs.",
@@ -30000,7 +30000,14 @@ ${e.message}` : String(e?.message || e));
         perf.goodWindows = 0;
         perf.hold = now - perf.raisedAt < 6e3 ? Math.min(24e4, (perf.hold || 3e4) * 2) : 3e4;
         perf.ceilingUntil = now + perf.hold;
-        if (autoD && density() > 1.01) {
+        const pace = perf.rafMed > 1.8 * displayMs() && perf.gpu + perf.mainMs < 0.3 * perf.rafMed && !busy && !stressed();
+        if (pace) perf.why = "browser pace";
+        if (pace) {
+          if (autoF && perf.slow < 4) {
+            perf.slowCeiling = perf.slow;
+            perf.slow = Math.min(4, perf.slow + 1);
+          }
+        } else if (autoD && density() > 1.01) {
           densityCap = 1;
           perf.denseUntil = now + perf.hold;
           resizeDue = true;
@@ -30695,6 +30702,26 @@ ${e.message}` : String(e?.message || e));
     let frameCount = 0;
     let lastPanels = 0;
     let inflight = 0;
+    const nudgeGPU = /Firefox\//.test(navigator.userAgent);
+    let nudging = false;
+    const nudge = () => {
+      if (!nudgeGPU || nudging) return;
+      nudging = true;
+      const tick = () => {
+        if (!inflight) {
+          nudging = false;
+          return;
+        }
+        try {
+          device.queue.submit([]);
+        } catch {
+          nudging = false;
+          return;
+        }
+        setTimeout(tick, 2);
+      };
+      setTimeout(tick, 2);
+    };
     let shownFrame = null;
     const clock2 = { owed: 0, lastT: 0 };
     function tickClock(now) {
@@ -30712,7 +30739,7 @@ ${e.message}` : String(e?.message || e));
       const dt = m * H, S = stepCost();
       const cost = world ? perf.renderR : perf.presentR || 0.3;
       if (!S) return { steps: 4, dt, world };
-      perf.stepCredit = Math.min(perf.stepCredit + (frameTarget() - cost) / S, MAX_STEPS);
+      perf.stepCredit = Math.min(perf.stepCredit + ((perf.budget || frameTarget()) - cost) / S, MAX_STEPS);
       const steps = clamp6(Math.floor(perf.stepCredit), 1, MAX_STEPS);
       perf.stepCredit = clamp6(perf.stepCredit - steps, 0, 1);
       return { steps, dt, world };
@@ -30721,7 +30748,7 @@ ${e.message}` : String(e?.message || e));
       const world = now - perf.worldAt >= MAX_FRAME_MS;
       if (world) perf.worldAt = now;
       const dt = m * H, S = stepCost();
-      perf.stepCredit = S ? Math.min(perf.stepCredit + (frameTarget() - (world ? perf.renderR : perf.presentR || 0.3)) / S, MAX_STEPS) : 4;
+      perf.stepCredit = S ? Math.min(perf.stepCredit + ((perf.budget || frameTarget()) - (world ? perf.renderR : perf.presentR || 0.3)) / S, MAX_STEPS) : 4;
       const cap3 = Math.max(1, Math.floor(perf.stepCredit));
       let steps = Math.floor(clock2.owed / dt);
       if (steps > cap3) {
@@ -30767,6 +30794,7 @@ ${e.message}` : String(e?.message || e));
       if (dt >= 2) rafDt.push(dt);
       if (rafDt.length >= 60) {
         rafDt.sort((a, b) => a - b);
+        perf.rafMed = rafDt[rafDt.length >> 1];
         const lo = rafDt[Math.floor(rafDt.length * 0.1)];
         const ms = median(rafDt.filter((x) => x < lo * 1.4));
         const loaded = state.speed > 1 || perf.gpu > ms * 0.75 || perf.mainMs > ms * 0.75;
@@ -30801,9 +30829,13 @@ ${e.message}` : String(e?.message || e));
         frameWaiters[i].res();
         frameWaiters.splice(i, 1);
       }
+      if (due && inflight >= 2) perf.gpuHeld = true;
       if (!state.busy && inflight < 2 && due) {
         perf.frames++;
         if (perf.lastSubmit) perf.frameDt.push(Math.min(Math.max(50, frameTarget() * 2.5), now - perf.lastSubmit));
+        const T = frameTarget(), gap = perf.lastSubmit ? now - perf.lastSubmit : T;
+        perf.budget = !perf.gpuHeld && gap > 1.5 * T ? Math.min(gap, 2 * T) : T;
+        perf.gpuHeld = false;
         perf.lastSubmit = now;
         eng.season = seasonAt(eng.simTime);
         const step = !portraitHold && plan(now) || { steps: 0, dt: H };
@@ -30870,6 +30902,7 @@ ${e.message}` : String(e?.message || e));
         }
         film.frame();
         inflight++;
+        nudge();
         const sent = cur;
         device.queue.onSubmittedWorkDone().then(() => {
           inflight--;

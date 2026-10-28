@@ -2593,7 +2593,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // climbing back into the same stutter: 30 s, twice as long each time a climb back fails at once
       perf.hold = now - perf.raisedAt < 6000 ? Math.min(240000, (perf.hold || 30000) * 2) : 30000;
       perf.ceilingUntil = now + perf.hold;
-      if (autoD && density() > 1.01) {
+      // The browser's own pace: it hands out frames at most every second vblank while this page's work, the
+      // GPU's and the script's, fills under 30% of that (Firefox's vsync ran at 31 ms for minutes with 4 ms
+      // frames). Fewer pixels can't bring its frames back, and cut the view to half resolution for nothing;
+      // only a lower frame rate is tried (which also lightens the browser's compositing, if that's the cause).
+      const pace = perf.rafMed > 1.8 * displayMs() && perf.gpu + perf.mainMs < 0.3 * perf.rafMed && !busy && !stressed();
+      if (pace) perf.why = 'browser pace';
+      if (pace) { if (autoF && perf.slow < 4) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + 1); } }
+      else if (autoD && density() > 1.01) {
         densityCap = 1; perf.denseUntil = now + perf.hold;
         resizeDue = true;
       } else if (renderScale > floor + 0.01 && !(autoF && simBound && perf.slow < 4)) {
@@ -3218,6 +3225,23 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let frameCount = 0;
   let lastPanels = 0;
   let inflight = 0;
+  // Firefox learns that GPU work is done only when the page submits again or on a 100 ms timer (bug 1870699):
+  // with two frames in flight the next frame waits on the last, so it waited for that timer, and frames done in
+  // 4 ms were seen done after 19 (p90 32; at Max p90 87, p99 113), which held real time at 51 fps and Max at
+  // 30. While frames are in flight it is nudged with empty submits every few ms. Other browsers see their work
+  // done at once and are left alone.
+  const nudgeGPU = /Firefox\//.test(navigator.userAgent);
+  let nudging = false;
+  const nudge = () => {
+    if (!nudgeGPU || nudging) return;
+    nudging = true;
+    const tick = () => {
+      if (!inflight) { nudging = false; return; }
+      try { device.queue.submit([]); } catch { nudging = false; return; }
+      setTimeout(tick, 2);
+    };
+    setTimeout(tick, 2);
+  };
   let shownFrame = null; // the camera and moment of the world frame the GPU finished last
   // The simulation clock, after Glenn Fiedler's "Fix Your Timestep!": real time, from the vsync-aligned
   // requestAnimationFrame timestamps, times the speed is owed to the simulation, and each drawn frame
@@ -3249,7 +3273,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (!S) return { steps: 4, dt, world };
     // whole steps only; the fraction left over carries to the next frame, so a step that costs a good
     // part of the interval doesn't leave the GPU idle for the rest of it
-    perf.stepCredit = Math.min(perf.stepCredit + (frameTarget() - cost) / S, MAX_STEPS);
+    perf.stepCredit = Math.min(perf.stepCredit + ((perf.budget || frameTarget()) - cost) / S, MAX_STEPS);
     const steps = clamp(Math.floor(perf.stepCredit), 1, MAX_STEPS);
     perf.stepCredit = clamp(perf.stepCredit - steps, 0, 1);
     return { steps, dt, world };
@@ -3261,7 +3285,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (world) perf.worldAt = now;
     const dt = m * H, S = stepCost();
     // the frame's budget in steps, its fraction carried as at Max
-    perf.stepCredit = S ? Math.min(perf.stepCredit + (frameTarget() - (world ? perf.renderR : perf.presentR || 0.3)) / S, MAX_STEPS) : 4;
+    perf.stepCredit = S ? Math.min(perf.stepCredit + ((perf.budget || frameTarget()) - (world ? perf.renderR : perf.presentR || 0.3)) / S, MAX_STEPS) : 4;
     const cap = Math.max(1, Math.floor(perf.stepCredit));
     let steps = Math.floor(clock.owed / dt);
     // beyond the budget a couple of steps stay owed, to even out whole steps; the rest is dropped
@@ -3316,6 +3340,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (dt >= 2) rafDt.push(dt);
     if (rafDt.length >= 60) {
       rafDt.sort((a, b) => a - b);
+      perf.rafMed = rafDt[rafDt.length >> 1]; // the pace the browser hands out frames at (adaptQuality)
       const lo = rafDt[Math.floor(rafDt.length * 0.1)];
       const ms = median(rafDt.filter((x) => x < lo * 1.4));
       // A longer interval is the display's only while the page could have kept the shorter one: when
@@ -3345,9 +3370,18 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
     // Two frames in flight keep the GPU fed without queueing more of its time ahead of everything else
     // (on a phone the compositor shares the GPU: a deep queue of long frames starves the whole screen).
+    if (due && inflight >= 2) perf.gpuHeld = true;
     if (!state.busy && inflight < 2 && due) {
       perf.frames++;
       if (perf.lastSubmit) perf.frameDt.push(Math.min(Math.max(50, frameTarget() * 2.5), now - perf.lastSubmit));
+      // Fast speeds fill a frame with the GPU time it has. When the browser hands out frames more slowly than
+      // the display's rate (Firefox's vsync ran every second vblank, 31 ms, for minutes at a time), a frame
+      // planned for one interval left the GPU idle for the next and Max ran at 60% of its speed: a frame
+      // that comes over 1.5 intervals after the last, while the GPU wasn't what held it, has the time that
+      // passed (at most two intervals).
+      const T = frameTarget(), gap = perf.lastSubmit ? now - perf.lastSubmit : T;
+      perf.budget = !perf.gpuHeld && gap > 1.5 * T ? Math.min(gap, 2 * T) : T;
+      perf.gpuHeld = false;
       perf.lastSubmit = now;
       eng.season = seasonAt(eng.simTime);
       // a species card's portrait holds the world still between finding its subject and drawing it
@@ -3413,6 +3447,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // a film copies the world's canvas while its texture is current
       film.frame();
       inflight++;
+      nudge();
       const sent = cur;
       device.queue.onSubmittedWorkDone().then(() => { inflight--; shownFrame = sent; }, () => { inflight--; });
       if (sel && frameCount % 10 === 0 && !state.paused) gatherTick(false);

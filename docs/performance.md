@@ -78,18 +78,32 @@ rough cost (`COMPILE_COST`). Headless runs wait for every pipeline.
 
 ## Firefox
 
-Measured 2026-10-28 on the RTX 4070 Ti (Firefox 159 stable against Chrome 156, both driven by Puppeteer,
-`runs/perf/ff/ffbench.mjs` and `ffprobe.mjs`, a portable Firefox from `@puppeteer/browsers`):
+Measured 2026-10-28 on the RTX 4070 Ti, Firefox 159 stable against Chrome 156, 2M particles. Firefox
+launched plainly (`runs/perf/ff/plain.mjs`: no automation attached, the page posting its own numbers;
+under Puppeteer Firefox's frames came unevenly from the start) and a portable Firefox from
+`@puppeteer/browsers`. What each browser does differently, and what the page does about it:
 
-- Starting: about 30 s on every load (27 s compiling); Firefox keeps no compiled WebGPU shaders between
-  loads. Chrome: 11 s from an empty cache, 2.7 s after (both with the particle calibration).
-- A simulation step costs about the same GPU time (2.1 ms against 1.95 at 2M particles).
-- Frames: Firefox ran requestAnimationFrame on a 60 Hz clock that skips (intervals of 16 or 31 ms, 36–49
-  fps on an empty page) on the 175 Hz display, possibly an effect of automation. Judged late, the
-  adaptation settled at 30 fps and cut the render scale to 50–70% though the GPU was mostly idle, and at
-  Max, whose steps per frame are budgeted for the 60 fps aimed at, it ran 8–10× where Chrome ran 13×.
+- GPU work costs the same: a step 1.8–2.1 ms in both (timestamp queries).
+- Starting: about 30 s on every load. Firefox compiles pipelines one at a time on its single WebGPU
+  thread (`create*PipelineAsync` included; bug 1968568) and keeps none between loads (wgpu has no D3D12
+  pipeline cache). The same DXC work Chrome does in parallel and caches. One at a time (seconds):
+  lifeMainCoarse 4.8, fsLoupe 4.5, lifeMain 3.1, fsComposite 2.6 twice (with and without the micro
+  specks), mindMainCoarse 2.5, fsPoint 1.7, mindMain 1.7, contactGather 1.6; 29.6 in all.
+- Work done is noticed only when the page submits again or on a 100 ms timer (bug 1870699): with two
+  frames in flight, frames done in 4 ms were seen done after 19 (p90 32; at Max p90 87, p99 113), which
+  held real time at 51 fps and Max at 30 fps and 7–10×. `nudge` in main.js submits nothing every few
+  ms while frames are in flight (Firefox only): 7 ms, 61 fps, and Max as fast as Chrome's.
+- Firefox's vsync thread (parent process, `WaitForVBlank` on the primary display, then a software
+  step) fell from every 16 ms to every 31 ms after 2–50 s, for minutes, on an empty WebGPU page too
+  (there it recovered after about 10 s). The profiler showed it (`MOZ_PROFILER_STARTUP` with
+  `nostacksampling`; with stack sampling it never happened). `gfx.vsync.force-disable-waitforvblank`
+  made it 4 fps. The displays were probably asleep: check this on a machine in use. The page now copes:
+  a fast-speed frame that comes over 1.5 intervals late, the GPU not the cause, is given the time that
+  passed (`perf.budget`), so Max reached 12.35× at 34 fps (Chrome 12.95×); and while the browser hands
+  out frames at most every second vblank and the page's work fills under 30% of that ("browser pace"),
+  only the frame rate is lowered, not the resolution (it fell to 50% before).
 - It sometimes runs two callbacks 0.02 ms apart; taken for the display's interval they had the frame
-  rate cut to 10 fps, so intervals under 2 ms are now ignored.
+  rate cut to 10 fps, so intervals under 2 ms are ignored.
 
 ## What keeps the frame rate (main.js `adaptQuality`)
 
