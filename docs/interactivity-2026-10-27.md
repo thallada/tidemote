@@ -6,7 +6,8 @@ cheapening it. Today the page is a thing to watch, inspect and name; the one act
 Pool events → Start one now. What follows is a field of options, a diagnosis of what would and would not fit,
 and six avenues developed in depth with rule sketches, what each needs from the code, and what could go
 wrong. A brainstorm to be screened, not a plan already decided; what has since been decided is marked *Decided* with
-its date, and the interface chosen for the hand is in 4.8.
+its date, and the interface chosen for the hand is in 4.8. *Built (2026-10-28):* the bench, the ride, the pipette and the
+cabinet, with the interface of 4.8; docs/hand.md says how, and where they differ from this plan.
 
 **The stance, restated.** Every ecological rule is local; nothing census-driven steers the ecology; matter is
 conserved; energy enters only as light. The gate stays the floor. Interaction has to live inside that, or it
