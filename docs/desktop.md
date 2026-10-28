@@ -148,4 +148,57 @@ version, its own switches, real fullscreen and saves the browser cannot evict.
   rates, GPU time, the step and every pass, in both the 1M and 4M worlds. The desktop app neither gains
   nor loses anything over the browser. One load in three of the 4M world, in either, runs a step half
   as slow again (`matterMain` 1.8 → 6.8 ms, `lifeMain` 6 → 7.7), whatever the climate: not yet traced.
-- Not yet: an icon.
+- Not yet: an icon (see Releasing on Steam below for everything else open).
+
+## Releasing on Steam: what is left, in order
+
+What the code needs is above; this is the path from here to a store page and a release, with what is
+still open on our side. Valve's own pages are the authority for their rules and timings (checked
+2026-10-27): [Onboarding](https://partner.steamgames.com/doc/gettingstarted/onboarding),
+[Release Process](https://partner.steamgames.com/doc/store/releasing),
+[Coming Soon](https://partner.steamgames.com/doc/store/coming_soon),
+[Review Process](https://partner.steamgames.com/doc/store/review_process),
+[Uploading to Steam](https://partner.steamgames.com/doc/sdk/uploading).
+
+1. **Steamworks account and app id.** Join the Steamworks partner program (identity, bank and tax
+   forms; onboarding takes a few weeks) and pay the Steam Direct fee for Tidemote ($100, recouped
+   once the game has earned $1,000). There is a 30-day wait between paying it and the first release,
+   so this starts the clock. The fee gives the app id.
+2. **Wire in the app id.** `APP_ID` in `desktop/steam.js`; run `smoke.mjs --steam APPID` against a
+   packaged build. Then the parts only a real app id can check: a Workshop upload and download, and an
+   achievement Steam accepts.
+3. **Steamworks configuration**, each described above: Steam Cloud (quota, the Auto-Cloud roots),
+   Workshop (ISteamUGC file transfer on), Stats & Achievements (the list in `src/achievements.js`,
+   names, descriptions, an achieved and an unachieved icon for each), the depots (one per OS) and a
+   launch option per OS pointing at the executable.
+4. **Builds through SteamPipe.** Install the Steamworks SDK's `steamcmd` and write
+   `app_build_APPID.vdf` and one `depot_build_DEPOTID.vdf` per OS (content root:
+   `desktop/out/Tidemote-win32-x64/`, and the Linux build's folder). Upload with
+   `steamcmd +login ... +run_app_build app_build_APPID.vdf +quit`; set the build live on a beta branch
+   first, then on the default branch from Steamworks. Neither the scripts nor a script that runs
+   them are in the repo yet.
+5. **What the app still lacks** (our work, before the build review):
+   - An icon: the window and executable icon (`.ico` for Windows, `.png` for Linux; Electron
+     Packager's `--icon`), plus Steam's library and client icons.
+   - Linux, for the Steam Deck: a native Linux package (Vulkan switches already set, see Switches),
+     run on a real Deck (AMD, RADV): controls without a mouse (trackpads, touch, the on-screen
+     keyboard for naming), text legible at 1280×800, the frame rate the page picks there. Steam Deck
+     Verified review follows from that.
+   - Known performance issues, not blockers: one load in three of the 4M world steps slower
+     (Status); `life.genera` grows without bound in long runs (about 5,000 genera an hour, 67,000 at
+     12 hours: the save and the heap grow with it).
+   - macOS last: signing and notarization.
+6. **Store page.** Description, short description, tags, the content survey (age ratings), system
+   requirements (a WebGPU-capable GPU: D3D12 on Windows, Vulkan on Linux), price (decided: free or
+   $1–2), screenshots, the capsule images in Valve's sizes, and a trailer (`runs/promo` has the
+   tab-capture pipeline and the chosen track). Mark it ready for review: Valve takes 3–5 business days
+   and asks for at least 7. The store page must pass before the build can be submitted.
+7. **Coming Soon.** Once the page is approved, publish it as Coming Soon. A new game's page must be
+   public at least two weeks before release, and a release date within 14 days can no longer be moved
+   without asking Valve. Wishlists start here.
+8. **Build review.** Upload a mostly final build to the default branch, finish the build checklist,
+   and mark it ready for review (3–5 business days; plan for 7). Updates can still go up during and
+   after the review.
+9. **Release.** Approved games do not release themselves: press Release App, then Publish Now, in
+   Steamworks. Later updates go up through SteamPipe the same way; the web version at tidemote.com
+   stays free alongside.
