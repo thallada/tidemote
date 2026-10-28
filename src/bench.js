@@ -6,6 +6,7 @@ import { fmtLen } from './fmt.js';
 import { wireCardDrag } from './minicard.js';
 
 const $ = (id) => document.getElementById(id);
+const coarse = matchMedia('(pointer: coarse)').matches;
 const icon = (id) => `<svg aria-hidden="true"><use href="#i-t-${id}"/></svg>`;
 // Reach on a logarithmic slider: 0..1000 over REACH.min..max
 const LOG = Math.log(REACH.max / REACH.min);
@@ -65,7 +66,7 @@ export function createBench({ hand, pick, reach, onToggle = () => {}, pip }) {
     for (const b of dock.children) b.setAttribute('aria-pressed', String(b.dataset.tool === t.id));
     for (const b of drawer.querySelectorAll('.tile')) b.setAttribute('aria-checked', String(b.dataset.tool === t.id));
     $('bench-held').textContent = up ? `${t.name} in hand · Esc puts it down` : 'The loupe in hand';
-    $('bench-hint').innerHTML = `<b>${t.name}</b> · ${t.hint}`;
+    $('bench-hint').innerHTML = `<b>${t.name}</b> · ${(coarse && t.touch) || t.hint}`;
     if (document.activeElement !== slider) slider.value = toSlider(hand.reach);
     $('reach-v').textContent = t.id === 'needle' ? 'a point' : fmtLen(hand.reach);
     slider.disabled = t.id === 'needle' || t.id === 'loupe';

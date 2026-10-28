@@ -320,7 +320,7 @@ export function createLab(api) {
     });
     // each drawing lights the lineage the pointer is on in the other
     const drawM = (hot) => { box = drawMuller(mCv, c, eras, { hot, minLeft: 30, onHot: drawT }); };
-    const drawT = (hot) => { if (box) drawTree(treeCv, c, lay, eras, { hot, l: box.l, r: box.r, onHot: drawM }); };
+    const drawT = (hot) => { if (box) drawTree(treeCv, c, lay, eras, { hot, l: box.l, r: box.r, onHot: drawM, rode: new Set(api.life().rode || []) }); };
     function update(force) {
       const now = performance.now();
       // a long world's records take longer to recut: refresh it less often

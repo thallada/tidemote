@@ -60,7 +60,7 @@ export function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
       return null;
     },
     /** What was set down of a `next`: placed of its cells (the rest stay, bonds to the placed dropped). */
-    placed(n, { sp, org, made }, placed) {
+    placed({ sp, org, made }, placed) {
       if (org) {
         if (placed >= org.cells.length) sp.orgs.splice(sp.orgs.indexOf(org), 1);
         else {

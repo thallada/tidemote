@@ -482,7 +482,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       estThreshold: 30, births: 0, prevG: null, prevD: null, prevT: 0, prunedAt: 0, chartSp: new Map(),
       // the hand's acts on this world (hand.js): a world touched says so wherever its record goes; what the
       // pipette holds
-      hand: [], pipette: { species: [] },
+      hand: [], pipette: { species: [] }, rode: [], // (rode: the species ridden, marked in the lineage view)
     };
     hand.reset(life.hand);
     pipette = createPipette(life.pipette);
@@ -655,6 +655,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       Object.assign(life, page.life, { lastCensus: null });
       life.hand ??= [];
       life.pipette ??= { species: [] };
+      life.rode ??= [];
       hand.reset(life.hand);
       pipette = createPipette(life.pipette);
       handSeen = life.hand.length;
@@ -1248,6 +1249,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       return;
     }
     sel.rideKind = sel.particle.kind; // (its kind, for Tab once it is gone)
+    const serial = genomeFor(sel.particle.kind)?.serial;
+    if (serial && !life.rode.includes(serial)) life.rode.push(serial);
     const fast = state.speed > 2;
     if (fast && (ride.at || ride.arrows.size) && !ride.warned) { ride.warned = true; flash('Steering only at ×2 or slower'); }
     if (!fast) ride.warned = false;
@@ -1804,7 +1807,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const ours = card ? card.world === worldId() && life.reg.has(card.serial) : true;
     const serial = card ? card.serial : x, n = clamp(Math.round((K.foundLife * eng.count) / K.foundColonies), 12, 96);
     const live = ours && life.reg.get(serial);
-    if (!pipette.load({ card: card?.id || `s${serial}`, serial, words, name, home: card?.home || climate.name, slot: live?.alive ? live.slot : null, stranger: !ours }, n)) {
+    if (!pipette.load({ card: card?.id || `s${serial}`, serial, words, name, home: ours ? undefined : card.home, slot: live?.alive ? live.slot : null, stranger: !ours }, n)) {
       flash(`The pipette is full · ${fmt(PIPE_LIMIT)} cells · set some down`); return;
     }
     flash(`A colony of ${name} in the pipette · pick it up (8) to set it down`);
@@ -2421,7 +2424,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
       cards: (flat) => pipette.species.map((sp, i) => miniCard(genomeOfWords(sp.words), K, { key: pipKey(sp), name: sp.name, home: sp.home || 'this world',
         n: pipette.cells(sp), bodies: sp.orgs.filter((o) => o.cells.length > 1).length, tip: i === 0, flat })).join(''),
       toTip: (key) => { const sp = pipSp(key); if (sp) pipette.toTip(sp); },
-      open: (key) => { const sp = pipSp(key); if (sp && !sp.stranger && life.reg.has(sp.serial)) cards.open(sp.serial); },
+      // its card: this world's species live, a carried one's from the cabinet
+      open: (key) => {
+        const sp = pipSp(key), c = sp && cabinet.cards.find((x) => x.id === sp.card);
+        if (sp && !sp.stranger && life.reg.has(sp.serial)) cards.open(sp.serial);
+        else if (c) cards.openSaved({ ...c, genome: genomeOfWords(c.words) });
+      },
       drop: (key, x, y) => { const sp = pipSp(key); if (sp) dropNext(x, y, pipette.all(sp)); },
       arm: () => { pull.armed = !pull.armed; },
     } });
@@ -2544,10 +2552,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // each item's share of what was placed, in order (a species without a slot placed none)
     let left = res.placed, total = 0;
     items.forEach((it, k) => {
-      const spOk = res.slots[job.species.findIndex((x) => x.words === it.sp.words)] !== NONE;
-      const got = spOk ? Math.min(left, job.counts[k]) : 0;
+      const slot = res.slots[job.species.findIndex((x) => x.words === it.sp.words)];
+      const got = slot !== NONE ? Math.max(0, Math.min(left, job.counts[k])) : 0;
       left -= job.counts[k]; total += got;
-      if (got > 0) { it.sp.slot = res.slots[job.species.findIndex((x) => x.words === it.sp.words)]; pipette.placed(got, it, got); }
+      if (got > 0) { it.sp.slot = slot; pipette.placed(it, got); }
     });
     if (total) hand.note('setdown', wx, wy, eng.simTime, total);
     if (total < job.cells.length) flash(total ? `${fmt(total)} of ${fmt(job.cells.length)} set down: too little silt here for the rest` : 'Too little silt here to set them down');
@@ -4114,7 +4122,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // as the adaptive scale does it: applied when the next frame begins
     queueScale(v) { renderScale = v; resizeDue = true; },
     // a world saved by eng.readState(), in place of this one
-    loadWorld: applyWorld, hand, loadCard, cabinet,
+    loadWorld: applyWorld, hand, loadCard, saveCard, cabinet,
     // a .tidemote file's bytes, as Settings → Worlds opens one
     openWorld: async (bytes) => loadWorld(await openWorld(bytes)) };
 

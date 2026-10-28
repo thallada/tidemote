@@ -24,9 +24,9 @@ test('species in the order their first cells came in; the tip leaves first, its 
   assert.deepEqual(pp.species.map((s) => s.serial), [7, 8]);
   const n = pp.next();
   assert.equal(n.cells.length, 3, 'the last in');
-  pp.placed(3, n, 3);
+  pp.placed(n, 3);
   assert.equal(pp.count, 3);
-  pp.placed(1, pp.next(), 1);
+  pp.placed(pp.next(), 1);
   assert.deepEqual(pp.species.map((s) => s.serial), [8], 'a species set down whole leaves the strip');
   pp.toTip(pp.species[0]);
   assert.equal(pp.tip.serial, 8);
@@ -36,7 +36,7 @@ test('a body only partly set down keeps the rest, its bonds to the placed droppe
   const pp = createPipette();
   pp.add(sp(7), [rec(1, [2, NONE]), rec(2, [3, NONE]), rec(3, [NONE, NONE])], new Map());
   const n = pp.next();
-  pp.placed(3, n, 1);
+  pp.placed(n, 1);
   assert.deepEqual(pp.species[0].orgs[0].cells.map((c) => [c[6], c[7]]), [[1, -1], [-1, -1]]);
 });
 
@@ -51,7 +51,7 @@ test('the limit: whether a body fits, and a card’s colony that does not is ref
   assert.equal(pp.species[1].made, 4);
   const n = pp.next(pp.species[1], 3);
   assert.equal(n.made, 3, 'a colony at a time');
-  pp.placed(3, n, 3);
+  pp.placed(n, 3);
   assert.equal(pp.species[1].made, 1);
 });
 

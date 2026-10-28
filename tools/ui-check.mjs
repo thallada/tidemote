@@ -1,6 +1,8 @@
-// Drives the built page in Chrome and checks two interactions: a click on a species in the census chart
-// opens and highlights it, and a second click on it clears both; Settings → Sound → Volume sets the
-// volume by mouse and by finger, turns sound on, and keeps the dock slider in step.
+// Drives the built page in Chrome and checks its interactions: a click on a species in the census chart
+// opens and highlights it, and a second click on it clears both; Save keeps a species' card in the cabinet and
+// Card opens it; the bench, a tool held, Esc, the speed ladder, the pipette loaded from a card and set down (docs/
+// hand.md); Settings → Sound → Volume sets the volume by mouse and by finger, turns sound on, and keeps the dock
+// slider in step.
 //   npm run build && tools/gpu-node.sh tools/ui-check.mjs
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http';
 import { chromium } from 'playwright-core';
@@ -47,6 +49,9 @@ for (const touch of [false, true]) {
     // a species card from the specimen panel: named with Enter, the name everywhere; Esc closes it
     await page.evaluate(() => { const T = globalThis.__tidemote, sp = [...T.life().reg.values()].filter((x) => x.alive && x.established).sort((a, b) => b.pop - a.pop)[0]; T.openSpecies(sp.serial); });
     await page.waitForTimeout(500);
+    await page.click('#spec-acts [data-act="save"]');
+    await page.waitForTimeout(5000);
+    check(`${tag} Save keeps its card in the cabinet`, await page.evaluate(() => globalThis.__tidemote.cabinet.cards.length === 1 && !!document.querySelector('#spec-acts [data-act="card"]')));
     await page.click('#spec-acts [data-act="card"]');
     await page.waitForTimeout(2500);
     check(`${tag} Card opens the species card`, await page.evaluate(() => !document.getElementById('card').hidden));
@@ -71,6 +76,49 @@ for (const touch of [false, true]) {
       const d = await dl;
       check(`${tag} R again stops and saves the film`, !!d && /\.(webm|mp4)$/.test(d.suggestedFilename()), d ? d.suggestedFilename() : 'no download');
     }
+  }
+  // the bench (docs/hand.md): a tool picked, held on the world, put down; the speed ladder; the pipette
+  {
+    const T = (f) => page.evaluate(f);
+    const vp = page.viewportSize(), at = [vp.width * 0.6, vp.height * 0.35];
+    if (touch) { await page.tap('#bench-open'); await page.waitForTimeout(300); await page.tap('.tile[data-tool="lamp"]'); }
+    else { await page.keyboard.press('b'); await page.waitForTimeout(300); await page.keyboard.press('3'); await page.keyboard.press('b'); }
+    await page.waitForTimeout(300);
+    check(`${tag} the bench picks the lamp`, await T(() => globalThis.__tidemote.hand.tool === 'lamp'));
+    if (touch) { await page.touchscreen.tap(...at); await page.waitForTimeout(200); }
+    const cdp = touch ? await ctx.newCDPSession(page) : null;
+    if (touch) await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: at[0], y: at[1] }] });
+    else { await page.mouse.move(...at); await page.mouse.down(); }
+    await page.waitForTimeout(1500);
+    check(`${tag} the lamp held lights the water`, await T(() => globalThis.__tidemote.eng.hand[3] > 0.3), String(await T(() => globalThis.__tidemote.eng.hand[3])));
+    if (touch) await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); else await page.mouse.up();
+    if (touch) await page.tap('#held-down'); else await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    check(`${tag} ${touch ? 'Put down' : 'Esc'} puts the tool down`, await T(() => globalThis.__tidemote.hand.tool === 'loupe' && globalThis.__tidemote.life().hand.length > 0));
+    // the ladder: a speed picked (a slow one: those above real time are on offer only as the GPU sustains them),
+    // then a double tap back to real time
+    await page.click('#t-speed');
+    await page.waitForTimeout(300);
+    const rung = page.locator('#ladder .rung[data-v="0.5"]');
+    check(`${tag} the speed chip opens the ladder`, await rung.isVisible());
+    const rb = await rung.boundingBox();
+    check(`${tag} the ladder's rungs are big enough to touch`, rb.height >= 24, `${Math.round(rb.height)}`);
+    await rung.click();
+    await page.waitForTimeout(300);
+    check(`${tag} a rung sets its speed and closes the ladder`, await T(() => globalThis.__tidemote.state.speed === 0.5 && document.getElementById('ladder').hidden));
+    await page.click('#t-speed'); await page.click('#t-speed');
+    await page.waitForTimeout(300);
+    check(`${tag} a double tap on the chip is real time`, await T(() => globalThis.__tidemote.state.speed === 1 && document.getElementById('ladder').hidden));
+    // the pipette: a colony from a card, set down
+    await T(() => { const t = globalThis.__tidemote, sp = [...t.life().reg.values()].filter((x) => x.alive && x.established).sort((a, b) => b.pop - a.pop)[0]; t.loadCard(sp.serial); });
+    const held = () => T(() => globalThis.__tidemote.life().pipette.species.reduce((n, x) => n + (x.made || 0) + x.orgs.reduce((m, o) => m + o.cells.length, 0), 0));
+    const n0 = await held();
+    check(`${tag} a card loads a colony into the pipette`, n0 >= 12, String(n0));
+    if (touch) { await page.tap('#bench-open'); await page.waitForTimeout(300); await page.tap('.tile[data-tool="pipette"]'); await page.touchscreen.tap(...at); await page.waitForTimeout(200); await page.touchscreen.tap(...at); }
+    else { await page.keyboard.press('8'); await page.mouse.click(...at); }
+    await page.waitForTimeout(2000);
+    check(`${tag} the pipette sets the colony down`, (await held()) === 0, String(await held()));
+    if (touch) await page.tap('#held-down'); else await page.keyboard.press('Escape');
   }
   // the auto camera's Next button (laptop only) and X: on to a new shot
   {

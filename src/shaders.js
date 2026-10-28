@@ -1015,23 +1015,19 @@ function cellWGSL(K, w) {
     let lt = lightSlope(p.pos) * (g.tail.z * ${f(K.phototaxis)} * min(th.perf, 1.0));${W('mPhoto = lt;')}
     taxis += lt;
   }
-  // a ridden cell's will (docs/hand.md): one more drive, toward where the viewer steers it, as strong as its
-  // swimming lets it be (a reef, or a producer adrift, cannot be steered), and paid for in upkeep as swimming is
+  // the hand's pull (docs/hand.md): a ridden cell's will, one more drive toward where the viewer steers it, as strong
+  // as its swimming lets it be (a reef, or a producer adrift, cannot be steered; its cost is in upkeep, below); and
+  // the pipette's draw on the cells of the organism it is drawing up, toward its tip (a bond it stretches too far
+  // breaks, as any bond does: a loose body tears, a tight one comes whole)
   var will = vec2f(0.0);
-  var willCost = 0.0;
   if (p.id == sim.hand.ids.y && swim > 0.0) {
     let wd = handD(sim.hand.more.zw, p.pos);
-    let ws = bitcast<f32>(sim.hand.ids.z);
-    will = wd / max(length(wd), 0.25) * (swim * ws * ${f(K.will)});
-    willCost = ws * ${f(K.willCost)} * g.metab;
+    will = wd / max(length(wd), 0.25) * (swim * bitcast<f32>(sim.hand.ids.z) * ${f(K.will)});
   }
-  // the pipette's draw: the cells of the organism it is drawing up are pulled toward its tip (a bond it stretches too
-  // far breaks, as any bond does: a loose body tears, a tight one comes whole)
-  var drawTo = vec2f(0.0);
   let sk = sim.hand.suck;
   if (sk.w > 0.0) {
     let sd = handD(sk.xy, p.pos);
-    if (dot(sd, sd) < 9.0 * sk.z * sk.z && drawn(p.id)) { drawTo = sd / max(length(sd), 0.05) * sk.w; }
+    if (dot(sd, sd) < 9.0 * sk.z * sk.z && drawn(p.id)) { will += sd / max(length(sd), 0.05) * sk.w; }
   }
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
@@ -1152,7 +1148,7 @@ function cellWGSL(K, w) {
       }
       vel += normalize(dir) * swim * h;${W('if (k == 0u) { mSwim = normalize(dir) * swim; }')}
     }
-    vel += (taxis + will + drawTo) * h;
+    vel += (taxis + will) * h;
     if (stranded) {
       vel = vel * exp(-${f(K.dryDrag)} * h) - pond.yz / max(length(pond.yz), 1e-4) * (${f(K.meniscus)} * (1.0 - smoothstep(0.0, ${f(K.filmR)}, -shore)) * h);
     }
@@ -1184,6 +1180,8 @@ function cellWGSL(K, w) {
   // thermal stress costs upkeep (relative to the cell's own optimum); torpor saves most of it; a
   // heat-maker burns extra, all of it heat
   let heatMaking = ${f(K.heat ? K.thermoCost : 0)} * thermo;
+  // a ridden cell pays for its will as for swimming
+  let willCost = select(0.0, bitcast<f32>(sim.hand.ids.z) * ${f(K.willCost)} * g.metab, p.id == sim.hand.ids.y && swim > 0.0);
   let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0))
     * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking + willCost;`;
 }

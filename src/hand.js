@@ -11,7 +11,7 @@ export const TOOLS = [
   { id: 'warm', name: 'Warm', hint: 'The heated stage: hold to warm the water under it' },
   { id: 'cold', name: 'Cold', hint: 'The cold probe: hold to chill the water under it' },
   { id: 'needle', name: 'Needle', hint: 'Click: prick one cell · drag: cut the bonds the tip crosses' },
-  { id: 'pipette', name: 'Pipette', hint: 'Right button pulls what is under it · left sets down the tip species' },
+  { id: 'pipette', name: 'Pipette', hint: 'Right button draws up what is under it · left sets down the tip species', touch: 'A tap sets down the tip species · Pull, then a tap, draws up (any tap while it is empty)' },
 ];
 export const toolOf = (id) => TOOLS.find((t) => t.id === id) || TOOLS[0];
 export const keyOf = (id) => String(TOOLS.findIndex((t) => t.id === id) + 1);

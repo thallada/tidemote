@@ -244,6 +244,8 @@ export function drawTree(cv, c, lay, eras, opts = {}) {
     g.font = LABEL;
     g.lineJoin = 'round'; g.lineWidth = 3; g.strokeStyle = PANEL; g.strokeText(name, x, y);
     g.globalAlpha = a; g.fillStyle = u.alive ? INK : INK2; g.fillText(name, x, y); g.globalAlpha = 1;
+    // a line the viewer rode (docs/hand.md), underlined in the sun color
+    if (opts.rode && u.members.some((m) => opts.rode.has(m.serial))) { g.fillStyle = 'rgba(241,227,160,0.9)'; g.fillRect(x, y + 3, tw, 1); }
     it.pill = [x + tw + 6, y - 10, pw, 14];
     const follow = !u.other && (u.hidden > 0 || u.kids.length > 0 || u.members.length > 1);
     it.follow = follow;

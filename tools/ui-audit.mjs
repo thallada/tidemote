@@ -196,6 +196,24 @@ for (const s of SIZES) {
   await open('#set-tabs [data-tab="performance"]');
   await page.waitForTimeout(1500);
   await snap('perf');
+  // the bench (docs/hand.md): its drawer with the pipette in hand and a colony in it, the speed ladder, the cabinet
+  // with a card in it (an older build, --page, may have none of them)
+  if (await page.evaluate(() => !!globalThis.__tidemote.hand)) {
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => { const T = globalThis.__tidemote, sp = [...T.life().reg.values()].filter((x) => x.alive).sort((a, b) => b.pop - a.pop)[0]; if (sp) T.loadCard(sp.serial); });
+    await open('#bench-open');
+    await open('.tile[data-tool="pipette"]');
+    await snap('bench');
+    if (!s.touch) rec.axeBench = await axeRun(page);
+    await open('#bench-open');
+    await open('#t-speed');
+    await snap('ladder');
+    await page.keyboard.press('Escape');
+    await page.evaluate(async () => { const T = globalThis.__tidemote, sp = [...T.life().reg.values()].filter((x) => x.alive).sort((a, b) => b.pop - a.pop)[0]; if (sp) await T.saveCard(sp.serial); });
+    await page.waitForTimeout(1800);
+    await page.evaluate(() => globalThis.__tidemote.lab.open('cabinet'));
+    await snap('cabinet');
+  }
   await ctx.close();
 }
 await browser.close(); server.close();
@@ -210,6 +228,6 @@ for (const [id, r] of Object.entries(report.sizes)) {
       + `  hscroll: ${m.hscroll ? 'YES' : 'no'}  offscreen: ${m.offscreen.map((o) => o.id).join(',') || '-'}  clipped: ${m.clipped.length}`
       + (m.boxes.specBody ? `  spec scroll h: ${m.boxes.specBody.h}` : '') + (m.compass ? `  compass: ${m.compass.ok ? 'ok' : m.compass.na ? `n/a, ${m.compass.na}${m.compass.na === 'peek' ? '' : ` (below the fold: ${m.compass.compassBottom} > ${m.compass.visibleBottom})`}` : `HIDDEN (${m.compass.compassBottom} > ${m.compass.visibleBottom})`}` : ''));
   }
-  for (const a of [...(r.axe || []), ...(r.axeCell || []), ...(r.axeCard || [])]) console.log(`  axe ${a.impact} ${a.id} ×${a.n}: ${a.help}`);
+  for (const a of [...(r.axe || []), ...(r.axeCell || []), ...(r.axeCard || []), ...(r.axeBench || [])]) console.log(`  axe ${a.impact} ${a.id} ×${a.n}: ${a.help}`);
 }
 console.log(`\n${out}`);
