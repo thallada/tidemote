@@ -26,7 +26,7 @@ import { earned } from './achievements.js';
 import { createCards } from './card.js';
 import { createFilm } from './film.js';
 import { parseMind, interpretMind, settleMind } from './mind.js';
-import { createHand, REACH, toolOf, keyOf, TOOLS } from './hand.js';
+import { createHand, REACH, toolOf, TOOLS } from './hand.js';
 import { createBench, reachStep } from './bench.js';
 import { createLadder } from './ladder.js';
 import { createPipette, setDownJob, PIPE_LIMIT } from './pipette.js';
