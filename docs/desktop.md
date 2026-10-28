@@ -126,20 +126,40 @@ version, its own switches, real fullscreen and saves the browser cannot evict.
 
 ## Shader cache
 
-Chromium keeps compiled WebGPU pipelines per profile (`DawnWebGPUCache` in userData), so a launch after
-the first starts the world in about 0.8 s instead of 4.4 (measured 2026-10-27, RTX 4070 Ti; the page's own
-`boot` times, in Settings → Performance → Copy profile). But once one version's pipelines are in it, a
-changed page's largest ones (`lifeMain`, `mindMain`, `matterMain`, each changed by a tunable or an update)
-are never stored beside them: every launch after an update compiled them again (2.9–4.3 s), and a larger
-`--gpu-disk-cache-size-kb` did not help. So `main.js` empties `DawnWebGPUCache` when the page's hash
-differs from the last launch's (`shader-cache-page` in userData), before Chromium opens it: the first
-launch of each version compiles, the rest find everything.
+Chromium keeps compiled WebGPU pipelines per profile (`DawnWebGPUCache`), so a load after the first
+starts the world in about 0.6–0.8 s instead of 4.4 (RTX 4070 Ti; the page's own `boot` times, in
+Settings → Performance → Copy profile). Why an update undid that (Chromium source, October 2026):
 
-Chrome does the same for the web version, where the page cannot clear it: after a site update, loads
-take about 3 s (down slowly with repeat visits) where a cached version takes 0.6. Measure with
-`runs/perf/cpu/compile-cache.mjs` (Chrome, one profile, `HASH=#k=...` for a changed page) and
-`runs/perf/cpu/boot-read.mjs` (an app started with `--remote-debugging-port`, read after it started:
-Playwright's own launch attaches DevTools early and changes the cache's keys).
+- The GPU process looks pipelines up only in an in-memory cache of 6 MiB
+  (`kDefaultMaxProgramCacheMemoryBytes`), one for the whole profile, every site's WebGPU shared.
+  `--gpu-disk-cache-size-kb` never reaches the GPU process; `--enable-features=AggressiveShaderCacheLimits`
+  doubles it.
+- At startup the browser hands it every entry on disk, newest first, and each one past 6 MiB pushes out
+  the earliest loaded: with more than 6 MiB on disk, the newest entries lose to old ones.
+- The disk cache (blockfile, also 6 MiB, no entry over 768 KiB) trims only after five minutes of
+  browser uptime, so an old version's pipelines stay.
+
+Tidemote's compiled set is about 5–6 MiB of that (47 entries, the largest `lifeMain` at 550 KiB), so
+after an update old plus new no longer fit, and every load compiled the newest, largest pipelines again
+(about 3 s), indefinitely. Measure it with `runs/perf/cpu/cache-probe.mjs` (fresh Chrome per load, one
+profile; `STEPS` of builds and `#k=` hashes, the cache folder after each).
+
+- The desktop app empties `DawnWebGPUCache` when the page's hash differs from the last launch's
+  (`shader-cache-page` in userData), before Chromium opens it: the first launch of each version
+  compiles, the rest find everything.
+- The web page keeps the hash of its shader sources (`__TIDEMOTE_SHADERS__`, `build.mjs`); when it
+  changes, it fetches `fresh-shaders.txt`, which answers `Clear-Site-Data: "cache"` (`site/_headers`).
+  That empties the profile's shader caches (every site's; Chromium ignores the origin there) and
+  Tidemote's HTTP cache, not its saves or settings. The GPU process keeps what it loaded at startup,
+  before any page or header can act, so the first visit after an update compiles what changed (about
+  3 s), the second what the clear took (about 3.5 s), and loads are back to 0.6 s from the third.
+  Measured: without it 4.6, 3.1, 3.0 s on, never better.
+- Not done: keeping the compiled set well under 6 MiB (fewer inlined call sites in the largest
+  kernels) would leave room for an update and for other sites' WebGPU.
+
+Measure the desktop app with `runs/perf/cpu/boot-read.mjs` (an app started with
+`--remote-debugging-port`, read after it started: Playwright's own launch attaches DevTools early and
+changes the cache's keys).
 
 ## Switches
 

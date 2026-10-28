@@ -1,4 +1,5 @@
 import { build } from 'esbuild';
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
@@ -15,6 +16,9 @@ const worklet = await build({
   format: 'esm',
   charset: 'utf8',
 });
+// what the page's WGSL is made from: when it changes, the page clears Chrome's shader cache once (main.js)
+const shaders = createHash('sha256');
+for (const f of ['src/shaders.js', 'src/engine.js']) shaders.update(await readFile(new URL(f, import.meta.url)));
 const result = await build({
   absWorkingDir: root,
   entryPoints: ['src/main.js'],
@@ -24,7 +28,7 @@ const result = await build({
   target: 'es2022',
   format: 'iife',
   charset: 'utf8',
-  define: { __TIDEMOTE_WORKLET__: JSON.stringify(worklet.outputFiles[0].text) },
+  define: { __TIDEMOTE_WORKLET__: JSON.stringify(worklet.outputFiles[0].text), __TIDEMOTE_SHADERS__: JSON.stringify(shaders.digest('hex').slice(0, 16)) },
 });
 const template = await readFile(new URL('src/page.html', import.meta.url), 'utf8');
 const style = await readFile(new URL('src/page.css', import.meta.url), 'utf8');

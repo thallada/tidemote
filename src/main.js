@@ -73,7 +73,25 @@ function fail(title, detail, actions = []) {
 // how long the page took to start, in ms from navigation: the GPU device, the engine (its shaders
 // compiled, or found in the browser's shader cache), and the world running (Settings → Performance → Copy profile)
 const bootTimes = {};
+// Chrome keeps compiled shaders per site, but it never drops an old version's: after an update every
+// visit compiled the largest pipelines again (lifeMain..., about 3 s rather than 0.6). So the first
+// visit with changed shaders has the site clear its cache (fresh-shaders.txt answers with
+// Clear-Site-Data: "cache", site/_headers). That visit still runs on what the GPU process had loaded
+// before the page could act, and the next one compiles what the clear took; from the third on, loads
+// find everything (docs/desktop.md "Shader cache"). The desktop app empties its cache itself
+// (desktop/main.js); a failed fetch (offline, a file:// page) is ignored.
+/* global __TIDEMOTE_SHADERS__ */
+async function freshShaders() {
+  const key = 'tidemote.shaders';
+  try {
+    if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || typeof __TIDEMOTE_SHADERS__ === 'undefined') return;
+    if (localStorage.getItem(key) === __TIDEMOTE_SHADERS__) return;
+    const res = await Promise.race([fetch('fresh-shaders.txt', { cache: 'no-store' }), new Promise((r) => setTimeout(r, 2000))]);
+    if (res) localStorage.setItem(key, __TIDEMOTE_SHADERS__); // asked (a server without the file: nothing to clear)
+  } catch { /* storage or network unavailable: compile as usual */ }
+}
 async function boot(tries = 4) {
+  if (tries === 4) await freshShaders();
   if (!navigator.gpu) {
     fail('This browser has no WebGPU', 'Tidemote simulates its world on your graphics card through WebGPU. Try a current Chrome, Edge or Safari, or Firefox on Windows.');
     return;
@@ -281,7 +299,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
 
   // ------------------------------------------------------------ perf
-  const perf = { samples: [], gpu: 0, fps: 0, frames: 0, fpsT: performance.now(), frameDt: [], lastSubmit: 0, rafMs: 0, rafLonger: 0, mainMs: 0, goodWindows: 0, ceiling: 1, ceilingUntil: 0, lastAdjust: performance.now(),
+  const perf = { samples: [], gpu: 0, fps: 0, frames: 0, worldFps: 0, worldFrames: 0, fpsT: performance.now(), frameDt: [], lastSubmit: 0, rafMs: 0, rafLonger: 0, mainMs: 0, goodWindows: 0, ceiling: 1, ceilingUntil: 0, lastAdjust: performance.now(),
     stepMs: 0, simS: 0, renderR: 0, presentR: 0, worldAt: 0, stepCredit: 0, ticks: 1, held: false, ticksAt: 0, rate: 1, rateT: performance.now(), rateSim: 0,
     slow: 1, slowCeiling: 0, why: '', raisedAt: 0, hold: 0 };
   let calibWait = null;
@@ -1990,10 +2008,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       setText('ro-draw', perf.simS ? perf.renderR.toFixed(1) : '–');
       setText('ro-ceil', state.paused ? '–' : `${perf.ticks}/60 s`);
       setText('ro-rate', state.phase === 'running' && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : '–');
-      // the frames aimed for; at Max and held fast speeds the world itself is redrawn only every
-      // MAX_FRAME_MS, on the first frame due after it (the camera and loupe keep the full rate)
-      const ft = frameTarget(), fps = Math.round(1000 / ft);
-      setText('ro-aim', (state.speed === Infinity || perf.held) && !state.paused ? `${fps} · world ${Math.round(1000 / (Math.ceil(MAX_FRAME_MS / ft - 1e-6) * ft))}` : String(fps));
+      // how often the world itself is redrawn: every frame, but at Max and held fast speeds only every
+      // MAX_FRAME_MS (the camera and loupe keep the full rate)
+      setText('ro-world', perf.fps ? perf.worldFps.toFixed(0) : '–');
       setText('ro-why', state.speed > 1 ? 'running fast' : perf.why || '–');
     }
     function set(id, v) {
@@ -3313,7 +3330,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     updateTicks(now);
     // a frame every frameEvery() display frames (half a display frame's slack absorbs the jitter)
     const due = !perf.lastSubmit || now - perf.lastSubmit >= frameTarget() - displayMs() / 2;
-    if (now - perf.fpsT > 500) { perf.fps = (perf.frames * 1000) / (now - perf.fpsT); perf.frames = 0; perf.fpsT = now; }
+    if (now - perf.fpsT > 500) { perf.fps = (perf.frames * 1000) / (now - perf.fpsT); perf.worldFps = (perf.worldFrames * 1000) / (now - perf.fpsT); perf.frames = perf.worldFrames = 0; perf.fpsT = now; }
     if (now - perf.rateT > 1000) {
       const r = (eng.simTime - perf.rateSim) / ((now - perf.rateT) / 1000);
       perf.rate = r >= 0 ? r : perf.rate;
@@ -3371,6 +3388,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       specimen.mindTick(now);
       // Max and coarse speeds draw the world only when due (step.world), carrying it with the camera between
       const hold = (state.speed === Infinity || perf.held) && !state.paused && !portraitHold && state.phase === 'running' ? !!step.world : null;
+      if (hold !== false) perf.worldFrames++;
       eng.frame({
         target: ctx.getCurrentTexture().createView(),
         cam: { x: cam.x, y: cam.y, ppu: ppu() },

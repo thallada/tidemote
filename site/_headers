@@ -4,3 +4,8 @@
   Cache-Control: public, max-age=0, must-revalidate
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
+# Asked for once by a page whose shaders changed (freshShaders in src/main.js): Chrome then drops the old
+# compiled shaders, which would otherwise keep the new version's largest from being stored.
+/fresh-shaders.txt
+  Clear-Site-Data: "cache"
+  Cache-Control: no-store
