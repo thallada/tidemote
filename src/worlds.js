@@ -5,7 +5,7 @@
 // on any device with WebGPU.
 //
 // The file: 'TMWS', a u32 length, a JSON head ({ version, meta, cpu, sizes, cols, page }), then each GPU
-// buffer's bytes in the order of sizes. The head keeps Maps and typed arrays (see pack). Files before
+// buffer's bytes in the order of sizes. The head keeps every value exactly, or refuses it (see pack). Files before
 // versions ('TMW1', 'TMW2') are worlds of an older format.
 //
 // A buffer of fixed-size records (the particles, their intents) is kept by columns: each word of
@@ -24,7 +24,7 @@
  *   patch: a fix that changes nothing a reader sees.
  * Bump it with every change to the format (docs/desktop.md).
  */
-export const SAVE_VERSION = '5.0.0';
+export const SAVE_VERSION = '6.0.0';
 const MAGIC = [0x54, 0x4d, 0x57, 0x53]; // TMWS, for every version
 const major = (v) => (typeof v === 'string' && /^\d+\.\d+\.\d+$/.test(v) ? +v.split('.')[0] : null);
 
@@ -42,11 +42,75 @@ export const WHY_NOT = {
 };
 const TYPED = { Float32Array, Float64Array, Uint32Array, Int32Array, Uint16Array, Int16Array, Uint8Array, Int8Array };
 
-/** JSON that keeps Maps and typed arrays (shared references come back as copies). */
-export const pack = (v) => JSON.stringify(v, (_, x) => (x instanceof Map ? { $map: [...x] }
-  : ArrayBuffer.isView(x) && x.constructor.name in TYPED ? { $ta: x.constructor.name, v: Array.from(x) } : x));
-export const unpack = (s) => JSON.parse(s, (_, x) => (x && typeof x === 'object' && !Array.isArray(x)
-  ? (x.$map ? new Map(x.$map) : x.$ta ? TYPED[x.$ta].from(x.v) : x) : x));
+/**
+ * JSON that brings every value back exactly as it was, or refuses it. Plain JSON turns a Set into {},
+ * Infinity and NaN into null, and an object held in two places into two copies, without a word: a
+ * saved Set came back {} and the first climate event after a load threw, freezing the world. So pack
+ * keeps Maps, Sets, typed arrays, the numbers JSON cannot hold (Infinity, NaN, -0) and undefined, and
+ * an object met more than once is written once and referred to after (cycles too). Anything else it
+ * could not bring back (a function, a Date, a class instance, a key starting with $) throws, naming
+ * where it lies, so a new kind of value in the page's record fails its first save instead of a load.
+ * unpack(pack(v)) is v, structure and sharing included.
+ */
+export function pack(v) {
+  // first, every object reached more than once (shared, or a cycle) gets an id
+  const seen = new Set(), shared = new Map();
+  const scan = (x) => {
+    if (x === null || typeof x !== 'object') return;
+    if (seen.has(x)) { if (!shared.has(x)) shared.set(x, shared.size); return; }
+    seen.add(x);
+    if (x instanceof Map) for (const [k, y] of x) { scan(k); scan(y); }
+    else if (x instanceof Set) for (const y of x) scan(y);
+    else if (!ArrayBuffer.isView(x)) for (const k in x) scan(x[k]);
+  };
+  scan(v);
+  const written = new Set();
+  const enc = (x, at) => {
+    if (x === undefined) return { $n: 'undefined' };
+    if (typeof x === 'number') return Number.isFinite(x) && !Object.is(x, -0) ? x : { $n: Object.is(x, -0) ? '-0' : String(x) };
+    if (x === null || typeof x === 'string' || typeof x === 'boolean') return x;
+    if (typeof x !== 'object') throw new Error(`A world cannot keep ${at || 'its record'}: a ${typeof x}`);
+    const id = shared.get(x);
+    if (id !== undefined) { if (written.has(x)) return { $ref: id }; written.add(x); }
+    const tag = id === undefined ? {} : { $id: id };
+    if (Array.isArray(x)) {
+      const a = Array.from(x, (y, i) => enc(y, `${at}[${i}]`));
+      return id === undefined ? a : { ...tag, $a: a };
+    }
+    if (x instanceof Map) return { ...tag, $map: [...x].map(([k, y], i) => [enc(k, `${at}<key ${i}>`), enc(y, `${at}<${String(k).slice(0, 20)}>`)]) };
+    if (x instanceof Set) return { ...tag, $set: [...x].map((y, i) => enc(y, `${at}<${i}>`)) };
+    if (ArrayBuffer.isView(x) && TYPED[x.constructor.name] === x.constructor) return { ...tag, $ta: x.constructor.name, v: Array.from(x, (y) => enc(y)) };
+    const proto = Object.getPrototypeOf(x);
+    if (proto !== Object.prototype && proto !== null) throw new Error(`A world cannot keep ${at || 'its record'}: a ${x.constructor?.name || 'object'}`);
+    const o = { ...tag };
+    for (const k of Object.keys(x)) {
+      if (k.startsWith('$')) throw new Error(`A world cannot keep ${at}.${k}: keys starting with $ are pack's own`);
+      o[k] = enc(x[k], `${at}.${k}`);
+    }
+    return o;
+  };
+  return JSON.stringify(enc(v, ''));
+}
+const NUMS = { undefined, NaN, Infinity, '-Infinity': -Infinity, '-0': -0 };
+export function unpack(s) {
+  const byId = new Map();
+  // a container is registered under its id before its contents are read, so a cycle finds it
+  const dec = (x) => {
+    if (x === null || typeof x !== 'object') return x;
+    if (Array.isArray(x)) return x.map(dec);
+    if ('$ref' in x) return byId.get(x.$ref);
+    if ('$n' in x) return NUMS[x.$n];
+    const keep = (y) => { if ('$id' in x) byId.set(x.$id, y); return y; };
+    if ('$a' in x) { const a = keep([]); for (const y of x.$a) a.push(dec(y)); return a; }
+    if ('$map' in x) { const m = keep(new Map()); for (const [k, y] of x.$map) m.set(dec(k), dec(y)); return m; }
+    if ('$set' in x) { const m = keep(new Set()); for (const y of x.$set) m.add(dec(y)); return m; }
+    if ('$ta' in x) return keep(TYPED[x.$ta].from(x.v, dec));
+    const o = keep({});
+    for (const k of Object.keys(x)) if (k !== '$id') o[k] = dec(x[k]);
+    return o;
+  };
+  return dec(JSON.parse(s));
+}
 
 const pipe = async (blob, stream) => new Uint8Array(await new Response(blob.stream().pipeThrough(stream)).arrayBuffer());
 

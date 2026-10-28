@@ -291,12 +291,13 @@
   </div>
 </div>
 
-<!-- shown when the world cannot run (no WebGPU, no JavaScript): says why, then what Tidemote is -->
+<!-- shown when the world cannot run (no WebGPU, no JavaScript) or stops: says why, then what Tidemote is or what can be done -->
 <div class="nogpu" id="nogpu" hidden>
   <div class="nogpu-in">
     <div class="lbl" translate="no">Tidemote</div>
     <h1 id="nogpu-title">WebGPU unavailable</h1>
     <p id="nogpu-detail">Tidemote simulates its world on your graphics card through WebGPU, with JavaScript turned on. Try a current Chrome, Edge or Safari, or Firefox on Windows.</p>
+    <div class="nogpu-act" id="nogpu-act" hidden></div>
     <section class="about" aria-labelledby="about-h">
       <h2 id="about-h">Artificial life, evolving on your GPU</h2>
       <p>Tidemote is a sealed biosphere of hundreds of thousands to millions of particles, simulated live in the browser with WebGPU. Cells photosynthesize in the tide's moving light, graze, hunt and scavenge, and build their children out of silt. Children mutate into new species, bonded species grow into multicellular bodies, and the climate turns every 10–18 minutes. Leave it running and it keeps changing.</p>

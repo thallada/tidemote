@@ -43,10 +43,23 @@ const phone = () => innerWidth <= 720;
 // the intro's animation while the shaders compile and the GPU is measured (drawn on the CPU)
 const stopLoader = startLoader($('intro-anim'));
 
-function fail(title, detail) {
+// The screen for a world that cannot go on: why, then what can be done. With actions (buttons, each
+// { label, run(button) }) it covers the page and leaves it as it was, for a way back; without, it is a
+// browser that cannot run Tidemote at all, and says what Tidemote is instead.
+const RELOAD = { label: 'Reload the page', run: () => location.reload() };
+function fail(title, detail, actions = []) {
   $('nogpu-title').textContent = title;
   $('nogpu-detail').textContent = detail;
+  const act = $('nogpu-act');
+  act.replaceChildren(...actions.map(({ label, run }) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = label; b.onclick = () => run(b);
+    return b;
+  }));
+  act.hidden = !actions.length;
+  $('nogpu').classList.toggle('stopped', actions.length > 0);
   $('nogpu').hidden = false;
+  if (actions.length) { act.firstChild.focus(); return; }
   $('hud').hidden = true;
   $('intro').hidden = true;
   stopLoader();
@@ -75,7 +88,7 @@ async function boot(tries = 4) {
     },
   });
   let started = false;
-  device.lost.then((info) => { if (started && info.reason !== 'destroyed') fail('The GPU device was lost', `${info.message || 'The driver reset the device.'} Reload the page to start a new world.`); });
+  device.lost.then((info) => { if (started && info.reason !== 'destroyed') fail('The GPU device was lost', `${info.message || 'The driver reset the device.'} The world was on it and is gone; reload the page to start a new one.`, [RELOAD]); });
   device.addEventListener('uncapturederror', (e) => console.error('[tidemote]', e.error.message));
 
   const format = navigator.gpu.getPreferredCanvasFormat();
@@ -557,13 +570,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     torpidPrev = null;
     if (page) {
       Object.assign(life, page.life, { lastCensus: null });
-      // older saves kept the page's allowed events, a Set that came back from the file as {}
-      // (pack keeps no Sets): the first event due then threw in eventTick and stopped the frame loop
-      const { allowed, ...worldClimate } = page.climate;
-      Object.assign(climate, worldClimate);
+      Object.assign(climate, page.climate);
       chron.load(page.chron);
-      // the excursion already announced is the one under way (a copy, once saved)
-      if (climate.announced && climate.excursion && climate.announced.t === climate.excursion.t) climate.announced = climate.excursion;
       cam.x = page.cam.x; cam.y = page.cam.y;
       cam.zoom = cam.zoomTarget = page.cam.zoom; cam.anchor = null;
     }
@@ -587,7 +595,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
         return false;
       }
       applyWorld(w);
-    } catch (e) { fail('Could not load the world', String(e.message || e)); return false; }
+    } catch (e) {
+      console.error('[tidemote] loading a world:', e);
+      // the world being replaced may be half overwritten: a new one, or a reload
+      fail('Could not load the world', String(e.message || e), [
+        { label: 'Start a new world', run: () => { $('nogpu').hidden = true; seedWorld(eng.count); state.busy = false; state.phase = 'running'; sound.overture(); } },
+        RELOAD]);
+      return false;
+    }
     state.busy = false;
     state.phase = 'running';
     flash(`${w.meta.name} loaded`);
@@ -3202,7 +3217,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     return { steps: n, dt };
   }
   const rafDt = [];
-  function frame(now) {
+  function frameWork(now) {
     const t0 = performance.now();
     const dt = Math.min(100, now - last);
     last = now;
@@ -3331,7 +3346,31 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     adaptQuality(now);
     perf.mainMs += (performance.now() - t0 - perf.mainMs) * 0.1;
+  }
+  // An error in a frame used to end the loop without a word: the world froze and the music played on.
+  // Now it says so and offers what can be done. The world itself lives on the GPU, untouched, so going
+  // on often works (an error in the page's bookkeeping), and saving it first keeps it either way.
+  let lastStop = -Infinity;
+  function frame(now) {
+    try { frameWork(now); } catch (e) { stopped(e); return; }
     requestAnimationFrame(frame);
+  }
+  function stopped(e) {
+    console.error('[tidemote] the world stopped:', e);
+    const again = performance.now() - lastStop < 15000; // going on failed at once: don't offer it again
+    lastStop = performance.now();
+    const go = () => { $('nogpu').hidden = true; last = performance.now(); requestAnimationFrame(frame); };
+    const report = () => `${e && e.stack || e}\n\nTidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} particles · ${navigator.userAgent}`;
+    fail('The world stopped', `Something went wrong while running it: ${e && e.message || e}. It stopped at ${fmtClock(eng.simTime)} of world time.`, [
+      ...(again ? [] : [{ label: 'Try to go on', run: go }]),
+      { label: 'Save this world', run: async (b) => {
+        b.disabled = true; b.textContent = 'Saving…';
+        try { await saveWorld(`${climate.name} · ${fmtDur(eng.simTime)} (stopped)`); b.textContent = 'Saved to Settings → Worlds'; }
+        catch (err) { console.error('[tidemote] saving the stopped world:', err); b.textContent = `Could not save: ${err.message || err}`; }
+      } },
+      { label: 'Start a new world', run: () => { seedWorld(eng.count); sound.overture(); go(); } },
+      { label: 'Copy details', run: (b) => navigator.clipboard.writeText(report()).then(() => { b.textContent = 'Copied'; }, () => { b.textContent = 'Could not copy'; }) },
+    ]);
   }
 
   resetLife();
@@ -3345,7 +3384,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   });
   // a handle for tools/perf, which profiles the page in a real browser
   globalThis.__tidemote = { state, cam, perf, eng, sound, lab, life: () => life, climate: () => climate, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
-    chron, cards, film, filmAct, openSpecies, director,
+    chron, cards, film, filmAct, openSpecies, director, saveWorld, worlds: worldStore,
     setScale(v) { state.perf.scale = v; if (v !== 'auto') renderScale = v; resetAdapt(); fit(); },
     // as the adaptive scale does it: applied when the next frame begins
     queueScale(v) { renderScale = v; resizeDue = true; },
@@ -3360,7 +3399,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     updateHud(performance.now() + 1000);
     $('intro').classList.add('ready');
     begin();
-  }).catch((e) => fail('Could not start the simulation', String(e.message || e)));
+  }).catch((e) => fail('Could not start the simulation', String(e.message || e), [RELOAD]));
 }
 
 boot().catch((e) => fail('Something went wrong starting the GPU', String((e && e.message) || e)));

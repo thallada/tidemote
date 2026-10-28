@@ -52,6 +52,7 @@ can tell before reading the world). A save opens only in a version of its own ma
   layout or `P_BYTES`, what `readState` keeps, `compactState`'s columns, what the page's record means).
   4.0.0: positions by cell, silt ids, the heat buffer trimmed.
   5.0.0: the heat buffer's two unused blocks gone (temperature, floor, ice order).
+  6.0.0: the head keeps Sets, Infinity/NaN/-0, undefined and shared objects exactly (pack refuses what it cannot keep); a Set saved as {} had frozen loaded worlds at their next climate event.
 - minor: additions a version of the same major can do without (a head field, a buffer it does not
   know; `openWorld` keeps only the buffers it knows). A newer version must give old saves of its
   major a default for what it added.

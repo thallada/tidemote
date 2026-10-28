@@ -921,6 +921,11 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .nogpu-in { max-width: 60ch; display: flex; flex-direction: column; gap: 14px; user-select: text; -webkit-user-select: text; }
 .nogpu h1 { font-size: 26px; font-weight: 300; letter-spacing: .06em; }
 .nogpu p { margin: 0; color: var(--ink-2); font-size: 14px; white-space: pre-wrap; }
+.nogpu.stopped .about { display: none; }
+.nogpu-act { display: flex; flex-wrap: wrap; gap: var(--s3); margin-top: var(--s2); }
+.nogpu-act button { padding: 8px 16px; min-height: 36px; font-size: 13px; }
+.nogpu-act button:first-child { color: var(--ink); border-color: var(--cyan); }
+.nogpu-act button:disabled { cursor: default; opacity: .7; }
 .nogpu .about { display: flex; flex-direction: column; gap: var(--s3); margin-top: var(--s4); padding-top: var(--s4); border-top: 1px solid var(--line); }
 .nogpu h2 { margin: 0; font-size: 15px; font-weight: 400; letter-spacing: .06em; color: var(--ink); }
 .nogpu ul { margin: 0; padding-left: 1.2em; color: var(--ink-2); font-size: 14px; display: flex; flex-direction: column; gap: var(--s1); }
@@ -1328,12 +1333,13 @@ svg.niche .n-dot { fill: var(--cyan); }
   </div>
 </div>
 
-<!-- shown when the world cannot run (no WebGPU, no JavaScript): says why, then what Tidemote is -->
+<!-- shown when the world cannot run (no WebGPU, no JavaScript) or stops: says why, then what Tidemote is or what can be done -->
 <div class="nogpu" id="nogpu" hidden>
   <div class="nogpu-in">
     <div class="lbl" translate="no">Tidemote</div>
     <h1 id="nogpu-title">WebGPU unavailable</h1>
     <p id="nogpu-detail">Tidemote simulates its world on your graphics card through WebGPU, with JavaScript turned on. Try a current Chrome, Edge or Safari, or Firefox on Windows.</p>
+    <div class="nogpu-act" id="nogpu-act" hidden></div>
     <section class="about" aria-labelledby="about-h">
       <h2 id="about-h">Artificial life, evolving on your GPU</h2>
       <p>Tidemote is a sealed biosphere of hundreds of thousands to millions of particles, simulated live in the browser with WebGPU. Cells photosynthesize in the tide's moving light, graze, hunt and scavenge, and build their children out of silt. Children mutate into new species, bonded species grow into multicellular bodies, and the climate turns every 10–18 minutes. Leave it running and it keeps changing.</p>
@@ -23927,7 +23933,7 @@ ${e.message}` : String(e?.message || e));
   }
 
   // src/worlds.js
-  var SAVE_VERSION = "5.0.0";
+  var SAVE_VERSION = "6.0.0";
   var MAGIC = [84, 77, 87, 83];
   var major = (v) => typeof v === "string" && /^\d+\.\d+\.\d+$/.test(v) ? +v.split(".")[0] : null;
   function openable(v) {
@@ -23939,8 +23945,87 @@ ${e.message}` : String(e?.message || e));
     older: "This world was saved by an older version of Tidemote, which this one can no longer open."
   };
   var TYPED = { Float32Array, Float64Array, Uint32Array, Int32Array, Uint16Array, Int16Array, Uint8Array, Int8Array };
-  var pack = (v) => JSON.stringify(v, (_, x) => x instanceof Map ? { $map: [...x] } : ArrayBuffer.isView(x) && x.constructor.name in TYPED ? { $ta: x.constructor.name, v: Array.from(x) } : x);
-  var unpack = (s) => JSON.parse(s, (_, x) => x && typeof x === "object" && !Array.isArray(x) ? x.$map ? new Map(x.$map) : x.$ta ? TYPED[x.$ta].from(x.v) : x : x);
+  function pack(v) {
+    const seen = /* @__PURE__ */ new Set(), shared = /* @__PURE__ */ new Map();
+    const scan = (x) => {
+      if (x === null || typeof x !== "object") return;
+      if (seen.has(x)) {
+        if (!shared.has(x)) shared.set(x, shared.size);
+        return;
+      }
+      seen.add(x);
+      if (x instanceof Map) for (const [k, y] of x) {
+        scan(k);
+        scan(y);
+      }
+      else if (x instanceof Set) for (const y of x) scan(y);
+      else if (!ArrayBuffer.isView(x)) for (const k in x) scan(x[k]);
+    };
+    scan(v);
+    const written = /* @__PURE__ */ new Set();
+    const enc = (x, at) => {
+      if (x === void 0) return { $n: "undefined" };
+      if (typeof x === "number") return Number.isFinite(x) && !Object.is(x, -0) ? x : { $n: Object.is(x, -0) ? "-0" : String(x) };
+      if (x === null || typeof x === "string" || typeof x === "boolean") return x;
+      if (typeof x !== "object") throw new Error(`A world cannot keep ${at || "its record"}: a ${typeof x}`);
+      const id = shared.get(x);
+      if (id !== void 0) {
+        if (written.has(x)) return { $ref: id };
+        written.add(x);
+      }
+      const tag = id === void 0 ? {} : { $id: id };
+      if (Array.isArray(x)) {
+        const a = Array.from(x, (y, i) => enc(y, `${at}[${i}]`));
+        return id === void 0 ? a : { ...tag, $a: a };
+      }
+      if (x instanceof Map) return { ...tag, $map: [...x].map(([k, y], i) => [enc(k, `${at}<key ${i}>`), enc(y, `${at}<${String(k).slice(0, 20)}>`)]) };
+      if (x instanceof Set) return { ...tag, $set: [...x].map((y, i) => enc(y, `${at}<${i}>`)) };
+      if (ArrayBuffer.isView(x) && TYPED[x.constructor.name] === x.constructor) return { ...tag, $ta: x.constructor.name, v: Array.from(x, (y) => enc(y)) };
+      const proto = Object.getPrototypeOf(x);
+      if (proto !== Object.prototype && proto !== null) throw new Error(`A world cannot keep ${at || "its record"}: a ${x.constructor?.name || "object"}`);
+      const o = { ...tag };
+      for (const k of Object.keys(x)) {
+        if (k.startsWith("$")) throw new Error(`A world cannot keep ${at}.${k}: keys starting with $ are pack's own`);
+        o[k] = enc(x[k], `${at}.${k}`);
+      }
+      return o;
+    };
+    return JSON.stringify(enc(v, ""));
+  }
+  var NUMS = { undefined: void 0, NaN: NaN, Infinity: Infinity, "-Infinity": -Infinity, "-0": -0 };
+  function unpack(s) {
+    const byId = /* @__PURE__ */ new Map();
+    const dec = (x) => {
+      if (x === null || typeof x !== "object") return x;
+      if (Array.isArray(x)) return x.map(dec);
+      if ("$ref" in x) return byId.get(x.$ref);
+      if ("$n" in x) return NUMS[x.$n];
+      const keep = (y) => {
+        if ("$id" in x) byId.set(x.$id, y);
+        return y;
+      };
+      if ("$a" in x) {
+        const a = keep([]);
+        for (const y of x.$a) a.push(dec(y));
+        return a;
+      }
+      if ("$map" in x) {
+        const m = keep(/* @__PURE__ */ new Map());
+        for (const [k, y] of x.$map) m.set(dec(k), dec(y));
+        return m;
+      }
+      if ("$set" in x) {
+        const m = keep(/* @__PURE__ */ new Set());
+        for (const y of x.$set) m.add(dec(y));
+        return m;
+      }
+      if ("$ta" in x) return keep(TYPED[x.$ta].from(x.v, dec));
+      const o = keep({});
+      for (const k of Object.keys(x)) if (k !== "$id") o[k] = dec(x[k]);
+      return o;
+    };
+    return dec(JSON.parse(s));
+  }
   var pipe = async (blob, stream) => new Uint8Array(await new Response(blob.stream().pipeThrough(stream)).arrayBuffer());
   function toCells(u, words, { grid: [gw, gh], bits }) {
     const f2 = new Float32Array(u.buffer), n = u.length / words, s = 1 << bits, X = gw * s, Y = gh * s;
@@ -26970,10 +27055,25 @@ ${e.message}` : String(e?.message || e));
   };
   var phone = () => innerWidth <= 720;
   var stopLoader = startLoader($("intro-anim"));
-  function fail(title, detail) {
+  var RELOAD = { label: "Reload the page", run: () => location.reload() };
+  function fail(title, detail, actions = []) {
     $("nogpu-title").textContent = title;
     $("nogpu-detail").textContent = detail;
+    const act = $("nogpu-act");
+    act.replaceChildren(...actions.map(({ label: label3, run: run2 }) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = label3;
+      b.onclick = () => run2(b);
+      return b;
+    }));
+    act.hidden = !actions.length;
+    $("nogpu").classList.toggle("stopped", actions.length > 0);
     $("nogpu").hidden = false;
+    if (actions.length) {
+      act.firstChild.focus();
+      return;
+    }
     $("hud").hidden = true;
     $("intro").hidden = true;
     stopLoader();
@@ -27002,7 +27102,7 @@ ${e.message}` : String(e?.message || e));
     });
     let started = false;
     device.lost.then((info) => {
-      if (started && info.reason !== "destroyed") fail("The GPU device was lost", `${info.message || "The driver reset the device."} Reload the page to start a new world.`);
+      if (started && info.reason !== "destroyed") fail("The GPU device was lost", `${info.message || "The driver reset the device."} The world was on it and is gone; reload the page to start a new one.`, [RELOAD]);
     });
     device.addEventListener("uncapturederror", (e) => console.error("[tidemote]", e.error.message));
     const format = navigator.gpu.getPreferredCanvasFormat();
@@ -27545,10 +27645,8 @@ ${e.message}` : String(e?.message || e));
       torpidPrev = null;
       if (page) {
         Object.assign(life, page.life, { lastCensus: null });
-        const { allowed, ...worldClimate } = page.climate;
-        Object.assign(climate, worldClimate);
+        Object.assign(climate, page.climate);
         chron.load(page.chron);
-        if (climate.announced && climate.excursion && climate.announced.t === climate.excursion.t) climate.announced = climate.excursion;
         cam.x = page.cam.x;
         cam.y = page.cam.y;
         cam.zoom = cam.zoomTarget = page.cam.zoom;
@@ -27579,7 +27677,17 @@ ${e.message}` : String(e?.message || e));
         }
         applyWorld(w);
       } catch (e) {
-        fail("Could not load the world", String(e.message || e));
+        console.error("[tidemote] loading a world:", e);
+        fail("Could not load the world", String(e.message || e), [
+          { label: "Start a new world", run: () => {
+            $("nogpu").hidden = true;
+            seedWorld(eng.count);
+            state.busy = false;
+            state.phase = "running";
+            sound.overture();
+          } },
+          RELOAD
+        ]);
         return false;
       }
       state.busy = false;
@@ -30534,7 +30642,7 @@ ${e.message}` : String(e?.message || e));
       return { steps: n, dt };
     }
     const rafDt = [];
-    function frame(now) {
+    function frameWork(now) {
       const t0 = performance.now();
       const dt = Math.min(100, now - last);
       last = now;
@@ -30667,7 +30775,53 @@ ${e.message}` : String(e?.message || e));
       }
       adaptQuality(now);
       perf.mainMs += (performance.now() - t0 - perf.mainMs) * 0.1;
+    }
+    let lastStop = -Infinity;
+    function frame(now) {
+      try {
+        frameWork(now);
+      } catch (e) {
+        stopped(e);
+        return;
+      }
       requestAnimationFrame(frame);
+    }
+    function stopped(e) {
+      console.error("[tidemote] the world stopped:", e);
+      const again = performance.now() - lastStop < 15e3;
+      lastStop = performance.now();
+      const go = () => {
+        $("nogpu").hidden = true;
+        last = performance.now();
+        requestAnimationFrame(frame);
+      };
+      const report = () => `${e && e.stack || e}
+
+Tidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} particles · ${navigator.userAgent}`;
+      fail("The world stopped", `Something went wrong while running it: ${e && e.message || e}. It stopped at ${fmtClock(eng.simTime)} of world time.`, [
+        ...again ? [] : [{ label: "Try to go on", run: go }],
+        { label: "Save this world", run: async (b) => {
+          b.disabled = true;
+          b.textContent = "Saving…";
+          try {
+            await saveWorld(`${climate.name} · ${fmtDur(eng.simTime)} (stopped)`);
+            b.textContent = "Saved to Settings → Worlds";
+          } catch (err) {
+            console.error("[tidemote] saving the stopped world:", err);
+            b.textContent = `Could not save: ${err.message || err}`;
+          }
+        } },
+        { label: "Start a new world", run: () => {
+          seedWorld(eng.count);
+          sound.overture();
+          go();
+        } },
+        { label: "Copy details", run: (b) => navigator.clipboard.writeText(report()).then(() => {
+          b.textContent = "Copied";
+        }, () => {
+          b.textContent = "Could not copy";
+        }) }
+      ]);
     }
     resetLife();
     resetClimate();
@@ -30698,6 +30852,8 @@ ${e.message}` : String(e?.message || e));
       filmAct,
       openSpecies,
       director,
+      saveWorld,
+      worlds: worldStore,
       setScale(v) {
         state.perf.scale = v;
         if (v !== "auto") renderScale = v;
@@ -30720,7 +30876,7 @@ ${e.message}` : String(e?.message || e));
       updateHud(performance.now() + 1e3);
       $("intro").classList.add("ready");
       begin();
-    }).catch((e) => fail("Could not start the simulation", String(e.message || e)));
+    }).catch((e) => fail("Could not start the simulation", String(e.message || e), [RELOAD]));
   }
   boot().catch((e) => fail("Something went wrong starting the GPU", String(e && e.message || e)));
 })();

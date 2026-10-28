@@ -15,6 +15,44 @@ test('pack keeps Maps and typed arrays', () => {
   assert.equal(back.x, null);
 });
 
+test('pack brings back what plain JSON changes: Sets, numbers JSON cannot hold, undefined', () => {
+  const v = { allowed: new Set(['drought', 'frost']), next: Infinity, low: -Infinity, nan: NaN, z: -0, gone: undefined, list: [1, undefined, Infinity],
+    nested: new Map([[new Set([1]), new Set([new Map([['k', Float64Array.of(NaN, 2)]])])]]) };
+  const back = unpack(pack(v));
+  assert.ok(back.allowed instanceof Set);
+  assert.ok(back.allowed.has('frost'), 'a Set comes back a Set, not {}');
+  assert.equal(back.next, Infinity);
+  assert.equal(back.low, -Infinity);
+  assert.ok(Number.isNaN(back.nan));
+  assert.ok(Object.is(back.z, -0));
+  assert.ok('gone' in back && back.gone === undefined);
+  assert.deepEqual(back.list, [1, undefined, Infinity]);
+  const [[k, s]] = back.nested;
+  assert.ok(k instanceof Set && k.has(1));
+  assert.ok(Number.isNaN([...s][0].get('k')[0]));
+});
+
+test('pack keeps an object held in two places one object, cycles included', () => {
+  const ev = { type: 'drought', phase: 'drying' }, sp = { serial: 4, pop: 20 };
+  const v = { event: ev, events: [{ type: 'storm' }, ev], reg: new Map([[4, sp]]), last: { grazer: sp }, a: [] };
+  v.a.push(v.a); // a cycle
+  const back = unpack(pack(v));
+  assert.equal(back.event, back.events[1], 'the live event and the log share one object');
+  assert.equal(back.last.grazer, back.reg.get(4));
+  assert.equal(back.a[0], back.a);
+  back.event.phase = 'dry';
+  assert.equal(back.events[1].phase, 'dry');
+});
+
+test('pack refuses what it could not bring back, naming where it lies', () => {
+  assert.throws(() => pack({ climate: { tick() {} } }), /climate\.tick: a function/);
+  assert.throws(() => pack({ life: { born: new Date() } }), /life\.born: a Date/);
+  class Era { constructor() { this.t = 1; } }
+  assert.throws(() => pack({ history: [new Era()] }), /history\[0\]: a Era/);
+  assert.throws(() => pack({ x: { $map: 1 } }), /x\.\$map: keys starting with \$/);
+  assert.throws(() => pack({ n: 1n }), /a bigint/);
+});
+
 test('a world comes back as it was saved', async () => {
   const parts = new Uint8Array(4000).map((_, i) => (i * 37) & 255);
   const thermal = new Float32Array(300).map((_, i) => i / 7);
