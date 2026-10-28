@@ -385,6 +385,12 @@ body.spec-open .bench { right: var(--spec-pw); }
 .card-fly { position: fixed; left: 50%; top: 50%; z-index: 40; width: min(330px, 70vw); pointer-events: none; transform: translate(-50%, -50%); box-shadow: 0 12px 48px rgba(0, 0, 0, 0.7); }
 body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-card [data-tool="pipette"] { outline: 1px dashed var(--sun); outline-offset: 2px; }
 /* a card dragged out of the strip */
+.mc-kept { position: absolute; right: 5px; bottom: 5px; width: 13px; height: 13px; color: var(--sun); opacity: .8; }
+.mc-kept svg { width: 100%; height: 100%; display: block; }
+.mini.flat .mc-kept { bottom: auto; top: 6px; right: 6px; }
+/* a card being moved: its place, open, where it will land */
+.mini.mc-slot { border-style: dashed; border-color: rgba(241, 227, 160, 0.55); background: rgba(241, 227, 160, 0.04); }
+.mini.mc-slot > * { visibility: hidden; }
 .ghost-card { position: fixed; left: 0; top: 0; z-index: 30; pointer-events: none; opacity: .92; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); }
 /* the dock's pipette carries its count */
 .dock .tools .tool[data-tool="pipette"]::after { content: attr(data-count); position: absolute; left: 3px; top: 1px; font-size: 11px; line-height: 1; color: var(--sun); letter-spacing: 0; }

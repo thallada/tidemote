@@ -23,19 +23,28 @@ test('the loupe writes nothing: the world untouched', () => {
   assert.equal(hand.touched, false);
 });
 
-test('a lamp held brightens within a second, and fades over about ten once let go', () => {
+test('a lamp held brightens within a second; let go, a quarter of it stays with the pointer, and none once it leaves', () => {
   const { hand, words } = make();
   hand.set('lamp'); hand.down(5, 6, 100);
   run(hand, 1);
   assert.ok(words[3] > 0.5, `lit ${words[3]}`);
   assert.deepEqual([words[0], words[1], words[2]], [5, 6, 3]);
   hand.up();
-  run(hand, 3);
-  assert.ok(words[3] > 0.1 && words[3] < 0.4, `fading ${words[3]}`);
-  run(hand, 20);
+  run(hand, 2);
+  assert.ok(Math.abs(words[3] - 0.15) < 0.01, `a quarter ${words[3]}`);
+  hand.hover(9, 9); run(hand, 0.1);
+  assert.deepEqual([words[0], words[1]], [9, 9], 'it goes where the pointer goes');
+  hand.hover(null); run(hand, 3);
   assert.equal(words[3], 0, 'gone, and exactly nothing');
+  assert.equal(hand.acts.length, 1, 'only the press is an act');
   assert.equal(hand.touched, true);
-  assert.equal(hand.acts[0].tool, 'lamp');
+});
+
+test('over the world, not pressed, a tool is no act', () => {
+  const { hand, words } = make();
+  hand.set('warm'); hand.hover(2, 2); run(hand, 1);
+  assert.ok(words[7] > 0.15 && words[7] < 0.25, `a quarter ${words[7]}`);
+  assert.equal(hand.touched, false);
 });
 
 test('a shade takes light; warm and cold heat and chill', () => {
@@ -43,9 +52,9 @@ test('a shade takes light; warm and cold heat and chill', () => {
   hand.set('shade'); hand.down(0, 0, 0); run(hand, 2);
   assert.ok(words[3] < -0.8);
   hand.set('cold'); hand.down(1, 1, 3); run(hand, 1);
-  assert.ok(words[7] < -0.9);
+  assert.ok(words[7] < -0.75);
   hand.set('warm'); hand.down(1, 1, 5); run(hand, 1);
-  assert.ok(words[7] > 0.9);
+  assert.ok(words[7] > 0.75);
 });
 
 test('a stir drags the water as fast as the finger, in the world’s seconds, capped', () => {
@@ -56,7 +65,7 @@ test('a stir drags the water as fast as the finger, in the world’s seconds, ca
   hand.move(1.0, 0, 0.5, 2); run(hand, 0.5);
   assert.ok(Math.abs(words[10] - 0.5) < 0.05, 'at ×2 the same stroke is half as fast');
   hand.move(100, 0, 0.1, 1); run(hand, 0.5);
-  assert.ok(words[10] <= 2.0001, 'capped');
+  assert.ok(words[10] <= 12.0001 && words[10] > 11, 'capped');
   hand.up(); run(hand, 8);
   assert.equal(words[10], 0);
 });
@@ -72,11 +81,11 @@ test('a tap rings from the oldest raindrop slot; a prick names its cell once', (
   assert.equal(ids[20], 1234);
 });
 
-test('the needle cuts along its stroke for one frame', () => {
+test('the needle cuts along its stroke since the last frame, for one frame', () => {
   const { hand, words } = make();
-  hand.set('needle'); hand.down(1, 1, 0); hand.move(2, 1, 1 / 60, 1);
+  hand.set('needle'); hand.down(1, 1, 0); hand.move(2, 1, 1 / 120, 1); hand.move(3, 1, 1 / 120, 1);
   hand.update(1 / 60);
-  assert.deepEqual([...words.subarray(12, 16)], [1, 1, 2, 1]);
+  assert.deepEqual([...words.subarray(12, 16)], [1, 1, 3, 1]);
   assert.ok(words[17] > 0);
   hand.update(1 / 60);
   assert.equal(words[17], 0);

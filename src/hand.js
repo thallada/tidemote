@@ -6,25 +6,26 @@
 export const TOOLS = [
   { id: 'loupe', name: 'Loupe', hint: 'Look closer: click a cell to examine it' },
   { id: 'touch', name: 'Touch', hint: 'Tap: a drop’s ring · drag: stir the water along the stroke' },
-  { id: 'lamp', name: 'Lamp', hint: 'More sun on one place: hold to brighten, let go and it fades' },
-  { id: 'shade', name: 'Shade', hint: 'Shade one place: hold to darken, let go and the light returns' },
-  { id: 'warm', name: 'Warm', hint: 'The heated stage: hold to warm the water under it' },
-  { id: 'cold', name: 'Cold', hint: 'The cold probe: hold to chill the water under it' },
+  { id: 'lamp', name: 'Lamp', hint: 'More sun where it points, a little; hold for the full lamp' },
+  { id: 'shade', name: 'Shade', hint: 'Shade where it points, a little; hold to darken it' },
+  { id: 'warm', name: 'Warm', hint: 'The heated stage: hold to warm the water under it, as far as a boil' },
+  { id: 'cold', name: 'Cold', hint: 'The cold probe: hold to chill the water under it, as far as ice' },
   { id: 'needle', name: 'Needle', hint: 'Click: prick one cell · drag: cut the bonds the tip crosses' },
-  { id: 'pipette', name: 'Pipette', hint: 'Right button draws up what is under it · left sets down the tip species', touch: 'A tap sets down the tip species · Pull, then a tap, draws up (any tap while it is empty)' },
+  { id: 'pipette', name: 'Pipette', hint: 'Click draws up every cell in reach, hold to draw harder · ⇧ click sets down the tip species, a cell at a time', touch: 'A touch draws up every cell in reach, held harder · Set down, then touches set down the tip species' },
 ];
 export const toolOf = (id) => TOOLS.find((t) => t.id === id) || TOOLS[0];
 export const keyOf = (id) => String(TOOLS.findIndex((t) => t.id === id) + 1);
 
 // The reach of every tool but the needle, in world units (1 unit is about 59 µm): the slider's range and default.
 export const REACH = { min: 0.6, max: 8, def: 2 };
-const LAMP = 0.6; // the light a lamp adds at its center, at full brightness (the sun at noon gives about 1)
-const SHADE = 0.9; // the share of the light a shade takes at its center
-const STAGE = 1.0; // degrees a second the stage adds at its center (the water relaxes at 3% a second)
-const STIR_MAX = 2; // the fastest the finger drags the water, world units a second
-const CUT = 0.12; // the needle's half-width
+const LAMP = 0.6; // the light a lamp adds within its reach, at full brightness (the sun at noon gives about 1)
+const SHADE = 0.9; // the share of the light a shade takes
+const STAGE = 0.8; // the share a second of the way to a boil (or to ice) the stage takes the water under it
+const HOVER = 0.25; // the lamp, shade, stage and probe over the world, not pressed: this much of their full strength
+const STIR_MAX = 12; // the fastest the finger drags the water, world units a second
+const CUT = 0.25; // the needle's half-width: it cuts bonds and parts cells this far to either side (past LINK_R apart)
 // how the lamp and stage come up while held and go when let go (time constants, real seconds)
-const EASE = { lamp: [0.35, 3.5], stage: [0.25, 0.25], stir: [0.08, 0.8] };
+const EASE = { lamp: [0.35, 0.3], stage: [0.25, 0.25], stir: [0.08, 0.8] };
 const NONE = 0xffffffff;
 
 /**
@@ -34,13 +35,19 @@ const NONE = 0xffffffff;
 export function createHand(words, ids, { reach = REACH.def } = {}) {
   const ease = (v, to, [up, down], dt) => v + (to - v) * (1 - Math.exp(-dt / (Math.abs(to) > Math.abs(v) ? up : down)));
   const h = {
-    tool: 'loupe', reach, held: false, last: null, vel: [0, 0], cut: null,
+    // (at: where the pointer is over the world, or null)
+    tool: 'loupe', reach, held: false, last: null, at: null, vel: [0, 0], cut: null,
     lamp: { x: 0, y: 0, r: reach, v: 0 }, stage: { x: 0, y: 0, r: reach, v: 0 }, stir: { x: 0, y: 0, vx: 0, vy: 0 },
-    // the ridden cell and where it is steered: [x, y, strength]; the pipette's draw: [x, y, reach, pull] (the page's)
+    // the ridden cell and where it is steered: [x, y, strength]; the pipette's draw: [x, y, reach, speed] (the page's)
     rider: NONE, will: null, suck: null,
     // the record: one entry per act (a tool held, or a run of taps and pricks in one place), its times simulated
     acts: [],
     get touched() { return h.acts.length > 0; },
+    /** How much of the lamp's, shade's, stage's or probe's full strength the tool in hand has now (0..1). */
+    get level() {
+      const t = h.tool, v = t === 'lamp' || t === 'shade' ? h.lamp.v / (t === 'lamp' ? LAMP : -SHADE) : t === 'warm' || t === 'cold' ? h.stage.v / (t === 'warm' ? STAGE : -STAGE) : 0;
+      return Math.max(0, v);
+    },
     /** Whether anything the hand did still acts on the world (a lamp fading, the stage still warming). */
     get acting() { return h.lamp.v !== 0 || h.stage.v !== 0 || h.stir.vx !== 0 || h.stir.vy !== 0; },
     /** A world begun or put in place: its record of acts (kept with it), nothing of the last world's still acting. */
@@ -50,21 +57,24 @@ export function createHand(words, ids, { reach = REACH.def } = {}) {
     },
     /** The tool in hand (an id of TOOLS); taking one lets go of the last. */
     set(id, t) { h.up(t); h.tool = toolOf(id).id; },
+    /** The pointer over the world at (x, y), or away from it (hover(null)): the lamp and stage follow it. */
+    hover(x, y) { h.at = x == null ? null : [x, y]; },
     /** The pointer pressed at world point (x, y), simulated time t. */
     down(x, y, t) {
-      h.held = true; h.last = [x, y]; h.vel = [0, 0];
+      h.held = true; h.last = h.at = [x, y]; h.vel = [0, 0];
       if (h.tool !== 'loupe' && h.tool !== 'pipette') act(t, x, y);
     },
     /** The pointer moved to (x, y), dt real seconds since its last move, the world running at `speed`. */
     move(x, y, dt, speed) {
       if (!h.held) return;
       const [lx, ly] = h.last;
-      if (h.tool === 'needle') h.cut = [lx, ly, x, y];
+      // (the stroke since the last frame, however many moves it took)
+      if (h.tool === 'needle') h.cut = [...(h.cut ? h.cut.slice(0, 2) : [lx, ly]), x, y];
       // the water a finger drags moves as the finger does, in the world's seconds
       const k = dt > 0 && speed > 0 && Number.isFinite(speed) ? 1 / (dt * speed) : 0;
       const vx = (x - lx) * k, vy = (y - ly) * k, m = Math.hypot(vx, vy), c = m > STIR_MAX ? STIR_MAX / m : 1;
       h.vel = [vx * c, vy * c];
-      h.last = [x, y];
+      h.last = h.at = [x, y];
     },
     /** The pointer let go at simulated time t: a held act ends. */
     up(t) {
@@ -91,13 +101,16 @@ export function createHand(words, ids, { reach = REACH.def } = {}) {
     },
     /** Ease the lamp, stage and stir toward what the hand is doing, and write the engine's words. */
     update(dt) {
-      const p = h.last, tl = h.tool;
-      const lampTo = h.held && tl === 'lamp' ? LAMP : h.held && tl === 'shade' ? -SHADE : 0;
-      const stageTo = h.held && tl === 'warm' ? STAGE : h.held && tl === 'cold' ? -STAGE : 0;
+      const p = h.held ? h.last : h.at, tl = h.tool;
+      // (over the world a little of the tool, pressed all of it; it goes where the pointer goes, and with it)
+      const s = !p ? 0 : h.held ? 1 : HOVER;
+      const lampTo = tl === 'lamp' ? LAMP * s : tl === 'shade' ? -SHADE * s : 0;
+      const stageTo = tl === 'warm' ? STAGE * s : tl === 'cold' ? -STAGE * s : 0;
       // (a lamp lit where a shade was, or the reverse, starts afresh)
       if (lampTo && Math.sign(lampTo) !== Math.sign(h.lamp.v)) h.lamp.v = 0;
-      if (lampTo) Object.assign(h.lamp, { x: p[0], y: p[1], r: h.reach });
-      if (stageTo) Object.assign(h.stage, { x: p[0], y: p[1], r: h.reach });
+      if (stageTo && Math.sign(stageTo) !== Math.sign(h.stage.v)) h.stage.v = 0;
+      if (p) Object.assign(h.lamp, { x: p[0], y: p[1], r: h.reach });
+      if (p) Object.assign(h.stage, { x: p[0], y: p[1], r: h.reach });
       const stirring = h.held && tl === 'touch';
       if (stirring) Object.assign(h.stir, { x: p[0], y: p[1] });
       h.lamp.v = settle(ease(h.lamp.v, lampTo, EASE.lamp, dt), lampTo);

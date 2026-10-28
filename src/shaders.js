@@ -37,19 +37,27 @@ export const SPL_RANGE = SPL_PAIR + SPL_WATCH * SPL_WATCH * 2;
 export const SPL_WORDS = SPL_RANGE + MAXK * 5;
 // rangeMain samples at most about this many particles (every stride-th, from a rotating start)
 export const SPL_RANGE_SAMPLES = 32768;
+// the temperatures the hand's heated stage and cold probe draw the water toward (a shimmering boil, ice)
+export const STAGE = { hot: 60, cold: -3 };
 // The pipette's working words (docs/hand.md), in the ledger after the species ledger: the cells it draws toward its
 // tip (their IDs, sorted), those taken there (12 words each: the particle, then its partners' IDs), and what it
-// sets down (a header, the species' genomes, the cells) with what came of it (how many grains were taken, each
-// species' slot, each cell's index). Never saved.
+// sets down: a header, the species' genomes, the cells (9 words: species, offset, velocity, energy, age, color,
+// info), the IDs of cells set down before that its cells bond to (and where they are found), and the bonds (a
+// keeper, its partner and the keeper's slot; each a cell of this set-down or one of those IDs); with what came of
+// it (how many grains were taken, each species' slot, each cell's index and new ID). Never saved.
 export const PIPE_MAX = 2048; // cells drawn, or set down, at once
 export const PIPE_TAKE = 256; // cells taken at the tip in a frame
 export const PIPE_SP = 64; // species set down at once
+export const PIPE_IDS = 64; // cells set down before that a set-down's cells bond to
+export const PIPE_EARLIER = 0x4000; // a bond's end at or past this: one of those (PIPE_EARLIER + its index)
 export const H_TAKEN = PIPE_MAX;
 export const H_IN = H_TAKEN + 1 + PIPE_TAKE * 12;
 export const H_SP = H_IN + 8;
 export const H_CELLS = H_SP + PIPE_SP * 58;
-export const H_OUT = H_CELLS + PIPE_MAX * 8;
-export const HAND_WORDS = H_OUT + 1 + PIPE_SP + PIPE_MAX;
+export const H_IDS = H_CELLS + PIPE_MAX * 9;
+export const H_LINKS = H_IDS + 2 * PIPE_IDS;
+export const H_OUT = H_LINKS + 2 * PIPE_MAX;
+export const HAND_WORDS = H_OUT + 1 + PIPE_SP + 2 * PIPE_MAX;
 // Energy ledger per diet guild, in thousandths: light, (glint: unused), plant bites, husks, kills, upkeep,
 // children, heat-making. META_ENERGY + 40.. holds the thermal sample (THERMAL_LEDGER).
 export const ENERGY_SLOTS = ['light', 'glint', 'plant', 'husk', 'flesh', 'upkeep', 'children', 'heat'];
@@ -1016,18 +1024,11 @@ function cellWGSL(K, w) {
     taxis += lt;
   }
   // the hand's pull (docs/hand.md): a ridden cell's will, one more drive toward where the viewer steers it, as strong
-  // as its swimming lets it be (a reef, or a producer adrift, cannot be steered; its cost is in upkeep, below); and
-  // the pipette's draw on the cells of the organism it is drawing up, toward its tip (a bond it stretches too far
-  // breaks, as any bond does: a loose body tears, a tight one comes whole)
+  // as its swimming lets it be (a reef, or a producer adrift, cannot be steered; its cost is in upkeep, below)
   var will = vec2f(0.0);
   if (p.id == sim.hand.ids.y && swim > 0.0) {
     let wd = handD(sim.hand.more.zw, p.pos);
     will = wd / max(length(wd), 0.25) * (swim * bitcast<f32>(sim.hand.ids.z) * ${f(K.will)});
-  }
-  let sk = sim.hand.suck;
-  if (sk.w > 0.0) {
-    let sd = handD(sk.xy, p.pos);
-    if (dot(sd, sd) < 9.0 * sk.z * sk.z && drawn(p.id)) { will += sd / max(length(sd), 0.05) * sk.w; }
   }
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
@@ -1155,6 +1156,12 @@ function cellWGSL(K, w) {
     let sp = length(vel);
     if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
     pos += (vel + flow) * h;
+    // the pipette's draw carries it toward the tip, as a current would (a bond it stretches too far breaks, as any
+    // bond does: a loose body tears, a tight one comes whole)
+    pos += suckFlow(p.id, pos, h);
+    // the needle's stroke parts the cells in its way, to either side of it (its cut bonds stay cut)
+    let sc = scrape(pos);
+    if (any(sc != vec2f(0.0))) { pos += sc; vel += normalize(sc) * max(0.0, 1.0 - dot(vel, normalize(sc))); }
   }
   pos = wrapPos(pos);
 
@@ -1226,13 +1233,13 @@ struct Sim {
 // every headless run. Centers in world units, reaches the e-folding radius of a Gaussian.
 struct Hand {
   lamp: vec4f,  // center, reach, light (+ a lamp, more sun on one place; − a shade, 0..1 of it taken)
-  stage: vec4f, // center, reach, degrees a second at the center (+ the heated stage, − the cold probe)
+  stage: vec4f, // center, reach, the share a second of the way to STAGE_HOT (+, the heated stage) or STAGE_COLD (−)
   stir: vec4f,  // center, the water's velocity there (world units a second)
   cut: vec4f,   // the needle's stroke this step, from xy to zw
   more: vec4f,  // x the stir's reach, y the cut's half-width (0: no cut), zw where the ridden cell is steered
   ids: vec4u,   // x the cell the needle pricks, y the ridden cell (NONE: none), z the will's strength (f32 bits),
                 // w how many cells the pipette draws (their IDs in the ledger's hand region)
-  suck: vec4f,  // the pipette's tip, its reach, how hard it draws (world units a second², 0: not drawing)
+  suck: vec4f,  // the pipette's tip, its reach (0: none), how fast it draws what is in reach (world units a second, 0: not pressed)
 };
 // kr: 0..9 kind, 10..11 role, 12 plant, 13 cyst, 14 hunter, 15 tail cell.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
@@ -1274,7 +1281,12 @@ const H_TAKEN = ${H_TAKEN}u;
 const H_IN = ${H_IN}u;
 const H_SP = ${H_SP}u;
 const H_CELLS = ${H_CELLS}u;
+const H_IDS = ${H_IDS}u;
+const PIPE_IDS = ${PIPE_IDS}u;
+const PIPE_EARLIER = ${PIPE_EARLIER}u;
+const H_LINKS = ${H_LINKS}u;
 const H_OUT = ${H_OUT}u;
+const PIPE_MAX = ${PIPE_MAX}u;
 fn handAt() -> u32 { return arrayLength(&ledger) - HAND_WORDS - HEAT_ACC_WORDS; }
 // whether the pipette draws cell id (its IDs sorted: a binary search)
 fn drawn(id: u32) -> bool {
@@ -1366,21 +1378,29 @@ fn cellOf(p: vec2f) -> u32 {
   return u32(c.y) * sim.grid.x + u32(c.x);
 }
 
-// The hand's reach: p from its center c across the wrap, and a Gaussian bump of reach r there.
+// The hand's reach: p from its center c across the wrap, and a disc of reach r there (the reticle's ring), its
+// edge softened over the outer quarter; discSlope its gradient.
 fn handD(p: vec2f, c: vec2f) -> vec2f { var d = p - c; d -= sim.world * round(d / sim.world); return d; }
-fn bump(d: vec2f, r: f32) -> f32 { return exp(-dot(d, d) / max(r * r, 1e-6)); }
+fn disc(d: vec2f, r: f32) -> f32 { return 1.0 - smoothstep(0.75 * r, r, length(d)); }
+fn discSlope(d: vec2f, r: f32) -> vec2f {
+  let l = length(d);
+  let u = clamp((l - 0.75 * r) / (0.25 * r), 0.0, 1.0);
+  return -d / max(l, 1e-6) * (6.0 * u * (1.0 - u) / max(0.25 * r, 1e-6));
+}
+const STAGE_HOT = ${f(STAGE.hot)};
+const STAGE_COLD = ${f(STAGE.cold)};
 // The light l at p under the hand's lamp (added) or shade (taken away).
 fn lampLight(p: vec2f, l: f32) -> f32 {
   let lp = sim.hand.lamp;
   if (lp.w == 0.0) { return l; }
-  let b = lp.w * bump(handD(p, lp.xy), lp.z);
+  let b = lp.w * disc(handD(p, lp.xy), lp.z);
   return select(l * (1.0 + b), l + b, b > 0.0);
 }
 // The water a finger drags along with it.
 fn stirFlow(p: vec2f) -> vec2f {
   let st = sim.hand.stir;
   if (all(st.zw == vec2f(0.0))) { return vec2f(0.0); }
-  return st.zw * bump(handD(p, st.xy), sim.hand.more.x);
+  return st.zw * disc(handD(p, st.xy), sim.hand.more.x);
 }
 // Whether the needle's stroke this step passes within its half-width of p (a bond there is cut).
 fn cutAt(p: vec2f) -> bool {
@@ -1390,6 +1410,34 @@ fn cutAt(p: vec2f) -> bool {
   let ab = handD(sim.hand.cut.zw, sim.hand.cut.xy);
   let t = clamp(dot(a, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
   return length(a - ab * t) < w;
+}
+
+// How far the pipette's draw carries cell id at p toward its tip in h seconds: every cell within its reach while
+// it is pressed (suck.w, world units a second), and a cell bonded to one it took (drawn) at PIPE_DRAW for as long
+// as the tip stays within PIPE_HOLD of the reach (pulled away faster, the tip lets it go).
+const PIPE_DRAW = 6.0;
+const PIPE_HOLD = 2.0;
+fn suckFlow(id: u32, p: vec2f, h: f32) -> vec2f {
+  let sk = sim.hand.suck;
+  if (sk.z <= 0.0) { return vec2f(0.0); }
+  let d = handD(sk.xy, p);
+  let l = length(d);
+  var v = 0.0;
+  if (sk.w > 0.0 && l < sk.z) { v = sk.w; }
+  else if (sim.hand.ids.w > 0u && l < sk.z + PIPE_HOLD && drawn(id)) { v = PIPE_DRAW; }
+  return d / max(l, 1e-4) * min(v * h, l);
+}
+// How far the needle's stroke this step pushes a cell at p aside: out to its half-width from it, the near way.
+fn scrape(p: vec2f) -> vec2f {
+  let w = sim.hand.more.y;
+  if (w <= 0.0) { return vec2f(0.0); }
+  let a = handD(p, sim.hand.cut.xy);
+  let ab = handD(sim.hand.cut.zw, sim.hand.cut.xy);
+  let q = a - ab * clamp(dot(a, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
+  let l = length(q);
+  if (l >= w) { return vec2f(0.0); }
+  let side = select(vec2f(-ab.y, ab.x) * sign(ab.x * a.y - ab.y * a.x + 1e-9), q, l > 1e-5);
+  return normalize(side + vec2f(1e-9, 0.0)) * (w - l);
 }
 
 // The open water's currents at p, as if no shore were near: the four waves and raindrops' rings.
@@ -1490,7 +1538,7 @@ fn lightSlope(p: vec2f) -> vec2f {
   }
   // (and up the slope of the hand's lamp, or out of its shade)
   let lp = sim.hand.lamp;
-  if (lp.w != 0.0) { let d = handD(p, lp.xy); dir -= d * (6.0 * lp.w * bump(d, lp.z) / lp.z); }
+  if (lp.w != 0.0) { dir += discSlope(handD(p, lp.xy), lp.z) * (0.5 * lp.z * lp.w); }
   return dir / max(length(dir), 1.0);
 }
 
@@ -1831,7 +1879,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
     }
     // the pipette's tip: a cell it draws taken in (copied out for the page, its partners by ID), the grain it was
     // built of left as silt, settling about the tip
-    else if (sim.hand.suck.w > 0.0 && length(handD(p.pos, sim.hand.suck.xy)) < 0.3 && drawn(p.id)) {
+    else if (sim.hand.suck.z > 0.0 && length(handD(p.pos, sim.hand.suck.xy)) < 0.3 && (sim.hand.suck.w > 0.0 || drawn(p.id))) {
       let b = handAt();
       let k = atomicAdd(&ledger[b + H_TAKEN], 1u);
       if (k < PIPE_TAKE) {
@@ -2282,8 +2330,10 @@ fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
   let stones = stoneCells[c];
   let mass = 1.0 + ${f(K.stoneMass)} * (f32(stones & 0xffffu) / REEF_FIX + f32(stones >> 16u));
   let light = lightAt(center);
+  // (the hand's stage or probe: the water under it drawn toward its temperature)
   let st = sim.hand.stage;
-  let q = f32(atomicExchange(&ledger[heatAccAt() + c], 0u)) / HEAT_FIX + (${f(K.sunHeat)} * light + st.w * bump(handD(center, st.xy), st.z)) * sim.dt;
+  let stage = select(0.0, abs(st.w) * disc(handD(center, st.xy), st.z) * (select(STAGE_COLD, STAGE_HOT, st.w > 0.0) - carried), st.w != 0.0);
+  let q = f32(atomicExchange(&ledger[heatAccAt() + c], 0u)) / HEAT_FIX + (${f(K.sunHeat)} * light + stage) * sim.dt;
   let t = carried + ${f(K.heatD)} * lap * sim.dt + (q - ${f(K.heatLoss)} * (carried - sim.tbg) * sim.dt) / mass;
   heatNext[c] = t;
 }
@@ -3030,11 +3080,12 @@ ${cellWGSL(K, false)}
 }
 
 // --------------------------------------------------------------------- the pipette sets down
-// What the pipette sets down (the ledger's hand region: a header of how many cells and species, the reach and
-// center to set them in; each species' genome words with the slot it had and whether it is a stranger here; each
-// cell's species, offset, energy, age, color, info and bonds) becomes cells made of the silt there, as a spark
-// turns silt into life: each species takes back its own slot if it still has it, or a free one (a stranger a
-// serial of this world); then each grain of silt within reach, in turn, becomes the next cell; then the bonds.
+// What the pipette sets down (the ledger's hand region: a header of how many cells, species, earlier cells and
+// bonds, the reach and center to set them in; each species' genome words with the slot it had and whether it is a
+// stranger here; each cell's species, offset, velocity, energy, age, color and info; the bonds) becomes cells made
+// of the silt there, as a spark turns silt into life: each species takes back its own slot if it still has it, or
+// a free one (a stranger a serial of this world); then each grain of silt within reach, in turn, becomes the next
+// cell (and the cells set down before that they bond to are found); then the bonds.
 // Between steps, only when there is something to set down.
 @group(0) @binding(23) var<storage, read_write> genomeWords: array<u32>;
 const G_WORDS = ${G_WORDS}u;
@@ -3074,44 +3125,53 @@ fn injectCells(@builtin(global_invocation_id) gid: vec3u) {
   let i = gid.x;
   if (i >= sim.count) { return; }
   var p = parts[i];
-  if (p.kind != SILT) { return; }
   let b = handAt();
+  // (the cells set down before that this set-down's cells bond to, found by their IDs)
+  let ni = atomicLoad(&ledger[b + H_IN + 5u]);
+  for (var q = 0u; q < ni; q++) { if (p.id == atomicLoad(&ledger[b + H_IDS + q]) && p.kind >= FIRST_LIFE) { atomicStore(&ledger[b + H_IDS + PIPE_IDS + q], i); } }
+  if (p.kind != SILT) { return; }
   let n = atomicLoad(&ledger[b + H_IN]);
   let at = vec2f(bitcast<f32>(atomicLoad(&ledger[b + H_IN + 3u])), bitcast<f32>(atomicLoad(&ledger[b + H_IN + 4u])));
   let R = bitcast<f32>(atomicLoad(&ledger[b + H_IN + 2u]));
   if (length(handD(p.pos, at)) > R) { return; }
   let k = atomicAdd(&ledger[b + H_OUT], 1u);
   if (k >= n) { return; }
-  let c = b + H_CELLS + k * 8u;
+  let c = b + H_CELLS + k * 9u;
   let slot = atomicLoad(&ledger[b + H_OUT + 1u + atomicLoad(&ledger[c])]);
   atomicStore(&ledger[b + H_OUT + 1u + PIPE_SP + k], select(i, NONE, slot == NONE));
   if (slot == NONE) { return; }
-  p.pos = wrapPos(at + vec2f(bitcast<f32>(atomicLoad(&ledger[c + 1u])), bitcast<f32>(atomicLoad(&ledger[c + 2u]))));
-  p.vel = vec2f(0.0);
+  let w = array<f32, 6>(bitcast<f32>(atomicLoad(&ledger[c + 1u])), bitcast<f32>(atomicLoad(&ledger[c + 2u])), bitcast<f32>(atomicLoad(&ledger[c + 3u])),
+    bitcast<f32>(atomicLoad(&ledger[c + 4u])), bitcast<f32>(atomicLoad(&ledger[c + 5u])), bitcast<f32>(atomicLoad(&ledger[c + 6u])));
+  p.pos = wrapPos(at + vec2f(w[0], w[1]));
+  p.vel = vec2f(w[2], w[3]);
   p.kind = slot;
-  p.energy = bitcast<f32>(atomicLoad(&ledger[c + 3u]));
-  p.age = bitcast<f32>(atomicLoad(&ledger[c + 4u]));
-  p.col = atomicLoad(&ledger[c + 5u]);
-  p.info = atomicLoad(&ledger[c + 6u]);
+  p.energy = w[4];
+  p.age = w[5];
+  p.col = atomicLoad(&ledger[c + 7u]);
+  p.info = atomicLoad(&ledger[c + 8u]);
   p.id = newId();
+  intent[i].z = NONE; intent[i].w = NONE;
+  atomicStore(&ledger[b + H_OUT + 1u + PIPE_SP + PIPE_MAX + k], p.id);
   parts[i] = p;
 }
+// a bond's end: a cell of this set-down (its index, if it was made), or one set down before (where it was found)
+fn injectEnd(b: u32, r: u32, n: u32) -> u32 {
+  if (r < PIPE_EARLIER) { return select(NONE, atomicLoad(&ledger[b + H_OUT + 1u + PIPE_SP + r]), r < n); }
+  let q = r - PIPE_EARLIER;
+  return select(NONE, atomicLoad(&ledger[b + H_IDS + PIPE_IDS + q]), q < atomicLoad(&ledger[b + H_IN + 5u]));
+}
+// each bond (bits 0..14 the keeper, 15..29 its partner, 30 the keeper's slot): the keeper keeps its partner again
 @compute @workgroup_size(64)
 fn injectBonds(@builtin(global_invocation_id) gid: vec3u) {
   let k = gid.x;
   let b = handAt();
+  if (k >= atomicLoad(&ledger[b + H_IN + 6u])) { return; }
   let n = min(atomicLoad(&ledger[b + H_IN]), atomicLoad(&ledger[b + H_OUT]));
-  if (k >= n) { return; }
-  let i = atomicLoad(&ledger[b + H_OUT + 1u + PIPE_SP + k]);
-  if (i == NONE) { return; }
-  let bw = atomicLoad(&ledger[b + H_CELLS + k * 8u + 7u]);
-  var to = vec2u(NONE);
-  for (var q = 0u; q < 2u; q++) {
-    let m = (bw >> (16u * q)) & 0xffffu;
-    if (m < n) { to[q] = atomicLoad(&ledger[b + H_OUT + 1u + PIPE_SP + m]); }
-  }
-  intent[i].z = to.x;
-  intent[i].w = to.y;
+  let l = atomicLoad(&ledger[b + H_LINKS + k]);
+  let a = injectEnd(b, l & 0x7fffu, n);
+  let o = injectEnd(b, (l >> 15u) & 0x7fffu, n);
+  if (a == NONE || o == NONE || a == o) { return; }
+  intent[a][2u + ((l >> 30u) & 1u)] = o;
 }
 
 // --------------------------------------------------------------------- mind
@@ -6836,12 +6896,12 @@ fn iceLook(wp: vec2f, sd: f32, ppu: f32, grow: f32, reach: f32, rg: f32) -> vec3
 }
 // Crystals in the cold water ahead of the ice: here and there a nucleus has frozen on its own and grows as a small
 // six-armed star, its arms uneven, branched, larger the nearer the front has come. sd: world units ahead of it.
-fn frazilStar(wp: vec2f, cu: vec2f, N: vec2f, sp: vec2f, sd: f32, ppu: f32) -> vec3f {
+fn frazilStar(wp: vec2f, cu: vec2f, N: vec2f, sp: vec2f, sd: f32, ppu: f32, grow: f32) -> vec3f {
   let px = 1.0 / max(ppu, 1e-3);
   let cell = wrapL(cu, N);
   if (hash12(cell + 0.5) > 0.3) { return vec3f(0.0); }
   let ctr = (cu + vjit(cell + 2.0)) * sp;
-  let R = (0.25 + 0.75 * hash12(cell + 4.0)) * smoothstep(8.0, 1.0, sd) * smoothstep(0.0, 0.3, post.weather.z);
+  let R = (0.25 + 0.75 * hash12(cell + 4.0)) * smoothstep(8.0, 1.0, sd) * grow;
   let d = wp - ctr;
   let r = length(d);
   if (r > R + 0.15 || R < 0.05) { return vec3f(0.0); }
@@ -6866,16 +6926,43 @@ fn frazilStar(wp: vec2f, cu: vec2f, N: vec2f, sp: vec2f, sd: f32, ppu: f32) -> v
 }
 // (a star reaches at most about 1.15 units from its point, which lies 0.35 units or more inside its cell: so only
 // the cell here and the three beside its nearest corner can reach a point)
-fn frazil(wp: vec2f, sd: f32, ppu: f32) -> vec3f {
+fn frazil(wp: vec2f, sd: f32, ppu: f32, grow: f32) -> vec3f {
   let N = tileN(3.5);
   let sp = post.world / N;
   let c0 = floor(wp / sp - 0.5);
   var o = vec3f(0.0);
   for (var j = 0; j < 2; j++) {
-    for (var i = 0; i < 2; i++) { o = max(o, frazilStar(wp, c0 + vec2f(f32(i), f32(j)), N, sp, sd, ppu)); }
+    for (var i = 0; i < 2; i++) { o = max(o, frazilStar(wp, c0 + vec2f(f32(i), f32(j)), N, sp, sd, ppu, grow)); }
   }
   return o;
 }
+// The water at its limits, which only the hand's cold probe and heated stage reach (STAGE_COLD, STAGE_HOT): at
+// freezing, far colder than the water around, crystals grow in it and it rimes pale; near boiling bubbles rise
+// in it, each a bright ring that swells and bursts (and it roils: shimmer). T: the water's temperature at wp.
+fn extremes(c: vec3f, wpIn: vec2f, ppu: f32, T: f32, behind: f32) -> vec3f {
+  let cold = smoothstep(2.0, -1.0, T) * smoothstep(2.0, 5.0, post.heat.x - T);
+  let boil = boilAt(T);
+  if (cold <= 0.0 && boil <= 0.0) { return c; }
+  let wp = wpIn - post.world * floor(wpIn / post.world);
+  let k = 0.35 + 0.65 * behind;
+  var o = c + vec3f(0.018, 0.024, 0.03) * cold * k + vec3f(0.02, 0.011, 0.004) * boil * k;
+  if (cold > 0.0) { o += frazil(wp, mix(8.0, 1.0, cold), ppu, 1.0) * 1.6 * k; }
+  if (boil > 0.0) {
+    let g = wp * 3.0;
+    let cell = floor(g);
+    let h = hash12(cell + 0.3);
+    if (h < boil * 0.6) {
+      let ph = fract(post.simTime * (0.7 + 0.8 * h) + h * 7.0);
+      let ctr = cell + 0.25 + 0.5 * vec2f(hash12(cell + 1.7), hash12(cell + 5.1));
+      let ring = exp(-pow((length(g - ctr) - 0.28 * ph) * ppu / 3.0 / 0.9, 2.0)) * smoothstep(1.0, 0.8, ph) * smoothstep(0.0, 0.1, ph);
+      o += vec3f(0.11, 0.1, 0.08) * ring * k;
+    }
+  }
+  return o;
+}
+const STAGE_HOT = ${f(STAGE.hot)};
+const STAGE_COLD = ${f(STAGE.cold)};
+fn boilAt(T: f32) -> f32 { return smoothstep(STAGE_HOT - 24.0, STAGE_HOT - 4.0, T); }
 // Dry ground in darkfield: the film of silt and clay the water left. Wet, water fills the spaces between its grains
 // and it scatters little, dark and smooth with a gloss; as it dries air takes their place and it pales to a grainy
 // buff glow, patchily, as the film drains unevenly. Drying, it shrinks and cracks into plates, first a coarse network
@@ -7232,9 +7319,11 @@ fn surfaceAt(wp: vec2f, ppu: f32, center: vec2f) -> Surface {
 // air over a hot road, faintly, wherever warmth changes (around colonies and framboids, at fronts), the
 // ripples carried by the current. water: waterAt(wp).
 fn shimmer(wp: vec2f, water: vec3f) -> vec2f {
-  if (post.heatVis <= 0.5 || post.heatVis >= 1.5) { return vec2f(0.0); }
+  // (water near boiling roils, whatever the heat map shows)
+  let boil = boilAt(water.x) * flowNoise(wp, 2.5) * 5.0;
+  if (post.heatVis <= 0.5 || post.heatVis >= 1.5) { return boil; }
   let shift = water.yz * flowNoise(wp, 7.0) * 2.0;
-  return shift * min(1.0, 3.0 / max(length(shift), 1e-4));
+  return shift * min(1.0, 3.0 / max(length(shift), 1e-4)) + boil;
 }
 // What of the light reaches wp past the sky (clouds) and any duckweed's shade, as lifeMain has it (lightAt).
 fn lightPassed(wp: vec2f) -> f32 {
@@ -7254,7 +7343,7 @@ fn lampAt(wp: vec2f) -> f32 {
   if (post.lamp.w == 0.0) { return 0.0; }
   var d = wp - post.lamp.xy;
   d -= post.world * round(d / post.world);
-  return post.lamp.w * exp(-dot(d, d) / max(post.lamp.z * post.lamp.z, 1e-6));
+  return post.lamp.w * (1.0 - smoothstep(0.75 * post.lamp.z, post.lamp.z, length(d)));
 }
 // The lamp seen: what it lights is brighter, and the water under it takes the lamp's amber; under a shade, dimmer.
 fn lampSeen(hdr: vec3f, wp: vec2f) -> vec3f {
@@ -7306,9 +7395,9 @@ fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
     // light map), with an isotherm every 2°; inside a warm stage's lens, whatever else is shown
     let full = select(0.0, 1.0, post.heatVis > 1.5);
     c = mix(c, heatRamp(clamp((water - post.heat.y) / (post.heat.z - post.heat.y), 0.0, 1.0)), 0.4 * select(0.0, full, post.tideVis < 1.5) * (1.0 - lens));
-    // (the lens spans what the hand makes: from 10° below the background to 16° above it)
-    c = mix(c, heatRamp(clamp((water - post.heat.x + 10.0) / 26.0, 0.0, 1.0)), 0.26 * lens);
-    let band = water * 0.5;
+    // (the lens spans what the hand makes: from freezing to boiling, isotherms every 5°)
+    c = mix(c, heatRamp(clamp((water - STAGE_COLD) / (STAGE_HOT - STAGE_COLD), 0.0, 1.0)), 0.26 * lens);
+    let band = water * mix(0.5, 0.2, lens);
     let w = fwidth(band);
     let iso = 1.0 - smoothstep(0.0, w * 1.2, min(fract(band), 1.0 - fract(band)));
     c += vec3f(1.0, 0.7, 0.4) * 0.16 * iso * max(full, lens);
@@ -7377,7 +7466,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
     // a whole star at once), full once a quarter of the pool has frozen
     let reach = min(1.0, post.weather.y / 0.25);
     if (sdI < (ICE_LEAD + ICE_OWN) * reach + 0.3) { c += iceLook(wp, sdI, ppu, grow, reach, rg) * (0.35 + 0.65 * behind); }
-    if (sdI > 0.0 && sdI < 9.0 && grow > 0.0) { c += frazil(wp, sdI, ppu) * (0.35 + 0.65 * behind); }
+    if (sdI > 0.0 && sdI < 9.0 && grow > 0.0) { c += frazil(wp, sdI, ppu, grow) * (0.35 + 0.65 * behind); }
   }
   // the waves seen in themselves, on open water only: a surface tilted toward the lamp throws a little of its light
   // into the objective, a pale sheen on the crests' near flanks, while the far flanks bend light away and dim what
@@ -7463,6 +7552,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   c = c * mix(0.72, 1.0, v) * mix(1.0, mix(0.88, 1.05, lamp), k) + bg;
   c = pondSpecks(c, hdr, i.pos.xy, min(1.0, live.a));
   c = poolOver(c, wp, post.ppu, k, behind, surf.slope);
+  c = extremes(c, wp, post.ppu, water.x, behind);
   // the round field stop of the eyepiece clips the corners of the camera's frame
   let corner = length(vec2f(post.res.x / post.res.y, 1.0));
   c *= mix(1.0, 1.0 - 0.85 * smoothstep(corner * 0.78, corner * 1.02, length(q)), k);
@@ -7535,6 +7625,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   c = pondMicro(c, hdr, microView.cam, r0 * microView.res * 0.5, microView.ppu, loupe.ppu, m);
   // the drought's dry floor and its rain, the frost's ice, the storm's waves, duckweed
   c = poolOver(c, wp, loupe.ppu, k, behind, surf.slope);
+  c = extremes(c, wp, loupe.ppu, water.x, behind);
   c = pow(c, vec3f(1.0 / 2.2));
   let vign = smoothstep(1.0, 0.75, d);
   c *= mix(mix(0.55, 0.75, k), 1.0, vign);

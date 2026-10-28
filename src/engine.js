@@ -1,6 +1,6 @@
 import {
   simWGSL, SIM_CLOCK, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, SEA_WGSL, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, PIPE_MAX, PIPE_TAKE, PIPE_SP, H_TAKEN, H_IN, H_SP, H_CELLS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES,
+  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, PIPE_MAX, PIPE_TAKE, PIPE_SP, PIPE_IDS, H_TAKEN, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES,
 } from './shaders.js';
 import {
   archetypeGenome, randomGenome, writeGenome, parseParticle,
@@ -268,7 +268,7 @@ class Engine {
     this.cpDefs.contactMain = [0, 2, 3, 6, 12];
     // what the pipette sets down, between steps (genomeWords: the genomes, as words)
     this.cpDefs.injectSlots = [0, 11, 23];
-    this.cpDefs.injectCells = [0, 1, 11];
+    this.cpDefs.injectCells = [0, 1, 9, 11];
     this.cpDefs.injectBonds = [9, 11];
     // coarse steps run their own lifeMain and mindMain (COARSE in simWGSL)
     this.cpDefs.lifeMainCoarse = this.cpDefs.lifeMain;
@@ -345,7 +345,7 @@ class Engine {
     this.pickStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: PICK_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     // the pipette (docs/hand.md): the cells taken at its tip, and what came of setting cells down
     this.takeStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: (1 + PIPE_TAKE * 12) * 4, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
-    this.setDownStage = d.createBuffer({ size: (1 + PIPE_SP) * 4, usage: U.COPY_DST | U.MAP_READ });
+    this.setDownStage = d.createBuffer({ size: (1 + PIPE_SP + 2 * PIPE_MAX) * 4, usage: U.COPY_DST | U.MAP_READ });
     this.setDownQueue = [];
     this.trackStage = [0, 1, 2, 3, 4, 5, 6, 7].map(() => ({ buf: d.createBuffer({ size: 56, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     b.reprojU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
@@ -1308,36 +1308,44 @@ class Engine {
   }
   /**
    * Set cells down between this frame's steps (docs/hand.md): { at: [x, y], reach, species: [{ words (G_WORDS),
-   * slot, stranger }], cells: [{ sp, dx, dy, energy, age, col, info, bonds: [i, j] (-1 none) }] }, made of the silt
-   * within reach of at. Resolves to { placed, slots } (how many cells were placed, in order; each species' slot or NONE).
+   * slot, stranger }], cells: [{ sp, dx, dy, vx, vy, energy, age, col, info }], earlier: [IDs of cells set down
+   * before], bonds: [[keeper, partner, slot]] (each end a cell's index, or PIPE_EARLIER + an index of earlier) },
+   * made of the silt within reach of at. Resolves to { placed, slots, ids } (how many cells were placed, in order;
+   * each species' slot or NONE; each placed cell's new ID).
    */
   setDown(job) {
     return new Promise((resolve) => this.setDownQueue.push({ ...job, resolve }));
   }
   _setDown(enc, job) {
     const n = Math.min(job.cells.length, PIPE_MAX), m = Math.min(job.species.length, PIPE_SP);
+    const earlier = (job.earlier || []).slice(0, PIPE_IDS), bonds = (job.bonds || []).slice(0, 2 * PIPE_MAX);
     const head = new Uint32Array(8), hf = new Float32Array(head.buffer);
-    head[0] = n; head[1] = m; hf[2] = job.reach; hf[3] = job.at[0]; hf[4] = job.at[1];
+    head[0] = n; head[1] = m; hf[2] = job.reach; hf[3] = job.at[0]; hf[4] = job.at[1]; head[5] = earlier.length; head[6] = bonds.length;
     const sp = new Uint32Array(m * 58);
     job.species.slice(0, m).forEach((x, j) => { sp.set(x.words, j * 58); sp[j * 58 + 56] = x.slot ?? 0xffffffff; sp[j * 58 + 57] = x.stranger ? 1 : 0; });
-    const cells = new Uint32Array(n * 8), cf = new Float32Array(cells.buffer);
+    const cells = new Uint32Array(n * 9), cf = new Float32Array(cells.buffer);
     job.cells.slice(0, n).forEach((c, k) => {
-      const o = k * 8, [b1, b2] = (c.bonds || []).map((x) => (x >= 0 && x < n ? x : 0xffff));
-      cells[o] = c.sp; cf[o + 1] = c.dx; cf[o + 2] = c.dy; cf[o + 3] = c.energy; cf[o + 4] = c.age;
-      cells[o + 5] = c.col; cells[o + 6] = c.info; cells[o + 7] = (b1 ?? 0xffff) | ((b2 ?? 0xffff) << 16);
+      const o = k * 9;
+      cells[o] = c.sp; cf.set([c.dx, c.dy, c.vx || 0, c.vy || 0, c.energy, c.age], o + 1); cells[o + 7] = c.col; cells[o + 8] = c.info;
     });
+    const ids = new Uint32Array(2 * PIPE_IDS).fill(0xffffffff);
+    ids.set(earlier);
+    const links = Uint32Array.from(bonds, ([a, o, q]) => (a & 0x7fff) | ((o & 0x7fff) << 15) | ((q & 1) << 30));
     const q = this.device.queue, L = this._handAt();
     q.writeBuffer(this.b.ledger, L + H_IN * 4, head);
     if (m) q.writeBuffer(this.b.ledger, L + H_SP * 4, sp);
     if (n) q.writeBuffer(this.b.ledger, L + H_CELLS * 4, cells);
+    q.writeBuffer(this.b.ledger, L + H_IDS * 4, ids);
+    if (links.length) q.writeBuffer(this.b.ledger, L + H_LINKS * 4, links);
     enc.clearBuffer(this.b.ledger, L + H_OUT * 4, 4);
     const pass = enc.beginComputePass();
-    for (const [name, wg] of [['injectSlots', 1], ['injectCells', Math.ceil(this.count / 256)], ['injectBonds', Math.ceil(n / 64)]]) {
+    for (const [name, wg] of [['injectSlots', 1], ['injectCells', Math.ceil(this.count / 256)], ['injectBonds', Math.ceil(links.length / 64)]]) {
       if (!wg) continue;
       pass.setPipeline(this.cp[name].pipe); pass.setBindGroup(0, this.cp[name].bg); pass.dispatchWorkgroups(wg);
     }
     pass.end();
     enc.copyBufferToBuffer(this.b.ledger, L + H_OUT * 4, this.setDownStage, 0, (1 + PIPE_SP) * 4);
+    if (n) enc.copyBufferToBuffer(this.b.ledger, L + (H_OUT + 1 + PIPE_SP + PIPE_MAX) * 4, this.setDownStage, (1 + PIPE_SP + PIPE_MAX) * 4, n * 4);
     this.sorted = false;
     return { n, m, resolve: job.resolve };
   }
@@ -1346,7 +1354,8 @@ class Engine {
       const u = new Uint32Array(this.setDownStage.getMappedRange().slice(0));
       this.setDownStage.unmap();
       this.setDownBusy = false;
-      done.resolve(generation === this.worldGeneration ? { placed: Math.min(u[0], done.n), slots: [...u.subarray(1, 1 + done.m)] } : null);
+      const placed = Math.min(u[0], done.n), at = 1 + PIPE_SP + PIPE_MAX;
+      done.resolve(generation === this.worldGeneration ? { placed, slots: [...u.subarray(1, 1 + done.m)], ids: [...u.subarray(at, at + placed)] } : null);
     }).catch(() => { this.setDownBusy = false; done.resolve(null); });
   }
   // the cells taken at the pipette's tip since the last copy (read back: onTaken), and the count cleared
@@ -1497,7 +1506,7 @@ class Engine {
     }
     if (nSteps > 1) d.queue.writeBuffer(b.simRing, 0, this.ringData, 0, nSteps * SIM_STRIDE);
     // while the pipette draws, what its tip took
-    const takeJob = nSteps > 0 && this.hand[27] > 0 ? this._takenCopy(enc) : null;
+    const takeJob = nSteps > 0 && this.hand[26] > 0 ? this._takenCopy(enc) : null;
     const listenJob = nSteps > 0 ? this._listenCopy(enc, cam) : null;
     const mindJob = this._mindCopy(enc);
     const surveyJob = nSteps > 0 ? this._surveyCopy(enc) : null;

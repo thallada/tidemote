@@ -1,17 +1,37 @@
-// The pipette's contents (docs/hand.md): species in the order their first cells came in (the strip reads tip
-// first: the first species is the one that leaves next), each with its genome's words and its organisms, a cell or
-// a body of bonded cells, as they came out of the world: each cell's offset from the organism's middle, energy,
-// age, color and info, and the cells it kept bonds to by index. A species loaded from a card holds colonies not
-// yet made (`made`: how many cells to make, as newborns, when they are set down). Pure: the page draws up and sets
-// down, and keeps the contents with the world (life.pipette).
+// The pipette's contents (docs/hand.md): species in the order the strip shows them (the first is at the tip: the
+// one that leaves next), each with its genome's words and its organisms, a cell or a body of bonded cells, as they
+// came out of the world: each cell's energy, age, color and info, and the cells it keeps bonds to by index, in the
+// order they leave the tip again (each next to one already out, as a body squeezes through it), with how many have
+// left and the IDs they were given. A species loaded from a card holds colonies not yet made (`made`: how many cells
+// to make, as newborns, as they leave). Pure: the page draws up and sets down, and keeps the contents with the world
+// (life.pipette).
+import { PIPE_EARLIER, PIPE_IDS } from './shaders.js';
+
 export const PIPE_LIMIT = 2048;
 const NONE = 0xffffffff;
 
-/** A cell as kept: [dx, dy, energy, age, col, info, bond, bond] (a bond an index in its organism, -1 none). */
-const cellOf = (r, dx, dy, bonds) => [dx, dy, r.energy, r.age, r.col, r.info, bonds[0], bonds[1]];
+/** Bodies among records taken at the tip (the engine's onTaken: id, partners by ID, ...), each in leaving order. */
+export function bodiesOf(recs) {
+  const at = new Map(recs.map((r, i) => [r.id, i]));
+  const near = recs.map(() => []);
+  recs.forEach((r, i) => r.partners.forEach((p) => { const j = p !== NONE ? at.get(p) : undefined; if (j != null && j !== i) { near[i].push(j); near[j].push(i); } }));
+  const seen = new Uint8Array(recs.length), out = [];
+  for (let s = 0; s < recs.length; s++) {
+    if (seen[s]) continue;
+    // breadth first: each cell after one it touches
+    const order = [s];
+    seen[s] = 1;
+    for (let k = 0; k < order.length; k++) for (const j of near[order[k]]) if (!seen[j]) { seen[j] = 1; order.push(j); }
+    const idx = new Map(order.map((i, k) => [i, k]));
+    out.push({ cells: order.map((i) => { const r = recs[i]; return [r.energy, r.age, r.col, r.info, ...r.partners.map((p) => idx.get(at.get(p)) ?? -1)]; }), out: 0, ids: [] });
+  }
+  return out;
+}
 
 export function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
-  const cells = (sp) => sp.orgs.reduce((n, o) => n + o.cells.length, 0) + (sp.made || 0);
+  const cells = (sp) => sp.orgs.reduce((n, o) => n + o.cells.length - o.out, 0) + (sp.made || 0);
+  // a species is in the pipette once: this world's by its serial, a stranger by its card
+  const find = (x) => state.species.find((sp) => (x.card && sp.card === x.card) || (!x.stranger && !sp.stranger && sp.serial === x.serial));
   const pp = {
     state, limit,
     get species() { return state.species; },
@@ -20,57 +40,49 @@ export function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
     cells,
     /** Whether n more cells fit. */
     fits: (n) => pp.count + n <= limit,
-    /**
-     * An organism drawn up: the records taken at the tip (the engine's onTaken: kind, energy, age, id, col, info,
-     * partners by ID), the shape it had (offsets by ID, from the body traced as the pull began), and its species
-     * (serial, the genome's words, the slot it lived in, its name). Bonds to cells that did not come are dropped.
-     */
-    add(species, taken, shape) {
-      if (!taken.length) return null;
-      const at = new Map(taken.map((r, i) => [r.id, i]));
-      const org = { cells: taken.map((r) => {
-        const [dx, dy] = shape.get(r.id) || [0, 0];
-        return cellOf(r, dx, dy, r.partners.map((p) => (p !== NONE && at.has(p) ? at.get(p) : -1)));
-      }) };
-      let sp = state.species.find((x) => x.serial === species.serial && !x.stranger);
-      if (!sp) state.species.push((sp = { ...species, orgs: [] }));
-      sp.orgs.push(org);
-      return org;
+    /** Cells drawn up of one species (serial, the genome's words, the slot it lived in, its name): their bodies. */
+    add(species, recs) {
+      if (!recs.length) return;
+      let sp = find(species);
+      if (!sp) state.species.push((sp = { ...species, orgs: [], made: 0 }));
+      sp.orgs.push(...bodiesOf(recs));
     },
-    /** A card's species loaded: one colony of n cells, made as they are set down; false if they do not fit. */
+    /** A card's species loaded: one colony of n cells, made as they leave; false if they do not fit. */
     load(species, n) {
       if (!pp.fits(n)) return false;
-      let sp = state.species.find((x) => x.card && x.card === species.card);
+      let sp = find(species);
       if (!sp) state.species.push((sp = { ...species, orgs: [], made: 0 }));
       sp.made = (sp.made || 0) + n;
       return true;
     },
     /** The species at the tip, or null. */
     get tip() { return state.species[0] || null; },
-    /** Bring a species to the tip. */
-    toTip(sp) { const i = state.species.indexOf(sp); if (i > 0) { state.species.splice(i, 1); state.species.unshift(sp); } },
+    /** Move a species to place i in the strip (0: the tip). */
+    move(sp, i) {
+      const k = state.species.indexOf(sp);
+      if (k < 0) return;
+      state.species.splice(k, 1);
+      state.species.splice(Math.max(0, Math.min(i, state.species.length)), 0, sp);
+    },
     /**
-     * The next organism of species sp to set down (its last in: the nearest the tip), or for a card's species a
-     * colony of up to `colony` newborns: { sp, cells } (cells as kept), or null.
+     * The next k cells of species sp to leave the tip: of its organism last in (the nearest the tip), or a card's
+     * newborns: { sp, org, from, n } or { sp, made: n }; null if it holds none.
      */
-    next(sp = pp.tip, colony = 1) {
+    next(sp = pp.tip, k = 1) {
       if (!sp) return null;
-      if (sp.orgs.length) return { sp, org: sp.orgs[sp.orgs.length - 1], cells: sp.orgs[sp.orgs.length - 1].cells };
-      if (sp.made) return { sp, made: Math.min(sp.made, colony), cells: null };
-      return null;
+      const org = sp.orgs[sp.orgs.length - 1];
+      if (org) return { sp, org, from: org.out, n: Math.min(k, org.cells.length - org.out) };
+      return sp.made ? { sp, made: Math.min(k, sp.made) } : null;
     },
-    /** What was set down of a `next`: placed of its cells (the rest stay, bonds to the placed dropped). */
-    placed({ sp, org, made }, placed) {
+    /** What left of a `next`: placed of its cells, with their new IDs. */
+    left({ sp, org, made }, placed, ids = []) {
       if (org) {
-        if (placed >= org.cells.length) sp.orgs.splice(sp.orgs.indexOf(org), 1);
-        else {
-          org.cells = org.cells.slice(placed).map((c) => c.map((v, i) => (i >= 6 && v >= 0 ? (v >= placed ? v - placed : -1) : v)));
-        }
+        org.ids.push(...ids.slice(0, placed));
+        org.out += placed;
+        if (org.out >= org.cells.length) sp.orgs.splice(sp.orgs.indexOf(org), 1);
       } else if (made) sp.made -= Math.min(made, placed);
-      if (!cells(sp)) state.species.splice(state.species.indexOf(sp), 1);
+      if (!cells(sp)) pp.remove(sp);
     },
-    /** Every organism of a species, in one job's cells (the strip's card dragged onto the world): [{ org | made }]. */
-    all(sp) { return [...sp.orgs.map((org) => ({ sp, org, cells: org.cells })), ...(sp.made ? [{ sp, made: sp.made, cells: null }] : [])]; },
     remove(sp) { const i = state.species.indexOf(sp); if (i >= 0) state.species.splice(i, 1); },
     clear() { state.species.length = 0; },
   };
@@ -78,33 +90,28 @@ export function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
 }
 
 /**
- * The engine's set-down job for organisms of the pipette (from next() or all()): their cells laid out around the
- * point, each organism in its shape, side by side if several; newborns (made) as a pocket of single cells.
- * newborn(sp, k): a made cell's [energy, col, info]. Returns { species, cells } for eng.setDown, with each item's
- * share of the cells in order (counts) so what was placed can be told back.
+ * The engine's set-down job for some cells leaving the tip (a `next`): placed(k) gives cell k's offset and velocity
+ * [dx, dy, vx, vy]; newborn(sp) a made cell's [energy, col, info]. Each cell keeps again the bonds it kept, to cells
+ * out before (by their IDs) or leaving with it, and each cell out before that kept one of these keeps it again.
  */
-export function setDownJob(items, newborn, rnd = Math.random) {
-  const species = [], cells = [], counts = [];
-  const spIndex = new Map();
-  let ring = 0;
-  for (const it of items) {
-    if (!spIndex.has(it.sp)) { spIndex.set(it.sp, species.length); species.push({ words: it.sp.words, slot: it.sp.slot, stranger: !!it.sp.stranger }); }
-    const j = spIndex.get(it.sp), base = cells.length;
-    // organisms after the first are set a little apart, around it
-    const a = ring * 2.39996, r = ring ? 0.9 * Math.sqrt(ring) : 0;
-    const ox = Math.cos(a) * r, oy = Math.sin(a) * r;
-    ring++;
-    if (it.cells) {
-      for (const c of it.cells) cells.push({ sp: j, dx: c[0] + ox, dy: c[1] + oy, energy: c[2], age: c[3], col: c[4], info: c[5], bonds: [c[6] >= 0 ? base + c[6] : -1, c[7] >= 0 ? base + c[7] : -1] });
-    } else {
-      // a pocket of newborns, packed as a founding colony is
-      for (let k = 0; k < it.made; k++) {
-        const t = rnd() * Math.PI * 2, d = 0.6 * Math.sqrt(it.made / 12) * Math.sqrt(rnd());
-        const [energy, col, info] = newborn(it.sp, k);
-        cells.push({ sp: j, dx: ox + Math.cos(t) * d, dy: oy + Math.sin(t) * d, energy, age: 0, col, info, bonds: [-1, -1] });
-      }
-    }
-    counts.push(cells.length - base);
+export function setDownJob(it, placed, newborn) {
+  const species = [{ words: it.sp.words, slot: it.sp.slot, stranger: !!it.sp.stranger }];
+  if (!it.org) {
+    return { species, cells: Array.from({ length: it.made }, (_, k) => { const [energy, col, info] = newborn(it.sp); const [dx, dy, vx, vy] = placed(k); return { sp: 0, dx, dy, vx, vy, energy, age: 0, col, info }; }), earlier: [], bonds: [] };
   }
-  return { species, cells, counts };
+  const { org, from, n } = it, earlier = [], eIdx = new Map(), bonds = [];
+  const ref = (j) => {
+    if (j >= from) return j - from;
+    if (!eIdx.has(j) && earlier.length < PIPE_IDS && org.ids[j] != null) { eIdx.set(j, earlier.length); earlier.push(org.ids[j]); }
+    return eIdx.has(j) ? PIPE_EARLIER + eIdx.get(j) : -1;
+  };
+  const link = (a, b, q) => { const ra = ref(a), rb = ref(b); if (ra >= 0 && rb >= 0) bonds.push([ra, rb, q]); };
+  const cells = [];
+  for (let k = 0; k < n; k++) {
+    const c = org.cells[from + k], [dx, dy, vx, vy] = placed(k);
+    cells.push({ sp: 0, dx, dy, vx, vy, energy: c[0], age: c[1], col: c[2], info: c[3] });
+    for (let q = 0; q < 2; q++) if (c[4 + q] >= 0 && c[4 + q] < from + n) link(from + k, c[4 + q], q);
+  }
+  for (let j = 0; j < from; j++) for (let q = 0; q < 2; q++) { const p = org.cells[j][4 + q]; if (p >= from && p < from + n) link(j, p, q); }
+  return { species, cells, earlier, bonds };
 }

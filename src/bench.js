@@ -18,9 +18,9 @@ export const reachStep = (r, d) => Math.min(REACH.max, Math.max(REACH.min, r * 1
 /**
  * hand: the page's hand (src/hand.js); pick(id) takes up a tool; reach(r) sets the reach; onToggle(open) as the
  * drawer opens or closes. pip: the pipette's strip: view() -> { count, limit, keys, armed }, cards(flat) -> its
- * mini-cards' markup, toTip(key), open(key) (its full card), drop(key, x, y) (a card dragged out onto the world),
- * save(key) (dragged onto the Lab: its card into the cabinet), cabinet() (opens it), arm() (Pull: the next touch
- * draws up).
+ * mini-cards' markup, move(key, i) (to place i, 0 the tip), open(key) (its full card), drop(key, x, y) (a card
+ * dragged out onto the world), save(key) (dragged onto the Lab: its card into the cabinet), cabinet() (opens it),
+ * arm() (Set down: touches set down rather than draw up).
  */
 export function createBench({ hand, pick, reach, onToggle = () => {}, pip }) {
   const drawer = $('bench'), btn = $('bench-open'), held = $('held'), dock = $('tools');
@@ -35,7 +35,7 @@ export function createBench({ hand, pick, reach, onToggle = () => {}, pip }) {
       <div class="sub-h"><span class="bench-t">Pipette</span><span class="sub-a" id="pip-n"></span></div>
       <div class="strip" id="pip-strip"></div>
     </div>`;
-  held.innerHTML = `<kbd id="held-k"></kbd><b id="held-n"></b><span class="held-reach"><button type="button" class="ghost" data-d="-1" aria-label="Less reach"><svg><use href="#i-minus"/></svg></button><b id="held-r" translate="no"></b><button type="button" class="ghost" data-d="1" aria-label="More reach"><svg><use href="#i-plus"/></svg></button></span><button type="button" class="btn" id="held-pull" aria-pressed="false" data-hint="The next touch draws up instead of setting down">Pull</button><button type="button" class="btn" id="held-down">Put down</button><div class="strip flat" id="held-strip"></div>`;
+  held.innerHTML = `<kbd id="held-k"></kbd><b id="held-n"></b><span class="held-reach"><button type="button" class="ghost" data-d="-1" aria-label="Less reach"><svg><use href="#i-minus"/></svg></button><b id="held-r" translate="no"></b><button type="button" class="ghost" data-d="1" aria-label="More reach"><svg><use href="#i-plus"/></svg></button></span><button type="button" class="btn" id="held-pull" aria-pressed="false" data-hint="Touches set down the tip species instead of drawing up">Set down</button><button type="button" class="btn" id="held-down">Put down</button><div class="strip flat" id="held-strip"></div>`;
   const slider = $('reach'), strip = $('pip-strip'), hstrip = $('held-strip');
 
   const toolClick = (e) => { const b = e.target.closest('[data-tool]'); if (b) pick(b.dataset.tool); };
@@ -48,10 +48,11 @@ export function createBench({ hand, pick, reach, onToggle = () => {}, pip }) {
     else if (e.target.closest('#held-down')) pick('loupe');
     else if (e.target.closest('#held-pull')) { pip.arm(); render(); }
   });
-  // the strip's cards: a tap brings one to the tip, a double tap opens its card, a drag onto the world sets all of it
-  // down there
+  // the strip's cards: a tap opens its card, a drag along the strip moves it (the first is at the tip), onto the world
+  // sets all of it down there, onto the Lab keeps its card
   const drags = [strip, hstrip].map((row) => wireCardDrag(row, {
-    tap: (key, double) => { if (double) pip.open(key); else { pip.toTip(key); render(); } },
+    tap: (key) => pip.open(key),
+    reorder: (key, i) => { pip.move(key, i); render(); },
     drop: (key, x, y, el) => { if (el?.id === 'stage') pip.drop(key, x, y); else if (el?.closest('#lab, #lab-open')) pip.save(key); },
   }));
   btn.addEventListener('click', () => toggle());
@@ -100,7 +101,7 @@ export function createBench({ hand, pick, reach, onToggle = () => {}, pip }) {
     tool.dataset.count = v.count ? (v.count > 999 ? `${Math.floor(v.count / 1000)}k` : v.count) : '';
     if (key === pipKey || drags.some((d) => d.dragging())) return;
     pipKey = key;
-    $('pip-n').textContent = v.count ? `${v.count.toLocaleString('en-US')} / ${v.limit.toLocaleString('en-US')}${v.count >= v.limit ? ' · full' : ''} · tip first` : 'empty';
+    $('pip-n').textContent = v.count ? `${v.count.toLocaleString('en-US')} / ${v.limit.toLocaleString('en-US')}${v.count >= v.limit ? ' · full' : ''}` : 'empty';
     strip.innerHTML = v.keys.length ? pip.cards(false)
       : '<div class="pip-empty"><b>Nothing in the pipette.</b><span>Draw cells up from the world with the pipette (8), or bring cards from the cabinet.</span><button type="button" class="link" data-cabinet>Open the cabinet</button></div>';
     hstrip.innerHTML = inHand ? pip.cards(true) : '';

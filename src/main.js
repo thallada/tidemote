@@ -219,8 +219,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let handSeen = 0;
   // the pipette's contents (pipette.js), the world's (life.pipette, kept in saves)
   let pipette = createPipette();
-  // what it is drawing up (startPull), a Pull armed (phones: the next touch draws up), the held button's rhythm
-  const pull = { job: null, armed: false, hold: null, shake: 0 };
+  // what it draws up (startPull: pressed, what it took, the cells bonded to those still coming, a word by the tip),
+  // Set down armed (phones: touches set down), and what it sets down (startSpit)
+  const pull = { on: false, at: 0, until: 0, tip: [0, 0], got: [], taken: new Set(), drawn: new Set(), last: 0, quiet: 0, armed: false, shake: 0, note: null };
+  const spit = { on: false, held: false, busy: false, sp: null, org: null, at: 0, next: 0, fails: 0, dir: 0, pt: null };
   // riding the specimen (toggleRide): where a held pointer steers it (at), the arrow keys held
   const ride = { on: false, arrows: new Set(), at: null, warned: false };
   // While a pointer is held down on a panel, nothing re-renders under it: replacing the element
@@ -488,7 +490,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     hand.reset(life.hand);
     pipette = createPipette(life.pipette);
     eng.setDrawn([]);
-    pull.job = null;
+    Object.assign(pull, { on: false, until: 0, got: [] }); pull.drawn.clear(); pull.taken.clear();
+    spit.on = false;
     handSeen = 0;
     feedKey = '';
     chron.reset();
@@ -1809,6 +1812,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
       target?.animate([{ boxShadow: 'inset 0 -2px 0 #f1e3a0', color: '#f1e3a0' }, { boxShadow: 'none' }], { duration: 900 });
     });
   }
+  // a card in the cabinet shown: the Lab opened to it, the card flashing
+  function showInCabinet(card) {
+    lab.open('cabinet');
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`#lab .mini[data-key="${CSS.escape(card.id)}"]`);
+      el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      el?.animate([{ boxShadow: '0 0 0 2px #f1e3a0, 0 0 24px rgba(241,227,160,.5)' }, { boxShadow: '0 0 0 0 transparent' }], { duration: 1100, easing: 'ease-out' });
+    });
+  }
   // a card into the pipette: a colony of it, as a founding colony is, made when it is set down
   function loadCard(x) {
     const card = typeof x === 'object' ? x : savedCard(x);
@@ -1828,7 +1840,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     let c;
     try { c = decodeCard(bytes); } catch (e) { flash(e.message); return; }
     const dup = cabinet.cards.find((x) => x.words.every((w, i) => w === c.words[i]));
-    if (dup) { flash(`${dup.name} is already in the cabinet`); lab.open('cabinet'); return; }
+    if (dup) { flash(`${dup.name} is already in the cabinet`); showInCabinet(dup); return; }
     // (a card that came by its link alone is drawn here, from its genome)
     let png = from === 'png' ? bytes.png : null;
     if (!png) {
@@ -2428,20 +2440,27 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // the pipette's strip: its species tip first, each a mini-card keyed by its serial
   const pipKey = (sp) => String(sp.card || sp.serial);
   const pipSp = (key) => pipette.species.find((sp) => pipKey(sp) === key);
+  // its card in the cabinet, if there is one
+  const pipCard = (sp) => cabinet.cards.find((c) => c.id === sp.card) || (!sp.stranger ? savedCard(sp.serial) : null);
   const bench = createBench({ hand, pick: pickTool, reach: setReach, onToggle: (on) => { if (on && phone()) { view.toggle(false); lab.close(); } },
     pip: {
-      view: () => ({ count: pipette.count, limit: PIPE_LIMIT, armed: pull.armed, keys: pipette.species.map(pipKey) }),
+      view: () => ({ count: pipette.count, limit: PIPE_LIMIT, armed: pull.armed, keys: pipette.species.map((sp) => pipKey(sp) + (pipCard(sp) ? '*' : '')) }),
       cards: (flat) => pipette.species.map((sp, i) => miniCard(genomeOfWords(sp.words), K, { key: pipKey(sp), name: sp.name, home: sp.home || 'this world',
-        n: pipette.cells(sp), bodies: sp.orgs.filter((o) => o.cells.length > 1).length, tip: i === 0, flat })).join(''),
-      toTip: (key) => { const sp = pipSp(key); if (sp) pipette.toTip(sp); },
+        n: pipette.cells(sp), bodies: sp.orgs.filter((o) => o.cells.length - o.out > 1).length, tip: i === 0, flat, kept: !!pipCard(sp) })).join(''),
+      move: (key, i) => { const sp = pipSp(key); if (sp) pipette.move(sp, i); },
       // its card: this world's species live, a carried one's from the cabinet
       open: (key) => {
         const sp = pipSp(key), c = sp && cabinet.cards.find((x) => x.id === sp.card);
         if (sp && !sp.stranger && life.reg.has(sp.serial)) cards.open(sp.serial);
         else if (c) cards.openSaved({ ...c, genome: genomeOfWords(c.words) });
       },
-      drop: (key, x, y) => { const sp = pipSp(key); if (sp) dropNext(x, y, pipette.all(sp)); },
-      save: (key) => { const sp = pipSp(key); if (sp && !sp.stranger && life.reg.has(sp.serial)) saveCard(sp.serial); else flash(sp ? `${sp.name} is a card already` : ''); },
+      drop: (key, x, y) => { const sp = pipSp(key); if (sp) startSpit(x, y, sp); },
+      // (dragged onto the Lab: its card kept, or, kept already, its card in the cabinet shown)
+      save: (key) => {
+        const sp = pipSp(key), c = sp && pipCard(sp);
+        if (c) showInCabinet(c);
+        else if (sp && life.reg.has(sp.serial)) saveCard(sp.serial);
+      },
       cabinet: () => lab.open('cabinet'),
       arm: () => { pull.armed = !pull.armed; },
     } });
@@ -2480,124 +2499,122 @@ function run(eng, device, ctx, specCtx, hasTS) {
     } finally { handBusy = false; }
   }
   // ------------------------------------------------------------ the pipette (pipette.js, docs/hand.md)
-  // Drawing up: the living cell nearest the tip, its whole body traced (the pick pass), drawn toward the tip (the
-  // engine's hand.suck on those IDs) and taken there; its bonds hold unless the draw tears them. Setting down: the
-  // next organism of the tip species, in its shape, made of the silt there. Held, one after another, sooner each time.
-  const SUCK = 10; // how hard the tip draws, world units a second²
+  // Drawing up: pressed (even for a moment: a pulse), the tip draws every living cell within its reach toward it,
+  // faster the longer it is held (the engine's hand.suck), and takes in what reaches it; let go, it stops, but for
+  // the cells bonded to one it took, which follow it in unless it is pulled away from them faster than they come.
+  // Setting down (⇧, or Set down on a phone): the tip species' cells leave it one by one (now and then two or three
+  // together), sooner the longer it is held, each keeping its bonds, so a body comes out as it went in.
+  const PRESSURE = 1.5; // seconds held to full pressure
+  const SUCK = [4, 16]; // how fast the tip draws what is in its reach (world units a second), pressed and at full pressure
+  const SPIT = [110, 16]; // ms between cells leaving, pressed and at full pressure
+  const pressed = (t0, now) => Math.min(1, (now - t0) / 1000 / PRESSURE);
+  const lerp2 = ([a, b], u) => a + (b - a) * u;
   const genomeOfWords = (w) => { const u = Uint32Array.from(w); return readGenome(u, new Float32Array(u.buffer), 0); };
   const genomeWords = (g) => { const u = new Uint32Array(G_WORDS); writeGenome(u, new Float32Array(u.buffer), 0, g); return [...u]; };
   const wordsOf = (kind) => Array.from(life.lastCensus.genomeU32.subarray(kind * G_WORDS, (kind + 1) * G_WORDS));
-  async function startPull(sx, sy) {
-    if (pull.job || !life.lastCensus) return;
-    const [wx, wy] = toWorld(sx, sy), [W, H] = eng.grid;
-    const near = await eng.requestPick([wx, wy], Math.max(hand.reach, 0.5), NONE);
-    let c = null, cd = Infinity;
-    for (const e of near?.entries || []) {
-      const d = Math.hypot(wrapD(e.x - wx, W), wrapD(e.y - wy, H));
-      if (e.kind >= FIRST_LIFE && d < cd) { cd = d; c = e; }
-    }
-    const g = c && genomeFor(c.kind);
-    if (!g) { flash('Nothing living under the tip'); return; }
-    const res = await eng.requestPick([c.x, c.y], 8, NONE, { kind: c.kind, raw: true, maxOut: PIPE_MAX * 2 });
-    const tb = res?.raw && traceBody(res.raw.u32, res.raw.f32, res.raw.count, c.id);
-    if (!tb || pull.job) return;
-    const ids = tb.body.map((i) => res.raw.u32[i * PICK_WORDS + 7]);
-    if (!pipette.fits(ids.length)) { pull.shake = performance.now(); flash(`The pipette is full · ${fmt(PIPE_LIMIT)} cells · set some down`); return; }
-    // its shape as it was: each cell's offset from the body's middle
-    const mx = tb.body.reduce((a, i) => a + wrapD(tb.X[i] - c.x, W), 0) / ids.length, my = tb.body.reduce((a, i) => a + wrapD(tb.Y[i] - c.y, H), 0) / ids.length;
-    const shape = new Map(tb.body.map((i, k) => [ids[k], [wrapD(tb.X[i] - c.x, W) - mx, wrapD(tb.Y[i] - c.y, H) - my]]));
-    const sp = life.reg.get(g.serial);
-    pull.job = { sp: { serial: g.serial, words: wordsOf(c.kind), slot: c.kind, name: sp?.name || 'an unnamed species' }, shape, n: ids.length, got: [], at: performance.now(), last: performance.now(), tip: [wx, wy] };
-    eng.setDrawn(ids);
-    hand.note('pipette', wx, wy, eng.simTime, ids.length);
+  function startPull(sx, sy) {
+    const now = performance.now();
+    if (!pipette.fits(1)) { pull.shake = now; return; }
+    Object.assign(pull, { on: true, at: now, until: now + 250, tip: toWorld(sx, sy) });
+    hand.note('pipette', ...pull.tip, eng.simTime);
   }
   eng.onTaken = (recs) => {
-    const j = pull.job;
-    if (!j) return;
-    for (const r of recs) if (j.shape.has(r.id)) j.got.push(r);
-    j.last = performance.now();
+    for (const r of recs) { pull.got.push(r); pull.taken.add(r.id); pull.drawn.delete(r.id); }
+    for (const r of recs) for (const q of r.partners) if (q !== NONE && !pull.taken.has(q)) pull.drawn.add(q);
+    eng.setDrawn([...pull.drawn].slice(0, PIPE_MAX));
+    pull.last = performance.now();
+    if (life.lastCensus) hand.note('pipette', ...pull.tip, eng.simTime, recs.length);
   };
-  // each frame: the tip follows the pointer while it draws; the organism kept once all of it is in, or once nothing
-  // more has come for a while (a part torn off stays in the water)
+  // what came in, kept once nothing more is coming: each species' cells, as bodies
+  function pullDone() {
+    hand.suck = null;
+    eng.setDrawn([]);
+    pull.drawn.clear(); pull.taken.clear();
+    const by = new Map();
+    for (const r of pull.got) { if (!by.has(r.kind)) by.set(r.kind, []); by.get(r.kind).push(r); }
+    pull.got = [];
+    for (const [kind, recs] of by) {
+      const g = life.lastCensus && genomeFor(kind);
+      if (!g) continue;
+      pipette.add({ serial: g.serial, words: wordsOf(kind), slot: kind, name: life.reg.get(g.serial)?.name || 'an unnamed species' }, recs);
+    }
+    bench.render();
+  }
+  // each frame: the tip follows the pointer while it draws, and sets down while pressed
   function pullTick(now) {
-    const j = pull.job, R = reticleAt();
-    if (j) {
-      // (where the pointer is, or with none over the world, where the pull began)
-      const tip = R ? (j.tip = toWorld(R.sx, R.sy)) : j.tip;
-      hand.suck = [tip[0], tip[1], Math.max(hand.reach, 0.5), state.paused ? 0 : SUCK];
-      if (j.got.length >= j.n || now - j.last > 1500 || now - j.at > 8000) {
-        hand.suck = null;
-        eng.setDrawn([]);
-        pull.job = null;
-        if (j.got.length) {
-          pipette.add(j.sp, j.got, j.shape);
-          flash(`${j.got.length === j.n ? '' : `${fmt(j.got.length)} of `}${fmt(j.n)} cell${j.n === 1 ? '' : 's'} of ${j.sp.name} drawn up`);
-        }
-        bench.render();
-      }
+    const R = reticleAt();
+    if (R && (pull.on || hand.suck)) pull.tip = toWorld(R.sx, R.sy);
+    const pressing = (pull.on || now < pull.until) && pipette.fits(pull.got.length + 1);
+    if (pull.on && !pressing) { pull.on = false; pull.shake = now; }
+    if (pressing || (pull.drawn.size && now - pull.last < 1500)) {
+      hand.suck = [...pull.tip, Math.max(hand.reach, 0.5), pressing && !state.paused ? lerp2(SUCK, pressed(pull.at, now)) : 0];
+      pull.quiet = now;
+    } else if (hand.suck || pull.got.length) {
+      hand.suck = null;
+      // (the last cells taken come back a frame or two after)
+      if (now - Math.max(pull.quiet, pull.last) > 250) pullDone();
     }
-    // held: another, sooner each time
-    const h = pull.hold;
-    if (h && ptr.down?.pip && !ptr.dragging && now >= h.next && !pull.job && !drop.busy) {
-      h.gap = Math.max(140, h.gap * 0.7); h.next = now + h.gap;
-      if (h.pulling) startPull(R?.sx ?? hover.x, R?.sy ?? hover.y); else dropNext(R?.sx ?? hover.x, R?.sy ?? hover.y);
-    }
+    if (spit.on && !spit.busy && now >= spit.next) spitNext(now, R);
   }
   // the silt within reach that cells set down are made of: a disc holding, at the world's mean, four times the grains
-  // they need (silt lies unevenly); the cells themselves are set in their own shape wherever their grains came from
+  // they need (silt lies unevenly)
   function setDownReach(n) {
     const silt = Math.max(0.2, (life.counts[0] || eng.count * 0.5) / (eng.grid[0] * eng.grid[1]));
     return Math.max(hand.reach, Math.sqrt((4 * n) / (Math.PI * silt)) + 1);
   }
-  const drop = { busy: false };
   // a newborn of a card's species: its energy and color, its first cell type
   const newborn = (sp) => { const g = genomeOfWords(sp.words); return [0.5 * (g.reproE || 1), g.col, 0]; };
-  async function dropNext(sx, sy, items, wide = 1) {
-    if (drop.busy || !pipette.count) return;
-    items ??= [pipette.next(pipette.tip, Math.max(8, Math.round(K.foundLife * eng.count / K.foundColonies)))].filter(Boolean);
-    // (a stranger's first colony founds its lineage here: the rest waits for the census to name its serial, a few
-    // seconds at most: a colony all dead before a census was ever taken founds none)
-    for (const it of items) if (it.sp.pending != null && Math.abs(eng.simTime - it.sp.pendingAt) > 5) it.sp.pending = null;
-    items = items.filter((it) => it.sp.pending == null);
-    if (!items.length) return;
-    const [wx, wy] = toWorld(sx, sy);
-    const job = setDownJob(items, newborn);
-    drop.busy = true;
-    const res = await eng.setDown({ at: [wx, wy], reach: setDownReach(job.cells.length) * wide, species: job.species, cells: job.cells });
-    drop.busy = false;
-    if (!res) return;
-    // each item's share of what was placed, in order (a species without a slot placed none)
-    let left = res.placed, total = 0;
-    items.forEach((it, k) => {
-      const slot = res.slots[job.species.findIndex((x) => x.words === it.sp.words)];
-      const got = slot !== NONE ? Math.max(0, Math.min(left, job.counts[k])) : 0;
-      left -= job.counts[k]; total += got;
-      it.short = job.counts[k] - got;
-      if (got > 0) {
-        it.sp.slot = slot;
-        if (it.sp.stranger) { life.carried[slot] = { name: it.sp.name, home: it.sp.home }; Object.assign(it.sp, { pending: slot, pendingAt: eng.simTime }); }
-        pipette.placed(it, got);
-      }
-    });
-    if (total) hand.note('setdown', wx, wy, eng.simTime, total);
-    // what too little silt left, once more from twice as far
-    const rest = items.filter((it) => it.short > 0 && (it.org ? it.sp.orgs.includes(it.org) : it.sp.made > 0));
-    if (rest.length && wide === 1 && res.slots.some((x) => x !== NONE)) {
-      bench.render();
-      return dropNext(sx, sy, rest.map((it) => (it.org ? { sp: it.sp, org: it.org, cells: it.org.cells } : { sp: it.sp, made: it.short, cells: null })), 2);
+  // Setting down: pressed (held: until let go; a click: one body), or a strip's card dragged onto the world (all of
+  // that species, there)
+  function startSpit(sx, sy, sp = null) {
+    if (!pipette.count) return;
+    Object.assign(spit, { on: true, held: !sp, sp, org: null, at: performance.now(), next: 0, fails: 0, pt: sp ? toWorld(sx, sy) : null });
+  }
+  async function spitNext(now, R) {
+    const sp = spit.sp || pipette.tip;
+    // (a click's body comes out whole; held, one after another)
+    if (!sp || (!spit.held && !spit.sp && !spit.org)) { spit.on = false; return; }
+    // (a stranger's first cells found its lineage here: the rest waits for the census to name its serial, a few
+    // seconds at most: cells all dead before a census was ever taken found none)
+    if (sp.pending != null) {
+      if (Math.abs(eng.simTime - sp.pendingAt) < 5) return;
+      sp.pending = null;
     }
-    if (total < job.cells.length) flash(total ? `${fmt(total)} of ${fmt(job.cells.length)} set down: too little silt here for the rest` : 'Too little silt here to set them down');
+    const u = pressed(spit.at, now), r = Math.random();
+    const it = pipette.next(sp, 1 + Math.floor(u * 2) + (r < 0.07 ? 2 : r < 0.25 ? 1 : 0));
+    if (!it) { spit.on = false; return; }
+    if (it.org && it.org !== spit.org) { spit.org = it.org; spit.dir = Math.random() * TAU; }
+    const at = spit.pt || (R ? toWorld(R.sx, R.sy) : null);
+    if (!at) return;
+    // each cell squeezed out at the tip, pushed on its way
+    const placed = () => { const a = spit.dir + (Math.random() - 0.5) * 0.9, v = 1.2 + Math.random() * 0.6; return [Math.cos(a) * 0.05, Math.sin(a) * 0.05, Math.cos(a) * v, Math.sin(a) * v]; };
+    const job = setDownJob(it, placed, newborn), n = job.cells.length;
+    spit.busy = true;
+    const res = await eng.setDown({ at, reach: setDownReach(n) * (spit.fails ? 2 : 1), ...job });
+    spit.busy = false;
+    if (!res) return;
+    const got = res.slots[0] !== NONE ? res.placed : 0;
+    if (got) {
+      sp.slot = res.slots[0];
+      if (sp.stranger) { life.carried[sp.slot] = { name: sp.name, home: sp.home }; Object.assign(sp, { pending: sp.slot, pendingAt: eng.simTime }); }
+      pipette.left(it, got, res.ids);
+      hand.note('setdown', ...at, eng.simTime, got);
+      if (it.org && it.org.out >= it.org.cells.length) spit.org = null;
+      spit.fails = 0;
+    } else if (++spit.fails > 2) {
+      // (nothing to make them of here: a word by the tip, and a click's or a card's work ends)
+      pull.note = { text: 'Too little silt here', t: now };
+      if (!spit.held) spit.on = false;
+    }
+    spit.next = now + lerp2(SPIT, u) * (got ? 1 : 4);
     bench.render();
   }
-  // a press with the pipette in hand: the right button draws up (any button while it is empty, or when Pull is
-  // armed), the left sets down
+  // a press with the pipette in hand: it draws up, or with ⇧ (on a phone, Set down) sets down
   function pipettePress(e) {
-    const pulling = e.button === 2 || !pipette.count || pull.armed;
-    pull.armed = false;
-    pull.hold = { pulling, next: performance.now() + 650, gap: 650 };
-    if (pulling) startPull(e.clientX, e.clientY); else dropNext(e.clientX, e.clientY);
-    bench.render();
+    const down = isCoarse && e.pointerType !== 'mouse' ? pull.armed : e.shiftKey;
+    if (down) startSpit(e.clientX, e.clientY); else startPull(e.clientX, e.clientY);
   }
+  function pipetteUp() { pull.on = false; spit.held = false; }
   // A tap with a tool in hand: Touch rings the water, the needle pricks the cell under its tip.
   async function tapTool(sx, sy) {
     const [wx, wy] = toWorld(sx, sy);
@@ -2628,7 +2645,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const folds = phone() && bench.isOpen();
     if (ptr.pointers.size === 1) {
       const apply = inHand() && !folds && state.phase === 'running' && (e.pointerType !== 'mouse' || e.button === 0);
-      const pip = hand.tool === 'pipette' && !folds && state.phase === 'running' && (e.pointerType !== 'mouse' || e.button === 0 || e.button === 2);
+      const pip = hand.tool === 'pipette' && apply;
       ptr.down = { x: e.clientX, y: e.clientY, loupe: loupeGeom(), apply, pip, t: performance.now() };
       ptr.dragging = false;
       if (pip) { pipettePress(e); takeOver(); }
@@ -2642,6 +2659,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       ptr.dragging = true;
       // a second finger puts the tool's work aside for the pinch
       if (ptr.down?.apply) { ptr.down.apply = false; hand.up(eng.simTime); }
+      if (ptr.down?.pip) pipetteUp();
       if (ptr.down?.steer) { ptr.down.steer = false; ride.at = null; }
       takeOver();
     }
@@ -2687,7 +2705,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (ptr.pointers.size < 2) ptr.pinch = null;
     if (ptr.pointers.size === 0) {
       if (ptr.down?.steer) ride.at = null;
-      if (ptr.down?.pip) pull.hold = null;
+      if (ptr.down?.pip) pipetteUp();
       else if (ptr.down?.apply) {
         if (!ptr.dragging && e.type === 'pointerup') tapTool(e.clientX, e.clientY);
         hand.up(eng.simTime);
@@ -3389,15 +3407,18 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   // what the tool in hand is doing, in a few words
   function handDoing() {
-    const t = hand.tool, lv = Math.round(Math.abs(hand.lamp.v) * 100 / (t === 'shade' ? 0.9 : 0.6));
-    if (t === 'lamp' || t === 'shade') return hand.held ? `${t === 'lamp' ? 'Brightening' : 'Darkening'} · ${Math.min(100, lv)}%` : hand.lamp.v ? `Fading · ${Math.min(100, lv)}%` : 'Hold to light';
-    if (t === 'warm' || t === 'cold') return hand.held ? `${t === 'warm' ? 'Warming' : 'Chilling'} · ${hand.stage.v > 0 ? '+' : '−'}${Math.abs(hand.stage.v).toFixed(1)}°/s` : 'Hold to change the water';
+    const t = hand.tool, pct = `${Math.min(100, Math.round(hand.level * 100))}%${hand.held ? '' : ' · hold for more'}`;
+    if (t === 'lamp' || t === 'shade') return `${hand.held ? (t === 'lamp' ? 'Brightening' : 'Darkening') : 'Over the water'} · ${pct}`;
+    if (t === 'warm' || t === 'cold') return `${hand.held ? (t === 'warm' ? 'Warming toward a boil' : 'Chilling toward ice') : 'Over the water'} · ${pct}`;
     if (t === 'touch') return hand.held && ptr.dragging ? 'Stirring' : 'Tap: a ring · drag: stir';
     if (t === 'needle') return ptr.dragging ? 'Cutting bonds' : 'Click: prick · drag: cut';
     if (t === 'pipette') {
-      if (pull.job) return `Drawing up ${pull.job.sp.name} · ${fmt(pull.job.got.length)} of ${fmt(pull.job.n)} in`;
-      const tip = pipette.tip;
-      return tip ? `${isCoarse ? 'Tap' : 'Left'} sets down ${tip.name}${isCoarse ? '' : ' · right draws up'}` : `${isCoarse ? 'Tap' : 'Click'} draws up what is under the tip`;
+      const tip = pipette.tip, now = performance.now();
+      if (pull.on || hand.suck) return `Drawing up · ${fmt(pull.got.length)} in`;
+      if (spit.on) return `Setting down ${(spit.sp || tip)?.name ?? ''}`;
+      if (pull.note && now - pull.note.t < 2000) return pull.note.text;
+      if (isCoarse) return pull.armed ? `Tap sets down ${tip?.name ?? ''}` : 'Tap draws up all in reach';
+      return tip ? `Click draws up · ⇧ click sets down ${tip.name}` : 'Click draws up all in reach';
     }
     return toolOf(t).hint;
   }
@@ -4051,6 +4072,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       canvas.classList.toggle('lens', !!L || !!R);
       steerRide();
       pullTick(now);
+      // (the lamp, shade, stage and probe follow the pointer over the world, a little of them, until pressed)
+      if (R) hand.hover(...toWorld(R.sx, R.sy)); else hand.hover(null);
       hand.update(dt / 1000);
       // the warm stage and the cold probe show the water's warmth inside their reach
       if (R && (hand.tool === 'warm' || hand.tool === 'cold') && K.heat) eng.lens.set([...toWorld(R.sx, R.sy), (1.5 * R.r) / cssPPU(), 1]);
