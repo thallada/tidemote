@@ -73,13 +73,16 @@ function fail(title, detail, actions = []) {
 // how long the page took to start, in ms from navigation: the GPU device, the engine (its shaders
 // compiled, or found in the browser's shader cache), and the world running (Settings → Performance → Copy profile)
 const bootTimes = {};
-// Chrome keeps compiled shaders per site, but it never drops an old version's: after an update every
-// visit compiled the largest pipelines again (lifeMain..., about 3 s rather than 0.6). So the first
-// visit with changed shaders has the site clear its cache (fresh-shaders.txt answers with
-// Clear-Site-Data: "cache", site/_headers). That visit still runs on what the GPU process had loaded
-// before the page could act, and the next one compiles what the clear took; from the third on, loads
-// find everything (docs/desktop.md "Shader cache"). The desktop app empties its cache itself
-// (desktop/main.js); a failed fetch (offline, a file:// page) is ignored.
+// A workaround for a Chrome bug: its WebGPU shader cache (one 6 MiB in memory per profile, every site
+// shared) is filled at startup newest first, older entries pushing newer ones out, and the disk copy keeps
+// an old version's: after an update every visit compiled the largest pipelines again (lifeMain..., about 3
+// s rather than 0.6), indefinitely. So the first visit with changed shaders has the site clear its cache
+// (fresh-shaders.txt answers with Clear-Site-Data: "cache", site/_headers). That visit still runs on what
+// the GPU process had loaded before the page could act, and the next one compiles what the clear took; from
+// the third on, loads find everything (docs/desktop.md "Shader cache"). The clear also empties other sites'
+// shader caches in that Chrome profile (Chrome ignores the origin there) and this site's HTTP cache, once
+// per shader change; saves and settings stay. The desktop app empties its cache itself (desktop/main.js); a
+// failed fetch (offline, a file:// page) is ignored.
 /* global __TIDEMOTE_SHADERS__ */
 async function freshShaders() {
   const key = 'tidemote.shaders';

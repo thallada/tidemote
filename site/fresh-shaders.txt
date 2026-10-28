@@ -1,1 +1,10 @@
-Clears this site's cache (Clear-Site-Data, _headers): the page asks once when its shaders change.
+This file exists only for its response header, Clear-Site-Data: "cache" (site/_headers).
+
+The page (freshShaders in src/main.js) fetches it once, on the first visit after its shaders change.
+It works around a Chrome bug: Chrome keeps compiled WebGPU shaders in one 6 MiB in-memory cache per
+profile, loads it from disk at startup newest first with older entries pushing newer ones out, and
+trims the disk copy only after minutes of uptime. After an update the old version's shaders win, and
+every visit compiled the new ones again (about 3 s instead of 0.6), indefinitely. Clearing once
+brings loads back to 0.6 s from the third visit. Side effects: it also empties other sites' WebGPU
+shader caches in that Chrome profile (Chrome ignores the origin there) and this site's HTTP cache;
+saves and settings are untouched. docs/desktop.md "Shader cache" has the measurements and sources.
