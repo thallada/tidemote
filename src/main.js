@@ -483,6 +483,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // the hand's acts on this world (hand.js): a world touched says so wherever its record goes; what the
       // pipette holds
       hand: [], pipette: { species: [] }, rode: [], // (rode: the species ridden, marked in the lineage view)
+      carried: {}, // slot -> { name, home }: a stranger set down, its name and home water for when the census meets it
     };
     hand.reset(life.hand);
     pipette = createPipette(life.pipette);
@@ -656,6 +657,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       life.hand ??= [];
       life.pipette ??= { species: [] };
       life.rode ??= [];
+      life.carried ??= {};
       hand.reset(life.hand);
       pipette = createPipette(life.pipette);
       handSeen = life.hand.length;
@@ -876,6 +878,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
       signal: signalAt(voiceOf(g).motif) >= 0, // its song is the five tones
       series: { t: [], v: [] }, // its population at each census, for the Lineage view
     };
+    // a species carried in from another world keeps its name and its home water; the rest of it in the pipette is now
+    // of this world's serial
+    const c = g.parent === 0 && life.carried[g.slot];
+    if (c) {
+      delete life.carried[g.slot];
+      Object.assign(sp, { name: c.name, given: true, home: c.home, carried: true });
+      for (const ps of pipette.species) if (ps.pending === g.slot) { ps.words = [...ps.words]; ps.words[41] = g.serial; Object.assign(ps, { serial: g.serial, stranger: false, pending: null }); }
+    }
     life.reg.set(g.serial, sp);
     return sp;
   }
@@ -2533,22 +2543,27 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (h.pulling) startPull(R?.sx ?? hover.x, R?.sy ?? hover.y); else dropNext(R?.sx ?? hover.x, R?.sy ?? hover.y);
     }
   }
-  // the silt within reach that cells set down are made of: a disc holding about twice the grains they need
+  // the silt within reach that cells set down are made of: a disc holding, at the world's mean, four times the grains
+  // they need (silt lies unevenly); the cells themselves are set in their own shape wherever their grains came from
   function setDownReach(n) {
     const silt = Math.max(0.2, (life.counts[0] || eng.count * 0.5) / (eng.grid[0] * eng.grid[1]));
-    return Math.max(hand.reach, Math.sqrt((2 * n) / (Math.PI * silt)) + 0.5);
+    return Math.max(hand.reach, Math.sqrt((4 * n) / (Math.PI * silt)) + 1);
   }
   const drop = { busy: false };
   // a newborn of a card's species: its energy and color, its first cell type
   const newborn = (sp) => { const g = genomeOfWords(sp.words); return [0.5 * (g.reproE || 1), g.col, 0]; };
-  async function dropNext(sx, sy, items) {
+  async function dropNext(sx, sy, items, wide = 1) {
     if (drop.busy || !pipette.count) return;
     items ??= [pipette.next(pipette.tip, Math.max(8, Math.round(K.foundLife * eng.count / K.foundColonies)))].filter(Boolean);
+    // (a stranger's first colony founds its lineage here: the rest waits for the census to name its serial, a few
+    // seconds at most: a colony all dead before a census was ever taken founds none)
+    for (const it of items) if (it.sp.pending != null && Math.abs(eng.simTime - it.sp.pendingAt) > 5) it.sp.pending = null;
+    items = items.filter((it) => it.sp.pending == null);
     if (!items.length) return;
     const [wx, wy] = toWorld(sx, sy);
     const job = setDownJob(items, newborn);
     drop.busy = true;
-    const res = await eng.setDown({ at: [wx, wy], reach: setDownReach(job.cells.length), species: job.species, cells: job.cells });
+    const res = await eng.setDown({ at: [wx, wy], reach: setDownReach(job.cells.length) * wide, species: job.species, cells: job.cells });
     drop.busy = false;
     if (!res) return;
     // each item's share of what was placed, in order (a species without a slot placed none)
@@ -2557,9 +2572,20 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const slot = res.slots[job.species.findIndex((x) => x.words === it.sp.words)];
       const got = slot !== NONE ? Math.max(0, Math.min(left, job.counts[k])) : 0;
       left -= job.counts[k]; total += got;
-      if (got > 0) { it.sp.slot = slot; pipette.placed(it, got); }
+      it.short = job.counts[k] - got;
+      if (got > 0) {
+        it.sp.slot = slot;
+        if (it.sp.stranger) { life.carried[slot] = { name: it.sp.name, home: it.sp.home }; Object.assign(it.sp, { pending: slot, pendingAt: eng.simTime }); }
+        pipette.placed(it, got);
+      }
     });
     if (total) hand.note('setdown', wx, wy, eng.simTime, total);
+    // what too little silt left, once more from twice as far
+    const rest = items.filter((it) => it.short > 0 && (it.org ? it.sp.orgs.includes(it.org) : it.sp.made > 0));
+    if (rest.length && wide === 1 && res.slots.some((x) => x !== NONE)) {
+      bench.render();
+      return dropNext(sx, sy, rest.map((it) => (it.org ? { sp: it.sp, org: it.org, cells: it.org.cells } : { sp: it.sp, made: it.short, cells: null })), 2);
+    }
     if (total < job.cells.length) flash(total ? `${fmt(total)} of ${fmt(job.cells.length)} set down: too little silt here for the rest` : 'Too little silt here to set them down');
     bench.render();
   }
@@ -3348,8 +3374,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     octx.font = '500 11px Saira, system-ui, sans-serif';
     octx.letterSpacing = '1.5px';
     const w = Math.max(...lines.map((l) => octx.measureText(l).width)) + 12;
+    // beside the ring, within the water the panels leave open
+    const left = lab.isOpen() && !phone() && state.ui ? $('lab').getBoundingClientRect().right : 0, right = innerWidth - specimen.inset().right;
     let x = sx + Math.min(r, 160) + 16;
-    if (x + w > innerWidth - 8) x = sx - Math.min(r, 160) - 16 - w;
+    if (x + w > right - 8) x = sx - Math.min(r, 160) - 16 - w;
+    x = clamp(x, left + 8, right - 8 - w);
     const y = clamp(sy - 12, 60, innerHeight - 90);
     octx.fillStyle = 'rgba(6,9,10,0.62)';
     octx.fillRect(x, y - 4, w + 4, 34);
