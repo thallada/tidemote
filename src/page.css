@@ -278,6 +278,8 @@ body:not(.live) .hud { opacity: 0; }
 .dock .speed.max { color: var(--bg); background: var(--sun); border-color: var(--sun); }
 .dock .speed.max small { color: rgba(6, 9, 10, 0.7); }
 .acts { margin-left: auto; gap: 6px; }
+/* with the tools in the dock's middle, the acts keep their labels only where there is room */
+@media (max-width: 1600px) { .acts .act span { display: none; } .acts .act { padding: 0 10px; } }
 .act { height: 38px; padding: 0 13px 0 10px; display: flex; align-items: center; gap: 8px; }
 .act[aria-pressed="true"], .act[aria-expanded="true"] { color: var(--ink); background: var(--cyan-deep); border-color: var(--line-2); }
 #auto-play[aria-pressed="true"] { color: var(--bg); background: var(--hot); border-color: var(--hot); }
@@ -286,6 +288,76 @@ body:not(.live) .hud { opacity: 0; }
 .snd-wrap { display: flex; align-items: center; gap: 8px; }
 #vol { width: 74px; }
 .sys { font-size: 11px; letter-spacing: .12em; color: var(--ink-3); text-transform: uppercase; white-space: nowrap; font-stretch: 108%; flex: none; display: flex; gap: 12px; }
+/* the speed chip: its speed and a chevron; it opens the ladder */
+.dock .speed > span { display: flex; align-items: center; gap: 4px; }
+.dock .speed .chev { width: 11px; height: 11px; opacity: .7; transform: rotate(180deg); transition: transform .15s; }
+.dock .speed[aria-expanded="true"] .chev { transform: none; }
+/* the tools: one numbered group in the dock's middle; the one in hand in the sun color */
+.dock .tools { margin-left: auto; gap: 0; border: 1px solid var(--line); }
+.dock .tools .tool { position: relative; width: 44px; height: 36px; display: grid; place-items: center; border: 0; border-right: 1px solid var(--line); }
+.dock .tools .tool:last-child { border-right: 0; }
+.dock .tools .tool kbd { position: absolute; right: 3px; bottom: 1px; font-size: 9px; letter-spacing: 0; color: var(--ink-3); }
+.tool[aria-pressed="true"], .tile[aria-checked="true"] { color: var(--sun); background: rgba(241, 227, 160, 0.08); box-shadow: inset 0 -2px 0 var(--sun); }
+.tool[aria-pressed="true"] kbd, .tile[aria-checked="true"] kbd { color: var(--sun); }
+.bench-btn { border-color: transparent; }
+.bench-btn.in-hand { color: var(--sun); }
+.bench-btn[aria-expanded="true"] { color: var(--ink); background: var(--cyan-deep); border-color: var(--line-2); }
+/* the rail's Hand chip: this world has been touched */
+.hand-chip { border-left-color: var(--sun); }
+.hand-chip .lbl, .hand-chip b { color: var(--sun); }
+.hand-chip .ev-ico { width: 16px; height: 16px; color: var(--sun); flex: none; }
+
+/* the speed ladder: every speed on offer, fastest at the top */
+.ladder { position: fixed; z-index: 8; width: 210px; padding: var(--s2) 10px var(--s2); display: flex; flex-direction: column; }
+.ladder .sub-h { padding-bottom: var(--s2); margin-bottom: var(--s1); border-bottom: 1px solid var(--line); }
+.ladder-t { color: var(--cyan); }
+.rung { display: grid; grid-template-columns: 22px 3.6em 1fr; align-items: center; gap: 6px; height: 28px; border: 0; text-align: left; color: var(--ink-2); }
+.rung i { height: 1px; background: var(--line-2); width: 10px; }
+.rung b { text-align: right; font-weight: 400; font-size: 13px; color: var(--ink); }
+.rung span { font-size: 11px; color: var(--ink-3); letter-spacing: .04em; }
+.rung:hover b, .rung:focus-visible b { color: var(--sun); }
+.rung[aria-selected="true"] { box-shadow: inset 2px 0 0 var(--sun); }
+.rung[aria-selected="true"] i { background: var(--sun); width: 20px; }
+.rung[aria-selected="true"] b, .rung[aria-selected="true"] span { color: var(--sun); }
+
+/* the Bench drawer: rises above the dock between the side columns */
+.bench { position: fixed; z-index: 5; left: 0; right: 0; bottom: var(--bot); padding: var(--s3) calc(var(--gut) + var(--safe-r)) var(--s3) calc(var(--gut) + var(--safe-l));
+  border-top: 1px solid var(--line-2); display: flex; gap: var(--s4); }
+body.lab-open .bench { left: var(--lab-pw); }
+body.lab-wide .bench { left: min(620px, 100%); }
+body.spec-open .bench { right: var(--spec-pw); }
+.bench-tools { flex: 1 1 auto; min-width: 0; max-width: 720px; display: flex; flex-direction: column; gap: var(--s2); }
+.bench-t { color: var(--cyan); }
+.bench-note { font-style: normal; color: var(--ink-3); text-transform: none; letter-spacing: .04em; margin-left: var(--s3); font-weight: 400; }
+.bench .sub-a { color: var(--sun); }
+.tiles { display: grid; grid-template-columns: repeat(8, minmax(64px, 1fr)); gap: 4px; }
+.tile { position: relative; height: 62px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+.tile svg { width: 20px; height: 20px; }
+.tile span { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; font-stretch: 108%; }
+.tile kbd { position: absolute; top: 3px; right: 5px; font-size: 10px; color: var(--ink-3); letter-spacing: 0; }
+.tile[aria-checked="true"] { border-color: var(--sun); }
+.bench-hint { margin: 0; min-height: 19px; color: var(--ink-2); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bench-hint b { color: var(--sun); font-weight: 500; }
+/* Reach: a ruler of ticks, its handle a bracket in the sun color */
+.reach { display: grid; grid-template-columns: var(--lab-w) 1fr 5.5em; align-items: center; gap: var(--s3); height: 28px; }
+.reach b { text-align: right; color: var(--sun); font-weight: 400; }
+.reach input { -webkit-appearance: none; appearance: none; height: 22px; margin: 0; background:
+  repeating-linear-gradient(90deg, var(--line-2) 0 1px, transparent 1px 10%) 0 50% / 100% 9px no-repeat,
+  repeating-linear-gradient(90deg, var(--line) 0 1px, transparent 1px 2%) 0 50% / 100% 5px no-repeat; }
+.reach input:disabled { opacity: .35; cursor: default; }
+.reach input::-webkit-slider-thumb { -webkit-appearance: none; width: 7px; height: 20px; background: var(--panel-solid); border: 1px solid var(--sun); box-shadow: inset 0 0 0 1px var(--panel-solid), inset 0 0 0 2px rgba(241, 227, 160, 0.5); }
+.reach input::-moz-range-thumb { width: 7px; height: 20px; border-radius: 0; background: var(--panel-solid); border: 1px solid var(--sun); }
+
+/* the held strip (phones): the tool in hand, its reach, Put down */
+.held { position: fixed; z-index: 5; left: 0; right: 0; bottom: var(--bot); height: 46px; padding: 0 calc(10px + var(--safe-r)) 0 calc(10px + var(--safe-l));
+  display: flex; align-items: center; gap: var(--s2); border-top: 1px solid var(--sun); }
+.held kbd { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--sun); color: var(--sun); font-size: 11px; letter-spacing: 0; }
+.held > b { color: var(--sun); font-size: 12px; letter-spacing: .16em; text-transform: uppercase; font-weight: 500; flex: 1; }
+.held-reach { display: flex; align-items: center; }
+.held-reach b { min-width: 5em; text-align: center; color: var(--ink); font-weight: 400; }
+.held-reach button.ghost { width: 36px; height: 36px; }
+.held .btn { height: 32px; }
+
 /* every figure gets a fixed right-aligned cell, so nothing in the dock moves as it changes */
 .sys b { display: inline-block; text-align: right; font-weight: 500; color: var(--ink-2); letter-spacing: .04em; }
 .sys .w-n { width: 7.6em; }
@@ -908,6 +980,8 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   #spec-tags { max-height: 20px; }
 }
 @media (max-width: 980px) {
+  .dock .tools { display: none; }
+  .bench-btn { margin-left: auto; }
   .rail { gap: 14px; }
   .clock, .era-box, .gauge { padding-left: 12px; }
   .brand span { display: none; }
@@ -1002,6 +1076,19 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }
   #film, #auto-next { display: none !important; }
+  .bench-btn { margin-left: 0; flex-direction: column; justify-content: center; gap: 3px; width: 56px; height: 50px; padding: 0; }
+  .bench-btn span { display: block; font-size: 11px; letter-spacing: 0; text-transform: none; font-stretch: 100%; }
+  .bench-btn.in-hand { border-color: rgba(241, 227, 160, 0.5); }
+  .bench { left: 0 !important; right: 0 !important; flex-direction: column; padding: var(--s2) 12px var(--s3); max-height: calc(100% - var(--top) - var(--bot)); overflow-y: auto; }
+  .bench-note { display: none; }
+  .tiles { display: flex; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px; -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
+  .tile { flex: 0 0 62px; height: 60px; }
+  .bench-hint { white-space: normal; }
+  .reach { grid-template-columns: 4.6em 1fr 4.6em; }
+  .ladder { width: 220px; }
+  .hand-chip { padding-left: 9px; height: 26px; }
+  .hand-chip .lbl, .hand-chip b { display: none; }
+  .rung { height: 36px; }
   .card-dlg { top: calc(var(--top) + 8px); transform: translateX(-50%); width: calc(100% - 16px); padding: 8px 12px 12px; max-height: calc(100% - var(--top) - var(--bot) - 16px); display: block; }
   .card-cv { height: auto; width: min(100%, 360px); margin: var(--s2) auto 0; }
   .card-dlg .card-row { flex-direction: row; align-items: center; }

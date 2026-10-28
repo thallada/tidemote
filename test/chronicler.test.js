@@ -287,3 +287,30 @@ test('the chronicler’s memory survives a save', () => {
   assert.ok(Array.isArray(told));
   assert.ok(ch2.watch().version > 0);
 });
+
+test('the hand is told as weather: what it did, where, and who came of it; a wry word only now and then', async () => {
+  const link = (s, n) => n;
+  const ch = createChronicler({ link, tune: { warm: 0, gapReal: 0, gapSim: 0, kindGap: 0, storyEvery: 1 } });
+  const g = finalizeGenome(archetypeGenome('grazer', rng(5)), DEFAULT_K);
+  const reg = new Map([[7, { serial: 7, name: 'Thax kaelum', alive: true, pop: 500, established: true, genome: g }],
+    [9, { serial: 9, name: 'Vorath iss', alive: true, pop: 300, established: true, genome: g }]]);
+  const act = { tool: 'lamp', at: 1000, end: 1180, x: 10, y: 30, r: 2, n: 0 };
+  ch.note('hand', { t: 1400, act, before: new Map([[7, 4], [9, 30]]), after: new Map([[7, 60], [9, 2]]), world: [100, 60] });
+  const told = ch.observe({ t: 1400, reg, now: 1e7 });
+  const h = told.find((x) => x.kind === 'hand');
+  assert.ok(h, JSON.stringify(told));
+  assert.match(h.html, /^A light fell on the western waters for 3 minutes; Thax kaelum bloomed under it, from 4 to 60 cells and Vorath iss fell from 30 to 2\.$/);
+  assert.doesNotMatch(h.html, /\byou\b/i);
+  // the same tool again: someone has been at it
+  ch.note('hand', { t: 2500, act: { ...act, at: 2200, end: 2250 }, before: new Map([[9, 1]]), after: new Map([[9, 20]]), world: [100, 60] });
+  const again = ch.observe({ t: 2500 + 20, reg, now: 2e7 }).find((x) => x.kind === 'hand');
+  assert.match(again.html, /^Someone has been at the lamp again\. A light fell on the western waters for 50 seconds; Vorath iss bloomed under it, from 1 to 20 cells\.$/);
+  ch.note('hand', { t: 3700, act: { ...act, at: 3600, end: 3650 }, before: new Map([[9, 1]]), after: new Map([[9, 20]]), world: [100, 60] });
+  const third = ch.observe({ t: 3700 + 20, reg, now: 3e7 }).find((x) => x.kind === 'hand');
+  assert.doesNotMatch(third.html, /again/, 'never twice running, at most once an hour');
+  // an act that changed nothing goes untold; a needle's pricks are told
+  ch.note('hand', { t: 4600, act: { ...act, at: 4500, end: 4550 }, before: new Map(), after: new Map(), world: [100, 60] });
+  assert.equal(ch.observe({ t: 4620, reg, now: 4e7 }).find((x) => x.kind === 'hand'), undefined);
+  ch.note('hand', { t: 5900, act: { ...act, tool: 'needle', n: 7, at: 5800, end: 5810 }, before: new Map(), after: new Map(), world: [100, 60] });
+  assert.match(ch.observe({ t: 5920, reg, now: 5e7 }).find((x) => x.kind === 'hand').html, /^A needle went through the western waters, and seven cells burst\.$/);
+});

@@ -137,6 +137,10 @@ export const GLOSSARY = {
   wavemotion: 'How quickly the water’s waves move. Slow suits a calm view; Lively, a restless one. Sped-up worlds move them faster too, but less than the cells.',
   songmarks: 'A faint ring spreads from a cell each time it sings its species’ note: for the picked species only, or for every species. Needs sound on.',
   diversity: 'Effective number of species: exp of the Shannon entropy of species populations. A world of 10 equally common species scores 10.',
+  hand: 'This world has been touched: a lamp, a stir, a needle or another of the bench’s tools has acted on it. Each tool does only what the world can do itself (more sun on one place, a gust, a hunter), and its record says so wherever it goes: in its saves and on its species’ cards.',
+  will: 'The viewer’s will, while this cell is ridden: one more drive, toward where it is steered, as strong as its swimming lets it be and paid for in upkeep as swimming is. Hunger and fear still pull as they did, and often win.',
+  ride: 'Ride this cell: the camera follows it and a held click or finger (or the arrow keys) steers it, a will among its drives, as fast as its genes allow. Tab goes to its newest child, or after it dies to the nearest of its kind. Enter or Esc gets off.',
+  toolreach: 'How far every tool but the needle reaches, the same for all: the ring around the pointer. [ ] or ⇧ wheel change it.',
 };
 
 const t = (term, label) => `<span class="term" data-tip="${term}">${label}</span>`;

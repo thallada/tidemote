@@ -223,6 +223,10 @@ export const DEFAULT_K = {
   torporAt: 1.25,   // tolerances below its optimum where a cell goes torpid...
   torporCost: 0.25, // ...and the share of its upkeep it then pays
   scald: 0.03,      // chance per second of dying at full heat stress
+  // a ridden cell's will (docs/hand.md): its push toward where it is steered, relative to its swimming, and
+  // what that costs, relative to its upkeep (the hand only: no headless run steers a cell)
+  will: 1.5,
+  willCost: 0.6,
   thermotaxis: 0.6, // how hard swimmers steer toward water that suits them, relative to their swimming
   phototaxis: 6,    // a cell's push up the light's slope at a full phototaxis gene (down it, negative): a motility of its own,
   phototaxisCost: 0.012, // so a drifting producer can follow the light; its upkeep per second at a full gene (either sign)
@@ -998,6 +1002,16 @@ function cellWGSL(K, w) {
     let lt = lightSlope(p.pos) * (g.tail.z * ${f(K.phototaxis)} * min(th.perf, 1.0));${W('mPhoto = lt;')}
     taxis += lt;
   }
+  // a ridden cell's will (docs/hand.md): one more drive, toward where the viewer steers it, as strong as its
+  // swimming lets it be (a reef, or a producer adrift, cannot be steered), and paid for in upkeep as swimming is
+  var will = vec2f(0.0);
+  var willCost = 0.0;
+  if (p.id == sim.hand.ids.y && swim > 0.0) {
+    let wd = handD(sim.hand.more.zw, p.pos);
+    let ws = bitcast<f32>(sim.hand.ids.z);
+    will = wd / max(length(wd), 0.25) * (swim * ws * ${f(K.will)});
+    willCost = ws * ${f(K.willCost)} * g.metab;
+  }
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
   // The cell and its neighborhood are taken as two bodies sharing momentum: the reaction to this cell's
@@ -1117,7 +1131,7 @@ function cellWGSL(K, w) {
       }
       vel += normalize(dir) * swim * h;${W('if (k == 0u) { mSwim = normalize(dir) * swim; }')}
     }
-    vel += taxis * h;
+    vel += (taxis + will) * h;
     if (stranded) {
       vel = vel * exp(-${f(K.dryDrag)} * h) - pond.yz / max(length(pond.yz), 1e-4) * (${f(K.meniscus)} * (1.0 - smoothstep(0.0, ${f(K.filmR)}, -shore)) * h);
     }
@@ -1150,7 +1164,7 @@ function cellWGSL(K, w) {
   // heat-maker burns extra, all of it heat
   let heatMaking = ${f(K.heat ? K.thermoCost : 0)} * thermo;
   let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0))
-    * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking;`;
+    * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking + willCost;`;
 }
 
 // dp4a: the WGSL language feature packed_4x8_integer_dot_product is available
@@ -1187,6 +1201,17 @@ struct Sim {
   duckB: vec4f,
   // raindrops' ring waves: center, the time it fell, strength (0: none)
   drops: array<vec4f, 4>,
+  hand: Hand,
+};
+// The viewer's hand (docs/hand.md): a local cause the world could have made itself, all zero (its ids NONE) in
+// every headless run. Centers in world units, reaches the e-folding radius of a Gaussian.
+struct Hand {
+  lamp: vec4f,  // center, reach, light (+ a lamp, more sun on one place; − a shade, 0..1 of it taken)
+  stage: vec4f, // center, reach, degrees a second at the center (+ the heated stage, − the cold probe)
+  stir: vec4f,  // center, the water's velocity there (world units a second)
+  cut: vec4f,   // the needle's stroke this step, from xy to zw
+  more: vec4f,  // x the stir's reach, y the cut's half-width (0: no cut), zw where the ridden cell is steered
+  ids: vec4u,   // x the cell the needle pricks, y the ridden cell (NONE: none), z the will's strength (f32 bits)
 };
 // kr: 0..9 kind, 10..11 role, 12 plant, 13 cyst, 14 hunter, 15 tail cell.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
@@ -1302,6 +1327,32 @@ fn cellOf(p: vec2f) -> u32 {
   return u32(c.y) * sim.grid.x + u32(c.x);
 }
 
+// The hand's reach: p from its center c across the wrap, and a Gaussian bump of reach r there.
+fn handD(p: vec2f, c: vec2f) -> vec2f { var d = p - c; d -= sim.world * round(d / sim.world); return d; }
+fn bump(d: vec2f, r: f32) -> f32 { return exp(-dot(d, d) / max(r * r, 1e-6)); }
+// The light l at p under the hand's lamp (added) or shade (taken away).
+fn lampLight(p: vec2f, l: f32) -> f32 {
+  let lp = sim.hand.lamp;
+  if (lp.w == 0.0) { return l; }
+  let b = lp.w * bump(handD(p, lp.xy), lp.z);
+  return select(l * (1.0 + b), l + b, b > 0.0);
+}
+// The water a finger drags along with it.
+fn stirFlow(p: vec2f) -> vec2f {
+  let st = sim.hand.stir;
+  if (all(st.zw == vec2f(0.0))) { return vec2f(0.0); }
+  return st.zw * bump(handD(p, st.xy), sim.hand.more.x);
+}
+// Whether the needle's stroke this step passes within its half-width of p (a bond there is cut).
+fn cutAt(p: vec2f) -> bool {
+  let w = sim.hand.more.y;
+  if (w <= 0.0) { return false; }
+  let a = handD(p, sim.hand.cut.xy);
+  let ab = handD(sim.hand.cut.zw, sim.hand.cut.xy);
+  let t = clamp(dot(a, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
+  return length(a - ab * t) < w;
+}
+
 // The open water's currents at p, as if no shore were near: the four waves and raindrops' rings.
 fn openFlow(p: vec2f) -> vec2f {
   var v = vec2f(0.0);
@@ -1311,7 +1362,7 @@ fn openFlow(p: vec2f) -> vec2f {
     let ph = w.x * p.x + w.y * p.y + w.z * sim.time + wph[k];
     v += vec2f(w.y, -w.x) * (cos(ph) * w.w / max(length(w.xy), 1e-4));
   }
-  return v * sim.weather.x + dropFlow(p);
+  return v * sim.weather.x + dropFlow(p) + stirFlow(p);
 }
 ${pondFlowWGSL('sim', 'sim.time', K)}fn flowAt(p: vec2f) -> vec2f {
   let open = openFlow(p);
@@ -1374,7 +1425,7 @@ fn pondWith(p: vec2f, open: vec2f) -> vec3f {
 fn shoreDist(pd: vec3f) -> f32 { return pd.x / max(length(pd.yz), 1e-4); }
 // The light at p: the baseline and the tide's bands by the season, under the sky (clouds) and any duckweed's shade.
 fn lightAt(p: vec2f) -> f32 {
-  return (sim.ambient + (1.0 - sim.ambient) * tideAt(p, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season) * sim.pond.z * (1.0 - duckShade(p, sim.duck, sim.duckB, sim.world));
+  return lampLight(p, (sim.ambient + (1.0 - sim.ambient) * tideAt(p, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season) * sim.pond.z * (1.0 - duckShade(p, sim.duck, sim.duckB, sim.world)));
 }
 
 // Which way the light grows at p, for phototaxis: the slope of the tide's waves, taken before their bands are
@@ -1398,6 +1449,9 @@ fn lightSlope(p: vec2f) -> vec2f {
       duckShade(p + e.yx, sim.duck, sim.duckB, sim.world) - duckShade(p - e.yx, sim.duck, sim.duckB, sim.world));
     dir = dir * (1.0 - sh) - ds * 4.0;
   }
+  // (and up the slope of the hand's lamp, or out of its shade)
+  let lp = sim.hand.lamp;
+  if (lp.w != 0.0) { let d = handD(p, lp.xy); dir -= d * (6.0 * lp.w * bump(d, lp.z) / lp.z); }
   return dir / max(length(dir), 1.0);
 }
 
@@ -1727,6 +1781,15 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
     var p = parts[i];
     // Matter has no bonds, even if this index held a living cell before the last sort.
     if (p.kind < FIRST_LIFE) { intent[i].z = NONE; intent[i].w = NONE; }
+    // the needle: the cell under its tip bursts as a hunter's kill does, its carcass left for the scavengers
+    else if (p.id == sim.hand.ids.x) {
+      atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
+      splCause(p.kind, 3u);
+      p.kind = HUSK; p.energy = ${bodyOf(K, 'genomes[p.kind]')} * ${f(K.carcassKeep)}; p.age = 0.0; p.vel *= 0.2;
+      p.info = (p.info & 0xffff7ff0u) | 3u;
+      atomicAdd(&ledger[META_ENERGY + 61u], 1u);
+      parts[i] = p;
+    }
     let c = atomicLoad(&ledger[META_CLAIM + i]);
     if (c != 0u) {
       atomicStore(&ledger[META_CLAIM + i], 0u);
@@ -2104,7 +2167,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   let pos = wrapPos(p.pos + vel * sim.dt);
   p.age += sim.dt;
   if (p.kind == SILT) {
-    let tide = (tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient) * sim.pond.z * (1.0 - duckShade(pos, sim.duck, sim.duckB, sim.world));
+    let tide = lampLight(pos, (tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient) * sim.pond.z * (1.0 - duckShade(pos, sim.duck, sim.duckB, sim.world)));
     // life sparks from silt (about one spark per 30 s in the world, sim.abio per grain), in the light, and
     // more in hot water (around framboids); a spark founds a species suited to the water here, so a world
     // whose life died begins again
@@ -2162,7 +2225,8 @@ fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
   let stones = stoneCells[c];
   let mass = 1.0 + ${f(K.stoneMass)} * (f32(stones & 0xffffu) / REEF_FIX + f32(stones >> 16u));
   let light = lightAt(center);
-  let q = f32(atomicExchange(&ledger[heatAccAt() + c], 0u)) / HEAT_FIX + ${f(K.sunHeat)} * light * sim.dt;
+  let st = sim.hand.stage;
+  let q = f32(atomicExchange(&ledger[heatAccAt() + c], 0u)) / HEAT_FIX + (${f(K.sunHeat)} * light + st.w * bump(handD(center, st.xy), st.z)) * sim.dt;
   let t = carried + ${f(K.heatD)} * lap * sim.dt + (q - ${f(K.heatLoss)} * (carried - sim.tbg) * sim.dt) / mass;
   heatNext[c] = t;
 }
@@ -2177,6 +2241,7 @@ fn keepBond(i: u32, j: u32, p: Particle) -> u32 {
   var d = q.pos - p.pos;
   d -= sim.world * round(d / sim.world);
   if (dot(d, d) > LINK_R * LINK_R * ${f(K.bondBreak * K.bondBreak)}) { return NONE; }
+  if (cutAt(p.pos) || cutAt(q.pos)) { return NONE; }
   return j;
 }
 
@@ -2776,7 +2841,7 @@ ${cellWGSL(K, false)}
     var born = false;
     for (var k = 1u; k <= sim.ticks; k++) {
       E += (photoGain - g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(E / g.reproE, 0.0, 1.0))
-        * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking) * h;
+        * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking - willCost) * h;
       age += h * ageRate;
       let tk = sim.tick - sim.ticks + k;
       if (!born && E > divE && silt != NONE && !th.torpid && age > select(${f(K.mature)} * g.lifespan, select(${f(K.growTipA)}, ${f(K.mature)} * g.lifespan, g.photo > 0.4), tree && (g.photo > 0.4 || g.beat.w > 0.5 || tail)) && (!tree || (budTurn < 3u && !budBlocked))) {
@@ -3020,8 +3085,9 @@ ${cellWGSL(K, true)}
   mPut2(60, mFlee * acc);
   mPut(62, gut / ${f(K.dungE)});
   mPut(63, plantN);
-  // phototaxis: its push up (or down) the light's slope
+  // phototaxis: its push up (or down) the light's slope; a ridden cell's will
   mPut2(64, mPhoto);
+  mPut2(66, will);
 }
 `;
 }
@@ -5737,6 +5803,10 @@ struct Post {
   // x how its caustics' focus is softened, y the most it focuses the light, z what is drawn (seaTune.view: 0 the
   // view, 1 the sea's light alone, 2 its sheen alone)
   seaLook: vec4f,
+  // the hand's lamp or shade, as the simulation has it (Hand.lamp); the warm stage's or cold probe's lens (center,
+  // radius, 1 shown): the thermal camera inside the tool's reach
+  lamp: vec4f,
+  lens: vec4f,
 };
 `;
 
@@ -7033,7 +7103,22 @@ fn lightPassed(wp: vec2f) -> f32 {
 // The light at wp as lifeMain gives it to producers (lightAt): the baseline and the Tide's bands (S, tideAt) by the
 // season, under the sky and any duckweed.
 fn lightPost(wp: vec2f, S: f32) -> f32 {
-  return (post.ambient + (1.0 - post.ambient) * S * post.season) * lightPassed(wp);
+  let l = (post.ambient + (1.0 - post.ambient) * S * post.season) * lightPassed(wp);
+  let b = lampAt(wp);
+  return select(l * (1.0 + b), l + b, b > 0.0);
+}
+// The hand's lamp at wp (+, light added) or its shade (−, the share of the light taken), as lampLight has it.
+fn lampAt(wp: vec2f) -> f32 {
+  if (post.lamp.w == 0.0) { return 0.0; }
+  var d = wp - post.lamp.xy;
+  d -= post.world * round(d / post.world);
+  return post.lamp.w * exp(-dot(d, d) / max(post.lamp.z * post.lamp.z, 1e-6));
+}
+// The lamp seen: what it lights is brighter, and the water under it takes the lamp's amber; under a shade, dimmer.
+fn lampSeen(hdr: vec3f, wp: vec2f) -> vec3f {
+  let b = lampAt(wp);
+  if (b == 0.0) { return hdr; }
+  return hdr * (1.0 + 1.1 * b) + vec3f(0.085, 0.06, 0.022) * max(b, 0.0);
 }
 // The Tide's light on Glow (tideVis 1), faintly tinting the water, added to the exposed HDR.
 fn tideTint(wp: vec2f) -> vec3f {
@@ -7073,16 +7158,27 @@ fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
     let dash = step(0.5, fract(dot(pos, vec2f(0.0707, 0.0707))));
     c += vec3f(0.72, 0.90, 1.0) * 0.4 * ghost * dash;
   }
-  if (post.heatVis > 1.5) {
+  let lens = lensAt(wp);
+  if (post.heatVis > 1.5 || lens > 0.0) {
     // the thermal camera: false color over the map's span (drawn as isotherms alone over a full
-    // light map), with an isotherm every 2°
-    if (post.tideVis < 1.5) { c = mix(c, heatRamp(clamp((water - post.heat.y) / (post.heat.z - post.heat.y), 0.0, 1.0)), 0.4); }
+    // light map), with an isotherm every 2°; inside a warm stage's lens, whatever else is shown
+    let full = select(0.0, 1.0, post.heatVis > 1.5);
+    c = mix(c, heatRamp(clamp((water - post.heat.y) / (post.heat.z - post.heat.y), 0.0, 1.0)), 0.4 * select(0.0, full, post.tideVis < 1.5) * (1.0 - lens));
+    // (the lens spans what the hand makes: from 10° below the background to 16° above it)
+    c = mix(c, heatRamp(clamp((water - post.heat.x + 10.0) / 26.0, 0.0, 1.0)), 0.26 * lens);
     let band = water * 0.5;
     let w = fwidth(band);
     let iso = 1.0 - smoothstep(0.0, w * 1.2, min(fract(band), 1.0 - fract(band)));
-    c += vec3f(1.0, 0.7, 0.4) * 0.16 * iso;
+    c += vec3f(1.0, 0.7, 0.4) * 0.16 * iso * max(full, lens);
   }
   return c;
+}
+// The warm stage's or cold probe's lens at wp: 1 inside, fading out over its outer third.
+fn lensAt(wp: vec2f) -> f32 {
+  if (post.lens.w <= 0.0) { return 0.0; }
+  var d = wp - post.lens.xy;
+  d -= post.world * round(d / post.world);
+  return 1.0 - smoothstep(0.62 * post.lens.z, post.lens.z, length(d));
 }
 // What lies on and over the focal plane at world point wp, seen at ppu pixels per unit, in the main view and the
 // loupe alike: the pool's dry floor and edge, ice, the rain's waves and duckweed. k: optics; behind: how little
@@ -7209,7 +7305,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
   // the sea focuses the lamp's light onto what lies beneath it
   hdr = (hdr + bl * post.bloom) * post.exposure * surf.light;
-  hdr += tideTint(wp);
+  hdr = lampSeen(hdr + tideTint(wp), wp);
   var c = tonemap(hdr);
   c = mapsOver(c, wp, i.pos.xy, water.x);
   let uq = i.uv - 0.5;
@@ -7289,7 +7385,7 @@ fn loupeScene(r: vec2f) -> vec3f {
     let b = loupeScene(r + o) + loupeScene(r - o) + loupeScene(r + vec2f(o.x, -o.y)) + loupeScene(r - vec2f(o.x, -o.y));
     hdr = mix(hdr, b * 0.25, 0.6 * soft);
   }
-  hdr = hdr * post.exposure * surf.light + tideTint(wp);
+  hdr = lampSeen(hdr * post.exposure * surf.light + tideTint(wp), wp);
   var m = 0.0;
   if (k > 0.0) { m = murk(microView.cam, r0 * microView.res * 0.5 / microView.ppu) * k; }
   let behind = 1.0 / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));

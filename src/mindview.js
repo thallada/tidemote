@@ -38,9 +38,9 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
     return s + '<circle class="c-hub" r="1.8"/></svg>';
   }
 
-  /** The markup for one cell of species g in slot `kind`. */
-  function html(g, kind) {
-    const groups = groupsFor(g, K);
+  /** The markup for one cell of species g in slot `kind` (ridden: with its will). */
+  function html(g, kind, ridden = false) {
+    const groups = groupsFor(g, K, ridden);
     let h = `<div class="blk mv" data-kind="${kind}">${subHead(`<i class="ico cell"></i>${term('mind', 'Last decision')}`, '<span class="mv-live"><i></i><b>replay</b></span>')}`;
     // the compass first, so a short screen shows it without scrolling. The key sits in the free space
     // above the compass, so the drives column keeps every row

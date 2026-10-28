@@ -135,6 +135,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       top: { serial: 0, since: 0 }, guilds: null, guildGone: {},
       firsts: new Set(), maxLiving: 0, collapsed: false, record: 0,
       eraMark: null, eventMark: null, excursion: null, genusMarks: [], stoneMarks: [],
+      hand: null, handTold: [], wry: -1e9, // the hand's act waiting to be told; the tools of those told, [t, tool]; its last wry line
       ext: [], // [t, serial] of established species lost, for waves of extinction
       voice: {}, // per kind, how many times it has spoken (vary: its turns of phrase take turns)
     };
@@ -303,6 +304,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     if (S.eraMark?.pending) add(eraStory(obs));
     if (S.eventMark?.done) add(eventStory(obs));
     if (S.excursion && t > S.excursion.end) add(excursionStory(obs));
+    if (S.hand) add(handStory(obs));
     // the slow detectors (minute-scale stories) take turns, one a sample, so no census pays for them all
     SLOW[S.slowNext++ % SLOW.length](obs, add);
     // forget the long dead
@@ -963,8 +965,57 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       else if (!d.phase && m && m.type === d.type && m.end == null) { m.end = d.t; m.done = true; }
     } else if (kind === 'excursion') {
       S.excursion = { t: d.t, dT: d.dT, end: d.t + d.dur, snap: snapshot(d.reg, d.living) };
+    } else if (kind === 'hand') {
+      S.hand = { act: d.act, before: d.before, after: d.after, world: d.world, until: d.t + 10 * MIN };
     }
   }
+
+  // The hand's act, told as weather (docs/hand.md): what touched which water and for how long, then what the
+  // species there did after, from the counts of each species within its reach as it began and a few minutes
+  // after it ended. Never "you"; now and then, at most once an hour and never twice running, a wry word.
+  const HAND = {
+    lamp: { did: 'A light fell on', who: 'the lamp', up: 'bloomed under it' },
+    shade: { did: 'A shadow lay over', who: 'the shade', up: 'throve in the dark' },
+    warm: { did: 'Warmth was laid on', who: 'the stage', up: 'took to the warmth' },
+    cold: { did: 'A chill was laid on', who: 'the cold probe', up: 'took to the cold' },
+    touch: { did: 'Something stirred', who: 'the water', up: 'gathered there after' },
+    needle: { did: 'A needle went through', who: 'the needle', up: 'moved in after' },
+    ride: { did: 'A cell was steered to', who: 'the reins', up: 'gathered where it went' },
+  };
+  function handStory(ctx) {
+    const { reg, t } = ctx;
+    const h = S.hand, a = h.act, words = HAND[a.tool];
+    if (t > h.until || !words) { S.hand = null; return null; }
+    const [W, H] = h.world;
+    const pl = compass(a.x / W, a.y / H);
+    const place = pl === 'middle' ? 'the middle of the pool' : `the ${pl}ern waters`;
+    const dur = a.end - a.at;
+    const how = a.tool === 'needle' ? `${place}, and ${numWord(a.n)} cell${a.n === 1 ? '' : 's'} burst` : a.tool === 'touch' && a.n ? `${place} with ${numWord(a.n)} drop${a.n === 1 ? '' : 's'}`
+      : dur >= 20 ? `${place} for ${durWords(dur)}` : place;
+    let up = null, down = null;
+    for (const [serial, n1] of h.after) {
+      const n0 = h.before.get(serial) || 0;
+      if (n1 >= 8 && n1 >= 2 * Math.max(3, n0) && reg.get(serial) && (!up || n1 - n0 > up[2] - up[1])) up = [serial, n0, n1];
+    }
+    for (const [serial, n0] of h.before) {
+      const n1 = h.after.get(serial) || 0;
+      if (n0 >= 8 && n1 <= 0.3 * n0 && reg.get(serial) && (!down || n0 - n1 > down[1] - down[2])) down = [serial, n0, n1];
+    }
+    S.hand = null;
+    const bits = [];
+    if (up) bits.push(`${L(reg, up[0])} ${words.up}, from ${up[1] ? fmt(up[1]) : 'none'} to ${fmt(up[2])} cells`);
+    if (down && down[0] !== up?.[0]) bits.push(`${L(reg, down[0])} ${down[2] ? `fell from ${fmt(down[1])} to ${fmt(down[2])}` : 'was gone from it'}`);
+    // (an act that changed nothing there goes untold, but for a needle's work)
+    const pricks = a.tool === 'needle' && a.n >= 3;
+    if (!bits.length && !pricks) return null;
+    const again = S.handTold.some(([t0, tool]) => tool === a.tool && t - t0 < 2 * 3600);
+    const wry = again && t - S.wry >= 3600 && !S.handTold.at(-1)?.[2];
+    const lead = wry ? `Someone has been at ${words.who} again. ` : '';
+    return { kind: 'hand', score: 0.48 + 0.14 * bits.length + (pricks ? 0.14 : 0), col: 0xffa0e3f1, subjects: [up?.[0], down?.[0]].filter(Boolean),
+      html: `${lead}${words.did} ${how}${bits.length ? `; ${andList(bits)}` : ''}.`,
+      onTold: () => { if (wry) S.wry = t; S.handTold.push([t, a.tool, wry]); if (S.handTold.length > 20) S.handTold.shift(); } };
+  }
+
 
   // an era's character: who rose, who fell, the genera lost
   function eraStory(ctx) {

@@ -30,7 +30,7 @@ export function parseMind(u32, f32) {
     vel: v2(22),
     drives: {
       space: v2(24), kin: v2(26), other: v2(28), diet: v2(30), matter: v2(32), forage: v2(34),
-      align: v2(36), bond: v2(38), stone: v2(40), swim: v2(42), heat: v2(50), flee: v2(60), light: v2(64),
+      align: v2(36), bond: v2(38), stone: v2(40), swim: v2(42), heat: v2(50), flee: v2(60), light: v2(64), will: v2(66),
     },
     flow: v2(44),
     matterN: [f32[46], f32[47], f32[48], f32[49]],
@@ -58,8 +58,11 @@ const GROUPS = [
   { key: 'swim', label: 'Swimming', parts: ['swim'], tip: 'swimming', css: '#e2f1f0', when: (g) => g.swim * (1 - g.photo) > 0.01 },
   { key: 'heat', label: 'Warmth', parts: ['heat'], tip: 'thermotaxis', css: '#ff8a3a', when: (g, K) => K.heat && g.swim * (1 - g.photo) > 0.01 },
   { key: 'light', label: 'Light', parts: ['light'], tip: 'phototaxis', css: '#ffe27a', when: (g, K) => K.phototaxis > 0 && Math.abs(g.phototaxis || 0) > 0.005 },
+  // a ridden cell's will (docs/hand.md): the viewer's, one drive among the rest
+  { key: 'will', label: 'Will', parts: ['will'], tip: 'will', css: '#f1e3a0', when: (g, K, ridden) => ridden },
 ];
-export const groupsFor = (g, K) => GROUPS.filter((gr) => !gr.when || gr.when(g, K));
+/** The pulls shown for a cell of genome g (ridden: it is being ridden, and has a will). */
+export const groupsFor = (g, K, ridden = false) => GROUPS.filter((gr) => !gr.when || gr.when(g, K, ridden));
 
 const len = (v) => Math.hypot(v[0], v[1]);
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -128,13 +131,13 @@ function neighborSpecies(m, g, kind, genomeOf, K) {
  * Name what the cell is doing. Returns { key, mode, target, text, why, odds, flags[], groups[], species[], budget, ... }.
  * text, why and a flag's hint may hold {sp} for the target species, which the page names.
  */
-export function interpretMind(m, g, kind, { K, genomeOf }) {
+export function interpretMind(m, g, kind, { K, genomeOf, ridden = false }) {
   // a cyst runs no decision: nothing pulls on it (the replay's terms are what it would feel awake)
   const drives = m.cyst ? [] : Object.entries(m.drives).map(([key, v]) => ({ key, v, mag: len(v) }))
     .filter((d) => d.mag > 1e-4).sort((a, b) => b.mag - a.mag);
   const total = drives.reduce((s, d) => s + d.mag, 0) || 1;
   const share = (key) => (drives.find((d) => d.key === key)?.mag || 0) / total;
-  const groups = groupsFor(g, K).map((gr) => {
+  const groups = groupsFor(g, K, ridden).map((gr) => {
     const v = m.cyst ? [0, 0] : gr.parts.reduce((a, k) => [a[0] + m.drives[k][0], a[1] + m.drives[k][1]], [0, 0]);
     return { ...gr, v, mag: len(v), share: len(v) / total };
   });

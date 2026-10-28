@@ -125,6 +125,7 @@ export function createSpecimen(api) {
     if (!b) return;
     const a = b.dataset.act;
     if (a === 'follow') api.onFollow();
+    else if (a === 'ride') api.onRide();
     else if (a === 'relative') api.onRelative();
     else if (a === 'find') api.onFind();
     else if (a === 'hl') api.onHighlight();
@@ -545,7 +546,8 @@ export function createSpecimen(api) {
         if (g) speciesGlyph(g); else plainGlyph(0, p.col);
         setTags(g);
         const hl = sp && api.focusKey() === `sp:${sp.serial}`;
-        setActs(`c${api.follow()}${hl}${!!sp}`, `<button type="button" class="btn" data-act="follow" aria-pressed="${api.follow()}" data-hint="Keep it in view · C">Follow</button>${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}">Highlight species</button>` : ''}${sp ? '<button type="button" class="btn" data-act="card" data-hint="Its species’ card, to save and share">Card</button>' : ''}`);
+        const ride = api.riding();
+        setActs(`c${api.follow()}${hl}${!!sp}${ride}`, `<button type="button" class="btn" data-act="follow" aria-pressed="${api.follow()}" data-hint="Keep it in view · C">Follow</button><button type="button" class="btn ride" data-act="ride" aria-pressed="${ride}" data-hint="${ride ? 'Get off · Enter' : 'Ride it: steer with a held click, a finger or the arrows · Enter'}">Ride</button>${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}">Highlight species</button>` : ''}${sp ? '<button type="button" class="btn" data-act="card" data-hint="Its species’ card, to save and share">Card</button>' : ''}`);
         if (g) {
           const dv = divEnergy(g, K);
           v += vital('Energy', p.energy / dv, 'sun', `${p.energy.toFixed(2)} / ${dv.toFixed(2)}`, 'energy');
@@ -559,7 +561,7 @@ export function createSpecimen(api) {
           if (!sel.lost && peek()) v = `<div class="vital now"><span>${term('mind', 'Now')}</span><b>${head ? withSp(head.text, head.target) : '—'}</b></div>` + v;
         }
         // the instruments are built once per cell and update in place (mindview.js); the rest flows below
-        if (g && !sel.lost) { fixedKey = `mv:${sel.id}:${p.kind}:${g.serial}`; fixedHtml = section('behavior', 'Behavior', mv.html(g, p.kind)); }
+        if (g && !sel.lost) { const rd = api.riding(); fixedKey = `mv:${sel.id}:${p.kind}:${g.serial}:${rd}`; fixedHtml = section('behavior', 'Behavior', mv.html(g, p.kind, rd)); }
         // a bonded species' organism first, a free cell's own record first: fixed by the genome, so
         // the order never flips as a trace comes in
         const cb = cellBlock(p, g, false, sel.lost ? null : sel.mind), ob = organismBlock(o, g, false, sel), bb = sel.lost ? '' : budgetBlock(p, g, sel.mind);

@@ -26,6 +26,9 @@ import { earned } from './achievements.js';
 import { createCards } from './card.js';
 import { createFilm } from './film.js';
 import { parseMind, interpretMind, settleMind } from './mind.js';
+import { createHand, REACH, toolOf, keyOf, TOOLS } from './hand.js';
+import { createBench, reachStep } from './bench.js';
+import { createLadder } from './ladder.js';
 import { fmt, fmtClock, fmtDur, esc, cssCol, clamp, term, spLink, saveFile, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
 
 const $ = (id) => document.getElementById(id);
@@ -207,6 +210,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: !(prefs.v >= 3) && prefs.density === 1.5 ? 'auto' : prefs.density ?? 'auto',
       fps: prefs.v >= 4 || (prefs.v >= 2 && prefs.fps !== 60) ? prefs.fps ?? 'auto' : 'auto', particles: prefs.particles ?? null, scan: prefs.scan ?? null },
   };
+  // the viewer's hand (hand.js, docs/hand.md): the tool in hand and what it does to the world; its record of acts is
+  // the world's (life.hand), kept in saves
+  const hand = createHand(eng.hand, eng.handU, { reach: clamp(prefs.reach ?? REACH.def, REACH.min, REACH.max) });
+  let handSeen = 0;
+  // riding the specimen (toggleRide): where a held pointer steers it (at), the arrow keys held
+  const ride = { on: false, arrows: new Set(), at: null, warned: false };
   // While a pointer is held down on a panel, nothing re-renders under it: replacing the element
   // between pointerdown and pointerup swallows the click.
   let uiHoldUntil = 0;
@@ -234,7 +243,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, water: state.water, waves: state.waves, events: state.events, ui: state.ui, ...state.perf });
+    savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, water: state.water, waves: state.waves, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   if (prefs.loupe !== undefined && !isCoarse) state.loupe = prefs.loupe;
@@ -322,7 +331,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // ------------------------------------------------------------ loupe
   const hover = { x: 0, y: 0, on: false };
   function loupeGeom() {
-    if (!state.loupe || !hover.on || ptr.dragging || state.phase !== 'running') return null;
+    if (!state.loupe || !hover.on || ptr.dragging || state.phase !== 'running' || hand.tool !== 'loupe' || ride.on) return null;
     // filming, the loupe hides with the pointer once the mouse rests
     if (director.active && performance.now() - lastPtr.moved > CURSOR_REST) return null;
     const base = cssPPU();
@@ -464,7 +473,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
       reg: new Map(), genera: new Map(), orphan: new Map(), chronicle: [], history: [], histEvery: 3, lastHist: -1e9,
       counts: [0, 0, 0, 0, 0], roles: [0, 0, 0], alive: 0, thriving: 0, arisen: 0, maxDepth: 0, top: 0, lastCensus: null, matter: [],
       estThreshold: 30, births: 0, prevG: null, prevD: null, prevT: 0, prunedAt: 0, chartSp: new Map(),
+      // the hand's acts on this world (hand.js): a world touched says so wherever its record goes
+      hand: [],
     };
+    hand.reset(life.hand);
+    handSeen = 0;
     feedKey = '';
     chron.reset();
     watchVer = -1;
@@ -598,7 +611,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const page = { life: keepLife, climate: keepClimate, cam: { x: cam.x, y: cam.y, zoom: cam.zoomTarget }, chron: chron.save() };
     const top = [...life.reg.values()].filter((s) => s.alive && s.established).sort((a, b) => b.pop - a.pop);
     const meta = { id: `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, savedAt: Date.now(), version: SAVE_VERSION,
-      simTime: eng.simTime, count: eng.count, thriving: life.thriving, cols: top.slice(0, 4).map((s) => s.genome.col) };
+      simTime: eng.simTime, count: eng.count, thriving: life.thriving, cols: top.slice(0, 4).map((s) => s.genome.col), touched: hand.touched };
     const st = await eng.readState();
     const bytes = await encodeWorld({ meta, cpu: st.cpu, ...compactState(st), page });
     // in the desktop app, a picture of the view for the Workshop
@@ -629,6 +642,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     torpidPrev = null;
     if (page) {
       Object.assign(life, page.life, { lastCensus: null });
+      life.hand ??= [];
+      hand.reset(life.hand);
+      handSeen = life.hand.length;
       Object.assign(climate, page.climate);
       chron.load(page.chron);
       cam.x = page.cam.x; cam.y = page.cam.y;
@@ -1191,12 +1207,64 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let spView = null;
   let dirty = false;
   function deselect() {
+    if (ride.on) { ride.on = false; hand.steer(NONE); }
     sel = null;
     spView = null;
     eng.trackId = NONE;
     state.follow = false;
     if (specimen) specimen.close();
     setMembers(null);
+  }
+  // ------------------------------------------------------------ riding (docs/hand.md)
+  // The specimen ridden: the camera follows it, and a held click or finger, or the arrow keys, steer it, a will
+  // among its drives (hand.steer). Coarse steps cannot be steered: above ×2 the ride goes on as a follow.
+  function toggleRide(on = !ride.on) {
+    if (on && !(sel && sel.particle.kind >= FIRST_LIFE && !sel.lost)) return;
+    ride.on = on;
+    ride.at = null;
+    if (on) { if (inHand()) pickTool('loupe', false); if (!state.follow) toggleFollow(); else takeOver(); }
+    else hand.steer(NONE);
+    dirty = true;
+    flash(on ? 'Riding · a held click or the arrows steer it · Tab: its newest child' : 'Off');
+  }
+  // where the ridden cell is steered this frame, and how hard (nothing held: it goes its own way)
+  function steerRide() {
+    if (!ride.on) return;
+    if (!sel || sel.lost || sel.particle.kind < FIRST_LIFE) {
+      if (hand.rider !== NONE) { hand.steer(NONE); flash('It is gone · Tab: on to the nearest of its kind'); }
+      return;
+    }
+    sel.rideKind = sel.particle.kind; // (its kind, for Tab once it is gone)
+    const fast = state.speed > 2;
+    if (fast && (ride.at || ride.arrows.size) && !ride.warned) { ride.warned = true; flash('Steering only at ×2 or slower'); }
+    if (!fast) ride.warned = false;
+    const [px, py] = predicted();
+    let to = ride.at;
+    if (!to && ride.arrows.size) {
+      const d = [0, 0];
+      for (const k of ride.arrows) { if (k === 'ArrowLeft') d[0]--; if (k === 'ArrowRight') d[0]++; if (k === 'ArrowUp') d[1]--; if (k === 'ArrowDown') d[1]++; }
+      to = [px + d[0] * 4, py + d[1] * 4];
+    }
+    hand.steer(sel.id, ...(to || [px, py]), to && !fast ? 1 : 0, eng.simTime);
+  }
+  // Tab: on to the ridden cell's newest kin near it (a child just budded, or after a death the nearest of its kind)
+  async function hopRide() {
+    if (!ride.on || !sel) return;
+    const kind = sel.particle.kind >= FIRST_LIFE ? sel.particle.kind : sel.rideKind;
+    if (kind == null) return;
+    const [px, py] = predicted();
+    const res = await eng.requestPick([px, py], 4, NONE, { kind });
+    const [W, H] = eng.grid;
+    const kin = (res?.entries || []).filter((c) => c.id !== sel.id && c.kind === kind)
+      .map((c) => ({ c, d: Math.hypot(wrapD(c.x - px, W), wrapD(c.y - py, H)) }));
+    // the youngest within reach of it, else the nearest
+    const young = kin.filter((k) => k.d < 1.2).sort((a, b) => a.c.age - b.c.age)[0];
+    const next = young || kin.sort((a, b) => a.d - b.d)[0];
+    if (!next) { flash('None of its kind near'); return; }
+    beginTracking(next.c, res, true);
+    dirty = true;
+    if (!state.follow) toggleFollow();
+    flash(young ? 'On to its newest kin' : 'On to the nearest of its kind');
   }
   function toggleFollow() {
     if (!sel) return;
@@ -1355,7 +1423,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const kind = sel.particle.kind;
     const g = m && kind >= FIRST_LIFE ? genomeFor(kind) : null;
     if (!g) { sel.mind = null; return; }
-    const it = interpretMind(m, g, kind, { K, genomeOf: genomeFor });
+    const it = interpretMind(m, g, kind, { K, genomeOf: genomeFor, ridden: ride.on });
     sel.mindMemo = settleMind(sel.mindMemo, it);
     sel.mind = { ...it, head: sel.mindMemo.cur, m, kind };
     specimen.mindUpdate();
@@ -1539,8 +1607,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   specimen = createSpecimen({
     eng, K, state, held: uiHeld,
     life: () => life, sel: () => sel, spView: () => spView, genomeFor, originWord,
-    focusKey: () => focus.key, follow: () => state.follow,
+    focusKey: () => focus.key, follow: () => state.follow, riding: () => ride.on,
     onFollow: toggleFollow,
+    onRide: () => toggleRide(),
     onRelative: followRelative,
     onFind: () => findMember(spView),
     onHighlight: () => {
@@ -1836,7 +1905,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + (P.scale === 'auto' ? choice('floor', 'Auto lowest', '', [[0.75, '75%'], [0.5, '50%'], [0.35, '35%'], [0.25, '25%']], P.floor, 'autofloor') : '')
         + choice('density', 'Pixel density', '', [['auto', 'Auto'], [1, '1×'], [1.5, '1.5×', dev < 1.5], [2, '2×', dev < 2]], P.density, 'density')
         + choice('fps', 'Target fps', '', [['auto', 'Auto'], [30, '30'], [60, '60'], [0, 'Display']], P.fps, 'targetfps'))
-        + group('fx', 'Effects', onoff('bloom', 'Bloom', 'B', s.bloom > 0, 'bloom')
+        + group('fx', 'Effects', onoff('bloom', 'Bloom', 'Y', s.bloom > 0, 'bloom')
         + onoff('optics', 'Optics', 'O', s.optics > 0, 'optics')
         + onoff('lod', 'Zoom detail', '', s.lod, 'lod')
         + onoff('specks', 'Suspension', '', s.specks, 'specks')
@@ -2186,27 +2255,125 @@ function run(eng, device, ctx, specCtx, hasTS) {
   if (sound.wantsOn) sound.setOn(true);
   addEventListener('pointerup', sound.unlock, true); addEventListener('keydown', sound.unlock, true);
 
+  // ------------------------------------------------------------ the bench (bench.js): the tools, their reach
+  const inHand = () => hand.tool !== 'loupe';
+  // Take up a tool (it stops the auto camera); the loupe taken up again while in hand turns its lens on or off.
+  function pickTool(id, say = true) {
+    if (id === 'loupe' && !inHand()) {
+      if (isCoarse) return;
+      state.loupe = !state.loupe; persist(); view.render();
+      if (say) flash(state.loupe ? 'Loupe on' : 'Loupe off');
+      return;
+    }
+    hand.set(id, eng.simTime);
+    if (inHand()) { takeOver(); if (sel && state.follow) toggleFollow(); }
+    bench.render();
+    view.render();
+    if (say) flash(inHand() ? `${toolOf(id).name} in hand` : 'The loupe');
+  }
+  function setReach(r, say = false) {
+    hand.reach = clamp(r, REACH.min, REACH.max);
+    persist();
+    bench.render();
+    if (say) flash(`Reach ${fmtLen(hand.reach)}`);
+  }
+  const bench = createBench({ hand, pick: pickTool, reach: setReach, onToggle: (on) => { if (on && phone()) { view.toggle(false); lab.close(); } } });
+  // The hand's acts for the chronicler, told as weather: the species within an act's reach counted (the pick pass)
+  // as it begins and again a few minutes after it ends (handSeen: the acts already counted as they began).
+  const HAND_AFTER = 180;
+  let handBusy = false;
+  async function nearCounts(a) {
+    if (eng.pickReq) return null; // (never in the way of a click's pick)
+    const res = await eng.requestPick([a.x, a.y], Math.max(2 * a.r, 3), NONE);
+    if (!res) return null;
+    const m = new Map();
+    for (const c of res.entries) {
+      const g = c.kind >= FIRST_LIFE && genomeFor(c.kind);
+      if (g) m.set(g.serial, (m.get(g.serial) || 0) + 1);
+    }
+    return m;
+  }
+  async function handNews() {
+    const acts = hand.acts;
+    if (handBusy || state.phase !== 'running' || !acts.length) return;
+    handBusy = true;
+    try {
+      if (handSeen < acts.length) {
+        const m = await nearCounts(acts[handSeen]);
+        // (a species of one or two cells there could not have bloomed or been driven out: not kept)
+        if (m) acts[handSeen++].near = [...m].filter(([, n]) => n > 2);
+        return;
+      }
+      const a = acts.find((x) => x.near && !x.told && eng.simTime - x.end > HAND_AFTER && !(hand.held && x === acts.at(-1)));
+      if (!a) return;
+      const after = await nearCounts(a);
+      if (!after) return;
+      a.told = true;
+      chron.note('hand', { t: eng.simTime, act: a, before: new Map(a.near), after, world: eng.grid });
+    } finally { handBusy = false; }
+  }
+  // A tap with a tool in hand: Touch rings the water, the needle pricks the cell under its tip.
+  async function tapTool(sx, sy) {
+    const [wx, wy] = toWorld(sx, sy);
+    if (hand.tool === 'touch') hand.tap(eng.drops, wx, wy, eng.simTime);
+    else if (hand.tool === 'needle') {
+      const p = cssPPU(), res = await eng.requestPick([wx, wy], Math.max(0.5, 30 / p), NONE);
+      if (!res) return;
+      const [W, H] = eng.grid;
+      let best = null, bd = Math.max(isCoarse ? 24 : 14, 0.12 * p);
+      for (const c of res.entries) {
+        const d = Math.hypot(wrapD(c.x - wx, W), wrapD(c.y - wy, H)) * p;
+        if (c.kind >= FIRST_LIFE && d < bd) { bd = d; best = c; }
+      }
+      if (best) hand.prick(best.id, best.x, best.y, eng.simTime);
+    }
+  }
+
   // ------------------------------------------------------------ input
+  // (down.apply: the tool in hand applied by this press: the left button, or one finger; right-drag, the middle
+  // button and two fingers pan and zoom as ever)
   const ptr = { pointers: new Map(), down: null, dragging: false, pinch: null };
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   canvas.addEventListener('pointerdown', (e) => {
     canvas.setPointerCapture(e.pointerId);
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     ptr.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (ptr.pointers.size === 1) { ptr.down = { x: e.clientX, y: e.clientY, loupe: loupeGeom() }; ptr.dragging = false; }
+    // (on a phone a tap on the world folds the bench and does nothing else)
+    const folds = phone() && bench.isOpen();
+    if (ptr.pointers.size === 1) {
+      const apply = inHand() && !folds && state.phase === 'running' && (e.pointerType !== 'mouse' || e.button === 0);
+      ptr.down = { x: e.clientX, y: e.clientY, loupe: loupeGeom(), apply, t: performance.now() };
+      ptr.dragging = false;
+      if (apply) { hand.down(...toWorld(e.clientX, e.clientY), eng.simTime); takeOver(); }
+      // riding, a press steers (and pans nothing)
+      else if (ride.on && !folds && (e.pointerType !== 'mouse' || e.button === 0)) { ptr.down.steer = true; ride.at = toWorld(e.clientX, e.clientY); }
+    }
     if (ptr.pointers.size === 2) {
       const [a, b] = [...ptr.pointers.values()];
       ptr.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
       ptr.dragging = true;
+      // a second finger puts the tool's work aside for the pinch
+      if (ptr.down?.apply) { ptr.down.apply = false; hand.up(eng.simTime); }
+      if (ptr.down?.steer) { ptr.down.steer = false; ride.at = null; }
       takeOver();
     }
-    if (view.isOpen() && phone()) view.toggle(false);
+    if (phone() && view.isOpen()) view.toggle(false);
+    if (folds) bench.toggle(false);
     hideIntro();
   });
   canvas.addEventListener('pointermove', (e) => {
     if (e.pointerType === 'mouse') { hover.x = e.clientX; hover.y = e.clientY; hover.on = true; }
     const prev = ptr.pointers.get(e.pointerId);
     if (!prev) return;
+    if (ptr.down?.steer) { prev.x = e.clientX; prev.y = e.clientY; ride.at = toWorld(e.clientX, e.clientY); return; }
+    if (ptr.down?.apply) {
+      prev.x = e.clientX; prev.y = e.clientY;
+      const now = performance.now();
+      hand.move(...toWorld(e.clientX, e.clientY), (now - ptr.down.t) / 1000, state.paused ? 0 : state.speed);
+      ptr.down.t = now;
+      if (Math.hypot(e.clientX - ptr.down.x, e.clientY - ptr.down.y) > (e.pointerType === 'mouse' ? 5 : 10)) ptr.dragging = true;
+      return;
+    }
     const dxs = e.clientX - prev.x, dys = e.clientY - prev.y;
     prev.x = e.clientX; prev.y = e.clientY;
     if (ptr.pinch && ptr.pointers.size === 2) {
@@ -2231,7 +2398,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     ptr.pointers.delete(e.pointerId);
     if (ptr.pointers.size < 2) ptr.pinch = null;
     if (ptr.pointers.size === 0) {
-      if (ptr.down && !ptr.dragging && e.type === 'pointerup') {
+      if (ptr.down?.steer) ride.at = null;
+      else if (ptr.down?.apply) {
+        if (!ptr.dragging && e.type === 'pointerup') tapTool(e.clientX, e.clientY);
+        hand.up(eng.simTime);
+      } else if (ptr.down && !ptr.dragging && e.type === 'pointerup' && !inHand()) {
         const L = ptr.down.loupe;
         if (L && Math.hypot(e.clientX - L.sx, e.clientY - L.sy) < L.R) {
           const wx = L.cx + (e.clientX - L.sx) / L.cssPPU, wy = L.cy + (e.clientY - L.sy) / L.cssPPU;
@@ -2250,6 +2421,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
     const f = Math.exp(-dy * 0.0016);
     takeOver();
+    if (e.shiftKey && inHand()) { setReach(hand.reach * f); return; }
     if (e.shiftKey && loupeGeom()) { state.loupeMag = clamp(state.loupeMag * f, 1.5, 20); return; }
     zoomAt(f, e.clientX, e.clientY);
   }, { passive: false });
@@ -2273,7 +2445,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === 't' || k === 'T') { trailIdx = (trailIdx + 1) % trailLevels.length; eng.settings.trails = trailLevels[trailIdx]; flash(`Trails ${trailNames[trailIdx].toLowerCase()}`); persist(); view.render(); }
     else if (k === 'l' || k === 'L') { eng.settings.links = !eng.settings.links; flash(eng.settings.links ? 'Bonds shown' : 'Bonds hidden'); persist(); view.render(); }
     else if (k === 'n' || k === 'N') { eng.settings.nodes = !eng.settings.nodes; flash(eng.settings.nodes ? 'Particles on' : 'Particles off'); persist(); view.render(); }
-    else if (k === 'b' || k === 'B') { eng.settings.bloom = eng.settings.bloom > 0 ? 0 : 0.012; flash(eng.settings.bloom ? 'Bloom on' : 'Bloom off'); persist(); view.render(); }
+    else if (k === 'y' || k === 'Y') { eng.settings.bloom = eng.settings.bloom > 0 ? 0 : 0.012; flash(eng.settings.bloom ? 'Bloom on' : 'Bloom off'); persist(); view.render(); }
+    else if (k === 'b' || k === 'B') bench.toggle();
+    else if (/^[1-8]$/.test(k)) {
+      // a digit takes up its tool; held down past a moment, the tool is only for as long as it is held
+      if (!e.repeat) { quasi = { key: k, prev: hand.tool, at: performance.now() }; pickTool(TOOLS[+k - 1].id); }
+    }
     else if (k === 'o' || k === 'O') { eng.settings.optics = eng.settings.optics > 0 ? 0 : 1; flash(eng.settings.optics ? 'Microscope optics on' : 'Microscope optics off'); persist(); view.render(); }
     else if (k === 'g' || k === 'G') { eng.settings.tide = (eng.settings.tide + 1) % 3; flash(['Light map off', 'Faint light map', 'Light map'][eng.settings.tide]); mapsChanged(); }
     else if ((k === 'e' || k === 'E') && K.heat) { eng.settings.heat = (eng.settings.heat + 1) % 3; flash(['Heat map off', 'Heat shimmer', 'Thermal camera'][eng.settings.heat]); mapsChanged(); }
@@ -2281,10 +2458,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === 'w' || k === 'W') { state.currents = !state.currents; flash(state.currents ? 'Currents shown' : 'Currents hidden'); view.render(); }
     else if (k === 'v' || k === 'V') view.toggle();
     else if (k === 'k' || k === 'K') { closeMenus(); lab.toggle(); }
-    else if (k === 'm' || k === 'M') { state.loupe = !state.loupe; flash(state.loupe ? 'Loupe on' : 'Loupe off'); persist(); view.render(); }
+    else if (k === 'm' || k === 'M') pickTool('loupe');
+    else if ((k === '[' || k === ']') && inHand()) setReach(reachStep(hand.reach, k === ']' ? 1 : -1), true);
     else if (k === '[') { state.loupeMag = clamp(state.loupeMag / 1.25, 1.5, 20); flash(`Loupe ×${state.loupeMag.toFixed(1)}`); }
     else if (k === ']') { state.loupeMag = clamp(state.loupeMag * 1.25, 1.5, 20); flash(`Loupe ×${state.loupeMag.toFixed(1)}`); }
     else if (k === 'c' || k === 'C') { if (sel) toggleFollow(); }
+    else if (k === 'Enter' && sel) toggleRide();
+    else if (ride.on && /^Arrow/.test(k)) ride.arrows.add(k);
+    else if (k === 'Tab' && ride.on) hopRide();
     else if (k === 'a' || k === 'A') playAuto();
     else if ((k === 'x' || k === 'X') && director.active) nextScene();
     else if (k === 'r' || k === 'R') filmAct();
@@ -2294,9 +2475,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === 'u' || k === 'U') setInterface(!state.ui);
     else if (k === 'Escape') {
       if (!state.ui) setInterface(true);
+      else if (ladder.isOpen()) ladder.toggle(false);
+      else if (inHand()) pickTool('loupe');
+      else if (ride.on) toggleRide(false);
       else if (cards.isOpen()) cards.close();
       else if (!$('help').hidden) toggleHelp(false);
       else if (view.isOpen()) view.toggle(false);
+      else if (bench.isOpen()) bench.toggle(false);
       else if (sel || spView != null) deselect();
       else if (focus.key) clearFocus();
       else if (mapsOn().length) clearMaps();
@@ -2309,12 +2494,20 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === '.') stepSpeed(1);
     else if (k === '/' || k === '<') setSpeed(1);
     else if (k === '>') setSpeed(Infinity);
-    else if (k === 'h' || k === 'H' || k === '?') toggleHelp();
+    else if (k === '?') toggleHelp();
     else if (k === 'i' || k === 'I') { state.hud = !state.hud; $('hud').classList.toggle('off', !state.hud); document.body.classList.toggle('hud-off', !state.hud); flash(state.hud ? 'Readouts shown' : 'Readouts hidden'); }
     else if (k === 'f' || k === 'F') toggleFullscreen();
     else if (k === '0') { takeOver(); cam.zoomTarget = 1; cam.anchor = null; }
     else handled = false;
     if (handled) { e.preventDefault(); hideIntro(); }
+  });
+  // a tool's key held down past a moment (a quasimode): let go, the tool that was in hand before
+  let quasi = null;
+  addEventListener('keyup', (e) => {
+    ride.arrows.delete(e.key);
+    if (!quasi || e.key !== quasi.key) return;
+    if (performance.now() - quasi.at > 450 && quasi.prev !== hand.tool) pickTool(quasi.prev, false);
+    quasi = null;
   });
 
   // ------------------------------------------------------------ dock and messages
@@ -2330,18 +2523,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // the coarsest steps), and Max.
   let speedCap = Infinity, speedCapAt = 0;
   const speedChoices = () => SPEEDS.filter((v) => v <= 1 || (v !== Infinity && v <= speedCap)).concat(Infinity);
+  // the speed chip opens the ladder of every speed on offer
+  const ladder = createLadder({ chip: $('t-speed'), el: $('ladder'), choices: speedChoices, current: () => state.speed, pick: setSpeed, real: () => setSpeed(1) });
   function renderTime() {
-    const s = state.speed, list = speedChoices();
+    const s = state.speed;
     const play = $('t-play');
     play.innerHTML = `<svg><use href="#i-${state.paused ? 'play' : 'pause'}"/></svg>`;
     play.setAttribute('aria-label', state.paused ? 'Resume' : 'Pause');
     play.dataset.hint = state.paused ? 'Resume · Space' : 'Pause · Space';
     setLive($('t-speed-v'), state.paused ? 'Paused' : fmtSpeed(s));
-    $('t-speed').setAttribute('aria-label', `Speed ${fmtSpeed(s)}${s !== 1 ? ', back to real time' : ''}`);
-    $('t-slower').disabled = s === list[0];
-    $('t-faster').disabled = s === Infinity && !fastMode;
+    $('t-speed').setAttribute('aria-label', `Speed ${fmtSpeed(s)}`);
     $('t-speed').classList.toggle('fast', s > 1 && s !== Infinity);
     $('t-speed').classList.toggle('max', s === Infinity);
+    ladder.render();
   }
   function applySpeed(v, fast = false) {
     state.speed = v;
@@ -2440,9 +2634,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
     renderTime();
   }
   $('t-play').addEventListener('click', togglePause);
-  $('t-slower').addEventListener('click', () => stepSpeed(-1));
-  $('t-faster').addEventListener('click', () => stepSpeed(1));
-  $('t-speed').addEventListener('click', () => (state.paused ? togglePause() : setSpeed(1)));
   renderTime();
 
   let introHidden = false;
@@ -2538,6 +2729,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (now - hudT < 250) return;
     hudT = now;
     setText('epoch', fmtClock(eng.simTime));
+    // a world the hand has touched says so
+    $('g-hand').hidden = !hand.touched;
+    if (hand.touched) { setText('hand-v', `${hand.acts.length} act${hand.acts.length === 1 ? '' : 's'}`); handNews(); }
     setText('era', climate.name);
     setText('era-n', `Era ${String(climate.index).padStart(2, '0')}`);
     const L = Math.round(eng.ambient * 100);
@@ -2773,7 +2967,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function drawOverlay(dt, L) {
     const now = performance.now();
     const marking = markSlot() !== -2 && songEvents.some((e) => now - e.at < MARK_MS);
-    const key = state.currents || (sel && sel.particle) || L || marking ? null
+    const R = reticleAt();
+    const key = state.currents || (sel && sel.particle) || L || R || marking ? null
       : `${state.hud}|${state.ui}|${director.active}|${cssPPU()}|${cam.x}|${dockTop}|${innerWidth}|${overlay.width}|${specimen.isOpen() && specimen.inset().right}|${document.fonts.status}`;
     if (key !== null && key === overlayKey) return;
     overlayKey = key;
@@ -2822,6 +3017,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       }
       // (with the interface hidden the subject is not marked, but its song marks still show)
       filmMarked = !!(visible && (!sh || sh.why.seen) && (!state.ui || drawMarker(sx, sy, inLens, dt))) && !!sh;
+      // riding: the will, a line from the cell to where it is steered
+      if (ride.on && hand.will && hand.will[2] > 0 && state.ui) drawWill(sx, sy, ...toScreen(hand.will[0], hand.will[1]));
     }
     if (L) {
       const { sx, sy } = L;
@@ -2837,7 +3034,72 @@ function run(eng, device, ctx, specCtx, hasTS) {
       octx.beginPath(); octx.arc(sx, sy, 1.2, 0, TAU); octx.fill();
       octx.lineCap = 'butt';
     }
+    if (R) drawReticle(R);
     drawSongMarks(now, L);
+  }
+  function drawWill(x0, y0, x1, y1) {
+    const d = Math.hypot(x1 - x0, y1 - y0);
+    if (d < 16) return;
+    const ux = (x1 - x0) / d, uy = (y1 - y0) / d;
+    octx.save();
+    octx.strokeStyle = 'rgba(241,227,160,0.85)'; octx.lineWidth = 1; octx.setLineDash([4, 5]);
+    octx.beginPath(); octx.moveTo(x0 + ux * 14, y0 + uy * 14); octx.lineTo(x1 - ux * 7, y1 - uy * 7); octx.stroke();
+    octx.setLineDash([]);
+    octx.beginPath(); octx.arc(x1, y1, 6, 0, TAU); octx.stroke();
+    octx.restore();
+  }
+  // The tool in hand's reticle: where the pointer is (a finger while it is down), its reach a ticked ring (the
+  // needle's a point), a cross at its center, and a readout naming the tool and what it is doing.
+  function reticleAt() {
+    if (!inHand() || state.phase !== 'running' || !state.ui) return null;
+    const f = ptr.down?.apply && ptr.pointers.size === 1 ? [...ptr.pointers.values()][0] : null;
+    if (!f && !hover.on) return null;
+    const [sx, sy] = f ? [f.x, f.y] : [hover.x, hover.y];
+    const r = hand.tool === 'needle' ? 7 : clamp(hand.reach * cssPPU(), 10, Math.hypot(innerWidth, innerHeight));
+    return { sx, sy, r };
+  }
+  const RETICLE_COL = { warm: '255,138,58', cold: '90,168,255' };
+  function drawReticle({ sx, sy, r }) {
+    const t = hand.tool, col = RETICLE_COL[t] || '241,227,160';
+    octx.save();
+    octx.lineCap = 'butt';
+    for (const [w, c] of [[3, 'rgba(0,0,0,0.5)'], [1, `rgba(${col},0.95)`]]) {
+      octx.strokeStyle = c; octx.lineWidth = w;
+      octx.beginPath(); octx.arc(sx, sy, r, 0, TAU); octx.stroke();
+      // ticks every 15°, longer at the quarters; inward, so a large ring still reads at the screen's edge
+      octx.beginPath();
+      const n = r < 24 ? 4 : 24;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * TAU, q = i % (n / 4) === 0, l = r < 24 ? 4 : q ? 9 : 4;
+        octx.moveTo(sx + Math.cos(a) * (r + (q ? 3 : 0)), sy + Math.sin(a) * (r + (q ? 3 : 0)));
+        octx.lineTo(sx + Math.cos(a) * (r - l), sy + Math.sin(a) * (r - l));
+      }
+      octx.moveTo(sx - 5, sy); octx.lineTo(sx + 5, sy); octx.moveTo(sx, sy - 5); octx.lineTo(sx, sy + 5);
+      octx.stroke();
+    }
+    // the readout, beside the ring (inside the screen)
+    const lines = [`${toolOf(t).name.toUpperCase()}${t === 'needle' ? '' : ` · ${fmtLen(hand.reach)}`}`, handDoing()];
+    octx.font = '500 11px Saira, system-ui, sans-serif';
+    octx.letterSpacing = '1.5px';
+    const w = Math.max(...lines.map((l) => octx.measureText(l).width)) + 12;
+    let x = sx + Math.min(r, 160) + 16;
+    if (x + w > innerWidth - 8) x = sx - Math.min(r, 160) - 16 - w;
+    const y = clamp(sy - 12, 60, innerHeight - 90);
+    octx.fillStyle = 'rgba(6,9,10,0.62)';
+    octx.fillRect(x, y - 4, w + 4, 34);
+    octx.fillStyle = `rgba(${col},0.95)`;
+    octx.fillRect(x, y - 4, 1, 34);
+    lines.forEach((l, i) => { octx.fillStyle = i ? 'rgba(163,189,190,0.95)' : `rgba(${col},1)`; octx.fillText(l, x + 8, y + 9 + i * 15); });
+    octx.restore();
+  }
+  // what the tool in hand is doing, in a few words
+  function handDoing() {
+    const t = hand.tool, lv = Math.round(Math.abs(hand.lamp.v) * 100 / (t === 'shade' ? 0.9 : 0.6));
+    if (t === 'lamp' || t === 'shade') return hand.held ? `${t === 'lamp' ? 'Brightening' : 'Darkening'} · ${Math.min(100, lv)}%` : hand.lamp.v ? `Fading · ${Math.min(100, lv)}%` : 'Hold to light';
+    if (t === 'warm' || t === 'cold') return hand.held ? `${t === 'warm' ? 'Warming' : 'Chilling'} · ${hand.stage.v > 0 ? '+' : '−'}${Math.abs(hand.stage.v).toFixed(1)}°/s` : 'Hold to change the water';
+    if (t === 'touch') return hand.held && ptr.dragging ? 'Stirring' : 'Tap: a ring · drag: stir';
+    if (t === 'needle') return ptr.dragging ? 'Cutting bonds' : 'Click: prick · drag: cut';
+    return toolOf(t).hint;
   }
   // Song marks: a faint ring spreads from each cell as it sings its species' note (the picked
   // species', or every species'). Like the followed cell's brackets, a mark sits where its cell
@@ -3485,7 +3747,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
       }
       wrapCam();
       const L = loupeGeom();
-      canvas.classList.toggle('lens', !!L);
+      const R = reticleAt();
+      canvas.classList.toggle('lens', !!L || !!R);
+      steerRide();
+      hand.update(dt / 1000);
+      // the warm stage and the cold probe show the water's warmth inside their reach
+      if (R && (hand.tool === 'warm' || hand.tool === 'cold') && K.heat) eng.lens.set([...toWorld(R.sx, R.sy), (1.5 * R.r) / cssPPU(), 1]);
+      else eng.lens.fill(0);
       eng.trackId = sel && !sel.lost ? sel.id : NONE;
       eng.trackId2 = director.active ? director.trackId : NONE;
       watchMarks(performance.now());
