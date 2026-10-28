@@ -76,6 +76,21 @@ those three ready about 2.5 s later, while coarse steps asked for meanwhile run 
 mind view waits. The compile fills the first half of the loading bar, weighted by each pipeline's
 rough cost (`COMPILE_COST`). Headless runs wait for every pipeline.
 
+## Firefox
+
+Measured 2026-10-28 on the RTX 4070 Ti (Firefox 159 stable against Chrome 156, both driven by Puppeteer,
+`runs/perf/ff/ffbench.mjs` and `ffprobe.mjs`, a portable Firefox from `@puppeteer/browsers`):
+
+- Starting: about 30 s on every load (27 s compiling); Firefox keeps no compiled WebGPU shaders between
+  loads. Chrome: 11 s from an empty cache, 2.7 s after (both with the particle calibration).
+- A simulation step costs about the same GPU time (2.1 ms against 1.95 at 2M particles).
+- Frames: Firefox ran requestAnimationFrame on a 60 Hz clock that skips (intervals of 16 or 31 ms, 36–49
+  fps on an empty page) on the 175 Hz display, possibly an effect of automation. Judged late, the
+  adaptation settled at 30 fps and cut the render scale to 50–70% though the GPU was mostly idle, and at
+  Max, whose steps per frame are budgeted for the 60 fps aimed at, it ran 8–10× where Chrome ran 13×.
+- It sometimes runs two callbacks 0.02 ms apart; taken for the display's interval they had the frame
+  rate cut to 10 fps, so intervals under 2 ms are now ignored.
+
 ## What keeps the frame rate (main.js `adaptQuality`)
 
 - **Frame pacing.** The frame rate aimed for (60 by default) is a whole number of display frames,

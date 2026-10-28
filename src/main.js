@@ -3311,7 +3311,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the GPU or the page lags, rAF fires every other vsync for seconds at a time, and the median of
     // them all read a 175 Hz display as 88 Hz: the frame rate aimed for became 88 fps (16.7 / 11.4
     // rounds to one frame), and the adaptation, judging 60 fps frames late against it, cut the frame rate.
-    rafDt.push(dt);
+    // Firefox at times runs two callbacks back to back (0.02 ms apart): no display refreshes within 2 ms,
+    // and taken for its interval they had the frame rate cut to 10 fps.
+    if (dt >= 2) rafDt.push(dt);
     if (rafDt.length >= 60) {
       rafDt.sort((a, b) => a - b);
       const lo = rafDt[Math.floor(rafDt.length * 0.1)];

@@ -30764,7 +30764,7 @@ ${e.message}` : String(e?.message || e));
         resizeDue = false;
         fit3();
       }
-      rafDt.push(dt);
+      if (dt >= 2) rafDt.push(dt);
       if (rafDt.length >= 60) {
         rafDt.sort((a, b) => a - b);
         const lo = rafDt[Math.floor(rafDt.length * 0.1)];
