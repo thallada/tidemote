@@ -51,7 +51,9 @@ cell's offset in the body's shape as it was, its energy, age, color and info, an
 Setting down: the left button sets down the tip species' last organism in, in its shape; held, another, sooner each
 time. It is made of the silt within reach of the pointer, as a spark makes life of silt (`injectSlots`: the species
 takes back its own slot if it still holds it, or a free one; `injectCells`: each grain within reach becomes the next
-cell; `injectBonds`). Too little silt there and the rest stay in the pipette. So the pipette moves and makes nothing,
+cell; `injectBonds`). The disc holds four times the grains needed at the world's mean (silt lies unevenly), and what
+too little silt left is tried once more from twice as far; the cells are set in their own shape wherever their grains
+came from. What still cannot be made stays in the pipette. So the pipette moves and makes nothing,
 but for a card's colony, made when it is set down.
 
 The contents are the world's (`life.pipette`, kept in saves): species in the order their first cells came in, the
@@ -72,7 +74,8 @@ Cabinet tab shows every card ever kept as mini-cards, filtered by where it is fr
 diet and body. A card of this world opens its live card (to rename it, load the pipette); another world's opens as it
 was drawn. Dragging one onto the bench, or Load the pipette, puts a colony of it (the founding's colony size) in the
 pipette, its cells made as newborns when set down: a stranger takes a serial of this world and founds a lineage, as a
-spark does. A card's PNG dropped on the page, or its link opened, puts it in the cabinet.
+spark does, keeping its card's name and home water (`life.carried` until the census meets it), and its later
+colonies join that lineage. A card's PNG dropped on the page, or its link opened, puts it in the cabinet.
 
 ## The record
 
