@@ -66,7 +66,12 @@ export function createBench({ hand, pick, reach, onToggle = () => {}, pip }) {
   function render() {
     const t = toolOf(hand.tool), up = t.id !== 'loupe';
     for (const b of dock.children) b.setAttribute('aria-pressed', String(b.dataset.tool === t.id));
-    for (const b of drawer.querySelectorAll('.tile')) b.setAttribute('aria-checked', String(b.dataset.tool === t.id));
+    for (const b of drawer.querySelectorAll('.tile')) {
+      const on = b.dataset.tool === t.id;
+      // (the tool taken up comes into view in a row that scrolls, as on a phone)
+      if (on && b.getAttribute('aria-checked') !== 'true' && !drawer.hidden) b.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      b.setAttribute('aria-checked', String(on));
+    }
     $('bench-held').textContent = up ? `${t.name} in hand · Esc puts it down` : 'The loupe in hand';
     $('bench-hint').innerHTML = `<b>${t.name}</b> · ${(coarse && t.touch) || t.hint}`;
     if (document.activeElement !== slider) slider.value = toSlider(hand.reach);
