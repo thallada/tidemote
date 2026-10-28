@@ -521,7 +521,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // (register() compares a newcomer only with its parent's genus); most genera of an old world
     const listed = new Set([...life.reg.values()].map((s) => s.genus));
     keepLife.genera = new Map([...genera].map(([k, g]) => [k, listed.has(k) ? g : { ...g, founder: null }]));
-    const keepClimate = Object.fromEntries(Object.entries(climate).filter(([, v]) => typeof v !== 'function'));
+    // which events may happen is the page's setting (Settings → Climate), not the world's
+    const keepClimate = Object.fromEntries(Object.entries(climate).filter(([k, v]) => typeof v !== 'function' && k !== 'allowed'));
     const page = { life: keepLife, climate: keepClimate, cam: { x: cam.x, y: cam.y, zoom: cam.zoomTarget }, chron: chron.save() };
     const top = [...life.reg.values()].filter((s) => s.alive && s.established).sort((a, b) => b.pop - a.pop);
     const meta = { id: `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, savedAt: Date.now(), version: SAVE_VERSION,
@@ -556,7 +557,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     torpidPrev = null;
     if (page) {
       Object.assign(life, page.life, { lastCensus: null });
-      Object.assign(climate, page.climate);
+      // older saves kept the page's allowed events, a Set that came back from the file as {}
+      // (pack keeps no Sets): the first event due then threw in eventTick and stopped the frame loop
+      const { allowed, ...worldClimate } = page.climate;
+      Object.assign(climate, worldClimate);
       chron.load(page.chron);
       // the excursion already announced is the one under way (a copy, once saved)
       if (climate.announced && climate.excursion && climate.announced.t === climate.excursion.t) climate.announced = climate.excursion;
