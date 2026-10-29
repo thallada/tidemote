@@ -2713,6 +2713,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (down) startSpit(e.clientX, e.clientY); else startPull(e.clientX, e.clientY);
   }
   function pipetteUp() { pull.on = false; spit.held = false; }
+  // what a press would do now, or is doing: Load or Dispense (⇧ held, the other, before the press too)
+  let shiftHeld = false;
+  for (const ev of ['keydown', 'keyup']) addEventListener(ev, (e) => { shiftHeld = e.shiftKey; }, true);
+  addEventListener('blur', () => { shiftHeld = false; });
+  const pipDispensing = () => (spit.on ? true : pull.on || hand.suck ? false : pull.armed !== shiftHeld);
   // A tap with a tool in hand: Touch rings the water, the needle pricks the cell under its tip.
   async function tapTool(sx, sy) {
     const [wx, wy] = toWorld(sx, sy);
@@ -3508,9 +3513,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the readout, beside the ring (inside the screen)
     const full = t === 'pipette' && !pipette.fits(1);
     const lines = [`${toolOf(t).name.toUpperCase()}${t === 'pipette' ? ` · ${fmt(pipette.count)} / ${fmt(PIPE_LIMIT)}${full ? ' · FULL' : ''}` : t === 'needle' ? '' : ` · ${fmtLen(hand.reach)}`}`, handDoing()];
+    const mode = t === 'pipette' && modeChip(pipDispensing());
+    const chip = mode ? mode.w + 8 : 0;
     octx.font = '500 11px Saira, system-ui, sans-serif';
     octx.letterSpacing = '1.5px';
-    const w = Math.max(...lines.map((l) => octx.measureText(l).width)) + 12;
+    const w = Math.max(...lines.map((l, i) => octx.measureText(l).width + (i ? chip : 0))) + 12;
     // beside the ring, within the water the panels leave open
     const left = lab.isOpen() && !phone() && state.ui ? $('lab').getBoundingClientRect().right : 0, right = innerWidth - specimen.inset().right;
     let x = sx + Math.min(r, 160) + 16;
@@ -3521,8 +3528,37 @@ function run(eng, device, ctx, specCtx, hasTS) {
     octx.fillRect(x, y - 4, w + 4, 34);
     octx.fillStyle = `rgba(${col},0.95)`;
     octx.fillRect(x, y - 4, 1, 34);
-    lines.forEach((l, i) => { octx.fillStyle = i ? 'rgba(163,189,190,0.95)' : `rgba(${col},1)`; octx.fillText(l, x + 8, y + 9 + i * 15); });
+    lines.forEach((l, i) => { octx.fillStyle = i ? 'rgba(163,189,190,0.95)' : `rgba(${col},1)`; octx.fillText(l, x + 8 + (i ? chip : 0), y + 9 + i * 15); });
+    if (mode) drawMode(mode, x + 8, y + 14);
     octx.restore();
+  }
+  // The pipette's mode in its readout: a chip of solid color, its word cut out of it in the readout's dark, with
+  // corner ticks; while it draws up or sets down, a bar under it fills with the pressure.
+  const MODE_COL = { load: '241,227,160', dispense: '120,226,214' };
+  function modeChip(dispensing) {
+    const word = dispensing ? 'DISPENSE' : 'LOAD';
+    octx.font = '600 9px Saira, system-ui, sans-serif';
+    octx.letterSpacing = '2px';
+    return { word, col: MODE_COL[dispensing ? 'dispense' : 'load'], w: octx.measureText(word).width + 8, at: spit.on ? spit.at : pull.on || hand.suck ? pull.at : null };
+  }
+  function drawMode({ word, col, w, at }, x, y) {
+    const h = 13;
+    octx.fillStyle = `rgba(${col},0.92)`;
+    octx.fillRect(x, y, w, h);
+    octx.fillStyle = 'rgba(6,9,10,0.95)';
+    octx.font = '600 9px Saira, system-ui, sans-serif';
+    octx.letterSpacing = '2px';
+    octx.fillText(word, x + 5, y + 9.5);
+    octx.strokeStyle = `rgba(${col},0.9)`;
+    octx.lineWidth = 1;
+    octx.beginPath();
+    for (const [cx, cy, sx, sy] of [[x - 2, y - 2, 1, 1], [x + w + 2, y - 2, -1, 1], [x - 2, y + h + 2, 1, -1], [x + w + 2, y + h + 2, -1, -1]]) {
+      octx.moveTo(cx + sx * 3, cy); octx.lineTo(cx, cy); octx.lineTo(cx, cy + sy * 3);
+    }
+    octx.stroke();
+    if (at != null) { octx.fillStyle = `rgba(${col},0.95)`; octx.fillRect(x, y + h + 1, w * pressed(at, performance.now()), 1); }
+    octx.font = '500 11px Saira, system-ui, sans-serif';
+    octx.letterSpacing = '1.5px';
   }
   // The instrument in hand seen in the water (eng.tool; the composite's instrument): the needle, the pipette's glass,
   // the cold probe, out of focus over the water as the pointer moves, let down into it (in focus) while pressed.
@@ -3548,8 +3584,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (pull.on || hand.suck) return `Drawing up · ${fmt(pull.got.length)} in`;
       if (spit.on) return `Setting down ${(spit.sp || tip)?.name ?? ''}`;
       if (pull.note && now - pull.note.t < 2000) return pull.note.text;
-      if (isCoarse) return pull.armed ? `Dispense · a tap sets down ${tip?.name ?? ''}` : 'Load · a tap draws up all in reach';
-      return pull.armed ? `Dispense · a click sets down ${tip?.name ?? ''} · ⇧ draws up` : tip ? `Load · a click draws up · ⇧ sets down ${tip.name}` : 'Load · a click draws up all in reach';
+      const d = pipDispensing(), act = isCoarse ? 'a tap' : 'a click', other = isCoarse || shiftHeld ? '' : ` · ⇧ ${d ? 'load' : 'dispense'}`;
+      if (!d) return `${act}: a few at the tip · held: all in reach${other}`;
+      return tip ? `${act} sets down ${tip.name}${other}` : `nothing in it to set down${other}`;
     }
     return toolOf(t).hint;
   }
