@@ -652,6 +652,12 @@ function cellWGSL(K, w) {
     n1 = keepBond(i, kept.x, p);
     n2 = keepBond(i, kept.y, p);
     if (n2 == n1) { n2 = NONE; }
+    // a body's cell lets go of a partner that cannot hold it back (kept by three others already): such a
+    // bond would pull this cell alone, so it bonds elsewhere (a tree's and a tail's bonds are held by plan)
+    if (!treeCellAt(i)) {
+      if (n1 != NONE && !holdsBack(n1, i)) { n1 = NONE; }
+      if (n2 != NONE && !holdsBack(n2, i)) { n2 = NONE; }
+    }
     if (n1 != NONE) {
       dn1 = sortedFull[n1].pos - p.pos;
       dn1 -= world * round(dn1 * invWorld);
@@ -2163,6 +2169,9 @@ fn keepBond(i: u32, j: u32, p: Particle) -> u32 {
 // partners (mine: those it keeps, then those that keep it), closing a triangle in the tissue, or
 // neither has a partner yet (two free cells start a body). Strangers' bodies do not fuse.
 fn joinable(i: u32, j: u32, k1: u32, k2: u32) -> bool {
+  // (a cell kept by three already could not hold another bond back)
+  let oj = bondsOf(j);
+  if (backOf(j, 0u) >= 3u && oj.x != i && oj.y != i) { return false; }
   // this cell's partners: those it keeps, then those that keep it (one of them is no new partner)
   let ci = min(backOf(i, 0u), 3u);
   let b1 = select(NONE, backOf(i, 1u), ci > 0u);
