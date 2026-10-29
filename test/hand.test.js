@@ -1,26 +1,31 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHand, TOOLS, keyOf } from '../src/hand.js';
+import { createHand, TOOLS, keyOf, works, INSTRUMENTS } from '../src/hand.js';
 
 const make = () => {
-  const words = new Float32Array(28), ids = new Uint32Array(words.buffer);
+  const words = new Float32Array(32), ids = new Uint32Array(words.buffer);
   ids.fill(0xffffffff, 20, 22);
   return { words, ids, hand: createHand(words, ids, { reach: 3 }) };
 };
 const run = (h, s, dt = 1 / 60) => { for (let t = 0; t < s; t += dt) h.update(dt); };
 
-test('eight tools, keyed 1 to 8 in order', () => {
-  assert.equal(TOOLS.length, 8);
+test('eight tools, keyed 1 to 8 in order, and no tool at 0', () => {
+  assert.equal(TOOLS.length, 9);
+  assert.equal(keyOf('none'), '0');
   assert.equal(keyOf('loupe'), '1');
   assert.equal(keyOf('pipette'), '8');
+  assert.deepEqual(TOOLS.filter((t) => !works(t.id)).map((t) => t.id), ['none', 'loupe']);
 });
 
-test('the loupe writes nothing: the world untouched', () => {
-  const { hand, words, ids } = make();
-  hand.down(10, 10, 0); hand.move(12, 10, 0.1, 1); run(hand, 1); hand.up();
-  for (const i of [3, 7, 10, 11, 17]) assert.equal(words[i], 0, `word ${i}`);
-  assert.equal(ids[21], 0xffffffff);
-  assert.equal(hand.touched, false);
+test('the loupe and no tool write nothing: the world untouched', () => {
+  for (const tool of ['loupe', 'none']) {
+    const { hand, words, ids } = make();
+    hand.set(tool);
+    hand.hover(10, 10); hand.down(10, 10, 0); hand.move(12, 10, 0.1, 1); run(hand, 1); hand.up();
+    for (const i of [3, 7, 10, 11, 17, 30, 31]) assert.equal(words[i], 0, `${tool}: word ${i}`);
+    assert.equal(ids[21], 0xffffffff);
+    assert.equal(hand.touched, false);
+  }
 });
 
 test('a lamp held brightens within a second; let go, a quarter of it stays with the pointer, and none once it leaves', () => {
@@ -43,7 +48,7 @@ test('a lamp held brightens within a second; let go, a quarter of it stays with 
 test('over the world, not pressed, a tool is no act', () => {
   const { hand, words } = make();
   hand.set('warm'); hand.hover(2, 2); run(hand, 1);
-  assert.ok(words[7] > 0.15 && words[7] < 0.25, `a quarter ${words[7]}`);
+  assert.ok(words[7] > 0.2 && words[7] <= 0.25, `a quarter ${words[7]}`);
   assert.equal(hand.touched, false);
 });
 
@@ -59,6 +64,7 @@ test('a shade takes light; warm and cold heat and chill', () => {
 
 test('a stir drags the water as fast as the finger, in the world’s seconds, capped', () => {
   const { hand, words } = make();
+  hand.reach = 2; // (the default: as fast as the finger)
   hand.set('touch'); hand.down(0, 0, 0);
   hand.move(0.5, 0, 0.5, 1); run(hand, 0.5);
   assert.ok(Math.abs(words[10] - 1) < 0.05, `vx ${words[10]}`);
@@ -68,6 +74,21 @@ test('a stir drags the water as fast as the finger, in the world’s seconds, ca
   assert.ok(words[10] <= 12.0001 && words[10] > 11, 'capped');
   hand.up(); run(hand, 8);
   assert.equal(words[10], 0);
+  // a reach four times as wide drags twice as hard, capped twice as high
+  hand.reach = 8; hand.down(0, 0, 0); hand.move(0.5, 0, 0.5, 1); run(hand, 0.5);
+  assert.ok(Math.abs(words[10] - 2) < 0.1, `wide ${words[10]}`);
+});
+
+test('the needle pressed is in the water: its point, its shaft running off to its corner; let go, out of it', () => {
+  const { hand, words } = make();
+  hand.set('needle'); hand.span = 30;
+  hand.hover(4, 5); hand.update(1 / 60);
+  assert.deepEqual([...words.subarray(28, 32)], [0, 0, 0, 0], 'over the water: not in it');
+  hand.down(4, 5, 0); hand.update(1 / 60);
+  const [dx, dy] = INSTRUMENTS.needle.dir;
+  assert.deepEqual([...words.subarray(28, 32)].map((v) => +v.toFixed(3)), [4, 5, +(dx * 30).toFixed(3), +(dy * 30).toFixed(3)]);
+  hand.up(); hand.update(1 / 60);
+  assert.deepEqual([...words.subarray(28, 32)], [0, 0, 0, 0]);
 });
 
 test('a tap rings from the oldest raindrop slot; a prick names its cell once', () => {

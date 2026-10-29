@@ -17,16 +17,16 @@ import { record, seal } from './lineage/model.js';
 import { createWorldStore, encodeWorld, decodeWorld, SAVE_VERSION, openable } from './worlds.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
-import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, PIPE_MAX } from './shaders.js';
+import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, PIPE_MAX, DEFAULT_K } from './shaders.js';
 import { flowAt } from './flow.js';
 import { startLoader } from './loader.js';
 import { Director } from './director.js';
 import { createChronicler, watchMap, durWords } from './chronicler.js';
 import { earned } from './achievements.js';
-import { createCards } from './card.js';
+import { createCards, strangerCard } from './card.js';
 import { createFilm } from './film.js';
 import { parseMind, interpretMind, settleMind } from './mind.js';
-import { createHand, REACH, toolOf, TOOLS } from './hand.js';
+import { createHand, REACH, toolOf, TOOLS, works, INSTRUMENTS } from './hand.js';
 import { createBench, reachStep } from './bench.js';
 import { createLadder } from './ladder.js';
 import { createPipette, setDownJob, PIPE_LIMIT } from './pipette.js';
@@ -39,11 +39,15 @@ const canvas = $('stage');
 const overlay = $('overlay');
 const octx = overlay.getContext('2d');
 const isCoarse = matchMedia('(pointer: coarse)').matches;
+// a touch screen with no mouse: no pointer hovers, so the loupe goes where a tap sets it, and the page opens with no
+// tool in hand
+const touchOnly = !matchMedia('(any-hover: hover)').matches;
 // A phone or tablet: its GPU slows by a third or more once it has run hot for a few minutes (thermal
 // throttling), and shares the GPU with the screen's compositor.
 const throttles = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|Mobile/.test(navigator.userAgent) || (isCoarse && !matchMedia('(any-pointer: fine)').matches));
 const NONE = 0xffffffff;
 const TAU = Math.PI * 2;
+const genomeOfWords = (w) => { const u = Uint32Array.from(w); return readGenome(u, new Float32Array(u.buffer), 0); };
 const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
 const phone = () => innerWidth <= 720;
 // the intro's animation while the shaders compile and the GPU is measured (drawn on the CPU)
@@ -196,7 +200,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     phase: 'calibrating', busy: true, paused: false, speed: 1, warm: false,
     hud: true, follow: false, confirmReset: 0,
     ui: isCoarse || (prefs.ui ?? true), // the interface shown (U hides everything but the world and the loupe)
-    loupe: !isCoarse, loupeMag: 3.5, currents: false, specCells: 3,
+    loupeMag: 3.5, loupeR: prefs.loupeR ?? null, currents: false, specCells: 3,
     // the Field Lab's column, open or folded to its header ("world": its name when it was the census)
     labOpen: prefs.labOpen ?? prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
     closeup: prefs.closeup ?? true,
@@ -216,6 +220,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // the viewer's hand (hand.js, docs/hand.md): the tool in hand and what it does to the world; its record of acts is
   // the world's (life.hand), kept in saves
   const hand = createHand(eng.hand, eng.handU, { reach: clamp(prefs.reach ?? REACH.def, REACH.min, REACH.max) });
+  if (touchOnly) hand.set('none');
   let handSeen = 0;
   // the pipette's contents (pipette.js), the world's (life.pipette, kept in saves)
   let pipette = createPipette();
@@ -252,10 +257,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, water: state.water, waves: state.waves, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+    savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, closeup: state.closeup, songMarks: state.songMarks, water: state.water, waves: state.waves, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
-  if (prefs.loupe !== undefined && !isCoarse) state.loupe = prefs.loupe;
   // the sea (src/sea.js) as the Display settings ask: how high its waves (none: no sea at all, its passes skipped, for
   // anyone who would rather the view held still) and how quickly they move
   const applyWater = () => {
@@ -339,17 +343,23 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ loupe
   const hover = { x: 0, y: 0, on: false };
+  // (where a tap set the lens, on a touch screen: screen px; it stays there, and moves when dragged)
+  let lensAt = null;
+  // the lens's radius (px): the viewer's (Reach, with the loupe in hand), or a fifth of the screen
+  const LOUPE_R = { min: 50, max: 320 };
+  const loupeR = () => Math.round(clamp(state.loupeR ?? clamp(Math.min(innerWidth, innerHeight) * 0.2, 90, 170), LOUPE_R.min, Math.min(LOUPE_R.max, Math.min(innerWidth, innerHeight) * 0.46)));
   function loupeGeom() {
-    if (!state.loupe || !hover.on || ptr.dragging || state.phase !== 'running' || hand.tool !== 'loupe' || ride.on) return null;
+    const at = hover.on ? hover : lensAt;
+    if (!at || hand.tool !== 'loupe' || (ptr.dragging && !ptr.down?.lens) || state.phase !== 'running' || ride.on) return null;
     // filming, the loupe hides with the pointer once the mouse rests
-    if (director.active && performance.now() - lastPtr.moved > CURSOR_REST) return null;
+    if (director.active && hover.on && performance.now() - lastPtr.moved > CURSOR_REST) return null;
     const base = cssPPU();
     // the loupe magnifies until the view itself is as close as the old zoom limit allowed (40 of 220 px per unit)
     if (base >= 40 * MAX_PPU / 220) return null;
-    const R = Math.round(clamp(Math.min(innerWidth, innerHeight) * 0.2, 90, 170));
+    const R = loupeR();
     const lp = clamp(base * state.loupeMag, 8, MAX_PPU);
-    const [cx, cy] = toWorld(hover.x, hover.y);
-    return { sx: hover.x, sy: hover.y, R, cssPPU: lp, cx, cy };
+    const [cx, cy] = toWorld(at.x, at.y);
+    return { sx: at.x, sy: at.y, R, cssPPU: lp, cx, cy };
   }
 
   // ------------------------------------------------------------ perf
@@ -1249,7 +1259,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (on && !(sel && sel.particle.kind >= FIRST_LIFE && !sel.lost)) return;
     ride.on = on;
     ride.at = null;
-    if (on) { if (inHand()) pickTool('loupe', false); if (!state.follow) toggleFollow(); else takeOver(); }
+    if (on) { if (inHand()) pickTool('none'); if (!state.follow) toggleFollow(); else takeOver(); }
     else hand.steer(NONE);
     dirty = true;
     flash(on ? 'Riding · a held click or the arrows steer it · Tab: its newest child' : 'Off');
@@ -1779,18 +1789,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   // Save: the card drawn, kept, and seen to go: it presents itself at the center for a beat, then shrinks to the
   // Field Lab's edge, where the Lab's button (or its Cabinet tab) flashes
-  async function saveCard(serial, cv) {
+  async function saveCard(serial, cv, quiet = false) {
     const sp = life.reg.get(serial);
     if (!sp || savedCard(serial)) return;
-    flash('Drawing its card…');
+    if (!quiet) flash('Drawing its card…');
     cv ??= await cards.render(serial);
     const blob = cv && await cardPng(cv, serial);
     if (!blob) { flash('Could not draw its card'); return; }
     const c = carry(serial);
     await keepCard({ id: `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, serial, name: sp.name, words: c.words, home: c.home, world: worldId(),
       savedAt: Date.now(), simTime: eng.simTime, touched: c.touched, bred: false, png: new Uint8Array(await blob.arrayBuffer()) });
-    flyCard(blob);
-    flash(`${sp.name} is in the cabinet`);
+    if (!quiet) { flyCard(blob); flash(`${sp.name} is in the cabinet`); }
     cards.refresh();
     dirty = true;
   }
@@ -1832,7 +1841,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (!pipette.load({ card: card?.id || `s${serial}`, serial, words, name, home: ours ? undefined : card.home, slot: live?.alive ? live.slot : null, stranger: !ours }, n)) {
       flash(`The pipette is full · ${fmt(PIPE_LIMIT)} cells · set some down`); return;
     }
-    flash(`A colony of ${name} in the pipette · pick it up (8) to set it down`);
+    flash(`A colony of ${name} in the pipette · Dispense sets it down`);
     bench.render();
   }
   // a card arriving from elsewhere: a link's #card=, or a card's PNG dropped on the page
@@ -2043,7 +2052,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + onoff('currents', 'Currents', 'W', state.currents)
         + onoff('links', 'Bonds', 'L', s.links, 'bond')
         + onoff('nodes', 'Particles', 'N', s.nodes)
-        + (isCoarse ? '' : onoff('loupe', 'Loupe', 'M', state.loupe, 'loupe') + onoff('ui', 'Interface', 'U', state.ui, 'interface'))
+        + (isCoarse ? '' : onoff('ui', 'Interface', 'U', state.ui, 'interface'))
         + choice('water', 'Water surface', '', [[0, 'Off'], [1, 'Subtle'], [2, 'Normal'], [3, 'Strong']], state.water, 'watersurface')
         + (state.water ? choice('waves', 'Wave motion', '', [[0, 'Slow'], [1, 'Normal'], [2, 'Lively']], state.waves, 'wavemotion') : '')
         + onoff('auto', 'Auto when idle', '', state.auto, 'autoidle')
@@ -2233,7 +2242,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       } else if (tab === 'display') {
         trailIdx = 1; s.trails = trailLevels[trailIdx];
         for (const k of ['tide', 'heat', 'bands', 'links', 'nodes']) s[k] = defaults[k];
-        state.currents = false; state.loupe = !isCoarse; state.songMarks = 1;
+        state.currents = false; state.songMarks = 1;
         state.water = 2; state.waves = 1; applyWater();
         state.auto = true; renderAuto(director.active);
       } else {
@@ -2305,7 +2314,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'ev-start') { if (!climate.event) climate.force(v); toggle(false); return; }
       else if (id === 'film') { toggle(false); filmAct(v === 'stop' ? undefined : v); return; }
       else if (id.startsWith('ev-')) { state.events[id.slice(3)] = !!+v; applyEvents(); }
-      else if (id === 'loupe') state.loupe = !!+v;
       else if (id === 'ui') { setInterface(!!+v); return; }
       else if (id === 'auto') { state.auto = !!+v; renderAuto(director.active); }
       else if (id === 'scale') { P.scale = v === 'auto' ? 'auto' : +v; if (P.scale !== 'auto') renderScale = P.scale; else renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
@@ -2416,33 +2424,33 @@ function run(eng, device, ctx, specCtx, hasTS) {
   addEventListener('pointerup', sound.unlock, true); addEventListener('keydown', sound.unlock, true);
 
   // ------------------------------------------------------------ the bench (bench.js): the tools, their reach
-  const inHand = () => hand.tool !== 'loupe';
-  // Take up a tool (it stops the auto camera); the loupe taken up again while in hand turns its lens on or off.
-  function pickTool(id, say = true) {
-    if (id === 'loupe' && !inHand()) {
-      if (isCoarse) return;
-      state.loupe = !state.loupe; persist(); view.render();
-      if (say) flash(state.loupe ? 'Loupe on' : 'Loupe off');
-      return;
-    }
+  // (a tool that acts on the world: not none, not the loupe)
+  const inHand = () => works(hand.tool);
+  // Take up a tool (a working one stops the auto camera); the one in hand taken up again is put down: no tool.
+  function pickTool(id) {
+    if (id === hand.tool) id = 'none';
     hand.set(id, eng.simTime);
+    if (id !== 'loupe') lensAt = null;
     if (inHand()) { takeOver(); if (sel && state.follow) toggleFollow(); }
     bench.render();
     view.render();
-    if (say) flash(inHand() ? `${toolOf(id).name} in hand` : 'The loupe');
   }
+  // Reach, for the tool in hand: the loupe's is the lens's radius (px), every other tool's a world distance
+  const reachOf = () => (hand.tool === 'loupe' ? { min: LOUPE_R.min, max: Math.min(LOUPE_R.max, Math.min(innerWidth, innerHeight) * 0.46), v: loupeR(), text: `${2 * loupeR()} px` }
+    : { min: REACH.min, max: REACH.max, v: hand.reach, text: fmtLen(hand.reach) });
   function setReach(r, say = false) {
-    hand.reach = clamp(r, REACH.min, REACH.max);
+    if (hand.tool === 'loupe') state.loupeR = Math.round(clamp(r, LOUPE_R.min, LOUPE_R.max));
+    else hand.reach = clamp(r, REACH.min, REACH.max);
     persist();
     bench.render();
-    if (say) flash(`Reach ${fmtLen(hand.reach)}`);
+    if (say) flash(`Reach ${reachOf().text}`);
   }
   // the pipette's strip: its species tip first, each a mini-card keyed by its serial
   const pipKey = (sp) => String(sp.card || sp.serial);
   const pipSp = (key) => pipette.species.find((sp) => pipKey(sp) === key);
   // its card in the cabinet, if there is one
   const pipCard = (sp) => cabinet.cards.find((c) => c.id === sp.card) || (!sp.stranger ? savedCard(sp.serial) : null);
-  const bench = createBench({ hand, pick: pickTool, reach: setReach, onToggle: (on) => { if (on && phone()) { view.toggle(false); lab.close(); } },
+  const bench = createBench({ hand, pick: pickTool, reach: setReach, size: reachOf, onToggle: (on) => { if (on && phone()) { view.toggle(false); lab.close(); } },
     pip: {
       view: () => ({ count: pipette.count, limit: PIPE_LIMIT, armed: pull.armed, keys: pipette.species.map((sp) => pipKey(sp) + (pipCard(sp) ? '*' : '')) }),
       cards: (flat) => pipette.species.map((sp, i) => miniCard(genomeOfWords(sp.words), K, { key: pipKey(sp), name: sp.name, home: sp.home || 'this world',
@@ -2462,8 +2470,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
         else if (sp && life.reg.has(sp.serial)) saveCard(sp.serial);
       },
       cabinet: () => lab.open('cabinet'),
-      arm: () => { pull.armed = !pull.armed; },
+      arm: (on) => { pull.armed = on; },
+      keepAll,
     } });
+  // every species in the pipette whose card is not kept yet: its card into the cabinet
+  async function keepAll() {
+    const todo = pipette.species.filter((sp) => !pipCard(sp) && !sp.stranger && life.reg.has(sp.serial));
+    if (!todo.length) { flash('Their cards are all in the cabinet'); return; }
+    for (const sp of todo) await saveCard(sp.serial, undefined, todo.length > 1);
+    if (todo.length > 1) flash(`${todo.length} cards into the cabinet`);
+    bench.render();
+  }
   // The hand's acts for the chronicler, told as weather: the species within an act's reach counted (the pick pass)
   // as it begins and again a few minutes after it ends (handSeen: the acts already counted as they began).
   const HAND_AFTER = 180;
@@ -2509,7 +2526,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const SPIT = [110, 16]; // ms between cells leaving, pressed and at full pressure
   const pressed = (t0, now) => Math.min(1, (now - t0) / 1000 / PRESSURE);
   const lerp2 = ([a, b], u) => a + (b - a) * u;
-  const genomeOfWords = (w) => { const u = Uint32Array.from(w); return readGenome(u, new Float32Array(u.buffer), 0); };
   const genomeWords = (g) => { const u = new Uint32Array(G_WORDS); writeGenome(u, new Float32Array(u.buffer), 0, g); return [...u]; };
   const wordsOf = (kind) => Array.from(life.lastCensus.genomeU32.subarray(kind * G_WORDS, (kind + 1) * G_WORDS));
   function startPull(sx, sy) {
@@ -2615,7 +2631,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   // a press with the pipette in hand: it draws up, or with ⇧ (on a phone, Set down) sets down
   function pipettePress(e) {
-    const down = isCoarse && e.pointerType !== 'mouse' ? pull.armed : e.shiftKey;
+    // (Dispense sets down, Load draws up; ⇧ the other)
+    const down = pull.armed !== e.shiftKey;
     if (down) startSpit(e.clientX, e.clientY); else startPull(e.clientX, e.clientY);
   }
   function pipetteUp() { pull.on = false; spit.held = false; }
@@ -2627,7 +2644,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const p = cssPPU(), res = await eng.requestPick([wx, wy], Math.max(0.5, 30 / p), NONE);
       if (!res) return;
       const [W, H] = eng.grid;
-      let best = null, bd = Math.max(isCoarse ? 24 : 14, 0.12 * p);
+      let best = null, bd = Math.max(isCoarse ? 36 : 14, 0.12 * p);
       for (const c of res.entries) {
         const d = Math.hypot(wrapD(c.x - wx, W), wrapD(c.y - wy, H)) * p;
         if (c.kind >= FIRST_LIFE && d < bd) { bd = d; best = c; }
@@ -2650,8 +2667,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (ptr.pointers.size === 1) {
       const apply = inHand() && !folds && state.phase === 'running' && (e.pointerType !== 'mouse' || e.button === 0);
       const pip = hand.tool === 'pipette' && apply;
-      ptr.down = { x: e.clientX, y: e.clientY, loupe: loupeGeom(), apply, pip, t: performance.now() };
+      const L = loupeGeom();
+      ptr.down = { x: e.clientX, y: e.clientY, loupe: L, apply, pip, t: performance.now() };
       ptr.dragging = false;
+      // (on a touch screen a drag that starts on the lens moves it)
+      if (L && e.pointerType !== 'mouse' && !folds && Math.hypot(e.clientX - L.sx, e.clientY - L.sy) < L.R) ptr.down.lens = { x: L.sx, y: L.sy };
       if (pip) { pipettePress(e); takeOver(); }
       else if (apply) { hand.down(...toWorld(e.clientX, e.clientY), eng.simTime); takeOver(); }
       // riding, a press steers (and pans nothing)
@@ -2663,7 +2683,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       ptr.dragging = true;
       // a second finger puts the tool's work aside for the pinch
       if (ptr.down?.apply) { ptr.down.apply = false; hand.up(eng.simTime); }
-      if (ptr.down?.pip) pipetteUp();
+      if (ptr.down?.pip) { ptr.down.pip = false; pipetteUp(); }
       if (ptr.down?.steer) { ptr.down.steer = false; ride.at = null; }
       takeOver();
     }
@@ -2686,6 +2706,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     const dxs = e.clientX - prev.x, dys = e.clientY - prev.y;
     prev.x = e.clientX; prev.y = e.clientY;
+    if (ptr.down?.lens && ptr.pointers.size === 1) {
+      if (Math.hypot(e.clientX - ptr.down.x, e.clientY - ptr.down.y) > 10) ptr.dragging = true;
+      if (ptr.dragging) lensAt = { x: ptr.down.lens.x + e.clientX - ptr.down.x, y: ptr.down.lens.y + e.clientY - ptr.down.y };
+      return;
+    }
     if (ptr.pinch && ptr.pointers.size === 2) {
       const [a, b] = [...ptr.pointers.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
@@ -2715,10 +2740,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
         hand.up(eng.simTime);
       } else if (ptr.down && !ptr.dragging && e.type === 'pointerup' && !inHand()) {
         const L = ptr.down.loupe;
+        // (with the loupe on a touch screen, the lens goes where the tap was, centered on what it picked)
+        const setLens = hand.tool === 'loupe' && e.pointerType !== 'mouse';
         if (L && Math.hypot(e.clientX - L.sx, e.clientY - L.sy) < L.R) {
           const wx = L.cx + (e.clientX - L.sx) / L.cssPPU, wy = L.cy + (e.clientY - L.sy) / L.cssPPU;
           selectAt(e.clientX, e.clientY, L.cssPPU, [wx, wy]);
-        } else selectAt(e.clientX, e.clientY);
+          if (setLens) { const [x, y] = toScreen(wx, wy); lensAt = { x, y }; }
+        } else {
+          selectAt(e.clientX, e.clientY);
+          if (setLens) lensAt = { x: e.clientX, y: e.clientY };
+        }
       }
       ptr.down = null;
       ptr.dragging = false;
@@ -2758,9 +2789,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === 'n' || k === 'N') { eng.settings.nodes = !eng.settings.nodes; flash(eng.settings.nodes ? 'Particles on' : 'Particles off'); persist(); view.render(); }
     else if (k === 'y' || k === 'Y') { eng.settings.bloom = eng.settings.bloom > 0 ? 0 : 0.012; flash(eng.settings.bloom ? 'Bloom on' : 'Bloom off'); persist(); view.render(); }
     else if (k === 'b' || k === 'B') bench.toggle();
-    else if (/^[1-8]$/.test(k)) {
-      // a digit takes up its tool; held down past a moment, the tool is only for as long as it is held
-      if (!e.repeat) { quasi = { key: k, prev: hand.tool, at: performance.now() }; pickTool(TOOLS[+k - 1].id); }
+    else if (/^[0-8]$/.test(k)) {
+      // a digit takes up its tool (0: none), or puts down the one in hand; held down past a moment, a tool taken up
+      // is only for as long as it is held
+      if (!e.repeat) { const id = TOOLS[+k].id; quasi = id !== hand.tool && id !== 'none' ? { key: k, prev: hand.tool, at: performance.now() } : null; pickTool(id); }
     }
     else if (k === 'o' || k === 'O') { eng.settings.optics = eng.settings.optics > 0 ? 0 : 1; flash(eng.settings.optics ? 'Microscope optics on' : 'Microscope optics off'); persist(); view.render(); }
     else if (k === 'g' || k === 'G') { eng.settings.tide = (eng.settings.tide + 1) % 3; flash(['Light map off', 'Faint light map', 'Light map'][eng.settings.tide]); mapsChanged(); }
@@ -2787,7 +2819,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === 'Escape') {
       if (!state.ui) setInterface(true);
       else if (ladder.isOpen()) ladder.toggle(false);
-      else if (inHand()) pickTool('loupe');
+      else if (inHand()) pickTool('none');
       else if (ride.on) toggleRide(false);
       else if (cards.isOpen()) cards.close();
       else if (!$('help').hidden) toggleHelp(false);
@@ -2808,7 +2840,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === '?') toggleHelp();
     else if (k === 'i' || k === 'I') { state.hud = !state.hud; $('hud').classList.toggle('off', !state.hud); document.body.classList.toggle('hud-off', !state.hud); flash(state.hud ? 'Readouts shown' : 'Readouts hidden'); }
     else if (k === 'f' || k === 'F') toggleFullscreen();
-    else if (k === '0') { takeOver(); cam.zoomTarget = 1; cam.anchor = null; }
+    else if (k === 'z' || k === 'Z') { takeOver(); cam.zoomTarget = 1; cam.anchor = null; }
     else handled = false;
     if (handled) { e.preventDefault(); hideIntro(); }
   });
@@ -2817,7 +2849,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   addEventListener('keyup', (e) => {
     ride.arrows.delete(e.key);
     if (!quasi || e.key !== quasi.key) return;
-    if (performance.now() - quasi.at > 450 && quasi.prev !== hand.tool) pickTool(quasi.prev, false);
+    if (performance.now() - quasi.at > 450 && quasi.prev !== hand.tool) pickTool(quasi.prev);
     quasi = null;
   });
 
@@ -2836,6 +2868,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const speedChoices = () => SPEEDS.filter((v) => v <= 1 || (v !== Infinity && v <= speedCap)).concat(Infinity);
   // the speed chip opens the ladder of every speed on offer
   const ladder = createLadder({ chip: $('t-speed'), el: $('ladder'), choices: speedChoices, current: () => state.speed, pick: setSpeed, real: () => setSpeed(1) });
+  $('t-slower').addEventListener('click', () => stepSpeed(-1));
+  $('t-faster').addEventListener('click', () => stepSpeed(1));
   function renderTime() {
     const s = state.speed;
     const play = $('t-play');
@@ -2846,6 +2880,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     $('t-speed').setAttribute('aria-label', `Speed ${fmtSpeed(s)}`);
     $('t-speed').classList.toggle('fast', s > 1 && s !== Infinity);
     $('t-speed').classList.toggle('max', s === Infinity);
+    const list = speedChoices();
+    $('t-slower').disabled = s <= list[0];
+    $('t-faster').disabled = s === Infinity;
     ladder.render();
   }
   function applySpeed(v, fast = false) {
@@ -2859,11 +2896,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     renderTime();
   }
   // a speed chosen (it ends the warm-up)
-  function setSpeed(v, fast = false) {
+  // v a speed or 'fast' (speed Infinity drawn every frame)
+  function setSpeed(v, quiet = false) {
     endWarm();
     if (state.paused) state.paused = false;
-    applySpeed(v, fast);
-    flash(`Speed ${fmtSpeed(v)}`);
+    applySpeed(v === 'fast' ? Infinity : v, v === 'fast');
+    if (!quiet) flash(`Speed ${fmtSpeed(state.speed)}`);
   }
   // The warm-up (WARM_UNTIL): due once a new world is seeded, begun when it is first seen (the intro gone).
   let warmDue = false;
@@ -2887,7 +2925,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     let i = list.indexOf(state.speed === Infinity && fastMode ? 'fast' : state.speed);
     if (i < 0) i = list.findIndex((v) => v === 'fast' || v > state.speed) - (d > 0 ? 1 : 0);
     const v = list[clamp(i + d, 0, list.length - 1)];
-    setSpeed(v === 'fast' ? Infinity : v, v === 'fast');
+    setSpeed(v);
   }
   // A step's GPU cost (a coarse step costs about what a 1/60 s one does: one scan of the neighbors)
   const stepCost = () => perf.simS || perf.stepMs;
@@ -3409,20 +3447,30 @@ function run(eng, device, ctx, specCtx, hasTS) {
     lines.forEach((l, i) => { octx.fillStyle = i ? 'rgba(163,189,190,0.95)' : `rgba(${col},1)`; octx.fillText(l, x + 8, y + 9 + i * 15); });
     octx.restore();
   }
+  // The instrument in hand seen in the water (eng.tool; the composite's instrument): the needle, the pipette's glass,
+  // the cold probe, out of focus over the water as the pointer moves, let down into it (in focus) while pressed.
+  let toolFocus = 0;
+  function showInstrument(R, dt) {
+    const it = INSTRUMENTS[hand.tool];
+    const pressed = !!(ptr.down?.apply || ptr.down?.pip);
+    toolFocus += ((pressed ? 1 : 0) - toolFocus) * (1 - Math.exp(-dt / 0.12));
+    if (!it || !R) { eng.tool.fill(0); toolFocus = 0; return; }
+    eng.tool.set([...toWorld(R.sx, R.sy), ...it.dir, it.kind, toolFocus, hand.tool === 'cold' ? hand.level : 0, 0]);
+  }
   // what the tool in hand is doing, in a few words
   function handDoing() {
     const t = hand.tool, pct = `${Math.min(100, Math.round(hand.level * 100))}%${hand.held ? '' : ' · hold for more'}`;
     if (t === 'lamp' || t === 'shade') return `${hand.held ? (t === 'lamp' ? 'Brightening' : 'Darkening') : 'Over the water'} · ${pct}`;
     if (t === 'warm' || t === 'cold') return `${hand.held ? (t === 'warm' ? 'Warming toward a boil' : 'Chilling toward ice') : 'Over the water'} · ${pct}`;
     if (t === 'touch') return hand.held && ptr.dragging ? 'Stirring' : 'Tap: a ring · drag: stir';
-    if (t === 'needle') return ptr.dragging ? 'Cutting bonds' : 'Click: prick · drag: cut';
+    if (t === 'needle') return !hand.held ? 'Press: into the water' : ptr.dragging ? 'Cutting through' : 'In the water · its point pricks';
     if (t === 'pipette') {
       const tip = pipette.tip, now = performance.now();
       if (pull.on || hand.suck) return `Drawing up · ${fmt(pull.got.length)} in`;
       if (spit.on) return `Setting down ${(spit.sp || tip)?.name ?? ''}`;
       if (pull.note && now - pull.note.t < 2000) return pull.note.text;
-      if (isCoarse) return pull.armed ? `Tap sets down ${tip?.name ?? ''}` : 'Tap draws up all in reach';
-      return tip ? `Click draws up · ⇧ click sets down ${tip.name}` : 'Click draws up all in reach';
+      if (isCoarse) return pull.armed ? `Dispense · a tap sets down ${tip?.name ?? ''}` : 'Load · a tap draws up all in reach';
+      return pull.armed ? `Dispense · a click sets down ${tip?.name ?? ''} · ⇧ draws up` : tip ? `Load · a click draws up · ⇧ sets down ${tip.name}` : 'Load · a click draws up all in reach';
     }
     return toolOf(t).hint;
   }
@@ -4078,7 +4126,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       pullTick(now);
       // (the lamp, shade, stage and probe follow the pointer over the world, a little of them, until pressed)
       if (R) hand.hover(...toWorld(R.sx, R.sy)); else hand.hover(null);
+      hand.span = Math.hypot(innerWidth, innerHeight) / cssPPU();
       hand.update(dt / 1000);
+      showInstrument(R, dt / 1000);
       // the warm stage and the cold probe show the water's warmth inside their reach
       if (R && (hand.tool === 'warm' || hand.tool === 'cold') && K.heat) eng.lens.set([...toWorld(R.sx, R.sy), (1.5 * R.r) / cssPPU(), 1]);
       else eng.lens.fill(0);
@@ -4180,7 +4230,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // as the adaptive scale does it: applied when the next frame begins
     queueScale(v) { renderScale = v; resizeDue = true; },
     // a world saved by eng.readState(), in place of this one
-    loadWorld: applyWorld, hand, loadCard, saveCard, cabinet,
+    loadWorld: applyWorld, hand, loadCard, saveCard, cabinet, carry,
     // a .tidemote file's bytes, as Settings → Worlds opens one
     openWorld: async (bytes) => loadWorld(await openWorld(bytes)) };
 
@@ -4194,4 +4244,30 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }).catch((e) => fail('Could not start the simulation', String(e.message || e), [RELOAD]));
 }
 
-boot().catch((e) => fail('Something went wrong starting the GPU', String((e && e.message) || e)));
+// A card's link opened (a phone's camera on a card's QR code): the card first, drawn without the GPU; the world
+// starts, its shaders compiling, only once the card is put aside, and the card goes into the cabinet then (run).
+async function linkedCard(bytes) {
+  const c = decodeCard(bytes), link = cardLink(bytes);
+  const cv = await strangerCard({ ...c, genome: genomeOfWords(c.words) }, link, DEFAULT_K);
+  const blob = await new Promise((res) => cv.toBlob(res, 'image/png'));
+  const png = new Blob([pngWithText(new Uint8Array(await blob.arrayBuffer()), PNG_KEY, pngKeyValue(bytes))], { type: 'image/png' });
+  const img = $('linked-img'), url = URL.createObjectURL(png);
+  img.src = url;
+  img.alt = `The species card of ${c.name}`;
+  $('linked-h').textContent = c.name;
+  $('linked-note').textContent = `A species from ${c.home}. Open Tidemote to keep its card in your cabinet and set it down in a world of your own.`;
+  $('linked-png').onclick = () => saveFile(png, `${c.name.replace(/[^\w -]+/g, '').trim() || 'species'}.png`);
+  $('linked').hidden = false;
+  await new Promise((res) => { $('linked-go').onclick = res; });
+  $('linked').hidden = true;
+  URL.revokeObjectURL(url);
+}
+async function start() {
+  const bytes = cardFromHash(location.hash);
+  if (bytes) {
+    // (a card refused, or not drawn, says why once the world runs)
+    try { await linkedCard(bytes); } catch (e) { console.warn('[tidemote] the linked card:', e); $('linked').hidden = true; }
+  }
+  await boot();
+}
+start().catch((e) => fail('Something went wrong starting the GPU', String((e && e.message) || e)));

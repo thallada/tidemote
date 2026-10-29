@@ -288,10 +288,10 @@ body:not(.live) .hud { opacity: 0; }
 .snd-wrap { display: flex; align-items: center; gap: 8px; }
 #vol { width: 74px; }
 .sys { font-size: 11px; letter-spacing: .12em; color: var(--ink-3); text-transform: uppercase; white-space: nowrap; font-stretch: 108%; flex: none; display: flex; gap: 12px; }
-/* the speed chip: its speed and a chevron; it opens the ladder */
-.dock .speed > span { display: flex; align-items: center; gap: 4px; }
-.dock .speed .chev { width: 11px; height: 11px; opacity: .7; transform: rotate(180deg); transition: transform .15s; }
-.dock .speed[aria-expanded="true"] .chev { transform: none; }
+/* the speed chip opens the ladder (held, a drag along it picks a speed); Slower and Faster beside it on a phone */
+.dock .speed { touch-action: none; }
+.dock .step { display: none; }
+.dock .step:disabled { opacity: .3; }
 /* the tools: one numbered group in the dock's middle; the one in hand in the sun color */
 .dock .tools { margin-left: auto; gap: 0; border: 1px solid var(--line); }
 .dock .tools .tool { position: relative; width: 44px; height: 36px; display: grid; place-items: center; border: 0; border-right: 1px solid var(--line); }
@@ -308,7 +308,7 @@ body:not(.live) .hud { opacity: 0; }
 .hand-chip .ev-ico { width: 16px; height: 16px; color: var(--sun); flex: none; }
 
 /* the speed ladder: every speed on offer, fastest at the top */
-.ladder { position: fixed; z-index: 8; width: 210px; padding: var(--s2) 10px var(--s2); display: flex; flex-direction: column; }
+.ladder { position: fixed; z-index: 8; width: 210px; padding: var(--s2) 10px var(--s2); display: flex; flex-direction: column; touch-action: none; user-select: none; }
 .ladder .sub-h { padding-bottom: var(--s2); margin-bottom: var(--s1); border-bottom: 1px solid var(--line); }
 .ladder-t { color: var(--cyan); }
 .rung { display: grid; grid-template-columns: 22px 3.6em 1fr; align-items: center; gap: 6px; height: 28px; border: 0; text-align: left; color: var(--ink-2); }
@@ -332,7 +332,7 @@ body.spec-open .bench { right: var(--spec-pw); }
 .bench-t { color: var(--cyan); }
 .bench-note { font-style: normal; color: var(--ink-3); text-transform: none; letter-spacing: .04em; margin-left: var(--s3); font-weight: 400; }
 .bench .sub-a { color: var(--sun); }
-.tiles { display: grid; grid-template-columns: repeat(8, minmax(64px, 1fr)); gap: 4px; }
+.tiles { display: grid; grid-template-columns: repeat(9, minmax(60px, 1fr)); gap: 4px; }
 .tile { position: relative; height: 62px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
 .tile svg { width: 20px; height: 20px; }
 .tile span { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; font-stretch: 108%; }
@@ -352,12 +352,12 @@ body.spec-open .bench { right: var(--spec-pw); }
 
 /* the pipette's section: a strip of mini-cards, tip first, fading at its right edge when there are more */
 .bench-pip { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: var(--s2); padding-left: var(--s4); border-left: 1px solid var(--line); }
-.strip { flex: none; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); }
+.strip { flex: none; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .strip::-webkit-scrollbar { display: none; }
 .pip-empty { flex: 1; min-height: 96px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: var(--s1); padding: var(--s3); border: 1px dashed var(--line); color: var(--ink-3); text-align: center; font-size: 12px; }
 .pip-empty b { color: var(--ink-2); font-weight: 400; font-size: 13px; }
 /* a mini-card: sigil, name, kind, home water; bracketed at its corners */
-.mini { --c: var(--line-2); position: relative; flex: 0 0 112px; min-height: 104px; padding: 8px 6px 6px; display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; touch-action: none;
+.mini { --c: var(--line-2); position: relative; flex: 0 0 112px; min-height: 104px; padding: 8px 6px 6px; display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; touch-action: pan-x;
   background: linear-gradient(var(--c), var(--c)) left top / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) left top / 1px 7px no-repeat,
     linear-gradient(var(--c), var(--c)) right top / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) right top / 1px 7px no-repeat,
     linear-gradient(var(--c), var(--c)) left bottom / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) left bottom / 1px 7px no-repeat,
@@ -379,7 +379,7 @@ body.spec-open .bench { right: var(--spec-pw); }
 .mini.flat .mc-n b { position: absolute; right: 0; top: 30px; }
 /* the cabinet: its mini-cards in a grid, three or more a row */
 .cab-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
-.cab-grid .mini { min-height: 124px; padding-top: 10px; }
+.cab-grid .mini { min-height: 124px; padding-top: 10px; touch-action: pan-y; }
 .cab-grid .pip-empty { grid-column: 1 / -1; }
 /* a card saved: it presents itself at the center, then shrinks to the Lab */
 .card-fly { position: fixed; left: 50%; top: 50%; z-index: 40; width: min(330px, 70vw); pointer-events: none; transform: translate(-50%, -50%); box-shadow: 0 12px 48px rgba(0, 0, 0, 0.7); }
@@ -401,7 +401,14 @@ body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-car
 .held.pip { padding-bottom: var(--s2); }
 .held .strip.flat { flex-basis: 100%; }
 .held .strip.flat:empty { display: none; }
-.held > .btn { padding: 0 10px; }
+.held #held-down { width: 40px; height: 40px; margin-right: -6px; }
+.held .pip-mode { flex: none; }
+.held .pip-mode .chip { height: 32px; padding: 0 12px; }
+/* the pipette's press, Load or Dispense; Keep all */
+.bench-pip .sub-h { justify-content: flex-start; flex-wrap: wrap; }
+.bench-pip .sub-h .sub-a { margin-right: auto; }
+.pip-mode[hidden], #pip-keep[hidden] { display: none; }
+#pip-keep { height: 26px; }
 .held kbd { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--sun); color: var(--sun); font-size: 11px; letter-spacing: 0; }
 .held > b { color: var(--sun); font-size: 12px; letter-spacing: .16em; text-transform: uppercase; font-weight: 500; flex: 1; }
 .held-reach { display: flex; align-items: center; }
@@ -627,11 +634,13 @@ dd { margin: 0; color: var(--ink-2); }
 
 /* ------------------------------------------------------------------ tabs */
 /* a row too wide for its panel scrolls (wireTabRow): a fade marks each clipped edge */
-.tabs { --fade-l: #000; --fade-r: #000; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
-.tabs.fade-l { --fade-l: transparent; }
-.tabs.fade-r { --fade-r: transparent; }
-.tabs.fade-l, .tabs.fade-r { mask-image: linear-gradient(90deg, var(--fade-l), #000 32px, #000 calc(100% - 32px), var(--fade-r)); -webkit-mask-image: linear-gradient(90deg, var(--fade-l), #000 32px, #000 calc(100% - 32px), var(--fade-r)); }
+/* (and the bench's rows: the tools on a phone, the pipette's strip) */
+.tabs, .strip, .tiles { --fade-l: #000; --fade-r: #000; }
+.fade-l { --fade-l: transparent; }
+.fade-r { --fade-r: transparent; }
+.fade-l, .fade-r { mask-image: linear-gradient(90deg, var(--fade-l), #000 32px, #000 calc(100% - 32px), var(--fade-r)); -webkit-mask-image: linear-gradient(90deg, var(--fade-l), #000 32px, #000 calc(100% - 32px), var(--fade-r)); }
 .tabs button { flex: none; border: 0; border-bottom: 1px solid transparent; height: 34px; padding: 0 10px; color: var(--ink-3); white-space: nowrap; }
 .tabs button:hover { color: var(--ink); }
 .tabs button[aria-selected="true"] { color: var(--ink); border-bottom: 2px solid var(--hot); background: linear-gradient(transparent 40%, rgba(255, 95, 58, 0.08)); }
@@ -984,6 +993,15 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .begin:hover { color: var(--bg); background: #fff3c0; }
 .intro.ask .begin { display: block; }
 @keyframes blink { 50% { opacity: .2; } }
+/* a card's link opened: the card alone, before the world starts */
+.linked { position: fixed; inset: 0; z-index: 55; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s2); padding: 16px; background: var(--bg); overflow-y: auto; }
+.linked h1 { margin: 0; font-size: 22px; font-weight: 300; letter-spacing: .06em; text-align: center; }
+.linked .lbl { margin: 0; color: var(--cyan); }
+.linked img { display: block; width: auto; max-width: 100%; height: auto; max-height: calc(100dvh - 210px); min-height: 0; }
+.linked p#linked-note { margin: 0; max-width: 46ch; text-align: center; color: var(--ink-2); font-size: 13px; }
+.linked-act { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s3); }
+.linked-act .btn { height: 40px; padding: 0 18px; }
+.linked-act .go { color: var(--bg); background: var(--sun); border-color: var(--sun); }
 .nogpu { position: fixed; inset: 0; display: grid; place-items: safe center; padding: 24px; z-index: 50; background: var(--bg); overflow-y: auto; }
 .nogpu-in { max-width: 60ch; display: flex; flex-direction: column; gap: 14px; user-select: text; -webkit-user-select: text; }
 .nogpu h1 { font-size: 26px; font-weight: 300; letter-spacing: .06em; }
@@ -1071,10 +1089,11 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .dock { gap: 0; justify-content: space-between; padding-left: calc(6px + var(--safe-l)); padding-right: calc(6px + var(--safe-r)); }
   .grp { gap: 2px; }
   .acts { margin-left: 0; gap: 2px; }
-  .dock .ico { width: 38px; height: 46px; border-color: transparent; }
-  .dock .speed { min-width: 0; width: 56px; height: 46px; padding: 0 2px; overflow: hidden; }
+  .dock .ico { width: 34px; height: 46px; border-color: transparent; }
+  .dock .step { display: grid; width: 28px; }
+  .dock .speed { min-width: 0; width: 52px; height: 46px; padding: 0 2px; overflow: hidden; }
   .dock .speed small { font-size: 11px; letter-spacing: 0; }
-  .act { flex-direction: column; justify-content: center; gap: 3px; width: 48px; height: 50px; padding: 0; border-color: transparent; }
+  .act { flex-direction: column; justify-content: center; gap: 3px; width: 46px; height: 50px; padding: 0; border-color: transparent; }
   .act span { display: block; font-size: 11px; letter-spacing: 0; text-transform: none; font-stretch: 100%; }
   .act[aria-pressed="true"], .act[aria-expanded="true"] { border-color: var(--line-2); }
   #vol { display: none; }
@@ -1127,12 +1146,13 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }
   #film, #auto-next { display: none !important; }
-  .bench-btn { margin-left: 0; flex-direction: column; justify-content: center; gap: 3px; width: 56px; height: 50px; padding: 0; }
+  .bench-btn { margin-left: 0; flex-direction: column; justify-content: center; gap: 3px; width: 50px; height: 50px; padding: 0; }
   .bench-btn span { display: block; font-size: 11px; letter-spacing: 0; text-transform: none; font-stretch: 100%; }
   .bench-btn.in-hand { border-color: rgba(241, 227, 160, 0.5); }
+  .bench { touch-action: pan-x; }
   .bench { left: 0 !important; right: 0 !important; flex-direction: column; padding: var(--s2) 12px var(--s3); max-height: calc(100% - var(--top) - var(--bot)); overflow-y: auto; }
   .bench-note { display: none; }
-  .tiles { display: flex; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px; -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
+  .tiles { display: flex; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px; }
   .tile { flex: 0 0 62px; height: 60px; }
   .bench-hint { white-space: normal; }
   .reach { grid-template-columns: 4.6em 1fr 4.6em; height: 36px; }
@@ -1147,9 +1167,10 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .card-dlg .card-row { flex-direction: row; align-items: center; }
 }
 @media (max-width: 380px) {
-  .act { width: 44px; }
-  .dock .ico { width: 34px; }
-  .dock .speed { width: 50px; }
+  .dock .step { width: 24px; }
+  .act, .bench-btn { width: 42px; }
+  .dock .ico { width: 32px; }
+  .dock .speed { width: 46px; }
 }
 @media (max-height: 560px) and (min-width: 721px) {
   :root { --rail-h: 44px; --dock-h: 48px; }

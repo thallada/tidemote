@@ -81,6 +81,12 @@ for (const touch of [false, true]) {
   {
     const T = (f) => page.evaluate(f);
     const vp = page.viewportSize(), at = [vp.width * 0.6, vp.height * 0.35];
+    check(`${tag} the page opens with ${touch ? 'no tool' : 'the loupe'} in hand`, await T(() => globalThis.__tidemote.hand.tool) === (touch ? 'none' : 'loupe'));
+    if (!touch) {
+      await page.keyboard.press('3'); await page.keyboard.press('3');
+      check(`${tag} a tool's key again puts it down`, await T(() => globalThis.__tidemote.hand.tool === 'none'));
+      await page.keyboard.press('1');
+    }
     if (touch) { await page.tap('#bench-open'); await page.waitForTimeout(300); await page.tap('.tile[data-tool="lamp"]'); }
     else { await page.keyboard.press('b'); await page.waitForTimeout(300); await page.keyboard.press('3'); await page.keyboard.press('b'); }
     await page.waitForTimeout(300);
@@ -94,7 +100,7 @@ for (const touch of [false, true]) {
     if (touch) await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); else await page.mouse.up();
     if (touch) await page.tap('#held-down'); else await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
-    check(`${tag} ${touch ? 'Put down' : 'Esc'} puts the tool down`, await T(() => globalThis.__tidemote.hand.tool === 'loupe' && globalThis.__tidemote.life().hand.length > 0));
+    check(`${tag} ${touch ? 'Its ×' : 'Esc'} puts the tool down`, await T(() => globalThis.__tidemote.hand.tool === 'none' && globalThis.__tidemote.life().hand.length > 0));
     // the ladder: a speed picked (a slow one: those above real time are on offer only as the GPU sustains them),
     // then a double tap back to real time
     await page.click('#t-speed');
@@ -109,13 +115,36 @@ for (const touch of [false, true]) {
     await page.click('#t-speed'); await page.click('#t-speed');
     await page.waitForTimeout(300);
     check(`${tag} a double tap on the chip is real time`, await T(() => globalThis.__tidemote.state.speed === 1 && document.getElementById('ladder').hidden));
+    // the chip held and dragged down two rungs: ×0.5 once let go
+    {
+      const cb = await page.locator('#t-speed').boundingBox(), cx = cb.x + cb.width / 2, cy = cb.y + cb.height / 2;
+      const rh = rb.height;
+      if (touch) {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cx, y: cy }] });
+        await page.waitForTimeout(400);
+        for (let k = 1; k <= 6; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: cx, y: cy + (k / 6) * 2.1 * rh }] });
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      } else {
+        await page.mouse.move(cx, cy); await page.mouse.down(); await page.waitForTimeout(400);
+        await page.mouse.move(cx, cy + 2.1 * rh, { steps: 6 }); await page.mouse.up();
+      }
+      await page.waitForTimeout(300);
+      check(`${tag} the chip held and dragged picks a speed`, await T(() => globalThis.__tidemote.state.speed === 0.5 && document.getElementById('ladder').hidden), String(await T(() => globalThis.__tidemote.state.speed)));
+      await page.keyboard.press('/');
+    }
     // the pipette: a colony from a card, set down
     await T(() => { const t = globalThis.__tidemote, sp = [...t.life().reg.values()].filter((x) => x.alive && x.established).sort((a, b) => b.pop - a.pop)[0]; t.loadCard(sp.serial); });
     const held = () => T(() => globalThis.__tidemote.life().pipette.species.reduce((n, x) => n + (x.made || 0) + x.orgs.reduce((m, o) => m + o.cells.length, 0), 0));
     const n0 = await held();
     check(`${tag} a card loads a colony into the pipette`, n0 >= 12, String(n0));
-    // (a click sets down a whole colony, a cell at a time: with ⇧, or on a phone once Set down is on)
-    if (touch) { await page.tap('#bench-open'); await page.waitForTimeout(300); await page.tap('.tile[data-tool="pipette"]'); await page.touchscreen.tap(...at); await page.waitForTimeout(300); await page.tap('#held-pull'); await page.touchscreen.tap(...at); }
+    // (a click sets down a whole colony, a cell at a time: with ⇧, or on a phone once Dispense is on)
+    if (touch) {
+      // (the tile scrolled into view and settled first; a tap high on the world folds the drawer, which is tall)
+      await page.tap('#bench-open'); await page.waitForTimeout(300);
+      await page.locator('.tile[data-tool="pipette"]').scrollIntoViewIfNeeded(); await page.waitForTimeout(400);
+      await page.tap('.tile[data-tool="pipette"]'); await page.touchscreen.tap(vp.width * 0.5, vp.height * 0.15); await page.waitForTimeout(300);
+      await page.tap('#held-dispense'); await page.touchscreen.tap(...at);
+    }
     else { await page.keyboard.press('8'); await page.keyboard.down('Shift'); await page.mouse.click(...at); await page.keyboard.up('Shift'); }
     await page.waitForTimeout(8000);
     check(`${tag} the pipette sets the colony down`, (await held()) === 0, String(await held()));

@@ -24,6 +24,8 @@ export function miniCard(g, K, { key, name, home = '', n = 0, bodies = 0, tip = 
  * and, let go, calls drop(key, x, y, el) with the element under the pointer. With reorder, the card's place stays
  * open in root and moves to where the pointer is over it, the others making way; let go there, reorder(key, i).
  */
+const HOLD = 350; // a touch held this long (ms) lifts the card
+
 export function wireCardDrag(root, { tap, drop, reorder }) {
   let drag = null, last = { key: null, t: 0 };
   const cards = () => [...root.querySelectorAll('.mini')];
@@ -46,12 +48,14 @@ export function wireCardDrag(root, { tap, drop, reorder }) {
     if (!b || e.button > 0) return;
     drag = { key: b.dataset.key, el: b, x: e.clientX, y: e.clientY, at: performance.now(), touch: e.pointerType !== 'mouse', ghost: null, id: e.pointerId };
   });
+  // (held long enough to lift, the card moves rather than the strip scrolling)
+  root.addEventListener('touchmove', (e) => { if (drag && (drag.ghost || performance.now() - drag.at >= HOLD)) e.preventDefault(); }, { passive: false });
   addEventListener('pointermove', (e) => {
     if (!drag || e.pointerId !== drag.id) return;
     const moved = Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
     if (!drag.ghost && moved > 8) {
       // a touch that moves before its long press scrolls the strip instead
-      if (drag.touch && performance.now() - drag.at < 350) { drag = null; return; }
+      if (drag.touch && performance.now() - drag.at < HOLD) { drag = null; return; }
       drag.ghost = drag.el.cloneNode(true);
       drag.ghost.classList.add('ghost-card');
       document.body.append(drag.ghost);

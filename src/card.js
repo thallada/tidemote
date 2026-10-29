@@ -116,7 +116,7 @@ const fit = (ctx, text, w) => { if (ctx.measureText(text).width <= w) return tex
 export function drawCard(ctx, d, art = {}) {
   const W = CARD_W, H = CARD_H, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif';
   const M = 30, R = W - M, w = R - M;
-  const INK = '#e2f1f0', INK2 = '#a3bdbe', INK3 = '#7d999b', LINE = 'rgba(130,205,214,0.22)', TICK = 'rgba(150,222,230,0.55)', SUN = '#f1e3a0';
+  const INK = '#e2f1f0', INK2 = '#a3bdbe', INK3 = '#7d999b', LINE = 'rgba(130,205,214,0.22)', TICK = 'rgba(150,222,230,0.55)';
   const label = (t, x, y, col = INK3, size = 17) => { ctx.fillStyle = col; ctx.font = `600 ${size}px ${F}`; ctx.letterSpacing = '0.08em'; ctx.fillText(t.toUpperCase(), x, y); ctx.letterSpacing = '0px'; };
   const text = (t, x, y, size, col = INK, weight = 400, maxW = Infinity) => { ctx.fillStyle = col; ctx.font = `${weight} ${size}px ${F}`; ctx.fillText(fit(ctx, t, maxW), x, y); };
   ctx.save();
@@ -243,7 +243,7 @@ export function drawCard(ctx, d, art = {}) {
   const lines = line ? wrap(ctx, line, fw) : [], room = ties ? 2 : 3;
   lines.slice(0, room).forEach((l, i) => text(i === room - 1 && lines.length > room ? `${l} …` : l, M, ly + i * 26, 18, d.story ? '#e8dcc0' : INK3, d.story ? 'italic 400' : 400, fw));
   ctx.font = `600 17px ${F}`;
-  label(fit(ctx, [d.home, d.touched ? 'touched' : 'wild', d.bred ? 'bred' : ''].filter(Boolean).join(' · '), fw - 20), M, H - 36, d.touched ? SUN : INK3);
+  label(fit(ctx, [d.home, d.bred ? 'bred' : ''].filter(Boolean).join(' · '), fw - 20), M, H - 36, INK3);
   if (d.qr) {
     // whole device pixels a module (crisp edges read best), a quiet zone of two modules inside the frame
     const k = Math.max(1, Math.floor((Q * CARD_SCALE) / (d.qr.size + 4))) / CARD_SCALE, side = (d.qr.size + 4) * k;
@@ -254,6 +254,28 @@ export function drawCard(ctx, d, art = {}) {
     corners(ctx, qx - 2, qy - 2, qx + Q + 2, qy + Q + 2, 9);
   }
   ctx.restore();
+}
+
+/**
+ * A card that came from another world by its link alone (cabinet.js: its genome, name and home water): drawn from
+ * what its genome says, its home water for its record, on a canvas of its own. card.genome: the genome read from
+ * its words; link: the link its QR code holds. Needs no world (nor the GPU): a phone that scanned it sees it at once.
+ */
+export async function strangerCard(card, link, K) {
+  const sp = { serial: 0, name: card.name, binomial: card.name, genome: card.genome, alive: false, founder: true, born: 0, peak: 0, pop: 0, genus: card.name.split(' ')[0], established: true };
+  const d = cardData(sp, { reg: new Map(), K });
+  Object.assign(d, {
+    stats: [['Home water', card.home], ['Genus', d.genus], ['Mutations', String(card.genome.depth)]], lineage: [], origin: `carried from ${card.home}`, when: card.home,
+    home: card.home, bred: card.bred, qr: qr(new TextEncoder().encode(link)),
+  });
+  const sigil = await svgImage(sigilSVG(voiceOf(card.genome), card.genome, { size: 240 }));
+  if (document.fonts?.load) await document.fonts.load('500 40px Saira').catch(() => {});
+  const c = document.createElement('canvas');
+  c.width = CARD_W * CARD_SCALE; c.height = CARD_H * CARD_SCALE;
+  const ctx = c.getContext('2d');
+  ctx.setTransform(CARD_SCALE, 0, 0, CARD_SCALE, 0, 0);
+  drawCard(ctx, d, { sigil, portrait: null });
+  return c;
 }
 
 /**
@@ -307,26 +329,8 @@ export function createCards(api) {
     drawCard(ctx, data(sp), a);
     return c;
   }
-  /**
-   * A card that came from another world by its link alone (cabinet.js: its genome, name and home water): drawn
-   * from what its genome says, its home water for its record. card.genome: the genome read from its words.
-   */
-  async function renderStranger(card, link) {
-    const sp = { serial: 0, name: card.name, binomial: card.name, genome: card.genome, alive: false, founder: true, born: 0, peak: 0, pop: 0, genus: card.name.split(' ')[0], established: true };
-    const d = cardData(sp, { reg: new Map(), K: api.K });
-    const g = card.genome;
-    Object.assign(d, {
-      stats: [['Home water', card.home], ['Genus', d.genus], ['Mutations', String(g.depth)]], lineage: [], origin: `carried from ${card.home}`, when: card.home,
-      home: card.home, touched: card.touched, bred: card.bred, qr: qr(new TextEncoder().encode(link)),
-    });
-    const a = await artOf(sp);
-    const c = document.createElement('canvas');
-    c.width = CARD_W * CARD_SCALE; c.height = CARD_H * CARD_SCALE;
-    const ctx = c.getContext('2d');
-    ctx.setTransform(CARD_SCALE, 0, 0, CARD_SCALE, 0, 0);
-    drawCard(ctx, d, a);
-    return c;
-  }
+  /** A card that came from another world by its link alone, drawn (strangerCard). */
+  const renderStranger = (card, link) => strangerCard(card, link, api.K);
   async function open(serial) {
     const sp = reg().get(serial);
     if (!sp) return;

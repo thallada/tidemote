@@ -37,8 +37,15 @@ export const SPL_RANGE = SPL_PAIR + SPL_WATCH * SPL_WATCH * 2;
 export const SPL_WORDS = SPL_RANGE + MAXK * 5;
 // rangeMain samples at most about this many particles (every stride-th, from a rotating start)
 export const SPL_RANGE_SAMPLES = 32768;
-// the temperatures the hand's heated stage and cold probe draw the water toward (a shimmering boil, ice)
-export const STAGE = { hot: 60, cold: -3 };
+// the temperatures the hand's heated stage and cold probe draw the water toward at full strength (the stage hotter
+// than a boil, so the water under it comes to one; ice), and the share a second of the way there they take the water
+// under them (at a quarter strength, a quarter of the way from the open water's temperature). Water boils at BOIL:
+// no hotter (the heat goes into steam).
+export const STAGE = { hot: 115, cold: -20, rate: 0.8 };
+export const BOIL = 100;
+// The needle in the water (docs/hand.md): its shaft's half-width, the length over which it tapers to its point, and
+// how near its point a cell must come to be pricked (world units)
+export const NEEDLE = { w: 0.45, taper: 3, kill: 0.12 };
 // The pipette's working words (docs/hand.md), in the ledger after the species ledger: the cells it draws toward its
 // tip (their IDs, sorted), those taken there (12 words each: the particle, then its partners' IDs), and what it
 // sets down: a header, the species' genomes, the cells (9 words: species, offset, velocity, energy, age, color,
@@ -1007,7 +1014,9 @@ function cellWGSL(K, w) {
   let shore = shoreDist(pond);
   let stranded = pond.x < 0.0;
   let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0) * select(1.0, 0.0, stranded);
-  let flow = flowHere * g.advect;
+  // (a finger's stir carries an anchored cell more than a current does, a holdfast being no match for it: 60% of
+  // it, a drifter all of it; nothing in a headless run, where the stir is zero)
+  let flow = flowHere * g.advect + stirFlow(p.pos) * (0.6 * (1.0 - g.advect));
   // a holdfast: a cell the current hardly carries (advect below 0.35, fully below 0.1) is anchored, and
   // pushes barely move it (its velocity decays K.holdfast times as fast)
   let drag = g.drag * mix(1.0, ${f(K.holdfast)}, smoothstep(0.35, 0.1, g.advect));
@@ -1159,8 +1168,8 @@ function cellWGSL(K, w) {
     // the pipette's draw carries it toward the tip, as a current would (a bond it stretches too far breaks, as any
     // bond does: a loose body tears, a tight one comes whole)
     pos += suckFlow(p.id, pos, h);
-    // the needle's stroke parts the cells in its way, to either side of it (its cut bonds stay cut)
-    let sc = scrape(pos);
+    // the needle in the water parts the cells in its way, to either side of it (the bonds its point crosses stay cut)
+    let sc = shaft(pos);
     if (any(sc != vec2f(0.0))) { pos += sc; vel += normalize(sc) * max(0.0, 1.0 - dot(vel, normalize(sc))); }
   }
   pos = wrapPos(pos);
@@ -1233,13 +1242,15 @@ struct Sim {
 // every headless run. Centers in world units, reaches the e-folding radius of a Gaussian.
 struct Hand {
   lamp: vec4f,  // center, reach, light (+ a lamp, more sun on one place; − a shade, 0..1 of it taken)
-  stage: vec4f, // center, reach, the share a second of the way to STAGE_HOT (+, the heated stage) or STAGE_COLD (−)
+  stage: vec4f, // center, reach, strength: + the heated stage, − the cold probe, 1 drawing the water toward STAGE_HOT or
+                // STAGE_COLD, less toward a temperature that share of the way there from the open water's
   stir: vec4f,  // center, the water's velocity there (world units a second)
   cut: vec4f,   // the needle's stroke this step, from xy to zw
   more: vec4f,  // x the stir's reach, y the cut's half-width (0: no cut), zw where the ridden cell is steered
   ids: vec4u,   // x the cell the needle pricks, y the ridden cell (NONE: none), z the will's strength (f32 bits),
                 // w how many cells the pipette draws (their IDs in the ledger's hand region)
   suck: vec4f,  // the pipette's tip, its reach (0: none), how fast it draws what is in reach (world units a second, 0: not pressed)
+  needle: vec4f, // the needle in the water: its point, and its shaft's way off toward the corner, as long as it runs (0: none)
 };
 // kr: 0..9 kind, 10..11 role, 12 plant, 13 cyst, 14 hunter, 15 tail cell.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
@@ -1389,6 +1400,10 @@ fn discSlope(d: vec2f, r: f32) -> vec2f {
 }
 const STAGE_HOT = ${f(STAGE.hot)};
 const STAGE_COLD = ${f(STAGE.cold)};
+const NEEDLE_W = ${f(NEEDLE.w)};
+const NEEDLE_TAPER = ${f(NEEDLE.taper)};
+// The needle's half-width s world units back from its point along its shaft.
+fn needleW(s: f32) -> f32 { return NEEDLE_W * pow(clamp(s / NEEDLE_TAPER, 0.0, 1.0), 0.6); }
 // The light l at p under the hand's lamp (added) or shade (taken away).
 fn lampLight(p: vec2f, l: f32) -> f32 {
   let lp = sim.hand.lamp;
@@ -1427,17 +1442,21 @@ fn suckFlow(id: u32, p: vec2f, h: f32) -> vec2f {
   else if (sim.hand.ids.w > 0u && l < sk.z + PIPE_HOLD && drawn(id)) { v = PIPE_DRAW; }
   return d / max(l, 1e-4) * min(v * h, l);
 }
-// How far the needle's stroke this step pushes a cell at p aside: out to its half-width from it, the near way.
-fn scrape(p: vec2f) -> vec2f {
-  let w = sim.hand.more.y;
-  if (w <= 0.0) { return vec2f(0.0); }
-  let a = handD(p, sim.hand.cut.xy);
-  let ab = handD(sim.hand.cut.zw, sim.hand.cut.xy);
-  let q = a - ab * clamp(dot(a, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
+// How far the needle in the water pushes a cell at p aside: out of its shaft, the near way, to a cell's breadth
+// past its surface (the shaft as the cells see it, a little wider than the steel).
+fn shaft(p: vec2f) -> vec2f {
+  let nd = sim.hand.needle;
+  let L = length(nd.zw);
+  if (L <= 0.0) { return vec2f(0.0); }
+  let ax = nd.zw / L;
+  let a = handD(p, nd.xy);
+  let t = clamp(dot(a, ax), 0.0, L);
+  let q = a - ax * t;
   let l = length(q);
-  if (l >= w) { return vec2f(0.0); }
-  let side = select(vec2f(-ab.y, ab.x) * sign(ab.x * a.y - ab.y * a.x + 1e-9), q, l > 1e-5);
-  return normalize(side + vec2f(1e-9, 0.0)) * (w - l);
+  let w = needleW(t) + 0.06;
+  if (l >= w || dot(a, ax) > L) { return vec2f(0.0); }
+  let side = select(vec2f(-ax.y, ax.x) * sign(ax.x * a.y - ax.y * a.x + 1e-9), q / max(l, 1e-9), l > 1e-5);
+  return side * (w - l);
 }
 
 // The open water's currents at p, as if no shore were near: the four waves and raindrops' rings.
@@ -1868,8 +1887,8 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
     var p = parts[i];
     // Matter has no bonds, even if this index held a living cell before the last sort.
     if (p.kind < FIRST_LIFE) { intent[i].z = NONE; intent[i].w = NONE; }
-    // the needle: the cell under its tip bursts as a hunter's kill does, its carcass left for the scavengers
-    else if (p.id == sim.hand.ids.x) {
+    // the needle: the cell its point touches bursts as a hunter's kill does, its carcass left for the scavengers
+    else if (p.id == sim.hand.ids.x || (any(sim.hand.needle.zw != vec2f(0.0)) && length(handD(p.pos, sim.hand.needle.xy)) < ${f(NEEDLE.kill)})) {
       atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
       splCause(p.kind, 3u);
       p.kind = HUSK; p.energy = ${bodyOf(K, 'genomes[p.kind]')} * ${f(K.carcassKeep)}; p.age = 0.0; p.vel *= 0.2;
@@ -2332,10 +2351,10 @@ fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
   let light = lightAt(center);
   // (the hand's stage or probe: the water under it drawn toward its temperature)
   let st = sim.hand.stage;
-  let stage = select(0.0, abs(st.w) * disc(handD(center, st.xy), st.z) * (select(STAGE_COLD, STAGE_HOT, st.w > 0.0) - carried), st.w != 0.0);
+  let stage = select(0.0, ${f(STAGE.rate)} * disc(handD(center, st.xy), st.z) * (mix(sim.tbg, select(STAGE_COLD, STAGE_HOT, st.w > 0.0), abs(st.w)) - carried), st.w != 0.0);
   let q = f32(atomicExchange(&ledger[heatAccAt() + c], 0u)) / HEAT_FIX + (${f(K.sunHeat)} * light + stage) * sim.dt;
   let t = carried + ${f(K.heatD)} * lap * sim.dt + (q - ${f(K.heatLoss)} * (carried - sim.tbg) * sim.dt) / mass;
-  heatNext[c] = t;
+  heatNext[c] = min(t, ${f(BOIL)});
 }
 
 // --------------------------------------------------------------------- life
@@ -6009,6 +6028,10 @@ struct Post {
   // radius, 1 shown): the thermal camera inside the tool's reach
   lamp: vec4f,
   lens: vec4f,
+  // the instrument in hand seen in the water: its point, its shaft's way; its kind (1 the needle, 2 the pipette, 3 the
+  // cold probe; 0 none), how far it is in focus (0 raised over the water, 1 in it), its frost
+  tool: vec4f,
+  toolB: vec4f,
 };
 `;
 
@@ -6936,33 +6959,68 @@ fn frazil(wp: vec2f, sd: f32, ppu: f32, grow: f32) -> vec3f {
   }
   return o;
 }
-// The water at its limits, which only the hand's cold probe and heated stage reach (STAGE_COLD, STAGE_HOT): at
-// freezing, far colder than the water around, crystals grow in it and it rimes pale; near boiling bubbles rise
-// in it, each a bright ring that swells and bursts (and it roils: shimmer). T: the water's temperature at wp.
-fn extremes(c: vec3f, wpIn: vec2f, ppu: f32, T: f32, behind: f32) -> vec3f {
-  let cold = smoothstep(4.0, 0.0, T) * smoothstep(2.0, 5.0, post.heat.x - T);
-  let boil = boilAt(T);
-  if (cold <= 0.0 && boil <= 0.0) { return c; }
+// A bubble in the water, here and there in cells sp world units apart (dens of them hold one), r up to rmax
+// (within its cell); cyc > 0: each swells and collapses at its own pace, about cyc times a second. A bubble is a
+// lens of air: its rim, where the light glances off, is a bright line (brightest toward the lamp), and it gathers
+// the lamp's light to a spot off its center; within it the cells behind are dimmed.
+fn bubble(c: vec3f, wp: vec2f, ppu: f32, sp: f32, dens: f32, rmax: f32, cyc: f32, seed: f32) -> vec3f {
+  let cell = floor(wp / sp);
+  let h = hash12(cell + seed);
+  if (h >= dens) { return c; }
+  var r = rmax * (0.45 + 0.55 * hash12(cell + seed + 3.1)) * sp;
+  if (cyc > 0.0) {
+    let ph = fract(post.simTime * cyc * (0.6 + 0.8 * hash12(cell + seed + 5.3)) + h * 13.0);
+    r *= sqrt(smoothstep(0.0, 0.8, ph)) * (1.0 - smoothstep(0.86, 0.94, ph));
+  }
+  let px = 1.0 / max(ppu, 1e-3);
+  if (r < 1.5 * px) { return c; }
+  let ctr = (cell + 0.3 + 0.4 * vec2f(hash12(cell + seed + 7.7), hash12(cell + seed + 9.9))) * sp;
+  let d = wp - ctr;
+  let l = length(d);
+  if (l > r + 3.0 * px) { return c; }
+  let w = max(0.06 * r, 0.8 * px);
+  let toward = 0.55 + 0.45 * dot(d / max(l, 1e-5), LAMP_L);
+  let rim = exp(-pow((l - r) / w, 2.0)) * toward;
+  let inside = 1.0 - smoothstep(r - w, r, l);
+  let spot = exp(-dot(d - LAMP_L * r * 0.35, d - LAMP_L * r * 0.35) / pow(0.18 * r + px, 2.0));
+  return c * (1.0 - 0.45 * inside) + vec3f(0.17, 0.18, 0.19) * rim + vec3f(0.08, 0.08, 0.075) * spot * inside;
+}
+// The water at its limits, which only the hand's cold probe and heated stage reach (STAGE_COLD, STAGE_HOT), and
+// only far from the open water's temperature. Below freezing it is ice, as the frost's is (iceLook), its front the
+// 0° isotherm (by the temperature's slope, sd world units into the water), crystals growing ahead of it in the
+// near-freezing water. Warming, the air dissolved in it comes out first, as small bubbles pinned to the glass that
+// swell as it heats (from about 45°); near a boil vapor bubbles nucleate on the hot glass, each swelling to tens
+// of µm and collapsing in the cooler water about it, again and again (and the water roils: shimmer). water: its
+// temperature at wp and its slope.
+fn extremes(c: vec3f, wpIn: vec2f, ppu: f32, water: vec3f, behind: f32) -> vec3f {
+  let T = water.x;
+  if (T > 4.0 && T < 42.0) { return c; }
   let wp = wpIn - post.world * floor(wpIn / post.world);
   let k = 0.35 + 0.65 * behind;
-  var o = c + vec3f(0.03, 0.04, 0.05) * cold * k + vec3f(0.02, 0.011, 0.004) * boil * k;
-  if (cold > 0.0) { o += frazil(wp, mix(8.0, 0.5, cold), ppu, 1.0) * 2.0 * k; }
-  if (boil > 0.0) {
-    let g = wp * 3.0;
-    let cell = floor(g);
-    let h = hash12(cell + 0.3);
-    if (h < boil * 0.6) {
-      let ph = fract(post.simTime * (0.7 + 0.8 * h) + h * 7.0);
-      let ctr = cell + 0.25 + 0.5 * vec2f(hash12(cell + 1.7), hash12(cell + 5.1));
-      let ring = exp(-pow((length(g - ctr) - 0.28 * ph) * ppu / 3.0 / 0.9, 2.0)) * smoothstep(1.0, 0.8, ph) * smoothstep(0.0, 0.1, ph);
-      o += vec3f(0.11, 0.1, 0.08) * ring * k;
+  var o = c;
+  let cold = smoothstep(4.0, 1.0, T) * smoothstep(2.0, 5.0, post.heat.x - T);
+  if (cold > 0.0) {
+    let g = length(water.yz);
+    let gl = max(g, 0.5);
+    let sd = T / gl;
+    o += vec3f(0.012, 0.016, 0.02) * cold * k;
+    if (sd < ICE_LEAD + ICE_OWN + 0.3) { o += iceLook(wp, sd, ppu, 1.0, 1.0, gl / max(g, 1e-4)) * k * cold; }
+    if (sd > 0.0) { o += frazil(wp, sd, ppu, 1.0) * 2.0 * k * cold; }
+  }
+  let gas = smoothstep(42.0, 85.0, T) * smoothstep(5.0, 15.0, T - post.heat.x);
+  if (gas > 0.0) {
+    o = bubble(o, wp, ppu, 0.7, 0.6 * gas, 0.08 + 0.17 * gas, 0.0, 0.0);
+    let boil = boilAt(T);
+    if (boil > 0.0) {
+      o = bubble(o, wp, ppu, 1.8, 0.7 * boil, 0.36, 0.5, 41.0);
+      o += vec3f(0.012, 0.007, 0.003) * boil * k;
     }
   }
   return o;
 }
 const STAGE_HOT = ${f(STAGE.hot)};
 const STAGE_COLD = ${f(STAGE.cold)};
-fn boilAt(T: f32) -> f32 { return smoothstep(STAGE_HOT - 24.0, STAGE_HOT - 4.0, T); }
+fn boilAt(T: f32) -> f32 { return smoothstep(${f(BOIL)} - 9.0, ${f(BOIL)} - 1.0, T); }
 // Dry ground in darkfield: the film of silt and clay the water left. Wet, water fills the spaces between its grains
 // and it scatters little, dark and smooth with a gloss; as it dries air takes their place and it pales to a grainy
 // buff glow, patchily, as the film drains unevenly. Drying, it shrinks and cracks into plates, first a coarse network
@@ -7396,12 +7454,78 @@ fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
     let full = select(0.0, 1.0, post.heatVis > 1.5);
     c = mix(c, heatRamp(clamp((water - post.heat.y) / (post.heat.z - post.heat.y), 0.0, 1.0)), 0.4 * select(0.0, full, post.tideVis < 1.5) * (1.0 - lens));
     // (the lens spans what the hand makes: from freezing to boiling, isotherms every 5°)
-    c = mix(c, heatRamp(clamp((water - STAGE_COLD) / (STAGE_HOT - STAGE_COLD), 0.0, 1.0)), 0.26 * lens);
+    c = mix(c, heatRamp(clamp((water - STAGE_COLD) / (${f(BOIL)} - STAGE_COLD), 0.0, 0.85)), 0.2 * lens);
     let band = water * mix(0.5, 0.2, lens);
     let w = fwidth(band);
     let iso = 1.0 - smoothstep(0.0, w * 1.2, min(fract(band), 1.0 - fract(band)));
     c += vec3f(1.0, 0.7, 0.4) * iso * max(0.16 * full, 0.08 * lens);
   }
+  return c;
+}
+// The instrument in hand as it is seen in the water (the page's eng.tool), each running in from its side of the
+// field to its point at post.tool.xy: the needle, steel tapering to a point; the pipette, a glass capillary drawn
+// fine, open at its tip; the cold probe, a blunt steel rod, frosting as it chills. Raised over the water (toolB.y
+// 0) it is out of focus, a soft shadow of itself; let down into it, sharp. Here: x how far wp lies outside its
+// surface (negative inside), y across it (-1..1), z along it from its point, w its blur (world units).
+const NEEDLE_W = ${f(NEEDLE.w)};
+const NEEDLE_TAPER = ${f(NEEDLE.taper)};
+fn toolAt(wp: vec2f, ppu: f32) -> vec4f {
+  var d = wp - post.tool.xy;
+  d -= post.world * round(d / post.world);
+  let ax = normalize(post.tool.zw);
+  let s = dot(d, ax);
+  let lat = dot(d, vec2f(-ax.y, ax.x));
+  let kind = post.toolB.x;
+  let t = max(s, 0.0);
+  var hw = 0.36;
+  if (kind < 1.5) { hw = NEEDLE_W * pow(clamp(t / NEEDLE_TAPER, 0.0, 1.0), 0.6) + 0.004; }
+  else if (kind < 2.5) { hw = mix(0.34, 1.1, smoothstep(0.0, 12.0, t)); }
+  let sd = select(abs(lat) - hw, length(d) - hw, s < 0.0);
+  let across = select(lat, sign(lat) * length(d), s < 0.0) / max(hw, 1e-4);
+  return vec4f(sd, clamp(across, -1.0, 1.0), s, 1.2 / max(ppu, 1e-3) + (1.0 - post.toolB.y) * 0.5);
+}
+// The pipette's glass bends the view through it, as a lens of its shape would (pixels).
+fn toolBend(wp: vec2f) -> vec2f {
+  if (post.toolB.x < 1.5 || post.toolB.x > 2.5) { return vec2f(0.0); }
+  let g = toolAt(wp, post.ppu);
+  if (g.x > 0.0) { return vec2f(0.0); }
+  let ax = normalize(post.tool.zw);
+  return vec2f(-ax.y, ax.x) * (g.y * sqrt(max(0.0, 1.0 - g.y * g.y)) * -7.0 * post.toolB.y);
+}
+fn instrument(cIn: vec3f, wp: vec2f, ppu: f32) -> vec3f {
+  let kind = post.toolB.x;
+  if (kind <= 0.0) { return cIn; }
+  let g = toolAt(wp, ppu);
+  let blur = g.w;
+  if (g.x > 3.0 * blur) { return cIn; }
+  let px = 1.0 / max(ppu, 1e-3);
+  let f = post.toolB.y;
+  let a = 1.0 - smoothstep(-blur, blur, g.x);
+  let edge = exp(-pow(g.x / (blur + 0.6 * px), 2.0)) * mix(0.12, 1.0, f);
+  let ax = normalize(post.tool.zw);
+  // (the side of the shaft toward the lamp catches its light)
+  let lit = dot(vec2f(-ax.y, ax.x), LAMP_L);
+  var c = cIn;
+  if (kind > 1.5 && kind < 2.5) {
+    // glass: nearly clear, its walls bright lines and its bore open; the walls meet at the tip's rim
+    let bore = 0.68;
+    let hw = mix(0.34, 1.1, smoothstep(0.0, 12.0, max(g.z, 0.0)));
+    let wall = exp(-pow((abs(g.y) - bore) * hw / (blur + 0.6 * px), 2.0)) * step(-blur, g.z) * a;
+    let inWall = a * smoothstep(bore - 0.05, bore + 0.05, abs(g.y));
+    c = c * (1.0 - 0.22 * inWall) + vec3f(0.006, 0.008, 0.009) * inWall;
+    c += vec3f(0.15, 0.18, 0.19) * (edge + 0.6 * wall) * (0.75 + 0.25 * sign(g.y) * lit) * mix(0.4, 1.0, f);
+    return c;
+  }
+  // steel: dark, its round shank shading across it, a highlight along the side toward the lamp, a bright edge
+  let hi = exp(-pow((g.y - 0.45 * lit) / 0.12, 2.0)) * smoothstep(-0.1, 0.4, g.z);
+  var body = vec3f(0.005, 0.0055, 0.0065) * (1.3 - 0.6 * g.y * g.y) + vec3f(0.06, 0.065, 0.07) * hi * f;
+  if (kind > 2.5) {
+    // the probe frosts as it chills: rime on its steel, catching the light in specks
+    let rime = post.toolB.z * (0.5 + 0.5 * vnoiseT(wp, 7.0, vec2f(2.0))) * smoothstep(0.3, 0.9, vnoiseT(wp, 2.3, vec2f(5.0)) + post.toolB.z * 0.5);
+    body += vec3f(0.03, 0.035, 0.04) * rime;
+  }
+  c = mix(c, body, a * mix(0.45, 0.96, f));
+  c += vec3f(0.09, 0.1, 0.11) * edge * (0.7 + 0.3 * sign(g.y) * lit);
   return c;
 }
 // The warm stage's or cold probe's lens at wp: 1 inside, fading out over its outer third.
@@ -7526,6 +7650,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
     water = waterAt(wp - post.world * floor(wp / post.world));
     uv += shimmer(wp, water) / post.res;
   }
+  uv += toolBend(wp) / post.res;
   // Cells lie over what is beneath them: where the living cover a pixel they show alone, not averaged
   // with the grains they sit on, and cells and grains both hide the stone under them.
   let all = textureSampleLevel(src, samp, uv, 0.0);
@@ -7552,7 +7677,8 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   c = c * mix(0.72, 1.0, v) * mix(1.0, mix(0.88, 1.05, lamp), k) + bg;
   c = pondSpecks(c, hdr, i.pos.xy, min(1.0, live.a));
   c = poolOver(c, wp, post.ppu, k, behind, surf.slope);
-  c = extremes(c, wp, post.ppu, water.x, behind);
+  c = extremes(c, wp, post.ppu, water, behind);
+  c = instrument(c, wp, post.ppu);
   // the round field stop of the eyepiece clips the corners of the camera's frame
   let corner = length(vec2f(post.res.x / post.res.y, 1.0));
   c *= mix(1.0, 1.0 - 0.85 * smoothstep(corner * 0.78, corner * 1.02, length(q)), k);
@@ -7625,7 +7751,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   c = pondMicro(c, hdr, microView.cam, r0 * microView.res * 0.5, microView.ppu, loupe.ppu, m);
   // the drought's dry floor and its rain, the frost's ice, the storm's waves, duckweed
   c = poolOver(c, wp, loupe.ppu, k, behind, surf.slope);
-  c = extremes(c, wp, loupe.ppu, water.x, behind);
+  c = extremes(c, wp, loupe.ppu, water, behind);
   c = pow(c, vec3f(1.0 / 2.2));
   let vign = smoothstep(1.0, 0.75, d);
   c *= mix(mix(0.55, 0.75, k), 1.0, vign);

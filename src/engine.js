@@ -90,10 +90,10 @@ class Engine {
     this.seedValue = 1;
     this.censusEvery = 20;
     this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 1, heat: 1, bands: 0, optics: 1, specks: true, lod: true };
-    this.simData = new ArrayBuffer(496);
+    this.simData = new ArrayBuffer(512);
     // the viewer's hand (docs/hand.md; the page's src/hand.js sets it): Hand in simWGSL, its words as floats and
     // as ids. Zero, its ids NONE, in every headless run.
-    this.hand = new Float32Array(28);
+    this.hand = new Float32Array(32);
     this.handU = new Uint32Array(this.hand.buffer);
     this.handU.fill(0xffffffff, 20, 22);
     // the pool (docs/catastrophes.md), set by the climate: the water level (a quantile of the floor's relief; 1: all
@@ -108,10 +108,13 @@ class Engine {
     this.waves = new Float32Array(16);
     this.viewData = new ArrayBuffer(112);
     this.viewDataL = new ArrayBuffer(112);
-    // (after the sea's: the hand's lamp and the warm stage's lens)
-    this.postData = new Float32Array(POST_LAMP + 8);
+    // (after the sea's: the hand's lamp, the warm stage's lens, the instrument)
+    this.postData = new Float32Array(POST_LAMP + 16);
     // the warm stage's lens (center, radius, 1 shown), set by the page: the thermal camera inside the tool's reach
     this.lens = new Float32Array(4);
+    // the instrument in hand seen in the water (set by the page): its tip, its shaft's way; its kind (1 the needle,
+    // 2 the pipette, 3 the cold probe; 0 none), how far it is in focus (0 raised over the water, 1 in it), its frost
+    this.tool = new Float32Array(8);
     this.loupe = null;
     this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 0xffffffff, memberN: 0 };
     this.viewDataS = new ArrayBuffer(112);
@@ -136,7 +139,7 @@ class Engine {
 
     const d = device;
     const b = this.b;
-    b.sim = d.createBuffer({ size: 496, usage: U.UNIFORM | U.COPY_DST });
+    b.sim = d.createBuffer({ size: 512, usage: U.UNIFORM | U.COPY_DST });
     // the heat field: deposits, temperatures and husks per cell, and heatMain's next temperatures (shaders.js); then
     // the pool's floor, each cell's relief quantile (src/geography.js)
     b.thermal = d.createBuffer({ size: 3 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
@@ -147,7 +150,7 @@ class Engine {
     b.viewL = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
     b.viewS = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
     b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
-    b.post = d.createBuffer({ size: (POST_LAMP + 8) * 4, usage: U.UNIFORM | U.COPY_DST });
+    b.post = d.createBuffer({ size: (POST_LAMP + 16) * 4, usage: U.UNIFORM | U.COPY_DST });
     // the sea (SEA_WGSL, src/sea.js): its uniforms, and every cascade's slope and displacement, mipmapped (its
     // amplitudes and working buffer are made with the first frame: _seaBuffers)
     b.seaU = d.createBuffer({ size: 128, usage: U.UNIFORM | U.COPY_DST });
@@ -2119,6 +2122,7 @@ class Engine {
     this._seaPost(pd);
     pd.set(this.hand.subarray(0, 4), POST_LAMP);
     pd.set(this.lens, POST_LAMP + 4);
+    pd.set(this.tool, POST_LAMP + 8);
     d.queue.writeBuffer(this.b.post, 0, pd);
     // the water's bend on a coarse grid of the main view, for the page's overlays (read back after the submit)
     this._shiftPending = null;

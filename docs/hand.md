@@ -17,17 +17,21 @@ hand.
 
 | Tool | Key | What it does | In the step |
 | --- | --- | --- | --- |
-| Loupe | 1 (M) | Looks; a click examines. Again in hand: the lens on or off | none |
-| Touch | 2 | A tap rings the water from a raindrop slot; a drag drags the water within the reach as fast as the finger (up to 12 units a second), in the world's seconds (at ×2 the same stroke is half as fast), and it runs on and slows when let go | `stirFlow` in `openFlow` |
+| No tool | 0 | Nothing in hand: a click examines, a drag pans | none |
+| Loupe | 1 (M) | The lens: it follows the mouse; on a touch screen a tap examines a cell and sets the lens over it, a drag on the lens moves it and a drag outside it pans. Reach sizes it, `[` `]` magnify | none |
+| Touch | 2 | A tap rings the water from a raindrop slot; a drag drags the water within the reach as fast as the finger, in the world's seconds (at ×2 the same stroke is half as fast), harder over a wider reach (as its square root: twice as hard at four times the reach, the cap of 12 units a second with it), and it runs on and slows when let go. A drifter goes with it all the way, an anchored cell 60% (it holds against currents, `advect`, but not against a finger) | `stirFlow` in `openFlow` and `cellWGSL` |
 | Lamp, Shade | 3, 4 | Over the world a quarter of it follows the pointer; pressed, all of it: light added (up to 0.6, the noon sun is about 1) or taken (up to 90%) over the reticle's disc. It goes where the pointer goes and off the world with it: nothing is left behind | `lampLight` in `lightAt` (photosynthesis, sparks, the sun's heat), the phototaxis slope |
-| Warm, Cold | 5, 6 | The same quarter and all: the water under the disc drawn toward a boil (`STAGE.hot`, 60°) or below ice (`STAGE.cold`, −3°), 80% of the way a second pressed. The water it leaves keeps its heat and gives it up as any water does. Near a boil bubbles rise and the view roils; near ice, far colder than the water around, crystals grow | `heatMain`; `extremes`, `shimmer` in the composite |
-| Needle | 7 | A click pricks the cell nearest the tip (it bursts as a hunter's kill does, its carcass left); a drag cuts every bond whose cells lie within 0.32 of the stroke and pushes them out to that distance on either side, so the halves do not bond again at once (a body heals over seconds) | `resolveCount`; `cutAt` in `keepBond`; `scrape` in `cellWGSL` |
+| Warm, Cold | 5, 6 | The same quarter and all: the water under the disc drawn, 80% of the way a second (`STAGE.rate`), toward a temperature that share of the way from the open water's to the stage's 115° (`STAGE.hot`) or the probe's −20° (`STAGE.cold`). Water boils at 100° (`BOIL`) and is never hotter (`heatMain`'s last `min`, an identity below it). The water it leaves keeps its heat and gives it up as any water does. From about 45° the air dissolved in it comes out as small bubbles pinned to the glass, swelling as it warms; near a boil vapor bubbles swell and collapse over the hot glass and the view roils. Below 0°, far colder than the water around, it freezes as the frost's ice does (`iceLook`, its front the 0° isotherm), crystals growing ahead of it | `heatMain`; `extremes`, `shimmer` in the composite |
+| Needle | 7 | Pressed, the needle is let down into the water from the lower right: its point (within 0.12, `NEEDLE.kill`) pricks every cell it touches, as a hunter's kill does, its carcass left; its shaft, tapering over 3 units to 0.45 (`NEEDLE`), pushes the other cells out of its way; a drag cuts every bond within 0.32 of the point's stroke. A tap also pricks the cell nearest it (within 36 px on a touch screen) | `resolveCount`; `cutAt` in `keepBond`; `shaft` in `cellWGSL` |
 | Pipette | 8 | Draws up and sets down (below) | `suckFlow` in `cellWGSL`; the take in `resolveCount`; `inject*` |
 
-Reach (`[` `]`, ⇧ wheel, the slider) is a world distance shared by every tool but the needle, 35 µm to 470 µm. The
-composite shows the lamp (the lit water brighter and amber) and the shade, and Warm and Cold a thermal lens inside
-their reach (`lensAt`: the thermal camera from `STAGE.cold` to `STAGE.hot`, isotherms every 5°), so warming shows as
-it happens.
+A tool's key, or its tile, again puts it down (no tool). Reach (`[` `]`, ⇧ wheel, the slider) is a world distance
+shared by every tool but the needle, 35 µm to 470 µm; with the loupe it is the lens's size. The composite shows the
+lamp (the lit water brighter and amber) and the shade, Warm and Cold a thermal lens inside their reach (`lensAt`:
+the thermal camera from `STAGE.cold` to `BOIL`, isotherms every 5°), and the instruments that go into the water
+(`instrument`, from the page's `eng.tool`): the needle's steel, the pipette's glass (bending the view through it) and
+the cold probe's frosting steel, each from its side of the field, out of focus over the water as the pointer moves
+and sharp in it while pressed.
 
 ## Riding
 
@@ -50,7 +54,8 @@ the engine (`setDrawn`), and they follow the tip in at 6 units a second while it
 tears and a tight one comes whole. What came in is kept once nothing more is coming: each species' cells, as bodies
 (`bodiesOf`: the bonds among them), each in the order it will leave, every cell after one it touches.
 
-Setting down: ⇧ and a press (on a phone, Set down and a touch) squeezes the tip species out a cell at a time, now
+Setting down: with Dispense on (beside the pipette's strip, and on a phone's held strip; Load, the default, draws up),
+or ⇧ and a press, squeezes the tip species out a cell at a time, now
 and then two or three together, pushed on their way; every 110 ms and down to 16 as it is held. A click sets down one
 body, or a card's colonies, whole; held, one after another. Each cell keeps the bonds it kept: to cells leaving with
 it, and to cells already out by the IDs they were given (`setDownJob`: up to `PIPE_IDS` earlier cells, found by
@@ -61,15 +66,18 @@ leaves. Short of silt, it tries again from twice as far, and says so by the tip.
 
 The contents are the world's (`life.pipette`, kept in saves): each species once, in the strip's order (the first at
 the tip). A tap opens its card, a drag along the strip moves it (the others make way), onto the world sets all of it
-down there, onto the Lab keeps its card (or, kept already, shows it in the cabinet). A mark in its corner says its
-card is in the cabinet. It holds 2,048 cells.
+down there, onto the Lab keeps its card (or, kept already, shows it in the cabinet); on a touch screen a swipe scrolls
+the strip and a card held a moment lifts. A mark in its corner says its card is in the cabinet; Keep all keeps every
+card not kept yet. It holds 2,048 cells.
 
 ## The cabinet
 
 A species card carries its genome: a payload (`TMG1`, the save format's major, `G_WORDS`, its name and home water,
 whether its world was touched, the words, a checksum; `src/cabinet.js`) in the PNG's text chunk and in the QR code in
 its corner, which holds a link (`https://tidemote.com/#card=…`) that opens Tidemote with the card: a phone's camera
-pointed at a laptop's screen carries a species from one world to another with no server. A card of another format
+pointed at a laptop's screen carries a species from one world to another with no server. The link shows the card
+first, drawn without the GPU (`strangerCard`), to save or go on; the world starts, its shaders compiling, only then,
+and the card goes into the cabinet. A card of another format
 is refused, as an old save is. The QR encoder is `src/qr.js` (byte mode, level M), checked against a decoder.
 
 The specimen's Save keeps the card (drawn with its portrait, as a PNG) in the cabinet, an IndexedDB store beside the
@@ -84,8 +92,8 @@ colonies join that lineage. A card's PNG dropped on the page, or its link opened
 ## The record
 
 A touched world says so: its acts (`life.hand`, one per tool held, or per run of taps, pricks, pulls, set-downs and
-steering in one place) are kept in its saves, the rail shows a Hand chip, a save's meta keeps `touched`, and its
-cards say "touched". The chronicler tells an act as weather a few minutes after it ends, from the species counted in
+steering in one place) are kept in its saves, the rail shows a Hand chip, a save's meta keeps `touched`, and so does
+its cards' payload (the card itself does not say it). The chronicler tells an act as weather a few minutes after it ends, from the species counted in
 its reach as it began and after (the pick pass), in its own voice (never "you"): "A light fell on the western waters
 for 3 minutes; Thax kaelum bloomed under it, from 4 to 60 cells." An act that changed nothing goes untold (but for a
 needle's or pipette's work), and at most once an hour, never twice running, a wry word: "Someone has been at the lamp
@@ -93,16 +101,20 @@ again."
 
 ## The interface
 
-The tools are the dock's middle on wide screens (numbered, the one in hand in the sun color, the pipette with its
-count); B opens the Bench drawer (tiles, a hint for the tool in hand, Reach, the pipette's strip). Below 980 px the
-tools live in the drawer only, and on a phone a tool in hand folds the drawer to a held strip (its key, − reach +,
-Pull and Put down, and the pipette's cards). With a tool in hand the loupe's lens gives way to the reticle: a ticked
-ring of the reach, a cross, and a readout of the tool and what it is doing. Esc puts the tool down before it closes
-anything else; a digit held down is the tool for as long as it is held. Right-drag, the middle button and two fingers
-pan while a tool is in hand.
+The tools are the dock's middle on wide screens (numbered from 0, no tool, the one in hand in the sun color, the
+pipette with its count); B opens the Bench drawer (tiles, a hint for the tool in hand, Reach, the pipette's strip).
+The page opens with the loupe in hand, or with no tool on a touch screen with no mouse. Below 980 px the tools live
+in the drawer only (a swipe down closes it), and on a phone a working tool in hand folds the drawer to a held strip
+(its key, − reach +, Load and Dispense with the pipette, × to put it down, and the pipette's cards). With a working
+tool in hand the reticle shows: a ticked ring of the reach, a cross, and a readout of the tool and what it is doing.
+Esc puts the tool down (no tool) before it closes anything else; a digit held down is the tool for as long as it is
+held. Right-drag, the middle button and two fingers pan while a tool is in hand. A row that scrolls (the tiles on a
+phone, the strip) fades at an edge only where there is more beyond it.
 
-The speed chip opens a ladder of every speed on offer (a double tap: ×1); Slower and Faster left the dock, the keys
-stayed. Bloom moved from B to Y; H is gone (? shows the keys).
+The speed chip opens a ladder of every speed on offer (a double tap: ×1); held, it opens the ladder at once and a drag
+up or down moves along it, a speed a rung, taken when let go; open, a drag or the wheel on it does the same. On a
+phone Slower and Faster flank the chip. Bloom moved from B to Y, reset zoom from 0 to Z; H is gone (? shows the
+keys).
 
 **Where it differs from the plan.** The thermal lens is new: warming was invisible without it. The pipette tears
 bodies by its own draw against their bonds rather than by a walk of the bond graph, so what comes whole and what
