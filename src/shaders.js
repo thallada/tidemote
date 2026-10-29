@@ -83,6 +83,9 @@ export const FRAMBOID_GROWN = 12;
 // The heat field: deposits (fixed point), then this step's temperatures.
 export const HEAT_FIX = 1048576;
 export const P_BYTES = 40;
+// the pipette's bore drawn as cells (vsTube): at most this many, of at most TUBE_K species
+export const TUBE_N = 400;
+export const TUBE_K = 16;
 // The loupe's barrel distortion: its rim shows this many times its radius.
 export const LOUPE_FIELD = 1.1;
 export const ORGANS = 12; // organelles per resolved cell (fsPoint), directions per species (organDirs)
@@ -5076,6 +5079,50 @@ fn liveShare(i: PO) -> f32 {
   if ((i.shape >> 8u) < FIRST_LIFE) { return 0.0; }
   if (i.fx.y <= 0.0) { return 1.0; }
   return 1.0 - ghostFade(u32(i.fx.y - 1.0), fract(i.fx.y));
+}
+// The pipette's bore (the page's drawBore): what it holds drawn as the cells they are, inside its glass over the
+// water. The view's parts and genomes are the bore's own here (the engine's setTube): each cell where it lies in
+// the glass, its genome at its kind, its heading in vel; nothing about it is read from the world. It lies above
+// the focal plane, a little out of focus: each pixel the mean of the cell seen over a disc about it, TUBE_BLUR of
+// its radius across.
+const TUBE_BLUR = 0.09;
+@vertex fn vsTube(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> PO {
+  var o: PO;
+  let p = parts[ii];
+  let g = genomes[p.kind];
+  let plan = choosePlan(g, roleOf(p.info));
+  let px = max(view.pointSize * g.size * (1.0 - 0.12 * f32(roleOf(p.info))), 0.9);
+  let extent = 1.35 + TUBE_BLUR;
+  let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
+  o.pos = toClip(wrapd(p.pos - view.cam) * view.ppu + corner * px * extent);
+  o.uv = corner * extent;
+  o.col = unpack4x8unorm(p.col).rgb * (0.35 + 0.65 * clamp(p.energy / max(g.reproE, 0.01), 0.0, 1.4)) * view.pointGain;
+  o.shape = plan | (p.kind << 8u);
+  o.index = ii;
+  let species = vec2f(renderHash(g.serial ^ g.sig[0].y), renderHash(g.serial ^ g.sig[1].x ^ 917u));
+  o.morph = species;
+  o.geom = vec4f(px, bodyArea(plan, species), normalize(p.vel));
+  o.jelly = vec3f(1.0, 0.0, 0.0);
+  o.bondSeeds = vec2u(0u, 0x7fffu);
+  o.neck = vec4f(0.12, 0.12, 0.12, p.energy / max(g.reproE, 0.01));
+  return o;
+}
+@fragment fn fsTubeLive(i: PO) -> PointOut {
+  var c: vec4f;
+  if (i.geom.x <= 2.8) { c = pointColor(i); }
+  else {
+    // (twelve points spread evenly over the disc: a sunflower's)
+    let p = parts[i.index];
+    var j = i;
+    c = vec4f(0.0);
+    for (var k = 0u; k < 12u; k++) {
+      let a = f32(k) * 2.39996;
+      j.uv = i.uv + vec2f(cos(a), sin(a)) * TUBE_BLUR * sqrt((f32(k) + 0.5) / 12.0);
+      c += cellColor(j, p, p.kind, spriteFalloff(j.uv, j.shape & 255u));
+    }
+    c /= 12.0;
+  }
+  return PointOut(c, c);
 }
 fn pointColor(i: PO) -> vec4f {
   let far = spriteFalloff(i.uv, i.shape & 255u);

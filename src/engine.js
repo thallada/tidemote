@@ -1,6 +1,6 @@
 import {
   simWGSL, SIM_CLOCK, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, SEA_WGSL, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, PIPE_MAX, PIPE_TAKE, PIPE_SP, PIPE_IDS, H_TAKEN, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES,
+  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, PIPE_MAX, PIPE_TAKE, PIPE_SP, PIPE_IDS, H_TAKEN, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K,
 } from './shaders.js';
 import {
   archetypeGenome, randomGenome, writeGenome, parseParticle,
@@ -249,6 +249,11 @@ class Engine {
     this.cpInbond = ['inbondReset', 'inbondGather', 'contactGather'].map((entryPoint) => cPipe({ layout: 'auto', compute: { module: inbond, entryPoint }, label: entryPoint }));
     this.cpOrgans = cPipe({ layout: 'auto', compute: { module: inbond, entryPoint: 'organDirs' }, label: 'organDirs' });
     b.organDir = d.createBuffer({ size: MAXK * ORGANS * 4, usage: U.STORAGE });
+    // the pipette's bore drawn as cells (setTube): its own parts, genomes and organelle directions
+    b.tubeParts = d.createBuffer({ size: TUBE_N * P_BYTES, usage: U.STORAGE | U.COPY_DST });
+    b.tubeGenomes = d.createBuffer({ size: (FIRST_LIFE + TUBE_K) * G_BYTES, usage: U.STORAGE | U.COPY_DST });
+    b.tubeOrgans = d.createBuffer({ size: (FIRST_LIFE + TUBE_K) * ORGANS * 4, usage: U.STORAGE });
+    this.tubeN = 0;
     this.postModule = d.createShaderModule({ code: POST_WGSL, label: 'post' });
 
     const cp = (mod, entryPoint) => cPipe({ layout: 'auto', compute: { module: mod, entryPoint }, label: entryPoint });
@@ -368,6 +373,7 @@ class Engine {
       line: rpLive(this.drawModule, 'vsLine', 'fsLine', 'line-list', trail, false),
       bridge: rpLive(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', trail, false),
       reproj: rpLive(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, false),
+      tube: rpLive(this.drawModule, 'vsTube', 'fsTubeLive', 'triangle-strip', trail, true),
     };
     // Max and coarse speeds: the last drawn world, carried with the camera onto the display frames between draws
     b.holdU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
@@ -525,6 +531,9 @@ class Engine {
     this.bgLine = lineBG(this.pLine, b.view, 0);
     // the main view's scene pass (two targets: its pipelines' own layouts)
     this.mainBG = { point: pointBG(b.view, 0, this.main.point), line: lineBG(this.main.line, b.view, 0), bridge: lineBG(this.main.bridge, b.view, 0, true) };
+    const bufs = (pipe, list) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: list.map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+    this.tubeBG = bufs(this.main.tube, [[0, b.view], [1, b.tubeParts], [2, b.tubeGenomes], [10, b.tubeOrgans]]);
+    this.tubeOrgansBG = bufs(this.cpOrgans, [[7, b.tubeGenomes], [9, b.tubeOrgans]]);
     this.bgPointL = pointBG(b.viewL, 1);
     this.bgLineL = lineBG(this.pLine, b.viewL, 1);
     this.bgPointS = pointBG(b.viewS, 2);
@@ -1304,6 +1313,23 @@ class Engine {
   _handAt() { return this._splAt() + SPL_WORDS * 4; }
   _heatAccAt() { return this._handAt() + HAND_WORDS * 4; }
 
+  /**
+   * The pipette's bore drawn as cells in the main view (vsTube, docs/hand.md): n records laid out as struct Particle
+   * (where each lies, its heading as vel, kind FIRST_LIFE + k for the k-th of the genomes), and the genomes' words
+   * (G_WORDS each, as the GPU keeps them) when they change.
+   */
+  setTube(parts, n, genomes = null) {
+    const d = this.device;
+    this.tubeN = Math.min(n, TUBE_N);
+    if (this.tubeN) d.queue.writeBuffer(this.b.tubeParts, 0, parts, 0, this.tubeN * P_BYTES);
+    if (!genomes) return;
+    d.queue.writeBuffer(this.b.tubeGenomes, FIRST_LIFE * G_BYTES, genomes);
+    const enc = d.createCommandEncoder(), pass = enc.beginComputePass();
+    pass.setPipeline(this.cpOrgans); pass.setBindGroup(0, this.tubeOrgansBG);
+    pass.dispatchWorkgroups(Math.ceil(((FIRST_LIFE + TUBE_K) * ORGANS) / 64));
+    pass.end();
+    d.queue.submit([enc.finish()]);
+  }
   /** The cells the pipette draws toward its tip (their IDs, at most PIPE_MAX), its tip and pull in hand.suck. */
   setDrawn(ids) {
     const v = Uint32Array.from(ids).sort().subarray(0, PIPE_MAX);
@@ -2206,6 +2232,7 @@ class Engine {
       pass.setBlendConstant([gain, gain, gain, gain]);
       if (splat) { pass.setPipeline(this.main.splat); pass.setBindGroup(0, this.splatDrawBG); pass.draw(3); }
       this._drawScene(pass, this.mainBG.line, this.mainBG.point, this.mainBG.bridge, this.viewData, 0, this.main);
+      if (this.tubeN) { pass.setPipeline(this.main.tube); pass.setBindGroup(0, this.tubeBG); pass.draw(4, this.tubeN); }
       pass.end();
     }
     this._drawStone(enc, this.stoneView, this.bgStone);

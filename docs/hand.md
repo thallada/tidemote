@@ -62,10 +62,13 @@ the engine (`setDrawn`), and they follow the tip in at 6 units a second while it
 tears and a tight one comes whole. What came in is kept once nothing more is coming: each species' cells, as bodies
 (`bodiesOf`: the bonds among them), each in the order it will leave, every cell after one it touches, at the tip.
 What it holds is seen in the pipette's bore, a column of cells up the glass in the order they will leave, the next
-at the tip (`drawBore` in `src/main.js`, on the overlay; each cell in its own color, what is coming in nearest the
-tip): drawn up, the column rises as cells come in under it; dispensed, it slides down and out of the tip as they
-leave, in step with them. The readout names the mode in a chip (⇧ held, the
-other, before the press), a bar under it filling with the pressure.
+at the tip, what is coming in nearest it (`drawBore` in `src/main.js`): drawn up, the column rises as cells come in
+under it; dispensed, it slides down and out of the tip as they leave, in step with them. The engine draws them as
+the cells they are (`setTube`: up to `TUBE_N` records as `struct Particle` and the genomes of up to `TUBE_K`
+species, bound in place of the world's; `vsTube`/`fsTubeLive` in the main view's pass, `cellColor` as every cell),
+a little out of focus over the water (each pixel the mean of twelve samples over a disc `TUBE_BLUR` of the cell's
+radius across). The readout names the mode in a chip, Load, Dispense or Full (⇧ held, the other, before the
+press), a bar under it filling with the pressure.
 
 Setting down: with Dispense on (beside the pipette's strip, and on a phone's held strip; Load, the default, draws up),
 or ⇧ and a press, squeezes the tip's run out a cell or two at a time, then the run before it,

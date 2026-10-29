@@ -17,7 +17,7 @@ import { record, seal } from './lineage/model.js';
 import { createWorldStore, encodeWorld, decodeWorld, SAVE_VERSION, openable } from './worlds.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
-import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, PIPE_MAX, DEFAULT_K } from './shaders.js';
+import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, PIPE_MAX, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K } from './shaders.js';
 import { flowAt } from './flow.js';
 import { startLoader } from './loader.js';
 import { Director } from './director.js';
@@ -2558,64 +2558,69 @@ function run(eng, device, ctx, specCtx, hasTS) {
     Object.assign(pull, { on: true, at: now, until: now + 150, tip: toWorld(sx, sy) });
     hand.note('pipette', ...pull.tip, eng.simTime);
   }
-  // What the pipette holds, seen in its bore over the glass: a column of its cells, each in its own color, in the
-  // order they will leave (the tip's run first, as `next` takes them), up the glass out of view; what is being
-  // drawn up nearest the tip, as it will be kept. Drawn up, the column rises as cells come in; set down, it slides down
-  // and out of the tip as they leave.
-  const BORE = 0.2; // world units between the cells in the column
-  const spCss = new WeakMap(); // a species' css color (for a card's cells not yet made)
-  const colOf = (sp) => { if (!spCss.has(sp)) spCss.set(sp, cssCol(newborn(sp)[1])); return spCss.get(sp); };
-  const cellCss = new Map(); // a cell's packed color, as css
-  const css = (c) => { if (!cellCss.has(c)) { if (cellCss.size > 4096) cellCss.clear(); cellCss.set(c, cssCol(c)); } return cellCss.get(c); };
-  // (bore: how many it held when last drawn, the column's offset in cells still to ease away, when last drawn, the
-  // colors of the last to leave, in the order they left; in: what is coming in, as it will be kept, for how many taken)
-  const bore = { n: 0, g: 0, at: 0, gone: [], in: [], of: 0 };
-  // the column's first N cells' colors
+  // What the pipette holds, seen in its bore: a column of its cells up the glass, out of view, in the order they will
+  // leave (the tip's run first, as `next` takes them), what is being drawn up nearest the tip as it will be kept. Drawn
+  // up, the column rises as cells come in; set down, it slides down and out of the tip as they leave. The engine draws
+  // them as the cells they are, a little out of focus over the water (setTube, vsTube).
+  const BORE = 0.2; // world units between the cells in the column, at least (more for big cells: a diameter)
+  const sizes = new WeakMap(); // a genome's words: its cells' radius (world units)
+  const radiusOf = (w) => { if (!sizes.has(w)) sizes.set(w, cellRadius({}, genomeOfWords(w), 1)); return sizes.get(w); };
+  // (bore: how many it held when last drawn, the column's offset in cells still to ease away, when last drawn, the last
+  // to leave, in the order they left; in: what is coming in, as it will be kept, for how many taken; the genomes the
+  // engine has; the records written for it)
+  const bore = { n: 0, g: 0, at: 0, gone: [], in: [], of: 0, genomes: [], rec: new ArrayBuffer(TUBE_N * P_BYTES) };
+  // a cell for the bore: its genome's words, energy, age, color and info
+  const boreCell = (w, c) => ({ w, e: c[0], a: c[1], col: c[2], info: c[3] });
+  const madeCell = (sp) => { const [e, col, info] = newborn(sp); return { w: sp.words, e, a: 0, col, info }; };
+  // the column's first N cells
   function boreCells(N) {
     if (bore.of !== pull.got.length) {
-      bore.in = incoming().map(({ recs }) => bodiesOf(recs));
+      bore.in = incoming().map(({ kind, recs }) => ({ w: wordsOf(kind), orgs: bodiesOf(recs) }));
       bore.of = pull.got.length;
     }
     // (from the tip: what is coming in, the last species first, each's last body in first; then each run's)
     const seq = [];
-    const put = (orgs, sp) => {
-      for (let k = orgs.length - 1; k >= 0 && seq.length < N; k--) for (let c = orgs[k].out; c < orgs[k].cells.length && seq.length < N; c++) seq.push(css(orgs[k].cells[c][2]));
-      for (let m = 0; sp && m < sp.made && seq.length < N; m++) seq.push(colOf(sp));
+    const put = (orgs, w, sp) => {
+      for (let k = orgs.length - 1; k >= 0 && seq.length < N; k--) for (let c = orgs[k].out; c < orgs[k].cells.length && seq.length < N; c++) seq.push(boreCell(w, orgs[k].cells[c]));
+      for (let m = 0; sp && m < sp.made && seq.length < N; m++) seq.push(madeCell(sp));
     };
-    for (let i = bore.in.length - 1; i >= 0; i--) put(bore.in[i]);
-    for (const sp of pipette.species) put(sp.orgs, sp);
+    for (let i = bore.in.length - 1; i >= 0; i--) put(bore.in[i].orgs, bore.in[i].w);
+    for (const sp of pipette.species) put(sp.orgs, sp.words, sp);
     return seq;
   }
+  // each frame, with the pipette in hand over the world (R), else nothing in the bore
   function drawBore(R, dt) {
+    if (!R || hand.tool !== 'pipette') { if (eng.tubeN) eng.setTube(null, 0); bore.at = 0; return; }
     const [dx, dy] = INSTRUMENTS.pipette.dir, p = cssPPU(), now = performance.now();
     // (how far the glass runs, from its tip to the edge of the view, in cells)
     const len = Math.min(dx > 0 ? (innerWidth - R.sx) / dx : -R.sx / dx, dy > 0 ? (innerHeight - R.sy) / dy : -R.sy / dy);
-    const gap = BORE * p, N = Math.min(400, Math.ceil(len / gap) + 1);
+    const gap = Math.max(BORE, 2.1 * Math.max(0, ...bore.genomes.map(radiusOf))) * p, N = Math.min(TUBE_N, Math.ceil(len / gap) + 1);
     const seq = boreCells(N + Math.max(0, Math.ceil(bore.g)));
-    const n = pipette.count + bore.in.reduce((a, orgs) => a + orgs.reduce((b, o) => b + o.cells.length, 0), 0);
+    const n = pipette.count + bore.in.reduce((a, x) => a + x.orgs.reduce((b, o) => b + o.cells.length, 0), 0);
     bore.g = now - bore.at > 200 ? 0 : clamp((bore.g + n - bore.n) * Math.exp(-dt / 60), -N, N);
     Object.assign(bore, { n, at: now });
-    if (!n && bore.g > -0.01) return;
-    // (the cell i from the tip; below it, i < 0, those just gone)
-    const colAt = (i) => (i < 0 ? bore.gone[bore.gone.length + i] : seq[i]);
-    for (let i = Math.floor(bore.g); i < Math.min(n, N + Math.ceil(bore.g)); i++) {
-      const d = (i - bore.g + 0.5) * gap;
-      if (d < 0 || d > len) continue;
-      const col = colAt(i);
-      if (!col) continue;
+    // (the cell i from the tip; below it, i < 0, those just gone; each faces the way it goes)
+    const at = (i) => (i < 0 ? bore.gone[bore.gone.length + i] : seq[i]);
+    const f = new Float32Array(bore.rec), u = new Uint32Array(bore.rec), face = bore.g < 0 ? -1 : 1;
+    const genomes = [];
+    let m = 0;
+    for (let i = Math.floor(bore.g); i < Math.min(n, N + Math.ceil(bore.g)) && m < TUBE_N; i++) {
+      const d = (i - bore.g + 0.5) * gap, c = at(i);
+      if (d < 0 || d > len || !c) continue;
+      let k = genomes.indexOf(c.w);
+      if (k < 0) { if (genomes.length >= TUBE_K) continue; k = genomes.push(c.w) - 1; }
       // (its bore as the composite's toolAt draws it; each cell a little off its middle, the same as it moves)
       const w = clamp(d / p / 12, 0, 1), half = 0.68 * lerp2([0.34, 1.1], w * w * (3 - 2 * w)) * p;
-      const r = Math.min(0.07 * p, 0.4 * half);
-      if (r < 0.6) continue;
       const j = n - 1 - i, lat = 1.1 * ((Math.sin(j * 12.9898) * 43758.5453) % 1);
-      const x = R.sx + dx * d - dy * lat * 0.5 * half, y = R.sy + dy * d + dx * lat * 0.5 * half;
-      octx.fillStyle = col;
-      octx.globalAlpha = 0.15;
-      octx.beginPath(); octx.arc(x, y, 1.6 * r, 0, TAU); octx.fill();
-      octx.globalAlpha = 0.8;
-      octx.beginPath(); octx.arc(x, y, r, 0, TAU); octx.fill();
+      const [x, y] = toWorld(R.sx + dx * d - dy * lat * 0.5 * half, R.sy + dy * d + dx * lat * 0.5 * half);
+      const o = m++ * (P_BYTES / 4);
+      f.set([x, y, dx * face, dy * face], o);
+      u[o + 4] = FIRST_LIFE + k; f[o + 5] = c.e; f[o + 6] = c.a; u[o + 7] = j >>> 0; u[o + 8] = c.col; u[o + 9] = c.info;
     }
-    octx.globalAlpha = 1;
+    // (the genomes when they are not the ones the engine has)
+    const fresh = genomes.length !== bore.genomes.length || genomes.some((w, k) => w !== bore.genomes[k]);
+    if (fresh) bore.genomes = genomes;
+    eng.setTube(bore.rec, m, fresh ? Uint32Array.from(genomes.flatMap((w) => [...w])) : null);
   }
   eng.onTaken = (recs) => {
     for (const r of recs) { pull.got.push(r); pull.taken.add(r.id); pull.drawn.delete(r.id); }
@@ -2707,7 +2712,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       for (const x of items) {
         const m = x.n || x.made, k = Math.max(0, Math.min(m, got - off));
         // (the column's cells that left, in the order they did, to be seen sliding out)
-        for (let j = 0; j < k; j++) bore.gone.push(x.org ? css(x.org.cells[x.from + j][2]) : colOf(sp));
+        for (let j = 0; j < k; j++) bore.gone.push(x.org ? boreCell(sp.words, x.org.cells[x.from + j]) : madeCell(sp));
         if (k) pipette.left(x, k, res.ids.slice(off, off + k));
         off += m;
       }
@@ -3424,7 +3429,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
     octx.setTransform(r, 0, 0, r, 0, 0);
     if (state.currents) drawCurrents();
     drawScale();
-    if (R && hand.tool === 'pipette') drawBore(R, dt);
     filmMarked = false;
     if (sel && sel.particle) {
       const [W, H] = eng.grid;
@@ -3528,8 +3532,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       octx.stroke();
     }
     // the readout, beside the ring (inside the screen)
-    const full = t === 'pipette' && !pipette.fits(1);
-    const lines = [`${toolOf(t).name.toUpperCase()}${t === 'pipette' ? ` · ${fmt(pipette.count)} / ${fmt(PIPE_LIMIT)}${full ? ' · FULL' : ''}` : t === 'needle' ? '' : ` · ${fmtLen(hand.reach)}`}`, handDoing()];
+    const lines = [`${toolOf(t).name.toUpperCase()}${t === 'pipette' ? ` · ${fmt(pipette.count)} / ${fmt(PIPE_LIMIT)}` : t === 'needle' ? '' : ` · ${fmtLen(hand.reach)}`}`, handDoing()];
     const mode = t === 'pipette' && modeChip(pipDispensing());
     const chip = mode ? mode.w + 8 : 0;
     octx.font = '500 11px Saira, system-ui, sans-serif';
@@ -3551,12 +3554,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   // The pipette's mode in its readout: a chip of solid color, its word cut out of it in the readout's dark, with
   // corner ticks; while it draws up or sets down, a bar under it fills with the pressure.
-  const MODE_COL = { load: '241,227,160', dispense: '120,226,214' };
+  // (Load with no room left: Full)
+  const MODE_COL = { LOAD: '241,227,160', DISPENSE: '120,226,214', FULL: '232,116,98' };
   function modeChip(dispensing) {
-    const word = dispensing ? 'DISPENSE' : 'LOAD';
+    const word = dispensing ? 'DISPENSE' : pipette.fits(1) ? 'LOAD' : 'FULL';
     octx.font = '600 9px Saira, system-ui, sans-serif';
     octx.letterSpacing = '2px';
-    return { word, col: MODE_COL[dispensing ? 'dispense' : 'load'], w: octx.measureText(word).width + 8, at: spit.on ? spit.at : pull.on || hand.suck ? pull.at : null };
+    return { word, col: MODE_COL[word], w: octx.measureText(word).width + 8, at: spit.on ? spit.at : pull.on || hand.suck ? pull.at : null };
   }
   function drawMode({ word, col, w, at }, x, y) {
     const h = 13;
@@ -3602,7 +3606,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (spit.on) return `Setting down ${(spit.sp || tip)?.name ?? ''}`;
       if (pull.note && now - pull.note.t < 2000) return pull.note.text;
       const d = pipDispensing(), act = isCoarse ? 'a tap' : 'a click', other = isCoarse || shiftHeld ? '' : ` · ⇧ ${d ? 'load' : 'dispense'}`;
-      if (!d) return `${act}: a few at the tip · held: all in reach${other}`;
+      if (!d) return pipette.fits(1) ? `${act}: a few at the tip · held: all in reach${other}` : `no room for more${other}`;
       return tip ? `${act} sets down ${tip.name}${other}` : `nothing in it to set down${other}`;
     }
     return toolOf(t).hint;
@@ -4261,6 +4265,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (R) hand.hover(...toWorld(R.sx, R.sy)); else hand.hover(null);
       hand.update(dt / 1000, eng.simTime);
       showInstrument(R, dt / 1000);
+      drawBore(R, dt);
       // the warm stage and the cold probe show the water's warmth inside their reach
       if (R && (hand.tool === 'warm' || hand.tool === 'cold') && K.heat) eng.lens.set([...toWorld(R.sx, R.sy), (1.5 * R.r) / cssPPU(), 1]);
       else eng.lens.fill(0);
