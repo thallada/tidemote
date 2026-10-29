@@ -2538,13 +2538,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
     } finally { handBusy = false; }
   }
   // ------------------------------------------------------------ the pipette (pipette.js, docs/hand.md)
-  // Drawing up: pressed (even for a moment: a pulse), the tip draws every living cell within its reach toward it,
-  // faster the longer it is held (the engine's hand.suck), and takes in what reaches it; let go, it stops, but for
+  // Drawing up: pressed (even for a moment: a pulse), the tip draws the living cells about it toward it, from
+  // farther and faster the longer it is held, out to its reach (the engine's hand.suck: a click takes a cell or
+  // a few, at its tip), and takes in what reaches it; let go, it stops, but for
   // the cells bonded to one it took, which follow it in unless it is pulled away from them faster than they come.
   // Setting down (Dispense, or ⇧): the tip species' cells leave it one by one (now and then two or three
   // together), sooner the longer it is held, each keeping its bonds, so a body comes out as it went in.
   const PRESSURE = 1.5; // seconds held to full pressure
-  const SUCK = [4, 16]; // how fast the tip draws what is in its reach (world units a second), pressed and at full pressure
+  const SUCK = [1.5, 16]; // how fast the tip draws what is in its reach (world units a second), pressed and at full pressure
+  const SIP = 0.35; // how far the tip draws from, pressed (world units; at full pressure, its reach)
   const SPIT = [110, 16]; // ms between cells leaving, pressed and at full pressure
   const pressed = (t0, now) => Math.min(1, (now - t0) / 1000 / PRESSURE);
   const lerp2 = ([a, b], u) => a + (b - a) * u;
@@ -2552,10 +2554,49 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function startPull(sx, sy) {
     const now = performance.now();
     if (!pipette.fits(1)) { pull.shake = now; return; }
-    Object.assign(pull, { on: true, at: now, until: now + 250, tip: toWorld(sx, sy) });
+    Object.assign(pull, { on: true, at: now, until: now + 150, tip: toWorld(sx, sy) });
     hand.note('pipette', ...pull.tip, eng.simTime);
   }
+  // What passes through the pipette's bore, over its glass: each cell taken rising from the tip up out of view, and
+  // while it dispenses, its species streaming down to the tip as fast as they leave ({ col, at, lat, v, down })
+  const tube = [];
+  const TUBE = { n: 48, v: [500, 1400] }; // at most this many in view; css px a second, pressed and at full pressure
+  let tubeNext = 0;
+  function inTube(col, at, u, down) {
+    if (tube.length >= TUBE.n) return;
+    // (one after another, a cell's width apart at least, however many came at once)
+    const v = lerp2(TUBE.v, u);
+    at = Math.max(at, tubeNext);
+    tubeNext = at + (1000 * 0.2 * cssPPU()) / v;
+    tube.push({ col: cssCol(col), at, lat: 1.2 * Math.random() - 0.6, v, down });
+  }
+  function drawTube(R) {
+    const now = performance.now(), [dx, dy] = INSTRUMENTS.pipette.dir, p = cssPPU();
+    // (how far the glass runs, from its tip to the edge of the view)
+    const len = Math.min(dx > 0 ? (innerWidth - R.sx) / dx : -R.sx / dx, dy > 0 ? (innerHeight - R.sy) / dy : -R.sy / dy);
+    for (let i = tube.length - 1; i >= 0; i--) {
+      const c = tube[i];
+      // (the middle of the bore runs faster than near its walls)
+      const run = ((now - c.at) / 1000) * c.v * (1 - 0.5 * c.lat * c.lat);
+      if (run > len) { tube.splice(i, 1); continue; }
+      if (run < 0) continue;
+      const d = c.down ? len - run : run;
+      // (its bore as the composite's toolAt draws it)
+      const w = clamp(d / p / 12, 0, 1), bore = 0.68 * lerp2([0.34, 1.1], w * w * (3 - 2 * w)) * p;
+      const r = Math.min(0.07 * p, 0.4 * bore);
+      if (r < 0.6) continue;
+      const x = R.sx + dx * d - dy * c.lat * bore, y = R.sy + dy * d + dx * c.lat * bore;
+      octx.fillStyle = c.col;
+      octx.globalAlpha = 0.15;
+      octx.beginPath(); octx.arc(x, y, 1.6 * r, 0, TAU); octx.fill();
+      octx.globalAlpha = 0.8;
+      octx.beginPath(); octx.arc(x, y, r, 0, TAU); octx.fill();
+    }
+    octx.globalAlpha = 1;
+  }
   eng.onTaken = (recs) => {
+    const now = performance.now();
+    for (const r of recs) inTube(r.col, now, pressed(pull.at, now), false);
     for (const r of recs) { pull.got.push(r); pull.taken.add(r.id); pull.drawn.delete(r.id); }
     for (const r of recs) for (const q of r.partners) if (q !== NONE && !pull.taken.has(q)) pull.drawn.add(q);
     eng.setDrawn([...pull.drawn].slice(0, PIPE_MAX));
@@ -2584,7 +2625,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const pressing = (pull.on || now < pull.until) && pipette.fits(pull.got.length + 1);
     if (pull.on && !pressing) { pull.on = false; pull.shake = now; }
     if (pressing || (pull.drawn.size && now - pull.last < 1500)) {
-      hand.suck = [...pull.tip, Math.max(hand.reach, 0.5), pressing && !state.paused ? lerp2(SUCK, pressed(pull.at, now)) : 0];
+      const u = pressed(pull.at, now) ** 2;
+      hand.suck = [...pull.tip, lerp2([SIP, Math.max(hand.reach, SIP)], u), pressing && !state.paused ? lerp2(SUCK, u) : 0];
       pull.quiet = now;
     } else if (hand.suck || pull.got.length) {
       hand.suck = null;
@@ -2647,6 +2689,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
         off += m;
       }
       hand.note('setdown', ...at, eng.simTime, got);
+      // (coming down the bore, spread over the time to the next)
+      const gap = lerp2(SPIT, u), col = newborn(sp)[1];
+      for (let k = 0; k < Math.min(got, 12); k++) inTube(col, now + (k / Math.min(got, 12)) * gap, u, true);
       if (it.org ? it.org.out >= it.org.cells.length : !sp.made) spit.org = null;
       spit.fails = 0;
     } else if (++spit.fails > 2) {
@@ -3352,6 +3397,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     octx.setTransform(r, 0, 0, r, 0, 0);
     if (state.currents) drawCurrents();
     drawScale();
+    if (R && hand.tool === 'pipette' && tube.length) drawTube(R);
     filmMarked = false;
     if (sel && sel.particle) {
       const [W, H] = eng.grid;
