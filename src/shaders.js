@@ -652,7 +652,7 @@ function cellWGSL(K, w) {
     n1 = keepBond(i, kept.x, p);
     n2 = keepBond(i, kept.y, p);
     if (n2 == n1) { n2 = NONE; }
-    // a body's cell lets go of a partner that cannot hold it back (kept by three others already): such a
+    // a body's cell lets go of a partner that cannot hold it back (kept by BACK others already): such a
     // bond would pull this cell alone, so it bonds elsewhere (a tree's and a tail's bonds are held by plan)
     if (!treeCellAt(i)) {
       if (n1 != NONE && !holdsBack(n1, i)) { n1 = NONE; }
@@ -722,7 +722,7 @@ function cellWGSL(K, w) {
   let budGap = 0.9 * 0.085 * g.size * (2.0 - 0.24 * f32(role));
   if (tree) {
     var have = 0u;
-    for (var k = 0u; k < min(backOf(i, 0u), 3u); k++) {
+    for (var k = 0u; k < backN(i); k++) {
       let c = backOf(i, 1u + k);
       if (c < sim.count && sortedFull[c].kind == p.kind) { have |= 1u << turnOf(sortedFull[c].info); }
     }
@@ -930,32 +930,23 @@ function cellWGSL(K, w) {
   let heavy = 1.0 - 0.7 * g.photo;
   // Persistent bonds pull on the partners' current positions, even outside the sampled scan.
   var bondF = vec2f(0.0);
-  // the partners that keep this cell (a tissue's bonds pull both ways), read now rather than held
-  // through the scan (it is short of registers)
-  var nb0 = NONE; var nb1 = NONE; var nb2 = NONE;
-  if (bonding) {
-    let c = min(backOf(i, 0u), 3u);
-    if (c > 0u) { nb0 = keepBond(i, backOf(i, 1u), p); }
-    if (c > 1u) { nb1 = keepBond(i, backOf(i, 2u), p); }
-    if (c > 2u) { nb2 = keepBond(i, backOf(i, 3u), p); }
-    // one the scan took up as a new partner is already held
-    if (nb0 == n1 || nb0 == n2) { nb0 = NONE; }
-    if (nb1 == n1 || nb1 == n2) { nb1 = NONE; }
-    if (nb2 == n1 || nb2 == n2) { nb2 = NONE; }
-  }
+  // the partners that keep this cell (a tissue's bonds pull both ways), up to BACK of them, read where
+  // they are used rather than held through the scan (it is short of registers): backAt
+  let nBack = select(0u, backN(i), bonding);
   // each bond rests where its two cells touch (both agree on it: their roles' sizes summed)
   let rs1 = restTo(n1, g.size, role, tight); let rs2 = restTo(n2, g.size, role, tight);
-  let rb0 = restTo(nb0, g.size, role, tight); let rb1 = restTo(nb1, g.size, role, tight); let rb2 = restTo(nb2, g.size, role, tight);
   // (a bond pulls only once both ends hold it: one this cell took up in its scan just now, or one its
-  // partner reads past the three it can, would pull this cell and not the other)
+  // partner reads past the BACK it can, would pull this cell and not the other)
   let m1 = select(0.0, 1.0, n1 != NONE && holdsBack(n1, i));
   let m2 = select(0.0, 1.0, n2 != NONE && holdsBack(n2, i));
   if (n1 != NONE) { bondF += dn1 * ((d1 - rs1) / max(d1, 1e-4)) * m1; }
   if (n2 != NONE) { bondF += dn2 * ((d2 - rs2) / max(d2, 1e-4)) * m2; }
-  let e0 = bondTo(nb0, p); let e1 = bondTo(nb1, p); let e2 = bondTo(nb2, p);
-  if (nb0 != NONE) { bondF += e0 * ((length(e0) - rb0) / max(length(e0), 1e-4)); }
-  if (nb1 != NONE) { bondF += e1 * ((length(e1) - rb1) / max(length(e1), 1e-4)); }
-  if (nb2 != NONE) { bondF += e2 * ((length(e2) - rb2) / max(length(e2), 1e-4)); }
+  for (var k = 0u; k < nBack; k++) {
+    let nb = backAt(i, k, p, n1, n2);
+    if (nb == NONE) { continue; }
+    let e = bondTo(nb, p); let l = length(e);
+    bondF += e * ((l - restTo(nb, g.size, role, tight)) / max(l, 1e-4));
+  }
   // a tree holds its angles (bendOn); coarse steps hold each cell's place beside its mother as they go
   // (a beating tree's cells move against their mother: they bend afresh each tick instead, and more softly)
   let beating = tree && gr.beat.x > 0.0;
@@ -963,7 +954,7 @@ function cellWGSL(K, w) {
   var bendF = vec2f(0.0);
   if (tree) { bendF = bendOn(i, gr) * bendK; bondF += bendF; }
   // a body bearing tails takes its share of the bend at each tail's base (where the base is the middle)
-  else if (tails) { bendF = tailBases(i, nb0, nb1, nb2) * bendK; bondF += bendF; }
+  else if (tails) { bendF = tailBases(i, p, n1, n2, nBack) * bendK; bondF += bendF; }
   // a tail's base is held to its body by an ordinary bond, as the body holds it (not treeBond)
   let baseOn = tail && n1 != NONE && !treeCellAt(n1);
   let baseB = select(vec2f(0.0), dn1 * ((d1 - rs1) / max(d1, 1e-4)), baseOn);
@@ -1032,26 +1023,25 @@ function cellWGSL(K, w) {
   var vB2 = vec2f(0.0);
   if (n1 != NONE) { vB1 = sortedFull[n1].vel; }
   if (n2 != NONE) { vB2 = sortedFull[n2].vel; }
-  var vb0 = vec2f(0.0); var vb1 = vec2f(0.0); var vb2 = vec2f(0.0);
-  if (nb0 != NONE) { vb0 = sortedFull[nb0].vel; }
-  if (nb1 != NONE) { vb1 = sortedFull[nb1].vel; }
-  if (nb2 != NONE) { vb2 = sortedFull[nb2].vel; }
   // the body's motion around this cell: its partners' mean velocity
   // (a body bearing tails leaves its tails out: they move by their muscles)
-  let w0 = select(0.0, 1.0, nb0 != NONE && !(tails && orderOf(sortedFull[nb0].info) == 2u));
-  let w1 = select(0.0, 1.0, nb1 != NONE && !(tails && orderOf(sortedFull[nb1].info) == 2u));
-  let w2 = select(0.0, 1.0, nb2 != NONE && !(tails && orderOf(sortedFull[nb2].info) == 2u));
-  let nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE) + w0 + w1 + w2;
-  let vP = (vB1 + vB2 + vb0 * w0 + vb1 * w1 + vb2 * w2) / max(nP, 1.0);
-  // a body feeds its cells: energy flows along each bond toward the poorer partner, the same amount
+  // and a body feeds its cells: energy flows along each bond toward the poorer partner, the same amount
   // either way (both read this step's start), so a hunter at the edge keeps the interior alive
   let shareK = min(0.2, ${f(K.bodyShare)} * sim.dt);
+  var nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
+  var vP = vB1 + vB2;
   var shareE = 0.0;
   if (n1 != NONE) { shareE += sortedFull[n1].energy - p.energy; }
   if (n2 != NONE) { shareE += sortedFull[n2].energy - p.energy; }
-  if (nb0 != NONE) { shareE += sortedFull[nb0].energy - p.energy; }
-  if (nb1 != NONE) { shareE += sortedFull[nb1].energy - p.energy; }
-  if (nb2 != NONE) { shareE += sortedFull[nb2].energy - p.energy; }
+  for (var k = 0u; k < nBack; k++) {
+    let nb = backAt(i, k, p, n1, n2);
+    if (nb == NONE) { continue; }
+    let q = sortedFull[nb];
+    let w = select(1.0, 0.0, tails && orderOf(q.info) == 2u);
+    vP += q.vel * w; nP += w;
+    shareE += q.energy - p.energy;
+  }
+  vP /= max(nP, 1.0);
   shareE *= shareK;
   // a tree feeds its tips instead, as a plant's sugars flow to where it grows: a cell whose daughters are
   // all grown passes them its surplus over half its division energy (mother and daughter reckon it alike)
@@ -1076,9 +1066,12 @@ function cellWGSL(K, w) {
       var fb1 = vec2f(0.0);
       if (n1 != NONE) { let e = dn1 + vB1 * t - moved; let l = length(e); fb1 = e * ((l - rs1) / max(l, 1e-4)) * m1; }
       if (n2 != NONE) { let e = dn2 + vB2 * t - moved; let l = length(e); fb += e * ((l - rs2) / max(l, 1e-4)) * m2; }
-      if (nb0 != NONE) { let e = e0 + vb0 * t - moved; let l = length(e); fb += e * ((l - rb0) / max(l, 1e-4)); }
-      if (nb1 != NONE) { let e = e1 + vb1 * t - moved; let l = length(e); fb += e * ((l - rb1) / max(l, 1e-4)); }
-      if (nb2 != NONE) { let e = e2 + vb2 * t - moved; let l = length(e); fb += e * ((l - rb2) / max(l, 1e-4)); }
+      for (var kb = 0u; kb < nBack; kb++) {
+        let nb = backAt(i, kb, p, n1, n2);
+        if (nb == NONE) { continue; }
+        let e = bondTo(nb, p) + sortedFull[nb].vel * t - moved; let l = length(e);
+        fb += e * ((l - restTo(nb, g.size, role, tight)) / max(l, 1e-4));
+      }
       fb = (fb + select(fb1, vec2f(0.0), baseOn)) * bondK + select(vec2f(0.0), fb1, baseOn);
       if (tree || tails) {
         if (beating) { predT = t; predSelf = i; predPos = pos; fb += bendOn(i, gr) * bendK; predT = 0.0; }
@@ -1236,18 +1229,22 @@ fn splPair(h: u32, q: u32, won: bool) {
 @group(0) @binding(22) var<storage, read> stoneCells: array<u32>;
 // Every grain of stone, gathered while matter moves, so rendering draws stone without scanning all.
 @group(0) @binding(16) var<storage, read_write> stoneList: array<u32>;
-// Each cell's bonds, six words a cell: the two it keeps, then the cells that keep a bond to
-// it (bondBackMain): a count and up to three of them
+// Each cell's bonds, BW words a cell: the two it keeps, then the cells that keep a bond to
+// it (bondBackMain): a count and up to BACK of them (six: a cell packed in tissue has six neighbors)
 // read plainly (binding 15); bondBackMain appends to it through bondsAt (binding 20, the same buffer)
 @group(0) @binding(15) var<storage, read_write> bondsNow: array<u32>;
 @group(0) @binding(20) var<storage, read_write> bondsAt: array<atomic<u32>>;
-fn bondsOf(i: u32) -> vec2u { return vec2u(bondsNow[i * 6u], bondsNow[i * 6u + 1u]); }
-fn backOf(i: u32, k: u32) -> u32 { return bondsNow[i * 6u + 2u + k]; }
+const BACK = 6u;
+const BW = 9u;
+fn bondsOf(i: u32) -> vec2u { return vec2u(bondsNow[i * BW], bondsNow[i * BW + 1u]); }
+fn backOf(i: u32, k: u32) -> u32 { return bondsNow[i * BW + 2u + k]; }
+// how many of those that keep cell i it reads
+fn backN(i: u32) -> u32 { return min(backOf(i, 0u), BACK); }
 // whether cell j reads cell i (which keeps it) among the partners it holds: it keeps i too, or i is among
-// the first three that keep it
+// the first BACK that keep it
 fn holdsBack(j: u32, i: u32) -> bool {
   let o = bondsOf(j);
-  let c = min(backOf(j, 0u), 3u);
+  let c = backN(j);
   var r = o.x == i || o.y == i;
   for (var k = 0u; k < c; k++) { r = r || backOf(j, 1u + k) == i; }
   return r;
@@ -1917,9 +1914,9 @@ fn scatterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocat
         }
       }
     }
-    bondsNow[dst * 6u] = partners.x;
-    bondsNow[dst * 6u + 1u] = partners.y;
-    bondsNow[dst * 6u + 2u] = 0u;
+    bondsNow[dst * BW] = partners.x;
+    bondsNow[dst * BW + 1u] = partners.y;
+    bondsNow[dst * BW + 2u] = 0u;
     let role = roleOf(p.info);
     let sig = genomes[p.kind].sig[role].xy;
     let plant = select(0u, 1u << 12u, (p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4));
@@ -2169,29 +2166,24 @@ fn keepBond(i: u32, j: u32, p: Particle) -> u32 {
 // partners (mine: those it keeps, then those that keep it), closing a triangle in the tissue, or
 // neither has a partner yet (two free cells start a body). Strangers' bodies do not fuse.
 fn joinable(i: u32, j: u32, k1: u32, k2: u32) -> bool {
-  // (a cell kept by three already could not hold another bond back)
-  let oj = bondsOf(j);
-  if (backOf(j, 0u) >= 3u && oj.x != i && oj.y != i) { return false; }
-  // this cell's partners: those it keeps, then those that keep it (one of them is no new partner)
-  let ci = min(backOf(i, 0u), 3u);
-  let b1 = select(NONE, backOf(i, 1u), ci > 0u);
-  let b2 = select(NONE, backOf(i, 2u), ci > 1u);
-  let b3 = select(NONE, backOf(i, 3u), ci > 2u);
-  if (j == b1 || j == b2 || j == b3) { return false; }
-  let mine = vec4u(k1, k2, b1, b2);
-  let mine4 = b3;
+  // (a cell kept by BACK already could not hold another bond back)
   let o = bondsOf(j);
-  let c = min(backOf(j, 0u), 3u);
-  let alone = all(mine == vec4u(NONE)) && mine4 == NONE;
-  var js = array<u32, 5>(o.x, o.y, NONE, NONE, NONE);
-  for (var k = 0u; k < c; k++) { js[2u + k] = backOf(j, 1u + k); }
+  if (backOf(j, 0u) >= BACK && o.x != i && o.y != i) { return false; }
+  // this cell's partners: those it keeps, then those that keep it (one of them is no new partner)
+  let ci = backN(i);
+  for (var k = 0u; k < ci; k++) { if (backOf(i, 1u + k) == j) { return false; } }
+  let alone = k1 == NONE && k2 == NONE && ci == 0u;
+  let cj = backN(j);
   var free = true;
   var linked = false;
-  for (var k = 0u; k < 5u; k++) {
-    let q = js[k];
+  for (var k = 0u; k < 2u + cj; k++) {
+    var q = backOf(j, max(k, 2u) - 1u);
+    if (k < 2u) { q = o[k]; }
     if (q < sim.count && q != j) {
       free = false;
-      linked = linked || q == mine.x || q == mine.y || q == mine.z || q == mine.w || q == mine4;
+      var mine = q == k1 || q == k2;
+      for (var m = 0u; m < ci; m++) { mine = mine || backOf(i, 1u + m) == q; }
+      linked = linked || mine;
     }
   }
   return select(linked, free, alone);
@@ -2219,7 +2211,7 @@ fn headingOf(m: u32, gr: Grow) -> Heading {
     if (l > 1e-4 && l < LINK_R * ${f(K.bondBreak)}) { return Heading(d / l, true, NONE); }
   }
   var best = NONE; var bestId = NONE;
-  for (var k = 0u; k < min(backOf(m, 0u), 3u); k++) {
+  for (var k = 0u; k < backN(m); k++) {
     let c = backOf(m, 1u + k);
     if (c < sim.count && sortedFull[c].kind == pm.kind && sortedFull[c].id < bestId) { best = c; bestId = sortedFull[c].id; }
   }
@@ -2236,7 +2228,7 @@ fn headingOf(m: u32, gr: Grow) -> Heading {
 fn feedOf(m: u32, gr: Grow, keep: f32, rate: f32) -> vec2f {
   let q = sortedFull[m];
   var have = 0u; var n = 0.0;
-  for (var k = 0u; k < min(backOf(m, 0u), 3u); k++) {
+  for (var k = 0u; k < backN(m); k++) {
     let c = backOf(m, 1u + k);
     if (c >= sim.count || c == m) { continue; }
     let o = sortedFull[c];
@@ -2272,7 +2264,7 @@ fn treeMom(x: u32) -> u32 {
   return m;
 }
 fn treeKid(x: u32, k: u32) -> u32 {
-  if (k >= min(backOf(x, 0u), 3u)) { return NONE; }
+  if (k >= backN(x)) { return NONE; }
   let c = backOf(x, 1u + k);
   if (c >= sim.count || c == x || treeMom(c) != x) { return NONE; }
   return c;
@@ -2355,7 +2347,7 @@ fn beatSpeed(gr: Grow, size: f32, gen: u32, t: f32) -> f32 {
 // how many tree bonds a cell has (its mother and daughters), at least two: a bond's share is split by the busier end
 fn treeDeg(x: u32) -> f32 {
   let m = bondsOf(x).x;
-  return max(2.0, f32(min(backOf(x, 0u), 3u)) + select(0.0, 1.0, m < sim.count && m != x));
+  return max(2.0, f32(backN(x)) + select(0.0, 1.0, m < sim.count && m != x));
 }
 // One pull a step, the beat reckoned at the step's middle. A coarse step pulls its own share (beatMixC),
 // and its ticks' drag leaves less of the beat standing, so the beat asks more: as much as
@@ -2397,10 +2389,10 @@ fn beatPull(i: u32, gr: Grow, size: f32, frX: f32) -> vec2f {
 
 // A body bearing tails: its share, as the arm, of the bend at each tail's base that grows from it (the base
 // reckons the same bend, bendOn).
-fn tailBases(i: u32, nb0: u32, nb1: u32, nb2: u32) -> vec2f {
+fn tailBases(i: u32, p: Particle, n1: u32, n2: u32, nBack: u32) -> vec2f {
   var F = vec2f(0.0);
-  for (var k = 0u; k < 3u; k++) {
-    let c = select(select(nb2, nb1, k == 1u), nb0, k == 0u);
+  for (var k = 0u; k < nBack; k++) {
+    let c = backAt(i, k, p, n1, n2);
     if (c == NONE || orderOf(sortedFull[c].info) != 2u || treeMom(c) != i) { continue; }
     let gc = growAt(genomes[sortedFull[c].kind], sortedFull[c].info);
     for (var k2 = 0u; k2 < 3u; k2++) {
@@ -2409,6 +2401,13 @@ fn tailBases(i: u32, nb0: u32, nb1: u32, nb2: u32) -> vec2f {
     }
   }
   return F;
+}
+
+// The k-th of the cells that keep cell i, if it still holds (keepBond) and the scan did not just take it up
+// as one of i's own (n1, n2: already held).
+fn backAt(i: u32, k: u32, p: Particle, n1: u32, n2: u32) -> u32 {
+  let c = keepBond(i, backOf(i, 1u + k), p);
+  return select(c, NONE, c == n1 || c == n2);
 }
 
 // The bond's other end as seen from p (wrapped), or zero for none.
@@ -2424,13 +2423,13 @@ fn bondBackMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
   if (i == NONE) { return; }
   let k = sortedFull[i].kind;
-  let b = vec2u(atomicLoad(&bondsAt[i * 6u]), atomicLoad(&bondsAt[i * 6u + 1u]));
+  let b = vec2u(atomicLoad(&bondsAt[i * BW]), atomicLoad(&bondsAt[i * BW + 1u]));
   for (var s = 0u; s < 2u; s++) {
     let j = b[s];
     // a bond both keep is counted once, by each as its own
-    if (j < sim.count && j != i && sortedFull[j].kind == k && atomicLoad(&bondsAt[j * 6u]) != i && atomicLoad(&bondsAt[j * 6u + 1u]) != i) {
-      let c = atomicAdd(&bondsAt[j * 6u + 2u], 1u);
-      if (c < 3u) { atomicStore(&bondsAt[j * 6u + 3u + c], i); }
+    if (j < sim.count && j != i && sortedFull[j].kind == k && atomicLoad(&bondsAt[j * BW]) != i && atomicLoad(&bondsAt[j * BW + 1u]) != i) {
+      let c = atomicAdd(&bondsAt[j * BW + 2u], 1u);
+      if (c < BACK) { atomicStore(&bondsAt[j * BW + 3u + c], i); }
     }
   }
 }

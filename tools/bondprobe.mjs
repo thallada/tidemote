@@ -12,7 +12,7 @@ const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' }
 const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
 const config = { n: +v.n, minutes: +v.minutes, seed: +v.seed, k: JSON.parse(v.k), eras: true, sample: 30, print: 1e9, step: +v.step };
 await runHeadless(device, config, { print: () => {}, snapshot: async (eng) => {
-  const N = eng.count, W = 6;
+  const N = eng.count, W = 9, B = 6;
   const rd = device.createBuffer({ size: N * W * 4, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
   const enc = device.createCommandEncoder(); enc.copyBufferToBuffer(eng.b.bondsNow, 0, rd, 0, N * W * 4); device.queue.submit([enc.finish()]);
   await rd.mapAsync(GPUMapMode.READ);
@@ -22,11 +22,11 @@ await runHeadless(device, config, { print: () => {}, snapshot: async (eng) => {
   for (let i = 0; i < N; i++) {
     const c = t[i * W + 2], k1 = ok(t[i * W], i), k2 = ok(t[i * W + 1], i);
     if (k1 || k2 || c) { bonded++; hist[c] = (hist[c] || 0) + 1; }
-    if (c > 3) over++;
+    if (c > B) over++;
     for (const j of [t[i * W], t[i * W + 1]]) {
       if (!ok(j, i)) continue;
       keptBonds++;
-      const cj = Math.min(t[j * W + 2], 3);
+      const cj = Math.min(t[j * W + 2], B);
       let back = t[j * W] === i || t[j * W + 1] === i;
       for (let q = 0; q < cj; q++) back ||= t[j * W + 3 + q] === i;
       if (!back) oneSided++;

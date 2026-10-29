@@ -396,7 +396,7 @@ class Engine {
     b.sortedLite = d.createBuffer({ size: n * LITE_BYTES, usage: U.STORAGE });
     b.aux = d.createBuffer({ size: n * 8, usage: U.STORAGE });
     b.intent = d.createBuffer({ size: n * 16, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
-    b.bondsNow = d.createBuffer({ size: n * 24, usage: U.STORAGE | U.COPY_SRC });
+    b.bondsNow = d.createBuffer({ size: n * 36, usage: U.STORAGE | U.COPY_SRC });
     b.bondsIn = d.createBuffer({ size: n * 20, usage: U.STORAGE });
     // contacts start absent (NONE) until the first gather in view
     b.touch = d.createBuffer({ size: n * 24, usage: U.STORAGE, mappedAtCreation: true });
