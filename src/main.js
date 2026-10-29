@@ -2007,7 +2007,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       setText('ro-dens', `${+density().toFixed(2)}×`);
       autoLive();
       setText('ro-px', `${canvas.width}×${canvas.height}`);
-      setText('ro-n', fmt(eng.count));
+      // (in millions past a million, to fit its cell: the status bar has every one)
+      setText('ro-n', eng.count >= 1e6 ? `${(eng.count / 1e6).toFixed(2)}M` : fmt(eng.count));
       const al = sound.load;
       setText('ro-audio', al != null ? `${Math.round(al * 100)}%` : '–');
       // where the GPU time goes: a step, a drawn world, the time a step covers, and the speed reached
