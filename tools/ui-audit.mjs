@@ -192,6 +192,10 @@ for (const s of SIZES) {
   if (s.touch) await page.evaluate(() => globalThis.__tidemote.lab.close()); else await page.evaluate(() => globalThis.__tidemote.lab.narrow());
   await open('#set-btn, [aria-controls="settings"]');
   await snap('settings');
+  // the Perf tab: its readouts filled in
+  await open('#set-tabs [data-tab="performance"]');
+  await page.waitForTimeout(1500);
+  await snap('perf');
   await ctx.close();
 }
 await browser.close(); server.close();

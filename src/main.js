@@ -308,7 +308,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ perf
   const perf = { samples: [], gpu: 0, fps: 0, frames: 0, worldFps: 0, worldFrames: 0, fpsT: performance.now(), frameDt: [], lastSubmit: 0, rafMs: 0, rafLonger: 0, mainMs: 0, goodWindows: 0, ceiling: 1, ceilingUntil: 0, lastAdjust: performance.now(),
-    stepMs: 0, simS: 0, renderR: 0, presentR: 0, worldAt: 0, stepCredit: 0, ticks: 1, held: false, ticksAt: 0, rate: 1, rateT: performance.now(), rateSim: 0,
+    stepMs: 0, simS: 0, renderR: 0, presentR: 0, worldAt: 0, stepCredit: 0, ticks: 1, held: false, ticksAt: 0, rate: 1, rateT: performance.now(), rateSim: 0, stepsS: 0, rateSteps: 0,
     slow: 1, slowCeiling: 0, why: '', raisedAt: 0, hold: 0 };
   let calibWait = null;
   const frameWaiters = [];
@@ -2014,7 +2014,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const S = perf.simS || perf.stepMs;
       setText('ro-step', S ? S.toFixed(S < 1 ? 3 : 2) : '–');
       setText('ro-draw', perf.simS ? perf.renderR.toFixed(1) : '–');
-      setText('ro-ceil', state.paused ? '–' : `${perf.ticks}/60 s`);
+      // (the step last taken: at real time a slow frame rate takes longer ones too, stepTicks)
+      setText('ro-ceil', state.paused ? '–' : `${eng.ticks}/60 s`);
+      setText('ro-steps', state.phase === 'running' && !state.paused ? fmt(Math.round(perf.stepsS)) : '–');
       setText('ro-rate', state.phase === 'running' && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : '–');
       // how often the world itself is redrawn: every frame, but at Max and held fast speeds only every
       // MAX_FRAME_MS (the camera and loupe keep the full rate)
@@ -3390,7 +3392,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (now - perf.rateT > 1000) {
       const r = (eng.simTime - perf.rateSim) / ((now - perf.rateT) / 1000);
       perf.rate = r >= 0 ? r : perf.rate;
-      perf.rateSim = eng.simTime; perf.rateT = now;
+      // steps taken a second (a world loaded meanwhile starts its count again)
+      const st = (eng.frameNo - perf.rateSteps) / ((now - perf.rateT) / 1000);
+      perf.stepsS = st >= 0 ? st : perf.stepsS;
+      perf.rateSim = eng.simTime; perf.rateSteps = eng.frameNo; perf.rateT = now;
     }
     for (let i = frameWaiters.length - 1; i >= 0; i--) if (--frameWaiters[i].n <= 0) { frameWaiters[i].res(); frameWaiters.splice(i, 1); }
 
