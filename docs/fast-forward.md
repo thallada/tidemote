@@ -192,14 +192,33 @@ Ensembles of 64 seeds × 30 min at 32k (eras on; runs/stride, `compare.py`), mea
 | 6 | 107.5±5.3 | 33.0±1.9 | 0.34 | 0.15 | .23/.52/.17/.08 |
 | 8 | 97.3±5.3 | 29.3±1.8 | 0.37 | 0.16 | .26/.48/.17/.09 |
 
-Swimming does not follow (swimlab, a 12-cell filament, amplitude 0.4): a beat pulls once a step, so at 8
-ticks (7.5 pulls a second) a 3 Hz beat is barely sampled and beating filaments tear (75-100% of samples
-past bond breaking), at 12 all of them; at 6 they hold and swim at 40-63% of their 1/60 s speed (50-105%
-at 4). Mats hold together at 6 ticks: a still 24-cell mat keeps its lattice and spacing (mean nearest
-neighbor 0.136 against 0.132 at 1/60 s), and one with two tails stays whole while it swims. Its speed is
-the least faithful: 40-56% of its 1/60 s speed at 4 ticks but 150-190% at 6, whatever the beat's frequency
-(0.6-3 Hz), the same before the contact change, so it is the coarse beat's swing (`beatMixC`, fitted at 4
-ticks; docs/growth.md), not aliasing.
+Swimming (swimlab, 12 beat genotypes: amplitude 0.25/0.5, 0.6-3 Hz, wave 0.3/0.8 rad a cell): a beat
+pulls once a step, so at 8 ticks (7.5 pulls a second) a 3 Hz beat is barely sampled and beating
+filaments tear (75-100% of samples past bond breaking), at 12 all of them. Up to 6 they hold. The pull's
+gain grows three tenths a tick past the first (refit 2026-10-29; it was a fifth, fitted at 4 ticks on a
+few genes), and beating bodies keep this much of their 1/60 s speed (median over the genotypes):
+
+| ticks | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|
+| filament (12 cells) | 0.94 | 0.93 | 0.89 | 0.81 | 0.73 |
+| mat of 19 with a tail of 8 | 1.02 | 1.03 | 0.93 | 0.79 | 0.66 |
+| filament, gain a fifth a tick | 0.91 | 0.74 | 0.60 | 0.52 | 0.45 |
+
+The fastest genotypes (long waves at 1.5-3 Hz) lose the most, about half their speed at 6 ticks: more
+gain overdrives them (a steeper gain held the median at 1.0 but cut those to a fifth), a higher cap on
+the swing tears them, and a beat reckoned tick by tick inside the step, its partners predicted, stalled
+the wave (the partners' motion is not knowable from one cell). Mats hold together at 6 ticks: a still
+24-cell mat keeps its lattice and spacing (mean nearest neighbor 0.136 against 0.132 at 1/60 s).
+
+Earlier swimlab "mats" were not: the test genome grew every cell as a tree's, and `mat:N:0:0` built a
+6-cell chain (a zero tail count read as the default), so a mat said to swim 150-190% at 6 ticks was a
+tree. Measuring real ones found a leak at 1/60 s: a cell pulled on a partner that did not pull back (a
+bond taken up in this step's scan, or one past the three keepers a cell reads), and bodies pushed
+themselves along, a still 19-cell mat at 0.040 units/s. Bonds now pull only when both ends hold them
+(still mat 0.002 units/s; tailed mats swim as resistive force theory predicts from their own motion).
+Over 63 seeds × 30 min at 32k (farm, 348b060) the ecology barely moves: 1/60 s effective species
+109.0±5.7 against 113.5±5.5 before, Hill2 35.0 against 37.1, late guilds 3.27 against 3.48 (about two
+standard errors), the diet shares the same; 6 ticks 100.3±6.3 (107.5), guilds 3.30 (3.31).
 
 So `MAX_TICKS` is 6: fast speeds take the shortest step that fits, Max always 6. At 8 beating bodies tear,
 diversity is still 14-21% down, and 8 ticks would be only about 24% faster than 6.
