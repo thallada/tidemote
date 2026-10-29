@@ -7023,31 +7023,42 @@ fn frazil(wp: vec2f, sd: f32, ppu: f32, grow: f32) -> vec3f {
   }
   return o;
 }
-// A bubble in the water, here and there in cells sp world units apart (dens of them hold one), r up to rmax
-// (within its cell); cyc > 0: each swells and collapses at its own pace, about cyc times a second. A bubble is a
-// lens of air: its rim, where the light glances off, is a bright line (brightest toward the lamp), and it gathers
-// the lamp's light to a spot off its center; within it the cells behind are dimmed.
-fn bubble(c: vec3f, wp: vec2f, ppu: f32, sp: f32, dens: f32, rmax: f32, cyc: f32, seed: f32) -> vec3f {
-  let cell = floor(wp / sp);
-  let h = hash12(cell + seed);
-  if (h >= dens) { return c; }
-  var r = rmax * (0.45 + 0.55 * hash12(cell + seed + 3.1)) * sp;
-  if (cyc > 0.0) {
-    let ph = fract(post.simTime * cyc * (0.6 + 0.8 * hash12(cell + seed + 5.3)) + h * 13.0);
-    r *= sqrt(smoothstep(0.0, 0.8, ph)) * (1.0 - smoothstep(0.86, 0.94, ph));
-  }
+// Bubbles in the water, here and there in cells sp world units apart, each kept within reach of its own cell's
+// neighbors (a point looks at the nine cells about it) and made by the water at its center, so none is cut off by
+// a cell's edge or by the water warming across it. Air (vapor false): from about 45°, far warmer than the water
+// around, more and larger as it heats, pinned to the glass. Vapor: near a boil, each swelling and collapsing at its
+// own pace. A bubble is a lens of air: its rim, where the light glances off, is a bright line (brightest toward the
+// lamp), and it gathers the lamp's light to a spot off its center; within it the cells behind are dimmed.
+fn bubbles(cIn: vec3f, wp: vec2f, ppu: f32, sp: f32, vapor: bool) -> vec3f {
+  let seed = select(0.0, 41.0, vapor);
   let px = 1.0 / max(ppu, 1e-3);
-  if (r < 1.5 * px) { return c; }
-  let ctr = (cell + 0.3 + 0.4 * vec2f(hash12(cell + seed + 7.7), hash12(cell + seed + 9.9))) * sp;
-  let d = wp - ctr;
-  let l = length(d);
-  if (l > r + 3.0 * px) { return c; }
-  let w = max(0.06 * r, 0.8 * px);
-  let toward = 0.55 + 0.45 * dot(d / max(l, 1e-5), LAMP_L);
-  let rim = exp(-pow((l - r) / w, 2.0)) * toward;
-  let inside = 1.0 - smoothstep(r - w, r, l);
-  let spot = exp(-dot(d - LAMP_L * r * 0.35, d - LAMP_L * r * 0.35) / pow(0.18 * r + px, 2.0));
-  return c * (1.0 - 0.45 * inside) + vec3f(0.17, 0.18, 0.19) * rim + vec3f(0.08, 0.08, 0.075) * spot * inside;
+  let c0 = floor(wp / sp);
+  var c = cIn;
+  for (var j = -1; j <= 1; j++) {
+    for (var i = -1; i <= 1; i++) {
+      let cell = c0 + vec2f(f32(i), f32(j));
+      let ctr = (cell + 0.2 + 0.6 * vec2f(hash12(cell + seed + 7.7), hash12(cell + seed + 9.9))) * sp;
+      let T = waterAt(ctr - post.world * floor(ctr / post.world)).x;
+      let gas = smoothstep(42.0, 85.0, T) * smoothstep(5.0, 15.0, T - post.heat.x);
+      let h = hash12(cell + seed);
+      if (h >= select(0.6 * gas, 0.7 * boilAt(T), vapor)) { continue; }
+      var r = select(0.08 + 0.17 * gas, 0.36, vapor) * (0.45 + 0.55 * hash12(cell + seed + 3.1)) * sp;
+      if (vapor) {
+        let ph = fract(post.simTime * 0.5 * (0.6 + 0.8 * hash12(cell + seed + 5.3)) + h * 13.0);
+        r *= sqrt(smoothstep(0.0, 0.8, ph)) * (1.0 - smoothstep(0.86, 0.94, ph));
+      }
+      let d = wp - ctr;
+      let l = length(d);
+      if (r < 1.5 * px || l > r + 3.0 * px) { continue; }
+      let w = max(0.06 * r, 0.8 * px);
+      let toward = 0.55 + 0.45 * dot(d / max(l, 1e-5), LAMP_L);
+      let rim = exp(-pow((l - r) / w, 2.0)) * toward;
+      let inside = 1.0 - smoothstep(r - w, r, l);
+      let spot = exp(-dot(d - LAMP_L * r * 0.35, d - LAMP_L * r * 0.35) / pow(0.18 * r + px, 2.0));
+      c = c * (1.0 - 0.45 * inside) + vec3f(0.17, 0.18, 0.19) * rim + vec3f(0.08, 0.08, 0.075) * spot * inside;
+    }
+  }
+  return c;
 }
 // The water at its limits, which only the hand's cold probe and heated stage reach (STAGE_COLD, STAGE_HOT), and
 // only far from the open water's temperature. Below freezing it is ice, as the frost's is (iceLook), its front the
@@ -7058,7 +7069,7 @@ fn bubble(c: vec3f, wp: vec2f, ppu: f32, sp: f32, dens: f32, rmax: f32, cyc: f32
 // temperature at wp and its slope.
 fn extremes(c: vec3f, wpIn: vec2f, ppu: f32, water: vec3f, behind: f32) -> vec3f {
   let T = water.x;
-  if (T > 4.0 && T < 42.0) { return c; }
+  if (T > 4.0 && T < 30.0) { return c; }
   let wp = wpIn - post.world * floor(wpIn / post.world);
   let k = 0.35 + 0.65 * behind;
   var o = c;
@@ -7071,14 +7082,9 @@ fn extremes(c: vec3f, wpIn: vec2f, ppu: f32, water: vec3f, behind: f32) -> vec3f
     if (sd < ICE_LEAD + ICE_OWN + 0.3) { o += iceLook(wp, sd, ppu, 1.0, 1.0, gl / max(g, 1e-4)) * k * cold; }
     if (sd > 0.0) { o += frazil(wp, sd, ppu, 1.0) * 2.0 * k * cold; }
   }
-  let gas = smoothstep(42.0, 85.0, T) * smoothstep(5.0, 15.0, T - post.heat.x);
-  if (gas > 0.0) {
-    o = bubble(o, wp, ppu, 0.7, 0.6 * gas, 0.08 + 0.17 * gas, 0.0, 0.0);
-    let boil = boilAt(T);
-    if (boil > 0.0) {
-      o = bubble(o, wp, ppu, 1.8, 0.7 * boil, 0.36, 0.5, 41.0);
-      o += vec3f(0.012, 0.007, 0.003) * boil * k;
-    }
+  if (T >= 30.0) {
+    o = bubbles(o, wp, ppu, 0.7, false);
+    o = bubbles(o, wp, ppu, 1.8, true) + vec3f(0.012, 0.007, 0.003) * boilAt(T) * k;
   }
   return o;
 }
@@ -7517,7 +7523,8 @@ fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
     c = mix(c, heatRamp(clamp((water - post.heat.y) / (post.heat.z - post.heat.y), 0.0, 1.0)), 0.4 * select(0.0, full, post.tideVis < 1.5) * (1.0 - lens));
     // (the lens spans what the hand makes: from freezing to boiling, isotherms every 5°)
     c = mix(c, heatRamp(clamp((water - STAGE_COLD) / (${f(BOIL)} - STAGE_COLD), 0.0, 0.85)), 0.2 * lens);
-    let band = water * mix(0.5, 0.2, lens);
+    // (in the lens at half steps, 2.5°, 7.5°...: the water held at a boil, 100° exactly, lies between them)
+    let band = water * mix(0.5, 0.2, lens) + 0.5 * lens;
     let w = fwidth(band);
     let iso = 1.0 - smoothstep(0.0, w * 1.2, min(fract(band), 1.0 - fract(band)));
     c += vec3f(1.0, 0.7, 0.4) * iso * max(0.16 * full, 0.08 * lens);
