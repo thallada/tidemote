@@ -352,7 +352,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function loupeGeom() {
     let at = hover.on ? hover : null;
     if (!at && lensAt) { const [x, y] = toScreen(lensAt.x, lensAt.y); at = { x, y }; }
-    if (!at || hand.tool !== 'loupe' || (ptr.dragging && !ptr.down?.lens) || state.phase !== 'running' || ride.on) return null;
+    // (the lens that follows the mouse hides while the view is dragged; one set in the world by a tap stays, and goes
+    // with the world as it pans)
+    if (!at || hand.tool !== 'loupe' || (ptr.dragging && hover.on) || state.phase !== 'running' || ride.on) return null;
     // filming, the loupe hides with the pointer once the mouse rests
     if (director.active && hover.on && performance.now() - lastPtr.moved > CURSOR_REST) return null;
     const base = cssPPU();
@@ -362,7 +364,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (at.x < -R || at.y < -R || at.x > innerWidth + R || at.y > innerHeight + R) return null;
     const lp = clamp(base * state.loupeMag, 8, MAX_PPU);
     const [cx, cy] = toWorld(at.x, at.y);
-    return { sx: at.x, sy: at.y, R, cssPPU: lp, cx, cy };
+    return { sx: at.x, sy: at.y, R, cssPPU: lp, cx, cy, mouse: hover.on };
   }
 
   // ------------------------------------------------------------ perf
@@ -3392,7 +3394,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // riding: the will, a line from the cell to where it is steered
       if (ride.on && hand.will && hand.will[2] > 0 && state.ui) drawWill(sx, sy, ...toScreen(hand.will[0], hand.will[1]));
     }
-    if (L) {
+    // (the mouse at the lens's center; a lens set by a tap has no pointer to mark)
+    if (L?.mouse) {
       const { sx, sy } = L;
       octx.lineCap = 'round';
       for (const [w, c] of [[3, 'rgba(0,0,0,0.55)'], [1.2, 'rgba(255,255,255,0.95)']]) {
