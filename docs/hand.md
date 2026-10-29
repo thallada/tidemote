@@ -52,15 +52,17 @@ it dies, to the nearest of its kind.
 
 ## The pipette
 
-Drawing up: a press (a click is a quarter-second pulse) draws every living cell within the reach toward the tip, as
-a current would, at 4 units a second and up to 16 as it is held for a second and a half (`hand.suck`: the tip, the
-reach, the speed; `suckFlow` moves a cell after its speed is capped, so the draw is not bounded by its swimming).
+Drawing up: a press (a click is a 0.15 s pulse) draws the living cells about the tip toward it, as a current would:
+from 0.35 units at 1.5 units a second, out to the reach at 16 as it is held for a second and a half (both by the
+square of how long it has been held, so a click takes a cell or a few; `hand.suck`: the tip, how far, the speed; `suckFlow` moves a cell after its speed is capped, so the draw is not bounded by its swimming).
 Within 0.3 of the tip a cell is taken (`resolveCount` copies it out, its partners by ID, and returns the grain it was
 built of to the world's silt, somewhere at random). Let go, it stops, but for the cells bonded to one already taken: their IDs go to
 the engine (`setDrawn`), and they follow the tip in at 6 units a second while it stays within 2 units of its reach
 (pulled away faster, it lets them go). A bond stretched past `bondBreak` breaks as any bond does, so a loose body
 tears and a tight one comes whole. What came in is kept once nothing more is coming: each species' cells, as bodies
 (`bodiesOf`: the bonds among them), each in the order it will leave, every cell after one it touches.
+The cells taken are seen rising up the pipette's bore out of view, and those dispensed streaming down it (`drawTube`
+in `src/main.js`, on the overlay: at most 48 at once, faster as it is held).
 
 Setting down: with Dispense on (beside the pipette's strip, and on a phone's held strip; Load, the default, draws up),
 or ⇧ and a press, squeezes the tip species out a cell or two at a time,
