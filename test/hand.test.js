@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHand, TOOLS, keyOf, works, INSTRUMENTS } from '../src/hand.js';
+import { NEEDLE } from '../src/shaders.js';
 
 const make = () => {
   const words = new Float32Array(32), ids = new Uint32Array(words.buffer);
@@ -78,14 +79,14 @@ test('the rod pressed is in the water, its disc the reach; it sweeps from where 
   assert.equal(words[16], 0);
 });
 
-test('the needle pressed is in the water: its point, its shaft running off to its corner; let go, out of it', () => {
+test('the needle pressed is in the water: its point, as much of its shaft as is wet running off to its corner; let go, out of it', () => {
   const { hand, words } = make();
-  hand.set('needle'); hand.span = 30;
+  hand.set('needle');
   hand.hover(4, 5); hand.update(1 / 60);
   assert.deepEqual([...words.subarray(28, 32)], [0, 0, 0, 0], 'over the water: not in it');
   hand.down(4, 5, 0); hand.update(1 / 60);
   const [dx, dy] = INSTRUMENTS.needle.dir;
-  assert.deepEqual([...words.subarray(28, 32)].map((v) => +v.toFixed(3)), [4, 5, +(dx * 30).toFixed(3), +(dy * 30).toFixed(3)]);
+  assert.deepEqual([...words.subarray(28, 32)].map((v) => +v.toFixed(3)), [4, 5, +(dx * NEEDLE.wet).toFixed(3), +(dy * NEEDLE.wet).toFixed(3)]);
   hand.up(); hand.update(1 / 60);
   assert.deepEqual([...words.subarray(28, 32)], [0, 0, 0, 0]);
 });

@@ -81,7 +81,7 @@ for (const touch of [false, true]) {
   {
     const T = (f) => page.evaluate(f);
     const vp = page.viewportSize(), at = [vp.width * 0.6, vp.height * 0.35];
-    check(`${tag} the page opens with ${touch ? 'no tool' : 'the loupe'} in hand`, await T(() => globalThis.__tidemote.hand.tool) === (touch ? 'none' : 'loupe'));
+    check(`${tag} the page opens with ${touch ? 'Pan' : 'the loupe'} in hand`, await T(() => globalThis.__tidemote.hand.tool) === (touch ? 'none' : 'loupe'));
     if (!touch) {
       await page.keyboard.press('3'); await page.keyboard.press('3');
       check(`${tag} a tool's key again puts it down`, await T(() => globalThis.__tidemote.hand.tool === 'none'));

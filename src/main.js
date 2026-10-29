@@ -2429,7 +2429,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // ------------------------------------------------------------ the bench (bench.js): the tools, their reach
   // (a tool that acts on the world: not none, not the loupe)
   const inHand = () => works(hand.tool);
-  // Take up a tool (a working one stops the auto camera); the one in hand taken up again is put down: no tool.
+  // Take up a tool (a working one stops the auto camera); the one in hand taken up again is put down: Pan.
   function pickTool(id) {
     if (id === hand.tool) id = 'none';
     hand.set(id, eng.simTime);
@@ -2575,12 +2575,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     if (spit.on && !spit.busy && now >= spit.next) spitNext(now, R);
   }
-  // the silt within reach that cells set down are made of: a disc holding, at the world's mean, four times the grains
-  // they need (silt lies unevenly)
-  function setDownReach(n) {
-    const silt = Math.max(0.2, (life.counts[0] || eng.count * 0.5) / (eng.grid[0] * eng.grid[1]));
-    return Math.max(hand.reach, Math.sqrt((4 * n) / (Math.PI * silt)) + 1);
-  }
+  // the chance each grain of silt in the world (from the last census) is taken to make n cells set down: about half
+  // again as many as are needed (those over are left; those short are made next time)
+  const setDownTake = (n) => Math.min(1, (1.5 * n + 2) / Math.max(1, life.counts[0] || eng.count * 0.5));
   // a newborn of a card's species: its energy and color, its first cell type
   const newborn = (sp) => { const g = genomeOfWords(sp.words); return [0.5 * (g.reproE || 1), g.col, 0]; };
   // Setting down: pressed (held: until let go; a click: one body), or a strip's card dragged onto the world (all of
@@ -2613,7 +2610,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const placed = () => { const a = spit.dir + (Math.random() - 0.5) * 0.9, v = 1.2 + Math.random() * 0.6; return [Math.cos(a) * 0.05, Math.sin(a) * 0.05, Math.cos(a) * v, Math.sin(a) * v]; };
     const job = setDownJob(it, placed, newborn), n = job.cells.length;
     spit.busy = true;
-    const res = await eng.setDown({ at, reach: setDownReach(n) * (spit.fails ? 2 : 1), ...job });
+    const res = await eng.setDown({ at, take: setDownTake(n) * (spit.fails ? 2 : 1), ...job });
     spit.busy = false;
     if (!res) return;
     const got = res.slots[0] !== NONE ? res.placed : 0;
@@ -2625,8 +2622,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (it.org ? it.org.out >= it.org.cells.length : !sp.made) spit.org = null;
       spit.fails = 0;
     } else if (++spit.fails > 2) {
-      // (nothing to make them of here: a word by the tip, and a click's or a card's work ends)
-      pull.note = { text: 'Too little silt here', t: now };
+      // (no silt left in all the world to make them of: a word by the tip, and a click's or a card's work ends)
+      pull.note = { text: 'No silt left to make them of', t: now };
       if (!spit.held) spit.on = false;
     }
     spit.next = now + lerp2(SPIT, u) * (got ? 1 : 4);
@@ -3456,7 +3453,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const pressed = !!(ptr.down?.apply || ptr.down?.pip);
     toolFocus += ((pressed ? 1 : 0) - toolFocus) * (1 - Math.exp(-dt / 0.12));
     if (!it || !R) { eng.tool.fill(0); toolFocus = 0; return; }
-    eng.tool.set([...toWorld(R.sx, R.sy), ...(it.dir || [hand.reach, 0]), it.kind, toolFocus, hand.tool === 'cold' ? hand.level : 0, 0]);
+    eng.tool.set([...toWorld(R.sx, R.sy), ...it.dir, it.kind, toolFocus, hand.tool === 'cold' ? hand.level : 0, hand.reach]);
   }
   // what the tool in hand is doing, in a few words
   function handDoing() {
@@ -4127,7 +4124,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
       pullTick(now);
       // (the lamp, shade, stage and probe follow the pointer over the world, a little of them, until pressed)
       if (R) hand.hover(...toWorld(R.sx, R.sy)); else hand.hover(null);
-      hand.span = Math.min(Math.hypot(innerWidth, innerHeight) / cssPPU(), Math.min(...eng.grid) / 2);
       hand.update(dt / 1000);
       showInstrument(R, dt / 1000);
       // the warm stage and the cold probe show the water's warmth inside their reach

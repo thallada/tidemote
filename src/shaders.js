@@ -43,15 +43,17 @@ export const SPL_RANGE_SAMPLES = 32768;
 // no hotter (the heat goes into steam).
 export const STAGE = { hot: 115, cold: -20, rate: 0.8 };
 export const BOIL = 100;
-// The needle in the water (docs/hand.md): its shaft's half-width, the length over which it tapers to its point, and
-// how near its point a cell must come to be pricked (world units)
-export const NEEDLE = { w: 0.45, taper: 3, kill: 0.12 };
+// The needle in the water (docs/hand.md): its shaft's half-width, the length over which it tapers to its point, how
+// much of it is in the water (it comes down steeply from above: the rest is over the water, out of focus, and
+// touches nothing), and how near its point a cell must come to be pricked (world units)
+export const NEEDLE = { w: 0.45, taper: 3, wet: 1.2, kill: 0.12 };
 // The pipette's working words (docs/hand.md), in the ledger after the species ledger: the cells it draws toward its
 // tip (their IDs, sorted), those taken there (12 words each: the particle, then its partners' IDs), and what it
 // sets down: a header, the species' genomes, the cells (9 words: species, offset, velocity, energy, age, color,
 // info), the IDs of cells set down before that its cells bond to (and where they are found), and the bonds (a
 // keeper, its partner and the keeper's slot; each a cell of this set-down or one of those IDs); with what came of
-// it (how many grains were taken, each species' slot, each cell's index and new ID). Never saved.
+// it (how many grains were taken, each species' slot, each cell's index and new ID). The header: how many cells
+// and species, the chance a grain of silt is taken for one, the tip, how many earlier cells and bonds. Never saved.
 export const PIPE_MAX = 2048; // cells drawn, or set down, at once
 export const PIPE_TAKE = 256; // cells taken at the tip in a frame
 export const PIPE_SP = 64; // species set down at once
@@ -1925,8 +1927,9 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
       atomicAdd(&ledger[META_ENERGY + 61u], 1u);
       parts[i] = p;
     }
-    // the pipette's tip: a cell it draws taken in (copied out for the page, its partners by ID), the grain it was
-    // built of left as silt, settling about the tip
+    // the pipette's tip: a cell it draws taken in (copied out for the page, its partners by ID); the grain it was
+    // built of goes back to the world's silt somewhere at random (as setting down takes silt from anywhere), so the
+    // pipette moves cells and the silt about the world stays as it was
     else if (sim.hand.suck.z > 0.0 && length(handD(p.pos, sim.hand.suck.xy)) < 0.3 && (sim.hand.suck.w > 0.0 || drawn(p.id))) {
       let b = handAt();
       let k = atomicAdd(&ledger[b + H_TAKEN], 1u);
@@ -1936,8 +1939,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         for (var q = 0u; q < 10u; q++) { atomicStore(&ledger[o + q], w[q]); }
         for (var q = 0u; q < 2u; q++) { let j = intent[i][q + 2u]; atomicStore(&ledger[o + 10u + q], select(NONE, parts[min(j, sim.count - 1u)].id, j < sim.count)); }
         var s = pcg(p.id ^ sim.seed);
-        let a = rnd(&s) * TAU;
-        p.pos = wrapPos(sim.hand.suck.xy + vec2f(cos(a), sin(a)) * sim.hand.suck.z * sqrt(rnd(&s)));
+        p.pos = vec2f(rnd(&s), rnd(&s)) * sim.world;
         p.kind = SILT; p.energy = 0.0; p.vel = vec2f(0.0); p.age = 0.0; p.info = p.info & 0xffffffc0u;
         intent[i].z = NONE; intent[i].w = NONE;
         parts[i] = p;
@@ -3134,9 +3136,11 @@ ${cellWGSL(K, false)}
 // What the pipette sets down (the ledger's hand region: a header of how many cells, species, earlier cells and
 // bonds, the reach and center to set them in; each species' genome words with the slot it had and whether it is a
 // stranger here; each cell's species, offset, velocity, energy, age, color and info; the bonds) becomes cells made
-// of the silt there, as a spark turns silt into life: each species takes back its own slot if it still has it, or
-// a free one (a stranger a serial of this world); then each grain of silt within reach, in turn, becomes the next
-// cell (and the cells set down before that they bond to are found); then the bonds.
+// at the tip: each species takes back its own slot if it still has it, or a free one (a stranger a serial of this
+// world); then grains of silt from anywhere in the world, each taking part with the chance the page gives (about
+// as many as are needed, and a few over), in turn become the next cells (and the cells set down before that they
+// bond to are found); then the bonds. The particles are a fixed number: the cells the pipette took went back to
+// the silt, and its cells are made of silt again, so the world's silt is as it was.
 // Between steps, only when there is something to set down.
 @group(0) @binding(23) var<storage, read_write> genomeWords: array<u32>;
 const G_WORDS = ${G_WORDS}u;
@@ -3183,8 +3187,9 @@ fn injectCells(@builtin(global_invocation_id) gid: vec3u) {
   if (p.kind != SILT) { return; }
   let n = atomicLoad(&ledger[b + H_IN]);
   let at = vec2f(bitcast<f32>(atomicLoad(&ledger[b + H_IN + 3u])), bitcast<f32>(atomicLoad(&ledger[b + H_IN + 4u])));
-  let R = bitcast<f32>(atomicLoad(&ledger[b + H_IN + 2u]));
-  if (length(handD(p.pos, at)) > R) { return; }
+  let take = bitcast<f32>(atomicLoad(&ledger[b + H_IN + 2u]));
+  var s = pcg(p.id ^ pcg(sim.frame * 2654435761u + sim.seed));
+  if (rnd(&s) >= take) { return; }
   let k = atomicAdd(&ledger[b + H_OUT], 1u);
   if (k >= n) { return; }
   let c = b + H_CELLS + k * 9u;
@@ -6061,7 +6066,8 @@ struct Post {
   lamp: vec4f,
   lens: vec4f,
   // the instrument in hand seen in the water: its point, its shaft's way; its kind (1 the needle, 2 the pipette, 3 the
-  // cold probe; 0 none), how far it is in focus (0 raised over the water, 1 in it), its frost
+  // cold probe, 4 Touch's rod; 0 none), how far it is in focus (0 raised over the water, 1 in it), its frost, the
+  // rod's radius
   tool: vec4f,
   toolB: vec4f,
 };
@@ -7501,23 +7507,25 @@ fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
 // surface (negative inside), y across it (-1..1), z along it from its point, w its blur (world units).
 const NEEDLE_W = ${f(NEEDLE.w)};
 const NEEDLE_TAPER = ${f(NEEDLE.taper)};
+const NEEDLE_WET = ${f(NEEDLE.wet)};
 // (wp and its point both in the view's own coordinates, unwrapped: an instrument is drawn once, never round the
 // world's edge)
 fn toolAt(wp: vec2f, ppu: f32) -> vec4f {
   let d = wp - post.tool.xy;
-  let blur = 1.2 / max(ppu, 1e-3) + (1.0 - post.toolB.y) * 0.5;
-  // the rod, seen end on from above: a disc of radius tool.z
-  if (post.toolB.x > 3.5) { return vec4f(length(d) - post.tool.z, clamp(length(d) / max(post.tool.z, 1e-4), 0.0, 1.0), 0.0, blur); }
   let ax = normalize(post.tool.zw);
   let s = dot(d, ax);
   let lat = dot(d, vec2f(-ax.y, ax.x));
   let kind = post.toolB.x;
   let t = max(s, 0.0);
+  // its half-width t back from its point, and how far back it leaves the water (rising out of focus past it)
   var hw = 0.36;
-  if (kind < 1.5) { hw = NEEDLE_W * pow(clamp(t / NEEDLE_TAPER, 0.0, 1.0), 0.6) + 0.004; }
+  var wet = 1e6;
+  if (kind < 1.5) { hw = NEEDLE_W * pow(clamp(t / NEEDLE_TAPER, 0.0, 1.0), 0.6) + 0.004; wet = NEEDLE_WET; }
   else if (kind < 2.5) { hw = mix(0.34, 1.1, smoothstep(0.0, 12.0, t)); }
+  else if (kind > 3.5) { hw = post.toolB.w; wet = 0.0; }
   let sd = select(abs(lat) - hw, length(d) - hw, s < 0.0);
   let across = select(lat, sign(lat) * length(d), s < 0.0) / max(hw, 1e-4);
+  let blur = 1.2 / max(ppu, 1e-3) + (1.0 - post.toolB.y) * 0.5 + max(t - wet, 0.0) * select(0.05, 0.025, kind > 3.5);
   return vec4f(sd, clamp(across, -1.0, 1.0), s, blur);
 }
 // The pipette's glass bends the view through it, as a lens of its shape would (pixels).
@@ -7525,8 +7533,6 @@ fn toolBend(wp: vec2f) -> vec2f {
   if (post.toolB.x < 1.5 || (post.toolB.x > 2.5 && post.toolB.x < 3.5)) { return vec2f(0.0); }
   let g = toolAt(wp, post.ppu);
   if (g.x > 0.0) { return vec2f(0.0); }
-  // (the rod's end a lens: what lies under it a little larger, the more so toward its rim)
-  if (post.toolB.x > 3.5) { return -(wp - post.tool.xy) * post.ppu * (0.08 * g.y * g.y * post.toolB.y); }
   let ax = normalize(post.tool.zw);
   return vec2f(-ax.y, ax.x) * (g.y * sqrt(max(0.0, 1.0 - g.y * g.y)) * -7.0 * post.toolB.y);
 }
@@ -7539,28 +7545,23 @@ fn instrument(cIn: vec3f, wp: vec2f, ppu: f32) -> vec3f {
   let px = 1.0 / max(ppu, 1e-3);
   let f = post.toolB.y;
   let a = 1.0 - smoothstep(-blur, blur, g.x);
-  let edge = exp(-pow(g.x / (blur + 0.6 * px), 2.0)) * mix(0.12, 1.0, f);
+  // (out of focus, its light spread wider and dimmer)
+  let edge = exp(-pow(g.x / (blur + 0.6 * px), 2.0)) * mix(0.12, 1.0, f) * clamp((2.0 * px + 0.08) / blur, 0.25, 1.0);
   let ax = normalize(post.tool.zw);
   // (the side of the shaft toward the lamp catches its light)
   let lit = dot(vec2f(-ax.y, ax.x), LAMP_L);
   var c = cIn;
-  if (kind > 3.5) {
-    // the rod's end: clear glass, its rim a bright ring where the water climbs it (brightest toward the lamp), the
-    // water just outside a darker band; raised over the water, a soft shadow and a blurred ring
-    let toward = 0.7 + 0.3 * dot((wp - post.tool.xy) / max(length(wp - post.tool.xy), 1e-5), LAMP_L);
-    let rim = exp(-pow(g.x / (blur + 0.8 * px), 2.0));
-    let menisc = exp(-pow((g.x - 3.0 * (blur + px)) / (2.0 * (blur + px)), 2.0)) * f;
-    c = c * (1.0 - 0.1 * a * f) * (1.0 - 0.25 * menisc) * mix(1.0 - 0.2 * a, 1.0, f);
-    c += vec3f(0.13, 0.15, 0.16) * rim * toward * mix(0.25, 1.0, f) + vec3f(0.01, 0.012, 0.013) * a * f;
-    return c;
-  }
-  if (kind > 1.5 && kind < 2.5) {
-    // glass: nearly clear, its walls bright lines and its bore open; the walls meet at the tip's rim
-    let bore = 0.68;
-    let hw = mix(0.34, 1.1, smoothstep(0.0, 12.0, max(g.z, 0.0)));
+  if ((kind > 1.5 && kind < 2.5) || kind > 3.5) {
+    // glass: nearly clear, its walls bright lines; the pipette's bore open (its walls meet at the tip's rim), the
+    // rod solid, the light it gathers a bright line down its middle
+    let rod = kind > 3.5;
+    let bore = select(0.68, 0.0, rod);
+    let hw = select(mix(0.34, 1.1, smoothstep(0.0, 12.0, max(g.z, 0.0))), post.toolB.w, rod);
     let wall = exp(-pow((abs(g.y) - bore) * hw / (blur + 0.6 * px), 2.0)) * step(-blur, g.z) * a;
     let inWall = a * smoothstep(bore - 0.05, bore + 0.05, abs(g.y));
     c = c * (1.0 - 0.22 * inWall) + vec3f(0.006, 0.008, 0.009) * inWall;
+    // (the rod's glass scatters the lamp's light through it: a faint glow across it, brighter toward its sides)
+    if (rod) { c += vec3f(0.022, 0.026, 0.028) * a * (0.5 + 0.5 * g.y * g.y) * mix(0.5, 1.0, f); }
     c += vec3f(0.15, 0.18, 0.19) * (edge + 0.6 * wall) * (0.75 + 0.25 * sign(g.y) * lit) * mix(0.4, 1.0, f);
     return c;
   }

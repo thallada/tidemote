@@ -3,8 +3,10 @@
 // place, the rod and the needle what a falling grain or a hunter would do), written into the engine's hand words (Hand in simWGSL), which are
 // zero in every headless run. Pure but for those words; the page feeds it the pointer in world units.
 
+import { NEEDLE } from './shaders.js';
+
 export const TOOLS = [
-  { id: 'none', name: 'No tool', hint: 'Nothing in hand: click a cell to examine it, drag to pan' },
+  { id: 'none', name: 'Pan', hint: 'Nothing in hand: drag to pan, click a cell to examine it' },
   { id: 'loupe', name: 'Loupe', hint: 'The lens follows the pointer: click a cell to examine it · Reach sizes it, [ ] magnify', touch: 'A tap examines a cell and sets the lens over it · drag the lens to move it, outside it to pan' },
   { id: 'touch', name: 'Touch', hint: 'A glass rod from above: pressed, it pushes the cells and grains under it aside, drag it to plow them · a tap rings the water' },
   { id: 'lamp', name: 'Lamp', hint: 'More sun where it points, a little; hold for the full lamp' },
@@ -15,14 +17,14 @@ export const TOOLS = [
   { id: 'pipette', name: 'Pipette', hint: 'Load: a click draws up every cell in reach, held harder · Dispense (or ⇧ click) sets the tip species down, a cell at a time', touch: 'Load: a touch draws up every cell in reach, held harder · Dispense: touches set the tip species down' },
 ];
 export const toolOf = (id) => TOOLS.find((t) => t.id === id) || TOOLS[0];
-// (no tool is 0, the tools 1 to 8)
+// (Pan, nothing in hand, is 0, the tools 1 to 8)
 export const keyOf = (id) => String(TOOLS.findIndex((t) => t.id === id));
 /** Whether a tool acts on the world (not none, not the loupe, which only look). */
 export const works = (id) => id !== 'none' && id !== 'loupe';
 // The way each instrument seen in the water runs off from its point (unit, world axes: y down the screen), and its
 // kind in the composite (the engine's tool words)
-// (the rod comes from above: no way off, a disc the size of the reach)
-export const INSTRUMENTS = { needle: { kind: 1, dir: [0.86, 0.51] }, pipette: { kind: 2, dir: [0.86, -0.51] }, cold: { kind: 3, dir: [-0.86, 0.51] }, touch: { kind: 4 } };
+// (the rod comes down from near the top of the field, its end a disc the size of the reach)
+export const INSTRUMENTS = { needle: { kind: 1, dir: [0.86, 0.51] }, pipette: { kind: 2, dir: [0.86, -0.51] }, cold: { kind: 3, dir: [-0.86, 0.51] }, touch: { kind: 4, dir: [0.3, -0.954] } };
 
 // The reach of every tool but the needle, in world units (1 unit is about 59 µm): the slider's range and default.
 export const REACH = { min: 0.6, max: 8, def: 2 };
@@ -45,9 +47,6 @@ export function createHand(words, ids, { reach = REACH.def } = {}) {
     // (at: where the pointer is over the world, or null)
     // (from: where the point was when the world last stepped)
     tool: 'loupe', reach, held: false, last: null, at: null, from: null,
-    // how far the needle's shaft runs back from its point (world units: the page sets it to the view's diagonal, at
-    // most half the world, so it never reaches round it)
-    span: 40,
     lamp: { x: 0, y: 0, r: reach, v: 0 }, stage: { x: 0, y: 0, r: reach, v: 0 },
     // the ridden cell and where it is steered: [x, y, strength]; the pipette's draw: [x, y, reach, speed] (the page's)
     rider: NONE, will: null, suck: null,
@@ -128,9 +127,9 @@ export function createHand(words, ids, { reach = REACH.def } = {}) {
       ids[21] = h.rider;
       words[22] = w[2];
       words.set(h.suck || [0, 0, 0, 0], 24);
-      // (its point, and its shaft running off toward its corner)
+      // (its point, and as much of its shaft as is in the water, running off toward its corner)
       const nd = INSTRUMENTS.needle.dir;
-      words.set(needle ? [p[0], p[1], nd[0] * h.span, nd[1] * h.span] : [0, 0, 0, 0], 28);
+      words.set(needle ? [p[0], p[1], nd[0] * NEEDLE.wet, nd[1] * NEEDLE.wet] : [0, 0, 0, 0], 28);
     },
   };
   // what has faded to nothing is nothing (so the kernels' guards skip it)

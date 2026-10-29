@@ -113,7 +113,8 @@ class Engine {
     // the warm stage's lens (center, radius, 1 shown), set by the page: the thermal camera inside the tool's reach
     this.lens = new Float32Array(4);
     // the instrument in hand seen in the water (set by the page): its tip, its shaft's way; its kind (1 the needle,
-    // 2 the pipette, 3 the cold probe; 0 none), how far it is in focus (0 raised over the water, 1 in it), its frost
+    // 2 the pipette, 3 the cold probe, 4 Touch's rod; 0 none), how far it is in focus (0 raised over the water, 1 in
+    // it), its frost, the rod's radius
     this.tool = new Float32Array(8);
     this.loupe = null;
     this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 0xffffffff, memberN: 0 };
@@ -1310,10 +1311,10 @@ class Engine {
     this.handU[23] = v.length;
   }
   /**
-   * Set cells down between this frame's steps (docs/hand.md): { at: [x, y], reach, species: [{ words (G_WORDS),
+   * Set cells down between this frame's steps (docs/hand.md): { at: [x, y], take, species: [{ words (G_WORDS),
    * slot, stranger }], cells: [{ sp, dx, dy, vx, vy, energy, age, col, info }], earlier: [IDs of cells set down
    * before], bonds: [[keeper, partner, slot]] (each end a cell's index, or PIPE_EARLIER + an index of earlier) },
-   * made of the silt within reach of at. Resolves to { placed, slots, ids } (how many cells were placed, in order;
+   * made of grains of silt from anywhere, each taken with the chance take. Resolves to { placed, slots, ids } (how many cells were placed, in order;
    * each species' slot or NONE; each placed cell's new ID).
    */
   setDown(job) {
@@ -1323,7 +1324,7 @@ class Engine {
     const n = Math.min(job.cells.length, PIPE_MAX), m = Math.min(job.species.length, PIPE_SP);
     const earlier = (job.earlier || []).slice(0, PIPE_IDS), bonds = (job.bonds || []).slice(0, 2 * PIPE_MAX);
     const head = new Uint32Array(8), hf = new Float32Array(head.buffer);
-    head[0] = n; head[1] = m; hf[2] = job.reach; hf[3] = job.at[0]; hf[4] = job.at[1]; head[5] = earlier.length; head[6] = bonds.length;
+    head[0] = n; head[1] = m; hf[2] = job.take; hf[3] = job.at[0]; hf[4] = job.at[1]; head[5] = earlier.length; head[6] = bonds.length;
     const sp = new Uint32Array(m * 58);
     job.species.slice(0, m).forEach((x, j) => { sp.set(x.words, j * 58); sp[j * 58 + 56] = x.slot ?? 0xffffffff; sp[j * 58 + 57] = x.stranger ? 1 : 0; });
     const cells = new Uint32Array(n * 9), cf = new Float32Array(cells.buffer);
