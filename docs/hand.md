@@ -44,10 +44,13 @@ edge.
 ## Riding
 
 Enter, or the specimen panel's Ride, rides the specimen: the camera follows it, and a held click or finger, or the
-arrow keys, steer it. The will is one more drive in `cellWGSL`, toward the target, `K.will` times its swimming (a
-reef, or a producer adrift, cannot be steered), its upkeep `K.willCost` times its metabolism at full strength.
-Hunger, fear and bonds still pull; the specimen's Behavior shows a Will row among its drives (mind word 66) and
-often it loses. Above ×2 the ride is a follow. Tab goes on to the newest kin near it (a child just budded) or, after
+arrow keys, steer it. The will in `cellWGSL` is a velocity toward the target that the cell takes on, whatever
+else drives it (`K.willGrip` a second): `K.will` world units a second for a full swimmer, `K.willDrift` of that for
+a cell adrift (a producer can be steered too, slowly), `K.willAnchored` of it again for one anchored, none on dry
+ground; the cells bonded to it take it on too, so a body goes with it. Its upkeep is `K.willCost` times its
+metabolism at full strength. A cyst sleeps (`cystStep`) and cannot be steered; the page says so. Steered 5 units
+aside for 2 s, awake cells made 1.2 units a second toward the target on average (the will as a push of 1.5 times
+its swimming made none). The specimen's Behavior shows the Will among its drives (mind word 66). Above ×2 the ride is a follow. Tab goes on to the newest kin near it (a child just budded) or, after
 it dies, to the nearest of its kind.
 
 ## The pipette

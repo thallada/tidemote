@@ -17,7 +17,7 @@ import { record, seal } from './lineage/model.js';
 import { createWorldStore, encodeWorld, decodeWorld, SAVE_VERSION, openable } from './worlds.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
-import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, PIPE_MAX, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K, PIPETTE_DOF } from './shaders.js';
+import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, PIPE_MAX, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K, PIPETTE_DOF, CYST } from './shaders.js';
 import { flowAt } from './flow.js';
 import { startLoader } from './loader.js';
 import { Director } from './director.js';
@@ -1289,6 +1289,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       for (const k of ride.arrows) { if (k === 'ArrowLeft') d[0]--; if (k === 'ArrowRight') d[0]++; if (k === 'ArrowUp') d[1]--; if (k === 'ArrowDown') d[1]++; }
       to = [px + d[0] * 4, py + d[1] * 4];
     }
+    // (a cyst sleeps: it will not move however it is steered, and says so once)
+    const cyst = sel.particle.cause === CYST;
+    if (cyst && to && !ride.slept) { ride.slept = true; flash('Dormant, a cyst · it moves when it wakes'); }
+    if (!cyst) ride.slept = false;
     hand.steer(sel.id, ...(to || [px, py]), to && !fast ? 1 : 0, eng.simTime);
   }
   // Tab: on to the ridden cell's newest kin near it (a child just budded, or after a death the nearest of its kind)

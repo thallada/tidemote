@@ -86,6 +86,8 @@ export const FRAMBOID = 4;
 export const FRAMBOID_GROWN = 12;
 // The heat field: deposits (fixed point), then this step's temperatures.
 export const HEAT_FIX = 1048576;
+// a dormant living cell's cause code (info & 15)
+export const CYST = 14;
 export const P_BYTES = 40;
 // the pipette's bore drawn as cells (vsTube): at most this many, of at most TUBE_K species
 export const TUBE_N = 400;
@@ -260,9 +262,13 @@ export const DEFAULT_K = {
   torporAt: 1.25,   // tolerances below its optimum where a cell goes torpid...
   torporCost: 0.25, // ...and the share of its upkeep it then pays
   scald: 0.03,      // chance per second of dying at full heat stress
-  // a ridden cell's will (docs/hand.md): its push toward where it is steered, relative to its swimming, and
-  // what that costs, relative to its upkeep (the hand only: no headless run steers a cell)
-  will: 1.5,
+  // a ridden cell's will (docs/hand.md): the speed it takes on toward where it is steered (world units a second, a
+  // full swimmer at full strength), the share of it a cell adrift has and an anchored one keeps, how fast it takes
+  // it on (a second), and what it costs, relative to its upkeep (the hand only: no headless run steers a cell)
+  will: 3,
+  willDrift: 0.5,
+  willAnchored: 0.35,
+  willGrip: 45,
   willCost: 0.6,
   thermotaxis: 0.6, // how hard swimmers steer toward water that suits them, relative to their swimming
   phototaxis: 6,    // a cell's push up the light's slope at a full phototaxis gene (down it, negative): a motility of its own,
@@ -434,7 +440,7 @@ const HUSK = 2u;
 // a husk left by a producer: plant litter, grazers' to break down; other husks are carcasses
 const LITTER = 0x8000u;
 // a dormant living cell: its cause code (info & 15)
-const CYST = 14u;
+const CYST = ${CYST}u;
 // META_DEATH slots counting each guild's cysts, afresh each step (57-59, 61, 62; 60 is the litter)
 fn cystSlot(gi: u32) -> u32 { return META_DEATH + select(57u + gi, 58u + gi, gi >= 3u); }
 const STONE = 3u;
@@ -1052,13 +1058,30 @@ function cellWGSL(K, w) {
     let lt = lightSlope(p.pos) * (g.tail.z * ${f(K.phototaxis)} * min(th.perf, 1.0));${W('mPhoto = lt;')}
     taxis += lt;
   }
-  // the hand's pull (docs/hand.md): a ridden cell's will, one more drive toward where the viewer steers it, as strong
-  // as its swimming lets it be (a reef, or a producer adrift, cannot be steered; its cost is in upkeep, below)
+  // the hand's ride (docs/hand.md): a ridden cell's will, a velocity toward where the viewer steers it that it takes
+  // on whatever else drives it, fastest for a swimmer, slower for a cell adrift, slow for an anchored one, none on
+  // dry ground; the cells bonded to it are drawn the same way, so a body goes with it rather than holding it back
+  // (its cost is in upkeep, below)
   var will = vec2f(0.0);
-  if (p.id == sim.hand.ids.y && swim > 0.0) {
-    let wd = handD(sim.hand.more.zw, p.pos);
-    will = wd / max(length(wd), 0.25) * (swim * bitcast<f32>(sim.hand.ids.z) * ${f(K.will)});
+  let rider = sim.hand.ids.y;
+  if (rider != NONE && !stranded) {
+    var ra = vec2f(0.0);
+    var on = p.id == rider;
+    if (on) { ra = p.pos; }
+    else {
+      for (var b = 0u; b < 5u && !on; b++) {
+        let j = select(select(select(select(nb2, nb1, b == 3u), nb0, b == 2u), n2, b == 1u), n1, b == 0u);
+        if (j != NONE && j < sim.count && sortedFull[j].id == rider) { on = true; ra = sortedFull[j].pos; }
+      }
+    }
+    if (on) {
+      let wd = handD(sim.hand.more.zw, ra);
+      let speed = ${f(K.will)} * bitcast<f32>(sim.hand.ids.z) * mix(${f(K.willDrift)}, 1.0, clamp(g.swim * min(th.perf, 1.0), 0.0, 1.0))
+        * mix(1.0, ${f(K.willAnchored)}, smoothstep(0.35, 0.1, g.advect));
+      will = wd / max(length(wd), 0.5) * speed;
+    }
   }
+  let willOn = any(will != vec2f(0.0));
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
   // The cell and its neighborhood are taken as two bodies sharing momentum: the reaction to this cell's
@@ -1178,7 +1201,8 @@ function cellWGSL(K, w) {
       }
       vel += normalize(dir) * swim * h;${W('if (k == 0u) { mSwim = normalize(dir) * swim; }')}
     }
-    vel += (taxis + will) * h;
+    vel += taxis * h;
+    if (willOn) { vel = mix(vel, will, clamp(${f(K.willGrip)} * h, 0.0, 1.0)); }
     if (stranded) {
       vel = vel * exp(-${f(K.dryDrag)} * h) - pond.yz / max(length(pond.yz), 1e-4) * (${f(K.meniscus)} * (1.0 - smoothstep(0.0, ${f(K.filmR)}, -shore)) * h);
     }
@@ -1217,7 +1241,7 @@ function cellWGSL(K, w) {
   // heat-maker burns extra, all of it heat
   let heatMaking = ${f(K.heat ? K.thermoCost : 0)} * thermo;
   // a ridden cell pays for its will as for swimming
-  let willCost = select(0.0, bitcast<f32>(sim.hand.ids.z) * ${f(K.willCost)} * g.metab, p.id == sim.hand.ids.y && swim > 0.0);
+  let willCost = select(0.0, bitcast<f32>(sim.hand.ids.z) * ${f(K.willCost)} * g.metab, p.id == sim.hand.ids.y && !stranded);
   let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0))
     * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking + willCost;`;
 }
