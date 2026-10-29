@@ -14,7 +14,7 @@ export const TOOLS = [
   { id: 'warm', name: 'Warm', hint: 'The heated stage: hold to warm the water under it, as far as a boil' },
   { id: 'cold', name: 'Cold', hint: 'The cold probe: hold to chill the water under it, as far as ice' },
   { id: 'needle', name: 'Needle', hint: 'Pressed, it goes into the water: its point pricks the cells it touches (a tap, the nearest), its shaft pushes the rest aside · drag: cut through' },
-  { id: 'pipette', name: 'Pipette', hint: 'Load: a click draws up every cell in reach, held harder · Dispense (or ⇧ click) sets the tip species down, a cell at a time', touch: 'Load: a touch draws up every cell in reach, held harder · Dispense: touches set the tip species down' },
+  { id: 'pipette', name: 'Pipette', hint: 'Load: a click draws up a few at the tip, held: all in reach · Dispense (or ⇧ click) sets the tip card’s cells down, faster held', touch: 'Load: a touch draws up a few at the tip, held: all in reach · Dispense: a touch sets the tip card’s cells down' },
 ];
 export const toolOf = (id) => TOOLS.find((t) => t.id === id) || TOOLS[0];
 // (Pan, nothing in hand, is 0, the tools 1 to 8)

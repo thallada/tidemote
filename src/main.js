@@ -2452,18 +2452,18 @@ function run(eng, device, ctx, specCtx, hasTS) {
     bench.render();
     if (say) flash(`Reach ${reachOf().text}`);
   }
-  // the pipette's strip: its species tip first, each a mini-card keyed by its serial
-  const pipKey = (sp) => String(sp.card || sp.serial);
-  const pipSp = (key) => pipette.species.find((sp) => pipKey(sp) === key);
+  // the pipette's strip: its runs in the order they came in, the tip last, each a mini-card keyed by its id
+  const pipKey = (sp) => String(sp.id);
+  const pipSp = (key) => pipette.run(+key);
   // its card in the cabinet, if there is one
   const pipCard = (sp) => cabinet.cards.find((c) => c.id === sp.card) || (!sp.stranger ? savedCard(sp.serial) : null);
   // what it holds of a species: its cells, and its bodies of more than one
   const heldOf = (sp) => [pipette.cells(sp), sp.orgs.filter((o) => o.cells.length - o.out > 1).length];
   const bench = createBench({ hand, pick: pickTool, reach: setReach, size: reachOf, onToggle: (on) => { if (on && phone()) { view.toggle(false); lab.close(); } },
     pip: {
-      view: () => ({ count: pipette.count, limit: PIPE_LIMIT, armed: pull.armed, keys: pipette.species.map((sp) => pipKey(sp) + (pipCard(sp) ? '*' : '')), held: pipette.species.map(heldOf) }),
-      cards: (flat) => pipette.species.map((sp, i) => miniCard(genomeOfWords(sp.words), K, { key: pipKey(sp), name: sp.name, home: sp.home || 'this world',
-        n: heldOf(sp)[0], bodies: heldOf(sp)[1], tip: i === 0, flat, kept: !!pipCard(sp) })).join(''),
+      view: () => ({ count: pipette.count, limit: PIPE_LIMIT, armed: pull.armed, keys: pipette.species.map((sp) => pipKey(sp) + (pipCard(sp) ? '*' : '')), held: pipette.species.map(heldOf), mixed: pipette.mixed }),
+      cards: (flat) => pipette.species.map((sp) => miniCard(genomeOfWords(sp.words), K, { key: pipKey(sp), name: sp.name, home: sp.home || 'this world',
+        n: heldOf(sp)[0], bodies: heldOf(sp)[1], tip: sp === pipette.tip, flat, kept: !!pipCard(sp) })).join(''),
       move: (key, i) => { const sp = pipSp(key); if (sp) pipette.move(sp, i); },
       // its card: this world's species live, a carried one's from the cabinet
       open: (key) => {
@@ -2481,12 +2481,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
       cabinet: () => lab.open('cabinet'),
       arm: (on) => { pull.armed = on; },
       saveAll,
+      sort: () => pipette.sort(),
     } });
   // every species in the pipette whose card is not saved yet: its card into the cabinet, one after another (each
   // drawn with its portrait), the button counting them; the cabinet drawn once at the end
   let saving = false;
   async function saveAll() {
-    const todo = pipette.species.filter((sp) => !pipCard(sp) && !sp.stranger && life.reg.has(sp.serial));
+    const todo = [...new Map(pipette.species.filter((sp) => !pipCard(sp) && !sp.stranger && life.reg.has(sp.serial)).map((sp) => [sp.serial, sp])).values()];
     if (saving || !todo.length) return;
     saving = true;
     const btn = $('pip-keep');
@@ -2558,8 +2559,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     hand.note('pipette', ...pull.tip, eng.simTime);
   }
   // What the pipette holds, seen in its bore over the glass: a column of its cells, each in its own color, in the
-  // order they will leave (the tip species' first, as `next` takes them), up the glass out of view; what is being
-  // drawn up already where it will be kept. Drawn up, the column rises as cells come in; set down, it slides down
+  // order they will leave (the tip's run first, as `next` takes them), up the glass out of view; what is being
+  // drawn up nearest the tip, as it will be kept. Drawn up, the column rises as cells come in; set down, it slides down
   // and out of the tip as they leave.
   const BORE = 0.2; // world units between the cells in the column
   const spCss = new WeakMap(); // a species' css color (for a card's cells not yet made)
@@ -2572,16 +2573,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // the column's first N cells' colors
   function boreCells(N) {
     if (bore.of !== pull.got.length) {
-      bore.in = incoming().map(({ g, recs }) => ({ sp: pipette.species.find((x) => !x.stranger && x.serial === g.serial), orgs: bodiesOf(recs) }));
+      bore.in = incoming().map(({ recs }) => bodiesOf(recs));
       bore.of = pull.got.length;
     }
+    // (from the tip: what is coming in, the last species first, each's last body in first; then each run's)
     const seq = [];
     const put = (orgs, sp) => {
       for (let k = orgs.length - 1; k >= 0 && seq.length < N; k--) for (let c = orgs[k].out; c < orgs[k].cells.length && seq.length < N; c++) seq.push(css(orgs[k].cells[c][2]));
       for (let m = 0; sp && m < sp.made && seq.length < N; m++) seq.push(colOf(sp));
     };
-    for (const sp of pipette.species) { const add = bore.in.find((x) => x.sp === sp); put(add ? [...sp.orgs, ...add.orgs] : sp.orgs, sp); }
-    for (const x of bore.in) if (!x.sp) put(x.orgs);
+    for (let i = bore.in.length - 1; i >= 0; i--) put(bore.in[i]);
+    for (let i = pipette.species.length - 1; i >= 0; i--) put(pipette.species[i].orgs, pipette.species[i]);
     return seq;
   }
   function drawBore(R, dt) {
@@ -2590,7 +2592,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const len = Math.min(dx > 0 ? (innerWidth - R.sx) / dx : -R.sx / dx, dy > 0 ? (innerHeight - R.sy) / dy : -R.sy / dy);
     const gap = BORE * p, N = Math.min(400, Math.ceil(len / gap) + 1);
     const seq = boreCells(N + Math.max(0, Math.ceil(bore.g)));
-    const n = pipette.count + bore.in.reduce((a, x) => a + x.orgs.reduce((b, o) => b + o.cells.length, 0), 0);
+    const n = pipette.count + bore.in.reduce((a, orgs) => a + orgs.reduce((b, o) => b + o.cells.length, 0), 0);
     bore.g = now - bore.at > 200 ? 0 : clamp((bore.g + n - bore.n) * Math.exp(-dt / 60), -N, N);
     Object.assign(bore, { n, at: now });
     if (!n && bore.g > -0.01) return;

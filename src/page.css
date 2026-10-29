@@ -407,8 +407,8 @@ body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-car
 /* the pipette's press, Load or Dispense; Save all */
 .bench-pip .sub-h { justify-content: flex-start; flex-wrap: wrap; }
 .bench-pip .sub-h .sub-a { margin-right: auto; }
-.pip-mode[hidden], #pip-keep[hidden] { display: none; }
-#pip-keep { height: 26px; }
+.pip-mode[hidden], #pip-keep[hidden], #pip-sort[hidden] { display: none; }
+#pip-keep, #pip-sort { height: 26px; }
 .held kbd { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--sun); color: var(--sun); font-size: 11px; letter-spacing: 0; }
 .held > b { color: var(--sun); font-size: 12px; letter-spacing: .16em; text-transform: uppercase; font-weight: 500; flex: 1; }
 .held-reach { display: flex; align-items: center; }

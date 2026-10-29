@@ -1,9 +1,11 @@
-// The pipette's contents (docs/hand.md): species in the order the strip shows them (the first is at the tip: the
-// one that leaves next), each with its genome's words and its organisms, a cell or a body of bonded cells, as they
-// came out of the world: each cell's energy, age, color and info, and the cells it keeps bonds to by index, in the
-// order they leave the tip again (each next to one already out, as a body squeezes through it), with how many have
-// left and the IDs they were given. A species loaded from a card holds colonies not yet made (`made`: how many cells
-// to make, as newborns, as they leave). Pure: the page draws up and sets down, and keeps the contents with the world
+// The pipette's contents (docs/hand.md): a stack of runs of one species each, in the order they came in (the strip
+// shows them so, left to right; the last is at the tip, the one that leaves next): a species drawn up again after
+// another is a run of its own, and two runs of one species side by side are one. Each run has its id, its
+// species' genome words and its organisms, a cell or a body of bonded cells, as they came out of the world: each
+// cell's energy, age, color and info, and the cells it keeps bonds to by index, in the order they leave the tip
+// again (each next to one already out, as a body squeezes through it), with how many have left and the IDs they
+// were given. A species loaded from a card holds colonies not yet made (`made`: how many cells to make, as
+// newborns, as they leave). Pure: the page draws up and sets down, and keeps the contents with the world
 // (life.pipette).
 import { PIPE_EARLIER, PIPE_IDS } from './shaders.js';
 
@@ -30,8 +32,25 @@ export function bodiesOf(recs) {
 
 export function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
   const cells = (sp) => sp.orgs.reduce((n, o) => n + o.cells.length - o.out, 0) + (sp.made || 0);
-  // a species is in the pipette once: this world's by its serial, a stranger by its card
-  const find = (x) => state.species.find((sp) => (x.card && sp.card === x.card) || (!x.stranger && !sp.stranger && sp.serial === x.serial));
+  // two runs of one species: this world's by its serial, a stranger's by its card
+  const same = (a, b) => (a.card && b.card === a.card) || (!a.stranger && !b.stranger && a.serial === b.serial);
+  let seq = state.species.reduce((m, sp) => Math.max(m, sp.id || 0), 0);
+  for (const sp of state.species) sp.id ??= ++seq;
+  // what comes in joins the run at the tip if it is of its species, else is a run of its own there
+  const atTip = (x) => {
+    const t = pp.tip;
+    if (t && same(t, x)) return t;
+    const sp = { ...x, id: ++seq, orgs: [], made: 0 };
+    state.species.push(sp);
+    return sp;
+  };
+  // b's cells into a, the run before it (b's nearer the tip, so they leave first)
+  const merge = (a, b) => { a.orgs.push(...b.orgs); a.made = (a.made || 0) + (b.made || 0); };
+  // runs of one species side by side become one
+  function join() {
+    const l = state.species;
+    for (let i = l.length - 1; i > 0; i--) if (same(l[i - 1], l[i])) { merge(l[i - 1], l[i]); l.splice(i, 1); }
+  }
   const pp = {
     state, limit,
     get species() { return state.species; },
@@ -42,28 +61,34 @@ export function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
     fits: (n) => pp.count + n <= limit,
     /** Cells drawn up of one species (serial, the genome's words, the slot it lived in, its name): their bodies. */
     add(species, recs) {
-      if (!recs.length) return;
-      let sp = find(species);
-      if (!sp) state.species.push((sp = { ...species, orgs: [], made: 0 }));
-      sp.orgs.push(...bodiesOf(recs));
+      if (recs.length) atTip(species).orgs.push(...bodiesOf(recs));
     },
     /** A card's species loaded: one colony of n cells, made as they leave; false if they do not fit. */
     load(species, n) {
       if (!pp.fits(n)) return false;
-      let sp = find(species);
-      if (!sp) state.species.push((sp = { ...species, orgs: [], made: 0 }));
-      sp.made = (sp.made || 0) + n;
+      atTip(species).made += n;
       return true;
     },
-    /** The species at the tip, or null. */
-    get tip() { return state.species[0] || null; },
-    /** Move a species to place i in the strip (0: the tip). */
+    /** The run at the tip, or null. */
+    get tip() { return state.species[state.species.length - 1] || null; },
+    /** The run with this id. */
+    run: (id) => state.species.find((sp) => sp.id === id),
+    /** Move a run to place i in the strip (the last: the tip); it joins a run of its species it comes next to. */
     move(sp, i) {
       const k = state.species.indexOf(sp);
       if (k < 0) return;
       state.species.splice(k, 1);
       state.species.splice(Math.max(0, Math.min(i, state.species.length)), 0, sp);
+      join();
     },
+    /** Every species' runs as one, where its first was (each's cells in the order they were in). */
+    sort() {
+      const out = [];
+      for (const sp of state.species) { const a = out.find((o) => same(o, sp)); if (a) merge(a, sp); else out.push(sp); }
+      state.species.splice(0, state.species.length, ...out);
+    },
+    /** Whether a species has more than one run. */
+    get mixed() { return state.species.some((sp, i) => state.species.findIndex((o) => same(o, sp)) !== i); },
     /**
      * The next k cells of species sp to leave the tip, organism by organism from the last in (the nearest the tip),
      * then a card's newborns: [{ sp, org, from, n } or { sp, made: n }], empty if it holds none.
@@ -88,7 +113,7 @@ export function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
       } else if (made) sp.made -= Math.min(made, placed);
       if (!cells(sp)) pp.remove(sp);
     },
-    remove(sp) { const i = state.species.indexOf(sp); if (i >= 0) state.species.splice(i, 1); },
+    remove(sp) { const i = state.species.indexOf(sp); if (i >= 0) { state.species.splice(i, 1); join(); } },
     clear() { state.species.length = 0; },
   };
   return pp;

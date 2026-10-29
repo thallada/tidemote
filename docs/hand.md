@@ -60,14 +60,15 @@ built of to the world's silt, somewhere at random). Let go, it stops, but for th
 the engine (`setDrawn`), and they follow the tip in at 6 units a second while it stays within 2 units of its reach
 (pulled away faster, it lets them go). A bond stretched past `bondBreak` breaks as any bond does, so a loose body
 tears and a tight one comes whole. What came in is kept once nothing more is coming: each species' cells, as bodies
-(`bodiesOf`: the bonds among them), each in the order it will leave, every cell after one it touches.
-What it holds is seen in the pipette's bore, a column of cells up the glass with the next to leave at the tip
-(`drawBore` in `src/main.js`, on the overlay; each cell in its own color, what is coming in already where it will be kept): drawn up, the column rises as cells come in under it; dispensed, it
-slides down and out of the tip as they leave, in step with them. The readout names the mode in a chip (⇧ held, the
+(`bodiesOf`: the bonds among them), each in the order it will leave, every cell after one it touches, at the tip.
+What it holds is seen in the pipette's bore, a column of cells up the glass in the order they will leave, the next
+at the tip (`drawBore` in `src/main.js`, on the overlay; each cell in its own color, what is coming in nearest the
+tip): drawn up, the column rises as cells come in under it; dispensed, it slides down and out of the tip as they
+leave, in step with them. The readout names the mode in a chip (⇧ held, the
 other, before the press), a bar under it filling with the pressure.
 
 Setting down: with Dispense on (beside the pipette's strip, and on a phone's held strip; Load, the default, draws up),
-or ⇧ and a press, squeezes the tip species out a cell or two at a time,
+or ⇧ and a press, squeezes the tip's run out a cell or two at a time, then the run before it,
 pushed on their way, then more at once and more often as it is held: at full pressure by the dozen every 16 ms,
 organism after organism in one set-down (`mergeJobs`), as fast as it draws up. A click sets down one
 body, or a card's colonies, whole; held, one after another. Each cell keeps the bonds it kept: to cells leaving with
@@ -80,8 +81,11 @@ takes back its own slot if it still holds it, or a free one). What it moves arri
 the tip, and the world's silt is as it was; a card's colony is made of the world's silt as it leaves. With no silt
 left in the world at all, it says so by the tip.
 
-The contents are the world's (`life.pipette`, kept in saves): each species once, in the strip's order (the first at
-the tip). A tap opens its card, a drag along the strip moves it (the others make way), onto the world sets all of it
+The contents are the world's (`life.pipette`, kept in saves): a stack of runs of one species each, in the order they
+came in, shown so in the strip left to right, the last at the tip. A species drawn up again after another is a run
+and a card of its own (5 of A, then 2 of B, then 3 of A: A ×5, B ×2, A ×3); two runs of one species side by side
+are one, so a card dragged next to its species' joins it, and Sort makes every species one run, where its first
+was. The bore shows the same order. A tap opens its card, a drag along the strip moves it (the others make way), onto the world sets all of it
 down there, onto the Lab keeps its card (or, kept already, shows it in the cabinet); on a touch screen a swipe scrolls
 the strip and a card held a moment lifts. A mark in its corner says its card is in the cabinet; Save all saves every
 card not saved yet, one after another, counting them. It holds 2,048 cells.

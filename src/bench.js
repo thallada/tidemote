@@ -11,7 +11,7 @@ const icon = (id) => `<svg aria-hidden="true"><use href="#i-t-${id}"/></svg>`;
 const toSlider = (r, { min, max }) => Math.round((1000 * Math.log(r / min)) / Math.log(max / min));
 const fromSlider = (v, { min, max }) => min * Math.exp((v / 1000) * Math.log(max / min));
 // Load or Dispense: what the pipette's press does
-const modes = (id) => `<span class="pip-mode segs" role="group" aria-label="The pipette's press"><button type="button" class="chip" data-mode="0" id="${id}-load" aria-pressed="true" data-hint="A press draws up every cell in reach">Load</button><button type="button" class="chip" data-mode="1" id="${id}-dispense" aria-pressed="false" data-hint="A press sets the tip species down">Dispense</button></span>`;
+const modes = (id) => `<span class="pip-mode segs" role="group" aria-label="The pipette's press"><button type="button" class="chip" data-mode="0" id="${id}-load" aria-pressed="true" data-hint="A press draws up cells at the tip, all in reach as it is held">Load</button><button type="button" class="chip" data-mode="1" id="${id}-dispense" aria-pressed="false" data-hint="A press sets the tip card’s cells down">Dispense</button></span>`;
 
 /**
  * A row that scrolls sideways fades at an edge only where there is more beyond it (fade-l, fade-r), as it scrolls
@@ -72,10 +72,12 @@ export const reachStep = (r, d) => Math.min(REACH.max, Math.max(REACH.min, r * 1
 /**
  * hand: the page's hand (src/hand.js); pick(id) takes up a tool (the one in hand: puts it down); reach(r) sets the
  * reach of the tool in hand, size() -> { min, max, v, text } its range and value; onToggle(open) as the drawer
- * opens or closes. pip: the pipette's strip: view() -> { count, limit, keys, held: [[cells, bodies]], armed }, cards(flat) -> its
- * mini-cards' markup, move(key, i) (to place i, 0 the tip), open(key) (its full card), drop(key, x, y) (a card
- * dragged out onto the world), save(key) (dragged onto the Lab: its card into the cabinet), saveAll() (every
- * card into the cabinet), cabinet() (opens it), arm(on) (Dispense: a press sets down rather than draws up).
+ * opens or closes. pip: the pipette's strip, its runs in the order they came in: view() -> { count, limit, keys,
+ * held: [[cells, bodies]], armed, mixed (a species in more than one run) }, cards(flat) -> its mini-cards' markup,
+ * move(key, i) (to place i, the last the tip), open(key) (its full card), drop(key, x, y) (a card dragged out onto
+ * the world), save(key) (dragged onto the Lab: its card into the cabinet), saveAll() (every card into the
+ * cabinet), sort() (each species' runs as one), cabinet() (opens it), arm(on) (Dispense: a press sets down rather
+ * than draws up).
  */
 export function createBench({ hand, pick, reach, size, onToggle = () => {}, pip }) {
   const drawer = $('bench'), btn = $('bench-open'), held = $('held'), dock = $('tools');
@@ -87,7 +89,7 @@ export function createBench({ hand, pick, reach, size, onToggle = () => {}, pip 
       <label class="reach"><span class="lbl term" data-tip="toolreach" tabindex="0">Reach</span><input type="range" id="reach" min="0" max="1000" step="1" aria-label="Reach"><b id="reach-v" translate="no"></b></label>
     </div>
     <div class="bench-pip">
-      <div class="sub-h"><span class="bench-t">Pipette</span><span class="sub-a" id="pip-n"></span>${modes('pip')}<button type="button" class="chip" id="pip-keep" data-hint="Every card not saved yet into the cabinet">Save all</button></div>
+      <div class="sub-h"><span class="bench-t">Pipette</span><span class="sub-a" id="pip-n"></span>${modes('pip')}<button type="button" class="chip" id="pip-sort" data-hint="Each species’ cells together, one card each">Sort</button><button type="button" class="chip" id="pip-keep" data-hint="Every card not saved yet into the cabinet">Save all</button></div>
       <div class="strip" id="pip-strip"></div>
     </div>`;
   held.innerHTML = `<kbd id="held-k"></kbd><b id="held-n"></b><span class="held-reach"><button type="button" class="ghost" data-d="-1" aria-label="Less reach"><svg><use href="#i-minus"/></svg></button><b id="held-r" translate="no"></b><button type="button" class="ghost" data-d="1" aria-label="More reach"><svg><use href="#i-plus"/></svg></button></span>${modes('held')}<button type="button" class="ghost" id="held-down" aria-label="Put the tool down" data-hint="Put it down · Esc"><svg><use href="#i-close"/></svg></button><div class="strip flat" id="held-strip"></div>`;
@@ -108,10 +110,11 @@ export function createBench({ hand, pick, reach, size, onToggle = () => {}, pip 
   drawer.addEventListener('click', (e) => {
     if (mode(e)) return;
     if (e.target.closest('#pip-keep')) pip.saveAll();
+    else if (e.target.closest('#pip-sort')) { pip.sort(); render(); }
     else if (e.target.closest('.grab')) toggle(false);
   });
   swipeDown(drawer, () => toggle(false));
-  // the strip's cards: a tap opens its card, a drag along the strip moves it (the first is at the tip), onto the world
+  // the strip's cards: a tap opens its card, a drag along the strip moves it (the last is at the tip), onto the world
   // sets all of it down there, onto the Lab keeps its card
   const drags = [strip, hstrip].map((row) => wireCardDrag(row, {
     tap: (key) => pip.open(key),
@@ -161,6 +164,7 @@ export function createBench({ hand, pick, reach, size, onToggle = () => {}, pip 
     held.querySelector('.pip-mode').hidden = !inHand;
     for (const b of document.querySelectorAll('.pip-mode [data-mode]')) b.setAttribute('aria-pressed', String((b.dataset.mode === '1') === v.armed));
     $('pip-keep').hidden = !v.keys.some((k) => !k.endsWith('*'));
+    $('pip-sort').hidden = !v.mixed;
     held.classList.toggle('pip', inHand);
     const tool = dock.querySelector('[data-tool="pipette"]');
     tool.dataset.count = v.count ? (v.count > 999 ? `${Math.floor(v.count / 1000)}k` : v.count) : '';
@@ -174,6 +178,8 @@ export function createBench({ hand, pick, reach, size, onToggle = () => {}, pip 
     strip.innerHTML = v.keys.length ? pip.cards(false)
       : '<div class="pip-empty"><b>Nothing in the pipette.</b><span>Draw cells up from the world with the pipette (8), or bring cards from the cabinet.</span><button type="button" class="link" data-cabinet>Open the cabinet</button></div>';
     hstrip.innerHTML = inHand ? pip.cards(true) : '';
+    // (the tip, the last, in view)
+    for (const row of [strip, hstrip]) row.scrollLeft = row.scrollWidth;
     fades.forEach((f) => f());
   }
   addEventListener('resize', render);
