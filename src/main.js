@@ -2452,7 +2452,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     bench.render();
     if (say) flash(`Reach ${reachOf().text}`);
   }
-  // the pipette's strip: its runs in the order they came in, the tip last, each a mini-card keyed by its id
+  // the pipette's strip: its runs from the tip, the last in, each a mini-card keyed by its id
   const pipKey = (sp) => String(sp.id);
   const pipSp = (key) => pipette.run(+key);
   // its card in the cabinet, if there is one
@@ -2583,7 +2583,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       for (let m = 0; sp && m < sp.made && seq.length < N; m++) seq.push(colOf(sp));
     };
     for (let i = bore.in.length - 1; i >= 0; i--) put(bore.in[i]);
-    for (let i = pipette.species.length - 1; i >= 0; i--) put(pipette.species[i].orgs, pipette.species[i]);
+    for (const sp of pipette.species) put(sp.orgs, sp);
     return seq;
   }
   function drawBore(R, dt) {

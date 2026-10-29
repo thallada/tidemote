@@ -1,6 +1,6 @@
-// The pipette's contents (docs/hand.md): a stack of runs of one species each, in the order they came in (the strip
-// shows them so, left to right; the last is at the tip, the one that leaves next): a species drawn up again after
-// another is a run of its own, and two runs of one species side by side are one. Each run has its id, its
+// The pipette's contents (docs/hand.md): a stack of runs of one species each, the last in at the tip (the first, as
+// the strip shows them, left to right: the one that leaves next): a species drawn up again after another is a run
+// of its own, and two runs of one species side by side are one. Each run has its id, its
 // species' genome words and its organisms, a cell or a body of bonded cells, as they came out of the world: each
 // cell's energy, age, color and info, and the cells it keeps bonds to by index, in the order they leave the tip
 // again (each next to one already out, as a body squeezes through it), with how many have left and the IDs they
@@ -41,11 +41,11 @@ export function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
     const t = pp.tip;
     if (t && same(t, x)) return t;
     const sp = { ...x, id: ++seq, orgs: [], made: 0 };
-    state.species.push(sp);
+    state.species.unshift(sp);
     return sp;
   };
-  // b's cells into a, the run before it (b's nearer the tip, so they leave first)
-  const merge = (a, b) => { a.orgs.push(...b.orgs); a.made = (a.made || 0) + (b.made || 0); };
+  // b's cells into a, a run nearer the tip (a's leave first: the last organism in leaves first)
+  const merge = (a, b) => { a.orgs.unshift(...b.orgs); a.made = (a.made || 0) + (b.made || 0); };
   // runs of one species side by side become one
   function join() {
     const l = state.species;
@@ -70,10 +70,10 @@ export function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
       return true;
     },
     /** The run at the tip, or null. */
-    get tip() { return state.species[state.species.length - 1] || null; },
+    get tip() { return state.species[0] || null; },
     /** The run with this id. */
     run: (id) => state.species.find((sp) => sp.id === id),
-    /** Move a run to place i in the strip (the last: the tip); it joins a run of its species it comes next to. */
+    /** Move a run to place i in the strip (0: the tip); it joins a run of its species it comes next to. */
     move(sp, i) {
       const k = state.species.indexOf(sp);
       if (k < 0) return;
@@ -81,7 +81,7 @@ export function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
       state.species.splice(Math.max(0, Math.min(i, state.species.length)), 0, sp);
       join();
     },
-    /** Every species' runs as one, where its first was (each's cells in the order they were in). */
+    /** Every species' runs as one, where the one nearest the tip was (each's cells in the order they were in). */
     sort() {
       const out = [];
       for (const sp of state.species) { const a = out.find((o) => same(o, sp)); if (a) merge(a, sp); else out.push(sp); }

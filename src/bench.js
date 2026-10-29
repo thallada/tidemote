@@ -72,9 +72,9 @@ export const reachStep = (r, d) => Math.min(REACH.max, Math.max(REACH.min, r * 1
 /**
  * hand: the page's hand (src/hand.js); pick(id) takes up a tool (the one in hand: puts it down); reach(r) sets the
  * reach of the tool in hand, size() -> { min, max, v, text } its range and value; onToggle(open) as the drawer
- * opens or closes. pip: the pipette's strip, its runs in the order they came in: view() -> { count, limit, keys,
+ * opens or closes. pip: the pipette's strip, its runs from the tip: view() -> { count, limit, keys,
  * held: [[cells, bodies]], armed, mixed (a species in more than one run) }, cards(flat) -> its mini-cards' markup,
- * move(key, i) (to place i, the last the tip), open(key) (its full card), drop(key, x, y) (a card dragged out onto
+ * move(key, i) (to place i, 0 the tip), open(key) (its full card), drop(key, x, y) (a card dragged out onto
  * the world), save(key) (dragged onto the Lab: its card into the cabinet), saveAll() (every card into the
  * cabinet), sort() (each species' runs as one), cabinet() (opens it), arm(on) (Dispense: a press sets down rather
  * than draws up).
@@ -114,7 +114,7 @@ export function createBench({ hand, pick, reach, size, onToggle = () => {}, pip 
     else if (e.target.closest('.grab')) toggle(false);
   });
   swipeDown(drawer, () => toggle(false));
-  // the strip's cards: a tap opens its card, a drag along the strip moves it (the last is at the tip), onto the world
+  // the strip's cards: a tap opens its card, a drag along the strip moves it (the first is at the tip), onto the world
   // sets all of it down there, onto the Lab keeps its card
   const drags = [strip, hstrip].map((row) => wireCardDrag(row, {
     tap: (key) => pip.open(key),
@@ -178,8 +178,6 @@ export function createBench({ hand, pick, reach, size, onToggle = () => {}, pip 
     strip.innerHTML = v.keys.length ? pip.cards(false)
       : '<div class="pip-empty"><b>Nothing in the pipette.</b><span>Draw cells up from the world with the pipette (8), or bring cards from the cabinet.</span><button type="button" class="link" data-cabinet>Open the cabinet</button></div>';
     hstrip.innerHTML = inHand ? pip.cards(true) : '';
-    // (the tip, the last, in view)
-    for (const row of [strip, hstrip]) row.scrollLeft = row.scrollWidth;
     fades.forEach((f) => f());
   }
   addEventListener('resize', render);

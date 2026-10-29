@@ -81,10 +81,10 @@ takes back its own slot if it still holds it, or a free one). What it moves arri
 the tip, and the world's silt is as it was; a card's colony is made of the world's silt as it leaves. With no silt
 left in the world at all, it says so by the tip.
 
-The contents are the world's (`life.pipette`, kept in saves): a stack of runs of one species each, in the order they
-came in, shown so in the strip left to right, the last at the tip. A species drawn up again after another is a run
-and a card of its own (5 of A, then 2 of B, then 3 of A: A ×5, B ×2, A ×3); two runs of one species side by side
-are one, so a card dragged next to its species' joins it, and Sort makes every species one run, where its first
+The contents are the world's (`life.pipette`, kept in saves): a stack of runs of one species each, the last in at the
+tip, shown so in the strip from the left. A species drawn up again after another is a run and a card of its own
+(5 of A, then 2 of B, then 3 of A: A ×3 at the tip, B ×2, A ×5); two runs of one species side by side are one, so a
+card dragged next to its species' joins it, and Sort makes every species one run, where the one nearest the tip
 was. The bore shows the same order. A tap opens its card, a drag along the strip moves it (the others make way), onto the world sets all of it
 down there, onto the Lab keeps its card (or, kept already, shows it in the cabinet); on a touch screen a swipe scrolls
 the strip and a card held a moment lifts. A mark in its corner says its card is in the cabinet; Save all saves every

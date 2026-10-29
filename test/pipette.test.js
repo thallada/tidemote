@@ -17,34 +17,31 @@ test('cells drawn up come apart into their bodies, each in leaving order, bonds 
   assert.deepEqual(a.cells.map((c) => c[3]), [16, 16, 32], 'every cell keeps its own type');
 });
 
-test('runs in the order they came in, the last at the tip: a species again after another is a run of its own', () => {
+test('runs from the tip, the last in first: a species again after another is a run of its own', () => {
   const pp = createPipette();
   pp.add(sp(7), [rec(1)]);
   pp.add(sp(7), [rec(2)]);
   pp.add(sp(8), [rec(3), rec(4)]);
   pp.add(sp(7), [rec(5, [6, NONE]), rec(6)]);
-  assert.deepEqual(pp.species.map((s) => [s.serial, pp.cells(s)]), [[7, 2], [8, 2], [7, 2]], 'A ×2, B ×2, A ×2');
-  assert.equal(pp.tip, pp.species[2]);
+  assert.deepEqual(pp.species.map((s) => [s.serial, pp.cells(s)]), [[7, 2], [8, 2], [7, 2]], 'A ×2 (the last in), B ×2, A ×2');
+  assert.equal(pp.tip, pp.species[0]);
+  assert.equal(pp.next()[0].org.cells.length, 2, 'the last body in leaves first');
   assert.equal(pp.mixed, true);
   assert.equal(new Set(pp.species.map((s) => s.id)).size, 3, 'each run its own id');
   assert.equal(pp.load({ card: 'c1', serial: 7, words: [], name: 'From afar', stranger: true }, 4), true);
   assert.equal(pp.species.length, 4, 'a stranger by its card');
-  // moved next to its own species, a run joins it, its cells nearer the tip leaving first
-  const [a, b, c] = pp.species;
-  pp.move(c, 1);
-  assert.deepEqual(pp.species.map((s) => s.serial), [7, 8, 7]);
-  assert.equal(pp.cells(a), 4);
-  assert.equal(pp.next(a, 1)[0].org.cells.length, 2, 'the run moved onto it leaves first');
-  pp.move(pp.species[2], 0);
-  pp.move(b, 2);
-  assert.equal(pp.tip, b);
+  assert.equal(pp.tip.card, 'c1');
+  // moved next to its own species, a run joins it, the cells of the one now nearer the tip leaving first
+  pp.move(pp.species[3], 1);
+  assert.deepEqual(pp.species.map((s) => [s.serial, pp.cells(s)]), [[7, 4], [7, 4], [8, 2]], 'the card, then A ×4, then B');
+  assert.deepEqual(pp.next(pp.species[1], 4).map((x) => x.org.cells.length), [1, 1, 2], 'the run moved nearer the tip leaves first');
 });
 
-test('sorting: every species as one run, where its first was; a run emptied lets its neighbors join', () => {
+test('sorting: every species as one run, where the one nearest the tip was; a run emptied lets its neighbors join', () => {
   const pp = createPipette();
   for (const [s, id] of [[7, 1], [8, 2], [7, 3], [9, 4], [8, 5]]) pp.add(sp(s), [rec(id)]);
   pp.sort();
-  assert.deepEqual(pp.species.map((s) => [s.serial, pp.cells(s)]), [[7, 2], [8, 2], [9, 1]]);
+  assert.deepEqual(pp.species.map((s) => [s.serial, pp.cells(s)]), [[8, 2], [9, 1], [7, 2]]);
   assert.equal(pp.mixed, false);
   const q = createPipette();
   for (const [s, id] of [[7, 1], [8, 2], [7, 3]]) q.add(sp(s), [rec(id)]);
@@ -89,14 +86,14 @@ test('the limit: a card’s colony that does not fit is refused; newborns leave 
   assert.equal(pp.fits(5), false);
   assert.equal(pp.load({ card: 'c1', serial: 99, words: [], name: 'Card', stranger: true }, 4), true);
   assert.equal(pp.load({ card: 'c1', serial: 99, words: [], name: 'Card', stranger: true }, 1), false);
-  const [n] = pp.next(pp.species[1], 3);
+  const [n] = pp.next(pp.tip, 3);
   assert.equal(n.made, 3);
   const job = setDownJob(n, at, () => [0.5, 1, 2]);
   assert.equal(job.cells.length, 3);
   assert.equal(job.cells[0].energy, 0.5);
   assert.equal(job.species[0].stranger, true);
   pp.left(n, 3);
-  assert.equal(pp.species[1].made, 1);
+  assert.equal(pp.tip.made, 1);
 });
 
 test('jobs merged into one set-down: their cells in turn, each one’s bonds and earlier cells shifted to match', () => {
