@@ -3481,8 +3481,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const pressed = !!(ptr.down?.apply || ptr.down?.pip);
     toolFocus += ((pressed ? 1 : 0) - toolFocus) * (1 - Math.exp(-dt / 0.12));
     if (!it || !R) { eng.tool.fill(0); toolFocus = 0; return; }
-    // (the rod comes into focus as it dips into the water)
-    eng.tool.set([...toWorld(R.sx, R.sy), ...it.dir, it.kind, hand.tool === 'touch' ? hand.dip : toolFocus, hand.tool === 'cold' ? hand.level : 0, hand.reach]);
+    // (the rod comes into focus as it dips into the water, and lifts out where it was let go)
+    const rod = hand.tool === 'touch' && hand.dip > 0 && hand.rodAt;
+    eng.tool.set([...(rod ? toWorld(...toScreen(...hand.rodAt)) : toWorld(R.sx, R.sy)), ...it.dir, it.kind, hand.tool === 'touch' ? hand.dip : toolFocus, hand.tool === 'cold' ? hand.level : 0, hand.reach]);
   }
   // what the tool in hand is doing, in a few words
   function handDoing() {

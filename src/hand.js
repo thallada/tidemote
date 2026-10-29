@@ -34,7 +34,7 @@ const HOVER = 0.25; // the lamp, shade, stage and probe over the world, not pres
 const CUT = 0.32; // the needle's half-width: it cuts bonds and parts cells this far to either side (past LINK_R apart)
 // how the lamp and stage come up while held and go when let go, and the rod dips in and lifts out (time constants,
 // real seconds)
-const EASE = { lamp: [0.35, 0.3], stage: [0.25, 0.25], dip: [0.3, 0.15] };
+const EASE = { lamp: [0.35, 0.3], stage: [0.25, 0.25], dip: [0.3, 0.08] };
 // The rod's wake: while it is in the water, every `every` simulated seconds it leaves an eddy where it is, carrying
 // the water there along at `couple` of its own velocity (at most `max` world units a second), fading over `life`
 // seconds; at most `n` at once. A stroke turned back on itself (faster than `turn` units a second, frame to frame)
@@ -127,7 +127,8 @@ export function createHand(words, ids, { reach = REACH.def, drops = new Float64A
       const f = h.held && p ? h.from || p : null, needle = f && tl === 'needle';
       const cut = needle && Math.hypot(p[0] - f[0], p[1] - f[1]) > 1e-4;
       h.dip = settle(ease(h.dip, h.held && tl === 'touch' ? 1 : 0, EASE.dip, dt), h.held && tl === 'touch');
-      if (p && tl === 'touch') h.rodAt = p;
+      // (let go, it lifts out where it was, whatever the pointer does)
+      if (h.held && p && tl === 'touch') h.rodAt = p;
       const rod = h.dip > 0 && h.rodAt, rf = rod && (f || h.rodAt);
       wake(rod && h.rodAt, t);
       const w = h.will || [0, 0, 0];
