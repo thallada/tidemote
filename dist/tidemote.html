@@ -1506,6 +1506,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     // with bodyPush, how far cells may squash against each other first (share of touching; bonds rest at bondTouch)
     bodyPush: 30,
     // contactMain: how hard overlapping cells' bodies push apart (units/s² per unit of overlap, summed; 0: off)
+    pushTheta: 0.25,
+    // how implicit a coarse step's contact push is (0 explicit: overshoots, cells part and speed up; 1 backward Euler: overpacks); docs/fast-forward.md
     crowdVisc: 20,
     // contactMain: rate (per second) at which a cell crowded by four or more takes on the motion of those it touches
     tissue: 12,
@@ -3921,6 +3923,8 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
   var holdN = 0.0;
   var touchV = vec2f(0.0);
   var touchN = 0.0;
+  // the push's stiffness (its gradient in this cell's position, summed over the overlaps)
+  var pushK = 0.0;
   for (var c9 = 0; c9 < 9; c9++) {
     if ((mask & (1u << u32(c9))) == 0u) { continue; }
     let c = u32(((cc.y + c9 / 3 - 1 + gh) % gh) * gw + (cc.x + c9 % 3 - 1 + gw) % gw);
@@ -3947,14 +3951,42 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
         let apartV = dot(qvel - p.vel, n);
         hold -= n * (0.5 * cs * max(0.0, holdShare * (touch - r) / sim.dt - apartV));
         holdN += cs;
+        pushK += cs / touch;
       }
       if (r < 1.25 * touchQ) { touchV += qvel * cs; touchN += cs; }
     }
   }
   var vel = p.vel;
   // (compounded per 1/60 s, so a coarse step blends as far as its ticks would, not past it)
-  if (touchN > 0.0) { vel = mix(vel, touchV / touchN, 1.0 - pow(1.0 - clamp(${f(K.crowdVisc / 60)} * min(1.0, touchN / 4.0), 0.0, 1.0), sim.dt * 60.0)); }
-  vel += push * (${f(K.bodyPush)} * sim.dt);
+  if (touchN > 0.0) {
+    let vT = touchV / touchN;
+    let a = clamp(${f(K.crowdVisc / 60)} * min(1.0, touchN / 4.0), 0.0, 1.0);
+    if (sim.ticks > 1u) {
+      // A coarse step: those it touches blend toward it as it blends toward them, so blending toward
+      // their velocities held from the step's start would swing a pair moving apart past each other
+      // (1 - 2a per tick, compounded: -0.6 at 4 ticks) and the crowd would lose its friction. Taken as
+      // two bodies sharing momentum (as the stiffness correction in lifeMain): their center keeps its
+      // velocity and only the relative velocity decays, by 1 - a (1 + 1/n) a tick (exactly the 1/60 s rule
+      // at one tick).
+      let n = max(touchN, 1.0);
+      let c = (vel + vT * n) / (1.0 + n);
+      vel = c + (vel - vT) * (n / (1.0 + n) * pow(max(0.0, 1.0 - a * (1.0 + 1.0 / n)), sim.dt * 60.0));
+    } else { vel = mix(vel, vT, 1.0 - pow(1.0 - a, sim.dt * 60.0)); }
+  }
+  if (sim.ticks > 1u && holdN > 0.0 && touchN > 0.0) {
+    // A coarse step holds the push for its ticks, and summed over a crowded cell's overlaps it is stiff
+    // (some 20-35 rad/s): held explicitly it overshoots, and crowds ring and loosen and bodies tear. So it
+    // is implicit, as the pair forces' correction in lifeMain: the cell and those it overlaps (holdN)
+    // share momentum, their center keeps its velocity, and the relative velocity meets the push's
+    // stiffness (1 + 1/n times this cell's), damped by pushTheta of backward Euler's 1 + kk dt² (all of it
+    // overpacks crowds; docs/fast-forward.md).
+    let vT = touchV / touchN;
+    let n = max(holdN, 1.0);
+    let kk = ${f(K.bodyPush)} * pushK * (1.0 + 1.0 / n);
+    let c = (vel + vT * n) / (1.0 + n);
+    let u = (vel - vT + push * (${f(K.bodyPush)} * sim.dt * (1.0 + 1.0 / n))) / (1.0 + ${f(K.pushTheta)} * kk * sim.dt * sim.dt);
+    vel = c + u * (n / (1.0 + n));
+  } else { vel += push * (${f(K.bodyPush)} * sim.dt); }
   if (holdN > 0.0) { vel += hold / max(1.0, 0.5 * holdN); }
   sortedFull[i].vel = vel;
 }
@@ -4447,7 +4479,7 @@ fn pickMain(@builtin(global_invocation_id) gid: vec3u) {
 // Tracking a cell by id: first only the 5×5 grid cells around where it is expected (pu.center), each
 // workgroup one grid cell's range of the sorted particles; then trackArgs sizes the full pickMain
 // scan to nothing if that found it, else to every particle. Particles are sorted by where they were
-// before the last step, at most 7 · 4/60 units from where they are, so the 2 units around suffice.
+// before the last step, at most 7 · 6/60 units from where they are, so the 2 units around suffice.
 @group(0) @binding(4) var<storage, read> cellStart: array<u32>;
 @group(0) @binding(5) var<storage, read_write> fallback: array<u32, 3>;
 
@@ -20256,7 +20288,7 @@ ${e.message}` : String(e?.message || e));
     adapting: "Why the page is drawing less than it could, if it is: frames running late, the GPU busy for nearly the whole frame, the device under pressure (hot or busy, where the browser reports it), or the browser’s own pace (it hands out frames more slowly than the screen refreshes while the page has little to do: only the frame rate is lowered then). It lowers the pixel density first, then the render scale, then (with Target fps on Auto) the frame rate; when the simulation is most of the cost, the frame rate before the render scale. It climbs back after a stretch with room to spare. Running fast it does not adapt.",
     renderres: "The render scale the world is drawn at right now, on top of the pixel density (Density; Scene px is the two together). With Render scale on Auto it drops when frames run late and climbs back when there is room.",
     drawms: "GPU time drawing the world once takes: cells, stone, bloom and the final image. At high speeds it is drawn about thirty times a second.",
-    stride: "How much simulated time each step moves the world forward. Normally a step is 1/60 s, the most exact. When you ask for a speed the GPU can’t reach in steps that small, it takes bigger ones instead, up to 4/60 s. Bigger steps are a little coarser, but births, deaths and the variety of species stay the same over long runs.",
+    stride: "How much simulated time each step moves the world forward. Normally a step is 1/60 s, the most exact. When you ask for a speed the GPU can’t reach in steps that small, it takes bigger ones instead, up to 6/60 s. Bigger steps are a little coarser, but births, deaths and the variety of species stay the same over long runs.",
     simrate: "How fast the world is running right now, as a multiple of real time.",
     deepest: "The most speciation steps between any living species and its founder.",
     generation: "How many divisions separate this cell from the beginning of the world.",
@@ -27127,9 +27159,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "bb4963d082a54948") return;
+      if (localStorage.getItem(key) === "f150c21b104a27a0") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "bb4963d082a54948");
+      if (res) localStorage.setItem(key, "f150c21b104a27a0");
     } catch {
     }
   }
@@ -27204,7 +27236,7 @@ ${e.message}` : String(e?.message || e));
   }
   var SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8, 16, 32, 64, Infinity];
   var MAX_FRAME_MS = 30;
-  var MAX_TICKS = 4;
+  var MAX_TICKS = 6;
   var SIGNAL_AFTER = 60;
   var H = 1 / 60;
   var fmtSpeed = (s) => s === Infinity ? "Max" : `×${s}`;
