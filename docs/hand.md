@@ -62,7 +62,7 @@ the engine (`setDrawn`), and they follow the tip in at 6 units a second while it
 tears and a tight one comes whole. What came in is kept once nothing more is coming: each species' cells, as bodies
 (`bodiesOf`: the bonds among them), each in the order it will leave, every cell after one it touches.
 What it holds is seen in the pipette's bore, a column of cells up the glass with the next to leave at the tip
-(`drawBore` in `src/main.js`, on the overlay): drawn up, the column rises as cells come in under it; dispensed, it
+(`drawBore` in `src/main.js`, on the overlay; each cell in its own color, what is coming in already where it will be kept): drawn up, the column rises as cells come in under it; dispensed, it
 slides down and out of the tip as they leave, in step with them. The readout names the mode in a chip (⇧ held, the
 other, before the press), a bar under it filling with the pressure.
 

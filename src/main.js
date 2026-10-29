@@ -29,7 +29,7 @@ import { parseMind, interpretMind, settleMind } from './mind.js';
 import { createHand, REACH, toolOf, TOOLS, works, INSTRUMENTS } from './hand.js';
 import { createBench, reachStep } from './bench.js';
 import { createLadder } from './ladder.js';
-import { createPipette, setDownJob, mergeJobs, PIPE_LIMIT } from './pipette.js';
+import { createPipette, setDownJob, mergeJobs, bodiesOf, PIPE_LIMIT } from './pipette.js';
 import { miniCard } from './minicard.js';
 import { createCabinetStore, encodeCard, decodeCard, cardLink, cardFromHash, cardFromPng, pngWithText, pngKeyValue, PNG_KEY } from './cabinet.js';
 import { fmt, fmtClock, fmtDur, esc, cssCol, clamp, term, spLink, saveFile, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
@@ -2557,33 +2557,45 @@ function run(eng, device, ctx, specCtx, hasTS) {
     Object.assign(pull, { on: true, at: now, until: now + 150, tip: toWorld(sx, sy) });
     hand.note('pipette', ...pull.tip, eng.simTime);
   }
-  // What the pipette holds, seen in its bore over the glass: a column of its cells, the next to leave at the tip
-  // (those coming in as they are drawn up, then each species in the strip's order), up the glass out of view. Drawn
-  // up, the column rises as cells come in under it; set down, it slides down and out of the tip as they leave.
+  // What the pipette holds, seen in its bore over the glass: a column of its cells, each in its own color, in the
+  // order they will leave (the tip species' first, as `next` takes them), up the glass out of view; what is being
+  // drawn up already where it will be kept. Drawn up, the column rises as cells come in; set down, it slides down
+  // and out of the tip as they leave.
   const BORE = 0.2; // world units between the cells in the column
-  const spCss = new WeakMap(); // a species' css color
+  const spCss = new WeakMap(); // a species' css color (for a card's cells not yet made)
   const colOf = (sp) => { if (!spCss.has(sp)) spCss.set(sp, cssCol(newborn(sp)[1])); return spCss.get(sp); };
+  const cellCss = new Map(); // a cell's packed color, as css
+  const css = (c) => { if (!cellCss.has(c)) { if (cellCss.size > 4096) cellCss.clear(); cellCss.set(c, cssCol(c)); } return cellCss.get(c); };
   // (bore: how many it held when last drawn, the column's offset in cells still to ease away, when last drawn, the
-  // color of what last left)
-  const bore = { n: 0, g: 0, at: 0, out: null };
+  // colors of the last to leave, in the order they left; in: what is coming in, as it will be kept, for how many taken)
+  const bore = { n: 0, g: 0, at: 0, gone: [], in: [], of: 0 };
+  // the column's first N cells' colors
+  function boreCells(N) {
+    if (bore.of !== pull.got.length) {
+      bore.in = incoming().map(({ g, recs }) => ({ sp: pipette.species.find((x) => !x.stranger && x.serial === g.serial), orgs: bodiesOf(recs) }));
+      bore.of = pull.got.length;
+    }
+    const seq = [];
+    const put = (orgs, sp) => {
+      for (let k = orgs.length - 1; k >= 0 && seq.length < N; k--) for (let c = orgs[k].out; c < orgs[k].cells.length && seq.length < N; c++) seq.push(css(orgs[k].cells[c][2]));
+      for (let m = 0; sp && m < sp.made && seq.length < N; m++) seq.push(colOf(sp));
+    };
+    for (const sp of pipette.species) { const add = bore.in.find((x) => x.sp === sp); put(add ? [...sp.orgs, ...add.orgs] : sp.orgs, sp); }
+    for (const x of bore.in) if (!x.sp) put(x.orgs);
+    return seq;
+  }
   function drawBore(R, dt) {
     const [dx, dy] = INSTRUMENTS.pipette.dir, p = cssPPU(), now = performance.now();
-    const gap = BORE * p, n = pull.got.length + pipette.count;
     // (how far the glass runs, from its tip to the edge of the view, in cells)
     const len = Math.min(dx > 0 ? (innerWidth - R.sx) / dx : -R.sx / dx, dy > 0 ? (innerHeight - R.sy) / dy : -R.sy / dy);
-    const N = Math.min(400, Math.ceil(len / gap) + 1);
+    const gap = BORE * p, N = Math.min(400, Math.ceil(len / gap) + 1);
+    const seq = boreCells(N + Math.max(0, Math.ceil(bore.g)));
+    const n = pipette.count + bore.in.reduce((a, x) => a + x.orgs.reduce((b, o) => b + o.cells.length, 0), 0);
     bore.g = now - bore.at > 200 ? 0 : clamp((bore.g + n - bore.n) * Math.exp(-dt / 60), -N, N);
     Object.assign(bore, { n, at: now });
     if (!n && bore.g > -0.01) return;
-    // (the cell i from the tip: those drawn up nearest it, the last in first, then each species' in turn)
-    const blocks = pipette.species.map((sp) => [pipette.cells(sp), colOf(sp)]);
-    const colAt = (i) => {
-      if (i < 0) return bore.out;
-      if (i < pull.got.length) { const r = pull.got[pull.got.length - 1 - i]; return (r.css ??= cssCol(r.col)); }
-      i -= pull.got.length;
-      for (const [k, c] of blocks) { if (i < k) return c; i -= k; }
-      return null;
-    };
+    // (the cell i from the tip; below it, i < 0, those just gone)
+    const colAt = (i) => (i < 0 ? bore.gone[bore.gone.length + i] : seq[i]);
     for (let i = Math.floor(bore.g); i < Math.min(n, N + Math.ceil(bore.g)); i++) {
       const d = (i - bore.g + 0.5) * gap;
       if (d < 0 || d > len) continue;
@@ -2615,15 +2627,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
     hand.suck = null;
     eng.setDrawn([]);
     pull.drawn.clear(); pull.taken.clear();
+    for (const { kind, g, recs } of incoming()) pipette.add({ serial: g.serial, words: wordsOf(kind), slot: kind, name: life.reg.get(g.serial)?.name || 'an unnamed species' }, recs);
+    pull.got = [];
+    bench.render();
+  }
+  // what has come in, by species: [{ kind, g (its genome), recs }] (none of a species not known)
+  function incoming() {
     const by = new Map();
     for (const r of pull.got) { if (!by.has(r.kind)) by.set(r.kind, []); by.get(r.kind).push(r); }
-    pull.got = [];
-    for (const [kind, recs] of by) {
-      const g = life.lastCensus && genomeFor(kind);
-      if (!g) continue;
-      pipette.add({ serial: g.serial, words: wordsOf(kind), slot: kind, name: life.reg.get(g.serial)?.name || 'an unnamed species' }, recs);
-    }
-    bench.render();
+    return [...by].map(([kind, recs]) => ({ kind, recs, g: life.lastCensus && genomeFor(kind) })).filter((x) => x.g);
   }
   // each frame: the tip follows the pointer while it draws, and sets down while pressed
   function pullTick(now) {
@@ -2692,11 +2704,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
       let off = 0;
       for (const x of items) {
         const m = x.n || x.made, k = Math.max(0, Math.min(m, got - off));
+        // (the column's cells that left, in the order they did, to be seen sliding out)
+        for (let j = 0; j < k; j++) bore.gone.push(x.org ? css(x.org.cells[x.from + j][2]) : colOf(sp));
         if (k) pipette.left(x, k, res.ids.slice(off, off + k));
         off += m;
       }
+      bore.gone.splice(0, Math.max(0, bore.gone.length - 400));
       hand.note('setdown', ...at, eng.simTime, got);
-      bore.out = colOf(sp);
+
       if (it.org ? it.org.out >= it.org.cells.length : !sp.made) spit.org = null;
       spit.fails = 0;
     } else if (++spit.fails > 2) {
