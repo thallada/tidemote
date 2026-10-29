@@ -1488,7 +1488,9 @@ fn needlePush(p: vec2f) -> vec2f {
   return side * (w - l);
 }
 // The rod, coming down from above: a disc of the reach. What lies in it is pushed out to its rim; what it passed
-// over since the last step is plowed ahead of it, to its rim before it, keeping its place across the stroke.
+// over since the last step is pushed aside where it was, out of its path to the side it was on (as the water parts
+// round a rod drawn through it), so a quick stroke leaves its cells along both edges of its path, not piled before
+// it to be dropped where it turns.
 fn rodPush(p: vec2f) -> vec2f {
   let R = sim.hand.more.x;
   if (R <= 0.0) { return vec2f(0.0); }
@@ -1500,8 +1502,11 @@ fn rodPush(p: vec2f) -> vec2f {
     let b = a + m;
     let t = dot(b, m) / ml;
     let side = b - m * t;
-    if (t > 0.0 && t < 1.0 && dot(side, side) < R * R) {
-      return side + m * (inverseSqrt(ml) * sqrt(max(w * w - dot(side, side), 0.0))) - a;
+    let sl = length(side);
+    if (t > 0.0 && t < 1.0 && sl < R) {
+      // (one right on its line goes either way)
+      let u = select(vec2f(-m.y, m.x) * inverseSqrt(ml) * sign(fract(dot(p, vec2f(12.9898, 78.233))) - 0.5 + 1e-6), side / sl, sl > 1e-5);
+      return u * (w - sl);
     }
   }
   let l = length(a);
