@@ -3,7 +3,7 @@ import { voiceOf } from './audio/mapping.js';
 import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS, compactState } from './engine.js';
-import { genomeSerial, readGenome, writeGenome, parseParticle, thermalGuild } from './genome.js';
+import { genomeSerial, readGenome, parseParticle, thermalGuild } from './genome.js';
 import { seasonAt, createClimate, abioRate, EVENT_TYPES, excursionAt } from './climate.js';
 import { countPools } from './geography.js';
 import { createLab } from './lab.js';
@@ -225,7 +225,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // the pipette's contents (pipette.js), the world's (life.pipette, kept in saves)
   let pipette = createPipette();
   // what it draws up (startPull: pressed, what it took, the cells bonded to those still coming, a word by the tip),
-  // Set down armed (phones: touches set down), and what it sets down (startSpit)
+  // Dispense on (armed: a press sets down), and what it sets down (startSpit)
   const pull = { on: false, at: 0, until: 0, tip: [0, 0], got: [], taken: new Set(), drawn: new Set(), last: 0, quiet: 0, armed: false, shake: 0, note: null };
   const spit = { on: false, held: false, busy: false, sp: null, org: null, at: 0, next: 0, fails: 0, dir: 0, pt: null, tip: [0, 0] };
   // riding the specimen (toggleRide): where a held pointer steers it (at), the arrow keys held
@@ -2522,14 +2522,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // Drawing up: pressed (even for a moment: a pulse), the tip draws every living cell within its reach toward it,
   // faster the longer it is held (the engine's hand.suck), and takes in what reaches it; let go, it stops, but for
   // the cells bonded to one it took, which follow it in unless it is pulled away from them faster than they come.
-  // Setting down (⇧, or Set down on a phone): the tip species' cells leave it one by one (now and then two or three
+  // Setting down (Dispense, or ⇧): the tip species' cells leave it one by one (now and then two or three
   // together), sooner the longer it is held, each keeping its bonds, so a body comes out as it went in.
   const PRESSURE = 1.5; // seconds held to full pressure
   const SUCK = [4, 16]; // how fast the tip draws what is in its reach (world units a second), pressed and at full pressure
   const SPIT = [110, 16]; // ms between cells leaving, pressed and at full pressure
   const pressed = (t0, now) => Math.min(1, (now - t0) / 1000 / PRESSURE);
   const lerp2 = ([a, b], u) => a + (b - a) * u;
-  const genomeWords = (g) => { const u = new Uint32Array(G_WORDS); writeGenome(u, new Float32Array(u.buffer), 0, g); return [...u]; };
   const wordsOf = (kind) => Array.from(life.lastCensus.genomeU32.subarray(kind * G_WORDS, (kind + 1) * G_WORDS));
   function startPull(sx, sy) {
     const now = performance.now();
@@ -2610,7 +2609,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const placed = () => { const a = spit.dir + (Math.random() - 0.5) * 0.9, v = 1.2 + Math.random() * 0.6; return [Math.cos(a) * 0.05, Math.sin(a) * 0.05, Math.cos(a) * v, Math.sin(a) * v]; };
     const job = setDownJob(it, placed, newborn), n = job.cells.length;
     spit.busy = true;
-    const res = await eng.setDown({ at, take: setDownTake(n) * (spit.fails ? 2 : 1), ...job });
+    const res = await eng.setDown({ at, take: setDownTake(n), ...job });
     spit.busy = false;
     if (!res) return;
     const got = res.slots[0] !== NONE ? res.placed : 0;
@@ -2629,9 +2628,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     spit.next = now + lerp2(SPIT, u) * (got ? 1 : 4);
     bench.render();
   }
-  // a press with the pipette in hand: it draws up, or with ⇧ (on a phone, Set down) sets down
+  // a press with the pipette in hand: Load draws up, Dispense sets down (⇧: the other)
   function pipettePress(e) {
-    // (Dispense sets down, Load draws up; ⇧ the other)
     const down = pull.armed !== e.shiftKey;
     if (down) startSpit(e.clientX, e.clientY); else startPull(e.clientX, e.clientY);
   }

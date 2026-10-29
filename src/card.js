@@ -298,7 +298,7 @@ export function createCards(api) {
     const L = api.life(), c = api.carry(sp.serial);
     if (!qrs.has(c.link)) { qrs.clear(); qrs.set(c.link, qr(new TextEncoder().encode(c.link))); }
     return { ...cardData(sp, { reg: L.reg, genera: L.genera, K: api.K, story: api.chron.latest(sp.serial), relations: api.chron.relations(sp.serial), history: L.history, simTime: api.eng.simTime, era: api.climate().name, founders: api.eng.founders }),
-      home: c.home, touched: c.touched, bred: c.bred, qr: qrs.get(c.link) };
+      home: c.home, bred: c.bred, qr: qrs.get(c.link) };
   }
   function paint(d) {
     const ctx = cv.getContext('2d');

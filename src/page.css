@@ -414,7 +414,6 @@ body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-car
 .held-reach { display: flex; align-items: center; }
 .held-reach b { min-width: 5em; text-align: center; color: var(--ink); font-weight: 400; }
 .held-reach button.ghost { width: 36px; height: 36px; }
-.held .btn { height: 32px; }
 
 /* every figure gets a fixed right-aligned cell, so nothing in the dock moves as it changes */
 .sys b { display: inline-block; text-align: right; font-weight: 500; color: var(--ink-2); letter-spacing: .04em; }

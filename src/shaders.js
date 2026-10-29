@@ -364,6 +364,16 @@ const f = (x) => {
   const s = String(x);
   return /[.eE]/.test(s) ? s : s + '.0';
 };
+// The hand's limits and the needle's shape, as the simulation and the composite both have them.
+const HAND_SHAPES = /* wgsl */ `
+const STAGE_HOT = ${f(STAGE.hot)};
+const STAGE_COLD = ${f(STAGE.cold)};
+const NEEDLE_W = ${f(NEEDLE.w)};
+const NEEDLE_TAPER = ${f(NEEDLE.taper)};
+const NEEDLE_WET = ${f(NEEDLE.wet)};
+// The needle's half-width s world units back from its point along its shaft.
+fn needleW(s: f32) -> f32 { return NEEDLE_W * pow(clamp(s / NEEDLE_TAPER, 0.0, 1.0), 0.6); }
+`;
 
 // The kinds of sediment grain, shared by the stone pass (vsStone, mineralSurf) and the specimen panel:
 // each kind's color variants (a name and color, from a share of grains on), and how bedrock and reef
@@ -1398,13 +1408,7 @@ fn discSlope(d: vec2f, r: f32) -> vec2f {
   let u = clamp((l - 0.94 * r) / (0.06 * r), 0.0, 1.0);
   return -d / max(l, 1e-6) * (6.0 * u * (1.0 - u) / max(0.06 * r, 1e-6));
 }
-const STAGE_HOT = ${f(STAGE.hot)};
-const STAGE_COLD = ${f(STAGE.cold)};
-const NEEDLE_W = ${f(NEEDLE.w)};
-const NEEDLE_TAPER = ${f(NEEDLE.taper)};
-// The needle's half-width s world units back from its point along its shaft.
-fn needleW(s: f32) -> f32 { return NEEDLE_W * pow(clamp(s / NEEDLE_TAPER, 0.0, 1.0), 0.6); }
-// The light l at p under the hand's lamp (added) or shade (taken away).
+${HAND_SHAPES}// The light l at p under the hand's lamp (added) or shade (taken away).
 fn lampLight(p: vec2f, l: f32) -> f32 {
   let lp = sim.hand.lamp;
   if (lp.w == 0.0) { return l; }
@@ -7056,9 +7060,7 @@ fn extremes(c: vec3f, wpIn: vec2f, ppu: f32, water: vec3f, behind: f32) -> vec3f
   }
   return o;
 }
-const STAGE_HOT = ${f(STAGE.hot)};
-const STAGE_COLD = ${f(STAGE.cold)};
-fn boilAt(T: f32) -> f32 { return smoothstep(${f(BOIL)} - 9.0, ${f(BOIL)} - 1.0, T); }
+${HAND_SHAPES}fn boilAt(T: f32) -> f32 { return smoothstep(${f(BOIL)} - 9.0, ${f(BOIL)} - 1.0, T); }
 // Dry ground in darkfield: the film of silt and clay the water left. Wet, water fills the spaces between its grains
 // and it scatters little, dark and smooth with a gloss; as it dries air takes their place and it pales to a grainy
 // buff glow, patchily, as the film drains unevenly. Drying, it shrinks and cracks into plates, first a coarse network
@@ -7505,9 +7507,6 @@ fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
 // fine, open at its tip; the cold probe, a blunt steel rod, frosting as it chills. Raised over the water (toolB.y
 // 0) it is out of focus, a soft shadow of itself; let down into it, sharp. Here: x how far wp lies outside its
 // surface (negative inside), y across it (-1..1), z along it from its point, w its blur (world units).
-const NEEDLE_W = ${f(NEEDLE.w)};
-const NEEDLE_TAPER = ${f(NEEDLE.taper)};
-const NEEDLE_WET = ${f(NEEDLE.wet)};
 // (wp and its point both in the view's own coordinates, unwrapped: an instrument is drawn once, never round the
 // world's edge)
 fn toolAt(wp: vec2f, ppu: f32) -> vec4f {
@@ -7520,7 +7519,7 @@ fn toolAt(wp: vec2f, ppu: f32) -> vec4f {
   // its half-width t back from its point, and how far back it leaves the water (rising out of focus past it)
   var hw = 0.36;
   var wet = 1e6;
-  if (kind < 1.5) { hw = NEEDLE_W * pow(clamp(t / NEEDLE_TAPER, 0.0, 1.0), 0.6) + 0.004; wet = NEEDLE_WET; }
+  if (kind < 1.5) { hw = needleW(t) + 0.004; wet = NEEDLE_WET; }
   else if (kind < 2.5) { hw = mix(0.34, 1.1, smoothstep(0.0, 12.0, t)); }
   else if (kind > 3.5) { hw = post.toolB.w; wet = 0.0; }
   let sd = select(abs(lat) - hw, length(d) - hw, s < 0.0);

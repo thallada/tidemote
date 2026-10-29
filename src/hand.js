@@ -58,8 +58,6 @@ export function createHand(words, ids, { reach = REACH.def } = {}) {
       const t = h.tool, v = t === 'lamp' || t === 'shade' ? h.lamp.v / (t === 'lamp' ? LAMP : -SHADE) : t === 'warm' || t === 'cold' ? h.stage.v * (t === 'warm' ? 1 : -1) : 0;
       return Math.max(0, v);
     },
-    /** Whether anything the hand did still acts on the world (a lamp fading, the stage still warming). */
-    get acting() { return h.lamp.v !== 0 || h.stage.v !== 0; },
     /** A world begun or put in place: its record of acts (kept with it), nothing of the last world's still acting. */
     reset(acts = []) {
       h.up(); h.acts = acts; h.rider = NONE; h.will = null; h.suck = null;
