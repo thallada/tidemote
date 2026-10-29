@@ -124,7 +124,7 @@ export const DEFAULT_K = {
   beatMix: 0.25,
   beatGain: 6,
   beatTop: 4,
-  beatMixC: 0.15,   // a coarse step's share (a 1/60 s step's would overshoot over its ticks), and how firmly a beating
+  beatMixC: 0.25,   // a coarse step's share (its swing capped at two beatTops, a fitted gain; docs/fast-forward.md), and how firmly a beating
   beatBendC: 0.25,  // tree holds its angles then, relative to growStiff (bent afresh each tick from where its partners go)
   treeBond: 3,      // a beating tree's bonds' pull, relative to a body's (bond): its beat swings its cells hard
   tailOdds: 1,      // a packed body's tails: the chance a bud at its edge starts one, times the tail gene, when no
@@ -2357,12 +2357,12 @@ fn treeDeg(x: u32) -> f32 {
   let m = bondsOf(x).x;
   return max(2.0, f32(min(backOf(x, 0u), 3u)) + select(0.0, 1.0, m < sim.count && m != x));
 }
-// One pull a step, the beat reckoned at the step's middle. A coarse step pulls a smaller share (beatMixC:
-// over its several ticks the stiffest wave, each cell pulled by both its bonds as a zigzag, would
-// overshoot), and its ticks' drag leaves less of the beat standing, so the beat asks more: as much as
+// One pull a step, the beat reckoned at the step's middle. A coarse step pulls its own share (beatMixC),
+// and its ticks' drag leaves less of the beat standing, so the beat asks more: as much as
 // it takes for its wave (2 - 2 cos of its phase per cell, as the bonds settle it) to stand as tall as in
-// 1/60 s steps, by a 1/60 s step's and a coarse step's settling, and three tenths more a tick past the first
-// (fitted with tools/swimlab.mjs; docs/growth.md), but no faster across a bond than three beatTops.
+// 1/60 s steps, by a 1/60 s step's and a coarse step's settling, and 0.35 more a tick past the first
+// (fitted with tools/swimlab.mjs over 12 beat genotypes; docs/fast-forward.md), but no faster across a
+// bond than two beatTops (a strong slow beat swung faster tore its body).
 fn beatPull(i: u32, gr: Grow, size: f32, frX: f32) -> vec2f {
   let p = sortedFull[i];
   let tm = sim.time - 0.5 * sim.dt;
@@ -2373,10 +2373,10 @@ fn beatPull(i: u32, gr: Grow, size: f32, frX: f32) -> vec2f {
   if (sim.ticks > 1u) {
     mixW = ${f(K.beatMixC)};
     let wm = 2.0 * mixW * (2.0 - 2.0 * cos(gr.beat.z));
-    gain = (wm + 1.0 - pow(frX, f32(sim.ticks))) / (${f(2 * K.beatMix)} * (2.0 - 2.0 * cos(gr.beat.z)) + 1.0 - frX) * (1.0 + 0.3 * f32(sim.ticks - 1u)) * ${f(K.beatMix)} / mixW;
+    gain = (wm + 1.0 - pow(frX, f32(sim.ticks))) / (${f(2 * K.beatMix)} * (2.0 - 2.0 * cos(gr.beat.z)) + 1.0 - frX) * (1.0 + 0.35 * f32(sim.ticks - 1u)) * ${f(K.beatMix)} / mixW;
   }
   // (a coarse step asks no faster swing of a bond than it can follow)
-  let top = select(1e9, ${f(3 * K.beatTop)} * size, sim.ticks > 1u);
+  let top = select(1e9, ${f(2 * K.beatTop)} * size, sim.ticks > 1u);
   var dv = vec2f(0.0);
   for (var k = 0u; k < 4u; k++) {
     // the mother, then the daughters
