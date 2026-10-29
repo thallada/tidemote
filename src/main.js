@@ -151,7 +151,7 @@ async function boot(tries = 4) {
 
 // Time multipliers of real time. Infinity is "Max": as fast as the GPU goes. Speeds above 1× are
 // offered only up to what the GPU can sustain (sustainable()).
-const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8, 16, 32, 64, Infinity];
+const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8, 16, 32, 64, 128, 256, 512, Infinity];
 const MAX_FRAME_MS = 30; // GPU time a frame may take when running fast (about 30 fps)
 // A fast speed the GPU can't reach in 1/60 s steps takes coarse steps instead, of up to MAX_TICKS/60 s:
 // as many steps a second, each covering more time (docs/fast-forward.md: to 6 they keep the ecology;
@@ -161,7 +161,11 @@ const MAX_FRAME_MS = 30; // GPU time a frame may take when running fast (about 3
 const MAX_TICKS = 6;
 const SIGNAL_AFTER = 60; // seconds a species singing the five tones must live before it is heard
 const H = 1 / 60; // the simulation's step, as in the headless runs
-const fmtSpeed = (s) => (s === Infinity ? 'Max' : `×${s}`);
+// Past the speeds on offer, two ways to run as fast as the GPU goes: "Fast" draws the world every frame, in
+// between steps (LERP_WGSL), "Max" about every MAX_FRAME_MS, which leaves the steps more of the GPU (faster
+// where drawing costs much: big worlds, big screens). Both are speed Infinity; fastMode tells them apart.
+let fastMode = false;
+const fmtSpeed = (s) => (s === Infinity ? (fastMode ? 'Fast' : 'Max') : `×${s}`);
 // A new world opens with little life, a few colonies in open water (docs/founding.md): its first WARM_UNTIL
 // seconds run at Max, with a notice saying why, then real time. A fresh world sized to its GPU gets there
 // in about 6 s, drawn or not (drawing is under a tenth of the GPU's time at Max), so it is shown, not hidden.
@@ -2299,12 +2303,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     setLive($('t-speed-v'), state.paused ? 'Paused' : fmtSpeed(s));
     $('t-speed').setAttribute('aria-label', `Speed ${fmtSpeed(s)}${s !== 1 ? ', back to real time' : ''}`);
     $('t-slower').disabled = s === list[0];
-    $('t-faster').disabled = s === Infinity;
+    $('t-faster').disabled = s === Infinity && !fastMode;
     $('t-speed').classList.toggle('fast', s > 1 && s !== Infinity);
     $('t-speed').classList.toggle('max', s === Infinity);
   }
-  function applySpeed(v) {
+  function applySpeed(v, fast = false) {
     state.speed = v;
+    fastMode = v === Infinity && fast;
     perf.ticksAt = 0;
     perf.stepCredit = 0;
     clock.owed = 0;
@@ -2313,10 +2318,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     renderTime();
   }
   // a speed chosen (it ends the warm-up)
-  function setSpeed(v) {
+  function setSpeed(v, fast = false) {
     endWarm();
     if (state.paused) state.paused = false;
-    applySpeed(v);
+    applySpeed(v, fast);
     flash(`Speed ${fmtSpeed(v)}`);
   }
   // The warm-up (WARM_UNTIL): due once a new world is seeded, begun when it is first seen (the intro gone).
@@ -2337,10 +2342,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
   $('warm-end').addEventListener('click', () => setSpeed(1));
   // one notch along the speeds on offer
   function stepSpeed(d) {
-    const list = speedChoices();
-    let i = list.indexOf(state.speed);
-    if (i < 0) i = list.findIndex((v) => v > state.speed) - (d > 0 ? 1 : 0);
-    setSpeed(list[clamp(i + d, 0, list.length - 1)]);
+    const list = [...speedChoices().filter((v) => v !== Infinity), 'fast', Infinity];
+    let i = list.indexOf(state.speed === Infinity && fastMode ? 'fast' : state.speed);
+    if (i < 0) i = list.findIndex((v) => v === 'fast' || v > state.speed) - (d > 0 ? 1 : 0);
+    const v = list[clamp(i + d, 0, list.length - 1)];
+    setSpeed(v === 'fast' ? Infinity : v, v === 'fast');
   }
   // A step's GPU cost (a coarse step costs about what a 1/60 s one does: one scan of the neighbors)
   const stepCost = () => perf.simS || perf.stepMs;
@@ -2369,11 +2375,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (!(s > 1) || !stepCost()) { perf.ticks = 1; perf.held = false; return; }
     if (s === Infinity) { perf.ticks = MAX_TICKS; perf.held = true; return; }
     const ways = [[1, false]];
+    // coarse steps with the world drawn every frame, in between steps (LERP_WGSL), before holding it
+    for (let m = 2; m <= MAX_TICKS; m++) ways.push([m, false]);
     for (let m = 1; m <= MAX_TICKS; m++) ways.push([m, true]);
     const rank = ways.findIndex(([m, h]) => m === perf.ticks && h === perf.held);
     let i = ways.findIndex(([m, h]) => gpuLoad(s, m, h) <= GPU_BUDGET);
     if (i < 0) i = ways.length - 1;
-    if (i < rank && gpuLoad(s, ...ways[i]) > GPU_BUDGET * 0.8) i = rank;
+    // a cheaper way is taken back only with room to spare: the first that leaves it (not just the cheapest,
+    // or from held 6-tick steps nothing between them and 1/60 s steps was ever tried)
+    // (and only while the way it has still fits: one that no longer does is left at once)
+    if (i < rank && gpuLoad(s, ...ways[i]) > GPU_BUDGET * 0.8 && gpuLoad(s, ...ways[rank]) <= GPU_BUDGET) { const j = ways.findIndex((w) => gpuLoad(s, ...w) <= GPU_BUDGET * 0.8); i = j >= 0 && j < rank ? j : rank; }
     [perf.ticks, perf.held] = ways[i];
   }
   // Re-judged every few seconds. The cap moves only when the estimate leaves a band around it, so
@@ -2650,8 +2661,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // the simulated time the frame being drawn shows (after this frame's steps)
   let viewSimTime = 0;
   function predicted() { return predictAt(sel.particle, sel.sampleT); }
-  function predictAt(p, sampleT) {
-    const dtS = Math.max(0, Math.min(0.25, (viewSimTime || eng.simTime) - sampleT));
+  // How far a sample is carried on: at most a quarter of a real second's simulated time (at fast speeds a
+  // sample is a few frames, but seconds of simulated time, old when it arrives; held to 0.25 s, the marks trailed)
+  const carryMax = () => 0.25 * Math.max(1, state.speed === Infinity ? perf.rate || 1 : state.speed);
+  function predictAt(p, sampleT, at = viewSimTime || eng.simTime) {
+    const dtS = Math.max(0, Math.min(carryMax(), at - sampleT));
     // a cell's velocity leaves out the current, which carries it by its advect; matter's already
     // includes it (stone and framboids hold still), so adding it again would walk the marker off them
     let adv = 0;
@@ -2740,8 +2754,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // prediction would make it jump, so the jump becomes an offset that fades within ~0.1 s.
       const [px, py] = predicted();
       if (sel.dispT !== sel.sampleT) {
-        if (sel.dispT != null) { sel.err[0] = wrapD(sel.disp[0] - px, W); sel.err[1] = wrapD(sel.disp[1] - py, H); }
+        // (against where the last sample's prediction puts it now, not where the marker was a frame ago:
+        // that took the cell's own motion over the frame for a correction, and the eased offset kept the
+        // marker trailing it, by several frames of its motion, by far more at fast speeds)
+        if (sel.dispT != null && sel.shown) {
+          const [ox, oy] = predictAt(sel.shown.p, sel.shown.t);
+          sel.err[0] = wrapD(ox + sel.err[0] - px, W); sel.err[1] = wrapD(oy + sel.err[1] - py, H);
+        }
         sel.dispT = sel.sampleT;
+        sel.shown = { p: sel.particle, t: sel.sampleT };
       }
       const fade = Math.exp(-dt / 45);
       sel.err[0] *= fade; sel.err[1] *= fade;
@@ -2792,7 +2813,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const watched = new Map();
   let marksAt = 0;
   eng.onWatch = ({ simTime, seen }) => {
-    for (const w of seen) { const o = watched.get(w.id); watched.set(w.id, { x: w.x, y: w.y, vx: w.vx, vy: w.vy, t: simTime, disp: o && o.disp, err: o ? o.err : [0, 0], fresh: true }); }
+    for (const w of seen) { const o = watched.get(w.id); watched.set(w.id, { x: w.x, y: w.y, vx: w.vx, vy: w.vy, t: simTime, disp: o && o.disp, err: o ? o.err : [0, 0], fresh: true, shown: o && o.shown }); }
   };
   // the auto camera's follow shot of the marked subject, and whether it has come into view
   function filmShot() {
@@ -2841,9 +2862,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const place = (w, g) => {
       let q = placed.get(w);
       if (q) return q;
-      const dts = Math.max(0, Math.min(0.25, simNow - w.t)), [fx, fy] = flowAt(w.x, w.y, eng.simTime, eng.waves);
-      const px = w.x + (w.vx + fx * g.advect) * dts, py = w.y + (w.vy + fy * g.advect) * dts;
-      if (w.fresh && w.disp) { w.err = [wrapD(w.disp[0] - px, W), wrapD(w.disp[1] - py, H)]; }
+      const carry = (s) => { const dts = Math.max(0, Math.min(carryMax(), simNow - s.t)), [fx, fy] = flowAt(s.x, s.y, eng.simTime, eng.waves); return [s.x + (s.vx + fx * g.advect) * dts, s.y + (s.vy + fy * g.advect) * dts]; };
+      const [px, py] = carry(w);
+      // (the correction against where the last sample puts it now, not where it was marked a frame ago, as
+      // the selection's marker)
+      if (w.fresh && w.disp && w.shown) { const [ox, oy] = carry(w.shown); w.err = [wrapD(ox + w.err[0] - px, W), wrapD(oy + w.err[1] - py, H)]; }
+      if (w.fresh) w.shown = { x: w.x, y: w.y, vx: w.vx, vy: w.vy, t: w.t };
       w.fresh = false;
       w.err[0] *= fade; w.err[1] *= fade;
       q = [px + w.err[0], py + w.err[1]];
@@ -3267,7 +3291,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // cost of drawing the world when it is due (else of carrying the last drawn image with the camera).
   // Up to two frames queue, so the GPU never waits on the page between them.
   function maxPlan(now, m) {
-    const world = now - perf.worldAt >= MAX_FRAME_MS;
+    const world = fastMode || now - perf.worldAt >= MAX_FRAME_MS;
     if (world) perf.worldAt = now;
     const dt = m * H, S = stepCost();
     const cost = world ? perf.renderR : perf.presentR || 0.3;
@@ -3315,11 +3339,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // two steps of 0.69 ticks, twice the GPU time for the same time simulated, which made the next
     // frame late too. A step stretches by up to a tenth to keep the motion with the clock (58.3 fps
     // frames on a 60 Hz tick); a frame takes two only once it owes 1.75.
-    const most = H * (state.speed === 1 ? stepTicks() : 1);
+    const most = H * (state.speed === 1 ? stepTicks() : state.speed > 1 ? perf.ticks : 1);
     let n = Math.floor(clock.owed / most + 0.25);
     if (n === 0) return null;
     n = Math.min(n, cap);
-    const dt = clamp(clock.owed / n, most * 0.9, most * 1.1);
+    // (coarse steps keep their length, the remainder carried: stretched, 6 ticks became 7)
+    const dt = most > H * 1.5 ? most : clamp(clock.owed / n, most * 0.9, most * 1.1);
     clock.owed = clamp(clock.owed - n * dt, -0.25 * most, most);
     return { steps: n, dt };
   }
@@ -3389,7 +3414,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const step = (!portraitHold && plan(now)) || { steps: 0, dt: H };
       // the census (naming and lineage) at most about five times a real second, however fast the world runs
       eng.censusEvery = Math.max(20, Math.round((step.steps * 1000) / frameTarget() / 5));
-      viewSimTime = eng.simTime + (state.paused ? 0 : step.steps * step.dt);
+      // Coarse steps drawn every frame are drawn in between (LERP_WGSL): one step behind, part way along the
+      // last step, as far as the time owed to the clock has reached into the next one, or at Fast (paced by
+      // the GPU, not the clock) the share of the next step the frame's budget has already earned.
+      if (step.steps > 0) { perf.lerpDt = step.dt; perf.lerpTicks = Math.round(step.dt * 60); }
+      const lerpOn = !state.paused && !portraitHold && state.phase === 'running' && perf.lerpTicks > 1
+        && (state.speed === Infinity ? fastMode : !perf.held);
+      eng.lerp = lerpOn ? clamp(state.speed === Infinity ? perf.stepCredit : clock.owed / perf.lerpDt, 0, 1) : null;
+      // (the moment the frame shows: behind the steps' end when drawn in between)
+      viewSimTime = eng.simTime + (state.paused ? 0 : step.steps * step.dt) - (eng.lerp != null ? (1 - eng.lerp) * perf.lerpDt : 0);
       if (state.phase === 'running' && !state.paused) climate.tick(step.steps * step.dt);
       autoCamera(now, dt);
       renderCaption(now);

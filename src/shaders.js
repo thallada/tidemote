@@ -3731,6 +3731,41 @@ fn organDirs(@builtin(global_invocation_id) gid: vec3u) {
 }
 `;
 
+// Coarse steps drawn in between (docs/fast-forward.md). A step leaves each particle's start in sortedFull[i]
+// and its end in parts[i] (lifeMain writes one from the other, slot for slot), so a frame between steps can
+// draw the world part way along: lerpApply keeps each end in endPos and moves parts back toward the start by
+// 1 - alpha; lerpRestore puts the ends back before anything steps or reads the world again.
+export const LERP_WGSL = /* wgsl */ `
+struct Particle { pos: vec2f, vel: vec2f, kind: u32, energy: f32, age: f32, id: u32, col: u32, info: u32 };
+struct LerpU { n: u32, alpha: f32, w: f32, h: f32, nBack: u32, p0: u32, p1: u32, p2: u32 };
+@group(0) @binding(0) var<uniform> u: LerpU;
+@group(0) @binding(1) var<storage, read_write> parts: array<Particle>;
+@group(0) @binding(2) var<storage, read> start: array<Particle>;
+@group(0) @binding(3) var<storage, read_write> endPos: array<vec2f>;
+@compute @workgroup_size(256)
+fn lerpApply(@builtin(global_invocation_id) gid: vec3u) {
+  let i = gid.x;
+  if (i >= u.n) { return; }
+  let p = parts[i];
+  endPos[i] = p.pos;
+  let q = start[i];
+  if (q.id != p.id) { return; }
+  let world = vec2f(u.w, u.h);
+  var d = q.pos - p.pos;
+  d -= world * round(d / world);
+  // (a jump of a whole cell or more is a birth or a wrap, not motion)
+  if (dot(d, d) > 0.25) { return; }
+  let x = p.pos + d * (1.0 - u.alpha);
+  parts[i].pos = x - world * floor(x / world);
+}
+@compute @workgroup_size(256)
+fn lerpRestore(@builtin(global_invocation_id) gid: vec3u) {
+  let i = gid.x;
+  if (i >= u.nBack) { return; }
+  parts[i].pos = endPos[i];
+}
+`;
+
 export const DRAW_WGSL = 'diagnostic(off, derivative_uniformity);\n' + COMMON + ANIM_WGSL + /* wgsl */ `
 // Unresolved views use the cheap sprite profile; resolved cells share one outline path.
 struct View {

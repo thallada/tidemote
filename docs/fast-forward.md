@@ -6,17 +6,50 @@ normal steps, how to measure that, and what did not work, for whoever takes it f
 
 ## How the page runs a speed
 
-`updateTicks` (src/main.js) re-judges each second, cheapest first:
+`updateTicks` (src/main.js) re-judges each second, in this order, the first that fits `GPU_BUDGET`
+(a way earlier in the list is taken back only with a fifth of the budget to spare, and a way that no longer
+fits is left at once):
 
 1. 1/60 s steps with the world drawn every display frame;
-2. 1/60 s steps with the world drawn about every `MAX_FRAME_MS` (30 ms): the camera, overlay and HUD keep
+2. coarse steps of 2..`MAX_TICKS` (6) ticks with the world drawn every display frame, in between steps
+   (below);
+3. 1/60 s steps with the world drawn about every `MAX_FRAME_MS` (30 ms): the camera, overlay and HUD keep
    the display's rate, carrying the last drawn image with the camera (engine `frame({ hold })`, `pHold`);
-3. coarse steps of 2..`MAX_TICKS` (6) ticks, also drawn about every 30 ms.
+4. coarse steps of 2..`MAX_TICKS` ticks, also drawn about every 30 ms.
 
-Max always takes `MAX_TICKS`. The speeds on offer are those the GPU fits within `GPU_BUDGET` in the
-coarsest steps. A coarse step costs about what a 1/60 s step does (one scan of the neighbors), so 4 ticks
+Past the speeds on offer (×512 at most) are two ways to run as fast as the GPU goes, both in `MAX_TICKS`
+steps: Fast draws the world every display frame, in between steps, and Max about every 30 ms, which leaves
+the steps more of the GPU (no slower on a 1M world in a 1280x800 window, 16% faster on a 4M one; more on
+bigger screens). The speeds on offer are those Max reaches. A coarse step costs about what a 1/60 s step does (one scan of the neighbors), so 4 ticks
 are about 4x faster. The census runs at most about five times a real second. Settings, Performance shows
 Step ms, Draw ms, Stride (ticks a step) and Now (the speed reached).
+
+## Drawn in between
+
+A coarse step moves the world 4-6 ticks at once. Drawn as it stands after each step, at real time (where
+coarse steps come when Auto lowers the frame rate) it moved 10-15 times a second, and at fast speeds the world
+drawn 30 times a second jumped. So where every display frame draws the world (real time, the second way above,
+and Fast) it is drawn one step behind, part way along the last step: `LERP_WGSL` (`lerpApply` before the
+frame's picks and drawing, `lerpRestore` before anything else runs or reads the world). A step leaves each
+particle's start in `sortedFull[i]` and its end in `parts[i]` (lifeMain writes one from the other slot for
+slot), so the blend needs only the ends kept aside (`lerpEnd`, 8 bytes a particle); a particle whose id
+differs (born in the step) or that jumped half a unit is drawn where it is. How far along: the share of the
+next step the clock already owes (`clock.owed`), at Fast the share of the next step the frame's budget has
+earned (`perf.stepCredit`).
+
+What the viewer sees is up to one step behind (67-100 ms at real time), so everything that marks or finds a
+cell works on what is drawn: picks, tracking and the watched cells run after `lerpApply` and are stamped
+with the moment drawn (`shownTime`), and the page's `viewSimTime` is that moment. Saves and other reads of
+the world put the true positions back first (`_lerpBack`).
+
+The selection's marker and the song marks are carried from their last sample on the cell's velocity and
+eased onto each new one. Until 2026-10-29 the correction was measured from where the marker was drawn a
+frame earlier, which took the cell's own motion over the frame for an error and kept the marker trailing it
+(7-11 px at real time, 30-70 px at 16x), and a sample was carried at most 0.25 s of simulated time, which at
+fast speeds is less than its age. Now the correction is measured from where the sample last drawn from puts
+it now, and a sample is carried up to a quarter of a real second's simulated time (`carryMax`): about 1 px
+at real time, about 11 px at 8-16x (more for a moment when the cell turns, as the sample is then 0.3-0.5 s
+of simulated time old).
 
 ## How a coarse step works (src/shaders.js)
 

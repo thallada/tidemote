@@ -5169,6 +5169,39 @@ fn organDirs(@builtin(global_invocation_id) gid: vec3u) {
   organDir[gid.x] = pack2x16snorm(vec2f(cos(th), sin(th)));
 }
 `;
+  var LERP_WGSL = (
+    /* wgsl */
+    `
+struct Particle { pos: vec2f, vel: vec2f, kind: u32, energy: f32, age: f32, id: u32, col: u32, info: u32 };
+struct LerpU { n: u32, alpha: f32, w: f32, h: f32, nBack: u32, p0: u32, p1: u32, p2: u32 };
+@group(0) @binding(0) var<uniform> u: LerpU;
+@group(0) @binding(1) var<storage, read_write> parts: array<Particle>;
+@group(0) @binding(2) var<storage, read> start: array<Particle>;
+@group(0) @binding(3) var<storage, read_write> endPos: array<vec2f>;
+@compute @workgroup_size(256)
+fn lerpApply(@builtin(global_invocation_id) gid: vec3u) {
+  let i = gid.x;
+  if (i >= u.n) { return; }
+  let p = parts[i];
+  endPos[i] = p.pos;
+  let q = start[i];
+  if (q.id != p.id) { return; }
+  let world = vec2f(u.w, u.h);
+  var d = q.pos - p.pos;
+  d -= world * round(d / world);
+  // (a jump of a whole cell or more is a birth or a wrap, not motion)
+  if (dot(d, d) > 0.25) { return; }
+  let x = p.pos + d * (1.0 - u.alpha);
+  parts[i].pos = x - world * floor(x / world);
+}
+@compute @workgroup_size(256)
+fn lerpRestore(@builtin(global_invocation_id) gid: vec3u) {
+  let i = gid.x;
+  if (i >= u.nBack) { return; }
+  parts[i].pos = endPos[i];
+}
+`
+  );
   var DRAW_WGSL = "diagnostic(off, derivative_uniformity);\n" + COMMON + ANIM_WGSL + /* wgsl */
   `
 // Unresolved views use the cheap sprite profile; resolved cells share one outline path.
@@ -17984,6 +18017,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.watchModule = d.createShaderModule({ code: WATCH_WGSL, label: "watch" });
       this.surveyModule = d.createShaderModule({ code: SURVEY_WGSL, label: "survey" });
       this.drawModule = d.createShaderModule({ code: DRAW_WGSL, label: "draw" });
+      const lerpModule = d.createShaderModule({ code: LERP_WGSL, label: "lerp" });
+      this.cpLerp = cPipe({ layout: "auto", compute: { module: lerpModule, entryPoint: "lerpApply" }, label: "lerpApply" });
+      this.cpLerpBack = cPipe({ layout: "auto", compute: { module: lerpModule, entryPoint: "lerpRestore" }, label: "lerpRestore" });
+      this.lerp = null;
+      this._lerpN = 0;
+      this._lerpOk = false;
       const cullModule = d.createShaderModule({ code: CULL_WGSL, label: "cull" });
       this.cpCull = cPipe({ layout: "auto", compute: { module: cullModule, entryPoint: "cullRows" }, label: "cullRows" });
       this.cull = [0, 1, 2].map(() => {
@@ -18171,6 +18210,11 @@ ${e.message}` : String(e?.message || e));
       d.pushErrorScope("validation");
       b.parts = d.createBuffer({ size: n * P_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
       b.sortedFull = d.createBuffer({ size: n * P_BYTES, usage: U.STORAGE });
+      b.lerpEnd?.destroy();
+      b.lerpEnd = d.createBuffer({ size: n * 8, usage: U.STORAGE });
+      b.lerpU ??= d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
+      this._lerpN = 0;
+      this._lerpOk = false;
       b.sortedLite = d.createBuffer({ size: n * LITE_BYTES, usage: U.STORAGE });
       b.aux = d.createBuffer({ size: n * 8, usage: U.STORAGE });
       b.intent = d.createBuffer({ size: n * 16, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
@@ -18504,6 +18548,8 @@ ${e.message}` : String(e?.message || e));
      * K.foundColonies small colonies in empty water, as a world recovering from a collapse begins again.
      */
     seed(n, { aspect = 16 / 9, rng = Math.random } = {}) {
+      this._lerpN = 0;
+      this._lerpOk = false;
       const d = this.device;
       this.worldGeneration++;
       this.abio = 0;
@@ -18751,6 +18797,7 @@ ${e.message}` : String(e?.message || e));
     _step(enc, simDt, timestampWrites, ring2 = -1, prof = null) {
       const b = this.b;
       const N = this.count;
+      this._lerpOk = true;
       this.dt = simDt;
       this.simTime += simDt;
       this.frameNo++;
@@ -18825,6 +18872,7 @@ ${e.message}` : String(e?.message || e));
      * with the clock, light and tides), to run the same moment forward again with restore().
      */
     snapshot() {
+      this._lerpBack();
       const d = this.device, b = this.b, U2 = GPUBufferUsage;
       const enc = d.createCommandEncoder();
       const keep = { gpu: {} };
@@ -18913,6 +18961,8 @@ ${e.message}` : String(e?.message || e));
     }
     /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
     writeState({ cpu, gpu }) {
+      this._lerpN = 0;
+      this._lerpOk = false;
       for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, data);
       const enc = this.device.createCommandEncoder();
       enc.clearBuffer(this.b.ledger, this._splAt(), SPL_WORDS * 4);
@@ -18934,7 +18984,22 @@ ${e.message}` : String(e?.message || e));
       this._listenSim = this._surveySim = null;
     }
     /** Read every particle now (headless forks): { u32, f32 } views over count records of P_BYTES. */
+    // the true positions back in place of those drawn in between steps, for what reads the world itself
+    _lerpBack() {
+      if (!this._lerpN) return;
+      const d = this.device, lu = new Uint32Array(8);
+      lu[4] = this._lerpN;
+      d.queue.writeBuffer(this.b.lerpU, 0, lu);
+      const enc = d.createCommandEncoder(), pass = enc.beginComputePass();
+      pass.setPipeline(this.cpLerpBack);
+      pass.setBindGroup(0, this._lerpBG.back);
+      pass.dispatchWorkgroups(Math.ceil(this._lerpN / 256));
+      pass.end();
+      d.queue.submit([enc.finish()]);
+      this._lerpN = 0;
+    }
     async readParticles() {
+      this._lerpBack();
       const d = this.device, U2 = GPUBufferUsage, size = this.count * P_BYTES;
       const st = d.createBuffer({ size, usage: U2.COPY_DST | U2.MAP_READ });
       const enc = d.createCommandEncoder();
@@ -19079,6 +19144,33 @@ ${e.message}` : String(e?.message || e));
       };
       const enc = d.createCommandEncoder();
       const prof = this.passProfile ? this._profileEncoder(enc) : null;
+      const lerpN = this.lerp != null && this._lerpOk && target && (hold == null || hold) && N > 0 ? N : 0;
+      if (this._lerpN || lerpN) {
+        if (this._lerpBG?.parts !== b.parts) {
+          const bg = (pipe2) => d.createBindGroup({ layout: pipe2.getBindGroupLayout(0), entries: [
+            { binding: 0, resource: { buffer: b.lerpU } },
+            { binding: 1, resource: { buffer: b.parts } },
+            ...pipe2 === this.cpLerp ? [{ binding: 2, resource: { buffer: b.sortedFull } }] : [],
+            { binding: 3, resource: { buffer: b.lerpEnd } }
+          ] });
+          this._lerpBG = { parts: b.parts, apply: bg(this.cpLerp), back: bg(this.cpLerpBack) };
+        }
+        const lu = new ArrayBuffer(32), lv = new Uint32Array(lu), lf = new Float32Array(lu);
+        lv[0] = lerpN;
+        lf[1] = Math.min(1, Math.max(0, this.lerp ?? 1));
+        lf[2] = this.grid[0];
+        lf[3] = this.grid[1];
+        lv[4] = this._lerpN;
+        d.queue.writeBuffer(b.lerpU, 0, lu);
+      }
+      if (this._lerpN) {
+        const pass = enc.beginComputePass();
+        pass.setPipeline(this.cpLerpBack);
+        pass.setBindGroup(0, this._lerpBG.back);
+        pass.dispatchWorkgroups(Math.ceil(this._lerpN / 256));
+        pass.end();
+        this._lerpN = 0;
+      }
       const censusJobs = [];
       for (let s = 0; s < nSteps; s++) {
         const last = s === nSteps - 1;
@@ -19092,6 +19184,15 @@ ${e.message}` : String(e?.message || e));
       const listenJob = nSteps > 0 ? this._listenCopy(enc, cam) : null;
       const mindJob = this._mindCopy(enc);
       const surveyJob = nSteps > 0 ? this._surveyCopy(enc) : null;
+      if (lerpN) {
+        const pass = enc.beginComputePass();
+        pass.setPipeline(this.cpLerp);
+        pass.setBindGroup(0, this._lerpBG.apply);
+        pass.dispatchWorkgroups(Math.ceil(lerpN / 256));
+        pass.end();
+        this._lerpN = lerpN;
+      }
+      const shownTime = this.simTime - (lerpN ? (1 - Math.min(1, Math.max(0, this.lerp))) * this.dt : 0);
       let pickJob = null;
       const trackJobs = [];
       for (let k = 0; k < 2 && N > 0; k++) {
@@ -19100,13 +19201,13 @@ ${e.message}` : String(e?.message || e));
         const st = this.trackStage.find((s) => !s.busy);
         if (!st) break;
         st.busy = true;
-        trackJobs.push({ st, id, k, simTime: this.simTime });
+        trackJobs.push({ st, id, k, simTime: shownTime });
         const pu = new ArrayBuffer(48);
         const pf = new Float32Array(pu), pv = new Uint32Array(pu);
         const seen = this.trackSeen[k]?.id === id && this.sorted ? this.trackSeen[k] : null;
         if (seen) for (let a = 0; a < 2; a++) {
           const g = this.grid[a];
-          pf[a] = ((seen.pos[a] + seen.vel[a] * (this.simTime - seen.simTime)) % g + g) % g;
+          pf[a] = ((seen.pos[a] + seen.vel[a] * (shownTime - seen.simTime)) % g + g) % g;
         }
         pf[2] = 0;
         pv[3] = id;
@@ -19141,7 +19242,7 @@ ${e.message}` : String(e?.message || e));
         if (st) {
           st.busy = true;
           const cells = watching, ids = cells.map((c) => c.id);
-          watchJob = { st, ids, full: !this.sorted, simTime: this.simTime };
+          watchJob = { st, ids, full: !this.sorted, simTime: shownTime };
           const wu = new ArrayBuffer(16 + WATCH_MAX * 20), wv = new Uint32Array(wu), wf = new Float32Array(wu);
           wv[0] = N;
           wv[1] = ids.length;
@@ -19151,7 +19252,7 @@ ${e.message}` : String(e?.message || e));
           cells.forEach((c, k) => {
             for (let a = 0; a < 2; a++) {
               const g = this.grid[a];
-              wf[4 + WATCH_MAX + k * 4 + a] = (((a ? c.y : c.x) + (a ? c.vy : c.vx) * (this.simTime - c.t)) % g + g) % g;
+              wf[4 + WATCH_MAX + k * 4 + a] = (((a ? c.y : c.x) + (a ? c.vy : c.vx) * (shownTime - c.t)) % g + g) % g;
             }
           });
           d.queue.writeBuffer(b.watchU, 0, wu);
@@ -19177,7 +19278,7 @@ ${e.message}` : String(e?.message || e));
       if (this.pickReq && N > 0) {
         const st = this.pickStage.find((s) => !s.busy);
         if (st) {
-          pickJob = { req: this.pickReq, st, simTime: this.simTime };
+          pickJob = { req: this.pickReq, st, simTime: shownTime };
           this.pickReq = null;
           const pu = new ArrayBuffer(48);
           const pf = new Float32Array(pu), pv = new Uint32Array(pu);
@@ -20284,7 +20385,7 @@ ${e.message}` : String(e?.message || e));
     stepms: "GPU time one simulation step takes.",
     saves: "A save keeps the whole world: every particle, each species with its name and lineage, the chronicle, the history and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download one to keep it safe or to open it on another device.",
     profile: "Times three seconds of frames on the GPU, pass by pass, and one simulation step, and copies the result with this device’s details: a report of how the page runs here.",
-    worldfps: "How many times a second the world itself is redrawn. Normally that is every frame. Running fast (Max, or a fast speed the device can only just keep), it is redrawn about 30 times a second so the GPU’s time goes to steps, while the camera, the loupe and the panels keep the full frame rate.",
+    worldfps: "How many times a second the world itself is redrawn. Normally that is every frame. At Max, or a fast speed the device can only just keep, it is redrawn about 30 times a second so the GPU’s time goes to steps, while the camera, the loupe and the panels keep the full frame rate. Fast is as fast as the device goes too, but redrawn every frame, its motion drawn smoothly between steps.",
     adapting: "Why the page is drawing less than it could, if it is: frames running late, the GPU busy for nearly the whole frame, the device under pressure (hot or busy, where the browser reports it), or the browser’s own pace (it hands out frames more slowly than the screen refreshes while the page has little to do: only the frame rate is lowered then). It lowers the pixel density first, then the render scale, then (with Target fps on Auto) the frame rate; when the simulation is most of the cost, the frame rate before the render scale. It climbs back after a stretch with room to spare. Running fast it does not adapt.",
     renderres: "The render scale the world is drawn at right now, on top of the pixel density (Density; Scene px is the two together). With Render scale on Auto it drops when frames run late and climbs back when there is room.",
     drawms: "GPU time drawing the world once takes: cells, stone, bloom and the final image. At high speeds it is drawn about thirty times a second.",
@@ -27159,9 +27260,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "f150c21b104a27a0") return;
+      if (localStorage.getItem(key) === "c656b8dccba7f358") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "f150c21b104a27a0");
+      if (res) localStorage.setItem(key, "c656b8dccba7f358");
     } catch {
     }
   }
@@ -27234,12 +27335,13 @@ ${e.message}` : String(e?.message || e));
     bootTimes.engine = Math.round(performance.now());
     run(eng, device, ctx, specCtx, hasTS);
   }
-  var SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8, 16, 32, 64, Infinity];
+  var SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8, 16, 32, 64, 128, 256, 512, Infinity];
   var MAX_FRAME_MS = 30;
   var MAX_TICKS = 6;
   var SIGNAL_AFTER = 60;
   var H = 1 / 60;
-  var fmtSpeed = (s) => s === Infinity ? "Max" : `×${s}`;
+  var fastMode = false;
+  var fmtSpeed = (s) => s === Infinity ? fastMode ? "Fast" : "Max" : `×${s}`;
   var WARM_UNTIL = 120;
   var PARTICLE_SIZES = [16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304, 8388608];
   var EVENTS_ON = () => ({ on: true, ...Object.fromEntries(EVENT_TYPES.map((x) => [x, true])) });
@@ -29739,12 +29841,13 @@ ${e.message}` : String(e?.message || e));
       setText($("t-speed-v"), state.paused ? "Paused" : fmtSpeed(s));
       $("t-speed").setAttribute("aria-label", `Speed ${fmtSpeed(s)}${s !== 1 ? ", back to real time" : ""}`);
       $("t-slower").disabled = s === list[0];
-      $("t-faster").disabled = s === Infinity;
+      $("t-faster").disabled = s === Infinity && !fastMode;
       $("t-speed").classList.toggle("fast", s > 1 && s !== Infinity);
       $("t-speed").classList.toggle("max", s === Infinity);
     }
-    function applySpeed(v) {
+    function applySpeed(v, fast = false) {
       state.speed = v;
+      fastMode = v === Infinity && fast;
       perf.ticksAt = 0;
       perf.stepCredit = 0;
       clock2.owed = 0;
@@ -29752,10 +29855,10 @@ ${e.message}` : String(e?.message || e));
       perf.lastAdjust = performance.now();
       renderTime();
     }
-    function setSpeed(v) {
+    function setSpeed(v, fast = false) {
       endWarm();
       if (state.paused) state.paused = false;
-      applySpeed(v);
+      applySpeed(v, fast);
       flash(`Speed ${fmtSpeed(v)}`);
     }
     let warmDue = false;
@@ -29788,10 +29891,11 @@ ${e.message}` : String(e?.message || e));
     }
     $("warm-end").addEventListener("click", () => setSpeed(1));
     function stepSpeed(d) {
-      const list = speedChoices();
-      let i = list.indexOf(state.speed);
-      if (i < 0) i = list.findIndex((v) => v > state.speed) - (d > 0 ? 1 : 0);
-      setSpeed(list[clamp6(i + d, 0, list.length - 1)]);
+      const list = [...speedChoices().filter((v2) => v2 !== Infinity), "fast", Infinity];
+      let i = list.indexOf(state.speed === Infinity && fastMode ? "fast" : state.speed);
+      if (i < 0) i = list.findIndex((v2) => v2 === "fast" || v2 > state.speed) - (d > 0 ? 1 : 0);
+      const v = list[clamp6(i + d, 0, list.length - 1)];
+      setSpeed(v === "fast" ? Infinity : v, v === "fast");
     }
     const stepCost = () => perf.simS || perf.stepMs;
     function gpuLoad(s, m, held = true) {
@@ -29820,11 +29924,15 @@ ${e.message}` : String(e?.message || e));
         return;
       }
       const ways = [[1, false]];
+      for (let m = 2; m <= MAX_TICKS; m++) ways.push([m, false]);
       for (let m = 1; m <= MAX_TICKS; m++) ways.push([m, true]);
       const rank = ways.findIndex(([m, h]) => m === perf.ticks && h === perf.held);
       let i = ways.findIndex(([m, h]) => gpuLoad(s, m, h) <= GPU_BUDGET);
       if (i < 0) i = ways.length - 1;
-      if (i < rank && gpuLoad(s, ...ways[i]) > GPU_BUDGET * 0.8) i = rank;
+      if (i < rank && gpuLoad(s, ...ways[i]) > GPU_BUDGET * 0.8 && gpuLoad(s, ...ways[rank]) <= GPU_BUDGET) {
+        const j = ways.findIndex((w) => gpuLoad(s, ...w) <= GPU_BUDGET * 0.8);
+        i = j >= 0 && j < rank ? j : rank;
+      }
       [perf.ticks, perf.held] = ways[i];
     }
     function updateSpeedCap(now) {
@@ -30096,8 +30204,9 @@ ${e.message}` : String(e?.message || e));
     function predicted() {
       return predictAt(sel.particle, sel.sampleT);
     }
-    function predictAt(p, sampleT) {
-      const dtS = Math.max(0, Math.min(0.25, (viewSimTime || eng.simTime) - sampleT));
+    const carryMax = () => 0.25 * Math.max(1, state.speed === Infinity ? perf.rate || 1 : state.speed);
+    function predictAt(p, sampleT, at = viewSimTime || eng.simTime) {
+      const dtS = Math.max(0, Math.min(carryMax(), at - sampleT));
       let adv = 0;
       if (p.kind >= FIRST_LIFE) {
         const g = genomeFor(p.kind);
@@ -30178,11 +30287,13 @@ ${e.message}` : String(e?.message || e));
         const [W, H2] = eng.grid;
         const [px, py] = predicted();
         if (sel.dispT !== sel.sampleT) {
-          if (sel.dispT != null) {
-            sel.err[0] = wrapD2(sel.disp[0] - px, W);
-            sel.err[1] = wrapD2(sel.disp[1] - py, H2);
+          if (sel.dispT != null && sel.shown) {
+            const [ox, oy] = predictAt(sel.shown.p, sel.shown.t);
+            sel.err[0] = wrapD2(ox + sel.err[0] - px, W);
+            sel.err[1] = wrapD2(oy + sel.err[1] - py, H2);
           }
           sel.dispT = sel.sampleT;
+          sel.shown = { p: sel.particle, t: sel.sampleT };
         }
         const fade = Math.exp(-dt / 45);
         sel.err[0] *= fade;
@@ -30232,7 +30343,7 @@ ${e.message}` : String(e?.message || e));
     eng.onWatch = ({ simTime, seen }) => {
       for (const w of seen) {
         const o = watched.get(w.id);
-        watched.set(w.id, { x: w.x, y: w.y, vx: w.vx, vy: w.vy, t: simTime, disp: o && o.disp, err: o ? o.err : [0, 0], fresh: true });
+        watched.set(w.id, { x: w.x, y: w.y, vx: w.vx, vy: w.vy, t: simTime, disp: o && o.disp, err: o ? o.err : [0, 0], fresh: true, shown: o && o.shown });
       }
     };
     function filmShot() {
@@ -30274,11 +30385,16 @@ ${e.message}` : String(e?.message || e));
       const place = (w, g) => {
         let q = placed.get(w);
         if (q) return q;
-        const dts = Math.max(0, Math.min(0.25, simNow - w.t)), [fx, fy] = flowAt(w.x, w.y, eng.simTime, eng.waves);
-        const px = w.x + (w.vx + fx * g.advect) * dts, py = w.y + (w.vy + fy * g.advect) * dts;
-        if (w.fresh && w.disp) {
-          w.err = [wrapD2(w.disp[0] - px, W), wrapD2(w.disp[1] - py, H2)];
+        const carry = (s) => {
+          const dts = Math.max(0, Math.min(carryMax(), simNow - s.t)), [fx, fy] = flowAt(s.x, s.y, eng.simTime, eng.waves);
+          return [s.x + (s.vx + fx * g.advect) * dts, s.y + (s.vy + fy * g.advect) * dts];
+        };
+        const [px, py] = carry(w);
+        if (w.fresh && w.disp && w.shown) {
+          const [ox, oy] = carry(w.shown);
+          w.err = [wrapD2(ox + w.err[0] - px, W), wrapD2(oy + w.err[1] - py, H2)];
         }
+        if (w.fresh) w.shown = { x: w.x, y: w.y, vx: w.vx, vy: w.vy, t: w.t };
         w.fresh = false;
         w.err[0] *= fade;
         w.err[1] *= fade;
@@ -30766,7 +30882,7 @@ ${e.message}` : String(e?.message || e));
       return S ? clamp6(Math.floor((ms - R2) / S), 1, 512) : 4;
     };
     function maxPlan(now, m) {
-      const world = now - perf.worldAt >= MAX_FRAME_MS;
+      const world = fastMode || now - perf.worldAt >= MAX_FRAME_MS;
       if (world) perf.worldAt = now;
       const dt = m * H, S = stepCost();
       const cost = world ? perf.renderR : perf.presentR || 0.3;
@@ -30805,11 +30921,11 @@ ${e.message}` : String(e?.message || e));
         clock2.owed = 0;
         return { steps: n2, dt: dt2 };
       }
-      const most = H * (state.speed === 1 ? stepTicks() : 1);
+      const most = H * (state.speed === 1 ? stepTicks() : state.speed > 1 ? perf.ticks : 1);
       let n = Math.floor(clock2.owed / most + 0.25);
       if (n === 0) return null;
       n = Math.min(n, cap3);
-      const dt = clamp6(clock2.owed / n, most * 0.9, most * 1.1);
+      const dt = most > H * 1.5 ? most : clamp6(clock2.owed / n, most * 0.9, most * 1.1);
       clock2.owed = clamp6(clock2.owed - n * dt, -0.25 * most, most);
       return { steps: n, dt };
     }
@@ -30872,7 +30988,13 @@ ${e.message}` : String(e?.message || e));
         eng.season = seasonAt(eng.simTime);
         const step = !portraitHold && plan(now) || { steps: 0, dt: H };
         eng.censusEvery = Math.max(20, Math.round(step.steps * 1e3 / frameTarget() / 5));
-        viewSimTime = eng.simTime + (state.paused ? 0 : step.steps * step.dt);
+        if (step.steps > 0) {
+          perf.lerpDt = step.dt;
+          perf.lerpTicks = Math.round(step.dt * 60);
+        }
+        const lerpOn = !state.paused && !portraitHold && state.phase === "running" && perf.lerpTicks > 1 && (state.speed === Infinity ? fastMode : !perf.held);
+        eng.lerp = lerpOn ? clamp6(state.speed === Infinity ? perf.stepCredit : clock2.owed / perf.lerpDt, 0, 1) : null;
+        viewSimTime = eng.simTime + (state.paused ? 0 : step.steps * step.dt) - (eng.lerp != null ? (1 - eng.lerp) * perf.lerpDt : 0);
         if (state.phase === "running" && !state.paused) climate.tick(step.steps * step.dt);
         autoCamera(now, dt);
         renderCaption(now);

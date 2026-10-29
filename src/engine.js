@@ -1,5 +1,5 @@
 import {
-  simWGSL, SIM_CLOCK, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
+  simWGSL, SIM_CLOCK, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
   MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES,
 } from './shaders.js';
 import {
@@ -192,6 +192,13 @@ class Engine {
     this.watchModule = d.createShaderModule({ code: WATCH_WGSL, label: 'watch' });
     this.surveyModule = d.createShaderModule({ code: SURVEY_WGSL, label: 'survey' });
     this.drawModule = d.createShaderModule({ code: DRAW_WGSL, label: 'draw' });
+    // coarse steps drawn in between (LERP_WGSL): this.lerp is how far along the last step to draw the world, or null
+    const lerpModule = d.createShaderModule({ code: LERP_WGSL, label: 'lerp' });
+    this.cpLerp = cPipe({ layout: 'auto', compute: { module: lerpModule, entryPoint: 'lerpApply' }, label: 'lerpApply' });
+    this.cpLerpBack = cPipe({ layout: 'auto', compute: { module: lerpModule, entryPoint: 'lerpRestore' }, label: 'lerpRestore' });
+    this.lerp = null;
+    this._lerpN = 0;
+    this._lerpOk = false;
     // culling for the main view, the loupe and the specimen (CULL_WGSL): uniforms, segments, draw arguments
     const cullModule = d.createShaderModule({ code: CULL_WGSL, label: 'cull' });
     this.cpCull = cPipe({ layout: 'auto', compute: { module: cullModule, entryPoint: 'cullRows' }, label: 'cullRows' });
@@ -382,6 +389,10 @@ class Engine {
     d.pushErrorScope('validation');
     b.parts = d.createBuffer({ size: n * P_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
     b.sortedFull = d.createBuffer({ size: n * P_BYTES, usage: U.STORAGE });
+    b.lerpEnd?.destroy();
+    b.lerpEnd = d.createBuffer({ size: n * 8, usage: U.STORAGE });
+    b.lerpU ??= d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
+    this._lerpN = 0; this._lerpOk = false;
     b.sortedLite = d.createBuffer({ size: n * LITE_BYTES, usage: U.STORAGE });
     b.aux = d.createBuffer({ size: n * 8, usage: U.STORAGE });
     b.intent = d.createBuffer({ size: n * 16, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
@@ -625,6 +636,7 @@ class Engine {
    * K.foundColonies small colonies in empty water, as a world recovering from a collapse begins again.
    */
   seed(n, { aspect = 16 / 9, rng = Math.random } = {}) {
+    this._lerpN = 0; this._lerpOk = false;
     const d = this.device;
     this.worldGeneration++;
     this.abio = 0;
@@ -856,6 +868,7 @@ class Engine {
   _step(enc, simDt, timestampWrites, ring = -1, prof = null) {
     const b = this.b;
     const N = this.count;
+    this._lerpOk = true;
     this.dt = simDt;
     this.simTime += simDt;
     this.frameNo++;
@@ -934,6 +947,7 @@ class Engine {
    * with the clock, light and tides), to run the same moment forward again with restore().
    */
   snapshot() {
+    this._lerpBack();
     const d = this.device, b = this.b, U = GPUBufferUsage;
     const enc = d.createCommandEncoder();
     const keep = { gpu: {} };
@@ -988,6 +1002,7 @@ class Engine {
 
   /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
   writeState({ cpu, gpu }) {
+    this._lerpN = 0; this._lerpOk = false;
     for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, data);
     // the species ledger starts afresh with the world put in place
     const enc = this.device.createCommandEncoder();
@@ -1013,7 +1028,20 @@ class Engine {
   }
 
   /** Read every particle now (headless forks): { u32, f32 } views over count records of P_BYTES. */
+  // the true positions back in place of those drawn in between steps, for what reads the world itself
+  _lerpBack() {
+    if (!this._lerpN) return;
+    const d = this.device, lu = new Uint32Array(8);
+    lu[4] = this._lerpN;
+    d.queue.writeBuffer(this.b.lerpU, 0, lu);
+    const enc = d.createCommandEncoder(), pass = enc.beginComputePass();
+    pass.setPipeline(this.cpLerpBack); pass.setBindGroup(0, this._lerpBG.back); pass.dispatchWorkgroups(Math.ceil(this._lerpN / 256)); pass.end();
+    d.queue.submit([enc.finish()]);
+    this._lerpN = 0;
+  }
+
   async readParticles() {
+    this._lerpBack();
     const d = this.device, U = GPUBufferUsage, size = this.count * P_BYTES;
     const st = d.createBuffer({ size, usage: U.COPY_DST | U.MAP_READ });
     const enc = d.createCommandEncoder();
@@ -1148,6 +1176,25 @@ class Engine {
     // submit.
     const enc = d.createCommandEncoder();
     const prof = this.passProfile ? this._profileEncoder(enc) : null;
+    // the ends a frame drawn in between steps moved back, put back before anything else runs;
+    // this frame's own blend is decided now, so one uniform write serves both
+    const lerpN = this.lerp != null && this._lerpOk && target && (hold == null || hold) && N > 0 ? N : 0;
+    if (this._lerpN || lerpN) {
+      if (this._lerpBG?.parts !== b.parts) {
+        const bg = (pipe) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
+          { binding: 0, resource: { buffer: b.lerpU } }, { binding: 1, resource: { buffer: b.parts } },
+          ...(pipe === this.cpLerp ? [{ binding: 2, resource: { buffer: b.sortedFull } }] : []), { binding: 3, resource: { buffer: b.lerpEnd } }] });
+        this._lerpBG = { parts: b.parts, apply: bg(this.cpLerp), back: bg(this.cpLerpBack) };
+      }
+      const lu = new ArrayBuffer(32), lv = new Uint32Array(lu), lf = new Float32Array(lu);
+      lv[0] = lerpN; lf[1] = Math.min(1, Math.max(0, this.lerp ?? 1)); lf[2] = this.grid[0]; lf[3] = this.grid[1]; lv[4] = this._lerpN;
+      d.queue.writeBuffer(b.lerpU, 0, lu);
+    }
+    if (this._lerpN) {
+      const pass = enc.beginComputePass();
+      pass.setPipeline(this.cpLerpBack); pass.setBindGroup(0, this._lerpBG.back); pass.dispatchWorkgroups(Math.ceil(this._lerpN / 256)); pass.end();
+      this._lerpN = 0;
+    }
     const censusJobs = [];
     for (let s = 0; s < nSteps; s++) {
       const last = s === nSteps - 1;
@@ -1161,6 +1208,14 @@ class Engine {
     const listenJob = nSteps > 0 ? this._listenCopy(enc, cam) : null;
     const mindJob = this._mindCopy(enc);
     const surveyJob = nSteps > 0 ? this._surveyCopy(enc) : null;
+    // drawn in between steps: moved now, so what is picked, tracked and watched below is
+    // where it is drawn, sampled at the moment drawn (shownTime)
+    if (lerpN) {
+      const pass = enc.beginComputePass();
+      pass.setPipeline(this.cpLerp); pass.setBindGroup(0, this._lerpBG.apply); pass.dispatchWorkgroups(Math.ceil(lerpN / 256)); pass.end();
+      this._lerpN = lerpN;
+    }
+    const shownTime = this.simTime - (lerpN ? (1 - Math.min(1, Math.max(0, this.lerp))) * this.dt : 0);
 
     // ---- picking
     let pickJob = null;
@@ -1171,14 +1226,14 @@ class Engine {
       const st = this.trackStage.find((s) => !s.busy);
       if (!st) break;
       st.busy = true;
-      trackJobs.push({ st, id, k, simTime: this.simTime });
+      trackJobs.push({ st, id, k, simTime: shownTime });
       const pu = new ArrayBuffer(48);
       const pf = new Float32Array(pu), pv = new Uint32Array(pu);
       // where it is expected: where it was last found, carried on at its velocity
       const seen = this.trackSeen[k]?.id === id && this.sorted ? this.trackSeen[k] : null;
       if (seen) for (let a = 0; a < 2; a++) {
         const g = this.grid[a];
-        pf[a] = (((seen.pos[a] + seen.vel[a] * (this.simTime - seen.simTime)) % g) + g) % g;
+        pf[a] = (((seen.pos[a] + seen.vel[a] * (shownTime - seen.simTime)) % g) + g) % g;
       }
       pf[2] = 0; pv[3] = id; pv[4] = 0; pv[5] = N; pf[6] = this.grid[0]; pf[7] = this.grid[1]; pv[8] = 0xffffffff;
       d.queue.writeBuffer(b.trackU[k], 0, pu);
@@ -1207,13 +1262,13 @@ class Engine {
       if (st) {
         st.busy = true;
         const cells = watching, ids = cells.map((c) => c.id);
-        watchJob = { st, ids, full: !this.sorted, simTime: this.simTime };
+        watchJob = { st, ids, full: !this.sorted, simTime: shownTime };
         const wu = new ArrayBuffer(16 + WATCH_MAX * 20), wv = new Uint32Array(wu), wf = new Float32Array(wu);
         wv[0] = N; wv[1] = ids.length; wv[2] = this.grid[0]; wv[3] = this.grid[1]; wv.set(ids, 4);
         // where each is expected: where it was last seen, carried on at its velocity
         cells.forEach((c, k) => { for (let a = 0; a < 2; a++) {
           const g = this.grid[a];
-          wf[4 + WATCH_MAX + k * 4 + a] = ((((a ? c.y : c.x) + (a ? c.vy : c.vx) * (this.simTime - c.t)) % g) + g) % g;
+          wf[4 + WATCH_MAX + k * 4 + a] = ((((a ? c.y : c.x) + (a ? c.vy : c.vx) * (shownTime - c.t)) % g) + g) % g;
         } });
         d.queue.writeBuffer(b.watchU, 0, wu);
         enc.clearBuffer(b.watchOut, 0, WATCH_MAX * 20);
@@ -1238,7 +1293,7 @@ class Engine {
     if (this.pickReq && N > 0) {
       const st = this.pickStage.find((s) => !s.busy);
       if (st) {
-        pickJob = { req: this.pickReq, st, simTime: this.simTime };
+        pickJob = { req: this.pickReq, st, simTime: shownTime };
         this.pickReq = null;
         const pu = new ArrayBuffer(48);
         const pf = new Float32Array(pu), pv = new Uint32Array(pu);
