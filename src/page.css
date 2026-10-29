@@ -323,12 +323,11 @@ body:not(.live) .hud { opacity: 0; }
 /* the Bench drawer: rises above the dock between the side columns */
 .bench { position: fixed; z-index: 5; left: 0; right: 0; bottom: var(--bot); padding: var(--s3) calc(var(--gut) + var(--safe-r)) var(--s3) calc(var(--gut) + var(--safe-l));
   border-top: 1px solid var(--line-2); display: flex; gap: var(--s4); container-type: inline-size; }
-/* (narrowed by the side columns, the drawer drops its long note) */
-@container (max-width: 1000px) { .bench-note { display: none; } }
 body.lab-open .bench { left: var(--lab-pw); }
 body.lab-wide .bench { left: min(620px, 100%); }
 body.spec-open .bench { right: var(--spec-pw); }
-.bench-tools { flex: 1 1 auto; min-width: 0; max-width: 720px; display: flex; flex-direction: column; gap: var(--s2); }
+/* (the tools and the pipette half the drawer each) */
+.bench-tools { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--s2); }
 .bench-t { color: var(--cyan); }
 .bench-note { font-style: normal; color: var(--ink-3); text-transform: none; letter-spacing: .04em; margin-left: var(--s3); font-weight: 400; }
 .bench .sub-a { color: var(--sun); }
@@ -338,6 +337,9 @@ body.spec-open .bench { right: var(--spec-pw); }
 .tile span { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; font-stretch: 108%; }
 .tile kbd { position: absolute; top: 3px; right: 5px; font-size: 11px; color: var(--ink-3); letter-spacing: 0; }
 .tile[aria-checked="true"] { border-color: var(--sun); }
+/* (a narrower drawer, by the side columns or the screen: its tools in two rows, leaving the pipette room, and its
+   long note dropped) */
+@container (max-width: 1180px) { .tiles { grid-template-columns: repeat(5, minmax(0, 1fr)); } .tile { height: 54px; gap: 4px; } .bench-note { display: none; } }
 .bench-hint { margin: 0; min-height: 19px; color: var(--ink-2); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bench-hint b { color: var(--sun); font-weight: 500; }
 /* Reach: a ruler of ticks, its handle a bracket in the sun color */
@@ -350,8 +352,8 @@ body.spec-open .bench { right: var(--spec-pw); }
 .reach input::-webkit-slider-thumb { -webkit-appearance: none; width: 7px; height: 20px; background: var(--panel-solid); border: 1px solid var(--sun); box-shadow: inset 0 0 0 1px var(--panel-solid), inset 0 0 0 2px rgba(241, 227, 160, 0.5); }
 .reach input::-moz-range-thumb { width: 7px; height: 20px; border-radius: 0; background: var(--panel-solid); border: 1px solid var(--sun); }
 
-/* the pipette's section: a strip of mini-cards, tip first, fading at its right edge when there are more */
-.bench-pip { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: var(--s2); padding-left: var(--s4); border-left: 1px solid var(--line); }
+/* the pipette's section: a strip of mini-cards, the tip first (the last in), fading at an edge when there are more */
+.bench-pip { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--s2); padding-left: var(--s4); border-left: 1px solid var(--line); }
 .strip { flex: none; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .strip::-webkit-scrollbar { display: none; }
 .pip-empty { flex: 1; min-height: 96px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: var(--s1); padding: var(--s3); border: 1px dashed var(--line); color: var(--ink-3); text-align: center; font-size: 12px; }
@@ -1159,6 +1161,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .reach { grid-template-columns: 4.6em 1fr 4.6em; height: 36px; }
   .reach input { height: 32px; }
   .ladder { width: 220px; }
+  .bench-tools { flex: none; }
   .bench-pip { padding-left: 0; border-left: 0; flex-basis: auto; }
   .hand-chip { padding-left: 9px; height: 26px; }
   .hand-chip .lbl, .hand-chip b { display: none; }
