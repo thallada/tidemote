@@ -940,8 +940,12 @@ function cellWGSL(K, w) {
   // each bond rests where its two cells touch (both agree on it: their roles' sizes summed)
   let rs1 = restTo(n1, g.size, role, tight); let rs2 = restTo(n2, g.size, role, tight);
   let rb0 = restTo(nb0, g.size, role, tight); let rb1 = restTo(nb1, g.size, role, tight); let rb2 = restTo(nb2, g.size, role, tight);
-  if (n1 != NONE) { bondF += dn1 * ((d1 - rs1) / max(d1, 1e-4)); }
-  if (n2 != NONE) { bondF += dn2 * ((d2 - rs2) / max(d2, 1e-4)); }
+  // (a bond pulls only once both ends hold it: one this cell took up in its scan just now, or one its
+  // partner reads past the three it can, would pull this cell and not the other)
+  let m1 = select(0.0, 1.0, n1 != NONE && holdsBack(n1, i));
+  let m2 = select(0.0, 1.0, n2 != NONE && holdsBack(n2, i));
+  if (n1 != NONE) { bondF += dn1 * ((d1 - rs1) / max(d1, 1e-4)) * m1; }
+  if (n2 != NONE) { bondF += dn2 * ((d2 - rs2) / max(d2, 1e-4)) * m2; }
   let e0 = bondTo(nb0, p); let e1 = bondTo(nb1, p); let e2 = bondTo(nb2, p);
   if (nb0 != NONE) { bondF += e0 * ((length(e0) - rb0) / max(length(e0), 1e-4)); }
   if (nb1 != NONE) { bondF += e1 * ((length(e1) - rb1) / max(length(e1), 1e-4)); }
@@ -1064,8 +1068,8 @@ function cellWGSL(K, w) {
       let moved = pos - p.pos;
       fb = vec2f(0.0);
       var fb1 = vec2f(0.0);
-      if (n1 != NONE) { let e = dn1 + vB1 * t - moved; let l = length(e); fb1 = e * ((l - rs1) / max(l, 1e-4)); }
-      if (n2 != NONE) { let e = dn2 + vB2 * t - moved; let l = length(e); fb += e * ((l - rs2) / max(l, 1e-4)); }
+      if (n1 != NONE) { let e = dn1 + vB1 * t - moved; let l = length(e); fb1 = e * ((l - rs1) / max(l, 1e-4)) * m1; }
+      if (n2 != NONE) { let e = dn2 + vB2 * t - moved; let l = length(e); fb += e * ((l - rs2) / max(l, 1e-4)) * m2; }
       if (nb0 != NONE) { let e = e0 + vb0 * t - moved; let l = length(e); fb += e * ((l - rb0) / max(l, 1e-4)); }
       if (nb1 != NONE) { let e = e1 + vb1 * t - moved; let l = length(e); fb += e * ((l - rb1) / max(l, 1e-4)); }
       if (nb2 != NONE) { let e = e2 + vb2 * t - moved; let l = length(e); fb += e * ((l - rb2) / max(l, 1e-4)); }
@@ -1233,6 +1237,15 @@ fn splPair(h: u32, q: u32, won: bool) {
 @group(0) @binding(20) var<storage, read_write> bondsAt: array<atomic<u32>>;
 fn bondsOf(i: u32) -> vec2u { return vec2u(bondsNow[i * 6u], bondsNow[i * 6u + 1u]); }
 fn backOf(i: u32, k: u32) -> u32 { return bondsNow[i * 6u + 2u + k]; }
+// whether cell j reads cell i (which keeps it) among the partners it holds: it keeps i too, or i is among
+// the first three that keep it
+fn holdsBack(j: u32, i: u32) -> bool {
+  let o = bondsOf(j);
+  let c = min(backOf(j, 0u), 3u);
+  var r = o.x == i || o.y == i;
+  for (var k = 0u; k < c; k++) { r = r || backOf(j, 1u + k) == i; }
+  return r;
+}
 // The heat field, by blocks of MAX_CELLS: the water's temperature per grid cell, the pool's floor, the order
 // it freezes in; read only (the step writes none of it: heatMain writes the next
 // temperatures to heatNext, copied in after). What the step adds up goes to the ledger's end (heatAccAt).
@@ -2339,7 +2352,7 @@ fn treeDeg(x: u32) -> f32 {
 // over its several ticks the stiffest wave, each cell pulled by both its bonds as a zigzag, would
 // overshoot), and its ticks' drag leaves less of the beat standing, so the beat asks more: as much as
 // it takes for its wave (2 - 2 cos of its phase per cell, as the bonds settle it) to stand as tall as in
-// 1/60 s steps, by a 1/60 s step's and a coarse step's settling, and a fifth more a tick past the first
+// 1/60 s steps, by a 1/60 s step's and a coarse step's settling, and three tenths more a tick past the first
 // (fitted with tools/swimlab.mjs; docs/growth.md), but no faster across a bond than three beatTops.
 fn beatPull(i: u32, gr: Grow, size: f32, frX: f32) -> vec2f {
   let p = sortedFull[i];
@@ -2351,7 +2364,7 @@ fn beatPull(i: u32, gr: Grow, size: f32, frX: f32) -> vec2f {
   if (sim.ticks > 1u) {
     mixW = ${f(K.beatMixC)};
     let wm = 2.0 * mixW * (2.0 - 2.0 * cos(gr.beat.z));
-    gain = (wm + 1.0 - pow(frX, f32(sim.ticks))) / (${f(2 * K.beatMix)} * (2.0 - 2.0 * cos(gr.beat.z)) + 1.0 - frX) * (1.0 + 0.2 * f32(sim.ticks - 1u)) * ${f(K.beatMix)} / mixW;
+    gain = (wm + 1.0 - pow(frX, f32(sim.ticks))) / (${f(2 * K.beatMix)} * (2.0 - 2.0 * cos(gr.beat.z)) + 1.0 - frX) * (1.0 + 0.3 * f32(sim.ticks - 1u)) * ${f(K.beatMix)} / mixW;
   }
   // (a coarse step asks no faster swing of a bond than it can follow)
   let top = select(1e9, ${f(3 * K.beatTop)} * size, sim.ticks > 1u);

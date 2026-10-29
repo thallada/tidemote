@@ -29,7 +29,7 @@ export function layout(spec) {
   else if (kind === 'mat') {
     // a packed body of n cells (a hexagonal patch, each cell bonded to two earlier neighbors), then
     // tails of b cells from its edge (mat:N:TAILLEN:TAILS)
-    const tails = +spec.split(':')[3] || 1;
+    const tails = +(spec.split(':')[3] ?? 1);
     cells.length = 0;
     const gap = 0.153, P = [];
     for (let ring = 0, made = 0; made < n; ring++) {
@@ -47,7 +47,7 @@ export function layout(spec) {
     for (let t = 0; t < tails; t++) {
       const [ang, , base] = out[Math.floor(t * out.length / tails)];
       let mom = base;
-      for (let q = 0; q < (+b || 6); q++) { cells.push({ mom, turn: 0, tail: true, gen: q, at: [P[base][0] + Math.cos(ang) * gap * (q + 1), P[base][1] + Math.sin(ang) * gap * (q + 1)] }); mom = cells.length - 1; }
+      for (let q = 0; q < +(b ?? 6); q++) { cells.push({ mom, turn: 0, tail: true, gen: q, at: [P[base][0] + Math.cos(ang) * gap * (q + 1), P[base][1] + Math.sin(ang) * gap * (q + 1)] }); mom = cells.length - 1; }
     }
   }
   else throw new Error(`unknown body ${spec}`);
