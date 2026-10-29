@@ -343,13 +343,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ loupe
   const hover = { x: 0, y: 0, on: false };
-  // (where a tap set the lens, on a touch screen: screen px; it stays there, and moves when dragged)
+  // (where a tap set the lens, on a touch screen: a world point, so it goes with the world as the view pans, off the
+  // screen and back; dragged, it moves)
   let lensAt = null;
   // the lens's radius (px): the viewer's (Reach, with the loupe in hand), or a fifth of the screen
   const LOUPE_R = { min: 50, max: 320 };
   const loupeR = () => Math.round(clamp(state.loupeR ?? clamp(Math.min(innerWidth, innerHeight) * 0.2, 90, 170), LOUPE_R.min, Math.min(LOUPE_R.max, Math.min(innerWidth, innerHeight) * 0.46)));
   function loupeGeom() {
-    const at = hover.on ? hover : lensAt;
+    let at = hover.on ? hover : null;
+    if (!at && lensAt) { const [x, y] = toScreen(lensAt.x, lensAt.y); at = { x, y }; }
     if (!at || hand.tool !== 'loupe' || (ptr.dragging && !ptr.down?.lens) || state.phase !== 'running' || ride.on) return null;
     // filming, the loupe hides with the pointer once the mouse rests
     if (director.active && hover.on && performance.now() - lastPtr.moved > CURSOR_REST) return null;
@@ -357,6 +359,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the loupe magnifies until the view itself is as close as the old zoom limit allowed (40 of 220 px per unit)
     if (base >= 40 * MAX_PPU / 220) return null;
     const R = loupeR();
+    if (at.x < -R || at.y < -R || at.x > innerWidth + R || at.y > innerHeight + R) return null;
     const lp = clamp(base * state.loupeMag, 8, MAX_PPU);
     const [cx, cy] = toWorld(at.x, at.y);
     return { sx: at.x, sy: at.y, R, cssPPU: lp, cx, cy };
@@ -2668,7 +2671,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const apply = inHand() && !folds && state.phase === 'running' && (e.pointerType !== 'mouse' || e.button === 0);
       const pip = hand.tool === 'pipette' && apply;
       const L = loupeGeom();
-      ptr.down = { x: e.clientX, y: e.clientY, loupe: L, apply, pip, t: performance.now() };
+      ptr.down = { x: e.clientX, y: e.clientY, loupe: L, apply, pip };
       ptr.dragging = false;
       // (on a touch screen a drag that starts on the lens moves it)
       if (L && e.pointerType !== 'mouse' && !folds && Math.hypot(e.clientX - L.sx, e.clientY - L.sy) < L.R) ptr.down.lens = { x: L.sx, y: L.sy };
@@ -2698,9 +2701,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (ptr.down?.steer) { prev.x = e.clientX; prev.y = e.clientY; ride.at = toWorld(e.clientX, e.clientY); return; }
     if (ptr.down?.apply) {
       prev.x = e.clientX; prev.y = e.clientY;
-      const now = performance.now();
-      hand.move(...toWorld(e.clientX, e.clientY), (now - ptr.down.t) / 1000, state.paused ? 0 : state.speed);
-      ptr.down.t = now;
+      hand.move(...toWorld(e.clientX, e.clientY));
       if (Math.hypot(e.clientX - ptr.down.x, e.clientY - ptr.down.y) > (e.pointerType === 'mouse' ? 5 : 10)) ptr.dragging = true;
       return;
     }
@@ -2708,7 +2709,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     prev.x = e.clientX; prev.y = e.clientY;
     if (ptr.down?.lens && ptr.pointers.size === 1) {
       if (Math.hypot(e.clientX - ptr.down.x, e.clientY - ptr.down.y) > 10) ptr.dragging = true;
-      if (ptr.dragging) lensAt = { x: ptr.down.lens.x + e.clientX - ptr.down.x, y: ptr.down.lens.y + e.clientY - ptr.down.y };
+      if (ptr.dragging) { const [x, y] = toWorld(ptr.down.lens.x + e.clientX - ptr.down.x, ptr.down.lens.y + e.clientY - ptr.down.y); lensAt = { x, y }; }
       return;
     }
     if (ptr.pinch && ptr.pointers.size === 2) {
@@ -2745,10 +2746,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
         if (L && Math.hypot(e.clientX - L.sx, e.clientY - L.sy) < L.R) {
           const wx = L.cx + (e.clientX - L.sx) / L.cssPPU, wy = L.cy + (e.clientY - L.sy) / L.cssPPU;
           selectAt(e.clientX, e.clientY, L.cssPPU, [wx, wy]);
-          if (setLens) { const [x, y] = toScreen(wx, wy); lensAt = { x, y }; }
+          if (setLens) lensAt = { x: wx, y: wy };
         } else {
           selectAt(e.clientX, e.clientY);
-          if (setLens) lensAt = { x: e.clientX, y: e.clientY };
+          if (setLens) { const [x, y] = toWorld(e.clientX, e.clientY); lensAt = { x, y }; }
         }
       }
       ptr.down = null;
@@ -3455,14 +3456,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const pressed = !!(ptr.down?.apply || ptr.down?.pip);
     toolFocus += ((pressed ? 1 : 0) - toolFocus) * (1 - Math.exp(-dt / 0.12));
     if (!it || !R) { eng.tool.fill(0); toolFocus = 0; return; }
-    eng.tool.set([...toWorld(R.sx, R.sy), ...it.dir, it.kind, toolFocus, hand.tool === 'cold' ? hand.level : 0, 0]);
+    eng.tool.set([...toWorld(R.sx, R.sy), ...(it.dir || [hand.reach, 0]), it.kind, toolFocus, hand.tool === 'cold' ? hand.level : 0, 0]);
   }
   // what the tool in hand is doing, in a few words
   function handDoing() {
     const t = hand.tool, pct = `${Math.min(100, Math.round(hand.level * 100))}%${hand.held ? '' : ' · hold for more'}`;
     if (t === 'lamp' || t === 'shade') return `${hand.held ? (t === 'lamp' ? 'Brightening' : 'Darkening') : 'Over the water'} · ${pct}`;
     if (t === 'warm' || t === 'cold') return `${hand.held ? (t === 'warm' ? 'Warming toward a boil' : 'Chilling toward ice') : 'Over the water'} · ${pct}`;
-    if (t === 'touch') return hand.held && ptr.dragging ? 'Stirring' : 'Tap: a ring · drag: stir';
+    if (t === 'touch') return !hand.held ? 'Press: the rod into the water' : ptr.dragging ? 'Plowing' : 'In the water · pushing aside';
     if (t === 'needle') return !hand.held ? 'Press: into the water' : ptr.dragging ? 'Cutting through' : 'In the water · its point pricks';
     if (t === 'pipette') {
       const tip = pipette.tip, now = performance.now();
@@ -4126,7 +4127,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       pullTick(now);
       // (the lamp, shade, stage and probe follow the pointer over the world, a little of them, until pressed)
       if (R) hand.hover(...toWorld(R.sx, R.sy)); else hand.hover(null);
-      hand.span = Math.hypot(innerWidth, innerHeight) / cssPPU();
+      hand.span = Math.min(Math.hypot(innerWidth, innerHeight) / cssPPU(), Math.min(...eng.grid) / 2);
       hand.update(dt / 1000);
       showInstrument(R, dt / 1000);
       // the warm stage and the cold probe show the water's warmth inside their reach
@@ -4164,6 +4165,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         specimen: hold === false ? null : portraitParams() || specimenParams(),
         hold,
       });
+      // (the needle and the rod sweep from here on)
+      if (step.steps && !state.paused) hand.stepped();
       if (portraitJob && portraitJob.drawn) { if (portraitJob.relight) { portraitJob.relight = false; pushFocus(); } readPortrait(); }
       // a film copies the world's canvas while its texture is current
       film.frame();

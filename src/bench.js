@@ -80,7 +80,7 @@ export const reachStep = (r, d) => Math.min(REACH.max, Math.max(REACH.min, r * 1
 export function createBench({ hand, pick, reach, size, onToggle = () => {}, pip }) {
   const drawer = $('bench'), btn = $('bench-open'), held = $('held'), dock = $('tools');
   dock.innerHTML = TOOLS.map((t, i) => `<button type="button" class="tool" data-tool="${t.id}" aria-pressed="false" aria-label="${t.name}" data-hint="${t.name} · ${i}">${icon(t.id)}<kbd>${i}</kbd></button>`).join('');
-  drawer.innerHTML = `<div class="bench-tools">
+  drawer.innerHTML = `<div class="grab" aria-hidden="true"><i></i></div><div class="bench-tools">
       <div class="sub-h"><span class="bench-t">Tools<i class="bench-note">tap to pick one up · hold its key for a moment’s use</i></span><span class="sub-a" id="bench-held"></span></div>
       <div class="tiles" role="radiogroup" aria-label="Tools">${TOOLS.map((t, i) => `<button type="button" role="radio" class="tile" data-tool="${t.id}" aria-checked="false"><kbd>${i}</kbd>${icon(t.id)}<span>${t.name}</span></button>`).join('')}</div>
       <p class="bench-hint" id="bench-hint" aria-live="polite"></p>
@@ -105,7 +105,11 @@ export function createBench({ hand, pick, reach, size, onToggle = () => {}, pip 
     else if (e.target.closest('#held-down')) pick('none');
     else mode(e);
   });
-  drawer.addEventListener('click', (e) => { if (!mode(e) && e.target.closest('#pip-keep')) pip.keepAll(); });
+  drawer.addEventListener('click', (e) => {
+    if (mode(e)) return;
+    if (e.target.closest('#pip-keep')) pip.keepAll();
+    else if (e.target.closest('.grab')) toggle(false);
+  });
   swipeDown(drawer, () => toggle(false));
   // the strip's cards: a tap opens its card, a drag along the strip moves it (the first is at the tip), onto the world
   // sets all of it down there, onto the Lab keeps its card

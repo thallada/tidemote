@@ -62,21 +62,20 @@ test('a shade takes light; warm and cold heat and chill', () => {
   assert.ok(words[7] > 0.75);
 });
 
-test('a stir drags the water as fast as the finger, in the world’s seconds, capped', () => {
+test('the rod pressed is in the water, its disc the reach; it sweeps from where it was when the world last stepped', () => {
   const { hand, words } = make();
-  hand.reach = 2; // (the default: as fast as the finger)
-  hand.set('touch'); hand.down(0, 0, 0);
-  hand.move(0.5, 0, 0.5, 1); run(hand, 0.5);
-  assert.ok(Math.abs(words[10] - 1) < 0.05, `vx ${words[10]}`);
-  hand.move(1.0, 0, 0.5, 2); run(hand, 0.5);
-  assert.ok(Math.abs(words[10] - 0.5) < 0.05, 'at ×2 the same stroke is half as fast');
-  hand.move(100, 0, 0.1, 1); run(hand, 0.5);
-  assert.ok(words[10] <= 12.0001 && words[10] > 11, 'capped');
-  hand.up(); run(hand, 8);
-  assert.equal(words[10], 0);
-  // a reach four times as wide drags twice as hard, capped twice as high
-  hand.reach = 8; hand.down(0, 0, 0); hand.move(0.5, 0, 0.5, 1); run(hand, 0.5);
-  assert.ok(Math.abs(words[10] - 2) < 0.1, `wide ${words[10]}`);
+  hand.set('touch'); hand.hover(1, 1); hand.update(1 / 60);
+  assert.equal(words[16], 0, 'over the water: not in it');
+  hand.down(1, 1, 0); hand.update(1 / 60);
+  assert.deepEqual([...words.subarray(8, 12)], [1, 1, 1, 1]);
+  assert.equal(words[16], 3);
+  hand.move(2, 1); hand.move(4, 1); hand.update(1 / 60);
+  assert.deepEqual([...words.subarray(8, 12)], [4, 1, 1, 1], 'a frame the world did not step in: still from where it last stepped');
+  hand.stepped(); hand.move(5, 1); hand.update(1 / 60);
+  assert.deepEqual([...words.subarray(8, 12)], [5, 1, 4, 1]);
+  hand.up(); hand.update(1 / 60);
+  assert.deepEqual([...words.subarray(8, 12)], [0, 0, 0, 0]);
+  assert.equal(words[16], 0);
 });
 
 test('the needle pressed is in the water: its point, its shaft running off to its corner; let go, out of it', () => {
@@ -102,13 +101,15 @@ test('a tap rings from the oldest raindrop slot; a prick names its cell once', (
   assert.equal(ids[20], 1234);
 });
 
-test('the needle cuts along its stroke since the last frame, for one frame', () => {
+test('the needle cuts along its stroke since the world last stepped', () => {
   const { hand, words } = make();
-  hand.set('needle'); hand.down(1, 1, 0); hand.move(2, 1, 1 / 120, 1); hand.move(3, 1, 1 / 120, 1);
+  hand.set('needle'); hand.down(1, 1, 0); hand.update(1 / 60);
+  assert.equal(words[17], 0, 'not moved: nothing cut');
+  hand.move(2, 1); hand.move(3, 1);
   hand.update(1 / 60);
   assert.deepEqual([...words.subarray(12, 16)], [1, 1, 3, 1]);
   assert.ok(words[17] > 0);
-  hand.update(1 / 60);
+  hand.stepped(); hand.update(1 / 60);
   assert.equal(words[17], 0);
 });
 

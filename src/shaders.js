@@ -1014,9 +1014,7 @@ function cellWGSL(K, w) {
   let shore = shoreDist(pond);
   let stranded = pond.x < 0.0;
   let swim = g.swim * (1.0 - g.photo) * min(th.perf, 1.0) * select(1.0, 0.0, stranded);
-  // (a finger's stir carries an anchored cell more than a current does, a holdfast being no match for it: 60% of
-  // it, a drifter all of it; nothing in a headless run, where the stir is zero)
-  let flow = flowHere * g.advect + stirFlow(p.pos) * (0.6 * (1.0 - g.advect));
+  let flow = flowHere * g.advect;
   // a holdfast: a cell the current hardly carries (advect below 0.35, fully below 0.1) is anchored, and
   // pushes barely move it (its velocity decays K.holdfast times as fast)
   let drag = g.drag * mix(1.0, ${f(K.holdfast)}, smoothstep(0.35, 0.1, g.advect));
@@ -1168,8 +1166,8 @@ function cellWGSL(K, w) {
     // the pipette's draw carries it toward the tip, as a current would (a bond it stretches too far breaks, as any
     // bond does: a loose body tears, a tight one comes whole)
     pos += suckFlow(p.id, pos, h);
-    // the needle in the water parts the cells in its way, to either side of it (the bonds its point crosses stay cut)
-    let sc = shaft(pos);
+    // the needle and the rod in the water part the cells in their way (the bonds the needle's point crosses stay cut)
+    let sc = handPush(pos);
     if (any(sc != vec2f(0.0))) { pos += sc; vel += normalize(sc) * max(0.0, 1.0 - dot(vel, normalize(sc))); }
   }
   pos = wrapPos(pos);
@@ -1239,14 +1237,14 @@ struct Sim {
   hand: Hand,
 };
 // The viewer's hand (docs/hand.md): a local cause the world could have made itself, all zero (its ids NONE) in
-// every headless run. Centers in world units, reaches the e-folding radius of a Gaussian.
+// every headless run. Centers in world units, reaches the radius of a disc (disc).
 struct Hand {
   lamp: vec4f,  // center, reach, light (+ a lamp, more sun on one place; − a shade, 0..1 of it taken)
   stage: vec4f, // center, reach, strength: + the heated stage, − the cold probe, 1 drawing the water toward STAGE_HOT or
                 // STAGE_COLD, less toward a temperature that share of the way there from the open water's
-  stir: vec4f,  // center, the water's velocity there (world units a second)
-  cut: vec4f,   // the needle's stroke this step, from xy to zw
-  more: vec4f,  // x the stir's reach, y the cut's half-width (0: no cut), zw where the ridden cell is steered
+  rod: vec4f,   // Touch's rod in the water: its center, and where it was when the world last stepped
+  cut: vec4f,   // the needle's stroke since the world last stepped, from xy to zw
+  more: vec4f,  // x the rod's radius (0: not in the water), y the cut's half-width (0: no cut), zw where the ridden cell is steered
   ids: vec4u,   // x the cell the needle pricks, y the ridden cell (NONE: none), z the will's strength (f32 bits),
                 // w how many cells the pipette draws (their IDs in the ledger's hand region)
   suck: vec4f,  // the pipette's tip, its reach (0: none), how fast it draws what is in reach (world units a second, 0: not pressed)
@@ -1392,11 +1390,11 @@ fn cellOf(p: vec2f) -> u32 {
 // The hand's reach: p from its center c across the wrap, and a disc of reach r there (the reticle's ring), its
 // edge softened over the outer quarter; discSlope its gradient.
 fn handD(p: vec2f, c: vec2f) -> vec2f { var d = p - c; d -= sim.world * round(d / sim.world); return d; }
-fn disc(d: vec2f, r: f32) -> f32 { return 1.0 - smoothstep(0.75 * r, r, length(d)); }
+fn disc(d: vec2f, r: f32) -> f32 { return 1.0 - smoothstep(0.94 * r, r, length(d)); }
 fn discSlope(d: vec2f, r: f32) -> vec2f {
   let l = length(d);
-  let u = clamp((l - 0.75 * r) / (0.25 * r), 0.0, 1.0);
-  return -d / max(l, 1e-6) * (6.0 * u * (1.0 - u) / max(0.25 * r, 1e-6));
+  let u = clamp((l - 0.94 * r) / (0.06 * r), 0.0, 1.0);
+  return -d / max(l, 1e-6) * (6.0 * u * (1.0 - u) / max(0.06 * r, 1e-6));
 }
 const STAGE_HOT = ${f(STAGE.hot)};
 const STAGE_COLD = ${f(STAGE.cold)};
@@ -1410,12 +1408,6 @@ fn lampLight(p: vec2f, l: f32) -> f32 {
   if (lp.w == 0.0) { return l; }
   let b = lp.w * disc(handD(p, lp.xy), lp.z);
   return select(l * (1.0 + b), l + b, b > 0.0);
-}
-// The water a finger drags along with it.
-fn stirFlow(p: vec2f) -> vec2f {
-  let st = sim.hand.stir;
-  if (all(st.zw == vec2f(0.0))) { return vec2f(0.0); }
-  return st.zw * disc(handD(p, st.xy), sim.hand.more.x);
 }
 // Whether the needle's stroke this step passes within its half-width of p (a bond there is cut).
 fn cutAt(p: vec2f) -> bool {
@@ -1442,21 +1434,58 @@ fn suckFlow(id: u32, p: vec2f, h: f32) -> vec2f {
   else if (sim.hand.ids.w > 0u && l < sk.z + PIPE_HOLD && drawn(id)) { v = PIPE_DRAW; }
   return d / max(l, 1e-4) * min(v * h, l);
 }
-// How far the needle in the water pushes a cell at p aside: out of its shaft, the near way, to a cell's breadth
-// past its surface (the shaft as the cells see it, a little wider than the steel).
-fn shaft(p: vec2f) -> vec2f {
+// How far the needle and Touch's rod in the water push a cell or a grain at p aside, out of their way: each moved
+// from where it was when the world last stepped to where it is, it sweeps what lies between, so a fast stroke
+// carries along what it passes rather than leaping over it. Nothing in a headless run, where both are out.
+fn handPush(p: vec2f) -> vec2f { return needlePush(p) + rodPush(p); }
+// The needle: its shaft, tapering to its point, a cell's breadth wider than the steel as the cells see it. What
+// lies within it is pushed out the near way; what the shaft crossed since the last step (on one side of it then,
+// on the other now) is kept on its own side, at the shaft's edge.
+fn needlePush(p: vec2f) -> vec2f {
   let nd = sim.hand.needle;
   let L = length(nd.zw);
   if (L <= 0.0) { return vec2f(0.0); }
   let ax = nd.zw / L;
+  let pp = vec2f(-ax.y, ax.x);
   let a = handD(p, nd.xy);
-  let t = clamp(dot(a, ax), 0.0, L);
-  let q = a - ax * t;
+  let s = dot(a, ax);
+  if (s > L) { return vec2f(0.0); }
+  let lat = dot(a, pp);
+  if (sim.hand.more.y > 0.0) {
+    let m = handD(nd.xy, sim.hand.cut.xy);
+    let was = lat + dot(m, pp);
+    if (was * lat < 0.0) {
+      let sc = s + dot(m, ax) - was / (was - lat) * dot(m, ax);
+      if (sc >= 0.0 && sc <= L && s >= 0.0) { return pp * (sign(was) * (needleW(s) + 0.06) - lat); }
+    }
+  }
+  let q = a - ax * clamp(s, 0.0, L);
   let l = length(q);
-  let w = needleW(t) + 0.06;
-  if (l >= w || dot(a, ax) > L) { return vec2f(0.0); }
-  let side = select(vec2f(-ax.y, ax.x) * sign(ax.x * a.y - ax.y * a.x + 1e-9), q / max(l, 1e-9), l > 1e-5);
+  let w = needleW(clamp(s, 0.0, L)) + 0.06;
+  if (l >= w) { return vec2f(0.0); }
+  let side = select(pp * sign(lat + 1e-9), q / max(l, 1e-9), l > 1e-5);
   return side * (w - l);
+}
+// The rod, coming down from above: a disc of the reach. What lies in it is pushed out to its rim; what it passed
+// over since the last step is plowed ahead of it, to its rim before it, keeping its place across the stroke.
+fn rodPush(p: vec2f) -> vec2f {
+  let R = sim.hand.more.x;
+  if (R <= 0.0) { return vec2f(0.0); }
+  let a = handD(p, sim.hand.rod.xy);
+  let m = handD(sim.hand.rod.xy, sim.hand.rod.zw);
+  let w = R + 0.04;
+  let ml = dot(m, m);
+  if (ml > 1e-10) {
+    let b = a + m;
+    let t = dot(b, m) / ml;
+    let side = b - m * t;
+    if (t > 0.0 && t < 1.0 && dot(side, side) < R * R) {
+      return side + m * (inverseSqrt(ml) * sqrt(max(w * w - dot(side, side), 0.0))) - a;
+    }
+  }
+  let l = length(a);
+  if (l >= w) { return vec2f(0.0); }
+  return select(vec2f(w, 0.0), a / max(l, 1e-9) * (w - l), l > 1e-5);
 }
 
 // The open water's currents at p, as if no shore were near: the four waves and raindrops' rings.
@@ -1468,7 +1497,7 @@ fn openFlow(p: vec2f) -> vec2f {
     let ph = w.x * p.x + w.y * p.y + w.z * sim.time + wph[k];
     v += vec2f(w.y, -w.x) * (cos(ph) * w.w / max(length(w.xy), 1e-4));
   }
-  return v * sim.weather.x + dropFlow(p) + stirFlow(p);
+  return v * sim.weather.x + dropFlow(p);
 }
 ${pondFlowWGSL('sim', 'sim.time', K)}fn flowAt(p: vec2f) -> vec2f {
   let open = openFlow(p);
@@ -2288,7 +2317,9 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   }${K.heat && K.marangoni > 0 ? `
   // surface flow: warm water's surface pulls toward cooler water, carrying matter with it
   vel -= heatHere.yz * ${f(K.marangoni)};` : ''}
-  let pos = wrapPos(p.pos + vel * sim.dt);
+  // (the needle and the rod push grains out of their way as they do cells)
+  let moved = p.pos + vel * sim.dt;
+  let pos = wrapPos(moved + handPush(moved));
   p.age += sim.dt;
   if (p.kind == SILT) {
     let tide = lampLight(pos, (tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient) * sim.pond.z * (1.0 - duckShade(pos, sim.duck, sim.duckB, sim.world)));
@@ -2843,7 +2874,8 @@ fn cystStep(i: u32) {
   let pd = pondWith(p.pos, open);
   let dry = pd.x < 0.0;
   if (dry) { p.vel = vec2f(0.0); }
-  p.pos = wrapPos(p.pos + (p.vel + flowWith(open, pd) * g.advect) * sim.dt);
+  let moved = p.pos + (p.vel + flowWith(open, pd) * g.advect) * sim.dt;
+  p.pos = wrapPos(moved + handPush(moved));
   atomicAdd(&ledger[cystSlot(dietGuild(g))], 1u);
   if (p.energy <= 0.0) {
     splCause(p.kind, select(1u, 5u, dry));
@@ -7401,7 +7433,7 @@ fn lampAt(wp: vec2f) -> f32 {
   if (post.lamp.w == 0.0) { return 0.0; }
   var d = wp - post.lamp.xy;
   d -= post.world * round(d / post.world);
-  return post.lamp.w * (1.0 - smoothstep(0.75 * post.lamp.z, post.lamp.z, length(d)));
+  return post.lamp.w * (1.0 - smoothstep(0.94 * post.lamp.z, post.lamp.z, length(d)));
 }
 // The lamp seen: what it lights is brighter, and the water under it takes the lamp's amber; under a shade, dimmer.
 fn lampSeen(hdr: vec3f, wp: vec2f) -> vec3f {
@@ -7469,9 +7501,13 @@ fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
 // surface (negative inside), y across it (-1..1), z along it from its point, w its blur (world units).
 const NEEDLE_W = ${f(NEEDLE.w)};
 const NEEDLE_TAPER = ${f(NEEDLE.taper)};
+// (wp and its point both in the view's own coordinates, unwrapped: an instrument is drawn once, never round the
+// world's edge)
 fn toolAt(wp: vec2f, ppu: f32) -> vec4f {
-  var d = wp - post.tool.xy;
-  d -= post.world * round(d / post.world);
+  let d = wp - post.tool.xy;
+  let blur = 1.2 / max(ppu, 1e-3) + (1.0 - post.toolB.y) * 0.5;
+  // the rod, seen end on from above: a disc of radius tool.z
+  if (post.toolB.x > 3.5) { return vec4f(length(d) - post.tool.z, clamp(length(d) / max(post.tool.z, 1e-4), 0.0, 1.0), 0.0, blur); }
   let ax = normalize(post.tool.zw);
   let s = dot(d, ax);
   let lat = dot(d, vec2f(-ax.y, ax.x));
@@ -7482,13 +7518,15 @@ fn toolAt(wp: vec2f, ppu: f32) -> vec4f {
   else if (kind < 2.5) { hw = mix(0.34, 1.1, smoothstep(0.0, 12.0, t)); }
   let sd = select(abs(lat) - hw, length(d) - hw, s < 0.0);
   let across = select(lat, sign(lat) * length(d), s < 0.0) / max(hw, 1e-4);
-  return vec4f(sd, clamp(across, -1.0, 1.0), s, 1.2 / max(ppu, 1e-3) + (1.0 - post.toolB.y) * 0.5);
+  return vec4f(sd, clamp(across, -1.0, 1.0), s, blur);
 }
 // The pipette's glass bends the view through it, as a lens of its shape would (pixels).
 fn toolBend(wp: vec2f) -> vec2f {
-  if (post.toolB.x < 1.5 || post.toolB.x > 2.5) { return vec2f(0.0); }
+  if (post.toolB.x < 1.5 || (post.toolB.x > 2.5 && post.toolB.x < 3.5)) { return vec2f(0.0); }
   let g = toolAt(wp, post.ppu);
   if (g.x > 0.0) { return vec2f(0.0); }
+  // (the rod's end a lens: what lies under it a little larger, the more so toward its rim)
+  if (post.toolB.x > 3.5) { return -(wp - post.tool.xy) * post.ppu * (0.08 * g.y * g.y * post.toolB.y); }
   let ax = normalize(post.tool.zw);
   return vec2f(-ax.y, ax.x) * (g.y * sqrt(max(0.0, 1.0 - g.y * g.y)) * -7.0 * post.toolB.y);
 }
@@ -7506,6 +7544,16 @@ fn instrument(cIn: vec3f, wp: vec2f, ppu: f32) -> vec3f {
   // (the side of the shaft toward the lamp catches its light)
   let lit = dot(vec2f(-ax.y, ax.x), LAMP_L);
   var c = cIn;
+  if (kind > 3.5) {
+    // the rod's end: clear glass, its rim a bright ring where the water climbs it (brightest toward the lamp), the
+    // water just outside a darker band; raised over the water, a soft shadow and a blurred ring
+    let toward = 0.7 + 0.3 * dot((wp - post.tool.xy) / max(length(wp - post.tool.xy), 1e-5), LAMP_L);
+    let rim = exp(-pow(g.x / (blur + 0.8 * px), 2.0));
+    let menisc = exp(-pow((g.x - 3.0 * (blur + px)) / (2.0 * (blur + px)), 2.0)) * f;
+    c = c * (1.0 - 0.1 * a * f) * (1.0 - 0.25 * menisc) * mix(1.0 - 0.2 * a, 1.0, f);
+    c += vec3f(0.13, 0.15, 0.16) * rim * toward * mix(0.25, 1.0, f) + vec3f(0.01, 0.012, 0.013) * a * f;
+    return c;
+  }
   if (kind > 1.5 && kind < 2.5) {
     // glass: nearly clear, its walls bright lines and its bore open; the walls meet at the tip's rim
     let bore = 0.68;

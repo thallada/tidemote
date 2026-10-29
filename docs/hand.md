@@ -5,7 +5,7 @@ between worlds. The plan, its options and its reasons are in docs/interactivity-
 built, and where it differs.
 
 **The rule.** The hand does nothing the world cannot do by itself. Every tool is a local cause (a lamp is more sun
-on one place, a stir a gust, the needle a hunter, the pipette a current that carries cells off), as slow as the
+on one place, the rod a grain rolling through, the needle a hunter, the pipette a current that carries cells off), as slow as the
 world, and bounded by physics rather than by limits on what it may do. Nothing in it reads the census.
 
 ## The hand's words
@@ -18,20 +18,29 @@ hand.
 | Tool | Key | What it does | In the step |
 | --- | --- | --- | --- |
 | No tool | 0 | Nothing in hand: a click examines, a drag pans | none |
-| Loupe | 1 (M) | The lens: it follows the mouse; on a touch screen a tap examines a cell and sets the lens over it, a drag on the lens moves it and a drag outside it pans. Reach sizes it, `[` `]` magnify | none |
-| Touch | 2 | A tap rings the water from a raindrop slot; a drag drags the water within the reach as fast as the finger, in the world's seconds (at ×2 the same stroke is half as fast), harder over a wider reach (as its square root: twice as hard at four times the reach, the cap of 12 units a second with it), and it runs on and slows when let go. A drifter goes with it all the way, an anchored cell 60% (it holds against currents, `advect`, but not against a finger) | `stirFlow` in `openFlow` and `cellWGSL` |
+| Loupe | 1 (M) | The lens: it follows the mouse; on a touch screen a tap examines a cell and sets the lens over it there in the world (it goes with the world as the view pans, off the screen and back), a drag on the lens moves it and a drag outside it pans. Reach sizes it, `[` `]` magnify | none |
+| Touch | 2 | A glass rod from above: pressed, its end (a disc of the reach) is in the water and pushes every cell and grain under it out to its rim; dragged, it plows what it passes ahead of it. A tap rings the water from a raindrop slot | `rodPush` in `handPush` (`cellWGSL`, `matterMain`, `cystStep`) |
 | Lamp, Shade | 3, 4 | Over the world a quarter of it follows the pointer; pressed, all of it: light added (up to 0.6, the noon sun is about 1) or taken (up to 90%) over the reticle's disc. It goes where the pointer goes and off the world with it: nothing is left behind | `lampLight` in `lightAt` (photosynthesis, sparks, the sun's heat), the phototaxis slope |
 | Warm, Cold | 5, 6 | The same quarter and all: the water under the disc drawn, 80% of the way a second (`STAGE.rate`), toward a temperature that share of the way from the open water's to the stage's 115° (`STAGE.hot`) or the probe's −20° (`STAGE.cold`). Water boils at 100° (`BOIL`) and is never hotter (`heatMain`'s last `min`, an identity below it). The water it leaves keeps its heat and gives it up as any water does. From about 45° the air dissolved in it comes out as small bubbles pinned to the glass, swelling as it warms; near a boil vapor bubbles swell and collapse over the hot glass and the view roils. Below 0°, far colder than the water around, it freezes as the frost's ice does (`iceLook`, its front the 0° isotherm), crystals growing ahead of it | `heatMain`; `extremes`, `shimmer` in the composite |
-| Needle | 7 | Pressed, the needle is let down into the water from the lower right: its point (within 0.12, `NEEDLE.kill`) pricks every cell it touches, as a hunter's kill does, its carcass left; its shaft, tapering over 3 units to 0.45 (`NEEDLE`), pushes the other cells out of its way; a drag cuts every bond within 0.32 of the point's stroke. A tap also pricks the cell nearest it (within 36 px on a touch screen) | `resolveCount`; `cutAt` in `keepBond`; `shaft` in `cellWGSL` |
+| Needle | 7 | Pressed, the needle is let down into the water from the lower right: its point (within 0.12, `NEEDLE.kill`) pricks every cell it touches, as a hunter's kill does, its carcass left; its shaft, tapering over 3 units to 0.45 (`NEEDLE`), pushes the other cells and grains out of its way; a drag cuts every bond within 0.32 of the point's stroke. A tap also pricks the cell nearest it (within 36 px on a touch screen) | `resolveCount`; `cutAt` in `keepBond`; `needlePush` in `handPush` |
 | Pipette | 8 | Draws up and sets down (below) | `suckFlow` in `cellWGSL`; the take in `resolveCount`; `inject*` |
+
+The needle and the rod sweep: each step they push aside what lies in them and what they passed over since the
+world last stepped (`hand.stepped()`, after a frame with steps: frames the world does not step in, at 120 Hz or at
+Max, add to the stroke rather than losing it), so however fast the stroke they carry what they meet along rather
+than leaping over it. The needle's shaft runs at most half the world (`hand.span`), so it never reaches round it.
+The lamp, shade, stage and probe act on a disc that fades only over the outer 6% of the reach (`disc`), so what
+they do fills the reticle's ring.
 
 A tool's key, or its tile, again puts it down (no tool). Reach (`[` `]`, ⇧ wheel, the slider) is a world distance
 shared by every tool but the needle, 35 µm to 470 µm; with the loupe it is the lens's size. The composite shows the
 lamp (the lit water brighter and amber) and the shade, Warm and Cold a thermal lens inside their reach (`lensAt`:
 the thermal camera from `STAGE.cold` to `BOIL`, isotherms every 5°), and the instruments that go into the water
-(`instrument`, from the page's `eng.tool`): the needle's steel, the pipette's glass (bending the view through it) and
-the cold probe's frosting steel, each from its side of the field, out of focus over the water as the pointer moves
-and sharp in it while pressed.
+(`instrument`, from the page's `eng.tool`): the needle's steel, the pipette's glass (bending the view through it),
+the cold probe's frosting steel, each from its side of the field, and Touch's rod seen end on from above (a clear
+disc, a little magnifying, its rim bright where the water climbs it); out of focus over the water as the pointer
+moves and sharp in it while pressed. They are drawn in the view's own coordinates, once, never round the world's
+edge.
 
 ## Riding
 
@@ -104,7 +113,7 @@ again."
 The tools are the dock's middle on wide screens (numbered from 0, no tool, the one in hand in the sun color, the
 pipette with its count); B opens the Bench drawer (tiles, a hint for the tool in hand, Reach, the pipette's strip).
 The page opens with the loupe in hand, or with no tool on a touch screen with no mouse. Below 980 px the tools live
-in the drawer only (a swipe down closes it), and on a phone a working tool in hand folds the drawer to a held strip
+in the drawer only (a swipe down, or a tap on its handle, closes it), and on a phone a working tool in hand folds the drawer to a held strip
 (its key, − reach +, Load and Dispense with the pipette, × to put it down, and the pipette's cards). With a working
 tool in hand the reticle shows: a ticked ring of the reach, a cross, and a readout of the tool and what it is doing.
 Esc puts the tool down (no tool) before it closes anything else; a digit held down is the tool for as long as it is
