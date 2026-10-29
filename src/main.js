@@ -219,7 +219,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   };
   // the viewer's hand (hand.js, docs/hand.md): the tool in hand and what it does to the world; its record of acts is
   // the world's (life.hand), kept in saves
-  const hand = createHand(eng.hand, eng.handU, { reach: clamp(prefs.reach ?? REACH.def, REACH.min, REACH.max) });
+  const hand = createHand(eng.hand, eng.handU, { reach: clamp(prefs.reach ?? REACH.def, REACH.min, REACH.max), drops: eng.drops });
   if (touchOnly) hand.set('none');
   let handSeen = 0;
   // the pipette's contents (pipette.js), the world's (life.pipette, kept in saves)
@@ -2664,7 +2664,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // A tap with a tool in hand: Touch rings the water, the needle pricks the cell under its tip.
   async function tapTool(sx, sy) {
     const [wx, wy] = toWorld(sx, sy);
-    if (hand.tool === 'touch') hand.tap(eng.drops, wx, wy, eng.simTime);
+    if (hand.tool === 'touch') hand.tap(wx, wy, eng.simTime);
     else if (hand.tool === 'needle') {
       const p = cssPPU(), res = await eng.requestPick([wx, wy], Math.max(0.5, 30 / p), NONE);
       if (!res) return;
@@ -3478,7 +3478,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const pressed = !!(ptr.down?.apply || ptr.down?.pip);
     toolFocus += ((pressed ? 1 : 0) - toolFocus) * (1 - Math.exp(-dt / 0.12));
     if (!it || !R) { eng.tool.fill(0); toolFocus = 0; return; }
-    eng.tool.set([...toWorld(R.sx, R.sy), ...it.dir, it.kind, toolFocus, hand.tool === 'cold' ? hand.level : 0, hand.reach]);
+    // (the rod comes into focus as it dips into the water)
+    eng.tool.set([...toWorld(R.sx, R.sy), ...it.dir, it.kind, hand.tool === 'touch' ? hand.dip : toolFocus, hand.tool === 'cold' ? hand.level : 0, hand.reach]);
   }
   // what the tool in hand is doing, in a few words
   function handDoing() {
@@ -4149,7 +4150,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       pullTick(now);
       // (the lamp, shade, stage and probe follow the pointer over the world, a little of them, until pressed)
       if (R) hand.hover(...toWorld(R.sx, R.sy)); else hand.hover(null);
-      hand.update(dt / 1000);
+      hand.update(dt / 1000, eng.simTime);
       showInstrument(R, dt / 1000);
       // the warm stage and the cold probe show the water's warmth inside their reach
       if (R && (hand.tool === 'warm' || hand.tool === 'cold') && K.heat) eng.lens.set([...toWorld(R.sx, R.sy), (1.5 * R.r) / cssPPU(), 1]);

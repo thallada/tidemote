@@ -1261,6 +1261,8 @@ struct Hand {
                 // w how many cells the pipette draws (their IDs in the ledger's hand region)
   suck: vec4f,  // the pipette's tip, its reach (0: none), how fast it draws what is in reach (world units a second, 0: not pressed)
   needle: vec4f, // the needle in the water: its point, and its shaft's way off toward the corner, as long as it runs (0: none)
+  wake: vec4f,  // x the size of the rod's eddies (0: none); y 1 while the cold probe's ice may lie in the water
+  eddies: array<vec4f, 20>, // the rod's wake: each eddy's center and the water's velocity it carries there, as it fades
 };
 // kr: 0..9 kind, 10..11 role, 12 plant, 13 cyst, 14 hunter, 15 tail cell.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };
@@ -1440,6 +1442,19 @@ fn suckFlow(id: u32, p: vec2f, h: f32) -> vec2f {
   else if (sim.hand.ids.w > 0u && l < sk.z + PIPE_HOLD && drawn(id)) { v = PIPE_DRAW; }
   return d / max(l, 1e-4) * min(v * h, l);
 }
+// The water the rod's wake carries at p: each eddy drags the water about it at its velocity, less with distance
+// (half at its size away), so a stroke leaves a current along it, a circling one a vortex, fading as they do.
+fn wakeFlow(p: vec2f) -> vec2f {
+  let R = sim.hand.wake.x;
+  if (R <= 0.0) { return vec2f(0.0); }
+  var v = vec2f(0.0);
+  for (var k = 0u; k < 20u; k++) {
+    let e = sim.hand.eddies[k];
+    let d = handD(p, e.xy);
+    v += e.zw * (R * R / (dot(d, d) + R * R));
+  }
+  return v;
+}
 // How far the needle and Touch's rod in the water push a cell or a grain at p aside, out of their way: each moved
 // from where it was when the world last stepped to where it is, it sweeps what lies between, so a fast stroke
 // carries along what it passes rather than leaping over it. Nothing in a headless run, where both are out.
@@ -1503,7 +1518,7 @@ fn openFlow(p: vec2f) -> vec2f {
     let ph = w.x * p.x + w.y * p.y + w.z * sim.time + wph[k];
     v += vec2f(w.y, -w.x) * (cos(ph) * w.w / max(length(w.xy), 1e-4));
   }
-  return v * sim.weather.x + dropFlow(p);
+  return v * sim.weather.x + dropFlow(p) + wakeFlow(p);
 }
 ${pondFlowWGSL('sim', 'sim.time', K)}fn flowAt(p: vec2f) -> vec2f {
   let open = openFlow(p);
@@ -1545,7 +1560,7 @@ fn smoothField(block: u32, i: vec2i, t: vec2f) -> vec3f {
 // The pond at p given the open water's flow there (openFlow)
 fn pondWith(p: vec2f, open: vec2f) -> vec3f {
   var e = vec3f(1.0, 0.0, 0.0);
-  if (!pondOn()) { return e; }
+  if (!pondOn() && sim.hand.wake.y <= 0.0) { return e; }
   let u = p - 0.5;
   let i = vec2i(floor(u));
   let t = u - floor(u);
@@ -1559,6 +1574,13 @@ fn pondWith(p: vec2f, open: vec2f) -> vec3f {
     let o = smoothField(2u, i, t);
     let ice = vec3f(o.x - sim.weather.y, -o.yz);
     if (shoreDist(ice) < shoreDist(e)) { e = ice; }
+  }
+  // the cold probe's ice (docs/hand.md): water the hand chilled below freezing is frozen as the frost's is, its
+  // edge the 0° line (by the temperature's slope); only once the probe has been used (wake.y), so never headless
+  if (HEAT_ON && sim.hand.wake.y > 0.0) {
+    let h = heatSample(p);
+    let ice = vec3f(h.x, -h.yz);
+    if (h.x < 2.0 && shoreDist(ice) < shoreDist(e)) { e = ice; }
   }
   return e;
 }

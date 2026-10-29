@@ -32,21 +32,33 @@ const LAMP = 0.6; // the light a lamp adds within its reach, at full brightness 
 const SHADE = 0.9; // the share of the light a shade takes
 const HOVER = 0.25; // the lamp, shade, stage and probe over the world, not pressed: this much of their full strength
 const CUT = 0.32; // the needle's half-width: it cuts bonds and parts cells this far to either side (past LINK_R apart)
-// how the lamp and stage come up while held and go when let go (time constants, real seconds)
-const EASE = { lamp: [0.35, 0.3], stage: [0.25, 0.25] };
+// how the lamp and stage come up while held and go when let go, and the rod dips in and lifts out (time constants,
+// real seconds)
+const EASE = { lamp: [0.35, 0.3], stage: [0.25, 0.25], dip: [0.3, 0.15] };
+// The rod's wake: while it is in the water, every `every` simulated seconds it leaves an eddy where it is, carrying
+// the water there along at `couple` of its own velocity (at most `max` world units a second), fading over `life`
+// seconds; at most `n` at once. A stroke turned back on itself (faster than `turn` units a second, frame to frame)
+// sends a ring wave out from it.
+export const WAKE = { n: 20, every: 0.1, life: 1.2, couple: 0.6, max: 8, turn: 1.5 };
+const ICE_KEEPS = 120; // simulated seconds the cold probe's ice is looked for after it was last chilling the water
 const NONE = 0xffffffff;
 
 /**
- * words, ids: the engine's hand words (eng.hand, eng.handU), which update() writes. The page calls down, move and
- * up with world points, tap and prick for Touch's taps and the needle's cell, update(dt) every frame, and stepped()
+ * words, ids: the engine's hand words (eng.hand, eng.handU), which update() writes; drops: the engine's raindrop
+ * slots (eng.drops), where Touch's taps and the rod's waves ring. The page calls down, move and up with world points,
+ * tap and prick for Touch's taps and the needle's cell, update(dt, t) every frame (t: simulated time), and stepped()
  * after a frame the world stepped in (the needle and the rod sweep what they passed since the last step).
  */
-export function createHand(words, ids, { reach = REACH.def } = {}) {
+export function createHand(words, ids, { reach = REACH.def, drops = new Float64Array(16) } = {}) {
   const ease = (v, to, [up, down], dt) => v + (to - v) * (1 - Math.exp(-dt / (Math.abs(to) > Math.abs(v) ? up : down)));
   const h = {
     // (at: where the pointer is over the world, or null)
     // (from: where the point was when the world last stepped)
-    tool: 'loupe', reach, held: false, last: null, at: null, from: null,
+    // (dip: how far the rod is in the water, 0..1, at rodAt; eddies: its wake, { x, y, vx, vy, t }; wake: where it
+    // was when it last left one)
+    // (coldAt: when the cold probe was last chilling the water)
+    // (stroke: the rod's last move, frame to frame, and when)
+    tool: 'loupe', reach, held: false, last: null, at: null, from: null, dip: 0, rodAt: null, eddies: [], wake: null, stroke: null, coldAt: -Infinity,
     lamp: { x: 0, y: 0, r: reach, v: 0 }, stage: { x: 0, y: 0, r: reach, v: 0 },
     // the ridden cell and where it is steered: [x, y, strength]; the pipette's draw: [x, y, reach, speed] (the page's)
     rider: NONE, will: null, suck: null,
@@ -61,7 +73,7 @@ export function createHand(words, ids, { reach = REACH.def } = {}) {
     /** A world begun or put in place: its record of acts (kept with it), nothing of the last world's still acting. */
     reset(acts = []) {
       h.up(); h.acts = acts; h.rider = NONE; h.will = null; h.suck = null;
-      h.lamp.v = h.stage.v = 0;
+      h.lamp.v = h.stage.v = h.dip = 0; h.eddies = []; h.coldAt = -Infinity;
     },
     /** The tool in hand (an id of TOOLS); taking one lets go of the last. */
     set(id, t) { h.up(t); h.tool = toolOf(id).id; },
@@ -84,13 +96,8 @@ export function createHand(words, ids, { reach = REACH.def } = {}) {
       if (h.held && t != null && a && a.tool === h.tool) a.end = Math.max(a.end, t);
       h.held = false; h.from = null;
     },
-    /** A tap with Touch: a drop's ring from (x, y), in the oldest of the engine's raindrop slots. */
-    tap(drops, x, y, t) {
-      let k = 0;
-      for (let j = 1; j < 4; j++) if (drops[j * 4 + 2] < drops[k * 4 + 2]) k = j;
-      drops.set([x, y, t, 2.5], k * 4);
-      act(t, x, y, 1);
-    },
+    /** A tap with Touch: a drop's ring from (x, y). */
+    tap(x, y, t) { ring(x, y, t, 2.5); act(t, x, y, 1); },
     /** An act the page does with a tool (the pipette drawing up or setting down n cells at (x, y)). */
     note(tool, x, y, t, n = 0) { act(t, x, y, n, tool); },
     /** The needle pricked cell id at (x, y). */
@@ -101,8 +108,8 @@ export function createHand(words, ids, { reach = REACH.def } = {}) {
       h.will = h.rider === NONE ? null : [x, y, s];
       if (s > 0 && t != null) act(t, x, y, 0, 'ride');
     },
-    /** Ease the lamp and stage toward what the hand is doing, and write the engine's words. */
-    update(dt) {
+    /** Ease the lamp, stage and rod toward what the hand is doing at simulated time t, and write the engine's words. */
+    update(dt, t = 0) {
       const p = h.held ? h.last : h.at, tl = h.tool;
       // (over the world a little of the tool, pressed all of it; it goes where the pointer goes, and with it)
       const s = !p ? 0 : h.held ? 1 : HOVER;
@@ -116,20 +123,61 @@ export function createHand(words, ids, { reach = REACH.def } = {}) {
       h.lamp.v = settle(ease(h.lamp.v, lampTo, EASE.lamp, dt), lampTo);
       h.stage.v = settle(ease(h.stage.v, stageTo, EASE.stage, dt), stageTo);
       // the needle or the rod let down into the water, and where it was when the world last stepped (the needle's
-      // stroke since then cuts the bonds it crosses)
-      const f = h.held && p ? h.from || p : null, rod = f && tl === 'touch', needle = f && tl === 'needle';
+      // stroke since then cuts the bonds it crosses); the rod dips in a moment, pushing out wider as it goes deeper
+      const f = h.held && p ? h.from || p : null, needle = f && tl === 'needle';
       const cut = needle && Math.hypot(p[0] - f[0], p[1] - f[1]) > 1e-4;
+      h.dip = settle(ease(h.dip, h.held && tl === 'touch' ? 1 : 0, EASE.dip, dt), h.held && tl === 'touch');
+      if (p && tl === 'touch') h.rodAt = p;
+      const rod = h.dip > 0 && h.rodAt, rf = rod && (f || h.rodAt);
+      wake(rod && h.rodAt, t);
       const w = h.will || [0, 0, 0];
       words.set([h.lamp.x, h.lamp.y, h.lamp.r, h.lamp.v, h.stage.x, h.stage.y, h.stage.r, h.stage.v,
-        ...(rod ? [...p, ...f] : [0, 0, 0, 0]), ...(cut ? [...f, ...p] : [0, 0, 0, 0]), rod ? h.reach : 0, cut ? CUT : 0, w[0], w[1]]);
+        ...(rod ? [...h.rodAt, ...rf] : [0, 0, 0, 0]), ...(cut ? [...f, ...p] : [0, 0, 0, 0]), rod ? h.reach * Math.sqrt(h.dip) : 0, cut ? CUT : 0, w[0], w[1]]);
       ids[21] = h.rider;
       words[22] = w[2];
       words.set(h.suck || [0, 0, 0, 0], 24);
       // (its point, and as much of its shaft as is in the water, running off toward its corner)
       const nd = INSTRUMENTS.needle.dir;
       words.set(needle ? [p[0], p[1], nd[0] * NEEDLE.wet, nd[1] * NEEDLE.wet] : [0, 0, 0, 0], 28);
+      // the wake's eddies, as strong as they still are, and their size (0: none)
+      words.fill(0, 32);
+      h.eddies.forEach((e, k) => { const s = Math.exp(-(t - e.t) / WAKE.life); words.set([e.x, e.y, e.vx * s, e.vy * s], 36 + k * 4); });
+      words[32] = h.eddies.length ? h.reach : 0;
+      // (the water it chilled may stay frozen a while after)
+      if (h.stage.v < 0) h.coldAt = t;
+      words[33] = t - h.coldAt < ICE_KEEPS ? 1 : 0;
     },
   };
+  // a ring wave from (x, y), of strength s, in the oldest of the raindrop slots
+  function ring(x, y, t, s) {
+    let k = 0;
+    for (let j = 1; j < 4; j++) if (drops[j * 4 + 2] < drops[k * 4 + 2]) k = j;
+    drops.set([x, y, t, s], k * 4);
+  }
+  // The rod in the water at `at` (or out of it, null) at simulated time t: an eddy left every WAKE.every seconds,
+  // with the velocity it moved at since the last; a stroke turned back rings out a wave. Faded eddies go.
+  function wake(at, t) {
+    h.eddies = h.eddies.filter((e) => t >= e.t && t - e.t < 5 * WAKE.life);
+    if (!at) { h.wake = h.stroke = null; return; }
+    // (frame to frame, so a quick shake is seen however fast it is)
+    const st = h.stroke;
+    if (!st) h.stroke = { x: at[0], y: at[1], t, dx: 0, dy: 0 };
+    else if (t > st.t) {
+      const dx = at[0] - st.x, dy = at[1] - st.y;
+      if (dx || dy) {
+        if (Math.hypot(dx, dy) / (t - st.t) > WAKE.turn && dx * st.dx + dy * st.dy < 0) ring(at[0], at[1], t, Math.min(2.5, 0.15 * Math.hypot(dx, dy) / (t - st.t)));
+        h.stroke = { x: at[0], y: at[1], t, dx, dy };
+      }
+    }
+    const lw = h.wake;
+    if (lw && t - lw.t < WAKE.every) return;
+    h.wake = { x: at[0], y: at[1], t };
+    if (!lw || t <= lw.t) return;
+    let vx = (at[0] - lw.x) / (t - lw.t), vy = (at[1] - lw.y) / (t - lw.t);
+    const v = Math.hypot(vx, vy), c = v > WAKE.max / WAKE.couple ? WAKE.max / WAKE.couple / v : 1;
+    vx *= c; vy *= c;
+    if (v > 0.2) h.eddies = [...h.eddies, { x: (at[0] + lw.x) / 2, y: (at[1] + lw.y) / 2, vx: vx * WAKE.couple, vy: vy * WAKE.couple, t }].slice(-WAKE.n);
+  }
   // what has faded to nothing is nothing (so the kernels' guards skip it)
   const settle = (v, on) => (!on && Math.abs(v) < 1e-3 ? 0 : v);
   // an act begun, or the last carried on: the same tool, about the same place, within a few seconds (a ride goes

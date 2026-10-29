@@ -29,7 +29,7 @@ const SURVEY_BYTES = SURVEY_MAX_TILES * SURVEY_WORDS * 4;
 export { MAXK, FIRST_LIFE, DEFAULT_K };
 
 const mix = (a, b, t) => a + (b - a) * t;
-const SIM_STRIDE = 512;
+const SIM_STRIDE = 1024;
 // the largest sprite radius, in pixels, splatted rather than drawn as a quad (splatMain)
 const SPLAT_PX = 1.6;
 export const MAX_STEPS = 512;
@@ -90,10 +90,10 @@ class Engine {
     this.seedValue = 1;
     this.censusEvery = 20;
     this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 1, heat: 1, bands: 0, optics: 1, specks: true, lod: true };
-    this.simData = new ArrayBuffer(512);
+    this.simData = new ArrayBuffer(848);
     // the viewer's hand (docs/hand.md; the page's src/hand.js sets it): Hand in simWGSL, its words as floats and
     // as ids. Zero, its ids NONE, in every headless run.
-    this.hand = new Float32Array(32);
+    this.hand = new Float32Array(116);
     this.handU = new Uint32Array(this.hand.buffer);
     this.handU.fill(0xffffffff, 20, 22);
     // the pool (docs/catastrophes.md), set by the climate: the water level (a quantile of the floor's relief; 1: all
@@ -140,7 +140,7 @@ class Engine {
 
     const d = device;
     const b = this.b;
-    b.sim = d.createBuffer({ size: 512, usage: U.UNIFORM | U.COPY_DST });
+    b.sim = d.createBuffer({ size: 848, usage: U.UNIFORM | U.COPY_DST });
     // the heat field: deposits, temperatures and husks per cell, and heatMain's next temperatures (shaders.js); then
     // the pool's floor, each cell's relief quantile (src/geography.js)
     b.thermal = d.createBuffer({ size: 3 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });

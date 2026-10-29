@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { createHand, TOOLS, keyOf, works, INSTRUMENTS } from '../src/hand.js';
 import { NEEDLE } from '../src/shaders.js';
 
-const make = () => {
-  const words = new Float32Array(32), ids = new Uint32Array(words.buffer);
+const make = (drops = new Float64Array(16)) => {
+  const words = new Float32Array(116), ids = new Uint32Array(words.buffer);
   ids.fill(0xffffffff, 20, 22);
-  return { words, ids, hand: createHand(words, ids, { reach: 3 }) };
+  return { words, ids, drops, hand: createHand(words, ids, { reach: 3, drops }) };
 };
 const run = (h, s, dt = 1 / 60) => { for (let t = 0; t < s; t += dt) h.update(dt); };
 
@@ -63,20 +63,35 @@ test('a shade takes light; warm and cold heat and chill', () => {
   assert.ok(words[7] > 0.75);
 });
 
-test('the rod pressed is in the water, its disc the reach; it sweeps from where it was when the world last stepped', () => {
+test('the rod dips in, its disc widening to the reach; it sweeps from where it was when the world last stepped', () => {
   const { hand, words } = make();
   hand.set('touch'); hand.hover(1, 1); hand.update(1 / 60);
   assert.equal(words[16], 0, 'over the water: not in it');
   hand.down(1, 1, 0); hand.update(1 / 60);
+  assert.ok(words[16] > 0 && words[16] < 1.5, `dipping ${words[16]}`);
+  run(hand, 1.5);
+  assert.ok(Math.abs(words[16] - 3) < 0.05, `in ${words[16]}`);
   assert.deepEqual([...words.subarray(8, 12)], [1, 1, 1, 1]);
-  assert.equal(words[16], 3);
   hand.move(2, 1); hand.move(4, 1); hand.update(1 / 60);
   assert.deepEqual([...words.subarray(8, 12)], [4, 1, 1, 1], 'a frame the world did not step in: still from where it last stepped');
   hand.stepped(); hand.move(5, 1); hand.update(1 / 60);
   assert.deepEqual([...words.subarray(8, 12)], [5, 1, 4, 1]);
-  hand.up(); hand.update(1 / 60);
-  assert.deepEqual([...words.subarray(8, 12)], [0, 0, 0, 0]);
-  assert.equal(words[16], 0);
+  hand.up(); run(hand, 2);
+  assert.equal(words[16], 0, 'lifted out');
+});
+
+test('the rod’s wake: eddies along a stroke, fading; a stroke turned back rings out a wave', () => {
+  const { hand, words, drops } = make();
+  hand.set('touch'); hand.down(0, 0, 0);
+  // across and back at 4 units a second, in the world's time
+  let t = 0;
+  for (const x of [0, 0.6, 1.2, 1.8, 1.2, 0.6]) { hand.move(x, 0); hand.update(1 / 60, (t += 0.15)); }
+  assert.ok(words[32] > 0, 'eddies, of the reach');
+  assert.ok(words[36 + 2] > 1, `an eddy carries the water along the stroke: ${words[38]}`);
+  assert.ok([...drops].some((v, i) => i % 4 === 3 && v > 0), 'the turn rang a wave');
+  hand.up();
+  hand.update(1 / 60, t + 10);
+  assert.equal(words[32], 0, 'faded, gone');
 });
 
 test('the needle pressed is in the water: its point, as much of its shaft as is wet running off to its corner; let go, out of it', () => {
@@ -92,10 +107,9 @@ test('the needle pressed is in the water: its point, as much of its shaft as is 
 });
 
 test('a tap rings from the oldest raindrop slot; a prick names its cell once', () => {
-  const { hand, ids } = make();
-  const drops = new Float64Array(16);
+  const { hand, ids, drops } = make();
   drops.set([0, 0, 5, 1, 0, 0, 2, 1, 0, 0, 9, 1, 0, 0, 7, 1]);
-  hand.tap(drops, 3, 4, 20);
+  hand.tap(3, 4, 20);
   assert.deepEqual([...drops.subarray(4, 8)], [3, 4, 20, 2.5]);
   hand.set('needle');
   hand.prick(1234, 1, 1, 21);
@@ -117,10 +131,10 @@ test('the needle cuts along its stroke since the world last stepped', () => {
 test('acts in one place run together; elsewhere or later they are new', () => {
   const { hand } = make();
   hand.set('touch');
-  hand.tap(new Float64Array(16), 1, 1, 10);
-  hand.tap(new Float64Array(16), 1.5, 1, 12);
-  hand.tap(new Float64Array(16), 30, 1, 13);
-  hand.tap(new Float64Array(16), 30, 1, 40);
+  hand.tap(1, 1, 10);
+  hand.tap(1.5, 1, 12);
+  hand.tap(30, 1, 13);
+  hand.tap(30, 1, 40);
   assert.equal(hand.acts.length, 3);
   assert.equal(hand.acts[0].n, 2);
 });
