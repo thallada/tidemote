@@ -131,6 +131,42 @@ Tested after heat (docs/thermal-energy-2026-10-07.md), on the pinned code, data 
   by time, and `guild-flows.mjs` gives per-capita demography and energy. `ensemble.mjs --resume` skips seeds
   already done or claimed, so two ensembles can share one directory.
 
+### Contact (2026-10-28)
+
+Contact (`contactMain`, the push of overlapping bodies, their hold and the crowd's viscosity) came after
+the correction above and is not in it. By 10-28 its explicit push, held for the step's ticks, had eroded
+4-tick fidelity the correction had won (at the 10-08 merge 4 ticks matched within ~2%): in matched forks
+at 4 ticks packing fell 8-22%, cells moved 50-140% faster and producers bred 31% more (most at 12 ticks:
+packing -50%, producer births +380%). Bisecting found no single commit; contact ablations found the push
+(push off: +30% packing at 4 ticks; all contact off: within 2%). Summed over a crowded cell's overlaps the
+push is stiff (20-35 rad/s), past the explicit limit when held over 4+ ticks.
+
+So on coarse steps both are two-body, like the correction: the viscosity decays only the relative velocity
+(at one tick exactly the 1/60 s rule), and the push meets its own stiffness `bodyPush · Σ cs/touch ·
+(1 + 1/n)` implicitly, damped by `pushTheta` of backward Euler's `1 + k dt²`. Full backward Euler (1)
+overpacks (+9-11% at 4 ticks, +25-37% at 8-12); 0.25 keeps packing within about 6% at 4 and 8 ticks.
+
+Ensembles of 64 seeds × 30 min at 32k (eras on; runs/stride, `compare.py`), mean ± 95%:
+
+| step | eff. species | Hill2 | living | top share | diet P/G/Pr/S |
+|---|---|---|---|---|---|
+| 1 | 113.5±5.5 | 37.1±2.2 | 0.33 | 0.14 | .30/.45/.15/.10 |
+| 4, explicit push | 106.2±5.8 | 34.1±2.0 | 0.33 | 0.14 | .29/.46/.15/.11 |
+| 6, explicit | 94.2±4.3 | 27.2±1.6 | 0.41 | 0.17 | .28/.45/.19/.09 |
+| 8, explicit | 84.7±3.8 | 21.2±1.3 | 0.51 | 0.22 | .28/.38/.26/.08 |
+| 12, explicit | 74.4±3.9 | 18.7±1.2 | 0.47 | 0.26 | |
+| 4 | 110.9±5.5 | 35.7±2.1 | 0.32 | 0.13 | .26/.48/.16/.10 |
+| 6 | 107.5±5.3 | 33.0±1.9 | 0.34 | 0.15 | .23/.52/.17/.08 |
+| 8 | 97.3±5.3 | 29.3±1.8 | 0.37 | 0.16 | .26/.48/.17/.09 |
+
+Swimming does not follow (swimlab, a 12-cell filament, amplitude 0.4): a beat pulls once a step, so at 8
+ticks (7.5 pulls a second) a 3 Hz beat is barely sampled and beating filaments tear (75-100% of samples
+past bond breaking), at 12 all of them; at 6 they hold and swim at 40-63% of their 1/60 s speed (50-105%
+at 4). Still mats loosen and relink from 5 ticks (swimlab's `brokenShare` overstates it for mats).
+
+Cost (RTX 4070 Ti, a 4M world, one step): 9.5 ms at 1 tick, 12.2 at 4, 12.4 at 6, 13.4 at 8, so 6 ticks
+run the world 4.6x faster than 1/60 s steps and 8 ticks 5.7x.
+
 ## What did not work
 
 - A force-gradient model (forces following the predicted displacement, explicit or implicit per cell),

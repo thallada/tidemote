@@ -134,6 +134,7 @@ export const DEFAULT_K = {
   bodyHold: 0.3,    // with bodyPush, the share of overlap undone each tick by velocity (contact as a constraint)
   bodyGive: 0.85,   // with bodyPush, how far cells may squash against each other first (share of touching; bonds rest at bondTouch)
   bodyPush: 30,     // contactMain: how hard overlapping cells' bodies push apart (units/s² per unit of overlap, summed; 0: off)
+  pushTheta: 0.25,  // how implicit a coarse step's contact push is (0 explicit: overshoots, cells part and speed up; 1 backward Euler: overpacks); docs/fast-forward.md
   crowdVisc: 20,    // contactMain: rate (per second) at which a cell crowded by four or more takes on the motion of those it touches
   tissue: 12,       // bodies as tissue: bonds pull both ways, a body's cells take on their partners' motion
                     // at this rate (per second), and a free bond slot only closes a triangle within the body
@@ -2465,6 +2466,8 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
   var holdN = 0.0;
   var touchV = vec2f(0.0);
   var touchN = 0.0;
+  // the push's stiffness (its gradient in this cell's position, summed over the overlaps)
+  var pushK = 0.0;
   for (var c9 = 0; c9 < 9; c9++) {
     if ((mask & (1u << u32(c9))) == 0u) { continue; }
     let c = u32(((cc.y + c9 / 3 - 1 + gh) % gh) * gw + (cc.x + c9 % 3 - 1 + gw) % gw);
@@ -2491,14 +2494,42 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
         let apartV = dot(qvel - p.vel, n);
         hold -= n * (0.5 * cs * max(0.0, holdShare * (touch - r) / sim.dt - apartV));
         holdN += cs;
+        pushK += cs / touch;
       }
       if (r < 1.25 * touchQ) { touchV += qvel * cs; touchN += cs; }
     }
   }
   var vel = p.vel;
   // (compounded per 1/60 s, so a coarse step blends as far as its ticks would, not past it)
-  if (touchN > 0.0) { vel = mix(vel, touchV / touchN, 1.0 - pow(1.0 - clamp(${f(K.crowdVisc / 60)} * min(1.0, touchN / 4.0), 0.0, 1.0), sim.dt * 60.0)); }
-  vel += push * (${f(K.bodyPush)} * sim.dt);
+  if (touchN > 0.0) {
+    let vT = touchV / touchN;
+    let a = clamp(${f(K.crowdVisc / 60)} * min(1.0, touchN / 4.0), 0.0, 1.0);
+    if (sim.ticks > 1u) {
+      // A coarse step: those it touches blend toward it as it blends toward them, so blending toward
+      // their velocities held from the step's start would swing a pair moving apart past each other
+      // (1 - 2a per tick, compounded: -0.6 at 4 ticks) and the crowd would lose its friction. Taken as
+      // two bodies sharing momentum (as the stiffness correction in lifeMain): their center keeps its
+      // velocity and only the relative velocity decays, by 1 - a (1 + 1/n) a tick (exactly the 1/60 s rule
+      // at one tick).
+      let n = max(touchN, 1.0);
+      let c = (vel + vT * n) / (1.0 + n);
+      vel = c + (vel - vT) * (n / (1.0 + n) * pow(max(0.0, 1.0 - a * (1.0 + 1.0 / n)), sim.dt * 60.0));
+    } else { vel = mix(vel, vT, 1.0 - pow(1.0 - a, sim.dt * 60.0)); }
+  }
+  if (sim.ticks > 1u && holdN > 0.0 && touchN > 0.0) {
+    // A coarse step holds the push for its ticks, and summed over a crowded cell's overlaps it is stiff
+    // (some 20-35 rad/s): held explicitly it overshoots, and crowds ring and loosen and bodies tear. So it
+    // is implicit, as the pair forces' correction in lifeMain: the cell and those it overlaps (holdN)
+    // share momentum, their center keeps its velocity, and the relative velocity meets the push's
+    // stiffness (1 + 1/n times this cell's), damped by pushTheta of backward Euler's 1 + kk dt² (all of it
+    // overpacks crowds; docs/fast-forward.md).
+    let vT = touchV / touchN;
+    let n = max(holdN, 1.0);
+    let kk = ${f(K.bodyPush)} * pushK * (1.0 + 1.0 / n);
+    let c = (vel + vT * n) / (1.0 + n);
+    let u = (vel - vT + push * (${f(K.bodyPush)} * sim.dt * (1.0 + 1.0 / n))) / (1.0 + ${f(K.pushTheta)} * kk * sim.dt * sim.dt);
+    vel = c + u * (n / (1.0 + n));
+  } else { vel += push * (${f(K.bodyPush)} * sim.dt); }
   if (holdN > 0.0) { vel += hold / max(1.0, 0.5 * holdN); }
   sortedFull[i].vel = vel;
 }
