@@ -19,7 +19,7 @@ const { values: v } = parseArgs({ options: {
 if (v.help || (!v.out && !v.from)) {
   console.log(`Usage: tools/gpu-node.sh tools/ensemble.mjs --out runs/NAME [options]
   --runs 24 --first-seed 1 --minutes 30 --n 32768 --jobs 4 --k '{}' --no-eras
-  --step 1                Each step covers step/60 s (coarse steps; the page takes up to 4)
+  --step 1                Each step covers step/60 s (coarse steps; the page takes up to 6)
   --temp T                Hold the water at T degrees
   --sample 5              Seconds between samples
   --chrome                Run each seed in Chromium (sim.mjs --chrome; TIDEMOTE_VK=1: on the GPU)

@@ -1,7 +1,7 @@
 # Fast-forward: coarse steps that keep the ecology
 
 Fast speeds run the simulation faster than the GPU manages in 1/60 s steps by taking coarse steps, each
-covering up to four ticks of 1/60 s. This note says how a coarse step works, why, how well it matches
+covering up to six ticks of 1/60 s. This note says how a coarse step works, why, how well it matches
 normal steps, how to measure that, and what did not work, for whoever takes it further.
 
 ## How the page runs a speed
@@ -11,7 +11,7 @@ normal steps, how to measure that, and what did not work, for whoever takes it f
 1. 1/60 s steps with the world drawn every display frame;
 2. 1/60 s steps with the world drawn about every `MAX_FRAME_MS` (30 ms): the camera, overlay and HUD keep
    the display's rate, carrying the last drawn image with the camera (engine `frame({ hold })`, `pHold`);
-3. coarse steps of 2..`MAX_TICKS` (4) ticks, also drawn about every 30 ms.
+3. coarse steps of 2..`MAX_TICKS` (6) ticks, also drawn about every 30 ms.
 
 Max always takes `MAX_TICKS`. The speeds on offer are those the GPU fits within `GPU_BUDGET` in the
 coarsest steps. A coarse step costs about what a 1/60 s step does (one scan of the neighbors), so 4 ticks
@@ -162,7 +162,14 @@ Ensembles of 64 seeds × 30 min at 32k (eras on; runs/stride, `compare.py`), mea
 Swimming does not follow (swimlab, a 12-cell filament, amplitude 0.4): a beat pulls once a step, so at 8
 ticks (7.5 pulls a second) a 3 Hz beat is barely sampled and beating filaments tear (75-100% of samples
 past bond breaking), at 12 all of them; at 6 they hold and swim at 40-63% of their 1/60 s speed (50-105%
-at 4). Still mats loosen and relink from 5 ticks (swimlab's `brokenShare` overstates it for mats).
+at 4). Mats hold together at 6 ticks: a still 24-cell mat keeps its lattice and spacing (mean nearest
+neighbor 0.136 against 0.132 at 1/60 s), and one with two tails stays whole while it swims. Its speed is
+the least faithful: 40-56% of its 1/60 s speed at 4 ticks but 150-190% at 6, whatever the beat's frequency
+(0.6-3 Hz), the same before the contact change, so it is the coarse beat's swing (`beatMixC`, fitted at 4
+ticks; docs/growth.md), not aliasing.
+
+So `MAX_TICKS` is 6: fast speeds take the shortest step that fits, Max always 6. At 8 beating bodies tear,
+diversity is still 14-21% down, and 8 ticks would be only about 24% faster than 6.
 
 Cost (RTX 4070 Ti, a 4M world, one step): 9.5 ms at 1 tick, 12.2 at 4, 12.4 at 6, 13.4 at 8, so 6 ticks
 run the world 4.6x faster than 1/60 s steps and 8 ticks 5.7x.
@@ -184,7 +191,10 @@ run the world 4.6x faster than 1/60 s steps and 8 ticks 5.7x.
   stiffness: hotter or over-damped. Halving the stiffness where the step resolves a clump looked ideal in
   the mode model but overheated the simulation.
 
-## Past 4 ticks
+## Past 4 ticks (before 2026-10-28)
+
+What follows was written with the push explicit (see Contact above, which moved the limit to 6).
+
 
 At 6 ticks motion is stable in the mode model and the 30 s rates nearly match with the walk, but packing
 does not: predator overlap -10 to -18%, grazer -9%, predators' prey within reach -10 to -16%, and predator

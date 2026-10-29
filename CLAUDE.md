@@ -16,7 +16,7 @@ GPU biosphere simulation (WebGPU, WGSL) with a browser page and headless tools. 
 - `tools/gpu-node.sh tools/swimlab.mjs --body filament:12 --sweep '[{"beat":[0.5,1.5,1,1]}]'` builds one body (`filament:N`, `branch:N:EVERY:LEN`, `mat:N:TAILLEN:TAILS`) alone in still water and measures its swimming against resistive force theory (`--step 4` for coarse steps, `--grow` to let it bud); docs/growth.md. Check beat or tail changes with it at 1 and 4 ticks.
 - `node tools/chronicle.mjs --n 131072 --minutes 60 --speed 16` runs the built page headless to a simulated time and prints the chronicler's stories, how many an hour, and every candidate it weighed (docs/chronicler.md). Check story changes with it: a few an hour, each one notable. `tools/ui-audit.mjs` and `tools/ui-check.mjs` also run headless on Linux with `TIDEMOTE_VK=1`.
 - `desktop/` is the Electron app for Steam (its own package; `npm start`, `npm run package -- --platform win32`, `desktop/scripts/smoke.mjs`, `--steam 480`): saves as files for Steam Cloud, the Workshop, achievements from `src/achievements.js`; the page reaches it as `window.tidemoteDesktop`. docs/desktop.md.
-- Fast speeds take coarse steps of up to 4/60 s (docs/fast-forward.md). An ecology change that touches `lifeMain`, `cellWGSL` or `resolveCount` should also keep 4-tick long runs (`ensemble.mjs --runs 128 --step 4`, `tools/fastforward/pool.mjs`) in line with normal ones.
+- Fast speeds take coarse steps of up to 6/60 s (docs/fast-forward.md). An ecology change that touches `lifeMain`, `cellWGSL`, `contactMain` or `resolveCount` should also keep 6-tick long runs (`ensemble.mjs --runs 128 --step 6`, or a farm with `--step 6`; `tools/fastforward/pool.mjs`) in line with normal ones.
 
 ## Layout
 

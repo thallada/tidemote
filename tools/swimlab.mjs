@@ -7,14 +7,15 @@
 // sideDrag times as hard across each cell's branch as along it). A body that waves well but moves less
 // than that loses its thrust somewhere other than the water.
 //   tools/gpu-node.sh tools/swimlab.mjs --body filament:12 --genome '{"beat":[0.4,1.5,0.6,1]}' --k '{}' --seconds 20
-//   --sweep '[{...genome overrides...}, ...]' runs several in turn; --step 4 takes coarse steps.
+//   --sweep '[{...genome overrides...}, ...]' runs several in turn; --step 4 takes coarse steps; --dump FILE
+//   writes every sample's cell positions (runs/stride/mat/draw.py draws them).
 import fs from 'node:fs';
 import { parseArgs } from 'node:util';
 
 const { values: v } = parseArgs({ options: {
   body: { type: 'string', default: 'filament:12' }, genome: { type: 'string', default: '{}' }, k: { type: 'string', default: '{}' },
   seconds: { type: 'string', default: '20' }, warm: { type: 'string', default: '4' }, step: { type: 'string', default: '1' },
-  sweep: { type: 'string' }, out: { type: 'string' }, n: { type: 'string', default: '4096' }, trace: { type: 'boolean' }, grow: { type: 'boolean' }, every: { type: 'string', default: '2' },
+  sweep: { type: 'string' }, out: { type: 'string' }, n: { type: 'string', default: '4096' }, trace: { type: 'boolean' }, grow: { type: 'boolean' }, every: { type: 'string', default: '2' }, dump: { type: 'string' },
 } });
 
 const { create, globals } = await import('webgpu');
@@ -100,6 +101,7 @@ async function run(over) {
     }
     samples.push(s);
   }
+  if (v.dump) fs.writeFileSync(v.dump, JSON.stringify({ linkR: eng.K.linkR, bondBreak: eng.K.bondBreak, grid: [W, H], samples: samples.map((s) => ({ t: s.t, x: s.x })) }));
   return analyze(g, cells, samples, eng.K, [W, H]);
 }
 

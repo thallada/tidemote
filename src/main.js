@@ -154,10 +154,11 @@ async function boot(tries = 4) {
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8, 16, 32, 64, Infinity];
 const MAX_FRAME_MS = 30; // GPU time a frame may take when running fast (about 30 fps)
 // A fast speed the GPU can't reach in 1/60 s steps takes coarse steps instead, of up to MAX_TICKS/60 s:
-// as many steps a second, each covering more time (docs/fast-forward.md; longer steps lose diversity).
+// as many steps a second, each covering more time (docs/fast-forward.md: to 6 they keep the ecology;
+// at 8 beating bodies tear).
 // Fast speeds that can't afford to draw the world every display frame, coarse ones and Max draw it about
 // every MAX_FRAME_MS; the camera keeps the display's rate.
-const MAX_TICKS = 4;
+const MAX_TICKS = 6;
 const SIGNAL_AFTER = 60; // seconds a species singing the five tones must live before it is heard
 const H = 1 / 60; // the simulation's step, as in the headless runs
 const fmtSpeed = (s) => (s === Infinity ? 'Max' : `×${s}`);

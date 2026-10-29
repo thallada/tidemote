@@ -21,7 +21,7 @@ if (v.help) {
   console.log(`Usage: node tools/sim.mjs [options]
   --n 8192 --minutes 10 --seed 23 --k '{}'
   --sample 5 --print 30 --out run.json
-  --step 1       Each step covers step/60 s (coarse steps; the page takes up to 4)
+  --step 1       Each step covers step/60 s (coarse steps; the page takes up to 6)
   --temp T       Hold the water's background temperature at T degrees (no climate walk or excursions)
   --no-eras
   --chrome       Run in headless Chromium (recommended without a GPU)
