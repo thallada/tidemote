@@ -47,6 +47,10 @@ export const BOIL = 100;
 // much of it is in the water (it comes down steeply from above: the rest is over the water, out of focus, and
 // touches nothing), and how near its point a cell must come to be pricked (world units)
 export const NEEDLE = { w: 0.45, taper: 3, wet: 1.2, kill: 0.12 };
+// The pipette comes into the water aslant: how much of it is in the water (sharp), how fast it goes out of focus up
+// from there (world units of blur a world unit along it), and how out of focus an instrument is raised over the
+// water (world units), the cells in its bore as much as its glass
+export const PIPETTE_DOF = { wet: 0.6, rate: 0.035, raised: 0.5 };
 // The pipette's working words (docs/hand.md), in the ledger after the species ledger: the cells it draws toward its
 // tip (their IDs, sorted), those taken there (12 words each: the particle, then its partners' IDs), and what it
 // sets down: a header, the species' genomes, the cells (9 words: species, offset, velocity, energy, age, color,
@@ -374,6 +378,9 @@ const STAGE_COLD = ${f(STAGE.cold)};
 const NEEDLE_W = ${f(NEEDLE.w)};
 const NEEDLE_TAPER = ${f(NEEDLE.taper)};
 const NEEDLE_WET = ${f(NEEDLE.wet)};
+const PIPE_WET = ${f(PIPETTE_DOF.wet)};
+const PIPE_DOF = ${f(PIPETTE_DOF.rate)};
+const TOOL_RAISED = ${f(PIPETTE_DOF.raised)};
 // The needle's half-width s world units back from its point along its shaft.
 fn needleW(s: f32) -> f32 { return NEEDLE_W * pow(clamp(s / NEEDLE_TAPER, 0.0, 1.0), 0.6); }
 `;
@@ -5082,17 +5089,21 @@ fn liveShare(i: PO) -> f32 {
 }
 // The pipette's bore (the page's drawBore): what it holds drawn as the cells they are, inside its glass over the
 // water. The view's parts and genomes are the bore's own here (the engine's setTube): each cell where it lies in
-// the glass, its genome at its kind, its heading in vel; nothing about it is read from the world. It lies above
-// the focal plane, a little out of focus: each pixel the mean of the cell seen over a disc about it, TUBE_BLUR of
-// its radius across.
-const TUBE_BLUR = 0.09;
+// the glass, its genome at its kind, its heading in vel, and vel's length how out of focus it is there (world
+// units, as the glass about it: the pipette comes in aslant, so the farther up it, the more); nothing about it is
+// read from the world. Out of focus, each pixel is the mean of the cell seen over a disc that wide about it, the
+// disc's points turned and spread a different way at every pixel and frame (so its samples blend to a fine grain,
+// which the trails smooth, not to copies of the cell).
+const TUBE_TAPS = 16u;
+const TUBE_MAX_BLUR = 2.5; // of its radius
 @vertex fn vsTube(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> PO {
   var o: PO;
   let p = parts[ii];
   let g = genomes[p.kind];
   let plan = choosePlan(g, roleOf(p.info));
   let px = max(view.pointSize * g.size * (1.0 - 0.12 * f32(roleOf(p.info))), 0.9);
-  let extent = 1.35 + TUBE_BLUR;
+  let blur = min(length(p.vel) * view.ppu / px, TUBE_MAX_BLUR);
+  let extent = 1.35 + blur;
   let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
   o.pos = toClip(wrapd(p.pos - view.cam) * view.ppu + corner * px * extent);
   o.uv = corner * extent;
@@ -5105,22 +5116,29 @@ const TUBE_BLUR = 0.09;
   o.jelly = vec3f(1.0, 0.0, 0.0);
   o.bondSeeds = vec2u(0u, 0x7fffu);
   o.neck = vec4f(0.12, 0.12, 0.12, p.energy / max(g.reproE, 0.01));
+  o.jelly.z = blur;
   return o;
 }
 @fragment fn fsTubeLive(i: PO) -> PointOut {
   var c: vec4f;
-  if (i.geom.x <= 2.8) { c = pointColor(i); }
+  let blur = i.jelly.z;
+  var j = i;
+  j.jelly.z = 0.0;
+  if (i.geom.x <= 2.8 || blur < 0.02) { c = pointColor(j); }
   else {
-    // (twelve points spread evenly over the disc: a sunflower's)
+    // (points spread evenly over the disc, a sunflower's, turned and shifted out at each pixel and frame)
     let p = parts[i.index];
-    var j = i;
+    let px = vec2u(i.pos.xy);
+    let seed = px.x * 1973u + px.y * 9277u + u32(view.time * 60.0) * 26699u;
+    let turn = TAU * renderHash(seed);
+    let shift = renderHash(seed ^ 0x9e3779b9u);
     c = vec4f(0.0);
-    for (var k = 0u; k < 12u; k++) {
-      let a = f32(k) * 2.39996;
-      j.uv = i.uv + vec2f(cos(a), sin(a)) * TUBE_BLUR * sqrt((f32(k) + 0.5) / 12.0);
-      c += cellColor(j, p, p.kind, spriteFalloff(j.uv, j.shape & 255u));
+    for (var k = 0u; k < TUBE_TAPS; k++) {
+      let a = f32(k) * 2.39996 + turn;
+      j.uv = i.uv + vec2f(cos(a), sin(a)) * blur * sqrt((f32(k) + shift) / f32(TUBE_TAPS));
+      c += select(cellColor(j, p, p.kind, spriteFalloff(j.uv, j.shape & 255u)), vec4f(0.0), dot(j.uv, j.uv) > 4.0);
     }
-    c /= 12.0;
+    c /= f32(TUBE_TAPS);
   }
   return PointOut(c, c);
 }
@@ -7600,12 +7618,13 @@ fn toolAt(wp: vec2f, ppu: f32) -> vec4f {
   // its half-width t back from its point, and how far back it leaves the water (rising out of focus past it)
   var hw = 0.36;
   var wet = 1e6;
+  var rate = 0.05;
   if (kind < 1.5) { hw = needleW(t) + 0.004; wet = NEEDLE_WET; }
-  else if (kind < 2.5) { hw = mix(0.34, 1.1, smoothstep(0.0, 12.0, t)); }
-  else if (kind > 3.5) { hw = post.toolB.w; wet = 0.0; }
+  else if (kind < 2.5) { hw = mix(0.34, 1.1, smoothstep(0.0, 12.0, t)); wet = PIPE_WET; rate = PIPE_DOF; }
+  else if (kind > 3.5) { hw = post.toolB.w; wet = 0.0; rate = 0.025; }
   let sd = select(abs(lat) - hw, length(d) - hw, s < 0.0);
   let across = select(lat, sign(lat) * length(d), s < 0.0) / max(hw, 1e-4);
-  let blur = 1.2 / max(ppu, 1e-3) + (1.0 - post.toolB.y) * 0.5 + max(t - wet, 0.0) * select(0.05, 0.025, kind > 3.5);
+  let blur = 1.2 / max(ppu, 1e-3) + (1.0 - post.toolB.y) * TOOL_RAISED + max(t - wet, 0.0) * rate;
   return vec4f(sd, clamp(across, -1.0, 1.0), s, blur);
 }
 // The pipette's glass bends the view through it, as a lens of its shape would (pixels).
@@ -7626,7 +7645,8 @@ fn instrument(cIn: vec3f, wp: vec2f, ppu: f32) -> vec3f {
   let f = post.toolB.y;
   let a = 1.0 - smoothstep(-blur, blur, g.x);
   // (out of focus, its light spread wider and dimmer)
-  let edge = exp(-pow(g.x / (blur + 0.6 * px), 2.0)) * mix(0.12, 1.0, f) * clamp((2.0 * px + 0.08) / blur, 0.25, 1.0);
+  let spread = exp(-pow(g.x / (blur + 0.6 * px), 2.0)) * clamp((2.0 * px + 0.08) / blur, 0.25, 1.0);
+  let edge = spread * mix(0.12, 1.0, f);
   let ax = normalize(post.tool.zw);
   // (the side of the shaft toward the lamp catches its light)
   let lit = dot(vec2f(-ax.y, ax.x), LAMP_L);
@@ -7637,12 +7657,19 @@ fn instrument(cIn: vec3f, wp: vec2f, ppu: f32) -> vec3f {
     let rod = kind > 3.5;
     let bore = select(0.68, 0.0, rod);
     let hw = select(mix(0.34, 1.1, smoothstep(0.0, 12.0, max(g.z, 0.0))), post.toolB.w, rod);
-    let wall = exp(-pow((abs(g.y) - bore) * hw / (blur + 0.6 * px), 2.0)) * step(-blur, g.z) * a;
-    let inWall = a * smoothstep(bore - 0.05, bore + 0.05, abs(g.y));
+    // (how far from its axis, or past its tip from the tip's middle, in world units, unclamped: out of focus, the
+    // bore's wall and the glass between it and the surface spread as far as the blur does, and no further)
+    let dw = wp - post.tool.xy;
+    let r = select(abs(dot(dw, vec2f(-ax.y, ax.x))), length(dw), g.z < 0.0);
+    let wb = blur + 0.6 * px;
+    // (its light spread as wide as the blur, as dim as it is spread)
+    let wall = exp(-pow((r - bore * hw) / wb, 2.0)) * smoothstep(-2.0 * wb, 0.0, g.z) * a * clamp((2.0 * px + 0.08) / blur, 0.2, 1.0);
+    let inWall = a * smoothstep(bore * hw - wb, bore * hw + wb, r);
     c = c * (1.0 - 0.22 * inWall) + vec3f(0.006, 0.008, 0.009) * inWall;
     // (the rod's glass scatters the lamp's light through it: a faint glow across it, brighter toward its sides)
     if (rod) { c += vec3f(0.022, 0.026, 0.028) * a * (0.5 + 0.5 * g.y * g.y) * mix(0.5, 1.0, f); }
-    c += vec3f(0.15, 0.18, 0.19) * (edge + 0.6 * wall) * (0.75 + 0.25 * sign(g.y) * lit) * mix(0.4, 1.0, f);
+    // (glass raised over the water still catches the light: a soft bright shape of itself)
+    c += vec3f(0.15, 0.18, 0.19) * (spread * mix(0.5, 1.0, f) + 0.6 * wall) * (0.75 + 0.25 * sign(g.y) * lit) * mix(0.5, 1.0, f);
     return c;
   }
   // steel: dark, its round shank shading across it, a highlight along the side toward the lamp, a bright edge

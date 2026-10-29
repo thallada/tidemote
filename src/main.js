@@ -17,7 +17,7 @@ import { record, seal } from './lineage/model.js';
 import { createWorldStore, encodeWorld, decodeWorld, SAVE_VERSION, openable } from './worlds.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
-import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, PIPE_MAX, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K } from './shaders.js';
+import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, PIPE_MAX, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K, PIPETTE_DOF } from './shaders.js';
 import { flowAt } from './flow.js';
 import { startLoader } from './loader.js';
 import { Director } from './director.js';
@@ -2561,7 +2561,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // What the pipette holds, seen in its bore: a column of its cells up the glass, out of view, in the order they will
   // leave (the tip's run first, as `next` takes them), what is being drawn up nearest the tip as it will be kept. Drawn
   // up, the column rises as cells come in; set down, it slides down and out of the tip as they leave. The engine draws
-  // them as the cells they are, a little out of focus over the water (setTube, vsTube).
+  // them as the cells they are, as out of focus as the glass about them (setTube, vsTube).
   const BORE = 0.2; // world units between the cells in the column, at least (more for big cells: a diameter)
   const sizes = new WeakMap(); // a genome's words: its cells' radius (world units)
   const radiusOf = (w) => { if (!sizes.has(w)) sizes.set(w, cellRadius({}, genomeOfWords(w), 1)); return sizes.get(w); };
@@ -2613,8 +2613,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const w = clamp(d / p / 12, 0, 1), half = 0.68 * lerp2([0.34, 1.1], w * w * (3 - 2 * w)) * p;
       const j = n - 1 - i, lat = 1.1 * ((Math.sin(j * 12.9898) * 43758.5453) % 1);
       const [x, y] = toWorld(R.sx + dx * d - dy * lat * 0.5 * half, R.sy + dy * d + dx * lat * 0.5 * half);
+      // (as out of focus as the glass there: raised over the water, and up from the tip, which is in it)
+      const blur = Math.max(1e-4, (1 - toolFocus) * PIPETTE_DOF.raised + Math.max(0, d / p - PIPETTE_DOF.wet) * PIPETTE_DOF.rate);
       const o = m++ * (P_BYTES / 4);
-      f.set([x, y, dx * face, dy * face], o);
+      f.set([x, y, dx * face * blur, dy * face * blur], o);
       u[o + 4] = FIRST_LIFE + k; f[o + 5] = c.e; f[o + 6] = c.a; u[o + 7] = j >>> 0; u[o + 8] = c.col; u[o + 9] = c.info;
     }
     // (the genomes when they are not the ones the engine has)

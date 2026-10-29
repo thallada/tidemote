@@ -66,8 +66,11 @@ at the tip, what is coming in nearest it (`drawBore` in `src/main.js`): drawn up
 under it; dispensed, it slides down and out of the tip as they leave, in step with them. The engine draws them as
 the cells they are (`setTube`: up to `TUBE_N` records as `struct Particle` and the genomes of up to `TUBE_K`
 species, bound in place of the world's; `vsTube`/`fsTubeLive` in the main view's pass, `cellColor` as every cell),
-a little out of focus over the water (each pixel the mean of twelve samples over a disc `TUBE_BLUR` of the cell's
-radius across). The readout names the mode in a chip, Load, Dispense or Full (⇧ held, the other, before the
+as out of focus as the glass about them: the pipette comes into the water aslant, sharp where it is in the water
+and more out of focus the farther up it, and all of it raised over the water before a press (`PIPETTE_DOF`, in the
+composite's `toolAt` for the glass and in each record's vel for its cells; each pixel the mean of sixteen samples
+over a disc that wide, turned and spread anew at every pixel and frame, so they blend to a fine grain the trails
+smooth). Out of focus, the glass's walls spread as wide as the blur and dim as they spread. The readout names the mode in a chip, Load, Dispense or Full (⇧ held, the other, before the
 press), a bar under it filling with the pressure.
 
 Setting down: with Dispense on (beside the pipette's strip, and on a phone's held strip; Load, the default, draws up),
