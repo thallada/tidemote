@@ -63,8 +63,9 @@ tears and a tight one comes whole. What came in is kept once nothing more is com
 (`bodiesOf`: the bonds among them), each in the order it will leave, every cell after one it touches.
 
 Setting down: with Dispense on (beside the pipette's strip, and on a phone's held strip; Load, the default, draws up),
-or ⇧ and a press, squeezes the tip species out a cell at a time, now
-and then two or three together, pushed on their way; every 110 ms and down to 16 as it is held. A click sets down one
+or ⇧ and a press, squeezes the tip species out a cell or two at a time,
+pushed on their way, then more at once and more often as it is held: at full pressure by the dozen every 16 ms,
+organism after organism in one set-down (`mergeJobs`), as fast as it draws up. A click sets down one
 body, or a card's colonies, whole; held, one after another. Each cell keeps the bonds it kept: to cells leaving with
 it, and to cells already out by the IDs they were given (`setDownJob`: up to `PIPE_IDS` earlier cells, found by
 `injectCells`; `injectBonds` restores each keeper's slot), so a tree comes out a tree. The particles are a fixed number, each
@@ -78,8 +79,8 @@ left in the world at all, it says so by the tip.
 The contents are the world's (`life.pipette`, kept in saves): each species once, in the strip's order (the first at
 the tip). A tap opens its card, a drag along the strip moves it (the others make way), onto the world sets all of it
 down there, onto the Lab keeps its card (or, kept already, shows it in the cabinet); on a touch screen a swipe scrolls
-the strip and a card held a moment lifts. A mark in its corner says its card is in the cabinet; Keep all keeps every
-card not kept yet. It holds 2,048 cells.
+the strip and a card held a moment lifts. A mark in its corner says its card is in the cabinet; Save all saves every
+card not saved yet, one after another, counting them. It holds 2,048 cells.
 
 ## The cabinet
 

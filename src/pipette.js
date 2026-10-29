@@ -65,14 +65,19 @@ export function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
       state.species.splice(Math.max(0, Math.min(i, state.species.length)), 0, sp);
     },
     /**
-     * The next k cells of species sp to leave the tip: of its organism last in (the nearest the tip), or a card's
-     * newborns: { sp, org, from, n } or { sp, made: n }; null if it holds none.
+     * The next k cells of species sp to leave the tip, organism by organism from the last in (the nearest the tip),
+     * then a card's newborns: [{ sp, org, from, n } or { sp, made: n }], empty if it holds none.
      */
     next(sp = pp.tip, k = 1) {
-      if (!sp) return null;
-      const org = sp.orgs[sp.orgs.length - 1];
-      if (org) return { sp, org, from: org.out, n: Math.min(k, org.cells.length - org.out) };
-      return sp.made ? { sp, made: Math.min(k, sp.made) } : null;
+      const out = [];
+      if (!sp) return out;
+      for (let i = sp.orgs.length - 1; i >= 0 && k > 0; i--) {
+        const org = sp.orgs[i], n = Math.min(k, org.cells.length - org.out);
+        out.push({ sp, org, from: org.out, n });
+        k -= n;
+      }
+      if (k > 0 && sp.made) out.push({ sp, made: Math.min(k, sp.made) });
+      return out;
     },
     /** What left of a `next`: placed of its cells, with their new IDs. */
     left({ sp, org, made }, placed, ids = []) {
@@ -90,7 +95,25 @@ export function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
 }
 
 /**
- * The engine's set-down job for some cells leaving the tip (a `next`): placed(k) gives cell k's offset and velocity
+ * One set-down of several `next`s' jobs (setDownJob) of one species: their cells in turn, as many of them as their
+ * cells out before fit in PIPE_IDS; { job, used } (how many of them it holds).
+ */
+export function mergeJobs(jobs) {
+  const job = { species: jobs[0].species, cells: [], earlier: [], bonds: [] };
+  let used = 0;
+  for (const j of jobs) {
+    if (used && job.earlier.length + j.earlier.length > PIPE_IDS) break;
+    const c0 = job.cells.length, e0 = job.earlier.length, ref = (r) => (r < PIPE_EARLIER ? r + c0 : r + e0);
+    job.cells.push(...j.cells);
+    job.earlier.push(...j.earlier);
+    job.bonds.push(...j.bonds.map(([a, b, q]) => [ref(a), ref(b), q]));
+    used++;
+  }
+  return { job, used };
+}
+
+/**
+ * The engine's set-down job for some cells leaving the tip (one of a `next`): placed(k) gives cell k's offset and velocity
  * [dx, dy, vx, vy]; newborn(sp) a made cell's [energy, col, info]. Each cell keeps again the bonds it kept, to cells
  * out before (by their IDs) or leaving with it, and each cell out before that kept one of these keeps it again.
  */

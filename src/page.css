@@ -404,7 +404,7 @@ body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-car
 .held #held-down { width: 40px; height: 40px; margin-right: -6px; }
 .held .pip-mode { flex: none; }
 .held .pip-mode .chip { height: 32px; padding: 0 12px; }
-/* the pipette's press, Load or Dispense; Keep all */
+/* the pipette's press, Load or Dispense; Save all */
 .bench-pip .sub-h { justify-content: flex-start; flex-wrap: wrap; }
 .bench-pip .sub-h .sub-a { margin-right: auto; }
 .pip-mode[hidden], #pip-keep[hidden] { display: none; }

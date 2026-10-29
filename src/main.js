@@ -29,7 +29,7 @@ import { parseMind, interpretMind, settleMind } from './mind.js';
 import { createHand, REACH, toolOf, TOOLS, works, INSTRUMENTS } from './hand.js';
 import { createBench, reachStep } from './bench.js';
 import { createLadder } from './ladder.js';
-import { createPipette, setDownJob, PIPE_LIMIT } from './pipette.js';
+import { createPipette, setDownJob, mergeJobs, PIPE_LIMIT } from './pipette.js';
 import { miniCard } from './minicard.js';
 import { createCabinetStore, encodeCard, decodeCard, cardLink, cardFromHash, cardFromPng, pngWithText, pngKeyValue, PNG_KEY } from './cabinet.js';
 import { fmt, fmtClock, fmtDur, esc, cssCol, clamp, term, spLink, saveFile, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
@@ -1785,10 +1785,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const c = carry(serial), png = new Uint8Array(await blob.arrayBuffer());
     return new Blob([pngWithText(png, PNG_KEY, pngKeyValue(encodeCard({ ...c, name: life.reg.get(serial).name })))], { type: 'image/png' });
   }
-  async function keepCard(card) {
+  // (quiet: one of many, the cabinet drawn once they are all in)
+  async function keepCard(card, quiet = false) {
     await cabinet.store.put(card);
     cabinet.cards = [...cabinet.cards.filter((c) => c.id !== card.id), card];
-    lab.render(true);
+    if (!quiet) lab.render(true);
   }
   // Save: the card drawn, kept, and seen to go: it presents itself at the center for a beat, then shrinks to the
   // Field Lab's edge, where the Lab's button (or its Cabinet tab) flashes
@@ -1801,8 +1802,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (!blob) { flash('Could not draw its card'); return; }
     const c = carry(serial);
     await keepCard({ id: `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, serial, name: sp.name, words: c.words, home: c.home, world: worldId(),
-      savedAt: Date.now(), simTime: eng.simTime, touched: c.touched, bred: false, png: new Uint8Array(await blob.arrayBuffer()) });
-    if (!quiet) { flyCard(blob); flash(`${sp.name} is in the cabinet`); }
+      savedAt: Date.now(), simTime: eng.simTime, touched: c.touched, bred: false, png: new Uint8Array(await blob.arrayBuffer()) }, quiet);
+    if (quiet) return;
+    flyCard(blob); flash(`${sp.name} is in the cabinet`);
     cards.refresh();
     dirty = true;
   }
@@ -2453,11 +2455,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const pipSp = (key) => pipette.species.find((sp) => pipKey(sp) === key);
   // its card in the cabinet, if there is one
   const pipCard = (sp) => cabinet.cards.find((c) => c.id === sp.card) || (!sp.stranger ? savedCard(sp.serial) : null);
+  // what it holds of a species: its cells, and its bodies of more than one
+  const heldOf = (sp) => [pipette.cells(sp), sp.orgs.filter((o) => o.cells.length - o.out > 1).length];
   const bench = createBench({ hand, pick: pickTool, reach: setReach, size: reachOf, onToggle: (on) => { if (on && phone()) { view.toggle(false); lab.close(); } },
     pip: {
-      view: () => ({ count: pipette.count, limit: PIPE_LIMIT, armed: pull.armed, keys: pipette.species.map((sp) => pipKey(sp) + (pipCard(sp) ? '*' : '')) }),
+      view: () => ({ count: pipette.count, limit: PIPE_LIMIT, armed: pull.armed, keys: pipette.species.map((sp) => pipKey(sp) + (pipCard(sp) ? '*' : '')), held: pipette.species.map(heldOf) }),
       cards: (flat) => pipette.species.map((sp, i) => miniCard(genomeOfWords(sp.words), K, { key: pipKey(sp), name: sp.name, home: sp.home || 'this world',
-        n: pipette.cells(sp), bodies: sp.orgs.filter((o) => o.cells.length - o.out > 1).length, tip: i === 0, flat, kept: !!pipCard(sp) })).join(''),
+        n: heldOf(sp)[0], bodies: heldOf(sp)[1], tip: i === 0, flat, kept: !!pipCard(sp) })).join(''),
       move: (key, i) => { const sp = pipSp(key); if (sp) pipette.move(sp, i); },
       // its card: this world's species live, a carried one's from the cabinet
       open: (key) => {
@@ -2474,14 +2478,27 @@ function run(eng, device, ctx, specCtx, hasTS) {
       },
       cabinet: () => lab.open('cabinet'),
       arm: (on) => { pull.armed = on; },
-      keepAll,
+      saveAll,
     } });
-  // every species in the pipette whose card is not kept yet: its card into the cabinet
-  async function keepAll() {
+  // every species in the pipette whose card is not saved yet: its card into the cabinet, one after another (each
+  // drawn with its portrait), the button counting them; the cabinet drawn once at the end
+  let saving = false;
+  async function saveAll() {
     const todo = pipette.species.filter((sp) => !pipCard(sp) && !sp.stranger && life.reg.has(sp.serial));
-    if (!todo.length) { flash('Their cards are all in the cabinet'); return; }
-    for (const sp of todo) await saveCard(sp.serial, undefined, todo.length > 1);
-    if (todo.length > 1) flash(`${todo.length} cards into the cabinet`);
+    if (saving || !todo.length) return;
+    saving = true;
+    const btn = $('pip-keep');
+    btn.disabled = true;
+    try {
+      for (const [i, sp] of todo.entries()) { btn.textContent = `Saving ${i + 1} / ${todo.length}`; await saveCard(sp.serial, undefined, true); }
+    } finally {
+      saving = false;
+      btn.disabled = false;
+      btn.textContent = 'Save all';
+    }
+    lab.render(true);
+    cards.refresh();
+    flash(todo.length > 1 ? `${todo.length} cards into the cabinet` : `${todo[0].name} is in the cabinet`);
     bench.render();
   }
   // The hand's acts for the chronicler, told as weather: the species within an act's reach counted (the pick pass)
@@ -2596,27 +2613,37 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (Math.abs(eng.simTime - sp.pendingAt) < 5) return;
       sp.pending = null;
     }
+    // (more at once the longer it is held: a cell or two at first, by the dozen at full pressure, as fast as it
+    // draws up; a click's body, or a card's colonies, come out whole, one at a time)
     const u = pressed(spit.at, now), r = Math.random();
-    const it = pipette.next(sp, 1 + Math.floor(u * 2) + (r < 0.07 ? 2 : r < 0.25 ? 1 : 0));
-    if (!it) { spit.on = false; return; }
-    // (a click's body, or a card's colonies, come out whole)
-    const whole = it.org || sp;
+    let items = pipette.next(sp, 1 + Math.round(u * u * 30) + (r < 0.07 ? 2 : r < 0.25 ? 1 : 0));
+    if (!spit.held && !spit.sp) items = items.slice(0, 1);
+    if (!items.length) { spit.on = false; return; }
+    const it = items[0], whole = it.org || sp;
     if (whole !== spit.org) { spit.org = whole; spit.dir = Math.random() * TAU; }
     // (at the pointer, or with none over the world, where it last was)
     if (R) spit.tip = toWorld(R.sx, R.sy);
     const at = spit.pt || spit.tip;
-    // each cell squeezed out at the tip, pushed on its way
-    const placed = () => { const a = spit.dir + (Math.random() - 0.5) * 0.9, v = 1.2 + Math.random() * 0.6; return [Math.cos(a) * 0.05, Math.sin(a) * 0.05, Math.cos(a) * v, Math.sin(a) * v]; };
-    const job = setDownJob(it, placed, newborn), n = job.cells.length;
+    // each cell squeezed out at the tip, pushed on its way (a batch spread over a little more water)
+    const spread = 0.05 * Math.sqrt(items.reduce((m, x) => m + (x.n || x.made), 0));
+    const placed = () => { const a = spit.dir + (Math.random() - 0.5) * 0.9, v = 1.2 + Math.random() * 0.6, d = spread * Math.sqrt(Math.random()); return [Math.cos(a) * d, Math.sin(a) * d, Math.cos(a) * v, Math.sin(a) * v]; };
+    const { job, used } = mergeJobs(items.map((x) => setDownJob(x, placed, newborn)));
+    items = items.slice(0, used);
     spit.busy = true;
-    const res = await eng.setDown({ at, take: setDownTake(n), ...job });
+    const res = await eng.setDown({ at, take: setDownTake(job.cells.length), ...job });
     spit.busy = false;
     if (!res) return;
     const got = res.slots[0] !== NONE ? res.placed : 0;
     if (got) {
       sp.slot = res.slots[0];
       if (sp.stranger) { life.carried[sp.slot] = { name: sp.name, home: sp.home }; Object.assign(sp, { pending: sp.slot, pendingAt: eng.simTime }); }
-      pipette.left(it, got, res.ids);
+      // (each of the batch's organisms its share of what was placed, in turn)
+      let off = 0;
+      for (const x of items) {
+        const m = x.n || x.made, k = Math.max(0, Math.min(m, got - off));
+        if (k) pipette.left(x, k, res.ids.slice(off, off + k));
+        off += m;
+      }
       hand.note('setdown', ...at, eng.simTime, got);
       if (it.org ? it.org.out >= it.org.cells.length : !sp.made) spit.org = null;
       spit.fails = 0;

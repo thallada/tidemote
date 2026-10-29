@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createPipette, setDownJob, bodiesOf } from '../src/pipette.js';
+import { createPipette, setDownJob, mergeJobs, bodiesOf } from '../src/pipette.js';
 import { PIPE_EARLIER } from '../src/shaders.js';
 
 const NONE = 0xffffffff;
@@ -36,14 +36,15 @@ test('cells leave a few at a time, the last body in first, and a species with no
   const pp = createPipette();
   pp.add(sp(7), [rec(1)]);
   pp.add(sp(7), [rec(2, [3, NONE]), rec(3, [4, NONE]), rec(4)]);
-  let n = pp.next(pp.tip, 2);
+  let [n] = pp.next(pp.tip, 2);
   assert.deepEqual([n.from, n.n, n.org.cells.length], [0, 2, 3]);
   pp.left(n, 2, [100, 101]);
   assert.equal(pp.count, 2);
-  n = pp.next(pp.tip, 2);
-  assert.deepEqual([n.from, n.n], [2, 1]);
+  const both = pp.next(pp.tip, 5);
+  assert.deepEqual(both.map((x) => [x.from, x.n]), [[2, 1], [0, 1]], 'a batch runs on from one body to the next');
+  [n] = both;
   pp.left(n, 1, [102]);
-  pp.left(pp.next(), 1, [103]);
+  pp.left(pp.next()[0], 1, [103]);
   assert.equal(pp.species.length, 0);
 });
 
@@ -52,10 +53,10 @@ test('a set-down keeps its bonds: to cells leaving with it, to cells out before 
   // 1 keeps 2, 3 keeps 2: leaving order 1, 2, 3
   pp.add(sp(7), [rec(1, [2, NONE]), rec(2), rec(3, [2, NONE])]);
   const org = pp.tip.orgs[0];
-  const first = setDownJob(pp.next(pp.tip, 1), at, () => []);
+  const first = setDownJob(pp.next(pp.tip, 1)[0], at, () => []);
   assert.deepEqual(first.bonds, [], 'its partner not out yet');
-  pp.left(pp.next(pp.tip, 1), 1, [500]);
-  const second = setDownJob(pp.next(pp.tip, 2), at, () => []);
+  pp.left(pp.next(pp.tip, 1)[0], 1, [500]);
+  const second = setDownJob(pp.next(pp.tip, 2)[0], at, () => []);
   assert.deepEqual(second.earlier, [500]);
   assert.deepEqual(second.bonds.sort(), [[1, 0, 0], [PIPE_EARLIER, 0, 0]].sort(), 'the one out before keeps it again, and the third keeps it');
   assert.equal(second.cells[0].info, org.cells[1][3]);
@@ -68,7 +69,7 @@ test('the limit: a card’s colony that does not fit is refused; newborns leave 
   assert.equal(pp.fits(5), false);
   assert.equal(pp.load({ card: 'c1', serial: 99, words: [], name: 'Card', stranger: true }, 4), true);
   assert.equal(pp.load({ card: 'c1', serial: 99, words: [], name: 'Card', stranger: true }, 1), false);
-  const n = pp.next(pp.species[1], 3);
+  const [n] = pp.next(pp.species[1], 3);
   assert.equal(n.made, 3);
   const job = setDownJob(n, at, () => [0.5, 1, 2]);
   assert.equal(job.cells.length, 3);
@@ -76,4 +77,14 @@ test('the limit: a card’s colony that does not fit is refused; newborns leave 
   assert.equal(job.species[0].stranger, true);
   pp.left(n, 3);
   assert.equal(pp.species[1].made, 1);
+});
+
+test('jobs merged into one set-down: their cells in turn, each one’s bonds and earlier cells shifted to match', () => {
+  const a = { species: [{}], cells: [{}, {}], earlier: [9], bonds: [[1, 0, 0], [PIPE_EARLIER, 1, 1]] };
+  const b = { species: [{}], cells: [{}], earlier: [8], bonds: [[0, PIPE_EARLIER, 0]] };
+  const { job, used } = mergeJobs([a, b]);
+  assert.equal(used, 2);
+  assert.equal(job.cells.length, 3);
+  assert.deepEqual(job.earlier, [9, 8]);
+  assert.deepEqual(job.bonds, [[1, 0, 0], [PIPE_EARLIER, 1, 1], [2, PIPE_EARLIER + 1, 0]]);
 });

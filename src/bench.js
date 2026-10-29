@@ -2,7 +2,7 @@
 // the dock (a tile for each tool, a hint for the one in hand, its Reach), and on a phone the held strip that a tool
 // in hand folds the drawer to. Built once and updated in place (render), so nothing moves under the pointer.
 import { TOOLS, REACH, keyOf, toolOf, works } from './hand.js';
-import { wireCardDrag } from './minicard.js';
+import { wireCardDrag, countText } from './minicard.js';
 
 const $ = (id) => document.getElementById(id);
 const coarse = matchMedia('(pointer: coarse)').matches;
@@ -72,9 +72,9 @@ export const reachStep = (r, d) => Math.min(REACH.max, Math.max(REACH.min, r * 1
 /**
  * hand: the page's hand (src/hand.js); pick(id) takes up a tool (the one in hand: puts it down); reach(r) sets the
  * reach of the tool in hand, size() -> { min, max, v, text } its range and value; onToggle(open) as the drawer
- * opens or closes. pip: the pipette's strip: view() -> { count, limit, keys, armed }, cards(flat) -> its
+ * opens or closes. pip: the pipette's strip: view() -> { count, limit, keys, held: [[cells, bodies]], armed }, cards(flat) -> its
  * mini-cards' markup, move(key, i) (to place i, 0 the tip), open(key) (its full card), drop(key, x, y) (a card
- * dragged out onto the world), save(key) (dragged onto the Lab: its card into the cabinet), keepAll() (every
+ * dragged out onto the world), save(key) (dragged onto the Lab: its card into the cabinet), saveAll() (every
  * card into the cabinet), cabinet() (opens it), arm(on) (Dispense: a press sets down rather than draws up).
  */
 export function createBench({ hand, pick, reach, size, onToggle = () => {}, pip }) {
@@ -87,7 +87,7 @@ export function createBench({ hand, pick, reach, size, onToggle = () => {}, pip 
       <label class="reach"><span class="lbl term" data-tip="toolreach" tabindex="0">Reach</span><input type="range" id="reach" min="0" max="1000" step="1" aria-label="Reach"><b id="reach-v" translate="no"></b></label>
     </div>
     <div class="bench-pip">
-      <div class="sub-h"><span class="bench-t">Pipette</span><span class="sub-a" id="pip-n"></span>${modes('pip')}<button type="button" class="chip" id="pip-keep" data-hint="Every card not kept yet into the cabinet">Keep all</button></div>
+      <div class="sub-h"><span class="bench-t">Pipette</span><span class="sub-a" id="pip-n"></span>${modes('pip')}<button type="button" class="chip" id="pip-keep" data-hint="Every card not saved yet into the cabinet">Save all</button></div>
       <div class="strip" id="pip-strip"></div>
     </div>`;
   held.innerHTML = `<kbd id="held-k"></kbd><b id="held-n"></b><span class="held-reach"><button type="button" class="ghost" data-d="-1" aria-label="Less reach"><svg><use href="#i-minus"/></svg></button><b id="held-r" translate="no"></b><button type="button" class="ghost" data-d="1" aria-label="More reach"><svg><use href="#i-plus"/></svg></button></span>${modes('held')}<button type="button" class="ghost" id="held-down" aria-label="Put the tool down" data-hint="Put it down · Esc"><svg><use href="#i-close"/></svg></button><div class="strip flat" id="held-strip"></div>`;
@@ -107,7 +107,7 @@ export function createBench({ hand, pick, reach, size, onToggle = () => {}, pip 
   });
   drawer.addEventListener('click', (e) => {
     if (mode(e)) return;
-    if (e.target.closest('#pip-keep')) pip.keepAll();
+    if (e.target.closest('#pip-keep')) pip.saveAll();
     else if (e.target.closest('.grab')) toggle(false);
   });
   swipeDown(drawer, () => toggle(false));
@@ -153,19 +153,24 @@ export function createBench({ hand, pick, reach, size, onToggle = () => {}, pip 
     held.querySelector('.held-reach').hidden = t.id === 'needle' || t.id === 'pipette';
     renderPip(t.id === 'pipette');
   }
-  // the pipette's contents: rebuilt only when they change, never under the pointer
+  // the pipette's contents: rebuilt only when its species change, never under the pointer; what it holds of each
+  // updated in place (it changes every few frames while it draws up or sets down)
   let pipKey = '';
   function renderPip(inHand) {
-    const v = pip.view(), key = `${v.count}|${v.keys.join(',')}|${inHand}`;
+    const v = pip.view(), key = `${v.keys.join(',')}|${inHand}`;
     held.querySelector('.pip-mode').hidden = !inHand;
     for (const b of document.querySelectorAll('.pip-mode [data-mode]')) b.setAttribute('aria-pressed', String((b.dataset.mode === '1') === v.armed));
     $('pip-keep').hidden = !v.keys.some((k) => !k.endsWith('*'));
     held.classList.toggle('pip', inHand);
     const tool = dock.querySelector('[data-tool="pipette"]');
     tool.dataset.count = v.count ? (v.count > 999 ? `${Math.floor(v.count / 1000)}k` : v.count) : '';
-    if (key === pipKey || drags.some((d) => d.dragging())) return;
-    pipKey = key;
     $('pip-n').textContent = v.count ? `${v.count.toLocaleString('en-US')} / ${v.limit.toLocaleString('en-US')}${v.count >= v.limit ? ' · full' : ''}` : 'empty';
+    if (drags.some((d) => d.dragging())) return;
+    if (key === pipKey) {
+      for (const row of [strip, hstrip]) [...row.querySelectorAll('.mini .mc-n b')].forEach((b, i) => { if (v.held[i]) b.innerHTML = countText(...v.held[i], row === hstrip); });
+      return;
+    }
+    pipKey = key;
     strip.innerHTML = v.keys.length ? pip.cards(false)
       : '<div class="pip-empty"><b>Nothing in the pipette.</b><span>Draw cells up from the world with the pipette (8), or bring cards from the cabinet.</span><button type="button" class="link" data-cabinet>Open the cabinet</button></div>';
     hstrip.innerHTML = inHand ? pip.cards(true) : '';

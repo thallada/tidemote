@@ -5,6 +5,9 @@ import { voiceOf } from './audio/mapping.js';
 import { facets } from './facets.js';
 import { esc, fmt } from './fmt.js';
 
+/** What a mini-card says the pipette holds of its species: n cells, in bodies (updated in place as they come and go). */
+export const countText = (n, bodies, flat) => `×${fmt(n)}${bodies > 1 && !flat ? `<small> · ${fmt(bodies)} bodies</small>` : ''}`;
+
 /**
  * g: the species' genome; name; home: where it lives or came from; n, bodies: what the pipette holds of it (cells,
  * bodies); tip: it leaves next; kept: its card is in the cabinet; flat: one row (a phone's held strip). key: what
@@ -12,7 +15,7 @@ import { esc, fmt } from './fmt.js';
  */
 export function miniCard(g, K, { key, name, home = '', n = 0, bodies = 0, tip = false, kept = false, flat = false }) {
   const f = facets(g, K);
-  const count = n ? `<span class="mc-n">${tip ? '<i>Tip</i>' : ''}<b>×${fmt(n)}${bodies > 1 && !flat ? `<small> · ${fmt(bodies)} bodies</small>` : ''}</b></span>` : '';
+  const count = n ? `<span class="mc-n">${tip ? '<i>Tip</i>' : ''}<b>${countText(n, bodies, flat)}</b></span>` : '';
   return `<button type="button" class="mini${flat ? ' flat' : ''}${tip ? ' at-tip' : ''}" data-key="${esc(key)}" aria-label="${esc(name)}${n ? `, ${n} cells` : ''}">`
     + `${count}${kept ? '<span class="mc-kept" data-hint="Its card is in the cabinet"><svg aria-hidden="true"><use href="#i-cabinet"/></svg></span>' : ''}<span class="mc-sig">${sigilSVG(voiceOf(g), g, { size: flat ? 22 : 30 })}</span>`
     + `<span class="mc-name" translate="no">${esc(name)}</span><span class="mc-kind">${f.diet} · ${f.mobility}</span>${home && !flat ? `<span class="mc-home">${esc(home)}</span>` : ''}</button>`;
