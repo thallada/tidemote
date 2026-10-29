@@ -7650,6 +7650,8 @@ fn instrument(cIn: vec3f, wp: vec2f, ppu: f32) -> vec3f {
   let ax = normalize(post.tool.zw);
   // (the side of the shaft toward the lamp catches its light)
   let lit = dot(vec2f(-ax.y, ax.x), LAMP_L);
+  // (which side of its axis wp is: out of focus, the two sides blend across the blur, not at a line)
+  let side = clamp(dot(wp - post.tool.xy, vec2f(-ax.y, ax.x)) / (blur + 0.6 * px), -1.0, 1.0);
   var c = cIn;
   if ((kind > 1.5 && kind < 2.5) || kind > 3.5) {
     // glass: nearly clear, its walls bright lines; the pipette's bore open (its walls meet at the tip's rim), the
@@ -7669,7 +7671,7 @@ fn instrument(cIn: vec3f, wp: vec2f, ppu: f32) -> vec3f {
     // (the rod's glass scatters the lamp's light through it: a faint glow across it, brighter toward its sides)
     if (rod) { c += vec3f(0.022, 0.026, 0.028) * a * (0.5 + 0.5 * g.y * g.y) * mix(0.5, 1.0, f); }
     // (glass raised over the water still catches the light: a soft bright shape of itself)
-    c += vec3f(0.15, 0.18, 0.19) * (spread * mix(0.5, 1.0, f) + 0.6 * wall) * (0.75 + 0.25 * sign(g.y) * lit) * mix(0.5, 1.0, f);
+    c += vec3f(0.15, 0.18, 0.19) * (spread * mix(0.5, 1.0, f) + 0.6 * wall) * (0.75 + 0.25 * side * lit) * mix(0.5, 1.0, f);
     return c;
   }
   // steel: dark, its round shank shading across it, a highlight along the side toward the lamp, a bright edge
@@ -7681,7 +7683,7 @@ fn instrument(cIn: vec3f, wp: vec2f, ppu: f32) -> vec3f {
     body += vec3f(0.03, 0.035, 0.04) * rime;
   }
   c = mix(c, body, a * mix(0.45, 0.96, f));
-  c += vec3f(0.09, 0.1, 0.11) * edge * (0.7 + 0.3 * sign(g.y) * lit);
+  c += vec3f(0.09, 0.1, 0.11) * edge * (0.7 + 0.3 * side * lit);
   return c;
 }
 // The warm stage's or cold probe's lens at wp: 1 inside, fading out over its outer third.
