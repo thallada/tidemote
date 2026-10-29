@@ -2557,36 +2557,45 @@ function run(eng, device, ctx, specCtx, hasTS) {
     Object.assign(pull, { on: true, at: now, until: now + 150, tip: toWorld(sx, sy) });
     hand.note('pipette', ...pull.tip, eng.simTime);
   }
-  // What passes through the pipette's bore, over its glass: each cell taken rising from the tip up out of view, and
-  // while it dispenses, its species streaming down to the tip as fast as they leave ({ col, at, lat, v, down })
-  const tube = [];
-  const TUBE = { n: 48, v: [500, 1400] }; // at most this many in view; css px a second, pressed and at full pressure
-  let tubeNext = 0;
-  function inTube(col, at, u, down) {
-    if (tube.length >= TUBE.n) return;
-    // (one after another, a cell's width apart at least, however many came at once)
-    const v = lerp2(TUBE.v, u);
-    at = Math.max(at, tubeNext);
-    tubeNext = at + (1000 * 0.2 * cssPPU()) / v;
-    tube.push({ col: cssCol(col), at, lat: 1.2 * Math.random() - 0.6, v, down });
-  }
-  function drawTube(R) {
-    const now = performance.now(), [dx, dy] = INSTRUMENTS.pipette.dir, p = cssPPU();
-    // (how far the glass runs, from its tip to the edge of the view)
+  // What the pipette holds, seen in its bore over the glass: a column of its cells, the next to leave at the tip
+  // (those coming in as they are drawn up, then each species in the strip's order), up the glass out of view. Drawn
+  // up, the column rises as cells come in under it; set down, it slides down and out of the tip as they leave.
+  const BORE = 0.2; // world units between the cells in the column
+  const spCss = new WeakMap(); // a species' css color
+  const colOf = (sp) => { if (!spCss.has(sp)) spCss.set(sp, cssCol(newborn(sp)[1])); return spCss.get(sp); };
+  // (bore: how many it held when last drawn, the column's offset in cells still to ease away, when last drawn, the
+  // color of what last left)
+  const bore = { n: 0, g: 0, at: 0, out: null };
+  function drawBore(R, dt) {
+    const [dx, dy] = INSTRUMENTS.pipette.dir, p = cssPPU(), now = performance.now();
+    const gap = BORE * p, n = pull.got.length + pipette.count;
+    // (how far the glass runs, from its tip to the edge of the view, in cells)
     const len = Math.min(dx > 0 ? (innerWidth - R.sx) / dx : -R.sx / dx, dy > 0 ? (innerHeight - R.sy) / dy : -R.sy / dy);
-    for (let i = tube.length - 1; i >= 0; i--) {
-      const c = tube[i];
-      // (the middle of the bore runs faster than near its walls)
-      const run = ((now - c.at) / 1000) * c.v * (1 - 0.5 * c.lat * c.lat);
-      if (run > len) { tube.splice(i, 1); continue; }
-      if (run < 0) continue;
-      const d = c.down ? len - run : run;
-      // (its bore as the composite's toolAt draws it)
-      const w = clamp(d / p / 12, 0, 1), bore = 0.68 * lerp2([0.34, 1.1], w * w * (3 - 2 * w)) * p;
-      const r = Math.min(0.07 * p, 0.4 * bore);
+    const N = Math.min(400, Math.ceil(len / gap) + 1);
+    bore.g = now - bore.at > 200 ? 0 : clamp((bore.g + n - bore.n) * Math.exp(-dt / 60), -N, N);
+    Object.assign(bore, { n, at: now });
+    if (!n && bore.g > -0.01) return;
+    // (the cell i from the tip: those drawn up nearest it, the last in first, then each species' in turn)
+    const blocks = pipette.species.map((sp) => [pipette.cells(sp), colOf(sp)]);
+    const colAt = (i) => {
+      if (i < 0) return bore.out;
+      if (i < pull.got.length) { const r = pull.got[pull.got.length - 1 - i]; return (r.css ??= cssCol(r.col)); }
+      i -= pull.got.length;
+      for (const [k, c] of blocks) { if (i < k) return c; i -= k; }
+      return null;
+    };
+    for (let i = Math.floor(bore.g); i < Math.min(n, N + Math.ceil(bore.g)); i++) {
+      const d = (i - bore.g + 0.5) * gap;
+      if (d < 0 || d > len) continue;
+      const col = colAt(i);
+      if (!col) continue;
+      // (its bore as the composite's toolAt draws it; each cell a little off its middle, the same as it moves)
+      const w = clamp(d / p / 12, 0, 1), half = 0.68 * lerp2([0.34, 1.1], w * w * (3 - 2 * w)) * p;
+      const r = Math.min(0.07 * p, 0.4 * half);
       if (r < 0.6) continue;
-      const x = R.sx + dx * d - dy * c.lat * bore, y = R.sy + dy * d + dx * c.lat * bore;
-      octx.fillStyle = c.col;
+      const j = n - 1 - i, lat = 1.1 * ((Math.sin(j * 12.9898) * 43758.5453) % 1);
+      const x = R.sx + dx * d - dy * lat * 0.5 * half, y = R.sy + dy * d + dx * lat * 0.5 * half;
+      octx.fillStyle = col;
       octx.globalAlpha = 0.15;
       octx.beginPath(); octx.arc(x, y, 1.6 * r, 0, TAU); octx.fill();
       octx.globalAlpha = 0.8;
@@ -2595,8 +2604,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
     octx.globalAlpha = 1;
   }
   eng.onTaken = (recs) => {
-    const now = performance.now();
-    for (const r of recs) inTube(r.col, now, pressed(pull.at, now), false);
     for (const r of recs) { pull.got.push(r); pull.taken.add(r.id); pull.drawn.delete(r.id); }
     for (const r of recs) for (const q of r.partners) if (q !== NONE && !pull.taken.has(q)) pull.drawn.add(q);
     eng.setDrawn([...pull.drawn].slice(0, PIPE_MAX));
@@ -2689,9 +2696,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         off += m;
       }
       hand.note('setdown', ...at, eng.simTime, got);
-      // (coming down the bore, spread over the time to the next)
-      const gap = lerp2(SPIT, u), col = newborn(sp)[1];
-      for (let k = 0; k < Math.min(got, 12); k++) inTube(col, now + (k / Math.min(got, 12)) * gap, u, true);
+      bore.out = colOf(sp);
       if (it.org ? it.org.out >= it.org.cells.length : !sp.made) spit.org = null;
       spit.fails = 0;
     } else if (++spit.fails > 2) {
@@ -3397,7 +3402,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     octx.setTransform(r, 0, 0, r, 0, 0);
     if (state.currents) drawCurrents();
     drawScale();
-    if (R && hand.tool === 'pipette' && tube.length) drawTube(R);
+    if (R && hand.tool === 'pipette') drawBore(R, dt);
     filmMarked = false;
     if (sel && sel.particle) {
       const [W, H] = eng.grid;
