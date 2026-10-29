@@ -30,7 +30,9 @@ const MIN_TEXT = 11, MIN_TARGET = 24, MIN_TOUCH = 44;
 const dist = path.resolve('dist');
 const server = http.createServer((req, res) => {
   const url = decodeURIComponent(req.url.split('?')[0]);
-  const file = url === '/tidemote.html' && args.page ? path.resolve(args.page) : path.join(dist, url === '/' ? 'tidemote.html' : url);
+  // the page, else what the site serves beside it (fresh-shaders.txt: without it every page load logged a 404)
+  let file = url === '/tidemote.html' && args.page ? path.resolve(args.page) : path.join(dist, url === '/' ? 'tidemote.html' : url);
+  if (!fs.existsSync(file)) file = path.join(path.resolve('site'), url);
   if (!fs.existsSync(file)) { res.writeHead(404); res.end(); return; }
   res.writeHead(200, { 'content-type': 'text/html' });
   fs.createReadStream(file).pipe(res);
@@ -90,6 +92,11 @@ function measure({ MIN_TEXT, MIN_TARGET, MIN_TOUCH, touch }) {
   if (compass && body && vis(document.getElementById('spec'))) {
     const c = compass.getBoundingClientRect(), b = body.getBoundingClientRect();
     compassShown = { compassBottom: Math.round(c.bottom), visibleBottom: Math.round(Math.min(b.bottom, innerHeight)), ok: c.height > 0 && c.top >= b.top - 1 && c.bottom <= Math.min(b.bottom, innerHeight) + 1 && vis(compass) };
+    // Judged where it can be met: a phone's sheet that only peeks keeps the compass in its full record (the
+    // cell-full state), and a screen under 500px tall (a phone on its side, 340) has no room for it under the
+    // panel's name, close-up and actions (about 230px of its 250), so there it is reported, not failed.
+    if (b.height < 1) compassShown.na = 'peek';
+    else if (innerHeight < 500) compassShown.na = `${innerHeight}px tall`;
   }
   const over = [];
   for (const id of ['lab', 'spec', 'settings', 'help', 'rail', 'dock']) {
@@ -197,7 +204,7 @@ for (const [id, r] of Object.entries(report.sizes)) {
     const tgt = m.smallTargets.filter((t) => !t.aa).length;
     console.log(`  ${st.padEnd(10)} text<${MIN_TEXT}px: ${String(m.smallText.reduce((a, x) => a + x.n, 0)).padStart(3)}  targets<${r.touch ? MIN_TOUCH : MIN_TARGET}: ${String(m.smallTargets.length).padStart(3)} (under 24: ${tgt})`
       + `  hscroll: ${m.hscroll ? 'YES' : 'no'}  offscreen: ${m.offscreen.map((o) => o.id).join(',') || '-'}  clipped: ${m.clipped.length}`
-      + (m.boxes.specBody ? `  spec scroll h: ${m.boxes.specBody.h}` : '') + (m.compass ? `  compass: ${m.compass.ok ? 'ok' : `HIDDEN (${m.compass.compassBottom} > ${m.compass.visibleBottom})`}` : ''));
+      + (m.boxes.specBody ? `  spec scroll h: ${m.boxes.specBody.h}` : '') + (m.compass ? `  compass: ${m.compass.ok ? 'ok' : m.compass.na ? `n/a, ${m.compass.na}${m.compass.na === 'peek' ? '' : ` (below the fold: ${m.compass.compassBottom} > ${m.compass.visibleBottom})`}` : `HIDDEN (${m.compass.compassBottom} > ${m.compass.visibleBottom})`}` : ''));
   }
   for (const a of [...(r.axe || []), ...(r.axeCell || []), ...(r.axeCard || [])]) console.log(`  axe ${a.impact} ${a.id} ×${a.n}: ${a.help}`);
 }
