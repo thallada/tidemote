@@ -671,6 +671,15 @@ class Engine {
     if (f.memberN) this.device.queue.writeBuffer(this.b.focus, MAXK / 32 * 4, members, 0, f.memberN);
   }
 
+  /**
+   * Kinds lit in the close-up alone (a mini-card's portrait, specimen.light): the focus's kinds, written while the
+   * views' own focus is off (they read the kinds only when on), so the world's view is untouched.
+   */
+  lightKinds(kinds) {
+    if (!this.focus.on) this.device.queue.writeBuffer(this.b.focus, 0, kinds, 0, MAXK / 32);
+    return !this.focus.on;
+  }
+
   _ensureSpecTex(w, h) {
     if (this.specTex && this.specSize[0] === w && this.specSize[1] === h) return;
     this.specTex?.destroy();
@@ -1986,7 +1995,7 @@ class Engine {
   }
 
   // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
-  _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0) {
+  _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, f = this.focus) {
     const K = this.K;
     const ppu = cam.ppu;
     // a cell keeps one world size at every zoom, so zooming in only resolves it
@@ -2002,7 +2011,6 @@ class Engine {
     v[9] = (0.55 / (1 + lineCov * 0.6)) * this.settings.exposure;
     v[10] = K.linkR; v[11] = time; vu[12] = selId >>> 0;
     v[13] = (0.075 / (1 + overlapAll * 0.9)) * this.settings.exposure;
-    const f = this.focus;
     vu[14] = f.on; vu[15] = f.roleMask; vu[16] = f.stateMode; v[17] = f.mute; vu[18] = f.memberKind; vu[19] = f.memberN;
     vu[20] = detail ? 1 : 0;
     vu[21] = culled ? 1 : 0;
@@ -2294,7 +2302,9 @@ class Engine {
 
     if (specimen && specimen.target) {
       this._ensureSpecTex(specimen.w, specimen.h);
-      this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, true, culled[2]);
+      // (light: the kinds lightKinds wrote lit in this view alone, the rest dimmed to it)
+      const light = specimen.light ? { on: 1, roleMask: 7, stateMode: 0, mute: specimen.light, memberKind: 0xffffffff, memberN: 0 } : this.focus;
+      this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, true, culled[2], 0, light);
       let pass = enc.beginRenderPass({ colorAttachments: [{ view: this.specView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
       this._drawScene(pass, this.bgLineS, this.bgPointS, this.bgBridgeS, this.viewDataS, 2);
       pass.end();
