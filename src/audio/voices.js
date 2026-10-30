@@ -444,23 +444,21 @@ export class Rustle extends Voice {
   }
 }
 
-// ── \air: a held band of moving air or water (the hand's wind, rush and simmer; new, not in the SC score) ──
+// ── \air: a held band of moving air or water (the hand's wind, rush and roar; new, not in the SC score) ──
 // Pink noise through two resonant bands either side of the pan, their centers and levels wandering
-// with the gusts; optional crackle (impulses ringing short and high). Held as a node: set amp and the
-// rest as it goes (they glide), free it when done.
+// with the gusts. Held as a node: set amp and the rest as it goes (they glide), free it when done.
 export class Air extends Voice {
   constructor(eng, p) {
     super(eng, p);
-    this.p = Object.assign({ amp: 0, freq: 600, rq: 0.6, gust: 0.5, rate: 0.4, crk: 0, crf: 3000, cramp: 0, pan: 0, rev: 0.3, dly: 0 }, p);
+    this.p = Object.assign({ amp: 0, freq: 600, rq: 0.6, gust: 0.5, rate: 0.4, pan: 0, rev: 0.3, dly: 0 }, p);
     this.pink = [new PinkNoise(this.rg), new PinkNoise(this.rg)]; this.rz = [new Resonz(this.sr), new Resonz(this.sr)];
     this.wf = [new LFNoise2(this.kr, this.rg), new LFNoise2(this.kr, this.rg)]; this.wa = [new LFNoise2(this.kr, this.rg), new LFNoise2(this.kr, this.rg)];
-    this.al = new Lag(this.kr, this.p.amp); this.fl = new Lag(this.kr, this.p.freq); this.cl = new Lag(this.kr, this.p.cramp);
-    this.aA = [new KtoA(this.p.amp), new KtoA(this.p.amp)]; this.cA = new KtoA(this.p.cramp);
-    this.dust = new Dust(this.sr, this.rg, true); this.ring = [new Ringz(this.sr), new Ringz(this.sr)]; this.hp = new HPF(this.sr);
+    this.al = new Lag(this.kr, this.p.amp); this.fl = new Lag(this.kr, this.p.freq);
+    this.aA = [new KtoA(this.p.amp), new KtoA(this.p.amp)];
     this.pans = [new Pan2(this.p.pan - 0.3), new Pan2(this.p.pan + 0.3)];
   }
   render(B, S) {
-    const P = this.p, a = this.al.kr(P.amp, 0.25), f = this.fl.kr(P.freq, 0.4), c = this.cl.kr(P.cramp, 0.25), g = P.gust;
+    const P = this.p, a = this.al.kr(P.amp, 0.25), f = this.fl.kr(P.freq, 0.4), g = P.gust;
     const n = S.get(), t = S.get(), k = S.get(), L = S.zero(), R = S.zero();
     for (let i = 0; i < 2; i++) {
       const fi = clip(f * (1 + g * 0.45 * this.wf[i].kr(P.rate)) * (i ? 1.19 : 0.84), 40, 12000);
@@ -469,12 +467,6 @@ export class Air extends Voice {
       this.aA[i].fill(ai, k);
       for (let j = 0; j < BS; j++) t[j] *= k[j];
       this.pans[i].addK(t, clip(P.pan + (i ? 0.3 : -0.3), -1, 1), 1, L, R);
-    }
-    if (P.crk > 0 && (c > 1e-4 || P.cramp > 0)) {
-      this.dust.ar(P.crk, n); t.fill(0);
-      this.ring[0].arAdd(n, P.crf, 0.0015, 1, t); this.ring[1].arAdd(n, P.crf * 1.53, 0.001, 0.7, t);
-      this.hp.ar(t, 1200, n); this.cA.fill(c, k);
-      for (let j = 0; j < BS; j++) { const v = n[j] * k[j]; L[j] += v; R[j] += v; }
     }
     outAll(B, L, R, P.rev, P.dly, this.send);
   }
