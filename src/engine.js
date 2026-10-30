@@ -1,6 +1,6 @@
 import {
   simWGSL, SIM_CLOCK, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, SEA_WGSL, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, PIPE_MAX, PIPE_TAKE, PIPE_TAKE_W, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K,
+  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, PIPE_MAX, PIPE_TAKE, PIPE_TAKE_W, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K, STUDIO_N,
 } from './shaders.js';
 import {
   archetypeGenome, randomGenome, writeGenome, parseParticle,
@@ -255,6 +255,11 @@ class Engine {
     b.tubeGenomes = d.createBuffer({ size: (FIRST_LIFE + TUBE_K) * G_BYTES, usage: U.STORAGE | U.COPY_DST });
     b.tubeOrgans = d.createBuffer({ size: (FIRST_LIFE + TUBE_K) * ORGANS * 4, usage: U.STORAGE });
     this.tubeN = 0;
+    // a mini-card's portrait drawn alone (setStudio): its cells, its genome and organelle directions
+    b.studioParts = d.createBuffer({ size: STUDIO_N * P_BYTES, usage: U.STORAGE | U.COPY_DST });
+    b.studioGenomes = d.createBuffer({ size: (FIRST_LIFE + 1) * G_BYTES, usage: U.STORAGE | U.COPY_DST });
+    b.studioOrgans = d.createBuffer({ size: (FIRST_LIFE + 1) * ORGANS * 4, usage: U.STORAGE });
+    this.studioN = 0;
     this.postModule = d.createShaderModule({ code: POST_WGSL, label: 'post' });
 
     const cp = (mod, entryPoint) => cPipe({ layout: 'auto', compute: { module: mod, entryPoint }, label: entryPoint });
@@ -332,6 +337,7 @@ class Engine {
       vertex: { module: this.drawModule, entryPoint: 'vsStone' },
       fragment: { module: this.drawModule, entryPoint: 'fsStone', targets: [{ format: HDR }, { format: HDR }] } });
     this.pBridge = rp(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', additive);
+    this.pStudio = rp(this.drawModule, 'vsTube', 'fsTube', 'triangle-strip', additive);
     this.pDown = rp(this.postModule, 'vsFull', 'fsDown', 'triangle-list', undefined);
     this.pUp = rp(this.postModule, 'vsFull', 'fsUp', 'triangle-list', additive);
     this.pMurk = rp(this.postModule, 'vsFull', 'fsMurk', 'triangle-list', undefined);
@@ -535,6 +541,8 @@ class Engine {
     const bufs = (pipe, list) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: list.map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
     this.tubeBG = bufs(this.main.tube, [[0, b.view], [1, b.tubeParts], [2, b.tubeGenomes], [10, b.tubeOrgans]]);
     this.tubeOrgansBG = bufs(this.cpOrgans, [[7, b.tubeGenomes], [9, b.tubeOrgans]]);
+    this.studioBG = bufs(this.pStudio, [[0, b.viewS], [1, b.studioParts], [2, b.studioGenomes], [10, b.studioOrgans]]);
+    this.studioOrgansBG = bufs(this.cpOrgans, [[7, b.studioGenomes], [9, b.studioOrgans]]);
     this.bgPointL = pointBG(b.viewL, 1);
     this.bgLineL = lineBG(this.pLine, b.viewL, 1);
     this.bgPointS = pointBG(b.viewS, 2);
@@ -669,15 +677,6 @@ class Engine {
     f.memberN = members ? Math.min(members.length, FOCUS_MAX) : 0;
     if (kinds) this.device.queue.writeBuffer(this.b.focus, 0, kinds, 0, MAXK / 32);
     if (f.memberN) this.device.queue.writeBuffer(this.b.focus, MAXK / 32 * 4, members, 0, f.memberN);
-  }
-
-  /**
-   * Kinds lit in the close-up alone (a mini-card's portrait, specimen.light): the focus's kinds, written while the
-   * views' own focus is off (they read the kinds only when on), so the world's view is untouched.
-   */
-  lightKinds(kinds) {
-    if (!this.focus.on) this.device.queue.writeBuffer(this.b.focus, 0, kinds, 0, MAXK / 32);
-    return !this.focus.on;
   }
 
   _ensureSpecTex(w, h) {
@@ -1365,6 +1364,21 @@ class Engine {
     pass.end();
     d.queue.submit([enc.finish()]);
   }
+  /**
+   * A mini-card's portrait drawn alone, in place of the world, in the close-up (specimen.studio, docs/hand.md): n
+   * records laid out as struct Particle (kind FIRST_LIFE, still), and their genome's words (G_WORDS).
+   */
+  setStudio(parts, n, genome) {
+    const d = this.device;
+    this.studioN = Math.min(n, STUDIO_N);
+    d.queue.writeBuffer(this.b.studioParts, 0, parts, 0, this.studioN * P_BYTES / 4);
+    d.queue.writeBuffer(this.b.studioGenomes, FIRST_LIFE * G_BYTES, genome);
+    const enc = d.createCommandEncoder(), pass = enc.beginComputePass();
+    pass.setPipeline(this.cpOrgans); pass.setBindGroup(0, this.studioOrgansBG);
+    pass.dispatchWorkgroups(Math.ceil(((FIRST_LIFE + 1) * ORGANS) / 64));
+    pass.end();
+    d.queue.submit([enc.finish()]);
+  }
   /** The cells the pipette draws toward its tip (their IDs, the first PIPE_MAX), its tip and pull in hand.suck. */
   setDrawn(ids) {
     const v = Uint32Array.from(ids).subarray(0, PIPE_MAX).sort();
@@ -1995,7 +2009,7 @@ class Engine {
   }
 
   // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
-  _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, f = this.focus) {
+  _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0) {
     const K = this.K;
     const ppu = cam.ppu;
     // a cell keeps one world size at every zoom, so zooming in only resolves it
@@ -2011,6 +2025,7 @@ class Engine {
     v[9] = (0.55 / (1 + lineCov * 0.6)) * this.settings.exposure;
     v[10] = K.linkR; v[11] = time; vu[12] = selId >>> 0;
     v[13] = (0.075 / (1 + overlapAll * 0.9)) * this.settings.exposure;
+    const f = this.focus;
     vu[14] = f.on; vu[15] = f.roleMask; vu[16] = f.stateMode; v[17] = f.mute; vu[18] = f.memberKind; vu[19] = f.memberN;
     vu[20] = detail ? 1 : 0;
     vu[21] = culled ? 1 : 0;
@@ -2147,7 +2162,7 @@ class Engine {
     // the views that see little of the world draw only the rows they cover (CULL_WGSL)
     const culled = [this._cullView(0, cam.x, cam.y, W / (2 * cam.ppu), H / (2 * cam.ppu)),
       !!loupe && this._cullView(1, loupe.cx, loupe.cy, (LOUPE_FIELD * loupe.r) / loupe.ppu, (LOUPE_FIELD * loupe.r) / loupe.ppu),
-      !!(specimen && specimen.target) && this._cullView(2, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu))];
+      !!(specimen && specimen.target && !specimen.studio) && this._cullView(2, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu))];
     if (culled.some(Boolean)) {
       const pass = enc.beginComputePass({ timestampWrites: tsBegin() });
       pass.setPipeline(this.cpCull);
@@ -2302,13 +2317,14 @@ class Engine {
 
     if (specimen && specimen.target) {
       this._ensureSpecTex(specimen.w, specimen.h);
-      // (light: the kinds lightKinds wrote lit in this view alone, the rest dimmed to it)
-      const light = specimen.light ? { on: 1, roleMask: 7, stateMode: 0, mute: specimen.light, memberKind: 0xffffffff, memberN: 0 } : this.focus;
-      this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, true, culled[2], 0, light);
+      this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, true, culled[2]);
       let pass = enc.beginRenderPass({ colorAttachments: [{ view: this.specView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
-      this._drawScene(pass, this.bgLineS, this.bgPointS, this.bgBridgeS, this.viewDataS, 2);
+      // (the studio: its own cells alone, on no stone)
+      if (specimen.studio) { pass.setPipeline(this.pStudio); pass.setBindGroup(0, this.studioBG); pass.draw(4, this.studioN); }
+      else this._drawScene(pass, this.bgLineS, this.bgPointS, this.bgBridgeS, this.viewDataS, 2);
       pass.end();
-      this._drawStone(enc, this.specStoneView, this.bgStoneS);
+      if (specimen.studio) enc.beginRenderPass({ colorAttachments: this.specStoneView.slice(0, 2).map((view) => ({ view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' })) }).end();
+      else this._drawStone(enc, this.specStoneView, this.bgStoneS);
       pass = enc.beginRenderPass({ colorAttachments: [{ view: specimen.target, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }] });
       pass.setPipeline(this.pPlain); pass.setBindGroup(0, this.specBG); pass.draw(3); pass.end();
     }

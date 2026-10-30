@@ -133,20 +133,18 @@ portrait; a phone's held strip has a flat one-row form. The portrait is a small 
 URL by key (`setThumb`): a cabinet card's is the middle of its card's portrait, cut when it is saved and kept with the
 card (`thumb`; a card kept before cards had one: cut once from its PNG as the browser decodes it, then kept; a cut
 whose middle is dark water, `thumbSeen`, is kept as an empty thumb, a blank); a run in the pipette uses its card's
-unless blank, else (as a blank card in the cabinet does, while its species lives here) its species is portrayed from
-the world (`takePortrait`'s thumb: a 192 px frame of
-the close-up renderer at twice the card's zoom, on the species' largest body or densest patch anywhere, with a 6 ms
-budget for tracing bodies). Not near where it was drawn up: that is where it has just been taken from, and its
-nearest members were often in the tip by the time the frame was drawn. A thumb's frame lights its species and dims
-the rest in the close-up alone (`specimen.light`, the kinds written by `eng.lightKinds` while the views' own focus is
-off, so the world's view never dims with it; with a focus of the viewer's own on, unlit), leads its subject by its
-velocity, and holds the world still only above 2× (below, the frames between finding it and drawing it move it
-little). A frame whose middle is dark water (`thumbSeen`) is taken again, up to four times; till then the card shows
-its sigil. They are taken one at a time, only while no card's portrait is being taken and no pick waits, and each
-card takes its portrait in place when it comes. A thumb costs 3–11 ms of the page's time. The strip shows what is
-being drawn up as it comes in (the first cells' card within a frame or two of the press, a species joining the tip's
-run if of its kind), not when the draw is done; a species drawn up before the census named it gets its card again
-with its name and portrait once it has.
+unless blank, else (as a blank card in the cabinet does) its species is drawn alone, in a studio (`takeStudio`,
+`src/studio.js`): the cells it holds (its largest body, up to `STUDIO_N` cells, laid out by its bonds, touching
+their partners and overlapping none; else a few of its single cells; else, none held, a few newborns of its
+genome) set still in the close-up in place of the world (`eng.setStudio`, `specimen.studio`: the bore's `vsTube`
+with a target of one, `fsTube`), framed to fill what a card shows of it (`SHOWN`). It never misses its subject and
+needs the species in the water no more than in the pipette. Portraits from the world (a frame of the close-up aimed
+at its best member) were tried first and dropped: the subject had moved or been taken by the time the frame was
+drawn, and at some zooms the close-up drew a body's bonds without its cells. Portraits are drawn one a frame, only
+while no card's portrait is being taken, and each card takes its portrait in place when it comes. The strip shows
+what is being drawn up as it comes in (the first cells' card within a frame or two of the press, a species joining
+the tip's run if of its kind), not when the draw is done; a species drawn up before the census ever counted it (a
+newborn mutant taken whole) is registered as the census would, and its run keeps that name.
 
 **The species card** is a trading card: its name and where it comes from, its sigil as the emblem in the corner,
 its portrait large, three words for what it is, its peak, age and when it arose in big figures over its numbers

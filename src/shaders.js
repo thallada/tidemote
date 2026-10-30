@@ -94,6 +94,7 @@ export const P_BYTES = 40;
 // the pipette's bore drawn as cells (vsTube): at most this many, of at most TUBE_K species
 export const TUBE_N = 400;
 export const TUBE_K = 16;
+export const STUDIO_N = 64; // a mini-card's portrait drawn alone (setStudio): the most cells it holds
 // The loupe's barrel distortion: its rim shows this many times its radius.
 export const LOUPE_FIELD = 1.1;
 export const ORGANS = 12; // organelles per resolved cell (fsPoint), directions per species (organDirs)
@@ -5194,6 +5195,12 @@ const TUBE_MAX_BLUR = 2.5; // of its radius
     c /= f32(TUBE_TAPS);
   }
   return PointOut(c, c);
+}
+// A mini-card's portrait drawn alone (setStudio, the studio): the bore's cells, still, in one target.
+@fragment fn fsTube(i: PO) -> @location(0) vec4f {
+  var j = i;
+  j.jelly.z = 0.0;
+  return pointColor(j);
 }
 fn pointColor(i: PO) -> vec4f {
   let far = spriteFalloff(i.uv, i.shape & 255u);
