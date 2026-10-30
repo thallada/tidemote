@@ -130,6 +130,7 @@ export const DEFAULT_K = {
   tailOdds: 1,      // a packed body's tails: the chance a bud at its edge starts one, times the tail gene, when no
   tailSpace: 0.6,   // tail of its kind is within this (world units); a tail grows 3 to tailMax cells by its length gene
   tailMax: 16,
+  tailGain: 1.3,    // a tail's beat is this much stronger than a tree's (it carries its whole body)
   beatCost: 0.005,   // upkeep per unit of beat amplitude (radians) times frequency (Hz)
   bodyHold: 0.3,    // with bodyPush, the share of overlap undone each tick by velocity (contact as a constraint)
   bodyGive: 0.85,   // with bodyPush, how far cells may squash against each other first (share of touching; bonds rest at bondTouch)
@@ -225,7 +226,7 @@ export const DEFAULT_K = {
   satietyAt: 1.2,     // ...counting a hunter full at this × the energy to divide (above 1: it still hunts its way to dividing)
   holdfast: 0.1,      // scale on an anchored cell's velocity half-life (low advect): 0.1 and pushes barely move it
   mature: 0.2,        // a cell divides only once older than this share of its lifespan (it grows up first; 0: at once)
-  bodyShare: 2,     // rate (per second) at which energy flows along a body's bonds toward the poorer cell
+  bodyShare: 1,     // rate (per second) at which energy flows along a body's bonds toward the poorer cell
   tideSpeed: 3,     // scale on how fast the tide's bands of light travel
   cystAt: 0.3,      // a seed bank: an animal short of energy with no food in reach may go dormant (a cyst) below this share of its division energy...
   cystRate: 0.2,    // ...at this chance per second
@@ -2358,7 +2359,9 @@ fn treeDeg(x: u32) -> f32 {
 fn beatPull(i: u32, gr: Grow, size: f32, frX: f32) -> vec2f {
   let p = sortedFull[i];
   let tm = sim.time - 0.5 * sim.dt;
-  let si = beatSpeed(gr, size, genOf(p.info), tm);
+  // (a tail drives a whole body: it swings tailGain harder)
+  let tg = select(1.0, ${f(K.tailGain)}, orderOf(p.info) == 2u);
+  let si = beatSpeed(gr, size, genOf(p.info), tm) * tg;
   let di = treeDeg(i);
   var gain = 1.0;
   var mixW = ${f(K.beatMix)};
@@ -2379,7 +2382,7 @@ fn beatPull(i: u32, gr: Grow, size: f32, frX: f32) -> vec2f {
     // the bond's normal, from mother to daughter
     let a = select(treeRel(i, j), treeRel(j, i), k == 0u);
     let n = vec2f(-a.y, a.x) / max(length(a), 1e-6);
-    let sj = beatSpeed(gr, size, genOf(q.info), tm);
+    let sj = beatSpeed(gr, size, genOf(q.info), tm) * tg;
     // a joint pulled well past its rest goes slack: its muscle lets go
     let slack = smoothstep(1.6, 1.3, length(a) / (${f(0.153)} * size));
     dv += (q.vel - p.vel + n * (clamp((si - sj) * gain, -top, top) * slack)) * (2.0 / max(di, treeDeg(j)));
