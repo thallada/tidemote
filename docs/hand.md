@@ -121,7 +121,12 @@ diet and body. A card of this world opens its live card (to rename it, load the 
 was drawn. Dragging one onto the bench, or Load the pipette, puts a colony of it (the founding's colony size) in the
 pipette, its cells made as newborns when set down: a stranger takes a serial of this world and founds a lineage, as a
 spark does, keeping its card's name and home water (`life.carried` until the census meets it), and its later
-colonies join that lineage. A card's PNG dropped on the page, or its link opened, puts it in the cabinet.
+colonies join that lineage. Dragged straight onto the world, a card sets its colony down where it is let go (a run of
+its own in the pipette, spat out at once, whatever else the pipette holds). A card's × (on a mouse, when the card is
+under it), or Remove from cabinet on its card, takes it out; Undo beside the cabinet's count puts the last back for a
+while. A card's dialog also plays its song alone (its roll lit as it sounds, `lightSong` in `src/song.js`) beside its
+WAV, and, when its species is in this world (its own here, or the one a carried card founded), Inspect opens it in the
+specimen panel. A card's PNG dropped on the page, or its link opened, puts it in the cabinet.
 
 **The mini-card** (`src/minicard.js`), the strip's and the cabinet's unit, is a field-guide plate, so a species is
 known by sight before its name is read: its portrait, an edge under it split by what it eats (light, grazing, carrion,

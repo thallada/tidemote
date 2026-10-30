@@ -63,11 +63,16 @@ export function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
     add(species, recs) {
       if (recs.length) atTip(species).orgs.push(...bodiesOf(recs));
     },
-    /** A card's species loaded: one colony of n cells, made as they leave; false if they do not fit. */
-    load(species, n) {
-      if (!pp.fits(n)) return false;
-      atTip(species).made += n;
-      return true;
+    /**
+     * A card's species loaded: one colony of n cells, made as they leave: its run (alone, a run of its own, not
+     * joining one at the tip), or null if they do not fit.
+     */
+    load(species, n, alone = false) {
+      if (!pp.fits(n)) return null;
+      const sp = alone ? { ...species, id: ++seq, orgs: [], made: 0 } : atTip(species);
+      if (alone) state.species.unshift(sp);
+      sp.made += n;
+      return sp;
     },
     /** The run at the tip, or null. */
     get tip() { return state.species[0] || null; },

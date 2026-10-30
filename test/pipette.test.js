@@ -28,7 +28,7 @@ test('runs from the tip, the last in first: a species again after another is a r
   assert.equal(pp.next()[0].org.cells.length, 2, 'the last body in leaves first');
   assert.equal(pp.mixed, true);
   assert.equal(new Set(pp.species.map((s) => s.id)).size, 3, 'each run its own id');
-  assert.equal(pp.load({ card: 'c1', serial: 7, words: [], name: 'From afar', stranger: true }, 4), true);
+  assert.equal(pp.load({ card: 'c1', serial: 7, words: [], name: 'From afar', stranger: true }, 4), pp.species[0]);
   assert.equal(pp.species.length, 4, 'a stranger by its card');
   assert.equal(pp.tip.card, 'c1');
   // moved next to its own species, a run joins it, the cells of the one now nearer the tip leaving first
@@ -84,8 +84,13 @@ test('the limit: a card’s colony that does not fit is refused; newborns leave 
   pp.add(sp(7), Array.from({ length: 6 }, (_, i) => rec(i + 1)));
   assert.equal(pp.fits(4), true);
   assert.equal(pp.fits(5), false);
-  assert.equal(pp.load({ card: 'c1', serial: 99, words: [], name: 'Card', stranger: true }, 4), true);
-  assert.equal(pp.load({ card: 'c1', serial: 99, words: [], name: 'Card', stranger: true }, 1), false);
+  const run = pp.load({ card: 'c1', serial: 99, words: [], name: 'Card', stranger: true }, 2);
+  assert.equal(pp.load({ card: 'c1', serial: 99, words: [], name: 'Card', stranger: true }, 2), run, 'joining its run at the tip');
+  assert.equal(pp.load({ card: 'c1', serial: 99, words: [], name: 'Card', stranger: true }, 1), null);
+  // (set down straight from the cabinet: a run of its own, whatever is at the tip)
+  const pq = createPipette(undefined, 10), a = pq.load({ card: 'c2', serial: 5, words: [], name: 'Card' }, 2), b = pq.load({ card: 'c2', serial: 5, words: [], name: 'Card' }, 3, true);
+  assert.notEqual(a, b);
+  assert.deepEqual([pq.tip, b.made, a.made], [b, 3, 2]);
   const [n] = pp.next(pp.tip, 3);
   assert.equal(n.made, 3);
   const job = setDownJob(n, at, () => [0.5, 1, 2]);

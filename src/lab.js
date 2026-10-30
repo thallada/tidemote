@@ -523,14 +523,16 @@ export function createLab(api) {
   }
 
   // ---------------------------------------------------------- cabinet: every card saved, in every world (cabinet.js)
-  // api.cabinet: { cards(), world(), facets(card), mini(card), status(card) (minicard.js statusText), open(card), load(card, el) }: a card tapped opens it,
-  // dragged onto the bench (its button, the pipette's tool or strip) loads the pipette
+  // api.cabinet: { cards(), world(), facets(card), mini(card), status(card) (minicard.js statusText), open(card), load(card),
+  // place(card, x, y), remove(card), undo(), removed() }: a card tapped opens it, dragged onto the bench (its button, the
+  // pipette's tool or strip) loads the pipette, onto the world sets a colony of it down there; its × takes it out
+  // (Undo puts back the last for a while)
   function buildCabinet() {
     const p = pane(`<div class="qrow"><input type="search" id="cab-q" placeholder="Search the cabinet" aria-label="Search the cabinet" autocomplete="off"><button type="button" class="chip filt" id="cab-filt" aria-expanded="false" aria-controls="cab-filters">Filters</button></div><div class="filters" id="cab-filters">
       ${seg('From', 'cabFrom', [['any', 'Any'], ['this', 'This world'], ['other', 'Other waters']])}
       ${seg(term('diet', 'Diet'), 'cabDiet', DIETS)}
       ${seg(term('organism', 'Body'), 'cabBody', [['all', 'Any'], ['multicellular', 'Multicellular'], ['single-cell', 'Single-cell']])}</div>
-      <div class="sum"><span id="cab-sum"></span><span class="lbl">Newest first</span></div>`, 'cabinet');
+      <div class="sum"><span id="cab-sum"></span><span class="lbl" id="cab-order">Newest first</span><span id="cab-undo" hidden></span></div>`, 'cabinet');
     const grid = document.createElement('div');
     grid.className = 'cab-grid';
     p.scroll.append(grid);
@@ -540,8 +542,24 @@ export function createLab(api) {
     const byId = (id) => api.cabinet.cards().find((c) => c.id === id);
     const drag = wireCardDrag(grid, {
       tap: (id) => { const c = byId(id); if (c) api.cabinet.open(c); },
-      drop: (id, x, y, el) => { const c = byId(id); if (c && el?.closest('#bench-open, #bench, #held, [data-tool="pipette"]')) api.cabinet.load(c); },
+      drop: (id, x, y, el) => {
+        const c = byId(id);
+        if (!c) return;
+        if (el?.id === 'stage') api.cabinet.place(c, x, y);
+        else if (el?.closest('#bench-open, #bench, #held, [data-tool="pipette"]')) api.cabinet.load(c);
+      },
     });
+    grid.addEventListener('click', (e) => { const b = e.target.closest('[data-out]'), c = b && byId(b.dataset.out); if (c) api.cabinet.remove(c); });
+    p.ctl.addEventListener('click', (e) => { if (e.target.closest('#cab-undo button')) api.cabinet.undo(); });
+    // Undo, while the card last taken out can be put back
+    let undoKey = '';
+    function undo() {
+      const c = api.cabinet.removed(), el = p.ctl.querySelector('#cab-undo'), k = c ? c.id : '';
+      if (k === undoKey) return;
+      undoKey = k;
+      el.hidden = !c; p.ctl.querySelector('#cab-order').hidden = !!c;
+      el.innerHTML = c ? `<span>${esc(c.name)} taken out</span> <button type="button" class="link">Undo</button>` : '';
+    }
     let key = '';
     function update(force) {
       const all = api.cabinet.cards(), world = api.cabinet.world();
@@ -551,6 +569,7 @@ export function createLab(api) {
       } });
       setText(p.ctl.querySelector('#cab-sum'), `${fmt(all.length)} card${all.length === 1 ? '' : 's'} · ${fmt(all.filter((c) => c.world === world).length)} from this world`);
       const k = shown.map((c) => c.id).join(',');
+      undo();
       if (drag.dragging()) return;
       // (the same cards: how each species does here, in place)
       if (k === key && !force) {
@@ -559,7 +578,7 @@ export function createLab(api) {
         return;
       }
       key = k;
-      grid.innerHTML = shown.length ? shown.map((c) => api.cabinet.mini(c)).join('')
+      grid.innerHTML = shown.length ? shown.map((c) => `<div class="cab-card">${api.cabinet.mini(c)}<button type="button" class="cab-out" data-out="${esc(c.id)}" aria-label="Take ${esc(c.name)}’s card out of the cabinet" data-hint="Out of the cabinet"><svg aria-hidden="true"><use href="#i-close"/></svg></button></div>`).join('')
         : `<div class="pip-empty"><b>${all.length ? 'No card matches.' : 'The cabinet is empty.'}</b><span>${all.length ? 'Try other filters.' : 'Save a species from the specimen panel (Save), or drop a species card’s PNG on the page: its card comes here, to be carried to any world.'}</span></div>`;
     }
     return { ...p, update };

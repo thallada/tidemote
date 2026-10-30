@@ -11,8 +11,8 @@ import { facets, dietMix } from './facets.js';
 import { thermalGuild, roleColor, divEnergy } from './genome.js';
 import { voiceOf } from './audio/mapping.js';
 import { describe as describeSong } from './audio/motif.js';
-import { sigilSVG } from './song.js';
-import { fmt, fmtClock, fmtDur, fmtLen, cssRgb, saveFile } from './fmt.js';
+import { sigilSVG, songSVG, lightSong } from './song.js';
+import { fmt, fmtClock, fmtDur, fmtLen, cssCol, cssRgb, saveFile } from './fmt.js';
 import { qr } from './qr.js';
 
 export const CARD_W = 660, CARD_H = 1050; // about a bridge card's shape
@@ -292,7 +292,8 @@ function cardCanvas(d, art) {
  *   rename(serial, name), songClip(genome) -> Promise<Blob|null>, flash(msg),
  *   carry(serial) -> { home, touched, link } (where it lives, and the link its QR code holds),
  *   saved(serial) -> its card in the cabinet or null, save(serial), load(serial | card) (into the pipette),
- *   remove(card) (from the cabinet) }
+ *   remove(card) (from the cabinet), inspectable(serial | card) -> the serial of its species in this world or null,
+ *   inspect(serial) (the specimen panel), play(genome, tag, serial | null) (its song alone, its notes tagged tag) }
  */
 export function createCards(api) {
   const $ = (id) => document.getElementById(id);
@@ -342,7 +343,7 @@ export function createCards(api) {
     art = a;
     redraw();
     acts();
-    const v = voiceOf(sp.genome);
+    tune(sp.genome);
     note.textContent = sp.alive ? 'Taking its portrait…' : art.portrait ? '' : 'Extinct, and never portrayed: its sigil stands in.';
     root.focus({ preventScroll: true });
     if (sp.alive) {
@@ -351,8 +352,19 @@ export function createCards(api) {
       if (p) { portraits.set(serial, p); if (portraits.size > 48) portraits.delete(portraits.keys().next().value); art.portrait = p; redraw(); }
       note.textContent = p ? '' : 'No member could be found to portray: its sigil stands in.';
     }
-    const desc = describeSong(v);
-    $('card-song').dataset.hint = `Its song: ${desc.tags.join(', ')}. A short clip, in this world's key`;
+  }
+  // its song: the roll (lit as it plays, songTick), what it is, Play and the WAV
+  let tag = '', songKey = null;
+  function tune(g) {
+    const v = voiceOf(g), d = describeSong(v), m = v.motif;
+    tag = saved ? `card:${saved.id}` : `sp${cur}`; songKey = null;
+    $('card-roll').innerHTML = songSVG(m, { w: 260, h: 60, col: cssCol(g.col), col2: cssRgb(roleColor(g, 1)), label: `${d.tags.join(', ')}: ${d.line}` });
+    $('card-song-read').innerHTML = `<span><b>${String(m.notes.length).padStart(2, '0')}</b> notes</span><span><b>${(m.cycle * 0.18).toFixed(1)}</b> s</span>`;
+    $('card-play').dataset.hint = `Hear it alone: ${d.tags.join(', ')}`;
+  }
+  function songTick(now, events) {
+    if (root.hidden || !tag) return;
+    songKey = lightSong($('card-roll'), now, events, (e) => e.slot === tag, songKey);
   }
   // A card from the cabinet: as it was drawn when saved (its PNG), here or in another world.
   let saved = null, savedUrl = null;
@@ -360,7 +372,6 @@ export function createCards(api) {
   function showing(isSaved) {
     cv.hidden = isSaved; img.hidden = !isSaved;
     $('card-name-row').hidden = isSaved;
-    $('card-remove').hidden = !isSaved;
     if (savedUrl && !isSaved) { URL.revokeObjectURL(savedUrl); savedUrl = null; }
   }
   function openSaved(card) {
@@ -373,20 +384,23 @@ export function createCards(api) {
     note.textContent = card.world === api.world() ? '' : `Carried from ${card.home}`;
     root.hidden = false;
     acts();
+    tune(card.genome);
     root.focus({ preventScroll: true });
   }
-  // the buttons for what is showing: saved or not, loading the pipette
+  // the buttons for what is showing: saved or not, loading the pipette, its species here to inspect
   function acts() {
     const card = saved || (cur != null && api.saved(cur));
     const sv = $('card-save');
     sv.hidden = !!saved;
     sv.disabled = !!card;
     sv.textContent = card ? `Saved · ${card.home}` : 'Save to cabinet';
+    $('card-remove').hidden = !card;
+    $('card-inspect').hidden = api.inspectable(saved || cur) == null;
   }
   function close() {
     if (root.hidden) return;
     root.hidden = true;
-    cur = null; saved = null;
+    cur = null; saved = null; tag = '';
   }
   const fileName = (ext) => {
     const name = saved ? saved.name : reg().get(cur)?.name || 'species';
@@ -419,7 +433,19 @@ export function createCards(api) {
   });
   $('card-save').addEventListener('click', async () => { if (cur != null) { await api.save(cur, cv); acts(); } });
   $('card-load').addEventListener('click', () => { api.load(saved || cur); close(); });
-  $('card-remove').addEventListener('click', () => { if (saved) { api.remove(saved); close(); } });
+  // (a saved card shows only what is in the cabinet: out, it goes; a live one stays open, to be saved again)
+  $('card-remove').addEventListener('click', async () => {
+    const card = saved || (cur != null && api.saved(cur));
+    if (!card) return;
+    if (saved) close();
+    await api.remove(card);
+    acts();
+  });
+  $('card-inspect').addEventListener('click', () => { const s = api.inspectable(saved || cur); if (s != null) { close(); api.inspect(s); } });
+  $('card-play').addEventListener('click', () => {
+    const g = saved ? saved.genome : reg().get(cur)?.genome;
+    if (g) api.play(g, tag, saved ? null : cur);
+  });
   $('card-song').addEventListener('click', async () => {
     const sp = saved ? { genome: saved.genome } : reg().get(cur), btn = $('card-song');
     if (!sp) return;
@@ -434,6 +460,6 @@ export function createCards(api) {
   root.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } });
   // a new world reuses serials: its portraits go
   function reset() { portraits.clear(); close(); }
-  return { open, openSaved, render, close, reset, refresh: () => { if (!root.hidden) acts(); }, isOpen: () => !root.hidden };
+  return { open, openSaved, render, close, reset, songTick, refresh: () => { if (!root.hidden) acts(); }, isOpen: () => !root.hidden };
 }
 

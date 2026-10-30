@@ -310,12 +310,20 @@
     <input type="text" id="card-name" maxlength="48" autocomplete="off" spellcheck="false" data-hint="Named, it keeps your name in this world and its saves; clear it to restore its own">
   </div>
   <div class="card-row card-btns">
+    <button type="button" class="btn" id="card-inspect" hidden data-hint="Open it in the specimen panel, here in this world">Inspect in this world</button>
     <button type="button" class="btn" id="card-save" data-hint="Keep it in the cabinet (Field Lab → Cabinet), to carry to any world">Save to cabinet</button>
     <button type="button" class="btn" id="card-load" data-hint="A colony of it into the pipette, to set down in this world">Load the pipette</button>
     <button type="button" class="btn" id="card-png" data-hint="The card as a PNG image: dropped on any Tidemote, its species comes with it">PNG</button>
-    <button type="button" class="btn" id="card-song">Song</button>
-    <button type="button" class="btn" id="card-remove" hidden>Remove</button>
+    <button type="button" class="btn" id="card-remove" hidden data-hint="Take its card out of the cabinet (Undo there puts it back)">Remove from cabinet</button>
     <span class="note" id="card-note" role="status"></span>
+  </div>
+  <div class="card-row card-tune">
+    <div class="sub-h"><span class="lbl">Its song</span><span class="song-read" id="card-song-read"></span></div>
+    <div class="song-wrap" id="card-roll"></div>
+    <div class="card-tune-acts">
+      <button type="button" class="btn" id="card-play"><svg aria-hidden="true"><use href="#i-play"/></svg>Play</button>
+      <button type="button" class="btn" id="card-song" aria-label="Download its song as a WAV" data-hint="Its song as a WAV file, a short clip in this world's key"><svg aria-hidden="true"><use href="#i-down"/></svg>WAV</button>
+    </div>
   </div>
 </div>
 

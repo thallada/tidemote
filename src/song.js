@@ -1,7 +1,7 @@
 // A species' song drawn, two ways: as an instrument readout (the page's HUD language:
 // hairlines, ticks, corner brackets), a piano roll on hairline rails over a beat scale; and as a
-// sigil, the song drawn as the organism that sings it. Pure (strings of SVG), shared by the
-// specimen panel, the Lab and the tools. Styling lives in page.css (.song …, .sigil …).
+// sigil, the song drawn as the organism that sings it. Pure (strings of SVG; lightSong lights a drawn roll in place),
+// shared by the specimen panel, the card, the Lab and the tools. Styling lives in page.css (.song …, .sigil …).
 
 import { roleShares, roleColor, cellShape } from './genome.js';
 import { OUTLINES } from './glyphs.js';
@@ -69,6 +69,40 @@ export function songSVG(m, { w = 300, h = 68, col = '#7fd6df', col2 = col, ghost
   });
   s += `<line class="ph" x1="0" x2="0" y1="${pad - 4}" y2="${base}"/>`;
   return s + '</svg>';
+}
+
+/**
+ * A drawn roll (el holds it) lit as it is sung: each note being sung, for as long as it sounds (a short one HOLD ms),
+ * and a playhead run along its time axis at its tempo from the note last struck of a whole song (the species picked,
+ * or played: the world's fragments come in anywhere in it), resting at its end GLIDE ms before fading, unless a new
+ * note moves it. events: the soundtrack's { at, dur, step, whole, slot, k, line }, those of this song picked by mine.
+ * prev: the notes lit before (what this returns), null to light them afresh.
+ */
+const HOLD = 240, GLIDE = 400;
+export function lightSong(el, now, events, mine, prev) {
+  let last = null;
+  const lit = [];
+  for (const e of events) {
+    if (!mine(e) || e.at > now) continue;
+    if (now < e.at + Math.max(HOLD, e.dur || 0)) lit.push(`${e.line}:${e.k}`);
+    if (e.whole && (!last || e.at > last.at)) last = e;
+  }
+  const key = lit.sort().join(',');
+  if (key !== prev) {
+    const set = new Set(lit);
+    for (const r of el.querySelectorAll('rect[data-k]')) r.classList.toggle('lit', set.has(`${r.dataset.l}:${r.dataset.k}`));
+  }
+  const svg = el.querySelector('svg.song-roll'), ph = svg && svg.querySelector('.ph');
+  if (!ph) return key;
+  const r = last && last.step > 0 && svg.querySelector(`rect[data-k="${last.k}"][data-l="${last.line}"]`);
+  const cyc = +svg.dataset.cycle, t = r ? +r.dataset.at + (now - last.at) / last.step : 0;
+  const on = !!r && t < cyc + GLIDE / last.step;
+  ph.classList.toggle('on', on);
+  if (on) {
+    const x = (+svg.dataset.x0 + Math.min(t, cyc) * +svg.dataset.sx).toFixed(2);
+    ph.setAttribute('x1', x); ph.setAttribute('x2', x);
+  }
+  return key;
 }
 
 // ── the sigil: the song as its organism ──────────────────────────────────────

@@ -8,7 +8,7 @@ import { glyphURL, MATTER_GLYPH } from './glyphs.js';
 import { drawLines, popOf } from './charts.js';
 import { voiceOf } from './audio/mapping.js';
 import { describe, compareMotifs } from './audio/motif.js';
-import { songSVG, sigilSVG } from './song.js';
+import { songSVG, sigilSVG, lightSong } from './song.js';
 import { createMindView } from './mindview.js';
 import { block, kv, trait, section, subHead } from './ui.js';
 import { setHTML } from './live.js';
@@ -291,42 +291,14 @@ export function createSpecimen(api) {
     }
     return `<div class="blk song" data-slot="${slot}" data-tag="sp${g.serial}">${h}</div>`;
   }
-  // light the notes being sung, each for as long as it sounds, and run a playhead along the song's
-  // time axis at its tempo from the note last struck (events from the soundtrack: { at, dur, step,
-  // whole, slot, k, line }); a short note still flashes for HOLD ms. The playhead follows only a whole
-  // song (the species picked, or played): the world's fragments come in anywhere in the song. It never
-  // wraps by itself: it runs to the end of the roll and rests there GLIDE ms before fading, unless a
-  // new note moves it
-  const HOLD = 240, GLIDE = 400;
+  // the song's roll lit as it is sung (song.js lightSong): the picked species' notes in the world, and its own played
   let songKey = '';
   function songTick(now, events) {
     const blk = body.querySelector('.blk.song');
     if (!blk) { songKey = ''; return; }
     const slot = +blk.dataset.slot, tag = blk.dataset.tag;
-    let last = null;
-    const lit = [];
-    for (const e of events) {
-      if ((e.slot !== slot || slot < 0) && e.slot !== tag) continue;
-      if (e.at > now) continue;
-      if (now < e.at + Math.max(HOLD, e.dur || 0)) lit.push(`${e.line}:${e.k}`);
-      if (e.whole && (!last || e.at > last.at)) last = e;
-    }
-    const key = lit.sort().join(',');
-    if (key !== songKey || !blk.dataset.drawn) {
-      songKey = key; blk.dataset.drawn = '1';
-      const set = new Set(lit);
-      for (const r of blk.querySelectorAll('rect[data-k]')) r.classList.toggle('lit', set.has(`${r.dataset.l}:${r.dataset.k}`));
-    }
-    const svg = blk.querySelector('svg.song-roll'), ph = svg && svg.querySelector('.ph');
-    if (!ph) return;
-    const r = last && last.step > 0 && svg.querySelector(`rect[data-k="${last.k}"][data-l="${last.line}"]`);
-    const cyc = +svg.dataset.cycle, t = r ? +r.dataset.at + (now - last.at) / last.step : 0;
-    const on = !!r && t < cyc + GLIDE / last.step;
-    ph.classList.toggle('on', on);
-    if (on) {
-      const x = (+svg.dataset.x0 + Math.min(t, cyc) * +svg.dataset.sx).toFixed(2);
-      ph.setAttribute('x1', x); ph.setAttribute('x2', x);
-    }
+    songKey = lightSong(blk, now, events, (e) => (e.slot === slot && slot >= 0) || e.slot === tag, blk.dataset.drawn ? songKey : null);
+    blk.dataset.drawn = '1';
   }
 
   function lineagePath(sp) {

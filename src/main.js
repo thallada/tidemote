@@ -1791,7 +1791,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // ------------------------------------------------------------ the cabinet (cabinet.js): every card saved, in every world
   // A card keeps its species' genome (its PNG's text chunk, its QR code's link), so it can be carried to any world:
   // loaded into the pipette as a colony made when it is set down. A world is known by its seed.
-  const cabinet = { store: createCabinetStore(), cards: [] };
+  const cabinet = { store: createCabinetStore(), cards: [], removed: null }, UNDO_MS = 12000;
   cabinet.store.list().then((c) => { cabinet.cards = c; lab?.render(true); }).catch(() => {});
   const worldId = () => eng.seedValue;
   const cardFacets = new WeakMap();
@@ -2007,18 +2007,18 @@ function run(eng, device, ctx, specCtx, hasTS) {
       el?.animate([{ boxShadow: '0 0 0 2px #f1e3a0, 0 0 24px rgba(241,227,160,.5)' }, { boxShadow: '0 0 0 0 transparent' }], { duration: 1100, easing: 'ease-out' });
     });
   }
-  // a card into the pipette: a colony of it, as a founding colony is, made when it is set down
-  function loadCard(x) {
+  // a card into the pipette: a colony of it, as a founding colony is, made when it is set down; or (at: where on the
+  // page it was dropped on the world, from the cabinet) set down there at once, a run of its own
+  function loadCard(x, at = null) {
     const card = typeof x === 'object' ? x : savedCard(x);
     const sp = typeof x === 'object' ? null : life.reg.get(x);
     const words = card ? card.words : carry(x).words, name = card ? card.name : sp.name;
     const ours = card ? card.world === worldId() && life.reg.has(card.serial) : true;
     const serial = card ? card.serial : x, n = clamp(Math.round((K.foundLife * eng.count) / K.foundColonies), 12, 96);
     const live = ours && life.reg.get(serial);
-    if (!pipette.load({ card: card?.id, serial, words, name, home: ours ? undefined : card.home, slot: live?.alive ? live.slot : null, stranger: !ours }, n)) {
-      flash(`The pipette is full · ${fmt(PIPE_LIMIT)} cells · set some down`); return;
-    }
-    flash(`A colony of ${name} in the pipette · Dispense sets it down`);
+    const run = pipette.load({ card: card?.id, serial, words, name, home: ours ? undefined : card.home, slot: live?.alive ? live.slot : null, stranger: !ours }, n, !!at);
+    if (!run) { flash(`The pipette is full · ${fmt(PIPE_LIMIT)} cells · set some down`); return; }
+    if (at) { startSpit(...at, run); flash(`A colony of ${name} set down`); } else flash(`A colony of ${name} in the pipette · Dispense sets it down`);
     bench.render();
   }
   // a card arriving from elsewhere: a link's #card=, or a card's PNG dropped on the page
@@ -2053,8 +2053,38 @@ function run(eng, device, ctx, specCtx, hasTS) {
     carry, saved: savedCard, world: worldId, png: cardPng,
     save: saveCard,
     load: loadCard,
-    remove: async (card) => { await cabinet.store.remove(card.id); cabinet.cards = cabinet.cards.filter((c) => c.id !== card.id); lab.render(true); flash(`${card.name} is out of the cabinet`); },
+    remove: removeCard,
+    // this world's species the card is of: its own here, or (carried from elsewhere) the one set down from it
+    inspectable: (x) => (typeof x === 'object' ? cardSerial(x) : life.reg.has(x) ? x : null),
+    inspect: openSpecies,
+    play: (g, tag, serial) => {
+      if (serial != null) { playSong(serial); return; }
+      const was = sound.on;
+      sound.audition(g, tag).then(() => { if (!was && sound.on) flash('Sound on'); });
+    },
   });
+  // a card out of the cabinet: the last taken out can be put back for a while (the cabinet's Undo)
+  async function removeCard(card) {
+    await cabinet.store.remove(card.id);
+    cabinet.cards = cabinet.cards.filter((c) => c.id !== card.id);
+    cabinet.removed = { card, at: performance.now() };
+    lab.render(true); bench.render(); cards.refresh();
+    flash(`${card.name} is out of the cabinet`);
+  }
+  async function undoRemove() {
+    const r = cabinet.removed;
+    if (!r) return;
+    cabinet.removed = null;
+    await keepCard(r.card);
+    bench.render(); cards.refresh();
+    flash(`${r.card.name} is back in the cabinet`);
+  }
+  function cardSerial(c) {
+    if (c.world === worldId()) return life.reg.has(c.serial) ? c.serial : null;
+    const gid = c.words.join();
+    for (const sp of life.reg.values()) if (sp.carried && (genomeWords(sp.genome).join() === gid || (sp.home === c.home && sp.name === c.name))) return sp.serial;
+    return null;
+  }
 
   function renderSpecimen(force) {
     if ((!sel && spView == null) || (sel && sel.film)) return;
@@ -2170,6 +2200,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // a card of this world's species opens its live card (to rename it); another world's, as it was drawn
       open: (c) => { if (c.world === worldId() && life.reg.has(c.serial)) cards.open(c.serial); else cards.openSaved({ ...c, genome: genomeOfWords(c.words) }); },
       load: loadCard,
+      // dropped on the world: set down there
+      place: (c, x, y) => loadCard(c, [x, y]),
+      remove: removeCard, undo: undoRemove,
+      // the card last taken out, while it can still be put back
+      removed: () => (cabinet.removed && performance.now() - cabinet.removed.at < UNDO_MS ? cabinet.removed.card : null),
     },
   });
   $('lab-open').addEventListener('click', () => { closeMenus(); lab.toggle(); });
@@ -4576,6 +4611,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       lastPanels = now;
       if (dirty && (sel || spView != null)) renderSpecimen(false);
       if (specimen.isOpen()) specimen.songTick(performance.now(), songEvents);
+      if (cards.isOpen()) cards.songTick(performance.now(), songEvents);
       renderFeed();
       lab.render(false);
       if (state.phase === 'running') updateHud(now);
