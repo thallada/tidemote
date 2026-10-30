@@ -282,3 +282,42 @@ test('sped up, the score quickens but stays a score', () => {
     assert.ok(n / secs < 7, `${layer}: ${(n / secs).toFixed(1)} notes a second`);
   }
 });
+
+test('the hand is heard: each act its sound, cuts a falling run on the pulse, the shade held while it is on', () => {
+  const sr = 48000, eng = new Engine(sr, { seed: 9 }), cond = new Conductor(eng, { seed: 9 });
+  const L = new Float32Array(64), R = new Float32Array(64);
+  // (the hand's notes, at the times they are scheduled for)
+  const notes = [];
+  cond.hand.at = (t, d, p) => { notes.push({ d, p, t }); cond.at(t, d, p); };
+  const run = (s) => { for (let b = 0; b < (s * sr) / 64; b++) { cond.render(L, R); for (let i = 0; i < 64; i++) assert.ok(Number.isFinite(L[i]) && Math.abs(L[i]) <= 0.97 + 1e-6); } };
+  const hand = (m) => cond.message({ type: 'hand', ...m });
+  const since = (t) => notes.filter((n) => n.t >= t);
+  // picking up the needle clinks steel; picking up nothing (Pan) is silent
+  run(0.5); let t = cond.time;
+  hand({ ev: 'pick', tool: 'needle' }); run(0.3);
+  assert.deepEqual(since(t).map((n) => n.d).sort(), ['tick', 'tine']);
+  t = cond.time; hand({ ev: 'pick', tool: 'none' }); run(0.3);
+  assert.equal(since(t).length, 0);
+  // six bonds cut at once: six plucks a sixteenth apart, down the scale; thirty: only as many as fit in a second or so
+  t = cond.time; hand({ ev: 'cut', n: 6 }); run(2.5);
+  const cuts = since(t).filter((n) => n.d === 'pluck');
+  assert.equal(cuts.length, 6);
+  for (let i = 1; i < 6; i++) assert.ok(Math.abs(cuts[i].t - cuts[i - 1].t - cond.step) < 0.01 && cuts[i].p.freq < cuts[i - 1].p.freq);
+  t = cond.time; hand({ ev: 'cut', n: 30 }); run(2.5);
+  assert.ok(since(t).length <= 8);
+  // the pipette's cells come at most so fast, the rest dropped (no backlog)
+  t = cond.time; hand({ ev: 'cells', n: 500 }); run(3);
+  const m = since(t).filter((n) => n.d === 'tine').length;
+  assert.ok(m > 15 && m < 50, `${m} marbles`);
+  // the rod at work ducks the field; let go, it comes back
+  hand({ ev: 'state', tool: 'touch', held: true, rod: 2 }); run(1);
+  assert.ok(cond.hand.duck < 0.85);
+  hand({ ev: 'state', tool: 'touch', held: false, rod: 0 }); run(1);
+  assert.ok(cond.hand.duck > 0.98);
+  // the shade: a held note while it is on, ended a while after it is let go
+  hand({ ev: 'state', tool: 'shade', level: 1 }); run(1);
+  const id = cond.hand.shade;
+  assert.ok(id && eng.nodes.has(id) && eng.nodes.get(id).p.amp > 0.05);
+  hand({ ev: 'state', tool: 'shade', level: 0 }); run(3);
+  assert.ok(!cond.hand.shade && !eng.nodes.has(id));
+});

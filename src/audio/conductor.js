@@ -6,6 +6,7 @@
 import { BS } from './ugens.js';
 import { Field } from './field.js';
 import { Score } from './score.js';
+import { HandSound } from './handsound.js';
 
 export const STEP = 0.18; // one sixteenth: tidemote's soundtrack pulse
 
@@ -94,6 +95,7 @@ export class Conductor {
     this.ws = seed >>> 0; // the world's seed: keys its opening and colors its eras (a message from the page sets it)
     this.lapse = false; // the page is running a new world's first minutes at Max (the warm-up)
     this.field = new Field(this);
+    this.hand = new HandSound(this); // the viewer's tools heard
     this.post = null; // messages back to the page (the worklet sets this)
     this.queue = [];
     this.world = { light: 0.6, tide: 0.5, warm: 0 };
@@ -136,6 +138,7 @@ export class Conductor {
     else if (m.type === 'listen') this.field.listen(m);
     else if (m.type === 'slots') this.field.slotsMsg(m);
     else if (m.type === 'audition') this.field.audition(m);
+    else if (m.type === 'hand') this.hand.message(m);
     else if (m.type === 'fieldGain') Object.assign(this.field.gain, m.gain);
     else if (m.type === 'era') this.pendingEra = m.name;
     else if (m.type === 'open') { this.pendingOpen = true; if (m.seed != null && m.seed >>> 0 !== this.ws) this.rekey(m.seed, null); }
@@ -167,6 +170,7 @@ export class Conductor {
   render(outL, outR) {
     const t1 = this.time + BS / this.sr;
     while (this.nextStep < t1 + this.step) { if (this.stepN % 16 === 0) this.bar(this.nextStep); this.nextStep += this.step; this.stepN++; }
+    this.hand.tick();
     if (this.queue.length) {
       if (this.unsorted) { this.queue.sort((a, b) => a.t - b.t); this.unsorted = false; }
       let i = 0;

@@ -70,7 +70,8 @@ export const H_CELLS = H_SP + PIPE_SP * 58;
 export const H_IDS = H_CELLS + PIPE_MAX * 9;
 export const H_LINKS = H_IDS + 2 * PIPE_IDS;
 export const H_OUT = H_LINKS + 2 * PIPE_MAX;
-export const HAND_WORDS = H_OUT + 1 + PIPE_SP + 2 * PIPE_MAX;
+export const H_CUTS = H_OUT + 1 + PIPE_SP + 2 * PIPE_MAX; // the bonds the needle cut since the page last looked (heard)
+export const HAND_WORDS = H_CUTS + 1;
 // Energy ledger per diet guild, in thousandths: light, (glint: unused), plant bites, husks, kills, upkeep,
 // children, heat-making. META_ENERGY + 40.. holds the thermal sample (THERMAL_LEDGER).
 export const ENERGY_SLOTS = ['light', 'glint', 'plant', 'husk', 'flesh', 'upkeep', 'children', 'heat'];
@@ -730,6 +731,7 @@ function cellWGSL(K, w) {
     let kept = bondsOf(i);
     n1 = keepBond(i, kept.x, p);
     n2 = keepBond(i, kept.y, p);
+${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     if (n2 == n1) { n2 = NONE; }
     // a body's cell lets go of a partner that cannot hold it back (kept by BACK others already): such a
     // bond would pull this cell alone, so it bonds elsewhere (a tree's and a tail's bonds are held by plan)
@@ -1343,6 +1345,7 @@ const PIPE_IDS = ${PIPE_IDS}u;
 const PIPE_EARLIER = ${PIPE_EARLIER}u;
 const H_LINKS = ${H_LINKS}u;
 const H_OUT = ${H_OUT}u;
+const H_CUTS = ${H_CUTS}u;
 const PIPE_MAX = ${PIPE_MAX}u;
 fn handAt() -> u32 { return arrayLength(&ledger) - HAND_WORDS - HEAT_ACC_WORDS; }
 // whether the pipette draws cell id (its IDs sorted: a binary search)
@@ -2956,6 +2959,16 @@ fn cystStep(i: u32) {
   }
   intent[i] = vec4u(0u, 0u, NONE, NONE);
   parts[i] = p;
+}
+
+// The bonds cell i keeps that the needle's stroke this step crosses (they are cut), counted for the page to hear.
+fn handCut(i: u32, kept: vec2u, at: vec2f) {
+  var n = 0u;
+  for (var k = 0u; k < 2u; k++) {
+    let j = kept[k];
+    if (j < sim.count && j != i && (k == 0u || j != kept.x) && (cutAt(at) || cutAt(sortedFull[j].pos))) { n++; }
+  }
+  if (n > 0u) { atomicAdd(&ledger[handAt() + H_CUTS], n); }
 }
 
 @compute @workgroup_size(128)

@@ -364,6 +364,7 @@ export class Field {
     const c = this.c;
     if (this.plan) { this.plan.push([type, t0, g, o]); return; }
     if (this.gain[type] != null) g *= this.gain[type];
+    if (o.slot !== this.selPrev) g *= c.hand.duck; // (the hand at work: all but the picked species step back)
     const busy = c.eng.voices.length + c.queue.length;
     const cap = c.eng.maxVoices; // the worklet lowers this when the device can't keep up
     if (busy > Math.min(FULL, cap + 8) || (busy > Math.min(CROWDED, cap * 0.75) && (MINOR.has(type) || o.dim === 0.3))) return;

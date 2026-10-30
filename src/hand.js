@@ -57,8 +57,8 @@ export function createHand(words, ids, { reach = REACH.def, drops = new Float64A
     // (dip: how far the rod is in the water, 0..1, at rodAt; eddies: its wake, { x, y, vx, vy, t }; wake: where it
     // was when it last left one)
     // (coldAt: when the cold probe was last chilling the water)
-    // (stroke: the rod's last move, frame to frame, and when)
-    tool: 'loupe', reach, held: false, last: null, at: null, from: null, dip: 0, rodAt: null, eddies: [], wake: null, stroke: null, coldAt: -Infinity,
+    // (stroke: the rod's last move, frame to frame, and when; rung: how many ring waves its strokes have sent out)
+    tool: 'loupe', reach, held: false, rung: 0, last: null, at: null, from: null, dip: 0, rodAt: null, eddies: [], wake: null, stroke: null, coldAt: -Infinity,
     lamp: { x: 0, y: 0, r: reach, v: 0 }, stage: { x: 0, y: 0, r: reach, v: 0 },
     // the ridden cell and where it is steered: [x, y, strength]; the pipette's draw: [x, y, reach, speed] (the page's)
     rider: NONE, will: null, suck: null,
@@ -166,7 +166,7 @@ export function createHand(words, ids, { reach = REACH.def, drops = new Float64A
     else if (t > st.t) {
       const dx = at[0] - st.x, dy = at[1] - st.y;
       if (dx || dy) {
-        if (Math.hypot(dx, dy) / (t - st.t) > WAKE.turn && dx * st.dx + dy * st.dy < 0) ring(at[0], at[1], t, Math.min(2.5, 0.15 * Math.hypot(dx, dy) / (t - st.t)));
+        if (Math.hypot(dx, dy) / (t - st.t) > WAKE.turn && dx * st.dx + dy * st.dy < 0) { ring(at[0], at[1], t, Math.min(2.5, 0.15 * Math.hypot(dx, dy) / (t - st.t))); h.rung++; }
         h.stroke = { x: at[0], y: at[1], t, dx, dy };
       }
     }

@@ -128,6 +128,32 @@ for 3 minutes; Thax kaelum bloomed under it, from 4 to 60 cells." An act that ch
 needle's or pipette's work), and at most once an hour, never twice running, a wry word: "Someone has been at the lamp
 again."
 
+## Heard
+
+The hand echoes in the soundtrack (`src/audio/handsound.js`, in the audio thread), clear over the field but never
+over it for long: the page sends its acts as they happen (`sound.hand`: a tool taken up, a tap, the rod dipped in or
+lifted out, a ring wave, a prick, bonds cut, cells taken or set down, a press with the pipette full, a lens set down)
+and, every frame something changes, the tool's state (its level, the rod's speed, the pointer's side of the screen
+as pan). Each is the soundtrack's own voices in the world's key, its notes on the pulse:
+
+- taking up a tool: instruments on a metal tray (glass for the rod, the pipette and the loupe, steel for the needle and
+  the probe, a switch for the lamp, shade and stage);
+- the rod: a fingertip in a basin (a tap plips, dipped in past halfway it gloops, a stir sloshes brighter the faster
+  it goes with a bubble now and then, a ring wave whomps, lifted out it plips);
+- the needle: snipping harp strings (a prick one muted pluck, each bond cut a pluck down the scale, a sixteenth
+  apart; the engine counts the bonds its stroke crosses, `H_CUTS` in the hand region, read back with the pipette's
+  takings as `onCut`);
+- the pipette: glass marbles (one for every cell taken, lower for every one set down, at most one each 40 ms, the
+  rest dropped; a press with it full, a cork);
+- the lamp: wind chimes, a chance of one every 0.18 s, better the brighter it is;
+- the shade: a low bowed harmonic as loud as the shade is deep, sliding down a step over its first 3 s;
+- the loupe: a camera shutter as the lens is set down, on a touch screen only (with a mouse the lens follows the
+  pointer, and nothing is set down).
+
+While the rod or the pipette is at work, the field (but the picked species) steps back to 0.8 (`HandSound.duck`).
+The sounds were picked by ear from prototypes rendered over a captured world; their levels sit each alone about 5 LU
+under the world's mix.
+
 ## The interface
 
 The tools are the dock's middle on wide screens (numbered from 0, Pan, the one in hand in the sun color, the

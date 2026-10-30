@@ -970,6 +970,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (songEvents.length > 800) songEvents.splice(0, songEvents.length - 800);
     },
   });
+  // the hand heard (hearHand): its acts, where the pointer is (pan), the rod, and the last state sent
+  const heard = { pan: 0, rodAt: null, dipped: false, rung: 0, sent: '' };
+  const hear = (ev, m = {}) => sound.hand({ ev, pan: heard.pan, ...m });
   // the picked species' slot (-1 for none): a picked cell's, or the living species open in the panel
   function pickedSlot() {
     if (sel && !sel.film && sel.particle && sel.particle.kind >= FIRST_LIFE && !sel.lost) return sel.particle.kind;
@@ -2441,6 +2444,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function pickTool(id) {
     if (id === hand.tool) id = 'none';
     hand.set(id, eng.simTime);
+    hear('pick', { tool: hand.tool });
     if (id !== 'loupe') lensAt = null;
     if (inHand()) { takeOver(); if (sel && state.follow) toggleFollow(); }
     bench.render();
@@ -2558,7 +2562,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const wordsOf = (kind) => Array.from(life.lastCensus.genomeU32.subarray(kind * G_WORDS, (kind + 1) * G_WORDS));
   function startPull(sx, sy) {
     const now = performance.now();
-    if (!pipette.fits(1)) { pull.shake = now; return; }
+    if (!pipette.fits(1)) { pull.shake = now; hear('full'); return; }
     Object.assign(pull, { on: true, at: now, until: now + 150, tip: toWorld(sx, sy) });
     hand.note('pipette', ...pull.tip, eng.simTime);
   }
@@ -2628,12 +2632,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (fresh) bore.genomes = genomes;
     eng.setTube(bore.rec, m, fresh ? Uint32Array.from(genomes.flatMap((w) => [...w])) : null);
   }
+  eng.onCut = (n) => hear('cut', { n });
   eng.onTaken = (recs) => {
     for (const r of recs) { pull.got.push(r); pull.taken.add(r.id); pull.drawn.delete(r.id); }
     for (const r of recs) for (const q of r.partners) if (q !== NONE && !pull.taken.has(q)) pull.drawn.add(q);
     eng.setDrawn([...pull.drawn].slice(0, PIPE_MAX));
     pull.last = performance.now();
     if (life.lastCensus) hand.note('pipette', ...pull.tip, eng.simTime, recs.length);
+    hear('cells', { n: recs.length });
   };
   // what came in, kept once nothing more is coming: each species' cells, as bodies
   function pullDone() {
@@ -2724,6 +2730,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       }
       bore.gone.splice(0, Math.max(0, bore.gone.length - 400));
       hand.note('setdown', ...at, eng.simTime, got);
+      hear('cells', { n: got, out: true });
 
       if (it.org ? it.org.out >= it.org.cells.length : !sp.made) spit.org = null;
       spit.fails = 0;
@@ -2746,10 +2753,24 @@ function run(eng, device, ctx, specCtx, hasTS) {
   for (const ev of ['keydown', 'keyup']) addEventListener(ev, (e) => { shiftHeld = e.shiftKey; }, true);
   addEventListener('blur', () => { shiftHeld = false; });
   const pipDispensing = () => (spit.on ? true : pull.on || hand.suck ? false : pull.armed !== shiftHeld);
+  // The hand heard (audio/handsound.js): its acts as they happen, and every frame while it does something, the
+  // tool's state (its level, the rod's speed in reaches a second over 3, the pointer's side of the screen)
+  function hearHand(R, dt) {
+    if (R) heard.pan = clamp((R.sx / innerWidth) * 2 - 1, -1, 1) * 0.6;
+    const rod = hand.tool === 'touch' && hand.held && hand.rodAt, was = heard.rodAt;
+    heard.rodAt = rod ? [...hand.rodAt] : null;
+    const v = rod && was && dt > 0 ? Math.min(4, Math.hypot(rod[0] - was[0], rod[1] - was[1]) / dt / (3 * hand.reach)) : 0;
+    // (the rod dipped in past halfway is heard going in, and coming out: a tap is a tap)
+    if (hand.dip > 0.5 !== heard.dipped) { heard.dipped = !heard.dipped; hear(heard.dipped ? 'dip' : 'lift'); }
+    if (hand.rung !== heard.rung) { heard.rung = hand.rung; hear('ring'); }
+    const held = hand.held || pull.on || spit.on, st = { tool: hand.tool, level: Math.round(hand.level * 100) / 100, rod: Math.round(v * 10) / 10, held };
+    const key = JSON.stringify(st);
+    if (key !== heard.sent || v) { heard.sent = key; hear('state', st); }
+  }
   // A tap with a tool in hand: Touch rings the water, the needle pricks the cell under its tip.
   async function tapTool(sx, sy) {
     const [wx, wy] = toWorld(sx, sy);
-    if (hand.tool === 'touch') hand.tap(wx, wy, eng.simTime);
+    if (hand.tool === 'touch') { hand.tap(wx, wy, eng.simTime); hear('tap'); }
     else if (hand.tool === 'needle') {
       const p = cssPPU(), res = await eng.requestPick([wx, wy], Math.max(0.5, 30 / p), NONE);
       if (!res) return;
@@ -2759,7 +2780,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         const d = Math.hypot(wrapD(c.x - wx, W), wrapD(c.y - wy, H)) * p;
         if (c.kind >= FIRST_LIFE && d < bd) { bd = d; best = c; }
       }
-      if (best) hand.prick(best.id, best.x, best.y, eng.simTime);
+      if (best) { hand.prick(best.id, best.x, best.y, eng.simTime); hear('prick'); }
     }
   }
 
@@ -2858,6 +2879,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
           selectAt(e.clientX, e.clientY);
           if (setLens) { const [x, y] = toWorld(e.clientX, e.clientY); lensAt = { x, y }; }
         }
+        if (setLens) sound.hand({ ev: 'lens', pan: clamp((e.clientX / innerWidth) * 2 - 1, -1, 1) * 0.6 });
       }
       ptr.down = null;
       ptr.dragging = false;
@@ -4270,6 +4292,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // (the lamp, shade, stage and probe follow the pointer over the world, a little of them, until pressed)
       if (R) hand.hover(...toWorld(R.sx, R.sy)); else hand.hover(null);
       hand.update(dt / 1000, eng.simTime);
+      hearHand(R, dt / 1000);
       showInstrument(R, dt / 1000);
       drawBore(R, dt);
       // the warm stage and the cold probe show the water's warmth inside their reach

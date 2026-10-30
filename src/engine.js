@@ -1,6 +1,6 @@
 import {
   simWGSL, SIM_CLOCK, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, SEA_WGSL, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, PIPE_MAX, PIPE_TAKE, PIPE_SP, PIPE_IDS, H_TAKEN, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K,
+  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, PIPE_MAX, PIPE_TAKE, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K,
 } from './shaders.js';
 import {
   archetypeGenome, randomGenome, writeGenome, parseParticle,
@@ -353,7 +353,7 @@ class Engine {
     this.censusN = 0;
     this.pickStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: PICK_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     // the pipette (docs/hand.md): the cells taken at its tip, and what came of setting cells down
-    this.takeStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: (1 + PIPE_TAKE * 12) * 4, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
+    this.takeStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: (2 + PIPE_TAKE * 12) * 4, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     this.setDownStage = d.createBuffer({ size: (1 + PIPE_SP + 2 * PIPE_MAX) * 4, usage: U.COPY_DST | U.MAP_READ });
     this.setDownQueue = [];
     this.trackStage = [0, 1, 2, 3, 4, 5, 6, 7].map(() => ({ buf: d.createBuffer({ size: 56, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
@@ -1388,14 +1388,17 @@ class Engine {
       done.resolve(generation === this.worldGeneration ? { placed, slots: [...u.subarray(1, 1 + done.m)], ids: [...u.subarray(at, at + placed)] } : null);
     }).catch(() => { this.setDownBusy = false; done.resolve(null); });
   }
-  // the cells taken at the pipette's tip since the last copy (read back: onTaken), and the count cleared
+  // the cells taken at the pipette's tip since the last copy (read back: onTaken), and the bonds the needle cut
+  // (onCut), the counts cleared
   _takenCopy(enc) {
     const st = this.takeStage.find((x) => !x.busy);
     if (!st) return null;
     st.busy = true;
-    const at = this._handAt() + H_TAKEN * 4;
+    const at = this._handAt() + H_TAKEN * 4, cuts = this._handAt() + H_CUTS * 4;
     enc.copyBufferToBuffer(this.b.ledger, at, st.buf, 0, (1 + PIPE_TAKE * 12) * 4);
+    enc.copyBufferToBuffer(this.b.ledger, cuts, st.buf, (1 + PIPE_TAKE * 12) * 4, 4);
     enc.clearBuffer(this.b.ledger, at, 4);
+    enc.clearBuffer(this.b.ledger, cuts, 4);
     return st;
   }
   _takenRead(st, generation) {
@@ -1404,7 +1407,9 @@ class Engine {
       st.buf.unmap();
       st.busy = false;
       const u = new Uint32Array(copy), f = new Float32Array(copy), n = Math.min(u[0], PIPE_TAKE);
-      if (!n || generation !== this.worldGeneration || !this.onTaken) return;
+      if (generation !== this.worldGeneration) return;
+      if (u[1 + PIPE_TAKE * 12] && this.onCut) this.onCut(u[1 + PIPE_TAKE * 12]);
+      if (!n || !this.onTaken) return;
       const out = [];
       for (let k = 0; k < n; k++) {
         const o = 1 + k * 12;
@@ -1535,8 +1540,8 @@ class Engine {
       if (job) censusJobs.push(job);
     }
     if (nSteps > 1) d.queue.writeBuffer(b.simRing, 0, this.ringData, 0, nSteps * SIM_STRIDE);
-    // while the pipette draws, what its tip took
-    const takeJob = nSteps > 0 && this.hand[26] > 0 ? this._takenCopy(enc) : null;
+    // while the pipette draws, what its tip took; while the needle cuts, how many bonds
+    const takeJob = nSteps > 0 && (this.hand[26] > 0 || this.hand[17] > 0) ? this._takenCopy(enc) : null;
     const listenJob = nSteps > 0 ? this._listenCopy(enc, cam) : null;
     const mindJob = this._mindCopy(enc);
     const surveyJob = nSteps > 0 ? this._surveyCopy(enc) : null;
