@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { traceBody, retraceBody, settleMembers, nearBody } from '../src/trace.js';
+import { traceBody, retraceBody, settleMembers, nearBody, largestBody, bodyPatch } from '../src/trace.js';
 import { PICK_WORDS } from '../src/shaders.js';
 
 const NONE = 0xffffffff;
@@ -113,4 +113,14 @@ test('settleMembers keeps a member that is unbonded but still touching the body'
   const m = new Map([[1, 0], [2, 0]]);
   for (let k = 0; k < 5; k++) settleMembers(m, [1], new Set([1, 2]), 2, new Set([2]));
   assert.equal(m.get(2), 0);
+});
+
+test('largestBody finds the biggest of the bodies in one pass, and bodyPatch takes its cells nearest a start first', () => {
+  // bodies: 1-2 (two cells), 3-4-5-6 (a chain, 6 bonded only by 5's bond to it), 7 alone
+  const [u32, f32, n] = particles([[1, 0, 0, 2], [2, 1, 0], [3, 5, 5, 4], [4, 6, 5, 5], [5, 7, 5, 6], [6, 8, 5], [7, 9, 9]]);
+  const lb = largestBody(u32, f32, n);
+  assert.deepEqual([...lb.body].sort(), [2, 3, 4, 5]);
+  assert.deepEqual(bodyPatch(lb.edges, 3, 3), [3, 2, 4]);
+  assert.deepEqual(bodyPatch(lb.edges, 2, 10), [2, 3, 4, 5]);
+  assert.equal(largestBody(...particles([[1, 0, 0], [2, 1, 1]])), null);
 });

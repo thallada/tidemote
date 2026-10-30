@@ -5173,6 +5173,71 @@ const TUBE_MAX_BLUR = 2.5; // of its radius
   o.jelly.z = blur;
   return o;
 }
+// A mini-card's portrait drawn alone (setStudio, the studio): the bore's buffers, laid out as the page placed a body
+// (still, its heading in vel), and drawn as vsPoint draws a body in the water, from the studio's own cells alone:
+// each fused to its bonded partners (up to three, their indices packed 10 bits each in id, 1023 none), pressed flat
+// against the cells it touches, and a tight species' cells filling out to their shared walls as tissue.
+@vertex fn vsStudio(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> PO {
+  var o: PO;
+  o.jelly = vec3f(1.0, 0.0, 0.0);
+  let p = parts[ii];
+  let g = genomes[p.kind];
+  let plan = choosePlan(g, roleOf(p.info));
+  let px = max(view.pointSize * g.size * (1.0 - 0.12 * f32(roleOf(p.info))), 0.9);
+  let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
+  o.col = unpack4x8unorm(p.col).rgb * (0.35 + 0.65 * clamp(p.energy / max(g.reproE, 0.01), 0.0, 1.4)) * view.pointGain;
+  o.shape = plan | (p.kind << 8u);
+  o.index = ii;
+  let species = vec2f(renderHash(g.serial ^ g.sig[0].y), renderHash(g.serial ^ g.sig[1].x ^ 917u));
+  o.morph = species;
+  o.geom = vec4f(px, bodyArea(plan, species), normalize(p.vel));
+  o.neck = vec4f(0.12, 0.12, 0.12, p.energy / max(g.reproE, 0.01));
+  var plans = 0x7fffu;
+  var seeds = vec3f(0.0);
+  var used = 0u;
+  for (var c = 0u; c < 3u && px >= 6.0; c++) {
+    let index = (p.id >> (10u * c)) & 1023u;
+    if (index == 1023u || index == ii || index >= arrayLength(&parts)) { continue; }
+    let q = parts[index];
+    if (q.kind != p.kind) { continue; }
+    let ratio = max(view.pointSize * g.size * (1.0 - 0.12 * f32(roleOf(q.info))), 0.9) / px;
+    let offset = (q.pos - p.pos) * view.ppu / px;
+    let reach = 1.65 * (1.0 + ratio) + 0.12 * min(1.0, ratio);
+    if (dot(offset, offset) > reach * reach) { continue; }
+    let dir = normalize(q.vel);
+    plans = (plans & ~(31u << (5u * used))) | (choosePlan(g, roleOf(q.info)) << (5u * used));
+    o.bondOffset[used] = pack2x16float(offset);
+    o.bondFrame[used] = pack2x16float(vec2f(ratio, atan2(dir.y, dir.x)));
+    seeds[used] = renderHash(index + 1u);
+    used++;
+  }
+  // pressed against the cells it touches, as vsPoint's foam (all here are kin)
+  var lost = 0.0;
+  var n = 0u;
+  for (var j = 0u; j < arrayLength(&parts) && n < 6u; j++) {
+    let q = parts[j];
+    if (j == ii || q.kind != p.kind) { continue; }
+    let ratio = max(view.pointSize * g.size * (1.0 - 0.12 * f32(roleOf(q.info))), 0.9) / px;
+    let offset = (q.pos - p.pos) * view.ppu / px;
+    let dist = length(offset);
+    if (dist > 1.25 * (1.0 + ratio) || dist < 1e-3) { continue; }
+    let t = max(0.35, (dist * dist + 0.64 - 0.64 * ratio * ratio) / (2.0 * dist) - 0.012);
+    let foot = pack2x16float(offset * (t / dist));
+    if (n < 3u) { o.contact[n] = foot; } else { o.contact2[n - 3u] = foot; }
+    n++;
+    let x = min(t / 0.8, 1.0);
+    lost += (acos(x) - x * sqrt(1.0 - x * x)) * (2.0 / TAU);
+  }
+  if (g.adhesion > ${f(DEFAULT_K.adhMin)}) {
+    o.tile.x = clamp((g.adhesion - view.tightFrom) / ${f(DEFAULT_K.tightSpan)}, 0.0, 1.0) * min(1.0, f32(n));
+  }
+  o.jelly.x = 1.0 / sqrt(1.0 - 0.7 * min(lost, 0.45));
+  let extent = 1.35 * o.jelly.x;
+  o.pos = toClip((p.pos - view.cam) * view.ppu + corner * px * extent);
+  o.uv = corner * extent;
+  o.bondSeeds = vec2u(pack2x16unorm(seeds.xy), (plans & 0xffffu) | (u32(seeds.z * 65535.0 + 0.5) << 16u));
+  return o;
+}
 @fragment fn fsTubeLive(i: PO) -> PointOut {
   var c: vec4f;
   let blur = i.jelly.z;
@@ -5196,7 +5261,7 @@ const TUBE_MAX_BLUR = 2.5; // of its radius
   }
   return PointOut(c, c);
 }
-// A mini-card's portrait drawn alone (setStudio, the studio): the bore's cells, still, in one target.
+// A mini-card's portrait drawn alone (setStudio, vsStudio): in one target, sharp.
 @fragment fn fsTube(i: PO) -> @location(0) vec4f {
   var j = i;
   j.jelly.z = 0.0;

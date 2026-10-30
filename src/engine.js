@@ -337,7 +337,7 @@ class Engine {
       vertex: { module: this.drawModule, entryPoint: 'vsStone' },
       fragment: { module: this.drawModule, entryPoint: 'fsStone', targets: [{ format: HDR }, { format: HDR }] } });
     this.pBridge = rp(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', additive);
-    this.pStudio = rp(this.drawModule, 'vsTube', 'fsTube', 'triangle-strip', additive);
+    this.pStudio = rp(this.drawModule, 'vsStudio', 'fsTube', 'triangle-strip', additive);
     this.pDown = rp(this.postModule, 'vsFull', 'fsDown', 'triangle-list', undefined);
     this.pUp = rp(this.postModule, 'vsFull', 'fsUp', 'triangle-list', additive);
     this.pMurk = rp(this.postModule, 'vsFull', 'fsMurk', 'triangle-list', undefined);
@@ -1366,12 +1366,16 @@ class Engine {
   }
   /**
    * A mini-card's portrait drawn alone, in place of the world, in the close-up (specimen.studio, docs/hand.md): n
-   * records laid out as struct Particle (kind FIRST_LIFE, still), and their genome's words (G_WORDS).
+   * records laid out as struct Particle (kind FIRST_LIFE, still; in id the cells each is bonded to, vsStudio), and
+   * their genome's words (G_WORDS).
    */
   setStudio(parts, n, genome) {
     const d = this.device;
     this.studioN = Math.min(n, STUDIO_N);
-    d.queue.writeBuffer(this.b.studioParts, 0, parts, 0, this.studioN * P_BYTES / 4);
+    // (all of the buffer: vsStudio looks through every record for the cells each touches, the rest none)
+    const all = new Float32Array(STUDIO_N * P_BYTES / 4);
+    all.set(parts.subarray(0, this.studioN * P_BYTES / 4));
+    d.queue.writeBuffer(this.b.studioParts, 0, all);
     d.queue.writeBuffer(this.b.studioGenomes, FIRST_LIFE * G_BYTES, genome);
     const enc = d.createCommandEncoder(), pass = enc.beginComputePass();
     pass.setPipeline(this.cpOrgans); pass.setBindGroup(0, this.studioOrgansBG);

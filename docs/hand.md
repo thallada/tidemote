@@ -134,11 +134,15 @@ URL by key (`setThumb`): a cabinet card's is the middle of its card's portrait, 
 card (`thumb`; a card kept before cards had one: cut once from its PNG as the browser decodes it, then kept; a cut
 whose middle is dark water, `thumbSeen`, is kept as an empty thumb, a blank); a run in the pipette uses its card's
 unless blank, else (as a blank card in the cabinet does) its species is drawn alone, in a studio (`takeStudio`,
-`src/studio.js`): the cells it holds (its largest body, up to `STUDIO_N` cells, laid out by its bonds, touching
-their partners and overlapping none; else a few of its single cells; else, none held, a few newborns of its
-genome) set still in the close-up in place of the world (`eng.setStudio`, `specimen.studio`: the bore's `vsTube`
-with a target of one, `fsTube`), framed to fill what a card shows of it (`SHOWN`). It never misses its subject and
-needs the species in the water no more than in the pipette. Portraits from the world (a frame of the close-up aimed
+`src/studio.js`), as it looks in the water: its largest body there (one readback of its cells, `largestBody` and
+`bodyPatch` in `src/trace.js`: up to `STUDIO_N` cells about the body's middle, where they lie), or, single-celled, a
+few of its densest crowd as they float; not in the water, the cells the pipette holds (its largest body, laid out by
+its bonds, `layOut`; else a few of its single cells; else, none held, a few newborns of its genome). The cells are set
+still in the close-up in place of the world (`eng.setStudio`, `specimen.studio`) and drawn as a body in the water is
+(`vsStudio`, `fsTube`: each fused to its bonded partners, pressed flat against the cells it touches, a tight
+species' cells filling out to their walls as tissue, from the studio's own cells, their partners packed in `id`),
+framed to fill what a card shows of it (`SHOWN`). So a mat comes out a mat and a filament a filament, and the frame
+never misses its subject. Portraits from the world (a frame of the close-up aimed
 at its best member) were tried first and dropped: the subject had moved or been taken by the time the frame was
 drawn, and at some zooms the close-up drew a body's bonds without its cells. Portraits are drawn one a frame, only
 while no card's portrait is being taken, and each card takes its portrait in place when it comes. The strip shows

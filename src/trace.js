@@ -121,3 +121,32 @@ export function settleMembers(members, bodyIds, present, grace, touching = null)
   for (const id of inBody) members.set(id, 0);
   return members;
 }
+
+/**
+ * The largest body in a readback (one species' cells), found in one pass: { body (its cells' indices), edges (the
+ * bond graph, undirected) }, or null when no two cells are bonded.
+ */
+export function largestBody(u32, f32, n) {
+  const { edges } = bondGraph(u32, f32, n);
+  const seen = new Uint8Array(n);
+  let best = null;
+  for (let i = 0; i < n; i++) {
+    if (seen[i] || !edges[i].length) continue;
+    const body = component(edges, seen, i);
+    if (!best || body.length > best.length) best = body;
+  }
+  return best && { body: best, edges };
+}
+
+/** The first max cells of a body reached from start along its bonds, nearest first. */
+export function bodyPatch(edges, start, max) {
+  const seen = new Set([start]), out = [start];
+  for (let head = 0; head < out.length && out.length < max; head++) {
+    for (const j of edges[out[head]]) {
+      if (seen.has(j) || out.length >= max) continue;
+      seen.add(j);
+      out.push(j);
+    }
+  }
+  return out;
+}

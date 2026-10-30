@@ -16,7 +16,7 @@ import { genusName, speciesEpithet, roman } from './names.js';
 import { record, seal } from './lineage/model.js';
 import { createWorldStore, encodeWorld, decodeWorld, SAVE_VERSION, openable } from './worlds.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
-import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
+import { traceBody, retraceBody, settleMembers, nearBody, largestBody, bodyPatch } from './trace.js';
 import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K, STUDIO_N, PIPETTE_DOF, CYST } from './shaders.js';
 import { flowAt } from './flow.js';
 import { startLoader } from './loader.js';
@@ -1713,9 +1713,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // A mini-card's portrait, drawn alone (the studio, src/studio.js): its species' cells (genome words; cells
   // [{ e, a, col, info, partners }]) laid out still in the close-up in place of the world, framed to fill what the
   // card shows, so it never misses its subject, wherever (or whether) the species is in the water.
+  // (cells with a place, at: [x, y], as they lay in the water, keep it; the rest are laid out by their bonds)
   function takeStudio(words, cells) {
     const g = genomeOfWords(words), r = cells.map((c) => cellRadius({ role: (c.info >> 4) & 3 }, g, 1));
-    const pos = layOut(cells.map((c, i) => ({ r: r[i], partners: c.partners }))), f = frameCells(pos, r, THUMB);
+    const pos = cells[0]?.at ? cells.map((c) => c.at) : layOut(cells.map((c, i) => ({ r: r[i], partners: c.partners }))), f = frameCells(pos, r, THUMB);
     const [W, H] = eng.grid;
     eng.setStudio(records(cells, pos, [W / 2 - f.cx, H / 2 - f.cy]), cells.length, Uint32Array.from(words));
     if (portraitJob) portraitJob.resolve(null);
@@ -1868,16 +1869,57 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // a portrait drawn alone, asked for (key; the genome's words; serial: its species of this world, whose cells in the
   // pipette it shows), its key
   const thumbQ = new Map(); // key -> { words, serial, tries }
+  const thumbCells = new Map(); // key -> how many cells its portrait shows
   let thumbBusy = false;
   function studioThumb(key, words, serial = null) {
     if (!hasThumb(key) && !thumbQ.has(key)) { thumbQ.set(key, { words, serial, tries: 0 }); setTimeout(pumpThumbs, 0); }
     return key;
   }
-  // What a species' portrait shows: its largest body in the pipette (the first STUDIO_N of its cells, as they hold
-  // together), else a few of its single cells there, else (none held) a few newborns of its genome:
-  // [{ e, a, col, info, partners }]
-  function studioCells(words, serial) {
-    const orgs = serial == null ? [] : pipette.species.filter((x) => !x.stranger && x.serial === serial).flatMap((x) => x.orgs);
+  // a species' portrait drawn again if the pipette now holds a larger body of it than the one it shows (one drawn
+  // from the pipette's first cells, before the rest of the body had come in; one drawn from the water stands)
+  function regrowThumb(serial, words) {
+    const key = `s${serial}`, n = heldCells(words, serial).length;
+    if (hasThumb(key) && n > (thumbCells.get(key) || 0) && !thumbQ.has(key)) { thumbQ.set(key, { words, serial, tries: 0, again: true }); setTimeout(pumpThumbs, 0); }
+  }
+  // What a species' portrait shows, as it looks in the water: its largest body there (a patch of STUDIO_N of its
+  // cells about the body's middle, as they lie), or, single-celled, a few of its densest crowd as they float; null
+  // when it is not in the water (or a pick waits: the pointer's, the selection's). One readback of its cells.
+  async function worldCells(serial) {
+    const sp = life.reg.get(serial), c = life.lastCensus;
+    if (!sp?.alive || eng.pickReq || !c || genomeSerial(c.genomeU32, sp.slot) !== serial) return null;
+    const [W, H] = eng.grid;
+    const res = await eng.requestPick([W / 2, H / 2], Math.hypot(W, H), NONE, { kind: sp.slot, maxOut: Math.min(4096, sp.pop * 1.25 + 256), raw: true });
+    if (!res || !res.raw.count) return null;
+    const { u32, f32, count: n } = res.raw, x = (k) => f32[k * PICK_WORDS], y = (k) => f32[k * PICK_WORDS + 1];
+    const lb = largestBody(u32, f32, n);
+    let set, near;
+    if (lb && lb.body.length > 1) {
+      // (its middle: the cell nearest its mean, about its first cell across the wrap)
+      const b = lb.body, o = b[0];
+      let mx = 0, my = 0;
+      for (const k of b) { mx += wrapD(x(k) - x(o), W); my += wrapD(y(k) - y(o), H); }
+      mx /= b.length; my /= b.length;
+      const mid = b.reduce((m, k) => (Math.hypot(wrapD(x(k) - x(o), W) - mx, wrapD(y(k) - y(o), H) - my) < Math.hypot(wrapD(x(m) - x(o), W) - mx, wrapD(y(m) - y(o), H) - my) ? k : m), o);
+      set = bodyPatch(lb.edges, mid, STUDIO_N);
+      near = lb.edges;
+    } else {
+      // (the densest crowd, as bestMember finds it, and its nearest few)
+      const step = Math.max(1, Math.floor(n / 200)), d = (i, j) => Math.hypot(wrapD(x(j) - x(i), W), wrapD(y(j) - y(i), H));
+      let best = 0, bestN = -1;
+      for (let i = 0; i < n; i += step) { let m = 0; for (let j = 0; j < n; j += step) if (d(i, j) < 2) m++; if (m > bestN) { bestN = m; best = i; } }
+      // (as close as they float, but few enough to be seen: a portrait, not a census)
+      set = Array.from({ length: n }, (_, j) => j).filter((j) => d(best, j) < 0.8).sort((a, b) => d(best, a) - d(best, b)).slice(0, 5);
+    }
+    const local = new Map(set.map((k, i) => [k, i])), o = set[0];
+    return set.map((k) => ({ e: f32[k * PICK_WORDS + 5], a: f32[k * PICK_WORDS + 6], col: u32[k * PICK_WORDS + 8], info: u32[k * PICK_WORDS + 9],
+      partners: near ? near[k].filter((j) => local.has(j)).map((j) => local.get(j)) : [], at: [wrapD(x(k) - x(o), W), wrapD(y(k) - y(o), H)] }));
+  }
+  // What a species' portrait shows from what is to hand: its largest body in the pipette (the first STUDIO_N of its
+  // cells, as they hold together), else a few of its single cells there, else (none held) a few newborns of its
+  // genome: [{ e, a, col, info, partners }]
+  function heldCells(words, serial) {
+    const orgs = serial == null ? [] : [...pipette.species.filter((x) => !x.stranger && x.serial === serial).flatMap((x) => x.orgs),
+      ...(pull.got.length ? incoming().filter((x) => x.g.serial === serial).flatMap((x) => bodiesOf(x.recs)) : [])];
     const cell = (c, n) => ({ e: c[0], a: c[1], col: c[2], info: c[3], partners: c.slice(4).filter((j) => j >= 0 && j < n) });
     const big = orgs.reduce((a, o) => (!a || o.cells.length > a.cells.length ? o : a), null);
     if (big && big.cells.length > 1) { const n = Math.min(STUDIO_N, big.cells.length); return big.cells.slice(0, n).map((c) => cell(c, n)); }
@@ -1901,12 +1943,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (portraitJob || portraitHold || state.phase !== 'running') { setTimeout(pumpThumbs, 300); return; }
     const [key, w] = thumbQ.entries().next().value;
     thumbQ.delete(key);
-    if (!hasThumb(key)) {
+    if (!hasThumb(key) || w.again) {
       thumbBusy = true;
-      const cv = await takeStudio(w.words, studioCells(w.words, w.serial)).catch(() => null);
+      // (as it looks in the water, where it lives; else from what is to hand)
+      const seen = w.serial != null && !w.again ? await worldCells(w.serial).catch(() => null) : null;
+      const cells = seen || heldCells(w.words, w.serial);
+      const cv = portraitJob ? null : await takeStudio(w.words, cells).catch(() => null);
       const bytes = cv && await thumbBytes(cv, undefined, false).catch(() => null);
       thumbBusy = false;
-      if (bytes?.length) setThumb(key, bytes);
+      if (bytes?.length) {
+        setThumb(key, bytes);
+        thumbCells.set(key, seen ? Infinity : cells.length);
+        if (thumbCells.size > 512) thumbCells.delete(thumbCells.keys().next().value);
+      }
       else if (++w.tries < 3) thumbQ.set(key, w);
     }
     setTimeout(pumpThumbs, 30);
@@ -2772,6 +2821,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     pull.drawn.clear(); pull.taken.clear();
     for (const { kind, g, recs } of incoming()) {
       pipette.add({ serial: g.serial, words: wordsOf(kind), slot: kind, name: drawnName(g) }, recs);
+      regrowThumb(g.serial, wordsOf(kind));
     }
     pull.got = [];
     bench.render();
