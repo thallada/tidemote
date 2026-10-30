@@ -316,8 +316,25 @@ test('the hand is heard: each act its sound, cuts a falling run on the pulse, th
   assert.ok(cond.hand.duck > 0.98);
   // the shade: a held note while it is on, ended a while after it is let go
   hand({ ev: 'state', tool: 'shade', level: 1 }); run(1);
-  const id = cond.hand.shade;
+  const id = cond.hand.held.shade?.id;
   assert.ok(id && eng.nodes.has(id) && eng.nodes.get(id).p.amp > 0.05);
   hand({ ev: 'state', tool: 'shade', level: 0 }); run(3);
-  assert.ok(!cond.hand.shade && !eng.nodes.has(id));
+  assert.ok(!cond.hand.held.shade && !eng.nodes.has(id));
+  // the warm stage held: a rumble as the water heats, and bubbles at the boil
+  t = cond.time; hand({ ev: 'state', tool: 'warm', level: 1 }); run(4);
+  assert.ok(cond.hand.heat > 0.99 && eng.nodes.get(cond.hand.held.rumble.id).p.amp > 0.5);
+  assert.ok(since(t).filter((n) => n.d === 'drop').length > 20);
+  hand({ ev: 'state', tool: 'warm', level: 0 }); run(4);
+  assert.ok(!cond.hand.held.rumble);
+  // the cold probe held: nothing for a moment, then ice cracking, the world dimming and stepping back; gone, it thaws
+  t = cond.time; hand({ ev: 'state', tool: 'cold', level: 1 }); run(1);
+  assert.equal(since(t).length, 0);
+  run(3);
+  assert.ok(since(t).filter((n) => n.d === 'rustle').length > 10 && since(t).some((n) => n.d === 'glass'));
+  assert.ok(eng.master.p.tone < 4000 && cond.hand.duck < 0.8);
+  hand({ ev: 'state', tool: 'cold', level: 0 }); run(8);
+  assert.ok(cond.hand.frost === 0 && eng.master.p.tone === 16000 && cond.hand.duck > 0.98);
+  // riding: the rest of the field steps back; steered, the water rushes past
+  hand({ ev: 'state', tool: 'none', ride: true, will: 1 }); run(2);
+  assert.ok(cond.hand.duck < 0.6 && eng.nodes.get(cond.hand.held.rush.id).p.amp > 0.08);
 });

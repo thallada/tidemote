@@ -147,10 +147,19 @@ as pan). Each is the soundtrack's own voices in the world's key, its notes on th
   rest dropped; a press with it full, a cork);
 - the lamp: wind chimes, a chance of one every 0.18 s, better the brighter it is;
 - the shade: a low bowed harmonic as loud as the shade is deep, sliding down a step over its first 3 s;
+- the warm stage: a heavy pan warming (the water heard heating to the boil in 3.2 s held: a rumble under it as hot
+  as it is, a few low bubbles, then the boil's);
+- the cold probe: the pond freezing over (after 1.2 s held, ice heard forming over 2 s: cracking in runs of snaps,
+  each a few milliseconds of noise and no two alike, a deep crack now and then, two groans sinking as it forms, the
+  whole mix dimming, its highs rolling off, and stepping back; gone, it thaws over a second or so);
+- riding: the ridden cell's song forward (it is the picked species) and the rest of the field back to 0.55, and
+  while it is steered the low rush of the water past it, a bubble now and then;
 - the loupe: a camera shutter as the lens is set down, on a touch screen only (with a mouse the lens follows the
   pointer, and nothing is set down).
 
-While the rod or the pipette is at work, the field (but the picked species) steps back to 0.8 (`HandSound.duck`).
+While the rod or the pipette is at work, the field (but the picked species) steps back to 0.8 (`HandSound.duck`), in
+the cold to 0.7, riding to 0.55. The held sounds (the shade's note, the rumble, the rush) are `\air` and `\glass`
+nodes begun when they are first heard and ended two seconds after they go quiet.
 The sounds were picked by ear from prototypes rendered over a captured world; their levels sit each alone about 5 LU
 under the world's mix.
 

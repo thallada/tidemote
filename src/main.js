@@ -2754,7 +2754,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   addEventListener('blur', () => { shiftHeld = false; });
   const pipDispensing = () => (spit.on ? true : pull.on || hand.suck ? false : pull.armed !== shiftHeld);
   // The hand heard (audio/handsound.js): its acts as they happen, and every frame while it does something, the
-  // tool's state (its level, the rod's speed in reaches a second over 3, the pointer's side of the screen)
+  // tool's state (its level, the rod's speed in reaches a second over 3, riding and how hard it is steered, the
+  // pointer's side of the screen)
   function hearHand(R, dt) {
     if (R) heard.pan = clamp((R.sx / innerWidth) * 2 - 1, -1, 1) * 0.6;
     const rod = hand.tool === 'touch' && hand.held && hand.rodAt, was = heard.rodAt;
@@ -2763,7 +2764,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // (the rod dipped in past halfway is heard going in, and coming out: a tap is a tap)
     if (hand.dip > 0.5 !== heard.dipped) { heard.dipped = !heard.dipped; hear(heard.dipped ? 'dip' : 'lift'); }
     if (hand.rung !== heard.rung) { heard.rung = hand.rung; hear('ring'); }
-    const held = hand.held || pull.on || spit.on, st = { tool: hand.tool, level: Math.round(hand.level * 100) / 100, rod: Math.round(v * 10) / 10, held };
+    const held = hand.held || pull.on || spit.on, will = ride.on && hand.will ? hand.will[2] : 0;
+    const st = { tool: hand.tool, level: Math.round(hand.level * 100) / 100, rod: Math.round(v * 10) / 10, held, ride: ride.on, will };
     const key = JSON.stringify(st);
     if (key !== heard.sent || v) { heard.sent = key; hear('state', st); }
   }
