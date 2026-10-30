@@ -24,7 +24,7 @@ merged to main: these rules are now always on, and only their strengths remain t
 - `socialN`: past this many particles within reach the pair forces are averaged, not summed: a crowd
   drives a cell no harder than a neighborhood does.
 - `tissue` (rate): bonds pull both ways (`bondBackMain` gathers the cells that keep a bond to each into
-  `bondsNow`, six words a cell; only that pass uses atomics, through a second binding; a kept bond pulls only
+  `bondsNow`, nine words a cell: the two kept, then up to six keepers, as many as a packed cell's neighbors; only that pass uses atomics, through a second binding; a kept bond pulls only
   once its partner reads it back, `holdsBack`, else bodies pushed themselves along), a body cell takes on
   its partners' motion at this rate, and a free bond slot only closes a triangle inside the body
   (`joinable`), so strangers' bodies never fuse.

@@ -1180,18 +1180,22 @@ svg.niche .n-dot { fill: var(--cyan); }
       </div>
       <button type="button" class="ghost" id="set-close" aria-label="Close settings"><svg><use href="#i-close"/></svg></button></div>
     <div class="readout" id="readout" hidden aria-live="off">
+      <!-- how fast: frames, steps, simulated time -->
       <div><b id="ro-fps" translate="no">–</b><span>fps</span></div>
       <div><b id="ro-world" translate="no">–</b><span class="term" data-tip="worldfps" tabindex="0">World</span></div>
-      <div><b id="ro-ms" translate="no">–</b><span>GPU ms</span></div>
+      <div><b id="ro-steps" translate="no">–</b><span class="term" data-tip="stepsps" tabindex="0">Steps/s</span></div>
+      <div><b id="ro-rate" translate="no">–</b><span class="term" data-tip="simrate" tabindex="0">Now</span></div>
+      <!-- what a step and a frame cost -->
+      <div><b id="ro-ceil" translate="no">–</b><span class="term" data-tip="stride" tabindex="0">Stride</span></div>
       <div><b id="ro-step" translate="no">–</b><span class="term" data-tip="stepms" tabindex="0">Step ms</span></div>
       <div><b id="ro-draw" translate="no">–</b><span class="term" data-tip="drawms" tabindex="0">Draw ms</span></div>
+      <div><b id="ro-ms" translate="no">–</b><span>GPU ms</span></div>
+      <!-- how the world is drawn -->
       <div><b id="ro-res" translate="no">–</b><span class="term" data-tip="renderres" tabindex="0">Render</span></div>
       <div><b id="ro-dens" translate="no">–</b><span class="term" data-tip="density" tabindex="0">Density</span></div>
-      <div><b id="ro-audio" translate="no">–</b><span class="term" data-tip="audioload" tabindex="0">Audio</span></div>
       <div class="w2"><b id="ro-px" translate="no">–</b><span>Scene px</span></div>
-      <div class="w2"><b id="ro-n" translate="no">–</b><span>Particles</span></div>
-      <div><b id="ro-ceil" translate="no">–</b><span class="term" data-tip="stride" tabindex="0">Stride</span></div>
-      <div><b id="ro-rate" translate="no">–</b><span class="term" data-tip="simrate" tabindex="0">Now</span></div>
+      <div><b id="ro-n" translate="no">–</b><span>Particles</span></div>
+      <div><b id="ro-audio" translate="no">–</b><span class="term" data-tip="audioload" tabindex="0">Audio</span></div>
       <div class="w2"><b id="ro-why">–</b><span class="term" data-tip="adapting" tabindex="0">Adapting</span></div>
     </div>
     <div class="opts" id="opts"></div>
@@ -1487,8 +1491,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     beatMix: 0.25,
     beatGain: 6,
     beatTop: 4,
-    beatMixC: 0.15,
-    // a coarse step's share (a 1/60 s step's would overshoot over its ticks), and how firmly a beating
+    beatMixC: 0.25,
+    // a coarse step's share (its swing capped at two beatTops, a fitted gain; docs/fast-forward.md), and how firmly a beating
     beatBendC: 0.25,
     // tree holds its angles then, relative to growStiff (bent afresh each tick from where its partners go)
     treeBond: 3,
@@ -1498,6 +1502,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     tailSpace: 0.6,
     // tail of its kind is within this (world units); a tail grows 3 to tailMax cells by its length gene
     tailMax: 16,
+    tailGain: 1.3,
+    // a tail's beat is this much stronger than a tree's (it carries its whole body)
     beatCost: 5e-3,
     // upkeep per unit of beat amplitude (radians) times frequency (Hz)
     bodyHold: 0.3,
@@ -1667,7 +1673,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     // scale on an anchored cell's velocity half-life (low advect): 0.1 and pushes barely move it
     mature: 0.2,
     // a cell divides only once older than this share of its lifespan (it grows up first; 0: at once)
-    bodyShare: 2,
+    bodyShare: 1,
     // rate (per second) at which energy flows along a body's bonds toward the poorer cell
     tideSpeed: 3,
     // scale on how fast the tide's bands of light travel
@@ -2110,6 +2116,12 @@ fn waterTempAt(p: vec2f) -> f32 { return blockAt(0u, p); }
     n1 = keepBond(i, kept.x, p);
     n2 = keepBond(i, kept.y, p);
     if (n2 == n1) { n2 = NONE; }
+    // a body's cell lets go of a partner that cannot hold it back (kept by BACK others already): such a
+    // bond would pull this cell alone, so it bonds elsewhere (a tree's and a tail's bonds are held by plan)
+    if (!treeCellAt(i)) {
+      if (n1 != NONE && !holdsBack(n1, i)) { n1 = NONE; }
+      if (n2 != NONE && !holdsBack(n2, i)) { n2 = NONE; }
+    }
     if (n1 != NONE) {
       dn1 = sortedFull[n1].pos - p.pos;
       dn1 -= world * round(dn1 * invWorld);
@@ -2174,7 +2186,7 @@ fn waterTempAt(p: vec2f) -> f32 { return blockAt(0u, p); }
   let budGap = 0.9 * 0.085 * g.size * (2.0 - 0.24 * f32(role));
   if (tree) {
     var have = 0u;
-    for (var k = 0u; k < min(backOf(i, 0u), 3u); k++) {
+    for (var k = 0u; k < backN(i); k++) {
       let c = backOf(i, 1u + k);
       if (c < sim.count && sortedFull[c].kind == p.kind) { have |= 1u << turnOf(sortedFull[c].info); }
     }
@@ -2382,28 +2394,23 @@ fn waterTempAt(p: vec2f) -> f32 { return blockAt(0u, p); }
   let heavy = 1.0 - 0.7 * g.photo;
   // Persistent bonds pull on the partners' current positions, even outside the sampled scan.
   var bondF = vec2f(0.0);
-  // the partners that keep this cell (a tissue's bonds pull both ways), read now rather than held
-  // through the scan (it is short of registers)
-  var nb0 = NONE; var nb1 = NONE; var nb2 = NONE;
-  if (bonding) {
-    let c = min(backOf(i, 0u), 3u);
-    if (c > 0u) { nb0 = keepBond(i, backOf(i, 1u), p); }
-    if (c > 1u) { nb1 = keepBond(i, backOf(i, 2u), p); }
-    if (c > 2u) { nb2 = keepBond(i, backOf(i, 3u), p); }
-    // one the scan took up as a new partner is already held
-    if (nb0 == n1 || nb0 == n2) { nb0 = NONE; }
-    if (nb1 == n1 || nb1 == n2) { nb1 = NONE; }
-    if (nb2 == n1 || nb2 == n2) { nb2 = NONE; }
-  }
+  // the partners that keep this cell (a tissue's bonds pull both ways), up to BACK of them, read where
+  // they are used rather than held through the scan (it is short of registers): backAt
+  let nBack = select(0u, backN(i), bonding);
   // each bond rests where its two cells touch (both agree on it: their roles' sizes summed)
   let rs1 = restTo(n1, g.size, role, tight); let rs2 = restTo(n2, g.size, role, tight);
-  let rb0 = restTo(nb0, g.size, role, tight); let rb1 = restTo(nb1, g.size, role, tight); let rb2 = restTo(nb2, g.size, role, tight);
-  if (n1 != NONE) { bondF += dn1 * ((d1 - rs1) / max(d1, 1e-4)); }
-  if (n2 != NONE) { bondF += dn2 * ((d2 - rs2) / max(d2, 1e-4)); }
-  let e0 = bondTo(nb0, p); let e1 = bondTo(nb1, p); let e2 = bondTo(nb2, p);
-  if (nb0 != NONE) { bondF += e0 * ((length(e0) - rb0) / max(length(e0), 1e-4)); }
-  if (nb1 != NONE) { bondF += e1 * ((length(e1) - rb1) / max(length(e1), 1e-4)); }
-  if (nb2 != NONE) { bondF += e2 * ((length(e2) - rb2) / max(length(e2), 1e-4)); }
+  // (a bond pulls only once both ends hold it: one this cell took up in its scan just now, or one its
+  // partner reads past the BACK it can, would pull this cell and not the other)
+  let m1 = select(0.0, 1.0, n1 != NONE && holdsBack(n1, i));
+  let m2 = select(0.0, 1.0, n2 != NONE && holdsBack(n2, i));
+  if (n1 != NONE) { bondF += dn1 * ((d1 - rs1) / max(d1, 1e-4)) * m1; }
+  if (n2 != NONE) { bondF += dn2 * ((d2 - rs2) / max(d2, 1e-4)) * m2; }
+  for (var k = 0u; k < nBack; k++) {
+    let nb = backAt(i, k, p, n1, n2);
+    if (nb == NONE) { continue; }
+    let e = bondTo(nb, p); let l = length(e);
+    bondF += e * ((l - restTo(nb, g.size, role, tight)) / max(l, 1e-4));
+  }
   // a tree holds its angles (bendOn); coarse steps hold each cell's place beside its mother as they go
   // (a beating tree's cells move against their mother: they bend afresh each tick instead, and more softly)
   let beating = tree && gr.beat.x > 0.0;
@@ -2411,7 +2418,7 @@ fn waterTempAt(p: vec2f) -> f32 { return blockAt(0u, p); }
   var bendF = vec2f(0.0);
   if (tree) { bendF = bendOn(i, gr) * bendK; bondF += bendF; }
   // a body bearing tails takes its share of the bend at each tail's base (where the base is the middle)
-  else if (tails) { bendF = tailBases(i, nb0, nb1, nb2) * bendK; bondF += bendF; }
+  else if (tails) { bendF = tailBases(i, p, n1, n2, nBack) * bendK; bondF += bendF; }
   // a tail's base is held to its body by an ordinary bond, as the body holds it (not treeBond)
   let baseOn = tail && n1 != NONE && !treeCellAt(n1);
   let baseB = select(vec2f(0.0), dn1 * ((d1 - rs1) / max(d1, 1e-4)), baseOn);
@@ -2480,26 +2487,25 @@ fn waterTempAt(p: vec2f) -> f32 { return blockAt(0u, p); }
   var vB2 = vec2f(0.0);
   if (n1 != NONE) { vB1 = sortedFull[n1].vel; }
   if (n2 != NONE) { vB2 = sortedFull[n2].vel; }
-  var vb0 = vec2f(0.0); var vb1 = vec2f(0.0); var vb2 = vec2f(0.0);
-  if (nb0 != NONE) { vb0 = sortedFull[nb0].vel; }
-  if (nb1 != NONE) { vb1 = sortedFull[nb1].vel; }
-  if (nb2 != NONE) { vb2 = sortedFull[nb2].vel; }
   // the body's motion around this cell: its partners' mean velocity
   // (a body bearing tails leaves its tails out: they move by their muscles)
-  let w0 = select(0.0, 1.0, nb0 != NONE && !(tails && orderOf(sortedFull[nb0].info) == 2u));
-  let w1 = select(0.0, 1.0, nb1 != NONE && !(tails && orderOf(sortedFull[nb1].info) == 2u));
-  let w2 = select(0.0, 1.0, nb2 != NONE && !(tails && orderOf(sortedFull[nb2].info) == 2u));
-  let nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE) + w0 + w1 + w2;
-  let vP = (vB1 + vB2 + vb0 * w0 + vb1 * w1 + vb2 * w2) / max(nP, 1.0);
-  // a body feeds its cells: energy flows along each bond toward the poorer partner, the same amount
+  // and a body feeds its cells: energy flows along each bond toward the poorer partner, the same amount
   // either way (both read this step's start), so a hunter at the edge keeps the interior alive
   let shareK = min(0.2, ${f(K.bodyShare)} * sim.dt);
+  var nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
+  var vP = vB1 + vB2;
   var shareE = 0.0;
   if (n1 != NONE) { shareE += sortedFull[n1].energy - p.energy; }
   if (n2 != NONE) { shareE += sortedFull[n2].energy - p.energy; }
-  if (nb0 != NONE) { shareE += sortedFull[nb0].energy - p.energy; }
-  if (nb1 != NONE) { shareE += sortedFull[nb1].energy - p.energy; }
-  if (nb2 != NONE) { shareE += sortedFull[nb2].energy - p.energy; }
+  for (var k = 0u; k < nBack; k++) {
+    let nb = backAt(i, k, p, n1, n2);
+    if (nb == NONE) { continue; }
+    let q = sortedFull[nb];
+    let w = select(1.0, 0.0, tails && orderOf(q.info) == 2u);
+    vP += q.vel * w; nP += w;
+    shareE += q.energy - p.energy;
+  }
+  vP /= max(nP, 1.0);
   shareE *= shareK;
   // a tree feeds its tips instead, as a plant's sugars flow to where it grows: a cell whose daughters are
   // all grown passes them its surplus over half its division energy (mother and daughter reckon it alike)
@@ -2522,11 +2528,14 @@ fn waterTempAt(p: vec2f) -> f32 { return blockAt(0u, p); }
       let moved = pos - p.pos;
       fb = vec2f(0.0);
       var fb1 = vec2f(0.0);
-      if (n1 != NONE) { let e = dn1 + vB1 * t - moved; let l = length(e); fb1 = e * ((l - rs1) / max(l, 1e-4)); }
-      if (n2 != NONE) { let e = dn2 + vB2 * t - moved; let l = length(e); fb += e * ((l - rs2) / max(l, 1e-4)); }
-      if (nb0 != NONE) { let e = e0 + vb0 * t - moved; let l = length(e); fb += e * ((l - rb0) / max(l, 1e-4)); }
-      if (nb1 != NONE) { let e = e1 + vb1 * t - moved; let l = length(e); fb += e * ((l - rb1) / max(l, 1e-4)); }
-      if (nb2 != NONE) { let e = e2 + vb2 * t - moved; let l = length(e); fb += e * ((l - rb2) / max(l, 1e-4)); }
+      if (n1 != NONE) { let e = dn1 + vB1 * t - moved; let l = length(e); fb1 = e * ((l - rs1) / max(l, 1e-4)) * m1; }
+      if (n2 != NONE) { let e = dn2 + vB2 * t - moved; let l = length(e); fb += e * ((l - rs2) / max(l, 1e-4)) * m2; }
+      for (var kb = 0u; kb < nBack; kb++) {
+        let nb = backAt(i, kb, p, n1, n2);
+        if (nb == NONE) { continue; }
+        let e = bondTo(nb, p) + sortedFull[nb].vel * t - moved; let l = length(e);
+        fb += e * ((l - restTo(nb, g.size, role, tight)) / max(l, 1e-4));
+      }
       fb = (fb + select(fb1, vec2f(0.0), baseOn)) * bondK + select(vec2f(0.0), fb1, baseOn);
       if (tree || tails) {
         if (beating) { predT = t; predSelf = i; predPos = pos; fb += bendOn(i, gr) * bendK; predT = 0.0; }
@@ -2683,13 +2692,26 @@ fn splPair(h: u32, q: u32, won: bool) {
 @group(0) @binding(22) var<storage, read> stoneCells: array<u32>;
 // Every grain of stone, gathered while matter moves, so rendering draws stone without scanning all.
 @group(0) @binding(16) var<storage, read_write> stoneList: array<u32>;
-// Each cell's bonds, six words a cell: the two it keeps, then the cells that keep a bond to
-// it (bondBackMain): a count and up to three of them
+// Each cell's bonds, BW words a cell: the two it keeps, then the cells that keep a bond to
+// it (bondBackMain): a count and up to BACK of them (six: a cell packed in tissue has six neighbors)
 // read plainly (binding 15); bondBackMain appends to it through bondsAt (binding 20, the same buffer)
 @group(0) @binding(15) var<storage, read_write> bondsNow: array<u32>;
 @group(0) @binding(20) var<storage, read_write> bondsAt: array<atomic<u32>>;
-fn bondsOf(i: u32) -> vec2u { return vec2u(bondsNow[i * 6u], bondsNow[i * 6u + 1u]); }
-fn backOf(i: u32, k: u32) -> u32 { return bondsNow[i * 6u + 2u + k]; }
+const BACK = 6u;
+const BW = 9u;
+fn bondsOf(i: u32) -> vec2u { return vec2u(bondsNow[i * BW], bondsNow[i * BW + 1u]); }
+fn backOf(i: u32, k: u32) -> u32 { return bondsNow[i * BW + 2u + k]; }
+// how many of those that keep cell i it reads
+fn backN(i: u32) -> u32 { return min(backOf(i, 0u), BACK); }
+// whether cell j reads cell i (which keeps it) among the partners it holds: it keeps i too, or i is among
+// the first BACK that keep it
+fn holdsBack(j: u32, i: u32) -> bool {
+  let o = bondsOf(j);
+  let c = backN(j);
+  var r = o.x == i || o.y == i;
+  for (var k = 0u; k < c; k++) { r = r || backOf(j, 1u + k) == i; }
+  return r;
+}
 // The heat field, by blocks of MAX_CELLS: the water's temperature per grid cell, the pool's floor, the order
 // it freezes in; read only (the step writes none of it: heatMain writes the next
 // temperatures to heatNext, copied in after). What the step adds up goes to the ledger's end (heatAccAt).
@@ -3355,9 +3377,9 @@ fn scatterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocat
         }
       }
     }
-    bondsNow[dst * 6u] = partners.x;
-    bondsNow[dst * 6u + 1u] = partners.y;
-    bondsNow[dst * 6u + 2u] = 0u;
+    bondsNow[dst * BW] = partners.x;
+    bondsNow[dst * BW + 1u] = partners.y;
+    bondsNow[dst * BW + 2u] = 0u;
     let role = roleOf(p.info);
     let sig = genomes[p.kind].sig[role].xy;
     let plant = select(0u, 1u << 12u, (p.kind >= FIRST_LIFE && genomes[p.kind].photo > 0.4));
@@ -3607,26 +3629,24 @@ fn keepBond(i: u32, j: u32, p: Particle) -> u32 {
 // partners (mine: those it keeps, then those that keep it), closing a triangle in the tissue, or
 // neither has a partner yet (two free cells start a body). Strangers' bodies do not fuse.
 fn joinable(i: u32, j: u32, k1: u32, k2: u32) -> bool {
-  // this cell's partners: those it keeps, then those that keep it (one of them is no new partner)
-  let ci = min(backOf(i, 0u), 3u);
-  let b1 = select(NONE, backOf(i, 1u), ci > 0u);
-  let b2 = select(NONE, backOf(i, 2u), ci > 1u);
-  let b3 = select(NONE, backOf(i, 3u), ci > 2u);
-  if (j == b1 || j == b2 || j == b3) { return false; }
-  let mine = vec4u(k1, k2, b1, b2);
-  let mine4 = b3;
+  // (a cell kept by BACK already could not hold another bond back)
   let o = bondsOf(j);
-  let c = min(backOf(j, 0u), 3u);
-  let alone = all(mine == vec4u(NONE)) && mine4 == NONE;
-  var js = array<u32, 5>(o.x, o.y, NONE, NONE, NONE);
-  for (var k = 0u; k < c; k++) { js[2u + k] = backOf(j, 1u + k); }
+  if (backOf(j, 0u) >= BACK && o.x != i && o.y != i) { return false; }
+  // this cell's partners: those it keeps, then those that keep it (one of them is no new partner)
+  let ci = backN(i);
+  for (var k = 0u; k < ci; k++) { if (backOf(i, 1u + k) == j) { return false; } }
+  let alone = k1 == NONE && k2 == NONE && ci == 0u;
+  let cj = backN(j);
   var free = true;
   var linked = false;
-  for (var k = 0u; k < 5u; k++) {
-    let q = js[k];
+  for (var k = 0u; k < 2u + cj; k++) {
+    var q = backOf(j, max(k, 2u) - 1u);
+    if (k < 2u) { q = o[k]; }
     if (q < sim.count && q != j) {
       free = false;
-      linked = linked || q == mine.x || q == mine.y || q == mine.z || q == mine.w || q == mine4;
+      var mine = q == k1 || q == k2;
+      for (var m = 0u; m < ci; m++) { mine = mine || backOf(i, 1u + m) == q; }
+      linked = linked || mine;
     }
   }
   return select(linked, free, alone);
@@ -3654,7 +3674,7 @@ fn headingOf(m: u32, gr: Grow) -> Heading {
     if (l > 1e-4 && l < LINK_R * ${f(K.bondBreak)}) { return Heading(d / l, true, NONE); }
   }
   var best = NONE; var bestId = NONE;
-  for (var k = 0u; k < min(backOf(m, 0u), 3u); k++) {
+  for (var k = 0u; k < backN(m); k++) {
     let c = backOf(m, 1u + k);
     if (c < sim.count && sortedFull[c].kind == pm.kind && sortedFull[c].id < bestId) { best = c; bestId = sortedFull[c].id; }
   }
@@ -3671,7 +3691,7 @@ fn headingOf(m: u32, gr: Grow) -> Heading {
 fn feedOf(m: u32, gr: Grow, keep: f32, rate: f32) -> vec2f {
   let q = sortedFull[m];
   var have = 0u; var n = 0.0;
-  for (var k = 0u; k < min(backOf(m, 0u), 3u); k++) {
+  for (var k = 0u; k < backN(m); k++) {
     let c = backOf(m, 1u + k);
     if (c >= sim.count || c == m) { continue; }
     let o = sortedFull[c];
@@ -3707,7 +3727,7 @@ fn treeMom(x: u32) -> u32 {
   return m;
 }
 fn treeKid(x: u32, k: u32) -> u32 {
-  if (k >= min(backOf(x, 0u), 3u)) { return NONE; }
+  if (k >= backN(x)) { return NONE; }
   let c = backOf(x, 1u + k);
   if (c >= sim.count || c == x || treeMom(c) != x) { return NONE; }
   return c;
@@ -3790,28 +3810,30 @@ fn beatSpeed(gr: Grow, size: f32, gen: u32, t: f32) -> f32 {
 // how many tree bonds a cell has (its mother and daughters), at least two: a bond's share is split by the busier end
 fn treeDeg(x: u32) -> f32 {
   let m = bondsOf(x).x;
-  return max(2.0, f32(min(backOf(x, 0u), 3u)) + select(0.0, 1.0, m < sim.count && m != x));
+  return max(2.0, f32(backN(x)) + select(0.0, 1.0, m < sim.count && m != x));
 }
-// One pull a step, the beat reckoned at the step's middle. A coarse step pulls a smaller share (beatMixC:
-// over its several ticks the stiffest wave, each cell pulled by both its bonds as a zigzag, would
-// overshoot), and its ticks' drag leaves less of the beat standing, so the beat asks more: as much as
+// One pull a step, the beat reckoned at the step's middle. A coarse step pulls its own share (beatMixC),
+// and its ticks' drag leaves less of the beat standing, so the beat asks more: as much as
 // it takes for its wave (2 - 2 cos of its phase per cell, as the bonds settle it) to stand as tall as in
-// 1/60 s steps, by a 1/60 s step's and a coarse step's settling, and a fifth more a tick past the first
-// (fitted with tools/swimlab.mjs; docs/growth.md), but no faster across a bond than three beatTops.
+// 1/60 s steps, by a 1/60 s step's and a coarse step's settling, and 0.35 more a tick past the first
+// (fitted with tools/swimlab.mjs over 12 beat genotypes; docs/fast-forward.md), but no faster across a
+// bond than two beatTops (a strong slow beat swung faster tore its body).
 fn beatPull(i: u32, gr: Grow, size: f32, frX: f32) -> vec2f {
   let p = sortedFull[i];
   let tm = sim.time - 0.5 * sim.dt;
-  let si = beatSpeed(gr, size, genOf(p.info), tm);
+  // (a tail drives a whole body: it swings tailGain harder)
+  let tg = select(1.0, ${f(K.tailGain)}, orderOf(p.info) == 2u);
+  let si = beatSpeed(gr, size, genOf(p.info), tm) * tg;
   let di = treeDeg(i);
   var gain = 1.0;
   var mixW = ${f(K.beatMix)};
   if (sim.ticks > 1u) {
     mixW = ${f(K.beatMixC)};
     let wm = 2.0 * mixW * (2.0 - 2.0 * cos(gr.beat.z));
-    gain = (wm + 1.0 - pow(frX, f32(sim.ticks))) / (${f(2 * K.beatMix)} * (2.0 - 2.0 * cos(gr.beat.z)) + 1.0 - frX) * (1.0 + 0.2 * f32(sim.ticks - 1u)) * ${f(K.beatMix)} / mixW;
+    gain = (wm + 1.0 - pow(frX, f32(sim.ticks))) / (${f(2 * K.beatMix)} * (2.0 - 2.0 * cos(gr.beat.z)) + 1.0 - frX) * (1.0 + 0.35 * f32(sim.ticks - 1u)) * ${f(K.beatMix)} / mixW;
   }
   // (a coarse step asks no faster swing of a bond than it can follow)
-  let top = select(1e9, ${f(3 * K.beatTop)} * size, sim.ticks > 1u);
+  let top = select(1e9, ${f(2 * K.beatTop)} * size, sim.ticks > 1u);
   var dv = vec2f(0.0);
   for (var k = 0u; k < 4u; k++) {
     // the mother, then the daughters
@@ -3822,7 +3844,7 @@ fn beatPull(i: u32, gr: Grow, size: f32, frX: f32) -> vec2f {
     // the bond's normal, from mother to daughter
     let a = select(treeRel(i, j), treeRel(j, i), k == 0u);
     let n = vec2f(-a.y, a.x) / max(length(a), 1e-6);
-    let sj = beatSpeed(gr, size, genOf(q.info), tm);
+    let sj = beatSpeed(gr, size, genOf(q.info), tm) * tg;
     // a joint pulled well past its rest goes slack: its muscle lets go
     let slack = smoothstep(1.6, 1.3, length(a) / (${f(0.153)} * size));
     dv += (q.vel - p.vel + n * (clamp((si - sj) * gain, -top, top) * slack)) * (2.0 / max(di, treeDeg(j)));
@@ -3832,10 +3854,10 @@ fn beatPull(i: u32, gr: Grow, size: f32, frX: f32) -> vec2f {
 
 // A body bearing tails: its share, as the arm, of the bend at each tail's base that grows from it (the base
 // reckons the same bend, bendOn).
-fn tailBases(i: u32, nb0: u32, nb1: u32, nb2: u32) -> vec2f {
+fn tailBases(i: u32, p: Particle, n1: u32, n2: u32, nBack: u32) -> vec2f {
   var F = vec2f(0.0);
-  for (var k = 0u; k < 3u; k++) {
-    let c = select(select(nb2, nb1, k == 1u), nb0, k == 0u);
+  for (var k = 0u; k < nBack; k++) {
+    let c = backAt(i, k, p, n1, n2);
     if (c == NONE || orderOf(sortedFull[c].info) != 2u || treeMom(c) != i) { continue; }
     let gc = growAt(genomes[sortedFull[c].kind], sortedFull[c].info);
     for (var k2 = 0u; k2 < 3u; k2++) {
@@ -3844,6 +3866,13 @@ fn tailBases(i: u32, nb0: u32, nb1: u32, nb2: u32) -> vec2f {
     }
   }
   return F;
+}
+
+// The k-th of the cells that keep cell i, if it still holds (keepBond) and the scan did not just take it up
+// as one of i's own (n1, n2: already held).
+fn backAt(i: u32, k: u32, p: Particle, n1: u32, n2: u32) -> u32 {
+  let c = keepBond(i, backOf(i, 1u + k), p);
+  return select(c, NONE, c == n1 || c == n2);
 }
 
 // The bond's other end as seen from p (wrapped), or zero for none.
@@ -3859,13 +3888,13 @@ fn bondBackMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
   if (i == NONE) { return; }
   let k = sortedFull[i].kind;
-  let b = vec2u(atomicLoad(&bondsAt[i * 6u]), atomicLoad(&bondsAt[i * 6u + 1u]));
+  let b = vec2u(atomicLoad(&bondsAt[i * BW]), atomicLoad(&bondsAt[i * BW + 1u]));
   for (var s = 0u; s < 2u; s++) {
     let j = b[s];
     // a bond both keep is counted once, by each as its own
-    if (j < sim.count && j != i && sortedFull[j].kind == k && atomicLoad(&bondsAt[j * 6u]) != i && atomicLoad(&bondsAt[j * 6u + 1u]) != i) {
-      let c = atomicAdd(&bondsAt[j * 6u + 2u], 1u);
-      if (c < 3u) { atomicStore(&bondsAt[j * 6u + 3u + c], i); }
+    if (j < sim.count && j != i && sortedFull[j].kind == k && atomicLoad(&bondsAt[j * BW]) != i && atomicLoad(&bondsAt[j * BW + 1u]) != i) {
+      let c = atomicAdd(&bondsAt[j * BW + 2u], 1u);
+      if (c < BACK) { atomicStore(&bondsAt[j * BW + 3u + c], i); }
     }
   }
 }
@@ -18218,7 +18247,7 @@ ${e.message}` : String(e?.message || e));
       b.sortedLite = d.createBuffer({ size: n * LITE_BYTES, usage: U.STORAGE });
       b.aux = d.createBuffer({ size: n * 8, usage: U.STORAGE });
       b.intent = d.createBuffer({ size: n * 16, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
-      b.bondsNow = d.createBuffer({ size: n * 24, usage: U.STORAGE });
+      b.bondsNow = d.createBuffer({ size: n * 36, usage: U.STORAGE | U.COPY_SRC });
       b.bondsIn = d.createBuffer({ size: n * 20, usage: U.STORAGE });
       b.touch = d.createBuffer({ size: n * 24, usage: U.STORAGE, mappedAtCreation: true });
       new Uint32Array(b.touch.getMappedRange()).fill(4294967295);
@@ -20389,7 +20418,8 @@ ${e.message}` : String(e?.message || e));
     adapting: "Why the page is drawing less than it could, if it is: frames running late, the GPU busy for nearly the whole frame, the device under pressure (hot or busy, where the browser reports it), or the browser’s own pace (it hands out frames more slowly than the screen refreshes while the page has little to do: only the frame rate is lowered then). It lowers the pixel density first, then the render scale, then (with Target fps on Auto) the frame rate; when the simulation is most of the cost, the frame rate before the render scale. It climbs back after a stretch with room to spare. Running fast it does not adapt.",
     renderres: "The render scale the world is drawn at right now, on top of the pixel density (Density; Scene px is the two together). With Render scale on Auto it drops when frames run late and climbs back when there is room.",
     drawms: "GPU time drawing the world once takes: cells, stone, bloom and the final image. At high speeds it is drawn about thirty times a second.",
-    stride: "How much simulated time each step moves the world forward. Normally a step is 1/60 s, the most exact. When you ask for a speed the GPU can’t reach in steps that small, it takes bigger ones instead, up to 6/60 s. Bigger steps are a little coarser, but births, deaths and the variety of species stay the same over long runs.",
+    stride: "How much simulated time each step moves the world forward. Normally a step is 1/60 s, the most exact. When you ask for a speed the GPU can’t reach in steps that small, it takes bigger ones instead, up to 6/60 s; so does a device that can’t draw 60 frames a second, one step a frame (2/60 s at 30 fps). Bigger steps are a little coarser, but births, deaths and the variety of species stay the same over long runs.",
+    stepsps: "How many steps the GPU takes each real second. With Stride it makes the speed: Now is Steps/s × Stride. At 1× it is 60 steps of 1/60 s; at fast speeds it climbs as high as the GPU can go, and when it can go no higher the steps grow longer instead.",
     simrate: "How fast the world is running right now, as a multiple of real time.",
     deepest: "The most speciation steps between any living species and its founder.",
     generation: "How many divisions separate this cell from the beginning of the world.",
@@ -27260,9 +27290,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "c656b8dccba7f358") return;
+      if (localStorage.getItem(key) === "c1f38a2ca635d5b3") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "c656b8dccba7f358");
+      if (res) localStorage.setItem(key, "c1f38a2ca635d5b3");
     } catch {
     }
   }
@@ -27525,6 +27555,8 @@ ${e.message}` : String(e?.message || e));
       rate: 1,
       rateT: performance.now(),
       rateSim: 0,
+      stepsS: 0,
+      rateSteps: 0,
       slow: 1,
       slowCeiling: 0,
       why: "",
@@ -29352,13 +29384,14 @@ ${e.message}` : String(e?.message || e));
         setText2("ro-dens", `${+density().toFixed(2)}×`);
         autoLive();
         setText2("ro-px", `${canvas.width}×${canvas.height}`);
-        setText2("ro-n", fmt(eng.count));
+        setText2("ro-n", eng.count >= 1e6 ? `${(eng.count / 1e6).toFixed(2)}M` : fmt(eng.count));
         const al = sound.load;
         setText2("ro-audio", al != null ? `${Math.round(al * 100)}%` : "–");
         const S = perf.simS || perf.stepMs;
         setText2("ro-step", S ? S.toFixed(S < 1 ? 3 : 2) : "–");
         setText2("ro-draw", perf.simS ? perf.renderR.toFixed(1) : "–");
-        setText2("ro-ceil", state.paused ? "–" : `${perf.ticks}/60 s`);
+        setText2("ro-ceil", state.paused ? "–" : `${eng.ticks}/60 s`);
+        setText2("ro-steps", state.phase === "running" && !state.paused ? fmt(Math.round(perf.stepsS)) : "–");
         setText2("ro-rate", state.phase === "running" && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : "–");
         setText2("ro-world", perf.fps ? perf.worldFps.toFixed(0) : "–");
         setText2("ro-why", state.speed > 1 ? "running fast" : perf.why || "–");
@@ -30970,7 +31003,10 @@ ${e.message}` : String(e?.message || e));
       if (now - perf.rateT > 1e3) {
         const r = (eng.simTime - perf.rateSim) / ((now - perf.rateT) / 1e3);
         perf.rate = r >= 0 ? r : perf.rate;
+        const st = (eng.frameNo - perf.rateSteps) / ((now - perf.rateT) / 1e3);
+        perf.stepsS = st >= 0 ? st : perf.stepsS;
         perf.rateSim = eng.simTime;
+        perf.rateSteps = eng.frameNo;
         perf.rateT = now;
       }
       for (let i = frameWaiters.length - 1; i >= 0; i--) if (--frameWaiters[i].n <= 0) {

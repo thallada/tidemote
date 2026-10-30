@@ -175,7 +175,8 @@ side exactly as the base does (`tailBases`), and the body and its tails neither 
 their signatures nor share motion as tissue, so a body cannot push itself through its tail: only the
 tail's beat in the water moves it. Thrust grows with the tail's length and beat and is spent on the
 whole body's drag, so a small body with a long fast tail travels and a large one with a stub barely
-moves. Measured in the swim lab (1.5 Hz, amplitude 0.5, 1/60 s steps; mats laid out as hexagonal
+moves. A tail beats `tailGain` (1.3) times as hard as a tree would, since it drives its whole body
+(docs/fast-forward.md). Measured in the swim lab before that, and before bonds pulled only both ways (1.5 Hz, amplitude 0.5, 1/60 s steps; mats laid out as hexagonal
 patches with the tail at the edge):
 
 | body | tail | units/s |

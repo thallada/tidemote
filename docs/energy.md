@@ -35,7 +35,8 @@ merged to main: these rules are now always on, and only their strengths remain t
   in its diet caught as surely as a predator; grazers made most of the kills and outcompeted specialists.
 - A cell divides once it holds `reproE` beyond its child's body (`bodyReserve`), and feeds until then.
 - `bodyShare`: energy flows along a body's bonds toward the poorer cell, the same amount either way. In a
-  tight tissue only the edge cells reach prey; without it the interior starved.
+  tight tissue only the edge cells reach prey; without it the interior starved. 1 a second (2 until
+  2026-10-30, when bonds that pull both ways made mats fit enough to take over at 2; docs/fast-forward.md).
 - More light (`photo` 0.4 → 0.5): bodies now cost what they hold, so the world needs more income.
 - Founding (initial conditions only): `foundHunt` keeps at most 3 of a world's 24 founding species
   flesh-eaters (worlds opened with up to 81% predators and crashed), and `leanHunters` builds founding

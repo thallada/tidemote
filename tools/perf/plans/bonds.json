@@ -1,0 +1,121 @@
+{
+ "worlds": [
+  {
+   "name": "main-a",
+   "n": 1048576,
+   "file": "bonds1m",
+   "page": "bond-main",
+   "mature": 240
+  },
+  {
+   "name": "six-a",
+   "n": 1048576,
+   "file": "bonds1m",
+   "page": "bond-six"
+  },
+  {
+   "name": "main-b",
+   "n": 1048576,
+   "file": "bonds1m",
+   "page": "bond-main"
+  },
+  {
+   "name": "six-b",
+   "n": 1048576,
+   "file": "bonds1m",
+   "page": "bond-six"
+  },
+  {
+   "name": "main-c",
+   "n": 1048576,
+   "file": "bonds1m",
+   "page": "bond-main"
+  },
+  {
+   "name": "six-c",
+   "n": 1048576,
+   "file": "bonds1m",
+   "page": "bond-six"
+  }
+ ],
+ "scenarios": [
+  {
+   "world": "main-a",
+   "name": "t1",
+   "kind": "step",
+   "reps": 30
+  },
+  {
+   "world": "main-a",
+   "name": "t6",
+   "kind": "step",
+   "ticks": 6,
+   "reps": 30
+  },
+  {
+   "world": "six-a",
+   "name": "t1",
+   "kind": "step",
+   "reps": 30
+  },
+  {
+   "world": "six-a",
+   "name": "t6",
+   "kind": "step",
+   "ticks": 6,
+   "reps": 30
+  },
+  {
+   "world": "main-b",
+   "name": "t1",
+   "kind": "step",
+   "reps": 30
+  },
+  {
+   "world": "main-b",
+   "name": "t6",
+   "kind": "step",
+   "ticks": 6,
+   "reps": 30
+  },
+  {
+   "world": "six-b",
+   "name": "t1",
+   "kind": "step",
+   "reps": 30
+  },
+  {
+   "world": "six-b",
+   "name": "t6",
+   "kind": "step",
+   "ticks": 6,
+   "reps": 30
+  },
+  {
+   "world": "main-c",
+   "name": "t1",
+   "kind": "step",
+   "reps": 30
+  },
+  {
+   "world": "main-c",
+   "name": "t6",
+   "kind": "step",
+   "ticks": 6,
+   "reps": 30
+  },
+  {
+   "world": "six-c",
+   "name": "t1",
+   "kind": "step",
+   "reps": 30
+  },
+  {
+   "world": "six-c",
+   "name": "t6",
+   "kind": "step",
+   "ticks": 6,
+   "reps": 30
+  }
+ ]
+}

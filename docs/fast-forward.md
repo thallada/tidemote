@@ -216,9 +216,32 @@ tree. Measuring real ones found a leak at 1/60 s: a cell pulled on a partner tha
 bond taken up in this step's scan, or one past the three keepers a cell reads), and bodies pushed
 themselves along, a still 19-cell mat at 0.040 units/s. Bonds now pull only when both ends hold them
 (still mat 0.002 units/s; tailed mats swim as resistive force theory predicts from their own motion).
-Over 63 seeds × 30 min at 32k (farm, 348b060) the ecology barely moves: 1/60 s effective species
-109.0±5.7 against 113.5±5.5 before, Hill2 35.0 against 37.1, late guilds 3.27 against 3.48 (about two
-standard errors), the diet shares the same; 6 ticks 100.3±6.3 (107.5), guilds 3.30 (3.31).
+
+A cell packed in tissue has six neighbors, and with three keepers read back 14-22% of kept bonds on busy
+worlds stayed one-sided, so hub cells let go and mats fell into clumps. The bond table now holds six
+(`BACK`; nine words a cell: the two kept, the count, six keepers, filled by `bondBackMain`), every bond
+pulls both ways and bodies keep main's shapes. Two tunables then put back what the leak had given:
+mats that no longer drift fed their cells too well and took over, so bodies share energy at
+`bodyShare` 1 (was 2); and mats lost their free drift, so a tail beats `tailGain` 1.3 times as hard as a
+tree's (it carries its whole body; one-tailed mats are back to main's speed at 1/60 s; at 1.6 the
+fastest slow down, at 2 bodies tear). Extra tails do not help: tails spread round the edge and cancel
+(one tail 0.028 units/s, two 0.004, three 0.003). The six-keeper table costs about 0.03 ms of a 1M
+world's step (`scatterMain` 0.35 → 0.38 ms, `lifeMain` unchanged; `tools/perf/plans/bonds.json`).
+
+Ensembles of 64 seeds × 30 min at 32k (farm, runs/swimfix), mean ± 95%:
+
+| | eff. species | Hill2 | late guilds | food webs |
+|---|---|---|---|---|
+| 1 tick, before (the leak) | 113.5±5.5 | 37.1 | 3.48 | 0.94 |
+| 1 tick, three keepers (348b060) | 109.0±5.7 | 35.0 | 3.27 | |
+| 1 tick, six keepers | 102.6 | 32.7 | 3.30 | 0.95 |
+| + `bodyShare` 1 | 105.9 | 33.6 | 3.53 | 0.95 |
+| + `tailGain` 1.3 (the default) | 110.6±5.7 | 35.9 | 3.33 | 0.89 |
+| 6 ticks, before | 107.5±5.3 | 33.0 | 3.31 | 0.88 |
+| 6 ticks, the default | 106.2±5.4 | 32.6 | 3.33 | 0.89 |
+
+Late guilds swing about 0.2 between ensembles of nearly the same rules, so the default is within noise of
+main at both step lengths.
 
 So `MAX_TICKS` is 6: fast speeds take the shortest step that fits, Max always 6. At 8 beating bodies tear,
 diversity is still 14-21% down, and 8 ticks would be only about 24% faster than 6.
