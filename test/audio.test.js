@@ -283,7 +283,7 @@ test('sped up, the score quickens but stays a score', () => {
   }
 });
 
-test('the hand is heard: each act its sound, cuts a falling run on the pulse, the shade held while it is on', () => {
+test('the hand is heard: each act its sound, held sounds one voice each, the ice only while the water freezes', () => {
   const sr = 48000, eng = new Engine(sr, { seed: 9 }), cond = new Conductor(eng, { seed: 9 });
   const L = new Float32Array(64), R = new Float32Array(64);
   // (the hand's notes, at the times they are scheduled for)
@@ -298,21 +298,21 @@ test('the hand is heard: each act its sound, cuts a falling run on the pulse, th
   assert.deepEqual(since(t).map((n) => n.d).sort(), ['tick', 'tine']);
   t = cond.time; hand({ ev: 'pick', tool: 'none' }); run(0.3);
   assert.equal(since(t).length, 0);
-  // six bonds cut at once: six plucks a sixteenth apart, down the scale; thirty: only as many as fit in a second or so
-  t = cond.time; hand({ ev: 'cut', n: 6 }); run(2.5);
-  const cuts = since(t).filter((n) => n.d === 'pluck');
-  assert.equal(cuts.length, 6);
-  for (let i = 1; i < 6; i++) assert.ok(Math.abs(cuts[i].t - cuts[i - 1].t - cond.step) < 0.01 && cuts[i].p.freq < cuts[i - 1].p.freq);
-  t = cond.time; hand({ ev: 'cut', n: 30 }); run(2.5);
-  assert.ok(since(t).length <= 8);
+  // the needle drawn through the water: one held tearing voice (no train of notes), rougher where it cuts bonds
+  t = cond.time; hand({ ev: 'state', tool: 'needle', held: true, move: 2 }); run(0.5);
+  const tear = cond.hand.held.scalpel?.id, a0 = eng.nodes.get(tear).p.amp;
+  hand({ ev: 'cut', n: 5 }); run(0.05);
+  assert.ok(eng.nodes.get(tear).p.amp > a0 * 1.2 && since(t).length === 0);
+  hand({ ev: 'state', tool: 'needle', held: false, move: 0 }); run(3);
+  assert.ok(!cond.hand.held.scalpel);
   // the pipette's cells come at most so fast, the rest dropped (no backlog)
   t = cond.time; hand({ ev: 'cells', n: 500 }); run(3);
   const m = since(t).filter((n) => n.d === 'tine').length;
   assert.ok(m > 15 && m < 50, `${m} marbles`);
-  // the rod at work ducks the field; let go, it comes back
-  hand({ ev: 'state', tool: 'touch', held: true, rod: 2 }); run(1);
-  assert.ok(cond.hand.duck < 0.85);
-  hand({ ev: 'state', tool: 'touch', held: false, rod: 0 }); run(1);
+  // the rod stirring: one held voice of sloshing water; at work it ducks the field; let go, it comes back
+  hand({ ev: 'state', tool: 'touch', held: true, move: 2 }); run(1);
+  assert.ok(cond.hand.duck < 0.85 && eng.nodes.get(cond.hand.held.stir.id).p.amp > 0.01);
+  hand({ ev: 'state', tool: 'touch', held: false, move: 0 }); run(1);
   assert.ok(cond.hand.duck > 0.98);
   // the shade: a held note while it is on, ended a while after it is let go
   hand({ ev: 'state', tool: 'shade', level: 1 }); run(1);
@@ -320,20 +320,25 @@ test('the hand is heard: each act its sound, cuts a falling run on the pulse, th
   assert.ok(id && eng.nodes.has(id) && eng.nodes.get(id).p.amp > 0.05);
   hand({ ev: 'state', tool: 'shade', level: 0 }); run(3);
   assert.ok(!cond.hand.held.shade && !eng.nodes.has(id));
-  // the warm stage held: a rumble as the water heats, and bubbles at the boil
-  t = cond.time; hand({ ev: 'state', tool: 'warm', level: 1 }); run(4);
-  assert.ok(cond.hand.heat > 0.99 && eng.nodes.get(cond.hand.held.rumble.id).p.amp > 0.5);
-  assert.ok(since(t).filter((n) => n.d === 'drop').length > 20);
-  hand({ ev: 'state', tool: 'warm', level: 0 }); run(4);
+  // the warm stage over water that heats: a rumble as hot as it is, and bubbles at the boil
+  t = cond.time; hand({ ev: 'state', tool: 'warm', level: 1, water: 40 }); run(2);
+  const lukewarm = eng.nodes.get(cond.hand.held.rumble.id).p.amp;
+  hand({ ev: 'state', tool: 'warm', level: 1, water: 100 }); run(2);
+  assert.ok(eng.nodes.get(cond.hand.held.rumble.id).p.amp > 3 * lukewarm && since(t).filter((n) => n.d === 'drop').length > 20);
+  hand({ ev: 'state', tool: 'warm', level: 0, water: null }); run(4);
   assert.ok(!cond.hand.held.rumble);
-  // the cold probe held: nothing for a moment, then ice cracking, the world dimming and stepping back; gone, it thaws
-  t = cond.time; hand({ ev: 'state', tool: 'cold', level: 1 }); run(1);
+  // the cold probe: ice cracks only while the water under it freezes; the ice there groans and dims the world, and
+  // holding the probe over ice already formed is still
+  t = cond.time; hand({ ev: 'state', tool: 'cold', level: 1, freezing: 0, ice: 0 }); run(1);
   assert.equal(since(t).length, 0);
-  run(3);
+  hand({ ev: 'state', tool: 'cold', level: 1, freezing: 1, ice: 0.3 }); run(2);
   assert.ok(since(t).filter((n) => n.d === 'rustle').length > 10 && since(t).some((n) => n.d === 'glass'));
-  assert.ok(eng.master.p.tone < 4000 && cond.hand.duck < 0.8);
-  hand({ ev: 'state', tool: 'cold', level: 0 }); run(8);
-  assert.ok(cond.hand.frost === 0 && eng.master.p.tone === 16000 && cond.hand.duck > 0.98);
+  hand({ ev: 'state', tool: 'cold', level: 1, freezing: 0, ice: 1 }); run(3);
+  assert.ok(eng.master.p.tone < 4000 && cond.hand.duck < 0.8 && since(t).filter((n) => n.d === 'glass').length === 2);
+  t = cond.time; run(2);
+  assert.equal(since(t).filter((n) => n.d === 'rustle').length, 0);
+  hand({ ev: 'state', tool: 'none', level: 0, freezing: 0, ice: 0 }); run(10);
+  assert.ok(eng.master.p.tone === 16000 && cond.hand.duck > 0.98);
   // riding: the rest of the field steps back; steered, the water rushes past
   hand({ ev: 'state', tool: 'none', ride: true, will: 1 }); run(2);
   assert.ok(cond.hand.duck < 0.6 && eng.nodes.get(cond.hand.held.rush.id).p.amp > 0.08);

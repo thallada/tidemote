@@ -971,7 +971,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     },
   });
   // the hand heard (hearHand): its acts, where the pointer is (pan), the rod, and the last state sent
-  const heard = { pan: 0, rodAt: null, dipped: false, rung: 0, sent: '' };
+  const heard = { pan: 0, tip: null, dipped: false, rung: 0, sent: '', water: null, temps: null, tAt: 0, tRead: 0, freezing: 0, ice: 0 };
   const hear = (ev, m = {}) => sound.hand({ ev, pan: heard.pan, ...m });
   // the picked species' slot (-1 for none): a picked cell's, or the living species open in the panel
   function pickedSlot() {
@@ -2754,20 +2754,42 @@ function run(eng, device, ctx, specCtx, hasTS) {
   addEventListener('blur', () => { shiftHeld = false; });
   const pipDispensing = () => (spit.on ? true : pull.on || hand.suck ? false : pull.armed !== shiftHeld);
   // The hand heard (audio/handsound.js): its acts as they happen, and every frame while it does something, the
-  // tool's state (its level, the rod's speed in reaches a second over 3, riding and how hard it is steered, the
-  // pointer's side of the screen)
+  // tool's state (its level; how fast the rod or the needle in the water moves on the screen, 0..4, 300 px a second
+  // to the unit; the water under the stage or the probe; riding and how hard it is steered; the pointer's side of
+  // the screen)
   function hearHand(R, dt) {
     if (R) heard.pan = clamp((R.sx / innerWidth) * 2 - 1, -1, 1) * 0.6;
-    const rod = hand.tool === 'touch' && hand.held && hand.rodAt, was = heard.rodAt;
-    heard.rodAt = rod ? [...hand.rodAt] : null;
-    const v = rod && was && dt > 0 ? Math.min(4, Math.hypot(rod[0] - was[0], rod[1] - was[1]) / dt / (3 * hand.reach)) : 0;
+    const tip = hand.tool === 'touch' && hand.held ? hand.rodAt : hand.tool === 'needle' && hand.held ? hand.last : null, was = heard.tip;
+    heard.tip = tip ? [...tip] : null;
+    const v = tip && was && dt > 0 ? Math.min(4, (Math.hypot(tip[0] - was[0], tip[1] - was[1]) * cssPPU()) / dt / 300) : 0;
+    hearWater();
     // (the rod dipped in past halfway is heard going in, and coming out: a tap is a tap)
     if (hand.dip > 0.5 !== heard.dipped) { heard.dipped = !heard.dipped; hear(heard.dipped ? 'dip' : 'lift'); }
     if (hand.rung !== heard.rung) { heard.rung = hand.rung; hear('ring'); }
     const held = hand.held || pull.on || spit.on, will = ride.on && hand.will ? hand.will[2] : 0;
-    const st = { tool: hand.tool, level: Math.round(hand.level * 100) / 100, rod: Math.round(v * 10) / 10, held, ride: ride.on, will };
+    const st = { tool: hand.tool, level: Math.round(hand.level * 100) / 100, move: Math.round(v * 10) / 10, held, ride: ride.on, will,
+      water: heard.water, freezing: heard.freezing, ice: heard.ice };
     const key = JSON.stringify(st);
     if (key !== heard.sent || v) { heard.sent = key; hear('state', st); }
+  }
+  // The water under the stage or the probe, read a few times a second at its center and eight points about it: the
+  // center's temperature, how fast the water near freezing in its reach freezes (0..1, 8° a second and more), and how
+  // much of it is ice
+  function hearWater() {
+    const on = (hand.tool === 'warm' || hand.tool === 'cold') && hand.at && K.heat;
+    if (!on) { Object.assign(heard, { water: null, temps: null, freezing: 0, ice: 0 }); return; }
+    const now = performance.now();
+    if (now - heard.tAt < 150) return;
+    const { x, y, r } = hand.stage, pts = [[x, y]];
+    for (let k = 0; k < 8; k++) pts.push([x + 0.7 * r * Math.cos((k * Math.PI) / 4), y + 0.7 * r * Math.sin((k * Math.PI) / 4)]);
+    eng.tempsAt(pts).then((T) => {
+      if (!T) return;
+      const t = performance.now(), prev = heard.temps, dt = (t - heard.tRead) / 1000;
+      let f = 0;
+      if (prev && dt > 0 && dt < 1) for (let k = 0; k < T.length; k++) if (T[k] < 2 && T[k] > -6) f += Math.max(0, (prev[k] - T[k]) / dt);
+      Object.assign(heard, { temps: T, tRead: t, water: Math.round(T[0]), freezing: Math.round(Math.min(1, f / T.length / 8) * 100) / 100, ice: T.filter((u) => u < 0).length / T.length });
+    });
+    heard.tAt = now;
   }
   // A tap with a tool in hand: Touch rings the water, the needle pricks the cell under its tip.
   async function tapTool(sx, sy) {

@@ -1278,6 +1278,28 @@ class Engine {
     return { u32: new Uint32Array(copy), f32: new Float32Array(copy) };
   }
 
+  /**
+   * The water's temperature at a few world points (the hand's sound: what the stage and probe are doing to it), or
+   * null while the last read is still out. Each point reads its grid cell; at most 16.
+   */
+  tempsAt(points) {
+    if (this.tempBusy || !points.length) return Promise.resolve(null);
+    const d = this.device, [W, H] = this.grid, n = Math.min(16, points.length);
+    this.tempStage ||= d.createBuffer({ size: 16 * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    this.tempBusy = true;
+    const enc = d.createCommandEncoder();
+    for (let k = 0; k < n; k++) {
+      const [x, y] = points[k], cx = ((Math.floor(x) % W) + W) % W, cy = ((Math.floor(y) % H) + H) % H;
+      enc.copyBufferToBuffer(this.b.thermal, (cy * W + cx) * 4, this.tempStage, k * 4, 4);
+    }
+    d.queue.submit([enc.finish()]);
+    return this.tempStage.mapAsync(GPUMapMode.READ).then(() => {
+      const out = new Float32Array(this.tempStage.getMappedRange(0, n * 4).slice(0));
+      this.tempStage.unmap();
+      return out;
+    }).catch(() => null).finally(() => { this.tempBusy = false; });
+  }
+
   /** Read the water's temperature on each grid cell now (headless diagnostics): a Float32Array of grid[0] * grid[1]. */
   async readThermal() {
     const d = this.device, U = GPUBufferUsage, n = this.grid[0] * this.grid[1];

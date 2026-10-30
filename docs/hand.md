@@ -133,35 +133,40 @@ again."
 The hand echoes in the soundtrack (`src/audio/handsound.js`, in the audio thread), clear over the field but never
 over it for long: the page sends its acts as they happen (`sound.hand`: a tool taken up, a tap, the rod dipped in or
 lifted out, a ring wave, a prick, bonds cut, cells taken or set down, a press with the pipette full, a lens set down)
-and, every frame something changes, the tool's state (its level, the rod's speed, the pointer's side of the screen
-as pan). Each is the soundtrack's own voices in the world's key, its notes on the pulse:
+and, every frame something changes, the tool's state (its level; how fast the rod or the needle moves on the screen;
+the water under the stage or the probe; riding and how hard it is steered; the pointer's side of the screen as pan).
+Each is the soundtrack's own voices in the world's key:
 
 - taking up a tool: instruments on a metal tray (glass for the rod, the pipette and the loupe, steel for the needle and
   the probe, a switch for the lamp, shade and stage);
-- the rod: a fingertip in a basin (a tap plips, dipped in past halfway it gloops, a stir sloshes brighter the faster
-  it goes with a bubble now and then, a ring wave whomps, lifted out it plips);
-- the needle: snipping harp strings (a prick one muted pluck, each bond cut a pluck down the scale, a sixteenth
-  apart; the engine counts the bonds its stroke crosses, `H_CUTS` in the hand region, read back with the pipette's
-  takings as `onCut`);
+- the rod: a fingertip in a basin (a tap plips, dipped in past halfway it gloops, a stir sloshes louder and brighter
+  the faster it goes with a bubble now and then, a ring wave whomps, lifted out it plips);
+- the needle: a prick is one muted pluck on the pulse; drawn through the water, a scalpel through paper, a dry high
+  tearing as fast as it goes, rougher for a moment where it cuts bonds (the engine counts the bonds its stroke
+  crosses, `H_CUTS` in the hand region, read back with the pipette's takings as `onCut`);
 - the pipette: glass marbles (one for every cell taken, lower for every one set down, at most one each 40 ms, the
   rest dropped; a press with it full, a cork);
 - the lamp: wind chimes, a chance of one every 0.18 s, better the brighter it is;
 - the shade: a low bowed harmonic as loud as the shade is deep, sliding down a step over its first 3 s;
-- the warm stage: a heavy pan warming (the water heard heating to the boil in 3.2 s held: a rumble under it as hot
-  as it is, a few low bubbles, then the boil's);
-- the cold probe: the pond freezing over (after 1.2 s held, ice heard forming over 2 s: cracking in runs of snaps,
-  each a few milliseconds of noise and no two alike, a deep crack now and then, two groans sinking as it forms, the
-  whole mix dimming, its highs rolling off, and stepping back; gone, it thaws over a second or so);
+- the warm stage: a heavy pan warming (a rumble as hot as the water under it is, from 30° to 95°, a few low bubbles,
+  and from 92° the boil's);
+- the cold probe: the pond freezing over (ice cracking in runs of snaps, each a few milliseconds of noise and no two
+  alike, a deep crack now and then, only while the water under it freezes; a groan as ice begins under it and a lower
+  one as it fills the reach; the whole mix dimming, its highs rolling off, and stepping back as far as the reach is
+  ice);
 - riding: the ridden cell's song forward (it is the picked species) and the rest of the field back to 0.55, and
   while it is steered the low rush of the water past it, a bubble now and then;
 - the loupe: a camera shutter as the lens is set down, on a touch screen only (with a mouse the lens follows the
   pointer, and nothing is set down).
 
-While the rod or the pipette is at work, the field (but the picked species) steps back to 0.8 (`HandSound.duck`), in
-the cold to 0.7, riding to 0.55. The held sounds (the shade's note, the rumble, the rush) are `\air` and `\glass`
-nodes begun when they are first heard and ended two seconds after they go quiet.
-The sounds were picked by ear from prototypes rendered over a captured world; their levels sit each alone about 5 LU
-under the world's mix.
+The water under the stage or the probe is read a few times a second (`eng.tempsAt`: the grid cells at its center and
+eight points 0.7 of its reach about it, 36 bytes): its center's temperature, how fast the water near 0° there is
+cooling (the ice forming, 8° a second and more at full), and how much of it is below 0° (ice).
+While the rod or the pipette is at work, the field (but the picked species) steps back to 0.8 (`HandSound.duck`), with
+the ice to 0.7, riding to 0.55. The held sounds (the stir, the scalpel, the shade's note, the rumble, the rush) are
+single `\air` and `\glass` voices that swell and fade with what the hand does (never a train of notes restarting),
+begun when first heard and ended two seconds after they go quiet. The sounds were picked by ear from prototypes
+rendered over a captured world; their levels sit each alone about 5 LU under the world's mix.
 
 ## The interface
 
