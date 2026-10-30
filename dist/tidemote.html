@@ -20424,6 +20424,14 @@ ${e.message}` : String(e?.message || e));
       if (kinds) this.device.queue.writeBuffer(this.b.focus, 0, kinds, 0, MAXK / 32);
       if (f2.memberN) this.device.queue.writeBuffer(this.b.focus, MAXK / 32 * 4, members, 0, f2.memberN);
     }
+    /**
+     * Kinds lit in the close-up alone (a mini-card's portrait, specimen.light): the focus's kinds, written while the
+     * views' own focus is off (they read the kinds only when on), so the world's view is untouched.
+     */
+    lightKinds(kinds) {
+      if (!this.focus.on) this.device.queue.writeBuffer(this.b.focus, 0, kinds, 0, MAXK / 32);
+      return !this.focus.on;
+    }
     _ensureSpecTex(w, h) {
       if (this.specTex && this.specSize[0] === w && this.specSize[1] === h) return;
       this.specTex?.destroy();
@@ -21899,7 +21907,7 @@ ${e.message}` : String(e?.message || e));
       });
     }
     // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
-    _writeView(buf, data, cam, W, H2, dpr, time, selId, detail = true, culled = false, splat = 0) {
+    _writeView(buf, data, cam, W, H2, dpr, time, selId, detail = true, culled = false, splat = 0, f2 = this.focus) {
       const K = this.K;
       const ppu = cam.ppu;
       const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
@@ -21922,7 +21930,6 @@ ${e.message}` : String(e?.message || e));
       v[11] = time;
       vu[12] = selId >>> 0;
       v[13] = 0.075 / (1 + overlapAll * 0.9) * this.settings.exposure;
-      const f2 = this.focus;
       vu[14] = f2.on;
       vu[15] = f2.roleMask;
       vu[16] = f2.stateMode;
@@ -22243,7 +22250,8 @@ ${e.message}` : String(e?.message || e));
       }
       if (specimen && specimen.target) {
         this._ensureSpecTex(specimen.w, specimen.h);
-        this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, true, culled[2]);
+        const light = specimen.light ? { on: 1, roleMask: 7, stateMode: 0, mute: specimen.light, memberKind: 4294967295, memberN: 0 } : this.focus;
+        this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, true, culled[2], 0, light);
         let pass2 = enc.beginRenderPass({ colorAttachments: [{ view: this.specView, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
         this._drawScene(pass2, this.bgLineS, this.bgPointS, this.bgBridgeS, this.viewDataS, 2);
         pass2.end();
@@ -30952,9 +30960,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "4c98a322221556b4") return;
+      if (localStorage.getItem(key) === "ad87af39d208879f") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "4c98a322221556b4");
+      if (res) localStorage.setItem(key, "ad87af39d208879f");
     } catch {
     }
   }
@@ -32708,20 +32716,24 @@ ${e.message}` : String(e?.message || e));
     });
     let portraitJob = null, portraitHold = false;
     const PORTRAIT = 1024, THUMB = 192;
-    async function takePortrait(serial, { thumb = false, near = null } = {}) {
+    async function takePortrait(serial, { thumb = false } = {}) {
       const sp = life.reg.get(serial);
       if (!sp || !sp.alive) return null;
-      if (!thumb) {
+      if (thumb && eng.pickReq) return null;
+      const hold = !thumb || state.speed > 2;
+      if (hold) {
         portraitHold = true;
         setTimeout(() => {
           if (!portraitJob) portraitHold = false;
         }, 5e3);
       }
-      const look = (o) => thumb && eng.pickReq ? null : bestMember(sp, o).catch(() => null);
-      const m = near && await look({ near, budget: 6 }) || await look(thumb ? { budget: 6, cap: 2048 } : {});
-      if (thumb && (portraitJob || portraitHold)) return null;
+      const m = await bestMember(sp, thumb ? { budget: 6, cap: 2048 } : {}).catch(() => null);
+      if (thumb && (portraitJob || portraitHold && !hold)) {
+        if (hold) portraitHold = false;
+        return null;
+      }
       if (!m) {
-        if (!thumb) portraitHold = false;
+        if (hold) portraitHold = false;
         return null;
       }
       const [W, H2] = eng.grid, { best, res } = m;
@@ -32738,8 +32750,9 @@ ${e.message}` : String(e?.message || e));
       const span2 = clamp6(m.span * 2.6 + 0.6, 1.6, 9) / (thumb ? 2 : 1), size = thumb ? THUMB : PORTRAIT;
       if (portraitJob) portraitJob.resolve(null);
       const subject = clamp6(((m.body ? m.span : 0) + 0.12 * sp.genome.size + 0.08) / (span2 / 2), 0.08, 0.95);
+      const lead = !m.body || thumb;
       return new Promise((resolve) => {
-        portraitJob = { slot: thumb ? null : sp.slot, cx, cy, vx: m.body ? 0 : best.vx, vy: m.body ? 0 : best.vy, t: res.simTime, size, ppu: size / span2, subject, resolve, at: performance.now() };
+        portraitJob = { slot: thumb ? null : sp.slot, thumbSlot: thumb ? sp.slot : null, cx, cy, vx: lead ? best.vx : 0, vy: lead ? best.vy : 0, t: res.simTime, size, ppu: size / span2, subject, resolve, at: performance.now() };
       });
     }
     function takeView() {
@@ -32763,13 +32776,19 @@ ${e.message}` : String(e?.message || e));
       const dt = Math.min(2, Math.max(0, eng.simTime - j.t));
       const [W, H2] = eng.grid;
       j.drawn = true;
+      let light = 0;
+      if (j.thumbSlot != null) {
+        const kinds = new Uint32Array(MAXK / 32);
+        kinds[j.thumbSlot >> 5] |= 1 << (j.thumbSlot & 31) >>> 0;
+        if (eng.lightKinds(kinds)) light = 0.09;
+      }
       if (j.slot != null) {
         const kinds = new Uint32Array(MAXK / 32);
         kinds[j.slot >> 5] |= 1 << (j.slot & 31) >>> 0;
         eng.setFocus({ kinds, mute: 0.09 });
         j.relight = true;
       }
-      return { target: j.tex.createView(), w: j.size, h: j.size, cx: ((j.cx + j.vx * dt) % W + W) % W, cy: ((j.cy + j.vy * dt) % H2 + H2) % H2, ppu: j.ppu, dpr: 1 };
+      return { target: j.tex.createView(), w: j.size, h: j.size, cx: ((j.cx + j.vx * dt) % W + W) % W, cy: ((j.cy + j.vy * dt) % H2 + H2) % H2, ppu: j.ppu, dpr: 1, light };
     }
     async function readPortrait() {
       const j = portraitJob;
@@ -32855,7 +32874,8 @@ ${e.message}` : String(e?.message || e));
     async function thumbBytes(src, crop = [0, 0, src.width, src.height]) {
       const cv = document.createElement("canvas");
       cv.width = cv.height = THUMB;
-      cv.getContext("2d").drawImage(src, ...crop, 0, 0, THUMB, THUMB);
+      cv.getContext("2d", { willReadFrequently: true }).drawImage(src, ...crop, 0, 0, THUMB, THUMB);
+      if (!thumbSeen(cv)) return new Uint8Array(0);
       const blob = await new Promise((res) => cv.toBlob(res, "image/jpeg", 0.82));
       if (!blob) throw new Error("no thumb");
       return new Uint8Array(await blob.arrayBuffer());
@@ -32869,48 +32889,58 @@ ${e.message}` : String(e?.message || e));
       }
     }
     const backfill = [], triedThumb = /* @__PURE__ */ new WeakSet();
+    const blank = (c) => !!c.thumb && !c.thumb.length;
     function cardThumb(c) {
       const key = `c${c.id}`;
-      if (c.thumb) {
+      if (c.thumb?.length) {
         if (!hasThumb(key)) setThumb(key, c.thumb);
-      } else if (c.png && !triedThumb.has(c)) {
+      } else if (!c.thumb && c.png && !triedThumb.has(c)) {
         triedThumb.add(c);
         backfill.push(c);
         if (backfill.length === 1) setTimeout(fillThumbs, 400);
       }
       return key;
     }
+    const cabThumb = (c) => !blank(c) ? cardThumb(c) : c.world === worldId() ? liveThumb(c.serial) : "";
     async function fillThumbs() {
       const c = backfill[0];
       if (!c) return;
       const thumb = await pngThumb(c.png).catch(() => null);
       if (thumb && cabinet.cards.includes(c)) {
         c.thumb = thumb;
-        setThumb(`c${c.id}`, thumb);
         cabinet.store.put(c).catch(() => {
         });
+        if (thumb.length) setThumb(`c${c.id}`, thumb);
+        else {
+          lab.render(true);
+          bench.render();
+        }
       }
       backfill.shift();
       if (backfill.length) setTimeout(fillThumbs, 120);
     }
-    function pipThumb(sp, near = null) {
+    function pipThumb(sp) {
       const c = pipCard(sp);
-      if (c) return cardThumb(c);
-      if (sp.stranger) return "";
-      wantThumb(sp.serial, near);
-      return `s${sp.serial}`;
+      if (c && !blank(c)) return cardThumb(c);
+      return sp.stranger ? "" : liveThumb(sp.serial);
     }
+    const liveThumb = (serial) => {
+      wantThumb(serial);
+      return `s${serial}`;
+    };
     const thumbQ = /* @__PURE__ */ new Map();
     let thumbBusy = false;
-    function wantThumb(serial, near = null) {
-      if (hasThumb(`s${serial}`) || !life.reg.get(serial)?.alive) return;
-      const w = thumbQ.get(serial);
-      if (w) {
-        w.near ??= near;
-        return;
-      }
-      thumbQ.set(serial, { near, tries: 0 });
+    function wantThumb(serial) {
+      if (hasThumb(`s${serial}`) || thumbQ.has(serial) || !life.reg.get(serial)?.alive) return;
+      thumbQ.set(serial, { tries: 0 });
       setTimeout(pumpThumbs, 0);
+    }
+    function thumbSeen(cv) {
+      const S = cv.width, w = Math.round(S * 0.6), h = Math.round(S * 0.38);
+      const px = cv.getContext("2d", { willReadFrequently: true }).getImageData(S - w >> 1, S - h >> 1, w, h).data;
+      let lit = 0;
+      for (let i = 0; i < px.length; i += 4) if (Math.max(px[i], px[i + 1], px[i + 2]) > 80) lit++;
+      return lit > 0.03 * w * h;
     }
     async function pumpThumbs() {
       if (thumbBusy || !thumbQ.size) return;
@@ -32920,16 +32950,13 @@ ${e.message}` : String(e?.message || e));
       }
       const [serial, w] = thumbQ.entries().next().value;
       thumbQ.delete(serial);
-      if (!hasThumb(`s${serial}`) && pipette.species.some((x) => !x.stranger && x.serial === serial && !pipCard(x))) {
+      if (!hasThumb(`s${serial}`)) {
         thumbBusy = true;
-        const cv = await takePortrait(serial, { thumb: true, near: w.near }).catch(() => null);
+        const cv = await takePortrait(serial, { thumb: true }).catch(() => null);
         const bytes = cv && await thumbBytes(cv).catch(() => null);
         thumbBusy = false;
-        if (bytes) setThumb(`s${serial}`, bytes);
-        else if (++w.tries < 3 && life.reg.get(serial)?.alive) {
-          w.near = null;
-          thumbQ.set(serial, w);
-        }
+        if (bytes?.length) setThumb(`s${serial}`, bytes);
+        else if (++w.tries < 4 && life.reg.get(serial)?.alive) thumbQ.set(serial, w);
       }
       setTimeout(pumpThumbs, 250);
     }
@@ -33098,9 +33125,9 @@ ${e.message}` : String(e?.message || e));
       if (sp.alive) focusSpecies(sp);
       renderSpecimen(true);
     }
-    async function bestMember(sp, { near = null, budget = 60, cap: cap3 = Infinity } = {}) {
+    async function bestMember(sp, { budget = 60, cap: cap3 = Infinity } = {}) {
       const [W, H2] = eng.grid;
-      const res = near ? await eng.requestPick([near[0], near[1]], near[2], NONE4, { kind: sp.slot, maxOut: 512, raw: true }) : await eng.requestPick([W / 2, H2 / 2], Math.hypot(W, H2), NONE4, { kind: sp.slot, maxOut: Math.min(cap3, sp.pop * 1.25 + 2048), raw: true });
+      const res = await eng.requestPick([W / 2, H2 / 2], Math.hypot(W, H2), NONE4, { kind: sp.slot, maxOut: Math.min(cap3, sp.pop * 1.25 + 2048), raw: true });
       if (!res || !res.raw.count) return null;
       const { u32, f32, count: n } = res.raw;
       let bestI = 0, body = null;
@@ -33211,7 +33238,7 @@ ${e.message}` : String(e?.message || e));
           if (!f2) cardFacets.set(c, f2 = facets2(genomeOfWords(c.words), K));
           return f2;
         },
-        mini: (c) => miniCard(genomeOfWords(c.words), K, { gid: c.words.join(), key: c.id, name: c.name, status: cardStatus(c), thumb: cardThumb(c) }),
+        mini: (c) => miniCard(genomeOfWords(c.words), K, { gid: c.words.join(), key: c.id, name: c.name, status: cardStatus(c), thumb: cabThumb(c) }),
         status: cardStatus,
         // a card of this world's species opens its live card (to rename it); another world's, as it was drawn
         open: (c) => {
@@ -33754,6 +33781,16 @@ ${e.message}` : String(e?.message || e));
     const pipSp = (key) => pipette.run(+key);
     const pipCard = (sp) => cabinet.cards.find((c) => c.id === sp.card) || (!sp.stranger ? savedCard(sp.serial) : null);
     const heldOf = (sp) => [pipette.cells(sp), sp.orgs.filter((o) => o.cells.length - o.out > 1).length];
+    let runs = [];
+    function pipRuns() {
+      runs = pipette.species.map((sp) => ({ sp, held: heldOf(sp), key: pipKey(sp) }));
+      for (const { kind, g, recs } of pull.got.length ? incoming() : []) {
+        const t2 = runs[0], bodies = bodiesOf(recs).filter((o) => o.cells.length > 1).length;
+        if (t2 && !t2.sp.stranger && t2.sp.serial === g.serial) t2.held = [t2.held[0] + recs.length, t2.held[1] + bodies];
+        else runs.unshift({ sp: { serial: g.serial, words: wordsOf(kind), name: drawnName(g) }, held: [recs.length, bodies], key: `in${g.serial}` });
+      }
+      return runs;
+    }
     const bench = createBench({
       hand,
       pick: pickTool,
@@ -33766,22 +33803,23 @@ ${e.message}` : String(e?.message || e));
         }
       },
       pip: {
-        view: () => ({ count: pipette.count, limit: PIPE_LIMIT, armed: pull.armed, keys: pipette.species.map((sp) => pipKey(sp) + (pipCard(sp) ? "*" : "")), held: pipette.species.map(heldOf), mixed: pipette.mixed }),
-        cards: (flat) => pipette.species.map((sp) => {
-          const [n, bodies] = heldOf(sp);
-          return miniCard(genomeOfWords(sp.words), K, {
-            gid: sp.words.join(),
-            key: pipKey(sp),
-            name: sp.name,
-            home: sp.home || "",
-            n,
-            bodies,
-            tip: sp === pipette.tip,
-            flat,
-            kept: !!pipCard(sp),
-            thumb: pipThumb(sp)
-          });
-        }).join(""),
+        view: () => ({ count: pipette.count + pull.got.length, limit: PIPE_LIMIT, armed: pull.armed, keys: pipRuns().map((r) => {
+          const c = pipCard(r.sp);
+          return r.key + (c ? blank(c) ? "!*" : "*" : "");
+        }), held: runs.map((r) => r.held), mixed: pipette.mixed }),
+        // (after view, its runs)
+        cards: (flat) => runs.map(({ sp, held: [n, bodies], key }, i) => miniCard(genomeOfWords(sp.words), K, {
+          gid: sp.words.join(),
+          key,
+          name: !sp.stranger && life.reg.get(sp.serial)?.name || sp.name,
+          home: sp.home || "",
+          n,
+          bodies,
+          tip: i === 0,
+          flat,
+          kept: !!pipCard(sp),
+          thumb: pipThumb(sp)
+        })).join(""),
         move: (key, i) => {
           const sp = pipSp(key);
           if (sp) pipette.move(sp, i);
@@ -33960,6 +33998,7 @@ ${e.message}` : String(e?.message || e));
       pull.last = performance.now();
       if (life.lastCensus) hand.note("pipette", ...pull.tip, eng.simTime, recs.length);
       hear("cells", { n: recs.length });
+      bench.render();
     };
     function pullDone() {
       hand.suck = null;
@@ -33967,11 +34006,23 @@ ${e.message}` : String(e?.message || e));
       pull.drawn.clear();
       pull.taken.clear();
       for (const { kind, g, recs } of incoming()) {
-        pipette.add({ serial: g.serial, words: wordsOf(kind), slot: kind, name: life.reg.get(g.serial)?.name || "an unnamed species" }, recs);
-        wantThumb(g.serial, [...pull.tip, Math.max(4 * hand.reach, 6)]);
+        pipette.add({ serial: g.serial, words: wordsOf(kind), slot: kind, name: drawnName(g) }, recs);
       }
       pull.got = [];
       bench.render();
+    }
+    const drawnNames = /* @__PURE__ */ new Map();
+    function drawnName(g) {
+      const sp = life.reg.get(g.serial);
+      if (sp) return sp.name;
+      let name = drawnNames.get(g.serial);
+      if (!name) {
+        const t2 = eng.simTime, at = Math.floor(t2 / SIM_CLOCK) * SIM_CLOCK + g.born;
+        name = register({ ...g, born: at > t2 + 1 ? at - SIM_CLOCK : at }).name;
+        drawnNames.set(g.serial, name);
+        if (drawnNames.size > 256) drawnNames.delete(drawnNames.keys().next().value);
+      }
+      return name;
     }
     function incoming() {
       const by = /* @__PURE__ */ new Map();
