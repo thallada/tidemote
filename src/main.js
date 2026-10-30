@@ -227,7 +227,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // what it draws up (startPull: pressed, what it took, the cells bonded to those still coming, a word by the tip),
   // Dispense on (armed: a press sets down), and what it sets down (startSpit)
   const pull = { on: false, at: 0, until: 0, tip: [0, 0], got: [], taken: new Set(), drawn: new Set(), last: 0, quiet: 0, armed: false, shake: 0, note: null };
-  const spit = { on: false, held: false, busy: false, sp: null, org: null, at: 0, next: 0, fails: 0, dir: 0, pt: null, tip: [0, 0] };
+  const spit = { on: false, held: false, busy: false, sp: null, org: null, at: 0, next: 0, owed: 0, last: 0, fails: 0, dir: 0, pt: null, tip: [0, 0] };
   // riding the specimen (toggleRide): where a held pointer steers it (at), the arrow keys held
   const ride = { on: false, arrows: new Set(), at: null, warned: false };
   // While a pointer is held down on a panel, nothing re-renders under it: replacing the element
@@ -2551,12 +2551,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // farther and faster the longer it is held, out to its reach (the engine's hand.suck: a click takes a cell or
   // a few, at its tip), and takes in what reaches it; let go, it stops, but for
   // the cells bonded to one it took, which follow it in unless it is pulled away from them faster than they come.
-  // Setting down (Dispense, or ⇧): the tip species' cells leave it one by one (now and then two or three
-  // together), sooner the longer it is held, each keeping its bonds, so a body comes out as it went in.
+  // Setting down (Dispense, or ⇧): the tip species' cells leave it at a rate that rises the longer it is held, owed by
+  // the time and set down each frame as they come due (what a set-down could not hold comes the next frame), each
+  // keeping its bonds, so a body comes out as it went in and the flow is even, never a trickle and then a gush.
   const PRESSURE = 1.5; // seconds held to full pressure
   const SUCK = [1.5, 16]; // how fast the tip draws what is in its reach (world units a second), pressed and at full pressure
   const SIP = 0.35; // how far the tip draws from, pressed (world units; at full pressure, its reach)
-  const SPIT = [110, 16]; // ms between cells leaving, pressed and at full pressure
+  const SPIT = [10, 600]; // cells a second leaving, pressed and at full pressure (eased by the pressure squared)
+  const OWED = [0.25, 0.02]; // seconds of cells a frame may owe for at most (a stall never dumps), and left over from
+  // a set-down that could hold fewer than were due
   const pressed = (t0, now) => Math.min(1, (now - t0) / 1000 / PRESSURE);
   const lerp2 = ([a, b], u) => a + (b - a) * u;
   const wordsOf = (kind) => Array.from(life.lastCensus.genomeU32.subarray(kind * G_WORDS, (kind + 1) * G_WORDS));
@@ -2683,7 +2686,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function startSpit(sx, sy, sp = null) {
     if (!pipette.count) return;
     // (org true: a whole to come out, whichever comes first)
-    Object.assign(spit, { on: true, held: !sp, sp, org: true, at: performance.now(), next: 0, fails: 0, pt: sp ? toWorld(sx, sy) : null, tip: toWorld(sx, sy) });
+    const now = performance.now();
+    // (the first cell comes at once)
+    Object.assign(spit, { on: true, held: !sp, sp, org: true, at: now, next: 0, owed: 1, last: now, fails: 0, pt: sp ? toWorld(sx, sy) : null, tip: toWorld(sx, sy) });
   }
   async function spitNext(now, R) {
     const sp = spit.sp || pipette.tip;
@@ -2695,10 +2700,23 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (Math.abs(eng.simTime - sp.pendingAt) < 5) return;
       sp.pending = null;
     }
-    // (more at once the longer it is held: a cell or two at first, by the dozen at full pressure, as fast as it
-    // draws up; a click's body, or a card's colonies, come out whole, one at a time)
-    const u = pressed(spit.at, now), r = Math.random();
-    let items = pipette.next(sp, 1 + Math.round(u * u * 30) + (r < 0.07 ? 2 : r < 0.25 ? 1 : 0));
+    // (the cells come due as the time passes, faster the longer it is held, a little unevenly; a click's body, or a
+    // card's colonies, come out whole, one at a time)
+    const u = pressed(spit.at, now);
+    const rate = lerp2(SPIT, u * u), dt = Math.min(OWED[0], (now - spit.last) / 1000);
+    spit.owed = Math.min(spit.owed + rate * (0.8 + 0.4 * Math.random()) * dt, Math.max(1, rate * (dt + OWED[1])));
+    spit.last = now;
+    if (spit.owed < 1) return;
+    // (held at the tip, on from one run to the next as each empties, so a stack of short runs flows as evenly as one
+    // long one; a stranger waiting for its lineage holds back what is behind it)
+    let items = [], due = Math.floor(spit.owed);
+    for (const run of spit.held && !spit.sp ? pipette.species : [sp]) {
+      if (run !== sp && (run.pending != null || run.stranger)) break;
+      const its = pipette.next(run, due);
+      items.push(...its);
+      due -= its.reduce((m, x) => m + (x.n || x.made), 0);
+      if (due <= 0) break;
+    }
     if (!spit.held && !spit.sp) items = items.slice(0, 1);
     if (!items.length) { spit.on = false; return; }
     const it = items[0], whole = it.org || sp;
@@ -2715,31 +2733,36 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const res = await eng.setDown({ at, take: setDownTake(job.cells.length), ...job });
     spit.busy = false;
     if (!res) return;
-    const got = res.slots[0] !== NONE ? res.placed : 0;
+    // (each of the batch's organisms its share of what was placed, in turn, if its species found a slot)
+    let got = 0, off = 0;
+    for (const x of items) {
+      const m = x.n || x.made, slot = res.slots[job.of.indexOf(x.sp)], k = slot === NONE ? 0 : Math.max(0, Math.min(m, res.placed - off));
+      off += m;
+      if (!k) continue;
+      const run = x.sp;
+      if (run.stranger) { life.carried[slot] = { name: run.name, home: run.home }; Object.assign(run, { pending: slot, pendingAt: eng.simTime }); }
+      run.slot = slot;
+      // (the column's cells that left, in the order they did, to be seen sliding out)
+      for (let j = 0; j < k; j++) bore.gone.push(x.org ? boreCell(run.words, x.org.cells[x.from + j]) : madeCell(run));
+      pipette.left(x, k, res.ids.slice(off - m, off - m + k));
+      got += k;
+    }
     if (got) {
-      sp.slot = res.slots[0];
-      if (sp.stranger) { life.carried[sp.slot] = { name: sp.name, home: sp.home }; Object.assign(sp, { pending: sp.slot, pendingAt: eng.simTime }); }
-      // (each of the batch's organisms its share of what was placed, in turn)
-      let off = 0;
-      for (const x of items) {
-        const m = x.n || x.made, k = Math.max(0, Math.min(m, got - off));
-        // (the column's cells that left, in the order they did, to be seen sliding out)
-        for (let j = 0; j < k; j++) bore.gone.push(x.org ? boreCell(sp.words, x.org.cells[x.from + j]) : madeCell(sp));
-        if (k) pipette.left(x, k, res.ids.slice(off, off + k));
-        off += m;
-      }
       bore.gone.splice(0, Math.max(0, bore.gone.length - 400));
+      spit.owed = Math.max(0, spit.owed - got);
       hand.note('setdown', ...at, eng.simTime, got);
       hear('cells', { n: got, out: true });
 
-      if (it.org ? it.org.out >= it.org.cells.length : !sp.made) spit.org = null;
+      if (it.org ? it.org.out >= it.org.cells.length : !it.sp.made) spit.org = null;
       spit.fails = 0;
     } else if (++spit.fails > 2) {
       // (no silt left in all the world to make them of: a word by the tip, and a click's or a card's work ends)
       pull.note = { text: 'No silt left to make them of', t: now };
       if (!spit.held) spit.on = false;
     }
-    spit.next = now + lerp2(SPIT, u) * (got ? 1 : 4);
+    // (none placed: again the next frame, as a few grains of silt may just not have been taken; failing again and
+    // again, a moment between tries)
+    if (!got && spit.fails > 2) spit.next = now + 200;
     bench.render();
   }
   // a press with the pipette in hand: Load draws up, Dispense sets down (⇧: the other)

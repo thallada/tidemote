@@ -77,9 +77,14 @@ smooth). Out of focus, the glass's walls spread as wide as the blur and dim as t
 press), a bar under it filling with the pressure.
 
 Setting down: with Dispense on (beside the pipette's strip, and on a phone's held strip; Load, the default, draws up),
-or ⇧ and a press, squeezes the tip's run out a cell or two at a time, then the run before it,
-pushed on their way, then more at once and more often as it is held: at full pressure by the dozen every 16 ms,
-organism after organism in one set-down (`mergeJobs`), as fast as it draws up. A click sets down one
+or ⇧ and a press, squeezes the tip's run out, then the run before it, pushed on their way, at a rate that rises as
+it is held (`SPIT`: 10 cells a second pressed, 600 at full pressure, by the pressure squared). The cells come due
+with the time and each frame sets down what is due (`spit.owed`; a frame owes for a quarter second at most, so a
+stall never dumps, and a set-down that held fewer than were due carries only a little over), organism after organism
+and run after run in one set-down (`mergeJobs`: up to `PIPE_SP` species), so a stack of short runs flows as evenly
+as one long one. A set-down none of whose cells were placed (no grains of silt taken) tries again the next frame,
+and only after three such a moment later; a species whose slot was taken finds any free one (`injectSlots` tries
+every slot in turn after its random few). A click sets down one
 body, or a card's colonies, whole; held, one after another. Each cell keeps the bonds it kept: to cells leaving with
 it, and to cells already out by the IDs they were given (`setDownJob`: up to `PIPE_IDS` earlier cells, found by
 `injectCells`; `injectBonds` restores each keeper's slot), so a tree comes out a tree. The particles are a fixed number, each

@@ -3246,6 +3246,14 @@ fn injectSlots(@builtin(global_invocation_id) gid: vec3u) {
   if (slot == NONE) {
     var s = pcg(serial ^ sim.seed ^ (j * 7919u));
     slot = allocSlot(&s);
+    // (a crowded table: its few random tries missed; every slot in turn, so the cells wait only when none is free)
+    for (var k = FIRST_LIFE; slot == NONE && k < MAXK; k++) {
+      if (atomicCompareExchangeWeak(&ledger[META_SLOT + k], 0u, 1u).exchanged) {
+        slot = k;
+        let c = splBase() + SPL_CAUSE + k * SPL_NC;
+        for (var q = 0u; q < SPL_NC; q++) { atomicStore(&ledger[c + q], 0u); }
+      }
+    }
     if (slot != NONE) {
       for (var w = 0u; w < G_WORDS; w++) { genomeWords[slot * G_WORDS + w] = atomicLoad(&ledger[o + w]); }
       // a stranger founds a lineage here, as a spark does

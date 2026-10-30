@@ -7,7 +7,7 @@
 // were given. A species loaded from a card holds colonies not yet made (`made`: how many cells to make, as
 // newborns, as they leave). Pure: the page draws up and sets down, and keeps the contents with the world
 // (life.pipette).
-import { PIPE_EARLIER, PIPE_IDS } from './shaders.js';
+import { PIPE_EARLIER, PIPE_IDS, PIPE_SP } from './shaders.js';
 
 export const PIPE_LIMIT = 2048;
 const NONE = 0xffffffff;
@@ -120,16 +120,19 @@ export function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
 }
 
 /**
- * One set-down of several `next`s' jobs (setDownJob) of one species: their cells in turn, as many of them as their
- * cells out before fit in PIPE_IDS; { job, used } (how many of them it holds).
+ * One set-down of several `next`s' jobs (setDownJob), of one species or of runs one after another: their cells in
+ * turn, as many of them as their cells out before fit in PIPE_IDS and their species in PIPE_SP; { job, used } (how
+ * many of them it holds). job.of: the run (a pipette species) of each of job.species.
  */
 export function mergeJobs(jobs) {
-  const job = { species: jobs[0].species, cells: [], earlier: [], bonds: [] };
+  const job = { species: [], of: [], cells: [], earlier: [], bonds: [] };
   let used = 0;
   for (const j of jobs) {
     if (used && job.earlier.length + j.earlier.length > PIPE_IDS) break;
+    let k = job.of.indexOf(j.of);
+    if (k < 0) { if (job.of.length >= PIPE_SP) break; k = job.of.push(j.of) - 1; job.species.push(j.species[0]); }
     const c0 = job.cells.length, e0 = job.earlier.length, ref = (r) => (r < PIPE_EARLIER ? r + c0 : r + e0);
-    job.cells.push(...j.cells);
+    job.cells.push(...j.cells.map((c) => ({ ...c, sp: k })));
     job.earlier.push(...j.earlier);
     job.bonds.push(...j.bonds.map(([a, b, q]) => [ref(a), ref(b), q]));
     used++;
@@ -143,9 +146,9 @@ export function mergeJobs(jobs) {
  * out before (by their IDs) or leaving with it, and each cell out before that kept one of these keeps it again.
  */
 export function setDownJob(it, placed, newborn) {
-  const species = [{ words: it.sp.words, slot: it.sp.slot, stranger: !!it.sp.stranger }];
+  const species = [{ words: it.sp.words, slot: it.sp.slot, stranger: !!it.sp.stranger }], of = it.sp;
   if (!it.org) {
-    return { species, cells: Array.from({ length: it.made }, (_, k) => { const [energy, col, info] = newborn(it.sp); const [dx, dy, vx, vy] = placed(k); return { sp: 0, dx, dy, vx, vy, energy, age: 0, col, info }; }), earlier: [], bonds: [] };
+    return { species, of, cells: Array.from({ length: it.made }, (_, k) => { const [energy, col, info] = newborn(it.sp); const [dx, dy, vx, vy] = placed(k); return { sp: 0, dx, dy, vx, vy, energy, age: 0, col, info }; }), earlier: [], bonds: [] };
   }
   const { org, from, n } = it, earlier = [], eIdx = new Map(), bonds = [];
   const ref = (j) => {
@@ -161,5 +164,5 @@ export function setDownJob(it, placed, newborn) {
     for (let q = 0; q < 2; q++) if (c[4 + q] >= 0 && c[4 + q] < from + n) link(from + k, c[4 + q], q);
   }
   for (let j = 0; j < from; j++) for (let q = 0; q < 2; q++) { const p = org.cells[j][4 + q]; if (p >= from && p < from + n) link(j, p, q); }
-  return { species, cells, earlier, bonds };
+  return { species, of, cells, earlier, bonds };
 }

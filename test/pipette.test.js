@@ -105,3 +105,14 @@ test('jobs merged into one set-down: their cells in turn, each one’s bonds and
   assert.deepEqual(job.earlier, [9, 8]);
   assert.deepEqual(job.bonds, [[1, 0, 0], [PIPE_EARLIER, 1, 1], [2, PIPE_EARLIER + 1, 0]]);
 });
+
+test('one set-down across runs: each run its species, its cells told which, so short runs flow as one', () => {
+  const A = { words: [1] }, B = { words: [2] };
+  const a = { species: [{ words: [1] }], of: A, cells: [{ sp: 0 }], earlier: [], bonds: [] };
+  const b = { species: [{ words: [2] }], of: B, cells: [{ sp: 0 }, { sp: 0 }], earlier: [], bonds: [] };
+  const a2 = { species: [{ words: [1] }], of: A, cells: [{ sp: 0 }], earlier: [], bonds: [] };
+  const { job, used } = mergeJobs([a, b, a2]);
+  assert.equal(used, 3);
+  assert.deepEqual(job.of, [A, B]);
+  assert.deepEqual(job.cells.map((c) => c.sp), [0, 1, 1, 0]);
+});
