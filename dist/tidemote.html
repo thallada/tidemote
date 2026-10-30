@@ -423,41 +423,62 @@ body.spec-open .bench { right: var(--spec-pw); }
 .strip::-webkit-scrollbar { display: none; }
 .pip-empty { flex: 1; min-height: 96px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: var(--s1); padding: var(--s3); border: 1px dashed var(--line); color: var(--ink-3); text-align: center; font-size: 12px; }
 .pip-empty b { color: var(--ink-2); font-weight: 400; font-size: 13px; }
-/* a mini-card: sigil, name, kind, home water; bracketed at its corners */
-.mini { --c: var(--line-2); position: relative; flex: 0 0 112px; min-height: 104px; padding: 18px 6px 6px; display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; touch-action: pan-x;
-  background: linear-gradient(var(--c), var(--c)) left top / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) left top / 1px 7px no-repeat,
-    linear-gradient(var(--c), var(--c)) right top / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) right top / 1px 7px no-repeat,
-    linear-gradient(var(--c), var(--c)) left bottom / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) left bottom / 1px 7px no-repeat,
-    linear-gradient(var(--c), var(--c)) right bottom / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) right bottom / 1px 7px no-repeat, rgba(6, 10, 11, 0.6); }
-.mini.at-tip { --c: var(--sun); border-color: rgba(241, 227, 160, 0.5); }
-.mc-sig { width: 30px; height: 30px; display: grid; place-items: center; }
-.mc-name { color: var(--ink); font-size: 12px; line-height: 1.2; font-weight: 500; overflow-wrap: anywhere; }
-.mc-kind { color: var(--cyan); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; font-stretch: 106%; line-height: 1.25; }
-.mc-home { color: var(--ink-3); font-size: 11px; margin-top: auto; }
-.mc-n { position: absolute; top: 3px; left: 6px; right: 6px; display: flex; justify-content: space-between; gap: 4px; font-size: 11px; color: var(--ink-2); pointer-events: none; }
-.mc-n i { font-style: normal; color: var(--sun); letter-spacing: .14em; text-transform: uppercase; font-weight: 600; }
-.mc-n b { margin-left: auto; font-weight: 500; }
-.mini.at-tip .mc-n b { color: var(--sun); }
-.mc-n small { font-size: 11px; color: var(--ink-3); font-weight: 400; }
-.mini.flat { flex: 0 0 160px; min-height: 50px; display: grid; grid-template-columns: 24px 1fr; grid-template-rows: auto auto; column-gap: 8px; align-items: center; text-align: left; padding: 6px 8px; }
-.mini.flat .mc-sig { grid-row: 1 / 3; width: 24px; height: 24px; }
-.mini.flat .mc-n { top: 2px; }
-.mini.flat .mc-n b { position: absolute; right: 0; top: 30px; }
+/* a mini-card, a field-guide plate: its portrait (its sigil until it has one), an edge split by what it eats, its diet
+   and motion marked on the portrait, its name in two set lines, then its kind or how it does here */
+.minicard { position: relative; flex: 0 0 116px; display: grid; grid-template-rows: 72px 3px auto auto; min-width: 0; padding: 0; text-align: left; touch-action: pan-x;
+  background: #0a1012; border: 1px solid var(--line-faint); color: var(--ink-2); }
+.minicard:hover { border-color: var(--line); }
+.minicard:focus-visible { outline: 1px solid var(--cyan); outline-offset: 1px; }
+.minicard.at-tip { border-color: var(--sun); box-shadow: 0 0 0 1px rgba(241, 227, 160, 0.25); }
+/* (the portrait about its middle: a card's crop holds its subject's surroundings, the plate shows its heart) */
+.mc-ph { position: relative; display: grid; place-items: center; overflow: hidden; background: radial-gradient(circle, rgba(127, 214, 223, 0.1), transparent 70%) #0b0f14; background-position: center; background-repeat: no-repeat; }
+.mc-ph.on { background-size: 165%; }
+.mc-ph.on .mc-sig { visibility: hidden; }
+.mc-sig { display: grid; place-items: center; }
+.mc-sig svg { display: block; }
+.mc-mix { display: flex; gap: 1px; background: var(--bg); }
+.mc-mix i { display: block; min-width: 2px; }
+.mc-tip { position: absolute; left: 0; top: 0; padding: 0 5px; line-height: 16px; background: var(--sun); color: #0a0d0c; font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+.mc-n { position: absolute; right: 0; top: 0; padding: 0 6px; line-height: 18px; background: rgba(6, 9, 10, 0.78); color: var(--ink); font-size: 12px; pointer-events: none; }
+.mc-n b { font-weight: 500; font-variant-numeric: tabular-nums; }
+.mc-n small { font-size: 11px; color: var(--ink-2); font-weight: 400; }
+.minicard.at-tip .mc-n b { color: var(--sun); }
+.mc-kind { position: absolute; left: 4px; top: 52px; display: flex; gap: 3px; padding: 2px 3px; background: rgba(6, 9, 10, 0.78); color: var(--ink-2); }
+.mc-kind svg { width: 12px; height: 12px; display: block; }
+.mc-kept { position: absolute; right: 4px; top: 52px; width: 16px; height: 16px; padding: 1px; background: rgba(6, 9, 10, 0.78); color: var(--sun); }
+.mc-kept svg { width: 100%; height: 100%; display: block; }
+/* (two lines whatever the name: a long one is cut at its end, the whole in the card's label) */
+.mc-name { display: grid; padding: 6px 7px 0; font-size: 12.5px; line-height: 1.2; min-width: 0; }
+.mc-name > * { min-height: 1.2em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-name b { color: var(--ink); font-weight: 500; }
+.mc-sub { padding: 3px 7px 7px; font-size: 11px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.mc-sub.from { color: var(--sun); }
+.mc-sub.gone { text-decoration: line-through rgba(111, 138, 140, 0.6); }
+.mc-live { display: inline-block; width: 5px; height: 5px; margin: 0 5px 1px 0; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 4px var(--cyan); }
+/* a phone's held strip: one row, the portrait square at its left */
+.minicard.flat { flex: 0 0 172px; grid-template-columns: 44px minmax(0, 1fr) auto; grid-template-rows: 44px 3px; column-gap: 8px; align-items: center; padding-right: 6px; }
+.minicard.flat .mc-ph { grid-row: 1; align-self: stretch; height: 44px; }
+.minicard.flat .mc-ph.on { background-size: 190%; }
+.minicard.flat .mc-mix { grid-column: 1; grid-row: 2; }
+.minicard.flat .mc-name { grid-row: 1; padding: 0; font-size: 12px; }
+.minicard.flat .mc-end { grid-row: 1; display: grid; justify-items: end; gap: 2px; }
+.minicard.flat .mc-tip, .minicard.flat .mc-n, .minicard.flat .mc-kept { position: static; background: none; padding: 0; }
+.minicard.flat .mc-tip { padding: 0 4px; background: var(--sun); }
+.minicard.flat .mc-kept { width: 13px; height: 13px; }
 /* the cabinet: its mini-cards in a grid, three or more a row */
 .cab-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
-.cab-grid .mini { min-height: 124px; padding-top: 10px; touch-action: pan-y; }
+.cab-grid .minicard { touch-action: pan-y; }
 .cab-grid .pip-empty { grid-column: 1 / -1; }
 /* a card saved: it presents itself at the center, then shrinks to the Lab */
 .card-fly { position: fixed; left: 50%; top: 50%; z-index: 40; width: min(330px, 70vw); pointer-events: none; transform: translate(-50%, -50%); box-shadow: 0 12px 48px rgba(0, 0, 0, 0.7); }
 body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-card [data-tool="pipette"] { outline: 1px dashed var(--sun); outline-offset: 2px; }
-.mc-kept { position: absolute; right: 5px; bottom: 5px; width: 13px; height: 13px; color: var(--sun); opacity: .8; }
-.mc-kept svg { width: 100%; height: 100%; display: block; }
-.mini.flat .mc-kept { bottom: auto; top: 6px; right: 6px; }
 /* a card being moved: its place, open, where it will land */
-.mini.mc-slot { border-style: dashed; border-color: rgba(241, 227, 160, 0.55); background: rgba(241, 227, 160, 0.04); }
-.mini.mc-slot > * { visibility: hidden; }
+.minicard.mc-slot { border-style: dashed; border-color: rgba(241, 227, 160, 0.55); background: rgba(241, 227, 160, 0.04); }
+.minicard.mc-slot > * { visibility: hidden; }
 /* a card dragged out of the strip */
 .ghost-card { position: fixed; left: 0; top: 0; z-index: 30; pointer-events: none; opacity: .92; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); }
+.ghost-card.minicard { width: 116px; }
+.ghost-card.minicard.flat { width: 172px; }
 /* the dock's pipette carries its count */
 .dock .tools .tool[data-tool="pipette"]::after { content: attr(data-count); position: absolute; left: 3px; top: 1px; font-size: 11px; line-height: 1; color: var(--sun); letter-spacing: 0; }
 
@@ -1299,6 +1320,15 @@ svg.niche .n-dot { fill: var(--cyan); }
   <symbol id="i-t-pipette" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M7.5 7.5V4.2a2.5 2.5 0 0 1 5 0v3.3"/><path d="M6 7.5h8M8 7.5v6l2 4 2-4v-6"/></g></symbol>
   <symbol id="i-bench" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M2.5 13.5h15M4 13.5v3.5M16 13.5v3.5M6.5 13.5V7.6M10 13.5V3M13.5 13.5V8"/><circle cx="6.5" cy="5.6" r="1.8"/><path d="M12 8h3"/></g></symbol>
   <symbol id="i-t-none" viewBox="0 0 20 20"><path d="M10 3v14M3 10h14M10 3 8 5M10 3l2 2M10 17l-2-2M10 17l2-2M3 10l2-2M3 10l2 2M17 10l-2-2M17 10l-2 2" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <!-- a species' diet and motion, as the mini-cards mark them (drawn in currentColor, on a 12 grid) -->
+  <symbol id="i-d-photosynth" viewBox="0 0 12 12"><circle cx="6" cy="6" r="2.1" fill="currentColor"/><path d="M6 .9v1.6M6 9.5v1.6M.9 6h1.6M9.5 6h1.6M2.4 2.4l1.1 1.1M8.5 8.5l1.1 1.1M2.4 9.6l1.1-1.1M8.5 3.5l1.1-1.1" stroke="currentColor" stroke-width="1.1"/></symbol>
+  <symbol id="i-d-grazer" viewBox="0 0 12 12"><g fill="currentColor"><circle cx="3" cy="4" r="1.2"/><circle cx="7.6" cy="2.8" r="1"/><circle cx="5.2" cy="7.6" r="1.3"/><circle cx="9.4" cy="7.2" r="1"/><circle cx="2.6" cy="9.6" r=".8"/></g></symbol>
+  <symbol id="i-d-scavenger" viewBox="0 0 12 12"><path d="M9.4 3.6A4.2 4.2 0 1 0 9.4 8.4" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="6" cy="6" r="1.2" fill="currentColor"/></symbol>
+  <symbol id="i-d-predator" viewBox="0 0 12 12"><path d="M1.2 2.6h9.6L6 10.6zM4 2.6 6 6l2-3.4z" fill="currentColor" fill-rule="evenodd"/></symbol>
+  <symbol id="i-m-anchored" viewBox="0 0 12 12"><path d="M6 3.2v6.6M2.6 10.4h6.8" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="6" cy="2.6" r="1.6" fill="currentColor"/></symbol>
+  <symbol id="i-m-crawler" viewBox="0 0 12 12"><path d="M.8 8.6q1.3-3 2.6 0t2.6 0 2.6 0 2.6 0M.8 10.6h10.4" stroke="currentColor" stroke-width="1.1" fill="none"/></symbol>
+  <symbol id="i-m-swimmer" viewBox="0 0 12 12"><path d="M.8 6q1.6-3 3.2 0t3.2 0M7.6 3l3.4 3-3.4 3" stroke="currentColor" stroke-width="1.2" fill="none"/></symbol>
+  <symbol id="i-m-drifter" viewBox="0 0 12 12"><path d="M.8 4.6q2.6-2.6 5.2 0t5.2 0M.8 8.6q2.6-2.6 5.2 0t5.2 0" stroke="currentColor" stroke-width="1" fill="none"/></symbol>
   <symbol id="i-cabinet" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="3" width="13" height="14"/><path d="M3.5 10h13M8.5 6.5h3M8.5 13.5h3"/></g></symbol>
   <!-- the pool's events and the climate's excursions (the rail's event chip) -->
   <symbol id="i-ev-drought" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="10" cy="7" r="2.8"/><path d="M10 1.8v1.4M4.8 7H3.4M16.6 7h-1.4M6.3 3.3l1 1M13.7 3.3l-1 1M2.5 12.5h15M5 15.5l2-3 2 3.5 2-3.5M13 12.5l1.2 3"/></g></symbol>
@@ -24684,6 +24714,10 @@ ${e.message}` : String(e?.message || e));
     const types = roleShares(g).filter((v) => v > 0.1).length;
     return { diet, mobility, body: multi ? "multicellular" : "single-cell", types, schooling: g.align > 0.5 && swim > 0.3 };
   }
+  function dietMix(g) {
+    const eat = 1 - g.photo, dw = (g.dGlint || 0) + (g.dHusk || 0) + (g.dFlesh || 0) || 1;
+    return [["photosynth", g.photo], ["grazer", eat * (g.dGlint || 0) / dw], ["scavenger", eat * (g.dHusk || 0) / dw], ["predator", eat * (g.dFlesh || 0) / dw]];
+  }
   function describe2(g, K) {
     const f2 = facets2(g, K);
     const parts = [f2.diet];
@@ -24718,15 +24752,68 @@ ${e.message}` : String(e?.message || e));
 
   // src/minicard.js
   var countText = (n, bodies, flat) => `×${fmt(n)}${bodies > 1 && !flat ? `<small> · ${fmt(bodies)} bodies</small>` : ""}`;
-  function miniCard(g, K, { key, name, home = "", n = 0, bodies = 0, tip = false, kept = false, flat = false }) {
-    const f2 = facets2(g, K);
-    const count = n ? `<span class="mc-n">${tip ? "<i>Tip</i>" : ""}<b>${countText(n, bodies, flat)}</b></span>` : "";
-    return `<button type="button" class="mini${flat ? " flat" : ""}${tip ? " at-tip" : ""}" data-key="${esc(key)}" aria-label="${esc(name)}${n ? `, ${n} cells` : ""}">${count}${kept ? '<span class="mc-kept" data-hint="Its card is in the cabinet"><svg aria-hidden="true"><use href="#i-cabinet"/></svg></span>' : ""}<span class="mc-sig">${sigilSVG(voiceOf(g), g, { size: flat ? 22 : 30 })}</span><span class="mc-name" translate="no">${esc(name)}</span><span class="mc-kind">${f2.diet} · ${f2.mobility}</span>${home && !flat ? `<span class="mc-home">${esc(home)}</span>` : ""}</button>`;
+  var statusText = ([k, v]) => k === "live" ? `<i class="mc-live"></i>${fmt(v)} alive` : k === "gone" ? "extinct here" : `↗ from ${esc(v)}`;
+  function setStatus(el, st) {
+    const html = statusText(st);
+    if (el.innerHTML === html) return;
+    el.innerHTML = html;
+    el.classList.toggle("from", st[0] === "from");
+    el.classList.toggle("gone", st[0] === "gone");
+  }
+  var thumbs = /* @__PURE__ */ new Map();
+  var THUMBS_MAX = 512;
+  var hasThumb = (key) => thumbs.has(key);
+  function setThumb(key, bytes) {
+    dropThumb(key);
+    const url = URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" }));
+    thumbs.set(key, url);
+    if (thumbs.size > THUMBS_MAX) dropThumb(thumbs.keys().next().value);
+    for (const el of document.querySelectorAll(`.minicard[data-thumb="${CSS.escape(key)}"] .mc-ph`)) {
+      el.style.backgroundImage = `url(${url})`;
+      el.classList.add("on");
+    }
+  }
+  function dropThumb(key, all = false) {
+    for (const k of all ? [...thumbs.keys()].filter((x) => x.startsWith(key)) : [key]) {
+      const url = thumbs.get(k);
+      if (url) {
+        URL.revokeObjectURL(url);
+        thumbs.delete(k);
+      }
+    }
+  }
+  var sigils = /* @__PURE__ */ new Map();
+  function sigilOf(g, gid, size) {
+    const k = `${size}|${gid}`;
+    let s = gid && sigils.get(k);
+    if (!s) {
+      s = sigilSVG(voiceOf(g), g, { size });
+      if (gid) {
+        sigils.set(k, s);
+        if (sigils.size > 256) sigils.delete(sigils.keys().next().value);
+      }
+    }
+    return s;
+  }
+  function miniCard(g, K, { gid = "", key, name, home = "", n = 0, bodies = 0, tip = false, kept = false, flat = false, status = null, thumb = "" }) {
+    const f2 = facets2(g, K), url = thumb && thumbs.get(thumb);
+    const sp = name.indexOf(" "), genus = sp > 0 ? name.slice(0, sp) : name, rest = sp > 0 ? name.slice(sp + 1) : "";
+    const mix4 = dietMix(g).filter(([, v]) => v >= 0.02).map(([d, v]) => `<i style="flex:${v.toFixed(3)};background:${DIET_COL[d]}"></i>`).join("");
+    const ph = `<span class="mc-ph${url ? " on" : ""}"${url ? ` style="background-image:url(${url})"` : ""}><span class="mc-sig">${sigilOf(g, gid, flat ? 30 : 40)}</span></span><span class="mc-mix">${mix4}</span>`;
+    const count = n ? `<span class="mc-n"><b>${countText(n, bodies, flat)}</b></span>` : "";
+    const keptMark = kept ? '<span class="mc-kept" data-hint="Its card is in the cabinet"><svg aria-hidden="true"><use href="#i-cabinet"/></svg></span>' : "";
+    const nm = `<span class="mc-name" translate="no"><b>${esc(genus)}</b><span>${esc(rest)}</span></span>`;
+    const label3 = `${name}, ${f2.diet}, ${f2.mobility}${home ? `, from ${home}` : ""}${n ? `, ${n} cells` : ""}${tip ? ", at the tip" : ""}`;
+    const open = `<button type="button" class="minicard${flat ? " flat" : ""}${tip ? " at-tip" : ""}" data-key="${esc(key)}"${thumb ? ` data-thumb="${esc(thumb)}"` : ""} aria-label="${esc(label3)}">`;
+    if (flat) return `${open}${ph}${nm}<span class="mc-end">${tip ? '<span class="mc-tip">Tip</span>' : ""}${count}${keptMark}</span></button>`;
+    const kind = `<span class="mc-kind" aria-hidden="true"><svg style="color:${DIET_COL[f2.diet]}"><use href="#i-d-${f2.diet}"/></svg><svg><use href="#i-m-${f2.mobility}"/></svg></span>`;
+    const sub = status ? `<span class="mc-sub mc-st${status[0] === "from" ? " from" : status[0] === "gone" ? " gone" : ""}">${statusText(status)}</span>` : home ? `<span class="mc-sub from">↗ from ${esc(home)}</span>` : `<span class="mc-sub"><span style="color:${DIET_COL[f2.diet]}">${f2.diet}</span> · ${f2.mobility}</span>`;
+    return `${open}${ph}${tip ? '<span class="mc-tip">Tip</span>' : ""}${count}${keptMark}${kind}${nm}${sub}</button>`;
   }
   var HOLD = 350;
   function wireCardDrag(root, { tap, drop, reorder }) {
     let drag = null;
-    const cards = () => [...root.querySelectorAll(".mini")];
+    const cards = () => [...root.querySelectorAll(".minicard")];
     const over = (x, y) => {
       const r = root.getBoundingClientRect();
       return x >= r.left - 12 && x <= r.right + 12 && y >= r.top - 12 && y <= r.bottom + 12;
@@ -24744,7 +24831,7 @@ ${e.message}` : String(e?.message || e));
       }
     }
     root.addEventListener("pointerdown", (e) => {
-      const b = e.target.closest(".mini");
+      const b = e.target.closest(".minicard");
       if (!b || e.button > 0) return;
       drag = { key: b.dataset.key, el: b, x: e.clientX, y: e.clientY, at: performance.now(), touch: e.pointerType !== "mouse", ghost: null, id: e.pointerId };
     });
@@ -25416,7 +25503,15 @@ ${e.message}` : String(e?.message || e));
         } });
         setText(p.ctl.querySelector("#cab-sum"), `${fmt(all.length)} card${all.length === 1 ? "" : "s"} · ${fmt(all.filter((c) => c.world === world).length)} from this world`);
         const k = shown.map((c) => c.id).join(",");
-        if (k === key && !force || drag.dragging()) return;
+        if (drag.dragging()) return;
+        if (k === key && !force) {
+          const ids = new Map(shown.map((c) => [c.id, c]));
+          for (const el of grid2.querySelectorAll(".mc-st")) {
+            const c = ids.get(el.parentElement.dataset.key);
+            if (c) setStatus(el, api.cabinet.status(c));
+          }
+          return;
+        }
         key = k;
         grid2.innerHTML = shown.length ? shown.map((c) => api.cabinet.mini(c)).join("") : `<div class="pip-empty"><b>${all.length ? "No card matches." : "The cabinet is empty."}</b><span>${all.length ? "Try other filters." : "Save a species from the specimen panel (Save), or drop a species card’s PNG on the page: its card comes here, to be carried to any world."}</span></div>`;
       }
@@ -29452,6 +29547,7 @@ ${e.message}` : String(e?.message || e));
   var CARD_W = 660;
   var CARD_H = 1050;
   var CARD_SCALE = 2;
+  var PORTRAIT_BOX = { x: 30, y: 118, w: 600, h: 340 };
   var share = (v, lo, hi, log = false) => Math.max(0, Math.min(1, log ? Math.log(v / lo) / Math.log(hi / lo) : (v - lo) / (hi - lo)));
   function cardData(sp, { reg, K, story = null, simTime = 0, founders = 0, relations = null, history: history2 = null }) {
     const g = sp.genome, f2 = facets2(g, K), th = thermalGuild(g);
@@ -29470,8 +29566,7 @@ ${e.message}` : String(e?.message || e));
       ["Lifespan", share(g.lifespan, 40, 480, true), fmtDur(g.lifespan)],
       ["Division", 1 - share(div, 1, 8, true), `${div.toFixed(1)} E`]
     ];
-    const eat = 1 - g.photo, dw = (g.dGlint || 0) + (g.dHusk || 0) + (g.dFlesh || 0) || 1;
-    const diet = [["Light", g.photo], ["Grazing", eat * (g.dGlint || 0) / dw], ["Carrion", eat * (g.dHusk || 0) / dw], ["Hunting", eat * (g.dFlesh || 0) / dw]].map(([k, v]) => [k, v, `${Math.round(v * 100)}%`]);
+    const diet = dietMix(g).map(([, v], i) => [["Light", "Grazing", "Carrion", "Hunting"][i], v, `${Math.round(v * 100)}%`]);
     const water = K.heat ? { opt: g.topt ?? 19, tol: g.tol ?? 7, maker: !!th.maker, pref: th.pref } : null;
     const food = relations?.food && reg.get(relations.food), eater = relations?.eater && reg.get(relations.eater);
     const end = sp.alive ? simTime : sp.extinct ?? simTime;
@@ -29591,7 +29686,7 @@ ${e.message}` : String(e?.message || e));
     text2(d.name, M, 74, size, INK4, 500, nameW);
     const from = d.given ? d.binomial : d.lineage.length ? `from ${d.lineage[0]}` : d.origin;
     text2(from, M, 100, 19, INK22, 400, nameW);
-    const AX = M, AY = 118, AW = w, AH = 340;
+    const { x: AX, y: AY, w: AW, h: AH } = PORTRAIT_BOX;
     ctx.save();
     ctx.beginPath();
     ctx.rect(AX, AY, AW, AH);
@@ -30337,7 +30432,7 @@ ${e.message}` : String(e?.message || e));
     let drag = null, swiped = 0;
     el.addEventListener("pointerdown", (e) => {
       if (e.pointerType === "mouse" || e.target.closest("input")) return;
-      drag = { id: e.pointerId, x: e.clientX, y: e.clientY, on: false, card: !!e.target.closest(".mini"), at: performance.now() };
+      drag = { id: e.pointerId, x: e.clientX, y: e.clientY, on: false, card: !!e.target.closest(".minicard"), at: performance.now() };
     });
     el.addEventListener("pointermove", (e) => {
       if (!drag || e.pointerId !== drag.id) return;
@@ -30481,7 +30576,7 @@ ${e.message}` : String(e?.message || e));
       $("pip-n").textContent = v.count ? `${v.count.toLocaleString("en-US")} / ${v.limit.toLocaleString("en-US")}${v.count >= v.limit ? " · full" : ""}` : "empty";
       if (drags.some((d) => d.dragging())) return;
       if (key === pipKey) {
-        for (const row of [strip, hstrip]) [...row.querySelectorAll(".mini .mc-n b")].forEach((b, i) => {
+        for (const row of [strip, hstrip]) [...row.querySelectorAll(".minicard .mc-n b")].forEach((b, i) => {
           if (v.held[i]) b.innerHTML = countText(...v.held[i], row === hstrip);
         });
         return;
@@ -31320,6 +31415,7 @@ ${e.message}` : String(e?.message || e));
       };
       hand.reset(life.hand);
       pipette = createPipette(life.pipette);
+      dropThumb("s", true);
       eng.setDrawn([]);
       Object.assign(pull, { on: false, until: 0, got: [] });
       pull.drawn.clear();
@@ -31496,6 +31592,7 @@ ${e.message}` : String(e?.message || e));
         Object.assign(life, page.life, { lastCensus: null });
         hand.reset(life.hand);
         pipette = createPipette(life.pipette);
+        dropThumb("s", true);
         handSeen = life.hand.length;
         Object.assign(climate, page.climate);
         chron.load(page.chron);
@@ -32610,17 +32707,21 @@ ${e.message}` : String(e?.message || e));
       }
     });
     let portraitJob = null, portraitHold = false;
-    const PORTRAIT = 1024;
-    async function takePortrait(serial) {
+    const PORTRAIT = 1024, THUMB = 192;
+    async function takePortrait(serial, { thumb = false, near = null } = {}) {
       const sp = life.reg.get(serial);
       if (!sp || !sp.alive) return null;
-      portraitHold = true;
-      setTimeout(() => {
-        if (!portraitJob) portraitHold = false;
-      }, 5e3);
-      const m = await bestMember(sp).catch(() => null);
+      if (!thumb) {
+        portraitHold = true;
+        setTimeout(() => {
+          if (!portraitJob) portraitHold = false;
+        }, 5e3);
+      }
+      const look = (o) => thumb && eng.pickReq ? null : bestMember(sp, o).catch(() => null);
+      const m = near && await look({ near, budget: 6 }) || await look(thumb ? { budget: 6, cap: 2048 } : {});
+      if (thumb && (portraitJob || portraitHold)) return null;
       if (!m) {
-        portraitHold = false;
+        if (!thumb) portraitHold = false;
         return null;
       }
       const [W, H2] = eng.grid, { best, res } = m;
@@ -32634,11 +32735,11 @@ ${e.message}` : String(e?.message || e));
         cx += sx / m.body.length;
         cy += sy / m.body.length;
       }
-      const span2 = clamp6(m.span * 2.6 + 0.6, 1.6, 9);
+      const span2 = clamp6(m.span * 2.6 + 0.6, 1.6, 9) / (thumb ? 2 : 1), size = thumb ? THUMB : PORTRAIT;
       if (portraitJob) portraitJob.resolve(null);
       const subject = clamp6(((m.body ? m.span : 0) + 0.12 * sp.genome.size + 0.08) / (span2 / 2), 0.08, 0.95);
       return new Promise((resolve) => {
-        portraitJob = { slot: sp.slot, cx, cy, vx: m.body ? 0 : best.vx, vy: m.body ? 0 : best.vy, t: res.simTime, ppu: PORTRAIT / span2, subject, resolve, at: performance.now() };
+        portraitJob = { slot: thumb ? null : sp.slot, cx, cy, vx: m.body ? 0 : best.vx, vy: m.body ? 0 : best.vy, t: res.simTime, size, ppu: size / span2, subject, resolve, at: performance.now() };
       });
     }
     function takeView() {
@@ -32646,7 +32747,7 @@ ${e.message}` : String(e?.message || e));
       portraitHold = true;
       const span2 = Math.min(innerWidth, innerHeight) / cssPPU();
       return new Promise((resolve) => {
-        portraitJob = { slot: null, cx: cam.x, cy: cam.y, vx: 0, vy: 0, t: eng.simTime, ppu: PORTRAIT / span2, resolve, at: performance.now() };
+        portraitJob = { slot: null, cx: cam.x, cy: cam.y, vx: 0, vy: 0, t: eng.simTime, size: PORTRAIT, ppu: PORTRAIT / span2, resolve, at: performance.now() };
       });
     }
     function portraitParams() {
@@ -32658,7 +32759,7 @@ ${e.message}` : String(e?.message || e));
         j.resolve(null);
         return null;
       }
-      j.tex ??= device.createTexture({ size: [PORTRAIT, PORTRAIT], format: eng.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+      j.tex ??= device.createTexture({ size: [j.size, j.size], format: eng.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
       const dt = Math.min(2, Math.max(0, eng.simTime - j.t));
       const [W, H2] = eng.grid;
       j.drawn = true;
@@ -32668,16 +32769,16 @@ ${e.message}` : String(e?.message || e));
         eng.setFocus({ kinds, mute: 0.09 });
         j.relight = true;
       }
-      return { target: j.tex.createView(), w: PORTRAIT, h: PORTRAIT, cx: ((j.cx + j.vx * dt) % W + W) % W, cy: ((j.cy + j.vy * dt) % H2 + H2) % H2, ppu: j.ppu, dpr: 1 };
+      return { target: j.tex.createView(), w: j.size, h: j.size, cx: ((j.cx + j.vx * dt) % W + W) % W, cy: ((j.cy + j.vy * dt) % H2 + H2) % H2, ppu: j.ppu, dpr: 1 };
     }
     async function readPortrait() {
       const j = portraitJob;
       if (!j || !j.drawn || j.reading) return;
       j.reading = true;
-      const d = device, row = PORTRAIT * 4;
-      const buf = d.createBuffer({ size: row * PORTRAIT, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+      const d = device, S = j.size, row = S * 4;
+      const buf = d.createBuffer({ size: row * S, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
       const enc = d.createCommandEncoder();
-      enc.copyTextureToBuffer({ texture: j.tex }, { buffer: buf, bytesPerRow: row }, [PORTRAIT, PORTRAIT]);
+      enc.copyTextureToBuffer({ texture: j.tex }, { buffer: buf, bytesPerRow: row }, [S, S]);
       d.queue.submit([enc.finish()]);
       try {
         await buf.mapAsync(GPUMapMode.READ);
@@ -32690,8 +32791,8 @@ ${e.message}` : String(e?.message || e));
         }
         for (let i = 3; i < px.length; i += 4) px[i] = 255;
         const cv = document.createElement("canvas");
-        cv.width = cv.height = PORTRAIT;
-        cv.getContext("2d").putImageData(new ImageData(px, PORTRAIT, PORTRAIT), 0, 0);
+        cv.width = cv.height = S;
+        cv.getContext("2d").putImageData(new ImageData(px, S, S), 0, 0);
         cv.subject = j.subject;
         j.resolve(cv);
       } catch {
@@ -32750,6 +32851,92 @@ ${e.message}` : String(e?.message || e));
       cabinet.cards = [...cabinet.cards.filter((c) => c.id !== card.id), card];
       if (!quiet) lab.render(true);
     }
+    const THUMB_CROP = [PORTRAIT_BOX.x + PORTRAIT_BOX.w / 2 - 150, PORTRAIT_BOX.y + PORTRAIT_BOX.h / 2 - 150, 300, 300].map((v) => v * CARD_SCALE);
+    async function thumbBytes(src, crop = [0, 0, src.width, src.height]) {
+      const cv = document.createElement("canvas");
+      cv.width = cv.height = THUMB;
+      cv.getContext("2d").drawImage(src, ...crop, 0, 0, THUMB, THUMB);
+      const blob = await new Promise((res) => cv.toBlob(res, "image/jpeg", 0.82));
+      if (!blob) throw new Error("no thumb");
+      return new Uint8Array(await blob.arrayBuffer());
+    }
+    async function pngThumb(png) {
+      const bmp = await createImageBitmap(new Blob([png], { type: "image/png" }), ...THUMB_CROP, { resizeWidth: THUMB, resizeHeight: THUMB, resizeQuality: "medium" });
+      try {
+        return await thumbBytes(bmp);
+      } finally {
+        bmp.close();
+      }
+    }
+    const backfill = [], triedThumb = /* @__PURE__ */ new WeakSet();
+    function cardThumb(c) {
+      const key = `c${c.id}`;
+      if (c.thumb) {
+        if (!hasThumb(key)) setThumb(key, c.thumb);
+      } else if (c.png && !triedThumb.has(c)) {
+        triedThumb.add(c);
+        backfill.push(c);
+        if (backfill.length === 1) setTimeout(fillThumbs, 400);
+      }
+      return key;
+    }
+    async function fillThumbs() {
+      const c = backfill[0];
+      if (!c) return;
+      const thumb = await pngThumb(c.png).catch(() => null);
+      if (thumb && cabinet.cards.includes(c)) {
+        c.thumb = thumb;
+        setThumb(`c${c.id}`, thumb);
+        cabinet.store.put(c).catch(() => {
+        });
+      }
+      backfill.shift();
+      if (backfill.length) setTimeout(fillThumbs, 120);
+    }
+    function pipThumb(sp, near = null) {
+      const c = pipCard(sp);
+      if (c) return cardThumb(c);
+      if (sp.stranger) return "";
+      wantThumb(sp.serial, near);
+      return `s${sp.serial}`;
+    }
+    const thumbQ = /* @__PURE__ */ new Map();
+    let thumbBusy = false;
+    function wantThumb(serial, near = null) {
+      if (hasThumb(`s${serial}`) || !life.reg.get(serial)?.alive) return;
+      const w = thumbQ.get(serial);
+      if (w) {
+        w.near ??= near;
+        return;
+      }
+      thumbQ.set(serial, { near, tries: 0 });
+      setTimeout(pumpThumbs, 0);
+    }
+    async function pumpThumbs() {
+      if (thumbBusy || !thumbQ.size) return;
+      if (portraitJob || portraitHold || eng.pickReq || state.phase !== "running") {
+        setTimeout(pumpThumbs, 500);
+        return;
+      }
+      const [serial, w] = thumbQ.entries().next().value;
+      thumbQ.delete(serial);
+      if (!hasThumb(`s${serial}`) && pipette.species.some((x) => !x.stranger && x.serial === serial && !pipCard(x))) {
+        thumbBusy = true;
+        const cv = await takePortrait(serial, { thumb: true, near: w.near }).catch(() => null);
+        const bytes = cv && await thumbBytes(cv).catch(() => null);
+        thumbBusy = false;
+        if (bytes) setThumb(`s${serial}`, bytes);
+        else if (++w.tries < 3 && life.reg.get(serial)?.alive) {
+          w.near = null;
+          thumbQ.set(serial, w);
+        }
+      }
+      setTimeout(pumpThumbs, 250);
+    }
+    const cardStatus = (c) => {
+      const sp = c.world === worldId() && life.reg.get(c.serial);
+      return c.world !== worldId() ? ["from", c.home] : sp?.alive ? ["live", sp.pop] : ["gone"];
+    };
     async function saveCard(serial, cv, quiet = false) {
       const sp = life.reg.get(serial);
       if (!sp || savedCard(serial)) return;
@@ -32760,7 +32947,7 @@ ${e.message}` : String(e?.message || e));
         flash("Could not draw its card");
         return;
       }
-      const c = carry(serial);
+      const c = carry(serial), thumb = await thumbBytes(cv, THUMB_CROP).catch(() => null);
       await keepCard({
         id: newKey("c"),
         serial,
@@ -32770,7 +32957,8 @@ ${e.message}` : String(e?.message || e));
         world: worldId(),
         savedAt: Date.now(),
         touched: c.touched,
-        png: new Uint8Array(await blob.arrayBuffer())
+        png: new Uint8Array(await blob.arrayBuffer()),
+        thumb
       }, quiet);
       if (quiet) return;
       flyCard(blob);
@@ -32800,7 +32988,7 @@ ${e.message}` : String(e?.message || e));
     function showInCabinet(card) {
       lab.open("cabinet");
       requestAnimationFrame(() => {
-        const el = document.querySelector(`#lab .mini[data-key="${CSS.escape(card.id)}"]`);
+        const el = document.querySelector(`#lab .minicard[data-key="${CSS.escape(card.id)}"]`);
         el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
         el?.animate([{ boxShadow: "0 0 0 2px #f1e3a0, 0 0 24px rgba(241,227,160,.5)" }, { boxShadow: "0 0 0 0 transparent" }], { duration: 1100, easing: "ease-out" });
       });
@@ -32843,7 +33031,8 @@ ${e.message}` : String(e?.message || e));
         world: null,
         savedAt: Date.now(),
         touched: c.touched,
-        png
+        png,
+        thumb: png && await pngThumb(png).catch(() => null)
       });
       lab.open("cabinet");
       flash(`${c.name}, from ${c.home}, is in the cabinet`);
@@ -32909,9 +33098,9 @@ ${e.message}` : String(e?.message || e));
       if (sp.alive) focusSpecies(sp);
       renderSpecimen(true);
     }
-    async function bestMember(sp) {
+    async function bestMember(sp, { near = null, budget = 60, cap: cap3 = Infinity } = {}) {
       const [W, H2] = eng.grid;
-      const res = await eng.requestPick([W / 2, H2 / 2], Math.hypot(W, H2), NONE4, { kind: sp.slot, maxOut: sp.pop * 1.25 + 2048, raw: true });
+      const res = near ? await eng.requestPick([near[0], near[1]], near[2], NONE4, { kind: sp.slot, maxOut: 512, raw: true }) : await eng.requestPick([W / 2, H2 / 2], Math.hypot(W, H2), NONE4, { kind: sp.slot, maxOut: Math.min(cap3, sp.pop * 1.25 + 2048), raw: true });
       if (!res || !res.raw.count) return null;
       const { u32, f32, count: n } = res.raw;
       let bestI = 0, body = null;
@@ -32919,7 +33108,7 @@ ${e.message}` : String(e?.message || e));
         const claimed = new Uint8Array(n);
         let bestN = 0;
         const t0 = performance.now();
-        for (let tries = 0; tries < 60 && performance.now() - t0 < 60; tries++) {
+        for (let tries = 0; tries < 60 && performance.now() - t0 < budget; tries++) {
           const i = Math.floor(Math.random() * n);
           if (claimed[i]) continue;
           const tb = traceBody(u32, f32, n, u32[i * PICK_WORDS + 7]);
@@ -33022,7 +33211,8 @@ ${e.message}` : String(e?.message || e));
           if (!f2) cardFacets.set(c, f2 = facets2(genomeOfWords(c.words), K));
           return f2;
         },
-        mini: (c) => miniCard(genomeOfWords(c.words), K, { key: c.id, name: c.name, home: c.world === worldId() ? "this world" : c.home }),
+        mini: (c) => miniCard(genomeOfWords(c.words), K, { gid: c.words.join(), key: c.id, name: c.name, status: cardStatus(c), thumb: cardThumb(c) }),
+        status: cardStatus,
         // a card of this world's species opens its live card (to rename it); another world's, as it was drawn
         open: (c) => {
           if (c.world === worldId() && life.reg.has(c.serial)) cards.open(c.serial);
@@ -33580,14 +33770,16 @@ ${e.message}` : String(e?.message || e));
         cards: (flat) => pipette.species.map((sp) => {
           const [n, bodies] = heldOf(sp);
           return miniCard(genomeOfWords(sp.words), K, {
+            gid: sp.words.join(),
             key: pipKey(sp),
             name: sp.name,
-            home: sp.home || "this world",
+            home: sp.home || "",
             n,
             bodies,
             tip: sp === pipette.tip,
             flat,
-            kept: !!pipCard(sp)
+            kept: !!pipCard(sp),
+            thumb: pipThumb(sp)
           });
         }).join(""),
         move: (key, i) => {
@@ -33774,7 +33966,10 @@ ${e.message}` : String(e?.message || e));
       eng.setDrawn([]);
       pull.drawn.clear();
       pull.taken.clear();
-      for (const { kind, g, recs } of incoming()) pipette.add({ serial: g.serial, words: wordsOf(kind), slot: kind, name: life.reg.get(g.serial)?.name || "an unnamed species" }, recs);
+      for (const { kind, g, recs } of incoming()) {
+        pipette.add({ serial: g.serial, words: wordsOf(kind), slot: kind, name: life.reg.get(g.serial)?.name || "an unnamed species" }, recs);
+        wantThumb(g.serial, [...pull.tip, Math.max(4 * hand.reach, 6)]);
+      }
       pull.got = [];
       bench.render();
     }
