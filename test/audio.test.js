@@ -305,10 +305,10 @@ test('the hand is heard: each act its sound, held sounds one voice each, the ice
   assert.ok(eng.nodes.get(tear).p.amp > a0 * 1.2 && since(t).length === 0);
   hand({ ev: 'state', tool: 'needle', held: false, move: 0 }); run(3);
   assert.ok(!cond.hand.held.scalpel);
-  // the pipette's cells come at most so fast, the rest dropped (no backlog)
+  // the pipette's cells: as many marbles as fit at once, the rest dropped (no backlog: they stop when the cells do)
   t = cond.time; hand({ ev: 'cells', n: 500 }); run(3);
-  const m = since(t).filter((n) => n.d === 'tine').length;
-  assert.ok(m > 15 && m < 50, `${m} marbles`);
+  const m = since(t).filter((n) => n.d === 'tine');
+  assert.ok(m.length >= 2 && m.length < 6 && m.every((n) => n.t < t + 0.2), `${m.length} marbles`);
   // the rod stirring: one held voice of sloshing water; at work it ducks the field; let go, it comes back
   hand({ ev: 'state', tool: 'touch', held: true, move: 2 }); run(1);
   assert.ok(cond.hand.duck < 0.85 && eng.nodes.get(cond.hand.held.stir.id).p.amp > 0.01);
@@ -332,9 +332,9 @@ test('the hand is heard: each act its sound, held sounds one voice each, the ice
   t = cond.time; hand({ ev: 'state', tool: 'cold', level: 1, freezing: 0, ice: 0 }); run(1);
   assert.equal(since(t).length, 0);
   hand({ ev: 'state', tool: 'cold', level: 1, freezing: 1, ice: 0.3 }); run(2);
-  assert.ok(since(t).filter((n) => n.d === 'rustle').length > 10 && since(t).some((n) => n.d === 'glass'));
+  assert.ok(since(t).filter((n) => n.d === 'rustle').length > 10 && cond.hand.groans === 1 && eng.nodes.has(cond.hand.groan.id));
   hand({ ev: 'state', tool: 'cold', level: 1, freezing: 0, ice: 1 }); run(3);
-  assert.ok(eng.master.p.tone < 4000 && cond.hand.duck < 0.8 && since(t).filter((n) => n.d === 'glass').length === 2);
+  assert.ok(eng.master.p.tone < 4000 && cond.hand.duck < 0.8 && cond.hand.groans === 2);
   t = cond.time; run(2);
   assert.equal(since(t).filter((n) => n.d === 'rustle').length, 0);
   hand({ ev: 'state', tool: 'none', level: 0, freezing: 0, ice: 0 }); run(10);

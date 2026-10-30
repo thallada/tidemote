@@ -1217,6 +1217,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     // the needle and the rod in the water part the cells in their way (the bonds the needle's point crosses stay cut)
     let sc = handPush(pos);
     if (any(sc != vec2f(0.0))) { pos += sc; vel += normalize(sc) * max(0.0, 1.0 - dot(vel, normalize(sc))); }
+    if (inHandIce(p.pos)) { pos = p.pos; vel = vec2f(0.0); }
   }
   pos = wrapPos(pos);
 
@@ -1626,6 +1627,9 @@ fn pondWith(p: vec2f, open: vec2f) -> vec3f {
   }
   return e;
 }
+// Whether p lies in the cold probe's ice (below 0°, once the probe has been used): what is there is frozen solid,
+// carried by nothing and moving not at all (never headless)
+fn inHandIce(p: vec2f) -> bool { return HEAT_ON && sim.hand.wake.y > 0.0 && heatSample(p).x < 0.0; }
 // How far (world units) p lies from the water's edge, wet side positive, from pondWith's depth and slope.
 fn shoreDist(pd: vec3f) -> f32 { return pd.x / max(length(pd.yz), 1e-4); }
 // The light at p: the baseline and the tide's bands by the season, under the sky (clouds) and any duckweed's shade.
@@ -2387,9 +2391,11 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   }${K.heat && K.marangoni > 0 ? `
   // surface flow: warm water's surface pulls toward cooler water, carrying matter with it
   vel -= heatHere.yz * ${f(K.marangoni)};` : ''}
-  // (the needle and the rod push grains out of their way as they do cells)
+  // (the needle and the rod push grains out of their way as they do cells; in the probe's ice nothing moves)
+  let frozen = inHandIce(p.pos);
+  if (frozen) { vel = vec2f(0.0); }
   let moved = p.pos + vel * sim.dt;
-  let pos = wrapPos(moved + handPush(moved));
+  let pos = select(wrapPos(moved + handPush(moved)), p.pos, frozen);
   p.age += sim.dt;
   if (p.kind == SILT) {
     let tide = lampLight(pos, (tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient) * sim.pond.z * (1.0 - duckShade(pos, sim.duck, sim.duckB, sim.world)));
@@ -2945,7 +2951,7 @@ fn cystStep(i: u32) {
   let dry = pd.x < 0.0;
   if (dry) { p.vel = vec2f(0.0); }
   let moved = p.pos + (p.vel + flowWith(open, pd) * g.advect) * sim.dt;
-  p.pos = wrapPos(moved + handPush(moved));
+  if (inHandIce(p.pos)) { p.vel = vec2f(0.0); } else { p.pos = wrapPos(moved + handPush(moved)); }
   atomicAdd(&ledger[cystSlot(dietGuild(g))], 1u);
   if (p.energy <= 0.0) {
     splCause(p.kind, select(1u, 5u, dry));

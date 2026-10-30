@@ -31,11 +31,13 @@ const AHEAD = 0.02; // seconds from a message to its sound (the next block or so
 const DUCK = 0.8; // the field while the rod or the pipette is at work
 const LAMP_STEP = 0.18; // the chimes' chances come this often (seconds), whatever the simulation's speed
 const MARBLE_GAP = 0.04; // seconds between the pipette's marbles at most
-const AHEAD_MAX = 1.2; // seconds of the pipette's marbles queued at most (the rest are dropped)
+const LATE = 0.1; // seconds late a pipette's marble may still sound (more cells than that are dropped, so the
+// clicks stop when the cells do)
 const SLIDE = 3; // seconds the shade's harmonic takes to slide down its step
 const HEAT = [30, 95]; // the water under the stage (°): heard warming from, and at the full rumble by
 const BOILING = 92; // the water under the stage (°) from which the boil's bubbles come
 const KEEP = 2; // seconds a held voice stays silent before it ends
+const GROAN = 3; // semitones the ice's groans sink
 
 export class HandSound {
   constructor(cond) {
@@ -46,7 +48,7 @@ export class HandSound {
     this.held = {}; // the held voices: name -> { id, on (when it began), quiet (when it was last heard) }
     // (eased: the stir's and the scalpel's speed, the scalpel's grit from the bonds it cuts, the water's heat, how
     // fast ice forms, how much there is, riding's rush; groans: how many have sounded since the ice began)
-    this.stir = 0; this.cutV = 0; this.grit = 0; this.heat = 0; this.freeze = 0; this.ice = 0; this.groans = 0; this.rush = 0; this.dim = false;
+    this.stir = 0; this.cutV = 0; this.grit = 0; this.heat = 0; this.freeze = 0; this.ice = 0; this.groans = 0; this.groan = null; this.rush = 0; this.dim = false;
   }
   // a scale degree of the world's key, oct octaves up from its root's
   hz(deg, oct = 0) { const c = this.c; return midicps(d2m(deg, c.root, c.scale) + 12 * oct); }
@@ -101,7 +103,7 @@ export class HandSound {
   marbles(n, out, t, pan) {
     for (let i = 0; i < n; i++) {
       const at = Math.max(t + this.rnd() * 0.03, this.marbleAt + MARBLE_GAP * (0.7 + 0.6 * this.rnd()));
-      if (at - t > AHEAD_MAX) break;
+      if (at - t > LATE) break;
       this.marbleAt = at;
       this.at(at, 'tine', { freq: (out ? 2400 : 3200) * (0.9 + 0.25 * this.rnd()), dec: 0.25, bright: 0.9, amp: 0.045, pan: pan + 0.15 * (this.rnd() - 0.5), rev: 0.3 });
     }
@@ -166,7 +168,7 @@ export class HandSound {
     const v = this.cutV = this.ease(this.cutV, Math.min(1, m), 0.06);
     this.grit = this.ease(this.grit, 0, 0.15);
     const h = this.hold('scalpel', v > 0.03, t, () => ['air', { freq: 3000, rq: 0.4, gust: 0.5, rate: 9, rev: 0.15 }]);
-    if (h) this.c.eng.set(h.id, { amp: 0.16 * v * (0.7 + 0.6 * this.grit), freq: 2200 + 1800 * v + 800 * this.grit, gust: 0.4 + 0.5 * this.grit, pan: this.s.pan });
+    if (h) this.c.eng.set(h.id, { amp: 0.12 * v * (0.7 + 0.6 * this.grit), freq: 2200 + 1800 * v + 800 * this.grit, gust: 0.4 + 0.5 * this.grit, pan: this.s.pan });
   }
 
   // the warm stage over water at T° (null: no stage): a rumble under it, from HEAT[0] to HEAT[1], a few low bubbles,
@@ -194,10 +196,16 @@ export class HandSound {
     if (this.ice > 0.01 || this.dim) { this.dim = this.ice > 0.01; c.eng.set('master', { tone: 16000 * Math.pow(3000 / 16000, this.dim ? this.ice : 0) }); }
     // (the groans: the first as ice begins, the second, a step lower, as it fills the reach; again once it is gone)
     if (ice <= 0 && this.ice < 0.05) this.groans = 0;
+    // (each sinks GROAN semitones as it sounds, out of the key's chord the sea and the drone hold)
     if ((this.groans === 0 && ice > 0) || (this.groans === 1 && ice > 0.85)) {
-      const d = -this.groans++;
-      this.at(t, 'glass', { freq: this.hz(d, 0), amp: 0.15, atk: 0.3, sus: 1.2, rel: 1.8, bright: 0.5, pan: pan + 0.2 * d, rev: 0.6 });
+      const d = -this.groans++, f0 = this.hz(d, 0);
+      if (this.groan) c.eng.free(this.groan.id);
+      this.groan = { id: 'handgroan' + ++c.nodeN, t, f0 };
+      c.eng.spawn('glass', { freq: f0, amp: 0.3, atk: 0.3, sus: 1.2, rel: 1.8, bright: 0.7, pan: pan + 0.2 * d, rev: 0.6 }, this.groan.id);
     }
+    const g = this.groan;
+    if (g && t - g.t > 3.5) { c.eng.free(g.id); this.groan = null; }
+    else if (g) c.eng.set(g.id, { freq: g.f0 * Math.pow(2, (-GROAN * Math.min(1, (t - g.t) / 2.5)) / 12) });
     if (f < 0.02 || t < this.crackAt) return;
     this.crackAt = t + 0.05;
     if (this.rnd() < f * 0.35) {
