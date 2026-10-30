@@ -226,7 +226,7 @@ mats that no longer drift fed their cells too well and took over, so bodies shar
 tree's (it carries its whole body; one-tailed mats are back to main's speed at 1/60 s; at 1.6 the
 fastest slow down, at 2 bodies tear). Extra tails do not help: tails spread round the edge and cancel
 (one tail 0.028 units/s, two 0.004, three 0.003). The six-keeper table costs about 0.03 ms of a 1M
-world's step (`scatterMain` 0.35 → 0.38 ms, `lifeMain` unchanged; `tools/perf/plans/bonds.json`).
+world's step (`scatterMain` 0.35 → 0.38 ms, `lifeMain` unchanged).
 
 Ensembles of 64 seeds × 30 min at 32k (farm, runs/swimfix), mean ± 95%:
 
@@ -241,7 +241,8 @@ Ensembles of 64 seeds × 30 min at 32k (farm, runs/swimfix), mean ± 95%:
 | 6 ticks, the default | 106.2±5.4 | 32.6 | 3.33 | 0.89 |
 
 Late guilds swing about 0.2 between ensembles of nearly the same rules, so the default is within noise of
-main at both step lengths.
+main at both step lengths. The gate (32 seeds) passes with every metric the same: effective species 112
+(112), late guilds 3.53 (3.50), food webs 100% (97%).
 
 So `MAX_TICKS` is 6: fast speeds take the shortest step that fits, Max always 6. At 8 beating bodies tear,
 diversity is still 14-21% down, and 8 ticks would be only about 24% faster than 6.
