@@ -322,15 +322,16 @@ body:not(.live) .hud { opacity: 0; }
 
 /* the Bench drawer: rises above the dock between the side columns */
 .bench { position: fixed; z-index: 5; left: 0; right: 0; bottom: var(--bot); padding: var(--s3) calc(var(--gut) + var(--safe-r)) var(--s3) calc(var(--gut) + var(--safe-l));
-  border-top: 1px solid var(--line-2); display: flex; gap: var(--s4); container-type: inline-size; }
+  border-top: 1px solid var(--line-2); display: flex; gap: var(--s4); container: bench / inline-size; }
 body.lab-open .bench { left: var(--lab-pw); }
 body.lab-wide .bench { left: min(620px, 100%); }
 body.spec-open .bench { right: var(--spec-pw); }
 /* (the tools and the pipette half the drawer each) */
-.bench-tools { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.bench-tools { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--s2); container: tools / inline-size; }
 .bench-t { color: var(--cyan); }
 .bench-note { font-style: normal; color: var(--ink-3); text-transform: none; letter-spacing: .04em; margin-left: var(--s3); font-weight: 400; }
 .bench .sub-a { color: var(--sun); }
+.bench-esc { font-style: normal; }
 .tiles { display: grid; grid-template-columns: repeat(9, minmax(60px, 1fr)); gap: 4px; }
 .tile { position: relative; height: 62px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
 .tile svg { width: 20px; height: 20px; }
@@ -339,18 +340,26 @@ body.spec-open .bench { right: var(--spec-pw); }
 .tile[aria-checked="true"] { border-color: var(--sun); }
 /* (a narrower drawer, by the side columns or the screen: its tools in two rows, leaving the pipette room, and its
    long note dropped) */
-@container (max-width: 1180px) { .tiles { grid-template-columns: repeat(5, minmax(0, 1fr)); } .tile { height: 54px; gap: 4px; } .bench-note { display: none; } }
+@container bench (max-width: 1180px) { .tiles { grid-template-columns: repeat(5, minmax(0, 1fr)); } .tile { height: 54px; gap: 4px; } .bench-note { display: none; } }
 .bench-hint { margin: 0; min-height: 19px; color: var(--ink-2); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bench-hint b { color: var(--sun); font-weight: 500; }
 /* Reach: a ruler of ticks, its handle a bracket in the sun color */
-.reach { display: grid; grid-template-columns: var(--lab-w) 1fr 5.5em; align-items: center; gap: var(--s3); height: 28px; }
+.reach { display: grid; grid-template-columns: var(--lab-w) minmax(0, 1fr) 5.5em; align-items: center; gap: var(--s3); height: 28px; }
 .reach b { text-align: right; color: var(--sun); font-weight: 400; }
-.reach input { -webkit-appearance: none; appearance: none; height: 24px; margin: 0; background:
+.reach input { -webkit-appearance: none; appearance: none; width: 100%; min-width: 0; height: 24px; margin: 0; background:
   repeating-linear-gradient(90deg, var(--line-2) 0 1px, transparent 1px 10%) 0 50% / 100% 9px no-repeat,
   repeating-linear-gradient(90deg, var(--line) 0 1px, transparent 1px 2%) 0 50% / 100% 5px no-repeat; }
 .reach input:disabled { opacity: .35; cursor: default; }
 .reach input::-webkit-slider-thumb { -webkit-appearance: none; width: 7px; height: 20px; background: var(--panel-solid); border: 1px solid var(--sun); box-shadow: inset 0 0 0 1px var(--panel-solid), inset 0 0 0 2px rgba(241, 227, 160, 0.5); }
 .reach input::-moz-range-thumb { width: 7px; height: 20px; border-radius: 0; background: var(--panel-solid); border: 1px solid var(--sun); }
+
+/* (the tools' half of a squeezed drawer, a wide Field Lab tab beside it on a laptop: the tiles drop their names for
+   their icons and keys, and Reach its label column (at the narrowest its label), so its ruler keeps its own half) */
+@media (min-width: 721px) {
+  @container tools (max-width: 420px) { .bench-esc { display: none; } .reach { grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--s2); } .reach b { min-width: 3.5em; } }
+  @container tools (max-width: 360px) { .tile span { display: none; } .tile { height: 44px; } }
+  @container tools (max-width: 240px) { .reach { grid-template-columns: minmax(0, 1fr) auto; } .reach .lbl { display: none; } }
+}
 
 /* the pipette's section: a strip of mini-cards, the tip first (the last in), fading at an edge when there are more */
 .bench-pip { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--s2); padding-left: var(--s4); border-left: 1px solid var(--line); }

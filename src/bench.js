@@ -84,7 +84,7 @@ export function createBench({ hand, pick, reach, size, onToggle = () => {}, pip 
   dock.innerHTML = TOOLS.map((t, i) => `<button type="button" class="tool" data-tool="${t.id}" aria-pressed="false" aria-label="${t.name}" data-hint="${t.name} · ${i}">${icon(t.id)}<kbd>${i}</kbd></button>`).join('');
   drawer.innerHTML = `<div class="grab" aria-hidden="true"><i></i></div><div class="bench-tools">
       <div class="sub-h"><span class="bench-t">Tools<i class="bench-note">tap to pick one up · hold its key for a moment’s use</i></span><span class="sub-a" id="bench-held"></span></div>
-      <div class="tiles" role="radiogroup" aria-label="Tools">${TOOLS.map((t, i) => `<button type="button" role="radio" class="tile" data-tool="${t.id}" aria-checked="false"><kbd>${i}</kbd>${icon(t.id)}<span>${t.name}</span></button>`).join('')}</div>
+      <div class="tiles" role="radiogroup" aria-label="Tools">${TOOLS.map((t, i) => `<button type="button" role="radio" class="tile" data-tool="${t.id}" aria-checked="false" aria-label="${t.name}" data-hint="${t.name} · ${i}"><kbd>${i}</kbd>${icon(t.id)}<span>${t.name}</span></button>`).join('')}</div>
       <p class="bench-hint" id="bench-hint" aria-live="polite"></p>
       <label class="reach"><span class="lbl term" data-tip="toolreach" tabindex="0">Reach</span><input type="range" id="reach" min="0" max="1000" step="1" aria-label="Reach"><b id="reach-v" translate="no"></b></label>
     </div>
@@ -139,7 +139,7 @@ export function createBench({ hand, pick, reach, size, onToggle = () => {}, pip 
       if (on && b.getAttribute('aria-checked') !== 'true' && !drawer.hidden) b.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       b.setAttribute('aria-checked', String(on));
     }
-    $('bench-held').textContent = up ? `${t.name} in hand · Esc puts it down` : t.id === 'loupe' ? 'The loupe in hand' : 'Nothing in hand';
+    $('bench-held').innerHTML = up ? `${t.name} in hand<i class="bench-esc"> · Esc puts it down</i>` : t.id === 'loupe' ? 'The loupe in hand' : 'Nothing in hand';
     $('bench-hint').innerHTML = `<b>${t.name}</b> · ${(coarse && t.touch) || t.hint}`;
     if (document.activeElement !== slider) slider.value = toSlider(sz.v, sz);
     $('reach-v').textContent = t.id === 'needle' ? 'a point' : t.id === 'none' ? '–' : sz.text;
