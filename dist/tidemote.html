@@ -6896,6 +6896,71 @@ const TUBE_MAX_BLUR = 2.5; // of its radius
   o.jelly.z = blur;
   return o;
 }
+// A mini-card's portrait drawn alone (setStudio, the studio): the bore's buffers, laid out as the page placed a body
+// (still, its heading in vel), and drawn as vsPoint draws a body in the water, from the studio's own cells alone:
+// each fused to its bonded partners (up to three, their indices packed 10 bits each in id, 1023 none), pressed flat
+// against the cells it touches, and a tight species' cells filling out to their shared walls as tissue.
+@vertex fn vsStudio(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> PO {
+  var o: PO;
+  o.jelly = vec3f(1.0, 0.0, 0.0);
+  let p = parts[ii];
+  let g = genomes[p.kind];
+  let plan = choosePlan(g, roleOf(p.info));
+  let px = max(view.pointSize * g.size * (1.0 - 0.12 * f32(roleOf(p.info))), 0.9);
+  let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
+  o.col = unpack4x8unorm(p.col).rgb * (0.35 + 0.65 * clamp(p.energy / max(g.reproE, 0.01), 0.0, 1.4)) * view.pointGain;
+  o.shape = plan | (p.kind << 8u);
+  o.index = ii;
+  let species = vec2f(renderHash(g.serial ^ g.sig[0].y), renderHash(g.serial ^ g.sig[1].x ^ 917u));
+  o.morph = species;
+  o.geom = vec4f(px, bodyArea(plan, species), normalize(p.vel));
+  o.neck = vec4f(0.12, 0.12, 0.12, p.energy / max(g.reproE, 0.01));
+  var plans = 0x7fffu;
+  var seeds = vec3f(0.0);
+  var used = 0u;
+  for (var c = 0u; c < 3u && px >= 6.0; c++) {
+    let index = (p.id >> (10u * c)) & 1023u;
+    if (index == 1023u || index == ii || index >= arrayLength(&parts)) { continue; }
+    let q = parts[index];
+    if (q.kind != p.kind) { continue; }
+    let ratio = max(view.pointSize * g.size * (1.0 - 0.12 * f32(roleOf(q.info))), 0.9) / px;
+    let offset = (q.pos - p.pos) * view.ppu / px;
+    let reach = 1.65 * (1.0 + ratio) + 0.12 * min(1.0, ratio);
+    if (dot(offset, offset) > reach * reach) { continue; }
+    let dir = normalize(q.vel);
+    plans = (plans & ~(31u << (5u * used))) | (choosePlan(g, roleOf(q.info)) << (5u * used));
+    o.bondOffset[used] = pack2x16float(offset);
+    o.bondFrame[used] = pack2x16float(vec2f(ratio, atan2(dir.y, dir.x)));
+    seeds[used] = renderHash(index + 1u);
+    used++;
+  }
+  // pressed against the cells it touches, as vsPoint's foam (all here are kin)
+  var lost = 0.0;
+  var n = 0u;
+  for (var j = 0u; j < arrayLength(&parts) && n < 6u; j++) {
+    let q = parts[j];
+    if (j == ii || q.kind != p.kind) { continue; }
+    let ratio = max(view.pointSize * g.size * (1.0 - 0.12 * f32(roleOf(q.info))), 0.9) / px;
+    let offset = (q.pos - p.pos) * view.ppu / px;
+    let dist = length(offset);
+    if (dist > 1.25 * (1.0 + ratio) || dist < 1e-3) { continue; }
+    let t = max(0.35, (dist * dist + 0.64 - 0.64 * ratio * ratio) / (2.0 * dist) - 0.012);
+    let foot = pack2x16float(offset * (t / dist));
+    if (n < 3u) { o.contact[n] = foot; } else { o.contact2[n - 3u] = foot; }
+    n++;
+    let x = min(t / 0.8, 1.0);
+    lost += (acos(x) - x * sqrt(1.0 - x * x)) * (2.0 / TAU);
+  }
+  if (g.adhesion > ${f(DEFAULT_K.adhMin)}) {
+    o.tile.x = clamp((g.adhesion - view.tightFrom) / ${f(DEFAULT_K.tightSpan)}, 0.0, 1.0) * min(1.0, f32(n));
+  }
+  o.jelly.x = 1.0 / sqrt(1.0 - 0.7 * min(lost, 0.45));
+  let extent = 1.35 * o.jelly.x;
+  o.pos = toClip((p.pos - view.cam) * view.ppu + corner * px * extent);
+  o.uv = corner * extent;
+  o.bondSeeds = vec2u(pack2x16unorm(seeds.xy), (plans & 0xffffu) | (u32(seeds.z * 65535.0 + 0.5) << 16u));
+  return o;
+}
 @fragment fn fsTubeLive(i: PO) -> PointOut {
   var c: vec4f;
   let blur = i.jelly.z;
@@ -6919,7 +6984,7 @@ const TUBE_MAX_BLUR = 2.5; // of its radius
   }
   return PointOut(c, c);
 }
-// A mini-card's portrait drawn alone (setStudio, the studio): the bore's cells, still, in one target.
+// A mini-card's portrait drawn alone (setStudio, vsStudio): in one target, sharp.
 @fragment fn fsTube(i: PO) -> @location(0) vec4f {
   var j = i;
   j.jelly.z = 0.0;
@@ -19998,7 +20063,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         fragment: { module: this.drawModule, entryPoint: "fsStone", targets: [{ format: HDR }, { format: HDR }] }
       });
       this.pBridge = rp(this.drawModule, "vsBridge", "fsBridge", "triangle-strip", additive);
-      this.pStudio = rp(this.drawModule, "vsTube", "fsTube", "triangle-strip", additive);
+      this.pStudio = rp(this.drawModule, "vsStudio", "fsTube", "triangle-strip", additive);
       this.pDown = rp(this.postModule, "vsFull", "fsDown", "triangle-list", void 0);
       this.pUp = rp(this.postModule, "vsFull", "fsUp", "triangle-list", additive);
       this.pMurk = rp(this.postModule, "vsFull", "fsMurk", "triangle-list", void 0);
@@ -21198,12 +21263,15 @@ ${e.message}` : String(e?.message || e));
     }
     /**
      * A mini-card's portrait drawn alone, in place of the world, in the close-up (specimen.studio, docs/hand.md): n
-     * records laid out as struct Particle (kind FIRST_LIFE, still), and their genome's words (G_WORDS).
+     * records laid out as struct Particle (kind FIRST_LIFE, still; in id the cells each is bonded to, vsStudio), and
+     * their genome's words (G_WORDS).
      */
     setStudio(parts, n, genome) {
       const d = this.device;
       this.studioN = Math.min(n, STUDIO_N);
-      d.queue.writeBuffer(this.b.studioParts, 0, parts, 0, this.studioN * P_BYTES / 4);
+      const all = new Float32Array(STUDIO_N * P_BYTES / 4);
+      all.set(parts.subarray(0, this.studioN * P_BYTES / 4));
+      d.queue.writeBuffer(this.b.studioParts, 0, all);
       d.queue.writeBuffer(this.b.studioGenomes, FIRST_LIFE * G_BYTES, genome);
       const enc = d.createCommandEncoder(), pass = enc.beginComputePass();
       pass.setPipeline(this.cpOrgans);
@@ -27107,6 +27175,28 @@ ${e.message}` : String(e?.message || e));
     for (const id of inBody) members.set(id, 0);
     return members;
   }
+  function largestBody(u32, f32, n) {
+    const { edges } = bondGraph(u32, f32, n);
+    const seen = new Uint8Array(n);
+    let best = null;
+    for (let i = 0; i < n; i++) {
+      if (seen[i] || !edges[i].length) continue;
+      const body = component(edges, seen, i);
+      if (!best || body.length > best.length) best = body;
+    }
+    return best && { body: best, edges };
+  }
+  function bodyPatch(edges, start2, max) {
+    const seen = /* @__PURE__ */ new Set([start2]), out = [start2];
+    for (let head = 0; head < out.length && out.length < max; head++) {
+      for (const j of edges[out[head]]) {
+        if (seen.has(j) || out.length >= max) continue;
+        seen.add(j);
+        out.push(j);
+      }
+    }
+    return out;
+  }
 
   // src/loader.js
   var C = {
@@ -30933,6 +31023,21 @@ ${e.message}` : String(e?.message || e));
 
   // src/studio.js
   var SHOWN = [0.6, 0.38];
+  var BOND = 0.95;
+  var APART = 0.9;
+  function bondsOf(cells) {
+    const seen = /* @__PURE__ */ new Set(), out = [];
+    cells.forEach((c, i) => {
+      for (const j of c.partners) if (j !== i && j >= 0 && j < cells.length) {
+        const a = Math.min(i, j), b = Math.max(i, j);
+        if (!seen.has(a * 4096 + b)) {
+          seen.add(a * 4096 + b);
+          out.push([a, b]);
+        }
+      }
+    });
+    return out;
+  }
   var hash = (i) => {
     let h = Math.imul(i ^ 2654435769, 2246822507);
     h ^= h >>> 13;
@@ -30946,22 +31051,19 @@ ${e.message}` : String(e?.message || e));
       const a = k * 2.39996, d = 2.1 * rMax * Math.sqrt(k);
       return [Math.cos(a) * d, Math.sin(a) * d];
     });
-    const bonds = [];
-    cells.forEach((c, i) => {
-      for (const j of c.partners) if (j > i && j < n) bonds.push([i, j]);
-    });
+    const bonds = bondsOf(cells);
     for (let it = 0; it < 160; it++) {
       const k = it < 120 ? 0.5 : 0.25;
       for (const [i, j] of bonds) {
         const dx = pos[j][0] - pos[i][0], dy = pos[j][1] - pos[i][1], d = Math.hypot(dx, dy) || 1e-6;
-        const f2 = k * (d - 1.05 * (cells[i].r + cells[j].r)) / d / 2;
+        const f2 = k * (d - BOND * (cells[i].r + cells[j].r)) / d / 2;
         pos[i][0] += dx * f2;
         pos[i][1] += dy * f2;
         pos[j][0] -= dx * f2;
         pos[j][1] -= dy * f2;
       }
       for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
-        const dx = pos[j][0] - pos[i][0], dy = pos[j][1] - pos[i][1], d = Math.hypot(dx, dy) || 1e-6, m = cells[i].r + cells[j].r;
+        const dx = pos[j][0] - pos[i][0], dy = pos[j][1] - pos[i][1], d = Math.hypot(dx, dy) || 1e-6, m = APART * (cells[i].r + cells[j].r);
         if (d >= m) continue;
         const f2 = (m - d) / d / 2;
         pos[i][0] -= dx * f2;
@@ -30985,8 +31087,15 @@ ${e.message}` : String(e?.message || e));
   }
   function records(cells, pos, at) {
     const f2 = new Float32Array(cells.length * 10), u = new Uint32Array(f2.buffer);
+    const near = cells.map(() => []);
+    for (const [i, j] of bondsOf(cells)) {
+      near[i].push(j);
+      near[j].push(i);
+    }
     cells.forEach((c, i) => {
-      const th = 2 * Math.PI * hash(i * 7919 + 13), o = i * 10;
+      const o = i * 10, m = near[i][0];
+      let th = 2 * Math.PI * hash(i * 7919 + 13);
+      if (m != null) th = Math.atan2(pos[i][1] - pos[m][1], pos[i][0] - pos[m][0]);
       f2[o] = at[0] + pos[i][0];
       f2[o + 1] = at[1] + pos[i][1];
       f2[o + 2] = Math.cos(th) * 1e-5;
@@ -30994,9 +31103,9 @@ ${e.message}` : String(e?.message || e));
       u[o + 4] = FIRST_LIFE;
       f2[o + 5] = c.e;
       f2[o + 6] = c.a;
-      u[o + 7] = i;
       u[o + 8] = c.col;
       u[o + 9] = c.info;
+      u[o + 7] = [0, 1, 2].reduce((id, k) => id | (near[i][k] ?? 1023) << 10 * k, 0) >>> 0;
     });
     return f2;
   }
@@ -31057,9 +31166,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "23c01ecfb3837aa6") return;
+      if (localStorage.getItem(key) === "960cf27d3d198088") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "23c01ecfb3837aa6");
+      if (res) localStorage.setItem(key, "960cf27d3d198088");
     } catch {
     }
   }
@@ -32845,7 +32954,7 @@ ${e.message}` : String(e?.message || e));
     }
     function takeStudio(words, cells) {
       const g = genomeOfWords(words), r = cells.map((c) => cellRadius({ role: c.info >> 4 & 3 }, g, 1));
-      const pos = layOut(cells.map((c, i) => ({ r: r[i], partners: c.partners }))), f2 = frameCells(pos, r, THUMB);
+      const pos = cells[0]?.at ? cells.map((c) => c.at) : layOut(cells.map((c, i) => ({ r: r[i], partners: c.partners }))), f2 = frameCells(pos, r, THUMB);
       const [W, H2] = eng.grid;
       eng.setStudio(records(cells, pos, [W / 2 - f2.cx, H2 / 2 - f2.cy]), cells.length, Uint32Array.from(words));
       if (portraitJob) portraitJob.resolve(null);
@@ -33017,6 +33126,7 @@ ${e.message}` : String(e?.message || e));
       return sp.stranger ? c ? studioThumb(`g${c.id}`, c.words) : "" : studioThumb(`s${sp.serial}`, sp.words, sp.serial);
     }
     const thumbQ = /* @__PURE__ */ new Map();
+    const thumbCells = /* @__PURE__ */ new Map();
     let thumbBusy = false;
     function studioThumb(key, words, serial = null) {
       if (!hasThumb(key) && !thumbQ.has(key)) {
@@ -33025,8 +33135,62 @@ ${e.message}` : String(e?.message || e));
       }
       return key;
     }
-    function studioCells(words, serial) {
-      const orgs = serial == null ? [] : pipette.species.filter((x) => !x.stranger && x.serial === serial).flatMap((x) => x.orgs);
+    function regrowThumb(serial, words) {
+      const key = `s${serial}`, n = heldCells(words, serial).length;
+      if (hasThumb(key) && n > (thumbCells.get(key) || 0) && !thumbQ.has(key)) {
+        thumbQ.set(key, { words, serial, tries: 0, again: true });
+        setTimeout(pumpThumbs, 0);
+      }
+    }
+    async function worldCells(serial) {
+      const sp = life.reg.get(serial), c = life.lastCensus;
+      if (!sp?.alive || eng.pickReq || !c || genomeSerial(c.genomeU32, sp.slot) !== serial) return null;
+      const [W, H2] = eng.grid;
+      const res = await eng.requestPick([W / 2, H2 / 2], Math.hypot(W, H2), NONE4, { kind: sp.slot, maxOut: Math.min(4096, sp.pop * 1.25 + 256), raw: true });
+      if (!res || !res.raw.count) return null;
+      const { u32, f32, count: n } = res.raw, x = (k) => f32[k * PICK_WORDS], y = (k) => f32[k * PICK_WORDS + 1];
+      const lb = largestBody(u32, f32, n);
+      let set, near;
+      if (lb && lb.body.length > 1) {
+        const b = lb.body, o2 = b[0];
+        let mx = 0, my = 0;
+        for (const k of b) {
+          mx += wrapD2(x(k) - x(o2), W);
+          my += wrapD2(y(k) - y(o2), H2);
+        }
+        mx /= b.length;
+        my /= b.length;
+        const mid = b.reduce((m, k) => Math.hypot(wrapD2(x(k) - x(o2), W) - mx, wrapD2(y(k) - y(o2), H2) - my) < Math.hypot(wrapD2(x(m) - x(o2), W) - mx, wrapD2(y(m) - y(o2), H2) - my) ? k : m, o2);
+        set = bodyPatch(lb.edges, mid, STUDIO_N);
+        near = lb.edges;
+      } else {
+        const step = Math.max(1, Math.floor(n / 200)), d = (i, j) => Math.hypot(wrapD2(x(j) - x(i), W), wrapD2(y(j) - y(i), H2));
+        let best = 0, bestN = -1;
+        for (let i = 0; i < n; i += step) {
+          let m = 0;
+          for (let j = 0; j < n; j += step) if (d(i, j) < 2) m++;
+          if (m > bestN) {
+            bestN = m;
+            best = i;
+          }
+        }
+        set = Array.from({ length: n }, (_, j) => j).filter((j) => d(best, j) < 0.8).sort((a, b) => d(best, a) - d(best, b)).slice(0, 5);
+      }
+      const local = new Map(set.map((k, i) => [k, i])), o = set[0];
+      return set.map((k) => ({
+        e: f32[k * PICK_WORDS + 5],
+        a: f32[k * PICK_WORDS + 6],
+        col: u32[k * PICK_WORDS + 8],
+        info: u32[k * PICK_WORDS + 9],
+        partners: near ? near[k].filter((j) => local.has(j)).map((j) => local.get(j)) : [],
+        at: [wrapD2(x(k) - x(o), W), wrapD2(y(k) - y(o), H2)]
+      }));
+    }
+    function heldCells(words, serial) {
+      const orgs = serial == null ? [] : [
+        ...pipette.species.filter((x) => !x.stranger && x.serial === serial).flatMap((x) => x.orgs),
+        ...pull.got.length ? incoming().filter((x) => x.g.serial === serial).flatMap((x) => bodiesOf(x.recs)) : []
+      ];
       const cell = (c, n) => ({ e: c[0], a: c[1], col: c[2], info: c[3], partners: c.slice(4).filter((j) => j >= 0 && j < n) });
       const big = orgs.reduce((a, o) => !a || o.cells.length > a.cells.length ? o : a, null);
       if (big && big.cells.length > 1) {
@@ -33052,13 +33216,18 @@ ${e.message}` : String(e?.message || e));
       }
       const [key, w] = thumbQ.entries().next().value;
       thumbQ.delete(key);
-      if (!hasThumb(key)) {
+      if (!hasThumb(key) || w.again) {
         thumbBusy = true;
-        const cv = await takeStudio(w.words, studioCells(w.words, w.serial)).catch(() => null);
+        const seen = w.serial != null && !w.again ? await worldCells(w.serial).catch(() => null) : null;
+        const cells = seen || heldCells(w.words, w.serial);
+        const cv = portraitJob ? null : await takeStudio(w.words, cells).catch(() => null);
         const bytes = cv && await thumbBytes(cv, void 0, false).catch(() => null);
         thumbBusy = false;
-        if (bytes?.length) setThumb(key, bytes);
-        else if (++w.tries < 3) thumbQ.set(key, w);
+        if (bytes?.length) {
+          setThumb(key, bytes);
+          thumbCells.set(key, seen ? Infinity : cells.length);
+          if (thumbCells.size > 512) thumbCells.delete(thumbCells.keys().next().value);
+        } else if (++w.tries < 3) thumbQ.set(key, w);
       }
       setTimeout(pumpThumbs, 30);
     }
@@ -34109,6 +34278,7 @@ ${e.message}` : String(e?.message || e));
       pull.taken.clear();
       for (const { kind, g, recs } of incoming()) {
         pipette.add({ serial: g.serial, words: wordsOf(kind), slot: kind, name: drawnName(g) }, recs);
+        regrowThumb(g.serial, wordsOf(kind));
       }
       pull.got = [];
       bench.render();
