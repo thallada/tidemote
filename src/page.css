@@ -367,41 +367,62 @@ body.spec-open .bench { right: var(--spec-pw); }
 .strip::-webkit-scrollbar { display: none; }
 .pip-empty { flex: 1; min-height: 96px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: var(--s1); padding: var(--s3); border: 1px dashed var(--line); color: var(--ink-3); text-align: center; font-size: 12px; }
 .pip-empty b { color: var(--ink-2); font-weight: 400; font-size: 13px; }
-/* a mini-card: sigil, name, kind, home water; bracketed at its corners */
-.mini { --c: var(--line-2); position: relative; flex: 0 0 112px; min-height: 104px; padding: 18px 6px 6px; display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; touch-action: pan-x;
-  background: linear-gradient(var(--c), var(--c)) left top / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) left top / 1px 7px no-repeat,
-    linear-gradient(var(--c), var(--c)) right top / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) right top / 1px 7px no-repeat,
-    linear-gradient(var(--c), var(--c)) left bottom / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) left bottom / 1px 7px no-repeat,
-    linear-gradient(var(--c), var(--c)) right bottom / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) right bottom / 1px 7px no-repeat, rgba(6, 10, 11, 0.6); }
-.mini.at-tip { --c: var(--sun); border-color: rgba(241, 227, 160, 0.5); }
-.mc-sig { width: 30px; height: 30px; display: grid; place-items: center; }
-.mc-name { color: var(--ink); font-size: 12px; line-height: 1.2; font-weight: 500; overflow-wrap: anywhere; }
-.mc-kind { color: var(--cyan); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; font-stretch: 106%; line-height: 1.25; }
-.mc-home { color: var(--ink-3); font-size: 11px; margin-top: auto; }
-.mc-n { position: absolute; top: 3px; left: 6px; right: 6px; display: flex; justify-content: space-between; gap: 4px; font-size: 11px; color: var(--ink-2); pointer-events: none; }
-.mc-n i { font-style: normal; color: var(--sun); letter-spacing: .14em; text-transform: uppercase; font-weight: 600; }
-.mc-n b { margin-left: auto; font-weight: 500; }
-.mini.at-tip .mc-n b { color: var(--sun); }
-.mc-n small { font-size: 11px; color: var(--ink-3); font-weight: 400; }
-.mini.flat { flex: 0 0 160px; min-height: 50px; display: grid; grid-template-columns: 24px 1fr; grid-template-rows: auto auto; column-gap: 8px; align-items: center; text-align: left; padding: 6px 8px; }
-.mini.flat .mc-sig { grid-row: 1 / 3; width: 24px; height: 24px; }
-.mini.flat .mc-n { top: 2px; }
-.mini.flat .mc-n b { position: absolute; right: 0; top: 30px; }
+/* a mini-card, a field-guide plate: its portrait (its sigil until it has one), an edge split by what it eats, its diet
+   and motion marked on the portrait, its name in two set lines, then its kind or how it does here */
+.minicard { position: relative; flex: 0 0 116px; display: grid; grid-template-rows: 72px 3px auto auto; min-width: 0; padding: 0; text-align: left; touch-action: pan-x;
+  background: #0a1012; border: 1px solid var(--line-faint); color: var(--ink-2); }
+.minicard:hover { border-color: var(--line); }
+.minicard:focus-visible { outline: 1px solid var(--cyan); outline-offset: 1px; }
+.minicard.at-tip { border-color: var(--sun); box-shadow: 0 0 0 1px rgba(241, 227, 160, 0.25); }
+/* (the portrait about its middle: a card's crop holds its subject's surroundings, the plate shows its heart) */
+.mc-ph { position: relative; display: grid; place-items: center; overflow: hidden; background: radial-gradient(circle, rgba(127, 214, 223, 0.1), transparent 70%) #0b0f14; background-position: center; background-repeat: no-repeat; }
+.mc-ph.on { background-size: 165%; }
+.mc-ph.on .mc-sig { visibility: hidden; }
+.mc-sig { display: grid; place-items: center; }
+.mc-sig svg { display: block; }
+.mc-mix { display: flex; gap: 1px; background: var(--bg); }
+.mc-mix i { display: block; min-width: 2px; }
+.mc-tip { position: absolute; left: 0; top: 0; padding: 0 5px; line-height: 16px; background: var(--sun); color: #0a0d0c; font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+.mc-n { position: absolute; right: 0; top: 0; padding: 0 6px; line-height: 18px; background: rgba(6, 9, 10, 0.78); color: var(--ink); font-size: 12px; pointer-events: none; }
+.mc-n b { font-weight: 500; font-variant-numeric: tabular-nums; }
+.mc-n small { font-size: 11px; color: var(--ink-2); font-weight: 400; }
+.minicard.at-tip .mc-n b { color: var(--sun); }
+.mc-kind { position: absolute; left: 4px; top: 52px; display: flex; gap: 3px; padding: 2px 3px; background: rgba(6, 9, 10, 0.78); color: var(--ink-2); }
+.mc-kind svg { width: 12px; height: 12px; display: block; }
+.mc-kept { position: absolute; right: 4px; top: 52px; width: 16px; height: 16px; padding: 1px; background: rgba(6, 9, 10, 0.78); color: var(--sun); }
+.mc-kept svg { width: 100%; height: 100%; display: block; }
+/* (two lines whatever the name: a long one is cut at its end, the whole in the card's label) */
+.mc-name { display: grid; padding: 6px 7px 0; font-size: 12.5px; line-height: 1.2; min-width: 0; }
+.mc-name > * { min-height: 1.2em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-name b { color: var(--ink); font-weight: 500; }
+.mc-sub { padding: 3px 7px 7px; font-size: 11px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.mc-sub.from { color: var(--sun); }
+.mc-sub.gone { text-decoration: line-through rgba(111, 138, 140, 0.6); }
+.mc-live { display: inline-block; width: 5px; height: 5px; margin: 0 5px 1px 0; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 4px var(--cyan); }
+/* a phone's held strip: one row, the portrait square at its left */
+.minicard.flat { flex: 0 0 172px; grid-template-columns: 44px minmax(0, 1fr) auto; grid-template-rows: 44px 3px; column-gap: 8px; align-items: center; padding-right: 6px; }
+.minicard.flat .mc-ph { grid-row: 1; align-self: stretch; height: 44px; }
+.minicard.flat .mc-ph.on { background-size: 190%; }
+.minicard.flat .mc-mix { grid-column: 1; grid-row: 2; }
+.minicard.flat .mc-name { grid-row: 1; padding: 0; font-size: 12px; }
+.minicard.flat .mc-end { grid-row: 1; display: grid; justify-items: end; gap: 2px; }
+.minicard.flat .mc-tip, .minicard.flat .mc-n, .minicard.flat .mc-kept { position: static; background: none; padding: 0; }
+.minicard.flat .mc-tip { padding: 0 4px; background: var(--sun); }
+.minicard.flat .mc-kept { width: 13px; height: 13px; }
 /* the cabinet: its mini-cards in a grid, three or more a row */
 .cab-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
-.cab-grid .mini { min-height: 124px; padding-top: 10px; touch-action: pan-y; }
+.cab-grid .minicard { touch-action: pan-y; }
 .cab-grid .pip-empty { grid-column: 1 / -1; }
 /* a card saved: it presents itself at the center, then shrinks to the Lab */
 .card-fly { position: fixed; left: 50%; top: 50%; z-index: 40; width: min(330px, 70vw); pointer-events: none; transform: translate(-50%, -50%); box-shadow: 0 12px 48px rgba(0, 0, 0, 0.7); }
 body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-card [data-tool="pipette"] { outline: 1px dashed var(--sun); outline-offset: 2px; }
-.mc-kept { position: absolute; right: 5px; bottom: 5px; width: 13px; height: 13px; color: var(--sun); opacity: .8; }
-.mc-kept svg { width: 100%; height: 100%; display: block; }
-.mini.flat .mc-kept { bottom: auto; top: 6px; right: 6px; }
 /* a card being moved: its place, open, where it will land */
-.mini.mc-slot { border-style: dashed; border-color: rgba(241, 227, 160, 0.55); background: rgba(241, 227, 160, 0.04); }
-.mini.mc-slot > * { visibility: hidden; }
+.minicard.mc-slot { border-style: dashed; border-color: rgba(241, 227, 160, 0.55); background: rgba(241, 227, 160, 0.04); }
+.minicard.mc-slot > * { visibility: hidden; }
 /* a card dragged out of the strip */
 .ghost-card { position: fixed; left: 0; top: 0; z-index: 30; pointer-events: none; opacity: .92; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); }
+.ghost-card.minicard { width: 116px; }
+.ghost-card.minicard.flat { width: 172px; }
 /* the dock's pipette carries its count */
 .dock .tools .tool[data-tool="pipette"]::after { content: attr(data-count); position: absolute; left: 3px; top: 1px; font-size: 11px; line-height: 1; color: var(--sun); letter-spacing: 0; }
 

@@ -7,7 +7,7 @@
 //
 // cardData is pure (tested); drawCard draws on any 2D context; createCards is the page's dialog.
 
-import { facets } from './facets.js';
+import { facets, dietMix } from './facets.js';
 import { thermalGuild, roleColor, divEnergy } from './genome.js';
 import { voiceOf } from './audio/mapping.js';
 import { describe as describeSong } from './audio/motif.js';
@@ -17,6 +17,8 @@ import { qr } from './qr.js';
 
 export const CARD_W = 660, CARD_H = 1050; // about a bridge card's shape
 export const CARD_SCALE = 2; // drawn (and saved) at twice that, for sharp text
+// where a card's portrait is (card units): its middle square is a mini-card's portrait (main.js THUMB_CROP)
+export const PORTRAIT_BOX = { x: 30, y: 118, w: 600, h: 340 };
 
 // a gauge's share of its range: where v lies between lo and hi (on a log scale if log)
 const share = (v, lo, hi, log = false) => Math.max(0, Math.min(1, log ? Math.log(v / lo) / Math.log(hi / lo) : (v - lo) / (hi - lo)));
@@ -39,9 +41,7 @@ export function cardData(sp, { reg, K, story = null, simTime = 0, founders = 0, 
     ['Division', 1 - share(div, 1, 8, true), `${div.toFixed(1)} E`],
   ];
   // what it lives on: the light, and each of grazing (glint), carrion (husks) and hunting (flesh)
-  const eat = 1 - g.photo, dw = (g.dGlint || 0) + (g.dHusk || 0) + (g.dFlesh || 0) || 1;
-  const diet = [['Light', g.photo], ['Grazing', (eat * (g.dGlint || 0)) / dw], ['Carrion', (eat * (g.dHusk || 0)) / dw], ['Hunting', (eat * (g.dFlesh || 0)) / dw]]
-    .map(([k, v]) => [k, v, `${Math.round(v * 100)}%`]);
+  const diet = dietMix(g).map(([, v], i) => [['Light', 'Grazing', 'Carrion', 'Hunting'][i], v, `${Math.round(v * 100)}%`]);
   const water = K.heat ? { opt: g.topt ?? 19, tol: g.tol ?? 7, maker: !!th.maker, pref: th.pref } : null;
   const food = relations?.food && reg.get(relations.food), eater = relations?.eater && reg.get(relations.eater);
   const end = sp.alive ? simTime : (sp.extinct ?? simTime);
@@ -140,7 +140,7 @@ export function drawCard(ctx, d, art = {}) {
   text(from, M, 100, 19, INK2, 400, nameW);
 
   // the portrait: its box, the species lit and the rest dimmed; without one, its sigil large
-  const AX = M, AY = 118, AW = w, AH = 340;
+  const { x: AX, y: AY, w: AW, h: AH } = PORTRAIT_BOX;
   ctx.save();
   ctx.beginPath(); ctx.rect(AX, AY, AW, AH); ctx.clip();
   if (art.portrait) {

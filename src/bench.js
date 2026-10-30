@@ -23,7 +23,7 @@ function swipeDown(el, close) {
   let drag = null, swiped = 0;
   el.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse' || e.target.closest('input')) return;
-    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, on: false, card: !!e.target.closest('.mini'), at: performance.now() };
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, on: false, card: !!e.target.closest('.minicard'), at: performance.now() };
   });
   el.addEventListener('pointermove', (e) => {
     if (!drag || e.pointerId !== drag.id) return;
@@ -154,7 +154,7 @@ export function createBench({ hand, pick, reach, size, onToggle, pip }) {
     $('pip-n').textContent = v.count ? `${v.count.toLocaleString('en-US')} / ${v.limit.toLocaleString('en-US')}${v.count >= v.limit ? ' · full' : ''}` : 'empty';
     if (drags.some((d) => d.dragging())) return;
     if (key === pipKey) {
-      for (const row of [strip, hstrip]) [...row.querySelectorAll('.mini .mc-n b')].forEach((b, i) => { if (v.held[i]) b.innerHTML = countText(...v.held[i], row === hstrip); });
+      for (const row of [strip, hstrip]) [...row.querySelectorAll('.minicard .mc-n b')].forEach((b, i) => { if (v.held[i]) b.innerHTML = countText(...v.held[i], row === hstrip); });
       return;
     }
     pipKey = key;

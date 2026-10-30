@@ -23,14 +23,14 @@ import { startLoader } from './loader.js';
 import { Director } from './director.js';
 import { createChronicler, watchMap, durWords } from './chronicler.js';
 import { earned } from './achievements.js';
-import { createCards, strangerCard } from './card.js';
+import { createCards, strangerCard, PORTRAIT_BOX, CARD_SCALE } from './card.js';
 import { createFilm } from './film.js';
 import { parseMind, interpretMind, settleMind } from './mind.js';
 import { createHand, REACH, reachStep, toolOf, TOOLS, works, INSTRUMENTS } from './hand.js';
 import { createBench } from './bench.js';
 import { createLadder } from './ladder.js';
 import { createPipette, setDownJob, mergeJobs, bodiesOf, PIPE_LIMIT } from './pipette.js';
-import { miniCard } from './minicard.js';
+import { miniCard, setThumb, hasThumb, dropThumb } from './minicard.js';
 import { createCabinetStore, encodeCard, decodeCard, cardLink, cardFromHash, cardFromPng, cardIntoPng } from './cabinet.js';
 import { fmt, fmtClock, fmtDur, esc, cssCol, clamp, term, spLink, saveFile, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
 
@@ -509,6 +509,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     };
     hand.reset(life.hand);
     pipette = createPipette(life.pipette);
+    dropThumb('s', true);
     eng.setDrawn([]);
     Object.assign(pull, { on: false, until: 0, got: [] }); pull.drawn.clear(); pull.taken.clear();
     spit.on = false;
@@ -679,6 +680,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       Object.assign(life, page.life, { lastCensus: null });
       hand.reset(life.hand);
       pipette = createPipette(life.pipette);
+      dropThumb('s', true);
       handSeen = life.hand.length;
       Object.assign(climate, page.climate);
       chron.load(page.chron);
@@ -1685,14 +1687,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // A card's portrait: one frame of the close-up renderer (the specimen viewer's), aimed at the
   // species' largest body or densest crowd, read back from an offscreen texture.
   let portraitJob = null, portraitHold = false;
-  const PORTRAIT = 1024; // a row of its pixels a multiple of 256 bytes, as a texture copy needs
-  async function takePortrait(serial) {
+  const PORTRAIT = 1024, THUMB = 192; // a row of their pixels a multiple of 256 bytes, as a texture copy needs
+  // A mini-card's (thumb) is small and closer (as a card's middle shows), never holds the world (it may lead its
+  // subject a little), lights nothing (the world's own view would dim with it for that frame), looks for its subject
+  // near a point first (near: [x, y, r]) and gives way: it starts only when no other portrait or pick is waiting.
+  async function takePortrait(serial, { thumb = false, near = null } = {}) {
     const sp = life.reg.get(serial);
     if (!sp || !sp.alive) return null;
-    portraitHold = true;
-    setTimeout(() => { if (!portraitJob) portraitHold = false; }, 5000);
-    const m = await bestMember(sp).catch(() => null);
-    if (!m) { portraitHold = false; return null; }
+    if (!thumb) { portraitHold = true; setTimeout(() => { if (!portraitJob) portraitHold = false; }, 5000); }
+    // (a thumb's pick never takes the place of one waiting: the pointer's, the selection's)
+    const look = (o) => (thumb && eng.pickReq ? null : bestMember(sp, o).catch(() => null));
+    const m = (near && await look({ near, budget: 6 })) || await look(thumb ? { budget: 6, cap: 2048 } : {});
+    if (thumb && (portraitJob || portraitHold)) return null;
+    if (!m) { if (!thumb) portraitHold = false; return null; }
     const [W, H] = eng.grid, { best, res } = m;
     let cx = best.x, cy = best.y;
     if (m.body && m.body.length > 1) {
@@ -1701,25 +1708,25 @@ function run(eng, device, ctx, specCtx, hasTS) {
       cx += sx / m.body.length; cy += sy / m.body.length;
     }
     // a body fills most of the frame; free cells show a dozen or so across
-    const span = clamp(m.span * 2.6 + 0.6, 1.6, 9);
+    const span = clamp(m.span * 2.6 + 0.6, 1.6, 9) / (thumb ? 2 : 1), size = thumb ? THUMB : PORTRAIT;
     if (portraitJob) portraitJob.resolve(null);
     // the subject's reach from the center, as a share of the frame's half-width (the card brackets it)
     const subject = clamp(((m.body ? m.span : 0) + 0.12 * sp.genome.size + 0.08) / (span / 2), 0.08, 0.95);
-    return new Promise((resolve) => { portraitJob = { slot: sp.slot, cx, cy, vx: m.body ? 0 : best.vx, vy: m.body ? 0 : best.vy, t: res.simTime, ppu: PORTRAIT / span, subject, resolve, at: performance.now() }; });
+    return new Promise((resolve) => { portraitJob = { slot: thumb ? null : sp.slot, cx, cy, vx: m.body ? 0 : best.vx, vy: m.body ? 0 : best.vy, t: res.simTime, size, ppu: size / span, subject, resolve, at: performance.now() }; });
   }
   // A picture of what the view shows (the screen's shorter side, square), nothing lit: a save's preview.
   function takeView() {
     if (portraitJob) portraitJob.resolve(null);
     portraitHold = true;
     const span = Math.min(innerWidth, innerHeight) / cssPPU();
-    return new Promise((resolve) => { portraitJob = { slot: null, cx: cam.x, cy: cam.y, vx: 0, vy: 0, t: eng.simTime, ppu: PORTRAIT / span, resolve, at: performance.now() }; });
+    return new Promise((resolve) => { portraitJob = { slot: null, cx: cam.x, cy: cam.y, vx: 0, vy: 0, t: eng.simTime, size: PORTRAIT, ppu: PORTRAIT / span, resolve, at: performance.now() }; });
   }
   // the job's frame: drawn in place of the close-up (the frame loop), then copied out once the GPU is done
   function portraitParams() {
     const j = portraitJob;
     if (!j || j.drawn) return null;
     if (performance.now() - j.at > 4000) { portraitJob = null; portraitHold = false; j.resolve(null); return null; }
-    j.tex ??= device.createTexture({ size: [PORTRAIT, PORTRAIT], format: eng.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+    j.tex ??= device.createTexture({ size: [j.size, j.size], format: eng.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
     const dt = Math.min(2, Math.max(0, eng.simTime - j.t));
     const [W, H] = eng.grid;
     j.drawn = true;
@@ -1730,16 +1737,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
       eng.setFocus({ kinds, mute: 0.09 });
       j.relight = true;
     }
-    return { target: j.tex.createView(), w: PORTRAIT, h: PORTRAIT, cx: ((j.cx + j.vx * dt) % W + W) % W, cy: ((j.cy + j.vy * dt) % H + H) % H, ppu: j.ppu, dpr: 1 };
+    return { target: j.tex.createView(), w: j.size, h: j.size, cx: ((j.cx + j.vx * dt) % W + W) % W, cy: ((j.cy + j.vy * dt) % H + H) % H, ppu: j.ppu, dpr: 1 };
   }
   async function readPortrait() {
     const j = portraitJob;
     if (!j || !j.drawn || j.reading) return;
     j.reading = true;
-    const d = device, row = PORTRAIT * 4;
-    const buf = d.createBuffer({ size: row * PORTRAIT, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const d = device, S = j.size, row = S * 4;
+    const buf = d.createBuffer({ size: row * S, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
     const enc = d.createCommandEncoder();
-    enc.copyTextureToBuffer({ texture: j.tex }, { buffer: buf, bytesPerRow: row }, [PORTRAIT, PORTRAIT]);
+    enc.copyTextureToBuffer({ texture: j.tex }, { buffer: buf, bytesPerRow: row }, [S, S]);
     d.queue.submit([enc.finish()]);
     try {
       await buf.mapAsync(GPUMapMode.READ);
@@ -1748,8 +1755,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (eng.format.startsWith('bgra')) for (let i = 0; i < px.length; i += 4) { const b = px[i]; px[i] = px[i + 2]; px[i + 2] = b; }
       for (let i = 3; i < px.length; i += 4) px[i] = 255;
       const cv = document.createElement('canvas');
-      cv.width = cv.height = PORTRAIT;
-      cv.getContext('2d').putImageData(new ImageData(px, PORTRAIT, PORTRAIT), 0, 0);
+      cv.width = cv.height = S;
+      cv.getContext('2d').putImageData(new ImageData(px, S, S), 0, 0);
       cv.subject = j.subject;
       j.resolve(cv);
     } catch { j.resolve(null); }
@@ -1801,6 +1808,81 @@ function run(eng, device, ctx, specCtx, hasTS) {
     cabinet.cards = [...cabinet.cards.filter((c) => c.id !== card.id), card];
     if (!quiet) lab.render(true);
   }
+  // ---- mini-card portraits (minicard.js): a cabinet card's is the middle of its card's portrait, cut when it is saved
+  // (a card kept before cards had them: from its PNG, once, then kept with it); a species in the pipette with no
+  // card is portrayed small from the world, one at a time (takePortrait's thumb)
+  const THUMB_CROP = [PORTRAIT_BOX.x + PORTRAIT_BOX.w / 2 - 150, PORTRAIT_BOX.y + PORTRAIT_BOX.h / 2 - 150, 300, 300].map((v) => v * CARD_SCALE);
+  // src (a canvas or an image) cut to crop ([x, y, w, h], else all of it): a small JPEG's bytes
+  async function thumbBytes(src, crop = [0, 0, src.width, src.height]) {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = THUMB;
+    cv.getContext('2d').drawImage(src, ...crop, 0, 0, THUMB, THUMB);
+    const blob = await new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.82));
+    if (!blob) throw new Error('no thumb');
+    return new Uint8Array(await blob.arrayBuffer());
+  }
+  // (cut by the browser as it decodes, off the page's thread)
+  async function pngThumb(png) {
+    const bmp = await createImageBitmap(new Blob([png], { type: 'image/png' }), ...THUMB_CROP, { resizeWidth: THUMB, resizeHeight: THUMB, resizeQuality: 'medium' });
+    try { return await thumbBytes(bmp); } finally { bmp.close(); }
+  }
+  // a cabinet card's portrait key, its portrait shown (or, missing, cut from its PNG soon)
+  const backfill = [], triedThumb = new WeakSet(); // (a PNG that cannot be cut is tried once)
+  function cardThumb(c) {
+    const key = `c${c.id}`;
+    if (c.thumb) { if (!hasThumb(key)) setThumb(key, c.thumb); } else if (c.png && !triedThumb.has(c)) { triedThumb.add(c); backfill.push(c); if (backfill.length === 1) setTimeout(fillThumbs, 400); }
+    return key;
+  }
+  async function fillThumbs() {
+    const c = backfill[0];
+    if (!c) return;
+    const thumb = await pngThumb(c.png).catch(() => null);
+    if (thumb && cabinet.cards.includes(c)) {
+      c.thumb = thumb;
+      setThumb(`c${c.id}`, thumb);
+      cabinet.store.put(c).catch(() => {});
+    }
+    backfill.shift();
+    if (backfill.length) setTimeout(fillThumbs, 120);
+  }
+  // A pipette run's portrait key: its card's, else (of this world) its species' own, asked for if not taken yet;
+  // near: where it was drawn up ([x, y, r]), to look for one of its kind there first
+  function pipThumb(sp, near = null) {
+    const c = pipCard(sp);
+    if (c) return cardThumb(c);
+    if (sp.stranger) return '';
+    wantThumb(sp.serial, near);
+    return `s${sp.serial}`;
+  }
+  const thumbQ = new Map(); // serial -> { near, tries }
+  let thumbBusy = false;
+  function wantThumb(serial, near = null) {
+    if (hasThumb(`s${serial}`) || !life.reg.get(serial)?.alive) return;
+    const w = thumbQ.get(serial);
+    if (w) { w.near ??= near; return; }
+    thumbQ.set(serial, { near, tries: 0 });
+    setTimeout(pumpThumbs, 0);
+  }
+  // one at a time, while no card is being portrayed and no pick waits; a few tries each (a card's portrait or a
+  // pick taken first leaves it none)
+  async function pumpThumbs() {
+    if (thumbBusy || !thumbQ.size) return;
+    if (portraitJob || portraitHold || eng.pickReq || state.phase !== 'running') { setTimeout(pumpThumbs, 500); return; }
+    const [serial, w] = thumbQ.entries().next().value;
+    thumbQ.delete(serial);
+    if (!hasThumb(`s${serial}`) && pipette.species.some((x) => !x.stranger && x.serial === serial && !pipCard(x))) {
+      thumbBusy = true;
+      const cv = await takePortrait(serial, { thumb: true, near: w.near }).catch(() => null);
+      const bytes = cv && await thumbBytes(cv).catch(() => null);
+      thumbBusy = false;
+      if (bytes) setThumb(`s${serial}`, bytes);
+      else if (++w.tries < 3 && life.reg.get(serial)?.alive) { w.near = null; thumbQ.set(serial, w); }
+    }
+    setTimeout(pumpThumbs, 250);
+  }
+  // how a cabinet card's species does here
+  const cardStatus = (c) => { const sp = c.world === worldId() && life.reg.get(c.serial); return c.world !== worldId() ? ['from', c.home] : sp?.alive ? ['live', sp.pop] : ['gone']; };
+
   // Save: the card drawn, kept, and seen to go: it presents itself at the center for a beat, then shrinks to the
   // Field Lab's edge, where the Lab's button (or its Cabinet tab) flashes
   async function saveCard(serial, cv, quiet = false) {
@@ -1810,9 +1892,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     cv ??= await cards.render(serial);
     const blob = cv && await cardPng(cv, serial);
     if (!blob) { flash('Could not draw its card'); return; }
-    const c = carry(serial);
+    const c = carry(serial), thumb = await thumbBytes(cv, THUMB_CROP).catch(() => null);
     await keepCard({ id: newKey('c'), serial, name: sp.name, words: c.words, home: c.home, world: worldId(),
-      savedAt: Date.now(), touched: c.touched, png: new Uint8Array(await blob.arrayBuffer()) }, quiet);
+      savedAt: Date.now(), touched: c.touched, png: new Uint8Array(await blob.arrayBuffer()), thumb }, quiet);
     if (quiet) return;
     flyCard(blob); flash(`${sp.name} is in the cabinet`);
     cards.refresh();
@@ -1840,7 +1922,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function showInCabinet(card) {
     lab.open('cabinet');
     requestAnimationFrame(() => {
-      const el = document.querySelector(`#lab .mini[data-key="${CSS.escape(card.id)}"]`);
+      const el = document.querySelector(`#lab .minicard[data-key="${CSS.escape(card.id)}"]`);
       el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       el?.animate([{ boxShadow: '0 0 0 2px #f1e3a0, 0 0 24px rgba(241,227,160,.5)' }, { boxShadow: '0 0 0 0 transparent' }], { duration: 1100, easing: 'ease-out' });
     });
@@ -1868,7 +1950,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // (a card that came by its link alone is drawn here, from its genome)
     png ??= await strangerPng(bytes).catch(() => null);
     await keepCard({ id: newKey('c'), serial: 0, name: c.name, words: c.words, home: c.home, world: null,
-      savedAt: Date.now(), touched: c.touched, png });
+      savedAt: Date.now(), touched: c.touched, png, thumb: png && await pngThumb(png).catch(() => null) });
     lab.open('cabinet');
     flash(`${c.name}, from ${c.home}, is in the cabinet`);
   }
@@ -1915,9 +1997,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // A living member worth looking at: for a bonded species, a cell of its largest body (and that body's
   // extent), otherwise one in its densest patch. null if none was found.
-  async function bestMember(sp) {
+  // (near: [x, y, r], only there; budget: ms for tracing bodies; cap: the most cells to read back)
+  async function bestMember(sp, { near = null, budget = 60, cap = Infinity } = {}) {
     const [W, H] = eng.grid;
-    const res = await eng.requestPick([W / 2, H / 2], Math.hypot(W, H), NONE, { kind: sp.slot, maxOut: sp.pop * 1.25 + 2048, raw: true });
+    const res = near ? await eng.requestPick([near[0], near[1]], near[2], NONE, { kind: sp.slot, maxOut: 512, raw: true })
+      : await eng.requestPick([W / 2, H / 2], Math.hypot(W, H), NONE, { kind: sp.slot, maxOut: Math.min(cap, sp.pop * 1.25 + 2048), raw: true });
     if (!res || !res.raw.count) return null;
     const { u32, f32, count: n } = res.raw;
     let bestI = 0, body = null;
@@ -1925,7 +2009,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const claimed = new Uint8Array(n);
       let bestN = 0;
       const t0 = performance.now();
-      for (let tries = 0; tries < 60 && performance.now() - t0 < 60; tries++) {
+      for (let tries = 0; tries < 60 && performance.now() - t0 < budget; tries++) {
         const i = Math.floor(Math.random() * n);
         if (claimed[i]) continue;
         const tb = traceBody(u32, f32, n, u32[i * PICK_WORDS + 7]);
@@ -2003,7 +2087,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     cabinet: {
       cards: () => cabinet.cards, world: worldId,
       facets: (c) => { let f = cardFacets.get(c); if (!f) cardFacets.set(c, (f = facets(genomeOfWords(c.words), K))); return f; },
-      mini: (c) => miniCard(genomeOfWords(c.words), K, { key: c.id, name: c.name, home: c.world === worldId() ? 'this world' : c.home }),
+      mini: (c) => miniCard(genomeOfWords(c.words), K, { gid: c.words.join(), key: c.id, name: c.name, status: cardStatus(c), thumb: cardThumb(c) }),
+      status: cardStatus,
       // a card of this world's species opens its live card (to rename it); another world's, as it was drawn
       open: (c) => { if (c.world === worldId() && life.reg.has(c.serial)) cards.open(c.serial); else cards.openSaved({ ...c, genome: genomeOfWords(c.words) }); },
       load: loadCard,
@@ -2465,8 +2550,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const bench = createBench({ hand, pick: pickTool, reach: setReach, size: reachOf, onToggle: (on) => { if (on && phone()) { view.toggle(false); lab.close(); } },
     pip: {
       view: () => ({ count: pipette.count, limit: PIPE_LIMIT, armed: pull.armed, keys: pipette.species.map((sp) => pipKey(sp) + (pipCard(sp) ? '*' : '')), held: pipette.species.map(heldOf), mixed: pipette.mixed }),
-      cards: (flat) => pipette.species.map((sp) => { const [n, bodies] = heldOf(sp); return miniCard(genomeOfWords(sp.words), K, { key: pipKey(sp), name: sp.name, home: sp.home || 'this world',
-        n, bodies, tip: sp === pipette.tip, flat, kept: !!pipCard(sp) }); }).join(''),
+      cards: (flat) => pipette.species.map((sp) => { const [n, bodies] = heldOf(sp); return miniCard(genomeOfWords(sp.words), K, { gid: sp.words.join(), key: pipKey(sp), name: sp.name, home: sp.home || '',
+        n, bodies, tip: sp === pipette.tip, flat, kept: !!pipCard(sp), thumb: pipThumb(sp) }); }).join(''),
       move: (key, i) => { const sp = pipSp(key); if (sp) pipette.move(sp, i); },
       // its card: this world's species live, a carried one's from the cabinet
       open: (key) => {
@@ -2641,7 +2726,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     hand.suck = null;
     eng.setDrawn([]);
     pull.drawn.clear(); pull.taken.clear();
-    for (const { kind, g, recs } of incoming()) pipette.add({ serial: g.serial, words: wordsOf(kind), slot: kind, name: life.reg.get(g.serial)?.name || 'an unnamed species' }, recs);
+    for (const { kind, g, recs } of incoming()) {
+      pipette.add({ serial: g.serial, words: wordsOf(kind), slot: kind, name: life.reg.get(g.serial)?.name || 'an unnamed species' }, recs);
+      wantThumb(g.serial, [...pull.tip, Math.max(4 * hand.reach, 6)]);
+    }
     pull.got = [];
     bench.render();
   }

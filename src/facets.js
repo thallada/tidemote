@@ -16,6 +16,13 @@ export function facets(g, K) {
   return { diet, mobility, body: multi ? 'multicellular' : 'single-cell', types, schooling: g.align > 0.5 && swim > 0.3 };
 }
 
+/** What it lives on, as shares that sum to one: [[diet, share]] for each of photosynth (the light), grazer (glint),
+ * scavenger (husks) and predator (flesh), the eating part split by its tastes. */
+export function dietMix(g) {
+  const eat = 1 - g.photo, dw = (g.dGlint || 0) + (g.dHusk || 0) + (g.dFlesh || 0) || 1;
+  return [['photosynth', g.photo], ['grazer', (eat * (g.dGlint || 0)) / dw], ['scavenger', (eat * (g.dHusk || 0)) / dw], ['predator', (eat * (g.dFlesh || 0)) / dw]];
+}
+
 export function describe(g, K) {
   const f = facets(g, K);
   const parts = [f.diet];

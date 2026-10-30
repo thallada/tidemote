@@ -123,6 +123,22 @@ pipette, its cells made as newborns when set down: a stranger takes a serial of 
 spark does, keeping its card's name and home water (`life.carried` until the census meets it), and its later
 colonies join that lineage. A card's PNG dropped on the page, or its link opened, puts it in the cabinet.
 
+**The mini-card** (`src/minicard.js`), the strip's and the cabinet's unit, is a field-guide plate, so a species is
+known by sight before its name is read: its portrait, an edge under it split by what it eats (light, grazing, carrion,
+hunting in their shares, `dietMix`, in the diet colors), its diet and motion marked on the portrait, its name in two
+set lines (the genus, then the rest, each cut at its end, so every card's rows line up), and below it, in the strip,
+its diet and motion in words (a stranger: the water it came from), and in the cabinet how its species does here
+(*n alive*, kept current in place; *extinct here*; or *from* another water). The strip's count and Tip sit on the
+portrait; a phone's held strip has a flat one-row form. The portrait is a small JPEG (192 px), kept as an object
+URL by key (`setThumb`): a cabinet card's is the middle of its card's portrait, cut when it is saved and kept with the
+card (`thumb`; a card kept before cards had one: cut once from its PNG as the browser decodes it, then kept); a run in
+the pipette uses its card's, else its species is portrayed from the world (`takePortrait`'s thumb: a 192 px frame of
+the close-up renderer at twice the card's zoom, looked for near where it was drawn up first, with a 6 ms budget for
+tracing bodies). Those are taken one at a time, only while no card's portrait is being taken and no pick waits, never
+holding the world still or lighting its kind (the world's own view would dim with it for that frame); each card
+shows its sigil until its portrait comes, then takes it in place. Taken at 32k–65k particles on an RTX 2080 SUPER, a
+thumb costs 3–11 ms of the page's time and no frame over the usual.
+
 **The species card** is a trading card: its name and where it comes from, its sigil as the emblem in the corner,
 its portrait large, three words for what it is, its peak, age and when it arose in big figures over its numbers
 through its life, its body and diet as segmented gauges, its water on a thermometer from ice to 45°, and at its

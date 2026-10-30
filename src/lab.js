@@ -9,7 +9,7 @@ import { HEAT_BINS, HEAT_BIN, THERMAL_LEDGER } from './shaders.js';
 import { block, disclosure, wireDisclosures } from './ui.js';
 import { setText, setHTML } from './live.js';
 import { filterCards } from './cabinet.js';
-import { wireCardDrag } from './minicard.js';
+import { wireCardDrag, setStatus } from './minicard.js';
 
 /**
  * The Field Lab: the left column. Its Census is what the world is made of and what has happened;
@@ -523,7 +523,7 @@ export function createLab(api) {
   }
 
   // ---------------------------------------------------------- cabinet: every card saved, in every world (cabinet.js)
-  // api.cabinet: { cards(), world(), facets(card), mini(card), open(card), load(card, el) }: a card tapped opens it,
+  // api.cabinet: { cards(), world(), facets(card), mini(card), status(card) (minicard.js statusText), open(card), load(card, el) }: a card tapped opens it,
   // dragged onto the bench (its button, the pipette's tool or strip) loads the pipette
   function buildCabinet() {
     const p = pane(`<div class="qrow"><input type="search" id="cab-q" placeholder="Search the cabinet" aria-label="Search the cabinet" autocomplete="off"><button type="button" class="chip filt" id="cab-filt" aria-expanded="false" aria-controls="cab-filters">Filters</button></div><div class="filters" id="cab-filters">
@@ -551,7 +551,13 @@ export function createLab(api) {
       } });
       setText(p.ctl.querySelector('#cab-sum'), `${fmt(all.length)} card${all.length === 1 ? '' : 's'} · ${fmt(all.filter((c) => c.world === world).length)} from this world`);
       const k = shown.map((c) => c.id).join(',');
-      if ((k === key && !force) || drag.dragging()) return;
+      if (drag.dragging()) return;
+      // (the same cards: how each species does here, in place)
+      if (k === key && !force) {
+        const ids = new Map(shown.map((c) => [c.id, c]));
+        for (const el of grid.querySelectorAll('.mc-st')) { const c = ids.get(el.parentElement.dataset.key); if (c) setStatus(el, api.cabinet.status(c)); }
+        return;
+      }
       key = k;
       grid.innerHTML = shown.length ? shown.map((c) => api.cabinet.mini(c)).join('')
         : `<div class="pip-empty"><b>${all.length ? 'No card matches.' : 'The cabinet is empty.'}</b><span>${all.length ? 'Try other filters.' : 'Save a species from the specimen panel (Save), or drop a species card’s PNG on the page: its card comes here, to be carried to any world.'}</span></div>`;

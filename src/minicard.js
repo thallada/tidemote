@@ -1,24 +1,82 @@
-// A species' mini-card (docs/hand.md): its sigil, name, kind (diet · motion) and home water, bracketed at the
-// corners, the full card being unreadable at that size. The pipette's strip and the cabinet are made of them.
+// A species' mini-card (docs/hand.md), a field-guide plate: its portrait (the sigil standing in until it has one), an
+// edge split by what it eats, its diet and motion marked on the portrait, its name in two set lines (genus, then the
+// rest), and below it, in the pipette, its kind, or in the cabinet, how it does here. The pipette's strip and the
+// cabinet are made of them; a phone's held strip has a flat one (one row).
 import { sigilSVG } from './song.js';
 import { voiceOf } from './audio/mapping.js';
-import { facets } from './facets.js';
+import { facets, dietMix, DIET_COL } from './facets.js';
 import { esc, fmt } from './fmt.js';
 
 /** What a mini-card says the pipette holds of its species: n cells, in bodies (updated in place as they come and go). */
 export const countText = (n, bodies, flat) => `×${fmt(n)}${bodies > 1 && !flat ? `<small> · ${fmt(bodies)} bodies</small>` : ''}`;
 
+/** How a cabinet card's species does here (updated in place): [ 'live', n ] alive, [ 'gone' ], or [ 'from', home ]. */
+export const statusText = ([k, v]) => (k === 'live' ? `<i class="mc-live"></i>${fmt(v)} alive` : k === 'gone' ? 'extinct here' : `↗ from ${esc(v)}`);
+
+/** A cabinet card's status line (.mc-st) brought up to st, in place. */
+export function setStatus(el, st) {
+  const html = statusText(st);
+  if (el.innerHTML === html) return;
+  el.innerHTML = html;
+  el.classList.toggle('from', st[0] === 'from');
+  el.classList.toggle('gone', st[0] === 'gone');
+}
+
+// ---- portraits: small JPEGs by key ('c' + a card's id, 's' + a species' serial in this world), as object URLs; a
+// card drawn before its portrait shows its sigil and takes the portrait in place when it comes
+const thumbs = new Map();
+const THUMBS_MAX = 512; // (a cabinet's worth; the oldest let go first)
+/** Whether a portrait is kept under key. */
+export const hasThumb = (key) => thumbs.has(key);
+/** A portrait (JPEG bytes) kept under key, and shown on every card drawn with it. */
+export function setThumb(key, bytes) {
+  dropThumb(key);
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }));
+  thumbs.set(key, url);
+  if (thumbs.size > THUMBS_MAX) dropThumb(thumbs.keys().next().value);
+  for (const el of document.querySelectorAll(`.minicard[data-thumb="${CSS.escape(key)}"] .mc-ph`)) { el.style.backgroundImage = `url(${url})`; el.classList.add('on'); }
+}
+/** Lets the portrait under key go (or every one whose key starts with prefix, with all). */
+export function dropThumb(key, all = false) {
+  for (const k of all ? [...thumbs.keys()].filter((x) => x.startsWith(key)) : [key]) {
+    const url = thumbs.get(k);
+    if (url) { URL.revokeObjectURL(url); thumbs.delete(k); }
+  }
+}
+
+// sigils by genome (gid): the strip is rebuilt whenever the pipette's species change, each card's sigil with it
+const sigils = new Map();
+function sigilOf(g, gid, size) {
+  const k = `${size}|${gid}`;
+  let s = gid && sigils.get(k);
+  if (!s) {
+    s = sigilSVG(voiceOf(g), g, { size });
+    if (gid) { sigils.set(k, s); if (sigils.size > 256) sigils.delete(sigils.keys().next().value); }
+  }
+  return s;
+}
+
 /**
- * g: the species' genome; name; home: where it lives or came from; n, bodies: what the pipette holds of it (cells,
- * bodies); tip: it leaves next; kept: its card is in the cabinet; flat: one row (a phone's held strip). key: what
- * the card stands for (data-key).
+ * g: the species' genome (gid: a string naming it, its words, to keep its sigil by); name; home: the water it came from, if not this one; n, bodies: what the pipette holds of
+ * it (cells, bodies); tip: it leaves next; kept: its card is in the cabinet; flat: one row (a phone's held strip);
+ * status: how it does here (statusText), for the cabinet. key: what the card stands for (data-key); thumb: the key
+ * of its portrait.
  */
-export function miniCard(g, K, { key, name, home = '', n = 0, bodies = 0, tip = false, kept = false, flat = false }) {
-  const f = facets(g, K);
-  const count = n ? `<span class="mc-n">${tip ? '<i>Tip</i>' : ''}<b>${countText(n, bodies, flat)}</b></span>` : '';
-  return `<button type="button" class="mini${flat ? ' flat' : ''}${tip ? ' at-tip' : ''}" data-key="${esc(key)}" aria-label="${esc(name)}${n ? `, ${n} cells` : ''}">`
-    + `${count}${kept ? '<span class="mc-kept" data-hint="Its card is in the cabinet"><svg aria-hidden="true"><use href="#i-cabinet"/></svg></span>' : ''}<span class="mc-sig">${sigilSVG(voiceOf(g), g, { size: flat ? 22 : 30 })}</span>`
-    + `<span class="mc-name" translate="no">${esc(name)}</span><span class="mc-kind">${f.diet} · ${f.mobility}</span>${home && !flat ? `<span class="mc-home">${esc(home)}</span>` : ''}</button>`;
+export function miniCard(g, K, { gid = '', key, name, home = '', n = 0, bodies = 0, tip = false, kept = false, flat = false, status = null, thumb = '' }) {
+  const f = facets(g, K), url = thumb && thumbs.get(thumb);
+  const sp = name.indexOf(' '), genus = sp > 0 ? name.slice(0, sp) : name, rest = sp > 0 ? name.slice(sp + 1) : '';
+  const mix = dietMix(g).filter(([, v]) => v >= 0.02).map(([d, v]) => `<i style="flex:${v.toFixed(3)};background:${DIET_COL[d]}"></i>`).join('');
+  const ph = `<span class="mc-ph${url ? ' on' : ''}"${url ? ` style="background-image:url(${url})"` : ''}><span class="mc-sig">${sigilOf(g, gid, flat ? 30 : 40)}</span></span><span class="mc-mix">${mix}</span>`;
+  const count = n ? `<span class="mc-n"><b>${countText(n, bodies, flat)}</b></span>` : '';
+  const keptMark = kept ? '<span class="mc-kept" data-hint="Its card is in the cabinet"><svg aria-hidden="true"><use href="#i-cabinet"/></svg></span>' : '';
+  const nm = `<span class="mc-name" translate="no"><b>${esc(genus)}</b><span>${esc(rest)}</span></span>`;
+  const label = `${name}, ${f.diet}, ${f.mobility}${home ? `, from ${home}` : ''}${n ? `, ${n} cells` : ''}${tip ? ', at the tip' : ''}`;
+  const open = `<button type="button" class="minicard${flat ? ' flat' : ''}${tip ? ' at-tip' : ''}" data-key="${esc(key)}"${thumb ? ` data-thumb="${esc(thumb)}"` : ''} aria-label="${esc(label)}">`;
+  if (flat) return `${open}${ph}${nm}<span class="mc-end">${tip ? '<span class="mc-tip">Tip</span>' : ''}${count}${keptMark}</span></button>`;
+  const kind = `<span class="mc-kind" aria-hidden="true"><svg style="color:${DIET_COL[f.diet]}"><use href="#i-d-${f.diet}"/></svg><svg><use href="#i-m-${f.mobility}"/></svg></span>`;
+  const sub = status ? `<span class="mc-sub mc-st${status[0] === 'from' ? ' from' : status[0] === 'gone' ? ' gone' : ''}">${statusText(status)}</span>`
+    : home ? `<span class="mc-sub from">↗ from ${esc(home)}</span>` : `<span class="mc-sub"><span style="color:${DIET_COL[f.diet]}">${f.diet}</span> · ${f.mobility}</span>`;
+  return `${open}${ph}${tip ? '<span class="mc-tip">Tip</span>' : ''}${count}${keptMark}${kind}${nm}${sub}</button>`;
 }
 
 const HOLD = 350; // a touch held this long (ms) lifts the card
@@ -30,7 +88,7 @@ const HOLD = 350; // a touch held this long (ms) lifts the card
  */
 export function wireCardDrag(root, { tap, drop, reorder }) {
   let drag = null;
-  const cards = () => [...root.querySelectorAll('.mini')];
+  const cards = () => [...root.querySelectorAll('.minicard')];
   const over = (x, y) => { const r = root.getBoundingClientRect(); return x >= r.left - 12 && x <= r.right + 12 && y >= r.top - 12 && y <= r.bottom + 12; };
   // the open place moved to where (x, y) falls among the other cards, each sliding from where it was
   function makeWay(slot, x, y) {
@@ -46,7 +104,7 @@ export function wireCardDrag(root, { tap, drop, reorder }) {
     }
   }
   root.addEventListener('pointerdown', (e) => {
-    const b = e.target.closest('.mini');
+    const b = e.target.closest('.minicard');
     if (!b || e.button > 0) return;
     drag = { key: b.dataset.key, el: b, x: e.clientX, y: e.clientY, at: performance.now(), touch: e.pointerType !== 'mouse', ghost: null, id: e.pointerId };
   });
