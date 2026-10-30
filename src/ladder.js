@@ -3,20 +3,20 @@
 // or down moves along it, a speed a rung; let go, that speed. Open, a drag or the wheel on it moves along it too. A
 // speed tapped, the chip tapped again, or a tap anywhere else closes it; a double tap on the chip is real time.
 // Built afresh only when its speeds, or the one marked, change.
-const MEANING = new Map([[Infinity, 'as fast as it runs'], [16, 'coarse steps'], [1, 'real time'], [0.25, 'slow motion']]);
-const fmtSpeed = (s) => (s === Infinity ? 'Max' : `×${s}`);
+const MEANING = new Map([[Infinity, 'as fast as it runs'], ['fast', 'drawn every frame'], [16, 'coarse steps'], [1, 'real time'], [0.25, 'slow motion']]);
 const HOLD = 300; // a press on the chip held this long (ms) opens the ladder to drag along
 
-/** chip, el: the dock's speed button and the ladder's element; choices() the speeds on offer; current() the
- * speed now; pick(v, quiet) sets one (quiet: without a word, as the ladder shows it); real() goes back to real time. */
-export function createLadder({ chip, el, choices, current, pick, real }) {
+/** chip, el: the dock's speed button and the ladder's element; choices() the stops on offer, slowest first; current()
+ * the stop now; fmt(v) names one; pick(v, quiet) sets one (quiet: without a word, as the ladder shows it); real() goes
+ * back to real time. */
+export function createLadder({ chip, el, choices, current, fmt, pick, real }) {
   let lastTap = 0, drawn = '', drag = null, wheel = 0, swallowed = 0;
   function render(marked = current()) {
     const list = choices(), key = `${marked}|${list}`;
     if (key === drawn) return;
     drawn = key;
     el.innerHTML = `<div class="sub-h"><span class="ladder-t">Speed</span><span class="sub-a">double-tap: ×1</span></div>`
-      + [...list].reverse().map((v) => `<button type="button" role="option" class="rung" data-v="${v}" aria-selected="${v === marked}"><i aria-hidden="true"></i><b>${fmtSpeed(v)}</b><span>${MEANING.get(v) || ''}</span></button>`).join('');
+      + [...list].reverse().map((v) => `<button type="button" role="option" class="rung" data-v="${v}" aria-selected="${v === marked}"><i aria-hidden="true"></i><b>${fmt(v)}</b><span>${MEANING.get(v) || ''}</span></button>`).join('');
   }
   function toggle(on = el.hidden) {
     if (on) {
@@ -32,7 +32,8 @@ export function createLadder({ chip, el, choices, current, pick, real }) {
   function along(v, d) {
     const list = choices();
     let i = list.indexOf(v);
-    if (i < 0) i = Math.max(0, list.findIndex((x) => x > v) - 1);
+    // (a speed between stops: from the stop above it, or below; a stop that is no number is above any speed)
+    if (i < 0) i = list.findIndex((x) => !(x <= v)) - (d > 0 ? 1 : 0);
     return list[Math.max(0, Math.min(list.length - 1, i + d))];
   }
   const rung = () => el.querySelector('.rung')?.offsetHeight || 28;
@@ -96,8 +97,8 @@ export function createLadder({ chip, el, choices, current, pick, real }) {
     const b = e.target.closest('[data-v]');
     if (!b) return;
     toggle(false);
-    pick(Number(b.dataset.v));
+    pick(choices().find((v) => String(v) === b.dataset.v));
   });
   document.addEventListener('pointerdown', (e) => { if (!el.hidden && !el.contains(e.target) && !chip.contains(e.target)) toggle(false); }, true);
-  return { toggle, isOpen: () => !el.hidden, render: () => { if (!el.hidden && !drag?.moved) render(); } };
+  return { toggle, along, isOpen: () => !el.hidden, render: () => { if (!el.hidden && !drag?.moved) render(); } };
 }
