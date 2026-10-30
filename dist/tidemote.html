@@ -1710,6 +1710,7 @@ svg.niche .n-dot { fill: var(--cyan); }
   var P_BYTES = 40;
   var TUBE_N = 400;
   var TUBE_K = 16;
+  var STUDIO_N = 64;
   var LOUPE_FIELD = 1.1;
   var ORGANS = 12;
   var PICK_WORDS = 12;
@@ -6917,6 +6918,12 @@ const TUBE_MAX_BLUR = 2.5; // of its radius
     c /= f32(TUBE_TAPS);
   }
   return PointOut(c, c);
+}
+// A mini-card's portrait drawn alone (setStudio, the studio): the bore's cells, still, in one target.
+@fragment fn fsTube(i: PO) -> @location(0) vec4f {
+  var j = i;
+  j.jelly.z = 0.0;
+  return pointColor(j);
 }
 fn pointColor(i: PO) -> vec4f {
   let far = spriteFalloff(i.uv, i.shape & 255u);
@@ -19916,6 +19923,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       b.tubeGenomes = d.createBuffer({ size: (FIRST_LIFE + TUBE_K) * G_BYTES, usage: U.STORAGE | U.COPY_DST });
       b.tubeOrgans = d.createBuffer({ size: (FIRST_LIFE + TUBE_K) * ORGANS * 4, usage: U.STORAGE });
       this.tubeN = 0;
+      b.studioParts = d.createBuffer({ size: STUDIO_N * P_BYTES, usage: U.STORAGE | U.COPY_DST });
+      b.studioGenomes = d.createBuffer({ size: (FIRST_LIFE + 1) * G_BYTES, usage: U.STORAGE | U.COPY_DST });
+      b.studioOrgans = d.createBuffer({ size: (FIRST_LIFE + 1) * ORGANS * 4, usage: U.STORAGE });
+      this.studioN = 0;
       this.postModule = d.createShaderModule({ code: POST_WGSL, label: "post" });
       const cp = (mod, entryPoint) => cPipe({ layout: "auto", compute: { module: mod, entryPoint }, label: entryPoint });
       this.cpDefs = {
@@ -19987,6 +19998,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         fragment: { module: this.drawModule, entryPoint: "fsStone", targets: [{ format: HDR }, { format: HDR }] }
       });
       this.pBridge = rp(this.drawModule, "vsBridge", "fsBridge", "triangle-strip", additive);
+      this.pStudio = rp(this.drawModule, "vsTube", "fsTube", "triangle-strip", additive);
       this.pDown = rp(this.postModule, "vsFull", "fsDown", "triangle-list", void 0);
       this.pUp = rp(this.postModule, "vsFull", "fsUp", "triangle-list", additive);
       this.pMurk = rp(this.postModule, "vsFull", "fsMurk", "triangle-list", void 0);
@@ -20252,6 +20264,8 @@ ${e.message}` : String(e?.message || e));
       const bufs = (pipe2, list) => d.createBindGroup({ layout: pipe2.getBindGroupLayout(0), entries: list.map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
       this.tubeBG = bufs(this.main.tube, [[0, b.view], [1, b.tubeParts], [2, b.tubeGenomes], [10, b.tubeOrgans]]);
       this.tubeOrgansBG = bufs(this.cpOrgans, [[7, b.tubeGenomes], [9, b.tubeOrgans]]);
+      this.studioBG = bufs(this.pStudio, [[0, b.viewS], [1, b.studioParts], [2, b.studioGenomes], [10, b.studioOrgans]]);
+      this.studioOrgansBG = bufs(this.cpOrgans, [[7, b.studioGenomes], [9, b.studioOrgans]]);
       this.bgPointL = pointBG(b.viewL, 1);
       this.bgLineL = lineBG(this.pLine, b.viewL, 1);
       this.bgPointS = pointBG(b.viewS, 2);
@@ -20423,14 +20437,6 @@ ${e.message}` : String(e?.message || e));
       f2.memberN = members ? Math.min(members.length, FOCUS_MAX) : 0;
       if (kinds) this.device.queue.writeBuffer(this.b.focus, 0, kinds, 0, MAXK / 32);
       if (f2.memberN) this.device.queue.writeBuffer(this.b.focus, MAXK / 32 * 4, members, 0, f2.memberN);
-    }
-    /**
-     * Kinds lit in the close-up alone (a mini-card's portrait, specimen.light): the focus's kinds, written while the
-     * views' own focus is off (they read the kinds only when on), so the world's view is untouched.
-     */
-    lightKinds(kinds) {
-      if (!this.focus.on) this.device.queue.writeBuffer(this.b.focus, 0, kinds, 0, MAXK / 32);
-      return !this.focus.on;
     }
     _ensureSpecTex(w, h) {
       if (this.specTex && this.specSize[0] === w && this.specSize[1] === h) return;
@@ -21190,6 +21196,22 @@ ${e.message}` : String(e?.message || e));
       pass.end();
       d.queue.submit([enc.finish()]);
     }
+    /**
+     * A mini-card's portrait drawn alone, in place of the world, in the close-up (specimen.studio, docs/hand.md): n
+     * records laid out as struct Particle (kind FIRST_LIFE, still), and their genome's words (G_WORDS).
+     */
+    setStudio(parts, n, genome) {
+      const d = this.device;
+      this.studioN = Math.min(n, STUDIO_N);
+      d.queue.writeBuffer(this.b.studioParts, 0, parts, 0, this.studioN * P_BYTES / 4);
+      d.queue.writeBuffer(this.b.studioGenomes, FIRST_LIFE * G_BYTES, genome);
+      const enc = d.createCommandEncoder(), pass = enc.beginComputePass();
+      pass.setPipeline(this.cpOrgans);
+      pass.setBindGroup(0, this.studioOrgansBG);
+      pass.dispatchWorkgroups(Math.ceil((FIRST_LIFE + 1) * ORGANS / 64));
+      pass.end();
+      d.queue.submit([enc.finish()]);
+    }
     /** The cells the pipette draws toward its tip (their IDs, the first PIPE_MAX), its tip and pull in hand.suck. */
     setDrawn(ids) {
       const v = Uint32Array.from(ids).subarray(0, PIPE_MAX).sort();
@@ -21907,7 +21929,7 @@ ${e.message}` : String(e?.message || e));
       });
     }
     // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
-    _writeView(buf, data, cam, W, H2, dpr, time, selId, detail = true, culled = false, splat = 0, f2 = this.focus) {
+    _writeView(buf, data, cam, W, H2, dpr, time, selId, detail = true, culled = false, splat = 0) {
       const K = this.K;
       const ppu = cam.ppu;
       const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
@@ -21930,6 +21952,7 @@ ${e.message}` : String(e?.message || e));
       v[11] = time;
       vu[12] = selId >>> 0;
       v[13] = 0.075 / (1 + overlapAll * 0.9) * this.settings.exposure;
+      const f2 = this.focus;
       vu[14] = f2.on;
       vu[15] = f2.roleMask;
       vu[16] = f2.stateMode;
@@ -22074,7 +22097,7 @@ ${e.message}` : String(e?.message || e));
       const culled = [
         this._cullView(0, cam.x, cam.y, W / (2 * cam.ppu), H2 / (2 * cam.ppu)),
         !!loupe && this._cullView(1, loupe.cx, loupe.cy, LOUPE_FIELD * loupe.r / loupe.ppu, LOUPE_FIELD * loupe.r / loupe.ppu),
-        !!(specimen && specimen.target) && this._cullView(2, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu))
+        !!(specimen && specimen.target && !specimen.studio) && this._cullView(2, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu))
       ];
       if (culled.some(Boolean)) {
         const pass2 = enc.beginComputePass({ timestampWrites: tsBegin() });
@@ -22250,12 +22273,16 @@ ${e.message}` : String(e?.message || e));
       }
       if (specimen && specimen.target) {
         this._ensureSpecTex(specimen.w, specimen.h);
-        const light = specimen.light ? { on: 1, roleMask: 7, stateMode: 0, mute: specimen.light, memberKind: 4294967295, memberN: 0 } : this.focus;
-        this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, true, culled[2], 0, light);
+        this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, true, culled[2]);
         let pass2 = enc.beginRenderPass({ colorAttachments: [{ view: this.specView, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
-        this._drawScene(pass2, this.bgLineS, this.bgPointS, this.bgBridgeS, this.viewDataS, 2);
+        if (specimen.studio) {
+          pass2.setPipeline(this.pStudio);
+          pass2.setBindGroup(0, this.studioBG);
+          pass2.draw(4, this.studioN);
+        } else this._drawScene(pass2, this.bgLineS, this.bgPointS, this.bgBridgeS, this.viewDataS, 2);
         pass2.end();
-        this._drawStone(enc, this.specStoneView, this.bgStoneS);
+        if (specimen.studio) enc.beginRenderPass({ colorAttachments: this.specStoneView.slice(0, 2).map((view) => ({ view, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" })) }).end();
+        else this._drawStone(enc, this.specStoneView, this.bgStoneS);
         pass2 = enc.beginRenderPass({ colorAttachments: [{ view: specimen.target, loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }] });
         pass2.setPipeline(this.pPlain);
         pass2.setBindGroup(0, this.specBG);
@@ -24636,8 +24663,8 @@ ${e.message}` : String(e?.message || e));
     return { words, name, home, touched: !!(b[6] & FLAG_TOUCHED) };
   }
   var cardLink = (bytes) => CARD_URL + b64(bytes);
-  var cardFromHash = (hash) => {
-    const m = /#card=([A-Za-z0-9_-]+)/.exec(hash || "");
+  var cardFromHash = (hash2) => {
+    const m = /#card=([A-Za-z0-9_-]+)/.exec(hash2 || "");
     return m ? unb64(m[1]) : null;
   };
   var crcTable = Array.from({ length: 256 }, (_, n) => {
@@ -30904,6 +30931,76 @@ ${e.message}` : String(e?.message || e));
     return { species, of, cells, earlier, bonds };
   }
 
+  // src/studio.js
+  var SHOWN = [0.6, 0.38];
+  var hash = (i) => {
+    let h = Math.imul(i ^ 2654435769, 2246822507);
+    h ^= h >>> 13;
+    h = Math.imul(h, 3266489909);
+    return ((h ^ h >>> 16) >>> 0) / 4294967296;
+  };
+  function layOut(cells) {
+    const n = cells.length;
+    const rMax = Math.max(...cells.map((c) => c.r));
+    const pos = cells.map((c, k) => {
+      const a = k * 2.39996, d = 2.1 * rMax * Math.sqrt(k);
+      return [Math.cos(a) * d, Math.sin(a) * d];
+    });
+    const bonds = [];
+    cells.forEach((c, i) => {
+      for (const j of c.partners) if (j > i && j < n) bonds.push([i, j]);
+    });
+    for (let it = 0; it < 160; it++) {
+      const k = it < 120 ? 0.5 : 0.25;
+      for (const [i, j] of bonds) {
+        const dx = pos[j][0] - pos[i][0], dy = pos[j][1] - pos[i][1], d = Math.hypot(dx, dy) || 1e-6;
+        const f2 = k * (d - 1.05 * (cells[i].r + cells[j].r)) / d / 2;
+        pos[i][0] += dx * f2;
+        pos[i][1] += dy * f2;
+        pos[j][0] -= dx * f2;
+        pos[j][1] -= dy * f2;
+      }
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+        const dx = pos[j][0] - pos[i][0], dy = pos[j][1] - pos[i][1], d = Math.hypot(dx, dy) || 1e-6, m = cells[i].r + cells[j].r;
+        if (d >= m) continue;
+        const f2 = (m - d) / d / 2;
+        pos[i][0] -= dx * f2;
+        pos[i][1] -= dy * f2;
+        pos[j][0] += dx * f2;
+        pos[j][1] += dy * f2;
+      }
+    }
+    return pos;
+  }
+  function frameCells(pos, r, size) {
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    pos.forEach(([x, y], i) => {
+      x0 = Math.min(x0, x - r[i]);
+      x1 = Math.max(x1, x + r[i]);
+      y0 = Math.min(y0, y - r[i]);
+      y1 = Math.max(y1, y + r[i]);
+    });
+    const w = (x1 - x0) * 1.2, h = (y1 - y0) * 1.2;
+    return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, ppu: Math.min(SHOWN[0] * size / w, SHOWN[1] * size / h) };
+  }
+  function records(cells, pos, at) {
+    const f2 = new Float32Array(cells.length * 10), u = new Uint32Array(f2.buffer);
+    cells.forEach((c, i) => {
+      const th = 2 * Math.PI * hash(i * 7919 + 13), o = i * 10;
+      f2[o] = at[0] + pos[i][0];
+      f2[o + 1] = at[1] + pos[i][1];
+      f2[o + 2] = Math.cos(th) * 1e-5;
+      f2[o + 3] = Math.sin(th) * 1e-5;
+      u[o + 4] = FIRST_LIFE;
+      f2[o + 5] = c.e;
+      f2[o + 6] = c.a;
+      u[o + 7] = i;
+      u[o + 8] = c.col;
+      u[o + 9] = c.info;
+    });
+    return f2;
+  }
+
   // src/main.js
   var $2 = (id) => document.getElementById(id);
   var canvas = $2("stage");
@@ -30960,9 +31057,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "ad87af39d208879f") return;
+      if (localStorage.getItem(key) === "23c01ecfb3837aa6") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "ad87af39d208879f");
+      if (res) localStorage.setItem(key, "23c01ecfb3837aa6");
     } catch {
     }
   }
@@ -32716,24 +32813,16 @@ ${e.message}` : String(e?.message || e));
     });
     let portraitJob = null, portraitHold = false;
     const PORTRAIT = 1024, THUMB = 192;
-    async function takePortrait(serial, { thumb = false } = {}) {
+    async function takePortrait(serial) {
       const sp = life.reg.get(serial);
       if (!sp || !sp.alive) return null;
-      if (thumb && eng.pickReq) return null;
-      const hold = !thumb || state.speed > 2;
-      if (hold) {
-        portraitHold = true;
-        setTimeout(() => {
-          if (!portraitJob) portraitHold = false;
-        }, 5e3);
-      }
-      const m = await bestMember(sp, thumb ? { budget: 6, cap: 2048 } : {}).catch(() => null);
-      if (thumb && (portraitJob || portraitHold && !hold)) {
-        if (hold) portraitHold = false;
-        return null;
-      }
+      portraitHold = true;
+      setTimeout(() => {
+        if (!portraitJob) portraitHold = false;
+      }, 5e3);
+      const m = await bestMember(sp).catch(() => null);
       if (!m) {
-        if (hold) portraitHold = false;
+        portraitHold = false;
         return null;
       }
       const [W, H2] = eng.grid, { best, res } = m;
@@ -32747,12 +32836,21 @@ ${e.message}` : String(e?.message || e));
         cx += sx / m.body.length;
         cy += sy / m.body.length;
       }
-      const span2 = clamp6(m.span * 2.6 + 0.6, 1.6, 9) / (thumb ? 2 : 1), size = thumb ? THUMB : PORTRAIT;
+      const span2 = clamp6(m.span * 2.6 + 0.6, 1.6, 9);
       if (portraitJob) portraitJob.resolve(null);
       const subject = clamp6(((m.body ? m.span : 0) + 0.12 * sp.genome.size + 0.08) / (span2 / 2), 0.08, 0.95);
-      const lead = !m.body || thumb;
       return new Promise((resolve) => {
-        portraitJob = { slot: thumb ? null : sp.slot, thumbSlot: thumb ? sp.slot : null, cx, cy, vx: lead ? best.vx : 0, vy: lead ? best.vy : 0, t: res.simTime, size, ppu: size / span2, subject, resolve, at: performance.now() };
+        portraitJob = { slot: sp.slot, cx, cy, vx: m.body ? 0 : best.vx, vy: m.body ? 0 : best.vy, t: res.simTime, size: PORTRAIT, ppu: PORTRAIT / span2, subject, resolve, at: performance.now() };
+      });
+    }
+    function takeStudio(words, cells) {
+      const g = genomeOfWords(words), r = cells.map((c) => cellRadius({ role: c.info >> 4 & 3 }, g, 1));
+      const pos = layOut(cells.map((c, i) => ({ r: r[i], partners: c.partners }))), f2 = frameCells(pos, r, THUMB);
+      const [W, H2] = eng.grid;
+      eng.setStudio(records(cells, pos, [W / 2 - f2.cx, H2 / 2 - f2.cy]), cells.length, Uint32Array.from(words));
+      if (portraitJob) portraitJob.resolve(null);
+      return new Promise((resolve) => {
+        portraitJob = { studio: true, slot: null, cx: W / 2, cy: H2 / 2, vx: 0, vy: 0, t: eng.simTime, size: THUMB, ppu: f2.ppu, resolve, at: performance.now() };
       });
     }
     function takeView() {
@@ -32776,19 +32874,13 @@ ${e.message}` : String(e?.message || e));
       const dt = Math.min(2, Math.max(0, eng.simTime - j.t));
       const [W, H2] = eng.grid;
       j.drawn = true;
-      let light = 0;
-      if (j.thumbSlot != null) {
-        const kinds = new Uint32Array(MAXK / 32);
-        kinds[j.thumbSlot >> 5] |= 1 << (j.thumbSlot & 31) >>> 0;
-        if (eng.lightKinds(kinds)) light = 0.09;
-      }
       if (j.slot != null) {
         const kinds = new Uint32Array(MAXK / 32);
         kinds[j.slot >> 5] |= 1 << (j.slot & 31) >>> 0;
         eng.setFocus({ kinds, mute: 0.09 });
         j.relight = true;
       }
-      return { target: j.tex.createView(), w: j.size, h: j.size, cx: ((j.cx + j.vx * dt) % W + W) % W, cy: ((j.cy + j.vy * dt) % H2 + H2) % H2, ppu: j.ppu, dpr: 1, light };
+      return { target: j.tex.createView(), w: j.size, h: j.size, cx: ((j.cx + j.vx * dt) % W + W) % W, cy: ((j.cy + j.vy * dt) % H2 + H2) % H2, ppu: j.ppu, dpr: 1, studio: !!j.studio };
     }
     async function readPortrait() {
       const j = portraitJob;
@@ -32871,11 +32963,11 @@ ${e.message}` : String(e?.message || e));
       if (!quiet) lab.render(true);
     }
     const THUMB_CROP = [PORTRAIT_BOX.x + PORTRAIT_BOX.w / 2 - 150, PORTRAIT_BOX.y + PORTRAIT_BOX.h / 2 - 150, 300, 300].map((v) => v * CARD_SCALE);
-    async function thumbBytes(src, crop = [0, 0, src.width, src.height]) {
+    async function thumbBytes(src, crop = [0, 0, src.width, src.height], check = true) {
       const cv = document.createElement("canvas");
       cv.width = cv.height = THUMB;
       cv.getContext("2d", { willReadFrequently: true }).drawImage(src, ...crop, 0, 0, THUMB, THUMB);
-      if (!thumbSeen(cv)) return new Uint8Array(0);
+      if (check && !thumbSeen(cv)) return new Uint8Array(0);
       const blob = await new Promise((res) => cv.toBlob(res, "image/jpeg", 0.82));
       if (!blob) throw new Error("no thumb");
       return new Uint8Array(await blob.arrayBuffer());
@@ -32901,7 +32993,7 @@ ${e.message}` : String(e?.message || e));
       }
       return key;
     }
-    const cabThumb = (c) => !blank(c) ? cardThumb(c) : c.world === worldId() ? liveThumb(c.serial) : "";
+    const cabThumb = (c) => !blank(c) ? cardThumb(c) : c.world === worldId() ? studioThumb(`s${c.serial}`, c.words, c.serial) : studioThumb(`g${c.id}`, c.words);
     async function fillThumbs() {
       const c = backfill[0];
       if (!c) return;
@@ -32922,18 +33014,28 @@ ${e.message}` : String(e?.message || e));
     function pipThumb(sp) {
       const c = pipCard(sp);
       if (c && !blank(c)) return cardThumb(c);
-      return sp.stranger ? "" : liveThumb(sp.serial);
+      return sp.stranger ? c ? studioThumb(`g${c.id}`, c.words) : "" : studioThumb(`s${sp.serial}`, sp.words, sp.serial);
     }
-    const liveThumb = (serial) => {
-      wantThumb(serial);
-      return `s${serial}`;
-    };
     const thumbQ = /* @__PURE__ */ new Map();
     let thumbBusy = false;
-    function wantThumb(serial) {
-      if (hasThumb(`s${serial}`) || thumbQ.has(serial) || !life.reg.get(serial)?.alive) return;
-      thumbQ.set(serial, { tries: 0 });
-      setTimeout(pumpThumbs, 0);
+    function studioThumb(key, words, serial = null) {
+      if (!hasThumb(key) && !thumbQ.has(key)) {
+        thumbQ.set(key, { words, serial, tries: 0 });
+        setTimeout(pumpThumbs, 0);
+      }
+      return key;
+    }
+    function studioCells(words, serial) {
+      const orgs = serial == null ? [] : pipette.species.filter((x) => !x.stranger && x.serial === serial).flatMap((x) => x.orgs);
+      const cell = (c, n) => ({ e: c[0], a: c[1], col: c[2], info: c[3], partners: c.slice(4).filter((j) => j >= 0 && j < n) });
+      const big = orgs.reduce((a, o) => !a || o.cells.length > a.cells.length ? o : a, null);
+      if (big && big.cells.length > 1) {
+        const n = Math.min(STUDIO_N, big.cells.length);
+        return big.cells.slice(0, n).map((c) => cell(c, n));
+      }
+      if (orgs.length) return orgs.slice(0, 5).map((o) => cell(o.cells[0], 0));
+      const g = genomeOfWords(words);
+      return Array.from({ length: 5 }, () => ({ e: 0.5 * (g.reproE || 1), a: 0, col: g.col, info: 0, partners: [] }));
     }
     function thumbSeen(cv) {
       const S = cv.width, w = Math.round(S * 0.6), h = Math.round(S * 0.38);
@@ -32944,21 +33046,21 @@ ${e.message}` : String(e?.message || e));
     }
     async function pumpThumbs() {
       if (thumbBusy || !thumbQ.size) return;
-      if (portraitJob || portraitHold || eng.pickReq || state.phase !== "running") {
-        setTimeout(pumpThumbs, 500);
+      if (portraitJob || portraitHold || state.phase !== "running") {
+        setTimeout(pumpThumbs, 300);
         return;
       }
-      const [serial, w] = thumbQ.entries().next().value;
-      thumbQ.delete(serial);
-      if (!hasThumb(`s${serial}`)) {
+      const [key, w] = thumbQ.entries().next().value;
+      thumbQ.delete(key);
+      if (!hasThumb(key)) {
         thumbBusy = true;
-        const cv = await takePortrait(serial, { thumb: true }).catch(() => null);
-        const bytes = cv && await thumbBytes(cv).catch(() => null);
+        const cv = await takeStudio(w.words, studioCells(w.words, w.serial)).catch(() => null);
+        const bytes = cv && await thumbBytes(cv, void 0, false).catch(() => null);
         thumbBusy = false;
-        if (bytes?.length) setThumb(`s${serial}`, bytes);
-        else if (++w.tries < 4 && life.reg.get(serial)?.alive) thumbQ.set(serial, w);
+        if (bytes?.length) setThumb(key, bytes);
+        else if (++w.tries < 3) thumbQ.set(key, w);
       }
-      setTimeout(pumpThumbs, 250);
+      setTimeout(pumpThumbs, 30);
     }
     const cardStatus = (c) => {
       const sp = c.world === worldId() && life.reg.get(c.serial);
@@ -33125,9 +33227,9 @@ ${e.message}` : String(e?.message || e));
       if (sp.alive) focusSpecies(sp);
       renderSpecimen(true);
     }
-    async function bestMember(sp, { budget = 60, cap: cap3 = Infinity } = {}) {
+    async function bestMember(sp) {
       const [W, H2] = eng.grid;
-      const res = await eng.requestPick([W / 2, H2 / 2], Math.hypot(W, H2), NONE4, { kind: sp.slot, maxOut: Math.min(cap3, sp.pop * 1.25 + 2048), raw: true });
+      const res = await eng.requestPick([W / 2, H2 / 2], Math.hypot(W, H2), NONE4, { kind: sp.slot, maxOut: sp.pop * 1.25 + 2048, raw: true });
       if (!res || !res.raw.count) return null;
       const { u32, f32, count: n } = res.raw;
       let bestI = 0, body = null;
@@ -33135,7 +33237,7 @@ ${e.message}` : String(e?.message || e));
         const claimed = new Uint8Array(n);
         let bestN = 0;
         const t0 = performance.now();
-        for (let tries = 0; tries < 60 && performance.now() - t0 < budget; tries++) {
+        for (let tries = 0; tries < 60 && performance.now() - t0 < 60; tries++) {
           const i = Math.floor(Math.random() * n);
           if (claimed[i]) continue;
           const tb = traceBody(u32, f32, n, u32[i * PICK_WORDS + 7]);
