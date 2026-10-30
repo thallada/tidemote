@@ -468,6 +468,15 @@ body.spec-open .bench { right: var(--spec-pw); }
 /* the cabinet: its mini-cards in a grid, three or more a row */
 .cab-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
 .cab-grid .minicard { touch-action: pan-y; }
+/* (its card out of the cabinet: the × at its corner, on a mouse when the card is under it) */
+.cab-card { position: relative; display: grid; min-width: 0; }
+.cab-out { position: absolute; right: 0; top: 0; width: 24px; height: 24px; display: grid; place-items: center; padding: 0; background: rgba(6, 9, 10, 0.82); border: 0; color: var(--ink-2); cursor: pointer; }
+.cab-out svg { width: 12px; height: 12px; display: block; }
+.cab-out:hover, .cab-out:focus-visible { color: var(--hot); }
+@media (hover: hover) { .cab-out { opacity: 0; } .cab-card:hover .cab-out, .cab-card:focus-within .cab-out { opacity: 1; } }
+body.dragging-card .cab-out { visibility: hidden; }
+#cab-undo { display: flex; align-items: baseline; gap: 8px; color: var(--ink-2); }
+#cab-undo[hidden] { display: none; }
 .cab-grid .pip-empty { grid-column: 1 / -1; }
 /* a card saved: it presents itself at the center, then shrinks to the Lab */
 .card-fly { position: fixed; left: 50%; top: 50%; z-index: 40; width: min(330px, 70vw); pointer-events: none; transform: translate(-50%, -50%); box-shadow: 0 12px 48px rgba(0, 0, 0, 0.7); }
@@ -694,10 +703,10 @@ span.set-reset { display: inline-flex; align-items: center; gap: var(--s3); colo
 .help { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100% - 32px)); padding: 10px 18px 18px; z-index: 35; max-height: calc(100% - 32px); overflow-y: auto; }
 /* a species card: its canvas as tall as the window allows, the name and the saves beside it */
 .card-dlg { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: max-content; max-width: calc(100% - 32px); padding: 10px 18px 16px; z-index: 36; max-height: calc(100% - 24px); overflow-y: auto;
-  display: grid; grid-template-columns: auto minmax(220px, 260px); grid-template-rows: auto auto auto 1fr; column-gap: var(--s4); }
+  display: grid; grid-template-columns: auto minmax(220px, 260px); grid-template-rows: auto auto auto auto 1fr; column-gap: var(--s4); }
 .card-dlg:focus { outline: none; }
 .card-dlg .sec-h { grid-column: 1 / -1; }
-.card-cv { grid-row: 2 / 5; display: block; height: min(1050px, calc(100vh - 90px)); width: auto; aspect-ratio: 660 / 1050; margin-top: var(--s2); border: 1px solid var(--line); background: #06090a; }
+.card-cv { grid-row: 2 / 6; display: block; height: min(1050px, calc(100vh - 90px)); width: auto; aspect-ratio: 660 / 1050; margin-top: var(--s2); border: 1px solid var(--line); background: #06090a; }
 .card-dlg .card-row { grid-column: 2; align-self: start; flex-direction: column; align-items: stretch; }
 .card-dlg .card-row input { min-width: 0; }
 .card-row { display: flex; align-items: center; gap: var(--s3); margin-top: var(--s3); flex-wrap: wrap; }
@@ -706,6 +715,12 @@ span.set-reset { display: inline-flex; align-items: center; gap: var(--s3); colo
 .card-row input:focus { outline: none; border-color: var(--line-2); }
 .card-btns .note { color: var(--ink-3); font-size: 12px; }
 .card-btns .btn:disabled { opacity: .5; cursor: default; }
+/* its song: the roll, then Play and the WAV side by side */
+.card-dlg .card-tune { gap: var(--s2); }
+.card-tune .song-wrap { min-width: 0; }
+.card-tune-acts { display: flex; gap: var(--s2); }
+.card-tune-acts .btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.card-tune-acts .btn svg { width: 14px; height: 14px; }
 /* filming: the button counts down, its dot red */
 #film .rec { opacity: 0; }
 #film.armed .rec { opacity: .7; animation: rec-blink 1.2s steps(2) infinite; color: var(--hot); }
@@ -1251,6 +1266,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .card-dlg { top: calc(var(--top) + 8px); transform: translateX(-50%); width: calc(100% - 16px); padding: 8px 12px 12px; max-height: calc(100% - var(--top) - var(--bot) - 16px); display: block; }
   .card-cv { height: auto; width: 100%; margin: var(--s2) auto 0; }
   .card-dlg .card-row { flex-direction: row; align-items: center; }
+  .card-dlg .card-tune { flex-direction: column; align-items: stretch; }
 }
 @media (max-width: 380px) {
   .dock .step { width: 24px; }
@@ -1543,12 +1559,20 @@ svg.niche .n-dot { fill: var(--cyan); }
     <input type="text" id="card-name" maxlength="48" autocomplete="off" spellcheck="false" data-hint="Named, it keeps your name in this world and its saves; clear it to restore its own">
   </div>
   <div class="card-row card-btns">
+    <button type="button" class="btn" id="card-inspect" hidden data-hint="Open it in the specimen panel, here in this world">Inspect in this world</button>
     <button type="button" class="btn" id="card-save" data-hint="Keep it in the cabinet (Field Lab → Cabinet), to carry to any world">Save to cabinet</button>
     <button type="button" class="btn" id="card-load" data-hint="A colony of it into the pipette, to set down in this world">Load the pipette</button>
     <button type="button" class="btn" id="card-png" data-hint="The card as a PNG image: dropped on any Tidemote, its species comes with it">PNG</button>
-    <button type="button" class="btn" id="card-song">Song</button>
-    <button type="button" class="btn" id="card-remove" hidden>Remove</button>
+    <button type="button" class="btn" id="card-remove" hidden data-hint="Take its card out of the cabinet (Undo there puts it back)">Remove from cabinet</button>
     <span class="note" id="card-note" role="status"></span>
+  </div>
+  <div class="card-row card-tune">
+    <div class="sub-h"><span class="lbl">Its song</span><span class="song-read" id="card-song-read"></span></div>
+    <div class="song-wrap" id="card-roll"></div>
+    <div class="card-tune-acts">
+      <button type="button" class="btn" id="card-play"><svg aria-hidden="true"><use href="#i-play"/></svg>Play</button>
+      <button type="button" class="btn" id="card-song" aria-label="Download its song as a WAV" data-hint="Its song as a WAV file, a short clip in this world's key"><svg aria-hidden="true"><use href="#i-down"/></svg>WAV</button>
+    </div>
   </div>
 </div>
 
@@ -23266,6 +23290,34 @@ ${e.message}` : String(e?.message || e));
     s += `<line class="ph" x1="0" x2="0" y1="${pad3 - 4}" y2="${base}"/>`;
     return s + "</svg>";
   }
+  var HOLD = 240;
+  var GLIDE = 400;
+  function lightSong(el, now, events, mine, prev) {
+    let last = null;
+    const lit = [];
+    for (const e of events) {
+      if (!mine(e) || e.at > now) continue;
+      if (now < e.at + Math.max(HOLD, e.dur || 0)) lit.push(`${e.line}:${e.k}`);
+      if (e.whole && (!last || e.at > last.at)) last = e;
+    }
+    const key = lit.sort().join(",");
+    if (key !== prev) {
+      const set = new Set(lit);
+      for (const r2 of el.querySelectorAll("rect[data-k]")) r2.classList.toggle("lit", set.has(`${r2.dataset.l}:${r2.dataset.k}`));
+    }
+    const svg = el.querySelector("svg.song-roll"), ph = svg && svg.querySelector(".ph");
+    if (!ph) return key;
+    const r = last && last.step > 0 && svg.querySelector(`rect[data-k="${last.k}"][data-l="${last.line}"]`);
+    const cyc = +svg.dataset.cycle, t2 = r ? +r.dataset.at + (now - last.at) / last.step : 0;
+    const on = !!r && t2 < cyc + GLIDE / last.step;
+    ph.classList.toggle("on", on);
+    if (on) {
+      const x = (+svg.dataset.x0 + Math.min(t2, cyc) * +svg.dataset.sx).toFixed(2);
+      ph.setAttribute("x1", x);
+      ph.setAttribute("x2", x);
+    }
+    return key;
+  }
   var rgb = (c) => `rgb(${c.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255)).join(",")})`;
   function noteRoles(m, g) {
     if (m.voice2) return m.notes.map(() => 0);
@@ -24913,7 +24965,7 @@ ${e.message}` : String(e?.message || e));
     const sub = status ? `<span class="mc-sub mc-st${status[0] === "from" ? " from" : status[0] === "gone" ? " gone" : ""}">${statusText(status)}</span>` : home ? `<span class="mc-sub from">↗ from ${esc(home)}</span>` : `<span class="mc-sub"><span style="color:${DIET_COL[f2.diet]}">${f2.diet}</span> · ${f2.mobility}</span>`;
     return `${open}${ph}${tip ? '<span class="mc-tip">Tip</span>' : ""}${count}${keptMark}${kind}${nm}${sub}</button>`;
   }
-  var HOLD = 350;
+  var HOLD2 = 350;
   function wireCardDrag(root, { tap, drop, reorder }) {
     let drag = null;
     const cards = () => [...root.querySelectorAll(".minicard")];
@@ -24939,13 +24991,13 @@ ${e.message}` : String(e?.message || e));
       drag = { key: b.dataset.key, el: b, x: e.clientX, y: e.clientY, at: performance.now(), touch: e.pointerType !== "mouse", ghost: null, id: e.pointerId };
     });
     root.addEventListener("touchmove", (e) => {
-      if (drag && (drag.ghost || performance.now() - drag.at >= HOLD)) e.preventDefault();
+      if (drag && (drag.ghost || performance.now() - drag.at >= HOLD2)) e.preventDefault();
     }, { passive: false });
     addEventListener("pointermove", (e) => {
       if (!drag || e.pointerId !== drag.id) return;
       const moved = Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
       if (!drag.ghost && moved > 8) {
-        if (drag.touch && performance.now() - drag.at < HOLD) {
+        if (drag.touch && performance.now() - drag.at < HOLD2) {
           drag = null;
           return;
         }
@@ -25576,7 +25628,7 @@ ${e.message}` : String(e?.message || e));
       ${seg("From", "cabFrom", [["any", "Any"], ["this", "This world"], ["other", "Other waters"]])}
       ${seg(term("diet", "Diet"), "cabDiet", DIETS)}
       ${seg(term("organism", "Body"), "cabBody", [["all", "Any"], ["multicellular", "Multicellular"], ["single-cell", "Single-cell"]])}</div>
-      <div class="sum"><span id="cab-sum"></span><span class="lbl">Newest first</span></div>`, "cabinet");
+      <div class="sum"><span id="cab-sum"></span><span class="lbl" id="cab-order">Newest first</span><span id="cab-undo" hidden></span></div>`, "cabinet");
       const grid2 = document.createElement("div");
       grid2.className = "cab-grid";
       p.scroll.append(grid2);
@@ -25594,9 +25646,27 @@ ${e.message}` : String(e?.message || e));
         },
         drop: (id, x, y, el) => {
           const c = byId(id);
-          if (c && el?.closest('#bench-open, #bench, #held, [data-tool="pipette"]')) api.cabinet.load(c);
+          if (!c) return;
+          if (el?.id === "stage") api.cabinet.place(c, x, y);
+          else if (el?.closest('#bench-open, #bench, #held, [data-tool="pipette"]')) api.cabinet.load(c);
         }
       });
+      grid2.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-out]"), c = b && byId(b.dataset.out);
+        if (c) api.cabinet.remove(c);
+      });
+      p.ctl.addEventListener("click", (e) => {
+        if (e.target.closest("#cab-undo button")) api.cabinet.undo();
+      });
+      let undoKey = "";
+      function undo() {
+        const c = api.cabinet.removed(), el = p.ctl.querySelector("#cab-undo"), k = c ? c.id : "";
+        if (k === undoKey) return;
+        undoKey = k;
+        el.hidden = !c;
+        p.ctl.querySelector("#cab-order").hidden = !!c;
+        el.innerHTML = c ? `<span>${esc(c.name)} taken out</span> <button type="button" class="link">Undo</button>` : "";
+      }
       let key = "";
       function update(force) {
         const all = api.cabinet.cards(), world = api.cabinet.world();
@@ -25606,6 +25676,7 @@ ${e.message}` : String(e?.message || e));
         } });
         setText(p.ctl.querySelector("#cab-sum"), `${fmt(all.length)} card${all.length === 1 ? "" : "s"} · ${fmt(all.filter((c) => c.world === world).length)} from this world`);
         const k = shown.map((c) => c.id).join(",");
+        undo();
         if (drag.dragging()) return;
         if (k === key && !force) {
           const ids = new Map(shown.map((c) => [c.id, c]));
@@ -25616,7 +25687,7 @@ ${e.message}` : String(e?.message || e));
           return;
         }
         key = k;
-        grid2.innerHTML = shown.length ? shown.map((c) => api.cabinet.mini(c)).join("") : `<div class="pip-empty"><b>${all.length ? "No card matches." : "The cabinet is empty."}</b><span>${all.length ? "Try other filters." : "Save a species from the specimen panel (Save), or drop a species card’s PNG on the page: its card comes here, to be carried to any world."}</span></div>`;
+        grid2.innerHTML = shown.length ? shown.map((c) => `<div class="cab-card">${api.cabinet.mini(c)}<button type="button" class="cab-out" data-out="${esc(c.id)}" aria-label="Take ${esc(c.name)}’s card out of the cabinet" data-hint="Out of the cabinet"><svg aria-hidden="true"><use href="#i-close"/></svg></button></div>`).join("") : `<div class="pip-empty"><b>${all.length ? "No card matches." : "The cabinet is empty."}</b><span>${all.length ? "Try other filters." : "Save a species from the specimen panel (Save), or drop a species card’s PNG on the page: its card comes here, to be carried to any world."}</span></div>`;
       }
       return { ...p, update };
     }
@@ -26470,7 +26541,6 @@ ${e.message}` : String(e?.message || e));
       }
       return `<div class="blk song" data-slot="${slot}" data-tag="sp${g.serial}">${h}</div>`;
     }
-    const HOLD3 = 240, GLIDE = 400;
     let songKey = "";
     function songTick(now, events) {
       const blk2 = body.querySelector(".blk.song");
@@ -26479,32 +26549,8 @@ ${e.message}` : String(e?.message || e));
         return;
       }
       const slot = +blk2.dataset.slot, tag = blk2.dataset.tag;
-      let last = null;
-      const lit = [];
-      for (const e of events) {
-        if ((e.slot !== slot || slot < 0) && e.slot !== tag) continue;
-        if (e.at > now) continue;
-        if (now < e.at + Math.max(HOLD3, e.dur || 0)) lit.push(`${e.line}:${e.k}`);
-        if (e.whole && (!last || e.at > last.at)) last = e;
-      }
-      const key = lit.sort().join(",");
-      if (key !== songKey || !blk2.dataset.drawn) {
-        songKey = key;
-        blk2.dataset.drawn = "1";
-        const set = new Set(lit);
-        for (const r2 of blk2.querySelectorAll("rect[data-k]")) r2.classList.toggle("lit", set.has(`${r2.dataset.l}:${r2.dataset.k}`));
-      }
-      const svg = blk2.querySelector("svg.song-roll"), ph = svg && svg.querySelector(".ph");
-      if (!ph) return;
-      const r = last && last.step > 0 && svg.querySelector(`rect[data-k="${last.k}"][data-l="${last.line}"]`);
-      const cyc = +svg.dataset.cycle, t2 = r ? +r.dataset.at + (now - last.at) / last.step : 0;
-      const on = !!r && t2 < cyc + GLIDE / last.step;
-      ph.classList.toggle("on", on);
-      if (on) {
-        const x = (+svg.dataset.x0 + Math.min(t2, cyc) * +svg.dataset.sx).toFixed(2);
-        ph.setAttribute("x1", x);
-        ph.setAttribute("x2", x);
-      }
+      songKey = lightSong(blk2, now, events, (e) => e.slot === slot && slot >= 0 || e.slot === tag, blk2.dataset.drawn ? songKey : null);
+      blk2.dataset.drawn = "1";
     }
     function lineagePath(sp) {
       const life = api.life();
@@ -30045,7 +30091,7 @@ ${e.message}` : String(e?.message || e));
       art = a;
       redraw();
       acts();
-      const v = voiceOf(sp.genome);
+      tune(sp.genome);
       note.textContent = sp.alive ? "Taking its portrait…" : art.portrait ? "" : "Extinct, and never portrayed: its sigil stands in.";
       root.focus({ preventScroll: true });
       if (sp.alive) {
@@ -30059,8 +30105,19 @@ ${e.message}` : String(e?.message || e));
         }
         note.textContent = p ? "" : "No member could be found to portray: its sigil stands in.";
       }
-      const desc = describe(v);
-      $3("card-song").dataset.hint = `Its song: ${desc.tags.join(", ")}. A short clip, in this world's key`;
+    }
+    let tag = "", songKey = null;
+    function tune(g) {
+      const v = voiceOf(g), d = describe(v), m = v.motif;
+      tag = saved ? `card:${saved.id}` : `sp${cur}`;
+      songKey = null;
+      $3("card-roll").innerHTML = songSVG(m, { w: 260, h: 60, col: cssCol(g.col), col2: cssRgb(roleColor(g, 1)), label: `${d.tags.join(", ")}: ${d.line}` });
+      $3("card-song-read").innerHTML = `<span><b>${String(m.notes.length).padStart(2, "0")}</b> notes</span><span><b>${(m.cycle * 0.18).toFixed(1)}</b> s</span>`;
+      $3("card-play").dataset.hint = `Hear it alone: ${d.tags.join(", ")}`;
+    }
+    function songTick(now, events) {
+      if (root.hidden || !tag) return;
+      songKey = lightSong($3("card-roll"), now, events, (e) => e.slot === tag, songKey);
     }
     let saved = null, savedUrl = null;
     const img = $3("card-img");
@@ -30068,7 +30125,6 @@ ${e.message}` : String(e?.message || e));
       cv.hidden = isSaved;
       img.hidden = !isSaved;
       $3("card-name-row").hidden = isSaved;
-      $3("card-remove").hidden = !isSaved;
       if (savedUrl && !isSaved) {
         URL.revokeObjectURL(savedUrl);
         savedUrl = null;
@@ -30085,6 +30141,7 @@ ${e.message}` : String(e?.message || e));
       note.textContent = card.world === api.world() ? "" : `Carried from ${card.home}`;
       root.hidden = false;
       acts();
+      tune(card.genome);
       root.focus({ preventScroll: true });
     }
     function acts() {
@@ -30093,12 +30150,15 @@ ${e.message}` : String(e?.message || e));
       sv.hidden = !!saved;
       sv.disabled = !!card;
       sv.textContent = card ? `Saved · ${card.home}` : "Save to cabinet";
+      $3("card-remove").hidden = !card;
+      $3("card-inspect").hidden = api.inspectable(saved || cur) == null;
     }
     function close() {
       if (root.hidden) return;
       root.hidden = true;
       cur = null;
       saved = null;
+      tag = "";
     }
     const fileName = (ext) => {
       const name = saved ? saved.name : reg().get(cur)?.name || "species";
@@ -30153,11 +30213,23 @@ ${e.message}` : String(e?.message || e));
       api.load(saved || cur);
       close();
     });
-    $3("card-remove").addEventListener("click", () => {
-      if (saved) {
-        api.remove(saved);
+    $3("card-remove").addEventListener("click", async () => {
+      const card = saved || cur != null && api.saved(cur);
+      if (!card) return;
+      if (saved) close();
+      await api.remove(card);
+      acts();
+    });
+    $3("card-inspect").addEventListener("click", () => {
+      const s = api.inspectable(saved || cur);
+      if (s != null) {
         close();
+        api.inspect(s);
       }
+    });
+    $3("card-play").addEventListener("click", () => {
+      const g = saved ? saved.genome : reg().get(cur)?.genome;
+      if (g) api.play(g, tag, saved ? null : cur);
     });
     $3("card-song").addEventListener("click", async () => {
       const sp = saved ? { genome: saved.genome } : reg().get(cur), btn = $3("card-song");
@@ -30187,7 +30259,7 @@ ${e.message}` : String(e?.message || e));
       portraits.clear();
       close();
     }
-    return { open, openSaved, render, close, reset, refresh: () => {
+    return { open, openSaved, render, close, reset, songTick, refresh: () => {
       if (!root.hidden) acts();
     }, isOpen: () => !root.hidden };
   }
@@ -30717,7 +30789,7 @@ ${e.message}` : String(e?.message || e));
 
   // src/ladder.js
   var MEANING = /* @__PURE__ */ new Map([[Infinity, "as fast as it runs"], ["fast", "drawn every frame"], [16, "coarse steps"], [1, "real time"], [0.25, "slow motion"]]);
-  var HOLD2 = 300;
+  var HOLD3 = 300;
   function createLadder({ chip, el, choices, current, fmt: fmt2, pick: pick3, real }) {
     let lastTap = 0, drawn = "", drag = null, wheel = 0, swallowed = 0;
     function render(marked = current()) {
@@ -30751,7 +30823,7 @@ ${e.message}` : String(e?.message || e));
           drag.on = true;
           toggle(true);
         }
-      }, HOLD2);
+      }, HOLD3);
     }
     function move(e) {
       if (!drag || e.pointerId !== drag.id) return;
@@ -30906,11 +30978,16 @@ ${e.message}` : String(e?.message || e));
       add(species, recs) {
         if (recs.length) atTip(species).orgs.push(...bodiesOf(recs));
       },
-      /** A card's species loaded: one colony of n cells, made as they leave; false if they do not fit. */
-      load(species, n) {
-        if (!pp.fits(n)) return false;
-        atTip(species).made += n;
-        return true;
+      /**
+       * A card's species loaded: one colony of n cells, made as they leave: its run (alone, a run of its own, not
+       * joining one at the tip), or null if they do not fit.
+       */
+      load(species, n, alone = false) {
+        if (!pp.fits(n)) return null;
+        const sp = alone ? { ...species, id: ++seq, orgs: [], made: 0 } : atTip(species);
+        if (alone) state.species.unshift(sp);
+        sp.made += n;
+        return sp;
       },
       /** The run at the tip, or null. */
       get tip() {
@@ -33045,7 +33122,7 @@ ${e.message}` : String(e?.message || e));
         if (sp && sp.binomial && a.textContent !== sp.name) a.textContent = sp.name;
       }
     }
-    const cabinet = { store: createCabinetStore(), cards: [] };
+    const cabinet = { store: createCabinetStore(), cards: [], removed: null }, UNDO_MS = 12e3;
     cabinet.store.list().then((c) => {
       cabinet.cards = c;
       lab?.render(true);
@@ -33291,18 +33368,22 @@ ${e.message}` : String(e?.message || e));
         el?.animate([{ boxShadow: "0 0 0 2px #f1e3a0, 0 0 24px rgba(241,227,160,.5)" }, { boxShadow: "0 0 0 0 transparent" }], { duration: 1100, easing: "ease-out" });
       });
     }
-    function loadCard(x) {
+    function loadCard(x, at = null) {
       const card = typeof x === "object" ? x : savedCard(x);
       const sp = typeof x === "object" ? null : life.reg.get(x);
       const words = card ? card.words : carry(x).words, name = card ? card.name : sp.name;
       const ours = card ? card.world === worldId() && life.reg.has(card.serial) : true;
       const serial = card ? card.serial : x, n = clamp6(Math.round(K.foundLife * eng.count / K.foundColonies), 12, 96);
       const live = ours && life.reg.get(serial);
-      if (!pipette.load({ card: card?.id, serial, words, name, home: ours ? void 0 : card.home, slot: live?.alive ? live.slot : null, stranger: !ours }, n)) {
+      const run2 = pipette.load({ card: card?.id, serial, words, name, home: ours ? void 0 : card.home, slot: live?.alive ? live.slot : null, stranger: !ours }, n, !!at);
+      if (!run2) {
         flash(`The pipette is full · ${fmt(PIPE_LIMIT)} cells · set some down`);
         return;
       }
-      flash(`A colony of ${name} in the pipette · Dispense sets it down`);
+      if (at) {
+        startSpit(...at, run2);
+        flash(`A colony of ${name} set down`);
+      } else flash(`A colony of ${name} in the pipette · Dispense sets it down`);
       bench.render();
     }
     async function receiveCard(bytes, png = null) {
@@ -33369,13 +33450,45 @@ ${e.message}` : String(e?.message || e));
       png: cardPng,
       save: saveCard,
       load: loadCard,
-      remove: async (card) => {
-        await cabinet.store.remove(card.id);
-        cabinet.cards = cabinet.cards.filter((c) => c.id !== card.id);
-        lab.render(true);
-        flash(`${card.name} is out of the cabinet`);
+      remove: removeCard,
+      // this world's species the card is of: its own here, or (carried from elsewhere) the one set down from it
+      inspectable: (x) => typeof x === "object" ? cardSerial(x) : life.reg.has(x) ? x : null,
+      inspect: openSpecies,
+      play: (g, tag, serial) => {
+        if (serial != null) {
+          playSong(serial);
+          return;
+        }
+        const was = sound.on;
+        sound.audition(g, tag).then(() => {
+          if (!was && sound.on) flash("Sound on");
+        });
       }
     });
+    async function removeCard(card) {
+      await cabinet.store.remove(card.id);
+      cabinet.cards = cabinet.cards.filter((c) => c.id !== card.id);
+      cabinet.removed = { card, at: performance.now() };
+      lab.render(true);
+      bench.render();
+      cards.refresh();
+      flash(`${card.name} is out of the cabinet`);
+    }
+    async function undoRemove() {
+      const r = cabinet.removed;
+      if (!r) return;
+      cabinet.removed = null;
+      await keepCard(r.card);
+      bench.render();
+      cards.refresh();
+      flash(`${r.card.name} is back in the cabinet`);
+    }
+    function cardSerial(c) {
+      if (c.world === worldId()) return life.reg.has(c.serial) ? c.serial : null;
+      const gid = c.words.join();
+      for (const sp of life.reg.values()) if (sp.carried && (genomeWords(sp.genome).join() === gid || sp.home === c.home && sp.name === c.name)) return sp.serial;
+      return null;
+    }
     function renderSpecimen(force) {
       if (!sel && spView == null || sel && sel.film) return;
       dirty = !specimen.render(force);
@@ -33516,7 +33629,13 @@ ${e.message}` : String(e?.message || e));
           if (c.world === worldId() && life.reg.has(c.serial)) cards.open(c.serial);
           else cards.openSaved({ ...c, genome: genomeOfWords(c.words) });
         },
-        load: loadCard
+        load: loadCard,
+        // dropped on the world: set down there
+        place: (c, x, y) => loadCard(c, [x, y]),
+        remove: removeCard,
+        undo: undoRemove,
+        // the card last taken out, while it can still be put back
+        removed: () => cabinet.removed && performance.now() - cabinet.removed.at < UNDO_MS ? cabinet.removed.card : null
       }
     });
     $2("lab-open").addEventListener("click", () => {
@@ -36193,6 +36312,7 @@ ${e.message}` : String(e?.message || e));
         lastPanels = now;
         if (dirty && (sel || spView != null)) renderSpecimen(false);
         if (specimen.isOpen()) specimen.songTick(performance.now(), songEvents);
+        if (cards.isOpen()) cards.songTick(performance.now(), songEvents);
         renderFeed();
         lab.render(false);
         if (state.phase === "running") updateHud(now);
