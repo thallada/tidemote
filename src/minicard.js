@@ -21,16 +21,15 @@ export function miniCard(g, K, { key, name, home = '', n = 0, bodies = 0, tip = 
     + `<span class="mc-name" translate="no">${esc(name)}</span><span class="mc-kind">${f.diet} · ${f.mobility}</span>${home && !flat ? `<span class="mc-home">${esc(home)}</span>` : ''}</button>`;
 }
 
-/**
- * Mini-cards in root to tap and drag: a tap calls tap(key, double) (double: a second tap soon after), a drag lifts
- * a ghost of the card that follows the pointer (a long press first, on a touch screen, so the strip still scrolls)
- * and, let go, calls drop(key, x, y, el) with the element under the pointer. With reorder, the card's place stays
- * open in root and moves to where the pointer is over it, the others making way; let go there, reorder(key, i).
- */
 const HOLD = 350; // a touch held this long (ms) lifts the card
 
+/**
+ * Mini-cards in root to tap and drag: a tap calls tap(key), a drag lifts a ghost of the card that follows the
+ * pointer (a long press first, on a touch screen, so the strip still scrolls) and, let go, calls drop(key, x, y, el) with the element under the pointer. With reorder, the card's place stays
+ * open in root and moves to where the pointer is over it, the others making way; let go there, reorder(key, i).
+ */
 export function wireCardDrag(root, { tap, drop, reorder }) {
-  let drag = null, last = { key: null, t: 0 };
+  let drag = null;
   const cards = () => [...root.querySelectorAll('.mini')];
   const over = (x, y) => { const r = root.getBoundingClientRect(); return x >= r.left - 12 && x <= r.right + 12 && y >= r.top - 12 && y <= r.bottom + 12; };
   // the open place moved to where (x, y) falls among the other cards, each sliding from where it was
@@ -83,9 +82,7 @@ export function wireCardDrag(root, { tap, drop, reorder }) {
       return;
     }
     if (e.type !== 'pointerup') return;
-    const now = performance.now(), double = last.key === d.key && now - last.t < 350;
-    last = double ? { key: null, t: 0 } : { key: d.key, t: now };
-    tap(d.key, double);
+    tap(d.key);
   };
   addEventListener('pointerup', end);
   addEventListener('pointercancel', end);

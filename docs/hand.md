@@ -116,12 +116,18 @@ is refused, as an old save is. The QR encoder is `src/qr.js` (byte mode, level M
 
 The specimen's Save keeps the card (drawn with its portrait, as a PNG) in the cabinet, an IndexedDB store beside the
 saved worlds, and the card presents itself and shrinks to the Lab; once kept, the button is Card. The Field Lab's
-Cabinet tab shows every card ever kept as mini-cards, filtered by where it is from (this world, other waters, bred),
+Cabinet tab shows every card ever kept as mini-cards, filtered by where it is from (this world or other waters),
 diet and body. A card of this world opens its live card (to rename it, load the pipette); another world's opens as it
 was drawn. Dragging one onto the bench, or Load the pipette, puts a colony of it (the founding's colony size) in the
 pipette, its cells made as newborns when set down: a stranger takes a serial of this world and founds a lineage, as a
 spark does, keeping its card's name and home water (`life.carried` until the census meets it), and its later
 colonies join that lineage. A card's PNG dropped on the page, or its link opened, puts it in the cabinet.
+
+**The species card** is a trading card: its name and where it comes from, its sigil as the emblem in the corner,
+its portrait large, three words for what it is, its peak, age and when it arose in big figures over its numbers
+through its life, its body and diet as segmented gauges, its water on a thermometer from ice to 45°, and at its
+foot whom it eats and who eats it, the chronicler's latest word, its home water and its QR code. Every word is at
+least 17 of the card's 660 units, so it reads on a phone; the dialog shows it as tall as the window allows.
 
 ## The record
 
@@ -149,7 +155,7 @@ Each is the soundtrack's own voices in the world's key:
 - the needle: a prick is one muted pluck on the pulse; drawn through the water, a scalpel through paper, a dry high
   tearing as fast as it goes, rougher for a moment where it cuts bonds (the engine counts the bonds its stroke
   crosses, `H_CUTS` in the hand region, read back with the pipette's takings as `onCut`);
-- the pipette: glass marbles (one for every cell taken, lower for every one set down, at most one each 40 ms, those
+- the pipette: glass marbles (one for every cell taken, lower for every one set down, about 40 ms apart, those
   that cannot sound within 0.1 s dropped, so the clicks stop when the cells do; a press with it full, a cork);
 - the lamp: wind chimes, a chance of one every 0.18 s, better the brighter it is;
 - the shade: a low bowed harmonic as loud as the shade is deep, sliding down a step over its first 3 s;
@@ -187,17 +193,11 @@ phone, the strip) fades at an edge only where there is more beyond it.
 
 The speed chip opens a ladder of every speed on offer (a double tap: ×1); held, it opens the ladder at once and a drag
 up or down moves along it, a speed a rung, taken when let go; open, a drag or the wheel on it does the same. On a
-phone Slower and Faster flank the chip. Bloom moved from B to Y, reset zoom from 0 to Z; H is gone (? shows the
-keys).
+phone Slower and Faster flank the chip. Below Max, Fast runs as fast but draws every frame. Bloom is Y, reset zoom
+Z; ? shows the keys.
 
 **Where it differs from the plan.** The thermal lens is new: warming was invisible without it. The pipette tears
 bodies by its own draw against their bonds rather than by a walk of the bond graph, so what comes whole and what
 tears follow from the body's tissue; set-downs are made of silt from anywhere, taken as they are made, rather than of
 grains picked ahead, so a grain eaten meanwhile can never be overwritten. A card's colony that does not fit is refused rather than pushing
 the oldest cells out. The ring, the dish, the witness, the controls and mud and stone are not built.
-
-**The species card** is a trading card: its name and where it comes from, its sigil as the emblem in the corner,
-its portrait large, three words for what it is, its peak, age and when it arose in big figures over its numbers
-through its life, its body and diet as segmented gauges, its water on a thermometer from ice to 45°, and at its
-foot whom it eats and who eats it, the chronicler's latest word, its home water and its QR code. Every word is at
-least 17 of the card's 660 units, so it reads on a phone; the dialog shows it as tall as the window allows.

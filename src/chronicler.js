@@ -135,7 +135,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       top: { serial: 0, since: 0 }, guilds: null, guildGone: {},
       firsts: new Set(), maxLiving: 0, collapsed: false, record: 0,
       eraMark: null, eventMark: null, excursion: null, genusMarks: [], stoneMarks: [],
-      hand: null, handTold: [], wry: -1e9, // the hand's act waiting to be told; the tools of those told, [t, tool]; its last wry line
+      hand: null, handTold: [], wry: -1e9, // the hand's act waiting to be told; those told, [t, tool, wry]; its last wry line
       ext: [], // [t, serial] of established species lost, for waves of extinction
       voice: {}, // per kind, how many times it has spoken (vary: its turns of phrase take turns)
     };
@@ -987,7 +987,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
   function handStory(ctx) {
     const { reg, t } = ctx;
     const h = S.hand, a = h.act, words = HAND[a.tool];
-    if (t > h.until || !words) { S.hand = null; return null; }
+    if (t > h.until) { S.hand = null; return null; }
     const [W, H] = h.world;
     const pl = compass(a.x / W, a.y / H);
     const place = pl === 'middle' ? 'the middle of the pool' : `the ${pl}ern waters`;

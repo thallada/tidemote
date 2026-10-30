@@ -41,8 +41,8 @@ export const SPL_RANGE_SAMPLES = 32768;
 // than a boil, so the water under it comes to one; ice), and the share a second of the way there they take the water
 // under them (at a quarter strength, a quarter of the way from the open water's temperature). Water boils at BOIL:
 // no hotter (the heat goes into steam).
-export const STAGE = { hot: 115, cold: -20, rate: 0.8 };
-export const BOIL = 100;
+const STAGE = { hot: 115, cold: -20, rate: 0.8 };
+const BOIL = 100;
 // The needle in the water (docs/hand.md): its shaft's half-width, the length over which it tapers to its point, how
 // much of it is in the water (it comes down steeply from above: the rest is over the water, out of focus, and
 // touches nothing), and how near its point a cell must come to be pricked (world units)
@@ -52,19 +52,20 @@ export const NEEDLE = { w: 0.45, taper: 3, wet: 1.2, kill: 0.12 };
 // water (world units), the cells in its bore as much as its glass
 export const PIPETTE_DOF = { wet: 0.6, rate: 0.035, raised: 0.5 };
 // The pipette's working words (docs/hand.md), in the ledger after the species ledger: the cells it draws toward its
-// tip (their IDs, sorted), those taken there (12 words each: the particle, then its partners' IDs), and what it
-// sets down: a header, the species' genomes, the cells (9 words: species, offset, velocity, energy, age, color,
-// info), the IDs of cells set down before that its cells bond to (and where they are found), and the bonds (a
+// tip (their IDs, sorted), those taken there (PIPE_TAKE_W words each: kind, energy, age, id, color, info, its
+// partners' IDs), and what it sets down: a header, the species' genomes, the cells (9 words: species, offset,
+// velocity, energy, age, color, info), the IDs of cells set down before that its cells bond to (and where they are found), and the bonds (a
 // keeper, its partner and the keeper's slot; each a cell of this set-down or one of those IDs); with what came of
 // it (how many grains were taken, each species' slot, each cell's index and new ID). The header: how many cells
 // and species, the chance a grain of silt is taken for one, the tip, how many earlier cells and bonds. Never saved.
 export const PIPE_MAX = 2048; // cells drawn, or set down, at once
 export const PIPE_TAKE = 256; // cells taken at the tip in a frame
+export const PIPE_TAKE_W = 8; // words per cell taken
 export const PIPE_SP = 64; // species set down at once
 export const PIPE_IDS = 64; // cells set down before that a set-down's cells bond to
 export const PIPE_EARLIER = 0x4000; // a bond's end at or past this: one of those (PIPE_EARLIER + its index)
 export const H_TAKEN = PIPE_MAX;
-export const H_IN = H_TAKEN + 1 + PIPE_TAKE * 12;
+export const H_IN = H_TAKEN + 1 + PIPE_TAKE * PIPE_TAKE_W;
 export const H_SP = H_IN + 8;
 export const H_CELLS = H_SP + PIPE_SP * 58;
 export const H_IDS = H_CELLS + PIPE_MAX * 9;
@@ -1071,8 +1072,9 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     var on = p.id == rider;
     if (on) { ra = p.pos; }
     else {
+      let near = array<u32, 5>(n1, n2, nb0, nb1, nb2);
       for (var b = 0u; b < 5u && !on; b++) {
-        let j = select(select(select(select(nb2, nb1, b == 3u), nb0, b == 2u), n2, b == 1u), n1, b == 0u);
+        let j = near[b];
         if (j != NONE && j < sim.count && sortedFull[j].id == rider) { on = true; ra = sortedFull[j].pos; }
       }
     }
@@ -1336,6 +1338,7 @@ fn splBase() -> u32 { return arrayLength(&ledger) - SPL_WORDS - HAND_WORDS - HEA
 // The pipette's words (PIPE_* in shaders.js), between the species ledger and the heat deposits
 const HAND_WORDS = ${HAND_WORDS}u;
 const PIPE_TAKE = ${PIPE_TAKE}u;
+const PIPE_TAKE_W = ${PIPE_TAKE_W}u;
 const PIPE_SP = ${PIPE_SP}u;
 const H_TAKEN = ${H_TAKEN}u;
 const H_IN = ${H_IN}u;
@@ -1743,17 +1746,19 @@ fn finalize(g: ptr<function, Genome>) {
   (*g).col = pack4x8unorm(vec4f(roleColor(*g, 0u), 1.0));
 }
 
+// slot k taken for a new species, if free: its counts in the species ledger start afresh
+fn claimSlot(k: u32) -> bool {
+  if (!atomicCompareExchangeWeak(&ledger[META_SLOT + k], 0u, 1u).exchanged) { return false; }
+  let o = splBase() + SPL_CAUSE + k * SPL_NC;
+  for (var c = 0u; c < SPL_NC; c++) { atomicStore(&ledger[o + c], 0u); }
+  return true;
+}
+
 fn allocSlot(s: ptr<function, u32>) -> u32 {
   for (var t = 0u; t < 12u; t++) {
     *s = pcg(*s);
     let k = FIRST_LIFE + (*s % (MAXK - FIRST_LIFE));
-    let r = atomicCompareExchangeWeak(&ledger[META_SLOT + k], 0u, 1u);
-    if (r.exchanged) {
-      // a new species: its counts in the species ledger start afresh
-      let o = splBase() + SPL_CAUSE + k * SPL_NC;
-      for (var c = 0u; c < SPL_NC; c++) { atomicStore(&ledger[o + c], 0u); }
-      return k;
-    }
+    if (claimSlot(k)) { return k; }
   }
   return NONE;
 }
@@ -2006,10 +2011,10 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
       let b = handAt();
       let k = atomicAdd(&ledger[b + H_TAKEN], 1u);
       if (k < PIPE_TAKE) {
-        let o = b + H_TAKEN + 1u + k * 12u;
-        let w = array<u32, 10>(bitcast<u32>(p.pos.x), bitcast<u32>(p.pos.y), bitcast<u32>(p.vel.x), bitcast<u32>(p.vel.y), p.kind, bitcast<u32>(p.energy), bitcast<u32>(p.age), p.id, p.col, p.info);
-        for (var q = 0u; q < 10u; q++) { atomicStore(&ledger[o + q], w[q]); }
-        for (var q = 0u; q < 2u; q++) { let j = intent[i][q + 2u]; atomicStore(&ledger[o + 10u + q], select(NONE, parts[min(j, sim.count - 1u)].id, j < sim.count)); }
+        let o = b + H_TAKEN + 1u + k * PIPE_TAKE_W;
+        let w = array<u32, 6>(p.kind, bitcast<u32>(p.energy), bitcast<u32>(p.age), p.id, p.col, p.info);
+        for (var q = 0u; q < 6u; q++) { atomicStore(&ledger[o + q], w[q]); }
+        for (var q = 0u; q < 2u; q++) { let j = intent[i][q + 2u]; atomicStore(&ledger[o + 6u + q], select(NONE, parts[min(j, sim.count - 1u)].id, j < sim.count)); }
         var s = pcg(p.id ^ sim.seed);
         p.pos = vec2f(rnd(&s), rnd(&s)) * sim.world;
         p.kind = SILT; p.energy = 0.0; p.vel = vec2f(0.0); p.age = 0.0; p.info = p.info & 0xffffffc0u;
@@ -3248,11 +3253,7 @@ fn injectSlots(@builtin(global_invocation_id) gid: vec3u) {
     slot = allocSlot(&s);
     // (a crowded table: its few random tries missed; every slot in turn, so the cells wait only when none is free)
     for (var k = FIRST_LIFE; slot == NONE && k < MAXK; k++) {
-      if (atomicCompareExchangeWeak(&ledger[META_SLOT + k], 0u, 1u).exchanged) {
-        slot = k;
-        let c = splBase() + SPL_CAUSE + k * SPL_NC;
-        for (var q = 0u; q < SPL_NC; q++) { atomicStore(&ledger[c + q], 0u); }
-      }
+      if (claimSlot(k)) { slot = k; }
     }
     if (slot != NONE) {
       for (var w = 0u; w < G_WORDS; w++) { genomeWords[slot * G_WORDS + w] = atomicLoad(&ledger[o + w]); }
@@ -4202,11 +4203,12 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
 }
 
 // Each species' organelles scatter in their own directions, the same in every cell: found once per
-// frame here rather than at every pixel of every cell (fsPoint).
+// frame here rather than at every pixel of every cell (fsPoint). Bounded by the buffer bound: the world's
+// MAXK species, or the pipette's bore's own (setTube).
 @group(0) @binding(9) var<storage, read_write> organDir: array<u32>;
 @compute @workgroup_size(64)
 fn organDirs(@builtin(global_invocation_id) gid: vec3u) {
-  if (gid.x >= MAXK * ORGANS) { return; }
+  if (gid.x >= arrayLength(&organDir)) { return; }
   let th = TAU * renderHash(genomes[gid.x / ORGANS].serial + (gid.x % ORGANS) * 1013u + 103u);
   organDir[gid.x] = pack2x16snorm(vec2f(cos(th), sin(th)));
 }
@@ -7639,7 +7641,7 @@ fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
   let lens = lensAt(wp);
   if (post.heatVis > 1.5 || lens > 0.0) {
     // the thermal camera: false color over the map's span (drawn as isotherms alone over a full
-    // light map), with an isotherm every 2°; inside a warm stage's lens, whatever else is shown
+    // light map), with an isotherm every 2°; inside the warm stage's or cold probe's lens, whatever else is shown
     let full = select(0.0, 1.0, post.heatVis > 1.5);
     c = mix(c, heatRamp(clamp((water - post.heat.y) / (post.heat.z - post.heat.y), 0.0, 1.0)), 0.4 * select(0.0, full, post.tideVis < 1.5) * (1.0 - lens));
     // (the lens spans what the hand makes: from freezing to boiling, isotherms every 5°)
@@ -7654,8 +7656,8 @@ fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
 }
 // The instrument in hand as it is seen in the water (the page's eng.tool), each running in from its side of the
 // field to its point at post.tool.xy: the needle, steel tapering to a point; the pipette, a glass capillary drawn
-// fine, open at its tip; the cold probe, a blunt steel rod, frosting as it chills. Raised over the water (toolB.y
-// 0) it is out of focus, a soft shadow of itself; let down into it, sharp. Here: x how far wp lies outside its
+// fine, open at its tip; the cold probe, a blunt steel rod, frosting as it chills; Touch's rod, solid glass, round
+// at its end. Raised over the water (toolB.y 0) it is out of focus, a soft shadow of itself; let down into it, sharp. Here: x how far wp lies outside its
 // surface (negative inside), y across it (-1..1), z along it from its point, w its blur (world units).
 // (wp and its point both in the view's own coordinates, unwrapped: an instrument is drawn once, never round the
 // world's edge)
@@ -7678,7 +7680,7 @@ fn toolAt(wp: vec2f, ppu: f32) -> vec4f {
   let blur = 1.2 / max(ppu, 1e-3) + (1.0 - post.toolB.y) * TOOL_RAISED + max(t - wet, 0.0) * rate;
   return vec4f(sd, clamp(across, -1.0, 1.0), s, blur);
 }
-// The pipette's glass bends the view through it, as a lens of its shape would (pixels).
+// The glass (the pipette, Touch's rod) bends the view through it, as a lens of its shape would (pixels).
 fn toolBend(wp: vec2f) -> vec2f {
   if (post.toolB.x < 1.5 || (post.toolB.x > 2.5 && post.toolB.x < 3.5)) { return vec2f(0.0); }
   let g = toolAt(wp, post.ppu);
@@ -7686,6 +7688,7 @@ fn toolBend(wp: vec2f) -> vec2f {
   let ax = normalize(post.tool.zw);
   return vec2f(-ax.y, ax.x) * (g.y * sqrt(max(0.0, 1.0 - g.y * g.y)) * -7.0 * post.toolB.y);
 }
+// The instrument drawn over the scene: glass (the pipette, Touch's rod) or steel (the needle, the cold probe).
 fn instrument(cIn: vec3f, wp: vec2f, ppu: f32) -> vec3f {
   let kind = post.toolB.x;
   if (kind <= 0.0) { return cIn; }

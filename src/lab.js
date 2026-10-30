@@ -89,6 +89,15 @@ export function createLab(api) {
   }
   const chips = (key, opts, cur) => opts.map(([v, l]) => `<button type="button" class="chip" data-k="${key}" data-v="${v}" aria-pressed="${v === cur}">${l}</button>`).join('');
   const pressChips = (ctl, key) => ctl.querySelectorAll(`[data-k="${key}"]`).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === st[key])));
+  const seg = (label, key, opts) => `<span class="lbl">${label}</span><div class="segs" role="group" aria-label="${key}">${chips(key, opts, st[key])}</div>`;
+  // a click on a filter chip sets its key, on the Filters button (#id) opens or closes the filters: true if either
+  function filterClick(e, ctl, id, update) {
+    const b = e.target.closest('[data-k]');
+    if (b) { st[b.dataset.k] = b.dataset.v; pressChips(ctl, b.dataset.k); update(true); return true; }
+    const ft = e.target.closest(`#${id}`);
+    if (ft) { const on = !ctl.classList.contains('open'); ctl.classList.toggle('open', on); ft.setAttribute('aria-expanded', String(on)); return true; }
+    return false;
+  }
   // the pointer is inside: hold the order still so rows don't move under it
   const hovering = (el) => el.matches(':hover');
 
@@ -119,7 +128,6 @@ export function createLab(api) {
   };
   function buildSpecies() {
     // the filters: one segmented row each, under a fixed label column
-    const seg = (label, key, opts) => `<span class="lbl">${label}</span><div class="segs" role="group" aria-label="${key}">${chips(key, opts, st[key])}</div>`;
     const p = pane(`<div class="qrow"><input type="search" id="lab-q" placeholder="Search by name" aria-label="Search species by name" autocomplete="off"><button type="button" class="chip filt" id="sp-filt" aria-expanded="false" aria-controls="sp-filters">Filters</button></div><div class="filters" id="sp-filters">
       ${seg('Status', 'status', [['thriving', 'Thriving'], ['alive', 'Living'], ['extinct', 'Extinct'], ['all', 'Any']])}
       ${seg(term('diet', 'Diet'), 'diet', DIETS)}
@@ -139,16 +147,13 @@ export function createLab(api) {
     const sort = p.ctl.querySelector('#sp-sort');
     sort.addEventListener('change', () => { st.sort = sort.value; sort.blur(); update(true); });
     p.ctl.addEventListener('click', (e) => {
-      const b = e.target.closest('[data-k]');
-      if (b) { st[b.dataset.k] = b.dataset.v; pressChips(p.ctl, b.dataset.k); update(true); return; }
+      if (filterClick(e, p.ctl, 'sp-filt', update)) return;
       if (e.target.closest('#sp-reset')) {
         Object.assign(st, { status: 'thriving', diet: 'all', mobility: 'all', body: 'all', temp: 'all' });
         ['status', 'diet', 'mobility', 'body', 'temp'].forEach((k) => pressChips(p.ctl, k));
         update(true);
         return;
       }
-      const ft = e.target.closest('#sp-filt');
-      if (ft) { const on = !p.ctl.classList.contains('open'); p.ctl.classList.toggle('open', on); ft.setAttribute('aria-expanded', String(on)); return; }
       if (e.target.closest('#sp-hl')) {
         const F = { ...st };
         const parts = [F.status !== 'all' ? F.status : '', F.diet !== 'all' ? F.diet : '', F.mobility !== 'all' ? F.mobility : '', F.body !== 'all' ? F.body : '', F.temp !== 'all' ? F.temp : '', F.q ? `“${F.q}”` : ''].filter(Boolean);
@@ -521,9 +526,8 @@ export function createLab(api) {
   // api.cabinet: { cards(), world(), facets(card), mini(card), open(card), load(card, el) }: a card tapped opens it,
   // dragged onto the bench (its button, the pipette's tool or strip) loads the pipette
   function buildCabinet() {
-    const seg = (label, key, opts) => `<span class="lbl">${label}</span><div class="segs" role="group" aria-label="${key}">${chips(key, opts, st[key])}</div>`;
     const p = pane(`<div class="qrow"><input type="search" id="cab-q" placeholder="Search the cabinet" aria-label="Search the cabinet" autocomplete="off"><button type="button" class="chip filt" id="cab-filt" aria-expanded="false" aria-controls="cab-filters">Filters</button></div><div class="filters" id="cab-filters">
-      ${seg('From', 'cabFrom', [['any', 'Any'], ['this', 'This world'], ['other', 'Other waters'], ['bred', 'Bred']])}
+      ${seg('From', 'cabFrom', [['any', 'Any'], ['this', 'This world'], ['other', 'Other waters']])}
       ${seg(term('diet', 'Diet'), 'cabDiet', DIETS)}
       ${seg(term('organism', 'Body'), 'cabBody', [['all', 'Any'], ['multicellular', 'Multicellular'], ['single-cell', 'Single-cell']])}</div>
       <div class="sum"><span id="cab-sum"></span><span class="lbl">Newest first</span></div>`, 'cabinet');
@@ -532,12 +536,7 @@ export function createLab(api) {
     p.scroll.append(grid);
     const q = p.ctl.querySelector('#cab-q');
     q.addEventListener('input', () => { st.cabQ = q.value; update(true); });
-    p.ctl.addEventListener('click', (e) => {
-      const b = e.target.closest('[data-k]');
-      if (b) { st[b.dataset.k] = b.dataset.v; pressChips(p.ctl, b.dataset.k); update(true); return; }
-      const ft = e.target.closest('#cab-filt');
-      if (ft) { const on = !p.ctl.classList.contains('open'); p.ctl.classList.toggle('open', on); ft.setAttribute('aria-expanded', String(on)); }
-    });
+    p.ctl.addEventListener('click', (e) => filterClick(e, p.ctl, 'cab-filt', update));
     const byId = (id) => api.cabinet.cards().find((c) => c.id === id);
     const drag = wireCardDrag(grid, {
       tap: (id) => { const c = byId(id); if (c) api.cabinet.open(c); },

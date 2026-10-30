@@ -51,8 +51,8 @@ export function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
     const l = state.species;
     for (let i = l.length - 1; i > 0; i--) if (same(l[i - 1], l[i])) { merge(l[i - 1], l[i]); l.splice(i, 1); }
   }
+  const remove = (sp) => { const i = state.species.indexOf(sp); if (i >= 0) { state.species.splice(i, 1); join(); } };
   const pp = {
-    state, limit,
     get species() { return state.species; },
     /** Cells held, in all. */
     get count() { return state.species.reduce((n, sp) => n + cells(sp), 0); },
@@ -111,10 +111,8 @@ export function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
         org.out += placed;
         if (org.out >= org.cells.length) sp.orgs.splice(sp.orgs.indexOf(org), 1);
       } else if (made) sp.made -= Math.min(made, placed);
-      if (!cells(sp)) pp.remove(sp);
+      if (!cells(sp)) remove(sp);
     },
-    remove(sp) { const i = state.species.indexOf(sp); if (i >= 0) { state.species.splice(i, 1); join(); } },
-    clear() { state.species.length = 0; },
   };
   return pp;
 }
@@ -130,7 +128,7 @@ export function mergeJobs(jobs) {
   for (const j of jobs) {
     if (used && job.earlier.length + j.earlier.length > PIPE_IDS) break;
     let k = job.of.indexOf(j.of);
-    if (k < 0) { if (job.of.length >= PIPE_SP) break; k = job.of.push(j.of) - 1; job.species.push(j.species[0]); }
+    if (k < 0) { if (job.of.length >= PIPE_SP) break; k = job.of.push(j.of) - 1; job.species.push(j.species); }
     const c0 = job.cells.length, e0 = job.earlier.length, ref = (r) => (r < PIPE_EARLIER ? r + c0 : r + e0);
     job.cells.push(...j.cells.map((c) => ({ ...c, sp: k })));
     job.earlier.push(...j.earlier);
@@ -146,7 +144,7 @@ export function mergeJobs(jobs) {
  * out before (by their IDs) or leaving with it, and each cell out before that kept one of these keeps it again.
  */
 export function setDownJob(it, placed, newborn) {
-  const species = [{ words: it.sp.words, slot: it.sp.slot, stranger: !!it.sp.stranger }], of = it.sp;
+  const species = { words: it.sp.words, slot: it.sp.slot, stranger: !!it.sp.stranger }, of = it.sp;
   if (!it.org) {
     return { species, of, cells: Array.from({ length: it.made }, (_, k) => { const [energy, col, info] = newborn(it.sp); const [dx, dy, vx, vy] = placed(k); return { sp: 0, dx, dy, vx, vy, energy, age: 0, col, info }; }), earlier: [], bonds: [] };
   }

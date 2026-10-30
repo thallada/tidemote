@@ -3,24 +3,9 @@
 // hand's acts as they happen ({ type: 'hand', ev, ... }) and, every frame something changes, its state
 // ({ type: 'hand', ev: 'state', tool, level, move, held, water, freezing, ice, ride, will, pan }); the sounds are
 // the soundtrack's own voices in the world's key.
-//   picking up a tool: instruments on a metal tray (glass, steel, a switch)
-//   the rod: a fingertip in a basin (a tap plips, the dip gloops, a stir sloshes as fast as it goes, a ring wave
-//     whomps, lifting out plips)
-//   the needle: a prick is one muted pluck; drawn through the water, a scalpel through paper, rougher where it
-//     cuts bonds
-//   the pipette: glass marbles (a click for every cell taken or set down, lower set down; full, a cork)
-//   the lamp: wind chimes catching the light, more of them the brighter it is
-//   the shade: a low bowed harmonic sliding down a step as it darkens
-//   the warm stage: a heavy pan warming (a rumble under the water as hot as the water under it is, a few low
-//     bubbles, and the boil's)
-//   the cold probe: the pond freezing over (while the water under it freezes, ice cracking in runs of snaps; two
-//     groans as the ice begins and as it fills the reach; the whole world dimming and stepping back with the ice)
-//   riding: the ridden cell's song forward (it is the picked species), the rest stepped back, and while it is
-//     steered the low rush of the water past it
-//   the loupe: a camera shutter as the lens is set down (on a touch screen only, where that is the act)
-// The held sounds (the stir, the scalpel, the shade's note, the rumble, the rush) are single voices that swell and
-// fade with what the hand does, never a train of notes restarting. While the rod or the pipette is at work the
-// field steps back a little (duck), more in the ice, most riding.
+// What each tool sounds like is in docs/hand.md, Heard. The held sounds are single voices that swell and fade
+// with what the hand does, never a train of notes restarting; while the rod or the pipette is at work the field
+// steps back a little (duck), more in the ice, most riding.
 
 import { d2m } from './conductor.js';
 import { BS } from './ugens.js';
@@ -30,7 +15,7 @@ const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 const AHEAD = 0.02; // seconds from a message to its sound (the next block or so)
 const DUCK = 0.8; // the field while the rod or the pipette is at work
 const LAMP_STEP = 0.18; // the chimes' chances come this often (seconds), whatever the simulation's speed
-const MARBLE_GAP = 0.04; // seconds between the pipette's marbles at most
+const MARBLE_GAP = 0.04; // seconds between the pipette's marbles, about (jittered)
 const LATE = 0.1; // seconds late a pipette's marble may still sound (more cells than that are dropped, so the
 // clicks stop when the cells do)
 const SLIDE = 3; // seconds the shade's harmonic takes to slide down its step
@@ -63,12 +48,14 @@ export class HandSound {
   at(t, def, p) { this.c.at(t, def, p); }
   // x eased toward `to` with time constant tau (seconds), once a block
   ease(x, to, tau) { return x + (to - x) * (1 - Math.exp(-this.dt / tau)); }
+  // whether the chance timed by field k is due at t (the next one gap seconds on)
+  due(k, gap, t) { if (t < this[k]) return false; this[k] = t + gap; return true; }
 
   message(m) {
     const now = this.c.time + AHEAD, pan = m.pan ?? this.s.pan;
     switch (m.ev) {
       case 'state': Object.assign(this.s, m); break;
-      case 'pick': this.pick(m.tool, now); break;
+      case 'pick': this.pick(m.tool, now, pan); break;
       case 'tap': this.at(now, 'drop', { freq: this.hz(4, 2), rise: 1.8, dec: 0.07, amp: 0.039, pan, rev: 0.4 }); break;
       case 'dip': this.at(now, 'drop', { freq: this.hz(0, 1), rise: 0.55, dec: 0.22, amp: 0.053, pan, rev: 0.45 }); break;
       case 'lift': this.at(now, 'drop', { freq: this.hz(2, 1), rise: 1.5, dec: 0.12, amp: 0.029, pan }); break;
@@ -86,14 +73,13 @@ export class HandSound {
 
   // instruments taken up from a tray: glass for the rod and the pipette, steel for the needle and the probe, a
   // switch for the lamp, the shade and the stage, a lens's glass for the loupe (and nothing for empty hands)
-  pick(tool, t) {
-    const pan = 0.2;
+  pick(tool, t, pan) {
     if (tool === 'touch' || tool === 'pipette' || tool === 'loupe') this.at(t, 'tine', { freq: { touch: 2900, pipette: 3500, loupe: 4200 }[tool], dec: 0.4, bright: 0.9, amp: 0.018, pan });
     else if (tool === 'needle' || tool === 'cold') {
       this.at(t, 'tick', { freq: tool === 'needle' ? 6200 : 3300, dec: 0.03, amp: 0.053, pan });
       this.at(t, 'tine', { freq: tool === 'needle' ? 5100 : 1900, dec: 0.25, bright: 1, amp: 0.009, pan });
     } else if (tool !== 'none') {
-      const f = { lamp: 900, shade: 760, warm: 640 }[tool] || 900;
+      const f = { lamp: 900, shade: 760, warm: 640 }[tool];
       this.at(t, 'tick', { freq: 1700, dec: 0.012, amp: 0.053, pan });
       this.at(t + 0.035, 'wood', { freq: f, dec: 0.04, bright: 0.9, amp: 0.071, pan });
     }
@@ -115,23 +101,20 @@ export class HandSound {
     // (the rod's stir and the pipette at work duck the field, the ice more, riding most, and it comes back)
     const busy = (s.tool === 'touch' && s.held) || (s.tool === 'pipette' && s.held);
     const to = s.ride ? 0.55 : Math.min(busy ? DUCK : 1, 1 - 0.3 * this.ice);
-    this.duck += (to - this.duck) * 0.02;
+    this.duck = this.ease(this.duck, to, 0.066);
     this.rod(s.tool === 'touch' ? s.move : 0, t);
     this.needle(s.tool === 'needle' ? s.move : 0, t);
     // the lamp: a chime's chance every LAMP_STEP, better the brighter it is
-    if (s.tool === 'lamp' && v > 0.01 && t >= this.chimeAt) {
-      this.chimeAt = t + LAMP_STEP;
-      if (this.rnd() < 0.12 + 0.6 * v) {
-        const deg = [0, 2, 4, 5, 7][Math.floor(this.rnd() * 5)];
-        this.at(this.grid(t), 'glint', { freq: this.hz(deg, 3), dec: 0.5 + 0.6 * this.rnd(), amp: (0.025 + 0.03 * v) * 0.36, pan: s.pan + 0.6 * (this.rnd() - 0.5), rev: 0.6, dly: 0.2 });
-      }
+    if (s.tool === 'lamp' && v > 0.01 && this.due('chimeAt', LAMP_STEP, t) && this.rnd() < 0.12 + 0.6 * v) {
+      const deg = [0, 2, 4, 5, 7][Math.floor(this.rnd() * 5)];
+      this.at(this.grid(t), 'glint', { freq: this.hz(deg, 3), dec: 0.5 + 0.6 * this.rnd(), amp: 0.009 + 0.0108 * v, pan: s.pan + 0.6 * (this.rnd() - 0.5), rev: 0.6, dly: 0.2 });
     }
     // the shade: one glass note, as loud as the shade is deep, sliding down a step over SLIDE seconds while it is on
     const sh = this.hold('shade', s.tool === 'shade' && v > 0.01, t, () => ['glass', { freq: this.hz(4, -1), atk: 0.05, sus: 1e5, rel: 1.5, bright: 0.3, rev: 0.45 }]);
     if (sh) c.eng.set(sh.id, { amp: 0.086 * (s.tool === 'shade' ? v : 0), freq: this.hz(4, -1) * Math.pow(2, (-2 * Math.min(1, (t - sh.on) / SLIDE)) / 12), pan: s.pan });
     this.warm(s.tool === 'warm' && s.water != null ? s.water : null, t);
-    this.cold(s.tool === 'cold' ? s.freezing || 0 : 0, s.tool === 'cold' ? s.ice || 0 : 0, t);
-    this.ride(s.ride ? s.will || 0 : 0, t);
+    this.cold(s.tool === 'cold' ? s.freezing : 0, s.tool === 'cold' ? s.ice : 0, t);
+    this.ride(s.ride ? s.will : 0, t);
   }
 
   // A held voice, name: begun (make() gives its def and params, silent) when on, ended KEEP seconds after it was
@@ -156,10 +139,7 @@ export class HandSound {
     const v = this.stir = this.ease(this.stir, m, 0.12), pan = this.s.pan;
     const h = this.hold('stir', v > 0.05, t, () => ['air', { freq: 400, rq: 0.6, gust: 0.6, rate: 3, rev: 0.3 }]);
     if (h) this.c.eng.set(h.id, { amp: 0.024 * v, freq: 380 + 260 * v, pan });
-    if (v > 0.05 && t >= this.bubbleAt) {
-      this.bubbleAt = t + 0.07;
-      if (this.rnd() < v / 6) this.at(t, 'drop', { freq: 500 + 900 * this.rnd(), rise: 1.4, dec: 0.04, amp: 0.012, pan, rev: 0.4 });
-    }
+    if (v > 0.05 && this.due('bubbleAt', 0.07, t) && this.rnd() < v / 6) this.at(t, 'drop', { freq: 500 + 900 * this.rnd(), rise: 1.4, dec: 0.04, amp: 0.012, pan, rev: 0.4 });
   }
 
   // the needle drawn through the water (m: its speed, 0..4): a scalpel through paper, a dry high tearing as fast as
@@ -178,9 +158,8 @@ export class HandSound {
     const h = this.heat, boil = T == null ? 0 : clamp((T - BOILING) / (100 - BOILING), 0, 1), pan = this.s.pan;
     const r = this.hold('rumble', h > 0.01, t, () => ['air', { freq: 220, rq: 1.6, gust: 0.7, rate: 5, rev: 0.2 }]);
     if (r) this.c.eng.set(r.id, { amp: 0.32 * h, freq: 220 + 150 * h, pan });
-    if (h > 0.01 && t >= this.fizzAt) {
-      this.fizzAt = t + 0.02;
-      if (this.rnd() < 14 * h * 0.02) this.at(t, 'drop', { freq: 700 * Math.pow(1800 / 700, this.rnd()), rise: 1.3 + 0.6 * this.rnd(), dec: 0.012 + 0.025 * this.rnd(), amp: 0.027 * (0.3 + 0.7 * this.rnd()) ** 2, pan: pan + 0.7 * (this.rnd() - 0.5), rev: 0.3 });
+    if (h > 0.01 && this.due('fizzAt', 0.02, t)) {
+      if (this.rnd() < 0.28 * h) this.at(t, 'drop', { freq: 700 * Math.pow(1800 / 700, this.rnd()), rise: 1.3 + 0.6 * this.rnd(), dec: 0.012 + 0.025 * this.rnd(), amp: 0.027 * (0.3 + 0.7 * this.rnd()) ** 2, pan: pan + 0.7 * (this.rnd() - 0.5), rev: 0.3 });
       if (this.rnd() < boil * 0.35) this.at(t, 'drop', { freq: 250 + 500 * this.rnd(), rise: 1.5 + this.rnd(), dec: 0.03 + 0.03 * this.rnd(), amp: 0.045, pan: pan + 0.5 * (this.rnd() - 0.5), rev: 0.3 });
     }
   }
@@ -206,8 +185,7 @@ export class HandSound {
     const g = this.groan;
     if (g && t - g.t > 3.5) { c.eng.free(g.id); this.groan = null; }
     else if (g) c.eng.set(g.id, { freq: g.f0 * Math.pow(2, (-GROAN * Math.min(1, (t - g.t) / 2.5)) / 12) });
-    if (f < 0.02 || t < this.crackAt) return;
-    this.crackAt = t + 0.05;
+    if (f < 0.02 || !this.due('crackAt', 0.05, t)) return;
     if (this.rnd() < f * 0.35) {
       const p = pan + 0.9 * (this.rnd() - 0.5), k = 2 + Math.floor(this.rnd() * 6 * (0.4 + f));
       let u = t;
@@ -230,9 +208,6 @@ export class HandSound {
     const v = this.rush = this.ease(this.rush, w, 0.6);
     const r = this.hold('rush', v > 0.01, t, () => ['air', { freq: 160, rq: 1.1, gust: 0.5, rate: 0.8, rev: 0.25 }]);
     if (r) this.c.eng.set(r.id, { amp: 0.1 * v, freq: 160 + 260 * v, pan: 0.25 * Math.sin(t * 0.9) });
-    if (v > 0.01 && t >= this.rushAt) {
-      this.rushAt = t + 0.06;
-      if (this.rnd() < v * 0.12) this.at(t, 'drop', { freq: 400 + 600 * this.rnd(), rise: 1.4, dec: 0.05, amp: 0.055, pan: 0.6 * (this.rnd() - 0.5), rev: 0.4 });
-    }
+    if (v > 0.01 && this.due('rushAt', 0.06, t) && this.rnd() < v * 0.12) this.at(t, 'drop', { freq: 400 + 600 * this.rnd(), rise: 1.4, dec: 0.05, amp: 0.055, pan: 0.6 * (this.rnd() - 0.5), rev: 0.4 });
   }
 }

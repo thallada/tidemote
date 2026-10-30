@@ -91,14 +91,14 @@ test('the limit: a card’s colony that does not fit is refused; newborns leave 
   const job = setDownJob(n, at, () => [0.5, 1, 2]);
   assert.equal(job.cells.length, 3);
   assert.equal(job.cells[0].energy, 0.5);
-  assert.equal(job.species[0].stranger, true);
+  assert.equal(job.species.stranger, true);
   pp.left(n, 3);
   assert.equal(pp.tip.made, 1);
 });
 
 test('jobs merged into one set-down: their cells in turn, each one’s bonds and earlier cells shifted to match', () => {
-  const a = { species: [{}], cells: [{}, {}], earlier: [9], bonds: [[1, 0, 0], [PIPE_EARLIER, 1, 1]] };
-  const b = { species: [{}], cells: [{}], earlier: [8], bonds: [[0, PIPE_EARLIER, 0]] };
+  const a = { species: {}, cells: [{}, {}], earlier: [9], bonds: [[1, 0, 0], [PIPE_EARLIER, 1, 1]] };
+  const b = { species: {}, cells: [{}], earlier: [8], bonds: [[0, PIPE_EARLIER, 0]] };
   const { job, used } = mergeJobs([a, b]);
   assert.equal(used, 2);
   assert.equal(job.cells.length, 3);
@@ -108,9 +108,9 @@ test('jobs merged into one set-down: their cells in turn, each one’s bonds and
 
 test('one set-down across runs: each run its species, its cells told which, so short runs flow as one', () => {
   const A = { words: [1] }, B = { words: [2] };
-  const a = { species: [{ words: [1] }], of: A, cells: [{ sp: 0 }], earlier: [], bonds: [] };
-  const b = { species: [{ words: [2] }], of: B, cells: [{ sp: 0 }, { sp: 0 }], earlier: [], bonds: [] };
-  const a2 = { species: [{ words: [1] }], of: A, cells: [{ sp: 0 }], earlier: [], bonds: [] };
+  const a = { species: { words: [1] }, of: A, cells: [{ sp: 0 }], earlier: [], bonds: [] };
+  const b = { species: { words: [2] }, of: B, cells: [{ sp: 0 }, { sp: 0 }], earlier: [], bonds: [] };
+  const a2 = { species: { words: [1] }, of: A, cells: [{ sp: 0 }], earlier: [], bonds: [] };
   const { job, used } = mergeJobs([a, b, a2]);
   assert.equal(used, 3);
   assert.deepEqual(job.of, [A, B]);

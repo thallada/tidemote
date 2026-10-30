@@ -130,7 +130,7 @@ export function createSpecimen(api) {
     else if (a === 'find') api.onFind();
     else if (a === 'hl') api.onHighlight();
     else if (a === 'card') { api.onCard?.(); return; }
-    else if (a === 'save') { api.onSave?.(); return; }
+    else if (a === 'save') { api.onSave(); return; }
     st.actKey = '';
     render(true);
   });

@@ -368,7 +368,7 @@ body.spec-open .bench { right: var(--spec-pw); }
 .pip-empty { flex: 1; min-height: 96px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: var(--s1); padding: var(--s3); border: 1px dashed var(--line); color: var(--ink-3); text-align: center; font-size: 12px; }
 .pip-empty b { color: var(--ink-2); font-weight: 400; font-size: 13px; }
 /* a mini-card: sigil, name, kind, home water; bracketed at its corners */
-.mini { --c: var(--line-2); position: relative; flex: 0 0 112px; min-height: 104px; padding: 8px 6px 6px; display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; touch-action: pan-x;
+.mini { --c: var(--line-2); position: relative; flex: 0 0 112px; min-height: 104px; padding: 18px 6px 6px; display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; touch-action: pan-x;
   background: linear-gradient(var(--c), var(--c)) left top / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) left top / 1px 7px no-repeat,
     linear-gradient(var(--c), var(--c)) right top / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) right top / 1px 7px no-repeat,
     linear-gradient(var(--c), var(--c)) left bottom / 7px 1px no-repeat, linear-gradient(var(--c), var(--c)) left bottom / 1px 7px no-repeat,
@@ -383,7 +383,6 @@ body.spec-open .bench { right: var(--spec-pw); }
 .mc-n b { margin-left: auto; font-weight: 500; }
 .mini.at-tip .mc-n b { color: var(--sun); }
 .mc-n small { font-size: 11px; color: var(--ink-3); font-weight: 400; }
-.mini { padding-top: 18px; }
 .mini.flat { flex: 0 0 160px; min-height: 50px; display: grid; grid-template-columns: 24px 1fr; grid-template-rows: auto auto; column-gap: 8px; align-items: center; text-align: left; padding: 6px 8px; }
 .mini.flat .mc-sig { grid-row: 1 / 3; width: 24px; height: 24px; }
 .mini.flat .mc-n { top: 2px; }
@@ -395,13 +394,13 @@ body.spec-open .bench { right: var(--spec-pw); }
 /* a card saved: it presents itself at the center, then shrinks to the Lab */
 .card-fly { position: fixed; left: 50%; top: 50%; z-index: 40; width: min(330px, 70vw); pointer-events: none; transform: translate(-50%, -50%); box-shadow: 0 12px 48px rgba(0, 0, 0, 0.7); }
 body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-card [data-tool="pipette"] { outline: 1px dashed var(--sun); outline-offset: 2px; }
-/* a card dragged out of the strip */
 .mc-kept { position: absolute; right: 5px; bottom: 5px; width: 13px; height: 13px; color: var(--sun); opacity: .8; }
 .mc-kept svg { width: 100%; height: 100%; display: block; }
 .mini.flat .mc-kept { bottom: auto; top: 6px; right: 6px; }
 /* a card being moved: its place, open, where it will land */
 .mini.mc-slot { border-style: dashed; border-color: rgba(241, 227, 160, 0.55); background: rgba(241, 227, 160, 0.04); }
 .mini.mc-slot > * { visibility: hidden; }
+/* a card dragged out of the strip */
 .ghost-card { position: fixed; left: 0; top: 0; z-index: 30; pointer-events: none; opacity: .92; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); }
 /* the dock's pipette carries its count */
 .dock .tools .tool[data-tool="pipette"]::after { content: attr(data-count); position: absolute; left: 3px; top: 1px; font-size: 11px; line-height: 1; color: var(--sun); letter-spacing: 0; }
@@ -418,7 +417,6 @@ body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-car
 /* the pipette's press, Load or Dispense; Save all */
 .bench-pip .sub-h { justify-content: flex-start; flex-wrap: wrap; }
 .bench-pip .sub-h .sub-a { margin-right: auto; }
-.pip-mode[hidden], #pip-keep[hidden], #pip-sort[hidden] { display: none; }
 #pip-keep, #pip-sort { height: 26px; }
 .held kbd { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--sun); color: var(--sun); font-size: 11px; letter-spacing: 0; }
 .held > b { color: var(--sun); font-size: 12px; letter-spacing: .16em; text-transform: uppercase; font-weight: 500; flex: 1; }
@@ -1159,11 +1157,9 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .bench-btn { margin-left: 0; flex-direction: column; justify-content: center; gap: 3px; width: 50px; height: 50px; padding: 0; }
   .bench-btn span { display: block; font-size: 11px; letter-spacing: 0; text-transform: none; font-stretch: 100%; }
   .bench-btn.in-hand { border-color: rgba(241, 227, 160, 0.5); }
-  .bench { touch-action: pan-x; }
+  .bench { left: 0 !important; right: 0 !important; flex-direction: column; touch-action: pan-x; padding: var(--s2) 12px var(--s3); max-height: calc(100% - var(--top) - var(--bot)); overflow-y: auto; }
   /* (its handle, as the specimen's sheet has: a swipe down or a tap folds it) */
   .bench .grab { flex: none; margin: calc(-1 * var(--s2)) -12px calc(-1 * var(--s1)); }
-  .bench { left: 0 !important; right: 0 !important; flex-direction: column; padding: var(--s2) 12px var(--s3); max-height: calc(100% - var(--top) - var(--bot)); overflow-y: auto; }
-  .bench-note { display: none; }
   .tiles { display: flex; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px; }
   .tile { flex: 0 0 62px; height: 60px; }
   .bench-hint { white-space: normal; }

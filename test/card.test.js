@@ -18,7 +18,7 @@ test('a card is shaped like a playing card, taller than it is wide', () => {
 test('a card says how a species lives, where it came from and what the chronicler said', () => {
   const a = sp(30, 'grazer', { founder: true }), b = sp(31, 'grazer', { ancestor: 30 }), c = sp(40, 'hunter', { ancestor: 31, name: 'Little Wanderer', binomial: 'Thax hunter', given: true });
   const reg = new Map([[30, a], [31, b], [40, c]]);
-  const d = cardData(c, { reg, genera: new Map(), K: { ...DEFAULT_K, heat: 1 }, story: { text: 'It was hunted down.' }, simTime: 3600, era: 'The Bitter Hush', founders: 24, living: 4000 });
+  const d = cardData(c, { reg, K: { ...DEFAULT_K, heat: 1 }, story: { text: 'It was hunted down.' }, simTime: 3600, founders: 24 });
   assert.equal(d.name, 'Little Wanderer');
   assert.equal(d.binomial, 'Thax hunter');
   assert.ok(d.given);
@@ -31,13 +31,12 @@ test('a card says how a species lives, where it came from and what the chronicle
   assert.equal(d.tags.length, 3);
   assert.deepEqual(d.stats.map(([k]) => k), ['Peak', 'Age', 'Arose']);
   assert.equal(d.stats[0][1], '900');
-  assert.match(d.when, /1:00:00 · The Bitter Hush/);
   // its numbers from the census history, ending at its count now
   const history = [0, 600, 1200, 1800, 2400, 3000].map((t, i) => ({ t, sp: [[40, 100 * i], [30, 5]] }));
-  const h = cardData(c, { reg, genera: new Map(), K: DEFAULT_K, history, simTime: 3600, living: 4000 });
+  const h = cardData(c, { reg, K: DEFAULT_K, history, simTime: 3600 });
   assert.deepEqual(h.series.v, [100, 200, 300, 400, 500, 400]); // from its birth (60 s)
   assert.equal(h.series.t.at(-1), 3600);
-  const gone = cardData({ ...a, alive: false, extinct: 600 }, { reg, genera: new Map(), K: DEFAULT_K, founders: 24 });
+  const gone = cardData({ ...a, alive: false, extinct: 600 }, { reg, K: DEFAULT_K, founders: 24 });
   assert.deepEqual(gone.stats[2], ['Extinct at', '10:00']);
   assert.match(gone.origin, /sparked from silt/);
 });

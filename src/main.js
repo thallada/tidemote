@@ -3,7 +3,7 @@ import { voiceOf } from './audio/mapping.js';
 import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS, compactState } from './engine.js';
-import { genomeSerial, readGenome, parseParticle, thermalGuild } from './genome.js';
+import { genomeSerial, readGenome, writeGenome, parseParticle, thermalGuild } from './genome.js';
 import { seasonAt, createClimate, abioRate, EVENT_TYPES, excursionAt } from './climate.js';
 import { countPools } from './geography.js';
 import { createLab } from './lab.js';
@@ -17,7 +17,7 @@ import { record, seal } from './lineage/model.js';
 import { createWorldStore, encodeWorld, decodeWorld, SAVE_VERSION, openable } from './worlds.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { traceBody, retraceBody, settleMembers, nearBody } from './trace.js';
-import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, PIPE_MAX, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K, PIPETTE_DOF, CYST } from './shaders.js';
+import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K, PIPETTE_DOF, CYST } from './shaders.js';
 import { flowAt } from './flow.js';
 import { startLoader } from './loader.js';
 import { Director } from './director.js';
@@ -26,12 +26,12 @@ import { earned } from './achievements.js';
 import { createCards, strangerCard } from './card.js';
 import { createFilm } from './film.js';
 import { parseMind, interpretMind, settleMind } from './mind.js';
-import { createHand, REACH, toolOf, TOOLS, works, INSTRUMENTS } from './hand.js';
-import { createBench, reachStep } from './bench.js';
+import { createHand, REACH, reachStep, toolOf, TOOLS, works, INSTRUMENTS } from './hand.js';
+import { createBench } from './bench.js';
 import { createLadder } from './ladder.js';
 import { createPipette, setDownJob, mergeJobs, bodiesOf, PIPE_LIMIT } from './pipette.js';
 import { miniCard } from './minicard.js';
-import { createCabinetStore, encodeCard, decodeCard, cardLink, cardFromHash, cardFromPng, pngWithText, pngKeyValue, PNG_KEY } from './cabinet.js';
+import { createCabinetStore, encodeCard, decodeCard, cardLink, cardFromHash, cardFromPng, cardIntoPng } from './cabinet.js';
 import { fmt, fmtClock, fmtDur, esc, cssCol, clamp, term, spLink, saveFile, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
 
 const $ = (id) => document.getElementById(id);
@@ -48,6 +48,9 @@ const throttles = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|Mobil
 const NONE = 0xffffffff;
 const TAU = Math.PI * 2;
 const genomeOfWords = (w) => { const u = Uint32Array.from(w); return readGenome(u, new Float32Array(u.buffer), 0); };
+// a key of its own for a saved world (w) or card (c)
+const newKey = (p) => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+const genomeWords = (g) => { const u = new Uint32Array(G_WORDS); writeGenome(u, new Float32Array(u.buffer), 0, g); return [...u]; };
 const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
 const phone = () => innerWidth <= 720;
 // the intro's animation while the shaders compile and the GPU is measured (drawn on the CPU)
@@ -175,7 +178,8 @@ const H = 1 / 60; // the simulation's step, as in the headless runs
 // between steps (LERP_WGSL), "Max" about every MAX_FRAME_MS, which leaves the steps more of the GPU (faster
 // where drawing costs much: big worlds, big screens). Both are speed Infinity; fastMode tells them apart.
 let fastMode = false;
-const fmtSpeed = (s) => (s === Infinity ? (fastMode ? 'Fast' : 'Max') : `×${s}`);
+// a stop on the speed ladder: a speed, or 'fast' (Infinity drawn every frame)
+const fmtStop = (v) => (v === 'fast' ? 'Fast' : v === Infinity ? 'Max' : `×${v}`);
 // A new world opens with little life, a few colonies in open water (docs/founding.md): its first WARM_UNTIL
 // seconds run at Fast (as fast as the GPU goes, the world drawn every frame, so the colonies spreading show
 // smoothly), with a notice saying why, then real time. Choosing a speed with the time controls ends the warm-up
@@ -229,7 +233,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const pull = { on: false, at: 0, until: 0, tip: [0, 0], got: [], taken: new Set(), drawn: new Set(), last: 0, quiet: 0, armed: false, shake: 0, note: null };
   const spit = { on: false, held: false, busy: false, sp: null, org: null, at: 0, next: 0, owed: 0, last: 0, fails: 0, dir: 0, pt: null, tip: [0, 0] };
   // riding the specimen (toggleRide): where a held pointer steers it (at), the arrow keys held
-  const ride = { on: false, arrows: new Set(), at: null, warned: false };
+  const ride = { on: false, arrows: new Set(), at: null, warned: false, slept: false };
   // While a pointer is held down on a panel, nothing re-renders under it: replacing the element
   // between pointerdown and pointerup swallows the click.
   let uiHoldUntil = 0;
@@ -348,10 +352,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let lensAt = null;
   // the lens's radius (px): the viewer's (Reach, with the loupe in hand), or a fifth of the screen
   const LOUPE_R = { min: 50, max: 320 };
-  const loupeR = () => Math.round(clamp(state.loupeR ?? clamp(Math.min(innerWidth, innerHeight) * 0.2, 90, 170), LOUPE_R.min, Math.min(LOUPE_R.max, Math.min(innerWidth, innerHeight) * 0.46)));
+  const loupeMax = () => Math.min(LOUPE_R.max, Math.min(innerWidth, innerHeight) * 0.46);
+  const loupeR = () => Math.round(clamp(state.loupeR ?? clamp(Math.min(innerWidth, innerHeight) * 0.2, 90, 170), LOUPE_R.min, loupeMax()));
   function loupeGeom() {
     let at = hover.on ? hover : null;
-    if (!at && lensAt) { const [x, y] = toScreen(lensAt.x, lensAt.y); at = { x, y }; }
+    if (!at && lensAt) { const [x, y] = toScreen(...lensAt); at = { x, y }; }
     // (the lens that follows the mouse hides while the view is dragged; one set in the world by a tap stays, and goes
     // with the world as it pans)
     if (!at || hand.tool !== 'loupe' || (ptr.dragging && hover.on) || state.phase !== 'running' || ride.on) return null;
@@ -640,7 +645,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const keepClimate = Object.fromEntries(Object.entries(climate).filter(([k, v]) => typeof v !== 'function' && k !== 'allowed'));
     const page = { life: keepLife, climate: keepClimate, cam: { x: cam.x, y: cam.y, zoom: cam.zoomTarget }, chron: chron.save() };
     const top = [...life.reg.values()].filter((s) => s.alive && s.established).sort((a, b) => b.pop - a.pop);
-    const meta = { id: `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, savedAt: Date.now(), version: SAVE_VERSION,
+    const meta = { id: newKey('w'), name, savedAt: Date.now(), version: SAVE_VERSION,
       simTime: eng.simTime, count: eng.count, thriving: life.thriving, cols: top.slice(0, 4).map((s) => s.genome.col), touched: hand.touched };
     const st = await eng.readState();
     const bytes = await encodeWorld({ meta, cpu: st.cpu, ...compactState(st), page });
@@ -672,10 +677,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
     torpidPrev = null;
     if (page) {
       Object.assign(life, page.life, { lastCensus: null });
-      life.hand ??= [];
-      life.pipette ??= { species: [] };
-      life.rode ??= [];
-      life.carried ??= {};
       hand.reset(life.hand);
       pipette = createPipette(life.pipette);
       handSeen = life.hand.length;
@@ -1785,14 +1786,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const sp = life.reg.get(serial), slot = sp?.alive ? sp.slot : -1;
     const words = slot >= FIRST_LIFE && life.lastCensus && genomeSerial(life.lastCensus.genomeU32, slot) === serial ? wordsOf(slot) : genomeWords(sp.genome);
     const home = sp.home || climate.name, touched = hand.touched || !!sp.carried;
-    return { words, home, touched, bred: false, link: cardLink(encodeCard({ words, name: sp.name, home, touched })) };
+    return { words, home, touched, link: cardLink(encodeCard({ words, name: sp.name, home, touched })) };
   }
   // the card as a PNG that carries its genome
   async function cardPng(cv, serial) {
     const blob = await new Promise((res) => cv.toBlob(res, 'image/png'));
     if (!blob) return null;
     const c = carry(serial), png = new Uint8Array(await blob.arrayBuffer());
-    return new Blob([pngWithText(png, PNG_KEY, pngKeyValue(encodeCard({ ...c, name: life.reg.get(serial).name })))], { type: 'image/png' });
+    return new Blob([cardIntoPng(png, encodeCard({ ...c, name: life.reg.get(serial).name }))], { type: 'image/png' });
   }
   // (quiet: one of many, the cabinet drawn once they are all in)
   async function keepCard(card, quiet = false) {
@@ -1810,8 +1811,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const blob = cv && await cardPng(cv, serial);
     if (!blob) { flash('Could not draw its card'); return; }
     const c = carry(serial);
-    await keepCard({ id: `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, serial, name: sp.name, words: c.words, home: c.home, world: worldId(),
-      savedAt: Date.now(), simTime: eng.simTime, touched: c.touched, bred: false, png: new Uint8Array(await blob.arrayBuffer()) }, quiet);
+    await keepCard({ id: newKey('c'), serial, name: sp.name, words: c.words, home: c.home, world: worldId(),
+      savedAt: Date.now(), touched: c.touched, png: new Uint8Array(await blob.arrayBuffer()) }, quiet);
     if (quiet) return;
     flyCard(blob); flash(`${sp.name} is in the cabinet`);
     cards.refresh();
@@ -1852,32 +1853,27 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const ours = card ? card.world === worldId() && life.reg.has(card.serial) : true;
     const serial = card ? card.serial : x, n = clamp(Math.round((K.foundLife * eng.count) / K.foundColonies), 12, 96);
     const live = ours && life.reg.get(serial);
-    if (!pipette.load({ card: card?.id || `s${serial}`, serial, words, name, home: ours ? undefined : card.home, slot: live?.alive ? live.slot : null, stranger: !ours }, n)) {
+    if (!pipette.load({ card: card?.id, serial, words, name, home: ours ? undefined : card.home, slot: live?.alive ? live.slot : null, stranger: !ours }, n)) {
       flash(`The pipette is full · ${fmt(PIPE_LIMIT)} cells · set some down`); return;
     }
     flash(`A colony of ${name} in the pipette · Dispense sets it down`);
     bench.render();
   }
   // a card arriving from elsewhere: a link's #card=, or a card's PNG dropped on the page
-  async function receiveCard(bytes, from) {
+  async function receiveCard(bytes, png = null) {
     let c;
     try { c = decodeCard(bytes); } catch (e) { flash(e.message); return; }
     const dup = cabinet.cards.find((x) => x.words.every((w, i) => w === c.words[i]));
     if (dup) { flash(`${dup.name} is already in the cabinet`); showInCabinet(dup); return; }
     // (a card that came by its link alone is drawn here, from its genome)
-    let png = from === 'png' ? bytes.png : null;
-    if (!png) {
-      const cv = await cards.renderStranger({ ...c, genome: genomeOfWords(c.words) }, cardLink(bytes));
-      const b = cv && await new Promise((res) => cv.toBlob(res, 'image/png'));
-      png = b ? pngWithText(new Uint8Array(await b.arrayBuffer()), PNG_KEY, pngKeyValue(bytes)) : null;
-    }
-    await keepCard({ id: `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, serial: 0, name: c.name, words: c.words, home: c.home, world: null,
-      savedAt: Date.now(), simTime: 0, touched: c.touched, bred: c.bred, png });
+    png ??= await strangerPng(bytes).catch(() => null);
+    await keepCard({ id: newKey('c'), serial: 0, name: c.name, words: c.words, home: c.home, world: null,
+      savedAt: Date.now(), touched: c.touched, png });
     lab.open('cabinet');
     flash(`${c.name}, from ${c.home}, is in the cabinet`);
   }
   const hashCard = cardFromHash(location.hash);
-  if (hashCard) { history.replaceState(null, '', location.pathname + location.search); setTimeout(() => receiveCard(hashCard, 'link'), 0); }
+  if (hashCard) { history.replaceState(null, '', location.pathname + location.search); setTimeout(() => receiveCard(hashCard, linkedPng), 0); }
   addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.items || [])].some((i) => i.type === 'image/png')) e.preventDefault(); });
   addEventListener('drop', async (e) => {
     const f = [...(e.dataTransfer?.files || [])].find((x) => x.type === 'image/png');
@@ -1885,16 +1881,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
     e.preventDefault();
     const png = new Uint8Array(await f.arrayBuffer()), bytes = cardFromPng(png);
     if (!bytes) { flash('That image is not a Tidemote species card'); return; }
-    bytes.png = png;
-    receiveCard(bytes, 'png');
+    receiveCard(bytes, png);
   });
 
   const cards = createCards({
-    life: () => life, K, chron, climate: () => climate, eng, flash,
+    life: () => life, K, chron, eng, flash,
     portrait: takePortrait, rename: renameSpecies,
     songClip: (g) => songClip(g, { seed: climate.music, era: climate.name }),
     carry, saved: savedCard, world: worldId, png: cardPng,
-    save: (serial, cv) => saveCard(serial, cv),
+    save: saveCard,
     load: loadCard,
     remove: async (card) => { await cabinet.store.remove(card.id); cabinet.cards = cabinet.cards.filter((c) => c.id !== card.id); lab.render(true); flash(`${card.name} is out of the cabinet`); },
   });
@@ -2008,7 +2003,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     cabinet: {
       cards: () => cabinet.cards, world: worldId,
       facets: (c) => { let f = cardFacets.get(c); if (!f) cardFacets.set(c, (f = facets(genomeOfWords(c.words), K))); return f; },
-      mini: (c) => miniCard(genomeOfWords(c.words), K, { key: c.id, name: c.name, home: c.world === worldId() ? 'this world' : `${c.home}${c.bred ? ' · bred' : ''}` }),
+      mini: (c) => miniCard(genomeOfWords(c.words), K, { key: c.id, name: c.name, home: c.world === worldId() ? 'this world' : c.home }),
       // a card of this world's species opens its live card (to rename it); another world's, as it was drawn
       open: (c) => { if (c.world === worldId() && life.reg.has(c.serial)) cards.open(c.serial); else cards.openSaved({ ...c, genome: genomeOfWords(c.words) }); },
       load: loadCard,
@@ -2451,10 +2446,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     view.render();
   }
   // Reach, for the tool in hand: the loupe's is the lens's radius (px), every other tool's a world distance
-  const reachOf = () => (hand.tool === 'loupe' ? { min: LOUPE_R.min, max: Math.min(LOUPE_R.max, Math.min(innerWidth, innerHeight) * 0.46), v: loupeR(), text: `${2 * loupeR()} px` }
+  const reachOf = () => (hand.tool === 'loupe' ? { min: LOUPE_R.min, max: loupeMax(), v: loupeR(), text: `${2 * loupeR()} px` }
     : { min: REACH.min, max: REACH.max, v: hand.reach, text: fmtLen(hand.reach) });
   function setReach(r, say = false) {
-    if (hand.tool === 'loupe') state.loupeR = Math.round(clamp(r, LOUPE_R.min, LOUPE_R.max));
+    if (hand.tool === 'loupe') state.loupeR = Math.round(clamp(r, LOUPE_R.min, loupeMax()));
     else hand.reach = clamp(r, REACH.min, REACH.max);
     persist();
     bench.render();
@@ -2470,12 +2465,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const bench = createBench({ hand, pick: pickTool, reach: setReach, size: reachOf, onToggle: (on) => { if (on && phone()) { view.toggle(false); lab.close(); } },
     pip: {
       view: () => ({ count: pipette.count, limit: PIPE_LIMIT, armed: pull.armed, keys: pipette.species.map((sp) => pipKey(sp) + (pipCard(sp) ? '*' : '')), held: pipette.species.map(heldOf), mixed: pipette.mixed }),
-      cards: (flat) => pipette.species.map((sp) => miniCard(genomeOfWords(sp.words), K, { key: pipKey(sp), name: sp.name, home: sp.home || 'this world',
-        n: heldOf(sp)[0], bodies: heldOf(sp)[1], tip: sp === pipette.tip, flat, kept: !!pipCard(sp) })).join(''),
+      cards: (flat) => pipette.species.map((sp) => { const [n, bodies] = heldOf(sp); return miniCard(genomeOfWords(sp.words), K, { key: pipKey(sp), name: sp.name, home: sp.home || 'this world',
+        n, bodies, tip: sp === pipette.tip, flat, kept: !!pipCard(sp) }); }).join(''),
       move: (key, i) => { const sp = pipSp(key); if (sp) pipette.move(sp, i); },
       // its card: this world's species live, a carried one's from the cabinet
       open: (key) => {
-        const sp = pipSp(key), c = sp && cabinet.cards.find((x) => x.id === sp.card);
+        const sp = pipSp(key), c = sp && pipCard(sp);
         if (sp && !sp.stranger && life.reg.has(sp.serial)) cards.open(sp.serial);
         else if (c) cards.openSaved({ ...c, genome: genomeOfWords(c.words) });
       },
@@ -2493,17 +2488,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
     } });
   // every species in the pipette whose card is not saved yet: its card into the cabinet, one after another (each
   // drawn with its portrait), the button counting them; the cabinet drawn once at the end
-  let saving = false;
   async function saveAll() {
     const todo = [...new Map(pipette.species.filter((sp) => !pipCard(sp) && !sp.stranger && life.reg.has(sp.serial)).map((sp) => [sp.serial, sp])).values()];
-    if (saving || !todo.length) return;
-    saving = true;
+    if (!todo.length) return;
     const btn = $('pip-keep');
     btn.disabled = true;
     try {
       for (const [i, sp] of todo.entries()) { btn.textContent = `Saving ${i + 1} / ${todo.length}`; await saveCard(sp.serial, undefined, true); }
     } finally {
-      saving = false;
       btn.disabled = false;
       btn.textContent = 'Save all';
     }
@@ -2639,7 +2631,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   eng.onTaken = (recs) => {
     for (const r of recs) { pull.got.push(r); pull.taken.add(r.id); pull.drawn.delete(r.id); }
     for (const r of recs) for (const q of r.partners) if (q !== NONE && !pull.taken.has(q)) pull.drawn.add(q);
-    eng.setDrawn([...pull.drawn].slice(0, PIPE_MAX));
+    eng.setDrawn(pull.drawn);
     pull.last = performance.now();
     if (life.lastCensus) hand.note('pipette', ...pull.tip, eng.simTime, recs.length);
     hear('cells', { n: recs.length });
@@ -2698,6 +2690,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // seconds at most: cells all dead before a census was ever taken found none)
     if (sp.pending != null) {
       if (Math.abs(eng.simTime - sp.pendingAt) < 5) return;
+      delete life.carried[sp.pending];
       sp.pending = null;
     }
     // (the cells come due as the time passes, faster the longer it is held, a little unevenly; a click's body, or a
@@ -2884,7 +2877,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     prev.x = e.clientX; prev.y = e.clientY;
     if (ptr.down?.lens && ptr.pointers.size === 1) {
       if (Math.hypot(e.clientX - ptr.down.x, e.clientY - ptr.down.y) > 10) ptr.dragging = true;
-      if (ptr.dragging) { const [x, y] = toWorld(ptr.down.lens.x + e.clientX - ptr.down.x, ptr.down.lens.y + e.clientY - ptr.down.y); lensAt = { x, y }; }
+      if (ptr.dragging) lensAt = toWorld(ptr.down.lens.x + e.clientX - ptr.down.x, ptr.down.lens.y + e.clientY - ptr.down.y);
       return;
     }
     if (ptr.pinch && ptr.pointers.size === 2) {
@@ -2921,12 +2914,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
         if (L && Math.hypot(e.clientX - L.sx, e.clientY - L.sy) < L.R) {
           const wx = L.cx + (e.clientX - L.sx) / L.cssPPU, wy = L.cy + (e.clientY - L.sy) / L.cssPPU;
           selectAt(e.clientX, e.clientY, L.cssPPU, [wx, wy]);
-          if (setLens) lensAt = { x: wx, y: wy };
+          if (setLens) lensAt = [wx, wy];
         } else {
           selectAt(e.clientX, e.clientY);
-          if (setLens) { const [x, y] = toWorld(e.clientX, e.clientY); lensAt = { x, y }; }
+          if (setLens) lensAt = toWorld(e.clientX, e.clientY);
         }
-        if (setLens) sound.hand({ ev: 'lens', pan: clamp((e.clientX / innerWidth) * 2 - 1, -1, 1) * 0.6 });
+        if (setLens) hear('lens', { pan: clamp((e.clientX / innerWidth) * 2 - 1, -1, 1) * 0.6 });
       }
       ptr.down = null;
       ptr.dragging = false;
@@ -3039,12 +3032,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
     clearTimeout(flashTimer);
     flashTimer = setTimeout(() => flashEl.classList.remove('on'), 1500);
   }
-  // The speeds on offer: everything up to ×1, faster ones the GPU can sustain (within GPU_BUDGET, in
-  // the coarsest steps), and Max.
+  // The ladder's stops, the speeds on offer: everything up to ×1, faster ones the GPU can sustain (within
+  // GPU_BUDGET, in the coarsest steps), then Fast and Max.
   let speedCap = Infinity, speedCapAt = 0;
-  const speedChoices = () => SPEEDS.filter((v) => v <= 1 || (v !== Infinity && v <= speedCap)).concat(Infinity);
+  const speedStops = () => [...SPEEDS.filter((v) => v <= 1 || (v !== Infinity && v <= speedCap)), 'fast', Infinity];
+  const speedStop = () => (state.speed === Infinity && fastMode ? 'fast' : state.speed);
   // the speed chip opens the ladder of every speed on offer
-  const ladder = createLadder({ chip: $('t-speed'), el: $('ladder'), choices: speedChoices, current: () => state.speed, pick: setSpeed, real: () => setSpeed(1) });
+  const ladder = createLadder({ chip: $('t-speed'), el: $('ladder'), choices: speedStops, current: speedStop, fmt: fmtStop, pick: setSpeed, real: () => setSpeed(1) });
+  // one notch along the speeds on offer
+  const stepSpeed = (d) => setSpeed(ladder.along(speedStop(), d));
   $('t-slower').addEventListener('click', () => stepSpeed(-1));
   $('t-faster').addEventListener('click', () => stepSpeed(1));
   function renderTime() {
@@ -3053,13 +3049,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     play.innerHTML = `<svg><use href="#i-${state.paused ? 'play' : 'pause'}"/></svg>`;
     play.setAttribute('aria-label', state.paused ? 'Resume' : 'Pause');
     play.dataset.hint = state.paused ? 'Resume · Space' : 'Pause · Space';
-    setLive($('t-speed-v'), state.paused ? 'Paused' : fmtSpeed(s));
-    $('t-speed').setAttribute('aria-label', `Speed ${fmtSpeed(s)}`);
+    setLive($('t-speed-v'), state.paused ? 'Paused' : fmtStop(speedStop()));
+    $('t-speed').setAttribute('aria-label', `Speed ${fmtStop(speedStop())}`);
     $('t-speed').classList.toggle('fast', s > 1 && s !== Infinity);
     $('t-speed').classList.toggle('max', s === Infinity);
-    const list = speedChoices();
-    $('t-slower').disabled = s <= list[0];
-    $('t-faster').disabled = s === Infinity;
+    $('t-slower').disabled = s <= SPEEDS[0];
+    $('t-faster').disabled = speedStop() === Infinity;
     ladder.render();
   }
   function applySpeed(v, fast = false) {
@@ -3072,13 +3067,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     perf.lastAdjust = performance.now();
     renderTime();
   }
-  // a speed chosen (it ends the warm-up)
-  // v a speed or 'fast' (speed Infinity drawn every frame)
+  // a speed chosen, or a stop (it ends the warm-up)
   function setSpeed(v, quiet = false) {
     endWarm();
     if (state.paused) state.paused = false;
     applySpeed(v === 'fast' ? Infinity : v, v === 'fast');
-    if (!quiet) flash(`Speed ${fmtSpeed(state.speed)}`);
+    if (!quiet) flash(`Speed ${fmtStop(speedStop())}`);
   }
   // The warm-up (WARM_UNTIL): due once a new world is seeded, begun when it is first seen (the intro gone).
   let warmDue = false;
@@ -3096,14 +3090,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // (a speed chosen before the warm-up begins cancels it too)
   function endWarm() { if (state.warm) sound.warm(false); warmDue = false; state.warm = false; warmEl.hidden = true; }
   $('warm-end').addEventListener('click', () => setSpeed(1));
-  // one notch along the speeds on offer
-  function stepSpeed(d) {
-    const list = [...speedChoices().filter((v) => v !== Infinity), 'fast', Infinity];
-    let i = list.indexOf(state.speed === Infinity && fastMode ? 'fast' : state.speed);
-    if (i < 0) i = list.findIndex((v) => v === 'fast' || v > state.speed) - (d > 0 ? 1 : 0);
-    const v = list[clamp(i + d, 0, list.length - 1)];
-    setSpeed(v);
-  }
   // A step's GPU cost (a coarse step costs about what a 1/60 s one does: one scan of the neighbors)
   const stepCost = () => perf.simS || perf.stepMs;
   // GPU ms a second of real time takes at speed s in steps of m ticks: the steps, plus drawing the
@@ -3653,8 +3639,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     octx.stroke();
     if (at != null) { octx.fillStyle = `rgba(${col},0.95)`; octx.fillRect(x, y + h + 1, w * pressed(at, performance.now()), 1); }
-    octx.font = '500 11px Saira, system-ui, sans-serif';
-    octx.letterSpacing = '1.5px';
   }
   // The instrument in hand seen in the water (eng.tool; the composite's instrument): the needle, the pipette's glass,
   // the cold probe, out of focus over the water as the pointer moves, let down into it (in focus) while pressed.
@@ -3684,7 +3668,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (!d) return pipette.fits(1) ? `${act}: a few at the tip · held: all in reach${other}` : `no room for more${other}`;
       return tip ? `${act} sets down ${tip.name}${other}` : `nothing in it to set down${other}`;
     }
-    return toolOf(t).hint;
   }
   // Song marks: a faint ring spreads from each cell as it sings its species' note (the picked
   // species', or every species'). Like the followed cell's brackets, a mark sits where its cell
@@ -4445,7 +4428,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // as the adaptive scale does it: applied when the next frame begins
     queueScale(v) { renderScale = v; resizeDue = true; },
     // a world saved by eng.readState(), in place of this one
-    loadWorld: applyWorld, hand, loadCard, saveCard, cabinet, carry,
+    loadWorld: applyWorld, hand, loadCard, saveCard, cabinet,
     // a .tidemote file's bytes, as Settings → Worlds opens one
     openWorld: async (bytes) => loadWorld(await openWorld(bytes)) };
 
@@ -4461,11 +4444,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
 // A card's link opened (a phone's camera on a card's QR code): the card first, drawn without the GPU; the world
 // starts, its shaders compiling, only once the card is put aside, and the card goes into the cabinet then (run).
-async function linkedCard(bytes) {
-  const c = decodeCard(bytes), link = cardLink(bytes);
-  const cv = await strangerCard({ ...c, genome: genomeOfWords(c.words) }, link, DEFAULT_K);
+// (its PNG kept for the cabinet)
+let linkedPng = null;
+// a card from another world (its payload's bytes) drawn from its genome alone, as a PNG that carries it
+async function strangerPng(bytes) {
+  const c = decodeCard(bytes);
+  const cv = await strangerCard({ ...c, genome: genomeOfWords(c.words) }, cardLink(bytes), DEFAULT_K);
   const blob = await new Promise((res) => cv.toBlob(res, 'image/png'));
-  const png = new Blob([pngWithText(new Uint8Array(await blob.arrayBuffer()), PNG_KEY, pngKeyValue(bytes))], { type: 'image/png' });
+  return cardIntoPng(new Uint8Array(await blob.arrayBuffer()), bytes);
+}
+async function linkedCard(bytes) {
+  const c = decodeCard(bytes);
+  linkedPng = await strangerPng(bytes);
+  const png = new Blob([linkedPng], { type: 'image/png' });
   const img = $('linked-img'), url = URL.createObjectURL(png);
   img.src = url;
   img.alt = `The species card of ${c.name}`;

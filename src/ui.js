@@ -38,23 +38,29 @@ export const trait = (text, v, lo, hi, value, tip, cls = 'cyan thin') => `<div c
  * in the heading beside the chevron (a summary that still reads while the block is closed). */
 export const disclosure = (key, text, html, open = false, aside = '') => `<div class="blk disc" data-disc="${key}"><button type="button" class="sub-h disc-h" aria-expanded="${open}"><span>${text}</span>${aside ? `<span class="sub-a">${aside}</span>` : ''}<svg class="disc-i" aria-hidden="true"><use href="#i-chev"/></svg></button><div class="disc-b"${open ? '' : ' hidden'}>${html}</div></div>`;
 
-/** A row of tabs too wide for its panel scrolls sideways: by a vertical wheel too, and to bring a
- * chosen tab into view; a fade at a clipped edge says there are more. */
-export function wireTabRow(row) {
+/** A row that scrolls sideways fades at an edge only where there is more beyond it (fade-l, fade-r), as it
+ * scrolls and as its size or what is in it changes. */
+export function fadeEdges(row) {
   const edge = () => {
     const max = row.scrollWidth - row.clientWidth;
     row.classList.toggle('fade-l', max > 1 && row.scrollLeft > 1);
     row.classList.toggle('fade-r', max > 1 && row.scrollLeft < max - 1);
   };
   row.addEventListener('scroll', edge, { passive: true });
+  new ResizeObserver(edge).observe(row);
+  new MutationObserver(edge).observe(row, { childList: true });
+  edge();
+}
+
+/** A row of tabs too wide for its panel scrolls sideways: by a vertical wheel too, and to bring a
+ * chosen tab into view; a fade at a clipped edge says there are more. */
+export function wireTabRow(row) {
   row.addEventListener('wheel', (e) => {
     if (row.scrollWidth <= row.clientWidth || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
     row.scrollLeft += e.deltaY; e.preventDefault();
   }, { passive: false });
   row.addEventListener('click', (e) => e.target.closest('[role="tab"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
-  new ResizeObserver(edge).observe(row);
-  new MutationObserver(edge).observe(row, { childList: true });
-  edge();
+  fadeEdges(row);
 }
 
 /** Wire every disclosure inside root (once): a click on a heading opens or closes its block. */

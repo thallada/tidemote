@@ -444,7 +444,7 @@ export class Rustle extends Voice {
   }
 }
 
-// ── \air: a held band of moving air or water (the hand's wind, rush and roar; new, not in the SC score) ──
+// ── \air: a held band of moving air or water (the hand's stir, scalpel, rumble and rush; new, not in the SC score) ──
 // Pink noise through two resonant bands either side of the pan, their centers and levels wandering
 // with the gusts. Held as a node: set amp and the rest as it goes (they glide), free it when done.
 export class Air extends Voice {

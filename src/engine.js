@@ -1,6 +1,6 @@
 import {
   simWGSL, SIM_CLOCK, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, SEA_WGSL, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, PIPE_MAX, PIPE_TAKE, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K,
+  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, PIPE_MAX, PIPE_TAKE, PIPE_TAKE_W, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K,
 } from './shaders.js';
 import {
   archetypeGenome, randomGenome, writeGenome, parseParticle,
@@ -110,7 +110,8 @@ class Engine {
     this.viewDataL = new ArrayBuffer(112);
     // (after the sea's: the hand's lamp, the warm stage's lens, the instrument)
     this.postData = new Float32Array(POST_LAMP + 16);
-    // the warm stage's lens (center, radius, 1 shown), set by the page: the thermal camera inside the tool's reach
+    // the warm stage's or cold probe's lens (center, radius, 1 shown), set by the page: the thermal camera inside the
+    // tool's reach
     this.lens = new Float32Array(4);
     // the instrument in hand seen in the water (set by the page): its tip, its shaft's way; its kind (1 the needle,
     // 2 the pipette, 3 the cold probe, 4 Touch's rod; 0 none), how far it is in focus (0 raised over the water, 1 in
@@ -353,9 +354,9 @@ class Engine {
     this.censusN = 0;
     this.pickStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: PICK_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     // the pipette (docs/hand.md): the cells taken at its tip, and what came of setting cells down
-    this.takeStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: (2 + PIPE_TAKE * 12) * 4, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
-    this.setDownStage = d.createBuffer({ size: (1 + PIPE_SP + 2 * PIPE_MAX) * 4, usage: U.COPY_DST | U.MAP_READ });
-    this.setDownQueue = [];
+    this.takeStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: (2 + PIPE_TAKE * PIPE_TAKE_W) * 4, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
+    this.setDownStage = d.createBuffer({ size: (1 + PIPE_SP + PIPE_MAX) * 4, usage: U.COPY_DST | U.MAP_READ });
+    this.setDownJob = null; // one at a time (set, then sent, until read back)
     this.trackStage = [0, 1, 2, 3, 4, 5, 6, 7].map(() => ({ buf: d.createBuffer({ size: 56, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     b.reprojU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     // The main view's scene pass also gathers the living alone in a second target (fsPointLive), which
@@ -464,8 +465,8 @@ class Engine {
     // each cell's drawn motion and recent events, by ID (contactGather): only cells in view need a slot
     b.sway = d.createBuffer({ size: Math.min(n, 1 << 20) * SWAY_BYTES, usage: U.STORAGE | U.COPY_SRC });
     b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
-    // the claims, then the species ledger (observational), then the step's heat deposits and husk piles
-    // (heatAccAt in SIM_WGSL); only the head and the claims are saved
+    // the claims, then the species ledger (observational), the hand's words (the pipette's, PIPE_* in shaders.js),
+    // then the step's heat deposits and husk piles (heatAccAt in SIM_WGSL); only the head and the claims are saved
     b.ledger = d.createBuffer({ size: (META_CLAIM + n + SPL_WORDS + HAND_WORDS + 2 * MAX_CELLS) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
     // the particles too large to splat (splatMain): the points' draw arguments, then their indices
@@ -702,6 +703,7 @@ class Engine {
     this._lerpN = 0; this._lerpOk = false;
     const d = this.device;
     this.worldGeneration++;
+    this._dropSetDown();
     this.abio = 0;
     this.season = 1;
     n = Math.min(n, this.capacity);
@@ -1247,6 +1249,7 @@ class Engine {
     }
     this.sorted = false;
     this.worldGeneration++;
+    this._dropSetDown();
     this.clearAccum = true;
     // the scans' windows start afresh: the last scan's time belongs to the world before
     this._listenSim = this._surveySim = null;
@@ -1332,6 +1335,7 @@ class Engine {
 
   /** Where the species ledger starts in the ledger buffer (bytes): after the claims. */
   _splAt() { return (META_CLAIM + this.capacity) * 4; }
+  // the hand's words (bytes): after the species ledger
   _handAt() { return this._splAt() + SPL_WORDS * 4; }
   _heatAccAt() { return this._handAt() + HAND_WORDS * 4; }
 
@@ -1352,9 +1356,9 @@ class Engine {
     pass.end();
     d.queue.submit([enc.finish()]);
   }
-  /** The cells the pipette draws toward its tip (their IDs, at most PIPE_MAX), its tip and pull in hand.suck. */
+  /** The cells the pipette draws toward its tip (their IDs, the first PIPE_MAX), its tip and pull in hand.suck. */
   setDrawn(ids) {
-    const v = Uint32Array.from(ids).sort().subarray(0, PIPE_MAX);
+    const v = Uint32Array.from(ids).subarray(0, PIPE_MAX).sort();
     if (v.length) this.device.queue.writeBuffer(this.b.ledger, this._handAt(), v);
     this.handU[23] = v.length;
   }
@@ -1363,10 +1367,16 @@ class Engine {
    * slot, stranger }], cells: [{ sp, dx, dy, vx, vy, energy, age, col, info }], earlier: [IDs of cells set down
    * before], bonds: [[keeper, partner, slot]] (each end a cell's index, or PIPE_EARLIER + an index of earlier) },
    * made of grains of silt from anywhere, each taken with the chance take. Resolves to { placed, slots, ids } (how many cells were placed, in order;
-   * each species' slot or NONE; each placed cell's new ID).
+   * each species' slot or NONE; each placed cell's new ID), or null (a new world, or one still unresolved).
    */
   setDown(job) {
-    return new Promise((resolve) => this.setDownQueue.push({ ...job, resolve }));
+    if (this.setDownJob) return Promise.resolve(null);
+    return new Promise((resolve) => { this.setDownJob = { ...job, resolve }; });
+  }
+  // a set-down not yet sent belongs to the world before
+  _dropSetDown() {
+    const j = this.setDownJob;
+    if (j && !j.sent) { this.setDownJob = null; j.resolve(null); }
   }
   _setDown(enc, job) {
     const n = Math.min(job.cells.length, PIPE_MAX), m = Math.min(job.species.length, PIPE_SP);
@@ -1396,19 +1406,21 @@ class Engine {
       pass.setPipeline(this.cp[name].pipe); pass.setBindGroup(0, this.cp[name].bg); pass.dispatchWorkgroups(wg);
     }
     pass.end();
+    // what came of it: the count and slots, then the new IDs (past the cells' indices)
     enc.copyBufferToBuffer(this.b.ledger, L + H_OUT * 4, this.setDownStage, 0, (1 + PIPE_SP) * 4);
-    if (n) enc.copyBufferToBuffer(this.b.ledger, L + (H_OUT + 1 + PIPE_SP + PIPE_MAX) * 4, this.setDownStage, (1 + PIPE_SP + PIPE_MAX) * 4, n * 4);
+    if (n) enc.copyBufferToBuffer(this.b.ledger, L + (H_OUT + 1 + PIPE_SP + PIPE_MAX) * 4, this.setDownStage, (1 + PIPE_SP) * 4, n * 4);
     this.sorted = false;
-    return { n, m, resolve: job.resolve };
+    job.sent = true;
+    return { n, m, job };
   }
   _setDownRead(done, generation) {
+    const end = (v) => { if (this.setDownJob === done.job) this.setDownJob = null; done.job.resolve(v); };
     this.setDownStage.mapAsync(GPUMapMode.READ).then(() => {
       const u = new Uint32Array(this.setDownStage.getMappedRange().slice(0));
       this.setDownStage.unmap();
-      this.setDownBusy = false;
-      const placed = Math.min(u[0], done.n), at = 1 + PIPE_SP + PIPE_MAX;
-      done.resolve(generation === this.worldGeneration ? { placed, slots: [...u.subarray(1, 1 + done.m)], ids: [...u.subarray(at, at + placed)] } : null);
-    }).catch(() => { this.setDownBusy = false; done.resolve(null); });
+      const placed = Math.min(u[0], done.n), at = 1 + PIPE_SP;
+      end(generation === this.worldGeneration ? { placed, slots: [...u.subarray(1, 1 + done.m)], ids: [...u.subarray(at, at + placed)] } : null);
+    }).catch(() => end(null));
   }
   // the cells taken at the pipette's tip since the last copy (read back: onTaken), and the bonds the needle cut
   // (onCut), the counts cleared
@@ -1417,8 +1429,8 @@ class Engine {
     if (!st) return null;
     st.busy = true;
     const at = this._handAt() + H_TAKEN * 4, cuts = this._handAt() + H_CUTS * 4;
-    enc.copyBufferToBuffer(this.b.ledger, at, st.buf, 0, (1 + PIPE_TAKE * 12) * 4);
-    enc.copyBufferToBuffer(this.b.ledger, cuts, st.buf, (1 + PIPE_TAKE * 12) * 4, 4);
+    enc.copyBufferToBuffer(this.b.ledger, at, st.buf, 0, (1 + PIPE_TAKE * PIPE_TAKE_W) * 4);
+    enc.copyBufferToBuffer(this.b.ledger, cuts, st.buf, (1 + PIPE_TAKE * PIPE_TAKE_W) * 4, 4);
     enc.clearBuffer(this.b.ledger, at, 4);
     enc.clearBuffer(this.b.ledger, cuts, 4);
     return st;
@@ -1430,12 +1442,13 @@ class Engine {
       st.busy = false;
       const u = new Uint32Array(copy), f = new Float32Array(copy), n = Math.min(u[0], PIPE_TAKE);
       if (generation !== this.worldGeneration) return;
-      if (u[1 + PIPE_TAKE * 12] && this.onCut) this.onCut(u[1 + PIPE_TAKE * 12]);
+      const cut = u[1 + PIPE_TAKE * PIPE_TAKE_W];
+      if (cut && this.onCut) this.onCut(cut);
       if (!n || !this.onTaken) return;
       const out = [];
       for (let k = 0; k < n; k++) {
-        const o = 1 + k * 12;
-        out.push({ kind: u[o + 4], energy: f[o + 5], age: f[o + 6], id: u[o + 7], col: u[o + 8], info: u[o + 9], partners: [u[o + 10], u[o + 11]] });
+        const o = 1 + k * PIPE_TAKE_W;
+        out.push({ kind: u[o], energy: f[o + 1], age: f[o + 2], id: u[o + 3], col: u[o + 4], info: u[o + 5], partners: [u[o + 6], u[o + 7]] });
       }
       this.onTaken(out);
     }).catch(() => { st.busy = false; });
@@ -1551,8 +1564,7 @@ class Engine {
     }
     const censusJobs = [];
     // the pipette's set-down, between the last frame's steps and this one's (one at a time)
-    const setDown = N > 0 && !this.setDownBusy && this.setDownQueue.length && this.cp.injectCells.bg ? this._setDown(enc, this.setDownQueue.shift()) : null;
-    if (setDown) this.setDownBusy = true;
+    const setDown = N > 0 && this.setDownJob && !this.setDownJob.sent ? this._setDown(enc, this.setDownJob) : null;
     for (let s = 0; s < nSteps; s++) {
       const last = s === nSteps - 1;
       const endTs = last && slot ? { querySet: tm.qs, endOfPassWriteIndex: target ? 2 : 1 } : undefined;

@@ -22,7 +22,7 @@ export const CARD_SCALE = 2; // drawn (and saved) at twice that, for sharp text
 const share = (v, lo, hi, log = false) => Math.max(0, Math.min(1, log ? Math.log(v / lo) / Math.log(hi / lo) : (v - lo) / (hi - lo)));
 
 /** What a card says about a species (sp, a registry record): its numbers, its gauges, and a few words. */
-export function cardData(sp, { reg, genera, K, story = null, simTime = 0, era = '', founders = 0, relations = null, history = null }) {
+export function cardData(sp, { reg, K, story = null, simTime = 0, founders = 0, relations = null, history = null }) {
   const g = sp.genome, f = facets(g, K), th = thermalGuild(g);
   const lineage = [];
   let a = sp.ancestor && reg.get(sp.ancestor);
@@ -63,10 +63,10 @@ export function cardData(sp, { reg, genera, K, story = null, simTime = 0, era = 
   // ending at its count now, as the strip above it says
   if (series && sp.alive && simTime > series.t[series.t.length - 1]) { series.t.push(simTime); series.v.push(sp.pop); }
   return {
-    serial: sp.serial, name: sp.name, binomial: sp.binomial || sp.name, given: !!sp.given, genus: sp.genus, kin: genera?.get(sp.genus)?.from || null,
-    tags, body, diet, water, stats, series, lineage, origin, alive: sp.alive, depth: g.depth, story: story ? story.text : null,
-    eats: food ? food.name : null, eatenBy: eater ? eater.name : null, when: `${fmtClock(simTime)}${era ? ` · ${era}` : ''}`,
-    col: cssRgb(roleColor(g, 0)), col2: cssRgb(roleColor(g, 1)),
+    serial: sp.serial, name: sp.name, binomial: sp.binomial || sp.name, given: !!sp.given, genus: sp.genus,
+    tags, body, diet, water, stats, series, lineage, origin, depth: g.depth, story: story ? story.text : null,
+    eats: food ? food.name : null, eatenBy: eater ? eater.name : null,
+    col: cssRgb(roleColor(g, 0)),
   };
 }
 
@@ -243,7 +243,7 @@ export function drawCard(ctx, d, art = {}) {
   const lines = line ? wrap(ctx, line, fw) : [], room = ties ? 2 : 3;
   lines.slice(0, room).forEach((l, i) => text(i === room - 1 && lines.length > room ? `${l} …` : l, M, ly + i * 26, 18, d.story ? '#e8dcc0' : INK3, d.story ? 'italic 400' : 400, fw));
   ctx.font = `600 17px ${F}`;
-  label(fit(ctx, [d.home, d.bred ? 'bred' : ''].filter(Boolean).join(' · '), fw - 20), M, H - 36, INK3);
+  label(fit(ctx, d.home, fw - 20), M, H - 36, INK3);
   if (d.qr) {
     // whole device pixels a module (crisp edges read best), a quiet zone of two modules inside the frame
     const k = Math.max(1, Math.floor((Q * CARD_SCALE) / (d.qr.size + 4))) / CARD_SCALE, side = (d.qr.size + 4) * k;
@@ -265,23 +265,32 @@ export async function strangerCard(card, link, K) {
   const sp = { serial: 0, name: card.name, binomial: card.name, genome: card.genome, alive: false, founder: true, born: 0, peak: 0, pop: 0, genus: card.name.split(' ')[0], established: true };
   const d = cardData(sp, { reg: new Map(), K });
   Object.assign(d, {
-    stats: [['Home water', card.home], ['Genus', d.genus], ['Mutations', String(card.genome.depth)]], lineage: [], origin: `carried from ${card.home}`, when: card.home,
-    home: card.home, bred: card.bred, qr: qr(new TextEncoder().encode(link)),
+    stats: [['Home water', card.home], ['Genus', d.genus], ['Mutations', String(card.genome.depth)]], lineage: [], origin: `carried from ${card.home}`,
+    home: card.home, qr: qr(new TextEncoder().encode(link)),
   });
-  const sigil = await svgImage(sigilSVG(voiceOf(card.genome), card.genome, { size: 240 }));
+  return cardCanvas(d, { sigil: await sigilArt(card.genome), portrait: null });
+}
+
+// a genome's sigil as an image, the card's font loaded
+async function sigilArt(genome) {
+  const sigil = await svgImage(sigilSVG(voiceOf(genome), genome, { size: 240 }));
   if (document.fonts?.load) await document.fonts.load('500 40px Saira').catch(() => {});
+  return sigil;
+}
+// a card drawn off screen
+function cardCanvas(d, art) {
   const c = document.createElement('canvas');
   c.width = CARD_W * CARD_SCALE; c.height = CARD_H * CARD_SCALE;
   const ctx = c.getContext('2d');
   ctx.setTransform(CARD_SCALE, 0, 0, CARD_SCALE, 0, 0);
-  drawCard(ctx, d, { sigil, portrait: null });
+  drawCard(ctx, d, art);
   return c;
 }
 
 /**
- * The card dialog. api: { life(), K, chron, climate(), eng, portrait(serial) -> Promise<canvas|null>,
+ * The card dialog. api: { life(), K, chron, eng, portrait(serial) -> Promise<canvas|null>,
  *   rename(serial, name), songClip(genome) -> Promise<Blob|null>, flash(msg),
- *   carry(serial) -> { home, touched, bred, link } (where it lives, and the link its QR code holds),
+ *   carry(serial) -> { home, touched, link } (where it lives, and the link its QR code holds),
  *   saved(serial) -> its card in the cabinet or null, save(serial), load(serial | card) (into the pipette),
  *   remove(card) (from the cabinet) }
  */
@@ -293,12 +302,12 @@ export function createCards(api) {
   const reg = () => api.life().reg;
 
   // a species' QR code, made once (its link holds its genome, which does not change)
-  const qrs = new Map();
+  let qrLink = null, qrCode = null;
   function data(sp) {
     const L = api.life(), c = api.carry(sp.serial);
-    if (!qrs.has(c.link)) { qrs.clear(); qrs.set(c.link, qr(new TextEncoder().encode(c.link))); }
-    return { ...cardData(sp, { reg: L.reg, genera: L.genera, K: api.K, story: api.chron.latest(sp.serial), relations: api.chron.relations(sp.serial), history: L.history, simTime: api.eng.simTime, era: api.climate().name, founders: api.eng.founders }),
-      home: c.home, bred: c.bred, qr: qrs.get(c.link) };
+    if (qrLink !== c.link) { qrLink = c.link; qrCode = qr(new TextEncoder().encode(c.link)); }
+    return { ...cardData(sp, { reg: L.reg, K: api.K, story: api.chron.latest(sp.serial), relations: api.chron.relations(sp.serial), history: L.history, simTime: api.eng.simTime, founders: api.eng.founders }),
+      home: c.home, qr: qrCode };
   }
   function paint(d) {
     const ctx = cv.getContext('2d');
@@ -310,27 +319,15 @@ export function createCards(api) {
     const sp = cur && reg().get(cur);
     if (sp) paint(data(sp));
   }
-  // its sigil as an image, and the card's font loaded
-  async function artOf(sp) {
-    const sigil = await svgImage(sigilSVG(voiceOf(sp.genome), sp.genome, { size: 240 }));
-    if (document.fonts?.load) await document.fonts.load('500 40px Saira').catch(() => {});
-    return { sigil, portrait: portraits.get(sp.serial) || null };
-  }
+  const artOf = async (sp) => ({ sigil: await sigilArt(sp.genome), portrait: portraits.get(sp.serial) || null });
   /** A species' card drawn off screen, its portrait taken if it lives: a canvas (to save to the cabinet). */
   async function render(serial) {
     const sp = reg().get(serial);
     if (!sp) return null;
     const a = await artOf(sp);
     if (sp.alive && !a.portrait) { const p = await api.portrait(serial).catch(() => null); if (p) { portraits.set(serial, p); a.portrait = p; } }
-    const c = document.createElement('canvas');
-    c.width = CARD_W * CARD_SCALE; c.height = CARD_H * CARD_SCALE;
-    const ctx = c.getContext('2d');
-    ctx.setTransform(CARD_SCALE, 0, 0, CARD_SCALE, 0, 0);
-    drawCard(ctx, data(sp), a);
-    return c;
+    return cardCanvas(data(sp), a);
   }
-  /** A card that came from another world by its link alone, drawn (strangerCard). */
-  const renderStranger = (card, link) => strangerCard(card, link, api.K);
   async function open(serial) {
     const sp = reg().get(serial);
     if (!sp) return;
@@ -437,6 +434,6 @@ export function createCards(api) {
   root.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } });
   // a new world reuses serials: its portraits go
   function reset() { portraits.clear(); close(); }
-  return { open, openSaved, render, renderStranger, close, reset, refresh: () => { if (!root.hidden) acts(); }, isOpen: () => !root.hidden };
+  return { open, openSaved, render, close, reset, refresh: () => { if (!root.hidden) acts(); }, isOpen: () => !root.hidden };
 }
 

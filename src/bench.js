@@ -1,8 +1,9 @@
 // The bench (docs/hand.md): the tools in the dock's middle on screens wide enough for them, the Bench drawer above
 // the dock (a tile for each tool, a hint for the one in hand, its Reach), and on a phone the held strip that a tool
 // in hand folds the drawer to. Built once and updated in place (render), so nothing moves under the pointer.
-import { TOOLS, REACH, keyOf, toolOf, works } from './hand.js';
+import { TOOLS, keyOf, toolOf, works, reachStep } from './hand.js';
 import { wireCardDrag, countText } from './minicard.js';
+import { fadeEdges } from './ui.js';
 
 const $ = (id) => document.getElementById(id);
 const coarse = matchMedia('(pointer: coarse)').matches;
@@ -12,22 +13,6 @@ const toSlider = (r, { min, max }) => Math.round((1000 * Math.log(r / min)) / Ma
 const fromSlider = (v, { min, max }) => min * Math.exp((v / 1000) * Math.log(max / min));
 // Load or Dispense: what the pipette's press does
 const modes = (id) => `<span class="pip-mode segs" role="group" aria-label="The pipette's press"><button type="button" class="chip" data-mode="0" id="${id}-load" aria-pressed="true" data-hint="A press draws up cells at the tip, all in reach as it is held">Load</button><button type="button" class="chip" data-mode="1" id="${id}-dispense" aria-pressed="false" data-hint="A press sets the tip card’s cells down">Dispense</button></span>`;
-
-/**
- * A row that scrolls sideways fades at an edge only where there is more beyond it (fade-l, fade-r), as it scrolls
- * and as what is in it changes.
- */
-function fadeEdges(row) {
-  const mark = () => {
-    const more = row.scrollWidth - row.clientWidth;
-    row.classList.toggle('fade-l', row.scrollLeft > 2);
-    row.classList.toggle('fade-r', more > 2 && row.scrollLeft < more - 2);
-  };
-  row.addEventListener('scroll', mark, { passive: true });
-  new ResizeObserver(mark).observe(row);
-  new MutationObserver(mark).observe(row, { childList: true });
-  return mark;
-}
 
 /**
  * A panel at the screen's foot that a swipe down closes (as the specimen's sheet): a drag that starts down, on
@@ -66,8 +51,6 @@ function swipeDown(el, close) {
   el.addEventListener('pointerup', end);
   el.addEventListener('pointercancel', end);
 }
-/** One reach step up or down (the keys, the held strip's − and +). */
-export const reachStep = (r, d) => Math.min(REACH.max, Math.max(REACH.min, r * 1.25 ** d));
 
 /**
  * hand: the page's hand (src/hand.js); pick(id) takes up a tool (the one in hand: puts it down); reach(r) sets the
@@ -79,7 +62,7 @@ export const reachStep = (r, d) => Math.min(REACH.max, Math.max(REACH.min, r * 1
  * cabinet), sort() (each species' runs as one), cabinet() (opens it), arm(on) (Dispense: a press sets down rather
  * than draws up).
  */
-export function createBench({ hand, pick, reach, size, onToggle = () => {}, pip }) {
+export function createBench({ hand, pick, reach, size, onToggle, pip }) {
   const drawer = $('bench'), btn = $('bench-open'), held = $('held'), dock = $('tools');
   dock.innerHTML = TOOLS.map((t, i) => `<button type="button" class="tool" data-tool="${t.id}" aria-pressed="false" aria-label="${t.name}" data-hint="${t.name} · ${i}">${icon(t.id)}<kbd>${i}</kbd></button>`).join('');
   drawer.innerHTML = `<div class="grab" aria-hidden="true"><i></i></div><div class="bench-tools">
@@ -94,7 +77,7 @@ export function createBench({ hand, pick, reach, size, onToggle = () => {}, pip 
     </div>`;
   held.innerHTML = `<kbd id="held-k"></kbd><b id="held-n"></b><span class="held-reach"><button type="button" class="ghost" data-d="-1" aria-label="Less reach"><svg><use href="#i-minus"/></svg></button><b id="held-r" translate="no"></b><button type="button" class="ghost" data-d="1" aria-label="More reach"><svg><use href="#i-plus"/></svg></button></span>${modes('held')}<button type="button" class="ghost" id="held-down" aria-label="Put the tool down" data-hint="Put it down · Esc"><svg><use href="#i-close"/></svg></button><div class="strip flat" id="held-strip"></div>`;
   const slider = $('reach'), strip = $('pip-strip'), hstrip = $('held-strip');
-  const fades = [strip, hstrip, drawer.querySelector('.tiles')].map(fadeEdges);
+  [strip, hstrip, drawer.querySelector('.tiles')].forEach(fadeEdges);
 
   const toolClick = (e) => { const b = e.target.closest('[data-tool]'); if (b) pick(b.dataset.tool); };
   dock.addEventListener('click', toolClick);
@@ -178,7 +161,6 @@ export function createBench({ hand, pick, reach, size, onToggle = () => {}, pip 
     strip.innerHTML = v.keys.length ? pip.cards(false)
       : '<div class="pip-empty"><b>Nothing in the pipette.</b><span>Draw cells up from the world with the pipette (8), or bring cards from the cabinet.</span><button type="button" class="link" data-cabinet>Open the cabinet</button></div>';
     hstrip.innerHTML = inHand ? pip.cards(true) : '';
-    fades.forEach((f) => f());
   }
   addEventListener('resize', render);
   render();

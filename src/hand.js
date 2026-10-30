@@ -28,6 +28,8 @@ export const INSTRUMENTS = { needle: { kind: 1, dir: [0.86, 0.51] }, pipette: { 
 
 // The reach of every tool but the needle, in world units (1 unit is about 59 µm): the slider's range and default.
 export const REACH = { min: 0.6, max: 8, def: 2 };
+/** One reach step up or down (the keys, the held strip's − and +). */
+export const reachStep = (r, d) => Math.min(REACH.max, Math.max(REACH.min, r * 1.25 ** d));
 const LAMP = 0.6; // the light a lamp adds within its reach, at full brightness (the sun at noon gives about 1)
 const SHADE = 0.9; // the share of the light a shade takes
 const HOVER = 0.25; // the lamp, shade, stage and probe over the world, not pressed: this much of their full strength
@@ -39,7 +41,7 @@ const EASE = { lamp: [0.35, 0.3], stage: [0.25, 0.25], dip: [0.3, 0.08] };
 // the water there along at `couple` of its own velocity (at most `max` world units a second), fading over `life`
 // seconds; at most `n` at once. A stroke turned back on itself (faster than `turn` units a second, frame to frame)
 // sends a ring wave out from it.
-export const WAKE = { n: 20, every: 0.1, life: 1.2, couple: 0.6, max: 8, turn: 1.5 };
+const WAKE = { n: 20, every: 0.1, life: 1.2, couple: 0.6, max: 8, turn: 1.5 };
 const ICE_KEEPS = 120; // simulated seconds the cold probe's ice is looked for after it was last chilling the water
 const NONE = 0xffffffff;
 
@@ -49,7 +51,7 @@ const NONE = 0xffffffff;
  * tap and prick for Touch's taps and the needle's cell, update(dt, t) every frame (t: simulated time), and stepped()
  * after a frame the world stepped in (the needle and the rod sweep what they passed since the last step).
  */
-export function createHand(words, ids, { reach = REACH.def, drops = new Float64Array(16) } = {}) {
+export function createHand(words, ids, { reach = REACH.def, drops }) {
   const ease = (v, to, [up, down], dt) => v + (to - v) * (1 - Math.exp(-dt / (Math.abs(to) > Math.abs(v) ? up : down)));
   const h = {
     // (at: where the pointer is over the world, or null)
@@ -118,8 +120,7 @@ export function createHand(words, ids, { reach = REACH.def, drops = new Float64A
       // (a lamp lit where a shade was, or the reverse, starts afresh)
       if (lampTo && Math.sign(lampTo) !== Math.sign(h.lamp.v)) h.lamp.v = 0;
       if (stageTo && Math.sign(stageTo) !== Math.sign(h.stage.v)) h.stage.v = 0;
-      if (p) Object.assign(h.lamp, { x: p[0], y: p[1], r: h.reach });
-      if (p) Object.assign(h.stage, { x: p[0], y: p[1], r: h.reach });
+      if (p) for (const o of [h.lamp, h.stage]) Object.assign(o, { x: p[0], y: p[1], r: h.reach });
       h.lamp.v = settle(ease(h.lamp.v, lampTo, EASE.lamp, dt), lampTo);
       h.stage.v = settle(ease(h.stage.v, stageTo, EASE.stage, dt), stageTo);
       // the needle or the rod let down into the water, and where it was when the world last stepped (the needle's

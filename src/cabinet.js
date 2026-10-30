@@ -5,24 +5,25 @@
 import { G_WORDS } from './shaders.js';
 import { SAVE_VERSION } from './worlds.js';
 
-export const CARD_URL = 'https://tidemote.com/#card=';
+const CARD_URL = 'https://tidemote.com/#card=';
 // the genome's format: a card from a world whose genomes differ (another major, another length) is refused
 const FORMAT = +SAVE_VERSION.split('.')[0];
 const MAGIC = [0x54, 0x4d, 0x47, 0x31]; // TMG1
-const FLAG_TOUCHED = 1, FLAG_BRED = 2;
+const FLAG_TOUCHED = 1; // (the other flag bits reserved)
 
 const fnv = (b) => { let h = 0x811c9dc5; for (const x of b) h = Math.imul(h ^ x, 0x01000193) >>> 0; return h; };
 const b64 = (u8) => btoa(String.fromCharCode(...u8)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const unb64 = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
-const text = (s, max) => new TextEncoder().encode(String(s || '')).slice(0, max);
+// (UTF-8 in at most max bytes, cut between characters)
+const text = (s, max) => { const b = new Uint8Array(max); return b.subarray(0, new TextEncoder().encodeInto(String(s || ''), b).written); };
 
-/** A card's payload: { words (G_WORDS), name, home, touched, bred } -> bytes. */
-export function encodeCard({ words, name, home, touched = false, bred = false }) {
+/** A card's payload: { words (G_WORDS), name, home, touched } -> bytes. */
+export function encodeCard({ words, name, home, touched = false }) {
   const n = text(name, 48), h = text(home, 48);
   const out = new Uint8Array(4 + 4 + n.length + 1 + h.length + G_WORDS * 4 + 4);
   const dv = new DataView(out.buffer);
   out.set(MAGIC, 0);
-  out[4] = FORMAT; out[5] = G_WORDS; out[6] = (touched ? FLAG_TOUCHED : 0) | (bred ? FLAG_BRED : 0); out[7] = n.length;
+  out[4] = FORMAT; out[5] = G_WORDS; out[6] = touched ? FLAG_TOUCHED : 0; out[7] = n.length;
   out.set(n, 8);
   let o = 8 + n.length;
   out[o++] = h.length; out.set(h, o); o += h.length;
@@ -31,7 +32,7 @@ export function encodeCard({ words, name, home, touched = false, bred = false })
   dv.setUint32(o, fnv(out.subarray(0, o)), true);
   return out;
 }
-/** bytes -> { words, name, home, touched, bred }, or throws with why it is refused. */
+/** bytes -> { words, name, home, touched }, or throws with why it is refused. */
 export function decodeCard(b) {
   if (b.length < 12 || MAGIC.some((m, i) => b[i] !== m)) throw new Error('This is not a Tidemote species card.');
   if (b[4] !== FORMAT || b[5] !== G_WORDS) throw new Error(b[4] > FORMAT ? 'This card is from a newer Tidemote.' : 'This card is from an older Tidemote, whose genomes this one cannot read.');
@@ -42,7 +43,7 @@ export function decodeCard(b) {
   o += hl;
   if (b.length !== o + G_WORDS * 4 + 4 || dv.getUint32(o + G_WORDS * 4, true) !== fnv(b.subarray(0, o + G_WORDS * 4))) throw new Error('This card is damaged.');
   const words = Array.from({ length: G_WORDS }, (_, i) => dv.getUint32(o + i * 4, true));
-  return { words, name, home, touched: !!(b[6] & FLAG_TOUCHED), bred: !!(b[6] & FLAG_BRED) };
+  return { words, name, home, touched: !!(b[6] & FLAG_TOUCHED) };
 }
 /** A card's link (its QR code), and the payload read back from one (the page's #card=...), or null. */
 export const cardLink = (bytes) => CARD_URL + b64(bytes);
@@ -52,7 +53,7 @@ export const cardFromHash = (hash) => { const m = /#card=([A-Za-z0-9_-]+)/.exec(
 const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
 const crc = (b) => { let c = 0xffffffff; for (const x of b) c = crcTable[(c ^ x) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
 /** png (bytes) with a tEXt chunk key=value put before its end. */
-export function pngWithText(png, key, value) {
+function pngWithText(png, key, value) {
   const body = new Uint8Array([...new TextEncoder().encode(key), 0, ...new TextEncoder().encode(value)]);
   const chunk = new Uint8Array(12 + body.length), dv = new DataView(chunk.buffer);
   dv.setUint32(0, body.length);
@@ -75,19 +76,20 @@ export function pngText(png, key) {
   }
   return null;
 }
-export const PNG_KEY = 'tidemote-card';
+const PNG_KEY = 'tidemote-card';
 /** A card's payload from its PNG, or null. */
 export const cardFromPng = (png) => { const v = pngText(png, PNG_KEY); return v ? unb64(v) : null; };
-export const pngKeyValue = (bytes) => b64(bytes);
+// a card's PNG (bytes) with its payload (card bytes) in it
+export const cardIntoPng = (png, bytes) => pngWithText(png, PNG_KEY, b64(bytes));
 
 // ---- the cabinet's cards: { id, serial, name, words, home, world (the seed of its world), savedAt, touched,
-// bred, stranger (carried from another world) }
-/** The cards that pass the filters: q (search on name and home), from ('any' | 'this' | 'other' | 'bred'), and
+// stranger (carried from another world) }
+/** The cards that pass the filters: q (search on name and home), from ('any' | 'this' | 'other'), and
  * test(card) for the Species tab's diet and body facets; newest first. */
 export function filterCards(cards, { q = '', from = 'any', world = null, test = () => true } = {}) {
   const s = q.trim().toLowerCase();
   return cards.filter((c) => (!s || `${c.name} ${c.home}`.toLowerCase().includes(s))
-    && (from === 'any' || (from === 'this' ? c.world === world : from === 'other' ? c.world !== world : c.bred)) && test(c))
+    && (from === 'any' || (from === 'this' ? c.world === world : c.world !== world)) && test(c))
     .sort((a, b) => b.savedAt - a.savedAt);
 }
 
