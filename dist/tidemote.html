@@ -357,8 +357,10 @@ body:not(.live) .hud { opacity: 0; }
 .dock .tools .tool kbd { position: absolute; right: 3px; bottom: 0; font-size: 11px; line-height: 1; letter-spacing: 0; color: var(--ink-3); }
 .tool[aria-pressed="true"], .tile[aria-checked="true"] { color: var(--sun); background: rgba(241, 227, 160, 0.08); box-shadow: inset 0 -2px 0 var(--sun); }
 .tool[aria-pressed="true"] kbd, .tile[aria-checked="true"] kbd { color: var(--sun); }
-.bench-btn { border-color: transparent; }
-.bench-btn.in-hand { color: var(--sun); }
+.bench-btn.in-hand { color: var(--sun); border-color: rgba(241, 227, 160, 0.5); }
+/* its caret: the drawer opens up from it, and folds back down */
+.bench-btn .bench-c { width: 12px; height: 12px; margin-left: -2px; color: var(--ink-3); transition: transform .15s; }
+.bench-btn[aria-expanded="true"] .bench-c { transform: rotate(180deg); }
 .bench-btn[aria-expanded="true"] { color: var(--ink); background: var(--cyan-deep); border-color: var(--line-2); }
 /* the rail's Hand chip: this world has been touched */
 
@@ -1245,9 +1247,9 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }
   #film, #auto-next { display: none !important; }
-  .bench-btn { margin-left: 0; flex-direction: column; justify-content: center; gap: 3px; width: 50px; height: 50px; padding: 0; }
+  .bench-btn { position: relative; margin-left: 0; flex-direction: column; justify-content: center; gap: 3px; width: 50px; height: 50px; padding: 0; border-color: var(--line); }
   .bench-btn span { display: block; font-size: 11px; letter-spacing: 0; text-transform: none; font-stretch: 100%; }
-  .bench-btn.in-hand { border-color: rgba(241, 227, 160, 0.5); }
+  .bench-btn .bench-c { position: absolute; top: 2px; right: 2px; width: 10px; height: 10px; margin: 0; }
   .bench { left: 0 !important; right: 0 !important; flex-direction: column; touch-action: pan-x; padding: var(--s2) 12px var(--s3); max-height: calc(100% - var(--top) - var(--bot)); overflow-y: auto; }
   /* (its handle, as the specimen's sheet has: a swipe down or a tap folds it) */
   .bench .grab { flex: none; margin: calc(-1 * var(--s2)) -12px calc(-1 * var(--s1)); }
@@ -1383,7 +1385,7 @@ svg.niche .n-dot { fill: var(--cyan); }
       <button type="button" class="ico step" id="t-faster" aria-label="Faster" data-hint="Faster · ."><svg><use href="#i-faster"/></svg></button>
     </div>
     <div class="grp tools" id="tools" role="toolbar" aria-label="Tools"></div>
-    <button type="button" class="act bench-btn" id="bench-open" aria-expanded="false" aria-controls="bench" data-hint="Bench · B"><svg><use id="bench-i" href="#i-bench"/></svg><span id="bench-l">Bench</span></button>
+    <button type="button" class="act bench-btn" id="bench-open" aria-expanded="false" aria-controls="bench" data-hint="Bench · B"><svg><use id="bench-i" href="#i-bench"/></svg><span id="bench-l">Bench</span><svg class="bench-c" aria-hidden="true"><use href="#i-chev"/></svg></button>
     <div class="grp acts">
       <button type="button" class="act" id="auto-play" aria-label="Auto camera" aria-pressed="false" data-hint="Auto camera · A"><svg><use href="#i-auto"/></svg><span>Auto</span></button>
       <button type="button" class="act" id="auto-next" aria-label="Next scene" data-hint="Next scene · X" hidden><svg><use href="#i-next"/></svg></button>
@@ -9111,7 +9113,7 @@ fn extremes(c: vec3f, wpIn: vec2f, ppu: f32, water: vec3f, behind: f32) -> vec3f
   let wp = wpIn - post.world * floor(wpIn / post.world);
   let k = 0.35 + 0.65 * behind;
   var o = c;
-  let cold = smoothstep(4.0, 1.0, T) * smoothstep(2.0, 5.0, post.heat.x - T);
+  let cold = probeCold(T);
   if (cold > 0.0) {
     let g = length(water.yz);
     let gl = max(g, 0.5);
@@ -9126,6 +9128,9 @@ fn extremes(c: vec3f, wpIn: vec2f, ppu: f32, water: vec3f, behind: f32) -> vec3f
   }
   return o;
 }
+// How plainly water at T is the cold probe's ice (0..1): near freezing, and well below the open water (none where the
+// open water is itself near freezing)
+fn probeCold(T: f32) -> f32 { return smoothstep(4.0, 1.0, T) * smoothstep(2.0, 5.0, post.heat.x - T); }
 ${HAND_SHAPES}fn boilAt(T: f32) -> f32 { return smoothstep(${f(BOIL)} - 9.0, ${f(BOIL)} - 1.0, T); }
 // Dry ground in darkfield: the film of silt and clay the water left. Wet, water fills the spaces between its grains
 // and it scatters little, dark and smooth with a gloss; as it dries air takes their place and it pales to a grainy
@@ -9428,7 +9433,9 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32, ppu: f
 }
 // How much open water lies over wp: none on the dry floor or under ice, fading over the thin film at their edges.
 // How far wp lies into open water (units): to the nearer of the pool's edge and the ice's, by each field's slope; 0 or
-// less on the dry floor or under ice, and 1e4 with neither.
+// less on the dry floor or under ice, and 1e4 with neither. The ice is the frost's as drawn (its dendrites' reach
+// ahead of its front, its slope floored as the drawing's is, so a patch just starting is ice too) and the cold
+// probe's (below 0°, as extremes draws it).
 fn waterRoom(wpIn: vec2f) -> f32 {
   let wp = wpIn - post.world * floor(wpIn / post.world);
   var room = 1e4;
@@ -9438,7 +9445,12 @@ fn waterRoom(wpIn: vec2f) -> f32 {
   }
   if (post.weather.y > 0.0) {
     let fi = fieldPost(${2 * MAX_CELLS}u, wp);
-    room = min(room, (fi.x - post.weather.y) / max(length(fi.yz), 1e-4));
+    let reach = min(1.0, post.weather.y / 0.25);
+    room = min(room, (fi.x - post.weather.y) / max(length(fi.yz), 0.06) - (ICE_LEAD + ICE_OWN) * reach);
+  }
+  if (post.heatVis >= 0.0) {
+    let w = waterAt(wp);
+    if (w.x < 4.0) { room = min(room, w.x / max(length(w.yz), 0.5) - (ICE_LEAD + ICE_OWN) * probeCold(w.x)); }
   }
   return room;
 }
@@ -22445,7 +22457,7 @@ ${e.message}` : String(e?.message || e));
         pass2.end();
       }
       this._sea(enc);
-      const lod = this.settings.lod;
+      const lod = this.settings.lod, loupeLod = !!loupe && lod, specLod = !!specimen && (lod || !specimen.live);
       const ps = Math.max(1.1 * dpr, 0.085 * cam.ppu);
       const splat = !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W * H2 / 4 ? SPLAT_PX : 0;
       this._writeView(this.b.view, this.viewData, cam, W, H2, dpr, time, selId, lod, culled[0], splat);
@@ -22458,7 +22470,7 @@ ${e.message}` : String(e?.message || e));
         pass2.dispatchWorkgroups(Math.ceil(this.count / 256));
         pass2.end();
       }
-      if (lod && new Float32Array(this.viewData)[7] > 6 || loupe || specimen) {
+      if (lod && new Float32Array(this.viewData)[7] > 6 || loupeLod || specLod) {
         enc.copyBufferToBuffer(this.b.frameCtr, 20, this.b.bridgeDraw, 4, 4);
       }
       const pd = this.postData;
@@ -22518,7 +22530,7 @@ ${e.message}` : String(e?.message || e));
         }
       } else if (!(pd[94] > 0)) this.seaShifts.length = 0;
       const mainDetail = lod && new Float32Array(this.viewData)[7] > 2.8;
-      if (mainDetail || loupe || specimen) {
+      if (mainDetail || loupeLod || specLod) {
         const [gw, gh] = this.grid;
         const u = new Int32Array(20);
         const rect = (v, cx, cy, hw, hh) => {
@@ -22529,8 +22541,8 @@ ${e.message}` : String(e?.message || e));
           u[8 + v * 4 + 1] = Math.min(gh, Math.floor(cy + hh) + 2 - y0);
         };
         if (mainDetail) rect(0, cam.x, cam.y, W / (2 * cam.ppu), H2 / (2 * cam.ppu));
-        else if (loupe) rect(0, loupe.cx, loupe.cy, LOUPE_FIELD * loupe.r / loupe.ppu, LOUPE_FIELD * loupe.r / loupe.ppu);
-        if (specimen) rect(1, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu));
+        else if (loupeLod) rect(0, loupe.cx, loupe.cy, LOUPE_FIELD * loupe.r / loupe.ppu, LOUPE_FIELD * loupe.r / loupe.ppu);
+        if (specLod) rect(1, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu));
         u[16] = gw;
         u[17] = gh;
         new Float32Array(u.buffer)[18] = time;
@@ -22540,7 +22552,7 @@ ${e.message}` : String(e?.message || e));
         for (let k = 0; k < 3; k++) {
           pass2.setPipeline(this.cpInbond[k]);
           pass2.setBindGroup(0, this.inbondBG[k]);
-          pass2.dispatchWorkgroups(Math.max(u[8], u[12]), Math.max(u[9], u[13]), specimen ? 2 : 1);
+          pass2.dispatchWorkgroups(Math.max(u[8], u[12]), Math.max(u[9], u[13]), specLod ? 2 : 1);
         }
         pass2.setPipeline(this.cpOrgans);
         pass2.setBindGroup(0, this.organsBG);
@@ -22601,7 +22613,7 @@ ${e.message}` : String(e?.message || e));
         const L = Math.max(64, Math.min(1024, Math.ceil(span2 / 32) * 32));
         this._ensureLoupeTex(L);
         const lppu = loupe.ppu * (L / span2);
-        this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span2), time, selId, true, culled[1]);
+        this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span2), time, selId, lod, culled[1]);
         d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W, H2, loupe.ppu, 0]));
         const pass2 = enc.beginRenderPass({ colorAttachments: [{ view: this.loupeView, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
         this._drawScene(pass2, this.bgLineL, this.bgPointL, this.bgBridgeL, this.viewDataL, 1);
@@ -22610,7 +22622,7 @@ ${e.message}` : String(e?.message || e));
       }
       if (specimen && specimen.target) {
         this._ensureSpecTex(specimen.w, specimen.h);
-        this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, true, culled[2]);
+        this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, specLod, culled[2]);
         let pass2 = enc.beginRenderPass({ colorAttachments: [{ view: this.specView, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
         if (specimen.studio) {
           pass2.setPipeline(this.pStudio);
@@ -23095,7 +23107,7 @@ ${e.message}` : String(e?.message || e));
     targetfps: "Frames per second aimed for, as a whole number of the screen’s refreshes so frames stay evenly spaced (60 on a 144 Hz screen is every second refresh, 72 fps). 30 halves the GPU’s work and saves battery; Display follows the screen’s refresh rate (120 on many phones and Macs), which costs the most. Simulated time keeps pace with real time at any rate. Auto aims for 60 and, when the device can’t keep up, lowers the rate itself (to 30, 20 or 15; shown beside Auto); a rate chosen is held even then.",
     bloom: "A soft glow around bright cells. Several extra full-screen passes.",
     optics: "The microscope’s lens: the view softens and its colors part toward the edges, a round field stop darkens the corners, a faint haze lies behind the cells and dust drifts out of focus. One extra full-screen pass.",
-    lod: "Zoomed in, cells resolve into membranes, organelles and fused bodies, and bonds into soft strands. Off, every cell stays the glowing point it is from afar, at any zoom: far cheaper, so the page can run more particles. The loupe and the live close-up still show the detail.",
+    lod: "Zoomed in, cells resolve into membranes, organelles and fused bodies, and bonds into soft strands. Off, every cell stays the glowing point it is from afar, at any zoom: far cheaper, so the page can run more particles. The loupe and the live close-up show the points too; species cards keep their detail.",
     specks: "The fine suspension that drifts between cells when zoomed far in. Drawn speck by speck; off saves a compute pass and a full-screen pass.",
     closeup: "The live close-up in the specimen panel: a second, small view of the world drawn every frame.",
     particles: "Every grain, husk and cell is one particle; their number is fixed for a world’s whole life. Auto measures the GPU and picks the most it can run smoothly, and shows the count it picked for this world. Changing it starts a new world.",
@@ -30779,7 +30791,7 @@ ${e.message}` : String(e?.message || e));
         const f2 = h.held && p ? h.from || p : null, needle = f2 && tl === "needle";
         const cut2 = needle && Math.hypot(p[0] - f2[0], p[1] - f2[1]) > 1e-4;
         h.dip = settle(ease3(h.dip, h.held && tl === "touch" ? 1 : 0, EASE.dip, dt), h.held && tl === "touch");
-        if (h.held && p && tl === "touch") h.rodAt = p;
+        if (p && tl === "touch") h.rodAt = p;
         const rod = h.dip > 0 && h.rodAt, rf = rod && (f2 || h.rodAt);
         wake(rod && h.rodAt, t2);
         const w = h.will || [0, 0, 0];
@@ -31037,6 +31049,8 @@ ${e.message}` : String(e?.message || e));
   // src/ladder.js
   var MEANING = /* @__PURE__ */ new Map([[Infinity, "as fast as it runs"], ["fast", "drawn every frame"], [16, "coarse steps"], [1, "real time"], [0.25, "slow motion"]]);
   var HOLD3 = 300;
+  var EDGE = 16;
+  var CREEP = 220;
   function createLadder({ chip, el, choices, current, fmt: fmt2, pick: pick3, real }) {
     let lastTap = 0, drawn = "", drag = null, wheel = 0, swallowed = 0;
     function render(marked = current()) {
@@ -31093,9 +31107,29 @@ ${e.message}` : String(e?.message || e));
         drag.v = v;
         render(v);
       }
+      const edge = e.clientY < EDGE ? 1 : e.clientY > innerHeight - EDGE ? -1 : 0;
+      const back = drag.py != null && Math.sign(drag.py - e.clientY) === -edge;
+      drag.py = e.clientY;
+      if (!edge || back) stopCreep();
+      else if (!drag.creep) drag.creep = setInterval(() => creep(edge), CREEP);
+    }
+    function creep(d) {
+      const v = along(drag.v, d);
+      if (v === drag.v) {
+        stopCreep();
+        return;
+      }
+      drag.y += d * rung();
+      drag.v = v;
+      render(v);
+    }
+    function stopCreep() {
+      clearInterval(drag.creep);
+      drag.creep = null;
     }
     function end(e) {
       if (!drag || e.pointerId !== drag.id) return;
+      stopCreep();
       const d = drag;
       drag = null;
       clearTimeout(d.timer);
@@ -31488,9 +31522,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "557e2daf19256dc3") return;
+      if (localStorage.getItem(key) === "9c110c40aa7a59e5") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "557e2daf19256dc3");
+      if (res) localStorage.setItem(key, "9c110c40aa7a59e5");
     } catch {
     }
   }
@@ -33787,7 +33821,7 @@ ${e.message}` : String(e?.message || e));
         spec.height = h;
       }
       const [px, py] = sel.disp;
-      return { target: specCtx.getCurrentTexture().createView(), w, h, cx: px, cy: py, ppu: h / state.specCells, dpr: r };
+      return { target: specCtx.getCurrentTexture().createView(), w, h, cx: px, cy: py, ppu: h / state.specCells, dpr: r, live: true };
     }
     spec.addEventListener("wheel", (e) => {
       e.preventDefault();
@@ -35623,7 +35657,10 @@ ${e.message}` : String(e?.message || e));
           sh.whyVer++;
         }
         filmMarked = !!(visible && (!sh || sh.why.seen) && (!state.ui || drawMarker(sx, sy, inLens, dt))) && !!sh;
-        if (ride.on && hand.will && hand.will[2] > 0 && state.ui) drawWill(sx, sy, ...toScreen(hand.will[0], hand.will[1]));
+        if (ride.on && hand.will && hand.will[2] > 0 && state.ui) {
+          const [wx, wy] = easeWill(sel.disp[0], sel.disp[1], dt), p = cssPPU();
+          drawWill(sx, sy, sx + wx * p, sy + wy * p);
+        }
       }
       if (L?.mouse) {
         const { sx, sy } = L;
@@ -35646,6 +35683,16 @@ ${e.message}` : String(e?.message || e));
       }
       if (R2) drawReticle(R2);
       drawSongMarks(now, L);
+    }
+    const WILL_EASE = 80;
+    const willShown = { a: 0, l: 0 };
+    function easeWill(px, py, dt) {
+      const [W, H2] = eng.grid, tx = wrapD2(hand.will[0] - px, W), ty = wrapD2(hand.will[1] - py, H2);
+      const a = Math.atan2(ty, tx), l = Math.hypot(tx, ty), w = willShown;
+      const k = 1 - Math.exp(-dt / WILL_EASE);
+      w.a += (a - w.a - TAU3 * Math.round((a - w.a) / TAU3)) * k;
+      w.l += (l - w.l) * k;
+      return [Math.cos(w.a) * w.l, Math.sin(w.a) * w.l];
     }
     function drawWill(x0, y0, x1, y1) {
       const d = Math.hypot(x1 - x0, y1 - y0);
@@ -35759,8 +35806,7 @@ ${e.message}` : String(e?.message || e));
         toolFocus = 0;
         return;
       }
-      const rod = hand.tool === "touch" && hand.dip > 0 && hand.rodAt;
-      eng.tool.set([...rod ? toWorld(...toScreen(...hand.rodAt)) : toWorld(R2.sx, R2.sy), ...it.dir, it.kind, hand.tool === "touch" ? hand.dip : toolFocus, hand.tool === "cold" ? hand.level : 0, hand.reach]);
+      eng.tool.set([...toWorld(R2.sx, R2.sy), ...it.dir, it.kind, hand.tool === "touch" ? hand.dip : toolFocus, hand.tool === "cold" ? hand.level : 0, hand.reach]);
     }
     function handDoing() {
       const t2 = hand.tool, pct = `${Math.min(100, Math.round(hand.level * 100))}%${hand.held ? "" : " · hold for more"}`;
