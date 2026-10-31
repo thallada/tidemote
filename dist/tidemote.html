@@ -1362,6 +1362,68 @@ svg.niche .n-dot { fill: var(--cyan); }
 
 <script type="module">
 (() => {
+  // src/sea.js
+  var SEA_N = 256;
+  var SEA_CASCADES = 2;
+  var SEA = {
+    // the wind's ripples, and the capillary ripples riding them: peak wavelength (units), rms slope, spread about the
+    // wind (cos^(2 spread) of half the angle off it)
+    systems: [{ lp: 22, slope: 0.12, spread: 6 }, { lp: 7, slope: 0.06, spread: 3 }],
+    lmin: 4,
+    // ripples much shorter than this (units) are damped away
+    texels: 8,
+    // a cascade holds waves at least this many of its texels long (along its coarser axis); shorter, the next
+    p: 5,
+    // the height spectrum's fall above a peak (k^-p)
+    gamma: 3.3,
+    // the peaks' enhancement
+    chop: 1,
+    // how far the water is carried toward its crests (Tessendorf's choppiness)
+    T: 1024,
+    // the sea's motion loops over T seconds of its clock (each wave's frequency rounded to a multiple of 2 pi / T)
+    Tp: 2.4,
+    // the wind ripples' period in a storm (s; calm water's is longer, Engine._sea)
+    beta: 0.5
+    // frequency grows as k^beta
+  };
+  function seaLayout([wx, wy], P = SEA) {
+    const cs = [];
+    let k0 = 2 * Math.PI / Math.max(wx, wy);
+    for (let c = 0; c < SEA_CASCADES; c++) {
+      const L = [wx / 4 ** c, wy / 4 ** c], texel = Math.max(...L) / SEA_N;
+      const k1 = 2 * Math.PI / ((c + 1 < SEA_CASCADES ? P.texels : 4) * texel);
+      cs.push({ L, k0, k1: Math.max(k0, k1) });
+      k0 = Math.max(k0, k1);
+    }
+    return cs;
+  }
+  function seaRadial(k, kp, P = SEA) {
+    const sig = k < kp ? 0.07 : 0.09;
+    const r = Math.exp(-((Math.sqrt(k / kp) - 1) ** 2) / (2 * sig * sig));
+    const kc = 2 * Math.PI / P.lmin;
+    return k ** -P.p * Math.exp(-1.25 * (kp / k) ** 2) * P.gamma ** r * Math.exp(-((k / kc) ** 2));
+  }
+  function spreadIntegral(s) {
+    let t2 = 0;
+    const n = 720;
+    for (let i = 0; i < n; i++) t2 += Math.abs(Math.cos((i + 0.5) / n * Math.PI - Math.PI / 2)) ** (2 * s);
+    return t2 / n * 2 * Math.PI;
+  }
+  function slopeIntegral(a, b, kp, P, steps = 256) {
+    if (!(b > a)) return 0;
+    const la = Math.log(a), d = (Math.log(b) - la) / steps;
+    let s = 0;
+    for (let i = 0; i < steps; i++) {
+      const k = Math.exp(la + (i + 0.5) * d);
+      s += k ** 4 * seaRadial(k, kp, P) * d;
+    }
+    return s;
+  }
+  function seaScales(layout, P = SEA) {
+    const k0 = layout[0].k0, k1 = layout[layout.length - 1].k1;
+    return P.systems.map((s) => s.slope ** 2 / (spreadIntegral(s.spread) * slopeIntegral(k0, k1, 2 * Math.PI / s.lp, P)));
+  }
+
   // src/shaders.js
   var MAXK = 1024;
   var FIRST_LIFE = 5;
@@ -1395,6 +1457,18 @@ svg.niche .n-dot { fill: var(--cyan); }
   var G_WORDS = 56;
   var LITE_BYTES = 32;
   var SWAY_BYTES = 56;
+  var SHIFT_W = 64;
+  var SHIFT_H = 36;
+  var SWAY_SLOTS = (
+    /* wgsl */
+    `
+fn swaySlot2(id: u32, n: u32) -> u32 {
+  let a = id % n;
+  let b = (((id ^ (id >> 16u)) * 0x45d9f3bu) ^ 0x9e3779b9u) % n;
+  return select(b, (a + 1u) % n, b == a);
+}
+`
+  );
   var MIND_HEAD = 68;
   var MIND_NBR = 48;
   var MIND_NBR_WORDS = 8;
@@ -1495,6 +1569,10 @@ svg.niche .n-dot { fill: var(--cyan); }
     // a coarse step's share (its swing capped at two beatTops, a fitted gain; docs/fast-forward.md), and how firmly a beating
     beatBendC: 0.25,
     // tree holds its angles then, relative to growStiff (bent afresh each tick from where its partners go)
+    beatSlopeC: 0.35,
+    // a coarse beat's extra gain at 6 ticks, per tick past the first (1.75 in all at 6), reached as
+    beatCurveC: 1,
+    // (ticks - 1) / 5 to this power: 1 a straight line (2 and 3 ticks overbend filaments 24-38%; 1.5 holds their bend but costs 16% of their speed, unchecked against the ecology), 2 little before 4 ticks
     treeBond: 3,
     // a beating tree's bonds' pull, relative to a body's (bond): its beat swings its cells hard
     tailOdds: 1,
@@ -3830,7 +3908,7 @@ fn beatPull(i: u32, gr: Grow, size: f32, frX: f32) -> vec2f {
   if (sim.ticks > 1u) {
     mixW = ${f(K.beatMixC)};
     let wm = 2.0 * mixW * (2.0 - 2.0 * cos(gr.beat.z));
-    gain = (wm + 1.0 - pow(frX, f32(sim.ticks))) / (${f(2 * K.beatMix)} * (2.0 - 2.0 * cos(gr.beat.z)) + 1.0 - frX) * (1.0 + 0.35 * f32(sim.ticks - 1u)) * ${f(K.beatMix)} / mixW;
+    gain = (wm + 1.0 - pow(frX, f32(sim.ticks))) / (${f(2 * K.beatMix)} * (2.0 - 2.0 * cos(gr.beat.z)) + 1.0 - frX) * (1.0 + ${f(5 * K.beatSlopeC)} * pow(f32(sim.ticks - 1u) / 5.0, ${f(K.beatCurveC)})) * ${f(K.beatMix)} / mixW;
   }
   // (a coarse step asks no faster swing of a bond than it can follow)
   let top = select(1e9, ${f(2 * K.beatTop)} * size, sim.ticks > 1u);
@@ -4871,6 +4949,7 @@ const TOUCH_N = 6u;
 @group(0) @binding(6) var<storage, read_write> touch: array<u32>;
 @group(0) @binding(7) var<storage, read> genomes: array<Genome>;
 @group(0) @binding(8) var<storage, read_write> sway: array<Sway>;
+${SWAY_SLOTS}
 
 fn drawnSize(p: Particle) -> f32 { return genomes[p.kind].size * (1.0 - 0.12 * f32(roleOf(p.info))); }
 
@@ -5026,8 +5105,21 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     for (var c = 0u; c < TOUCH_N; c++) { touch[i * TOUCH_N + c] = best[c]; }
 
     let now = bitcast<f32>(views.grid.z);
-    let slot = p.id % arrayLength(&sway);
-    let was = sway[slot];
+    // its slot: the one holding its record; else the first, unless another cell holds that one (seen within half
+    // a second of real time or two of sim time: a dead cell's record is read for its last moments, 1.6 s at most),
+    // then the second
+    let swayN = arrayLength(&sway);
+    var slot = p.id % swayN;
+    var was = sway[slot];
+    if (was.id != p.id) {
+      let s2 = swaySlot2(p.id, swayN);
+      let w2 = sway[s2];
+      var real = now - was.time;
+      if (real < 0.0) { real += SIM_WRAP; }
+      var simAge = bitcast<f32>(views.grid.w) - was.simT;
+      if (simAge < 0.0) { simAge += SIM_WRAP; }
+      if (w2.id == p.id || real < 0.5 || simAge < 2.0) { slot = s2; was = w2; }
+    }
     var dt = now - was.time;
     if (dt < 0.0) { dt += SIM_WRAP; } // real time reaches the GPU modulo SIM_WRAP too
     if (was.id == p.id && dt == 0.0) { continue; }
@@ -5041,7 +5133,10 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     let it = intent[i];
     let birth = (it.x & 3u) == 2u;
     var pack = select(bitcast<f32>(it.y), 0.0, birth);
-    if (was.id == p.id && dt > 0.0 && dt < 0.1) {
+    // (a record half a second old or more is from when it was last in view; a slow frame rate, a big
+    // world at 1x at 10 fps or less, still carries it: started afresh each frame, every cell would face
+    // its raw velocity, flicking every way)
+    if (was.id == p.id && dt > 0.0 && dt < 0.5) {
       pack = select(mix(was.pack, pack, 1.0 - exp(-dt / 0.3)), was.pack, birth);
       let prev = unpack2x16float(was.vel);
       vel = mix(prev, p.vel, 1.0 - exp(-dt / 0.08));
@@ -5063,20 +5158,26 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
       turn -= TAU * round(turn / TAU);
       let follow = clamp(0.5 * turn / (dt * max(speed, 1e-4)) * radius, -0.45, 0.45)
         * smoothstep(0.5, 2.0, speed / radius);
-      // about 1.4 Hz, damping 0.3: it overshoots a little once the turn ends
-      bend.y += ((follow - bend.x) * 80.0 - bend.y * 5.4) * dt;
-      bend.x = clamp(bend.x + bend.y * dt, -0.6, 0.6);
       let dv = (vel - prev) / (dt * radius);
       let knock = length(dv);
       let axis = 2.0 * atan2(dv.y, dv.x);
       // knocks run from a few to a few hundred radii/s² (crowded colonies are shoved constantly), so
       // the squash saturates
       let push = 0.2 * (1.0 - exp(-knock / 60.0)) * vec2f(cos(axis), sin(axis));
-      // about 2.5 Hz, damping 0.25
-      rate += ((push - squash) * 247.0 - rate * 7.9) * dt;
-      squash += rate * dt;
-      let amount = length(squash);
-      if (amount > 0.3) { squash *= 0.3 / amount; }
+      // the springs in steps of at most 1/30 s (one step a frame at 30 fps or faster: as before), as
+      // the squash's would ring up over a longer one
+      let subs = min(ceil(dt * 30.0), 15.0);
+      let hs = dt / subs;
+      for (var ks = 0.0; ks < subs; ks += 1.0) {
+        // about 1.4 Hz, damping 0.3: it overshoots a little once the turn ends
+        bend.y += ((follow - bend.x) * 80.0 - bend.y * 5.4) * hs;
+        bend.x = clamp(bend.x + bend.y * hs, -0.6, 0.6);
+        // about 2.5 Hz, damping 0.25
+        rate += ((push - squash) * 247.0 - rate * 7.9) * hs;
+        squash += rate * hs;
+        let amount = length(squash);
+        if (amount > 0.3) { squash *= 0.3 / amount; }
+      }
     }
 
     // What has just happened to it, read from how it changed since it was last seen (in sim time).
@@ -5264,6 +5365,14 @@ struct View {
 @group(0) @binding(8) var<storage, read> touch: array<u32>;
 // Each cell's bend along its path and squash from knocks (INBOND_WGSL contactGather), by ID.
 @group(0) @binding(9) var<storage, read> sway: array<Sway>;
+${SWAY_SLOTS}
+// The slot holding this cell's record, if either does (else the first).
+fn swayAt(id: u32) -> Sway {
+  let n = arrayLength(&sway);
+  let st = sway[id % n];
+  if (st.id == id) { return st; }
+  return sway[swaySlot2(id, n)];
+}
 @group(0) @binding(10) var<storage, read> organDir: array<u32>;
 // The water's temperature per grid cell (heatMain), for how heat shows on a cell.
 @group(0) @binding(11) var<storage, read> heatField: array<f32>;
@@ -5544,7 +5653,7 @@ fn cellOutline(uv: vec2f, dir: vec2f, radius: f32, seed: f32,
 // This cell's sway, if contactGather kept it just now (the slot may hold another cell, or this one
 // from when it was last in view).
 fn swayOf(p: Particle) -> Sway {
-  let st = sway[p.id % arrayLength(&sway)];
+  let st = swayAt(p.id);
   if (st.id != p.id || abs(fract((view.time - st.time) / SIM_WRAP + 0.5) - 0.5) * SIM_WRAP > 0.2) { var none: Sway; none.id = ~p.id; return none; }
   return st;
 }
@@ -5625,7 +5734,7 @@ struct Ghost { kind: u32, role: u32, how: u32, t: f32, face: vec2f, pack: f32, f
 fn ghostOf(p: Particle) -> Ghost {
   var gh = Ghost(0u, 0u, 0u, 1.0, vec2f(1.0, 0.0), 0.0, 0.0);
   if (p.kind != HUSK || p.age >= WITHER_T || (p.info & 15u) == 11u) { return gh; }
-  let st = sway[p.id % arrayLength(&sway)];
+  let st = swayAt(p.id);
   let k = st.look & 1023u;
   if (st.id != p.id || k < FIRST_LIFE) { return gh; }
   gh.how = select(0u, select(1u, 2u, (p.info & LITTER) != 0u), (p.info & 15u) == 3u);
@@ -7122,6 +7231,14 @@ struct Post {
   drops: array<vec4f, 4>,
   // x: how baked the bared floor is: 1 in a drought (it pales and cracks), 0 a low-water era's damp bar
   parch: vec4f,
+  // the sea (Engine._seaPost): x how strongly its slope shades the view, y how far below it the focal plane
+  // lies for its refraction, z on, w how far below it the lamp's light is focused for its caustics (units)
+  seaHead: vec4f,
+  // each cascade: its patch (x, y), how far it carries the water toward its crests, whether it holds any waves
+  seaC: array<vec4f, ${SEA_CASCADES}>,
+  // x how its caustics' focus is softened, y the most it focuses the light, z what is drawn (seaTune.view: 0 the
+  // view, 1 the sea's light alone, 2 its sheen alone)
+  seaLook: vec4f,
 };
 `
   );
@@ -7286,6 +7403,9 @@ struct Reproj { scale: vec2f, shift: vec2f, k: f32, p0: f32, p1: f32, p2: f32 };
 @group(0) @binding(10) var microTex: texture_2d<f32>;
 @group(0) @binding(11) var<storage, read> heatField: array<f32>;
 @group(0) @binding(12) var liveTex: texture_2d<f32>;
+@group(0) @binding(13) var seaTex: texture_2d_array<f32>;
+@group(0) @binding(14) var seaSamp: sampler;
+@group(0) @binding(15) var<storage, read_write> shiftMap: array<vec2f>;
 
 struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 
@@ -8190,7 +8310,7 @@ fn mudDrops(wp: vec2f, t: f32, S0: f32, rmin: f32, rmax: f32, tau: f32, seed: f3
 // themselves; they show only by bending what lies beneath (a slope displaces the view). A raindrop's impact sends out capillary
 // waves, which disperse: the short ones run fastest, so a ring is a packet whose crests crowd toward its leading edge
 // and broaden toward its center, damped where they are shortest; it is uneven around its circle, and the drop's
-// splash throws a few droplets which ring too. In rain the whole surface is roughened by drops falling out of view.
+// splash throws a few droplets which ring too. The whole surface sways with the sea (seaSurface), heaving in a storm.
 const RIPPLE_SHEEN = vec3f(0.11, 0.123, 0.14);
 const RIPPLE_DIM = 0.45;
 // one ring's slope, added to s
@@ -8210,26 +8330,78 @@ fn ringWave(d: vec2f, t: f32, amp: f32, seed: f32, s: ptr<function, vec2f>) {
     * amp / sqrt(1.0 + r * 0.25) * (1.0 - smoothstep(0.3, 0.45, r / min(post.world.x, post.world.y)));
   *s += dir * (-0.06 * env * sin(ph));
 }
-// the chop: wavelets from every direction, long and short, the short running faster (capillary waves), each
-// adding its slope
-fn chop(p: vec2f, rain: f32, s: ptr<function, vec2f>) {
-  for (var i = 0; i < 14; i++) {
-    let fi = f32(i);
-    let a = fi * 2.39996 + 0.4 + 0.5 * hash12(vec2f(fi, 1.0));
-    let lam = 2.0 + 4.0 * hash12(vec2f(fi, 2.0));
-    // its wave vector rounded to whole cycles across the world, so the chop tiles it (the same wherever the view's
-    // wrap puts a point)
-    let kv = round(vec2f(cos(a), sin(a)) * post.world / lam) * 6.2831853 / post.world;
-    let k = max(length(kv), 1e-3);
-    let dir = kv / k;
-    let th = dot(kv, p) - 3.0 * sqrt(k) * post.simTime + fi * 1.7;
-    // in groups: each wavelet stronger here, weaker there, the groups drifting
-    let g = vnoiseT(p, 0.06 + 0.05 * hash12(vec2f(fi, 3.0)), vec2f(fi * 3.1, 0.0) - dir * post.simTime * 0.6);
-    let A = 0.045 * rain / (k * k) * (0.2 + 1.6 * g * g);
-    *s += dir * (A * k * cos(th));
+// The sea (SEA_WGSL, src/sea.js): cascade c's slope (xy) and sideways displacement (zw) at world point p, seen
+// at ppu pixels a unit. A cascade whose texels the view magnifies is read as a cubic B-spline (four bilinear taps):
+// linear filtering kinks at every texel's edge, which the shading shows as a grid; otherwise the hardware filters it
+// for the zoom (mipmaps, anisotropic: its texels are as oblong as the world), so the finer waves average away and the
+// same waves show at every zoom.
+fn seaTap(p: vec2f, c: u32, ppu: f32) -> vec4f {
+  let L = post.seaC[c].xy;
+  let n = f32(${SEA_N});
+  if (min(L.x, L.y) * ppu > 1.5 * n) {
+    let q = p / L * n - 0.5;
+    let i = floor(q);
+    let f = q - i;
+    let f2 = f * f;
+    let f3 = f2 * f;
+    let w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;
+    let w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
+    let w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0;
+    let w3 = f3 / 6.0;
+    let g0 = w0 + w1;
+    let g1 = w2 + w3;
+    let a = (i - 0.5 + w1 / g0) / n;
+    let b = (i + 1.5 + w3 / g1) / n;
+    return (textureSampleLevel(seaTex, seaSamp, a, c, 0.0) * g0.x + textureSampleLevel(seaTex, seaSamp, vec2f(b.x, a.y), c, 0.0) * g1.x) * g0.y
+      + (textureSampleLevel(seaTex, seaSamp, vec2f(a.x, b.y), c, 0.0) * g0.x + textureSampleLevel(seaTex, seaSamp, b, c, 0.0) * g1.x) * g1.y;
   }
+  let g = 1.0 / (ppu * L);
+  return textureSampleGrad(seaTex, seaSamp, p / L, c, vec2f(g.x, 0.0), vec2f(0.0, g.y));
 }
-// the water's surface slope at wp
+// The sea at world point p (summed over the cascades that hold waves): its slope (xy), and how far the water there has
+// been carried toward the crests (zw)
+fn seaAt(p: vec2f, ppu: f32) -> vec4f {
+  var o = vec4f(0.0);
+  for (var c = 0u; c < ${SEA_CASCADES}u; c++) {
+    let L = post.seaC[c];
+    if (L.w <= 0.0) { continue; }
+    let t = seaTap(p, c, ppu);
+    o += vec4f(t.xy, t.zw * L.z);
+  }
+  return o;
+}
+// What the water's surface does at world point wp, seen at ppu pixels a unit: shift (world units) how far it bends
+// the view of what lies beneath, slope its tilt (the sheen), light how much of the lamp's light it focuses there.
+struct Surface { shift: vec2f, slope: vec2f, light: f32 };
+// The sea is fixed in the world, the size it would be, so zooming in only magnifies it: from close up a single ripple
+// fills the view, and the surface (far above the focal plane, out of focus) shows only by bending the view and by the
+// light it focuses, the field breathing and soft bands of light sweeping across it. Its crests are sharpened as a
+// choppy sea's are (Tessendorf): the point seen at wp came from x0 = wp - D(x0), by fixed-point iteration. What the
+// view's center sees is taken away, from the carrying and from the bending: a ripple wider than the view would
+// otherwise carry the whole of it to and fro, reading as the camera swaying, while what varies across the view stays;
+// taking it at every zoom keeps the sea in place across zooms. The light: the surface's curvature focuses the lamp onto
+// the focal plane below, brightening where it converges (by the divergence of the slope) and dimming where it spreads.
+fn seaSurface(wp: vec2f, ppu: f32, center: vec2f) -> Surface {
+  let c0 = seaAt(center, ppu);
+  var x0 = wp;
+  // (calm water's gentle swell is not choppy: no carrying)
+  if (post.seaC[0].z > 0.0) { for (var it = 0; it < 2; it++) { x0 = wp - (seaAt(x0, ppu).zw - c0.zw); } }
+  let s = seaAt(x0, ppu).xy;
+  let e = ${f(0.4)};
+  let div = (seaAt(x0 + vec2f(e, 0.0), ppu).x - s.x + seaAt(x0 + vec2f(0.0, e), ppu).y - s.y) / e;
+  let focus = 1.0 + post.seaHead.w * div;
+  var o: Surface;
+  // How much the bending stretches the view here (its depth times the slope's divergence): past about a half, at a
+  // storm's sharp crests, the view of what lies beneath would fold over itself and smear the specks under it into
+  // bands as the crest passed (most plainly in the speck-strewn shallows by a low shore). Eased: the bending passes a
+  // gentle stretch untouched and gives way to a steep one.
+  let stretch = post.seaHead.y * div;
+  o.shift = (s - c0.xy) * (post.seaHead.y * inverseSqrt(1.0 + stretch * stretch * 4.0));
+  o.slope = s * post.seaHead.x;
+  o.light = min(inverseSqrt(focus * focus + post.seaLook.x), post.seaLook.y);
+  return o;
+}
+// the raindrops' rings' slope at wp
 fn ripples(wp: vec2f) -> vec2f {
   var o = vec2f(0.0);
   for (var k = 0u; k < 4u; k++) {
@@ -8256,8 +8428,6 @@ fn ripples(wp: vec2f) -> vec2f {
       }
     }
   }
-  // the rain falling out of view: a choppy surface everywhere
-  if (post.pond.y > 0.0) { chop(wp, post.pond.y, &o); }
   return o;
 }
 // A thermal camera's false color: deep blue, teal, amber, white.
@@ -8297,26 +8467,57 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32, ppu: f
   return vec2f(light, inner * mix(0.1, 1.0, focus));
 }
 // How much open water lies over wp: none on the dry floor or under ice, fading over the thin film at their edges.
-fn openWater(wpIn: vec2f) -> f32 {
+// How far wp lies into open water (units): to the nearer of the pool's edge and the ice's, by each field's slope; 0 or
+// less on the dry floor or under ice, and 1e4 with neither.
+fn waterRoom(wpIn: vec2f) -> f32 {
   let wp = wpIn - post.world * floor(wpIn / post.world);
-  var wet = 1.0;
+  var room = 1e4;
   if (post.pond.x < 1.0) {
     let pd = pondPost(wp);
-    wet *= smoothstep(0.0, 0.4, pd.x / max(length(pd.yz), 1e-4));
+    room = min(room, pd.x / max(length(pd.yz), 1e-4));
   }
   if (post.weather.y > 0.0) {
     let fi = fieldPost(${2 * MAX_CELLS}u, wp);
-    wet *= smoothstep(0.0, 0.4, (fi.x - post.weather.y) / max(length(fi.yz), 1e-4));
+    room = min(room, (fi.x - post.weather.y) / max(length(fi.yz), 1e-4));
   }
-  return wet;
+  return room;
 }
-// The water's surface slope at wp: the rings raindrops send across it, which bend the view as they pass (on open
-// water only: dry mud and ice have no surface to wave).
-fn surfaceAt(wp: vec2f) -> vec2f {
-  if (post.pond.y <= 0.0) { return vec2f(0.0); }
-  let wet = openWater(wp);
-  if (wet <= 0.0) { return vec2f(0.0); }
-  return ripples(wp) * wet;
+fn openWater(wpIn: vec2f) -> f32 { return smoothstep(0.0, 0.4, waterRoom(wpIn)); }
+// A shift of the view (d) kept within room of where it starts (how far that is from the image's edge): beyond the edge
+// the image repeats its last row of pixels, which a shift there would smear into streaks. Eased, not cut: a shift
+// shrinks smoothly to nothing at the edge.
+fn keepInside(d: vec2f, room: f32) -> vec2f {
+  let lim = 0.6 * max(room, 0.0);
+  return d * (lim / max(lim, length(d) + 1e-6));
+}
+// The water's surface at wp, seen at ppu pixels a unit from a view centered on center: the sea, gently swaying in calm
+// water and heaving in a storm, and the rings raindrops send across it (on open water only: dry mud and ice have no
+// surface to wave).
+fn surfaceAt(wp: vec2f, ppu: f32, center: vec2f) -> Surface {
+  var o: Surface;
+  o.light = 1.0;
+  let room = waterRoom(wp);
+  let wet = smoothstep(0.0, 0.4, room);
+  if (wet <= 0.0) { return o; }
+  if (post.seaHead.z > 0.0) { o = seaSurface(wp, ppu, center); }
+  let r = ripples(wp);
+  // the bending eases out toward the water's edge within the room there (keepInside): faded over a fixed width
+  // instead, a storm's bending (as long as that width or more) smeared what lies by the shore into bands
+  o.shift = keepInside(o.shift + r * 1.2, room);
+  o.slope = (o.slope + r) * wet;
+  o.light = mix(1.0, o.light, wet);
+  return o;
+}
+// The water's bend over the main view on a coarse grid (SHIFT_W x SHIFT_H points, each at its cell's middle), in
+// the view's pixels: the shift fsComposite gives the view there, edge easing and all, for the page's overlays (the
+// followed cell's brackets, song marks) to sit where their cells show (Engine.seaShift; the field is smooth at this
+// spacing, which the page interpolates).
+@compute @workgroup_size(8, 8) fn seaShiftMap(@builtin(global_invocation_id) g: vec3u) {
+  if (g.x >= ${SHIFT_W}u || g.y >= ${SHIFT_H}u) { return; }
+  let px = (vec2f(g.xy) + 0.5) / vec2f(${SHIFT_W}.0, ${SHIFT_H}.0) * post.res;
+  let wp = post.cam + (px - post.res * 0.5) / post.ppu;
+  let surf = surfaceAt(wp, post.ppu, post.cam);
+  shiftMap[g.y * ${SHIFT_W}u + g.x] = keepInside(surf.shift * post.ppu, min(min(px.x, post.res.x - px.x), min(px.y, post.res.y - px.y)));
 }
 // Schlieren, in pixels: with the heat map on Shimmer, warm water bends the light passing through it like the
 // air over a hot road, faintly, wherever warmth changes (around colonies and framboids, at fronts), the
@@ -8491,9 +8692,12 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   let wp = post.cam + (i.pos.xy - post.res * 0.5) / post.ppu;
   var water = vec3f(post.heat.x, 0.0, 0.0);
   var uv = i.uv;
-  // rain: the rings raindrops send across the water bend the view as they pass
-  let surf = surfaceAt(wp);
-  uv += surf * 1.2 * post.ppu / post.res;
+  // the water's surface (the sea, raindrops' rings) bends the view and focuses the light
+  let surf = surfaceAt(wp, post.ppu, post.cam);
+  if (post.seaLook.z > 0.5 && post.seaLook.z < 2.5) {
+    return vec4f(vec3f(clamp(select(0.5 + 2.5 * dot(surf.slope, LAMP_L), 0.25 * surf.light, post.seaLook.z < 1.5), 0.0, 1.0)), 1.0);
+  }
+  uv += keepInside(surf.shift * post.ppu, min(min(i.pos.x, post.res.x - i.pos.x), min(i.pos.y, post.res.y - i.pos.y))) / post.res;
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
     uv += shimmer(wp, water) / post.res;
@@ -8506,7 +8710,8 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   if (k > 0.0) { hdr += lensScene(uv, q, wp, i.pos.xy, k); }
   else { hdr += mix(all.rgb / max(1.0, all.a), live.rgb / max(1.0, live.a), min(1.0, live.a)); }
   let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
-  hdr = (hdr + bl * post.bloom) * post.exposure;
+  // the sea focuses the lamp's light onto what lies beneath it
+  hdr = (hdr + bl * post.bloom) * post.exposure * surf.light;
   hdr += tideTint(wp);
   var c = tonemap(hdr);
   c = mapsOver(c, wp, i.pos.xy, water.x);
@@ -8522,7 +8727,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   bg = mix(bg, bg * mix(vec3f(0.85, 0.88, 0.94), vec3f(1.12, 1.06, 1.0), lamp), k) + vec3f(0.0045, 0.004, 0.0015) * m * behind;
   c = c * mix(0.72, 1.0, v) * mix(1.0, mix(0.88, 1.05, lamp), k) + bg;
   c = pondSpecks(c, hdr, i.pos.xy, min(1.0, live.a));
-  c = poolOver(c, wp, post.ppu, k, behind, surf);
+  c = poolOver(c, wp, post.ppu, k, behind, surf.slope);
   // the round field stop of the eyepiece clips the corners of the camera's frame
   let corner = length(vec2f(post.res.x / post.res.y, 1.0));
   c *= mix(1.0, 1.0 - 0.85 * smoothstep(corner * 0.78, corner * 1.02, length(q)), k);
@@ -8572,8 +8777,8 @@ fn loupeScene(r: vec2f) -> vec3f {
   let toR = microView.ppu / (microView.res * 0.5);
   let r0 = r;
   let wp = microView.cam + r0 / toR;
-  let surf = surfaceAt(wp);
-  r += surf * 1.2 * toR;
+  let surf = surfaceAt(wp, loupe.ppu, microView.cam);
+  r += keepInside(surf.shift * toR, 1.0 - max(abs(r0.x), abs(r0.y)));
   var water = vec3f(post.heat.x, 0.0, 0.0);
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
@@ -8587,14 +8792,14 @@ fn loupeScene(r: vec2f) -> vec3f {
     let b = loupeScene(r + o) + loupeScene(r - o) + loupeScene(r + vec2f(o.x, -o.y)) + loupeScene(r - vec2f(o.x, -o.y));
     hdr = mix(hdr, b * 0.25, 0.6 * soft);
   }
-  hdr = hdr * post.exposure + tideTint(wp);
+  hdr = hdr * post.exposure * surf.light + tideTint(wp);
   var m = 0.0;
   if (k > 0.0) { m = murk(microView.cam, r0 * microView.res * 0.5 / microView.ppu) * k; }
   let behind = 1.0 / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
   var c = mapsOver(tonemap(hdr), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + vec3f(0.0045, 0.004, 0.0015) * m * behind;
   c = pondMicro(c, hdr, microView.cam, r0 * microView.res * 0.5, microView.ppu, loupe.ppu, m);
   // the drought's dry floor and its rain, the frost's ice, the storm's waves, duckweed
-  c = poolOver(c, wp, loupe.ppu, k, behind, surf);
+  c = poolOver(c, wp, loupe.ppu, k, behind, surf.slope);
   c = pow(c, vec3f(1.0 / 2.2));
   let vign = smoothstep(1.0, 0.75, d);
   c *= mix(mix(0.55, 0.75, k), 1.0, vign);
@@ -8629,6 +8834,147 @@ fn loupeScene(r: vec2f) -> vec3f {
   return vec4f(pow(c, vec3f(1.0 / 2.2)), 1.0);
 }
 `;
+  var SEA_WGSL = (
+    /* wgsl */
+    `
+const N = ${SEA_N}u;
+const BITS = ${Math.log2(SEA_N)}u;
+const TAU = 6.283185307;
+struct SeaU {
+  casc: array<vec4f, ${SEA_CASCADES}>, // patch (x, y), band (k0, k1)
+  sys: array<vec4f, ${SEA.systems.length}>, // each system's peak wavenumber, spectrum scale and spread
+  wave: vec4f, // the wind's direction now, the spectrum's fall above a peak, the peaks' enhancement, the damping wavenumber
+  clock: vec4f, // t modulo T, 2 pi / T, the wind ripples' angular frequency at their peak, their peak wavenumber
+  shape: vec4f, // beta (frequency as k^beta)
+  seed: vec4u,
+};
+@group(0) @binding(0) var<uniform> sea: SeaU;
+@group(0) @binding(1) var<storage, read_write> h0: array<vec4f>;
+@group(0) @binding(2) var<storage, read_write> work: array<vec4f>;
+@group(0) @binding(3) var seaOut: texture_storage_2d_array<rgba16float, write>;
+@group(0) @binding(4) var mipIn: texture_2d_array<f32>;
+
+fn waveK(c: u32, i: u32, j: u32) -> vec2f {
+  let f = vec2f(f32(i), f32(j)) - select(vec2f(0.0), vec2f(f32(N)), vec2u(i, j) >= vec2u(N / 2u));
+  return TAU * f / sea.casc[c].xy;
+}
+fn pcg(v: u32) -> u32 {
+  let s = v * 747796405u + 2891336453u;
+  let w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+  return (w >> 22u) ^ w;
+}
+// a standard complex Gaussian for wavenumber (i, j) of cascade c, fixed by the storm's seed
+fn gauss(c: u32, i: u32, j: u32) -> vec2f {
+  let a = pcg(pcg(pcg(sea.seed.x ^ (c * 0x9e3779b9u)) ^ i) ^ (j * 0x85ebca6bu));
+  let b = pcg(a ^ 0x68e31da4u);
+  let u1 = (f32(a >> 8u) + 0.5) / 16777216.0;
+  let u2 = f32(b >> 8u) / 16777216.0;
+  return sqrt(-2.0 * log(u1)) * vec2f(cos(TAU * u2), sin(TAU * u2)) * 0.70710678;
+}
+// the height spectrum at wavenumber (i, j) of cascade c, as an amplitude: sqrt(Phi dk / 2), within its band only
+fn amp(c: u32, i: u32, j: u32) -> f32 {
+  let kv = waveK(c, i, j);
+  let k = length(kv);
+  let band = sea.casc[c];
+  if (k < band.z || k >= band.w || k <= 0.0) { return 0.0; }
+  let off = abs(cos((atan2(kv.y, kv.x) - sea.wave.x) * 0.5));
+  var phi = 0.0;
+  for (var s = 0u; s < ${SEA.systems.length}u; s++) {
+    let kp = sea.sys[s].x;
+    let sig = select(0.09, 0.07, k < kp);
+    let r = exp(-pow(sqrt(k / kp) - 1.0, 2.0) / (2.0 * sig * sig));
+    phi += sea.sys[s].y * pow(k, -sea.wave.y) * exp(-1.25 * (kp / k) * (kp / k)) * pow(sea.wave.z, r) * pow(off, 2.0 * sea.sys[s].z);
+  }
+  let dk = TAU * TAU / (band.x * band.y);
+  return sqrt(phi * exp(-(k / sea.wave.w) * (k / sea.wave.w)) * dk * 0.5);
+}
+
+@compute @workgroup_size(16, 16) fn seaInit(@builtin(global_invocation_id) g: vec3u) {
+  let c = g.z;
+  let i = g.x;
+  let j = g.y;
+  let mi = (N - i) % N;
+  let mj = (N - j) % N;
+  let m = gauss(c, mi, mj);
+  h0[(c * N + j) * N + i] = vec4f(gauss(c, i, j), m.x, -m.y);
+}
+
+fn cmul(a: vec2f, b: vec2f) -> vec2f { return vec2f(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
+
+@compute @workgroup_size(16, 16) fn seaSpectrum(@builtin(global_invocation_id) g: vec3u) {
+  let c = g.z;
+  let at = (c * N + g.y) * N + g.x;
+  let kv = waveK(c, g.x, g.y);
+  let k = length(kv);
+  if (k <= 0.0) { work[at] = vec4f(0.0); return; }
+  let w0 = sea.clock.y;
+  let w = round(sea.clock.z * pow(k / sea.clock.w, sea.shape.x) / w0) * w0;
+  let ph = w * sea.clock.x;
+  let e = vec2f(cos(ph), sin(ph));
+  // the amplitudes under the wind as it blows now (amp), so a turning wind fades the waves along its old way and
+  // raises them along its new one, the sea following it rather than jumping
+  let s = h0[at];
+  let h = cmul(s.xy * amp(c, g.x, g.y), e) + cmul(s.zw * amp(c, (N - g.x) % N, (N - g.y) % N), vec2f(e.x, -e.y));
+  // slope x + i slope y: i kx h + i (i ky h); displacement x + i displacement y: -i kx/k h + ky/k h
+  let ih = vec2f(-h.y, h.x);
+  let A = ih * kv.x + vec2f(-ih.y, ih.x) * kv.y;
+  let B = -ih * (kv.x / k) + h * (kv.y / k);
+  work[at] = vec4f(A, B);
+}
+
+// one inverse FFT of SEA_N points in workgroup memory (both packed fields at once), from bit-reversed order
+var<workgroup> line: array<vec4f, ${SEA_N}>;
+fn fftLine(t: u32) {
+  for (var s = 0u; s < BITS; s++) {
+    workgroupBarrier();
+    let half = 1u << s;
+    let pos = t & (half - 1u);
+    let i0 = ((t >> s) << (s + 1u)) + pos;
+    let i1 = i0 + half;
+    let a = TAU * f32(pos) / f32(half * 2u);
+    let w = vec2f(cos(a), sin(a));
+    let u = line[i0];
+    let v = line[i1];
+    let vw = vec4f(cmul(v.xy, w), cmul(v.zw, w));
+    line[i0] = u + vw;
+    line[i1] = u - vw;
+  }
+  workgroupBarrier();
+}
+fn rev(i: u32) -> u32 { return reverseBits(i) >> (32u - BITS); }
+
+@compute @workgroup_size(${SEA_N / 2}) fn fftRows(@builtin(local_invocation_id) l: vec3u, @builtin(workgroup_id) wg: vec3u) {
+  let t = l.x;
+  let base = (wg.y * N + wg.x) * N;
+  line[rev(t)] = work[base + t];
+  line[rev(t + N / 2u)] = work[base + t + N / 2u];
+  fftLine(t);
+  work[base + t] = line[t];
+  work[base + t + N / 2u] = line[t + N / 2u];
+}
+
+@compute @workgroup_size(${SEA_N / 2}) fn fftCols(@builtin(local_invocation_id) l: vec3u, @builtin(workgroup_id) wg: vec3u) {
+  let t = l.x;
+  let col = wg.x;
+  let base = wg.y * N * N + col;
+  line[rev(t)] = work[base + t * N];
+  line[rev(t + N / 2u)] = work[base + (t + N / 2u) * N];
+  fftLine(t);
+  textureStore(seaOut, vec2u(col, t), wg.y, line[t]);
+  textureStore(seaOut, vec2u(col, t + N / 2u), wg.y, line[t + N / 2u]);
+}
+
+// one mip level from the one above it: the average of its 2 × 2
+@compute @workgroup_size(8, 8) fn seaMip(@builtin(global_invocation_id) g: vec3u) {
+  let size = textureDimensions(seaOut);
+  if (any(g.xy >= size)) { return; }
+  let p = vec2i(g.xy * 2u);
+  let c = i32(g.z);
+  let v = textureLoad(mipIn, p, c, 0) + textureLoad(mipIn, p + vec2i(1, 0), c, 0) + textureLoad(mipIn, p + vec2i(0, 1), c, 0) + textureLoad(mipIn, p + vec2i(1, 1), c, 0);
+  textureStore(seaOut, g.xy, g.z, v * 0.25);
+}
+`
+  );
   var MICRO_SPECKS = 262144;
   var MICRO_WGSL = COMMON + POST_STRUCT + /* wgsl */
   `
@@ -17793,6 +18139,46 @@ registerProcessor("tidemote-sound", TidemoteSound);
     return d[3] * sh;
   }
 
+  // src/seatune.js
+  function seaTuneDefaults(P) {
+    return {
+      calm: 0.3,
+      calmPace: 0.45,
+      follow: 0.5,
+      pace: 1,
+      Tp: P.Tp,
+      beta: P.beta,
+      height: 1,
+      tilt: 0.25,
+      refract: 1.5,
+      caustic: 3.5,
+      lightSoft: 0.1,
+      lightCap: 2.5,
+      chop: P.chop,
+      lp0: P.systems[0].lp,
+      slope0: P.systems[0].slope,
+      spread0: P.systems[0].spread,
+      lp1: P.systems[1].lp,
+      slope1: P.systems[1].slope,
+      spread1: P.systems[1].spread,
+      lmin: P.lmin,
+      gamma: P.gamma,
+      rough: -1,
+      view: 0
+    };
+  }
+  function seaSpecOf(P, t2) {
+    return {
+      ...P,
+      Tp: t2.Tp,
+      beta: t2.beta,
+      lmin: t2.lmin,
+      gamma: t2.gamma,
+      chop: t2.chop,
+      systems: [{ lp: t2.lp0, slope: t2.slope0, spread: t2.spread0 }, { lp: t2.lp1, slope: t2.slope1, spread: t2.spread1 }]
+    };
+  }
+
   // src/geography.js
   function seededRng(seed) {
     let a = seed >>> 0;
@@ -17920,6 +18306,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   }
   var LATE = /* @__PURE__ */ new Set(["lifeMainCoarse", "mindMain", "mindMainCoarse", "rangeMain"]);
   var COMPILE_COST = { lifeMain: 26, fsPoint: 15, "fsPointLive+live": 13, fsComposite: 11, fsLoupe: 8, matterMain: 5 };
+  var SEA_WIND_EASE = 30;
   var REAL_WRAP = 4096;
   var Engine = class {
     constructor(device, format, hasTimestamps, K, late = false) {
@@ -17964,7 +18351,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.waves = new Float32Array(16);
       this.viewData = new ArrayBuffer(112);
       this.viewDataL = new ArrayBuffer(112);
-      this.postData = new Float32Array(92);
+      this.postData = new Float32Array(100 + 4 * SEA_CASCADES);
       this.loupe = null;
       this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 4294967295, memberN: 0 };
       this.viewDataS = new ArrayBuffer(112);
@@ -17994,7 +18381,22 @@ registerProcessor("tidemote-sound", TidemoteSound);
       b.viewL = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
       b.viewS = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
       b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
-      b.post = d.createBuffer({ size: 368, usage: U.UNIFORM | U.COPY_DST });
+      b.post = d.createBuffer({ size: (100 + 4 * SEA_CASCADES) * 4, usage: U.UNIFORM | U.COPY_DST });
+      b.seaU = d.createBuffer({ size: 128, usage: U.UNIFORM | U.COPY_DST });
+      this.seaTex = d.createTexture({
+        size: [SEA_N, SEA_N, SEA_CASCADES],
+        format: "rgba16float",
+        mipLevelCount: Math.log2(SEA_N) + 1,
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+        label: "sea"
+      });
+      this.seaView = this.seaTex.createView({ dimension: "2d-array" });
+      this.seaSampler = d.createSampler({ addressModeU: "repeat", addressModeV: "repeat", magFilter: "linear", minFilter: "linear", mipmapFilter: "linear", maxAnisotropy: 8 });
+      this.seaData = new ArrayBuffer(128);
+      this._seaOn = false;
+      this.seaTune = seaTuneDefaults(SEA);
+      this.seaSpec = seaSpecOf(SEA, this.seaTune);
+      this._seaVer = 0;
       b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
       b.pickU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
       b.counts = d.createBuffer({ size: 2 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST });
@@ -18106,6 +18508,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.cpWatchNear = cp(this.watchModule, "watchNear");
       this.cpWatchArgs = cp(this.watchModule, "watchArgs");
       this.cpSurvey = { pipe: cp(this.surveyModule, "surveyMain"), bg: null };
+      const seaModule = d.createShaderModule({ code: SEA_WGSL, label: "sea" });
+      this.cpShift = cp(this.postModule, "seaShiftMap");
+      b.shiftMap = d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: U.STORAGE | U.COPY_SRC });
+      this.shiftRead = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }), busy: false }));
+      this.seaShifts = [];
+      this.seaPipes = { init: cp(seaModule, "seaInit"), spectrum: cp(seaModule, "seaSpectrum"), rows: cp(seaModule, "fftRows"), cols: cp(seaModule, "fftCols"), mip: cp(seaModule, "seaMip") };
       const additive = { color: { srcFactor: "one", dstFactor: "one", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one", operation: "add" } };
       const trail = { color: { srcFactor: "constant", dstFactor: "one", operation: "add" }, alpha: { srcFactor: "constant", dstFactor: "one", operation: "add" } };
       const over = { color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" } };
@@ -18205,6 +18613,13 @@ ${e.message}` : String(e?.message || e));
         { binding: 2, resource: { buffer: c.segs } },
         { binding: 3, resource: { buffer: c.args } }
       ] });
+      this.cpShiftBG = d.createBindGroup({ layout: this.cpShift.getBindGroupLayout(0), entries: [
+        { binding: 2, resource: { buffer: b.post } },
+        { binding: 11, resource: { buffer: b.thermal } },
+        { binding: 13, resource: this.seaView },
+        { binding: 14, resource: this.seaSampler },
+        { binding: 15, resource: { buffer: b.shiftMap } }
+      ] });
       this.cpMicroBG = d.createBindGroup({ layout: this.cpMicro.getBindGroupLayout(0), entries: [
         { binding: 0, resource: { buffer: b.post } },
         { binding: 1, resource: { buffer: b.microU } },
@@ -18252,7 +18667,7 @@ ${e.message}` : String(e?.message || e));
       b.touch = d.createBuffer({ size: n * 24, usage: U.STORAGE, mappedAtCreation: true });
       new Uint32Array(b.touch.getMappedRange()).fill(4294967295);
       b.touch.unmap();
-      b.sway = d.createBuffer({ size: Math.min(n, 1 << 20) * SWAY_BYTES, usage: U.STORAGE });
+      b.sway = d.createBuffer({ size: Math.min(n, 1 << 20) * SWAY_BYTES, usage: U.STORAGE | U.COPY_SRC });
       b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
       b.ledger = d.createBuffer({ size: (META_CLAIM + n + SPL_WORDS + 2 * MAX_CELLS) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
       b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
@@ -18481,7 +18896,9 @@ ${e.message}` : String(e?.message || e));
         { binding: 9, resource: this.murkView },
         { binding: 10, resource: this.microView },
         { binding: 11, resource: { buffer: this.b.thermal } },
-        { binding: 12, resource: this.liveView }
+        { binding: 12, resource: this.liveView },
+        { binding: 13, resource: this.seaView },
+        { binding: 14, resource: this.seaSampler }
       ] }));
       this.compBG = compBG(this.pComp);
       this.compClearBG = compBG(this.pCompClear);
@@ -18528,7 +18945,9 @@ ${e.message}` : String(e?.message || e));
         { binding: 6, resource: { buffer: this.b.viewL } },
         { binding: 7, resource: this.loupeStoneView[0] },
         { binding: 8, resource: this.loupeStoneView[1] },
-        { binding: 11, resource: { buffer: this.b.thermal } }
+        { binding: 11, resource: { buffer: this.b.thermal } },
+        { binding: 13, resource: this.seaView },
+        { binding: 14, resource: this.seaSampler }
       ] });
     }
     /**
@@ -18767,6 +19186,177 @@ ${e.message}` : String(e?.message || e));
       }
       c.t = this.simTime - base;
       return c;
+    }
+    // How rough the sea is, 0 calm to 1 a full storm: the rain, more with the storm's currents (turb), unless the tunables
+    // hold it.
+    get seaRough() {
+      if (this.seaTune.rough >= 0) return this.seaTune.rough;
+      return Math.min(1, this.rain * (0.6 + 0.65 * Math.min(1, Math.max(0, (this.turb - 1) / 1.6))));
+    }
+    // The sea made again from the tunables' waves (src/seatune.js); reroll: a new sea and wind too.
+    seaRebuild(reroll = false) {
+      this.seaSpec = seaSpecOf(SEA, this.seaTune);
+      this._seaVer++;
+      if (reroll) this._seaRoll = (this._seaRoll ?? 0) + 1;
+    }
+    /**
+     * Where world point (wx, wy) shows in the main view, as an offset from where it lies (device pixels of the view
+     * drawn now at ppu): the water bends the view (fsComposite: the pixel at x shows the scene at x + shift(x)), so a
+     * point lying at c shows at the x with x + shift(x) = c, found in two steps of x = c - shift(x). From the grids the
+     * GPU last drew (seaShiftMap), each sampled where the point lay in its own view and carried on to now from the two,
+     * as they come back a frame or two late. [0, 0] without the water.
+     */
+    seaShift(wx, wy, cam) {
+      const S = this.seaShifts;
+      if (!S.length) return [0, 0];
+      const [W, H2] = this.grid;
+      const at = (m, ox, oy) => {
+        const c = m.cam;
+        let dx = wx - c.x, dy = wy - c.y;
+        dx -= W * Math.round(dx / W);
+        dy -= H2 * Math.round(dy / H2);
+        const gx = (dx * c.ppu + c.w / 2 + ox * (c.ppu / cam.ppu)) / c.w * SHIFT_W - 0.5, gy = (dy * c.ppu + c.h / 2 + oy * (c.ppu / cam.ppu)) / c.h * SHIFT_H - 0.5;
+        const x0 = Math.max(0, Math.min(SHIFT_W - 1, Math.floor(gx))), y0 = Math.max(0, Math.min(SHIFT_H - 1, Math.floor(gy)));
+        const x1 = Math.min(SHIFT_W - 1, x0 + 1), y1 = Math.min(SHIFT_H - 1, y0 + 1), fx = Math.max(0, Math.min(1, gx - x0)), fy = Math.max(0, Math.min(1, gy - y0));
+        const v = (x, y, k2) => m.data[(y * SHIFT_W + x) * 2 + k2];
+        const lerp3 = (k2) => (v(x0, y0, k2) * (1 - fx) + v(x1, y0, k2) * fx) * (1 - fy) + (v(x0, y1, k2) * (1 - fx) + v(x1, y1, k2) * fx) * fy;
+        return [lerp3(0) * (cam.ppu / c.ppu), lerp3(1) * (cam.ppu / c.ppu)];
+      };
+      const now = performance.now(), b = S[S.length - 1], a = S.length > 1 ? S[0] : null;
+      const k = a && b.at > a.at ? Math.min(3, (now - b.at) / (b.at - a.at)) : 0;
+      const shift = (ox, oy) => {
+        const q = at(b, ox, oy);
+        if (!k) return q;
+        const p = at(a, ox, oy);
+        return [q[0] + (q[0] - p[0]) * k, q[1] + (q[1] - p[1]) * k];
+      };
+      let s = shift(0, 0);
+      s = shift(-s[0], -s[1]);
+      return [-s[0], -s[1]];
+    }
+    // The way the tide's light bands drift, as the sea's prevailing wind (radians): their crests' velocities (each wave's
+    // -w k/|k|^2, from its wave numbers across the world and its drift), weighted by its strength; null while they
+    // cancel.
+    get tideWind() {
+      const [wx, wy] = this.grid;
+      let vx = 0, vy = 0;
+      for (let k = 0; k < 4; k++) {
+        const kx = 2 * Math.PI * this.tide[k * 4] / wx, ky = 2 * Math.PI * this.tide[k * 4 + 1] / wy, w = this.tide[k * 4 + 2], a = this.tide[k * 4 + 3];
+        const k2 = kx * kx + ky * ky;
+        if (k2 > 0) {
+          vx -= a * w * kx / k2;
+          vy -= a * w * ky / k2;
+        }
+      }
+      return Math.hypot(vx, vy) > 1e-6 ? Math.atan2(vy, vx) : null;
+    }
+    // The sea's amplitudes and the FFT's working buffer, made with the first frame, and the passes' bind groups.
+    _seaBuffers() {
+      const d = this.device, b = this.b, P = this.seaPipes, U2 = GPUBufferUsage;
+      const bytes = SEA_CASCADES * SEA_N * SEA_N * 16;
+      b.seaH0 = d.createBuffer({ size: bytes, usage: U2.STORAGE, label: "seaH0" });
+      b.seaWork = d.createBuffer({ size: bytes, usage: U2.STORAGE, label: "seaWork" });
+      const bg = (pipe2, entries) => d.createBindGroup({ layout: pipe2.getBindGroupLayout(0), entries: entries.map(([binding, resource]) => ({ binding, resource })) });
+      const level = (l) => this.seaTex.createView({ dimension: "2d-array", baseMipLevel: l, mipLevelCount: 1 });
+      this.seaBG = {
+        init: bg(P.init, [[0, { buffer: b.seaU }], [1, { buffer: b.seaH0 }]]),
+        spectrum: bg(P.spectrum, [[0, { buffer: b.seaU }], [1, { buffer: b.seaH0 }], [2, { buffer: b.seaWork }]]),
+        rows: bg(P.rows, [[2, { buffer: b.seaWork }]]),
+        cols: bg(P.cols, [[2, { buffer: b.seaWork }], [3, level(0)]]),
+        mips: Array.from({ length: Math.log2(SEA_N) }, (_, i) => bg(P.mip, [[3, level(i + 1)], [4, level(i)]]))
+      };
+    }
+    // The sea (src/sea.js, SEA_WGSL), always: its own for each world (its random draws from the world's seed, made
+    // again when the world changes size; its wind the tide's drift); then each frame its spectrum turned to now, inverted into the sea texture,
+    // and mipmapped. Its clock runs with simulated time at the sea's pace (slow in calm water, full speed in a storm),
+    // summed frame by frame so a change of pace never jumps its phase, and kept modulo the period it loops over, in f64.
+    _sea(enc) {
+      const d = this.device, P = this.seaPipes, N = SEA_N;
+      if (this.seaTune.view === 3) {
+        this._seaLast = this.simTime;
+        this._seaReal = performance.now();
+        return;
+      }
+      if (!this.seaBG) this._seaBuffers();
+      const f2 = new Float32Array(this.seaData), u = new Uint32Array(this.seaData);
+      const key = `${this.grid.join("x")}:${this.seedValue}:${this._seaRoll ?? 0}`;
+      const fresh = !this._seaOn || this._seaKey !== key || this._seaBuilt !== this._seaVer;
+      if (fresh) {
+        if (this._seaKey !== key) {
+          this._seaT = 0;
+          this._seaLast = this.simTime;
+          this._seaReal = performance.now();
+          this._seaWind = null;
+        }
+        this._seaOn = true;
+        this._seaKey = key;
+        this._seaBuilt = this._seaVer;
+        let h = (this.seedValue ^ Math.imul(this._seaRoll ?? 0, 2246822507)) >>> 0;
+        const rnd = () => (h = Math.imul(h ^ h >>> 15, 739982445) + 2654435769 >>> 0) / 2 ** 32;
+        const P2 = this.seaSpec, layout = seaLayout(this.grid, P2), scale = seaScales(layout, P2), S = 4 * SEA_CASCADES, Y = S + 4 * P2.systems.length;
+        layout.forEach((c, i) => f2.set([c.L[0], c.L[1], c.k0, c.k1], i * 4));
+        P2.systems.forEach((sys, j) => f2.set([2 * Math.PI / sys.lp, scale[j], sys.spread, 0], S + j * 4));
+        f2.set([0, P2.p, P2.gamma, 2 * Math.PI / P2.lmin], Y);
+        this._seaWindAt = Y;
+        if (this._seaWind == null) this._seaWind = this.tideWind ?? 0;
+        f2.set([0, 2 * Math.PI / P2.T, 2 * Math.PI / P2.Tp, 2 * Math.PI / P2.systems[0].lp], Y + 4);
+        f2.set([P2.beta, 0, 0, 0], Y + 8);
+        u[Y + 12] = rnd() * 2 ** 32 >>> 0;
+        this._seaClock = Y + 4;
+      }
+      const t2 = this.seaTune, now = performance.now();
+      const sim = this.simTime - this._seaLast, real = Math.min(0.25, (now - (this._seaReal ?? now)) / 1e3);
+      this._seaLast = this.simTime;
+      this._seaReal = now;
+      const dt = t2.follow >= 1 ? sim : real > 0 ? real * Math.max(0, sim / real) ** t2.follow : 0;
+      if (dt > 0) this._seaT = (this._seaT + dt * t2.pace * (t2.calmPace + (1 - t2.calmPace) * this.seaRough)) % SEA.T;
+      const to = this.tideWind;
+      if (to != null && sim > 0) {
+        const turn = Math.atan2(Math.sin(to - this._seaWind), Math.cos(to - this._seaWind));
+        this._seaWind = (this._seaWind + turn * Math.min(1, sim / SEA_WIND_EASE)) % (2 * Math.PI);
+      }
+      f2[this._seaWindAt] = this._seaWind + Math.PI;
+      f2[this._seaClock] = this._seaT;
+      d.queue.writeBuffer(this.b.seaU, 0, this.seaData);
+      const pass = enc.beginComputePass({ label: "sea" });
+      if (fresh) {
+        pass.setPipeline(P.init);
+        pass.setBindGroup(0, this.seaBG.init);
+        pass.dispatchWorkgroups(N / 16, N / 16, SEA_CASCADES);
+      }
+      pass.setPipeline(P.spectrum);
+      pass.setBindGroup(0, this.seaBG.spectrum);
+      pass.dispatchWorkgroups(N / 16, N / 16, SEA_CASCADES);
+      pass.setPipeline(P.rows);
+      pass.setBindGroup(0, this.seaBG.rows);
+      pass.dispatchWorkgroups(N, SEA_CASCADES);
+      pass.setPipeline(P.cols);
+      pass.setBindGroup(0, this.seaBG.cols);
+      pass.dispatchWorkgroups(N, SEA_CASCADES);
+      pass.setPipeline(P.mip);
+      this.seaBG.mips.forEach((g, i) => {
+        const n = Math.max(1, N >> i + 1);
+        pass.setBindGroup(0, g);
+        pass.dispatchWorkgroups(Math.ceil(n / 8), Math.ceil(n / 8), SEA_CASCADES);
+      });
+      pass.end();
+    }
+    // The sea for the post pass, into pd from 92: how strongly its slope shades the view, how far below it lie the focal
+    // plane its slope bends the view of and the plane it focuses the lamp's light onto (units), all as high as the sea
+    // (a share of a storm's in calm water: seaTune.calm); and each cascade's patch, how far it carries the water toward
+    // its crests (a storm's choppy waves, none in calm water's gentle swell), and whether it holds any waves (a cascade
+    // whose band lies past the damping holds next to none).
+    _seaPost(pd) {
+      pd.fill(0, 92);
+      if (!this._seaOn) return;
+      const t2 = this.seaTune, r = this.seaRough, a = (t2.calm + (1 - t2.calm) * r) * t2.height;
+      pd[92] = t2.tilt * a;
+      pd[93] = t2.refract * a;
+      pd[94] = t2.view === 3 ? 0 : 1;
+      pd[95] = t2.caustic * a;
+      const kc = 2 * Math.PI / this.seaSpec.lmin;
+      seaLayout(this.grid, this.seaSpec).forEach((c, i) => pd.set([c.L[0], c.L[1], t2.chop * r * t2.height, c.k0 < 2.5 * kc ? 1 : 0], 96 + i * 4));
+      pd.set([t2.lightSoft, t2.lightCap, t2.view, 0], 96 + 4 * SEA_CASCADES);
     }
     _writeSim(extra = {}) {
       this._fillSim(extra);
@@ -19358,6 +19948,21 @@ ${e.message}` : String(e?.message || e));
       if (prof) prof.finish(nSteps, drew, generation);
       d.queue.submit([enc.finish()]);
       if (prof) prof.read();
+      const sh = this._shiftPending;
+      if (sh) {
+        this._shiftPending = null;
+        sh.slot.busy = true;
+        sh.slot.buf.mapAsync(GPUMapMode.READ).then(() => {
+          const data = new Float32Array(sh.slot.buf.getMappedRange().slice(0));
+          sh.slot.buf.unmap();
+          sh.slot.busy = false;
+          if (sh.gen !== this.worldGeneration) return;
+          this.seaShifts.push({ data, cam: sh.cam, at: sh.at });
+          if (this.seaShifts.length > 2) this.seaShifts.shift();
+        }).catch(() => {
+          sh.slot.busy = false;
+        });
+      }
       if (this.carryDone) {
         this.carryDone.destroy();
         this.carryDone = null;
@@ -19840,6 +20445,7 @@ ${e.message}` : String(e?.message || e));
         }
         pass2.end();
       }
+      this._sea(enc);
       const lod = this.settings.lod;
       const ps = Math.max(1.1 * dpr, 0.085 * cam.ppu);
       const splat = !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W * H2 / 4 ? SPLAT_PX : 0;
@@ -19893,7 +20499,21 @@ ${e.message}` : String(e?.message || e));
       pd.set(this.duck, 64);
       pd.set(clk.drops, 72);
       pd[88] = this.K.pond ? this.parch : 0;
+      this._seaPost(pd);
       d.queue.writeBuffer(this.b.post, 0, pd);
+      this._shiftPending = null;
+      if (this._seaOn && pd[94] > 0 && this.cpShiftBG) {
+        const slot = this.shiftRead.find((x) => !x.busy);
+        if (slot) {
+          const pass2 = enc.beginComputePass({ label: "seaShift" });
+          pass2.setPipeline(this.cpShift);
+          pass2.setBindGroup(0, this.cpShiftBG);
+          pass2.dispatchWorkgroups(Math.ceil(SHIFT_W / 8), Math.ceil(SHIFT_H / 8));
+          pass2.end();
+          enc.copyBufferToBuffer(this.b.shiftMap, 0, slot.buf, 0, SHIFT_W * SHIFT_H * 8);
+          this._shiftPending = { slot, cam: { x: cam.x, y: cam.y, ppu: cam.ppu, w: W, h: H2 }, at: performance.now(), gen: this.worldGeneration };
+        }
+      } else if (!(pd[94] > 0)) this.seaShifts.length = 0;
       const mainDetail = lod && new Float32Array(this.viewData)[7] > 2.8;
       if (mainDetail || loupe || specimen) {
         const [gw, gh] = this.grid;
@@ -20477,6 +21097,8 @@ ${e.message}` : String(e?.message || e));
     register: "How high the species sings. Free-floating photosynths and scavengers sing high, hunters low.",
     tempo: "How quickly its song moves, from how fast and how hungrily it lives.",
     audioload: "How much of its time the soundtrack’s audio thread spends rendering. Near 100% it would crackle, so above about 50% fewer notes may sound at once and the oldest fade out early.",
+    watersurface: "The surface of the water far above the cells, out of focus: as its waves pass they gently bend the view and sweep soft bands of light across what lies beneath, more in a storm. Subtle tones it down, Strong turns it up, Off holds the view still.",
+    wavemotion: "How quickly the water’s waves move. Slow suits a calm view; Lively, a restless one. Sped-up worlds move them faster too, but less than the cells.",
     songmarks: "A faint ring spreads from a cell each time it sings its species’ note: for the picked species only, or for every species. Needs sound on.",
     diversity: "Effective number of species: exp of the Shannon entropy of species populations. A world of 10 equally common species scores 10."
   };
@@ -27290,9 +27912,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "c1f38a2ca635d5b3") return;
+      if (localStorage.getItem(key) === "a26be3d213bfcef6") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "c1f38a2ca635d5b3");
+      if (res) localStorage.setItem(key, "a26be3d213bfcef6");
     } catch {
     }
   }
@@ -27417,6 +28039,10 @@ ${e.message}` : String(e?.message || e));
       events: { ...EVENTS_ON(), ...prefs.events },
       songMarks: prefs.songMarks ?? 1,
       // mark the cells that sing: 0 off, 1 the picked species, 2 all
+      water: prefs.water ?? 2,
+      // the water's surface: 0 off, 1 subtle, 2 normal, 3 strong (applyWater)
+      waves: prefs.waves ?? 1,
+      // its waves' motion: 0 slow, 1 normal, 2 lively
       // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
       // pixels per CSS pixel ('auto' by default, and for prefs saved before v3, which stored the old
       // default 1.5 without anyone choosing it), the frame rate aimed for ('auto' by default, and for
@@ -27459,10 +28085,17 @@ ${e.message}` : String(e?.message || e));
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, events: state.events, ui: state.ui, ...state.perf });
+      savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, water: state.water, waves: state.waves, events: state.events, ui: state.ui, ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
     if (prefs.loupe !== void 0 && !isCoarse) state.loupe = prefs.loupe;
+    const applyWater = () => {
+      const t2 = eng.seaTune;
+      t2.height = [0, 0.5, 1, 1.8][state.water];
+      t2.view = state.water === 0 ? 3 : 0;
+      t2.pace = [0.5, 1, 1.7][state.waves];
+    };
+    applyWater();
     let renderScale = state.perf.scale === "auto" ? 1 : state.perf.scale;
     let densityCap = Infinity;
     const density = () => Math.min(devicePixelRatio || 1, 2, state.perf.density === "auto" ? Math.min(1.5, densityCap) : state.perf.density);
@@ -27497,6 +28130,18 @@ ${e.message}` : String(e?.message || e));
     function toScreen(wx, wy) {
       const p = cssPPU();
       return [innerWidth / 2 + wrapD2(wx - cam.x, eng.grid[0]) * p, innerHeight / 2 + wrapD2(wy - cam.y, eng.grid[1]) * p];
+    }
+    function toShown(wx, wy) {
+      const [sx, sy] = toScreen(wx, wy), [dx, dy] = eng.seaShift(wx, wy, { ppu: ppu() });
+      return [sx + dx / dpr, sy + dy / dpr];
+    }
+    function lensShift(wx, wy, L) {
+      const p = ppu(), [ax, ay] = eng.seaShift(wx, wy, { ppu: p }), [bx, by] = eng.seaShift(L.cx, L.cy, { ppu: p });
+      return [(ax - bx) / p * L.cssPPU, (ay - by) / p * L.cssPPU];
+    }
+    function toWorldShown(sx, sy) {
+      const [wx, wy] = toWorld(sx, sy), [dx, dy] = eng.seaShift(wx, wy, { ppu: ppu() });
+      return toWorld(sx - dx / dpr, sy - dy / dpr);
     }
     function wrapCam() {
       const [W, H2] = eng.grid;
@@ -28530,7 +29175,7 @@ ${e.message}` : String(e?.message || e));
     }
     async function selectAt(sx, sy, pxPerWorld, world) {
       if (state.phase !== "running") return;
-      const [wx, wy] = world || toWorld(sx, sy);
+      const [wx, wy] = world || toWorldShown(sx, sy);
       const p = pxPerWorld || cssPPU();
       const radius = Math.max(3, 40 / p);
       const res = await eng.requestPick([wx, wy], radius, NONE2);
@@ -29182,7 +29827,7 @@ ${e.message}` : String(e?.message || e));
       const kfmt = (n) => n >= 1048576 ? `${+(n / 1048576).toFixed(1)}M` : `${Math.round(n / 1024)}k`;
       function display() {
         const s = eng.settings;
-        return group("look", "", choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "D", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe") + onoff("ui", "Interface", "U", state.ui, "interface")) + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", "Film")} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === "idle" ? '<button type="button" class="chip" data-o="film" data-v="now">30 s now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : "")) + group("sound", "Sound", onoff("sound", "Soundtrack", "S", sound.on) + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>`);
+        return group("look", "", choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "D", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("loupe", "Loupe", "M", state.loupe, "loupe") + onoff("ui", "Interface", "U", state.ui, "interface")) + choice("water", "Water surface", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.water, "watersurface") + (state.water ? choice("waves", "Wave motion", "", [[0, "Slow"], [1, "Normal"], [2, "Lively"]], state.waves, "wavemotion") : "") + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", "Film")} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === "idle" ? '<button type="button" class="chip" data-o="film" data-v="now">30 s now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : "")) + group("sound", "Sound", onoff("sound", "Soundtrack", "S", sound.on) + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>`);
       }
       const scanChoices = () => [...new Set([0.75, 1, 1.5, 2].map((f2) => Math.round(K.maxScan * f2 / 8) * 8).concat(eng.maxScan))].sort((a, b) => a - b);
       function performance_() {
@@ -29341,6 +29986,9 @@ ${e.message}` : String(e?.message || e));
           state.currents = false;
           state.loupe = !isCoarse;
           state.songMarks = 1;
+          state.water = 2;
+          state.waves = 1;
+          applyWater();
           state.auto = true;
           renderAuto(director.active);
         } else {
@@ -29417,7 +30065,13 @@ ${e.message}` : String(e?.message || e));
         else if (id === "lod") s.lod = !!+v;
         else if (id === "closeup") state.closeup = !!+v;
         else if (id === "songmarks") state.songMarks = +v;
-        else if (id === "ev-start") {
+        else if (id === "water") {
+          state.water = +v;
+          applyWater();
+        } else if (id === "waves") {
+          state.waves = +v;
+          applyWater();
+        } else if (id === "ev-start") {
           if (!climate.event) climate.force(v);
           toggle(false);
           return;
@@ -29902,7 +30556,7 @@ ${e.message}` : String(e?.message || e));
         warmDue = false;
         if (eng.simTime < WARM_UNTIL) {
           state.warm = true;
-          applySpeed(Infinity);
+          applySpeed(Infinity, true);
           warmEl.hidden = false;
           sound.warm(true);
         }
@@ -30333,11 +30987,12 @@ ${e.message}` : String(e?.message || e));
         sel.err[1] *= fade;
         sel.disp[0] = px + sel.err[0];
         sel.disp[1] = py + sel.err[1];
-        let [sx, sy] = toScreen(sel.disp[0], sel.disp[1]);
+        let [sx, sy] = toShown(sel.disp[0], sel.disp[1]);
         let inLens = false;
         if (L && Math.hypot(sx - L.sx, sy - L.sy) < L.R) {
-          sx = L.sx + wrapD2(sel.disp[0] - L.cx, W) * L.cssPPU;
-          sy = L.sy + wrapD2(sel.disp[1] - L.cy, H2) * L.cssPPU;
+          const [lx, ly] = lensShift(sel.disp[0], sel.disp[1], L);
+          sx = L.sx + wrapD2(sel.disp[0] - L.cx, W) * L.cssPPU + lx;
+          sy = L.sy + wrapD2(sel.disp[1] - L.cy, H2) * L.cssPPU + ly;
           inLens = true;
         }
         const visible = !inLens || Math.hypot(sx - L.sx, sy - L.sy) < L.R - 8;
@@ -30454,10 +31109,11 @@ ${e.message}` : String(e?.message || e));
         }
         x = (x % W + W) % W;
         y = (y % H2 + H2) % H2;
-        let [sx, sy] = toScreen(x, y), scale = p;
+        let [sx, sy] = toShown(x, y), scale = p;
         if (L && Math.hypot(sx - L.sx, sy - L.sy) < L.R) {
-          sx = L.sx + wrapD2(x - L.cx, W) * L.cssPPU;
-          sy = L.sy + wrapD2(y - L.cy, H2) * L.cssPPU;
+          const [lx, ly] = lensShift(x, y, L);
+          sx = L.sx + wrapD2(x - L.cx, W) * L.cssPPU + lx;
+          sy = L.sy + wrapD2(y - L.cy, H2) * L.cssPPU + ly;
           scale = L.cssPPU;
           if (Math.hypot(sx - L.sx, sy - L.sy) > L.R - 8) continue;
         }

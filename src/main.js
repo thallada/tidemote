@@ -167,9 +167,9 @@ const H = 1 / 60; // the simulation's step, as in the headless runs
 let fastMode = false;
 const fmtSpeed = (s) => (s === Infinity ? (fastMode ? 'Fast' : 'Max') : `×${s}`);
 // A new world opens with little life, a few colonies in open water (docs/founding.md): its first WARM_UNTIL
-// seconds run at Max, with a notice saying why, then real time. A fresh world sized to its GPU gets there
-// in about 6 s, drawn or not (drawing is under a tenth of the GPU's time at Max), so it is shown, not hidden.
-// Choosing a speed ends the warm-up; a pause only holds it. A loaded world never warms up.
+// seconds run at Fast (as fast as the GPU goes, the world drawn every frame, so the colonies spreading show
+// smoothly), with a notice saying why, then real time. Choosing a speed with the time controls ends the warm-up
+// (Max to hurry it, real time to skip it); a pause only holds it. A loaded world never warms up.
 const WARM_UNTIL = 120;
 const PARTICLE_SIZES = [16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304, 8388608];
 // the pool's events as a fresh page has them (Settings → Climate): all on
@@ -2367,7 +2367,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (state.phase !== 'running') return;
     if (warmDue && introHidden) {
       warmDue = false;
-      if (eng.simTime < WARM_UNTIL) { state.warm = true; applySpeed(Infinity); warmEl.hidden = false; sound.warm(true); }
+      if (eng.simTime < WARM_UNTIL) { state.warm = true; applySpeed(Infinity, true); warmEl.hidden = false; sound.warm(true); }
     }
     if (!state.warm) return;
     if (eng.simTime >= WARM_UNTIL) { endWarm(); applySpeed(1); flash('Real time'); return; }

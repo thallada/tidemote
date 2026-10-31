@@ -95,9 +95,11 @@ off); flesh-eaters founded with a tenth or a quarter of the cells (no more preda
 ## The warm-up (the page)
 
 A start this sparse looks bare for its first minute, so the page runs a new world's first two minutes
-(`WARM_UNTIL` in `src/main.js`) at Max, with a notice saying why, then returns to ×1. It begins as the intro
-goes, so it is seen. Choosing a speed ends it (as does the notice's Real time button), a pause only holds
-it, and a loaded world never warms up.
+(`WARM_UNTIL` in `src/main.js`) at Fast (as fast as the GPU goes with the world drawn every frame, so the
+colonies spreading show smoothly; it was Max, which draws a frame now and then), with a notice saying why, then
+returns to ×1. It begins as the intro goes, so it is seen. Choosing a speed with the time controls ends it (Max to
+hurry it, as does the notice's Real time button to skip it), a pause only holds it, and a loaded world never warms
+up. The timings below are at Max; Fast spends some of each frame drawing, so it takes a little longer.
 
 It is shown rather than hidden behind the loading bar because hiding would hardly save time. A fresh world
 reaching 2:00 at Max (`tools/perf/bench.mjs --plan tools/perf/plans/warm.json`, the page in Chrome, 2560×1440):
