@@ -128,8 +128,8 @@ export function createHand(words, ids, { reach = REACH.def, drops }) {
       const f = h.held && p ? h.from || p : null, needle = f && tl === 'needle';
       const cut = needle && Math.hypot(p[0] - f[0], p[1] - f[1]) > 1e-4;
       h.dip = settle(ease(h.dip, h.held && tl === 'touch' ? 1 : 0, EASE.dip, dt), h.held && tl === 'touch');
-      // (let go, it lifts out where it was, whatever the pointer does)
-      if (h.held && p && tl === 'touch') h.rodAt = p;
+      // (let go, it lifts out under the pointer, following it; where a finger lifted, where it was)
+      if (p && tl === 'touch') h.rodAt = p;
       const rod = h.dip > 0 && h.rodAt, rf = rod && (f || h.rodAt);
       wake(rod && h.rodAt, t);
       const w = h.will || [0, 0, 0];

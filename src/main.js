@@ -2145,7 +2145,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (!w || !h) return null;
     if (spec.width !== w || spec.height !== h) { spec.width = w; spec.height = h; }
     const [px, py] = sel.disp;
-    return { target: specCtx.getCurrentTexture().createView(), w, h, cx: px, cy: py, ppu: h / state.specCells, dpr: r };
+    return { target: specCtx.getCurrentTexture().createView(), w, h, cx: px, cy: py, ppu: h / state.specCells, dpr: r, live: true };
   }
   spec.addEventListener('wheel', (e) => {
     e.preventDefault();
@@ -3759,7 +3759,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // (with the interface hidden the subject is not marked, but its song marks still show)
       filmMarked = !!(visible && (!sh || sh.why.seen) && (!state.ui || drawMarker(sx, sy, inLens, dt))) && !!sh;
       // riding: the will, a line from the cell to where it is steered
-      if (ride.on && hand.will && hand.will[2] > 0 && state.ui) drawWill(sx, sy, ...toScreen(hand.will[0], hand.will[1]));
+      if (ride.on && hand.will && hand.will[2] > 0 && state.ui) {
+        const [wx, wy] = easeWill(sel.disp[0], sel.disp[1], dt), p = cssPPU();
+        drawWill(sx, sy, sx + wx * p, sy + wy * p);
+      }
     }
     // (the mouse at the lens's center; a lens set by a tap has no pointer to mark)
     if (L?.mouse) {
@@ -3778,6 +3781,18 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     if (R) drawReticle(R);
     drawSongMarks(now, L);
+  }
+  // The will as drawn, from the ridden cell (world units), eased toward where it is steered as the specimen's compass
+  // eases its arrows: a new way turns to over a moment, the shorter way round, and its length follows, never snapping.
+  const WILL_EASE = 80; // ms
+  const willShown = { a: 0, l: 0 };
+  function easeWill(px, py, dt) {
+    const [W, H] = eng.grid, tx = wrapD(hand.will[0] - px, W), ty = wrapD(hand.will[1] - py, H);
+    const a = Math.atan2(ty, tx), l = Math.hypot(tx, ty), w = willShown;
+    const k = 1 - Math.exp(-dt / WILL_EASE);
+    w.a += (a - w.a - TAU * Math.round((a - w.a) / TAU)) * k;
+    w.l += (l - w.l) * k;
+    return [Math.cos(w.a) * w.l, Math.sin(w.a) * w.l];
   }
   function drawWill(x0, y0, x1, y1) {
     const d = Math.hypot(x1 - x0, y1 - y0);
@@ -3877,9 +3892,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const pressed = !!(ptr.down?.apply || ptr.down?.pip);
     toolFocus += ((pressed ? 1 : 0) - toolFocus) * (1 - Math.exp(-dt / 0.12));
     if (!it || !R) { eng.tool.fill(0); toolFocus = 0; return; }
-    // (the rod comes into focus as it dips into the water, and lifts out where it was let go)
-    const rod = hand.tool === 'touch' && hand.dip > 0 && hand.rodAt;
-    eng.tool.set([...(rod ? toWorld(...toScreen(...hand.rodAt)) : toWorld(R.sx, R.sy)), ...it.dir, it.kind, hand.tool === 'touch' ? hand.dip : toolFocus, hand.tool === 'cold' ? hand.level : 0, hand.reach]);
+    // (the rod comes into focus as it dips into the water, and lifts out under the pointer)
+    eng.tool.set([...toWorld(R.sx, R.sy), ...it.dir, it.kind, hand.tool === 'touch' ? hand.dip : toolFocus, hand.tool === 'cold' ? hand.level : 0, hand.reach]);
   }
   // what the tool in hand is doing, in a few words
   function handDoing() {

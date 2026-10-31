@@ -7366,7 +7366,7 @@ fn extremes(c: vec3f, wpIn: vec2f, ppu: f32, water: vec3f, behind: f32) -> vec3f
   let wp = wpIn - post.world * floor(wpIn / post.world);
   let k = 0.35 + 0.65 * behind;
   var o = c;
-  let cold = smoothstep(4.0, 1.0, T) * smoothstep(2.0, 5.0, post.heat.x - T);
+  let cold = probeCold(T);
   if (cold > 0.0) {
     let g = length(water.yz);
     let gl = max(g, 0.5);
@@ -7381,6 +7381,9 @@ fn extremes(c: vec3f, wpIn: vec2f, ppu: f32, water: vec3f, behind: f32) -> vec3f
   }
   return o;
 }
+// How plainly water at T is the cold probe's ice (0..1): near freezing, and well below the open water (none where the
+// open water is itself near freezing)
+fn probeCold(T: f32) -> f32 { return smoothstep(4.0, 1.0, T) * smoothstep(2.0, 5.0, post.heat.x - T); }
 ${HAND_SHAPES}fn boilAt(T: f32) -> f32 { return smoothstep(${f(BOIL)} - 9.0, ${f(BOIL)} - 1.0, T); }
 // Dry ground in darkfield: the film of silt and clay the water left. Wet, water fills the spaces between its grains
 // and it scatters little, dark and smooth with a gloss; as it dries air takes their place and it pales to a grainy
@@ -7683,7 +7686,9 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32, ppu: f
 }
 // How much open water lies over wp: none on the dry floor or under ice, fading over the thin film at their edges.
 // How far wp lies into open water (units): to the nearer of the pool's edge and the ice's, by each field's slope; 0 or
-// less on the dry floor or under ice, and 1e4 with neither.
+// less on the dry floor or under ice, and 1e4 with neither. The ice is the frost's as drawn (its dendrites' reach
+// ahead of its front, its slope floored as the drawing's is, so a patch just starting is ice too) and the cold
+// probe's (below 0°, as extremes draws it).
 fn waterRoom(wpIn: vec2f) -> f32 {
   let wp = wpIn - post.world * floor(wpIn / post.world);
   var room = 1e4;
@@ -7693,7 +7698,12 @@ fn waterRoom(wpIn: vec2f) -> f32 {
   }
   if (post.weather.y > 0.0) {
     let fi = fieldPost(${2 * MAX_CELLS}u, wp);
-    room = min(room, (fi.x - post.weather.y) / max(length(fi.yz), 1e-4));
+    let reach = min(1.0, post.weather.y / 0.25);
+    room = min(room, (fi.x - post.weather.y) / max(length(fi.yz), 0.06) - (ICE_LEAD + ICE_OWN) * reach);
+  }
+  if (post.heatVis >= 0.0) {
+    let w = waterAt(wp);
+    if (w.x < 4.0) { room = min(room, w.x / max(length(w.yz), 0.5) - (ICE_LEAD + ICE_OWN) * probeCold(w.x)); }
   }
   return room;
 }

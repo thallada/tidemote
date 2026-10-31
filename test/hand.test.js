@@ -78,7 +78,7 @@ test('the rod dips in, its disc widening to the reach; it sweeps from where it w
   assert.deepEqual([...words.subarray(8, 12)], [5, 1, 4, 1]);
   hand.up(); hand.hover(9, 9); hand.update(1 / 60);
   assert.ok(words[16] > 0, 'lifting out');
-  assert.deepEqual([...words.subarray(8, 12)], [5, 1, 5, 1], 'let go, it lifts out where it was, not where the pointer goes');
+  assert.deepEqual([...words.subarray(8, 12)], [9, 9, 9, 9], 'let go, it lifts out under the pointer, sweeping nothing on its way there');
   run(hand, 1);
   assert.equal(words[16], 0, 'lifted out');
 });

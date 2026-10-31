@@ -1,10 +1,13 @@
 // The speed ladder: the dock's speed chip opens every speed on offer as a stop on a ticked rule, fastest at the
 // top, the current one bracketed in the sun color with what it means. Held, the chip opens it at once and a drag up
-// or down moves along it, a speed a rung; let go, that speed. Open, a drag or the wheel on it moves along it too. A
-// speed tapped, the chip tapped again, or a tap anywhere else closes it; a double tap on the chip is real time.
+// or down moves along it, a speed a rung (held at the screen's edge, on along it a rung at a time, until it ends or
+// the drag turns back); let go, that speed. Open, a drag or the wheel on it moves along it too. A speed tapped, the
+// chip tapped again, or a tap anywhere else closes it; a double tap on the chip is real time.
 // Built afresh only when its speeds, or the one marked, change.
 const MEANING = new Map([[Infinity, 'as fast as it runs'], ['fast', 'drawn every frame'], [16, 'coarse steps'], [1, 'real time'], [0.25, 'slow motion']]);
 const HOLD = 300; // a press on the chip held this long (ms) opens the ladder to drag along
+const EDGE = 16; // a drag held this near the screen's top or bottom (px) ...
+const CREEP = 220; // ... goes on along the ladder a rung every this many ms
 
 /** chip, el: the dock's speed button and the ladder's element; choices() the stops on offer, slowest first; current()
  * the stop now; fmt(v) names one; pick(v, quiet) sets one (quiet: without a word, as the ladder shows it); real() goes
@@ -56,9 +59,25 @@ export function createLadder({ chip, el, choices, current, fmt, pick, real }) {
     if (!drag.moved) return;
     const v = along(drag.from, Math.round(dy / rung()));
     if (v !== drag.v) { drag.v = v; render(v); }
+    // (at the screen's edge there is no room to drag on: it goes on by itself, until the drag turns back)
+    const edge = e.clientY < EDGE ? 1 : e.clientY > innerHeight - EDGE ? -1 : 0;
+    const back = drag.py != null && Math.sign(drag.py - e.clientY) === -edge;
+    drag.py = e.clientY;
+    if (!edge || back) stopCreep();
+    else if (!drag.creep) drag.creep = setInterval(() => creep(edge), CREEP);
   }
+  // one rung on along the ladder (d: 1 faster, -1 slower) for a drag held at the screen's edge, as if dragged a rung
+  function creep(d) {
+    const v = along(drag.v, d);
+    if (v === drag.v) { stopCreep(); return; }
+    drag.y += d * rung();
+    drag.v = v;
+    render(v);
+  }
+  function stopCreep() { clearInterval(drag.creep); drag.creep = null; }
   function end(e) {
     if (!drag || e.pointerId !== drag.id) return;
+    stopCreep();
     const d = drag;
     drag = null;
     clearTimeout(d.timer);

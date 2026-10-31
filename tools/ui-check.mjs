@@ -79,7 +79,7 @@ for (const touch of [false, true]) {
   }
   // the bench (docs/hand.md): a tool picked, held on the world, put down; the speed ladder; the pipette
   {
-    const T = (f) => page.evaluate(f);
+    const T = (f, a) => page.evaluate(f, a);
     const vp = page.viewportSize(), at = [vp.width * 0.6, vp.height * 0.35];
     check(`${tag} the page opens with ${touch ? 'Pan' : 'the loupe'} in hand`, await T(() => globalThis.__tidemote.hand.tool) === (touch ? 'none' : 'loupe'));
     if (!touch) {
@@ -130,6 +130,23 @@ for (const touch of [false, true]) {
       }
       await page.waitForTimeout(300);
       check(`${tag} the chip held and dragged picks a speed`, await T(() => globalThis.__tidemote.state.speed === 0.5 && document.getElementById('ladder').hidden), String(await T(() => globalThis.__tidemote.state.speed)));
+      await page.keyboard.press('/');
+      // dragged to the screen's bottom edge and held there, it goes on down the ladder by itself to the slowest
+      await page.waitForTimeout(300);
+      const edge = page.viewportSize().height - 3;
+      if (touch) {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cx, y: cy }] });
+        await page.waitForTimeout(400);
+        for (let k = 1; k <= 6; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: cx, y: cy + (k / 6) * (edge - cy) }] });
+      } else {
+        await page.mouse.move(cx, cy); await page.mouse.down(); await page.waitForTimeout(400);
+        await page.mouse.move(cx, edge, { steps: 6 });
+      }
+      await page.waitForTimeout(2500);
+      const slowest = await T(() => Math.min(...[...document.querySelectorAll('#ladder .rung')].map((r) => +r.dataset.v).filter((v) => v >= 0)));
+      if (touch) await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); else await page.mouse.up();
+      await page.waitForTimeout(300);
+      check(`${tag} the chip dragged to the screen's edge and held goes on to the slowest`, await T((v) => globalThis.__tidemote.state.speed === v, slowest), `${await T(() => globalThis.__tidemote.state.speed)} of ${slowest}`);
       await page.keyboard.press('/');
     }
     // the pipette: a colony from a card, set down

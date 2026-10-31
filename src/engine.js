@@ -2179,8 +2179,9 @@ class Engine {
       pass.end();
     }
     this._sea(enc);
-    // the main view may skip resolving cells (settings.lod); the loupe and the close-up always resolve
-    const lod = this.settings.lod;
+    // the main view, the loupe and the live close-up may skip resolving cells (settings.lod); a portrait (a card's,
+    // a mini-card's) always resolves
+    const lod = this.settings.lod, loupeLod = !!loupe && lod, specLod = !!specimen && (lod || !specimen.live);
     // seeing most of the world with particles a pixel or so across, it splats those (splatMain), where
     // there are enough of them to pay for the buffer it clears and adds in (a quarter as many as pixels)
     const ps = Math.max(1.1 * dpr, 0.085 * cam.ppu);
@@ -2195,7 +2196,7 @@ class Engine {
     }
     // The simulation's existing indirect args contain the living instance count. Only rendering
     // changes the vertex count; keep all ecology WGSL and buffers' contents untouched.
-    if ((lod && new Float32Array(this.viewData)[7] > 6) || loupe || specimen) {
+    if ((lod && new Float32Array(this.viewData)[7] > 6) || loupeLod || specLod) {
       enc.copyBufferToBuffer(this.b.frameCtr, 20, this.b.bridgeDraw, 4, 4);
     }
 
@@ -2241,7 +2242,7 @@ class Engine {
     // once outlines resolve (vsPoint: detailLOD(pointSize) > 0), so gather both only then, and only
     // for cells in view.
     const mainDetail = lod && new Float32Array(this.viewData)[7] > 2.8;
-    if (mainDetail || loupe || specimen) {
+    if (mainDetail || loupeLod || specLod) {
       // the grid cells each view covers, with a cell of margin so partners just outside still fuse
       const [gw, gh] = this.grid;
       const u = new Int32Array(20);
@@ -2252,15 +2253,15 @@ class Engine {
       };
       // the loupe lies inside the main view; alone (main view too distant for detail) it is the view
       if (mainDetail) rect(0, cam.x, cam.y, W / (2 * cam.ppu), H / (2 * cam.ppu));
-      else if (loupe) rect(0, loupe.cx, loupe.cy, LOUPE_FIELD * loupe.r / loupe.ppu, LOUPE_FIELD * loupe.r / loupe.ppu);
-      if (specimen) rect(1, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu));
+      else if (loupeLod) rect(0, loupe.cx, loupe.cy, LOUPE_FIELD * loupe.r / loupe.ppu, LOUPE_FIELD * loupe.r / loupe.ppu);
+      if (specLod) rect(1, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu));
       u[16] = gw; u[17] = gh; new Float32Array(u.buffer)[18] = time; new Float32Array(u.buffer)[19] = this.simTime % 4096;
       d.queue.writeBuffer(this.b.inbondU, 0, u);
       const pass = enc.beginComputePass({ timestampWrites: tsBegin() });
       for (let k = 0; k < 3; k++) {
         pass.setPipeline(this.cpInbond[k]);
         pass.setBindGroup(0, this.inbondBG[k]);
-        pass.dispatchWorkgroups(Math.max(u[8], u[12]), Math.max(u[9], u[13]), specimen ? 2 : 1);
+        pass.dispatchWorkgroups(Math.max(u[8], u[12]), Math.max(u[9], u[13]), specLod ? 2 : 1);
       }
       pass.setPipeline(this.cpOrgans);
       pass.setBindGroup(0, this.organsBG);
@@ -2317,7 +2318,7 @@ class Engine {
       const L = Math.max(64, Math.min(1024, Math.ceil(span / 32) * 32));
       this._ensureLoupeTex(L);
       const lppu = loupe.ppu * (L / span);
-      this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span), time, selId, true, culled[1]);
+      this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span), time, selId, lod, culled[1]);
       d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W, H, loupe.ppu, 0]));
       const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.loupeView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
       this._drawScene(pass, this.bgLineL, this.bgPointL, this.bgBridgeL, this.viewDataL, 1);
@@ -2327,7 +2328,7 @@ class Engine {
 
     if (specimen && specimen.target) {
       this._ensureSpecTex(specimen.w, specimen.h);
-      this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, true, culled[2]);
+      this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, specLod, culled[2]);
       let pass = enc.beginRenderPass({ colorAttachments: [{ view: this.specView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
       // (the studio: its own cells alone, on no stone)
       if (specimen.studio) { pass.setPipeline(this.pStudio); pass.setBindGroup(0, this.studioBG); pass.draw(4, this.studioN); }
