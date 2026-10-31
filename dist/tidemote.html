@@ -646,7 +646,7 @@ canvas.chart { cursor: crosshair; }
 .settings .sec-h h2 { white-space: nowrap; margin-right: auto; }
 /* the tabs on a row of their own under the title */
 .settings .tabs { order: 3; flex-basis: 100%; min-width: 0; margin-left: -8px; }
-.settings .tabs button { height: 32px; padding: 0 8px; letter-spacing: .12em; }
+.settings .tabs button { height: 32px; padding: 0 6px; letter-spacing: .08em; }
 .settings .sec-h > .ghost { flex: none; margin: 0 -6px 0 auto; }
 .opt .chip:disabled { opacity: .35; cursor: default; }
 /* an Auto choice shows what it is using now, at a fixed width so the row never reflows as it changes;
@@ -1400,6 +1400,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     <div class="sec-h"><h2><kbd class="key">V</kbd>Settings</h2>
       <div class="tabs" role="tablist" id="set-tabs" aria-label="Settings sections">
         <button type="button" role="tab" data-tab="display" aria-selected="true">Display</button>
+        <button type="button" role="tab" data-tab="audio" aria-selected="false" tabindex="-1">Audio</button>
         <button type="button" role="tab" data-tab="performance" aria-selected="false" tabindex="-1">Perf</button>
         <button type="button" role="tab" data-tab="climate" aria-selected="false" tabindex="-1">Climate</button>
         <button type="button" role="tab" data-tab="worlds" aria-selected="false" tabindex="-1">Worlds</button>
@@ -8027,6 +8028,8 @@ struct Post {
   // rod's radius
   tool: vec4f,
   toolB: vec4f,
+  // the look (src/look.js): darkfield's light and the camera's grade, LOOK_WORDS floats
+  look: array<vec4f, 4>,
 };
 `
   );
@@ -8438,15 +8441,17 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32) -> vec3f {
   let px = k * post.res.y / 1000.0 / post.res;
   let ca = q * r2 * 0.2 * px;
   var c = vec3f(scene(uv + ca).r, scene(uv).g, scene(uv - ca).b);
-  let rim = smoothstep(1.0, 4.2, r2);
+  let rim = smoothstep(0.7, 3.8, r2);
   var blur = rim * 1.5;
   let start = max(80.0, 2.0 * max(post.res.x / post.world.x, post.res.y / post.world.y));
-  if (rim > 0.0 && post.ppu > start) {
+  // (with the look's shallow focus, not only toward the rim: whatever lies above or below the plane softens)
+  let shallow = max(rim, post.look[3].x);
+  if (shallow > 0.0 && post.ppu > start) {
     let cells = max(vec2f(1.0), round(post.world / 2.5));
     let drift = vec2f(0.0, post.simTime * 0.004);
     // focused on the middle of the view, as a microscopist keeps what they watch sharp
     let depth = valueNoise(wp / post.world * cells + drift, cells) - valueNoise(post.cam / post.world * cells + drift, cells);
-    blur += rim * smoothstep(0.08, 0.35, abs(depth)) * smoothstep(start, start * 4.0, post.ppu) * 4.5;
+    blur += shallow * smoothstep(0.08, 0.35, abs(depth)) * smoothstep(start, start * 4.0, post.ppu) * 4.5;
   }
   if (blur * k > 0.3) {
     // eight taps on a disc, turned at random per pixel; the sensor's grain hides the pattern
@@ -8529,6 +8534,107 @@ fn tonemap(hdrIn: vec3f) -> vec3f {
   let m = max(c.r, max(c.g, c.b));
   if (m > 1.0) { c = mix(c / m, vec3f(1.0), clamp((m - 1.0) * 0.35, 0.0, 1.0)); }
   return c;
+}
+
+// ------------------------------------------------------------ the look
+// What darkfield illumination and the camera make of the specimen (src/look.js; Settings → Display → Microscope).
+// post.look, by vec4: [0] rainbow rims (each edge colored by the side it faces), relief (DIC: light and shade along the
+// shear), rims (darkfield: edges scatter, flat insides dim), fringe (an achromat's color fringes at edges); [1]
+// halation, veil (flare lifting the dark around what is lit), film (AgX's curve in place of tonemap's), grain; [2]
+// saturation, density (saturated colors darker, as a dye's), contrast, black (the darks pressed down); [3] shallow
+// focus (everywhere, not only toward the rim), iris (a many-bladed field stop).
+fn lookL(c: vec3f) -> f32 { return dot(c, vec3f(0.2126, 0.7152, 0.0722)); }
+
+// The specimen in the scene's light, before the tone curve. uv: where the scene is read (its texture), bl: the
+// bloom's wide blur there, ppu and res: that view's pixels per world unit and size.
+fn lookScene(hdrIn: vec3f, uv: vec2f, bl: vec3f, ppu: f32, res: vec2f) -> vec3f {
+  let L0 = post.look[0];
+  let L1 = post.look[1];
+  var hdr = hdrIn;
+  // edges are read a pixel or more apart, so only once cells are several pixels across
+  let near = smoothstep(25.0, 70.0, ppu);
+  if (L0.x + L0.y + L0.z + L0.w > 0.0 && near > 0.0) {
+    let r = clamp(ppu * 0.012, 0.75, 3.0) / res;
+    let sc = scene(uv);
+    let a = scene(uv + vec2f(r.x, 0.0));
+    let b = scene(uv - vec2f(r.x, 0.0));
+    let cu = scene(uv + vec2f(0.0, r.y));
+    let cd = scene(uv - vec2f(0.0, r.y));
+    let blur = (a + b + cu + cd) * 0.25;
+    let hp = sc - blur;
+    let la = lookL(a); let lb = lookL(b); let lu = lookL(cu); let ld = lookL(cd);
+    let grad = vec2f(la - lb, lu - ld) * 0.5;
+    let norm = max(lookL(sc), max(max(la, lb), max(lu, ld))) + 0.03;
+    // DIC: an edge facing the light is lit, the far one shaded, as if the specimen were in relief
+    let sh = clamp(dot(grad, -TO_LIGHT) / norm, -1.0, 1.0);
+    let rel = L0.y * near;
+    hdr = hdr * max(0.0, 1.0 + 2.4 * rel * sh) + rel * 0.5 * max(sh, 0.0) * blur;
+    // darkfield: light scatters at edges, a flat inside lets it pass
+    let rim = L0.z * near;
+    // (what a membrane scatters is nearly white, a little cool)
+    let edge = abs(hp);
+    hdr = hdr * (1.0 - 0.4 * rim) + rim * 1.8 * mix(edge, vec3f(lookL(edge)) * vec3f(0.9, 1.0, 1.15), 0.35);
+    // an achromat's fringes: purple just outside a bright edge, yellow-green just inside
+    let fl = lookL(hp);
+    hdr += L0.w * near * (max(-fl, 0.0) * vec3f(0.55, 0.12, 1.0) + max(fl, 0.0) * vec3f(0.3, 0.55, 0.0)) * 1.5;
+    // rainbow rims (Rheinberg's sector colors): each edge takes a hue from the side it faces, by its own light, so
+    // the dark field stays dark
+    let ang = atan2(grad.y, grad.x);
+    let sector = 0.5 + 0.5 * vec3f(cos(ang), cos(ang - 2.094), cos(ang + 2.094));
+    hdr = mix(hdr, vec3f(lookL(hdr)) * sector * 2.24, L0.x * smoothstep(0.05, 0.6, length(grad) / norm) * near);
+  }
+  // halation (warm, as light scattered back from a film's base) and veiling flare (the lamp's)
+  hdr += bl * (L1.x * vec3f(0.06, 0.016, 0.004) + L1.y * vec3f(0.02, 0.021, 0.024));
+  return max(hdr, vec3f(0.0));
+}
+
+// AgX (Troy Sobotka's; Benjamin Wrensch's fit of its curve): bright colors run toward white, as on film or a sensor,
+// rather than staying saturated. Scene-linear in, display-linear out.
+fn agx(hdr: vec3f) -> vec3f {
+  let m = mat3x3f(0.842479062253094, 0.0423282422610123, 0.0423756549057051, 0.0784335999999992, 0.878468636469772, 0.0784336,
+    0.0792237451477643, 0.0791661274605434, 0.879142973793104);
+  let mi = mat3x3f(1.19687900512017, -0.0528968517574562, -0.0529716355144438, -0.0980208811401368, 1.15190312990417,
+    -0.0980434501171241, -0.0990297440797205, -0.0989611768448433, 1.15107367264116);
+  let lo = -12.47393;
+  let hi = 4.026069;
+  let x = (clamp(log2(max(m * hdr, vec3f(1e-10))), vec3f(lo), vec3f(hi)) - lo) / (hi - lo);
+  let x2 = x * x;
+  let x4 = x2 * x2;
+  let v = 15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4 - 6.868 * x2 * x + 0.4298 * x2 + 0.1191 * x - 0.00232;
+  return pow(max(mi * v, vec3f(0.0)), vec3f(2.2));
+}
+fn lookTone(hdr: vec3f) -> vec3f {
+  let f = post.look[1].z;
+  if (f <= 0.0) { return tonemap(hdr); }
+  return mix(tonemap(hdr), agx(hdr), f);
+}
+
+// The grade, in display space (after the gamma curve): contrast, the black level, saturation and density, grain.
+fn lookGrade(cIn: vec3f, pos: vec2f) -> vec3f {
+  let L2 = post.look[2];
+  var c = clamp(cIn, vec3f(0.0), vec3f(1.0));
+  c = mix(c, c * c * (3.0 - 2.0 * c), L2.z);
+  // the darks pressed down in proportion, so what shows in the dark water still shows
+  c *= 1.0 - L2.w * 0.6 * (1.0 - smoothstep(0.0, 0.4, lookL(c)));
+  let y = lookL(c);
+  c = max(vec3f(0.0), y + (c - y) * (1.0 + L2.x));
+  let chroma = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
+  c = clamp(c * (1.0 - L2.y * 0.55 * chroma), vec3f(0.0), vec3f(1.0));
+  let grain = post.look[1].w;
+  if (grain > 0.0) {
+    // film grain: clumped, changing 24 times a second, strongest in the midtones
+    let y2 = lookL(c);
+    let t = floor(post.time * 24.0);
+    let g = pos * 0.6 + vec2f(hash12(vec2f(t, 1.3)), hash12(vec2f(2.7, t))) * 512.0;
+    let n = vnoise(g) + 0.5 * vnoise(g * 2.3 + 17.0) - 0.75;
+    c += n * grain * 0.09 * (0.2 + 3.0 * y2 * (1.0 - y2));
+  }
+  return c;
+}
+// The grade over the water's view: under a full map (the light or heat map) mostly held back, so the map reads true.
+fn lookDisplay(cIn: vec3f, pos: vec2f) -> vec3f {
+  let maps = select(1.0, 0.3, post.tideVis > 1.5 || post.heatVis > 1.5);
+  return mix(cIn, lookGrade(cIn, pos), maps);
 }
 
 // The main view's micro-suspension, drawn speck by speck into microTex (MICRO_WGSL) and laid over
@@ -9680,10 +9786,11 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   if (k > 0.0) { hdr += lensScene(uv, q, wp, i.pos.xy, k); }
   else { hdr += mix(all.rgb / max(1.0, all.a), live.rgb / max(1.0, live.a), min(1.0, live.a)); }
   let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
+  hdr = lookScene(hdr, uv, bl, post.ppu, post.res);
   // the sea focuses the lamp's light onto what lies beneath it
   hdr = (hdr + bl * post.bloom) * post.exposure * surf.light;
   hdr = lampSeen(hdr + tideTint(wp), wp);
-  var c = tonemap(hdr);
+  var c = lookTone(hdr);
   c = mapsOver(c, wp, i.pos.xy, water.x);
   let uq = i.uv - 0.5;
   let v = clamp(1.0 - dot(uq, uq) * 1.1, 0.0, 1.0);
@@ -9702,11 +9809,20 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   c = instrument(c, wp, post.ppu);
   // the round field stop of the eyepiece clips the corners of the camera's frame
   let corner = length(vec2f(post.res.x / post.res.y, 1.0));
-  c *= mix(1.0, 1.0 - 0.85 * smoothstep(corner * 0.78, corner * 1.02, length(q)), k);
+  var fq = length(q);
+  let iris = post.look[3].y;
+  if (iris > 0.0) {
+    // a field diaphragm of nine blades, closed a little, its edge in focus: a polygon with a faint blue rim
+    let seg = TAU / 9.0;
+    let th = atan2(q.y, q.x) + 0.31;
+    fq = mix(fq, fq / (cos(seg * 0.5) / cos(th - seg * (floor(th / seg) + 0.5))) / mix(1.0, 0.86, iris), iris);
+    c += vec3f(0.0, 0.002, 0.008) * iris * k * exp(-pow((fq - corner * 0.84) * 30.0, 2.0));
+  }
+  c *= mix(1.0, 1.0 - 0.85 * smoothstep(corner * 0.78, corner * 1.02, fq), k);
   var dust = 0.0;
   if (k > 0.0) { dust = opticDust(q) * k; }
   c = c * (1.0 - 0.12 * dust) + vec3f(0.003, 0.0031, 0.0036) * dust;
-  c = pow(c, vec3f(1.0 / 2.2));
+  c = lookDisplay(pow(c, vec3f(1.0 / 2.2)), i.pos.xy);
   c += (hash12(i.pos.xy + fract(post.time) * 91.7) - 0.5) / 255.0 * 2.0;
   return vec4f(sensor(c, i.pos.xy, k), 1.0);
 }
@@ -9764,16 +9880,17 @@ fn loupeScene(r: vec2f) -> vec3f {
     let b = loupeScene(r + o) + loupeScene(r - o) + loupeScene(r + vec2f(o.x, -o.y)) + loupeScene(r - vec2f(o.x, -o.y));
     hdr = mix(hdr, b * 0.25, 0.6 * soft);
   }
+  hdr = lookScene(hdr, r * 0.5 + 0.5, vec3f(0.0), microView.ppu, microView.res);
   hdr = lampSeen(hdr * post.exposure * surf.light + tideTint(wp), wp);
   var m = 0.0;
   if (k > 0.0) { m = murk(microView.cam, r0 * microView.res * 0.5 / microView.ppu) * k; }
   let behind = 1.0 / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
-  var c = mapsOver(tonemap(hdr), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + vec3f(0.0045, 0.004, 0.0015) * m * behind;
+  var c = mapsOver(lookTone(hdr), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + vec3f(0.0045, 0.004, 0.0015) * m * behind;
   c = pondMicro(c, hdr, microView.cam, r0 * microView.res * 0.5, microView.ppu, loupe.ppu, m);
   // the drought's dry floor and its rain, the frost's ice, the storm's waves, duckweed
   c = poolOver(c, wp, loupe.ppu, k, behind, surf.slope);
   c = extremes(c, wp, loupe.ppu, water, behind);
-  c = pow(c, vec3f(1.0 / 2.2));
+  c = lookDisplay(pow(c, vec3f(1.0 / 2.2)), i.pos.xy);
   let vign = smoothstep(1.0, 0.75, d);
   c *= mix(mix(0.55, 0.75, k), 1.0, vign);
   if (k > 0.0) {
@@ -9799,12 +9916,14 @@ fn loupeScene(r: vec2f) -> vec3f {
   return textureSampleLevel(src, samp, u, 0.0) * rp.k;
 }
 
+// The close-up (the specimen viewer, and the cards' portraits it takes), in the look as the main view has it (no
+// maps over it, so the grade is never held back).
 @fragment fn fsPlain(i: VO) -> @location(0) vec4f {
   let wp = microView.cam + (i.uv - 0.5) * microView.res / microView.ppu;
-  let hdr = (scene(i.uv) + boulder(i.uv, wp, microView.ppu)) * post.exposure;
-  var c = tonemap(hdr) + vec3f(0.006, 0.005, 0.012);
+  let hdr = lookScene(scene(i.uv) + boulder(i.uv, wp, microView.ppu), i.uv, vec3f(0.0), microView.ppu, microView.res) * post.exposure;
+  var c = lookTone(hdr) + vec3f(0.006, 0.005, 0.012);
   c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0);
-  return vec4f(pow(c, vec3f(1.0 / 2.2)), 1.0);
+  return vec4f(lookGrade(pow(c, vec3f(1.0 / 2.2)), i.pos.xy), 1.0);
 }
 `;
   var SEA_WGSL = (
@@ -11071,6 +11190,31 @@ struct SV {
       },
       keep: keepFor(inView, wall)
     };
+  }
+
+  // src/audio/mix.js
+  var LAYERS = ["music", "cells", "water", "tools"];
+  var LEVELS = [["Off", 0], ["Quiet", 0.5], ["Normal", 1], ["Loud", 1.6]];
+  var MIX = {
+    music: { name: "Music", choices: LEVELS, def: 2 },
+    cells: { name: "Cells", choices: LEVELS, def: 2 },
+    water: { name: "Water", choices: LEVELS, def: 2 },
+    tools: { name: "Tools", choices: LEVELS.slice(0, 3), def: 2 },
+    // the reverb: its decay's multiple and its wet share's
+    space: { name: "Space", choices: [["Close", { space: 0.5, wet: 0.45 }], ["Normal", { space: 1, wet: 1 }], ["Vast", { space: 1.8, wet: 1.4 }]], def: 1 },
+    // the master: its low-pass tone's multiple, its high shelf (dB) and the shelf's corner (Hz)
+    tone: { name: "Tone", choices: [["Warm", { toneMul: 0.075, air: 0, airHz: 8e3 }], ["Normal", { toneMul: 1, air: 2.5, airHz: 8e3 }], ["Bright", { toneMul: 1.12, air: 10, airHz: 2500 }]], def: 1 },
+    background: { name: "When hidden", choices: [["Fade out", false], ["Keep playing", true]], def: 0 }
+  };
+  var defaultMix = () => Object.fromEntries(Object.entries(MIX).map(([k, s]) => [k, s.def]));
+  function fullMix(m = {}) {
+    const out = defaultMix();
+    for (const [k, s] of Object.entries(MIX)) if (Number.isInteger(m[k]) && m[k] >= 0 && m[k] < s.choices.length) out[k] = m[k];
+    return out;
+  }
+  function mixMessage(m) {
+    const f2 = fullMix(m), of = (k) => MIX[k].choices[f2[k]][1];
+    return { type: "mix", groups: Object.fromEntries(LAYERS.map((k) => [k, of(k)])), fdn: { ...of("space") }, master: { ...of("tone") } };
   }
 
   // src/audio/sound.js
@@ -12474,6 +12618,21 @@ var Balance2 = class extends Pan2 {
   }
 };
 
+// src/audio/mix.js
+var LAYERS = ["music", "cells", "water", "tools"];
+var LEVELS = [["Off", 0], ["Quiet", 0.5], ["Normal", 1], ["Loud", 1.6]];
+var MIX = {
+  music: { name: "Music", choices: LEVELS, def: 2 },
+  cells: { name: "Cells", choices: LEVELS, def: 2 },
+  water: { name: "Water", choices: LEVELS, def: 2 },
+  tools: { name: "Tools", choices: LEVELS.slice(0, 3), def: 2 },
+  // the reverb: its decay's multiple and its wet share's
+  space: { name: "Space", choices: [["Close", { space: 0.5, wet: 0.45 }], ["Normal", { space: 1, wet: 1 }], ["Vast", { space: 1.8, wet: 1.4 }]], def: 1 },
+  // the master: its low-pass tone's multiple, its high shelf (dB) and the shelf's corner (Hz)
+  tone: { name: "Tone", choices: [["Warm", { toneMul: 0.075, air: 0, airHz: 8e3 }], ["Normal", { toneMul: 1, air: 2.5, airHz: 8e3 }], ["Bright", { toneMul: 1.12, air: 10, airHz: 2500 }]], def: 1 },
+  background: { name: "When hidden", choices: [["Fade out", false], ["Keep playing", true]], def: 0 }
+};
+
 // src/audio/voices.js
 var midicps = (m) => 440 * Math.pow(2, (m - 69) / 12);
 var clip = (x, lo, hi) => x < lo ? lo : x > hi ? hi : x;
@@ -13379,7 +13538,7 @@ var PingPong = class {
 };
 var FDN = class {
   constructor(sr, rg, p = {}) {
-    this.p = Object.assign({ decay: 9, damp: 5e3, size: 1.3, mix: 0.9 }, p);
+    this.p = Object.assign({ decay: 9, damp: 5e3, size: 1.3, mix: 0.9, space: 1, wet: 1 }, p);
     this.ctl = BS / sr;
     this.pre = [new DelayN(sr, 0.06), new DelayN(sr, 0.06)];
     this.ap = [0, 1, 2, 3].map(() => [new AllpassC(sr, 0.05), new AllpassC(sr, 0.05)]);
@@ -13417,7 +13576,7 @@ var FDN = class {
       this.hp[c].ar(x[c], 70, t);
       this.lp[c].ar(t, P.damp, x[c]);
     }
-    const g = times.map((tt) => Math.pow(10, -3 * tt / P.decay)), s8 = 1 / Math.sqrt(8);
+    const g = times.map((tt) => Math.pow(10, -3 * tt / (P.decay * P.space))), s8 = 1 / Math.sqrt(8);
     for (let r = 0; r < 8; r++) {
       const row = this.H[r], li = this.loc[r], gr = g[r] * s8;
       for (let i = 0; i < BS; i++) {
@@ -13431,15 +13590,16 @@ var FDN = class {
       yL[i] = (x[0][i] + x[2][i] + x[4][i] + x[6][i]) * 0.3;
       yR[i] = (x[1][i] + x[3][i] + x[5][i] + x[7][i]) * 0.3;
     }
+    const mix = P.mix * P.wet;
     this.outHp[0].ar(yL, 140, t);
-    for (let i = 0; i < BS; i++) B.dryL[i] += t[i] * P.mix;
+    for (let i = 0; i < BS; i++) B.dryL[i] += t[i] * mix;
     this.outHp[1].ar(yR, 140, t);
-    for (let i = 0; i < BS; i++) B.dryR[i] += t[i] * P.mix;
+    for (let i = 0; i < BS; i++) B.dryR[i] += t[i] * mix;
   }
 };
 var Master = class {
   constructor(sr, p = {}) {
-    this.p = Object.assign({ gain: 1, tone: 16e3, toneLag: 6, thresh: 0.3, drive: 1.2, ceiling: 0.8 }, p);
+    this.p = Object.assign({ gain: 1, tone: 16e3, toneLag: 6, thresh: 0.3, drive: 1.2, ceiling: 0.8, toneMul: 1, air: 2.5, airHz: 8e3 }, p);
     const two = (make) => [make(), make()];
     this.hp28 = two(() => new HPF(sr));
     this.lo1 = two(() => new LPF(sr));
@@ -13472,11 +13632,11 @@ var Master = class {
       x[0][i] += m;
       x[1][i] += m;
     }
-    const tone = Math.min(18e3, Math.max(300, this.tone.kr(P.tone, P.toneLag)));
+    const tone = Math.min(18e3, Math.max(300, this.tone.kr(P.tone * P.toneMul, P.toneLag)));
     for (let c = 0; c < 2; c++) {
       this.dc[c].ar(x[c], t);
       this.ls[c].ar(t, 150, 1, 0, x[c]);
-      this.hs[c].ar(x[c], 8e3, 1, 2.5, t);
+      this.hs[c].ar(x[c], P.airHz, 1, P.air, t);
       this.bl[c].ar(t, f322(tone), 0.8, x[c]);
       this.gainA[c].fill(P.gain, k);
       for (let i = 0; i < BS; i++) x[c][i] *= k[i];
@@ -13515,6 +13675,8 @@ var Engine = class {
     this.maxVoices = Infinity;
     this.fading = 0;
     this.shedN = 0;
+    this.groupTo = Object.fromEntries(LAYERS.map((k) => [k, 1]));
+    this.groups = { ...this.groupTo };
   }
   // Voices are kept in the order they started, so the oldest come first. A whole song's notes (solo)
   // go last, only when nothing else is left to let go.
@@ -13582,6 +13744,8 @@ var Engine = class {
   block(outL, outR) {
     const B = this.B, S = this.S;
     B.clear();
+    const G = this.groups, ease = 1 - Math.exp(-1 / (this.kr * 0.08));
+    for (const k in G) G[k] += (this.groupTo[k] - G[k]) * ease;
     const vs = this.voices;
     let w = 0;
     for (let i = 0; i < vs.length; i++) {
@@ -13591,7 +13755,14 @@ var Engine = class {
         if (--v.fade === 0) v.done = true;
       }
       S.reset();
-      v.tick(B, S);
+      const g = v.p.grp ? G[v.p.grp] : 1;
+      if (g === 1) v.tick(B, S);
+      else {
+        const send = v.send;
+        v.send = send * g;
+        v.tick(B, S);
+        v.send = send;
+      }
       if (!v.done) vs[w++] = v;
       else if (v.shed) this.fading--;
     }
@@ -14151,7 +14322,7 @@ var Field = class {
 var midicps3 = (m) => 440 * Math.pow(2, (m - 69) / 12);
 var clamp2 = (x, a, b) => x < a ? a : x > b ? b : x;
 var vibeAmp = (f) => Math.pow(f / 440, 0.8);
-var LAYERS = ["loops", "circles", "piano", "dub", "pad", "sonar", "arp", "pulse", "hymn"];
+var LAYERS2 = ["loops", "circles", "piano", "dub", "pad", "sonar", "arp", "pulse", "hymn"];
 var OPENINGS = [
   ["loops", "sonar"],
   ["hymn", "arp"],
@@ -14193,7 +14364,7 @@ var ARP_PATS = [[0, 1, 2, 3], [0, 1, 2, 3, 2, 1], [0, 2, 1, 3], [0, 3, 1, 2], [0
 var RHYTHMS = [[4, 2, 2, 8], [3, 3, 2, 8], [2, 2, 4, 8], [6, 2, 4, 4], [2, 4, 2, 8], [4, 4, 2, 6], [3, 1, 4, 8], [2, 6, 2, 6]];
 function palette(name, prev = [], ws = 0) {
   if (!name || name === "The First Tides") return OPENINGS[worldHash("ensemble", ws) % OPENINGS.length].slice();
-  const free = LAYERS.filter((l) => !prev.includes(l)), h = worldHash(name, ws), a = h % free.length;
+  const free = LAYERS2.filter((l) => !prev.includes(l)), h = worldHash(name, ws), a = h % free.length;
   let b = (h >>> 8) % (free.length - 1);
   if (b >= a) b++;
   return [free[a], free[b]];
@@ -14743,7 +14914,7 @@ var HandSound = class {
     if (on && !h) {
       const [def, p] = make();
       h = this.held[name] = { id: "hand" + name + ++c.nodeN, on: t, quiet: t };
-      c.eng.spawn(def, { ...p, amp: 0 }, h.id);
+      c.eng.spawn(def, { ...p, amp: 0, grp: "tools" }, h.id);
     }
     if (!h) return null;
     if (on) h.quiet = t;
@@ -14799,7 +14970,7 @@ var HandSound = class {
       const d = -this.groans++, f0 = this.hz(d, 0);
       if (this.groan) c.eng.free(this.groan.id);
       this.groan = { id: "handgroan" + ++c.nodeN, t, f0 };
-      c.eng.spawn("glass", { freq: f0, amp: 0.3, atk: 0.3, sus: 1.2, rel: 1.8, bright: 0.7, pan: pan + 0.2 * d, rev: 0.6 }, this.groan.id);
+      c.eng.spawn("glass", { grp: "tools", freq: f0, amp: 0.3, atk: 0.3, sus: 1.2, rel: 1.8, bright: 0.7, pan: pan + 0.2 * d, rev: 0.6 }, this.groan.id);
     }
     const g = this.groan;
     if (g && t - g.t > 3.5) {
@@ -14834,6 +15005,7 @@ var HandSound = class {
 
 // src/audio/conductor.js
 var STEP = 0.18;
+var MSG_LAYER = { listen: "cells", slots: "cells", hand: "tools", reset: "water", open: "water" };
 var MODES = {
   lydian: [[0, 2, 4, 6, 7, 9, 11], [0, 0, -2, -3]],
   dorian: [[0, 2, 3, 5, 7, 9, 10], [0, 0, -1, -4]],
@@ -14977,9 +15149,11 @@ var Conductor = class {
     this.setEra(eraMusic("The First Tides", null, this.ws), true);
     this.score = new Score(this);
     engine.master.p.gain = 1.6;
+    this.grp = "water";
     this.sea = this.swap(0, "sea", this.seaChord(this.root), 0);
     this.drone = this.swap(0, "drone", { amp: 0, note: this.root - 12 }, 0);
-    engine.spawn("swarm", {}, "swarm");
+    this.grp = null;
+    engine.spawn("swarm", { grp: "cells" }, "swarm");
     this.nextWave = 2;
   }
   seaChord(r) {
@@ -15016,6 +15190,7 @@ var Conductor = class {
   }
   // ── messages from the page ─────────────────────────────────────────────────
   message(m) {
+    this.grp = MSG_LAYER[m.type] ?? null;
     if (m.type === "world") Object.assign(this.world, m.world);
     else if (m.type === "listen") this.field.listen(m);
     else if (m.type === "slots") this.field.slotsMsg(m);
@@ -15027,7 +15202,11 @@ var Conductor = class {
       this.pendingOpen = true;
       if (m.seed != null && m.seed >>> 0 !== this.ws) this.rekey(m.seed, null);
     } else if (m.type === "warm") this.lapse = !!m.on;
-    else if (m.type === "reset") {
+    else if (m.type === "mix") {
+      Object.assign(this.eng.groupTo, m.groups);
+      this.eng.set("fdn", m.fdn);
+      this.eng.set("master", m.master);
+    } else if (m.type === "reset") {
       this.field.slots.clear();
       this.pendingEra = null;
       this.switchAt = null;
@@ -15036,6 +15215,7 @@ var Conductor = class {
       this.score.reset();
       this.rekey(m.seed ?? this.ws, m.era);
     }
+    this.grp = null;
   }
   // a world (its seed), in an era (a loaded world's, or its opening): its key, its ensemble, its sea
   rekey(seed, era) {
@@ -15048,6 +15228,7 @@ var Conductor = class {
   }
   // ── scheduling ─────────────────────────────────────────────────────────────
   at(t, def, params, id) {
+    if (this.grp && params && params.grp == null) params = { ...params, grp: this.grp };
     this.queue.push({ t, def, params, id });
     this.unsorted = true;
   }
@@ -15068,7 +15249,9 @@ var Conductor = class {
       this.nextStep += this.step;
       this.stepN++;
     }
+    this.grp = "tools";
     this.hand.tick();
+    this.grp = null;
     if (this.queue.length) {
       if (this.unsorted) {
         this.queue.sort((a, b) => a.t - b.t);
@@ -15089,6 +15272,7 @@ var Conductor = class {
   // once per bar: climate, harmony, the sea, the waves, the drone and the score
   bar(ts) {
     const W = this.world;
+    this.grp = "music";
     if (this.pendingEra) {
       const nx = eraMusic(this.pendingEra, this.era.root, this.ws);
       this.pendingEra = null;
@@ -15104,7 +15288,9 @@ var Conductor = class {
     if (this.switchAt != null && ts >= this.switchAt) {
       this.setEra(this.nextEra, true);
       this.switchAt = null;
+      this.grp = "water";
       this.sea = this.swap(ts, "sea", this.seaChord(this.root), 12, this.sea);
+      this.grp = "music";
       this.score.arrive(ts, this.era);
     }
     const bar = Math.round(this.stepN / 16);
@@ -15121,6 +15307,7 @@ var Conductor = class {
     }
     const light = clamp4(W.light * (fx.bright || 1), 0, 1.2), td = clamp4(W.tide * (fx.tide || 1), 0, 1);
     const seaDim = 1 - 0.45 * this.field.z;
+    this.grp = "water";
     this.setAt(ts, this.sea, { tide: td, light, amp: 0.09 * (fx.sea || 1) * lvl * seaDim });
     const note = d2m(this.pivot, this.root, this.scale) - 12;
     if (note !== this.droneNote) {
@@ -15133,7 +15320,9 @@ var Conductor = class {
       this.at(ts + this.rnd() * 16 * this.step, "wave", { amp: 0.32 * lvl * (0.35 + 0.65 * far) * (0.5 + 0.5 * td), dur, bright: 0.3 + 0.4 * clamp4(light, 0, 1), pan: (this.rnd() - 0.5) * 1.4, rev: 0.45 });
       this.nextWave = ts + dur * 0.6 + (14 - 9 * td) * (0.5 + this.rnd());
     }
+    this.grp = "music";
     this.score.bar(ts, bar);
+    this.grp = null;
   }
 };
 
@@ -16605,6 +16794,21 @@ var Balance2 = class extends Pan2 {
   }
 };
 
+// src/audio/mix.js
+var LAYERS = ["music", "cells", "water", "tools"];
+var LEVELS = [["Off", 0], ["Quiet", 0.5], ["Normal", 1], ["Loud", 1.6]];
+var MIX = {
+  music: { name: "Music", choices: LEVELS, def: 2 },
+  cells: { name: "Cells", choices: LEVELS, def: 2 },
+  water: { name: "Water", choices: LEVELS, def: 2 },
+  tools: { name: "Tools", choices: LEVELS.slice(0, 3), def: 2 },
+  // the reverb: its decay's multiple and its wet share's
+  space: { name: "Space", choices: [["Close", { space: 0.5, wet: 0.45 }], ["Normal", { space: 1, wet: 1 }], ["Vast", { space: 1.8, wet: 1.4 }]], def: 1 },
+  // the master: its low-pass tone's multiple, its high shelf (dB) and the shelf's corner (Hz)
+  tone: { name: "Tone", choices: [["Warm", { toneMul: 0.075, air: 0, airHz: 8e3 }], ["Normal", { toneMul: 1, air: 2.5, airHz: 8e3 }], ["Bright", { toneMul: 1.12, air: 10, airHz: 2500 }]], def: 1 },
+  background: { name: "When hidden", choices: [["Fade out", false], ["Keep playing", true]], def: 0 }
+};
+
 // src/audio/voices.js
 var midicps = (m) => 440 * Math.pow(2, (m - 69) / 12);
 var clip = (x, lo, hi) => x < lo ? lo : x > hi ? hi : x;
@@ -17510,7 +17714,7 @@ var PingPong = class {
 };
 var FDN = class {
   constructor(sr, rg, p = {}) {
-    this.p = Object.assign({ decay: 9, damp: 5e3, size: 1.3, mix: 0.9 }, p);
+    this.p = Object.assign({ decay: 9, damp: 5e3, size: 1.3, mix: 0.9, space: 1, wet: 1 }, p);
     this.ctl = BS / sr;
     this.pre = [new DelayN(sr, 0.06), new DelayN(sr, 0.06)];
     this.ap = [0, 1, 2, 3].map(() => [new AllpassC(sr, 0.05), new AllpassC(sr, 0.05)]);
@@ -17548,7 +17752,7 @@ var FDN = class {
       this.hp[c].ar(x[c], 70, t);
       this.lp[c].ar(t, P.damp, x[c]);
     }
-    const g = times.map((tt) => Math.pow(10, -3 * tt / P.decay)), s8 = 1 / Math.sqrt(8);
+    const g = times.map((tt) => Math.pow(10, -3 * tt / (P.decay * P.space))), s8 = 1 / Math.sqrt(8);
     for (let r = 0; r < 8; r++) {
       const row = this.H[r], li = this.loc[r], gr = g[r] * s8;
       for (let i = 0; i < BS; i++) {
@@ -17562,15 +17766,16 @@ var FDN = class {
       yL[i] = (x[0][i] + x[2][i] + x[4][i] + x[6][i]) * 0.3;
       yR[i] = (x[1][i] + x[3][i] + x[5][i] + x[7][i]) * 0.3;
     }
+    const mix = P.mix * P.wet;
     this.outHp[0].ar(yL, 140, t);
-    for (let i = 0; i < BS; i++) B.dryL[i] += t[i] * P.mix;
+    for (let i = 0; i < BS; i++) B.dryL[i] += t[i] * mix;
     this.outHp[1].ar(yR, 140, t);
-    for (let i = 0; i < BS; i++) B.dryR[i] += t[i] * P.mix;
+    for (let i = 0; i < BS; i++) B.dryR[i] += t[i] * mix;
   }
 };
 var Master = class {
   constructor(sr, p = {}) {
-    this.p = Object.assign({ gain: 1, tone: 16e3, toneLag: 6, thresh: 0.3, drive: 1.2, ceiling: 0.8 }, p);
+    this.p = Object.assign({ gain: 1, tone: 16e3, toneLag: 6, thresh: 0.3, drive: 1.2, ceiling: 0.8, toneMul: 1, air: 2.5, airHz: 8e3 }, p);
     const two = (make) => [make(), make()];
     this.hp28 = two(() => new HPF(sr));
     this.lo1 = two(() => new LPF(sr));
@@ -17603,11 +17808,11 @@ var Master = class {
       x[0][i] += m;
       x[1][i] += m;
     }
-    const tone = Math.min(18e3, Math.max(300, this.tone.kr(P.tone, P.toneLag)));
+    const tone = Math.min(18e3, Math.max(300, this.tone.kr(P.tone * P.toneMul, P.toneLag)));
     for (let c = 0; c < 2; c++) {
       this.dc[c].ar(x[c], t);
       this.ls[c].ar(t, 150, 1, 0, x[c]);
-      this.hs[c].ar(x[c], 8e3, 1, 2.5, t);
+      this.hs[c].ar(x[c], P.airHz, 1, P.air, t);
       this.bl[c].ar(t, f322(tone), 0.8, x[c]);
       this.gainA[c].fill(P.gain, k);
       for (let i = 0; i < BS; i++) x[c][i] *= k[i];
@@ -17646,6 +17851,8 @@ var Engine = class {
     this.maxVoices = Infinity;
     this.fading = 0;
     this.shedN = 0;
+    this.groupTo = Object.fromEntries(LAYERS.map((k) => [k, 1]));
+    this.groups = { ...this.groupTo };
   }
   // Voices are kept in the order they started, so the oldest come first. A whole song's notes (solo)
   // go last, only when nothing else is left to let go.
@@ -17713,6 +17920,8 @@ var Engine = class {
   block(outL, outR) {
     const B = this.B, S = this.S;
     B.clear();
+    const G = this.groups, ease = 1 - Math.exp(-1 / (this.kr * 0.08));
+    for (const k in G) G[k] += (this.groupTo[k] - G[k]) * ease;
     const vs = this.voices;
     let w = 0;
     for (let i = 0; i < vs.length; i++) {
@@ -17722,7 +17931,14 @@ var Engine = class {
         if (--v.fade === 0) v.done = true;
       }
       S.reset();
-      v.tick(B, S);
+      const g = v.p.grp ? G[v.p.grp] : 1;
+      if (g === 1) v.tick(B, S);
+      else {
+        const send = v.send;
+        v.send = send * g;
+        v.tick(B, S);
+        v.send = send;
+      }
       if (!v.done) vs[w++] = v;
       else if (v.shed) this.fading--;
     }
@@ -18282,7 +18498,7 @@ var Field = class {
 var midicps3 = (m) => 440 * Math.pow(2, (m - 69) / 12);
 var clamp2 = (x, a, b) => x < a ? a : x > b ? b : x;
 var vibeAmp = (f) => Math.pow(f / 440, 0.8);
-var LAYERS = ["loops", "circles", "piano", "dub", "pad", "sonar", "arp", "pulse", "hymn"];
+var LAYERS2 = ["loops", "circles", "piano", "dub", "pad", "sonar", "arp", "pulse", "hymn"];
 var OPENINGS = [
   ["loops", "sonar"],
   ["hymn", "arp"],
@@ -18324,7 +18540,7 @@ var ARP_PATS = [[0, 1, 2, 3], [0, 1, 2, 3, 2, 1], [0, 2, 1, 3], [0, 3, 1, 2], [0
 var RHYTHMS = [[4, 2, 2, 8], [3, 3, 2, 8], [2, 2, 4, 8], [6, 2, 4, 4], [2, 4, 2, 8], [4, 4, 2, 6], [3, 1, 4, 8], [2, 6, 2, 6]];
 function palette(name, prev = [], ws = 0) {
   if (!name || name === "The First Tides") return OPENINGS[worldHash("ensemble", ws) % OPENINGS.length].slice();
-  const free = LAYERS.filter((l) => !prev.includes(l)), h = worldHash(name, ws), a = h % free.length;
+  const free = LAYERS2.filter((l) => !prev.includes(l)), h = worldHash(name, ws), a = h % free.length;
   let b = (h >>> 8) % (free.length - 1);
   if (b >= a) b++;
   return [free[a], free[b]];
@@ -18874,7 +19090,7 @@ var HandSound = class {
     if (on && !h) {
       const [def, p] = make();
       h = this.held[name] = { id: "hand" + name + ++c.nodeN, on: t, quiet: t };
-      c.eng.spawn(def, { ...p, amp: 0 }, h.id);
+      c.eng.spawn(def, { ...p, amp: 0, grp: "tools" }, h.id);
     }
     if (!h) return null;
     if (on) h.quiet = t;
@@ -18930,7 +19146,7 @@ var HandSound = class {
       const d = -this.groans++, f0 = this.hz(d, 0);
       if (this.groan) c.eng.free(this.groan.id);
       this.groan = { id: "handgroan" + ++c.nodeN, t, f0 };
-      c.eng.spawn("glass", { freq: f0, amp: 0.3, atk: 0.3, sus: 1.2, rel: 1.8, bright: 0.7, pan: pan + 0.2 * d, rev: 0.6 }, this.groan.id);
+      c.eng.spawn("glass", { grp: "tools", freq: f0, amp: 0.3, atk: 0.3, sus: 1.2, rel: 1.8, bright: 0.7, pan: pan + 0.2 * d, rev: 0.6 }, this.groan.id);
     }
     const g = this.groan;
     if (g && t - g.t > 3.5) {
@@ -18965,6 +19181,7 @@ var HandSound = class {
 
 // src/audio/conductor.js
 var STEP = 0.18;
+var MSG_LAYER = { listen: "cells", slots: "cells", hand: "tools", reset: "water", open: "water" };
 var MODES = {
   lydian: [[0, 2, 4, 6, 7, 9, 11], [0, 0, -2, -3]],
   dorian: [[0, 2, 3, 5, 7, 9, 10], [0, 0, -1, -4]],
@@ -19108,9 +19325,11 @@ var Conductor = class {
     this.setEra(eraMusic("The First Tides", null, this.ws), true);
     this.score = new Score(this);
     engine.master.p.gain = 1.6;
+    this.grp = "water";
     this.sea = this.swap(0, "sea", this.seaChord(this.root), 0);
     this.drone = this.swap(0, "drone", { amp: 0, note: this.root - 12 }, 0);
-    engine.spawn("swarm", {}, "swarm");
+    this.grp = null;
+    engine.spawn("swarm", { grp: "cells" }, "swarm");
     this.nextWave = 2;
   }
   seaChord(r) {
@@ -19147,6 +19366,7 @@ var Conductor = class {
   }
   // ── messages from the page ─────────────────────────────────────────────────
   message(m) {
+    this.grp = MSG_LAYER[m.type] ?? null;
     if (m.type === "world") Object.assign(this.world, m.world);
     else if (m.type === "listen") this.field.listen(m);
     else if (m.type === "slots") this.field.slotsMsg(m);
@@ -19158,7 +19378,11 @@ var Conductor = class {
       this.pendingOpen = true;
       if (m.seed != null && m.seed >>> 0 !== this.ws) this.rekey(m.seed, null);
     } else if (m.type === "warm") this.lapse = !!m.on;
-    else if (m.type === "reset") {
+    else if (m.type === "mix") {
+      Object.assign(this.eng.groupTo, m.groups);
+      this.eng.set("fdn", m.fdn);
+      this.eng.set("master", m.master);
+    } else if (m.type === "reset") {
       this.field.slots.clear();
       this.pendingEra = null;
       this.switchAt = null;
@@ -19167,6 +19391,7 @@ var Conductor = class {
       this.score.reset();
       this.rekey(m.seed ?? this.ws, m.era);
     }
+    this.grp = null;
   }
   // a world (its seed), in an era (a loaded world's, or its opening): its key, its ensemble, its sea
   rekey(seed, era) {
@@ -19179,6 +19404,7 @@ var Conductor = class {
   }
   // ── scheduling ─────────────────────────────────────────────────────────────
   at(t, def, params, id) {
+    if (this.grp && params && params.grp == null) params = { ...params, grp: this.grp };
     this.queue.push({ t, def, params, id });
     this.unsorted = true;
   }
@@ -19199,7 +19425,9 @@ var Conductor = class {
       this.nextStep += this.step;
       this.stepN++;
     }
+    this.grp = "tools";
     this.hand.tick();
+    this.grp = null;
     if (this.queue.length) {
       if (this.unsorted) {
         this.queue.sort((a, b) => a.t - b.t);
@@ -19220,6 +19448,7 @@ var Conductor = class {
   // once per bar: climate, harmony, the sea, the waves, the drone and the score
   bar(ts) {
     const W = this.world;
+    this.grp = "music";
     if (this.pendingEra) {
       const nx = eraMusic(this.pendingEra, this.era.root, this.ws);
       this.pendingEra = null;
@@ -19235,7 +19464,9 @@ var Conductor = class {
     if (this.switchAt != null && ts >= this.switchAt) {
       this.setEra(this.nextEra, true);
       this.switchAt = null;
+      this.grp = "water";
       this.sea = this.swap(ts, "sea", this.seaChord(this.root), 12, this.sea);
+      this.grp = "music";
       this.score.arrive(ts, this.era);
     }
     const bar = Math.round(this.stepN / 16);
@@ -19252,6 +19483,7 @@ var Conductor = class {
     }
     const light = clamp4(W.light * (fx.bright || 1), 0, 1.2), td = clamp4(W.tide * (fx.tide || 1), 0, 1);
     const seaDim = 1 - 0.45 * this.field.z;
+    this.grp = "water";
     this.setAt(ts, this.sea, { tide: td, light, amp: 0.09 * (fx.sea || 1) * lvl * seaDim });
     const note = d2m(this.pivot, this.root, this.scale) - 12;
     if (note !== this.droneNote) {
@@ -19264,7 +19496,9 @@ var Conductor = class {
       this.at(ts + this.rnd() * 16 * this.step, "wave", { amp: 0.32 * lvl * (0.35 + 0.65 * far) * (0.5 + 0.5 * td), dur, bright: 0.3 + 0.4 * clamp4(light, 0, 1), pan: (this.rnd() - 0.5) * 1.4, rev: 0.45 });
       this.nextWave = ts + dur * 0.6 + (14 - 9 * td) * (0.5 + this.rnd());
     }
+    this.grp = "music";
     this.score.bar(ts, bar);
+    this.grp = null;
   }
 };
 
@@ -19408,8 +19642,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
   }, onError = () => {
   }, onSang = null } = {}) {
     const pref = load();
-    const st = { on: false, volume: clamp4(pref.volume ?? 0.7, 0, 1), starting: null, ctx: null, node: null, gain: null, sent: /* @__PURE__ */ new Map(), speed: 1, lastScan: 0, seq: 0, scans: /* @__PURE__ */ new Map() };
-    const persist = () => save({ volume: st.volume, on: st.on });
+    const st = { on: false, volume: clamp4(pref.volume ?? 0.7, 0, 1), mix: fullMix(pref.mix), starting: null, ctx: null, node: null, gain: null, sent: /* @__PURE__ */ new Map(), speed: 1, lastScan: 0, seq: 0, scans: /* @__PURE__ */ new Map() };
+    const persist = () => save({ volume: st.volume, on: st.on, mix: st.mix });
     const notify = () => onChange({ on: st.on, volume: st.volume });
     async function boot2() {
       const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
@@ -19433,6 +19667,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       gain.gain.value = 0;
       node.connect(gain).connect(ctx.destination);
       Object.assign(st, { node, gain });
+      node.port.postMessage(mixMessage(st.mix));
     }
     function stream() {
       if (!st.ctx || !st.gain) return null;
@@ -19487,6 +19722,24 @@ registerProcessor("tidemote-sound", TidemoteSound);
     const post = (m) => {
       if (st.node) st.node.port.postMessage(m);
     };
+    function away(on) {
+      if (on && st.mix.background) return;
+      st.away = on;
+      if (!st.ctx || !st.gain || !st.on) return;
+      if (on) {
+        ramp2(0, 0.5);
+        setTimeout(() => {
+          if (st.away) st.ctx.suspend();
+        }, 550);
+      } else st.ctx.resume().then(() => {
+        if (st.on && !st.away) ramp2(level(st.volume), 1);
+      });
+    }
+    function setMix(m) {
+      st.mix = fullMix({ ...st.mix, ...m });
+      persist();
+      post(mixMessage(st.mix));
+    }
     function census({ species, pop, world }) {
       if (!st.node || !st.on) return;
       const all = [];
@@ -19548,23 +19801,14 @@ registerProcessor("tidemote-sound", TidemoteSound);
       unlock: () => {
         if (st.on && st.ctx && !st.away) st.ctx.resume();
       },
-      // the page hidden (another tab, the phone locked): fade out and let the audio thread rest; shown
-      // again, fade back in
-      away(on) {
-        st.away = on;
-        if (!st.ctx || !st.gain || !st.on) return;
-        if (on) {
-          ramp2(0, 0.5);
-          setTimeout(() => {
-            if (st.away) st.ctx.suspend();
-          }, 550);
-        } else st.ctx.resume().then(() => {
-          if (st.on && !st.away) ramp2(level(st.volume), 1);
-        });
-      },
+      away,
       toggle: () => setOn(!st.on),
       setOn,
       setVolume,
+      setMix,
+      get mix() {
+        return { ...st.mix };
+      },
       census,
       listen,
       era: (name) => post({ type: "era", name }),
@@ -19800,8 +20044,21 @@ registerProcessor("tidemote-sound", TidemoteSound);
     return rankField(h);
   }
 
+  // src/look.js
+  var LOOK = ["prism", "relief", "rims", "fringe", "halation", "veil", "film", "grain", "sat", "density", "contrast", "black", "dof", "iris"];
+  var LOOK_WORDS = 16;
+  var DARKFIELD = { prism: 0.4, relief: 0.4, rims: 0.45, fringe: 0.2, halation: 0.45, veil: 0.5, film: 0.25, grain: 0.25, sat: 0.1, density: 0.25, contrast: 0.3, black: 0.6, dof: 0.4, iris: 0.2 };
+  function packLook(p, s = 1) {
+    const w = new Float32Array(LOOK_WORDS);
+    LOOK.forEach((k, i) => {
+      w[i] = (p[k] ?? 0) * s;
+    });
+    return w;
+  }
+
   // src/engine.js
   var POST_LAMP = 100 + 4 * SEA_CASCADES;
+  var POST_LOOK = POST_LAMP + 16;
   var HDR = "rgba16float";
   var BLOOM_LEVELS = 6;
   var U = globalThis.GPUBufferUsage ?? {};
@@ -19876,7 +20133,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.waves = new Float32Array(16);
       this.viewData = new ArrayBuffer(112);
       this.viewDataL = new ArrayBuffer(112);
-      this.postData = new Float32Array(POST_LAMP + 16);
+      this.postData = new Float32Array(POST_LOOK + LOOK_WORDS);
+      this.look = new Float32Array(LOOK_WORDS);
       this.lens = new Float32Array(4);
       this.tool = new Float32Array(8);
       this.loupe = null;
@@ -19908,7 +20166,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       b.viewL = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
       b.viewS = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
       b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
-      b.post = d.createBuffer({ size: (POST_LAMP + 16) * 4, usage: U.UNIFORM | U.COPY_DST });
+      b.post = d.createBuffer({ size: (POST_LOOK + LOOK_WORDS) * 4, usage: U.UNIFORM | U.COPY_DST });
       b.seaU = d.createBuffer({ size: 128, usage: U.UNIFORM | U.COPY_DST });
       this.seaTex = d.createTexture({
         size: [SEA_N, SEA_N, SEA_CASCADES],
@@ -22244,6 +22502,7 @@ ${e.message}` : String(e?.message || e));
       pd.set(this.hand.subarray(0, 4), POST_LAMP);
       pd.set(this.lens, POST_LAMP + 4);
       pd.set(this.tool, POST_LAMP + 8);
+      pd.set(this.look, POST_LOOK);
       d.queue.writeBuffer(this.b.post, 0, pd);
       this._shiftPending = null;
       if (this._seaOn && pd[94] > 0 && this.cpShiftBG) {
@@ -22835,7 +23094,7 @@ ${e.message}` : String(e?.message || e));
     density: "The most device pixels drawn per CSS pixel. High-density (Retina) screens look sharper at 2× but cost up to four times the pixels of 1×. Readouts and outlines stay sharp either way. Auto draws at 1.5× and, while frames run late, drops to 1× first, before the render scale or the frame rate are lowered, and returns to 1.5× last; it shows the density it is using now. A fixed value never changes.",
     targetfps: "Frames per second aimed for, as a whole number of the screen’s refreshes so frames stay evenly spaced (60 on a 144 Hz screen is every second refresh, 72 fps). 30 halves the GPU’s work and saves battery; Display follows the screen’s refresh rate (120 on many phones and Macs), which costs the most. Simulated time keeps pace with real time at any rate. Auto aims for 60 and, when the device can’t keep up, lowers the rate itself (to 30, 20 or 15; shown beside Auto); a rate chosen is held even then.",
     bloom: "A soft glow around bright cells. Several extra full-screen passes.",
-    optics: "Microscope optics: depth haze and a vignette over the world. One extra full-screen pass.",
+    optics: "The microscope’s lens: the view softens and its colors part toward the edges, a round field stop darkens the corners, a faint haze lies behind the cells and dust drifts out of focus. One extra full-screen pass.",
     lod: "Zoomed in, cells resolve into membranes, organelles and fused bodies, and bonds into soft strands. Off, every cell stays the glowing point it is from afar, at any zoom: far cheaper, so the page can run more particles. The loupe and the live close-up still show the detail.",
     specks: "The fine suspension that drifts between cells when zoomed far in. Drawn speck by speck; off saves a compute pass and a full-screen pass.",
     closeup: "The live close-up in the specimen panel: a second, small view of the world drawn every frame.",
@@ -22852,7 +23111,16 @@ ${e.message}` : String(e?.message || e));
     tempo: "How quickly its song moves, from how fast and how hungrily it lives.",
     audioload: "How much of its time the soundtrack’s audio thread spends rendering. Near 100% it would crackle, so above about 50% fewer notes may sound at once and the oldest fade out early.",
     watersurface: "The surface of the water far above the cells, out of focus: as its waves pass they gently bend the view and sweep soft bands of light across what lies beneath, more in a storm. Subtle tones it down, Strong turns it up, Off holds the view still.",
+    microlook: "The view as a darkfield microscope shows living cells: black water, outlines glowing as light catches their edges and touched with rainbow, a warm glow about whatever is bright, a soft focus away from the middle and a little grain. Subtle tones it down, Strong turns it up, Off shows the cells plainly.",
+    filmgrain: "A fine flicker of grain over the picture, as on film, strongest in the midtones. Fine is barely seen, Heavy is an old reel; Off is clean.",
     wavemotion: "How quickly the water’s waves move. Slow suits a calm view; Lively, a restless one. Sped-up worlds move them faster too, but less than the cells.",
+    audiomusic: "The composed music under everything: the piano, strings and vibraphone that follow the era and the species that reign. Off leaves only the life and the water.",
+    audiocells: "The cells themselves: every species singing its own short song, births ringing, bites and deaths, and from afar the murmur of the crowd. Off leaves the music and the water.",
+    audiowater: "The water around it all: the sea’s low hum, the drone under the harmony and the waves that wash in now and then. Off is a dry, close room.",
+    audiotools: "The sounds of your own hand: tools picked up and put down, the rod’s stir, the scalpel’s tear, the stage’s warmth and the probe’s ice.",
+    audiospace: "How big the place sounds. Close is a small, dry room where every note is crisp; Vast is a cathedral, each note ringing on long after it ends.",
+    audiotone: "Warm softens the top end, as if heard through the water or a wall; Bright adds sparkle and air to the highs.",
+    audiobackground: "What the soundtrack does when you switch to another tab or window. Keep playing leaves it on as background music. The world pauses while hidden, so the cells’ songs pause with it until you come back.",
     songmarks: "A faint ring spreads from a cell each time it sings its species’ note: for the picked species only, or for every species. Needs sound on.",
     diversity: "Effective number of species: exp of the Shannon entropy of species populations. A world of 10 equally common species scores 10.",
     will: "The viewer’s will, while this cell is ridden: one more drive, toward where it is steered, as strong as its swimming lets it be and paid for in upkeep as swimming is. Hunger and fear still pull as they did, and often win.",
@@ -31220,9 +31488,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "94b32d4ab2e0a7ff") return;
+      if (localStorage.getItem(key) === "557e2daf19256dc3") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "94b32d4ab2e0a7ff");
+      if (res) localStorage.setItem(key, "557e2daf19256dc3");
     } catch {
     }
   }
@@ -31351,6 +31619,10 @@ ${e.message}` : String(e?.message || e));
       // the water's surface: 0 off, 1 subtle, 2 normal, 3 strong (applyWater)
       waves: prefs.waves ?? 1,
       // its waves' motion: 0 slow, 1 normal, 2 lively
+      look: prefs.look ?? 2,
+      // the microscope's look (applyLook): 0 off, 1 subtle, 2 normal, 3 strong
+      grain: prefs.grain ?? 1,
+      // its film grain: 0 off, 1 fine, 2 heavy
       // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
       // pixels per CSS pixel ('auto' by default, and for prefs saved before v3, which stored the old
       // default 1.5 without anyone choosing it), the frame rate aimed for ('auto' by default, and for
@@ -31400,9 +31672,11 @@ ${e.message}` : String(e?.message || e));
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, closeup: state.closeup, songMarks: state.songMarks, water: state.water, waves: state.waves, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+      savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, closeup: state.closeup, songMarks: state.songMarks, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
+    const applyLook = (p = { ...DARKFIELD, grain: [0, 0.25, 0.5][state.grain] }, strength = [0, 0.6, 1, 1.35][state.look]) => eng.look.set(packLook(p, strength));
+    applyLook();
     const applyWater = () => {
       const t2 = eng.seaTune;
       t2.height = [0, 0.5, 1, 1.8][state.water];
@@ -32445,7 +32719,7 @@ ${e.message}` : String(e?.message || e));
       for (let k = 0; k < 16; k++) all += now[k] - prev[k] >>> 0;
       return all > 0 ? (now[16] - prev[16] >>> 0) / all : 0;
     }
-    const MIX = [
+    const MIX2 = [
       ["Living", 3, LIVING_CSS, "living", "class:living"],
       ["Husk", 2, MATTER[2].css, "husk", "class:husk"],
       ["Stone", 4, MATTER[3].css, "stone", "class:stone"],
@@ -32453,7 +32727,7 @@ ${e.message}` : String(e?.message || e));
       ["Silt", 0, MATTER[0].css, "silt", "class:silt"]
     ];
     const mixEl = $2("mix");
-    mixEl.innerHTML = `<div class="mix-bar" aria-hidden="true">${MIX.map(([, , col]) => `<i style="background:${col}"></i>`).join("")}</div>` + MIX.map(([label3, , col, tip, key]) => `<button type="button" class="mix-row" data-focus="${key}" aria-pressed="false"><i style="background:${col}"></i><span><span class="term" data-tip="${tip}">${label3}</span></span><b></b><em></em></button>`).join("");
+    mixEl.innerHTML = `<div class="mix-bar" aria-hidden="true">${MIX2.map(([, , col]) => `<i style="background:${col}"></i>`).join("")}</div>` + MIX2.map(([label3, , col, tip, key]) => `<button type="button" class="mix-row" data-focus="${key}" aria-pressed="false"><i style="background:${col}"></i><span><span class="term" data-tip="${tip}">${label3}</span></span><b></b><em></em></button>`).join("");
     mixEl.addEventListener("click", (e) => {
       const b = e.target.closest("[data-focus]");
       if (b) focusFacet(b.dataset.focus);
@@ -32462,7 +32736,7 @@ ${e.message}` : String(e?.message || e));
       const N = Math.max(1, eng.count);
       const segs2 = mixEl.firstChild.children;
       const rows = mixEl.querySelectorAll(".mix-row");
-      MIX.forEach(([, i, , , key], k) => {
+      MIX2.forEach(([, i, , , key], k) => {
         const v = life.counts[i];
         segs2[k].style.flex = String(Math.max(v, N * 4e-3));
         rows[k].setAttribute("aria-pressed", String(focus.key === key));
@@ -33604,15 +33878,19 @@ ${e.message}` : String(e?.message || e));
       const kfmt = (n) => n >= 1048576 ? `${+(n / 1048576).toFixed(1)}M` : `${Math.round(n / 1024)}k`;
       function display() {
         const s = eng.settings;
-        return group("look", "", choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "D", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + (isCoarse ? "" : onoff("ui", "Interface", "U", state.ui, "interface")) + choice("water", "Water surface", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.water, "watersurface") + (state.water ? choice("waves", "Wave motion", "", [[0, "Slow"], [1, "Normal"], [2, "Lively"]], state.waves, "wavemotion") : "") + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", "Film")} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === "idle" ? '<button type="button" class="chip" data-o="film" data-v="now">30 s now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : "")) + group("sound", "Sound", onoff("sound", "Soundtrack", "S", sound.on) + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>`);
+        return group("picture", "Picture", choice("microlook", "Microscope", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.look, "microlook") + (state.look ? choice("grain", "Film grain", "", [[0, "Off"], [1, "Fine"], [2, "Heavy"]], state.grain, "filmgrain") : "") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("bloom", "Bloom", "Y", s.bloom > 0, "bloom") + choice("water", "Water surface", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.water, "watersurface") + (state.water ? choice("waves", "Wave motion", "", [[0, "Slow"], [1, "Normal"], [2, "Lively"]], state.waves, "wavemotion") : "") + choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("lod", "Zoom detail", "", s.lod, "lod")) + group("overlays", "Overlays", choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "D", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks")) + group("view", "View", (isCoarse ? "" : onoff("ui", "Interface", "U", state.ui, "interface")) + onoff("closeup", "Live close-up", "", state.closeup, "closeup") + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", "Film")} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === "idle" ? '<button type="button" class="chip" data-o="film" data-v="now">30 s now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ""));
+      }
+      function audio_() {
+        const m = sound.mix, mix4 = (k) => choice(`mix-${k}`, MIX[k].name, "", MIX[k].choices.map(([label3], i) => [i, label3]), m[k], `audio${k}`);
+        return group("sound", "Playback", onoff("sound", "Soundtrack", "S", sound.on) + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>` + mix4("background")) + group("mix", "Mix", ["music", "cells", "water", "tools"].map(mix4).join("")) + group("character", "Character", mix4("space") + mix4("tone"));
       }
       const scanChoices = () => [...new Set([0.75, 1, 1.5, 2].map((f2) => Math.round(K.maxScan * f2 / 8) * 8).concat(eng.maxScan))].sort((a, b) => a - b);
       function performance_() {
-        const s = eng.settings, P = state.perf;
+        const P = state.perf;
         const dev = Math.min(devicePixelRatio || 1, 2);
         const sizes2 = PARTICLE_SIZES.filter((n) => n <= maxParticles());
         const nowN = pendingN ?? (P.particles || "auto");
-        return group("res", "Resolution", choice("scale", "Render scale", "", [["auto", "Auto"], [1, "100%"], [0.75, "75%"], [0.5, "50%"], [0.35, "35%"]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", "Auto lowest", "", [[0.75, "75%"], [0.5, "50%"], [0.35, "35%"], [0.25, "25%"]], P.floor, "autofloor") : "") + choice("density", "Pixel density", "", [["auto", "Auto"], [1, "1×"], [1.5, "1.5×", dev < 1.5], [2, "2×", dev < 2]], P.density, "density") + choice("fps", "Target fps", "", [["auto", "Auto"], [30, "30"], [60, "60"], [0, "Display"]], P.fps, "targetfps")) + group("fx", "Effects", onoff("bloom", "Bloom", "Y", s.bloom > 0, "bloom") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("lod", "Zoom detail", "", s.lod, "lod") + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("closeup", "Live close-up", "", state.closeup, "closeup")) + group("world", "World", choice("n", "Particles", "", [["auto", "Auto"], ...sizes2.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", "Neighbors", "", scanChoices().map((n) => [n, n === K.maxScan ? `${n} <span class="chip-note">default</span>` : String(n)]), eng.maxScan, "neighbors") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === "auto" ? "a measured count" : fmt(pendingN)}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", "Profile")}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ""));
+        return group("res", "Resolution", choice("scale", "Render scale", "", [["auto", "Auto"], [1, "100%"], [0.75, "75%"], [0.5, "50%"], [0.35, "35%"]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", "Auto lowest", "", [[0.75, "75%"], [0.5, "50%"], [0.35, "35%"], [0.25, "25%"]], P.floor, "autofloor") : "") + choice("density", "Pixel density", "", [["auto", "Auto"], [1, "1×"], [1.5, "1.5×", dev < 1.5], [2, "2×", dev < 2]], P.density, "density") + choice("fps", "Target fps", "", [["auto", "Auto"], [30, "30"], [60, "60"], [0, "Display"]], P.fps, "targetfps")) + group("world", "World", choice("n", "Particles", "", [["auto", "Auto"], ...sizes2.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", "Neighbors", "", scanChoices().map((n) => [n, n === K.maxScan ? `${n} <span class="chip-note">default</span>` : String(n)]), eng.maxScan, "neighbors") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === "auto" ? "a measured count" : fmt(pendingN)}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", "Profile")}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ""));
       }
       const EVENT_NAMES = { drought: "Drought", storm: "Storm", duckweed: "Duckweed", frost: "Frost" };
       function climate_() {
@@ -33759,17 +34037,22 @@ ${e.message}` : String(e?.message || e));
         } else if (tab === "display") {
           trailIdx = 1;
           s.trails = trailLevels[trailIdx];
-          for (const k of ["tide", "heat", "bands", "links", "nodes"]) s[k] = defaults[k];
+          for (const k of ["tide", "heat", "bands", "links", "nodes", "bloom", "optics", "specks", "lod"]) s[k] = defaults[k];
           state.currents = false;
           state.songMarks = 1;
+          state.closeup = true;
           state.water = 2;
           state.waves = 1;
           applyWater();
+          state.look = 2;
+          state.grain = 1;
+          applyLook();
           state.auto = true;
           renderAuto(director.active);
+        } else if (tab === "audio") {
+          sound.setVolume(0.7);
+          sound.setMix(defaultMix());
         } else {
-          for (const k of ["bloom", "optics", "specks", "lod"]) s[k] = defaults[k];
-          state.closeup = true;
           Object.assign(P, { scale: "auto", floor: 0.5, density: "auto", fps: "auto", scan: null });
           eng.maxScan = K.maxScan;
           renderScale = Math.max(renderScale, P.floor);
@@ -33787,7 +34070,7 @@ ${e.message}` : String(e?.message || e));
         });
         $2("readout").hidden = tab !== "performance";
         const typing = document.activeElement?.id === "w-name";
-        setHTML(opts, (tab === "display" ? display() : tab === "performance" ? performance_() : tab === "climate" ? climate_() : tab === "about" ? about_() : worlds_()) + foot());
+        setHTML(opts, (tab === "display" ? display() : tab === "audio" ? audio_() : tab === "performance" ? performance_() : tab === "climate" ? climate_() : tab === "about" ? about_() : worlds_()) + foot());
         if (typing && !$2("w-name").disabled) {
           const i = $2("w-name");
           i.focus();
@@ -33847,6 +34130,13 @@ ${e.message}` : String(e?.message || e));
         } else if (id === "waves") {
           state.waves = +v;
           applyWater();
+        } else if (id === "microlook") {
+          state.look = +v;
+          applyLook();
+        } else if (id.startsWith("mix-")) sound.setMix({ [id.slice(4)]: +v });
+        else if (id === "grain") {
+          state.grain = +v;
+          applyLook();
         } else if (id === "ev-start") {
           if (!climate.event) climate.force(v);
           toggle(false);
@@ -36343,6 +36633,8 @@ Tidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} 
       loadCard,
       saveCard,
       cabinet,
+      // the look, for the tools (until the Display settings next set it): tunables over Darkfield's at a strength, or off
+      look: { set: (p = {}, strength = 1) => applyLook({ ...DARKFIELD, ...p }, strength), off: () => applyLook(DARKFIELD, 0) },
       // a .tidemote file's bytes, as Settings → Worlds opens one
       openWorld: async (bytes) => loadWorld(await openWorld(bytes))
     };
