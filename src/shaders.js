@@ -1073,9 +1073,10 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     var on = p.id == rider;
     if (on) { ra = p.pos; }
     else {
-      let near = array<u32, 5>(n1, n2, nb0, nb1, nb2);
-      for (var b = 0u; b < 5u && !on; b++) {
-        let j = near[b];
+      // (the two it keeps, then those that keep it)
+      for (var b = 0u; b < 2u + nBack && !on; b++) {
+        var j = select(n2, n1, b == 0u);
+        if (b >= 2u) { j = backAt(i, b - 2u, p, n1, n2); }
         if (j != NONE && j < sim.count && sortedFull[j].id == rider) { on = true; ra = sortedFull[j].pos; }
       }
     }
