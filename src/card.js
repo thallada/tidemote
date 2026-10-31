@@ -321,12 +321,18 @@ export function createCards(api) {
     if (sp) paint(data(sp));
   }
   const artOf = async (sp) => ({ sigil: await sigilArt(sp.genome), portrait: portraits.get(sp.serial) || null });
+  // a living species' portrait taken (and kept, the last 48), or null
+  async function portraitOf(serial) {
+    const p = await api.portrait(serial).catch(() => null);
+    if (p) { portraits.set(serial, p); if (portraits.size > 48) portraits.delete(portraits.keys().next().value); }
+    return p;
+  }
   /** A species' card drawn off screen, its portrait taken if it lives: a canvas (to save to the cabinet). */
   async function render(serial) {
     const sp = reg().get(serial);
     if (!sp) return null;
     const a = await artOf(sp);
-    if (sp.alive && !a.portrait) { const p = await api.portrait(serial).catch(() => null); if (p) { portraits.set(serial, p); a.portrait = p; } }
+    if (sp.alive && !a.portrait) a.portrait = await portraitOf(serial);
     return cardCanvas(data(sp), a);
   }
   async function open(serial) {
@@ -347,9 +353,9 @@ export function createCards(api) {
     note.textContent = sp.alive ? 'Taking its portrait…' : art.portrait ? '' : 'Extinct, and never portrayed: its sigil stands in.';
     root.focus({ preventScroll: true });
     if (sp.alive) {
-      const p = await api.portrait(serial).catch(() => null);
+      const p = await portraitOf(serial);
       if (cur !== serial) return;
-      if (p) { portraits.set(serial, p); if (portraits.size > 48) portraits.delete(portraits.keys().next().value); art.portrait = p; redraw(); }
+      if (p) { art.portrait = p; redraw(); }
       note.textContent = p ? '' : 'No member could be found to portray: its sigil stands in.';
     }
   }

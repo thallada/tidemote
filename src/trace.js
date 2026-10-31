@@ -23,12 +23,13 @@ function bondGraph(u32, f32, n) {
   return { index, X, Y, edges };
 }
 
-function component(edges, seen, start) {
+// the cells reached from start along the bonds, nearest first (the first max of them)
+function component(edges, seen, start, max = Infinity) {
   const body = [start];
   seen[start] = 1;
-  for (let head = 0; head < body.length; head++) {
+  for (let head = 0; head < body.length && body.length < max; head++) {
     for (const j of edges[body[head]]) {
-      if (seen[j]) continue;
+      if (seen[j] || body.length >= max) continue;
       seen[j] = 1;
       body.push(j);
     }
@@ -139,14 +140,4 @@ export function largestBody(u32, f32, n) {
 }
 
 /** The first max cells of a body reached from start along its bonds, nearest first. */
-export function bodyPatch(edges, start, max) {
-  const seen = new Set([start]), out = [start];
-  for (let head = 0; head < out.length && out.length < max; head++) {
-    for (const j of edges[out[head]]) {
-      if (seen.has(j) || out.length >= max) continue;
-      seen.add(j);
-      out.push(j);
-    }
-  }
-  return out;
-}
+export const bodyPatch = (edges, start, max) => component(edges, new Uint8Array(edges.length), start, max);

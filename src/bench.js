@@ -4,6 +4,7 @@
 import { TOOLS, keyOf, toolOf, works, reachStep } from './hand.js';
 import { wireCardDrag, countText } from './minicard.js';
 import { fadeEdges } from './ui.js';
+import { fmt } from './fmt.js';
 
 const $ = (id) => document.getElementById(id);
 const coarse = matchMedia('(pointer: coarse)').matches;
@@ -130,6 +131,8 @@ export function createBench({ hand, pick, reach, size, onToggle, pip }) {
     // the bench button names the tool in hand (on a phone, where the dock has no tools)
     $('bench-i').setAttribute('href', t.id !== 'none' ? `#i-t-${t.id}` : '#i-bench');
     $('bench-l').textContent = t.id !== 'none' ? t.name : 'Bench';
+    // (named when its label is hidden, as on a phone held sideways)
+    btn.setAttribute('aria-label', t.id !== 'none' ? `Bench · ${t.name} in hand` : 'Bench');
     btn.classList.toggle('in-hand', up);
     // a tool in hand on a phone, the drawer closed: the held strip
     held.hidden = !(up && drawer.hidden && innerWidth <= 980);
@@ -151,7 +154,7 @@ export function createBench({ hand, pick, reach, size, onToggle, pip }) {
     held.classList.toggle('pip', inHand);
     const tool = dock.querySelector('[data-tool="pipette"]');
     tool.dataset.count = v.count ? (v.count > 999 ? `${Math.floor(v.count / 1000)}k` : v.count) : '';
-    $('pip-n').textContent = v.count ? `${v.count.toLocaleString('en-US')} / ${v.limit.toLocaleString('en-US')}${v.count >= v.limit ? ' · full' : ''}` : 'empty';
+    $('pip-n').textContent = v.count ? `${fmt(v.count)} / ${fmt(v.limit)}${v.count >= v.limit ? ' · full' : ''}` : 'empty';
     if (drags.some((d) => d.dragging())) return;
     if (key === pipKey) {
       for (const row of [strip, hstrip]) [...row.querySelectorAll('.minicard .mc-n b')].forEach((b, i) => { if (v.held[i]) b.innerHTML = countText(...v.held[i], row === hstrip); });

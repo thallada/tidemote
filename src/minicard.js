@@ -11,7 +11,7 @@ import { esc, fmt } from './fmt.js';
 export const countText = (n, bodies, flat) => `×${fmt(n)}${bodies > 1 && !flat ? `<small> · ${fmt(bodies)} bodies</small>` : ''}`;
 
 /** How a cabinet card's species does here (updated in place): [ 'live', n ] alive, [ 'gone' ], or [ 'from', home ]. */
-export const statusText = ([k, v]) => (k === 'live' ? `<i class="mc-live"></i>${fmt(v)} alive` : k === 'gone' ? 'extinct here' : `↗ from ${esc(v)}`);
+const statusText = ([k, v]) => (k === 'live' ? `<i class="mc-live"></i>${fmt(v)} alive` : k === 'gone' ? 'extinct here' : `↗ from ${esc(v)}`);
 
 /** A cabinet card's status line (.mc-st) brought up to st, in place. */
 export function setStatus(el, st) {
@@ -48,10 +48,11 @@ export function dropThumb(key, all = false) {
 const sigils = new Map();
 function sigilOf(g, gid, size) {
   const k = `${size}|${gid}`;
-  let s = gid && sigils.get(k);
+  let s = sigils.get(k);
   if (!s) {
     s = sigilSVG(voiceOf(g), g, { size });
-    if (gid) { sigils.set(k, s); if (sigils.size > 256) sigils.delete(sigils.keys().next().value); }
+    sigils.set(k, s);
+    if (sigils.size > 256) sigils.delete(sigils.keys().next().value);
   }
   return s;
 }
@@ -62,7 +63,7 @@ function sigilOf(g, gid, size) {
  * status: how it does here (statusText), for the cabinet. key: what the card stands for (data-key); thumb: the key
  * of its portrait.
  */
-export function miniCard(g, K, { gid = '', key, name, home = '', n = 0, bodies = 0, tip = false, kept = false, flat = false, status = null, thumb = '' }) {
+export function miniCard(g, K, { gid, key, name, home = '', n = 0, bodies = 0, tip = false, kept = false, flat = false, status = null, thumb = '' }) {
   const f = facets(g, K), url = thumb && thumbs.get(thumb);
   const sp = name.indexOf(' '), genus = sp > 0 ? name.slice(0, sp) : name, rest = sp > 0 ? name.slice(sp + 1) : '';
   const mix = dietMix(g).filter(([, v]) => v >= 0.02).map(([d, v]) => `<i style="flex:${v.toFixed(3)};background:${DIET_COL[d]}"></i>`).join('');
@@ -74,7 +75,7 @@ export function miniCard(g, K, { gid = '', key, name, home = '', n = 0, bodies =
   const open = `<button type="button" class="minicard${flat ? ' flat' : ''}${tip ? ' at-tip' : ''}" data-key="${esc(key)}"${thumb ? ` data-thumb="${esc(thumb)}"` : ''} aria-label="${esc(label)}">`;
   if (flat) return `${open}${ph}${nm}<span class="mc-end">${tip ? '<span class="mc-tip">Tip</span>' : ''}${count}${keptMark}</span></button>`;
   const kind = `<span class="mc-kind" aria-hidden="true"><svg style="color:${DIET_COL[f.diet]}"><use href="#i-d-${f.diet}"/></svg><svg><use href="#i-m-${f.mobility}"/></svg></span>`;
-  const sub = status ? `<span class="mc-sub mc-st${status[0] === 'from' ? ' from' : status[0] === 'gone' ? ' gone' : ''}">${statusText(status)}</span>`
+  const sub = status ? `<span class="mc-sub mc-st${status[0] === 'live' ? '' : ` ${status[0]}`}">${statusText(status)}</span>`
     : home ? `<span class="mc-sub from">↗ from ${esc(home)}</span>` : `<span class="mc-sub"><span style="color:${DIET_COL[f.diet]}">${f.diet}</span> · ${f.mobility}</span>`;
   return `${open}${ph}${tip ? '<span class="mc-tip">Tip</span>' : ''}${count}${keptMark}${kind}${nm}${sub}</button>`;
 }

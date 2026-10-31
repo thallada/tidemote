@@ -525,7 +525,7 @@ export function createSpecimen(api) {
         const hl = sp && api.focusKey() === `sp:${sp.serial}`;
         const ride = api.riding();
         const cardB = sp ? cardBtn(sp.serial) : '';
-        setActs(`c${api.follow()}${hl}${!!sp}${ride}${cardB.length}`, `<button type="button" class="btn" data-act="follow" aria-pressed="${api.follow()}" data-hint="Keep it in view · C">Follow</button><button type="button" class="btn ride" data-act="ride" aria-pressed="${ride}" data-hint="${ride ? 'Get off · Enter' : 'Ride it: steer with a held click, a finger or the arrows · Enter'}">Ride</button>${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}" data-hint="Highlight its species">Highlight</button>` : ''}${cardB}`);
+        setActs(`c${api.follow()}${hl}${!!sp}${ride}${cardB.length}`, `<button type="button" class="btn" data-act="follow" aria-pressed="${api.follow()}" data-hint="Keep it in view · C">Follow</button><button type="button" class="btn" data-act="ride" aria-pressed="${ride}" data-hint="${ride ? 'Get off · Enter' : 'Ride it: steer with a held click, a finger or the arrows · Enter'}">Ride</button>${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}" data-hint="Highlight its species">Highlight</button>` : ''}${cardB}`);
         if (g) {
           const dv = divEnergy(g, K);
           v += vital('Energy', p.energy / dv, 'sun', `${p.energy.toFixed(2)} / ${dv.toFixed(2)}`, 'energy');

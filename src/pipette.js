@@ -37,13 +37,9 @@ export function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
   let seq = state.species.reduce((m, sp) => Math.max(m, sp.id || 0), 0);
   for (const sp of state.species) sp.id ??= ++seq;
   // what comes in joins the run at the tip if it is of its species, else is a run of its own there
-  const atTip = (x) => {
-    const t = pp.tip;
-    if (t && same(t, x)) return t;
-    const sp = { ...x, id: ++seq, orgs: [], made: 0 };
-    state.species.unshift(sp);
-    return sp;
-  };
+  // a new run at the tip, or (atTip) the run there if it is of x's species
+  const fresh = (x) => { const sp = { ...x, id: ++seq, orgs: [], made: 0 }; state.species.unshift(sp); return sp; };
+  const atTip = (x) => (pp.tip && same(pp.tip, x) ? pp.tip : fresh(x));
   // b's cells into a, a run nearer the tip (a's leave first: the last organism in leaves first)
   const merge = (a, b) => { a.orgs.unshift(...b.orgs); a.made = (a.made || 0) + (b.made || 0); };
   // runs of one species side by side become one
@@ -69,8 +65,7 @@ export function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
      */
     load(species, n, alone = false) {
       if (!pp.fits(n)) return null;
-      const sp = alone ? { ...species, id: ++seq, orgs: [], made: 0 } : atTip(species);
-      if (alone) state.species.unshift(sp);
+      const sp = alone ? fresh(species) : atTip(species);
       sp.made += n;
       return sp;
     },

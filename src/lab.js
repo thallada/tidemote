@@ -523,7 +523,7 @@ export function createLab(api) {
   }
 
   // ---------------------------------------------------------- cabinet: every card saved, in every world (cabinet.js)
-  // api.cabinet: { cards(), world(), facets(card), mini(card), status(card) (minicard.js statusText), open(card), load(card),
+  // api.cabinet: { cards(), world(), facets(card), mini(card), status(card) (minicard.js setStatus), open(card), load(card),
   // place(card, x, y), remove(card), undo(), removed() }: a card tapped opens it, dragged onto the bench (its button, the
   // pipette's tool or strip) loads the pipette, onto the world sets a colony of it down there; its × takes it out
   // (Undo puts back the last for a while)

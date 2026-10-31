@@ -55,7 +55,7 @@ export const d2m = (deg, root, scale) => {
   const n = scale.length, o = Math.floor(sd / n);
   return root + scale[((sd % n) + n) % n] + 12 * o + acc;
 };
-const midicps = (m) => 440 * Math.pow(2, (m - 69) / 12);
+export const midicps = (m) => 440 * Math.pow(2, (m - 69) / 12);
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 
 

@@ -94,10 +94,10 @@ export function filterCards(cards, { q = '', from = 'any', world = null, test = 
 }
 
 /** The cabinet kept in this browser (IndexedDB): list(), put(card), remove(id). */
-export function createCabinetStore(name = 'tidemote-cabinet') {
+export function createCabinetStore() {
   let db = null;
   const open = () => (db ??= new Promise((res, rej) => {
-    const r = indexedDB.open(name, 1);
+    const r = indexedDB.open('tidemote-cabinet', 1);
     r.onupgradeneeded = () => r.result.createObjectStore('cards', { keyPath: 'id' });
     r.onsuccess = () => res(r.result);
     r.onerror = () => { db = null; rej(r.error); };

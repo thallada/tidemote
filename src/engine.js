@@ -337,7 +337,7 @@ class Engine {
       vertex: { module: this.drawModule, entryPoint: 'vsStone' },
       fragment: { module: this.drawModule, entryPoint: 'fsStone', targets: [{ format: HDR }, { format: HDR }] } });
     this.pBridge = rp(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', additive);
-    this.pStudio = rp(this.drawModule, 'vsStudio', 'fsTube', 'triangle-strip', additive);
+    this.pStudio = rp(this.drawModule, 'vsStudio', 'fsPoint', 'triangle-strip', additive);
     this.pDown = rp(this.postModule, 'vsFull', 'fsDown', 'triangle-list', undefined);
     this.pUp = rp(this.postModule, 'vsFull', 'fsUp', 'triangle-list', additive);
     this.pMurk = rp(this.postModule, 'vsFull', 'fsMurk', 'triangle-list', undefined);
@@ -1358,11 +1358,15 @@ class Engine {
     if (this.tubeN) d.queue.writeBuffer(this.b.tubeParts, 0, parts, 0, this.tubeN * P_BYTES);
     if (!genomes) return;
     d.queue.writeBuffer(this.b.tubeGenomes, FIRST_LIFE * G_BYTES, genomes);
-    const enc = d.createCommandEncoder(), pass = enc.beginComputePass();
-    pass.setPipeline(this.cpOrgans); pass.setBindGroup(0, this.tubeOrgansBG);
-    pass.dispatchWorkgroups(Math.ceil(((FIRST_LIFE + TUBE_K) * ORGANS) / 64));
+    this._organsOf(this.tubeOrgansBG, TUBE_K);
+  }
+  // the organ directions of k genomes written from FIRST_LIFE (the bore's, the studio's own)
+  _organsOf(bg, k) {
+    const enc = this.device.createCommandEncoder(), pass = enc.beginComputePass();
+    pass.setPipeline(this.cpOrgans); pass.setBindGroup(0, bg);
+    pass.dispatchWorkgroups(Math.ceil(((FIRST_LIFE + k) * ORGANS) / 64));
     pass.end();
-    d.queue.submit([enc.finish()]);
+    this.device.queue.submit([enc.finish()]);
   }
   /**
    * A mini-card's portrait drawn alone, in place of the world, in the close-up (specimen.studio, docs/hand.md): n
@@ -1377,11 +1381,7 @@ class Engine {
     all.set(parts.subarray(0, this.studioN * P_BYTES / 4));
     d.queue.writeBuffer(this.b.studioParts, 0, all);
     d.queue.writeBuffer(this.b.studioGenomes, FIRST_LIFE * G_BYTES, genome);
-    const enc = d.createCommandEncoder(), pass = enc.beginComputePass();
-    pass.setPipeline(this.cpOrgans); pass.setBindGroup(0, this.studioOrgansBG);
-    pass.dispatchWorkgroups(Math.ceil(((FIRST_LIFE + 1) * ORGANS) / 64));
-    pass.end();
-    d.queue.submit([enc.finish()]);
+    this._organsOf(this.studioOrgansBG, 1);
   }
   /** The cells the pipette draws toward its tip (their IDs, the first PIPE_MAX), its tip and pull in hand.suck. */
   setDrawn(ids) {
