@@ -19,6 +19,8 @@ import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { retraceBody, settleMembers, nearBody, largestBody, bodyPatch } from './trace.js';
 import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K, STUDIO_N, PIPETTE_DOF, CYST } from './shaders.js';
 import { flowAt } from './flow.js';
+import { DARKFIELD, packLook } from './look.js';
+import { MIX as SOUND_MIX, defaultMix } from './audio/mix.js';
 import { startLoader } from './loader.js';
 import { Director } from './director.js';
 import { createChronicler, watchMap, durWords } from './chronicler.js';
@@ -214,6 +216,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     songMarks: prefs.songMarks ?? 1, // mark the cells that sing: 0 off, 1 the picked species, 2 all
     water: prefs.water ?? 2, // the water's surface: 0 off, 1 subtle, 2 normal, 3 strong (applyWater)
     waves: prefs.waves ?? 1, // its waves' motion: 0 slow, 1 normal, 2 lively
+    look: prefs.look ?? 2, // the microscope's look (applyLook): 0 off, 1 subtle, 2 normal, 3 strong
+    grain: prefs.grain ?? 1, // its film grain: 0 off, 1 fine, 2 heavy
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
     // pixels per CSS pixel ('auto' by default, and for prefs saved before v3, which stored the old
     // default 1.5 without anyone choosing it), the frame rate aimed for ('auto' by default, and for
@@ -262,9 +266,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, closeup: state.closeup, songMarks: state.songMarks, water: state.water, waves: state.waves, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+    savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, closeup: state.closeup, songMarks: state.songMarks, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
+  // the look (src/look.js, docs/look.md): Darkfield as the Display settings ask, how strong as a whole and how much
+  // grain; or, from the tools (T.look), any tunables
+  const applyLook = (p = { ...DARKFIELD, grain: [0, 0.25, 0.5][state.grain] }, strength = [0, 0.6, 1, 1.35][state.look]) => eng.look.set(packLook(p, strength));
+  applyLook();
   // the sea (src/sea.js) as the Display settings ask: how high its waves (none: no sea at all, its passes skipped, for
   // anyone who would rather the view held still) and how quickly they move
   const applyWater = () => {
@@ -2214,10 +2222,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const group = (id, text, rows) => section(id, text, block('', rows));
     let confirming = false; // the reset button asked to confirm
     const kfmt = (n) => (n >= 1048576 ? `${+(n / 1048576).toFixed(1)}M` : `${Math.round(n / 1024)}k`);
+    // Display: the picture (how the world is drawn and lit), what is drawn over it, and the view around it
     function display() {
       const s = eng.settings;
-      return group('look', '', choice('trails', 'Trails', 'T', trailNames.map((n, i) => [i, n]), trailIdx)
-        + choice('tide', 'Light map', 'G', [[0, 'Off'], [1, 'Faint'], [2, 'Full']], s.tide, 'light')
+      return group('picture', 'Picture', choice('microlook', 'Microscope', '', [[0, 'Off'], [1, 'Subtle'], [2, 'Normal'], [3, 'Strong']], state.look, 'microlook')
+        + (state.look ? choice('grain', 'Film grain', '', [[0, 'Off'], [1, 'Fine'], [2, 'Heavy']], state.grain, 'filmgrain') : '')
+        + onoff('optics', 'Optics', 'O', s.optics > 0, 'optics')
+        + onoff('bloom', 'Bloom', 'Y', s.bloom > 0, 'bloom')
+        + choice('water', 'Water surface', '', [[0, 'Off'], [1, 'Subtle'], [2, 'Normal'], [3, 'Strong']], state.water, 'watersurface')
+        + (state.water ? choice('waves', 'Wave motion', '', [[0, 'Slow'], [1, 'Normal'], [2, 'Lively']], state.waves, 'wavemotion') : '')
+        + choice('trails', 'Trails', 'T', trailNames.map((n, i) => [i, n]), trailIdx)
+        + onoff('specks', 'Suspension', '', s.specks, 'specks')
+        + onoff('lod', 'Zoom detail', '', s.lod, 'lod'))
+        + group('overlays', 'Overlays', choice('tide', 'Light map', 'G', [[0, 'Off'], [1, 'Faint'], [2, 'Full']], s.tide, 'light')
         + (s.tide === 2 ? rampHtml(MAPS[0]) : '')
         + (K.heat ? choice('heat', 'Heat map', 'E', [[0, 'Off'], [1, 'Shimmer'], [2, 'Full']], s.heat, 'heatmap') : '')
         + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : '')
@@ -2226,21 +2243,27 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + onoff('currents', 'Currents', 'W', state.currents)
         + onoff('links', 'Bonds', 'L', s.links, 'bond')
         + onoff('nodes', 'Particles', 'N', s.nodes)
-        + (isCoarse ? '' : onoff('ui', 'Interface', 'U', state.ui, 'interface'))
-        + choice('water', 'Water surface', '', [[0, 'Off'], [1, 'Subtle'], [2, 'Normal'], [3, 'Strong']], state.water, 'watersurface')
-        + (state.water ? choice('waves', 'Wave motion', '', [[0, 'Slow'], [1, 'Normal'], [2, 'Lively']], state.waves, 'wavemotion') : '')
+        + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks'))
+        + group('view', 'View', (isCoarse ? '' : onoff('ui', 'Interface', 'U', state.ui, 'interface'))
+        + onoff('closeup', 'Live close-up', '', state.closeup, 'closeup')
         + onoff('auto', 'Auto when idle', '', state.auto, 'autoidle')
-        + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks')
-        + (film.supported ? `<div class="opt"><span class="lbl">${term('film', 'Film')} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === 'idle' ? '<button type="button" class="chip" data-o="film" data-v="now">30 s now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ''))
-        // the soundtrack's volume, here for every device (the dock's slider is only on wide screens)
-        + group('sound', 'Sound', onoff('sound', 'Soundtrack', 'S', sound.on)
-        + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>`);
+        + (film.supported ? `<div class="opt"><span class="lbl">${term('film', 'Film')} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === 'idle' ? '<button type="button" class="chip" data-o="film" data-v="now">30 s now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ''));
+    }
+    // Audio: the soundtrack on or off and its volume (the dock's slider is only on wide screens), what it does while
+    // the page is hidden, its layers' levels and its space and tone (src/audio/mix.js), each by what it sounds like
+    function audio_() {
+      const m = sound.mix, mix = (k) => choice(`mix-${k}`, SOUND_MIX[k].name, '', SOUND_MIX[k].choices.map(([label], i) => [i, label]), m[k], `audio${k}`);
+      return group('sound', 'Playback', onoff('sound', 'Soundtrack', 'S', sound.on)
+        + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>`
+        + mix('background'))
+        + group('mix', 'Mix', ['music', 'cells', 'water', 'tools'].map(mix).join(''))
+        + group('character', 'Character', mix('space') + mix('tone'));
     }
     // the neighbor budgets offered: about ¾, 1, 1½ and 2 times the default (and one chosen before, if
     // it is none of those)
     const scanChoices = () => [...new Set([0.75, 1, 1.5, 2].map((f) => Math.round((K.maxScan * f) / 8) * 8).concat(eng.maxScan))].sort((a, b) => a - b);
     function performance_() {
-      const s = eng.settings, P = state.perf;
+      const P = state.perf;
       const dev = Math.min(devicePixelRatio || 1, 2);
       const sizes = PARTICLE_SIZES.filter((n) => n <= maxParticles());
       const nowN = pendingN ?? (P.particles || 'auto');
@@ -2248,11 +2271,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + (P.scale === 'auto' ? choice('floor', 'Auto lowest', '', [[0.75, '75%'], [0.5, '50%'], [0.35, '35%'], [0.25, '25%']], P.floor, 'autofloor') : '')
         + choice('density', 'Pixel density', '', [['auto', 'Auto'], [1, '1×'], [1.5, '1.5×', dev < 1.5], [2, '2×', dev < 2]], P.density, 'density')
         + choice('fps', 'Target fps', '', [['auto', 'Auto'], [30, '30'], [60, '60'], [0, 'Display']], P.fps, 'targetfps'))
-        + group('fx', 'Effects', onoff('bloom', 'Bloom', 'Y', s.bloom > 0, 'bloom')
-        + onoff('optics', 'Optics', 'O', s.optics > 0, 'optics')
-        + onoff('lod', 'Zoom detail', '', s.lod, 'lod')
-        + onoff('specks', 'Suspension', '', s.specks, 'specks')
-        + onoff('closeup', 'Live close-up', '', state.closeup, 'closeup'))
         + group('world', 'World', choice('n', 'Particles', '', [['auto', 'Auto'], ...sizes.map((n) => [n, kfmt(n)])], nowN, 'particles')
         + choice('scan', 'Neighbors', '', scanChoices().map((n) => [n, n === K.maxScan ? `${n} <span class="chip-note">default</span>` : String(n)]), eng.maxScan, 'neighbors')
         + (pendingN != null && String(pendingN) !== String(P.particles || 'auto')
@@ -2415,13 +2433,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
         applyEvents();
       } else if (tab === 'display') {
         trailIdx = 1; s.trails = trailLevels[trailIdx];
-        for (const k of ['tide', 'heat', 'bands', 'links', 'nodes']) s[k] = defaults[k];
-        state.currents = false; state.songMarks = 1;
+        for (const k of ['tide', 'heat', 'bands', 'links', 'nodes', 'bloom', 'optics', 'specks', 'lod']) s[k] = defaults[k];
+        state.currents = false; state.songMarks = 1; state.closeup = true;
         state.water = 2; state.waves = 1; applyWater();
+        state.look = 2; state.grain = 1; applyLook();
         state.auto = true; renderAuto(director.active);
+      } else if (tab === 'audio') {
+        // (the soundtrack stays on or off as it was)
+        sound.setVolume(0.7);
+        sound.setMix(defaultMix());
       } else {
-        for (const k of ['bloom', 'optics', 'specks', 'lod']) s[k] = defaults[k];
-        state.closeup = true;
         Object.assign(P, { scale: 'auto', floor: 0.5, density: 'auto', fps: 'auto', scan: null });
         eng.maxScan = K.maxScan;
         renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit();
@@ -2433,7 +2454,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       tabs.forEach((b) => { const on = b.dataset.tab === tab; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; });
       $('readout').hidden = tab !== 'performance';
       const typing = document.activeElement?.id === 'w-name';
-      setHTML(opts, (tab === 'display' ? display() : tab === 'performance' ? performance_() : tab === 'climate' ? climate_() : tab === 'about' ? about_() : worlds_()) + foot());
+      setHTML(opts, (tab === 'display' ? display() : tab === 'audio' ? audio_() : tab === 'performance' ? performance_() : tab === 'climate' ? climate_() : tab === 'about' ? about_() : worlds_()) + foot());
       if (typing && !$('w-name').disabled) { const i = $('w-name'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
       if (tab === 'worlds' && saves == null) refreshSaves();
       readout(true);
@@ -2485,6 +2506,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'songmarks') state.songMarks = +v;
       else if (id === 'water') { state.water = +v; applyWater(); }
       else if (id === 'waves') { state.waves = +v; applyWater(); }
+      else if (id === 'microlook') { state.look = +v; applyLook(); }
+      else if (id.startsWith('mix-')) sound.setMix({ [id.slice(4)]: +v });
+      else if (id === 'grain') { state.grain = +v; applyLook(); }
       else if (id === 'ev-start') { if (!climate.event) climate.force(v); toggle(false); return; }
       else if (id === 'film') { toggle(false); filmAct(v === 'stop' ? undefined : v); return; }
       else if (id.startsWith('ev-')) { state.events[id.slice(3)] = !!+v; applyEvents(); }
@@ -4635,6 +4659,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     queueScale(v) { renderScale = v; resizeDue = true; },
     // a world saved by eng.readState(), in place of this one
     loadWorld: applyWorld, hand, loadCard, saveCard, cabinet,
+    // the look, for the tools (until the Display settings next set it): tunables over Darkfield's at a strength, or off
+    look: { set: (p = {}, strength = 1) => applyLook({ ...DARKFIELD, ...p }, strength), off: () => applyLook(DARKFIELD, 0) },
     // a .tidemote file's bytes, as Settings → Worlds opens one
     openWorld: async (bytes) => loadWorld(await openWorld(bytes)) };
 

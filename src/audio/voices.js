@@ -16,6 +16,7 @@ import {
   Ringz, BPF, BLowPass, BLowShelf, BHiShelf, MoogFF, Lag, LagUD, Decay2, LeakDC, Compander, Limiter,
   DelayN, DelayC, AllpassC, Pan2, Balance2, Dust, Formlet, Pluck, sinTable,
 } from './ugens.js';
+import { LAYERS } from './mix.js';
 
 const midicps = (m) => 440 * Math.pow(2, (m - 69) / 12);
 const clip = (x, lo, hi) => (x < lo ? lo : x > hi ? hi : x);
@@ -731,7 +732,8 @@ export class PingPong {
 // ── \fdn: 8-line feedback delay network reverb ───────────────────────────────
 export class FDN {
   constructor(sr, rg, p = {}) {
-    this.p = Object.assign({ decay: 9, damp: 5000, size: 1.3, mix: 0.9 }, p); this.ctl = BS / sr;
+    // (space and wet: the viewer's mix, Settings → Audio → Space: the decay's multiple and the wet share's)
+    this.p = Object.assign({ decay: 9, damp: 5000, size: 1.3, mix: 0.9, space: 1, wet: 1 }, p); this.ctl = BS / sr;
     this.pre = [new DelayN(sr, 0.06), new DelayN(sr, 0.06)];
     this.ap = [0, 1, 2, 3].map(() => [new AllpassC(sr, 0.05), new AllpassC(sr, 0.05)]);
     this.dl = Array.from({ length: 8 }, () => new DelayC(sr, 0.5));
@@ -760,22 +762,25 @@ export class FDN {
       this.dl[c].ar(t, dt, x[c]);
       this.hp[c].ar(x[c], 70, t); this.lp[c].ar(t, P.damp, x[c]);
     }
-    const g = times.map((tt) => Math.pow(10, (-3 * tt) / P.decay)), s8 = 1 / Math.sqrt(8);
+    const g = times.map((tt) => Math.pow(10, (-3 * tt) / (P.decay * P.space))), s8 = 1 / Math.sqrt(8);
     for (let r = 0; r < 8; r++) {
       const row = this.H[r], li = this.loc[r], gr = g[r] * s8;
       for (let i = 0; i < BS; i++) { let acc = 0; for (let c = 0; c < 8; c++) acc += row[c] * x[c][i]; li[i] = acc * gr; }
     }
     const yL = S.get(), yR = S.get();
     for (let i = 0; i < BS; i++) { yL[i] = (x[0][i] + x[2][i] + x[4][i] + x[6][i]) * 0.3; yR[i] = (x[1][i] + x[3][i] + x[5][i] + x[7][i]) * 0.3; }
-    this.outHp[0].ar(yL, 140, t); for (let i = 0; i < BS; i++) B.dryL[i] += t[i] * P.mix;
-    this.outHp[1].ar(yR, 140, t); for (let i = 0; i < BS; i++) B.dryR[i] += t[i] * P.mix;
+    const mix = P.mix * P.wet;
+    this.outHp[0].ar(yL, 140, t); for (let i = 0; i < BS; i++) B.dryL[i] += t[i] * mix;
+    this.outHp[1].ar(yR, 140, t); for (let i = 0; i < BS; i++) B.dryR[i] += t[i] * mix;
   }
 }
 
 // ── \master: high-pass, bass to mono, EQ, tone, glue compression, saturation, limiter ──
 export class Master {
   constructor(sr, p = {}) {
-    this.p = Object.assign({ gain: 1, tone: 16000, toneLag: 6, thresh: 0.3, drive: 1.2, ceiling: 0.8 }, p);
+    // (toneMul, air and airHz: the viewer's mix, Settings → Audio → Tone: the tone's multiple, the high shelf in dB
+    // and its corner)
+    this.p = Object.assign({ gain: 1, tone: 16000, toneLag: 6, thresh: 0.3, drive: 1.2, ceiling: 0.8, toneMul: 1, air: 2.5, airHz: 8000 }, p);
     const two = (make) => [make(), make()];
     this.hp28 = two(() => new HPF(sr));
     this.lo1 = two(() => new LPF(sr)); this.lo2 = two(() => new LPF(sr));
@@ -794,9 +799,9 @@ export class Master {
       this.hi1[c].ar(x[c], 120, t); this.hi2[c].ar(t, 120, x[c]);
     }
     for (let i = 0; i < BS; i++) { const m = (lo[0][i] + lo[1][i]) * 0.5; x[0][i] += m; x[1][i] += m; }
-    const tone = Math.min(18000, Math.max(300, this.tone.kr(P.tone, P.toneLag)));
+    const tone = Math.min(18000, Math.max(300, this.tone.kr(P.tone * P.toneMul, P.toneLag)));
     for (let c = 0; c < 2; c++) {
-      this.dc[c].ar(x[c], t); this.ls[c].ar(t, 150, 1, 0, x[c]); this.hs[c].ar(x[c], 8000, 1, 2.5, t);
+      this.dc[c].ar(x[c], t); this.ls[c].ar(t, 150, 1, 0, x[c]); this.hs[c].ar(x[c], P.airHz, 1, P.air, t);
       this.bl[c].ar(t, f32(tone), 0.8, x[c]);
       this.gainA[c].fill(P.gain, k);
       for (let i = 0; i < BS; i++) x[c][i] *= k[i];
@@ -830,6 +835,9 @@ export class Engine {
     // up). Beyond it the oldest notes fade out over a few milliseconds instead of the audio
     // breaking up; persistent nodes (sea, drone, swarm) are never shed.
     this.maxVoices = Infinity; this.fading = 0; this.shedN = 0;
+    // The viewer's mix of the soundtrack's layers (Settings → Audio): a voice's p.grp names its layer (the
+    // conductor tags what it schedules), and its output is scaled by the layer's gain, eased toward groupTo.
+    this.groupTo = Object.fromEntries(LAYERS.map((k) => [k, 1])); this.groups = { ...this.groupTo };
   }
   // Voices are kept in the order they started, so the oldest come first. A whole song's notes (solo)
   // go last, only when nothing else is left to let go.
@@ -864,13 +872,17 @@ export class Engine {
   block(outL, outR) {
     const B = this.B, S = this.S;
     B.clear();
+    const G = this.groups, ease = 1 - Math.exp(-1 / (this.kr * 0.08));
+    for (const k in G) G[k] += (this.groupTo[k] - G[k]) * ease;
     const vs = this.voices;
     let w = 0;
     for (let i = 0; i < vs.length; i++) {
       const v = vs[i];
       if (v.fade) { v.send *= (v.fade - 1) / v.fade; if (--v.fade === 0) v.done = true; } // shed: a short linear fade
       S.reset();
-      v.tick(B, S);
+      const g = v.p.grp ? G[v.p.grp] : 1;
+      if (g === 1) v.tick(B, S);
+      else { const send = v.send; v.send = send * g; v.tick(B, S); v.send = send; }
       if (!v.done) vs[w++] = v; else if (v.shed) this.fading--;
     }
     vs.length = w;

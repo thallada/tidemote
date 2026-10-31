@@ -1,7 +1,7 @@
 // Drives the built page in Chrome and checks its interactions: a click on a species in the census chart
 // opens and highlights it, and a second click on it clears both; Save keeps a species' card in the cabinet and
 // Card opens it; the bench, a tool held, Esc, the speed ladder, the pipette loaded from a card and set down (docs/
-// hand.md); Settings → Sound → Volume sets the volume by mouse and by finger, turns sound on, and keeps the dock
+// hand.md); Settings → Audio → Volume sets the volume by mouse and by finger, turns sound on, and keeps the dock
 // slider in step.
 //   npm run build && tools/gpu-node.sh tools/ui-check.mjs
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http';
@@ -175,9 +175,11 @@ for (const touch of [false, true]) {
     await page.waitForTimeout(300);
     check(`${tag} Next hides once the auto camera stops`, !(await nx()).shown);
   }
-  // Settings → Sound → Volume
+  // Settings → Audio → Volume (an older build has it on Display)
   await page.click('#set-open');
   await page.waitForTimeout(300);
+  const tabOf = async (t) => { const b = await page.$(`#set-tabs [data-tab="${t}"]`); if (b) { await b.click(); await page.waitForTimeout(300); } return !!b; };
+  await tabOf('audio');
   const sv = await page.$('#set-vol');
   check(`${tag} Settings shows a volume slider`, !!sv && await sv.isVisible());
   if (sv) {
@@ -199,6 +201,27 @@ for (const touch of [false, true]) {
     await page.waitForTimeout(800);
     const v = await page.evaluate(() => ({ vol: globalThis.__tidemote.sound.volume, on: globalThis.__tidemote.sound.on, label: document.getElementById('set-vol-v')?.textContent, dock: document.getElementById('vol').value, still: !!document.getElementById('set-vol'), inputs: globalThis.__inputs.join(',') }));
     check(`${tag} moving the slider sets the volume and turns sound on`, v.vol > 0.1 && v.vol < 0.4 && v.on && v.label === `${Math.round(v.vol * 100)}%` && v.dock === String(Math.round(v.vol * 100)) && v.still, JSON.stringify(v));
+  }
+  // Settings → Audio's mix (src/audio/mix.js; an older build has none): a choice reaches the soundtrack and is shown
+  if (await page.$('[data-o="mix-water"]')) {
+    await page.click('[data-o="mix-water"][data-v="0"]');
+    await page.waitForTimeout(300);
+    const m = await page.evaluate(() => ({ water: globalThis.__tidemote.sound.mix.water, shown: document.querySelector('[data-o="mix-water"][data-v="0"]')?.getAttribute('aria-pressed') ?? document.querySelector('[data-o="mix-water"][data-v="0"]')?.className }));
+    await page.click('[data-o="mix-water"][data-v="2"]');
+    check(`${tag} an Audio mix choice sets the soundtrack's mix`, m.water === 0 && /true|on|sel/.test(String(m.shown)), JSON.stringify(m));
+  }
+  // Settings → Display's look (src/look.js; an older build has none): Strong, then Heavy grain, set the look's words;
+  // Off clears them and hides the row under it
+  await tabOf('display');
+  if (await page.$('[data-o="microlook"]')) {
+    const pick = async (o, v) => { const b = await page.$(`[data-o="${o}"][data-v="${v}"]`); await b.scrollIntoViewIfNeeded(); await b.click(); await page.waitForTimeout(300); };
+    await pick('microlook', 3);
+    await pick('grain', 2);
+    const on = await page.evaluate(() => ({ rims: globalThis.__tidemote.eng.look[2], grain: globalThis.__tidemote.eng.look[7] }));
+    await pick('microlook', 0);
+    const off = await page.evaluate(() => ({ sum: [...globalThis.__tidemote.eng.look].reduce((a, x) => a + Math.abs(x), 0), rows: !!document.querySelector('[data-o="grain"]') }));
+    await pick('microlook', 2);
+    check(`${tag} the microscope look's settings set the look`, Math.abs(on.rims - 0.45 * 1.35) < 1e-5 && Math.abs(on.grain - 0.5 * 1.35) < 1e-5 && off.sum === 0 && !off.rows, JSON.stringify({ ...on, ...off }));
   }
   check(`${tag} no page errors`, !errs.length, errs.slice(0, 2).join(' | '));
   await ctx.close();

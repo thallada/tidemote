@@ -1,0 +1,9 @@
+{ "worlds": [{ "name": "look256k", "n": 262144, "mature": 60 }],
+  "scenarios": [
+    { "world": "look256k", "name": "off-z150", "zoom": 150, "scale": 1, "look": "off", "seconds": 6 },
+    { "world": "look256k", "name": "on-z150", "zoom": 150, "scale": 1, "look": "on", "seconds": 6 },
+    { "world": "look256k", "name": "off-z400", "zoom": 400, "scale": 1, "look": "off", "seconds": 6 },
+    { "world": "look256k", "name": "on-z400", "zoom": 400, "scale": 1, "look": "on", "seconds": 6 },
+    { "world": "look256k", "name": "off-fit", "zoom": "fit", "scale": 1, "look": "off", "seconds": 6 },
+    { "world": "look256k", "name": "on-fit", "zoom": "fit", "scale": 1, "look": "on", "seconds": 6 }
+  ] }

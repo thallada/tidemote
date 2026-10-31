@@ -6284,6 +6284,8 @@ struct Post {
   // rod's radius
   tool: vec4f,
   toolB: vec4f,
+  // the look (src/look.js): darkfield's light and the camera's grade, LOOK_WORDS floats
+  look: array<vec4f, 4>,
 };
 `;
 
@@ -6694,15 +6696,17 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32) -> vec3f {
   let px = k * post.res.y / 1000.0 / post.res;
   let ca = q * r2 * 0.2 * px;
   var c = vec3f(scene(uv + ca).r, scene(uv).g, scene(uv - ca).b);
-  let rim = smoothstep(1.0, 4.2, r2);
+  let rim = smoothstep(0.7, 3.8, r2);
   var blur = rim * 1.5;
   let start = max(80.0, 2.0 * max(post.res.x / post.world.x, post.res.y / post.world.y));
-  if (rim > 0.0 && post.ppu > start) {
+  // (with the look's shallow focus, not only toward the rim: whatever lies above or below the plane softens)
+  let shallow = max(rim, post.look[3].x);
+  if (shallow > 0.0 && post.ppu > start) {
     let cells = max(vec2f(1.0), round(post.world / 2.5));
     let drift = vec2f(0.0, post.simTime * 0.004);
     // focused on the middle of the view, as a microscopist keeps what they watch sharp
     let depth = valueNoise(wp / post.world * cells + drift, cells) - valueNoise(post.cam / post.world * cells + drift, cells);
-    blur += rim * smoothstep(0.08, 0.35, abs(depth)) * smoothstep(start, start * 4.0, post.ppu) * 4.5;
+    blur += shallow * smoothstep(0.08, 0.35, abs(depth)) * smoothstep(start, start * 4.0, post.ppu) * 4.5;
   }
   if (blur * k > 0.3) {
     // eight taps on a disc, turned at random per pixel; the sensor's grain hides the pattern
@@ -6785,6 +6789,107 @@ fn tonemap(hdrIn: vec3f) -> vec3f {
   let m = max(c.r, max(c.g, c.b));
   if (m > 1.0) { c = mix(c / m, vec3f(1.0), clamp((m - 1.0) * 0.35, 0.0, 1.0)); }
   return c;
+}
+
+// ------------------------------------------------------------ the look
+// What darkfield illumination and the camera make of the specimen (src/look.js; Settings → Display → Microscope).
+// post.look, by vec4: [0] rainbow rims (each edge colored by the side it faces), relief (DIC: light and shade along the
+// shear), rims (darkfield: edges scatter, flat insides dim), fringe (an achromat's color fringes at edges); [1]
+// halation, veil (flare lifting the dark around what is lit), film (AgX's curve in place of tonemap's), grain; [2]
+// saturation, density (saturated colors darker, as a dye's), contrast, black (the darks pressed down); [3] shallow
+// focus (everywhere, not only toward the rim), iris (a many-bladed field stop).
+fn lookL(c: vec3f) -> f32 { return dot(c, vec3f(0.2126, 0.7152, 0.0722)); }
+
+// The specimen in the scene's light, before the tone curve. uv: where the scene is read (its texture), bl: the
+// bloom's wide blur there, ppu and res: that view's pixels per world unit and size.
+fn lookScene(hdrIn: vec3f, uv: vec2f, bl: vec3f, ppu: f32, res: vec2f) -> vec3f {
+  let L0 = post.look[0];
+  let L1 = post.look[1];
+  var hdr = hdrIn;
+  // edges are read a pixel or more apart, so only once cells are several pixels across
+  let near = smoothstep(25.0, 70.0, ppu);
+  if (L0.x + L0.y + L0.z + L0.w > 0.0 && near > 0.0) {
+    let r = clamp(ppu * 0.012, 0.75, 3.0) / res;
+    let sc = scene(uv);
+    let a = scene(uv + vec2f(r.x, 0.0));
+    let b = scene(uv - vec2f(r.x, 0.0));
+    let cu = scene(uv + vec2f(0.0, r.y));
+    let cd = scene(uv - vec2f(0.0, r.y));
+    let blur = (a + b + cu + cd) * 0.25;
+    let hp = sc - blur;
+    let la = lookL(a); let lb = lookL(b); let lu = lookL(cu); let ld = lookL(cd);
+    let grad = vec2f(la - lb, lu - ld) * 0.5;
+    let norm = max(lookL(sc), max(max(la, lb), max(lu, ld))) + 0.03;
+    // DIC: an edge facing the light is lit, the far one shaded, as if the specimen were in relief
+    let sh = clamp(dot(grad, -TO_LIGHT) / norm, -1.0, 1.0);
+    let rel = L0.y * near;
+    hdr = hdr * max(0.0, 1.0 + 2.4 * rel * sh) + rel * 0.5 * max(sh, 0.0) * blur;
+    // darkfield: light scatters at edges, a flat inside lets it pass
+    let rim = L0.z * near;
+    // (what a membrane scatters is nearly white, a little cool)
+    let edge = abs(hp);
+    hdr = hdr * (1.0 - 0.4 * rim) + rim * 1.8 * mix(edge, vec3f(lookL(edge)) * vec3f(0.9, 1.0, 1.15), 0.35);
+    // an achromat's fringes: purple just outside a bright edge, yellow-green just inside
+    let fl = lookL(hp);
+    hdr += L0.w * near * (max(-fl, 0.0) * vec3f(0.55, 0.12, 1.0) + max(fl, 0.0) * vec3f(0.3, 0.55, 0.0)) * 1.5;
+    // rainbow rims (Rheinberg's sector colors): each edge takes a hue from the side it faces, by its own light, so
+    // the dark field stays dark
+    let ang = atan2(grad.y, grad.x);
+    let sector = 0.5 + 0.5 * vec3f(cos(ang), cos(ang - 2.094), cos(ang + 2.094));
+    hdr = mix(hdr, vec3f(lookL(hdr)) * sector * 2.24, L0.x * smoothstep(0.05, 0.6, length(grad) / norm) * near);
+  }
+  // halation (warm, as light scattered back from a film's base) and veiling flare (the lamp's)
+  hdr += bl * (L1.x * vec3f(0.06, 0.016, 0.004) + L1.y * vec3f(0.02, 0.021, 0.024));
+  return max(hdr, vec3f(0.0));
+}
+
+// AgX (Troy Sobotka's; Benjamin Wrensch's fit of its curve): bright colors run toward white, as on film or a sensor,
+// rather than staying saturated. Scene-linear in, display-linear out.
+fn agx(hdr: vec3f) -> vec3f {
+  let m = mat3x3f(0.842479062253094, 0.0423282422610123, 0.0423756549057051, 0.0784335999999992, 0.878468636469772, 0.0784336,
+    0.0792237451477643, 0.0791661274605434, 0.879142973793104);
+  let mi = mat3x3f(1.19687900512017, -0.0528968517574562, -0.0529716355144438, -0.0980208811401368, 1.15190312990417,
+    -0.0980434501171241, -0.0990297440797205, -0.0989611768448433, 1.15107367264116);
+  let lo = -12.47393;
+  let hi = 4.026069;
+  let x = (clamp(log2(max(m * hdr, vec3f(1e-10))), vec3f(lo), vec3f(hi)) - lo) / (hi - lo);
+  let x2 = x * x;
+  let x4 = x2 * x2;
+  let v = 15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4 - 6.868 * x2 * x + 0.4298 * x2 + 0.1191 * x - 0.00232;
+  return pow(max(mi * v, vec3f(0.0)), vec3f(2.2));
+}
+fn lookTone(hdr: vec3f) -> vec3f {
+  let f = post.look[1].z;
+  if (f <= 0.0) { return tonemap(hdr); }
+  return mix(tonemap(hdr), agx(hdr), f);
+}
+
+// The grade, in display space (after the gamma curve): contrast, the black level, saturation and density, grain.
+fn lookGrade(cIn: vec3f, pos: vec2f) -> vec3f {
+  let L2 = post.look[2];
+  var c = clamp(cIn, vec3f(0.0), vec3f(1.0));
+  c = mix(c, c * c * (3.0 - 2.0 * c), L2.z);
+  // the darks pressed down in proportion, so what shows in the dark water still shows
+  c *= 1.0 - L2.w * 0.6 * (1.0 - smoothstep(0.0, 0.4, lookL(c)));
+  let y = lookL(c);
+  c = max(vec3f(0.0), y + (c - y) * (1.0 + L2.x));
+  let chroma = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
+  c = clamp(c * (1.0 - L2.y * 0.55 * chroma), vec3f(0.0), vec3f(1.0));
+  let grain = post.look[1].w;
+  if (grain > 0.0) {
+    // film grain: clumped, changing 24 times a second, strongest in the midtones
+    let y2 = lookL(c);
+    let t = floor(post.time * 24.0);
+    let g = pos * 0.6 + vec2f(hash12(vec2f(t, 1.3)), hash12(vec2f(2.7, t))) * 512.0;
+    let n = vnoise(g) + 0.5 * vnoise(g * 2.3 + 17.0) - 0.75;
+    c += n * grain * 0.09 * (0.2 + 3.0 * y2 * (1.0 - y2));
+  }
+  return c;
+}
+// The grade over the water's view: under a full map (the light or heat map) mostly held back, so the map reads true.
+fn lookDisplay(cIn: vec3f, pos: vec2f) -> vec3f {
+  let maps = select(1.0, 0.3, post.tideVis > 1.5 || post.heatVis > 1.5);
+  return mix(cIn, lookGrade(cIn, pos), maps);
 }
 
 // The main view's micro-suspension, drawn speck by speck into microTex (MICRO_WGSL) and laid over
@@ -7936,10 +8041,11 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   if (k > 0.0) { hdr += lensScene(uv, q, wp, i.pos.xy, k); }
   else { hdr += mix(all.rgb / max(1.0, all.a), live.rgb / max(1.0, live.a), min(1.0, live.a)); }
   let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
+  hdr = lookScene(hdr, uv, bl, post.ppu, post.res);
   // the sea focuses the lamp's light onto what lies beneath it
   hdr = (hdr + bl * post.bloom) * post.exposure * surf.light;
   hdr = lampSeen(hdr + tideTint(wp), wp);
-  var c = tonemap(hdr);
+  var c = lookTone(hdr);
   c = mapsOver(c, wp, i.pos.xy, water.x);
   let uq = i.uv - 0.5;
   let v = clamp(1.0 - dot(uq, uq) * 1.1, 0.0, 1.0);
@@ -7958,11 +8064,20 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   c = instrument(c, wp, post.ppu);
   // the round field stop of the eyepiece clips the corners of the camera's frame
   let corner = length(vec2f(post.res.x / post.res.y, 1.0));
-  c *= mix(1.0, 1.0 - 0.85 * smoothstep(corner * 0.78, corner * 1.02, length(q)), k);
+  var fq = length(q);
+  let iris = post.look[3].y;
+  if (iris > 0.0) {
+    // a field diaphragm of nine blades, closed a little, its edge in focus: a polygon with a faint blue rim
+    let seg = TAU / 9.0;
+    let th = atan2(q.y, q.x) + 0.31;
+    fq = mix(fq, fq / (cos(seg * 0.5) / cos(th - seg * (floor(th / seg) + 0.5))) / mix(1.0, 0.86, iris), iris);
+    c += vec3f(0.0, 0.002, 0.008) * iris * k * exp(-pow((fq - corner * 0.84) * 30.0, 2.0));
+  }
+  c *= mix(1.0, 1.0 - 0.85 * smoothstep(corner * 0.78, corner * 1.02, fq), k);
   var dust = 0.0;
   if (k > 0.0) { dust = opticDust(q) * k; }
   c = c * (1.0 - 0.12 * dust) + vec3f(0.003, 0.0031, 0.0036) * dust;
-  c = pow(c, vec3f(1.0 / 2.2));
+  c = lookDisplay(pow(c, vec3f(1.0 / 2.2)), i.pos.xy);
   c += (hash12(i.pos.xy + fract(post.time) * 91.7) - 0.5) / 255.0 * 2.0;
   return vec4f(sensor(c, i.pos.xy, k), 1.0);
 }
@@ -8020,16 +8135,17 @@ fn loupeScene(r: vec2f) -> vec3f {
     let b = loupeScene(r + o) + loupeScene(r - o) + loupeScene(r + vec2f(o.x, -o.y)) + loupeScene(r - vec2f(o.x, -o.y));
     hdr = mix(hdr, b * 0.25, 0.6 * soft);
   }
+  hdr = lookScene(hdr, r * 0.5 + 0.5, vec3f(0.0), microView.ppu, microView.res);
   hdr = lampSeen(hdr * post.exposure * surf.light + tideTint(wp), wp);
   var m = 0.0;
   if (k > 0.0) { m = murk(microView.cam, r0 * microView.res * 0.5 / microView.ppu) * k; }
   let behind = 1.0 / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
-  var c = mapsOver(tonemap(hdr), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + vec3f(0.0045, 0.004, 0.0015) * m * behind;
+  var c = mapsOver(lookTone(hdr), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + vec3f(0.0045, 0.004, 0.0015) * m * behind;
   c = pondMicro(c, hdr, microView.cam, r0 * microView.res * 0.5, microView.ppu, loupe.ppu, m);
   // the drought's dry floor and its rain, the frost's ice, the storm's waves, duckweed
   c = poolOver(c, wp, loupe.ppu, k, behind, surf.slope);
   c = extremes(c, wp, loupe.ppu, water, behind);
-  c = pow(c, vec3f(1.0 / 2.2));
+  c = lookDisplay(pow(c, vec3f(1.0 / 2.2)), i.pos.xy);
   let vign = smoothstep(1.0, 0.75, d);
   c *= mix(mix(0.55, 0.75, k), 1.0, vign);
   if (k > 0.0) {
@@ -8055,12 +8171,14 @@ fn loupeScene(r: vec2f) -> vec3f {
   return textureSampleLevel(src, samp, u, 0.0) * rp.k;
 }
 
+// The close-up (the specimen viewer, and the cards' portraits it takes), in the look as the main view has it (no
+// maps over it, so the grade is never held back).
 @fragment fn fsPlain(i: VO) -> @location(0) vec4f {
   let wp = microView.cam + (i.uv - 0.5) * microView.res / microView.ppu;
-  let hdr = (scene(i.uv) + boulder(i.uv, wp, microView.ppu)) * post.exposure;
-  var c = tonemap(hdr) + vec3f(0.006, 0.005, 0.012);
+  let hdr = lookScene(scene(i.uv) + boulder(i.uv, wp, microView.ppu), i.uv, vec3f(0.0), microView.ppu, microView.res) * post.exposure;
+  var c = lookTone(hdr) + vec3f(0.006, 0.005, 0.012);
   c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0);
-  return vec4f(pow(c, vec3f(1.0 / 2.2)), 1.0);
+  return vec4f(lookGrade(pow(c, vec3f(1.0 / 2.2)), i.pos.xy), 1.0);
 }
 `;
 

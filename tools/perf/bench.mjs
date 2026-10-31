@@ -18,6 +18,7 @@
 //   adapt  'keep': the frame rate and scale left to the page's adaptive quality, unreset (fps, scale unused);
 //          'off': none at all, the frame rate aimed for held however long frames take
 //   prefs  more settings (eng.settings keys: bloom, optics, specks, lod, links, nodes, trails)
+//   look   the microscope's look (src/look.js) 'on' or 'off' (left as it was when unset)
 //   species  follow a cell of the named species (follow: false keeps it selected, the camera still)
 //   lab    a Field Lab tab to hold open ('species', 'census', ...; closed by default); its updates are timed
 // --electron EXE runs the packaged desktop app (desktop/) instead, launched afresh for each world, its
@@ -245,6 +246,8 @@ async function measure(page, sc) {
     const T = globalThis.__tidemote, { state, cam, perf, eng } = T;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     Object.assign(eng.settings, sc.prefs || {});
+    // the look (src/look.js), on or off (a build without it ignores this)
+    if (sc.look && T.look) { if (sc.look === 'off') T.look.off(); else T.look.set(); }
     if (sc.adapt !== 'keep') { state.perf.fps = sc.fps ?? 0; T.setScale(sc.scale ?? 'auto'); }
     // aim at the commonest species' densest patch (findMember follows it; unfollow unless selecting)
     // ('saved' keeps the camera a .tidemote world was saved with; at: a spot of its own)

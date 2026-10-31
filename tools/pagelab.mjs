@@ -3,6 +3,7 @@
 // hidden, then held still. Run them under tools/gpu-node.sh.
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http'; import os from 'node:os';
 import { chromium } from 'playwright-core';
+import { vkOn, vkLaunch, retryAdapter } from './vk.mjs';
 
 /** --name value pairs (a bare --name is '1'). */
 export const cliArgs = () => Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : '1']] : a), []));
@@ -11,10 +12,15 @@ export async function openPage({ html = 'dist/tidemote.html', k = '{}', n = 2621
   const file = path.resolve(html);
   const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); fs.createReadStream(file).pipe(res); });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(process.env.TEMP || os.tmpdir(), tmp)), {
-    executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: false, viewport: null,
-    args: [`--window-size=${w},${h}`, '--window-position=0,0', '--no-first-run', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'] });
+  const flags = [`--window-size=${w},${h}`, '--window-position=0,0', '--no-first-run', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'];
+  // on Linux without a display (TIDEMOTE_VK=1): Playwright's Chromium, headless, on the GPU through Vulkan (tools/vk.mjs)
+  // (the browser's profile, removed on close: on Linux the temporary directory is often memory, kept until deleted)
+  const profile = fs.mkdtempSync(path.join(process.env.TEMP || os.tmpdir(), tmp));
+  const ctx = await chromium.launchPersistentContext(profile, vkOn
+    ? { ...vkLaunch([...flags, '--enable-unsafe-webgpu']), viewport: { width: +w, height: +h } }
+    : { executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: false, viewport: null, args: flags });
   const page = ctx.pages()[0];
+  if (vkOn) await page.addInitScript(retryAdapter);
   page.setDefaultTimeout(0);
   page.on('pageerror', (e) => console.log(`[page error] ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log(`[console] ${m.text().slice(0, 400)}`); });
@@ -40,7 +46,7 @@ export async function openPage({ html = 'dist/tidemote.html', k = '{}', n = 2621
   };
   const evalCode = (code) => page.evaluate((code) => { const T = globalThis.__tidemote; return eval(code); }, code);
   await runTo(+mature, Infinity);
-  return { ctx, page, simTime, setSpeed, runTo, evalCode, close: async () => { await ctx.close(); server.close(); } };
+  return { ctx, page, simTime, setSpeed, runTo, evalCode, close: async () => { await ctx.close(); server.close(); fs.rmSync(profile, { recursive: true, force: true }); } };
 }
 
 /**

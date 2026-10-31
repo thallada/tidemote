@@ -194,6 +194,8 @@ for (const s of SIZES) {
   if (s.touch) await page.evaluate(() => globalThis.__tidemote.lab.close()); else await page.evaluate(() => globalThis.__tidemote.lab.narrow());
   await open('#set-btn, [aria-controls="settings"]');
   await snap('settings');
+  // the Audio tab (an older build, --page, has none)
+  if (await page.$('#set-tabs [data-tab="audio"]')) { await open('#set-tabs [data-tab="audio"]'); await snap('audio'); }
   // the Perf tab: its readouts filled in
   await open('#set-tabs [data-tab="performance"]');
   await page.waitForTimeout(1500);

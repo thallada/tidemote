@@ -124,7 +124,7 @@ export class HandSound {
     if (on && !h) {
       const [def, p] = make();
       h = this.held[name] = { id: 'hand' + name + ++c.nodeN, on: t, quiet: t };
-      c.eng.spawn(def, { ...p, amp: 0 }, h.id);
+      c.eng.spawn(def, { ...p, amp: 0, grp: 'tools' }, h.id);
     }
     if (!h) return null;
     if (on) h.quiet = t;
@@ -179,7 +179,7 @@ export class HandSound {
       const d = -this.groans++, f0 = this.hz(d, 0);
       if (this.groan) c.eng.free(this.groan.id);
       this.groan = { id: 'handgroan' + ++c.nodeN, t, f0 };
-      c.eng.spawn('glass', { freq: f0, amp: 0.3, atk: 0.3, sus: 1.2, rel: 1.8, bright: 0.7, pan: pan + 0.2 * d, rev: 0.6 }, this.groan.id);
+      c.eng.spawn('glass', { grp: 'tools', freq: f0, amp: 0.3, atk: 0.3, sus: 1.2, rel: 1.8, bright: 0.7, pan: pan + 0.2 * d, rev: 0.6 }, this.groan.id);
     }
     const g = this.groan;
     if (g && t - g.t > 3.5) { c.eng.free(g.id); this.groan = null; }

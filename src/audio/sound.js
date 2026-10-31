@@ -5,6 +5,7 @@
 
 import { voiceOf } from './mapping.js';
 import { digest, recordCells } from './listen.js';
+import { fullMix, mixMessage } from './mix.js';
 /* global __TIDEMOTE_WORKLET__ */
 
 const KEY = 'tidemote.sound';
@@ -64,8 +65,8 @@ function wavBlob(buf) {
 
 export function createSound({ onChange = () => {}, onError = () => {}, onSang = null } = {}) {
   const pref = load();
-  const st = { on: false, volume: clamp(pref.volume ?? 0.7, 0, 1), starting: null, ctx: null, node: null, gain: null, sent: new Map(), speed: 1, lastScan: 0, seq: 0, scans: new Map() };
-  const persist = () => save({ volume: st.volume, on: st.on });
+  const st = { on: false, volume: clamp(pref.volume ?? 0.7, 0, 1), mix: fullMix(pref.mix), starting: null, ctx: null, node: null, gain: null, sent: new Map(), speed: 1, lastScan: 0, seq: 0, scans: new Map() };
+  const persist = () => save({ volume: st.volume, on: st.on, mix: st.mix });
   const notify = () => onChange({ on: st.on, volume: st.volume });
 
   async function boot() {
@@ -86,6 +87,7 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
     const gain = ctx.createGain(); gain.gain.value = 0;
     node.connect(gain).connect(ctx.destination);
     Object.assign(st, { node, gain });
+    node.port.postMessage(mixMessage(st.mix));
   }
   // what is heard, as a stream (a film's soundtrack): the gain's output, so it follows the volume and is silent when off
   function stream() {
@@ -118,6 +120,17 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
     if (st.gain && st.on) { const g = st.gain.gain; g.cancelScheduledValues(st.ctx.currentTime); g.setTargetAtTime(level(st.volume), st.ctx.currentTime, 0.05); }
   }
   const post = (m) => { if (st.node) st.node.port.postMessage(m); };
+  // the page hidden (another tab, the phone locked): fade out and let the audio thread rest; shown
+  // again, fade back in
+  function away(on) {
+    if (on && st.mix.background) return; // (set to keep playing while the page is hidden)
+    st.away = on;
+    if (!st.ctx || !st.gain || !st.on) return;
+    if (on) { ramp(0, 0.5); setTimeout(() => { if (st.away) st.ctx.suspend(); }, 550); }
+    else st.ctx.resume().then(() => { if (st.on && !st.away) ramp(level(st.volume), 1.0); });
+  }
+  // the viewer's mix (src/audio/mix.js; Settings → Audio): settings' choices, by index ({ water: 0, ... })
+  function setMix(m) { st.mix = fullMix({ ...st.mix, ...m }); persist(); post(mixMessage(st.mix)); }
 
   // Called on every census. species: [slot, genome] of each living species (its voice is sent
   // only when a slot's species changed); world: { light, tide }.
@@ -176,15 +189,9 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
     get playing() { return st.on && !!st.ctx && st.ctx.state === 'running'; },
     // resume from inside a click or key press, where autoplay is blocked
     unlock: () => { if (st.on && st.ctx && !st.away) st.ctx.resume(); },
-    // the page hidden (another tab, the phone locked): fade out and let the audio thread rest; shown
-    // again, fade back in
-    away(on) {
-      st.away = on;
-      if (!st.ctx || !st.gain || !st.on) return;
-      if (on) { ramp(0, 0.5); setTimeout(() => { if (st.away) st.ctx.suspend(); }, 550); }
-      else st.ctx.resume().then(() => { if (st.on && !st.away) ramp(level(st.volume), 1.0); });
-    },
-    toggle: () => setOn(!st.on), setOn, setVolume,
+    away,
+    toggle: () => setOn(!st.on), setOn, setVolume, setMix,
+    get mix() { return { ...st.mix }; },
     census, listen, era: (name) => post({ type: 'era', name }),
     // the hand's acts and state (audio/handsound.js)
     hand: (m) => { if (st.on) post({ type: 'hand', ...m }); },

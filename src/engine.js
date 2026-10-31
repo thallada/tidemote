@@ -10,8 +10,11 @@ import { TIDE_PHASE } from './flow.js';
 import { SEA, SEA_N, SEA_CASCADES, seaLayout, seaScales } from './sea.js';
 import { seaTuneDefaults, seaSpecOf } from './seatune.js';
 import { makeRelief, rankField, makeIceOrder } from './geography.js';
+import { LOOK_WORDS } from './look.js';
 // where the post uniforms' hand words begin (struct Post: the lamp, the lens), after the sea's
 const POST_LAMP = 100 + 4 * SEA_CASCADES;
+// the look's words (Post.look, src/look.js) after the hand's
+const POST_LOOK = POST_LAMP + 16;
 
 const HDR = 'rgba16float';
 const BLOOM_LEVELS = 6;
@@ -109,7 +112,9 @@ class Engine {
     this.viewData = new ArrayBuffer(112);
     this.viewDataL = new ArrayBuffer(112);
     // (after the sea's: the hand's lamp, the warm stage's lens, the instrument)
-    this.postData = new Float32Array(POST_LAMP + 16);
+    this.postData = new Float32Array(POST_LOOK + LOOK_WORDS);
+    // the look (src/look.js): its words, set by the page (all 0: the bare view)
+    this.look = new Float32Array(LOOK_WORDS);
     // the warm stage's or cold probe's lens (center, radius, 1 shown), set by the page: the thermal camera inside the
     // tool's reach
     this.lens = new Float32Array(4);
@@ -152,7 +157,7 @@ class Engine {
     b.viewL = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
     b.viewS = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
     b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
-    b.post = d.createBuffer({ size: (POST_LAMP + 16) * 4, usage: U.UNIFORM | U.COPY_DST });
+    b.post = d.createBuffer({ size: (POST_LOOK + LOOK_WORDS) * 4, usage: U.UNIFORM | U.COPY_DST });
     // the sea (SEA_WGSL, src/sea.js): its uniforms, and every cascade's slope and displacement, mipmapped (its
     // amplitudes and working buffer are made with the first frame: _seaBuffers)
     b.seaU = d.createBuffer({ size: 128, usage: U.UNIFORM | U.COPY_DST });
@@ -2216,6 +2221,7 @@ class Engine {
     pd.set(this.hand.subarray(0, 4), POST_LAMP);
     pd.set(this.lens, POST_LAMP + 4);
     pd.set(this.tool, POST_LAMP + 8);
+    pd.set(this.look, POST_LOOK);
     d.queue.writeBuffer(this.b.post, 0, pd);
     // the water's bend on a coarse grid of the main view, for the page's overlays (read back after the submit)
     this._shiftPending = null;

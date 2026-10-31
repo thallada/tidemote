@@ -590,7 +590,7 @@ canvas.chart { cursor: crosshair; }
 .settings .sec-h h2 { white-space: nowrap; margin-right: auto; }
 /* the tabs on a row of their own under the title */
 .settings .tabs { order: 3; flex-basis: 100%; min-width: 0; margin-left: -8px; }
-.settings .tabs button { height: 32px; padding: 0 8px; letter-spacing: .12em; }
+.settings .tabs button { height: 32px; padding: 0 6px; letter-spacing: .08em; }
 .settings .sec-h > .ghost { flex: none; margin: 0 -6px 0 auto; }
 .opt .chip:disabled { opacity: .35; cursor: default; }
 /* an Auto choice shows what it is using now, at a fixed width so the row never reflows as it changes;

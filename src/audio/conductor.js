@@ -9,6 +9,8 @@ import { Score } from './score.js';
 import { HandSound } from './handsound.js';
 
 export const STEP = 0.18; // one sixteenth: tidemote's soundtrack pulse
+// the layer of the viewer's mix (Engine.groups) that what each message schedules belongs to
+const MSG_LAYER = { listen: 'cells', slots: 'cells', hand: 'tools', reset: 'water', open: 'water' };
 
 export const MODES = {
   lydian: [[0, 2, 4, 6, 7, 9, 11], [0, 0, -2, -3]],
@@ -104,9 +106,12 @@ export class Conductor {
     this.setEra(eraMusic('The First Tides', null, this.ws), true);
     this.score = new Score(this);
     engine.master.p.gain = 1.6;
+    // the layer what is scheduled now belongs to (Engine.groups: the viewer's mix), set where each part is run
+    this.grp = 'water';
     this.sea = this.swap(0, 'sea', this.seaChord(this.root), 0);
     this.drone = this.swap(0, 'drone', { amp: 0, note: this.root - 12 }, 0);
-    engine.spawn('swarm', {}, 'swarm');
+    this.grp = null;
+    engine.spawn('swarm', { grp: 'cells' }, 'swarm');
     this.nextWave = 2;
   }
   seaChord(r) { return { amp: 0.09, surf: 0.45, sing: 1.3, f1: r - 12, f2: r, f3: r + 7, f4: r + 14, f5: r + 19 }; }
@@ -134,6 +139,8 @@ export class Conductor {
 
   // ── messages from the page ─────────────────────────────────────────────────
   message(m) {
+    // (what a message schedules is the cells', the hand's, or a new key's sea; a song played alone is in no layer)
+    this.grp = MSG_LAYER[m.type] ?? null;
     if (m.type === 'world') Object.assign(this.world, m.world);
     else if (m.type === 'listen') this.field.listen(m);
     else if (m.type === 'slots') this.field.slotsMsg(m);
@@ -143,11 +150,13 @@ export class Conductor {
     else if (m.type === 'era') this.pendingEra = m.name;
     else if (m.type === 'open') { this.pendingOpen = true; if (m.seed != null && m.seed >>> 0 !== this.ws) this.rekey(m.seed, null); }
     else if (m.type === 'warm') this.lapse = !!m.on;
+    else if (m.type === 'mix') { Object.assign(this.eng.groupTo, m.groups); this.eng.set('fdn', m.fdn); this.eng.set('master', m.master); }
     else if (m.type === 'reset') {
       this.field.slots.clear(); this.pendingEra = null; this.switchAt = null; this.pendingOpen = false; this.lapse = false;
       this.score.reset();
       this.rekey(m.seed ?? this.ws, m.era);
     }
+    this.grp = null;
   }
   // a world (its seed), in an era (a loaded world's, or its opening): its key, its ensemble, its sea
   rekey(seed, era) {
@@ -158,7 +167,10 @@ export class Conductor {
   }
 
   // ── scheduling ─────────────────────────────────────────────────────────────
-  at(t, def, params, id) { this.queue.push({ t, def, params, id }); this.unsorted = true; }
+  at(t, def, params, id) {
+    if (this.grp && params && params.grp == null) params = { ...params, grp: this.grp };
+    this.queue.push({ t, def, params, id }); this.unsorted = true;
+  }
   setAt(t, id, params) { this.queue.push({ t, set: id, params }); this.unsorted = true; }
   // a whole song stops: its notes not yet begun are dropped and those sounding fade (Field.phrase)
   stopSolo() {
@@ -170,7 +182,7 @@ export class Conductor {
   render(outL, outR) {
     const t1 = this.time + BS / this.sr;
     while (this.nextStep < t1 + this.step) { if (this.stepN % 16 === 0) this.bar(this.nextStep); this.nextStep += this.step; this.stepN++; }
-    this.hand.tick();
+    this.grp = 'tools'; this.hand.tick(); this.grp = null;
     if (this.queue.length) {
       if (this.unsorted) { this.queue.sort((a, b) => a.t - b.t); this.unsorted = false; }
       let i = 0;
@@ -187,6 +199,7 @@ export class Conductor {
   // once per bar: climate, harmony, the sea, the waves, the drone and the score
   bar(ts) {
     const W = this.world;
+    this.grp = 'music';
     if (this.pendingEra) { // the currents churn: a bridge to the new key
       const nx = eraMusic(this.pendingEra, this.era.root, this.ws);
       this.pendingEra = null;
@@ -197,8 +210,8 @@ export class Conductor {
     if (this.pendingOpen) { this.pendingOpen = false; if (this.switchAt == null) this.score.overture(ts); }
     if (this.switchAt != null && ts >= this.switchAt) {
       this.setEra(this.nextEra, true); this.switchAt = null;
-      this.sea = this.swap(ts, 'sea', this.seaChord(this.root), 12, this.sea);
-      this.score.arrive(ts, this.era);
+      this.grp = 'water'; this.sea = this.swap(ts, 'sea', this.seaChord(this.root), 12, this.sea);
+      this.grp = 'music'; this.score.arrive(ts, this.era);
     }
     const bar = Math.round(this.stepN / 16);
     if (bar % 12 === 0) this.pivot = this.pivots[(bar / 12) % this.pivots.length | 0];
@@ -212,6 +225,7 @@ export class Conductor {
     }
     const light = clamp(W.light * (fx.bright || 1), 0, 1.2), td = clamp(W.tide * (fx.tide || 1), 0, 1);
     const seaDim = 1 - 0.45 * this.field.z; // zoomed in, the open water steps back
+    this.grp = 'water';
     this.setAt(ts, this.sea, { tide: td, light, amp: 0.09 * (fx.sea || 1) * lvl * seaDim });
     const note = d2m(this.pivot, this.root, this.scale) - 12;
     if (note !== this.droneNote) { this.drone = this.swap(ts, 'drone', { amp: 0.048 * lvl * seaDim, note, light }, 6, this.drone); this.droneNote = note; }
@@ -222,6 +236,8 @@ export class Conductor {
       this.at(ts + this.rnd() * 16 * this.step, 'wave', { amp: 0.32 * lvl * (0.35 + 0.65 * far) * (0.5 + 0.5 * td), dur, bright: 0.3 + 0.4 * clamp(light, 0, 1), pan: (this.rnd() - 0.5) * 1.4, rev: 0.45 });
       this.nextWave = ts + dur * 0.6 + (14 - 9 * td) * (0.5 + this.rnd());
     }
+    this.grp = 'music';
     this.score.bar(ts, bar);
+    this.grp = null;
   }
 }
