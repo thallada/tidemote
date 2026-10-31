@@ -359,9 +359,6 @@ body:not(.live) .hud { opacity: 0; }
 .bench-btn.in-hand { color: var(--sun); }
 .bench-btn[aria-expanded="true"] { color: var(--ink); background: var(--cyan-deep); border-color: var(--line-2); }
 /* the rail's Hand chip: this world has been touched */
-.hand-chip { border-left-color: var(--sun); }
-.hand-chip .lbl, .hand-chip b { color: var(--sun); }
-.hand-chip .ev-ico { width: 16px; height: 16px; color: var(--sun); flex: none; }
 
 /* the speed ladder: every speed on offer, fastest at the top */
 .ladder { position: fixed; z-index: 8; width: 210px; padding: var(--s2) 10px var(--s2); display: flex; flex-direction: column; touch-action: none; user-select: none; }
@@ -1260,8 +1257,6 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .ladder { width: 220px; }
   .bench-tools { flex: none; }
   .bench-pip { padding-left: 0; border-left: 0; flex-basis: auto; }
-  .hand-chip { padding-left: 9px; height: 26px; }
-  .hand-chip .lbl, .hand-chip b { display: none; }
   .rung { height: 36px; }
   .card-dlg { top: calc(var(--top) + 8px); transform: translateX(-50%); width: calc(100% - 16px); padding: 8px 12px 12px; max-height: calc(100% - var(--top) - var(--bot) - 16px); display: block; }
   .card-cv { height: auto; width: 100%; margin: var(--s2) auto 0; }
@@ -1368,7 +1363,6 @@ svg.niche .n-dot { fill: var(--cyan); }
     <div class="gauge term" data-tip="water" tabindex="0" id="g-heat"><span class="lbl">Temp</span><svg class="thermo" id="thermo" viewBox="0 0 68 18" aria-hidden="true"></svg><svg class="thermo-i" id="thermo-i" viewBox="0 0 12 20" aria-hidden="true"></svg><b id="heat-v" translate="no">–</b></div>
     <div class="gauge term" data-tip="season" tabindex="0" id="g-tide"><span class="lbl">Tide</span><svg id="tide-wave" viewBox="0 0 60 16" aria-hidden="true"><path class="wave" d=""/><circle class="dot" r="2.2" cx="0" cy="8"/></svg><b id="tide-v" translate="no">–</b></div>
     <div class="gauge term ev-chip" tabindex="0" id="g-event" hidden><span class="lbl" id="event-l">Event</span><svg class="ev-ico" aria-hidden="true"><use id="event-i" href="#i-ev-storm"/></svg><b><span id="event-v">–</span><span class="ev-x" id="event-x"></span></b></div>
-    <div class="gauge term hand-chip" data-tip="hand" tabindex="0" id="g-hand" hidden><span class="lbl">Hand</span><svg class="ev-ico" aria-hidden="true"><use href="#i-t-pipette"/></svg><b id="hand-v" translate="no">–</b></div>
     <div class="rail-right">
       <div class="stat"><span class="lbl">Living</span><b id="r-living" translate="no">–</b></div>
       <div class="stat"><span class="lbl">Species</span><b id="r-species" translate="no">–</b></div>
@@ -22859,7 +22853,6 @@ ${e.message}` : String(e?.message || e));
     wavemotion: "How quickly the water’s waves move. Slow suits a calm view; Lively, a restless one. Sped-up worlds move them faster too, but less than the cells.",
     songmarks: "A faint ring spreads from a cell each time it sings its species’ note: for the picked species only, or for every species. Needs sound on.",
     diversity: "Effective number of species: exp of the Shannon entropy of species populations. A world of 10 equally common species scores 10.",
-    hand: "This world has been touched: a lamp, a stir, a needle or another of the bench’s tools has acted on it. Each tool does only what the world can do itself (more sun on one place, a gust, a hunter), and its record says so wherever it goes: in its saves and on its species’ cards.",
     will: "The viewer’s will, while this cell is ridden: one more drive, toward where it is steered, as strong as its swimming lets it be and paid for in upkeep as swimming is. Hunger and fear still pull as they did, and often win.",
     ride: "Ride this cell: the camera follows it and a held click or finger (or the arrow keys) steers it, a will among its drives, as fast as its genes allow. Tab goes to its newest child, or after it dies to the nearest of its kind. Enter or Esc gets off.",
     toolreach: "How far every tool but the needle reaches, the same for all: the ring around the pointer. [ ] or ⇧ wheel change it."
@@ -35056,11 +35049,7 @@ ${e.message}` : String(e?.message || e));
       if (now - hudT < 250) return;
       hudT = now;
       setText2("epoch", fmtClock(eng.simTime));
-      $2("g-hand").hidden = !hand.touched;
-      if (hand.touched) {
-        setText2("hand-v", `${hand.acts.length} act${hand.acts.length === 1 ? "" : "s"}`);
-        handNews();
-      }
+      if (hand.touched) handNews();
       setText2("era", climate.name);
       setText2("era-n", `Era ${String(climate.index).padStart(2, "0")}`);
       const L = Math.round(eng.ambient * 100);
