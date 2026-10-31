@@ -2,6 +2,8 @@
 // Kinds: 0 silt, 1 (unused: once glint), 2 husk, 3 stone, 4 framboid, 5..1023 living genomes.
 // Each living genome has up to three cell roles with their own signatures.
 
+import { SEA, SEA_N, SEA_CASCADES } from './sea.js';
+
 export const MAXK = 1024;
 export const FIRST_LIFE = 5;
 // grid cells at most: K.density particles to a cell, 2^19 holds 8M particles with room
@@ -60,6 +62,20 @@ export const G_WORDS = 56;
 export const LITE_BYTES = 32;
 // a cell's drawn motion and events (ANIM_WGSL's Sway)
 export const SWAY_BYTES = 56;
+// the water's bend read back for the page's overlays: a grid this many points across and down the main view
+export const SHIFT_W = 64, SHIFT_H = 36;
+// A cell's two slots in the sway table (contactGather keeps its drawn motion there, by id): id modulo the table's
+// length, or a second, differently hashed one when another cell in view holds the first. One slot each, two cells
+// in view sharing one (ids grow with every birth, so it happens at any size, the more the more cells are in view)
+// overwrote each other's record every frame, and both spun; with two, both slots held by others is about the square
+// as rare, and a clash settles within a frame.
+const SWAY_SLOTS = /* wgsl */ `
+fn swaySlot2(id: u32, n: u32) -> u32 {
+  let a = id % n;
+  let b = (((id ^ (id >> 16u)) * 0x45d9f3bu) ^ 0x9e3779b9u) % n;
+  return select(b, (a + 1u) % n, b == a);
+}
+`;
 // The selected cell's mind (mindMain): a header of MIND_HEAD words, then MIND_NBR living neighbors
 // of MIND_NBR_WORDS words each. See parseMind in mind.js for the layout.
 export const MIND_HEAD = 68;
@@ -126,6 +142,8 @@ export const DEFAULT_K = {
   beatTop: 4,
   beatMixC: 0.25,   // a coarse step's share (its swing capped at two beatTops, a fitted gain; docs/fast-forward.md), and how firmly a beating
   beatBendC: 0.25,  // tree holds its angles then, relative to growStiff (bent afresh each tick from where its partners go)
+  beatSlopeC: 0.35, // a coarse beat's extra gain at 6 ticks, per tick past the first (1.75 in all at 6), reached as
+  beatCurveC: 1,    // (ticks - 1) / 5 to this power: 1 a straight line (2 and 3 ticks overbend filaments 24-38%; 1.5 holds their bend but costs 16% of their speed, unchecked against the ecology), 2 little before 4 ticks
   treeBond: 3,      // a beating tree's bonds' pull, relative to a body's (bond): its beat swings its cells hard
   tailOdds: 1,      // a packed body's tails: the chance a bud at its edge starts one, times the tail gene, when no
   tailSpace: 0.6,   // tail of its kind is within this (world units); a tail grows 3 to tailMax cells by its length gene
@@ -2368,7 +2386,7 @@ fn beatPull(i: u32, gr: Grow, size: f32, frX: f32) -> vec2f {
   if (sim.ticks > 1u) {
     mixW = ${f(K.beatMixC)};
     let wm = 2.0 * mixW * (2.0 - 2.0 * cos(gr.beat.z));
-    gain = (wm + 1.0 - pow(frX, f32(sim.ticks))) / (${f(2 * K.beatMix)} * (2.0 - 2.0 * cos(gr.beat.z)) + 1.0 - frX) * (1.0 + 0.35 * f32(sim.ticks - 1u)) * ${f(K.beatMix)} / mixW;
+    gain = (wm + 1.0 - pow(frX, f32(sim.ticks))) / (${f(2 * K.beatMix)} * (2.0 - 2.0 * cos(gr.beat.z)) + 1.0 - frX) * (1.0 + ${f(5 * K.beatSlopeC)} * pow(f32(sim.ticks - 1u) / 5.0, ${f(K.beatCurveC)})) * ${f(K.beatMix)} / mixW;
   }
   // (a coarse step asks no faster swing of a bond than it can follow)
   let top = select(1e9, ${f(2 * K.beatTop)} * size, sim.ticks > 1u);
@@ -3427,6 +3445,7 @@ const TOUCH_N = 6u;
 @group(0) @binding(6) var<storage, read_write> touch: array<u32>;
 @group(0) @binding(7) var<storage, read> genomes: array<Genome>;
 @group(0) @binding(8) var<storage, read_write> sway: array<Sway>;
+${SWAY_SLOTS}
 
 fn drawnSize(p: Particle) -> f32 { return genomes[p.kind].size * (1.0 - 0.12 * f32(roleOf(p.info))); }
 
@@ -3582,8 +3601,21 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     for (var c = 0u; c < TOUCH_N; c++) { touch[i * TOUCH_N + c] = best[c]; }
 
     let now = bitcast<f32>(views.grid.z);
-    let slot = p.id % arrayLength(&sway);
-    let was = sway[slot];
+    // its slot: the one holding its record; else the first, unless another cell holds that one (seen within half
+    // a second of real time or two of sim time: a dead cell's record is read for its last moments, 1.6 s at most),
+    // then the second
+    let swayN = arrayLength(&sway);
+    var slot = p.id % swayN;
+    var was = sway[slot];
+    if (was.id != p.id) {
+      let s2 = swaySlot2(p.id, swayN);
+      let w2 = sway[s2];
+      var real = now - was.time;
+      if (real < 0.0) { real += SIM_WRAP; }
+      var simAge = bitcast<f32>(views.grid.w) - was.simT;
+      if (simAge < 0.0) { simAge += SIM_WRAP; }
+      if (w2.id == p.id || real < 0.5 || simAge < 2.0) { slot = s2; was = w2; }
+    }
     var dt = now - was.time;
     if (dt < 0.0) { dt += SIM_WRAP; } // real time reaches the GPU modulo SIM_WRAP too
     if (was.id == p.id && dt == 0.0) { continue; }
@@ -3597,7 +3629,10 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     let it = intent[i];
     let birth = (it.x & 3u) == 2u;
     var pack = select(bitcast<f32>(it.y), 0.0, birth);
-    if (was.id == p.id && dt > 0.0 && dt < 0.1) {
+    // (a record half a second old or more is from when it was last in view; a slow frame rate, a big
+    // world at 1x at 10 fps or less, still carries it: started afresh each frame, every cell would face
+    // its raw velocity, flicking every way)
+    if (was.id == p.id && dt > 0.0 && dt < 0.5) {
       pack = select(mix(was.pack, pack, 1.0 - exp(-dt / 0.3)), was.pack, birth);
       let prev = unpack2x16float(was.vel);
       vel = mix(prev, p.vel, 1.0 - exp(-dt / 0.08));
@@ -3619,20 +3654,26 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
       turn -= TAU * round(turn / TAU);
       let follow = clamp(0.5 * turn / (dt * max(speed, 1e-4)) * radius, -0.45, 0.45)
         * smoothstep(0.5, 2.0, speed / radius);
-      // about 1.4 Hz, damping 0.3: it overshoots a little once the turn ends
-      bend.y += ((follow - bend.x) * 80.0 - bend.y * 5.4) * dt;
-      bend.x = clamp(bend.x + bend.y * dt, -0.6, 0.6);
       let dv = (vel - prev) / (dt * radius);
       let knock = length(dv);
       let axis = 2.0 * atan2(dv.y, dv.x);
       // knocks run from a few to a few hundred radii/s² (crowded colonies are shoved constantly), so
       // the squash saturates
       let push = 0.2 * (1.0 - exp(-knock / 60.0)) * vec2f(cos(axis), sin(axis));
-      // about 2.5 Hz, damping 0.25
-      rate += ((push - squash) * 247.0 - rate * 7.9) * dt;
-      squash += rate * dt;
-      let amount = length(squash);
-      if (amount > 0.3) { squash *= 0.3 / amount; }
+      // the springs in steps of at most 1/30 s (one step a frame at 30 fps or faster: as before), as
+      // the squash's would ring up over a longer one
+      let subs = min(ceil(dt * 30.0), 15.0);
+      let hs = dt / subs;
+      for (var ks = 0.0; ks < subs; ks += 1.0) {
+        // about 1.4 Hz, damping 0.3: it overshoots a little once the turn ends
+        bend.y += ((follow - bend.x) * 80.0 - bend.y * 5.4) * hs;
+        bend.x = clamp(bend.x + bend.y * hs, -0.6, 0.6);
+        // about 2.5 Hz, damping 0.25
+        rate += ((push - squash) * 247.0 - rate * 7.9) * hs;
+        squash += rate * hs;
+        let amount = length(squash);
+        if (amount > 0.3) { squash *= 0.3 / amount; }
+      }
     }
 
     // What has just happened to it, read from how it changed since it was last seen (in sim time).
@@ -3822,6 +3863,14 @@ struct View {
 @group(0) @binding(8) var<storage, read> touch: array<u32>;
 // Each cell's bend along its path and squash from knocks (INBOND_WGSL contactGather), by ID.
 @group(0) @binding(9) var<storage, read> sway: array<Sway>;
+${SWAY_SLOTS}
+// The slot holding this cell's record, if either does (else the first).
+fn swayAt(id: u32) -> Sway {
+  let n = arrayLength(&sway);
+  let st = sway[id % n];
+  if (st.id == id) { return st; }
+  return sway[swaySlot2(id, n)];
+}
 @group(0) @binding(10) var<storage, read> organDir: array<u32>;
 // The water's temperature per grid cell (heatMain), for how heat shows on a cell.
 @group(0) @binding(11) var<storage, read> heatField: array<f32>;
@@ -4102,7 +4151,7 @@ fn cellOutline(uv: vec2f, dir: vec2f, radius: f32, seed: f32,
 // This cell's sway, if contactGather kept it just now (the slot may hold another cell, or this one
 // from when it was last in view).
 fn swayOf(p: Particle) -> Sway {
-  let st = sway[p.id % arrayLength(&sway)];
+  let st = swayAt(p.id);
   if (st.id != p.id || abs(fract((view.time - st.time) / SIM_WRAP + 0.5) - 0.5) * SIM_WRAP > 0.2) { var none: Sway; none.id = ~p.id; return none; }
   return st;
 }
@@ -4183,7 +4232,7 @@ struct Ghost { kind: u32, role: u32, how: u32, t: f32, face: vec2f, pack: f32, f
 fn ghostOf(p: Particle) -> Ghost {
   var gh = Ghost(0u, 0u, 0u, 1.0, vec2f(1.0, 0.0), 0.0, 0.0);
   if (p.kind != HUSK || p.age >= WITHER_T || (p.info & 15u) == 11u) { return gh; }
-  let st = sway[p.id % arrayLength(&sway)];
+  let st = swayAt(p.id);
   let k = st.look & 1023u;
   if (st.id != p.id || k < FIRST_LIFE) { return gh; }
   gh.how = select(0u, select(1u, 2u, (p.info & LITTER) != 0u), (p.info & 15u) == 3u);
@@ -5680,6 +5729,14 @@ struct Post {
   drops: array<vec4f, 4>,
   // x: how baked the bared floor is: 1 in a drought (it pales and cracks), 0 a low-water era's damp bar
   parch: vec4f,
+  // the sea (Engine._seaPost): x how strongly its slope shades the view, y how far below it the focal plane
+  // lies for its refraction, z on, w how far below it the lamp's light is focused for its caustics (units)
+  seaHead: vec4f,
+  // each cascade: its patch (x, y), how far it carries the water toward its crests, whether it holds any waves
+  seaC: array<vec4f, ${SEA_CASCADES}>,
+  // x how its caustics' focus is softened, y the most it focuses the light, z what is drawn (seaTune.view: 0 the
+  // view, 1 the sea's light alone, 2 its sheen alone)
+  seaLook: vec4f,
 };
 `;
 
@@ -5843,6 +5900,9 @@ struct Reproj { scale: vec2f, shift: vec2f, k: f32, p0: f32, p1: f32, p2: f32 };
 @group(0) @binding(10) var microTex: texture_2d<f32>;
 @group(0) @binding(11) var<storage, read> heatField: array<f32>;
 @group(0) @binding(12) var liveTex: texture_2d<f32>;
+@group(0) @binding(13) var seaTex: texture_2d_array<f32>;
+@group(0) @binding(14) var seaSamp: sampler;
+@group(0) @binding(15) var<storage, read_write> shiftMap: array<vec2f>;
 
 struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 
@@ -6747,7 +6807,7 @@ fn mudDrops(wp: vec2f, t: f32, S0: f32, rmin: f32, rmax: f32, tau: f32, seed: f3
 // themselves; they show only by bending what lies beneath (a slope displaces the view). A raindrop's impact sends out capillary
 // waves, which disperse: the short ones run fastest, so a ring is a packet whose crests crowd toward its leading edge
 // and broaden toward its center, damped where they are shortest; it is uneven around its circle, and the drop's
-// splash throws a few droplets which ring too. In rain the whole surface is roughened by drops falling out of view.
+// splash throws a few droplets which ring too. The whole surface sways with the sea (seaSurface), heaving in a storm.
 const RIPPLE_SHEEN = vec3f(0.11, 0.123, 0.14);
 const RIPPLE_DIM = 0.45;
 // one ring's slope, added to s
@@ -6767,26 +6827,78 @@ fn ringWave(d: vec2f, t: f32, amp: f32, seed: f32, s: ptr<function, vec2f>) {
     * amp / sqrt(1.0 + r * 0.25) * (1.0 - smoothstep(0.3, 0.45, r / min(post.world.x, post.world.y)));
   *s += dir * (-0.06 * env * sin(ph));
 }
-// the chop: wavelets from every direction, long and short, the short running faster (capillary waves), each
-// adding its slope
-fn chop(p: vec2f, rain: f32, s: ptr<function, vec2f>) {
-  for (var i = 0; i < 14; i++) {
-    let fi = f32(i);
-    let a = fi * 2.39996 + 0.4 + 0.5 * hash12(vec2f(fi, 1.0));
-    let lam = 2.0 + 4.0 * hash12(vec2f(fi, 2.0));
-    // its wave vector rounded to whole cycles across the world, so the chop tiles it (the same wherever the view's
-    // wrap puts a point)
-    let kv = round(vec2f(cos(a), sin(a)) * post.world / lam) * 6.2831853 / post.world;
-    let k = max(length(kv), 1e-3);
-    let dir = kv / k;
-    let th = dot(kv, p) - 3.0 * sqrt(k) * post.simTime + fi * 1.7;
-    // in groups: each wavelet stronger here, weaker there, the groups drifting
-    let g = vnoiseT(p, 0.06 + 0.05 * hash12(vec2f(fi, 3.0)), vec2f(fi * 3.1, 0.0) - dir * post.simTime * 0.6);
-    let A = 0.045 * rain / (k * k) * (0.2 + 1.6 * g * g);
-    *s += dir * (A * k * cos(th));
+// The sea (SEA_WGSL, src/sea.js): cascade c's slope (xy) and sideways displacement (zw) at world point p, seen
+// at ppu pixels a unit. A cascade whose texels the view magnifies is read as a cubic B-spline (four bilinear taps):
+// linear filtering kinks at every texel's edge, which the shading shows as a grid; otherwise the hardware filters it
+// for the zoom (mipmaps, anisotropic: its texels are as oblong as the world), so the finer waves average away and the
+// same waves show at every zoom.
+fn seaTap(p: vec2f, c: u32, ppu: f32) -> vec4f {
+  let L = post.seaC[c].xy;
+  let n = f32(${SEA_N});
+  if (min(L.x, L.y) * ppu > 1.5 * n) {
+    let q = p / L * n - 0.5;
+    let i = floor(q);
+    let f = q - i;
+    let f2 = f * f;
+    let f3 = f2 * f;
+    let w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;
+    let w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
+    let w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0;
+    let w3 = f3 / 6.0;
+    let g0 = w0 + w1;
+    let g1 = w2 + w3;
+    let a = (i - 0.5 + w1 / g0) / n;
+    let b = (i + 1.5 + w3 / g1) / n;
+    return (textureSampleLevel(seaTex, seaSamp, a, c, 0.0) * g0.x + textureSampleLevel(seaTex, seaSamp, vec2f(b.x, a.y), c, 0.0) * g1.x) * g0.y
+      + (textureSampleLevel(seaTex, seaSamp, vec2f(a.x, b.y), c, 0.0) * g0.x + textureSampleLevel(seaTex, seaSamp, b, c, 0.0) * g1.x) * g1.y;
   }
+  let g = 1.0 / (ppu * L);
+  return textureSampleGrad(seaTex, seaSamp, p / L, c, vec2f(g.x, 0.0), vec2f(0.0, g.y));
 }
-// the water's surface slope at wp
+// The sea at world point p (summed over the cascades that hold waves): its slope (xy), and how far the water there has
+// been carried toward the crests (zw)
+fn seaAt(p: vec2f, ppu: f32) -> vec4f {
+  var o = vec4f(0.0);
+  for (var c = 0u; c < ${SEA_CASCADES}u; c++) {
+    let L = post.seaC[c];
+    if (L.w <= 0.0) { continue; }
+    let t = seaTap(p, c, ppu);
+    o += vec4f(t.xy, t.zw * L.z);
+  }
+  return o;
+}
+// What the water's surface does at world point wp, seen at ppu pixels a unit: shift (world units) how far it bends
+// the view of what lies beneath, slope its tilt (the sheen), light how much of the lamp's light it focuses there.
+struct Surface { shift: vec2f, slope: vec2f, light: f32 };
+// The sea is fixed in the world, the size it would be, so zooming in only magnifies it: from close up a single ripple
+// fills the view, and the surface (far above the focal plane, out of focus) shows only by bending the view and by the
+// light it focuses, the field breathing and soft bands of light sweeping across it. Its crests are sharpened as a
+// choppy sea's are (Tessendorf): the point seen at wp came from x0 = wp - D(x0), by fixed-point iteration. What the
+// view's center sees is taken away, from the carrying and from the bending: a ripple wider than the view would
+// otherwise carry the whole of it to and fro, reading as the camera swaying, while what varies across the view stays;
+// taking it at every zoom keeps the sea in place across zooms. The light: the surface's curvature focuses the lamp onto
+// the focal plane below, brightening where it converges (by the divergence of the slope) and dimming where it spreads.
+fn seaSurface(wp: vec2f, ppu: f32, center: vec2f) -> Surface {
+  let c0 = seaAt(center, ppu);
+  var x0 = wp;
+  // (calm water's gentle swell is not choppy: no carrying)
+  if (post.seaC[0].z > 0.0) { for (var it = 0; it < 2; it++) { x0 = wp - (seaAt(x0, ppu).zw - c0.zw); } }
+  let s = seaAt(x0, ppu).xy;
+  let e = ${f(0.4)};
+  let div = (seaAt(x0 + vec2f(e, 0.0), ppu).x - s.x + seaAt(x0 + vec2f(0.0, e), ppu).y - s.y) / e;
+  let focus = 1.0 + post.seaHead.w * div;
+  var o: Surface;
+  // How much the bending stretches the view here (its depth times the slope's divergence): past about a half, at a
+  // storm's sharp crests, the view of what lies beneath would fold over itself and smear the specks under it into
+  // bands as the crest passed (most plainly in the speck-strewn shallows by a low shore). Eased: the bending passes a
+  // gentle stretch untouched and gives way to a steep one.
+  let stretch = post.seaHead.y * div;
+  o.shift = (s - c0.xy) * (post.seaHead.y * inverseSqrt(1.0 + stretch * stretch * 4.0));
+  o.slope = s * post.seaHead.x;
+  o.light = min(inverseSqrt(focus * focus + post.seaLook.x), post.seaLook.y);
+  return o;
+}
+// the raindrops' rings' slope at wp
 fn ripples(wp: vec2f) -> vec2f {
   var o = vec2f(0.0);
   for (var k = 0u; k < 4u; k++) {
@@ -6813,8 +6925,6 @@ fn ripples(wp: vec2f) -> vec2f {
       }
     }
   }
-  // the rain falling out of view: a choppy surface everywhere
-  if (post.pond.y > 0.0) { chop(wp, post.pond.y, &o); }
   return o;
 }
 // A thermal camera's false color: deep blue, teal, amber, white.
@@ -6854,26 +6964,57 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32, ppu: f
   return vec2f(light, inner * mix(0.1, 1.0, focus));
 }
 // How much open water lies over wp: none on the dry floor or under ice, fading over the thin film at their edges.
-fn openWater(wpIn: vec2f) -> f32 {
+// How far wp lies into open water (units): to the nearer of the pool's edge and the ice's, by each field's slope; 0 or
+// less on the dry floor or under ice, and 1e4 with neither.
+fn waterRoom(wpIn: vec2f) -> f32 {
   let wp = wpIn - post.world * floor(wpIn / post.world);
-  var wet = 1.0;
+  var room = 1e4;
   if (post.pond.x < 1.0) {
     let pd = pondPost(wp);
-    wet *= smoothstep(0.0, 0.4, pd.x / max(length(pd.yz), 1e-4));
+    room = min(room, pd.x / max(length(pd.yz), 1e-4));
   }
   if (post.weather.y > 0.0) {
     let fi = fieldPost(${2 * MAX_CELLS}u, wp);
-    wet *= smoothstep(0.0, 0.4, (fi.x - post.weather.y) / max(length(fi.yz), 1e-4));
+    room = min(room, (fi.x - post.weather.y) / max(length(fi.yz), 1e-4));
   }
-  return wet;
+  return room;
 }
-// The water's surface slope at wp: the rings raindrops send across it, which bend the view as they pass (on open
-// water only: dry mud and ice have no surface to wave).
-fn surfaceAt(wp: vec2f) -> vec2f {
-  if (post.pond.y <= 0.0) { return vec2f(0.0); }
-  let wet = openWater(wp);
-  if (wet <= 0.0) { return vec2f(0.0); }
-  return ripples(wp) * wet;
+fn openWater(wpIn: vec2f) -> f32 { return smoothstep(0.0, 0.4, waterRoom(wpIn)); }
+// A shift of the view (d) kept within room of where it starts (how far that is from the image's edge): beyond the edge
+// the image repeats its last row of pixels, which a shift there would smear into streaks. Eased, not cut: a shift
+// shrinks smoothly to nothing at the edge.
+fn keepInside(d: vec2f, room: f32) -> vec2f {
+  let lim = 0.6 * max(room, 0.0);
+  return d * (lim / max(lim, length(d) + 1e-6));
+}
+// The water's surface at wp, seen at ppu pixels a unit from a view centered on center: the sea, gently swaying in calm
+// water and heaving in a storm, and the rings raindrops send across it (on open water only: dry mud and ice have no
+// surface to wave).
+fn surfaceAt(wp: vec2f, ppu: f32, center: vec2f) -> Surface {
+  var o: Surface;
+  o.light = 1.0;
+  let room = waterRoom(wp);
+  let wet = smoothstep(0.0, 0.4, room);
+  if (wet <= 0.0) { return o; }
+  if (post.seaHead.z > 0.0) { o = seaSurface(wp, ppu, center); }
+  let r = ripples(wp);
+  // the bending eases out toward the water's edge within the room there (keepInside): faded over a fixed width
+  // instead, a storm's bending (as long as that width or more) smeared what lies by the shore into bands
+  o.shift = keepInside(o.shift + r * 1.2, room);
+  o.slope = (o.slope + r) * wet;
+  o.light = mix(1.0, o.light, wet);
+  return o;
+}
+// The water's bend over the main view on a coarse grid (SHIFT_W x SHIFT_H points, each at its cell's middle), in
+// the view's pixels: the shift fsComposite gives the view there, edge easing and all, for the page's overlays (the
+// followed cell's brackets, song marks) to sit where their cells show (Engine.seaShift; the field is smooth at this
+// spacing, which the page interpolates).
+@compute @workgroup_size(8, 8) fn seaShiftMap(@builtin(global_invocation_id) g: vec3u) {
+  if (g.x >= ${SHIFT_W}u || g.y >= ${SHIFT_H}u) { return; }
+  let px = (vec2f(g.xy) + 0.5) / vec2f(${SHIFT_W}.0, ${SHIFT_H}.0) * post.res;
+  let wp = post.cam + (px - post.res * 0.5) / post.ppu;
+  let surf = surfaceAt(wp, post.ppu, post.cam);
+  shiftMap[g.y * ${SHIFT_W}u + g.x] = keepInside(surf.shift * post.ppu, min(min(px.x, post.res.x - px.x), min(px.y, post.res.y - px.y)));
 }
 // Schlieren, in pixels: with the heat map on Shimmer, warm water bends the light passing through it like the
 // air over a hot road, faintly, wherever warmth changes (around colonies and framboids, at fronts), the
@@ -7048,9 +7189,12 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   let wp = post.cam + (i.pos.xy - post.res * 0.5) / post.ppu;
   var water = vec3f(post.heat.x, 0.0, 0.0);
   var uv = i.uv;
-  // rain: the rings raindrops send across the water bend the view as they pass
-  let surf = surfaceAt(wp);
-  uv += surf * 1.2 * post.ppu / post.res;
+  // the water's surface (the sea, raindrops' rings) bends the view and focuses the light
+  let surf = surfaceAt(wp, post.ppu, post.cam);
+  if (post.seaLook.z > 0.5 && post.seaLook.z < 2.5) {
+    return vec4f(vec3f(clamp(select(0.5 + 2.5 * dot(surf.slope, LAMP_L), 0.25 * surf.light, post.seaLook.z < 1.5), 0.0, 1.0)), 1.0);
+  }
+  uv += keepInside(surf.shift * post.ppu, min(min(i.pos.x, post.res.x - i.pos.x), min(i.pos.y, post.res.y - i.pos.y))) / post.res;
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
     uv += shimmer(wp, water) / post.res;
@@ -7063,7 +7207,8 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   if (k > 0.0) { hdr += lensScene(uv, q, wp, i.pos.xy, k); }
   else { hdr += mix(all.rgb / max(1.0, all.a), live.rgb / max(1.0, live.a), min(1.0, live.a)); }
   let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
-  hdr = (hdr + bl * post.bloom) * post.exposure;
+  // the sea focuses the lamp's light onto what lies beneath it
+  hdr = (hdr + bl * post.bloom) * post.exposure * surf.light;
   hdr += tideTint(wp);
   var c = tonemap(hdr);
   c = mapsOver(c, wp, i.pos.xy, water.x);
@@ -7079,7 +7224,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   bg = mix(bg, bg * mix(vec3f(0.85, 0.88, 0.94), vec3f(1.12, 1.06, 1.0), lamp), k) + vec3f(0.0045, 0.004, 0.0015) * m * behind;
   c = c * mix(0.72, 1.0, v) * mix(1.0, mix(0.88, 1.05, lamp), k) + bg;
   c = pondSpecks(c, hdr, i.pos.xy, min(1.0, live.a));
-  c = poolOver(c, wp, post.ppu, k, behind, surf);
+  c = poolOver(c, wp, post.ppu, k, behind, surf.slope);
   // the round field stop of the eyepiece clips the corners of the camera's frame
   let corner = length(vec2f(post.res.x / post.res.y, 1.0));
   c *= mix(1.0, 1.0 - 0.85 * smoothstep(corner * 0.78, corner * 1.02, length(q)), k);
@@ -7129,8 +7274,8 @@ fn loupeScene(r: vec2f) -> vec3f {
   let toR = microView.ppu / (microView.res * 0.5);
   let r0 = r;
   let wp = microView.cam + r0 / toR;
-  let surf = surfaceAt(wp);
-  r += surf * 1.2 * toR;
+  let surf = surfaceAt(wp, loupe.ppu, microView.cam);
+  r += keepInside(surf.shift * toR, 1.0 - max(abs(r0.x), abs(r0.y)));
   var water = vec3f(post.heat.x, 0.0, 0.0);
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
@@ -7144,14 +7289,14 @@ fn loupeScene(r: vec2f) -> vec3f {
     let b = loupeScene(r + o) + loupeScene(r - o) + loupeScene(r + vec2f(o.x, -o.y)) + loupeScene(r - vec2f(o.x, -o.y));
     hdr = mix(hdr, b * 0.25, 0.6 * soft);
   }
-  hdr = hdr * post.exposure + tideTint(wp);
+  hdr = hdr * post.exposure * surf.light + tideTint(wp);
   var m = 0.0;
   if (k > 0.0) { m = murk(microView.cam, r0 * microView.res * 0.5 / microView.ppu) * k; }
   let behind = 1.0 / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
   var c = mapsOver(tonemap(hdr), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + vec3f(0.0045, 0.004, 0.0015) * m * behind;
   c = pondMicro(c, hdr, microView.cam, r0 * microView.res * 0.5, microView.ppu, loupe.ppu, m);
   // the drought's dry floor and its rain, the frost's ice, the storm's waves, duckweed
-  c = poolOver(c, wp, loupe.ppu, k, behind, surf);
+  c = poolOver(c, wp, loupe.ppu, k, behind, surf.slope);
   c = pow(c, vec3f(1.0 / 2.2));
   let vign = smoothstep(1.0, 0.75, d);
   c *= mix(mix(0.55, 0.75, k), 1.0, vign);
@@ -7184,6 +7329,153 @@ fn loupeScene(r: vec2f) -> vec3f {
   var c = tonemap(hdr) + vec3f(0.006, 0.005, 0.012);
   c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0);
   return vec4f(pow(c, vec3f(1.0 / 2.2)), 1.0);
+}
+`;
+
+// The sea (src/sea.js; docs/catastrophes.md): a Tessendorf FFT ocean in SEA_CASCADES cascades of SEA_N^2,
+// each patch a whole fraction of the world. seaInit draws each wavenumber's random draw once a world; every frame
+// seaSpectrum scales it by the spectrum under the wind as it blows now (the wave systems' sum, within the cascade's
+// band, spread about the wind: amp) and turns it to now (h0 e^{iwt} +
+// conj(h0(-k)) e^{-iwt}, w rounded to multiples of 2 pi / T so the clock, t modulo T, stays exact) and packs the
+// surface's slope (i k h) and its sideways displacement (-i k/|k| h) as two complex fields, fftRows and fftCols invert
+// them (radix-2 in workgroup memory, a row or column a workgroup), the last writing the cascade's layer of the sea
+// texture (slope x, y; displacement x, y), and seaMip averages it into its mipmaps.
+export const SEA_WGSL = /* wgsl */ `
+const N = ${SEA_N}u;
+const BITS = ${Math.log2(SEA_N)}u;
+const TAU = 6.283185307;
+struct SeaU {
+  casc: array<vec4f, ${SEA_CASCADES}>, // patch (x, y), band (k0, k1)
+  sys: array<vec4f, ${SEA.systems.length}>, // each system's peak wavenumber, spectrum scale and spread
+  wave: vec4f, // the wind's direction now, the spectrum's fall above a peak, the peaks' enhancement, the damping wavenumber
+  clock: vec4f, // t modulo T, 2 pi / T, the wind ripples' angular frequency at their peak, their peak wavenumber
+  shape: vec4f, // beta (frequency as k^beta)
+  seed: vec4u,
+};
+@group(0) @binding(0) var<uniform> sea: SeaU;
+@group(0) @binding(1) var<storage, read_write> h0: array<vec4f>;
+@group(0) @binding(2) var<storage, read_write> work: array<vec4f>;
+@group(0) @binding(3) var seaOut: texture_storage_2d_array<rgba16float, write>;
+@group(0) @binding(4) var mipIn: texture_2d_array<f32>;
+
+fn waveK(c: u32, i: u32, j: u32) -> vec2f {
+  let f = vec2f(f32(i), f32(j)) - select(vec2f(0.0), vec2f(f32(N)), vec2u(i, j) >= vec2u(N / 2u));
+  return TAU * f / sea.casc[c].xy;
+}
+fn pcg(v: u32) -> u32 {
+  let s = v * 747796405u + 2891336453u;
+  let w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+  return (w >> 22u) ^ w;
+}
+// a standard complex Gaussian for wavenumber (i, j) of cascade c, fixed by the storm's seed
+fn gauss(c: u32, i: u32, j: u32) -> vec2f {
+  let a = pcg(pcg(pcg(sea.seed.x ^ (c * 0x9e3779b9u)) ^ i) ^ (j * 0x85ebca6bu));
+  let b = pcg(a ^ 0x68e31da4u);
+  let u1 = (f32(a >> 8u) + 0.5) / 16777216.0;
+  let u2 = f32(b >> 8u) / 16777216.0;
+  return sqrt(-2.0 * log(u1)) * vec2f(cos(TAU * u2), sin(TAU * u2)) * 0.70710678;
+}
+// the height spectrum at wavenumber (i, j) of cascade c, as an amplitude: sqrt(Phi dk / 2), within its band only
+fn amp(c: u32, i: u32, j: u32) -> f32 {
+  let kv = waveK(c, i, j);
+  let k = length(kv);
+  let band = sea.casc[c];
+  if (k < band.z || k >= band.w || k <= 0.0) { return 0.0; }
+  let off = abs(cos((atan2(kv.y, kv.x) - sea.wave.x) * 0.5));
+  var phi = 0.0;
+  for (var s = 0u; s < ${SEA.systems.length}u; s++) {
+    let kp = sea.sys[s].x;
+    let sig = select(0.09, 0.07, k < kp);
+    let r = exp(-pow(sqrt(k / kp) - 1.0, 2.0) / (2.0 * sig * sig));
+    phi += sea.sys[s].y * pow(k, -sea.wave.y) * exp(-1.25 * (kp / k) * (kp / k)) * pow(sea.wave.z, r) * pow(off, 2.0 * sea.sys[s].z);
+  }
+  let dk = TAU * TAU / (band.x * band.y);
+  return sqrt(phi * exp(-(k / sea.wave.w) * (k / sea.wave.w)) * dk * 0.5);
+}
+
+@compute @workgroup_size(16, 16) fn seaInit(@builtin(global_invocation_id) g: vec3u) {
+  let c = g.z;
+  let i = g.x;
+  let j = g.y;
+  let mi = (N - i) % N;
+  let mj = (N - j) % N;
+  let m = gauss(c, mi, mj);
+  h0[(c * N + j) * N + i] = vec4f(gauss(c, i, j), m.x, -m.y);
+}
+
+fn cmul(a: vec2f, b: vec2f) -> vec2f { return vec2f(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
+
+@compute @workgroup_size(16, 16) fn seaSpectrum(@builtin(global_invocation_id) g: vec3u) {
+  let c = g.z;
+  let at = (c * N + g.y) * N + g.x;
+  let kv = waveK(c, g.x, g.y);
+  let k = length(kv);
+  if (k <= 0.0) { work[at] = vec4f(0.0); return; }
+  let w0 = sea.clock.y;
+  let w = round(sea.clock.z * pow(k / sea.clock.w, sea.shape.x) / w0) * w0;
+  let ph = w * sea.clock.x;
+  let e = vec2f(cos(ph), sin(ph));
+  // the amplitudes under the wind as it blows now (amp), so a turning wind fades the waves along its old way and
+  // raises them along its new one, the sea following it rather than jumping
+  let s = h0[at];
+  let h = cmul(s.xy * amp(c, g.x, g.y), e) + cmul(s.zw * amp(c, (N - g.x) % N, (N - g.y) % N), vec2f(e.x, -e.y));
+  // slope x + i slope y: i kx h + i (i ky h); displacement x + i displacement y: -i kx/k h + ky/k h
+  let ih = vec2f(-h.y, h.x);
+  let A = ih * kv.x + vec2f(-ih.y, ih.x) * kv.y;
+  let B = -ih * (kv.x / k) + h * (kv.y / k);
+  work[at] = vec4f(A, B);
+}
+
+// one inverse FFT of SEA_N points in workgroup memory (both packed fields at once), from bit-reversed order
+var<workgroup> line: array<vec4f, ${SEA_N}>;
+fn fftLine(t: u32) {
+  for (var s = 0u; s < BITS; s++) {
+    workgroupBarrier();
+    let half = 1u << s;
+    let pos = t & (half - 1u);
+    let i0 = ((t >> s) << (s + 1u)) + pos;
+    let i1 = i0 + half;
+    let a = TAU * f32(pos) / f32(half * 2u);
+    let w = vec2f(cos(a), sin(a));
+    let u = line[i0];
+    let v = line[i1];
+    let vw = vec4f(cmul(v.xy, w), cmul(v.zw, w));
+    line[i0] = u + vw;
+    line[i1] = u - vw;
+  }
+  workgroupBarrier();
+}
+fn rev(i: u32) -> u32 { return reverseBits(i) >> (32u - BITS); }
+
+@compute @workgroup_size(${SEA_N / 2}) fn fftRows(@builtin(local_invocation_id) l: vec3u, @builtin(workgroup_id) wg: vec3u) {
+  let t = l.x;
+  let base = (wg.y * N + wg.x) * N;
+  line[rev(t)] = work[base + t];
+  line[rev(t + N / 2u)] = work[base + t + N / 2u];
+  fftLine(t);
+  work[base + t] = line[t];
+  work[base + t + N / 2u] = line[t + N / 2u];
+}
+
+@compute @workgroup_size(${SEA_N / 2}) fn fftCols(@builtin(local_invocation_id) l: vec3u, @builtin(workgroup_id) wg: vec3u) {
+  let t = l.x;
+  let col = wg.x;
+  let base = wg.y * N * N + col;
+  line[rev(t)] = work[base + t * N];
+  line[rev(t + N / 2u)] = work[base + (t + N / 2u) * N];
+  fftLine(t);
+  textureStore(seaOut, vec2u(col, t), wg.y, line[t]);
+  textureStore(seaOut, vec2u(col, t + N / 2u), wg.y, line[t + N / 2u]);
+}
+
+// one mip level from the one above it: the average of its 2 × 2
+@compute @workgroup_size(8, 8) fn seaMip(@builtin(global_invocation_id) g: vec3u) {
+  let size = textureDimensions(seaOut);
+  if (any(g.xy >= size)) { return; }
+  let p = vec2i(g.xy * 2u);
+  let c = i32(g.z);
+  let v = textureLoad(mipIn, p, c, 0) + textureLoad(mipIn, p + vec2i(1, 0), c, 0) + textureLoad(mipIn, p + vec2i(0, 1), c, 0) + textureLoad(mipIn, p + vec2i(1, 1), c, 0);
+  textureStore(seaOut, g.xy, g.z, v * 0.25);
 }
 `;
 

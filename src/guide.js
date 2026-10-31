@@ -133,6 +133,8 @@ export const GLOSSARY = {
   register: 'How high the species sings. Free-floating photosynths and scavengers sing high, hunters low.',
   tempo: 'How quickly its song moves, from how fast and how hungrily it lives.',
   audioload: 'How much of its time the soundtrack’s audio thread spends rendering. Near 100% it would crackle, so above about 50% fewer notes may sound at once and the oldest fade out early.',
+  watersurface: 'The surface of the water far above the cells, out of focus: as its waves pass they gently bend the view and sweep soft bands of light across what lies beneath, more in a storm. Subtle tones it down, Strong turns it up, Off holds the view still.',
+  wavemotion: 'How quickly the water’s waves move. Slow suits a calm view; Lively, a restless one. Sped-up worlds move them faster too, but less than the cells.',
   songmarks: 'A faint ring spreads from a cell each time it sings its species’ note: for the picked species only, or for every species. Needs sound on.',
   diversity: 'Effective number of species: exp of the Shannon entropy of species populations. A world of 10 equally common species scores 10.',
 };

@@ -1,5 +1,5 @@
 import {
-  simWGSL, SIM_CLOCK, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
+  simWGSL, SIM_CLOCK, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, SEA_WGSL, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
   MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES,
 } from './shaders.js';
 import {
@@ -7,6 +7,8 @@ import {
   packUnorm, ARCHETYPE_TYPES,
 } from './genome.js';
 import { TIDE_PHASE } from './flow.js';
+import { SEA, SEA_N, SEA_CASCADES, seaLayout, seaScales } from './sea.js';
+import { seaTuneDefaults, seaSpecOf } from './seatune.js';
 import { makeRelief, rankField, makeIceOrder } from './geography.js';
 
 const HDR = 'rgba16float';
@@ -52,6 +54,10 @@ export async function createEngine(device, format, { hasTimestamps = false, K = 
 const LATE = new Set(['lifeMainCoarse', 'mindMain', 'mindMainCoarse', 'rangeMain']);
 const COMPILE_COST = { lifeMain: 26, fsPoint: 15, 'fsPointLive+live': 13, fsComposite: 11, fsLoupe: 8, matterMain: 5 };
 
+
+// how long the sea's wind takes to turn toward the tide's drift (simulated seconds, its time constant)
+const SEA_WIND_EASE = 30;
+
 // the real-time clock's period on the GPU (= SIM_WRAP in ANIM_WGSL, which the sway pass corrects for)
 const REAL_WRAP = 4096;
 
@@ -95,7 +101,7 @@ class Engine {
     this.waves = new Float32Array(16);
     this.viewData = new ArrayBuffer(112);
     this.viewDataL = new ArrayBuffer(112);
-    this.postData = new Float32Array(92);
+    this.postData = new Float32Array(100 + 4 * SEA_CASCADES);
     this.loupe = null;
     this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 0xffffffff, memberN: 0 };
     this.viewDataS = new ArrayBuffer(112);
@@ -131,7 +137,21 @@ class Engine {
     b.viewL = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
     b.viewS = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
     b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
-    b.post = d.createBuffer({ size: 368, usage: U.UNIFORM | U.COPY_DST });
+    b.post = d.createBuffer({ size: (100 + 4 * SEA_CASCADES) * 4, usage: U.UNIFORM | U.COPY_DST });
+    // the sea (SEA_WGSL, src/sea.js): its uniforms, and every cascade's slope and displacement, mipmapped (its
+    // amplitudes and working buffer are made with the first frame: _seaBuffers)
+    b.seaU = d.createBuffer({ size: 128, usage: U.UNIFORM | U.COPY_DST });
+    this.seaTex = d.createTexture({ size: [SEA_N, SEA_N, SEA_CASCADES], format: 'rgba16float', mipLevelCount: Math.log2(SEA_N) + 1,
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING, label: 'sea' });
+    this.seaView = this.seaTex.createView({ dimension: '2d-array' });
+    this.seaSampler = d.createSampler({ addressModeU: 'repeat', addressModeV: 'repeat', magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear', maxAnisotropy: 8 });
+    this.seaData = new ArrayBuffer(128);
+    this._seaOn = false;
+    // the sea's tunables (src/seatune.js; Settings → Display sets its height and pace): its look, its pace, calm
+    // water's share of a storm's, its waves (seaRebuild after changing those)
+    this.seaTune = seaTuneDefaults(SEA);
+    this.seaSpec = seaSpecOf(SEA, this.seaTune);
+    this._seaVer = 0;
     b.loupeU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     b.pickU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
     // per grid cell: its matter, then its living
@@ -258,6 +278,14 @@ class Engine {
     this.cpWatchNear = cp(this.watchModule, 'watchNear');
     this.cpWatchArgs = cp(this.watchModule, 'watchArgs');
     this.cpSurvey = { pipe: cp(this.surveyModule, 'surveyMain'), bg: null };
+    const seaModule = d.createShaderModule({ code: SEA_WGSL, label: 'sea' });
+    // the water's bend over the main view, read back for the page's overlays (seaShiftMap; seaShift)
+    this.cpShift = cp(this.postModule, 'seaShiftMap');
+    b.shiftMap = d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: U.STORAGE | U.COPY_SRC });
+    this.shiftRead = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }), busy: false }));
+    // the last two grids read back: { data (pixels of the view drawn then), cam: { x, y, ppu, w, h }, at (ms) }
+    this.seaShifts = [];
+    this.seaPipes = { init: cp(seaModule, 'seaInit'), spectrum: cp(seaModule, 'seaSpectrum'), rows: cp(seaModule, 'fftRows'), cols: cp(seaModule, 'fftCols'), mip: cp(seaModule, 'seaMip') };
 
     const additive = { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } };
     // the main view's draws into the trails: additive, weighted per frame by the blend constant (_render)
@@ -358,6 +386,9 @@ class Engine {
     for (const c of this.cull) c.bg = d.createBindGroup({ layout: this.cpCull.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: c.u } }, { binding: 1, resource: { buffer: b.cellStart } },
       { binding: 2, resource: { buffer: c.segs } }, { binding: 3, resource: { buffer: c.args } }] });
+    this.cpShiftBG = d.createBindGroup({ layout: this.cpShift.getBindGroupLayout(0), entries: [
+      { binding: 2, resource: { buffer: b.post } }, { binding: 11, resource: { buffer: b.thermal } },
+      { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler }, { binding: 15, resource: { buffer: b.shiftMap } }] });
     this.cpMicroBG = d.createBindGroup({ layout: this.cpMicro.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.post } }, { binding: 1, resource: { buffer: b.microU } },
       { binding: 2, resource: { buffer: b.specks } }, { binding: 3, resource: { buffer: b.microArgs } }] });
@@ -403,7 +434,7 @@ class Engine {
     new Uint32Array(b.touch.getMappedRange()).fill(0xffffffff);
     b.touch.unmap();
     // each cell's drawn motion and recent events, by ID (contactGather): only cells in view need a slot
-    b.sway = d.createBuffer({ size: Math.min(n, 1 << 20) * SWAY_BYTES, usage: U.STORAGE });
+    b.sway = d.createBuffer({ size: Math.min(n, 1 << 20) * SWAY_BYTES, usage: U.STORAGE | U.COPY_SRC });
     b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
     // the claims, then the species ledger (observational), then the step's heat deposits and husk piles
     // (heatAccAt in SIM_WGSL); only the head and the claims are saved
@@ -551,7 +582,8 @@ class Engine {
       { binding: 0, resource: this.sampler }, { binding: 1, resource: v },
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 3, resource: this.bloomViews[0] },
       { binding: 7, resource: this.stoneView[0] }, { binding: 8, resource: this.stoneView[1] }, { binding: 9, resource: this.murkView },
-      { binding: 10, resource: this.microView }, { binding: 11, resource: { buffer: this.b.thermal } }, { binding: 12, resource: this.liveView }] }));
+      { binding: 10, resource: this.microView }, { binding: 11, resource: { buffer: this.b.thermal } }, { binding: 12, resource: this.liveView },
+      { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler }] }));
     this.compBG = compBG(this.pComp);
     this.compClearBG = compBG(this.pCompClear);
     this.compBGOf = compBG;
@@ -590,7 +622,7 @@ class Engine {
       { binding: 0, resource: this.sampler }, { binding: 1, resource: this.loupeView },
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 4, resource: { buffer: this.b.loupeU } },
       { binding: 6, resource: { buffer: this.b.viewL } }, { binding: 7, resource: this.loupeStoneView[0] }, { binding: 8, resource: this.loupeStoneView[1] },
-      { binding: 11, resource: { buffer: this.b.thermal } }] });
+      { binding: 11, resource: { buffer: this.b.thermal } }, { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler }] });
   }
 
   /**
@@ -825,6 +857,165 @@ class Engine {
     }
     c.t = this.simTime - base;
     return c;
+  }
+
+  // How rough the sea is, 0 calm to 1 a full storm: the rain, more with the storm's currents (turb), unless the tunables
+  // hold it.
+  get seaRough() {
+    if (this.seaTune.rough >= 0) return this.seaTune.rough;
+    return Math.min(1, this.rain * (0.6 + 0.65 * Math.min(1, Math.max(0, (this.turb - 1) / 1.6))));
+  }
+
+  // The sea made again from the tunables' waves (src/seatune.js); reroll: a new sea and wind too.
+  seaRebuild(reroll = false) {
+    this.seaSpec = seaSpecOf(SEA, this.seaTune);
+    this._seaVer++;
+    if (reroll) this._seaRoll = (this._seaRoll ?? 0) + 1;
+  }
+
+  /**
+   * Where world point (wx, wy) shows in the main view, as an offset from where it lies (device pixels of the view
+   * drawn now at ppu): the water bends the view (fsComposite: the pixel at x shows the scene at x + shift(x)), so a
+   * point lying at c shows at the x with x + shift(x) = c, found in two steps of x = c - shift(x). From the grids the
+   * GPU last drew (seaShiftMap), each sampled where the point lay in its own view and carried on to now from the two,
+   * as they come back a frame or two late. [0, 0] without the water.
+   */
+  seaShift(wx, wy, cam) {
+    const S = this.seaShifts;
+    if (!S.length) return [0, 0];
+    const [W, H] = this.grid;
+    const at = (m, ox, oy) => {
+      const c = m.cam;
+      let dx = wx - c.x, dy = wy - c.y;
+      dx -= W * Math.round(dx / W); dy -= H * Math.round(dy / H);
+      // (in that view's pixels, then the grid's cells)
+      const gx = ((dx * c.ppu + c.w / 2 + ox * (c.ppu / cam.ppu)) / c.w) * SHIFT_W - 0.5, gy = ((dy * c.ppu + c.h / 2 + oy * (c.ppu / cam.ppu)) / c.h) * SHIFT_H - 0.5;
+      const x0 = Math.max(0, Math.min(SHIFT_W - 1, Math.floor(gx))), y0 = Math.max(0, Math.min(SHIFT_H - 1, Math.floor(gy)));
+      const x1 = Math.min(SHIFT_W - 1, x0 + 1), y1 = Math.min(SHIFT_H - 1, y0 + 1), fx = Math.max(0, Math.min(1, gx - x0)), fy = Math.max(0, Math.min(1, gy - y0));
+      const v = (x, y, k) => m.data[(y * SHIFT_W + x) * 2 + k];
+      const lerp = (k) => (v(x0, y0, k) * (1 - fx) + v(x1, y0, k) * fx) * (1 - fy) + (v(x0, y1, k) * (1 - fx) + v(x1, y1, k) * fx) * fy;
+      // (that view's pixels, as world units, to this one's)
+      return [lerp(0) * (cam.ppu / c.ppu), lerp(1) * (cam.ppu / c.ppu)];
+    };
+    const now = performance.now(), b = S[S.length - 1], a = S.length > 1 ? S[0] : null;
+    const k = a && b.at > a.at ? Math.min(3, (now - b.at) / (b.at - a.at)) : 0;
+    const shift = (ox, oy) => {
+      const q = at(b, ox, oy);
+      if (!k) return q;
+      const p = at(a, ox, oy);
+      return [q[0] + (q[0] - p[0]) * k, q[1] + (q[1] - p[1]) * k];
+    };
+    let s = shift(0, 0);
+    s = shift(-s[0], -s[1]);
+    return [-s[0], -s[1]];
+  }
+
+  // The way the tide's light bands drift, as the sea's prevailing wind (radians): their crests' velocities (each wave's
+  // -w k/|k|^2, from its wave numbers across the world and its drift), weighted by its strength; null while they
+  // cancel.
+  get tideWind() {
+    const [wx, wy] = this.grid;
+    let vx = 0, vy = 0;
+    for (let k = 0; k < 4; k++) {
+      const kx = (2 * Math.PI * this.tide[k * 4]) / wx, ky = (2 * Math.PI * this.tide[k * 4 + 1]) / wy, w = this.tide[k * 4 + 2], a = this.tide[k * 4 + 3];
+      const k2 = kx * kx + ky * ky;
+      if (k2 > 0) { vx -= (a * w * kx) / k2; vy -= (a * w * ky) / k2; }
+    }
+    return Math.hypot(vx, vy) > 1e-6 ? Math.atan2(vy, vx) : null;
+  }
+
+  // The sea's amplitudes and the FFT's working buffer, made with the first frame, and the passes' bind groups.
+  _seaBuffers() {
+    const d = this.device, b = this.b, P = this.seaPipes, U = GPUBufferUsage;
+    const bytes = SEA_CASCADES * SEA_N * SEA_N * 16;
+    b.seaH0 = d.createBuffer({ size: bytes, usage: U.STORAGE, label: 'seaH0' });
+    b.seaWork = d.createBuffer({ size: bytes, usage: U.STORAGE, label: 'seaWork' });
+    const bg = (pipe, entries) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: entries.map(([binding, resource]) => ({ binding, resource })) });
+    const level = (l) => this.seaTex.createView({ dimension: '2d-array', baseMipLevel: l, mipLevelCount: 1 });
+    this.seaBG = {
+      init: bg(P.init, [[0, { buffer: b.seaU }], [1, { buffer: b.seaH0 }]]),
+      spectrum: bg(P.spectrum, [[0, { buffer: b.seaU }], [1, { buffer: b.seaH0 }], [2, { buffer: b.seaWork }]]),
+      rows: bg(P.rows, [[2, { buffer: b.seaWork }]]),
+      cols: bg(P.cols, [[2, { buffer: b.seaWork }], [3, level(0)]]),
+      mips: Array.from({ length: Math.log2(SEA_N) }, (_, i) => bg(P.mip, [[3, level(i + 1)], [4, level(i)]])),
+    };
+  }
+
+  // The sea (src/sea.js, SEA_WGSL), always: its own for each world (its random draws from the world's seed, made
+  // again when the world changes size; its wind the tide's drift); then each frame its spectrum turned to now, inverted into the sea texture,
+  // and mipmapped. Its clock runs with simulated time at the sea's pace (slow in calm water, full speed in a storm),
+  // summed frame by frame so a change of pace never jumps its phase, and kept modulo the period it loops over, in f64.
+  _sea(enc) {
+    const d = this.device, P = this.seaPipes, N = SEA_N;
+    // no sea (Water surface off): no passes, and its clock held still
+    if (this.seaTune.view === 3) { this._seaLast = this.simTime; this._seaReal = performance.now(); return; }
+    if (!this.seaBG) this._seaBuffers();
+    const f = new Float32Array(this.seaData), u = new Uint32Array(this.seaData);
+    const key = `${this.grid.join('x')}:${this.seedValue}:${this._seaRoll ?? 0}`;
+    const fresh = !this._seaOn || this._seaKey !== key || this._seaBuilt !== this._seaVer;
+    if (fresh) {
+      if (this._seaKey !== key) { this._seaT = 0; this._seaLast = this.simTime; this._seaReal = performance.now(); this._seaWind = null; }
+      this._seaOn = true;
+      this._seaKey = key;
+      this._seaBuilt = this._seaVer;
+      let h = (this.seedValue ^ Math.imul(this._seaRoll ?? 0, 0x85ebca6b)) >>> 0;
+      const rnd = () => ((h = (Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) + 0x9e3779b9) >>> 0) / 2 ** 32);
+      const P = this.seaSpec, layout = seaLayout(this.grid, P), scale = seaScales(layout, P), S = 4 * SEA_CASCADES, Y = S + 4 * P.systems.length;
+      layout.forEach((c, i) => f.set([c.L[0], c.L[1], c.k0, c.k1], i * 4));
+      P.systems.forEach((sys, j) => f.set([(2 * Math.PI) / sys.lp, scale[j], sys.spread, 0], S + j * 4));
+      f.set([0, P.p, P.gamma, (2 * Math.PI) / P.lmin], Y);
+      this._seaWindAt = Y;
+      if (this._seaWind == null) this._seaWind = this.tideWind ?? 0;
+      f.set([0, (2 * Math.PI) / P.T, (2 * Math.PI) / P.Tp, (2 * Math.PI) / P.systems[0].lp], Y + 4);
+      f.set([P.beta, 0, 0, 0], Y + 8);
+      u[Y + 12] = (rnd() * 2 ** 32) >>> 0;
+      this._seaClock = Y + 4;
+    }
+    // how much time the sea's clock covers this frame: the real time passed, times the sim's speed (simulated time over
+    // real time) to the power `follow` (1: simulated time; 0: real time, whatever the speed)
+    const t = this.seaTune, now = performance.now();
+    const sim = this.simTime - this._seaLast, real = Math.min(0.25, (now - (this._seaReal ?? now)) / 1000);
+    this._seaLast = this.simTime;
+    this._seaReal = now;
+    const dt = t.follow >= 1 ? sim : real > 0 ? real * Math.max(0, sim / real) ** t.follow : 0;
+    if (dt > 0) this._seaT = (this._seaT + dt * t.pace * (t.calmPace + (1 - t.calmPace) * this.seaRough)) % SEA.T;
+    // the wind turns toward the tide's prevailing drift (tideWind) by the shorter way, easing over about SEA_WIND_EASE
+    // simulated seconds: across a change of era (the tide's waves themselves fading in and out over a minute) and
+    // whenever the tide's waves nearly cancel and their drift's direction swings
+    const to = this.tideWind;
+    if (to != null && sim > 0) {
+      const turn = Math.atan2(Math.sin(to - this._seaWind), Math.cos(to - this._seaWind));
+      this._seaWind = (this._seaWind + turn * Math.min(1, sim / SEA_WIND_EASE)) % (2 * Math.PI);
+    }
+    // (turned half a circle: a wave of wavenumber k runs toward -k here, h0 e^{iwt} across e^{ik.x}, so the spread
+    // favors the wavenumbers against the wind for the waves to run with it)
+    f[this._seaWindAt] = this._seaWind + Math.PI;
+    f[this._seaClock] = this._seaT;
+    d.queue.writeBuffer(this.b.seaU, 0, this.seaData);
+    const pass = enc.beginComputePass({ label: 'sea' });
+    if (fresh) { pass.setPipeline(P.init); pass.setBindGroup(0, this.seaBG.init); pass.dispatchWorkgroups(N / 16, N / 16, SEA_CASCADES); }
+    pass.setPipeline(P.spectrum); pass.setBindGroup(0, this.seaBG.spectrum); pass.dispatchWorkgroups(N / 16, N / 16, SEA_CASCADES);
+    pass.setPipeline(P.rows); pass.setBindGroup(0, this.seaBG.rows); pass.dispatchWorkgroups(N, SEA_CASCADES);
+    pass.setPipeline(P.cols); pass.setBindGroup(0, this.seaBG.cols); pass.dispatchWorkgroups(N, SEA_CASCADES);
+    pass.setPipeline(P.mip);
+    this.seaBG.mips.forEach((g, i) => { const n = Math.max(1, N >> (i + 1)); pass.setBindGroup(0, g); pass.dispatchWorkgroups(Math.ceil(n / 8), Math.ceil(n / 8), SEA_CASCADES); });
+    pass.end();
+  }
+
+  // The sea for the post pass, into pd from 92: how strongly its slope shades the view, how far below it lie the focal
+  // plane its slope bends the view of and the plane it focuses the lamp's light onto (units), all as high as the sea
+  // (a share of a storm's in calm water: seaTune.calm); and each cascade's patch, how far it carries the water toward
+  // its crests (a storm's choppy waves, none in calm water's gentle swell), and whether it holds any waves (a cascade
+  // whose band lies past the damping holds next to none).
+  _seaPost(pd) {
+    pd.fill(0, 92);
+    if (!this._seaOn) return;
+    const t = this.seaTune, r = this.seaRough, a = (t.calm + (1 - t.calm) * r) * t.height;
+    pd[92] = t.tilt * a; pd[93] = t.refract * a; pd[94] = t.view === 3 ? 0 : 1; pd[95] = t.caustic * a;
+    const kc = (2 * Math.PI) / this.seaSpec.lmin;
+    seaLayout(this.grid, this.seaSpec).forEach((c, i) => pd.set([c.L[0], c.L[1], t.chop * r * t.height, c.k0 < 2.5 * kc ? 1 : 0], 96 + i * 4));
+    // how the caustics' focus is softened and capped, and what is drawn (seaTune.view)
+    pd.set([t.lightSoft, t.lightCap, t.view, 0], 96 + 4 * SEA_CASCADES);
   }
 
   _writeSim(extra = {}) {
@@ -1338,6 +1529,19 @@ class Engine {
     if (prof) prof.finish(nSteps, drew, generation);
     d.queue.submit([enc.finish()]);
     if (prof) prof.read();
+    const sh = this._shiftPending;
+    if (sh) {
+      this._shiftPending = null;
+      sh.slot.busy = true;
+      sh.slot.buf.mapAsync(GPUMapMode.READ).then(() => {
+        const data = new Float32Array(sh.slot.buf.getMappedRange().slice(0));
+        sh.slot.buf.unmap();
+        sh.slot.busy = false;
+        if (sh.gen !== this.worldGeneration) return;
+        this.seaShifts.push({ data, cam: sh.cam, at: sh.at });
+        if (this.seaShifts.length > 2) this.seaShifts.shift();
+      }).catch(() => { sh.slot.busy = false; });
+    }
     if (this.carryDone) { this.carryDone.destroy(); this.carryDone = null; }
 
     if (timed) {
@@ -1760,6 +1964,7 @@ class Engine {
       for (let k = 0; k < 3; k++) if (culled[k]) { pass.setBindGroup(0, this.cull[k].bg); pass.dispatchWorkgroups(1); }
       pass.end();
     }
+    this._sea(enc);
     // the main view may skip resolving cells (settings.lod); the loupe and the close-up always resolve
     const lod = this.settings.lod;
     // seeing most of the world with particles a pixel or so across, it splats those (splatMain), where
@@ -1798,7 +2003,21 @@ class Engine {
     pd.set(this.duck, 64);
     pd.set(clk.drops, 72);
     pd[88] = this.K.pond ? this.parch : 0;
+    this._seaPost(pd);
     d.queue.writeBuffer(this.b.post, 0, pd);
+    // the water's bend on a coarse grid of the main view, for the page's overlays (read back after the submit)
+    this._shiftPending = null;
+    if (this._seaOn && pd[94] > 0 && this.cpShiftBG) {
+      const slot = this.shiftRead.find((x) => !x.busy);
+      if (slot) {
+        const pass = enc.beginComputePass({ label: 'seaShift' });
+        pass.setPipeline(this.cpShift); pass.setBindGroup(0, this.cpShiftBG);
+        pass.dispatchWorkgroups(Math.ceil(SHIFT_W / 8), Math.ceil(SHIFT_H / 8));
+        pass.end();
+        enc.copyBufferToBuffer(this.b.shiftMap, 0, slot.buf, 0, SHIFT_W * SHIFT_H * 8);
+        this._shiftPending = { slot, cam: { x: cam.x, y: cam.y, ppu: cam.ppu, w: W, h: H }, at: performance.now(), gen: this.worldGeneration };
+      }
+    } else if (!(pd[94] > 0)) this.seaShifts.length = 0;
 
     // Cells fuse with their incoming bond partners, and flatten against the cells they press on, only
     // once outlines resolve (vsPoint: detailLOD(pointSize) > 0), so gather both only then, and only

@@ -197,6 +197,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the pool's events (docs/catastrophes.md): all on, or off, or some of them
     events: { ...EVENTS_ON(), ...prefs.events },
     songMarks: prefs.songMarks ?? 1, // mark the cells that sing: 0 off, 1 the picked species, 2 all
+    water: prefs.water ?? 2, // the water's surface: 0 off, 1 subtle, 2 normal, 3 strong (applyWater)
+    waves: prefs.waves ?? 1, // its waves' motion: 0 slow, 1 normal, 2 lively
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
     // pixels per CSS pixel ('auto' by default, and for prefs saved before v3, which stored the old
     // default 1.5 without anyone choosing it), the frame rate aimed for ('auto' by default, and for
@@ -232,10 +234,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, events: state.events, ui: state.ui, ...state.perf });
+    savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupe: state.loupe, closeup: state.closeup, songMarks: state.songMarks, water: state.water, waves: state.waves, events: state.events, ui: state.ui, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   if (prefs.loupe !== undefined && !isCoarse) state.loupe = prefs.loupe;
+  // the sea (src/sea.js) as the Display settings ask: how high its waves (none: no sea at all, its passes skipped, for
+  // anyone who would rather the view held still) and how quickly they move
+  const applyWater = () => {
+    const t = eng.seaTune;
+    t.height = [0, 0.5, 1, 1.8][state.water];
+    t.view = state.water === 0 ? 3 : 0;
+    t.pace = [0.5, 1, 1.7][state.waves];
+  };
+  applyWater();
 
   // ------------------------------------------------------------ sizing
   let renderScale = state.perf.scale === 'auto' ? 1 : state.perf.scale;
@@ -274,6 +285,23 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function toScreen(wx, wy) {
     const p = cssPPU();
     return [innerWidth / 2 + wrapD(wx - cam.x, eng.grid[0]) * p, innerHeight / 2 + wrapD(wy - cam.y, eng.grid[1]) * p];
+  }
+  // Where a world point shows in the main view: the water bends the view (Engine.seaShift), so what marks a cell (the
+  // followed cell's brackets, song marks) sits where the cell shows rather than where it lies.
+  function toShown(wx, wy) {
+    const [sx, sy] = toScreen(wx, wy), [dx, dy] = eng.seaShift(wx, wy, { ppu: ppu() });
+    return [sx + dx / dpr, sy + dy / dpr];
+  }
+  // ...and in the loupe (L), as an offset in its pixels: its own bend, taken about its center as the main view's is
+  // about the view's (the main view's bend here less at the loupe's center)
+  function lensShift(wx, wy, L) {
+    const p = ppu(), [ax, ay] = eng.seaShift(wx, wy, { ppu: p }), [bx, by] = eng.seaShift(L.cx, L.cy, { ppu: p });
+    return [((ax - bx) / p) * L.cssPPU, ((ay - by) / p) * L.cssPPU];
+  }
+  // The world point the main view shows at screen point (sx, sy), where the water bends the view to show it
+  function toWorldShown(sx, sy) {
+    const [wx, wy] = toWorld(sx, sy), [dx, dy] = eng.seaShift(wx, wy, { ppu: ppu() });
+    return toWorld(sx - dx / dpr, sy - dy / dpr);
   }
   function wrapCam() { const [W, H] = eng.grid; cam.x = ((cam.x % W) + W) % W; cam.y = ((cam.y % H) + H) % H; }
   function zoomAt(factor, sx, sy) {
@@ -1195,7 +1223,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   async function selectAt(sx, sy, pxPerWorld, world) {
     if (state.phase !== 'running') return;
-    const [wx, wy] = world || toWorld(sx, sy);
+    const [wx, wy] = world || toWorldShown(sx, sy);
     const p = pxPerWorld || cssPPU();
     const radius = Math.max(3, 40 / p);
     const res = await eng.requestPick([wx, wy], radius, NONE);
@@ -1787,6 +1815,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + onoff('links', 'Bonds', 'L', s.links, 'bond')
         + onoff('nodes', 'Particles', 'N', s.nodes)
         + (isCoarse ? '' : onoff('loupe', 'Loupe', 'M', state.loupe, 'loupe') + onoff('ui', 'Interface', 'U', state.ui, 'interface'))
+        + choice('water', 'Water surface', '', [[0, 'Off'], [1, 'Subtle'], [2, 'Normal'], [3, 'Strong']], state.water, 'watersurface')
+        + (state.water ? choice('waves', 'Wave motion', '', [[0, 'Slow'], [1, 'Normal'], [2, 'Lively']], state.waves, 'wavemotion') : '')
         + onoff('auto', 'Auto when idle', '', state.auto, 'autoidle')
         + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks')
         + (film.supported ? `<div class="opt"><span class="lbl">${term('film', 'Film')} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === 'idle' ? '<button type="button" class="chip" data-o="film" data-v="now">30 s now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ''))
@@ -1975,6 +2005,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         trailIdx = 1; s.trails = trailLevels[trailIdx];
         for (const k of ['tide', 'heat', 'bands', 'links', 'nodes']) s[k] = defaults[k];
         state.currents = false; state.loupe = !isCoarse; state.songMarks = 1;
+        state.water = 2; state.waves = 1; applyWater();
         state.auto = true; renderAuto(director.active);
       } else {
         for (const k of ['bloom', 'optics', 'specks', 'lod']) s[k] = defaults[k];
@@ -2040,6 +2071,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'lod') s.lod = !!+v;
       else if (id === 'closeup') state.closeup = !!+v;
       else if (id === 'songmarks') state.songMarks = +v;
+      else if (id === 'water') { state.water = +v; applyWater(); }
+      else if (id === 'waves') { state.waves = +v; applyWater(); }
       else if (id === 'ev-start') { if (!climate.event) climate.force(v); toggle(false); return; }
       else if (id === 'film') { toggle(false); filmAct(v === 'stop' ? undefined : v); return; }
       else if (id.startsWith('ev-')) { state.events[id.slice(3)] = !!+v; applyEvents(); }
@@ -2771,11 +2804,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
       sel.err[0] *= fade; sel.err[1] *= fade;
       sel.disp[0] = px + sel.err[0];
       sel.disp[1] = py + sel.err[1];
-      let [sx, sy] = toScreen(sel.disp[0], sel.disp[1]);
+      let [sx, sy] = toShown(sel.disp[0], sel.disp[1]);
       let inLens = false;
       if (L && Math.hypot(sx - L.sx, sy - L.sy) < L.R) {
-        sx = L.sx + wrapD(sel.disp[0] - L.cx, W) * L.cssPPU;
-        sy = L.sy + wrapD(sel.disp[1] - L.cy, H) * L.cssPPU;
+        const [lx, ly] = lensShift(sel.disp[0], sel.disp[1], L);
+        sx = L.sx + wrapD(sel.disp[0] - L.cx, W) * L.cssPPU + lx;
+        sy = L.sy + wrapD(sel.disp[1] - L.cy, H) * L.cssPPU + ly;
         inLens = true;
       }
       const visible = !inLens || Math.hypot(sx - L.sx, sy - L.sy) < L.R - 8;
@@ -2894,9 +2928,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
         x = c.x + (c.vx + fx * g.advect) * dts; y = c.y + (c.vy + fy * g.advect) * dts;
       }
       x = ((x % W) + W) % W; y = ((y % H) + H) % H;
-      let [sx, sy] = toScreen(x, y), scale = p;
+      let [sx, sy] = toShown(x, y), scale = p;
       if (L && Math.hypot(sx - L.sx, sy - L.sy) < L.R) { // inside the loupe: where the lens shows it
-        sx = L.sx + wrapD(x - L.cx, W) * L.cssPPU; sy = L.sy + wrapD(y - L.cy, H) * L.cssPPU; scale = L.cssPPU;
+        const [lx, ly] = lensShift(x, y, L);
+        sx = L.sx + wrapD(x - L.cx, W) * L.cssPPU + lx; sy = L.sy + wrapD(y - L.cy, H) * L.cssPPU + ly; scale = L.cssPPU;
         if (Math.hypot(sx - L.sx, sy - L.sy) > L.R - 8) continue;
       }
       if (sx < -20 || sy < -20 || sx > innerWidth + 20 || sy > innerHeight + 20) continue;

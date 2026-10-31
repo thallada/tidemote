@@ -105,8 +105,56 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   by the curved surface) were tried and dropped: they lit the dry mud and the ice as much as the water, and read as
   an overlay rather than something in the pool. A raindrop's ring is a dispersive
   capillary packet, short crests crowding its leading edge and broadening toward its center, uneven in amplitude and
-  radius around its circle, with up to two splash droplets ringing beside it. The rain falling out of view roughens
-  the whole surface with wavelets from every direction, in groups.
+  radius around its circle, with up to two splash droplets ringing beside it.
+- **The sea** (`src/sea.js`, `SEA_WGSL`, `seaSurface`): the water's surface, always there: calm water sways gently
+  (`SEA_CALM`: 0.3 of a storm's height, no choppy crests, `SEA_CALM_PACE` 0.45 of its pace) and a storm is the same sea
+  exaggerated, rising with the rain and the storm's currents (`Engine.seaRough`); its clock is summed frame by frame at
+  the sea's pace, so a change of pace never jumps it, and it is the world's own (from its seed). The clock follows the
+  sim's speed only as its square root (`seaTune.follow` 0.5: at 64× the waves move 8 times faster), so a sped-up world
+  still reads as water rather than a flicker. Settings → Display: Water surface (Off, which skips the sea's passes;
+  Subtle 0.5, Normal, Strong 1.8 of its height) and Wave motion (Slow 0.5, Normal, Lively 1.7 of its pace).
+  `src/seatune.js` holds every tunable (`Engine.seaTune`; tools set the rest).
+  The waves run with the prevailing wind: the way the era's tide drifts (`Engine.tideWind`: its light bands' crest
+  velocities, weighted by their strength). The wind is applied to the spectrum every frame (`amp` in `seaSpectrum`,
+  the random draws themselves undirected), so as it turns the waves along its old way fade and those along its new one
+  rise, as a real sea follows a wind shift; it eases toward the tide's drift over about 30 simulated seconds
+  (`SEA_WIND_EASE`), and the tide's own drift turns over the minute its waves take to fade in and out at a change of
+  era. `tools/waterlook/windcheck.mjs` (with `windreport.py`) measures which way the sea's light runs against the wind,
+  and the turn across a change of era. A Tessendorf FFT
+  ocean (Simulating Ocean Water, 2001; cascades as in web-ocean, poseidon, GodotOceanWaves) the size it would be: the
+  wind's ripples about 1.3 mm long (22 units) with capillary ripples of 0.4 mm (7 units) on them, nothing much under
+  0.25 mm (`lmin`: viscosity damps it). Two cascades of 256², patches the world / 4^c across, so the sea tiles the
+  world exactly; each holds the waves at least 8 of its texels long along its coarser axis (`texels`), the next the
+  shorter ones (the first alone holds every ripple in worlds up to about 170 units across). Waves sampled more coarsely
+  were smoothed away the more the further across the world's long, oblong texels they ran, which pulled the shorter
+  waves' run toward the long axis in big worlds. Fixed in the world, so
+  zooming in only magnifies it: the surface lies far above the focal plane, out of focus, and shows only by what it
+  does to the light. It bends the view of what lies beneath (its slope, relative to the view's center, times a depth:
+  at the whole pool, a soft wobble; from close up, where one ripple fills the view, the field breathing and warping
+  slowly), focuses the lamp onto the focal plane (caustics: brighter where the slope converges, by its divergence
+  times a depth, a soft network over the pool, broad bands of light sweeping over what lies beneath from closer; they
+  multiply the scene's light on open water only, so they are in the pool rather than over it, which is what sank the
+  first try at caustics), and tilts a faint sheen. Where the bending would reach past the image's edge, it eases to nothing
+  (`keepInside`): the image repeats its last pixels there, and a shift into them smeared streaks along the edges.
+  The same easing keeps it within the room to the water's edge (`waterRoom`, the shore's and the ice's): faded over
+  a fixed width instead, a storm's bending smeared the shallows by a low shore into bands. And where the bending
+  would stretch the view past about a half (its depth times the slope's divergence, at a storm's sharp crests), it
+  gives way smoothly, so the view never folds over itself.
+  A new sea (amplitudes, wind) with each world (`seaInit`); each
+  frame `seaSpectrum` turns it to now (frequencies rounded to multiples of 2π/1024 s, so the clock is
+  `simTime mod 1024` from the CPU in f64 and never drifts), `fftRows`/`fftCols` invert slope and sideways
+  displacement (radix-2 in workgroup memory) into a texture array, and `seaMip` mipmaps it; the post pass samples it
+  filtered for the zoom, or as a cubic B-spline where its texels are magnified (linear filtering's kinks at texel
+  edges show as a grid, and as blocks in the caustics, which take the slope's derivative). Crests are sharpened as a
+  choppy sea's are (the point seen came from x0 = x − D(x0)), less D at the view's center, which keeps a ripple wider
+  than the view from carrying the whole view to and fro. Checked with `tools/waterlook/`: `dbg.py` draws the GPU's
+  sea alone (its sheen, or its light) for looklab, `gpucheck.py` measures it (the view at 2z averaged down against
+  the view at z, and the change from frame to frame), `zoomclip.mjs` films a storm through a steady zoom (`--calm`:
+  calm water), `shore.py` photographs a low shore in a storm through looklab, `displaycheck.mjs` drives the Display
+  settings. What failed on the way: plane-wave sums (a few regular sines, then
+  a quilt or crosshatch), value-noise envelopes (their lattice shows as patches), a spectrum tied to the screen's
+  pixels (other waves at every zoom, and fine detail that a microscope would show blown up), wave vectors rounded to
+  the world while the wind veered (the whole pattern jumping every few seconds).
 - **Ice** (`iceLook`, `iceGrain`, `frazil`): ice and water bend light almost alike, so the ice is nearly invisible;
   what shows is where it scatters. It is drawn as a growth-time field fixed in the world, so ice once formed stays
   put and the front only grows outward (a thaw draws it back the same way): a point is ice once the simulated front
