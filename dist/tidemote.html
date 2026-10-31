@@ -640,7 +640,7 @@ canvas.chart { cursor: crosshair; }
 /* ------------------------------------------------------------------ settings, help */
 .settings {
   position: absolute; right: calc(var(--gut) + var(--safe-r)); bottom: calc(var(--bot) + 10px); width: 430px;
-  padding: var(--s2) 14px var(--s3); z-index: 5; max-height: calc(100% - var(--top) - var(--bot) - 20px); overflow-y: auto;
+  padding: var(--s2) 14px var(--s3); z-index: 6; max-height: calc(100% - var(--top) - var(--bot) - 20px); overflow-y: auto;
 }
 .settings .sec-h { gap: 0 var(--s3); flex-wrap: wrap; }
 .settings .sec-h h2 { white-space: nowrap; margin-right: auto; }
@@ -1379,7 +1379,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     <div class="grp time" role="group" aria-label="Time">
       <button type="button" class="ico" id="t-play" aria-label="Pause" data-hint="Pause · Space"><svg><use href="#i-pause"/></svg></button>
       <button type="button" class="ico step" id="t-slower" aria-label="Slower" data-hint="Slower · ,"><svg><use href="#i-slower"/></svg></button>
-      <button type="button" class="speed" id="t-speed" aria-label="Speed ×1" aria-haspopup="listbox" aria-expanded="false" aria-controls="ladder" data-hint="Speed · hold and drag, or , . / &gt; · double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-rate"></small></button>
+      <button type="button" class="speed" id="t-speed" aria-label="Speed ×1" aria-haspopup="listbox" aria-expanded="false" aria-controls="ladder" data-hint="Speed · hold and drag, or , . / &gt;&#10;Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-rate"></small></button>
       <button type="button" class="ico step" id="t-faster" aria-label="Faster" data-hint="Faster · ."><svg><use href="#i-faster"/></svg></button>
     </div>
     <div class="grp tools" id="tools" role="toolbar" aria-label="Tools"></div>
@@ -26956,11 +26956,11 @@ ${e.message}` : String(e?.message || e));
     let rect = null;
     const textFor = (el) => {
       if (el.dataset.tip) return GLOSSARY[el.dataset.tip] ? { text: (el.dataset.live ? `${el.dataset.live} ` : "") + GLOSSARY[el.dataset.tip] } : null;
-      const h = el.dataset.hint;
-      if (!h) return null;
-      if (el.classList.contains("term")) return { text: h };
+      if (!el.dataset.hint) return null;
+      const [h, more] = el.dataset.hint.split("\n");
+      if (el.classList.contains("term")) return { text: h, more };
       const i = h.lastIndexOf(" · ");
-      return i > 0 ? { text: h.slice(0, i), key: h.slice(i + 3) } : { text: h };
+      return i > 0 ? { text: h.slice(0, i), key: h.slice(i + 3), more } : { text: h, more };
     };
     function show(el, how) {
       const t2 = textFor(el);
@@ -26973,6 +26973,11 @@ ${e.message}` : String(e?.message || e));
         const k = document.createElement("kbd");
         k.textContent = t2.key;
         tip.append(k);
+      }
+      if (t2.more) {
+        const m = document.createElement("div");
+        m.textContent = t2.more;
+        tip.append(m);
       }
       tip.hidden = false;
       const r = el.getBoundingClientRect();
