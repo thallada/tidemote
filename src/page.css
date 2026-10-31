@@ -584,7 +584,7 @@ canvas.chart { cursor: crosshair; }
 /* ------------------------------------------------------------------ settings, help */
 .settings {
   position: absolute; right: calc(var(--gut) + var(--safe-r)); bottom: calc(var(--bot) + 10px); width: 430px;
-  padding: var(--s2) 14px var(--s3); z-index: 5; max-height: calc(100% - var(--top) - var(--bot) - 20px); overflow-y: auto;
+  padding: var(--s2) 14px var(--s3); z-index: 6; max-height: calc(100% - var(--top) - var(--bot) - 20px); overflow-y: auto;
 }
 .settings .sec-h { gap: 0 var(--s3); flex-wrap: wrap; }
 .settings .sec-h h2 { white-space: nowrap; margin-right: auto; }

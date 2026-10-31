@@ -1,5 +1,5 @@
 // Hover, focus and tap hints. Glossary terms carry data-tip (a GLOSSARY key); controls carry
-// data-hint ("Label · key"). No element carries a title attribute, so nothing competes with these. A term may also
+// data-hint ("Label · key", and after a line break a second line). No element carries a title attribute, so nothing competes with these. A term may also
 // carry data-live, a note on what it shows right now, put before its glossary entry.
 import { GLOSSARY } from './guide.js';
 
@@ -10,12 +10,12 @@ export function createTips(tip) {
   let rect = null; // what opened the hint: 'hover', 'tap' or 'focus'; each closes its own way
   const textFor = (el) => {
     if (el.dataset.tip) return GLOSSARY[el.dataset.tip] ? { text: (el.dataset.live ? `${el.dataset.live} ` : '') + GLOSSARY[el.dataset.tip] } : null;
-    const h = el.dataset.hint;
-    if (!h) return null;
+    if (!el.dataset.hint) return null;
+    const [h, more] = el.dataset.hint.split('\n');
     // a term with a live explanation (no shortcut key to split off)
-    if (el.classList.contains('term')) return { text: h };
+    if (el.classList.contains('term')) return { text: h, more };
     const i = h.lastIndexOf(' · ');
-    return i > 0 ? { text: h.slice(0, i), key: h.slice(i + 3) } : { text: h };
+    return i > 0 ? { text: h.slice(0, i), key: h.slice(i + 3), more } : { text: h, more };
   };
   function show(el, how) {
     const t = textFor(el);
@@ -25,6 +25,7 @@ export function createTips(tip) {
     tip.textContent = t.text;
     shown = t.text;
     if (t.key) { const k = document.createElement('kbd'); k.textContent = t.key; tip.append(k); }
+    if (t.more) { const m = document.createElement('div'); m.textContent = t.more; tip.append(m); }
     tip.hidden = false;
     const r = el.getBoundingClientRect();
     rect = r;
