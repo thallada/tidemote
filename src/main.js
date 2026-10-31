@@ -3436,9 +3436,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (now - hudT < 250) return;
     hudT = now;
     setText('epoch', fmtClock(eng.simTime));
-    // a world the hand has touched says so
-    $('g-hand').hidden = !hand.touched;
-    if (hand.touched) { setText('hand-v', `${hand.acts.length} act${hand.acts.length === 1 ? '' : 's'}`); handNews(); }
+    // (the hand's acts told by the chronicler)
+    if (hand.touched) handNews();
     setText('era', climate.name);
     setText('era-n', `Era ${String(climate.index).padStart(2, '0')}`);
     const L = Math.round(eng.ambient * 100);

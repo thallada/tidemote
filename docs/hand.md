@@ -165,7 +165,7 @@ least 17 of the card's 660 units, so it reads on a phone; the dialog shows it as
 ## The record
 
 A touched world says so: its acts (`life.hand`, one per tool held, or per run of taps, pricks, pulls, set-downs and
-steering in one place) are kept in its saves, the rail shows a Hand chip, a save's meta keeps `touched`, and so does
+steering in one place) are kept in its saves, a save's meta keeps `touched`, and so does
 its cards' payload (the card itself does not say it). The chronicler tells an act as weather a few minutes after it ends, from the species counted in
 its reach as it began and after (the pick pass), in its own voice (never "you"): "A light fell on the western waters
 for 3 minutes; Thax kaelum bloomed under it, from 4 to 60 cells." An act that changed nothing goes untold (but for a

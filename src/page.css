@@ -303,9 +303,6 @@ body:not(.live) .hud { opacity: 0; }
 .bench-btn.in-hand { color: var(--sun); }
 .bench-btn[aria-expanded="true"] { color: var(--ink); background: var(--cyan-deep); border-color: var(--line-2); }
 /* the rail's Hand chip: this world has been touched */
-.hand-chip { border-left-color: var(--sun); }
-.hand-chip .lbl, .hand-chip b { color: var(--sun); }
-.hand-chip .ev-ico { width: 16px; height: 16px; color: var(--sun); flex: none; }
 
 /* the speed ladder: every speed on offer, fastest at the top */
 .ladder { position: fixed; z-index: 8; width: 210px; padding: var(--s2) 10px var(--s2); display: flex; flex-direction: column; touch-action: none; user-select: none; }
@@ -1204,8 +1201,6 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .ladder { width: 220px; }
   .bench-tools { flex: none; }
   .bench-pip { padding-left: 0; border-left: 0; flex-basis: auto; }
-  .hand-chip { padding-left: 9px; height: 26px; }
-  .hand-chip .lbl, .hand-chip b { display: none; }
   .rung { height: 36px; }
   .card-dlg { top: calc(var(--top) + 8px); transform: translateX(-50%); width: calc(100% - 16px); padding: 8px 12px 12px; max-height: calc(100% - var(--top) - var(--bot) - 16px); display: block; }
   .card-cv { height: auto; width: 100%; margin: var(--s2) auto 0; }
