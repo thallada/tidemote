@@ -285,7 +285,7 @@ class Engine {
     // bonds pull both ways, through the cells that keep a bond to each (bondsNow holds them)
     this.cpDefs.bondBackMain = [0, 2, 12, 20];
     // contact between living cells, in its own pass before lifeMain (contactMain)
-    this.cpDefs.contactMain = [0, 2, 3, 6, 12];
+    this.cpDefs.contactMain = [0, 2, 3, 6, 10, 12];
     // what the pipette sets down, between steps (genomeWords: the genomes, as words)
     this.cpDefs.injectSlots = [0, 11, 23];
     this.cpDefs.injectCells = [0, 1, 9, 11];

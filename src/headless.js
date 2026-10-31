@@ -260,6 +260,21 @@ export async function runForks(device, config, { print } = {}) {
       const cs = communitySample(species, eng.K.adhMin);
       return { living: cs.living, ...Object.fromEntries(DIETS.map((g) => [g, cs.living * cs.diet[g]])), effSpecies: cs.effSpecies, framboids: c.pop[4] };
     };
+    // a species' form: its diet and body (lone cells, packed bodies, tailed or not, trees)
+    const formOf = (gen) => {
+      const tree = (gen.grow?.[0] ?? 0) >= 0.5 && (gen.adhesion || 0) > eng.K.adhMin;
+      return `${dietGuild(gen)}.${(gen.adhesion || 0) <= eng.K.adhMin ? 'lone' : tree ? 'tree' : (gen.tail?.[0] ?? 0) > 0 ? 'tailed' : 'packed'}`;
+    };
+    // the living by form (tools/fastforward/forms.py compares each form's growth over the fork)
+    const forms = (c) => {
+      const o = {};
+      for (let s = E.FIRST_LIFE; s < E.MAXK; s++) {
+        if (!c.pop[s]) continue;
+        const f = formOf(readGenome(c.genomeU32, c.genomeF32, s));
+        o[f] = (o[f] || 0) + c.pop[s];
+      }
+      return o;
+    };
     // an engine per distinct tunables, each loaded with the same moment
     const engines = new Map([['{}', eng]]);
     for (const v of config.variants) {
@@ -273,7 +288,7 @@ export async function runForks(device, config, { print } = {}) {
     }
     // K.diag's counters per guild: means over the once-a-second samples (scaled back from their fixed
     // point), food in reach per hungry sample, the kill funnel per cell-second, contact per hunter sample
-    const SCALE = { crowd: 16, silt: 16, pack: 16, kin: 16, speed: 1000, photo: 1000, light: 1000, force: 100, energy: 1000, overlap: 16 };
+    const SCALE = { deepOther: 16, crowd: 16, silt: 16, pack: 16, kin: 16, speed: 1000, photo: 1000, light: 1000, force: 100, energy: 1000, overlap: 16 };
     const diagOf = (c0, c1) => {
       const out = {};
       DIETS.forEach((g, gi) => {
@@ -287,6 +302,8 @@ export async function runForks(device, config, { print } = {}) {
         o.hungry = dd('hungry') / n;
         o.foodInReach = dd('hungry') ? dd('hungryFood') / dd('hungry') : 0;
         for (const k of ['killOpp', 'preyInReach', 'tried', 'missed', 'lost', 'won']) o[`kill.${k}`] = dd(k) / n;
+        // torn bonds over the fork (divided by cells and seconds downstream)
+        o.torn = dd('torn');
         if (dd('huntSamples')) { o.preyNear = dd('preyNear') / 16 / dd('huntSamples'); o.preyNear2 = dd('preyNear2') / 16 / dd('huntSamples'); }
       });
       return out;
@@ -309,9 +326,30 @@ export async function runForks(device, config, { print } = {}) {
         eng.censusEvery = 1 << 30;
         const c0 = await eng.readCensus(), g0 = guilds(c0);
         const frames = Math.round((config.horizon * 60) / v.step), dt = v.step / 60;
+        // how far each living cell moves over the fork's first second (ids matched), by form: lifeMain's speed
+        // sample (K.diag) is taken before contact has its say, which a coarse step's held forces inflate
+        const posOf = async () => { const q = await eng.readParticles(), W = P_BYTES / 4, m = new Map();
+          for (let n = 0; n < eng.count; n++) { const k = q.u32[n * W + 4]; if (k >= E.FIRST_LIFE) m.set(q.u32[n * W + 7], [q.f32[n * W], q.f32[n * W + 1], k]); } return m; };
+        const pos0 = await posOf();
+        let disp = null;
+        const oneSec = Math.round(60 / v.step);
         for (let f = 0; f < frames; f++) {
           eng.season = seasonAt(eng.simTime);
           eng.frame({ target: null, simDt: dt, time: eng.simTime });
+          if (f + 1 === oneSec) {
+            const pos1 = await posOf();
+            const ww = eng.grid;
+            disp = {};
+            const c0d = await eng.readCensus(), fk = new Map();
+            for (const [id, a] of pos0) {
+              const b = pos1.get(id); if (!b || b[2] !== a[2]) continue;
+              let dx = b[0] - a[0], dy = b[1] - a[1];
+              dx -= ww[0] * Math.round(dx / ww[0]); dy -= ww[1] * Math.round(dy / ww[1]);
+              if (!fk.has(a[2])) fk.set(a[2], formOf(readGenome(c0d.genomeU32, c0d.genomeF32, a[2])).replace('tailed', 'packed'));
+              const o = (disp[fk.get(a[2])] ??= { n: 0, d: 0, d2: 0 });
+              const d = Math.hypot(dx, dy); o.n++; o.d += d; o.d2 += d * d;
+            }
+          }
         }
         const c1 = await eng.readCensus(), g1 = guilds(c1);
         // each guild's living cells by energy as a share of their division mark
@@ -331,7 +369,7 @@ export async function runForks(device, config, { print } = {}) {
         if (errors.length) throw new Error(`GPU error: ${errors.slice(0, 3).join('; ')}`);
         const span = c1.simTime - c0.simTime;
         const d = (a, b, i) => ((b[i] - a[i]) >>> 0) * 60 / span;
-        const out = { rep: r, variant: v.name, span, start: g0, end: g1, rates: {}, hist };
+        const out = { rep: r, variant: v.name, span, start: g0, end: g1, rates: {}, hist, forms0: forms(c0), forms1: forms(c1), disp };
         if (eng.K.diag) out.diag = diagOf(c0, c1);
         const G = { births: 2, mutants: 3, starved: 5, oldAge: 6, kills: 7, grazes: 9, scavenges: 10, bites: 11 };
         for (const [k, i] of Object.entries(G)) out.rates[k] = d(c0.globals, c1.globals, i);

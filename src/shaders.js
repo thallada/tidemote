@@ -17,8 +17,11 @@ export const META_ENERGY = META_DEATH + 64;
 // core); at hunters' kill opportunities the kill funnel; and their contact density (animals within reach
 // and twice reach).
 export const DIAG_SLOTS = ['samples', 'crowd', 'silt', 'pack', 'kin', 'speed', 'photo', 'light', 'hungry', 'hungryFood', 'force', 'energy', 'overlap',
-  'killOpp', 'preyInReach', 'tried', 'missed', 'lost', 'won', 'preyNear', 'preyNear2', 'huntSamples', 'perf', 'warmOff'];
-export const DIAG_STRIDE = 24;
+  'killOpp', 'preyInReach', 'tried', 'missed', 'lost', 'won', 'preyNear', 'preyNear2', 'huntSamples', 'perf', 'warmOff',
+  // bonds to its own kind let go for their length (every tick); other species deep inside it, under half
+  // their drawn radii summed (once a second)
+  'torn', 'deepOther'];
+export const DIAG_STRIDE = 26;
 export const META_DIAG = META_ENERGY + 64;
 export const META_CLAIM = META_DIAG + 5 * DIAG_STRIDE;
 // The species ledger, observational (it feeds the chronicler, src/chronicler.js; nothing reads it back):
@@ -196,6 +199,7 @@ export const DEFAULT_K = {
   bodyGive: 0.85,   // with bodyPush, how far cells may squash against each other first (share of touching; bonds rest at bondTouch)
   bodyPush: 30,     // contactMain: how hard overlapping cells' bodies push apart (units/s² per unit of overlap, summed; 0: off)
   pushTheta: 0.25,  // how implicit a coarse step's contact push is (0 explicit: overshoots, cells part and speed up; 1 backward Euler: overpacks); docs/fast-forward.md
+  coarseBend: 0.5,  // a coarse step's correction takes a still tree's bend as this much stiffness across each arm, relative to growStiff over the arm's length (1: tree births +27% at 6 ticks, 0.5: +4-10%); docs/fast-forward.md
   crowdVisc: 20,    // contactMain: rate (per second) at which a cell crowded by four or more takes on the motion of those it touches
   tissue: 12,       // bodies as tissue: bonds pull both ways, a body's cells take on their partners' motion
                     // at this rate (per second), and a free bond slot only closes a triangle within the body
@@ -204,7 +208,7 @@ export const DEFAULT_K = {
   contactReach: 0.14, // contactMain: the largest radius a neighbor is taken to have (grid cells within touching are walked)...
   contactCap: 128,  // ...every living one up to this many in them, every so many past it (at the default maxScan: Settings → Neighbors scales it)
   maxScan: 112,     // neighbors a cell weighs per step in a crowd, sampled evenly (each counts for those skipped)
-  diag: 0,          // 1: count K.diag's diagnostics into the ledger (DIAG_SLOTS; headless forks record them)
+  diag: 0,          // 1: count K.diag's diagnostics into the ledger (DIAG_SLOTS; headless forks record them); 2: also count the per-guild ledgers by a producer's body form (tools/fastforward/forms.py)
   affScale: 0.42,
   matterPull: 0.6,
   metab: 0.75,
@@ -729,11 +733,17 @@ function cellWGSL(K, w) {
   var nutr = 0.0;
   var d1 = 1e9; var d2 = 1e9;
   var n1 = NONE; var n2 = NONE;
+  // (K.diag: kept bonds to its own kind let go for their length)
+  var torn = 0u;
   if (bonding) {
     let kept = bondsOf(i);
     n1 = keepBond(i, kept.x, p);
     n2 = keepBond(i, kept.y, p);
 ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
+    if (DIAG) {
+      if (n1 == NONE && kept.x < sim.count && kept.x != i && sortedFull[kept.x].kind == p.kind) { torn += 1u; }
+      if (n2 == NONE && kept.y < sim.count && kept.y != i && kept.y != kept.x && sortedFull[kept.y].kind == p.kind) { torn += 1u; }
+    }
     if (n2 == n1) { n2 = NONE; }
     // a body's cell lets go of a partner that cannot hold it back (kept by BACK others already): such a
     // bond would pull this cell alone, so it bonds elsewhere (a tree's and a tail's bonds are held by plan)
@@ -791,6 +801,9 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   var pack = 0.0;
   // (K.diag: neighbors inside this cell's core; animals within reach and twice reach)
   var overlap = 0.0;
+  // (K.diag: other species deep inside it by their drawn radii)
+  var deepOther = 0.0;
+  let myR = 0.085 * g.size * (1.0 - 0.12 * f32(role));
   var nIn = 0.0;
   var preyNear = vec2f(0.0);
   var s = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
@@ -854,7 +867,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   for (var k = 0u; k < 18u; k++) {
     if (k == 9u) {
       let toM = strideL / strideM;
-      overlap *= toM; preyNear *= toM; force *= toM; crowd *= toM; crowdP *= toM; pack *= toM; kinVel *= toM; kinN *= toM; jF *= toM; nIn *= toM;
+      overlap *= toM; deepOther *= toM; preyNear *= toM; force *= toM; crowd *= toM; crowdP *= toM; pack *= toM; kinVel *= toM; kinN *= toM; jF *= toM; nIn *= toM;
       st = strideM;
       at = select(0.0, rnd(&s) * strideM, strideM > 1.0);
     }
@@ -914,6 +927,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
         if ((q.kr & (1u << 12u)) != 0u) { crowdP += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind); }
         if (DIAG) {
           if (x < beta) { overlap += 1.0; }
+          if (qk != p.kind && r < 0.5 * (myR + bitcast<f32>(q.pad))) { deepOther += 1.0; }
           if (qk != p.kind && (q.kr & (1u << 12u)) == 0u && r < 2.0 * EAT_R) { preyNear += vec2f(select(0.0, 1.0, r < EAT_R), 1.0); }
         }
         if (r < LINK_R) { let w = 1.0 - r / LINK_R; pack += w * w; }
@@ -1000,7 +1014,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     }
     at -= len;
   }
-  overlap *= stride; preyNear *= stride;
+  overlap *= stride; deepOther *= stride; preyNear *= stride;
   force *= stride;
   // a cell answers its neighbors as a whole, not each one in full: past socialN within reach the pair
   // forces are averaged, so a crowd drives a cell no harder than a neighborhood does
@@ -1024,15 +1038,30 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   let m2 = select(0.0, 1.0, n2 != NONE && holdsBack(n2, i));
   if (n1 != NONE) { bondF += dn1 * ((d1 - rs1) / max(d1, 1e-4)) * m1; }
   if (n2 != NONE) { bondF += dn2 * ((d2 - rs2) / max(d2, 1e-4)) * m2; }
+  // A coarse step holds a still body's bonds as they pull at its start, with the pair forces, and takes
+  // their stiffness into the correction below (jB; the partners' velocities vB over nB): reckoned afresh
+  // each tick toward partners carried on their velocities, stiff bodies rang and tore (each cell's
+  // partners are stale within the step). A still tree's bend is held alike, its stiffness across each arm
+  // (bendT over the arm's length): held explicitly over 6 ticks (~30 rad/s) it flung cells off and the
+  // trees regrew them, doubling their births (docs/fast-forward.md).
+  let beating = tree && gr.beat.x > 0.0;
+  let holdB = coarse && bonding && !beating;
+  let bendT = select(0.0, ${f(K.coarseBend * K.growStiff)}, holdB && tree);
+  var jB = vec3f(0.0);
+  var vB = vec2f(0.0);
+  var nB = 0.0;
+  if (holdB && n1 != NONE && m1 > 0.0) { jB += bondStiff(dn1, d1, rs1, bendT); vB += sortedFull[n1].vel; nB += 1.0; }
+  if (holdB && n2 != NONE && m2 > 0.0) { jB += bondStiff(dn2, d2, rs2, bendT); vB += sortedFull[n2].vel; nB += 1.0; }
   for (var k = 0u; k < nBack; k++) {
     let nb = backAt(i, k, p, n1, n2);
     if (nb == NONE) { continue; }
     let e = bondTo(nb, p); let l = length(e);
-    bondF += e * ((l - restTo(nb, g.size, role, tight)) / max(l, 1e-4));
+    let r = restTo(nb, g.size, role, tight);
+    bondF += e * ((l - r) / max(l, 1e-4));
+    if (holdB) { jB += bondStiff(e, l, r, bendT); vB += sortedFull[nb].vel; nB += 1.0; }
   }
-  // a tree holds its angles (bendOn); coarse steps hold each cell's place beside its mother as they go
-  // (a beating tree's cells move against their mother: they bend afresh each tick instead, and more softly)
-  let beating = tree && gr.beat.x > 0.0;
+  // a tree holds its angles (bendOn); a beating tree's cells move against their mother: in a coarse step
+  // they bend afresh each tick instead, and more softly
   let bendK = ${f(K.growStiff)} * select(1.0, ${f(K.beatBendC)}, coarse && gr.beat.x > 0.0);
   var bendF = vec2f(0.0);
   if (tree) { bendF = bendOn(i, gr) * bendK; bondF += bendF; }
@@ -1041,7 +1070,6 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   // a tail's base is held to its body by an ordinary bond, as the body holds it (not treeBond)
   let baseOn = tail && n1 != NONE && !treeCellAt(n1);
   let baseB = select(vec2f(0.0), dn1 * ((d1 - rs1) / max(d1, 1e-4)), baseOn);
-  let aimOn = tree && n1 != NONE && !beating;
   // the water's edge: a cell on dry ground is stranded (it cannot swim, and the film pulls it back toward the water)
   let shore = shoreDist(pond);
   let stranded = pond.x < 0.0;
@@ -1097,11 +1125,22 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   // is untouched and a collision too stiff to resolve shares its momentum; stable for every mode of a
   // clump (tools/fastforward/stiff-modes.py, docs/fast-forward.md).
   var stiff = vec2f(0.0);
+  // (a still body's bonds join it: their pull and stiffness by the bond strength, their partners weighted
+  // by it in the neighborhood's velocity)
+  var aB = vec2f(0.0);
+  var dB = vec3f(0.0);
+  if (nB > 0.0) {
+    let kb = g.adhesion * ${f(K.bond)};
+    aB = bondF * kb;
+    dB = -restoring(-jB * kb);
+    let wb = kb / max(g.force * heavy, 1e-3);
+    vN += vB * wb; wN += nB * wb; wN2 += nB * wb * wb;
+  }
   if (coarse && wN2 > 0.0) {
     let cf = g.force * heavy;
     let cw = ${f(K.stoneWall)} * (1.0 - g.calcify);
-    let D = -(restoring(jF * stride) * cf + restoring(jS * stride) * cw);
-    let a0 = force * cf + stoneF * cw;
+    let D = -(restoring(jF * stride) * cf + restoring(jS * stride) * cw) + dB;
+    let a0 = force * cf + stoneF * cw + aB;
     let vNear = vN / wN;
     let Mn = wN * wN / wN2;
     let frT = pow(0.5, sim.dt / drag);
@@ -1114,8 +1153,8 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     stiff = (vEnd - p.vel * frT) / G - a0;
   }
   // Motion in substeps of one tick (1/60 s), so a coarse step moves a cell as that many 1/60 s steps
-  // would under its forces; bonds pull toward where the partners will be, carried on their velocities.
-  // A 1/60 s step is a single substep.
+  // would under its forces; a beating tree's bonds pull toward where the partners will be, carried on
+  // their velocities (a still body's are held, above). A 1/60 s step is a single substep.
   let h = sim.dt / f32(sim.ticks);
   let fr0 = pow(0.5, h / drag);
   // a tree's cell is drawn out along its branch: across it the water holds it sideDrag times as hard
@@ -1166,9 +1205,11 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   var pos = p.pos;
   // a beating tree's cells are held end to end more firmly than a body's (treeBond): its beat swings them hard
   let bondK = select(1.0, ${f(K.treeBond)}, beating);
+  // (the partners' mean velocity as the tissue blends it: in a coarse step it takes on this cell's motion too)
+  var vT = vP;
   for (var k = 0u; k < select(1u, sim.ticks, COARSE); k++) {
     var fb = (bondF - bendF - baseB) * bondK + baseB + bendF;
-    if (k > 0u) {
+    if (k > 0u && !holdB) {
       let t = f32(k) * h;
       let moved = pos - p.pos;
       fb = vec2f(0.0);
@@ -1182,11 +1223,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
         fb += e * ((l - restTo(nb, g.size, role, tight)) / max(l, 1e-4));
       }
       fb = (fb + select(fb1, vec2f(0.0), baseOn)) * bondK + select(vec2f(0.0), fb1, baseOn);
-      if (tree || tails) {
-        if (beating) { predT = t; predSelf = i; predPos = pos; fb += bendOn(i, gr) * bendK; predT = 0.0; }
-        else { fb += bendF; }
-      }
-      if (aimOn) { fb += (vB1 * t - moved) * ${f(K.growStiff)}; }
+      if (beating) { predT = t; predSelf = i; predPos = pos; fb += bendOn(i, gr) * bendK; predT = 0.0; }
     }
     vel = vel * fr0 - across * (dot(vel, across) * (fr0 - frX)) + force * (g.force * heavy * h) + stiff * h;${W('if (k == 0u) { mVel = vel; }')}
     // (a tree's cells move together through their bonds: aligning would damp its beat)
@@ -1196,7 +1233,18 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     vel += fb * (g.adhesion * ${f(K.bond)} * h);
     // a body's cells move together: each takes on its partners' motion (a beating tree's, bond by bond, as its muscles beat)
     if (beating) { vel += beatDv * (1.0 / f32(sim.ticks)); }
-    else if (nP > 0.0) { vel = mix(vel, vP, clamp(${f(K.tissue)} * h, 0.0, 1.0)); }
+    else if (nP > 0.0) {
+      let a = clamp(${f(K.tissue)} * h, 0.0, 1.0);
+      // A coarse step: its partners take on this cell's motion as it takes on theirs (their mean held from
+      // the step's start, a pair swung past each other each step: 1 - 2a a tick, compounded -0.5 at 6
+      // ticks, where 1/60 s steps leave 0.05). Taken as two bodies sharing momentum, as contactMain's
+      // viscosity: their center keeps its velocity and the relative velocity decays by 1 - a (1 + 1/n).
+      if (coarse) {
+        let c = (vel + vT * nP) / (1.0 + nP);
+        let u = (vel - vT) * max(0.0, 1.0 - a * (1.0 + 1.0 / nP));
+        vel = c + u * (nP / (1.0 + nP)); vT = c - u / (1.0 + nP);
+      } else { vel = mix(vel, vP, a); }
+    }
     // stone is solid to everything but the calcifiers that build it, which settle on their own reef
     vel += stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify) * h);
     if (swim > 0.0) {
@@ -1728,6 +1776,15 @@ fn dietGuild(g: Genome) -> u32 {
   return 1u;
 }
 
+// The guild the per-guild ledgers count a cell in: its diet's, or with K.diag 2 a producer's body form
+// (0 packed, 1 tree, 2 lone) and every animal as 3 (observational)
+fn ledgerGuild(g: Genome) -> u32 {
+  let dg = dietGuild(g);
+  if (${K.diag | 0}u != 2u) { return dg; }
+  if (dg != 0u) { return 3u; }
+  if (g.adhesion <= ${f(K.adhMin)}) { return 2u; }
+  return select(0u, 1u, growOf(g).tree);
+}
 fn addEnergy(guild: u32, slot: u32, e: f32) {
   if (e > 0.0) { atomicAdd(&ledger[META_ENERGY + 8u * guild + slot], u32(e * 1000.0 + 0.5)); }
 }
@@ -1999,7 +2056,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
     if (p.kind < FIRST_LIFE) { intent[i].z = NONE; intent[i].w = NONE; }
     // the needle: the cell its point touches bursts as a hunter's kill does, its carcass left for the scavengers
     else if (p.id == sim.hand.ids.x || (any(sim.hand.needle.zw != vec2f(0.0)) && length(handD(p.pos, sim.hand.needle.xy)) < ${f(NEEDLE.kill)})) {
-      atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
+      atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(genomes[p.kind]) + 3u], 1u);
       splCause(p.kind, 3u);
       p.kind = HUSK; p.energy = ${bodyOf(K, 'genomes[p.kind]')} * ${f(K.carcassKeep)}; p.age = 0.0; p.vel *= 0.2;
       p.info = (p.info & 0xffff7ff0u) | 3u;
@@ -2046,7 +2103,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
       if (act == 1u && p.kind == ck) {
         if (p.kind >= FIRST_LIFE) {
           // a kill leaves a carcass for the scavengers
-          atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
+          atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(genomes[p.kind]) + 3u], 1u);
           splCause(p.kind, 3u);
           p.kind = HUSK; p.energy = ${bodyOf(K, 'genomes[p.kind]')} * ${f(K.carcassKeep)}; p.age = 0.0; p.vel *= 0.2;
           p.info = (p.info & 0xffff7ff0u) | 3u;
@@ -2061,7 +2118,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         if (p.kind >= FIRST_LIFE) {
           p.energy -= ${f(K.bite)} * bites;
           if (p.energy <= 0.0) {
-            atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[p.kind]) + 3u], 1u);
+            atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(genomes[p.kind]) + 3u], 1u);
             splCause(p.kind, 3u);
             p.kind = HUSK; p.energy = ${bodyOf(K, 'genomes[p.kind]')}; p.age = 0.0;
             p.info = (p.info & 0xffff7ff0u) | 3u | LITTER;
@@ -2108,7 +2165,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         intent[i].z = select(NONE, c - 1u, genomes[ck].adhesion > ${f(K.adhMin)});
         intent[i].w = NONE;
         atomicAdd(&ledger[2], 1u);
-        atomicAdd(&ledger[META_DEATH + 4u * dietGuild(genomes[ck])], 1u);
+        atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(genomes[ck])], 1u);
         splCause(ck, 0u);
       }
       parts[i] = p;
@@ -2513,6 +2570,13 @@ fn joinable(i: u32, j: u32, k1: u32, k2: u32) -> bool {
   return select(linked, free, alone);
 }
 
+// A bond's stiffness over its strength (the gradient of its pull, (l - r) e / l, in this cell's position,
+// negated): 1 along it, 1 - r / l across it; bendT / l more across it for a still tree's bend
+fn bondStiff(e: vec2f, l: f32, r: f32, bendT: f32) -> vec3f {
+  let u = e / max(l, 1e-4);
+  let a = (r - bendT) / max(l, 1e-4);
+  return vec3f(1.0 - a + a * u.x * u.x, a * u.x * u.y, 1.0 - a + a * u.y * u.y);
+}
 // A tissue bond's rest length: open (0.55 linkR) in loose bodies, where the two cells touch in tight ones.
 // (a bond to a tail rests where its cells touch, reckoned alike from both ends)
 fn restTo(j: u32, size: f32, role: u32, tight: f32) -> f32 {
@@ -2808,7 +2872,22 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
   var s = pcg(p.id ^ pcg(sim.frame * 2246822519u + sim.seed));
   var push = vec2f(0.0);
   // (bodyHold is a share per 1/60 s: a step of any length undoes as much as that time would)
-  let holdShare = 1.0 - pow(1.0 - ${f(K.bodyHold)}, sim.dt * 60.0);
+  var holdShare = 1.0 - pow(1.0 - ${f(K.bodyHold)}, sim.dt * 60.0);
+  // A coarse step sets the separating speed once, and drag takes it before the step is out: an anchored
+  // cell (a holdfast) keeps half its speed some 0.02 s, so it undid a quarter of the overlap 1/60 s steps
+  // do and mats crowded together. So an anchored cell asks the speed that moves it, through its drag over
+  // the ticks, as far as they would (bodyHold of the overlap a tick, less the tick's decay, compounded).
+  // A drifting cell's is left as it was: asked more, a beating body's cells part and it swims too fast.
+  if (sim.ticks > 1u) {
+    let g = genomes[p.kind];
+    let anchored = smoothstep(0.35, 0.1, g.advect);
+    if (anchored > 0.0) {
+      let fr = pow(0.5, (1.0 / 60.0) / (g.drag * mix(1.0, ${f(K.holdfast)}, anchored)));
+      let m = f32(sim.ticks);
+      let decay = fr * (1.0 - pow(fr, m)) / max(1.0 - fr, 1e-6);
+      holdShare = mix(holdShare, (1.0 - pow(1.0 - ${f(K.bodyHold)} * fr, m)) * m / max(decay, 1e-3), anchored);
+    }
+  }
   var hold = vec2f(0.0);
   var holdN = 0.0;
   var touchV = vec2f(0.0);
@@ -2959,13 +3038,13 @@ fn cystStep(i: u32) {
   if (dry) { p.vel = vec2f(0.0); }
   let moved = p.pos + (p.vel + flowWith(open, pd) * g.advect) * sim.dt;
   if (inHandIce(p.pos)) { p.vel = vec2f(0.0); } else { p.pos = wrapPos(moved + handPush(moved)); }
-  atomicAdd(&ledger[cystSlot(dietGuild(g))], 1u);
+  atomicAdd(&ledger[cystSlot(ledgerGuild(g))], 1u);
   if (p.energy <= 0.0) {
     splCause(p.kind, select(1u, 5u, dry));
     p.kind = HUSK; p.energy = ${bodyOf(K, 'g')}; p.age = 0.0;
     p.info = (p.info & 0xffff7fc0u) | 1u${litterOf('g')};
     atomicAdd(&ledger[5], 1u);
-    atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 1u], 1u);
+    atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(g) + 1u], 1u);
   } else if (p.age > 0.0 && !dry && rnd(&s) < ${f(K.cystWake)} * (1.0 + ${f(K.rainWake)} * sim.pond.y) * sim.dt) {
     p.info = (p.info & 0xfffffff0u) | 9u; p.age = 0.0;
     splCause(p.kind, 7u);
@@ -2991,7 +3070,8 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   if ((sortedFull[i].info & 15u) == CYST) { cystStep(i); return; }
 ${cellWGSL(K, false)}
   var E = p.energy + shareE + (photoGain - upkeep) * sim.dt;
-  let dg = dietGuild(g);
+  let dg = ledgerGuild(g);
+  if (DIAG && torn > 0u) { diagAdd(dg, 24u, torn); }
   // all the energy a cell spends warms its water (every eighth frame, eight frames' worth)
   if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, upkeep * sim.dt * 8.0 * ${f(K.metabHeat)}); }
   // light and upkeep flow every frame; the ledger samples them once a second per cell
@@ -3027,6 +3107,7 @@ ${cellWGSL(K, false)}
     diagAdd(dg, 10u, u32(length(force) * 100.0));
     diagAdd(dg, 11u, u32(clamp(E / g.reproE, 0.0, 4.0) * 1000.0));
     diagAdd(dg, 12u, u32(overlap * 16.0));
+    diagAdd(dg, 25u, u32(deepOther * 16.0));
     // thermal performance, and how far it sits from its optimum (warmer or cooler, offset so it stays positive)
     diagAdd(dg, 22u, u32(th.perf * 1000.0));
     diagAdd(dg, 23u, u32(clamp(Tc - g.topt + 64.0, 0.0, 128.0) * 8.0));
@@ -3064,7 +3145,7 @@ ${cellWGSL(K, false)}
       if (won) {
         let fp = sortedFull[food];
         if (fp.kind >= FIRST_LIFE) {
-          atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
+          atomicAdd(&ledger[META_DEATH + 32u + 5u * ledgerGuild(g) + ledgerGuild(genomes[fp.kind])], 1u);
         }
         ck = fp.kind;
         var gain = 0.0;
@@ -3158,7 +3239,7 @@ ${cellWGSL(K, false)}
             gain = (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0), spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u); gut = min(gut + max(0.0, (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)} + max(fp.energy, 0.0)) - gain), ${f(K.dungE)});
           }
           if (fp.kind >= FIRST_LIFE) {
-            atomicAdd(&ledger[META_DEATH + 32u + 5u * dietGuild(g) + dietGuild(genomes[fp.kind])], 1u);
+            atomicAdd(&ledger[META_DEATH + 32u + 5u * ledgerGuild(g) + ledgerGuild(genomes[fp.kind])], 1u);
             info = (info & 0xffff003fu) | (fp.kind << 6u);
           }
           E += gain;
@@ -3192,13 +3273,13 @@ ${cellWGSL(K, false)}
     kind = HUSK; E = bodyCost; age = 0.0; vel *= 0.3;
     info = (info & 0xffff7fc0u) | 1u${litterOf('g')};
     atomicAdd(&ledger[5], 1u);
-    atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 1u], 1u);
+    atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(g) + 1u], 1u);
     splCause(p.kind, select(1u, 5u, stranded));
   } else if (age > g.lifespan) {
     kind = HUSK; E = bodyCost + ${f(K.huskFrac)} * E; age = 0.0; vel *= 0.3;
     info = (info & 0xffff7fc0u) | 2u${litterOf('g')};
     atomicAdd(&ledger[6], 1u);
-    atomicAdd(&ledger[META_DEATH + 4u * dietGuild(g) + 2u], 1u);
+    atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(g) + 2u], 1u);
     splCause(p.kind, 2u);
   } else if (th.x > 0.8 && rnd(&s) < ${f(K.scald)} * smoothstep(0.8, 1.4, th.x) * sim.dt) {
     // scalded: far above its optimum, a cell's proteins come apart

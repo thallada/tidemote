@@ -59,15 +59,20 @@ guarded by `sim.ticks > 1`, so 1/60 s steps are unchanged.
 - **Rates.** The meal cadence counts ticks (an opportunity every `eatEvery` ticks in each cell's phase).
   Abiogenesis scales with the step (engine) and silt charges with the exact chance of at least one event
   in the step.
-- **Motion** integrates in 1/60 s substeps under the forces gathered at the step's start (`cellWGSL`);
-  bonds pull toward where the partners will be, carried on their velocities.
+- **Motion** integrates in 1/60 s substeps under the forces gathered at the step's start (`cellWGSL`).
+  A still body's bonds (and a still tree's bend) are held too, their stiffness in the correction below; a
+  beating tree's bonds pull toward where the partners will be, carried on their velocities. A body's
+  tissue blends its cells' velocities as two bodies sharing momentum. See Bodies below.
 - **Stiffness correction.** Holding forces across the step makes a dense clump numerically unstable (see
   below), so the pair and stone forces carry an implicit correction. The cell and its neighborhood are
   taken as two bodies sharing momentum: the reaction to its forces is spread over Mn neighbors (the
   participation number of the stiffness weights), their center `(v + Mn vNear) / (1 + Mn)` keeps its
   velocity under drag, and only the relative velocity `v - vNear` meets the restoring stiffness
   `D (1 + 1/Mn)`, backward Euler in its end value. `D` comes from the gradient of the pair and stone
-  forces gathered in the scan (`jF`, `jS`, eigenvalues clamped to the restoring side).
+  forces gathered in the scan (`jF`, `jS`, eigenvalues clamped to the restoring side) and of a still
+  body's bonds (`jB`, `bondStiff`: 1 along a bond, 1 - r/l across it, and for a tree's bend `coarseBend`
+  growStiff over the arm's length more across it), the bond partners weighted in `vNear` by the bonds'
+  strength.
 - **Events walk the ticks** (`lifeMain`): energy and upkeep per tick; division at the tick the energy
   crosses the mark (one birth a step), into a grain that came within reach at any tick of the step (the
   closest approach of their paths); a meal at each of its opportunities while hungry then, from the four
@@ -150,7 +155,11 @@ Tested after heat (docs/thermal-energy-2026-10-07.md), on the pinned code, data 
   and `fork-hist.cjs` (energy distribution).
 - **K.diag** counts per guild (`DIAG_SLOTS`): once a second per cell crowding, silt, packing, kin, speed,
   light, hunger, food in reach, pair force, energy and core overlap; at hunters' kill opportunities the
-  kill funnel (prey in reach, tried, missed, lost, won); and contact density (animals within reach).
+  kill funnel (prey in reach, tried, missed, lost, won); contact density (animals within reach); torn
+  bonds and deep overlaps between species. lifeMain's speed sample is taken before contact and inflated at
+  coarse steps, so forks also record each cell's displacement over the first second. `K.diag` 2 counts the
+  per-guild ledgers by a producer's form; `tools/fastforward/forms.py` compares forms' growth, demography,
+  energy and the counts.
 - **Decomposition:** `eventTicks`-style batching (meals and division every Nth tick with 1/60 s motion)
   separated event timing from motion; worth rebuilding as a tunable if a question needs it again.
 - `sim.mjs --step N --profile` times each pass.
@@ -250,6 +259,71 @@ diversity is still 14-21% down, and 8 ticks would be only about 24% faster than 
 Cost (RTX 4070 Ti, a 4M world, one step): 9.5 ms at 1 tick, 12.2 at 4, 12.4 at 6, 13.4 at 8, so 6 ticks
 run the world 4.6x faster than 1/60 s steps and 8 ticks 5.7x.
 
+### Bodies (2026-10-31)
+
+At 6 ticks the mix of body types drifted over a long run, though diversity held: mats fell to less than
+half their share at 1/60 s, chains of 2-5 cells grew 4-5x, and producers turned to growing as trees (58% of
+producer cells against 17%). It predated the bond and tail work (348b060 did the same), and 2-3 ticks kept
+the mix. Ensemble outcomes are many steps away from a cause, and none of the contact fixes tried first
+moved them, so the step was measured where selection acts instead: matched forks with the per-guild
+ledgers counting producers by body form (`K.diag` 2) and K.diag's counts of torn bonds, compared by
+`tools/fastforward/forms.py` (counts of division and buds, since dropped, showed what follows). A 60 s fork from a 10-minute world shows the
+drift (8 worlds x 4 reps): at 6 ticks tree producers grew 21.6 %/min faster than at 1/60 s (+-5.6), with
+114% more births, and packed producers 9.5 %/min slower; it takes minutes, not ensembles of hours.
+
+What it found:
+
+- **Trees tore and regrew.** A tree's bonds broke 100-400 times as often at 6 ticks (none at 2, 18x at
+  4). A tree's cell has a free bud only when a daughter is missing, so a torn daughter frees it and the
+  tree buds again: births doubled. The cause is the bend: growStiff x bond x adhesion over the spacing,
+  ~30 rad/s, held explicitly over 6 ticks (past omega dt = 2 at about 4.3 ticks), flinging cells off. The
+  tears are stretches just past the break (1.17x), not jumps, no newborns among them.
+- **Bonds against stale partners.** Reckoned afresh each tick toward partners carried on their start
+  velocities, a stiff bond rings: in `tools/fastforward/chain.py` (a chain of cells under this scheme)
+  bond stiffness past ~120/s^2 grows each step at 6 ticks, and every explicit variant (recomputing the bend
+  each tick, mirroring the partner's reaction, implicit substeps) still blows up for a stiff bend; only the
+  stiffness correction's two-body backward Euler holds every mode (0.83 a 0.1 s step against 0.84 at 1/60 s).
+- **Tissue swung pairs past each other.** The tissue blend (12/s) toward the partners' velocities held
+  from the step's start leaves -0.5 of a pair's relative velocity after 6 ticks (1/60 s steps: 0.05).
+- **Anchored cells barely parted.** contactMain's hold sets one separating speed for the whole step, and
+  an anchored cell (holdfast 0.1: half its speed lost in ~0.02 s) loses it within two ticks: it undid 18%
+  of an overlap where 1/60 s steps undo 67%, so mats packed 12-25% tighter and were eaten 15-30% more.
+
+So on coarse steps a still body's bonds and a still tree's bend are held from the step's start and taken
+into the stiffness correction (their exact stiffness for bonds, `coarseBend` 0.5 across each arm for the
+bend: 1 overdamped bonds along the arm, 0 left trees +65% births), tissue blends as two bodies sharing
+momentum, and an anchored cell's hold asks the speed that moves it through its drag as far as 1/60 s steps
+would (a drifting cell's is left as it was: asked more, beating bodies part and swim 1.6x too fast).
+1/60 s steps are unchanged.
+
+Forks (60 s, 4-minute and 10-minute worlds, 6 ticks against 1/60 s): tree producers' births +4-19% (were
++95-220%), their growth within noise of 1/60 s, packed producers' overlap and packing within 1-3% (were
++15-47%), torn tree bonds 10-40x 1/60 s's (were 100-400x). Long runs, 30 min at 32k, share of the living
+at 20-30 min:
+
+| | mats | chains 2-5 | swimmers 2-5 | filaments | branched | tailed (worlds with) | producers as trees | eff. species |
+|---|---|---|---|---|---|---|---|---|
+| 1 tick (64, 9a2ff06) | 13.2% | 3.7% | 2.2% | 1.77% | 1.24% | 1.36% (75%) | 17% | 111 |
+| 6 ticks, before (64) | 5.8% | 17.0% | 4.8% | 0.67% | 0.51% | 0.83% (44%) | 58% | 106 |
+| 6 ticks (64) | 8.5% | 9.3% | 6.6% | 1.66% | 0.98% | 0.79% (59%) | 37% | 110 |
+
+(Means over 64 worlds have about +-2.4 points on mats and chains, +-11 on effective species: the
+diversity is 1/60 s's, the body mix half way back.) Swimming (swimlab, 12 genotypes) is as before: filaments 0.89 of their 1/60 s speed with 1.59x the bend,
+tailed mats 1.01 with 2x. A coarse step costs 2% more (1M world: 5.07 -> 5.18 ms, `lifeMainCoarse` 3.59 ->
+3.75). The gate (32 seeds, 1/60 s) passes with every metric the same (effective species 108 against 112,
+food webs 94% against 97%).
+
+What is left: beating bodies keep the old scheme (their bonds pulled each tick toward predicted partners;
+holding them too halved animal trees' excess in forks but sped tailed mats up 1.2x and left more small
+swimmers in long runs; holding their bend stops the wave), and small beating swimmers are 3x their 1/60 s
+share: the coarse beat's extra gain, fitted on 12-cell filaments (0.89 of their speed at 6 ticks, 5 cells
+0.93), drives a 3-cell body 1.9x as fast (a long wave's, 3-5x: at 1/60 s it hardly swims), and growing the
+gain in over the first generations slows every length to about half; and deep overlaps between
+species (closer than half their radii summed) grow with the step at any length (per cell: 0.003 at
+1/60 s, 0.014 at 2 ticks, 0.085 at 6), across every pair of guilds, not from cysts or newborns, and not
+from a hungry forager's appetite or core (off at coarse steps: 0.085 -> 0.042) - they did not shift the
+body mix at 2 ticks.
+
 ## What did not work
 
 - A force-gradient model (forces following the predicted displacement, explicit or implicit per cell),
@@ -263,6 +337,12 @@ run the world 4.6x faster than 1/60 s steps and 8 ticks 5.7x.
 - On the event side, none of these mattered beyond ~1%: judging hunger at the meal's tick, denying meals
   to cells already out of energy within the step, retrying a lost claim through all four targets, placing
   a child relative to its moving parent, one bite a step.
+- For the body mix (2026-10-31): contact's push softer or explicit (`pushTheta` 0, 0.1), speculative
+  contact, a stronger hold for every cell (x2, x4), the stiffness correction off or halved, the grain's
+  closest approach in reach (off: the same), coarse bites of a plant limited to its ticks (none were
+  over), the coarse aim at the mother's path, the contact push reckoned in lifeMain's scan and held in the
+  correction (mats packed 80-100% tighter), the correction's drag split along and across a branch (little),
+  a bend taken as the same stiffness every way (bonds stayed stretched and tore).
 - Raising the stiffness correction's damping for predators, or adding the anti-restoring (attraction)
   stiffness: hotter or over-damped. Halving the stiffness where the step resolves a clump looked ideal in
   the mode model but overheated the simulation.
