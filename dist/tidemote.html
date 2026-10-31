@@ -6898,48 +6898,46 @@ fn liveShare(i: PO) -> f32 {
 // which the trails smooth, not to copies of the cell).
 const TUBE_TAPS = 16u;
 const TUBE_MAX_BLUR = 2.5; // of its radius
-@vertex fn vsTube(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> PO {
+// A cell of the bore's or the studio's, alone: its size (px), as vsPoint sizes one close up
+fn soloPx(g: Genome, info: u32) -> f32 { return max(view.pointSize * g.size * (1.0 - 0.12 * f32(roleOf(info))), 0.9); }
+// and its look, its place and its bonds left to the caller (geom.x its size)
+fn soloCell(p: Particle, ii: u32) -> PO {
   var o: PO;
-  let p = parts[ii];
   let g = genomes[p.kind];
   let plan = choosePlan(g, roleOf(p.info));
-  let px = max(view.pointSize * g.size * (1.0 - 0.12 * f32(roleOf(p.info))), 0.9);
+  o.col = unpack4x8unorm(p.col).rgb * (0.35 + 0.65 * clamp(p.energy / max(g.reproE, 0.01), 0.0, 1.4)) * view.pointGain;
+  o.shape = plan | (p.kind << 8u);
+  o.index = ii;
+  let species = vec2f(renderHash(g.serial ^ g.sig[0].y), renderHash(g.serial ^ g.sig[1].x ^ 917u));
+  o.morph = species;
+  o.geom = vec4f(soloPx(g, p.info), bodyArea(plan, species), normalize(p.vel));
+  o.jelly = vec3f(1.0, 0.0, 0.0);
+  o.bondSeeds = vec2u(0u, 0x7fffu);
+  o.neck = vec4f(0.12, 0.12, 0.12, p.energy / max(g.reproE, 0.01));
+  return o;
+}
+@vertex fn vsTube(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> PO {
+  let p = parts[ii];
+  var o = soloCell(p, ii);
+  let px = o.geom.x;
   let blur = min(length(p.vel) * view.ppu / px, TUBE_MAX_BLUR);
   let extent = 1.35 + blur;
   let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
   o.pos = toClip(wrapd(p.pos - view.cam) * view.ppu + corner * px * extent);
   o.uv = corner * extent;
-  o.col = unpack4x8unorm(p.col).rgb * (0.35 + 0.65 * clamp(p.energy / max(g.reproE, 0.01), 0.0, 1.4)) * view.pointGain;
-  o.shape = plan | (p.kind << 8u);
-  o.index = ii;
-  let species = vec2f(renderHash(g.serial ^ g.sig[0].y), renderHash(g.serial ^ g.sig[1].x ^ 917u));
-  o.morph = species;
-  o.geom = vec4f(px, bodyArea(plan, species), normalize(p.vel));
-  o.jelly = vec3f(1.0, 0.0, 0.0);
-  o.bondSeeds = vec2u(0u, 0x7fffu);
-  o.neck = vec4f(0.12, 0.12, 0.12, p.energy / max(g.reproE, 0.01));
   o.jelly.z = blur;
   return o;
 }
-// A mini-card's portrait drawn alone (setStudio, the studio): the bore's buffers, laid out as the page placed a body
+// A mini-card's portrait drawn alone (setStudio, the studio): its own cells, laid out as the page placed a body
 // (still, its heading in vel), and drawn as vsPoint draws a body in the water, from the studio's own cells alone:
 // each fused to its bonded partners (up to three, their indices packed 10 bits each in id, 1023 none), pressed flat
 // against the cells it touches, and a tight species' cells filling out to their shared walls as tissue.
 @vertex fn vsStudio(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> PO {
-  var o: PO;
-  o.jelly = vec3f(1.0, 0.0, 0.0);
   let p = parts[ii];
   let g = genomes[p.kind];
-  let plan = choosePlan(g, roleOf(p.info));
-  let px = max(view.pointSize * g.size * (1.0 - 0.12 * f32(roleOf(p.info))), 0.9);
+  var o = soloCell(p, ii);
+  let px = o.geom.x;
   let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
-  o.col = unpack4x8unorm(p.col).rgb * (0.35 + 0.65 * clamp(p.energy / max(g.reproE, 0.01), 0.0, 1.4)) * view.pointGain;
-  o.shape = plan | (p.kind << 8u);
-  o.index = ii;
-  let species = vec2f(renderHash(g.serial ^ g.sig[0].y), renderHash(g.serial ^ g.sig[1].x ^ 917u));
-  o.morph = species;
-  o.geom = vec4f(px, bodyArea(plan, species), normalize(p.vel));
-  o.neck = vec4f(0.12, 0.12, 0.12, p.energy / max(g.reproE, 0.01));
   var plans = 0x7fffu;
   var seeds = vec3f(0.0);
   var used = 0u;
@@ -6948,7 +6946,7 @@ const TUBE_MAX_BLUR = 2.5; // of its radius
     if (index == 1023u || index == ii || index >= arrayLength(&parts)) { continue; }
     let q = parts[index];
     if (q.kind != p.kind) { continue; }
-    let ratio = max(view.pointSize * g.size * (1.0 - 0.12 * f32(roleOf(q.info))), 0.9) / px;
+    let ratio = soloPx(g, q.info) / px;
     let offset = (q.pos - p.pos) * view.ppu / px;
     let reach = 1.65 * (1.0 + ratio) + 0.12 * min(1.0, ratio);
     if (dot(offset, offset) > reach * reach) { continue; }
@@ -6965,7 +6963,7 @@ const TUBE_MAX_BLUR = 2.5; // of its radius
   for (var j = 0u; j < arrayLength(&parts) && n < 6u; j++) {
     let q = parts[j];
     if (j == ii || q.kind != p.kind) { continue; }
-    let ratio = max(view.pointSize * g.size * (1.0 - 0.12 * f32(roleOf(q.info))), 0.9) / px;
+    let ratio = soloPx(g, q.info) / px;
     let offset = (q.pos - p.pos) * view.ppu / px;
     let dist = length(offset);
     if (dist > 1.25 * (1.0 + ratio) || dist < 1e-3) { continue; }
@@ -7008,12 +7006,6 @@ const TUBE_MAX_BLUR = 2.5; // of its radius
     c /= f32(TUBE_TAPS);
   }
   return PointOut(c, c);
-}
-// A mini-card's portrait drawn alone (setStudio, vsStudio): in one target, sharp.
-@fragment fn fsTube(i: PO) -> @location(0) vec4f {
-  var j = i;
-  j.jelly.z = 0.0;
-  return pointColor(j);
 }
 fn pointColor(i: PO) -> vec4f {
   let far = spriteFalloff(i.uv, i.shape & 255u);
@@ -14605,7 +14597,6 @@ var Score = class {
 };
 
 // src/audio/handsound.js
-var midicps4 = (m) => 440 * Math.pow(2, (m - 69) / 12);
 var clamp3 = (x, a, b) => x < a ? a : x > b ? b : x;
 var AHEAD = 0.02;
 var DUCK = 0.8;
@@ -14892,7 +14883,7 @@ var d2m = (deg, root, scale) => {
   const n = scale.length, o = Math.floor(sd / n);
   return root + scale[(sd % n + n) % n] + 12 * o + acc;
 };
-var midicps5 = (m) => 440 * Math.pow(2, (m - 69) / 12);
+var midicps4 = (m) => 440 * Math.pow(2, (m - 69) / 12);
 var clamp4 = (x, a, b) => x < a ? a : x > b ? b : x;
 function noteParams(v, midi, dur, amp, o) {
   const { light, td, dim, wet, k, rr } = o, warm = o.warm || 0;
@@ -14901,7 +14892,7 @@ function noteParams(v, midi, dur, amp, o) {
   switch (v.mat) {
     case "cplx":
       p = {
-        freq: midicps5(midi),
+        freq: midicps4(midi),
         amp: amp * rr(0.7, 1),
         ratio: v.ratio,
         index: v.index * (0.5 + td),
@@ -14913,12 +14904,12 @@ function noteParams(v, midi, dur, amp, o) {
       };
       break;
     case "tine":
-      p = { freq: midicps5(midi), amp: amp * rr(0.7, 1), dec: (0.8 + v.dec) * ring, bright: v.bright * dim, rev: wet(0.28), dly: 0.14 };
+      p = { freq: midicps4(midi), amp: amp * rr(0.7, 1), dec: (0.8 + v.dec) * ring, bright: v.bright * dim, rev: wet(0.28), dly: 0.14 };
       break;
     // the swell's bloom is long, bright and folded: it sits lower and darker than the rest, or it drowns them out
     case "swell":
       p = {
-        freq: midicps5(midi),
+        freq: midicps4(midi),
         amp: amp * 0.7,
         ratio: v.ratio,
         index: v.index * 0.7,
@@ -14932,14 +14923,14 @@ function noteParams(v, midi, dur, amp, o) {
       };
       break;
     case "breath":
-      p = { freq: midicps5(midi), amp, atk: dur * 0.5, sus: dur * 0.4, rel: dur * 1.5, bright: v.bright * 0.6 * dim, glide: [0, 0.03, -0.03][Math.min(2, Math.floor(rr(0, 3)))], rev: wet(0.4), dly: 0.08 };
+      p = { freq: midicps4(midi), amp, atk: dur * 0.5, sus: dur * 0.4, rel: dur * 1.5, bright: v.bright * 0.6 * dim, glide: [0, 0.03, -0.03][Math.min(2, Math.floor(rr(0, 3)))], rev: wet(0.4), dly: 0.08 };
       break;
     case "glass":
-      p = { freq: midicps5(midi), amp, atk: dur * 0.4, sus: dur * 0.6, rel: dur * 1.6 * ring, bright: Math.min(1.2, v.bright * (0.5 + light)) * dim, rev: wet(0.5), dly: 0.04 };
+      p = { freq: midicps4(midi), amp, atk: dur * 0.4, sus: dur * 0.6, rel: dur * 1.6 * ring, bright: Math.min(1.2, v.bright * (0.5 + light)) * dim, rev: wet(0.5), dly: 0.04 };
       break;
     case "pluck":
       p = {
-        freq: midicps5(midi),
+        freq: midicps4(midi),
         amp: amp * rr(0.75, 1),
         dec: (0.35 + 0.8 * v.dec) * (dur > 0.5 ? 1.4 : 1),
         bright: v.bright * dim,
@@ -14949,10 +14940,10 @@ function noteParams(v, midi, dur, amp, o) {
       };
       break;
     case "bite":
-      p = { freq: midicps5(midi), amp: amp * rr(0.7, 1), dec: 0.25 + 0.25 * v.dec, bright: v.bright * dim, rev: wet(0.12) };
+      p = { freq: midicps4(midi), amp: amp * rr(0.7, 1), dec: 0.25 + 0.25 * v.dec, bright: v.bright * dim, rev: wet(0.12) };
       break;
     case "wood":
-      p = { freq: midicps5(midi), amp: amp * rr(0.7, 1), dec: 0.35 + 0.3 * v.dec, bright: v.bright * dim, rev: wet(0.18) };
+      p = { freq: midicps4(midi), amp: amp * rr(0.7, 1), dec: 0.35 + 0.3 * v.dec, bright: v.bright * dim, rev: wet(0.18) };
       break;
     default:
       p = null;
@@ -18737,7 +18728,6 @@ var Score = class {
 };
 
 // src/audio/handsound.js
-var midicps4 = (m) => 440 * Math.pow(2, (m - 69) / 12);
 var clamp3 = (x, a, b) => x < a ? a : x > b ? b : x;
 var AHEAD = 0.02;
 var DUCK = 0.8;
@@ -19024,7 +19014,7 @@ var d2m = (deg, root, scale) => {
   const n = scale.length, o = Math.floor(sd / n);
   return root + scale[(sd % n + n) % n] + 12 * o + acc;
 };
-var midicps5 = (m) => 440 * Math.pow(2, (m - 69) / 12);
+var midicps4 = (m) => 440 * Math.pow(2, (m - 69) / 12);
 var clamp4 = (x, a, b) => x < a ? a : x > b ? b : x;
 function noteParams(v, midi, dur, amp, o) {
   const { light, td, dim, wet, k, rr } = o, warm = o.warm || 0;
@@ -19033,7 +19023,7 @@ function noteParams(v, midi, dur, amp, o) {
   switch (v.mat) {
     case "cplx":
       p = {
-        freq: midicps5(midi),
+        freq: midicps4(midi),
         amp: amp * rr(0.7, 1),
         ratio: v.ratio,
         index: v.index * (0.5 + td),
@@ -19045,12 +19035,12 @@ function noteParams(v, midi, dur, amp, o) {
       };
       break;
     case "tine":
-      p = { freq: midicps5(midi), amp: amp * rr(0.7, 1), dec: (0.8 + v.dec) * ring, bright: v.bright * dim, rev: wet(0.28), dly: 0.14 };
+      p = { freq: midicps4(midi), amp: amp * rr(0.7, 1), dec: (0.8 + v.dec) * ring, bright: v.bright * dim, rev: wet(0.28), dly: 0.14 };
       break;
     // the swell's bloom is long, bright and folded: it sits lower and darker than the rest, or it drowns them out
     case "swell":
       p = {
-        freq: midicps5(midi),
+        freq: midicps4(midi),
         amp: amp * 0.7,
         ratio: v.ratio,
         index: v.index * 0.7,
@@ -19064,14 +19054,14 @@ function noteParams(v, midi, dur, amp, o) {
       };
       break;
     case "breath":
-      p = { freq: midicps5(midi), amp, atk: dur * 0.5, sus: dur * 0.4, rel: dur * 1.5, bright: v.bright * 0.6 * dim, glide: [0, 0.03, -0.03][Math.min(2, Math.floor(rr(0, 3)))], rev: wet(0.4), dly: 0.08 };
+      p = { freq: midicps4(midi), amp, atk: dur * 0.5, sus: dur * 0.4, rel: dur * 1.5, bright: v.bright * 0.6 * dim, glide: [0, 0.03, -0.03][Math.min(2, Math.floor(rr(0, 3)))], rev: wet(0.4), dly: 0.08 };
       break;
     case "glass":
-      p = { freq: midicps5(midi), amp, atk: dur * 0.4, sus: dur * 0.6, rel: dur * 1.6 * ring, bright: Math.min(1.2, v.bright * (0.5 + light)) * dim, rev: wet(0.5), dly: 0.04 };
+      p = { freq: midicps4(midi), amp, atk: dur * 0.4, sus: dur * 0.6, rel: dur * 1.6 * ring, bright: Math.min(1.2, v.bright * (0.5 + light)) * dim, rev: wet(0.5), dly: 0.04 };
       break;
     case "pluck":
       p = {
-        freq: midicps5(midi),
+        freq: midicps4(midi),
         amp: amp * rr(0.75, 1),
         dec: (0.35 + 0.8 * v.dec) * (dur > 0.5 ? 1.4 : 1),
         bright: v.bright * dim,
@@ -19081,10 +19071,10 @@ function noteParams(v, midi, dur, amp, o) {
       };
       break;
     case "bite":
-      p = { freq: midicps5(midi), amp: amp * rr(0.7, 1), dec: 0.25 + 0.25 * v.dec, bright: v.bright * dim, rev: wet(0.12) };
+      p = { freq: midicps4(midi), amp: amp * rr(0.7, 1), dec: 0.25 + 0.25 * v.dec, bright: v.bright * dim, rev: wet(0.12) };
       break;
     case "wood":
-      p = { freq: midicps5(midi), amp: amp * rr(0.7, 1), dec: 0.35 + 0.3 * v.dec, bright: v.bright * dim, rev: wet(0.18) };
+      p = { freq: midicps4(midi), amp: amp * rr(0.7, 1), dec: 0.35 + 0.3 * v.dec, bright: v.bright * dim, rev: wet(0.18) };
       break;
     default:
       p = null;
@@ -20088,7 +20078,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         fragment: { module: this.drawModule, entryPoint: "fsStone", targets: [{ format: HDR }, { format: HDR }] }
       });
       this.pBridge = rp(this.drawModule, "vsBridge", "fsBridge", "triangle-strip", additive);
-      this.pStudio = rp(this.drawModule, "vsStudio", "fsTube", "triangle-strip", additive);
+      this.pStudio = rp(this.drawModule, "vsStudio", "fsPoint", "triangle-strip", additive);
       this.pDown = rp(this.postModule, "vsFull", "fsDown", "triangle-list", void 0);
       this.pUp = rp(this.postModule, "vsFull", "fsUp", "triangle-list", additive);
       this.pMurk = rp(this.postModule, "vsFull", "fsMurk", "triangle-list", void 0);
@@ -21279,12 +21269,16 @@ ${e.message}` : String(e?.message || e));
       if (this.tubeN) d.queue.writeBuffer(this.b.tubeParts, 0, parts, 0, this.tubeN * P_BYTES);
       if (!genomes) return;
       d.queue.writeBuffer(this.b.tubeGenomes, FIRST_LIFE * G_BYTES, genomes);
-      const enc = d.createCommandEncoder(), pass = enc.beginComputePass();
+      this._organsOf(this.tubeOrgansBG, TUBE_K);
+    }
+    // the organ directions of k genomes written from FIRST_LIFE (the bore's, the studio's own)
+    _organsOf(bg, k) {
+      const enc = this.device.createCommandEncoder(), pass = enc.beginComputePass();
       pass.setPipeline(this.cpOrgans);
-      pass.setBindGroup(0, this.tubeOrgansBG);
-      pass.dispatchWorkgroups(Math.ceil((FIRST_LIFE + TUBE_K) * ORGANS / 64));
+      pass.setBindGroup(0, bg);
+      pass.dispatchWorkgroups(Math.ceil((FIRST_LIFE + k) * ORGANS / 64));
       pass.end();
-      d.queue.submit([enc.finish()]);
+      this.device.queue.submit([enc.finish()]);
     }
     /**
      * A mini-card's portrait drawn alone, in place of the world, in the close-up (specimen.studio, docs/hand.md): n
@@ -21298,12 +21292,7 @@ ${e.message}` : String(e?.message || e));
       all.set(parts.subarray(0, this.studioN * P_BYTES / 4));
       d.queue.writeBuffer(this.b.studioParts, 0, all);
       d.queue.writeBuffer(this.b.studioGenomes, FIRST_LIFE * G_BYTES, genome);
-      const enc = d.createCommandEncoder(), pass = enc.beginComputePass();
-      pass.setPipeline(this.cpOrgans);
-      pass.setBindGroup(0, this.studioOrgansBG);
-      pass.dispatchWorkgroups(Math.ceil((FIRST_LIFE + 1) * ORGANS / 64));
-      pass.end();
-      d.queue.submit([enc.finish()]);
+      this._organsOf(this.studioOrgansBG, 1);
     }
     /** The cells the pipette draws toward its tip (their IDs, the first PIPE_MAX), its tip and pull in hand.suck. */
     setDrawn(ids) {
@@ -24830,10 +24819,10 @@ ${e.message}` : String(e?.message || e));
     const s = q.trim().toLowerCase();
     return cards.filter((c) => (!s || `${c.name} ${c.home}`.toLowerCase().includes(s)) && (from === "any" || (from === "this" ? c.world === world : c.world !== world)) && test(c)).sort((a, b) => b.savedAt - a.savedAt);
   }
-  function createCabinetStore(name = "tidemote-cabinet") {
+  function createCabinetStore() {
     let db = null;
     const open = () => db ??= new Promise((res, rej) => {
-      const r = indexedDB.open(name, 1);
+      const r = indexedDB.open("tidemote-cabinet", 1);
       r.onupgradeneeded = () => r.result.createObjectStore("cards", { keyPath: "id" });
       r.onsuccess = () => res(r.result);
       r.onerror = () => {
@@ -24941,17 +24930,15 @@ ${e.message}` : String(e?.message || e));
   var sigils = /* @__PURE__ */ new Map();
   function sigilOf(g, gid, size) {
     const k = `${size}|${gid}`;
-    let s = gid && sigils.get(k);
+    let s = sigils.get(k);
     if (!s) {
       s = sigilSVG(voiceOf(g), g, { size });
-      if (gid) {
-        sigils.set(k, s);
-        if (sigils.size > 256) sigils.delete(sigils.keys().next().value);
-      }
+      sigils.set(k, s);
+      if (sigils.size > 256) sigils.delete(sigils.keys().next().value);
     }
     return s;
   }
-  function miniCard(g, K, { gid = "", key, name, home = "", n = 0, bodies = 0, tip = false, kept = false, flat = false, status = null, thumb = "" }) {
+  function miniCard(g, K, { gid, key, name, home = "", n = 0, bodies = 0, tip = false, kept = false, flat = false, status = null, thumb = "" }) {
     const f2 = facets2(g, K), url = thumb && thumbs.get(thumb);
     const sp = name.indexOf(" "), genus = sp > 0 ? name.slice(0, sp) : name, rest = sp > 0 ? name.slice(sp + 1) : "";
     const mix4 = dietMix(g).filter(([, v]) => v >= 0.02).map(([d, v]) => `<i style="flex:${v.toFixed(3)};background:${DIET_COL[d]}"></i>`).join("");
@@ -24963,7 +24950,7 @@ ${e.message}` : String(e?.message || e));
     const open = `<button type="button" class="minicard${flat ? " flat" : ""}${tip ? " at-tip" : ""}" data-key="${esc(key)}"${thumb ? ` data-thumb="${esc(thumb)}"` : ""} aria-label="${esc(label3)}">`;
     if (flat) return `${open}${ph}${nm}<span class="mc-end">${tip ? '<span class="mc-tip">Tip</span>' : ""}${count}${keptMark}</span></button>`;
     const kind = `<span class="mc-kind" aria-hidden="true"><svg style="color:${DIET_COL[f2.diet]}"><use href="#i-d-${f2.diet}"/></svg><svg><use href="#i-m-${f2.mobility}"/></svg></span>`;
-    const sub = status ? `<span class="mc-sub mc-st${status[0] === "from" ? " from" : status[0] === "gone" ? " gone" : ""}">${statusText(status)}</span>` : home ? `<span class="mc-sub from">↗ from ${esc(home)}</span>` : `<span class="mc-sub"><span style="color:${DIET_COL[f2.diet]}">${f2.diet}</span> · ${f2.mobility}</span>`;
+    const sub = status ? `<span class="mc-sub mc-st${status[0] === "live" ? "" : ` ${status[0]}`}">${statusText(status)}</span>` : home ? `<span class="mc-sub from">↗ from ${esc(home)}</span>` : `<span class="mc-sub"><span style="color:${DIET_COL[f2.diet]}">${f2.diet}</span> · ${f2.mobility}</span>`;
     return `${open}${ph}${tip ? '<span class="mc-tip">Tip</span>' : ""}${count}${keptMark}${kind}${nm}${sub}</button>`;
   }
   var HOLD2 = 350;
@@ -26767,7 +26754,7 @@ ${e.message}` : String(e?.message || e));
           const hl = sp && api.focusKey() === `sp:${sp.serial}`;
           const ride = api.riding();
           const cardB = sp ? cardBtn(sp.serial) : "";
-          setActs(`c${api.follow()}${hl}${!!sp}${ride}${cardB.length}`, `<button type="button" class="btn" data-act="follow" aria-pressed="${api.follow()}" data-hint="Keep it in view · C">Follow</button><button type="button" class="btn ride" data-act="ride" aria-pressed="${ride}" data-hint="${ride ? "Get off · Enter" : "Ride it: steer with a held click, a finger or the arrows · Enter"}">Ride</button>${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}" data-hint="Highlight its species">Highlight</button>` : ""}${cardB}`);
+          setActs(`c${api.follow()}${hl}${!!sp}${ride}${cardB.length}`, `<button type="button" class="btn" data-act="follow" aria-pressed="${api.follow()}" data-hint="Keep it in view · C">Follow</button><button type="button" class="btn" data-act="ride" aria-pressed="${ride}" data-hint="${ride ? "Get off · Enter" : "Ride it: steer with a held click, a finger or the arrows · Enter"}">Ride</button>${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}" data-hint="Highlight its species">Highlight</button>` : ""}${cardB}`);
           if (g) {
             const dv = divEnergy(g, K);
             v += vital("Energy", p.energy / dv, "sun", `${p.energy.toFixed(2)} / ${dv.toFixed(2)}`, "energy");
@@ -27135,12 +27122,12 @@ ${e.message}` : String(e?.message || e));
     }
     return { index, X, Y, edges };
   }
-  function component(edges, seen, start2) {
+  function component(edges, seen, start2, max = Infinity) {
     const body = [start2];
     seen[start2] = 1;
-    for (let head = 0; head < body.length; head++) {
+    for (let head = 0; head < body.length && body.length < max; head++) {
       for (const j of edges[body[head]]) {
-        if (seen[j]) continue;
+        if (seen[j] || body.length >= max) continue;
         seen[j] = 1;
         body.push(j);
       }
@@ -27233,17 +27220,7 @@ ${e.message}` : String(e?.message || e));
     }
     return best && { body: best, edges };
   }
-  function bodyPatch(edges, start2, max) {
-    const seen = /* @__PURE__ */ new Set([start2]), out = [start2];
-    for (let head = 0; head < out.length && out.length < max; head++) {
-      for (const j of edges[out[head]]) {
-        if (seen.has(j) || out.length >= max) continue;
-        seen.add(j);
-        out.push(j);
-      }
-    }
-    return out;
-  }
+  var bodyPatch = (edges, start2, max) => component(edges, new Uint8Array(edges.length), start2, max);
 
   // src/loader.js
   var C = {
@@ -30063,17 +30040,19 @@ ${e.message}` : String(e?.message || e));
       if (sp) paint(data(sp));
     }
     const artOf = async (sp) => ({ sigil: await sigilArt(sp.genome), portrait: portraits.get(sp.serial) || null });
+    async function portraitOf(serial) {
+      const p = await api.portrait(serial).catch(() => null);
+      if (p) {
+        portraits.set(serial, p);
+        if (portraits.size > 48) portraits.delete(portraits.keys().next().value);
+      }
+      return p;
+    }
     async function render(serial) {
       const sp = reg().get(serial);
       if (!sp) return null;
       const a = await artOf(sp);
-      if (sp.alive && !a.portrait) {
-        const p = await api.portrait(serial).catch(() => null);
-        if (p) {
-          portraits.set(serial, p);
-          a.portrait = p;
-        }
-      }
+      if (sp.alive && !a.portrait) a.portrait = await portraitOf(serial);
       return cardCanvas(data(sp), a);
     }
     async function open(serial) {
@@ -30096,11 +30075,9 @@ ${e.message}` : String(e?.message || e));
       note.textContent = sp.alive ? "Taking its portrait…" : art.portrait ? "" : "Extinct, and never portrayed: its sigil stands in.";
       root.focus({ preventScroll: true });
       if (sp.alive) {
-        const p = await api.portrait(serial).catch(() => null);
+        const p = await portraitOf(serial);
         if (cur !== serial) return;
         if (p) {
-          portraits.set(serial, p);
-          if (portraits.size > 48) portraits.delete(portraits.keys().next().value);
           art.portrait = p;
           redraw();
         }
@@ -30753,6 +30730,7 @@ ${e.message}` : String(e?.message || e));
       slider.disabled = t2.id === "needle" || t2.id === "none";
       $("bench-i").setAttribute("href", t2.id !== "none" ? `#i-t-${t2.id}` : "#i-bench");
       $("bench-l").textContent = t2.id !== "none" ? t2.name : "Bench";
+      btn.setAttribute("aria-label", t2.id !== "none" ? `Bench · ${t2.name} in hand` : "Bench");
       btn.classList.toggle("in-hand", up);
       held.hidden = !(up && drawer.hidden && innerWidth <= 980);
       $("held-k").textContent = keyOf(t2.id);
@@ -30771,7 +30749,7 @@ ${e.message}` : String(e?.message || e));
       held.classList.toggle("pip", inHand);
       const tool = dock.querySelector('[data-tool="pipette"]');
       tool.dataset.count = v.count ? v.count > 999 ? `${Math.floor(v.count / 1e3)}k` : v.count : "";
-      $("pip-n").textContent = v.count ? `${v.count.toLocaleString("en-US")} / ${v.limit.toLocaleString("en-US")}${v.count >= v.limit ? " · full" : ""}` : "empty";
+      $("pip-n").textContent = v.count ? `${fmt(v.count)} / ${fmt(v.limit)}${v.count >= v.limit ? " · full" : ""}` : "empty";
       if (drags.some((d) => d.dragging())) return;
       if (key === pipKey) {
         for (const row of [strip, hstrip]) [...row.querySelectorAll(".minicard .mc-n b")].forEach((b, i) => {
@@ -30939,13 +30917,12 @@ ${e.message}` : String(e?.message || e));
     const same = (a, b) => a.card && b.card === a.card || !a.stranger && !b.stranger && a.serial === b.serial;
     let seq = state.species.reduce((m, sp) => Math.max(m, sp.id || 0), 0);
     for (const sp of state.species) sp.id ??= ++seq;
-    const atTip = (x) => {
-      const t2 = pp.tip;
-      if (t2 && same(t2, x)) return t2;
+    const fresh = (x) => {
       const sp = { ...x, id: ++seq, orgs: [], made: 0 };
       state.species.unshift(sp);
       return sp;
     };
+    const atTip = (x) => pp.tip && same(pp.tip, x) ? pp.tip : fresh(x);
     const merge = (a, b) => {
       a.orgs.unshift(...b.orgs);
       a.made = (a.made || 0) + (b.made || 0);
@@ -30985,8 +30962,7 @@ ${e.message}` : String(e?.message || e));
        */
       load(species, n, alone = false) {
         if (!pp.fits(n)) return null;
-        const sp = alone ? { ...species, id: ++seq, orgs: [], made: 0 } : atTip(species);
-        if (alone) state.species.unshift(sp);
+        const sp = alone ? fresh(species) : atTip(species);
         sp.made += n;
         return sp;
       },
@@ -31244,9 +31220,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "971f8112a3cd6a98") return;
+      if (localStorage.getItem(key) === "94b32d4ab2e0a7ff") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "971f8112a3cd6a98");
+      if (res) localStorage.setItem(key, "94b32d4ab2e0a7ff");
     } catch {
     }
   }
@@ -31708,6 +31684,8 @@ ${e.message}` : String(e?.message || e));
       hand.reset(life.hand);
       pipette = createPipette(life.pipette);
       dropThumb("s", true);
+      thumbQ.clear();
+      drawnNames.clear();
       eng.setDrawn([]);
       Object.assign(pull, { on: false, until: 0, got: [] });
       pull.drawn.clear();
@@ -31884,7 +31862,6 @@ ${e.message}` : String(e?.message || e));
         Object.assign(life, page.life, { lastCensus: null });
         hand.reset(life.hand);
         pipette = createPipette(life.pipette);
-        dropThumb("s", true);
         handSeen = life.hand.length;
         Object.assign(climate, page.climate);
         chron.load(page.chron);
@@ -32223,6 +32200,7 @@ ${e.message}` : String(e?.message || e));
     });
     const heard = { pan: 0, tip: null, dipped: false, rung: 0, sent: "", water: null, temps: null, tAt: 0, tRead: 0, freezing: 0, ice: 0 };
     const hear = (ev, m = {}) => sound.hand({ ev, pan: heard.pan, ...m });
+    const panAt = (sx) => clamp6(sx / innerWidth * 2 - 1, -1, 1) * 0.6;
     function pickedSlot() {
       if (sel && !sel.film && sel.particle && sel.particle.kind >= FIRST_LIFE && !sel.lost) return sel.particle.kind;
       const sp = spView != null && life.reg.get(spView);
@@ -33012,22 +32990,12 @@ ${e.message}` : String(e?.message || e));
         portraitHold = false;
         return null;
       }
-      const [W, H2] = eng.grid, { best, res } = m;
-      let cx = best.x, cy = best.y;
-      if (m.body && m.body.length > 1) {
-        let sx = 0, sy = 0;
-        for (const k of m.body) {
-          sx += wrapD2(res.raw.f32[k * PICK_WORDS] - best.x, W);
-          sy += wrapD2(res.raw.f32[k * PICK_WORDS + 1] - best.y, H2);
-        }
-        cx += sx / m.body.length;
-        cy += sy / m.body.length;
-      }
+      const { best, cx, cy } = m;
       const span2 = clamp6(m.span * 2.6 + 0.6, 1.6, 9);
       if (portraitJob) portraitJob.resolve(null);
       const subject = clamp6(((m.body ? m.span : 0) + 0.12 * sp.genome.size + 0.08) / (span2 / 2), 0.08, 0.95);
       return new Promise((resolve) => {
-        portraitJob = { slot: sp.slot, cx, cy, vx: m.body ? 0 : best.vx, vy: m.body ? 0 : best.vy, t: res.simTime, size: PORTRAIT, ppu: PORTRAIT / span2, subject, resolve, at: performance.now() };
+        portraitJob = { slot: sp.slot, cx, cy, vx: m.body ? 0 : best.vx, vy: m.body ? 0 : best.vy, t: m.simTime, size: PORTRAIT, ppu: PORTRAIT / span2, subject, resolve, at: performance.now() };
       });
     }
     function takeStudio(words, cells) {
@@ -33136,13 +33104,13 @@ ${e.message}` : String(e?.message || e));
       const sp = life.reg.get(serial), slot = sp?.alive ? sp.slot : -1;
       const words = slot >= FIRST_LIFE && life.lastCensus && genomeSerial(life.lastCensus.genomeU32, slot) === serial ? wordsOf(slot) : genomeWords(sp.genome);
       const home = sp.home || climate.name, touched = hand.touched || !!sp.carried;
-      return { words, home, touched, link: cardLink(encodeCard({ words, name: sp.name, home, touched })) };
+      const bytes = encodeCard({ words, name: sp.name, home, touched });
+      return { words, home, touched, bytes, link: cardLink(bytes) };
     }
     async function cardPng(cv, serial) {
       const blob = await new Promise((res) => cv.toBlob(res, "image/png"));
       if (!blob) return null;
-      const c = carry(serial), png = new Uint8Array(await blob.arrayBuffer());
-      return new Blob([cardIntoPng(png, encodeCard({ ...c, name: life.reg.get(serial).name }))], { type: "image/png" });
+      return new Blob([cardIntoPng(new Uint8Array(await blob.arrayBuffer()), carry(serial).bytes)], { type: "image/png" });
     }
     async function keepCard(card, quiet = false) {
       await cabinet.store.put(card);
@@ -33204,7 +33172,6 @@ ${e.message}` : String(e?.message || e));
       return sp.stranger ? c ? studioThumb(`g${c.id}`, c.words) : "" : studioThumb(`s${sp.serial}`, sp.words, sp.serial);
     }
     const thumbQ = /* @__PURE__ */ new Map();
-    const thumbCells = /* @__PURE__ */ new Map();
     let thumbBusy = false;
     function studioThumb(key, words, serial = null) {
       if (!hasThumb(key) && !thumbQ.has(key)) {
@@ -33213,55 +33180,21 @@ ${e.message}` : String(e?.message || e));
       }
       return key;
     }
-    function regrowThumb(serial, words) {
-      const key = `s${serial}`, n = heldCells(words, serial).length;
-      if (hasThumb(key) && n > (thumbCells.get(key) || 0) && !thumbQ.has(key)) {
-        thumbQ.set(key, { words, serial, tries: 0, again: true });
-        setTimeout(pumpThumbs, 0);
-      }
-    }
     async function worldCells(serial) {
       const sp = life.reg.get(serial), c = life.lastCensus;
-      if (!sp?.alive || eng.pickReq || !c || genomeSerial(c.genomeU32, sp.slot) !== serial) return null;
-      const [W, H2] = eng.grid;
-      const res = await eng.requestPick([W / 2, H2 / 2], Math.hypot(W, H2), NONE4, { kind: sp.slot, maxOut: Math.min(4096, sp.pop * 1.25 + 256), raw: true });
-      if (!res || !res.raw.count) return null;
-      const { u32, f32, count: n } = res.raw, x = (k) => f32[k * PICK_WORDS], y = (k) => f32[k * PICK_WORDS + 1];
-      const lb = largestBody(u32, f32, n);
-      let set, near;
-      if (lb && lb.body.length > 1) {
-        const b = lb.body, o2 = b[0];
-        let mx = 0, my = 0;
-        for (const k of b) {
-          mx += wrapD2(x(k) - x(o2), W);
-          my += wrapD2(y(k) - y(o2), H2);
-        }
-        mx /= b.length;
-        my /= b.length;
-        const mid = b.reduce((m, k) => Math.hypot(wrapD2(x(k) - x(o2), W) - mx, wrapD2(y(k) - y(o2), H2) - my) < Math.hypot(wrapD2(x(m) - x(o2), W) - mx, wrapD2(y(m) - y(o2), H2) - my) ? k : m, o2);
-        set = bodyPatch(lb.edges, mid, STUDIO_N);
-        near = lb.edges;
-      } else {
-        const step = Math.max(1, Math.floor(n / 200)), d = (i, j) => Math.hypot(wrapD2(x(j) - x(i), W), wrapD2(y(j) - y(i), H2));
-        let best = 0, bestN = -1;
-        for (let i = 0; i < n; i += step) {
-          let m = 0;
-          for (let j = 0; j < n; j += step) if (d(i, j) < 2) m++;
-          if (m > bestN) {
-            bestN = m;
-            best = i;
-          }
-        }
-        set = Array.from({ length: n }, (_, j) => j).filter((j) => d(best, j) < 0.8).sort((a, b) => d(best, a) - d(best, b)).slice(0, 5);
-      }
-      const local = new Map(set.map((k, i) => [k, i])), o = set[0];
+      if (!sp?.alive || !c || genomeSerial(c.genomeU32, sp.slot) !== serial) return null;
+      const m = await bestMember(sp, Math.min(4096, sp.pop * 1.25 + 256));
+      if (!m) return null;
+      const { u32, f32, mid, dist } = m, [W, H2] = eng.grid;
+      const set = m.body ? bodyPatch(m.edges, mid, STUDIO_N) : Array.from({ length: m.n }, (_, j) => j).filter((j) => dist(mid, j) < 0.8).sort((a, b) => dist(mid, a) - dist(mid, b)).slice(0, 5);
+      const local = new Map(set.map((k, i) => [k, i])), at = (k, w, D) => wrapD2(f32[k * PICK_WORDS + w] - f32[mid * PICK_WORDS + w], D);
       return set.map((k) => ({
         e: f32[k * PICK_WORDS + 5],
         a: f32[k * PICK_WORDS + 6],
         col: u32[k * PICK_WORDS + 8],
         info: u32[k * PICK_WORDS + 9],
-        partners: near ? near[k].filter((j) => local.has(j)).map((j) => local.get(j)) : [],
-        at: [wrapD2(x(k) - x(o), W), wrapD2(y(k) - y(o), H2)]
+        partners: m.body ? m.edges[k].filter((j) => local.has(j)).map((j) => local.get(j)) : [],
+        at: [at(k, 0, W), at(k, 1, H2)]
       }));
     }
     function heldCells(words, serial) {
@@ -33276,11 +33209,11 @@ ${e.message}` : String(e?.message || e));
         return big.cells.slice(0, n).map((c) => cell(c, n));
       }
       if (orgs.length) return orgs.slice(0, 5).map((o) => cell(o.cells[0], 0));
-      const g = genomeOfWords(words);
-      return Array.from({ length: 5 }, () => ({ e: 0.5 * (g.reproE || 1), a: 0, col: g.col, info: 0, partners: [] }));
+      const [e, col, info] = newborn({ words });
+      return Array.from({ length: 5 }, () => ({ e, a: 0, col, info, partners: [] }));
     }
     function thumbSeen(cv) {
-      const S = cv.width, w = Math.round(S * 0.6), h = Math.round(S * 0.38);
+      const S = cv.width, w = Math.round(S * SHOWN[0]), h = Math.round(S * SHOWN[1]);
       const px = cv.getContext("2d", { willReadFrequently: true }).getImageData(S - w >> 1, S - h >> 1, w, h).data;
       let lit = 0;
       for (let i = 0; i < px.length; i += 4) if (Math.max(px[i], px[i + 1], px[i + 2]) > 80) lit++;
@@ -33288,24 +33221,20 @@ ${e.message}` : String(e?.message || e));
     }
     async function pumpThumbs() {
       if (thumbBusy || !thumbQ.size) return;
-      if (portraitJob || portraitHold || state.phase !== "running") {
+      if (portraitJob || portraitHold || eng.pickReq || state.phase !== "running") {
         setTimeout(pumpThumbs, 300);
         return;
       }
       const [key, w] = thumbQ.entries().next().value;
       thumbQ.delete(key);
-      if (!hasThumb(key) || w.again) {
+      if (!hasThumb(key)) {
         thumbBusy = true;
-        const seen = w.serial != null && !w.again ? await worldCells(w.serial).catch(() => null) : null;
-        const cells = seen || heldCells(w.words, w.serial);
-        const cv = portraitJob ? null : await takeStudio(w.words, cells).catch(() => null);
+        const seen = w.serial != null ? await worldCells(w.serial).catch(() => null) : null;
+        const cv = portraitJob ? null : await takeStudio(w.words, seen || heldCells(w.words, w.serial)).catch(() => null);
         const bytes = cv && await thumbBytes(cv, void 0, false).catch(() => null);
         thumbBusy = false;
-        if (bytes?.length) {
-          setThumb(key, bytes);
-          thumbCells.set(key, seen ? Infinity : cells.length);
-          if (thumbCells.size > 512) thumbCells.delete(thumbCells.keys().next().value);
-        } else if (++w.tries < 3) thumbQ.set(key, w);
+        if (bytes?.length) setThumb(key, bytes);
+        else if (++w.tries < 3) thumbQ.set(key, w);
       }
       setTimeout(pumpThumbs, 30);
     }
@@ -33466,6 +33395,10 @@ ${e.message}` : String(e?.message || e));
         });
       }
     });
+    function openCard(c) {
+      if (c.world === worldId() && life.reg.has(c.serial)) cards.open(c.serial);
+      else cards.openSaved({ ...c, genome: genomeOfWords(c.words) });
+    }
     async function removeCard(card) {
       await cabinet.store.remove(card.id);
       cabinet.cards = cabinet.cards.filter((c) => c.id !== card.id);
@@ -33510,44 +33443,41 @@ ${e.message}` : String(e?.message || e));
       if (sp.alive) focusSpecies(sp);
       renderSpecimen(true);
     }
-    async function bestMember(sp) {
+    async function bestMember(sp, maxOut = sp.pop * 1.25 + 2048) {
       const [W, H2] = eng.grid;
-      const res = await eng.requestPick([W / 2, H2 / 2], Math.hypot(W, H2), NONE4, { kind: sp.slot, maxOut: sp.pop * 1.25 + 2048, raw: true });
+      const res = await eng.requestPick([W / 2, H2 / 2], Math.hypot(W, H2), NONE4, { kind: sp.slot, maxOut, raw: true });
       if (!res || !res.raw.count) return null;
-      const { u32, f32, count: n } = res.raw;
-      let bestI = 0, body = null;
-      if ((sp.genome.adhesion || 0) > K.adhMin) {
-        const claimed = new Uint8Array(n);
-        let bestN = 0;
-        const t0 = performance.now();
-        for (let tries = 0; tries < 60 && performance.now() - t0 < 60; tries++) {
-          const i = Math.floor(Math.random() * n);
-          if (claimed[i]) continue;
-          const tb = traceBody(u32, f32, n, u32[i * PICK_WORDS + 7]);
-          if (!tb) continue;
-          for (const k of tb.body) claimed[k] = 1;
-          if (tb.body.length > bestN) {
-            bestN = tb.body.length;
-            bestI = i;
-            body = tb.body;
-          }
+      const { u32, f32, count: n } = res.raw, x = (k) => f32[k * PICK_WORDS], y = (k) => f32[k * PICK_WORDS + 1];
+      const dist = (i, j) => Math.hypot(wrapD2(x(j) - x(i), W), wrapD2(y(j) - y(i), H2));
+      const lb = largestBody(u32, f32, n), body = lb && lb.body.length > 1 ? lb.body : null;
+      let mid, cx, cy;
+      if (body) {
+        const o = body[0];
+        let mx = 0, my = 0;
+        for (const k of body) {
+          mx += wrapD2(x(k) - x(o), W);
+          my += wrapD2(y(k) - y(o), H2);
         }
+        cx = x(o) + mx / body.length;
+        cy = y(o) + my / body.length;
+        const off = (k) => Math.hypot(wrapD2(x(k) - cx, W), wrapD2(y(k) - cy, H2));
+        mid = body.reduce((m, k) => off(k) < off(m) ? k : m, o);
       } else {
         const step = Math.max(1, Math.floor(n / 200));
         let bestN = -1;
         for (let i = 0; i < n; i += step) {
           let c = 0;
-          for (let j = 0; j < n; j += step) if (Math.hypot(wrapD2(f32[j * PICK_WORDS] - f32[i * PICK_WORDS], W), wrapD2(f32[j * PICK_WORDS + 1] - f32[i * PICK_WORDS + 1], H2)) < 2) c++;
+          for (let j = 0; j < n; j += step) if (dist(i, j) < 2) c++;
           if (c > bestN) {
             bestN = c;
-            bestI = i;
+            mid = i;
           }
         }
+        cx = x(mid);
+        cy = y(mid);
       }
-      const best = parseParticle(u32, f32, bestI * PICK_WORDS);
-      let span2 = 0;
-      if (body) for (const k of body) span2 = Math.max(span2, Math.hypot(wrapD2(f32[k * PICK_WORDS] - best.x, W), wrapD2(f32[k * PICK_WORDS + 1] - best.y, H2)));
-      return { best, res, span: span2, body };
+      const span2 = body ? body.reduce((m, k) => Math.max(m, dist(mid, k)), 0) : 0;
+      return { best: parseParticle(u32, f32, mid * PICK_WORDS), simTime: res.simTime, mid, cx, cy, span: span2, body, edges: lb?.edges, u32, f32, n, dist };
     }
     async function findMember(serial) {
       const sp = life.reg.get(serial);
@@ -33557,13 +33487,12 @@ ${e.message}` : String(e?.message || e));
         flash("No living cells found");
         return;
       }
-      const { best, res } = m;
       takeOver();
       if (cssPPU() < 18) {
         cam.zoomTarget = clamp6(18 * dpr / fitPPU(), 1, maxZoom());
         cam.anchor = null;
       }
-      beginTracking(best, { entries: [], simTime: res.simTime });
+      beginTracking(m.best, { entries: [], simTime: m.simTime });
       state.follow = true;
       if (phone()) lab.close();
     }
@@ -33625,11 +33554,7 @@ ${e.message}` : String(e?.message || e));
         },
         mini: (c) => miniCard(genomeOfWords(c.words), K, { gid: c.words.join(), key: c.id, name: c.name, status: cardStatus(c), thumb: cabThumb(c) }),
         status: cardStatus,
-        // a card of this world's species opens its live card (to rename it); another world's, as it was drawn
-        open: (c) => {
-          if (c.world === worldId() && life.reg.has(c.serial)) cards.open(c.serial);
-          else cards.openSaved({ ...c, genome: genomeOfWords(c.words) });
-        },
+        open: openCard,
         load: loadCard,
         // dropped on the world: set down there
         place: (c, x, y) => loadCard(c, [x, y]),
@@ -34168,13 +34093,12 @@ ${e.message}` : String(e?.message || e));
       bench.render();
       if (say) flash(`Reach ${reachOf().text}`);
     }
-    const pipKey = (sp) => String(sp.id);
     const pipSp = (key) => pipette.run(+key);
     const pipCard = (sp) => cabinet.cards.find((c) => c.id === sp.card) || (!sp.stranger ? savedCard(sp.serial) : null);
     const heldOf = (sp) => [pipette.cells(sp), sp.orgs.filter((o) => o.cells.length - o.out > 1).length];
     let runs = [];
     function pipRuns() {
-      runs = pipette.species.map((sp) => ({ sp, held: heldOf(sp), key: pipKey(sp) }));
+      runs = pipette.species.map((sp) => ({ sp, held: heldOf(sp), key: String(sp.id) }));
       for (const { kind, g, recs } of pull.got.length ? incoming() : []) {
         const t2 = runs[0], bodies = bodiesOf(recs).filter((o) => o.cells.length > 1).length;
         if (t2 && !t2.sp.stranger && t2.sp.serial === g.serial) t2.held = [t2.held[0] + recs.length, t2.held[1] + bodies];
@@ -34219,7 +34143,7 @@ ${e.message}` : String(e?.message || e));
         open: (key) => {
           const sp = pipSp(key), c = sp && pipCard(sp);
           if (sp && !sp.stranger && life.reg.has(sp.serial)) cards.open(sp.serial);
-          else if (c) cards.openSaved({ ...c, genome: genomeOfWords(c.words) });
+          else if (c) openCard(c);
         },
         drop: (key, x, y) => {
           const sp = pipSp(key);
@@ -34396,10 +34320,7 @@ ${e.message}` : String(e?.message || e));
       eng.setDrawn([]);
       pull.drawn.clear();
       pull.taken.clear();
-      for (const { kind, g, recs } of incoming()) {
-        pipette.add({ serial: g.serial, words: wordsOf(kind), slot: kind, name: drawnName(g) }, recs);
-        regrowThumb(g.serial, wordsOf(kind));
-      }
+      for (const { kind, g, recs } of incoming()) pipette.add({ serial: g.serial, words: wordsOf(kind), slot: kind, name: drawnName(g) }, recs);
       pull.got = [];
       bench.render();
     }
@@ -34524,8 +34445,8 @@ ${e.message}` : String(e?.message || e));
       } else if (++spit.fails > 2) {
         pull.note = { text: "No silt left to make them of", t: now };
         if (!spit.held) spit.on = false;
+        spit.next = now + 200;
       }
-      if (!got && spit.fails > 2) spit.next = now + 200;
       bench.render();
     }
     function pipettePress(e) {
@@ -34546,7 +34467,7 @@ ${e.message}` : String(e?.message || e));
     });
     const pipDispensing = () => spit.on ? true : pull.on || hand.suck ? false : pull.armed !== shiftHeld;
     function hearHand(R2, dt) {
-      if (R2) heard.pan = clamp6(R2.sx / innerWidth * 2 - 1, -1, 1) * 0.6;
+      if (R2) heard.pan = panAt(R2.sx);
       const tip = hand.tool === "touch" && hand.held ? hand.rodAt : hand.tool === "needle" && hand.held ? hand.last : null, was = heard.tip;
       heard.tip = tip ? [...tip] : null;
       const v = tip && was && dt > 0 ? Math.min(4, Math.hypot(tip[0] - was[0], tip[1] - was[1]) * cssPPU() / dt / 300) : 0;
@@ -34747,7 +34668,7 @@ ${e.message}` : String(e?.message || e));
             selectAt(e.clientX, e.clientY);
             if (setLens) lensAt = toWorld(e.clientX, e.clientY);
           }
-          if (setLens) hear("lens", { pan: clamp6(e.clientX / innerWidth * 2 - 1, -1, 1) * 0.6 });
+          if (setLens) hear("lens", { pan: panAt(e.clientX) });
         }
         ptr.down = null;
         ptr.dragging = false;
