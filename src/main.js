@@ -3238,6 +3238,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const stepSpeed = (d) => setSpeed(ladder.along(speedStop(), d));
   $('t-slower').addEventListener('click', () => stepSpeed(-1));
   $('t-faster').addEventListener('click', () => stepSpeed(1));
+  // Slower and Faster beside the speed chip wherever the dock has room for them (its width less all it holds, measured
+  // without them, so nothing is squeezed); always on a phone
+  const dock = $('dock');
+  function fitSteps() {
+    dock.classList.remove('roomy');
+    const cs = getComputedStyle(dock), kids = [...dock.children].filter((e) => e.offsetParent);
+    const used = kids.reduce((m, e) => m + e.getBoundingClientRect().width, 0) + (kids.length - 1) * (parseFloat(cs.columnGap) || 0);
+    // (the two take about 106 px with their gaps; a little more, so what they push along keeps some air)
+    dock.classList.toggle('roomy', dock.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - used >= 130);
+  }
+  new ResizeObserver(fitSteps).observe(dock);
   function renderTime() {
     const s = state.speed;
     const play = $('t-play');

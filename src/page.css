@@ -288,9 +288,11 @@ body:not(.live) .hud { opacity: 0; }
 .snd-wrap { display: flex; align-items: center; gap: 8px; }
 #vol { width: 74px; }
 .sys { font-size: 11px; letter-spacing: .12em; color: var(--ink-3); text-transform: uppercase; white-space: nowrap; font-stretch: 108%; flex: none; display: flex; gap: 12px; }
-/* the speed chip opens the ladder (held, a drag along it picks a speed); Slower and Faster beside it on a phone */
+/* the speed chip opens the ladder (held, a drag along it picks a speed); Slower and Faster beside it where the dock
+   has room (fitSteps), and on a phone */
 .dock .speed { touch-action: none; }
 .dock .step { display: none; }
+.dock.roomy .step { display: grid; }
 .dock .step:disabled { opacity: .3; }
 /* the tools: one numbered group in the dock's middle; the one in hand in the sun color */
 .dock .tools { margin-left: auto; gap: 0; border: 1px solid var(--line); }
