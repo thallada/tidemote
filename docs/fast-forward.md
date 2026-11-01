@@ -60,9 +60,10 @@ guarded by `sim.ticks > 1`, so 1/60 s steps are unchanged.
   Abiogenesis scales with the step (engine) and silt charges with the exact chance of at least one event
   in the step.
 - **Motion** integrates in 1/60 s substeps under the forces gathered at the step's start (`cellWGSL`).
-  A still body's bonds (and a still tree's bend) are held too, their stiffness in the correction below; a
-  beating tree's bonds pull toward where the partners will be, carried on their velocities. A body's
-  tissue blends its cells' velocities as two bodies sharing momentum. See Bodies below.
+  A still body's bonds (and a still tree's bend) are held too, their stiffness in the correction below, and
+  its tissue blends its cells' velocities as two bodies sharing momentum (Bodies below). A beating tree (a
+  tail too) moves a tick at a time with its partners instead (`bodyTick`, one dispatch a tick): Beating
+  bodies below.
 - **Stiffness correction.** Holding forces across the step makes a dense clump numerically unstable (see
   below), so the pair and stone forces carry an implicit correction. The cell and its neighborhood are
   taken as two bodies sharing momentum: the reaction to its forces is spread over Mn neighbors (the
@@ -313,16 +314,104 @@ tailed mats 1.01 with 2x. A coarse step costs 2% more (1M world: 5.07 -> 5.18 ms
 3.75). The gate (32 seeds, 1/60 s) passes with every metric the same (effective species 108 against 112,
 food webs 94% against 97%).
 
-What is left: beating bodies keep the old scheme (their bonds pulled each tick toward predicted partners;
+What was left: beating bodies kept the old scheme (their bonds pulled each tick toward predicted partners;
 holding them too halved animal trees' excess in forks but sped tailed mats up 1.2x and left more small
-swimmers in long runs; holding their bend stops the wave), and small beating swimmers are 3x their 1/60 s
-share: the coarse beat's extra gain, fitted on 12-cell filaments (0.89 of their speed at 6 ticks, 5 cells
-0.93), drives a 3-cell body 1.9x as fast (a long wave's, 3-5x: at 1/60 s it hardly swims), and growing the
-gain in over the first generations slows every length to about half; and deep overlaps between
+swimmers in long runs; holding their bend stops the wave), and small beating swimmers were 3x their 1/60 s
+share (Beating bodies, below, ends that); and deep overlaps between
 species (closer than half their radii summed) grow with the step at any length (per cell: 0.003 at
 1/60 s, 0.014 at 2 ticks, 0.085 at 6), across every pair of guilds, not from cysts or newborns, and not
 from a hungry forager's appetite or core (off at coarse steps: 0.085 -> 0.042) - they did not shift the
 body mix at 2 ticks.
+
+### Beating bodies (2026-11-01)
+
+The excess of small swimmers at 6 ticks was beating producers: 5% of producer cells at 1/60 s, 23-25% at 6
+ticks. In matched forks (`K.diag`'s torn bonds, 6 worlds) 6-tick steps tore beating trees' bonds a third
+more often, and the fragments, 2-3 cell beaters, grew 12.5 %/min faster while long swimmers shrank; bonds
+that could not tear took the excess away. A tail's bonds tore most: 15% of torn bonds at 6 ticks, 1% at
+1/60 s.
+
+The coarse beat could not be fitted right because one cell cannot know its partners' motion. Each cell
+reckoned its 6 ticks alone, its partners carried on their velocities from the step's start; a beating
+body's cells swing against each other within a tick or two (the drag across a branch halves a cell's
+sideways speed every tick, the muscles mix a quarter of each bond's relative velocity a tick), so those
+partners were wrong within the step. `tools/steplab.mjs` runs one coarse step and its six 1/60 s steps
+from the same moments across the beat and compares where each cell ends: on a 5-cell filament (amplitude
+0.5, 1.5 Hz, wave 0.8 a cell) every per-cell scheme tried left about a third of the motion wrong. RMS over
+16 moments, 1e-3 units (sideways displacement 61 a step) and 1e-2 units/s (end velocities 64 across, 39
+along):
+
+| scheme | sideways | along | end velocity across | along |
+|---|---|---|---|---|
+| main (beat once a step, fitted gain) | 17.7 | 11.8 | 33.1 | 26.8 |
+| bonds held in the stiffness correction | 18.5 | 13.4 | 32.8 | 32.6 |
+| the crowd's viscosity a tick at a time | 19.6 | 10.8 | 35.5 | 19.3 |
+| the beat a tick at a time, partners' swing predicted (1/60 s's steady wave) | 14.4 | 12.7 | 20.4 | 23.3 |
+| substeps (`bodyTick`) | 1.9 | 1.8 | 2.3 | 2.7 |
+
+So a coarse step now moves a beating tree (a tail too) a tick at a time with its partners. `lifeMain`
+gathers everything else as it does for any cell (forces and their stiffness correction, stone, taxis,
+swimming, a ridden body's will, the stranded film) and hands it over in the bond table's second region
+(`handOver`, SW words a cell after the BW bond words: `lifeMain` is at its ten storage buffers), marked
+with the step (the engine clears the marks when a world is put back to an earlier step), and leaves the
+cell where it was. `bodyTick` then runs once a tick: each such cell moves as a 1/60 s step moves it, through
+drag (across its arm sideDrag times as hard), the push it was handed, its bonds and bend (`bendOn`), its
+muscles (`beatPull`), the water's flow and the viewer's hand, reading itself and its partners where the
+last tick left them
+(`treePos` and `treeVel` read the tick's state in `bodyTick`'s pipeline, `SUBSTEP`, so the bend and the
+muscles are the functions 1/60 s steps run; the tree itself is the step's, as its bonds are). The first
+tick lists the cells it moves; the rest run over that list. The coarse beat's tunables (`beatMixC`,
+`beatBendC`, `beatSlopeC`, `beatCurveC`), the predicted partners and the per-tick bond pull are gone.
+Bodies bearing tails were moved by substeps too at first (their tissue, their share of the tails' bend):
+in a world grown under the substeps their cells were 15% of the living (most of them tail-less mats of a
+species with the gene) and cost more than all else the substeps did, for a slightly firmer tail base in
+the swim lab; they keep the still body's step. The crowd's viscosity among a tree's partners, taken a tick
+at a time in `bodyTick` too at first (with `contactMain` leaving the partners out), stays `contactMain`'s,
+once a step as two bodies sharing momentum: the step lab's error was smaller without it (1.9 against 2.5
+sideways on the 5-cell filament, its travel exact) and the partner test cost `contactMain` 3-35%.
+
+Swimming (swim lab, 12 genotypes, mean |speed - 1/60 s speed|, units/s):
+
+| | 3 cells | 5 cells | 12 cells | tailed mat 12+5 | tailed mat 19+2x6 |
+|---|---|---|---|---|---|
+| main at 6 ticks | 0.036 | 0.047 | 0.039 | 0.010 | 0.003 |
+| substeps at 6 ticks | 0.003 | 0.004 | 0.002 | 0.009 | 0.002 |
+
+Bend amplitude and the longest bond follow 1/60 s too (5-cell fast beat: speed 0.347 against 0.337,
+bend 0.43 against 0.42, longest bond 0.217 against 0.217; main 0.077, 0.55, 0.331). A tailed mat's tail
+follows less well: a long wave bends as at 1/60 s (0.23 rad against 0.21, main 0.48), but a fast one
+overbends (0.57-0.76 against 0.41-0.50), and on a 19-cell mat with two tails their bases stretch to 0.36
+against 0.28 (main 0.30): the mat it pulls on moves by the still body's step (substepping the mat as
+well held its bases to 0.28).
+
+Long runs, 64 worlds x 30 min at 32k, share of the living at 20-30 min (+- standard error; 1 tick and
+the old 6 ticks at 9a2ff06, main at 6 ticks 32 worlds at ae5d2e4, substeps 64 worlds at this commit):
+
+| | mats | chains 2-5 | swimmers 2-3 | 4-5 | 10+ | filaments | tailed | producers as trees | beaters of producers | eff. species (late) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 tick | 13.2+-1.2 | 3.7+-0.5 | 1.55+-0.32 | 0.69 | 0.93 | 1.77 | 1.36 | 17+-3 | 5.0+-1.9 | 111 |
+| 6 ticks, before the body fix | 5.8 | 17.0 | 3.45 | 1.35 | 0.32 | 0.67 | 0.83 | 59 | 15.1 | 106 |
+| 6 ticks, main | 7.8+-1.6 | 9.9+-1.9 | 5.61+-1.57 | 1.83 | 0.35 | 1.85 | 0.59 | 37+-6 | 22.6+-5.8 | 103 |
+| 6 ticks, substeps | 10.6+-1.1 | 4.6+-0.5 | 1.03+-0.15 | 0.53 | 0.73 | 1.78 | 1.05 | 23+-3 | 3.6+-1.1 | 106 |
+
+The small swimmers' excess is gone (a few fewer than at 1/60 s now, within two standard errors), mats and
+long swimmers are back, and diversity rose with them (late Hill2 34.3 against main's 32.1 and 1/60 s's
+35.9; food webs 91%, late guilds 3.41; no metric of `ensemble.mjs` differs from 1/60 s's). Producers still
+grow as trees a little more often than at 1/60 s (still trees, the bend held in the correction above), and
+4 of the 64 worlds collapsed (none at 1/60 s; 3 of 64 before the body fix, 1 of 32 on main): coarse steps
+collapsed as often before. The 1/60 s gate passes (and against main's own gate every metric is the same).
+
+Cost (RTX 4070 Ti, 1M worlds, `bench.mjs` step, main against substeps in turn, three page loads each):
+on a world grown 20 minutes at Max under the substeps (591k living, beating trees 0.8% of them) a 6-tick
+step takes 4.21 ms against main's 4.16 (`bodyTick` 0.16 ms, `lifeMainCoarse` 0.2 ms less: its beating
+cells' loop is gone); on the older perf world, grown under the old beat with beating trees 18% of the
+living, 4.06 against 4.34. 1/60 s steps are unchanged (3.49 against 3.47, 3.25 against 3.21). The
+substeps keep their words in the bond table's second region (18 a cell and a mark: 112 bytes a cell in
+all, 36 before). Getting there: with tailed bodies substepped and the handover at `lifeMain`'s end,
+`lifeMainCoarse` cost 0.65 ms more than main's on that world (both undone at once, the handover now
+before the motion loop); marks kept with each cell's words cost the first tick's pass over every living
+cell 0.1 ms; caching each moving cell's tree for the later ticks was slower than reckoning it again; the
+substep state is read only in `bodyTick`'s pipeline (`SUBSTEP`), so 1/60 s steps compile as before.
 
 ## What did not work
 
@@ -346,6 +435,12 @@ body mix at 2 ticks.
 - Raising the stiffness correction's damping for predators, or adding the anti-restoring (attraction)
   stiffness: hotter or over-damped. Halving the stiffness where the step resolves a clump looked ideal in
   the mode model but overheated the simulation.
+- For beating bodies (2026-11-01), each cell reckoning its step alone: the beat a tick at a time with the
+  partners mirroring this cell (no thrust), keeping their full swing (overdriven: a long wave 6-10x its
+  1/60 s speed, and with the bend held firmly bodies folded into zigzags) or the steady swing 1/60 s steps
+  give a long chain (overbent 2-9x in long runs); bonds held into the stiffness correction; the crowd's
+  viscosity a tick at a time (its map clean, but crowded bodies lost their damping and tore more); no
+  extra gain at 6 ticks (tails tore as at 1/60 s, swimming still slow). One-step errors in Beating bodies.
 
 ## Past 4 ticks (before 2026-10-28)
 

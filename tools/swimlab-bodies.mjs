@@ -1,5 +1,7 @@
-// The swim lab's test bodies (tools/swimlab.mjs, tools/swimlab-film.mjs): a genome and a layout, cell by cell.
-import { archetypeGenome, finalizeGenome, growPlan } from '../src/genome.js';
+// The swim lab's test bodies (tools/swimlab.mjs, tools/steplab.mjs, tools/swimlab-film.mjs): a genome and a layout,
+// cell by cell, and a world with nothing else in it.
+import { archetypeGenome, finalizeGenome, growPlan, writeGenome } from '../src/genome.js';
+import { FIRST_LIFE, G_WORDS, P_BYTES } from '../src/shaders.js';
 
 // the test genome: a hunter founder made into a tree that beats, then the overrides
 export function testGenome(over, K) {
@@ -81,3 +83,43 @@ export function placeBody(cells, g, x, y) {
 
 /** A cell's info word: generation, turn, a tail's branch order 2, born (cause 9). */
 export const cellInfo = (c, gen) => (gen << 16) | (c.turn << 28) | (c.tail ? 2 << 30 : 0) | 9;
+
+/**
+ * Seed eng's world empty but for one body (layout spec, genome g) in the middle of still water: no currents or
+ * tides, everything else silt heaped at rest in a corner (grow: spread everywhere, so the body can bud).
+ * Returns the layout, the world's count and grid, and each cell's slot.
+ */
+export async function aloneInWater(eng, spec, g, rng, { n, grow = false }) {
+  eng.seed(n, { aspect: 16 / 9, rng });
+  eng.abio = 0; eng.settings.tide = 0;
+  eng.waves.fill(0); eng.tide.fill(0); eng.excursion = 0;
+  g.topt = eng.tbg; g.tol = 15;
+  const st = await eng.readState();
+  const [W, H] = st.cpu.grid;
+  const pu = new Uint32Array(st.gpu.parts), pf = new Float32Array(st.gpu.parts), PW = P_BYTES / 4;
+  const iu = new Uint32Array(st.gpu.intent);
+  const N = st.cpu.count;
+  const spread = grow ? 1 : 0.2;
+  for (let i = 0; i < N; i++) {
+    const o = i * PW;
+    pf[o] = 0.5 + rng() * (W - 1) * spread; pf[o + 1] = 0.5 + rng() * (H - 1) * spread; pf[o + 2] = 0; pf[o + 3] = 0;
+    pu[o + 4] = 0; pf[o + 5] = 0; pf[o + 6] = 0; pu[o + 8] = 0; pu[o + 9] = 0;
+    iu.set([0, 0, 0xffffffff, 0xffffffff], i * 4);
+  }
+  const gu = new Uint32Array(st.gpu.genomes), gf = new Float32Array(st.gpu.genomes);
+  gu.fill(0, FIRST_LIFE * G_WORDS, (FIRST_LIFE + 1) * G_WORDS);
+  writeGenome(gu, gf, FIRST_LIFE, g);
+  // the body, laid out at rest at its plan's angles from the middle of the water, heading -x (root first)
+  const cells = layout(spec);
+  const { pos, gen } = placeBody(cells, g, W / 2, H / 2);
+  const idx = cells.map((_, i) => N - 1 - i);
+  cells.forEach((c, i) => {
+    const o = idx[i] * PW;
+    pf[o] = pos[i][0]; pf[o + 1] = pos[i][1]; pf[o + 2] = 0; pf[o + 3] = 0;
+    pu[o + 4] = FIRST_LIFE; pf[o + 5] = (grow ? 12 : 0.9) * g.reproE; pf[o + 6] = grow ? 20 : 1; pu[o + 7] = 1000000 + i; pu[o + 8] = g.col;
+    pu[o + 9] = cellInfo(c, gen[i]);
+    iu.set([0, 0, c.mom < 0 ? 0xffffffff : idx[c.mom], c.mom2 >= 0 ? idx[c.mom2] : 0xffffffff], idx[i] * 4);
+  });
+  eng.writeState(st);
+  return { cells, N, W, H, idx };
+}

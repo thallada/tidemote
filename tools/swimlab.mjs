@@ -24,9 +24,8 @@ const gpu = create([]);
 const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
 const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
 const E = await import('../src/engine.js');
-const { writeGenome } = await import('../src/genome.js');
-const { testGenome, layout, placeBody, cellInfo } = await import('./swimlab-bodies.mjs');
-const { G_WORDS, P_BYTES, DEFAULT_K } = await import('../src/shaders.js');
+const { testGenome, aloneInWater } = await import('./swimlab-bodies.mjs');
+const { P_BYTES, DEFAULT_K } = await import('../src/shaders.js');
 
 const K = { metab: 0, ...JSON.parse(v.k) };
 const KK = () => eng.K;
@@ -38,39 +37,8 @@ const rng = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294
 
 async function run(over) {
   const g = testGenome(over, eng.K);
-  eng.seed(+v.n, { aspect: 16 / 9, rng });
-  eng.abio = 0; eng.settings.tide = 0;
-  eng.waves.fill(0); eng.tide.fill(0); eng.excursion = 0;
-  g.topt = eng.tbg; g.tol = 15;
-  const st = await eng.readState();
-  const [W, H] = st.cpu.grid;
-  const pu = new Uint32Array(st.gpu.parts), pf = new Float32Array(st.gpu.parts), PW = P_BYTES / 4;
-  const iu = new Uint32Array(st.gpu.intent);
-  const N = st.cpu.count;
-  // everything else becomes silt heaped in a far corner, at rest
-  for (let i = 0; i < N; i++) {
-    const o = i * PW;
-    // (--grow: silt everywhere, so the body can bud)
-    const spread = v.grow ? 1 : 0.2;
-    pf[o] = 0.5 + rng() * (W - 1) * spread; pf[o + 1] = 0.5 + rng() * (H - 1) * spread; pf[o + 2] = 0; pf[o + 3] = 0;
-    pu[o + 4] = 0; pf[o + 5] = 0; pf[o + 6] = 0; pu[o + 8] = 0; pu[o + 9] = 0;
-    iu.set([0, 0, 0xffffffff, 0xffffffff], i * 4);
-  }
-  const gu = new Uint32Array(st.gpu.genomes), gf = new Float32Array(st.gpu.genomes);
-  gu.fill(0, E.FIRST_LIFE * G_WORDS, (E.FIRST_LIFE + 1) * G_WORDS);
-  writeGenome(gu, gf, E.FIRST_LIFE, g);
-  // the body, laid out at rest at its plan's angles from the middle of the water, heading -x (root first)
-  const cells = layout(v.body);
-  const { pos, gen } = placeBody(cells, g, W / 2, H / 2);
-  const idx = cells.map((_, i) => N - 1 - i);
-  cells.forEach((c, i) => {
-    const o = idx[i] * PW;
-    pf[o] = pos[i][0]; pf[o + 1] = pos[i][1]; pf[o + 2] = 0; pf[o + 3] = 0;
-    pu[o + 4] = E.FIRST_LIFE; pf[o + 5] = (v.grow ? 12 : 0.9) * g.reproE; pf[o + 6] = v.grow ? 20 : 1; pu[o + 7] = 1000000 + i; pu[o + 8] = g.col;
-    pu[o + 9] = cellInfo(c, gen[i]);
-    iu.set([0, 0, c.mom < 0 ? 0xffffffff : idx[c.mom], c.mom2 >= 0 ? idx[c.mom2] : 0xffffffff], idx[i] * 4);
-  });
-  eng.writeState(st);
+  const { cells, N, W, H, idx } = await aloneInWater(eng, v.body, g, rng, { n: +v.n, grow: v.grow });
+  const PW = P_BYTES / 4;
   const step = +v.step, dt = step / 60;
   const frames = Math.round(((+v.seconds) + (+v.warm)) * 60 / step);
   const samples = [];

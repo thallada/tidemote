@@ -149,15 +149,12 @@ side branches push sideways and drag). Single swimmers make 0.1-0.35 units/s.
 
 ### Coarse steps
 
-A coarse step holds its partners' velocities for its ticks, so one 1/60 s step's muscle share applied
-over four ticks would overshoot the bonds' stiffest (zigzag) mode, and a bend's push held for the step
-goes unstable once the beat drives the bends. So a coarse step pulls a smaller share (`beatMixC`), asks
-for a larger swing (by how much less of the wave its ticks' drag leaves standing, fitted with the swim
-lab), bends a beating tree afresh each tick from where its partners are going, more softly
-(`beatBendC`), and lets a joint's muscle go slack once the joint is stretched past 1.3 times its rest.
-Measured at 4 ticks against 1/60 s steps (same genes): 0.17 vs 0.19, 0.08 vs 0.10, 0.10 vs 0.11 units/s;
-the fastest beaters (2.5-3 Hz, large swings) make about half their 1/60 s speed, held back so they stay
-whole.
+A coarse step moves a beating tree a tick at a time with its partners (`bodyTick` in `src/shaders.js`,
+docs/fast-forward.md): each tick its cells pull, bend and beat as a 1/60 s step's would, from where they all
+are then, so a coarse step swims as the 1/60 s steps it stands for (within about 5% of their speed and
+bend, swim lab, 12 genotypes at 3, 5 and 12 cells, 6 ticks). Reckoning the step cell by cell against its
+partners' start, as before, a fitted gain kept 12-cell filaments near their speed but drove small bodies
+too hard and tore them, and the fastest beaters made a quarter of their speed.
 
 ## Tails
 

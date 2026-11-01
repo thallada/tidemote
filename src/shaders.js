@@ -185,10 +185,6 @@ export const DEFAULT_K = {
   beatMix: 0.25,
   beatGain: 6,
   beatTop: 4,
-  beatMixC: 0.25,   // a coarse step's share (its swing capped at two beatTops, a fitted gain; docs/fast-forward.md), and how firmly a beating
-  beatBendC: 0.25,  // tree holds its angles then, relative to growStiff (bent afresh each tick from where its partners go)
-  beatSlopeC: 0.35, // a coarse beat's extra gain at 6 ticks, per tick past the first (1.75 in all at 6), reached as
-  beatCurveC: 1,    // (ticks - 1) / 5 to this power: 1 a straight line (2 and 3 ticks overbend filaments 24-38%; 1.5 holds their bend but costs 16% of their speed, unchecked against the ecology), 2 little before 4 ticks
   treeBond: 3,      // a beating tree's bonds' pull, relative to a body's (bond): its beat swings its cells hard
   tailOdds: 1,      // a packed body's tails: the chance a bud at its edge starts one, times the tail gene, when no
   tailSpace: 0.6,   // tail of its kind is within this (world units); a tail grows 3 to tailMax cells by its length gene
@@ -1043,9 +1039,11 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   // each tick toward partners carried on their velocities, stiff bodies rang and tore (each cell's
   // partners are stale within the step). A still tree's bend is held alike, its stiffness across each arm
   // (bendT over the arm's length): held explicitly over 6 ticks (~30 rad/s) it flung cells off and the
-  // trees regrew them, doubling their births (docs/fast-forward.md).
+  // trees regrew them, doubling their births (docs/fast-forward.md). A beating tree is moved instead a tick at a
+  // time with its partners (sub: bodyTick, from what this step hands it, handOver).
   let beating = tree && gr.beat.x > 0.0;
-  let holdB = coarse && bonding && !beating;
+  let sub = coarse && beating;
+  let holdB = coarse && bonding && !sub;
   let bendT = select(0.0, ${f(K.coarseBend * K.growStiff)}, holdB && tree);
   var jB = vec3f(0.0);
   var vB = vec2f(0.0);
@@ -1060,13 +1058,11 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     bondF += e * ((l - r) / max(l, 1e-4));
     if (holdB) { jB += bondStiff(e, l, r, bendT); vB += sortedFull[nb].vel; nB += 1.0; }
   }
-  // a tree holds its angles (bendOn); a beating tree's cells move against their mother: in a coarse step
-  // they bend afresh each tick instead, and more softly
-  let bendK = ${f(K.growStiff)} * select(1.0, ${f(K.beatBendC)}, coarse && gr.beat.x > 0.0);
+  // a tree holds its angles (bendOn)
   var bendF = vec2f(0.0);
-  if (tree) { bendF = bendOn(i, gr) * bendK; bondF += bendF; }
+  if (tree && !sub) { bendF = bendOn(i, gr) * ${f(K.growStiff)}; bondF += bendF; }
   // a body bearing tails takes its share of the bend at each tail's base (where the base is the middle)
-  else if (tails) { bendF = tailBases(i, p, n1, n2, nBack) * bendK; bondF += bendF; }
+  else if (tails) { bendF = tailBases(i, p, n1, n2, nBack) * ${f(K.growStiff)}; bondF += bendF; }
   // a tail's base is held to its body by an ordinary bond, as the body holds it (not treeBond)
   let baseOn = tail && n1 != NONE && !treeCellAt(n1);
   let baseB = select(vec2f(0.0), dn1 * ((d1 - rs1) / max(d1, 1e-4)), baseOn);
@@ -1153,8 +1149,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     stiff = (vEnd - p.vel * frT) / G - a0;
   }
   // Motion in substeps of one tick (1/60 s), so a coarse step moves a cell as that many 1/60 s steps
-  // would under its forces; a beating tree's bonds pull toward where the partners will be, carried on
-  // their velocities (a still body's are held, above). A 1/60 s step is a single substep.
+  // would under its forces (a still body's bonds held, above). A 1/60 s step is a single substep.
   let h = sim.dt / f32(sim.ticks);
   let fr0 = pow(0.5, h / drag);
   // a tree's cell is drawn out along its branch: across it the water holds it sideDrag times as hard
@@ -1164,9 +1159,9 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     let arm = treeArm(i);
     if (arm != NONE) { let a = treeRel(i, arm); across = vec2f(-a.y, a.x) / max(length(a), 1e-6); frX = pow(0.5, h * ${f(K.sideDrag)} / drag); }
   }
-  // a tree's muscles and tissue (beatPull), reckoned once a step
+  // a tree's muscles and tissue (beatPull)
   var beatDv = vec2f(0.0);
-  if (beating) { beatDv = beatPull(i, gr, g.size, frX); }
+  if (beating && !sub) { beatDv = beatPull(i, gr, g.size); }
   var vB1 = vec2f(0.0);
   var vB2 = vec2f(0.0);
   if (n1 != NONE) { vB1 = sortedFull[n1].vel; }
@@ -1207,24 +1202,10 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   let bondK = select(1.0, ${f(K.treeBond)}, beating);
   // (the partners' mean velocity as the tissue blends it: in a coarse step it takes on this cell's motion too)
   var vT = vP;
-  for (var k = 0u; k < select(1u, sim.ticks, COARSE); k++) {
-    var fb = (bondF - bendF - baseB) * bondK + baseB + bendF;
-    if (k > 0u && !holdB) {
-      let t = f32(k) * h;
-      let moved = pos - p.pos;
-      fb = vec2f(0.0);
-      var fb1 = vec2f(0.0);
-      if (n1 != NONE) { let e = dn1 + vB1 * t - moved; let l = length(e); fb1 = e * ((l - rs1) / max(l, 1e-4)) * m1; }
-      if (n2 != NONE) { let e = dn2 + vB2 * t - moved; let l = length(e); fb += e * ((l - rs2) / max(l, 1e-4)) * m2; }
-      for (var kb = 0u; kb < nBack; kb++) {
-        let nb = backAt(i, kb, p, n1, n2);
-        if (nb == NONE) { continue; }
-        let e = bondTo(nb, p) + sortedFull[nb].vel * t - moved; let l = length(e);
-        fb += e * ((l - restTo(nb, g.size, role, tight)) / max(l, 1e-4));
-      }
-      fb = (fb + select(fb1, vec2f(0.0), baseOn)) * bondK + select(vec2f(0.0), fb1, baseOn);
-      if (beating) { predT = t; predSelf = i; predPos = pos; fb += bendOn(i, gr) * bendK; predT = 0.0; }
-    }
+  // (a cell bodyTick moves is handed over, and keeps still here; the mind shows its bend and swimming as bodyTick takes them)
+${w ? `  if (sub) { bondF += bendOn(i, gr) * ${f(K.growStiff)}; mSwim = select(normalize(p.vel), vec2f(0.0), dot(p.vel, p.vel) < 1e-6) * swim; }` : `  if (sub) { handOver(i, p.vel, force * (g.force * heavy) + stiff + stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify)) + taxis, swim, will, willOn, flow, pond, shore, stranded); }`}
+  for (var k = 0u; k < select(select(1u, sim.ticks, COARSE), 0u, sub); k++) {
+    let fb = (bondF - bendF - baseB) * bondK + baseB + bendF;
     vel = vel * fr0 - across * (dot(vel, across) * (fr0 - frX)) + force * (g.force * heavy * h) + stiff * h;${W('if (k == 0u) { mVel = vel; }')}
     // (a tree's cells move together through their bonds: aligning would damp its beat)
     if (kinN > 0.0 && g.align > 0.0 && !tree) {
@@ -1232,7 +1213,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     }
     vel += fb * (g.adhesion * ${f(K.bond)} * h);
     // a body's cells move together: each takes on its partners' motion (a beating tree's, bond by bond, as its muscles beat)
-    if (beating) { vel += beatDv * (1.0 / f32(sim.ticks)); }
+    if (beating) { vel += beatDv; }
     else if (nP > 0.0) {
       let a = clamp(${f(K.tissue)} * h, 0.0, 1.0);
       // A coarse step: its partners take on this cell's motion as it takes on theirs (their mean held from
@@ -1310,6 +1291,8 @@ export function simWGSL(K, { dp4a = false } = {}) {
 // Coarse steps (sim.ticks > 1) run lifeMain and mindMain as pipelines of their own (lifeMainCoarse):
 // a 1/60 s step's leaves out everything only a coarse step needs, which saves it registers.
 override COARSE = false;
+// bodyTick's pipeline: tree functions read where its substeps have moved the cells (treePos, treeVel)
+override SUBSTEP = false;
 struct Sim {
   world: vec2f, grid: vec2u,
   count: u32, frame: u32, dt: f32, time: f32,
@@ -1446,6 +1429,17 @@ fn splPair(h: u32, q: u32, won: bool) {
 const BACK = 6u;
 const BW = 9u;
 fn bondsOf(i: u32) -> vec2u { return vec2u(bondsNow[i * BW], bondsNow[i * BW + 1u]); }
+// After them, for a coarse step's substeps (bodyTick), SW words a cell: what lifeMain hands over (handOver),
+// then its position and velocity at the tick, twice (a tick reads one and writes the other); then a word a cell,
+// its mark: the step lifeMain handed it over in (the engine clears the marks wherever the step count goes back).
+const SW = 18u;
+fn subAt(i: u32) -> u32 { return BW * sim.count + SW * i; }
+fn subMark(i: u32) -> u32 { return (BW + SW) * sim.count + i; }
+// whether bodyTick moves cell x this step
+fn subMoved(x: u32) -> bool { return x < sim.count && bondsNow[subMark(x)] == sim.frame + 1u; }
+fn subWords(o: u32) -> vec4f { return bitcast<vec4f>(vec4u(bondsNow[o], bondsNow[o + 1u], bondsNow[o + 2u], bondsNow[o + 3u])); }
+fn subSlot(x: u32, k: u32) -> u32 { return subAt(x) + 10u + 4u * (k & 1u); }
+fn subState(x: u32, k: u32) -> vec4f { return subWords(subSlot(x, k)); }
 fn backOf(i: u32, k: u32) -> u32 { return bondsNow[i * BW + 2u + k]; }
 // how many of those that keep cell i it reads
 fn backN(i: u32) -> u32 { return min(backOf(i, 0u), BACK); }
@@ -2647,7 +2641,9 @@ fn tailLen(g: Genome) -> u32 { return 3u + u32(g.tail.y * ${f(K.tailMax - 3)}); 
 fn treeMom(x: u32) -> u32 {
   let m = bondsOf(x).x;
   if (m >= sim.count || m == x || sortedFull[m].kind != sortedFull[x].kind) { return NONE; }
-  let d = treeRel(x, m);
+  // (where the step starts: a substep keeps the step's tree, as keepBond its bonds)
+  var d = sortedFull[m].pos - sortedFull[x].pos;
+  d -= sim.world * round(d / sim.world);
   if (dot(d, d) > LINK_R * LINK_R * ${f(K.bondBreak * K.bondBreak)}) { return NONE; }
   return m;
 }
@@ -2657,14 +2653,19 @@ fn treeKid(x: u32, k: u32) -> u32 {
   if (c >= sim.count || c == x || treeMom(c) != x) { return NONE; }
   return c;
 }
-// A coarse step bends a beating tree afresh each tick (its bends change too fast to hold one tick's push
-// for the step): its partners where their velocities will carry them by predT, the cell itself at predPos.
-var<private> predT: f32;
-var<private> predSelf: u32;
-var<private> predPos: vec2f;
+// A tree's cells where they are (at a coarse step's substep subK, bodyTick: where that tick has moved them,
+// and a cell it does not move where its velocity carries it)
+var<private> subK: u32;
 fn treePos(x: u32) -> vec2f {
-  if (predT > 0.0) { return select(sortedFull[x].pos + sortedFull[x].vel * predT, predPos, x == predSelf); }
+  if (SUBSTEP && subK > 0u) {
+    if (subMoved(x)) { return subState(x, subK).xy; }
+    return sortedFull[x].pos + sortedFull[x].vel * (f32(subK) * sim.dt / f32(sim.ticks));
+  }
   return sortedFull[x].pos;
+}
+fn treeVel(x: u32) -> vec2f {
+  if (SUBSTEP && subK > 0u && subMoved(x)) { return subState(x, subK).zw; }
+  return sortedFull[x].vel;
 }
 fn treeRel(a: u32, b: u32) -> vec2f {
   var d = treePos(b) - treePos(a);
@@ -2737,44 +2738,30 @@ fn treeDeg(x: u32) -> f32 {
   let m = bondsOf(x).x;
   return max(2.0, f32(backN(x)) + select(0.0, 1.0, m < sim.count && m != x));
 }
-// One pull a step, the beat reckoned at the step's middle. A coarse step pulls its own share (beatMixC),
-// and its ticks' drag leaves less of the beat standing, so the beat asks more: as much as
-// it takes for its wave (2 - 2 cos of its phase per cell, as the bonds settle it) to stand as tall as in
-// 1/60 s steps, by a 1/60 s step's and a coarse step's settling, and 0.35 more a tick past the first
-// (fitted with tools/swimlab.mjs over 12 beat genotypes; docs/fast-forward.md), but no faster across a
-// bond than two beatTops (a strong slow beat swung faster tore its body).
-fn beatPull(i: u32, gr: Grow, size: f32, frX: f32) -> vec2f {
-  let p = sortedFull[i];
-  let tm = sim.time - 0.5 * sim.dt;
+// One pull a tick, the beat reckoned at the tick's middle (a coarse step's substeps, bodyTick, one each).
+fn beatPull(i: u32, gr: Grow, size: f32) -> vec2f {
+  let info = sortedFull[i].info;
+  let tm = select(sim.time - 0.5 * sim.dt, sim.time - sim.dt + (f32(subK) + 0.5) * sim.dt / f32(sim.ticks), SUBSTEP);
   // (a tail drives a whole body: it swings tailGain harder)
-  let tg = select(1.0, ${f(K.tailGain)}, orderOf(p.info) == 2u);
-  let si = beatSpeed(gr, size, genOf(p.info), tm) * tg;
+  let tg = select(1.0, ${f(K.tailGain)}, orderOf(info) == 2u);
+  let si = beatSpeed(gr, size, genOf(info), tm) * tg;
   let di = treeDeg(i);
-  var gain = 1.0;
-  var mixW = ${f(K.beatMix)};
-  if (sim.ticks > 1u) {
-    mixW = ${f(K.beatMixC)};
-    let wm = 2.0 * mixW * (2.0 - 2.0 * cos(gr.beat.z));
-    gain = (wm + 1.0 - pow(frX, f32(sim.ticks))) / (${f(2 * K.beatMix)} * (2.0 - 2.0 * cos(gr.beat.z)) + 1.0 - frX) * (1.0 + ${f(5 * K.beatSlopeC)} * pow(f32(sim.ticks - 1u) / 5.0, ${f(K.beatCurveC)})) * ${f(K.beatMix)} / mixW;
-  }
-  // (a coarse step asks no faster swing of a bond than it can follow)
-  let top = select(1e9, ${f(2 * K.beatTop)} * size, sim.ticks > 1u);
+  let vi = treeVel(i);
   var dv = vec2f(0.0);
   for (var k = 0u; k < 4u; k++) {
     // the mother, then the daughters
     let j = select(treeKid(i, k - 1u), treeMom(i), k == 0u);
     // (a tail's base is held to its body by the bond alone)
     if (j == NONE || (k == 0u && !treeCellAt(j))) { continue; }
-    let q = sortedFull[j];
     // the bond's normal, from mother to daughter
     let a = select(treeRel(i, j), treeRel(j, i), k == 0u);
     let n = vec2f(-a.y, a.x) / max(length(a), 1e-6);
-    let sj = beatSpeed(gr, size, genOf(q.info), tm) * tg;
+    let sj = beatSpeed(gr, size, genOf(sortedFull[j].info), tm) * tg;
     // a joint pulled well past its rest goes slack: its muscle lets go
     let slack = smoothstep(1.6, 1.3, length(a) / (${f(0.153)} * size));
-    dv += (q.vel - p.vel + n * (clamp((si - sj) * gain, -top, top) * slack)) * (2.0 / max(di, treeDeg(j)));
+    dv += (treeVel(j) - vi + n * ((si - sj) * slack)) * (2.0 / max(di, treeDeg(j)));
   }
-  return dv * mixW;
+  return dv * ${f(K.beatMix)};
 }
 
 // A body bearing tails: its share, as the arm, of the bend at each tail's base that grows from it (the base
@@ -3301,7 +3288,102 @@ ${cellWGSL(K, false)}
   else if (sprout) { childGen = (2u << 2u) << 26u; }
   // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(pack, ce, act == 2u)), n1, n2);
+  // (a cell that died this step is not bodyTick's to move)
+  if (sub && kind != p.kind) { bondsNow[subMark(i)] = 0u; }
   parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0 - gut / ${f(K.dungE)})), info);
+}
+
+// What a coarse step hands bodyTick for a cell it moves (sub), at subAt: the push held for the step (forces and
+// their stiffness correction, stone, taxis, swimming along its motion) and the flow; the stranded film's pull;
+// the will a ridden body is drawn to and the share of its motion it keeps a tick for it; whether it is
+// stranded. Then its mark.
+fn handOver(i: u32, v0: vec2f, push0: vec2f, swim: f32, will: vec2f, willOn: bool, flow: vec2f, pond: vec3f, shore: f32, stranded: bool) {
+  let push = push0 + select(normalize(v0), vec2f(0.0), dot(v0, v0) < 1e-6) * swim;
+  let wg = select(0.0, clamp(${f(K.willGrip)} * sim.dt / f32(sim.ticks), 0.0, 1.0), willOn);
+  let film = select(vec2f(0.0), -pond.yz / max(length(pond.yz), 1e-4) * (${f(K.meniscus)} * (1.0 - smoothstep(0.0, ${f(K.filmR)}, -shore))), stranded);
+  let o = subAt(i);
+  let w = bitcast<vec4u>(vec4f(push, flow)); let w2 = bitcast<vec4u>(vec4f(film, will * wg));
+  for (var k = 0u; k < 4u; k++) { bondsNow[o + k] = w[k]; bondsNow[o + 4u + k] = w2[k]; }
+  bondsNow[o + 8u] = bitcast<u32>(1.0 - wg);
+  bondsNow[o + 9u] = select(0u, 1u, stranded);
+  bondsNow[subMark(i)] = sim.frame + 1u;
+}
+
+// A coarse step's beating trees, moved a tick at a time (subTick): each cell lifeMain handed over (handOver) as a
+// 1/60 s step moves it, from where it and its partners are at that tick (treePos, treeVel): drag across its arm
+// sideDrag times as hard, the push held for the step, its bonds and bend, its muscles (beatPull), the water's
+// flow and the viewer's hand (the crowd's viscosity stays contactMain's, once a step). Reckoned alone over
+// six ticks against its partners' start, a cell swung its beat a third wrong and tore its body (docs/fast-forward.md).
+// The first tick lists the cells (subL: how many, then them); the rest run over the list (subArgs).
+@group(0) @binding(25) var<uniform> subTick: u32;
+@group(0) @binding(26) var<storage, read_write> subL: array<atomic<u32>>;
+@group(0) @binding(27) var<storage, read_write> subArgs: array<u32, 3>;
+@compute @workgroup_size(1)
+fn bodyArgs() { subArgs = array<u32, 3>((atomicLoad(&subL[0]) + 127u) / 128u, 1u, 1u); }
+@compute @workgroup_size(128)
+fn bodyTick(@builtin(global_invocation_id) gid: vec3u) {
+  var i = NONE;
+  if (subTick == 0u) {
+    i = livingList[gid.x];
+    if (i == NONE || !subMoved(i)) { return; }
+    atomicStore(&subL[1u + atomicAdd(&subL[0], 1u)], i);
+  } else {
+    if (gid.x >= atomicLoad(&subL[0])) { return; }
+    i = atomicLoad(&subL[1u + gid.x]);
+  }
+  subK = subTick;
+  let h = sim.dt / f32(sim.ticks);
+  let p = sortedFull[i];
+  let g = genomes[p.kind];
+  let gr = growAt(g, p.info);
+  let o = subAt(i);
+  let pf = subWords(o);
+  let fw = subWords(o + 4u);
+  var pos = treePos(i);
+  var vel = treeVel(i);
+  let drag = g.drag * mix(1.0, ${f(K.holdfast)}, smoothstep(0.35, 0.1, g.advect));
+  let fr0 = pow(0.5, h / drag);
+  let frX = pow(0.5, h * ${f(K.sideDrag)} / drag);
+  var across = vec2f(0.0);
+  let arm = treeArm(i);
+  if (arm != NONE) { let a = treeRel(i, arm); across = vec2f(-a.y, a.x) / max(length(a), 1e-6); }
+  vel = (vel * fr0 - across * (dot(vel, across) * (fr0 - frX)) + pf.xy * h) * bitcast<f32>(bondsNow[o + 8u]) + fw.zw;
+  // bonds (treeBond times as firm as a body's; a tail's base held by an ordinary bond) and bend
+  let role = roleOf(p.info);
+  let kept = bondsOf(i);
+  let n1 = keepBond(i, kept.x, p);
+  var n2 = keepBond(i, kept.y, p);
+  if (n2 == n1) { n2 = NONE; }
+  var bondF = vec2f(0.0);
+  var baseB = vec2f(0.0);
+  for (var k = 0u; k < 2u; k++) {
+    let j = select(n2, n1, k == 0u);
+    if (j == NONE) { continue; }
+    let e = treeRel(i, j); let l = length(e);
+    let f1 = e * ((l - restTo(j, g.size, role, 1.0)) / max(l, 1e-4));
+    bondF += f1 * select(0.0, 1.0, holdsBack(j, i));
+    if (k == 0u && tailCell(g, p.info) && !treeCellAt(j)) { baseB = f1; }
+  }
+  for (var k = 0u; k < backN(i); k++) {
+    let nb = backAt(i, k, p, n1, n2);
+    if (nb == NONE) { continue; }
+    let e = treeRel(i, nb); let l = length(e);
+    bondF += e * ((l - restTo(nb, g.size, role, 1.0)) / max(l, 1e-4));
+  }
+  vel += ((bondF - baseB) * ${f(K.treeBond)} + baseB + bendOn(i, gr) * ${f(K.growStiff)}) * (g.adhesion * ${f(K.bond)} * h);
+  vel += beatPull(i, gr, g.size);
+  if (bondsNow[o + 9u] != 0u) { vel = vel * exp(-${f(K.dryDrag)} * h) + fw.xy * h; }
+  let sp = length(vel);
+  if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
+  pos += (vel + pf.zw) * h;
+  pos += suckFlow(p.id, pos, h);
+  let sc = handPush(pos);
+  if (any(sc != vec2f(0.0))) { pos += sc; vel += normalize(sc) * max(0.0, 1.0 - dot(vel, normalize(sc))); }
+  if (inHandIce(p.pos)) { pos = p.pos; vel = vec2f(0.0); }
+  if (subK + 1u < sim.ticks) {
+    let w = bitcast<vec4u>(vec4f(pos, vel)); let st = subSlot(i, subK + 1u);
+    for (var k = 0u; k < 4u; k++) { bondsNow[st + k] = w[k]; }
+  } else { parts[i].pos = wrapPos(pos); parts[i].vel = vel; }
 }
 
 // --------------------------------------------------------------------- the pipette sets down

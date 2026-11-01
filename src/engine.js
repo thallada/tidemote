@@ -18,6 +18,8 @@ const POST_LOOK = POST_LAMP + 16;
 
 const HDR = 'rgba16float';
 const BLOOM_LEVELS = 6;
+// the longest step bodyTick has substep slots for (the page takes at most 6 ticks; tools may ask more)
+const SUB_TICKS = 16;
 // absent in a browser without WebGPU, which must still load the page to say so
 const U = globalThis.GPUBufferUsage ?? {};
 export const PICK_MAX = 131072;
@@ -56,7 +58,8 @@ export async function createEngine(device, format, { hasTimestamps = false, K = 
 // in parallel). Their rough compile costs there, in units of about 100 ms, weigh the progress shown.
 // The longest to compile, and not needed to start a world: coarse steps (fast speeds, low frame rates)
 // and the replay of a watched cell's decision.
-const LATE = new Set(['lifeMainCoarse', 'mindMain', 'mindMainCoarse', 'rangeMain']);
+const COARSE_PIPES = ['lifeMainCoarse', 'bodyTick', 'bodyArgs'];
+const LATE = new Set([...COARSE_PIPES, 'mindMain', 'mindMainCoarse', 'rangeMain']);
 const COMPILE_COST = { lifeMain: 26, fsPoint: 15, 'fsPointLive+live': 13, fsComposite: 11, fsLoupe: 8, matterMain: 5 };
 
 
@@ -147,6 +150,10 @@ class Engine {
     const d = device;
     const b = this.b;
     b.sim = d.createBuffer({ size: 848, usage: U.UNIFORM | U.COPY_DST });
+    // each substep's index (bodyTick), one 256-byte slot apiece, for steps of up to SUB_TICKS ticks
+    b.subU = d.createBuffer({ size: SUB_TICKS * 256, usage: U.UNIFORM | U.COPY_DST });
+    for (let k = 0; k < SUB_TICKS; k++) d.queue.writeBuffer(b.subU, k * 256, new Uint32Array([k]));
+    b.subArgs = d.createBuffer({ size: 16, usage: U.STORAGE | U.INDIRECT });
     // the heat field: deposits, temperatures and husks per cell, and heatMain's next temperatures (shaders.js); then
     // the pool's floor, each cell's relief quantile (src/geography.js)
     b.thermal = d.createBuffer({ size: 3 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
@@ -286,6 +293,10 @@ class Engine {
     this.cpDefs.bondBackMain = [0, 2, 12, 20];
     // contact between living cells, in its own pass before lifeMain (contactMain)
     this.cpDefs.contactMain = [0, 2, 3, 6, 10, 12];
+    // a coarse step's beating trees, a tick at a time (bodyTick: one dispatch a tick, the
+    // first listing the cells, bodyArgs sizing the rest)
+    this.cpDefs.bodyTick = [0, 1, 2, 10, 11, 12, 15, 18, 25, 26];
+    this.cpDefs.bodyArgs = [26, 27];
     // what the pipette sets down, between steps (genomeWords: the genomes, as words)
     this.cpDefs.injectSlots = [0, 11, 23];
     this.cpDefs.injectCells = [0, 1, 9, 11];
@@ -296,7 +307,8 @@ class Engine {
     this.cp = {};
     for (const name of Object.keys(this.cpDefs)) {
       const coarse = name.endsWith('Coarse');
-      const desc = { layout: 'auto', compute: { module: this.simModule, entryPoint: coarse ? name.slice(0, -6) : name, ...(coarse ? { constants: { COARSE: 1 } } : {}) }, label: name };
+      const constants = coarse ? { COARSE: 1 } : name === 'bodyTick' ? { SUBSTEP: 1 } : null;
+      const desc = { layout: 'auto', compute: { module: this.simModule, entryPoint: coarse ? name.slice(0, -6) : name, ...(constants ? { constants } : {}) }, label: name };
       if (late && LATE.has(name)) {
         // compiles on after the engine is returned: in place (with its bind group, once particles are allocated) when ready
         const c = (this.cp[name] = { pipe: null, bg: null });
@@ -434,9 +446,19 @@ class Engine {
       { binding: 2, resource: { buffer: b.specks } }, { binding: 3, resource: { buffer: b.microArgs } }] });
   }
 
+  /** Clear the bond table, bodyTick's marks with it (scatterMain fills the bonds afresh each step). */
+  _clearSubMarks() {
+    const enc = this.device.createCommandEncoder();
+    enc.clearBuffer(this.b.bondsNow);
+    this.device.queue.submit([enc.finish()]);
+  }
+
   _cpBind(name) {
     const c = this.cp[name], res = this._cpRes;
     c.bg = this.device.createBindGroup({ layout: c.pipe.getBindGroupLayout(0), entries: this.cpDefs[name].map((id) => ({ binding: id, resource: res[id] })) });
+    // (bodyTick: a bind group per substep, its index's slot)
+    if (name === 'bodyTick') c.bgs = Array.from({ length: SUB_TICKS }, (_, k) => this.device.createBindGroup({ layout: c.pipe.getBindGroupLayout(0),
+      entries: this.cpDefs[name].map((id) => ({ binding: id, resource: id === 25 ? { buffer: this.b.subU, offset: k * 256, size: 16 } : res[id] })) }));
   }
 
   async compileErrors() {
@@ -467,7 +489,10 @@ class Engine {
     b.sortedLite = d.createBuffer({ size: n * LITE_BYTES, usage: U.STORAGE });
     b.aux = d.createBuffer({ size: n * 8, usage: U.STORAGE });
     b.intent = d.createBuffer({ size: n * 16, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
-    b.bondsNow = d.createBuffer({ size: n * 36, usage: U.STORAGE | U.COPY_SRC });
+    // (BW words a cell, then SW and a mark for the substeps: shaders.js)
+    b.bondsNow = d.createBuffer({ size: n * (9 + 18 + 1) * 4, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
+    b.subL?.destroy();
+    b.subL = d.createBuffer({ size: (1 + n) * 4, usage: U.STORAGE | U.COPY_DST });
     b.bondsIn = d.createBuffer({ size: n * 20, usage: U.STORAGE });
     // contacts start absent (NONE) until the first gather in view
     b.touch = d.createBuffer({ size: n * 24, usage: U.STORAGE, mappedAtCreation: true });
@@ -489,6 +514,7 @@ class Engine {
       12: { buffer: b.livingList }, 13: { buffer: b.frameCtr }, 14: { buffer: b.stoneGrid },
       15: { buffer: b.bondsNow }, 20: { buffer: b.bondsNow }, 16: { buffer: b.stoneList }, 17: { buffer: b.mind }, 18: { buffer: b.thermal }, 19: { buffer: b.heatNext },
       22: { buffer: b.stoneGrid }, 23: { buffer: b.genomes },
+      25: { buffer: b.subU, offset: 0, size: 16 }, 26: { buffer: b.subL }, 27: { buffer: b.subArgs },
     };
     this._cpRes = res;
     for (const name of Object.keys(this.cpDefs)) if (this.cp[name].pipe) this._cpBind(name);
@@ -724,6 +750,7 @@ class Engine {
     this.grid = this.gridFor(n, aspect);
     this.simTime = 0;
     this.frameNo = 0;
+    this._clearSubMarks();
     this.tick = 0;
     this.seedValue = (rng() * 0xffffffff) >>> 0;
     this.sorted = false;
@@ -1113,6 +1140,7 @@ class Engine {
     this.simTime += simDt;
     this.frameNo++;
     this.ticks = Math.max(1, Math.round(simDt * 60));
+    if (this.ticks > SUB_TICKS) throw new Error(`a step of ${this.ticks} ticks: at most ${SUB_TICKS}`);
     this.tick += this.ticks;
     if (ring < 0) this._writeSim();
     else {
@@ -1130,6 +1158,7 @@ class Engine {
     // litter on the ground (META_DEATH + 60) and cysts per guild (57-59, 61, 62), counted afresh each step
     enc.clearBuffer(b.ledger, (META_DEATH + 57) * 4, 6 * 4);
     enc.clearBuffer(b.frameCtr, 0, 4);
+    enc.clearBuffer(b.subL, 0, 4);
     enc.clearBuffer(b.frameCtr, 36, 4);
     enc.clearBuffer(b.ledger, 48, 12);
     let pass = prof ? null : enc.beginComputePass({ timestampWrites });
@@ -1157,6 +1186,15 @@ class Engine {
     run('contactMain', null);
     run('bondBackMain', null);
     run(this.ticks > 1 ? 'lifeMainCoarse' : 'lifeMain', null);
+    if (this.ticks > 1) {
+      // the substeps (timed as one pass): the first over every living cell, listing those lifeMain handed over
+      if (prof) { const q = prof.names.push('bodyTick') * 2 - 2; pass = enc.beginComputePass({ timestampWrites: { querySet: prof.qs, beginningOfPassWriteIndex: q, endOfPassWriteIndex: q + 1 } }); }
+      const c = this.cp.bodyTick;
+      pass.setPipeline(c.pipe); pass.setBindGroup(0, c.bgs[0]); pass.dispatchWorkgroupsIndirect(b.frameCtr, 4);
+      pass.setPipeline(this.cp.bodyArgs.pipe); pass.setBindGroup(0, this.cp.bodyArgs.bg); pass.dispatchWorkgroups(1);
+      for (let k = 1; k < this.ticks; k++) { pass.setPipeline(c.pipe); pass.setBindGroup(0, c.bgs[k]); pass.dispatchWorkgroupsIndirect(b.subArgs, 0); }
+      if (prof) pass.end();
+    }
     if (this.K.heat) run('heatMain', Math.ceil(cells / 64));
     if (!prof) pass.end();
     // the next temperatures become this step's
@@ -1211,6 +1249,8 @@ class Engine {
     for (const [k, buf] of Object.entries(keep.gpu)) enc.copyBufferToBuffer(buf, 0, b[k], 0, buf.size);
     d.queue.submit([enc.finish()]);
     const c = keep.cpu;
+    // (bodyTick's marks are the step count: a world put back to an earlier count must not find later ones)
+    this._clearSubMarks();
     Object.assign(this, { simTime: c.simTime, frameNo: c.frameNo, tick: c.tick, season: c.season, abio: c.abio,
       ambient: c.ambient, seedValue: c.seedValue, temp: c.temp, excursion: c.excursion,
       level: c.level ?? 1, rain: c.rain ?? 0, sky: c.sky ?? 1, evap: c.evap ?? 0, turb: c.turb ?? 1, frost: c.frost ?? 0, freezing: c.freezing ?? 0 });
@@ -1558,7 +1598,7 @@ class Engine {
     const stepping = !paused && N > 0;
     // until coarse steps have compiled (late), a coarse step is taken as that many fine ones
     const coarse = Math.round(simDt * 60);
-    if (coarse > 1 && !this.cp.lifeMainCoarse.bg) { steps *= coarse; simDt /= coarse; }
+    if (coarse > 1 && !COARSE_PIPES.every((n) => this.cp[n].bg)) { steps *= coarse; simDt /= coarse; }
     const nSteps = stepping ? Math.min(MAX_STEPS, Math.max(1, steps | 0)) : 0;
     const tm = this.timing;
     // profiling times every pass instead (_profileEncoder)
