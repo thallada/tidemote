@@ -3734,7 +3734,6 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   genomes[slot] = g;
 }
 
-// Bedrock: sim.rock.x outcrops, each a wandering chain of five discs of radius about sim.rock.y.
 // A new particle's id. The counter is a u32 and wraps after 2^32 births (days at Max in a big world);
 // NONE (the page's "no particle") is skipped.
 fn newId() -> u32 {
@@ -3742,22 +3741,46 @@ fn newId() -> u32 {
   if (id == NONE) { id = atomicAdd(&ledger[0], 1u); }
   return id;
 }
-fn inRock(p: vec2f) -> bool {
+// Smooth noise over the world, 0..1, its lattice about size across and a whole number of cells across each side (so it
+// wraps with the world), drawn from the world's seed and salt.
+fn rockGrad(c: vec2f, f: vec2f, cells: vec2f, salt: u32) -> f32 {
+  let m = vec2u(c - cells * floor(c / cells));
+  let h = f32(pcg(sim.seed ^ pcg(m.x * 7919u + m.y * 104729u + salt)) >> 8u) / 16777216.0;
+  return dot(vec2f(h, fract(h * 37.17)) * 2.0 - 1.0, f) * 1.3;
+}
+fn rockNoise(p: vec2f, size: f32, salt: u32) -> f32 {
+  let cells = max(vec2f(1.0), round(sim.world / size));
+  let q = p / sim.world * cells;
+  let c = floor(q);
+  let f = q - c;
+  let w = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  let n = mix(mix(rockGrad(c, f, cells, salt), rockGrad(c + vec2f(1.0, 0.0), f - vec2f(1.0, 0.0), cells, salt), w.x),
+    mix(rockGrad(c + vec2f(0.0, 1.0), f - vec2f(0.0, 1.0), cells, salt), rockGrad(c + vec2f(1.0, 1.0), f - vec2f(1.0, 1.0), cells, salt), w.x), w.y);
+  return clamp(0.5 + 0.9 * n, 0.0, 1.0);
+}
+// Bedrock: the chance a grain of the founding mud at p is bedrock. sim.rock.x outcrops, each about a wandering chain of
+// five discs of radius about sim.rock.y, as it was laid down rather than cut out: the chain's outline warped and
+// frayed by noise into lobes, inlets and islands, thinning toward its edge with strays beyond it, and denser and
+// sparser in patches within.
+fn rockChance(p: vec2f) -> f32 {
+  let R = sim.rock.y;
+  let w = p + (vec2f(rockNoise(p, 1.6 * R, 1u), rockNoise(p, 1.6 * R, 2u)) - 0.5) * 2.2 * R;
+  var field = -9.0; // 1 at a disc's middle, 0 at its edge
   for (var b = 0u; b < u32(sim.rock.x); b++) {
     var s = pcg(sim.seed ^ pcg(b * 7919u + 17u));
     var c = vec2f(rnd(&s), rnd(&s)) * sim.world;
     var a = rnd(&s) * TAU;
-    let r0 = sim.rock.y * (0.5 + rnd(&s));
+    let r0 = R * (0.5 + rnd(&s));
     for (var k = 0u; k < 5u; k++) {
       let r = r0 * (0.6 + 0.6 * rnd(&s));
-      var d = p - c;
+      var d = w - c;
       d -= sim.world * round(d / sim.world);
-      if (dot(d, d) < r * r) { return true; }
+      field = max(field, 1.0 - length(d) / r);
       a += (rnd(&s) - 0.5) * 1.6;
       c += vec2f(cos(a), sin(a)) * r * 1.3;
     }
   }
-  return false;
+  return smoothstep(-0.4, 0.15, field + 0.65 * (rockNoise(p, 0.6 * R, 3u) - 0.5)) * (0.55 + 0.45 * smoothstep(0.3, 0.7, rockNoise(p, 0.45 * R, 4u)));
 }
 
 // ---------------------------------------------------------------- seeding
@@ -3796,7 +3819,7 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
       info |= CYST; age = -wait; e += ${f(K.cystLeak)} * wait;
     }
   }
-  if (kind == SILT && sim.rock.x > 0.0 && inRock(pos)) {
+  if (kind == SILT && sim.rock.x > 0.0 && rnd(&s) < rockChance(pos)) {
     kind = STONE; e = ${f(K.rockLife)} * (0.5 + rnd(&s)); col = pack4x8unorm(vec4f(0.46, 0.42, 0.38, 1.0));
   } else if (kind == SILT && HEAT_ON && rnd(&s) < ${f(K.framboids)}
              && f32(pcg(sim.seed ^ pcg(u32(pos.x / 5.0) * 7919u + u32(pos.y / 5.0) * 104729u)) >> 8u) / 16777216.0 < 0.25) {
@@ -32231,9 +32254,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "561b638701e89526") return;
+      if (localStorage.getItem(key) === "174579e250fa98a4") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "561b638701e89526");
+      if (res) localStorage.setItem(key, "174579e250fa98a4");
     } catch {
     }
   }
