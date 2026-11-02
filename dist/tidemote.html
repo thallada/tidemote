@@ -797,10 +797,11 @@ dd { margin: 0; color: var(--ink-2); }
 .tags span:first-child { border-color: var(--line-2); color: var(--ink); }
 /* compact, under the species' name: two short lines for most species */
 .tags.sm { gap: 3px; }
-/* between the actions and the readings: at most two lines (the rest behind a +n chip). A species'
-   tags never change while it is open, so the height may follow them. */
+/* between the actions and the readings: at most two lines (the rest behind a +n chip, which opens
+   to all of them). A species' tags never change while it is open, so the height may follow them. */
 #spec-tags { max-height: 41px; overflow: hidden; align-content: flex-start; flex: none; }
-#spec-tags .more { border-style: dashed; color: var(--ink-3); cursor: help; }
+#spec-tags .more { border-style: dashed; color: var(--ink-3); cursor: pointer; }
+#spec-tags.all { max-height: none; }
 #spec-tags:empty { display: none; }
 .tags.sm span { padding: 1px 5px; font-size: 11px; letter-spacing: .08em; }
 /* a mix of cell types (specimen comp): a trait row whose meter is split by type */
@@ -27354,13 +27355,15 @@ ${e.message}` : String(e?.message || e));
       return `<div class="trait mixrow"><span>${term(tip, label3)}</span><span class="mixbar">${seg}</span><b class="term" tabindex="0" data-hint="${esc(hint)}">${val}</b></div>`;
     };
     const tagsEl = $3("spec-tags");
+    let allTags = "";
     function setTags(g) {
       const key = g ? `sp${g.serial}` : "";
       if (tagsEl.dataset.k === key) return;
       tagsEl.dataset.k = key;
+      tagsEl.classList.remove("all");
       const all = g ? tagsOf(g, K) : [];
       const chip = ([t2, k]) => `<span class="term" data-tip="${k}" tabindex="0">${t2}</span>`;
-      tagsEl.innerHTML = all.map(chip).join("");
+      tagsEl.innerHTML = allTags = all.map(chip).join("");
       if (!tagsEl.clientHeight && all.length) {
         tagsEl.dataset.k = "";
         return;
@@ -27368,9 +27371,19 @@ ${e.message}` : String(e?.message || e));
       const fits = () => tagsEl.scrollHeight <= tagsEl.clientHeight + 1;
       for (let n = all.length - 1; n > 0 && !fits(); n--) {
         const rest = all.slice(n).map(([t2]) => t2);
-        tagsEl.innerHTML = all.slice(0, n).map(chip).join("") + `<span class="more" tabindex="0" data-hint="Also: ${esc(rest.join(", "))}">+${rest.length}</span>`;
+        tagsEl.innerHTML = all.slice(0, n).map(chip).join("") + `<span class="more" role="button" tabindex="0" data-hint="Also: ${esc(rest.join(", "))}. Show them all">+${rest.length}</span>`;
       }
     }
+    function expandTags(e) {
+      if (!e.target.closest(".more")) return;
+      if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      tagsEl.classList.add("all");
+      tagsEl.innerHTML = allTags;
+      document.activeElement?.blur?.();
+    }
+    tagsEl.addEventListener("click", expandTags);
+    tagsEl.addEventListener("keydown", expandTags);
     const blk = (title, html, opts) => block(title, html, opts);
     const vital = (label3, frac, cls, text2, tip) => `<div class="vital"><span>${tip ? term(tip, label3) : label3}</span>${meter(frac, cls)}<b>${text2}</b></div>`;
     const warmthVital = (m, g, text2) => {
@@ -27794,6 +27807,7 @@ ${e.message}` : String(e?.message || e));
     function open() {
       if (root.hidden) {
         root.hidden = false;
+        tagsEl.dataset.k = "";
         setFull(false, false);
         document.body.classList.add("spec-open");
       }
