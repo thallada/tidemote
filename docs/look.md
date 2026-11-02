@@ -12,7 +12,7 @@ and `T.look.off()`, and a perf plan's scenario with `look: "on"` or `"off"`.
 
 | Stage | Function | Tunables |
 | --- | --- | --- |
-| The world's light, around the tone curve | `sceneLit`, `litShow`, `floorLit`, `seaFocus` (Light, below) | none: `LIT_*` in POST_WGSL |
+| The world's light, after the tone curve | `sceneLit`, `litGain`, `litShow`, `floorLit`, `seaFocus` (Light, below) | none: `LIT_*` in POST_WGSL |
 | Scene light, before the tone curve | `lookScene` | relief (DIC), rims (darkfield), rainbow rims (`prism`: each edge colored by the side it faces), color fringes; halation and veiling flare (from the bloom's blur) |
 | Objective | `lensScene`, the field stop in `fsComposite` | shallow focus (`dof`: the optics' depth blur anywhere, not only toward the rim), the field iris |
 | Tone curve | `lookTone` | film: AgX's curve mixed in for `tonemap`'s |
@@ -157,20 +157,22 @@ before the cache they were 6.15, 6.25, 6.23 and 7.05.
 
 The light producers feed on lights the scene, so the Tide's bands and the hand's lamp show on what they fall on rather
 than as a tint over the water. `sceneLit` (POST_WGSL) mirrors `lightAt`: the bands by the season over the era's
-baseline, under the sky (`pond.z`, darkness) and any duckweed, and the lamp (added) or shade (taken). The view is
-exposed for the season, as an eye adjusts: the open water at `LIT_DIM` (0.45 in winter, 0.5 in summer) and a band at
-its brightest at least `LIT_RISE` times that (2.6, 4.5): a summer's bands already rise more than that over the open
-water, a winter's (the light only 1.4x the open water's) are stretched to it, so they show, dimmer than a summer's.
-About a third of that exposure (`LIT_HDR`, in log) multiplies the scene before the tone curve, so what is lit glows,
-cool in the shade, warm in the sun and amber by the lamp's share; the rest multiplies the toned view (`litShow`), where
-the tone curve cannot squeeze it, rolling off toward white above `LIT_KNEE` rather than clipping. The shade also grays
-and cools what lies in it, as moonlight would (to `LIT_GRAY`, 62% of its color, at the open water's light), so a band
-reads as warm color against gray from afar. The empty water shows it too: the pond's floor, the murk behind the
-cells, glows where the light falls (`floorLit`: warm white, amber under the lamp, faint in the shade; with Optics on).
-The sea's caustics focus it (`seaFocus`: stronger in the sun), the crests' sheen and the suspension's specks take its
-brightness. The close-up (specimen viewer, card portraits) stays unlit, so a species looks the same wherever it was
-caught. Stone's cache is lit once, so the light is applied after it, in the composite, every frame. The Light map (G,
-on or off) still draws the light itself as a ramp; the faint teal tint it once had in place of all this is gone.
+baseline, under the sky (`pond.z`, darkness) and any duckweed, and the lamp (added) or shade (taken), as `r`: how
+bright, in log, from the open water's light (0) to a summer band's (1, `LIT_SPAN` 4.4 times it). A winter's bands
+reach only about a quarter of that, so they barely show, as they should; the lamp goes past 1, the shade below 0. The
+light multiplies the toned view (`litShow`, after the tone curve so it is not squeezed, rolling off toward white above
+`LIT_KNEE`) by `litGain`: strongly on what lies on the floor, stone and silt (`LIT_GROUND`, 0.65x out of the light to
+1.9x in a band), gently on the living (`LIT_CELL`, 0.92x to 1.12x), who keep their colors. The living are told from the
+matter by their share of each pixel's light: the living's layer (`liveTex`), which the splat (sprites of a pixel or so,
+`splatMain`/`fsSplat`) fills too, with the living's own light kept in a fifth channel and laid there uncovered. The empty
+water shows the light most: the pond's floor, the murk behind the cells, glows golden where the light falls
+(`floorLit`; amber under the lamp, faint in the shade; with Optics on). Before the tone curve the scene only takes the
+light's color: cool in the shade, warm in the sun, amber by the lamp's share. The sea's caustics focus it (`seaFocus`:
+stronger in the sun), the crests' sheen and the suspension's specks take the ground's gain. The loupe has no layer of
+the living of its own, so all of it is lit as the living (its floor glows as the view's). The close-up (specimen
+viewer, card portraits) stays unlit, so a species looks the same wherever it was caught. Stone's cache is lit once, so
+the light is applied after it, in the composite, every frame. The Light map (G, on or off) still draws the light
+itself as a ramp; the faint teal tint it once had in place of all this is gone.
 
 Chosen (2026-11-02) by photographing one frozen world through `tools/looklab.mjs` with candidate composites swapped
 in (plain exposure; two illuminants; procedural caustics; cells' shadows on the floor; highlights taking the light
@@ -183,12 +185,13 @@ procedural caustics as stray hairs; shadows showed only over stone.
 Filmed at 4K over a whole season, that first version (all of the light before the tone curve) was hard to see: the tone
 curve squeezed a band's 3.7x over the open water to 1.65x on screen at summer's peak, and in winter, half of every
 five-minute season, the bands rose only 1.4x and showed as nothing (`runs/light/film*.mjs` film one frozen world
-frame by frame, the Tide swept across it, every version swapped in). Lit cells are already near the top of the
-display, so a band shows by what lies outside it: the second round (`runs/light/v2.mjs`, measured per pixel against
-the same world unlit, at summer's peak and deep winter) moved most of the light after the tone curve, exposed for the
-season, grayed the shade and tripled the floor's glow. Against the first: lit cells' brightness over dim ones 2.1-2.5x
-in summer (2.0-2.3x) and 1.5-1.65x in winter (1.2x); their color 3.0x in summer (1.9x) and 2.3-2.7x in winter (1.2x).
-Graying the shade to 45% of its color read best from afar but hid the species' colors; 62% keeps them.
+frame by frame, the Tide swept across it, every version swapped in). A second round exposed the view for the season
+(winter's bands stretched to 2.6x), moved most of the light after the tone curve and grayed the shade: plain, but it
+dimmed and grayed the cells out of the light, and the worlds lost their color. So the third (`runs/light/v2.mjs`,
+`metric3.py`: per pixel against the same world unlit, the living, the matter and the empty water apart, at summer's
+peak and in deep winter) leaves the living nearly alone and lets stone, silt and the floor carry the light: in a summer
+band against outside it, stone and silt 1.7-2.6x against 0.95x, the floor twice as bright, the living 1.1x against 1.0x;
+in winter a trace (stone and silt 1.1x against 0.92x).
 
 ## Left out
 

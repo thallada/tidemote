@@ -431,7 +431,7 @@ class Engine {
     });
     this.main = {
       point: rpLive(this.drawModule, 'vsPoint', 'fsPointLive', 'triangle-strip', trail, true),
-      splat: rpLive(this.drawModule, 'vsFade', 'fsSplat', 'triangle-list', trail, false),
+      splat: rpLive(this.drawModule, 'vsFade', 'fsSplat', 'triangle-list', trail, true),
       line: rpLive(this.drawModule, 'vsLine', 'fsLine', 'line-list', trail, false),
       bridge: rpLive(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', trail, false),
       reproj: rpLive(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, false),
@@ -727,7 +727,7 @@ class Engine {
     this.holdCam = null;
     this.clearAccum = !this.carry;
     this.b.splat?.destroy();
-    this.b.splat = d.createBuffer({ size: w * h * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this.b.splat = d.createBuffer({ size: w * h * 20, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this._splatBGs();
   }
 
@@ -2370,7 +2370,7 @@ class Engine {
     this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0], splat);
     if (splat) {
       d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0]));
-      enc.clearBuffer(this.b.splat, 0, W * H * 16);
+      enc.clearBuffer(this.b.splat, 0, W * H * 20);
       const pass = enc.beginComputePass({ timestampWrites: tsBegin() });
       pass.setPipeline(this.cpSplat); pass.setBindGroup(0, this.splatBG); pass.dispatchWorkgroups(Math.ceil(this.count / 256));
       pass.end();
