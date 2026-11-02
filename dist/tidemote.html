@@ -23771,6 +23771,7 @@ ${e.message}` : String(e?.message || e));
     singlecelled: "Its cells never bond: each one is a whole organism, however closely they crowd. A species bonds into multicellular bodies only once its adhesion passes 15%.",
     anchored: "Barely moves and holds against the currents: a reef or a mat.",
     drifting: "Carried by the currents.",
+    crawler: "Moves under its own power, but too weakly to count as a swimmer, and is not simply carried by the currents. Any species that is not anchored, a swimmer or a drifter is a crawler.",
     focus: "A highlight: everything outside the chosen filter is dimmed in the simulation.",
     links: "Bonds between cells of one multicellular body. Single-celled species never show links.",
     chronicler: "The chronicler reads the census and a ledger of who ate whom, how each species died and where it lives, and now and then writes what happened in the log: a death worth remembering and its cause, an arms race, hunters and hunted cycling, a lineage following the water, the last of a guild, what an era or an event did. It speaks only when something notable has happened, a few times an hour at most. Lab → Log → Chronicler shows its entries alone.",
@@ -25836,7 +25837,7 @@ ${e.message}` : String(e?.message || e));
     for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) self += sh[a] * sh[b] * affinity(g, a, g, b, K);
     if (multi) tags.push(self > 0.3 ? ["compact body", "colonial"] : self < -0.1 ? ["stringy body", "solitary"] : ["loose body", "looseknit"]);
     else tags.push(self > 0.3 ? ["swarming", "colonial"] : self < -0.1 ? ["solitary", "solitary"] : ["loose-knit", "looseknit"]);
-    tags.push([f2.mobility, { anchored: "anchored", drifter: "drifting", swimmer: "swimming", crawler: "thrust" }[f2.mobility]]);
+    tags.push([f2.mobility, { anchored: "anchored", drifter: "drifting", swimmer: "swimming", crawler: "crawler" }[f2.mobility]]);
     if (f2.schooling) tags.push(["schooling", "schooling"]);
     if (g.photo > 0.25 && g.photo <= 0.55) tags.push(["part photosynth", "photosynth"]);
     if (g.lifespan > 300) tags.push(["long-lived", "lifespan"]);
