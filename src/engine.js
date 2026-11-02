@@ -20,6 +20,11 @@ const HDR = 'rgba16float';
 const BLOOM_LEVELS = 6;
 // the longest step bodyTick has substep slots for (the page takes at most 6 ticks; tools may ask more)
 const SUB_TICKS = 16;
+// the stone cache (_stoneStale): how much larger than the view on each axis, how far the view may zoom from where it
+// was drawn before it is drawn again, and how often at most it is drawn again while the world runs (seconds)
+const STONE_MARGIN = 1.2;
+const STONE_ZOOM = 1.06;
+const STONE_EVERY = 0.5;
 // absent in a browser without WebGPU, which must still load the page to say so
 const U = globalThis.GPUBufferUsage ?? {};
 export const PICK_MAX = 131072;
@@ -116,6 +121,7 @@ class Engine {
     this.waves = new Float32Array(16);
     this.viewData = new ArrayBuffer(112);
     this.viewDataL = new ArrayBuffer(112);
+    this.viewDataC = new ArrayBuffer(112); // the stone cache's view (_stoneStale)
     // (after the sea's: the hand's lamp, the warm stage's lens, the instrument)
     this.postData = new Float32Array(POST_LOOK + LOOK_WORDS);
     // the look (src/look.js): its words, set by the page (all 0: the bare view)
@@ -145,6 +151,7 @@ class Engine {
     this.onMind = null;
     this._mindFrames = 0;
     this.lastCam = null;
+    this.focusVer = 0; // (_stoneStale)
     this.accIdx = 0;
     this.size = [0, 0];
     this.b = {};
@@ -165,6 +172,15 @@ class Engine {
     b.view = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
     b.viewL = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
     b.viewS = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
+    b.viewC = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
+    b.stoneXf = d.createBuffer({ size: 16, usage: U.UNIFORM | U.COPY_DST });
+    // the bands of depth the grains are drawn in, from the top of the pile down (cobbleZ runs 0.27 to 0.76; framboids
+    // and the selected grain above), and one taking all of them for the edges
+    b.stoneBands = [[0.62, 2], [0.52, 0.62], [0.43, 0.52], [-1, 0.43], [-1, 2]].map((band) => {
+      const u = d.createBuffer({ size: 16, usage: U.UNIFORM | U.COPY_DST });
+      d.queue.writeBuffer(u, 0, new Float32Array([...band, 0, 0]));
+      return u;
+    });
     b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
     b.post = d.createBuffer({ size: (POST_LOOK + LOOK_WORDS) * 4, usage: U.UNIFORM | U.COPY_DST });
     // the sea (SEA_WGSL, src/sea.js): its uniforms, and every cascade's slope and displacement, mipmapped (its
@@ -351,13 +367,32 @@ class Engine {
     this.cpSplat = cPipe({ layout: 'auto', compute: { module: this.drawModule, entryPoint: 'splatMain' }, label: 'splatMain' });
     this.pLine = rp(this.drawModule, 'vsLine', 'fsLine', 'line-list', additive);
     // stone: the highest cobble at each pixel wins the depth test and writes its color and surface (vsStone)
+    // (only where a grain covers the pixel whole; its antialiased edge follows, blended over the grain or water
+    // beneath, behind any higher grain: a partly covered pixel written alone would be a dark seam, as if outlined)
     this.pStone = rPipe({ layout: 'auto', label: 'fsStone', primitive: { topology: 'triangle-strip' },
       depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'greater' },
       vertex: { module: this.drawModule, entryPoint: 'vsStone' },
       fragment: { module: this.drawModule, entryPoint: 'fsStone', targets: [{ format: HDR }, { format: HDR }] } });
+    // the edge: its color over what is beneath, alpha the larger (its coverage over bare water, or the order of the
+    // cobble beneath, fsStone); its slope and height likewise (its alpha its coverage), keeping the flags beneath
+    const edgeOver = { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'max' } };
+    const surfOver = { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' } };
+    this.pStoneEdge = rPipe({ layout: 'auto', label: 'fsStone edge', primitive: { topology: 'triangle-strip' },
+      // (strictly over: the edge lies outside its own grain, so the grain's own pixels are passed over unshaded)
+      depthStencil: { format: 'depth32float', depthWriteEnabled: false, depthCompare: 'greater' },
+      vertex: { module: this.drawModule, entryPoint: 'vsStone' },
+      fragment: { module: this.drawModule, entryPoint: 'fsStone', constants: { STONE_EDGE: 1 }, targets: [{ format: HDR, blend: edgeOver }, { format: HDR, blend: surfOver }] } });
     this.pBridge = rp(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', additive);
     this.pStudio = rp(this.drawModule, 'vsStudio', 'fsPoint', 'triangle-strip', additive);
     this.pDown = rp(this.postModule, 'vsFull', 'fsDown', 'triangle-list', undefined);
+    // stone lit beneath the cells, into the scene the composite, the bloom, the loupe and the close-up read: the main
+    // view's from the stone cache (fsStoneCache, drawn when stale), with each pixel's place in the pile for the
+    // composite's focus; the loupe's and the close-up's lit as they are drawn
+    this.pStoneCache = rp(this.postModule, 'vsFull', 'fsStoneCache', 'triangle-list', undefined);
+    this.pStoneLit = rPipe({ layout: 'auto', label: 'fsStoneLit', primitive: { topology: 'triangle-list' },
+      vertex: { module: this.postModule, entryPoint: 'vsFull' },
+      fragment: { module: this.postModule, entryPoint: 'fsStoneLit', targets: [{ format: HDR }, { format: HDR }] } });
+    this.pStoneLitM = rp(this.postModule, 'vsFull', 'fsStoneLitMicro', 'triangle-list', undefined);
     this.pUp = rp(this.postModule, 'vsFull', 'fsUp', 'triangle-list', additive);
     this.pMurk = rp(this.postModule, 'vsFull', 'fsMurk', 'triangle-list', undefined);
     this.pComp = rp(this.postModule, 'vsFull', 'fsComposite', 'triangle-list', undefined, format);
@@ -555,9 +590,12 @@ class Engine {
       { binding: 16, resource: { buffer: b.quads } }] });
     this.organsBG = d.createBindGroup({ layout: this.cpOrgans.getBindGroupLayout(0), entries: [
       { binding: 7, resource: { buffer: b.genomes } }, { binding: 9, resource: { buffer: b.organDir } }] });
-    const stoneBG = (view) => d.createBindGroup({ layout: this.pStone.getBindGroupLayout(0), entries:
-      [[0, view], [1, b.parts], [2, b.genomes], [5, b.focus], [7, b.stoneList], [11, b.thermal]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
-    this.bgStone = stoneBG(b.view); this.bgStoneL = stoneBG(b.viewL); this.bgStoneS = stoneBG(b.viewS);
+    const stoneEntries = (view, band) => [[0, view], [1, b.parts], [2, b.genomes], [5, b.focus], [7, b.stoneList], [11, b.thermal], [17, band]]
+      .map(([binding, buffer]) => ({ binding, resource: { buffer } }));
+    const stoneBG = (view) => [
+      b.stoneBands.slice(0, 4).map((band) => d.createBindGroup({ layout: this.pStone.getBindGroupLayout(0), entries: stoneEntries(view, band) })),
+      d.createBindGroup({ layout: this.pStoneEdge.getBindGroupLayout(0), entries: stoneEntries(view, b.stoneBands[4]) })];
+    this.bgStone = stoneBG(b.viewC); this.bgStoneL = stoneBG(b.viewL); this.bgStoneS = stoneBG(b.viewS);
     const inbondRes = [null, b.intent, b.parts, b.bondsIn, b.inbondU, b.cellStart, b.touch, b.genomes, b.sway];
     const inbondUse = [[2, 3, 4, 5], [1, 2, 3, 4, 5], [1, 2, 4, 5, 6, 7, 8]];
     this.inbondBG = this.cpInbond.map((pipe, k) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0),
@@ -626,9 +664,24 @@ class Engine {
     }
     const tex = (tw, th) => d.createTexture({ size: [Math.max(1, tw), Math.max(1, th)], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
     this.accum = [tex(w, h), tex(w, h)];
-    this.stoneTex?.forEach((t) => t.destroy());
-    this.stoneTex = [tex(w, h), tex(w, h), d.createTexture({ size: [w, h], format: 'depth32float', usage: GPUTextureUsage.RENDER_ATTACHMENT })];
+    // the stone cache: a little more than the view on every side (STONE_MARGIN), so it serves while the view pans and
+    // zooms a little (_stoneStale); the stone targets it is lit from, at its size; and the view's scene (cells over
+    // stone) and each pixel's place in the pile, which the composite reads
+    const cw = Math.ceil(w * STONE_MARGIN), ch = Math.ceil(h * STONE_MARGIN);
+    this.stoneSize = [cw, ch];
+    this.stoneCam = null;
+    [...(this.stoneTex ?? []), this.stoneCache, this.sceneTex, this.orderTex].forEach((t) => t?.destroy());
+    this.stoneTex = [tex(cw, ch), tex(cw, ch), d.createTexture({ size: [cw, ch], format: 'depth32float', usage: GPUTextureUsage.RENDER_ATTACHMENT })];
     this.stoneView = this.stoneTex.map((t) => t.createView());
+    this.stoneCache = tex(cw, ch);
+    this.stoneCacheView = this.stoneCache.createView();
+    this.sceneTex = tex(w, h);
+    this.sceneView = this.sceneTex.createView();
+    this.orderTex = tex(w, h);
+    this.orderView = this.orderTex.createView();
+    this.cacheBG = d.createBindGroup({ layout: this.pStoneCache.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: this.sampler }, { binding: 6, resource: { buffer: this.b.viewC } },
+      { binding: 7, resource: this.stoneView[0] }, { binding: 8, resource: this.stoneView[1] }] });
     this.bloom = [];
     for (let i = 0; i < BLOOM_LEVELS; i++) this.bloom.push(tex(w >> (i + 1), h >> (i + 1)));
     this.murkTex = tex(w >> 2, h >> 2);
@@ -648,15 +701,18 @@ class Engine {
       { binding: 0, resource: this.sampler }, { binding: 1, resource: view }] });
     this.downBG = [];
     for (let i = 1; i < BLOOM_LEVELS; i++) this.downBG[i] = sbg(this.pDown, this.bloomViews[i - 1]);
-    this.down0BG = this.accumViews.map((v) => sbg(this.pDown, v));
+    this.down0BG = sbg(this.pDown, this.sceneView);
+    this.litBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.pStoneLit.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: this.sampler }, { binding: 1, resource: v },
+      { binding: 16, resource: this.stoneCacheView }, { binding: 17, resource: { buffer: this.b.stoneXf } }] }));
     this.upBG = [];
     for (let i = BLOOM_LEVELS - 1; i > 0; i--) this.upBG.push({ target: i - 1, bg: sbg(this.pUp, this.bloomViews[i]) });
-    const compBG = (pipe) => this.accumViews.map((v) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
-      { binding: 0, resource: this.sampler }, { binding: 1, resource: v },
+    const compBG = (pipe) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: this.sampler }, { binding: 1, resource: this.sceneView },
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 3, resource: this.bloomViews[0] },
-      { binding: 7, resource: this.stoneView[0] }, { binding: 8, resource: this.stoneView[1] }, { binding: 9, resource: this.murkView },
+      { binding: 7, resource: this.orderView }, { binding: 9, resource: this.murkView },
       { binding: 10, resource: this.microView }, { binding: 11, resource: { buffer: this.b.thermal } }, { binding: 12, resource: this.liveView },
-      { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler }] }));
+      { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler }] });
     this.compBG = compBG(this.pComp);
     this.compClearBG = compBG(this.pCompClear);
     this.compBGOf = compBG;
@@ -691,11 +747,50 @@ class Engine {
     this.loupeStoneTex?.forEach((t) => t.destroy());
     this.loupeStoneTex = [HDR, HDR, 'depth32float'].map((format) => this.device.createTexture({ size: [L, L], format, usage: GPUTextureUsage.RENDER_ATTACHMENT | (format === HDR ? GPUTextureUsage.TEXTURE_BINDING : 0) }));
     this.loupeStoneView = this.loupeStoneTex.map((t) => t.createView());
+    this.loupeSceneTex?.destroy();
+    this.loupeSceneTex = this.device.createTexture({ size: [L, L], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+    this.loupeSceneView = this.loupeSceneTex.createView();
+    this.loupeLitBG = this._litMicroBG(this.loupeView, this.b.viewL, this.loupeStoneView);
     this.loupeBG = this.device.createBindGroup({ layout: this.pLoupe.getBindGroupLayout(0), entries: [
-      { binding: 0, resource: this.sampler }, { binding: 1, resource: this.loupeView },
+      { binding: 0, resource: this.sampler }, { binding: 1, resource: this.loupeSceneView },
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 4, resource: { buffer: this.b.loupeU } },
-      { binding: 6, resource: { buffer: this.b.viewL } }, { binding: 7, resource: this.loupeStoneView[0] }, { binding: 8, resource: this.loupeStoneView[1] },
+      { binding: 6, resource: { buffer: this.b.viewL } },
       { binding: 11, resource: { buffer: this.b.thermal } }, { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler }] });
+  }
+
+  // Whether the stone cache must be drawn again (and if so, from here): stone lies still, so it is drawn and lit once
+  // and served from then on, panned and scaled to the view, until the view leaves what it holds or zooms more than
+  // STONE_ZOOM from where it was drawn, or what it shows may have changed (a new world, the selected grain, the focus,
+  // the exposure or detail settings; and, while the world runs, at most every STONE_EVERY seconds, as grains wear,
+  // settle and grow).
+  _stoneStale(cam, W, H, selId, realT) {
+    const c = this.stoneCam, [cw, ch] = this.stoneSize;
+    const key = [selId >>> 0, this.focusVer, this.settings.exposure, this.settings.lod, this.worldGeneration].join();
+    let stale = !c || key !== this.stoneKey || (this.tick !== this.stoneTick && Math.abs(realT - this.stoneT) > STONE_EVERY);
+    if (!stale) {
+      const r = cam.ppu / c.ppu, [dx, dy] = this._fromStone(cam);
+      stale = r > STONE_ZOOM || r < 1 / STONE_ZOOM || Math.abs(dx) + W / (2 * cam.ppu) > cw / (2 * c.ppu) || Math.abs(dy) + H / (2 * cam.ppu) > ch / (2 * c.ppu);
+    }
+    if (stale) Object.assign(this, { stoneCam: { x: cam.x, y: cam.y, ppu: cam.ppu }, stoneKey: key, stoneTick: this.tick, stoneT: realT });
+    return stale;
+  }
+
+  // how far the view's camera lies from the stone cache's, across the world's wrap
+  _fromStone(cam) {
+    const c = this.stoneCam, [gx, gy] = this.grid;
+    return [cam.x - c.x - gx * Math.round((cam.x - c.x) / gx), cam.y - c.y - gy * Math.round((cam.y - c.y) / gy)];
+  }
+
+  // the loupe's or close-up's stone lit under its cells (fsStoneLitMicro), at its own view
+  _litMicroBG(cells, view, stone) {
+    return this.device.createBindGroup({ layout: this.pStoneLitM.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: this.sampler }, { binding: 1, resource: cells },
+      { binding: 6, resource: { buffer: view } }, { binding: 7, resource: stone[0] }, { binding: 8, resource: stone[1] }] });
+  }
+
+  _lightStone(enc, target, pipe, bg) {
+    const pass = enc.beginRenderPass({ colorAttachments: [{ view: target, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
+    pass.setPipeline(pipe); pass.setBindGroup(0, bg); pass.draw(3); pass.end();
   }
 
   /**
@@ -704,6 +799,7 @@ class Engine {
    */
   setFocus({ kinds = null, roleMask = 7, stateMode = 0, mute = 0.16, members = null, memberKind = 0xffffffff } = {}) {
     const f = this.focus;
+    this.focusVer++; // (stone is dimmed outside the focus: the stone cache is drawn again)
     f.on = kinds ? 1 : 0;
     f.roleMask = roleMask; f.stateMode = stateMode; f.mute = mute;
     f.memberKind = memberKind;
@@ -721,10 +817,13 @@ class Engine {
     this.specStoneTex?.forEach((t) => t.destroy());
     this.specStoneTex = [HDR, HDR, 'depth32float'].map((format) => this.device.createTexture({ size: [w, h], format, usage: GPUTextureUsage.RENDER_ATTACHMENT | (format === HDR ? GPUTextureUsage.TEXTURE_BINDING : 0) }));
     this.specStoneView = this.specStoneTex.map((t) => t.createView());
+    this.specSceneTex?.destroy();
+    this.specSceneTex = this.device.createTexture({ size: [w, h], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+    this.specSceneView = this.specSceneTex.createView();
+    this.specLitBG = this._litMicroBG(this.specView, this.b.viewS, this.specStoneView);
     this.specBG = this.device.createBindGroup({ layout: this.pPlain.getBindGroupLayout(0), entries: [
-      { binding: 0, resource: this.sampler }, { binding: 1, resource: this.specView },
-      { binding: 2, resource: { buffer: this.b.post } }, { binding: 6, resource: { buffer: this.b.viewS } },
-      { binding: 7, resource: this.specStoneView[0] }, { binding: 8, resource: this.specStoneView[1] }] });
+      { binding: 0, resource: this.sampler }, { binding: 1, resource: this.specSceneView },
+      { binding: 2, resource: { buffer: this.b.post } }, { binding: 6, resource: { buffer: this.b.viewS } }] });
   }
 
   gridFor(n, aspect) {
@@ -2102,7 +2201,11 @@ class Engine {
       colorAttachments: views.slice(0, 2).map((view) => ({ view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' })),
       depthStencilAttachment: { view: views[2], depthClearValue: 0, depthLoadOp: 'clear', depthStoreOp: 'discard' } });
     pass.setPipeline(this.pStone);
-    pass.setBindGroup(0, bg);
+    // (a band at a time from the top of the pile down: what lies under a grain already drawn fails its depth test
+    // before it is shaded, so each pixel is shaded about once, not once for every grain whose quad covers it)
+    for (const band of bg[0]) { pass.setBindGroup(0, band); pass.drawIndirect(this.b.frameCtr, 32); }
+    pass.setPipeline(this.pStoneEdge);
+    pass.setBindGroup(0, bg[1]);
     pass.drawIndirect(this.b.frameCtr, 32);
     pass.end();
   }
@@ -2360,9 +2463,22 @@ class Engine {
       if (this.tubeN) { pass.setPipeline(this.main.tube); pass.setBindGroup(0, this.tubeBG); pass.draw(4, this.tubeN); }
       pass.end();
     }
-    this._drawStone(enc, this.stoneView, this.bgStone);
+    if (this._stoneStale(cam, W, H, selId, realT)) {
+      const [cw, ch] = this.stoneSize;
+      this._writeView(this.b.viewC, this.viewDataC, this.stoneCam, cw, ch, dpr, time, selId, lod);
+      this._drawStone(enc, this.stoneView, this.bgStone);
+      this._lightStone(enc, this.stoneCacheView, this.pStoneCache, this.cacheBG);
+    }
     this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu, w: W, h: H, t: realT };
     const cur = this.accIdx;
+    {
+      // the cache's texture coordinates for the view's: uv * xy + zw
+      const c = this.stoneCam, [cw, ch] = this.stoneSize, [dx, dy] = this._fromStone(cam);
+      const sx = (W * c.ppu) / (cam.ppu * cw), sy = (H * c.ppu) / (cam.ppu * ch);
+      d.queue.writeBuffer(this.b.stoneXf, 0, new Float32Array([sx, sy, 0.5 - 0.5 * sx + (dx * c.ppu) / cw, 0.5 - 0.5 * sy + (dy * c.ppu) / ch]));
+      const pass = enc.beginRenderPass({ colorAttachments: [this.sceneView, this.orderView].map((view) => ({ view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' })) });
+      pass.setPipeline(this.pStoneLit); pass.setBindGroup(0, this.litBG[cur]); pass.draw(3); pass.end();
+    }
 
     if (loupe) {
       // the lens is barrel-distorted: its rim shows LOUPE_FIELD times its radius, so render that much
@@ -2376,6 +2492,7 @@ class Engine {
       this._drawScene(pass, this.bgLineL, this.bgPointL, this.bgBridgeL, this.viewDataL, 1);
       pass.end();
       this._drawStone(enc, this.loupeStoneView, this.bgStoneL);
+      this._lightStone(enc, this.loupeSceneView, this.pStoneLitM, this.loupeLitBG);
     }
 
     if (specimen && specimen.target) {
@@ -2388,6 +2505,7 @@ class Engine {
       pass.end();
       if (specimen.studio) enc.beginRenderPass({ colorAttachments: this.specStoneView.slice(0, 2).map((view) => ({ view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' })) }).end();
       else this._drawStone(enc, this.specStoneView, this.bgStoneS);
+      this._lightStone(enc, this.specSceneView, this.pStoneLitM, this.specLitBG);
       pass = enc.beginRenderPass({ colorAttachments: [{ view: specimen.target, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }] });
       pass.setPipeline(this.pPlain); pass.setBindGroup(0, this.specBG); pass.draw(3); pass.end();
     }
@@ -2395,7 +2513,7 @@ class Engine {
     if (this.settings.bloom > 0) {
       for (let i = 0; i < BLOOM_LEVELS; i++) {
         const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.bloomViews[i], loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
-        pass.setPipeline(this.pDown); pass.setBindGroup(0, i === 0 ? this.down0BG[cur] : this.downBG[i]); pass.draw(3); pass.end();
+        pass.setPipeline(this.pDown); pass.setBindGroup(0, i === 0 ? this.down0BG : this.downBG[i]); pass.draw(3); pass.end();
       }
       for (const u of this.upBG) {
         const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.bloomViews[u.target], loadOp: 'load', storeOp: 'store' }] });
@@ -2419,7 +2537,7 @@ class Engine {
       timestampWrites: tsEnd,
     });
     pass.setPipeline(micro ? this.pComp : this.pCompClear);
-    pass.setBindGroup(0, micro ? this.compBG[cur] : this.compClearBG[cur]); pass.draw(3);
+    pass.setBindGroup(0, micro ? this.compBG : this.compClearBG); pass.draw(3);
     if (loupe) { pass.setPipeline(this.pLoupe); pass.setBindGroup(0, this.loupeBG); pass.draw(6); }
     pass.end();
   }

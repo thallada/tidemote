@@ -1,0 +1,7 @@
+{ "worlds": [{ "name": "stone64k", "n": 65536, "mature": 60 }],
+  "scenarios": [
+    { "world": "stone64k", "name": "z70", "zoom": 70, "at": [64.4, 16.5], "scale": 1, "look": "on", "seconds": 6 },
+    { "world": "stone64k", "name": "z150", "zoom": 150, "at": [64.4, 16.5], "scale": 1, "look": "on", "seconds": 6 },
+    { "world": "stone64k", "name": "z400", "zoom": 400, "at": [64.4, 16.5], "scale": 1, "look": "on", "seconds": 6 },
+    { "world": "stone64k", "name": "fit", "zoom": "fit", "scale": 1, "look": "on", "seconds": 6 }
+  ] }

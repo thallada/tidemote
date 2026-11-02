@@ -425,6 +425,20 @@ export function stoneGrain(id, info) {
 // The same choices in WGSL: a nested select over the mix, and each kind's color over its variants.
 const v3 = (c) => `vec3f(${c.map(f).join(', ')})`;
 const mixWGSL = (mix) => mix.slice(0, -1).reduceRight((e, [k, upTo]) => `select(${e}, ${k}u, h < ${f(upTo)})`, `${mix.at(-1)[0]}u`);
+// Smooth noise, 0..1, from the hash function named: gradient noise on a lattice turned off the axes (value noise shows
+// its square grid as blocks wherever it is thresholded into patches or an edge filter reads it, as the look's relief
+// and rims read stone). Each lattice point's gradient from one hash, no trigonometry: its two halves, centered.
+const gradNoiseWGSL = (name, hash) => /* wgsl */ `
+fn ${name}Grad(c: vec2f, f: vec2f) -> f32 { let h = ${hash}(c); return dot(vec2f(h, fract(h * 37.17)) * 2.0 - 1.0, f) * 1.3; }
+fn ${name}(p: vec2f) -> f32 {
+  let q = mat2x2f(0.8, 0.6, -0.6, 0.8) * p;
+  let c = floor(q);
+  let f = fract(q);
+  let w = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  let n = mix(mix(${name}Grad(c, f), ${name}Grad(c + vec2f(1.0, 0.0), f - vec2f(1.0, 0.0)), w.x),
+    mix(${name}Grad(c + vec2f(0.0, 1.0), f - vec2f(0.0, 1.0)), ${name}Grad(c + vec2f(1.0, 1.0), f - vec2f(1.0, 1.0)), w.x), w.y);
+  return clamp(0.5 + 0.9 * n, 0.0, 1.0);
+}`;
 const STONE_COL_WGSL = STONE_KINDS.map((vs, k) => `      case ${k}u: { mc = ${vs.slice(1).reduce((e, x) => `select(${e}, ${v3(x.col)}, h2 > ${f(x.from)})`, v3(vs[0].col))}; }`).join('\n');
 
 // Simulated time reaches the GPU modulo SIM_CLOCK seconds (9.1 hours): an f32 holds that to about 2 ms,
@@ -4464,6 +4478,10 @@ ${shownWater('view.world')}@group(0) @binding(12) var<storage, read> segs: array
 // the particles in view too large to splat, for the points' draw: indirect arguments, then indices
 @group(0) @binding(15) var<storage, read_write> quadW: array<atomic<u32>>;
 @group(0) @binding(16) var<storage, read> quadR: array<u32>;
+// the band of depth (cobbleZ, or a framboid's or the selected grain's) a stone draw takes: the grains are drawn a band
+// at a time from the top of the pile down (engine _drawStone), so what lies under a grain already drawn is rejected
+// by its depth before it is shaded
+@group(0) @binding(17) var<uniform> stoneBand: vec4f;
 const SPLAT_FIX = 4096.0;
 // A distant sprite's coverage per unit of its profile, written to alpha like a resolved cell's, so
 // where sprites pile up (a packed mat, a small view far out, trails) their light averages instead of
@@ -6021,7 +6039,7 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
 // cobbles. The cobble on top writes its color and its own (analytic) slope; the composite (boulder)
 // lights it.
 const STONE_R = 0.2; // a grain's radius in world units (uv 1); cobbles span ~0.12-0.17
-const STONE_QUAD = 1.35; // the quad reaches this far in uv, so a stretched or ragged grain is never cut off
+const STONE_QUAD = 1.35; // the farthest a grain's quad reaches in uv (grainReach sizes each to its own shape)
 struct SO {
   @builtin(position) pos: vec4f,
   @location(0) uv: vec2f,
@@ -6031,6 +6049,8 @@ struct SO {
   @location(4) @interpolate(flat) px: f32, // quad radius in pixels
   @location(5) @interpolate(flat) fuel: f32, // a framboid's fuel left, 0..1
 };
+// how high a cobble lies (0..1): the higher over its neighbors, its depth and the base of its height (mineralSurf)
+fn cobbleZ(seed: vec2f) -> f32 { return (0.45 + 0.55 * seed.x) * (0.62 + 0.18 * seed.y) * 0.95; }
 @vertex fn vsStone(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> SO {
   var o: SO;
   o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
@@ -6066,17 +6086,37 @@ ${STONE_COL_WGSL}
   if (!focusPass(p)) { col = vec3f(dot(col, vec3f(0.3, 0.5, 0.2))) * view.mute; }
   o.flags = select(0u, 1u, reef) | select(0u, 2u, p.id == view.selId) | select(0u, 4u, framboid) | (ty << 3u);
   o.fuel = select(0.0, clamp(p.energy / ${f(DEFAULT_K.framboidLife)}, 0.0, 1.0), framboid);
+  // the quad: about the grain as it lies, turned with it (mineralSurf, framboidSurf), a little past its edge
   let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
-  o.pos = toClip(d + corner * r * STONE_QUAD);
+  let ax = vec2f(cos(o.seed.x * TAU), sin(o.seed.x * TAU));
+  let e = (grainReach(ty, o.seed, framboid) + 2.5 / r) * corner;
+  o.uv = ax * e.x + vec2f(-ax.y, ax.x) * e.y;
   // the cobble's peak height orders it: the higher lies over its neighbors, and depth is per cobble,
   // not per pixel, so the GPU can reject hidden cobbles before shading them
-  o.pos.z = select(select((0.45 + 0.55 * o.seed.x) * (0.62 + 0.18 * o.seed.y) * 0.95, 0.97, framboid), 0.99, p.id == view.selId); // a selected grain sits on top
-  o.uv = corner * STONE_QUAD;
+  let z = select(select(cobbleZ(o.seed), 0.97, framboid), 0.99, p.id == view.selId); // a selected grain sits on top
+  if (z < stoneBand.x || z >= stoneBand.y) { return o; }
+  o.pos = toClip(d + o.uv * r);
+  o.pos.z = z;
   o.col = col;
   o.px = r;
   return o;
 }
 struct StoneOut { @location(0) col: vec4f, @location(1) surf: vec4f };
+// Stone is drawn twice (engine pStone, pStoneEdge): first each grain where it covers a pixel whole, writing depth,
+// then its antialiased edge, a pixel and a half just outside its outline, blended over whatever grain or water lies
+// beneath. A partly covered pixel written alone, over nothing, would leave a dark seam round every grain.
+override STONE_EDGE: bool = false;
+// whether this pass leaves the pixel at signed distance sd from the outline (aa: the edge's width)
+fn stoneClip(sd: f32, aa: f32) -> bool { return select(sd > 0.0, sd <= 0.0 || sd >= aa, STONE_EDGE); }
+// A line on a grain (a ridge, a crack, a suture) d from its middle, nat wide in uv, drawn at least k pixels (pxw: a
+// pixel in uv) wide: at full strength while that is up to four times its width, as the eye takes a fine line in a
+// micrograph, then the fainter the wider, so on a grain a few pixels across it averages into the grain's tone
+// rather than growing to cover it (and flickering as the view moves).
+fn grainLine(d: f32, nat: f32, k: f32, pxw: f32) -> f32 { let w = max(nat, k * pxw); return (1.0 - smoothstep(0.0, w, d)) * min(4.0 * nat / w, 1.0); }
+// how near its outline a point at sd lies, across a rim nat wide, for the light an edge scatters (boulder, by its
+// cube): widened to a pixel at least and dimmed for it, so a rim finer than a pixel adds what it would, spread over
+// the pixel, instead of lighting it whole or not at all
+fn grainRim(sd: f32, nat: f32, pxw: f32) -> f32 { let w = max(nat, pxw); return (1.0 - smoothstep(0.0, w, -sd)) * pow(nat / w, 1.0 / 3.0); }
 fn grainHash(seed: vec2f, k: f32) -> f32 { return fract(sin(dot(seed * 91.7 + k * 1.618, vec2f(12.9898, 78.233))) * 43758.5453); }
 
 // A pyrite framboid: a cluster of tiny crystals packed on a rough sphere, seen from above. The
@@ -6109,13 +6149,23 @@ fn framboidSurf(i: SO) -> StoneOut {
   // round to faceted: a cube's square, or an octahedron's diamond, blended with a sphere
   let facet = select(abs(lo.x) + abs(lo.y), max(abs(lo.x), abs(lo.y)) * 1.15, h.x > 0.5);
   let rr = mix(length(off), facet, 0.45 + 0.4 * h.y) / (0.45 + 0.27 * h.y) + select(0.0, 2.0, h.x > 0.94);
-  let sph = sqrt(max(1.0 - rr * rr, 0.0));
+  // (crystals under a couple of pixels across are drawn as their average, a rounded cluster: each a pixel or less, a
+  // bright or dark speck, they would flicker as the view moves, as grains' facets would, mineralSurf)
+  let seen = smoothstep(5.0, 14.0, i.px);
+  let sph = sqrt(max(1.0 - rr * rr, 0.0)) * seen;
   if (env - 0.09 * sph >= 1.0) { discard; }
   var o: StoneOut;
-  let sl = -1.1 * u / max(dome, 0.2) - 1.6 * off / max(sph, 0.3) * (0.4 + 0.6 * dome);
+  let sl = -1.1 * u / max(dome, 0.2) - 1.6 * off / max(sph, 0.3) * (0.4 + 0.6 * dome) * seen;
   let slope = (sl.x / squash) * ax + sl.y * vec2f(-ax.y, ax.x);
-  let gap = smoothstep(0.85, 1.0, rr);
-  o.col = vec4f(i.col * (1.0 - 0.6 * gap) * (0.75 + 0.5 * h.y), 1.0 - smoothstep(0.92, 1.0, env - 0.09 * sph));
+  let gap = mix(0.2, smoothstep(0.85, 1.0, rr), seen);
+  // tarnish and grime, as on the grains (mineralSurf): a dull film in patches, much on some and little on others,
+  // and a fleck of detritus caught between the crystals
+  let det = smoothstep(18.0, 70.0, i.px);
+  let dirt = grainHash(i.seed, 101.0);
+  let blot = mix(0.45, smoothstep(0.3, 0.8, grainNoise(u * 3.5 + i.seed * 11.0)), seen);
+  var grime = mix(vec3f(1.0), vec3f(0.62, 0.56, 0.42), clamp(dirt * dirt * 1.6 * blot, 0.0, 1.0) * 0.7);
+  grime *= 1.0 - 0.5 * grainDots(u * 6.0 + i.seed * 5.0, 0.25, 0.05 + 0.12 * dirt) * det;
+  o.col = vec4f(i.col * (1.0 - 0.6 * gap) * mix(1.0, 0.75 + 0.5 * h.y, seen) * grime, 1.0 - smoothstep(0.92, 1.0, env - 0.09 * sph));
   o.surf = vec4f(slope, gap, f32(i.flags) + i.fuel * 0.45);
   return o;
 }
@@ -6129,17 +6179,49 @@ fn framboidSurf(i: SO) -> StoneOut {
 // shard with growth lines and ribs; 7 a sponge spicule, a slim glass needle with its axial canal.
 // Fine detail fades in as the grain grows on screen. Height and slope in uv units (uv is world over
 // the quad's radius).
-struct Poly { sd: f32, sd2: f32, nrm: vec2f, face: f32 };
+struct Poly { sd: f32, sd2: f32, nrm: vec2f, nrm2: vec2f, face: f32 };
+// A crystal's or shard's outline (kinds 0, 1, 2, 6): how many facets, their reach (r0), how unevenly they are turned
+// (jit) and set out (spread), and how long it is drawn out along its axis.
+struct PolyForm { n: u32, r0: f32, jit: f32, spread: f32, stretch: f32 };
+fn polyForm(ty: u32, H: vec2f) -> PolyForm {
+  var F = PolyForm(6u + u32(grainHash(H, 3.0) * 4.99), 0.48 + 0.2 * H.y, 0.8, 0.55, 1.0 + 0.5 * grainHash(H, 1.0));
+  if (ty == 1u) { F = PolyForm(select(4u, 5u, grainHash(H, 3.0) > 0.6), 0.42 + 0.14 * H.y, 0.2, 0.35, 1.2 + 0.5 * grainHash(H, 1.0)); }
+  if (ty == 2u) { F = PolyForm(6u, 0.3 + 0.08 * H.y, 0.25, 0.2, 1.8 + 0.6 * grainHash(H, 1.0)); }
+  if (ty == 6u) { F = PolyForm(6u + u32(grainHash(H, 3.0) * 2.99), F.r0, 0.7, 0.5, 1.1 + 0.4 * grainHash(H, 1.0)); }
+  // keep its farthest corner inside the quad (a polygon's corners lie up to ~1.5 times its faces' reach)
+  F.r0 = min(F.r0, 0.86 / (F.stretch * (1.0 + 0.5 * F.spread)));
+  return F;
+}
+// How far a grain of kind ty reaches from its middle along its own axis and across it, in uv (at most STONE_QUAD),
+// so its quad covers it and little else (vsStone): the pixels outside it cost both stone passes their shading.
+fn grainReach(ty: u32, H: vec2f, framboid: bool) -> vec2f {
+  var e = vec2f(0.96); // a framboid
+  if (!framboid) {
+    switch ty {
+      case 0u, 1u, 2u, 6u: {
+        // a corner lies where two facets' lines meet, farther the wider the angle between them
+        let F = polyForm(ty, H);
+        let c = F.r0 * (1.0 + 0.5 * F.spread) / cos(min(0.5 * (1.0 + F.jit) * TAU / f32(F.n), 1.2));
+        e = vec2f(c * F.stretch, c);
+      }
+      case 3u: { e = vec2f(1.0 + 0.45 * grainHash(H, 1.0), 1.0) * (0.55 + 0.15 * H.y) * 1.15; }
+      case 4u: { e = vec2f(0.84, 0.73); }
+      case 5u: { e = select(vec2f(0.75, 0.23), vec2f(0.67), grainHash(H, 9.0) < 0.6); }
+      default: { e = vec2f(0.88, 0.31); }
+    }
+  }
+  return min(e, vec2f(STONE_QUAD));
+}
 // An irregular convex polygon of n facets at uneven angles (jit) and distances (spread), sometimes
 // with a wedge chipped out of its edge.
 fn grainPoly(w: vec2f, seed: vec2f, n: u32, r0: f32, jit: f32, spread: f32, chip: bool) -> Poly {
   var p: Poly;
-  p.sd = -1e9; p.sd2 = -1e9; p.nrm = vec2f(1.0, 0.0); p.face = 0.0;
+  p.sd = -1e9; p.sd2 = -1e9; p.nrm = vec2f(1.0, 0.0); p.nrm2 = p.nrm; p.face = 0.0;
   for (var k = 0u; k < n; k++) {
     let at = (f32(k) + jit * (grainHash(seed, f32(k) + 2.0) - 0.5)) * TAU / f32(n);
     let dir = vec2f(cos(at), sin(at));
     let dk = dot(w, dir) - r0 * (1.0 - 0.5 * spread + spread * grainHash(seed, f32(k) + 11.0));
-    if (dk > p.sd) { p.sd2 = p.sd; p.sd = dk; p.nrm = dir; p.face = f32(k); } else if (dk > p.sd2) { p.sd2 = dk; }
+    if (dk > p.sd) { p.sd2 = p.sd; p.nrm2 = p.nrm; p.sd = dk; p.nrm = dir; p.face = f32(k); } else if (dk > p.sd2) { p.sd2 = dk; p.nrm2 = dir; }
   }
   if (chip && grainHash(seed, 19.0) > 0.5) {
     let ca = grainHash(seed, 23.0) * TAU;
@@ -6150,16 +6232,36 @@ fn grainPoly(w: vec2f, seed: vec2f, n: u32, r0: f32, jit: f32, spread: f32, chip
     let d1 = dot(w - c, n1);
     let d2 = dot(w - c, n2);
     let cut = -max(d1, d2);
-    if (cut > p.sd) { p.sd2 = p.sd; p.sd = cut; p.nrm = select(-n2, -n1, d1 > d2); p.face = 9.0; }
+    if (cut > p.sd) { p.sd2 = p.sd; p.nrm2 = p.nrm; p.sd = cut; p.nrm = select(-n2, -n1, d1 > d2); p.face = 9.0; }
   }
   return p;
 }
 // Scattered round dots on a jittered grid: 1 inside a dot. dens is the share of cells with one.
+// (each dot kept whole within its cell: one cut off by the cell's edge would show the grid as a straight side)
 fn grainDots(q: vec2f, size: f32, dens: f32) -> f32 {
   let c = floor(q);
   let h = fract(sin(vec2f(dot(c, vec2f(127.1, 311.7)), dot(c, vec2f(269.5, 183.3)))) * 43758.5453);
-  let d = length(fract(q) - 0.25 - 0.5 * h);
+  let d = length(fract(q) - 0.5 - (h - 0.5) * max(1.0 - 2.0 * size, 0.0));
   return select(0.0, 1.0 - smoothstep(size * 0.6, size, d), fract(h.x * 7.13 + h.y * 3.1) < dens);
+}
+
+// smooth noise over a grain, in its own uv (so it turns and travels with the grain, never sliding over it)
+fn grainCell(c: vec2f) -> f32 { return fract(sin(dot(c, vec2f(127.1, 311.7))) * 43758.5453); }
+${gradNoiseWGSL('grainNoise', 'grainCell')}
+// A grain's outline chipped and pitted rather than cut clean: pushed inward (so it never leaves its quad) by up to
+// amp (uv) of noise along it, and on some grains a chip broken out of one side; each finer octave only where it is
+// wider than a pixel (finer, it would flicker)
+fn grainRough(sd: f32, u: vec2f, H: vec2f, amp: f32, pxw: f32) -> f32 {
+  let o = H * 37.0;
+  var n = 0.65 * grainNoise(u * 9.0 + o) * (1.0 - smoothstep(0.03, 0.07, pxw));
+  let fine = 1.0 - smoothstep(0.008, 0.02, pxw);
+  if (fine > 0.0) { n += 0.35 * grainNoise(u * 31.0 + o.yx) * fine; }
+  var r = sd + amp * n;
+  if (grainHash(H, 103.0) > 0.55) {
+    let ca = grainHash(H, 104.0) * TAU;
+    r = max(r, 0.08 + 0.08 * grainHash(H, 105.0) - length(u - vec2f(cos(ca), sin(ca)) * 0.72));
+  }
+  return r;
 }
 
 fn mineralSurf(i: SO) -> StoneOut {
@@ -6169,32 +6271,31 @@ fn mineralSurf(i: SO) -> StoneOut {
   let ay = vec2f(-ax.y, ax.x);
   let u = vec2f(dot(i.uv, ax), dot(i.uv, ay));
   let aa = 1.5 / max(i.px, 1.0);
+  let pxw = 1.0 / max(i.px, 1.0); // a pixel, in uv: no line is drawn finer
   let det = smoothstep(18.0, 70.0, i.px);
   let det2 = smoothstep(70.0, 260.0, i.px); // the finest detail, only right up close
+  let facets = smoothstep(4.0, 14.0, i.px); // each facet its own shade, once facets span a few pixels (finer, they'd flicker)
   let H = i.seed;
   var stretch = 1.0;
   var sd = 0.0;
   var ls = vec2f(0.0);
   var alb = 1.0;
   var edge = 0.0;
+  var hz = 0.0; // height above its own base, in uv
   if (ty <= 2u || ty == 6u) {
     // crystals and shell shards: a table with bevelled sides, each bevel lit as its own facet, a crisp
     // ridge where two meet, and a top tilted a little its own way
     let shell = ty == 6u;
-    var n = 6u + u32(grainHash(H, 3.0) * 4.99);
-    var r0 = 0.48 + 0.2 * H.y;
-    var jit = 0.8;
-    var spread = 0.55;
-    stretch = 1.0 + 0.5 * grainHash(H, 1.0);
-    if (ty == 1u) { n = select(4u, 5u, grainHash(H, 3.0) > 0.6); jit = 0.2; spread = 0.35; stretch = 1.2 + 0.5 * grainHash(H, 1.0); r0 = 0.42 + 0.14 * H.y; }
-    if (ty == 2u) { n = 6u; jit = 0.25; spread = 0.2; stretch = 1.8 + 0.6 * grainHash(H, 1.0); r0 = 0.3 + 0.08 * H.y; }
-    if (shell) { n = 6u + u32(grainHash(H, 3.0) * 2.99); jit = 0.7; spread = 0.5; stretch = 1.1 + 0.4 * grainHash(H, 1.0); }
-    // keep its farthest corner inside the quad (a polygon's corners lie up to ~1.5 times its faces' reach)
-    r0 = min(r0, 0.86 / (stretch * (1.0 + 0.5 * spread)));
+    let F = polyForm(ty, H);
+    let n = F.n;
+    let r0 = F.r0;
+    let jit = F.jit;
+    let spread = F.spread;
+    stretch = F.stretch;
     let w = vec2f(u.x / stretch, u.y);
     let P = grainPoly(w, H, n, r0, jit, spread, ty != 2u);
-    sd = P.sd;
-    if (sd >= aa) { discard; }
+    sd = grainRough(P.sd, u, H, select(0.03, 0.02, shell), pxw);
+    if (stoneClip(sd, aa)) { discard; }
     let steep = select(1.3 + 1.6 * grainHash(H, 7.0), 2.2, shell);
     let bevel = r0 * select(select(0.28 + 0.25 * grainHash(H, 5.0), 0.12 + 0.08 * grainHash(H, 5.0), ty == 1u || ty == 2u), 0.07, shell);
     let t = smoothstep(0.0, bevel, -sd);
@@ -6209,12 +6310,13 @@ fn mineralSurf(i: SO) -> StoneOut {
       var h1 = 1e9;
       var h2 = 1e9;
       var fid = 0.0;
+      var form2 = vec2f(0.0); // the next facet's slope, so where two meet the light turns across a pixel or two
       for (var k = 0u; k < n; k++) {
         let at = (f32(k) + jit * (grainHash(H, f32(k) + 2.0) - 0.5)) * TAU / f32(n);
         let dir = vec2f(cos(at), sin(at));
         let sk = steep * (0.8 + 0.6 * grainHash(H, f32(k) + 81.0));
         let hk = -sk * (dot(w, dir) - r0 * (1.0 - 0.5 * spread + spread * grainHash(H, f32(k) + 11.0)));
-        if (hk < h1) { h2 = h1; h1 = hk; form = -sk * dir; fid = f32(k); } else if (hk < h2) { h2 = hk; }
+        if (hk < h1) { h2 = h1; form2 = form; h1 = hk; form = -sk * dir; fid = f32(k); } else if (hk < h2) { h2 = hk; form2 = -sk * dir; }
       }
       let ns = select(3u + u32(grainHash(H, 90.0) * 3.99), 2u, ty == 2u);
       for (var k = 0u; k < ns; k++) {
@@ -6222,25 +6324,30 @@ fn mineralSurf(i: SO) -> StoneOut {
         let dir = vec2f(cos(at), sin(at));
         let sk = select(0.35, 0.9, ty == 2u) + 0.5 * grainHash(H, f32(k) + 93.0);
         let hk = r0 * (0.45 + 0.4 * grainHash(H, f32(k) + 95.0)) + sk * (r0 * select(0.2 + 0.4 * grainHash(H, f32(k) + 96.0), 0.0, ty == 2u) - dot(w, dir));
-        if (hk < h1) { h2 = h1; h1 = hk; form = -sk * dir; fid = f32(k) + 20.0; } else if (hk < h2) { h2 = hk; }
+        if (hk < h1) { h2 = h1; form2 = form; h1 = hk; form = -sk * dir; fid = f32(k) + 20.0; } else if (hk < h2) { h2 = hk; form2 = -sk * dir; }
       }
       let tv = (vec2f(grainHash(H, 13.0), grainHash(H, 17.0)) - 0.5) * 0.5;
       let htop = select(r0 * (0.75 + 0.2 * grainHash(H, 97.0)) + dot(w, tv), 1e9, ty == 2u);
-      if (htop < h1) { h2 = h1; h1 = htop; form = tv; fid = 40.0; } else if (htop < h2) { h2 = htop; }
-      let fline = 1.0 - smoothstep(0.0, 0.012, h2 - h1);
+      if (htop < h1) { h2 = h1; form2 = form; h1 = htop; form = tv; fid = 40.0; } else if (htop < h2) { h2 = htop; form2 = tv; }
+      let fline = 1.0 - smoothstep(0.0, max(0.012, 2.0 * pxw), h2 - h1);
+      form = mix(form, form2, 0.5 * fline);
+      let fdark = grainLine(h2 - h1, 0.012, 2.0, pxw); // (the line itself, fading where it would be finer than a pixel)
       // milky clouds inside the glass
-      let milk = grainDots(w * 5.0 + H * 13.0, 0.9, 0.7) * grainDots(w * 7.0 + H * 3.0, 0.9, 0.7);
+      let milk = smoothstep(0.5, 0.8, grainNoise(w * 3.5 + H * 13.0)) * smoothstep(0.35, 0.7, grainNoise(w * 6.0 + H * 3.0));
       // higher on the grain is brighter, so each facet shades across its width
-      alb = (0.82 + 0.36 * grainHash(H, fid + 41.0)) * (1.0 - 0.2 * fline) * (0.72 + 0.3 * clamp(h1 / (r0 * 0.8), 0.0, 1.0)) * (1.0 - 0.22 * milk * det);
-      edge = max(1.0 - smoothstep(0.0, 0.06, -sd), 0.35 * fline);
+      alb = mix(1.0, 0.95 + 0.1 * grainHash(H, fid + 41.0), facets) * (1.0 - 0.2 * fdark) * (0.72 + 0.3 * clamp(h1 / (r0 * 0.8), 0.0, 1.0)) * (1.0 - 0.22 * milk * det);
+      edge = max(grainRim(sd, 0.06, pxw), 0.35 * fdark);
+      hz = max(h1, 0.0);
     } else {
       // a table with bevelled sides, each bevel lit as its own facet, a crisp ridge where two meet, and
       // a top tilted a little its own way and gently domed
       let top = (vec2f(grainHash(H, 13.0), grainHash(H, 17.0)) - 0.5) * 0.9 - w / r0 * select(0.8, 1.6, shell);
-      let ridge = 1.0 - smoothstep(0.0, 0.025, P.sd - P.sd2);
-      alb = mix(0.82 + 0.36 * grainHash(H, P.face + 41.0), 1.0, t) * (1.0 - 0.25 * ridge * (1.0 - t));
-      edge = max(1.0 - smoothstep(0.0, bevel * 1.3, -sd), 0.5 * ridge * (1.0 - t));
-      form = -P.nrm * (steep * (1.0 - t)) + top * t;
+      let ridge = 1.0 - smoothstep(0.0, max(0.025, 1.5 * pxw), P.sd - P.sd2);
+      let rdark = grainLine(P.sd - P.sd2, 0.025, 1.5, pxw);
+      alb = mix(mix(1.0, 0.95 + 0.1 * grainHash(H, P.face + 41.0), facets), 1.0, t) * (1.0 - 0.25 * rdark * (1.0 - t));
+      edge = max(grainRim(sd, bevel * 1.3, pxw), 0.5 * rdark * (1.0 - t));
+      form = -mix(P.nrm, P.nrm2, 0.5 * ridge) * (steep * (1.0 - t)) + top * t;
+      hz = steep * bevel * 0.8 * t;
     }
     if (ty == 0u) {
       // conchoidal fracture: curved ripples spreading from a point where it broke
@@ -6253,7 +6360,7 @@ fn mineralSurf(i: SO) -> StoneOut {
       // a hairline crack that catches the light
       let cn = vec2f(cos(grainHash(H, 51.0) * TAU), sin(grainHash(H, 51.0) * TAU));
       let cdist = dot(w, cn) - (grainHash(H, 52.0) - 0.5) * r0;
-      let crack = (1.0 - smoothstep(0.0, 0.008, abs(cdist + 0.04 * sin(dot(w, vec2f(-cn.y, cn.x)) * 17.0)))) * step(0.4, grainHash(H, 53.0)) * det * t;
+      let crack = grainLine(abs(cdist + 0.04 * sin(dot(w, vec2f(-cn.y, cn.x)) * 17.0)), 0.008, 1.0, pxw) * step(0.4, grainHash(H, 53.0)) * det * t;
       alb *= 1.0 - 0.25 * crack;
       tilt += cn * sign(cdist) * crack * 0.5;
       // a healed fracture: a trail of tiny fluid inclusions across it
@@ -6267,10 +6374,13 @@ fn mineralSurf(i: SO) -> StoneOut {
     if (ty == 1u) {
       // perthite: fine wavy streaks of a second feldspar grown through it
       alb *= 1.0 + 0.1 * det2 * smoothstep(0.55, 0.9, sin(w.x * 140.0 + 5.0 * sin(w.y * 17.0 + H.x * 20.0) + 3.0 * sin(w.x * 11.0)));
-      // cleavage: the top steps down in terraces across its length, each riser a thin lit line
-      let cy = w.y * (5.0 + 4.0 * grainHash(H, 61.0)) + grainHash(H, 63.0) * 9.0;
-      let cv = fract(cy + 0.35 * sin(floor(cy) * 12.9898));
-      let riser = smoothstep(0.86, 0.95, cv) * (1.0 - smoothstep(0.95, 1.0, cv)) * step(0.35, fract(sin(floor(cy) * 78.233) * 437.585));
+      // cleavage: the top steps down in terraces across its length, each riser a thin lit line (a pixel wide at least
+      // and the fainter for it: finer, it came and went as the view zoomed)
+      let cf = 5.0 + 4.0 * grainHash(H, 61.0);
+      let cy = w.y * cf + grainHash(H, 63.0) * 9.0;
+      let ck = floor(cy);
+      let cd = abs(fract(cy) - 0.5 - 0.3 * (fract(sin(ck * 12.9898) * 437.585) - 0.5)) / cf; // from its riser, in uv
+      let riser = grainLine(cd, 0.05 / cf, 1.5, pxw) * step(0.35, fract(sin(ck * 78.233) * 437.585));
       tilt += vec2f(0.0, 1.8) * riser * det * t;
       alb *= 1.0 - 0.15 * riser * det * t;
       // faint bands of twinned crystal along it, and cloudy alteration
@@ -6301,6 +6411,9 @@ fn mineralSurf(i: SO) -> StoneOut {
       alb *= 1.0 + 0.14 * sin(hd * (8.0 + 6.0 * grainHash(H, 76.0)) + H.x * 20.0) + 0.08 * det2 * sin(hd * 160.0 + 2.0 * sin(hd * 31.0));
     }
     ls = form + tilt * select(t, 1.0, faceted);
+    // (a grain only a few pixels across is lit as a rounded one: its facets and bevels would each be a pixel or less,
+    // a bright or dark speck that comes and goes as the view moves)
+    ls = mix(-1.4 * w / r0, ls, mix(0.25, 1.0, facets));
   } else if (ty == 3u) {
     // worn sand: a rounded pebble, its outline gently wobbling, its surface frosted by pits
     stretch = 1.0 + 0.45 * grainHash(H, 1.0);
@@ -6309,12 +6422,14 @@ fn mineralSurf(i: SO) -> StoneOut {
     let c = w / max(rho, 1e-4);
     let wob = 1.0 + 0.06 * (c.x * c.x - c.y * c.y) * sin(H.x * 30.0) + 0.05 * dot(c, vec2f(cos(H.y * 40.0), sin(H.y * 40.0))) * (4.0 * c.x * c.x * c.x - 3.0 * c.x) + 0.04 * c.y * (3.0 * c.x * c.x - c.y * c.y);
     let r0 = (0.55 + 0.15 * H.y) * wob;
-    sd = rho - r0;
+    sd = grainRough(rho - r0, u, H, 0.012, pxw);
+    if (stoneClip(sd, aa)) { discard; }
     let q = min(rho / r0, 0.995);
     let hgt = sqrt(1.0 - q * q);
     ls = -2.2 * w / (r0 * max(hgt, 0.22));
+    hz = 0.7 * r0 * hgt;
     alb = 1.0 - 0.18 * grainDots(w * 26.0 + H * 5.0, 0.3, 0.6) * det - 0.15 * grainDots(w * 75.0 + H * 2.0, 0.35, 0.5) * det2 + 0.12 * (grainDots(w * 9.0 + H * 3.0, 0.45, 0.5) - 0.3) * det;
-    edge = 1.0 - smoothstep(0.0, 0.15 * r0, -sd);
+    edge = grainRim(sd, 0.15 * r0, pxw);
   } else if (ty == 4u) {
     // a foraminifer: chambers, each larger than the last, coiled in a log spiral; the newest lies
     // over the older; sutures sink where two meet, and the chalk is finely pored
@@ -6338,25 +6453,29 @@ fn mineralSurf(i: SO) -> StoneOut {
       let hk = sqrt(max(rad * rad - dd * dd, 0.0)) * select(0.0, 1.0, dd < rad) + f32(k) * 1e-4;
       if (hk > h1) { h2 = h1; h1 = hk; top = -dv / max(hk, rad * 0.3); } else if (hk > h2) { h2 = hk; }
     }
-    sd = sdm;
+    sd = grainRough(sdm, u, H, 0.01, pxw);
+    if (stoneClip(sd, aa)) { discard; }
     ls = top * 1.4;
-    let suture = (1.0 - smoothstep(0.0, 0.035, h1 - h2)) * step(1e-3, h2);
+    hz = h1;
+    let suture = grainLine(h1 - h2, 0.035, 2.0, pxw) * step(1e-3, h2);
     alb = (1.0 - 0.4 * suture) * (1.0 - 0.3 * grainDots(w * 50.0 + H * 7.0, 0.3, 0.7) * det);
-    edge = max(1.0 - smoothstep(0.0, 0.035, -sd), 0.5 * suture);
+    edge = max(grainRim(sd, 0.035, pxw), 0.5 * suture);
   } else if (ty == 5u) {
     if (grainHash(H, 9.0) < 0.6) {
       // a centric diatom: a flat glass valve with a raised rim, pores in rows radiating out
       let r0 = 0.52 + 0.15 * H.y;
       let rho = length(u);
       sd = rho - r0;
+      if (stoneClip(sd, aa)) { discard; }
       let q = rho / r0;
       let dr = -0.2 * q - 4.4 * (q - 0.9) * exp(-pow((q - 0.9) / 0.06, 2.0));
       ls = u / max(rho, 1e-4) * dr * 2.5;
+      hz = r0 * 0.08 * smoothstep(0.0, 0.04, -sd);
       let rows = f32(18u + u32(grainHash(H, 11.0) * 18.0));
       let ac = vec2f(fract(atan2(u.y, u.x) / TAU * rows) - 0.5, fract(q * (8.0 + 5.0 * grainHash(H, 13.0))) - 0.5);
       let pore = (1.0 - smoothstep(0.18, 0.32, length(ac))) * smoothstep(0.15, 0.25, q) * (1.0 - smoothstep(0.82, 0.86, q));
       alb = 1.0 - 0.45 * pore * det;
-      edge = 1.0 - smoothstep(0.0, 0.1, -sd);
+      edge = grainRim(sd, 0.1, pxw);
     } else {
       // a pennate diatom: a slim boat, ribbed across, a slit (the raphe) down its middle
       let L = 0.75;
@@ -6364,12 +6483,14 @@ fn mineralSurf(i: SO) -> StoneOut {
       let e = u / vec2f(L, Wd);
       let rho = length(e);
       sd = (rho - 1.0) * Wd;
+      if (stoneClip(sd, aa)) { discard; }
       let hgt = sqrt(max(1.0 - rho * rho, 0.04));
       ls = -0.8 * vec2f(e.x / L, e.y / Wd) / hgt;
+      hz = 0.6 * Wd * hgt;
       let rib = 1.0 - smoothstep(0.12, 0.3, abs(fract(u.x * (26.0 + 10.0 * grainHash(H, 11.0))) - 0.5));
       let raphe = (1.0 - smoothstep(0.0, 0.012, abs(u.y))) * smoothstep(0.05, 0.08, abs(u.x)) * (1.0 - smoothstep(0.8, 0.9, abs(e.x)));
       alb = (1.0 - 0.3 * rib * det * smoothstep(0.25, 0.4, abs(e.y))) * (1.0 - 0.5 * raphe * det);
-      edge = 1.0 - smoothstep(0.0, 0.06, -sd);
+      edge = grainRim(sd, 0.06, pxw);
     }
   } else {
     // a sponge spicule: a slim glass needle, tapered at both ends, a little bent, its canal inside
@@ -6381,25 +6502,53 @@ fn mineralSurf(i: SO) -> StoneOut {
     let dv = vec2f(w.x - cx, w.y);
     let dd = length(dv);
     sd = dd - rad;
+    if (stoneClip(sd, aa)) { discard; }
     let q = min(dd / rad, 0.995);
     ls = -1.5 * dv / max(dd, 1e-4) * q / max(sqrt(1.0 - q * q), 0.2);
+    hz = rad * sqrt(1.0 - q * q);
     alb = 1.0 - 0.4 * (1.0 - smoothstep(0.0, 0.2 * rad, abs(w.y))) * step(abs(w.x), L * 0.85) * det;
-    edge = 1.0 - smoothstep(0.0, 0.5 * rad, -sd);
+    edge = grainRim(sd, 0.5 * rad, pxw);
   }
   // silt and clay stuck to it: dark and pale specks
   alb *= 1.0 - 0.3 * grainDots(u * 55.0 + H * 17.0, 0.35, 0.16) * det2 + 0.25 * grainDots(u * 85.0 + H * 23.0, 0.3, 0.1) * det2;
-  if (sd >= aa) { discard; }
+  if (stoneClip(sd, aa)) { discard; }
+  // what clings to a grain on the bed: a film of slime and fine mud, thickest low on it toward its outline and in
+  // patches, much on some grains and hardly any on others, olive-brown, greener on reef stone (where it grows on
+  // what calcifiers built) and thinner on glass skeletons; a fleck of detritus here and there, and a dusting of
+  // silt, paler. Grains too few pixels across take its average, not its patches.
+  let dirt = grainHash(H, 101.0);
+  let low = 1.0 - smoothstep(0.0, 0.25, -sd);
+  var blot = 0.45;
+  if (facets > 0.0) { blot = mix(0.45, smoothstep(0.3, 0.8, 0.7 * grainNoise(u * 4.0 + H * 11.0) + 0.3 * grainNoise(u * 11.0 + H * 29.0)), facets); }
+  let film = clamp(dirt * dirt * 1.8 * (0.35 * low * facets + 0.65 * blot * (0.5 + 0.5 * low)), 0.0, 1.0) * select(0.75, 0.4, ty == 5u || ty == 7u);
+  var grime = mix(vec3f(1.0), select(vec3f(0.68, 0.58, 0.4), vec3f(0.6, 0.76, 0.48), (i.flags & 1u) != 0u), film);
+  // (a fleck: a speck smeared by noise into no particular shape, and few)
+  if (det > 0.0) {
+    let fk = grainNoise(u * 21.0 + H * 3.0);
+    grime *= 1.0 - 0.45 * grainDots(u * 9.0 + H * 5.0 + vec2f(0.35 * fk, 0.35 - 0.35 * fk), 0.18 + 0.12 * fk, 0.04 + 0.1 * dirt) * det;
+  }
+  grime += vec3f(0.22, 0.2, 0.16) * grainDots(u * 38.0 + H * 31.0, 0.3, 0.3 * dirt) * det;
   var o: StoneOut;
   let slope = (ls.x / stretch) * ax + ls.y * ay;
-  o.col = vec4f(i.col * alb, 1.0 - smoothstep(-aa, aa, sd));
-  // .z: how near its own edge (where it meets its neighbors) the pixel lies
-  o.surf = vec4f(slope, edge, f32(i.flags));
+  // covered whole within the outline (alpha 1, and past it how high the cobble lies, for stoneShade), fading out
+  // just beyond it
+  o.col = vec4f(i.col * alb * grime, select(1.0 - smoothstep(0.0, aa, sd), 1.0 + cobbleZ(i.seed), sd <= 0.0));
+  // .z: its height in pixels, from the floor (the cobble's base, how high it lies among its neighbors, and its own
+  // form), which shades what lies under its edge (boulder); .w its flags, how near its own edge in the fraction
+  o.surf = vec4f(slope, (0.35 * cobbleZ(i.seed) + hz) * i.px, f32(i.flags) + 0.45 * edge);
   return o;
 }
 
 @fragment fn fsStone(i: SO) -> StoneOut {
-  if ((i.flags & 4u) != 0u) { return framboidSurf(i); }
-  return mineralSurf(i);
+  var o: StoneOut;
+  if ((i.flags & 4u) != 0u) { o = framboidSurf(i); } else { o = mineralSurf(i); }
+  // (a framboid's limb fades within its outline: the same split, by coverage)
+  if (select((o.col.a < 1.0), (o.col.a >= 1.0 || o.col.a <= 0.0), STONE_EDGE)) { discard; }
+  // (a framboid and the selected grain lie on top, as their depth has it, vsStone)
+  if (o.col.a >= 1.0) { o.col.a = select(select(o.col.a, 1.97, (i.flags & 4u) != 0u), 1.99, (i.flags & 2u) != 0u); }
+  // (the edge's surface is blended by its coverage, keeping the flags beneath: boulder finds its own)
+  if (STONE_EDGE) { o.surf.w = o.col.a; }
+  return o;
 }
 
 @vertex fn vsFade(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
@@ -6615,6 +6764,10 @@ struct Reproj { scale: vec2f, shift: vec2f, k: f32, p0: f32, p1: f32, p2: f32 };
 @group(0) @binding(13) var seaTex: texture_2d_array<f32>;
 @group(0) @binding(14) var seaSamp: sampler;
 @group(0) @binding(15) var<storage, read_write> shiftMap: array<vec2f>;
+// the stone cache (engine _stoneStale): stone lit in its own frame (fsStoneCache), and how the view's texture
+// coordinates map into it (uv * xy + zw)
+@group(0) @binding(16) var stoneCacheTex: texture_2d<f32>;
+@group(0) @binding(17) var<uniform> stoneXf: vec4f;
 
 struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 
@@ -6634,6 +6787,10 @@ fn scene(uv: vec2f) -> vec3f {
 }
 fn tap(uv: vec2f) -> vec3f { return scene(uv); }
 
+// noise for stone's surface (boulder), in the world (vnoise's grid would show through the look's relief)
+${gradNoiseWGSL('stoneNoise', 'hash12')}
+// the four pixels beside one, k 0..3
+fn beside(k: i32) -> vec2i { return vec2i(select(0, select(-1, 1, k == 0), k < 2), select(0, select(-1, 1, k == 2), k >= 2)); }
 fn vnoise(p: vec2f) -> f32 {
   let c = floor(p);
   let f = fract(p);
@@ -6655,17 +6812,74 @@ fn worley(p: vec2f) -> vec4f {
   }
   return vec4f(f1, f2, off);
 }
+// How much of the lamp and of the ambient light reach a point of stone among its neighbors, from the heights the
+// stone pass leaves (mineralSurf, in its pixels) and the order its cobbles lie in (fsStone): (direct, ambient). Only
+// a cobble lying over this one shades it (one under it never does, however high its middle). The lamp is shadowed
+// where such a neighbor toward it rises above the line to it, softly, so a grain lying over another shades it along
+// one side, more where it stands high over it; the ambient light dims where they rise all round, deep in a crevice.
+// The shadows fall as from a steeper lamp than the one the grains are shaded by (a microscope's light comes in over
+// a ring of angles, not from one raking direction): short and soft, where grains touch.
+// Grains under a few pixels across take neither, fading out as they shrink there (shadows a pixel or two long,
+// sampled between pixels, would flicker as the view moves).
+fn stoneShade(uv: vec2f, h0: f32, order: f32, ppu: f32, toLight: vec3f) -> vec2f {
+  let reach = 0.09 * ppu; // about half a grain, in pixels
+  let fade = smoothstep(1.5, 4.0, reach);
+  if (fade <= 0.0 || order <= 0.0) { return vec2f(1.0); }
+  let px = 1.0 / vec2f(textureDimensions(stoneTop));
+  let dir = normalize(toLight.xy);
+  let rise = max(toLight.z / length(toLight.xy), 1.0);
+  var shadow = 0.0;
+  for (var k = 1; k <= 8; k++) {
+    let d = reach * f32(k) / 8.0;
+    let q = uv + dir * d * px;
+    let oq = textureSampleLevel(stoneTex, samp, q, 0.0).a - 1.0;
+    // (a cobble over this one stands at least a little above it where it overlaps)
+    let hq = max(textureSampleLevel(stoneTop, samp, q, 0.0).z, h0 + 0.1 * reach);
+    shadow = max(shadow, select(0.0, smoothstep(0.0, 0.35 * reach, hq - h0 - d * rise), oq > order + 1e-3));
+  }
+  var occl = 0.0;
+  for (var k = 0; k < 12; k++) {
+    let a = f32(k) * (TAU / 12.0);
+    let d = reach * select(0.5, 1.0, (k & 1) == 1);
+    let q = uv + vec2f(cos(a), sin(a)) * d * px;
+    let oq = textureSampleLevel(stoneTex, samp, q, 0.0).a - 1.0;
+    let hq = max(textureSampleLevel(stoneTop, samp, q, 0.0).z, h0 + 0.1 * reach);
+    occl += select(0.0, clamp((hq - h0) / d, 0.0, 1.0), oq > order + 1e-3);
+  }
+  return vec2f(1.0 - 0.8 * shadow * fade, 1.0 - 0.6 * occl / 12.0 * fade);
+}
+// A highlight as sharp as p, blurred and dimmed alike on a grain too few pixels across to resolve it (gloss 0..1):
+// the facets under a pixel each turn it a different way, so it spreads over the pixel rather than flashing in it.
+fn glint(hv: f32, p: f32, gloss: f32) -> f32 { let q = p * mix(0.12, 1.0, gloss); return pow(hv, q) * (q + 2.0) / (p + 2.0); }
 // Rock from the stone targets (DRAW_WGSL vsStone): the cobble on top at each pixel, lit from its own
-// slope, darkening toward its edge where it tucks under its neighbors. Bedrock is speckled like
-// granite; reef stone, laid down by calcifiers, is pitted like limestone. The selected grain glows.
+// slope, shaded where its neighbors rise over it (stoneShade). Bedrock is speckled like granite; reef
+// stone, laid down by calcifiers, is pitted like limestone. The selected grain glows.
 fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
-  let c = textureSampleLevel(stoneTex, samp, uv, 0.0);
+  var c = textureSampleLevel(stoneTex, samp, uv, 0.0);
   if (c.a <= 0.0) { return vec3f(0.0); }
-  let s = textureSampleLevel(stoneTop, samp, uv, 0.0);
+  // alpha is how much of the pixel stone covers, and past 1 how high its cobble lies (fsStone); a grain's edge over
+  // bare water was blended over nothing: its own color, covering part of the pixel
+  var order = max(c.a - 1.0, 0.0);
+  let cover = min(c.a, 1.0);
+  c = vec4f(c.rgb / cover, cover);
+  // its surface likewise (slope and height)
+  var s = textureSampleLevel(stoneTop, samp, uv, 0.0);
+  s = vec4f(s.xyz / cover, s.w);
   // flags (with the kind of grain), and a framboid's fuel in the fraction (fsStone): read from the nearest
-  // pixel, since blending two grains' flags at their seam would decode as some other material
+  // pixel, since blending two grains' flags at their seam would decode as some other material; a grain's edge over
+  // bare water keeps the water's (none), so it takes its grain's from beside it
   let st = vec2f(textureDimensions(stoneTop));
-  let sw = textureLoad(stoneTop, vec2i(clamp(uv * st, vec2f(0.0), st - 1.0)), 0).w;
+  let at = vec2i(clamp(uv * st, vec2f(0.0), st - 1.0));
+  var sw = textureLoad(stoneTop, at, 0).w;
+  if (cover < 1.0) {
+    // (and is lit as that neighbor is: beyond its outline the grain's form would be extrapolated, a facet too far)
+    let lim = vec2i(st) - 1;
+    for (var k = 0; k < 4; k++) {
+      let q = clamp(at + beside(k), vec2i(0), lim);
+      let n = textureLoad(stoneTop, q, 0);
+      if (n.w > sw) { sw = n.w; s = vec4f(n.xyz, s.w); order = max(textureLoad(stoneTex, q, 0).a - 1.0, 0.0); }
+    }
+  }
   let flags = u32(floor(sw + 0.01));
   let fine = smoothstep(120.0, 400.0, ppu);
   if ((flags & 4u) != 0u) {
@@ -6674,9 +6888,9 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
     let fuel = (sw - f32(flags)) / 0.45;
     let n = normalize(vec3f(-s.xy, 1.0));
     let light = normalize(vec3f(-0.45, -0.55, 0.7));
-    let spec = pow(max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0), 18.0);
+    let spec = glint(max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0), 18.0, smoothstep(4.0, 20.0, 0.1 * ppu)); // (half a grain's radius, vsStone)
     var lit = c.rgb * (0.25 + 0.65 * max(dot(n, light), 0.0)) + mix(c.rgb, vec3f(1.0, 0.95, 0.8), 0.3) * spec * 1.8;
-    let flick = 0.85 + 0.15 * vnoise(wp * 30.0 + vec2f(post.simTime * 0.7, 0.0));
+    let flick = 0.85 + 0.15 * vnoise(wp * 30.0); // (unevenly, and steady: stone is lit once and kept, engine _stoneStale)
     lit += vec3f(1.0, 0.38, 0.08) * (0.01 + 0.32 * s.z) * fuel * flick;
     if ((flags & 2u) != 0u) { lit = lit * 1.4 + vec3f(0.05, 0.04, 0.02); }
     return lit * c.a * 1.3;
@@ -6687,24 +6901,29 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
   let glass = mat == 0u || mat == 5u || mat == 7u;
   let bio = mat >= 4u;
   // a little surface relief up close, least on glass and on skeletons, which carry their own
-  let relief = fine * select(select(1.0, 0.3, bio), 0.0, glass || mat == 2u) * (0.35 * vec2f(vnoise(wp * 40.0) - 0.5, vnoise(wp * 40.0 + 7.3) - 0.5)
-    + 0.25 * vec2f(vnoise(wp * 140.0) - 0.5, vnoise(wp * 140.0 + 3.1) - 0.5));
+  let relief = fine * select(select(1.0, 0.3, bio), 0.0, glass || mat == 2u) * (0.35 * vec2f(stoneNoise(wp * 40.0) - 0.5, stoneNoise(wp * 40.0 + 7.3) - 0.5)
+    + 0.25 * vec2f(stoneNoise(wp * 140.0) - 0.5, stoneNoise(wp * 140.0 + 3.1) - 0.5));
   let n = normalize(vec3f(-s.xy + relief, 1.0));
   // a low, raking light, so each grain's form shows
   let light = normalize(vec3f(-0.55, -0.65, 0.5));
-  let diffuse = max(dot(n, light), 0.0);
-  let hv = max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0);
-  let tuck = 1.0 - 0.55 * s.z * s.z;
+  let shade = stoneShade(uv, s.z, order, ppu, light);
+  let diffuse = max(dot(n, light), 0.0) * shade.x;
+  let hv = max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0) * shade.x;
+  // and where its crevices are too fine to resolve (stoneShade fades out), their shade as it averages over a grain:
+  // the lower a grain lies in the pile, the more of what shows of it is in its neighbors' shadow
+  let tuck = shade.y * mix(1.0, mix(0.3, 1.0, smoothstep(0.35, 0.8, order)), 1.0 - smoothstep(1.5, 4.0, 0.09 * ppu));
+  let edge = (sw - f32(flags)) / 0.45;
+  let gloss = smoothstep(4.0, 20.0, 0.2 * ppu); // a grain's radius in pixels (STONE_R)
   // mineral grains are mottled and veined well before their fine relief resolves
   let mid = smoothstep(25.0, 90.0, ppu) * select(1.0, 0.4, glass || bio);
-  var col = c.rgb * (1.0 + 0.12 * (vnoise(wp * 6.0) - 0.5) * select(1.0, 0.4, glass || bio) + (0.12 * mid + 0.18 * fine * select(1.0, 0.4, glass || bio)) * (vnoise(wp * 18.0) - 0.5)
-    + 0.16 * mid * (vnoise(wp * 47.0 + 3.7) - 0.5));
+  var col = c.rgb * (1.0 + 0.12 * (stoneNoise(wp * 6.0) - 0.5) * select(1.0, 0.4, glass || bio) + (0.12 * mid + 0.18 * fine * select(1.0, 0.4, glass || bio)) * (stoneNoise(wp * 18.0) - 0.5)
+    + 0.16 * mid * (stoneNoise(wp * 47.0 + 3.7) - 0.5));
   if (fine > 0.0 && mat == 3u) {
     if ((flags & 1u) != 0u) {
       // reef chalk: pits of varied size gathered in patches, shadowed on the lit side, a lit rim opposite
       let pores = worley(wp * 55.0);
       let size = 0.04 + 0.14 * hash12(floor(wp * 55.0 + pores.zw)) * hash12(floor(wp * 55.0 + pores.zw) + 3.3);
-      let pit = (1.0 - smoothstep(size * 0.7, size, pores.x)) * fine * smoothstep(0.3, 0.65, vnoise(wp * 5.0));
+      let pit = (1.0 - smoothstep(size * 0.7, size, pores.x)) * fine * smoothstep(0.3, 0.65, stoneNoise(wp * 5.0));
       let side = dot(normalize(pores.zw + vec2f(1e-5)), normalize(light.xy));
       col *= 1.0 + pit * (0.35 * side - 0.3);
     } else {
@@ -6719,15 +6938,49 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
     // the side away from the lamp, and a sharp white highlight
     let fres = 1.0 - n.z;
     let exitL = max(dot(normalize(n.xy + vec2f(1e-5)), -normalize(light.xy)), 0.0) * fres;
-    lit = col * (0.25 + 0.75 * diffuse / (0.35 + diffuse) + 0.3 * exitL + 0.25 * fres) * tuck + vec3f(0.95, 0.97, 1.0) * pow(hv, 80.0) * 0.08 * (0.4 + 0.6 * vnoise(wp * 30.0));
+    lit = col * (0.25 + 0.75 * diffuse / (0.35 + diffuse) + 0.3 * exitL + 0.25 * fres) * tuck + vec3f(0.95, 0.97, 1.0) * glint(hv, 80.0, gloss) * 0.08 * (0.4 + 0.6 * stoneNoise(wp * 30.0));
   } else if (mat == 2u) {
-    lit = col * (0.2 + 0.85 * diffuse) * tuck + vec3f(0.22) * pow(hv, 40.0);
+    lit = col * (0.2 + 0.85 * diffuse) * tuck + vec3f(0.22) * glint(hv, 40.0, gloss);
   } else {
     let chalk = mat == 1u || mat == 4u || mat == 6u;
-    lit = col * (select(0.15 + 1.0 * diffuse, 0.4 + 1.15 * diffuse, chalk)) * tuck + vec3f(select(0.25, 0.08, chalk || (flags & 1u) != 0u)) * pow(hv, 28.0) * dot(col, vec3f(0.33));
+    lit = col * (select(0.15 + 1.0 * diffuse, 0.4 + 1.15 * diffuse, chalk)) * tuck + vec3f(select(0.25, 0.08, chalk || (flags & 1u) != 0u)) * glint(hv, 28.0, gloss) * dot(col, vec3f(0.33));
   }
-  if ((flags & 2u) != 0u) { lit = lit * 1.5 + vec3f(0.05, 0.04, 0.02) + vec3f(0.35, 0.3, 0.2) * smoothstep(0.7, 1.0, s.z); }
+  // an edge scatters light: glass most, a bright line round each grain as in micrographs of sand and diatoms, opaque
+  // and chalky grains a little (the look's darkfield rims add to it, from the scene, as on cells)
+  let scatter = edge * edge * edge * select(select(0.14, 0.06, mat == 2u), 0.4, glass) * 0.6;
+  lit += mix(col, vec3f(dot(col, vec3f(0.33))), 0.5) * scatter * tuck;
+  if ((flags & 2u) != 0u) { lit = lit * 1.5 + vec3f(0.05, 0.04, 0.02) + vec3f(0.35, 0.3, 0.2) * smoothstep(0.7, 1.0, edge); }
   return lit * c.a * 1.3;
+}
+
+// Stone lit under the cells, into the scene everything after reads (engine pStoneLit): the cells' light as drawn
+// (src), and the stone's beneath it where they leave it bare, scaled so scene() still divides out their cover. So
+// the optics and the look take stone as they take cells (the lens's fringes and blur, its shallow focus, the
+// darkfield rims and relief, the glow), and it is lit once a pixel however many times they read it.
+fn underCells(t: vec4f, st: vec3f) -> vec4f { return vec4f(t.rgb + st * (1.0 - min(1.0, t.a)) * max(1.0, t.a), t.a); }
+// The main view's stone is lit once into the stone cache, in the cache's own frame (microView: engine viewC), and
+// served from there until it goes stale (engine _stoneStale). Its alpha is the pixel's place in the pile (fsStone's
+// alpha past 1, or on a grain's edge over bare water its neighbor's; 0 for none), for the composite's focus.
+@fragment fn fsStoneCache(i: VO) -> @location(0) vec4f {
+  let st = vec2f(textureDimensions(stoneTex));
+  let at = vec2i(i.pos.xy);
+  var sa = textureLoad(stoneTex, at, 0).a;
+  if (sa > 0.0 && sa <= 1.0) {
+    for (var k = 0; k < 4; k++) { sa = max(sa, textureLoad(stoneTex, clamp(at + beside(k), vec2i(0), vec2i(st) - 1), 0).a); }
+  }
+  return vec4f(boulder(i.uv, microView.cam + (i.pos.xy - microView.res * 0.5) / microView.ppu, microView.ppu), select(0.0, sa, sa > 1.0));
+}
+// each frame: the cached stone under the view's cells, and each pixel's place in the pile
+struct LitOut { @location(0) scene: vec4f, @location(1) pile: vec4f };
+@fragment fn fsStoneLit(i: VO) -> LitOut {
+  let cuv = i.uv * stoneXf.xy + stoneXf.zw;
+  let cs = vec2f(textureDimensions(stoneCacheTex));
+  let pile = textureLoad(stoneCacheTex, vec2i(clamp(cuv * cs, vec2f(0.0), cs - 1.0)), 0).a;
+  return LitOut(underCells(textureLoad(src, vec2i(i.pos.xy), 0), textureSampleLevel(stoneCacheTex, samp, cuv, 0.0).rgb), vec4f(0.0, 0.0, 0.0, pile));
+}
+// (the loupe's and the close-up's, lit as they are drawn, at their own scale)
+@fragment fn fsStoneLitMicro(i: VO) -> @location(0) vec4f {
+  return underCells(textureLoad(src, vec2i(i.pos.xy), 0), boulder(i.uv, microView.cam + (i.pos.xy - microView.res * 0.5) / microView.ppu, microView.ppu));
 }
 
 @fragment fn fsDown(i: VO) -> @location(0) vec4f {
@@ -6861,6 +7114,7 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32) -> vec3f {
   var c = vec3f(scene(uv + ca).r, scene(uv).g, scene(uv - ca).b);
   let rim = smoothstep(0.7, 3.8, r2);
   var blur = rim * 1.5;
+  var deep = 0.0; // a grain blurred deep in its pile: its order (fsStone's alpha), past which taps are in front of it
   let start = max(80.0, 2.0 * max(post.res.x / post.world.x, post.res.y / post.world.y));
   // (with the look's shallow focus, not only toward the rim: whatever lies above or below the plane softens)
   let shallow = max(rim, post.look[3].x);
@@ -6869,17 +7123,36 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32) -> vec3f {
     let drift = vec2f(0.0, post.simTime * 0.004);
     // focused on the middle of the view, as a microscopist keeps what they watch sharp
     let depth = valueNoise(wp / post.world * cells + drift, cells) - valueNoise(post.cam / post.world * cells + drift, cells);
-    blur += shallow * smoothstep(0.08, 0.35, abs(depth)) * smoothstep(start, start * 4.0, post.ppu) * 4.5;
+    let near = smoothstep(start, start * 4.0, post.ppu);
+    blur += shallow * smoothstep(0.08, 0.35, abs(depth)) * near * 4.5;
+    // bare stone lies on the floor, the top of its pile near where the cells swim and the rest deeper: far thinner
+    // than a grain is what a microscope holds in focus, so the grains on top are sharp and those under them soft,
+    // the more the deeper, by the grain's cobble's place in the pile (fsStoneLit: stoneTex holds it here)
+    let st = vec2f(textureDimensions(stoneTex));
+    let sa = textureLoad(stoneTex, vec2i(clamp(uv * st, vec2f(0.0), st - 1.0)), 0).a;
+    if (sa > 1.0 && textureSampleLevel(src, samp, uv, 0.0).a < 0.5) {
+      let below = 1.0 - clamp((sa - 1.27) / 0.49, 0.0, 1.0); // cobbleZ runs 0.27 to 0.76; a framboid's and the selected grain's lie on top
+      let pileBlur = post.look[3].x * smoothstep(0.2, 0.8, below) * smoothstep(start, start * 2.5, post.ppu) * 24.0;
+      blur += pileBlur;
+      if (pileBlur > 0.5) { deep = sa; }
+    }
   }
   if (blur * k > 0.3) {
-    // eight taps on a disc, turned at random per pixel; the sensor's grain hides the pattern
+    // eight taps on a disc, turned at random per pixel; the sensor's grain hides the pattern (twelve for a wide blur,
+    // deep in a pile); deep in a pile, none from a grain lying higher, which is in focus in front of what blurs
     let turn = hash12(pos) * TAU;
+    let n = select(8, 12, blur * k > 3.0);
     var b = vec3f(0.0);
-    for (var t = 0; t < 8; t++) {
+    var wsum = 0.0;
+    for (var t = 0; t < n; t++) {
       let a = turn + f32(t) * 2.39996;
-      b += scene(uv + vec2f(cos(a), sin(a)) * sqrt((f32(t) + 0.5) / 8.0) * blur * px);
+      let tq = uv + vec2f(cos(a), sin(a)) * sqrt((f32(t) + 0.5) / f32(n)) * blur * px;
+      var w = 1.0;
+      if (deep > 0.0) { w = select(1.0, 0.0, textureSampleLevel(stoneTex, samp, tq, 0.0).a > deep + 0.02); }
+      b += scene(tq) * w;
+      wsum += w;
     }
-    c = mix(c, b / 8.0, smoothstep(0.3, 1.5, blur * k));
+    if (wsum > 0.0) { c = mix(c, b / wsum, smoothstep(0.3, 1.5, blur * k)); }
   }
   return c;
 }
@@ -8207,12 +8480,12 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   }
   uv += toolBend(wp) / post.res;
   // Cells lie over what is beneath them: where the living cover a pixel they show alone, not averaged
-  // with the grains they sit on, and cells and grains both hide the stone under them.
+  // with the grains they sit on, and cells and grains both hide the stone under them (fsStoneLit).
   let all = textureSampleLevel(src, samp, uv, 0.0);
   let live = textureSampleLevel(liveTex, samp, uv, 0.0);
-  var hdr = boulder(uv, wp, post.ppu) * (1.0 - min(1.0, all.a));
-  if (k > 0.0) { hdr += lensScene(uv, q, wp, i.pos.xy, k); }
-  else { hdr += mix(all.rgb / max(1.0, all.a), live.rgb / max(1.0, live.a), min(1.0, live.a)); }
+  var hdr: vec3f;
+  if (k > 0.0) { hdr = lensScene(uv, q, wp, i.pos.xy, k); }
+  else { hdr = mix(all.rgb / max(1.0, all.a), live.rgb / max(1.0, live.a), min(1.0, live.a)); }
   let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
   hdr = lookScene(hdr, uv, bl, post.ppu, post.res);
   // the sea focuses the lamp's light onto what lies beneath it
@@ -8271,8 +8544,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 
 // The loupe's view through its lens, at r in its texture's half-widths.
 fn loupeScene(r: vec2f) -> vec3f {
-  let tuv = r * 0.5 + 0.5;
-  return scene(tuv) + boulder(tuv, microView.cam + r * microView.res * 0.5 / microView.ppu, microView.ppu);
+  return scene(r * 0.5 + 0.5);
 }
 
 @fragment fn fsLoupe(i: LV) -> @location(0) vec4f {
@@ -8348,7 +8620,7 @@ fn loupeScene(r: vec2f) -> vec3f {
 // maps over it, so the grade is never held back).
 @fragment fn fsPlain(i: VO) -> @location(0) vec4f {
   let wp = microView.cam + (i.uv - 0.5) * microView.res / microView.ppu;
-  let hdr = lookScene(scene(i.uv) + boulder(i.uv, wp, microView.ppu), i.uv, vec3f(0.0), microView.ppu, microView.res) * post.exposure;
+  let hdr = lookScene(scene(i.uv), i.uv, vec3f(0.0), microView.ppu, microView.res) * post.exposure;
   var c = lookTone(hdr) + vec3f(0.006, 0.005, 0.012);
   c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0);
   return vec4f(lookGrade(pow(c, vec3f(1.0 / 2.2)), i.pos.xy), 1.0);
