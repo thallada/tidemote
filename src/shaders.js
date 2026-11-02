@@ -8298,32 +8298,55 @@ fn lampAt(wp: vec2f) -> f32 {
 }
 // The scene's light at wp (docs/look.md, Light): the light lifeMain gives producers there (lightAt: the Tide's bands by
 // the season over the era's baseline, under the sky and any duckweed, and the hand's lamp or shade) lights what is
-// seen, so the bands and the lamp show on the cells, silt and stone they fall on. k: what the scene is multiplied by,
-// brighter as the light is against a middling day's (LIT_MID), never quite dark nor blown out, cool in the shade, warm
-// in the sun and amber by the lamp's share; g: its brightness alone; sun: the light without the lamp's, lamp: the lamp's.
-const LIT_MID = 0.36;
-const LIT_LO = 0.35;
-const LIT_HI = 3.0;
-struct Lit { k: vec3f, g: f32, sun: f32, lamp: f32 };
+// seen, so the bands and the lamp show on the cells, silt and stone they fall on. The view is exposed for the season,
+// as an eye adjusts: the open water at LIT_DIM, a band at its brightest at least LIT_RISE times that (summer's bands
+// are brighter than that already, winter's are stretched to it), so a winter's bands show, dimmer than a summer's.
+// x: that exposure, between LIT_LO and LIT_HI; r: where it lies between the open water and the day's brightest (0..1);
+// k: what the scene is multiplied by before the tone curve (LIT_HDR of the exposure, in log: lit things glow), cool
+// in the shade, warm in the sun and amber by the lamp's share; g: what the toned view is multiplied by (the rest, so
+// the tone curve does not squeeze it; litShow); lamp: the lamp's own light.
+const LIT_DIM = vec2f(0.45, 0.5);   // the open water's exposure in winter, in summer
+const LIT_RISE = vec2f(2.6, 4.5);   // a band's at its brightest over the open water's, at least, in winter, in summer
+const LIT_LO = 0.25;
+const LIT_HI = 2.6;
+const LIT_HDR = 0.35;
+const LIT_KNEE = 0.7;               // the toned view rolls off above this toward white (litShow)
+const LIT_GRAY = 0.62;              // the color left in the deepest shade, grayed and cooled as by moonlight
+struct Lit { k: vec3f, g: f32, x: f32, r: f32, lamp: f32 };
 fn sceneLit(wp: vec2f) -> Lit {
   let base = (post.ambient + (1.0 - post.ambient) * tideAt(wp, post.world, post.simTime, post.tide, post.tidePh) * post.season) * lightPassed(wp);
   let b = lampAt(wp);
   var o: Lit;
-  o.sun = select(base * (1.0 + b), base, b > 0.0);
   o.lamp = max(b, 0.0);
-  let l = o.sun + o.lamp;
-  o.g = clamp(l / LIT_MID, LIT_LO, LIT_HI);
-  let tint = mix(vec3f(0.9, 0.95, 1.06), vec3f(1.04, 1.0, 0.92), smoothstep(0.12, 0.9, o.sun));
-  o.k = o.g * mix(tint, vec3f(1.2, 0.92, 0.6), o.lamp / max(l, 1e-3));
+  let l = select(base * (1.0 + b), base, b > 0.0) + o.lamp;
+  // exposed for the season: the band's rise over the open water raised to a power that brings it to LIT_RISE
+  let day = post.ambient + (1.0 - post.ambient) * post.season;
+  let sw = smoothstep(0.1, 1.0, post.season);
+  let dim = mix(LIT_DIM.x, LIT_DIM.y, sw);
+  let rise = mix(LIT_RISE.x, LIT_RISE.y, sw);
+  let gam = max(1.0, log(rise) / log(max(day / post.ambient, 1.001)));
+  o.x = clamp(dim * pow(max(l, 1e-4) / post.ambient, gam), LIT_LO, LIT_HI);
+  o.r = clamp(log(o.x / dim) / log(rise), 0.0, 1.0);
+  o.g = pow(o.x, 1.0 - LIT_HDR);
+  let tint = mix(vec3f(0.9, 0.95, 1.06), vec3f(1.04, 1.0, 0.92), smoothstep(0.0, 1.0, (o.x - LIT_DIM.x) / (LIT_HI - LIT_DIM.x)));
+  o.k = pow(o.x, LIT_HDR) * mix(tint, vec3f(1.2, 0.92, 0.6), o.lamp / max(l, 1e-3));
   return o;
 }
+// The toned view (display-linear) in the scene's light: brightened or dimmed by g, rolled off above LIT_KNEE toward
+// white rather than clipped, and grayed and cooled in the shade.
+fn litShow(cIn: vec3f, l: Lit) -> vec3f {
+  let c = cIn * l.g;
+  let o = c - LIT_KNEE;
+  let s = select(c, LIT_KNEE + (1.0 - LIT_KNEE) * (1.0 - exp(-o / (1.0 - LIT_KNEE))), c > vec3f(LIT_KNEE));
+  return mix(vec3f(dot(s, vec3f(0.2126, 0.7152, 0.0722))) * vec3f(0.92, 0.97, 1.1), s, mix(LIT_GRAY, 1.0, l.r));
+}
 // The light on the pond's floor, seen through the dark water behind what lies in it (display-linear, added as the
-// background is): its mud (the murk there) in the sun's warm white and the lamp's amber, none in the shade.
+// background is): its mud (the murk there) in the sun's warm white and the lamp's amber, faint in the shade.
 fn floorLit(l: Lit, mud: f32) -> vec3f {
-  return (vec3f(1.0, 0.95, 0.82) * pow(clamp(l.sun, 0.0, 1.5), 1.5) + vec3f(1.0, 0.7, 0.38) * 1.4 * l.lamp) * (0.003 + 0.045 * mud);
+  return (vec3f(1.0, 0.95, 0.82) * pow(l.x / LIT_HI, 1.5) * (0.35 + 0.65 * l.r) + vec3f(1.0, 0.7, 0.38) * 1.4 * l.lamp) * (0.009 + 0.135 * mud);
 }
 // The sea's focusing (surf.light) as the light there makes it: bright caustics in the sun, faint in the shade.
-fn seaFocus(light: f32, l: Lit) -> f32 { return 1.0 + (light - 1.0) * mix(0.5, 1.8, min(l.sun + l.lamp, 1.0)); }
+fn seaFocus(light: f32, l: Lit) -> f32 { return 1.0 + (light - 1.0) * mix(0.5, 1.8, min(l.x, 1.0)); }
 // The tide and thermal maps over the tonemapped view at world point wp (pos: the fragment's pixel; water: the
 // water's temperature there), in the main view and the loupe alike.
 fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
@@ -8586,7 +8609,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
   // in the scene's light, which the sea focuses onto what lies beneath it
   let lit = sceneLit(wp);
   hdr = (hdr + bl * post.bloom) * post.exposure * seaFocus(surf.light, lit) * lit.k;
-  var c = lookTone(hdr);
+  var c = litShow(lookTone(hdr), lit);
   c = mapsOver(c, wp, i.pos.xy, water.x);
   let uq = i.uv - 0.5;
   let v = clamp(1.0 - dot(uq, uq) * 1.1, 0.0, 1.0);
@@ -8681,7 +8704,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   var m = 0.0;
   if (k > 0.0) { m = murk(microView.cam, r0 * microView.res * 0.5 / microView.ppu) * k; }
   let behind = 1.0 / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
-  var c = mapsOver(lookTone(hdr), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + (vec3f(0.0045, 0.004, 0.0015) * m + floorLit(lit, m) * k) * behind;
+  var c = mapsOver(litShow(lookTone(hdr), lit), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + (vec3f(0.0045, 0.004, 0.0015) * m + floorLit(lit, m) * k) * behind;
   c = pondMicro(c, hdr, microView.cam, r0 * microView.res * 0.5, microView.ppu, loupe.ppu, m, lit.g);
   // the drought's dry floor and its rain, the frost's ice, the storm's waves, duckweed
   c = poolOver(c, wp, loupe.ppu, k, behind, surf.slope, lit.g);
