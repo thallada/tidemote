@@ -811,14 +811,14 @@ dd { margin: 0; color: var(--ink-2); }
 .mixrow b { display: flex; gap: 6px; text-decoration: none; cursor: help; }
 .mixrow b s { text-decoration: none; }
 .mixrow b em { font-style: normal; font-size: 11px; margin-right: 1px; }
-.story { list-style: none; margin: 0; padding: 0 var(--s1) 0 12px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--s2);
+.storylist { list-style: none; margin: 0; padding: 0 var(--s1) 0 12px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--s2);
   /* a fixed window, newest first, scrolling once it fills */
   height: 152px; overflow-y: auto; scrollbar-width: thin; }
-.story li { display: grid; grid-template-columns: 4.4ch minmax(0, 1fr); gap: 10px; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); position: relative; }
-.story li::before { content: ''; position: absolute; left: -15px; top: 6px; width: 5px; height: 5px; background: var(--line-2); }
-.story li:first-child { color: var(--ink); }
-.story li:first-child::before { background: var(--hot); }
-.story time { color: var(--ink-3); }
+.storylist li { display: grid; grid-template-columns: 4.4ch minmax(0, 1fr); gap: 10px; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); position: relative; }
+.storylist li::before { content: ''; position: absolute; left: -15px; top: 6px; width: 5px; height: 5px; background: var(--line-2); }
+.storylist li:first-child { color: var(--ink); }
+.storylist li:first-child::before { background: var(--hot); }
+.storylist time { color: var(--ink-3); }
 .trait { display: grid; grid-template-columns: var(--lab-w) 1fr 6.6em; gap: 10px; align-items: center; font-size: 12.5px; min-height: 18px; }
 .trait > span { color: var(--ink-3); }
 .trait > b { font-weight: 400; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -27555,7 +27555,7 @@ ${e.message}` : String(e?.message || e));
     });
     function storyHTML(sel) {
       if (!sel) return "";
-      return blk("Record", `<ol class="story">${sel.story.map((s) => `<li><time>${fmtClock(s.t)}</time><span>${s.text}</span></li>`).join("")}</ol>`);
+      return blk("Record", `<ol class="storylist">${sel.story.map((s) => `<li><time>${fmtClock(s.t)}</time><span>${s.text}</span></li>`).join("")}</ol>`);
     }
     function cellBlock(p, g, past, mind) {
       let h = kv("Cell type", `<span class="greek">${ROLE[p.role]}</span>-cell`, "celltype");
