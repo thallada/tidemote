@@ -1849,14 +1849,6 @@ fn swaySlot2(id: u32, n: u32) -> u32 {
     beatMix: 0.25,
     beatGain: 6,
     beatTop: 4,
-    beatMixC: 0.25,
-    // a coarse step's share (its swing capped at two beatTops, a fitted gain; docs/fast-forward.md), and how firmly a beating
-    beatBendC: 0.25,
-    // tree holds its angles then, relative to growStiff (bent afresh each tick from where its partners go)
-    beatSlopeC: 0.35,
-    // a coarse beat's extra gain at 6 ticks, per tick past the first (1.75 in all at 6), reached as
-    beatCurveC: 1,
-    // (ticks - 1) / 5 to this power: 1 a straight line (2 and 3 ticks overbend filaments 24-38%; 1.5 holds their bend but costs 16% of their speed, unchecked against the ecology), 2 little before 4 ticks
     treeBond: 3,
     // a beating tree's bonds' pull, relative to a body's (bond): its beat swings its cells hard
     tailOdds: 1,
@@ -2808,9 +2800,11 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
   // each tick toward partners carried on their velocities, stiff bodies rang and tore (each cell's
   // partners are stale within the step). A still tree's bend is held alike, its stiffness across each arm
   // (bendT over the arm's length): held explicitly over 6 ticks (~30 rad/s) it flung cells off and the
-  // trees regrew them, doubling their births (docs/fast-forward.md).
+  // trees regrew them, doubling their births (docs/fast-forward.md). A beating tree is moved instead a tick at a
+  // time with its partners (sub: bodyTick, from what this step hands it, handOver).
   let beating = tree && gr.beat.x > 0.0;
-  let holdB = coarse && bonding && !beating;
+  let sub = coarse && beating;
+  let holdB = coarse && bonding && !sub;
   let bendT = select(0.0, ${f(K.coarseBend * K.growStiff)}, holdB && tree);
   var jB = vec3f(0.0);
   var vB = vec2f(0.0);
@@ -2825,13 +2819,11 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
     bondF += e * ((l - r) / max(l, 1e-4));
     if (holdB) { jB += bondStiff(e, l, r, bendT); vB += sortedFull[nb].vel; nB += 1.0; }
   }
-  // a tree holds its angles (bendOn); a beating tree's cells move against their mother: in a coarse step
-  // they bend afresh each tick instead, and more softly
-  let bendK = ${f(K.growStiff)} * select(1.0, ${f(K.beatBendC)}, coarse && gr.beat.x > 0.0);
+  // a tree holds its angles (bendOn)
   var bendF = vec2f(0.0);
-  if (tree) { bendF = bendOn(i, gr) * bendK; bondF += bendF; }
+  if (tree && !sub) { bendF = bendOn(i, gr) * ${f(K.growStiff)}; bondF += bendF; }
   // a body bearing tails takes its share of the bend at each tail's base (where the base is the middle)
-  else if (tails) { bendF = tailBases(i, p, n1, n2, nBack) * bendK; bondF += bendF; }
+  else if (tails) { bendF = tailBases(i, p, n1, n2, nBack) * ${f(K.growStiff)}; bondF += bendF; }
   // a tail's base is held to its body by an ordinary bond, as the body holds it (not treeBond)
   let baseOn = tail && n1 != NONE && !treeCellAt(n1);
   let baseB = select(vec2f(0.0), dn1 * ((d1 - rs1) / max(d1, 1e-4)), baseOn);
@@ -2918,8 +2910,7 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
     stiff = (vEnd - p.vel * frT) / G - a0;
   }
   // Motion in substeps of one tick (1/60 s), so a coarse step moves a cell as that many 1/60 s steps
-  // would under its forces; a beating tree's bonds pull toward where the partners will be, carried on
-  // their velocities (a still body's are held, above). A 1/60 s step is a single substep.
+  // would under its forces (a still body's bonds held, above). A 1/60 s step is a single substep.
   let h = sim.dt / f32(sim.ticks);
   let fr0 = pow(0.5, h / drag);
   // a tree's cell is drawn out along its branch: across it the water holds it sideDrag times as hard
@@ -2929,9 +2920,9 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
     let arm = treeArm(i);
     if (arm != NONE) { let a = treeRel(i, arm); across = vec2f(-a.y, a.x) / max(length(a), 1e-6); frX = pow(0.5, h * ${f(K.sideDrag)} / drag); }
   }
-  // a tree's muscles and tissue (beatPull), reckoned once a step
+  // a tree's muscles and tissue (beatPull)
   var beatDv = vec2f(0.0);
-  if (beating) { beatDv = beatPull(i, gr, g.size, frX); }
+  if (beating && !sub) { beatDv = beatPull(i, gr, g.size); }
   var vB1 = vec2f(0.0);
   var vB2 = vec2f(0.0);
   if (n1 != NONE) { vB1 = sortedFull[n1].vel; }
@@ -2972,24 +2963,10 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
   let bondK = select(1.0, ${f(K.treeBond)}, beating);
   // (the partners' mean velocity as the tissue blends it: in a coarse step it takes on this cell's motion too)
   var vT = vP;
-  for (var k = 0u; k < select(1u, sim.ticks, COARSE); k++) {
-    var fb = (bondF - bendF - baseB) * bondK + baseB + bendF;
-    if (k > 0u && !holdB) {
-      let t = f32(k) * h;
-      let moved = pos - p.pos;
-      fb = vec2f(0.0);
-      var fb1 = vec2f(0.0);
-      if (n1 != NONE) { let e = dn1 + vB1 * t - moved; let l = length(e); fb1 = e * ((l - rs1) / max(l, 1e-4)) * m1; }
-      if (n2 != NONE) { let e = dn2 + vB2 * t - moved; let l = length(e); fb += e * ((l - rs2) / max(l, 1e-4)) * m2; }
-      for (var kb = 0u; kb < nBack; kb++) {
-        let nb = backAt(i, kb, p, n1, n2);
-        if (nb == NONE) { continue; }
-        let e = bondTo(nb, p) + sortedFull[nb].vel * t - moved; let l = length(e);
-        fb += e * ((l - restTo(nb, g.size, role, tight)) / max(l, 1e-4));
-      }
-      fb = (fb + select(fb1, vec2f(0.0), baseOn)) * bondK + select(vec2f(0.0), fb1, baseOn);
-      if (beating) { predT = t; predSelf = i; predPos = pos; fb += bendOn(i, gr) * bendK; predT = 0.0; }
-    }
+  // (a cell bodyTick moves is handed over, and keeps still here; the mind shows its bend and swimming as bodyTick takes them)
+${w ? `  if (sub) { bondF += bendOn(i, gr) * ${f(K.growStiff)}; mSwim = select(normalize(p.vel), vec2f(0.0), dot(p.vel, p.vel) < 1e-6) * swim; }` : `  if (sub) { handOver(i, p.vel, force * (g.force * heavy) + stiff + stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify)) + taxis, swim, will, willOn, flow, pond, shore, stranded); }`}
+  for (var k = 0u; k < select(select(1u, sim.ticks, COARSE), 0u, sub); k++) {
+    let fb = (bondF - bendF - baseB) * bondK + baseB + bendF;
     vel = vel * fr0 - across * (dot(vel, across) * (fr0 - frX)) + force * (g.force * heavy * h) + stiff * h;${W("if (k == 0u) { mVel = vel; }")}
     // (a tree's cells move together through their bonds: aligning would damp its beat)
     if (kinN > 0.0 && g.align > 0.0 && !tree) {
@@ -2997,7 +2974,7 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
     }
     vel += fb * (g.adhesion * ${f(K.bond)} * h);
     // a body's cells move together: each takes on its partners' motion (a beating tree's, bond by bond, as its muscles beat)
-    if (beating) { vel += beatDv * (1.0 / f32(sim.ticks)); }
+    if (beating) { vel += beatDv; }
     else if (nP > 0.0) {
       let a = clamp(${f(K.tissue)} * h, 0.0, 1.0);
       // A coarse step: its partners take on this cell's motion as it takes on theirs (their mean held from
@@ -3074,6 +3051,8 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
 // Coarse steps (sim.ticks > 1) run lifeMain and mindMain as pipelines of their own (lifeMainCoarse):
 // a 1/60 s step's leaves out everything only a coarse step needs, which saves it registers.
 override COARSE = false;
+// bodyTick's pipeline: tree functions read where its substeps have moved the cells (treePos, treeVel)
+override SUBSTEP = false;
 struct Sim {
   world: vec2f, grid: vec2u,
   count: u32, frame: u32, dt: f32, time: f32,
@@ -3210,6 +3189,17 @@ fn splPair(h: u32, q: u32, won: bool) {
 const BACK = 6u;
 const BW = 9u;
 fn bondsOf(i: u32) -> vec2u { return vec2u(bondsNow[i * BW], bondsNow[i * BW + 1u]); }
+// After them, for a coarse step's substeps (bodyTick), SW words a cell: what lifeMain hands over (handOver),
+// then its position and velocity at the tick, twice (a tick reads one and writes the other); then a word a cell,
+// its mark: the step lifeMain handed it over in (the engine clears the marks wherever the step count goes back).
+const SW = 18u;
+fn subAt(i: u32) -> u32 { return BW * sim.count + SW * i; }
+fn subMark(i: u32) -> u32 { return (BW + SW) * sim.count + i; }
+// whether bodyTick moves cell x this step
+fn subMoved(x: u32) -> bool { return x < sim.count && bondsNow[subMark(x)] == sim.frame + 1u; }
+fn subWords(o: u32) -> vec4f { return bitcast<vec4f>(vec4u(bondsNow[o], bondsNow[o + 1u], bondsNow[o + 2u], bondsNow[o + 3u])); }
+fn subSlot(x: u32, k: u32) -> u32 { return subAt(x) + 10u + 4u * (k & 1u); }
+fn subState(x: u32, k: u32) -> vec4f { return subWords(subSlot(x, k)); }
 fn backOf(i: u32, k: u32) -> u32 { return bondsNow[i * BW + 2u + k]; }
 // how many of those that keep cell i it reads
 fn backN(i: u32) -> u32 { return min(backOf(i, 0u), BACK); }
@@ -4411,7 +4401,9 @@ fn tailLen(g: Genome) -> u32 { return 3u + u32(g.tail.y * ${f(K.tailMax - 3)}); 
 fn treeMom(x: u32) -> u32 {
   let m = bondsOf(x).x;
   if (m >= sim.count || m == x || sortedFull[m].kind != sortedFull[x].kind) { return NONE; }
-  let d = treeRel(x, m);
+  // (where the step starts: a substep keeps the step's tree, as keepBond its bonds)
+  var d = sortedFull[m].pos - sortedFull[x].pos;
+  d -= sim.world * round(d / sim.world);
   if (dot(d, d) > LINK_R * LINK_R * ${f(K.bondBreak * K.bondBreak)}) { return NONE; }
   return m;
 }
@@ -4421,14 +4413,19 @@ fn treeKid(x: u32, k: u32) -> u32 {
   if (c >= sim.count || c == x || treeMom(c) != x) { return NONE; }
   return c;
 }
-// A coarse step bends a beating tree afresh each tick (its bends change too fast to hold one tick's push
-// for the step): its partners where their velocities will carry them by predT, the cell itself at predPos.
-var<private> predT: f32;
-var<private> predSelf: u32;
-var<private> predPos: vec2f;
+// A tree's cells where they are (at a coarse step's substep subK, bodyTick: where that tick has moved them,
+// and a cell it does not move where its velocity carries it)
+var<private> subK: u32;
 fn treePos(x: u32) -> vec2f {
-  if (predT > 0.0) { return select(sortedFull[x].pos + sortedFull[x].vel * predT, predPos, x == predSelf); }
+  if (SUBSTEP && subK > 0u) {
+    if (subMoved(x)) { return subState(x, subK).xy; }
+    return sortedFull[x].pos + sortedFull[x].vel * (f32(subK) * sim.dt / f32(sim.ticks));
+  }
   return sortedFull[x].pos;
+}
+fn treeVel(x: u32) -> vec2f {
+  if (SUBSTEP && subK > 0u && subMoved(x)) { return subState(x, subK).zw; }
+  return sortedFull[x].vel;
 }
 fn treeRel(a: u32, b: u32) -> vec2f {
   var d = treePos(b) - treePos(a);
@@ -4501,44 +4498,30 @@ fn treeDeg(x: u32) -> f32 {
   let m = bondsOf(x).x;
   return max(2.0, f32(backN(x)) + select(0.0, 1.0, m < sim.count && m != x));
 }
-// One pull a step, the beat reckoned at the step's middle. A coarse step pulls its own share (beatMixC),
-// and its ticks' drag leaves less of the beat standing, so the beat asks more: as much as
-// it takes for its wave (2 - 2 cos of its phase per cell, as the bonds settle it) to stand as tall as in
-// 1/60 s steps, by a 1/60 s step's and a coarse step's settling, and 0.35 more a tick past the first
-// (fitted with tools/swimlab.mjs over 12 beat genotypes; docs/fast-forward.md), but no faster across a
-// bond than two beatTops (a strong slow beat swung faster tore its body).
-fn beatPull(i: u32, gr: Grow, size: f32, frX: f32) -> vec2f {
-  let p = sortedFull[i];
-  let tm = sim.time - 0.5 * sim.dt;
+// One pull a tick, the beat reckoned at the tick's middle (a coarse step's substeps, bodyTick, one each).
+fn beatPull(i: u32, gr: Grow, size: f32) -> vec2f {
+  let info = sortedFull[i].info;
+  let tm = select(sim.time - 0.5 * sim.dt, sim.time - sim.dt + (f32(subK) + 0.5) * sim.dt / f32(sim.ticks), SUBSTEP);
   // (a tail drives a whole body: it swings tailGain harder)
-  let tg = select(1.0, ${f(K.tailGain)}, orderOf(p.info) == 2u);
-  let si = beatSpeed(gr, size, genOf(p.info), tm) * tg;
+  let tg = select(1.0, ${f(K.tailGain)}, orderOf(info) == 2u);
+  let si = beatSpeed(gr, size, genOf(info), tm) * tg;
   let di = treeDeg(i);
-  var gain = 1.0;
-  var mixW = ${f(K.beatMix)};
-  if (sim.ticks > 1u) {
-    mixW = ${f(K.beatMixC)};
-    let wm = 2.0 * mixW * (2.0 - 2.0 * cos(gr.beat.z));
-    gain = (wm + 1.0 - pow(frX, f32(sim.ticks))) / (${f(2 * K.beatMix)} * (2.0 - 2.0 * cos(gr.beat.z)) + 1.0 - frX) * (1.0 + ${f(5 * K.beatSlopeC)} * pow(f32(sim.ticks - 1u) / 5.0, ${f(K.beatCurveC)})) * ${f(K.beatMix)} / mixW;
-  }
-  // (a coarse step asks no faster swing of a bond than it can follow)
-  let top = select(1e9, ${f(2 * K.beatTop)} * size, sim.ticks > 1u);
+  let vi = treeVel(i);
   var dv = vec2f(0.0);
   for (var k = 0u; k < 4u; k++) {
     // the mother, then the daughters
     let j = select(treeKid(i, k - 1u), treeMom(i), k == 0u);
     // (a tail's base is held to its body by the bond alone)
     if (j == NONE || (k == 0u && !treeCellAt(j))) { continue; }
-    let q = sortedFull[j];
     // the bond's normal, from mother to daughter
     let a = select(treeRel(i, j), treeRel(j, i), k == 0u);
     let n = vec2f(-a.y, a.x) / max(length(a), 1e-6);
-    let sj = beatSpeed(gr, size, genOf(q.info), tm) * tg;
+    let sj = beatSpeed(gr, size, genOf(sortedFull[j].info), tm) * tg;
     // a joint pulled well past its rest goes slack: its muscle lets go
     let slack = smoothstep(1.6, 1.3, length(a) / (${f(0.153)} * size));
-    dv += (q.vel - p.vel + n * (clamp((si - sj) * gain, -top, top) * slack)) * (2.0 / max(di, treeDeg(j)));
+    dv += (treeVel(j) - vi + n * ((si - sj) * slack)) * (2.0 / max(di, treeDeg(j)));
   }
-  return dv * mixW;
+  return dv * ${f(K.beatMix)};
 }
 
 // A body bearing tails: its share, as the arm, of the bend at each tail's base that grows from it (the base
@@ -5065,7 +5048,102 @@ ${cellWGSL(K, false)}
   else if (sprout) { childGen = (2u << 2u) << 26u; }
   // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(pack, ce, act == 2u)), n1, n2);
+  // (a cell that died this step is not bodyTick's to move)
+  if (sub && kind != p.kind) { bondsNow[subMark(i)] = 0u; }
   parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0 - gut / ${f(K.dungE)})), info);
+}
+
+// What a coarse step hands bodyTick for a cell it moves (sub), at subAt: the push held for the step (forces and
+// their stiffness correction, stone, taxis, swimming along its motion) and the flow; the stranded film's pull;
+// the will a ridden body is drawn to and the share of its motion it keeps a tick for it; whether it is
+// stranded. Then its mark.
+fn handOver(i: u32, v0: vec2f, push0: vec2f, swim: f32, will: vec2f, willOn: bool, flow: vec2f, pond: vec3f, shore: f32, stranded: bool) {
+  let push = push0 + select(normalize(v0), vec2f(0.0), dot(v0, v0) < 1e-6) * swim;
+  let wg = select(0.0, clamp(${f(K.willGrip)} * sim.dt / f32(sim.ticks), 0.0, 1.0), willOn);
+  let film = select(vec2f(0.0), -pond.yz / max(length(pond.yz), 1e-4) * (${f(K.meniscus)} * (1.0 - smoothstep(0.0, ${f(K.filmR)}, -shore))), stranded);
+  let o = subAt(i);
+  let w = bitcast<vec4u>(vec4f(push, flow)); let w2 = bitcast<vec4u>(vec4f(film, will * wg));
+  for (var k = 0u; k < 4u; k++) { bondsNow[o + k] = w[k]; bondsNow[o + 4u + k] = w2[k]; }
+  bondsNow[o + 8u] = bitcast<u32>(1.0 - wg);
+  bondsNow[o + 9u] = select(0u, 1u, stranded);
+  bondsNow[subMark(i)] = sim.frame + 1u;
+}
+
+// A coarse step's beating trees, moved a tick at a time (subTick): each cell lifeMain handed over (handOver) as a
+// 1/60 s step moves it, from where it and its partners are at that tick (treePos, treeVel): drag across its arm
+// sideDrag times as hard, the push held for the step, its bonds and bend, its muscles (beatPull), the water's
+// flow and the viewer's hand (the crowd's viscosity stays contactMain's, once a step). Reckoned alone over
+// six ticks against its partners' start, a cell swung its beat a third wrong and tore its body (docs/fast-forward.md).
+// The first tick lists the cells (subL: how many, then them); the rest run over the list (subArgs).
+@group(0) @binding(25) var<uniform> subTick: u32;
+@group(0) @binding(26) var<storage, read_write> subL: array<atomic<u32>>;
+@group(0) @binding(27) var<storage, read_write> subArgs: array<u32, 3>;
+@compute @workgroup_size(1)
+fn bodyArgs() { subArgs = array<u32, 3>((atomicLoad(&subL[0]) + 127u) / 128u, 1u, 1u); }
+@compute @workgroup_size(128)
+fn bodyTick(@builtin(global_invocation_id) gid: vec3u) {
+  var i = NONE;
+  if (subTick == 0u) {
+    i = livingList[gid.x];
+    if (i == NONE || !subMoved(i)) { return; }
+    atomicStore(&subL[1u + atomicAdd(&subL[0], 1u)], i);
+  } else {
+    if (gid.x >= atomicLoad(&subL[0])) { return; }
+    i = atomicLoad(&subL[1u + gid.x]);
+  }
+  subK = subTick;
+  let h = sim.dt / f32(sim.ticks);
+  let p = sortedFull[i];
+  let g = genomes[p.kind];
+  let gr = growAt(g, p.info);
+  let o = subAt(i);
+  let pf = subWords(o);
+  let fw = subWords(o + 4u);
+  var pos = treePos(i);
+  var vel = treeVel(i);
+  let drag = g.drag * mix(1.0, ${f(K.holdfast)}, smoothstep(0.35, 0.1, g.advect));
+  let fr0 = pow(0.5, h / drag);
+  let frX = pow(0.5, h * ${f(K.sideDrag)} / drag);
+  var across = vec2f(0.0);
+  let arm = treeArm(i);
+  if (arm != NONE) { let a = treeRel(i, arm); across = vec2f(-a.y, a.x) / max(length(a), 1e-6); }
+  vel = (vel * fr0 - across * (dot(vel, across) * (fr0 - frX)) + pf.xy * h) * bitcast<f32>(bondsNow[o + 8u]) + fw.zw;
+  // bonds (treeBond times as firm as a body's; a tail's base held by an ordinary bond) and bend
+  let role = roleOf(p.info);
+  let kept = bondsOf(i);
+  let n1 = keepBond(i, kept.x, p);
+  var n2 = keepBond(i, kept.y, p);
+  if (n2 == n1) { n2 = NONE; }
+  var bondF = vec2f(0.0);
+  var baseB = vec2f(0.0);
+  for (var k = 0u; k < 2u; k++) {
+    let j = select(n2, n1, k == 0u);
+    if (j == NONE) { continue; }
+    let e = treeRel(i, j); let l = length(e);
+    let f1 = e * ((l - restTo(j, g.size, role, 1.0)) / max(l, 1e-4));
+    bondF += f1 * select(0.0, 1.0, holdsBack(j, i));
+    if (k == 0u && tailCell(g, p.info) && !treeCellAt(j)) { baseB = f1; }
+  }
+  for (var k = 0u; k < backN(i); k++) {
+    let nb = backAt(i, k, p, n1, n2);
+    if (nb == NONE) { continue; }
+    let e = treeRel(i, nb); let l = length(e);
+    bondF += e * ((l - restTo(nb, g.size, role, 1.0)) / max(l, 1e-4));
+  }
+  vel += ((bondF - baseB) * ${f(K.treeBond)} + baseB + bendOn(i, gr) * ${f(K.growStiff)}) * (g.adhesion * ${f(K.bond)} * h);
+  vel += beatPull(i, gr, g.size);
+  if (bondsNow[o + 9u] != 0u) { vel = vel * exp(-${f(K.dryDrag)} * h) + fw.xy * h; }
+  let sp = length(vel);
+  if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
+  pos += (vel + pf.zw) * h;
+  pos += suckFlow(p.id, pos, h);
+  let sc = handPush(pos);
+  if (any(sc != vec2f(0.0))) { pos += sc; vel += normalize(sc) * max(0.0, 1.0 - dot(vel, normalize(sc))); }
+  if (inHandIce(p.pos)) { pos = p.pos; vel = vec2f(0.0); }
+  if (subK + 1u < sim.ticks) {
+    let w = bitcast<vec4u>(vec4f(pos, vel)); let st = subSlot(i, subK + 1u);
+    for (var k = 0u; k < 4u; k++) { bondsNow[st + k] = w[k]; }
+  } else { parts[i].pos = wrapPos(pos); parts[i].vel = vel; }
 }
 
 // --------------------------------------------------------------------- the pipette sets down
@@ -11037,7 +11115,7 @@ struct SV {
         }
       }
     }
-    const seq = notes.map((nt) => nt.deg);
+    const seq2 = notes.map((nt) => nt.deg);
     return {
       notes,
       cycle,
@@ -11048,7 +11126,7 @@ struct SV {
       rubato: 0.4 * c.drift,
       sync: c.school,
       dev,
-      seq,
+      seq: seq2,
       rate: notes.reduce((s, nt) => s + nt.dur, 0) / notes.length,
       char: c
     };
@@ -11257,7 +11335,7 @@ struct SV {
     return { d, gd: Math.min(1.25, D_REF / d), z: clamp01(Math.log(D_FAR / d) / Math.log(D_FAR / D_NEAR)) };
   }
   var clamp01 = (x) => x < 0 ? 0 : x > 1 ? 1 : x;
-  function digest(data, { speed = 1, selSlot = -1, lit = null, vscale = V_SCALE, seq = -1 } = {}) {
+  function digest(data, { speed = 1, selSlot = -1, lit = null, vscale = V_SCALE, seq: seq2 = -1 } = {}) {
     const { ev, recorded } = decodeRecords(data.records, data.f32);
     const { gd, z } = hearing(data.view.hx, data.view.hy);
     const wall = data.window / Math.max(speed, 1e-6);
@@ -11269,7 +11347,7 @@ struct SV {
         speed,
         z,
         gd,
-        seq,
+        seq: seq2,
         inView,
         outView: [...data.outView, Math.max(0, data.livingAll - data.living)],
         recorded: Array.from(recorded),
@@ -19853,15 +19931,15 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     function listen(data, { selSlot = -1, lit = null } = {}) {
       if (!st.node || !st.on) return null;
-      const seq = ++st.seq;
+      const seq2 = ++st.seq;
       if (onSang) {
-        st.scans.set(seq, { cells: recordCells(data.records, data.view), sim: data.simTime });
-        st.scans.delete(seq - 16);
+        st.scans.set(seq2, { cells: recordCells(data.records, data.view), sim: data.simTime });
+        st.scans.delete(seq2 - 16);
       }
       const now = performance.now(), dt = (now - st.lastScan) / 1e3;
       st.lastScan = now;
       if (dt > 0.01 && dt < 1) st.speed += (Math.min(500, data.window / dt) - st.speed) * 0.3;
-      const { msg, keep } = digest(data, { speed: st.speed, selSlot, lit, seq });
+      const { msg, keep } = digest(data, { speed: st.speed, selSlot, lit, seq: seq2 });
       msg.sampled = { sel: st.lastSel ?? -1, keep: st.lastKeep ?? 0.05 };
       st.lastSel = selSlot;
       st.lastKeep = keep ? keep[8] : st.lastKeep;
@@ -20046,7 +20124,16 @@ registerProcessor("tidemote-sound", TidemoteSound);
       return ((t2 ^ t2 >>> 14) >>> 0) / 4294967296;
     };
   }
-  function makeRelief(gw, gh, seed, { minL = 10, maxL = 70, modes: modes2 = 28, warp = 6 } = {}) {
+  function finish(steps) {
+    let r;
+    do
+      r = steps.next();
+    while (!r.done);
+    return r.value;
+  }
+  var rowsPer = (gw) => Math.max(1, 16384 / gw | 0);
+  var makeRelief = (gw, gh, seed, opts) => finish(reliefSteps(gw, gh, seed, opts));
+  function* reliefSteps(gw, gh, seed, { minL = 10, maxL = 70, modes: modes2 = 28, warp = 6 } = {}) {
     const rng = seededRng(seed ^ 2654435769);
     const waves = (n, lo, hi, pow) => Array.from({ length: n }, () => {
       const L = lo * (hi / lo) ** rng();
@@ -20058,7 +20145,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
     });
     const H2 = waves(modes2, minL, Math.min(maxL, Math.max(gw, gh)), 1.1);
     const WX = waves(6, minL * 1.5, maxL, 0.5), WY = waves(6, minL * 1.5, maxL, 0.5);
-    const field = (ws) => {
+    const field = function* (ws) {
       const out = new Float32Array(gw * gh), norm = ws.reduce((a, w) => a + w.amp, 0);
       const cx = new Float32Array(gw), sx = new Float32Array(gw), cy = new Float32Array(gh), sy = new Float32Array(gh);
       for (const w of ws) {
@@ -20074,24 +20161,30 @@ registerProcessor("tidemote-sound", TidemoteSound);
           const c = cy[y], sn = sy[y], row = y * gw;
           for (let x = 0; x < gw; x++) out[row + x] += cx[x] * c - sx[x] * sn;
         }
+        yield;
       }
       return out;
     };
-    const base = field(H2), wx = field(WX), wy = field(WY);
+    const base = yield* field(H2), wx = yield* field(WX), wy = yield* field(WY);
     const at = (x, y) => {
       const fx = Math.floor(x), fy = Math.floor(y), tx = x - fx, ty = y - fy;
       const x0 = (fx % gw + gw) % gw, y0 = (fy % gh + gh) % gh, x1 = (x0 + 1) % gw, y1 = (y0 + 1) % gh;
       return (base[y0 * gw + x0] * (1 - tx) + base[y0 * gw + x1] * tx) * (1 - ty) + (base[y1 * gw + x0] * (1 - tx) + base[y1 * gw + x1] * tx) * ty;
     };
-    const h = new Float32Array(gw * gh);
-    for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
-      const i = y * gw + x;
-      h[i] = at(x + warp * 2 * wx[i], y + warp * 2 * wy[i]);
+    const h = new Float32Array(gw * gh), band = rowsPer(gw);
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        const i = y * gw + x;
+        h[i] = at(x + warp * 2 * wx[i], y + warp * 2 * wy[i]);
+      }
+      if ((y + 1) % band === 0) yield;
     }
-    return rankField(h);
+    return yield* rankSteps(h);
   }
-  function rankField(h) {
-    const n = h.length, sorted = Float32Array.from(h).sort(), q = new Float32Array(n);
+  var rankField = (h) => finish(rankSteps(h));
+  function* rankSteps(h) {
+    const n = h.length, sorted = Float32Array.from(h).sort(), q = new Float32Array(n), band = 16384;
+    yield;
     for (let i = 0; i < n; i++) {
       let lo = 0, hi = n;
       const v = h[i];
@@ -20101,6 +20194,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         else hi = m;
       }
       q[i] = (lo + 0.5) / n;
+      if ((i + 1) % band === 0) yield;
     }
     return q;
   }
@@ -20152,6 +20246,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var POST_LOOK = POST_LAMP + 16;
   var HDR = "rgba16float";
   var BLOOM_LEVELS = 6;
+  var SUB_TICKS = 16;
   var U = globalThis.GPUBufferUsage ?? {};
   var PICK_MAX = 131072;
   var FOCUS_MAX = 65536;
@@ -20174,9 +20269,11 @@ registerProcessor("tidemote-sound", TidemoteSound);
     await e.pipelinesReady(onProgress);
     return e;
   }
-  var LATE = /* @__PURE__ */ new Set(["lifeMainCoarse", "mindMain", "mindMainCoarse", "rangeMain"]);
+  var COARSE_PIPES = ["lifeMainCoarse", "bodyTick", "bodyArgs"];
+  var LATE = /* @__PURE__ */ new Set([...COARSE_PIPES, "mindMain", "mindMainCoarse", "rangeMain"]);
   var COMPILE_COST = { lifeMain: 26, fsPoint: 15, "fsPointLive+live": 13, fsComposite: 11, fsLoupe: 8, matterMain: 5 };
   var SEA_WIND_EASE = 30;
+  var FLOOR_MS = 2;
   var REAL_WRAP = 4096;
   var Engine = class {
     constructor(device, format, hasTimestamps, K, late = false) {
@@ -20249,6 +20346,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const d = device;
       const b = this.b;
       b.sim = d.createBuffer({ size: 848, usage: U.UNIFORM | U.COPY_DST });
+      b.subU = d.createBuffer({ size: SUB_TICKS * 256, usage: U.UNIFORM | U.COPY_DST });
+      for (let k = 0; k < SUB_TICKS; k++) d.queue.writeBuffer(b.subU, k * 256, new Uint32Array([k]));
+      b.subArgs = d.createBuffer({ size: 16, usage: U.STORAGE | U.INDIRECT });
       b.thermal = d.createBuffer({ size: 3 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
       b.heatNext = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
       b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
@@ -20370,6 +20470,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       };
       this.cpDefs.bondBackMain = [0, 2, 12, 20];
       this.cpDefs.contactMain = [0, 2, 3, 6, 10, 12];
+      this.cpDefs.bodyTick = [0, 1, 2, 10, 11, 12, 15, 18, 25, 26];
+      this.cpDefs.bodyArgs = [26, 27];
       this.cpDefs.injectSlots = [0, 11, 23];
       this.cpDefs.injectCells = [0, 1, 9, 11];
       this.cpDefs.injectBonds = [9, 11];
@@ -20378,7 +20480,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.cp = {};
       for (const name of Object.keys(this.cpDefs)) {
         const coarse2 = name.endsWith("Coarse");
-        const desc = { layout: "auto", compute: { module: this.simModule, entryPoint: coarse2 ? name.slice(0, -6) : name, ...coarse2 ? { constants: { COARSE: 1 } } : {} }, label: name };
+        const constants = coarse2 ? { COARSE: 1 } : name === "bodyTick" ? { SUBSTEP: 1 } : null;
+        const desc = { layout: "auto", compute: { module: this.simModule, entryPoint: coarse2 ? name.slice(0, -6) : name, ...constants ? { constants } : {} }, label: name };
         if (late && LATE.has(name)) {
           const c = this.cp[name] = { pipe: null, bg: null };
           d.createComputePipelineAsync(desc).then((p) => {
@@ -20519,9 +20622,19 @@ ${e.message}` : String(e?.message || e));
         { binding: 3, resource: { buffer: b.microArgs } }
       ] });
     }
+    /** Clear the bond table, bodyTick's marks with it (scatterMain fills the bonds afresh each step). */
+    _clearSubMarks() {
+      const enc = this.device.createCommandEncoder();
+      enc.clearBuffer(this.b.bondsNow);
+      this.device.queue.submit([enc.finish()]);
+    }
     _cpBind(name) {
       const c = this.cp[name], res = this._cpRes;
       c.bg = this.device.createBindGroup({ layout: c.pipe.getBindGroupLayout(0), entries: this.cpDefs[name].map((id) => ({ binding: id, resource: res[id] })) });
+      if (name === "bodyTick") c.bgs = Array.from({ length: SUB_TICKS }, (_, k) => this.device.createBindGroup({
+        layout: c.pipe.getBindGroupLayout(0),
+        entries: this.cpDefs[name].map((id) => ({ binding: id, resource: id === 25 ? { buffer: this.b.subU, offset: k * 256, size: 16 } : res[id] }))
+      }));
     }
     async compileErrors() {
       const out = [];
@@ -20554,7 +20667,9 @@ ${e.message}` : String(e?.message || e));
       b.sortedLite = d.createBuffer({ size: n * LITE_BYTES, usage: U.STORAGE });
       b.aux = d.createBuffer({ size: n * 8, usage: U.STORAGE });
       b.intent = d.createBuffer({ size: n * 16, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
-      b.bondsNow = d.createBuffer({ size: n * 36, usage: U.STORAGE | U.COPY_SRC });
+      b.bondsNow = d.createBuffer({ size: n * (9 + 18 + 1) * 4, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
+      b.subL?.destroy();
+      b.subL = d.createBuffer({ size: (1 + n) * 4, usage: U.STORAGE | U.COPY_DST });
       b.bondsIn = d.createBuffer({ size: n * 20, usage: U.STORAGE });
       b.touch = d.createBuffer({ size: n * 24, usage: U.STORAGE, mappedAtCreation: true });
       new Uint32Array(b.touch.getMappedRange()).fill(4294967295);
@@ -20587,7 +20702,10 @@ ${e.message}` : String(e?.message || e));
         18: { buffer: b.thermal },
         19: { buffer: b.heatNext },
         22: { buffer: b.stoneGrid },
-        23: { buffer: b.genomes }
+        23: { buffer: b.genomes },
+        25: { buffer: b.subU, offset: 0, size: 16 },
+        26: { buffer: b.subL },
+        27: { buffer: b.subArgs }
       };
       this._cpRes = res;
       for (const name of Object.keys(this.cpDefs)) if (this.cp[name].pipe) this._cpBind(name);
@@ -20906,6 +21024,7 @@ ${e.message}` : String(e?.message || e));
       this.grid = this.gridFor(n, aspect);
       this.simTime = 0;
       this.frameNo = 0;
+      this._clearSubMarks();
       this.tick = 0;
       this.seedValue = rng() * 4294967295 >>> 0;
       this.sorted = false;
@@ -21010,22 +21129,34 @@ ${e.message}` : String(e?.message || e));
     /**
      * The floor shifts (moving geography, docs/catastrophes.md): toward the floor of epoch `k` (a share `drift` of it
      * redrawn from the seed and k), easing there over `secs` simulated seconds (stepFloor uploads it each frame
-     * the time moves, so the shore creeps rather than jumps).
+     * the time moves, so the shore creeps rather than jumps). The new floor is worked out a little each frame first
+     * (FLOOR_MS of stepFloor's): all at once, a large world's was a hitch as an era began.
      */
     shiftFloor(k, drift, secs = 120) {
       if (!this.relief || !(drift > 0)) return;
-      const [gw, gh] = this.grid;
-      if (!this.reliefBase || this.reliefBase.length !== gw * gh || this.reliefSeed !== this.seedValue) {
-        this.reliefBase = makeRelief(gw, gh, this.seedValue);
-        this.reliefSeed = this.seedValue;
-      }
-      const a = this.reliefBase, b = makeRelief(gw, gh, (this.seedValue ^ Math.imul(k + 1, 2654435761)) >>> 0);
-      const to = rankField(a.map((x, i) => x * (1 - drift) + b[i] * drift));
-      this.floor = { from: this.relief.slice(), to, t0: this.simTime, secs, at: -Infinity };
+      const [gw, gh] = this.grid, seed = this.seedValue, eng = this;
+      const work = function* () {
+        if (!eng.reliefBase || eng.reliefBase.length !== gw * gh || eng.reliefSeed !== seed) {
+          eng.reliefBase = yield* reliefSteps(gw, gh, seed);
+          eng.reliefSeed = seed;
+        }
+        const a = eng.reliefBase, b = yield* reliefSteps(gw, gh, (seed ^ Math.imul(k + 1, 2654435761)) >>> 0);
+        return yield* rankSteps(a.map((x, i) => x * (1 - drift) + b[i] * drift));
+      };
+      this.floor = { work: work(), secs, at: -Infinity };
     }
     stepFloor() {
       const f2 = this.floor;
       if (!f2) return;
+      if (f2.work) {
+        const end = performance.now() + FLOOR_MS;
+        let r;
+        do
+          r = f2.work.next();
+        while (!r.done && performance.now() < end);
+        if (!r.done) return;
+        Object.assign(f2, { work: null, from: this.relief.slice(), to: r.value, t0: this.simTime });
+      }
       const u = this.level < 1 ? Math.min(1, (this.simTime - f2.t0) / f2.secs) : 1;
       if (u < 1 && this.simTime - f2.at < 0.25) return;
       f2.at = this.simTime;
@@ -21322,6 +21453,7 @@ ${e.message}` : String(e?.message || e));
       this.simTime += simDt;
       this.frameNo++;
       this.ticks = Math.max(1, Math.round(simDt * 60));
+      if (this.ticks > SUB_TICKS) throw new Error(`a step of ${this.ticks} ticks: at most ${SUB_TICKS}`);
       this.tick += this.ticks;
       if (ring2 < 0) this._writeSim();
       else {
@@ -21338,6 +21470,7 @@ ${e.message}` : String(e?.message || e));
       enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
       enc.clearBuffer(b.ledger, (META_DEATH + 57) * 4, 6 * 4);
       enc.clearBuffer(b.frameCtr, 0, 4);
+      enc.clearBuffer(b.subL, 0, 4);
       enc.clearBuffer(b.frameCtr, 36, 4);
       enc.clearBuffer(b.ledger, 48, 12);
       let pass = prof ? null : enc.beginComputePass({ timestampWrites });
@@ -21363,6 +21496,25 @@ ${e.message}` : String(e?.message || e));
       run2("contactMain", null);
       run2("bondBackMain", null);
       run2(this.ticks > 1 ? "lifeMainCoarse" : "lifeMain", null);
+      if (this.ticks > 1) {
+        if (prof) {
+          const q = prof.names.push("bodyTick") * 2 - 2;
+          pass = enc.beginComputePass({ timestampWrites: { querySet: prof.qs, beginningOfPassWriteIndex: q, endOfPassWriteIndex: q + 1 } });
+        }
+        const c = this.cp.bodyTick;
+        pass.setPipeline(c.pipe);
+        pass.setBindGroup(0, c.bgs[0]);
+        pass.dispatchWorkgroupsIndirect(b.frameCtr, 4);
+        pass.setPipeline(this.cp.bodyArgs.pipe);
+        pass.setBindGroup(0, this.cp.bodyArgs.bg);
+        pass.dispatchWorkgroups(1);
+        for (let k = 1; k < this.ticks; k++) {
+          pass.setPipeline(c.pipe);
+          pass.setBindGroup(0, c.bgs[k]);
+          pass.dispatchWorkgroupsIndirect(b.subArgs, 0);
+        }
+        if (prof) pass.end();
+      }
       if (this.K.heat) run2("heatMain", Math.ceil(cells / 64));
       if (!prof) pass.end();
       if (this.K.heat) enc.copyBufferToBuffer(b.heatNext, 0, b.thermal, 0, cells * 4);
@@ -21434,6 +21586,7 @@ ${e.message}` : String(e?.message || e));
       for (const [k, buf] of Object.entries(keep.gpu)) enc.copyBufferToBuffer(buf, 0, b[k], 0, buf.size);
       d.queue.submit([enc.finish()]);
       const c = keep.cpu;
+      this._clearSubMarks();
       Object.assign(this, {
         simTime: c.simTime,
         frameNo: c.frameNo,
@@ -21834,7 +21987,7 @@ ${e.message}` : String(e?.message || e));
       const t0 = performance.now();
       const stepping = !paused && N > 0;
       const coarse2 = Math.round(simDt * 60);
-      if (coarse2 > 1 && !this.cp.lifeMainCoarse.bg) {
+      if (coarse2 > 1 && !COARSE_PIPES.every((n) => this.cp[n].bg)) {
         steps *= coarse2;
         simDt /= coarse2;
       }
@@ -25149,7 +25302,11 @@ ${e.message}` : String(e?.message || e));
     chunk.set(body, 8);
     dv.setUint32(8 + body.length, crc(chunk.subarray(4, 8 + body.length)));
     const end = png.length - 12;
-    return new Uint8Array([...png.subarray(0, end), ...chunk, ...png.subarray(end)]);
+    const out = new Uint8Array(png.length + chunk.length);
+    out.set(png.subarray(0, end));
+    out.set(chunk, end);
+    out.set(png.subarray(end), end + chunk.length);
+    return out;
   }
   function pngText(png, key) {
     const dv = new DataView(png.buffer, png.byteOffset, png.byteLength), dec = new TextDecoder();
@@ -30056,6 +30213,7 @@ ${e.message}` : String(e?.message || e));
   var CARD_H = 1050;
   var CARD_SCALE = 2;
   var PORTRAIT_BOX = { x: 30, y: 118, w: 600, h: 340 };
+  var PORTRAIT_SHOWN = 0.78;
   var share = (v, lo, hi, log = false) => Math.max(0, Math.min(1, log ? Math.log(v / lo) / Math.log(hi / lo) : (v - lo) / (hi - lo)));
   function cardData(sp, { reg, K, story = null, simTime = 0, founders = 0, relations = null, history: history2 = null }) {
     const g = sp.genome, f2 = facets2(g, K), th = thermalGuild(g);
@@ -30200,13 +30358,8 @@ ${e.message}` : String(e?.message || e));
     ctx.rect(AX, AY, AW, AH);
     ctx.clip();
     if (art.portrait) {
-      const pw = art.portrait.width, ph = art.portrait.height, k = Math.max(AW / pw, AH / ph);
-      const sw = AW / k, sh = AH / k;
+      const pw = art.portrait.width, ph = art.portrait.height, sw = pw * PORTRAIT_SHOWN, sh = sw * AH / AW;
       ctx.drawImage(art.portrait, (pw - sw) / 2, (ph - sh) / 2, sw, sh, AX, AY, AW, AH);
-      const r = Math.min((art.portrait.subject || 0.2) * (pw / 2) * k + 6, AH / 2 - 14), ox = AX + AW / 2, oy = AY + AH / 2;
-      ctx.strokeStyle = "rgba(255,95,58,0.9)";
-      ctx.lineWidth = 1.5;
-      corners(ctx, ox - r, oy - r, ox + r, oy + r, Math.min(14, r / 2.5));
     } else {
       const gr = ctx.createRadialGradient(AX + AW / 2, AY + AH / 2, 10, AX + AW / 2, AY + AH / 2, AH * 0.8);
       gr.addColorStop(0, "rgba(127,214,223,0.10)");
@@ -30364,7 +30517,7 @@ ${e.message}` : String(e?.message || e));
     const c = document.createElement("canvas");
     c.width = CARD_W * CARD_SCALE;
     c.height = CARD_H * CARD_SCALE;
-    const ctx = c.getContext("2d");
+    const ctx = c.getContext("2d", { willReadFrequently: true });
     ctx.setTransform(CARD_SCALE, 0, 0, CARD_SCALE, 0, 0);
     drawCard(ctx, d, art);
     return c;
@@ -30372,7 +30525,6 @@ ${e.message}` : String(e?.message || e));
   function createCards(api) {
     const $3 = (id) => document.getElementById(id);
     const root = $3("card"), cv = $3("card-cv"), nameIn = $3("card-name"), note = $3("card-note");
-    const portraits = /* @__PURE__ */ new Map();
     let cur = null, art = {}, drawn = 0;
     const reg = () => api.life().reg;
     let qrLink = null, qrCode = null;
@@ -30398,21 +30550,12 @@ ${e.message}` : String(e?.message || e));
       const sp = cur && reg().get(cur);
       if (sp) paint(data(sp));
     }
-    const artOf = async (sp) => ({ sigil: await sigilArt(sp.genome), portrait: portraits.get(sp.serial) || null });
-    async function portraitOf(serial) {
-      const p = await api.portrait(serial).catch(() => null);
-      if (p) {
-        portraits.set(serial, p);
-        if (portraits.size > 48) portraits.delete(portraits.keys().next().value);
-      }
-      return p;
-    }
+    const portraitOf = (serial) => api.portrait(serial).catch(() => null);
     async function render(serial) {
       const sp = reg().get(serial);
       if (!sp) return null;
-      const a = await artOf(sp);
-      if (sp.alive && !a.portrait) a.portrait = await portraitOf(serial);
-      return cardCanvas(data(sp), a);
+      const [sigil, portrait] = await Promise.all([sigilArt(sp.genome), portraitOf(serial)]);
+      return cardCanvas(data(sp), { sigil, portrait });
     }
     async function open(serial) {
       const sp = reg().get(serial);
@@ -30425,23 +30568,22 @@ ${e.message}` : String(e?.message || e));
       nameIn.placeholder = sp.binomial || sp.name;
       cv.width = CARD_W * CARD_SCALE;
       cv.height = CARD_H * CARD_SCALE;
-      const a = await artOf(sp);
+      const sigil = await sigilArt(sp.genome), ready = api.portrayed(serial), portrait = ready ? await portraitOf(serial) : null;
       if (cur !== serial) return;
-      art = a;
+      art = { sigil, portrait };
       redraw();
       acts();
       tune(sp.genome);
-      note.textContent = sp.alive ? "Taking its portrait…" : art.portrait ? "" : "Extinct, and never portrayed: its sigil stands in.";
+      note.textContent = ready ? "" : "Taking its portrait…";
       root.focus({ preventScroll: true });
-      if (sp.alive) {
-        const p = await portraitOf(serial);
-        if (cur !== serial) return;
-        if (p) {
-          art.portrait = p;
-          redraw();
-        }
-        note.textContent = p ? "" : "No member could be found to portray: its sigil stands in.";
+      if (ready) return;
+      const p = await portraitOf(serial);
+      if (cur !== serial) return;
+      if (p) {
+        art.portrait = p;
+        redraw();
       }
+      note.textContent = p ? "" : "Its portrait could not be taken: its sigil stands in.";
     }
     let tag = "", songKey = null;
     function tune(g) {
@@ -30542,7 +30684,7 @@ ${e.message}` : String(e?.message || e));
     });
     $3("card-save").addEventListener("click", async () => {
       if (cur != null) {
-        await api.save(cur, cv);
+        await api.save(cur);
         acts();
       }
     });
@@ -30593,7 +30735,6 @@ ${e.message}` : String(e?.message || e));
       }
     });
     function reset() {
-      portraits.clear();
       close();
     }
     return { open, openSaved, render, close, reset, songTick, refresh: () => {
@@ -31296,10 +31437,10 @@ ${e.message}` : String(e?.message || e));
   function createPipette(state = { species: [] }, limit = PIPE_LIMIT) {
     const cells = (sp) => sp.orgs.reduce((n, o) => n + o.cells.length - o.out, 0) + (sp.made || 0);
     const same = (a, b) => a.card && b.card === a.card || !a.stranger && !b.stranger && a.serial === b.serial;
-    let seq = state.species.reduce((m, sp) => Math.max(m, sp.id || 0), 0);
-    for (const sp of state.species) sp.id ??= ++seq;
+    let seq2 = state.species.reduce((m, sp) => Math.max(m, sp.id || 0), 0);
+    for (const sp of state.species) sp.id ??= ++seq2;
     const fresh = (x) => {
-      const sp = { ...x, id: ++seq, orgs: [], made: 0 };
+      const sp = { ...x, id: ++seq2, orgs: [], made: 0 };
       state.species.unshift(sp);
       return sp;
     };
@@ -31545,6 +31686,98 @@ ${e.message}` : String(e?.message || e));
     return f2;
   }
 
+  // src/encode.js
+  var SRC = `onmessage = async ({ data: { id, src, outs, bitmap } }) => {
+  try {
+    const w = src.bmp ? src.bmp.width : src.w, h = src.bmp ? src.bmp.height : src.h;
+    const c = new OffscreenCanvas(w, h), g = c.getContext('2d', { willReadFrequently: true });
+    if (src.bmp) { g.drawImage(src.bmp, 0, 0); src.bmp.close(); }
+    else {
+      const px = new Uint8ClampedArray(src.data);
+      for (let i = 0; i < px.length; i += 4) { if (src.bgra) { const b = px[i]; px[i] = px[i + 2]; px[i + 2] = b; } px[i + 3] = 255; }
+      g.putImageData(new ImageData(px, w, h), 0, 0);
+    }
+    const files = [];
+    for (const o of outs) {
+      let s = c;
+      if (o.size) { s = new OffscreenCanvas(o.size, o.size); const sg = s.getContext('2d', { willReadFrequently: true }); sg.imageSmoothingQuality = 'high'; sg.drawImage(c, 0, 0, o.size, o.size); }
+      files.push(await s.convertToBlob({ type: o.type, quality: o.quality }));
+    }
+    const bmp = bitmap ? c.transferToImageBitmap() : null;
+    postMessage({ id, files, bmp }, bmp ? [bmp] : []);
+  } catch (e) { postMessage({ id, error: String(e) }); }
+};`;
+  var worker;
+  var seq = 0;
+  var waiting = /* @__PURE__ */ new Map();
+  function encoder() {
+    if (worker !== void 0) return worker;
+    try {
+      worker = typeof OffscreenCanvas === "undefined" ? null : new Worker(URL.createObjectURL(new Blob([SRC], { type: "text/javascript" })));
+      if (worker) {
+        worker.onmessage = ({ data }) => {
+          const p = waiting.get(data.id);
+          waiting.delete(data.id);
+          if (data.files) p?.res({ files: data.files, bitmap: data.bmp });
+          else p?.rej(new Error(data.error));
+        };
+      }
+    } catch {
+      worker = null;
+    }
+    return worker;
+  }
+  async function here(src, outs, bitmap) {
+    const c = document.createElement("canvas"), g = c.getContext("2d", { willReadFrequently: true });
+    if (src.bmp) {
+      c.width = src.bmp.width;
+      c.height = src.bmp.height;
+      g.drawImage(src.bmp, 0, 0);
+    } else {
+      c.width = src.w;
+      c.height = src.h;
+      const px = new Uint8ClampedArray(src.data);
+      for (let i = 0; i < px.length; i += 4) {
+        if (src.bgra) {
+          const b = px[i];
+          px[i] = px[i + 2];
+          px[i + 2] = b;
+        }
+        px[i + 3] = 255;
+      }
+      g.putImageData(new ImageData(px, src.w, src.h), 0, 0);
+    }
+    const files = await Promise.all(outs.map((o) => {
+      let s = c;
+      if (o.size) {
+        s = document.createElement("canvas");
+        s.width = s.height = o.size;
+        s.getContext("2d", { willReadFrequently: true }).drawImage(c, 0, 0, o.size, o.size);
+      }
+      return new Promise((res, rej) => s.toBlob((b) => b ? res(b) : rej(new Error("The browser could not make the image.")), o.type, o.quality));
+    }));
+    return { files, bitmap: bitmap ? await createImageBitmap(c) : null };
+  }
+  async function encodeImages(src, outs, bitmap = false) {
+    if (src instanceof HTMLCanvasElement) src = { data: src.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, src.width, src.height).data.buffer, w: src.width, h: src.height };
+    else if (!src.data) src = { bmp: await createImageBitmap(src) };
+    const w = encoder();
+    if (w) {
+      try {
+        return await new Promise((res, rej) => {
+          const id = ++seq;
+          waiting.set(id, { res, rej });
+          w.postMessage({ id, src, outs, bitmap }, [src.bmp || src.data]);
+        });
+      } catch {
+        worker = null;
+        return null;
+      }
+    }
+    return here(src, outs, bitmap);
+  }
+  var encodeBytes = async (src, type, quality, size) => new Uint8Array(await (await encodeImages(src, [{ type, quality, size }])).files[0].arrayBuffer());
+
   // src/main.js
   var $2 = (id) => document.getElementById(id);
   var canvas = $2("stage");
@@ -31601,9 +31834,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "62062c5271638938") return;
+      if (localStorage.getItem(key) === "b1951b0e8c5a1851") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "62062c5271638938");
+      if (res) localStorage.setItem(key, "b1951b0e8c5a1851");
     } catch {
     }
   }
@@ -32070,8 +32303,7 @@ ${e.message}` : String(e?.message || e));
       };
       hand.reset(life.hand);
       pipette = createPipette(life.pipette);
-      dropThumb("s", true);
-      thumbQ.clear();
+      dropPortraits();
       drawnNames.clear();
       eng.setDrawn([]);
       Object.assign(pull, { on: false, until: 0, got: [] });
@@ -32222,8 +32454,8 @@ ${e.message}` : String(e?.message || e));
       };
       const st = await eng.readState();
       const bytes = await encodeWorld({ meta, cpu: st.cpu, ...compactState(st), page });
-      const preview = desk ? await takeView().then((cv) => cv && new Promise((res) => cv.toBlob(res, "image/jpeg", 0.88))).then((b) => b && b.arrayBuffer()).catch(() => null) : null;
-      await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes, preview ? new Uint8Array(preview) : void 0);
+      const preview = desk ? await takeView().then((px) => px && encodeBytes(px, "image/jpeg", 0.88)).catch(() => null) : null;
+      await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes, preview || void 0);
     }
     async function openWorld(bytes) {
       const w = await decodeWorld(bytes);
@@ -33363,44 +33595,23 @@ ${e.message}` : String(e?.message || e));
         if (serial != null) saveCard(serial);
       }
     });
-    let portraitJob = null, portraitHold = false;
-    const PORTRAIT = 1024, THUMB = 192;
-    async function takePortrait(serial) {
-      const sp = life.reg.get(serial);
-      if (!sp || !sp.alive) return null;
-      portraitHold = true;
-      setTimeout(() => {
-        if (!portraitJob) portraitHold = false;
-      }, 5e3);
-      const m = await bestMember(sp).catch(() => null);
-      if (!m) {
-        portraitHold = false;
-        return null;
-      }
-      const { best, cx, cy } = m;
-      const span2 = clamp6(m.span * 2.6 + 0.6, 1.6, 9);
-      if (portraitJob) portraitJob.resolve(null);
-      const subject = clamp6(((m.body ? m.span : 0) + 0.12 * sp.genome.size + 0.08) / (span2 / 2), 0.08, 0.95);
-      return new Promise((resolve) => {
-        portraitJob = { slot: sp.slot, cx, cy, vx: m.body ? 0 : best.vx, vy: m.body ? 0 : best.vy, t: m.simTime, size: PORTRAIT, ppu: PORTRAIT / span2, subject, resolve, at: performance.now() };
-      });
-    }
+    let portraitJob = null;
+    const PORTRAIT = 1280, THUMB = 192;
     function takeStudio(words, cells) {
       const g = genomeOfWords(words), r = cells.map((c) => cellRadius({ role: c.info >> 4 & 3 }, g, 1));
-      const pos = cells[0]?.at ? cells.map((c) => c.at) : layOut(cells.map((c, i) => ({ r: r[i], partners: c.partners }))), f2 = frameCells(pos, r, THUMB);
+      const pos = cells[0]?.at ? cells.map((c) => c.at) : layOut(cells.map((c, i) => ({ r: r[i], partners: c.partners }))), f2 = frameCells(pos, r, PORTRAIT);
       const [W, H2] = eng.grid;
       eng.setStudio(records(cells, pos, [W / 2 - f2.cx, H2 / 2 - f2.cy]), cells.length, Uint32Array.from(words));
       if (portraitJob) portraitJob.resolve(null);
       return new Promise((resolve) => {
-        portraitJob = { studio: true, slot: null, cx: W / 2, cy: H2 / 2, vx: 0, vy: 0, t: eng.simTime, size: THUMB, ppu: f2.ppu, resolve, at: performance.now() };
+        portraitJob = { studio: true, cx: W / 2, cy: H2 / 2, size: PORTRAIT, ppu: f2.ppu, resolve, at: performance.now() };
       });
     }
     function takeView() {
       if (portraitJob) portraitJob.resolve(null);
-      portraitHold = true;
       const span2 = Math.min(innerWidth, innerHeight) / cssPPU();
       return new Promise((resolve) => {
-        portraitJob = { slot: null, cx: cam.x, cy: cam.y, vx: 0, vy: 0, t: eng.simTime, size: PORTRAIT, ppu: PORTRAIT / span2, resolve, at: performance.now() };
+        portraitJob = { cx: cam.x, cy: cam.y, size: PORTRAIT, ppu: PORTRAIT / span2, resolve, at: performance.now() };
       });
     }
     function portraitParams() {
@@ -33408,55 +33619,29 @@ ${e.message}` : String(e?.message || e));
       if (!j || j.drawn) return null;
       if (performance.now() - j.at > 4e3) {
         portraitJob = null;
-        portraitHold = false;
         j.resolve(null);
         return null;
       }
-      j.tex ??= device.createTexture({ size: [j.size, j.size], format: eng.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
-      const dt = Math.min(2, Math.max(0, eng.simTime - j.t));
-      const [W, H2] = eng.grid;
+      j.tex = device.createTexture({ size: [j.size, j.size], format: eng.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
       j.drawn = true;
-      if (j.slot != null) {
-        const kinds = new Uint32Array(MAXK / 32);
-        kinds[j.slot >> 5] |= 1 << (j.slot & 31) >>> 0;
-        eng.setFocus({ kinds, mute: 0.09 });
-        j.relight = true;
-      }
-      return { target: j.tex.createView(), w: j.size, h: j.size, cx: ((j.cx + j.vx * dt) % W + W) % W, cy: ((j.cy + j.vy * dt) % H2 + H2) % H2, ppu: j.ppu, dpr: 1, studio: !!j.studio };
+      return { target: j.tex.createView(), w: j.size, h: j.size, cx: j.cx, cy: j.cy, ppu: j.ppu, dpr: 1, studio: !!j.studio };
     }
     async function readPortrait() {
       const j = portraitJob;
-      if (!j || !j.drawn || j.reading) return;
-      j.reading = true;
-      const d = device, S = j.size, row = S * 4;
-      const buf = d.createBuffer({ size: row * S, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-      const enc = d.createCommandEncoder();
+      portraitJob = null;
+      const S = j.size, row = S * 4, buf = device.createBuffer({ size: row * S, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+      const enc = device.createCommandEncoder();
       enc.copyTextureToBuffer({ texture: j.tex }, { buffer: buf, bytesPerRow: row }, [S, S]);
-      d.queue.submit([enc.finish()]);
+      device.queue.submit([enc.finish()]);
       try {
         await buf.mapAsync(GPUMapMode.READ);
-        const px = new Uint8ClampedArray(buf.getMappedRange().slice(0));
+        j.resolve({ data: buf.getMappedRange().slice(0), w: S, h: S, bgra: eng.format.startsWith("bgra") });
         buf.unmap();
-        if (eng.format.startsWith("bgra")) for (let i = 0; i < px.length; i += 4) {
-          const b = px[i];
-          px[i] = px[i + 2];
-          px[i + 2] = b;
-        }
-        for (let i = 3; i < px.length; i += 4) px[i] = 255;
-        const cv = document.createElement("canvas");
-        cv.width = cv.height = S;
-        cv.getContext("2d").putImageData(new ImageData(px, S, S), 0, 0);
-        cv.subject = j.subject;
-        j.resolve(cv);
       } catch {
         j.resolve(null);
       }
       buf.destroy();
       j.tex.destroy();
-      if (portraitJob === j) {
-        portraitJob = null;
-        portraitHold = false;
-      }
     }
     function renameSpecies(serial, name) {
       const sp = life.reg.get(serial);
@@ -33495,77 +33680,61 @@ ${e.message}` : String(e?.message || e));
       return { words, home, touched, bytes, link: cardLink(bytes) };
     }
     async function cardPng(cv, serial) {
-      const blob = await new Promise((res) => cv.toBlob(res, "image/png"));
-      if (!blob) return null;
-      return new Blob([cardIntoPng(new Uint8Array(await blob.arrayBuffer()), carry(serial).bytes)], { type: "image/png" });
+      const png = await encodeBytes(cv, "image/png").catch(() => null);
+      return png && new Blob([cardIntoPng(png, carry(serial).bytes)], { type: "image/png" });
     }
     async function keepCard(card, quiet = false) {
       await cabinet.store.put(card);
       cabinet.cards = [...cabinet.cards.filter((c) => c.id !== card.id), card];
       if (!quiet) lab.render(true);
     }
-    const THUMB_CROP = [PORTRAIT_BOX.x + PORTRAIT_BOX.w / 2 - 150, PORTRAIT_BOX.y + PORTRAIT_BOX.h / 2 - 150, 300, 300].map((v) => v * CARD_SCALE);
-    async function thumbBytes(src, crop = [0, 0, src.width, src.height], check = true) {
-      const cv = document.createElement("canvas");
-      cv.width = cv.height = THUMB;
-      cv.getContext("2d", { willReadFrequently: true }).drawImage(src, ...crop, 0, 0, THUMB, THUMB);
-      if (check && !thumbSeen(cv)) return new Uint8Array(0);
-      const blob = await new Promise((res) => cv.toBlob(res, "image/jpeg", 0.82));
-      if (!blob) throw new Error("no thumb");
-      return new Uint8Array(await blob.arrayBuffer());
+    const FULL_KEEP = 8, fulls = /* @__PURE__ */ new Map();
+    const portraitQ = /* @__PURE__ */ new Map();
+    let portraitBusy = false, portraitGen = 0;
+    function portrait(key, words, serial = null, full = false, stored = null) {
+      if (fulls.has(key) || !full && hasThumb(key)) return Promise.resolve(fulls.get(key)?.bmp ?? null);
+      const w = ask(key, words, serial, stored);
+      return new Promise((r) => w.wait.push(r));
     }
+    function ask(key, words, serial = null, stored = null) {
+      let w = portraitQ.get(key);
+      if (!w) {
+        portraitQ.set(key, w = { words, serial, stored, wait: [], tries: 0 });
+        setTimeout(pumpPortraits, 0);
+      }
+      return w;
+    }
+    const speciesPortrait = (serial) => portrait(`s${serial}`, carry(serial).words, serial, true, savedCard(serial)?.portrait);
+    function speciesThumb(serial, words) {
+      const key = `s${serial}`;
+      if (!hasThumb(key)) ask(key, words, serial, savedCard(serial)?.portrait);
+      return key;
+    }
+    function cabThumb(c) {
+      if (c.world === worldId()) return speciesThumb(c.serial, c.words);
+      const key = `c${c.id}`;
+      if (!hasThumb(key)) {
+        if (c.thumb?.length) setThumb(key, c.thumb);
+        else ask(key, c.words);
+      }
+      return key;
+    }
+    const PORTRAIT_CUT = (() => {
+      const { x, y, w, h } = PORTRAIT_BOX, side = w / PORTRAIT_SHOWN;
+      return [x + w / 2 - side / 2, y + h / 2 - side / 2, side, side].map((v) => v * CARD_SCALE);
+    })();
     async function pngThumb(png) {
-      const bmp = await createImageBitmap(new Blob([png], { type: "image/png" }), ...THUMB_CROP, { resizeWidth: THUMB, resizeHeight: THUMB, resizeQuality: "medium" });
+      const bmp = await createImageBitmap(new Blob([png], { type: "image/png" }), ...PORTRAIT_CUT, { resizeWidth: THUMB, resizeHeight: THUMB, resizeQuality: "high" });
       try {
-        return await thumbBytes(bmp);
+        return await encodeBytes(bmp, "image/jpeg", 0.82);
       } finally {
         bmp.close();
       }
     }
-    const backfill = [], triedThumb = /* @__PURE__ */ new WeakSet();
-    const blank = (c) => !!c.thumb && !c.thumb.length;
-    function cardThumb(c) {
-      const key = `c${c.id}`;
-      if (c.thumb?.length) {
-        if (!hasThumb(key)) setThumb(key, c.thumb);
-      } else if (!c.thumb && c.png && !triedThumb.has(c)) {
-        triedThumb.add(c);
-        backfill.push(c);
-        if (backfill.length === 1) setTimeout(fillThumbs, 400);
-      }
-      return key;
-    }
-    const cabThumb = (c) => !blank(c) ? cardThumb(c) : c.world === worldId() ? studioThumb(`s${c.serial}`, c.words, c.serial) : studioThumb(`g${c.id}`, c.words);
-    async function fillThumbs() {
-      const c = backfill[0];
-      if (!c) return;
-      const thumb = await pngThumb(c.png).catch(() => null);
-      if (thumb && cabinet.cards.includes(c)) {
-        c.thumb = thumb;
-        cabinet.store.put(c).catch(() => {
-        });
-        if (thumb.length) setThumb(`c${c.id}`, thumb);
-        else {
-          lab.render(true);
-          bench.render();
-        }
-      }
-      backfill.shift();
-      if (backfill.length) setTimeout(fillThumbs, 120);
-    }
     function pipThumb(sp) {
+      if (!sp.stranger) return speciesThumb(sp.serial, sp.words);
       const c = pipCard(sp);
-      if (c && !blank(c)) return cardThumb(c);
-      return sp.stranger ? c ? studioThumb(`g${c.id}`, c.words) : "" : studioThumb(`s${sp.serial}`, sp.words, sp.serial);
-    }
-    const thumbQ = /* @__PURE__ */ new Map();
-    let thumbBusy = false;
-    function studioThumb(key, words, serial = null) {
-      if (!hasThumb(key) && !thumbQ.has(key)) {
-        thumbQ.set(key, { words, serial, tries: 0 });
-        setTimeout(pumpThumbs, 0);
-      }
-      return key;
+      return c ? cabThumb(c) : "";
     }
     async function worldCells(serial) {
       const sp = life.reg.get(serial), c = life.lastCensus;
@@ -33599,47 +33768,72 @@ ${e.message}` : String(e?.message || e));
       const [e, col, info] = newborn({ words });
       return Array.from({ length: 5 }, () => ({ e, a: 0, col, info, partners: [] }));
     }
-    function thumbSeen(cv) {
-      const S = cv.width, w = Math.round(S * SHOWN[0]), h = Math.round(S * SHOWN[1]);
-      const px = cv.getContext("2d", { willReadFrequently: true }).getImageData(S - w >> 1, S - h >> 1, w, h).data;
-      let lit = 0;
-      for (let i = 0; i < px.length; i += 4) if (Math.max(px[i], px[i + 1], px[i + 2]) > 80) lit++;
-      return lit > 0.03 * w * h;
-    }
-    async function pumpThumbs() {
-      if (thumbBusy || !thumbQ.size) return;
-      if (portraitJob || portraitHold || eng.pickReq || state.phase !== "running") {
-        setTimeout(pumpThumbs, 300);
+    async function pumpPortraits() {
+      if (portraitBusy || !portraitQ.size) return;
+      if (portraitJob || eng.pickReq || state.phase !== "running") {
+        setTimeout(pumpPortraits, 300);
         return;
       }
-      const [key, w] = thumbQ.entries().next().value;
-      thumbQ.delete(key);
-      if (!hasThumb(key)) {
-        thumbBusy = true;
-        const seen = w.serial != null ? await worldCells(w.serial).catch(() => null) : null;
-        const cv = portraitJob ? null : await takeStudio(w.words, seen || heldCells(w.words, w.serial)).catch(() => null);
-        const bytes = cv && await thumbBytes(cv, void 0, false).catch(() => null);
-        thumbBusy = false;
-        if (bytes?.length) setThumb(key, bytes);
-        else if (++w.tries < 3) thumbQ.set(key, w);
+      const [key, w] = portraitQ.entries().next().value, gen = portraitGen;
+      portraitBusy = true;
+      let p = null;
+      try {
+        const bytes = async (b) => new Uint8Array(await b.arrayBuffer());
+        const thumbOut = { type: "image/jpeg", quality: 0.82, size: THUMB };
+        if (w.stored) {
+          const { files, bitmap } = await encodeImages(await createImageBitmap(new Blob([w.stored], { type: "image/jpeg" })), [thumbOut], true);
+          p = { bmp: bitmap, thumb: await bytes(files[0]), full: w.stored };
+        } else {
+          const seen = w.serial != null ? await worldCells(w.serial).catch(() => null) : null;
+          const px = !portraitJob && gen === portraitGen ? await takeStudio(w.words, seen || heldCells(w.words, w.serial)) : null;
+          const got = px && await encodeImages(px, [thumbOut, { type: "image/jpeg", quality: 0.85 }], true);
+          if (got) p = { bmp: got.bitmap, thumb: await bytes(got.files[0]), full: await bytes(got.files[1]) };
+        }
+      } catch {
+        p = null;
       }
-      setTimeout(pumpThumbs, 30);
+      portraitBusy = false;
+      if (gen === portraitGen && portraitQ.get(key) === w) {
+        portraitQ.delete(key);
+        if (p) {
+          setThumb(key, p.thumb);
+          fulls.delete(key);
+          fulls.set(key, p);
+          if (fulls.size > FULL_KEEP) fulls.delete(fulls.keys().next().value);
+          for (const r of w.wait) r(p.bmp);
+        } else if (++w.tries < 3 && !w.stored) portraitQ.set(key, w);
+        else if (w.stored) {
+          w.stored = null;
+          portraitQ.set(key, w);
+        } else for (const r of w.wait) r(null);
+      }
+      setTimeout(pumpPortraits, 30);
+    }
+    function dropPortraits() {
+      portraitGen++;
+      dropThumb("s", true);
+      for (const [key, w] of portraitQ) if (key[0] === "s") {
+        portraitQ.delete(key);
+        for (const r of w.wait) r(null);
+      }
+      for (const key of fulls.keys()) if (key[0] === "s") fulls.delete(key);
     }
     const cardStatus = (c) => {
       const sp = c.world === worldId() && life.reg.get(c.serial);
       return c.world !== worldId() ? ["from", c.home] : sp?.alive ? ["live", sp.pop] : ["gone"];
     };
-    async function saveCard(serial, cv, quiet = false) {
+    async function saveCard(serial, quiet = false) {
       const sp = life.reg.get(serial);
       if (!sp || savedCard(serial)) return;
       if (!quiet) flash("Drawing its card…");
-      cv ??= await cards.render(serial);
+      const cv = await cards.render(serial), p = fulls.get(`s${serial}`);
+      await new Promise(requestAnimationFrame);
       const blob = cv && await cardPng(cv, serial);
       if (!blob) {
         flash("Could not draw its card");
         return;
       }
-      const c = carry(serial), thumb = await thumbBytes(cv, THUMB_CROP).catch(() => null);
+      const c = carry(serial);
       await keepCard({
         id: newKey("c"),
         serial,
@@ -33650,18 +33844,21 @@ ${e.message}` : String(e?.message || e));
         savedAt: Date.now(),
         touched: c.touched,
         png: new Uint8Array(await blob.arrayBuffer()),
-        thumb
+        thumb: p?.thumb ?? null,
+        portrait: p?.full ?? null
       }, quiet);
       if (quiet) return;
-      flyCard(blob);
+      flyCard(cv);
       flash(`${sp.name} is in the cabinet`);
       cards.refresh();
       dirty = true;
     }
-    function flyCard(blob) {
-      const img = document.createElement("img"), url = URL.createObjectURL(blob);
+    function flyCard(cv) {
+      const img = document.createElement("canvas");
+      img.width = CARD_W;
+      img.height = CARD_H;
+      img.getContext("2d", { willReadFrequently: true }).drawImage(cv, 0, 0, CARD_W, CARD_H);
       img.className = "card-fly";
-      img.src = url;
       document.body.append(img);
       const to = lab.isOpen() && !phone() ? $2("lab").getBoundingClientRect() : $2("lab-open").getBoundingClientRect();
       const tx = phone() ? to.left + to.width / 2 : to.right - 30, ty = phone() ? to.top : Math.min(innerHeight - 120, to.top + 140);
@@ -33672,7 +33869,6 @@ ${e.message}` : String(e?.message || e));
         { transform: `translate(calc(-50% + ${tx - innerWidth / 2}px), calc(-50% + ${ty - innerHeight / 2}px)) scale(0.08)`, opacity: 0.4 }
       ], { duration: 1500, easing: "cubic-bezier(.4,0,.2,1)" }).finished.then(() => {
         img.remove();
-        URL.revokeObjectURL(url);
         const target = lab.isOpen() ? document.querySelector('#lab-tabs [data-tab="cabinet"]') : $2("lab-open");
         target?.animate([{ boxShadow: "inset 0 -2px 0 #f1e3a0", color: "#f1e3a0" }, { boxShadow: "none" }], { duration: 900 });
       });
@@ -33717,6 +33913,7 @@ ${e.message}` : String(e?.message || e));
         showInCabinet(dup);
         return;
       }
+      const thumb = png && await pngThumb(png).catch(() => null);
       png ??= await strangerPng(bytes).catch(() => null);
       await keepCard({
         id: newKey("c"),
@@ -33728,7 +33925,7 @@ ${e.message}` : String(e?.message || e));
         savedAt: Date.now(),
         touched: c.touched,
         png,
-        thumb: png && await pngThumb(png).catch(() => null)
+        thumb
       });
       lab.open("cabinet");
       flash(`${c.name}, from ${c.home}, is in the cabinet`);
@@ -33758,7 +33955,8 @@ ${e.message}` : String(e?.message || e));
       chron,
       eng,
       flash,
-      portrait: takePortrait,
+      portrait: speciesPortrait,
+      portrayed: (serial) => fulls.has(`s${serial}`),
       rename: renameSpecies,
       songClip: (g) => songClip(g, { seed: climate.music, era: climate.name }),
       carry,
@@ -34012,7 +34210,7 @@ ${e.message}` : String(e?.message || e));
         const now = !K.pond ? "" : state.phase === "running" && !climate.event && E.on && EVENT_TYPES.some((x) => E[x]) ? `<div class="opt"><span class="lbl">${term("evstart", "Start one now")}</span><div class="row segs">${EVENT_TYPES.filter((x) => E.on && E[x]).map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAMES[x]}</button>`).join("")}</div></div>` : climate?.event ? `<div class="opt"><span class="lbl">Under way</span><span class="note">${EVENT_NAMES[climate.event.type]}${climate.phase && climate.phase !== climate.event.type ? ` · ${climate.phase}` : ""}</span></div>` : "";
         return group("events", "Pool events", onoff("ev-on", "Events", "", E.on, "poolevents") + kinds + now);
       }
-      let saves = null, used = 0, wName = "", ask = null, wBusy = "", wPoll = 0;
+      let saves = null, used = 0, wName = "", ask2 = null, wBusy = "", wPoll = 0;
       const defaultName = () => `${climate.name} · ${fmtDur(eng.simTime)}`;
       const when = (t2) => new Date(t2).toDateString() === (/* @__PURE__ */ new Date()).toDateString() ? new Date(t2).toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" }) : new Date(t2).toLocaleDateString(void 0, { month: "short", day: "numeric" });
       const mb = (n) => `${(n / 1048576).toFixed(n < 10485760 ? 1 : 0)} MB`;
@@ -34020,7 +34218,7 @@ ${e.message}` : String(e?.message || e));
       const ghost = (o, v, icon2, label3, hint) => `<button type="button" class="ghost" data-o="${o}" data-v="${v}" aria-label="${label3}" data-hint="${hint}"${wBusy ? " disabled" : ""}><svg><use href="#i-${icon2}"/></svg></button>`;
       function saveRow(m) {
         const sw = [0, 1, 2, 3].map((i) => `<i${m.cols[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ""}></i>`).join("");
-        const a = ask && ask.id === m.id ? ask.kind : null, ws = m.from === "workshop";
+        const a = ask2 && ask2.id === m.id ? ask2.kind : null, ws = m.from === "workshop";
         const can = m.downloading != null ? "ok" : openable(m.version);
         const line2 = a === "load" ? "<em>Discard this world?</em>" : can !== "ok" ? `<em>${can === "newer" ? "Needs a newer Tidemote" : "From an older Tidemote"}</em> · ${when(m.savedAt)}` : a === "del" ? `<em>${ws ? "Unsubscribe from it?" : "Delete this save?"}</em>` : a === "share" ? `<em>${m.workshop ? "Update it on the Steam Workshop?" : "Share it on the Steam Workshop for anyone to see?"}</em>` : m.downloading != null ? `Downloading · ${Math.round(m.downloading * 100)}%` : `${fmtDur(m.simTime)} · ${kfmt(m.count)} · ${m.thriving} species · ${when(m.savedAt)}`;
         const acts = a === "load" ? mini("w-no", m.id, "Cancel") + mini("w-first", m.id, "Save first") + mini("w-yes", m.id, wBusy === "load" ? "Loading" : "Load", " hot-btn") : a === "del" ? mini("w-no", m.id, "Cancel") + mini("w-yes", m.id, ws ? "Unsubscribe" : "Delete", " hot-btn") : a === "share" ? mini("w-no", m.id, "Cancel") + mini("w-yes", m.id, wBusy === "share" ? "Sharing" : m.workshop ? "Update" : "Share", " hot-btn") : ws ? (m.downloading != null || can !== "ok" ? "" : mini("w-load", m.id, "Load")) + ghost("w-page", m.id, "share", "On Steam", "Its page on the Steam Workshop") + ghost("w-del", m.id, "close", "Unsubscribe", "Unsubscribe") : (can !== "ok" ? "" : mini("w-load", m.id, "Load") + (steamOn.on ? ghost("w-share", m.id, "share", "Share", m.workshop ? "Update it on the Steam Workshop" : "Share on the Steam Workshop") : "")) + ghost("w-dl", m.id, "down", "Download", desk ? "Save a copy as a file" : "Download a file to open on another device") + ghost("w-del", m.id, "close", "Delete", "Delete");
@@ -34071,14 +34269,14 @@ ${e.message}` : String(e?.message || e));
             await refreshSaves();
           });
         } else if (id === "w-load" || id === "w-del" || id === "w-share") {
-          ask = { kind: { "w-load": "load", "w-del": "del", "w-share": "share" }[id], id: v };
+          ask2 = { kind: { "w-load": "load", "w-del": "del", "w-share": "share" }[id], id: v };
           render();
         } else if (id === "w-no") {
-          ask = null;
+          ask2 = null;
           render();
-        } else if (id === "w-yes" && ask?.kind === "share") {
+        } else if (id === "w-yes" && ask2?.kind === "share") {
           const m = saves.find((x) => x.id === v);
-          ask = null;
+          ask2 = null;
           if (!m || wBusy) return;
           await busy("share", async () => {
             const r = await desk.workshop.share(v, { title: m.name, description: wsDescription(m) });
@@ -34091,8 +34289,8 @@ ${e.message}` : String(e?.message || e));
           const m = saves.find((x) => x.id === v);
           if (m) desk.workshop.open(m.workshop);
         } else if (id === "w-browse") desk?.workshop.browse();
-        else if (id === "w-yes" && ask?.kind === "del") {
-          ask = null;
+        else if (id === "w-yes" && ask2?.kind === "del") {
+          ask2 = null;
           await worldStore.remove(v).catch((e) => flash(String(e.message || e)));
           await refreshSaves();
         } else if (id === "w-yes" || id === "w-first") {
@@ -34101,7 +34299,7 @@ ${e.message}` : String(e?.message || e));
           await busy("load", async () => {
             const w = await openWorld(await worldStore.get(v));
             if (id === "w-first") await saveWorld(defaultName());
-            ask = null;
+            ask2 = null;
             loaded = await loadWorld(w);
           });
           if (loaded) toggle(false);
@@ -34121,7 +34319,7 @@ ${e.message}` : String(e?.message || e));
           const bytes = await f2.arrayBuffer();
           const { meta } = await openWorld(bytes);
           await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes);
-          ask = { kind: "load", id: meta.id };
+          ask2 = { kind: "load", id: meta.id };
         } catch (err) {
           flash(`Could not open ${f2.name}: ${String(err.message || err)}`);
         }
@@ -34335,7 +34533,7 @@ ${e.message}` : String(e?.message || e));
       tabs.forEach((b) => b.addEventListener("click", () => {
         tab = b.dataset.tab;
         confirming = false;
-        ask = null;
+        ask2 = null;
         render();
       }));
       $2("set-tabs").addEventListener("keydown", (e) => {
@@ -34352,7 +34550,7 @@ ${e.message}` : String(e?.message || e));
           if (on) {
             tab = to;
             confirming = false;
-            ask = null;
+            ask2 = null;
           }
         }
         el.hidden = !on;
@@ -34365,7 +34563,7 @@ ${e.message}` : String(e?.message || e));
         } else {
           pendingN = null;
           confirming = false;
-          ask = null;
+          ask2 = null;
         }
       }
       btn.addEventListener("click", () => toggle());
@@ -34523,7 +34721,7 @@ ${e.message}` : String(e?.message || e));
       pip: {
         view: () => ({ count: pipette.count + pull.got.length, limit: PIPE_LIMIT, armed: pull.armed, keys: pipRuns().map((r) => {
           const c = pipCard(r.sp);
-          return r.key + (c ? blank(c) ? "!*" : "*" : "");
+          return r.key + (c ? "*" : "");
         }), held: runs.map((r) => r.held), mixed: pipette.mixed }),
         // (after view, its runs)
         cards: (flat) => runs.map(({ sp, held: [n, bodies], key }, i) => miniCard(genomeOfWords(sp.words), K, {
@@ -34574,7 +34772,7 @@ ${e.message}` : String(e?.message || e));
       try {
         for (const [i, sp] of todo.entries()) {
           btn.textContent = `Saving ${i + 1} / ${todo.length}`;
-          await saveCard(sp.serial, void 0, true);
+          await saveCard(sp.serial, true);
         }
       } finally {
         btn.disabled = false;
@@ -34653,14 +34851,14 @@ ${e.message}` : String(e?.message || e));
         bore.in = incoming().map(({ kind, recs }) => ({ w: wordsOf(kind), orgs: bodiesOf(recs) }));
         bore.of = pull.got.length;
       }
-      const seq = [];
+      const seq2 = [];
       const put = (orgs, w, sp) => {
-        for (let k = orgs.length - 1; k >= 0 && seq.length < N; k--) for (let c = orgs[k].out; c < orgs[k].cells.length && seq.length < N; c++) seq.push(boreCell(w, orgs[k].cells[c]));
-        for (let m = 0; sp && m < sp.made && seq.length < N; m++) seq.push(madeCell(sp));
+        for (let k = orgs.length - 1; k >= 0 && seq2.length < N; k--) for (let c = orgs[k].out; c < orgs[k].cells.length && seq2.length < N; c++) seq2.push(boreCell(w, orgs[k].cells[c]));
+        for (let m = 0; sp && m < sp.made && seq2.length < N; m++) seq2.push(madeCell(sp));
       };
       for (let i = bore.in.length - 1; i >= 0; i--) put(bore.in[i].orgs, bore.in[i].w);
       for (const sp of pipette.species) put(sp.orgs, sp.words, sp);
-      return seq;
+      return seq2;
     }
     function drawBore(R2, dt) {
       if (!R2 || hand.tool !== "pipette") {
@@ -34671,11 +34869,11 @@ ${e.message}` : String(e?.message || e));
       const [dx, dy] = INSTRUMENTS.pipette.dir, p = cssPPU(), now = performance.now();
       const len2 = Math.min(dx > 0 ? (innerWidth - R2.sx) / dx : -R2.sx / dx, dy > 0 ? (innerHeight - R2.sy) / dy : -R2.sy / dy);
       const gap = Math.max(BORE, 2.1 * Math.max(0, ...bore.genomes.map(radiusOf))) * p, N = Math.min(TUBE_N, Math.ceil(len2 / gap) + 1);
-      const seq = boreCells(N + Math.max(0, Math.ceil(bore.g)));
+      const seq2 = boreCells(N + Math.max(0, Math.ceil(bore.g)));
       const n = pipette.count + bore.in.reduce((a, x) => a + x.orgs.reduce((b, o) => b + o.cells.length, 0), 0);
       bore.g = now - bore.at > 200 ? 0 : clamp6((bore.g + n - bore.n) * Math.exp(-dt / 60), -N, N);
       Object.assign(bore, { n, at: now });
-      const at = (i) => i < 0 ? bore.gone[bore.gone.length + i] : seq[i];
+      const at = (i) => i < 0 ? bore.gone[bore.gone.length + i] : seq2[i];
       const f2 = new Float32Array(bore.rec), u = new Uint32Array(bore.rec), face = bore.g < 0 ? -1 : 1;
       const genomes = [];
       let m = 0;
@@ -36556,13 +36754,13 @@ ${e.message}` : String(e?.message || e));
         perf.gpuHeld = false;
         perf.lastSubmit = now;
         eng.season = seasonAt(eng.simTime);
-        const step = !portraitHold && plan(now) || { steps: 0, dt: H };
+        const step = plan(now) || { steps: 0, dt: H };
         eng.censusEvery = Math.max(20, Math.round(step.steps * 1e3 / frameTarget() / 5));
         if (step.steps > 0) {
           perf.lerpDt = step.dt;
           perf.lerpTicks = Math.round(step.dt * 60);
         }
-        const lerpOn = !state.paused && !portraitHold && state.phase === "running" && perf.lerpTicks > 1 && (state.speed === Infinity ? fastMode : !perf.held);
+        const lerpOn = !state.paused && state.phase === "running" && perf.lerpTicks > 1 && (state.speed === Infinity ? fastMode : !perf.held);
         eng.lerp = lerpOn ? clamp6(state.speed === Infinity ? perf.stepCredit : clock2.owed / perf.lerpDt, 0, 1) : null;
         viewSimTime = eng.simTime + (state.paused ? 0 : step.steps * step.dt) - (eng.lerp != null ? (1 - eng.lerp) * perf.lerpDt : 0);
         if (state.phase === "running" && !state.paused) climate.tick(step.steps * step.dt);
@@ -36611,7 +36809,7 @@ ${e.message}` : String(e?.message || e));
         viewSimTime = cur.t;
         specimen.drawViewerUI(now);
         specimen.mindTick(now);
-        const hold = (state.speed === Infinity || perf.held) && !state.paused && !portraitHold && state.phase === "running" ? !!step.world : null;
+        const hold = (state.speed === Infinity || perf.held) && !state.paused && state.phase === "running" ? !!step.world : null;
         if (hold !== false) perf.worldFrames++;
         eng.frame({
           target: ctx.getCurrentTexture().createView(),
@@ -36624,18 +36822,12 @@ ${e.message}` : String(e?.message || e));
           selId: sel ? sel.id : NONE4,
           loupe: L ? { x: L.sx * dpr, y: L.sy * dpr, r: L.R * dpr, ppu: L.cssPPU * dpr, cx: L.cx, cy: L.cy } : null,
           // the close-up only when the world is drawn: a canvas not given a new texture keeps its last image
-          // (a species card's portrait takes the close-up's place for one frame)
+          // (a portrait takes the close-up's place for one frame)
           specimen: hold === false ? null : portraitParams() || specimenParams(),
           hold
         });
         if (step.steps && !state.paused) hand.stepped();
-        if (portraitJob && portraitJob.drawn) {
-          if (portraitJob.relight) {
-            portraitJob.relight = false;
-            pushFocus();
-          }
-          readPortrait();
-        }
+        if (portraitJob?.drawn) readPortrait();
         film.frame();
         inflight++;
         nudge();
