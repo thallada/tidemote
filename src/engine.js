@@ -861,7 +861,7 @@ class Engine {
     this.randomizeTide(rng);
     this.randomizeCurrents(rng);
     const husk = mix(0.02, 0.06, rng()), silt = 1 - husk - this.K.foundLife;
-    // Bedrock outcrops: from none to about 8% of the area, as chains of discs a few cells across.
+    // Bedrock outcrops: from none to about 8% of the area, each about a chain of discs a few cells across (rockChance).
     const cells = this.grid[0] * this.grid[1];
     const rockR = mix(1.2, 3.0, rng());
     const cover = rng() ** 1.5 * 0.08 * this.K.rocks;
