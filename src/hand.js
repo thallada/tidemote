@@ -42,7 +42,6 @@ const EASE = { lamp: [0.35, 0.3], stage: [0.25, 0.25], dip: [0.3, 0.08] };
 // seconds; at most `n` at once. A stroke turned back on itself (faster than `turn` units a second, frame to frame)
 // sends a ring wave out from it.
 const WAKE = { n: 20, every: 0.1, life: 1.2, couple: 0.6, max: 8, turn: 1.5 };
-const ICE_KEEPS = 120; // simulated seconds the cold probe's ice is looked for after it was last chilling the water
 const NONE = 0xffffffff;
 
 /**
@@ -58,9 +57,8 @@ export function createHand(words, ids, { reach = REACH.def, drops }) {
     // (from: where the point was when the world last stepped)
     // (dip: how far the rod is in the water, 0..1, at rodAt; eddies: its wake, { x, y, vx, vy, t }; wake: where it
     // was when it last left one)
-    // (coldAt: when the cold probe was last chilling the water)
     // (stroke: the rod's last move, frame to frame, and when; rung: how many ring waves its strokes have sent out)
-    tool: 'loupe', reach, held: false, rung: 0, last: null, at: null, from: null, dip: 0, rodAt: null, eddies: [], wake: null, stroke: null, coldAt: -Infinity,
+    tool: 'loupe', reach, held: false, rung: 0, last: null, at: null, from: null, dip: 0, rodAt: null, eddies: [], wake: null, stroke: null,
     lamp: { x: 0, y: 0, r: reach, v: 0 }, stage: { x: 0, y: 0, r: reach, v: 0 },
     // the ridden cell and where it is steered: [x, y, strength]; the pipette's draw: [x, y, reach, speed] (the page's)
     rider: NONE, will: null, suck: null,
@@ -75,7 +73,7 @@ export function createHand(words, ids, { reach = REACH.def, drops }) {
     /** A world begun or put in place: its record of acts (kept with it), nothing of the last world's still acting. */
     reset(acts = []) {
       h.up(); h.acts = acts; h.rider = NONE; h.will = null; h.suck = null;
-      h.lamp.v = h.stage.v = h.dip = 0; h.eddies = []; h.coldAt = -Infinity;
+      h.lamp.v = h.stage.v = h.dip = 0; h.eddies = [];
     },
     /** The tool in hand (an id of TOOLS); taking one lets go of the last. */
     set(id, t) { h.up(t); h.tool = toolOf(id).id; },
@@ -145,9 +143,6 @@ export function createHand(words, ids, { reach = REACH.def, drops }) {
       words.fill(0, 32);
       h.eddies.forEach((e, k) => { const s = Math.exp(-(t - e.t) / WAKE.life); words.set([e.x, e.y, e.vx * s, e.vy * s], 36 + k * 4); });
       words[32] = h.eddies.length ? h.reach : 0;
-      // (the water it chilled may stay frozen a while after)
-      if (h.stage.v < 0) h.coldAt = t;
-      words[33] = t - h.coldAt < ICE_KEEPS ? 1 : 0;
     },
   };
   // a ring wave from (x, y), of strength s, in the oldest of the raindrop slots

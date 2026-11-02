@@ -8,6 +8,8 @@ export const MAXK = 1024;
 export const FIRST_LIFE = 5;
 // grid cells at most: K.density particles to a cell, 2^19 holds 8M particles with room
 export const MAX_CELLS = 1 << 19;
+// the heat field's words (b.thermal): four blocks of MAX_CELLS (temperature, floor, freeze order, ice), then ICE_N
+export const THERMAL_WORDS = 4 * MAX_CELLS + 4;
 export const META_SLOT = 16;
 export const META_POP = META_SLOT + MAXK;
 export const META_DEATH = META_POP + MAXK;
@@ -240,7 +242,7 @@ export const DEFAULT_K = {
   refugeMax: 0.6,   // ...up to this (a leaky refuge: hunters at reefs still make a living)
   // Heat: a field on the binning grid that life writes (its spent energy) and reads (each species'
   // preferred temperature). Degrees are notional; see docs/thermal-energy-2026-10-07.md.
-  heat: 1,          // 0: no field, and temperature has no effect
+  heat: 1,          // 0: no field, and temperature has no effect (nor any ice: a frost only darkens)
   // heatD and heatLoss set how far a hot spot spreads, sqrt(heatD / heatLoss) ≈ 2.8 cells: about a
   // colony's own neighborhood, so warm patches stay distinct rather than blurring into one haze
   heatD: 0.25,      // diffusion, cells²/s
@@ -257,6 +259,9 @@ export const DEFAULT_K = {
   framboidPile: 8,  // ...in a grid cell holding this many husks (rising from three), in water no warmer than
                     // the background (none at 6° above it: pyrite forms in cool mud)
   stoneMass: 0.15,  // heat capacity added by each grain of stone in a grid cell
+  // Ice is the water's own phase (thermal block 3, each grid cell's frozen share): water below 0° freezes and ice
+  // above it melts, each held at 0° until this latent heat (degrees of the water's) is given up or taken in
+  iceLatent: 8,
   tRef: 16,         // the temperature at which husks wear at their base rates
   specBonus: 0.25,  // extra performance at its optimum of the narrowest tolerance (2°)
   thermalFlat: 0.5, // tolerances either side of its optimum where a cell works at its best
@@ -358,13 +363,20 @@ export const DEFAULT_K = {
   rainDrops: 1,
   frostCold: 1,     // a frost's night, as shares of the full: cold (the water chilled to 0.5°) and dark (light × 0.4 at full)
   frostDark: 0.35,
+  // a frost's night freezes the pool through its heat: where the pool's order to freeze lies under the frost's
+  // share, it draws the water (at frostRate a second) to frostEdge° below freezing and frostSpan° colder per unit of
+  // the order under the share; ice where it lies over the share, as far above freezing and as much warmer per unit
+  // of the order over it (the open water follows the night's background, as in any weather)
+  frostRate: 0.3,
+  frostSpan: 4,
+  frostEdge: 1.5,
   // duckweed: its mother frond's half-length (share of the world's shorter side), its fronds' darkness, its stay (s)
   // and how fast it drifts (units/s)
   duckLen: [0.12, 0.2],
   duckDark: [0.75, 0.92],
   duckDur: [420, 720],
   duckDrift: [0.0175, 0.07],
-  // a frost's growth, hold and thaw (s), and the share of the pool it freezes
+  // a frost's growth, hold and thaw (s), and the share of the pool its night freezes
   frostGrow: [150, 270],
   frostHold: [120, 240],
   frostThaw: [100, 160],
@@ -673,6 +685,8 @@ fn edgeSway(p: vec2f, n: vec2f, flow: vec2f) -> f32 {
   return push + ${f(K.edgeWobble)} * wob;
 }
 `;
+// whether any of the water is frozen (the heat field's ICE_N), for passes that show the ice
+const iceAnyWGSL = `fn iceAny() -> bool { return bitcast<u32>(heatField[${4 * MAX_CELLS}u]) != 0u; }`;
 const shownWater = (world) => /* wgsl */ `
 // a thermal block's field at p, bilinear
 fn blockAt(base: u32, p: vec2f) -> f32 {
@@ -687,6 +701,9 @@ fn blockAt(base: u32, p: vec2f) -> f32 {
              mix(heatField[row1 + u32(x0)], heatField[row1 + u32(x1)], t.x), t.y);
 }
 fn waterTempAt(p: vec2f) -> f32 { return blockAt(0u, p); }
+${iceAnyWGSL}
+// how much of the water at p is frozen (block 3)
+fn iceAt(p: vec2f) -> f32 { return blockAt(${3 * MAX_CELLS}u, p); }
 `;
 // The same, with the default tunables, for passes that only show it (rendering, listening).
 const shownThermal = (g, t) => `thermalState(${g}, ${t}, ${f(DEFAULT_K.specBonus)}, ${f(DEFAULT_K.torporAt)}, ${f(DEFAULT_K.thermalFlat)}, ${f(DEFAULT_K.thermalWarm)})`;
@@ -1264,7 +1281,7 @@ ${w ? `  if (sub) { bondF += bendOn(i, gr) * ${f(K.growStiff)}; mSwim = select(n
     // the needle and the rod in the water part the cells in their way (the bonds the needle's point crosses stay cut)
     let sc = handPush(pos);
     if (any(sc != vec2f(0.0))) { pos += sc; vel += normalize(sc) * max(0.0, 1.0 - dot(vel, normalize(sc))); }
-    if (inHandIce(p.pos)) { pos = p.pos; vel = vec2f(0.0); }
+    if (inIce(p.pos)) { pos = p.pos; vel = vec2f(0.0); }
   }
   pos = wrapPos(pos);
 
@@ -1324,8 +1341,8 @@ struct Sim {
   // the pool (docs/catastrophes.md): x the water level (a relief quantile; at 1 or above nothing is dry), y rain
   // (0..1), z the sky (light ×: clouds), w how fast the water is drying (0..1)
   pond: vec4f,
-  // x the currents' strength ×; y frost (the share of the pool frozen); z how fast the ice is growing (0..1);
-  // w seconds since a drought's rain began (0: none; raindrops wetting the mud, drawn only)
+  // x the currents' strength ×; y frost (the share of the pool its night freezes: heatMain); z how fast the ice
+  // is growing (0..1); w how deep in a frost's night (0..1: how strongly heatMain draws the water by it)
   weather: vec4f,
   // floating duckweed: its mother frond's center, half-length, darkness (0: none); its angle, seed, width, daughters
   duck: vec4f,
@@ -1347,7 +1364,7 @@ struct Hand {
                 // w how many cells the pipette draws (their IDs in the ledger's hand region)
   suck: vec4f,  // the pipette's tip, its reach (0: none), how fast it draws what is in reach (world units a second, 0: not pressed)
   needle: vec4f, // the needle in the water: its point, and its shaft's way off toward the corner, as long as it runs (0: none)
-  wake: vec4f,  // x the size of the rod's eddies (0: none); y 1 while the cold probe's ice may lie in the water
+  wake: vec4f,  // x the size of the rod's eddies (0: none)
   eddies: array<vec4f, 20>, // the rod's wake: each eddy's center and the water's velocity it carries there, as it fades
 };
 // kr: 0..9 kind, 10..11 role, 12 plant, 13 cyst, 14 hunter, 15 tail cell.
@@ -1410,7 +1427,8 @@ fn drawn(id: u32) -> bool {
 // After it, what a step adds up into the heat field (the step's own scratch, never saved): heat deposited this
 // step per grid cell (HEAT_FIX per degree), then husks per grid cell. In the ledger, which every kernel that
 // adds to them binds already, rather than a buffer of their own (the per-stage limit on storage buffers).
-const HEAT_ACC_WORDS = 2u * MAX_CELLS;
+// (deposits and husks per cell, then the cells heatMain leaves holding ice, copied to the heat field's ICE_N)
+const HEAT_ACC_WORDS = 2u * MAX_CELLS + 4u;
 fn heatAccAt() -> u32 { return arrayLength(&ledger) - HEAT_ACC_WORDS; }
 // one of species k's events: 0 born, 1 starved, 2 died old, 3 eaten, 4 scalded, 5 stranded (dried or frozen), 6 encysted, 7 woke
 fn splCause(k: u32, c: u32) { atomicAdd(&ledger[splBase() + SPL_CAUSE + k * SPL_NC + c], 1u); }
@@ -1467,8 +1485,9 @@ fn holdsBack(j: u32, i: u32) -> bool {
   return r;
 }
 // The heat field, by blocks of MAX_CELLS: the water's temperature per grid cell, the pool's floor, the order
-// it freezes in; read only (the step writes none of it: heatMain writes the next
-// temperatures to heatNext, copied in after). What the step adds up goes to the ledger's end (heatAccAt).
+// a frost freezes it in, the share of each cell frozen (ice); then a word, how many cells held ice after the last
+// step (ICE_N, u32 bits; 0: no ice anywhere). Read only (the step writes none of it: heatMain writes the next
+// temperatures and ice to heatNext, copied in after). What the step adds up goes to the ledger's end (heatAccAt).
 @group(0) @binding(18) var<storage, read> thermal: array<f32>;
 @group(0) @binding(19) var<storage, read_write> heatNext: array<f32>;
 
@@ -1645,10 +1664,12 @@ fn flowWith(open: vec2f, pd: vec3f) -> vec2f {
 }
 // The pool's floor at p (thermal block 1, a relief quantile per grid cell, bilinear): the water's depth there (the
 // level less the floor; below 0 dry) and the floor's slope (uphill, per world unit).
-// With frost (weather.y, the share of the pool frozen) ice grows over the pool in the order of thermal block 2 (a
-// quantile per grid cell, 0 first): liquid is where that order lies above the frost. pondWith gives whichever edge,
-// the water's or the ice's, lies nearer, in the same terms: a depth (below 0: dry or frozen) and the slope toward it.
-fn pondOn() -> bool { return POND && (sim.pond.x < 1.0 || sim.weather.y > 0.0); }
+// Ice is the water's own phase (heatMain: thermal block 3, each grid cell's frozen share), however it came to be
+// frozen (a frost's night, the cold probe) and however it thaws (the day, the warm stage): its edge is where half
+// a cell is frozen. pondWith gives whichever edge, the water's or the ice's, lies nearer, in the same terms: a
+// depth (below 0: dry or frozen) and the slope toward it.
+fn iceOn() -> bool { return HEAT_ON && bitcast<u32>(thermal[4u * MAX_CELLS]) != 0u; }
+fn pondOn() -> bool { return (POND && sim.pond.x < 1.0) || iceOn(); }
 fn blockCell(block: u32, x: i32, y: i32) -> f32 { return thermal[block * MAX_CELLS + wrapCell(x, y)]; }
 // A thermal block's field at grid cell i + t: its value read bilinearly, and its slope from central differences
 // at the four corners read bilinearly too, so the slope's direction turns smoothly across cell edges (a slope
@@ -1664,7 +1685,7 @@ fn smoothField(block: u32, i: vec2i, t: vec2f) -> vec3f {
 // The pond at p given the open water's flow there (openFlow)
 fn pondWith(p: vec2f, open: vec2f) -> vec3f {
   var e = vec3f(1.0, 0.0, 0.0);
-  if (!pondOn() && sim.hand.wake.y <= 0.0) { return e; }
+  if (!pondOn()) { return e; }
   let u = p - 0.5;
   let i = vec2i(floor(u));
   let t = u - floor(u);
@@ -1674,23 +1695,24 @@ fn pondWith(p: vec2f, open: vec2f) -> vec3f {
     let gl = length(r.yz);
     if (gl > 1e-5) { e.x += edgeSway(p, r.yz / gl, open) * gl; }
   }
-  if (sim.weather.y > 0.0) {
-    let o = smoothField(2u, i, t);
-    let ice = vec3f(o.x - sim.weather.y, -o.yz);
+  if (iceOn()) {
+    let o = smoothField(3u, i, t);
+    let ice = vec3f(0.5 - o.x, o.yz);
     if (shoreDist(ice) < shoreDist(e)) { e = ice; }
-  }
-  // the cold probe's ice (docs/hand.md): water the hand chilled below freezing is frozen as the frost's is, its
-  // edge the 0° line (by the temperature's slope); only once the probe has been used (wake.y), so never headless
-  if (HEAT_ON && sim.hand.wake.y > 0.0) {
-    let h = heatSample(p);
-    let ice = vec3f(h.x, -h.yz);
-    if (h.x < 2.0 && shoreDist(ice) < shoreDist(e)) { e = ice; }
   }
   return e;
 }
-// Whether p lies in the cold probe's ice (below 0°, once the probe has been used): what is there is frozen solid,
-// carried by nothing and moving not at all (never headless)
-fn inHandIce(p: vec2f) -> bool { return HEAT_ON && sim.hand.wake.y > 0.0 && heatSample(p).x < 0.0; }
+// Whether p lies in the ice past its edge (its cells all but wholly frozen): what is there is frozen solid, carried
+// by nothing and moving not at all. Within the edge the ice strands what it reaches, as dry ground does, and the
+// film of water there pulls it back out (so an ice front pushes cells ahead of it).
+fn inIce(p: vec2f) -> bool {
+  if (!iceOn()) { return false; }
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  return mix(mix(blockCell(3u, i.x, i.y), blockCell(3u, i.x + 1, i.y), t.x),
+             mix(blockCell(3u, i.x, i.y + 1), blockCell(3u, i.x + 1, i.y + 1), t.x), t.y) > 0.97;
+}
 // How far (world units) p lies from the water's edge, wet side positive, from pondWith's depth and slope.
 fn shoreDist(pd: vec3f) -> f32 { return pd.x / max(length(pd.yz), 1e-4); }
 // The light at p: the baseline and the tide's bands by the season, under the sky (clouds) and any duckweed's shade.
@@ -2486,8 +2508,8 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   }${K.heat && K.marangoni > 0 ? `
   // surface flow: warm water's surface pulls toward cooler water, carrying matter with it
   vel -= heatHere.yz * ${f(K.marangoni)};` : ''}
-  // (the needle and the rod push grains out of their way as they do cells; in the probe's ice nothing moves)
-  let frozen = inHandIce(p.pos);
+  // (the needle and the rod push grains out of their way as they do cells; in the ice nothing moves)
+  let frozen = inIce(p.pos);
   if (frozen) { vel = vec2f(0.0); }
   let moved = p.pos + vel * sim.dt;
   let pos = select(wrapPos(moved + handPush(moved)), p.pos, frozen);
@@ -2537,11 +2559,19 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
 // --------------------------------------------------------------------- heat
 // One thread per grid cell: the water is carried by the currents (semi-Lagrangian), spreads, takes
 // the heat deposited this step by life, rot and framboids, plus sunlight, and relaxes toward the
-// climate's background. Stone in a cell gives it thermal mass: it warms and cools slowly.
+// climate's background. Stone in a cell gives it thermal mass: it warms and cools slowly. Below 0° the water
+// freezes (thermal block 3, docs/catastrophes.md).
+var<workgroup> iceCells: atomic<u32>;
 @compute @workgroup_size(64)
-fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
-  let c = gid.x;
-  if (c >= sim.grid.x * sim.grid.y) { return; }
+fn heatMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) li: u32) {
+  if (gid.x < sim.grid.x * sim.grid.y && heatStep(gid.x)) { atomicAdd(&iceCells, 1u); }
+  // how many cells hold ice, for the next step to read (ICE_N): none, and nothing looks for ice
+  workgroupBarrier();
+  let n = atomicLoad(&iceCells);
+  if (li == 0u && n > 0u) { atomicAdd(&ledger[heatAccAt() + 2u * MAX_CELLS], n); }
+}
+// One grid cell's next temperature and ice (heatNext's two blocks); whether it holds any ice.
+fn heatStep(c: u32) -> bool {
   let x = i32(c % sim.grid.x);
   let y = i32(c / sim.grid.x);
   let center = vec2f(f32(x), f32(y)) + 0.5;
@@ -2554,9 +2584,34 @@ fn heatMain(@builtin(global_invocation_id) gid: vec3u) {
   // (the hand's stage or probe: the water under it drawn toward its temperature)
   let st = sim.hand.stage;
   let stage = select(0.0, ${f(STAGE.rate)} * disc(handD(center, st.xy), st.z) * (mix(sim.tbg, select(STAGE_COLD, STAGE_HOT, st.w > 0.0), abs(st.w)) - carried), st.w != 0.0);
-  let q = f32(atomicExchange(&ledger[heatAccAt() + c], 0u)) / HEAT_FIX + (${f(K.sunHeat)} * light + stage) * sim.dt;
-  let t = carried + ${f(K.heatD)} * lap * sim.dt + (q - ${f(K.heatLoss)} * (carried - sim.tbg) * sim.dt) / mass;
+  // (a frost's night, as deep as weather.w: where the order the pool freezes in (block 2, 0 first) lies under the
+  // frost's share it draws the water below freezing, the colder the sooner the place freezes; ice where the order
+  // lies over the share it draws above freezing, the warmer the later the place froze. So the ice grows and thaws in
+  // that order, as heat leaves and returns; the open water it leaves to the night's background.)
+  var ice = thermal[3u * MAX_CELLS + c];
+  var night = 0.0;
+  if (sim.weather.w > 0.0) {
+    let o = thermal[2u * MAX_CELLS + c] - sim.weather.y;
+    if (o < 0.0 || ice > 0.0) {
+      night = ${f(K.frostRate)} * sim.weather.w * (${f(K.frostSpan)} * o + select(${f(K.frostEdge)}, -${f(K.frostEdge)}, o < 0.0) - carried);
+    }
+  }
+  let q = f32(atomicExchange(&ledger[heatAccAt() + c], 0u)) / HEAT_FIX + (${f(K.sunHeat)} * light + stage + night) * sim.dt;
+  var t = carried + ${f(K.heatD)} * lap * sim.dt + (q - ${f(K.heatLoss)} * (carried - sim.tbg) * sim.dt) / mass;
+  // the latent heat: water below 0° freezes and ice above it melts, the cell held at 0° until the heat it gives up
+  // or takes in is spent (the ice does not drift: it is the cell's, and frozen water has no current to carry it)
+  if (t < 0.0 && ice < 1.0) {
+    let d = min(1.0 - ice, -t * mass / ${f(K.iceLatent)});
+    ice = select(ice + d, 1.0, d >= 1.0 - ice);
+    t += d * ${f(K.iceLatent)} / mass;
+  } else if (t > 0.0 && ice > 0.0) {
+    let d = min(ice, t * mass / ${f(K.iceLatent)});
+    ice = select(ice - d, 0.0, d >= ice);
+    t -= d * ${f(K.iceLatent)} / mass;
+  }
   heatNext[c] = min(t, ${f(BOIL)});
+  heatNext[MAX_CELLS + c] = ice;
+  return ice > 0.0;
 }
 
 // --------------------------------------------------------------------- life
@@ -3061,7 +3116,7 @@ fn cystStep(i: u32) {
   let dry = pd.x < 0.0;
   if (dry) { p.vel = vec2f(0.0); }
   let moved = p.pos + (p.vel + flowWith(open, pd) * g.advect) * sim.dt;
-  if (inHandIce(p.pos)) { p.vel = vec2f(0.0); } else { p.pos = wrapPos(moved + handPush(moved)); }
+  if (inIce(p.pos)) { p.vel = vec2f(0.0); } else { p.pos = wrapPos(moved + handPush(moved)); }
   atomicAdd(&ledger[cystSlot(ledgerGuild(g))], 1u);
   if (p.energy <= 0.0) {
     splCause(p.kind, select(1u, 5u, dry));
@@ -3416,7 +3471,7 @@ fn bodyTick(@builtin(global_invocation_id) gid: vec3u) {
   pos += suckFlow(p.id, pos, h);
   let sc = handPush(pos);
   if (any(sc != vec2f(0.0))) { pos += sc; vel += normalize(sc) * max(0.0, 1.0 - dot(vel, normalize(sc))); }
-  if (inHandIce(p.pos)) { pos = p.pos; vel = vec2f(0.0); }
+  if (inIce(p.pos)) { pos = p.pos; vel = vec2f(0.0); }
   if (subK + 1u < sim.ticks) {
     let w = bitcast<vec4u>(vec4f(pos, vel)); let st = subSlot(i, subK + 1u);
     for (var k = 0u; k < 4u; k++) { bondsNow[st + k] = w[k]; }
@@ -4467,8 +4522,8 @@ struct View {
   splat: f32,
   // the adhesion where bodies start to close into tissue (K.tightFrom)
   tightFrom: f32,
-  // the pool (docs/catastrophes.md): its water level and the share of it frozen, to show cells stranded or frozen
-  level: f32, frost: f32, pad2: u32, pad3: u32,
+  // the pool (docs/catastrophes.md): its water level, to show cells stranded
+  level: f32, pad1: u32, pad2: u32, pad3: u32,
 };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -4962,11 +5017,12 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     col = mix(col, vec3f(0.62, 0.66, 0.74) * dot(col, vec3f(0.3, 0.5, 0.2)) * 1.6, 0.5 * sleep);
     // stranded on the drying mud a cell desiccates: it shrivels, its color drains to a dull brown and it darkens;
     // caught in the ice it is frozen: still, its color drained toward a pale frosted blue-white, a little rimed
-    if (view.level < 1.0 || view.frost > 0.0) {
+    let iced = iceAny();
+    if (view.level < 1.0 || iced) {
       var dryN = 0.0;
       if (view.level < 1.0) { dryN = smoothstep(0.0, 0.012, blockAt(${MAX_CELLS}u, p.pos) - view.level); }
       var iceN = 0.0;
-      if (view.frost > 0.0) { iceN = smoothstep(0.0, 0.01, view.frost - blockAt(${2 * MAX_CELLS}u, p.pos)); }
+      if (iced) { iceN = smoothstep(0.35, 0.65, iceAt(p.pos)); }
       let l = dot(col, vec3f(0.3, 0.5, 0.2));
       col = mix(col, vec3f(0.55, 0.38, 0.22) * (0.45 + 0.6 * l), 0.85 * dryN);
       b *= 1.0 - 0.5 * dryN;
@@ -7579,10 +7635,10 @@ fn ridge(x: f32, w: f32, px: f32, g: vec2f, L: vec2f) -> vec2f {
 // stems along whichever of its six axes points most nearly into the water, each a tapering needle with side branches
 // at sixty degrees, the stems' tips running ahead of the mass by unequal lengths and the gaps between them filling
 // in behind; the edge, ice against water, catches the light as a fine bright line.
-// It is drawn as a growth-time field fixed in the world, so ice once formed stays where it is and the front only
-// grows outward from it (and on a thaw draws back the same way): a point is ice once the frost's own front (the
-// field the simulation freezes by; sd world units away, ice negative) has come within lead of it, lead being how
-// far ahead of that front the dendrites reach there. Every grain near the point offers its own dendrites' lead, less
+// It is drawn over the ice the simulation freezes (the heat field's, iceSeen; sd world units from its edge, ice
+// negative), fixed in the world, so ice once formed stays where it is and the front grows outward from it (and on
+// a thaw draws back the same way): a point is ice once that front has come within lead of it, lead being how far
+// ahead of it the dendrites reach there. Every grain near the point offers its own dendrites' lead, less
 // the farther the point lies from the grain's center; the farthest reach wins and owns the point. So grains compete
 // as real ones do: a stem is never cut off, a neighbor's ice simply catches up with it, and where two grains' ice
 // meets is their boundary.
@@ -7590,17 +7646,32 @@ const ICE_GS = 1.5;    // grain spacing (world units)
 const ICE_LEAD = 1.4;  // how far the longest stems run ahead
 const ICE_OWN = 0.45;  // lead a grain gains at its center ...
 const ICE_FALL = 0.55; // ... and loses per unit away from it
-// The frost field's slope at p, bilinear: the way the ice grows there.
-fn iceSlope(p: vec2f) -> vec2f {
-  let u = p - 0.5;
-  let i = vec2i(floor(u));
-  let t = u - floor(u);
-  let a = gridPost(${2 * MAX_CELLS}u, i.x, i.y);
-  let b = gridPost(${2 * MAX_CELLS}u, i.x + 1, i.y);
-  let c = gridPost(${2 * MAX_CELLS}u, i.x, i.y + 1);
-  let d = gridPost(${2 * MAX_CELLS}u, i.x + 1, i.y + 1);
-  return vec2f(mix(b - a, d - c, t.y), mix(c - a, d - b, t.x));
+const ICE_SLOPE = 0.1; // the least slope of the ice field measured by (where ice starts, and deep in it, it is flat)
+// The ice at wp as drawn: the heat field's (block 3, each grid cell's frozen share) through the B-spline, its edge
+// where half is frozen. sd: how far wp lies from that edge, water positive (world units, by the field's slope floored
+// at ICE_SLOPE, so where a patch is just starting the distance does not leap); rg: how much farther the edge truly
+// lies; reach: how grown the ice is, by the field 2.5 units into it (0 as a patch begins, so the dendrites grow out
+// of it from nothing rather than a whole star showing at once; 1 where the ice runs back that far behind its edge).
+struct IceSeen { sd: f32, rg: f32, reach: f32 }
+${iceAnyWGSL}
+fn iceSeen(wp: vec2f) -> IceSeen {
+  let f = fieldPost(${3 * MAX_CELLS}u, wp);
+  let g = length(f.yz);
+  let gl = max(g, ICE_SLOPE);
+  var o: IceSeen;
+  o.sd = (0.5 - f.x) / gl;
+  o.rg = gl / max(g, 1e-4);
+  let q = wp + f.yz / max(g, 1e-4) * 2.5 - 0.5;
+  let i = vec2i(floor(q));
+  let t = q - floor(q);
+  let behind = mix(mix(gridPost(${3 * MAX_CELLS}u, i.x, i.y), gridPost(${3 * MAX_CELLS}u, i.x + 1, i.y), t.x),
+                   mix(gridPost(${3 * MAX_CELLS}u, i.x, i.y + 1), gridPost(${3 * MAX_CELLS}u, i.x + 1, i.y + 1), t.x), t.y);
+  o.reach = smoothstep(0.55, 0.95, behind);
+  return o;
 }
+// How fast the ice at a point grows, to draw it (0..1): a frost's as it freezes (weather.z), the cold probe's where it
+// chills the water far below the open water's; in near-freezing water only (T at the point).
+fn iceGrowth(T: f32) -> f32 { return max(smoothstep(0.0, 0.3, post.weather.z), probeCold(T)) * smoothstep(3.0, 0.5, T); }
 // One grain's offer at wp. lead: how far ahead of the front its ice reaches here; slope: how steeply lead falls
 // across the stem or branch that gives it (per unit, to measure distances by); id its hash; ax its stems' axis; vs
 // across its nearest stem (signed); bx across the nearest side branch, bt how far out along it (1 at its tip).
@@ -7610,9 +7681,10 @@ fn iceGrain(wp: vec2f, cu: vec2f, N: vec2f, Sv: vec2f, near: f32) -> IceGrain {
   let cell = wrapL(cu, N);
   g.id = hash12(cell + 0.37);
   let ctr = (cu + vjit(cell + 31.0)) * Sv;
-  // its six axes; the stems grow along the one nearest the way the ice grows at its center
+  // its six axes; the stems grow along the one nearest the way the ice grows at its center: up the water's
+  // temperature, from the coldest ice toward the warmer water it freezes
   let th = g.id * 6.2832;
-  let gr = iceSlope(ctr);
+  let gr = waterAt(ctr).yz;
   let aa = th + round((atan2(gr.y, gr.x) - th) / 1.0472) * 1.0472;
   g.ax = vec2f(cos(aa), sin(aa));
   let d = wp - ctr;
@@ -7829,15 +7901,8 @@ fn extremes(c: vec3f, wpIn: vec2f, ppu: f32, water: vec3f, behind: f32) -> vec3f
   let wp = wpIn - post.world * floor(wpIn / post.world);
   let k = 0.35 + 0.65 * behind;
   var o = c;
-  let cold = probeCold(T);
-  if (cold > 0.0) {
-    let g = length(water.yz);
-    let gl = max(g, 0.5);
-    let sd = T / gl;
-    o += vec3f(0.012, 0.016, 0.02) * cold * k;
-    if (sd < ICE_LEAD + ICE_OWN + 0.3) { o += iceLook(wp, sd, ppu, 1.0, 1.0, gl / max(g, 1e-4)) * k * cold; }
-    if (sd > 0.0) { o += frazil(wp, sd, ppu, 1.0) * 2.0 * k * cold; }
-  }
+  // (the ice the probe freezes is the water's, drawn with the frost's by poolOver)
+  o += vec3f(0.012, 0.016, 0.02) * probeCold(T) * k;
   if (T >= 30.0) {
     o = bubbles(o, wp, ppu, 0.7, false);
     o = bubbles(o, wp, ppu, 1.8, true) + vec3f(0.012, 0.007, 0.003) * boilAt(T) * k;
@@ -8149,9 +8214,8 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32, ppu: f
 }
 // How much open water lies over wp: none on the dry floor or under ice, fading over the thin film at their edges.
 // How far wp lies into open water (units): to the nearer of the pool's edge and the ice's, by each field's slope; 0 or
-// less on the dry floor or under ice, and 1e4 with neither. The ice is the frost's as drawn (its dendrites' reach
-// ahead of its front, its slope floored as the drawing's is, so a patch just starting is ice too) and the cold
-// probe's (below 0°, as extremes draws it).
+// less on the dry floor or under ice, and 1e4 with neither. The ice is as drawn (iceSeen, its dendrites' reach ahead
+// of its edge, so a patch just starting is ice too).
 fn waterRoom(wpIn: vec2f) -> f32 {
   let wp = wpIn - post.world * floor(wpIn / post.world);
   var room = 1e4;
@@ -8159,14 +8223,9 @@ fn waterRoom(wpIn: vec2f) -> f32 {
     let pd = pondPost(wp);
     room = min(room, pd.x / max(length(pd.yz), 1e-4));
   }
-  if (post.weather.y > 0.0) {
-    let fi = fieldPost(${2 * MAX_CELLS}u, wp);
-    let reach = min(1.0, post.weather.y / 0.25);
-    room = min(room, (fi.x - post.weather.y) / max(length(fi.yz), 0.06) - (ICE_LEAD + ICE_OWN) * reach);
-  }
-  if (post.heatVis >= 0.0) {
-    let w = waterAt(wp);
-    if (w.x < 4.0) { room = min(room, w.x / max(length(w.yz), 0.5) - (ICE_LEAD + ICE_OWN) * probeCold(w.x)); }
+  if (iceAny()) {
+    let ic = iceSeen(wp);
+    room = min(room, ic.sd - (ICE_LEAD + ICE_OWN) * ic.reach);
   }
   return room;
 }
@@ -8430,22 +8489,13 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
     let sheen = select(0.0, exp(-sd / 0.9), sd > 0.0);
     c += (vec3f(0.16, 0.17, 0.18) * rim + vec3f(0.035, 0.040, 0.046) * rise * along + vec3f(0.006, 0.008, 0.010) * sheen) * (0.35 + 0.65 * behind);
   }
-  // ice (frost): over what is frozen in it, its front a crisp bright line
-  if (post.weather.y > 0.0) {
-    let fi = fieldPost(${2 * MAX_CELLS}u, wp);
-    // (the distance from the front, by the field's slope; at least about half its usual slope, since where ice
-    // starts, at the field's minima, the slope vanishes and the distance with it would leap: the dendrites' reach
-    // ahead would cover a whole disc at once instead of growing from a point)
-    let gl = max(length(fi.yz), 0.06);
-    let rg = gl / max(length(fi.yz), 1e-4);
-    let sdI = (fi.x - post.weather.y) / gl;
-    let px = 1.0 / ppu;
-    let grow = smoothstep(0.0, 0.3, post.weather.z);
-    // the dendrites' reach ahead grows with the ice: none as it begins (else every spot it starts from would show
-    // a whole star at once), full once a quarter of the pool has frozen
-    let reach = min(1.0, post.weather.y / 0.25);
-    if (sdI < (ICE_LEAD + ICE_OWN) * reach + 0.3) { c += iceLook(wp, sdI, ppu, grow, reach, rg) * (0.35 + 0.65 * behind); }
-    if (sdI > 0.0 && sdI < 9.0 && grow > 0.0) { c += frazil(wp, sdI, ppu, grow) * (0.35 + 0.65 * behind); }
+  // ice (a frost's, the cold probe's): over what is frozen in it, its front a crisp bright line, crystals
+  // (frazil) in the near-freezing water ahead of it while it grows
+  if (iceAny()) {
+    let ic = iceSeen(wp);
+    let grow = iceGrowth(waterAt(wp).x);
+    if (ic.sd < (ICE_LEAD + ICE_OWN) * ic.reach + 0.3) { c += iceLook(wp, ic.sd, ppu, grow, ic.reach, ic.rg) * (0.35 + 0.65 * behind); }
+    if (ic.sd > 0.0 && ic.sd < 9.0 && grow > 0.0) { c += frazil(wp, ic.sd, ppu, grow) * (0.35 + 0.65 * behind); }
   }
   // the waves seen in themselves, on open water only: a surface tilted toward the lamp throws a little of its light
   // into the objective, a pale sheen on the crests' near flanks, while the far flanks bend light away and dim what

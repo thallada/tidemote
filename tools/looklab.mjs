@@ -45,6 +45,8 @@ for (;;) {
       if (s.live) return;
       const e = globalThis.__tidemote.eng;
       e.level = s.level ?? 1; e.frost = s.frost ?? 0; e.rain = s.rain ?? (s.drops?.length ? 1 : 0); e.freezing = s.freezing ?? 0;
+      // (ice is the water's: frozen where the frost's order lies under the scene's frost)
+      e.stageIce(e.frost);
     }, s);
     const [x, y] = await aim(page, s.at, s.zoom ?? 'fit', s.off);
     if (!s.live) {

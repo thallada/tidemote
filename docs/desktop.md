@@ -54,6 +54,7 @@ can tell before reading the world). A save opens only in a version of its own ma
   5.0.0: the heat buffer's two unused blocks gone (temperature, floor, ice order).
   6.0.0: the head keeps Sets, Infinity/NaN/-0, undefined and shared objects exactly (pack refuses what it cannot keep); a Set saved as {} had frozen loaded worlds at their next climate event.
   7.0.0: a genome's born is on the GPU's clock (simulated time modulo SIM_CLOCK, shaders.js), raindrops' times kept in f64.
+  8.0.0: the heat buffer keeps the water's ice (a fourth block, each cell's frozen share, then how many cells hold ice).
 - minor: additions a version of the same major can do without (a head field, a buffer it does not
   know; `openWorld` keeps only the buffers it knows). A newer version must give old saves of its
   major a default for what it added.

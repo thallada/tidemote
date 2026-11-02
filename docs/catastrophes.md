@@ -55,15 +55,31 @@ ice showed at once over patches the simulation had not frozen.
   units/s; first 0.01-0.04, which read as still).
 - **Frost** (`frostGrow`, `frostHold`, `frostThaw`): a cold night (light × 0.4, the background water chilled to 0.5°
   whatever the era's warmth, `FROST_WATER` in `src/climate.js`, × `frostCold`) on a pool this thin freezes it
-  in-plane. Ice grows in the order of a second field (`makeIceOrder`, thermal block 2: grains spreading from the
-  shallows and from their centers, meeting last along the zero lines of a random field) until `frostMax` (60-85%)
-  of the pool is ice. The frozen share is the frost (the field is ranked), so a patch's radius goes as the frost's
-  square root: the frost is eased twice (growth and thaw), so every patch starts from nothing at no speed and
-  gathers pace, and on the thaw shrinks back to nothing the same way (eased once, the first patches opened at speed
-  and read as popping in). The ice's front is an edge like the water's (`pondWith` takes whichever is nearer): it pushes
-  cells ahead of it, so what lives is packed into the veins of water left between the grains (brine channels), and
-  cells caught in the ice rest as cysts or freeze; silt and husks freeze where it finds them (carried to the front,
-  as a drought's edge carries them, they gathered in strings down the valleys of the ice's order). Then it thaws.
+  in-plane. **Ice is the water's own phase** (`heatMain`, thermal block 3: each grid cell's frozen share): water
+  below 0° freezes and ice above it melts, the cell held at 0° until the latent heat (`iceLatent`, degrees of the
+  water's) is given up or taken in. So whatever froze it, whatever warms it thaws it: the warm stage melts a frost's
+  ice as it melts the cold probe's, and the frost's night freezes the hole again once the stage lifts. The frost
+  freezes the pool through its heat: its night (`weather.w`) draws the water (`frostRate`) below freezing where a
+  second field (`makeIceOrder`, thermal block 2: grains spreading from the shallows and from their centers, meeting
+  last along the zero lines of a random field) lies under the frost's share, colder the sooner the place freezes
+  (`frostEdge`, `frostSpan`), and ice where it lies over the share above freezing, so it thaws; the open water it
+  leaves to the night's background (drawn everywhere at `frostRate`, the water fell to near freezing within seconds
+  of nightfall, before the old eased chill, and half again as many worlds collapsed: 5 of 12 against 2). The share
+  grows until `frostMax` (60-85%) of the pool, holds, and thaws. With the defaults the ice reaches about the share
+  (0.69-0.77 of the grid at 12 seeds, the share drawn 0.6-0.85) a little behind it, and the living follow the old
+  frost's course (12 seeds × 20 min, frost at 5 min: 8.9k, 3.9k and 8.8k living at 450, 800 and 1200 s against
+  9.2k, 3.9k and 8.3k; one world collapsed against two). The share is ranked, so a patch's radius goes as its square root: it is eased twice
+  (growth and thaw), so every patch starts from nothing at no speed and gathers pace, and on the thaw shrinks back
+  to nothing the same way (eased once, the first patches opened at speed and read as popping in). The ice follows
+  as the water gives up its heat and takes it back, a little behind. Until 2026-11 the ice was the order field
+  against the share itself, painted over the water whatever its temperature (the water under it 0.5°): nothing
+  could thaw it but the frost's own clock. The ice's front is an edge like the water's (`pondWith` takes whichever
+  is nearer, the ice's where half a cell is frozen): it pushes cells ahead of it, so what lives is packed into the
+  veins of water left between the grains (brine channels), and cells caught in the ice rest as cysts or freeze;
+  past the edge's film (`inIce`, a cell all but wholly frozen) what lies in it is frozen solid, carried by nothing
+  and moved by nothing; silt and husks freeze where it finds them (carried to the front, as a drought's edge
+  carries them, they gathered in strings down the valleys of the ice's order). Then it thaws. `heatMain` counts the
+  cells holding ice each step (`ICE_N`, after the four blocks); at none, nothing else looks for ice.
 - **Raindrops**: about one a second in full rain, each a ring wave (`dropSpeed` 7 units/s, `dropWidth`, `dropLife`)
   shoving the water outward as it passes (`flowAt`).
 
@@ -156,14 +172,16 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   pixels (other waves at every zoom, and fine detail that a microscope would show blown up), wave vectors rounded to
   the world while the wind veered (the whole pattern jumping every few seconds).
 - **Ice** (`iceLook`, `iceGrain`, `frazil`): ice and water bend light almost alike, so the ice is nearly invisible;
-  what shows is where it scatters. It is drawn as a growth-time field fixed in the world, so ice once formed stays
-  put and the front only grows outward (a thaw draws it back the same way): a point is ice once the simulated front
-  (thermal block 4 against the frost) has come within `lead` of it, `lead` being how far ahead of that front the
-  dendrites reach there; that reach grows with the ice (none at the start, full once a quarter of the pool is
-  frozen: at full from the start, every spot the ice begins from showed a whole star at once), and the distance is
-  measured by the field's slope floored at about half its usual (where ice starts, at the field's minima, the slope
-  vanishes and the reach would open a ring at once). Grains (`ICE_GS`, 1.5 units) sit on a jittered lattice that tiles the world; each grows
-  parallel stems along whichever of its six axes points most nearly the way the ice grows at its center, each a
+  what shows is where it scatters. It is drawn over the ice the simulation freezes (`iceSeen`: the ice block
+  through the B-spline, its edge where half is frozen), fixed in the world, so ice once formed stays put and the
+  front grows outward (a thaw draws it back the same way): a point is ice once that front has come within `lead` of
+  it, `lead` being how far ahead of the front the dendrites reach there; that reach grows with the ice (none where
+  the field 2.5 units into the ice is not yet frozen, so a patch just begun has none: at full from the start, every
+  spot the ice begins from showed a whole star at once), and the distance is measured by the field's slope floored
+  (`ICE_SLOPE`: where ice starts, and deep in it, the field is flat and the reach would open a ring at once). Grains
+  (`ICE_GS`, 1.5 units) sit on a jittered lattice that tiles the world; each grows
+  parallel stems along whichever of its six axes points most nearly the way the ice grows at its center (up the
+  water's temperature, from the coldest ice toward the water it freezes), each a
   needle reaching its own length ahead (up to `ICE_LEAD`, a few stunted), widening behind its tip, with fine side
   branches at sixty degrees of uneven lengths. Every grain of the 3 × 3 around a point offers its dendrites' lead,
   less the farther it lies from the grain's center (`ICE_OWN`, `ICE_FALL`), and the farthest reach wins: grains
@@ -174,10 +192,11 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   warped Voronoi tiling, each grain scattering a little differently), bright seams with grooves where grains meet,
   faint growth lines and air bubbles (bright rims, dark hearts); deeper than any dendrite reaches only that is
   drawn. Ahead of a growing front, small stellar crystals (frazil: six uneven, branched arms around a hexagonal
-  plate) grow in the supercooled water.
+  plate) grow in the supercooled water (`iceGrowth`: while a frost freezes, or where the cold probe chills the water,
+  in near-freezing water only). The cold probe's ice is the same ice, drawn the same way.
 - **Trapped cells** (`DRAW_WGSL`): a cell on dry ground shrivels a little and its color drains to a dull brown,
   darkened; a cell in the ice drains to a pale frosted blue-white. Both read the same relief and ice fields as the
-  simulation (the view uniform carries the level and the frost). Most rest as cysts: a cyst loses `cystLeak` energy a
+  simulation (the view uniform carries the level; the ice is the heat field's). Most rest as cysts: a cyst loses `cystLeak` energy a
   second, does not age out, and does not wake on dry ground or in ice; awake stranded cells pay `dryCost` on top of
   their upkeep and still die of age.
 - **Duckweed** (`duckShade`, `frondOf`, `duckRoot`): the fronds float far above the focal plane, so out of focus:

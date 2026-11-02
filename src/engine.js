@@ -1,6 +1,6 @@
 import {
   simWGSL, SIM_CLOCK, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, SEA_WGSL, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, PIPE_MAX, PIPE_TAKE, PIPE_TAKE_W, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K, STUDIO_N,
+  MAXK, FIRST_LIFE, MAX_CELLS, THERMAL_WORDS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, PIPE_MAX, PIPE_TAKE, PIPE_TAKE_W, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K, STUDIO_N,
 } from './shaders.js';
 import {
   archetypeGenome, randomGenome, writeGenome, parseParticle,
@@ -112,7 +112,7 @@ class Engine {
     // the pool (docs/catastrophes.md), set by the climate: the water level (a quantile of the floor's relief; 1: all
     // wet), rain (0..1), the sky (light ×), how fast it is drying (0..1), the currents' strength, floating duckweed
     // (center, length, darkness; angle, seed, width) and up to four raindrops' ring waves (center, time, strength)
-    this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.mudRain = 0; this.parch = 0;
+    this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.frostNight = 0; this.mudRain = 0; this.parch = 0;
     this.duck = new Float32Array(8); this.drops = new Float64Array(16); // their times absolute (the GPU's are on its wrapped clock)
     this.relief = null;
     this.rock = new Float32Array(4);
@@ -163,10 +163,11 @@ class Engine {
     b.subU = d.createBuffer({ size: SUB_TICKS * 256, usage: U.UNIFORM | U.COPY_DST });
     for (let k = 0; k < SUB_TICKS; k++) d.queue.writeBuffer(b.subU, k * 256, new Uint32Array([k]));
     b.subArgs = d.createBuffer({ size: 16, usage: U.STORAGE | U.INDIRECT });
-    // the heat field: deposits, temperatures and husks per cell, and heatMain's next temperatures (shaders.js); then
-    // the pool's floor, each cell's relief quantile (src/geography.js)
-    b.thermal = d.createBuffer({ size: 3 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
-    b.heatNext = d.createBuffer({ size: MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
+    // the heat field: the water's temperature per cell, the pool's floor (each cell's relief quantile,
+    // src/geography.js), the order a frost freezes it in, its ice, how many cells hold ice (THERMAL_WORDS,
+    // shaders.js); and heatMain's next temperatures and ice
+    b.thermal = d.createBuffer({ size: THERMAL_WORDS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    b.heatNext = d.createBuffer({ size: 2 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
     b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
     this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
     b.view = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
@@ -540,7 +541,7 @@ class Engine {
     b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
     // the claims, then the species ledger (observational), the hand's words (the pipette's, PIPE_* in shaders.js),
     // then the step's heat deposits and husk piles (heatAccAt in SIM_WGSL); only the head and the claims are saved
-    b.ledger = d.createBuffer({ size: (META_CLAIM + n + SPL_WORDS + HAND_WORDS + 2 * MAX_CELLS) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    b.ledger = d.createBuffer({ size: (META_CLAIM + n + SPL_WORDS + HAND_WORDS + 2 * MAX_CELLS + 4) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
     // the particles too large to splat (splatMain): the points' draw arguments, then their indices
     b.quads = d.createBuffer({ size: (4 + n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
@@ -938,9 +939,11 @@ class Engine {
     this.floor = null;
     d.queue.writeBuffer(this.b.thermal, MAX_CELLS * 4, this.relief);
     d.queue.writeBuffer(this.b.thermal, 2 * MAX_CELLS * 4, (this.iceOrder = makeIceOrder(this.grid[0], this.grid[1], this.seedValue, this.relief)));
-    this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.mudRain = 0; this.parch = 0; this.duck.fill(0); this.drops.fill(0);
+    this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.frostNight = 0; this.mudRain = 0; this.parch = 0; this.duck.fill(0); this.drops.fill(0);
     const enc = d.createCommandEncoder();
     enc.clearBuffer(this.b.ledger, this._heatAccAt(), cells * 4);
+    // no ice
+    enc.clearBuffer(this.b.thermal, 3 * MAX_CELLS * 4, (THERMAL_WORDS - 3 * MAX_CELLS) * 4);
     enc.clearBuffer(this.b.counts);
     enc.clearBuffer(this.b.ledger, LEDGER_HEAD, n * 4);
     enc.clearBuffer(this.b.ledger, this._splAt(), SPL_WORDS * 4);
@@ -1224,7 +1227,7 @@ class Engine {
     f.set(this.rock, 56);
     u[60] = this.tick; u[61] = this.ticks; f[62] = this.tbg; u[63] = this.maxScan;
     f[64] = this.level; f[65] = this.rain; f[66] = this.sky; f[67] = this.evap;
-    f[68] = this.turb; f[69] = this.frost; f[70] = this.freezing; f[71] = 0;
+    f[68] = this.turb; f[69] = this.frost; f[70] = this.freezing; f[71] = this.frostNight;
     f.set(this.duck, 72);
     f.set(clk.drops, 80);
     u.set(this.handU, 96);
@@ -1264,7 +1267,10 @@ class Engine {
     enc.clearBuffer(b.counts, 0, cells * 4);
     enc.clearBuffer(b.counts, MAX_CELLS * 4, cells * 4);
     enc.clearBuffer(b.stoneGrid, 0, cells * 4);
-    if (this.K.heat) enc.clearBuffer(b.ledger, this._heatAccAt() + MAX_CELLS * 4, cells * 4);
+    if (this.K.heat) {
+      enc.clearBuffer(b.ledger, this._heatAccAt() + MAX_CELLS * 4, cells * 4);
+      enc.clearBuffer(b.ledger, this._heatAccAt() + 2 * MAX_CELLS * 4, 4);
+    }
     enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
     // litter on the ground (META_DEATH + 60) and cysts per guild (57-59, 61, 62), counted afresh each step
     enc.clearBuffer(b.ledger, (META_DEATH + 57) * 4, 6 * 4);
@@ -1308,8 +1314,12 @@ class Engine {
     }
     if (this.K.heat) run('heatMain', Math.ceil(cells / 64));
     if (!prof) pass.end();
-    // the next temperatures become this step's
-    if (this.K.heat) enc.copyBufferToBuffer(b.heatNext, 0, b.thermal, 0, cells * 4);
+    // the next temperatures and ice become this step's, and how many cells hold ice the next step's to read
+    if (this.K.heat) {
+      enc.copyBufferToBuffer(b.heatNext, 0, b.thermal, 0, cells * 4);
+      enc.copyBufferToBuffer(b.heatNext, MAX_CELLS * 4, b.thermal, 3 * MAX_CELLS * 4, cells * 4);
+      enc.copyBufferToBuffer(b.ledger, this._heatAccAt() + 2 * MAX_CELLS * 4, b.thermal, 4 * MAX_CELLS * 4, 4);
+    }
   }
 
   /** One simulation step with each dispatch timed on the GPU: [[name, ms], ...]. Needs timestamps. */
@@ -1350,7 +1360,7 @@ class Engine {
     keep.cpu = { simTime: this.simTime, frameNo: this.frameNo, tick: this.tick, season: this.season, abio: this.abio,
       ambient: this.ambient, seedValue: this.seedValue, temp: this.temp, excursion: this.excursion,
       tide: this.tide.slice(), tidePh: this.tidePh.slice(), waves: this.waves.slice(), rock: this.rock.slice(),
-      level: this.level, rain: this.rain, sky: this.sky, evap: this.evap, turb: this.turb, frost: this.frost, freezing: this.freezing, duck: this.duck.slice(), drops: this.drops.slice() };
+      level: this.level, rain: this.rain, sky: this.sky, evap: this.evap, turb: this.turb, frost: this.frost, freezing: this.freezing, frostNight: this.frostNight, duck: this.duck.slice(), drops: this.drops.slice() };
     return keep;
   }
 
@@ -1364,7 +1374,7 @@ class Engine {
     this._clearSubMarks();
     Object.assign(this, { simTime: c.simTime, frameNo: c.frameNo, tick: c.tick, season: c.season, abio: c.abio,
       ambient: c.ambient, seedValue: c.seedValue, temp: c.temp, excursion: c.excursion,
-      level: c.level ?? 1, rain: c.rain ?? 0, sky: c.sky ?? 1, evap: c.evap ?? 0, turb: c.turb ?? 1, frost: c.frost ?? 0, freezing: c.freezing ?? 0 });
+      level: c.level ?? 1, rain: c.rain ?? 0, sky: c.sky ?? 1, evap: c.evap ?? 0, turb: c.turb ?? 1, frost: c.frost ?? 0, freezing: c.freezing ?? 0, frostNight: c.frostNight ?? 0 });
     this.tide.set(c.tide); this.tidePh.set(c.tidePh); this.waves.set(c.waves); this.rock.set(c.rock);
     this.relief = makeRelief(this.grid[0], this.grid[1], this.seedValue);
     if (c.duck) this.duck.set(c.duck);
@@ -1386,9 +1396,21 @@ class Engine {
     return { cpu: { ...keep.cpu, count: this.count, grid: [...this.grid], founders: this.founders }, gpu };
   }
 
+  /**
+   * Freeze the pool where its frost order lies under share, its edge eased over a little of the order (tools:
+   * looklab's staged scenes). The water's heat is left as it is: a world run on from here thaws it.
+   */
+  stageIce(share) {
+    const n = this.grid[0] * this.grid[1], ice = new Float32Array(n);
+    let any = 0;
+    for (let i = 0; i < n; i++) if ((ice[i] = Math.min(1, Math.max(0, (share - this.iceOrder[i]) * 30 + 0.5))) > 0) any++;
+    this.device.queue.writeBuffer(this.b.thermal, 3 * MAX_CELLS * 4, ice);
+    this.device.queue.writeBuffer(this.b.thermal, 4 * MAX_CELLS * 4, new Uint32Array([any]));
+  }
+
   /** The bytes of each buffer readState() keeps, for a world of n particles. */
   stateSizes(n) {
-    return { parts: n * P_BYTES, genomes: MAXK * G_BYTES, intent: n * 16, ledger: (META_CLAIM + n) * 4, thermal: 3 * MAX_CELLS * 4 };
+    return { parts: n * P_BYTES, genomes: MAXK * G_BYTES, intent: n * 16, ledger: (META_CLAIM + n) * 4, thermal: THERMAL_WORDS * 4 };
   }
 
   /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
@@ -1467,17 +1489,21 @@ class Engine {
     }).catch(() => null).finally(() => { this.tempBusy = false; });
   }
 
-  /** Read the water's temperature on each grid cell now (headless diagnostics): a Float32Array of grid[0] * grid[1]. */
+  /**
+   * Read the water's temperature and ice on each grid cell now (headless diagnostics): { temp, ice }, each a
+   * Float32Array of grid[0] * grid[1] (ice the share of the cell frozen).
+   */
   async readThermal() {
     const d = this.device, U = GPUBufferUsage, n = this.grid[0] * this.grid[1];
-    const st = d.createBuffer({ size: n * 4, usage: U.COPY_DST | U.MAP_READ });
+    const st = d.createBuffer({ size: 2 * n * 4, usage: U.COPY_DST | U.MAP_READ });
     const enc = d.createCommandEncoder();
     enc.copyBufferToBuffer(this.b.thermal, 0, st, 0, n * 4);
+    enc.copyBufferToBuffer(this.b.thermal, 3 * MAX_CELLS * 4, st, n * 4, n * 4);
     d.queue.submit([enc.finish()]);
     await st.mapAsync(GPUMapMode.READ);
-    const out = new Float32Array(st.getMappedRange().slice(0));
+    const all = new Float32Array(st.getMappedRange().slice(0));
     st.unmap(); st.destroy();
-    return out;
+    return { temp: all.subarray(0, n), ice: all.subarray(n) };
   }
 
   /** Read the ledger and genomes now (headless forks), in the shape onCensus receives, with K.diag's counters. */
@@ -2191,7 +2217,7 @@ class Engine {
     vu[21] = culled ? 1 : 0;
     v[22] = splat;
     v[23] = K.tightFrom;
-    v[24] = K.pond ? this.level : 1; v[25] = K.pond ? this.frost : 0;
+    v[24] = K.pond ? this.level : 1;
     this.device.queue.writeBuffer(buf, 0, data);
   }
 
@@ -2569,8 +2595,9 @@ export function compactState({ cpu, gpu }) {
     next = (next + 1) >>> 0;
   }
   ledger[0] = next;
-  const thermal = gpu.thermal && new Uint32Array(gpu.thermal.slice(0)), per = thermal ? thermal.length / 3 : 0;
-  if (thermal) thermal.fill(0, 2 * per);
+  // (the heat field's freeze order, built again from the seed on loading: four blocks, then ICE_N)
+  const thermal = gpu.thermal && new Uint32Array(gpu.thermal.slice(0)), per = thermal ? (thermal.length - 4) / 4 : 0;
+  if (thermal) thermal.fill(0, 2 * per, 3 * per);
   const claims = new Uint32Array(gpu.ledger, META_CLAIM * 4, Math.min(n, gpu.ledger.byteLength / 4 - META_CLAIM));
   const claimer = new Uint8Array(n);
   for (const c of claims) if (c && !(c & 0x80000000) && c <= n) claimer[c - 1] = 1;

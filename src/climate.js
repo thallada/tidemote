@@ -30,7 +30,7 @@ const ramp = (t, a, b) => ease((t - a) / Math.max(b - a, 1e-6));
 
 /** An event's effect on the pool at time t: level (below the era's), rain, sky, drying, currents, temperature, duckweed. */
 export function eventAt(ev, t, levelTo) {
-  const out = { level: levelTo, rain: 0, sky: 1, evap: 0, turb: 1, dT: 0, chill: 0, duck: null, frost: 0, freezing: 0, parch: 0, phase: null };
+  const out = { level: levelTo, rain: 0, sky: 1, evap: 0, turb: 1, dT: 0, chill: 0, night: 0, duck: null, frost: 0, freezing: 0, parch: 0, phase: null };
   if (!ev || t < ev.t) return out;
   const u = t - ev.t;
   // how cold, dark and rough its rain is (rainCold, rainDark, rainTurb: multiples of the defaults)
@@ -60,10 +60,11 @@ export function eventAt(ev, t, levelTo) {
     out.rain = r; out.sky = 1 - 0.6 * dark * r; out.turb = 1 + 1.6 * rough * r; out.dT = -4 * cold * Math.min(ramp(u, 0, 120), 1 - ramp(u, ev.dur, ev.dur + 240));
     out.level = Math.min(1, levelTo + 0.04 * r); out.phase = u < ev.dur ? 'storm' : u < ev.dur + 240 ? 'after' : null;
   } else if (ev.type === 'frost') {
-    // night falls and the water chills; ice grows from the shallows and grain centers, holds, then thaws
+    // night falls and the water chills; ice grows from the shallows and grain centers, holds, then thaws (the
+    // night draws the water below freezing up to the frozen share, heatMain, and the water freezes as it cools)
     const { cool, grow, hold, thaw } = ev;
     const night = Math.min(ramp(u, 0, cool), 1 - ramp(u, cool + grow + hold, cool + grow + hold + thaw + 120));
-    out.sky = 1 - 0.6 * ev.dark * night; out.chill = ev.cold * night;
+    out.sky = 1 - 0.6 * ev.dark * night; out.chill = ev.cold * night; out.night = night;
     if (u < cool) out.phase = 'cooling';
     // (eased twice: the frozen share is the frost, so a patch's radius goes as its square root, and a once-eased
     // frost would still open each patch at speed; twice, every patch grows from nothing and gathers pace, and on
@@ -155,7 +156,7 @@ export function createClimate(eng, rng = Math.random) {
       // shore's work for every particle (pondOn)
       if (Math.abs(climate.levelMid - climate.levelTo) < 1e-4 && Math.abs(eng.level - climate.levelTo) < 1e-4) eng.level = climate.levelMid = climate.levelTo;
     }
-    eng.rain = e.rain; eng.sky = e.sky; eng.evap = e.evap; eng.turb = e.turb; eng.frost = e.frost; eng.freezing = e.freezing;
+    eng.rain = e.rain; eng.sky = e.sky; eng.evap = e.evap; eng.turb = e.turb; eng.frost = e.frost; eng.freezing = e.freezing; eng.frostNight = e.night;
     climate.eventTemp = e.dT; climate.eventChill = e.chill;
     // the seconds since a drought's rain began (raindrops wetting its mud), 0 outside one
     const rainAt = ev?.type === 'drought' ? ev.t + ev.fall + ev.hold : Infinity;

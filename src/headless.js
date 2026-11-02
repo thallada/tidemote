@@ -4,14 +4,16 @@ import { tideAt } from './flow.js';
 
 // The water's temperature field against the background: mean, spread and extremes of the departure
 // (degrees), and the shares of grid cells more than 2° warmer or 1° cooler than the background.
-function fieldStats(field, tbg) {
-  const n = field.length;
+// (ice: the share of grid cells more than half frozen)
+function fieldStats({ temp, ice }, tbg) {
+  const n = temp.length;
   if (!n) return null;
-  const d = Float32Array.from(field, (t) => t - tbg).sort();
-  let sum = 0, sq = 0, hot = 0, cold = 0;
+  const d = Float32Array.from(temp, (t) => t - tbg).sort();
+  let sum = 0, sq = 0, hot = 0, cold = 0, frozen = 0;
   for (const x of d) { sum += x; sq += x * x; if (x > 2) hot++; if (x < -1) cold++; }
+  for (const x of ice) if (x > 0.5) frozen++;
   const mean = sum / n;
-  return { mean, sd: Math.sqrt(Math.max(0, sq / n - mean * mean)), p99: d[Math.floor(0.99 * (n - 1))], max: d[n - 1], min: d[0], hotFrac: hot / n, coldFrac: cold / n };
+  return { mean, sd: Math.sqrt(Math.max(0, sq / n - mean * mean)), p99: d[Math.floor(0.99 * (n - 1))], max: d[n - 1], min: d[0], hotFrac: hot / n, coldFrac: cold / n, ice: frozen / n };
 }
 
 export async function runHeadless(device, config, { print, width = 640, height = 360, snapshot } = {}) {
@@ -84,7 +86,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
       latest = { t, silt: pop[0], glint: pop[1], husk: pop[2], stone: pop[3], framboid: pop[4], ...community,
         ambient: eng.ambient, season: eng.season,
         // the pool (docs/catastrophes.md): its water level (the dry share of the floor is 1 - level), rain, the event's phase
-        pond: { level: eng.level, rain: eng.rain, sky: eng.sky, phase: climate.phase ?? null },
+        pond: { level: eng.level, rain: eng.rain, sky: eng.sky, frost: eng.frost, phase: climate.phase ?? null },
         era: climate.name, photoTaxis,
         thermal: { tbg: eng.tbg, temp: eng.temp, excursion: eng.excursion, toptMean, toptSD: n ? Math.sqrt(Math.max(0, sq / n - toptMean ** 2)) : null, makerShare: n ? makers / n : 0, tolMean: n ? tol / n : null } };
       if (t - lastSample >= config.sample - 1e-6 || c.frameNo === frames) record(c);
