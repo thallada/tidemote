@@ -41,7 +41,7 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
   /** The markup for one cell of species g in slot `kind` (ridden: with its will). */
   function html(g, kind, ridden = false) {
     const groups = groupsFor(g, K, ridden);
-    let h = `<div class="blk mv" data-kind="${kind}">${subHead(`<i class="ico cell"></i>${term('mind', 'Last decision')}`, '<span class="mv-live"><i></i><b>replay</b></span>')}`;
+    let h = `<div class="blk mv" data-kind="${kind}">${subHead(`<i class="corner cell"></i>${term('mind', 'Last decision')}`, '<span class="mv-live"><i></i><b>replay</b></span>')}`;
     // the compass first, so a short screen shows it without scrolling. The key sits in the free space
     // above the compass, so the drives column keeps every row
     h += `<div class="mv-pulls"><div class="mv-dial"><div class="mv-key"><span><i class="dash"></i><b>heading</b></span><span><i class="dia"></i><b>target</b></span></div>${compassHTML(groups)}</div><div class="mv-drives">`;
@@ -57,7 +57,7 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
     h += '<div class="vitals mv-vitals"></div>';
     // conditions that shape what it does: a fixed set of lamps, lit or dark, never added or removed
     h += `<div class="mv-lamps">${['hungry', 'full', 'threat', 'low', 'lean', 'crowd', 'shelter', ...(K.heat ? ['thermal'] : [])].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join('')}</div></div>`;
-    h += `<div class="blk mv-nb">${subHead(`<i class="ico cell"></i>${term('mind-near', 'Neighbors')}`, 'within its reach')}`;
+    h += `<div class="blk mv-nb">${subHead(`<i class="corner cell"></i>${term('mind-near', 'Neighbors')}`, 'within its reach')}`;
     h += `<div class="nb-row nb-head"><span></span><span>Species</span><span>Cells</span><span>Role</span><span class="nb-pull term" data-hint="How each species moves this cell: pushes it away (left) or pulls it toward them (right)." tabindex="0"><i>push</i><i>pull</i></span></div>`;
     for (let i = 0; i <= NB_ROWS; i++) h += `<div class="nb-row empty" data-i="${i}"><span class="nb-sig"></span><span class="nb-name">—</span><b class="nb-n"></b><em class="nb-role"></em><span class="dbar"><i></i></span></div>`;
     return h + '</div>';

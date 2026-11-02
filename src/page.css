@@ -270,6 +270,7 @@ body:not(.live) .hud { opacity: 0; }
 }
 .grp { display: flex; align-items: center; gap: 6px; }
 .dock .ico { width: 40px; height: 38px; display: grid; place-items: center; }
+#t-play span { display: none; }
 .dock .speed { height: 38px; width: 84px; flex: none; padding: 0 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; color: var(--ink); }
 .dock .speed span { font-size: 15px; font-weight: 400; font-stretch: 110%; line-height: 1; }
 .dock .speed small { font-size: 11px; color: var(--ink-3); letter-spacing: .08em; line-height: 1; }
@@ -793,12 +794,12 @@ em.delta { font-style: normal; color: var(--sun); margin-left: 6px; }
 .vital.now > b a.sp { color: inherit; }
 /* The behavior instrument (mindview.js): fixed rows whose values change in place. */
 /* Corner brackets: the color that marks the watched cell (sun) or its organism (hot) in the views. */
-.ico { display: inline-block; width: 10px; height: 10px; margin-right: 7px; vertical-align: -1px; background-repeat: no-repeat;
+.corner { display: inline-block; width: 10px; height: 10px; margin-right: 7px; vertical-align: -1px; background-repeat: no-repeat;
   background-image: linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor);
   background-size: 4px 1.25px, 1.25px 4px, 4px 1.25px, 1.25px 4px, 4px 1.25px, 1.25px 4px, 4px 1.25px, 1.25px 4px;
   background-position: 0 0, 0 0, 100% 0, 100% 0, 0 100%, 0 100%, 100% 100%, 100% 100%; }
-.ico.cell { color: var(--sun); }
-.ico.org { color: var(--hot); }
+.corner.cell { color: var(--sun); }
+.corner.org { color: var(--hot); }
 .mv-live { display: inline-flex; align-items: center; gap: 6px; }
 .mv-live i { width: 5px; height: 5px; background: var(--cyan); opacity: .25; }
 .mv-live.blink i { animation: mv-blink .5s ease-out; }
@@ -1108,7 +1109,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 
 /* ------------------------------------------------------------------ phone */
 @media (max-width: 720px) {
-  :root { --gut: 10px; --rail-h: 48px; --dock-h: 62px; }
+  :root { --gut: 10px; --rail-h: 48px; --dock-h: 58px; }
   .ev-chip { display: none; }
   .rail { gap: 9px; }
   .brand { display: none; }
@@ -1131,16 +1132,37 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   #g-tide { display: none; }
   .era-tide { display: block; }
   #lab-open { display: flex; }
-  .dock { gap: 0; justify-content: space-between; padding-left: calc(6px + var(--safe-l)); padding-right: calc(6px + var(--safe-r)); }
-  .grp { gap: 2px; }
-  .acts { margin-left: 0; gap: 2px; }
-  .dock .ico { width: 34px; height: 46px; border-color: transparent; }
-  .dock .step { display: grid; width: 28px; }
-  .dock .speed { min-width: 0; width: 52px; height: 46px; padding: 0 2px; overflow: hidden; }
-  .dock .speed small { font-size: 11px; letter-spacing: 0; }
-  .act { flex-direction: column; justify-content: center; gap: 3px; width: 46px; height: 50px; padding: 0; border-color: transparent; }
-  .act span { display: block; font-size: 11px; letter-spacing: 0; text-transform: none; font-stretch: 100%; }
-  .act[aria-pressed="true"], .act[aria-expanded="true"] { border-color: var(--line-2); }
+  /* the dock: seven equal slots, each an icon over its label (Speed: its speed over its label, or the rate it runs
+     at); what is on is lit in its color with a bar along the dock's top edge: open or on cyan, a tool in hand and a
+     fast speed sun, the auto camera hot. Slower and Faster go: the speed chip opens the ladder. */
+  .dock { gap: 0; align-items: stretch; padding-left: calc(2px + var(--safe-l)); padding-right: calc(2px + var(--safe-r)); }
+  .dock .grp, .snd-wrap { align-items: stretch; gap: 0; }
+  .dock .time { flex: 2 1 0; }
+  .dock .acts { flex: 4 1 0; margin-left: 0; }
+  .snd-wrap { flex: 1 1 0; }
+  .dock .ico.step, .dock.roomy .ico.step { display: none; }
+  .dock :is(.ico, .speed, .act) {
+    position: relative; flex: 1 1 0; min-width: 0; width: auto; height: auto; margin: 0; padding: 0; border: 0; background: none;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--ink-2);
+  }
+  .dock button svg { width: 20px; height: 20px; }
+  .dock .speed > span { display: flex; align-items: center; height: 20px; }
+  #t-play span, .dock .act > span, .dock .speed small, .dock .speed small:empty, .dock .speed.max small {
+    display: block; max-width: 100%; overflow: hidden; white-space: nowrap;
+    font-size: 11px; line-height: 1; letter-spacing: 0; text-transform: none; font-stretch: 100%; color: inherit;
+  }
+  .dock .speed small:empty::before { content: 'Speed'; }
+  .dock .bench-btn .bench-c { display: none; }
+  .dock :is(.ico, .speed, .act)::before {
+    content: ''; position: absolute; top: -1px; left: 50%; width: 28px; height: 2px; margin-left: -14px;
+    background: currentColor; transform: scaleX(0); transition: transform .15s ease;
+  }
+  @media (hover: hover) { .dock :is(.ico, .speed, .act):hover { color: var(--ink); } }
+  .dock .bench-btn.in-hand, .dock .speed.fast, .dock .speed.max { color: var(--sun); background: none; }
+  .dock .act[aria-pressed="true"], .dock .act[aria-expanded="true"], #t-play.paused { color: var(--cyan); }
+  #auto-play[aria-pressed="true"] { color: var(--hot); background: none; }
+  .dock :is(.act[aria-pressed="true"], .act[aria-expanded="true"], .bench-btn.in-hand, #t-play.paused, .speed.fast, .speed.max)::before { transform: none; }
+  .dock button:is(.ico, .speed, .act):active, .dock #auto-play:active { background: var(--cyan-deep); }
   #vol { display: none; }
   .caption { bottom: calc(var(--bot) + 14px); }
   .caption .cap-main { font-size: 15px; }
@@ -1191,9 +1213,6 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }
   #film, #auto-next { display: none !important; }
-  .bench-btn { position: relative; margin-left: 0; flex-direction: column; justify-content: center; gap: 3px; width: 50px; height: 50px; padding: 0; border-color: var(--line); }
-  .bench-btn span { display: block; font-size: 11px; letter-spacing: 0; text-transform: none; font-stretch: 100%; }
-  .bench-btn .bench-c { position: absolute; top: 2px; right: 2px; width: 10px; height: 10px; margin: 0; }
   .bench { left: 0 !important; right: 0 !important; flex-direction: column; touch-action: pan-x; padding: var(--s2) 12px var(--s3); max-height: calc(100% - var(--top) - var(--bot)); overflow-y: auto; }
   /* (its handle, as the specimen's sheet has: a swipe down or a tap folds it) */
   .bench .grab { flex: none; margin: calc(-1 * var(--s2)) -12px calc(-1 * var(--s1)); }
@@ -1211,11 +1230,9 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .card-dlg .card-row { flex-direction: row; align-items: center; }
   .card-dlg .card-tune { flex-direction: column; align-items: stretch; }
 }
-@media (max-width: 380px) {
-  .dock .step { width: 24px; }
-  .act, .bench-btn { width: 42px; }
-  .dock .ico { width: 32px; }
-  .dock .speed { width: 46px; }
+@media (max-width: 359px) {
+  /* (the narrowest phones: Settings in a 45px slot) */
+  #t-play span, .dock .act > span, .dock .speed small { letter-spacing: -.02em; }
 }
 @media (max-height: 560px) and (min-width: 721px) {
   :root { --rail-h: 44px; --dock-h: 48px; }
@@ -1233,6 +1250,12 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 }
 @media (pointer: coarse) {
   .keys-note, .opt kbd { display: none; }
+}
+/* a touch screen wider than a phone held upright (a phone on its side, a tablet): the dock's buttons a finger tall */
+@media (pointer: coarse) and (min-width: 721px) {
+  :root { --dock-h: 56px; }
+  .dock .ico, .dock .speed, .act, .dock .tools .tool { height: 44px; }
+  .dock .ico, .act { min-width: 44px; justify-content: center; }
 }
 @media (prefers-reduced-motion: reduce) {
   .intro, .flash, .hud, .caption, .spec { transition: none; }

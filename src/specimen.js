@@ -213,7 +213,7 @@ export function createSpecimen(api) {
     h += kv('Origin', CAUSE[p.cause] || 'a founder of this world', 'origin');
     h += kv('Generation', fmt(p.gen), 'generation');
     h += kv('Speed', fmtLen(Math.hypot(p.vx, p.vy), '/s'), 'speed');
-    return blk(past ? 'The cell, last seen' : '<i class="ico cell"></i>This cell', h);
+    return blk(past ? 'The cell, last seen' : '<i class="corner cell"></i>This cell', h);
   }
 
   // While it lives, its energy budget between meals (from the replay): one row per term, always
@@ -251,7 +251,7 @@ export function createSpecimen(api) {
     }
     // a free cell's neighbors are listed under Neighbors; a body's contacts are its own
     if ((g.adhesion || 0) > K.adhMin) h += kv('Touching', o.touching ? `${o.touching} other species` : 'no other species', 'touching');
-    return blk(past ? 'Its organism, last seen' : `<i class="ico org"></i>${term('organism', 'Organism')}`, h);
+    return blk(past ? 'Its organism, last seen' : `<i class="corner org"></i>${term('organism', 'Organism')}`, h);
   }
 
   // the header's emblem: a species' sigil (its song drawn as its organism), or matter's glyph

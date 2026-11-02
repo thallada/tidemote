@@ -234,9 +234,10 @@ held. Right-drag, the middle button and two fingers pan while a tool is in hand.
 phone, the strip) fades at an edge only where there is more beyond it.
 
 The speed chip opens a ladder of every speed on offer (a double tap: ×1); held, it opens the ladder at once and a drag
-up or down moves along it, a speed a rung, taken when let go; open, a drag or the wheel on it does the same. On a
-phone Slower and Faster flank the chip. Below Max, Fast runs as fast but draws every frame. Bloom is Y, reset zoom
-Z; ? shows the keys.
+up or down moves along it, a speed a rung, taken when let go; open, a drag or the wheel on it does the same. A
+phone's dock is seven equal slots, each an icon over its label (Pause, Speed, the Bench naming the tool in hand, Auto,
+Sound, Settings, Lab), what is on lit in its color with a bar at the dock's top edge; it has no Slower or Faster.
+Below Max, Fast runs as fast but draws every frame. Bloom is Y, reset zoom Z; ? shows the keys.
 
 **Where it differs from the plan.** The thermal lens is new: warming was invisible without it. The pipette tears
 bodies by its own draw against their bonds rather than by a walk of the bond graph, so what comes whole and what

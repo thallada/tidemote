@@ -1,8 +1,8 @@
 // Drives the built page in Chrome and checks its interactions: a click on a species in the census chart
 // opens and highlights it, and a second click on it clears both; Save keeps a species' card in the cabinet and
 // Card opens it; the bench, a tool held, Esc, the speed ladder, the pipette loaded from a card and set down (docs/
-// hand.md); Settings → Audio → Volume sets the volume by mouse and by finger, turns sound on, and keeps the dock
-// slider in step.
+// hand.md); the phone dock's slots even and its labels fitting with every tool in hand; Settings → Audio → Volume
+// sets the volume by mouse and by finger, turns sound on, and keeps the dock slider in step.
 //   npm run build && tools/gpu-node.sh tools/ui-check.mjs
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http';
 import { chromium } from 'playwright-core';
@@ -76,6 +76,34 @@ for (const touch of [false, true]) {
       const d = await dl;
       check(`${tag} R again stops and saves the film`, !!d && /\.(webm|mp4)$/.test(d.suggestedFilename()), d ? d.suggestedFilename() : 'no download');
     }
+  }
+  // the phone's dock: equal slots, each label inside its slot with room to spare, with every tool in hand (the
+  // Bench slot names it), paused and at the fastest speed, from the narrowest phone up; nothing scrolls sideways
+  if (touch) {
+    const fit = (min) => page.evaluate((min) => {
+      const dock = document.getElementById('dock'), bad = [];
+      const slots = [...dock.querySelectorAll('button')].filter((b) => b.getBoundingClientRect().width > 0);
+      const ws = slots.map((b) => b.getBoundingClientRect().width);
+      for (const b of slots) {
+        // (the label under the icon, or under the speed: as wide as its text)
+        const lab = b.querySelector(':scope > small') || b.querySelector(':scope > span');
+        if (!lab || !lab.getBoundingClientRect().width) { bad.push(`${b.id} unlabeled`); continue; }
+        const r = b.getBoundingClientRect(), t = lab.getBoundingClientRect(), room = Math.min(t.left - r.left, r.right - t.right);
+        if (lab.scrollWidth > lab.clientWidth + 0.5 || room < min) bad.push(`${b.id} "${lab.textContent || 'Speed'}" ${room.toFixed(1)}px`);
+      }
+      return { n: slots.length, even: Math.max(...ws) - Math.min(...ws) < 1, scroll: dock.scrollWidth > dock.clientWidth + 1 || document.documentElement.scrollWidth > innerWidth, bad };
+    }, min);
+    for (const [w, min] of [[320, 2], [360, 4], [390, 4]]) {
+      await page.setViewportSize({ width: w, height: 700 }); await page.waitForTimeout(400);
+      const seen = [];
+      for (const k of ['0', '1', '2', '3', '4', '5', '6', '7', '8']) { await page.keyboard.press(k); await page.waitForTimeout(150); seen.push(await fit(min)); }
+      await page.keyboard.press('0');
+      await page.evaluate(() => globalThis.__tidemote.setSpeed('fast', true)); await page.waitForTimeout(1200); seen.push(await fit(min));
+      await page.evaluate(() => globalThis.__tidemote.setSpeed(1, true)); await page.click('#t-play'); await page.waitForTimeout(150); seen.push(await fit(min)); await page.click('#t-play');
+      const bad = [...new Set(seen.flatMap((s) => s.bad))];
+      check(`[phone ${w}] the dock's seven slots are even, every label fits (${min}px), nothing scrolls`, seen.every((s) => s.n === 7 && s.even && !s.scroll) && !bad.length, JSON.stringify({ n: seen.map((s) => s.n).join(''), bad }));
+    }
+    await page.setViewportSize({ width: 390, height: 700 }); await page.waitForTimeout(400);
   }
   // the bench (docs/hand.md): a tool picked, held on the world, put down; the speed ladder; the pipette
   {

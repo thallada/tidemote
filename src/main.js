@@ -3254,10 +3254,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function renderTime() {
     const s = state.speed;
     const play = $('t-play');
-    play.innerHTML = `<svg><use href="#i-${state.paused ? 'play' : 'pause'}"/></svg>`;
+    $('t-play-i').setAttribute('href', `#i-${state.paused ? 'play' : 'pause'}`);
+    // (on a phone its label says Paused, lit, and the speed chip beside it keeps showing the speed)
+    $('t-play-l').textContent = state.paused ? 'Paused' : 'Pause';
+    play.classList.toggle('paused', state.paused);
     play.setAttribute('aria-label', state.paused ? 'Resume' : 'Pause');
     play.dataset.hint = state.paused ? 'Resume · Space' : 'Pause · Space';
-    setLive($('t-speed-v'), state.paused ? 'Paused' : fmtStop(speedStop()));
+    setLive($('t-speed-v'), state.paused && !phone() ? 'Paused' : fmtStop(speedStop()));
     $('t-speed').setAttribute('aria-label', `Speed ${fmtStop(speedStop())}`);
     $('t-speed').classList.toggle('fast', s > 1 && s !== Infinity);
     $('t-speed').classList.toggle('max', s === Infinity);
@@ -3355,6 +3358,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   $('t-play').addEventListener('click', togglePause);
   renderTime();
+  matchMedia('(max-width: 720px)').addEventListener('change', renderTime);
 
   let introHidden = false;
   function hideIntro() { if (introHidden || state.phase !== 'running') return; introHidden = true; $('intro').classList.add('gone'); setTimeout(stopLoader, 1300); document.body.classList.add('live'); }
