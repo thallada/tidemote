@@ -125,7 +125,10 @@ and the look, and stone was added after them, so it took neither. Now:
   and the grime were value noise on a square grid (`stoneNoise`, `grainNoise`: gradient noise on a turned lattice).
 - Framboids (`framboidSurf`) take the same: the optics through the lit pass (in focus, as they lie on top: their
   surface keeps the gaps between crystals, not a height), a dull tarnish in patches and a fleck caught between the
-  crystals, and crystals under a couple of pixels drawn as their average, a rounded cluster, with a blurred glint.
+  crystals; each crystal's detail sized to its own size on screen (`cpx`, smaller toward the limb, where the lattice
+crowds): under several pixels the crystals are drawn as their average, a rounded cluster, the gaps between them never
+sharper than a couple of pixels and the glint blurred by a crystal's size (finer, the pattern swam as the view panned
+or zoomed).
 
 The grains are drawn a band of depth at a time from the top of the pile down (`stoneBand`, four bands of cobbleZ,
 framboids and the selected grain in the first; engine `_drawStone`): what lies under a grain already drawn fails its

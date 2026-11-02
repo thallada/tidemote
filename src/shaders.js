@@ -6149,15 +6149,19 @@ fn framboidSurf(i: SO) -> StoneOut {
   // round to faceted: a cube's square, or an octahedron's diamond, blended with a sphere
   let facet = select(abs(lo.x) + abs(lo.y), max(abs(lo.x), abs(lo.y)) * 1.15, h.x > 0.5);
   let rr = mix(length(off), facet, 0.45 + 0.4 * h.y) / (0.45 + 0.27 * h.y) + select(0.0, 2.0, h.x > 0.94);
-  // (crystals under a couple of pixels across are drawn as their average, a rounded cluster: each a pixel or less, a
-  // bright or dark speck, they would flicker as the view moves, as grains' facets would, mineralSurf)
-  let seen = smoothstep(5.0, 14.0, i.px);
+  // A crystal's size here in pixels (the lattice crowds toward the limb, by the dome's slope): crystals under several
+  // pixels across are drawn as their average, a rounded cluster, and the gaps between them never sharper than a couple
+  // of pixels; finer, each crystal's edge and gap fell between pixels differently at every step of a pan or zoom, and
+  // the pattern swam.
+  let cpx = 0.85 * i.px * max(dome, 0.05) / 4.2;
+  let seen = smoothstep(4.0, 9.0, cpx);
   let sph = sqrt(max(1.0 - rr * rr, 0.0)) * seen;
   if (env - 0.09 * sph >= 1.0) { discard; }
   var o: StoneOut;
   let sl = -1.1 * u / max(dome, 0.2) - 1.6 * off / max(sph, 0.3) * (0.4 + 0.6 * dome) * seen;
   let slope = (sl.x / squash) * ax + sl.y * vec2f(-ax.y, ax.x);
-  let gap = mix(0.2, smoothstep(0.85, 1.0, rr), seen);
+  let gw = max(0.15, 3.0 / max(cpx, 1e-3));
+  let gap = mix(0.2, smoothstep(0.925 - 0.5 * gw, 0.925 + 0.5 * gw, rr), seen);
   // tarnish and grime, as on the grains (mineralSurf): a dull film in patches, much on some and little on others,
   // and a fleck of detritus caught between the crystals
   let det = smoothstep(18.0, 70.0, i.px);
@@ -6888,7 +6892,7 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
     let fuel = (sw - f32(flags)) / 0.45;
     let n = normalize(vec3f(-s.xy, 1.0));
     let light = normalize(vec3f(-0.45, -0.55, 0.7));
-    let spec = glint(max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0), 18.0, smoothstep(4.0, 20.0, 0.1 * ppu)); // (half a grain's radius, vsStone)
+    let spec = glint(max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0), 18.0, smoothstep(3.0, 12.0, 0.02 * ppu)); // (a crystal's size, framboidSurf)
     var lit = c.rgb * (0.25 + 0.65 * max(dot(n, light), 0.0)) + mix(c.rgb, vec3f(1.0, 0.95, 0.8), 0.3) * spec * 1.8;
     let flick = 0.85 + 0.15 * vnoise(wp * 30.0); // (unevenly, and steady: stone is lit once and kept, engine _stoneStale)
     lit += vec3f(1.0, 0.38, 0.08) * (0.01 + 0.32 * s.z) * fuel * flick;
