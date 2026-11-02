@@ -8898,7 +8898,7 @@ fn microGrain(wp: vec2f, spacing: f32, ppu: f32, octave: f32, depth: f32, cycle:
 }
 
 // mud: the murk lying between the focal plane and the soft plane, which it veils
-fn pondMicro(c: vec3f, hdr: vec3f, cam: vec2f, offset: vec2f, renderPPU: f32, ppu: f32, mud: f32) -> vec3f {
+fn pondMicro(c: vec3f, hdr: vec3f, cam: vec2f, offset: vec2f, renderPPU: f32, ppu: f32, mud: f32, lit: f32) -> vec3f {
   // The main view specializes this away below the reveal threshold, avoiding
   // register/stack overhead from the deep-zoom shader even on software GPUs.
   if (!MICRO_SUSPENSION) { return c; }
@@ -8932,7 +8932,7 @@ fn pondMicro(c: vec3f, hdr: vec3f, cam: vec2f, offset: vec2f, renderPPU: f32, pp
   let behind = reveal / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
   // relief: in-focus specks have sharp edges, lit on the side toward the light; soft defocus has none
   let emboss = -dot(vec2f(dpdx(grains.a), dpdy(grains.a)), TO_LIGHT);
-  return max(vec3f(0.0), c * (1.0 - grains.a * behind) + (grains.rgb + vec3f(0.006, 0.0065, 0.007) * emboss) * behind);
+  return max(vec3f(0.0), c * (1.0 - grains.a * behind) + (grains.rgb * lit + vec3f(0.006, 0.0065, 0.007) * emboss) * behind);
 }
 
 // One channel of microNoise's periodic value noise, for a quarter of the hashing.
@@ -9170,13 +9170,13 @@ fn lookGrade(cIn: vec3f, pos: vec2f) -> vec3f {
 }
 // The grade over the water's view: under a full map (the light or heat map) mostly held back, so the map reads true.
 fn lookDisplay(cIn: vec3f, pos: vec2f) -> vec3f {
-  let maps = select(1.0, 0.3, post.tideVis > 1.5 || post.heatVis > 1.5);
+  let maps = select(1.0, 0.3, post.tideVis > 0.5 || post.heatVis > 1.5);
   return mix(cIn, lookGrade(cIn, pos), maps);
 }
 
 // The main view's micro-suspension, drawn speck by speck into microTex (MICRO_WGSL) and laid over
 // the image here as pondMicro does: behind what is lit, embossed toward the light.
-fn pondSpecks(c: vec3f, hdr: vec3f, pos: vec2f, cells: f32) -> vec3f {
+fn pondSpecks(c: vec3f, hdr: vec3f, pos: vec2f, cells: f32, lit: f32) -> vec3f {
   if (!MICRO_SUSPENSION) { return c; }
   let start = max(80.0, 2.0 * max(post.res.x / post.world.x, post.res.y / post.world.y));
   if (post.ppu <= start) { return c; }
@@ -9190,7 +9190,7 @@ fn pondSpecks(c: vec3f, hdr: vec3f, pos: vec2f, cells: f32) -> vec3f {
   // rather than under them
   let behind = reveal * (1.0 - cells) / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
   let emboss = -dot(vec2f(ax - grains.a, ay - grains.a), TO_LIGHT);
-  return max(vec3f(0.0), c * (1.0 - grains.a * behind) + (grains.rgb + vec3f(0.006, 0.0065, 0.007) * emboss) * behind);
+  return max(vec3f(0.0), c * (1.0 - grains.a * behind) + (grains.rgb * lit + vec3f(0.006, 0.0065, 0.007) * emboss) * behind);
 }
 
 // Smooth noise carried by the currents (two generations crossfading, as the murk), so haze drifts
@@ -10059,22 +10059,39 @@ fn lampAt(wp: vec2f) -> f32 {
   d -= post.world * round(d / post.world);
   return post.lamp.w * (1.0 - smoothstep(0.94 * post.lamp.z, post.lamp.z, length(d)));
 }
-// The lamp seen: what it lights is brighter, and the water under it takes the lamp's amber; under a shade, dimmer.
-fn lampSeen(hdr: vec3f, wp: vec2f) -> vec3f {
+// The scene's light at wp (docs/look.md, Light): the light lifeMain gives producers there (lightAt: the Tide's bands by
+// the season over the era's baseline, under the sky and any duckweed, and the hand's lamp or shade) lights what is
+// seen, so the bands and the lamp show on the cells, silt and stone they fall on. k: what the scene is multiplied by,
+// brighter as the light is against a middling day's (LIT_MID), never quite dark nor blown out, cool in the shade, warm
+// in the sun and amber by the lamp's share; g: its brightness alone; sun: the light without the lamp's, lamp: the lamp's.
+const LIT_MID = 0.36;
+const LIT_LO = 0.35;
+const LIT_HI = 3.0;
+struct Lit { k: vec3f, g: f32, sun: f32, lamp: f32 };
+fn sceneLit(wp: vec2f) -> Lit {
+  let base = (post.ambient + (1.0 - post.ambient) * tideAt(wp, post.world, post.simTime, post.tide, post.tidePh) * post.season) * lightPassed(wp);
   let b = lampAt(wp);
-  if (b == 0.0) { return hdr; }
-  return hdr * (1.0 + 1.1 * b) + vec3f(0.085, 0.06, 0.022) * max(b, 0.0);
+  var o: Lit;
+  o.sun = select(base * (1.0 + b), base, b > 0.0);
+  o.lamp = max(b, 0.0);
+  let l = o.sun + o.lamp;
+  o.g = clamp(l / LIT_MID, LIT_LO, LIT_HI);
+  let tint = mix(vec3f(0.9, 0.95, 1.06), vec3f(1.04, 1.0, 0.92), smoothstep(0.12, 0.9, o.sun));
+  o.k = o.g * mix(tint, vec3f(1.2, 0.92, 0.6), o.lamp / max(l, 1e-3));
+  return o;
 }
-// The Tide's light on Glow (tideVis 1), faintly tinting the water, added to the exposed HDR.
-fn tideTint(wp: vec2f) -> vec3f {
-  if (post.tideVis <= 0.0 || post.tideVis >= 1.5) { return vec3f(0.0); }
-  return vec3f(0.003, 0.010, 0.014) * tideAt(wp, post.world, post.simTime, post.tide, post.tidePh) * post.season * lightPassed(wp);
+// The light on the pond's floor, seen through the dark water behind what lies in it (display-linear, added as the
+// background is): its mud (the murk there) in the sun's warm white and the lamp's amber, none in the shade.
+fn floorLit(l: Lit, mud: f32) -> vec3f {
+  return (vec3f(1.0, 0.95, 0.82) * pow(clamp(l.sun, 0.0, 1.5), 1.5) + vec3f(1.0, 0.7, 0.38) * 1.4 * l.lamp) * (0.003 + 0.045 * mud);
 }
+// The sea's focusing (surf.light) as the light there makes it: bright caustics in the sun, faint in the shade.
+fn seaFocus(light: f32, l: Lit) -> f32 { return 1.0 + (light - 1.0) * mix(0.5, 1.8, min(l.sun + l.lamp, 1.0)); }
 // The tide and thermal maps over the tonemapped view at world point wp (pos: the fragment's pixel; water: the
 // water's temperature there), in the main view and the loupe alike.
 fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
   var c = cIn;
-  if (post.tideVis > 1.5) {
+  if (post.tideVis > 0.5) {
     let L = lightPost(wp, tideAt(wp, post.world, post.simTime, post.tide, post.tidePh));
     let ramp = mix(mix(vec3f(0.03, 0.04, 0.16), vec3f(0.0, 0.42, 0.5), smoothstep(0.0, 0.5, L)), vec3f(1.0, 0.86, 0.32), smoothstep(0.45, 1.0, L));
     c = mix(c, ramp, 0.42);
@@ -10090,7 +10107,7 @@ fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
     // 20 s, so the way they drift shows. Over a full light map, the lines alone.
     let S = tideAt(wp, post.world, post.simTime, post.tide, post.tidePh);
     let G = clamp(lightPost(wp, S), 0.0, 1.0);
-    if (post.tideVis < 1.5) {
+    if (post.tideVis < 0.5) {
       let ramp = mix(mix(vec3f(0.03, 0.02, 0.10), vec3f(0.36, 0.20, 0.62), smoothstep(0.0, 0.45, G)), vec3f(0.72, 0.90, 1.0), smoothstep(0.4, 1.0, G));
       c = mix(c, ramp, mix(0.25, 0.45, smoothstep(0.0, 0.4, G)));
     }
@@ -10108,7 +10125,7 @@ fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
     // the thermal camera: false color over the map's span (drawn as isotherms alone over a full
     // light map), with an isotherm every 2°; inside the warm stage's or cold probe's lens, whatever else is shown
     let full = select(0.0, 1.0, post.heatVis > 1.5);
-    c = mix(c, heatRamp(clamp((water - post.heat.y) / (post.heat.z - post.heat.y), 0.0, 1.0)), 0.4 * select(0.0, full, post.tideVis < 1.5) * (1.0 - lens));
+    c = mix(c, heatRamp(clamp((water - post.heat.y) / (post.heat.z - post.heat.y), 0.0, 1.0)), 0.4 * select(0.0, full, post.tideVis < 0.5) * (1.0 - lens));
     // (the lens spans what the hand makes: from freezing to boiling, isotherms every 5°)
     c = mix(c, heatRamp(clamp((water - STAGE_COLD) / (${f(BOIL)} - STAGE_COLD), 0.0, 0.85)), 0.2 * lens);
     // (in the lens at half steps, 2.5°, 7.5°...: the water held at a boil, 100° exactly, lies between them)
@@ -10215,7 +10232,7 @@ fn lensAt(wp: vec2f) -> f32 {
 // What lies on and over the focal plane at world point wp, seen at ppu pixels per unit, in the main view and the
 // loupe alike: the pool's dry floor and edge, ice, the rain's waves and duckweed. k: optics; behind: how little
 // light the cells here give (they hide the floor); surf: the water's slope (surfaceAt, nothing off open water).
-fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f) -> vec3f {
+fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f, lit: f32) -> vec3f {
   var c = cIn;
   // in the world's own coordinates, as the simulation finds the edge (its wobble does not tile the world); what
   // the floor and the ice show tiles it (vnoiseT...), so it stays put however the view wraps, seamless at its edges
@@ -10262,11 +10279,12 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   }
   // the waves seen in themselves, on open water only: a surface tilted toward the lamp throws a little of its light
   // into the objective, a pale sheen on the crests' near flanks, while the far flanks bend light away and dim what
-  // lies under them; steep water of any tilt scatters a little more
+  // lies under them; steep water of any tilt scatters a little more. The crests catch the scene's light (lit: sceneLit's
+  // brightness), bright in the sun and under the lamp, dim in the shade.
   if (dot(surf, surf) > 0.0) {
     let tilt = dot(surf, LAMP_L);
     let sl = length(surf);
-    c = c * (1.0 - RIPPLE_DIM * max(-tilt, 0.0)) + RIPPLE_SHEEN * (max(tilt, 0.0) + 0.35 * sl) * (0.4 + 0.6 * behind);
+    c = c * (1.0 - RIPPLE_DIM * max(-tilt, 0.0)) + RIPPLE_SHEEN * (max(tilt, 0.0) + 0.35 * sl) * (0.4 + 0.6 * behind) * lit;
   }
   // duckweed floating on the pool, far above the focal plane: its fronds keep the lamp's light from what lies under
   // them and pass a little of it, green, mottled by the air chambers inside them; each hangs a root down into the
@@ -10328,9 +10346,9 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   else { hdr = mix(all.rgb / max(1.0, all.a), live.rgb / max(1.0, live.a), min(1.0, live.a)); }
   let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
   hdr = lookScene(hdr, uv, bl, post.ppu, post.res);
-  // the sea focuses the lamp's light onto what lies beneath it
-  hdr = (hdr + bl * post.bloom) * post.exposure * surf.light;
-  hdr = lampSeen(hdr + tideTint(wp), wp);
+  // in the scene's light, which the sea focuses onto what lies beneath it
+  let lit = sceneLit(wp);
+  hdr = (hdr + bl * post.bloom) * post.exposure * seaFocus(surf.light, lit) * lit.k;
   var c = lookTone(hdr);
   c = mapsOver(c, wp, i.pos.xy, water.x);
   let uq = i.uv - 0.5;
@@ -10342,10 +10360,10 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   let m = textureSampleLevel(murkTex, samp, i.uv, 0.0).r * k;
   // the mud lies behind the cells: what is lit in the focal plane hides it
   let behind = 1.0 / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
-  bg = mix(bg, bg * mix(vec3f(0.85, 0.88, 0.94), vec3f(1.12, 1.06, 1.0), lamp), k) + vec3f(0.0045, 0.004, 0.0015) * m * behind;
+  bg = mix(bg, bg * mix(vec3f(0.85, 0.88, 0.94), vec3f(1.12, 1.06, 1.0), lamp), k) + (vec3f(0.0045, 0.004, 0.0015) * m + floorLit(lit, m) * k) * behind;
   c = c * mix(0.72, 1.0, v) * mix(1.0, mix(0.88, 1.05, lamp), k) + bg;
-  c = pondSpecks(c, hdr, i.pos.xy, min(1.0, live.a));
-  c = poolOver(c, wp, post.ppu, k, behind, surf.slope);
+  c = pondSpecks(c, hdr, i.pos.xy, min(1.0, live.a), lit.g);
+  c = poolOver(c, wp, post.ppu, k, behind, surf.slope, lit.g);
   c = extremes(c, wp, post.ppu, water, behind);
   c = instrument(c, wp, post.ppu);
   // the round field stop of the eyepiece clips the corners of the camera's frame
@@ -10421,14 +10439,15 @@ fn loupeScene(r: vec2f) -> vec3f {
     hdr = mix(hdr, b * 0.25, 0.6 * soft);
   }
   hdr = lookScene(hdr, r * 0.5 + 0.5, vec3f(0.0), microView.ppu, microView.res);
-  hdr = lampSeen(hdr * post.exposure * surf.light + tideTint(wp), wp);
+  let lit = sceneLit(wp);
+  hdr *= post.exposure * seaFocus(surf.light, lit) * lit.k;
   var m = 0.0;
   if (k > 0.0) { m = murk(microView.cam, r0 * microView.res * 0.5 / microView.ppu) * k; }
   let behind = 1.0 / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
-  var c = mapsOver(lookTone(hdr), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + vec3f(0.0045, 0.004, 0.0015) * m * behind;
-  c = pondMicro(c, hdr, microView.cam, r0 * microView.res * 0.5, microView.ppu, loupe.ppu, m);
+  var c = mapsOver(lookTone(hdr), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + (vec3f(0.0045, 0.004, 0.0015) * m + floorLit(lit, m) * k) * behind;
+  c = pondMicro(c, hdr, microView.cam, r0 * microView.res * 0.5, microView.ppu, loupe.ppu, m, lit.g);
   // the drought's dry floor and its rain, the frost's ice, the storm's waves, duckweed
-  c = poolOver(c, wp, loupe.ppu, k, behind, surf.slope);
+  c = poolOver(c, wp, loupe.ppu, k, behind, surf.slope, lit.g);
   c = extremes(c, wp, loupe.ppu, water, behind);
   c = lookDisplay(pow(c, vec3f(1.0 / 2.2)), i.pos.xy);
   let vign = smoothstep(1.0, 0.75, d);
@@ -10462,7 +10481,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   let wp = microView.cam + (i.uv - 0.5) * microView.res / microView.ppu;
   let hdr = lookScene(scene(i.uv), i.uv, vec3f(0.0), microView.ppu, microView.res) * post.exposure;
   var c = lookTone(hdr) + vec3f(0.006, 0.005, 0.012);
-  c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0);
+  c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0, 1.0);
   return vec4f(lookGrade(pow(c, vec3f(1.0 / 2.2)), i.pos.xy), 1.0);
 }
 `;
@@ -20672,7 +20691,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.tidePh = Float32Array.from(TIDE_PHASE);
       this.seedValue = 1;
       this.censusEvery = 20;
-      this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1, tide: 1, heat: 1, bands: 0, optics: 1, specks: true, lod: true };
+      this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1, tide: 0, heat: 1, bands: 0, optics: 1, specks: true, lod: true };
       this.simData = new ArrayBuffer(848);
       this.hand = new Float32Array(116);
       this.handU = new Uint32Array(this.hand.buffer);
@@ -23746,7 +23765,7 @@ ${e.message}` : String(e?.message || e));
     husk: "A dead cell’s remains. Starved, elderly, killed and scalded cells all leave one, and eaters drop dung (smaller olive pellets). Holds leftover energy for scavengers and crumbles back into silt after about half a minute: cold water keeps carcasses for the scavengers, warm water rots them fast, and a rotting pile warms its water a little.",
     living: "Cells: particles with a genome. They feed, pay upkeep, divide by building a child out of silt, and die into husks.",
     tide: "Four slow waves summed across the wrap-around world. Where they add up, bright bands form and drift. Inside them the light is brighter, so producers bloom where the bands pass.",
-    light: "What plants feed on. It is dim everywhere (how dim depends on the era) and brighter inside tide bands, most of all at the height of the season.",
+    light: "What plants feed on. It is dim everywhere (how dim depends on the era) and brighter inside tide bands, most of all at the height of the season. You can see it: cells, silt and stone in the bands are lit warm and bright, those outside them dim and cool, and the floor glows faintly where the light falls.",
     season: "A 5-minute cycle that swings tide strength between 10% and 100%. This is the Tide percentage in the gauge and graphs: the bands keep their shape and only brighten or fade. Light in the bands follows it, which drives booms and busts.",
     era: "Every 10–18 minutes the climate turns: the baseline light and the water’s temperature change, one tide wave is replaced, and the currents shift. In about one era in six the water stands low and the highest ground shows as islands; the next full-water era covers them again. An era that warms the water by 5° or more is named Warm or Rising, one that cools it Bitter or Pale; otherwise the names are random labels.",
     water: "The water’s background temperature, set by the climate: it walks from era to era between 4° and 28°, swings ±2.5° with the season, and now and then a heat wave or cold snap passes. Life warms its own water above this: every cell’s spent energy becomes heat, so crowds, bodies and reefs sit in warm patches.",
@@ -23918,7 +23937,7 @@ ${e.message}` : String(e?.message || e));
       id: "climate",
       title: "Tides, light, seasons and eras",
       short: "Climate",
-      html: `<p>The ${t("tide", "Tide")} is four slow waves summed over the torus; where they add up, bright bands form and drift. Inside a band it is bright; outside, it is dim but never dark. ${t("light", "Light")} is what plants feed on: it is dim everywhere and brighter in the bands, and plants crowded together share it, so meadows bloom under a passing band and thin out behind it, and their grazers follow.</p>
+      html: `<p>The ${t("tide", "Tide")} is four slow waves summed over the torus; where they add up, bright bands form and drift. Inside a band it is bright; outside, it is dim but never dark, and you can see it: what lies in a band is lit, the floor beneath it glows and the waves' crests catch it, while what lies outside is dim and cool. ${t("light", "Light")} is what plants feed on: it is dim everywhere and brighter in the bands, and plants crowded together share it, so meadows bloom under a passing band and thin out behind it, and their grazers follow.</p>
 <p>The ${t("season", "season")} is a 5-minute cycle that swings tide strength between 10% and 100%. This is the Tide percentage shown in the gauge and graphs. The bands keep their shape; only their strength changes. At high tide they are bright and the water is a little warmer. At low tide they fade until they are barely brighter than the rest of the world. This drives the regular booms and busts. Every 10–18 minutes an ${t("era", "era")} begins: the baseline light changes, one tide wave is replaced so the bright zones form and move differently, and two current patterns are swapped. The water’s temperature walks from era to era, so each world has its own thermal history; eras that warm or cool it a lot are named for it, otherwise era names are random labels, and the event log says what actually changed.</p>
 <p>Tap a gauge to map what it reads: <b>Light</b> opens the light map, <b>Temp</b> the thermal camera and <b>Tide</b> the ${t("tidemap", "tide map")} (on phones, tap the era name). The map's name and scale float in a bar under the top rail, beside any highlight; close either one on its own, and Esc clears the highlight first, then the map.</p>
 <p><b>Settings → Light map</b> colors every point by the light a photosynthesizing cell would receive there, with a contour every 10%; <b>Settings → Currents</b> draws the flow that carries silt and drifting cells. The <b>Tide</b> gauge at the top follows the season: the dot rides the 5-minute wave, and the <b>Temp</b> thermometer beside it shows the background temperature, with an arrow while it changes; it breathes during a heat wave or cold snap.</p>`
@@ -32362,9 +32381,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "e15931dd446ccfcf") return;
+      if (localStorage.getItem(key) === "a64f4b373c8f720a") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "e15931dd446ccfcf");
+      if (res) localStorage.setItem(key, "a64f4b373c8f720a");
     } catch {
     }
   }
@@ -32542,11 +32561,12 @@ ${e.message}` : String(e?.message || e));
     const defaults = { ...eng.settings };
     eng.settings.trails = trailLevels[trailIdx];
     for (const k of ["links", "nodes", "bloom", "optics", "specks", "lod", "tide", "heat", "bands"]) if (prefs[k] !== void 0) eng.settings[k] = prefs[k];
+    if (!(prefs.v >= 5) && prefs.tide !== void 0) eng.settings.tide = prefs.tide === 2 ? 1 : 0;
     eng.maxScan = state.perf.scan ?? K.maxScan;
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, closeup: state.closeup, songMarks: state.songMarks, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+      savePrefs({ v: 5, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, closeup: state.closeup, songMarks: state.songMarks, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
     const applyLook = (p = { ...DARKFIELD, grain: [0, 0.25, 0.5][state.grain] }, strength = [0, 0.6, 1, 1.35][state.look]) => eng.look.set(packLook(p, strength));
@@ -33129,8 +33149,8 @@ ${e.message}` : String(e?.message || e));
     }
     $2("focus-clear").addEventListener("click", clearFocus);
     const MAPS = [
-      { gauge: "g-light", name: "Light", on: (s) => s.tide === 2, open: (s) => {
-        s.tide = 2;
+      { gauge: "g-light", name: "Light", on: (s) => s.tide > 0, open: (s) => {
+        s.tide = 1;
       }, close: (s) => {
         s.tide = defaults.tide;
       }, ramp: () => ["", "dark", "full light"] },
@@ -34717,7 +34737,7 @@ ${e.message}` : String(e?.message || e));
       const kfmt = (n) => n >= 1048576 ? `${+(n / 1048576).toFixed(1)}M` : `${Math.round(n / 1024)}k`;
       function display() {
         const s = eng.settings;
-        return group("picture", "Picture", choice("microlook", "Microscope", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.look, "microlook") + (state.look ? choice("grain", "Film grain", "", [[0, "Off"], [1, "Fine"], [2, "Heavy"]], state.grain, "filmgrain") : "") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("bloom", "Bloom", "Y", s.bloom > 0, "bloom") + choice("water", "Water surface", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.water, "watersurface") + (state.water ? choice("waves", "Wave motion", "", [[0, "Slow"], [1, "Normal"], [2, "Lively"]], state.waves, "wavemotion") : "") + choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("lod", "Zoom detail", "", s.lod, "lod")) + group("overlays", "Overlays", choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "D", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks")) + group("view", "View", (isCoarse ? "" : onoff("ui", "Interface", "U", state.ui, "interface")) + onoff("closeup", "Live close-up", "", state.closeup, "closeup") + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", "Film")} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === "idle" ? '<button type="button" class="chip" data-o="film" data-v="now">30 s now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ""));
+        return group("picture", "Picture", choice("microlook", "Microscope", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.look, "microlook") + (state.look ? choice("grain", "Film grain", "", [[0, "Off"], [1, "Fine"], [2, "Heavy"]], state.grain, "filmgrain") : "") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("bloom", "Bloom", "Y", s.bloom > 0, "bloom") + choice("water", "Water surface", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.water, "watersurface") + (state.water ? choice("waves", "Wave motion", "", [[0, "Slow"], [1, "Normal"], [2, "Lively"]], state.waves, "wavemotion") : "") + choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("lod", "Zoom detail", "", s.lod, "lod")) + group("overlays", "Overlays", onoff("tide", "Light map", "G", s.tide > 0, "light") + (s.tide ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "D", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks")) + group("view", "View", (isCoarse ? "" : onoff("ui", "Interface", "U", state.ui, "interface")) + onoff("closeup", "Live close-up", "", state.closeup, "closeup") + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", "Film")} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === "idle" ? '<button type="button" class="chip" data-o="film" data-v="now">30 s now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ""));
       }
       function audio_() {
         const m = sound.mix, mix4 = (k) => choice(`mix-${k}`, MIX[k].name, "", MIX[k].choices.map(([label3], i) => [i, label3]), m[k], `audio${k}`);
@@ -35879,8 +35899,8 @@ ${e.message}` : String(e?.message || e));
         persist();
         view.render();
       } else if (k === "g" || k === "G") {
-        eng.settings.tide = (eng.settings.tide + 1) % 3;
-        flash(["Light map off", "Faint light map", "Light map"][eng.settings.tide]);
+        eng.settings.tide = eng.settings.tide ? 0 : 1;
+        flash(eng.settings.tide ? "Light map" : "Light map off");
         mapsChanged();
       } else if ((k === "e" || k === "E") && K.heat) {
         eng.settings.heat = (eng.settings.heat + 1) % 3;
