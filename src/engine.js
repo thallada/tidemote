@@ -102,7 +102,7 @@ class Engine {
     this.tidePh = Float32Array.from(TIDE_PHASE);
     this.seedValue = 1;
     this.censusEvery = 20;
-    this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 1, heat: 1, bands: 0, optics: 1, specks: true, lod: true };
+    this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 0, heat: 1, bands: 0, optics: 1, specks: true, lod: true };
     this.simData = new ArrayBuffer(848);
     // the viewer's hand (docs/hand.md; the page's src/hand.js sets it): Hand in simWGSL, its words as floats and
     // as ids. Zero, its ids NONE, in every headless run.

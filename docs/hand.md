@@ -33,7 +33,7 @@ they do fills the reticle's ring.
 
 A tool's key, or its tile, again puts it down (Pan, nothing in hand). Reach (`[` `]`, ⇧ wheel, the slider) is a world distance
 shared by every tool but the needle, 35 µm to 470 µm; with the loupe it is the lens's size. The composite shows the
-lamp (the lit water brighter and amber) and the shade, Warm and Cold a thermal lens inside their reach (`lensAt`:
+lamp and the shade by the light they leave (`sceneLit`, docs/look.md: what lies under the lamp lit amber, the floor glowing; under the shade, dimmer), Warm and Cold a thermal lens inside their reach (`lensAt`:
 the thermal camera from `STAGE.cold` to `BOIL`, isotherms every 5°), and the instruments that go into the water
 (`instrument`, from the page's `eng.tool`): the needle's steel, the pipette's glass (bending the view through it),
 the cold probe's frosting steel, each from its side of the field, and Touch's glass rod from near the top, faintly glowing, its end

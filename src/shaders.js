@@ -7135,7 +7135,7 @@ fn microGrain(wp: vec2f, spacing: f32, ppu: f32, octave: f32, depth: f32, cycle:
 }
 
 // mud: the murk lying between the focal plane and the soft plane, which it veils
-fn pondMicro(c: vec3f, hdr: vec3f, cam: vec2f, offset: vec2f, renderPPU: f32, ppu: f32, mud: f32) -> vec3f {
+fn pondMicro(c: vec3f, hdr: vec3f, cam: vec2f, offset: vec2f, renderPPU: f32, ppu: f32, mud: f32, lit: f32) -> vec3f {
   // The main view specializes this away below the reveal threshold, avoiding
   // register/stack overhead from the deep-zoom shader even on software GPUs.
   if (!MICRO_SUSPENSION) { return c; }
@@ -7169,7 +7169,7 @@ fn pondMicro(c: vec3f, hdr: vec3f, cam: vec2f, offset: vec2f, renderPPU: f32, pp
   let behind = reveal / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
   // relief: in-focus specks have sharp edges, lit on the side toward the light; soft defocus has none
   let emboss = -dot(vec2f(dpdx(grains.a), dpdy(grains.a)), TO_LIGHT);
-  return max(vec3f(0.0), c * (1.0 - grains.a * behind) + (grains.rgb + vec3f(0.006, 0.0065, 0.007) * emboss) * behind);
+  return max(vec3f(0.0), c * (1.0 - grains.a * behind) + (grains.rgb * lit + vec3f(0.006, 0.0065, 0.007) * emboss) * behind);
 }
 
 // One channel of microNoise's periodic value noise, for a quarter of the hashing.
@@ -7407,13 +7407,13 @@ fn lookGrade(cIn: vec3f, pos: vec2f) -> vec3f {
 }
 // The grade over the water's view: under a full map (the light or heat map) mostly held back, so the map reads true.
 fn lookDisplay(cIn: vec3f, pos: vec2f) -> vec3f {
-  let maps = select(1.0, 0.3, post.tideVis > 1.5 || post.heatVis > 1.5);
+  let maps = select(1.0, 0.3, post.tideVis > 0.5 || post.heatVis > 1.5);
   return mix(cIn, lookGrade(cIn, pos), maps);
 }
 
 // The main view's micro-suspension, drawn speck by speck into microTex (MICRO_WGSL) and laid over
 // the image here as pondMicro does: behind what is lit, embossed toward the light.
-fn pondSpecks(c: vec3f, hdr: vec3f, pos: vec2f, cells: f32) -> vec3f {
+fn pondSpecks(c: vec3f, hdr: vec3f, pos: vec2f, cells: f32, lit: f32) -> vec3f {
   if (!MICRO_SUSPENSION) { return c; }
   let start = max(80.0, 2.0 * max(post.res.x / post.world.x, post.res.y / post.world.y));
   if (post.ppu <= start) { return c; }
@@ -7427,7 +7427,7 @@ fn pondSpecks(c: vec3f, hdr: vec3f, pos: vec2f, cells: f32) -> vec3f {
   // rather than under them
   let behind = reveal * (1.0 - cells) / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
   let emboss = -dot(vec2f(ax - grains.a, ay - grains.a), TO_LIGHT);
-  return max(vec3f(0.0), c * (1.0 - grains.a * behind) + (grains.rgb + vec3f(0.006, 0.0065, 0.007) * emboss) * behind);
+  return max(vec3f(0.0), c * (1.0 - grains.a * behind) + (grains.rgb * lit + vec3f(0.006, 0.0065, 0.007) * emboss) * behind);
 }
 
 // Smooth noise carried by the currents (two generations crossfading, as the murk), so haze drifts
@@ -8296,22 +8296,39 @@ fn lampAt(wp: vec2f) -> f32 {
   d -= post.world * round(d / post.world);
   return post.lamp.w * (1.0 - smoothstep(0.94 * post.lamp.z, post.lamp.z, length(d)));
 }
-// The lamp seen: what it lights is brighter, and the water under it takes the lamp's amber; under a shade, dimmer.
-fn lampSeen(hdr: vec3f, wp: vec2f) -> vec3f {
+// The scene's light at wp (docs/look.md, Light): the light lifeMain gives producers there (lightAt: the Tide's bands by
+// the season over the era's baseline, under the sky and any duckweed, and the hand's lamp or shade) lights what is
+// seen, so the bands and the lamp show on the cells, silt and stone they fall on. k: what the scene is multiplied by,
+// brighter as the light is against a middling day's (LIT_MID), never quite dark nor blown out, cool in the shade, warm
+// in the sun and amber by the lamp's share; g: its brightness alone; sun: the light without the lamp's, lamp: the lamp's.
+const LIT_MID = 0.36;
+const LIT_LO = 0.35;
+const LIT_HI = 3.0;
+struct Lit { k: vec3f, g: f32, sun: f32, lamp: f32 };
+fn sceneLit(wp: vec2f) -> Lit {
+  let base = (post.ambient + (1.0 - post.ambient) * tideAt(wp, post.world, post.simTime, post.tide, post.tidePh) * post.season) * lightPassed(wp);
   let b = lampAt(wp);
-  if (b == 0.0) { return hdr; }
-  return hdr * (1.0 + 1.1 * b) + vec3f(0.085, 0.06, 0.022) * max(b, 0.0);
+  var o: Lit;
+  o.sun = select(base * (1.0 + b), base, b > 0.0);
+  o.lamp = max(b, 0.0);
+  let l = o.sun + o.lamp;
+  o.g = clamp(l / LIT_MID, LIT_LO, LIT_HI);
+  let tint = mix(vec3f(0.9, 0.95, 1.06), vec3f(1.04, 1.0, 0.92), smoothstep(0.12, 0.9, o.sun));
+  o.k = o.g * mix(tint, vec3f(1.2, 0.92, 0.6), o.lamp / max(l, 1e-3));
+  return o;
 }
-// The Tide's light on Glow (tideVis 1), faintly tinting the water, added to the exposed HDR.
-fn tideTint(wp: vec2f) -> vec3f {
-  if (post.tideVis <= 0.0 || post.tideVis >= 1.5) { return vec3f(0.0); }
-  return vec3f(0.003, 0.010, 0.014) * tideAt(wp, post.world, post.simTime, post.tide, post.tidePh) * post.season * lightPassed(wp);
+// The light on the pond's floor, seen through the dark water behind what lies in it (display-linear, added as the
+// background is): its mud (the murk there) in the sun's warm white and the lamp's amber, none in the shade.
+fn floorLit(l: Lit, mud: f32) -> vec3f {
+  return (vec3f(1.0, 0.95, 0.82) * pow(clamp(l.sun, 0.0, 1.5), 1.5) + vec3f(1.0, 0.7, 0.38) * 1.4 * l.lamp) * (0.003 + 0.045 * mud);
 }
+// The sea's focusing (surf.light) as the light there makes it: bright caustics in the sun, faint in the shade.
+fn seaFocus(light: f32, l: Lit) -> f32 { return 1.0 + (light - 1.0) * mix(0.5, 1.8, min(l.sun + l.lamp, 1.0)); }
 // The tide and thermal maps over the tonemapped view at world point wp (pos: the fragment's pixel; water: the
 // water's temperature there), in the main view and the loupe alike.
 fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
   var c = cIn;
-  if (post.tideVis > 1.5) {
+  if (post.tideVis > 0.5) {
     let L = lightPost(wp, tideAt(wp, post.world, post.simTime, post.tide, post.tidePh));
     let ramp = mix(mix(vec3f(0.03, 0.04, 0.16), vec3f(0.0, 0.42, 0.5), smoothstep(0.0, 0.5, L)), vec3f(1.0, 0.86, 0.32), smoothstep(0.45, 1.0, L));
     c = mix(c, ramp, 0.42);
@@ -8327,7 +8344,7 @@ fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
     // 20 s, so the way they drift shows. Over a full light map, the lines alone.
     let S = tideAt(wp, post.world, post.simTime, post.tide, post.tidePh);
     let G = clamp(lightPost(wp, S), 0.0, 1.0);
-    if (post.tideVis < 1.5) {
+    if (post.tideVis < 0.5) {
       let ramp = mix(mix(vec3f(0.03, 0.02, 0.10), vec3f(0.36, 0.20, 0.62), smoothstep(0.0, 0.45, G)), vec3f(0.72, 0.90, 1.0), smoothstep(0.4, 1.0, G));
       c = mix(c, ramp, mix(0.25, 0.45, smoothstep(0.0, 0.4, G)));
     }
@@ -8345,7 +8362,7 @@ fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
     // the thermal camera: false color over the map's span (drawn as isotherms alone over a full
     // light map), with an isotherm every 2°; inside the warm stage's or cold probe's lens, whatever else is shown
     let full = select(0.0, 1.0, post.heatVis > 1.5);
-    c = mix(c, heatRamp(clamp((water - post.heat.y) / (post.heat.z - post.heat.y), 0.0, 1.0)), 0.4 * select(0.0, full, post.tideVis < 1.5) * (1.0 - lens));
+    c = mix(c, heatRamp(clamp((water - post.heat.y) / (post.heat.z - post.heat.y), 0.0, 1.0)), 0.4 * select(0.0, full, post.tideVis < 0.5) * (1.0 - lens));
     // (the lens spans what the hand makes: from freezing to boiling, isotherms every 5°)
     c = mix(c, heatRamp(clamp((water - STAGE_COLD) / (${f(BOIL)} - STAGE_COLD), 0.0, 0.85)), 0.2 * lens);
     // (in the lens at half steps, 2.5°, 7.5°...: the water held at a boil, 100° exactly, lies between them)
@@ -8452,7 +8469,7 @@ fn lensAt(wp: vec2f) -> f32 {
 // What lies on and over the focal plane at world point wp, seen at ppu pixels per unit, in the main view and the
 // loupe alike: the pool's dry floor and edge, ice, the rain's waves and duckweed. k: optics; behind: how little
 // light the cells here give (they hide the floor); surf: the water's slope (surfaceAt, nothing off open water).
-fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f) -> vec3f {
+fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f, lit: f32) -> vec3f {
   var c = cIn;
   // in the world's own coordinates, as the simulation finds the edge (its wobble does not tile the world); what
   // the floor and the ice show tiles it (vnoiseT...), so it stays put however the view wraps, seamless at its edges
@@ -8499,11 +8516,12 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   }
   // the waves seen in themselves, on open water only: a surface tilted toward the lamp throws a little of its light
   // into the objective, a pale sheen on the crests' near flanks, while the far flanks bend light away and dim what
-  // lies under them; steep water of any tilt scatters a little more
+  // lies under them; steep water of any tilt scatters a little more. The crests catch the scene's light (lit: sceneLit's
+  // brightness), bright in the sun and under the lamp, dim in the shade.
   if (dot(surf, surf) > 0.0) {
     let tilt = dot(surf, LAMP_L);
     let sl = length(surf);
-    c = c * (1.0 - RIPPLE_DIM * max(-tilt, 0.0)) + RIPPLE_SHEEN * (max(tilt, 0.0) + 0.35 * sl) * (0.4 + 0.6 * behind);
+    c = c * (1.0 - RIPPLE_DIM * max(-tilt, 0.0)) + RIPPLE_SHEEN * (max(tilt, 0.0) + 0.35 * sl) * (0.4 + 0.6 * behind) * lit;
   }
   // duckweed floating on the pool, far above the focal plane: its fronds keep the lamp's light from what lies under
   // them and pass a little of it, green, mottled by the air chambers inside them; each hangs a root down into the
@@ -8565,9 +8583,9 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   else { hdr = mix(all.rgb / max(1.0, all.a), live.rgb / max(1.0, live.a), min(1.0, live.a)); }
   let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
   hdr = lookScene(hdr, uv, bl, post.ppu, post.res);
-  // the sea focuses the lamp's light onto what lies beneath it
-  hdr = (hdr + bl * post.bloom) * post.exposure * surf.light;
-  hdr = lampSeen(hdr + tideTint(wp), wp);
+  // in the scene's light, which the sea focuses onto what lies beneath it
+  let lit = sceneLit(wp);
+  hdr = (hdr + bl * post.bloom) * post.exposure * seaFocus(surf.light, lit) * lit.k;
   var c = lookTone(hdr);
   c = mapsOver(c, wp, i.pos.xy, water.x);
   let uq = i.uv - 0.5;
@@ -8579,10 +8597,10 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f)
   let m = textureSampleLevel(murkTex, samp, i.uv, 0.0).r * k;
   // the mud lies behind the cells: what is lit in the focal plane hides it
   let behind = 1.0 / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
-  bg = mix(bg, bg * mix(vec3f(0.85, 0.88, 0.94), vec3f(1.12, 1.06, 1.0), lamp), k) + vec3f(0.0045, 0.004, 0.0015) * m * behind;
+  bg = mix(bg, bg * mix(vec3f(0.85, 0.88, 0.94), vec3f(1.12, 1.06, 1.0), lamp), k) + (vec3f(0.0045, 0.004, 0.0015) * m + floorLit(lit, m) * k) * behind;
   c = c * mix(0.72, 1.0, v) * mix(1.0, mix(0.88, 1.05, lamp), k) + bg;
-  c = pondSpecks(c, hdr, i.pos.xy, min(1.0, live.a));
-  c = poolOver(c, wp, post.ppu, k, behind, surf.slope);
+  c = pondSpecks(c, hdr, i.pos.xy, min(1.0, live.a), lit.g);
+  c = poolOver(c, wp, post.ppu, k, behind, surf.slope, lit.g);
   c = extremes(c, wp, post.ppu, water, behind);
   c = instrument(c, wp, post.ppu);
   // the round field stop of the eyepiece clips the corners of the camera's frame
@@ -8658,14 +8676,15 @@ fn loupeScene(r: vec2f) -> vec3f {
     hdr = mix(hdr, b * 0.25, 0.6 * soft);
   }
   hdr = lookScene(hdr, r * 0.5 + 0.5, vec3f(0.0), microView.ppu, microView.res);
-  hdr = lampSeen(hdr * post.exposure * surf.light + tideTint(wp), wp);
+  let lit = sceneLit(wp);
+  hdr *= post.exposure * seaFocus(surf.light, lit) * lit.k;
   var m = 0.0;
   if (k > 0.0) { m = murk(microView.cam, r0 * microView.res * 0.5 / microView.ppu) * k; }
   let behind = 1.0 / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
-  var c = mapsOver(lookTone(hdr), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + vec3f(0.0045, 0.004, 0.0015) * m * behind;
-  c = pondMicro(c, hdr, microView.cam, r0 * microView.res * 0.5, microView.ppu, loupe.ppu, m);
+  var c = mapsOver(lookTone(hdr), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + (vec3f(0.0045, 0.004, 0.0015) * m + floorLit(lit, m) * k) * behind;
+  c = pondMicro(c, hdr, microView.cam, r0 * microView.res * 0.5, microView.ppu, loupe.ppu, m, lit.g);
   // the drought's dry floor and its rain, the frost's ice, the storm's waves, duckweed
-  c = poolOver(c, wp, loupe.ppu, k, behind, surf.slope);
+  c = poolOver(c, wp, loupe.ppu, k, behind, surf.slope, lit.g);
   c = extremes(c, wp, loupe.ppu, water, behind);
   c = lookDisplay(pow(c, vec3f(1.0 / 2.2)), i.pos.xy);
   let vign = smoothstep(1.0, 0.75, d);
@@ -8699,7 +8718,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   let wp = microView.cam + (i.uv - 0.5) * microView.res / microView.ppu;
   let hdr = lookScene(scene(i.uv), i.uv, vec3f(0.0), microView.ppu, microView.res) * post.exposure;
   var c = lookTone(hdr) + vec3f(0.006, 0.005, 0.012);
-  c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0);
+  c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0, 1.0);
   return vec4f(lookGrade(pow(c, vec3f(1.0 / 2.2)), i.pos.xy), 1.0);
 }
 `;

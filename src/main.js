@@ -263,11 +263,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const defaults = { ...eng.settings }; // the engine's own, for Settings' reset
   eng.settings.trails = trailLevels[trailIdx];
   for (const k of ['links', 'nodes', 'bloom', 'optics', 'specks', 'lod', 'tide', 'heat', 'bands']) if (prefs[k] !== undefined) eng.settings[k] = prefs[k];
+  // (before 5 the light map was off, faint or full: the faint tint is gone, the scene itself lit by the light)
+  if (!(prefs.v >= 5) && prefs.tide !== undefined) eng.settings.tide = prefs.tide === 2 ? 1 : 0;
   eng.maxScan = state.perf.scan ?? K.maxScan;
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: 4, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, closeup: state.closeup, songMarks: state.songMarks, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+    savePrefs({ v: 5, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, closeup: state.closeup, songMarks: state.songMarks, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   // the look (src/look.js, docs/look.md): Darkfield as the Display settings ask, how strong as a whole and how much
@@ -805,7 +807,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // tide map (on phones, where the Tide rides under the era name, the era opens it). A bar beside the
   // highlight names the map with its scale and closes it back to the plain view.
   const MAPS = [
-    { gauge: 'g-light', name: 'Light', on: (s) => s.tide === 2, open: (s) => { s.tide = 2; }, close: (s) => { s.tide = defaults.tide; }, ramp: () => ['', 'dark', 'full light'] },
+    { gauge: 'g-light', name: 'Light', on: (s) => s.tide > 0, open: (s) => { s.tide = 1; }, close: (s) => { s.tide = defaults.tide; }, ramp: () => ['', 'dark', 'full light'] },
     { gauge: 'g-heat', name: 'Temperature', on: (s) => s.heat === 2, open: (s) => { s.heat = 2; }, close: (s) => { s.heat = defaults.heat; }, ramp: () => ['heat', `${Math.round(eng.tbg - 2)}°`, `${Math.round(eng.tbg + 10)}°`] },
     { gauge: 'g-tide', name: 'Tide', on: (s) => s.bands > 0, open: (s) => { s.bands = 1; }, close: (s) => { s.bands = 0; }, ramp: () => ['light', 'dim', 'bright'] },
   ];
@@ -2212,8 +2214,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + choice('trails', 'Trails', 'T', trailNames.map((n, i) => [i, n]), trailIdx)
         + onoff('specks', 'Suspension', '', s.specks, 'specks')
         + onoff('lod', 'Zoom detail', '', s.lod, 'lod'))
-        + group('overlays', 'Overlays', choice('tide', 'Light map', 'G', [[0, 'Off'], [1, 'Faint'], [2, 'Full']], s.tide, 'light')
-        + (s.tide === 2 ? rampHtml(MAPS[0]) : '')
+        + group('overlays', 'Overlays', onoff('tide', 'Light map', 'G', s.tide > 0, 'light')
+        + (s.tide ? rampHtml(MAPS[0]) : '')
         + (K.heat ? choice('heat', 'Heat map', 'E', [[0, 'Off'], [1, 'Shimmer'], [2, 'Full']], s.heat, 'heatmap') : '')
         + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : '')
         + onoff('bands', 'Tide map', 'D', s.bands > 0, 'tidemap')
@@ -3162,7 +3164,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (!e.repeat) { const id = TOOLS[+k].id; quasi = id !== hand.tool && id !== 'none' ? { key: k, prev: hand.tool, at: performance.now() } : null; pickTool(id); }
     }
     else if (k === 'o' || k === 'O') { eng.settings.optics = eng.settings.optics > 0 ? 0 : 1; flash(eng.settings.optics ? 'Microscope optics on' : 'Microscope optics off'); persist(); view.render(); }
-    else if (k === 'g' || k === 'G') { eng.settings.tide = (eng.settings.tide + 1) % 3; flash(['Light map off', 'Faint light map', 'Light map'][eng.settings.tide]); mapsChanged(); }
+    else if (k === 'g' || k === 'G') { eng.settings.tide = eng.settings.tide ? 0 : 1; flash(eng.settings.tide ? 'Light map' : 'Light map off'); mapsChanged(); }
     else if ((k === 'e' || k === 'E') && K.heat) { eng.settings.heat = (eng.settings.heat + 1) % 3; flash(['Heat map off', 'Heat shimmer', 'Thermal camera'][eng.settings.heat]); mapsChanged(); }
     else if (k === 'd' || k === 'D') { eng.settings.bands = eng.settings.bands ? 0 : 1; flash(eng.settings.bands ? 'Tide map' : 'Tide map off'); mapsChanged(); }
     else if (k === 'w' || k === 'W') { state.currents = !state.currents; flash(state.currents ? 'Currents shown' : 'Currents hidden'); view.render(); }

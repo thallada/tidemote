@@ -9,7 +9,7 @@ fs.mkdirSync(v.out, { recursive: true });
 const { page, setSpeed, close } = await openPage({ ...v, tmp: 'tidecheck-' });
 await page.evaluate(() => {
   const T = globalThis.__tidemote, e = T.eng, g = e.grid;
-  e.seaTune.view = 3; e.settings.tide = 2; e.settings.nodes = false;
+  e.seaTune.view = 3; e.settings.tide = 1; e.settings.nodes = false;
   T.cam.x = g[0] / 2; T.cam.y = g[1] / 2; T.cam.anchor = null; T.cam.zoom = T.cam.zoomTarget = Math.min(innerWidth / g[0], innerHeight / g[1]) / Math.max(innerWidth / g[0], innerHeight / g[1]);
 });
 const grab = async () => (await page.screenshot({ clip: { x: 0, y: 0, width: 1024, height: 512 } })).toString('base64');

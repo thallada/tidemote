@@ -12,6 +12,7 @@ and `T.look.off()`, and a perf plan's scenario with `look: "on"` or `"off"`.
 
 | Stage | Function | Tunables |
 | --- | --- | --- |
+| The world's light, before the tone curve | `sceneLit`, `floorLit`, `seaFocus` (Light, below) | none: `LIT_*` in POST_WGSL |
 | Scene light, before the tone curve | `lookScene` | relief (DIC), rims (darkfield), rainbow rims (`prism`: each edge colored by the side it faces), color fringes; halation and veiling flare (from the bloom's blur) |
 | Objective | `lensScene`, the field stop in `fsComposite` | shallow focus (`dof`: the optics' depth blur anywhere, not only toward the rim), the field iris |
 | Tone curve | `lookTone` | film: AgX's curve mixed in for `tonemap`'s |
@@ -151,6 +152,29 @@ All of it together, against the build before any of this stone work (RTX 2080 SU
 its densest bedrock, `tools/perf/plans/stone.json`, the world running): a GPU frame of 6.06 ms seen whole (6.01 before),
 5.97 at 70 px per unit (6.07), 6.01 at 150 (6.14), 5.89 at 400 (6.27), at the lower clock the lighter frames run at;
 before the cache they were 6.15, 6.25, 6.23 and 7.05.
+
+## Light
+
+The light producers feed on lights the scene, so the Tide's bands and the hand's lamp show on what they fall on rather
+than as a tint over the water. `sceneLit` (POST_WGSL) mirrors `lightAt`: the bands by the season over the era's
+baseline, under the sky (`pond.z`, darkness) and any duckweed, and the lamp (added) or shade (taken). In the composite
+and the loupe the scene, after `lookScene` and before the tone curve, is multiplied by that light against a middling
+day's (`LIT_MID` 0.36, held between `LIT_LO` 0.35 and `LIT_HI` 3), cool in the shade, warm in the sun and amber by the
+lamp's share, so cells, silt and stone in a band are bright and those outside it dim. The empty water shows it too: the
+pond's floor, the murk behind the cells, glows where the light falls (`floorLit`: warm white, amber under the lamp,
+none in the shade; with Optics on). The sea's caustics focus it (`seaFocus`: stronger in the sun), the crests' sheen
+and the suspension's specks take its brightness. The close-up (specimen viewer, card portraits) stays unlit, so a
+species looks the same wherever it was caught. Stone's cache is lit once, so the light is applied after it, in the
+composite, every frame. The Light map (G, on or off) still draws the light as a ramp; the faint teal tint it once had
+in place of all this is gone.
+
+Chosen (2026-11-02) by photographing one frozen world through `tools/looklab.mjs` with candidate composites swapped
+in (plain exposure; two illuminants; procedural caustics; cells' shadows on the floor; highlights taking the light
+most; suspended motes; a lit floor) against a render of the light itself, and measuring how well a blurred frame
+follows the light field: exposure with the two illuminants' color and the lit floor read best (0.81 and 0.74 at a band's
+edge and over a busy colony against the tint's 0.71 and 0.56; content 2.4x brighter in a band than outside, the
+tint's 1.04x) at no cost (fsComposite timed the same: the tint already read the Tide). Motes read as noise and
+procedural caustics as stray hairs; shadows showed only over stone.
 
 ## Left out
 
