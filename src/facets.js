@@ -42,7 +42,7 @@ export function tagsOf(g, K) {
   for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) self += sh[a] * sh[b] * affinity(g, a, g, b, K);
   if (multi) tags.push(self > 0.3 ? ['compact body', 'colonial'] : self < -0.1 ? ['stringy body', 'solitary'] : ['loose body', 'looseknit']);
   else tags.push(self > 0.3 ? ['swarming', 'colonial'] : self < -0.1 ? ['solitary', 'solitary'] : ['loose-knit', 'looseknit']);
-  tags.push([f.mobility, { anchored: 'anchored', drifter: 'drifting', swimmer: 'swimming', crawler: 'thrust' }[f.mobility]]);
+  tags.push([f.mobility, { anchored: 'anchored', drifter: 'drifting', swimmer: 'swimming', crawler: 'crawler' }[f.mobility]]);
   if (f.schooling) tags.push(['schooling', 'schooling']);
   if (g.photo > 0.25 && g.photo <= 0.55) tags.push(['part photosynth', 'photosynth']);
   if (g.lifespan > 300) tags.push(['long-lived', 'lifespan']);

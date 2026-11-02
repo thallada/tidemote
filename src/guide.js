@@ -106,6 +106,7 @@ export const GLOSSARY = {
   singlecelled: 'Its cells never bond: each one is a whole organism, however closely they crowd. A species bonds into multicellular bodies only once its adhesion passes 15%.',
   anchored: 'Barely moves and holds against the currents: a reef or a mat.',
   drifting: 'Carried by the currents.',
+  crawler: 'Moves under its own power, but too weakly to count as a swimmer, and is not simply carried by the currents. Any species that is not anchored, a swimmer or a drifter is a crawler.',
   focus: 'A highlight: everything outside the chosen filter is dimmed in the simulation.',
   links: 'Bonds between cells of one multicellular body. Single-celled species never show links.',
   chronicler: 'The chronicler reads the census and a ledger of who ate whom, how each species died and where it lives, and now and then writes what happened in the log: a death worth remembering and its cause, an arms race, hunters and hunted cycling, a lineage following the water, the last of a guild, what an era or an event did. It speaks only when something notable has happened, a few times an hour at most. Lab → Log → Chronicler shows its entries alone.',
