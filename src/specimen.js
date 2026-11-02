@@ -153,21 +153,34 @@ export function createSpecimen(api) {
   // the species at a glance, under its name in the header: its diet first, then how it is built
   // and lives (g null: none). Set only when the species changes.
   const tagsEl = $('spec-tags');
+  let allTags = ''; // every chip, for when the +n chip is opened
   function setTags(g) {
     const key = g ? `sp${g.serial}` : '';
     if (tagsEl.dataset.k === key) return;
     tagsEl.dataset.k = key;
+    tagsEl.classList.remove('all'); // each species starts collapsed
     const all = g ? tagsOf(g, K) : [];
     const chip = ([t, k]) => `<span class="term" data-tip="${k}" tabindex="0">${t}</span>`;
-    tagsEl.innerHTML = all.map(chip).join('');
+    tagsEl.innerHTML = allTags = all.map(chip).join('');
     // more than two lines: the last that fit give way to a +n chip naming the rest
     if (!tagsEl.clientHeight && all.length) { tagsEl.dataset.k = ''; return; } // not laid out yet: measure on the next render
     const fits = () => tagsEl.scrollHeight <= tagsEl.clientHeight + 1;
     for (let n = all.length - 1; n > 0 && !fits(); n--) {
       const rest = all.slice(n).map(([t]) => t);
-      tagsEl.innerHTML = all.slice(0, n).map(chip).join('') + `<span class="more" tabindex="0" data-hint="Also: ${esc(rest.join(', '))}">+${rest.length}</span>`;
+      tagsEl.innerHTML = all.slice(0, n).map(chip).join('') + `<span class="more" role="button" tabindex="0" data-hint="Also: ${esc(rest.join(', '))}. Show them all">+${rest.length}</span>`;
     }
   }
+  // the +n chip opens to every tag, until the species changes or the panel opens again
+  function expandTags(e) {
+    if (!e.target.closest('.more')) return;
+    if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    tagsEl.classList.add('all');
+    tagsEl.innerHTML = allTags;
+    document.activeElement?.blur?.(); // hand focus back so shortcuts keep working
+  }
+  tagsEl.addEventListener('click', expandTags);
+  tagsEl.addEventListener('keydown', expandTags);
   const blk = (title, html, opts) => block(title, html, opts);
   const vital = (label, frac, cls, text, tip) => `<div class="vital"><span>${tip ? term(tip, label) : label}</span>${meter(frac, cls)}<b>${text}</b></div>`;
   // How warm a cell is against its species' range: a needle on a cold-to-hot scale running two
@@ -593,6 +606,7 @@ export function createSpecimen(api) {
   function open() {
     if (root.hidden) {
       root.hidden = false;
+      tagsEl.dataset.k = ''; // its tags collapse again
       setFull(false, false);
       document.body.classList.add('spec-open');
     }

@@ -741,10 +741,11 @@ dd { margin: 0; color: var(--ink-2); }
 .tags span:first-child { border-color: var(--line-2); color: var(--ink); }
 /* compact, under the species' name: two short lines for most species */
 .tags.sm { gap: 3px; }
-/* between the actions and the readings: at most two lines (the rest behind a +n chip). A species'
-   tags never change while it is open, so the height may follow them. */
+/* between the actions and the readings: at most two lines (the rest behind a +n chip, which opens
+   to all of them). A species' tags never change while it is open, so the height may follow them. */
 #spec-tags { max-height: 41px; overflow: hidden; align-content: flex-start; flex: none; }
-#spec-tags .more { border-style: dashed; color: var(--ink-3); cursor: help; }
+#spec-tags .more { border-style: dashed; color: var(--ink-3); cursor: pointer; }
+#spec-tags.all { max-height: none; }
 #spec-tags:empty { display: none; }
 .tags.sm span { padding: 1px 5px; font-size: 11px; letter-spacing: .08em; }
 /* a mix of cell types (specimen comp): a trait row whose meter is split by type */
