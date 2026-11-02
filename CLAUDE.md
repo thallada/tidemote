@@ -21,7 +21,7 @@ GPU biosphere simulation (WebGPU, WGSL) with a browser page and headless tools. 
 
 ## Layout
 
-- `src/shaders.js` all WGSL and `DEFAULT_K` (every tunable).
+- `src/shaders.js` all WGSL and `DEFAULT_K` (every tunable). WGSL's `pow` is undefined for a negative base (NaN, drawn black, on Metal and Vulkan; Windows' compiler turns `pow(x, 2.0)` into `x * x` and hides it): square with `sqr` (COMMON), and keep other bases non-negative.
 - `src/engine.js` the WebGPU engine (buffers, passes, readbacks). The census only feeds naming and lineage tracking; nothing steers the ecology globally.
 - `src/genome.js` CPU genome packing, archetypes, guild classification (`dietGuild`, `mobilityGuild`).
 - `src/climate.js` seasons, climate eras (light, the water's temperature walk and its heat waves and cold snaps), abiogenesis rate: shared by the page and headless runs.

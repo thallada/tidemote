@@ -459,6 +459,8 @@ const STONE_COL_WGSL = STONE_KINDS.map((vs, k) => `      case ${k}u: { mc = ${vs
 // currents' phases (in f64), so light and flow run on unbroken; a genome's born is kept modulo it too.
 export const SIM_CLOCK = 32768;
 const COMMON = /* wgsl */ `
+// x squared: pow(x, 2.0) is undefined for negative x (NaN, drawn black, on Metal and Vulkan), so never use it to square
+fn sqr(x: f32) -> f32 { return x * x; }
 // Relief, as in DIC microscopy: one light from the upper left (screen y down) for every resolved shape.
 const TO_LIGHT = vec2f(-0.633, -0.774);
 const MAXK = ${MAXK}u;
@@ -4953,7 +4955,7 @@ fn bodyArea(shape: u32, s: vec2f) -> f32 {
     case 5u: { return 0.324; }
     case 6u: { return 0.460; }
     case 7u: { return 0.390; }
-    case 8u: { return 0.587 - pow(0.35 + s.x * 0.10, 2.0) / 1.12; }
+    case 8u: { return 0.587 - sqr(0.35 + s.x * 0.10) / 1.12; }
     case 9u: { return 0.275; }
     case 10u: { return 0.300; }
     case 11u: { return 0.368; }
@@ -5789,8 +5791,8 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       let r = length(q);
       let age = clamp(p.age / max(g.lifespan, 1.0), 0.0, 1.0);
       let wallWidth = 0.025 + 0.008 * sin(a * 3.0 + seed * 13.0) + 0.03 * sleep;
-      let rim = exp(-pow((sd + 0.025 + 0.02 * sleep) / (wallWidth + aa), 2.0));
-      let innerRim = exp(-pow((sd + 0.10 + 0.04 * sleep) / (0.07 + aa), 2.0));
+      let rim = exp(-sqr((sd + 0.025 + 0.02 * sleep) / (wallWidth + aa)));
+      let innerRim = exp(-sqr((sd + 0.10 + 0.04 * sleep) / (0.07 + aa)));
       var detail = (0.44 + g.calcify * 0.12 + 0.2 * sleep) * rim - 0.21 * innerRim;
       // cytoplasm is never an even fill: it is mottled, thicker in places (the difference of two
       // fields, so a cell's light is unchanged on average), and stained here and there by what the
@@ -5808,21 +5810,21 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       let nq = q - center;
       let nr = length(vec2f(abs(nq.x) - division * 0.17, nq.y + 0.03 * sin(nq.x * 15.0 + seed))
         / vec2f(0.17 + division * 0.04, 0.21 - division * 0.055));
-      relief += 0.3 * exp(-pow((nr - 0.8) / 0.3, 2.0)) * dot(nq / max(length(nq), 1e-4), lightQ);
+      relief += 0.3 * exp(-sqr((nr - 0.8) / 0.3)) * dot(nq / max(length(nq), 1e-4), lightQ);
       detail += -0.34 * (1.0 - smoothstep(0.75, 1.0 + aa * 3.0, nr))
-        + 0.22 * exp(-pow((nr - 1.0) / (0.16 + aa), 2.0));
+        + 0.22 * exp(-sqr((nr - 1.0) / (0.16 + aa)));
       let plates = sin(q.x * (8.0 + s.x * 6.0) + sin(q.y * 5.0 + s.y * 3.0));
       detail += g.calcify * 0.12 * plates * smoothstep(0.2, 0.6, r);
       if (myPlan == 4u) {
         let girdle = q.y + 0.10 * sin(q.x * 5.0 + s.y);
-        detail -= 0.30 * exp(-pow(girdle / (0.035 + aa), 2.0));
+        detail -= 0.30 * exp(-sqr(girdle / (0.035 + aa)));
       }
       if (myPlan == 5u) {
         detail += 0.13 * sin(q.y * 29.0 + q.x * 10.0 + 1.2 * sin(q.x * 4.0)) * fine;
         detail += 0.40 * exp(-dot(q - vec2f(0.5, -0.12), q - vec2f(0.5, -0.12)) * 350.0);
       }
       if (myPlan == 6u || myPlan == 9u) {
-        detail -= 0.25 * exp(-pow((q.y - 0.18 - 0.12 * sin(q.x * 4.0)) / (0.045 + aa), 2.0));
+        detail -= 0.25 * exp(-sqr((q.y - 0.18 - 0.12 * sin(q.x * 4.0)) / (0.045 + aa)));
       }
       if (myPlan == 7u) {
         let whorl = sin(atan2(q.y, q.x) * 2.0 - r * 18.0 + s.y);
@@ -5870,14 +5872,14 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
           if ((photo <= 0.0 && stored <= 0.0) || dot(oq, oq) > 0.36 * 0.36) { continue; }
           let chl = length(oq * vec2f(1.0, 1.5 + h));
           let oDir = dot(oq / max(length(oq), 1e-4), lightQ);
-          relief += photo * 0.35 * exp(-pow((chl - 0.05) / 0.03, 2.0)) * oDir * fine;
+          relief += photo * 0.35 * exp(-sqr((chl - 0.05) / 0.03)) * oDir * fine;
           detail += photo * (-0.35 * (1.0 - smoothstep(0.04, 0.07 + aa, chl))
-            + 0.12 * exp(-pow((chl - 0.085) / (0.012 + aa), 2.0))) * fine;
+            + 0.12 * exp(-sqr((chl - 0.085) / (0.012 + aa)))) * fine;
           let vr = length(oq + vec2f(0.04, 0.05));
           // vacuoles are hollows: shadowed on the side toward the light
-          relief -= stored * fine * 0.3 * exp(-pow((vr - 0.05) / 0.03, 2.0)) * oDir;
+          relief -= stored * fine * 0.3 * exp(-sqr((vr - 0.05) / 0.03)) * oDir;
           detail += stored * fine
-            * (0.18 * exp(-pow((vr - 0.06 - h * 0.025) / (0.012 + aa), 2.0))
+            * (0.18 * exp(-sqr((vr - 0.06 - h * 0.025) / (0.012 + aa)))
               - 0.10 * (1.0 - smoothstep(0.03, 0.06 + aa, vr)));
         }
       }
@@ -5888,8 +5890,8 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
         let vc = q - mix(vec2f(0.5, 0.0), vec2f(-0.05, 0.12 * (seed - 0.5)), 1.0 - (1.0 - u) * (1.0 - u));
         let vr = length(vc) / (0.15 * (1.0 - 0.45 * u));
         let show = smoothstep(0.0, 0.08, i.tile.y) * (1.0 - smoothstep(0.55, 1.0, u));
-        detail += show * (0.3 * exp(-pow((vr - 1.0) / 0.25, 2.0)) - 0.15 * (1.0 - smoothstep(0.6, 1.0, vr)));
-        relief -= show * 0.25 * exp(-pow((vr - 0.9) / 0.3, 2.0)) * dot(vc / max(length(vc), 1e-4), lightQ);
+        detail += show * (0.3 * exp(-sqr((vr - 1.0) / 0.25)) - 0.15 * (1.0 - smoothstep(0.6, 1.0, vr)));
+        relief -= show * 0.25 * exp(-sqr((vr - 0.9) / 0.3)) * dot(vc / max(length(vc), 1e-4), lightQ);
         hue = mix(hue, vec3f(1.3, 1.05, 0.7), show * (1.0 - smoothstep(0.5, 1.0, vr)) * 0.6);
       }
       // its membrane fresh and bright
@@ -5903,7 +5905,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       motion.y -= bendShift(motion.x, bend);
       let beat = view.time * 2.5 + seed * TAU;
       // Fade subpixel hairs before widening them with the footprint; no sparkling fringe.
-      let hairs = exp(-pow((membraneSD - 0.035) / (0.018 + aa), 2.0))
+      let hairs = exp(-sqr((membraneSD - 0.035) / (0.018 + aa)))
         * pow(max(0.0, cos(a * 23.0 + sin(a * 5.0 + beat))), 8.0)
         * (1.0 - smoothstep(-0.15, 0.0, pressed));
       let tailY = 0.13 * sin(motion.x * 7.0 + beat) * smoothstep(0.65, 1.6, -motion.x);
@@ -5973,13 +5975,13 @@ fn matterColor(i: PO, p: Particle, far: f32) -> vec4f {
         let toLight = normalize(vec3f(localPoint(TO_LIGHT, i.geom.zw), 0.7));
         let tone = 0.85 + 0.3 * renderHash(p.id + u32(k) * 7u);
         let glint = pow(max(dot(n, normalize(toLight + vec3f(0.0, 0.0, 1.0))), 0.0), 40.0);
-        let seams = 1.0 - 0.25 * exp(-pow(fract(a / sector + 0.5) - 0.5, 2.0) * 1600.0) * side;
+        let seams = 1.0 - 0.25 * exp(-sqr(fract(a / sector + 0.5) - 0.5) * 1600.0) * side;
         facets = ((0.25 + 0.6 * max(dot(n, toLight), 0.0)) * tone * seams + 0.8 * glint) * 1.3; // same mean light as before
       }
       f = body * facets * spriteMean(i.shape) / 0.56;
       cover = body;
       if (p.kind == STONE) {
-        let seams = exp(-pow(sin(v.x * 5.0 + seed * 13.0) + 0.5 * sin(v.y * 7.0), 2.0) * 150.0);
+        let seams = exp(-sqr(sin(v.x * 5.0 + seed * 13.0) + 0.5 * sin(v.y * 7.0)) * 150.0);
         f *= 1.0 - 0.32 * seams;
       }
     }
@@ -6083,7 +6085,7 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   let adhesion = min(genomes[p.kind].adhesion, genomes[q.kind].adhesion);
   // tissue: its cells share a wall, which is the bond; no tube shows through them
   if ((adhesion - view.tightFrom) / ${f(DEFAULT_K.tightSpan)} > 0.5) { return o; }
-  let taper = 0.55 + 0.45 * pow(2.0 * t - 1.0, 2.0);
+  let taper = 0.55 + 0.45 * sqr(2.0 * t - 1.0);
   let tension = pow(min(1.0, rest / len), 3.0);
   // a neck is never wider than the cells it joins (cells shrink to fit dense bodies)
   let ends = min(cellRadius(p, genomes[p.kind], index), cellRadius(q, genomes[q.kind], n));
@@ -6558,7 +6560,7 @@ fn mineralSurf(i: SO) -> StoneOut {
       sd = rho - r0;
       if (stoneClip(sd, aa)) { discard; }
       let q = rho / r0;
-      let dr = -0.2 * q - 4.4 * (q - 0.9) * exp(-pow((q - 0.9) / 0.06, 2.0));
+      let dr = -0.2 * q - 4.4 * (q - 0.9) * exp(-sqr((q - 0.9) / 0.06));
       ls = u / max(rho, 1e-4) * dr * 2.5;
       hz = r0 * 0.08 * smoothstep(0.0, 0.04, -sd);
       let rows = f32(18u + u32(grainHash(H, 11.0) * 18.0));
@@ -6940,7 +6942,7 @@ fn stoneShade(uv: vec2f, h0: f32, order: f32, ppu: f32, toLight: vec3f) -> vec2f
 }
 // A highlight as sharp as p, blurred and dimmed alike on a grain too few pixels across to resolve it (gloss 0..1):
 // the facets under a pixel each turn it a different way, so it spreads over the pixel rather than flashing in it.
-fn glint(hv: f32, p: f32, gloss: f32) -> f32 { let q = p * mix(0.12, 1.0, gloss); return pow(hv, q) * (q + 2.0) / (p + 2.0); }
+fn glint(hv: f32, p: f32, gloss: f32) -> f32 { let q = p * mix(0.12, 1.0, gloss); return pow(max(hv, 0.0), q) * (q + 2.0) / (p + 2.0); }
 // Rock from the stone targets (DRAW_WGSL vsStone): the cobble on top at each pixel, lit from its own
 // slope, shaded where its neighbors rise over it (stoneShade). Bedrock is speckled like granite; reef
 // stone, laid down by calcifiers, is pitted like limestone. The selected grain glows.
@@ -7596,7 +7598,7 @@ fn specks(wp: vec2f, s0: f32, rmax: f32, ppu: f32, seed: f32, share: f32) -> vec
   let an = atan2(dv.y, dv.x);
   let d = length(dv) * (1.0 + 0.1 * sin(2.0 * an + h * 40.0) + 0.08 * sin(3.0 * an + h * 17.0) + 0.05 * sin(5.0 * an + h * 7.0));
   let cov = 1.0 - smoothstep(r - aa, r + aa, d);
-  let rim = exp(-pow((d - r * 0.85) / max(r * 0.14, aa), 2.0));
+  let rim = exp(-sqr((d - r * 0.85) / max(r * 0.14, aa)));
   // quartz and feldspar pale, iron-stained grains ochre, organic flecks dark
   let col = select(select(vec3f(1.0, 0.94, 0.84), vec3f(1.0, 0.72, 0.42), h > 0.6), vec3f(0.5, 0.42, 0.33), h > 0.88);
   return vec4f(col * (0.35 + 1.4 * pow(hash12(c + 7.7), 2.5)) * mix(1.0, 0.55 + 0.9 * rim, step(0.12, r) * step(h, 0.6)), cov);
@@ -7618,9 +7620,9 @@ fn frustules(wp: vec2f, ppu: f32) -> f32 {
   // the valve's outline: pointed at both ends
   let half = sqrt(max(1.0 - u * u, 0.0)) * (0.8 + 0.2 * (1.0 - u * u));
   let e = (abs(w) - half) * W;
-  let outline = exp(-pow(e / max(0.03, 0.9 * px), 2.0)) * step(abs(u), 1.0);
+  let outline = exp(-sqr(e / max(0.03, 0.9 * px))) * step(abs(u), 1.0);
   let inside = step(abs(w), half) * step(abs(u), 1.0);
-  let raphe = exp(-pow(q.y / max(0.02, 0.8 * px), 2.0)) * step(abs(u), 0.85) * step(0.07, abs(u));
+  let raphe = exp(-sqr(q.y / max(0.02, 0.8 * px))) * step(abs(u), 0.85) * step(0.07, abs(u));
   let striae = pow(0.5 + 0.5 * cos(q.x * 6.2832 / 0.12), 4.0) * smoothstep(0.08, 0.02, 0.12 * px * 6.0) * inside;
   return (outline + 0.5 * raphe + 0.2 * striae + 0.03 * inside) * smoothstep(3.0, 10.0, ppu);
 }
@@ -7633,7 +7635,7 @@ fn ridge(x: f32, w: f32, px: f32, g: vec2f, L: vec2f) -> vec2f {
   let we = max(w, 0.55 * px);
   let o = 0.6 * we * sign(dot(g, L) + 1e-4);
   let k = w / we;
-  return vec2f(exp(-pow((x - o) / we, 2.0)), exp(-pow((x + o) / we, 2.0))) * k;
+  return vec2f(exp(-sqr((x - o) / we)), exp(-sqr((x + o) / we))) * k;
 }
 // Ice in darkfield (frost). Ice under the microscope is a packed mass of small crystals: each grain one crystal,
 // tens of µm across, its own orientation, its surface tilted a little so it catches the lamp's oblique light more or
@@ -7783,13 +7785,13 @@ fn iceLook(wp: vec2f, sd: f32, ppu: f32, grow: f32, reach: f32, rg: f32) -> vec3
   // faint growth lines inside each grain along its axes
   let bth = bid * 6.2832;
   let gl = abs(fract(dot(-toC, vec2f(cos(bth), sin(bth))) / 0.16 + bid * 7.0) - 0.5);
-  c += vec3f(0.006, 0.007, 0.008) * exp(-pow(gl / max(0.08, 0.6 * px / 0.16), 2.0)) * step(0.7, hash12(vec2f(bid, 13.0))) * haze * (1.0 - fresh) * smoothstep(3.0, 8.0, 0.16 * ppu);
+  c += vec3f(0.006, 0.007, 0.008) * exp(-sqr(gl / max(0.08, 0.6 * px / 0.16))) * step(0.7, hash12(vec2f(bid, 13.0))) * haze * (1.0 - fresh) * smoothstep(3.0, 8.0, 0.16 * ppu);
   // the boundaries grooved: a fine bright seam, the groove's wall toward the lamp lit, the other in shadow
   let met = smoothstep(0.15, 0.9, e) * (1.0 - fresh * 0.7) * ice;
   let fc = dot(normalize(-toC + 1e-5), L);
   let sw = max(0.02, 0.7 * px);
-  let seam = exp(-pow(md / sw, 2.0)) * min(1.0, 0.02 / sw + 0.35);
-  let wall = exp(-pow(md / max(0.11, 1.6 * px), 2.0)) * min(1.0, 0.11 / max(0.11, 1.6 * px) + 0.2);
+  let seam = exp(-sqr(md / sw)) * min(1.0, 0.02 / sw + 0.35);
+  let wall = exp(-sqr(md / max(0.11, 1.6 * px))) * min(1.0, 0.11 / max(0.11, 1.6 * px) + 0.2);
   c += vec3f(0.07, 0.078, 0.09) * seam * met * (0.5 + 0.5 * vnoiseT(wp, 1.5, vec2f(0.0)));
   c += vec3f(0.045, 0.05, 0.058) * wall * met * max(fc, 0.0);
   c *= 1.0 - 0.6 * wall * met * max(-fc, 0.0);
@@ -7797,21 +7799,21 @@ fn iceLook(wp: vec2f, sd: f32, ppu: f32, grow: f32, reach: f32, rg: f32) -> vec3
   c = c * (1.0 - 0.55 * min(lit.y, 1.0)) + tint * lit.x;
   // the edge of the ice against the water: a fine bright line
   let ew = max(0.025, 0.8 * px);
-  let edge = exp(-pow((ed - 0.5 * ew) / ew, 2.0));
+  let edge = exp(-sqr((ed - 0.5 * ew) / ew));
   c += vec3f(0.1, 0.112, 0.13) * edge * (0.55 + 0.6 * vnoiseT(wp, 1.6, vec2f(7.0))) * (0.5 + 0.5 * mix(0.4, 1.0, fresh));
   // bubbles, here and there in a grain: a bright rim around a dark heart, a glint toward the lamp
   if (hash12(vec2f(bid, 21.0)) < 0.3 && e > 0.6) {
     let bax = vec2f(cos(bth), sin(bth));
     let bc = toC + (vec2f(hash12(vec2f(bid, 22.0)), hash12(vec2f(bid, 23.0))) - 0.5) * 0.5 * ICE_GS;
-    let br = 0.03 + 0.06 * pow(hash12(vec2f(bid, 24.0)), 2.0);
+    let br = 0.03 + 0.06 * sqr(hash12(vec2f(bid, 24.0)));
     let el = 1.0 + 0.7 * hash12(vec2f(bid, 25.0));
     let q = vec2f(dot(bc, bax) / el, dot(bc, vec2f(-bax.y, bax.x)));
     let bd = length(q);
     let rw = max(0.012, 0.7 * px);
-    let rim = exp(-pow((bd - br * 0.9) / rw, 2.0)) * min(1.0, br / (2.0 * rw));
+    let rim = exp(-sqr((bd - br * 0.9) / rw)) * min(1.0, br / (2.0 * rw));
     let heart = 1.0 - smoothstep(br * 0.4, br, bd);
     let lq = vec2f(dot(L, bax), dot(L, vec2f(-bax.y, bax.x)));
-    let glint = exp(-pow(length(q + lq * br * 0.45) / max(br * 0.25, rw), 2.0));
+    let glint = exp(-sqr(length(q + lq * br * 0.45) / max(br * 0.25, rw)));
     c = c * (1.0 - 0.6 * heart) + vec3f(0.09, 0.10, 0.11) * rim + vec3f(0.08) * glint;
   }
   return c;
@@ -7835,15 +7837,15 @@ fn frazilStar(wp: vec2f, cu: vec2f, N: vec2f, sp: vec2f, sd: f32, ppu: f32, grow
   let ah = hash12(cell + k + 11.0);
   let len = R * select(0.3 + 0.7 * ah, 0.15, ah < 0.15);
   let w = mix(0.025, 0.01, s / max(len, 1e-3)) + 0.6 * px;
-  var arm = exp(-pow(p / w, 2.0)) * (1.0 - smoothstep(len - 0.03, len, s));
+  var arm = exp(-sqr(p / w)) * (1.0 - smoothstep(len - 0.03, len, s));
   let s0 = s - 0.577 * p;
   let sp2 = 0.15;
   let j = round(s0 / sp2);
   let bl = max(0.0, (len - j * sp2) * 0.4) * (0.2 + 0.8 * hash12(vec2f(j, k + cell.x * 3.0 + cell.y)));
-  let br = exp(-pow((s0 - j * sp2) * 0.866 / (0.008 + 0.6 * px), 2.0)) * (1.0 - smoothstep(bl - 0.02, bl, p * 1.1547)) * step(0.2 * R, s0);
+  let br = exp(-sqr((s0 - j * sp2) * 0.866 / (0.008 + 0.6 * px))) * (1.0 - smoothstep(bl - 0.02, bl, p * 1.1547)) * step(0.2 * R, s0);
   arm = max(arm, br * 0.7);
   let hexd = r * cos(ar) / 0.866;
-  let pedge = exp(-pow((hexd - 0.14 * R) / max(0.015, 0.7 * px), 2.0));
+  let pedge = exp(-sqr((hexd - 0.14 * R) / max(0.015, 0.7 * px)));
   return vec3f(0.035, 0.04, 0.047) * (arm + 0.5 * pedge) * smoothstep(1.0, 3.0, ppu * R);
 }
 // (a star reaches at most about 1.15 units from its point, which lies 0.35 units or more inside its cell: so only
@@ -7887,9 +7889,9 @@ fn bubbles(cIn: vec3f, wp: vec2f, ppu: f32, sp: f32, vapor: bool) -> vec3f {
       if (r < 1.5 * px || l > r + 3.0 * px) { continue; }
       let w = max(0.06 * r, 0.8 * px);
       let toward = 0.55 + 0.45 * dot(d / max(l, 1e-5), LAMP_L);
-      let rim = exp(-pow((l - r) / w, 2.0)) * toward;
+      let rim = exp(-sqr((l - r) / w)) * toward;
       let inside = 1.0 - smoothstep(r - w, r, l);
-      let spot = exp(-dot(d - LAMP_L * r * 0.35, d - LAMP_L * r * 0.35) / pow(0.18 * r + px, 2.0));
+      let spot = exp(-dot(d - LAMP_L * r * 0.35, d - LAMP_L * r * 0.35) / sqr(0.18 * r + px));
       c = c * (1.0 - 0.45 * inside) + vec3f(0.17, 0.18, 0.19) * rim + vec3f(0.08, 0.08, 0.075) * spot * inside;
     }
   }
@@ -7944,7 +7946,7 @@ fn dryGround(wp: vec2f, away: f32, rel: vec3f, ppu: f32, parch: f32) -> vec3f {
   let tdist = min(tf, 1.0 - tf) / max(tn * length(rel.yz), 1e-4);
   let th = hash12(vec2f(round(tl), 3.0));
   let tw = 0.04 + 0.12 * th;
-  let tide = exp(-pow(tdist / max(tw, px), 2.0)) * step(0.8, th) * smoothstep(0.35, 0.7, vnoiseT(wp, 0.25, vec2f(th * 9.0))) * (0.5 + 0.5 * vnoiseT(wp, 1.5, vec2f(0.0))) * smoothstep(0.5, 2.5, away);
+  let tide = exp(-sqr(tdist / max(tw, px))) * step(0.8, th) * smoothstep(0.35, 0.7, vnoiseT(wp, 0.25, vec2f(th * 9.0))) * (0.5 + 0.5 * vnoiseT(wp, 1.5, vec2f(0.0))) * smoothstep(0.5, 2.5, away);
   c += vec3f(0.05, 0.046, 0.039) * tide * (0.5 + dryness);
   // grains: silt and fine sand, each a point of light where it is resolved, a fine glitter where it is not
   let near = smoothstep(8.0, 30.0, ppu);
@@ -7965,7 +7967,7 @@ fn dryGround(wp: vec2f, away: f32, rel: vec3f, ppu: f32, parch: f32) -> vec3f {
     let puddle = smoothstep(-pw, pw, pm) * smoothstep(0.6, 2.0, away) * damp;
     c *= 1.0 - 0.55 * puddle;
     c += vec3f(0.006, 0.0065, 0.007) * puddle * pow(vnoiseT(wp, 2.1, vec2f(1.0)), 6.0);
-    c += vec3f(0.07, 0.075, 0.08) * exp(-pow(pm / pw, 2.0)) * smoothstep(0.6, 2.0, away) * damp * (0.4 + 0.6 * vnoiseT(wp, 1.7, vec2f(3.0)));
+    c += vec3f(0.07, 0.075, 0.08) * exp(-sqr(pm / pw)) * smoothstep(0.6, 2.0, away) * damp * (0.4 + 0.6 * vnoiseT(wp, 1.7, vec2f(3.0)));
     // the film's gloss: a faint sheen, uneven, where the surface tilts toward the lamp
     c += vec3f(0.004, 0.0045, 0.005) * damp * smoothstep(0.55, 0.9, vnoiseT(wp, 0.45, vec2f(9.0)));
   }
@@ -7986,7 +7988,7 @@ fn dryGround(wp: vec2f, away: f32, rel: vec3f, ppu: f32, parch: f32) -> vec3f {
   let gap = 1.0 - smoothstep(-px * 0.7, px * 0.7, de);
   // each plate curls up at its rim as it dries: brighter toward it, and its broken edge catches the light
   let curl = exp(-max(de, 0.0) / 0.45) * open;
-  let lip = exp(-pow(max(de, 0.0) / max(0.035, 0.9 * px), 2.0)) * smoothstep(0.01, 0.05, max(w1, w2)) * open;
+  let lip = exp(-sqr(max(de, 0.0) / max(0.035, 0.9 * px))) * smoothstep(0.01, 0.05, max(w1, w2)) * open;
   var plate = c * (1.0 + 0.8 * curl) + vec3f(0.11, 0.096, 0.075) * lip * (0.5 + 0.7 * vnoiseT(wp, 3.0, z));
   // the plate's middle sags a little, and is a shade darker
   plate *= 1.0 - 0.15 * smoothstep(0.6, 2.5, de) * open;
@@ -8017,7 +8019,7 @@ fn mudDrops(wp: vec2f, t: f32, S0: f32, rmin: f32, rmax: f32, tau: f32, seed: f3
         let h = hid + vec2f(seed + f32(k) * 7.31, f32(k) * 3.17);
         let age = t + tau * log(max(hash12(h), 1e-4)) * (1.0 + f32(k));
         if (age <= 0.0) { continue; }
-        let r0 = mix(rmin, rmax, pow(hash12(h + 1.7), 2.0));
+        let r0 = mix(rmin, rmax, sqr(hash12(h + 1.7)));
         let d = wp - (id + vec2f(hash12(h + 2.9), hash12(h + 4.3))) * S;
         let dl = length(d);
         let dir = d / max(dl, 1e-4);
@@ -8037,7 +8039,7 @@ fn mudDrops(wp: vec2f, t: f32, S0: f32, rmin: f32, rmax: f32, tau: f32, seed: f3
           let glint = exp(-dot(q, q) / mix(0.0012, 0.004, hash12(h + 8.2)));
           // the light out of its far side: broken, thin, uneven along the edge, never a whole ring
           let seg = smoothstep(0.35, 0.8, vnoise(dir * 5.0 + h * 7.0)) * (0.5 + 0.7 * vnoise(d / r0 * 12.0 + h));
-          let arc = exp(-pow((rb - 0.86) / 0.05, 2.0)) * pow(max(dot(dir, -LAMP_L), 0.0), 1.5) * seg;
+          let arc = exp(-sqr((rb - 0.86) / 0.05)) * pow(max(dot(dir, -LAMP_L), 0.0), 1.5) * seg;
           o.z = max(o.z, (1.3 * glint + 0.45 * arc) * inside * life);
           // through its middle the mud shows, a little dimmed; toward its edge the surface steepens and bends the
           // light away, a dark band
@@ -8079,7 +8081,7 @@ fn ringWave(d: vec2f, t: f32, amp: f32, seed: f32, s: ptr<function, vec2f>) {
   if (psi > 1.4) { return; }
   let lf = 1.7;
   let ph = 6.2832 * psi * psi * rr / (3.0 * lf);
-  let env = smoothstep(0.12, 0.6, psi) * exp(-pow(max(psi - 0.92, 0.0) / 0.13, 2.0)) * (0.15 + 1.6 * pow(vnoise(dir * 2.5 + seed + 3.0), 1.5))
+  let env = smoothstep(0.12, 0.6, psi) * exp(-sqr(max(psi - 0.92, 0.0) / 0.13)) * (0.15 + 1.6 * pow(vnoise(dir * 2.5 + seed + 3.0), 1.5))
     * amp / sqrt(1.0 + r * 0.25) * (1.0 - smoothstep(0.3, 0.45, r / min(post.world.x, post.world.y)));
   *s += dir * (-0.06 * env * sin(ph));
 }
@@ -8212,11 +8214,11 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32, ppu: f
   let w = wr * (1.0 + 0.2 * smoothstep(0.86, 0.95, along)) * (1.0 - 0.15 * smoothstep(0.97, 1.1, along));
   let endD = (max(along - 1.0, 0.0) + max(-along, 0.0)) * len * 0.45;
   let r = length(vec2f(off, endD)) / w;
-  let walls = exp(-pow((r - 0.85) / (0.12 + blur / w), 2.0));
+  let walls = exp(-sqr((r - 0.85) / (0.12 + blur / w)));
   let inner = 1.0 - smoothstep(0.8, 1.0 + blur / w, r);
   let bands = 0.5 + 0.5 * smoothstep(0.75, 0.95, abs(fract(along * len / 1.8 + 0.3 * vnoise(vec2f(off, seed))) * 2.0 - 1.0));
-  let sheath = exp(-pow((r - 0.95) / (0.1 + blur / w), 2.0)) * smoothstep(0.86, 0.95, along) * 0.6;
-  let light = (walls * (0.6 + 0.4 * vnoise(vec2f(along * len * 0.7, seed))) + inner * 0.18 * bands + sheath) * mix(0.06, 1.0, pow(focus, 1.5));
+  let sheath = exp(-sqr((r - 0.95) / (0.1 + blur / w))) * smoothstep(0.86, 0.95, along) * 0.6;
+  let light = (walls * (0.6 + 0.4 * vnoise(vec2f(along * len * 0.7, seed))) + inner * 0.18 * bands + sheath) * mix(0.06, 1.0, pow(max(focus, 0.0), 1.5));
   return vec2f(light, inner * mix(0.1, 1.0, focus));
 }
 // How much open water lies over wp: none on the dry floor or under ice, fading over the thin film at their edges.
@@ -8312,8 +8314,8 @@ fn lampAt(wp: vec2f) -> f32 {
 // scene takes before the tone curve, cool in the shade, warm in the sun and amber by the lamp's share; lamp: the
 // lamp's own light.
 const LIT_SPAN = 4.4;
-const LIT_GROUND = vec2f(0.65, 1.9);  // the toned view's gain on stone and silt at r 0 and 1 (between, in log)
-const LIT_CELL = vec2f(0.92, 1.12);   // on the living
+const LIT_GROUND = vec2f(0.85, 1.3);  // the toned view's gain on stone and silt at r 0 and 1 (between, in log)
+const LIT_CELL = vec2f(0.96, 1.05);   // on the living
 const LIT_KNEE = 0.7;                 // the toned view rolls off above this toward white (litShow)
 struct Lit { k: vec3f, r: f32, lamp: f32 };
 fn sceneLit(wp: vec2f) -> Lit {
@@ -8342,7 +8344,7 @@ fn litShow(cIn: vec3f, l: Lit, cells: f32) -> vec3f {
 // The light on the pond's floor, seen through the dark water behind what lies in it (display-linear, added as the
 // background is): its mud (the murk there) golden in the sun and amber under the lamp, faint in the shade.
 fn floorLit(l: Lit, mud: f32) -> vec3f {
-  let sun = 0.06 + 1.1 * pow(clamp(l.r, 0.0, 1.6), 1.4);
+  let sun = 0.04 + 0.4 * pow(clamp(l.r, 0.0, 1.6), 1.4);
   return (vec3f(1.0, 0.9, 0.7) * sun + vec3f(1.0, 0.7, 0.38) * 1.4 * l.lamp) * (0.009 + 0.135 * mud);
 }
 // The sea's focusing (surf.light) as the light there makes it: bright caustics in the sun, faint in the shade.
@@ -8441,7 +8443,7 @@ fn instrument(cIn: vec3f, wp: vec2f, ppu: f32) -> vec3f {
   let f = post.toolB.y;
   let a = 1.0 - smoothstep(-blur, blur, g.x);
   // (out of focus, its light spread wider and dimmer)
-  let spread = exp(-pow(g.x / (blur + 0.6 * px), 2.0)) * clamp((2.0 * px + 0.08) / blur, 0.25, 1.0);
+  let spread = exp(-sqr(g.x / (blur + 0.6 * px))) * clamp((2.0 * px + 0.08) / blur, 0.25, 1.0);
   let edge = spread * mix(0.12, 1.0, f);
   let ax = normalize(post.tool.zw);
   // (the side of the shaft toward the lamp catches its light)
@@ -8461,7 +8463,7 @@ fn instrument(cIn: vec3f, wp: vec2f, ppu: f32) -> vec3f {
     let r = select(abs(dot(dw, vec2f(-ax.y, ax.x))), length(dw), g.z < 0.0);
     let wb = blur + 0.6 * px;
     // (its light spread as wide as the blur, as dim as it is spread)
-    let wall = exp(-pow((r - bore * hw) / wb, 2.0)) * smoothstep(-2.0 * wb, 0.0, g.z) * a * clamp((2.0 * px + 0.08) / blur, 0.2, 1.0);
+    let wall = exp(-sqr((r - bore * hw) / wb)) * smoothstep(-2.0 * wb, 0.0, g.z) * a * clamp((2.0 * px + 0.08) / blur, 0.2, 1.0);
     let inWall = a * smoothstep(bore * hw - wb, bore * hw + wb, r);
     c = c * (1.0 - 0.22 * inWall) + vec3f(0.006, 0.008, 0.009) * inWall;
     // (the rod's glass scatters the lamp's light through it: a faint glow across it, brighter toward its sides)
@@ -8471,7 +8473,7 @@ fn instrument(cIn: vec3f, wp: vec2f, ppu: f32) -> vec3f {
     return c;
   }
   // steel: dark, its round shank shading across it, a highlight along the side toward the lamp, a bright edge
-  let hi = exp(-pow((g.y - 0.45 * lit) / 0.12, 2.0)) * smoothstep(-0.1, 0.4, g.z);
+  let hi = exp(-sqr((g.y - 0.45 * lit) / 0.12)) * smoothstep(-0.1, 0.4, g.z);
   var body = vec3f(0.005, 0.0055, 0.0065) * (1.3 - 0.6 * g.y * g.y) + vec3f(0.06, 0.065, 0.07) * hi * f;
   if (kind > 2.5) {
     // the probe frosts as it chills: rime on its steel, catching the light in specks
@@ -8522,9 +8524,9 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
     }
     // the meniscus: a thin bright contact line, uneven along its length (it pins and slips on the grains), and on
     // the water's side the curved surface rising to it, scattering a narrowing glow
-    let along = pow(0.25 + 0.75 * vnoiseT(wp, 0.9, vec2f(0.0)) + 0.3 * (vnoiseT(wp, 5.3, vec2f(2.0)) - 0.5), 2.0) * 1.3;
-    let rim = exp(-pow(sd / (max(0.9 * px, 0.025) * (0.6 + 1.6 * vnoiseT(wp, 0.7, vec2f(9.0)))), 2.0)) * along
-      + 0.15 * exp(-pow((sd - 0.12 - 0.25 * vnoiseT(wp, 0.5, vec2f(0.0))) / max(0.9 * px, 0.03), 2.0)) * vnoiseT(wp, 1.9, vec2f(4.0));
+    let along = sqr(0.25 + 0.75 * vnoiseT(wp, 0.9, vec2f(0.0)) + 0.3 * (vnoiseT(wp, 5.3, vec2f(2.0)) - 0.5)) * 1.3;
+    let rim = exp(-sqr(sd / (max(0.9 * px, 0.025) * (0.6 + 1.6 * vnoiseT(wp, 0.7, vec2f(9.0)))))) * along
+      + 0.15 * exp(-sqr((sd - 0.12 - 0.25 * vnoiseT(wp, 0.5, vec2f(0.0))) / max(0.9 * px, 0.03))) * vnoiseT(wp, 1.9, vec2f(4.0));
     let rise = select(0.0, exp(-sd / 0.22) * (1.0 - exp(-sd / max(1.5 * px, 0.02))), sd > 0.0);
     let sheen = select(0.0, exp(-sd / 0.9), sd > 0.0);
     c += (vec3f(0.16, 0.17, 0.18) * rim + vec3f(0.035, 0.040, 0.046) * rise * along + vec3f(0.006, 0.008, 0.010) * sheen) * (0.35 + 0.65 * behind);
@@ -8564,8 +8566,8 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
         let cells = smoothstep(0.0, 0.5, vborder(a.xy * fr.L / 2.2 + f32(f) * 7.0 + post.duckB.y).x);
         let nd = a.xy - vec2f(-0.7, 0.0);
         let node = exp(-dot(nd, nd) / 0.02);
-        let rib = exp(-pow(a.y / 0.05, 2.0)) * smoothstep(-0.7, -0.3, a.x) * (1.0 - smoothstep(0.4, 0.9, a.x));
-        let rim = exp(-pow((a.z + 0.4) / 1.3, 2.0));
+        let rib = exp(-sqr(a.y / 0.05)) * smoothstep(-0.7, -0.3, a.x) * (1.0 - smoothstep(0.4, 0.9, a.x));
+        let rim = exp(-sqr((a.z + 0.4) / 1.3));
         tex = max(tex, (0.45 + 0.55 * cells) * (1.0 - 0.55 * node) * (1.0 - 0.25 * rib) * (1.0 - smoothstep(-1.2, 1.2, a.z)) + 0.9 * rim);
       }
       // (no longer than about half the world's shorter side: drawn from its node across the world's wrap, a longer
@@ -8637,13 +8639,13 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
     let seg = TAU / 9.0;
     let th = atan2(q.y, q.x) + 0.31;
     fq = mix(fq, fq / (cos(seg * 0.5) / cos(th - seg * (floor(th / seg) + 0.5))) / mix(1.0, 0.86, iris), iris);
-    c += vec3f(0.0, 0.002, 0.008) * iris * k * exp(-pow((fq - corner * 0.84) * 30.0, 2.0));
+    c += vec3f(0.0, 0.002, 0.008) * iris * k * exp(-sqr((fq - corner * 0.84) * 30.0));
   }
   c *= mix(1.0, 1.0 - 0.85 * smoothstep(corner * 0.78, corner * 1.02, fq), k);
   var dust = 0.0;
   if (k > 0.0) { dust = opticDust(q) * k; }
   c = c * (1.0 - 0.12 * dust) + vec3f(0.003, 0.0031, 0.0036) * dust;
-  c = lookDisplay(pow(c, vec3f(1.0 / 2.2)), i.pos.xy);
+  c = lookDisplay(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy);
   c += (hash12(i.pos.xy + fract(post.time) * 91.7) - 0.5) / 255.0 * 2.0;
   return vec4f(sensor(c, i.pos.xy, k), 1.0);
 }
@@ -8711,14 +8713,14 @@ fn loupeScene(r: vec2f) -> vec3f {
   // the drought's dry floor and its rain, the frost's ice, the storm's waves, duckweed
   c = poolOver(c, wp, loupe.ppu, k, behind, surf.slope, litGain(lit, 0.0));
   c = extremes(c, wp, loupe.ppu, water, behind);
-  c = lookDisplay(pow(c, vec3f(1.0 / 2.2)), i.pos.xy);
+  c = lookDisplay(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy);
   let vign = smoothstep(1.0, 0.75, d);
   c *= mix(mix(0.55, 0.75, k), 1.0, vign);
   if (k > 0.0) {
     // glass: a soft glint toward the light, and a rim lit on its near side, shadowed on its far side
     let toward = dot(i.uv / max(d, 1e-4), TO_LIGHT);
     let g = i.uv - TO_LIGHT * 0.55;
-    let glint = exp(-dot(g, g) * 9.0) * 0.05 + exp(-pow((d - 0.9) * 22.0, 2.0)) * smoothstep(0.55, 0.95, toward) * 0.12;
+    let glint = exp(-dot(g, g) * 9.0) * 0.05 + exp(-sqr((d - 0.9) * 22.0)) * smoothstep(0.55, 0.95, toward) * 0.12;
     c += vec3f(0.95, 0.97, 1.0) * glint * k;
     c = sensor(c, i.pos.xy, k);
   }
@@ -8744,7 +8746,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   let hdr = lookScene(scene(i.uv), i.uv, vec3f(0.0), microView.ppu, microView.res) * post.exposure;
   var c = lookTone(hdr) + vec3f(0.006, 0.005, 0.012);
   c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0, 1.0);
-  return vec4f(lookGrade(pow(c, vec3f(1.0 / 2.2)), i.pos.xy), 1.0);
+  return vec4f(lookGrade(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy), 1.0);
 }
 `;
 
@@ -8802,7 +8804,8 @@ fn amp(c: u32, i: u32, j: u32) -> f32 {
   for (var s = 0u; s < ${SEA.systems.length}u; s++) {
     let kp = sea.sys[s].x;
     let sig = select(0.09, 0.07, k < kp);
-    let r = exp(-pow(sqrt(k / kp) - 1.0, 2.0) / (2.0 * sig * sig));
+    let e = sqrt(k / kp) - 1.0;
+    let r = exp(-e * e / (2.0 * sig * sig));
     phi += sea.sys[s].y * pow(k, -sea.wave.y) * exp(-1.25 * (kp / k) * (kp / k)) * pow(sea.wave.z, r) * pow(off, 2.0 * sea.sys[s].z);
   }
   let dk = TAU * TAU / (band.x * band.y);

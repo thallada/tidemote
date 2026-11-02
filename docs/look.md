@@ -161,8 +161,8 @@ baseline, under the sky (`pond.z`, darkness) and any duckweed, and the lamp (add
 bright, in log, from the open water's light (0) to a summer band's (1, `LIT_SPAN` 4.4 times it). A winter's bands
 reach only about a quarter of that, so they barely show, as they should; the lamp goes past 1, the shade below 0. The
 light multiplies the toned view (`litShow`, after the tone curve so it is not squeezed, rolling off toward white above
-`LIT_KNEE`) by `litGain`: strongly on what lies on the floor, stone and silt (`LIT_GROUND`, 0.65x out of the light to
-1.9x in a band), gently on the living (`LIT_CELL`, 0.92x to 1.12x), who keep their colors. The living are told from the
+`LIT_KNEE`) by `litGain`: more on what lies on the floor, stone and silt (`LIT_GROUND`, 0.85x out of the light to 1.3x
+in a band), barely on the living (`LIT_CELL`, 0.96x to 1.05x), who keep their colors. The living are told from the
 matter by their share of each pixel's light: the living's layer (`liveTex`), which the splat (sprites of a pixel or so,
 `splatMain`/`fsSplat`) fills too, with the living's own light kept in a fifth channel and laid there uncovered. The empty
 water shows the light most: the pond's floor, the murk behind the cells, glows golden where the light falls
@@ -191,7 +191,10 @@ dimmed and grayed the cells out of the light, and the worlds lost their color. S
 `metric3.py`: per pixel against the same world unlit, the living, the matter and the empty water apart, at summer's
 peak and in deep winter) leaves the living nearly alone and lets stone, silt and the floor carry the light: in a summer
 band against outside it, stone and silt 1.7-2.6x against 0.95x, the floor twice as bright, the living 1.1x against 1.0x;
-in winter a trace (stone and silt 1.1x against 0.92x).
+in winter a trace (stone and silt 1.1x against 0.92x). That was heavy-handed (the floor's glow a fog over the
+water, stone lit like a stage): the fourth halved it, in log (stone and silt 0.85x to 1.3x, the living 0.96x to 1.05x, the
+floor about one and a half times the first round's glow), so in a summer band stone and silt read 1.3-1.7x against 1.0x,
+the floor 13-15 against 8 (of 255), the living 1.07x: a subtle light, there when looked for.
 
 ## Left out
 
