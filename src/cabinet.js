@@ -61,7 +61,9 @@ function pngWithText(png, key, value) {
   chunk.set(body, 8);
   dv.setUint32(8 + body.length, crc(chunk.subarray(4, 8 + body.length)));
   const end = png.length - 12; // IEND is the last chunk, twelve bytes
-  return new Uint8Array([...png.subarray(0, end), ...chunk, ...png.subarray(end)]);
+  const out = new Uint8Array(png.length + chunk.length);
+  out.set(png.subarray(0, end)); out.set(chunk, end); out.set(png.subarray(end), end + chunk.length);
+  return out;
 }
 /** The value of a PNG's tEXt chunk key, or null. */
 export function pngText(png, key) {

@@ -14,12 +14,25 @@ export function seededRng(seed) {
   };
 }
 
+// a generator run to its end: what it returns
+export function finish(steps) {
+  let r;
+  do r = steps.next(); while (!r.done);
+  return r.value;
+}
+// rows of a gw-wide field that make a step's work (about 16k cells)
+const rowsPer = (gw) => Math.max(1, (16384 / gw) | 0);
+
 /**
  * Relief of a gw × gh torus: a sum of periodic waves with wavelengths from about `minL` to `maxL` world units (red:
  * long waves carry most of the height), its coordinates warped by a second such sum so basins and ridges are organic
  * rather than sinusoidal, then ranked into quantiles.
  */
-export function makeRelief(gw, gh, seed, { minL = 10, maxL = 70, modes = 28, warp = 6 } = {}) {
+export const makeRelief = (gw, gh, seed, opts) => finish(reliefSteps(gw, gh, seed, opts));
+
+/** makeRelief a step at a time (a wave, a band of rows): yields between them, returns the relief, so the work can be
+ * spread over frames (Engine.shiftFloor: a large world's floor took a frame of 40 to 80 ms). */
+export function* reliefSteps(gw, gh, seed, { minL = 10, maxL = 70, modes = 28, warp = 6 } = {}) {
   const rng = seededRng(seed ^ 0x9e3779b9);
   const waves = (n, lo, hi, pow) => Array.from({ length: n }, () => {
     const L = lo * (hi / lo) ** rng();
@@ -32,36 +45,45 @@ export function makeRelief(gw, gh, seed, { minL = 10, maxL = 70, modes = 28, war
   const H = waves(modes, minL, Math.min(maxL, Math.max(gw, gh)), 1.1);
   const WX = waves(6, minL * 1.5, maxL, 0.5), WY = waves(6, minL * 1.5, maxL, 0.5);
   // a sum of waves at the cell centers, separably: cos(ax x + ay y + ph) = cos(ax x) cos(ay y + ph) - sin(ax x) sin(ay y + ph)
-  const field = (ws) => {
+  const field = function* (ws) {
     const out = new Float32Array(gw * gh), norm = ws.reduce((a, w) => a + w.amp, 0);
     const cx = new Float32Array(gw), sx = new Float32Array(gw), cy = new Float32Array(gh), sy = new Float32Array(gh);
     for (const w of ws) {
       for (let x = 0; x < gw; x++) { cx[x] = Math.cos(w.ax * (x + 0.5)); sx[x] = Math.sin(w.ax * (x + 0.5)); }
       for (let y = 0; y < gh; y++) { cy[y] = Math.cos(w.ay * (y + 0.5) + w.ph) * w.amp / norm; sy[y] = Math.sin(w.ay * (y + 0.5) + w.ph) * w.amp / norm; }
       for (let y = 0; y < gh; y++) { const c = cy[y], sn = sy[y], row = y * gw; for (let x = 0; x < gw; x++) out[row + x] += cx[x] * c - sx[x] * sn; }
+      yield;
     }
     return out;
   };
-  const base = field(H), wx = field(WX), wy = field(WY);
+  const base = yield* field(H), wx = yield* field(WX), wy = yield* field(WY);
   // warped: each cell reads the smooth field at a displaced point (bilinear, across the wraps)
   const at = (x, y) => {
     const fx = Math.floor(x), fy = Math.floor(y), tx = x - fx, ty = y - fy;
     const x0 = ((fx % gw) + gw) % gw, y0 = ((fy % gh) + gh) % gh, x1 = (x0 + 1) % gw, y1 = (y0 + 1) % gh;
     return (base[y0 * gw + x0] * (1 - tx) + base[y0 * gw + x1] * tx) * (1 - ty) + (base[y1 * gw + x0] * (1 - tx) + base[y1 * gw + x1] * tx) * ty;
   };
-  const h = new Float32Array(gw * gh);
-  for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) { const i = y * gw + x; h[i] = at(x + warp * 2 * wx[i], y + warp * 2 * wy[i]); }
-  return rankField(h);
+  const h = new Float32Array(gw * gh), band = rowsPer(gw);
+  for (let y = 0; y < gh; y++) {
+    for (let x = 0; x < gw; x++) { const i = y * gw + x; h[i] = at(x + warp * 2 * wx[i], y + warp * 2 * wy[i]); }
+    if ((y + 1) % band === 0) yield;
+  }
+  return yield* rankSteps(h);
 }
 
 /** A field ranked into quantiles: each cell's share of the field lying lower than it. */
-export function rankField(h) {
-  const n = h.length, sorted = Float32Array.from(h).sort(), q = new Float32Array(n);
+export const rankField = (h) => finish(rankSteps(h));
+
+/** rankField a step at a time (the sort, then bands of cells). */
+export function* rankSteps(h) {
+  const n = h.length, sorted = Float32Array.from(h).sort(), q = new Float32Array(n), band = 16384;
+  yield;
   for (let i = 0; i < n; i++) {
     let lo = 0, hi = n;
     const v = h[i];
     while (lo < hi) { const m = (lo + hi) >> 1; if (sorted[m] < v) lo = m + 1; else hi = m; }
     q[i] = (lo + 0.5) / n;
+    if ((i + 1) % band === 0) yield;
   }
   return q;
 }

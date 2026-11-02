@@ -134,24 +134,33 @@ hunting in their shares, `dietMix`, in the diet colors), its diet and motion mar
 set lines (the genus, then the rest, each cut at its end, so every card's rows line up), and below it, in the strip,
 its diet and motion in words (a stranger: the water it came from), and in the cabinet how its species does here
 (*n alive*, kept current in place; *extinct here*; or *from* another water). The strip's count and Tip sit on the
-portrait; a phone's held strip has a flat one-row form. The portrait is a small JPEG (192 px), kept as an object
-URL by key (`setThumb`): a cabinet card's is the middle of its card's portrait, cut when it is saved and kept with the
-card (`thumb`; a card kept before cards had one: cut once from its PNG as the browser decodes it, then kept; a cut
-whose middle is dark water, `thumbSeen`, is kept as an empty thumb, a blank); a run in the pipette uses its card's
-unless blank, else (as a blank card in the cabinet does) its species is drawn alone, in a studio (`takeStudio`,
-`src/studio.js`), as it looks in the water: its largest body there (one readback of its cells, `bestMember`, as the
-species card's portrait and Find one look for it; `bodyPatch` in `src/trace.js`: up to `STUDIO_N` cells about the
-body's middle, where they lie), or, single-celled, a
-few of its densest crowd as they float; not in the water, the cells the pipette holds (its largest body, laid out by
-its bonds, `layOut`; else a few of its single cells; else, none held, a few newborns of its genome). The cells are set
-still in the close-up in place of the world (`eng.setStudio`, `specimen.studio`) and drawn as a body in the water is
-(`vsStudio`: each fused to its bonded partners, pressed flat against the cells it touches, a tight
-species' cells filling out to their walls as tissue, from the studio's own cells, their partners packed in `id`),
-framed to fill what a card shows of it (`SHOWN`). So a mat comes out a mat and a filament a filament, and the frame
-never misses its subject. Portraits from the world (a frame of the close-up aimed
-at its best member) were tried first and dropped: the subject had moved or been taken by the time the frame was
-drawn, and at some zooms the close-up drew a body's bonds without its cells. Portraits are drawn one a frame, only
-while no card's portrait is being taken, and each card takes its portrait in place when it comes. The strip shows
+portrait; a phone's held strip has a flat one-row form.
+
+**Portraits.** A species has one portrait, shown on its mini-card and, more of it, on its card. Its cells are drawn
+alone, in a studio (`takeStudio`, `src/studio.js`), as it looks in the water: its largest body there (one readback of
+its cells, `bestMember`, as Find one looks for it; `bodyPatch` in `src/trace.js`: up to `STUDIO_N` cells about the
+body's middle, where they lie), or, single-celled, a few of its densest crowd as they float; not in the water, the
+cells the pipette holds (its largest body, laid out by its bonds, `layOut`; else a few of its single cells; else, none
+held, a few newborns of its genome). The cells are set still in the close-up in place of the world (`eng.setStudio`,
+`specimen.studio`) and drawn as a body in the water is (`vsStudio`: each fused to its bonded partners, pressed flat
+against the cells it touches, a tight species' cells filling out to their walls as tissue, from the studio's own
+cells, their partners packed in `id`), framed to fill the middle a mini-card shows (`SHOWN`) of a 1280 px square. So a
+mat comes out a mat and a filament a filament, and the frame never misses its subject. The card shows the middle of
+the same square (`PORTRAIT_SHOWN` of its width, the portrait box's shape). Portraits from the world (a frame of the
+close-up aimed at its best member, the rest dimmed) were tried first and dropped: the subject had moved or been taken
+by the time the frame was drawn, at some zooms the close-up drew a body's bonds without its cells, and dimming the
+rest for that frame dimmed the whole view.
+
+The frame is drawn into a texture of its own and read back (`mapAsync`); a worker (`src/encode.js`, in memory) turns
+the pixels into the mini-card's JPEG (192 px, kept as an object URL by key, `setThumb`), the full JPEG and a bitmap
+for the card, so taking one holds no frame. A card's PNG is made there too (on the page's thread it held its frame
+for 50 to 100 ms, and anything the GPU's 2D canvas draws or scales held the GPU, and the world's frames, on first
+use). Portraits are kept by key: `s` and a serial for this world's species, `c` and a card's id for another world's
+(the last eight full ones; a card asked for after its picture went is taken again, its mini-card's with it). A card
+kept in the cabinet keeps its portrait (`thumb`, `portrait`), so its species' is the same when the page is opened
+again; another world's card shows its `thumb` (one cut from its PNG's portrait as it arrives), else, having come by
+its link alone, its species drawn alone from its genome. Portraits are drawn one a frame, and each card takes its
+portrait in place when it comes. The strip shows
 what is being drawn up as it comes in (the first cells' card within a frame or two of the press, a species joining
 the tip's run if of its kind), not when the draw is done; a species drawn up before the census ever counted it (a
 newborn mutant taken whole) is registered as the census would, and its run keeps that name.

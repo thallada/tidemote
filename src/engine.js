@@ -9,7 +9,7 @@ import {
 import { TIDE_PHASE } from './flow.js';
 import { SEA, SEA_N, SEA_CASCADES, seaLayout, seaScales } from './sea.js';
 import { seaTuneDefaults, seaSpecOf } from './seatune.js';
-import { makeRelief, rankField, makeIceOrder } from './geography.js';
+import { makeRelief, reliefSteps, rankSteps, makeIceOrder } from './geography.js';
 import { LOOK_WORDS } from './look.js';
 // where the post uniforms' hand words begin (struct Post: the lamp, the lens), after the sea's
 const POST_LAMP = 100 + 4 * SEA_CASCADES;
@@ -65,6 +65,8 @@ const COMPILE_COST = { lifeMain: 26, fsPoint: 15, 'fsPointLive+live': 13, fsComp
 
 // how long the sea's wind takes to turn toward the tide's drift (simulated seconds, its time constant)
 const SEA_WIND_EASE = 30;
+// how long a frame works out a new floor for (ms; shiftFloor)
+const FLOOR_MS = 2;
 
 // the real-time clock's period on the GPU (= SIM_WRAP in ANIM_WGSL, which the sway pass corrects for)
 const REAL_WRAP = 4096;
@@ -856,19 +858,29 @@ class Engine {
   /**
    * The floor shifts (moving geography, docs/catastrophes.md): toward the floor of epoch `k` (a share `drift` of it
    * redrawn from the seed and k), easing there over `secs` simulated seconds (stepFloor uploads it each frame
-   * the time moves, so the shore creeps rather than jumps).
+   * the time moves, so the shore creeps rather than jumps). The new floor is worked out a little each frame first
+   * (FLOOR_MS of stepFloor's): all at once, a large world's was a hitch as an era began.
    */
   shiftFloor(k, drift, secs = 120) {
     if (!this.relief || !(drift > 0)) return;
-    const [gw, gh] = this.grid;
-    if (!this.reliefBase || this.reliefBase.length !== gw * gh || this.reliefSeed !== this.seedValue) { this.reliefBase = makeRelief(gw, gh, this.seedValue); this.reliefSeed = this.seedValue; }
-    const a = this.reliefBase, b = makeRelief(gw, gh, (this.seedValue ^ Math.imul(k + 1, 0x9e3779b1)) >>> 0);
-    const to = rankField(a.map((x, i) => x * (1 - drift) + b[i] * drift));
-    this.floor = { from: this.relief.slice(), to, t0: this.simTime, secs, at: -Infinity };
+    const [gw, gh] = this.grid, seed = this.seedValue, eng = this;
+    const work = function* () {
+      if (!eng.reliefBase || eng.reliefBase.length !== gw * gh || eng.reliefSeed !== seed) { eng.reliefBase = yield* reliefSteps(gw, gh, seed); eng.reliefSeed = seed; }
+      const a = eng.reliefBase, b = yield* reliefSteps(gw, gh, (seed ^ Math.imul(k + 1, 0x9e3779b1)) >>> 0);
+      return yield* rankSteps(a.map((x, i) => x * (1 - drift) + b[i] * drift));
+    };
+    this.floor = { work: work(), secs, at: -Infinity };
   }
   stepFloor() {
     const f = this.floor;
     if (!f) return;
+    if (f.work) {
+      const end = performance.now() + FLOOR_MS;
+      let r;
+      do r = f.work.next(); while (!r.done && performance.now() < end);
+      if (!r.done) return;
+      Object.assign(f, { work: null, from: this.relief.slice(), to: r.value, t0: this.simTime });
+    }
     // under a full pool nothing reads or draws the floor: it takes its new shape at once. Easing, it is
     // uploaded (the whole field) four times a simulated second, creep enough for the shore
     const u = this.level < 1 ? Math.min(1, (this.simTime - f.t0) / f.secs) : 1;

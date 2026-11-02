@@ -25,7 +25,7 @@ import { startLoader } from './loader.js';
 import { Director } from './director.js';
 import { createChronicler, watchMap, durWords } from './chronicler.js';
 import { earned } from './achievements.js';
-import { createCards, strangerCard, PORTRAIT_BOX, CARD_SCALE } from './card.js';
+import { createCards, strangerCard, PORTRAIT_BOX, PORTRAIT_SHOWN, CARD_SCALE, CARD_W, CARD_H } from './card.js';
 import { createFilm } from './film.js';
 import { parseMind, interpretMind, settleMind } from './mind.js';
 import { createHand, REACH, reachStep, toolOf, TOOLS, works, INSTRUMENTS } from './hand.js';
@@ -33,7 +33,8 @@ import { createBench } from './bench.js';
 import { createLadder } from './ladder.js';
 import { createPipette, setDownJob, mergeJobs, bodiesOf, PIPE_LIMIT } from './pipette.js';
 import { miniCard, setThumb, hasThumb, dropThumb } from './minicard.js';
-import { layOut, frameCells, records, SHOWN } from './studio.js';
+import { layOut, frameCells, records } from './studio.js';
+import { encodeImages, encodeBytes } from './encode.js';
 import { createCabinetStore, encodeCard, decodeCard, cardLink, cardFromHash, cardFromPng, cardIntoPng } from './cabinet.js';
 import { fmt, fmtClock, fmtDur, esc, cssCol, clamp, term, spLink, saveFile, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
 
@@ -519,7 +520,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     hand.reset(life.hand);
     pipette = createPipette(life.pipette);
     // (serials start again: this world's species' portraits and names drawn up go)
-    dropThumb('s', true); thumbQ.clear(); drawnNames.clear();
+    dropPortraits(); drawnNames.clear();
     eng.setDrawn([]);
     Object.assign(pull, { on: false, until: 0, got: [] }); pull.drawn.clear(); pull.taken.clear();
     spit.on = false;
@@ -661,8 +662,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const st = await eng.readState();
     const bytes = await encodeWorld({ meta, cpu: st.cpu, ...compactState(st), page });
     // in the desktop app, a picture of the view for the Workshop
-    const preview = desk ? await takeView().then((cv) => cv && new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.88))).then((b) => b && b.arrayBuffer()).catch(() => null) : null;
-    await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes, preview ? new Uint8Array(preview) : undefined);
+    const preview = desk ? await takeView().then((px) => px && encodeBytes(px, 'image/jpeg', 0.88)).catch(() => null) : null;
+    await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes, preview || undefined);
   }
   // a world as file bytes, read and checked before the one running is touched
   async function openWorld(bytes) {
@@ -1693,86 +1694,51 @@ function run(eng, device, ctx, specCtx, hasTS) {
     onSave: () => { const serial = viewedSerial(); if (serial != null) saveCard(serial); },
   });
 
-  // ------------------------------------------------------------ species cards
-  // A card's portrait: one frame of the close-up renderer (the specimen viewer's), aimed at the
-  // species' largest body or densest crowd, read back from an offscreen texture.
-  let portraitJob = null, portraitHold = false;
-  const PORTRAIT = 1024, THUMB = 192; // a row of their pixels a multiple of 256 bytes, as a texture copy needs
-  async function takePortrait(serial) {
-    const sp = life.reg.get(serial);
-    if (!sp || !sp.alive) return null;
-    portraitHold = true;
-    setTimeout(() => { if (!portraitJob) portraitHold = false; }, 5000);
-    const m = await bestMember(sp).catch(() => null);
-    if (!m) { portraitHold = false; return null; }
-    const { best, cx, cy } = m;
-    // a body fills most of the frame; free cells show a dozen or so across
-    const span = clamp(m.span * 2.6 + 0.6, 1.6, 9);
-    if (portraitJob) portraitJob.resolve(null);
-    // the subject's reach from the center, as a share of the frame's half-width (the card brackets it)
-    const subject = clamp(((m.body ? m.span : 0) + 0.12 * sp.genome.size + 0.08) / (span / 2), 0.08, 0.95);
-    return new Promise((resolve) => { portraitJob = { slot: sp.slot, cx, cy, vx: m.body ? 0 : best.vx, vy: m.body ? 0 : best.vy, t: m.simTime, size: PORTRAIT, ppu: PORTRAIT / span, subject, resolve, at: performance.now() }; });
-  }
-  // A mini-card's portrait, drawn alone (the studio, src/studio.js): its species' cells (genome words; cells
-  // [{ e, a, col, info, partners }]) laid out still in the close-up in place of the world, framed to fill what the
-  // card shows, so it never misses its subject, wherever (or whether) the species is in the water.
+  // ------------------------------------------------------------ portraits
+  // A species' portrait, one for each, on its mini-card and (more of it) its card: its cells drawn alone in the
+  // close-up, in place of the world (the studio, src/studio.js), framed to fill what a mini-card shows, so it never
+  // misses its subject, wherever (or whether) the species is in the water. A frame of the close-up draws it into a
+  // texture of its own, read back as pixels ({ data, w, h, bgra }: encode.js makes them pictures, off this thread).
+  let portraitJob = null;
+  const PORTRAIT = 1280, THUMB = 192; // (a row of a portrait's pixels a multiple of 256 bytes, as a texture copy needs)
+  // its species' cells (genome words; cells [{ e, a, col, info, partners }]) laid out still: its pixels
   // (cells with a place, at: [x, y], as they lay in the water, keep it; the rest are laid out by their bonds)
   function takeStudio(words, cells) {
     const g = genomeOfWords(words), r = cells.map((c) => cellRadius({ role: (c.info >> 4) & 3 }, g, 1));
-    const pos = cells[0]?.at ? cells.map((c) => c.at) : layOut(cells.map((c, i) => ({ r: r[i], partners: c.partners }))), f = frameCells(pos, r, THUMB);
+    const pos = cells[0]?.at ? cells.map((c) => c.at) : layOut(cells.map((c, i) => ({ r: r[i], partners: c.partners }))), f = frameCells(pos, r, PORTRAIT);
     const [W, H] = eng.grid;
     eng.setStudio(records(cells, pos, [W / 2 - f.cx, H / 2 - f.cy]), cells.length, Uint32Array.from(words));
     if (portraitJob) portraitJob.resolve(null);
-    return new Promise((resolve) => { portraitJob = { studio: true, slot: null, cx: W / 2, cy: H / 2, vx: 0, vy: 0, t: eng.simTime, size: THUMB, ppu: f.ppu, resolve, at: performance.now() }; });
+    return new Promise((resolve) => { portraitJob = { studio: true, cx: W / 2, cy: H / 2, size: PORTRAIT, ppu: f.ppu, resolve, at: performance.now() }; });
   }
-  // A picture of what the view shows (the screen's shorter side, square), nothing lit: a save's preview.
+  // A picture of what the view shows (the screen's shorter side, square): a save's preview.
   function takeView() {
     if (portraitJob) portraitJob.resolve(null);
-    portraitHold = true;
     const span = Math.min(innerWidth, innerHeight) / cssPPU();
-    return new Promise((resolve) => { portraitJob = { slot: null, cx: cam.x, cy: cam.y, vx: 0, vy: 0, t: eng.simTime, size: PORTRAIT, ppu: PORTRAIT / span, resolve, at: performance.now() }; });
+    return new Promise((resolve) => { portraitJob = { cx: cam.x, cy: cam.y, size: PORTRAIT, ppu: PORTRAIT / span, resolve, at: performance.now() }; });
   }
   // the job's frame: drawn in place of the close-up (the frame loop), then copied out once the GPU is done
   function portraitParams() {
     const j = portraitJob;
     if (!j || j.drawn) return null;
-    if (performance.now() - j.at > 4000) { portraitJob = null; portraitHold = false; j.resolve(null); return null; }
-    j.tex ??= device.createTexture({ size: [j.size, j.size], format: eng.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
-    const dt = Math.min(2, Math.max(0, eng.simTime - j.t));
-    const [W, H] = eng.grid;
+    if (performance.now() - j.at > 4000) { portraitJob = null; j.resolve(null); return null; }
+    j.tex = device.createTexture({ size: [j.size, j.size], format: eng.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
     j.drawn = true;
-    // its kind lit, the rest dimmed (the highlight), for this frame only: the viewer's own comes back after it
-    if (j.slot != null) {
-      const kinds = new Uint32Array(MAXK / 32);
-      kinds[j.slot >> 5] |= (1 << (j.slot & 31)) >>> 0;
-      eng.setFocus({ kinds, mute: 0.09 });
-      j.relight = true;
-    }
-    return { target: j.tex.createView(), w: j.size, h: j.size, cx: ((j.cx + j.vx * dt) % W + W) % W, cy: ((j.cy + j.vy * dt) % H + H) % H, ppu: j.ppu, dpr: 1, studio: !!j.studio };
+    return { target: j.tex.createView(), w: j.size, h: j.size, cx: j.cx, cy: j.cy, ppu: j.ppu, dpr: 1, studio: !!j.studio };
   }
   async function readPortrait() {
     const j = portraitJob;
-    if (!j || !j.drawn || j.reading) return;
-    j.reading = true;
-    const d = device, S = j.size, row = S * 4;
-    const buf = d.createBuffer({ size: row * S, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-    const enc = d.createCommandEncoder();
+    portraitJob = null;
+    const S = j.size, row = S * 4, buf = device.createBuffer({ size: row * S, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const enc = device.createCommandEncoder();
     enc.copyTextureToBuffer({ texture: j.tex }, { buffer: buf, bytesPerRow: row }, [S, S]);
-    d.queue.submit([enc.finish()]);
+    device.queue.submit([enc.finish()]);
     try {
       await buf.mapAsync(GPUMapMode.READ);
-      const px = new Uint8ClampedArray(buf.getMappedRange().slice(0));
+      j.resolve({ data: buf.getMappedRange().slice(0), w: S, h: S, bgra: eng.format.startsWith('bgra') });
       buf.unmap();
-      if (eng.format.startsWith('bgra')) for (let i = 0; i < px.length; i += 4) { const b = px[i]; px[i] = px[i + 2]; px[i + 2] = b; }
-      for (let i = 3; i < px.length; i += 4) px[i] = 255;
-      const cv = document.createElement('canvas');
-      cv.width = cv.height = S;
-      cv.getContext('2d').putImageData(new ImageData(px, S, S), 0, 0);
-      cv.subject = j.subject;
-      j.resolve(cv);
     } catch { j.resolve(null); }
     buf.destroy(); j.tex.destroy();
-    if (portraitJob === j) { portraitJob = null; portraitHold = false; }
   }
   // a name of the viewer's own (cleared: its own again); the log's older entries follow (relabel)
   function renameSpecies(serial, name) {
@@ -1809,9 +1775,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   // the card as a PNG that carries its genome
   async function cardPng(cv, serial) {
-    const blob = await new Promise((res) => cv.toBlob(res, 'image/png'));
-    if (!blob) return null;
-    return new Blob([cardIntoPng(new Uint8Array(await blob.arrayBuffer()), carry(serial).bytes)], { type: 'image/png' });
+    const png = await encodeBytes(cv, 'image/png').catch(() => null);
+    return png && new Blob([cardIntoPng(png, carry(serial).bytes)], { type: 'image/png' });
   }
   // (quiet: one of many, the cabinet drawn once they are all in)
   async function keepCard(card, quiet = false) {
@@ -1819,62 +1784,54 @@ function run(eng, device, ctx, specCtx, hasTS) {
     cabinet.cards = [...cabinet.cards.filter((c) => c.id !== card.id), card];
     if (!quiet) lab.render(true);
   }
-  // ---- mini-card portraits (minicard.js): a cabinet card's is the middle of its card's portrait, cut when it is saved
-  // (a card kept before cards had them: from its PNG, once, then kept with it); a species with no card, or whose
-  // card's middle shows nothing (an empty Uint8Array kept as its thumb), is drawn alone (takeStudio), one at a time
-  const THUMB_CROP = [PORTRAIT_BOX.x + PORTRAIT_BOX.w / 2 - 150, PORTRAIT_BOX.y + PORTRAIT_BOX.h / 2 - 150, 300, 300].map((v) => v * CARD_SCALE);
-  // src (a canvas or an image) cut to crop ([x, y, w, h], else all of it): a small JPEG's bytes, or (check) none
-  // (empty) where a mini-card shows it is dark water
-  async function thumbBytes(src, crop = [0, 0, src.width, src.height], check = true) {
-    const cv = document.createElement('canvas');
-    cv.width = cv.height = THUMB;
-    cv.getContext('2d', { willReadFrequently: true }).drawImage(src, ...crop, 0, 0, THUMB, THUMB);
-    if (check && !thumbSeen(cv)) return new Uint8Array(0);
-    const blob = await new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.82));
-    if (!blob) throw new Error('no thumb');
-    return new Uint8Array(await blob.arrayBuffer());
+  // ---- each species' portrait, by key ('s' + its serial, of this world's; 'c' + a card's id, of another world's):
+  // its mini-card's (a small JPEG, minicard.js), shown when it comes, and the picture itself for its card (the last
+  // FULL_KEEP, with both as JPEGs). A card in the cabinet keeps both (thumb, portrait), so its species' is the same
+  // when the page is opened again; another world's card keeps its thumb, else (a card that came by its link alone)
+  // its species is drawn alone from its genome
+  const FULL_KEEP = 8, fulls = new Map(); // key -> { bmp (ImageBitmap), thumb, full (JPEG bytes) }
+  const portraitQ = new Map(); // key -> { words, serial, stored, wait: [resolve], tries }
+  let portraitBusy = false, portraitGen = 0;
+  // a portrait asked for (words: the genome's; serial: its species of this world; stored: a card's kept portrait,
+  // JPEG bytes): its mini-card's shown when it comes; resolves to the picture (full: taken again if only the
+  // mini-card's is kept) or null
+  function portrait(key, words, serial = null, full = false, stored = null) {
+    if (fulls.has(key) || (!full && hasThumb(key))) return Promise.resolve(fulls.get(key)?.bmp ?? null);
+    const w = ask(key, words, serial, stored);
+    return new Promise((r) => w.wait.push(r));
   }
-  // (cut by the browser as it decodes, off the page's thread)
-  async function pngThumb(png) {
-    const bmp = await createImageBitmap(new Blob([png], { type: 'image/png' }), ...THUMB_CROP, { resizeWidth: THUMB, resizeHeight: THUMB, resizeQuality: 'medium' });
-    try { return await thumbBytes(bmp); } finally { bmp.close(); }
+  function ask(key, words, serial = null, stored = null) {
+    let w = portraitQ.get(key);
+    if (!w) { portraitQ.set(key, (w = { words, serial, stored, wait: [], tries: 0 })); setTimeout(pumpPortraits, 0); }
+    return w;
   }
-  // a cabinet card's portrait key, its portrait shown (or, missing, cut from its PNG soon)
-  const backfill = [], triedThumb = new WeakSet(); // (a PNG that cannot be cut is tried once)
-  const blank = (c) => !!c.thumb && !c.thumb.length; // (its card's middle shows nothing)
-  function cardThumb(c) {
+  // this world's species' (its card's kept one, if it has a card): the picture, for its card
+  const speciesPortrait = (serial) => portrait(`s${serial}`, carry(serial).words, serial, true, savedCard(serial)?.portrait);
+  // and the key of its mini-card's
+  function speciesThumb(serial, words) {
+    const key = `s${serial}`;
+    if (!hasThumb(key)) ask(key, words, serial, savedCard(serial)?.portrait);
+    return key;
+  }
+  // a cabinet card's portrait key: its species', of this world; else its own
+  function cabThumb(c) {
+    if (c.world === worldId()) return speciesThumb(c.serial, c.words);
     const key = `c${c.id}`;
-    if (c.thumb?.length) { if (!hasThumb(key)) setThumb(key, c.thumb); } else if (!c.thumb && c.png && !triedThumb.has(c)) { triedThumb.add(c); backfill.push(c); if (backfill.length === 1) setTimeout(fillThumbs, 400); }
+    if (!hasThumb(key)) { if (c.thumb?.length) setThumb(key, c.thumb); else ask(key, c.words); }
     return key;
   }
-  // a cabinet card's portrait key: its card's, else (its middle blank) its species drawn alone
-  const cabThumb = (c) => (!blank(c) ? cardThumb(c) : c.world === worldId() ? studioThumb(`s${c.serial}`, c.words, c.serial) : studioThumb(`g${c.id}`, c.words));
-  async function fillThumbs() {
-    const c = backfill[0];
-    if (!c) return;
-    const thumb = await pngThumb(c.png).catch(() => null);
-    if (thumb && cabinet.cards.includes(c)) {
-      c.thumb = thumb;
-      cabinet.store.put(c).catch(() => {});
-      if (thumb.length) setThumb(`c${c.id}`, thumb);
-      // (blank: the cards that showed it look for their species' own)
-      else { lab.render(true); bench.render(); }
-    }
-    backfill.shift();
-    if (backfill.length) setTimeout(fillThumbs, 120);
+  // a card's PNG's portrait, as a mini-card's (the square the card shows the middle of, cut by the browser as it
+  // decodes, off the page's thread)
+  const PORTRAIT_CUT = (() => { const { x, y, w, h } = PORTRAIT_BOX, side = w / PORTRAIT_SHOWN; return [x + w / 2 - side / 2, y + h / 2 - side / 2, side, side].map((v) => v * CARD_SCALE); })();
+  async function pngThumb(png) {
+    const bmp = await createImageBitmap(new Blob([png], { type: 'image/png' }), ...PORTRAIT_CUT, { resizeWidth: THUMB, resizeHeight: THUMB, resizeQuality: 'high' });
+    try { return await encodeBytes(bmp, 'image/jpeg', 0.82); } finally { bmp.close(); }
   }
-  // A pipette run's portrait key: its card's, else its species drawn alone
+  // a pipette run's: its species', else (a stranger) its card's
   function pipThumb(sp) {
+    if (!sp.stranger) return speciesThumb(sp.serial, sp.words);
     const c = pipCard(sp);
-    if (c && !blank(c)) return cardThumb(c);
-    return sp.stranger ? (c ? studioThumb(`g${c.id}`, c.words) : '') : studioThumb(`s${sp.serial}`, sp.words, sp.serial);
-  }
-  // a portrait drawn alone, asked for (key; the genome's words; serial: its species of this world), its key
-  const thumbQ = new Map(); // key -> { words, serial, tries }
-  let thumbBusy = false;
-  function studioThumb(key, words, serial = null) {
-    if (!hasThumb(key) && !thumbQ.has(key)) { thumbQ.set(key, { words, serial, tries: 0 }); setTimeout(pumpThumbs, 0); }
-    return key;
+    return c ? cabThumb(c) : '';
   }
   // What a species' portrait shows, as it looks in the water: its largest body there (a patch of STUDIO_N of its
   // cells about the body's middle, as they lie), or, single-celled, a few of its densest crowd as they float; null
@@ -1905,59 +1862,78 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const [e, col, info] = newborn({ words });
     return Array.from({ length: 5 }, () => ({ e, a: 0, col, info, partners: [] }));
   }
-  // whether a portrait shows something where a mini-card shows it (its middle, as wide as a plate shows): lit pixels
-  // over a share of it (a subject gone or moved off between finding it and drawing it leaves dark water)
-  function thumbSeen(cv) {
-    const S = cv.width, w = Math.round(S * SHOWN[0]), h = Math.round(S * SHOWN[1]);
-    const px = cv.getContext('2d', { willReadFrequently: true }).getImageData((S - w) >> 1, (S - h) >> 1, w, h).data;
-    let lit = 0;
-    for (let i = 0; i < px.length; i += 4) if (Math.max(px[i], px[i + 1], px[i + 2]) > 80) lit++;
-    return lit > 0.03 * w * h;
-  }
-  // one at a time (a frame each), while no card is being portrayed; a few tries each (a card's portrait asked for
-  // first takes its frame)
-  async function pumpThumbs() {
-    if (thumbBusy || !thumbQ.size) return;
-    // (a pick of the pointer's or the selection's under way: after it)
-    if (portraitJob || portraitHold || eng.pickReq || state.phase !== 'running') { setTimeout(pumpThumbs, 300); return; }
-    const [key, w] = thumbQ.entries().next().value;
-    thumbQ.delete(key);
-    if (!hasThumb(key)) {
-      thumbBusy = true;
-      // (as it looks in the water, where it lives; else from what is to hand)
-      const seen = w.serial != null ? await worldCells(w.serial).catch(() => null) : null;
-      const cv = portraitJob ? null : await takeStudio(w.words, seen || heldCells(w.words, w.serial)).catch(() => null);
-      const bytes = cv && await thumbBytes(cv, undefined, false).catch(() => null);
-      thumbBusy = false;
-      if (bytes?.length) setThumb(key, bytes);
-      else if (++w.tries < 3) thumbQ.set(key, w);
+  // one at a time (a frame each), a few tries each
+  async function pumpPortraits() {
+    if (portraitBusy || !portraitQ.size) return;
+    // (a pick of the pointer's or the selection's under way, or a view being taken: after it)
+    if (portraitJob || eng.pickReq || state.phase !== 'running') { setTimeout(pumpPortraits, 300); return; }
+    const [key, w] = portraitQ.entries().next().value, gen = portraitGen;
+    portraitBusy = true;
+    let p = null;
+    try {
+      const bytes = async (b) => new Uint8Array(await b.arrayBuffer());
+      const thumbOut = { type: 'image/jpeg', quality: 0.82, size: THUMB };
+      if (w.stored) {
+        const { files, bitmap } = await encodeImages(await createImageBitmap(new Blob([w.stored], { type: 'image/jpeg' })), [thumbOut], true);
+        p = { bmp: bitmap, thumb: await bytes(files[0]), full: w.stored };
+      } else {
+        // (as it looks in the water, where it lives; else from what is to hand)
+        const seen = w.serial != null ? await worldCells(w.serial).catch(() => null) : null;
+        const px = !portraitJob && gen === portraitGen ? await takeStudio(w.words, seen || heldCells(w.words, w.serial)) : null;
+        const got = px && await encodeImages(px, [thumbOut, { type: 'image/jpeg', quality: 0.85 }], true);
+        if (got) p = { bmp: got.bitmap, thumb: await bytes(got.files[0]), full: await bytes(got.files[1]) };
+      }
+    } catch { p = null; }
+    portraitBusy = false;
+    if (gen === portraitGen && portraitQ.get(key) === w) {
+      portraitQ.delete(key);
+      if (p) {
+        setThumb(key, p.thumb);
+        fulls.delete(key); fulls.set(key, p);
+        if (fulls.size > FULL_KEEP) fulls.delete(fulls.keys().next().value);
+        for (const r of w.wait) r(p.bmp);
+      } else if (++w.tries < 3 && !w.stored) portraitQ.set(key, w);
+      else if (w.stored) { w.stored = null; portraitQ.set(key, w); } // (a kept one that cannot be read: one taken)
+      else for (const r of w.wait) r(null);
     }
-    setTimeout(pumpThumbs, 30);
+    setTimeout(pumpPortraits, 30);
+  }
+  // a new world reuses serials: its species' portraits go
+  function dropPortraits() {
+    portraitGen++;
+    dropThumb('s', true);
+    for (const [key, w] of portraitQ) if (key[0] === 's') { portraitQ.delete(key); for (const r of w.wait) r(null); }
+    for (const key of fulls.keys()) if (key[0] === 's') fulls.delete(key);
   }
   // how a cabinet card's species does here
   const cardStatus = (c) => { const sp = c.world === worldId() && life.reg.get(c.serial); return c.world !== worldId() ? ['from', c.home] : sp?.alive ? ['live', sp.pop] : ['gone']; };
 
   // Save: the card drawn, kept, and seen to go: it presents itself at the center for a beat, then shrinks to the
-  // Field Lab's edge, where the Lab's button (or its Cabinet tab) flashes
-  async function saveCard(serial, cv, quiet = false) {
+  // Field Lab's edge, where the Lab's button (or its Cabinet tab) flashes. It keeps its species' portrait with it.
+  async function saveCard(serial, quiet = false) {
     const sp = life.reg.get(serial);
     if (!sp || savedCard(serial)) return;
     if (!quiet) flash('Drawing its card…');
-    cv ??= await cards.render(serial);
+    const cv = await cards.render(serial), p = fulls.get(`s${serial}`);
+    // (a frame between drawing it and reading it, so the two are not one long task)
+    await new Promise(requestAnimationFrame);
     const blob = cv && await cardPng(cv, serial);
     if (!blob) { flash('Could not draw its card'); return; }
-    const c = carry(serial), thumb = await thumbBytes(cv, THUMB_CROP).catch(() => null);
+    const c = carry(serial);
     await keepCard({ id: newKey('c'), serial, name: sp.name, words: c.words, home: c.home, world: worldId(),
-      savedAt: Date.now(), touched: c.touched, png: new Uint8Array(await blob.arrayBuffer()), thumb }, quiet);
+      savedAt: Date.now(), touched: c.touched, png: new Uint8Array(await blob.arrayBuffer()), thumb: p?.thumb ?? null, portrait: p?.full ?? null }, quiet);
     if (quiet) return;
-    flyCard(blob); flash(`${sp.name} is in the cabinet`);
+    flyCard(cv); flash(`${sp.name} is in the cabinet`);
     cards.refresh();
     dirty = true;
   }
-  function flyCard(blob) {
-    const img = document.createElement('img'), url = URL.createObjectURL(blob);
+  // (drawn small on a canvas of its own, in memory as the card is: no image of the whole card to decode as it first
+  // shows, and no first raster on the GPU, which held the world's frames)
+  function flyCard(cv) {
+    const img = document.createElement('canvas');
+    img.width = CARD_W; img.height = CARD_H;
+    img.getContext('2d', { willReadFrequently: true }).drawImage(cv, 0, 0, CARD_W, CARD_H);
     img.className = 'card-fly';
-    img.src = url;
     document.body.append(img);
     const to = lab.isOpen() && !phone() ? $('lab').getBoundingClientRect() : $('lab-open').getBoundingClientRect();
     const tx = phone() ? to.left + to.width / 2 : to.right - 30, ty = phone() ? to.top : Math.min(innerHeight - 120, to.top + 140);
@@ -1967,7 +1943,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       { transform: 'translate(-50%, -50%) scale(1)', opacity: 1, offset: 0.6 },
       { transform: `translate(calc(-50% + ${tx - innerWidth / 2}px), calc(-50% + ${ty - innerHeight / 2}px)) scale(0.08)`, opacity: 0.4 },
     ], { duration: 1500, easing: 'cubic-bezier(.4,0,.2,1)' }).finished.then(() => {
-      img.remove(); URL.revokeObjectURL(url);
+      img.remove();
       const target = lab.isOpen() ? document.querySelector('#lab-tabs [data-tab="cabinet"]') : $('lab-open');
       target?.animate([{ boxShadow: 'inset 0 -2px 0 #f1e3a0', color: '#f1e3a0' }, { boxShadow: 'none' }], { duration: 900 });
     });
@@ -2001,10 +1977,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     try { c = decodeCard(bytes); } catch (e) { flash(e.message); return; }
     const dup = cabinet.cards.find((x) => x.words.every((w, i) => w === c.words[i]));
     if (dup) { flash(`${dup.name} is already in the cabinet`); showInCabinet(dup); return; }
-    // (a card that came by its link alone is drawn here, from its genome)
+    // its mini-card's portrait cut from its card's; a card that came by its link alone is drawn here, from its
+    // genome, without one (its species drawn alone stands in)
+    const thumb = png && await pngThumb(png).catch(() => null);
     png ??= await strangerPng(bytes).catch(() => null);
     await keepCard({ id: newKey('c'), serial: 0, name: c.name, words: c.words, home: c.home, world: null,
-      savedAt: Date.now(), touched: c.touched, png, thumb: png && await pngThumb(png).catch(() => null) });
+      savedAt: Date.now(), touched: c.touched, png, thumb });
     lab.open('cabinet');
     flash(`${c.name}, from ${c.home}, is in the cabinet`);
   }
@@ -2022,7 +2000,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   const cards = createCards({
     life: () => life, K, chron, eng, flash,
-    portrait: takePortrait, rename: renameSpecies,
+    portrait: speciesPortrait, portrayed: (serial) => fulls.has(`s${serial}`), rename: renameSpecies,
     songClip: (g) => songClip(g, { seed: climate.music, era: climate.name }),
     carry, saved: savedCard, world: worldId, png: cardPng,
     save: saveCard,
@@ -2665,7 +2643,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   const bench = createBench({ hand, pick: pickTool, reach: setReach, size: reachOf, onToggle: (on) => { if (on && phone()) { view.toggle(false); lab.close(); } },
     pip: {
-      view: () => ({ count: pipette.count + pull.got.length, limit: PIPE_LIMIT, armed: pull.armed, keys: pipRuns().map((r) => { const c = pipCard(r.sp); return r.key + (c ? (blank(c) ? '!*' : '*') : ''); }), held: runs.map((r) => r.held), mixed: pipette.mixed }),
+      view: () => ({ count: pipette.count + pull.got.length, limit: PIPE_LIMIT, armed: pull.armed, keys: pipRuns().map((r) => { const c = pipCard(r.sp); return r.key + (c ? '*' : ''); }), held: runs.map((r) => r.held), mixed: pipette.mixed }),
       // (after view, its runs)
       cards: (flat) => runs.map(({ sp, held: [n, bodies], key }, i) => miniCard(genomeOfWords(sp.words), K, { gid: sp.words.join(), key, name: (!sp.stranger && life.reg.get(sp.serial)?.name) || sp.name, home: sp.home || '',
         n, bodies, tip: i === 0, flat, kept: !!pipCard(sp), thumb: pipThumb(sp) })).join(''),
@@ -2696,7 +2674,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const btn = $('pip-keep');
     btn.disabled = true;
     try {
-      for (const [i, sp] of todo.entries()) { btn.textContent = `Saving ${i + 1} / ${todo.length}`; await saveCard(sp.serial, undefined, true); }
+      for (const [i, sp] of todo.entries()) { btn.textContent = `Saving ${i + 1} / ${todo.length}`; await saveCard(sp.serial, true); }
     } finally {
       btn.disabled = false;
       btn.textContent = 'Save all';
@@ -4524,15 +4502,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
       perf.gpuHeld = false;
       perf.lastSubmit = now;
       eng.season = seasonAt(eng.simTime);
-      // a species card's portrait holds the world still between finding its subject and drawing it
-      const step = (!portraitHold && plan(now)) || { steps: 0, dt: H };
+      const step = plan(now) || { steps: 0, dt: H };
       // the census (naming and lineage) at most about five times a real second, however fast the world runs
       eng.censusEvery = Math.max(20, Math.round((step.steps * 1000) / frameTarget() / 5));
       // Coarse steps drawn every frame are drawn in between (LERP_WGSL): one step behind, part way along the
       // last step, as far as the time owed to the clock has reached into the next one, or at Fast (paced by
       // the GPU, not the clock) the share of the next step the frame's budget has already earned.
       if (step.steps > 0) { perf.lerpDt = step.dt; perf.lerpTicks = Math.round(step.dt * 60); }
-      const lerpOn = !state.paused && !portraitHold && state.phase === 'running' && perf.lerpTicks > 1
+      const lerpOn = !state.paused && state.phase === 'running' && perf.lerpTicks > 1
         && (state.speed === Infinity ? fastMode : !perf.held);
       eng.lerp = lerpOn ? clamp(state.speed === Infinity ? perf.stepCredit : clock.owed / perf.lerpDt, 0, 1) : null;
       // (the moment the frame shows: behind the steps' end when drawn in between)
@@ -4586,7 +4563,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       specimen.drawViewerUI(now);
       specimen.mindTick(now);
       // Max and coarse speeds draw the world only when due (step.world), carrying it with the camera between
-      const hold = (state.speed === Infinity || perf.held) && !state.paused && !portraitHold && state.phase === 'running' ? !!step.world : null;
+      const hold = (state.speed === Infinity || perf.held) && !state.paused && state.phase === 'running' ? !!step.world : null;
       if (hold !== false) perf.worldFrames++;
       eng.frame({
         target: ctx.getCurrentTexture().createView(),
@@ -4599,13 +4576,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
         selId: sel ? sel.id : NONE,
         loupe: L ? { x: L.sx * dpr, y: L.sy * dpr, r: L.R * dpr, ppu: L.cssPPU * dpr, cx: L.cx, cy: L.cy } : null,
         // the close-up only when the world is drawn: a canvas not given a new texture keeps its last image
-        // (a species card's portrait takes the close-up's place for one frame)
+        // (a portrait takes the close-up's place for one frame)
         specimen: hold === false ? null : portraitParams() || specimenParams(),
         hold,
       });
       // (the needle and the rod sweep from here on)
       if (step.steps && !state.paused) hand.stepped();
-      if (portraitJob && portraitJob.drawn) { if (portraitJob.relight) { portraitJob.relight = false; pushFocus(); } readPortrait(); }
+      if (portraitJob?.drawn) readPortrait();
       // a film copies the world's canvas while its texture is current
       film.frame();
       inflight++;

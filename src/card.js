@@ -1,6 +1,6 @@
 // Species cards (docs/next-level-2026-10-20.md §4.5): the unit of sharing. One species on one canvas, laid out
-// as a trading card: its portrait (a close-up of a living member, drawn by the engine as the specimen viewer draws
-// one), its sigil (its song drawn), its numbers, its body, diet and thermal niche as gauges, and the chronicler's
+// as a trading card: its portrait (its mini-card's, its cells drawn alone by the engine as a body in the water is,
+// src/studio.js), its sigil (its song drawn), its numbers, its body, diet and thermal niche as gauges, and the chronicler's
 // latest sentence about it. Saved as a PNG, with a clip of its song as
 // a WAV (sound.js songClip). The viewer may give the species a name of their own here; it is kept in
 // the registry, so saved worlds keep it, and the log and the panels use it from then on.
@@ -17,8 +17,10 @@ import { qr } from './qr.js';
 
 export const CARD_W = 660, CARD_H = 1050; // about a bridge card's shape
 export const CARD_SCALE = 2; // drawn (and saved) at twice that, for sharp text
-// where a card's portrait is (card units): its middle square is a mini-card's portrait (main.js THUMB_CROP)
+// where a card's portrait is (card units), and how much of the portrait (a square, its subject framed in the middle
+// that a mini-card shows: studio.js SHOWN) it shows across, the middle of it
 export const PORTRAIT_BOX = { x: 30, y: 118, w: 600, h: 340 };
+export const PORTRAIT_SHOWN = 0.78;
 
 // a gauge's share of its range: where v lies between lo and hi (on a log scale if log)
 const share = (v, lo, hi, log = false) => Math.max(0, Math.min(1, log ? Math.log(v / lo) / Math.log(hi / lo) : (v - lo) / (hi - lo)));
@@ -106,12 +108,10 @@ const fit = (ctx, text, w) => { if (ctx.measureText(text).width <= w) return tex
 
 /**
  * Draw a card (cardData's d) at CARD_W × CARD_H on ctx, shaped and laid out like a trading card: its name banner
- * with its numbers alive in the corner, its portrait large (its own cells lit, the rest dimmed) with its sigil
- * inset, what it is in three words, its record in big figures over its numbers through its life, its body and its
+ * with its numbers alive in the corner, its portrait large with its sigil inset, what it is in three words, its record in big figures over its numbers through its life, its body and its
  * diet as gauges, the water it likes on a thermometer, and at its foot the chronicler's latest word and the QR
  * code that carries it to any world. Every word at least 17 units tall, so it reads at a third of its size.
- * art: { portrait (a square image or canvas, or null; .subject: its subject's reach as a share of the half-width),
- * sigil (image) }.
+ * art: { portrait (a square image, or null), sigil (image) }.
  */
 export function drawCard(ctx, d, art = {}) {
   const W = CARD_W, H = CARD_H, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif';
@@ -139,17 +139,13 @@ export function drawCard(ctx, d, art = {}) {
   const from = d.given ? d.binomial : d.lineage.length ? `from ${d.lineage[0]}` : d.origin;
   text(from, M, 100, 19, INK2, 400, nameW);
 
-  // the portrait: its box, the species lit and the rest dimmed; without one, its sigil large
+  // the portrait: its box, the middle of it; without one, its sigil large
   const { x: AX, y: AY, w: AW, h: AH } = PORTRAIT_BOX;
   ctx.save();
   ctx.beginPath(); ctx.rect(AX, AY, AW, AH); ctx.clip();
   if (art.portrait) {
-    const pw = art.portrait.width, ph = art.portrait.height, k = Math.max(AW / pw, AH / ph);
-    const sw = AW / k, sh = AH / k;
+    const pw = art.portrait.width, ph = art.portrait.height, sw = pw * PORTRAIT_SHOWN, sh = (sw * AH) / AW;
     ctx.drawImage(art.portrait, (pw - sw) / 2, (ph - sh) / 2, sw, sh, AX, AY, AW, AH);
-    const r = Math.min((art.portrait.subject || 0.2) * (pw / 2) * k + 6, AH / 2 - 14), ox = AX + AW / 2, oy = AY + AH / 2;
-    ctx.strokeStyle = 'rgba(255,95,58,0.9)'; ctx.lineWidth = 1.5;
-    corners(ctx, ox - r, oy - r, ox + r, oy + r, Math.min(14, r / 2.5));
   } else {
     const gr = ctx.createRadialGradient(AX + AW / 2, AY + AH / 2, 10, AX + AW / 2, AY + AH / 2, AH * 0.8);
     gr.addColorStop(0, 'rgba(127,214,223,0.10)'); gr.addColorStop(1, 'rgba(6,9,10,1)');
@@ -277,18 +273,20 @@ async function sigilArt(genome) {
   if (document.fonts?.load) await document.fonts.load('500 40px Saira').catch(() => {});
   return sigil;
 }
-// a card drawn off screen
+// a card drawn off screen (in memory: drawn by the GPU, its first raster held the GPU, and the world's frames, for
+// about 100 ms)
 function cardCanvas(d, art) {
   const c = document.createElement('canvas');
   c.width = CARD_W * CARD_SCALE; c.height = CARD_H * CARD_SCALE;
-  const ctx = c.getContext('2d');
+  const ctx = c.getContext('2d', { willReadFrequently: true });
   ctx.setTransform(CARD_SCALE, 0, 0, CARD_SCALE, 0, 0);
   drawCard(ctx, d, art);
   return c;
 }
 
 /**
- * The card dialog. api: { life(), K, chron, eng, portrait(serial) -> Promise<canvas|null>,
+ * The card dialog. api: { life(), K, chron, eng, portrait(serial) -> Promise<image|null> (its species' portrait, taken
+ *   if it has none yet), portrayed(serial) (whether it has one to hand),
  *   rename(serial, name), songClip(genome) -> Promise<Blob|null>, flash(msg),
  *   carry(serial) -> { home, touched, link } (where it lives, and the link its QR code holds),
  *   saved(serial) -> its card in the cabinet or null, save(serial), load(serial | card) (into the pipette),
@@ -298,7 +296,6 @@ function cardCanvas(d, art) {
 export function createCards(api) {
   const $ = (id) => document.getElementById(id);
   const root = $('card'), cv = $('card-cv'), nameIn = $('card-name'), note = $('card-note');
-  const portraits = new Map(); // serial -> canvas (the last taken; a dead species keeps its last)
   let cur = null, art = {}, drawn = 0;
   const reg = () => api.life().reg;
 
@@ -320,20 +317,13 @@ export function createCards(api) {
     const sp = cur && reg().get(cur);
     if (sp) paint(data(sp));
   }
-  const artOf = async (sp) => ({ sigil: await sigilArt(sp.genome), portrait: portraits.get(sp.serial) || null });
-  // a living species' portrait taken (and kept, the last 48), or null
-  async function portraitOf(serial) {
-    const p = await api.portrait(serial).catch(() => null);
-    if (p) { portraits.set(serial, p); if (portraits.size > 48) portraits.delete(portraits.keys().next().value); }
-    return p;
-  }
-  /** A species' card drawn off screen, its portrait taken if it lives: a canvas (to save to the cabinet). */
+  const portraitOf = (serial) => api.portrait(serial).catch(() => null);
+  /** A species' card drawn off screen, with its portrait: a canvas (to save to the cabinet). */
   async function render(serial) {
     const sp = reg().get(serial);
     if (!sp) return null;
-    const a = await artOf(sp);
-    if (sp.alive && !a.portrait) a.portrait = await portraitOf(serial);
-    return cardCanvas(data(sp), a);
+    const [sigil, portrait] = await Promise.all([sigilArt(sp.genome), portraitOf(serial)]);
+    return cardCanvas(data(sp), { sigil, portrait });
   }
   async function open(serial) {
     const sp = reg().get(serial);
@@ -344,20 +334,20 @@ export function createCards(api) {
     nameIn.value = sp.given ? sp.name : '';
     nameIn.placeholder = sp.binomial || sp.name;
     cv.width = CARD_W * CARD_SCALE; cv.height = CARD_H * CARD_SCALE;
-    const a = await artOf(sp);
+    // (its portrait to hand drawn with it at once; else taken, its sigil standing in until it comes)
+    const sigil = await sigilArt(sp.genome), ready = api.portrayed(serial), portrait = ready ? await portraitOf(serial) : null;
     if (cur !== serial) return;
-    art = a;
+    art = { sigil, portrait };
     redraw();
     acts();
     tune(sp.genome);
-    note.textContent = sp.alive ? 'Taking its portrait…' : art.portrait ? '' : 'Extinct, and never portrayed: its sigil stands in.';
+    note.textContent = ready ? '' : 'Taking its portrait…';
     root.focus({ preventScroll: true });
-    if (sp.alive) {
-      const p = await portraitOf(serial);
-      if (cur !== serial) return;
-      if (p) { art.portrait = p; redraw(); }
-      note.textContent = p ? '' : 'No member could be found to portray: its sigil stands in.';
-    }
+    if (ready) return;
+    const p = await portraitOf(serial);
+    if (cur !== serial) return;
+    if (p) { art.portrait = p; redraw(); }
+    note.textContent = p ? '' : 'Its portrait could not be taken: its sigil stands in.';
   }
   // its song: the roll (lit as it plays, songTick), what it is, Play and the WAV
   let tag = '', songKey = null;
@@ -437,7 +427,7 @@ export function createCards(api) {
     const b = await api.png(cv, cur);
     if (b) saveFile(b, fileName('png')); else api.flash('Could not make the image');
   });
-  $('card-save').addEventListener('click', async () => { if (cur != null) { await api.save(cur, cv); acts(); } });
+  $('card-save').addEventListener('click', async () => { if (cur != null) { await api.save(cur); acts(); } });
   $('card-load').addEventListener('click', () => { api.load(saved || cur); close(); });
   // (a saved card shows only what is in the cabinet: out, it goes; a live one stays open, to be saved again)
   $('card-remove').addEventListener('click', async () => {
@@ -464,8 +454,7 @@ export function createCards(api) {
   });
   $('card-close').addEventListener('click', close);
   root.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } });
-  // a new world reuses serials: its portraits go
-  function reset() { portraits.clear(); close(); }
+  function reset() { close(); }
   return { open, openSaved, render, close, reset, songTick, refresh: () => { if (!root.hidden) acts(); }, isOpen: () => !root.hidden };
 }
 
