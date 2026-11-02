@@ -1095,6 +1095,59 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .begin { display: none; height: 44px; padding: 0 28px; color: var(--bg); background: var(--sun); border-color: var(--sun); font-size: 12px; letter-spacing: .3em; text-transform: uppercase; font-weight: 600; font-stretch: 118%; }
 .begin:hover { color: var(--bg); background: #fff3c0; }
 .intro.ask .begin { display: block; }
+/* The menu: under Begin, two quiet readouts for those who know Tidemote (the new world's particle count,
+   the saved worlds), each opening a framed panel; opened, the reticle and the line under the title fold
+   away so the panel takes their room and the whole stays centered */
+.intro.menu-open .intro-anim, .intro.menu-open .intro-in > p { display: none; }
+.menu { display: flex; flex-direction: column; align-items: center; gap: var(--s3); width: min(520px, 100vw - 48px); }
+.menu-row { display: flex; align-items: stretch; }
+.menu-tab {
+  --pad: var(--s3); display: inline-flex; align-items: center; gap: var(--s2); height: 32px; padding: 0 var(--pad); border: 0; position: relative;
+  font-size: 11px; letter-spacing: .2em; text-transform: uppercase; font-weight: 500; font-stretch: 112%; color: var(--ink-3);
+}
+.menu-tab + .menu-tab::before { content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 1px; background: var(--line); }
+.menu-tab b { color: var(--cyan); font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: .12em; }
+.menu-tab:hover, .menu-tab[aria-expanded="true"] { color: var(--ink); }
+.menu-tab[aria-expanded="true"]::after { content: ''; position: absolute; left: var(--pad); right: var(--pad); bottom: 2px; height: 1px; background: var(--sun); }
+.menu-tab:disabled { opacity: .45; cursor: default; }
+.menu-panel {
+  --tick: var(--line-2); width: 100%; padding: var(--s3) var(--s3) var(--s2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: left;
+  /* the frame's corners ticked down its sides, as the HUD's brackets */
+  background:
+    linear-gradient(var(--tick), var(--tick)) left top / 1px 8px no-repeat, linear-gradient(var(--tick), var(--tick)) right top / 1px 8px no-repeat,
+    linear-gradient(var(--tick), var(--tick)) left bottom / 1px 8px no-repeat, linear-gradient(var(--tick), var(--tick)) right bottom / 1px 8px no-repeat,
+    rgba(6, 10, 11, 0.72);
+}
+.menu-h { display: flex; justify-content: space-between; gap: var(--s3); margin-bottom: var(--s3); color: var(--ink-3); font-size: 11px; letter-spacing: .2em; text-transform: uppercase; font-weight: 500; font-stretch: 112%; }
+.menu-h span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-h b { color: var(--cyan); font-weight: 500; letter-spacing: .12em; font-variant-numeric: tabular-nums; }
+.menu-chips { display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--s1); }
+.menu-chips .chip { height: 32px; justify-content: center; font-variant-numeric: tabular-nums; }
+.menu-chips .chip.auto { gap: var(--s2); }
+.menu-chips .chip.auto b { color: var(--sun); font-weight: 500; }
+.menu-chips { margin-bottom: var(--s1); }
+/* a count well past what this GPU drew smoothly: a hot tick in its corner */
+.menu-chips .chip.heavy { position: relative; }
+.menu-chips .chip.heavy::after { content: ''; position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; background: var(--hot); opacity: .8; }
+.menu-note { margin: var(--s3) 0 var(--s1); color: var(--ink-3); font-size: 12px; line-height: 1.45; }
+.menu-note em { font-style: normal; color: var(--sun); }
+.menu-list { max-height: min(232px, 34dvh); overflow-y: auto; margin: 0 calc(-1 * var(--s1)); }
+.menu-list button.w-row { display: grid; width: 100%; height: 46px; padding: 0 var(--s1); border: 0; border-bottom: 1px solid var(--line-faint); text-align: left; color: inherit; }
+.menu-list button.w-row:hover:not(:disabled), .menu-list button.w-row:focus-visible { background: var(--cyan-deep); }
+.menu-list button.w-row:disabled { cursor: default; opacity: .55; }
+.menu-list .w-go { color: var(--cyan); font-size: 11px; letter-spacing: .2em; text-transform: uppercase; font-weight: 500; font-stretch: 112%; padding-right: var(--s2); }
+.menu-list button.w-row:hover:not(:disabled) .w-go { color: var(--sun); }
+.menu-foot { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); margin-top: var(--s2); }
+.menu-foot .lbl { font-size: 11px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-foot .btn { flex: none; white-space: nowrap; height: 32px; padding: 0 var(--s4); }
+@media (pointer: coarse) {
+  .menu-tab, .menu-chips .chip, .menu-foot .btn { min-height: 44px; }
+  .menu-list button.w-row { height: 52px; }
+}
+@media (max-width: 420px) {
+  .menu-tab { --pad: var(--s2); letter-spacing: .14em; }
+  .menu-chips { grid-template-columns: repeat(4, 1fr); }
+}
 @keyframes blink { 50% { opacity: .2; } }
 /* a card's link opened: the card alone, before the world starts */
 .linked { position: fixed; inset: 0; z-index: 55; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s2); padding: 16px; background: var(--bg); overflow-y: auto; }
@@ -1611,6 +1664,15 @@ svg.niche .n-dot { fill: var(--cyan); }
     <p>A simulated emergent ecology of particles and mutating organisms.</p>
     <div class="calib" id="calib" role="status">Starting the GPU</div>
     <button type="button" class="begin" id="begin">Begin</button>
+    <!-- for those who know Tidemote: the new world's particle count, or a saved world in its place (main.js, the menu) -->
+    <div class="menu" id="menu" hidden>
+      <div class="menu-row" role="group" aria-label="Before the world begins">
+        <button type="button" class="menu-tab" id="menu-n" aria-expanded="false" aria-controls="menu-panel"><span>Particles</span><b id="menu-n-v"></b></button>
+        <button type="button" class="menu-tab" id="menu-w" aria-expanded="false" aria-controls="menu-panel"><span>Saved worlds</span><b id="menu-w-v"></b></button>
+      </div>
+      <div class="menu-panel" id="menu-panel" hidden></div>
+      <input type="file" id="menu-file" accept=".tidemote,application/gzip" hidden>
+    </div>
   </div>
 </div>
 
@@ -24037,6 +24099,8 @@ ${e.message}` : String(e?.message || e));
     return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`;
   };
   var fmtDur = (s) => s < 60 ? `${Math.round(s)} s` : s < 3600 ? `${Math.floor(s / 60)}m ${pad(Math.floor(s % 60))}s` : `${Math.floor(s / 3600)}h ${pad(Math.floor(s / 60) % 60)}m`;
+  var kfmt = (n) => n >= 1048576 ? `${+(n / 1048576).toFixed(1)}M` : `${Math.round(n / 1024)}k`;
+  var when = (t2) => new Date(t2).toDateString() === (/* @__PURE__ */ new Date()).toDateString() ? new Date(t2).toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" }) : new Date(t2).toLocaleDateString(void 0, { month: "short", day: "numeric" });
   var esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   var cssRgb = (c, k = 1) => `rgb(${c.slice(0, 3).map((v) => Math.round(clamp6(v * k, 0, 1) * 255)).join(",")})`;
   var cssCol = (u, k = 1) => cssRgb(unpackUnorm(u), k);
@@ -32701,11 +32765,29 @@ ${e.message}` : String(e?.message || e));
     };
     const waitFrames = (n) => new Promise((res) => frameWaiters.push({ n, res }));
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    let calibCut = false, cutNow = () => {
+    }, cut2 = null;
+    const armCut = () => {
+      calibCut = false;
+      cut2 = new Promise((r) => {
+        cutNow = () => {
+          calibCut = true;
+          r();
+        };
+      });
+    };
+    armCut();
     async function measure2(need = 36, warm = 16) {
-      await Promise.race([waitFrames(warm), sleep(2500)]);
+      await Promise.race([waitFrames(warm), sleep(2500), cut2]);
       perf.samples.length = 0;
       return new Promise((res) => {
         calibWait = { need, res };
+        cut2.then(() => {
+          if (calibWait?.res === res) {
+            calibWait = null;
+            res(1e3);
+          }
+        });
         setTimeout(() => {
           if (!calibWait) return;
           const w = calibWait;
@@ -32741,13 +32823,13 @@ ${e.message}` : String(e?.message || e));
           const lost = [...was.species].filter((k) => !life.reg.get(k)?.alive).length;
           return ` · ${Math.round(Math.min(kept, 9.99) * 100)}% as much life as before${lost ? `, ${lost} species lost` : ""}`;
         };
-        const begin2 = () => {
+        const begin = () => {
           ev.before = { cells: life.counts[3], species: new Set([...life.reg.entries()].filter(([, s]) => s.alive && s.established).map(([k]) => k)) };
         };
         const col = 4288337640;
         if (ev.type === "drought") {
           if (phase === "drying") {
-            begin2();
+            begin();
             pushEvent(`<b>The pool is drying</b>: over ${fmtDur(ev.fall)} the water will fall until ${Math.round((1 - ev.low) * 100)}% of the floor lies dry`, col, "pond");
             flash("The pool is drying", "Drought");
           } else if (phase === "dry") {
@@ -32760,13 +32842,13 @@ ${e.message}` : String(e?.message || e));
           } else if (!phase) pushEvent(`The drought has passed${tally()}`, col, "pond");
         } else if (ev.type === "storm") {
           if (phase === "storm") {
-            begin2();
+            begin();
             pushEvent("<b>A storm</b>: cold rain, raindrops ringing the surface, the water rough and the light dim", col, "pond");
             flash("A storm", "Weather");
           } else if (!phase) pushEvent(`The storm has passed${tally()}`, col, "pond");
         } else if (ev.type === "frost") {
           if (phase === "cooling") {
-            begin2();
+            begin();
             pushEvent("<b>A frost</b>: night falls and the water chills toward freezing", col, "pond");
             flash("A frost", "Night");
           } else if (phase === "freezing") {
@@ -32777,7 +32859,7 @@ ${e.message}` : String(e?.message || e));
           } else if (!phase) pushEvent(`The frost has passed${tally()}`, col, "pond");
         } else if (ev.type === "duckweed") {
           if (phase === "duckweed") {
-            begin2();
+            begin();
             pushEvent(`<b>Duckweed drifts onto the pool</b>: ${ev.buds + 1} fronds, the water under them in their shade, their roots trailing below`, col, "pond");
             flash("Duckweed", "Shade");
           } else if (!phase) pushEvent(`The duckweed has drifted off${tally()}`, col, "pond");
@@ -32884,6 +32966,7 @@ ${e.message}` : String(e?.message || e));
       const hardCap = Math.floor(Math.min(lim.maxStorageBufferBindingSize, lim.maxBufferSize) / 40 / 4096) * 4096;
       return Math.min(hardCap, 8388608, Math.floor(MAX_CELLS * K.density * 0.95), window.__MC_MAX || Infinity);
     }
+    let measuredN = null;
     async function calibrate() {
       const maxN = maxParticles();
       if (state.perf.particles) {
@@ -32893,6 +32976,7 @@ ${e.message}` : String(e?.message || e));
         calStep(`${fmt(n2)} particles`, 1);
         return n2;
       }
+      armCut();
       const target = (!hasTS ? 9 : 10) * (throttles ? 0.55 : 1);
       const clampN = (x) => clamp6(Math.round(x / 4096) * 4096, Math.min(16384, maxN), maxN);
       let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
@@ -32900,6 +32984,7 @@ ${e.message}` : String(e?.message || e));
       state.busy = false;
       calStep(`Measuring the GPU · ${fmt(n)} particles`, 0.6);
       let t2 = await measure2();
+      if (calibCut) return n;
       let next = clampN(n * target / t2);
       if (next > n * 1.2) {
         next = await allocDown(next);
@@ -32907,6 +32992,7 @@ ${e.message}` : String(e?.message || e));
         state.busy = false;
         calStep(`Measuring the GPU · ${fmt(next)} particles`, 0.8);
         const t22 = await measure2();
+        if (calibCut) return next;
         n = next;
         t2 = t22;
         next = clampN(n * target / t2);
@@ -32916,6 +33002,7 @@ ${e.message}` : String(e?.message || e));
       seedWorld(final);
       state.busy = false;
       calStep(`${fmt(final)} particles`, 1);
+      measuredN = final;
       return final;
     }
     async function setParticles(n) {
@@ -34714,7 +34801,6 @@ ${e.message}` : String(e?.message || e));
       const onoff = (id, title, key, on, tip) => choice(id, title, key, [[1, "On"], [0, "Off"]], on ? 1 : 0, tip);
       const group = (id, text2, rows) => section(id, text2, block("", rows));
       let confirming = false;
-      const kfmt = (n) => n >= 1048576 ? `${+(n / 1048576).toFixed(1)}M` : `${Math.round(n / 1024)}k`;
       function display() {
         const s = eng.settings;
         return group("picture", "Picture", choice("microlook", "Microscope", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.look, "microlook") + (state.look ? choice("grain", "Film grain", "", [[0, "Off"], [1, "Fine"], [2, "Heavy"]], state.grain, "filmgrain") : "") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("bloom", "Bloom", "Y", s.bloom > 0, "bloom") + choice("water", "Water surface", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.water, "watersurface") + (state.water ? choice("waves", "Wave motion", "", [[0, "Slow"], [1, "Normal"], [2, "Lively"]], state.waves, "wavemotion") : "") + choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("lod", "Zoom detail", "", s.lod, "lod")) + group("overlays", "Overlays", choice("tide", "Light map", "G", [[0, "Off"], [1, "Faint"], [2, "Full"]], s.tide, "light") + (s.tide === 2 ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "D", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks")) + group("view", "View", (isCoarse ? "" : onoff("ui", "Interface", "U", state.ui, "interface")) + onoff("closeup", "Live close-up", "", state.closeup, "closeup") + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", "Film")} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === "idle" ? '<button type="button" class="chip" data-o="film" data-v="now">30 s now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ""));
@@ -34740,7 +34826,6 @@ ${e.message}` : String(e?.message || e));
       }
       let saves = null, used = 0, wName = "", ask2 = null, wBusy = "", wPoll = 0;
       const defaultName = () => `${climate.name} · ${fmtDur(eng.simTime)}`;
-      const when = (t2) => new Date(t2).toDateString() === (/* @__PURE__ */ new Date()).toDateString() ? new Date(t2).toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" }) : new Date(t2).toLocaleDateString(void 0, { month: "short", day: "numeric" });
       const mb = (n) => `${(n / 1048576).toFixed(n < 10485760 ? 1 : 0)} MB`;
       const mini = (o, v, text2, cls = "") => `<button type="button" class="btn mini${cls}" data-o="${o}" data-v="${v}"${wBusy ? " disabled" : ""}>${text2}</button>`;
       const ghost = (o, v, icon2, label3, hint) => `<button type="button" class="ghost" data-o="${o}" data-v="${v}" aria-label="${label3}" data-hint="${hint}"${wBusy ? " disabled" : ""}><svg><use href="#i-${icon2}"/></svg></button>`;
@@ -36112,33 +36197,202 @@ ${e.message}` : String(e?.message || e));
       setTimeout(stopLoader, 1300);
       document.body.classList.add("live");
     }
-    function begin() {
-      sound.overture();
-      if (sound.on && !sound.playing) {
-        state.paused = true;
-        renderTime();
-        $2("intro").classList.add("ask");
-        $2("begin").focus({ preventScroll: true });
-        const go = (e) => {
-          removeEventListener("pointerdown", go, true);
-          removeEventListener("keydown", go, true);
-          if (e.type === "keydown") {
-            e.stopPropagation();
-            e.preventDefault();
-          }
-          sound.unlock();
-          state.paused = false;
-          renderTime();
-          $2("begin").blur();
-          hideIntro();
-        };
-        addEventListener("pointerdown", go, true);
-        addEventListener("keydown", go, true);
-      } else {
-        const later = () => state.phase === "running" ? hideIntro() : setTimeout(later, 250);
-        setTimeout(later, 3500);
+    const menu = (() => {
+      const el = $2("menu"), panel = $2("menu-panel"), tabN = $2("menu-n"), tabW = $2("menu-w");
+      let open = null, saves = null, busy = "", err = "", go = false, startAfter = false;
+      let whenStarted = null;
+      const startedP = new Promise((r) => {
+        whenStarted = r;
+      });
+      const P = state.perf;
+      const countText2 = () => P.particles ? kfmt(P.particles) : measuredN ? kfmt(measuredN) : "Auto";
+      const listed = () => (saves || []).filter((m) => m.downloading == null);
+      const heavy = (n) => measuredN && n > measuredN * 1.4;
+      function nPanel() {
+        const off = busy ? " disabled" : "";
+        const sizes2 = PARTICLE_SIZES.filter((n) => n <= maxParticles());
+        const chip = (v, label3, on, hint2, cls = "") => `<button type="button" class="chip${cls}" data-n="${v}" aria-pressed="${on}" data-hint="${esc(hint2)}"${off}>${label3}</button>`;
+        const autoHint = measuredN ? `As many as this GPU draws smoothly
+Measured just now: ${fmt(measuredN)}` : "As many as this GPU draws smoothly\nMeasured as the world starts";
+        const hint = (n) => heavy(n) ? `${fmt(n)} particles
+More than this GPU drew smoothly (${kfmt(measuredN)}): a richer world, in slower frames` : `${fmt(n)} particles
+Kept for later visits`;
+        return `<div class="menu-h"><span>The new world</span><b>${busy === "n" ? "Seeding" : fmt(eng.count)}</b></div><div class="menu-chips" role="group" aria-label="Particles">${chip("auto", `Auto${measuredN ? ` <b>${kfmt(measuredN)}</b>` : ""}`, !P.particles, autoHint, " auto")}` + sizes2.map((n) => chip(n, kfmt(n), P.particles === n, hint(n), heavy(n) ? " heavy" : "")).join("") + "</div>" + (err ? `<p class="menu-note"><em>${esc(err)}</em></p>` : "");
       }
-    }
+      function row(m) {
+        const sw = [0, 1, 2, 3].map((i) => `<i${m.cols?.[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ""}></i>`).join("");
+        const can = openable(m.version);
+        const line2 = can !== "ok" ? `<em>${can === "newer" ? "Needs a newer Tidemote" : "From an older Tidemote"}</em> · ${when(m.savedAt)}` : `${fmtDur(m.simTime)} · ${kfmt(m.count)} · ${m.thriving} species · ${when(m.savedAt)}`;
+        return `<button type="button" class="w-row" data-w="${esc(m.id)}"${can !== "ok" || busy ? " disabled" : ""}${can !== "ok" ? ` aria-description="${esc(WHY_NOT[can])}"` : ""}><span class="w-sw" aria-hidden="true">${sw}</span><span class="w-txt"><b>${esc(m.name)}</b><span>${line2}</span></span><span class="w-go">${busy === `w:${m.id}` ? "Opening" : can === "ok" ? "Open" : ""}</span></button>`;
+      }
+      function wPanel() {
+        const ws = listed();
+        const list = saves == null ? '<p class="menu-note">Reading the saved worlds…</p>' : ws.length ? `<div class="menu-list">${ws.map(row).join("")}</div>` : '<p class="menu-note">No saved worlds yet. Save one from Settings → Worlds.</p>';
+        return `<div class="menu-h"><span>Open a saved world</span><b>${ws.length || ""}</b></div>${list}` + (err ? `<p class="menu-note"><em>${esc(err)}</em></p>` : "") + `<div class="menu-foot"><span class="lbl">${desk ? "On this computer" : "In this browser"}</span><button type="button" class="btn" data-m="file" data-hint="Open a .tidemote file
+Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy === "file" ? "Opening" : "Open a file"}</button></div>`;
+      }
+      function render() {
+        $2("menu-n-v").textContent = countText2();
+        $2("menu-w-v").textContent = saves == null ? "" : String(listed().length);
+        tabN.setAttribute("aria-expanded", String(open === "n"));
+        tabW.setAttribute("aria-expanded", String(open === "w"));
+        $2("intro").classList.toggle("menu-open", !!open);
+        panel.hidden = !open;
+        if (!open) return;
+        const at = document.activeElement && panel.contains(document.activeElement) ? document.activeElement.dataset : null;
+        panel.innerHTML = open === "n" ? nPanel() : wPanel();
+        if (at) panel.querySelector(at.n != null ? `[data-n="${at.n}"]` : at.w != null ? `[data-w="${CSS.escape(at.w)}"]` : at.m ? `[data-m="${at.m}"]` : "x")?.focus({ preventScroll: true });
+      }
+      function toggle(which) {
+        open = open === which ? null : which;
+        err = "";
+        if (open === "w") refresh();
+        render();
+      }
+      async function refresh() {
+        try {
+          saves = await worldStore.list();
+        } catch {
+          saves = [];
+        }
+        render();
+      }
+      async function take(what, fn) {
+        if (busy || introHidden) return;
+        busy = what;
+        err = "";
+        render();
+        cutNow();
+        await startedP;
+        try {
+          await fn();
+        } catch (e) {
+          console.error("[tidemote] the menu:", e);
+          err = String(e.message || e);
+          startAfter = false;
+        }
+        busy = "";
+        render();
+        if (startAfter) start2();
+      }
+      const pickN = (v) => take("n", async () => {
+        P.particles = v === "auto" ? null : +v;
+        persist();
+        const want = v === "auto" ? measuredN : Math.min(+v, maxParticles());
+        if (want === eng.count && eng.simTime < 1) return;
+        state.phase = "calibrating";
+        if (want == null) {
+          $2("intro").classList.remove("ready");
+          await calibrate();
+          $2("intro").classList.add("ready");
+        } else {
+          const n = await allocDown(want);
+          seedWorld(n);
+          state.busy = false;
+          calStep(`${fmt(n)} particles`, 1);
+        }
+        state.phase = "running";
+        renderWorld();
+        sound.overture();
+      });
+      async function openIt(w) {
+        calStep(`Opening ${w.meta.name}`, 1);
+        if (!await loadWorld(w)) return;
+        calStep(`${w.meta.name} · ${fmt(eng.count)} particles`, 1);
+        start2();
+      }
+      const pickW = (id) => take(`w:${id}`, async () => openIt(await openWorld(await worldStore.get(id))));
+      $2("menu-file").addEventListener("change", (e) => {
+        const f2 = e.target.files[0];
+        e.target.value = "";
+        if (!f2) return;
+        take("file", async () => {
+          const bytes = await f2.arrayBuffer();
+          let w;
+          try {
+            w = await openWorld(bytes);
+          } catch (x) {
+            throw new Error(`Could not open ${f2.name}: ${String(x.message || x)}`);
+          }
+          await worldStore.put({ ...w.meta, bytes: bytes.byteLength }, bytes);
+          await openIt(w);
+        });
+      });
+      tabN.addEventListener("click", () => toggle("n"));
+      tabW.addEventListener("click", () => toggle("w"));
+      panel.addEventListener("click", (e) => {
+        const b = e.target.closest("button");
+        if (!b || b.disabled) return;
+        if (b.dataset.n != null) pickN(b.dataset.n);
+        else if (b.dataset.w != null) pickW(b.dataset.w);
+        else if (b.dataset.m === "file") $2("menu-file").click();
+      });
+      function start2() {
+        startAfter = false;
+        if (!go) return;
+        removeEventListener("pointerdown", onAny, true);
+        removeEventListener("keydown", onAny, true);
+        go = false;
+        sound.unlock();
+        state.paused = false;
+        renderTime();
+        $2("begin").blur();
+        const hide = () => state.phase === "running" ? hideIntro() : setTimeout(hide, 150);
+        hide();
+      }
+      const MODS = /* @__PURE__ */ new Set(["Tab", "Shift", "Control", "Alt", "Meta", "CapsLock", "ContextMenu"]);
+      function onAny(e) {
+        if (!$2("nogpu").hidden || introHidden) return;
+        if (e.type === "pointerdown") {
+          if (e.target instanceof Node && el.contains(e.target)) return;
+          if (open && !$2("begin").contains(e.target)) {
+            toggle(null);
+            return;
+          }
+        } else {
+          e.stopPropagation();
+          if (e.key === "Escape") {
+            if (!open) return;
+            e.preventDefault();
+            const inside = panel.contains(document.activeElement);
+            toggle(null);
+            if (inside) tabN.focus({ preventScroll: true });
+            return;
+          }
+          if (e.target instanceof Node && el.contains(e.target) && (e.key === "Enter" || e.key === " " || /^Arrow/.test(e.key))) return;
+          if (!navigator.webdriver && MODS.has(e.key)) return;
+          e.preventDefault();
+        }
+        if (busy) {
+          startAfter = true;
+          return;
+        }
+        start2();
+      }
+      el.hidden = false;
+      refresh();
+      render();
+      return {
+        // the world runs for the first time (calibrate done): hold it on the menu, or let it go
+        ready() {
+          whenStarted();
+          sound.overture();
+          render();
+          if (navigator.webdriver && !(sound.on && !sound.playing)) {
+            const later = () => state.phase === "running" && !busy ? hideIntro() : setTimeout(later, 250);
+            setTimeout(later, 3500);
+            return;
+          }
+          state.paused = true;
+          renderTime();
+          $2("intro").classList.add("ask");
+          go = true;
+          if (!busy) $2("begin").focus({ preventScroll: true });
+          addEventListener("pointerdown", onAny, true);
+          addEventListener("keydown", onAny, true);
+        }
+      };
+    })();
     const segs = $2("light-seg");
     segs.innerHTML = "<i></i>".repeat(10);
     const THERMO = ["#3d6fd6", "#3f86d8", "#3fa0d0", "#41b7c2", "#62c6a8", "#9bcd86", "#d2c865", "#f0b04a", "#ff8a3a", "#ff5f3a"];
@@ -37492,7 +37746,7 @@ Tidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} 
       renderWorld();
       updateHud(performance.now() + 1e3);
       $2("intro").classList.add("ready");
-      begin();
+      menu.ready();
     }).catch((e) => fail("Could not start the simulation", String(e.message || e), [RELOAD]));
   }
   var linkedPng = null;
