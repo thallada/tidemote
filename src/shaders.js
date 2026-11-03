@@ -6848,6 +6848,8 @@ fn microBody(local: vec2f, h: vec4f, spacing: f32, ppu: f32, depth: f32, abundan
   var width = r;
   var haloWidth = r * 0.45;
   var body = 0.13;
+  var rimGain = 1.0;
+  var glow = 0.0;
   if (family == 0u) {
     // Rods: a translucent body inside a phase-contrast halo.
     sdf = length(vec2f(max(abs(q.x) - 0.075, 0.0), q.y)) - r * 0.42;
@@ -6887,16 +6889,26 @@ fn microBody(local: vec2f, h: vec4f, spacing: f32, ppu: f32, depth: f32, abundan
       min(length(q - vec2f(0.032, 0.005)) - r * 0.7, length(q - vec2f(0.0, 0.04)) - r * 0.65));
     body = 0.23;
   } else {
-    // Bubble: a thin bright rim around a nearly clear, slightly darker core.
-    sdf = length(q) - r * 1.25;
+    // Bubble, as bubLook draws the larger ones: a fine bright rim round a nearly clear core, never quite round, the
+    // rim a crescent brightest toward the lamp and a fainter line inside it away from the lamp; some drift out of
+    // focus, the rim spread and dimmer
+    let a = atan2(q.y, q.x);
+    let hb = fract(h.yxw * vec3f(7.13, 5.71, 3.37) + h.zwx);
+    sdf = length(q) - r * 1.25 * (1.0 + 0.1 * hb.x * cos(2.0 * a + hb.y * TAU) + 0.04 * cos(3.0 * a + hb.z * TAU));
     width = r * 0.4;
-    haloWidth = r * 0.14;
+    let blur = select(0.0, hb.z, hb.x > 0.7);
+    haloWidth = r * (0.14 + 0.45 * blur);
     body = 0.015;
+    // (the lamp's way, POST_WGSL's LAMP_L, in the bubble's turned frame)
+    let lamp = vec2f(-0.5524, -0.8336);
+    let lit = dot(q / max(length(q), 1e-5), vec2f(dot(lamp, axis), dot(lamp, vec2f(-axis.y, axis.x))));
+    rimGain = (0.45 + 0.75 * smoothstep(-0.7, 0.9, lit)) * mix(1.0, 0.55, blur);
+    glow = 0.3 * exp(-sqr((sdf + 0.3 * r) / (0.1 * r + aa))) * (0.3 + 0.7 * max(-lit, 0.0)) * (1.0 - blur);
   }
   let visible = resolved * smoothstep(0.45, 1.3, width * spacing * size * ppu) * abundance;
   let core = 1.0 - smoothstep(-aa, aa, sdf);
   let rim = 1.0 - smoothstep(aa * 0.5, aa + haloWidth, abs(sdf));
-  return vec4f(tint * (core * body + rim * 0.85), core * 0.24) * visible;
+  return vec4f(tint * (core * body + rim * 0.85 * rimGain + glow), core * 0.24) * visible;
 }
 
 // One octave's slot lattice. Integer torus winding vectors keep the irrational-angle lattice
@@ -7797,11 +7809,19 @@ fn iceGrain(wp: vec2f, cu: vec2f, N: vec2f, Sv: vec2f, near: f32) -> IceGrain {
   let cell = wrapL(cu, N);
   g.id = hash12(cell + 0.37);
   let ctr = (cu + vjit(cell + 31.0)) * Sv;
-  // its six axes; the stems grow along the one nearest the way the ice grows at its center: up the water's
-  // temperature, from the coldest ice toward the warmer water it freezes
+  // its six axes; the stems grow along the one nearest the way the ice grows at its center: down the frozen share,
+  // from the ice toward the water it freezes (not up the water's temperature: ice and the water at its edge are held
+  // at 0°, where that slope is nothing but each step's noise and the stems flickered from axis to axis); where the
+  // share is flat (deep in the ice, far out in the water) the grain keeps its own
   let th = g.id * 6.2832;
-  let gr = waterAt(ctr).yz;
-  let aa = th + round((atan2(gr.y, gr.x) - th) / 1.0472) * 1.0472;
+  // (bilinear, between the cells about its center: the grain needs only which way)
+  let uc = ctr - 0.5;
+  let ic = vec2i(floor(uc));
+  let tc = uc - floor(uc);
+  let s00 = gridPost(${3 * MAX_CELLS}u, ic.x, ic.y); let s10 = gridPost(${3 * MAX_CELLS}u, ic.x + 1, ic.y);
+  let s01 = gridPost(${3 * MAX_CELLS}u, ic.x, ic.y + 1); let s11 = gridPost(${3 * MAX_CELLS}u, ic.x + 1, ic.y + 1);
+  let gr = -vec2f(mix(s10 - s00, s11 - s01, tc.y), mix(s01 - s00, s11 - s10, tc.x));
+  let aa = th + select(0.0, round((atan2(gr.y, gr.x) - th) / 1.0472) * 1.0472, dot(gr, gr) > 1e-6);
   g.ax = vec2f(cos(aa), sin(aa));
   let d = wp - ctr;
   let u = dot(d, g.ax);
@@ -7908,20 +7928,23 @@ fn iceLook(wp: vec2f, sd: f32, ppu: f32, grow: f32, reach: f32, rg: f32) -> vec3
   let ew = max(0.025, 0.8 * px);
   let edge = exp(-sqr((ed - 0.5 * ew) / ew));
   c += vec3f(0.1, 0.112, 0.13) * edge * (0.55 + 0.6 * vnoiseT(wp, 1.6, vec2f(7.0))) * (0.5 + 0.5 * mix(0.4, 1.0, fresh));
-  // bubbles, here and there in a grain: a bright rim around a dark heart, a glint toward the lamp
+  // air it trapped as it grew, here and there in a grain: a string of bubbles drawn out along its axis, each smaller
+  // than the last, at its own depth in the ice (bubLook)
   if (hash12(vec2f(bid, 21.0)) < 0.3 && e > 0.6) {
     let bax = vec2f(cos(bth), sin(bth));
-    let bc = toC + (vec2f(hash12(vec2f(bid, 22.0)), hash12(vec2f(bid, 23.0))) - 0.5) * 0.5 * ICE_GS;
+    let d0 = -(toC + (vec2f(hash12(vec2f(bid, 22.0)), hash12(vec2f(bid, 23.0))) - 0.5) * 0.5 * ICE_GS);
     let br = 0.03 + 0.06 * sqr(hash12(vec2f(bid, 24.0)));
-    let el = 1.0 + 0.7 * hash12(vec2f(bid, 25.0));
-    let q = vec2f(dot(bc, bax) / el, dot(bc, vec2f(-bax.y, bax.x)));
-    let bd = length(q);
-    let rw = max(0.012, 0.7 * px);
-    let rim = exp(-sqr((bd - br * 0.9) / rw)) * min(1.0, br / (2.0 * rw));
-    let heart = 1.0 - smoothstep(br * 0.4, br, bd);
-    let lq = vec2f(dot(L, bax), dot(L, vec2f(-bax.y, bax.x)));
-    let glint = exp(-sqr(length(q + lq * br * 0.45) / max(br * 0.25, rw)));
-    c = c * (1.0 - 0.6 * heart) + vec3f(0.09, 0.10, 0.11) * rim + vec3f(0.08) * glint;
+    let n = 1 + i32(3.0 * hash12(vec2f(bid, 25.0)));
+    for (var k = 0; k < n; k++) {
+      let hk = hash12(vec2f(bid, 26.0 + f32(k)));
+      let rk = br * (1.0 - 0.22 * f32(k));
+      let d = d0 - bax * (f32(k) * br * 2.4);
+      let b = Bub(vec2f(0.0), rk, 0.6 * hk * hk, vec4f(0.14 + 0.14 * hk, bth, 0.02, bth + hk * 6.0), bid * 13.0 + f32(k));
+      if (length(d) < rk * (1.5 + 0.8 * b.focus) + 3.0 * px) {
+        let o = bubLook(b, d, bubSd(b, d), px, 0.55);
+        c = c * o.w + o.rgb;
+      }
+    }
   }
   return c;
 }
@@ -7967,42 +7990,185 @@ fn frazil(wp: vec2f, sd: f32, ppu: f32, grow: f32) -> vec3f {
   }
   return o;
 }
-// Bubbles in the water, here and there in cells sp world units apart, each kept within reach of its own cell's
-// neighbors (a point looks at the nine cells about it) and made by the water at its center, so none is cut off by
-// a cell's edge or by the water warming across it. Air (vapor false): from about 45°, far warmer than the water
-// around, more and larger as it heats, pinned to the glass. Vapor: near a boil, each swelling and collapsing at its
-// own pace. A bubble is a lens of air: its rim, where the light glances off, is a bright line (brightest toward the
-// lamp), and it gathers the lamp's light to a spot off its center; within it the cells behind are dimmed.
-fn bubbles(cIn: vec3f, wp: vec2f, ppu: f32, sp: f32, vapor: bool) -> vec3f {
+// A bubble as a microscope shows one (the water's, bubbles; the air the ice traps, iceLook), never a drawn circle. It is
+// a lens of air in water: light reaching its edge at a glancing angle is reflected whole, so a band inside its outline
+// is dark, edged outside by a fine bright line where the light glances off (brightest and widest toward the lamp, a
+// crescent) and inside by a fainter one (away from it, where light that went in comes out); through its middle it
+// diverges the light, showing what lies beyond it smaller (bubbleBend), and gathers the lamp's to a spot off its center.
+// None is quite round: one pinned to the glass is held by its contact line, which catches on the glass's flaws (an
+// oval, a lobe), and specks the water carried cling to its skin. Each lies at its own depth (focus 0 in the focal
+// plane, 1 far from it): out of focus its lines spread and dim, light kept, and ring inside, the fringes of a defocused
+// edge, and the achromat parts red from blue at its edge. Where two touch the film between them is one flat wall.
+// c its center, r its mean radius (world units), e its outline's wavering (an oval of share e.x turned to e.y, three
+// lobes e.z turned to e.w), h a hash naming it.
+struct Bub { c: vec2f, r: f32, focus: f32, e: vec4f, h: f32 }
+// its outline's signed distance at offset d from its center (about: the outline wavers only a little)
+fn bubSd(b: Bub, d: vec2f) -> f32 {
+  let a = atan2(d.y, d.x);
+  return length(d) - b.r * (1.0 + b.e.x * cos(2.0 * (a - b.e.y)) + b.e.z * cos(3.0 * (a - b.e.w)));
+}
+// What it shows at offset d, sd from its outline (walls shared with a neighbor taken in, bubWall), seen px world units
+// a pixel: light to add (rgb, at gain), and how much of what lies behind it still shows (w).
+fn bubLook(b: Bub, d: vec2f, sd: f32, px: f32, gain: f32) -> vec4f {
+  let r = b.r;
+  let l = length(d);
+  let lit = dot(d / max(l, 1e-6), LAMP_L);
+  // out of focus an edge spreads, its light kept (so it dims as it widens)
+  let w0 = max(0.035 * r, 0.7 * px);
+  let w = w0 + b.focus * 0.2 * r;
+  let k = w0 / w;
+  // the outer line, a crescent toward the lamp, red a little outside blue
+  let wo = w * (1.0 + 0.9 * max(lit, 0.0));
+  let ca = (0.008 + 0.025 * b.focus) * r;
+  let sdc = vec3f(sd - ca, sd, sd + ca);
+  let outer = exp(-(sdc / wo) * (sdc / wo)) * (w / wo) * k * (0.35 + 0.65 * smoothstep(-0.7, 0.9, lit));
+  // the dark band of total reflection, and the fainter line at its inner edge, away from the lamp
+  let band = r * (0.2 + 0.08 * b.e.x);
+  let inner = exp(-sqr((sd + band) / (1.3 * w))) * k * (0.12 + 0.4 * max(-lit, 0.0));
+  let inside = 1.0 - smoothstep(-w, w, sd);
+  let tir = inside * smoothstep(-band - w, -band + w, sd);
+  // the lamp gathered: a spot off its center toward the lamp, softer out of focus
+  let s = d - LAMP_L * r * 0.36;
+  let sw = 0.09 * r + px + 0.2 * r * b.focus;
+  let spot = exp(-dot(s, s) / sqr(sw)) * sqr((0.09 * r + px) / sw) * inside;
+  // out of focus, fringes ringing in from the edge
+  let ring = 0.5 + 0.5 * cos(-sd / (0.075 * r * (1.0 + b.focus)) * TAU);
+  // (exp of the depth inside only: outside, by a collapsing bubble, it overflowed and times inside's nothing made NaN)
+  let fringe = ring * exp(min(sd, 0.0) / (0.3 * r)) * inside * smoothstep(0.15, 0.6, b.focus) * 0.25;
+  // specks clinging to its skin, here and there round it, sharp only in focus
+  let a = atan2(d.y, d.x) / TAU + b.h * 3.7;
+  let slot = floor(a * 13.0);
+  let gh = hash12(vec2f(slot, b.h * 97.0));
+  let fa = (slot + 0.25 + 0.5 * hash12(vec2f(slot, b.h * 31.0))) / 13.0 - b.h * 3.7;
+  let fs = (0.03 + 0.05 * gh) * r + px;
+  let fq = d - vec2f(cos(fa * TAU), sin(fa * TAU)) * (l - sd - 0.02 * r);
+  let fleck = exp(-dot(fq, fq) / sqr(fs)) * step(0.72, gh) * (1.0 - b.focus) * smoothstep(10.0, 30.0, r / px);
+  let light = vec3f(0.17, 0.18, 0.19) * outer + vec3f(0.1, 0.105, 0.11) * inner + vec3f(0.08, 0.08, 0.072) * spot
+    + vec3f(0.05, 0.052, 0.056) * fringe + vec3f(0.07, 0.06, 0.045) * fleck;
+  return vec4f(light * gain, max(1.0 - 0.3 * inside - 0.6 * tir * mix(1.0, 0.5, b.focus) - 0.4 * fleck, 0.1));
+}
+// where its neighbor's outline (sdn) is nearer, the wall between them: each bubble's own outline is cut there
+fn bubWall(sd: f32, sdn: f32) -> f32 { return max(sd, 0.5 * (sd - sdn)); }
+// Bubbles in the water: here and there in cells sp world units apart a nucleus on the glass, made by the water there,
+// so none is cut off by a cell's edge or by the water warming across it, and each kept within reach of its own cell's
+// neighbors (a point looks at the nine about it). Air (vapor false): from about 45°, far warmer than the water around,
+// more and larger as it heats, pinned to the glass, a few by others they touch. Vapor: near a boil, each swelling,
+// wobbling and collapsing at its own pace, leaving a ring of its collapse and a few specks of air that dissolve as it
+// grows again. Their sizes spread as nucleation leaves them (log-normal): most small, a few large. a: the bubble, b
+// and c: those it touches (vapor: the specks it left); n how many; reach how far from a's center they all lie;
+// flash a collapse's ring (x its radius, y how bright).
+struct BubSet { n: u32, a: Bub, b: Bub, c: Bub, reach: f32, flash: vec2f }
+fn bubSet(cell: vec2f, sp: f32, vapor: bool) -> BubSet {
+  var o: BubSet;
   let seed = select(0.0, 41.0, vapor);
+  let ctr = (cell + 0.25 + 0.5 * vec2f(hash12(cell + seed + 7.7), hash12(cell + seed + 9.9))) * sp;
+  let T = waterAt(ctr - post.world * floor(ctr / post.world)).x;
+  let gas = smoothstep(42.0, 85.0, T) * smoothstep(5.0, 15.0, T - post.heat.x);
+  let h = hash12(cell + seed);
+  if (h >= select(0.6 * gas, 0.7 * boilAt(T), vapor)) { return o; }
+  let g = hash12(cell + seed + 3.1) + hash12(cell + seed + 4.2) + hash12(cell + seed + 5.3) - 1.5;
+  let rm = min(select(0.06 + 0.12 * gas, 0.22, vapor) * exp(0.85 * g), select(0.3, 0.36, vapor)) * sp;
+  let hs = vec4f(hash12(cell + seed + 11.1), hash12(cell + seed + 12.2), hash12(cell + seed + 13.3), hash12(cell + seed + 14.4));
+  o.a = Bub(ctr, rm, 0.0, vec4f(0.02 + 0.09 * hs.x * hs.x, hs.y * 3.1416, 0.025 * hs.z, hs.w * 2.0944), h * 53.0);
+  o.n = 1u;
+  var phase = 0.0;
+  if (vapor) {
+    // it swells, wobbling more as it grows unstable, and collapses
+    let t = post.simTime;
+    phase = fract(t * 0.5 * (0.6 + 0.8 * hs.z) + h * 13.0);
+    o.a.r = rm * sqrt(smoothstep(0.0, 0.8, phase)) * (1.0 - smoothstep(0.86, 0.94, phase));
+    let wob = 1.0 + 3.0 * smoothstep(0.7, 0.92, phase);
+    o.a.e = vec4f(0.04 * wob * sin(t * 9.0 + hs.x * 20.0), hs.y * 3.1416 + t * 0.7, 0.03 * wob * sin(t * 13.0 + hs.w * 20.0), hs.w * 2.0944 - t * 0.5);
+    o.a.focus = 0.15 + 0.35 * hs.x;
+    // its collapse sends a faint ring out
+    let cp = clamp((phase - 0.88) / 0.12, 0.0, 1.0);
+    o.flash = vec2f(rm * (0.3 + 1.6 * cp), select(0.0, sqr(1.0 - cp), phase > 0.88));
+  } else {
+    // most pinned to the slide, in focus; a few to the coverslip far above, out of it
+    o.a.focus = select(0.12 * hs.x, 0.55 + 0.45 * hs.z, hash12(cell + seed + 15.5) < 0.22);
+  }
+  // those it touches (air), or the specks of air its collapse left, dissolving as it grows again (vapor)
+  let hn = hash12(cell + seed + 16.6);
+  let left = select(0.0, max(smoothstep(0.88, 0.92, phase), 1.0 - smoothstep(0.05, 0.3, phase)), vapor);
+  let nb = select(select(0u, select(1u, 2u, hn < 0.12), hn < 0.4), select(0u, 2u, left > 0.0), vapor);
+  // (out of focus its lines spread: about 0.8 of its radius past its outline)
+  o.reach = o.a.r * (1.25 + 0.8 * o.a.focus) + 0.05 * sp;
+  for (var k = 0u; k < nb; k++) {
+    let hk = vec3f(hash12(cell + seed + 17.7 + f32(k)), hash12(cell + seed + 18.8 + f32(k)), hash12(cell + seed + 19.9 + f32(k)));
+    let an = hk.x * TAU;
+    var nr = rm * (0.3 + 0.4 * hk.y);
+    var dist = rm + nr * 0.55;
+    if (vapor) { nr = rm * (0.05 + 0.05 * hk.y) * left; dist = rm * (0.35 + 0.6 * hk.z); }
+    let nbub = Bub(ctr + vec2f(cos(an), sin(an)) * dist, nr, o.a.focus + select(0.0, 0.1, vapor), vec4f(0.03 * hk.z, hk.z * 6.0, 0.015, hk.y * 6.0), o.a.h + 7.0 * f32(k + 1u));
+    if (k == 0u) { o.b = nbub; } else { o.c = nbub; }
+    o.reach = max(o.reach, dist + nr * (1.25 + 0.8 * nbub.focus) + 0.05 * sp);
+    o.n++;
+  }
+  if (vapor) { o.reach = max(o.reach, o.flash.x + 0.1 * sp); }
+  return o;
+}
+fn bubOf(s: BubSet, k: u32) -> Bub {
+  if (k == 1u) { return s.b; }
+  if (k == 2u) { return s.c; }
+  return s.a;
+}
+fn bubbles(cIn: vec3f, wp: vec2f, ppu: f32, sp: f32, vapor: bool) -> vec3f {
   let px = 1.0 / max(ppu, 1e-3);
   let c0 = floor(wp / sp);
   var c = cIn;
   for (var j = -1; j <= 1; j++) {
     for (var i = -1; i <= 1; i++) {
-      let cell = c0 + vec2f(f32(i), f32(j));
-      let ctr = (cell + 0.2 + 0.6 * vec2f(hash12(cell + seed + 7.7), hash12(cell + seed + 9.9))) * sp;
-      let T = waterAt(ctr - post.world * floor(ctr / post.world)).x;
-      let gas = smoothstep(42.0, 85.0, T) * smoothstep(5.0, 15.0, T - post.heat.x);
-      let h = hash12(cell + seed);
-      if (h >= select(0.6 * gas, 0.7 * boilAt(T), vapor)) { continue; }
-      var r = select(0.08 + 0.17 * gas, 0.36, vapor) * (0.45 + 0.55 * hash12(cell + seed + 3.1)) * sp;
-      if (vapor) {
-        let ph = fract(post.simTime * 0.5 * (0.6 + 0.8 * hash12(cell + seed + 5.3)) + h * 13.0);
-        r *= sqrt(smoothstep(0.0, 0.8, ph)) * (1.0 - smoothstep(0.86, 0.94, ph));
+      let s = bubSet(c0 + vec2f(f32(i), f32(j)), sp, vapor);
+      if (s.n == 0u || length(wp - s.a.c) > s.reach + 3.0 * px) { continue; }
+      let sd = vec3f(bubSd(s.a, wp - s.a.c), select(1e6, bubSd(s.b, wp - s.b.c), s.n > 1u), select(1e6, bubSd(s.c, wp - s.c.c), s.n > 2u));
+      for (var k = 0u; k < s.n; k++) {
+        let b = bubOf(s, k);
+        // (one finer than a couple of pixels is not drawn)
+        if (b.r <= 1.5 * px) { continue; }
+        let o = bubLook(b, wp - b.c, bubWall(bubWall(sd[k], sd[(k + 1u) % 3u]), sd[(k + 2u) % 3u]), px, 1.0);
+        c = c * o.w + o.rgb;
       }
-      let d = wp - ctr;
-      let l = length(d);
-      if (r < 1.5 * px || l > r + 3.0 * px) { continue; }
-      let w = max(0.06 * r, 0.8 * px);
-      let toward = 0.55 + 0.45 * dot(d / max(l, 1e-5), LAMP_L);
-      let rim = exp(-sqr((l - r) / w)) * toward;
-      let inside = 1.0 - smoothstep(r - w, r, l);
-      let spot = exp(-dot(d - LAMP_L * r * 0.35, d - LAMP_L * r * 0.35) / sqr(0.18 * r + px));
-      c = c * (1.0 - 0.45 * inside) + vec3f(0.17, 0.18, 0.19) * rim + vec3f(0.08, 0.08, 0.075) * spot * inside;
+      // a collapse's ring
+      if (s.flash.y > 0.0) {
+        let fw = max(0.04 * s.flash.x, px);
+        c += vec3f(0.07, 0.075, 0.08) * s.flash.y * exp(-sqr((length(wp - s.a.c) - s.flash.x) / fw));
+      }
     }
   }
   return c;
+}
+// Through a bubble what lies beyond it shows smaller (a lens of air in water diverges the light), the more toward its
+// rim: the shift of the view at wp (world units) for fsComposite and the loupe to add before they sample. T: the
+// water's temperature at wp (none below 30°, as extremes).
+fn bubbleBend(wpIn: vec2f, T: f32) -> vec2f {
+  if (T < 30.0) { return vec2f(0.0); }
+  let wp = wpIn - post.world * floor(wpIn / post.world);
+  var o = vec2f(0.0);
+  var best = 0.0;
+  for (var f = 0; f < 2; f++) {
+    let vapor = f == 1;
+    let sp = select(0.7, 1.8, vapor);
+    let c0 = floor(wp / sp);
+    for (var j = -1; j <= 1; j++) {
+      for (var i = -1; i <= 1; i++) {
+        let s = bubSet(c0 + vec2f(f32(i), f32(j)), sp, vapor);
+        if (s.n == 0u || length(wp - s.a.c) > s.reach) { continue; }
+        // the bubble the point lies deepest in (by its outline's distance, as a share of its size) bends it
+        for (var k = 0u; k < s.n; k++) {
+          let b = bubOf(s, k);
+          let d = wp - b.c;
+          let sd = bubSd(b, d);
+          let deep = -sd / max(b.r, 1e-5);
+          if (deep > best) {
+            best = deep;
+            let q = clamp(1.0 - deep, 0.0, 1.0);
+            o = d * (0.5 + q * q) * (1.0 - 0.6 * b.focus);
+          }
+        }
+      }
+    }
+  }
+  return o;
 }
 // The water at its limits, which only the hand's cold probe and heated stage reach (STAGE_COLD, STAGE_HOT), and
 // only far from the open water's temperature. Below freezing it is ice, as the frost's is (iceLook), its front the
@@ -8353,6 +8519,12 @@ fn keepInside(d: vec2f, room: f32) -> vec2f {
   let lim = 0.6 * max(room, 0.0);
   return d * (lim / max(lim, length(d) + 1e-6));
 }
+// The same at the frame's edge (room: how far that is), eased in across band: kept within room alone, the last few
+// pixels by the edge showed what lay under a fraction of them, stretched along it into streaks; eased over the band,
+// the view stretches there by at most about 1.5 |d| / band, and keepInside still holds it within the frame.
+fn keepInFrame(d: vec2f, room: f32, band: f32) -> vec2f { return keepInside(d * smoothstep(0.0, band, room), room); }
+// how far a pixel of the main view lies from its frame's nearest edge (its band there is a tenth of its height)
+fn frameRoom(pos: vec2f) -> f32 { return min(min(pos.x, post.res.x - pos.x), min(pos.y, post.res.y - pos.y)); }
 // The water's surface at wp, seen at ppu pixels a unit from a view centered on center: the sea, gently swaying in calm
 // water and heaving in a storm, and the rings raindrops send across it (on open water only: dry mud and ice have no
 // surface to wave).
@@ -8380,7 +8552,7 @@ fn surfaceAt(wp: vec2f, ppu: f32, center: vec2f) -> Surface {
   let px = (vec2f(g.xy) + 0.5) / vec2f(${SHIFT_W}.0, ${SHIFT_H}.0) * post.res;
   let wp = post.cam + (px - post.res * 0.5) / post.ppu;
   let surf = surfaceAt(wp, post.ppu, post.cam);
-  shiftMap[g.y * ${SHIFT_W}u + g.x] = keepInside(surf.shift * post.ppu, min(min(px.x, post.res.x - px.x), min(px.y, post.res.y - px.y)));
+  shiftMap[g.y * ${SHIFT_W}u + g.x] = keepInFrame(surf.shift * post.ppu, frameRoom(px), 0.1 * post.res.y);
 }
 // Schlieren, in pixels: with the heat map on Shimmer, warm water bends the light passing through it like the
 // air over a hot road, faintly, wherever warmth changes (around colonies and framboids, at fronts), the
@@ -8741,11 +8913,14 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
   if (post.seaLook.z > 0.5 && post.seaLook.z < 2.5) {
     return vec4f(vec3f(clamp(select(0.5 + 2.5 * dot(surf.slope, LAMP_L), 0.25 * surf.light, post.seaLook.z < 1.5), 0.0, 1.0)), 1.0);
   }
-  uv += keepInside(surf.shift * post.ppu, min(min(i.pos.x, post.res.x - i.pos.x), min(i.pos.y, post.res.y - i.pos.y))) / post.res;
+  // (and what lies beyond a bubble shows smaller through it)
+  var bend = surf.shift;
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
     uv += shimmer(wp, water) / post.res;
+    bend += bubbleBend(wp, water.x);
   }
+  uv += keepInFrame(bend * post.ppu, frameRoom(i.pos.xy), 0.1 * post.res.y) / post.res;
   uv += toolBend(wp) / post.res;
   // Cells lie over what is beneath them: where the living cover a pixel they show alone, not averaged
   // with the grains they sit on, and cells and grains both hide the stone under them (fsStoneLit).
@@ -8838,12 +9013,14 @@ fn loupeScene(r: vec2f) -> vec3f {
   let r0 = r;
   let wp = microView.cam + r0 / toR;
   let surf = surfaceAt(wp, loupe.ppu, microView.cam);
-  r += keepInside(surf.shift * toR, 1.0 - max(abs(r0.x), abs(r0.y)));
+  var bend = surf.shift;
   var water = vec3f(post.heat.x, 0.0, 0.0);
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
     r += shimmer(wp, water) / loupe.ppu * toR;
+    bend += bubbleBend(wp, water.x);
   }
+  r += keepInFrame(bend * toR, 1.0 - max(abs(r0.x), abs(r0.y)), 0.2);
   let ca = r * d2 * d2 * 0.015 * k;
   var hdr = vec3f(loupeScene(r + ca).r, loupeScene(r).g, loupeScene(r - ca).b);
   let soft = d2 * d2 * k;

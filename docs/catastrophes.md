@@ -151,7 +151,10 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   times a depth, a soft network over the pool, broad bands of light sweeping over what lies beneath from closer; they
   multiply the scene's light on open water only, so they are in the pool rather than over it, which is what sank the
   first try at caustics), and tilts a faint sheen. Where the bending would reach past the image's edge, it eases to nothing
-  (`keepInside`): the image repeats its last pixels there, and a shift into them smeared streaks along the edges.
+  (`keepInside`): the image repeats its last pixels there, and a shift into them smeared streaks along the edges. At the
+  frame's edge it eases in across a tenth of the view's height first (`keepInFrame`; the loupe across a fifth of its
+  radius): held only within the room to the edge, the last few pixels showed what lay under less than half of them,
+  stretched along the edge into streaks.
   The same easing keeps it within the room to the water's edge (`waterRoom`, the shore's and the ice's): faded over
   a fixed width instead, a storm's bending smeared the shallows by a low shore into bands. And where the bending
   would stretch the view past about a half (its depth times the slope's divergence, at a storm's sharp crests), it
@@ -180,18 +183,19 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   spot the ice begins from showed a whole star at once), and the distance is measured by the field's slope floored
   (`ICE_SLOPE`: where ice starts, and deep in it, the field is flat and the reach would open a ring at once). Grains
   (`ICE_GS`, 1.5 units) sit on a jittered lattice that tiles the world; each grows
-  parallel stems along whichever of its six axes points most nearly the way the ice grows at its center (up the
-  water's temperature, from the coldest ice toward the water it freezes), each a
+  parallel stems along whichever of its six axes points most nearly the way the ice grows at its center (down the
+  frozen share, from the ice toward the water; where the share is flat, its own axis), each a
   needle reaching its own length ahead (up to `ICE_LEAD`, a few stunted), widening behind its tip, with fine side
   branches at sixty degrees of uneven lengths. Every grain of the 3 × 3 around a point offers its dendrites' lead,
   less the farther it lies from the grain's center (`ICE_OWN`, `ICE_FALL`), and the farthest reach wins: grains
   compete as real ones do, so a stem is never cut off (an earlier version drew the dendrites afresh each frame
   relative to the moving front, from the grain each pixel lay in, and stems popped and were cut at grain borders
-  out in the water). Lines finer than a pixel spread to a pixel and dim, so the fern resolves as the view closes
-  in. Behind the front the dendrites fade as the gaps freeze, into a mosaic of grains with smooth boundaries (a
+  out in the water; another took the axis up the water's temperature, but ice and the water at its edge are held
+  at 0°, where that slope is each step's noise, and stems flickered from axis to axis). Lines finer than a pixel
+  spread to a pixel and dim, so the fern resolves as the view closes in. Behind the front the dendrites fade as the gaps freeze, into a mosaic of grains with smooth boundaries (a
   warped Voronoi tiling, each grain scattering a little differently), bright seams with grooves where grains meet,
-  faint growth lines and air bubbles (bright rims, dark hearts); deeper than any dendrite reaches only that is
-  drawn. Ahead of a growing front, small stellar crystals (frazil: six uneven, branched arms around a hexagonal
+  faint growth lines and strings of air bubbles drawn out along a grain's axis (`bubLook`, as the warm stage's);
+  deeper than any dendrite reaches only that is drawn. Ahead of a growing front, small stellar crystals (frazil: six uneven, branched arms around a hexagonal
   plate) grow in the supercooled water (`iceGrowth`: while a frost freezes, or where the cold probe chills the water,
   in near-freezing water only). The cold probe's ice is the same ice, drawn the same way.
 - **Trapped cells** (`DRAW_WGSL`): a cell on dry ground shrivels a little and its color drains to a dull brown,

@@ -775,8 +775,11 @@ class Engine {
     const key = [selId >>> 0, this.focusVer, this.settings.exposure, this.settings.lod, this.worldGeneration].join();
     let stale = !c || key !== this.stoneKey || (this.tick !== this.stoneTick && Math.abs(realT - this.stoneT) > STONE_EVERY);
     if (!stale) {
-      const r = cam.ppu / c.ppu, [dx, dy] = this._fromStone(cam);
-      stale = r > STONE_ZOOM || r < 1 / STONE_ZOOM || Math.abs(dx) + W / (2 * cam.ppu) > cw / (2 * c.ppu) || Math.abs(dy) + H / (2 * cam.ppu) > ch / (2 * c.ppu);
+      // what it holds: no farther from where it was drawn than its edge, nor than half the world (each grain is drawn
+      // once, nearest that point, so past the wrap it holds nothing); a pixel's slack
+      const r = cam.ppu / c.ppu, [dx, dy] = this._fromStone(cam), [gx, gy] = this.grid, px = 1 / cam.ppu;
+      const hx = Math.min(cw / (2 * c.ppu), gx / 2) + px, hy = Math.min(ch / (2 * c.ppu), gy / 2) + px;
+      stale = r > STONE_ZOOM || r < 1 / STONE_ZOOM || Math.abs(dx) + W / (2 * cam.ppu) > hx || Math.abs(dy) + H / (2 * cam.ppu) > hy;
     }
     if (stale) Object.assign(this, { stoneCam: { x: cam.x, y: cam.y, ppu: cam.ppu }, stoneKey: key, stoneTick: this.tick, stoneT: realT });
     return stale;

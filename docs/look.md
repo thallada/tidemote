@@ -140,7 +140,9 @@ depth test before it is shaded. It took the stone passes at 400 px per unit from
 Stone lies still, so the main view's is drawn and lit once into a cache and served from it (engine `_stoneStale`,
 `fsStoneCache`, then `fsStoneLit` each frame, which puts it under the cells and leaves each pixel's place in the pile
 for the composite's focus). The cache is 1.2 times the view on each axis (`STONE_MARGIN`), drawn from where the view
-was; it is panned and scaled to the view until the view leaves it or zooms more than 6 % from it (`STONE_ZOOM`), and
+was; it is panned and scaled to the view until the view leaves it (or reaches farther than half the world from where it
+was drawn: each grain is drawn once, nearest that point, so zoomed out until the view spans the world the cache holds
+nothing past the wrap, and it is drawn again with each step of a pan there) or zooms more than 6 % from it (`STONE_ZOOM`), and
 drawn again on a new world, a new selection or focus, an exposure or detail setting, and, while the world runs, at most
 every half second (`STONE_EVERY`), as grains wear, settle and grow. The loupe and the close-up still draw theirs each
 frame (they are small, and move with the pointer). Nothing in it may change with time alone: a framboid's glow no
