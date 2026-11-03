@@ -730,6 +730,36 @@ span.set-reset { display: inline-flex; align-items: center; gap: var(--s3); colo
 #film.rolling .rec { opacity: 1; color: var(--hot); }
 #film-v { font-variant-numeric: tabular-nums; min-width: 2.6em; }
 @keyframes rec-blink { 50% { opacity: 0; } }
+/* filming's strip, first of the floats: a blinking red square, RECORDING, its time and size, Stop.
+   Its fields keep their widths as they count, so nothing beside them moves. */
+.focus.rec { --rec: #ff3b47; border-color: var(--rec); gap: var(--s3); padding-left: 10px; }
+.focus.rec .lbl { color: var(--rec); letter-spacing: .26em; font-stretch: 118%; }
+.rec-sq { flex: none; width: 9px; height: 9px; background: var(--rec); box-shadow: 0 0 6px rgba(255, 59, 71, 0.75); animation: rec-blink 1s steps(2) infinite; }
+.focus.rec b { min-width: 4.4ch; font-variant-numeric: tabular-nums; letter-spacing: .06em; color: var(--ink); }
+#rec-mb { min-width: 6.2ch; color: var(--sun); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#rec-mb:empty { display: none; }
+.rec-left { color: var(--ink-2); font-size: 11px; letter-spacing: .08em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.focus.rec.near .rec-left { color: var(--rec); }
+#rec-stop { width: auto; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; white-space: nowrap; }
+.rec-stop-i { width: 8px; height: 8px; border: 1px solid currentColor; }
+#rec-stop:disabled { opacity: .45; cursor: default; }
+/* waiting for the camera's next scene: the square hollow and slow; saving: still */
+.focus.rec.standby { border-color: rgba(255, 59, 71, 0.5); }
+.focus.rec.standby .rec-sq { background: none; border: 1px solid var(--rec); box-shadow: none; animation-duration: 2s; }
+.focus.rec.standby b { color: var(--ink-2); font-weight: 400; }
+.focus.rec.saving .rec-sq { animation: none; opacity: .5; }
+/* and around the world, a hairline red frame with heavier corners */
+.recframe { position: absolute; left: 0; right: 0; top: var(--top); bottom: var(--bot); pointer-events: none; border: 1px solid rgba(255, 59, 71, 0.35); }
+.recframe i { position: absolute; width: 22px; height: 22px; border: 0 solid #ff3b47; }
+.recframe i:nth-child(1) { left: 6px; top: 6px; border-width: 2px 0 0 2px; }
+.recframe i:nth-child(2) { right: 6px; top: 6px; border-width: 2px 2px 0 0; }
+.recframe i:nth-child(3) { left: 6px; bottom: 6px; border-width: 0 0 2px 2px; }
+.recframe i:nth-child(4) { right: 6px; bottom: 6px; border-width: 0 2px 2px 0; }
+@media (pointer: coarse) { #rec-stop { min-height: 44px; } .focus.rec { padding-top: 0; padding-bottom: 0; } }
+body.lab-open .recframe { left: var(--lab-pw); }
+body.lab-wide .recframe { left: min(620px, 100%); }
+body.spec-open .recframe { right: var(--spec-pw); }
+@media (prefers-reduced-motion: reduce) { .rec-sq, #film.armed .rec { animation: none; } }
 .help-src { margin: var(--s4) 0 0; padding-top: var(--s2); border-top: 1px solid var(--line); color: var(--ink-3); font-size: 12px; }
 .keys { display: grid; grid-template-columns: max-content 1fr; gap: 9px 18px; margin: 10px 0 0; }
 dd { margin: 0; color: var(--ink-2); }
@@ -1323,6 +1353,9 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }
   #film, #auto-next { display: none !important; }
+  .focus.rec { gap: var(--s2); }
+  .recframe { left: 0 !important; right: 0 !important; }
+  .focus.rec .lbl { letter-spacing: .16em; }
   .bench { left: 0 !important; right: 0 !important; flex-direction: column; touch-action: pan-x; padding: var(--s2) 12px var(--s3); max-height: calc(100% - var(--top) - var(--bot)); overflow-y: auto; }
   /* (its handle, as the specimen's sheet has: a swipe down or a tap folds it) */
   .bench .grab { flex: none; margin: calc(-1 * var(--s2)) -12px calc(-1 * var(--s1)); }
@@ -1466,7 +1499,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     <div class="grp acts">
       <button type="button" class="act" id="auto-play" aria-label="Auto camera" aria-pressed="false" data-hint="Auto camera · A"><svg><use href="#i-auto"/></svg><span>Auto</span></button>
       <button type="button" class="act" id="auto-next" aria-label="Next scene" data-hint="Next scene · X" hidden><svg><use href="#i-next"/></svg></button>
-      <button type="button" class="act" id="film" aria-label="Film thirty seconds" aria-pressed="false" data-hint="Film 30 s · R" hidden><svg><use href="#i-film"/></svg><span id="film-v">Film</span></button>
+      <button type="button" class="act" id="film" aria-label="Film" aria-pressed="false" data-hint="Film · R" hidden><svg><use href="#i-film"/></svg><span id="film-v">Film</span></button>
       <span class="snd-wrap"><button type="button" class="act" id="snd" aria-label="Sound" aria-pressed="false" data-hint="Sound · S"><svg><use href="#i-sound"/></svg><span>Sound</span></button><input id="vol" type="range" min="0" max="100" step="1" value="70" aria-label="Volume" hidden></span>
       <button type="button" class="act" id="set-open" aria-label="Settings" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span>Settings</span></button>
       <button type="button" class="act primary" id="lab-open" aria-label="Field Lab" aria-expanded="false" aria-controls="lab" data-hint="Field Lab · K"><svg><use href="#i-lab"/></svg><span>Lab</span></button>
@@ -1516,8 +1549,11 @@ svg.niche .n-dot { fill: var(--cyan); }
   <section class="bench panel" id="bench" hidden aria-label="Bench"></section>
   <div class="held panel" id="held" hidden role="group" aria-label="The tool in hand"></div>
 
-  <!-- floating bars: the species highlight, and the map a gauge opened; each closes on its own -->
+  <!-- filming (src/film.js): a red frame around the world, never in the film itself -->
+  <div class="recframe" id="recframe" hidden aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <!-- floating bars: filming, the species highlight, and the map a gauge opened; each closes on its own -->
   <div class="floats" id="floats">
+    <div class="focus rec" id="recbar" hidden role="group" aria-label="Filming"><i class="rec-sq" aria-hidden="true"></i><span class="lbl" aria-live="polite"><span id="rec-l">Recording</span></span><b id="rec-t" translate="no">0:00</b><small id="rec-mb" translate="no" data-hint="The film's size so far">0 MB</small><small class="rec-left" id="rec-left" hidden></small><button type="button" class="ghost" id="rec-stop" aria-label="Stop filming" data-hint="Stop · R"><i class="rec-stop-i" aria-hidden="true"></i><span id="rec-stop-l">Stop</span></button></div>
     <div class="focus" id="focus" hidden><span class="lbl">Highlight</span><b id="focus-label"></b><button type="button" class="ghost" id="focus-clear" aria-label="Clear highlight" data-hint="Clear · Esc"><svg><use href="#i-close"/></svg></button></div>
     <div class="focus warm" id="warm" hidden role="status"><span class="lbl">Warming up</span><b data-hint="A new world starts with a few colonies in open water: its first two minutes run fast while they spread">The first two minutes, fast</b><small id="warm-t"></small><button type="button" class="ghost" id="warm-end" data-hint="Real time · /">Real time</button></div>
     <div class="focus maps" id="maps" hidden><span class="lbl">Map</span><b id="maps-label"></b><div id="maps-ramp"></div><button type="button" class="ghost" id="maps-clear" aria-label="Close the map" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button></div>
@@ -24152,7 +24188,7 @@ ${e.message}` : String(e?.message || e));
     links: "Bonds between cells of one multicellular body. Single-celled species never show links.",
     chronicler: "The chronicler reads the census and a ledger of who ate whom, how each species died and where it lives, and now and then writes what happened in the log: a death worth remembering and its cause, an arms race, hunters and hunted cycling, a lineage following the water, the last of a guild, what an era or an event did. It speaks only when something notable has happened, a few times an hour at most. Lab → Log → Chronicler shows its entries alone.",
     card: "A species card: its portrait, sigil, song, lineage and natural history on one image, with the chronicler’s latest line about it. Save it as a PNG, and its song as a short clip. You can give the species a name of your own there.",
-    film: "Records thirty seconds of the view, with the auto camera’s captions and the soundtrack, and downloads it as a video. With the auto camera on it waits for the camera’s next scene and films from its start.",
+    film: "Records the view as a video, with the auto camera’s captions and the soundtrack, until you stop it (R, or Stop on the red strip); the strip shows its time and size. Where it can, it is written to disk as it is made; it stops itself before it grows too big to keep (up to 8 GB, an hour or more at 1080p; less where it has to wait in memory). With the auto camera on it waits for the camera’s next scene and films from its start.",
     autoidle: "Left alone for a minute (three with a panel open), the camera starts filming the world on its own. Drag, scroll or tap to take it back.",
     renderscale: "The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room, and shows the scale it is using now (the choice nearest it is underlined); a fixed value never changes.",
     autofloor: "The lowest render scale Auto may drop to.",
@@ -24319,7 +24355,7 @@ ${e.message}` : String(e?.message || e));
 <li><b>Lab → Charts</b>: population, diversity, births, deaths, meals and climate over time, and the eras so far. Point at a chart (or tap it) to read every line at that moment; point at a dot in Thermal niches to name its species, and click it to open it.</li>
 <li><b>Lab → Log</b>: every logged event, searchable. The ${t("chronicler", "chronicler")}’s stories, written now and then when something notable has happened, show in a warmer color; Chronicler shows them alone.</li>
 <li><b>Card</b> (in the specimen panel): a ${t("card", "species card")} to save and share, where you can also name the species.</li>
-<li><b>Film</b> (R): ${t("film", "thirty seconds")} of the view as a video, captions and soundtrack included.</li>
+<li><b>Film</b> (R): the view as a ${t("film", "video")}, captions and soundtrack included, until you stop it (R again).</li>
 <li><b>Auto</b>: the camera films the world on its own, with captions saying what it is showing; it also takes over after a minute alone (switch that off in Settings).</li>
 </ul>`
     }
@@ -24612,7 +24648,7 @@ ${e.message}` : String(e?.message || e));
   }
   var HOLD = 240;
   var GLIDE = 400;
-  function lightSong(el, now, events, mine, prev) {
+  function lightSong(el2, now, events, mine, prev) {
     let last = null;
     const lit = [];
     for (const e of events) {
@@ -24623,9 +24659,9 @@ ${e.message}` : String(e?.message || e));
     const key = lit.sort().join(",");
     if (key !== prev) {
       const set = new Set(lit);
-      for (const r2 of el.querySelectorAll("rect[data-k]")) r2.classList.toggle("lit", set.has(`${r2.dataset.l}:${r2.dataset.k}`));
+      for (const r2 of el2.querySelectorAll("rect[data-k]")) r2.classList.toggle("lit", set.has(`${r2.dataset.l}:${r2.dataset.k}`));
     }
-    const svg = el.querySelector("svg.song-roll"), ph = svg && svg.querySelector(".ph");
+    const svg = el2.querySelector("svg.song-roll"), ph = svg && svg.querySelector(".ph");
     if (!ph) return key;
     const r = last && last.step > 0 && svg.querySelector(`rect[data-k="${last.k}"][data-l="${last.line}"]`);
     const cyc = +svg.dataset.cycle, t2 = r ? +r.dataset.at + (now - last.at) / last.step : 0;
@@ -25042,18 +25078,18 @@ ${e.message}` : String(e?.message || e));
       plate: ({ s }) => namePlate(s.col, s.name, `${Math.round(s.topt)}° ± ${Math.round(s.tol)}° · ${fmt(s.pop)}${s.maker ? " · heat-maker" : ""}`)
     };
   }
-  function onTap(el, fn) {
+  function onTap(el2, fn) {
     let down = null;
-    el.addEventListener("pointerdown", (e) => {
+    el2.addEventListener("pointerdown", (e) => {
       down = e.button === 0 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp } : null;
     });
-    el.addEventListener("pointermove", (e) => {
+    el2.addEventListener("pointermove", (e) => {
       if (down && e.pointerId === down.id && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) down = null;
     });
-    el.addEventListener("pointercancel", () => {
+    el2.addEventListener("pointercancel", () => {
       down = null;
     });
-    el.addEventListener("pointerup", (e) => {
+    el2.addEventListener("pointerup", (e) => {
       const d = down;
       down = null;
       if (d && e.pointerId === d.id && e.timeStamp - d.t < 600) fn(e);
@@ -25774,11 +25810,11 @@ ${e.message}` : String(e?.message || e));
 
   // src/live.js
   var wrote = /* @__PURE__ */ new WeakMap();
-  function setText(el, text2) {
-    const w = wrote.get(el);
+  function setText(el2, text2) {
+    const w = wrote.get(el2);
     if (w && w.text === text2) return false;
-    el.textContent = text2;
-    wrote.set(el, { text: text2 });
+    el2.textContent = text2;
+    wrote.set(el2, { text: text2 });
     return true;
   }
   var parse = (html) => {
@@ -25786,13 +25822,13 @@ ${e.message}` : String(e?.message || e));
     t2.innerHTML = html;
     return t2.content;
   };
-  function setHTML(el, html) {
-    const w = wrote.get(el);
+  function setHTML(el2, html) {
+    const w = wrote.get(el2);
     if (w && w.html === html) return false;
     const frag = parse(html);
-    if (w && w.frag) morph(el, w.frag, frag);
-    else el.replaceChildren(frag.cloneNode(true));
-    wrote.set(el, { html, frag });
+    if (w && w.frag) morph(el2, w.frag, frag);
+    else el2.replaceChildren(frag.cloneNode(true));
+    wrote.set(el2, { html, frag });
     return true;
   }
   function morph(live, a, b) {
@@ -26232,12 +26268,12 @@ ${e.message}` : String(e?.message || e));
   // src/minicard.js
   var countText = (n, bodies, flat) => `×${fmt(n)}${bodies > 1 && !flat ? `<small> · ${fmt(bodies)} bodies</small>` : ""}`;
   var statusText = ([k, v]) => k === "live" ? `<i class="mc-live"></i>${fmt(v)} alive` : k === "gone" ? "extinct here" : `↗ from ${esc(v)}`;
-  function setStatus(el, st) {
+  function setStatus(el2, st) {
     const html = statusText(st);
-    if (el.innerHTML === html) return;
-    el.innerHTML = html;
-    el.classList.toggle("from", st[0] === "from");
-    el.classList.toggle("gone", st[0] === "gone");
+    if (el2.innerHTML === html) return;
+    el2.innerHTML = html;
+    el2.classList.toggle("from", st[0] === "from");
+    el2.classList.toggle("gone", st[0] === "gone");
   }
   var thumbs = /* @__PURE__ */ new Map();
   var THUMBS_MAX = 512;
@@ -26247,9 +26283,9 @@ ${e.message}` : String(e?.message || e));
     const url = URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" }));
     thumbs.set(key, url);
     if (thumbs.size > THUMBS_MAX) dropThumb(thumbs.keys().next().value);
-    for (const el of document.querySelectorAll(`.minicard[data-thumb="${CSS.escape(key)}"] .mc-ph`)) {
-      el.style.backgroundImage = `url(${url})`;
-      el.classList.add("on");
+    for (const el2 of document.querySelectorAll(`.minicard[data-thumb="${CSS.escape(key)}"] .mc-ph`)) {
+      el2.style.backgroundImage = `url(${url})`;
+      el2.classList.add("on");
     }
   }
   function dropThumb(key, all = false) {
@@ -26448,10 +26484,10 @@ ${e.message}` : String(e?.message || e));
       tabs.find((b) => b.dataset.tab === st.tab)?.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
     function pane(ctlHtml, cls = "") {
-      const el = document.createElement("div");
-      el.className = `pane ${cls}`;
-      el.innerHTML = `${ctlHtml ? `<div class="pane-ctl">${ctlHtml}</div>` : ""}<div class="scroll"></div>`;
-      return { el, ctl: el.querySelector(".pane-ctl"), scroll: el.querySelector(".scroll") };
+      const el2 = document.createElement("div");
+      el2.className = `pane ${cls}`;
+      el2.innerHTML = `${ctlHtml ? `<div class="pane-ctl">${ctlHtml}</div>` : ""}<div class="scroll"></div>`;
+      return { el: el2, ctl: el2.querySelector(".pane-ctl"), scroll: el2.querySelector(".scroll") };
     }
     const chips = (key, opts, cur) => opts.map(([v, l]) => `<button type="button" class="chip" data-k="${key}" data-v="${v}" aria-pressed="${v === cur}">${l}</button>`).join("");
     const pressChips = (ctl, key) => ctl.querySelectorAll(`[data-k="${key}"]`).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === st[key])));
@@ -26473,7 +26509,7 @@ ${e.message}` : String(e?.message || e));
       }
       return false;
     }
-    const hovering = (el) => el.matches(":hover");
+    const hovering = (el2) => el2.matches(":hover");
     const DIETS = [["all", "Any"], ["photosynth", "Photosynth"], ["grazer", "Grazer"], ["scavenger", "Scavenger"], ["predator", "Predator"]];
     const MOBS = [["all", "Any"], ["anchored", "Anchored"], ["crawler", "Crawler"], ["swimmer", "Swimmer"], ["drifter", "Drifter"]];
     const TEMPS = [["all", "Any"], ["cold-loving", "Cold"], ["temperate", "Temperate"], ["warmth-loving", "Warm"], ["thermophile", "Hot"]];
@@ -26791,7 +26827,7 @@ ${e.message}` : String(e?.message || e));
       return { ...p, update };
     }
     function buildCensus() {
-      const el = $3("pane-census"), box = $3("ov-census");
+      const el2 = $3("pane-census"), box = $3("ov-census");
       let shape = "";
       wireDisclosures(box, (k, on) => {
         st.open_[k] = on;
@@ -26854,7 +26890,7 @@ ${e.message}` : String(e?.message || e));
         box.querySelectorAll(".chip[data-focus]").forEach((b) => b.setAttribute("aria-pressed", String(fk === b.dataset.focus)));
         if (force) api.onCensusShown();
       }
-      return { el, update };
+      return { el: el2, update };
     }
     const CHARTS = [
       ["Population", null, [{ k: "living", label: "living cells", col: LIVING_CSS }, { k: "husk", label: "husks", col: "#9a6c4c" }]],
@@ -26966,11 +27002,11 @@ ${e.message}` : String(e?.message || e));
           const c = byId(id);
           if (c) api.cabinet.open(c);
         },
-        drop: (id, x, y, el) => {
+        drop: (id, x, y, el2) => {
           const c = byId(id);
           if (!c) return;
-          if (el?.id === "stage") api.cabinet.place(c, x, y);
-          else if (el?.closest('#bench-open, #bench, #held, [data-tool="pipette"]')) api.cabinet.load(c);
+          if (el2?.id === "stage") api.cabinet.place(c, x, y);
+          else if (el2?.closest('#bench-open, #bench, #held, [data-tool="pipette"]')) api.cabinet.load(c);
         }
       });
       grid2.addEventListener("click", (e) => {
@@ -26982,12 +27018,12 @@ ${e.message}` : String(e?.message || e));
       });
       let undoKey = "";
       function undo() {
-        const c = api.cabinet.removed(), el = p.ctl.querySelector("#cab-undo"), k = c ? c.id : "";
+        const c = api.cabinet.removed(), el2 = p.ctl.querySelector("#cab-undo"), k = c ? c.id : "";
         if (k === undoKey) return;
         undoKey = k;
-        el.hidden = !c;
+        el2.hidden = !c;
         p.ctl.querySelector("#cab-order").hidden = !!c;
-        el.innerHTML = c ? `<span>${esc(c.name)} taken out</span> <button type="button" class="link">Undo</button>` : "";
+        el2.innerHTML = c ? `<span>${esc(c.name)} taken out</span> <button type="button" class="link">Undo</button>` : "";
       }
       let key = "";
       function update(force) {
@@ -27002,9 +27038,9 @@ ${e.message}` : String(e?.message || e));
         if (drag.dragging()) return;
         if (k === key && !force) {
           const ids = new Map(shown.map((c) => [c.id, c]));
-          for (const el of grid2.querySelectorAll(".mc-st")) {
-            const c = ids.get(el.parentElement.dataset.key);
-            if (c) setStatus(el, api.cabinet.status(c));
+          for (const el2 of grid2.querySelectorAll(".mc-st")) {
+            const c = ids.get(el2.parentElement.dataset.key);
+            if (c) setStatus(el2, api.cabinet.status(c));
           }
           return;
         }
@@ -27386,7 +27422,7 @@ ${e.message}` : String(e?.message || e));
   var NB_ROWS = 4;
   var EASE_MS = 70;
   function createMindView({ K, genomeFor, nameOf, sigil }) {
-    let el = null;
+    let el2 = null;
     let parts = null;
     let rows = null;
     let ease3 = null;
@@ -27434,8 +27470,8 @@ ${e.message}` : String(e?.message || e));
       return h + "</div>";
     }
     function bind(container) {
-      el = container;
-      const q = (s) => el.querySelector(s);
+      el2 = container;
+      const q = (s) => el2.querySelector(s);
       parts = {
         mode: q(".mv-mode"),
         sig: q(".mv-sig"),
@@ -27446,16 +27482,16 @@ ${e.message}` : String(e?.message || e));
         hdg: q(".c-hdg"),
         bug: q(".c-bug"),
         tgt: q(".c-tgt"),
-        arrows: new Map([...el.querySelectorAll(".c-arw")].map((n) => [n.dataset.k, { line: n.querySelector("line"), head: n.querySelector("path") }])),
-        drives: new Map([...el.querySelectorAll(".mv-drives > div[data-k]")].map((n) => [n.dataset.k, { bar: n.querySelector(".meter i"), val: n.querySelector("b") }])),
-        lamps: new Map([...el.querySelectorAll(".lamp")].map((n) => [n.dataset.k, { el: n, label: n.querySelector("span") }])),
-        nb: [...el.querySelectorAll(".nb-row[data-i]")].map((n) => ({ row: n, sig: n.querySelector(".nb-sig"), name: n.querySelector(".nb-name"), n: n.querySelector(".nb-n"), role: n.querySelector(".nb-role"), bar: n.querySelector(".dbar i"), kind: null })),
+        arrows: new Map([...el2.querySelectorAll(".c-arw")].map((n) => [n.dataset.k, { line: n.querySelector("line"), head: n.querySelector("path") }])),
+        drives: new Map([...el2.querySelectorAll(".mv-drives > div[data-k]")].map((n) => [n.dataset.k, { bar: n.querySelector(".meter i"), val: n.querySelector("b") }])),
+        lamps: new Map([...el2.querySelectorAll(".lamp")].map((n) => [n.dataset.k, { el: n, label: n.querySelector("span") }])),
+        nb: [...el2.querySelectorAll(".nb-row[data-i]")].map((n) => ({ row: n, sig: n.querySelector(".nb-sig"), name: n.querySelector(".nb-name"), n: n.querySelector(".nb-n"), role: n.querySelector(".nb-role"), bar: n.querySelector(".dbar i"), kind: null })),
         tkind: void 0
       };
       rows = null;
       ease3 = null;
     }
-    const bound = () => !!(el && el.isConnected);
+    const bound = () => !!(el2 && el2.isConnected);
     const len2 = (v) => Math.hypot(v[0], v[1]);
     const unit = (v) => {
       const l = len2(v);
@@ -27658,10 +27694,10 @@ ${e.message}` : String(e?.message || e));
     const sectionEl = (id) => body.querySelector(`[data-sx="${id}"]`);
     let pin = null;
     function jump(id) {
-      const el = sectionEl(id);
-      if (!el) return;
+      const el2 = sectionEl(id);
+      if (!el2) return;
       pin = { id, until: performance.now() + 1500 };
-      body.scrollTop = Math.max(0, el.offsetTop - 2);
+      body.scrollTop = Math.max(0, el2.offsetTop - 2);
       mark(id);
     }
     const unpin = () => {
@@ -27684,7 +27720,7 @@ ${e.message}` : String(e?.message || e));
       if (!secs.length) return;
       let cur = secs[0];
       if (body.scrollTop + body.clientHeight >= body.scrollHeight - 4) cur = secs[secs.length - 1];
-      else for (const el of secs) if (el.offsetTop - body.scrollTop <= 24) cur = el;
+      else for (const el2 of secs) if (el2.offsetTop - body.scrollTop <= 24) cur = el2;
       mark(cur.dataset.sx);
     }
     body.addEventListener("scroll", spy, { passive: true });
@@ -28141,9 +28177,9 @@ ${e.message}` : String(e?.message || e));
       }
       for (const [id, , html] of flow) {
         if (st.flow.get(id) === html) continue;
-        const el = sectionEl(id);
-        if (!el) continue;
-        const sx = el.querySelector(".sx-b"), kept = [...sx.querySelectorAll("canvas[data-chart]")];
+        const el2 = sectionEl(id);
+        if (!el2) continue;
+        const sx = el2.querySelector(".sx-b"), kept = [...sx.querySelectorAll("canvas[data-chart]")];
         setHTML(sx, html);
         for (const cv of kept) {
           const n = sx.querySelector(`canvas[data-chart="${cv.dataset.chart}"]`);
@@ -28168,8 +28204,8 @@ ${e.message}` : String(e?.message || e));
         restoreTop = null;
       }
       if (pin && performance.now() < pin.until) {
-        const el = sectionEl(pin.id);
-        if (el) body.scrollTop = Math.max(0, el.offsetTop - 2);
+        const el2 = sectionEl(pin.id);
+        if (el2) body.scrollTop = Math.max(0, el2.offsetTop - 2);
         mark(pin.id);
         return true;
       }
@@ -28306,18 +28342,18 @@ ${e.message}` : String(e?.message || e));
     let shown = "";
     let via = "";
     let rect = null;
-    const textFor = (el) => {
-      if (el.dataset.tip) return GLOSSARY[el.dataset.tip] ? { text: (el.dataset.live ? `${el.dataset.live} ` : "") + GLOSSARY[el.dataset.tip] } : null;
-      if (!el.dataset.hint) return null;
-      const [h, more] = el.dataset.hint.split("\n");
-      if (el.classList.contains("term")) return { text: h, more };
+    const textFor = (el2) => {
+      if (el2.dataset.tip) return GLOSSARY[el2.dataset.tip] ? { text: (el2.dataset.live ? `${el2.dataset.live} ` : "") + GLOSSARY[el2.dataset.tip] } : null;
+      if (!el2.dataset.hint) return null;
+      const [h, more] = el2.dataset.hint.split("\n");
+      if (el2.classList.contains("term")) return { text: h, more };
       const i = h.lastIndexOf(" · ");
       return i > 0 ? { text: h.slice(0, i), key: h.slice(i + 3), more } : { text: h, more };
     };
-    function show(el, how) {
-      const t2 = textFor(el);
+    function show(el2, how) {
+      const t2 = textFor(el2);
       if (!t2) return;
-      owner = el;
+      owner = el2;
       via = how;
       tip.textContent = t2.text;
       shown = t2.text;
@@ -28332,7 +28368,7 @@ ${e.message}` : String(e?.message || e));
         tip.append(m);
       }
       tip.hidden = false;
-      const r = el.getBoundingClientRect();
+      const r = el2.getBoundingClientRect();
       rect = r;
       const tw = Math.min(300, innerWidth - 16);
       tip.style.maxWidth = `${tw}px`;
@@ -28341,7 +28377,7 @@ ${e.message}` : String(e?.message || e));
       const above = r.top - h - 8 > 8 && (r.bottom + h + 8 > innerHeight || r.top > innerHeight / 2);
       tip.style.left = `${left}px`;
       tip.style.top = `${above ? r.top - h - 8 : r.bottom + 8}px`;
-      el.setAttribute("aria-describedby", "tip");
+      el2.setAttribute("aria-describedby", "tip");
     }
     function hide() {
       if (owner) owner.removeAttribute("aria-describedby");
@@ -28351,9 +28387,9 @@ ${e.message}` : String(e?.message || e));
     const target = (e) => e.target.closest && e.target.closest("[data-tip],[data-hint]");
     document.addEventListener("pointerover", (e) => {
       if (e.pointerType !== "mouse") return;
-      const el = target(e);
-      if (el && el !== owner) show(el, "hover");
-      else if (!el && owner && via === "hover") hide();
+      const el2 = target(e);
+      if (el2 && el2 !== owner) show(el2, "hover");
+      else if (!el2 && owner && via === "hover") hide();
     });
     document.addEventListener("pointerout", (e) => {
       if (e.pointerType === "mouse" && owner && via === "hover" && !owner.contains(e.relatedTarget)) hide();
@@ -28363,16 +28399,16 @@ ${e.message}` : String(e?.message || e));
         if (owner) hide();
         return;
       }
-      const el = e.target.closest && e.target.closest("[data-tip], .term[data-hint]");
-      if (el && el !== owner) {
-        show(el, "tap");
+      const el2 = e.target.closest && e.target.closest("[data-tip], .term[data-hint]");
+      if (el2 && el2 !== owner) {
+        show(el2, "tap");
         return;
       }
       if (owner) hide();
     }, true);
     document.addEventListener("focusin", (e) => {
-      const el = target(e);
-      if (el && el.matches(":focus-visible")) show(el, "focus");
+      const el2 = target(e);
+      if (el2 && el2.matches(":focus-visible")) show(el2, "focus");
     });
     document.addEventListener("focusout", () => {
       if (owner && via === "focus") hide();
@@ -28390,12 +28426,12 @@ ${e.message}` : String(e?.message || e));
       const key = owner.dataset.tip ? `[data-tip="${owner.dataset.tip}"]` : `[data-hint="${CSS.escape(owner.dataset.hint || "")}"]`;
       const old = rect;
       let best = null, bd = 24;
-      for (const el of document.querySelectorAll(key)) {
-        const r = el.getBoundingClientRect();
+      for (const el2 of document.querySelectorAll(key)) {
+        const r = el2.getBoundingClientRect();
         const d = Math.hypot(r.left - old.left, r.top - old.top);
         if (d < bd) {
           bd = d;
-          best = el;
+          best = el2;
         }
       }
       if (best) {
@@ -31578,8 +31614,346 @@ ${e.message}` : String(e?.message || e));
     }, isOpen: () => !root.hidden };
   }
 
+  // src/webm.js
+  var ID = {
+    EBML: 440786851,
+    Segment: 408125543,
+    SeekHead: 290298740,
+    Info: 357149030,
+    TimecodeScale: 2807729,
+    Duration: 17545,
+    Tracks: 374648427,
+    TrackEntry: 174,
+    TrackNumber: 215,
+    TrackType: 131,
+    Cluster: 524531317,
+    Timecode: 231,
+    SimpleBlock: 163,
+    Cues: 475249515,
+    CuePoint: 187,
+    CueTime: 179,
+    CueTrackPositions: 183,
+    CueTrack: 247,
+    CueClusterPosition: 241,
+    Void: 236,
+    Tags: 307544935
+  };
+  var LEVEL1 = /* @__PURE__ */ new Set([
+    ID.SeekHead,
+    ID.Info,
+    ID.Tracks,
+    ID.Cluster,
+    ID.Cues,
+    ID.Tags,
+    ID.Void,
+    423732329,
+    272869232
+    /* Chapters */
+  ]);
+  var UNKNOWN = -1;
+  function readHeader(b, i) {
+    if (i >= b.length) return null;
+    const f2 = b[i];
+    const il = f2 >= 128 ? 1 : f2 >= 64 ? 2 : f2 >= 32 ? 3 : f2 >= 16 ? 4 : 0;
+    if (!il) throw new Error("bad element id");
+    if (i + il >= b.length) return null;
+    let id = 0;
+    for (let k = 0; k < il; k++) id = id * 256 + b[i + k];
+    const s0 = b[i + il];
+    let sl = 1;
+    while (sl <= 8 && !(s0 & 128 >> sl - 1)) sl++;
+    if (sl > 8) throw new Error("bad element size");
+    if (i + il + sl > b.length) return null;
+    let size = s0 & 255 >> sl, ones = size === 255 >> sl;
+    for (let k = 1; k < sl; k++) {
+      const v = b[i + il + k];
+      size = size * 256 + v;
+      ones = ones && v === 255;
+    }
+    return { id, size: ones ? UNKNOWN : size, len: il + sl };
+  }
+  var idBytes = (id) => {
+    const o = [];
+    for (let v = id; v > 0; v = Math.floor(v / 256)) o.unshift(v & 255);
+    return o;
+  };
+  var uintBytes = (n, len2 = 8) => {
+    const o = new Array(len2);
+    for (let k = len2 - 1; k >= 0; k--) {
+      o[k] = n % 256;
+      n = Math.floor(n / 256);
+    }
+    return o;
+  };
+  var sizeBytes = (n, len2 = 8) => {
+    const o = uintBytes(n, len2);
+    o[0] |= 128 >> len2 - 1;
+    return o;
+  };
+  var minUint = (n) => {
+    const o = [];
+    do {
+      o.unshift(n % 256);
+      n = Math.floor(n / 256);
+    } while (n > 0);
+    return o;
+  };
+  var el = (id, body) => [...idBytes(id), ...sizeBytes(body.length, body.length < 127 ? 1 : 8), ...body];
+  var readUint = (b, i, n) => {
+    let v = 0;
+    for (let k = 0; k < n; k++) v = v * 256 + b[i + k];
+    return v;
+  };
+  var voidOf = (n) => [ID.Void, 128 | n - 2, ...new Array(n - 2).fill(0)];
+  var SEEK_LEN = 21;
+  var seekOf = (id, pos) => [77, 187, 128 | 18, 83, 171, 132, ...idBytes(id), 83, 172, 136, ...uintBytes(pos)];
+  var DUR_LEN = 11;
+  var concat = (a, b) => {
+    const o = new Uint8Array(a.length + b.length);
+    o.set(a);
+    o.set(b, a.length);
+    return o;
+  };
+  function createWebmFix() {
+    let mode = "head";
+    let head = [];
+    let written = 0;
+    let segStart = 0;
+    let scale = 1e6, video = 1, durAt = -1, cuesSeekAt = -1;
+    let pend = new Uint8Array(0);
+    let skip = 0;
+    let cluster = null;
+    let lastTime = 0;
+    const cues = [];
+    let lastCue = -Infinity;
+    let block2 = null;
+    const segPos = () => written - segStart;
+    const joined = () => head.length === 1 ? head[0] : head.reduce(concat, new Uint8Array(0));
+    function rewriteHead(b) {
+      const eh = readHeader(b, 0);
+      if (!eh || eh.id !== ID.EBML || eh.size === UNKNOWN) return null;
+      let i = eh.len + eh.size;
+      const sh = readHeader(b, i);
+      if (!sh || sh.id !== ID.Segment) return null;
+      const out = [...b.subarray(0, i)];
+      out.push(...idBytes(ID.Segment), 1, 255, 255, 255, 255, 255, 255, 255);
+      segStart = out.length;
+      i += sh.len;
+      const kept = [];
+      let firstCluster = -1;
+      while (i < b.length) {
+        const h = readHeader(b, i);
+        if (!h) return null;
+        if (h.id === ID.Cluster) {
+          firstCluster = i;
+          break;
+        }
+        if (h.size === UNKNOWN) return null;
+        const body = b.subarray(i + h.len, i + h.len + h.size);
+        if (h.id === ID.Info) {
+          const inner = [];
+          for (let j = 0; j < body.length; ) {
+            const c = readHeader(body, j);
+            if (!c) return null;
+            if (c.id === ID.TimecodeScale) scale = readUint(body, j + c.len, c.size);
+            if (c.id !== ID.Duration) inner.push(...body.subarray(j, j + c.len + c.size));
+            j += c.len + c.size;
+          }
+          kept.push([ID.Info, inner]);
+        } else if (h.id === ID.Tracks) {
+          for (let j = 0; j < body.length; ) {
+            const t2 = readHeader(body, j);
+            if (!t2) return null;
+            if (t2.id === ID.TrackEntry) {
+              let num = 0, type = 0;
+              for (let k = j + t2.len; k < j + t2.len + t2.size; ) {
+                const c = readHeader(body, k);
+                if (!c) return null;
+                if (c.id === ID.TrackNumber) num = readUint(body, k + c.len, c.size);
+                if (c.id === ID.TrackType) type = readUint(body, k + c.len, c.size);
+                k += c.len + c.size;
+              }
+              if (type === 1) video = num;
+            }
+            j += t2.len + t2.size;
+          }
+          kept.push([ID.Tracks, [...b.subarray(i, i + h.len + h.size)]]);
+        } else if (h.id !== ID.SeekHead && h.id !== ID.Void && h.id !== ID.Cues) kept.push([h.id, [...b.subarray(i, i + h.len + h.size)]]);
+        i += h.len + h.size;
+      }
+      if (firstCluster < 0) return null;
+      const seekBody = 3 * SEEK_LEN, seekHeadLen = 4 + 1 + seekBody;
+      const pieces = kept.map(([id, bytes]) => id === ID.Info ? [...idBytes(ID.Info), ...sizeBytes(bytes.length + DUR_LEN), ...bytes, ...voidOf(DUR_LEN)] : bytes);
+      let pos = seekHeadLen;
+      const at = {};
+      kept.forEach(([id], k) => {
+        if (at[id] == null) at[id] = pos;
+        pos += pieces[k].length;
+      });
+      if (at[ID.Info] == null || at[ID.Tracks] == null) return null;
+      out.push(...idBytes(ID.SeekHead), 128 | seekBody, ...seekOf(ID.Info, at[ID.Info]), ...seekOf(ID.Tracks, at[ID.Tracks]));
+      cuesSeekAt = out.length;
+      out.push(...voidOf(SEEK_LEN));
+      kept.forEach(([id], k) => {
+        if (id === ID.Info) durAt = out.length + pieces[k].length - DUR_LEN;
+        out.push(...pieces[k]);
+      });
+      return { head: Uint8Array.from(out), rest: b.subarray(firstCluster) };
+    }
+    function read(b) {
+      let i = 0;
+      const base = segPos() - pend.length;
+      const buf = pend.length ? concat(pend, b) : b;
+      pend = new Uint8Array(0);
+      const posOf = (k) => base + k;
+      while (i < buf.length) {
+        if (skip > 0) {
+          const n = Math.min(skip, buf.length - i);
+          skip -= n;
+          i += n;
+          continue;
+        }
+        if (block2) {
+          if (buf.length - i < 4) {
+            pend = buf.slice(i);
+            return;
+          }
+          const tl = buf[i] >= 128 ? 1 : buf[i] >= 64 ? 2 : 3;
+          if (buf.length - i < tl + 3) {
+            pend = buf.slice(i);
+            return;
+          }
+          let track = buf[i] & 255 >> tl;
+          for (let k = 1; k < tl; k++) track = track * 256 + buf[i + k];
+          let rel = buf[i + tl] * 256 + buf[i + tl + 1];
+          if (rel > 32767) rel -= 65536;
+          const key = (buf[i + tl + 2] & 128) !== 0;
+          const t2 = block2.cluster.time + rel;
+          if (t2 > lastTime) lastTime = t2;
+          if (key && track === video && t2 - lastCue >= 5e8 / scale) {
+            cues.push([t2, block2.cluster.pos]);
+            lastCue = t2;
+          }
+          skip = block2.size;
+          block2 = null;
+          continue;
+        }
+        if (cluster && cluster.end !== UNKNOWN && posOf(i) >= cluster.end) cluster = null;
+        const h = (() => {
+          try {
+            return readHeader(buf, i);
+          } catch {
+            return void 0;
+          }
+        })();
+        if (h === void 0) {
+          mode = "raw";
+          return;
+        }
+        if (!h) {
+          pend = buf.slice(i);
+          return;
+        }
+        if (h.id === ID.Cluster) {
+          cluster = { pos: posOf(i), end: h.size === UNKNOWN ? UNKNOWN : posOf(i) + h.len + h.size, time: 0 };
+          i += h.len;
+          continue;
+        }
+        if (cluster && h.id === ID.Timecode) {
+          if (buf.length - i < h.len + h.size) {
+            pend = buf.slice(i);
+            return;
+          }
+          cluster.time = readUint(buf, i + h.len, h.size);
+          i += h.len + h.size;
+          continue;
+        }
+        if (cluster && h.id === ID.SimpleBlock) {
+          block2 = { cluster, size: h.size };
+          i += h.len;
+          continue;
+        }
+        if (h.size === UNKNOWN) {
+          mode = "raw";
+          return;
+        }
+        if (LEVEL1.has(h.id)) cluster = null;
+        skip = h.size;
+        i += h.len;
+      }
+    }
+    return {
+      get ok() {
+        return mode !== "raw";
+      },
+      /** The recorder's next bytes: returns the bytes to write next, in order (the same array when unchanged). */
+      push(b) {
+        if (mode === "raw") return [b];
+        if (mode === "head") {
+          head.push(b);
+          const all = joined();
+          let r;
+          try {
+            r = rewriteHead(all);
+          } catch {
+            r = null;
+          }
+          if (!r) {
+            if (all.length < 4e6) return [];
+            mode = "raw";
+            head = [];
+            written += all.length;
+            return [all];
+          }
+          head = [];
+          mode = "body";
+          written += r.head.length;
+          if (r.rest.length) {
+            read(r.rest);
+            written += r.rest.length;
+          }
+          return r.rest.length ? [r.head, r.rest] : [r.head];
+        }
+        read(b);
+        written += b.length;
+        return [b];
+      },
+      /** Bytes handed out so far. */
+      get bytes() {
+        return written + (mode === "head" ? head.reduce((s, x) => s + x.length, 0) : 0);
+      },
+      /**
+       * The recording ended: { tail (bytes to write after the last), patches: [{ at, bytes }] to write over the head },
+       * or null when the file cannot be mended (it is then left as written, a live WebM).
+       */
+      end(frameNs = 1e9 / 30) {
+        if (mode === "head" && head.length) return { tail: joined(), patches: [] };
+        if (mode !== "body") return null;
+        const cuesPos = segPos();
+        const points = [];
+        for (const [t2, pos] of cues) points.push(...el(ID.CuePoint, [...el(ID.CueTime, minUint(t2)), ...el(ID.CueTrackPositions, [...el(ID.CueTrack, minUint(video)), ...el(ID.CueClusterPosition, minUint(pos))])]));
+        const tail = cues.length ? Uint8Array.from([...idBytes(ID.Cues), ...sizeBytes(points.length), ...points]) : new Uint8Array(0);
+        const dur = new Uint8Array(8);
+        new DataView(dur.buffer).setFloat64(0, lastTime + frameNs / scale);
+        const patches = [{ at: durAt, bytes: Uint8Array.from([68, 137, 136, ...dur]) }];
+        if (cues.length) patches.push({ at: cuesSeekAt, bytes: Uint8Array.from(seekOf(ID.Cues, cuesPos)) });
+        return { tail, patches, duration: (lastTime * scale + frameNs) / 1e9, cues: cues.length };
+      }
+    };
+  }
+
   // src/film.js
-  var TYPES = [["video/webm;codecs=vp9,opus", "webm"], ["video/webm;codecs=vp8,opus", "webm"], ["video/webm", "webm"], ["video/mp4;codecs=avc1,mp4a", "mp4"], ["video/mp4", "mp4"]];
+  var TYPES = [
+    ["video/mp4;codecs=avc1.64002a,mp4a.40.2", "mp4"],
+    ["video/mp4;codecs=avc1.64002a,opus", "mp4"],
+    ["video/webm;codecs=vp9,opus", "webm"],
+    ["video/webm;codecs=vp8,opus", "webm"],
+    ["video/webm", "webm"],
+    ["video/mp4", "mp4"]
+  ];
+  var GB = 1e9;
+  var FILM_CAP = { disk: 8 * GB, memory: 1 * GB, memorySmall: 0.3 * GB };
+  var OPFS_PREFIX = "tidemote-film-";
   function filmFormat() {
     const MR = globalThis.MediaRecorder;
     if (!MR || !globalThis.HTMLCanvasElement?.prototype.captureStream) return null;
@@ -31589,30 +31963,117 @@ ${e.message}` : String(e?.message || e));
     const k = Math.min(1, maxW / w, maxH / h);
     return [Math.max(2, Math.round(w * k / 2) * 2), Math.max(2, Math.round(h * k / 2) * 2)];
   }
-  function createFilm({ canvas: canvas2, overlay: overlay2 = null, caption = null, audio = () => null, title = () => "", name = () => "tidemote", onChange = () => {
-  }, onSaved = null }) {
+  var filmBitrate = (w, h) => Math.round(Math.min(24e6, w * h * 30 * 0.3));
+  function filmLimit(kind, free = Infinity, small = false) {
+    if (kind === "memory") return small ? FILM_CAP.memorySmall : FILM_CAP.memory;
+    return Math.max(0, Math.min(FILM_CAP.disk, free / 2));
+  }
+  var smallDevice = () => navigator.deviceMemory != null && navigator.deviceMemory <= 4 || !!globalThis.matchMedia?.("(pointer: coarse)").matches;
+  async function desktopSink(desk, name) {
+    const f2 = await desk.open(name);
+    return {
+      kind: "desktop",
+      cap: filmLimit("disk", f2.free ?? Infinity),
+      write: (b) => desk.write(f2.id, b),
+      patch: (at, b) => desk.patch(f2.id, at, b),
+      finish: async () => ({ path: await desk.close(f2.id) }),
+      abort: () => desk.abort(f2.id)
+    };
+  }
+  var opfsOk = () => !!(navigator.storage?.getDirectory && globalThis.FileSystemFileHandle?.prototype.createWritable);
+  async function clearFilms() {
+    if (!opfsOk()) return;
+    try {
+      const dir = await navigator.storage.getDirectory();
+      for await (const n of dir.keys()) if (n.startsWith(OPFS_PREFIX)) await dir.removeEntry(n).catch(() => {
+      });
+    } catch {
+    }
+  }
+  async function opfsSink(name) {
+    if (!opfsOk()) throw new Error("no private files");
+    const file = OPFS_PREFIX + name;
+    await clearFilms();
+    const dir = await navigator.storage.getDirectory();
+    const h = await dir.getFileHandle(file, { create: true });
+    const w = await h.createWritable();
+    const est = await navigator.storage.estimate?.().catch(() => null);
+    const free = est && est.quota ? est.quota - (est.usage || 0) : Infinity;
+    return {
+      kind: "disk",
+      cap: filmLimit("disk", free),
+      write: (b) => w.write(b),
+      patch: (at, b) => w.write({ type: "write", position: at, data: b }),
+      finish: async () => {
+        await w.close();
+        const blob = await h.getFile();
+        setTimeout(() => clearFilms(), 10 * 60 * 1e3);
+        return { blob };
+      },
+      abort: async () => {
+        try {
+          await w.abort();
+        } catch {
+        }
+        clearFilms();
+      }
+    };
+  }
+  function memorySink(type) {
+    const parts = [];
+    return {
+      kind: "memory",
+      cap: filmLimit("memory", Infinity, smallDevice()),
+      write: (b, blob) => {
+        parts.push(blob || b);
+      },
+      patch: (at, b) => {
+        let o = 0;
+        for (const p of parts) {
+          if (!(p instanceof Uint8Array)) break;
+          if (at >= o && at + b.length <= o + p.length) {
+            p.set(b, at - o);
+            return;
+          }
+          o += p.length;
+        }
+      },
+      finish: async () => ({ blob: new Blob(parts, { type }) }),
+      abort: () => {
+        parts.length = 0;
+      }
+    };
+  }
+  function createFilm({ canvas: canvas2, source = null, overlay: overlay2 = null, caption = null, audio = () => null, title = () => "", name = () => "tidemote", desktop = null, onChange = () => {
+  }, onSaved = null, onError = () => {
+  } }) {
     const fmt2 = filmFormat();
-    const st = { state: "idle", rec: null, chunks: [], until: 0, cv: null, ctx: null, capA: 0 };
+    const st = { state: "idle", rec: null, cv: null, ctx: null, capA: 0, t0: 0, tEnd: 0, bytes: 0, rate: [], sink: null, cap: Infinity, why: "" };
     const set = (s) => {
       st.state = s;
       onChange(s);
     };
-    function start2(seconds = 30) {
-      if (!fmt2 || st.state === "recording") return false;
-      const [w, h] = filmSize(canvas2.width, canvas2.height);
+    function start2() {
+      if (!fmt2 || st.state === "recording" || st.state === "saving") return false;
+      const [w, h] = filmSize(...source ? source() : [canvas2.width, canvas2.height]);
       st.cv = st.cv || document.createElement("canvas");
       st.cv.width = w;
       st.cv.height = h;
       st.ctx = st.cv.getContext("2d", { alpha: false });
       st.ctx.fillStyle = "#000";
       st.ctx.fillRect(0, 0, w, h);
-      const stream = st.cv.captureStream(30);
+      const manual = !!globalThis.CanvasCaptureMediaStreamTrack?.prototype.requestFrame;
+      const stream = st.cv.captureStream(manual ? 0 : 30);
+      st.track = stream.getVideoTracks()[0];
+      st.last = -Infinity;
       const snd = audio();
       if (snd) for (const tr of snd.getAudioTracks()) stream.addTrack(tr);
-      st.chunks = [];
       let rec;
+      const ask = globalThis.__FILM_OPTS || {};
+      const mime = ask.mime && MediaRecorder.isTypeSupported(ask.mime) ? ask.mime : fmt2[0];
+      st.n = 0;
       try {
-        rec = new MediaRecorder(stream, { mimeType: fmt2[0], videoBitsPerSecond: Math.round(Math.min(12e6, w * h * 30 * 0.12)), audioBitsPerSecond: 128e3 });
+        rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: ask.bps || filmBitrate(w, h), audioBitsPerSecond: 128e3, videoKeyFrameIntervalDuration: ask.kfi ?? 1e3 });
       } catch {
         try {
           rec = new MediaRecorder(stream);
@@ -31620,20 +32081,80 @@ ${e.message}` : String(e?.message || e));
           return false;
         }
       }
+      const type = rec.mimeType || fmt2[0];
+      const file = `${name()}.${/mp4/.test(type) ? "mp4" : "webm"}`;
+      const fix = /webm/.test(type) ? createWebmFix() : null;
+      st.bytes = 0;
+      st.rate = [];
+      st.why = "";
+      st.cap = Infinity;
+      st.sink = null;
+      const sinkP = (desktop ? desktopSink(desktop, file) : Promise.reject(new Error("no desktop"))).catch(() => opfsSink(file)).catch(() => memorySink(type)).then((s) => {
+        st.sink = s;
+        st.cap = Math.min(s.cap, ask.cap || Infinity);
+        return s;
+      });
+      let chain = sinkP;
+      let failed = false;
+      const fail2 = (e) => {
+        if (failed) return;
+        failed = true;
+        onError(`The film could not be written: ${e?.message || e}`);
+        if (rec.state !== "inactive") rec.stop();
+      };
       rec.ondataavailable = (e) => {
-        if (e.data && e.data.size) st.chunks.push(e.data);
+        if (!e.data || !e.data.size) return;
+        const blob = e.data;
+        chain = chain.then(async (s) => {
+          if (failed) return s;
+          const u8 = new Uint8Array(await blob.arrayBuffer());
+          for (const b of fix ? fix.push(u8) : [u8]) {
+            await s.write(b, b === u8 ? blob : null);
+            st.bytes += b.length;
+          }
+          const now = performance.now();
+          st.rate.push([now, st.bytes]);
+          while (st.rate.length > 2 && now - st.rate[0][0] > 3e4) st.rate.shift();
+          if (st.state === "recording" && st.bytes + 2 * rateNow() >= st.cap) {
+            st.why = "limit";
+            stop();
+          }
+          return s;
+        }).catch((err) => {
+          fail2(err);
+          return st.sink;
+        });
       };
       rec.onstop = () => {
-        const blob = new Blob(st.chunks, { type: rec.mimeType || fmt2[0] });
-        st.chunks = [];
         for (const tr of stream.getVideoTracks()) tr.stop();
         st.rec = null;
-        set("idle");
-        if (blob.size) onSaved?.(blob, `${name()}.${fmt2[1]}`);
+        st.tEnd = performance.now();
+        set("saving");
+        chain.then(async (s) => {
+          if (failed) {
+            await s?.abort?.();
+            return null;
+          }
+          const e = fix && fix.end();
+          if (e) {
+            if (e.tail.length) {
+              await s.write(e.tail);
+              st.bytes += e.tail.length;
+            }
+            for (const p of e.patches) await s.patch(p.at, p.bytes);
+          }
+          return s.finish();
+        }).then((out) => {
+          set("idle");
+          if (out && (out.path || out.blob && out.blob.size)) onSaved?.({ ...out, name: file, bytes: st.bytes, why: st.why });
+        }).catch((err) => {
+          set("idle");
+          onError(`The film could not be saved: ${err?.message || err}`);
+        });
       };
       rec.start(1e3);
       st.rec = rec;
-      st.until = performance.now() + seconds * 1e3;
+      st.t0 = performance.now();
       set("recording");
       frame();
       return true;
@@ -31648,6 +32169,12 @@ ${e.message}` : String(e?.message || e));
     const arm = () => {
       if (fmt2 && st.state === "idle") set("armed");
     };
+    function rateNow() {
+      const r = st.rate;
+      if (r.length < 2) return 0;
+      const a = r[0], b = r[r.length - 1];
+      return b[0] > a[0] ? (b[1] - a[1]) * 1e3 / (b[0] - a[0]) : 0;
+    }
     function drawCaption(ctx, w, h) {
       if (!caption) return;
       st.capA += ((caption.classList.contains("on") ? 1 : 0) - st.capA) * 0.08;
@@ -31681,6 +32208,9 @@ ${e.message}` : String(e?.message || e));
     }
     function frame() {
       if (st.state !== "recording" || !st.ctx) return;
+      const now = performance.now();
+      if (now - st.last < 1e3 / 30 - 4) return;
+      st.last = Math.max(now - 1e3 / 30, st.last + 1e3 / 30);
       const ctx = st.ctx, { width: w, height: h } = st.cv;
       ctx.drawImage(canvas2, 0, 0, w, h);
       if (overlay2 && overlay2.width) ctx.drawImage(overlay2, 0, 0, w, h);
@@ -31692,7 +32222,16 @@ ${e.message}` : String(e?.message || e));
       ctx.fillStyle = "rgba(226,241,240,0.6)";
       ctx.fillText(title(), w - 24 * s, 34 * s);
       ctx.restore();
-      if (performance.now() >= st.until) stop();
+      const probe = globalThis.__FILM_PROBE;
+      if (probe) {
+        const n = st.n++;
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, h - 24, 16 * 12 + 12, 24);
+        ctx.fillStyle = "#fff";
+        for (let k = 0; k < 16; k++) if (n >> k & 1) ctx.fillRect(6 + k * 12, h - 18, 12, 12);
+        if (n % 30 === 15) st.cv.toBlob((b) => probe.refs.push([n, b]), "image/png");
+      }
+      st.track?.requestFrame?.();
     }
     return {
       supported: !!fmt2,
@@ -31703,8 +32242,21 @@ ${e.message}` : String(e?.message || e));
       get state() {
         return st.state;
       },
-      /** Seconds left of the take (recording), else 0. */
-      left: () => st.state === "recording" ? Math.max(0, (st.until - performance.now()) / 1e3) : 0
+      /** Seconds filmed (recording or saving), else 0. */
+      elapsed: () => st.state === "recording" ? (performance.now() - st.t0) / 1e3 : st.state === "saving" ? (st.tEnd - st.t0) / 1e3 : 0,
+      /** Bytes of the film written so far: its size, exactly, once it is saved. */
+      bytes: () => st.bytes,
+      /** The byte limit of this film's sink (Infinity until it is open). */
+      limit: () => st.cap,
+      /** Seconds until the limit at the present rate (Infinity while unknown). */
+      left: () => {
+        const r = rateNow();
+        return st.state === "recording" && r > 0 && Number.isFinite(st.cap) ? Math.max(0, (st.cap - st.bytes) / r) : Infinity;
+      },
+      /** The film's frame size, [w, h] (while filming). */
+      size: () => st.cv ? [st.cv.width, st.cv.height] : null,
+      /** Where it goes: desktop | disk | memory (null until known). */
+      sink: () => st.sink?.kind || null
     };
   }
 
@@ -31933,13 +32485,13 @@ ${e.message}` : String(e?.message || e));
   var toSlider = (r, { min, max }) => Math.round(1e3 * Math.log(r / min) / Math.log(max / min));
   var fromSlider = (v, { min, max }) => min * Math.exp(v / 1e3 * Math.log(max / min));
   var modes = (id) => `<span class="pip-mode segs" role="group" aria-label="The pipette's press"><button type="button" class="chip" data-mode="0" id="${id}-load" aria-pressed="true" data-hint="A press draws up cells at the tip, all in reach as it is held">Load</button><button type="button" class="chip" data-mode="1" id="${id}-dispense" aria-pressed="false" data-hint="A press sets the tip card’s cells down">Dispense</button></span>`;
-  function swipeDown(el, close) {
+  function swipeDown(el2, close) {
     let drag = null, swiped = 0;
-    el.addEventListener("pointerdown", (e) => {
+    el2.addEventListener("pointerdown", (e) => {
       if (e.pointerType === "mouse" || e.target.closest("input")) return;
       drag = { id: e.pointerId, x: e.clientX, y: e.clientY, on: false, card: !!e.target.closest(".minicard"), at: performance.now() };
     });
-    el.addEventListener("pointermove", (e) => {
+    el2.addEventListener("pointermove", (e) => {
       if (!drag || e.pointerId !== drag.id) return;
       const dy = e.clientY - drag.y, dx = e.clientX - drag.x;
       if (!drag.on) {
@@ -31954,29 +32506,29 @@ ${e.message}` : String(e?.message || e));
         }
         drag.on = true;
         try {
-          el.setPointerCapture(e.pointerId);
+          el2.setPointerCapture(e.pointerId);
         } catch {
         }
       }
-      el.style.transform = `translateY(${Math.max(0, dy)}px)`;
+      el2.style.transform = `translateY(${Math.max(0, dy)}px)`;
     });
     const end = (e) => {
       if (!drag || e.pointerId !== drag.id) return;
       const d = drag;
       drag = null;
       if (!d.on) return;
-      el.style.transform = "";
+      el2.style.transform = "";
       swiped = performance.now();
       if (e.type === "pointerup" && e.clientY - d.y > 48) close();
     };
-    el.addEventListener("click", (e) => {
+    el2.addEventListener("click", (e) => {
       if (performance.now() - swiped < 300) {
         e.stopPropagation();
         e.preventDefault();
       }
     }, true);
-    el.addEventListener("pointerup", end);
-    el.addEventListener("pointercancel", end);
+    el2.addEventListener("pointerup", end);
+    el2.addEventListener("pointercancel", end);
   }
   function createBench({ hand, pick: pick3, reach, size, onToggle, pip }) {
     const drawer = $("bench"), btn = $("bench-open"), held = $("held"), dock = $("tools");
@@ -32030,9 +32582,9 @@ ${e.message}` : String(e?.message || e));
         pip.move(key, i);
         render();
       },
-      drop: (key, x, y, el) => {
-        if (el?.id === "stage") pip.drop(key, x, y);
-        else if (el?.closest("#lab, #lab-open")) pip.save(key);
+      drop: (key, x, y, el2) => {
+        if (el2?.id === "stage") pip.drop(key, x, y);
+        else if (el2?.closest("#lab, #lab-open")) pip.save(key);
       }
     }));
     btn.addEventListener("click", () => toggle());
@@ -32101,22 +32653,22 @@ ${e.message}` : String(e?.message || e));
   var HOLD3 = 300;
   var EDGE = 16;
   var CREEP = 220;
-  function createLadder({ chip, el, choices, current, fmt: fmt2, pick: pick3, real }) {
+  function createLadder({ chip, el: el2, choices, current, fmt: fmt2, pick: pick3, real }) {
     let lastTap = 0, drawn = "", drag = null, wheel = 0, swallowed = 0;
     function render(marked = current()) {
       const list = choices(), key = `${marked}|${list}`;
       if (key === drawn) return;
       drawn = key;
-      el.innerHTML = `<div class="sub-h"><span class="ladder-t">Speed</span><span class="sub-a">double-tap: ×1</span></div>` + [...list].reverse().map((v) => `<button type="button" role="option" class="rung" data-v="${v}" aria-selected="${v === marked}"><i aria-hidden="true"></i><b>${fmt2(v)}</b><span>${MEANING.get(v) || ""}</span></button>`).join("");
+      el2.innerHTML = `<div class="sub-h"><span class="ladder-t">Speed</span><span class="sub-a">double-tap: ×1</span></div>` + [...list].reverse().map((v) => `<button type="button" role="option" class="rung" data-v="${v}" aria-selected="${v === marked}"><i aria-hidden="true"></i><b>${fmt2(v)}</b><span>${MEANING.get(v) || ""}</span></button>`).join("");
     }
-    function toggle(on = el.hidden) {
+    function toggle(on = el2.hidden) {
       if (on) {
         render();
         const r = chip.getBoundingClientRect();
-        el.style.left = `${Math.max(8, r.left)}px`;
-        el.style.bottom = `${innerHeight - r.top + 8}px`;
+        el2.style.left = `${Math.max(8, r.left)}px`;
+        el2.style.bottom = `${innerHeight - r.top + 8}px`;
       }
-      el.hidden = !on;
+      el2.hidden = !on;
       chip.setAttribute("aria-expanded", String(on));
     }
     function along(v, d) {
@@ -32125,7 +32677,7 @@ ${e.message}` : String(e?.message || e));
       if (i < 0) i = list.findIndex((x) => !(x <= v)) - (d > 0 ? 1 : 0);
       return list[Math.max(0, Math.min(list.length - 1, i + d))];
     }
-    const rung = () => el.querySelector(".rung")?.offsetHeight || 28;
+    const rung = () => el2.querySelector(".rung")?.offsetHeight || 28;
     function press(e, onChip) {
       if (e.button > 0) return;
       drag = { id: e.pointerId, y: e.clientY, from: current(), v: current(), on: !onChip, moved: false, onChip, el: e.currentTarget };
@@ -32193,13 +32745,13 @@ ${e.message}` : String(e?.message || e));
       if (d.onChip) toggle(false);
       if (d.v !== current()) pick3(d.v, !d.onChip);
     }
-    for (const [t2, on] of [[chip, true], [el, false]]) {
+    for (const [t2, on] of [[chip, true], [el2, false]]) {
       t2.addEventListener("pointerdown", (e) => press(e, on));
       t2.addEventListener("pointermove", move);
       t2.addEventListener("pointerup", end);
       t2.addEventListener("pointercancel", end);
     }
-    el.addEventListener("wheel", (e) => {
+    el2.addEventListener("wheel", (e) => {
       e.preventDefault();
       wheel += e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
       if (Math.abs(wheel) < 40) return;
@@ -32219,7 +32771,7 @@ ${e.message}` : String(e?.message || e));
       lastTap = t2;
       toggle();
     });
-    el.addEventListener("click", (e) => {
+    el2.addEventListener("click", (e) => {
       if (performance.now() - swallowed < 400) return;
       const b = e.target.closest("[data-v]");
       if (!b) return;
@@ -32227,10 +32779,10 @@ ${e.message}` : String(e?.message || e));
       pick3(choices().find((v) => String(v) === b.dataset.v));
     });
     document.addEventListener("pointerdown", (e) => {
-      if (!el.hidden && !el.contains(e.target) && !chip.contains(e.target)) toggle(false);
+      if (!el2.hidden && !el2.contains(e.target) && !chip.contains(e.target)) toggle(false);
     }, true);
-    return { toggle, along, isOpen: () => !el.hidden, render: () => {
-      if (!el.hidden && !drag?.moved) render();
+    return { toggle, along, isOpen: () => !el2.hidden, render: () => {
+      if (!el2.hidden && !drag?.moved) render();
     } };
   }
 
@@ -32833,9 +33385,9 @@ ${e.message}` : String(e?.message || e));
     const uiHeld = () => performance.now() < uiHoldUntil;
     document.addEventListener("click", (e) => {
       if (e.detail === 0) return;
-      const el = e.target.closest && e.target.closest("button, a, [tabindex]");
-      if (el && !el.matches("input, select, textarea")) setTimeout(() => {
-        if (document.activeElement === el) el.blur();
+      const el2 = e.target.closest && e.target.closest("button, a, [tabindex]");
+      if (el2 && !el2.matches("input, select, textarea")) setTimeout(() => {
+        if (document.activeElement === el2) el2.blur();
       }, 0);
     }, true);
     const trailLevels = [0, 0.45, 0.7, 0.88];
@@ -34730,9 +35282,9 @@ ${e.message}` : String(e?.message || e));
     function showInCabinet(card) {
       lab.open("cabinet");
       requestAnimationFrame(() => {
-        const el = document.querySelector(`#lab .minicard[data-key="${CSS.escape(card.id)}"]`);
-        el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-        el?.animate([{ boxShadow: "0 0 0 2px #f1e3a0, 0 0 24px rgba(241,227,160,.5)" }, { boxShadow: "0 0 0 0 transparent" }], { duration: 1100, easing: "ease-out" });
+        const el2 = document.querySelector(`#lab .minicard[data-key="${CSS.escape(card.id)}"]`);
+        el2?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        el2?.animate([{ boxShadow: "0 0 0 2px #f1e3a0, 0 0 24px rgba(241,227,160,.5)" }, { boxShadow: "0 0 0 0 transparent" }], { duration: 1100, easing: "ease-out" });
       });
     }
     function loadCard(x, at = null) {
@@ -35008,7 +35560,7 @@ ${e.message}` : String(e?.message || e));
       lab.toggle();
     });
     view = (() => {
-      const el = $2("settings"), opts = $2("opts"), btn = $2("set-open"), tabs = [...el.querySelectorAll("#set-tabs [data-tab]")];
+      const el2 = $2("settings"), opts = $2("opts"), btn = $2("set-open"), tabs = [...el2.querySelectorAll("#set-tabs [data-tab]")];
       let tab = "display";
       let pendingN = null;
       const choice = (id, title, key, items, cur, tip) => {
@@ -35042,7 +35594,7 @@ ${e.message}` : String(e?.message || e));
       let confirming = false;
       function display() {
         const s = eng.settings;
-        return group("picture", "Picture", choice("microlook", "Microscope", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.look, "microlook") + (state.look ? choice("grain", "Film grain", "", [[0, "Off"], [1, "Fine"], [2, "Heavy"]], state.grain, "filmgrain") : "") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("bloom", "Bloom", "Y", s.bloom > 0, "bloom") + choice("water", "Water surface", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.water, "watersurface") + (state.water ? choice("waves", "Wave motion", "", [[0, "Slow"], [1, "Normal"], [2, "Lively"]], state.waves, "wavemotion") : "") + choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("lod", "Zoom detail", "", s.lod, "lod")) + group("overlays", "Overlays", onoff("tide", "Light map", "G", s.tide > 0, "light") + (s.tide ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "D", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks")) + group("view", "View", (isCoarse ? "" : onoff("ui", "Interface", "U", state.ui, "interface")) + onoff("closeup", "Live close-up", "", state.closeup, "closeup") + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", "Film")} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === "idle" ? '<button type="button" class="chip" data-o="film" data-v="now">30 s now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ""));
+        return group("picture", "Picture", choice("microlook", "Microscope", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.look, "microlook") + (state.look ? choice("grain", "Film grain", "", [[0, "Off"], [1, "Fine"], [2, "Heavy"]], state.grain, "filmgrain") : "") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("bloom", "Bloom", "Y", s.bloom > 0, "bloom") + choice("water", "Water surface", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.water, "watersurface") + (state.water ? choice("waves", "Wave motion", "", [[0, "Slow"], [1, "Normal"], [2, "Lively"]], state.waves, "wavemotion") : "") + choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("lod", "Zoom detail", "", s.lod, "lod")) + group("overlays", "Overlays", onoff("tide", "Light map", "G", s.tide > 0, "light") + (s.tide ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "D", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks")) + group("view", "View", (isCoarse ? "" : onoff("ui", "Interface", "U", state.ui, "interface")) + onoff("closeup", "Live close-up", "", state.closeup, "closeup") + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", "Film")} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === "idle" ? '<button type="button" class="chip" data-o="film" data-v="now">Now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ""));
       }
       function audio_() {
         const m = sound.mix, mix4 = (k) => choice(`mix-${k}`, MIX[k].name, "", MIX[k].choices.map(([label3], i) => [i, label3]), m[k], `audio${k}`);
@@ -35095,7 +35647,7 @@ ${e.message}` : String(e?.message || e));
         render();
         clearTimeout(wPoll);
         if (saves.some((m) => m.downloading != null)) wPoll = setTimeout(() => {
-          if (!el.hidden && tab === "worlds") refreshSaves();
+          if (!el2.hidden && tab === "worlds") refreshSaves();
         }, 2e3);
       }
       const wsDescription = (m) => `A Tidemote world after ${durWords(m.simTime)}: ${kfmt(m.count)} particles, ${m.thriving} species thriving.`;
@@ -35225,7 +35777,7 @@ ${e.message}` : String(e?.message || e));
         }
       }
       function render() {
-        if (el.hidden) return;
+        if (el2.hidden) return;
         tabs.forEach((b) => {
           const on = b.dataset.tab === tab;
           b.setAttribute("aria-selected", String(on));
@@ -35244,7 +35796,7 @@ ${e.message}` : String(e?.message || e));
       }
       let roAt = 0;
       function readout(force) {
-        if (el.hidden || tab !== "performance") return;
+        if (el2.hidden || tab !== "performance") return;
         const now = performance.now();
         if (!force && now - roAt < 500) return;
         roAt = now;
@@ -35396,16 +35948,16 @@ ${e.message}` : String(e?.message || e));
         n.click();
         n.focus();
       });
-      function toggle(on = el.hidden, to) {
+      function toggle(on = el2.hidden, to) {
         if (to) {
-          on = el.hidden || tab !== to;
+          on = el2.hidden || tab !== to;
           if (on) {
             tab = to;
             confirming = false;
             ask2 = null;
           }
         }
-        el.hidden = !on;
+        el2.hidden = !on;
         btn.setAttribute("aria-expanded", String(on));
         if (on) {
           $2("help").hidden = true;
@@ -35421,7 +35973,7 @@ ${e.message}` : String(e?.message || e));
       btn.addEventListener("click", () => toggle());
       $2("brand").addEventListener("click", () => toggle(true, "about"));
       $2("set-close").addEventListener("click", () => toggle(false));
-      return { render, toggle, readout, isOpen: () => !el.hidden };
+      return { render, toggle, readout, isOpen: () => !el2.hidden };
     })();
     async function copyProfile() {
       flash("Profiling for three seconds");
@@ -36437,7 +36989,7 @@ ${e.message}` : String(e?.message || e));
       document.body.classList.add("live");
     }
     const menu = (() => {
-      const el = $2("menu"), panel = $2("menu-panel"), tabN = $2("menu-n"), tabW = $2("menu-w");
+      const el2 = $2("menu"), panel = $2("menu-panel"), tabN = $2("menu-n"), tabW = $2("menu-w");
       let open = null, saves = null, busy = "", err = "", go = false, startAfter = false;
       let whenStarted = null;
       const startedP = new Promise((r) => {
@@ -36583,7 +37135,7 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
       function onAny(e) {
         if (!$2("nogpu").hidden || introHidden) return;
         if (e.type === "pointerdown") {
-          if (e.target instanceof Node && el.contains(e.target)) return;
+          if (e.target instanceof Node && el2.contains(e.target)) return;
           if (open && !$2("begin").contains(e.target)) {
             toggle(null);
             return;
@@ -36598,7 +37150,7 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
             if (inside) tabN.focus({ preventScroll: true });
             return;
           }
-          if (e.target instanceof Node && el.contains(e.target) && (e.key === "Enter" || e.key === " " || /^Arrow/.test(e.key))) return;
+          if (e.target instanceof Node && el2.contains(e.target) && (e.key === "Enter" || e.key === " " || /^Arrow/.test(e.key))) return;
           if (!navigator.webdriver && MODS.has(e.key)) return;
           e.preventDefault();
         }
@@ -36608,7 +37160,7 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
         }
         start2();
       }
-      el.hidden = false;
+      el2.hidden = false;
       refresh();
       render();
       return {
@@ -36772,7 +37324,7 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
       perf.frameDt.length = 0;
       perf.lastAdjust = now;
       const T = frameTarget(), auto = state.perf.scale === "auto", autoD = state.perf.density === "auto", autoF = state.perf.fps === "auto";
-      const floor = auto ? state.perf.floor : renderScale;
+      const floor = auto ? Math.max(state.perf.floor, filmScale()) : renderScale;
       const busy = perf.gpu > T * (hasTS ? 0.92 : 1);
       const behind = m > T * 1.125 || busy || stressed();
       const simBound = hasTS && !state.paused && perf.simS > 2 * perf.renderR;
@@ -36788,7 +37340,7 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
             perf.slowCeiling = perf.slow;
             perf.slow = Math.min(4, perf.slow + 1);
           }
-        } else if (autoD && density() > 1.01) {
+        } else if (autoD && density() > 1.01 && !(film.state === "recording" && filmScale(1) > renderScale)) {
           densityCap = 1;
           perf.denseUntil = now + perf.hold;
           resizeDue = true;
@@ -36839,6 +37391,10 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
         resizeDue = true;
       }
       if (full && densityCap === Infinity) perf.why = "";
+    }
+    function filmScale(d = density()) {
+      const sz = film.state === "recording" && film.size();
+      return sz ? Math.min(1, Math.max(sz[0] / (innerWidth * d), sz[1] / (innerHeight * d))) : 0;
     }
     let resizeDue = false;
     let viewSimTime = 0;
@@ -37581,19 +38137,27 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
       cam.zoom = cam.zoomTarget = clamp6(wMax / v.w, 1, maxZoom());
       cam.anchor = null;
     }
-    const filmBtn = $2("film");
+    const filmBtn = $2("film"), recBar = $2("recbar"), recFrame = $2("recframe");
     const film = createFilm({
       canvas,
       overlay,
       caption: capEl,
+      // the view at its full density, whatever the render scale is for the moment
+      source: () => {
+        const d = Math.min(devicePixelRatio || 1, 2);
+        return [Math.round(innerWidth * d), Math.round(innerHeight * d)];
+      },
       audio: () => sound.playing ? sound.stream() : null,
       title: () => `TIDEMOTE · ${fmtClock(eng.simTime)} · ${climate.name}`,
       name: () => `tidemote-${fmtClock(eng.simTime).replace(/:/g, "-")}`,
+      desktop: desk?.film || null,
       onChange: renderFilm,
-      onSaved: (blob, name) => {
-        saveFile(blob, name);
-        flash("Film saved");
-      }
+      onSaved: (f2) => {
+        if (f2.blob) saveFile(f2.blob, f2.name);
+        const where = f2.path ? " in Videos › Tidemote" : "";
+        flash(`${f2.why === "limit" ? "Film stopped at its limit" : "Film saved"}${where} · ${fmtBytes(f2.bytes)}`);
+      },
+      onError: (m) => flash(m)
     });
     let filmArmedShot = null;
     function filmAct(how = director.active ? "scene" : "now") {
@@ -37601,9 +38165,11 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
         flash("This browser cannot record the view");
         return;
       }
+      if (film.state === "saving") return;
       if (film.state !== "idle") {
+        const was = film.state;
         film.stop();
-        flash(film.state === "idle" ? "Filming called off" : "Film stopped");
+        if (was === "armed") flash("Filming called off");
         return;
       }
       if (how === "scene") {
@@ -37611,29 +38177,85 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
         filmArmedShot = director.shot ? director.shot.id : null;
         film.arm();
         flash("Filming the camera’s next scene");
-      } else if (film.start(30)) flash("Filming 30 seconds");
+      } else if (film.start()) {
+        filmRaise();
+        flash("Filming");
+      }
     }
+    function filmRaise() {
+      if (state.perf.scale !== "auto") return;
+      if (filmScale() > 1 - 1e-6 && densityCap < Infinity) densityCap = Infinity;
+      const need = filmScale();
+      if (need > renderScale + 0.01) {
+        renderScale = SCALES.slice().reverse().find((x) => x >= need - 0.01) ?? 1;
+        resetAdapt();
+        resizeDue = true;
+      }
+    }
+    const filmClock = (t2) => {
+      t2 = Math.floor(t2);
+      const h = Math.floor(t2 / 3600), m = Math.floor(t2 / 60) % 60, s = t2 % 60;
+      return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+    };
+    function fmtBytes(b) {
+      return b < 1e9 ? `${(b / 1e6).toFixed(b < 1e7 ? 1 : 0)} MB` : `${(b / 1e9).toFixed(b < 1e10 ? 2 : 1)} GB`;
+    }
+    let recShown = "";
     function renderFilm() {
-      if (!filmBtn) return;
       const s = film.state;
-      filmBtn.classList.toggle("armed", s === "armed");
-      filmBtn.classList.toggle("rolling", s === "recording");
-      filmBtn.setAttribute("aria-pressed", String(s !== "idle"));
-      filmBtn.setAttribute("aria-label", s === "idle" ? "Film thirty seconds" : s === "armed" ? "Waiting for the next scene: stop" : "Filming: stop");
-      filmBtn.dataset.hint = s === "idle" ? director.active ? "Film the next scene · R" : "Film 30 s · R" : "Stop · R";
-      setText($2("film-v"), s === "recording" ? `0:${String(Math.ceil(film.left())).padStart(2, "0")}` : s === "armed" ? "Wait" : "Film");
+      if (filmBtn) {
+        filmBtn.classList.toggle("armed", s === "armed");
+        filmBtn.classList.toggle("rolling", s === "recording" || s === "saving");
+        filmBtn.setAttribute("aria-pressed", String(s !== "idle"));
+        filmBtn.setAttribute("aria-label", s === "idle" ? "Film" : s === "armed" ? "Waiting for the next scene: stop" : "Filming: stop");
+        filmBtn.dataset.hint = s === "idle" ? director.active ? "Film from the next scene · R" : "Film · R" : "Stop · R";
+        setText($2("film-v"), s === "recording" || s === "saving" ? filmClock(film.elapsed()) : s === "armed" ? "Wait" : "Film");
+      }
+      if (!recBar) return;
+      recBar.hidden = s === "idle";
+      recFrame.hidden = s !== "recording";
+      recBar.classList.toggle("standby", s === "armed");
+      recBar.classList.toggle("saving", s === "saving");
+      if (s !== recShown) {
+        recShown = s;
+        setText($2("rec-l"), s === "armed" ? "Standby" : s === "saving" ? "Saving" : "Recording");
+        setText($2("rec-stop-l"), s === "armed" ? "Cancel" : "Stop");
+        $2("rec-stop").disabled = s === "saving";
+        $2("rec-stop").setAttribute("aria-label", s === "armed" ? "Stop waiting for the next scene" : "Stop filming");
+      }
+      if (s === "idle") return;
+      setText($2("rec-t"), s === "armed" ? "Next scene" : filmClock(film.elapsed()));
+      const b = film.bytes(), cap3 = film.limit(), left = film.left();
+      setText($2("rec-mb"), s === "armed" ? "" : fmtBytes(b));
+      const near = s === "recording" && left < 300;
+      $2("rec-left").hidden = !near;
+      if (near) setText($2("rec-left"), `Limit in ${filmClock(left)}`);
+      recBar.classList.toggle("near", s === "recording" && left < 60);
+      if (s === "recording" && Number.isFinite(cap3)) {
+        const where = { desktop: "written to Videos › Tidemote as it is made", disk: "written to disk as it is made, downloaded when it ends", memory: "kept in memory until it ends" }[film.sink()] || "";
+        $2("rec-mb").dataset.hint = `The film's size so far, ${where}. It stops itself at ${fmtBytes(cap3)}${Number.isFinite(left) ? `, about ${fmtDur(left)} from now` : ""}.`;
+      }
     }
     if (film.supported && filmBtn) {
       filmBtn.hidden = false;
       filmBtn.addEventListener("click", () => filmAct());
       renderFilm();
     }
+    $2("rec-stop")?.addEventListener("click", () => filmAct());
+    clearFilms();
+    let filmShownAt = 0;
     function filmTick() {
       if (film.state === "armed") {
         const sh = director.active ? director.shot : null;
-        if (!director.active || sh && sh.id !== filmArmedShot && sh.type !== "settle") film.start(30);
+        if (!director.active || sh && sh.id !== filmArmedShot && sh.type !== "settle") {
+          if (film.start()) filmRaise();
+        }
       }
-      if (film.state === "recording") renderFilm();
+      const now = performance.now();
+      if (film.state !== "idle" && now - filmShownAt > 250) {
+        filmShownAt = now;
+        renderFilm();
+      }
     }
     let last = performance.now();
     let frameCount = 0;
