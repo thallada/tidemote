@@ -36,8 +36,11 @@ Two readbacks, both the annotations' own (they never wait on, or cancel, a click
 - **The view** (`NOTE_WGSL`, `noteMain`), read every six frames: every living cell and husk in the stretch annotated,
   as drawn now (after the in-between of coarse steps), with its velocity, kind, cause, role, search image, fullness,
   how many tolerances its water lies from its optimum, whether it is torpid, and its two bonded partners; and the
-  water's temperature and ice on an 8 × 8 grid across it. Past `cap` cells (16,384 up close, 3,000 for a wide view)
-  a steady sample: those whose id hashes under the share that fits, so the same cells come back from look to look.
+  water's temperature and ice on 16 × 16 squares fixed in the world (`eng.noteGrid`: a power of two world units on a
+  side, 7 to 14 across the view's longer side, changed with a margin as the view zooms), so a square's water and its
+  mark hold still as the view moves. Past `cap` cells (16,384 up close, 3,000 for a wide view) a steady sample: those
+  whose id hashes under the share that fits, a share changed only by quarter octaves and only when it must, so the
+  same cells come back from look to look.
 
 The cells the notes point at one by one are also found by id every frame (`Engine.watch`, shared with the song
 marks), so a lock rides its cell as the followed cell's brackets do.
@@ -90,15 +93,55 @@ itself on. State is told by form: a filled tag, hatching, a hollow or dashed mar
   speak of in hot) and a key to the glyphs on screen. With the annotations, the auto camera's subject's nameplate
   carries its diet, body and comfort.
 
-Labels are placed around their anchors away from the panels, each other, their leaders and the marks, and kept
-where they were while that holds; they ease after a moving subject. Marks keep out from under the frame's panels.
+Labels are placed around their anchors away from the panels, each other, their leaders, the links' verbs, the locks'
+rings and the marks. Marks keep out from under the frame's panels.
+
+### Steadiness
+
+The marks ride the scene as what they mark does, however the auto camera pans and zooms (`STEADY` in
+`src/noteview.js`):
+
+- A cell's mark follows it by id. A new look's place for it is compared with the last carried to the same moment,
+  and the difference eased out over 0.12 s, so a mark never jumps when a readback lands. A cell joining a census
+  fades in and one leaving fades out (0.25 s); past a census's cap the sample is by id hash, its share changed only by
+  quarter octaves, so the same cells stay marked.
+- A group's ground (the hatched zone of a scalding species) and the water's squares are cells of a lattice fixed in
+  the world: a power of two world units on a side, about as big as the group's cells (or the water's squares), drawn
+  through one vertex near the view's middle by the view's scale, so they move rigidly with the world. A group's
+  ground is marked only where its members keep company (two or more about a lattice cell; one alone has its glyph).
+  A lattice cell joins the outline only after holding members for 0.5 s (its hatching fading in meanwhile), and stays
+  1.2 s after its last member leaves (a square of water 1.6 s; its edge going first, its hatching fading), so a cell
+  passing through never moves the edge. A zoom past 1.5× starts a coarser or finer lattice, crossfaded. The hatching
+  is fixed to the lattice too (a whole number of lines a side), so it does not crawl over the zone as the view pans;
+  cells joining or leaving are filled in four bands of alpha and the rest by runs along each row, a few fills in all
+  (each pattern fill is work for the GPU's rasterizer, which the world's frames wait on). A ground over 45% of the
+  open view fades out (over 1,500 cells, at once), as the water's squares too warm nearly everywhere are not drawn:
+  the label and the gauge tell it, and a hatched path of thousands of cells cost a wide view under a heat wave most
+  of its frame rate (5 fps for 9,000 cells, measured with `notes.debug().drawn`).
+- A label hangs on one cell of its group, kept while it shows clear of the panels; then on the one nearest the
+  group's middle. What it hangs from is that cell's place in the world, smoothed over 0.3 s (a swimmer's beat does not
+  shake it), shown each frame where the camera now shows it: so it rides the view's pans and zooms exactly, and the
+  leader alone reaches to the cell itself. Its offset from there is weighed again every 0.7 s, or at once when it has
+  come to cover text, and moves only for a clearly better place; a near move eases, a far one, one to the other
+  side or one that would slide over other text crossfades.
+- No two pieces of text overlap: anything that is text (labels, the frame's panels, the links' verbs, the page's
+  caption and nameplate) is a hard obstacle, and a label with no free place fades out until one frees. A link's verb
+  under the page's text, a panel or another verb fades out until it is clear; the marks keep out from under the
+  page's caption and nameplate as from under the panels. Inside a
+  label each row keeps its own band; a comfort band's two ends spread apart when the band is narrow, on the bar and on
+  the gauge; a numeral types itself on in digits, keeping its width; the key's and the roster's lines are fitted to
+  their widths. Text widths are measured again once the page's face has loaded.
+- The roster's numbers change every 0.6 s, its bars ease, and a species passes the one above it only with 15% more.
 
 ## Checking
 
 `node --test test/notes.test.js` (the ring's wrap, the view's columns, each story, the budget).
 `tools/gpu-node.sh tools/notes-live.mjs --out runs/notes/NAME --warm 60 --secs 180` films the auto camera with
 the interface showing and logs what the notes held and what they cost (`__tidemote.notes.debug()`: ms spent reading,
-finding and drawing; events the ring overwrote before they were read).
+finding and drawing; events the ring overwrote before they were read). With `--audit` it also measures, every frame
+(`src/noteaudit.js`, `__tidemote.noteView.audit()`), how steadily the marks ride the scene (the second difference of
+each anchor's, label's, glyph's and zone corner's screen place from frame to frame, against a fixed world point's, the
+camera's own) and every pair of text boxes that overlap, with examples, into `audit.json`.
 
 ## What it costs
 

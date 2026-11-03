@@ -17,7 +17,7 @@ import { record, seal } from './lineage/model.js';
 import { createWorldStore, encodeWorld, decodeWorld, SAVE_VERSION, openable, WHY_NOT } from './worlds.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { retraceBody, settleMembers, nearBody, largestBody, bodyPatch } from './trace.js';
-import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K, STUDIO_N, PIPETTE_DOF, CYST } from './shaders.js';
+import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K, STUDIO_N, PIPETTE_DOF, CYST, NOTE_TG } from './shaders.js';
 import { flowAt } from './flow.js';
 import { DARKFIELD, packLook } from './look.js';
 import { MIX as SOUND_MIX, defaultMix } from './audio/mix.js';
@@ -4258,9 +4258,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // with the annotations, the subject's own data under its name: its diet, its body, the water it bears
     if (notesShown && g && sp) {
       const cells = sel.org && sel.org.cells > 1 ? `${fmt(sel.org.cells)}-CELL BODY` : 'ONE CELL';
-      const lo = Math.round((g.topt ?? 19) - Math.max(g.tol ?? 7, 0.5)), hi = Math.round((g.topt ?? 19) + Math.max(g.tol ?? 7, 0.5));
-      const line = `${dietGuild(g).toUpperCase()} · ${cells} · COMFORT ${lo}–${hi}°C`;
-      const dw = noteView.width('data', line), dx = left ? Math.min(tx + tw - dw, tx) : tx;
+      const clo = Math.round((g.topt ?? 19) - Math.max(g.tol ?? 7, 0.5)), chi = Math.round((g.topt ?? 19) + Math.max(g.tol ?? 7, 0.5));
+      // (on a narrow screen without its body, and always inside the open area)
+      let line = `${dietGuild(g).toUpperCase()} · ${cells} · COMFORT ${clo}–${chi}°C`;
+      if (noteView.width('data', line) > hi - lo - 16) line = `${dietGuild(g).toUpperCase()} · COMFORT ${clo}–${chi}°C`;
+      const dw = noteView.width('data', line), dx = clamp(left ? Math.min(tx + tw - dw, tx) : tx, lo + 8, Math.max(lo + 8, hi - dw - 8));
       noteView.text('data', line, dx, ey + 20, 'rgba(163,189,190,0.95)');
       octx.letterSpacing = '0px'; octx.fontStretch = 'normal';
       plateRect = { l: Math.min(tx, dx) - 10, t: ey - 14, r: Math.max(tx + tw, dx + dw) + 10, b: ey + 26 };
@@ -4462,7 +4464,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   };
   const notes = new Notes({ species: noteSp, world: () => eng.grid });
   const noteView = createNoteView(octx);
-  let notesShown = false, notesSince = 0, noteOpen = { l: 0, t: 0, r: innerWidth, b: innerHeight }, plateRect = null;
+  let notesShown = false, notesSince = 0, noteGridL = null, noteOpen = { l: 0, t: 0, r: innerWidth, b: innerHeight }, plateRect = null;
   eng.onNotes = (scan) => { if (!notesShown) return; const t0 = performance.now(); notes.ingest(scan); notes.ms.ingest += performance.now() - t0; };
   const notesOn = () => state.ui && state.phase === 'running' && (state.notes === 2 || (state.notes === 1 && director.active));
   // the part of the window the world shows clear of the panels (CSS px)
@@ -4479,6 +4481,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const [W, H] = eng.grid, p = cssPPU(), m = 40 / p;
     const w = Math.min(W, innerWidth / p + 2 * m), h = Math.min(H, innerHeight / p + 2 * m);
     eng.watchRect.set([cam.x - w / 2, cam.y - h / 2, w, h]);
+    // and its water, by squares fixed in the world (so they hold still as the view moves): a power of two units on a
+    // side, 7 to 14 across the view's longer side, changed with a margin so a zoom that hovers at a step keeps them
+    const need = Math.log2(Math.max(innerWidth, innerHeight) / p / 14);
+    if (!(noteGridL >= need && noteGridL < need + 1.07)) noteGridL = Math.ceil(need);
+    const s = 2 ** noteGridL;
+    eng.noteGrid.set([(Math.floor(cam.x / s) - NOTE_TG / 2) * s, (Math.floor(cam.y / s) - NOTE_TG / 2) * s, s]);
     // (a wide view needs only a sample of its cells: its stories are its water's)
     eng.notes = { every: 6, cap: p < notes.T.wide ? 3000 : 16384 };
     eng.watchEv = notes.eventMask(p);
@@ -4509,7 +4517,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (plateRect) avoid.push(plateRect);
     const sh = director.active ? director.shot : null;
     const mode = director.active ? NOTE_MODE[sh && sh.why && sh.why.kind] || 'AUTO' : 'OBSERVE';
-    noteView.draw({ now, dt: dtMs / 1000, notes: list, model: notes, species: noteSp, project: noteProject, radius: noteRadius,
+    noteView.draw({ now, dt: dtMs / 1000, ppu: cssPPU(), world: eng.grid, notes: list, model: notes, species: noteSp, project: noteProject, radius: noteRadius,
       open: noteOpen, avoid, mode, pool: eng.tbg, phone: phone(), roster: true, since: notesSince, cap: cssPPU() >= notes.T.close ? 400 : 220 });
     notes.ms.draw += performance.now() - t0;
   }
@@ -4968,7 +4976,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     sound.away(document.hidden);
   });
   // a handle for tools/perf, which profiles the page in a real browser
-  globalThis.__tidemote = { state, cam, perf, eng, notes, sound, lab, life: () => life, climate: () => climate, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
+  globalThis.__tidemote = { state, cam, perf, eng, notes, noteView, sound, lab, life: () => life, climate: () => climate, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
     chron, cards, film, filmAct, openSpecies, director, saveWorld, worlds: worldStore, boot: bootTimes, pruned,
     setScale(v) { state.perf.scale = v; if (v !== 'auto') renderScale = v; resetAdapt(); fit(); },
     // as the adaptive scale does it: applied when the next frame begins
