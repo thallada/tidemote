@@ -14,7 +14,7 @@ import { createTips } from './tip.js';
 import { drawLiving, chartPointer } from './charts.js';
 import { genusName, speciesEpithet, roman } from './names.js';
 import { record, seal } from './lineage/model.js';
-import { createWorldStore, encodeWorld, decodeWorld, SAVE_VERSION, openable } from './worlds.js';
+import { createWorldStore, encodeWorld, decodeWorld, SAVE_VERSION, openable, WHY_NOT } from './worlds.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { retraceBody, settleMembers, nearBody, largestBody, bodyPatch } from './trace.js';
 import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K, STUDIO_N, PIPETTE_DOF, CYST } from './shaders.js';
@@ -36,7 +36,7 @@ import { miniCard, setThumb, hasThumb, dropThumb } from './minicard.js';
 import { layOut, frameCells, records } from './studio.js';
 import { encodeImages, encodeBytes } from './encode.js';
 import { createCabinetStore, encodeCard, decodeCard, cardLink, cardFromHash, cardFromPng, cardIntoPng } from './cabinet.js';
-import { fmt, fmtClock, fmtDur, esc, cssCol, clamp, term, spLink, saveFile, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
+import { fmt, fmtClock, fmtDur, kfmt, when, esc, cssCol, clamp, term, spLink, saveFile, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('stage');
@@ -408,11 +408,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
   };
   const waitFrames = (n) => new Promise((res) => frameWaiters.push({ n, res }));
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // The menu cuts the measuring short when a count or a saved world is chosen while it runs (calibrate
+  // then returns the world it has, which the choice replaces).
+  let calibCut = false, cutNow = () => {}, cut = null;
+  const armCut = () => { calibCut = false; cut = new Promise((r) => { cutNow = () => { calibCut = true; r(); }; }); };
+  armCut();
   async function measure(need = 36, warm = 16) {
-    await Promise.race([waitFrames(warm), sleep(2500)]);
+    await Promise.race([waitFrames(warm), sleep(2500), cut]);
     perf.samples.length = 0;
     return new Promise((res) => {
       calibWait = { need, res };
+      cut.then(() => { if (calibWait?.res === res) { calibWait = null; res(1000); } });
       setTimeout(() => {
         if (!calibWait) return;
         const w = calibWait;
@@ -570,6 +576,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const hardCap = Math.floor(Math.min(lim.maxStorageBufferBindingSize, lim.maxBufferSize) / 40 / 4096) * 4096;
     return Math.min(hardCap, 8388608, Math.floor(MAX_CELLS * K.density * 0.95), window.__MC_MAX || Infinity);
   }
+  // the count measured this session (the menu's Auto offers it again without measuring)
+  let measuredN = null;
   async function calibrate() {
     const maxN = maxParticles();
     // a count chosen in Settings skips the measuring
@@ -585,6 +593,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // leaves room for zooming and swings, and the adaptive frame rate covers the rest. Phones keep
     // more in hand: their GPU is shared with the screen, and is measured here cool, before it
     // throttles. Without timestamps the measure overstates.
+    armCut();
     const target = (!hasTS ? 9 : 10) * (throttles ? 0.55 : 1);
     const clampN = (x) => clamp(Math.round(x / 4096) * 4096, Math.min(16384, maxN), maxN);
     let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
@@ -592,6 +601,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     state.busy = false;
     calStep(`Measuring the GPU · ${fmt(n)} particles`, 0.6);
     let t = await measure();
+    if (calibCut) return n;
     let next = clampN((n * target) / t);
     if (next > n * 1.2) {
       next = await allocDown(next);
@@ -599,6 +609,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       state.busy = false;
       calStep(`Measuring the GPU · ${fmt(next)} particles`, 0.8);
       const t2 = await measure();
+      if (calibCut) return next;
       n = next;
       t = t2;
       next = clampN((n * target) / t);
@@ -608,6 +619,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     seedWorld(final);
     state.busy = false;
     calStep(`${fmt(final)} particles`, 1);
+    measuredN = final;
     return final;
   }
 
@@ -2201,7 +2213,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // a group of option rows, under a heading or (text '') none
     const group = (id, text, rows) => section(id, text, block('', rows));
     let confirming = false; // the reset button asked to confirm
-    const kfmt = (n) => (n >= 1048576 ? `${+(n / 1048576).toFixed(1)}M` : `${Math.round(n / 1024)}k`);
     // Display: the picture (how the world is drawn and lit), what is drawn over it, and the view around it
     function display() {
       const s = eng.settings;
@@ -2272,9 +2283,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // confirmed ({ kind, id }), and what is under way ('save', 'load', 'open', 'share')
     let saves = null, used = 0, wName = '', ask = null, wBusy = '', wPoll = 0;
     const defaultName = () => `${climate.name} · ${fmtDur(eng.simTime)}`;
-    // today's saves by the time, older ones by the day
-    const when = (t) => (new Date(t).toDateString() === new Date().toDateString()
-      ? new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
     const mb = (n) => `${(n / 1048576).toFixed(n < 10485760 ? 1 : 0)} MB`;
     const mini = (o, v, text, cls = '') => `<button type="button" class="btn mini${cls}" data-o="${o}" data-v="${v}"${wBusy ? ' disabled' : ''}>${text}</button>`;
     const ghost = (o, v, icon, label, hint) => `<button type="button" class="ghost" data-o="${o}" data-v="${v}" aria-label="${label}" data-hint="${hint}"${wBusy ? ' disabled' : ''}><svg><use href="#i-${icon}"/></svg></button>`;
@@ -2597,7 +2605,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   $('vol').addEventListener('input', (e) => sound.setVolume(Number(e.target.value) / 100));
   renderSound();
   // On by default. Where the browser allows autoplay it starts right away; elsewhere it waits for a
-  // click or key press, and the intro asks for one before the world starts (see begin()).
+  // click or key press, and the intro asks for one before the world starts (see the menu).
   if (sound.wantsOn) sound.setOn(true);
   addEventListener('pointerup', sound.unlock, true); addEventListener('keydown', sound.unlock, true);
 
@@ -3364,29 +3372,191 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   let introHidden = false;
   function hideIntro() { if (introHidden || state.phase !== 'running') return; introHidden = true; $('intro').classList.add('gone'); setTimeout(stopLoader, 1300); document.body.classList.add('live'); }
-  // The browser blocks the soundtrack until a gesture: hold the new world still until one, so its
-  // first moments are heard.
-  function begin() {
-    sound.overture();
-    if (sound.on && !sound.playing) {
-      state.paused = true; renderTime();
-      $('intro').classList.add('ask');
-      $('begin').focus({ preventScroll: true });
-      const go = (e) => {
-        removeEventListener('pointerdown', go, true); removeEventListener('keydown', go, true);
-        if (e.type === 'keydown') { e.stopPropagation(); e.preventDefault(); } // the key only starts the world
-        sound.unlock();
-        state.paused = false; renderTime();
-        $('begin').blur();
-        hideIntro();
-      };
-      addEventListener('pointerdown', go, true); addEventListener('keydown', go, true);
-    } else {
-      // (a world being loaded meanwhile holds it until running again)
-      const later = () => (state.phase === 'running' ? hideIntro() : setTimeout(later, 250));
-      setTimeout(later, 3500);
+  // ------------------------------------------------------------ the menu
+  // The intro is the main menu. Begin starts the new world, as a click or a key anywhere else does; under it,
+  // for those who know Tidemote, the new world's particle count and the saved worlds, each opening a framed
+  // panel (opened, the reticle folds away). They are there once the shaders have compiled, while the GPU is
+  // measured: a choice then cuts the measuring short. A count chosen seeds a new world at once (Begin then
+  // starts it) and is kept as Settings → Performance keeps it; a saved world chosen is loaded and begins
+  // (its click is the gesture the soundtrack waits for). The world is held still until it begins, so its
+  // first moments are seen and heard. In an automated browser (navigator.webdriver: the headless tools) the
+  // intro goes by itself as it used to, unless the soundtrack waits on a key.
+  const menu = (() => {
+    const el = $('menu'), panel = $('menu-panel'), tabN = $('menu-n'), tabW = $('menu-w');
+    let open = null, saves = null, busy = '', err = '', go = false, startAfter = false;
+    let whenStarted = null;
+    const startedP = new Promise((r) => { whenStarted = r; });
+    const P = state.perf;
+    const countText = () => (P.particles ? kfmt(P.particles) : measuredN ? kfmt(measuredN) : 'Auto');
+    const listed = () => (saves || []).filter((m) => m.downloading == null);
+    // what each count means, as hints (hover, keyboard focus); a count well past what this GPU drew smoothly
+    // is also marked, for touch screens, which show no hint on a button
+    const heavy = (n) => measuredN && n > measuredN * 1.4;
+    function nPanel() {
+      const off = busy ? ' disabled' : '';
+      const sizes = PARTICLE_SIZES.filter((n) => n <= maxParticles());
+      const chip = (v, label, on, hint, cls = '') => `<button type="button" class="chip${cls}" data-n="${v}" aria-pressed="${on}" data-hint="${esc(hint)}"${off}>${label}</button>`;
+      const autoHint = measuredN ? `As many as this GPU draws smoothly\nMeasured just now: ${fmt(measuredN)}` : 'As many as this GPU draws smoothly\nMeasured as the world starts';
+      const hint = (n) => (heavy(n) ? `${fmt(n)} particles\nMore than this GPU drew smoothly (${kfmt(measuredN)}): a richer world, in slower frames` : `${fmt(n)} particles\nKept for later visits`);
+      return `<div class="menu-h"><span>The new world</span><b>${busy === 'n' ? 'Seeding' : fmt(eng.count)}</b></div>`
+        + `<div class="menu-chips" role="group" aria-label="Particles">${chip('auto', `Auto${measuredN ? ` <b>${kfmt(measuredN)}</b>` : ''}`, !P.particles, autoHint, ' auto')}`
+        + sizes.map((n) => chip(n, kfmt(n), P.particles === n, hint(n), heavy(n) ? ' heavy' : '')).join('') + '</div>'
+        + (err ? `<p class="menu-note"><em>${esc(err)}</em></p>` : '');
     }
-  }
+    function row(m) {
+      const sw = [0, 1, 2, 3].map((i) => `<i${m.cols?.[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ''}></i>`).join('');
+      const can = openable(m.version);
+      const line = can !== 'ok' ? `<em>${can === 'newer' ? 'Needs a newer Tidemote' : 'From an older Tidemote'}</em> · ${when(m.savedAt)}`
+        : `${fmtDur(m.simTime)} · ${kfmt(m.count)} · ${m.thriving} species · ${when(m.savedAt)}`;
+      return `<button type="button" class="w-row" data-w="${esc(m.id)}"${can !== 'ok' || busy ? ' disabled' : ''}${can !== 'ok' ? ` aria-description="${esc(WHY_NOT[can])}"` : ''}>`
+        + `<span class="w-sw" aria-hidden="true">${sw}</span><span class="w-txt"><b>${esc(m.name)}</b><span>${line}</span></span>`
+        + `<span class="w-go">${busy === `w:${m.id}` ? 'Opening' : can === 'ok' ? 'Open' : ''}</span></button>`;
+    }
+    function wPanel() {
+      const ws = listed();
+      const list = saves == null ? '<p class="menu-note">Reading the saved worlds…</p>'
+        : ws.length ? `<div class="menu-list">${ws.map(row).join('')}</div>`
+        : '<p class="menu-note">No saved worlds yet. Save one from Settings → Worlds.</p>';
+      return `<div class="menu-h"><span>Open a saved world</span><b>${ws.length || ''}</b></div>${list}`
+        + (err ? `<p class="menu-note"><em>${esc(err)}</em></p>` : '')
+        + `<div class="menu-foot"><span class="lbl">${desk ? 'On this computer' : 'In this browser'}</span><button type="button" class="btn" data-m="file" data-hint="Open a .tidemote file\nSaved from Settings → Worlds, on any device"${busy ? ' disabled' : ''}>${busy === 'file' ? 'Opening' : 'Open a file'}</button></div>`;
+    }
+    function render() {
+      $('menu-n-v').textContent = countText();
+      $('menu-w-v').textContent = saves == null ? '' : String(listed().length);
+      tabN.setAttribute('aria-expanded', String(open === 'n'));
+      tabW.setAttribute('aria-expanded', String(open === 'w'));
+      $('intro').classList.toggle('menu-open', !!open);
+      panel.hidden = !open;
+      if (!open) return;
+      // (the control under the pointer is replaced: focus kept on the same one)
+      const at = document.activeElement && panel.contains(document.activeElement) ? document.activeElement.dataset : null;
+      panel.innerHTML = open === 'n' ? nPanel() : wPanel();
+      if (at) panel.querySelector(at.n != null ? `[data-n="${at.n}"]` : at.w != null ? `[data-w="${CSS.escape(at.w)}"]` : at.m ? `[data-m="${at.m}"]` : 'x')?.focus({ preventScroll: true });
+    }
+    function toggle(which) {
+      open = open === which ? null : which;
+      err = '';
+      if (open === 'w') refresh();
+      render();
+    }
+    async function refresh() {
+      try { saves = await worldStore.list(); } catch { saves = []; }
+      render();
+    }
+    // a choice: the measuring cut short, then (once the world first runs) fn, the panel showing what is under way
+    async function take(what, fn) {
+      if (busy || introHidden) return;
+      busy = what; err = ''; render();
+      cutNow();
+      await startedP;
+      try { await fn(); } catch (e) { console.error('[tidemote] the menu:', e); err = String(e.message || e); startAfter = false; }
+      busy = ''; render();
+      // Begin pressed while a count was being seeded
+      if (startAfter) start();
+    }
+    const pickN = (v) => take('n', async () => {
+      P.particles = v === 'auto' ? null : +v;
+      persist();
+      const want = v === 'auto' ? measuredN : Math.min(+v, maxParticles());
+      if (want === eng.count && eng.simTime < 1) return;
+      state.phase = 'calibrating';
+      // Auto, never measured this session (a count was kept, or the measuring was cut short): measured now
+      if (want == null) { $('intro').classList.remove('ready'); await calibrate(); $('intro').classList.add('ready'); }
+      else { const n = await allocDown(want); seedWorld(n); state.busy = false; calStep(`${fmt(n)} particles`, 1); }
+      state.phase = 'running';
+      renderWorld();
+      sound.overture();
+    });
+    async function openIt(w) {
+      calStep(`Opening ${w.meta.name}`, 1);
+      if (!(await loadWorld(w))) return;
+      calStep(`${w.meta.name} · ${fmt(eng.count)} particles`, 1);
+      start();
+    }
+    const pickW = (id) => take(`w:${id}`, async () => openIt(await openWorld(await worldStore.get(id))));
+    // a .tidemote file (downloaded from Settings → Worlds on any device): kept with the saves, then opened
+    $('menu-file').addEventListener('change', (e) => {
+      const f = e.target.files[0];
+      e.target.value = '';
+      if (!f) return;
+      take('file', async () => {
+        const bytes = await f.arrayBuffer();
+        let w;
+        try { w = await openWorld(bytes); } catch (x) { throw new Error(`Could not open ${f.name}: ${String(x.message || x)}`); }
+        await worldStore.put({ ...w.meta, bytes: bytes.byteLength }, bytes);
+        await openIt(w);
+      });
+    });
+    tabN.addEventListener('click', () => toggle('n'));
+    tabW.addEventListener('click', () => toggle('w'));
+    panel.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b || b.disabled) return;
+      if (b.dataset.n != null) pickN(b.dataset.n);
+      else if (b.dataset.w != null) pickW(b.dataset.w);
+      else if (b.dataset.m === 'file') $('menu-file').click();
+    });
+    // the world begins (once it runs: a count being seeded holds it)
+    function start() {
+      startAfter = false;
+      if (!go) return;
+      removeEventListener('pointerdown', onAny, true); removeEventListener('keydown', onAny, true);
+      go = false;
+      sound.unlock();
+      state.paused = false; renderTime();
+      $('begin').blur();
+      const hide = () => (state.phase === 'running' ? hideIntro() : setTimeout(hide, 150));
+      hide();
+    }
+    const MODS = new Set(['Tab', 'Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'ContextMenu']);
+    // A click anywhere but the menu begins (a click outside an open panel closes it first); so does a key,
+    // but those a menu control uses (Enter, Space, arrows), Escape (closes the panel) and Tab. While the
+    // menu waits, no key reaches the page's shortcuts (one would hide the intro with the world held).
+    function onAny(e) {
+      if (!$('nogpu').hidden || introHidden) return;
+      if (e.type === 'pointerdown') {
+        if (e.target instanceof Node && el.contains(e.target)) return;
+        if (open && !$('begin').contains(e.target)) { toggle(null); return; }
+      } else {
+        e.stopPropagation();
+        if (e.key === 'Escape') {
+          if (!open) return;
+          e.preventDefault();
+          const inside = panel.contains(document.activeElement);
+          toggle(null);
+          if (inside) tabN.focus({ preventScroll: true }); // (a keyboard user's focus, not lost with the panel)
+          return;
+        }
+        if (e.target instanceof Node && el.contains(e.target) && (e.key === 'Enter' || e.key === ' ' || /^Arrow/.test(e.key))) return;
+        if (!navigator.webdriver && MODS.has(e.key)) return;
+        e.preventDefault(); // the key only starts the world
+      }
+      if (busy) { startAfter = true; return; }
+      start();
+    }
+    el.hidden = false;
+    refresh();
+    render();
+    return {
+      // the world runs for the first time (calibrate done): hold it on the menu, or let it go
+      ready() {
+        whenStarted();
+        sound.overture();
+        render();
+        if (navigator.webdriver && !(sound.on && !sound.playing)) {
+          const later = () => (state.phase === 'running' && !busy ? hideIntro() : setTimeout(later, 250));
+          setTimeout(later, 3500);
+          return;
+        }
+        state.paused = true; renderTime();
+        $('intro').classList.add('ask');
+        go = true;
+        if (!busy) $('begin').focus({ preventScroll: true });
+        addEventListener('pointerdown', onAny, true); addEventListener('keydown', onAny, true);
+      },
+    };
+  })();
 
   // ------------------------------------------------------------ rail
   const segs = $('light-seg');
@@ -4667,7 +4837,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     renderWorld();
     updateHud(performance.now() + 1000);
     $('intro').classList.add('ready');
-    begin();
+    menu.ready();
   }).catch((e) => fail('Could not start the simulation', String(e.message || e), [RELOAD]));
 }
 

@@ -210,7 +210,7 @@ export function createSpecimen(api) {
   // a fixed window onto the record, newest first, scrolling once it fills, so nothing below it moves
   function storyHTML(sel) {
     if (!sel) return '';
-    return blk('Record', `<ol class="story">${sel.story.map((s) => `<li><time>${fmtClock(s.t)}</time><span>${s.text}</span></li>`).join('')}</ol>`);
+    return blk('Record', `<ol class="storylist">${sel.story.map((s) => `<li><time>${fmtClock(s.t)}</time><span>${s.text}</span></li>`).join('')}</ol>`);
   }
 
   // The cell's own record and, while it lives, its energy budget between meals (from the replay).

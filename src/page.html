@@ -339,6 +339,15 @@
     <p>A simulated emergent ecology of particles and mutating organisms.</p>
     <div class="calib" id="calib" role="status">Starting the GPU</div>
     <button type="button" class="begin" id="begin">Begin</button>
+    <!-- for those who know Tidemote: the new world's particle count, or a saved world in its place (main.js, the menu) -->
+    <div class="menu" id="menu" hidden>
+      <div class="menu-row" role="group" aria-label="Before the world begins">
+        <button type="button" class="menu-tab" id="menu-n" aria-expanded="false" aria-controls="menu-panel"><span>Particles</span><b id="menu-n-v"></b></button>
+        <button type="button" class="menu-tab" id="menu-w" aria-expanded="false" aria-controls="menu-panel"><span>Saved worlds</span><b id="menu-w-v"></b></button>
+      </div>
+      <div class="menu-panel" id="menu-panel" hidden></div>
+      <input type="file" id="menu-file" accept=".tidemote,application/gzip" hidden>
+    </div>
   </div>
 </div>
 

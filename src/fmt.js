@@ -7,6 +7,11 @@ export const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const pad = (n) => String(n).padStart(2, '0');
 export const fmtClock = (s) => { s = Math.floor(s); const h = Math.floor(s / 3600); const m = Math.floor(s / 60) % 60; return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`; };
 export const fmtDur = (s) => (s < 60 ? `${Math.round(s)} s` : s < 3600 ? `${Math.floor(s / 60)}m ${pad(Math.floor(s % 60))}s` : `${Math.floor(s / 3600)}h ${pad(Math.floor(s / 60) % 60)}m`);
+// a particle count, short: 64k, 1.5M
+export const kfmt = (n) => (n >= 1048576 ? `${+(n / 1048576).toFixed(1)}M` : `${Math.round(n / 1024)}k`);
+// when something was saved: today's by the time, older by the day
+export const when = (t) => (new Date(t).toDateString() === new Date().toDateString()
+  ? new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
 export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 export const cssRgb = (c, k = 1) => `rgb(${c.slice(0, 3).map((v) => Math.round(clamp(v * k, 0, 1) * 255)).join(',')})`;
 export const cssCol = (u, k = 1) => cssRgb(unpackUnorm(u), k);
