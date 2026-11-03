@@ -15,6 +15,10 @@ import { LOOK_WORDS } from './look.js';
 const POST_LAMP = 100 + 4 * SEA_CASCADES;
 // the look's words (Post.look, src/look.js) after the hand's
 const POST_LOOK = POST_LAMP + 16;
+// then the murk's cameras (Post.murk, murkB: _murkCam)
+const POST_MURK = POST_LOOK + LOOK_WORDS;
+// how much slower than the focal plane each of the murk's layers pans (MUD_DEPTH in POST_WGSL)
+const MUD_DEPTH = [0.93, 0.85, 0.76];
 
 const HDR = 'rgba16float';
 const BLOOM_LEVELS = 6;
@@ -123,7 +127,7 @@ class Engine {
     this.viewDataL = new ArrayBuffer(112);
     this.viewDataC = new ArrayBuffer(112); // the stone cache's view (_stoneStale)
     // (after the sea's: the hand's lamp, the warm stage's lens, the instrument)
-    this.postData = new Float32Array(POST_LOOK + LOOK_WORDS);
+    this.postData = new Float32Array(POST_MURK + 8);
     // the look (src/look.js): its words, set by the page (all 0: the bare view)
     this.look = new Float32Array(LOOK_WORDS);
     // the warm stage's or cold probe's lens (center, radius, 1 shown), set by the page: the thermal camera inside the
@@ -183,7 +187,7 @@ class Engine {
       return u;
     });
     b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
-    b.post = d.createBuffer({ size: (POST_LOOK + LOOK_WORDS) * 4, usage: U.UNIFORM | U.COPY_DST });
+    b.post = d.createBuffer({ size: (POST_MURK + 8) * 4, usage: U.UNIFORM | U.COPY_DST });
     // the sea (SEA_WGSL, src/sea.js): its uniforms, and every cascade's slope and displacement, mipmapped (its
     // amplitudes and working buffer are made with the first frame: _seaBuffers)
     b.seaU = d.createBuffer({ size: 128, usage: U.UNIFORM | U.COPY_DST });
@@ -2344,6 +2348,25 @@ class Engine {
     return on;
   }
 
+  // The cameras the murk's layers are drawn from (Post.murk, murkB). They lie deeper than the cells and pan at their
+  // MUD_DEPTH of the cells' speed, but a zoom moves nothing in a microscope: the part of the view's move since the last
+  // frame that a zoom about a point on the screen explains (the point a wheel or pinch holds still, s pixels from the
+  // center, moves the camera s (1/ppu0 - 1/ppu1)) moves them with the world, and only the rest pans them. Kept as
+  // offsets from the camera, modulo the world (a layer tiles it at its MUD_DEPTH).
+  _murkCam(cam, W, H) {
+    const [gw, gh] = this.grid, m = this._murk;
+    const wrap = (x, n) => x - n * Math.floor(x / n), near = (x, n) => x - n * Math.round(x / n);
+    if (!m || m.gen !== this.worldGeneration) this._murk = { o: MUD_DEPTH.map(() => [0, 0]), x: cam.x, y: cam.y, ppu: cam.ppu, gen: this.worldGeneration };
+    else {
+      const dx = near(cam.x - m.x, gw), dy = near(cam.y - m.y, gh), dz = 1 / m.ppu - 1 / cam.ppu;
+      if (Math.abs(dz) > 1e-9) {
+        const zx = Math.min(W / 2, Math.max(-W / 2, dx / dz)) * dz, zy = Math.min(H / 2, Math.max(-H / 2, dy / dz)) * dz;
+        MUD_DEPTH.forEach((D, i) => { const o = m.o[i]; o[0] = wrap(o[0] + zx * (1 / D - 1), gw); o[1] = wrap(o[1] + zy * (1 / D - 1), gh); });
+      }
+      Object.assign(m, { x: cam.x, y: cam.y, ppu: cam.ppu });
+    }
+    return this._murk.o.flatMap(([ox, oy]) => [wrap(cam.x + ox, gw), wrap(cam.y + oy, gh)]).concat([0, 0]);
+  }
   _render(enc, { target, cam, time: realT, dpr, selId, loupe, specimen, tsBegin, tsEnd }) {
     const d = this.device;
     // real time as the GPU holds it: modulo REAL_WRAP, as an f32 of days of seconds steps by 1/32 s or more
@@ -2404,6 +2427,7 @@ class Engine {
     pd.set(this.lens, POST_LAMP + 4);
     pd.set(this.tool, POST_LAMP + 8);
     pd.set(this.look, POST_LOOK);
+    pd.set(this._murkCam(cam, W, H), POST_MURK);
     d.queue.writeBuffer(this.b.post, 0, pd);
     // the water's bend on a coarse grid of the main view, for the page's overlays (read back after the submit)
     this._shiftPending = null;

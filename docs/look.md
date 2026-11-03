@@ -12,7 +12,8 @@ and `T.look.off()`, and a perf plan's scenario with `look: "on"` or `"off"`.
 
 | Stage | Function | Tunables |
 | --- | --- | --- |
-| The world's light, after the tone curve | `sceneLit`, `litGain`, `litShow`, `floorLit`, `seaFocus` (Light, below) | none: `LIT_*` in POST_WGSL |
+| The world's light, after the tone curve | `sceneLit`, `litGain`, `litShow`, `caustic`, `sunShadow`, `floorLit`, `seaFocus` (Light, below) | none: `LIT_*`, `CAUST_*`, `SHADOW_*` in POST_WGSL |
+| The mud in the water | `murk`, `murkLayers`, `murkColor`, `Engine._murkCam` (Murk, below) | none: `MUD_*` in MICRO_FNS |
 | Scene light, before the tone curve | `lookScene` | relief (DIC), rims (darkfield), rainbow rims (`prism`: each edge colored by the side it faces), color fringes; halation and veiling flare (from the bloom's blur) |
 | Objective | `lensScene`, the field stop in `fsComposite` | shallow focus (`dof`: the optics' depth blur anywhere, not only toward the rim), the field iris |
 | Tone curve | `lookTone` | film: AgX's curve mixed in for `tonemap`'s |
@@ -162,11 +163,20 @@ bright, in log, from the open water's light (0) to a summer band's (1, `LIT_SPAN
 reach only about a quarter of that, so they barely show, as they should; the lamp goes past 1, the shade below 0. The
 light multiplies the toned view (`litShow`, after the tone curve so it is not squeezed, rolling off toward white above
 `LIT_KNEE`) by `litGain`: more on what lies on the floor, stone and silt (`LIT_GROUND`, 0.85x out of the light to 1.3x
-in a band), barely on the living (`LIT_CELL`, 0.96x to 1.05x), who keep their colors. The living are told from the
+in a band), less on the living (`LIT_CELL`, 0.9x to 1.12x, their colors a little richer in the sun, `LIT_RICH`), who keep
+their colors. The living are told from the
 matter by their share of each pixel's light: the living's layer (`liveTex`), which the splat (sprites of a pixel or so,
 `splatMain`/`fsSplat`) fills too, with the living's own light kept in a fifth channel and laid there uncovered. The empty
-water shows the light most: the pond's floor, the murk behind the cells, glows golden where the light falls
-(`floorLit`; amber under the lamp, faint in the shade; with Optics on). Before the tone curve the scene only takes the
+water shows it as the sun's caustics (`caustic`): the rippled surface focuses the light into a net of bright lines
+that wanders over everything under it, a Voronoi tiling's edges about `CAUST_S` units across, bent by a slow sway,
+thinner lines brighter, on the real clock (a paused world's light still plays, a fast one's never flickers; every rate
+a whole number of turns in the clock's wrap). The net is mean-zero, so it moves the light about rather than adding
+it: on stone, silt and the murk its lines are `CAUST_GROUND` brighter (the living `CAUST_CELL`), and it is drawn
+faintly on the floor itself (`CAUST_FLOOR`), the dark water behind the cells, where little else could catch it. It
+fades out where its lines would be thinner than two pixels. In the sun the living shade the ground a little way from
+them (`sunShadow`: their layer looked up `SHADOW_H` units toward the light, softened; it lies that far off them at
+every zoom), which there has the open water's light and no caustics. The murk glows faintly golden in the sun
+(`floorLit`; amber under the lamp; with Optics on). Before the tone curve the scene only takes the
 light's color: cool in the shade, warm in the sun, amber by the lamp's share. The sea's caustics focus it (`seaFocus`:
 stronger in the sun), the crests' sheen and the suspension's specks take the ground's gain. The loupe has no layer of
 the living of its own, so all of it is lit as the living (its floor glows as the view's). The close-up (specimen
@@ -194,7 +204,27 @@ band against outside it, stone and silt 1.7-2.6x against 0.95x, the floor twice 
 in winter a trace (stone and silt 1.1x against 0.92x). That was heavy-handed (the floor's glow a fog over the
 water, stone lit like a stage): the fourth halved it, in log (stone and silt 0.85x to 1.3x, the living 0.96x to 1.05x, the
 floor about one and a half times the first round's glow), so in a summer band stone and silt read 1.3-1.7x against 1.0x,
-the floor 13-15 against 8 (of 255), the living 1.07x: a subtle light, there when looked for.
+the floor 13-15 against 8 (of 255), the living 1.07x: a subtle light, there when looked for. But then the mud alone
+showed the light, and lit it slid against the bands as the view zoomed (Murk, below), so the fifth cut the murk's glow
+to a third, gave the living back a little (0.9x to 1.12x, richer in the sun), and showed the light by what light does
+rather than by brightening: the caustics and the living's shadows (round 1 had tried both as stray hairs and as
+shadows seen only over stone; drawn on the floor and moving, they read). `runs/light/film5.mjs` films the user's own
+world under each version, the clock the caustics run on stepped with the frames.
+
+## Murk
+
+The mud suspended in the water below the cells (`murk`, drawn into `murkTex` at a quarter of the view's resolution by
+`fsMurk`; the loupe draws it per pixel) lies in three layers, each deeper and further out of focus (`MUD_*` in
+`MICRO_FNS`): near, small sparse flocs nearly in focus; middle, clouds of flocs of every size; far, a broad dim haze,
+cooler through more water (`murkColor`). Each pans at its `MUD_DEPTH` of the cells' speed, so as the view pans they
+slide over one another. A zoom moves none of them: `Engine._murkCam` splits each move of the view into what a zoom
+about a point on the screen explains (that moves the layers with the world) and the rest (a pan), and keeps each
+layer's camera as an offset modulo the world. (Before, the layer was drawn from the camera itself at 0.85x, and a zoom
+toward the cursor, which moves the camera, slid the mud 20-30 pixels a step against the cells.) Flocs finer than a
+layer's blur or than a few samples fade to their mean, and the rest is scaled back up to the full spread, so a layer
+covers as much at every zoom and nothing aliases (finer octaves once shimmered as the view zoomed). The near layer's
+two generations are kept as densities and turned into flocs in the composite (`murkLayers`), so their edges are drawn
+at the full resolution rather than stretched from a quarter of it.
 
 ## Left out
 
