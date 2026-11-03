@@ -2360,6 +2360,19 @@ fn rot2(v: vec2f, a: f32) -> vec2f {
   return vec2f(c * v.x - s * v.y, s * v.x + c * v.y);
 }
 
+// The hand's lamp (Hand.lamp: center, radius, strength) at wp: + the light it adds, − the share of the light its shade
+// takes, as lampLight has it; and the light l under it.
+fn lampOf(wp: vec2f, lamp: vec4f, world: vec2f) -> f32 {
+  if (lamp.w == 0.0) { return 0.0; }
+  var d = wp - lamp.xy;
+  d -= world * round(d / world);
+  return lamp.w * (1.0 - smoothstep(0.94 * lamp.z, lamp.z, length(d)));
+}
+fn withLamp(l: f32, b: f32) -> f32 { return select(l * (1.0 + b), l + b, b > 0.0); }
+// How bright the scene's light l is as it is shown (docs/look.md, Light), in log: 0 at the open water's (ambient), 1 at
+// a summer band's (LIT_SPAN times it).
+const LIT_SPAN = 4.4;
+fn litR(l: f32, ambient: f32) -> f32 { return log(max(l, 1e-4) / ambient) / log(LIT_SPAN); }
 fn tideAt(p: vec2f, world: vec2f, t: f32, w: array<vec4f, 4>, ph: vec4f) -> f32 {
   let u = p / world * TAU;
   var s = 0.0;
@@ -7718,14 +7731,7 @@ fn huskLight(v: vec2f, seed: f32, aa: f32, dir: vec2f) -> vec2f {
 fn sunAt(wp: vec2f) -> f32 {
   if (view.lit == 0u) { return 0.0; }
   let base = (view.sun.y + (1.0 - view.sun.y) * tideAt(wp, view.world, view.sun.w, view.tide, view.tidePh) * view.sun.x) * view.sun.z;
-  var b = 0.0;
-  if (view.lamp.w != 0.0) {
-    var d = wp - view.lamp.xy;
-    d -= view.world * round(d / view.world);
-    b = view.lamp.w * (1.0 - smoothstep(0.94 * view.lamp.z, view.lamp.z, length(d)));
-  }
-  let l = select(base * (1.0 + b), base, b > 0.0) + max(b, 0.0);
-  return clamp(log(max(l, 1e-4) / view.sun.y) / log(4.4), 0.0, 1.2);
+  return clamp(litR(withLamp(base, lampOf(wp, view.lamp, view.world)), view.sun.y), 0.0, 1.2);
 }
 // Silt in the light sparkles, as fine mineral grains do in a darkfield: jostled in the water, a grain's facets now and
 // then turn to the light and flash. SPARK_SHARE of the grains, each flashing briefly every few seconds on the real clock
@@ -7738,9 +7744,10 @@ fn sparkRock(id: u32) -> vec2f {
   let a = TAU / 4096.0 * view.time * floor(vec2f(700.0, 900.0) + 1100.0 * h.xy) + TAU * h.zw;
   return vec2f(sin(a.x), cos(a.y));
 }
+// the light on a grain that sparkles (0 for the rest)
+fn sparkSun(p: Particle) -> f32 { return select(0.0, sunAt(p.pos), renderHash(p.id + 89u) <= SPARK_SHARE); }
 fn sparkle(p: Particle) -> f32 {
-  if (renderHash(p.id + 89u) > SPARK_SHARE) { return 0.0; }
-  let sun = sunAt(p.pos);
+  let sun = sparkSun(p);
   if (sun <= 0.02) { return 0.0; }
   let r = sparkRock(p.id);
   return SPARK * sun * pow(max(r.x, 0.0), 24.0) * (0.6 + 0.4 * r.y);
@@ -7782,12 +7789,10 @@ fn matterColor(i: PO, p: Particle, far: f32) -> vec4f {
         let seams = 1.0 - 0.25 * exp(-sqr(fract(a / sector + 0.5) - 0.5) * 1600.0) * side;
         facets = ((0.25 + 0.6 * max(dot(n, toLight), 0.0)) * tone * seams + 0.8 * glint) * 1.3; // same mean light as before
         // in the light, the grain rocking: a facet now and then turns to it and flashes
-        if (renderHash(p.id + 89u) <= SPARK_SHARE) {
-          let sun = sunAt(p.pos);
-          if (sun > 0.02) {
-            let nr = normalize(vec3f(mix(tilt * 0.6 + 0.35 * sparkRock(p.id), vec2f(cos(facing), sin(facing)) * 0.9, side), 1.0));
-            facets += SPARK * sun * pow(max(dot(nr, half), 0.0), 80.0) * 1.3;
-          }
+        let sun = sparkSun(p);
+        if (sun > 0.02) {
+          let nr = normalize(vec3f(mix(tilt * 0.6 + 0.35 * sparkRock(p.id), vec2f(cos(facing), sin(facing)) * 0.9, side), 1.0));
+          facets += SPARK * sun * pow(max(dot(nr, half), 0.0), 80.0) * 1.3;
         }
       }
       f = body * facets * spriteMean(i.shape) / 0.56;
@@ -9227,7 +9232,7 @@ fn lookScene(hdrIn: vec3f, uv: vec2f, bl: vec3f, ppu: f32, res: vec2f, sun: f32)
     // the dark field stays dark
     let ang = atan2(grad.y, grad.x);
     let sector = 0.5 + 0.5 * vec3f(cos(ang), cos(ang - 2.094), cos(ang + 2.094));
-    hdr = mix(hdr, vec3f(lookL(hdr)) * sector * 2.24, min(1.0, L0.x * (1.0 + SUN_PRISM * sun)) * smoothstep(0.05, 0.6, length(grad) / norm) * near);
+    hdr = mix(hdr, vec3f(lookL(hdr)) * sector * 2.24, L0.x * smoothstep(0.05, 0.6, length(grad) / norm) * near);
   }
   // halation (warm, as light scattered back from a film's base) and veiling flare (the lamp's); in the world's light
   // (sun: sunLook) more of both, the halation golden and the flare warmer, as a brighter lamp would make them
@@ -10159,17 +10164,9 @@ fn lightPassed(wp: vec2f) -> f32 {
 // The light at wp as lifeMain gives it to producers (lightAt): the baseline and the Tide's bands (S, tideAt) by the
 // season, under the sky and any duckweed.
 fn lightPost(wp: vec2f, S: f32) -> f32 {
-  let l = (post.ambient + (1.0 - post.ambient) * S * post.season) * lightPassed(wp);
-  let b = lampAt(wp);
-  return select(l * (1.0 + b), l + b, b > 0.0);
+  return withLamp((post.ambient + (1.0 - post.ambient) * S * post.season) * lightPassed(wp), lampAt(wp));
 }
-// The hand's lamp at wp (+, light added) or its shade (−, the share of the light taken), as lampLight has it.
-fn lampAt(wp: vec2f) -> f32 {
-  if (post.lamp.w == 0.0) { return 0.0; }
-  var d = wp - post.lamp.xy;
-  d -= post.world * round(d / post.world);
-  return post.lamp.w * (1.0 - smoothstep(0.94 * post.lamp.z, post.lamp.z, length(d)));
-}
+fn lampAt(wp: vec2f) -> f32 { return lampOf(wp, post.lamp, post.world); }
 // The scene's light at wp (docs/look.md, Light): the light lifeMain gives producers there (lightAt: the Tide's bands by
 // the season over the era's baseline, under the sky and any duckweed, and the hand's lamp or shade) lights what is
 // seen, so the bands and the lamp show on what they fall on. r: how bright, in log, between the open water's light (0)
@@ -10179,7 +10176,6 @@ fn lampAt(wp: vec2f) -> f32 {
 // sea's focusing of the light there (surf.light), which plays it over the grains on the floor where it falls (play:
 // FOCUS_*). k: the color the scene takes before the tone curve, cool in the shade, warm in the sun and amber by the
 // lamp's share; lamp: the lamp's own light.
-const LIT_SPAN = 4.4;
 // Where the sea focuses the sun (play), what lies on the floor catches it: silt and stone this much brighter per unit
 // of focus (dimmer between the pools of it), and their glints and sparkles more (FOCUS_GLINT). In a darkfield only
 // what scatters shows the light, so the pools show on the grains, not on the dark water between them.
@@ -10191,12 +10187,10 @@ const LIT_RICH = 0.12;                // the living's colors this much richer in
 const LIT_KNEE = 0.7;                 // the toned view rolls off above this toward white (litShow)
 struct Lit { k: vec3f, r: f32, lamp: f32, play: f32, shadow: f32 };
 fn sceneLit(wp: vec2f, focus: f32) -> Lit {
-  let base = (post.ambient + (1.0 - post.ambient) * tideAt(wp, post.world, post.simTime, post.tide, post.tidePh) * post.season) * lightPassed(wp);
-  let b = lampAt(wp);
+  let l = lightPost(wp, tideAt(wp, post.world, post.simTime, post.tide, post.tidePh));
   var o: Lit;
-  o.lamp = max(b, 0.0);
-  let l = select(base * (1.0 + b), base, b > 0.0) + o.lamp;
-  o.r = clamp(log(max(l, 1e-4) / post.ambient) / log(LIT_SPAN), -0.7, 1.6);
+  o.lamp = max(lampAt(wp), 0.0);
+  o.r = clamp(litR(l, post.ambient), -0.7, 1.6);
   let tint = mix(vec3f(0.96, 0.98, 1.03), vec3f(1.03, 1.0, 0.95), clamp(o.r, 0.0, 1.0));
   o.k = mix(tint, vec3f(1.2, 0.92, 0.6), o.lamp / max(l, 1e-3));
   o.play = clamp(focus - 1.0, -1.0, 1.5) * clamp(o.r, 0.0, 1.2);
@@ -10218,22 +10212,21 @@ const SHADOW_K = 0.55;
 fn sunShadow(uv: vec2f, l: Lit) -> f32 {
   let sun = clamp(l.r, 0.0, 1.0);
   let px = SHADOW_H * post.ppu;
-  if (sun <= 0.02 || px < 1.0 || SHADOW_K <= 0.0) { return 0.0; }
+  if (sun <= 0.02 || px < 1.0) { return 0.0; }
   let o = TO_LIGHT * px;
   let side = vec2f(-o.y, o.x) * 0.5;
   let occ = coverAt(uv + o / post.res) + coverAt(uv + (o * 0.7 + side) / post.res) + coverAt(uv + (o * 0.7 - side) / post.res)
     + coverAt(uv + (o * 1.3 + side) / post.res) + coverAt(uv + (o * 1.3 - side) / post.res);
   return SHADOW_K * sun * occ / 5.0 * smoothstep(1.0, 3.0, px);
 }
-fn coverAt(uv: vec2f) -> f32 { return min(1.0, textureSampleLevel(liveTex, samp, uv, 0.0).a);
-}
+fn coverAt(uv: vec2f) -> f32 { return min(1.0, textureSampleLevel(liveTex, samp, uv, 0.0).a); }
 // The toned view (display-linear) in the scene's light: by litGain, after the tone curve so it is not squeezed, the
 // living's colors richer in the sun, rolled off above LIT_KNEE toward white rather than clipped.
 fn litShow(cIn: vec3f, l: Lit, cells: f32) -> vec3f {
   let y = lookL(cIn);
   // (a grain's glints and sparkles, its brightest pixels, catch the sea's focus most)
-  let glint = 1.0 + FOCUS_GLINT * max(l.play, 0.0) * (1.0 - l.shadow) * (1.0 - cells) * smoothstep(0.08, 0.4, y);
-  let c = max(vec3f(0.0), mix(vec3f(y), cIn, 1.0 + LIT_RICH * cells * clamp(l.r, 0.0, 1.0))) * litGain(l, cells) * glint;
+  let shine = 1.0 + FOCUS_GLINT * max(l.play, 0.0) * (1.0 - l.shadow) * (1.0 - cells) * smoothstep(0.08, 0.4, y);
+  let c = max(vec3f(0.0), mix(vec3f(y), cIn, 1.0 + LIT_RICH * cells * clamp(l.r, 0.0, 1.0))) * litGain(l, cells) * shine;
   let o = c - LIT_KNEE;
   return select(c, LIT_KNEE + (1.0 - LIT_KNEE) * (1.0 - exp(-o / (1.0 - LIT_KNEE))), c > vec3f(LIT_KNEE));
 }
@@ -10249,14 +10242,13 @@ fn floorLit(l: Lit, mud: f32) -> vec3f {
 // spreads light about a bright thing, so in the light the bloom reaches further (SUN_BLOOM), the film's halation
 // (golden there) and the lamp's veiling flare (warmer) grow (SUN_HALO, SUN_VEIL; lookScene), and the view is graded a
 // little golden, its pale highlights most (SUN_GOLD, sunGrade); darkfield's rims, the light membranes scatter, grow
-// brighter (SUN_RIM), and its rainbow rims richer (SUN_PRISM; lookScene's, so from about 25 pixels a unit). sunLook: how much, 0 in the open water's light to 1 in a
-// summer band (more under the lamp).
+// brighter (SUN_RIM; lookScene's, so from about 25 pixels a unit). sunLook: how much, 0 in the open water's light to 1
+// in a summer band (more under the lamp).
 const SUN_BLOOM = 0.6;
 const SUN_HALO = 0.8;
 const SUN_VEIL = 0.5;
 const SUN_GOLD = 1.0;
-const SUN_RIM = 0.5;    // darkfield's rims: membranes scatter more of a brighter light
-const SUN_PRISM = 0.0;  // the rainbow rims' colors richer
+const SUN_RIM = 0.5;
 fn sunLook(l: Lit) -> f32 { return clamp(l.r, 0.0, 1.3); }
 fn sunGrade(c: vec3f, l: Lit) -> vec3f {
   // gilding the pale and the bright most (glints, rims, pale cells): colored cells keep their hue
@@ -32608,9 +32600,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "916a94cd8b726a4a") return;
+      if (localStorage.getItem(key) === "73a09fb80a57ede9") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "916a94cd8b726a4a");
+      if (res) localStorage.setItem(key, "73a09fb80a57ede9");
     } catch {
     }
   }
