@@ -10174,10 +10174,15 @@ fn lampAt(wp: vec2f) -> f32 {
 // and a summer band's (1, LIT_SPAN times it): a winter's bands reach about a quarter, under the lamp past 1, in the
 // shade below 0. What lies on the floor (stone, silt) takes the light more (LIT_GROUND) than the living, which keep
 // their colors, a little dimmer out of it and a little brighter and richer in it (LIT_CELL, LIT_RICH). focus: the
-// sea's focusing of the light there (surf.light), which plays it over the floor where it falls (play: seaFocus,
-// floorLit). k: the color the scene takes before the tone curve, cool in the shade, warm in the sun and amber by the
+// sea's focusing of the light there (surf.light), which plays it over the grains on the floor where it falls (play:
+// FOCUS_*). k: the color the scene takes before the tone curve, cool in the shade, warm in the sun and amber by the
 // lamp's share; lamp: the lamp's own light.
 const LIT_SPAN = 4.4;
+// Where the sea focuses the sun (play), what lies on the floor catches it: silt and stone this much brighter per unit
+// of focus (dimmer between the pools of it), and their glints and sparkles more (FOCUS_GLINT). In a darkfield only
+// what scatters shows the light, so the pools show on the grains, not on the dark water between them.
+const FOCUS_MATTER = 1.0;
+const FOCUS_GLINT = 2.5;
 const LIT_GROUND = vec2f(0.85, 1.3);  // the toned view's gain on stone and silt at r 0 and 1 (between, in log)
 const LIT_CELL = vec2f(0.9, 1.12);    // on the living
 const LIT_RICH = 0.12;                // the living's colors this much richer in a summer band
@@ -10201,7 +10206,7 @@ fn sceneLit(wp: vec2f, focus: f32) -> Lit {
 fn litGain(l: Lit, cells: f32) -> f32 {
   let g = mix(LIT_GROUND, LIT_CELL, cells);
   let s = 1.0 - l.shadow * (1.0 - cells);
-  return g.x * pow(g.y / g.x, l.r * s);
+  return g.x * pow(g.y / g.x, l.r * s) * max(0.0, 1.0 + FOCUS_MATTER * l.play * s * (1.0 - cells));
 }
 // How much of the sun the living keep from the ground at uv in the main view (0..SHADOW_K): their layer looked up a
 // little way toward the light, softened (they swim about SHADOW_H units over the bed, so it lies that far off them
@@ -10224,20 +10229,19 @@ fn coverAt(uv: vec2f) -> f32 { return min(1.0, textureSampleLevel(liveTex, samp,
 // living's colors richer in the sun, rolled off above LIT_KNEE toward white rather than clipped.
 fn litShow(cIn: vec3f, l: Lit, cells: f32) -> vec3f {
   let y = lookL(cIn);
-  let c = max(vec3f(0.0), mix(vec3f(y), cIn, 1.0 + LIT_RICH * cells * clamp(l.r, 0.0, 1.0))) * litGain(l, cells);
+  // (a grain's glints and sparkles, its brightest pixels, catch the sea's focus most)
+  let glint = 1.0 + FOCUS_GLINT * max(l.play, 0.0) * (1.0 - l.shadow) * (1.0 - cells) * smoothstep(0.08, 0.4, y);
+  let c = max(vec3f(0.0), mix(vec3f(y), cIn, 1.0 + LIT_RICH * cells * clamp(l.r, 0.0, 1.0))) * litGain(l, cells) * glint;
   let o = c - LIT_KNEE;
   return select(c, LIT_KNEE + (1.0 - LIT_KNEE) * (1.0 - exp(-o / (1.0 - LIT_KNEE))), c > vec3f(LIT_KNEE));
 }
 // The light on the pond's floor, seen through the dark water behind what lies in it (display-linear, added as the
-// background is): its mud (the murk there) faintly golden in the sun, amber under the lamp, and where the sea focuses
-// the sun (l.play), soft pools of light drifting over it with the water's swell, brightest where the murk is; what
-// the living shade has none.
-const FLOOR_FOCUS = 0.004;
+// background is): its mud (the murk there) faintly golden in the sun, amber under the lamp, more where the sea focuses
+// it; what the living shade has none.
 fn floorLit(l: Lit, mud: f32) -> vec3f {
   let s = 1.0 - l.shadow;
   let sun = 0.03 + 0.13 * pow(clamp(l.r * s, 0.0, 1.6), 1.4);
-  return (vec3f(1.0, 0.9, 0.7) * sun + vec3f(1.0, 0.7, 0.38) * 0.7 * l.lamp * s) * (0.009 + 0.135 * mud) * (1.0 + l.play * s)
-    + vec3f(1.0, 0.95, 0.8) * FLOOR_FOCUS * max(l.play, 0.0) * s * (0.6 + 0.8 * mud);
+  return (vec3f(1.0, 0.9, 0.7) * sun + vec3f(1.0, 0.7, 0.38) * 0.7 * l.lamp * s) * (0.009 + 0.135 * mud) * max(0.0, 1.0 + l.play * s);
 }
 // The sea's focusing (surf.light) on what lies beneath, as the light there makes it: a little more in the sun than in
 // the shade.
@@ -32582,9 +32586,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "e4ad6e7f1e137028") return;
+      if (localStorage.getItem(key) === "cec86becc777b11d") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "e4ad6e7f1e137028");
+      if (res) localStorage.setItem(key, "cec86becc777b11d");
     } catch {
     }
   }
