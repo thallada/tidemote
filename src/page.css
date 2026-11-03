@@ -674,6 +674,36 @@ span.set-reset { display: inline-flex; align-items: center; gap: var(--s3); colo
 #film.rolling .rec { opacity: 1; color: var(--hot); }
 #film-v { font-variant-numeric: tabular-nums; min-width: 2.6em; }
 @keyframes rec-blink { 50% { opacity: 0; } }
+/* filming's strip, first of the floats: a blinking red square, RECORDING, its time and size, Stop.
+   Its fields keep their widths as they count, so nothing beside them moves. */
+.focus.rec { --rec: #ff3b47; border-color: var(--rec); gap: var(--s3); padding-left: 10px; }
+.focus.rec .lbl { color: var(--rec); letter-spacing: .26em; font-stretch: 118%; }
+.rec-sq { flex: none; width: 9px; height: 9px; background: var(--rec); box-shadow: 0 0 6px rgba(255, 59, 71, 0.75); animation: rec-blink 1s steps(2) infinite; }
+.focus.rec b { min-width: 4.4ch; font-variant-numeric: tabular-nums; letter-spacing: .06em; color: var(--ink); }
+#rec-mb { min-width: 6.2ch; color: var(--sun); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#rec-mb:empty { display: none; }
+.rec-left { color: var(--ink-2); font-size: 11px; letter-spacing: .08em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.focus.rec.near .rec-left { color: var(--rec); }
+#rec-stop { width: auto; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; white-space: nowrap; }
+.rec-stop-i { width: 8px; height: 8px; border: 1px solid currentColor; }
+#rec-stop:disabled { opacity: .45; cursor: default; }
+/* waiting for the camera's next scene: the square hollow and slow; saving: still */
+.focus.rec.standby { border-color: rgba(255, 59, 71, 0.5); }
+.focus.rec.standby .rec-sq { background: none; border: 1px solid var(--rec); box-shadow: none; animation-duration: 2s; }
+.focus.rec.standby b { color: var(--ink-2); font-weight: 400; }
+.focus.rec.saving .rec-sq { animation: none; opacity: .5; }
+/* and around the world, a hairline red frame with heavier corners */
+.recframe { position: absolute; left: 0; right: 0; top: var(--top); bottom: var(--bot); pointer-events: none; border: 1px solid rgba(255, 59, 71, 0.35); }
+.recframe i { position: absolute; width: 22px; height: 22px; border: 0 solid #ff3b47; }
+.recframe i:nth-child(1) { left: 6px; top: 6px; border-width: 2px 0 0 2px; }
+.recframe i:nth-child(2) { right: 6px; top: 6px; border-width: 2px 2px 0 0; }
+.recframe i:nth-child(3) { left: 6px; bottom: 6px; border-width: 0 0 2px 2px; }
+.recframe i:nth-child(4) { right: 6px; bottom: 6px; border-width: 0 2px 2px 0; }
+@media (pointer: coarse) { #rec-stop { min-height: 44px; } .focus.rec { padding-top: 0; padding-bottom: 0; } }
+body.lab-open .recframe { left: var(--lab-pw); }
+body.lab-wide .recframe { left: min(620px, 100%); }
+body.spec-open .recframe { right: var(--spec-pw); }
+@media (prefers-reduced-motion: reduce) { .rec-sq, #film.armed .rec { animation: none; } }
 .help-src { margin: var(--s4) 0 0; padding-top: var(--s2); border-top: 1px solid var(--line); color: var(--ink-3); font-size: 12px; }
 .keys { display: grid; grid-template-columns: max-content 1fr; gap: 9px 18px; margin: 10px 0 0; }
 dd { margin: 0; color: var(--ink-2); }
@@ -1267,6 +1297,9 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }
   #film, #auto-next { display: none !important; }
+  .focus.rec { gap: var(--s2); }
+  .recframe { left: 0 !important; right: 0 !important; }
+  .focus.rec .lbl { letter-spacing: .16em; }
   .bench { left: 0 !important; right: 0 !important; flex-direction: column; touch-action: pan-x; padding: var(--s2) 12px var(--s3); max-height: calc(100% - var(--top) - var(--bot)); overflow-y: auto; }
   /* (its handle, as the specimen's sheet has: a swipe down or a tap folds it) */
   .bench .grab { flex: none; margin: calc(-1 * var(--s2)) -12px calc(-1 * var(--s1)); }

@@ -111,7 +111,7 @@ export const GLOSSARY = {
   links: 'Bonds between cells of one multicellular body. Single-celled species never show links.',
   chronicler: 'The chronicler reads the census and a ledger of who ate whom, how each species died and where it lives, and now and then writes what happened in the log: a death worth remembering and its cause, an arms race, hunters and hunted cycling, a lineage following the water, the last of a guild, what an era or an event did. It speaks only when something notable has happened, a few times an hour at most. Lab → Log → Chronicler shows its entries alone.',
   card: 'A species card: its portrait, sigil, song, lineage and natural history on one image, with the chronicler’s latest line about it. Save it as a PNG, and its song as a short clip. You can give the species a name of your own there.',
-  film: 'Records thirty seconds of the view, with the auto camera’s captions and the soundtrack, and downloads it as a video. With the auto camera on it waits for the camera’s next scene and films from its start.',
+  film: 'Records the view as a video, with the auto camera’s captions and the soundtrack, until you stop it (R, or Stop on the red strip); the strip shows its time and size. Where it can, it is written to disk as it is made; it stops itself before it grows too big to keep (up to 8 GB, an hour or more at 1080p; less where it has to wait in memory). With the auto camera on it waits for the camera’s next scene and films from its start.',
   autoidle: 'Left alone for a minute (three with a panel open), the camera starts filming the world on its own. Drag, scroll or tap to take it back.',
   renderscale: 'The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room, and shows the scale it is using now (the choice nearest it is underlined); a fixed value never changes.',
   autofloor: 'The lowest render scale Auto may drop to.',
@@ -258,7 +258,7 @@ export const GUIDE = [
 <li><b>Lab → Charts</b>: population, diversity, births, deaths, meals and climate over time, and the eras so far. Point at a chart (or tap it) to read every line at that moment; point at a dot in Thermal niches to name its species, and click it to open it.</li>
 <li><b>Lab → Log</b>: every logged event, searchable. The ${t('chronicler', 'chronicler')}’s stories, written now and then when something notable has happened, show in a warmer color; Chronicler shows them alone.</li>
 <li><b>Card</b> (in the specimen panel): a ${t('card', 'species card')} to save and share, where you can also name the species.</li>
-<li><b>Film</b> (R): ${t('film', 'thirty seconds')} of the view as a video, captions and soundtrack included.</li>
+<li><b>Film</b> (R): the view as a ${t('film', 'video')}, captions and soundtrack included, until you stop it (R again).</li>
 <li><b>Auto</b>: the camera films the world on its own, with captions saying what it is showing; it also takes over after a minute alone (switch that off in Settings).</li>
 </ul>`,
   },

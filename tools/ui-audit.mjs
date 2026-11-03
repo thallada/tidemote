@@ -218,6 +218,17 @@ for (const s of SIZES) {
     await page.evaluate(() => globalThis.__tidemote.lab.open('cabinet'));
     await snap('cabinet');
   }
+  // filming (docs/film.md): the strip under the rail and the red frame, the Lab open beside them
+  if (await page.$('#recbar')) {
+    await page.keyboard.press('Escape');
+    if (s.touch) await page.evaluate(() => globalThis.__tidemote.lab.close());
+    await page.evaluate(() => globalThis.__tidemote.filmAct('now'));
+    await page.waitForTimeout(2500);
+    await snap('filming');
+    if (!s.touch) rec.axeFilm = await axeRun(page);
+    await page.evaluate(() => globalThis.__tidemote.filmAct());
+    await page.waitForTimeout(1500);
+  }
   await ctx.close();
 }
 await browser.close(); server.close();
@@ -232,6 +243,6 @@ for (const [id, r] of Object.entries(report.sizes)) {
       + `  hscroll: ${m.hscroll ? 'YES' : 'no'}  offscreen: ${m.offscreen.map((o) => o.id).join(',') || '-'}  clipped: ${m.clipped.length}`
       + (m.boxes.specBody ? `  spec scroll h: ${m.boxes.specBody.h}` : '') + (m.compass ? `  compass: ${m.compass.ok ? 'ok' : m.compass.na ? `n/a, ${m.compass.na}${m.compass.na === 'peek' ? '' : ` (below the fold: ${m.compass.compassBottom} > ${m.compass.visibleBottom})`}` : `HIDDEN (${m.compass.compassBottom} > ${m.compass.visibleBottom})`}` : ''));
   }
-  for (const a of [...(r.axe || []), ...(r.axeCell || []), ...(r.axeCard || []), ...(r.axeBench || [])]) console.log(`  axe ${a.impact} ${a.id} ×${a.n}: ${a.help}`);
+  for (const a of [...(r.axe || []), ...(r.axeCell || []), ...(r.axeCard || []), ...(r.axeBench || []), ...(r.axeFilm || [])]) console.log(`  axe ${a.impact} ${a.id} ×${a.n}: ${a.help}`);
 }
 console.log(`\n${out}`);

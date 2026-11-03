@@ -12,6 +12,8 @@ process) and is otherwise the same page as on the web:
   as files (`desktop/worlds.js`), with the Workshop's subscribed worlds listed among them.
 - `steam()`: `{ on, appId, cloud, user }`; without Steam the page hides what needs it.
 - `achieve(id)`, `workshop.share(id, { title, description })`, `workshop.browse()`, `workshop.open(item)`.
+- `film`: a film written as it is made into `Videos/Tidemote` (`open(name)` → `{ id, free }`, `write`,
+  `patch`, `close` → its path, `abort`), as `NAME.part` until it is closed (docs/film.md).
 
 ## Saves and Steam Cloud
 

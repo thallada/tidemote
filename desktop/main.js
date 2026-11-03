@@ -5,8 +5,9 @@
 // reaches both through preload.cjs.
 import { app, BrowserWindow, ipcMain, Menu, net, protocol, shell } from 'electron';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statfsSync, writeFileSync } from 'node:fs';
+import { open as openFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startSteam, status, achieve } from './steam.js';
 import { worlds, workshop } from './worlds.js';
@@ -91,6 +92,35 @@ handle('steam:achieve', achieve);
 handle('workshop:share', workshop.share);
 handle('workshop:browse', workshop.browse);
 handle('workshop:open', workshop.open);
+
+// Films (src/film.js): written as they are made into Videos/Tidemote, as NAME.part until closed (a film
+// cut off by a crash stays there, playable, as .part).
+const films = new Map();
+let filmN = 0;
+handle('film:open', async (name) => {
+  const dir = join(app.getPath('videos'), 'Tidemote');
+  mkdirSync(dir, { recursive: true });
+  const stem = basename(String(name)).replace(/[^\w.\- ]+/g, '_');
+  let path = join(dir, stem);
+  for (let k = 2; existsSync(path); k++) path = join(dir, stem.replace(/(\.\w+)?$/, ` (${k})$1`));
+  const fh = await openFile(`${path}.part`, 'w');
+  const id = ++filmN;
+  films.set(id, { fh, path });
+  let free = null;
+  try { const s = statfsSync(dir); free = s.bavail * s.bsize; } catch { /* unknown */ }
+  return { id, free };
+});
+const film = (id) => { const f = films.get(id); if (!f) throw new Error('no such film'); return f; };
+handle('film:write', async (id, bytes) => { await film(id).fh.write(bytes); });
+handle('film:patch', async (id, at, bytes) => { await film(id).fh.write(bytes, 0, bytes.length, at); });
+handle('film:close', async (id) => {
+  const f = film(id);
+  await f.fh.close();
+  renameSync(`${f.path}.part`, f.path);
+  films.delete(id);
+  return f.path;
+});
+handle('film:abort', async (id) => { const f = films.get(id); if (!f) return; films.delete(id); await f.fh.close(); rmSync(`${f.path}.part`, { force: true }); });
 
 if (startSteam() === 'restart') app.exit(0);
 

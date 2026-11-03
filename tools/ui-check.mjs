@@ -1,8 +1,9 @@
 // Drives the built page in Chrome and checks its interactions: a click on a species in the census chart
 // opens and highlights it, and a second click on it clears both; Save keeps a species' card in the cabinet and
 // Card opens it; the bench, a tool held, Esc, the speed ladder, the pipette loaded from a card and set down (docs/
-// hand.md); the phone dock's slots even and its labels fitting with every tool in hand; Settings → Audio → Volume
-// sets the volume by mouse and by finger, turns sound on, and keeps the dock slider in step.
+// hand.md); filming (R, the strip under the rail and its Stop, the red frame); the phone dock's slots even and
+// its labels fitting with every tool in hand; Settings → Audio → Volume sets the volume by mouse and by finger,
+// turns sound on, and keeps the dock slider in step.
 //   npm run build && tools/gpu-node.sh tools/ui-check.mjs
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http';
 import { chromium } from 'playwright-core';
@@ -64,18 +65,34 @@ for (const touch of [false, true]) {
     await page.waitForTimeout(300);
     check(`${tag} Esc closes the card`, await page.evaluate(() => document.getElementById('card').hidden));
     await page.keyboard.press('Escape');
-    // Film: R starts thirty seconds, R again stops and saves
+    // Film: R starts it, the strip under the rail and the red frame show while it rolls, counting time and
+    // size; R again stops and saves; then the strip's Stop does
     const film = await page.$('#film');
     if (film && await film.isVisible()) {
       await page.keyboard.press('r');
-      await page.waitForTimeout(1500);
-      const st = await page.evaluate(() => ({ s: globalThis.__tidemote.film.state, pressed: document.getElementById('film').getAttribute('aria-pressed') }));
-      check(`${tag} R starts filming`, st.s === 'recording' && st.pressed === 'true', JSON.stringify(st));
+      // (the first bytes come with the recorder's first whole fragment, about two seconds in)
+      await page.waitForFunction(() => !/^0(\.0)? MB$/.test(document.getElementById('rec-mb').textContent), null, { timeout: 8000 }).catch(() => {});
+      const st = await page.evaluate(() => ({ s: globalThis.__tidemote.film.state, pressed: document.getElementById('film').getAttribute('aria-pressed'), bar: !document.getElementById('recbar').hidden, frame: !document.getElementById('recframe').hidden, t: document.getElementById('rec-t').textContent, mb: document.getElementById('rec-mb').textContent }));
+      check(`${tag} R starts filming: the strip and the frame show, counting`, st.s === 'recording' && st.pressed === 'true' && st.bar && st.frame && /^0:0[1-8]$/.test(st.t) && /MB$/.test(st.mb) && st.mb !== '0.0 MB', JSON.stringify(st));
       const dl = page.waitForEvent('download', { timeout: 10000 }).catch(() => null);
       await page.keyboard.press('r');
       const d = await dl;
       check(`${tag} R again stops and saves the film`, !!d && /\.(webm|mp4)$/.test(d.suggestedFilename()), d ? d.suggestedFilename() : 'no download');
+      await page.waitForFunction(() => globalThis.__tidemote.film.state === 'idle', null, { timeout: 10000 });
+      check(`${tag} the strip and the frame go when it is saved`, await page.evaluate(() => document.getElementById('recbar').hidden && document.getElementById('recframe').hidden));
     }
+  }
+  {
+    // the strip's Stop (on a phone the only one in sight): started from Settings' Now, tapped or clicked
+    await page.evaluate(() => globalThis.__tidemote.filmAct('now'));
+    await page.waitForTimeout(1500);
+    const r = await page.evaluate(() => { const b = document.getElementById('rec-stop').getBoundingClientRect(), s = document.getElementById('recbar').getBoundingClientRect(); return { w: b.width, h: b.height, left: s.left, right: s.right, vw: innerWidth }; });
+    check(`${tag} the strip fits the window and its Stop is a fair target`, r.left >= 0 && r.right <= r.vw && r.w >= 24 && r.h >= 24, JSON.stringify(r));
+    const dl = page.waitForEvent('download', { timeout: 10000 }).catch(() => null);
+    if (touch) await page.tap('#rec-stop'); else await page.click('#rec-stop');
+    const d = await dl;
+    check(`${tag} the strip's Stop stops and saves the film`, !!d, d ? d.suggestedFilename() : 'no download');
+    await page.waitForFunction(() => globalThis.__tidemote.film.state === 'idle', null, { timeout: 10000 }).catch(() => {});
   }
   // the phone's dock: equal slots, each label inside its slot with room to spare, with every tool in hand (the
   // Bench slot names it), paused and at the fastest speed, from the narrowest phone up; nothing scrolls sideways

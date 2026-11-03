@@ -8,4 +8,7 @@ contextBridge.exposeInMainWorld('tidemoteDesktop', {
   steam: call('steam:status'),
   achieve: call('steam:achieve'),
   workshop: { share: call('workshop:share'), browse: call('workshop:browse'), open: call('workshop:open') },
+  // a film written as it is made, into Videos/Tidemote (src/film.js): open(name) -> { id, free }, then
+  // write(id, bytes) in order, patch(id, at, bytes), close(id) -> its path
+  film: { open: call('film:open'), write: call('film:write'), patch: call('film:patch'), close: call('film:close'), abort: call('film:abort') },
 });

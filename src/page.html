@@ -141,7 +141,7 @@
     <div class="grp acts">
       <button type="button" class="act" id="auto-play" aria-label="Auto camera" aria-pressed="false" data-hint="Auto camera · A"><svg><use href="#i-auto"/></svg><span>Auto</span></button>
       <button type="button" class="act" id="auto-next" aria-label="Next scene" data-hint="Next scene · X" hidden><svg><use href="#i-next"/></svg></button>
-      <button type="button" class="act" id="film" aria-label="Film thirty seconds" aria-pressed="false" data-hint="Film 30 s · R" hidden><svg><use href="#i-film"/></svg><span id="film-v">Film</span></button>
+      <button type="button" class="act" id="film" aria-label="Film" aria-pressed="false" data-hint="Film · R" hidden><svg><use href="#i-film"/></svg><span id="film-v">Film</span></button>
       <span class="snd-wrap"><button type="button" class="act" id="snd" aria-label="Sound" aria-pressed="false" data-hint="Sound · S"><svg><use href="#i-sound"/></svg><span>Sound</span></button><input id="vol" type="range" min="0" max="100" step="1" value="70" aria-label="Volume" hidden></span>
       <button type="button" class="act" id="set-open" aria-label="Settings" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span>Settings</span></button>
       <button type="button" class="act primary" id="lab-open" aria-label="Field Lab" aria-expanded="false" aria-controls="lab" data-hint="Field Lab · K"><svg><use href="#i-lab"/></svg><span>Lab</span></button>
@@ -191,8 +191,11 @@
   <section class="bench panel" id="bench" hidden aria-label="Bench"></section>
   <div class="held panel" id="held" hidden role="group" aria-label="The tool in hand"></div>
 
-  <!-- floating bars: the species highlight, and the map a gauge opened; each closes on its own -->
+  <!-- filming (src/film.js): a red frame around the world, never in the film itself -->
+  <div class="recframe" id="recframe" hidden aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <!-- floating bars: filming, the species highlight, and the map a gauge opened; each closes on its own -->
   <div class="floats" id="floats">
+    <div class="focus rec" id="recbar" hidden role="group" aria-label="Filming"><i class="rec-sq" aria-hidden="true"></i><span class="lbl" aria-live="polite"><span id="rec-l">Recording</span></span><b id="rec-t" translate="no">0:00</b><small id="rec-mb" translate="no" data-hint="The film's size so far">0 MB</small><small class="rec-left" id="rec-left" hidden></small><button type="button" class="ghost" id="rec-stop" aria-label="Stop filming" data-hint="Stop · R"><i class="rec-stop-i" aria-hidden="true"></i><span id="rec-stop-l">Stop</span></button></div>
     <div class="focus" id="focus" hidden><span class="lbl">Highlight</span><b id="focus-label"></b><button type="button" class="ghost" id="focus-clear" aria-label="Clear highlight" data-hint="Clear · Esc"><svg><use href="#i-close"/></svg></button></div>
     <div class="focus warm" id="warm" hidden role="status"><span class="lbl">Warming up</span><b data-hint="A new world starts with a few colonies in open water: its first two minutes run fast while they spread">The first two minutes, fast</b><small id="warm-t"></small><button type="button" class="ghost" id="warm-end" data-hint="Real time · /">Real time</button></div>
     <div class="focus maps" id="maps" hidden><span class="lbl">Map</span><b id="maps-label"></b><div id="maps-ramp"></div><button type="button" class="ghost" id="maps-clear" aria-label="Close the map" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button></div>

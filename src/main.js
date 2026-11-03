@@ -26,7 +26,7 @@ import { Director } from './director.js';
 import { createChronicler, watchMap, durWords } from './chronicler.js';
 import { earned } from './achievements.js';
 import { createCards, strangerCard, PORTRAIT_BOX, PORTRAIT_SHOWN, CARD_SCALE, CARD_W, CARD_H } from './card.js';
-import { createFilm } from './film.js';
+import { createFilm, clearFilms } from './film.js';
 import { parseMind, interpretMind, settleMind } from './mind.js';
 import { createHand, REACH, reachStep, toolOf, TOOLS, works, INSTRUMENTS } from './hand.js';
 import { createBench } from './bench.js';
@@ -2238,7 +2238,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + group('view', 'View', (isCoarse ? '' : onoff('ui', 'Interface', 'U', state.ui, 'interface'))
         + onoff('closeup', 'Live close-up', '', state.closeup, 'closeup')
         + onoff('auto', 'Auto when idle', '', state.auto, 'autoidle')
-        + (film.supported ? `<div class="opt"><span class="lbl">${term('film', 'Film')} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === 'idle' ? '<button type="button" class="chip" data-o="film" data-v="now">30 s now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ''));
+        + (film.supported ? `<div class="opt"><span class="lbl">${term('film', 'Film')} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === 'idle' ? '<button type="button" class="chip" data-o="film" data-v="now">Now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ''));
     }
     // Audio: the soundtrack on or off and its volume (the dock's slider is only on wide screens), what it does while
     // the page is hidden, its layers' levels and its space and tone (src/audio/mix.js), each by what it sounds like
@@ -3717,7 +3717,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     perf.frameDt.length = 0;
     perf.lastAdjust = now;
     const T = frameTarget(), auto = state.perf.scale === 'auto', autoD = state.perf.density === 'auto', autoF = state.perf.fps === 'auto';
-    const floor = auto ? state.perf.floor : renderScale;
+    // while a film rolls, the canvas keeps at least the film's size (filmScale): its frames would be
+    // stretched up otherwise, and a film's cost is mostly its encoder's, which pixels don't change
+    const floor = auto ? Math.max(state.perf.floor, filmScale()) : renderScale;
     // without timestamps perf.gpu is the time from submit to done, which overstates the GPU's share
     const busy = perf.gpu > T * (hasTS ? 0.92 : 1);
     const behind = m > T * 1.125 || busy || stressed();
@@ -3737,7 +3739,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const pace = perf.rafMed > 1.8 * displayMs() && perf.gpu + perf.mainMs < 0.3 * perf.rafMed && !busy && !stressed();
       if (pace) perf.why = 'browser pace';
       if (pace) { if (autoF && perf.slow < 4) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + 1); } }
-      else if (autoD && density() > 1.01) {
+      else if (autoD && density() > 1.01 && !(film.state === 'recording' && filmScale(1) > renderScale)) {
         densityCap = 1; perf.denseUntil = now + perf.hold;
         resizeDue = true;
       } else if (renderScale > floor + 0.01 && !(autoF && simBound && perf.slow < 4)) {
@@ -3777,6 +3779,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the full pixel density back last, once the full scale has held for three windows more
     else if (full && autoD && densityCap < Infinity && now >= perf.denseUntil && !held) { densityCap = Infinity; perf.goodWindows = 0; perf.raisedAt = now; resizeDue = true; }
     if (full && densityCap === Infinity) perf.why = '';
+  }
+  /** The least render scale at which the canvas holds the film's frame (at pixel density d), 0 when not filming. */
+  function filmScale(d = density()) {
+    const sz = film.state === 'recording' && film.size();
+    return sz ? Math.min(1, Math.max(sz[0] / (innerWidth * d), sz[1] / (innerHeight * d))) : 0;
   }
   // A new render scale is applied at the start of the next frame, before it takes the canvas's
   // texture: resizing the canvas after a frame is drawn into it discards that frame (a black flash).
@@ -4469,45 +4476,98 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
 
   // ------------------------------------------------------------ film
-  const filmBtn = $('film');
+  // Filmed until stopped (R, the dock's button, the strip's Stop) or the film's limit (src/film.js, docs/
+  // film.md); while it rolls, the strip under the rail counts its time and size and a red frame rings the
+  // world (neither is in the film: it records the canvases only).
+  const filmBtn = $('film'), recBar = $('recbar'), recFrame = $('recframe');
   const film = createFilm({
     canvas, overlay, caption: capEl,
+    // the view at its full density, whatever the render scale is for the moment
+    source: () => { const d = Math.min(devicePixelRatio || 1, 2); return [Math.round(innerWidth * d), Math.round(innerHeight * d)]; },
     audio: () => (sound.playing ? sound.stream() : null),
     title: () => `TIDEMOTE · ${fmtClock(eng.simTime)} · ${climate.name}`,
     name: () => `tidemote-${fmtClock(eng.simTime).replace(/:/g, '-')}`,
+    desktop: desk?.film || null,
     onChange: renderFilm,
-    onSaved: (blob, name) => { saveFile(blob, name); flash('Film saved'); },
+    onSaved: (f) => {
+      if (f.blob) saveFile(f.blob, f.name);
+      const where = f.path ? ' in Videos › Tidemote' : '';
+      flash(`${f.why === 'limit' ? 'Film stopped at its limit' : 'Film saved'}${where} · ${fmtBytes(f.bytes)}`);
+    },
+    onError: (m) => flash(m),
   });
   let filmArmedShot = null;
   // record now, or (the auto camera on) from the start of its next shot; again: stop
   function filmAct(how = director.active ? 'scene' : 'now') {
     if (!film.supported) { flash('This browser cannot record the view'); return; }
-    if (film.state !== 'idle') { film.stop(); flash(film.state === 'idle' ? 'Filming called off' : 'Film stopped'); return; }
+    if (film.state === 'saving') return;
+    if (film.state !== 'idle') { const was = film.state; film.stop(); if (was === 'armed') flash('Filming called off'); return; }
     if (how === 'scene') {
       if (!director.active) startAuto(false);
       filmArmedShot = director.shot ? director.shot.id : null;
       film.arm();
       flash('Filming the camera’s next scene');
-    } else if (film.start(30)) flash('Filming 30 seconds');
+    } else if (film.start()) { filmRaise(); flash('Filming'); }
   }
+  // a film begun with the canvas below its size: the canvas back up to it (and the full density, if need be)
+  function filmRaise() {
+    if (state.perf.scale !== 'auto') return;
+    if (filmScale() > 1 - 1e-6 && densityCap < Infinity) densityCap = Infinity;
+    const need = filmScale();
+    if (need > renderScale + 0.01) { renderScale = SCALES.slice().reverse().find((x) => x >= need - 0.01) ?? 1; resetAdapt(); resizeDue = true; }
+  }
+  /** h:mm:ss, or m:ss under an hour. */
+  const filmClock = (t) => { t = Math.floor(t); const h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, s = t % 60; return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`; };
+  function fmtBytes(b) { return b < 1e9 ? `${(b / 1e6).toFixed(b < 1e7 ? 1 : 0)} MB` : `${(b / 1e9).toFixed(b < 1e10 ? 2 : 1)} GB`; }
+  let recShown = '';
   function renderFilm() {
-    if (!filmBtn) return;
     const s = film.state;
-    filmBtn.classList.toggle('armed', s === 'armed');
-    filmBtn.classList.toggle('rolling', s === 'recording');
-    filmBtn.setAttribute('aria-pressed', String(s !== 'idle'));
-    filmBtn.setAttribute('aria-label', s === 'idle' ? 'Film thirty seconds' : s === 'armed' ? 'Waiting for the next scene: stop' : 'Filming: stop');
-    filmBtn.dataset.hint = s === 'idle' ? (director.active ? 'Film the next scene · R' : 'Film 30 s · R') : 'Stop · R';
-    setLive($('film-v'), s === 'recording' ? `0:${String(Math.ceil(film.left())).padStart(2, '0')}` : s === 'armed' ? 'Wait' : 'Film');
+    if (filmBtn) {
+      filmBtn.classList.toggle('armed', s === 'armed');
+      filmBtn.classList.toggle('rolling', s === 'recording' || s === 'saving');
+      filmBtn.setAttribute('aria-pressed', String(s !== 'idle'));
+      filmBtn.setAttribute('aria-label', s === 'idle' ? 'Film' : s === 'armed' ? 'Waiting for the next scene: stop' : 'Filming: stop');
+      filmBtn.dataset.hint = s === 'idle' ? (director.active ? 'Film from the next scene · R' : 'Film · R') : 'Stop · R';
+      setLive($('film-v'), s === 'recording' || s === 'saving' ? filmClock(film.elapsed()) : s === 'armed' ? 'Wait' : 'Film');
+    }
+    if (!recBar) return;
+    recBar.hidden = s === 'idle';
+    recFrame.hidden = s !== 'recording';
+    recBar.classList.toggle('standby', s === 'armed');
+    recBar.classList.toggle('saving', s === 'saving');
+    if (s !== recShown) {
+      recShown = s;
+      setLive($('rec-l'), s === 'armed' ? 'Standby' : s === 'saving' ? 'Saving' : 'Recording');
+      setLive($('rec-stop-l'), s === 'armed' ? 'Cancel' : 'Stop');
+      $('rec-stop').disabled = s === 'saving';
+      $('rec-stop').setAttribute('aria-label', s === 'armed' ? 'Stop waiting for the next scene' : 'Stop filming');
+    }
+    if (s === 'idle') return;
+    setLive($('rec-t'), s === 'armed' ? 'Next scene' : filmClock(film.elapsed()));
+    const b = film.bytes(), cap = film.limit(), left = film.left();
+    setLive($('rec-mb'), s === 'armed' ? '' : fmtBytes(b));
+    const near = s === 'recording' && left < 300;
+    $('rec-left').hidden = !near;
+    if (near) setLive($('rec-left'), `Limit in ${filmClock(left)}`);
+    recBar.classList.toggle('near', s === 'recording' && left < 60);
+    if (s === 'recording' && Number.isFinite(cap)) {
+      const where = { desktop: 'written to Videos › Tidemote as it is made', disk: 'written to disk as it is made, downloaded when it ends', memory: 'kept in memory until it ends' }[film.sink()] || '';
+      $('rec-mb').dataset.hint = `The film's size so far, ${where}. It stops itself at ${fmtBytes(cap)}${Number.isFinite(left) ? `, about ${fmtDur(left)} from now` : ''}.`;
+    }
   }
   if (film.supported && filmBtn) { filmBtn.hidden = false; filmBtn.addEventListener('click', () => filmAct()); renderFilm(); }
-  // each frame: an armed film starts with the camera's next shot, and a rolling one counts down
+  $('rec-stop')?.addEventListener('click', () => filmAct());
+  // the private files may hold a film from before (being downloaded, or cut off by a closed tab)
+  clearFilms();
+  // each frame: an armed film starts with the camera's next shot, and a rolling one counts up
+  let filmShownAt = 0;
   function filmTick() {
     if (film.state === 'armed') {
       const sh = director.active ? director.shot : null;
-      if (!director.active || (sh && sh.id !== filmArmedShot && sh.type !== 'settle')) film.start(30);
+      if (!director.active || (sh && sh.id !== filmArmedShot && sh.type !== 'settle')) { if (film.start()) filmRaise(); }
     }
-    if (film.state === 'recording') renderFilm();
+    const now = performance.now();
+    if (film.state !== 'idle' && now - filmShownAt > 250) { filmShownAt = now; renderFilm(); }
   }
 
   // ------------------------------------------------------------ loop
