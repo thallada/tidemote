@@ -9193,7 +9193,7 @@ fn lookL(c: vec3f) -> f32 { return dot(c, vec3f(0.2126, 0.7152, 0.0722)); }
 
 // The specimen in the scene's light, before the tone curve. uv: where the scene is read (its texture), bl: the
 // bloom's wide blur there, ppu and res: that view's pixels per world unit and size.
-fn lookScene(hdrIn: vec3f, uv: vec2f, bl: vec3f, ppu: f32, res: vec2f) -> vec3f {
+fn lookScene(hdrIn: vec3f, uv: vec2f, bl: vec3f, ppu: f32, res: vec2f, sun: f32) -> vec3f {
   let L0 = post.look[0];
   let L1 = post.look[1];
   var hdr = hdrIn;
@@ -9216,7 +9216,7 @@ fn lookScene(hdrIn: vec3f, uv: vec2f, bl: vec3f, ppu: f32, res: vec2f) -> vec3f 
     let rel = L0.y * near;
     hdr = hdr * max(0.0, 1.0 + 2.4 * rel * sh) + rel * 0.5 * max(sh, 0.0) * blur;
     // darkfield: light scatters at edges, a flat inside lets it pass
-    let rim = L0.z * near;
+    let rim = L0.z * near * (1.0 + SUN_RIM * sun);
     // (what a membrane scatters is nearly white, a little cool)
     let edge = abs(hp);
     hdr = hdr * (1.0 - 0.4 * rim) + rim * 1.8 * mix(edge, vec3f(lookL(edge)) * vec3f(0.9, 1.0, 1.15), 0.35);
@@ -9227,10 +9227,12 @@ fn lookScene(hdrIn: vec3f, uv: vec2f, bl: vec3f, ppu: f32, res: vec2f) -> vec3f 
     // the dark field stays dark
     let ang = atan2(grad.y, grad.x);
     let sector = 0.5 + 0.5 * vec3f(cos(ang), cos(ang - 2.094), cos(ang + 2.094));
-    hdr = mix(hdr, vec3f(lookL(hdr)) * sector * 2.24, L0.x * smoothstep(0.05, 0.6, length(grad) / norm) * near);
+    hdr = mix(hdr, vec3f(lookL(hdr)) * sector * 2.24, min(1.0, L0.x * (1.0 + SUN_PRISM * sun)) * smoothstep(0.05, 0.6, length(grad) / norm) * near);
   }
-  // halation (warm, as light scattered back from a film's base) and veiling flare (the lamp's)
-  hdr += bl * (L1.x * vec3f(0.06, 0.016, 0.004) + L1.y * vec3f(0.02, 0.021, 0.024));
+  // halation (warm, as light scattered back from a film's base) and veiling flare (the lamp's); in the world's light
+  // (sun: sunLook) more of both, the halation golden and the flare warmer, as a brighter lamp would make them
+  hdr += bl * (L1.x * mix(vec3f(0.06, 0.016, 0.004), vec3f(0.06, 0.034, 0.009), sun) * (1.0 + SUN_HALO * sun)
+    + L1.y * mix(vec3f(0.02, 0.021, 0.024), vec3f(0.024, 0.021, 0.016), sun) * (1.0 + SUN_VEIL * sun));
   return max(hdr, vec3f(0.0));
 }
 
@@ -10184,7 +10186,7 @@ const LIT_SPAN = 4.4;
 const FOCUS_MATTER = 1.0;
 const FOCUS_GLINT = 2.5;
 const LIT_GROUND = vec2f(0.85, 1.3);  // the toned view's gain on stone and silt at r 0 and 1 (between, in log)
-const LIT_CELL = vec2f(0.9, 1.12);    // on the living
+const LIT_CELL = vec2f(0.92, 1.28);   // on the living
 const LIT_RICH = 0.12;                // the living's colors this much richer in a summer band
 const LIT_KNEE = 0.7;                 // the toned view rolls off above this toward white (litShow)
 struct Lit { k: vec3f, r: f32, lamp: f32, play: f32, shadow: f32 };
@@ -10242,6 +10244,26 @@ fn floorLit(l: Lit, mud: f32) -> vec3f {
   let s = 1.0 - l.shadow;
   let sun = 0.03 + 0.13 * pow(clamp(l.r * s, 0.0, 1.6), 1.4);
   return (vec3f(1.0, 0.9, 0.7) * sun + vec3f(1.0, 0.7, 0.38) * 0.7 * l.lamp * s) * (0.009 + 0.135 * mud) * max(0.0, 1.0 + l.play * s);
+}
+// The microscope's look in the world's light (docs/look.md, Light): a brighter lamp makes more of everything that
+// spreads light about a bright thing, so in the light the bloom reaches further (SUN_BLOOM), the film's halation
+// (golden there) and the lamp's veiling flare (warmer) grow (SUN_HALO, SUN_VEIL; lookScene), and the view is graded a
+// little golden, its pale highlights most (SUN_GOLD, sunGrade); darkfield's rims, the light membranes scatter, grow
+// brighter (SUN_RIM), and its rainbow rims richer (SUN_PRISM; lookScene's, so from about 25 pixels a unit). sunLook: how much, 0 in the open water's light to 1 in a
+// summer band (more under the lamp).
+const SUN_BLOOM = 0.6;
+const SUN_HALO = 0.8;
+const SUN_VEIL = 0.5;
+const SUN_GOLD = 1.0;
+const SUN_RIM = 0.5;    // darkfield's rims: membranes scatter more of a brighter light
+const SUN_PRISM = 0.0;  // the rainbow rims' colors richer
+fn sunLook(l: Lit) -> f32 { return clamp(l.r, 0.0, 1.3); }
+fn sunGrade(c: vec3f, l: Lit) -> vec3f {
+  // gilding the pale and the bright most (glints, rims, pale cells): colored cells keep their hue
+  let y = lookL(c);
+  let hi = max(c.r, max(c.g, c.b));
+  let pale = 1.0 - (hi - min(c.r, min(c.g, c.b))) / max(hi, 1e-4);
+  return c * mix(vec3f(1.0), vec3f(1.05, 1.0, 0.86), SUN_GOLD * min(sunLook(l), 1.0) * mix(0.3, 1.0, pale) * mix(0.5, 1.0, smoothstep(0.08, 0.6, y)));
 }
 // The sea's focusing (surf.light) on what lies beneath, as the light there makes it: a little more in the sun than in
 // the shade.
@@ -10504,14 +10526,14 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
   if (k > 0.0) { hdr = lensScene(uv, q, wp, i.pos.xy, k); }
   else { hdr = mix(all.rgb / max(1.0, all.a), live.rgb / max(1.0, live.a), min(1.0, live.a)); }
   let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
-  hdr = lookScene(hdr, uv, bl, post.ppu, post.res);
-  // in the scene's light, which the sea focuses onto what lies beneath it
+  // in the scene's light, which the sea focuses onto what lies beneath it, and in which the bloom spreads further
   var lit = sceneLit(wp, surf.light);
-  hdr = (hdr + bl * post.bloom) * post.exposure * seaFocus(surf.light, lit) * lit.k;
+  hdr = lookScene(hdr, uv, bl, post.ppu, post.res, sunLook(lit));
+  hdr = (hdr + bl * post.bloom * (1.0 + SUN_BLOOM * sunLook(lit))) * post.exposure * seaFocus(surf.light, lit) * lit.k;
   // the living's share of the pixel's light (cells drawn small leave no coverage, only their light), and their shadows
   let cells = clamp(lookL(live.rgb / max(1.0, live.a)) / max(lookL(all.rgb / max(1.0, all.a)), 1e-4), 0.0, 1.0);
   lit.shadow = sunShadow(uv, lit);
-  var c = litShow(lookTone(hdr), lit, cells);
+  var c = sunGrade(litShow(lookTone(hdr), lit, cells), lit);
   c = mapsOver(c, wp, i.pos.xy, water.x);
   let uq = i.uv - 0.5;
   let v = clamp(1.0 - dot(uq, uq) * 1.1, 0.0, 1.0);
@@ -10601,8 +10623,8 @@ fn loupeScene(r: vec2f) -> vec3f {
     let b = loupeScene(r + o) + loupeScene(r - o) + loupeScene(r + vec2f(o.x, -o.y)) + loupeScene(r - vec2f(o.x, -o.y));
     hdr = mix(hdr, b * 0.25, 0.6 * soft);
   }
-  hdr = lookScene(hdr, r * 0.5 + 0.5, vec3f(0.0), microView.ppu, microView.res);
   let lit = sceneLit(wp, surf.light);
+  hdr = lookScene(hdr, r * 0.5 + 0.5, vec3f(0.0), microView.ppu, microView.res, sunLook(lit));
   hdr *= post.exposure * seaFocus(surf.light, lit) * lit.k;
   var m = 0.0;
   var ml = vec3f(0.0);
@@ -10612,7 +10634,7 @@ fn loupeScene(r: vec2f) -> vec3f {
     m = murkSeen(ml);
   }
   let behind = 1.0 / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
-  var c = mapsOver(litShow(lookTone(hdr), lit, 1.0), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + (murkColor(ml) + floorLit(lit, m) * k) * behind;
+  var c = mapsOver(sunGrade(litShow(lookTone(hdr), lit, 1.0), lit), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + (murkColor(ml) + floorLit(lit, m) * k) * behind;
   c = pondMicro(c, hdr, microView.cam, r0 * microView.res * 0.5, microView.ppu, loupe.ppu, m, litGain(lit, 0.0));
   // the drought's dry floor and its rain, the frost's ice, the storm's waves, duckweed
   c = poolOver(c, wp, loupe.ppu, k, behind, surf.slope, litGain(lit, 0.0));
@@ -10647,7 +10669,7 @@ fn loupeScene(r: vec2f) -> vec3f {
 // maps over it, so the grade is never held back).
 @fragment fn fsPlain(i: VO) -> @location(0) vec4f {
   let wp = microView.cam + (i.uv - 0.5) * microView.res / microView.ppu;
-  let hdr = lookScene(scene(i.uv), i.uv, vec3f(0.0), microView.ppu, microView.res) * post.exposure;
+  let hdr = lookScene(scene(i.uv), i.uv, vec3f(0.0), microView.ppu, microView.res, 0.0) * post.exposure;
   var c = lookTone(hdr) + vec3f(0.006, 0.005, 0.012);
   c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0, 1.0);
   return vec4f(lookGrade(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy), 1.0);
@@ -32586,9 +32608,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "cec86becc777b11d") return;
+      if (localStorage.getItem(key) === "916a94cd8b726a4a") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "cec86becc777b11d");
+      if (res) localStorage.setItem(key, "916a94cd8b726a4a");
     } catch {
     }
   }
