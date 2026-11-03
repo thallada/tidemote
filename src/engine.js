@@ -130,6 +130,7 @@ class Engine {
     this.watchRect = new Float32Array(4);
     this.watchEv = 0xffffffff; // which events (bit NOTE_EV index) the steps write there
     this.watchBites = 0xffffffff; // and the share of bites (of 2^32)
+    this.noteGrid = new Float32Array(3); // the corner and side of the squares of water the annotations read (NOTE_TG)
     this.waves = new Float32Array(16);
     this.viewData = new ArrayBuffer(VIEW_BYTES);
     this.viewDataL = new ArrayBuffer(VIEW_BYTES);
@@ -255,13 +256,14 @@ class Engine {
     // The annotations' eyes (docs/annotations.md): the stretch of world they mark (its corner and size, world units; size 0:
     // none), where the steps write each event in it (NOTE_WGSL's ring, in the ledger); and the view's cells, read
     // every `every` frames while the page sets this.notes = { every, cap }. Off (null) until then; onNotes hears each.
-    b.noteU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
+    b.noteU = d.createBuffer({ size: 64, usage: U.UNIFORM | U.COPY_DST });
     b.noteOut = d.createBuffer({ size: (NOTE_HEAD + NOTE_CAP * NOTE_REC) * 4, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
     this.noteStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: (NOTE_HEAD + NOTE_CAP * NOTE_REC + NOTE_WORDS) * 4, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     this.notes = null;
     this.onNotes = null;
     this._noteFrames = 0;
     this._noteLast = 0;
+    this._noteKeep = 1;
     // The auto camera's survey of the whole world (see SURVEY_WGSL). Off until the page sets { every }.
     this.survey = null;
     this.onSurvey = null;
@@ -2151,10 +2153,14 @@ class Engine {
     this._noteFrames = 0;
     st.busy = true;
     const b = this.b, N = this.count, cap = Math.min(NOTE_CAP, S.cap || NOTE_CAP);
-    // past the cap, a steady sample: the share of the last count that fits, with a margin
-    const keep = this._noteLast > cap ? (0.9 * cap) / this._noteLast : 1;
-    const u = new ArrayBuffer(48), f = new Float32Array(u), w = new Uint32Array(u);
-    f.set(R, 0); f[4] = this.grid[0]; f[5] = this.grid[1]; w[6] = N; w[7] = cap; f[8] = keep;
+    // past the cap, a steady sample: the share of the last count that fits with a margin, in steps of a quarter octave
+    // kept while they fit, so the same cells come back look after look
+    const fits = this._noteLast > cap ? (0.9 * cap) / this._noteLast : 1;
+    if (fits >= 1) this._noteKeep = 1;
+    else if (!(this._noteKeep * this._noteLast <= cap) || this._noteKeep < fits * 0.6) this._noteKeep = 2 ** (Math.floor(Math.log2(fits) * 4) / 4);
+    const keep = this._noteKeep;
+    const u = new ArrayBuffer(64), f = new Float32Array(u), w = new Uint32Array(u);
+    f.set(R, 0); f[4] = this.grid[0]; f[5] = this.grid[1]; w[6] = N; w[7] = cap; f[8] = keep; f.set(this.noteGrid, 12);
     this.device.queue.writeBuffer(b.noteU, 0, u);
     enc.clearBuffer(b.noteOut, 0, 16);
     const pass = enc.beginComputePass();
@@ -2166,7 +2172,7 @@ class Engine {
     const want = Math.min(cap, Math.ceil(Math.min(this._noteLast, cap) * 1.3) + 512), bytes = (NOTE_HEAD + want * NOTE_REC) * 4;
     enc.copyBufferToBuffer(b.noteOut, 0, st.buf, 0, bytes);
     enc.copyBufferToBuffer(b.ledger, this._noteAt(), st.buf, bytes, NOTE_WORDS * 4);
-    return { st, bytes, want, keep, simTime, stepTime: this.simTime, tick: this.tick, rect: [...R], biteKeep: this.watchBites / 4294967296 };
+    return { st, bytes, want, keep, simTime, stepTime: this.simTime, tick: this.tick, rect: [...R], grid: [...this.noteGrid], biteKeep: this.watchBites / 4294967296 };
   }
 
   _notesRead(job, generation) {
@@ -2179,7 +2185,7 @@ class Engine {
       this._noteLast = head[0];
       if (generation !== this.worldGeneration || !this.onNotes) return;
       this.onNotes({
-        simTime: job.simTime, stepTime: job.stepTime, tick: job.tick, rect: job.rect, biteKeep: job.biteKeep, keep: job.keep, inView: head[0],
+        simTime: job.simTime, stepTime: job.stepTime, tick: job.tick, rect: job.rect, grid: job.grid, biteKeep: job.biteKeep, keep: job.keep, inView: head[0],
         n: Math.min(head[2], job.want), head, u32: new Uint32Array(copy, 0, bytes / 4), f32: new Float32Array(copy, 0, bytes / 4),
         ring: new Uint32Array(copy, bytes, NOTE_WORDS),
       });

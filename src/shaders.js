@@ -3998,17 +3998,18 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
 // The annotations' view (observational; docs/annotations.md): every living cell and husk in the stretch of world the
 // page annotates (its corner and size), at most `cap` of them; past that, a steady sample of them (those whose id
 // hashes under `keep`, which the page sets from the last count). Words: 0 how many lie in it, 1 how many were kept,
-// 2 how many written; from NOTE_TEMPS the water's temperature at NOTE_TG × NOTE_TG points across it, then how much
+// 2 how many written; from NOTE_TEMPS the water's temperature at the middle of NOTE_TG × NOTE_TG squares of the world
+// (from the grid's corner, each its side: fixed in the world, so they hold still as the view moves), then how much
 // is ice there; from NOTE_HEAD records of NOTE_REC words: id; x, y; kind | cause << 10 | role << 14 | the search
 // image << 16 | litter << 26 | torpid << 27; velocity (half floats); fullness (energy over its division mark) and
 // how many tolerances its water lies from its optimum (half floats; a husk: its energy, 0); its two bonded partners'
 // ids (NONE: none).
-export const NOTE_TG = 8;
+export const NOTE_TG = 16;
 export const NOTE_TEMPS = 4;
 export const NOTE_HEAD = NOTE_TEMPS + 2 * NOTE_TG * NOTE_TG;
 export const NOTE_REC = 8;
 export const NOTE_WGSL = COMMON + /* wgsl */ `
-struct NoteU { corner: vec2f, size: vec2f, world: vec2f, count: u32, cap: u32, keep: f32, p0: u32, p1: u32, p2: u32 };
+struct NoteU { corner: vec2f, size: vec2f, world: vec2f, count: u32, cap: u32, keep: f32, p0: u32, p1: u32, p2: u32, grid: vec4f };
 @group(0) @binding(0) var<uniform> nu: NoteU;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
 @group(0) @binding(2) var<storage, read> genomes: array<Genome>;
@@ -4025,9 +4026,10 @@ fn nhash(v: u32) -> u32 {
 @compute @workgroup_size(256)
 fn noteMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = gid.x;
-  // the water across the view
+  // the water across the view, square by square
   if (i < ${NOTE_TG * NOTE_TG}u) {
-    let at = nu.corner + nu.size * (vec2f(f32(i % ${NOTE_TG}u), f32(i / ${NOTE_TG}u)) + 0.5) / ${NOTE_TG}.0;
+    var at = nu.grid.xy + nu.grid.z * (vec2f(f32(i % ${NOTE_TG}u), f32(i / ${NOTE_TG}u)) + 0.5);
+    at -= nu.world * floor(at / nu.world);
     atomicStore(&nout[${NOTE_TEMPS}u + i], bitcast<u32>(waterTempAt(at)));
     atomicStore(&nout[${NOTE_TEMPS + NOTE_TG * NOTE_TG}u + i], bitcast<u32>(iceAt(at)));
   }

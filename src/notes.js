@@ -36,23 +36,32 @@ function half(h) {
   return s * (1 + m / 1024) * 2 ** (e - 15);
 }
 
-/** The view's cells from a scan (Engine.onNotes), as columns, with an id -> row index. */
+/**
+ * The view's cells from a scan (Engine.onNotes), as columns, with an id -> row index; and its water, square by square
+ * (grid: the squares' corner and side, fixed in the world; inView: those that overlap the stretch scanned).
+ */
 export function readView(scan, world) {
   const { n, u32, f32, rect } = scan;
-  const [W, H] = world;
+  const [W, H] = world, G = NOTE_TG * NOTE_TG;
+  const grid = scan.grid && scan.grid[2] > 0 ? scan.grid : [rect[0], rect[1], Math.max(rect[2], rect[3]) / NOTE_TG];
   const v = {
-    n, simTime: scan.simTime, rect, keep: scan.keep, inView: scan.inView,
-    id: new Uint32Array(n), x: new Float32Array(n), y: new Float32Array(n), lx: new Float32Array(n), ly: new Float32Array(n),
+    n, simTime: scan.simTime, rect, grid, keep: scan.keep, inView: scan.inView,
+    id: new Uint32Array(n), x: new Float32Array(n), y: new Float32Array(n),
     vx: new Float32Array(n), vy: new Float32Array(n), kind: new Uint16Array(n), cause: new Uint8Array(n), role: new Uint8Array(n),
     img: new Uint16Array(n), litter: new Uint8Array(n), torpid: new Uint8Array(n), fed: new Float32Array(n), tx: new Float32Array(n),
     p1: new Uint32Array(n), p2: new Uint32Array(n), at: new Map(),
-    temps: new Float32Array(NOTE_TG * NOTE_TG), ice: new Float32Array(NOTE_TG * NOTE_TG),
+    temps: new Float32Array(G), ice: new Float32Array(G), sqIn: new Uint8Array(G),
   };
-  for (let k = 0; k < NOTE_TG * NOTE_TG; k++) { v.temps[k] = f32[NOTE_TEMPS + k]; v.ice[k] = f32[NOTE_TEMPS + NOTE_TG * NOTE_TG + k]; }
+  const s = grid[2], cx = rect[0] + rect[2] / 2, cy = rect[1] + rect[3] / 2;
+  for (let k = 0; k < G; k++) {
+    v.temps[k] = f32[NOTE_TEMPS + k]; v.ice[k] = f32[NOTE_TEMPS + G + k];
+    let dx = grid[0] + ((k % NOTE_TG) + 0.5) * s - cx, dy = grid[1] + (Math.floor(k / NOTE_TG) + 0.5) * s - cy;
+    dx -= W * Math.round(dx / W); dy -= H * Math.round(dy / H);
+    v.sqIn[k] = Math.abs(dx) < (rect[2] + s) / 2 && Math.abs(dy) < (rect[3] + s) / 2 ? 1 : 0;
+  }
   for (let i = 0; i < n; i++) {
     const o = NOTE_HEAD + i * NOTE_REC, w = u32[o + 3];
     v.id[i] = u32[o]; v.x[i] = f32[o + 1]; v.y[i] = f32[o + 2];
-    v.lx[i] = (((v.x[i] - rect[0]) % W) + W) % W; v.ly[i] = (((v.y[i] - rect[1]) % H) + H) % H;
     v.kind[i] = w & 1023; v.cause[i] = (w >>> 10) & 15; v.role[i] = (w >>> 14) & 3; v.img[i] = (w >>> 16) & 1023;
     v.litter[i] = (w >>> 26) & 1; v.torpid[i] = (w >>> 27) & 1;
     v.vx[i] = half(u32[o + 4] & 0xffff); v.vy[i] = half(u32[o + 4] >>> 16);
@@ -61,6 +70,13 @@ export function readView(scan, world) {
     v.at.set(v.id[i], i);
   }
   return v;
+}
+
+/** The square of the view's water (its index, or -1 outside the grid) that world point (x, y) lies in. */
+export function squareOf(v, x, y, world) {
+  const [W, H] = world, [ox, oy, s] = v.grid;
+  const i = Math.floor((((x - ox) % W) + W) % W / s), j = Math.floor((((y - oy) % H) + H) % H / s);
+  return i < NOTE_TG && j < NOTE_TG ? j * NOTE_TG + i : -1;
 }
 
 /**
@@ -229,16 +245,17 @@ export class Notes {
     return { by, living, torpid, scale };
   }
 
-  // the water across the view: mean, warmest and coldest of the NOTE_TG × NOTE_TG samples, the share iced
+  // the water across the view: mean, warmest and coldest of its squares, the share iced
   _water() {
     const v = this.view;
-    let s = 0, hi = -1e9, lo = 1e9, iced = 0, at = 0;
+    let s = 0, hi = -1e9, lo = 1e9, iced = 0, at = 0, n = 0;
     for (let k = 0; k < v.temps.length; k++) {
+      if (!v.sqIn[k]) continue;
       const t = v.temps[k];
-      s += t; if (t > hi) { hi = t; at = k; } lo = Math.min(lo, t);
+      n++; s += t; if (t > hi) { hi = t; at = k; } lo = Math.min(lo, t);
       if (v.ice[k] > 0.5) iced++;
     }
-    return { mean: s / v.temps.length, hi, lo, hiAt: at, iced: iced / v.temps.length };
+    return { mean: s / Math.max(1, n), hi, lo, hiAt: at, iced: iced / Math.max(1, n) };
   }
 
   /**
@@ -357,7 +374,7 @@ export class Notes {
         if (o.kind === s.kind || o.n < 4 || o.hot > 0 || !name(o.kind)) continue;
         // in the same warm water: its cells in the squares too warm for the first
         let inHot = 0;
-        for (const i of o.rows) if (hot.has(this._sq(v.lx[i], v.ly[i]))) inHot++;
+        for (const i of o.rows) if (hot.has(squareOf(v, v.x[i], v.y[i], this.world()))) inHot++;
         if (inHot >= 3 && (!fine || inHot > fine.n)) fine = { kind: o.kind, n: inHot };
       }
       out.push({ type: 'heat', key: `heat:${s.kind}`, prio: 0.85, strength: s.hot / s.n * 10 + 2 * scalds, kind: s.kind, hot: Math.round(s.hot * S.scale), scalds,
@@ -385,17 +402,11 @@ export class Notes {
     return out;
   }
 
-  // the grid square (of NOTE_TG across the view) a local point falls in
-  _sq(lx, ly) {
-    const r = this.view.rect;
-    return Math.min(NOTE_TG - 1, Math.floor((ly / r[3]) * NOTE_TG)) * NOTE_TG + Math.min(NOTE_TG - 1, Math.floor((lx / r[2]) * NOTE_TG));
-  }
-
   // the squares of the view whose water lies past 0.8 of species g's tolerance above its optimum
   _hotCells(g) {
     const out = new Set(), v = this.view;
     if (!g) return out;
-    for (let k = 0; k < v.temps.length; k++) if ((v.temps[k] - g.topt) / Math.max(g.tol, 0.5) > 0.8) out.add(k);
+    for (let k = 0; k < v.temps.length; k++) if (v.sqIn[k] && (v.temps[k] - g.topt) / Math.max(g.tol, 0.5) > 0.8) out.add(k);
     return out;
   }
 
@@ -507,7 +518,10 @@ export class Notes {
       .sort((a, b) => b.n - a.n);
   }
 
+  // (drawn: the most the view drew in a frame since the last call, which it clears)
   debug() {
-    return { lost: this.lost, biteKeep: this.biteKeep, ms: Object.fromEntries(Object.entries(this.ms).map(([k, v]) => [k, typeof v === 'number' ? Math.round(v) : Object.fromEntries(Object.entries(v).map(([a, b]) => [a, Math.round(b)]))])), cells: this.view?.n ?? 0, inView: this.view?.inView ?? 0, events: this.events.length, cands: this.cands.map((c) => c.key), notes: this.notes.map((n) => `${n.key}${n.exitAt != null ? '(out)' : ''}`) };
+    const drawn = this.ms.drawn;
+    this.ms.drawn = {};
+    return { drawn, lost: this.lost, biteKeep: this.biteKeep, ms: Object.fromEntries(Object.entries(this.ms).filter(([k]) => k !== 'drawn').map(([k, v]) => [k, typeof v === 'number' ? Math.round(v) : Object.fromEntries(Object.entries(v).map(([a, b]) => [a, Math.round(b)]))])), cells: this.view?.n ?? 0, inView: this.view?.inView ?? 0, events: this.events.length, cands: this.cands.map((c) => c.key), notes: this.notes.map((n) => `${n.key}${n.exitAt != null ? '(out)' : ''}`) };
   }
 }

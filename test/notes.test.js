@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Notes, readRing, readView, EV, TUNE } from '../src/notes.js';
+import { Notes, readRing, readView, squareOf, EV, TUNE } from '../src/notes.js';
 import { NOTE_MAX, NOTE_W, NOTE_WORDS, NOTE_HEAD, NOTE_REC, NOTE_TG, NOTE_TEMPS, FIRST_LIFE, CYST } from '../src/shaders.js';
 
 const NONE = 0xffffffff;
@@ -26,7 +26,7 @@ const halfOf = (v) => {
 };
 
 // a scan of the given cells: { id, x, y, kind, cause, vx, vy, fed, tx, torpid, p1, p2 }
-function scan(cells, { simTime = 10, tick = 600, rect = [0, 0, 100, 100], temps = 20, ring: r = ring([]), keep = 1 } = {}) {
+function scan(cells, { simTime = 10, tick = 600, rect = [0, 0, 100, 100], grid = [0, 0, 100 / NOTE_TG], temps = 20, ring: r = ring([]), keep = 1 } = {}) {
   const n = cells.length, u = new Uint32Array(NOTE_HEAD + n * NOTE_REC), f = new Float32Array(u.buffer);
   u[0] = n; u[1] = n; u[2] = n;
   for (let k = 0; k < NOTE_TG * NOTE_TG; k++) f[NOTE_TEMPS + k] = typeof temps === 'function' ? temps(k) : temps;
@@ -38,7 +38,7 @@ function scan(cells, { simTime = 10, tick = 600, rect = [0, 0, 100, 100], temps 
     u[o + 5] = halfOf(c.fed ?? 0.5) | (halfOf(c.tx ?? 0) << 16);
     u[o + 6] = c.p1 ?? NONE; u[o + 7] = c.p2 ?? NONE;
   });
-  return { simTime, stepTime: simTime, tick, rect, keep, inView: n, n, head: u.subarray(0, NOTE_HEAD), u32: u, f32: f, ring: r };
+  return { simTime, stepTime: simTime, tick, rect, grid, keep, inView: n, n, head: u.subarray(0, NOTE_HEAD), u32: u, f32: f, ring: r };
 }
 
 const SP = {
@@ -73,14 +73,17 @@ test('more events than the ring holds keep the newest NOTE_MAX', () => {
   assert.equal(events[0].id, 0);
 });
 
-test('the view reads its cells, their half floats and their place in the view', () => {
-  const v = readView(scan([{ id: 5, x: 99, y: 1, kind: P, vx: 0.25, vy: -1.5, fed: 0.75, tx: 1.25, torpid: true, p1: 9 }], { rect: [90, 95, 20, 20] }), WORLD);
+test('the view reads its cells, their half floats, and its water by squares fixed in the world', () => {
+  const v = readView(scan([{ id: 5, x: 99, y: 1, kind: P, vx: 0.25, vy: -1.5, fed: 0.75, tx: 1.25, torpid: true, p1: 9 }], { rect: [90, 95, 20, 20], grid: [96, 96, 2] }), WORLD);
   assert.equal(v.n, 1);
   assert.equal(v.at.get(5), 0);
   assert.equal(v.vx[0], 0.25); assert.equal(v.vy[0], -1.5); assert.equal(v.fed[0], 0.75); assert.equal(v.tx[0], 1.25);
   assert.equal(v.torpid[0], 1); assert.equal(v.p1[0], 9); assert.equal(v.p2[0], NONE);
-  // across the world's wrap: x 99 lies 9 into a view whose corner is at 90; y 1 lies 6 into one at 95
-  assert.equal(v.lx[0], 9); assert.equal(v.ly[0], 6);
+  // across the world's wrap: x 99 lies in the second square of a grid whose corner is at 96, y 1 in the third
+  assert.equal(squareOf(v, 99, 1, WORLD), 2 * NOTE_TG + 1);
+  assert.equal(squareOf(v, 50, 1, WORLD), -1);
+  // the squares that overlap the view (90..110 by 95..115) are read for its water; those past it are not
+  assert.equal(v.sqIn[0], 1); assert.equal(v.sqIn[NOTE_TG - 1], 0); assert.equal(v.sqIn[(NOTE_TG - 1) * NOTE_TG], 0);
 });
 
 test('a kill in view is told with its hunter and its quarry, and the same story not again soon', () => {
