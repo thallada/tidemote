@@ -15,6 +15,8 @@ import { LOOK_WORDS } from './look.js';
 const POST_LAMP = 100 + 4 * SEA_CASCADES;
 // the look's words (Post.look, src/look.js) after the hand's
 const POST_LOOK = POST_LAMP + 16;
+// the draw's view uniforms (struct View in DRAW_WGSL), the world's light at their end
+const VIEW_BYTES = 224;
 // then the murk's cameras (Post.murk, murkB: _murkCam)
 const POST_MURK = POST_LOOK + LOOK_WORDS;
 // how much slower than the focal plane each of the murk's layers pans (MUD_DEPTH in POST_WGSL)
@@ -123,9 +125,9 @@ class Engine {
     this.simF = new Float32Array(this.simData);
     this.simU = new Uint32Array(this.simData);
     this.waves = new Float32Array(16);
-    this.viewData = new ArrayBuffer(112);
-    this.viewDataL = new ArrayBuffer(112);
-    this.viewDataC = new ArrayBuffer(112); // the stone cache's view (_stoneStale)
+    this.viewData = new ArrayBuffer(VIEW_BYTES);
+    this.viewDataL = new ArrayBuffer(VIEW_BYTES);
+    this.viewDataC = new ArrayBuffer(VIEW_BYTES); // the stone cache's view (_stoneStale)
     // (after the sea's: the hand's lamp, the warm stage's lens, the instrument)
     this.postData = new Float32Array(POST_MURK + 8);
     // the look (src/look.js): its words, set by the page (all 0: the bare view)
@@ -139,7 +141,7 @@ class Engine {
     this.tool = new Float32Array(8);
     this.loupe = null;
     this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 0xffffffff, memberN: 0 };
-    this.viewDataS = new ArrayBuffer(112);
+    this.viewDataS = new ArrayBuffer(VIEW_BYTES);
     this.onGpuTime = null;
     this.onCensus = null;
     this.pickReq = null;
@@ -174,10 +176,10 @@ class Engine {
     b.heatNext = d.createBuffer({ size: 2 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
     b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
     this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
-    b.view = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
-    b.viewL = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
-    b.viewS = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
-    b.viewC = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
+    b.view = d.createBuffer({ size: VIEW_BYTES, usage: U.UNIFORM | U.COPY_DST });
+    b.viewL = d.createBuffer({ size: VIEW_BYTES, usage: U.UNIFORM | U.COPY_DST });
+    b.viewS = d.createBuffer({ size: VIEW_BYTES, usage: U.UNIFORM | U.COPY_DST });
+    b.viewC = d.createBuffer({ size: VIEW_BYTES, usage: U.UNIFORM | U.COPY_DST });
     b.stoneXf = d.createBuffer({ size: 16, usage: U.UNIFORM | U.COPY_DST });
     // the bands of depth the grains are drawn in, from the top of the pile down (cobbleZ runs 0.27 to 0.76; framboids
     // and the selected grain above), and one taking all of them for the edges
@@ -2199,7 +2201,7 @@ class Engine {
   }
 
   // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
-  _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0) {
+  _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false) {
     const K = this.K;
     const ppu = cam.ppu;
     // a cell keeps one world size at every zoom, so zooming in only resolves it
@@ -2222,6 +2224,12 @@ class Engine {
     v[22] = splat;
     v[23] = K.tightFrom;
     v[24] = K.pond ? this.level : 1;
+    // the world's light, as the composite shows it, for silt's sparkle (sunAt); none in views shown unlit
+    vu[25] = lit ? 1 : 0;
+    const clk = this._clock();
+    v.set(this.tide, 28); v.set(clk.tidePh, 44);
+    v[48] = this.season; v[49] = this.ambient; v[50] = K.pond ? this.sky : 1; v[51] = clk.t;
+    v.set(this.hand.subarray(0, 4), 52);
     this.device.queue.writeBuffer(buf, 0, data);
   }
 
@@ -2390,7 +2398,7 @@ class Engine {
     // there are enough of them to pay for the buffer it clears and adds in (a quarter as many as pixels)
     const ps = Math.max(1.1 * dpr, 0.085 * cam.ppu);
     const splat = !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W * H / 4 ? SPLAT_PX : 0;
-    this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0], splat);
+    this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0], splat, true);
     if (splat) {
       d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0]));
       enc.clearBuffer(this.b.splat, 0, W * H * 20);
@@ -2536,7 +2544,7 @@ class Engine {
       const L = Math.max(64, Math.min(1024, Math.ceil(span / 32) * 32));
       this._ensureLoupeTex(L);
       const lppu = loupe.ppu * (L / span);
-      this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span), time, selId, lod, culled[1]);
+      this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span), time, selId, lod, culled[1], 0, true);
       d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W, H, loupe.ppu, 0]));
       const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.loupeView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
       this._drawScene(pass, this.bgLineL, this.bgPointL, this.bgBridgeL, this.viewDataL, 1);

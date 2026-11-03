@@ -12,7 +12,7 @@ and `T.look.off()`, and a perf plan's scenario with `look: "on"` or `"off"`.
 
 | Stage | Function | Tunables |
 | --- | --- | --- |
-| The world's light, after the tone curve | `sceneLit`, `litGain`, `litShow`, `caustic`, `sunShadow`, `floorLit`, `seaFocus` (Light, below) | none: `LIT_*`, `CAUST_*`, `SHADOW_*` in POST_WGSL |
+| The world's light, after the tone curve | `sceneLit`, `litGain`, `litShow`, `sunShadow`, `floorLit`, `seaFocus`; silt's `sparkle` (DRAW_WGSL) (Light, below) | none: `LIT_*`, `SHADOW_*`, `FLOOR_FOCUS` in POST_WGSL, `SPARK*` in DRAW_WGSL |
 | The mud in the water | `murk`, `murkLayers`, `murkColor`, `Engine._murkCam` (Murk, below) | none: `MUD_*` in MICRO_FNS |
 | Scene light, before the tone curve | `lookScene` | relief (DIC), rims (darkfield), rainbow rims (`prism`: each edge colored by the side it faces), color fringes; halation and veiling flare (from the bloom's blur) |
 | Objective | `lensScene`, the field stop in `fsComposite` | shallow focus (`dof`: the optics' depth blur anywhere, not only toward the rim), the field iris |
@@ -167,15 +167,16 @@ in a band), less on the living (`LIT_CELL`, 0.9x to 1.12x, their colors a little
 their colors. The living are told from the
 matter by their share of each pixel's light: the living's layer (`liveTex`), which the splat (sprites of a pixel or so,
 `splatMain`/`fsSplat`) fills too, with the living's own light kept in a fifth channel and laid there uncovered. The empty
-water shows it as the sun's caustics (`caustic`): the rippled surface focuses the light into a net of bright lines
-that wanders over everything under it, a Voronoi tiling's edges about `CAUST_S` units across, bent by a slow sway,
-thinner lines brighter, on the real clock (a paused world's light still plays, a fast one's never flickers; every rate
-a whole number of turns in the clock's wrap). The net is mean-zero, so it moves the light about rather than adding
-it: on stone, silt and the murk its lines are `CAUST_GROUND` brighter (the living `CAUST_CELL`), and it is drawn
-faintly on the floor itself (`CAUST_FLOOR`), the dark water behind the cells, where little else could catch it. It
-fades out where its lines would be thinner than two pixels. In the sun the living shade the ground a little way from
-them (`sunShadow`: their layer looked up `SHADOW_H` units toward the light, softened; it lies that far off them at
-every zoom), which there has the open water's light and no caustics. The murk glows faintly golden in the sun
+water shows it by the sea's focusing (`surf.light`, the FFT surface's own caustics, always there in calm water as soft
+pools of light drifting with its swell: the surface lies far above the focal plane, so they are out of focus, as they
+would be under a microscope). In the sun they lie on the floor itself (`floorLit`, `FLOOR_FOCUS`), the dark water
+behind the cells, where nothing else could catch them, and over what lies beneath (`seaFocus`, a little more in the
+sun than in the shade). Silt in the light sparkles, as fine mineral grains do in a darkfield: jostled in the water,
+a grain's facets now and then turn to the light and flash (`sparkle` and `matterColor` in DRAW_WGSL, by `sunAt`, the
+same light from the view's uniforms: `SPARK_SHARE` of the grains, each every few seconds on the real clock, as bright
+as `SPARK` times the light; a grain seen as a point flashes whole, one seen as a chip from a rocking facet). In the
+sun the living shade the ground a little way from them (`sunShadow`: their layer looked up `SHADOW_H` units toward
+the light, softened; it lies that far off them at every zoom), which there has the open water's light. The murk glows faintly golden in the sun
 (`floorLit`; amber under the lamp; with Optics on). Before the tone curve the scene only takes the
 light's color: cool in the shade, warm in the sun, amber by the lamp's share. The sea's caustics focus it (`seaFocus`:
 stronger in the sun), the crests' sheen and the suspension's specks take the ground's gain. The loupe has no layer of
@@ -207,15 +208,18 @@ floor about one and a half times the first round's glow), so in a summer band st
 the floor 13-15 against 8 (of 255), the living 1.07x: a subtle light, there when looked for. But then the mud alone
 showed the light, and lit it slid against the bands as the view zoomed (Murk, below), so the fifth cut the murk's glow
 to a third, gave the living back a little (0.9x to 1.12x, richer in the sun), and showed the light by what light does
-rather than by brightening: the caustics and the living's shadows (round 1 had tried both as stray hairs and as
-shadows seen only over stone; drawn on the floor and moving, they read). `runs/light/film5.mjs` films the user's own
-world under each version, the clock the caustics run on stepped with the frames.
+rather than by brightening: caustics and the living's shadows (round 1 had tried both as stray hairs and as shadows
+seen only over stone; drawn on the floor and moving, they read). Its caustics were a net of their own (a wandering
+Voronoi tiling's edges), which read as an effect laid over the water and had nothing to do with its surface; the sixth
+takes them from the sea's own focusing instead, softens the near murk and adds silt's sparkle (about 130 pixels a frame
+flashing 12-40 levels over a 1080p view at fit, against the same world without it). `runs/light/film5.mjs` films the
+user's own world under each version, the real clock stepped with the frames.
 
 ## Murk
 
 The mud suspended in the water below the cells (`murk`, drawn into `murkTex` at a quarter of the view's resolution by
 `fsMurk`; the loupe draws it per pixel) lies in three layers, each deeper and further out of focus (`MUD_*` in
-`MICRO_FNS`): near, small sparse flocs nearly in focus; middle, clouds of flocs of every size; far, a broad dim haze,
+`MICRO_FNS`): near, a faint dispersed veil of fine flocs; middle, clouds of flocs of every size; far, a broad dim haze,
 cooler through more water (`murkColor`). Each pans at its `MUD_DEPTH` of the cells' speed, so as the view pans they
 slide over one another. A zoom moves none of them: `Engine._murkCam` splits each move of the view into what a zoom
 about a point on the screen explains (that moves the layers with the world) and the rest (a pan), and keeps each

@@ -4525,7 +4525,14 @@ struct View {
   // the adhesion where bodies start to close into tissue (K.tightFrom)
   tightFrom: f32,
   // the pool (docs/catastrophes.md): its water level, to show cells stranded
-  level: f32, pad1: u32, pad2: u32, pad3: u32,
+  // lit: 1 where the world's light shows (the main view, the loupe), 0 in views shown unlit (the close-up, the stone cache)
+  level: f32, lit: u32, pad2: u32, pad3: u32,
+  // the world's light as the composite shows it (sceneLit), for silt's sparkle: the Tide's waves and phases, x the
+  // season, y the open water's light, z the sky's, w the light's clock; the hand's lamp
+  tide: array<vec4f, 4>,
+  tidePh: vec4f,
+  sun: vec4f,
+  lamp: vec4f,
 };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -5067,6 +5074,8 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     // seen from afar, grains smaller than a pixel are drawn a pixel wide, so silt covers more than it should and
     // stands out where currents sweep it into streaks: a little dimmer there
     col = vec3f(0.30, 0.34, 0.46) * view.matterGain * mix(0.85, 1.0, smoothstep(0.5, 2.0, view.pointSize * size));
+    // in the light it sparkles; seen as a chip, its facets do (matterColor)
+    col *= 1.0 + sparkle(p) * (1.0 - smoothstep(1.5, 4.0, view.pointSize * size));
   } else if (k == STONE) {
     shape = 14u;
     col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 1.1;
@@ -5942,6 +5951,38 @@ fn huskLight(v: vec2f, seed: f32, aa: f32, dir: vec2f) -> vec2f {
 }
 // A grain of matter resolved: a silt chip, a husk (or a husk just eaten, shrinking into silt: plan 12),
 // a grain of stone.
+// How far into the light wp lies as the composite shows it (sceneLit's r, without the duckweed's shade): 0 in the open
+// water's light, 1 in a summer band, more under the lamp; 0 in views shown unlit (the close-up, the stone cache).
+fn sunAt(wp: vec2f) -> f32 {
+  if (view.lit == 0u) { return 0.0; }
+  let base = (view.sun.y + (1.0 - view.sun.y) * tideAt(wp, view.world, view.sun.w, view.tide, view.tidePh) * view.sun.x) * view.sun.z;
+  var b = 0.0;
+  if (view.lamp.w != 0.0) {
+    var d = wp - view.lamp.xy;
+    d -= view.world * round(d / view.world);
+    b = view.lamp.w * (1.0 - smoothstep(0.94 * view.lamp.z, view.lamp.z, length(d)));
+  }
+  let l = select(base * (1.0 + b), base, b > 0.0) + max(b, 0.0);
+  return clamp(log(max(l, 1e-4) / view.sun.y) / log(4.4), 0.0, 1.2);
+}
+// Silt in the light sparkles, as fine mineral grains do in a darkfield: jostled in the water, a grain's facets now and
+// then turn to the light and flash. SPARK_SHARE of the grains, each flashing briefly every few seconds on the real clock
+// (rates whole turns in its wrap), as bright as SPARK times the light there: a grain seen as a point flashes whole
+// (sparkle), one seen as a chip from a facet rocking to the light (matterColor).
+const SPARK = 6.0;
+const SPARK_SHARE = 0.3;
+fn sparkRock(id: u32) -> vec2f {
+  let h = vec4f(renderHash(id + 101u), renderHash(id + 131u), renderHash(id + 151u), renderHash(id + 171u));
+  let a = TAU / 4096.0 * view.time * floor(vec2f(700.0, 900.0) + 1100.0 * h.xy) + TAU * h.zw;
+  return vec2f(sin(a.x), cos(a.y));
+}
+fn sparkle(p: Particle) -> f32 {
+  if (renderHash(p.id + 89u) > SPARK_SHARE) { return 0.0; }
+  let sun = sunAt(p.pos);
+  if (sun <= 0.02) { return 0.0; }
+  let r = sparkRock(p.id);
+  return SPARK * sun * pow(max(r.x, 0.0), 24.0) * (0.6 + 0.4 * r.y);
+}
 fn matterColor(i: PO, p: Particle, far: f32) -> vec4f {
   let lod = detailLOD(min(i.geom.x, view.pointSize));
   let seed = renderHash(p.id);
@@ -5974,9 +6015,18 @@ fn matterColor(i: PO, p: Particle, far: f32) -> vec4f {
         let n = normalize(vec3f(mix(tilt * 0.6, vec2f(cos(facing), sin(facing)) * 0.9, side), 1.0));
         let toLight = normalize(vec3f(localPoint(TO_LIGHT, i.geom.zw), 0.7));
         let tone = 0.85 + 0.3 * renderHash(p.id + u32(k) * 7u);
-        let glint = pow(max(dot(n, normalize(toLight + vec3f(0.0, 0.0, 1.0))), 0.0), 40.0);
+        let half = normalize(toLight + vec3f(0.0, 0.0, 1.0));
+        let glint = pow(max(dot(n, half), 0.0), 40.0);
         let seams = 1.0 - 0.25 * exp(-sqr(fract(a / sector + 0.5) - 0.5) * 1600.0) * side;
         facets = ((0.25 + 0.6 * max(dot(n, toLight), 0.0)) * tone * seams + 0.8 * glint) * 1.3; // same mean light as before
+        // in the light, the grain rocking: a facet now and then turns to it and flashes
+        if (renderHash(p.id + 89u) <= SPARK_SHARE) {
+          let sun = sunAt(p.pos);
+          if (sun > 0.02) {
+            let nr = normalize(vec3f(mix(tilt * 0.6 + 0.35 * sparkRock(p.id), vec2f(cos(facing), sin(facing)) * 0.9, side), 1.0));
+            facets += SPARK * sun * pow(max(dot(nr, half), 0.0), 80.0) * 1.3;
+          }
+        }
       }
       f = body * facets * spriteMean(i.shape) / 0.56;
       cover = body;
@@ -6700,16 +6750,16 @@ struct Post {
 // The pond's micro-suspension: flow, hashes and the bodies themselves, shared by the per-pixel
 // path (loupe, specimen) and the speck pass (MICRO_WGSL).
 const MICRO_FNS = /* wgsl */ `
-// The murk's three layers (murk in POST_WGSL): near, small sparse flocs nearly in focus; middle, clouds of flocs of
+// The murk's three layers (murk in POST_WGSL): near, a faint dispersed veil of fine flocs; middle, clouds of flocs of
 // every size; far, a broad dim haze. How much slower than the focal plane each pans (the engine's MUD_DEPTH too), its
 // broadest flocs and how far out of focus it is (world units), how soft its flocs' edges against the middle's, how
 // dense the mud must be to show (the higher, the sparser), and its share of the murk seen (murkSeen).
 const MUD_DEPTH = vec3f(0.93, 0.85, 0.76);
-const MUD_CELL = vec3f(1.3, 4.0, 7.5);
-const MUD_BLUR = vec3f(0.03, 0.1, 0.7);
-const MUD_EDGE = vec3f(0.45, 0.9, 2.4);
-const MUD_LEVEL = vec3f(0.66, 0.58, 0.61);
-const MUD_SHOW = vec3f(0.4, 0.5, 0.35);
+const MUD_CELL = vec3f(2.0, 4.0, 7.5);
+const MUD_BLUR = vec3f(0.14, 0.1, 0.7);
+const MUD_EDGE = vec3f(1.5, 0.9, 2.4);
+const MUD_LEVEL = vec3f(0.6, 0.58, 0.61);
+const MUD_SHOW = vec3f(0.25, 0.5, 0.35);
 struct MurkRaw { near: array<f32, 2>, mid: f32, far: f32 };
 // a generation of the murk: which (x), how far through its life (y: 0 to 1 and back), how long it has lived (z, s)
 fn murkGen(phase: u32) -> vec3f {
@@ -7341,7 +7391,7 @@ fn murk(cam: vec2f, lc0: vec2f, lc1: vec2f, lc2: vec2f, delta: vec2f, px: f32) -
 
 // The murk's own faint color, layer by layer (display-linear): the near warm, the far through more water, cooler.
 fn murkColor(l: vec3f) -> vec3f {
-  return vec3f(0.005, 0.0043, 0.0016) * l.x * 1.2 + vec3f(0.0045, 0.004, 0.0015) * l.y * 0.9 + vec3f(0.0026, 0.0029, 0.0025) * l.z * 0.6;
+  return vec3f(0.005, 0.0043, 0.0016) * l.x * 0.55 + vec3f(0.0045, 0.004, 0.0015) * l.y * 0.9 + vec3f(0.0026, 0.0029, 0.0025) * l.z * 0.6;
 }
 
 // The main view's murk, at a quarter of its resolution: it is soft, and costly per pixel. The near layer's densities
@@ -8360,18 +8410,17 @@ fn lampAt(wp: vec2f) -> f32 {
 // seen, so the bands and the lamp show on what they fall on. r: how bright, in log, between the open water's light (0)
 // and a summer band's (1, LIT_SPAN times it): a winter's bands reach about a quarter, under the lamp past 1, in the
 // shade below 0. What lies on the floor (stone, silt) takes the light more (LIT_GROUND) than the living, which keep
-// their colors, a little dimmer out of it and a little brighter and richer in it (LIT_CELL, LIT_RICH). Where it
-// falls the rippled surface plays it over them as caustics (caustic: play). k: the color the scene takes before the
-// tone curve, cool in the shade, warm in the sun and amber by the lamp's share; lamp: the lamp's own light.
+// their colors, a little dimmer out of it and a little brighter and richer in it (LIT_CELL, LIT_RICH). focus: the
+// sea's focusing of the light there (surf.light), which plays it over the floor where it falls (play: seaFocus,
+// floorLit). k: the color the scene takes before the tone curve, cool in the shade, warm in the sun and amber by the
+// lamp's share; lamp: the lamp's own light.
 const LIT_SPAN = 4.4;
 const LIT_GROUND = vec2f(0.85, 1.3);  // the toned view's gain on stone and silt at r 0 and 1 (between, in log)
 const LIT_CELL = vec2f(0.9, 1.12);    // on the living
 const LIT_RICH = 0.12;                // the living's colors this much richer in a summer band
 const LIT_KNEE = 0.7;                 // the toned view rolls off above this toward white (litShow)
-const CAUST_GROUND = 0.45;            // the caustics' lines this much brighter than the mean on stone, silt and murk
-const CAUST_CELL = 0.2;               // on the living
 struct Lit { k: vec3f, r: f32, lamp: f32, play: f32, shadow: f32 };
-fn sceneLit(wp: vec2f, ppu: f32) -> Lit {
+fn sceneLit(wp: vec2f, focus: f32) -> Lit {
   let base = (post.ambient + (1.0 - post.ambient) * tideAt(wp, post.world, post.simTime, post.tide, post.tidePh) * post.season) * lightPassed(wp);
   let b = lampAt(wp);
   var o: Lit;
@@ -8380,57 +8429,16 @@ fn sceneLit(wp: vec2f, ppu: f32) -> Lit {
   o.r = clamp(log(max(l, 1e-4) / post.ambient) / log(LIT_SPAN), -0.7, 1.6);
   let tint = mix(vec3f(0.96, 0.98, 1.03), vec3f(1.03, 1.0, 0.95), clamp(o.r, 0.0, 1.0));
   o.k = mix(tint, vec3f(1.2, 0.92, 0.6), o.lamp / max(l, 1e-3));
-  o.play = 0.0;
+  o.play = clamp(focus - 1.0, -1.0, 1.5) * clamp(o.r, 0.0, 1.2);
   o.shadow = 0.0;
-  let sun = clamp(o.r, 0.0, 1.2);
-  if (sun > 0.02) { o.play = caustic(wp, ppu) * sun; }
   return o;
-}
-// The sun's caustics: the rippled surface focuses the light falling through it into a net of bright lines with dimmer
-// cells between, wandering over everything below. A Voronoi tiling's edges (where the two nearest of its points are
-// nearly as near), its cells about CAUST_S units across, its points circling and the whole bent by a slow sway;
-// tiling the world, and on the real clock (post.time) so a paused world's light still plays and a fast one's never
-// flickers, each rate a whole number of turns in the clock's wrap. Mean 0: 1 on a line, -0.18 between; it fades out
-// where its lines would be under two pixels wide.
-const CAUST_S = 2.6;
-const CAUST_BEND = 0.9;                // how far the sway bends it, in cells
-const CAUST_W = 0.08;               // a line's half-width in cells (the net's mean brightness is 0.156 at 0.08)
-fn caustic(wp: vec2f, ppu: f32) -> f32 {
-  let N = max(tileN(CAUST_S), vec2f(3.0));
-  let Sv = post.world / N;
-  let fade = smoothstep(1.0, 2.0, CAUST_W * min(Sv.x, Sv.y) * ppu);
-  if (fade <= 0.0) { return 0.0; }
-  let turn = TAU / 4096.0 * post.time;
-  let sway = vec2f(sin(turn * 41.0), cos(turn * 29.0));
-  let bend = vec2f(vnoiseT(wp, 0.45 / CAUST_S, sway), vnoiseT(wp, 0.45 / CAUST_S, sway.yx + 5.3))
-    + 0.5 * vec2f(vnoiseT(wp, 1.1 / CAUST_S, sway.yx * 1.7 + 2.1), vnoiseT(wp, 1.1 / CAUST_S, sway * 1.3 + 8.9));
-  let x = wp / Sv + CAUST_BEND * (bend - 0.75);
-  let n = floor(x);
-  let f = x - n;
-  let nw = wrapL(n, N);
-  var d1 = 8.0;
-  var d2 = 8.0;
-  for (var j = -1; j <= 1; j++) {
-    for (var i = -1; i <= 1; i++) {
-      let g = vec2f(f32(i), f32(j));
-      let h = vjit(wrapStep(nw + g, N));
-      let a = turn * floor(vec2f(400.0) + 600.0 * h) + TAU * h.yx;
-      let r = g + 0.5 + 0.32 * vec2f(sin(a.x), cos(a.y)) - f;
-      let d = dot(r, r);
-      if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) { d2 = d; }
-    }
-  }
-  // where the surface curves more the lines draw thinner and brighter (the light they gather is the same)
-  let w = CAUST_W * mix(0.6, 1.4, bend.x - 0.25 * bend.y);
-  let e = (sqrt(d2) - sqrt(d1)) / w;
-  return (exp(-e * e) * CAUST_W / w - 0.156) / 0.844 * fade;
 }
 // The toned view's gain in the light l where the living cover a share (cells) of the pixel; what the living shade
 // (l.shadow, sunShadow) has the open water's light.
 fn litGain(l: Lit, cells: f32) -> f32 {
   let g = mix(LIT_GROUND, LIT_CELL, cells);
   let s = 1.0 - l.shadow * (1.0 - cells);
-  return g.x * pow(g.y / g.x, l.r * s) * (1.0 + mix(CAUST_GROUND, CAUST_CELL, cells) * l.play * s);
+  return g.x * pow(g.y / g.x, l.r * s);
 }
 // How much of the sun the living keep from the ground at uv in the main view (0..SHADOW_K): their layer looked up a
 // little way toward the light, softened (they swim about SHADOW_H units over the bed, so it lies that far off them
@@ -8442,7 +8450,7 @@ fn sunShadow(uv: vec2f, l: Lit) -> f32 {
   let px = SHADOW_H * post.ppu;
   if (sun <= 0.02 || px < 1.0 || SHADOW_K <= 0.0) { return 0.0; }
   let o = TO_LIGHT * px;
-  let side = vec2f(-o.y, o.x) * 0.3;
+  let side = vec2f(-o.y, o.x) * 0.5;
   let occ = coverAt(uv + o / post.res) + coverAt(uv + (o * 0.7 + side) / post.res) + coverAt(uv + (o * 0.7 - side) / post.res)
     + coverAt(uv + (o * 1.3 + side) / post.res) + coverAt(uv + (o * 1.3 - side) / post.res);
   return SHADOW_K * sun * occ / 5.0 * smoothstep(1.0, 3.0, px);
@@ -8458,17 +8466,19 @@ fn litShow(cIn: vec3f, l: Lit, cells: f32) -> vec3f {
   return select(c, LIT_KNEE + (1.0 - LIT_KNEE) * (1.0 - exp(-o / (1.0 - LIT_KNEE))), c > vec3f(LIT_KNEE));
 }
 // The light on the pond's floor, seen through the dark water behind what lies in it (display-linear, added as the
-// background is): its mud (the murk there) faintly golden in the sun, amber under the lamp, and the caustics' net
-// drawn faintly on it, brightest where the murk is; what the living shade has none.
-const CAUST_FLOOR = 0.006;
+// background is): its mud (the murk there) faintly golden in the sun, amber under the lamp, and where the sea focuses
+// the sun (l.play), soft pools of light drifting over it with the water's swell, brightest where the murk is; what
+// the living shade has none.
+const FLOOR_FOCUS = 0.004;
 fn floorLit(l: Lit, mud: f32) -> vec3f {
   let s = 1.0 - l.shadow;
   let sun = 0.03 + 0.13 * pow(clamp(l.r * s, 0.0, 1.6), 1.4);
-  return (vec3f(1.0, 0.9, 0.7) * sun + vec3f(1.0, 0.7, 0.38) * 0.7 * l.lamp * s) * (0.009 + 0.135 * mud) * (1.0 + CAUST_GROUND * l.play * s)
-    + vec3f(1.0, 0.95, 0.8) * CAUST_FLOOR * max(l.play, 0.0) * s * (0.6 + 0.8 * mud);
+  return (vec3f(1.0, 0.9, 0.7) * sun + vec3f(1.0, 0.7, 0.38) * 0.7 * l.lamp * s) * (0.009 + 0.135 * mud) * (1.0 + l.play * s)
+    + vec3f(1.0, 0.95, 0.8) * FLOOR_FOCUS * max(l.play, 0.0) * s * (0.6 + 0.8 * mud);
 }
-// The sea's focusing (surf.light) as the light there makes it: bright caustics in the sun, faint in the shade.
-fn seaFocus(light: f32, l: Lit) -> f32 { return 1.0 + (light - 1.0) * mix(0.5, 1.8, clamp(l.r, 0.0, 1.0)); }
+// The sea's focusing (surf.light) on what lies beneath, as the light there makes it: a little more in the sun than in
+// the shade.
+fn seaFocus(light: f32, l: Lit) -> f32 { return 1.0 + (light - 1.0) * mix(0.6, 1.1, clamp(l.r, 0.0, 1.0)); }
 // The tide and thermal maps over the tonemapped view at world point wp (pos: the fragment's pixel; water: the
 // water's temperature there), in the main view and the loupe alike.
 fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
@@ -8729,7 +8739,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
   let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
   hdr = lookScene(hdr, uv, bl, post.ppu, post.res);
   // in the scene's light, which the sea focuses onto what lies beneath it
-  var lit = sceneLit(wp, post.ppu);
+  var lit = sceneLit(wp, surf.light);
   hdr = (hdr + bl * post.bloom) * post.exposure * seaFocus(surf.light, lit) * lit.k;
   // the living's share of the pixel's light (cells drawn small leave no coverage, only their light), and their shadows
   let cells = clamp(lookL(live.rgb / max(1.0, live.a)) / max(lookL(all.rgb / max(1.0, all.a)), 1e-4), 0.0, 1.0);
@@ -8825,7 +8835,7 @@ fn loupeScene(r: vec2f) -> vec3f {
     hdr = mix(hdr, b * 0.25, 0.6 * soft);
   }
   hdr = lookScene(hdr, r * 0.5 + 0.5, vec3f(0.0), microView.ppu, microView.res);
-  let lit = sceneLit(wp, loupe.ppu);
+  let lit = sceneLit(wp, surf.light);
   hdr *= post.exposure * seaFocus(surf.light, lit) * lit.k;
   var m = 0.0;
   var ml = vec3f(0.0);
