@@ -180,7 +180,7 @@ as `SPARK` times the light; a grain seen as a point flashes whole, one seen as a
 spreads light about a bright thing, so in the light the bloom reaches further (`SUN_BLOOM`), the halation grows and
 turns golden (`SUN_HALO`), the veiling flare grows and warms (`SUN_VEIL`), darkfield's rims (the light membranes scatter)
 brighten (`SUN_RIM`, from about 25 pixels a unit), and the view is graded a little golden, its pale highlights most so
-colored cells keep their hue (`SUN_GOLD`); `SUN_PRISM` would enrich the rainbow rims (tried, left off). Lit cells glow
+colored cells keep their hue (`SUN_GOLD`); richer rainbow rims were tried and left off (color, not light). Lit cells glow
 rather than outshine: with `LIT_CELL` 0.92x to 1.28x they read 1.13-1.14x on screen against the same cells out of it (the display's gamma
 halves a gain in log, the shoulder takes a little more; 0.9x to 1.12x read 1.09x). In the
 sun the living shade the ground a little way from them (`sunShadow`: their layer looked up `SHADOW_H` units toward
