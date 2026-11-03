@@ -1,6 +1,6 @@
 import {
   simWGSL, SIM_CLOCK, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, SEA_WGSL, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, THERMAL_WORDS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, PIPE_MAX, PIPE_TAKE, PIPE_TAKE_W, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K, STUDIO_N,
+  MAXK, FIRST_LIFE, MAX_CELLS, THERMAL_WORDS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, NOTE_WORDS, NOTE_WGSL, NOTE_HEAD, NOTE_REC, PIPE_MAX, PIPE_TAKE, PIPE_TAKE_W, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K, STUDIO_N,
 } from './shaders.js';
 import {
   archetypeGenome, randomGenome, writeGenome, parseParticle,
@@ -34,6 +34,8 @@ const STONE_EVERY = 0.5;
 // absent in a browser without WebGPU, which must still load the page to say so
 const U = globalThis.GPUBufferUsage ?? {};
 export const PICK_MAX = 131072;
+// the most cells the annotations' view reads back (NOTE_WGSL): past it, a steady sample
+export const NOTE_CAP = 16384;
 export const FOCUS_MAX = 65536;
 const PICK_BYTES = 56 + PICK_MAX * PICK_WORDS * 4;
 const LEDGER_HEAD = META_CLAIM * 4;
@@ -109,7 +111,7 @@ class Engine {
     this.seedValue = 1;
     this.censusEvery = 20;
     this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 0, heat: 1, bands: 0, optics: 1, specks: true, lod: true };
-    this.simData = new ArrayBuffer(848);
+    this.simData = new ArrayBuffer(880);
     // the viewer's hand (docs/hand.md; the page's src/hand.js sets it): Hand in simWGSL, its words as floats and
     // as ids. Zero, its ids NONE, in every headless run.
     this.hand = new Float32Array(116);
@@ -124,6 +126,10 @@ class Engine {
     this.rock = new Float32Array(4);
     this.simF = new Float32Array(this.simData);
     this.simU = new Uint32Array(this.simData);
+    // the stretch of world the annotations mark (sim.watch: corner, size; size 0 none)
+    this.watchRect = new Float32Array(4);
+    this.watchEv = 0xffffffff; // which events (bit NOTE_EV index) the steps write there
+    this.watchBites = 0xffffffff; // and the share of bites (of 2^32)
     this.waves = new Float32Array(16);
     this.viewData = new ArrayBuffer(VIEW_BYTES);
     this.viewDataL = new ArrayBuffer(VIEW_BYTES);
@@ -164,7 +170,7 @@ class Engine {
 
     const d = device;
     const b = this.b;
-    b.sim = d.createBuffer({ size: 848, usage: U.UNIFORM | U.COPY_DST });
+    b.sim = d.createBuffer({ size: 880, usage: U.UNIFORM | U.COPY_DST });
     // each substep's index (bodyTick), one 256-byte slot apiece, for steps of up to SUB_TICKS ticks
     b.subU = d.createBuffer({ size: SUB_TICKS * 256, usage: U.UNIFORM | U.COPY_DST });
     for (let k = 0; k < SUB_TICKS; k++) d.queue.writeBuffer(b.subU, k * 256, new Uint32Array([k]));
@@ -246,6 +252,16 @@ class Engine {
     b.surveyU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     b.survey = d.createBuffer({ size: SURVEY_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
     this.surveyStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: SURVEY_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
+    // The annotations' eyes (docs/annotations.md): the stretch of world they mark (its corner and size, world units; size 0:
+    // none), where the steps write each event in it (NOTE_WGSL's ring, in the ledger); and the view's cells, read
+    // every `every` frames while the page sets this.notes = { every, cap }. Off (null) until then; onNotes hears each.
+    b.noteU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
+    b.noteOut = d.createBuffer({ size: (NOTE_HEAD + NOTE_CAP * NOTE_REC) * 4, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
+    this.noteStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: (NOTE_HEAD + NOTE_CAP * NOTE_REC + NOTE_WORDS) * 4, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
+    this.notes = null;
+    this.onNotes = null;
+    this._noteFrames = 0;
+    this._noteLast = 0;
     // The auto camera's survey of the whole world (see SURVEY_WGSL). Off until the page sets { every }.
     this.survey = null;
     this.onSurvey = null;
@@ -263,6 +279,7 @@ class Engine {
     this.listenModule = d.createShaderModule({ code: LISTEN_WGSL, label: 'listen' });
     this.watchModule = d.createShaderModule({ code: WATCH_WGSL, label: 'watch' });
     this.surveyModule = d.createShaderModule({ code: SURVEY_WGSL, label: 'survey' });
+    this.noteModule = d.createShaderModule({ code: NOTE_WGSL, label: 'note' });
     this.drawModule = d.createShaderModule({ code: DRAW_WGSL, label: 'draw' });
     // coarse steps drawn in between (LERP_WGSL): this.lerp is how far along the last step to draw the world, or null
     const lerpModule = d.createShaderModule({ code: LERP_WGSL, label: 'lerp' });
@@ -349,6 +366,7 @@ class Engine {
     this.cpWatchNear = cp(this.watchModule, 'watchNear');
     this.cpWatchArgs = cp(this.watchModule, 'watchArgs');
     this.cpSurvey = { pipe: cp(this.surveyModule, 'surveyMain'), bg: null };
+    this.cpNote = { pipe: cp(this.noteModule, 'noteMain'), bg: null };
     const seaModule = d.createShaderModule({ code: SEA_WGSL, label: 'sea' });
     // the water's bend over the main view, read back for the page's overlays (seaShiftMap; seaShift)
     this.cpShift = cp(this.postModule, 'seaShiftMap');
@@ -546,8 +564,8 @@ class Engine {
     b.sway = d.createBuffer({ size: Math.min(n, 1 << 20) * SWAY_BYTES, usage: U.STORAGE | U.COPY_SRC });
     b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
     // the claims, then the species ledger (observational), the hand's words (the pipette's, PIPE_* in shaders.js),
-    // then the step's heat deposits and husk piles (heatAccAt in SIM_WGSL); only the head and the claims are saved
-    b.ledger = d.createBuffer({ size: (META_CLAIM + n + SPL_WORDS + HAND_WORDS + 2 * MAX_CELLS + 4) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    // the annotations' ring of events (NOTE_*, observational), then the step's heat deposits and husk piles (heatAccAt in SIM_WGSL); only the head and the claims are saved
+    b.ledger = d.createBuffer({ size: (META_CLAIM + n + SPL_WORDS + HAND_WORDS + NOTE_WORDS + 2 * MAX_CELLS + 4) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
     // the particles too large to splat (splatMain): the points' draw arguments, then their indices
     b.quads = d.createBuffer({ size: (4 + n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
@@ -588,6 +606,10 @@ class Engine {
       { binding: 0, resource: { buffer: b.surveyU } }, { binding: 1, resource: { buffer: b.parts } },
       { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.cellStart } },
       { binding: 4, resource: { buffer: b.survey } }] });
+    this.cpNote.bg = d.createBindGroup({ layout: this.cpNote.pipe.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: b.noteU } }, { binding: 1, resource: { buffer: b.parts } },
+      { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.noteOut } },
+      { binding: 4, resource: { buffer: b.thermal } }, { binding: 5, resource: { buffer: b.intent } }] });
     const pointBG = (view, k, pipe = this.pPoint) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
       { binding: 3, resource: { buffer: b.intent } },
@@ -1240,6 +1262,8 @@ class Engine {
     f.set(this.duck, 72);
     f.set(clk.drops, 80);
     u.set(this.handU, 96);
+    f.set(this.watchRect, 212);
+    u[216] = this.watchEv; u[217] = this.watchBites;
     // the needle pricks once
     this.handU[20] = 0xffffffff;
   }
@@ -1536,7 +1560,8 @@ class Engine {
   _splAt() { return (META_CLAIM + this.capacity) * 4; }
   // the hand's words (bytes): after the species ledger
   _handAt() { return this._splAt() + SPL_WORDS * 4; }
-  _heatAccAt() { return this._handAt() + HAND_WORDS * 4; }
+  _noteAt() { return this._handAt() + HAND_WORDS * 4; }
+  _heatAccAt() { return this._noteAt() + NOTE_WORDS * 4; }
 
   /**
    * The pipette's bore drawn as cells in the main view (vsTube, docs/hand.md): n records laid out as struct Particle
@@ -1899,6 +1924,8 @@ class Engine {
       }
     }
 
+    const noteJob = N > 0 ? this._notesCopy(enc, shownTime) : null;
+
     const tsEndAt1 = slot ? { querySet: tm.qs, endOfPassWriteIndex: 1 } : undefined;
     // whether the world itself is drawn this frame (not just the held image)
     const drew = !!target && (hold == null || hold || !this.holdCam);
@@ -2020,6 +2047,7 @@ class Engine {
     if (listenJob) this._listenRead(listenJob, generation);
     if (mindJob) this._mindRead(mindJob, generation);
     if (surveyJob) this._surveyRead(surveyJob, generation);
+    if (noteJob) this._notesRead(noteJob, generation);
   }
 
   /**
@@ -2107,6 +2135,54 @@ class Engine {
       st.busy = false;
       if (generation !== this.worldGeneration || !this.onMind) return;
       this.onMind({ id: job.id, simTime: job.simTime, u32: new Uint32Array(copy), f32: new Float32Array(copy) });
+    }).catch(() => { st.busy = false; });
+  }
+
+  /**
+   * Every `every` frames while annotating: the cells in the stretch of world annotated (this.watchRect), as drawn now
+   * (simTime: the moment shown), and the ring of events the steps wrote there (NOTE_WGSL).
+   */
+  _notesCopy(enc, simTime) {
+    const S = this.notes, R = this.watchRect;
+    if (!S || !(R[2] > 0)) return null;
+    if (++this._noteFrames < (S.every || 6)) return null;
+    const st = this.noteStage.find((s) => !s.busy);
+    if (!st) return null;
+    this._noteFrames = 0;
+    st.busy = true;
+    const b = this.b, N = this.count, cap = Math.min(NOTE_CAP, S.cap || NOTE_CAP);
+    // past the cap, a steady sample: the share of the last count that fits, with a margin
+    const keep = this._noteLast > cap ? (0.9 * cap) / this._noteLast : 1;
+    const u = new ArrayBuffer(48), f = new Float32Array(u), w = new Uint32Array(u);
+    f.set(R, 0); f[4] = this.grid[0]; f[5] = this.grid[1]; w[6] = N; w[7] = cap; f[8] = keep;
+    this.device.queue.writeBuffer(b.noteU, 0, u);
+    enc.clearBuffer(b.noteOut, 0, 16);
+    const pass = enc.beginComputePass();
+    pass.setPipeline(this.cpNote.pipe);
+    pass.setBindGroup(0, this.cpNote.bg);
+    pass.dispatchWorkgroups(Math.ceil(Math.max(N, 64) / 256));
+    pass.end();
+    // as many records as the last count kept, with room to grow (more are read on the next)
+    const want = Math.min(cap, Math.ceil(Math.min(this._noteLast, cap) * 1.3) + 512), bytes = (NOTE_HEAD + want * NOTE_REC) * 4;
+    enc.copyBufferToBuffer(b.noteOut, 0, st.buf, 0, bytes);
+    enc.copyBufferToBuffer(b.ledger, this._noteAt(), st.buf, bytes, NOTE_WORDS * 4);
+    return { st, bytes, want, keep, simTime, stepTime: this.simTime, tick: this.tick, rect: [...R], biteKeep: this.watchBites / 4294967296 };
+  }
+
+  _notesRead(job, generation) {
+    const { st, bytes } = job;
+    st.buf.mapAsync(GPUMapMode.READ, 0, bytes + NOTE_WORDS * 4).then(() => {
+      const copy = st.buf.getMappedRange(0, bytes + NOTE_WORDS * 4).slice(0);
+      st.buf.unmap();
+      st.busy = false;
+      const head = new Uint32Array(copy, 0, NOTE_HEAD);
+      this._noteLast = head[0];
+      if (generation !== this.worldGeneration || !this.onNotes) return;
+      this.onNotes({
+        simTime: job.simTime, stepTime: job.stepTime, tick: job.tick, rect: job.rect, biteKeep: job.biteKeep, keep: job.keep, inView: head[0],
+        n: Math.min(head[2], job.want), head, u32: new Uint32Array(copy, 0, bytes / 4), f32: new Float32Array(copy, 0, bytes / 4),
+        ring: new Uint32Array(copy, bytes, NOTE_WORDS),
+      });
     }).catch(() => { st.busy = false; });
   }
 

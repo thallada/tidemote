@@ -42,6 +42,17 @@ export const SPL_RANGE = SPL_PAIR + SPL_WATCH * SPL_WATCH * 2;
 export const SPL_WORDS = SPL_RANGE + MAXK * 5;
 // rangeMain samples at most about this many particles (every stride-th, from a rotating start)
 export const SPL_RANGE_SAMPLES = 32768;
+// The annotations' record of what happens in view (docs/annotations.md; observational: nothing in the world reads
+// it). The page sets sim.watch to the stretch of world it annotates (none: size 0, as in every headless run); each
+// event there is written where it happens, into a ring at the ledger's end (after the hand's words): word 0 counts
+// every record ever written (wrapping), then NOTE_MAX records of NOTE_W words: what happened (NOTE_EV) | the cell's
+// kind << 5 | the doer's kind << 15 | NOTE_LITTER; the cell's id; the doer's id (NONE: none, or one a coarse step's
+// grazing does not name); where it was (x, y); sim.tick; where the doer was (x, y).
+export const NOTE_MAX = 2048;
+export const NOTE_W = 8;
+export const NOTE_WORDS = 4 + NOTE_MAX * NOTE_W;
+export const NOTE_EV = ['', 'kill', 'grazed', 'bite', 'scavenge', 'birth', 'starved', 'old', 'scalded', 'dried', 'froze', 'cyst', 'woke', 'spark', 'rot', 'needle'];
+export const NOTE_LITTER = 1 << 25;
 // the temperatures the hand's heated stage and cold probe draw the water toward at full strength (the stage hotter
 // than a boil, so the water under it comes to one; ice), and the share a second of the way there they take the water
 // under them (at a quarter strength, a quarter of the way from the open water's temperature). Water boils at BOIL:
@@ -1365,6 +1376,11 @@ struct Sim {
   // raindrops' ring waves: center, the time it fell, strength (0: none)
   drops: array<vec4f, 4>,
   hand: Hand,
+  // the stretch of world the page annotates: its corner and size (world units; size 0: none), and x: which events it
+  // wants there (bit EV_*), y: the share of bites it wants (of 2^32: a crowd at speed bites more than it reads).
+  // Observational (note).
+  watch: vec4f,
+  watchEv: vec4u,
 };
 // The viewer's hand (docs/hand.md): a local cause the world could have made itself, all zero (its ids NONE) in
 // every headless run. Centers in world units, reaches the radius of a disc (disc).
@@ -1413,7 +1429,7 @@ const SPL_NC = ${SPL_CAUSES.length}u;
 const SPL_PAIR = ${SPL_PAIR}u;
 const SPL_RANGE = ${SPL_RANGE}u;
 const SPL_WATCH = ${SPL_WATCH}u;
-fn splBase() -> u32 { return arrayLength(&ledger) - SPL_WORDS - HAND_WORDS - HEAT_ACC_WORDS; }
+fn splBase() -> u32 { return arrayLength(&ledger) - SPL_WORDS - HAND_WORDS - NOTE_WORDS - HEAT_ACC_WORDS; }
 // The pipette's words (PIPE_* in shaders.js), between the species ledger and the heat deposits
 const HAND_WORDS = ${HAND_WORDS}u;
 const PIPE_TAKE = ${PIPE_TAKE}u;
@@ -1430,7 +1446,38 @@ const H_LINKS = ${H_LINKS}u;
 const H_OUT = ${H_OUT}u;
 const H_CUTS = ${H_CUTS}u;
 const PIPE_MAX = ${PIPE_MAX}u;
-fn handAt() -> u32 { return arrayLength(&ledger) - HAND_WORDS - HEAT_ACC_WORDS; }
+fn handAt() -> u32 { return arrayLength(&ledger) - HAND_WORDS - NOTE_WORDS - HEAT_ACC_WORDS; }
+// The annotations' ring of events in view (NOTE_* in shaders.js), between the hand's words and the heat deposits.
+// Observational: written where an event happens, read only by the page.
+const NOTE_WORDS = ${NOTE_WORDS}u;
+const NOTE_MAX = ${NOTE_MAX}u;
+const NOTE_W = ${NOTE_W}u;
+const NOTE_LITTER = ${NOTE_LITTER}u;
+${NOTE_EV.map((n, i) => n && `const EV_${n.toUpperCase()} = ${i}u;`).filter(Boolean).join('\n')}
+fn noteAt() -> u32 { return arrayLength(&ledger) - NOTE_WORDS - HEAT_ACC_WORDS; }
+// whether a point lies in the stretch of world the page annotates
+fn watched(pos: vec2f) -> bool {
+  var d = pos - sim.watch.xy;
+  d -= sim.world * floor(d / sim.world);
+  return sim.watch.z > 0.0 && d.x < sim.watch.z && d.y < sim.watch.w;
+}
+// one event in view: what happened (EV_*, | NOTE_LITTER) to which cell (its kind, id and place), and who did it
+// (its kind, id and place; id NONE: no one)
+fn note(ev: u32, kind: u32, id: u32, pos: vec2f, ak: u32, aid: u32, apos: vec2f) {
+  if (!watched(pos) || (sim.watchEv.x & (1u << (ev & 31u))) == 0u) { return; }
+  if ((ev & 31u) == EV_BITE && pcg(id ^ (sim.tick * 2654435761u)) > sim.watchEv.y) { return; }
+  let b = noteAt();
+  let o = b + 4u + (atomicAdd(&ledger[b], 1u) % NOTE_MAX) * NOTE_W;
+  atomicStore(&ledger[o], ev | ((kind & 1023u) << 5u) | ((ak & 1023u) << 15u));
+  atomicStore(&ledger[o + 1u], id);
+  atomicStore(&ledger[o + 2u], aid);
+  atomicStore(&ledger[o + 3u], bitcast<u32>(pos.x));
+  atomicStore(&ledger[o + 4u], bitcast<u32>(pos.y));
+  atomicStore(&ledger[o + 5u], sim.tick);
+  atomicStore(&ledger[o + 6u], bitcast<u32>(apos.x));
+  atomicStore(&ledger[o + 7u], bitcast<u32>(apos.y));
+}
+fn noteSelf(ev: u32, kind: u32, id: u32, pos: vec2f) { note(ev, kind, id, pos, 0u, NONE, pos); }
 // whether the pipette draws cell id (its IDs sorted: a binary search)
 fn drawn(id: u32) -> bool {
   let n = sim.hand.ids.w;
@@ -2109,6 +2156,12 @@ fn seedMain(@builtin(global_invocation_id) gid: vec3u) {
 }
 
 // ------------------------------------------------- resolve claims + count
+// an event resolveCount sees in view, to cell p, done by the claimant at index a (NONE: unnamed)
+fn noteBy(ev: u32, p: Particle, a: u32) {
+  if (!watched(p.pos)) { return; }
+  if (a < sim.count) { let q = parts[a]; note(ev, p.kind, p.id, p.pos, q.kind, q.id, q.pos); }
+  else { noteSelf(ev, p.kind, p.id, p.pos); }
+}
 var<workgroup> hist: array<atomic<u32>, MAXK>;
 var<workgroup> roleHist: array<atomic<u32>, 3>;
 
@@ -2126,6 +2179,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
     else if (p.id == sim.hand.ids.x || (any(sim.hand.needle.zw != vec2f(0.0)) && length(handD(p.pos, sim.hand.needle.xy)) < ${f(NEEDLE.kill)})) {
       atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(genomes[p.kind]) + 3u], 1u);
       splCause(p.kind, 3u);
+      noteSelf(EV_NEEDLE, p.kind, p.id, p.pos);
       p.kind = HUSK; p.energy = ${bodyOf(K, 'genomes[p.kind]')} * ${f(K.carcassKeep)}; p.age = 0.0; p.vel *= 0.2;
       p.info = (p.info & 0xffff7ff0u) | 3u;
       atomicAdd(&ledger[META_ENERGY + 61u], 1u);
@@ -2156,9 +2210,12 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
       var act = 0u;
       var ck = 0u;
       var bites = 1.0;
+      // the claimant's index (NONE: a coarse step's grazing, which counts its bites but names no grazer)
+      var by = c - 1u;
       if ((c & MEAL_CLAIM) != 0u) {
         // a coarse step's meal: the target's kind follows from its class; bites at most one a tick
         let cls = (c >> 29u) & 3u;
+        by = select((c & 0x1fffffffu) - 1u, NONE, cls == 3u);
         act = select(1u, 3u, cls == 3u);
         ck = select(HUSK, select(NONE, p.kind, p.kind >= FIRST_LIFE), cls == 0u || cls == 3u);
         if (cls == 3u) { bites = f32(min(c & 0xffffu, sim.ticks)); }
@@ -2173,18 +2230,23 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
           // a kill leaves a carcass for the scavengers
           atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(genomes[p.kind]) + 3u], 1u);
           splCause(p.kind, 3u);
+          noteBy(EV_KILL, p, by);
           p.kind = HUSK; p.energy = ${bodyOf(K, 'genomes[p.kind]')} * ${f(K.carcassKeep)}; p.age = 0.0; p.vel *= 0.2;
           p.info = (p.info & 0xffff7ff0u) | 3u;
           atomicAdd(&ledger[META_ENERGY + 61u], 1u);
         } else {
           // eaten matter returns to the water as silt (the nutrient): litter by grazers, carcasses by scavengers
-          if (p.kind == HUSK) { atomicAdd(&ledger[META_ENERGY + select(63u, 62u, (p.info & LITTER) != 0u)], 1u); }
+          if (p.kind == HUSK) {
+            atomicAdd(&ledger[META_ENERGY + select(63u, 62u, (p.info & LITTER) != 0u)], 1u);
+            noteBy(EV_SCAVENGE | select(0u, NOTE_LITTER, (p.info & LITTER) != 0u), p, by);
+          }
           p.kind = SILT; p.energy = 0.0; p.vel = vec2f(0.0); p.age = 0.0;
           p.info = (p.info & 0xffffffc0u) | 3u;
         }
       } else if (act == 3u && p.kind == ck) {
         if (p.kind >= FIRST_LIFE) {
           p.energy -= ${f(K.bite)} * bites;
+          noteBy(select(EV_BITE, EV_GRAZED, p.energy <= 0.0), p, by);
           if (p.energy <= 0.0) {
             atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(genomes[p.kind]) + 3u], 1u);
             splCause(p.kind, 3u);
@@ -2230,6 +2292,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         p.id = newId();
         p.col = pack4x8unorm(vec4f(roleColor(genomes[ck], cr), 1.0));
         p.info = (gen << 16u) | (bud << 28u) | (cr << 4u) | 9u;
+        noteBy(EV_BIRTH, p, c - 1u);
         intent[i].z = select(NONE, c - 1u, genomes[ck].adhesion > ${f(K.adhMin)});
         intent[i].w = NONE;
         atomicAdd(&ledger[2], 1u);
@@ -2542,6 +2605,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
         p.id = newId();
         p.col = genomes[k].col;
         p.info = 8u;
+        noteSelf(EV_SPARK, k, p.id, pos);
         intent[i] = vec4u(0u, 0u, NONE, NONE);
         vel = vec2f(0.0);
         atomicAdd(&ledger[4], 1u);
@@ -2554,6 +2618,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     p.energy -= rot;
     if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, rot * 8.0 * ${f(K.rotHeat)}); }
     if (p.energy < ${f(K.huskMin)}) {
+      noteSelf(EV_ROT, HUSK, p.id, pos);
       p.kind = SILT; p.energy = 0.0; p.age = 0.0;
       p.info = (p.info & 0xffffffc0u) | 4u;
       // in a pile of rotting husks the sulfide they release may crystallize as a framboid
@@ -3135,6 +3200,7 @@ fn cystStep(i: u32) {
   atomicAdd(&ledger[cystSlot(ledgerGuild(g))], 1u);
   if (p.energy <= 0.0) {
     splCause(p.kind, select(1u, 5u, dry));
+    noteSelf(select(select(EV_STARVED, EV_DRIED, dry), EV_FROZE, inIce(p.pos) || (dry && sim.pond.x >= 1.0)), p.kind, p.id, p.pos);
     p.kind = HUSK; p.energy = ${bodyOf(K, 'g')}; p.age = 0.0;
     p.info = (p.info & 0xffff7fc0u) | 1u${litterOf('g')};
     atomicAdd(&ledger[5], 1u);
@@ -3142,6 +3208,7 @@ fn cystStep(i: u32) {
   } else if (p.age > 0.0 && !dry && rnd(&s) < ${f(K.cystWake)} * (1.0 + ${f(K.rainWake)} * sim.pond.y) * sim.dt) {
     p.info = (p.info & 0xfffffff0u) | 9u; p.age = 0.0;
     splCause(p.kind, 7u);
+    noteSelf(EV_WOKE, p.kind, p.id, p.pos);
   }
   intent[i] = vec4u(0u, 0u, NONE, NONE);
   parts[i] = p;
@@ -3356,10 +3423,11 @@ ${cellWGSL(K, false)}
     info = (info & 0xffff003fu & 0xfffffff0u) | CYST;
     age = 0.0;
     splCause(p.kind, 6u);
+    noteSelf(EV_CYST, p.kind, p.id, pos);
   }
   // stranded on dry ground a cell dries out, unless it rests as a cyst (or a spore) first
   if (stranded && E > 0.0) {
-    if (act == 0u && rnd(&s) < ${f(K.dryCyst)} * smoothstep(0.5, 1.0, -shore / ${f(K.filmR)}) * sim.dt) { info = (info & 0xffff003fu & 0xfffffff0u) | CYST; age = 0.0; act = 0u; splCause(p.kind, 6u); }
+    if (act == 0u && rnd(&s) < ${f(K.dryCyst)} * smoothstep(0.5, 1.0, -shore / ${f(K.filmR)}) * sim.dt) { info = (info & 0xffff003fu & 0xfffffff0u) | CYST; age = 0.0; act = 0u; splCause(p.kind, 6u); noteSelf(EV_CYST, p.kind, p.id, pos); }
     else { E -= ${f(K.dryCost)} * sim.dt; }
   }
   var kind = p.kind;
@@ -3369,18 +3437,22 @@ ${cellWGSL(K, false)}
     atomicAdd(&ledger[5], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(g) + 1u], 1u);
     splCause(p.kind, select(1u, 5u, stranded));
+    // (the cold: starved torpid, in the ice, or stranded where nothing is dry ground but the ice's edge)
+    noteSelf(select(select(EV_STARVED, EV_DRIED, stranded), EV_FROZE, th.torpid || inIce(pos) || (stranded && sim.pond.x >= 1.0)), p.kind, p.id, pos);
   } else if (age > g.lifespan) {
     kind = HUSK; E = bodyCost + ${f(K.huskFrac)} * E; age = 0.0; vel *= 0.3;
     info = (info & 0xffff7fc0u) | 2u${litterOf('g')};
     atomicAdd(&ledger[6], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(g) + 2u], 1u);
     splCause(p.kind, 2u);
+    noteSelf(EV_OLD, p.kind, p.id, pos);
   } else if (th.x > 0.8 && rnd(&s) < ${f(K.scald)} * smoothstep(0.8, 1.4, th.x) * sim.dt) {
     // scalded: far above its optimum, a cell's proteins come apart
     kind = HUSK; E = bodyCost; age = 0.0; vel *= 0.3;
     info = (info & 0xffff7fc0u) | 10u${litterOf('g')};
     atomicAdd(&ledger[META_DEATH + 20u + dg], 1u);
     splCause(p.kind, 4u);
+    noteSelf(EV_SCALDED, p.kind, p.id, pos);
   }
   if (kind == HUSK) { atomicAdd(&ledger[META_ENERGY + select(61u, 60u, g.photo > 0.4)], 1u); }
   // calcifying cells that settled leave their skeleton as stone, in their own color, mostly where
@@ -3775,7 +3847,7 @@ fn trackArgs() {
 
 // Where a few particles are right now, found by id (observational): the page marks the cells
 // that sing their species' note exactly where they are, as it does the followed cell.
-export const WATCH_MAX = 16;
+export const WATCH_MAX = 32;
 export const WATCH_WGSL = COMMON + /* wgsl */ `
 struct WatchU { count: u32, n: u32, grid: vec2u, ids: array<vec4u, ${WATCH_MAX / 4}>, near: array<vec4f, ${WATCH_MAX}> };
 struct WatchOut { at: array<vec4f, ${WATCH_MAX}>, found: array<u32, ${WATCH_MAX}> };
@@ -3920,6 +3992,82 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     let v = atomicLoad(&wc[l]);
     if (v > 0u) { atomicAdd(&lout[l], v); }
   }
+}
+`;
+
+// The annotations' view (observational; docs/annotations.md): every living cell and husk in the stretch of world the
+// page annotates (its corner and size), at most `cap` of them; past that, a steady sample of them (those whose id
+// hashes under `keep`, which the page sets from the last count). Words: 0 how many lie in it, 1 how many were kept,
+// 2 how many written; from NOTE_TEMPS the water's temperature at NOTE_TG × NOTE_TG points across it, then how much
+// is ice there; from NOTE_HEAD records of NOTE_REC words: id; x, y; kind | cause << 10 | role << 14 | the search
+// image << 16 | litter << 26 | torpid << 27; velocity (half floats); fullness (energy over its division mark) and
+// how many tolerances its water lies from its optimum (half floats; a husk: its energy, 0); its two bonded partners'
+// ids (NONE: none).
+export const NOTE_TG = 8;
+export const NOTE_TEMPS = 4;
+export const NOTE_HEAD = NOTE_TEMPS + 2 * NOTE_TG * NOTE_TG;
+export const NOTE_REC = 8;
+export const NOTE_WGSL = COMMON + /* wgsl */ `
+struct NoteU { corner: vec2f, size: vec2f, world: vec2f, count: u32, cap: u32, keep: f32, p0: u32, p1: u32, p2: u32 };
+@group(0) @binding(0) var<uniform> nu: NoteU;
+@group(0) @binding(1) var<storage, read> parts: array<Particle>;
+@group(0) @binding(2) var<storage, read> genomes: array<Genome>;
+@group(0) @binding(3) var<storage, read_write> nout: array<atomic<u32>>;
+@group(0) @binding(4) var<storage, read> heatField: array<f32>;
+@group(0) @binding(5) var<storage, read> intent: array<vec4u>;
+${shownWater('nu.world')}
+fn nhash(v: u32) -> u32 {
+  let s = v * 747796405u + 2891336453u;
+  let w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+  return (w >> 22u) ^ w;
+}
+
+@compute @workgroup_size(256)
+fn noteMain(@builtin(global_invocation_id) gid: vec3u) {
+  let i = gid.x;
+  // the water across the view
+  if (i < ${NOTE_TG * NOTE_TG}u) {
+    let at = nu.corner + nu.size * (vec2f(f32(i % ${NOTE_TG}u), f32(i / ${NOTE_TG}u)) + 0.5) / ${NOTE_TG}.0;
+    atomicStore(&nout[${NOTE_TEMPS}u + i], bitcast<u32>(waterTempAt(at)));
+    atomicStore(&nout[${NOTE_TEMPS + NOTE_TG * NOTE_TG}u + i], bitcast<u32>(iceAt(at)));
+  }
+  if (i >= nu.count) { return; }
+  let p = parts[i];
+  if (p.kind < FIRST_LIFE && p.kind != HUSK) { return; }
+  var d = p.pos - nu.corner;
+  d -= nu.world * floor(d / nu.world);
+  if (d.x >= nu.size.x || d.y >= nu.size.y) { return; }
+  atomicAdd(&nout[0], 1u);
+  if (f32(nhash(p.id) >> 8u) / 16777216.0 >= nu.keep) { return; }
+  let k = atomicAdd(&nout[1], 1u);
+  if (k >= nu.cap) { return; }
+  atomicAdd(&nout[2], 1u);
+  let life = p.kind >= FIRST_LIFE;
+  var fed = max(p.energy, 0.0);
+  var x = 0.0;
+  var torpid = false;
+  var partners = vec2u(NONE);
+  if (life) {
+    let g = genomes[p.kind];
+    let th = ${shownThermal('g', `waterTempAt(p.pos) + ${f(DEFAULT_K.selfWarm)} * thermoOf(g)`)};
+    fed = fed / max(g.reproE, 0.01);
+    x = th.x;
+    torpid = th.torpid;
+    for (var b = 0u; b < 2u; b++) {
+      let j = intent[i][b + 2u];
+      if (j < nu.count && parts[j].kind == p.kind) { partners[b] = parts[j].id; }
+    }
+  }
+  let o = ${NOTE_HEAD}u + k * ${NOTE_REC}u;
+  atomicStore(&nout[o], p.id);
+  atomicStore(&nout[o + 1u], bitcast<u32>(p.pos.x));
+  atomicStore(&nout[o + 2u], bitcast<u32>(p.pos.y));
+  atomicStore(&nout[o + 3u], (p.kind & 1023u) | ((p.info & 15u) << 10u) | (((p.info >> 4u) & 3u) << 14u) | (((p.info >> 6u) & 1023u) << 16u)
+    | select(0u, 1u << 26u, (p.info & LITTER) != 0u) | select(0u, 1u << 27u, torpid));
+  atomicStore(&nout[o + 4u], pack2x16float(p.vel));
+  atomicStore(&nout[o + 5u], pack2x16float(vec2f(min(fed, 60000.0), clamp(x, -60000.0, 60000.0))));
+  atomicStore(&nout[o + 6u], partners.x);
+  atomicStore(&nout[o + 7u], partners.y);
 }
 `;
 
