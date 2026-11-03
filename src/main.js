@@ -3,7 +3,7 @@ import { voiceOf } from './audio/mapping.js';
 import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS, compactState } from './engine.js';
-import { genomeSerial, readGenome, writeGenome, parseParticle, thermalGuild } from './genome.js';
+import { genomeSerial, readGenome, writeGenome, parseParticle, thermalGuild, dietGuild } from './genome.js';
 import { seasonAt, createClimate, abioRate, EVENT_TYPES, excursionAt } from './climate.js';
 import { countPools } from './geography.js';
 import { createLab } from './lab.js';
@@ -23,6 +23,8 @@ import { DARKFIELD, packLook } from './look.js';
 import { MIX as SOUND_MIX, defaultMix } from './audio/mix.js';
 import { startLoader } from './loader.js';
 import { Director } from './director.js';
+import { Notes } from './notes.js';
+import { createNoteView } from './noteview.js';
 import { createChronicler, watchMap, durWords } from './chronicler.js';
 import { earned } from './achievements.js';
 import { createCards, strangerCard, PORTRAIT_BOX, PORTRAIT_SHOWN, CARD_SCALE, CARD_W, CARD_H } from './card.js';
@@ -203,7 +205,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const K = eng.K;
   const prefs = loadPrefs();
   let lab = null, specimen = null, view = null; // panels, created below
-  let dockTop = innerHeight;
+  let dockTop = innerHeight, railBottom = 0;
   const state = {
     phase: 'calibrating', busy: true, paused: false, speed: 1, warm: false,
     hud: true, follow: false, confirmReset: 0,
@@ -215,6 +217,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the pool's events (docs/catastrophes.md): all on, or off, or some of them
     events: { ...EVENTS_ON(), ...prefs.events },
     songMarks: prefs.songMarks ?? 1, // mark the cells that sing: 0 off, 1 the picked species, 2 all
+    notes: prefs.notes ?? 1, // live annotations (docs/annotations.md): 0 off, 1 with the auto camera, 2 always
     water: prefs.water ?? 2, // the water's surface: 0 off, 1 subtle, 2 normal, 3 strong (applyWater)
     waves: prefs.waves ?? 1, // its waves' motion: 0 slow, 1 normal, 2 lively
     look: prefs.look ?? 2, // the microscope's look (applyLook): 0 off, 1 subtle, 2 normal, 3 strong
@@ -269,7 +272,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: 5, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, closeup: state.closeup, songMarks: state.songMarks, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+    savePrefs({ v: 5, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   // the look (src/look.js, docs/look.md): Darkfield as the Display settings ask, how strong as a whole and how much
@@ -307,6 +310,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     overlay.height = Math.round(innerHeight * base);
     eng.resize(canvas.width, canvas.height);
     dockTop = $('dock').getBoundingClientRect().top;
+    railBottom = $('rail').getBoundingClientRect().bottom;
   }
   fit();
   addEventListener('resize', () => { fit(); if (lab) drawWorldChart(); });
@@ -2234,7 +2238,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + onoff('currents', 'Currents', 'W', state.currents)
         + onoff('links', 'Bonds', 'L', s.links, 'bond')
         + onoff('nodes', 'Particles', 'N', s.nodes)
-        + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks'))
+        + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks')
+        + choice('notes', 'Annotations', '', [[1, 'Auto camera'], [2, 'Always'], [0, 'Off']], state.notes, 'annotations'))
         + group('view', 'View', (isCoarse ? '' : onoff('ui', 'Interface', 'U', state.ui, 'interface'))
         + onoff('closeup', 'Live close-up', '', state.closeup, 'closeup')
         + onoff('auto', 'Auto when idle', '', state.auto, 'autoidle')
@@ -2422,7 +2427,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       } else if (tab === 'display') {
         trailIdx = 1; s.trails = trailLevels[trailIdx];
         for (const k of ['tide', 'heat', 'bands', 'links', 'nodes', 'bloom', 'optics', 'specks', 'lod']) s[k] = defaults[k];
-        state.currents = false; state.songMarks = 1; state.closeup = true;
+        state.currents = false; state.songMarks = 1; state.notes = 1; state.closeup = true;
         state.water = 2; state.waves = 1; applyWater();
         state.look = 2; state.grain = 1; applyLook();
         state.auto = true; renderAuto(director.active);
@@ -2492,6 +2497,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'lod') s.lod = !!+v;
       else if (id === 'closeup') state.closeup = !!+v;
       else if (id === 'songmarks') state.songMarks = +v;
+      else if (id === 'notes') state.notes = +v;
       else if (id === 'water') { state.water = +v; applyWater(); }
       else if (id === 'waves') { state.waves = +v; applyWater(); }
       else if (id === 'microlook') { state.look = +v; applyLook(); }
@@ -3872,7 +3878,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const now = performance.now();
     const marking = markSlot() !== -2 && songEvents.some((e) => now - e.at < MARK_MS);
     const R = reticleAt();
-    const key = state.currents || (sel && sel.particle) || L || R || marking ? null
+    const key = state.currents || (sel && sel.particle) || L || R || marking || notesShown ? null
       : `${state.hud}|${state.ui}|${director.active}|${cssPPU()}|${cam.x}|${dockTop}|${innerWidth}|${overlay.width}|${specimen.isOpen() && specimen.inset().right}|${document.fonts.status}`;
     if (key !== null && key === overlayKey) return;
     overlayKey = key;
@@ -3883,6 +3889,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (state.currents) drawCurrents();
     drawScale();
     filmMarked = false;
+    plateRect = null;
     if (sel && sel.particle) {
       const [W, H] = eng.grid;
       // The marker sits on the prediction for this very frame. A new GPU sample that corrects the
@@ -3944,6 +3951,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     if (R) drawReticle(R);
     drawSongMarks(now, L);
+    if (notesShown) drawNotes(dt);
   }
   // The will as drawn, from the ridden cell (world units), eased toward where it is steered as the specimen's compass
   // eases its arrows: a new way turns to over a moment, the shorter way round, and its length follows, never snapping.
@@ -4086,6 +4094,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const watched = new Map();
   let marksAt = 0;
   eng.onWatch = ({ simTime, seen }) => {
+    if (notesShown) notes.watchSeen({ simTime, seen });
     for (const w of seen) { const o = watched.get(w.id); watched.set(w.id, { x: w.x, y: w.y, vx: w.vx, vy: w.vy, t: simTime, disp: o && o.disp, err: o ? o.err : [0, 0], fresh: true, shown: o && o.shown }); }
   };
   // the auto camera's follow shot of the marked subject, and whether it has come into view
@@ -4119,7 +4128,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         if (ids.length >= WATCH_MAX) break;
       }
     }
-    eng.watch = cells;
+    // and the cells the annotations mark
+    eng.watch = notesShown ? cells.concat(notes.wantWatch(WATCH_MAX - cells.length).filter((c) => !ids.includes(c.id))) : cells;
     for (const id of watched.keys()) if (!ids.includes(id)) watched.delete(id);
   }
   function drawSongMarks(now, L) {
@@ -4244,6 +4254,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
     octx.fillStyle = 'rgba(226,241,240,0.95)';
     octx.fillText(label, tx, ey + 3.5);
     octx.letterSpacing = '0px';
+    plateRect = { l: tx - 10, t: ey - 14, r: tx + tw + 10, b: ey + 10 };
+    // with the annotations, the subject's own data under its name: its diet, its body, the water it bears
+    if (notesShown && g && sp) {
+      const cells = sel.org && sel.org.cells > 1 ? `${fmt(sel.org.cells)}-CELL BODY` : 'ONE CELL';
+      const lo = Math.round((g.topt ?? 19) - Math.max(g.tol ?? 7, 0.5)), hi = Math.round((g.topt ?? 19) + Math.max(g.tol ?? 7, 0.5));
+      const line = `${dietGuild(g).toUpperCase()} · ${cells} · COMFORT ${lo}–${hi}°C`;
+      const dw = noteView.width('data', line), dx = left ? Math.min(tx + tw - dw, tx) : tx;
+      noteView.text('data', line, dx, ey + 20, 'rgba(163,189,190,0.95)');
+      octx.letterSpacing = '0px'; octx.fontStretch = 'normal';
+      plateRect = { l: Math.min(tx, dx) - 10, t: ey - 14, r: Math.max(tx + tw, dx + dw) + 10, b: ey + 26 };
+    }
     return true;
   }
 
@@ -4311,6 +4332,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     surveyT = t;
   };
   function resetDirector() {
+    notes.reset();
     if (director.active) renderAuto(false);
     director.reset();
     surveyT = 0;
@@ -4427,6 +4449,70 @@ function run(eng, device, ctx, specCtx, hasTS) {
     return `<div class="cap-eye">${eyebrow}</div><div class="cap-rule" aria-hidden="true"></div><div class="cap-main">${main}</div>${sub ? `<div class="cap-sub">${sub}</div>` : ''}`;
   }
   const capEl = $('caption');
+
+  // ------------------------------------------------------------ live annotations
+  // Notes on what is happening in view (src/notes.js says what, src/noteview.js draws it; docs/annotations.md): with
+  // the auto camera (Settings → Display → Annotations), always, or never. While they show, the steps write each event
+  // in view where it happens (eng.watchRect, sim.watch) and the view's cells are read back every few frames
+  // (eng.notes); the notes are drawn on the overlay with the brackets, so a film keeps them.
+  const noteSp = (slot) => {
+    const g = genomeFor(slot);
+    const sp = g && life.reg.get(g.serial);
+    return sp ? { name: sp.name, guild: dietGuild(g), topt: g.topt ?? 19, tol: Math.max(g.tol ?? 7, 0.5), serial: g.serial } : null;
+  };
+  const notes = new Notes({ species: noteSp, world: () => eng.grid });
+  const noteView = createNoteView(octx);
+  let notesShown = false, notesSince = 0, noteOpen = { l: 0, t: 0, r: innerWidth, b: innerHeight }, plateRect = null;
+  eng.onNotes = (scan) => { if (!notesShown) return; const t0 = performance.now(); notes.ingest(scan); notes.ms.ingest += performance.now() - t0; };
+  const notesOn = () => state.ui && state.phase === 'running' && (state.notes === 2 || (state.notes === 1 && director.active));
+  // the part of the window the world shows clear of the panels (CSS px)
+  function openArea() {
+    const top = railBottom;
+    const l = lab.isOpen() && !phone() ? $('lab').getBoundingClientRect().right : phone() ? 0 : 40;
+    return { l: l + 8, t: top + 8, r: innerWidth - specimen.inset().right - 8, b: dockTop - 8 };
+  }
+  // each frame: the stretch of world to watch (the view and a margin), or none
+  function watchNotes() {
+    const on = notesOn();
+    if (on !== notesShown) { notesShown = on; notes.reset(); notesSince = performance.now() / 1000; }
+    if (!on) { eng.watchRect.fill(0); eng.notes = null; return; }
+    const [W, H] = eng.grid, p = cssPPU(), m = 40 / p;
+    const w = Math.min(W, innerWidth / p + 2 * m), h = Math.min(H, innerHeight / p + 2 * m);
+    eng.watchRect.set([cam.x - w / 2, cam.y - h / 2, w, h]);
+    // (a wide view needs only a sample of its cells: its stories are its water's)
+    eng.notes = { every: 6, cap: p < notes.T.wide ? 3000 : 16384 };
+    eng.watchEv = notes.eventMask(p);
+    eng.watchBites = Math.min(0xffffffff, Math.round(notes.biteKeep * 4294967296));
+  }
+  // where a cell last seen as s shows now: carried on by its own motion and (the living) the current, then through the water
+  function noteProject(s, kind) {
+    const [W, H] = eng.grid, g = kind >= FIRST_LIFE ? genomeFor(kind) : null;
+    const dts = clamp((viewSimTime || eng.simTime) - s.t, -0.5, carryMax());
+    const [fx, fy] = g ? flowAt(s.x, s.y, eng.simTime, eng.waves) : [0, 0], a = g ? g.advect : 0;
+    const x = s.x + (s.vx + fx * a) * dts, y = s.y + (s.vy + fy * a) * dts;
+    return toShown(((x % W) + W) % W, ((y % H) + H) % H);
+  }
+  const noteRadius = (kind) => { const g = kind >= FIRST_LIFE ? genomeFor(kind) : null; return Math.max(6, cellRadius({ role: 0 }, g, cssPPU()) * 1.25 + 2); };
+  function noteVisible(x, y) {
+    const [sx, sy] = toScreen(x, y), o = noteOpen;
+    return sx > o.l + 12 && sx < o.r - 12 && sy > o.t + 12 && sy < o.b - 12;
+  }
+  const NOTE_MODE = { follow: 'FOLLOW', linger: 'LINGER', scene: 'SURVEY', wide: 'WIDE', event: 'EVENT' };
+  function drawNotes(dtMs) {
+    const now = performance.now() / 1000, t0 = performance.now();
+    noteOpen = openArea();
+    const speed = state.paused ? 0 : state.speed === Infinity ? perf.rate || 16 : state.speed;
+    const list = notes.update({ now, speed, ppu: cssPPU(), phone: phone(), pool: eng.tbg, visible: noteVisible });
+    const avoid = [];
+    const cr = capEl.classList.contains('on') ? capEl.getBoundingClientRect() : null;
+    if (cr && cr.width) avoid.push({ l: cr.left - 8, t: cr.top - 8, r: cr.right + 8, b: cr.bottom + 8 });
+    if (plateRect) avoid.push(plateRect);
+    const sh = director.active ? director.shot : null;
+    const mode = director.active ? NOTE_MODE[sh && sh.why && sh.why.kind] || 'AUTO' : 'OBSERVE';
+    noteView.draw({ now, dt: dtMs / 1000, notes: list, model: notes, species: noteSp, project: noteProject, radius: noteRadius,
+      open: noteOpen, avoid, mode, pool: eng.tbg, phone: phone(), roster: true, since: notesSince, cap: cssPPU() >= notes.T.close ? 400 : 220 });
+    notes.ms.draw += performance.now() - t0;
+  }
   const cap = { key: '', html: '', swapAt: 0, swapped: true };
   function renderCaption(now) {
     const sh = director.active ? director.shot : null;
@@ -4788,6 +4874,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else eng.lens.fill(0);
       eng.trackId = sel && !sel.lost ? sel.id : NONE;
       eng.trackId2 = director.active ? director.trackId : NONE;
+      watchNotes();
       watchMarks(performance.now());
       eng.mindId = sel && !sel.lost && !sel.film && sel.particle.kind >= FIRST_LIFE && specimen.isOpen() && state.ui ? sel.id : NONE;
       // The overlay is drawn now, but the world it marks reaches the screen only when the GPU has drawn
@@ -4881,7 +4968,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     sound.away(document.hidden);
   });
   // a handle for tools/perf, which profiles the page in a real browser
-  globalThis.__tidemote = { state, cam, perf, eng, sound, lab, life: () => life, climate: () => climate, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
+  globalThis.__tidemote = { state, cam, perf, eng, notes, sound, lab, life: () => life, climate: () => climate, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
     chron, cards, film, filmAct, openSpecies, director, saveWorld, worlds: worldStore, boot: bootTimes, pruned,
     setScale(v) { state.perf.scale = v; if (v !== 'auto') renderScale = v; resetAdapt(); fit(); },
     // as the adaptive scale does it: applied when the next frame begins

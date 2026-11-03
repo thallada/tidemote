@@ -146,6 +146,7 @@ export const GLOSSARY = {
   audiotone: 'Warm softens the top end, as if heard through the water or a wall; Bright adds sparkle and air to the highs.',
   audiobackground: 'What the soundtrack does when you switch to another tab or window. Keep playing leaves it on as background music. The world pauses while hidden, so the cells’ songs pause with it until you come back.',
   songmarks: 'A faint ring spreads from a cell each time it sings its species’ note: for the picked species only, or for every species. Needs sound on.',
+  annotations: 'Live notes over the world on what is happening in view, read from the simulation as it happens: who is hunting or grazing on whom, a species scalding in water its crowd has warmed, cells stilled by the cold, a new species budding off. With the auto camera only, always, or never.',
   diversity: 'Effective number of species: exp of the Shannon entropy of species populations. A world of 10 equally common species scores 10.',
   will: 'The viewer’s will, while this cell is ridden: one more drive, toward where it is steered, as strong as its swimming lets it be and paid for in upkeep as swimming is. Hunger and fear still pull as they did, and often win.',
   ride: 'Ride this cell: the camera follows it and a held click or finger (or the arrow keys) steers it, a will among its drives, as fast as its genes allow. Tab goes to its newest child, or after it dies to the nearest of its kind. Enter or Esc gets off.',
