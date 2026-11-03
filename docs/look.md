@@ -12,7 +12,7 @@ and `T.look.off()`, and a perf plan's scenario with `look: "on"` or `"off"`.
 
 | Stage | Function | Tunables |
 | --- | --- | --- |
-| The world's light, after the tone curve | `sceneLit`, `litGain`, `litShow`, `sunShadow`, `floorLit`, `seaFocus`; silt's `sparkle` (DRAW_WGSL) (Light, below) | none: `LIT_*`, `SHADOW_*`, `FLOOR_FOCUS` in POST_WGSL, `SPARK*` in DRAW_WGSL |
+| The world's light, after the tone curve | `sceneLit`, `litGain`, `litShow`, `sunShadow`, `floorLit`, `seaFocus`; silt's `sparkle` (DRAW_WGSL) (Light, below) | none: `LIT_*`, `SHADOW_*`, `FOCUS_*` in POST_WGSL, `SPARK*` in DRAW_WGSL |
 | The mud in the water | `murk`, `murkLayers`, `murkColor`, `Engine._murkCam` (Murk, below) | none: `MUD_*` in MICRO_FNS |
 | Scene light, before the tone curve | `lookScene` | relief (DIC), rims (darkfield), rainbow rims (`prism`: each edge colored by the side it faces), color fringes; halation and veiling flare (from the bloom's blur) |
 | Objective | `lensScene`, the field stop in `fsComposite` | shallow focus (`dof`: the optics' depth blur anywhere, not only toward the rim), the field iris |
@@ -169,9 +169,11 @@ matter by their share of each pixel's light: the living's layer (`liveTex`), whi
 `splatMain`/`fsSplat`) fills too, with the living's own light kept in a fifth channel and laid there uncovered. The empty
 water shows it by the sea's focusing (`surf.light`, the FFT surface's own caustics, always there in calm water as soft
 pools of light drifting with its swell: the surface lies far above the focal plane, so they are out of focus, as they
-would be under a microscope). In the sun they lie on the floor itself (`floorLit`, `FLOOR_FOCUS`), the dark water
-behind the cells, where nothing else could catch them, and over what lies beneath (`seaFocus`, a little more in the
-sun than in the shade). Silt in the light sparkles, as fine mineral grains do in a darkfield: jostled in the water,
+would be under a microscope). In a darkfield only what scatters shows the light, so in the sun the pools show on the
+grains on the floor: silt and stone brighter where the sea focuses it and dimmer between (`FOCUS_MATTER`), their
+glints and sparkles most (`FOCUS_GLINT`, on a pixel's brightest light), so the grains glitter as a pool passes over
+them. Drawn as a glow on the dark water itself they read as nothing, or as fog (`floorLit` takes only a little of
+them). What lies beneath takes them a little more in the sun than in the shade (`seaFocus`). Silt in the light sparkles, as fine mineral grains do in a darkfield: jostled in the water,
 a grain's facets now and then turn to the light and flash (`sparkle` and `matterColor` in DRAW_WGSL, by `sunAt`, the
 same light from the view's uniforms: `SPARK_SHARE` of the grains, each every few seconds on the real clock, as bright
 as `SPARK` times the light; a grain seen as a point flashes whole, one seen as a chip from a rocking facet). In the
@@ -211,7 +213,9 @@ to a third, gave the living back a little (0.9x to 1.12x, richer in the sun), an
 rather than by brightening: caustics and the living's shadows (round 1 had tried both as stray hairs and as shadows
 seen only over stone; drawn on the floor and moving, they read). Its caustics were a net of their own (a wandering
 Voronoi tiling's edges), which read as an effect laid over the water and had nothing to do with its surface; the sixth
-takes them from the sea's own focusing instead, softens the near murk and adds silt's sparkle (about 130 pixels a frame
+takes them from the sea's own focusing instead (first as a glow on the floor, 1-2 levels of 255 and unseen; then, as
+the user proposed, on the grains: silt and stone catch it, their sparkles most), softens the near murk and adds silt's
+sparkle (about 130 pixels a frame
 flashing 12-40 levels over a 1080p view at fit, against the same world without it). `runs/light/film5.mjs` films the
 user's own world under each version, the real clock stepped with the frames.
 
