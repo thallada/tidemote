@@ -12,7 +12,7 @@ and `T.look.off()`, and a perf plan's scenario with `look: "on"` or `"off"`.
 
 | Stage | Function | Tunables |
 | --- | --- | --- |
-| The world's light, after the tone curve | `sceneLit`, `litGain`, `litShow`, `sunShadow`, `floorLit`, `seaFocus`; silt's `sparkle` (DRAW_WGSL) (Light, below) | none: `LIT_*`, `SHADOW_*`, `FOCUS_*` in POST_WGSL, `SPARK*` in DRAW_WGSL |
+| The world's light, after the tone curve | `sceneLit`, `litGain`, `litShow`, `sunShadow`, `floorLit`, `seaFocus`; silt's `sparkle` (DRAW_WGSL) (Light, below) | none: `LIT_*`, `SHADOW_*`, `FOCUS_*`, `SUN_*` in POST_WGSL, `SPARK*` in DRAW_WGSL |
 | The mud in the water | `murk`, `murkLayers`, `murkColor`, `Engine._murkCam` (Murk, below) | none: `MUD_*` in MICRO_FNS |
 | Scene light, before the tone curve | `lookScene` | relief (DIC), rims (darkfield), rainbow rims (`prism`: each edge colored by the side it faces), color fringes; halation and veiling flare (from the bloom's blur) |
 | Objective | `lensScene`, the field stop in `fsComposite` | shallow focus (`dof`: the optics' depth blur anywhere, not only toward the rim), the field iris |
@@ -163,7 +163,7 @@ bright, in log, from the open water's light (0) to a summer band's (1, `LIT_SPAN
 reach only about a quarter of that, so they barely show, as they should; the lamp goes past 1, the shade below 0. The
 light multiplies the toned view (`litShow`, after the tone curve so it is not squeezed, rolling off toward white above
 `LIT_KNEE`) by `litGain`: more on what lies on the floor, stone and silt (`LIT_GROUND`, 0.85x out of the light to 1.3x
-in a band), less on the living (`LIT_CELL`, 0.9x to 1.12x, their colors a little richer in the sun, `LIT_RICH`), who keep
+in a band), less on the living (`LIT_CELL`, 0.92x to 1.28x, their colors a little richer in the sun, `LIT_RICH`), who keep
 their colors. The living are told from the
 matter by their share of each pixel's light: the living's layer (`liveTex`), which the splat (sprites of a pixel or so,
 `splatMain`/`fsSplat`) fills too, with the living's own light kept in a fifth channel and laid there uncovered. The empty
@@ -176,7 +176,13 @@ them. Drawn as a glow on the dark water itself they read as nothing, or as fog (
 them). What lies beneath takes them a little more in the sun than in the shade (`seaFocus`). Silt in the light sparkles, as fine mineral grains do in a darkfield: jostled in the water,
 a grain's facets now and then turn to the light and flash (`sparkle` and `matterColor` in DRAW_WGSL, by `sunAt`, the
 same light from the view's uniforms: `SPARK_SHARE` of the grains, each every few seconds on the real clock, as bright
-as `SPARK` times the light; a grain seen as a point flashes whole, one seen as a chip from a rocking facet). In the
+as `SPARK` times the light; a grain seen as a point flashes whole, one seen as a chip from a rocking facet). The microscope's look takes the light too (`sunLook`, `sunGrade`): a brighter lamp makes more of everything that
+spreads light about a bright thing, so in the light the bloom reaches further (`SUN_BLOOM`), the halation grows and
+turns golden (`SUN_HALO`), the veiling flare grows and warms (`SUN_VEIL`), darkfield's rims (the light membranes scatter)
+brighten (`SUN_RIM`, from about 25 pixels a unit), and the view is graded a little golden, its pale highlights most so
+colored cells keep their hue (`SUN_GOLD`); `SUN_PRISM` would enrich the rainbow rims (tried, left off). Lit cells glow
+rather than outshine: with `LIT_CELL` 0.92x to 1.28x they read about 1.09x to 1.15x on screen (the display's gamma
+halves a gain in log, the shoulder takes a little more; 0.9x to 1.12x read 1.09x). In the
 sun the living shade the ground a little way from them (`sunShadow`: their layer looked up `SHADOW_H` units toward
 the light, softened; it lies that far off them at every zoom), which there has the open water's light. The murk glows faintly golden in the sun
 (`floorLit`; amber under the lamp; with Optics on). Before the tone curve the scene only takes the
