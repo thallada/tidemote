@@ -5858,13 +5858,13 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   }
 }
 `;
-  var NOTE_TG = 8;
+  var NOTE_TG = 16;
   var NOTE_TEMPS = 4;
   var NOTE_HEAD = NOTE_TEMPS + 2 * NOTE_TG * NOTE_TG;
   var NOTE_REC = 8;
   var NOTE_WGSL = COMMON + /* wgsl */
   `
-struct NoteU { corner: vec2f, size: vec2f, world: vec2f, count: u32, cap: u32, keep: f32, p0: u32, p1: u32, p2: u32 };
+struct NoteU { corner: vec2f, size: vec2f, world: vec2f, count: u32, cap: u32, keep: f32, p0: u32, p1: u32, p2: u32, grid: vec4f };
 @group(0) @binding(0) var<uniform> nu: NoteU;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
 @group(0) @binding(2) var<storage, read> genomes: array<Genome>;
@@ -5881,9 +5881,10 @@ fn nhash(v: u32) -> u32 {
 @compute @workgroup_size(256)
 fn noteMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = gid.x;
-  // the water across the view
+  // the water across the view, square by square
   if (i < ${NOTE_TG * NOTE_TG}u) {
-    let at = nu.corner + nu.size * (vec2f(f32(i % ${NOTE_TG}u), f32(i / ${NOTE_TG}u)) + 0.5) / ${NOTE_TG}.0;
+    var at = nu.grid.xy + nu.grid.z * (vec2f(f32(i % ${NOTE_TG}u), f32(i / ${NOTE_TG}u)) + 0.5);
+    at -= nu.world * floor(at / nu.world);
     atomicStore(&nout[${NOTE_TEMPS}u + i], bitcast<u32>(waterTempAt(at)));
     atomicStore(&nout[${NOTE_TEMPS + NOTE_TG * NOTE_TG}u + i], bitcast<u32>(iceAt(at)));
   }
@@ -21311,6 +21312,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.watchRect = new Float32Array(4);
       this.watchEv = 4294967295;
       this.watchBites = 4294967295;
+      this.noteGrid = new Float32Array(3);
       this.waves = new Float32Array(16);
       this.viewData = new ArrayBuffer(VIEW_BYTES);
       this.viewDataL = new ArrayBuffer(VIEW_BYTES);
@@ -21408,13 +21410,14 @@ registerProcessor("tidemote-sound", TidemoteSound);
       b.surveyU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
       b.survey = d.createBuffer({ size: SURVEY_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
       this.surveyStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: SURVEY_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
-      b.noteU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
+      b.noteU = d.createBuffer({ size: 64, usage: U.UNIFORM | U.COPY_DST });
       b.noteOut = d.createBuffer({ size: (NOTE_HEAD + NOTE_CAP * NOTE_REC) * 4, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
       this.noteStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: (NOTE_HEAD + NOTE_CAP * NOTE_REC + NOTE_WORDS) * 4, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
       this.notes = null;
       this.onNotes = null;
       this._noteFrames = 0;
       this._noteLast = 0;
+      this._noteKeep = 1;
       this.survey = null;
       this.onSurvey = null;
       this._surveyFrames = 0;
@@ -23541,14 +23544,18 @@ ${e.message}` : String(e?.message || e));
       this._noteFrames = 0;
       st.busy = true;
       const b = this.b, N = this.count, cap2 = Math.min(NOTE_CAP, S.cap || NOTE_CAP);
-      const keep = this._noteLast > cap2 ? 0.9 * cap2 / this._noteLast : 1;
-      const u = new ArrayBuffer(48), f2 = new Float32Array(u), w = new Uint32Array(u);
+      const fits = this._noteLast > cap2 ? 0.9 * cap2 / this._noteLast : 1;
+      if (fits >= 1) this._noteKeep = 1;
+      else if (!(this._noteKeep * this._noteLast <= cap2) || this._noteKeep < fits * 0.6) this._noteKeep = 2 ** (Math.floor(Math.log2(fits) * 4) / 4);
+      const keep = this._noteKeep;
+      const u = new ArrayBuffer(64), f2 = new Float32Array(u), w = new Uint32Array(u);
       f2.set(R2, 0);
       f2[4] = this.grid[0];
       f2[5] = this.grid[1];
       w[6] = N;
       w[7] = cap2;
       f2[8] = keep;
+      f2.set(this.noteGrid, 12);
       this.device.queue.writeBuffer(b.noteU, 0, u);
       enc.clearBuffer(b.noteOut, 0, 16);
       const pass = enc.beginComputePass();
@@ -23559,7 +23566,7 @@ ${e.message}` : String(e?.message || e));
       const want = Math.min(cap2, Math.ceil(Math.min(this._noteLast, cap2) * 1.3) + 512), bytes = (NOTE_HEAD + want * NOTE_REC) * 4;
       enc.copyBufferToBuffer(b.noteOut, 0, st.buf, 0, bytes);
       enc.copyBufferToBuffer(b.ledger, this._noteAt(), st.buf, bytes, NOTE_WORDS * 4);
-      return { st, bytes, want, keep, simTime, stepTime: this.simTime, tick: this.tick, rect: [...R2], biteKeep: this.watchBites / 4294967296 };
+      return { st, bytes, want, keep, simTime, stepTime: this.simTime, tick: this.tick, rect: [...R2], grid: [...this.noteGrid], biteKeep: this.watchBites / 4294967296 };
     }
     _notesRead(job, generation) {
       const { st, bytes } = job;
@@ -23575,6 +23582,7 @@ ${e.message}` : String(e?.message || e));
           stepTime: job.stepTime,
           tick: job.tick,
           rect: job.rect,
+          grid: job.grid,
           biteKeep: job.biteKeep,
           keep: job.keep,
           inView: head[0],
@@ -29931,18 +29939,18 @@ ${e.message}` : String(e?.message || e));
   }
   function readView(scan, world) {
     const { n, u32, f32, rect } = scan;
-    const [W, H2] = world;
+    const [W, H2] = world, G = NOTE_TG * NOTE_TG;
+    const grid2 = scan.grid && scan.grid[2] > 0 ? scan.grid : [rect[0], rect[1], Math.max(rect[2], rect[3]) / NOTE_TG];
     const v = {
       n,
       simTime: scan.simTime,
       rect,
+      grid: grid2,
       keep: scan.keep,
       inView: scan.inView,
       id: new Uint32Array(n),
       x: new Float32Array(n),
       y: new Float32Array(n),
-      lx: new Float32Array(n),
-      ly: new Float32Array(n),
       vx: new Float32Array(n),
       vy: new Float32Array(n),
       kind: new Uint16Array(n),
@@ -29956,20 +29964,24 @@ ${e.message}` : String(e?.message || e));
       p1: new Uint32Array(n),
       p2: new Uint32Array(n),
       at: /* @__PURE__ */ new Map(),
-      temps: new Float32Array(NOTE_TG * NOTE_TG),
-      ice: new Float32Array(NOTE_TG * NOTE_TG)
+      temps: new Float32Array(G),
+      ice: new Float32Array(G),
+      sqIn: new Uint8Array(G)
     };
-    for (let k = 0; k < NOTE_TG * NOTE_TG; k++) {
+    const s = grid2[2], cx = rect[0] + rect[2] / 2, cy = rect[1] + rect[3] / 2;
+    for (let k = 0; k < G; k++) {
       v.temps[k] = f32[NOTE_TEMPS + k];
-      v.ice[k] = f32[NOTE_TEMPS + NOTE_TG * NOTE_TG + k];
+      v.ice[k] = f32[NOTE_TEMPS + G + k];
+      let dx = grid2[0] + (k % NOTE_TG + 0.5) * s - cx, dy = grid2[1] + (Math.floor(k / NOTE_TG) + 0.5) * s - cy;
+      dx -= W * Math.round(dx / W);
+      dy -= H2 * Math.round(dy / H2);
+      v.sqIn[k] = Math.abs(dx) < (rect[2] + s) / 2 && Math.abs(dy) < (rect[3] + s) / 2 ? 1 : 0;
     }
     for (let i = 0; i < n; i++) {
       const o = NOTE_HEAD + i * NOTE_REC, w = u32[o + 3];
       v.id[i] = u32[o];
       v.x[i] = f32[o + 1];
       v.y[i] = f32[o + 2];
-      v.lx[i] = ((v.x[i] - rect[0]) % W + W) % W;
-      v.ly[i] = ((v.y[i] - rect[1]) % H2 + H2) % H2;
       v.kind[i] = w & 1023;
       v.cause[i] = w >>> 10 & 15;
       v.role[i] = w >>> 14 & 3;
@@ -29985,6 +29997,11 @@ ${e.message}` : String(e?.message || e));
       v.at.set(v.id[i], i);
     }
     return v;
+  }
+  function squareOf(v, x, y, world) {
+    const [W, H2] = world, [ox, oy, s] = v.grid;
+    const i = Math.floor(((x - ox) % W + W) % W / s), j = Math.floor(((y - oy) % H2 + H2) % H2 / s);
+    return i < NOTE_TG && j < NOTE_TG ? j * NOTE_TG + i : -1;
   }
   function readRing(ring2, last, tick, stepTime) {
     const count = ring2[0] >>> 0;
@@ -30152,12 +30169,14 @@ ${e.message}` : String(e?.message || e));
       const scale = v.keep > 0 ? 1 / v.keep : 1;
       return { by, living, torpid, scale };
     }
-    // the water across the view: mean, warmest and coldest of the NOTE_TG × NOTE_TG samples, the share iced
+    // the water across the view: mean, warmest and coldest of its squares, the share iced
     _water() {
       const v = this.view;
-      let s = 0, hi = -1e9, lo = 1e9, iced = 0, at = 0;
+      let s = 0, hi = -1e9, lo = 1e9, iced = 0, at = 0, n = 0;
       for (let k = 0; k < v.temps.length; k++) {
+        if (!v.sqIn[k]) continue;
         const t2 = v.temps[k];
+        n++;
         s += t2;
         if (t2 > hi) {
           hi = t2;
@@ -30166,7 +30185,7 @@ ${e.message}` : String(e?.message || e));
         lo = Math.min(lo, t2);
         if (v.ice[k] > 0.5) iced++;
       }
-      return { mean: s / v.temps.length, hi, lo, hiAt: at, iced: iced / v.temps.length };
+      return { mean: s / Math.max(1, n), hi, lo, hiAt: at, iced: iced / Math.max(1, n) };
     }
     /**
      * Each frame. ctx: { now (real seconds), speed (sim seconds a real second), ppu (CSS px a world unit), phone,
@@ -30323,7 +30342,7 @@ ${e.message}` : String(e?.message || e));
         if (band !== "wide") for (const o of S.by.values()) {
           if (o.kind === s.kind || o.n < 4 || o.hot > 0 || !name(o.kind)) continue;
           let inHot = 0;
-          for (const i of o.rows) if (hot.has(this._sq(v.lx[i], v.ly[i]))) inHot++;
+          for (const i of o.rows) if (hot.has(squareOf(v, v.x[i], v.y[i], this.world()))) inHot++;
           if (inHot >= 3 && (!fine || inHot > fine.n)) fine = { kind: o.kind, n: inHot };
         }
         out.push({
@@ -30376,16 +30395,11 @@ ${e.message}` : String(e?.message || e));
       for (const c of out) c.band = band;
       return out;
     }
-    // the grid square (of NOTE_TG across the view) a local point falls in
-    _sq(lx, ly) {
-      const r = this.view.rect;
-      return Math.min(NOTE_TG - 1, Math.floor(ly / r[3] * NOTE_TG)) * NOTE_TG + Math.min(NOTE_TG - 1, Math.floor(lx / r[2] * NOTE_TG));
-    }
     // the squares of the view whose water lies past 0.8 of species g's tolerance above its optimum
     _hotCells(g) {
       const out = /* @__PURE__ */ new Set(), v = this.view;
       if (!g) return out;
-      for (let k = 0; k < v.temps.length; k++) if ((v.temps[k] - g.topt) / Math.max(g.tol, 0.5) > 0.8) out.add(k);
+      for (let k = 0; k < v.temps.length; k++) if (v.sqIn[k] && (v.temps[k] - g.topt) / Math.max(g.tol, 0.5) > 0.8) out.add(k);
       return out;
     }
     // a coarse step's bite names no grazer: the nearest living cell in reach whose last meal (its search image) was the
@@ -30496,10 +30510,82 @@ ${e.message}` : String(e?.message || e));
       if (!S) return [];
       return [...S.by.values()].map((s) => ({ kind: s.kind, n: Math.round(s.n * S.scale), cysts: s.cysts, torpid: s.torpid, hot: s.hot })).sort((a, b) => b.n - a.n);
     }
+    // (drawn: the most the view drew in a frame since the last call, which it clears)
     debug() {
-      return { lost: this.lost, biteKeep: this.biteKeep, ms: Object.fromEntries(Object.entries(this.ms).map(([k, v]) => [k, typeof v === "number" ? Math.round(v) : Object.fromEntries(Object.entries(v).map(([a, b]) => [a, Math.round(b)]))])), cells: this.view?.n ?? 0, inView: this.view?.inView ?? 0, events: this.events.length, cands: this.cands.map((c) => c.key), notes: this.notes.map((n) => `${n.key}${n.exitAt != null ? "(out)" : ""}`) };
+      const drawn = this.ms.drawn;
+      this.ms.drawn = {};
+      return { drawn, lost: this.lost, biteKeep: this.biteKeep, ms: Object.fromEntries(Object.entries(this.ms).filter(([k]) => k !== "drawn").map(([k, v]) => [k, typeof v === "number" ? Math.round(v) : Object.fromEntries(Object.entries(v).map(([a, b]) => [a, Math.round(b)]))])), cells: this.view?.n ?? 0, inView: this.view?.inView ?? 0, events: this.events.length, cands: this.cands.map((c) => c.key), notes: this.notes.map((n) => `${n.key}${n.exitAt != null ? "(out)" : ""}`) };
     }
   };
+
+  // src/noteaudit.js
+  function createAudit() {
+    let S, tracks, boxes, frame, T = { ox: 0, oy: 0, rx: 0, ry: 0, k: 1 };
+    function reset() {
+      S = { frames: 0, jerk: {}, overlapFrames: 0, overlaps: 0, examples: [], moves: 0, flips: 0, swaps: 0, hidden: 0 };
+      tracks = /* @__PURE__ */ new Map();
+      boxes = [];
+      frame = 0;
+    }
+    reset();
+    const cat = (c) => S.jerk[c] ||= { n: 0, sum: 0, max: 0, over1: 0, over3: 0 };
+    return {
+      reset,
+      begin() {
+        frame++;
+        S.frames++;
+        boxes = [];
+      },
+      /** this frame's camera: world point (rx, ry) shows at screen (ox, oy), k px a world unit */
+      frame(ox, oy, rx, ry, k) {
+        T = { ox, oy, rx, ry, k };
+      },
+      /** the fixed point changed (the view left it, or wrapped round the world): places are measured afresh */
+      rebase() {
+        tracks.clear();
+      },
+      /** a mark's (or label's) screen position this frame, by a key that names it from frame to frame */
+      point(c, key, sx, sy) {
+        const k = `${c}|${key}`, tr = tracks.get(k), x = T.rx + (sx - T.ox) / T.k, y = T.ry + (sy - T.oy) / T.k;
+        if (tr && tr.f === frame - 1 && tr.b) {
+          const j = Math.hypot(x - 2 * tr.a[0] + tr.b[0], y - 2 * tr.a[1] + tr.b[1]) * T.k, J = cat(c);
+          J.n++;
+          J.sum += j;
+          J.max = Math.max(J.max, j);
+          if (j > 1) J.over1++;
+          if (j > 3) J.over3++;
+        }
+        tracks.set(k, { f: frame, a: [x, y], b: tr && tr.f === frame - 1 ? tr.a : null });
+      },
+      /** a piece of text (or a tag) as drawn: its owner and its box */
+      box(owner, s, l, t2, r, b) {
+        boxes.push({ owner, s, l, t: t2, r, b });
+      },
+      count(k) {
+        S[k]++;
+      },
+      end() {
+        let any = false;
+        for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+          const a = boxes[i], b = boxes[j];
+          const w = Math.min(a.r, b.r) - Math.max(a.l, b.l), h = Math.min(a.b, b.b) - Math.max(a.t, b.t);
+          if (w > 1 && h > 1) {
+            S.overlaps++;
+            any = true;
+            if (S.examples.length < 40) S.examples.push(`${a.owner}:"${a.s}" × ${b.owner}:"${b.s}" (${w.toFixed(0)}×${h.toFixed(0)})`);
+          }
+        }
+        if (any) S.overlapFrames++;
+        if (tracks.size > 2e4) {
+          for (const [k, tr] of tracks) if (tr.f < frame - 2) tracks.delete(k);
+        }
+      },
+      summary() {
+        const jerk = Object.fromEntries(Object.entries(S.jerk).map(([c, J]) => [c, { n: J.n, mean: +(J.sum / Math.max(1, J.n)).toFixed(3), max: +J.max.toFixed(1), over1: +(J.over1 / Math.max(1, J.n)).toFixed(4), over3: +(J.over3 / Math.max(1, J.n)).toFixed(4) }]));
+        return { ...S, jerk };
+      }
+    };
+  }
 
   // src/noteview.js
   var FONT2 = 'Saira, Bahnschrift, "DIN Alternate", "Segoe UI", system-ui, sans-serif';
@@ -30511,12 +30597,16 @@ ${e.message}` : String(e?.message || e));
   var CYAN = "127,214,223";
   var SHADE = "rgba(4,7,8,0.85)";
   var HALO = "rgba(0,0,0,0.55)";
+  var PLATE = "rgba(4,7,8,0.42)";
   var rgba2 = (c, a) => `rgba(${c},${a})`;
   var SCRAMBLE = "0123456789ABCDEFHKLMNPRSTVXZ/·-";
   var TAU3 = Math.PI * 2;
   var clamp9 = (v, a, b) => Math.max(a, Math.min(b, v));
   var ease3 = (u) => 1 - (1 - clamp9(u, 0, 1)) ** 3;
   var NONE3 = 4294967295;
+  var hashU2 = (id) => (Math.imul(id, 2654435761) >>> 0) / 4294967296;
+  var cellKey = (i, j) => (i + 1048576) * 2097152 + (j + 1048576);
+  var cellIJ = (key) => [Math.floor(key / 2097152) - 1048576, key % 2097152 - 1048576];
   var TYPE = {
     tag: [600, 11, 0.2, "semi-expanded"],
     eye: [500, 11, 0.24, "semi-expanded"],
@@ -30524,14 +30614,44 @@ ${e.message}` : String(e?.message || e));
     num: [200, 24, 0.04, "semi-expanded"],
     data: [400, 11, 0.1, "normal"],
     micro: [500, 11, 0.14, "normal"],
-    head: [500, 11, 0.2, "semi-expanded"]
+    head: [500, 11, 0.2, "semi-expanded"],
+    dial: [300, 15, 0.04, "normal"]
+  };
+  var STEADY = {
+    settle: 0.12,
+    // a cell's mark eases out a new sample's correction
+    fade: 0.25,
+    // a cell's mark fades in or out
+    hold: 1.2,
+    // a lattice cell stays a moment after its last member leaves (the water's squares: holdSq)
+    holdSq: 1.6,
+    join: 0.5,
+    // and joins the outlined ground only once it has held members this long (its hatching fading in)
+    part: 0.4,
+    // a leaving cell's hatching fades out over the last of its hold, its edge gone first
+    relook: 0.7,
+    // a label's place is weighed again this often (at once when it covers text)
+    better: 120,
+    // and changes only for one this much better (in the placement's score)
+    follow: 0.3,
+    // a label follows its cell's own motion (a swimmer's beat) this smoothly, the camera's exactly
+    slide: 0.22,
+    // a label's offset eases this fast; a jump past `far` px crossfades instead
+    far: 90,
+    swap: 0.25,
+    roster: 0.6
+    // the roster's numbers change this often; a species passes another only with 15% more
   };
   function createNoteView(g) {
     const widths = /* @__PURE__ */ new Map();
     const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     const hatch = {};
+    const notesAt = /* @__PURE__ */ new Map();
     const lay = /* @__PURE__ */ new Map();
     const marks = /* @__PURE__ */ new Map();
+    const rosterSt = { at: -1e9, rows: [] };
+    let A = null, owner = "", ref = null, stats = null;
+    if (typeof document !== "undefined") document.fonts?.addEventListener?.("loadingdone", () => widths.clear());
     let cur = null;
     function setType(k) {
       if (cur === k) return;
@@ -30557,10 +30677,10 @@ ${e.message}` : String(e?.message || e));
       if (t2 <= 0) return "";
       const n = Math.floor(t2 / dur * s.length);
       let tail = "";
-      for (let i = n; i < Math.min(s.length, n + 4); i++) tail += s[i] === " " ? " " : SCRAMBLE[Math.random() * SCRAMBLE.length | 0];
+      for (let i = n; i < Math.min(s.length, n + 4); i++) tail += s[i] === " " ? " " : s[i] >= "0" && s[i] <= "9" ? String(Math.random() * 10 | 0) : SCRAMBLE[Math.random() * SCRAMBLE.length | 0];
       return s.slice(0, n) + tail;
     }
-    function text2(k, s, x, y, col, align = "left") {
+    function text2(k, s, x, y, col, align = "left", full = s) {
       if (!s) return;
       setType(k);
       g.textAlign = align;
@@ -30570,6 +30690,10 @@ ${e.message}` : String(e?.message || e));
       g.strokeText(s, x, y);
       g.fillStyle = col;
       g.fillText(s, x, y);
+      if (A) {
+        const w = width(k, full), px = TYPE[k][1], l = align === "center" ? x - w / 2 : align === "right" ? x - w : x;
+        A.box(owner, full, l, y - px * 0.72, l + w, y + px * 0.2);
+      }
     }
     function stroke(path, col, w = 1, halo = true, dash = null) {
       if (halo) {
@@ -30601,6 +30725,14 @@ ${e.message}` : String(e?.message || e));
       c.stroke();
       return hatch[tone] = g.createPattern(c.canvas, "repeat");
     }
+    function hatchAt(tone, x, y, px) {
+      const p = hatchOf(tone);
+      if (p.setTransform && typeof DOMMatrix !== "undefined") {
+        const k = px / 6;
+        p.setTransform(new DOMMatrix([k, 0, 0, k, x, y]));
+      }
+      return p;
+    }
     function brackets2(l, t0, r, b, col, t2) {
       const k = reduced ? 1 : 1 + 1.2 * (1 - ease3(t2 / 0.35));
       const cx = (l + r) / 2, cy = (t0 + b) / 2, hw = (r - l) / 2 * k, hh = (b - t0) / 2 * k;
@@ -30614,9 +30746,10 @@ ${e.message}` : String(e?.message || e));
         }
       }, col, 1.4);
     }
+    const lockR = (r) => Math.max(r, 7) * 1.45 + 6;
     function lock(x, y, r, tone, t2) {
       r = Math.max(r, 7);
-      const a = g.globalAlpha, R2 = r * 1.45 + 6, u = reduced ? 1 : ease3(t2 / 1.1);
+      const a = g.globalAlpha, R2 = lockR(r), u = reduced ? 1 : ease3(t2 / 1.1);
       g.globalAlpha = a * (reduced ? 0.35 : 0.9 - 0.55 * u);
       const rot = (1 - u) * -Math.PI / 2, s = 1 + 0.6 * (1 - u);
       g.lineWidth = 1;
@@ -30656,17 +30789,30 @@ ${e.message}` : String(e?.message || e));
       g.textAlign = "left";
       g.fillStyle = hollow ? rgba2(tone, 1) : "rgba(6,9,10,0.95)";
       g.fillText(decoded(s, t2), x0 + 5, y + 1);
+      if (A && g.globalAlpha >= 0.5) A.box(owner, s, x0, y - 10, x0 + w, y + 4);
       g.globalAlpha = a;
       return w;
     }
-    function link(a, b, verb, tone, t2, now, bend = 0.18, gap = 9, hollow = false) {
+    function linkCurve(a, b, bend, gap) {
       const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy);
-      if (L < 2 * gap + 4) return;
+      if (L < 2 * gap + 4) return null;
       const ux = dx / L, uy = dy / L;
       const p0 = [a[0] + ux * gap, a[1] + uy * gap], p1 = [b[0] - ux * gap, b[1] - uy * gap];
       const m = [(p0[0] + p1[0]) / 2 - uy * L * bend, (p0[1] + p1[1]) / 2 + ux * L * bend];
-      const u = reduced ? 1 : ease3(t2 / 0.5);
       const at = (s) => [(1 - s) ** 2 * p0[0] + 2 * (1 - s) * s * m[0] + s * s * p1[0], (1 - s) ** 2 * p0[1] + 2 * (1 - s) * s * m[1] + s * s * p1[1]];
+      return { L, ux, uy, p1, at };
+    }
+    function linkTag(C3, verb, bend) {
+      const [qx, qy] = C3.at(0.5), w = width("tag", verb) + 10;
+      if (C3.L >= 140) return { x: qx, y: qy + 3, box: { l: qx - w / 2 - 3, t: qy - 10, r: qx + w / 2 + 3, b: qy + 10 } };
+      const s = bend < 0 ? -1 : 1, ox = qx - C3.uy * 34 * s, oy = qy + C3.ux * 34 * s;
+      return { qx, qy, ox, oy, x: ox, y: oy + 7, box: { l: ox - w / 2 - 3, t: oy - 6, r: ox + w / 2 + 3, b: oy + 14 } };
+    }
+    function link(a, b, verb, tone, t2, now, bend = 0.18, gap = 9, hollow = false, verbA = 1) {
+      const C3 = linkCurve(a, b, bend, gap);
+      if (!C3) return;
+      const { at, p1, L } = C3;
+      const u = reduced ? 1 : ease3(t2 / 0.5);
       const path = (s0, s1) => () => {
         g.beginPath();
         const q = at(s0);
@@ -30703,152 +30849,150 @@ ${e.message}` : String(e?.message || e));
           g.lineTo(p1[0] + Math.sin(an) * 5, p1[1] - Math.cos(an) * 5);
         }, rgba2(tone, 0.95), 1.4);
       }
-      if (verb && t2 > 0.4) {
-        let [qx, qy] = at(0.5);
-        if (L < 140) {
-          const s = bend < 0 ? -1 : 1, ox = qx - uy * 34 * s, oy = qy + ux * 34 * s;
-          stroke(() => {
-            g.beginPath();
-            g.moveTo(qx, qy);
-            g.lineTo(ox, oy);
-          }, rgba2(tone, 0.7), 1);
-          qx = ox;
-          qy = oy + 4;
-        }
-        tag(verb, qx, qy + 3, tone, t2 - 0.4, "center", hollow);
+      if (verb && t2 > 0.4 && verbA > 0) {
+        const T = linkTag(C3, verb, bend), a0 = g.globalAlpha;
+        g.globalAlpha = a0 * verbA;
+        if (T.ox != null) stroke(() => {
+          g.beginPath();
+          g.moveTo(T.qx, T.qy);
+          g.lineTo(T.ox, T.oy);
+        }, rgba2(tone, 0.7), 1);
+        tag(verb, T.x, T.y, tone, t2 - 0.4, "center", hollow);
+        g.globalAlpha = a0;
       }
     }
     function census(pts, glyph2, tone, t2, from, size = 4) {
       if (!pts.length) return;
       let far = 1;
       for (const p of pts) far = Math.max(far, Math.hypot(p[0] - from[0], p[1] - from[1]));
-      const P = new Path2D();
-      for (const [x, y] of pts) {
-        const d = t2 - 0.9 * Math.hypot(x - from[0], y - from[1]) / far;
+      const P = new Path2D(), a0 = g.globalAlpha, fading = [];
+      const add = (Pt, x, y, Q) => {
+        if (glyph2 === "plus") {
+          Pt.moveTo(x - Q, y);
+          Pt.lineTo(x + Q, y);
+          Pt.moveTo(x, y - Q);
+          Pt.lineTo(x, y + Q);
+        } else if (glyph2 === "ring") {
+          Pt.moveTo(x + Q * 1.3, y);
+          Pt.arc(x, y, Q * 1.3, 0, TAU3);
+        } else if (glyph2 === "square") Pt.rect(x - Q * 0.8, y - Q * 0.8, Q * 1.6, Q * 1.6);
+        else {
+          Pt.moveTo(x - Q * 0.8, y - Q * 0.8);
+          Pt.lineTo(x + Q * 0.8, y + Q * 0.8);
+          Pt.moveTo(x + Q * 0.8, y - Q * 0.8);
+          Pt.lineTo(x - Q * 0.8, y + Q * 0.8);
+        }
+      };
+      for (const p of pts) {
+        const [x, y] = p, d = t2 - 0.9 * Math.hypot(x - from[0], y - from[1]) / far;
         if (d < 0 && !reduced) continue;
         const Q = size * (reduced ? 1 : 1 + 0.8 * Math.max(0, 1 - d / 0.25));
-        if (glyph2 === "plus") {
-          P.moveTo(x - Q, y);
-          P.lineTo(x + Q, y);
-          P.moveTo(x, y - Q);
-          P.lineTo(x, y + Q);
-        } else if (glyph2 === "ring") {
-          P.moveTo(x + Q * 1.3, y);
-          P.arc(x, y, Q * 1.3, 0, TAU3);
-        } else if (glyph2 === "square") P.rect(x - Q * 0.8, y - Q * 0.8, Q * 1.6, Q * 1.6);
-        else {
-          P.moveTo(x - Q * 0.8, y - Q * 0.8);
-          P.lineTo(x + Q * 0.8, y + Q * 0.8);
-          P.moveTo(x + Q * 0.8, y - Q * 0.8);
-          P.lineTo(x - Q * 0.8, y + Q * 0.8);
-        }
+        if (p[3] < 0.99) fading.push([x, y, Q, p[3]]);
+        else add(P, x, y, Q);
+        if (A && hashU2(p[2]) < 0.125) A.point(p[3] < 0.99 ? "fading" : "glyph", `${owner}:${p[2]}`, x, y);
       }
-      g.setLineDash([]);
-      g.lineWidth = 3.2;
-      g.strokeStyle = HALO;
-      g.stroke(P);
-      g.lineWidth = 1.3;
-      g.strokeStyle = rgba2(tone, 0.95);
-      if (glyph2 === "ring") g.setLineDash([2, 2]);
-      g.stroke(P);
-      g.setLineDash([]);
+      const draw2 = (Pt) => {
+        g.setLineDash([]);
+        g.lineWidth = 3.2;
+        g.strokeStyle = HALO;
+        g.stroke(Pt);
+        g.lineWidth = 1.3;
+        g.strokeStyle = rgba2(tone, 0.95);
+        if (glyph2 === "ring") g.setLineDash([2, 2]);
+        g.stroke(Pt);
+        g.setLineDash([]);
+      };
+      draw2(P);
+      if (fading.length) {
+        const bands = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];
+        for (const [x, y, Q, a] of fading) add(bands[Math.min(3, Math.floor(a * 4))], x, y, Q);
+        bands.forEach((Pt, b) => {
+          g.globalAlpha = a0 * (b + 0.5) / 4;
+          draw2(Pt);
+        });
+      }
+      g.globalAlpha = a0;
+      if (stats) stats.glyphs = (stats.glyphs || 0) + pts.length;
     }
-    function zone(pts, tone, t2, hatched, cell = 14) {
-      if (pts.length < 2) return null;
-      const on = /* @__PURE__ */ new Set();
-      for (const [x, y] of pts) {
-        const i = Math.floor(x / cell), j = Math.floor(y / cell);
-        for (let a2 = -1; a2 <= 1; a2++) for (let b = -1; b <= 1; b++) on.add(`${i + a2},${j + b}`);
-      }
-      for (const key2 of [...on]) {
-        const [i, j] = key2.split(",").map(Number);
-        if (on.has(`${i + 2},${j}`)) on.add(`${i + 1},${j}`);
-        if (on.has(`${i},${j + 2}`)) on.add(`${i},${j + 1}`);
-      }
-      const a = g.globalAlpha;
-      let top = null, left = null, right = null;
-      g.beginPath();
-      const edges = new Path2D();
-      for (const key2 of on) {
-        const [i, j] = key2.split(",").map(Number), x = i * cell, y = j * cell;
-        if (hatched) g.rect(x, y, cell, cell);
-        if (!on.has(`${i},${j - 1}`)) {
-          edges.moveTo(x, y);
-          edges.lineTo(x + cell, y);
+    function lattice(keys, soft, V, tone, alpha, hatched, H2) {
+      if (hatched && H2.a > 0 && soft.size) {
+        const bands = [new Path2D(), new Path2D(), new Path2D(), new Path2D()], a2 = g.globalAlpha;
+        for (const [key2, f2] of soft) {
+          const [i, j] = cellIJ(key2), q = [V(i, j), V(i + 1, j), V(i + 1, j + 1), V(i, j + 1)], P = bands[Math.min(3, Math.floor(f2 * 4))];
+          P.moveTo(q[0][0], q[0][1]);
+          for (let e = 1; e < 4; e++) P.lineTo(q[e][0], q[e][1]);
+          P.closePath();
         }
-        if (!on.has(`${i},${j + 1}`)) {
-          edges.moveTo(x, y + cell);
-          edges.lineTo(x + cell, y + cell);
-        }
-        if (!on.has(`${i - 1},${j}`)) {
-          edges.moveTo(x, y);
-          edges.lineTo(x, y + cell);
-        }
-        if (!on.has(`${i + 1},${j}`)) {
-          edges.moveTo(x + cell, y);
-          edges.lineTo(x + cell, y + cell);
-        }
-        if (!top || y < top[1] || y === top[1] && x + cell > top[0]) top = [x + cell, y];
-        if (!left || x < left[0]) left = [x, y + cell / 2];
-        if (!right || x + cell > right[0]) right = [x + cell, y + cell / 2];
+        g.fillStyle = hatchAt(tone, H2.x, H2.y, H2.px);
+        bands.forEach((P, b) => {
+          g.globalAlpha = a2 * alpha * H2.a * (b + 0.5) / 4;
+          g.fill(P);
+        });
+        g.globalAlpha = a2;
       }
-      const f2 = reduced ? 1 : clamp9(t2 / 0.4, 0, 1);
-      if (hatched) {
-        g.globalAlpha = a * f2 * clamp9((t2 - 0.3) / 0.4, 0, 1);
-        g.fillStyle = hatchOf(tone);
-        g.fill();
-      }
-      g.globalAlpha = a * f2;
-      g.lineWidth = 3;
-      g.strokeStyle = HALO;
-      g.stroke(edges);
-      g.lineWidth = 1;
-      g.strokeStyle = rgba2(tone, 0.9);
-      g.setLineDash([1, 3]);
-      g.lineCap = "round";
-      g.stroke(edges);
-      g.setLineDash([]);
-      g.lineCap = "butt";
-      g.globalAlpha = a;
-      return { top, left, right };
-    }
-    function squares(quads, tone, t2, hatched) {
-      if (!quads.length) return;
-      const a = g.globalAlpha, f2 = reduced ? 1 : clamp9(t2 / 0.5, 0, 1);
-      const fill = new Path2D(), P = new Path2D(), has = new Set(quads.map(([k]) => k));
-      for (const [k, q] of quads) {
-        fill.moveTo(q[0][0], q[0][1]);
-        for (let e = 1; e < 4; e++) fill.lineTo(q[e][0], q[e][1]);
-        fill.closePath();
-        const i = k % NOTE_TG, j = Math.floor(k / NOTE_TG);
-        const out = [j === 0 || !has.has(k - NOTE_TG), i === NOTE_TG - 1 || !has.has(k + 1), j === NOTE_TG - 1 || !has.has(k + NOTE_TG), i === 0 || !has.has(k - 1)];
+      if (!keys.size) return null;
+      const a = g.globalAlpha, fill = new Path2D(), edges = new Path2D();
+      let top = null, len2 = 0;
+      const rows = /* @__PURE__ */ new Map();
+      for (const key2 of keys) {
+        const [i, j] = cellIJ(key2);
+        const q = [V(i, j), V(i + 1, j), V(i + 1, j + 1), V(i, j + 1)];
+        if (hatched) {
+          let r = rows.get(j);
+          if (!r) rows.set(j, r = []);
+          r.push(i);
+        }
+        const out = [!keys.has(cellKey(i, j - 1)), !keys.has(cellKey(i + 1, j)), !keys.has(cellKey(i, j + 1)), !keys.has(cellKey(i - 1, j))];
         for (let e = 0; e < 4; e++) if (out[e]) {
-          P.moveTo(q[e][0], q[e][1]);
-          P.lineTo(q[(e + 1) % 4][0], q[(e + 1) % 4][1]);
+          edges.moveTo(q[e][0], q[e][1]);
+          edges.lineTo(q[(e + 1) % 4][0], q[(e + 1) % 4][1]);
+          len2 += Math.abs(q[1][0] - q[0][0]);
         }
+        if (!top || q[1][1] < top[1] || q[1][1] === top[1] && q[1][0] > top[0]) top = q[1];
       }
-      if (hatched) {
-        g.globalAlpha = a * f2 * clamp9((t2 - 0.3) / 0.5, 0, 1) * 0.7;
-        g.fillStyle = hatchOf(tone);
+      if (hatched && H2.a > 0) {
+        for (const [j, r] of rows) {
+          r.sort((x, y) => x - y);
+          for (let s0 = 0; s0 < r.length; ) {
+            let e = s0;
+            while (e + 1 < r.length && r[e + 1] === r[e] + 1) e++;
+            const p0 = V(r[s0], j), p1 = V(r[e] + 1, j + 1);
+            fill.rect(p0[0], p0[1], p1[0] - p0[0], p1[1] - p0[1]);
+            s0 = e + 1;
+          }
+        }
+        g.globalAlpha = a * alpha * H2.a;
+        g.fillStyle = hatchAt(tone, H2.x, H2.y, H2.px);
         g.fill(fill);
       }
-      g.globalAlpha = a * f2;
+      g.globalAlpha = a * alpha;
       g.lineWidth = 3;
       g.strokeStyle = HALO;
-      g.stroke(P);
-      g.lineWidth = 1;
-      g.strokeStyle = rgba2(tone, 0.85);
-      g.setLineDash([1, 3]);
-      g.lineCap = "round";
-      g.stroke(P);
-      g.setLineDash([]);
-      g.lineCap = "butt";
+      g.stroke(edges);
+      if (len2 < 6e3) {
+        g.lineWidth = 1;
+        g.strokeStyle = rgba2(tone, 0.88);
+        g.setLineDash([1, 3]);
+        g.lineCap = "round";
+        g.stroke(edges);
+        g.setLineDash([]);
+        g.lineCap = "butt";
+      } else {
+        g.lineWidth = 1;
+        g.strokeStyle = rgba2(tone, 0.5);
+        g.stroke(edges);
+      }
       g.globalAlpha = a;
+      if (stats) {
+        stats.cells = Math.max(stats.cells || 0, keys.size + soft.size);
+        stats.edge = Math.max(stats.edge || 0, len2);
+      }
+      return top;
     }
-    function pip(x, y, tone, t2) {
+    function pip(x, y, tone, t2, fade = 1) {
       const on = reduced || t2 > 0.9 || Math.floor(t2 / 0.15) % 2 === 0;
       const a = g.globalAlpha;
-      g.globalAlpha = a * (on ? t2 > 0.9 ? 0.75 : 1 : 0.2);
+      g.globalAlpha = a * (on ? t2 > 0.9 ? 0.75 : 1 : 0.2) * fade;
       const q = 4;
       stroke(() => {
         g.beginPath();
@@ -30859,9 +31003,12 @@ ${e.message}` : String(e?.message || e));
       }, rgba2(tone, 0.95), 1.3);
       g.globalAlpha = a;
     }
+    function leaderPath(sx, sy, ex, ey) {
+      const dir = Math.sign(ex - sx) || 1;
+      return { dir, mx: sx + dir * Math.min(Math.abs(ey - sy), Math.abs(ex - sx)) };
+    }
     function leader(sx, sy, ex, ey, tone, t2) {
-      const dy = ey - sy, dir = Math.sign(ex - sx) || 1, r = 3;
-      const mx = sx + dir * Math.min(Math.abs(dy), Math.abs(ex - sx));
+      const dy = ey - sy, { dir, mx } = leaderPath(sx, sy, ex, ey), r = 3;
       const u = reduced ? 1 : ease3(t2 / 0.4);
       const pts = [[sx + dir * r * 0.7, sy + Math.sign(dy || 1) * r * 0.7], [mx, ey], [ex, ey]];
       const len2 = Math.hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]) + Math.abs(ex - mx);
@@ -30884,29 +31031,32 @@ ${e.message}` : String(e?.message || e));
       g.stroke();
     }
     const norm = (L) => L.normed ? L : { ...L, eye: L.eye && L.eye.toUpperCase(), tag: L.tag && L.tag.toUpperCase(), normed: true };
+    const RANGE_W = 120;
     function labelSize(L) {
       L = norm(L);
       const head = (L.eye ? width("eye", L.eye) : 0) + (L.tag ? width("tag", L.tag) + 10 + (L.eye ? 8 : 0) : 0);
       const row = (L.num ? width("num", L.num) + 8 : 0) + (L.main ? width("main", L.main) : 0);
       const data = Math.max(0, ...(L.data || []).map((d) => width("data", d)));
-      const w = Math.max(head, row, data, L.range ? 120 : 0);
+      const w = Math.max(head, row, data, L.range ? RANGE_W + 8 : 0);
       let h = 0;
       if (L.eye || L.tag) h += 13;
       if (L.num || L.main) h += (L.num ? 24 : 15) + 4;
       h += (L.data || []).length * 14;
-      if (L.range) h += 36;
+      if (L.range) h += 42;
       return { w, h: h + 4 };
     }
     function label3(L, x, y, dir, t2) {
       L = norm(L);
-      const { w } = labelSize(L), tone = L.tone || INK4;
+      const { w, h } = labelSize(L), tone = L.tone || INK4;
       const X = (dx) => dir > 0 ? x + dx : x - dx;
       const al = dir > 0 ? "left" : "right";
+      g.fillStyle = PLATE;
+      g.fillRect(dir > 0 ? x - 6 : x - w - 6, y - 14, w + 12, h + 14);
       let yy = y;
       if (L.eye || L.tag) {
         let ox = 0;
         if (L.tag) ox = tag(L.tag, dir > 0 ? x : x - width("tag", L.tag) - 10, yy, tone, t2) + 8;
-        if (L.eye) text2("eye", decoded(L.eye, t2), X(ox), yy, rgba2(tone, 0.95), al);
+        if (L.eye) text2("eye", decoded(L.eye, t2), X(ox), yy, rgba2(tone, 0.95), al, L.eye);
         yy += 7;
         const u = reduced ? 1 : ease3((t2 - 0.05) / 0.45);
         stroke(() => {
@@ -30923,26 +31073,32 @@ ${e.message}` : String(e?.message || e));
       if (L.num || L.main) {
         yy += L.num ? 22 : 13;
         const nw = L.num ? width("num", L.num) + 8 : 0, mw = L.main ? width("main", L.main) : 0;
-        if (L.num) text2("num", decoded(L.num, t2 - 0.1), dir > 0 ? x : x - mw - 8, yy, rgba2(L.numTone || tone, 0.98), al === "left" ? "left" : "right");
-        if (L.main) text2("main", decoded(L.main, t2 - 0.15), dir > 0 ? x + nw : x, yy, rgba2(INK4, 0.97), al);
+        if (L.num) text2("num", decoded(L.num, t2 - 0.1), dir > 0 ? x : x - mw - 8, yy, rgba2(L.numTone || tone, 0.98), al, L.num);
+        if (L.main) text2("main", decoded(L.main, t2 - 0.15), dir > 0 ? x + nw : x, yy, rgba2(INK4, 0.97), al, L.main);
         yy += 4;
       }
       for (const d of L.data || []) {
         yy += 14;
-        text2("data", decoded(d, t2 - 0.2), X(0), yy, rgba2(INK22, 0.95), al);
+        text2("data", decoded(d, t2 - 0.2), X(0), yy, rgba2(INK22, 0.95), al, d);
       }
       if (L.range) {
-        yy += 16;
-        range(L.range, dir > 0 ? x : x - 120, yy, t2 - 0.25);
+        yy += 22;
+        range(L.range, dir > 0 ? x : x - RANGE_W, yy, t2 - 0.25);
         yy += 20;
       }
       return { w, h: yy - y };
+    }
+    function apart(a, b, wa, wb, gap = 6) {
+      const need = (wa + wb) / 2 + gap;
+      if (b - a >= need) return [a, b];
+      const m = (a + b) / 2;
+      return [m - need / 2, m + need / 2];
     }
     function range(R2, x0, y, t2) {
       if (t2 < 0 && !reduced) return;
       const a = g.globalAlpha;
       g.globalAlpha = a * (reduced ? 1 : clamp9(t2 / 0.3, 0, 1));
-      const bw = 120, f2 = (v) => x0 + bw * clamp9((v - R2.min) / (R2.max - R2.min), 0, 1);
+      const bw = RANGE_W, f2 = (v) => x0 + bw * clamp9((v - R2.min) / (R2.max - R2.min), 0, 1);
       stroke(() => {
         g.beginPath();
         g.moveTo(x0, y + 3);
@@ -30965,13 +31121,16 @@ ${e.message}` : String(e?.message || e));
         g.moveTo(f2(R2.v), y - 3);
         g.lineTo(f2(R2.v), y + 9);
       }, rgba2(out ? HOT : INK4, 0.98), 1.6);
-      text2("micro", `${Math.round(R2.lo)}`, f2(R2.lo), y + 18, rgba2(INK32, 1), "center");
-      text2("micro", `${Math.round(R2.hi)}`, f2(R2.hi), y + 18, rgba2(INK32, 1), "center");
-      text2("micro", `${R2.v.toFixed(1)}°`, f2(R2.v), y - 6, rgba2(out ? HOT : INK4, 1), "center");
+      const sl = `${Math.round(R2.lo)}`, sh = `${Math.round(R2.hi)}`;
+      const [xl, xh] = apart(f2(R2.lo), f2(R2.hi), width("micro", sl), width("micro", sh));
+      text2("micro", sl, xl, y + 18, rgba2(INK32, 1), "center");
+      text2("micro", sh, xh, y + 18, rgba2(INK32, 1), "center");
+      const sv = `${R2.v.toFixed(1)}°`, wv = width("micro", sv);
+      text2("micro", sv, clamp9(f2(R2.v), x0 - 4 + wv / 2, x0 + bw + 4 - wv / 2), y - 7, rgba2(out ? HOT : INK4, 1), "center");
       g.globalAlpha = a;
     }
     function gauge(x, y, G, t2) {
-      const R2 = 32, a0 = Math.PI * 0.8, a1 = Math.PI * 2.2, A = (v) => a0 + (a1 - a0) * clamp9((v - G.min) / (G.max - G.min), 0, 1);
+      const R2 = 32, a0 = Math.PI * 0.8, a1 = Math.PI * 2.2, A0 = (v) => a0 + (a1 - a0) * clamp9((v - G.min) / (G.max - G.min), 0, 1);
       const a = g.globalAlpha;
       g.globalAlpha = a * (reduced ? 1 : clamp9(t2 / 0.4, 0, 1));
       g.lineWidth = 1;
@@ -30981,7 +31140,7 @@ ${e.message}` : String(e?.message || e));
       g.stroke();
       g.beginPath();
       for (let v = Math.ceil(G.min / 2) * 2; v <= G.max; v += 2) {
-        const an2 = A(v), r2 = v % 10 === 0 ? R2 + 4 : R2 + 2;
+        const an2 = A0(v), r2 = v % 10 === 0 ? R2 + 4 : R2 + 2;
         g.moveTo(x + R2 * Math.cos(an2), y + R2 * Math.sin(an2));
         g.lineTo(x + r2 * Math.cos(an2), y + r2 * Math.sin(an2));
       }
@@ -30989,36 +31148,26 @@ ${e.message}` : String(e?.message || e));
       g.lineWidth = 3;
       g.strokeStyle = rgba2(CYAN, 0.55);
       g.beginPath();
-      g.arc(x, y, R2 - 5, A(G.lo), A(G.hi));
+      g.arc(x, y, R2 - 5, A0(G.lo), A0(G.hi));
       g.stroke();
-      const over = G.v > G.hi ? [A(G.hi), A(G.v)] : G.v < G.lo ? [A(G.v), A(G.lo)] : null;
+      const over = G.v > G.hi ? [A0(G.hi), A0(G.v)] : G.v < G.lo ? [A0(G.v), A0(G.lo)] : null;
       if (over) {
         g.strokeStyle = rgba2(HOT, 0.95);
         g.beginPath();
         g.arc(x, y, R2 - 5, over[0], over[1]);
         g.stroke();
       }
-      const an = A(G.v);
+      const an = A0(G.v);
       stroke(() => {
         g.beginPath();
         g.moveTo(x + (R2 - 12) * Math.cos(an), y + (R2 - 12) * Math.sin(an));
         g.lineTo(x + (R2 + 6) * Math.cos(an), y + (R2 + 6) * Math.sin(an));
       }, rgba2(over ? HOT : INK4, 0.98), 1.6);
-      for (const v of [G.lo, G.hi]) {
-        const b = A(v);
-        text2("micro", `${Math.round(v)}`, x + (R2 + 13) * Math.cos(b), y + (R2 + 13) * Math.sin(b) + 4, rgba2(INK32, 1), "center");
-      }
-      g.font = `300 15px ${FONT2}`;
-      g.fontStretch = "normal";
-      g.letterSpacing = "0.6px";
-      g.textAlign = "center";
-      cur = null;
-      g.lineWidth = 3;
-      g.strokeStyle = SHADE;
-      const s = decoded(`${G.v.toFixed(1)}°`, t2 - 0.2);
-      g.strokeText(s, x, y + 5);
-      g.fillStyle = rgba2(INK4, 0.98);
-      g.fillText(s, x, y + 5);
+      const R22 = R2 + 13, [b0, b1] = apart(A0(G.lo), A0(G.hi), 24 / R22, 24 / R22, 0);
+      text2("micro", `${Math.round(G.lo)}`, x + R22 * Math.cos(b0), y + R22 * Math.sin(b0) + 4, rgba2(INK32, 1), "center");
+      text2("micro", `${Math.round(G.hi)}`, x + R22 * Math.cos(b1), y + R22 * Math.sin(b1) + 4, rgba2(INK32, 1), "center");
+      const s = `${G.v.toFixed(1)}°`;
+      text2("dial", decoded(s, t2 - 0.2), x, y + 5, rgba2(INK4, 0.98), "center", s);
       text2("eye", "WATER", x, y + R2 + 20, rgba2(INK22, 1), "center");
       if (G.sub) text2("data", G.sub, x, y + R2 + 33, rgba2(INK22, 1), "center");
       g.globalAlpha = a;
@@ -31046,10 +31195,12 @@ ${e.message}` : String(e?.message || e));
       g.textAlign = "center";
       g.fillStyle = rgba2(INK4, 0.95);
       g.fillText(s, x, y + 1);
-      return { l: x - w / 2, t: y - 11, r: x + w / 2, b: y + 5 };
+      if (A) A.box(owner, s, x - w / 2, y - 11, x + w / 2, y + 5);
+      return { l: x - w / 2, t: y - 11, r: x + w / 2, b: y + 5, hard: true };
     }
-    function roster(rows, x, y, now, t2) {
-      const W = 216, H2 = 24 + rows.length * 19 + 4;
+    const ROSTER_W = 216;
+    function roster(rows, x, y, t2) {
+      const W = ROSTER_W, H2 = 24 + rows.length * 19 + 4;
       const a = g.globalAlpha;
       g.globalAlpha = a * (reduced ? 1 : clamp9(t2 / 0.4, 0, 1));
       g.fillStyle = "rgba(6,9,10,0.62)";
@@ -31066,19 +31217,19 @@ ${e.message}` : String(e?.message || e));
       g.textAlign = "left";
       g.fillStyle = rgba2(INK4, 0.95);
       g.fillText(head, x - W + 15, y + 4);
-      const max = Math.max(1, ...rows.map((r) => r.n));
+      if (A) A.box(owner, head, x - W + 8, y - 7, x - W + 8 + hw, y + 8);
       rows.forEach((r, i) => {
-        const yy = y + 26 + i * 19, col = r.hot ? HOT : INK4;
+        const yy = y + 26 + i * 19, col = r.hot ? HOT : INK4, num = String(r.n);
         text2("micro", String(i + 1).padStart(2, "0"), x - W + 10, yy, rgba2(INK32, 1));
         glyph(r.guild, x - W + 36, yy - 4, col);
-        const nm = fit3("micro", r.name.toUpperCase(), W - 100);
+        const nm = fit3("micro", r.name.toUpperCase(), W - 66 - width("micro", num));
         text2("micro", nm, x - W + 46, yy, rgba2(col, r.hot ? 1 : 0.92));
-        text2("micro", String(r.n), x - 10, yy, rgba2(col, 0.95), "right");
+        text2("micro", num, x - 10, yy, rgba2(col, 0.95), "right");
         g.fillStyle = rgba2(col, r.hot ? 0.9 : 0.4);
-        g.fillRect(x - W + 46, yy + 4, Math.max(1, (W - 56) * (r.n / max)), 1);
+        g.fillRect(x - W + 46, yy + 4, Math.max(1, (W - 56) * r.bar), 1);
       });
       g.globalAlpha = a;
-      return { l: x - W, t: y - 8, r: x, b: y + H2 };
+      return { l: x - W, t: y - 8, r: x, b: y + H2, hard: true };
     }
     function glyph(guild, x, y, col) {
       g.fillStyle = rgba2(col, 0.95);
@@ -31101,6 +31252,7 @@ ${e.message}` : String(e?.message || e));
       while (s.length > 3 && width(k, `${s}…`) > w) s = s.slice(0, -1);
       return `${s.trimEnd()}…`;
     }
+    const KEY_W = 280;
     function key(items, x, y) {
       let yy = y;
       for (const it of items.slice().reverse()) {
@@ -31127,10 +31279,10 @@ ${e.message}` : String(e?.message || e));
         }
         g.stroke();
         g.restore();
-        text2("micro", it.text, x + 16, yy, rgba2(col, 0.95));
+        text2("micro", fit3("micro", it.text, KEY_W - 30), x + 16, yy, rgba2(col, 0.95));
         yy -= 17;
       }
-      return { l: x, t: yy, r: x + 260, b: y + 4 };
+      return { l: x, t: yy, r: x + KEY_W, b: y + 4, hard: true };
     }
     const area = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
     function crosses(x0, y0, x1, y1, b) {
@@ -31154,129 +31306,315 @@ ${e.message}` : String(e?.message || e));
     }
     const OFFS = [];
     for (const dx of [44, 72, 110, 160, 220]) for (const dy of [-170, -120, -80, -44, 24, 64, 110]) OFFS.push([dx, dy]);
-    function place(id, anchor, size, taken, open, marksAt) {
-      const st = lay.get(id) || { off: null, at: null, dir: 1 };
-      lay.set(id, st);
-      if (st.best && --st.fresh > 0 && Math.hypot(anchor[0] - st.best.ax, anchor[1] - st.best.ay) < 24) {
-        const b = st.best, x = b.x + anchor[0] - b.ax, y = b.y + anchor[1] - b.ay;
-        return { ...b, x: b.dir > 0 ? clamp9(x, open.l + 6, open.r - size.w - 6) : clamp9(x, open.l + size.w + 6, open.r - 6), y: clamp9(y, open.t + 14, open.b - size.h) };
-      }
-      const cx = (open.l + open.r) / 2;
-      let best = null;
-      for (const dir of [1, -1]) for (const [dx0, dy] of OFFS) {
-        const dx = dir * dx0;
-        let x = anchor[0] + dx + dir * 4, y = anchor[1] + dy - 7;
-        x = dir > 0 ? clamp9(x, open.l + 6, open.r - size.w - 6) : clamp9(x, open.l + size.w + 6, open.r - 6);
-        y = clamp9(y, open.t + 14, open.b - size.h);
-        const box = dir > 0 ? { l: x - 6, t: y - 14, r: x + size.w + 6, b: y + size.h } : { l: x - size.w - 6, t: y - 14, r: x + 6, b: y + size.h };
-        const ey = y + 7, mx = anchor[0] + dir * Math.min(Math.abs(ey - anchor[1]), Math.abs(x - anchor[0]));
-        let s = 0;
-        for (const r of taken) {
-          if (r.seg) {
-            if (crosses(r.seg[0], r.seg[1], r.seg[2], r.seg[3], box)) s += 60;
-            continue;
-          }
-          s += area(box, r) / (size.w * size.h + 1) * 3e3;
-          if (crosses(anchor[0], anchor[1], mx, ey, r) || crosses(mx, ey, x, ey, r)) s += 45;
+    const boxAt = (x, y, dir, size) => dir > 0 ? { l: x - 6, t: y - 14, r: x + size.w + 6, b: y + size.h } : { l: x - size.w - 6, t: y - 14, r: x + 6, b: y + size.h };
+    function score(anchor, dir, dx0, dy, size, taken, open, marksAt) {
+      const dx = dir * dx0;
+      let x = anchor[0] + dx + dir * 4, y = anchor[1] + dy - 7;
+      x = dir > 0 ? clamp9(x, open.l + 6, open.r - size.w - 6) : clamp9(x, open.l + size.w + 6, open.r - 6);
+      y = clamp9(y, open.t + 14, open.b - size.h);
+      const box = boxAt(x, y, dir, size), ey = y + 7, { mx } = leaderPath(anchor[0], anchor[1], x, ey);
+      let s = 0, hard = false;
+      for (const r of taken) {
+        if (r.seg) {
+          if (crosses(r.seg[0], r.seg[1], r.seg[2], r.seg[3], box)) s += 60;
+          continue;
         }
-        let under = 0;
-        for (const p of marksAt) if (p[0] > box.l && p[0] < box.r && p[1] > box.t && p[1] < box.b && ++under >= 8) break;
-        s += under * 8;
-        s += (Math.max(0, open.l - box.l) + Math.max(0, box.r - open.r) + Math.max(0, open.t - box.t) + Math.max(0, box.b - open.b)) * 30;
-        s += Math.hypot(dx, dy) * 0.08;
-        if (anchor[0] < cx === dir > 0) s += 10;
-        if (st.off && st.off.dx === dx && st.off.dy === dy) s -= 35;
-        if (!best || s < best.s) best = { s, dx, dy, dir, box, x, y };
+        const o = area(box, r);
+        if (o > 0) {
+          s += o / (size.w * size.h + 1) * (r.hard ? 3e3 : 400);
+          if (r.hard && o > 4) hard = true;
+        }
+        if (r.hard && (crosses(anchor[0], anchor[1], mx, ey, r) || crosses(mx, ey, x, ey, r))) s += 45;
       }
-      st.off = { dx: best.dx, dy: best.dy };
-      st.best = { ...best, ax: anchor[0], ay: anchor[1] };
-      st.fresh = 8;
-      return best;
+      let under = 0;
+      for (const p of marksAt) if (p[0] > box.l && p[0] < box.r && p[1] > box.t && p[1] < box.b && ++under >= 8) break;
+      s += under * 8;
+      s += Math.hypot(dx, dy) * 0.08;
+      if (anchor[0] < (open.l + open.r) / 2 === dir > 0) s += 10;
+      return { s, hard, dir, dx0, dy, x, y, box };
+    }
+    function place(id, anchor, size, taken, open, marksAt, now) {
+      const st = lay.get(id);
+      let cur2 = st.pick ? score(anchor, st.pick.dir, st.pick.dx0, st.pick.dy, size, taken, open, marksAt) : null;
+      if (cur2 && !cur2.hard && now < st.lookAt) return cur2;
+      st.lookAt = now + STEADY.relook;
+      let best = cur2;
+      for (const dir of [1, -1]) for (const [dx0, dy] of OFFS) {
+        const c = score(anchor, dir, dx0, dy, size, taken, open, marksAt);
+        if (!best || c.s < best.s) best = c;
+      }
+      if (!cur2 || cur2.hard && !best.hard || best.s < cur2.s - STEADY.better) {
+        if (cur2 && A) A.count("moves");
+        cur2 = best;
+      }
+      st.pick = { dir: cur2.dir, dx0: cur2.dx0, dy: cur2.dy };
+      return cur2;
+    }
+    function settle(m, s, kind, project, dt) {
+      const p = project(s, kind);
+      if (!p) return null;
+      if (m.s && m.s !== s && m.s.t !== s.t) {
+        const o = project(m.s, m.kind);
+        if (o) {
+          m.ex += o[0] - p[0];
+          m.ey += o[1] - p[1];
+          if (Math.hypot(m.ex, m.ey) > 80) m.ex = m.ey = 0;
+        }
+      }
+      m.s = s;
+      m.kind = kind;
+      const f2 = Math.exp(-dt / STEADY.settle);
+      m.ex *= f2;
+      m.ey *= f2;
+      return [p[0] + m.ex, p[1] + m.ey];
     }
     function markAt(id, s, kind, project, dt) {
       if (!s) return null;
-      const p = project(s, kind);
-      if (!p) return null;
       let m = marks.get(id);
-      if (!m) {
-        m = { err: [0, 0], last: null, t: s.t, used: 0 };
-        marks.set(id, m);
-      }
-      if (m.last && m.t !== s.t) {
-        m.err[0] += m.last[0] - p[0];
-        m.err[1] += m.last[1] - p[1];
-        if (Math.hypot(...m.err) > 80) m.err = [0, 0];
-      }
-      m.t = s.t;
-      const f2 = Math.exp(-dt / 0.06);
-      m.err[0] *= f2;
-      m.err[1] *= f2;
-      const q = [p[0] + m.err[0], p[1] + m.err[1]];
-      m.last = p;
+      if (!m) marks.set(id, m = { s: null, kind, ex: 0, ey: 0, used: 0 });
       m.used = 0;
-      return q;
+      return settle(m, m.s && m.s.t === s.t ? m.s : { x: s.x, y: s.y, vx: s.vx, vy: s.vy, t: s.t }, kind, project, dt);
+    }
+    function steady(st, rows, F) {
+      const v = F.model.view, map = st.cells ||= /* @__PURE__ */ new Map(), first = !st.frame;
+      const want = rows.length > F.cap ? F.cap / rows.length : 1;
+      if (want >= 1) st.keep = 1;
+      else if (!(st.keep * rows.length <= F.cap * 1.25) || st.keep < want * 0.6) st.keep = 2 ** (Math.floor(Math.log2(want) * 4) / 4);
+      const frame = st.frame = (st.frame || 0) + 1;
+      if (st.view !== v || st.rows !== rows) {
+        st.view = v;
+        st.rows = rows;
+        for (const i of rows) {
+          const id = v.id[i];
+          if (st.keep < 1 && hashU2(id) >= st.keep) continue;
+          let c = map.get(id);
+          if (!c) map.set(id, c = { s: null, kind: v.kind[i], ex: 0, ey: 0, a: first ? 1 : 0, f: 0, at: null });
+          if (!c.at || c.at.t !== v.simTime) c.at = { x: v.x[i], y: v.y[i], vx: v.vx[i], vy: v.vy[i], t: v.simTime };
+          c.kind = v.kind[i];
+          c.f = frame;
+        }
+      } else for (const c of map.values()) if (c.f === frame - 1) c.f = frame;
+      const fade = F.dt / STEADY.fade, out = [];
+      for (const [id, c] of map) {
+        const live = c.f === frame;
+        const p = settle(c, c.at, c.kind, F.project, F.dt);
+        c.a = clamp9(c.a + (live ? fade : -fade), 0, 1);
+        if (!p || !live && c.a <= 0) {
+          map.delete(id);
+          continue;
+        }
+        out.push([p[0], p[1], id, c.a]);
+      }
+      return out;
+    }
+    function anchorOf(st, pts, ok) {
+      let kept = null;
+      if (st.anchor != null) {
+        for (const p of pts) if (p[2] === st.anchor && p[3] > 0.5) {
+          kept = p;
+          break;
+        }
+      }
+      if (kept && ok(kept)) return kept;
+      let good = pts.filter((p) => p[3] > 0.99 && ok(p));
+      if (!good.length) {
+        if (kept) return kept;
+        good = pts.filter((p) => p[3] > 0.5);
+      }
+      if (!good.length) return null;
+      const c = [good.reduce((s, p) => s + p[0], 0) / good.length, good.reduce((s, p) => s + p[1], 0) / good.length];
+      let best = null, bd = Infinity;
+      for (const p of good) {
+        const d = Math.hypot(p[0] - c[0], p[1] - c[1]);
+        if (d < bd) {
+          bd = d;
+          best = p;
+        }
+      }
+      if (st.anchor != null && A) A.count("swaps");
+      st.anchor = best[2];
+      return best;
+    }
+    function steadyLattice(st, s, base, now, grow, hold) {
+      if (st.s !== s) {
+        if (st.s != null && st.cells.size) st.prev = { s: st.s, ...drawn(st, now, hold), at: now, m: st.m };
+        st.first = st.s == null || !st.cells.size;
+        st.s = s;
+        st.cells = /* @__PURE__ */ new Map();
+        st.m = null;
+      }
+      if (base) {
+        let on = base;
+        if (grow) {
+          on = /* @__PURE__ */ new Set();
+          for (const key2 of base) {
+            const [i, j] = cellIJ(key2);
+            for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) on.add(cellKey(i + a, j + b));
+          }
+          for (const key2 of [...on]) {
+            const [i, j] = cellIJ(key2);
+            if (on.has(cellKey(i + 2, j))) on.add(cellKey(i + 1, j));
+            if (on.has(cellKey(i, j + 2))) on.add(cellKey(i, j + 1));
+          }
+        }
+        for (const key2 of on) {
+          const c = st.cells.get(key2);
+          if (!c || now - c.last > 0.3) st.cells.set(key2, { since: st.first ? -1e9 : now, last: now });
+          else c.last = now;
+        }
+        st.first = false;
+      }
+      return drawn(st, now, hold);
+    }
+    function drawn(st, now, hold) {
+      const core = /* @__PURE__ */ new Set(), soft = /* @__PURE__ */ new Map(), T = STEADY;
+      for (const [key2, c] of st.cells) {
+        const idle = now - c.last, age = now - c.since;
+        if (idle > hold + 5) {
+          st.cells.delete(key2);
+          continue;
+        }
+        if (idle >= hold) continue;
+        if (age >= T.join && idle < hold - T.part) core.add(key2);
+        else soft.set(key2, age < T.join ? clamp9(age / T.join, 0, 1) : clamp9((hold - idle) / T.part, 0, 1));
+      }
+      return { core, soft };
+    }
+    function vertices(s, F) {
+      const r = F.model.view.rect, ix = Math.round((r[0] + r[2] / 2) / s), jy = Math.round((r[1] + r[3] / 2) / s);
+      const o = F.project({ x: ix * s, y: jy * s, vx: 0, vy: 0, t: 0 }, -1);
+      if (!o) return null;
+      const k = s * F.ppu;
+      return { V: (i, j) => [o[0] + (i - ix) * k, o[1] + (j - jy) * k], o, k };
+    }
+    function drawLattice(st, keys, tone, t2, hatched, F) {
+      const fIn = reduced ? 1 : clamp9(t2 / 0.4, 0, 1), hA = (reduced ? 1 : clamp9((t2 - 0.3) / 0.4, 0, 1)) * 0.75;
+      st.m ||= Math.max(1, Math.round(st.s * F.ppu / 6));
+      const n = keys.core.size + keys.soft.size, k = st.s * F.ppu, open = (F.open.r - F.open.l) * (F.open.b - F.open.t);
+      const big = n * k * k > 0.45 * open;
+      st.big = n > 1500 ? 1 : clamp9((st.big ?? (big ? 1 : 0)) + (big ? 1 : -1) * F.dt / 0.4, 0, 1);
+      if (st.big >= 1) {
+        st.prev = null;
+        return;
+      }
+      const vis = 1 - st.big;
+      let top = null;
+      const one = (s, ks, alpha, m) => {
+        const P = vertices(s, F);
+        return P ? lattice(ks.core, ks.soft, P.V, tone, alpha, hatched, { x: P.o[0], y: P.o[1], px: P.k / m, a: hA }) : null;
+      };
+      let u = 1;
+      if (st.prev) {
+        u = (F.now - st.prev.at) / 0.4;
+        if (u >= 1) {
+          st.prev = null;
+          u = 1;
+        } else one(st.prev.s, st.prev, vis * fIn * (1 - u), st.prev.m || st.m);
+      }
+      top = one(st.s, keys, vis * fIn * u, st.m);
+      if (A && top) A.point("zone", owner, top[0], top[1]);
     }
     const up = (s) => (s || "").toUpperCase();
+    function noteState(id) {
+      let S = notesAt.get(id);
+      if (!S) notesAt.set(id, S = { c: {}, an: [{}, {}], z: {} });
+      return S;
+    }
     function plan(n, M, F) {
-      const d = n.data, sp = (k) => F.species(k), nm = (k) => up(sp(k)?.name || "unnamed");
+      const d = n.data, sp = (k) => F.species(k), nm = (k) => up(sp(k)?.name || "unnamed"), S = noteState(n.id);
       const pos = (id) => {
         const c = M.cell(id);
         return c ? markAt(id, c, c.kind === -1 ? d.akind ?? d.kind : c.kind, F.project, F.dt) : null;
       };
-      const rowPts = (rows, cap2 = F.cap) => {
-        const v = M.view, out = [], keep = rows.length > cap2 ? cap2 / rows.length : 1;
-        for (const i of rows) {
-          if (keep < 1 && (Math.imul(v.id[i], 2654435761) >>> 0) / 4294967296 >= keep) continue;
-          const p = F.project({ x: v.x[i], y: v.y[i], vx: v.vx[i], vy: v.vy[i], t: v.simTime }, v.kind[i]);
-          if (p && shows(p)) out.push(p);
-        }
-        return out;
-      };
-      const shows = (p) => p[0] > F.open.l && p[0] < F.open.r && p[1] > F.open.t && p[1] < F.open.b && !F.block.some((b) => p[0] > b.l && p[0] < b.r && p[1] > b.t && p[1] < b.b);
-      const centroid = (pts) => pts.length ? [pts.reduce((s, p) => s + p[0], 0) / pts.length, pts.reduce((s, p) => s + p[1], 0) / pts.length] : null;
-      const nearest2 = (pts, to) => pts.reduce((b, p) => !b || Math.hypot(p[0] - to[0], p[1] - to[1]) < Math.hypot(b[0] - to[0], b[1] - to[1]) ? p : b, null);
-      const P = { tone: INK4, draws: [], label: null, anchor: null, keys: [], gauge: null, extra: null, pts: [] };
+      const shows = (p, m = 0) => p[0] > F.open.l + m && p[0] < F.open.r - m && p[1] > F.open.t + m && p[1] < F.open.b - m && !F.block.some((b) => p[0] > b.l - m && p[0] < b.r + m && p[1] > b.t - m && p[1] < b.b + m);
+      const group = (key2, rows) => steady(S.c[key2] ||= {}, rows, F);
+      const hang = (k, pts) => anchorOf(S.an[k], pts, (p) => shows(p, 16));
+      const P = { tone: INK4, draws: [], label: null, anchor: null, keys: [], gauge: null, extra: null, pts: [], boxes: [] };
       const recent = (evs, kind, secs) => M.since(M.view.simTime - secs, evs, (e) => kind == null || e.kind === kind);
-      const quadsOf = (ks) => {
-        const r = M.view.rect, out = [];
-        for (const k of ks) {
-          const i = k % NOTE_TG, j = Math.floor(k / NOTE_TG), w = r[2] / NOTE_TG, h = r[3] / NOTE_TG, x0 = r[0] + i * w, y0 = r[1] + j * h;
-          const q = [[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h]].map(([x, y]) => F.project({ x, y, vx: 0, vy: 0, t: M.view.simTime }, -1));
-          if (q.every(Boolean)) out.push([k, q]);
-        }
-        return out;
-      };
       const wide = d.band === "wide";
-      const crosses2 = (evs, tone, delay = 0) => {
+      const pips = (evs, tone, delay = 0, secs = 10) => {
         for (const e of evs.slice(0, 40)) {
-          const p = F.project({ x: e.x, y: e.y, vx: 0, vy: 0, t: e.t }, -1);
-          if (p && shows(p)) P.draws.push((t2) => pip(p[0], p[1], tone, t2 - delay));
+          const p = F.project({ x: e.x, y: e.y, vx: 0, vy: 0, t: e.t }, -1), fade = clamp9((secs - (M.view.simTime - e.t)) / 2, 0, 1);
+          if (p && shows(p)) P.draws.push((t2) => pip(p[0], p[1], tone, t2 - delay, fade));
         }
       };
-      const glyphOf = (k) => clamp9(F.radius(k) * 0.22, 4, 8), gridOf = (k) => clamp9(F.radius(k) * 1.6, 14, 64);
+      const lockBox = (p, r) => {
+        const R2 = lockR(r);
+        P.boxes.push({ l: p[0] - R2, t: p[1] - R2, r: p[0] + R2, b: p[1] + R2 });
+      };
+      const verbBox = (a, b, verb, bend) => {
+        const C3 = linkCurve(a, b, bend, 9), box = C3 && linkTag(C3, verb, bend).box;
+        const clear = box && ![...F.avoid, ...F.block, ...F.verbs].some((r) => area(box, r) > 0);
+        S.verbA = clamp9((S.verbA ?? 0) + (clear ? 1 : -1) * F.dt / 0.08, 0, 1);
+        if (box && S.verbA > 0) {
+          P.boxes.push({ ...box, hard: true });
+          F.verbs.push(box);
+        }
+        return S.verbA;
+      };
+      const glyphOf = (k) => clamp9(F.radius(k) * 0.22, 4, 8);
+      const ground = (k, rows) => {
+        const Z = S.z, v = M.view, want = Math.log2(clamp9(F.radius(k) * 1.6, 14, 64) / F.ppu);
+        if (Z.L == null || Math.abs(Z.L - want) > 0.6) Z.L = Math.round(want);
+        const s = 2 ** Z.L;
+        let base = null;
+        if (Z.view !== v || Z.s !== s) {
+          Z.view = v;
+          const [W, H2] = F.world, cx = v.rect[0] + v.rect[2] / 2, cy = v.rect[1] + v.rect[3] / 2;
+          const n2 = /* @__PURE__ */ new Map();
+          for (const i of rows) {
+            const x = cx + (v.x[i] - cx) - W * Math.round((v.x[i] - cx) / W), y = cy + (v.y[i] - cy) - H2 * Math.round((v.y[i] - cy) / H2);
+            const key2 = cellKey(Math.floor(x / s), Math.floor(y / s));
+            n2.set(key2, (n2.get(key2) || 0) + 1);
+          }
+          base = /* @__PURE__ */ new Set();
+          for (const key2 of n2.keys()) {
+            const [i, j] = cellIJ(key2);
+            let c = 0;
+            for (let a = -1; a <= 1 && c < 2; a++) for (let b = -1; b <= 1; b++) c += n2.get(cellKey(i + a, j + b)) || 0;
+            if (c >= 2) base.add(key2);
+          }
+        }
+        return steadyLattice(Z, s, base, F.now, true, STEADY.hold);
+      };
+      const water = (ks) => {
+        const Z = S.z, v = M.view, [ox, oy, s] = v.grid;
+        let base = null;
+        if (Z.view !== v || Z.ks !== ks || Z.s !== s) {
+          Z.view = v;
+          Z.ks = ks;
+          const i0 = Math.round(ox / s), j0 = Math.round(oy / s);
+          base = new Set(ks.map((k) => cellKey(i0 + k % NOTE_TG, j0 + Math.floor(k / NOTE_TG))));
+        }
+        return steadyLattice(Z, s, base, F.now, false, STEADY.holdSq);
+      };
       if (d.type === "hunt" || d.type === "scavenge") {
         const a = pos(d.actor);
         const b = d.type === "hunt" ? pos(d.target) : F.project({ x: d.spot[0], y: d.spot[1], vx: 0, vy: 0, t: M.view.simTime }, -1);
         if (!a || !b) return null;
-        const r = F.radius(d.akind);
+        const r = F.radius(d.akind), verb = d.type === "hunt" ? "KILL" : "EATS REMAINS";
         P.tone = d.type === "hunt" ? HOT : INK4;
-        P.draws.push((t2) => link(a, b, d.type === "hunt" ? "KILL" : "EATS REMAINS", P.tone, t2 - 0.3, F.now));
+        const va = verbBox(a, b, verb, 0.18);
+        P.draws.push((t2) => link(a, b, verb, P.tone, t2 - 0.3, F.now, 0.18, 9, false, va));
         P.draws.push((t2) => lock(a[0], a[1], r, P.tone, t2));
         if (d.type === "hunt") P.draws.push((t2) => pip(b[0], b[1], HOT, t2 - 0.6));
+        lockBox(a, r);
         P.anchor = [a[0], a[1] - r];
         P.pts = [a, b];
         P.label = d.type === "hunt" ? { tone: HOT, eye: "Hunter", num: String(d.kills), main: nm(d.akind), data: [`KILLED ${nm(d.kind)}`, `KILLS IN VIEW · LAST 30 S`] } : { tone: INK4, eye: "Scavenger", num: String(d.meals), main: nm(d.akind), data: ["EATS THE REMAINS OF THE DEAD"] };
         if (d.type === "hunt") P.keys.push({ glyph: "cross", text: "KILLED", tone: HOT });
       } else if (d.type === "graze") {
-        const rows = M.rows(d.census), pts = rowPts(rows);
+        const pts = group("g", M.rows(d.census));
         const a = d.actor !== NONE3 ? pos(d.actor) : null, b = d.target !== NONE3 ? pos(d.target) : null;
-        P.draws.push((t2) => census(pts, "plus", INK4, t2, a || centroid(pts) || [0, 0], glyphOf(d.akind)));
-        if (a && b) {
-          P.draws.push((t2) => link(a, b, "GRAZES", INK4, t2 - 0.2, F.now, -0.18));
-          P.draws.push((t2) => lock(a[0], a[1], F.radius(d.akind), INK4, t2));
-        }
-        const c = a || nearest2(pts, centroid(pts) || [0, 0]);
+        const c = a || hang(0, pts);
         if (!c) return null;
+        P.draws.push((t2) => census(pts, "plus", INK4, t2, c, glyphOf(d.akind)));
+        if (a && b) {
+          const va = verbBox(a, b, "GRAZES", -0.18);
+          P.draws.push((t2) => link(a, b, "GRAZES", INK4, t2 - 0.2, F.now, -0.18, 9, false, va));
+          P.draws.push((t2) => lock(a[0], a[1], F.radius(d.akind), INK4, t2));
+          lockBox(a, F.radius(d.akind));
+        }
         P.anchor = c;
         P.pts = pts;
         const g2 = sp(d.akind);
@@ -31290,7 +31628,7 @@ ${e.message}` : String(e?.message || e));
         P.keys.push({ glyph: "plus", text: `${nm(d.akind)} CELL`, tone: INK4 });
         if (d.dead) {
           const deaths = recent(/* @__PURE__ */ new Set(["grazed"]), d.kind, 10).filter((e) => e.akind === d.akind || e.aid === NONE3);
-          crosses2(deaths, HOT);
+          pips(deaths, HOT);
           if (deaths.length) P.keys.push({ glyph: "cross", text: "GRAZED TO DEATH", tone: HOT });
         }
       } else if (d.type === "newsp" || d.type === "spark") {
@@ -31298,55 +31636,61 @@ ${e.message}` : String(e?.message || e));
         if (!c) return null;
         const m = d.actor !== NONE3 ? pos(d.actor) : null;
         P.tone = HOT;
-        if (m) P.draws.push((t2) => link(m, c, "BUDS", INK4, t2 - 0.2, F.now, 0.22));
+        if (m) {
+          const va = verbBox(m, c, "BUDS", 0.22);
+          P.draws.push((t2) => link(m, c, "BUDS", INK4, t2 - 0.2, F.now, 0.22, 9, false, va));
+        }
         P.draws.push((t2) => lock(c[0], c[1], F.radius(d.kind), HOT, t2));
+        lockBox(c, F.radius(d.kind));
         P.anchor = [c[0], c[1] - F.radius(d.kind)];
         P.pts = m ? [c, m] : [c];
         const g2 = sp(d.kind);
         const comfort = g2 ? `COMFORT ${Math.round(g2.topt - g2.tol)}–${Math.round(g2.topt + g2.tol)}°C` : "";
         P.label = d.type === "spark" ? { tone: HOT, tag: "Life from silt", main: nm(d.kind), data: [`A NEW LINEAGE · ${up(g2?.guild || "")}`, comfort].filter(Boolean) } : { tone: HOT, tag: "New species", main: nm(d.kind), data: [`A MUTANT OF ${nm(d.akind)}`, `${up(g2?.guild || "")}${comfort ? " · " + comfort : ""}`] };
       } else if (d.type === "bloom" || d.type === "waking" || d.type === "dormant") {
-        const which = d.type === "dormant" ? "cyst" : "all";
-        const pts = rowPts(M.rows(d.kind, which));
-        if (!pts.length) return null;
-        const c = centroid(pts);
+        const pts = group("c", M.rows(d.kind, d.type === "dormant" ? "cyst" : "all"));
+        const an = hang(0, pts);
+        if (!an) return null;
         const glyph2 = d.type === "dormant" ? "ring" : "plus";
-        P.draws.push((t2) => census(pts, glyph2, INK4, t2, nearest2(pts, c), glyphOf(d.kind)));
-        P.anchor = nearest2(pts, c);
+        P.draws.push((t2) => census(pts, glyph2, INK4, t2, an, glyphOf(d.kind)));
+        P.anchor = an;
         P.pts = pts;
         const s = M.stats.by.get(d.kind), g2 = sp(d.kind);
-        if (d.type === "bloom") P.label = { tone: INK4, eye: "Dividing", num: `+${d.births}`, main: nm(d.kind), data: [`BORN IN 20 S · ${Math.round(s.n * M.stats.scale)} IN VIEW`, up(g2?.guild || "")] };
+        if (d.type === "bloom") P.label = { tone: INK4, eye: "Dividing", num: `+${d.births}`, main: nm(d.kind), data: [`BORN IN 20 S · ${Math.round((s?.n ?? 0) * M.stats.scale)} IN VIEW`, up(g2?.guild || "")] };
         else if (d.type === "waking") P.label = { tone: INK4, eye: "Waking", num: String(d.count), main: nm(d.kind), data: ["CYSTS WAKING IN 20 S", "TO TRY THEIR LUCK AGAIN"] };
         else P.label = { tone: INK4, eye: "Going dormant", num: String(d.count), main: nm(d.kind), data: ["CURLED INTO CYSTS IN 20 S", "NOTHING IN REACH TO EAT"] };
         P.keys.push({ glyph: glyph2, text: d.type === "dormant" ? `${nm(d.kind)} CYST` : `${nm(d.kind)} CELL`, tone: INK4 });
       } else if (d.type === "heat") {
         const g2 = sp(d.kind);
         if (!g2) return null;
-        const pts = rowPts(M.rows(d.kind, "hot"));
-        if (!pts.length) return null;
-        const c = centroid(pts);
+        const rows = M.rows(d.kind, "hot"), pts = group("h", rows);
+        const an = hang(0, pts);
+        if (!an) return null;
         P.tone = HOT;
         if (wide) {
-          const qs = d.squares.length <= 0.7 * NOTE_TG * NOTE_TG ? quadsOf(d.squares) : [];
-          P.draws.push((t2) => squares(qs, HOT, t2, true));
+          let inView = 0;
+          for (const b of M.view.sqIn) inView += b;
+          const keys = water(d.squares.length <= 0.7 * inView ? d.squares : []);
+          P.draws.push((t2) => drawLattice(S.z, keys, HOT, t2, true, F));
         } else {
-          P.draws.push((t2) => zone(pts, HOT, t2, true, gridOf(d.kind)));
-          P.draws.push((t2) => census(pts, "square", HOT, t2 - 0.2, nearest2(pts, c), glyphOf(d.kind)));
+          const keys = ground(d.kind, rows);
+          P.draws.push((t2) => drawLattice(S.z, keys, HOT, t2, true, F));
+          P.draws.push((t2) => census(pts, "square", HOT, t2 - 0.2, an, glyphOf(d.kind)));
         }
         const deaths = recent("scalded", d.kind, 10);
-        crosses2(deaths, HOT, 0.4);
-        P.anchor = nearest2(pts, c);
+        pips(deaths, HOT, 0.4);
+        P.anchor = an;
         P.pts = pts;
-        const lo = g2.topt - g2.tol, hi = g2.topt + g2.tol, water = M.water.hi;
-        const scale = { min: Math.floor(Math.min(lo, water) / 5) * 5 - 5, max: Math.ceil(Math.max(hi, water) / 5) * 5 + 5 };
-        P.label = { tone: HOT, tag: "Scalding", num: String(d.hot), main: nm(d.kind), data: [`COMFORT ${Math.round(lo)}–${Math.round(hi)}°C · ${d.scalds} DEAD / 30 S`], range: { lo, hi, v: water, ...scale } };
-        P.gauge = { v: water, lo, hi, ...scale, sub: `POOL ${F.pool.toFixed(1)}°` };
+        const lo = g2.topt - g2.tol, hi = g2.topt + g2.tol, w = M.water.hi;
+        const scale = { min: Math.floor(Math.min(lo, w) / 5) * 5 - 5, max: Math.ceil(Math.max(hi, w) / 5) * 5 + 5 };
+        P.label = { tone: HOT, tag: "Scalding", num: String(d.hot), main: nm(d.kind), data: [`COMFORT ${Math.round(lo)}–${Math.round(hi)}°C · ${d.scalds} DEAD / 30 S`], range: { lo, hi, v: w, ...scale } };
+        P.gauge = { v: w, lo, hi, ...scale, sub: `POOL ${F.pool.toFixed(1)}°` };
         P.keys.push({ glyph: "square", text: wide ? `WATER TOO WARM FOR ${nm(d.kind)}` : "TOO WARM: SCALDING", tone: HOT });
         if (deaths.length) P.keys.push({ glyph: "cross", text: "SCALDED, LAST 10 S", tone: HOT });
         if (d.fine) {
-          const f2 = sp(d.fine.kind), fpts = rowPts(M.rows(d.fine.kind));
-          if (f2 && fpts.length) {
-            const fa = nearest2(fpts, c);
+          const f2 = sp(d.fine.kind), fpts = group("f", M.rows(d.fine.kind));
+          const fa = f2 && hang(1, fpts);
+          if (fa) {
             const flo = f2.topt - f2.tol, fhi = f2.topt + f2.tol;
             P.extra = { anchor: fa, pts: fpts, label: {
               tone: INK4,
@@ -31354,37 +31698,37 @@ ${e.message}` : String(e?.message || e));
               num: String(Math.round(d.fine.n * M.stats.scale)),
               main: nm(d.fine.kind),
               data: [`COMFORT ${Math.round(flo)}–${Math.round(fhi)}°C`],
-              range: { lo: flo, hi: fhi, v: water, min: Math.floor(Math.min(flo, water) / 5) * 5 - 5, max: Math.ceil(Math.max(fhi, water) / 5) * 5 + 5 }
+              range: { lo: flo, hi: fhi, v: w, min: Math.floor(Math.min(flo, w) / 5) * 5 - 5, max: Math.ceil(Math.max(fhi, w) / 5) * 5 + 5 }
             } };
             P.draws.push((t2) => census(fpts, "plus", INK4, t2 - 0.6, fa, glyphOf(d.fine.kind)));
             P.keys.push({ glyph: "plus", text: `${nm(d.fine.kind)} CELL`, tone: INK4 });
           }
         }
       } else if (d.type === "cold") {
-        const S = M.stats, rows = [];
-        for (const s of S.by.values()) for (const i of s.torpidRows) rows.push(i);
-        const pts = rowPts(rows);
-        if (!pts.length) return null;
-        const c = centroid(pts);
+        const St = M.stats, rows = [];
+        for (const s of St.by.values()) for (const i of s.torpidRows) rows.push(i);
+        const pts = group("t", rows);
+        const an = hang(0, pts);
+        if (!an) return null;
         P.tone = CYAN;
         if (wide) {
           const ks = [];
           M.view.ice.forEach((v, k) => {
-            if (v > 0.3) ks.push(k);
+            if (v > 0.3 && M.view.sqIn[k]) ks.push(k);
           });
-          const qs = quadsOf(ks);
-          P.draws.push((t2) => squares(qs, CYAN, t2, true));
-        } else P.draws.push((t2) => census(pts, "ring", CYAN, t2, nearest2(pts, c)));
+          const keys = water(S.ice && S.ice.join() === ks.join() ? S.ice : S.ice = ks);
+          P.draws.push((t2) => drawLattice(S.z, keys, CYAN, t2, true, F));
+        } else P.draws.push((t2) => census(pts, "ring", CYAN, t2, an));
         const froze = recent("froze", null, 10);
-        crosses2(froze, HOT, 0.4);
-        P.anchor = nearest2(pts, c);
+        pips(froze, HOT, 0.4);
+        P.anchor = an;
         P.pts = pts;
         const W = M.water;
         P.label = {
           tone: CYAN,
           tag: "Torpid",
-          num: String(Math.round(S.torpid * S.scale)),
-          main: `OF ${Math.round(S.living * S.scale)} CELLS STILLED`,
+          num: String(Math.round(St.torpid * St.scale)),
+          main: `OF ${Math.round(St.living * St.scale)} CELLS STILLED`,
           data: [`TOO COLD TO MOVE · ${d.species} SPECIES`, `WATER ${W.mean.toFixed(1)}°${W.iced > 0 ? ` · ${Math.round(W.iced * 100)}% ICE` : ""} · ${d.froze} FROZE / 30 S`]
         };
         P.keys.push(wide ? { glyph: "square", text: "ICE", tone: CYAN } : { glyph: "ring", text: "TORPID: TOO COLD TO MOVE", tone: CYAN });
@@ -31395,10 +31739,10 @@ ${e.message}` : String(e?.message || e));
           P.gauge = { v: W.mean, lo, hi, min: Math.floor(Math.min(lo, W.mean) / 5) * 5 - 5, max: Math.ceil(Math.max(hi, W.mean) / 5) * 5 + 5, sub: `POOL ${F.pool.toFixed(1)}°` };
         }
         if (d.warm >= 0) {
-          const w2 = sp(d.warm), wpts = rowPts(M.rows(d.warm));
-          if (w2 && wpts.length) {
-            const wa = nearest2(wpts, centroid(wpts));
-            P.extra = { anchor: wa, pts: wpts, label: { tone: INK4, tag: "Still active", num: String(wpts.length), main: nm(d.warm), data: [`COMFORT ${Math.round(w2.topt - w2.tol)}–${Math.round(w2.topt + w2.tol)}°C`] } };
+          const w2 = sp(d.warm), wpts = group("w", M.rows(d.warm));
+          const wa = w2 && hang(1, wpts);
+          if (wa) {
+            P.extra = { anchor: wa, pts: wpts, label: { tone: INK4, tag: "Still active", num: String(Math.round((St.by.get(d.warm)?.n ?? 0) * St.scale)), main: nm(d.warm), data: [`COMFORT ${Math.round(w2.topt - w2.tol)}–${Math.round(w2.topt + w2.tol)}°C`] } };
             P.draws.push((t2) => census(wpts, "plus", INK4, t2 - 0.6, wa, glyphOf(d.warm)));
             P.keys.push({ glyph: "plus", text: `${nm(d.warm)}: STILL ACTIVE`, tone: INK4 });
           }
@@ -31408,29 +31752,81 @@ ${e.message}` : String(e?.message || e));
         const pts = [];
         for (const e of evs.slice(0, 40)) {
           const p = F.project({ x: e.x, y: e.y, vx: 0, vy: 0, t: e.t }, -1);
-          if (p && shows(p)) pts.push(p);
+          if (p && shows(p)) pts.push([p[0], p[1], e.id, 1, clamp9((20 - (M.view.simTime - e.t)) / 2, 0, 1)]);
         }
-        if (!pts.length) return null;
-        const c = centroid(pts);
+        const an = hang(0, pts);
+        if (!an) return null;
         P.tone = HOT;
-        for (const p of pts) P.draws.push((t2) => pip(p[0], p[1], HOT, t2));
-        P.anchor = nearest2(pts, c);
+        for (const p of pts) P.draws.push((t2) => pip(p[0], p[1], HOT, t2, p[4]));
+        P.anchor = an;
         P.pts = pts;
         P.label = d.type === "starving" ? { tone: HOT, eye: "Starving", num: String(d.count), main: nm(d.kind), data: ["STARVED IN 20 S", "NOTHING TO EAT IN REACH"] } : { tone: HOT, tag: "Stranded", num: String(d.count), main: "DRYING ON THE MUD", data: [`MOSTLY ${nm(d.kind)}`, "THE WATER WITHDREW FROM THEM"] };
         P.keys.push({ glyph: "cross", text: d.type === "starving" ? "STARVED, LAST 20 S" : "DRIED OUT, LAST 20 S", tone: HOT });
       }
       return P.anchor ? P : null;
     }
+    function steadyRoster(rows, now, dt) {
+      const R2 = rosterSt, by = new Map(rows.map((r) => [r.kind, r]));
+      if (now - R2.at >= STEADY.roster || !R2.rows.length) {
+        R2.at = now;
+        const list = R2.rows.filter((r) => by.has(r.kind)).map((r) => ({ ...by.get(r.kind), bar: r.bar }));
+        for (const r of rows) if (!list.some((x) => x.kind === r.kind)) list.push({ ...r, bar: null });
+        for (let pass = 0, moved = true; moved && pass < list.length; pass++) {
+          moved = false;
+          for (let i = 0; i + 1 < list.length; i++) if (list[i + 1].n > list[i].n * 1.15) {
+            [list[i], list[i + 1]] = [list[i + 1], list[i]];
+            moved = true;
+          }
+        }
+        R2.rows = list;
+      } else for (const r of R2.rows) {
+        const n = by.get(r.kind);
+        if (n) {
+          r.hot = n.hot;
+          r.name = n.name;
+          r.guild = n.guild;
+        }
+      }
+      const top = R2.rows.slice(0, 6), max = Math.max(1, ...top.map((r) => r.n)), f2 = 1 - Math.exp(-dt / 0.3);
+      for (const r of top) r.bar = r.bar == null ? r.n / max : r.bar + (r.n / max - r.bar) * f2;
+      return top;
+    }
     function draw(F) {
       cur = null;
-      const M = F.model, taken = [...F.avoid], plans = [];
+      const M = F.model, plans = [];
+      if (!M.view) return [];
+      stats = M.ms.drawn ||= {};
+      stats.glyphs = 0;
+      const r = M.view.rect;
+      let c = ref && F.project(ref.p, -1);
+      if (!c || c[0] < F.open.l || c[0] > F.open.r || c[1] < F.open.t || c[1] > F.open.b) {
+        ref = { p: { x: r[0] + r[2] / 2, y: r[1] + r[3] / 2, vx: 0, vy: 0, t: 0 }, n: (ref?.n || 0) + 1 };
+        c = F.project(ref.p, -1);
+        if (A) A.rebase();
+        for (const st of lay.values()) if (st.w) st.w = null;
+      }
+      const cam = { o: c, R: [ref.p.x, ref.p.y], k: F.ppu };
+      F.toWorld = (p) => [cam.R[0] + (p[0] - cam.o[0]) / cam.k, cam.R[1] + (p[1] - cam.o[1]) / cam.k];
+      F.toScreen = (w) => [cam.o[0] + (w[0] - cam.R[0]) * cam.k, cam.o[1] + (w[1] - cam.R[1]) * cam.k];
+      if (A) {
+        A.begin();
+        A.frame(c[0], c[1], ref.p.x, ref.p.y, F.ppu);
+        A.point("cam", ref.n, c[0], c[1]);
+        for (const b of F.avoid) A.box("page", "page", b.l + 8, b.t + 8, b.r - 8, b.b - 8);
+      }
+      const taken = F.avoid.map((r2) => ({ ...r2, hard: true }));
       g.save();
       const active = /* @__PURE__ */ new Set();
       for (const n of F.notes) for (const k of [n.data.kind, n.data.akind, n.data.census, n.data.fine?.kind]) if (k != null && k >= 0) active.add(k);
-      const rosterRows = F.roster && !F.phone && M.stats ? M.roster().slice(0, 6).map((r) => ({ ...r, name: F.species(r.kind)?.name || "", guild: F.species(r.kind)?.guild, hot: active.has(r.kind) })).filter((r) => r.name) : [];
-      const rosterBox = rosterRows.length ? { l: F.open.r - 12 - 216, t: F.open.t + 26, r: F.open.r - 12, b: F.open.t + 34 + 28 + rosterRows.length * 19 } : null;
+      const rosterRows = F.roster && !F.phone && M.stats ? steadyRoster(M.roster().map((r2) => ({ ...r2, name: F.species(r2.kind)?.name || "", guild: F.species(r2.kind)?.guild, hot: active.has(r2.kind) })).filter((r2) => r2.name), F.now, F.dt) : [];
+      let rosterBox = rosterRows.length ? { l: F.open.r - 12 - ROSTER_W, t: F.open.t + 26, r: F.open.r - 12, b: F.open.t + 34 + 28 + rosterRows.length * 19 } : null;
+      const under = rosterBox && F.avoid.some((r2) => area(rosterBox, r2) > 0);
+      rosterSt.vis = clamp9((rosterSt.vis ?? 1) + (under ? -1 : 1) * F.dt / 0.2, 0, 1);
+      if (rosterSt.vis <= 0) rosterBox = null;
       const modeAt = F.mode ? [(F.open.l + F.open.r) / 2, F.open.t + 14] : null;
-      F.block = F.phone ? [] : [rosterBox, { l: F.open.r - 130, t: F.open.b - 154, r: F.open.r, b: F.open.b }, { l: F.open.l, t: F.open.b - 120, r: F.open.l + 280, b: F.open.b }].filter(Boolean);
+      const gaugeArea = { l: F.open.r - 130, t: F.open.b - 154, r: F.open.r, b: F.open.b };
+      F.block = F.phone ? [] : [rosterBox, gaugeArea, { l: F.open.l, t: F.open.b - 120, r: F.open.l + KEY_W, b: F.open.b }].filter(Boolean);
+      F.verbs = [];
       const T0 = performance.now();
       for (const n of F.notes) {
         const P = plan(n, M, F);
@@ -31438,11 +31834,18 @@ ${e.message}` : String(e?.message || e));
       }
       const T1 = performance.now();
       const gaugeP = !F.phone && plans.find(({ P }) => P.gauge);
-      const gaugeBox = gaugeP ? { l: F.open.r - 130, t: F.open.b - 154, r: F.open.r, b: F.open.b } : null;
       const keys = [];
       for (const { P } of plans) for (const k of P.keys) if (!keys.some((x) => x.text === k.text)) keys.push(k);
-      const keyBox = keys.length && !F.phone ? { l: F.open.l, t: F.open.b - 12 - 17 * Math.min(6, keys.length) - 6, r: F.open.l + 280, b: F.open.b } : null;
-      const panels = [rosterBox, gaugeBox, keyBox].filter(Boolean);
+      const keyBox = keys.length && !F.phone ? { l: F.open.l, t: F.open.b - 12 - 17 * Math.min(6, keys.length) - 6, r: F.open.l + KEY_W, b: F.open.b } : null;
+      const panels = [rosterBox, gaugeP ? gaugeArea : null, keyBox, ...F.avoid].filter(Boolean);
+      for (let i = 0; i < panels.length; i++) for (let j = i + 1; j < panels.length; j++) {
+        const a = panels[i], b = panels[j];
+        if (a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b) {
+          panels[i] = { l: Math.min(a.l, b.l), t: Math.min(a.t, b.t), r: Math.max(a.r, b.r), b: Math.max(a.b, b.b) };
+          panels.splice(j, 1);
+          j = i;
+        }
+      }
       g.save();
       g.beginPath();
       g.rect(F.open.l, F.open.t, F.open.r - F.open.l, F.open.b - F.open.t);
@@ -31458,52 +31861,112 @@ ${e.message}` : String(e?.message || e));
       for (const { n, P } of plans) {
         const t2 = F.now - n.born, out = n.exitAt != null ? clamp9(1 - (F.now - n.exitAt) / 0.6, 0, 1) : 1;
         g.globalAlpha = out;
+        owner = `n${n.id}`;
+        if (A) A.point("anchor", n.id, P.anchor[0], P.anchor[1]);
         for (const d of P.draws) d(t2);
         g.globalAlpha = 1;
         for (const p of P.pts.slice(0, 120)) allPts.push(p);
+        for (const b of P.boxes) taken.push(b);
       }
       g.restore();
       const T2 = performance.now();
+      owner = "frame";
       corners2(F.open);
       if (modeAt) taken.push(modeTag(F.mode, ...modeAt));
-      if (rosterBox) taken.push(roster(rosterRows, rosterBox.r, rosterBox.t + 8, F.now, F.now - (F.since || 0)));
-      if (gaugeP) {
-        const n = gaugeP.n, G = gaugeP.P.gauge, t2 = F.now - n.born, x = F.open.r - 64, y = F.open.b - 104;
-        g.globalAlpha = n.exitAt != null ? clamp9(1 - (F.now - n.exitAt) / 0.6, 0, 1) : 1;
-        gauge(x, y, G, t2);
+      if (rosterBox) {
+        g.globalAlpha = rosterSt.vis;
+        const a0 = A;
+        if (rosterSt.vis < 0.5) A = null;
+        taken.push(roster(rosterRows, rosterBox.r, rosterBox.t + 8, F.now - (F.since || 0)));
+        A = a0;
         g.globalAlpha = 1;
-        taken.push(gaugeBox);
       }
-      if (keyBox) {
-        key(keys.slice(0, 6), F.open.l + 14, F.open.b - 12);
-        taken.push(keyBox);
+      if (gaugeP) {
+        const n = gaugeP.n;
+        g.globalAlpha = n.exitAt != null ? clamp9(1 - (F.now - n.exitAt) / 0.6, 0, 1) : 1;
+        owner = "gauge";
+        gauge(F.open.r - 64, F.open.b - 104, gaugeP.P.gauge, F.now - n.born);
+        g.globalAlpha = 1;
+        taken.push({ ...gaugeArea, hard: true });
       }
+      owner = "key";
+      if (keyBox) taken.push(key(keys.slice(0, 6), F.open.l + 14, F.open.b - 12));
       const T3 = performance.now();
       for (const { n, P } of plans) {
         const t2 = F.now - n.born, out = n.exitAt != null ? clamp9(1 - (F.now - n.exitAt) / 0.6, 0, 1) : 1;
         for (const [k, part] of [[0, P], [1, P.extra]]) {
           if (!part || !part.label) continue;
-          const L = norm(part.label);
-          const size = labelSize(L);
-          const id = n.id * 2 + k;
-          const at = place(id, part.anchor, size, taken, F.open, allPts);
-          const st = lay.get(id);
-          const want = [at.x, at.y];
-          if (!st.at || st.dir !== at.dir) {
-            st.at = want;
-            st.dir = at.dir;
-          } else {
-            const f2 = 1 - Math.exp(-F.dt / 0.18);
-            st.at = [st.at[0] + (want[0] - st.at[0]) * f2, st.at[1] + (want[1] - st.at[1]) * f2];
+          const L = norm(part.label), size = labelSize(L), id = n.id * 2 + k, an = part.anchor;
+          let st = lay.get(id);
+          if (!st) lay.set(id, st = { pick: null, lookAt: -1e9 });
+          const wa = F.toWorld(an);
+          if (st.w && Math.hypot(wa[0] - st.w[0], wa[1] - st.w[1]) * F.ppu > 150) {
+            if (st.off) st.ghost = { w: st.w, off: st.off, dir: st.dir, a: st.a * st.vis };
+            st.w = null;
+            st.off = null;
           }
-          const [lx, ly] = st.at;
-          g.globalAlpha = out;
-          leader(part.anchor[0], part.anchor[1], lx - st.dir * 4, ly + 7, L.tone || INK4, t2 - 0.15 - k * 0.5);
-          label3(L, lx, ly, st.dir, t2 - 0.25 - k * 0.5);
+          if (!st.w) st.w = wa;
+          else {
+            const f2 = 1 - Math.exp(-F.dt / STEADY.follow);
+            st.w = [st.w[0] + (wa[0] - st.w[0]) * f2, st.w[1] + (wa[1] - st.w[1]) * f2];
+          }
+          const base = F.toScreen(st.w);
+          const at = place(id, base, size, taken, F.open, allPts, F.now);
+          const want = [at.x - base[0], at.y - base[1]];
+          if (!st.off) {
+            st.off = want;
+            st.dir = at.dir;
+            st.a = st.ghost ? 0 : 1;
+            st.vis ??= 1;
+          } else if (st.dir !== at.dir || Math.hypot(want[0] - st.off[0], want[1] - st.off[1]) > STEADY.far) {
+            if (A) A.count("flips");
+            st.ghost = { w: st.w, off: st.off, dir: st.dir, a: st.a * st.vis };
+            st.off = want;
+            st.dir = at.dir;
+            st.a = 0;
+          } else {
+            const f2 = 1 - Math.exp(-F.dt / STEADY.slide), next = [st.off[0] + (want[0] - st.off[0]) * f2, st.off[1] + (want[1] - st.off[1]) * f2];
+            const over = (o) => taken.some((r2) => r2.hard && area(boxAt(base[0] + o[0], base[1] + o[1], at.dir, size), r2) > 4);
+            if (over(next) && !over(want)) {
+              if (A) A.count("flips");
+              st.ghost = { w: st.w, off: st.off, dir: st.dir, a: st.a * st.vis };
+              st.off = want;
+              st.a = 0;
+            } else st.off = next;
+          }
+          st.a = Math.min(1, st.a + F.dt / STEADY.swap);
+          const lx = base[0] + st.off[0], ly = base[1] + st.off[1], box = boxAt(lx, ly, st.dir, size);
+          const blocked = taken.some((r2) => r2.hard && area(box, r2) > 4);
+          st.vis = clamp9(st.vis + (blocked ? -1 : 1) * F.dt / 0.15, 0, 1);
+          if (blocked && A) A.count("hidden");
+          if (st.ghost) {
+            st.ghost.a -= F.dt / (STEADY.swap * 0.8);
+            if (st.ghost.a <= 0) st.ghost = null;
+            else {
+              const gb = F.toScreen(st.ghost.w), gx = gb[0] + st.ghost.off[0], gy = gb[1] + st.ghost.off[1], a0 = A;
+              g.globalAlpha = out * st.ghost.a;
+              A = null;
+              leader(an[0], an[1], gx - st.ghost.dir * 4, gy + 7, L.tone || INK4, 9);
+              label3(L, gx, gy, st.ghost.dir, 9);
+              A = a0;
+            }
+          }
+          const alpha = out * st.a * st.vis;
+          if (alpha > 0.01) {
+            const a0 = A;
+            if (alpha < 0.5) A = null;
+            g.globalAlpha = alpha;
+            owner = `L${id}`;
+            if (A) A.point("label", id, lx, ly);
+            leader(an[0], an[1], lx - st.dir * 4, ly + 7, L.tone || INK4, t2 - 0.15 - k * 0.5);
+            label3(L, lx, ly, st.dir, t2 - 0.25 - k * 0.5);
+            A = a0;
+          }
           g.globalAlpha = 1;
-          taken.push(st.dir > 0 ? { l: lx - 6, t: ly - 14, r: lx + size.w + 6, b: ly + size.h } : { l: lx - size.w - 6, t: ly - 14, r: lx + 6, b: ly + size.h });
-          const ey = ly + 7, mx = part.anchor[0] + st.dir * Math.min(Math.abs(ey - part.anchor[1]), Math.abs(lx - part.anchor[0]));
-          taken.push({ seg: [part.anchor[0], part.anchor[1], mx, ey] }, { seg: [mx, ey, lx, ey] });
+          if (blocked) continue;
+          taken.push({ ...box, hard: true });
+          const ey = ly + 7, { mx } = leaderPath(an[0], an[1], lx, ey);
+          taken.push({ seg: [an[0], an[1], mx, ey] }, { seg: [mx, ey, lx, ey] });
         }
       }
       g.restore();
@@ -31516,16 +31979,26 @@ ${e.message}` : String(e?.message || e));
       ms.marks += T2 - T1;
       ms.frame += T3 - T2;
       ms.labels += T4 - T3;
+      if (A) A.end();
       for (const [id, m] of marks) if (++m.used > 120) marks.delete(id);
-      for (const id of lay.keys()) if (!F.notes.some((n) => n.id * 2 === id || n.id * 2 + 1 === id)) lay.delete(id);
+      const live = new Set(F.notes.map((n) => n.id));
+      for (const id of lay.keys()) if (!live.has(id >> 1)) lay.delete(id);
+      for (const id of notesAt.keys()) if (!live.has(id)) notesAt.delete(id);
       return taken;
     }
     const textOut = (...a) => {
       cur = null;
+      owner = "plate";
       text2(...a);
       cur = null;
     };
-    return { draw, text: textOut, label: label3, labelSize, width: (k, s) => {
+    const audit = (on) => {
+      if (on === void 0) return A ? A.summary() : null;
+      A = on ? A || createAudit() : null;
+      if (A && on === "reset") A.reset();
+      return !!A;
+    };
+    return { draw, audit, text: textOut, label: label3, labelSize, width: (k, s) => {
       const w = width(k, s);
       cur = null;
       return w;
@@ -35258,9 +35731,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "9f9c57fa6503bd23") return;
+      if (localStorage.getItem(key) === "c26356ed37d94c07") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "9f9c57fa6503bd23");
+      if (res) localStorage.setItem(key, "c26356ed37d94c07");
     } catch {
     }
   }
@@ -39902,9 +40375,10 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
       plateRect = { l: tx - 10, t: ey - 14, r: tx + tw + 10, b: ey + 10 };
       if (notesShown && g && sp) {
         const cells = sel.org && sel.org.cells > 1 ? `${fmt(sel.org.cells)}-CELL BODY` : "ONE CELL";
-        const lo2 = Math.round((g.topt ?? 19) - Math.max(g.tol ?? 7, 0.5)), hi2 = Math.round((g.topt ?? 19) + Math.max(g.tol ?? 7, 0.5));
-        const line2 = `${dietGuild(g).toUpperCase()} · ${cells} · COMFORT ${lo2}–${hi2}°C`;
-        const dw = noteView.width("data", line2), dx = left ? Math.min(tx + tw - dw, tx) : tx;
+        const clo = Math.round((g.topt ?? 19) - Math.max(g.tol ?? 7, 0.5)), chi = Math.round((g.topt ?? 19) + Math.max(g.tol ?? 7, 0.5));
+        let line2 = `${dietGuild(g).toUpperCase()} · ${cells} · COMFORT ${clo}–${chi}°C`;
+        if (noteView.width("data", line2) > hi - lo - 16) line2 = `${dietGuild(g).toUpperCase()} · COMFORT ${clo}–${chi}°C`;
+        const dw = noteView.width("data", line2), dx = clamp6(left ? Math.min(tx + tw - dw, tx) : tx, lo + 8, Math.max(lo + 8, hi - dw - 8));
         noteView.text("data", line2, dx, ey + 20, "rgba(163,189,190,0.95)");
         octx.letterSpacing = "0px";
         octx.fontStretch = "normal";
@@ -40158,7 +40632,7 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
     };
     const notes = new Notes({ species: noteSp, world: () => eng.grid });
     const noteView = createNoteView(octx);
-    let notesShown = false, notesSince = 0, noteOpen = { l: 0, t: 0, r: innerWidth, b: innerHeight }, plateRect = null;
+    let notesShown = false, notesSince = 0, noteGridL = null, noteOpen = { l: 0, t: 0, r: innerWidth, b: innerHeight }, plateRect = null;
     eng.onNotes = (scan) => {
       if (!notesShown) return;
       const t0 = performance.now();
@@ -40186,6 +40660,10 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
       const [W, H2] = eng.grid, p = cssPPU(), m = 40 / p;
       const w = Math.min(W, innerWidth / p + 2 * m), h = Math.min(H2, innerHeight / p + 2 * m);
       eng.watchRect.set([cam.x - w / 2, cam.y - h / 2, w, h]);
+      const need = Math.log2(Math.max(innerWidth, innerHeight) / p / 14);
+      if (!(noteGridL >= need && noteGridL < need + 1.07)) noteGridL = Math.ceil(need);
+      const s = 2 ** noteGridL;
+      eng.noteGrid.set([(Math.floor(cam.x / s) - NOTE_TG / 2) * s, (Math.floor(cam.y / s) - NOTE_TG / 2) * s, s]);
       eng.notes = { every: 6, cap: p < notes.T.wide ? 3e3 : 16384 };
       eng.watchEv = notes.eventMask(p);
       eng.watchBites = Math.min(4294967295, Math.round(notes.biteKeep * 4294967296));
@@ -40220,6 +40698,8 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
       noteView.draw({
         now,
         dt: dtMs / 1e3,
+        ppu: cssPPU(),
+        world: eng.grid,
         notes: list,
         model: notes,
         species: noteSp,
@@ -40709,6 +41189,7 @@ Tidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} 
       perf,
       eng,
       notes,
+      noteView,
       sound,
       lab,
       life: () => life,
