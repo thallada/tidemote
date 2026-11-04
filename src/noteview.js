@@ -6,18 +6,18 @@
 // found (by id, carried on to the moment shown), so it sits where its cell shows.
 //
 // Steadiness: the marks ride the scene as what they mark does. A cell's mark follows it by id, a new sample's
-// correction eased out, and fades in and out rather than popping. A group's ground and the water's squares are cells
-// of a lattice fixed in the world, their hatching fixed to it too; each is held a moment after it empties, so an edge
-// does not flicker, and the lattice is drawn afresh (crossfaded) only when a zoom has made it much coarser or finer.
-// A label hangs on one cell, kept while it shows, by an offset weighed again only now and then and changed only for a
-// clearly better place (by a crossfade, never a slide across the view). No two pieces of text overlap: a label with no
-// free place waits, hidden, until one frees.
+// correction eased out, and fades in and out rather than popping. A stretch of the world (water too warm, ice, light,
+// stone, a crowd, a range) is an organic shape: smooth loops where a field crosses a level (src/contour.js), fixed in
+// the world, its hatching fixed to it too, a crowd's eased from look to look. A label is placed once, about the one
+// cell it hangs on, and holds still on the screen (its leader reaches to the cell); it stays at least 3 s once read and
+// never blinks back once gone. No two pieces of text overlap: a label with no room waits hidden, its marks with it.
 import { NOTE_TG } from './shaders.js';
 import { createAudit } from './noteaudit.js';
 import { fmtLen, UM_PER_UNIT } from './fmt.js';
+import { contours, smooth } from './contour.js';
 
 const FONT = 'Saira, Bahnschrift, "DIN Alternate", "Segoe UI", system-ui, sans-serif';
-const INK = '226,241,240', INK2 = '163,189,190', INK3 = '111,138,140', LINE = '150,222,230', HOT = '255,95,58', CYAN = '127,214,223';
+const INK = '226,241,240', INK2 = '163,189,190', INK3 = '111,138,140', LINE = '150,222,230', HOT = '255,95,58', CYAN = '127,214,223', SUN = '255,204,92';
 const SHADE = 'rgba(4,7,8,0.85)', HALO = 'rgba(0,0,0,0.55)', PLATE = 'rgba(4,7,8,0.8)';
 const rgba = (c, a) => `rgba(${c},${a})`;
 const SCRAMBLE = '0123456789ABCDEFHKLMNPRSTVXZ/·-';
@@ -26,10 +26,6 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const ease = (u) => 1 - (1 - clamp(u, 0, 1)) ** 3;
 const NONE = 0xffffffff;
 const hashU = (id) => (Math.imul(id, 2654435761) >>> 0) / 4294967296;
-// a lattice cell's key from its indices (world position over its side), and back
-// (±2^20 each way: a 4M world's width over the finest side at full zoom fits many times over)
-const cellKey = (i, j) => (i + 1048576) * 2097152 + (j + 1048576);
-const cellIJ = (key) => [Math.floor(key / 2097152) - 1048576, (key % 2097152) - 1048576];
 
 // the type, as the page's own labels: [weight, size, tracking (em), stretch]
 const TYPE = {
@@ -47,10 +43,6 @@ const TYPE = {
 const STEADY = {
   settle: 0.12,    // a cell's mark eases out a new sample's correction
   fade: 0.25,      // a cell's mark fades in or out
-  hold: 1.2,       // a lattice cell stays a moment after its last member leaves (the water's squares: holdSq)
-  holdSq: 1.6,
-  join: 0.5,       // and joins the outlined ground only once it has held members this long (its hatching fading in)
-  part: 0.4,       // a leaving cell's hatching fades out over the last of its hold, its edge gone first
   relook: 0.7,     // a label's place is weighed again this often (at once when it covers text)
   better: 120,     // and changes only for one this much better (in the placement's score)
   follow: 0.3,     // a label follows its cell's own motion (a swimmer's beat) this smoothly, the camera's exactly
@@ -268,62 +260,6 @@ export function createNoteView(g) {
     g.globalAlpha = a0;
     if (stats) stats.glyphs = (stats.glyphs || 0) + pts.length;
   }
-  // LATTICE: a stretch of the world as cells of a lattice fixed in it (a group's ground, the water's squares), stepped
-  // and square-cornered as a HUD's hazard map draws them: a dotted edge, hatched when it is a danger. keys: the cells
-  // (cellKey) outlined; soft: cells joining or leaving it, hatched only, each at its alpha; V(i, j): a vertex on
-  // screen; H: the hatching's phase, spacing and strength. Returns its top corner.
-  function lattice(keys, soft, V, tone, alpha, hatched, H, solid = false) {
-    // (in four bands of alpha, so a few fills draw them all: each fill of a pattern is work for the GPU's rasterizer,
-    // which the world's own frames wait on)
-    if (hatched && H.a > 0 && soft.size) {
-      const bands = [new Path2D(), new Path2D(), new Path2D(), new Path2D()], a = g.globalAlpha;
-      for (const [key, f] of soft) {
-        const [i, j] = cellIJ(key), q = [V(i, j), V(i + 1, j), V(i + 1, j + 1), V(i, j + 1)], P = bands[Math.min(3, Math.floor(f * 4))];
-        P.moveTo(q[0][0], q[0][1]); for (let e = 1; e < 4; e++) P.lineTo(q[e][0], q[e][1]); P.closePath();
-      }
-      g.fillStyle = hatchAt(tone, H.x, H.y, H.px);
-      bands.forEach((P, b) => { g.globalAlpha = a * alpha * H.a * (b + 0.5) / 4; g.fill(P); });
-      g.globalAlpha = a;
-    }
-    if (!keys.size) return null;
-    const a = g.globalAlpha, fill = new Path2D(), edges = new Path2D();
-    let top = null, len = 0;
-    // (filled by runs along each row: a few rects rather than a cell each)
-    const rows = new Map();
-    for (const key of keys) {
-      const [i, j] = cellIJ(key);
-      const q = [V(i, j), V(i + 1, j), V(i + 1, j + 1), V(i, j + 1)];
-      if (hatched) { let r = rows.get(j); if (!r) rows.set(j, (r = [])); r.push(i); }
-      // its edges that face a cell not in the set (top, right, bottom, left)
-      const out = [!keys.has(cellKey(i, j - 1)), !keys.has(cellKey(i + 1, j)), !keys.has(cellKey(i, j + 1)), !keys.has(cellKey(i - 1, j))];
-      for (let e = 0; e < 4; e++) if (out[e]) { edges.moveTo(q[e][0], q[e][1]); edges.lineTo(q[(e + 1) % 4][0], q[(e + 1) % 4][1]); len += Math.abs(q[1][0] - q[0][0]); }
-      if (!top || q[1][1] < top[1] || (q[1][1] === top[1] && q[1][0] > top[0])) top = q[1];
-    }
-    if (hatched && H.a > 0) {
-      for (const [j, r] of rows) {
-        r.sort((x, y) => x - y);
-        for (let s0 = 0; s0 < r.length;) {
-          let e = s0;
-          while (e + 1 < r.length && r[e + 1] === r[e] + 1) e++;
-          const p0 = V(r[s0], j), p1 = V(r[e] + 1, j + 1);
-          fill.rect(p0[0], p0[1], p1[0] - p0[0], p1[1] - p0[1]);
-          s0 = e + 1;
-        }
-      }
-      g.globalAlpha = a * alpha * H.a; g.fillStyle = hatchAt(tone, H.x, H.y, H.px); g.fill(fill);
-    }
-    g.globalAlpha = a * alpha;
-    g.lineWidth = 3; g.strokeStyle = HALO; g.stroke(edges);
-    // dotted, as a hazard map's edge; a long edge (a ground in many pieces) as a faint solid line, its dots too much
-    // work for the rasterizer
-    // (a community's edge solid: a boundary rather than a hazard)
-    if (solid) { g.lineWidth = 1.4; g.strokeStyle = rgba(tone, 0.95); g.stroke(edges); }
-    else if (len < 6000) { g.lineWidth = 1; g.strokeStyle = rgba(tone, 0.88); g.setLineDash([1, 3]); g.lineCap = 'round'; g.stroke(edges); g.setLineDash([]); g.lineCap = 'butt'; }
-    else { g.lineWidth = 1; g.strokeStyle = rgba(tone, 0.5); g.stroke(edges); }
-    g.globalAlpha = a;
-    if (stats) { stats.cells = Math.max(stats.cells || 0, keys.size + soft.size); stats.edge = Math.max(stats.edge || 0, len); }
-    return top;
-  }
   // PIP: a moment at a point: a cross that blinks, then rests half-lit, fading as it grows old (fade 1..0)
   function pip(x, y, tone, t, fade = 1) {
     const on = reduced || t > 0.9 || Math.floor(t / 0.15) % 2 === 0;
@@ -363,13 +299,14 @@ export function createNoteView(g) {
   //   ├──[█████]──┤            a range bar: a band of comfort on a scale, the reading as a tick
   //      14    28              the band's ends
   // Each row has its own band of height, so nothing in one reaches into another; the block sits on a faint plate.
-  const RANGE_W = 120, SPLIT_W = 170;
+  const RANGE_W = 120, SPLIT_W = 170, TABLE_W = 230;
   function labelSize(L) {
     L = norm(L);
     const head = (L.eye ? width('eye', L.eye) : 0) + (L.tag ? width('tag', L.tag) + 10 + (L.eye ? 8 : 0) : 0);
-    const row = (L.num ? width('num', L.num) + 8 : 0) + (L.main ? width('main', L.main) : 0);
-    const data = Math.max(0, ...(L.data || []).map((d) => width('data', d)));
-    const w = Math.max(head, row, data, L.range ? RANGE_W + 8 : 0, L.split || L.stack ? SPLIT_W : 0);
+    const row = (L.num ? width('num', L.num) + 8 : 0) + (L.main ? width('main', L.main) : 0) + (L.kind != null ? 14 : 0);
+    const data = Math.max(0, ...(L.data || []).map((d, i) => width('data', d) + (L.dataKinds?.[i] != null ? 13 : 0)));
+    const table = L.table ? TABLE_W : 0;
+    const w = Math.max(head, row, data, table, L.range ? RANGE_W + 8 : 0, L.split || L.stack || L.wave ? SPLIT_W : 0);
     let h = 0;
     if (L.eye || L.tag) h += 13;
     if (L.num || L.main) h += (L.num ? 24 : 15) + 4;
@@ -377,6 +314,8 @@ export function createNoteView(g) {
     if (L.range) h += 42;
     if (L.split) h += 24;
     if (L.stack) h += 16;
+    if (L.table) h += 8 + L.table.length * 15 + (L.why ? 14 + L.why.length * 14 : 0);
+    if (L.wave) h += 26;
     return { w, h: h + 4 };
   }
   function label(L, x, y, dir, t) {
@@ -408,13 +347,42 @@ export function createNoteView(g) {
     }
     if (L.num || L.main) {
       yy += L.num ? 22 : 13;
-      // the numeral reads first: at the left edge when the label grows right, left of the name when it grows left
-      const nw = L.num ? width('num', L.num) + 8 : 0, mw = L.main ? width('main', L.main) : 0;
-      if (L.num) text('num', decoded(L.num, t - 0.1), dir > 0 ? x : x - mw - 8, yy, rgba(L.numTone || tone, 0.98), al, L.num);
-      if (L.main) text('main', decoded(L.main, t - 0.15), dir > 0 ? x + nw : x, yy, rgba(INK, 0.97), al, L.main);
+      // the numeral reads first: at the left edge when the label grows right, left of the name when it grows left; the
+      // species' glyph just before its name
+      const gw = L.kind != null ? 14 : 0, nw = L.num ? width('num', L.num) + 8 : 0, mw = L.main ? width('main', L.main) : 0;
+      if (L.num) text('num', decoded(L.num, t - 0.1), dir > 0 ? x : x - mw - 8 - gw, yy, rgba(L.numTone || tone, 0.98), al, L.num);
+      if (L.kind != null && t > 0.15) spGlyph(L.kind, (dir > 0 ? x + nw : x - mw) + (dir > 0 ? 5 : -9), yy - 4.5, 4.2);
+      if (L.main) text('main', decoded(L.main, t - 0.15), dir > 0 ? x + nw + gw : x, yy, rgba(INK, 0.97), al, L.main);
       yy += 4;
     }
-    for (const d of L.data || []) { yy += 14; text('data', decoded(d, t - 0.2), X(0), yy, rgba(INK2, 0.95), al, d); }
+    (L.data || []).forEach((d, i) => {
+      yy += 14;
+      const k = L.dataKinds?.[i], gw = k != null ? 13 : 0, dw = width('data', d);
+      if (k != null && t > 0.2) spGlyph(k, dir > 0 ? x + 4 : x - dw - 9, yy - 4, 3.6);
+      text('data', decoded(d, t - 0.2), dir > 0 ? x + gw : x, yy, rgba(INK2, 0.95), al, d);
+    });
+    if (L.table) {
+      // a table of species: each its glyph, its name, its figure right, a bar of its share beneath
+      yy += 8;
+      const x0 = dir > 0 ? x : x - TABLE_W, max = Math.max(...L.table.map((r) => r.share || 0), 1e-9);
+      L.table.forEach((r, i) => {
+        yy += 15;
+        if (t > 0.2 + i * 0.05) spGlyph(r.kind, x0 + 4, yy - 4, 3.8);
+        const nm2 = fit('data', r.name, TABLE_W - 62);
+        text('data', nm2, x0 + 14, yy, rgba(INK, 0.96), 'left', nm2);
+        text('data', r.value, x0 + TABLE_W, yy, rgba(INK, 0.96), 'right', r.value);
+        g.fillStyle = curF?.species(r.kind)?.col || rgba(INK2, 0.6);
+        const a0 = g.globalAlpha; g.globalAlpha = a0 * 0.55;
+        g.fillRect(x0 + 14, yy + 3, (TABLE_W - 14) * ((r.share || 0) / max) * (reduced ? 1 : clamp((t - 0.3 - i * 0.05) / 0.4, 0, 1)), 1.5);
+        g.globalAlpha = a0;
+      });
+      if (L.why) {
+        yy += 14;
+        text('micro', 'WHY IT HOLDS TOGETHER', x0, yy, rgba(INK3, 1), 'left');
+        for (const w2 of L.why) { yy += 14; text('data', decoded(w2, t - 0.3), x0, yy, rgba(INK2, 0.95), 'left', w2); }
+      }
+    }
+    if (L.wave) { yy += 16; wave(L.wave, dir > 0 ? x : x - SPLIT_W, yy, t - 0.25); yy += 10; }
     if (L.range) { yy += 22; range(L.range, dir > 0 ? x : x - RANGE_W, yy, t - 0.25); yy += 20; }
     if (L.split) { yy += 12; split(L.split, dir > 0 ? x : x - SPLIT_W, yy, t - 0.25); yy += 12; }
     if (L.stack) { yy += 10; stack(L.stack, dir > 0 ? x : x - SPLIT_W, yy, t - 0.25); yy += 6; }
@@ -465,6 +433,19 @@ export function createNoteView(g) {
     g.fillStyle = rgba(INK, 0.9); g.fillRect(mid - 0.5, y - 6, 1, 12);
     text('micro', `−${dead}`, mid - half - 4, y + 4, rgba(HOT, 1), 'right');
     text('micro', `+${B.born}`, mid + half + 4, y + 4, rgba(CYAN, 1), 'left');
+    g.globalAlpha = a;
+  }
+  // WAVE: a beat as an oscillograph, running at the beat's own rate (its genome's beats a second)
+  function wave(W2, x0, y, t) {
+    if (t < 0 && !reduced) return;
+    const a = g.globalAlpha, u = reduced ? 1 : ease(t / 0.6), amp = 7 * clamp(W2.amp / 0.5, 0.3, 1), cyc = 3;
+    g.globalAlpha = a * (reduced ? 1 : clamp(t / 0.3, 0, 1));
+    stroke(() => { g.beginPath(); g.moveTo(x0, y); g.lineTo(x0 + SPLIT_W, y); }, rgba(LINE, 0.35), 1, false);
+    const ph = reduced ? 0 : (curF?.now || 0) * TAU * (W2.hz || 1);
+    stroke(() => {
+      g.beginPath();
+      for (let i = 0; i <= 60 * u; i++) { const s2 = i / 60, xx = x0 + s2 * SPLIT_W, yv = y - Math.sin(s2 * cyc * TAU - ph) * amp; if (i) g.lineTo(xx, yv); else g.moveTo(xx, yv); }
+    }, rgba(HOT, 0.95), 1.3);
     g.globalAlpha = a;
   }
   // STACK: what a whole is made of, as one bar in parts (each its share, in its own color; the rest dim)
@@ -536,7 +517,7 @@ export function createNoteView(g) {
     rows.forEach((r, i) => {
       const yy = y + 26 + i * 19, col = r.hot ? HOT : INK, num = String(r.n);
       text('micro', String(i + 1).padStart(2, '0'), x - W + 10, yy, rgba(INK3, 1));
-      glyph(r.guild, x - W + 36, yy - 4, col);
+      spGlyph(r.kind, x - W + 36, yy - 4, 3.8);
       // the name has the row less its number
       const nm = fit('micro', r.name.toUpperCase(), W - 66 - width('micro', num));
       text('micro', nm, x - W + 46, yy, rgba(col, r.hot ? 1 : 0.92));
@@ -546,7 +527,23 @@ export function createNoteView(g) {
     g.globalAlpha = a;
     return { l: x - W, t: y - 8, r: x, b: y + H, hard: true };
   }
-  // a guild's glyph: producer a diamond, grazer a dot, hunter a triangle, scavenger a square
+  // A species' glyph: its guild's shape (producer a diamond, grazer a dot, hunter a triangle, scavenger a square) in
+  // the species' own color, as its cells show, edged dark; beside its name wherever a name is told.
+  let curF = null;
+  function spGlyph(kind, x, y, r = 3.6) {
+    const sp = curF?.species(kind);
+    shape(sp?.guild, x, y, r);
+    g.lineWidth = 1.2; g.strokeStyle = HALO; g.stroke();
+    g.fillStyle = sp?.col || rgba(INK, 0.95); g.fill();
+  }
+  function shape(guild, x, y, r) {
+    g.beginPath();
+    if (guild === 'producer') { g.moveTo(x, y - r); g.lineTo(x + r, y); g.lineTo(x, y + r); g.lineTo(x - r, y); g.closePath(); }
+    else if (guild === 'predator') { g.moveTo(x, y - r); g.lineTo(x + r, y + r * 0.85); g.lineTo(x - r, y + r * 0.85); g.closePath(); }
+    else if (guild === 'scavenger') g.rect(x - r * 0.85, y - r * 0.85, r * 1.7, r * 1.7);
+    else g.arc(x, y, r * 0.75, 0, TAU);
+  }
+  // a guild's glyph in a tone: producer a diamond, grazer a dot, hunter a triangle, scavenger a square
   function glyph(guild, x, y, col) {
     g.fillStyle = rgba(col, 0.95);
     g.beginPath();
@@ -707,81 +704,88 @@ export function createNoteView(g) {
     st.anchor = best[2];
     return best;
   }
-  // A stretch of world as lattice cells, steadied: on a fresh read, the cells `base` (cellKey at side s) and, `grow`,
-  // their neighbours (gaps of one bridged) are marked seen. A cell seen look after look for `join` seconds is
-  // outlined (until then hatched, fading in: a cell that holds members only a moment never moves the edge), and stays
-  // so until `hold` seconds after it was last seen (its edge going first, its hatching fading). A new side (a zoom
-  // past a step) starts afresh, the old one crossfading out; what the first look finds is outlined at once.
-  function steadyLattice(st, s, base, now, grow, hold) {
-    if (st.s !== s) {
-      if (st.s != null && st.cells.size) st.prev = { s: st.s, ...drawn(st, now, hold), at: now, m: st.m };
-      st.first = st.s == null || !st.cells.size;
-      st.s = s; st.cells = new Map(); st.m = null;
-    }
-    if (base) {
-      let on = base;
-      if (grow) {
-        on = new Set();
-        for (const key of base) { const [i, j] = cellIJ(key); for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) on.add(cellKey(i + a, j + b)); }
-        for (const key of [...on]) {
-          const [i, j] = cellIJ(key);
-          if (on.has(cellKey(i + 2, j))) on.add(cellKey(i + 1, j));
-          if (on.has(cellKey(i, j + 2))) on.add(cellKey(i, j + 1));
-        }
+  // ------------------------------------------------------------------ organic shapes
+  // A stretch of the world as smooth closed loops where a field crosses a level (src/contour.js), in world units: drawn
+  // each frame where the view shows them, as a shape that follows what it marks rather than a grid's squares.
+  // From the view's squares of water (a value at each square's middle; the squares fixed in the world):
+  // (squares out of view count as outside, a finite way below the level: an edge between them and one inside falls
+  // halfway, as any other, never along a row of square middles)
+  function gridLoops(field, grid, level, valid = null) {
+    const f = new Float32Array(NOTE_TG * NOTE_TG);
+    let span = 0;
+    for (let k = 0; k < f.length; k++) span = Math.max(span, Math.abs(field[k] - level));
+    for (let k = 0; k < f.length; k++) f[k] = valid && !valid[k] ? level - Math.max(span, 1e-3) : field[k];
+    const [ox, oy, s2] = grid;
+    return contours(f, NOTE_TG, NOTE_TG, level).map((L) => smooth(L, 3).map(([x, y]) => [ox + (x + 0.5) * s2, oy + (y + 0.5) * s2]));
+  }
+  // From points (a crowd): each spreads a soft bump of radius R about it on a lattice fixed in the world (a third of R a
+  // side); where they sum past half a bump's top is inside. With `st`, the field is carried from look to look and eased
+  // (each new look counts for a third), so the shape changes as the crowd does, never at a jump.
+  // (rel: inside where the field passes that share of its own peak, for a crowd known only by a sample of it)
+  function crowdLoops(pts, R, st = null, rel = 0) {
+    const c = R / 3, field = new Map(), K = Math.ceil(R / c);
+    for (const [x, y] of pts) {
+      const i0 = Math.round(x / c), j0 = Math.round(y / c);
+      for (let a = -K; a <= K; a++) for (let b = -K; b <= K; b++) {
+        const d2 = ((i0 + a) * c - x) ** 2 + ((j0 + b) * c - y) ** 2;
+        if (d2 >= R * R) continue;
+        const key = (i0 + a + 1048576) * 2097152 + (j0 + b + 1048576), w = (1 - d2 / (R * R)) ** 2;
+        field.set(key, (field.get(key) || 0) + w);
       }
-      // (seen afresh unless it was seen in the last few looks)
-      for (const key of on) {
-        const c = st.cells.get(key);
-        if (!c || now - c.last > 0.3) st.cells.set(key, { since: st.first ? -1e9 : now, last: now });
-        else c.last = now;
-      }
-      st.first = false;
     }
-    return drawn(st, now, hold);
-  }
-  function drawn(st, now, hold) {
-    const core = new Set(), soft = new Map(), T = STEADY;
-    for (const [key, c] of st.cells) {
-      const idle = now - c.last, age = now - c.since;
-      if (idle > hold + 5) { st.cells.delete(key); continue; }
-      if (idle >= hold) continue;
-      if (age >= T.join && idle < hold - T.part) core.add(key);
-      else soft.set(key, age < T.join ? clamp(age / T.join, 0, 1) : clamp((hold - idle) / T.part, 0, 1));
+    let f = field;
+    if (st) {
+      if (st.c !== c) { st.c = c; st.f = new Map(); }
+      for (const [k, w] of st.f) { const nw = w * 0.67 + (field.get(k) || 0) * 0.33; if (nw < 0.02) st.f.delete(k); else st.f.set(k, nw); }
+      for (const [k, w] of field) if (!st.f.has(k)) st.f.set(k, w * 0.33);
+      f = st.f;
     }
-    return { core, soft };
+    if (!f.size) return [];
+    let i0 = Infinity, j0 = Infinity, i1 = -Infinity, j1 = -Infinity;
+    for (const k of f.keys()) { const i = Math.floor(k / 2097152) - 1048576, j = (k % 2097152) - 1048576; i0 = Math.min(i0, i); i1 = Math.max(i1, i); j0 = Math.min(j0, j); j1 = Math.max(j1, j); }
+    const nx = i1 - i0 + 1, ny = j1 - j0 + 1;
+    if (nx * ny > 250000) return [];
+    const arr = new Float32Array(nx * ny);
+    for (const [k, w] of f) { const i = Math.floor(k / 2097152) - 1048576, j = (k % 2097152) - 1048576; arr[(j - j0) * nx + (i - i0)] = w; }
+    let level = 0.5;
+    if (rel) { let peak = 0; for (const w of arr) peak = Math.max(peak, w); level = Math.max(0.05, rel * peak); }
+    return contours(arr, nx, ny, level).map((L) => smooth(L, 2).map(([x, y]) => [(x + i0) * c, (y + j0) * c]));
   }
-  // a lattice's vertices on screen: from where one vertex near the view's middle shows, by the view's scale (fixed to
-  // the world, and bent with it there as the water bends the view)
-  function vertices(s, F) {
-    const r = F.model.view.rect, ix = Math.round((r[0] + r[2] / 2) / s), jy = Math.round((r[1] + r[3] / 2) / s);
-    const o = F.project({ x: ix * s, y: jy * s, vx: 0, vy: 0, t: 0 }, -1);
-    if (!o) return null;
-    const k = s * F.ppu;
-    return { V: (i, j) => [o[0] + (i - ix) * k, o[1] + (j - jy) * k], o, k };
+  // a world point as near the view's middle as the world's wrap allows (so a shape about a crowd is the view's)
+  function nearView(F, x, y) {
+    const [W, H] = F.world, r = F.model.view.rect, cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2;
+    let dx = x - cx, dy = y - cy;
+    dx -= W * Math.round(dx / W); dy -= H * Math.round(dy / H);
+    return [cx + dx, cy + dy];
   }
-  // a steadied lattice drawn (and the one it replaced, fading out), its hatching fixed to the world, m lines a side
-  function drawLattice(st, keys, tone, t, hatched, F, solid = false) {
-    const fIn = reduced ? 1 : clamp(t / 0.4, 0, 1), hA = (reduced ? 1 : clamp((t - 0.3) / 0.4, 0, 1)) * 0.75;
-    st.m ||= Math.max(1, Math.round((st.s * F.ppu) / 6));
-    // a ground over most of the view tells nothing the label and the gauge do not (as the water's squares too warm
-    // nearly everywhere), and is much work for the rasterizer: it fades out while it is that big (past 1500 cells, at once)
-    const n = keys.core.size + keys.soft.size, k = st.s * F.ppu, open = (F.open.r - F.open.l) * (F.open.b - F.open.t);
-    const big = n * k * k > 0.45 * open;
-    st.big = n > 1500 ? 1 : clamp((st.big ?? (big ? 1 : 0)) + ((big ? 1 : -1) * F.dt) / 0.4, 0, 1);
-    if (st.big >= 1) { st.prev = null; return; }
-    const vis = 1 - st.big;
-    let top = null;
-    const one = (s, ks, alpha, m) => {
-      const P = vertices(s, F);
-      return P ? lattice(ks.core, ks.soft, P.V, tone, alpha, hatched, { x: P.o[0], y: P.o[1], px: P.k / m, a: hA }, solid) : null;
-    };
-    let u = 1;
-    if (st.prev) {
-      u = (F.now - st.prev.at) / 0.4;
-      if (u >= 1) { st.prev = null; u = 1; } else one(st.prev.s, st.prev, vis * fIn * (1 - u), st.prev.m || st.m);
+  // the loops drawn: hatched (fixed to the world), filled, outlined solid, dotted or dashed; fading in
+  function blob(loops, tone, t, F, o = {}) {
+    if (!loops.length) return null;
+    const P = new Path2D(), a = g.globalAlpha;
+    let top = null, n = 0;
+    for (const L of loops) {
+      L.forEach((w, i) => { const p = F.toScreen(w); if (i) P.lineTo(p[0], p[1]); else P.moveTo(p[0], p[1]); if (!top || p[1] < top[1]) top = p; });
+      P.closePath();
+      n += L.length;
     }
-    top = one(st.s, keys, vis * fIn * u, st.m);
+    const fIn = reduced ? 1 : clamp(t / 0.5, 0, 1);
+    if (o.fill) { g.globalAlpha = a * fIn * o.fill[1]; g.fillStyle = o.fill[0]; g.fill(P, 'evenodd'); }
+    if (o.hatch) {
+      // (its lines fixed to the world: a point of the world at the origin, spaced by the view's scale within bounds)
+      const o0 = F.toScreen([0, 0]), px = clamp(6 * (F.ppu / (o.ppu0 || F.ppu)), 4.5, 9);
+      g.globalAlpha = a * fIn * (o.hatchA ?? 0.7); g.fillStyle = hatchAt(tone, o0[0], o0[1], px); g.fill(P, 'evenodd');
+    }
+    g.globalAlpha = a * fIn;
+    g.lineJoin = 'round';
+    g.lineWidth = 3; g.strokeStyle = HALO; g.stroke(P);
+    g.lineWidth = o.width || 1.2; g.strokeStyle = o.col || rgba(tone, 0.9);
+    if (o.dash) g.setLineDash(o.dash);
+    g.stroke(P);
+    g.setLineDash([]);
+    g.globalAlpha = a;
+    if (stats) stats.edge = Math.max(stats.edge || 0, n);
     if (A && top) A.point('zone', owner, top[0], top[1]);
+    return top;
   }
 
   // ------------------------------------------------------------------ one note, planned
@@ -791,12 +795,17 @@ export function createNoteView(g) {
   // a species' short name: its genus's initial and its own epithet
   const short = (name) => { const w = up(name).split(' '); return w.length > 1 ? `${w[0][0]}. ${w.slice(1).join(' ')}` : w[0]; };
   // TARGET BOX: brackets around a group on screen, its size across measured above it on a ruled dimension line
-  function targetBox(pts, tone, t, measure) {
+  // (its brackets' box, known before it is drawn: a label is placed once, on its first frame, and must keep off the
+  // size readout above it from the first)
+  function boxOf(pts) {
     let l = Infinity, tp = Infinity, r = -Infinity, b = -Infinity;
     for (const p of pts) if (p[3] > 0.5) { l = Math.min(l, p[0]); r = Math.max(r, p[0]); tp = Math.min(tp, p[1]); b = Math.max(b, p[1]); }
-    if (!(r > l)) return null;
-    const pad = 12;
-    l -= pad; r += pad; tp -= pad; b += pad;
+    return r > l ? { l: l - 12, t: tp - 12, r: r + 12, b: b + 12 } : null;
+  }
+  function targetBox(pts, tone, t, measure) {
+    const B = boxOf(pts);
+    if (!B) return null;
+    const { l, r, b } = B, tp = B.t;
     brackets(l, tp, r, b, rgba(tone, 0.9), t);
     if (measure && t > 0.35) {
       const y = tp - 8, u = reduced ? 1 : ease((t - 0.35) / 0.4), m = (l + r) / 2, hw = ((r - l) / 2) * u;
@@ -831,7 +840,7 @@ export function createNoteView(g) {
   // its guild's glyph in the species' own color (as its cells show), its genus over its epithet, and how much it ate
   // and was eaten. An arrow curves up from the eaten to its eater, as thick as its share of all that was eaten (kills
   // in hot). Each level's tags are ordered under their eaters, so the arrows cross as little as they can.
-  const WEB_W = 510, WEB_TIER = 74, NODE_W = 126, NODE_H = 40;
+  const WEB_W = 510, WEB_TIER = 78, NODE_W = 126, NODE_H = 46;
   const webH = (W2, F) => 44 + webTiers(W2, F).length * WEB_TIER + 22;
   function webTiers(W2, F) {
     const level = (k) => { const gd = F.species(k)?.guild; return gd === 'predator' ? 0 : gd === 'producer' ? 2 : 1; };
@@ -892,21 +901,14 @@ export function createNoteView(g) {
       g.fillStyle = 'rgba(6,9,10,0.96)'; g.fillRect(b2.l, b2.t, NODE_W, NODE_H);
       g.strokeStyle = rgba(hot ? HOT : LINE, hot ? 0.9 : 0.45); g.lineWidth = 1; g.strokeRect(b2.l + 0.5, b2.t + 0.5, NODE_W - 1, NODE_H - 1);
       // its glyph in its own color, as its cells show
-      g.fillStyle = sp?.col || rgba(INK, 0.95);
-      g.beginPath();
-      const gx = b2.l + 10, gy = b2.t + 13, gd = sp?.guild;
-      if (gd === 'producer') { g.moveTo(gx, gy - 4.5); g.lineTo(gx + 4.5, gy); g.lineTo(gx, gy + 4.5); g.lineTo(gx - 4.5, gy); }
-      else if (gd === 'predator') { g.moveTo(gx, gy - 4.5); g.lineTo(gx + 4.5, gy + 4); g.lineTo(gx - 4.5, gy + 4); }
-      else if (gd === 'scavenger') g.rect(gx - 4, gy - 4, 8, 8);
-      else g.arc(gx, gy, 3.6, 0, TAU);
-      g.fill();
+      spGlyph(k, b2.l + 10, b2.t + 13, 4.5);
       text('micro', fit('micro', words[0] || '', NODE_W - 26), b2.l + 20, b2.t + 12, rgba(INK2, 1));
       text('data', fit('data', words.slice(1).join(' ') || words[0] || '', NODE_W - 26), b2.l + 20, b2.t + 24, rgba(INK, 0.98));
       const nd = b2.nd, flow = [nd.ate ? `ATE ${Math.round(nd.ate)}` : '', nd.eaten ? `EATEN ${Math.round(nd.eaten)}` : ''].filter(Boolean).join(' · ');
-      text('data', fit('data', flow, NODE_W - 12), b2.l + 6, b2.t + 36, rgba(INK3, 1));
+      text('data', fit('data', flow, NODE_W - 12), b2.l + 6, b2.t + 41, rgba(INK3, 1));
     }
     // the key: which way the arrows run
-    text('micro', 'ARROWS RUN FROM THE EATEN UP TO THE EATER, AS THICK AS HOW MUCH', x + 12, y + H - 9, rgba(INK3, 1));
+    text('micro', 'ARROWS RUN FROM THE EATEN UP TO THE EATER', x + 12, y + H - 9, rgba(INK3, 1));
     g.globalAlpha = a;
   }
   let isActive = () => false;
@@ -959,46 +961,6 @@ export function createNoteView(g) {
     };
     // up close a glyph and a group's ground grow with the cells they mark
     const glyphOf = (k) => clamp(F.radius(k) * 0.22, 4, 8);
-    // a group's ground: lattice cells about as big as its cells, a power of two world units on a side (another only
-    // when a zoom has taken them past 1.5× too big or small), read afresh with each look at the view
-    const ground = (k, rows) => {
-      const Z = S.z, v = M.view, want = Math.log2(clamp(F.radius(k) * 1.6, 14, 64) / F.ppu);
-      if (Z.L == null || Math.abs(Z.L - want) > 0.6) Z.L = Math.round(want);
-      const s = 2 ** Z.L;
-      let base = null;
-      if (Z.view !== v || Z.s !== s) {
-        Z.view = v;
-        // (each member as near the view's middle as the world's wrap allows, so the lattice is the view's)
-        const [W, H] = F.world, cx = v.rect[0] + v.rect[2] / 2, cy = v.rect[1] + v.rect[3] / 2;
-        const n = new Map();
-        for (const i of rows) {
-          const x = cx + (v.x[i] - cx) - W * Math.round((v.x[i] - cx) / W), y = cy + (v.y[i] - cy) - H * Math.round((v.y[i] - cy) / H);
-          const key = cellKey(Math.floor(x / s), Math.floor(y / s));
-          n.set(key, (n.get(key) || 0) + 1);
-        }
-        // ground only where its members keep company (two or more about a lattice cell): one alone is marked by its
-        // own glyph, and a sprinkling over the view would make a hazard map of confetti
-        base = new Set();
-        for (const key of n.keys()) {
-          const [i, j] = cellIJ(key);
-          let c = 0;
-          for (let a = -1; a <= 1 && c < 2; a++) for (let b = -1; b <= 1; b++) c += n.get(cellKey(i + a, j + b)) || 0;
-          if (c >= 2) base.add(key);
-        }
-      }
-      return steadyLattice(Z, s, base, F.now, true, STEADY.hold);
-    };
-    // the view's squares of water (ks: their indices in this read), steadied
-    const water = (ks) => {
-      const Z = S.z, v = M.view, [ox, oy, s] = v.grid;
-      let base = null;
-      if (Z.view !== v || Z.ks !== ks || Z.s !== s) {
-        Z.view = v; Z.ks = ks;
-        const i0 = Math.round(ox / s), j0 = Math.round(oy / s);
-        base = new Set(ks.map((k) => cellKey(i0 + (k % NOTE_TG), j0 + Math.floor(k / NOTE_TG))));
-      }
-      return steadyLattice(Z, s, base, F.now, false, STEADY.holdSq);
-    };
     if (d.type === 'hunt' || d.type === 'scavenge') {
       const a = pos(d.actor);
       const b = d.type === 'hunt' ? pos(d.target) : F.project({ x: d.spot[0], y: d.spot[1], vx: 0, vy: 0, t: M.view.simTime }, -1);
@@ -1074,15 +1036,27 @@ export function createNoteView(g) {
       const an = hang(0, pts, d.kind);
       if (!an) return null;
       P.tone = HOT;
+      S.ppu0 ||= F.ppu;
       if (wide) {
-        // (water too warm nearly everywhere in view is told by the label and the gauge alone)
+        // the water too warm for it: where the water's warmth crosses what it bears (an isotherm), unless that is nearly
+        // everywhere in view (then told by the label and the gauge alone)
         let inView = 0;
         for (const b of M.view.sqIn) inView += b;
-        const keys = water(d.squares.length <= 0.7 * inView ? d.squares : []);
-        P.draws.push((t) => drawLattice(S.z, keys, HOT, t, true, F));
+        if (S.heatView !== M.view) {
+          S.heatView = M.view;
+          S.loops = d.squares.length <= 0.7 * inView ? gridLoops(M.view.temps, M.view.grid, g2.topt + 0.8 * g2.tol) : [];
+        }
+        const loops = S.loops;
+        P.draws.push((t) => blob(loops, HOT, t, F, { hatch: true, ppu0: S.ppu0 }));
       } else {
-        const keys = ground(d.kind, rows);
-        P.draws.push((t) => drawLattice(S.z, keys, HOT, t, true, F));
+        // its too-warm cells' ground: a shape about them, eased from look to look
+        if (S.heatView !== M.view) {
+          S.heatView = M.view;
+          const v = M.view, R = clamp(F.radius(d.kind) * 2.4, 16, 90) / F.ppu;
+          S.loops = crowdLoops(rows.map((i) => nearView(F, v.x[i], v.y[i])), R, (S.crowd ||= {}));
+        }
+        const loops = S.loops;
+        P.draws.push((t) => blob(loops, HOT, t, F, { hatch: true, ppu0: S.ppu0 }));
         P.draws.push((t) => census(pts, 'square', HOT, t - 0.2, an, glyphOf(d.kind)));
       }
       const deaths = recent('scalded', d.kind, 10);
@@ -1115,11 +1089,11 @@ export function createNoteView(g) {
       if (!an) return null;
       P.tone = CYAN;
       if (wide) {
-        const ks = [];
-        M.view.ice.forEach((v, k) => { if (v > 0.3 && M.view.sqIn[k]) ks.push(k); });
-        // (the same squares as last time keep their array, so they are not read afresh each frame)
-        const keys = water(S.ice && S.ice.join() === ks.join() ? S.ice : (S.ice = ks));
-        P.draws.push((t) => drawLattice(S.z, keys, CYAN, t, true, F));
+        // the ice, where it lies
+        S.ppu0 ||= F.ppu;
+        if (S.iceView !== M.view) { S.iceView = M.view; S.loops = gridLoops(M.view.ice, M.view.grid, 0.3); }
+        const loops = S.loops;
+        P.draws.push((t) => blob(loops, CYAN, t, F, { hatch: true, ppu0: S.ppu0 }));
       } else P.draws.push((t) => census(pts, 'ring', CYAN, t, an));
       const froze = recent('froze', null, 10);
       pips(froze, HOT, 0.4);
@@ -1163,9 +1137,10 @@ export function createNoteView(g) {
         P.draws.push((t) => arrow(mid[0], mid[1], d.heading, clamp(d.lengths * 30, 36, 90), HOT, t - 0.3));
       }
       P.draws.push((t) => census(pts, 'plus', tone, t, an, clamp(F.radius(d.kind) * 0.18, 3, 6)));
-      P.draws.push((t) => { const b = targetBox(pts, tone, t, fmtLen(d.size)); if (b) S.box = b; });
+      P.draws.push((t) => targetBox(pts, tone, t, fmtLen(d.size)));
       // (its size readout is text: the labels keep off it as off any other)
-      if (S.box) P.boxes.push({ ...S.box, t: S.box.t, b: S.box.t + 24, hard: true }, { ...S.box });
+      const bx = boxOf(pts);
+      if (bx) P.boxes.push({ l: bx.l, r: bx.r, t: bx.t - 24, b: bx.t, hard: true }, bx);
       P.anchor = an;
       P.pts = pts;
       const form = up(d.form);
@@ -1218,24 +1193,24 @@ export function createNoteView(g) {
       for (const G of groups) P.draws.push((t) => census(G.pts, G.glyph, INK, t, an, glyphOf(G.k)));
       P.anchor = an;
       P.pts = groups.flatMap((G) => G.pts);
+      const total = d.kinds.reduce((a, k) => a + (M.stats.by.get(k)?.n || 0), 0) || 1;
       P.label = { tone: INK, eye: 'Sister species', num: String(d.species), main: `SPECIES OF ${up(d.genusName)}`,
-        data: [d.kinds.map((k) => short(sp(k)?.name)).join(' · '), 'DESCENDED FROM ONE ANCESTOR, SIDE BY SIDE'] };
+        data: ['DESCENDED FROM ONE ANCESTOR, SIDE BY SIDE'],
+        table: d.kinds.map((k) => { const n2 = M.stats.by.get(k)?.n || 0; return { kind: k, name: up(sp(k)?.name), value: String(Math.round(n2 * M.stats.scale)), share: n2 / total }; }) };
       for (const G of groups) P.keys.push({ glyph: G.glyph, text: nm(G.k), tone: INK });
     } else if (d.type === 'clump') {
-      // a community: its outline (the dense squares of a lattice fixed in the world), the label hung on a cell at its
-      // middle, what it holds as a bar of the species' own colors, and why it may hold together
-      const Z = S.z, base = Z.ks !== d.bins ? new Set(d.bins.map((k) => cellKey(Math.floor(k / 65536) - 32768, (k % 65536) - 32768))) : null;
-      Z.ks = d.bins;
-      const keys = steadyLattice(Z, d.b, base, F.now, false, STEADY.holdSq);
-      P.draws.push((t) => drawLattice(Z, keys, LINE, t, false, F, true));
+      // a community: its outline (a shape about its cells as they were when it was found: it does not shift), the label
+      // hung on a cell at its middle; what it holds as a table of its species (glyph, name, share) and a bar in their
+      // colors; why it may hold together
+      S.loops ||= crowdLoops(d.pts, d.b * 1.4, null, 0.2);
+      const loops = S.loops;
+      P.draws.push((t) => blob(loops, LINE, t, F, { width: 1.4, fill: ['rgba(150,222,230,1)', 0.05] }));
       const an = hang(0, [], -2, d.anchor);
       if (!an) return null;
       P.anchor = an;
       const pct = (x) => `${Math.round(x * 100)}%`;
-      const parts = d.shares.map((x) => [sp(x.kind)?.col || rgba(INK2, 0.9), x.share, x.kind]);
-      const named = d.shares.slice(0, 4).map((x) => `${pct(x.share)} ${short(sp(x.kind)?.name)}`);
       const WHY = {
-        bodies: (x) => `${pct(x)} BONDED IN MATS THE REST SHELTER IN`,
+        bodies: (x) => `${pct(x)} OF ITS CELLS BONDED IN MATS`,
         grazing: (x) => `GRAZERS ON ITS PRODUCERS · ${x} BITES / 30 S`,
         hunters: () => 'HUNTERS FOLLOW THE GRAZERS IN',
         nursery: (x) => `A NURSERY: ${x} BORN HERE IN 30 S`,
@@ -1244,9 +1219,145 @@ export function createNoteView(g) {
       };
       const why = d.why.slice(0, 2).map(([k, x]) => WHY[k](x));
       P.label = { tone: INK, tag: 'Community', num: String(d.species), main: 'SPECIES IN ONE CLUMP',
-        data: [`${d.cells} CELLS · ${fmtLen(d.size)} ACROSS`, named.slice(0, 2).join(' · '), ...(named.length > 2 ? [named.slice(2).join(' · ')] : []), ...(why.length ? why : ['CROWDED WHERE THE LIVING ARE THICKEST'])],
-        stack: parts };
-      P.keys.push({ glyph: 'square', text: 'COMMUNITY: DENSER THAN THE VIEW AROUND IT', tone: LINE });
+        data: [`${d.cells} CELLS · ${fmtLen(d.size)} ACROSS`],
+        stack: d.shares.map((x) => [sp(x.kind)?.col || rgba(INK2, 0.9), x.share, x.kind]),
+        table: d.shares.slice(0, 4).map((x) => ({ kind: x.kind, name: up(sp(x.kind)?.name), value: pct(x.share), share: x.share })),
+        why: why.length ? why : ['CROWDED WHERE THE LIVING ARE THICKEST'] };
+      P.keys.push({ glyph: 'ring', text: 'COMMUNITY: DENSER THAN AROUND IT', tone: LINE });
+    } else if (d.type === 'scavenging') {
+      // scavengers eating the dead: the scavengers counted, where they ate marked
+      const pts = group('c', M.rows(d.kind));
+      const an = hang(0, pts, d.kind);
+      if (!an) return null;
+      P.draws.push((t) => census(pts, 'plus', INK, t, an, glyphOf(d.kind)));
+      const meals = recent('scavenge', null, 10).filter((e) => e.akind === d.kind);
+      pips(meals, INK2, 0.3);
+      P.anchor = an;
+      P.pts = pts;
+      P.label = { tone: INK, eye: 'Scavengers', num: String(d.meals), main: nm(d.kind), data: ['HUSKS EATEN · LAST 30 S', 'THEY LIVE ON THE DEAD: NOTHING IS WASTED'] };
+      P.keys.push({ glyph: 'plus', text: `${nm(d.kind)} CELL`, tone: INK });
+      if (meals.length) P.keys.push({ glyph: 'cross', text: 'A HUSK EATEN, LAST 10 S', tone: INK2 });
+    } else if (d.type === 'sprint') {
+      // the fastest in view: its lock, its heading, where it has been
+      const a = pos(d.actor);
+      if (!a) return null;
+      const r = F.radius(d.akind);
+      P.tone = HOT;
+      const tr = (S.trail ||= []), w = F.toWorld(a);
+      if (!tr.length || F.now - tr.at > 0.15) { tr.push(w); tr.at = F.now; if (tr.length > 20) tr.shift(); }
+      P.draws.push(() => trail(tr, HOT, F));
+      P.draws.push((t) => lock(a[0], a[1], r, HOT, t));
+      P.draws.push((t) => arrow(a[0], a[1], d.heading, clamp(r * 3, 30, 70), HOT, t - 0.3));
+      lockBox(a, r);
+      P.anchor = [a[0], a[1] - r];
+      P.pts = [a];
+      P.label = { tone: HOT, eye: 'Fastest in view', num: fmtLen(d.speed).split(' ')[0], main: `${fmtLen(d.speed).split(' ')[1]}/s · ${nm(d.kind)}`,
+        data: [`${d.times.toFixed(0)}× AS FAST AS MOST HERE`, `HEADING ${compass(d.heading)}`] };
+    } else if (d.type === 'beat') {
+      // a beating body: its cells, brackets, and its beat drawn as an oscillograph at its own rate
+      const v = M.view, rows = [];
+      for (const id of d.members) { const i = v.at.get(id); if (i !== undefined) rows.push(i); }
+      const pts = group('b', rows), an = hang(0, pts, d.kind, d.anchor);
+      if (!an) return null;
+      P.draws.push((t) => census(pts, 'plus', HOT, t, an, clamp(F.radius(d.kind) * 0.18, 3, 6)));
+      P.draws.push((t) => targetBox(pts, HOT, t, fmtLen(d.size)));
+      const bx = boxOf(pts);
+      if (bx) P.boxes.push({ l: bx.l, r: bx.r, t: bx.t - 24, b: bx.t, hard: true }, bx);
+      P.anchor = an;
+      P.pts = pts;
+      const moving = d.lengths >= 0.2;
+      P.label = { tone: HOT, eye: 'Beating', num: d.hz.toFixed(1), main: 'BEATS / S', data: [`${nm(d.kind)} · ${d.cells}-CELL ${up(d.form)}`,
+        d.tail ? 'ITS TAIL BEATS: A WAVE RUNS DOWN IT' : 'ITS CELLS BEAT IN A WAVE ALONG IT', moving ? `IT SWIMS ${d.lengths.toFixed(1)} BODY LENGTHS / S` : 'BEATING, BUT HELD WHERE IT IS'],
+        wave: { hz: d.hz, amp: d.beat } };
+      P.keys.push({ glyph: 'plus', text: `${nm(d.kind)}: ONE BEATING BODY`, tone: HOT });
+    } else if (d.type === 'light') {
+      // the light: where it falls brightest in view (a shape where it crosses halfway from the view's mean to its
+      // brightest), hatched in sunlight's color; the producers there
+      S.ppu0 ||= F.ppu;
+      if (S.lightOf !== d.light) { S.lightOf = d.light; S.loops = gridLoops(d.light, d.grid, d.level, M.view.sqIn); }
+      const loops = S.loops;
+      P.tone = SUN;
+      P.draws.push((t) => blob(loops, SUN, t, F, { hatch: true, ppu0: S.ppu0, hatchA: 0.5 }));
+      // hung on the brightest square's middle (a place in the world)
+      if (!S.at) { let k0 = 0; d.light.forEach((x, k) => { if (M.view.sqIn[k] && x > d.light[k0]) k0 = k; }); S.at = [d.grid[0] + ((k0 % NOTE_TG) + 0.5) * d.grid[2], d.grid[1] + (Math.floor(k0 / NOTE_TG) + 0.5) * d.grid[2]]; }
+      P.anchor = F.toScreen(S.at);
+      const pct = (x) => `${Math.round(x * 100)}%`;
+      P.label = { tone: SUN, tag: d.seeking >= 0.5 ? 'Seeking the light' : 'Basking', num: pct(d.share), main: 'OF THE PRODUCERS',
+        data: [`IN THE BRIGHTEST ${pct(d.areaShare)} OF THE WATER`, `${(d.hi / Math.max(d.mean, 1e-3)).toFixed(1)}× THE VIEW'S LIGHT THERE`,
+          ...(d.seeking >= 0.3 ? [`${pct(d.seeking)} OF THOSE IN THE DIM SWIM TOWARD IT`] : []), 'LIGHT IS WHAT PRODUCERS LIVE ON'] };
+      P.keys.push({ glyph: 'square', text: 'THE BRIGHTEST WATER IN VIEW', tone: SUN });
+    } else if (d.type === 'shelter') {
+      // shelter among stone: the stone's patches, the cells among them
+      if (S.stoneOf !== d.stone) { S.stoneOf = d.stone; S.loops = gridLoops(d.stone, d.grid, 6, M.view.sqIn); }
+      const loops = S.loops, v = M.view, W2 = F.world, rows = [];
+      for (let i = 0; i < v.n; i++) {
+        if (!(v.kind[i] >= 5) || F.species(v.kind[i])?.guild === 'predator') continue;
+        const [ox, oy, gs] = d.grid;
+        let dx = v.x[i] - ox, dy = v.y[i] - oy;
+        dx -= W2[0] * Math.floor(dx / W2[0]); dy -= W2[1] * Math.floor(dy / W2[1]);
+        const a = Math.floor(dx / gs), b = Math.floor(dy / gs);
+        if (a < NOTE_TG && b < NOTE_TG && d.stone[b * NOTE_TG + a] >= 6) rows.push(i);
+      }
+      const pts = group('s', rows), an = hang(0, pts, -2);
+      if (!an) return null;
+      P.draws.push((t) => blob(loops, INK2, t, F, { dash: [4, 3], width: 1.2 }));
+      P.draws.push((t) => census(pts, 'ring', INK, t, an, 3.5));
+      P.anchor = an;
+      P.pts = pts;
+      const pct = (x) => `${Math.round(x * 100)}%`;
+      P.label = { tone: INK, tag: 'Sheltering', num: String(d.cells), main: 'CELLS AMONG THE STONE',
+        data: [`${d.dens.toFixed(1)}× AS CROWDED AS THE OPEN WATER`, 'A HUNTER STRIKING AMONG STONE OFTEN MISSES',
+          d.kills ? `${pct(d.killShare)} OF ${d.kills} KILLS HERE IN ${pct(d.areaShare)} OF THE WATER` : `${d.hunters} HUNTERS ABOUT`] };
+      P.keys.push({ glyph: 'ring', text: 'SHELTERING AMONG STONE', tone: INK });
+    } else if (d.type === 'range' || d.type === 'front') {
+      // who holds the view: a species' range (where it is thickest), in its own color; two, and where they meet
+      const parts = d.type === 'range' ? [{ kind: d.kind, share: d.share, field: d.field }] : [d.a, d.b];
+      if (S.rangeOf !== d.grid + parts.map((x) => x.kind).join()) {
+        S.rangeOf = d.grid + parts.map((x) => x.kind).join();
+        S.loops = parts.map((x) => { let peak = 0; for (const f of x.field) peak = Math.max(peak, f); return gridLoops(x.field, d.grid, Math.max(2, 0.3 * peak), M.view.sqIn); });
+      }
+      parts.forEach((x, i) => {
+        const col = sp(x.kind)?.col || rgba(INK, 0.9), loops = S.loops[i];
+        P.draws.push((t) => blob(loops, INK, t - i * 0.3, F, { col, width: 1.6, fill: [col, 0.07] }));
+      });
+      // hung on the range's top
+      const top = S.loops[0][0];
+      if (!top) return null;
+      if (!S.at) S.at = top.reduce((b, p) => (p[1] < b[1] ? p : b), top[0]);
+      P.anchor = F.toScreen(S.at);
+      const pct = (x) => `${Math.round(x * 100)}%`;
+      P.label = d.type === 'range'
+        ? { tone: INK, eye: 'Dominant', num: pct(d.share), main: nm(d.kind), kind: d.kind, data: [`OF THE LIVING IN VIEW · ${d.cells} CELLS`, 'ITS RANGE OUTLINED WHERE IT IS THICKEST'] }
+        : { tone: INK, eye: 'Where two meet', main: `${short(sp(d.a.kind)?.name)} · ${short(sp(d.b.kind)?.name)}`,
+          table: [d.a, d.b].map((x) => ({ kind: x.kind, name: up(sp(x.kind)?.name), value: pct(x.share), share: x.share })),
+          data: ['THE TWO MOST NUMEROUS HERE, EACH HOLDING ITS OWN GROUND'] };
+      for (const x of parts) P.keys.push({ glyph: 'ring', text: `RANGE OF ${nm(x.kind)}`, tone: INK });
+    } else if (d.type === 'barren') {
+      // barren water: where no cell lives in view, and what it lacks
+      if (S.emptyOf !== d.field) { S.emptyOf = d.field; S.loops = gridLoops(d.field.map((x) => -x), d.grid, -d.level, M.view.sqIn); }
+      const loops = S.loops;
+      if (!loops.length) return null;
+      P.draws.push((t) => blob(loops, INK3, t, F, { dash: [2, 4], width: 1.2 }));
+      if (!S.at) { const L = loops.reduce((b, l) => (l.length > b.length ? l : b), loops[0]); S.at = [L.reduce((a, p) => a + p[0], 0) / L.length, L.reduce((a, p) => a + p[1], 0) / L.length]; }
+      P.anchor = F.toScreen(S.at);
+      const WHY = { ice: 'ICE LOCKS IT', stone: 'STONE FILLS IT', dark: `TOO DARK: ${Math.round((1 - d.lightE / Math.max(d.lightF, 1e-3)) * 100)}% LESS LIGHT THAN WHERE LIFE IS`,
+        cold: `COLDER: ${d.tE.toFixed(0)}° AGAINST ${d.tF.toFixed(0)}° WHERE LIFE IS`, warm: `WARMER: ${d.tE.toFixed(0)}° AGAINST ${d.tF.toFixed(0)}° WHERE LIFE IS`, unsettled: 'NOTHING HAS SETTLED IT YET' };
+      P.label = { tone: INK2, eye: 'Barren water', num: `${Math.round(d.share * 100)}%`, main: 'OF THE VIEW NEARLY EMPTY OF LIFE', data: [WHY[d.why]] };
+      P.keys.push({ glyph: 'ring', text: 'NO LIFE HERE', tone: INK3 });
+    } else if (d.type === 'deaths') {
+      // a killing ground: where most died lately, and of what
+      S.ppu0 ||= F.ppu;
+      if (S.deadOf !== d.field) { S.deadOf = d.field; S.loops = gridLoops(d.field, d.grid, d.level, M.view.sqIn); }
+      const loops = S.loops;
+      if (!loops.length) return null;
+      P.tone = HOT;
+      P.draws.push((t) => blob(loops, HOT, t, F, { hatch: true, ppu0: S.ppu0, hatchA: 0.4, dash: [3, 3] }));
+      if (!S.at) { const L = loops.reduce((b, l) => (l.length > b.length ? l : b), loops[0]); S.at = L.reduce((b, p) => (p[1] < b[1] ? p : b), L[0]); }
+      P.anchor = F.toScreen(S.at);
+      const CAUSE = { kill: 'KILLED', grazed: 'GRAZED', starved: 'STARVED', old: 'OLD AGE', scalded: 'SCALDED', froze: 'FROZE', dried: 'DRIED' };
+      const top = Object.entries(d.causes).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c, k]) => `${CAUSE[c]} ${k}`).join(' · ');
+      P.label = { tone: HOT, tag: 'Killing ground', num: String(d.died), main: 'DIED HERE IN 30 S', data: [top, `${Math.round((d.died / d.all) * 100)}% OF ALL THE DEATHS IN VIEW`] };
+      P.keys.push({ glyph: 'square', text: 'WHERE MOST DIED', tone: HOT });
     } else if (d.type === 'old') {
       const evs = recent('old', d.kind, 20), pts = [];
       for (const e of evs.slice(0, 40)) {
@@ -1327,6 +1438,13 @@ export function createNoteView(g) {
       P.keys.push({ glyph: 'cross', text: d.type === 'starving' ? 'STARVED, LAST 20 S' : 'DRIED OUT, LAST 20 S', tone: HOT });
     }
     n.pins = S.an.filter((a) => a.anchor != null && a.pin).map((a) => a.anchor);
+    // the species' glyph by its name wherever a label tells one
+    const kinds = [d.akind, d.kind, d.fine?.kind, d.warm].filter((k) => k != null && k >= 0);
+    for (const L of [P.label, P.extra?.label]) {
+      if (!L) continue;
+      if (L.kind == null) for (const k of kinds) if (L.main === nm(k)) { L.kind = k; break; }
+      if (L.data && !L.dataKinds) L.dataKinds = L.data.map((line) => { for (const k of kinds) if (line.includes(nm(k))) return k; return null; });
+    }
     return P.anchor || P.panel ? P : null;
   }
 
@@ -1357,6 +1475,7 @@ export function createNoteView(g) {
    */
   function draw(F) {
     cur = null;
+    curF = F;
     const M = F.model, plans = [];
     if (!M.view) return [];
     // (what this frame drew, for notes.debug(): the most lattice cells and edge, the glyphs)
@@ -1411,7 +1530,7 @@ export function createNoteView(g) {
       // one whose cells are lost from view this moment fades out where it was last seen rather than blinking away
       // (and, cannot be drawn for longer, is as one with no room: the notes end it)
       // (held at full strength while the note is young, so what was read stays its least; then fading)
-      const from = Math.max(S.lastAt ?? 0, n.born + STEADY.minShow), u = S.lastP ? Math.max(0, F.now - from) / STEADY.frozen : 1;
+      const from = Math.max(S.lastAt ?? 0, (n.readAt ?? n.born) + STEADY.minShow), u = S.lastP ? Math.max(0, F.now - from) / STEADY.frozen : 1;
       if (u < 1) plans.push({ n, P: S.lastP, keep: 1 - u, frozen: true });
       else n.hiddenAt ??= F.now;
     }
@@ -1540,6 +1659,8 @@ export function createNoteView(g) {
         const over = taken.filter((r) => r.hard && area(box, r) > 4), blocked = over.length > 0;
         const staying = st.seenAt != null && F.now - st.seenAt < (over.some((r) => r.label) ? 1.6 : STEADY.minShow);
         if (st.vis == null) { st.vis = blocked ? 0 : 1; st.hide = blocked; }
+        // (a note already ending that was never read is never begun: it would only show to go)
+        if (n.exitAt != null && st.seenAt == null) { st.hide = true; st.gone = true; }
         // (and once read and then hidden, it stays hidden: its note ends, rather than blinking back and forth)
         if (blocked && !staying) { st.hide = true; st.clearAt = null; if (st.seenAt != null) st.gone = true; }
         else if (!blocked && !st.gone) { st.clearAt ??= F.now; if (F.now - st.clearAt > 0.3) st.hide = false; }
@@ -1552,7 +1673,7 @@ export function createNoteView(g) {
         }
         const alpha = out * st.a * st.vis;
         // (when it first could be read, and for the audit any shown for less than a moment and a half)
-        if (alpha >= 0.5) { if (st.seenAt == null) st.seenAt = F.now; st.readFrom ??= F.now; }
+        if (alpha >= 0.5) { if (st.seenAt == null) st.seenAt = F.now; st.readFrom ??= F.now; if (k === 0) n.readAt ??= F.now; }
         else if (st.readFrom != null) { if (A && F.now - st.readFrom < 1.5) A.blink(`${n.type}: ${L.main || L.eye || L.tag}`, F.now - st.readFrom); st.readFrom = null; }
         if (alpha > 0.01) {
           // (the audit reads what can be read: a label faded past half is not)
@@ -1585,6 +1706,7 @@ export function createNoteView(g) {
     cur = null;
     const T4 = performance.now(), ms = (M.ms.parts ||= { plan: 0, marks: 0, frame: 0, labels: 0 });
     ms.plan += T1 - T0; ms.marks += T2 - T1; ms.frame += T3 - T2; ms.labels += T4 - T3;
+    M.ms.lastParts = { plan: +(T1 - T0).toFixed(1), marks: +(T2 - T1).toFixed(1), frame: +(T3 - T2).toFixed(1), labels: +(T4 - T3).toFixed(1), notes: F.notes.map((n) => n.type).join() };
     if (A) A.end();
     // forget what is no longer drawn
     for (const [id, m] of marks) if (++m.used > 120) marks.delete(id);

@@ -2162,7 +2162,7 @@ class Engine {
     const u = new ArrayBuffer(64), f = new Float32Array(u), w = new Uint32Array(u);
     f.set(R, 0); f[4] = this.grid[0]; f[5] = this.grid[1]; w[6] = N; w[7] = cap; f[8] = keep; f.set(this.noteGrid, 12);
     this.device.queue.writeBuffer(b.noteU, 0, u);
-    enc.clearBuffer(b.noteOut, 0, 16);
+    enc.clearBuffer(b.noteOut, 0, NOTE_HEAD * 4);
     const pass = enc.beginComputePass();
     pass.setPipeline(this.cpNote.pipe);
     pass.setBindGroup(0, this.cpNote.bg);
@@ -2178,7 +2178,11 @@ class Engine {
   _notesRead(job, generation) {
     const { st, bytes } = job;
     st.buf.mapAsync(GPUMapMode.READ, 0, bytes + NOTE_WORDS * 4).then(() => {
-      const copy = st.buf.getMappedRange(0, bytes + NOTE_WORDS * 4).slice(0);
+      // (into one buffer kept for it, grown when it must: the notes read it at once, so it is free again by the next)
+      const need = bytes + NOTE_WORDS * 4;
+      if (!this._noteCopy || this._noteCopy.byteLength < need) this._noteCopy = new ArrayBuffer(Math.ceil(need * 1.25 / 4) * 4);
+      const copy = this._noteCopy;
+      new Uint32Array(copy, 0, need / 4).set(new Uint32Array(st.buf.getMappedRange(0, need)));
       st.buf.unmap();
       st.busy = false;
       const head = new Uint32Array(copy, 0, NOTE_HEAD);

@@ -18,7 +18,7 @@ import { createWorldStore, encodeWorld, decodeWorld, SAVE_VERSION, openable, WHY
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { retraceBody, settleMembers, nearBody, largestBody, bodyPatch } from './trace.js';
 import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K, STUDIO_N, PIPETTE_DOF, CYST, NOTE_TG } from './shaders.js';
-import { flowAt } from './flow.js';
+import { flowAt, tideAt, duckShade } from './flow.js';
 import { DARKFIELD, packLook } from './look.js';
 import { MIX as SOUND_MIX, defaultMix } from './audio/mix.js';
 import { startLoader } from './loader.js';
@@ -4460,12 +4460,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const noteSp = (slot) => {
     const g = genomeFor(slot);
     const sp = g && life.reg.get(g.serial);
-    return sp ? { name: sp.name, guild: dietGuild(g), topt: g.topt ?? 19, tol: Math.max(g.tol ?? 7, 0.5), serial: g.serial, genus: sp.genus, genusName: sp.name.split(' ')[0], col: cssCol(g.col) } : null;
+    return sp ? { name: sp.name, guild: dietGuild(g), topt: g.topt ?? 19, tol: Math.max(g.tol ?? 7, 0.5), serial: g.serial, genus: sp.genus, genusName: sp.name.split(' ')[0], col: cssCol(g.col),
+      // (its beat: how hard its cells beat, how often a second; and whether its bodies grow tails)
+      beat: g.beat?.[0] ?? 0, beatHz: g.beat?.[1] ?? 0, tail: (g.tail?.[0] ?? 0) > 0 } : null;
   };
   const notes = new Notes({ species: noteSp, world: () => eng.grid });
   const noteView = createNoteView(octx);
   let notesShown = false, notesSince = 0, noteGridL = null, noteOpen = { l: 0, t: 0, r: innerWidth, b: innerHeight }, plateRect = null;
-  eng.onNotes = (scan) => { if (!notesShown) return; const t0 = performance.now(); notes.ingest(scan); notes.ms.ingest += performance.now() - t0; };
+  eng.onNotes = (scan) => { if (!notesShown) return; const t0 = performance.now(); notes.ingest(scan); const ms = performance.now() - t0; notes.ms.ingest += ms; notes.worst('ingest', ms, { n: scan.n }); };
   const notesOn = () => state.ui && state.phase === 'running' && (state.notes === 2 || (state.notes === 1 && director.active));
   // the part of the window the world shows clear of the panels (CSS px)
   function openArea() {
@@ -4508,6 +4510,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // well inside the view: what a new note points at, so it stays in view long enough to read
   const noteInner = (x, y) => noteVisible(x, y, Math.min(90, 0.12 * Math.min(noteOpen.r - noteOpen.l, noteOpen.b - noteOpen.t)));
   const noteFlow = (x, y) => flowAt(x, y, eng.simTime, eng.waves);
+  // the light at a world point, as the cells have it (lightAt in the shaders: the tide's bands under the sky and duckweed)
+  const noteLight = (x, y) => { const [W, H] = eng.grid; return (eng.ambient + (1 - eng.ambient) * tideAt(x, y, W, H, eng.simTime, eng.tide, eng.tidePh) * eng.season) * eng.sky * (1 - duckShade(x, y, eng.duck, W, H)); };
   // the camera as the notes see it: flying to another shot, or panned or zoomed fast; and since when it has held still
   const noteCam = { x: 0, y: 0, zoom: 1, stillAt: 0 };
   let noteCap = null;
@@ -4522,7 +4526,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     C.x = cam.x; C.y = cam.y; C.zoom = cam.zoom;
     if (flying || pan > 220 || zoomRate > 0.15) C.stillAt = now;
     const list = notes.update({ now, speed, ppu: cssPPU(), phone: phone(), pool: eng.tbg, visible: noteVisible, inner: noteInner,
-      still: now - C.stillAt, leaving: flying, flow: noteFlow, ahead: shot ? shot.dur - shot.t : Infinity });
+      still: now - C.stillAt, leaving: flying, flow: noteFlow, light: noteLight, ahead: shot ? shot.dur - shot.t : Infinity });
     const avoid = [];
     // (the caption's place, while it shows and while it is between one caption and the next)
     const cr = capEl.classList.contains('on') ? capEl.getBoundingClientRect() : null;
@@ -4531,9 +4535,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (plateRect) avoid.push(plateRect);
     const sh = director.active ? director.shot : null;
     const mode = director.active ? NOTE_MODE[sh && sh.why && sh.why.kind] || 'AUTO' : 'OBSERVE';
-    noteView.draw({ now, dt: dtMs / 1000, ppu: cssPPU(), world: eng.grid, flow: noteFlow, notes: list, model: notes, species: noteSp, project: noteProject, radius: noteRadius,
+    noteView.draw({ now, dt: dtMs / 1000, ppu: cssPPU(), world: eng.grid, flow: noteFlow, light: noteLight, notes: list, model: notes, species: noteSp, project: noteProject, radius: noteRadius,
       open: noteOpen, avoid, mode, pool: eng.tbg, phone: phone(), roster: true, since: notesSince, cap: cssPPU() >= notes.T.close ? 400 : 220 });
-    notes.ms.draw += performance.now() - t0;
+    const ms = performance.now() - t0;
+    notes.ms.draw += ms;
+    notes.worst('draw', ms, { ...(notes.ms.lastParts || {}) });
   }
   const cap = { key: '', html: '', swapAt: 0, swapped: true };
   function renderCaption(now) {
