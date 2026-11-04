@@ -29955,7 +29955,7 @@ ${e.message}` : String(e?.message || e));
     window: 30,
     // sim seconds counted for "in the last 30 s"
     settle: 0.8,
-    // a new note waits until the camera has held still this long (and leaves when it flies on)
+    // (no longer a wait: a note may begin as the view moves, if what it points at will still show)
     hold: 0.7,
     // and until its story has held this long (a single moment: is still in view, well inside it)
     grace: 0.6,
@@ -30061,7 +30061,10 @@ ${e.message}` : String(e?.message || e));
       temps: new Float32Array(G),
       ice: new Float32Array(G),
       sqIn: new Uint8Array(G),
-      stone: new Float32Array(G)
+      stone: new Float32Array(G),
+      // (sqOnce: the squares that are not the wrap's repeat of another, in view or not: the water's fields are known
+      // across the whole grid, past the view's edge)
+      sqOnce: new Uint8Array(G)
     };
     for (const [k] of COLS) v[k] = P[k].subarray(0, n);
     const s = grid2[2], cx = rect[0] + rect[2] / 2, cy = rect[1] + rect[3] / 2;
@@ -30071,6 +30074,7 @@ ${e.message}` : String(e?.message || e));
       v.stone[k] = u32[NOTE_STONE + k];
       const dx = grid2[0] + (k % NOTE_TG + 0.5) * s - cx, dy = grid2[1] + (Math.floor(k / NOTE_TG) + 0.5) * s - cy;
       v.sqIn[k] = Math.abs(dx) < Math.min((rect[2] + s) / 2, W / 2) && Math.abs(dy) < Math.min((rect[3] + s) / 2, H2 / 2) ? 1 : 0;
+      v.sqOnce[k] = Math.abs(dx) < W / 2 && Math.abs(dy) < H2 / 2 ? 1 : 0;
     }
     for (let i = 0; i < n; i++) {
       const o = NOTE_HEAD + i * NOTE_REC, w = u32[o + 3];
@@ -30712,9 +30716,11 @@ ${e.message}` : String(e?.message || e));
         if (ctx.light) {
           const L = new Float32Array(G);
           let lo = Infinity, hi = -Infinity, mean = 0;
-          for (const k of inSq) {
+          for (let k = 0; k < G; k++) if (v.sqOnce[k]) {
             const [x, y] = sqMid(k);
             L[k] = ctx.light(x, y);
+          }
+          for (const k of inSq) {
             lo = Math.min(lo, L[k]);
             hi = Math.max(hi, L[k]);
             mean += L[k] / inSq.length;
@@ -31375,16 +31381,16 @@ ${e.message}` : String(e?.message || e));
       }
       this.notes = this.notes.filter((n) => n.exitAt == null || now - n.exitAt < (n.fade || T.exit) || n.readAt != null && now - n.readAt < 1.7);
       const on = this.notes.filter((n) => n.exitAt == null);
-      if (now - this.lastArrive < T.gap || !ctx.leaving && ctx.still < T.settle) return;
+      if (now - this.lastArrive < T.gap) return;
       const fast = ctx.speed > T.fast;
       while (this.shownAt.length && now - this.shownAt[0][1] > T.variety) this.shownAt.shift();
       const score = (c) => c.prio * (1 + 0.12 * Math.log1p(c.strength || 0)) / (1 + 0.5 * this.shownAt.filter(([t2]) => t2 === c.type).length);
       const inner = (c) => {
         if (!this._marked({ data: c, pins: c.anchor != null ? [c.anchor] : [] }, { ...ctx, visible: ctx.inner })) return false;
-        const ahead = 2 * Math.max(ctx.speed, 0.25);
+        const ahead = 2 * Math.max(ctx.speed, 0.25), cv = ctx.camVel || [0, 0], seen = (ctx.zoomIn ?? 0) > 0.05 && ctx.central ? ctx.central : ctx.visible;
         for (const id of [c.actor, c.target, c.anchor]) {
           const p = id != null && id !== NONE2 ? this.cell(id) : null;
-          if (p && !ctx.visible(p.x + p.vx * ahead, p.y + p.vy * ahead)) return false;
+          if (p && !seen(p.x + p.vx * ahead - cv[0] * 2, p.y + p.vy * ahead - cv[1] * 2)) return false;
         }
         return true;
       };
@@ -33054,7 +33060,7 @@ ${e.message}` : String(e?.message || e));
           for (const b of M.view.sqIn) inView += b;
           if (S.heatView !== M.view) {
             S.heatView = M.view;
-            S.loops = d.squares.length <= 0.7 * inView ? gridLoops(M.view.temps, M.view.grid, g2.topt + 0.8 * g2.tol) : [];
+            S.loops = d.squares.length <= 0.7 * inView ? gridLoops(M.view.temps, M.view.grid, g2.topt + 0.8 * g2.tol, M.view.sqOnce) : [];
           }
           const loops = S.loops;
           P.draws.push((t2) => blob(loops, HOT, t2, F, { hatch: true, ppu0: S.ppu0 }));
@@ -33101,7 +33107,7 @@ ${e.message}` : String(e?.message || e));
           S.ppu0 ||= F.ppu;
           if (S.iceView !== M.view) {
             S.iceView = M.view;
-            S.loops = gridLoops(M.view.ice, M.view.grid, 0.3);
+            S.loops = gridLoops(M.view.ice, M.view.grid, 0.3, M.view.sqOnce);
           }
           const loops = S.loops;
           P.draws.push((t2) => blob(loops, CYAN, t2, F, { hatch: true, ppu0: S.ppu0 }));
@@ -33326,7 +33332,7 @@ ${e.message}` : String(e?.message || e));
         S.ppu0 ||= F.ppu;
         if (S.lightOf !== d.light) {
           S.lightOf = d.light;
-          S.loops = gridLoops(d.light, d.grid, d.level, M.view.sqIn);
+          S.loops = gridLoops(d.light, d.grid, d.level, M.view.sqOnce);
         }
         const loops = S.loops;
         P.tone = SUN;
@@ -33356,7 +33362,7 @@ ${e.message}` : String(e?.message || e));
       } else if (d.type === "shelter") {
         if (S.stoneOf !== d.stone) {
           S.stoneOf = d.stone;
-          S.loops = gridLoops(d.stone, d.grid, 6, M.view.sqIn);
+          S.loops = gridLoops(d.stone, d.grid, 6, M.view.sqOnce);
         }
         const loops = S.loops, v = M.view, W2 = F.world, rows = [];
         for (let i = 0; i < v.n; i++) {
@@ -33489,7 +33495,7 @@ ${e.message}` : String(e?.message || e));
         S.ppu0 ||= F.ppu;
         if (S.iceView !== v) {
           S.iceView = v;
-          S.loops = gridLoops(v.ice, v.grid, 0.5, v.sqIn);
+          S.loops = gridLoops(v.ice, v.grid, 0.5, v.sqOnce);
         }
         const loops = S.loops;
         P.tone = CYAN;
@@ -33516,7 +33522,7 @@ ${e.message}` : String(e?.message || e));
           S.shadeView = v;
           const f2 = new Float32Array(NOTE_TG * NOTE_TG), [ox, oy, gs] = v.grid;
           for (let k = 0; k < f2.length; k++) f2[k] = F.shade(ox + (k % NOTE_TG + 0.5) * gs, oy + (Math.floor(k / NOTE_TG) + 0.5) * gs);
-          S.loops = gridLoops(f2, v.grid, 0.4, v.sqIn);
+          S.loops = gridLoops(f2, v.grid, 0.4, v.sqOnce);
         }
         const loops = S.loops;
         S.ppu0 ||= F.ppu;
@@ -42734,6 +42740,7 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
       return sx > o.l + m && sx < o.r - m && sy > o.t + m && sy < o.b - m;
     }
     const noteInner = (x, y) => noteVisible(x, y, Math.min(90, 0.12 * Math.min(noteOpen.r - noteOpen.l, noteOpen.b - noteOpen.t)));
+    const noteCentral = (x, y) => noteVisible(x, y, 0.25 * Math.min(noteOpen.r - noteOpen.l, noteOpen.b - noteOpen.t));
     const noteFlow = (x, y) => flowAt(x, y, eng.simTime, eng.waves);
     const noteLight = (x, y) => {
       const [W, H2] = eng.grid;
@@ -42766,10 +42773,14 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
       const speed = state.paused ? 0 : state.speed === Infinity ? perf.rate || 16 : state.speed;
       const shot = director.active ? director.shot : null, flying = !!(shot && shot.t < shot.flight);
       const dts = Math.max(dtMs / 1e3, 1e-3), [W, H2] = eng.grid, C3 = noteCam;
-      const pan = Math.hypot(wrapD2(cam.x - C3.x, W), wrapD2(cam.y - C3.y, H2)) * cssPPU() / dts, zoomRate = Math.abs(Math.log(cam.zoom / C3.zoom)) / dts;
+      const vx = wrapD2(cam.x - C3.x, W) / dts, vy = wrapD2(cam.y - C3.y, H2) / dts, pan = Math.hypot(vx, vy) * cssPPU(), zoomRate = Math.abs(Math.log(cam.zoom / C3.zoom)) / dts;
       C3.x = cam.x;
       C3.y = cam.y;
       C3.zoom = cam.zoom;
+      const f2 = 1 - Math.exp(-dts / 0.2);
+      C3.vel = [(C3.vel?.[0] ?? 0) + (vx - (C3.vel?.[0] ?? 0)) * f2, (C3.vel?.[1] ?? 0) + (vy - (C3.vel?.[1] ?? 0)) * f2];
+      C3.zoomIn = (C3.zoomIn ?? 0) + (Math.log(cam.zoom / (C3.zoomPrev ?? cam.zoom)) / dts - (C3.zoomIn ?? 0)) * f2;
+      C3.zoomPrev = cam.zoom;
       if (flying || pan > 220 || zoomRate > 0.15) C3.stillAt = now;
       const list = notes.update({
         now,
@@ -42780,6 +42791,9 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
         visible: noteVisible,
         inner: noteInner,
         still: now - C3.stillAt,
+        camVel: C3.vel,
+        zoomIn: C3.zoomIn,
+        central: noteCentral,
         leaving: flying,
         flow: noteFlow,
         light: noteLight,
