@@ -131,6 +131,12 @@ under plain node), on a 78k world (`slow-mac-world.tidemote`, 32k living) in a 1
   at 139k, where a mature world (21k living) takes 3.7 and 13 ms at 1×. On the RTX 4070 Ti the two errors about cancel;
   here the drawing alone fills more than the 10 ms aimed for, and the view must lower its scale at any count.
   Timing the step alone was tried and dropped: it sized the world at 442k, 30 fps at half scale once life filled it.
+  With the drawing cheaper (the changes below) the error grew: a new world measured at 258k ran at 30 fps and half
+  scale two minutes in. `calibrate` now adds what the measure leaves out, the living cells' passes for the life still to
+  come: `livingCost` times the step dispatch by dispatch (`profileStep`, no frame beside it) over the new world's
+  founders (`K.foundLife`, 2%), and the frame is projected to `MATURE_LIVING` (0.5: a 143k world bloomed to 50% living
+  in five minutes). On the M1 Auto now sizes a world at 106k, which holds 10–11 ms a frame at full scale through its
+  bloom; on the RTX 4070 Ti a living cell costs about 3 ns of `lifeMain`, so the projection adds about 1.5 ms there.
 
 ## Starting up (compiling the shaders)
 

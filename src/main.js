@@ -585,6 +585,30 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   // the count measured this session (the menu's Auto offers it again without measuring)
   let measuredN = null;
+  // A new world starts K.foundLife of its particles alive and blooms within minutes to about half (a 143k world on an
+  // M1: 50% living at five minutes; saves 15-45%, the gate's 32k worlds 33% at thirty): what the measure of a new
+  // world leaves out is the living cells'
+  // passes for the rest. Their cost per living cell differs most between GPUs (lifeMain, register-bound: about 3 ns
+  // a cell on an RTX 4070 Ti, 85 on an M1), so it is measured: the step dispatch by dispatch, with no frame drawn
+  // beside it (frames overlap a tiled GPU's timestamps), over the new world's founders. ms a living cell, or 0
+  // without timestamps.
+  const MATURE_LIVING = 0.5;
+  const LIVING_PASSES = new Set(['lifeMain', 'contactMain', 'bondBackMain', 'bodyTick']);
+  async function livingCost(n) {
+    if (!hasTS || !eng.profileStep) return 0;
+    state.busy = true;
+    try {
+      await device.queue.onSubmittedWorkDone();
+      const runs = [];
+      for (let i = 0; i < 5; i++) {
+        let ms = 0;
+        for (const [k, t] of await eng.profileStep(1 / 60)) if (LIVING_PASSES.has(k)) ms += t;
+        runs.push(ms);
+      }
+      return median(runs) / Math.max(1, n * K.foundLife);
+    } catch { return 0; } finally { state.busy = false; }
+  }
+
   async function calibrate() {
     const maxN = maxParticles();
     // a count chosen in Settings skips the measuring
@@ -609,7 +633,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     calStep(`Measuring the GPU · ${fmt(n)} particles`, 0.6);
     let t = await measure();
     if (calibCut) return n;
-    let next = clampN((n * target) / t);
+    // the frame as the world will cost once life fills it: what was measured, and the living cells' passes for the
+    // share still to come (livingCost)
+    const perCell = await livingCost(n);
+    const grown = (m, ms) => ms + perCell * m * Math.max(0, MATURE_LIVING - K.foundLife);
+    let next = clampN((n * target) / grown(n, t));
     if (next > n * 1.2) {
       next = await allocDown(next);
       seedWorld(next);
@@ -619,7 +647,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (calibCut) return next;
       n = next;
       t = t2;
-      next = clampN((n * target) / t);
+      next = clampN((n * target) / grown(n, t));
       if (next > n) next = Math.min(next, clampN(n * 1.3));
     }
     const final = next === n ? n : await allocDown(next);

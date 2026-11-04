@@ -38986,6 +38986,26 @@ ${e.message}` : String(e?.message || e));
       return Math.min(hardCap, 8388608, Math.floor(MAX_CELLS * K.density * 0.95), window.__MC_MAX || Infinity);
     }
     let measuredN = null;
+    const MATURE_LIVING = 0.5;
+    const LIVING_PASSES = /* @__PURE__ */ new Set(["lifeMain", "contactMain", "bondBackMain", "bodyTick"]);
+    async function livingCost(n) {
+      if (!hasTS || !eng.profileStep) return 0;
+      state.busy = true;
+      try {
+        await device.queue.onSubmittedWorkDone();
+        const runs2 = [];
+        for (let i = 0; i < 5; i++) {
+          let ms = 0;
+          for (const [k, t2] of await eng.profileStep(1 / 60)) if (LIVING_PASSES.has(k)) ms += t2;
+          runs2.push(ms);
+        }
+        return median(runs2) / Math.max(1, n * K.foundLife);
+      } catch {
+        return 0;
+      } finally {
+        state.busy = false;
+      }
+    }
     async function calibrate() {
       const maxN = maxParticles();
       if (state.perf.particles) {
@@ -39004,7 +39024,9 @@ ${e.message}` : String(e?.message || e));
       calStep(`Measuring the GPU · ${fmt(n)} particles`, 0.6);
       let t2 = await measure2();
       if (calibCut) return n;
-      let next = clampN(n * target2 / t2);
+      const perCell = await livingCost(n);
+      const grown = (m, ms) => ms + perCell * m * Math.max(0, MATURE_LIVING - K.foundLife);
+      let next = clampN(n * target2 / grown(n, t2));
       if (next > n * 1.2) {
         next = await allocDown(next);
         seedWorld(next);
@@ -39014,7 +39036,7 @@ ${e.message}` : String(e?.message || e));
         if (calibCut) return next;
         n = next;
         t2 = t22;
-        next = clampN(n * target2 / t2);
+        next = clampN(n * target2 / grown(n, t2));
         if (next > n) next = Math.min(next, clampN(n * 1.3));
       }
       const final = next === n ? n : await allocDown(next);
