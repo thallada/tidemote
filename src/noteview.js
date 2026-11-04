@@ -1674,10 +1674,11 @@ export function createNoteView(g) {
     const keys = [];
     for (const { P } of plans) for (const k of P.keys) if (!keys.some((x) => x.text === k.text)) keys.push(k);
     const keyBox = keys.length && !F.phone ? { l: F.open.l, t: F.open.b - 12 - 17 * Math.min(6, keys.length) - 6, r: F.open.l + KEY_W, b: F.open.b } : null;
-    // (and the page's own text: the auto camera's caption, its subject's nameplate)
     // (holes that overlap merged into one, as an even-odd clip would show their overlap again)
     const panelP = plans.find(({ P }) => P.panel);
-    const panels = [rosterBox, gaugeP ? gaugeArea : null, keyBox, panelP ? panelArea : null, ...F.avoid].filter(Boolean);
+    // (only what has a plate of its own: the roster, the food web's panel, the page's caption and nameplate; the gauge
+    // and the key stand bare on the scene, the marks showing beneath them)
+    const panels = [rosterBox, panelP ? panelArea : null, ...F.avoid].filter(Boolean);
     for (let i = 0; i < panels.length; i++) for (let j = i + 1; j < panels.length; j++) {
       const a = panels[i], b = panels[j];
       if (a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b) {
