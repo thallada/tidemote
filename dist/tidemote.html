@@ -29946,11 +29946,14 @@ ${e.message}` : String(e?.message || e));
     // and until its story has held this long (a single moment: is still in view, well inside it)
     grace: 0.6,
     // a note whose cell has left the view (or whose label has no room) goes after this long
-    minLife: 2.5,
-    // otherwise a note, once shown, stays at least this long
+    minLife: 3,
+    // a note, once shown, stays at least this long, whatever becomes of what it marks (but for the
+    // camera setting off: then it fades out slowly)
+    subjectCool: 60,
+    // the same kind of story about the same species not again within this long (another cell of it)
     ahead: 5,
     // a new note waits for a shot with this long still to run (a single moment: aheadOne)
-    aheadOne: 3,
+    aheadOne: 5,
     variety: 120,
     // a kind of story shown in the last this many seconds counts against another of its kind
     body: 6,
@@ -30062,7 +30065,7 @@ ${e.message}` : String(e?.message || e));
     return { count, events };
   }
   var isLiving = (k) => k >= FIRST_LIFE;
-  var WATER_TYPES = /* @__PURE__ */ new Set(["heat", "cold", "drying", "current"]);
+  var WATER_TYPES = /* @__PURE__ */ new Set(["heat", "cold", "drying", "current", "clump"]);
   var Notes = class {
     /**
      * species(slot) -> { name, guild ('producer' | 'grazer' | 'predator' | 'scavenger'), topt, tol, serial, col } | null
@@ -30262,16 +30265,17 @@ ${e.message}` : String(e?.message || e));
         return c && ctx.visible(c.x, c.y) ? c : null;
       };
       const name = (k) => this.sp(k)?.name;
-      const n = /* @__PURE__ */ new Map(), recent = [], pairs = /* @__PURE__ */ new Map();
-      const tally = (k) => n.set(k, (n.get(k) || 0) + 1);
+      const n30 = /* @__PURE__ */ new Map(), n20 = /* @__PURE__ */ new Map(), by = /* @__PURE__ */ new Map(), kp = /* @__PURE__ */ new Map(), evN = new Int32Array(32), recent = [], pairs = /* @__PURE__ */ new Map();
+      const bump = (m, k) => m.set(k, (m.get(k) || 0) + 1);
       for (let i = this.events.length - 1; i >= 0; i--) {
         const e = this.events[i];
         if (e.t < t2 - W) break;
-        tally(`${e.ev}:${e.kind}`);
-        if (e.t >= t2 - 20) tally(`${e.ev}20:${e.kind}`);
-        if (e.ev === "kill" || e.ev === "scavenge") tally(`${e.ev}by:${e.akind}`);
-        if (e.ev === "kill" && e.akind !== e.kind && isLiving(e.akind)) tally(`kp:${e.akind}>${e.kind}`);
-        tally(e.ev);
+        const ek = e.e * 1024 + e.kind;
+        bump(n30, ek);
+        if (e.t >= t2 - 20) bump(n20, ek);
+        if (e.ev === "kill" || e.ev === "scavenge") bump(by, e.e * 1024 + e.akind);
+        if (e.ev === "kill" && e.akind !== e.kind && isLiving(e.akind)) bump(kp, e.akind * 1024 + e.kind);
+        evN[e.e]++;
         if (e.t >= t2 - 8) recent.push(e);
         if ((e.ev === "bite" || e.ev === "grazed") && band !== "wide") {
           let ak = e.akind, aid = e.aid;
@@ -30281,7 +30285,7 @@ ${e.message}` : String(e?.message || e));
             ak = g.kind;
             aid = g.id;
           }
-          const key = `${ak}>${e.kind}`;
+          const key = ak * 1024 + e.kind;
           let p = pairs.get(key);
           if (!p) pairs.set(key, p = { akind: ak, kind: e.kind, n: 0, dead: 0, last: null });
           p.n += e.w ?? 1;
@@ -30289,7 +30293,11 @@ ${e.message}` : String(e?.message || e));
           if (!p.last) p.last = { ...e, aid };
         }
       }
-      const count = (k) => n.get(k) || 0;
+      const count = (q) => {
+        const [h, k] = q.split(":"), win = h.endsWith("20"), byk = h.endsWith("by"), ev = EV[win ? h.slice(0, -2) : byk ? h.slice(0, -2) : h];
+        if (k === void 0) return evN[ev] || 0;
+        return (byk ? by : win ? n20 : n30).get(ev * 1024 + +k) || 0;
+      };
       if (band !== "wide") {
         if (close && !fast) for (const e of recent) {
           if (e.ev !== "kill" || e.t < t2 - 6 || e.aid === NONE2 || !name(e.akind) || !name(e.kind)) continue;
@@ -30437,7 +30445,9 @@ ${e.message}` : String(e?.message || e));
       }
       if (band !== "wide") {
         let big = null, fastest = null;
-        for (const b of this._bodies()) {
+        const tb = performance.now(), bodies = this._bodies();
+        this._part("bodies", tb);
+        for (const b of bodies) {
           if (!name(b.kind) || !ctx.inner(b.ax, b.ay)) continue;
           if (b.n >= this.T.body && (!big || b.n > big.n)) big = b;
           if (b.n >= 3 && b.lengths >= this.T.swim && (!fastest || b.lengths > fastest.lengths)) fastest = b;
@@ -30461,14 +30471,14 @@ ${e.message}` : String(e?.message || e));
         if (fastest) out.push(bodyOf2(fastest, "swim", 0.58));
         if (big && big !== fastest) out.push(bodyOf2(big, "body", 0.5));
         if (close && !fast) {
-          const st = this._stalk(ctx);
+          const ts = performance.now(), st = this._stalk(ctx);
+          this._part("stalk", ts);
           if (st) out.push({ type: "stalk", key: `stalk:${st.actor}`, prio: 0.7, strength: 1 / Math.max(st.dist, 0.05), ...st, track: [st.actor, st.target] });
         }
         const edges = /* @__PURE__ */ new Map();
         for (const p of pairs.values()) if (p.n >= 2 && name(p.akind) && name(p.kind)) edges.set(`${p.akind}>${p.kind}`, { from: p.kind, to: p.akind, bites: p.n, kills: 0 });
-        for (const [k, c] of n) {
-          if (!k.startsWith("kp:")) continue;
-          const [a, b] = k.slice(3).split(">").map(Number);
+        for (const [k, c] of kp) {
+          const a = Math.floor(k / 1024), b = k % 1024;
           if (!name(a) || !name(b)) continue;
           const e = edges.get(`${a}>${b}`) || { from: b, to: a, bites: 0, kills: 0 };
           e.kills = c;
@@ -30528,6 +30538,9 @@ ${e.message}` : String(e?.message || e));
           if (o >= 3 && name(s.kind)) out.push({ type: "old", key: `old:${s.kind}`, prio: 0.38, strength: o, kind: s.kind, count: o });
         }
       }
+      const tc = performance.now(), cl = this._clump(ctx, band);
+      this._part("clump", tc);
+      if (cl) out.push({ ...cl, type: "clump", key: `clump:${cl.key}`, prio: 0.6, strength: cl.species * 2 + Math.log1p(cl.cells), track: [cl.anchor] });
       const rot = count("rot");
       if (rot >= 12 && S.husks.length >= 10) out.push({ type: "rot", key: "rot", prio: 0.32, strength: rot, count: rot, husks: Math.round(S.husks.length * S.scale), sparks: count("spark") });
       if (ctx.flow) {
@@ -30543,6 +30556,11 @@ ${e.message}` : String(e?.message || e));
       }
       for (const c of out) c.band = band;
       return out;
+    }
+    // (the time a part of the looking took, for debug())
+    _part(k, t0) {
+      const d = this.ms.detectParts ||= {};
+      d[k] = (d[k] || 0) + performance.now() - t0;
     }
     // The view's organisms: cells joined by their bonds (each cell's two bonded partners, of its own kind, as the view
     // read them), as { kind, ids, n, anchor (the member nearest its middle), its place (ax, ay), size (world units across),
@@ -30644,6 +30662,130 @@ ${e.message}` : String(e?.message || e));
       this._bodyList = list;
       return list;
     }
+    // The view's biggest clump of several species: its living counted on a lattice fixed in the world (about 24 squares
+    // across the view, a power of two units a side), squares much denser than the view's mean joined into clumps; the
+    // biggest where three or more species each make a twentieth of it (and two and a half or more in effect), not over
+    // half the view. With what it holds and why it may hold together (from what the view shows: its cells bonded into
+    // bodies, grazers biting its producers there, hunters among them, births there, the current gathering water in, its
+    // cells holding still). Kept by key from look to look while it keeps any of its squares.
+    _clump(ctx, band) {
+      const v = this.view, [W, H2] = this.world(), r = v.rect, cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2;
+      const b = 2 ** Math.round(Math.log2(Math.max(r[2], r[3]) / 24));
+      const bins = /* @__PURE__ */ new Map(), near = (x, c, L) => c + (x - c) - L * Math.round((x - c) / L);
+      let living = 0, speed = 0;
+      for (let i = 0; i < v.n; i++) {
+        if (!isLiving(v.kind[i])) continue;
+        const x = near(v.x[i], cx, W), y = near(v.y[i], cy, H2), key = (Math.floor(x / b) + 32768) * 65536 + (Math.floor(y / b) + 32768);
+        let c = bins.get(key);
+        if (!c) bins.set(key, c = []);
+        c.push(i);
+        living++;
+        speed += Math.hypot(v.vx[i], v.vy[i]);
+      }
+      if (!bins.size || living < 40) return null;
+      const mean = living / bins.size, dense = /* @__PURE__ */ new Set();
+      for (const [key, c] of bins) if (c.length >= Math.max(6, 2.2 * mean)) dense.add(key);
+      const seen = /* @__PURE__ */ new Set(), clumps = [];
+      for (const k0 of dense) {
+        if (seen.has(k0)) continue;
+        const comp2 = [], stack2 = [k0];
+        seen.add(k0);
+        while (stack2.length) {
+          const k = stack2.pop(), i = Math.floor(k / 65536), j = k % 65536;
+          comp2.push(k);
+          for (let a = -1; a <= 1; a++) for (let c = -1; c <= 1; c++) {
+            const n2 = (i + a) * 65536 + (j + c);
+            if (dense.has(n2) && !seen.has(n2)) {
+              seen.add(n2);
+              stack2.push(n2);
+            }
+          }
+        }
+        if (comp2.length >= 4 && comp2.length * b * b <= 0.5 * r[2] * r[3]) clumps.push(comp2);
+      }
+      const prev = this._clumpKeys || /* @__PURE__ */ new Map(), keys = /* @__PURE__ */ new Map();
+      let best = null;
+      for (const comp2 of clumps) {
+        const rows2 = comp2.flatMap((k) => bins.get(k)), byKind = /* @__PURE__ */ new Map();
+        for (const i of rows2) byKind.set(v.kind[i], (byKind.get(v.kind[i]) || 0) + 1);
+        const shares2 = [...byKind].map(([k, c]) => ({ kind: k, share: c / rows2.length })).sort((p, q) => q.share - p.share);
+        const many = shares2.filter((x) => x.share >= 0.05).length, eff = 1 / shares2.reduce((a, x) => a + x.share * x.share, 0);
+        if (many < 3 || eff < 2.5 || rows2.length < 40) continue;
+        if (!best || rows2.length > best.rows.length) best = { comp: comp2, rows: rows2, shares: shares2, eff, many };
+      }
+      for (const comp2 of clumps) {
+        let key = null, most = 0;
+        for (const [k, set2] of prev) {
+          let c = 0;
+          for (const q of comp2) if (set2.has(q)) c++;
+          if (c > most) {
+            most = c;
+            key = k;
+          }
+        }
+        if (key == null || keys.has(key)) key = `${b}.${comp2[0]}`;
+        keys.set(key, new Set(comp2));
+        if (best && comp2 === best.comp) best.key = key;
+      }
+      this._clumpKeys = keys;
+      if (!best) return null;
+      const { comp, rows, shares } = best, set = new Set(comp), S = this.stats;
+      let mx = 0, my = 0, bonded = 0, cs = 0;
+      for (const i of rows) {
+        mx += near(v.x[i], cx, W);
+        my += near(v.y[i], cy, H2);
+        if (v.p1[i] !== NONE2 || v.p2[i] !== NONE2) bonded++;
+        cs += Math.hypot(v.vx[i], v.vy[i]);
+      }
+      mx /= rows.length;
+      my /= rows.length;
+      cs /= rows.length;
+      let anchor = rows[0], nd = Infinity, far = 0;
+      for (const i of rows) {
+        const d = Math.hypot(near(v.x[i], cx, W) - mx, near(v.y[i], cy, H2) - my);
+        if (d < nd && v.cause[i] !== CYST) {
+          nd = d;
+          anchor = i;
+        }
+        far = Math.max(far, d);
+      }
+      if (!ctx.inner(v.x[anchor], v.y[anchor])) return null;
+      const guild = (k) => this.sp(k)?.guild, share2 = (gd) => shares.reduce((a, x) => a + (guild(x.kind) === gd ? x.share : 0), 0);
+      const inIt = (e) => set.has((Math.floor(near(e.x, cx, W) / b) + 32768) * 65536 + (Math.floor(near(e.y, cy, H2) / b) + 32768));
+      let bites = 0, births = 0;
+      for (let k = this.events.length - 1; k >= 0; k--) {
+        const e = this.events[k];
+        if (e.t < v.simTime - this.T.window) break;
+        if ((e.ev === "bite" || e.ev === "grazed") && inIt(e)) bites += e.w ?? 1;
+        else if (e.ev === "birth" && inIt(e)) births++;
+      }
+      let inflow = 0, flow = 0;
+      if (ctx.flow) for (let q = 0; q < 8; q++) {
+        const an = q * Math.PI / 4, R2 = Math.max(far, b), f2 = ctx.flow(mx + Math.cos(an) * R2, my + Math.sin(an) * R2);
+        inflow -= (f2[0] * Math.cos(an) + f2[1] * Math.sin(an)) / 8;
+        flow += Math.hypot(f2[0], f2[1]) / 8;
+      }
+      const why = [];
+      if (bonded >= 0.4 * rows.length) why.push(["bodies", bonded / rows.length]);
+      if (share2("producer") >= 0.25 && share2("grazer") >= 0.1 && bites >= 10) why.push(["grazing", Math.round(bites)]);
+      if (share2("predator") >= 0.05) why.push(["hunters", share2("predator")]);
+      if (births >= 10) why.push(["nursery", births]);
+      if (inflow > 0.02 && inflow > 0.3 * flow) why.push(["current", inflow]);
+      if (cs < 0.6 * (speed / living)) why.push(["still", cs]);
+      return {
+        key: best.key,
+        cells: Math.round(rows.length * S.scale),
+        species: new Set(rows.map((i) => v.kind[i])).size,
+        many: best.many,
+        shares: shares.slice(0, 5),
+        why,
+        size: 2 * far,
+        b,
+        bins: comp,
+        anchor: v.id[anchor],
+        band
+      };
+    }
     // the nearest hunter closing on a cell of the species it last ate: within reach, moving toward it
     _stalk(ctx) {
       const v = this.view, [W, H2] = this.world(), grid2 = /* @__PURE__ */ new Map(), R2 = 1.5;
@@ -30730,7 +30872,8 @@ ${e.message}` : String(e?.message || e));
           this._exit(n, now, "camera");
           continue;
         }
-        if (tooWide && !WATER_TYPES.has(n.type) || ++live > (tooWide ? 1 : maxOn)) {
+        const young = now - n.born < T.minLife;
+        if ((tooWide && !WATER_TYPES.has(n.type) || ++live > (tooWide ? 1 : maxOn)) && !young) {
           this._exit(n, now, "zoom");
           continue;
         }
@@ -30746,9 +30889,10 @@ ${e.message}` : String(e?.message || e));
         else n.lostAt ??= now;
         const lost = n.lostAt != null && now - n.lostAt > T.grace;
         const hidden = n.hiddenAt != null && now - n.hiddenAt > T.grace;
+        if (young) continue;
         if (lost || hidden || !held && age > Math.max(T.dwell, T.minLife) || age > (n.data.one ? T.lifeOne : T.life)) this._exit(n, now, lost ? "lost" : hidden ? "hidden" : "done");
       }
-      this.notes = this.notes.filter((n) => n.exitAt == null || now - n.exitAt < T.exit);
+      this.notes = this.notes.filter((n) => n.exitAt == null || now - n.exitAt < (n.fade || T.exit));
       const on = this.notes.filter((n) => n.exitAt == null);
       if (now - this.lastArrive < T.gap || ctx.leaving || ctx.still < T.settle) return;
       const fast = ctx.speed > T.fast;
@@ -30763,7 +30907,8 @@ ${e.message}` : String(e?.message || e));
         }
         return true;
       };
-      const pick3 = this.cands.filter((c) => !(fast && c.one) && !on.some((n) => n.key === c.key || this._clash(n.data, c)) && now - (this.keyAt.get(c.key) ?? -1e9) > T.keyCool && now - (this.typeAt.get(c.type) ?? -1e9) > T.typeCool && (c.one || now - (this.firstSeen.get(c.key) ?? now) >= T.hold) && ctx.ahead >= (c.one ? T.aheadOne : T.ahead) && inner(c)).sort((a, b) => score(b) - score(a))[0];
+      const subject = (c) => `${c.type}~${c.akind ?? c.kind ?? ""}`;
+      const pick3 = this.cands.filter((c) => !(fast && c.one) && !on.some((n) => n.key === c.key || this._clash(n.data, c)) && now - (this.keyAt.get(c.key) ?? -1e9) > T.keyCool && now - (this.typeAt.get(c.type) ?? -1e9) > T.typeCool && now - (this.keyAt.get(subject(c)) ?? -1e9) > T.subjectCool && (c.type !== "web" || this.panelFree !== false) && (c.one || now - (this.firstSeen.get(c.key) ?? now) >= T.hold) && ctx.ahead >= (c.one ? T.aheadOne : T.ahead) && inner(c)).sort((a, b) => score(b) - score(a))[0];
       if (!pick3) return;
       if (on.length >= maxOn) {
         const weak = on.filter((n) => now - n.born > T.dwell).sort((a, b) => score(a.data) - score(b.data))[0];
@@ -30773,11 +30918,13 @@ ${e.message}` : String(e?.message || e));
       this.notes.push({ id: ++this.seq, type: pick3.type, key: pick3.key, born: now, lastHeld: now, exitAt: null, data: { ...pick3 }, track: pick3.track || [], pins: [] });
       this.lastArrive = now;
       this.keyAt.set(pick3.key, now);
+      this.keyAt.set(subject(pick3), now);
       this.typeAt.set(pick3.type, now);
       this.shownAt.push([pick3.type, now]);
     }
     _exit(n, now, why = "") {
       n.exitAt = now;
+      n.fade = why === "camera" && now - n.born < this.T.minLife ? Math.max(1.2, 2 * (1.5 - (now - n.born)) + 0.2) : this.T.exit;
       this.keyAt.set(n.key, now);
       this.history.push([n.type, now - n.born, why]);
       if (this.history.length > 500) this.history.shift();
@@ -30827,7 +30974,7 @@ ${e.message}` : String(e?.message || e));
           b[why] = (b[why] || 0) + 1;
         }
       }
-      return { shown: by, drawn, lost: this.lost, biteKeep: this.biteKeep, ms: Object.fromEntries(Object.entries(this.ms).filter(([k]) => k !== "drawn").map(([k, v]) => [k, typeof v === "number" ? Math.round(v) : Object.fromEntries(Object.entries(v).map(([a, b]) => [a, Math.round(b)]))])), cells: this.view?.n ?? 0, inView: this.view?.inView ?? 0, events: this.events.length, cands: this.cands.map((c) => c.key), notes: this.notes.map((n) => `${n.key}${n.exitAt != null ? "(out)" : ""}`) };
+      return { shown: by, drawn, detectParts: Object.fromEntries(Object.entries(this.ms.detectParts || {}).map(([k, v]) => [k, Math.round(v)])), lost: this.lost, biteKeep: this.biteKeep, ms: Object.fromEntries(Object.entries(this.ms).filter(([k]) => k !== "drawn" && k !== "detectParts").map(([k, v]) => [k, typeof v === "number" ? Math.round(v) : Object.fromEntries(Object.entries(v).map(([a, b]) => [a, Math.round(b)]))])), cells: this.view?.n ?? 0, inView: this.view?.inView ?? 0, events: this.events.length, cands: this.cands.map((c) => c.key), notes: this.notes.map((n) => `${n.key}${n.exitAt != null ? "(out)" : ""}`) };
     }
   };
 
@@ -30835,7 +30982,7 @@ ${e.message}` : String(e?.message || e));
   function createAudit() {
     let S, tracks, boxes, frame, T = { ox: 0, oy: 0, rx: 0, ry: 0, k: 1 };
     function reset() {
-      S = { frames: 0, jerk: {}, overlapFrames: 0, overlaps: 0, examples: [], moves: 0, flips: 0, swaps: 0, hidden: 0 };
+      S = { frames: 0, jerk: {}, overlapFrames: 0, overlaps: 0, examples: [], moves: 0, flips: 0, swaps: 0, hidden: 0, blinks: 0, blinked: [] };
       tracks = /* @__PURE__ */ new Map();
       boxes = [];
       frame = 0;
@@ -30870,12 +31017,24 @@ ${e.message}` : String(e?.message || e));
         }
         tracks.set(k, { f: frame, a: [x, y], b: tr && tr.f === frame - 1 ? tr.a : null });
       },
+      /** a place meant to hold still on the screen (a label), measured there rather than in the world */
+      screen(c, key, x, y) {
+        const T0 = T;
+        T = { ox: 0, oy: 0, rx: 0, ry: 0, k: 1 };
+        this.point(c, key, x, y);
+        T = T0;
+      },
       /** a piece of text (or a tag) as drawn: its owner and its box */
       box(owner, s, l, t2, r, b) {
         boxes.push({ owner, s, l, t: t2, r, b });
       },
       count(k) {
         S[k]++;
+      },
+      /** a label readable for less than a moment and a half before it went (what it said, for how long) */
+      blink(what, secs) {
+        S.blinks++;
+        if (S.blinked.length < 40) S.blinked.push(`${what} (${secs.toFixed(2)} s)`);
       },
       end() {
         let any = false;
@@ -30952,8 +31111,14 @@ ${e.message}` : String(e?.message || e));
     // a label's offset eases this fast; a jump past `far` px crossfades instead
     far: 90,
     swap: 0.25,
-    roster: 0.6
+    roster: 0.6,
     // the roster's numbers change this often; a species passes another only with 15% more
+    minShow: 3,
+    // a label once shown stays at least this long (as its note does: notes.js TUNE.minLife)
+    glide: 1.5,
+    // a label held on the screen glides after a cell gone far from it this slowly
+    frozen: 1.2
+    // a note whose cell is lost from view fades out where it was last seen over this long
   };
   function createNoteView(g) {
     const widths = /* @__PURE__ */ new Map();
@@ -31228,7 +31393,7 @@ ${e.message}` : String(e?.message || e));
       g.globalAlpha = a0;
       if (stats) stats.glyphs = (stats.glyphs || 0) + pts.length;
     }
-    function lattice(keys, soft, V, tone, alpha, hatched, H2) {
+    function lattice(keys, soft, V, tone, alpha, hatched, H2, solid = false) {
       if (hatched && H2.a > 0 && soft.size) {
         const bands = [new Path2D(), new Path2D(), new Path2D(), new Path2D()], a2 = g.globalAlpha;
         for (const [key2, f2] of soft) {
@@ -31283,7 +31448,11 @@ ${e.message}` : String(e?.message || e));
       g.lineWidth = 3;
       g.strokeStyle = HALO;
       g.stroke(edges);
-      if (len2 < 6e3) {
+      if (solid) {
+        g.lineWidth = 1.4;
+        g.strokeStyle = rgba2(tone, 0.95);
+        g.stroke(edges);
+      } else if (len2 < 6e3) {
         g.lineWidth = 1;
         g.strokeStyle = rgba2(tone, 0.88);
         g.setLineDash([1, 3]);
@@ -31351,13 +31520,14 @@ ${e.message}` : String(e?.message || e));
       const head = (L.eye ? width("eye", L.eye) : 0) + (L.tag ? width("tag", L.tag) + 10 + (L.eye ? 8 : 0) : 0);
       const row = (L.num ? width("num", L.num) + 8 : 0) + (L.main ? width("main", L.main) : 0);
       const data = Math.max(0, ...(L.data || []).map((d) => width("data", d)));
-      const w = Math.max(head, row, data, L.range ? RANGE_W + 8 : 0, L.split ? SPLIT_W : 0);
+      const w = Math.max(head, row, data, L.range ? RANGE_W + 8 : 0, L.split || L.stack ? SPLIT_W : 0);
       let h = 0;
       if (L.eye || L.tag) h += 13;
       if (L.num || L.main) h += (L.num ? 24 : 15) + 4;
       h += (L.data || []).length * 14;
       if (L.range) h += 42;
       if (L.split) h += 24;
+      if (L.stack) h += 16;
       return { w, h: h + 4 };
     }
     function label3(L, x, y, dir, t2) {
@@ -31421,6 +31591,11 @@ ${e.message}` : String(e?.message || e));
         split(L.split, dir > 0 ? x : x - SPLIT_W, yy, t2 - 0.25);
         yy += 12;
       }
+      if (L.stack) {
+        yy += 10;
+        stack2(L.stack, dir > 0 ? x : x - SPLIT_W, yy, t2 - 0.25);
+        yy += 6;
+      }
       return { w, h: yy - y };
     }
     function apart(a, b, wa, wb, gap = 6) {
@@ -31482,6 +31657,21 @@ ${e.message}` : String(e?.message || e));
       g.fillRect(mid - 0.5, y - 6, 1, 12);
       text2("micro", `−${dead}`, mid - half2 - 4, y + 4, rgba2(HOT, 1), "right");
       text2("micro", `+${B.born}`, mid + half2 + 4, y + 4, rgba2(CYAN, 1), "left");
+      g.globalAlpha = a;
+    }
+    function stack2(parts, x0, y, t2) {
+      if (t2 < 0 && !reduced) return;
+      const a = g.globalAlpha, u = reduced ? 1 : ease3(t2 / 0.6);
+      g.globalAlpha = a * (reduced ? 1 : clamp9(t2 / 0.3, 0, 1));
+      g.fillStyle = rgba2(INK32, 0.35);
+      g.fillRect(x0, y - 3, SPLIT_W * u, 6);
+      let xx = x0;
+      for (const [col, sh] of parts) {
+        const w = SPLIT_W * sh * u;
+        g.fillStyle = col;
+        g.fillRect(xx, y - 3, Math.max(0, w - 1), 6);
+        xx += w;
+      }
       g.globalAlpha = a;
     }
     function gauge(x, y, G, t2) {
@@ -31688,22 +31878,16 @@ ${e.message}` : String(e?.message || e));
       if (anchor[0] < (open.l + open.r) / 2 === dir > 0) s += 10;
       return { s, hard, dir, dx0, dy, x, y, box };
     }
-    function place(id, anchor, size, taken, open, marksAt, now) {
+    function place(id, anchor, size, taken, open, marksAt) {
       const st = lay.get(id);
-      let cur2 = st.pick ? score(anchor, st.pick.dir, st.pick.dx0, st.pick.dy, size, taken, open, marksAt) : null;
-      if (cur2 && !cur2.hard && now < st.lookAt) return cur2;
-      st.lookAt = now + STEADY.relook;
-      let best = cur2;
+      if (st.pick) return score(anchor, st.pick.dir, st.pick.dx0, st.pick.dy, size, taken, open, marksAt);
+      let best = null;
       for (const dir of [1, -1]) for (const [dx0, dy] of OFFS) {
         const c = score(anchor, dir, dx0, dy, size, taken, open, marksAt);
         if (!best || c.s < best.s) best = c;
       }
-      if (!cur2 || cur2.hard && !best.hard || best.s < cur2.s - STEADY.better) {
-        if (cur2 && A) A.count("moves");
-        cur2 = best;
-      }
-      st.pick = { dir: cur2.dir, dx0: cur2.dx0, dy: cur2.dy };
-      return cur2;
+      st.pick = { dir: best.dir, dx0: best.dx0, dy: best.dy };
+      return best;
     }
     function settle(m, s, kind, project, dt) {
       const p = project(s, kind);
@@ -31842,7 +32026,7 @@ ${e.message}` : String(e?.message || e));
       const k = s * F.ppu;
       return { V: (i, j) => [o[0] + (i - ix) * k, o[1] + (j - jy) * k], o, k };
     }
-    function drawLattice(st, keys, tone, t2, hatched, F) {
+    function drawLattice(st, keys, tone, t2, hatched, F, solid = false) {
       const fIn = reduced ? 1 : clamp9(t2 / 0.4, 0, 1), hA = (reduced ? 1 : clamp9((t2 - 0.3) / 0.4, 0, 1)) * 0.75;
       st.m ||= Math.max(1, Math.round(st.s * F.ppu / 6));
       const n = keys.core.size + keys.soft.size, k = st.s * F.ppu, open = (F.open.r - F.open.l) * (F.open.b - F.open.t);
@@ -31856,7 +32040,7 @@ ${e.message}` : String(e?.message || e));
       let top = null;
       const one = (s, ks, alpha, m) => {
         const P = vertices(s, F);
-        return P ? lattice(ks.core, ks.soft, P.V, tone, alpha, hatched, { x: P.o[0], y: P.o[1], px: P.k / m, a: hA }) : null;
+        return P ? lattice(ks.core, ks.soft, P.V, tone, alpha, hatched, { x: P.o[0], y: P.o[1], px: P.k / m, a: hA }, solid) : null;
       };
       let u = 1;
       if (st.prev) {
@@ -31934,17 +32118,34 @@ ${e.message}` : String(e?.message || e));
       g.setLineDash([]);
       g.globalAlpha = a;
     }
-    const WEB_W = 370, WEB_H = 200;
+    const WEB_W = 510, WEB_TIER = 74, NODE_W = 126, NODE_H = 40;
+    const webH = (W2, F) => 44 + webTiers(W2, F).length * WEB_TIER + 22;
+    function webTiers(W2, F) {
+      const level = (k) => {
+        const gd = F.species(k)?.guild;
+        return gd === "predator" ? 0 : gd === "producer" ? 2 : 1;
+      };
+      const vol = /* @__PURE__ */ new Map(), ate = /* @__PURE__ */ new Map(), eaten = /* @__PURE__ */ new Map();
+      for (const e of W2.edges) {
+        const v = e.bites + e.kills;
+        vol.set(e.from, (vol.get(e.from) || 0) + v);
+        vol.set(e.to, (vol.get(e.to) || 0) + v);
+        ate.set(e.to, (ate.get(e.to) || 0) + v);
+        eaten.set(e.from, (eaten.get(e.from) || 0) + v);
+      }
+      const rows = [[], [], []];
+      for (const nd of W2.nodes) rows[level(nd.kind)].push({ ...nd, vol: vol.get(nd.kind) || 0, ate: ate.get(nd.kind) || 0, eaten: eaten.get(nd.kind) || 0 });
+      return rows.map((r, lv) => ({ lv, row: r.sort((p, q) => q.vol - p.vol).slice(0, 3) })).filter((T) => T.row.length);
+    }
     function web(W2, x, y, t2, F) {
-      const a = g.globalAlpha;
+      const a = g.globalAlpha, tiers = webTiers(W2, F), H2 = webH(W2, F);
       g.globalAlpha = a * (reduced ? 1 : clamp9(t2 / 0.4, 0, 1));
       g.fillStyle = PLATE;
-      g.fillRect(x, y, WEB_W, WEB_H);
+      g.fillRect(x, y, WEB_W, H2);
       g.strokeStyle = rgba2(LINE, 0.28);
       g.lineWidth = 1;
-      g.strokeRect(x + 0.5, y + 0.5, WEB_W - 1, WEB_H - 1);
-      const bites = Math.round(W2.edges.reduce((s2, e) => s2 + e.bites, 0)), kills = W2.edges.reduce((s2, e) => s2 + e.kills, 0);
-      const head = "FOOD WEB IN VIEW", hw = width("head", head) + 14;
+      g.strokeRect(x + 0.5, y + 0.5, WEB_W - 1, H2 - 1);
+      const head = "FOOD WEB · WHO EATS WHOM HERE", hw = width("head", head) + 14;
       g.fillStyle = "rgba(6,9,10,0.9)";
       g.fillRect(x + 8, y - 7, hw, 15);
       g.strokeStyle = rgba2(LINE, 0.55);
@@ -31954,69 +32155,89 @@ ${e.message}` : String(e?.message || e));
       g.fillStyle = rgba2(INK4, 0.95);
       g.fillText(head, x + 15, y + 4);
       if (A) A.box(owner, head, x + 8, y - 7, x + 8 + hw, y + 8);
-      const tail = ` · ${kills} KILLS · 30 S`;
-      text2("micro", `${bites} BITES`, x + WEB_W - 10 - width("micro", tail), y + 22, rgba2(INK22, 1), "right");
-      text2("micro", tail, x + WEB_W - 10, y + 22, rgba2(kills ? HOT : INK22, 1), "right");
-      const level = (k) => {
-        const gd = F.species(k)?.guild;
-        return gd === "predator" ? 0 : gd === "producer" ? 2 : 1;
-      };
-      const rows = [[], [], []];
-      for (const nd of W2.nodes) rows[level(nd.kind)].push(nd);
-      const box = /* @__PURE__ */ new Map(), x0 = x + 82, w0 = WEB_W - 90, tw = w0 / 3 - 8;
-      const present = [0, 1, 2].filter((r) => rows[r].length), gap = Math.min(60, 112 / Math.max(1, present.length - 1));
-      present.forEach((r, ri) => {
-        const row = rows[r];
-        row.sort((p, q) => q.n - p.n).splice(3);
-        const ry = y + 52 + ri * gap + (present.length === 1 ? 56 : present.length === 2 ? 24 : 0);
-        text2("micro", ["HUNTERS", "GRAZERS", "PRODUCERS"][r], x + 10, ry + 4, rgba2(INK32, 1));
+      const bites = Math.round(W2.edges.reduce((s2, e) => s2 + e.bites, 0)), kills = W2.edges.reduce((s2, e) => s2 + e.kills, 0);
+      text2("data", `${bites} BITES${kills ? ` · ${kills} KILLS` : ""} IN THE LAST 30 S`, x + 12, y + 24, rgba2(INK22, 1));
+      const at = /* @__PURE__ */ new Map(), x0 = x + 92, w0 = WEB_W - 100;
+      tiers.forEach(({ lv, row }, r) => {
+        const cy = y + 44 + r * WEB_TIER + NODE_H / 2;
+        const bary = (nd) => {
+          let sx = 0, n2 = 0;
+          for (const e of W2.edges) if (e.from === nd.kind && at.has(e.to)) {
+            sx += at.get(e.to).cx;
+            n2++;
+          }
+          return n2 ? sx / n2 : null;
+        };
+        if (r > 0) row.sort((p, q) => (bary(p) ?? 1e9) - (bary(q) ?? 1e9));
         row.forEach((nd, i) => {
           const cx = x0 + w0 * (i + 0.5) / row.length;
-          box.set(nd.kind, { l: cx - tw / 2, r: cx + tw / 2, t: ry - 9, b: ry + 9, cx });
+          at.set(nd.kind, { cx, cy, l: cx - NODE_W / 2, r: cx + NODE_W / 2, t: cy - NODE_H / 2, b: cy + NODE_H / 2, nd });
         });
+        text2("micro", ["HUNTERS", "GRAZERS", "PRODUCERS"][lv], x + 12, cy + 4, rgba2(INK32, 1));
       });
-      const u = reduced ? 1 : ease3((t2 - 0.2) / 0.6), ends = /* @__PURE__ */ new Map();
-      const spread = (k, side) => {
-        const key2 = `${k}${side}`, n2 = ends.get(key2) || 0;
-        ends.set(key2, n2 + 1);
-        return (n2 % 3 - 1) * 9;
+      const u = reduced ? 1 : ease3((t2 - 0.2) / 0.6), ends = /* @__PURE__ */ new Map(), total = W2.edges.reduce((s2, e) => s2 + e.bites + e.kills, 0) || 1;
+      const spread = (k, side, n2) => {
+        const key2 = `${k}${side}`, i = ends.get(key2) || 0;
+        ends.set(key2, i + 1);
+        return (i - (n2 - 1) / 2) * 12;
       };
-      const sum = W2.edges.reduce((s2, e) => s2 + e.bites + 4 * e.kills, 0) || 1;
-      for (const e of W2.edges) {
-        const p = box.get(e.from), q = box.get(e.to);
+      const degree = (k, side) => W2.edges.filter((e) => at.has(e.from) && at.has(e.to) && (side === "out" ? e.from === k : e.to === k)).length;
+      for (const e of [...W2.edges].sort((p, q) => (p.kills ? 1 : 0) - (q.kills ? 1 : 0))) {
+        const p = at.get(e.from), q = at.get(e.to);
         if (!p || !q || p === q) continue;
-        const tone = e.kills ? HOT : INK4, w = clamp9(0.8 + 6 * ((e.bites + 4 * e.kills) / sum), 0.8, 3.5);
-        const upward = q.b <= p.t;
-        const s0 = upward ? [p.cx + spread(e.from, "t"), p.t] : [p.cx + spread(e.from, "b"), p.b];
-        const s1 = upward ? [q.cx + spread(e.to, "b"), q.b] : [q.cx + spread(e.to, "t"), q.t];
-        const m = [s0[0] + (s1[0] - s0[0]) * u, s0[1] + (s1[1] - s0[1]) * u];
+        const tone = e.kills ? HOT : INK4, w = clamp9(1 + 7 * ((e.bites + e.kills) / total), 1, 6);
+        const upward = q.cy < p.cy;
+        const s0 = [p.cx + spread(e.from, "o", degree(e.from, "out")), upward ? p.t : p.b];
+        const s1 = [q.cx + spread(e.to, "i", degree(e.to, "in")), upward ? q.b : q.t];
+        const k = (s1[1] - s0[1]) * 0.45, c0 = [s0[0], s0[1] + k], c1 = [s1[0], s1[1] - k];
+        const at2 = (v) => {
+          const m = 1 - v;
+          return [m * m * m * s0[0] + 3 * m * m * v * c0[0] + 3 * m * v * v * c1[0] + v * v * v * s1[0], m * m * m * s0[1] + 3 * m * m * v * c0[1] + 3 * m * v * v * c1[1] + v * v * v * s1[1]];
+        };
         stroke(() => {
           g.beginPath();
           g.moveTo(...s0);
-          g.lineTo(...m);
-        }, rgba2(tone, 0.85), w);
+          for (let i = 1; i <= 20; i++) g.lineTo(...at2(i / 20 * u));
+        }, rgba2(tone, e.kills ? 0.9 : 0.7), w);
         if (u >= 1) {
-          const an2 = Math.atan2(s1[1] - s0[1], s1[0] - s0[0]);
-          stroke(() => {
-            g.beginPath();
-            for (const sg of [-1, 1]) {
-              g.moveTo(...s1);
-              g.lineTo(s1[0] - Math.cos(an2 + sg * 0.5) * 6, s1[1] - Math.sin(an2 + sg * 0.5) * 6);
-            }
-          }, rgba2(tone, 0.95), 1.3);
+          const q2 = at2(0.9), an2 = Math.atan2(s1[1] - q2[1], s1[0] - q2[0]);
+          g.fillStyle = rgba2(tone, 0.95);
+          g.beginPath();
+          g.moveTo(s1[0], s1[1]);
+          g.lineTo(s1[0] - Math.cos(an2 - 0.45) * 8, s1[1] - Math.sin(an2 - 0.45) * 8);
+          g.lineTo(s1[0] - Math.cos(an2 + 0.45) * 8, s1[1] - Math.sin(an2 + 0.45) * 8);
+          g.closePath();
+          g.fill();
         }
       }
-      for (const [k, b2] of box) {
-        const sp = F.species(k), hot = isActive(k);
-        g.fillStyle = "rgba(6,9,10,0.95)";
-        g.fillRect(b2.l, b2.t, b2.r - b2.l, b2.b - b2.t);
-        g.strokeStyle = rgba2(hot ? HOT : LINE, hot ? 0.9 : 0.5);
+      for (const [k, b2] of at) {
+        const sp = F.species(k), hot = isActive(k), words = up(sp?.name).split(" ");
+        g.fillStyle = "rgba(6,9,10,0.96)";
+        g.fillRect(b2.l, b2.t, NODE_W, NODE_H);
+        g.strokeStyle = rgba2(hot ? HOT : LINE, hot ? 0.9 : 0.45);
         g.lineWidth = 1;
-        g.strokeRect(b2.l + 0.5, b2.t + 0.5, b2.r - b2.l - 1, b2.b - b2.t - 1);
-        glyph(sp?.guild, b2.l + 8, b2.t + 9, hot ? HOT : INK4);
-        text2("data", fit3("data", short(sp?.name), b2.r - b2.l - 18), b2.l + 14, b2.t + 13, rgba2(INK4, 0.95));
+        g.strokeRect(b2.l + 0.5, b2.t + 0.5, NODE_W - 1, NODE_H - 1);
+        g.fillStyle = sp?.col || rgba2(INK4, 0.95);
+        g.beginPath();
+        const gx = b2.l + 10, gy = b2.t + 13, gd = sp?.guild;
+        if (gd === "producer") {
+          g.moveTo(gx, gy - 4.5);
+          g.lineTo(gx + 4.5, gy);
+          g.lineTo(gx, gy + 4.5);
+          g.lineTo(gx - 4.5, gy);
+        } else if (gd === "predator") {
+          g.moveTo(gx, gy - 4.5);
+          g.lineTo(gx + 4.5, gy + 4);
+          g.lineTo(gx - 4.5, gy + 4);
+        } else if (gd === "scavenger") g.rect(gx - 4, gy - 4, 8, 8);
+        else g.arc(gx, gy, 3.6, 0, TAU3);
+        g.fill();
+        text2("micro", fit3("micro", words[0] || "", NODE_W - 26), b2.l + 20, b2.t + 12, rgba2(INK22, 1));
+        text2("data", fit3("data", words.slice(1).join(" ") || words[0] || "", NODE_W - 26), b2.l + 20, b2.t + 24, rgba2(INK4, 0.98));
+        const nd = b2.nd, flow = [nd.ate ? `ATE ${Math.round(nd.ate)}` : "", nd.eaten ? `EATEN ${Math.round(nd.eaten)}` : ""].filter(Boolean).join(" · ");
+        text2("data", fit3("data", flow, NODE_W - 12), b2.l + 6, b2.t + 36, rgba2(INK32, 1));
       }
-      text2("micro", "ARROW: FROM THE EATEN TO THE EATER", x + 10, y + WEB_H - 9, rgba2(INK32, 1));
+      text2("micro", "ARROWS RUN FROM THE EATEN UP TO THE EATER, AS THICK AS HOW MUCH", x + 12, y + H2 - 9, rgba2(INK32, 1));
       g.globalAlpha = a;
     }
     let isActive = () => false;
@@ -32311,7 +32532,7 @@ ${e.message}` : String(e?.message || e));
         P.keys.push({ glyph: "cross", text: "QUARRY", tone: INK4 });
       } else if (d.type === "web") {
         if (F.phone) return null;
-        P.panel = { w: WEB_W, h: WEB_H, draw: (x, y, t2) => web(d, x, y, t2, F) };
+        P.panel = { draw: (x, y, t2) => web(d, x, y, t2, F) };
         P.anchor = null;
       } else if (d.type === "balance") {
         const pts = group("c", M.rows(d.kind));
@@ -32351,6 +32572,35 @@ ${e.message}` : String(e?.message || e));
           data: [d.kinds.map((k) => short(sp(k)?.name)).join(" · "), "DESCENDED FROM ONE ANCESTOR, SIDE BY SIDE"]
         };
         for (const G of groups) P.keys.push({ glyph: G.glyph, text: nm(G.k), tone: INK4 });
+      } else if (d.type === "clump") {
+        const Z = S.z, base = Z.ks !== d.bins ? new Set(d.bins.map((k) => cellKey(Math.floor(k / 65536) - 32768, k % 65536 - 32768))) : null;
+        Z.ks = d.bins;
+        const keys = steadyLattice(Z, d.b, base, F.now, false, STEADY.holdSq);
+        P.draws.push((t2) => drawLattice(Z, keys, LINE, t2, false, F, true));
+        const an = hang(0, [], -2, d.anchor);
+        if (!an) return null;
+        P.anchor = an;
+        const pct = (x) => `${Math.round(x * 100)}%`;
+        const parts = d.shares.map((x) => [sp(x.kind)?.col || rgba2(INK22, 0.9), x.share, x.kind]);
+        const named = d.shares.slice(0, 4).map((x) => `${pct(x.share)} ${short(sp(x.kind)?.name)}`);
+        const WHY = {
+          bodies: (x) => `${pct(x)} BONDED IN MATS THE REST SHELTER IN`,
+          grazing: (x) => `GRAZERS ON ITS PRODUCERS · ${x} BITES / 30 S`,
+          hunters: () => "HUNTERS FOLLOW THE GRAZERS IN",
+          nursery: (x) => `A NURSERY: ${x} BORN HERE IN 30 S`,
+          current: () => "THE CURRENT GATHERS DRIFTERS HERE",
+          still: () => "ITS CELLS HOLD STILL AS THE REST DRIFT"
+        };
+        const why = d.why.slice(0, 2).map(([k, x]) => WHY[k](x));
+        P.label = {
+          tone: INK4,
+          tag: "Community",
+          num: String(d.species),
+          main: "SPECIES IN ONE CLUMP",
+          data: [`${d.cells} CELLS · ${fmtLen(d.size)} ACROSS`, named.slice(0, 2).join(" · "), ...named.length > 2 ? [named.slice(2).join(" · ")] : [], ...why.length ? why : ["CROWDED WHERE THE LIVING ARE THICKEST"]],
+          stack: parts
+        };
+        P.keys.push({ glyph: "square", text: "COMMUNITY: DENSER THAN THE VIEW AROUND IT", tone: LINE });
       } else if (d.type === "old") {
         const evs = recent("old", d.kind, 20), pts = [];
         for (const e of evs.slice(0, 40)) {
@@ -32517,14 +32767,22 @@ ${e.message}` : String(e?.message || e));
       if (rosterSt.vis <= 0) rosterBox = null;
       const modeAt = F.mode ? [(F.open.l + F.open.r) / 2, F.open.t + 14] : null;
       const gaugeArea = { l: F.open.r - 130, t: F.open.b - 154, r: F.open.r, b: F.open.b };
-      const panelArea = { l: F.open.l + 14, t: F.open.t + 34, r: F.open.l + 14 + WEB_W, b: F.open.t + 34 + WEB_H };
-      const panelOn = !F.phone && F.notes.some((n) => n.type === "web");
+      const webNote = !F.phone && F.notes.find((n) => n.type === "web");
+      const panelArea = { l: F.open.l + 14, t: F.open.t + 34, r: F.open.l + 14 + WEB_W, b: F.open.t + 42 + (webNote ? webH(webNote.data, F) : 200) };
+      const panelOn = !!webNote;
       F.block = F.phone ? [] : [rosterBox, gaugeArea, { l: F.open.l, t: F.open.b - 120, r: F.open.l + KEY_W, b: F.open.b }, panelOn ? panelArea : null].filter(Boolean);
       F.verbs = [];
       const T0 = performance.now();
       for (const n of F.notes) {
-        const P = plan(n, M, F);
-        if (P) plans.push({ n, P });
+        const P = plan(n, M, F), S = noteState(n.id);
+        if (P) {
+          S.lastP = P;
+          S.lastAt = F.now;
+          plans.push({ n, P, keep: 1 });
+          continue;
+        }
+        const from = Math.max(S.lastAt ?? 0, n.born + STEADY.minShow), u = S.lastP ? Math.max(0, F.now - from) / STEADY.frozen : 1;
+        if (u < 1) plans.push({ n, P: S.lastP, keep: 1 - u, frozen: true });
         else n.hiddenAt ??= F.now;
       }
       const T1 = performance.now();
@@ -32554,8 +32812,9 @@ ${e.message}` : String(e?.message || e));
       }
       g.clip("evenodd");
       const allPts = [];
-      for (const { n, P } of plans) {
-        const t2 = F.now - n.born, out = n.exitAt != null ? clamp9(1 - (F.now - n.exitAt) / 0.6, 0, 1) : 1;
+      for (const { n, P, keep, frozen } of plans) {
+        if (frozen) continue;
+        const t2 = F.now - n.born, out = keep * (n.exitAt != null ? clamp9(1 - (F.now - n.exitAt) / (n.fade || 0.6), 0, 1) : 1);
         const shown = P.panel ? 1 : lay.get(n.id * 2)?.shown ?? 0;
         g.globalAlpha = out * shown;
         owner = `n${n.id}`;
@@ -32586,79 +32845,73 @@ ${e.message}` : String(e?.message || e));
         g.globalAlpha = rosterSt.vis;
         const a0 = A;
         if (rosterSt.vis < 0.5) A = null;
-        taken.push(roster(rosterRows, rosterBox.r, rosterBox.t + 8, F.now - (F.since || 0)));
+        const rb = roster(rosterRows, rosterBox.r, rosterBox.t + 8, F.now - (F.since || 0));
+        taken.push({ ...rb, b: Math.max(rb.b, F.open.t + 34 + 28 + 6 * 19) });
         A = a0;
         g.globalAlpha = 1;
       }
       if (gaugeP) {
         const n = gaugeP.n;
-        g.globalAlpha = n.exitAt != null ? clamp9(1 - (F.now - n.exitAt) / 0.6, 0, 1) : 1;
+        g.globalAlpha = n.exitAt != null ? clamp9(1 - (F.now - n.exitAt) / (n.fade || 0.6), 0, 1) : 1;
         owner = "gauge";
         gauge(F.open.r - 64, F.open.b - 104, gaugeP.P.gauge, F.now - n.born);
         g.globalAlpha = 1;
         taken.push({ ...gaugeArea, hard: true });
       }
       owner = "key";
-      if (keyBox) taken.push(key(keys.slice(0, 6), F.open.l + 14, F.open.b - 12));
+      if (keyBox) {
+        key(keys.slice(0, 6), F.open.l + 14, F.open.b - 12);
+        taken.push({ l: F.open.l, t: F.open.b - 120, r: F.open.l + KEY_W, b: F.open.b, hard: true });
+      }
       if (panelP) {
         const n = panelP.n;
-        g.globalAlpha = n.exitAt != null ? clamp9(1 - (F.now - n.exitAt) / 0.6, 0, 1) : 1;
+        g.globalAlpha = n.exitAt != null ? clamp9(1 - (F.now - n.exitAt) / (n.fade || 0.6), 0, 1) : 1;
         owner = "panel";
         panelP.P.panel.draw(panelArea.l, panelArea.t + 8, F.now - n.born);
         g.globalAlpha = 1;
         taken.push({ ...panelArea, hard: true });
       }
       const T3 = performance.now();
-      for (const { n, P } of plans) {
-        const t2 = F.now - n.born, out = n.exitAt != null ? clamp9(1 - (F.now - n.exitAt) / 0.6, 0, 1) : 1;
+      for (const { n, P, keep, frozen } of plans) {
+        const t2 = F.now - n.born, out = keep * (n.exitAt != null ? clamp9(1 - (F.now - n.exitAt) / (n.fade || 0.6), 0, 1) : 1);
         for (const [k, part] of [[0, P], [1, P.extra]]) {
           if (!part || !part.label) continue;
           const L = norm(part.label), size = labelSize(L), id = n.id * 2 + k, an = part.anchor;
           let st = lay.get(id);
           if (!st) lay.set(id, st = { pick: null, lookAt: -1e9 });
-          const wa = F.toWorld(an);
-          if (st.w && Math.hypot(wa[0] - st.w[0], wa[1] - st.w[1]) * F.ppu > 150) {
-            if (st.off) st.ghost = { w: st.w, off: st.off, dir: st.dir, a: st.a * st.vis };
-            st.w = null;
-            st.off = null;
-          }
+          const wa = frozen && st.w ? st.w : F.toWorld(an);
           if (!st.w) st.w = wa;
           else {
             const f2 = 1 - Math.exp(-F.dt / STEADY.follow);
             st.w = [st.w[0] + (wa[0] - st.w[0]) * f2, st.w[1] + (wa[1] - st.w[1]) * f2];
           }
           const base = F.toScreen(st.w);
-          const at = place(id, base, size, taken, F.open, allPts, F.now);
-          const want = [at.x - base[0], at.y - base[1]];
-          if (!st.off) {
-            st.off = want;
-            st.dir = at.dir;
-            st.a = st.ghost ? 0 : 1;
-            st.vis ??= at.hard ? 0 : 1;
-            st.hide ??= at.hard;
-          } else if (st.dir !== at.dir || Math.hypot(want[0] - st.off[0], want[1] - st.off[1]) > STEADY.far) {
-            if (A) A.count("flips");
-            st.ghost = { w: st.w, off: st.off, dir: st.dir, a: st.a * st.vis };
-            st.off = want;
-            st.dir = at.dir;
-            st.a = 0;
-          } else {
-            const f2 = 1 - Math.exp(-F.dt / STEADY.slide), next = [st.off[0] + (want[0] - st.off[0]) * f2, st.off[1] + (want[1] - st.off[1]) * f2];
-            const over = (o) => taken.some((r2) => r2.hard && area(boxAt(base[0] + o[0], base[1] + o[1], at.dir, size), r2) > 4);
-            if (over(next) && !over(want)) {
-              if (A) A.count("flips");
-              st.ghost = { w: st.w, off: st.off, dir: st.dir, a: st.a * st.vis };
-              st.off = want;
-              st.a = 0;
-            } else st.off = next;
+          const at = place(id, base, size, taken, F.open, allPts);
+          st.dir = at.dir;
+          st.a = 1;
+          if (!st.fix) st.fix = [at.x, at.y];
+          else {
+            const reach = Math.min(F.open.r - F.open.l, F.open.b - F.open.t) / 3, far = Math.hypot(at.x - st.fix[0], at.y - st.fix[1]);
+            if (far > reach) {
+              const f2 = (1 - Math.exp(-F.dt / STEADY.glide)) * (1 - reach / far);
+              st.fix = [st.fix[0] + (at.x - st.fix[0]) * f2, st.fix[1] + (at.y - st.fix[1]) * f2];
+            }
+            st.fix = [st.dir > 0 ? clamp9(st.fix[0], F.open.l + 6, F.open.r - size.w - 6) : clamp9(st.fix[0], F.open.l + size.w + 6, F.open.r - 6), clamp9(st.fix[1], F.open.t + 14, F.open.b - size.h)];
           }
-          st.a = Math.min(1, st.a + F.dt / STEADY.swap);
-          const lx = base[0] + st.off[0], ly = base[1] + st.off[1], box = boxAt(lx, ly, st.dir, size);
-          const blocked = taken.some((r2) => r2.hard && area(box, r2) > 4);
-          if (blocked) {
+          const lx = st.fix[0], ly = st.fix[1], box = boxAt(lx, ly, st.dir, size);
+          const near = st.dir > 0 ? an[0] <= lx + size.w / 2 : an[0] >= lx - size.w / 2;
+          const ex = near ? lx - st.dir * 4 : lx + st.dir * (size.w + 4);
+          const over = taken.filter((r2) => r2.hard && area(box, r2) > 4), blocked = over.length > 0;
+          const staying = st.seenAt != null && F.now - st.seenAt < (over.some((r2) => r2.label) ? 1.6 : STEADY.minShow);
+          if (st.vis == null) {
+            st.vis = blocked ? 0 : 1;
+            st.hide = blocked;
+          }
+          if (blocked && !staying) {
             st.hide = true;
             st.clearAt = null;
-          } else {
+            if (st.seenAt != null) st.gone = true;
+          } else if (!blocked && !st.gone) {
             st.clearAt ??= F.now;
             if (F.now - st.clearAt > 0.3) st.hide = false;
           }
@@ -32669,39 +32922,37 @@ ${e.message}` : String(e?.message || e));
             if (st.vis < 0.05) n.hiddenAt ??= F.now;
             else n.hiddenAt = null;
           }
-          if (st.ghost) {
-            st.ghost.a -= F.dt / (STEADY.swap * 0.8);
-            if (st.ghost.a <= 0) st.ghost = null;
-            else {
-              const gb = F.toScreen(st.ghost.w), gx = gb[0] + st.ghost.off[0], gy = gb[1] + st.ghost.off[1], a0 = A;
-              g.globalAlpha = out * st.ghost.a;
-              A = null;
-              label3(L, gx, gy, st.ghost.dir, 9);
-              A = a0;
-            }
-          }
           const alpha = out * st.a * st.vis;
+          if (alpha >= 0.5) {
+            if (st.seenAt == null) st.seenAt = F.now;
+            st.readFrom ??= F.now;
+          } else if (st.readFrom != null) {
+            if (A && F.now - st.readFrom < 1.5) A.blink(`${n.type}: ${L.main || L.eye || L.tag}`, F.now - st.readFrom);
+            st.readFrom = null;
+          }
           if (alpha > 0.01) {
             const a0 = A;
             if (alpha < 0.5) A = null;
             g.globalAlpha = alpha;
             owner = `L${id}`;
-            if (A) A.point("label", id, lx, ly);
-            leader(an[0], an[1], lx - st.dir * 4, ly + 7, L.tone || INK4, t2 - 0.15 - k * 0.5);
+            if (A) A.screen("label", id, lx, ly);
+            if (!frozen) leader(an[0], an[1], ex, ly + 7, L.tone || INK4, t2 - 0.15 - k * 0.5);
             label3(L, lx, ly, st.dir, t2 - 0.25 - k * 0.5);
             A = a0;
           }
           g.globalAlpha = 1;
-          if (blocked) continue;
-          taken.push({ ...box, hard: true });
+          if (blocked && !(staying && alpha > 0.5)) continue;
+          taken.push({ ...box, hard: true, label: true });
           nextLabels.push(box);
-          const ey = ly + 7, { mx } = leaderPath(an[0], an[1], lx, ey);
+          const ey = ly + 7, { mx } = leaderPath(an[0], an[1], ex, ey);
           taken.push({ seg: [an[0], an[1], mx, ey] }, { seg: [mx, ey, lx, ey] });
         }
       }
       g.restore();
       lastLabels = nextLabels;
       nextLabels = [];
+      const corner = { l: F.open.l + 14, t: F.open.t + 34, r: F.open.l + 14 + WEB_W, b: F.open.t + 42 + 44 + 3 * WEB_TIER + 22 };
+      M.panelFree = !lastLabels.some((b) => area(b, corner) > 0);
       g.letterSpacing = "0px";
       g.fontStretch = "normal";
       g.textAlign = "left";
@@ -41360,7 +41611,7 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
     const noteSp = (slot) => {
       const g = genomeFor(slot);
       const sp = g && life.reg.get(g.serial);
-      return sp ? { name: sp.name, guild: dietGuild(g), topt: g.topt ?? 19, tol: Math.max(g.tol ?? 7, 0.5), serial: g.serial, genus: sp.genus, genusName: sp.name.split(" ")[0] } : null;
+      return sp ? { name: sp.name, guild: dietGuild(g), topt: g.topt ?? 19, tol: Math.max(g.tol ?? 7, 0.5), serial: g.serial, genus: sp.genus, genusName: sp.name.split(" ")[0], col: cssCol(g.col) } : null;
     };
     const notes = new Notes({ species: noteSp, world: () => eng.grid });
     const noteView = createNoteView(octx);
@@ -41418,6 +41669,7 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
     const noteInner = (x, y) => noteVisible(x, y, Math.min(90, 0.12 * Math.min(noteOpen.r - noteOpen.l, noteOpen.b - noteOpen.t)));
     const noteFlow = (x, y) => flowAt(x, y, eng.simTime, eng.waves);
     const noteCam = { x: 0, y: 0, zoom: 1, stillAt: 0 };
+    let noteCap = null;
     const NOTE_MODE = { follow: "FOLLOW", linger: "LINGER", scene: "SURVEY", wide: "WIDE", event: "EVENT" };
     function drawNotes(dtMs) {
       const now = performance.now() / 1e3, t0 = performance.now();
@@ -41445,7 +41697,8 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
       });
       const avoid = [];
       const cr = capEl.classList.contains("on") ? capEl.getBoundingClientRect() : null;
-      if (cr && cr.width) avoid.push({ l: cr.left - 8, t: cr.top - 8, r: cr.right + 8, b: cr.bottom + 8 });
+      if (cr && cr.width) noteCap = { l: cr.left - 8, t: cr.top - 8, r: cr.right + 8, b: cr.bottom + 8, at: now };
+      if (noteCap && (cr?.width || director.active && now - noteCap.at < 30)) avoid.push(noteCap);
       if (plateRect) avoid.push(plateRect);
       const sh = director.active ? director.shot : null;
       const mode = director.active ? NOTE_MODE[sh && sh.why && sh.why.kind] || "AUTO" : "OBSERVE";
