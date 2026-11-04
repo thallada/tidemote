@@ -5,6 +5,7 @@ import { TOOLS, keyOf, toolOf, works, reachStep } from './hand.js';
 import { wireCardDrag, countText } from './minicard.js';
 import { fadeEdges } from './ui.js';
 import { fmt } from './fmt.js';
+import { tr } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
 const coarse = matchMedia('(pointer: coarse)').matches;
@@ -13,7 +14,10 @@ const icon = (id) => `<svg aria-hidden="true"><use href="#i-t-${id}"/></svg>`;
 const toSlider = (r, { min, max }) => Math.round((1000 * Math.log(r / min)) / Math.log(max / min));
 const fromSlider = (v, { min, max }) => min * Math.exp((v / 1000) * Math.log(max / min));
 // Load or Dispense: what the pipette's press does
-const modes = (id) => `<span class="pip-mode segs" role="group" aria-label="The pipette's press"><button type="button" class="chip" data-mode="0" id="${id}-load" aria-pressed="true" data-hint="A press draws up cells at the tip, all in reach as it is held">Load</button><button type="button" class="chip" data-mode="1" id="${id}-dispense" aria-pressed="false" data-hint="A press sets the tip card’s cells down">Dispense</button></span>`;
+const modes = (id) => `<span class="pip-mode segs" role="group" aria-label="${tr('bench.mode.aria', "The pipette's press")}"><button type="button" class="chip" data-mode="0" id="${id}-load" aria-pressed="true" data-hint="${tr('bench.mode.load.hint', 'A press draws up cells at the tip, all in reach as it is held')}">${tr('bench.mode.load', 'Load')}</button>`
+  + `<button type="button" class="chip" data-mode="1" id="${id}-dispense" aria-pressed="false" data-hint="${tr('bench.mode.dispense.hint', 'A press sets the tip card’s cells down')}">${tr('bench.mode.dispense', 'Dispense')}</button></span>`;
+// i18n: a tool's button's hint: {tool} its name, {key} the key that takes it up
+const toolHint = (t, i) => tr('bench.tool.hint', '{tool} · {key}', { tool: t.name, key: i });
 
 /**
  * A panel at the screen's foot that a swipe down closes (as the specimen's sheet): a drag that starts down, on
@@ -65,18 +69,21 @@ function swipeDown(el, close) {
  */
 export function createBench({ hand, pick, reach, size, onToggle, pip }) {
   const drawer = $('bench'), btn = $('bench-open'), held = $('held'), dock = $('tools');
-  dock.innerHTML = TOOLS.map((t, i) => `<button type="button" class="tool" data-tool="${t.id}" aria-pressed="false" aria-label="${t.name}" data-hint="${t.name} · ${i}">${icon(t.id)}<kbd>${i}</kbd></button>`).join('');
+  dock.innerHTML = TOOLS.map((t, i) => `<button type="button" class="tool" data-tool="${t.id}" aria-pressed="false" aria-label="${t.name}" data-hint="${toolHint(t, i)}">${icon(t.id)}<kbd>${i}</kbd></button>`).join('');
+  // i18n: the Bench drawer: its Tools heading, with a note after it in small type
   drawer.innerHTML = `<div class="grab" aria-hidden="true"><i></i></div><div class="bench-tools">
-      <div class="sub-h"><span class="bench-t">Tools<i class="bench-note">tap to pick one up · hold its key for a moment’s use</i></span><span class="sub-a" id="bench-held"></span></div>
-      <div class="tiles" role="radiogroup" aria-label="Tools">${TOOLS.map((t, i) => `<button type="button" role="radio" class="tile" data-tool="${t.id}" aria-checked="false" aria-label="${t.name}" data-hint="${t.name} · ${i}"><kbd>${i}</kbd>${icon(t.id)}<span>${t.name}</span></button>`).join('')}</div>
+      <div class="sub-h"><span class="bench-t">${tr('bench.tools', 'Tools<note>tap to pick one up · hold its key for a moment’s use</note>', { note: (c) => `<i class="bench-note">${[].concat(c).join('')}</i>` })}</span><span class="sub-a" id="bench-held"></span></div>
+      <div class="tiles" role="radiogroup" aria-label="${tr('bench.tools.aria', 'Tools')}">${TOOLS.map((t, i) => `<button type="button" role="radio" class="tile" data-tool="${t.id}" aria-checked="false" aria-label="${t.name}" data-hint="${toolHint(t, i)}"><kbd>${i}</kbd>${icon(t.id)}<span>${t.name}</span></button>`).join('')}</div>
       <p class="bench-hint" id="bench-hint" aria-live="polite"></p>
-      <label class="reach"><span class="lbl term" data-tip="toolreach" tabindex="0">Reach</span><input type="range" id="reach" min="0" max="1000" step="1" aria-label="Reach"><b id="reach-v" translate="no"></b></label>
+      <label class="reach"><span class="lbl term" data-tip="toolreach" tabindex="0">${tr('bench.reach', 'Reach')}</span><input type="range" id="reach" min="0" max="1000" step="1" aria-label="${tr('bench.reach.aria', 'Reach')}"><b id="reach-v" translate="no"></b></label>
     </div>
     <div class="bench-pip">
-      <div class="sub-h"><span class="bench-t">Pipette</span><span class="sub-a" id="pip-n"></span>${modes('pip')}<button type="button" class="chip" id="pip-sort" data-hint="Each species’ cells together, one card each">Sort</button><button type="button" class="chip" id="pip-keep" data-hint="Every card not saved yet into the cabinet">Save all</button></div>
+      <div class="sub-h"><span class="bench-t">${tr('bench.pipette', 'Pipette')}</span><span class="sub-a" id="pip-n"></span>${modes('pip')}<button type="button" class="chip" id="pip-sort" data-hint="${tr('bench.sort.hint', 'Each species’ cells together, one card each')}">${tr('bench.sort', 'Sort')}</button><button type="button" class="chip" id="pip-keep" data-hint="${tr('bench.save-all.hint', 'Every card not saved yet into the cabinet')}">${tr('bench.save-all', 'Save all')}</button></div>
       <div class="strip" id="pip-strip"></div>
     </div>`;
-  held.innerHTML = `<kbd id="held-k"></kbd><b id="held-n"></b><span class="held-reach"><button type="button" class="ghost" data-d="-1" aria-label="Less reach"><svg><use href="#i-minus"/></svg></button><b id="held-r" translate="no"></b><button type="button" class="ghost" data-d="1" aria-label="More reach"><svg><use href="#i-plus"/></svg></button></span>${modes('held')}<button type="button" class="ghost" id="held-down" aria-label="Put the tool down" data-hint="Put it down · Esc"><svg><use href="#i-close"/></svg></button><div class="strip flat" id="held-strip"></div>`;
+  held.innerHTML = `<kbd id="held-k"></kbd><b id="held-n"></b><span class="held-reach"><button type="button" class="ghost" data-d="-1" aria-label="${tr('bench.held.less.aria', 'Less reach')}"><svg><use href="#i-minus"/></svg></button><b id="held-r" translate="no"></b>`
+    + `<button type="button" class="ghost" data-d="1" aria-label="${tr('bench.held.more.aria', 'More reach')}"><svg><use href="#i-plus"/></svg></button></span>${modes('held')}`
+    + `<button type="button" class="ghost" id="held-down" aria-label="${tr('bench.held.down.aria', 'Put the tool down')}" data-hint="${tr('bench.held.down.hint', 'Put it down · Esc')}"><svg><use href="#i-close"/></svg></button><div class="strip flat" id="held-strip"></div>`;
   const slider = $('reach'), strip = $('pip-strip'), hstrip = $('held-strip');
   [strip, hstrip, drawer.querySelector('.tiles')].forEach(fadeEdges);
 
@@ -123,16 +130,20 @@ export function createBench({ hand, pick, reach, size, onToggle, pip }) {
       if (on && b.getAttribute('aria-checked') !== 'true' && !drawer.hidden) b.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       b.setAttribute('aria-checked', String(on));
     }
-    $('bench-held').innerHTML = up ? `${t.name} in hand<i class="bench-esc"> · Esc puts it down</i>` : t.id === 'loupe' ? 'The loupe in hand' : 'Nothing in hand';
-    $('bench-hint').innerHTML = `<b>${t.name}</b> · ${(coarse && t.touch) || t.hint}`;
+    // i18n: what is in hand, beside the Bench's Tools heading: {tool} a tool's name, then a note in small type
+    $('bench-held').innerHTML = up ? tr('bench.in-hand', '{tool} in hand<note> · Esc puts it down</note>', { tool: t.name, note: (c) => `<i class="bench-esc">${[].concat(c).join('')}</i>` })
+      : t.id === 'loupe' ? tr('bench.in-hand.loupe', 'The loupe in hand') : tr('bench.in-hand.none', 'Nothing in hand');
+    // i18n: the hint for the tool in hand, under the Bench's tiles: {tool} its name, {hint} what it does
+    $('bench-hint').innerHTML = tr('bench.hint', '<b>{tool}</b> · {hint}', { tool: t.name, hint: (coarse && t.touch) || t.hint });
     if (document.activeElement !== slider) slider.value = toSlider(sz.v, sz);
-    $('reach-v').textContent = t.id === 'needle' ? 'a point' : t.id === 'none' ? '–' : sz.text;
+    // i18n: the needle's reach (it acts at a point, not over an area)
+    $('reach-v').textContent = t.id === 'needle' ? tr('bench.reach.point', 'a point') : t.id === 'none' ? '–' : sz.text;
     slider.disabled = t.id === 'needle' || t.id === 'none';
     // the bench button names the tool in hand (on a phone, where the dock has no tools)
     $('bench-i').setAttribute('href', t.id !== 'none' ? `#i-t-${t.id}` : '#i-bench');
-    $('bench-l').textContent = t.id !== 'none' ? t.name : 'Bench';
+    $('bench-l').textContent = t.id !== 'none' ? t.name : tr('dock.bench-l', 'Bench');
     // (named when its label is hidden, as on a phone held sideways)
-    btn.setAttribute('aria-label', t.id !== 'none' ? `Bench · ${t.name} in hand` : 'Bench');
+    btn.setAttribute('aria-label', t.id !== 'none' ? tr('bench.open.aria-held', 'Bench · {tool} in hand', { tool: t.name }) : tr('bench.open.aria', 'Bench'));
     btn.classList.toggle('in-hand', up);
     // a tool in hand on a phone, the drawer closed: the held strip
     held.hidden = !(up && drawer.hidden && innerWidth <= 980);
@@ -153,8 +164,10 @@ export function createBench({ hand, pick, reach, size, onToggle, pip }) {
     $('pip-sort').hidden = !v.mixed;
     held.classList.toggle('pip', inHand);
     const tool = dock.querySelector('[data-tool="pipette"]');
-    tool.dataset.count = v.count ? (v.count > 999 ? `${Math.floor(v.count / 1000)}k` : v.count) : '';
-    $('pip-n').textContent = v.count ? `${fmt(v.count)} / ${fmt(v.limit)}${v.count >= v.limit ? ' · full' : ''}` : 'empty';
+    // i18n: the count on the pipette's tool button: {n} thousand cells
+    tool.dataset.count = v.count ? (v.count > 999 ? tr('bench.pip.badge-k', '{n}k', { n: Math.floor(v.count / 1000) }) : v.count) : '';
+    // i18n: how many cells the pipette holds of how many it can
+    $('pip-n').textContent = v.count ? tr('bench.pip.count', '{n, number} / {limit, number}{full, select, yes { · full} other {}}', { n: v.count, limit: v.limit, full: v.count >= v.limit ? 'yes' : 'no' }) : tr('bench.pip.empty', 'empty');
     if (drags.some((d) => d.dragging())) return;
     if (key === pipKey) {
       for (const row of [strip, hstrip]) [...row.querySelectorAll('.minicard .mc-n b')].forEach((b, i) => { if (v.held[i]) b.innerHTML = countText(...v.held[i], row === hstrip); });
@@ -162,7 +175,8 @@ export function createBench({ hand, pick, reach, size, onToggle, pip }) {
     }
     pipKey = key;
     strip.innerHTML = v.keys.length ? pip.cards(false)
-      : '<div class="pip-empty"><b>Nothing in the pipette.</b><span>Draw cells up from the world with the pipette (8), or bring cards from the cabinet.</span><button type="button" class="link" data-cabinet>Open the cabinet</button></div>';
+      // i18n: the pipette's strip, empty: (8) is the pipette's key
+      : `<div class="pip-empty">${tr('bench.pip.none', '<b>Nothing in the pipette.</b><span>Draw cells up from the world with the pipette (8), or bring cards from the cabinet.</span>')}<button type="button" class="link" data-cabinet>${tr('bench.pip.cabinet', 'Open the cabinet')}</button></div>`;
     hstrip.innerHTML = inHand ? pip.cards(true) : '';
   }
   addEventListener('resize', render);

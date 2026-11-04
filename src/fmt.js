@@ -1,14 +1,17 @@
 // Formatting and vocabulary shared by the page's panels.
 import { unpackUnorm } from './genome.js';
+import { tr, LOCALE } from './i18n.js';
 
-const nf = new Intl.NumberFormat('en-US');
+const nf = new Intl.NumberFormat(LOCALE);
 export const fmt = (n) => nf.format(n);
 export const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const pad = (n) => String(n).padStart(2, '0');
 export const fmtClock = (s) => { s = Math.floor(s); const h = Math.floor(s / 3600); const m = Math.floor(s / 60) % 60; return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`; };
-export const fmtDur = (s) => (s < 60 ? `${Math.round(s)} s` : s < 3600 ? `${Math.floor(s / 60)}m ${pad(Math.floor(s % 60))}s` : `${Math.floor(s / 3600)}h ${pad(Math.floor(s / 60) % 60)}m`);
+// i18n: a duration, short: {s} seconds; {m} minutes and {ss} seconds (two digits); {h} hours and {mm} minutes (two digits)
+export const fmtDur = (s) => (s < 60 ? tr('fmt.dur.s', '{s} s', { s: Math.round(s) }) : s < 3600 ? tr('fmt.dur.ms', '{m}m {ss}s', { m: Math.floor(s / 60), ss: pad(Math.floor(s % 60)) })
+  : tr('fmt.dur.hm', '{h}h {mm}m', { h: Math.floor(s / 3600), mm: pad(Math.floor(s / 60) % 60) }));
 // a particle count, short: 64k, 1.5M
-export const kfmt = (n) => (n >= 1048576 ? `${+(n / 1048576).toFixed(1)}M` : `${Math.round(n / 1024)}k`);
+export const kfmt = (n) => (n >= 1048576 ? tr('fmt.count.m', '{n}M', { n: +(n / 1048576).toFixed(1) }) : tr('fmt.count.k', '{n}k', { n: Math.round(n / 1024) }));
 // when something was saved: today's by the time, older by the day
 export const when = (t) => (new Date(t).toDateString() === new Date().toDateString()
   ? new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
@@ -37,18 +40,23 @@ export const UM_PER_UNIT = 10 / 0.17;
 // a world length (or speed, with unit '/s') in µm, or mm from a millimeter up
 export const fmtLen = (u, unit = '') => {
   const um = Math.abs(u) * UM_PER_UNIT;
-  const v = um >= 1000 ? `${(um / 1000).toFixed(um >= 10000 ? 1 : 2)} mm` : `${um >= 10 ? Math.round(um) : um.toFixed(1)} µm`;
-  return v + unit;
+  const v = um >= 1000 ? tr('fmt.len.mm', '{n} mm', { n: (um / 1000).toFixed(um >= 10000 ? 1 : 2) }) : tr('fmt.len.um', '{n} µm', { n: um >= 10 ? Math.round(um) : um.toFixed(1) });
+  // i18n: a speed: {len} is a length (12 µm), per second
+  return unit === '/s' ? tr('fmt.len.per-s', '{len}/s', { len: v }) : v + unit;
 };
 // round lengths for scale bars, in µm
 export const NICE_UM = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000];
 
+// i18n: the kinds of matter: a name, and a line on what it is (the census, the specimen panel)
 export const MATTER = [
-  { name: 'Silt', css: '#5d6a82', blurb: 'Inert mineral grit carried on the currents. Cells build their offspring out of it, and now and then life sparks from it in the light.' },
-  { name: 'Glint', css: '#b9e6ff', blurb: 'No longer made: once silt charged by the Tide.' },
-  { name: 'Husk', css: '#9a6c4c', blurb: 'The remains of a dead cell. Scavengers feed on what energy is left; the rest crumbles back into silt.' },
-  { name: 'Stone', css: '#c2b8a8', blurb: 'Bedrock, or the skeleton a calcifying cell left where it settled. Stone never drifts and the living cannot pass through it. Prey shelters in its crevices, and it slowly wears back into silt.' },
-  { name: 'Framboid', css: '#ccb373', blurb: 'A pyrite framboid: a sphere of tiny iron sulfide crystals, grown from the sulfide a pile of rotting husks releases in cool mud. As it oxidizes it warms the water around it, faster the warmer that water is, until it is spent and crumbles to silt. Solid, like stone.' },
+  { name: tr('matter.silt', 'Silt'), css: '#5d6a82', blurb: tr('matter.silt.blurb', 'Inert mineral grit carried on the currents. Cells build their offspring out of it, and now and then life sparks from it in the light.') },
+  { name: tr('matter.glint', 'Glint'), css: '#b9e6ff', blurb: tr('matter.glint.blurb', 'No longer made: once silt charged by the Tide.') },
+  { name: tr('matter.husk', 'Husk'), css: '#9a6c4c', blurb: tr('matter.husk.blurb', 'The remains of a dead cell. Scavengers feed on what energy is left; the rest crumbles back into silt.') },
+  { name: tr('matter.stone', 'Stone'), css: '#c2b8a8', blurb: tr('matter.stone.blurb', 'Bedrock, or the skeleton a calcifying cell left where it settled. Stone never drifts and the living cannot pass through it. Prey shelters in its crevices, and it slowly wears back into silt.') },
+  { name: tr('matter.framboid', 'Framboid'), css: '#ccb373', blurb: tr('matter.framboid.blurb', 'A pyrite framboid: a sphere of tiny iron sulfide crystals, grown from the sulfide a pile of rotting husks releases in cool mud. As it oxidizes it warms the water around it, faster the warmer that water is, until it is spent and crumbles to silt. Solid, like stone.') },
 ];
-export const CAUSE = { 0: '', 1: 'starved', 2: 'died of old age', 3: 'was consumed', 4: 'crumbled from a husk', 5: 'charged by the Tide', 6: 'faded back to silt', 7: 'wore away from stone', 8: 'sparked into life from silt', 9: 'built from silt by its parent', 10: 'scalded', 12: 'crystallized in a rotting pile', 13: 'crumbled from a spent framboid' };
+// i18n: how a particle came to be what it is, or how a cell died: "It {cause}." (a cell's Origin, a husk's Cause of death)
+export const CAUSE = { 0: '', 1: tr('cause.starved', 'starved'), 2: tr('cause.old-age', 'died of old age'), 3: tr('cause.consumed', 'was consumed'), 4: tr('cause.husk-crumbled', 'crumbled from a husk'), 5: tr('cause.tide-charged', 'charged by the Tide'),
+  6: tr('cause.faded', 'faded back to silt'), 7: tr('cause.stone-wore', 'wore away from stone'), 8: tr('cause.sparked', 'sparked into life from silt'), 9: tr('cause.built', 'built from silt by its parent'), 10: tr('cause.scalded', 'scalded'),
+  12: tr('cause.crystallized', 'crystallized in a rotting pile'), 13: tr('cause.framboid-crumbled', 'crumbled from a spent framboid') };
 export const LIVING_CSS = '#ff9a6a';

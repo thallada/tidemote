@@ -3,23 +3,31 @@
 // voices the conductor schedules for the score, the cells, the water and the hand), the reverb's size and share
 // (FDN.p) and the master's tone (Master.p). Pure (test/mix.test.js); the defaults leave the soundtrack exactly as it
 // was before there was a mix.
+import { tr } from '../i18n.js';
 
 export const LAYERS = ['music', 'cells', 'water', 'tools'];
-const LEVELS = [['Off', 0], ['Quiet', 0.5], ['Normal', 1], ['Loud', 1.6]];
 
 // each setting: its label, its choices (a label and what it sets) and the default's index (its hint: src/guide.js,
-// audio + its key)
-export const MIX = {
-  music: { name: 'Music', choices: LEVELS, def: 2 },
-  cells: { name: 'Cells', choices: LEVELS, def: 2 },
-  water: { name: 'Water', choices: LEVELS, def: 2 },
-  tools: { name: 'Tools', choices: LEVELS.slice(0, 3), def: 2 },
-  // the reverb: its decay's multiple and its wet share's
-  space: { name: 'Space', choices: [['Close', { space: 0.5, wet: 0.45 }], ['Normal', { space: 1, wet: 1 }], ['Vast', { space: 1.8, wet: 1.4 }]], def: 1 },
-  // the master: its low-pass tone's multiple, its high shelf (dB) and the shelf's corner (Hz)
-  tone: { name: 'Tone', choices: [['Warm', { toneMul: 0.075, air: 0, airHz: 8000 }], ['Normal', { toneMul: 1, air: 2.5, airHz: 8000 }], ['Bright', { toneMul: 1.12, air: 10, airHz: 2500 }]], def: 1 },
-  background: { name: 'When hidden', choices: [['Fade out', false], ['Keep playing', true]], def: 0 },
-};
+// audio + its key). (Made in a call marked pure, so a bundle that takes only LAYERS, as the audio thread's does through
+// voices.js, leaves it and the page's words out.)
+export const MIX = /* @__PURE__ */ (() => {
+  // i18n: how loud a layer of the soundtrack plays (Settings → Audio → Mix)
+  const LEVELS = [[tr('mix.level.off', 'Off'), 0], [tr('mix.level.quiet', 'Quiet'), 0.5], [tr('mix.level.normal', 'Normal'), 1], [tr('mix.level.loud', 'Loud'), 1.6]];
+  return {
+    music: { name: tr('mix.music', 'Music'), choices: LEVELS, def: 2 },
+    cells: { name: tr('mix.cells', 'Cells'), choices: LEVELS, def: 2 },
+    water: { name: tr('mix.water', 'Water'), choices: LEVELS, def: 2 },
+    tools: { name: tr('mix.tools', 'Tools'), choices: LEVELS.slice(0, 3), def: 2 },
+    // the reverb: its decay's multiple and its wet share's
+    // i18n: the soundtrack's room (Settings → Audio → Character): its reverb
+    space: { name: tr('mix.space', 'Space'), choices: [[tr('mix.space.close', 'Close'), { space: 0.5, wet: 0.45 }], [tr('mix.space.normal', 'Normal'), { space: 1, wet: 1 }], [tr('mix.space.vast', 'Vast'), { space: 1.8, wet: 1.4 }]], def: 1 },
+    // the master: its low-pass tone's multiple, its high shelf (dB) and the shelf's corner (Hz)
+    // i18n: the soundtrack's tone (Settings → Audio → Character): darker or brighter
+    tone: { name: tr('mix.tone', 'Tone'), choices: [[tr('mix.tone.warm', 'Warm'), { toneMul: 0.075, air: 0, airHz: 8000 }], [tr('mix.tone.normal', 'Normal'), { toneMul: 1, air: 2.5, airHz: 8000 }], [tr('mix.tone.bright', 'Bright'), { toneMul: 1.12, air: 10, airHz: 2500 }]], def: 1 },
+    // i18n: what the soundtrack does while the page is hidden (Settings → Audio → Playback)
+    background: { name: tr('mix.background', 'When hidden'), choices: [[tr('mix.background.fade', 'Fade out'), false], [tr('mix.background.keep', 'Keep playing'), true]], def: 0 },
+  };
+})();
 
 /** The default mix: each setting's default choice (an index into its choices). */
 export const defaultMix = () => Object.fromEntries(Object.entries(MIX).map(([k, s]) => [k, s.def]));

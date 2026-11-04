@@ -3,6 +3,9 @@
 // for localStorage (settings), kept in Electron's userData directory. Saved worlds are files there
 // (worlds.js), which Steam Cloud syncs; Steam (steam.js) adds achievements and the Workshop. The page
 // reaches both through preload.cjs.
+//
+// The shell's few words stay in English (each marked i18n-ignore): this main process is packaged from desktop/ alone
+// (scripts/package.mjs), without ../src/i18n.js or intl-messageformat, and the page shows its own words.
 import { app, BrowserWindow, ipcMain, Menu, net, protocol, shell } from 'electron';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statfsSync, writeFileSync } from 'node:fs';
@@ -37,7 +40,7 @@ const ORIGIN = 'app://tidemote';
 // there (as tools/perf/bench.mjs --linux and the headless gate use).
 app.commandLine.appendSwitch('enable-unsafe-webgpu');
 if (process.platform === 'linux') {
-  app.commandLine.appendSwitch('enable-features', 'Vulkan');
+  app.commandLine.appendSwitch('enable-features', 'Vulkan'); // i18n-ignore (a Chromium feature)
   app.commandLine.appendSwitch('ignore-gpu-blocklist');
 }
 
@@ -48,14 +51,14 @@ protocol.registerSchemesAsPrivileged([
 const serve = (req) => {
   const { pathname } = new URL(req.url);
   const file = join(PAGE_DIR, pathname === '/' ? 'index.html' : decodeURIComponent(pathname));
-  if (!file.startsWith(PAGE_DIR)) return new Response('not found', { status: 404 });
+  if (!file.startsWith(PAGE_DIR)) return new Response('not found', { status: 404 }); // i18n-ignore (an HTTP body)
   return net.fetch(pathToFileURL(file).toString());
 };
 
 const open = () => {
   const win = new BrowserWindow({
     width: 1600, height: 900, minWidth: 640, minHeight: 400,
-    show: false, backgroundColor: '#06090a', title: 'Tidemote',
+    show: false, backgroundColor: '#06090a', title: 'Tidemote', // i18n-ignore (the product's name; the page's title follows)
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, preload: join(HERE, 'preload.cjs') },
   });
   win.once('ready-to-show', () => win.show());
@@ -98,7 +101,7 @@ handle('workshop:open', workshop.open);
 const films = new Map();
 let filmN = 0;
 handle('film:open', async (name) => {
-  const dir = join(app.getPath('videos'), 'Tidemote');
+  const dir = join(app.getPath('videos'), 'Tidemote'); // i18n-ignore (a folder's name)
   mkdirSync(dir, { recursive: true });
   const stem = basename(String(name)).replace(/[^\w.\- ]+/g, '_');
   let path = join(dir, stem);

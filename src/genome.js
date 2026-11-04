@@ -1,10 +1,13 @@
 import { DEFAULT_K, G_WORDS } from './shaders.js';
+import { tr } from './i18n.js';
 
 export const KIND = { SILT: 0, GLINT: 1, HUSK: 2, STONE: 3, FRAMBOID: 4 };
 
 // Cosmetic names and selection mirror DRAW_WGSL; never consume ecological randomness.
-export const CELL_SHAPES = ['lobose', 'filose', 'radiate', 'desmid', 'horned', 'spindle',
-  'slipper', 'whorl', 'vacuolate', 'bell', 'bead chain', 'lattice'];
+// i18n: the shapes a cell is drawn in (the specimen panel's Shape)
+export const CELL_SHAPES = [tr('genome.shape.lobose', 'lobose'), tr('genome.shape.filose', 'filose'), tr('genome.shape.radiate', 'radiate'), tr('genome.shape.desmid', 'desmid'),
+  tr('genome.shape.horned', 'horned'), tr('genome.shape.spindle', 'spindle'), tr('genome.shape.slipper', 'slipper'), tr('genome.shape.whorl', 'whorl'),
+  tr('genome.shape.vacuolate', 'vacuolate'), tr('genome.shape.bell', 'bell'), tr('genome.shape.bead-chain', 'bead chain'), tr('genome.shape.lattice', 'lattice')];
 const visualHash = (id) => {
   let h = (Math.imul(id, 747796405) + 2891336453) >>> 0;
   h = Math.imul((h >>> ((h >>> 28) + 4)) ^ h, 277803737) >>> 0;
@@ -218,12 +221,18 @@ export function hasTails(g) {
 
 /** The growth plan in words, e.g. "forking every 3 cells at 40°, 2 orders deep, curling 5°". */
 export function describeGrowth(plan, g) {
-  if (!plan) return g && hasTails(g) ? `a body that packs as it meets, budding tails of up to ${3 + Math.floor(g.tail[1] * (DEFAULT_K.tailMax - 3))} cells` : 'a body that packs as it meets';
-  const deg = (a) => `${Math.round(Math.abs(a) * 57.3)}°`;
-  const curl = Math.abs(plan.curl) > 0.05 ? `, ${plan.pattern === 'zigzag' ? 'zigzagging' : 'curling'} ${deg(plan.curl)}` : '';
-  if (!plan.every || !plan.depth) return `a filament${curl}`;
+  // i18n: how a many-celled species grows (the specimen panel's Growth): a packed body, its tails up to {n} cells long
+  if (!plan) return g && hasTails(g) ? tr('genome.growth.tails', 'a body that packs as it meets, budding tails of up to {n, plural, one {# cell} other {# cells}}', { n: 3 + Math.floor(g.tail[1] * (DEFAULT_K.tailMax - 3)) })
+    : tr('genome.growth.packed', 'a body that packs as it meets');
+  const deg = (a) => Math.round(Math.abs(a) * 57.3);
+  // (curl: whether, and which way, its branches bend as they grow, by curlDeg degrees)
+  const curl = Math.abs(plan.curl) > 0.05 ? (plan.pattern === 'zigzag' ? 'zigzag' : 'curl') : 'none', curlDeg = deg(plan.curl);
+  // i18n: a tree that grows as a single filament; {curl}: bending as it grows, by {curlDeg} degrees
+  if (!plan.every || !plan.depth) return tr('genome.growth.filament', 'a filament{curl, select, zigzag {, zigzagging {curlDeg}°} curl {, curling {curlDeg}°} other {}}', { curl, curlDeg });
   const angle = plan.pattern === 'forking' ? plan.angle / 2 : plan.angle;
-  return `${plan.pattern === 'zigzag' ? 'alternate' : plan.pattern} branches every ${plan.every} cells at ${deg(angle)}, ${plan.depth} order${plan.depth > 1 ? 's' : ''} deep${curl}`;
+  // i18n: a tree's branching: the pattern of its branches, every {every} cells, at {angle} degrees, {depth} orders deep (branches of branches)
+  return tr('genome.growth.tree', '{pattern, select, one_sided {one-sided} opposite {opposite} forking {forking} other {alternate}} branches every {every} cells at {angle}°, {depth, plural, one {# order} other {# orders}} deep{curl, select, zigzag {, zigzagging {curlDeg}°} curl {, curling {curlDeg}°} other {}}',
+    { pattern: plan.pattern === 'one-sided' ? 'one_sided' : plan.pattern, every: plan.every, angle: deg(angle), depth: plan.depth, curl, curlDeg });
 }
 
 export function finalizeGenome(g, K = DEFAULT_K) {

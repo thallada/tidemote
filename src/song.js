@@ -7,6 +7,7 @@ import { roleShares, roleColor, cellShape } from './genome.js';
 import { OUTLINES } from './glyphs.js';
 import { DEFAULT_K } from './shaders.js';
 import { signalAt } from './audio/motif.js';
+import { tr } from './i18n.js';
 
 const r1 = (x) => Math.round(x * 10) / 10;
 
@@ -26,7 +27,7 @@ function span(lines) {
  * mark, and the tonic's rails are a little brighter. ghost: an ancestor's motif drawn faintly behind, the notes that changed
  * outlined. The bars carry data-k / data-l (note, line) so a playhead can light them in place.
  */
-export function songSVG(m, { w = 300, h = 68, col = '#7fd6df', col2 = col, ghost = null, label = 'Its song' } = {}) {
+export function songSVG(m, { w = 300, h = 68, col = '#7fd6df', col2 = col, ghost = null, label = tr('song.roll.aria', 'Its song') } = {}) {
   const lines = [m.notes, m.voice2 || [], ...(ghost ? [ghost.notes] : [])];
   const [lo, hi] = span(lines);
   const rows = hi - lo + 1, pad = 8, base = h - 7; // the beat scale runs along the bottom

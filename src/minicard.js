@@ -5,13 +5,17 @@
 import { sigilSVG } from './song.js';
 import { voiceOf } from './audio/mapping.js';
 import { facets, dietMix, DIET_COL } from './facets.js';
-import { esc, fmt } from './fmt.js';
+import { esc } from './fmt.js';
+import { tr } from './i18n.js';
 
 /** What a mini-card says the pipette holds of its species: n cells, in bodies (updated in place as they come and go). */
-export const countText = (n, bodies, flat) => `×${fmt(n)}${bodies > 1 && !flat ? `<small> · ${fmt(bodies)} bodies</small>` : ''}`;
+// i18n: {n} cells, and (when more than one) in how many bodies (organisms)
+export const countText = (n, bodies, flat) => tr('minicard.count', '×{n, number}{bodies, plural, =0 {} one {<small> · # body</small>} other {<small> · # bodies</small>}}', { n, bodies: bodies > 1 && !flat ? bodies : 0 });
 
 /** How a cabinet card's species does here (updated in place): [ 'live', n ] alive, [ 'gone' ], or [ 'from', home ]. */
-const statusText = ([k, v]) => (k === 'live' ? `<i class="mc-live"></i>${fmt(v)} alive` : k === 'gone' ? 'extinct here' : `↗ from ${esc(v)}`);
+const statusText = ([k, v]) => (k === 'live' ? `<i class="mc-live"></i>${tr('minicard.alive', '{n, number} alive', { n: v })}` : k === 'gone' ? tr('minicard.gone', 'extinct here') : fromText(esc(v)));
+// i18n: a card's species came from another world: {home} that world's name (its era)
+const fromText = (home) => tr('minicard.from', '↗ from {home}', { home });
 
 /** A cabinet card's status line (.mc-st) brought up to st, in place. */
 export function setStatus(el, st) {
@@ -69,15 +73,22 @@ export function miniCard(g, K, { gid, key, name, home = '', n = 0, bodies = 0, t
   const mix = dietMix(g).filter(([, v]) => v >= 0.02).map(([d, v]) => `<i style="flex:${v.toFixed(3)};background:${DIET_COL[d]}"></i>`).join('');
   const ph = `<span class="mc-ph${url ? ' on' : ''}"${url ? ` style="background-image:url(${url})"` : ''}><span class="mc-sig">${sigilOf(g, gid, flat ? 30 : 40)}</span></span><span class="mc-mix">${mix}</span>`;
   const count = n ? `<span class="mc-n"><b>${countText(n, bodies, flat)}</b></span>` : '';
-  const keptMark = kept ? '<span class="mc-kept" data-hint="Its card is in the cabinet"><svg aria-hidden="true"><use href="#i-cabinet"/></svg></span>' : '';
+  const keptMark = kept ? `<span class="mc-kept" data-hint="${tr('minicard.kept.hint', 'Its card is in the cabinet')}"><svg aria-hidden="true"><use href="#i-cabinet"/></svg></span>` : '';
   const nm = `<span class="mc-name" translate="no"><b>${esc(genus)}</b><span>${esc(rest)}</span></span>`;
-  const label = `${name}, ${f.diet}, ${f.mobility}${home ? `, from ${home}` : ''}${n ? `, ${n} cells` : ''}${tip ? ', at the tip' : ''}`;
+  // i18n: a mini-card's label for screen readers: its species' name, diet and motion, the world it came from, how many
+  // cells the pipette holds of it, and whether it leaves the pipette next
+  const label = tr('minicard.aria', '{name}, {diet, select, photosynth {photosynth} grazer {grazer} scavenger {scavenger} predator {predator} other {{diet}}}, {mobility, select, anchored {anchored} crawler {crawler} swimmer {swimmer} drifter {drifter} other {{mobility}}}{from, select, yes {, from {home}} other {}}{n, plural, =0 {} other {, {n} cells}}{tip, select, yes {, at the tip} other {}}',
+    { name, diet: f.diet, mobility: f.mobility, from: home ? 'yes' : 'no', home, n, tip: tip ? 'yes' : 'no' });
+  // i18n: the mark on the card that leaves the pipette next
+  const tipMark = `<span class="mc-tip">${tr('minicard.tip', 'Tip')}</span>`;
   const open = `<button type="button" class="minicard${flat ? ' flat' : ''}${tip ? ' at-tip' : ''}" data-key="${esc(key)}"${thumb ? ` data-thumb="${esc(thumb)}"` : ''} aria-label="${esc(label)}">`;
-  if (flat) return `${open}${ph}${nm}<span class="mc-end">${tip ? '<span class="mc-tip">Tip</span>' : ''}${count}${keptMark}</span></button>`;
+  if (flat) return `${open}${ph}${nm}<span class="mc-end">${tip ? tipMark : ''}${count}${keptMark}</span></button>`;
   const kind = `<span class="mc-kind" aria-hidden="true"><svg style="color:${DIET_COL[f.diet]}"><use href="#i-d-${f.diet}"/></svg><svg><use href="#i-m-${f.mobility}"/></svg></span>`;
   const sub = status ? `<span class="mc-sub mc-st${status[0] === 'live' ? '' : ` ${status[0]}`}">${statusText(status)}</span>`
-    : home ? `<span class="mc-sub from">↗ from ${esc(home)}</span>` : `<span class="mc-sub"><span style="color:${DIET_COL[f.diet]}">${f.diet}</span> · ${f.mobility}</span>`;
-  return `${open}${ph}${tip ? '<span class="mc-tip">Tip</span>' : ''}${count}${keptMark}${kind}${nm}${sub}</button>`;
+    : home ? `<span class="mc-sub from">${fromText(esc(home))}</span>`
+    // i18n: under a mini-card's name: its diet (in its color) · how it moves
+      : `<span class="mc-sub">${tr('minicard.kind', '<d>{diet, select, photosynth {photosynth} grazer {grazer} scavenger {scavenger} predator {predator} other {{diet}}}</d> · {mobility, select, anchored {anchored} crawler {crawler} swimmer {swimmer} drifter {drifter} other {{mobility}}}', { diet: f.diet, mobility: f.mobility, d: (c) => `<span style="color:${DIET_COL[f.diet]}">${[].concat(c).join('')}</span>` })}</span>`;
+  return `${open}${ph}${tip ? tipMark : ''}${count}${keptMark}${kind}${nm}${sub}</button>`;
 }
 
 const HOLD = 350; // a touch held this long (ms) lifts the card
@@ -101,7 +112,7 @@ export function wireCardDrag(root, { tap, drop, reorder }) {
     root.insertBefore(slot, others[at] || null);
     for (const [c, r] of from) {
       const n = c.getBoundingClientRect(), dx = r.left - n.left, dy = r.top - n.top;
-      if (dx || dy) c.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 180, easing: 'cubic-bezier(.2,.8,.2,1)' });
+      if (dx || dy) c.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 180, easing: 'cubic-bezier(.2,.8,.2,1)' }); // i18n-ignore
     }
   }
   root.addEventListener('pointerdown', (e) => {
@@ -124,7 +135,7 @@ export function wireCardDrag(root, { tap, drop, reorder }) {
       if (reorder) drag.el.classList.add('mc-slot');
     }
     if (!drag.ghost) return;
-    drag.ghost.style.transform = `translate(${e.clientX - 40}px, ${e.clientY - 50}px) rotate(-4deg)`;
+    drag.ghost.style.transform = `translate(${e.clientX - 40}px, ${e.clientY - 50}px) rotate(-4deg)`; // i18n-ignore
     if (reorder && over(e.clientX, e.clientY)) makeWay(drag.el, e.clientX, e.clientY);
   });
   const end = (e) => {

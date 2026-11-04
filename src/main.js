@@ -4,7 +4,7 @@ import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS, compactState } from './engine.js';
 import { genomeSerial, readGenome, writeGenome, parseParticle, thermalGuild } from './genome.js';
-import { seasonAt, createClimate, abioRate, EVENT_TYPES, excursionAt } from './climate.js';
+import { seasonAt, createClimate, abioRate, EVENT_TYPES, excursionAt, eraName } from './climate.js';
 import { countPools } from './geography.js';
 import { createLab } from './lab.js';
 import { createSpecimen } from './specimen.js';
@@ -15,7 +15,7 @@ import { drawLiving, chartPointer } from './charts.js';
 import { genusName, speciesEpithet, roman } from './names.js';
 import { record, seal } from './lineage/model.js';
 import { createWorldStore, encodeWorld, decodeWorld, SAVE_VERSION, openable, WHY_NOT } from './worlds.js';
-import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
+import { facets, describe, DIET_COL, MOB_COL, FACET_NAME } from './facets.js';
 import { retraceBody, settleMembers, nearBody, largestBody, bodyPatch } from './trace.js';
 import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K, STUDIO_N, PIPETTE_DOF, CYST } from './shaders.js';
 import { flowAt } from './flow.js';
@@ -37,6 +37,7 @@ import { layOut, frameCells, records } from './studio.js';
 import { encodeImages, encodeBytes } from './encode.js';
 import { createCabinetStore, encodeCard, decodeCard, cardLink, cardFromHash, cardFromPng, cardIntoPng } from './cabinet.js';
 import { fmt, fmtClock, fmtDur, kfmt, when, esc, cssCol, clamp, term, spLink, saveFile, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
+import { tr, LOCALE } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('stage');
@@ -63,7 +64,7 @@ const stopLoader = startLoader($('intro-anim'));
 // The screen for a world that cannot go on: why, then what can be done. With actions (buttons, each
 // { label, run(button) }) it covers the page and leaves it as it was, for a way back; without, it is a
 // browser that cannot run Tidemote at all, and says what Tidemote is instead.
-const RELOAD = { label: 'Reload the page', run: () => location.reload() };
+const RELOAD = { label: tr('err.reload', 'Reload the page'), run: () => location.reload() };
 function fail(title, detail, actions = []) {
   $('nogpu-title').textContent = title;
   $('nogpu-detail').textContent = detail;
@@ -113,11 +114,11 @@ async function freshShaders() {
 async function boot(tries = 4) {
   if (tries === 4) await freshShaders();
   if (!navigator.gpu) {
-    fail('This browser has no WebGPU', 'Tidemote simulates its world on your graphics card through WebGPU. Try a current Chrome, Edge or Safari, or Firefox on Windows.');
+    fail(tr('err.no-webgpu', 'This browser has no WebGPU'), tr('err.no-webgpu.detail', 'Tidemote simulates its world on your graphics card through WebGPU. Try a current Chrome, Edge or Safari, or Firefox on Windows.'));
     return;
   }
   const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
-  if (!adapter) { fail('No GPU adapter available', 'WebGPU is present but no graphics adapter was offered. Hardware acceleration may be turned off in your browser settings.'); return; }
+  if (!adapter) { fail(tr('err.no-adapter', 'No GPU adapter available'), tr('err.no-adapter.detail', 'WebGPU is present but no graphics adapter was offered. Hardware acceleration may be turned off in your browser settings.')); return; }
   const hasTS = adapter.features.has('timestamp-query');
   const lim = adapter.limits;
   const device = await adapter.requestDevice({
@@ -130,7 +131,9 @@ async function boot(tries = 4) {
   });
   bootTimes.device = Math.round(performance.now());
   let started = false;
-  device.lost.then((info) => { if (started && info.reason !== 'destroyed') fail('The GPU device was lost', `${info.message || 'The driver reset the device.'} The world was on it and is gone; reload the page to start a new one.`, [RELOAD]); });
+  device.lost.then((info) => { if (started && info.reason !== 'destroyed') fail(tr('err.device-lost', 'The GPU device was lost'),
+    // i18n: {why} is the driver's own words (English, from the browser) or err.device-lost.reset
+    tr('err.device-lost.detail', '{why} The world was on it and is gone; reload the page to start a new one.', { why: info.message || tr('err.device-lost.reset', 'The driver reset the device.') }), [RELOAD]); });
   device.addEventListener('uncapturederror', (e) => console.error('[tidemote]', e.error.message));
 
   const format = navigator.gpu.getPreferredCanvasFormat();
@@ -148,7 +151,7 @@ async function boot(tries = 4) {
   lostWhile.catch(() => {});
   // the shaders' compile fills the first half of the loading bar (calibrate the rest)
   const bar = document.querySelector('.intro-rule i');
-  const onProgress = (f) => { $('calib').textContent = 'Compiling shaders'; bar.style.width = `${Math.round(f * 50)}%`; };
+  const onProgress = (f) => { $('calib').textContent = tr('intro.compiling', 'Compiling shaders'); bar.style.width = `${Math.round(f * 50)}%`; };
   try { eng = await Promise.race([createEngine(device, format, { hasTimestamps: hasTS, K, onProgress, late: true }), lostWhile]); }
   catch (e) {
     const msg = String(e.message || e);
@@ -158,7 +161,7 @@ async function boot(tries = 4) {
       await new Promise((r) => setTimeout(r, 600));
       return boot(tries - 1);
     }
-    fail('The simulation failed to compile', msg);
+    fail(tr('err.compile', 'The simulation failed to compile'), msg);
     return;
   }
   started = true;
@@ -183,7 +186,8 @@ const H = 1 / 60; // the simulation's step, as in the headless runs
 // where drawing costs much: big worlds, big screens). Both are speed Infinity; fastMode tells them apart.
 let fastMode = false;
 // a stop on the speed ladder: a speed, or 'fast' (Infinity drawn every frame)
-const fmtStop = (v) => (v === 'fast' ? 'Fast' : v === Infinity ? 'Max' : `×${v}`);
+// i18n: a stop on the speed ladder: as fast as the GPU goes drawn every frame (Fast) or seldom (Max), or {v} times real time
+const fmtStop = (v) => (v === 'fast' ? tr('speed.fast', 'Fast') : v === Infinity ? tr('speed.max', 'Max') : tr('speed.times', '×{v}', { v }));
 // A new world opens with little life, a few colonies in open water (docs/founding.md): its first WARM_UNTIL
 // seconds run at Fast (as fast as the GPU goes, the world drawn every frame, so the colonies spreading show
 // smoothly), with a notice saying why, then real time. Choosing a speed with the time controls ends the warm-up
@@ -258,7 +262,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }, true);
 
   const trailLevels = [0, 0.45, 0.7, 0.88];
-  const trailNames = ['Off', 'Short', 'Long', 'Exposure'];
+  // i18n: how long the trails last (Settings → Display, Trails)
+  const trailNames = [tr('settings.off', 'Off'), tr('settings.display.trails-short', 'Short'), tr('settings.display.trails-long', 'Long'), tr('settings.display.trails-exposure', 'Exposure')];
   let trailIdx = prefs.trails ?? 1;
   const defaults = { ...eng.settings }; // the engine's own, for Settings' reset
   eng.settings.trails = trailLevels[trailIdx];
@@ -439,15 +444,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
     applyEvents();
     climate.music = (Math.random() * 2 ** 32) >>> 0; // the world's soundtrack seed (kept with a saved world)
     climate.onEra = (era, prevAmb, prevTemp) => {
-      const lightWord = era.ambient > prevAmb + 0.05 ? 'light rises' : era.ambient < prevAmb - 0.05 ? 'light dims' : 'light holds';
-      const waterWord = !K.heat ? '' : ` · water ${era.temp > prevTemp + 1 ? 'warms' : era.temp < prevTemp - 1 ? 'cools' : 'holds'} to ${Math.round(era.temp)}°`;
+      const light = era.ambient > prevAmb + 0.05 ? 'rises' : era.ambient < prevAmb - 0.05 ? 'dims' : 'holds';
+      const water = !K.heat ? 'none' : era.temp > prevTemp + 1 ? 'warms' : era.temp < prevTemp - 1 ? 'cools' : 'holds';
       // the era's water level: low eras bare the highest ground as islands and sandbars (the first era is full)
       const prev = climate.history.at(-2), wasLow = (prev?.level ?? 1) < 1, low = era.level < 1;
-      const levelWord = !K.pond || (!low && !wasLow) ? '' : !low ? ' · the water rises over the islands'
-        : ` · the water ${wasLow ? 'stays low' : 'falls'}: ${Math.round((1 - era.level) * 100)}% of the floor lies bare`;
-      pushEvent(`A new era: <b>${esc(climate.name)}</b> · ${lightWord} to ${Math.round(era.ambient * 100)}%${waterWord}${levelWord} · currents shift`, 0xffa0e3f1, 'era');
+      const level = !K.pond || (!low && !wasLow) ? 'none' : !low ? 'rises' : wasLow ? 'stays' : 'falls';
+      // i18n: the log, a new climate era: {name} its name; {light} the light's level now (%); {temp} the water's
+      // temperature (°C, when the world has heat); {bare} how much of the floor lies dry (%, in a low era)
+      pushEvent(tr('log.era', 'A new era: <b>{name}</b> · {dir, select, rises {light rises} dims {light dims} other {light holds}} to {light}%{water, select, warms { · water warms to {temp}°} cools { · water cools to {temp}°} holds { · water holds to {temp}°} other {}}{level, select, rises { · the water rises over the islands} stays { · the water stays low: {bare}% of the floor lies bare} falls { · the water falls: {bare}% of the floor lies bare} other {}} · currents shift',
+        { name: esc(eraName(climate.name)), dir: light, light: Math.round(era.ambient * 100), water, temp: Math.round(era.temp), level, bare: Math.round((1 - era.level) * 100) }), 0xffa0e3f1, 'era');
       chron.note('era', { t: eng.simTime, name: climate.name, prev: prev && prev.name, reg: life.reg, living: life.counts[3] });
-      flash(climate.name, 'New era');
+      flash(eraName(climate.name));
       sound.era(climate.name);
     };
     // the pool's events (docs/catastrophes.md): announced as they begin and turn, and tallied once they have passed
@@ -458,54 +465,67 @@ function run(eng, device, ctx, specCtx, hasTS) {
         if (!was) return '';
         const kept = was.cells ? life.counts[3] / was.cells : 1;
         const lost = [...was.species].filter((k) => !life.reg.get(k)?.alive).length;
-        return ` · ${Math.round(Math.min(kept, 9.99) * 100)}% as much life as before${lost ? `, ${lost} species lost` : ''}`;
+        // i18n: added to the log's line that an event has passed: how much life there is to what there was before it
+        // ({pct}, %), and how many species it cost ({lost})
+        return tr('log.event-tally', ' · {pct}% as much life as before{lost, plural, =0 {} other {, {lost} species lost}}', { pct: Math.round(Math.min(kept, 9.99) * 100), lost });
       };
       const begin = () => { ev.before = { cells: life.counts[3], species: new Set([...life.reg.entries()].filter(([, s]) => s.alive && s.established).map(([k]) => k)) }; };
       const col = 0xff9ad6e8;
       if (ev.type === 'drought') {
         if (phase === 'drying') {
           begin();
-          pushEvent(`<b>The pool is drying</b>: over ${fmtDur(ev.fall)} the water will fall until ${Math.round((1 - ev.low) * 100)}% of the floor lies dry`, col, 'pond');
-          flash('The pool is drying', 'Drought');
+          // i18n: the log: {dur} how long the water falls (a duration); {pct} how much of the floor will lie dry (%)
+          pushEvent(tr('log.drought-drying', '<b>The pool is drying</b>: over {dur} the water will fall until {pct}% of the floor lies dry', { dur: fmtDur(ev.fall), pct: Math.round((1 - ev.low) * 100) }), col, 'pond');
+          flash(tr('flash.drought-drying', 'The pool is drying'));
         } else if (phase === 'dry') {
           const p = eng.relief ? countPools(eng.relief, eng.grid[0], eng.grid[1], eng.level) : null;
-          pushEvent(`The water has fallen${p && p.pools > 1 ? `: the pool has parted into <b>${p.pools} pools</b>` : ''}; stranded cells rest as cysts and spores`, col, 'pond');
-          flash(p && p.pools > 1 ? `${p.pools} pools` : 'Low water', 'Drought');
+          pushEvent(p && p.pools > 1 ? tr('log.drought-dry-parted', 'The water has fallen: the pool has parted into <b>{pools} pools</b>; stranded cells rest as cysts and spores', { pools: p.pools })
+            : tr('log.drought-dry', 'The water has fallen; stranded cells rest as cysts and spores'), col, 'pond');
+          // i18n: the drought at its lowest: the pool parted into {n} pools, or not
+          flash(p && p.pools > 1 ? tr('flash.drought-pools', '{n} pools', { n: p.pools }) : tr('flash.drought-dry', 'Low water'));
         } else if (phase === 'rain') {
-          pushEvent('<b>Rain</b>: the pool refills, cold under the cloud, and the cysts on the drying mud wake', col, 'pond');
-          flash('Rain', 'The drought breaks');
-        } else if (!phase) pushEvent(`The drought has passed${tally()}`, col, 'pond');
+          pushEvent(tr('log.drought-rain', '<b>Rain</b>: the pool refills, cold under the cloud, and the cysts on the drying mud wake'), col, 'pond');
+          flash(tr('flash.drought-rain', 'Rain'));
+        // i18n: {tally} is log.event-tally, or nothing
+        } else if (!phase) pushEvent(tr('log.drought-passed', 'The drought has passed{tally}', { tally: tally() }), col, 'pond');
       } else if (ev.type === 'storm') {
         if (phase === 'storm') {
           begin();
-          pushEvent('<b>A storm</b>: cold rain, raindrops ringing the surface, the water rough and the light dim', col, 'pond');
-          flash('A storm', 'Weather');
-        } else if (!phase) pushEvent(`The storm has passed${tally()}`, col, 'pond');
+          pushEvent(tr('log.storm', '<b>A storm</b>: cold rain, raindrops ringing the surface, the water rough and the light dim'), col, 'pond');
+          flash(tr('flash.storm', 'A storm'));
+        // i18n: {tally} is log.event-tally, or nothing
+        } else if (!phase) pushEvent(tr('log.storm-passed', 'The storm has passed{tally}', { tally: tally() }), col, 'pond');
       } else if (ev.type === 'frost') {
         if (phase === 'cooling') {
           begin();
-          pushEvent('<b>A frost</b>: night falls and the water chills toward freezing', col, 'pond');
-          flash('A frost', 'Night');
+          pushEvent(tr('log.frost', '<b>A frost</b>: night falls and the water chills toward freezing'), col, 'pond');
+          flash(tr('flash.frost', 'A frost'));
         } else if (phase === 'freezing') {
-          pushEvent(`Ice grows over the pool: grains spreading from the shallows will freeze ${Math.round(ev.max * 100)}% of it, pushing cells into the veins of water between them`, col, 'pond');
-          flash('Ice', 'Frost');
+          // i18n: {pct} how much of the pool will freeze (%)
+          pushEvent(tr('log.frost-ice', 'Ice grows over the pool: grains spreading from the shallows will freeze {pct}% of it, pushing cells into the veins of water between them', { pct: Math.round(ev.max * 100) }), col, 'pond');
+          flash(tr('flash.frost-ice', 'Ice'));
         } else if (phase === 'thaw') {
-          pushEvent('The ice thaws', col, 'pond');
-        } else if (!phase) pushEvent(`The frost has passed${tally()}`, col, 'pond');
+          pushEvent(tr('log.frost-thaw', 'The ice thaws'), col, 'pond');
+        // i18n: {tally} is log.event-tally, or nothing
+        } else if (!phase) pushEvent(tr('log.frost-passed', 'The frost has passed{tally}', { tally: tally() }), col, 'pond');
       } else if (ev.type === 'duckweed') {
         if (phase === 'duckweed') {
           begin();
-          pushEvent(`<b>Duckweed drifts onto the pool</b>: ${ev.buds + 1} fronds, the water under them in their shade, their roots trailing below`, col, 'pond');
-          flash('Duckweed', 'Shade');
-        } else if (!phase) pushEvent(`The duckweed has drifted off${tally()}`, col, 'pond');
+          // i18n: {n} how many fronds
+          pushEvent(tr('log.duckweed', '<b>Duckweed drifts onto the pool</b>: {n} fronds, the water under them in their shade, their roots trailing below', { n: ev.buds + 1 }), col, 'pond');
+          flash(tr('flash.duckweed', 'Duckweed'));
+        // i18n: {tally} is log.event-tally, or nothing
+        } else if (!phase) pushEvent(tr('log.duckweed-passed', 'The duckweed has drifted off{tally}', { tally: tally() }), col, 'pond');
       }
     };
     climate.onExcursion = (x) => {
       if (!K.heat) return;
       chron.note('excursion', { t: eng.simTime, dT: x.dT, dur: x.dur, reg: life.reg, living: life.counts[3] });
       const wave = x.dT > 0;
-      pushEvent(`${wave ? 'A heat wave' : 'A cold snap'}: the water ${wave ? 'rises' : 'falls'} ${Math.abs(x.dT).toFixed(0)}° for ${fmtDur(x.dur)}`, wave ? 0xff3a8aff : 0xffd68a3d, 'heat');
-      flash(wave ? 'A heat wave' : 'A cold snap', 'Climate');
+      // i18n: the log: {deg} how many degrees (°C) the water rises or falls; {dur} for how long (a duration)
+      const deg = Math.abs(x.dT).toFixed(0), dur = fmtDur(x.dur);
+      pushEvent(wave ? tr('log.heat-wave', 'A heat wave: the water rises {deg}° for {dur}', { deg, dur }) : tr('log.cold-snap', 'A cold snap: the water falls {deg}° for {dur}', { deg, dur }), wave ? 0xff3a8aff : 0xffd68a3d, 'heat');
+      flash(wave ? tr('flash.heat-wave', 'A heat wave') : tr('flash.cold-snap', 'A cold snap'));
     };
   }
 
@@ -565,7 +585,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (await eng.allocate(n)) return n;
       n = Math.floor((n * 0.75) / 4096) * 4096;
     }
-    throw new Error('Could not allocate particle memory on this GPU.');
+    throw new Error(tr('err.alloc', 'Could not allocate particle memory on this GPU.'));
   }
 
   const calText = $('calib');
@@ -585,7 +605,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const n = await allocDown(Math.min(state.perf.particles, maxN));
       seedWorld(n);
       state.busy = false;
-      calStep(`${fmt(n)} particles`, 1);
+      // i18n: the intro's loading line: the world's particle count
+      calStep(tr('intro.particles', '{n, plural, other {# particles}}', { n }), 1);
       return n;
     }
     // GPU ms a frame of the new world may take: a mature world costs about what it measures at the
@@ -599,7 +620,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
     seedWorld(n);
     state.busy = false;
-    calStep(`Measuring the GPU · ${fmt(n)} particles`, 0.6);
+    // i18n: the intro's loading line, while the GPU is timed on a world of {n} particles
+    calStep(tr('intro.measuring', 'Measuring the GPU · {n, plural, other {# particles}}', { n }), 0.6);
     let t = await measure();
     if (calibCut) return n;
     let next = clampN((n * target) / t);
@@ -607,7 +629,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       next = await allocDown(next);
       seedWorld(next);
       state.busy = false;
-      calStep(`Measuring the GPU · ${fmt(next)} particles`, 0.8);
+      calStep(tr('intro.measuring', 'Measuring the GPU · {n, plural, other {# particles}}', { n: next }), 0.8);
       const t2 = await measure();
       if (calibCut) return next;
       n = next;
@@ -618,7 +640,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const final = next === n ? n : await allocDown(next);
     seedWorld(final);
     state.busy = false;
-    calStep(`${fmt(final)} particles`, 1);
+    calStep(tr('intro.particles', '{n, plural, other {# particles}}', { n: final }), 1);
     measuredN = final;
     return final;
   }
@@ -629,13 +651,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     state.perf.particles = n === 'auto' ? null : n;
     persist();
     state.phase = 'calibrating';
-    flash(n === 'auto' ? 'Measuring the GPU' : `${fmt(n)} particles`);
-    try { await calibrate(); } catch (e) { fail('Could not start the simulation', String(e.message || e)); return; }
+    flash(n === 'auto' ? tr('flash.measuring', 'Measuring the GPU') : tr('flash.particles', '{n, plural, other {# particles}}', { n }));
+    try { await calibrate(); } catch (e) { fail(tr('err.start', 'Could not start the simulation'), String(e.message || e)); return; }
     state.phase = 'running';
     renderWorld();
     view.render();
     sound.overture();
-    flash('A new world begins');
+    flash(tr('flash.new-world', 'A new world begins'));
   }
 
   // ------------------------------------------------------------ the desktop app
@@ -685,9 +707,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the buffers this version keeps, each its size (a buffer it does not know, from a newer minor
     // version, is left out; decodeWorld has already refused another major)
     const want = eng.stateSizes(w.cpu.count);
-    if (Object.entries(want).some(([k, size]) => w.gpu[k]?.byteLength !== size)) throw new Error('This world’s file does not match its version.');
+    if (Object.entries(want).some(([k, size]) => w.gpu[k]?.byteLength !== size)) throw new Error(tr('worlds.err.mismatch', 'This world’s file does not match its version.'));
     w.gpu = Object.fromEntries(Object.keys(want).map((k) => [k, w.gpu[k]]));
-    if (w.cpu.count > maxParticles()) throw new Error(`Its ${fmt(w.cpu.count)} particles are more than this GPU can hold.`);
+    if (w.cpu.count > maxParticles()) throw new Error(tr('worlds.err.too-big', 'Its {n, plural, other {# particles}} are more than this GPU can hold.', { n: w.cpu.count }));
     return w;
   }
   // Put a world in place of this one (perf tools pass only { cpu, gpu }: its record starts afresh).
@@ -724,7 +746,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       await device.queue.onSubmittedWorkDone();
       if (eng.capacity !== w.cpu.count && !(await eng.allocate(w.cpu.count))) {
         // this world's memory went with the attempt: start a new one
-        flash('Not enough GPU memory for that world');
+        flash(tr('flash.no-memory', 'Not enough GPU memory for that world'));
         await calibrate();
         state.phase = 'running';
         renderWorld();
@@ -734,14 +756,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
     } catch (e) {
       console.error('[tidemote] loading a world:', e);
       // the world being replaced may be half overwritten: a new one, or a reload
-      fail('Could not load the world', String(e.message || e), [
-        { label: 'Start a new world', run: () => { $('nogpu').hidden = true; seedWorld(eng.count); state.busy = false; state.phase = 'running'; sound.overture(); } },
+      fail(tr('err.load', 'Could not load the world'), String(e.message || e), [
+        { label: tr('err.new-world', 'Start a new world'), run: () => { $('nogpu').hidden = true; seedWorld(eng.count); state.busy = false; state.phase = 'running'; sound.overture(); } },
         RELOAD]);
       return false;
     }
     state.busy = false;
     state.phase = 'running';
-    flash(`${w.meta.name} loaded`);
+    // i18n: {name} is the saved world's name
+    flash(tr('flash.world-loaded', '{name} loaded', { name: w.meta.name }));
     return true;
   }
 
@@ -818,10 +841,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // Tapping a gauge maps what it reads, alone: Light the light map, Temp the thermal camera, Tide the
   // tide map (on phones, where the Tide rides under the era name, the era opens it). A bar beside the
   // highlight names the map with its scale and closes it back to the plain view.
+  // i18n: the map bar: the map's name, and the words at the ends of its scale ({t}: a temperature, °C)
   const MAPS = [
-    { gauge: 'g-light', name: 'Light', on: (s) => s.tide > 0, open: (s) => { s.tide = 1; }, close: (s) => { s.tide = defaults.tide; }, ramp: () => ['', 'dark', 'full light'] },
-    { gauge: 'g-heat', name: 'Temperature', on: (s) => s.heat === 2, open: (s) => { s.heat = 2; }, close: (s) => { s.heat = defaults.heat; }, ramp: () => ['heat', `${Math.round(eng.tbg - 2)}°`, `${Math.round(eng.tbg + 10)}°`] },
-    { gauge: 'g-tide', name: 'Tide', on: (s) => s.bands > 0, open: (s) => { s.bands = 1; }, close: (s) => { s.bands = 0; }, ramp: () => ['light', 'dim', 'bright'] },
+    { gauge: 'g-light', name: tr('maps.light', 'Light'), on: (s) => s.tide > 0, open: (s) => { s.tide = 1; }, close: (s) => { s.tide = defaults.tide; }, ramp: () => ['', tr('maps.light.lo', 'dark'), tr('maps.light.hi', 'full light')] },
+    { gauge: 'g-heat', name: tr('maps.heat', 'Temperature'), on: (s) => s.heat === 2, open: (s) => { s.heat = 2; }, close: (s) => { s.heat = defaults.heat; }, ramp: () => ['heat', tr('maps.heat.deg', '{t}°', { t: Math.round(eng.tbg - 2) }), tr('maps.heat.deg', '{t}°', { t: Math.round(eng.tbg + 10) })] },
+    { gauge: 'g-tide', name: tr('maps.tide', 'Tide'), on: (s) => s.bands > 0, open: (s) => { s.bands = 1; }, close: (s) => { s.bands = 0; }, ramp: () => ['light', tr('maps.tide.lo', 'dim'), tr('maps.tide.hi', 'bright')] },
   ];
   const rampHtml = (m) => { const [cls, lo, hi] = m.ramp(); return `<div class="ramp ${cls}"><span>${lo}</span><i></i><span>${hi}</span></div>`; };
   const mapsOn = () => MAPS.filter((m) => m.on(eng.settings));
@@ -862,15 +886,18 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (focus.key === key) { clearFocus(); return; }
     const [kind, val] = key.split(':');
     if (kind === 'class') {
-      if (val === 'living') setFocus(key, 'All living cells', { pred: allLiving });
+      // i18n: the highlight bar names what is highlighted (the rest of the world dimmed)
+      if (val === 'living') setFocus(key, tr('highlight.living', 'All living cells'), { pred: allLiving });
       else setFocus(key, MATTER[{ silt: 0, glint: 1, husk: 2, stone: 3, framboid: 4 }[val]].name, { matter: ['silt', 'glint', 'husk', 'stone', 'framboid'].map((m) => m === val) });
-    } else if (kind === 'role') setFocus(key, `${ROLE[+val]}-cells`, { pred: allLiving, roleMask: 1 << +val });
-    else if (kind === 'state') setFocus(key, ['', 'Hungry cells', 'Cells ready to divide', 'Elderly cells', 'Heat-stressed cells', 'Torpid cells'][+val], { pred: allLiving, stateMode: +val });
-    else if (kind === 'temp') setFocus(key, `Prefers: ${val}`, { pred: (g) => facetsOf(g).temp === val });
-    else if (kind === 'diet') setFocus(key, `Diet: ${val}`, { pred: (g) => facetsOf(g).diet === val });
-    else if (kind === 'mobility') setFocus(key, `Movement: ${val}`, { pred: (g) => facetsOf(g).mobility === val });
-    else if (kind === 'body') setFocus(key, val === 'multicellular' ? 'Multicellular species' : 'Single-cell species', { pred: (g) => facetsOf(g).body === val });
-    else if (kind === 'types') setFocus(key, `${val} cell type${val === '1' ? '' : 's'}`, { pred: (g) => String(facetsOf(g).types) === val });
+    // i18n: {role} is a cell type's letter (α, β, γ)
+    } else if (kind === 'role') setFocus(key, tr('highlight.role', '{role}-cells', { role: ROLE[+val] }), { pred: allLiving, roleMask: 1 << +val });
+    else if (kind === 'state') setFocus(key, ['', tr('highlight.hungry', 'Hungry cells'), tr('highlight.ready', 'Cells ready to divide'), tr('highlight.elderly', 'Elderly cells'), tr('highlight.heat-stressed', 'Heat-stressed cells'), tr('highlight.torpid', 'Torpid cells')][+val], { pred: allLiving, stateMode: +val });
+    // i18n: {val} is a facet's name (facet.*): the temperature a species prefers, its diet, its way of moving
+    else if (kind === 'temp') setFocus(key, tr('highlight.temp', 'Prefers: {val}', { val: FACET_NAME[val] ?? val }), { pred: (g) => facetsOf(g).temp === val });
+    else if (kind === 'diet') setFocus(key, tr('highlight.diet', 'Diet: {val}', { val: FACET_NAME[val] ?? val }), { pred: (g) => facetsOf(g).diet === val });
+    else if (kind === 'mobility') setFocus(key, tr('highlight.mobility', 'Movement: {val}', { val: FACET_NAME[val] ?? val }), { pred: (g) => facetsOf(g).mobility === val });
+    else if (kind === 'body') setFocus(key, val === 'multicellular' ? tr('highlight.multicellular', 'Multicellular species') : tr('highlight.single-cell', 'Single-cell species'), { pred: (g) => facetsOf(g).body === val });
+    else if (kind === 'types') setFocus(key, tr('highlight.types', '{n, plural, one {# cell type} other {# cell types}}', { n: +val }), { pred: (g) => String(facetsOf(g).types) === val });
   }
   function focusSpecies(sp) {
     const key = `sp:${sp.serial}`;
@@ -975,7 +1002,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     for (const name of life.genera.keys()) if (!used.has(name)) life.genera.delete(name);
   }
   function originWord(sp) {
-    return sp.serial > eng.founders ? 'sparked from silt' : 'a founding lineage';
+    // i18n: where a species without a recorded parent came from (the log, the specimen panel)
+    return sp.serial > eng.founders ? tr('origin.silt', 'sparked from silt') : tr('origin.founder', 'a founding lineage');
   }
   function pushEvent(html, col, type = 'misc') {
     const text = html.replace(/<[^>]+>/g, '');
@@ -989,7 +1017,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const songEvents = [];
   const sound = createSound({
     onChange: renderSound,
-    onError: (m) => flash(`Sound unavailable: ${String(m).split('\n')[0].slice(0, 80)}`),
+    // i18n: {why} is the browser's own message (English)
+    onError: (m) => flash(tr('flash.sound-error', 'Sound unavailable: {why}', { why: String(m).split('\n')[0].slice(0, 80) })),
     onSang: (list) => {
       // a whole song stops the last one (Field.phrase): its notes still to come won't sound
       if (list.some((e) => e.whole)) { const now = performance.now(); for (let i = songEvents.length - 1; i >= 0; i--) if (songEvents[i].whole && songEvents[i].at > now) songEvents.splice(i, 1); }
@@ -1013,7 +1042,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const was = sound.on;
     // while it lives, its cells keep quiet as the song plays
     const living = sp.alive && genomeFor(sp.genome.slot)?.serial === sp.serial;
-    sound.audition(sp.genome, `sp${serial}`, living ? sp.genome.slot : -1).then(() => { if (!was && sound.on) flash('Sound on'); });
+    sound.audition(sp.genome, `sp${serial}`, living ? sp.genome.slot : -1).then(() => { if (!was && sound.on) flash(tr('flash.sound-on', 'Sound on')); });
   }
   let litSlots = null;
   function renderSound() {
@@ -1026,7 +1055,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     v.value = String(pct);
     // Settings follows in place: rebuilt, its slider would drop out from under a drag
     const sv = $('set-vol');
-    if (sv) { sv.value = String(pct); sv.nextElementSibling.textContent = `${pct}%`; }
+    if (sv) { sv.value = String(pct); sv.nextElementSibling.textContent = tr('settings.audio.volume-pct', '{pct}%', { pct }); }
     for (const c of document.querySelectorAll('#opts [data-o="sound"]')) c.setAttribute('aria-pressed', String(!!+c.dataset.v === sound.on));
   }
   function feedSound(pop, species) {
@@ -1044,12 +1073,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (keep && eng.listen) { eng.listen.keep = keep; eng.listen.selKind = selSlot >= 0 ? selSlot : 0xffffffff; }
   };
   function toggleSound() {
-    sound.toggle().then(() => flash(sound.on ? 'Sound on' : 'Sound off'));
+    sound.toggle().then(() => flash(sound.on ? tr('flash.sound-on', 'Sound on') : tr('flash.sound-off', 'Sound off')));
   }
   function nudgeVolume(d) {
     if (!sound.on) { toggleSound(); return; }
     sound.setVolume(sound.volume + d);
-    flash(`Volume ${Math.round(sound.volume * 100)}%`);
+    flash(tr('flash.volume', 'Volume {pct}%', { pct: Math.round(sound.volume * 100) }));
   }
 
   eng.onCensus = (c) => {
@@ -1081,7 +1110,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // heard only once its singer has lived a minute, as most mutants do not (about one signal in 7 hours)
       if (sp.signal && !sp.heard && t - (sp.born || 0) >= SIGNAL_AFTER) {
         sp.heard = true;
-        pushEvent(`${spLink(sp.serial, sp.name)} appears to be trying to communicate`, g.col, 'est');
+        // i18n: the log: {name} is a species (a link) whose song is the five tones
+        pushEvent(tr('log.signal', '{name} appears to be trying to communicate', { name: spLink(sp.serial, sp.name) }), g.col, 'est');
         director.spotlight(s, g.serial, { signal: true });
       }
       audio.push([s, g]);
@@ -1100,11 +1130,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
         if (t > 20) {
           if (gen && gen.from && !gen.announced) {
             gen.announced = true;
-            pushEvent(`New genus <b>${esc(gen.name)}</b> splits from ${esc(gen.from)}: ${spLink(sp.serial, sp.name)} · ${describe(g, K)}`, g.col, 'genus');
+            // i18n: the log: {genus} the new genus, {from} the genus it split from, {name} its first species (a link),
+            // {desc} a short description of the species (its body, diet, movement)
+            pushEvent(tr('log.genus', 'New genus <b>{genus}</b> splits from {from}: {name} · {desc}', { genus: esc(gen.name), from: esc(gen.from), name: spLink(sp.serial, sp.name), desc: describe(g, K) }), g.col, 'genus');
           } else {
             const anc = sp.ancestor && life.reg.get(sp.ancestor);
-            const origin = sp.founder ? originWord(sp) : anc ? `from ${spLink(anc.serial, anc.name)}` : 'from an unrecorded ancestor';
-            pushEvent(`${spLink(sp.serial, sp.name)} established · ${describe(g, K)} · ${origin}`, g.col, 'est');
+            const name = spLink(sp.serial, sp.name), desc = describe(g, K);
+            // i18n: the log: a species {name} (a link) has become established; {desc} a short description of it; {origin}
+            // where it came from (origin.silt or origin.founder), {parent} the species it descends from (a link)
+            pushEvent(sp.founder ? tr('log.established', '{name} established · {desc} · {origin}', { name, desc, origin: originWord(sp) })
+              : anc ? tr('log.established-from', '{name} established · {desc} · from {parent}', { name, desc, parent: spLink(anc.serial, anc.name) })
+                : tr('log.established-unrecorded', '{name} established · {desc} · from an unrecorded ancestor', { name, desc }), g.col, 'est');
           }
         }
         if (gen) gen.announced = true;
@@ -1122,10 +1158,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
           sp.extinct = t;
           record(sp.series, t, 0);
           sp.series = seal(sp.series);
-          if (sp.peak >= life.estThreshold * 3) pushEvent(`${spLink(sp.serial, sp.name)} extinct after ${fmtDur(t - (sp.born || 0))} · peak ${fmt(sp.peak)}`, sp.genome.col, 'ext');
+          // i18n: the log: {name} a species (a link), {dur} how long it lived (a duration), {peak} its most cells at once
+          if (sp.peak >= life.estThreshold * 3) pushEvent(tr('log.extinct', '{name} extinct after {dur} · peak {peak, number}', { name: spLink(sp.serial, sp.name), dur: fmtDur(t - (sp.born || 0)), peak: sp.peak }), sp.genome.col, 'ext');
         } else if (sp.heard) { // kept, so the log's link still opens it
           sp.extinct = t;
-          pushEvent(`${spLink(sp.serial, sp.name)} fell silent after ${fmtDur(t - (sp.born || 0))}`, sp.genome.col, 'ext');
+          // i18n: the log: a species that sang the five tones ({name}, a link) is gone after {dur}
+          pushEvent(tr('log.silent', '{name} fell silent after {dur}', { name: spLink(sp.serial, sp.name), dur: fmtDur(t - (sp.born || 0)) }), sp.genome.col, 'ext');
         } else {
           life.reg.delete(sp.serial);
         }
@@ -1144,7 +1182,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (best && best.serial !== life.top) {
       const prev = life.reg.get(life.top);
       if (!prev || !prev.alive || best.pop > prev.pop * 1.25) {
-        if (prev && t > 30) pushEvent(`${spLink(best.serial, best.name)} is now the most numerous · ${fmt(best.pop)} cells`, best.genome.col, 'top');
+        // i18n: the log: {name} a species (a link), {n} its living cells
+        if (prev && t > 30) pushEvent(tr('log.top', '{name} is now the most numerous · {n, plural, other {# cells}}', { name: spLink(best.serial, best.name), n: best.pop }), best.genome.col, 'top');
         life.top = best.serial;
       }
     }
@@ -1220,12 +1259,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
 
   // ------------------------------------------------------------ world column
+  // i18n: the census's matter rows (the Field Lab)
   const MIX = [
-    ['Living', 3, LIVING_CSS, 'living', 'class:living'],
-    ['Husk', 2, MATTER[2].css, 'husk', 'class:husk'],
-    ['Stone', 4, MATTER[3].css, 'stone', 'class:stone'],
-    ...(K.heat ? [['Framboids', 5, MATTER[4].css, 'framboid', 'class:framboid']] : []),
-    ['Silt', 0, MATTER[0].css, 'silt', 'class:silt'],
+    [tr('census.mix.living', 'Living'), 3, LIVING_CSS, 'living', 'class:living'],
+    [tr('census.mix.husk', 'Husk'), 2, MATTER[2].css, 'husk', 'class:husk'],
+    [tr('census.mix.stone', 'Stone'), 4, MATTER[3].css, 'stone', 'class:stone'],
+    ...(K.heat ? [[tr('census.mix.framboids', 'Framboids'), 5, MATTER[4].css, 'framboid', 'class:framboid']] : []),
+    [tr('census.mix.silt', 'Silt'), 0, MATTER[0].css, 'silt', 'class:silt'],
   ];
   const mixEl = $('mix');
   mixEl.innerHTML = `<div class="mix-bar" aria-hidden="true">${MIX.map(([, , col]) => `<i style="background:${col}"></i>`).join('')}</div>`
@@ -1240,7 +1280,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       segs[k].style.flex = String(Math.max(v, N * 0.004));
       rows[k].setAttribute('aria-pressed', String(focus.key === key));
       setLive(rows[k].children[2], fmt(v));
-      setLive(rows[k].children[3], `${((v / N) * 100).toFixed(1)}%`);
+      setLive(rows[k].children[3], tr('census.mix.pct', '{pct}%', { pct: ((v / N) * 100).toFixed(1) }));
     });
     setText('n-alive', fmt(life.alive));
     setText('n-thriving', fmt(life.thriving));
@@ -1248,7 +1288,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     setText('n-depth', fmt(life.maxDepth));
     setText('r-living', fmt(life.counts[3]));
     setText('r-species', fmt(life.alive));
-    setText('world-sum', `${fmt(life.counts[3])} living · ${fmt(life.alive)} species`);
+    // i18n: the Field Lab's header, folded: living cells and living species
+    setText('world-sum', tr('census.sum', '{living, number} living · {species, number} species', { living: life.counts[3], species: life.alive }));
   }
   function drawWorldChart() {
     if (!lab || !lab.isOpen() || lab.tab() !== 'census' || !life) return;
@@ -1270,7 +1311,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (key === feedKey) return;
     feedKey = key;
     const feedEl = $('feed');
-    setHTML(feedEl, ch.length ? ch.slice(0, 40).map((e) => `<li${e.type === 'story' ? ' class="story"' : ''}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join('') : '<li class="quiet">New species, extinctions and eras are logged here, and now and then the chronicler’s stories.</li>');
+    setHTML(feedEl, ch.length ? ch.slice(0, 40).map((e) => `<li${e.type === 'story' ? ' class="story"' : ''}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join('') : `<li class="quiet">${tr('log.empty', 'New species, extinctions and eras are logged here, and now and then the chronicler’s stories.')}</li>`);
     relabel(feedEl);
   }
   $('feed-all').addEventListener('click', () => lab.open('log'));
@@ -1298,20 +1339,20 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (on) { if (inHand()) pickTool('none'); if (!state.follow) toggleFollow(); else takeOver(); }
     else hand.steer(NONE);
     dirty = true;
-    flash(on ? 'Riding · a held click or the arrows steer it · Tab: its newest child' : 'Off');
+    flash(on ? tr('flash.ride-on', 'Riding · a held click or the arrows steer it · Tab: its newest child') : tr('flash.ride-off', 'Off'));
   }
   // where the ridden cell is steered this frame, and how hard (nothing held: it goes its own way)
   function steerRide() {
     if (!ride.on) return;
     if (!sel || sel.lost || sel.particle.kind < FIRST_LIFE) {
-      if (hand.rider !== NONE) { hand.steer(NONE); flash('It is gone · Tab: on to the nearest of its kind'); }
+      if (hand.rider !== NONE) { hand.steer(NONE); flash(tr('flash.ride-gone', 'It is gone · Tab: on to the nearest of its kind')); }
       return;
     }
     sel.rideKind = sel.particle.kind; // (its kind, for Tab once it is gone)
     const serial = genomeFor(sel.particle.kind)?.serial;
     if (serial && !life.rode.includes(serial)) life.rode.push(serial);
     const fast = state.speed > 2;
-    if (fast && (ride.at || ride.arrows.size) && !ride.warned) { ride.warned = true; flash('Steering only at ×2 or slower'); }
+    if (fast && (ride.at || ride.arrows.size) && !ride.warned) { ride.warned = true; flash(tr('flash.ride-too-fast', 'Steering only at ×2 or slower')); }
     if (!fast) ride.warned = false;
     const [px, py] = predicted();
     let to = ride.at;
@@ -1322,7 +1363,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     // (a cyst sleeps: it will not move however it is steered, and says so once)
     const cyst = sel.particle.cause === CYST;
-    if (cyst && to && !ride.slept) { ride.slept = true; flash('Dormant, a cyst · it moves when it wakes'); }
+    if (cyst && to && !ride.slept) { ride.slept = true; flash(tr('flash.ride-cyst', 'Dormant, a cyst · it moves when it wakes')); }
     if (!cyst) ride.slept = false;
     hand.steer(sel.id, ...(to || [px, py]), to && !fast ? 1 : 0, eng.simTime);
   }
@@ -1339,18 +1380,18 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the youngest within reach of it, else the nearest
     const young = kin.filter((k) => k.d < 1.2).sort((a, b) => a.c.age - b.c.age)[0];
     const next = young || kin.sort((a, b) => a.d - b.d)[0];
-    if (!next) { flash('None of its kind near'); return; }
+    if (!next) { flash(tr('flash.ride-none-near', 'None of its kind near')); return; }
     beginTracking(next.c, res, true);
     dirty = true;
     if (!state.follow) toggleFollow();
-    flash(young ? 'On to its newest kin' : 'On to the nearest of its kind');
+    flash(young ? tr('flash.ride-newest', 'On to its newest kin') : tr('flash.ride-nearest', 'On to the nearest of its kind'));
   }
   function toggleFollow() {
     if (!sel) return;
     state.follow = !state.follow;
     if (state.follow) takeOver();
     dirty = true;
-    flash(state.follow ? 'Following' : 'Stopped following');
+    flash(state.follow ? tr('flash.following', 'Following') : tr('flash.stopped-following', 'Stopped following'));
   }
   function story(text) {
     if (!sel) return;
@@ -1405,9 +1446,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const sp = g ? life.reg.get(g.serial) : null;
       sel.org = { cells: 1, roles: [0, 0, 0].map((_, i) => (i === p.role ? 1 : 0)), span: 0, speed: Math.hypot(p.vx, p.vy), meanE: p.energy, partial: false, touching: 0, pending: true };
       remember();
-      story(`${keepStory ? 'Now watching' : 'Picked'} a ${ROLE[p.role]}-cell${sp ? ` of ${spLink(sp.serial, sp.name)}` : ''}, age ${fmtDur(p.age)}.`);
+      // i18n: the specimen's story, a cell picked (or watched on from one before it): {role} its type's letter (α, β, γ),
+      // {name} its species (a link), {age} its age (a duration)
+      story(tr('story.picked-cell', '{how, select, watch {Now watching} other {Picked}} a {role}-cell{known, select, yes { of {name}} other {}}, age {age}.',
+        { how: keepStory ? 'watch' : 'pick', role: ROLE[p.role], known: sp ? 'yes' : 'no', name: sp ? spLink(sp.serial, sp.name) : '', age: fmtDur(p.age) }));
     } else {
-      story(p.kind === 4 ? 'Picked a framboid.' : `Picked a grain of ${MATTER[p.kind].name.toLowerCase()}.`);
+      // i18n: the specimen's story, a grain of matter picked
+      story(tr('story.picked-matter', '{kind, select, 0 {Picked a grain of silt.} 1 {Picked a grain of glint.} 2 {Picked a grain of husk.} 3 {Picked a grain of stone.} other {Picked a framboid.}}', { kind: p.kind }));
     }
     gatherTick(true);
     renderSpecimen(true);
@@ -1434,20 +1479,29 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const d = Math.hypot(wrapD(e.x - me.x, W), wrapD(e.y - me.y, H));
       if (d < bd) { bd = d; best = e; }
     }
-    if (!best) { flash('No surviving relatives nearby'); return; }
+    if (!best) { flash(tr('flash.no-relatives', 'No surviving relatives nearby')); return; }
     beginTracking(best, sel.nbr, true);
   }
 
   function transitionText(a, b) {
-    if (a.kind >= FIRST_LIFE && b.kind === 2) return `Died: ${b.cause === 2 ? 'old age' : b.cause === 3 ? 'killed by a hunter or grazed away' : 'starved'} at age ${fmtDur(a.age)}. Its body is now a husk.`;
-    if (a.kind >= FIRST_LIFE && b.kind === 0) return 'Was eaten. What remained is silt.';
-    if (a.kind >= FIRST_LIFE && b.kind >= FIRST_LIFE) return 'Changed species.';
-    if (a.kind >= FIRST_LIFE && b.kind === 3) return `Died: ${b.cause === 2 ? 'old age' : 'starved'} at age ${fmtDur(a.age)}. Its skeleton is now stone.`;
-    if (a.kind === 3 && b.kind === 0) return 'The stone wore away into silt.';
-    if (a.kind === 4 && b.kind === 0) return 'The framboid was spent and crumbled into silt.';
-    if (a.kind === 2 && b.kind === 4) return 'The husk rotted in a pile, and its sulfide crystallized as a framboid.';
-    if (a.kind === 2 && b.kind === 0) return b.cause === 3 ? 'The husk was eaten by a scavenger.' : 'The husk crumbled into silt.';
-    return `Became ${b.kind < FIRST_LIFE ? MATTER[b.kind].name.toLowerCase() : 'a living cell'}.`;
+    // i18n: the specimen's story, what the watched particle became: {age} its age (a duration)
+    if (a.kind >= FIRST_LIFE && b.kind === 2) return tr('story.died-husk', 'Died: {cause, select, old {old age} killed {killed by a hunter or grazed away} other {starved}} at age {age}. Its body is now a husk.', { cause: b.cause === 2 ? 'old' : b.cause === 3 ? 'killed' : 'starved', age: fmtDur(a.age) });
+    if (a.kind >= FIRST_LIFE && b.kind === 0) return tr('story.eaten', 'Was eaten. What remained is silt.');
+    if (a.kind >= FIRST_LIFE && b.kind >= FIRST_LIFE) return tr('story.changed-species', 'Changed species.');
+    if (a.kind >= FIRST_LIFE && b.kind === 3) return tr('story.died-stone', 'Died: {cause, select, old {old age} other {starved}} at age {age}. Its skeleton is now stone.', { cause: b.cause === 2 ? 'old' : 'starved', age: fmtDur(a.age) });
+    if (a.kind === 3 && b.kind === 0) return tr('story.stone-wore', 'The stone wore away into silt.');
+    if (a.kind === 4 && b.kind === 0) return tr('story.framboid-spent', 'The framboid was spent and crumbled into silt.');
+    if (a.kind === 2 && b.kind === 4) return tr('story.husk-framboid', 'The husk rotted in a pile, and its sulfide crystallized as a framboid.');
+    if (a.kind === 2 && b.kind === 0) return b.cause === 3 ? tr('story.husk-eaten', 'The husk was eaten by a scavenger.') : tr('story.husk-crumbled', 'The husk crumbled into silt.');
+    return tr('story.became', 'Became {kind, select, 0 {silt} 1 {glint} 2 {husk} 3 {stone} 4 {framboid} other {a living cell}}.', { kind: b.kind < FIRST_LIFE ? b.kind : 'life' });
+  }
+  // the watched cell of a body died (a to b) and the watch moves on to another of its cells
+  function rehomeText(a, b) {
+    // i18n: the specimen's story: the watched cell of an organism died: {age} its age (a duration)
+    if (a.kind >= FIRST_LIFE && (b.kind === 2 || b.kind === 3)) return tr('story.died-body-lives', 'Died: {cause, select, old {old age} killed {killed by a hunter or grazed away} other {starved}} at age {age}. Its organism lives on; now watching another of its cells.', { cause: b.cause === 2 ? 'old' : b.cause === 3 && b.kind === 2 ? 'killed' : 'starved', age: fmtDur(a.age) });
+    if (a.kind >= FIRST_LIFE && b.kind === 0) return tr('story.eaten-body-lives', 'Was eaten. Its organism lives on; now watching another of its cells.');
+    // i18n: {was} is what became of the watched cell (story.became...)
+    return tr('story.body-lives', '{was} Its organism lives on; now watching another of its cells.', { was: transitionText(a, b) });
   }
 
   function applySample(cur, t) {
@@ -1467,7 +1521,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       story(transitionText(prev, cur));
       if (prev.kind >= FIRST_LIFE && cur.kind < FIRST_LIFE) { sel.diedAt = t; setMembers(null); }
     } else if (cur.kind >= FIRST_LIFE && prev.energy - cur.energy > 0.2 && cur.energy < prev.energy * 0.8 && cur.age >= prev.age) {
-      story(`Divided, passing ${Math.round((1 - cur.energy / prev.energy) * 100)}% of its energy to a child.`);
+      // i18n: the specimen's story: {pct} the share of its energy (%) it gave its child
+      story(tr('story.divided', 'Divided, passing {pct}% of its energy to a child.', { pct: Math.round((1 - cur.energy / prev.energy) * 100) }));
     }
     sel.particle = cur;
     sel.sampleT = t;
@@ -1489,7 +1544,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       sel.lost = true;
       eng.trackId = NONE;
       setMembers(null);
-      story(sel.particle && sel.particle.kind === 0 ? 'Built into a new cell by a parent nearby. Lost track.' : 'Lost track.');
+      story(sel.particle && sel.particle.kind === 0 ? tr('story.lost-built', 'Built into a new cell by a parent nearby. Lost track.') : tr('story.lost', 'Lost track.'));
       return;
     }
     applySample(r.tracked, r.simTime);
@@ -1627,8 +1682,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       }
       if (best < 0) { if (sel.rehome) organismGone(); return; }
       if (sel.rehome) {
-        story(`${transitionText(sel.particle, sel.rehome.cell).replace(/ Its (body|skeleton) is now .*$/, '').replace(/ What remained is silt\.$/, '')} Its organism lives on; now watching another of its cells.`);
-      } else story('Its organism split: following the larger part.');
+        story(rehomeText(sel.particle, sel.rehome.cell));
+      } else story(tr('story.organism-split', 'Its organism split: following the larger part.'));
       sel.rehome = null;
       sel.id = idAt(best);
       sel.mind = null;
@@ -1661,7 +1716,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         sh.rehomed = false;
         if (sh.why.cells !== members.size) { sh.why.cells = members.size; sh.whyVer++; }
       }
-      if (members.size > 1) story(`It is one cell of a ${fmt(members.size)}-cell organism. Following the whole body.`);
+      // i18n: the specimen's story: {n} the cells of the organism the picked cell belongs to
+      if (members.size > 1) story(tr('story.organism', 'It is one cell of a {n, number}-cell organism. Following the whole body.', { n: members.size }));
     }
     const ids = Uint32Array.from(members.keys()).sort();
     setMembers(ids.length > 1 ? ids : null, sel.particle.kind);
@@ -1674,7 +1730,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     sel.rehome = null;
     sel.members = null;
     story(transitionText(sel.particle, cell));
-    story('None of its organism survived.');
+    story(tr('story.organism-gone', 'None of its organism survived.'));
     sel.diedAt = t;
     sel.particle = cell;
     sel.sampleT = Math.max(sel.sampleT, t);
@@ -1763,7 +1819,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     sp.given = !!name;
     if (name) unlock(['NAMED']);
     specimen.invalidate(); dirty = true; feedKey = ''; renderFeed(); lab.render(true);
-    flash(name ? `Named ${name}` : `${sp.name} again`);
+    // i18n: a species named by the viewer ({name}: the name given), or its own name ({name}) again
+    flash(name ? tr('flash.named', 'Named {name}', { name }) : tr('flash.named-again', '{name} again', { name: sp.name }));
   }
   function relabel(root) {
     for (const a of root.querySelectorAll('a.sp[data-serial]')) {
@@ -1927,17 +1984,18 @@ function run(eng, device, ctx, specCtx, hasTS) {
   async function saveCard(serial, quiet = false) {
     const sp = life.reg.get(serial);
     if (!sp || savedCard(serial)) return;
-    if (!quiet) flash('Drawing its card…');
+    if (!quiet) flash(tr('flash.card-drawing', 'Drawing its card…'));
     const cv = await cards.render(serial), p = fulls.get(`s${serial}`);
     // (a frame between drawing it and reading it, so the two are not one long task)
     await new Promise(requestAnimationFrame);
     const blob = cv && await cardPng(cv, serial);
-    if (!blob) { flash('Could not draw its card'); return; }
+    if (!blob) { flash(tr('flash.card-failed', 'Could not draw its card')); return; }
     const c = carry(serial);
     await keepCard({ id: newKey('c'), serial, name: sp.name, words: c.words, home: c.home, world: worldId(),
       savedAt: Date.now(), touched: c.touched, png: new Uint8Array(await blob.arrayBuffer()), thumb: p?.thumb ?? null, portrait: p?.full ?? null }, quiet);
     if (quiet) return;
-    flyCard(cv); flash(`${sp.name} is in the cabinet`);
+    // i18n: {name} is a species' name
+    flyCard(cv); flash(tr('flash.card-kept', '{name} is in the cabinet', { name: sp.name }));
     cards.refresh();
     dirty = true;
   }
@@ -1968,7 +2026,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     requestAnimationFrame(() => {
       const el = document.querySelector(`#lab .minicard[data-key="${CSS.escape(card.id)}"]`);
       el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      el?.animate([{ boxShadow: '0 0 0 2px #f1e3a0, 0 0 24px rgba(241,227,160,.5)' }, { boxShadow: '0 0 0 0 transparent' }], { duration: 1100, easing: 'ease-out' });
+      el?.animate([{ boxShadow: '0 0 0 2px #f1e3a0, 0 0 24px rgba(241,227,160,.5)' }, { boxShadow: '0 0 0 0 transparent' }], { duration: 1100, easing: 'ease-out' }); // i18n-ignore (CSS)
     });
   }
   // a card into the pipette: a colony of it, as a founding colony is, made when it is set down; or (at: where on the
@@ -1981,8 +2039,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const serial = card ? card.serial : x, n = clamp(Math.round((K.foundLife * eng.count) / K.foundColonies), 12, 96);
     const live = ours && life.reg.get(serial);
     const run = pipette.load({ card: card?.id, serial, words, name, home: ours ? undefined : card.home, slot: live?.alive ? live.slot : null, stranger: !ours }, n, !!at);
-    if (!run) { flash(`The pipette is full · ${fmt(PIPE_LIMIT)} cells · set some down`); return; }
-    if (at) { startSpit(...at, run); flash(`A colony of ${name} set down`); } else flash(`A colony of ${name} in the pipette · Dispense sets it down`);
+    // i18n: {n} the most cells the pipette holds
+    if (!run) { flash(tr('flash.pipette-full', 'The pipette is full · {n, plural, other {# cells}} · set some down', { n: PIPE_LIMIT })); return; }
+    // i18n: {name} is a species' name
+    if (at) { startSpit(...at, run); flash(tr('flash.colony-set-down', 'A colony of {name} set down', { name })); } else flash(tr('flash.colony-loaded', 'A colony of {name} in the pipette · Dispense sets it down', { name }));
     bench.render();
   }
   // a card arriving from elsewhere: a link's #card=, or a card's PNG dropped on the page
@@ -1990,7 +2050,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     let c;
     try { c = decodeCard(bytes); } catch (e) { flash(e.message); return; }
     const dup = cabinet.cards.find((x) => x.words.every((w, i) => w === c.words[i]));
-    if (dup) { flash(`${dup.name} is already in the cabinet`); showInCabinet(dup); return; }
+    if (dup) { flash(tr('flash.card-dup', '{name} is already in the cabinet', { name: dup.name })); showInCabinet(dup); return; }
     // its mini-card's portrait cut from its card's; a card that came by its link alone is drawn here, from its
     // genome, without one (its species drawn alone stands in)
     const thumb = png && await pngThumb(png).catch(() => null);
@@ -1998,7 +2058,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     await keepCard({ id: newKey('c'), serial: 0, name: c.name, words: c.words, home: c.home, world: null,
       savedAt: Date.now(), touched: c.touched, png, thumb });
     lab.open('cabinet');
-    flash(`${c.name}, from ${c.home}, is in the cabinet`);
+    // i18n: a card from elsewhere kept: {name} its species, {home} the world it came from
+    flash(tr('flash.card-received', '{name}, from {home}, is in the cabinet', { name: c.name, home: eraName(c.home) }));
   }
   const hashCard = cardFromHash(location.hash);
   if (hashCard) { history.replaceState(null, '', location.pathname + location.search); setTimeout(() => receiveCard(hashCard, linkedPng), 0); }
@@ -2008,7 +2069,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (!f) return;
     e.preventDefault();
     const png = new Uint8Array(await f.arrayBuffer()), bytes = cardFromPng(png);
-    if (!bytes) { flash('That image is not a Tidemote species card'); return; }
+    if (!bytes) { flash(tr('flash.card-not-card', 'That image is not a Tidemote species card')); return; }
     receiveCard(bytes, png);
   });
 
@@ -2026,7 +2087,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     play: (g, tag, serial) => {
       if (serial != null) { playSong(serial); return; }
       const was = sound.on;
-      sound.audition(g, tag).then(() => { if (!was && sound.on) flash('Sound on'); });
+      sound.audition(g, tag).then(() => { if (!was && sound.on) flash(tr('flash.sound-on', 'Sound on')); });
     },
   });
   // a cabinet card: of this world's species, its live card (to rename it); another world's, as it was drawn
@@ -2040,7 +2101,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     cabinet.cards = cabinet.cards.filter((c) => c.id !== card.id);
     cabinet.removed = { card, at: performance.now() };
     lab.render(true); bench.render(); cards.refresh();
-    flash(`${card.name} is out of the cabinet`);
+    flash(tr('flash.card-removed', '{name} is out of the cabinet', { name: card.name }));
   }
   async function undoRemove() {
     const r = cabinet.removed;
@@ -2048,7 +2109,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     cabinet.removed = null;
     await keepCard(r.card);
     bench.render(); cards.refresh();
-    flash(`${r.card.name} is back in the cabinet`);
+    flash(tr('flash.card-restored', '{name} is back in the cabinet', { name: r.card.name }));
   }
   function cardSerial(c) {
     if (c.world === worldId()) return life.reg.has(c.serial) ? c.serial : null;
@@ -2065,7 +2126,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   function openSpecies(serial) {
     const sp = life.reg.get(serial);
-    if (!sp) { flash('That species is no longer on record'); return; }
+    if (!sp) { flash(tr('flash.species-gone', 'That species is no longer on record')); return; }
     sel = null;
     eng.trackId = NONE;
     state.follow = false;
@@ -2114,7 +2175,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const sp = life.reg.get(serial);
     if (!sp || !sp.alive) return;
     const m = await bestMember(sp);
-    if (!m) { flash('No living cells found'); return; }
+    if (!m) { flash(tr('flash.no-living', 'No living cells found')); return; }
     takeOver();
     if (cssPPU() < 18) { cam.zoomTarget = clamp((18 * dpr) / fitPPU(), 1, maxZoom()); cam.anchor = null; }
     beginTracking(m.best, { entries: [], simTime: m.simTime });
@@ -2196,8 +2257,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the render scale, the pixel density, the frame rate aimed for, and a measured world's particle count
     function autoNow(id) {
       if (id === 'fps') { const f = Math.round(1000 / frameTarget()); return { text: String(f), pick: String([30, 60].find((v) => Math.abs(v - f) <= 3) ?? '') }; }
-      if (id === 'scale') return { text: `${Math.round(renderScale * 100)}%`, pick: String(+renderScale.toFixed(2)) };
-      if (id === 'density') { const d = +density().toFixed(2); return { text: `${d}×`, pick: String(d) }; }
+      if (id === 'scale') return { text: pctOf(Math.round(renderScale * 100)), pick: String(+renderScale.toFixed(2)) };
+      if (id === 'density') { const d = +density().toFixed(2); return { text: timesOf(d), pick: String(d) }; }
       if (id === 'n' && !state.perf.particles) return { text: kfmt(eng.count), pick: String(eng.count) };
       return null;
     }
@@ -2209,46 +2270,53 @@ function run(eng, device, ctx, specCtx, hasTS) {
         for (const b of sp.closest('.segs').children) b.classList.toggle('auto-pick', b.dataset.v === now.pick);
       }
     };
-    const onoff = (id, title, key, on, tip) => choice(id, title, key, [[1, 'On'], [0, 'Off']], on ? 1 : 0, tip);
+    const onoff = (id, title, key, on, tip) => choice(id, title, key, [[1, tr('settings.on', 'On')], [0, tr('settings.off', 'Off')]], on ? 1 : 0, tip);
+    // i18n: a choice in Settings: {n} percent (a render scale), or {n} times (device pixels per CSS pixel)
+    const pctOf = (n) => tr('settings.pct', '{n}%', { n }), timesOf = (n) => tr('settings.times', '{n}×', { n });
+    // i18n: Settings' choices, shared by its options
+    const OFF = tr('settings.off', 'Off'), NORMAL = tr('settings.normal', 'Normal'), AUTO = tr('settings.auto', 'Auto');
+    const SUBTLE = tr('settings.subtle', 'Subtle'), STRONG = tr('settings.strong', 'Strong');
     // a group of option rows, under a heading or (text '') none
     const group = (id, text, rows) => section(id, text, block('', rows));
     let confirming = false; // the reset button asked to confirm
     // Display: the picture (how the world is drawn and lit), what is drawn over it, and the view around it
     function display() {
       const s = eng.settings;
-      return group('picture', 'Picture', choice('microlook', 'Microscope', '', [[0, 'Off'], [1, 'Subtle'], [2, 'Normal'], [3, 'Strong']], state.look, 'microlook')
-        + (state.look ? choice('grain', 'Film grain', '', [[0, 'Off'], [1, 'Fine'], [2, 'Heavy']], state.grain, 'filmgrain') : '')
-        + onoff('optics', 'Optics', 'O', s.optics > 0, 'optics')
-        + onoff('bloom', 'Bloom', 'Y', s.bloom > 0, 'bloom')
-        + choice('water', 'Water surface', '', [[0, 'Off'], [1, 'Subtle'], [2, 'Normal'], [3, 'Strong']], state.water, 'watersurface')
-        + (state.water ? choice('waves', 'Wave motion', '', [[0, 'Slow'], [1, 'Normal'], [2, 'Lively']], state.waves, 'wavemotion') : '')
-        + choice('trails', 'Trails', 'T', trailNames.map((n, i) => [i, n]), trailIdx)
-        + onoff('specks', 'Suspension', '', s.specks, 'specks')
-        + onoff('lod', 'Zoom detail', '', s.lod, 'lod'))
-        + group('overlays', 'Overlays', onoff('tide', 'Light map', 'G', s.tide > 0, 'light')
+      const filmL = tr('settings.display.film', 'Film');
+      return group('picture', tr('settings.display.picture', 'Picture'), choice('microlook', tr('settings.display.microscope', 'Microscope'), '', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.look, 'microlook')
+        + (state.look ? choice('grain', tr('settings.display.grain', 'Film grain'), '', [[0, OFF], [1, tr('settings.display.grain-fine', 'Fine')], [2, tr('settings.display.grain-heavy', 'Heavy')]], state.grain, 'filmgrain') : '')
+        + onoff('optics', tr('settings.display.optics', 'Optics'), 'O', s.optics > 0, 'optics')
+        + onoff('bloom', tr('settings.display.bloom', 'Bloom'), 'Y', s.bloom > 0, 'bloom')
+        + choice('water', tr('settings.display.water', 'Water surface'), '', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.water, 'watersurface')
+        + (state.water ? choice('waves', tr('settings.display.waves', 'Wave motion'), '', [[0, tr('settings.display.waves-slow', 'Slow')], [1, NORMAL], [2, tr('settings.display.waves-lively', 'Lively')]], state.waves, 'wavemotion') : '')
+        + choice('trails', tr('settings.display.trails', 'Trails'), 'T', trailNames.map((n, i) => [i, n]), trailIdx)
+        + onoff('specks', tr('settings.display.specks', 'Suspension'), '', s.specks, 'specks')
+        + onoff('lod', tr('settings.display.lod', 'Zoom detail'), '', s.lod, 'lod'))
+        + group('overlays', tr('settings.display.overlays', 'Overlays'), onoff('tide', tr('settings.display.light-map', 'Light map'), 'G', s.tide > 0, 'light')
         + (s.tide ? rampHtml(MAPS[0]) : '')
-        + (K.heat ? choice('heat', 'Heat map', 'E', [[0, 'Off'], [1, 'Shimmer'], [2, 'Full']], s.heat, 'heatmap') : '')
+        + (K.heat ? choice('heat', tr('settings.display.heat-map', 'Heat map'), 'E', [[0, OFF], [1, tr('settings.display.heat-shimmer', 'Shimmer')], [2, tr('settings.display.heat-full', 'Full')]], s.heat, 'heatmap') : '')
         + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : '')
-        + onoff('bands', 'Tide map', 'D', s.bands > 0, 'tidemap')
+        + onoff('bands', tr('settings.display.tide-map', 'Tide map'), 'D', s.bands > 0, 'tidemap')
         + (s.bands ? rampHtml(MAPS[2]) : '')
-        + onoff('currents', 'Currents', 'W', state.currents)
-        + onoff('links', 'Bonds', 'L', s.links, 'bond')
-        + onoff('nodes', 'Particles', 'N', s.nodes)
-        + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks'))
-        + group('view', 'View', (isCoarse ? '' : onoff('ui', 'Interface', 'U', state.ui, 'interface'))
-        + onoff('closeup', 'Live close-up', '', state.closeup, 'closeup')
-        + onoff('auto', 'Auto when idle', '', state.auto, 'autoidle')
-        + (film.supported ? `<div class="opt"><span class="lbl">${term('film', 'Film')} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === 'idle' ? '<button type="button" class="chip" data-o="film" data-v="now">Now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ''));
+        + onoff('currents', tr('settings.display.currents', 'Currents'), 'W', state.currents)
+        + onoff('links', tr('settings.display.bonds', 'Bonds'), 'L', s.links, 'bond')
+        + onoff('nodes', tr('settings.display.particles', 'Particles'), 'N', s.nodes)
+        + choice('songmarks', tr('settings.display.song-marks', 'Song marks'), '', [[0, OFF], [1, tr('settings.display.song-marks-picked', 'Picked')], [2, tr('settings.display.song-marks-all', 'All')]], state.songMarks, 'songmarks'))
+        + group('view', tr('settings.display.view', 'View'), (isCoarse ? '' : onoff('ui', tr('settings.display.interface', 'Interface'), 'U', state.ui, 'interface'))
+        + onoff('closeup', tr('settings.display.closeup', 'Live close-up'), '', state.closeup, 'closeup')
+        + onoff('auto', tr('settings.display.auto-idle', 'Auto when idle'), '', state.auto, 'autoidle')
+        + (film.supported ? `<div class="opt"><span class="lbl">${term('film', filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === 'idle' ? `<button type="button" class="chip" data-o="film" data-v="now">${tr('settings.display.film-now', 'Now')}</button><button type="button" class="chip" data-o="film" data-v="scene">${tr('settings.display.film-scene', 'Next scene')}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr('settings.display.film-stop', 'Stop filming')}</button>`}</div></div>` : ''));
     }
     // Audio: the soundtrack on or off and its volume (the dock's slider is only on wide screens), what it does while
     // the page is hidden, its layers' levels and its space and tone (src/audio/mix.js), each by what it sounds like
     function audio_() {
       const m = sound.mix, mix = (k) => choice(`mix-${k}`, SOUND_MIX[k].name, '', SOUND_MIX[k].choices.map(([label], i) => [i, label]), m[k], `audio${k}`);
-      return group('sound', 'Playback', onoff('sound', 'Soundtrack', 'S', sound.on)
-        + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>`
+      const vol = Math.round(sound.volume * 100);
+      return group('sound', tr('settings.audio.playback', 'Playback'), onoff('sound', tr('settings.audio.soundtrack', 'Soundtrack'), 'S', sound.on)
+        + `<div class="opt"><span class="lbl">${tr('settings.audio.volume', 'Volume <kbd>− =</kbd>')}</span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${vol}" aria-label="${tr('settings.audio.volume.aria', 'Volume')}"><b id="set-vol-v">${tr('settings.audio.volume-pct', '{pct}%', { pct: vol })}</b></div></div>`
         + mix('background'))
-        + group('mix', 'Mix', ['music', 'cells', 'water', 'tools'].map(mix).join(''))
-        + group('character', 'Character', mix('space') + mix('tone'));
+        + group('mix', tr('settings.audio.mix', 'Mix'), ['music', 'cells', 'water', 'tools'].map(mix).join(''))
+        + group('character', tr('settings.audio.character', 'Character'), mix('space') + mix('tone'));
     }
     // the neighbor budgets offered: about ¾, 1, 1½ and 2 times the default (and one chosen before, if
     // it is none of those)
@@ -2258,32 +2326,37 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const dev = Math.min(devicePixelRatio || 1, 2);
       const sizes = PARTICLE_SIZES.filter((n) => n <= maxParticles());
       const nowN = pendingN ?? (P.particles || 'auto');
-      return group('res', 'Resolution', choice('scale', 'Render scale', '', [['auto', 'Auto'], [1, '100%'], [0.75, '75%'], [0.5, '50%'], [0.35, '35%']], P.scale, 'renderscale')
-        + (P.scale === 'auto' ? choice('floor', 'Auto lowest', '', [[0.75, '75%'], [0.5, '50%'], [0.35, '35%'], [0.25, '25%']], P.floor, 'autofloor') : '')
-        + choice('density', 'Pixel density', '', [['auto', 'Auto'], [1, '1×'], [1.5, '1.5×', dev < 1.5], [2, '2×', dev < 2]], P.density, 'density')
-        + choice('fps', 'Target fps', '', [['auto', 'Auto'], [30, '30'], [60, '60'], [0, 'Display']], P.fps, 'targetfps'))
-        + group('world', 'World', choice('n', 'Particles', '', [['auto', 'Auto'], ...sizes.map((n) => [n, kfmt(n)])], nowN, 'particles')
-        + choice('scan', 'Neighbors', '', scanChoices().map((n) => [n, n === K.maxScan ? `${n} <span class="chip-note">default</span>` : String(n)]), eng.maxScan, 'neighbors')
+      return group('res', tr('settings.perf.resolution', 'Resolution'), choice('scale', tr('settings.perf.scale', 'Render scale'), '', [['auto', AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.35, pctOf(35)]], P.scale, 'renderscale')
+        + (P.scale === 'auto' ? choice('floor', tr('settings.perf.floor', 'Auto lowest'), '', [[0.75, pctOf(75)], [0.5, pctOf(50)], [0.35, pctOf(35)], [0.25, pctOf(25)]], P.floor, 'autofloor') : '')
+        + choice('density', tr('settings.perf.density', 'Pixel density'), '', [['auto', AUTO], [1, timesOf(1)], [1.5, timesOf(1.5), dev < 1.5], [2, timesOf(2), dev < 2]], P.density, 'density')
+        + choice('fps', tr('settings.perf.fps', 'Target fps'), '', [['auto', AUTO], [30, '30'], [60, '60'], [0, tr('settings.perf.fps-display', 'Display')]], P.fps, 'targetfps'))
+        + group('world', tr('settings.perf.world', 'World'), choice('n', tr('settings.perf.particles', 'Particles'), '', [['auto', AUTO], ...sizes.map((n) => [n, kfmt(n)])], nowN, 'particles')
+        // i18n: a neighbor budget offered, {n}, marked as the default
+        + choice('scan', tr('settings.perf.neighbors', 'Neighbors'), '', scanChoices().map((n) => [n, n === K.maxScan ? tr('settings.perf.neighbors-default', '{n} <note>default</note>', { n, note: (c) => `<span class="chip-note">${c.join('')}</span>` }) : String(n)]), eng.maxScan, 'neighbors')
         + (pendingN != null && String(pendingN) !== String(P.particles || 'auto')
-          ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === 'auto' ? 'a measured count' : fmt(pendingN)}</button></div>` : '')
-        + (hasTS ? `<div class="opt"><span class="lbl">${term('profile', 'Profile')}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ''));
+          // i18n: a new world with {n} particles, or as many as the GPU is measured to draw smoothly
+          ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">${pendingN === 'auto' ? tr('settings.perf.apply-auto', 'Start a new world with a measured count') : tr('settings.perf.apply', 'Start a new world with {n, number}', { n: pendingN })}</button></div>` : '')
+        + (hasTS ? `<div class="opt"><span class="lbl">${term('profile', tr('settings.perf.profile', 'Profile'))}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">${tr('settings.perf.copy-profile', 'Copy profile')}</button></div></div>` : ''));
     }
     // the pool's events: on or off, each kind on or off, and one started now
-    const EVENT_NAMES = { drought: 'Drought', storm: 'Storm', duckweed: 'Duckweed', frost: 'Frost' };
+    // i18n: the pool's events (Settings → Climate)
+    const EVENT_NAMES = { drought: tr('settings.climate.drought', 'Drought'), storm: tr('settings.climate.storm', 'Storm'), duckweed: tr('settings.climate.duckweed', 'Duckweed'), frost: tr('settings.climate.frost', 'Frost') };
     function climate_() {
       const E = state.events;
       const kinds = E.on ? EVENT_TYPES.map((x) => onoff(`ev-${x}`, EVENT_NAMES[x], '', E[x], `ev${x}`)).join('') : '';
       const now = !K.pond ? '' : state.phase === 'running' && !climate.event && E.on && EVENT_TYPES.some((x) => E[x])
-        ? `<div class="opt"><span class="lbl">${term('evstart', 'Start one now')}</span><div class="row segs">${EVENT_TYPES.filter((x) => E.on && E[x]).map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAMES[x]}</button>`).join('')}</div></div>`
-        : climate?.event ? `<div class="opt"><span class="lbl">Under way</span><span class="note">${EVENT_NAMES[climate.event.type]}${climate.phase && climate.phase !== climate.event.type ? ` · ${climate.phase}` : ''}</span></div>` : '';
-      return group('events', 'Pool events', onoff('ev-on', 'Events', '', E.on, 'poolevents') + kinds + now);
+        ? `<div class="opt"><span class="lbl">${term('evstart', tr('settings.climate.start-now', 'Start one now'))}</span><div class="row segs">${EVENT_TYPES.filter((x) => E.on && E[x]).map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAMES[x]}</button>`).join('')}</div></div>`
+        // i18n: the event under way ({name}, settings.climate.drought...) and the stage it has reached
+        : climate?.event ? `<div class="opt"><span class="lbl">${tr('settings.climate.under-way', 'Under way')}</span><span class="note">${tr('settings.climate.event-now', '{name}{phase, select, none {} drying { · drying} dry { · dry} rain { · rain} after { · after} cooling { · cooling} freezing { · freezing} frozen { · frozen} thaw { · thaw} other { · {phase}}}', { name: EVENT_NAMES[climate.event.type], phase: climate.phase && climate.phase !== climate.event.type ? climate.phase : 'none' })}</span></div>` : '';
+      return group('events', tr('settings.climate.events', 'Pool events'), onoff('ev-on', tr('settings.climate.events-on', 'Events'), '', E.on, 'poolevents') + kinds + now);
     }
     // the saves kept in this browser (null until read; in the desktop app, with the Workshop's worlds
     // subscribed to, m.from 'workshop'), the name being typed, a load, delete or share waiting to be
     // confirmed ({ kind, id }), and what is under way ('save', 'load', 'open', 'share')
     let saves = null, used = 0, wName = '', ask = null, wBusy = '', wPoll = 0;
-    const defaultName = () => `${climate.name} · ${fmtDur(eng.simTime)}`;
-    const mb = (n) => `${(n / 1048576).toFixed(n < 10485760 ? 1 : 0)} MB`;
+    // i18n: a save's name unless the viewer gives one: the era's name and the world's age (a duration)
+    const defaultName = () => tr('worlds.default-name', '{era} · {age}', { era: eraName(climate.name), age: fmtDur(eng.simTime) });
+    const mb = (n) => tr('worlds.mb', '{n} MB', { n: (n / 1048576).toFixed(n < 10485760 ? 1 : 0) });
     const mini = (o, v, text, cls = '') => `<button type="button" class="btn mini${cls}" data-o="${o}" data-v="${v}"${wBusy ? ' disabled' : ''}>${text}</button>`;
     const ghost = (o, v, icon, label, hint) => `<button type="button" class="ghost" data-o="${o}" data-v="${v}" aria-label="${label}" data-hint="${hint}"${wBusy ? ' disabled' : ''}><svg><use href="#i-${icon}"/></svg></button>`;
     function saveRow(m) {
@@ -2291,33 +2364,37 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const a = ask && ask.id === m.id ? ask.kind : null, ws = m.from === 'workshop';
       // a save of another major version lists, but does not open (worlds.js SAVE_VERSION)
       const can = m.downloading != null ? 'ok' : openable(m.version);
-      const line = a === 'load' ? '<em>Discard this world?</em>'
-        : can !== 'ok' ? `<em>${can === 'newer' ? 'Needs a newer Tidemote' : 'From an older Tidemote'}</em> · ${when(m.savedAt)}` : a === 'del' ? `<em>${ws ? 'Unsubscribe from it?' : 'Delete this save?'}</em>`
-        : a === 'share' ? `<em>${m.workshop ? 'Update it on the Steam Workshop?' : 'Share it on the Steam Workshop for anyone to see?'}</em>`
-        : m.downloading != null ? `Downloading · ${Math.round(m.downloading * 100)}%`
-        : `${fmtDur(m.simTime)} · ${kfmt(m.count)} · ${m.thriving} species · ${when(m.savedAt)}`;
-      const acts = a === 'load' ? mini('w-no', m.id, 'Cancel') + mini('w-first', m.id, 'Save first') + mini('w-yes', m.id, wBusy === 'load' ? 'Loading' : 'Load', ' hot-btn')
-        : a === 'del' ? mini('w-no', m.id, 'Cancel') + mini('w-yes', m.id, ws ? 'Unsubscribe' : 'Delete', ' hot-btn')
-        : a === 'share' ? mini('w-no', m.id, 'Cancel') + mini('w-yes', m.id, wBusy === 'share' ? 'Sharing' : m.workshop ? 'Update' : 'Share', ' hot-btn')
-        : ws ? (m.downloading != null || can !== 'ok' ? '' : mini('w-load', m.id, 'Load')) + ghost('w-page', m.id, 'share', 'On Steam', 'Its page on the Steam Workshop')
-          + ghost('w-del', m.id, 'close', 'Unsubscribe', 'Unsubscribe')
-        : (can !== 'ok' ? '' : mini('w-load', m.id, 'Load') + (steamOn.on ? ghost('w-share', m.id, 'share', 'Share', m.workshop ? 'Update it on the Steam Workshop' : 'Share on the Steam Workshop') : ''))
-          + ghost('w-dl', m.id, 'down', 'Download', desk ? 'Save a copy as a file' : 'Download a file to open on another device')
-          + ghost('w-del', m.id, 'close', 'Delete', 'Delete');
+      // i18n: a saved world's line under its name (Settings → Worlds): a question while an act waits to be confirmed,
+      // why it cannot open, or {age} its world time, {count} its particles (64k), {species} its species thriving, {when} when saved
+      const line = a === 'load' ? `<em>${tr('worlds.ask-load', 'Discard this world?')}</em>`
+        : can !== 'ok' ? tr('worlds.cannot-open', '<em>{why, select, newer {Needs a newer Tidemote} other {From an older Tidemote}}</em> · {when}', { why: can, when: when(m.savedAt) }) : a === 'del' ? `<em>${ws ? tr('worlds.ask-unsubscribe', 'Unsubscribe from it?') : tr('worlds.ask-delete', 'Delete this save?')}</em>`
+        : a === 'share' ? `<em>${m.workshop ? tr('worlds.ask-update', 'Update it on the Steam Workshop?') : tr('worlds.ask-share', 'Share it on the Steam Workshop for anyone to see?')}</em>`
+        : m.downloading != null ? tr('worlds.downloading', 'Downloading · {pct}%', { pct: Math.round(m.downloading * 100) })
+        : tr('worlds.row', '{age} · {count} · {species, plural, other {{species} species}} · {when}', { age: fmtDur(m.simTime), count: kfmt(m.count), species: m.thriving, when: when(m.savedAt) });
+      const CANCEL = tr('worlds.cancel', 'Cancel'), LOAD = tr('worlds.load', 'Load'), UNSUB = tr('worlds.unsubscribe', 'Unsubscribe'), DEL = tr('worlds.delete', 'Delete');
+      const acts = a === 'load' ? mini('w-no', m.id, CANCEL) + mini('w-first', m.id, tr('worlds.save-first', 'Save first')) + mini('w-yes', m.id, wBusy === 'load' ? tr('worlds.loading', 'Loading') : LOAD, ' hot-btn')
+        : a === 'del' ? mini('w-no', m.id, CANCEL) + mini('w-yes', m.id, ws ? UNSUB : DEL, ' hot-btn')
+        : a === 'share' ? mini('w-no', m.id, CANCEL) + mini('w-yes', m.id, wBusy === 'share' ? tr('worlds.sharing', 'Sharing') : m.workshop ? tr('worlds.update', 'Update') : tr('worlds.share', 'Share'), ' hot-btn')
+        : ws ? (m.downloading != null || can !== 'ok' ? '' : mini('w-load', m.id, LOAD)) + ghost('w-page', m.id, 'share', tr('worlds.on-steam', 'On Steam'), tr('worlds.on-steam.hint', 'Its page on the Steam Workshop'))
+          + ghost('w-del', m.id, 'close', UNSUB, UNSUB)
+        : (can !== 'ok' ? '' : mini('w-load', m.id, LOAD) + (steamOn.on ? ghost('w-share', m.id, 'share', tr('worlds.share', 'Share'), m.workshop ? tr('worlds.share.hint-update', 'Update it on the Steam Workshop') : tr('worlds.share.hint', 'Share on the Steam Workshop')) : ''))
+          + ghost('w-dl', m.id, 'down', tr('worlds.download', 'Download'), desk ? tr('worlds.download.hint-desktop', 'Save a copy as a file') : tr('worlds.download.hint', 'Download a file to open on another device'))
+          + ghost('w-del', m.id, 'close', DEL, DEL);
       return `<div class="w-row"><span class="w-sw" aria-hidden="true">${sw}</span><div class="w-txt"><b>${esc(m.name)}</b><span>${line}</span></div><div class="w-act">${acts}</div></div>`;
     }
     function worlds_() {
       const off = wBusy || state.phase !== 'running' ? ' disabled' : '';
-      const save = `<div class="w-save"><input type="text" id="w-name" maxlength="60" autocomplete="off" spellcheck="false" placeholder="${esc(defaultName())}" value="${esc(wName)}" aria-label="Name this save"${off}>`
-        + `<button type="button" class="btn hot-btn" data-o="w-save" data-v="0"${off}>${wBusy === 'save' ? 'Saving' : 'Save'}</button></div>`;
+      const save = `<div class="w-save"><input type="text" id="w-name" maxlength="60" autocomplete="off" spellcheck="false" placeholder="${esc(defaultName())}" value="${esc(wName)}" aria-label="${tr('worlds.name.aria', 'Name this save')}"${off}>`
+        + `<button type="button" class="btn hot-btn" data-o="w-save" data-v="0"${off}>${wBusy === 'save' ? tr('worlds.saving', 'Saving') : tr('worlds.save', 'Save')}</button></div>`;
       const own = saves && saves.filter((m) => m.from !== 'workshop'), ws = saves && saves.filter((m) => m.from === 'workshop');
-      const list = saves == null ? '<p class="note">Reading the saved worlds…</p>'
+      const list = saves == null ? `<p class="note">${tr('worlds.reading', 'Reading the saved worlds…')}</p>`
         : own.length ? own.map(saveRow).join('')
-        : '<p class="note">No saved worlds yet. A save keeps everything: every particle, each species and its name, the chronicle and the history.</p>';
-      const browse = '<div class="w-more"><button type="button" class="link" data-o="w-browse" data-v="0">Browse the Workshop</button></div>';
-      const wsList = !steamOn.on || saves == null ? '' : section('w-ws', 'From the Workshop', block('', (ws.length ? ws.map(saveRow).join('')
-        : '<p class="note">Worlds others have shared. Subscribe to one on the Steam Workshop and it appears here, ready to load.</p>') + browse));
-      return group('w-save', 'Save this world', save) + section('w-list', 'Saved worlds', block('', list, { aside: own && own.length ? `${own.length} · ${mb(used)}` : '', tip: 'saves' })) + wsList;
+        : `<p class="note">${tr('worlds.none', 'No saved worlds yet. A save keeps everything: every particle, each species and its name, the chronicle and the history.')}</p>`;
+      const browse = `<div class="w-more"><button type="button" class="link" data-o="w-browse" data-v="0">${tr('worlds.browse', 'Browse the Workshop')}</button></div>`;
+      const wsList = !steamOn.on || saves == null ? '' : section('w-ws', tr('worlds.workshop', 'From the Workshop'), block('', (ws.length ? ws.map(saveRow).join('')
+        : `<p class="note">${tr('worlds.workshop-none', 'Worlds others have shared. Subscribe to one on the Steam Workshop and it appears here, ready to load.')}</p>`) + browse));
+      // i18n: beside "Saved worlds": {n} how many, {size} the space they take (worlds.mb)
+      return group('w-save', tr('worlds.save-heading', 'Save this world'), save) + section('w-list', tr('worlds.saved-heading', 'Saved worlds'), block('', list, { aside: own && own.length ? tr('worlds.used', '{n} · {size}', { n: own.length, size: mb(used) }) : '', tip: 'saves' })) + wsList;
     }
     async function refreshSaves() {
       try { saves = await worldStore.list(); } catch { saves = []; }
@@ -2328,8 +2405,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (saves.some((m) => m.downloading != null)) wPoll = setTimeout(() => { if (!el.hidden && tab === 'worlds') refreshSaves(); }, 2000);
     }
     // a shared world's words on the Workshop (the sharer may change them there)
-    const wsDescription = (m) => `A Tidemote world after ${durWords(m.simTime)}: ${kfmt(m.count)} particles, ${m.thriving} species thriving.`;
-    const download = (m, bytes) => saveFile(new Blob([bytes], { type: 'application/gzip' }), `${m.name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || 'world'}.tidemote`);
+    // i18n: a world shared on the Steam Workshop, its description there: {age} how long it has run (in words), {count}
+    // its particles (64k), {species} its species thriving
+    const wsDescription = (m) => tr('worlds.ws-description', 'A Tidemote world after {age}: {count} particles, {species, plural, other {{species} species}} thriving.', { age: durWords(m.simTime), count: kfmt(m.count), species: m.thriving });
+    // i18n: a saved world's file name when its name has no letters to keep
+    const download = (m, bytes) => saveFile(new Blob([bytes], { type: 'application/gzip' }), `${m.name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || tr('worlds.file-name', 'world')}.tidemote`);
     async function worldAct(id, v) {
       const busy = async (what, fn) => {
         wBusy = what; render();
@@ -2341,7 +2421,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         await busy('save', async () => {
           await saveWorld(wName.trim() || defaultName());
           wName = '';
-          flash('World saved');
+          flash(tr('flash.world-saved', 'World saved'));
           await refreshSaves();
         });
       } else if (id === 'w-load' || id === 'w-del' || id === 'w-share') { ask = { kind: { 'w-load': 'load', 'w-del': 'del', 'w-share': 'share' }[id], id: v }; render(); }
@@ -2353,7 +2433,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         await busy('share', async () => {
           const r = await desk.workshop.share(v, { title: m.name, description: wsDescription(m) });
           unlock(['SHARED']);
-          flash(r.agreement ? 'Accept the Workshop agreement on Steam to make it public' : m.workshop ? 'Updated on the Workshop' : 'Shared on the Workshop');
+          flash(r.agreement ? tr('flash.ws-agreement', 'Accept the Workshop agreement on Steam to make it public') : m.workshop ? tr('flash.ws-updated', 'Updated on the Workshop') : tr('flash.ws-shared', 'Shared on the Workshop'));
           desk.workshop.open(r.id);
           await refreshSaves();
         });
@@ -2390,27 +2470,32 @@ function run(eng, device, ctx, specCtx, hasTS) {
         const { meta } = await openWorld(bytes);
         await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes);
         ask = { kind: 'load', id: meta.id };
-      } catch (err) { flash(`Could not open ${f.name}: ${String(err.message || err)}`); }
+      // i18n: {file} the file's name, {why} what went wrong
+      } catch (err) { flash(tr('flash.open-failed', 'Could not open {file}: {why}', { file: f.name, why: String(err.message || err) })); }
       wBusy = '';
       await refreshSaves();
     });
     const ext = (href, text) => `<a class="sp" target="_blank" rel="noopener" href="${href}">${text}</a>`;
     function about_() {
-      return group('intro', '', `<div class="about"><p>A sealed biosphere of up to millions of particles, and all of them live, eat, breed, and die in your browser, simulated on the GPU with WebGPU. Some cells drink the moving light of the tide. Others graze on the photosynthesizers, and others hunt the grazers. Scavengers break down the dead and return them to the water as silt, and from that silt the next generation builds its children. Children mutate into new species. Species that bond grow into bodies: filaments, branched fronds, spirals, packed tissues. Some of these bodies grow beating tails and swim. Every 10 to 18 minutes the climate turns, and the world has to begin again in its own way. It makes its own music, too: each cell sings its species' song, over a chorus of the births, kills, and deaths in view.</p>
-<p>No hand steers any of this: every ecological rule is local. The complex interacting colonies emerge from simple rules acting on the mutating genome each cell carries. The Field Lab's <button type="button" class="link" data-o="guide" data-v="0">Guide</button> explains how it works.</p></div>`)
-        + group('made', 'Made by', `<div class="about"><p>Directed by ${ext('https://www.hallada.net', 'Tyler Hallada')} and implemented mostly by ${ext('https://www.anthropic.com/claude', 'Claude')}, Anthropic's AI model. The soundtrack is a port of ${ext('https://supercollider.github.io/', 'SuperCollider')}'s synthesis to the browser.</p></div>`)
-        + group('src', 'Source', `<div class="about"><p>Free software under the ${ext('https://www.gnu.org/licenses/gpl-3.0.html', 'GPL-3.0')}: the code, the design notes and the headless tools used to balance the ecology are on ${ext('https://github.com/thallada/tidemote', 'GitHub')}, where bugs and ideas are welcome as issues.</p>
-<p>Everything runs on this device: there is no account and no analytics, and saved worlds stay in this browser.</p></div>`);
+      const link = (href) => (c) => ext(href, c.join(''));
+      return group('intro', '', `<div class="about"><p>${tr('settings.about.p1', "A sealed biosphere of up to millions of particles, and all of them live, eat, breed, and die in your browser, simulated on the GPU with WebGPU. Some cells drink the moving light of the tide. Others graze on the photosynthesizers, and others hunt the grazers. Scavengers break down the dead and return them to the water as silt, and from that silt the next generation builds its children. Children mutate into new species. Species that bond grow into bodies: filaments, branched fronds, spirals, packed tissues. Some of these bodies grow beating tails and swim. Every 10 to 18 minutes the climate turns, and the world has to begin again in its own way. It makes its own music, too: each cell sings its species' song, over a chorus of the births, kills, and deaths in view.")}</p>
+<p>${tr('settings.about.p2', "No hand steers any of this: every ecological rule is local. The complex interacting colonies emerge from simple rules acting on the mutating genome each cell carries. The Field Lab's <guide>Guide</guide> explains how it works.", { guide: (c) => `<button type="button" class="link" data-o="guide" data-v="0">${c.join('')}</button>` })}</p></div>`)
+        // i18n: the credits: <a1> a link to the director's site, <a2> to Claude's page, <a3> to SuperCollider's
+        + group('made', tr('settings.about.made-by', 'Made by'), `<div class="about"><p>${tr('settings.about.credits', "Directed by <a1>Tyler Hallada</a1> and implemented mostly by <a2>Claude</a2>, Anthropic's AI model. The soundtrack is a port of <a3>SuperCollider</a3>'s synthesis to the browser.", { a1: link('https://www.hallada.net'), a2: link('https://www.anthropic.com/claude'), a3: link('https://supercollider.github.io/') })}</p></div>`)
+        + group('src', tr('settings.about.source', 'Source'), `<div class="about"><p>${tr('settings.about.license', 'Free software under the <a1>GPL-3.0</a1>: the code, the design notes and the headless tools used to balance the ecology are on <a2>GitHub</a2>, where bugs and ideas are welcome as issues.', { a1: link('https://www.gnu.org/licenses/gpl-3.0.html'), a2: link('https://github.com/thallada/tidemote') })}</p>
+<p>${tr('settings.about.privacy', 'Everything runs on this device: there is no account and no analytics, and saved worlds stay in this browser.')}</p></div>`);
     }
     // the keyboard note, and this tab's reset (which asks first)
-    const keysNote = '<span class="keys-note">Keyboard: <kbd>?</kbd> lists every shortcut.</span>';
+    const keysNote = `<span class="keys-note">${tr('settings.keys-note', 'Keyboard: <kbd>?</kbd> lists every shortcut.')}</span>`;
     function foot() {
       if (tab === 'about') return `<div class="set-foot">${keysNote}</div>`;
-      const kept = !desk ? 'Kept in this browser.' : steamOn.cloud ? 'Kept on this computer and in Steam Cloud.' : 'Kept on this computer.';
-      if (tab === 'worlds') return `<div class="set-foot"><span class="keys-note">${kept}</span><button type="button" class="link set-reset" data-o="w-open" data-v="0"${wBusy ? ' disabled' : ''}>Open a file</button></div>`;
+      // i18n: where saved worlds are kept (Settings → Worlds, at the foot)
+      const kept = !desk ? tr('settings.worlds.kept-browser', 'Kept in this browser.') : steamOn.cloud ? tr('settings.worlds.kept-cloud', 'Kept on this computer and in Steam Cloud.') : tr('settings.worlds.kept-computer', 'Kept on this computer.');
+      if (tab === 'worlds') return `<div class="set-foot"><span class="keys-note">${kept}</span><button type="button" class="link set-reset" data-o="w-open" data-v="0"${wBusy ? ' disabled' : ''}>${tr('settings.worlds.open-file', 'Open a file')}</button></div>`;
       const reset = confirming
-        ? `<span class="set-reset"><span>Reset every ${tab} setting?</span><button type="button" class="link" data-o="reset-no" data-v="0">Cancel</button><button type="button" class="btn hot-btn" data-o="reset-yes" data-v="0">Reset</button></span>`
-        : `<button type="button" class="link set-reset" data-o="reset" data-v="0">Reset to defaults</button>`;
+        // i18n: {tab} is the Settings tab whose options are reset
+        ? `<span class="set-reset"><span>${tr('settings.reset-ask', 'Reset every {tab, select, display {display} audio {audio} performance {performance} climate {climate} other {{tab}}} setting?', { tab })}</span><button type="button" class="link" data-o="reset-no" data-v="0">${tr('settings.reset-cancel', 'Cancel')}</button><button type="button" class="btn hot-btn" data-o="reset-yes" data-v="0">${tr('settings.reset-yes', 'Reset')}</button></span>`
+        : `<button type="button" class="link set-reset" data-o="reset" data-v="0">${tr('settings.reset', 'Reset to defaults')}</button>`;
       return `<div class="set-foot">${confirming ? '' : keysNote}${reset}</div>`;
     }
     // this tab's settings as a fresh page opens them (a particle count waits for its own new world)
@@ -2448,6 +2533,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       readout(true);
     }
     let roAt = 0;
+    // i18n: the readout: why the page lowered its frame rate or resolution
+    const WHY_WORDS = { 'under pressure': tr('readout.why-pressure', 'under pressure'), 'GPU busy': tr('readout.why-busy', 'GPU busy'), 'frames late': tr('readout.why-late', 'frames late'), 'browser pace': tr('readout.why-pace', 'browser pace') };
     function readout(force) {
       if (el.hidden || tab !== 'performance') return;
       const now = performance.now();
@@ -2455,26 +2542,29 @@ function run(eng, device, ctx, specCtx, hasTS) {
       roAt = now;
       setText('ro-fps', perf.fps ? perf.fps.toFixed(0) : '–');
       setText('ro-ms', perf.gpu ? perf.gpu.toFixed(1) : '–');
-      setText('ro-res', `${Math.round(renderScale * 100)}%`);
-      setText('ro-dens', `${+density().toFixed(2)}×`);
+      setText('ro-res', pctOf(Math.round(renderScale * 100)));
+      setText('ro-dens', timesOf(+density().toFixed(2)));
       autoLive();
       setText('ro-px', `${canvas.width}×${canvas.height}`);
       // (in millions past a million, to fit its cell: the status bar has every one)
-      setText('ro-n', eng.count >= 1e6 ? `${(eng.count / 1e6).toFixed(2)}M` : fmt(eng.count));
+      // i18n: the readout's particle count, in millions
+      setText('ro-n', eng.count >= 1e6 ? tr('readout.millions', '{n}M', { n: (eng.count / 1e6).toFixed(2) }) : fmt(eng.count));
       const al = sound.load;
-      setText('ro-audio', al != null ? `${Math.round(al * 100)}%` : '–');
+      setText('ro-audio', al != null ? pctOf(Math.round(al * 100)) : '–');
       // where the GPU time goes: a step, a drawn world, the time a step covers, and the speed reached
       const S = perf.simS || perf.stepMs;
       setText('ro-step', S ? S.toFixed(S < 1 ? 3 : 2) : '–');
       setText('ro-draw', perf.simS ? perf.renderR.toFixed(1) : '–');
       // (the step last taken: at real time a slow frame rate takes longer ones too, stepTicks)
-      setText('ro-ceil', state.paused ? '–' : `${eng.ticks}/60 s`);
+      // i18n: the readout: the simulated time one step covers, {n} sixtieths of a second
+      setText('ro-ceil', state.paused ? '–' : tr('readout.step', '{n}/60 s', { n: eng.ticks }));
       setText('ro-steps', state.phase === 'running' && !state.paused ? fmt(Math.round(perf.stepsS)) : '–');
-      setText('ro-rate', state.phase === 'running' && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : '–');
+      // i18n: the readout: the speed reached, {n} times real time
+      setText('ro-rate', state.phase === 'running' && !state.paused ? tr('readout.rate', '×{n}', { n: perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate) }) : '–');
       // how often the world itself is redrawn: every frame, but at Max and held fast speeds only every
       // MAX_FRAME_MS (the camera and loupe keep the full rate)
       setText('ro-world', perf.fps ? perf.worldFps.toFixed(0) : '–');
-      setText('ro-why', state.speed > 1 ? 'running fast' : perf.why || '–');
+      setText('ro-why', state.speed > 1 ? tr('readout.why-fast', 'running fast') : WHY_WORDS[perf.why] ?? (perf.why || '–'));
     }
     function set(id, v) {
       const s = eng.settings, P = state.perf;
@@ -2546,7 +2636,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // How the page runs on this device, to report it: three seconds of frames timed pass by pass on the
   // GPU and one simulation step dispatch by dispatch, with what was drawn, copied as JSON.
   async function copyProfile() {
-    flash('Profiling for three seconds');
+    flash(tr('flash.profiling', 'Profiling for three seconds'));
     const passes = {};
     let frames = 0, gpu = 0;
     eng.passProfile = true;
@@ -2566,7 +2656,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       canvas: [canvas.width, canvas.height], dpr: devicePixelRatio, scale: renderScale, particles: eng.count, neighbors: eng.maxScan, living: life.counts[3],
       cssPPU: +cssPPU().toFixed(1), speed: state.speed, boot: bootTimes, fps: +perf.fps.toFixed(1), aim: Math.round(1000 / frameTarget()), why: perf.why, audio: sound.load,
       world, frameMs: per(gpu), passes: Object.fromEntries(Object.entries(passes).sort((x, y) => y[1] - x[1]).map(([k, x]) => [k, per(x)])), step });
-    try { await navigator.clipboard.writeText(json); flash('Profile copied'); } catch { prompt('The profile, to copy:', json); }
+    try { await navigator.clipboard.writeText(json); flash(tr('flash.profile-copied', 'Profile copied')); } catch { prompt(tr('settings.perf.profile-prompt', 'The profile, to copy:'), json); }
   }
   function toggleFullscreen() {
     if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
@@ -2579,8 +2669,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.addEventListener('fullscreenchange', () => {
     const on = !!document.fullscreenElement;
     fsBtn.setAttribute('aria-pressed', String(on));
-    fsBtn.setAttribute('aria-label', on ? 'Exit full screen' : 'Full screen');
-    fsBtn.dataset.hint = on ? 'Exit full screen · F' : 'Full screen · F';
+    fsBtn.setAttribute('aria-label', on ? tr('rail.fs.aria-exit', 'Exit full screen') : tr('rail.fs.aria', 'Full screen'));
+    fsBtn.dataset.hint = on ? tr('rail.fs.hint-exit', 'Exit full screen · F') : tr('rail.fs.hint', 'Full screen · F');
     fsBtn.innerHTML = `<svg><use href="#i-${on ? 'unfull' : 'full'}"/></svg>`;
   });
   for (const row of document.querySelectorAll('.tabs')) wireTabRow(row);
@@ -2596,7 +2686,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     document.body.classList.toggle('ui-off', !on);
     for (const id of UI_PARTS) $(id).inert = !on;
     if (!on) { if (cards.isOpen()) cards.close(); closeMenus(); document.activeElement?.blur?.(); }
-    if (say) flash(on ? 'Interface shown' : 'Interface hidden · U');
+    if (say) flash(on ? tr('flash.ui-shown', 'Interface shown') : tr('flash.ui-hidden', 'Interface hidden · U'));
     persist();
   }
   if (!state.ui) setInterface(false, false);
@@ -2623,14 +2713,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
     view.render();
   }
   // Reach, for the tool in hand: the loupe's is the lens's radius (px), every other tool's a world distance
-  const reachOf = () => (hand.tool === 'loupe' ? { min: LOUPE_R.min, max: loupeMax(), v: loupeR(), text: `${2 * loupeR()} px` }
+  // i18n: the loupe's reach: its lens's width, {n} CSS pixels
+  const reachOf = () => (hand.tool === 'loupe' ? { min: LOUPE_R.min, max: loupeMax(), v: loupeR(), text: tr('bench.reach-px', '{n} px', { n: 2 * loupeR() }) }
     : { min: REACH.min, max: REACH.max, v: hand.reach, text: fmtLen(hand.reach) });
   function setReach(r, say = false) {
     if (hand.tool === 'loupe') state.loupeR = Math.round(clamp(r, LOUPE_R.min, loupeMax()));
     else hand.reach = clamp(r, REACH.min, REACH.max);
     persist();
     bench.render();
-    if (say) flash(`Reach ${reachOf().text}`);
+    // i18n: {reach} is a length (12 µm) or the loupe's width (bench.reach-px)
+    if (say) flash(tr('flash.reach', 'Reach {reach}', { reach: reachOf().text }));
   }
   // the pipette's strip: its runs from the tip, the last in, each a mini-card keyed by its id
   const pipSp = (key) => pipette.run(+key);
@@ -2684,14 +2776,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const btn = $('pip-keep');
     btn.disabled = true;
     try {
-      for (const [i, sp] of todo.entries()) { btn.textContent = `Saving ${i + 1} / ${todo.length}`; await saveCard(sp.serial, true); }
+      // i18n: the pipette's Save all button while it saves: card {i} of {n}
+      for (const [i, sp] of todo.entries()) { btn.textContent = tr('bench.saving-cards', 'Saving {i} / {n}', { i: i + 1, n: todo.length }); await saveCard(sp.serial, true); }
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Save all';
+      btn.textContent = tr('bench.save-all', 'Save all');
     }
     lab.render(true);
     cards.refresh();
-    flash(todo.length > 1 ? `${todo.length} cards into the cabinet` : `${todo[0].name} is in the cabinet`);
+    flash(todo.length > 1 ? tr('flash.cards-kept', '{n, plural, other {{n} cards into the cabinet}}', { n: todo.length }) : tr('flash.card-kept', '{name} is in the cabinet', { name: todo[0].name }));
     bench.render();
   }
   // The hand's acts for the chronicler, told as weather: the species within an act's reach counted (the pick pass)
@@ -2959,7 +3052,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // (none placed: again the next frame, as a few grains of silt may just not have been taken; failing again and
       // again, there is no silt left in all the world to make them of: a word by the tip, a click's or a card's work
       // ends, and a moment between tries)
-      pull.note = { text: 'No silt left to make them of', t: now };
+      pull.note = { text: tr('hand.pipette.no-silt', 'No silt left to make them of'), t: now };
       if (!spit.held) spit.on = false;
       spit.next = now + 200;
     }
@@ -3158,30 +3251,31 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (k === 'R' && e.shiftKey) {
       if (state.phase !== 'running') return;
       const now = performance.now();
-      if (now - state.confirmReset < 2500) { state.confirmReset = 0; seedWorld(eng.count); sound.overture(); flash('A new world begins'); }
-      else { state.confirmReset = now; flash('Press Shift+R again to discard this world'); }
+      if (now - state.confirmReset < 2500) { state.confirmReset = 0; seedWorld(eng.count); sound.overture(); flash(tr('flash.new-world', 'A new world begins')); }
+      else { state.confirmReset = now; flash(tr('flash.reset-confirm', 'Press Shift+R again to discard this world')); }
     }
-    else if (k === 't' || k === 'T') { trailIdx = (trailIdx + 1) % trailLevels.length; eng.settings.trails = trailLevels[trailIdx]; flash(`Trails ${trailNames[trailIdx].toLowerCase()}`); persist(); view.render(); }
-    else if (k === 'l' || k === 'L') { eng.settings.links = !eng.settings.links; flash(eng.settings.links ? 'Bonds shown' : 'Bonds hidden'); persist(); view.render(); }
-    else if (k === 'n' || k === 'N') { eng.settings.nodes = !eng.settings.nodes; flash(eng.settings.nodes ? 'Particles on' : 'Particles off'); persist(); view.render(); }
-    else if (k === 'y' || k === 'Y') { eng.settings.bloom = eng.settings.bloom > 0 ? 0 : 0.012; flash(eng.settings.bloom ? 'Bloom on' : 'Bloom off'); persist(); view.render(); }
+    else if (k === 't' || k === 'T') { trailIdx = (trailIdx + 1) % trailLevels.length; eng.settings.trails = trailLevels[trailIdx]; flash(tr('flash.trails', 'Trails {level, select, 0 {off} 1 {short} 2 {long} other {exposure}}', { level: trailIdx })); persist(); view.render(); }
+    else if (k === 'l' || k === 'L') { eng.settings.links = !eng.settings.links; flash(eng.settings.links ? tr('flash.bonds-on', 'Bonds shown') : tr('flash.bonds-off', 'Bonds hidden')); persist(); view.render(); }
+    else if (k === 'n' || k === 'N') { eng.settings.nodes = !eng.settings.nodes; flash(eng.settings.nodes ? tr('flash.particles-on', 'Particles on') : tr('flash.particles-off', 'Particles off')); persist(); view.render(); }
+    else if (k === 'y' || k === 'Y') { eng.settings.bloom = eng.settings.bloom > 0 ? 0 : 0.012; flash(eng.settings.bloom ? tr('flash.bloom-on', 'Bloom on') : tr('flash.bloom-off', 'Bloom off')); persist(); view.render(); }
     else if (k === 'b' || k === 'B') bench.toggle();
     else if (/^[0-8]$/.test(k)) {
       // a digit takes up its tool (0: none), or puts down the one in hand; held down past a moment, a tool taken up
       // is only for as long as it is held
       if (!e.repeat) { const id = TOOLS[+k].id; quasi = id !== hand.tool && id !== 'none' ? { key: k, prev: hand.tool, at: performance.now() } : null; pickTool(id); }
     }
-    else if (k === 'o' || k === 'O') { eng.settings.optics = eng.settings.optics > 0 ? 0 : 1; flash(eng.settings.optics ? 'Microscope optics on' : 'Microscope optics off'); persist(); view.render(); }
-    else if (k === 'g' || k === 'G') { eng.settings.tide = eng.settings.tide ? 0 : 1; flash(eng.settings.tide ? 'Light map' : 'Light map off'); mapsChanged(); }
-    else if ((k === 'e' || k === 'E') && K.heat) { eng.settings.heat = (eng.settings.heat + 1) % 3; flash(['Heat map off', 'Heat shimmer', 'Thermal camera'][eng.settings.heat]); mapsChanged(); }
-    else if (k === 'd' || k === 'D') { eng.settings.bands = eng.settings.bands ? 0 : 1; flash(eng.settings.bands ? 'Tide map' : 'Tide map off'); mapsChanged(); }
-    else if (k === 'w' || k === 'W') { state.currents = !state.currents; flash(state.currents ? 'Currents shown' : 'Currents hidden'); view.render(); }
+    else if (k === 'o' || k === 'O') { eng.settings.optics = eng.settings.optics > 0 ? 0 : 1; flash(eng.settings.optics ? tr('flash.optics-on', 'Microscope optics on') : tr('flash.optics-off', 'Microscope optics off')); persist(); view.render(); }
+    else if (k === 'g' || k === 'G') { eng.settings.tide = eng.settings.tide ? 0 : 1; flash(eng.settings.tide ? tr('flash.light-map-on', 'Light map') : tr('flash.light-map-off', 'Light map off')); mapsChanged(); }
+    else if ((k === 'e' || k === 'E') && K.heat) { eng.settings.heat = (eng.settings.heat + 1) % 3; flash([tr('flash.heat-off', 'Heat map off'), tr('flash.heat-shimmer', 'Heat shimmer'), tr('flash.heat-camera', 'Thermal camera')][eng.settings.heat]); mapsChanged(); }
+    else if (k === 'd' || k === 'D') { eng.settings.bands = eng.settings.bands ? 0 : 1; flash(eng.settings.bands ? tr('flash.tide-map-on', 'Tide map') : tr('flash.tide-map-off', 'Tide map off')); mapsChanged(); }
+    else if (k === 'w' || k === 'W') { state.currents = !state.currents; flash(state.currents ? tr('flash.currents-on', 'Currents shown') : tr('flash.currents-off', 'Currents hidden')); view.render(); }
     else if (k === 'v' || k === 'V') view.toggle();
     else if (k === 'k' || k === 'K') { closeMenus(); lab.toggle(); }
     else if (k === 'm' || k === 'M') pickTool('loupe');
     else if ((k === '[' || k === ']') && inHand()) setReach(reachStep(hand.reach, k === ']' ? 1 : -1), true);
-    else if (k === '[') { state.loupeMag = clamp(state.loupeMag / 1.25, 1.5, 20); flash(`Loupe ×${state.loupeMag.toFixed(1)}`); }
-    else if (k === ']') { state.loupeMag = clamp(state.loupeMag * 1.25, 1.5, 20); flash(`Loupe ×${state.loupeMag.toFixed(1)}`); }
+    // i18n: the loupe's magnification, {n} times
+    else if (k === '[') { state.loupeMag = clamp(state.loupeMag / 1.25, 1.5, 20); flash(tr('flash.loupe', 'Loupe ×{n}', { n: state.loupeMag.toFixed(1) })); }
+    else if (k === ']') { state.loupeMag = clamp(state.loupeMag * 1.25, 1.5, 20); flash(tr('flash.loupe', 'Loupe ×{n}', { n: state.loupeMag.toFixed(1) })); }
     else if (k === 'c' || k === 'C') { if (sel) toggleFollow(); }
     else if (k === 'Enter' && sel) toggleRide();
     else if (ride.on && /^Arrow/.test(k)) ride.arrows.add(k);
@@ -3215,7 +3309,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === '/' || k === '<') setSpeed(1);
     else if (k === '>') setSpeed(Infinity);
     else if (k === '?') toggleHelp();
-    else if (k === 'i' || k === 'I') { state.hud = !state.hud; $('hud').classList.toggle('off', !state.hud); document.body.classList.toggle('hud-off', !state.hud); flash(state.hud ? 'Readouts shown' : 'Readouts hidden'); }
+    else if (k === 'i' || k === 'I') { state.hud = !state.hud; $('hud').classList.toggle('off', !state.hud); document.body.classList.toggle('hud-off', !state.hud); flash(state.hud ? tr('flash.readouts-on', 'Readouts shown') : tr('flash.readouts-off', 'Readouts hidden')); }
     else if (k === 'f' || k === 'F') toggleFullscreen();
     else if (k === 'z' || k === 'Z') { takeOver(); cam.zoomTarget = 1; cam.anchor = null; }
     else handled = false;
@@ -3266,12 +3360,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const play = $('t-play');
     $('t-play-i').setAttribute('href', `#i-${state.paused ? 'play' : 'pause'}`);
     // (on a phone its label says Paused, lit, and the speed chip beside it keeps showing the speed)
-    $('t-play-l').textContent = state.paused ? 'Paused' : 'Pause';
+    $('t-play-l').textContent = state.paused ? tr('dock.play-label-paused', 'Paused') : tr('dock.play-label', 'Pause');
     play.classList.toggle('paused', state.paused);
-    play.setAttribute('aria-label', state.paused ? 'Resume' : 'Pause');
-    play.dataset.hint = state.paused ? 'Resume · Space' : 'Pause · Space';
-    setLive($('t-speed-v'), state.paused && !phone() ? 'Paused' : fmtStop(speedStop()));
-    $('t-speed').setAttribute('aria-label', `Speed ${fmtStop(speedStop())}`);
+    play.setAttribute('aria-label', state.paused ? tr('dock.t-play.aria-resume', 'Resume') : tr('dock.t-play.aria', 'Pause'));
+    play.dataset.hint = state.paused ? tr('dock.t-play.hint-resume', 'Resume · Space') : tr('dock.t-play.hint', 'Pause · Space');
+    setLive($('t-speed-v'), state.paused && !phone() ? tr('dock.speed-paused', 'Paused') : fmtStop(speedStop()));
+    // i18n: {speed} is a stop on the speed ladder (speed.times, speed.fast, speed.max)
+    $('t-speed').setAttribute('aria-label', tr('dock.speed.aria', 'Speed {speed}', { speed: fmtStop(speedStop()) }));
     $('t-speed').classList.toggle('fast', s > 1 && s !== Infinity);
     $('t-speed').classList.toggle('max', s === Infinity);
     $('t-slower').disabled = s <= SPEEDS[0];
@@ -3293,7 +3388,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     endWarm();
     if (state.paused) state.paused = false;
     applySpeed(v === 'fast' ? Infinity : v, v === 'fast');
-    if (!quiet) flash(`Speed ${fmtStop(speedStop())}`);
+    // i18n: {speed} is a stop on the speed ladder (speed.times, speed.fast, speed.max)
+    if (!quiet) flash(tr('flash.speed', 'Speed {speed}', { speed: fmtStop(speedStop()) }));
   }
   // The warm-up (WARM_UNTIL): due once a new world is seeded, begun when it is first seen (the intro gone).
   let warmDue = false;
@@ -3305,7 +3401,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (eng.simTime < WARM_UNTIL) { state.warm = true; applySpeed(Infinity, true); warmEl.hidden = false; sound.warm(true); }
     }
     if (!state.warm) return;
-    if (eng.simTime >= WARM_UNTIL) { endWarm(); applySpeed(1); flash('Real time'); return; }
+    if (eng.simTime >= WARM_UNTIL) { endWarm(); applySpeed(1); flash(tr('flash.real-time', 'Real time')); return; }
     setText('warm-t', `${fmtClock(eng.simTime)} / ${fmtClock(WARM_UNTIL)}`);
   }
   // (a speed chosen before the warm-up begins cancels it too)
@@ -3358,12 +3454,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const m = sustainable();
     if (!Number.isFinite(m)) return;
     if (!(m > speedCap * 0.87 && m < speedCap * 1.15)) speedCap = m;
-    if (state.speed > 1 && state.speed !== Infinity && state.speed > speedCap) { state.speed = Infinity; flash('Speed Max'); }
+    if (state.speed > 1 && state.speed !== Infinity && state.speed > speedCap) { state.speed = Infinity; flash(tr('flash.speed', 'Speed {speed}', { speed: tr('speed.max', 'Max') })); }
     renderTime();
   }
   function togglePause() {
     state.paused = !state.paused;
-    flash(state.paused ? 'Paused' : 'Running');
+    flash(state.paused ? tr('flash.paused', 'Paused') : tr('flash.running', 'Running'));
     renderTime();
   }
   $('t-play').addEventListener('click', togglePause);
@@ -3387,7 +3483,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     let whenStarted = null;
     const startedP = new Promise((r) => { whenStarted = r; });
     const P = state.perf;
-    const countText = () => (P.particles ? kfmt(P.particles) : measuredN ? kfmt(measuredN) : 'Auto');
+    const countText = () => (P.particles ? kfmt(P.particles) : measuredN ? kfmt(measuredN) : tr('menu.auto', 'Auto'));
     const listed = () => (saves || []).filter((m) => m.downloading == null);
     // what each count means, as hints (hover, keyboard focus); a count well past what this GPU drew smoothly
     // is also marked, for touch screens, which show no hint on a button
@@ -3396,30 +3492,33 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const off = busy ? ' disabled' : '';
       const sizes = PARTICLE_SIZES.filter((n) => n <= maxParticles());
       const chip = (v, label, on, hint, cls = '') => `<button type="button" class="chip${cls}" data-n="${v}" aria-pressed="${on}" data-hint="${esc(hint)}"${off}>${label}</button>`;
-      const autoHint = measuredN ? `As many as this GPU draws smoothly\nMeasured just now: ${fmt(measuredN)}` : 'As many as this GPU draws smoothly\nMeasured as the world starts';
-      const hint = (n) => (heavy(n) ? `${fmt(n)} particles\nMore than this GPU drew smoothly (${kfmt(measuredN)}): a richer world, in slower frames` : `${fmt(n)} particles\nKept for later visits`);
-      return `<div class="menu-h"><span>The new world</span><b>${busy === 'n' ? 'Seeding' : fmt(eng.count)}</b></div>`
-        + `<div class="menu-chips" role="group" aria-label="Particles">${chip('auto', `Auto${measuredN ? ` <b>${kfmt(measuredN)}</b>` : ''}`, !P.particles, autoHint, ' auto')}`
+      // i18n: the menu's particle counts, their hints (two lines): Auto, {n} the count measured; a count {n}, past what
+      // the GPU drew smoothly ({measured}, short: 64k) or not
+      const autoHint = measuredN ? tr('menu.auto.hint-measured', 'As many as this GPU draws smoothly\nMeasured just now: {n, number}', { n: measuredN }) : tr('menu.auto.hint', 'As many as this GPU draws smoothly\nMeasured as the world starts');
+      const hint = (n) => (heavy(n) ? tr('menu.count.hint-heavy', '{n, plural, other {# particles}}\nMore than this GPU drew smoothly ({measured}): a richer world, in slower frames', { n, measured: kfmt(measuredN) }) : tr('menu.count.hint', '{n, plural, other {# particles}}\nKept for later visits', { n }));
+      return `<div class="menu-h"><span>${tr('menu.new-world', 'The new world')}</span><b>${busy === 'n' ? tr('menu.seeding', 'Seeding') : fmt(eng.count)}</b></div>`
+        // i18n: the Auto count, with the count measured ({n}, short: 64k)
+        + `<div class="menu-chips" role="group" aria-label="${tr('menu.particles.aria', 'Particles')}">${chip('auto', measuredN ? tr('menu.auto-measured', 'Auto <b>{n}</b>', { n: kfmt(measuredN) }) : tr('menu.auto', 'Auto'), !P.particles, autoHint, ' auto')}`
         + sizes.map((n) => chip(n, kfmt(n), P.particles === n, hint(n), heavy(n) ? ' heavy' : '')).join('') + '</div>'
         + (err ? `<p class="menu-note"><em>${esc(err)}</em></p>` : '');
     }
     function row(m) {
       const sw = [0, 1, 2, 3].map((i) => `<i${m.cols?.[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ''}></i>`).join('');
       const can = openable(m.version);
-      const line = can !== 'ok' ? `<em>${can === 'newer' ? 'Needs a newer Tidemote' : 'From an older Tidemote'}</em> · ${when(m.savedAt)}`
-        : `${fmtDur(m.simTime)} · ${kfmt(m.count)} · ${m.thriving} species · ${when(m.savedAt)}`;
+      const line = can !== 'ok' ? tr('worlds.cannot-open', '<em>{why, select, newer {Needs a newer Tidemote} other {From an older Tidemote}}</em> · {when}', { why: can, when: when(m.savedAt) })
+        : tr('worlds.row', '{age} · {count} · {species, plural, other {{species} species}} · {when}', { age: fmtDur(m.simTime), count: kfmt(m.count), species: m.thriving, when: when(m.savedAt) });
       return `<button type="button" class="w-row" data-w="${esc(m.id)}"${can !== 'ok' || busy ? ' disabled' : ''}${can !== 'ok' ? ` aria-description="${esc(WHY_NOT[can])}"` : ''}>`
         + `<span class="w-sw" aria-hidden="true">${sw}</span><span class="w-txt"><b>${esc(m.name)}</b><span>${line}</span></span>`
-        + `<span class="w-go">${busy === `w:${m.id}` ? 'Opening' : can === 'ok' ? 'Open' : ''}</span></button>`;
+        + `<span class="w-go">${busy === `w:${m.id}` ? tr('menu.opening', 'Opening') : can === 'ok' ? tr('menu.open', 'Open') : ''}</span></button>`;
     }
     function wPanel() {
       const ws = listed();
-      const list = saves == null ? '<p class="menu-note">Reading the saved worlds…</p>'
+      const list = saves == null ? `<p class="menu-note">${tr('worlds.reading', 'Reading the saved worlds…')}</p>`
         : ws.length ? `<div class="menu-list">${ws.map(row).join('')}</div>`
-        : '<p class="menu-note">No saved worlds yet. Save one from Settings → Worlds.</p>';
-      return `<div class="menu-h"><span>Open a saved world</span><b>${ws.length || ''}</b></div>${list}`
+        : `<p class="menu-note">${tr('menu.no-saves', 'No saved worlds yet. Save one from Settings → Worlds.')}</p>`;
+      return `<div class="menu-h"><span>${tr('menu.open-saved', 'Open a saved world')}</span><b>${ws.length || ''}</b></div>${list}`
         + (err ? `<p class="menu-note"><em>${esc(err)}</em></p>` : '')
-        + `<div class="menu-foot"><span class="lbl">${desk ? 'On this computer' : 'In this browser'}</span><button type="button" class="btn" data-m="file" data-hint="Open a .tidemote file\nSaved from Settings → Worlds, on any device"${busy ? ' disabled' : ''}>${busy === 'file' ? 'Opening' : 'Open a file'}</button></div>`;
+        + `<div class="menu-foot"><span class="lbl">${desk ? tr('menu.kept-computer', 'On this computer') : tr('menu.kept-browser', 'In this browser')}</span><button type="button" class="btn" data-m="file" data-hint="${tr('menu.file.hint', 'Open a .tidemote file\nSaved from Settings → Worlds, on any device')}"${busy ? ' disabled' : ''}>${busy === 'file' ? tr('menu.opening', 'Opening') : tr('menu.file', 'Open a file')}</button></div>`;
     }
     function render() {
       $('menu-n-v').textContent = countText();
@@ -3463,15 +3562,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
       state.phase = 'calibrating';
       // Auto, never measured this session (a count was kept, or the measuring was cut short): measured now
       if (want == null) { $('intro').classList.remove('ready'); await calibrate(); $('intro').classList.add('ready'); }
-      else { const n = await allocDown(want); seedWorld(n); state.busy = false; calStep(`${fmt(n)} particles`, 1); }
+      else { const n = await allocDown(want); seedWorld(n); state.busy = false; calStep(tr('intro.particles', '{n, plural, other {# particles}}', { n }), 1); }
       state.phase = 'running';
       renderWorld();
       sound.overture();
     });
     async function openIt(w) {
-      calStep(`Opening ${w.meta.name}`, 1);
+      // i18n: the intro's loading line: a saved world ({name}) opening, then open with {n} particles
+      calStep(tr('intro.opening', 'Opening {name}', { name: w.meta.name }), 1);
       if (!(await loadWorld(w))) return;
-      calStep(`${w.meta.name} · ${fmt(eng.count)} particles`, 1);
+      calStep(tr('intro.opened', '{name} · {n, plural, other {# particles}}', { name: w.meta.name, n: eng.count }), 1);
       start();
     }
     const pickW = (id) => take(`w:${id}`, async () => openIt(await openWorld(await worldStore.get(id))));
@@ -3483,7 +3583,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       take('file', async () => {
         const bytes = await f.arrayBuffer();
         let w;
-        try { w = await openWorld(bytes); } catch (x) { throw new Error(`Could not open ${f.name}: ${String(x.message || x)}`); }
+        // i18n: {file} the file's name, {why} what went wrong
+        try { w = await openWorld(bytes); } catch (x) { throw new Error(tr('flash.open-failed', 'Could not open {file}: {why}', { file: f.name, why: String(x.message || x) })); }
         await worldStore.put({ ...w.meta, bytes: bytes.byteLength }, bytes);
         await openIt(w);
       });
@@ -3509,7 +3610,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const hide = () => (state.phase === 'running' ? hideIntro() : setTimeout(hide, 150));
       hide();
     }
-    const MODS = new Set(['Tab', 'Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'ContextMenu']);
+    const MODS = new Set(['Tab', 'Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'ContextMenu']); // i18n-ignore (key names)
     // A click anywhere but the menu begins (a click outside an open panel closes it first); so does a key,
     // but those a menu control uses (Enter, Space, arrows), Escape (closes the panel) and Tab. While the
     // menu waits, no key reaches the page's shortcuts (one would hide the intro with the world held).
@@ -3581,42 +3682,52 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const d = eng.excursion;
     if (!(Math.abs(d) > 0.5)) return '';
     const ex = excursionAt(climate.excursion, eng.simTime), ev = d - ex, causes = [];
-    if (Math.abs(ex) > 0.5) causes.push(ex > 0 ? 'a heat wave' : 'a cold snap');
+    // i18n: why the water is warmer or colder than the era's usual (the temperature gauge's hint; rail.heat.off)
+    if (Math.abs(ex) > 0.5) causes.push(ex > 0 ? tr('rail.heat.cause-wave', 'a heat wave') : tr('rail.heat.cause-snap', 'a cold snap'));
     if (Math.abs(ev) > 0.5) {
       const e = climate.event;
-      causes.push(e?.type === 'storm' ? 'the storm’s cold rain, lingering a few minutes after it stops'
-        : e?.type === 'drought' ? (ev > 0 ? 'the drought’s warm, dry weather' : 'the cold rain that ends the drought')
-          : e?.type === 'frost' ? 'the frost’s night, chilling the water toward freezing'
-            : ev > 0 ? 'passing warmth' : 'a passing chill');
+      causes.push(e?.type === 'storm' ? tr('rail.heat.cause-storm', 'the storm’s cold rain, lingering a few minutes after it stops')
+        : e?.type === 'drought' ? (ev > 0 ? tr('rail.heat.cause-drought', 'the drought’s warm, dry weather') : tr('rail.heat.cause-drought-rain', 'the cold rain that ends the drought'))
+          : e?.type === 'frost' ? tr('rail.heat.cause-frost', 'the frost’s night, chilling the water toward freezing')
+            : ev > 0 ? tr('rail.heat.cause-warmth', 'passing warmth') : tr('rail.heat.cause-chill', 'a passing chill'));
     }
-    return `The water is ${Math.abs(d).toFixed(1)}° ${d > 0 ? 'warmer' : 'colder'} than the era’s usual: ${causes.join(', and ')}.`;
+    // i18n: two causes of rail.heat.off, both at once
+    const because = causes.length > 1 ? tr('rail.heat.causes', '{a}, and {b}', { a: causes[0], b: causes[1] }) : causes.join('');
+    // i18n: the temperature gauge's hint: the water is {deg} degrees (°C) warmer or colder than usual, {because} why
+    return tr('rail.heat.off', 'The water is {deg}° {dir, select, warmer {warmer} other {colder}} than the era’s usual: {because}.', { deg: Math.abs(d).toFixed(1), dir: d > 0 ? 'warmer' : 'colder', because });
   }
   // The rail's event chip: the pool's event under way (with its turn), else the climate's heat wave or cold snap;
   // hidden when there is none (and on phones, by the stylesheet). Phases go by the climate's names but for these.
-  const PHASE_NAMES = { storm: 'raining', thaw: 'thawing', after: 'passing', duckweed: '' };
+  // i18n: the rail's event chip: the event, and the turn it has taken
+  const EVENT_CHIP = { drought: tr('rail.event.drought', 'Drought'), storm: tr('rail.event.storm', 'Storm'), frost: tr('rail.event.frost', 'Frost'), duckweed: tr('rail.event.duckweed', 'Duckweed') };
+  const PHASE_NAMES = { storm: tr('rail.event.phase-storm', 'raining'), thaw: tr('rail.event.phase-thaw', 'thawing'), after: tr('rail.event.phase-after', 'passing'), duckweed: '',
+    drying: tr('rail.event.phase-drying', 'drying'), dry: tr('rail.event.phase-dry', 'dry'), rain: tr('rail.event.phase-rain', 'rain'), cooling: tr('rail.event.phase-cooling', 'cooling'),
+    freezing: tr('rail.event.phase-freezing', 'freezing'), frozen: tr('rail.event.phase-frozen', 'frozen') };
   function updateEventChip() {
     const chip = $('g-event'), ev = climate.event, t = eng.simTime, x = climate.excursion;
-    const ex = x && t >= x.t && t <= x.t + x.dur ? (x.dT > 0 ? 'heat wave' : 'cold snap') : '';
+    const ex = x && t >= x.t && t <= x.t + x.dur ? (x.dT > 0 ? 'hot' : 'cold') : '';
     let name = '', extra = '', icon = '', tip = '', tone = '', label = '';
     if (ev && t >= ev.t) {
-      name = ev.type[0].toUpperCase() + ev.type.slice(1); icon = `#i-ev-${ev.type}`; tip = `ev${ev.type}`;
+      name = EVENT_CHIP[ev.type] ?? ev.type[0].toUpperCase() + ev.type.slice(1); icon = `#i-ev-${ev.type}`; tip = `ev${ev.type}`;
       label = PHASE_NAMES[climate.phase] ?? climate.phase ?? '';
-      if (ex) extra = ` · ${ex}`;
+      // i18n: beside the event, the climate's heat wave or cold snap at the same time
+      if (ex) extra = tr('rail.event.and-excursion', ' · {ex, select, hot {heat wave} other {cold snap}}', { ex });
     } else if (ex) {
-      tone = x.dT > 0 ? 'hot' : 'cold';
-      name = ex[0].toUpperCase() + ex.slice(1); icon = tone === 'hot' ? '#i-ev-heat' : '#i-ev-cold'; tip = 'heatwave';
+      tone = ex;
+      name = ex === 'hot' ? tr('rail.event.heat-wave', 'Heat wave') : tr('rail.event.cold-snap', 'Cold snap'); icon = tone === 'hot' ? '#i-ev-heat' : '#i-ev-cold'; tip = 'heatwave';
     }
     chip.hidden = !name;
     if (!name) return;
     setText('event-v', name);
     setText('event-x', extra);
-    setText('event-l', label || (tone ? 'Climate' : 'Event'));
+    setText('event-l', label || (tone ? tr('rail.event-l-climate', 'Climate') : tr('rail.event-l', 'Event')));
     const use = $('event-i');
     if (use.getAttribute('href') !== icon) use.setAttribute('href', icon);
     if (chip.dataset.tip !== tip) chip.dataset.tip = tip;
     chip.classList.toggle('hot', tone === 'hot');
     chip.classList.toggle('cold', tone === 'cold');
-    chip.setAttribute('aria-label', `${name}${extra}${label ? `, ${label}` : ''}`);
+    // i18n: the event chip's label: {name} the event, {extra} rail.event.and-excursion or nothing, {phase} its turn
+    chip.setAttribute('aria-label', label ? tr('rail.event.aria-phase', '{name}{extra}, {phase}', { name, extra, phase: label }) : tr('rail.event.aria', '{name}{extra}', { name, extra }));
   }
   let hudT = 0;
   // (compared with what was last written, not with what the element holds: a translator changes that)
@@ -3627,23 +3738,26 @@ function run(eng, device, ctx, specCtx, hasTS) {
     setText('epoch', fmtClock(eng.simTime));
     // (the hand's acts told by the chronicler)
     if (hand.touched) handNews();
-    setText('era', climate.name);
-    setText('era-n', `Era ${String(climate.index).padStart(2, '0')}`);
+    setText('era', eraName(climate.name));
+    // i18n: the era's number, two digits (01)
+    setText('era-n', tr('rail.era-n-v', 'Era {n}', { n: String(climate.index).padStart(2, '0') }));
     const L = Math.round(eng.ambient * 100);
-    setText('light-v', `${L}%`);
+    // i18n: a gauge's reading, {n} percent
+    setText('light-v', tr('rail.pct', '{n}%', { n: L }));
     [...segs.children].forEach((s, i) => s.classList.toggle('on', i < Math.round(eng.ambient * 20)));
     const ph = ((eng.simTime % 300) + 300) % 300 / 300;
     const dot = wave.querySelector('.dot');
     dot.setAttribute('cx', (ph * 60).toFixed(1));
     dot.setAttribute('cy', (8 - 6 * Math.sin(ph * TAU)).toFixed(2));
     eraTide.style.setProperty('--x', ph.toFixed(3)); eraTide.style.setProperty('--y', Math.sin(ph * TAU).toFixed(3));
-    setText('tide-v', `${Math.round(eng.season * 100)}%`);
-    $('g-tide').setAttribute('aria-label', `Tide ${Math.round(eng.season * 100)}%, ${seasonAt(eng.simTime + 5) >= seasonAt(eng.simTime) ? 'rising' : 'ebbing'}`);
-    $('g-light').setAttribute('aria-label', `Light ${L}%`);
+    setText('tide-v', tr('rail.pct', '{n}%', { n: Math.round(eng.season * 100) }));
+    $('g-tide').setAttribute('aria-label', tr('rail.tide.aria', 'Tide {n}%, {dir, select, rising {rising} other {ebbing}}', { n: Math.round(eng.season * 100), dir: seasonAt(eng.simTime + 5) >= seasonAt(eng.simTime) ? 'rising' : 'ebbing' }));
+    $('g-light').setAttribute('aria-label', tr('rail.light.aria', 'Light {n}%', { n: L }));
     if (K.heat) {
       const T = eng.tbg, trend = climate.tempTo - eng.temp + (climate.excursion && eng.excursion ? Math.sign(climate.excursion.dT) * (eng.simTime < climate.excursion.t + climate.excursion.dur / 2 ? 1 : -1) : 0);
       const arrow = trend > 0.4 ? '↑' : trend < -0.4 ? '↓' : '';
-      setText('heat-v', `${Math.round(T)}°${arrow}`);
+      // i18n: the water's temperature (°C), with an arrow if it is rising or falling
+      setText('heat-v', tr('rail.heat.v', '{t}°{arrow}', { t: Math.round(T), arrow }));
       const frac = clamp((T - 4) / 24, 0, 1), c = THERMO[Math.min(9, Math.floor(frac * 10))];
       heatBars.forEach((s, i) => s.classList.toggle('on', i < Math.round(frac * 10)));
       heatBulbs.forEach((b) => b.style.setProperty('fill', c));
@@ -3654,18 +3768,21 @@ function run(eng, device, ctx, specCtx, hasTS) {
       g.classList.toggle('exc', !!why);
       g.classList.toggle('cold', eng.excursion < 0);
       if (why) g.dataset.live = why; else delete g.dataset.live;
-      g.setAttribute('aria-label', `${why ? `${why} ` : ''}Temperature ${Math.round(T)}°${arrow ? (arrow === '↑' ? ' and rising' : ' and falling') : ''}`);
+      // i18n: the temperature gauge's label: {why} (rail.heat.off) when the water is off its usual, {t} its temperature (°C)
+      const shown = Math.round(T), dir = arrow ? (arrow === '↑' ? 'up' : 'down') : 'none';
+      g.setAttribute('aria-label', why ? tr('rail.heat.aria-off', '{why} Temperature {t}°{trend, select, up { and rising} down { and falling} other {}}', { why, t: shown, trend: dir }) : tr('rail.heat.aria', 'Temperature {t}°{trend, select, up { and rising} down { and falling} other {}}', { t: shown, trend: dir }));
     }
     updateEventChip();
     renderMaps();
     tips.check();
     // Max shows what it reaches; every other speed is exact
-    setText('t-rate', state.speed > 1 && !state.paused ? `×${perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate)}` : '');
+    setText('t-rate', state.speed > 1 && !state.paused ? tr('readout.rate', '×{n}', { n: perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate) }) : '');
     // fixed-width cells: a figure changing length never moves anything else in the dock
     setText('sys-n', fmt(eng.count));
     setText('sys-fps', perf.fps ? perf.fps.toFixed(0) : '–');
     setText('sys-ms', perf.gpu ? perf.gpu.toFixed(1) : '–');
-    setText('sys-res', `${Math.round(renderScale * 100)}%`);
+    // i18n: the dock's render scale, {n} percent
+    setText('sys-res', tr('dock.res-v', '{n}%', { n: Math.round(renderScale * 100) }));
     charts.check();
     view.readout();
   }
@@ -3726,7 +3843,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // (paused, a frame is all drawing)
     const simBound = hasTS && !state.paused && perf.simS > 2 * perf.renderR;
     if (behind) {
-      perf.why = stressed() ? 'under pressure' : busy ? 'GPU busy' : 'frames late';
+      perf.why = stressed() ? 'under pressure' : busy ? 'GPU busy' : 'frames late'; // i18n-ignore (keys, shown through WHY_WORDS; the profile keeps them)
       perf.goodWindows = 0;
       // a level that just proved too slow is not tried again for a while, so the view doesn't keep
       // climbing back into the same stutter: 30 s, twice as long each time a climb back fails at once
@@ -3737,7 +3854,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // frames). Fewer pixels can't bring its frames back, and cut the view to half resolution for nothing;
       // only a lower frame rate is tried (which also lightens the browser's compositing, if that's the cause).
       const pace = perf.rafMed > 1.8 * displayMs() && perf.gpu + perf.mainMs < 0.3 * perf.rafMed && !busy && !stressed();
-      if (pace) perf.why = 'browser pace';
+      if (pace) perf.why = 'browser pace'; // i18n-ignore (a key, shown through WHY_WORDS)
       if (pace) { if (autoF && perf.slow < 4) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + 1); } }
       else if (autoD && density() > 1.01 && !(film.state === 'recording' && filmScale(1) > renderScale)) {
         densityCap = 1; perf.denseUntil = now + perf.hold;
@@ -3857,7 +3974,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     octx.fillStyle = 'rgba(226,241,240,0.85)';
     octx.fillRect(x0, by, w, 1);
     octx.fillRect(x0, by - 4, 1, 5); octx.fillRect(x1 - 1, by - 4, 1, 5);
-    octx.font = '500 11px Saira, system-ui, sans-serif';
+    octx.font = '500 11px Saira, system-ui, sans-serif'; // i18n-ignore (a CSS font)
     octx.textAlign = 'right';
     octx.fillText(fmtLen(len), x0 - 8, by + 3);
     octx.textAlign = 'left';
@@ -3998,10 +4115,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
       octx.stroke();
     }
     // the readout, beside the ring (inside the screen)
-    const lines = [`${toolOf(t).name.toUpperCase()}${t === 'pipette' ? ` · ${fmt(pipette.count)} / ${fmt(PIPE_LIMIT)}` : t === 'needle' ? '' : ` · ${fmtLen(hand.reach)}`}`, handDoing()];
+    // i18n: the tool's readout by the pointer: {tool} its name (in capitals), and what the pipette holds ({n} cells of
+    // {max}) or the tool's reach ({reach}, a length)
+    const tool = toolOf(t).name.toLocaleUpperCase(LOCALE);
+    const lines = [t === 'pipette' ? tr('hand.readout.pipette', '{tool} · {n, number} / {max, number}', { tool, n: pipette.count, max: PIPE_LIMIT }) : t === 'needle' ? tool : tr('hand.readout.reach', '{tool} · {reach}', { tool, reach: fmtLen(hand.reach) }), handDoing()];
     const mode = t === 'pipette' && modeChip(pipDispensing());
     const chip = mode ? mode.w + 8 : 0;
-    octx.font = '500 11px Saira, system-ui, sans-serif';
+    octx.font = '500 11px Saira, system-ui, sans-serif'; // i18n-ignore (a CSS font)
     octx.letterSpacing = '1.5px';
     const w = Math.max(...lines.map((l, i) => octx.measureText(l).width + (i ? chip : 0))) + 12;
     // beside the ring, within the water the panels leave open
@@ -4022,18 +4142,20 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // corner ticks; while it draws up or sets down, a bar under it fills with the pressure.
   // (Load with no room left: Full)
   const MODE_COL = { LOAD: '241,227,160', DISPENSE: '120,226,214', FULL: '232,116,98' };
+  // i18n: the pipette's mode, in capitals on a chip in its readout
+  const MODE_WORD = { LOAD: tr('hand.pipette.mode-load', 'LOAD'), DISPENSE: tr('hand.pipette.mode-dispense', 'DISPENSE'), FULL: tr('hand.pipette.mode-full', 'FULL') };
   function modeChip(dispensing) {
-    const word = dispensing ? 'DISPENSE' : pipette.fits(1) ? 'LOAD' : 'FULL';
-    octx.font = '600 9px Saira, system-ui, sans-serif';
+    const mode = dispensing ? 'DISPENSE' : pipette.fits(1) ? 'LOAD' : 'FULL', word = MODE_WORD[mode];
+    octx.font = '600 9px Saira, system-ui, sans-serif'; // i18n-ignore (a CSS font)
     octx.letterSpacing = '2px';
-    return { word, col: MODE_COL[word], w: octx.measureText(word).width + 8, at: spit.on ? spit.at : pull.on || hand.suck ? pull.at : null };
+    return { word, col: MODE_COL[mode], w: octx.measureText(word).width + 8, at: spit.on ? spit.at : pull.on || hand.suck ? pull.at : null };
   }
   function drawMode({ word, col, w, at }, x, y) {
     const h = 13;
     octx.fillStyle = `rgba(${col},0.92)`;
     octx.fillRect(x, y, w, h);
     octx.fillStyle = 'rgba(6,9,10,0.95)';
-    octx.font = '600 9px Saira, system-ui, sans-serif';
+    octx.font = '600 9px Saira, system-ui, sans-serif'; // i18n-ignore (a CSS font)
     octx.letterSpacing = '2px';
     octx.fillText(word, x + 5, y + 9.5);
     octx.strokeStyle = `rgba(${col},0.9)`;
@@ -4058,19 +4180,27 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   // what the tool in hand is doing, in a few words
   function handDoing() {
-    const t = hand.tool, pct = `${Math.min(100, Math.round(hand.level * 100))}%${hand.held ? '' : ' · hold for more'}`;
-    if (t === 'lamp' || t === 'shade') return `${hand.held ? (t === 'lamp' ? 'Brightening' : 'Darkening') : 'Over the water'} · ${pct}`;
-    if (t === 'warm' || t === 'cold') return `${hand.held ? (t === 'warm' ? 'Warming toward a boil' : 'Chilling toward ice') : 'Over the water'} · ${pct}`;
-    if (t === 'touch') return !hand.held ? 'Press: the rod into the water' : ptr.dragging ? 'Plowing' : 'In the water · pushing aside';
-    if (t === 'needle') return !hand.held ? 'Press: into the water' : ptr.dragging ? 'Cutting through' : 'In the water · its point pricks';
+    const t = hand.tool;
+    // i18n: the tool's readout, what it is doing: the lamp, shade, warm or cold, held down or over the water, at {pct}
+    // percent of its strength (more while held)
+    if (t === 'lamp' || t === 'shade' || t === 'warm' || t === 'cold') return tr('hand.doing.level', '{doing, select, lamp {Brightening} shade {Darkening} warm {Warming toward a boil} cold {Chilling toward ice} other {Over the water}} · {pct}%{held, select, yes {} other { · hold for more}}', { doing: hand.held ? t : 'over', pct: Math.min(100, Math.round(hand.level * 100)), held: hand.held ? 'yes' : 'no' });
+    if (t === 'touch') return !hand.held ? tr('hand.doing.touch-over', 'Press: the rod into the water') : ptr.dragging ? tr('hand.doing.touch-drag', 'Plowing') : tr('hand.doing.touch-in', 'In the water · pushing aside');
+    if (t === 'needle') return !hand.held ? tr('hand.doing.needle-over', 'Press: into the water') : ptr.dragging ? tr('hand.doing.needle-drag', 'Cutting through') : tr('hand.doing.needle-in', 'In the water · its point pricks');
     if (t === 'pipette') {
       const tip = pipette.tip, now = performance.now();
-      if (pull.on || hand.suck) return `Drawing up · ${fmt(pull.got.length)} in`;
-      if (spit.on) return `Setting down ${(spit.sp || tip)?.name ?? ''}`;
+      // i18n: the pipette drawing up, {n} cells in so far
+      if (pull.on || hand.suck) return tr('hand.doing.drawing-up', 'Drawing up · {n, number} in', { n: pull.got.length });
+      // i18n: {name} the species being set down
+      if (spit.on) return tr('hand.doing.setting-down', 'Setting down {name}', { name: (spit.sp || tip)?.name ?? '' });
       if (pull.note && now - pull.note.t < 2000) return pull.note.text;
-      const d = pipDispensing(), act = isCoarse ? 'a tap' : 'a click', other = isCoarse || shiftHeld ? '' : ` · ⇧ ${d ? 'load' : 'dispense'}`;
-      if (!d) return pipette.fits(1) ? `${act}: a few at the tip · held: all in reach${other}` : `no room for more${other}`;
-      return tip ? `${act} sets down ${tip.name}${other}` : `nothing in it to set down${other}`;
+      // i18n: the pipette's readout: {act} how it is used (a tap on a touch screen, else a click), {shift} the key
+      // that turns it to its other mode (none on a touch screen or while Shift is held)
+      const d = pipDispensing(), act = isCoarse ? 'tap' : 'click', shift = isCoarse || shiftHeld ? 'none' : d ? 'load' : 'dispense';
+      if (!d) return pipette.fits(1) ? tr('hand.doing.load', '{act, select, tap {a tap} other {a click}}: a few at the tip · held: all in reach{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}', { act, shift })
+        : tr('hand.doing.full', 'no room for more{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}', { shift });
+      // i18n: {name} the species at the pipette's tip
+      return tip ? tr('hand.doing.dispense', '{act, select, tap {a tap} other {a click}} sets down {name}{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}', { act, name: tip.name, shift })
+        : tr('hand.doing.empty', 'nothing in it to set down{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}', { shift });
     }
   }
   // Song marks: a faint ring spreads from each cell as it sings its species' note (the picked
@@ -4224,8 +4354,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the camera lingering on a death keeps the species' name on its remains
     const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : p.kind === 3 ? stoneGrain(p.id, p.info).name : p.kind < FIRST_LIFE ? MATTER[p.kind].name : '';
     if (!name) return true;
-    octx.font = '500 11px Saira, system-ui, sans-serif';
-    const label = name.toUpperCase();
+    octx.font = '500 11px Saira, system-ui, sans-serif'; // i18n-ignore (a CSS font)
+    const label = name.toLocaleUpperCase(LOCALE);
     octx.letterSpacing = '1.5px';
     const tw = octx.measureText(label).width;
     // the label goes to whichever side of the frame has room inside the area the panels leave open
@@ -4317,7 +4447,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     eng.survey = state.auto || live ? { every: 45 } : null;
     const b = $('auto-play');
     b.setAttribute('aria-pressed', String(!!live));
-    b.setAttribute('aria-label', live ? 'Stop the auto camera' : 'Start the auto camera');
+    b.setAttribute('aria-label', live ? tr('dock.auto-play.aria-stop', 'Stop the auto camera') : tr('dock.auto-play.aria-start', 'Start the auto camera'));
     $('auto-next').hidden = !live;
   }
   // the user takes the camera back where it is
@@ -4338,41 +4468,46 @@ function run(eng, device, ctx, specCtx, hasTS) {
     renderAuto(true);
   }
   function playAuto() {
-    if (director.active) { takeOver(); flash('Auto camera off'); }
-    else if (state.phase === 'running') { startAuto(false); flash('Auto camera'); }
+    if (director.active) { takeOver(); flash(tr('flash.auto-off', 'Auto camera off')); }
+    else if (state.phase === 'running') { startAuto(false); flash(tr('flash.auto-on', 'Auto camera')); }
   }
   // the camera leaves what it is showing for a new scene
   function nextScene() {
-    if (director.next()) flash('Next scene');
+    if (director.next()) flash(tr('flash.next-scene', 'Next scene'));
   }
   $('auto-play').addEventListener('click', playAuto);
   $('auto-next').addEventListener('click', nextScene);
   renderAuto(false);
   // What the auto camera is showing and why, as a caption: where it is heading while it flies,
   // what is in view once it arrives (from the director's shot.why).
+  // i18n: the auto camera's captions: why it went where it is (heading there), and a note on it once there
   const REASON = {
-    mutations: ['where new variants are being born', 'mutants are appearing here'],
-    sparks: ['where life is sparking from silt', 'life is sparking from silt'],
-    kills: ['a hunting ground', 'kills are frequent'],
-    births: ['a crowd of births', 'many are being born'],
-    deaths: ['a die-off', 'many are dying'],
-    diverse: ['a meeting of many species', (div) => (div >= 3 ? `about ${div} species meet` : 'several species meet')],
-    bodies: ['a gathering of bodies', 'many-celled bodies gather'],
-    swift: ['swift swimmers', 'the cells here move fast'],
-    dense: ['the thickest crowd of life', 'life is crowded here'],
+    mutations: [tr('caption.reason.mutations', 'Where new variants are being born'), tr('caption.reason.mutations-note', 'Mutants are appearing here')],
+    sparks: [tr('caption.reason.sparks', 'Where life is sparking from silt'), tr('caption.reason.sparks-note', 'Life is sparking from silt')],
+    kills: [tr('caption.reason.kills', 'A hunting ground'), tr('caption.reason.kills-note', 'Kills are frequent')],
+    births: [tr('caption.reason.births', 'A crowd of births'), tr('caption.reason.births-note', 'Many are being born')],
+    deaths: [tr('caption.reason.deaths', 'A die-off'), tr('caption.reason.deaths-note', 'Many are dying')],
+    // i18n: {n} about how many species meet
+    diverse: [tr('caption.reason.diverse', 'A meeting of many species'), (div) => (div >= 3 ? tr('caption.reason.diverse-note-n', 'About {n} species meet', { n: div }) : tr('caption.reason.diverse-note', 'Several species meet'))],
+    bodies: [tr('caption.reason.bodies', 'A gathering of bodies'), tr('caption.reason.bodies-note', 'Many-celled bodies gather')],
+    swift: [tr('caption.reason.swift', 'Swift swimmers'), tr('caption.reason.swift-note', 'The cells here move fast')],
+    dense: [tr('caption.reason.dense', 'The thickest crowd of life'), tr('caption.reason.dense-note', 'Life is crowded here')],
   };
-  const upper = (t) => t.charAt(0).toUpperCase() + t.slice(1);
-  const spName = (serial) => { const sp = life.reg.get(serial); return sp ? spLink(serial, sp.name) : 'an unnamed species'; };
+  const spName = (serial) => { const sp = life.reg.get(serial); return sp ? spLink(serial, sp.name) : tr('caption.unnamed', 'an unnamed species'); };
   const spDesc = (serial) => { const sp = life.reg.get(serial); return sp ? describe(sp.genome, K) : ''; };
+  // (English's article before a species' name and before a count: the messages choose with them, 'an' or 'a')
   const article = (serial) => { const sp = life.reg.get(serial); return sp && /^[AEIOU]/i.test(sp.name) ? 'an' : 'a'; };
   // "an 8-cell", "an 11-cell", "a 12-cell"
   const numArticle = (n) => (/^8/.test(String(n)) || (String(n).length % 3 === 2 && /^1[18]/.test(String(n))) ? 'an' : 'a');
-  const organism = (w, the) => (w.cells > 1 ? `${the ? 'the' : numArticle(w.cells)} ${fmt(w.cells)}-cell ${spName(w.serial)}` : `${the ? 'the' : article(w.serial)} ${spName(w.serial)} cell`);
+  // what a message about an organism is given: {body} one cell or many, {n} its cells, {name} its species (a link),
+  // {art} the article before its name (one cell) or {nart} before its count (many), 'an' or 'a'
+  const organism = (w) => ({ body: w.cells > 1 ? 'many' : 'one', n: fmt(w.cells), name: spName(w.serial), art: article(w.serial), nart: numArticle(w.cells) });
+  // what became of a cell: its fate (the verb's key), and what is left of it
   function fateOf(f) {
-    if (!f) return ['vanished', 'perhaps built into a new cell'];
-    if (f.kind === 0) return ['was eaten', 'what remained is silt'];
-    if (f.kind === 3) return [f.cause === 2 ? 'died of old age' : 'starved', 'its skeleton is now stone'];
-    return [f.cause === 2 ? 'died of old age' : f.cause === 3 ? 'was killed' : 'starved', 'its body is now a husk'];
+    if (!f) return ['vanished', tr('caption.after.vanished', 'Perhaps built into a new cell')];
+    if (f.kind === 0) return ['eaten', tr('caption.after.eaten', 'What remained is silt')];
+    if (f.kind === 3) return [f.cause === 2 ? 'old' : 'starved', tr('caption.after.stone', 'Its skeleton is now stone')];
+    return [f.cause === 2 ? 'old' : f.cause === 3 ? 'killed' : 'starved', tr('caption.after.husk', 'Its body is now a husk')];
   }
   // a chronicler's story as a caption's line: its first sentence, cut at a word near 140 characters
   const storyLine = (text) => {
@@ -4381,46 +4516,62 @@ function run(eng, device, ctx, specCtx, hasTS) {
   };
   function captionHtml(w, going) {
     const r = (w.reasons || []).map((x) => REASON[x.key]);
-    const note = (x) => upper(typeof x[1] === 'function' ? x[1](w.div) : x[1]);
+    const note = (x) => (typeof x[1] === 'function' ? x[1](w.div) : x[1]);
+    // i18n: the caption's main line following an organism: "A 12-cell {name}", or "A {name} cell" ({art}: an or a)
+    const named = () => tr('caption.organism', '{body, select, many {{nart, select, an {An} other {A}} {n}-cell {name}} other {{art, select, an {An} other {A}} {name} cell}}', organism(w));
     let eyebrow, main, sub = '';
     if (w.kind === 'wide') {
-      if (going) { eyebrow = 'Rising'; main = 'For a view of the whole world'; }
-      else { eyebrow = 'The whole world'; main = `${fmt(life.counts[3])} living cells in ${fmt(life.alive)} species`; sub = `${esc(climate.name)} · light ${Math.round(eng.ambient * 100)}%`; }
+      if (going) { eyebrow = tr('caption.wide.going', 'Rising'); main = tr('caption.wide.going-main', 'For a view of the whole world'); }
+      else {
+        eyebrow = tr('caption.wide', 'The whole world');
+        // i18n: {n} living cells, {species} living species
+        main = tr('caption.wide.main', '{n, plural, other {# living cells}} in {species, plural, other {# species}}', { n: life.counts[3], species: life.alive });
+        // i18n: {era} the era's name, {pct} the light (%)
+        sub = tr('caption.wide.sub', '{era} · light {pct}%', { era: esc(eraName(climate.name)), pct: Math.round(eng.ambient * 100) });
+      }
     } else if (w.kind === 'scene') {
       if (going && w.lost) {
-        const [verb] = fateOf(w.lost.fate);
-        eyebrow = 'Heading on'; main = `To where ${w.lost.cells > 1 ? `a cell of ${organism(w.lost)}` : organism(w.lost)} ${verb}`; sub = 'It was gone before the camera arrived';
+        const [fate] = fateOf(w.lost.fate);
+        eyebrow = tr('caption.lost', 'Heading on');
+        // i18n: the camera heads to where the cell it was going to show died: {name} its species (a link); with a body of
+        // {n} cells ({nart}: an or a before the count) or alone ({art}: an or a before the name); {fate} what became of it
+        main = tr('caption.lost.main', 'To where {body, select, many {a cell of {nart, select, an {an} other {a}} {n}-cell {name}} other {{art, select, an {an} other {a}} {name} cell}} {fate, select, vanished {vanished} eaten {was eaten} old {died of old age} killed {was killed} other {starved}}', { ...organism(w.lost), fate });
+        sub = tr('caption.lost.sub', 'It was gone before the camera arrived');
       } else if (going) {
-        eyebrow = 'Heading to'; main = upper(r[0] ? r[0][0] : 'somewhere quieter'); sub = r[1] ? note(r[1]) : '';
+        eyebrow = tr('caption.heading', 'Heading to'); main = r[0] ? r[0][0] : tr('caption.quieter', 'Somewhere quieter'); sub = r[1] ? note(r[1]) : '';
       } else {
-        eyebrow = 'In view';
+        eyebrow = tr('caption.in-view', 'In view');
         const sp = (w.species || []).filter((x) => life.reg.has(x.serial)).map((x) => spName(x.serial));
-        main = sp.length ? (sp.length > 1 ? `${sp.slice(0, -1).join(', ')} and ${sp[sp.length - 1]}` : sp[0]) : upper(r[0] ? r[0][0] : 'a quiet stretch of water');
+        // i18n: species in view (links): {rest} all but the last, with commas, and {last}
+        main = sp.length ? (sp.length > 1 ? tr('caption.species-list', '{rest} and {last}', { rest: sp.slice(0, -1).join(', '), last: sp[sp.length - 1] }) : sp[0]) : r[0] ? r[0][0] : tr('caption.quiet', 'A quiet stretch of water');
         sub = r.slice(0, 2).map(note).join(' · ');
       }
     } else if (w.kind === 'follow') {
       // named only once it is in view (w.seen): on the way, where the camera is going
-      if (!w.seen && w.signal) { eyebrow = 'Searching'; main = 'For the source of a signal'; }
-      else if (!w.seen && w.story) { eyebrow = 'Searching'; main = 'For a species in the chronicle'; }
-      else if (!w.seen) { eyebrow = w.spotlight ? 'Searching' : 'Exploring'; main = w.spotlight ? 'For a new species' : 'Moving to a new area'; sub = w.spotlight ? '' : 'To discover the life there'; }
-      else if (w.signal) { eyebrow = 'Answering a signal'; main = upper(organism(w)); sub = spDesc(w.serial); }
-      else if (w.story) { eyebrow = 'From the chronicle'; main = upper(organism(w)); sub = esc(storyLine(w.story)); }
-      else if (w.spotlight) { eyebrow = 'Following a new species'; main = upper(organism(w)); sub = spDesc(w.serial); }
-      else { eyebrow = 'Following'; main = upper(organism(w)); sub = spDesc(w.serial); }
+      if (!w.seen && w.signal) { eyebrow = tr('caption.searching', 'Searching'); main = tr('caption.searching-signal', 'For the source of a signal'); }
+      else if (!w.seen && w.story) { eyebrow = tr('caption.searching', 'Searching'); main = tr('caption.searching-story', 'For a species in the chronicle'); }
+      else if (!w.seen) { eyebrow = w.spotlight ? tr('caption.searching', 'Searching') : tr('caption.exploring', 'Exploring'); main = w.spotlight ? tr('caption.searching-new', 'For a new species') : tr('caption.exploring-main', 'Moving to a new area'); sub = w.spotlight ? '' : tr('caption.exploring-sub', 'To discover the life there'); }
+      else if (w.signal) { eyebrow = tr('caption.signal', 'Answering a signal'); main = named(); sub = spDesc(w.serial); }
+      else if (w.story) { eyebrow = tr('caption.story', 'From the chronicle'); main = named(); sub = esc(storyLine(w.story)); }
+      else if (w.spotlight) { eyebrow = tr('caption.new-species', 'Following a new species'); main = named(); sub = spDesc(w.serial); }
+      else { eyebrow = tr('caption.following', 'Following'); main = named(); sub = spDesc(w.serial); }
     } else if (w.kind === 'event') {
-      const EV = { drought: { drying: ['The pool is drying', 'Cells crowd the shrinking water; the edge drags stragglers with it'],
-        dry: ['Low water', 'Stranded on the mud, cells rest as cysts and spores'], rain: ['Rain', 'The water returns, and the cysts on the mud wake'] },
-        storm: { storm: ['A storm', 'Raindrops ring the surface and the water runs rough'] },
-        duckweed: { duckweed: ['Duckweed', 'In the shade of its fronds the producers go hungry'] },
-        frost: { cooling: ['Nightfall', 'The water chills toward freezing'], freezing: ['Ice', 'Its fronts push cells into the veins of water between the grains'],
-          frozen: ['Frozen', 'Life waits in the veins of water between the ice grains'], thaw: ['Thaw', 'The ice gives the pool back'] } };
-      const [m, sb] = (EV[w.type] || {})[w.phase] || ['The pool', ''];
-      eyebrow = going ? 'Heading to' : 'Watching'; main = m; sub = going ? '' : sb;
+      // i18n: the auto camera at the pool's event: a title, and a line on what happens
+      const EV = { drought: { drying: [tr('caption.drought.drying', 'The pool is drying'), tr('caption.drought.drying-sub', 'Cells crowd the shrinking water; the edge drags stragglers with it')],
+        dry: [tr('caption.drought.dry', 'Low water'), tr('caption.drought.dry-sub', 'Stranded on the mud, cells rest as cysts and spores')], rain: [tr('caption.drought.rain', 'Rain'), tr('caption.drought.rain-sub', 'The water returns, and the cysts on the mud wake')] },
+        storm: { storm: [tr('caption.storm', 'A storm'), tr('caption.storm-sub', 'Raindrops ring the surface and the water runs rough')] },
+        duckweed: { duckweed: [tr('caption.duckweed', 'Duckweed'), tr('caption.duckweed-sub', 'In the shade of its fronds the producers go hungry')] },
+        frost: { cooling: [tr('caption.frost.cooling', 'Nightfall'), tr('caption.frost.cooling-sub', 'The water chills toward freezing')], freezing: [tr('caption.frost.freezing', 'Ice'), tr('caption.frost.freezing-sub', 'Its fronts push cells into the veins of water between the grains')],
+          frozen: [tr('caption.frost.frozen', 'Frozen'), tr('caption.frost.frozen-sub', 'Life waits in the veins of water between the ice grains')], thaw: [tr('caption.frost.thaw', 'Thaw'), tr('caption.frost.thaw-sub', 'The ice gives the pool back')] } };
+      const [m, sb] = (EV[w.type] || {})[w.phase] || [tr('caption.pool', 'The pool'), ''];
+      eyebrow = going ? tr('caption.heading', 'Heading to') : tr('caption.watching', 'Watching'); main = m; sub = going ? '' : sb;
     } else if (w.kind === 'linger') {
-      const [verb, after] = fateOf(w.fate);
-      eyebrow = 'Lingering';
-      main = `${w.cells > 1 ? `A cell of ${organism(w, true)}` : upper(organism(w, true))} ${verb}`;
-      sub = upper(after);
+      const [fate, after] = fateOf(w.fate);
+      eyebrow = tr('caption.linger', 'Lingering');
+      // i18n: the camera stays where the cell it followed died: {name} its species (a link), {n} the cells of its body;
+      // {fate} what became of it
+      main = tr('caption.linger.main', '{body, select, many {A cell of the {n}-cell {name}} other {The {name} cell}} {fate, select, vanished {vanished} eaten {was eaten} old {died of old age} killed {was killed} other {starved}}', { body: w.cells > 1 ? 'many' : 'one', n: fmt(w.cells), name: spName(w.serial), fate });
+      sub = after;
     } else return '';
     return `<div class="cap-eye">${eyebrow}</div><div class="cap-rule" aria-hidden="true"></div><div class="cap-main">${main}</div>${sub ? `<div class="cap-sub">${sub}</div>` : ''}`;
   }
@@ -4485,29 +4636,30 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the view at its full density, whatever the render scale is for the moment
     source: () => { const d = Math.min(devicePixelRatio || 1, 2); return [Math.round(innerWidth * d), Math.round(innerHeight * d)]; },
     audio: () => (sound.playing ? sound.stream() : null),
-    title: () => `TIDEMOTE · ${fmtClock(eng.simTime)} · ${climate.name}`,
+    // i18n: the film's title, burned in: the world's time (h:mm:ss) and its era
+    title: () => tr('film.title', 'TIDEMOTE · {time} · {era}', { time: fmtClock(eng.simTime), era: eraName(climate.name) }),
     name: () => `tidemote-${fmtClock(eng.simTime).replace(/:/g, '-')}`,
     desktop: desk?.film || null,
     onChange: renderFilm,
     onSaved: (f) => {
       if (f.blob) saveFile(f.blob, f.name);
-      const where = f.path ? ' in Videos › Tidemote' : '';
-      flash(`${f.why === 'limit' ? 'Film stopped at its limit' : 'Film saved'}${where} · ${fmtBytes(f.bytes)}`);
+      // i18n: a film saved (or stopped at its limit), in the desktop app into its Videos folder; {size} its size
+      flash(tr('flash.film-saved', '{why, select, limit {Film stopped at its limit} other {Film saved}}{where, select, videos { in Videos › Tidemote} other {}} · {size}', { why: f.why === 'limit' ? 'limit' : 'done', where: f.path ? 'videos' : 'download', size: fmtBytes(f.bytes) }));
     },
     onError: (m) => flash(m),
   });
   let filmArmedShot = null;
   // record now, or (the auto camera on) from the start of its next shot; again: stop
   function filmAct(how = director.active ? 'scene' : 'now') {
-    if (!film.supported) { flash('This browser cannot record the view'); return; }
+    if (!film.supported) { flash(tr('flash.film-unsupported', 'This browser cannot record the view')); return; }
     if (film.state === 'saving') return;
-    if (film.state !== 'idle') { const was = film.state; film.stop(); if (was === 'armed') flash('Filming called off'); return; }
+    if (film.state !== 'idle') { const was = film.state; film.stop(); if (was === 'armed') flash(tr('flash.film-called-off', 'Filming called off')); return; }
     if (how === 'scene') {
       if (!director.active) startAuto(false);
       filmArmedShot = director.shot ? director.shot.id : null;
       film.arm();
-      flash('Filming the camera’s next scene');
-    } else if (film.start()) { filmRaise(); flash('Filming'); }
+      flash(tr('flash.film-armed', 'Filming the camera’s next scene'));
+    } else if (film.start()) { filmRaise(); flash(tr('flash.filming', 'Filming')); }
   }
   // a film begun with the canvas below its size: the canvas back up to it (and the full density, if need be)
   function filmRaise() {
@@ -4518,7 +4670,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   /** h:mm:ss, or m:ss under an hour. */
   const filmClock = (t) => { t = Math.floor(t); const h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, s = t % 60; return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`; };
-  function fmtBytes(b) { return b < 1e9 ? `${(b / 1e6).toFixed(b < 1e7 ? 1 : 0)} MB` : `${(b / 1e9).toFixed(b < 1e10 ? 2 : 1)} GB`; }
+  // i18n: a film's size, in megabytes or gigabytes
+  function fmtBytes(b) { return b < 1e9 ? tr('film.mb', '{n} MB', { n: (b / 1e6).toFixed(b < 1e7 ? 1 : 0) }) : tr('film.gb', '{n} GB', { n: (b / 1e9).toFixed(b < 1e10 ? 2 : 1) }); }
   let recShown = '';
   function renderFilm() {
     const s = film.state;
@@ -4526,9 +4679,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       filmBtn.classList.toggle('armed', s === 'armed');
       filmBtn.classList.toggle('rolling', s === 'recording' || s === 'saving');
       filmBtn.setAttribute('aria-pressed', String(s !== 'idle'));
-      filmBtn.setAttribute('aria-label', s === 'idle' ? 'Film' : s === 'armed' ? 'Waiting for the next scene: stop' : 'Filming: stop');
-      filmBtn.dataset.hint = s === 'idle' ? (director.active ? 'Film from the next scene · R' : 'Film · R') : 'Stop · R';
-      setLive($('film-v'), s === 'recording' || s === 'saving' ? filmClock(film.elapsed()) : s === 'armed' ? 'Wait' : 'Film');
+      filmBtn.setAttribute('aria-label', s === 'idle' ? tr('dock.film.aria', 'Film') : s === 'armed' ? tr('dock.film.aria-armed', 'Waiting for the next scene: stop') : tr('dock.film.aria-rolling', 'Filming: stop'));
+      filmBtn.dataset.hint = s === 'idle' ? (director.active ? tr('dock.film.hint-scene', 'Film from the next scene · R') : tr('dock.film.hint', 'Film · R')) : tr('dock.film.hint-stop', 'Stop · R');
+      setLive($('film-v'), s === 'recording' || s === 'saving' ? filmClock(film.elapsed()) : s === 'armed' ? tr('dock.film-label-armed', 'Wait') : tr('dock.film-label', 'Film'));
     }
     if (!recBar) return;
     recBar.hidden = s === 'idle';
@@ -4537,22 +4690,24 @@ function run(eng, device, ctx, specCtx, hasTS) {
     recBar.classList.toggle('saving', s === 'saving');
     if (s !== recShown) {
       recShown = s;
-      setLive($('rec-l'), s === 'armed' ? 'Standby' : s === 'saving' ? 'Saving' : 'Recording');
-      setLive($('rec-stop-l'), s === 'armed' ? 'Cancel' : 'Stop');
+      setLive($('rec-l'), s === 'armed' ? tr('film.state-armed', 'Standby') : s === 'saving' ? tr('film.state-saving', 'Saving') : tr('film.state', 'Recording'));
+      setLive($('rec-stop-l'), s === 'armed' ? tr('film.stop-label-armed', 'Cancel') : tr('film.stop-label', 'Stop'));
       $('rec-stop').disabled = s === 'saving';
-      $('rec-stop').setAttribute('aria-label', s === 'armed' ? 'Stop waiting for the next scene' : 'Stop filming');
+      $('rec-stop').setAttribute('aria-label', s === 'armed' ? tr('film.stop.aria-armed', 'Stop waiting for the next scene') : tr('film.stop.aria', 'Stop filming'));
     }
     if (s === 'idle') return;
-    setLive($('rec-t'), s === 'armed' ? 'Next scene' : filmClock(film.elapsed()));
+    setLive($('rec-t'), s === 'armed' ? tr('film.next-scene', 'Next scene') : filmClock(film.elapsed()));
     const b = film.bytes(), cap = film.limit(), left = film.left();
     setLive($('rec-mb'), s === 'armed' ? '' : fmtBytes(b));
     const near = s === 'recording' && left < 300;
     $('rec-left').hidden = !near;
-    if (near) setLive($('rec-left'), `Limit in ${filmClock(left)}`);
+    // i18n: the film stops itself at its limit in {t} (m:ss)
+    if (near) setLive($('rec-left'), tr('film.limit-in', 'Limit in {t}', { t: filmClock(left) }));
     recBar.classList.toggle('near', s === 'recording' && left < 60);
     if (s === 'recording' && Number.isFinite(cap)) {
-      const where = { desktop: 'written to Videos › Tidemote as it is made', disk: 'written to disk as it is made, downloaded when it ends', memory: 'kept in memory until it ends' }[film.sink()] || '';
-      $('rec-mb').dataset.hint = `The film's size so far, ${where}. It stops itself at ${fmtBytes(cap)}${Number.isFinite(left) ? `, about ${fmtDur(left)} from now` : ''}.`;
+      // i18n: the film's size's hint: where it goes as it is made, the size it stops itself at ({cap}), and when ({left}, a duration)
+      $('rec-mb').dataset.hint = tr('film.size.hint-limit', "The film's size so far, {sink, select, desktop {written to Videos › Tidemote as it is made} disk {written to disk as it is made, downloaded when it ends} memory {kept in memory until it ends} other {}}. It stops itself at {cap}{soon, select, yes {, about {left} from now} other {}}.",
+        { sink: film.sink() || 'none', cap: fmtBytes(cap), soon: Number.isFinite(left) ? 'yes' : 'no', left: Number.isFinite(left) ? fmtDur(left) : '' });
     }
   }
   if (film.supported && filmBtn) { filmBtn.hidden = false; filmBtn.addEventListener('click', () => filmAct()); renderFilm(); }
@@ -4856,16 +5011,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const again = performance.now() - lastStop < 15000; // going on failed at once: don't offer it again
     lastStop = performance.now();
     const go = () => { $('nogpu').hidden = true; last = performance.now(); requestAnimationFrame(frame); };
-    const report = () => `${e && e.stack || e}\n\nTidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} particles · ${navigator.userAgent}`;
-    fail('The world stopped', `Something went wrong while running it: ${e && e.message || e}. It stopped at ${fmtClock(eng.simTime)} of world time.`, [
-      ...(again ? [] : [{ label: 'Try to go on', run: go }]),
-      { label: 'Save this world', run: async (b) => {
-        b.disabled = true; b.textContent = 'Saving…';
-        try { await saveWorld(`${climate.name} · ${fmtDur(eng.simTime)} (stopped)`); b.textContent = 'Saved to Settings → Worlds'; }
-        catch (err) { console.error('[tidemote] saving the stopped world:', err); b.textContent = `Could not save: ${err.message || err}`; }
+    // (a report for the developers, in English whatever the page's language)
+    const report = () => `${e && e.stack || e}\n\nTidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} particles · ${navigator.userAgent}`; // i18n-ignore
+    // i18n: the error screen: {why} what went wrong (the browser's or the code's words, English), {time} the world's time (h:mm:ss)
+    fail(tr('err.stopped', 'The world stopped'), tr('err.stopped.detail', 'Something went wrong while running it: {why}. It stopped at {time} of world time.', { why: String(e && e.message || e), time: fmtClock(eng.simTime) }), [
+      ...(again ? [] : [{ label: tr('err.go-on', 'Try to go on'), run: go }]),
+      { label: tr('err.save', 'Save this world'), run: async (b) => {
+        b.disabled = true; b.textContent = tr('err.saving', 'Saving…');
+        // i18n: the name of a world saved from the error screen: its era's name and its age (a duration)
+        try { await saveWorld(tr('err.saved-name', '{era} · {age} (stopped)', { era: eraName(climate.name), age: fmtDur(eng.simTime) })); b.textContent = tr('err.saved', 'Saved to Settings → Worlds'); }
+        catch (err) { console.error('[tidemote] saving the stopped world:', err); b.textContent = tr('err.save-failed', 'Could not save: {why}', { why: String(err.message || err) }); }
       } },
-      { label: 'Start a new world', run: () => { seedWorld(eng.count); sound.overture(); go(); } },
-      { label: 'Copy details', run: (b) => navigator.clipboard.writeText(report()).then(() => { b.textContent = 'Copied'; }, () => { b.textContent = 'Could not copy'; }) },
+      { label: tr('err.new-world', 'Start a new world'), run: () => { seedWorld(eng.count); sound.overture(); go(); } },
+      { label: tr('err.copy', 'Copy details'), run: (b) => navigator.clipboard.writeText(report()).then(() => { b.textContent = tr('err.copied', 'Copied'); }, () => { b.textContent = tr('err.copy-failed', 'Could not copy'); }) },
     ]);
   }
 
@@ -4898,7 +5056,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     updateHud(performance.now() + 1000);
     $('intro').classList.add('ready');
     menu.ready();
-  }).catch((e) => fail('Could not start the simulation', String(e.message || e), [RELOAD]));
+  }).catch((e) => fail(tr('err.start', 'Could not start the simulation'), String(e.message || e), [RELOAD]));
 }
 
 // A card's link opened (a phone's camera on a card's QR code): the card first, drawn without the GPU; the world
@@ -4918,10 +5076,12 @@ async function linkedCard(bytes) {
   const png = new Blob([linkedPng], { type: 'image/png' });
   const img = $('linked-img'), url = URL.createObjectURL(png);
   img.src = url;
-  img.alt = `The species card of ${c.name}`;
+  // i18n: a card's link opened: {name} its species, {home} the world it came from
+  img.alt = tr('linked.img.alt', 'The species card of {name}', { name: c.name });
   $('linked-h').textContent = c.name;
-  $('linked-note').textContent = `A species from ${c.home}. Open Tidemote to keep its card in your cabinet and set it down in a world of your own.`;
-  $('linked-png').onclick = () => saveFile(png, `${c.name.replace(/[^\w -]+/g, '').trim() || 'species'}.png`);
+  $('linked-note').textContent = tr('linked.note', 'A species from {home}. Open Tidemote to keep its card in your cabinet and set it down in a world of your own.', { home: eraName(c.home) });
+  // i18n: a card's file name when its species' name has no letters to keep
+  $('linked-png').onclick = () => saveFile(png, `${c.name.replace(/[^\w -]+/g, '').trim() || tr('linked.file-name', 'species')}.png`);
   $('linked').hidden = false;
   await new Promise((res) => { $('linked-go').onclick = res; });
   $('linked').hidden = true;
@@ -4935,4 +5095,4 @@ async function start() {
   }
   await boot();
 }
-start().catch((e) => fail('Something went wrong starting the GPU', String((e && e.message) || e)));
+start().catch((e) => fail(tr('err.boot', 'Something went wrong starting the GPU'), String((e && e.message) || e)));

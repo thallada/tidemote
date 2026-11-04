@@ -1,15 +1,30 @@
 // CPU climate rules shared by the page and headless simulation.
 import { DEFAULT_K } from './shaders.js';
+import { tr } from './i18n.js';
 
 export const seasonAt = (t) => 0.55 + 0.45 * Math.sin((t / 300) * Math.PI * 2);
 const climateMix = (a, b, t) => a + (b - a) * t;
 const climatePick = (r, a) => a[Math.floor(r() * a.length)];
-const ERA_ADJ = ['Restless', 'Dim', 'Bright', 'Still', 'Pale', 'Warm', 'Hollow', 'Rising', 'Long', 'Bitter', 'Green', 'Silver'];
-const ERA_NOUN = ['Glare', 'Tides', 'Drift', 'Calm', 'Surge', 'Murk', 'Bloom', 'Shallows', 'Gyre', 'Hush'];
+// (the words eras are named from, as keys: eraName gives them in the page's words)
+const ERA_ADJ = ['Restless', 'Dim', 'Bright', 'Still', 'Pale', 'Warm', 'Hollow', 'Rising', 'Long', 'Bitter', 'Green', 'Silver']; // i18n-ignore
+const ERA_NOUN = ['Glare', 'Tides', 'Drift', 'Calm', 'Surge', 'Murk', 'Bloom', 'Shallows', 'Gyre', 'Hush']; // i18n-ignore
 // An era that warms or cools by 5° or more is named for it; the others draw from the rest.
-const WARMING = ['Warm', 'Rising'], COOLING = ['Bitter', 'Pale'];
+const WARMING = ['Warm', 'Rising'], COOLING = ['Bitter', 'Pale']; // i18n-ignore
 const TEMPERATE = ERA_ADJ.filter((a) => !WARMING.includes(a) && !COOLING.includes(a));
 export const TEMP_MIN = 4, TEMP_MAX = 28;
+// An era's name (climate.name) is kept in English, as a key: the soundtrack hears it (each era's music is keyed by its
+// words: audio/conductor.js eraMusic, score.js), saves and headless runs record it. eraName gives it in the page's words.
+const FIRST_ERA = 'The First Tides'; // i18n-ignore (the key; eraName gives its words)
+const ERA_RE = /^The (\w+) (\w+)$/;
+/** An era's name (climate.name, or a history entry's) as the page shows it. */
+export function eraName(name) {
+  if (name === FIRST_ERA) return tr('climate.era.first', 'The First Tides');
+  const m = ERA_RE.exec(name || '');
+  if (!m || !ERA_ADJ.includes(m[1]) || !ERA_NOUN.includes(m[2])) return name;
+  // i18n: an era's name, drawn at random from these words; in a language whose adjectives agree with their noun, nest
+  // the selects (one for each noun, the adjectives inside it)
+  return tr('climate.era', 'The {adj, select, Restless {Restless} Dim {Dim} Bright {Bright} Still {Still} Pale {Pale} Warm {Warm} Hollow {Hollow} Rising {Rising} Long {Long} Bitter {Bitter} Green {Green} Silver {Silver} other {{adj}}} {noun, select, Glare {Glare} Tides {Tides} Drift {Drift} Calm {Calm} Surge {Surge} Murk {Murk} Bloom {Bloom} Shallows {Shallows} Gyre {Gyre} Hush {Hush} other {{noun}}}', { adj: m[1], noun: m[2] });
+}
 // the background water's temperature at the depth of a frost's night (°C)
 export const FROST_WATER = 0.5;
 
@@ -109,11 +124,11 @@ export function createClimate(eng, rng = Math.random) {
   const gap = () => climateMix(0.5, 1.5, rng()) * K.eventEvery * 60;
   function reset() {
     Object.assign(climate, {
-      name: 'The First Tides', started: 0, next: climateMix(600, 900, rng()),
+      name: FIRST_ERA, started: 0, next: climateMix(600, 900, rng()),
       ambientTo: eng.ambient, tideTo: Array.from(eng.tide.filter((_, i) => i % 4 === 3)),
       tempTo: eng.temp, excursion: null, announced: null,
       flow: null, index: 1,
-      history: [{ t: 0, name: 'The First Tides', ambient: eng.ambient, temp: eng.temp }],
+      history: [{ t: 0, name: FIRST_ERA, ambient: eng.ambient, temp: eng.temp }],
       levelTo: 1, levelMid: undefined, event: null, events: [], phase: null, plan: plan(),
       nextEvent: K.eventEvery > 0 && !K.eventPlan ? K.eventFirst * 60 + gap() * 0.5 : Infinity,
     });
@@ -190,7 +205,7 @@ export function createClimate(eng, rng = Math.random) {
     climate.tempTo = Math.min(TEMP_MAX, Math.max(TEMP_MIN, prevTemp + climateMix(-10, 10, r())));
     const dT = climate.tempTo - prevTemp;
     const adj = climatePick(r, dT >= 5 ? WARMING : dT <= -5 ? COOLING : TEMPERATE);
-    climate.name = `The ${adj} ${climatePick(r, ERA_NOUN)}`;
+    climate.name = `The ${adj} ${climatePick(r, ERA_NOUN)}`; // i18n-ignore (the era's key: eraName gives its words)
     climate.started = t;
     climate.next = t + climateMix(600, 1080, r());
     // a heat wave or a cold snap in about a third of eras, somewhere in its middle

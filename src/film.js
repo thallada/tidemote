@@ -20,6 +20,7 @@
 // lower limit; tools/film-check.mjs, tools/film-quality.mjs) and __FILM_PROBE (film-quality's barcode
 // and lossless frames).
 import { createWebmFix } from './webm.js';
+import { tr } from './i18n.js';
 
 // H.264 in MP4 first: browsers encode it on the GPU where they can (Chrome on Windows and macOS), so a film
 // keeps its 30 frames a second and the page its pace, and it plays everywhere; AAC where the browser has
@@ -58,7 +59,7 @@ function filmLimit(kind, free = Infinity, small = false) {
 }
 
 /** Whether this is a phone or a machine with little memory (navigator.deviceMemory, where told). */
-const smallDevice = () => (navigator.deviceMemory != null && navigator.deviceMemory <= 4) || !!globalThis.matchMedia?.('(pointer: coarse)').matches;
+const smallDevice = () => (navigator.deviceMemory != null && navigator.deviceMemory <= 4) || !!globalThis.matchMedia?.('(pointer: coarse)').matches; // i18n-ignore
 
 // ---------------------------------------------------------------- sinks
 // open(name) -> { kind, cap, write(bytes, blob?), patch(at, bytes), finish() -> { blob?, path? }, abort() }
@@ -152,7 +153,7 @@ export function createFilm({ canvas, source = null, overlay = null, caption = nu
     st.track = stream.getVideoTracks()[0];
     st.last = -Infinity;
     const snd = audio();
-    if (snd) for (const tr of snd.getAudioTracks()) stream.addTrack(tr);
+    if (snd) for (const k of snd.getAudioTracks()) stream.addTrack(k);
     let rec;
     // A keyframe a second: Chrome's MP4 comes a fragment per keyframe, every 3.4 s by itself, so the size
     // shown would step every 3.4 s; a second's keyframes cost nothing measurable (docs/film.md, Quality)
@@ -174,7 +175,7 @@ export function createFilm({ canvas, source = null, overlay = null, caption = nu
     let failed = false;
     const fail = (e) => {
       if (failed) return; failed = true;
-      onError(`The film could not be written: ${e?.message || e}`);
+      onError(tr('filming.error.write', 'The film could not be written: {error}', { error: String(e?.message || e) }));
       if (rec.state !== 'inactive') rec.stop();
     };
     rec.ondataavailable = (e) => {
@@ -193,7 +194,7 @@ export function createFilm({ canvas, source = null, overlay = null, caption = nu
       }).catch((err) => { fail(err); return st.sink; });
     };
     rec.onstop = () => {
-      for (const tr of stream.getVideoTracks()) tr.stop();
+      for (const k of stream.getVideoTracks()) k.stop();
       st.rec = null;
       st.tEnd = performance.now();
       set('saving');
@@ -208,7 +209,7 @@ export function createFilm({ canvas, source = null, overlay = null, caption = nu
       }).then((out) => {
         set('idle');
         if (out && (out.path || (out.blob && out.blob.size))) onSaved?.({ ...out, name: file, bytes: st.bytes, why: st.why });
-      }).catch((err) => { set('idle'); onError(`The film could not be saved: ${err?.message || err}`); });
+      }).catch((err) => { set('idle'); onError(tr('filming.error.save', 'The film could not be saved: {error}', { error: String(err?.message || err) })); });
     };
     rec.start(1000);
     st.rec = rec;
@@ -237,7 +238,7 @@ export function createFilm({ canvas, source = null, overlay = null, caption = nu
     const part = (cls) => caption.querySelector(`.${cls}`)?.textContent || '';
     const eye = part('cap-eye'), main = part('cap-main'), sub = part('cap-sub');
     if (st.capA < 0.02 || !main) return;
-    const s = h / 1080, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif';
+    const s = h / 1080, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif'; // i18n-ignore (a font)
     ctx.save();
     ctx.globalAlpha = st.capA;
     ctx.textAlign = 'center';
@@ -265,7 +266,7 @@ export function createFilm({ canvas, source = null, overlay = null, caption = nu
     drawCaption(ctx, w, h);
     const s = h / 1080;
     ctx.save();
-    ctx.font = `500 ${Math.round(15 * s)}px Saira, system-ui, sans-serif`;
+    ctx.font = `500 ${Math.round(15 * s)}px Saira, system-ui, sans-serif`; // i18n-ignore (a font)
     ctx.textAlign = 'right';
     ctx.fillStyle = 'rgba(226,241,240,0.6)';
     ctx.fillText(title(), w - 24 * s, 34 * s);

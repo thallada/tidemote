@@ -9,6 +9,9 @@ import { HEAT_BINS, HEAT_BIN, THERMAL_LEDGER } from './shaders.js';
 import { block, disclosure, wireDisclosures } from './ui.js';
 import { setText, setHTML } from './live.js';
 import { filterCards } from './cabinet.js';
+import { FACET_NAME } from './facets.js';
+import { tr } from './i18n.js';
+import { eraName } from './climate.js';
 import { wireCardDrag, setStatus } from './minicard.js';
 
 /**
@@ -36,8 +39,8 @@ export function createLab(api) {
     document.body.classList.toggle('lab-open', st.open);
     document.body.classList.toggle('lab-wide', st.open && st.tab !== 'census');
     fold.setAttribute('aria-expanded', String(st.open));
-    fold.setAttribute('aria-label', st.open ? 'Collapse the Lab' : 'Open the Lab');
-    fold.dataset.hint = st.open ? 'Collapse · K' : 'Open the Lab · K';
+    fold.setAttribute('aria-label', st.open ? tr('lab.close.aria', 'Collapse the Lab') : tr('lab.fold.open.aria', 'Open the Lab'));
+    fold.dataset.hint = st.open ? tr('lab.close.hint', 'Collapse · K') : tr('lab.fold.open.hint', 'Open the Lab · K');
     $('lab-open').setAttribute('aria-expanded', String(st.open));
   }
   function open(tab) {
@@ -89,7 +92,7 @@ export function createLab(api) {
   }
   const chips = (key, opts, cur) => opts.map(([v, l]) => `<button type="button" class="chip" data-k="${key}" data-v="${v}" aria-pressed="${v === cur}">${l}</button>`).join('');
   const pressChips = (ctl, key) => ctl.querySelectorAll(`[data-k="${key}"]`).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === st[key])));
-  const seg = (label, key, opts) => `<span class="lbl">${label}</span><div class="segs" role="group" aria-label="${key}">${chips(key, opts, st[key])}</div>`;
+  const seg = (label, key, opts) => `<span class="lbl">${label}</span><div class="segs" role="group" aria-label="${label.replace(/<[^>]*>/g, '')}">${chips(key, opts, st[key])}</div>`;
   // a click on a filter chip sets its key, on the Filters button (#id) opens or closes the filters: true if either
   function filterClick(e, ctl, id, update) {
     const b = e.target.closest('[data-k]');
@@ -102,11 +105,21 @@ export function createLab(api) {
   const hovering = (el) => el.matches(':hover');
 
   // ---------------------------------------------------------- species
-  const DIETS = [['all', 'Any'], ['photosynth', 'Photosynth'], ['grazer', 'Grazer'], ['scavenger', 'Scavenger'], ['predator', 'Predator']];
-  const MOBS = [['all', 'Any'], ['anchored', 'Anchored'], ['crawler', 'Crawler'], ['swimmer', 'Swimmer'], ['drifter', 'Drifter']];
+  // i18n: a filter chip (Lab → Species, Lab → Cabinet) that filters nothing out
+  const ANY = tr('lab.filter.any', 'Any');
+  // i18n: filter chips (Lab → Species, Lab → Cabinet): the diets, the movements
+  const DIETS = [['all', ANY], ['photosynth', tr('lab.filter.photosynth', 'Photosynth')], ['grazer', tr('lab.filter.grazer', 'Grazer')], ['scavenger', tr('lab.filter.scavenger', 'Scavenger')], ['predator', tr('lab.filter.predator', 'Predator')]];
+  const MOBS = [['all', ANY], ['anchored', tr('lab.filter.anchored', 'Anchored')], ['crawler', tr('lab.filter.crawler', 'Crawler')], ['swimmer', tr('lab.filter.swimmer', 'Swimmer')], ['drifter', tr('lab.filter.drifter', 'Drifter')]];
   // by preferred temperature (thermalGuild): cold-loving, temperate, warmth-loving and thermophile
-  const TEMPS = [['all', 'Any'], ['cold-loving', 'Cold'], ['temperate', 'Temperate'], ['warmth-loving', 'Warm'], ['thermophile', 'Hot']];
-  const SORTS = { pop: 'Population', peak: 'Peak', newest: 'Newest', oldest: 'Oldest', depth: 'Mutations', swim: 'Swimming', size: 'Size', ...(api.eng.K.heat ? { warm: 'Warmest' } : {}) };
+  // i18n: filter chips (Lab → Species, Temp): species by the temperature they prefer: cold-loving, temperate, warmth-loving, thermophile
+  const TEMPS = [['all', ANY], ['cold-loving', tr('lab.filter.cold', 'Cold')], ['temperate', tr('lab.filter.temperate', 'Temperate')], ['warmth-loving', tr('lab.filter.warm', 'Warm')], ['thermophile', tr('lab.filter.hot', 'Hot')]];
+  // i18n: filter chips (Lab → Species, Lab → Cabinet, Body): bonded into bodies, or never
+  const BODIES = [['all', ANY], ['multicellular', tr('lab.filter.multicellular', 'Multicellular')], ['single-cell', tr('lab.filter.single-cell', 'Single-cell')]];
+  // i18n: Lab → Species, Sort: what the list is ordered by (most cells, highest peak, newest, oldest, most mutations from the founder, best swimmers, largest, warmest preferred temperature)
+  const SORTS = { pop: tr('lab.sort.pop', 'Population'), peak: tr('lab.sort.peak', 'Peak'), newest: tr('lab.sort.newest', 'Newest'), oldest: tr('lab.sort.oldest', 'Oldest'), depth: tr('lab.sort.depth', 'Mutations'),
+    swim: tr('lab.sort.swim', 'Swimming'), size: tr('lab.sort.size', 'Size'), ...(api.eng.K.heat ? { warm: tr('lab.sort.warm', 'Warmest') } : {}) };
+  // i18n: a highlight's name in the bar under the top rail, from Lab → Species → Highlight these: its filters, lower case
+  const STATUS_NAME = { thriving: tr('lab.sp.focus.thriving', 'thriving'), alive: tr('lab.sp.focus.alive', 'alive'), extinct: tr('lab.sp.focus.extinct', 'extinct') };
   function matches(sp, F) {
     const f = api.facets(sp.genome);
     if (F.status === 'thriving' && !(sp.alive && sp.established)) return false;
@@ -128,13 +141,13 @@ export function createLab(api) {
   };
   function buildSpecies() {
     // the filters: one segmented row each, under a fixed label column
-    const p = pane(`<div class="qrow"><input type="search" id="lab-q" placeholder="Search by name" aria-label="Search species by name" autocomplete="off"><button type="button" class="chip filt" id="sp-filt" aria-expanded="false" aria-controls="sp-filters">Filters</button></div><div class="filters" id="sp-filters">
-      ${seg('Status', 'status', [['thriving', 'Thriving'], ['alive', 'Living'], ['extinct', 'Extinct'], ['all', 'Any']])}
-      ${seg(term('diet', 'Diet'), 'diet', DIETS)}
-      ${seg('Moves', 'mobility', MOBS)}
-      ${seg(term('organism', 'Body'), 'body', [['all', 'Any'], ['multicellular', 'Multicellular'], ['single-cell', 'Single-cell']])}
-      ${api.eng.K.heat ? seg(term('optimum', 'Temp'), 'temp', TEMPS) : ''}</div>
-      <div class="sum"><span><span id="sp-sum"></span><button type="button" class="link" id="sp-reset" hidden>Reset</button></span><span class="sel"><label class="lbl" for="sp-sort">Sort</label><select id="sp-sort">${Object.entries(SORTS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select><button type="button" class="chip" id="sp-hl">Highlight these</button></span></div>`);
+    const p = pane(`<div class="qrow"><input type="search" id="lab-q" placeholder="${tr('lab.sp.search.ph', 'Search by name')}" aria-label="${tr('lab.sp.search.aria', 'Search species by name')}" autocomplete="off"><button type="button" class="chip filt" id="sp-filt" aria-expanded="false" aria-controls="sp-filters">${tr('lab.filter.button', 'Filters')}</button></div><div class="filters" id="sp-filters">
+      ${seg(tr('lab.filter.status', 'Status'), 'status', [['thriving', tr('lab.filter.thriving', 'Thriving')], ['alive', tr('lab.filter.living', 'Living')], ['extinct', tr('lab.filter.extinct', 'Extinct')], ['all', ANY]])}
+      ${seg(term('diet', tr('lab.filter.diet', 'Diet')), 'diet', DIETS)}
+      ${seg(tr('lab.filter.moves', 'Moves'), 'mobility', MOBS)}
+      ${seg(term('organism', tr('lab.filter.body', 'Body')), 'body', BODIES)}
+      ${api.eng.K.heat ? seg(term('optimum', tr('lab.filter.temp', 'Temp')), 'temp', TEMPS) : ''}</div>
+      <div class="sum"><span><span id="sp-sum"></span><button type="button" class="link" id="sp-reset" hidden>${tr('lab.filter.reset', 'Reset')}</button></span><span class="sel"><label class="lbl" for="sp-sort">${tr('lab.sp.sort', 'Sort')}</label><select id="sp-sort">${Object.entries(SORTS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select><button type="button" class="chip" id="sp-hl">${tr('lab.sp.highlight', 'Highlight these')}</button></span></div>`);
     const list = document.createElement('ol');
     list.className = 'splist';
     p.scroll.append(list);
@@ -156,8 +169,11 @@ export function createLab(api) {
       }
       if (e.target.closest('#sp-hl')) {
         const F = { ...st };
-        const parts = [F.status !== 'all' ? F.status : '', F.diet !== 'all' ? F.diet : '', F.mobility !== 'all' ? F.mobility : '', F.body !== 'all' ? F.body : '', F.temp !== 'all' ? F.temp : '', F.q ? `“${F.q}”` : ''].filter(Boolean);
-        api.focusPredicate(`Species: ${parts.join(' · ') || 'all'}`, (g, sp) => !!sp && sp.alive && matches(sp, F));
+        const N = (k) => FACET_NAME[k] ?? k;
+        // i18n: {q} is what was typed in the search box
+        const parts = [F.status !== 'all' ? STATUS_NAME[F.status] ?? F.status : '', F.diet !== 'all' ? N(F.diet) : '', F.mobility !== 'all' ? N(F.mobility) : '', F.body !== 'all' ? N(F.body) : '', F.temp !== 'all' ? N(F.temp) : '', F.q ? tr('lab.sp.focus.q', '“{q}”', { q: F.q }) : ''].filter(Boolean);
+        // i18n: {filters} is the filters chosen, joined by " · " (thriving · predator · swimmer), or the word for all of them
+        api.focusPredicate(tr('lab.sp.focus', 'Species: {filters}', { filters: parts.join(' · ') || tr('lab.sp.focus.all', 'all') }), (g, sp) => !!sp && sp.alive && matches(sp, F));
       }
     });
     list.addEventListener('click', (e) => {
@@ -175,7 +191,7 @@ export function createLab(api) {
         li.dataset.serial = sp.serial;
         li.tabIndex = 0;
         const f = api.facets(sp.genome);
-        li.innerHTML = `<span class="spsig term" data-tip="sigil">${sigilSVG(voiceOf(sp.genome), sp.genome, { size: 26 })}</span><div class="spmain">${spLink(sp.serial, sp.name)}<small>${f.diet} · ${f.mobility} · ${f.body}</small></div><svg viewBox="0 0 78 22" class="spark" aria-hidden="true"><path stroke="${cssCol(sp.genome.col)}"/></svg><div class="spnum"><b></b><span></span></div>`;
+        li.innerHTML = `<span class="spsig term" data-tip="sigil">${sigilSVG(voiceOf(sp.genome), sp.genome, { size: 26 })}</span><div class="spmain">${spLink(sp.serial, sp.name)}<small>${tr('lab.sp.row', '{diet} · {mobility} · {body}', { diet: FACET_NAME[f.diet] ?? f.diet, mobility: FACET_NAME[f.mobility] ?? f.mobility, body: FACET_NAME[f.body] ?? f.body })}</small></div><svg viewBox="0 0 78 22" class="spark" aria-hidden="true"><path stroke="${cssCol(sp.genome.col)}"/></svg><div class="spnum"><b></b><span></span></div>`;
         r = { li, path: li.querySelector('path'), b: li.querySelector('.spnum b'), s: li.querySelector('.spnum span'), key: '' };
         rows.set(sp.serial, r);
       }
@@ -188,9 +204,11 @@ export function createLab(api) {
       const all = [...life.reg.values()].filter((sp) => matches(sp, st)).sort(BY[st.sort]);
       const shown = all.slice(0, 150);
       const tot = all.reduce((a, s) => a + s.pop, 0);
-      setText($('sp-sum'), `${fmt(all.length)} species · ${fmt(tot)} cells · ${((tot / living) * 100).toFixed(1)}% of life`);
+      // i18n: the species the filters show, their living cells and their share of all life ({share}: a percentage, 12.5)
+      setText($('sp-sum'), tr('lab.sp.sum', '{species, plural, other {# species}} · {cells, plural, other {# cells}} · {share}% of life', { species: all.length, cells: tot, share: ((tot / living) * 100).toFixed(1) }));
       const nf = ['status', 'diet', 'mobility', 'body'].filter((k) => st[k] !== (k === 'status' ? 'thriving' : 'all')).length;
-      setText($('sp-filt'), nf ? `Filters · ${nf}` : 'Filters');
+      // i18n: the Filters button, with how many filters are set
+      setText($('sp-filt'), nf ? tr('lab.filter.button-n', 'Filters · {n}', { n: nf }) : tr('lab.filter.button', 'Filters'));
       $('sp-reset').hidden = !nf;
       const now = performance.now();
       const sparks = force || now - sparkAt > 3000;
@@ -206,7 +224,8 @@ export function createLab(api) {
         const known = rows.has(sp.serial);
         if (keep && !known) continue;
         const r = row(sp);
-        const share = sp.alive ? `${((sp.pop / living) * 100).toFixed(1)}%` : `ended ${fmtClock(sp.extinct ?? 0)}`;
+        // i18n: a species' row: its share of all living cells (12.5%), or when it died out ({t}: a clock)
+        const share = sp.alive ? tr('lab.sp.share', '{share}%', { share: ((sp.pop / living) * 100).toFixed(1) }) : tr('lab.sp.ended', 'ended {t}', { t: fmtClock(sp.extinct ?? 0) });
         const k = `${sp.pop}|${share}`;
         if (k !== r.key) { r.key = k; setText(r.b, sp.alive ? fmt(sp.pop) : '–'); setText(r.s, share); }
         r.li.classList.toggle('gone', !sp.alive);
@@ -219,7 +238,8 @@ export function createLab(api) {
         }
       }
       if (!keep) {
-        setText(more, all.length > 150 ? `${fmt(all.length - 150)} more; narrow the filters to see them.` : all.length ? '' : 'No species match these filters.');
+        // i18n: under a list cut short: how many species more match
+        setText(more, all.length > 150 ? tr('lab.sp.more', '{n, plural, other {# more}}; narrow the filters to see them.', { n: all.length - 150 }) : all.length ? '' : tr('lab.sp.none', 'No species match these filters.'));
         if (more.textContent) list.append(more); else more.remove();
       }
     }
@@ -233,21 +253,22 @@ export function createLab(api) {
   // recuts it, so finer lineages appear; every species is a few steps away.
   function buildLineage() {
     const seg = (label, key, opts) => `<span class="lbl">${label}</span><div class="segs" role="group" aria-label="${label}">${chips(key, opts, String(st[key]))}</div>`;
+    // i18n: Lab → Lineage's options: which lineages (all, or only those still alive), over what span of time, how many rows at most
     const p = pane(`<div class="filters">
-      ${seg('Show', 'linAll', [['true', 'Every lineage'], ['false', 'Living lineages']])}
-      ${seg('Span', 'linSpan', [['all', 'Whole world'], ['3600', 'Last hour'], ['600', 'Last 10 min']])}
-      ${seg('Rows', 'linK', [['15', '15'], ['30', '30'], ['60', '60']])}</div>
-      <div class="sum"><span><span id="lin-sum"></span><button type="button" class="link" id="lin-back" hidden>All lineages</button></span><span class="lbl lin-key">Height: cells · drag to zoom</span><button type="button" class="chip filt" id="lin-filt" aria-expanded="false">Options</button></div>
-      <div class="lin-muller"><canvas id="lin-muller" aria-label="Cells by lineage over time"></canvas><div class="lin-brush" hidden></div></div>`, 'lineage');
+      ${seg(tr('lab.lin.show', 'Show'), 'linAll', [['true', tr('lab.lin.show.every', 'Every lineage')], ['false', tr('lab.lin.show.living', 'Living lineages')]])}
+      ${seg(tr('lab.lin.span', 'Span'), 'linSpan', [['all', tr('lab.lin.span.all', 'Whole world')], ['3600', tr('lab.lin.span.hour', 'Last hour')], ['600', tr('lab.lin.span.ten-min', 'Last 10 min')]])}
+      ${seg(tr('lab.lin.rows', 'Rows'), 'linK', [['15', '15'], ['30', '30'], ['60', '60']])}</div>
+      <div class="sum"><span><span id="lin-sum"></span><button type="button" class="link" id="lin-back" hidden>${tr('lab.lin.back', 'All lineages')}</button></span><span class="lbl lin-key">${tr('lab.lin.key', 'Height: cells · drag to zoom')}</span><button type="button" class="chip filt" id="lin-filt" aria-expanded="false">${tr('lab.lin.options', 'Options')}</button></div>
+      <div class="lin-muller"><canvas id="lin-muller" aria-label="${tr('lab.lin.plot.aria', 'Cells by lineage over time')}"></canvas><div class="lin-brush" hidden></div></div>`, 'lineage');
     const treeCv = document.createElement('canvas');
     treeCv.className = 'lin-tree';
     treeCv.id = 'lin-tree';
     const list = document.createElement('ul');
     list.className = 'sr-only';
-    list.setAttribute('aria-label', 'Lineages');
+    list.setAttribute('aria-label', tr('lab.lin.list.aria', 'Lineages'));
     const empty = document.createElement('p');
     empty.className = 'note';
-    empty.textContent = 'Lineages appear here once species become established.';
+    empty.textContent = tr('lab.lin.empty', 'Lineages appear here once species become established.');
     p.scroll.append(empty, treeCv, list);
     const mCv = p.ctl.querySelector('#lin-muller'), brush = p.ctl.querySelector('.lin-brush');
     let model = null, modelKey = '', c = null, box = null, lay = null, eras = [], lastAt = 0, lastKey = '';
@@ -344,10 +365,12 @@ export function createLab(api) {
       eras = api.climate().history.slice(1);
       const r = rootStrand();
       c = cut(model, { t0, t1, k: st.linK, live: !st.linAll, root: r, n: Math.min(320, Math.round(W / 2)) });
-      setText($('lin-sum'), `${r ? `${r.first.name}'s line · ` : ''}${fmt(c.units.length)} of ${fmt(c.lineages)} lineages · ${fmt(c.species)} species`);
+      // i18n: the lineages shown of all those in the span, and the species they hold; when one lineage is followed, after its founder's name ({name})
+      setText($('lin-sum'), r ? tr('lab.lin.sum-root', "{name}'s line · {shown, number} of {lineages, plural, other {# lineages}} · {species, plural, other {# species}}", { name: r.first.name, shown: c.units.length, lineages: c.lineages, species: c.species })
+        : tr('lab.lin.sum', '{shown, number} of {lineages, plural, other {# lineages}} · {species, plural, other {# species}}', { shown: c.units.length, lineages: c.lineages, species: c.species }));
       const back = $('lin-back');
       back.hidden = !r && !Array.isArray(st.linSpan);
-      setText(back, r ? '← All lineages' : '← Whole world');
+      setText(back, r ? tr('lab.lin.back.lineages', '← All lineages') : tr('lab.lin.back.world', '← Whole world'));
       const any = !!(c.units.length || c.other);
       empty.hidden = any;
       mCv.parentElement.hidden = treeCv.hidden = !any;
@@ -359,7 +382,8 @@ export function createLab(api) {
       drawT(null);
       setHTML(list, c.units.map((u, i) => {
         const n = u.members.findLast((x) => x.alive) || u.members.at(-1);
-        return `<li><button type="button" data-u="${i}" data-sp="${n.serial}">${esc(n.name)}: ${fmt(u.count)} species, ${u.alive ? 'living' : 'extinct'}</button><button type="button" data-u="${i}" data-do="follow">Follow its lineage</button></li>`;
+        // i18n: for screen readers, each lineage on the plot: its latest species' name, how many species it holds, living or extinct; and a button to follow it
+        return `<li><button type="button" data-u="${i}" data-sp="${n.serial}">${tr('lab.lin.item', '{name}: {count, plural, other {# species}}, {alive, select, yes {living} other {extinct}}', { name: esc(n.name), count: u.count, alive: u.alive ? 'yes' : 'no' })}</button><button type="button" data-u="${i}" data-do="follow">${tr('lab.lin.follow', 'Follow its lineage')}</button></li>`;
       }).join(''));
     }
     return { ...p, update };
@@ -380,36 +404,41 @@ export function createLab(api) {
       const life = api.life();
       const roles = life.roles || [0, 0, 0];
       const g = api.groups();
+      const N = (k) => FACET_NAME[k] ?? k;
+      // [key (data-disc), heading, glossary term, rows]
+      // i18n: Lab → Census: the breakdowns of the living, each a heading that folds over a bar per kind
       return [
-        ['Diet', 'diet', g.diet.map((d) => ({ key: `diet:${d.name}`, label: d.name, n: d.n, col: d.col }))],
-        ['Movement', null, g.mobility.map((d) => ({ key: `mobility:${d.name}`, label: d.name, n: d.n, col: d.col }))],
-        ['Body', 'organism', g.body.map((d) => ({ key: `body:${d.name}`, label: d.name, n: d.n, col: d.col }))],
-        ...(api.eng.K.heat ? [['Temperature', 'optimum', g.temp.map((d) => ({ key: `temp:${d.name}`, label: d.name, n: d.n, col: d.col }))]] : []),
-        ['Cells by type', 'celltype', ROLE.map((r, i) => ({ key: `role:${i}`, label: `${r}-cells`, n: roles[i], col: ['#ffb45e', '#b38cff', '#5fd4c4'][i] }))],
-        ['Cell types per species', 'bodyplan', g.types.map((d) => ({ key: `types:${d.name}`, label: `${d.name} type${d.name === '1' ? '' : 's'}`, n: d.n, col: d.col }))],
+        ['diet', tr('census.by.diet', 'Diet'), 'diet', g.diet.map((d) => ({ key: `diet:${d.name}`, label: N(d.name), n: d.n, col: d.col }))],
+        ['movement', tr('census.by.movement', 'Movement'), null, g.mobility.map((d) => ({ key: `mobility:${d.name}`, label: N(d.name), n: d.n, col: d.col }))],
+        ['body', tr('census.by.body', 'Body'), 'organism', g.body.map((d) => ({ key: `body:${d.name}`, label: N(d.name), n: d.n, col: d.col }))],
+        ...(api.eng.K.heat ? [['temperature', tr('census.by.temperature', 'Temperature'), 'optimum', g.temp.map((d) => ({ key: `temp:${d.name}`, label: N(d.name), n: d.n, col: d.col }))]] : []),
+        // i18n: {role} is a cell type's letter: α, β or γ
+        ['cells by type', tr('census.by.role', 'Cells by type'), 'celltype', ROLE.map((r, i) => ({ key: `role:${i}`, label: tr('census.role', '{role}-cells', { role: r }), n: roles[i], col: ['#ffb45e', '#b38cff', '#5fd4c4'][i] }))], // i18n-ignore: data-disc key
+        ['cell types per species', tr('census.by.types', 'Cell types per species'), 'bodyplan', g.types.map((d) => ({ key: `types:${d.name}`, label: tr('census.types', '{n, plural, one {# type} other {# types}}', { n: +d.name }), n: d.n, col: d.col }))], // i18n-ignore: data-disc key
       ];
     }
     function update(force) {
       if (!api.life()) return; // the Lab opens before the first world is seeded
       const secs = sections();
-      const k = secs.map(([t, , r]) => t + r.map((x) => x.key).join()).join('|');
+      const k = secs.map(([key, , , r]) => key + r.map((x) => x.key).join()).join('|');
       if (k !== shape) {
         shape = k;
         // each breakdown folds to its heading, which keeps a bar of the shares (Diet starts open)
-        const bars = ([title, tip, rows]) => disclosure(title.toLowerCase(), tip ? `<span class="term" data-tip="${tip}">${title}</span>` : title,
+        const bars = ([key, title, tip, rows]) => disclosure(key, tip ? `<span class="term" data-tip="${tip}">${title}</span>` : title,
           `<div class="bars">${rows.map((r) => `<button type="button" class="barrow" data-focus="${r.key}" aria-pressed="false"><span class="bl">${r.label}</span><span class="meter" style="color:${r.col}"><i></i></span><span class="bn"></span><span class="bp"></span></button>`).join('')}</div>`,
-          !!st.open_[title.toLowerCase()], `<span class="sharebar" aria-hidden="true">${rows.map((r) => `<i style="background:${r.col}"></i>`).join('')}</span>`);
+          !!st.open_[key], `<span class="sharebar" aria-hidden="true">${rows.map((r) => `<i style="background:${r.col}"></i>`).join('')}</span>`);
         box.innerHTML = secs.map(bars).join('')
-          + block('Condition', `<div class="segs even" role="group" aria-label="Condition">
-            <button type="button" class="chip" data-focus="state:1" aria-pressed="false" data-hint="Under 35% of the energy needed to divide">Hungry</button>
-            <button type="button" class="chip" data-focus="state:2" aria-pressed="false" data-hint="Over 85% of the energy needed to divide">Ready to divide</button>
-            <button type="button" class="chip" data-focus="state:3" aria-pressed="false" data-hint="Past 80% of their lifespan">Elderly</button>${api.eng.K.heat ? `
-            <button type="button" class="chip" data-focus="state:4" aria-pressed="false" data-hint="Warmer than they can comfortably bear">Heat-stressed</button>
-            <button type="button" class="chip" data-focus="state:5" aria-pressed="false" data-hint="Too cold to feed, swim or divide">Torpid</button>` : ''}</div>`);
+          // i18n: Lab → Census, Condition: chips that highlight the cells in a state, each with its hint
+          + block(tr('census.cond', 'Condition'), `<div class="segs even" role="group" aria-label="${tr('census.cond.aria', 'Condition')}">
+            <button type="button" class="chip" data-focus="state:1" aria-pressed="false" data-hint="${tr('census.cond.hungry.hint', 'Under 35% of the energy needed to divide')}">${tr('census.cond.hungry', 'Hungry')}</button>
+            <button type="button" class="chip" data-focus="state:2" aria-pressed="false" data-hint="${tr('census.cond.ready.hint', 'Over 85% of the energy needed to divide')}">${tr('census.cond.ready', 'Ready to divide')}</button>
+            <button type="button" class="chip" data-focus="state:3" aria-pressed="false" data-hint="${tr('census.cond.elderly.hint', 'Past 80% of their lifespan')}">${tr('census.cond.elderly', 'Elderly')}</button>${api.eng.K.heat ? `
+            <button type="button" class="chip" data-focus="state:4" aria-pressed="false" data-hint="${tr('census.cond.heat.hint', 'Warmer than they can comfortably bear')}">${tr('census.cond.heat', 'Heat-stressed')}</button>
+            <button type="button" class="chip" data-focus="state:5" aria-pressed="false" data-hint="${tr('census.cond.torpid.hint', 'Too cold to feed, swim or divide')}">${tr('census.cond.torpid', 'Torpid')}</button>` : ''}</div>`);
       }
       const fk = api.focusKey();
       const els = box.querySelectorAll('.bars');
-      secs.forEach(([, , rows], si) => {
+      secs.forEach(([, , , rows], si) => {
         const max = Math.max(1, ...rows.map((r) => r.n));
         const tot = Math.max(1, rows.reduce((a, r) => a + r.n, 0));
         const share = els[si].closest('.disc').querySelector('.sharebar').children;
@@ -430,29 +459,31 @@ export function createLab(api) {
   }
 
   // ---------------------------------------------------------- charts
+  // i18n: Lab → Charts: each chart's heading (also its canvas's label) and the names of its lines (its legend, and the plate that reads them at a moment)
   const CHARTS = [
-    ['Population', null, [{ k: 'living', label: 'living cells', col: LIVING_CSS }, { k: 'husk', label: 'husks', col: '#9a6c4c' }]],
-    ['Species', 'diversity', [{ k: 'alive', label: 'alive', col: '#a3bdbe' }, { k: 'thriving', label: 'thriving', col: '#f1e3a0' }, { k: 'diversity', label: 'effective species', col: '#7fe0b0' }]],
-    ['Births and deaths per minute', null, [{ k: 'births', label: 'births', col: '#7fe0b0' }, { k: 'starve', label: 'starved', col: '#ff8a6b' }, { k: 'old', label: 'old age', col: '#c9b8ff' }, { k: 'eaten', label: 'eaten', col: '#ff5f3a' }]],
-    ['Meals per minute', 'flesh', [{ k: 'bite', label: 'bites of producers', col: '#d9f27a' }, { k: 'scav', label: 'husks', col: '#a87b5c' }, { k: 'prey', label: 'kills', col: '#ff5f3a' }]],
-    ['New species and extinctions per minute', 'mutation', [{ k: 'mut', label: 'new species', col: '#c9b8ff' }, { k: 'ext', label: 'extinctions', col: '#ff8a6b' }]],
-    ['Climate', 'season', [{ k: 'ambient', label: 'baseline light', col: '#d9f27a' }, { k: 'season', label: 'tide strength', col: '#5fd4c4' }], '%'],
+    [tr('lab.graph.population', 'Population'), null, [{ k: 'living', label: tr('lab.graph.population.living', 'living cells'), col: LIVING_CSS }, { k: 'husk', label: tr('lab.graph.population.husks', 'husks'), col: '#9a6c4c' }]],
+    [tr('lab.graph.species', 'Species'), 'diversity', [{ k: 'alive', label: tr('lab.graph.species.alive', 'alive'), col: '#a3bdbe' }, { k: 'thriving', label: tr('lab.graph.species.thriving', 'thriving'), col: '#f1e3a0' }, { k: 'diversity', label: tr('lab.graph.species.diversity', 'effective species'), col: '#7fe0b0' }]],
+    [tr('lab.graph.births', 'Births and deaths per minute'), null, [{ k: 'births', label: tr('lab.graph.births.births', 'births'), col: '#7fe0b0' }, { k: 'starve', label: tr('lab.graph.births.starved', 'starved'), col: '#ff8a6b' }, { k: 'old', label: tr('lab.graph.births.old', 'old age'), col: '#c9b8ff' }, { k: 'eaten', label: tr('lab.graph.births.eaten', 'eaten'), col: '#ff5f3a' }]],
+    [tr('lab.graph.meals', 'Meals per minute'), 'flesh', [{ k: 'bite', label: tr('lab.graph.meals.bites', 'bites of producers'), col: '#d9f27a' }, { k: 'scav', label: tr('lab.graph.meals.husks', 'husks'), col: '#a87b5c' }, { k: 'prey', label: tr('lab.graph.meals.kills', 'kills'), col: '#ff5f3a' }]],
+    [tr('lab.graph.turnover', 'New species and extinctions per minute'), 'mutation', [{ k: 'mut', label: tr('lab.graph.turnover.new', 'new species'), col: '#c9b8ff' }, { k: 'ext', label: tr('lab.graph.turnover.ext', 'extinctions'), col: '#ff8a6b' }]],
+    [tr('lab.graph.climate', 'Climate'), 'season', [{ k: 'ambient', label: tr('lab.graph.climate.light', 'baseline light'), col: '#d9f27a' }, { k: 'season', label: tr('lab.graph.climate.tide', 'tide strength'), col: '#5fd4c4' }], '%'],
   ];
   // the heat charts, while the world has a heat field
   if (api.eng.K.heat) {
     CHARTS.push(
-      ['Temperature', 'water', [{ k: 'temp', label: 'background temperature', col: '#ff8a3a' }], '°'],
-      ['Heat deaths per minute', 'scalding', [{ k: 'scald', label: 'scalded', col: '#ff5f3a' }]],
-      ['Torpid', 'torpor', [{ k: 'torpid', label: 'share of the living', col: '#7fb0ff' }], '%'],
+      [tr('lab.graph.temperature', 'Temperature'), 'water', [{ k: 'temp', label: tr('lab.graph.temperature.water', 'background temperature'), col: '#ff8a3a' }], '°'],
+      [tr('lab.graph.heat-deaths', 'Heat deaths per minute'), 'scalding', [{ k: 'scald', label: tr('lab.graph.heat-deaths.scalded', 'scalded'), col: '#ff5f3a' }]],
+      [tr('lab.graph.torpid', 'Torpid'), 'torpor', [{ k: 'torpid', label: tr('lab.graph.torpid.share', 'share of the living'), col: '#7fb0ff' }], '%'],
     );
   }
   function buildCharts() {
     const p = pane('');
     p.scroll.classList.add('stack');
-    p.scroll.innerHTML = `<div class="legend"><span><i style="background:var(--sun);height:6px;width:1px"></i>dotted lines mark a new era</span></div>`
+    p.scroll.innerHTML = `<div class="legend"><span><i style="background:var(--sun);height:6px;width:1px"></i>${tr('lab.graph.era-key', 'dotted lines mark a new era')}</span></div>`
       + CHARTS.map(([t, tip, s], i) => block(t, `<canvas class="dyn chart" data-i="${i}" aria-label="${esc(t)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join('')}</div>`, { tip })).join('')
-      + (api.eng.K.heat ? block('Thermal niches', `<canvas class="niches chart" aria-label="Each species by the temperature it prefers and its population. Point at a dot to name its species; click to open it."></canvas><div class="legend"><span><i style="background:#ff8a3a;opacity:.4"></i>warmth the living feel</span><span><i style="background:#ff8a3a;height:6px;width:1px"></i>background temperature</span><span>dot size: tolerance · ring: ${term('heatmaker', 'heat-maker')}</span></div>`, { tip: 'optimum' }) : '')
-      + block('Eras', '<ol class="eras" id="eras"></ol>');
+      // i18n: Lab → Charts, Thermal niches: its heading, its canvas's label and its legend (the shaded bars, the dotted line, the dots)
+      + (api.eng.K.heat ? block(tr('lab.graph.niches', 'Thermal niches'), `<canvas class="niches chart" aria-label="${tr('lab.graph.niches.aria', 'Each species by the temperature it prefers and its population. Point at a dot to name its species; click to open it.')}"></canvas><div class="legend"><span><i style="background:#ff8a3a;opacity:.4"></i>${tr('lab.graph.niches.felt', 'warmth the living feel')}</span><span><i style="background:#ff8a3a;height:6px;width:1px"></i>${tr('lab.graph.niches.water', 'background temperature')}</span><span>${tr('lab.graph.niches.dots', 'dot size: tolerance · ring: <term>heat-maker</term>', { term: (c) => term('heatmaker', c.join('')) })}</span></div>`, { tip: 'optimum' }) : '')
+      + block(tr('lab.graph.eras', 'Eras'), '<ol class="eras" id="eras"></ol>');
     const cvs = [...p.scroll.querySelectorAll('canvas.dyn')];
     const niches = p.scroll.querySelector('canvas.niches');
     let erasN = -1, excN = 0;
@@ -471,8 +502,18 @@ export function createLab(api) {
       const exc = eras.filter((h) => h.excursion).length;
       if (eras.length !== erasN || exc !== excN) {
         erasN = eras.length; excN = exc;
-        const water = (h) => (api.eng.K.heat && h.temp != null ? ` · temperature ${Math.round(h.temp)}°${h.excursion ? ` · ${h.excursion.dT > 0 ? 'heat wave' : 'cold snap'} ${h.excursion.dT > 0 ? '+' : '−'}${Math.abs(h.excursion.dT).toFixed(0)}°` : ''}` : '');
-        setHTML($('eras'), eras.slice().reverse().map((h) => `<li><time>${fmtClock(h.t)}</time><b>${esc(h.name)}</b><span>light ${Math.round(h.ambient * 100)}%${water(h)}</span></li>`).join(''));
+        // i18n: an era in Lab → Charts → Eras, after its start and name: its baseline light (percent), the water's temperature
+        // (degrees) and a heat wave or cold snap in it, by how many degrees ({dT}) it warmed or cooled the water
+        const line = (h) => {
+          const light = Math.round(h.ambient * 100);
+          if (!(api.eng.K.heat && h.temp != null)) return tr('lab.graph.era', 'light {light}%', { light });
+          const temp = Math.round(h.temp);
+          if (!h.excursion) return tr('lab.graph.era-temp', 'light {light}% · temperature {temp}°', { light, temp });
+          // i18n: {dT}: by how many degrees the heat wave warmed (or the cold snap cooled) the water
+          return tr('lab.graph.era-excursion', 'light {light}% · temperature {temp}° · {kind, select, wave {heat wave +{dT}°} other {cold snap −{dT}°}}',
+            { light, temp, kind: h.excursion.dT > 0 ? 'wave' : 'snap', dT: Math.abs(h.excursion.dT).toFixed(0) });
+        };
+        setHTML($('eras'), eras.slice().reverse().map((h) => `<li><time>${fmtClock(h.t)}</time><b>${esc(eraName(h.name))}</b><span>${line(h)}</span></li>`).join(''));
       }
     }
     let felt0 = null, felt1 = null;
@@ -480,10 +521,12 @@ export function createLab(api) {
   }
 
   // ---------------------------------------------------------- log
-  const TYPES = [['all', 'All'], ['story', 'Chronicler'], ['est', 'New species'], ['genus', 'New genera'], ['ext', 'Extinctions'], ['top', 'Dominance'], ['era', 'Eras'], ['pond', 'The pool'], ...(api.eng.K.heat ? [['heat', 'Heat']] : [])];
+  // i18n: Lab → Log: chips that show one kind of entry: all, the chronicler's stories, new species, new genera, extinctions, which species dominates, eras, the pool's events, heat
+  const TYPES = [['all', tr('lab.feed.all', 'All')], ['story', tr('lab.feed.story', 'Chronicler')], ['est', tr('lab.feed.est', 'New species')], ['genus', tr('lab.feed.genus', 'New genera')], ['ext', tr('lab.feed.ext', 'Extinctions')],
+    ['top', tr('lab.feed.top', 'Dominance')], ['era', tr('lab.feed.era', 'Eras')], ['pond', tr('lab.feed.pond', 'The pool')], ...(api.eng.K.heat ? [['heat', tr('lab.feed.heat', 'Heat')]] : [])];
   function buildLog() {
-    const p = pane(`<input type="search" id="log-q" placeholder="Search the log" aria-label="Search the log" autocomplete="off">
-      <div class="row" role="group" aria-label="Show">${chips('logType', TYPES, st.logType)}</div>`);
+    const p = pane(`<input type="search" id="log-q" placeholder="${tr('lab.feed.search.ph', 'Search the log')}" aria-label="${tr('lab.feed.search.aria', 'Search the log')}" autocomplete="off">
+      <div class="row" role="group" aria-label="${tr('lab.feed.show.aria', 'Show')}">${chips('logType', TYPES, st.logType)}</div>`);
     const list = document.createElement('ol');
     list.className = 'log';
     p.scroll.append(list);
@@ -504,7 +547,7 @@ export function createLab(api) {
       // keep what the reader is looking at in place as new entries arrive on top
       const before = list.scrollHeight, top = p.scroll.scrollTop;
       setHTML(list, ev.length ? ev.slice(0, 400).map((e) => `<li${e.type === 'story' ? ' class="story"' : ''}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join('')
-        : `<li style="display:block;border:0" class="note">${st.logType === 'story' ? 'The chronicler speaks rarely, only when something notable has happened: a death worth remembering, an arms race, a cycle of boom and bust, a lineage following the water. Nothing yet.' : 'Nothing yet.'}</li>`);
+        : `<li style="display:block;border:0" class="note">${st.logType === 'story' ? tr('lab.feed.empty-story', 'The chronicler speaks rarely, only when something notable has happened: a death worth remembering, an arms race, a cycle of boom and bust, a lineage following the water. Nothing yet.') : tr('lab.feed.empty', 'Nothing yet.')}</li>`);
       api.relabel?.(list);
       if (top > 0 && !force) p.scroll.scrollTop = top + (list.scrollHeight - before);
     }
@@ -528,11 +571,12 @@ export function createLab(api) {
   // pipette's tool or strip) loads the pipette, onto the world sets a colony of it down there; its × takes it out
   // (Undo puts back the last for a while)
   function buildCabinet() {
-    const p = pane(`<div class="qrow"><input type="search" id="cab-q" placeholder="Search the cabinet" aria-label="Search the cabinet" autocomplete="off"><button type="button" class="chip filt" id="cab-filt" aria-expanded="false" aria-controls="cab-filters">Filters</button></div><div class="filters" id="cab-filters">
-      ${seg('From', 'cabFrom', [['any', 'Any'], ['this', 'This world'], ['other', 'Other waters']])}
-      ${seg(term('diet', 'Diet'), 'cabDiet', DIETS)}
-      ${seg(term('organism', 'Body'), 'cabBody', [['all', 'Any'], ['multicellular', 'Multicellular'], ['single-cell', 'Single-cell']])}</div>
-      <div class="sum"><span id="cab-sum"></span><span class="lbl" id="cab-order">Newest first</span><span id="cab-undo" hidden></span></div>`, 'cabinet');
+    // i18n: Lab → Cabinet's filters: From, where a card was saved (this world, or another)
+    const p = pane(`<div class="qrow"><input type="search" id="cab-q" placeholder="${tr('lab.cab.search.ph', 'Search the cabinet')}" aria-label="${tr('lab.cab.search.aria', 'Search the cabinet')}" autocomplete="off"><button type="button" class="chip filt" id="cab-filt" aria-expanded="false" aria-controls="cab-filters">${tr('lab.filter.button', 'Filters')}</button></div><div class="filters" id="cab-filters">
+      ${seg(tr('lab.cab.from', 'From'), 'cabFrom', [['any', ANY], ['this', tr('lab.cab.from.this', 'This world')], ['other', tr('lab.cab.from.other', 'Other waters')]])}
+      ${seg(term('diet', tr('lab.filter.diet', 'Diet')), 'cabDiet', DIETS)}
+      ${seg(term('organism', tr('lab.filter.body', 'Body')), 'cabBody', BODIES)}</div>
+      <div class="sum"><span id="cab-sum"></span><span class="lbl" id="cab-order">${tr('lab.cab.order', 'Newest first')}</span><span id="cab-undo" hidden></span></div>`, 'cabinet');
     const grid = document.createElement('div');
     grid.className = 'cab-grid';
     p.scroll.append(grid);
@@ -558,7 +602,8 @@ export function createLab(api) {
       if (k === undoKey) return;
       undoKey = k;
       el.hidden = !c; p.ctl.querySelector('#cab-order').hidden = !!c;
-      el.innerHTML = c ? `<span>${esc(c.name)} taken out</span> <button type="button" class="link">Undo</button>` : '';
+      // i18n: after a card is taken out of the cabinet ({name}: its species), and the button that puts it back
+      el.innerHTML = c ? `<span>${tr('lab.cab.taken-out', '{name} taken out', { name: esc(c.name) })}</span> <button type="button" class="link">${tr('lab.cab.undo', 'Undo')}</button>` : '';
     }
     let key = '';
     function update(force) {
@@ -567,7 +612,8 @@ export function createLab(api) {
         const f = api.cabinet.facets(c);
         return (st.cabDiet === 'all' || f.diet === st.cabDiet) && (st.cabBody === 'all' || f.body === st.cabBody);
       } });
-      setText(p.ctl.querySelector('#cab-sum'), `${fmt(all.length)} card${all.length === 1 ? '' : 's'} · ${fmt(all.filter((c) => c.world === world).length)} from this world`);
+      // i18n: the cards in the cabinet, and how many of them were saved in this world
+      setText(p.ctl.querySelector('#cab-sum'), tr('lab.cab.sum', '{cards, plural, one {# card} other {# cards}} · {here, number} from this world', { cards: all.length, here: all.filter((c) => c.world === world).length }));
       const k = shown.map((c) => c.id).join(',');
       undo();
       if (drag.dragging()) return;
@@ -578,8 +624,8 @@ export function createLab(api) {
         return;
       }
       key = k;
-      grid.innerHTML = shown.length ? shown.map((c) => `<div class="cab-card">${api.cabinet.mini(c)}<button type="button" class="cab-out" data-out="${esc(c.id)}" aria-label="Take ${esc(c.name)}’s card out of the cabinet" data-hint="Out of the cabinet"><svg aria-hidden="true"><use href="#i-close"/></svg></button></div>`).join('')
-        : `<div class="pip-empty"><b>${all.length ? 'No card matches.' : 'The cabinet is empty.'}</b><span>${all.length ? 'Try other filters.' : 'Save a species from the specimen panel (Save), or drop a species card’s PNG on the page: its card comes here, to be carried to any world.'}</span></div>`;
+      grid.innerHTML = shown.length ? shown.map((c) => `<div class="cab-card">${api.cabinet.mini(c)}<button type="button" class="cab-out" data-out="${esc(c.id)}" aria-label="${tr('lab.cab.out.aria', 'Take {name}’s card out of the cabinet', { name: esc(c.name) })}" data-hint="${tr('lab.cab.out.hint', 'Out of the cabinet')}"><svg aria-hidden="true"><use href="#i-close"/></svg></button></div>`).join('')
+        : `<div class="pip-empty"><b>${all.length ? tr('lab.cab.none', 'No card matches.') : tr('lab.cab.empty', 'The cabinet is empty.')}</b><span>${all.length ? tr('lab.cab.none.sub', 'Try other filters.') : tr('lab.cab.empty.sub', 'Save a species from the specimen panel (Save), or drop a species card’s PNG on the page: its card comes here, to be carried to any world.')}</span></div>`;
     }
     return { ...p, update };
   }

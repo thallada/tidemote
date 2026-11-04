@@ -6,10 +6,13 @@ import { groupsFor, slotRows } from './mind.js';
 import { term, spLink, fmtLen } from './fmt.js';
 import { subHead, ruled } from './ui.js';
 import { setText, setHTML } from './live.js';
+import { tr } from './i18n.js';
 
 const R = 40; // compass radius, in a -50..50 viewBox
 const NB_ROWS = 4; // other species shown (own kind has its own row)
 const EASE_MS = 70;
+// i18n: a neighboring species' role in the Neighbors table: it hunts this cell, this cell eats it, or both
+const ROLE_WORD = { both: tr('mind.nb.role.both', 'both'), predator: tr('mind.nb.role.predator', 'predator'), prey: tr('mind.nb.role.prey', 'prey') };
 
 export function createMindView({ K, genomeFor, nameOf, sigil }) {
   let el = null; // the bound container
@@ -19,13 +22,14 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
   let last = 0;
 
   const fix = (x) => x.toFixed(2);
-  const plainName = (kind) => { const n = nameOf(kind); return n ? n.name : 'an unnamed species'; };
-  const linkName = (kind) => { const n = nameOf(kind); return n ? spLink(n.serial, n.name) : 'unnamed species'; };
+  // i18n: what stands for a species not yet named: in a sentence (where a name would be), and in the Target and Neighbors rows
+  const plainName = (kind) => { const n = nameOf(kind); return n ? n.name : tr('mind.unnamed-in-text', 'an unnamed species'); };
+  const linkName = (kind) => { const n = nameOf(kind); return n ? spLink(n.serial, n.name) : tr('mind.unnamed', 'unnamed species'); };
   const plain = (text, kind) => (kind == null ? text : text.replaceAll('{sp}', plainName(kind)));
   const pct = (x) => `${Math.round(x * 100)}%`;
 
   function compassHTML(groups) {
-    let s = `<svg class="compass" viewBox="-50 -50 100 100" aria-label="The pulls on this cell, and its heading">`;
+    let s = `<svg class="compass" viewBox="-50 -50 100 100" aria-label="${tr('mind.compass.aria', 'The pulls on this cell, and its heading')}">`;
     s += `<circle class="c-ring" r="${R}"/><circle class="c-ring faint" r="${R / 2}"/>`;
     let ticks = '';
     for (let a = 0; a < 360; a += 10) {
@@ -41,24 +45,25 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
   /** The markup for one cell of species g in slot `kind` (ridden: with its will). */
   function html(g, kind, ridden = false) {
     const groups = groupsFor(g, K, ridden);
-    let h = `<div class="blk mv" data-kind="${kind}">${subHead(`<i class="corner cell"></i>${term('mind', 'Last decision')}`, '<span class="mv-live"><i></i><b>replay</b></span>')}`;
+    let h = `<div class="blk mv" data-kind="${kind}">${subHead(`<i class="corner cell"></i>${term('mind', tr('mind.title', 'Last decision'))}`, `<span class="mv-live"><i></i><b>${tr('mind.replay', 'replay')}</b></span>`)}`;
     // the compass first, so a short screen shows it without scrolling. The key sits in the free space
     // above the compass, so the drives column keeps every row
-    h += `<div class="mv-pulls"><div class="mv-dial"><div class="mv-key"><span><i class="dash"></i><b>heading</b></span><span><i class="dia"></i><b>target</b></span></div>${compassHTML(groups)}</div><div class="mv-drives">`;
+    h += `<div class="mv-pulls"><div class="mv-dial"><div class="mv-key"><span><i class="dash"></i><b>${tr('mind.key.heading', 'heading')}</b></span><span><i class="dia"></i><b>${tr('mind.key.target', 'target')}</b></span></div>${compassHTML(groups)}</div><div class="mv-drives">`;
     h += groups.map((gr) => `<div data-k="${gr.key}"><i style="background:${gr.css}"></i><span>${term(gr.tip, gr.label)}</span><span class="meter thin" style="color:${gr.css}"><i style="width:0"></i></span><b>0%</b></div>`).join('');
     h += '</div></div>';
     // the detail is two lines, always: a long one wraps rather than being cut, and never moves what follows
     h += ruled([
-      ['Mode', '<b><span class="mv-mode term" data-hint="" tabindex="0">—</span></b>'],
-      ['Target', '<b class="mv-target"><span class="mv-sig"></span><span class="mv-tname">—</span><em class="mv-tdist"></em></b>'],
-      ['Detail', '<b class="mv-detail">—</b>', 'two'],
+      [tr('mind.row.mode', 'Mode'), '<b><span class="mv-mode term" data-hint="" tabindex="0">—</span></b>'],
+      [tr('mind.row.target', 'Target'), '<b class="mv-target"><span class="mv-sig"></span><span class="mv-tname">—</span><em class="mv-tdist"></em></b>'],
+      [tr('mind.row.detail', 'Detail'), '<b class="mv-detail">—</b>', 'two'],
     ], 'mv-read');
     // the cell's vitals (energy, age, warmth), filled in by the specimen panel (while a phone's sheet only peeks they ride in its header)
     h += '<div class="vitals mv-vitals"></div>';
     // conditions that shape what it does: a fixed set of lamps, lit or dark, never added or removed
     h += `<div class="mv-lamps">${['hungry', 'full', 'threat', 'low', 'lean', 'crowd', 'shelter', ...(K.heat ? ['thermal'] : [])].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join('')}</div></div>`;
-    h += `<div class="blk mv-nb">${subHead(`<i class="corner cell"></i>${term('mind-near', 'Neighbors')}`, 'within its reach')}`;
-    h += `<div class="nb-row nb-head"><span></span><span>Species</span><span>Cells</span><span>Role</span><span class="nb-pull term" data-hint="How each species moves this cell: pushes it away (left) or pulls it toward them (right)." tabindex="0"><i>push</i><i>pull</i></span></div>`;
+    h += `<div class="blk mv-nb">${subHead(`<i class="corner cell"></i>${term('mind-near', tr('mind.neighbors', 'Neighbors'))}`, tr('mind.neighbors.aside', 'within its reach'))}`;
+    // i18n: the Neighbors table's column heads; push and pull label the two ends of its last column
+    h += `<div class="nb-row nb-head"><span></span><span>${tr('mind.nb.species', 'Species')}</span><span>${tr('mind.nb.cells', 'Cells')}</span><span>${tr('mind.nb.role', 'Role')}</span><span class="nb-pull term" data-hint="${tr('mind.nb.pull.hint', 'How each species moves this cell: pushes it away (left) or pulls it toward them (right).')}" tabindex="0"><i>${tr('mind.nb.push', 'push')}</i><i>${tr('mind.nb.pull', 'pull')}</i></span></div>`;
     for (let i = 0; i <= NB_ROWS; i++) h += `<div class="nb-row empty" data-i="${i}"><span class="nb-sig"></span><span class="nb-name">—</span><b class="nb-n"></b><em class="nb-role"></em><span class="dbar"><i></i></span></div>`;
     return h + '</div>';
   }
@@ -102,7 +107,8 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
     const m = mind.m, food = m.food;
     const q = tk == null ? null : m.nbrs.find((n) => food && n.j === food.j) || m.nbrs.filter((n) => n.kind === tk).sort((a, b) => len(a.d) - len(b.d))[0];
     const tdist = q ? len(q.d) : food && head.matter && head.key !== 'forage' ? food.dist : null;
-    setText(parts.tdist, tdist != null ? `${fmtLen(tdist)} away` : '');
+    // i18n: how far the target is: {len} a length (12 µm)
+    setText(parts.tdist, tdist != null ? tr('mind.target.away', '{len} away', { len: fmtLen(tdist) }) : '');
     setText(parts.detail, detail(head, mind));
     // ---- pulls
     const max = Math.max(1e-6, ...mind.groups.map((g) => g.mag));
@@ -144,12 +150,12 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
         r.kind = k;
         const g = k != null ? genomeFor(k) : null;
         setHTML(r.sig, g ? sigil(g, 16) : '');
-        setHTML(r.name, k == null ? '—' : i === 0 ? 'its own kind' : linkName(k));
+        setHTML(r.name, k == null ? '—' : i === 0 ? tr('mind.nb.own', 'its own kind') : linkName(k));
       }
       r.row.classList.toggle('empty', !s);
       setText(r.n, s ? String(Math.max(1, Math.round(s.n))) : i === 0 ? '0' : '');
       const role = !s || s.kin ? '' : s.threat >= 0.5 && s.prey >= 0.1 ? 'both' : s.threat >= 0.5 ? 'predator' : s.prey >= 0.1 ? 'prey' : '';
-      setText(r.role, role);
+      setText(r.role, role ? ROLE_WORD[role] : '');
       r.role.className = `nb-role ${role}`;
       const pull = s ? (s.sig + s.diet) / (mind.total || 1) : 0;
       const w = Math.min(1, Math.abs(pull)) * 50;
@@ -160,14 +166,20 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
   }
 
   // one line of particulars for the mode shown
+  // i18n: the Behavior section's Detail row: {p} and {danger} percentages; {every} and {left} seconds; {net} energy a
+  // second, signed (+0.012); {e} and {need} energy to two decimals; {light} a percentage
   function detail(st, mind) {
     const { net } = mind.budget, m = mind.m;
-    if (st.odds) return `${pct(st.odds.p)} per ${st.odds.verb} · one try / ${st.odds.every.toFixed(1)} s`;
-    if (st.key === 'flee' || st.key === 'avoid') { const s = mind.species.find((x) => x.kind === st.target); return s && s.danger > 0 ? `about ${pct(s.danger)} of their strikes would land` : 'repelled by their surface signature'; }
-    if (st.key === 'starve' || mind.flags.find((x) => x.key === 'low').on) return `≈ ${Math.max(1, Math.round(m.energy / Math.max(1e-6, -net)))} s of energy left · ${signed(net)}/s`;
-    if (st.key === 'divide' || st.key === 'seeksilt') return `energy ${m.energy.toFixed(2)} of ${mind.need.toFixed(2)} · ${m.siltNear ? 'silt in reach' : 'no silt in reach'}`;
-    if (st.key === 'bask' || st.key === 'dark') return `light ${pct(m.light)} · ${signed(net)}/s net`;
-    return `net ${signed(net)}/s between meals`;
+    const pc = (x) => Math.round(x * 100);
+    // i18n: {p} a percentage; {verb}: whether a try is a bite (of a producer) or a kill; {every} seconds, to a decimal
+    if (st.odds) return tr('mind.detail.odds', '{p}% per {verb, select, bite {bite} other {kill}} · one try / {every} s', { p: pc(st.odds.p), verb: st.odds.verb, every: st.odds.every.toFixed(1) });
+    if (st.key === 'flee' || st.key === 'avoid') { const s = mind.species.find((x) => x.kind === st.target); return s && s.danger > 0 ? tr('mind.detail.danger', 'about {danger}% of their strikes would land', { danger: pc(s.danger) }) : tr('mind.detail.repelled', 'repelled by their surface signature'); }
+    // i18n: {left} seconds; {net} energy a second, signed (+0.012)
+    if (st.key === 'starve' || mind.flags.find((x) => x.key === 'low').on) return tr('mind.detail.left', '≈ {left} s of energy left · {net}/s', { left: Math.max(1, Math.round(m.energy / Math.max(1e-6, -net))), net: signed(net) });
+    if (st.key === 'divide' || st.key === 'seeksilt') return tr('mind.detail.divide', 'energy {e} of {need} · {silt, select, yes {silt in reach} other {no silt in reach}}', { e: m.energy.toFixed(2), need: mind.need.toFixed(2), silt: m.siltNear ? 'yes' : 'no' });
+    // i18n: {light} a percentage; {net} energy a second, signed (+0.012)
+    if (st.key === 'bask' || st.key === 'dark') return tr('mind.detail.light', 'light {light}% · {net}/s net', { light: pc(m.light), net: signed(net) });
+    return tr('mind.detail.net', 'net {net}/s between meals', { net: signed(net) });
   }
 
   /** Ease the compass toward the latest reading; call every frame. */

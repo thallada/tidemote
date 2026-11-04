@@ -4,7 +4,12 @@
 // the drag turns back); let go, that speed. Open, a drag or the wheel on it moves along it too. A speed tapped, the
 // chip tapped again, or a tap anywhere else closes it; a double tap on the chip is real time.
 // Built afresh only when its speeds, or the one marked, change.
-const MEANING = new Map([[Infinity, 'as fast as it runs'], ['fast', 'drawn every frame'], [16, 'coarse steps'], [1, 'real time'], [0.25, 'slow motion']]);
+import { tr } from './i18n.js';
+
+// i18n: what a speed on the speed ladder means, beside it: Max, the fastest drawn every frame, the first in coarse steps,
+// ×1 and the slowest
+const MEANING = new Map([[Infinity, tr('ladder.meaning.max', 'as fast as it runs')], ['fast', tr('ladder.meaning.fast', 'drawn every frame')], [16, tr('ladder.meaning.coarse', 'coarse steps')],
+  [1, tr('ladder.meaning.real', 'real time')], [0.25, tr('ladder.meaning.slow', 'slow motion')]]);
 const HOLD = 300; // a press on the chip held this long (ms) opens the ladder to drag along
 const EDGE = 16; // a drag held this near the screen's top or bottom (px) ...
 const CREEP = 220; // ... goes on along the ladder a rung every this many ms
@@ -18,7 +23,8 @@ export function createLadder({ chip, el, choices, current, fmt, pick, real }) {
     const list = choices(), key = `${marked}|${list}`;
     if (key === drawn) return;
     drawn = key;
-    el.innerHTML = `<div class="sub-h"><span class="ladder-t">Speed</span><span class="sub-a">double-tap: ×1</span></div>`
+    // i18n: the speed ladder's heading, and a note beside it: a double tap on the speed button goes back to real time
+    el.innerHTML = `<div class="sub-h"><span class="ladder-t">${tr('ladder.title', 'Speed')}</span><span class="sub-a">${tr('ladder.double-tap', 'double-tap: ×1')}</span></div>`
       + [...list].reverse().map((v) => `<button type="button" role="option" class="rung" data-v="${v}" aria-selected="${v === marked}"><i aria-hidden="true"></i><b>${fmt(v)}</b><span>${MEANING.get(v) || ''}</span></button>`).join('');
   }
   function toggle(on = el.hidden) {
