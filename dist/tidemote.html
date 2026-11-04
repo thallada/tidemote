@@ -3285,7 +3285,7 @@ ${w ? `  if (sub) { bondF += bendOn(i, gr) * ${f(K.growStiff)}; mSwim = select(n
     * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking + willCost;`
     );
   }
-  function simWGSL(K, { dp4a = false } = {}) {
+  function simWGSL(K, { dp4a = false, lifeWG = 128 } = {}) {
     const REGION_DISC = (2 * (K.regionR | 0) + 1) / Math.sqrt(Math.PI);
     const REGION_REACH = Math.ceil(REGION_DISC + 0.5);
     return COMMON + /* wgsl */
@@ -3293,6 +3293,7 @@ ${w ? `  if (sub) { bondF += bendOn(i, gr) * ${f(K.growStiff)}; mSwim = select(n
 // Coarse steps (sim.ticks > 1) run lifeMain and mindMain as pipelines of their own (lifeMainCoarse):
 // a 1/60 s step's leaves out everything only a coarse step needs, which saves it registers.
 override COARSE = false;
+const LIFE_WG = ${lifeWG}u;
 // bodyTick's pipeline: tree functions read where its substeps have moved the cells (treePos, treeVel)
 override SUBSTEP = false;
 struct Sim {
@@ -4412,10 +4413,10 @@ fn censusMain(@builtin(global_invocation_id) gid: vec3u) {
       atomicAdd(&ledger[8], 1u);
     }
   }
-  let padded = (n + 127u) / 128u * 128u;
-  if (s < 128u && n + s < padded) { livingList[n + s] = NONE; }
+  let padded = (n + LIFE_WG - 1u) / LIFE_WG * LIFE_WG;
+  if (s < LIFE_WG && n + s < padded) { livingList[n + s] = NONE; }
   if (s == 0u) {
-    atomicStore(&frameCtr[1], (n + 127u) / 128u);
+    atomicStore(&frameCtr[1], (n + LIFE_WG - 1u) / LIFE_WG);
     atomicStore(&frameCtr[2], 1u);
     atomicStore(&frameCtr[3], 1u);
     atomicStore(&frameCtr[4], 4u);
@@ -4912,7 +4913,7 @@ fn bondTo(j: u32, p: Particle) -> vec2f {
   return d;
 }
 
-@compute @workgroup_size(128)
+@compute @workgroup_size(LIFE_WG)
 fn bondBackMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
   if (i == NONE) { return; }
@@ -4936,7 +4937,7 @@ fn bondBackMain(@builtin(global_invocation_id) gid: vec3u) {
 // by velocity, far enough to undo bodyHold of the overlap a tick, averaged over the contacts (so many
 // pressing at once cannot overshoot), and are pushed apart by bodyPush besides. And cells that touch drag
 // on each other (crowdVisc): a crowd moves as a thick fluid.
-@compute @workgroup_size(128)
+@compute @workgroup_size(LIFE_WG)
 fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
   if (i == NONE) { return; }
@@ -5169,7 +5170,7 @@ fn handCut(i: u32, kept: vec2u, at: vec2f) {
   if (n > 0u) { atomicAdd(&ledger[handAt() + H_CUTS], n); }
 }
 
-@compute @workgroup_size(128)
+@compute @workgroup_size(LIFE_WG)
 fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
   if (i == NONE) { return; }
@@ -5443,8 +5444,8 @@ fn handOver(i: u32, v0: vec2f, push0: vec2f, swim: f32, will: vec2f, willOn: boo
 @group(0) @binding(26) var<storage, read_write> subL: array<atomic<u32>>;
 @group(0) @binding(27) var<storage, read_write> subArgs: array<u32, 3>;
 @compute @workgroup_size(1)
-fn bodyArgs() { subArgs = array<u32, 3>((atomicLoad(&subL[0]) + 127u) / 128u, 1u, 1u); }
-@compute @workgroup_size(128)
+fn bodyArgs() { subArgs = array<u32, 3>((atomicLoad(&subL[0]) + LIFE_WG - 1u) / LIFE_WG, 1u, 1u); }
+@compute @workgroup_size(LIFE_WG)
 fn bodyTick(@builtin(global_invocation_id) gid: vec3u) {
   var i = NONE;
   if (subTick == 0u) {
@@ -9010,6 +9011,11 @@ fn microLattice(spacing: f32, octave: f32, depth: f32) -> MicroLattice {
   var POST_WGSL = "diagnostic(off, derivative_uniformity);\n" + COMMON + /* wgsl */
   `
 override MICRO_SUSPENSION: bool = true;
+// The composite as it is drawn while none of the rare things it shows is: no dry floor (the pool full), no ice, no
+// duckweed, no instrument in the water, no map (light, bands, the thermal camera, the hand's heat lens). Their code left out, it holds fewer registers, so more pixels run at once
+// (an M1's composite 2.4 ms faster at 1×). compPick chooses which composite draws, frame by frame (the ice only
+// the GPU knows of); the engine allows the lean one only while the uniforms these test say none is there.
+override LEAN: bool = false;
 const LOUPE_FIELD = ${LOUPE_FIELD};
 ${POST_STRUCT}struct Loupe { center: vec2f, radius: f32, strength: f32, res: vec2f, ppu: f32, p1: f32 };
 // Prefix of DRAW's View: reuse the inspection cameras, without another buffer.
@@ -10135,13 +10141,14 @@ fn bubWall(sd: f32, sdn: f32) -> f32 { return max(sd, 0.5 * (sd - sdn)); }
 // grows again. Their sizes spread as nucleation leaves them (log-normal): most small, a few large. a: the bubble, b
 // and c: those it touches (vapor: the specks it left); n how many; reach how far from a's center they all lie;
 // flash a collapse's ring (x its radius, y how bright).
+const GAS_FROM = 42.0; // (dissolved air comes out of water warmer than this: bubSet)
 struct BubSet { n: u32, a: Bub, b: Bub, c: Bub, reach: f32, flash: vec2f }
 fn bubSet(cell: vec2f, sp: f32, vapor: bool) -> BubSet {
   var o: BubSet;
   let seed = select(0.0, 41.0, vapor);
   let ctr = (cell + 0.25 + 0.5 * vec2f(hash12(cell + seed + 7.7), hash12(cell + seed + 9.9))) * sp;
   let T = waterAt(ctr - post.world * floor(ctr / post.world)).x;
-  let gas = smoothstep(42.0, 85.0, T) * smoothstep(5.0, 15.0, T - post.heat.x);
+  let gas = smoothstep(GAS_FROM, 85.0, T) * smoothstep(5.0, 15.0, T - post.heat.x);
   let h = hash12(cell + seed);
   if (h >= select(0.6 * gas, 0.7 * boilAt(T), vapor)) { return o; }
   let g = hash12(cell + seed + 3.1) + hash12(cell + seed + 4.2) + hash12(cell + seed + 5.3) - 1.5;
@@ -10190,6 +10197,14 @@ fn bubOf(s: BubSet, k: u32) -> Bub {
   if (k == 2u) { return s.c; }
   return s.a;
 }
+// Whether any bubble's set (bubSet) near a point of water (waterAt: its temperature and slope) can hold one: air
+// (x) from GAS_FROM and 5° over the open water, vapor (y) near a boil, judged by the warmest water the sets around it
+// can be centered on (within 2.5 of their spacing; the slope carried that far, and 3° to spare). Cooler water, as a
+// warm colony's often is, skips their search: 18 sets of hashes and heat reads a pixel, each finding nothing.
+fn bubblesNear(water: vec3f) -> vec2<bool> {
+  let up = length(water.yz) * 2.5;
+  return vec2<bool>(water.x + up * 0.7 + 3.0 > max(GAS_FROM, post.heat.x + 5.0), water.x + up * 1.8 + 3.0 > ${f(BOIL)} - 9.0);
+}
 fn bubbles(cIn: vec3f, wp: vec2f, ppu: f32, sp: f32, vapor: bool) -> vec3f {
   let px = 1.0 / max(ppu, 1e-3);
   let c0 = floor(wp / sp);
@@ -10216,15 +10231,17 @@ fn bubbles(cIn: vec3f, wp: vec2f, ppu: f32, sp: f32, vapor: bool) -> vec3f {
   return c;
 }
 // Through a bubble what lies beyond it shows smaller (a lens of air in water diverges the light), the more toward its
-// rim: the shift of the view at wp (world units) for fsComposite and the loupe to add before they sample. T: the
-// water's temperature at wp (none below 30°, as extremes).
-fn bubbleBend(wpIn: vec2f, T: f32) -> vec2f {
-  if (T < 30.0) { return vec2f(0.0); }
+// rim: the shift of the view at wp (world units) for fsComposite and the loupe to add before they sample.
+// water: waterAt(wp), its temperature and slope (none but where bubblesNear finds some may be, as extremes).
+fn bubbleBend(wpIn: vec2f, water: vec3f) -> vec2f {
+  let near = bubblesNear(water);
+  if (!near.x && !near.y) { return vec2f(0.0); }
   let wp = wpIn - post.world * floor(wpIn / post.world);
   var o = vec2f(0.0);
   var best = 0.0;
   for (var f = 0; f < 2; f++) {
     let vapor = f == 1;
+    if (!near[f]) { continue; }
     let sp = select(0.7, 1.8, vapor);
     let c0 = floor(wp / sp);
     for (var j = -1; j <= 1; j++) {
@@ -10257,16 +10274,15 @@ fn bubbleBend(wpIn: vec2f, T: f32) -> vec2f {
 // temperature at wp and its slope.
 fn extremes(c: vec3f, wpIn: vec2f, ppu: f32, water: vec3f, behind: f32) -> vec3f {
   let T = water.x;
-  if (T > 4.0 && T < 30.0) { return c; }
+  let near = bubblesNear(water);
+  if (T > 4.0 && !near.x && !near.y) { return c; }
   let wp = wpIn - post.world * floor(wpIn / post.world);
   let k = 0.35 + 0.65 * behind;
   var o = c;
   // (the ice the probe freezes is the water's, drawn with the frost's by poolOver)
   o += vec3f(0.012, 0.016, 0.02) * probeCold(T) * k;
-  if (T >= 30.0) {
-    o = bubbles(o, wp, ppu, 0.7, false);
-    o = bubbles(o, wp, ppu, 1.8, true) + vec3f(0.012, 0.007, 0.003) * boilAt(T) * k;
-  }
+  if (near.x) { o = bubbles(o, wp, ppu, 0.7, false); }
+  if (near.y) { o = bubbles(o, wp, ppu, 1.8, true) + vec3f(0.012, 0.007, 0.003) * boilAt(T) * k; }
   return o;
 }
 // How plainly water at T is the cold probe's ice (0..1): near freezing, and well below the open water (none where the
@@ -10579,11 +10595,11 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32, ppu: f
 fn waterRoom(wpIn: vec2f) -> f32 {
   let wp = wpIn - post.world * floor(wpIn / post.world);
   var room = 1e4;
-  if (post.pond.x < 1.0) {
+  if (!LEAN && post.pond.x < 1.0) {
     let pd = pondPost(wp);
     room = min(room, pd.x / max(length(pd.yz), 1e-4));
   }
-  if (iceAny()) {
+  if (!LEAN && iceAny()) {
     let ic = iceSeen(wp);
     room = min(room, ic.sd - (ICE_LEAD + ICE_OWN) * ic.reach);
   }
@@ -10645,7 +10661,7 @@ fn shimmer(wp: vec2f, water: vec3f) -> vec2f {
 // What of the light reaches wp past the sky (clouds) and any duckweed's shade, as lifeMain has it (lightAt).
 fn lightPassed(wp: vec2f) -> f32 {
   var k = post.pond.z;
-  if (post.duck.w > 0.0) { k *= 1.0 - duckShade(wp, post.duck, post.duckB, post.world); }
+  if (!LEAN && post.duck.w > 0.0) { k *= 1.0 - duckShade(wp, post.duck, post.duckB, post.world); }
   return k;
 }
 // The light at wp as lifeMain gives it to producers (lightAt): the baseline and the Tide's bands (S, tideAt) by the
@@ -10750,6 +10766,7 @@ fn seaFocus(light: f32, l: Lit) -> f32 { return 1.0 + (light - 1.0) * mix(0.6, 1
 // The tide and thermal maps over the tonemapped view at world point wp (pos: the fragment's pixel; water: the
 // water's temperature there), in the main view and the loupe alike.
 fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
+  if (LEAN) { return cIn; }
   var c = cIn;
   if (post.tideVis > 0.5) {
     let L = lightPost(wp, tideAt(wp, post.world, post.simTime, post.tide, post.tidePh));
@@ -10824,7 +10841,7 @@ fn toolAt(wp: vec2f, ppu: f32) -> vec4f {
 }
 // The glass (the pipette, Touch's rod) bends the view through it, as a lens of its shape would (pixels).
 fn toolBend(wp: vec2f) -> vec2f {
-  if (post.toolB.x < 1.5 || (post.toolB.x > 2.5 && post.toolB.x < 3.5)) { return vec2f(0.0); }
+  if (LEAN || post.toolB.x < 1.5 || (post.toolB.x > 2.5 && post.toolB.x < 3.5)) { return vec2f(0.0); }
   let g = toolAt(wp, post.ppu);
   if (g.x > 0.0) { return vec2f(0.0); }
   let ax = normalize(post.tool.zw);
@@ -10833,7 +10850,7 @@ fn toolBend(wp: vec2f) -> vec2f {
 // The instrument drawn over the scene: glass (the pipette, Touch's rod) or steel (the needle, the cold probe).
 fn instrument(cIn: vec3f, wp: vec2f, ppu: f32) -> vec3f {
   let kind = post.toolB.x;
-  if (kind <= 0.0) { return cIn; }
+  if (LEAN || kind <= 0.0) { return cIn; }
   let g = toolAt(wp, ppu);
   let blur = g.w;
   if (g.x > 3.0 * blur) { return cIn; }
@@ -10899,7 +10916,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
   let wp = wpIn - post.world * floor(wpIn / post.world);
   // the pool's edge and dry floor (docs/catastrophes.md), behind what lies on them; the water's edge itself, a
   // meniscus, is a bright thin line, and the thinning film just inside it a faint sheen
-  if (post.pond.x < 1.0) {
+  if (!LEAN && post.pond.x < 1.0) {
     let pd = pondPost(wp);
     let sd = pd.x / max(length(pd.yz), 1e-4);
     let px = 1.0 / ppu;
@@ -10931,7 +10948,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
   }
   // ice (a frost's, the cold probe's): over what is frozen in it, its front a crisp bright line, crystals
   // (frazil) in the near-freezing water ahead of it while it grows
-  if (iceAny()) {
+  if (!LEAN && iceAny()) {
     let ic = iceSeen(wp);
     let grow = iceGrowth(waterAt(wp).x);
     if (ic.sd < (ICE_LEAD + ICE_OWN) * ic.reach + 0.3) { c += iceLook(wp, ic.sd, ppu, grow, ic.reach, ic.rg) * (0.35 + 0.65 * behind); }
@@ -10949,7 +10966,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
   // duckweed floating on the pool, far above the focal plane: its fronds keep the lamp's light from what lies under
   // them and pass a little of it, green, mottled by the air chambers inside them; each hangs a root down into the
   // water, out of focus near its frond, sharp where it reaches the focal plane
-  if (post.duck.w > 0.0) {
+  if (!LEAN && post.duck.w > 0.0) {
     let sh = duckShade(wp, post.duck, post.duckB, post.world);
     // the roots trail together, with the current, swaying
     let trail = post.duckB.y * 0.37 + 0.35 * sin(post.simTime * 0.031 + post.duckB.y);
@@ -10996,7 +11013,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
     uv += shimmer(wp, water) / post.res;
-    bend += bubbleBend(wp, water.x);
+    bend += bubbleBend(wp, water);
   }
   uv += keepInFrame(bend * post.ppu, frameRoom(i.pos.xy), 0.1 * post.res.y) / post.res;
   uv += toolBend(wp) / post.res;
@@ -11096,7 +11113,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
     r += shimmer(wp, water) / loupe.ppu * toR;
-    bend += bubbleBend(wp, water.x);
+    bend += bubbleBend(wp, water);
   }
   r += keepInFrame(bend * toR, 1.0 - max(abs(r0.x), abs(r0.y)), 0.2);
   let ca = r * d2 * d2 * 0.015 * k;
@@ -11157,6 +11174,15 @@ fn loupeScene(r: vec2f) -> vec3f {
   var c = lookTone(hdr) + vec3f(0.006, 0.005, 0.012);
   c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0, 1.0);
   return vec4f(lookGrade(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy), 1.0);
+}
+
+// Which composite draws this frame (the draws' arguments, full then lean): the lean one where the engine allows
+// it (compArgs[8], from the uniforms) and no water is frozen.
+@group(0) @binding(20) var<storage, read_write> compArgs: array<u32>;
+@compute @workgroup_size(1) fn compPick() {
+  let lean = compArgs[8] != 0u && !iceAny();
+  compArgs[0] = select(3u, 0u, lean); compArgs[1] = 1u; compArgs[2] = 0u; compArgs[3] = 0u;
+  compArgs[4] = select(0u, 3u, lean); compArgs[5] = 1u; compArgs[6] = 0u; compArgs[7] = 0u;
 }
 `;
   var SEA_WGSL = (
@@ -21512,7 +21538,8 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const cPipe = (desc) => track(d.createComputePipelineAsync(desc), desc.label);
       const rPipe = (desc) => track(d.createRenderPipelineAsync(desc), desc.label);
       const dp4a = !!globalThis.navigator?.gpu?.wgslLanguageFeatures?.has("packed_4x8_integer_dot_product");
-      this.simModule = d.createShaderModule({ code: simWGSL(K, { dp4a }), label: "sim" });
+      const lifeWG = d.adapterInfo?.vendor === "apple" ? 256 : 128;
+      this.simModule = d.createShaderModule({ code: simWGSL(K, { dp4a, lifeWG }), label: "sim" });
       this.pickModule = d.createShaderModule({ code: PICK_WGSL, label: "pick" });
       this.listenModule = d.createShaderModule({ code: LISTEN_WGSL, label: "listen" });
       this.watchModule = d.createShaderModule({ code: WATCH_WGSL, label: "watch" });
@@ -21648,6 +21675,27 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.pMurk = rp(this.postModule, "vsFull", "fsMurk", "triangle-list", void 0);
       this.pComp = rp(this.postModule, "vsFull", "fsComposite", "triangle-list", void 0, format);
       this.pCompClear = rp(this.postModule, "vsFull", "fsComposite", "triangle-list", void 0, format, { MICRO_SUSPENSION: 0 });
+      this.pCompLean = null;
+      this.pCompClearLean = null;
+      const leanP = (constants) => d.createRenderPipelineAsync({
+        layout: "auto",
+        label: "fsComposite",
+        primitive: { topology: "triangle-list" },
+        vertex: { module: this.postModule, entryPoint: "vsFull" },
+        fragment: { module: this.postModule, entryPoint: "fsComposite", targets: [{ format }], constants: { LEAN: 1, ...constants } }
+      });
+      this._leanP = () => Promise.all([leanP({}), leanP({ MICRO_SUSPENSION: 0 })]).then(([a, c]) => {
+        if (this._compHot) return;
+        if (this.compBGOf) {
+          this.compLeanBG = this.compBGOf(a);
+          this.compClearLeanBG = this.compBGOf(c);
+        }
+        this.pCompLean = a;
+        this.pCompClearLean = c;
+      }).catch(() => {
+      });
+      this.cpCompPick = cPipe({ layout: "auto", compute: { module: this.postModule, entryPoint: "compPick" }, label: "compPick" });
+      b.compArgs = d.createBuffer({ size: 48, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
       this.pLoupe = rp(this.postModule, "vsLoupe", "fsLoupe", "triangle-list", over, format);
       this.pPlain = rp(this.postModule, "vsFull", "fsPlain", "triangle-list", void 0, format);
       this.sampler = d.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
@@ -21731,6 +21779,11 @@ ${e.message}` : String(e?.message || e));
         { binding: 14, resource: this.seaSampler },
         { binding: 15, resource: { buffer: b.shiftMap } }
       ] });
+      this.compPickBG = d.createBindGroup({ layout: this.cpCompPick.getBindGroupLayout(0), entries: [
+        { binding: 11, resource: { buffer: b.thermal } },
+        { binding: 20, resource: { buffer: b.compArgs } }
+      ] });
+      this._leanP();
       this.cpMicroBG = d.createBindGroup({ layout: this.cpMicro.getBindGroupLayout(0), entries: [
         { binding: 0, resource: { buffer: b.post } },
         { binding: 1, resource: { buffer: b.microU } },
@@ -21973,6 +22026,8 @@ ${e.message}` : String(e?.message || e));
       this.pCompClear = rp({ MICRO_SUSPENSION: 0 });
       this.compBG = this.compBGOf(this.pComp);
       this.compClearBG = this.compBGOf(this.pCompClear);
+      this._compHot = true;
+      this.pCompLean = this.pCompClearLean = null;
       return mod.getCompilationInfo().then((i) => i.messages.filter((m) => m.type === "error").map((m) => `${m.lineNum}:${m.linePos} ${m.message}`));
     }
     resize(w, h) {
@@ -22066,6 +22121,10 @@ ${e.message}` : String(e?.message || e));
       ] });
       this.compBG = compBG(this.pComp);
       this.compClearBG = compBG(this.pCompClear);
+      if (this.pCompLean) {
+        this.compLeanBG = compBG(this.pCompLean);
+        this.compClearLeanBG = compBG(this.pCompClearLean);
+      }
       this.compBGOf = compBG;
       this.reprojBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.main.reproj.getBindGroupLayout(0), entries: [
         { binding: 0, resource: this.sampler },
@@ -24247,13 +24306,27 @@ ${e.message}` : String(e?.message || e));
       }
       const micro = this.settings.specks && cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H2 / this.grid[1]));
       if (micro) this._drawSpecks(enc, cam, W, H2);
+      const lean = this.pCompLean && pd[56] >= 1 && !(this.duck[3] > 0) && !(this.tool[4] > 0) && !(pd[6] > 0.5) && !(pd[55] > 0.5) && !(pd[15] > 1.5) && !(this.lens[3] > 0);
+      if (lean) {
+        d.queue.writeBuffer(this.b.compArgs, 32, new Uint32Array([1]));
+        const cp = enc.beginComputePass();
+        cp.setPipeline(this.cpCompPick);
+        cp.setBindGroup(0, this.compPickBG);
+        cp.dispatchWorkgroups(1);
+        cp.end();
+      }
       const pass = enc.beginRenderPass({
         colorAttachments: [{ view: target2, loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }],
         timestampWrites: tsEnd
       });
       pass.setPipeline(micro ? this.pComp : this.pCompClear);
       pass.setBindGroup(0, micro ? this.compBG : this.compClearBG);
-      pass.draw(3);
+      if (lean) {
+        pass.drawIndirect(this.b.compArgs, 0);
+        pass.setPipeline(micro ? this.pCompLean : this.pCompClearLean);
+        pass.setBindGroup(0, micro ? this.compLeanBG : this.compClearLeanBG);
+        pass.drawIndirect(this.b.compArgs, 16);
+      } else pass.draw(3);
       if (loupe) {
         pass.setPipeline(this.pLoupe);
         pass.setBindGroup(0, this.loupeBG);
@@ -24687,7 +24760,7 @@ ${e.message}` : String(e?.message || e));
     autoidle: "Left alone for a minute (three with a panel open), the camera starts filming the world on its own. Drag, scroll or tap to take it back.",
     renderscale: "The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room, and shows the scale it is using now (the choice nearest it is underlined); a fixed value never changes.",
     autofloor: "The lowest render scale Auto may drop to.",
-    density: "The most device pixels drawn per CSS pixel. High-density (Retina) screens look sharper at 2× but cost up to four times the pixels of 1×. Readouts and outlines stay sharp either way. Auto draws at 1.5× and, while frames run late, drops to 1× first, before the render scale or the frame rate are lowered, and returns to 1.5× last; it shows the density it is using now. A fixed value never changes.",
+    density: "The most device pixels drawn per CSS pixel. High-density (Retina) screens look sharper at 2× but cost up to four times the pixels of 1×. Readouts and outlines stay sharp either way. Auto draws at 1× and rises to 1.5× only while the frame rate holds with room for the extra pixels; while frames run late it drops back to 1× first, before the render scale or the frame rate are lowered. It shows the density it is using now. A fixed value never changes.",
     targetfps: "Frames per second aimed for, as a whole number of the screen’s refreshes so frames stay evenly spaced (60 on a 144 Hz screen is every second refresh, 72 fps). 30 halves the GPU’s work and saves battery; Display follows the screen’s refresh rate (120 on many phones and Macs), which costs the most. Simulated time keeps pace with real time at any rate. Auto aims for 60 and, when the device can’t keep up, lowers the rate itself (to 30, 20 or 15; shown beside Auto); a rate chosen is held even then.",
     bloom: "A soft glow around bright cells. Several extra full-screen passes.",
     optics: "The microscope’s lens: the view softens and its colors part toward the edges, a round field stop darkens the corners, a faint haze lies behind the cells and dust drifts out of focus. One extra full-screen pass.",
@@ -38083,9 +38156,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "a1487df7458cb29a") return;
+      if (localStorage.getItem(key) === "db3da968f66d925b") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "a1487df7458cb29a");
+      if (res) localStorage.setItem(key, "db3da968f66d925b");
     } catch {
     }
   }
@@ -38283,7 +38356,7 @@ ${e.message}` : String(e?.message || e));
     };
     applyWater();
     let renderScale = state.perf.scale === "auto" ? 1 : state.perf.scale;
-    let densityCap = Infinity;
+    let densityCap = 1;
     const density = () => Math.min(devicePixelRatio || 1, 2, state.perf.density === "auto" ? Math.min(1.5, densityCap) : state.perf.density);
     let dpr = 1;
     function fit3() {
@@ -42177,7 +42250,7 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
       perf.denseUntil = 0;
       perf.raisedAt = 0;
       perf.hold = 0;
-      densityCap = Infinity;
+      densityCap = 1;
     }
     let pressure = "nominal";
     try {
@@ -42259,12 +42332,16 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
         perf.raisedAt = now;
         resizeDue = true;
       } else if (full && autoD && densityCap < Infinity && now >= perf.denseUntil && !held) {
-        densityCap = Infinity;
-        perf.goodWindows = 0;
-        perf.raisedAt = now;
-        resizeDue = true;
+        const d = density(), up2 = Math.min(devicePixelRatio || 1, 2, 1.5), px = (up2 / d) ** 2;
+        const est = hasTS && perf.renderR ? perf.gpu + perf.renderR * (px - 1) : perf.gpu * px;
+        if (up2 > d + 0.01 && est < T * 0.75) {
+          densityCap = Infinity;
+          perf.goodWindows = 0;
+          perf.raisedAt = now;
+          resizeDue = true;
+        }
       }
-      if (full && densityCap === Infinity) perf.why = "";
+      if (full) perf.why = "";
     }
     function filmScale(d = density()) {
       const sz = film.state === "recording" && film.size();
