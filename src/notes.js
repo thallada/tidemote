@@ -28,7 +28,7 @@ export const TUNE = {
   keyCool: 60,     // before the same story again
   fast: 4,         // past this speed, single moments are too quick to follow: only what holds for a while
   window: 30,      // sim seconds counted for "in the last 30 s"
-  settle: 0.8,     // a new note waits until the camera has held still this long (and leaves when it flies on)
+  settle: 0.8,     // (no longer a wait: a note may begin as the view moves, if what it points at will still show)
   hold: 0.7,       // and until its story has held this long (a single moment: is still in view, well inside it)
   grace: 0.6,      // a note whose cell has left the view (or whose label has no room) goes after this long
   minLife: 3,      // a note, once shown, stays at least this long, whatever becomes of what it marks (but for the
@@ -100,6 +100,9 @@ export function readView(scan, world) {
   const v = {
     n, simTime: scan.simTime, rect, grid, keep: scan.keep, inView: scan.inView, at: P.at.reset(n),
     temps: new Float32Array(G), ice: new Float32Array(G), sqIn: new Uint8Array(G), stone: new Float32Array(G),
+    // (sqOnce: the squares that are not the wrap's repeat of another, in view or not: the water's fields are known
+    // across the whole grid, past the view's edge)
+    sqOnce: new Uint8Array(G),
   };
   for (const [k] of COLS) v[k] = P[k].subarray(0, n);
   const s = grid[2], cx = rect[0] + rect[2] / 2, cy = rect[1] + rect[3] / 2;
@@ -109,6 +112,7 @@ export function readView(scan, world) {
     // lies, never again as the wrap's repeat of itself when the grid is wider than the world)
     const dx = grid[0] + ((k % NOTE_TG) + 0.5) * s - cx, dy = grid[1] + (Math.floor(k / NOTE_TG) + 0.5) * s - cy;
     v.sqIn[k] = Math.abs(dx) < Math.min((rect[2] + s) / 2, W / 2) && Math.abs(dy) < Math.min((rect[3] + s) / 2, H / 2) ? 1 : 0;
+    v.sqOnce[k] = Math.abs(dx) < W / 2 && Math.abs(dy) < H / 2 ? 1 : 0;
   }
   for (let i = 0; i < n; i++) {
     const o = NOTE_HEAD + i * NOTE_REC, w = u32[o + 3];
@@ -643,7 +647,9 @@ export class Notes {
       if (ctx.light) {
         const L = new Float32Array(G);
         let lo = Infinity, hi = -Infinity, mean = 0;
-        for (const k of inSq) { const [x, y] = sqMid(k); L[k] = ctx.light(x, y); lo = Math.min(lo, L[k]); hi = Math.max(hi, L[k]); mean += L[k] / inSq.length; }
+        // (every square's light, for its shape past the view's edge; the view's own for the story)
+        for (let k = 0; k < G; k++) if (v.sqOnce[k]) { const [x, y] = sqMid(k); L[k] = ctx.light(x, y); }
+        for (const k of inSq) { lo = Math.min(lo, L[k]); hi = Math.max(hi, L[k]); mean += L[k] / inSq.length; }
         if (hi - lo >= 0.15 && hi >= 1.25 * mean) {
           const bright = mean + 0.5 * (hi - mean), sqs = inSq.filter((k) => L[k] >= bright);
           let prodIn = 0, prod = 0, toward = 0, moving = 0;
@@ -1112,9 +1118,9 @@ export class Notes {
     // (a note that has been read is kept, fading or not, until it has been read a moment and a half at least)
     this.notes = this.notes.filter((n) => n.exitAt == null || now - n.exitAt < (n.fade || T.exit) || (n.readAt != null && now - n.readAt < 1.7));
     const on = this.notes.filter((n) => n.exitAt == null);
-    // nothing new while the camera is moved by hand, nor until it has held still a moment; the auto camera flying to its
-    // next shot, only about cells that show now and will show there
-    if (now - this.lastArrive < T.gap || (!ctx.leaving && ctx.still < T.settle)) return;
+    // (while the view is panned or zoomed, a note begins if what it points at will still show a while on: below; while
+    // the auto camera flies to its next shot, only about cells that show now and will show there)
+    if (now - this.lastArrive < T.gap) return;
     const fast = ctx.speed > T.fast;
     while (this.shownAt.length && now - this.shownAt[0][1] > T.variety) this.shownAt.shift();
     // the stronger first, a kind of story told lately counting against another of its kind
@@ -1122,10 +1128,12 @@ export class Notes {
     // (well inside the view now, and where its cells will be two seconds on at the pace they move)
     const inner = (c) => {
       if (!this._marked({ data: c, pins: c.anchor != null ? [c.anchor] : [] }, { ...ctx, visible: ctx.inner })) return false;
-      const ahead = 2 * Math.max(ctx.speed, 0.25);
+      // (and where the view will be then, as it pans: its cells two seconds on, the camera two seconds on; zooming in,
+      // only those near its middle)
+      const ahead = 2 * Math.max(ctx.speed, 0.25), cv = ctx.camVel || [0, 0], seen = (ctx.zoomIn ?? 0) > 0.05 && ctx.central ? ctx.central : ctx.visible;
       for (const id of [c.actor, c.target, c.anchor]) {
         const p = id != null && id !== NONE ? this.cell(id) : null;
-        if (p && !ctx.visible(p.x + p.vx * ahead, p.y + p.vy * ahead)) return false;
+        if (p && !seen(p.x + p.vx * ahead - cv[0] * 2, p.y + p.vy * ahead - cv[1] * 2)) return false;
       }
       return true;
     };

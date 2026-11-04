@@ -4507,6 +4507,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   // well inside the view: what a new note points at, so it stays in view long enough to read
   const noteInner = (x, y) => noteVisible(x, y, Math.min(90, 0.12 * Math.min(noteOpen.r - noteOpen.l, noteOpen.b - noteOpen.t)));
+  // the view's middle half: what a note may begin on while the view zooms in (the rest will soon be out of it)
+  const noteCentral = (x, y) => noteVisible(x, y, 0.25 * Math.min(noteOpen.r - noteOpen.l, noteOpen.b - noteOpen.t));
   const noteFlow = (x, y) => flowAt(x, y, eng.simTime, eng.waves);
   // the light at a world point, as the cells have it (lightAt in the shaders: the tide's bands under the sky and duckweed)
   const noteLight = (x, y) => { const [W, H] = eng.grid; return (eng.ambient + (1 - eng.ambient) * tideAt(x, y, W, H, eng.simTime, eng.tide, eng.tidePh) * eng.season) * eng.sky * (1 - duckShade(x, y, eng.duck, W, H)); };
@@ -4539,11 +4541,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const speed = state.paused ? 0 : state.speed === Infinity ? perf.rate || 16 : state.speed;
     const shot = director.active ? director.shot : null, flying = !!(shot && shot.t < shot.flight);
     const dts = Math.max(dtMs / 1000, 1e-3), [W, H] = eng.grid, C = noteCam;
-    const pan = Math.hypot(wrapD(cam.x - C.x, W), wrapD(cam.y - C.y, H)) * cssPPU() / dts, zoomRate = Math.abs(Math.log(cam.zoom / C.zoom)) / dts;
+    const vx = wrapD(cam.x - C.x, W) / dts, vy = wrapD(cam.y - C.y, H) / dts, pan = Math.hypot(vx, vy) * cssPPU(), zoomRate = Math.abs(Math.log(cam.zoom / C.zoom)) / dts;
     C.x = cam.x; C.y = cam.y; C.zoom = cam.zoom;
+    // (the camera's motion, eased: world units a real second, and how fast it zooms in, for what will still show)
+    const f = 1 - Math.exp(-dts / 0.2);
+    C.vel = [(C.vel?.[0] ?? 0) + (vx - (C.vel?.[0] ?? 0)) * f, (C.vel?.[1] ?? 0) + (vy - (C.vel?.[1] ?? 0)) * f];
+    C.zoomIn = (C.zoomIn ?? 0) + (Math.log(cam.zoom / (C.zoomPrev ?? cam.zoom)) / dts - (C.zoomIn ?? 0)) * f;
+    C.zoomPrev = cam.zoom;
     if (flying || pan > 220 || zoomRate > 0.15) C.stillAt = now;
     const list = notes.update({ now, speed, ppu: cssPPU(), phone: phone(), pool: eng.tbg, visible: noteVisible, inner: noteInner,
-      still: now - C.stillAt, leaving: flying, flow: noteFlow, light: noteLight, shade: noteShade, drops: noteDrops, dropsIn30: () => noteDropsSeen.size,
+      still: now - C.stillAt, camVel: C.vel, zoomIn: C.zoomIn, central: noteCentral, leaving: flying, flow: noteFlow, light: noteLight, shade: noteShade, drops: noteDrops, dropsIn30: () => noteDropsSeen.size,
       ahead: shot ? shot.dur - shot.t : Infinity,
       // (where the auto camera is flying to: the world it will show)
       dest: flying && shot.target ? { x: shot.target.x, y: shot.target.y, w: shot.target.w, h: shot.target.w * (noteOpen.b - noteOpen.t) / Math.max(1, noteOpen.r - noteOpen.l) } : null });
